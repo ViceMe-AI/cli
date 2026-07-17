@@ -48,7 +48,9 @@ func TestPublishRequiresConfirmationAndExplicitUploadTarget(t *testing.T) {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
 	code, stdout, stderr, _ := runCLI(t, nil, nil, "skill", "publish", "--file", "missing.zip", "--new-target", "--yes", "--dry-run", "--json")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"source_mode":"file"`) {
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"source_mode":"file"`) ||
+		!strings.Contains(stdout, `"publish_mode":"confirm"`) ||
+		!strings.Contains(stdout, `"confirmation_scope":"publication_admission/v1"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	code, _, stderr, _ = runCLI(t, nil, nil, "skill", "publish", "https://github.com/acme/skill", "--target-id", "target_1", "--yes", "--json")
@@ -134,6 +136,10 @@ func TestInspectAndPublishRequestContracts(t *testing.T) {
 			if destination["mode"] != "auto" {
 				t.Fatalf("unexpected destination: %#v", destination)
 			}
+			options := body["options"].(map[string]any)
+			if options["publish_mode"] != "confirm" || options["admission_confirmation"] != true {
+				t.Fatalf("unexpected publication admission: %#v", options)
+			}
 			published.Store(true)
 			writer.WriteHeader(http.StatusAccepted)
 			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"received","status_url":"/v1/skill-agent-publications/pub_1"}`)
@@ -164,6 +170,10 @@ func TestPublishRetriesAmbiguousTransportWithSameRequestID(t *testing.T) {
 		_ = json.NewDecoder(request.Body).Decode(&body)
 		if body["client_request_id"] != "request-fixed" {
 			t.Fatalf("retry changed request id: %#v", body)
+		}
+		options := body["options"].(map[string]any)
+		if options["publish_mode"] != "confirm" || options["admission_confirmation"] != true {
+			t.Fatalf("retry changed publication admission: %#v", options)
 		}
 		return &http.Response{
 			StatusCode: http.StatusAccepted,

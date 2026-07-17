@@ -109,12 +109,14 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			destination := publishDestination(opts)
 			if opts.dryRun {
 				return runtime.success(map[string]any{
-					"dry_run":         true,
-					"operation":       "skill.publish",
-					"source_mode":     publishSourceMode(args, opts),
-					"destination":     destination,
-					"wait":            opts.wait,
-					"confirmation_ok": opts.yes,
+					"dry_run":            true,
+					"operation":          "skill.publish",
+					"source_mode":        publishSourceMode(args, opts),
+					"destination":        destination,
+					"wait":               opts.wait,
+					"confirmation_ok":    opts.yes,
+					"publish_mode":       "confirm",
+					"confirmation_scope": "publication_admission/v1",
 				})
 			}
 			requestID := opts.clientRequestID
@@ -127,8 +129,9 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				Selector:        opts.skillRoot,
 				Destination:     destination,
 				Options: api.PublicationOptions{
-					TargetLocale: opts.targetLocale,
-					PublishMode:  "auto",
+					TargetLocale:          opts.targetLocale,
+					PublishMode:           "confirm",
+					AdmissionConfirmation: true,
 				},
 			}
 			if opts.resolutionID == "" {

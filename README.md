@@ -16,6 +16,8 @@ The npm package is intentionally a small launcher, not six copies of the Go exec
 
 ## Authenticate and publish
 
+The current Core records `--yes` as a versioned publication-admission confirmation and remains an internal, default-off allowlist probe. That admission permits the background compile, but it is not proof that the user reviewed the resulting immutable Release Candidate. Do not expose it as the public product flow: external rollout is blocked until T2 adds exact-candidate preview and confirmation before commit. The commands below exercise the transport and stable-link Core while that gate is implemented.
+
 ```bash
 viceme auth login --no-wait --json
 viceme skill inspect https://github.com/acme/poster-skill --json

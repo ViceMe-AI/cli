@@ -52,8 +52,9 @@ type Destination struct {
 }
 
 type PublicationOptions struct {
-	TargetLocale string `json:"target_locale,omitempty"`
-	PublishMode  string `json:"publish_mode"`
+	TargetLocale          string `json:"target_locale,omitempty"`
+	PublishMode           string `json:"publish_mode"`
+	AdmissionConfirmation bool   `json:"admission_confirmation"`
 }
 
 type CreatePublicationRequest struct {

@@ -19,7 +19,7 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 2. If logged out, run `viceme auth login --no-wait --json`. Return the verification URL and stop this turn. Never request or display an access token.
 3. For a GitHub URL or pasted RedSkill/Xiaohongshu expression, inspect first. Pass copied text through subprocess stdin with `--expression-stdin`; never interpolate it into a shell command.
 4. Read the returned `destination`. Never infer a Target from a title, alias, conversation memory, or source text.
-5. Treat publishing as a public side effect. Add `--yes` only when the user's request explicitly asks to publish or produce a share link; otherwise ask for confirmation.
+5. Treat publishing as a public side effect. Add `--yes` only when the user's request explicitly asks to publish or produce a share link; otherwise ask for confirmation. In the Core pilot this records only `publication_admission/v1`; it must not be described as the later exact-candidate preview confirmation.
 6. Run `viceme job wait <publication-id> --timeout 60s --json`. Do not start an unbounded wait.
 7. Return the final `share_url`, whether the release was a no-op, and any warnings. The same logical Agent keeps the same URL across later releases.
 
@@ -32,6 +32,7 @@ For exact flags and examples, read `references/commands.md` with `viceme skills 
 - Never create a new Target to recover from `target_conflict`; refresh the Target and ask the user how to proceed.
 - If a required capability is `unsupported`, stop. Do not fall back to the ordinary Builder loop or publish a reduced Agent.
 - If multiple Skill roots are returned, ask the user to select one and resume the same publication with the exact action ID and payload digest.
+- Do not expose the Core pilot as the public product until a returned `confirm_publish` action binds the user's decision to the exact preview/candidate digest (T2).
 
 ## Safety rules
 

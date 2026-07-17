@@ -38,7 +38,7 @@ viceme skill publish --resolution-id <resolution-id> --json --yes
 viceme job wait <publication-id> --timeout 60s --json
 ```
 
-Direct publishing is also valid when preview is not needed:
+The internal Core pilot can also exercise direct admission, but this is not a substitute for the T2 exact-candidate preview/confirmation required before public rollout:
 
 ```bash
 viceme skill publish https://github.com/acme/poster-skill --json --yes
