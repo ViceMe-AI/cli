@@ -1,0 +1,6 @@
+interface:
+  display_name: "Viceme Skill Publisher"
+  short_description: "Publish external Skills as shareable Viceme Agents"
+  default_prompt: "Use $viceme to publish this external skill to Viceme and return its stable share link."
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,182 @@
+name: Release CLI and npm launcher
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  # npm dist-tags do not provide compare-and-swap semantics. Serialize every
+  # tag in this repository so an older rerun cannot race a newer release and
+  # move `latest` backwards after the newer workflow has promoted it.
+  group: viceme-cli-release
+  cancel-in-progress: false
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify tag matches npm package
+        run: node -e "const p = require('./package.json'); if ('v' + p.version !== process.env.GITHUB_REF_NAME) process.exit(1)"
+      - run: make check
+      - run: make npm-package-check
+
+  binaries:
+    needs: quality
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+            extension: ""
+          - goos: darwin
+            goarch: arm64
+            extension: ""
+          - goos: linux
+            goarch: amd64
+            extension: ""
+          - goos: linux
+            goarch: arm64
+            extension: ""
+          - goos: windows
+            goarch: amd64
+            extension: ".exe"
+          - goos: windows
+            goarch: arm64
+            extension: ".exe"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build release binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ASSET="viceme_${VERSION}_${GOOS}_${GOARCH}${{ matrix.extension }}"
+          mkdir -p dist
+          go build -trimpath -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=${VERSION} -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=${GITHUB_SHA}" -o "dist/${ASSET}" ./cmd/viceme
+          cd dist
+          sha256sum "${ASSET}" > "${ASSET}.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  github-release:
+    needs: binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binaries-*
+          merge-multiple: true
+          path: dist
+      - name: Verify complete launcher asset contract
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for TARGET in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
+            test -f "dist/viceme_${VERSION}_${TARGET}"
+            test -f "dist/viceme_${VERSION}_${TARGET}.sha256"
+          done
+          for TARGET in windows_amd64 windows_arm64; do
+            test -f "dist/viceme_${VERSION}_${TARGET}.exe"
+            test -f "dist/viceme_${VERSION}_${TARGET}.exe.sha256"
+          done
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 12
+      - name: Publish or verify the immutable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "${GITHUB_REF_NAME}" >/dev/null 2>&1; then
+            test "$(gh release view "${GITHUB_REF_NAME}" --json isDraft --jq .isDraft)" = "false"
+            mapfile -t EXISTING_ASSETS < <(gh release view "${GITHUB_REF_NAME}" --json assets --jq '.assets[].name')
+            asset_exists() {
+              local WANTED="$1"
+              local ASSET
+              for ASSET in "${EXISTING_ASSETS[@]}"; do
+                if [[ "${ASSET}" == "${WANTED}" ]]; then
+                  return 0
+                fi
+              done
+              return 1
+            }
+
+            for NAME in "${EXISTING_ASSETS[@]}"; do
+              test -f "dist/${NAME}"
+            done
+
+            mkdir -p existing-release
+            MISSING_ASSETS=()
+            for FILE in dist/*; do
+              NAME="${FILE#dist/}"
+              if asset_exists "${NAME}"; then
+                gh release download "${GITHUB_REF_NAME}" --pattern "${NAME}" --dir existing-release
+                cmp --silent "${FILE}" "existing-release/${NAME}"
+              else
+                MISSING_ASSETS+=("${FILE}")
+              fi
+            done
+            if (( ${#MISSING_ASSETS[@]} > 0 )); then
+              gh release upload "${GITHUB_REF_NAME}" "${MISSING_ASSETS[@]}"
+            fi
+          else
+            gh release create "${GITHUB_REF_NAME}" dist/* --verify-tag --generate-notes
+          fi
+
+          rm -rf verified-release
+          mkdir -p verified-release
+          gh release download "${GITHUB_REF_NAME}" --dir verified-release
+          test "$(find verified-release -maxdepth 1 -type f | wc -l)" -eq 12
+          for FILE in dist/*; do
+            NAME="${FILE#dist/}"
+            cmp --silent "${FILE}" "verified-release/${NAME}"
+          done
+
+  npm-publish:
+    needs: github-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Install OIDC-capable npm CLI
+        run: npm install --global npm@11.12.1
+      - run: npm ci
+      - name: Publish npm launcher or verify an exact prior publish
+        env:
+          # Empty after trusted publishing is configured. If npm requires a
+          # first-publication token, it is exposed only to this trusted step.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node npm/scripts/publish-or-verify.mjs
