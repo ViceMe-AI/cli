@@ -70,9 +70,11 @@ jobs:
             exit 1
           fi
 
-          echo "version=${VERSION}" >>"${GITHUB_OUTPUT}"
-          echo "tag=${TAG}" >>"${GITHUB_OUTPUT}"
-          echo "sha=${SHA}" >>"${GITHUB_OUTPUT}"
+          {
+            echo "version=${VERSION}"
+            echo "tag=${TAG}"
+            echo "sha=${SHA}"
+          } >>"${GITHUB_OUTPUT}"
 
   quality:
     needs: metadata

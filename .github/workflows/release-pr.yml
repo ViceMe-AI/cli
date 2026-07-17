@@ -62,9 +62,11 @@ jobs:
             git commit --message "chore(release): ${TAG}"
             git push origin HEAD:dev
           fi
-          echo "version=${VERSION}" >>"${GITHUB_OUTPUT}"
-          echo "tag=${TAG}" >>"${GITHUB_OUTPUT}"
-          echo "sha=$(git rev-parse HEAD)" >>"${GITHUB_OUTPUT}"
+          {
+            echo "version=${VERSION}"
+            echo "tag=${TAG}"
+            echo "sha=$(git rev-parse HEAD)"
+          } >>"${GITHUB_OUTPUT}"
       - name: Create or update dev to main Release PR
         env:
           GH_TOKEN: ${{ github.token }}
