@@ -7,7 +7,7 @@ NPM_VERSION = $(shell node -p "require('./package.json').version")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -X github.com/ViceMe-AI/cli/internal/buildinfo.Version=$(VERSION) -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=$(COMMIT)
 
-.PHONY: build test test-race check skill-check quality-check npm-test npm-package-check command-manifest clean update-check
+.PHONY: build test test-race check skill-check quality-check npm-test npm-package-check command-manifest release-manifest release-prepare clean update-check
 
 build:
 	mkdir -p bin
@@ -41,7 +41,17 @@ npm-package-check: build
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm npm pack --dry-run
 
 command-manifest:
-	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) run ./cmd/command-manifest
+	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) run ./cmd/command-manifest --output skills/viceme/references/command-manifest.json
+
+release-manifest:
+	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) run ./cmd/release-manifest --output quality/release-manifest.json
+
+release-prepare:
+	node npm/scripts/prepare-release.mjs --fallback-ref origin/main
+	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+	gofmt -w internal/buildinfo/buildinfo.go
+	$(MAKE) command-manifest
+	$(MAKE) release-manifest
 
 update-check: build
 	./bin/viceme update --check --json
