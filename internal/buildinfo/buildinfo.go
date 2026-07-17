@@ -1,15 +1,28 @@
 package buildinfo
 
+import (
+	"fmt"
+
+	"github.com/ViceMe-AI/cli/internal/semver"
+)
+
 var (
 	// Version is replaced with -ldflags for release builds.
 	Version = "dev"
-	// SkillVersion is versioned independently so compatibility drift can be
-	// diagnosed even when the binary and Skill happen to ship together.
-	SkillVersion = "0.1.0"
-	Commit       = "unknown"
+	Commit  = "unknown"
 )
 
-const CLICompatibility = ">=0.1.0 <0.2.0"
+const (
+	// ReleaseVersion is the source-tree and npm package version. Development
+	// builds still report Version=dev, but use ReleaseVersion for compatibility
+	// evaluation.
+	ReleaseVersion = "0.1.0"
+	// SkillVersion is versioned independently so compatibility drift can be
+	// diagnosed even when the binary and Skill happen to ship together.
+	SkillVersion      = "0.1.0"
+	MinimumCLIVersion = "0.1.0"
+	CLICompatibility  = ">=0.1.0 <0.2.0"
+)
 
 type Info struct {
 	Version       string `json:"version"`
@@ -25,4 +38,27 @@ func Current() Info {
 		SkillVersion:  SkillVersion,
 		Compatibility: CLICompatibility,
 	}
+}
+
+func CompatibilityVersion() string {
+	if Version == "dev" {
+		return ReleaseVersion
+	}
+	return Version
+}
+
+func ValidateNPMLaunch(installMethod, packageVersion, binaryVersion string) error {
+	if installMethod != "npm" {
+		return nil
+	}
+	if _, err := semver.Parse(packageVersion); err != nil {
+		return fmt.Errorf("npm launcher package version is missing or invalid: %w", err)
+	}
+	if _, err := semver.Parse(binaryVersion); err != nil {
+		return fmt.Errorf("Go binary version is invalid for an npm launch: %w", err)
+	}
+	if packageVersion != binaryVersion {
+		return fmt.Errorf("npm package version %s does not match Go binary version %s", packageVersion, binaryVersion)
+	}
+	return nil
 }

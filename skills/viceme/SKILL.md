@@ -7,6 +7,12 @@ description: Publish external GitHub, RedSkill/Xiaohongshu, ZIP, folder, or past
 
 Use the `viceme` CLI as the only execution boundary. Do not parse the third-party Skill, generate Agent Instructions locally, execute its scripts, or invoke a provider-specific installer.
 
+## Bootstrap and diagnostics
+
+- If `viceme` is not available and the user asked to install Viceme, run `npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install`. The explicit default and scoped registry flags are part of the trust boundary; do not shorten the command. It installs the matching CLI and Viceme Skill, initializes non-sensitive configuration, and returns the device-login command.
+- Before publishing, use `viceme skills doctor --json` if CLI/Skill version or content drift is suspected. Do not continue with a modified or incompatible installed Skill.
+- `viceme update` updates the npm launcher and verified Go binary, then reinstalls the bundled Skill from that same exact package version.
+
 ## Publish workflow
 
 1. Run `viceme --version --json`, then `viceme auth status --json`.
@@ -17,7 +23,7 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 6. Run `viceme job wait <publication-id> --timeout 60s --json`. Do not start an unbounded wait.
 7. Return the final `share_url`, whether the release was a no-op, and any warnings. The same logical Agent keeps the same URL across later releases.
 
-For exact flags and examples, read `references/commands.md` with `viceme skills read viceme references/commands.md`. For job outcomes and error handling, read `references/statuses.md`.
+For exact flags and examples, read `references/commands.md` with `viceme skills read viceme references/commands.md`. `references/command-manifest.json` is the release-checked machine-readable command surface. For job outcomes and error handling, read `references/statuses.md`.
 
 ## Source and Target rules
 

@@ -20,7 +20,7 @@ func TestCommandSurface(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
-		"version", "auth login", "auth status", "auth logout",
+		"version", "install", "update", "auth login", "auth status", "auth logout",
 		"skill inspect", "skill publish", "skill target get", "skill target list",
 		"job get", "job wait", "job resume", "job cancel",
 		"skills list", "skills read", "skills install", "skills doctor",

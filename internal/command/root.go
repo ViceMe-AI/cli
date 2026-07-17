@@ -17,6 +17,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
+	updatepkg "github.com/ViceMe-AI/cli/internal/update"
 	"github.com/spf13/cobra"
 )
 
@@ -29,6 +30,7 @@ type Dependencies struct {
 	HTTPClient  *http.Client
 	Store       securestore.Store
 	Skills      *skillcontent.Bundle
+	Updater     updatepkg.Service
 	Environment skillcontent.Environment
 	Now         func() time.Time
 	Sleep       func(context.Context, time.Duration) error
@@ -64,6 +66,13 @@ func Execute(args []string, dependencies Dependencies) int {
 }
 
 func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
+	if err := buildinfo.ValidateNPMLaunch(
+		os.Getenv("VICEME_INSTALL_METHOD"),
+		os.Getenv("VICEME_NPM_PACKAGE_VERSION"),
+		buildinfo.Version,
+	); err != nil {
+		return nil, nil, output.Internal("launcher_version_mismatch", "npm launcher and Go binary versions do not match", err)
+	}
 	dependencies = defaults(dependencies)
 	digests, err := dependencies.Skills.Digests("viceme")
 	if err != nil {
@@ -110,6 +119,8 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		return output.Validation("invalid_flag", err.Error())
 	})
 	root.AddCommand(newVersionCommand(runtime))
+	root.AddCommand(newInstallCommand(runtime))
+	root.AddCommand(newUpdateCommand(runtime))
 	root.AddCommand(newAuthCommand(runtime))
 	root.AddCommand(newSkillCommand(runtime))
 	root.AddCommand(newJobCommand(runtime))
@@ -131,6 +142,13 @@ func defaults(dependencies Dependencies) Dependencies {
 	}
 	if dependencies.Skills == nil {
 		dependencies.Skills = skillcontent.New(cliembed.EmbeddedSkills())
+	}
+	if dependencies.Updater == nil {
+		dependencies.Updater = updatepkg.NewNPMService(
+			buildinfo.Version,
+			buildinfo.CompatibilityVersion(),
+			os.Getenv("VICEME_INSTALL_METHOD"),
+		)
 	}
 	if dependencies.Environment.Home == "" {
 		dependencies.Environment = skillcontent.DefaultEnvironment()

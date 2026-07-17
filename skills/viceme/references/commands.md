@@ -1,5 +1,24 @@
 # Viceme CLI commands
 
+## Install, diagnose, and update
+
+Cold-start the CLI and bundled Viceme Skill from an AI coding tool or terminal:
+
+```bash
+npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
+viceme install --target codex --json
+viceme skills doctor --target codex --json
+```
+
+Check first when desired, then update the npm launcher, verified Go binary, and matching Skill together:
+
+```bash
+viceme update --check --json
+viceme update --target codex --json
+```
+
+The update path uses an exact npm package version. It does not execute provider installation text or replace a standalone binary through an unsigned self-update path.
+
 ## Authenticate
 
 ```bash

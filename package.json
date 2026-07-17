@@ -1,0 +1,30 @@
+{
+  "name": "@viceme-ai/cli",
+  "version": "0.1.0",
+  "description": "Install and run the Viceme CLI and Viceme Agent Skill",
+  "type": "module",
+  "bin": {
+    "viceme": "npm/bin/viceme.mjs"
+  },
+  "files": [
+    "npm/bin/",
+    "npm/lib/",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test npm/test/*.test.mjs",
+    "pack:check": "npm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=18.20.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ViceMe-AI/cli.git"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "license": "Apache-2.0"
+}

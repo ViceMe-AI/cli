@@ -103,6 +103,9 @@ func newSkillsDoctorCommand(runtime *Runtime) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			report := runtime.deps.Skills.Doctor("viceme", target, runtime.deps.Environment)
+			if !report.Healthy {
+				return output.Internal("skill_doctor_unhealthy", "installed Skill does not match this CLI release", nil).WithDetails(report)
+			}
 			return runtime.success(report)
 		},
 	}

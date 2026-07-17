@@ -2,3 +2,6 @@
 /.cache/
 *.test
 coverage.out
+/node_modules/
+/dist/
+/*.tgz

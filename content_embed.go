@@ -9,7 +9,7 @@ import (
 // install bundle. Keeping both in the binary lets doctor compare an installed
 // Skill with the exact CLI release that is invoking it.
 //
-//go:embed skills/*/SKILL.md skills/*/agents/*.yaml skills/*/references/*.md
+//go:embed skills/*/SKILL.md skills/*/skill-package.json skills/*/agents/*.yaml skills/*/references/*.md skills/*/references/*.json
 var embeddedSkills embed.FS
 
 // EmbeddedSkills returns an FS rooted at skills/.

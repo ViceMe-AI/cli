@@ -1,6 +1,7 @@
 package skillcontent_test
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -71,6 +72,28 @@ func TestInstallAndDoctorTargetsIndependently(t *testing.T) {
 	doctor := bundle.Doctor("viceme", "auto", environment)
 	if !doctor.Healthy || len(doctor.Results) != 2 {
 		t.Fatalf("unexpected doctor report: %#v", doctor)
+	}
+	manifestPath := filepath.Join(home, ".codex", "skills", "viceme", ".viceme", "install-manifest.json")
+	manifestData, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest["cli_compatibility"] = ">=9.0.0 <10.0.0"
+	manifestData, _ = json.Marshal(manifest)
+	if err := os.WriteFile(manifestPath, manifestData, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	doctor = bundle.Doctor("viceme", "codex", environment)
+	if doctor.Healthy || doctor.Results[0].Checks.Compatibility.Healthy {
+		t.Fatalf("doctor missed compatibility manifest drift: %#v", doctor)
+	}
+	compatibilityRepair := bundle.Install("viceme", "codex", environment)
+	if !compatibilityRepair.AllSucceeded || compatibilityRepair.Results[0].Status != "updated" {
+		t.Fatalf("unexpected compatibility repair: %#v", compatibilityRepair)
 	}
 
 	codexSkill := filepath.Join(home, ".codex", "skills", "viceme", "SKILL.md")
