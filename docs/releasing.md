@@ -50,12 +50,14 @@ the npm account policy requires it.
 
 ## Recovery
 
-The release workflow is safe to rerun from GitHub Actions. Existing tags must
-point to the same reviewed commit. Existing GitHub Release assets are compared
-byte-for-byte and never overwritten. Existing npm versions must have the same
-registry integrity as the locally packed artifact; otherwise the workflow
-fails closed. A rerun of an older version cannot move the npm `latest` tag
-behind a newer release.
+The original merged Release PR workflow run is safe to rerun from GitHub
+Actions. Existing tags must point to the same reviewed commit. Existing GitHub
+Release assets are compared byte-for-byte and never overwritten. Existing npm
+versions must have the same registry integrity as the locally packed artifact;
+otherwise the workflow fails closed. A rerun of an older version cannot move
+the npm `latest` tag behind a newer release.
 
-The tag-push trigger remains as a recovery path for an immutable tag created by
-an operator, but it is not part of the normal release flow.
+There is deliberately no tag-push or manual-dispatch production trigger. A
+production release can only originate from merging the repository-owned `dev`
+Release PR into `main`; recovery reruns that same authorized event and exact
+reviewed SHA.

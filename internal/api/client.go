@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"path"
@@ -155,9 +156,9 @@ func (c *Client) PutUpload(ctx context.Context, prepared UploadPrepareResponse, 
 }
 
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string) error {
-	base, err := url.Parse(c.BaseURL)
-	if err != nil || base.Scheme == "" || base.Host == "" {
-		return output.Validation("api_base_url", "Viceme API base URL is invalid")
+	base, err := validateAPIBaseURL(c.BaseURL)
+	if err != nil {
+		return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 	}
 	base.Path = path.Join(base.Path, endpoint)
 	var body io.Reader
@@ -215,6 +216,28 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 		return nil
 	}
 	return decodeSuccess(data, responseBody)
+}
+
+func validateAPIBaseURL(raw string) (*url.URL, error) {
+	base, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || base.Hostname() == "" || base.User != nil {
+		return nil, errors.New("invalid API URL")
+	}
+	switch strings.ToLower(base.Scheme) {
+	case "https":
+		return base, nil
+	case "http":
+		host := base.Hostname()
+		if strings.EqualFold(host, "localhost") {
+			return base, nil
+		}
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+			return base, nil
+		}
+		return nil, errors.New("HTTP API URL is allowed only for loopback development")
+	default:
+		return nil, errors.New("API URL must use HTTPS")
+	}
 }
 
 func decodeSuccess(data []byte, out any) error {

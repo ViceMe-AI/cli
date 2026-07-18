@@ -16,6 +16,12 @@ type staticToken string
 
 func (s staticToken) Token(context.Context) (string, error) { return string(s), nil }
 
+type apiRoundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f apiRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
 func TestInspectUsesAPIKeyAndAcceptsEnvelope(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -40,6 +46,46 @@ func TestInspectUsesAPIKeyAndAcceptsEnvelope(t *testing.T) {
 	}
 	if Document(response).StringValue("resolution_id") != "res_1" {
 		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestAuthenticatedRequestRejectsRemoteHTTPBeforeSendingCredential(t *testing.T) {
+	t.Parallel()
+	transportCalled := false
+	client := NewClient("http://api.viceme.example", &http.Client{Transport: apiRoundTripFunc(func(_ *http.Request) (*http.Response, error) {
+		transportCalled = true
+		return nil, errors.New("request must not be sent")
+	})}, staticToken("secret"), "")
+
+	_, err := client.GetTarget(context.Background(), "target_1")
+	var cliError *output.Error
+	if !errors.As(err, &cliError) || cliError.Subtype != "api_base_url" {
+		t.Fatalf("expected api_base_url validation error, got %T: %v", err, err)
+	}
+	if transportCalled {
+		t.Fatal("HTTP transport was called for a non-loopback plaintext API URL")
+	}
+}
+
+func TestAPIBaseURLAllowsOnlyHTTPSOrLoopbackHTTP(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		raw     string
+		wantErr bool
+	}{
+		{raw: "https://api.viceme.ai"},
+		{raw: "http://localhost:3991"},
+		{raw: "http://127.0.0.1:3991"},
+		{raw: "http://[::1]:3991"},
+		{raw: "http://10.0.0.8:3991", wantErr: true},
+		{raw: "http://api.viceme.ai", wantErr: true},
+		{raw: "ftp://api.viceme.ai", wantErr: true},
+		{raw: "https://user:password@api.viceme.ai", wantErr: true},
+	} {
+		_, err := validateAPIBaseURL(test.raw)
+		if (err != nil) != test.wantErr {
+			t.Fatalf("validateAPIBaseURL(%q) error = %v, wantErr=%v", test.raw, err, test.wantErr)
+		}
 	}
 }
 
