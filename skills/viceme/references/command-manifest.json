@@ -1,0 +1,406 @@
+{
+  "schema_version": 1,
+  "cli_version": "0.1.0",
+  "minimum_cli_version": "0.1.0",
+  "global_flags": [
+    {
+      "name": "api-base-url",
+      "type": "string",
+      "default": "https://api.viceme.ai",
+      "usage": "Viceme API base URL"
+    },
+    {
+      "name": "json",
+      "type": "bool",
+      "default": "false",
+      "usage": "emit stable JSON output"
+    },
+    {
+      "name": "profile",
+      "type": "string",
+      "default": "default",
+      "usage": "credential profile"
+    }
+  ],
+  "commands": [
+    {
+      "path": "auth",
+      "use": "auth",
+      "short": "Manage Viceme CLI authentication",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "auth login",
+      "use": "login",
+      "short": "Start or continue the Viceme device login flow",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "device-code",
+          "type": "string",
+          "usage": "continue a previously started device authorization"
+        },
+        {
+          "name": "no-wait",
+          "type": "bool",
+          "default": "false",
+          "usage": "return the device authorization immediately"
+        },
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "1m0s",
+          "usage": "maximum time to poll for authorization"
+        }
+      ]
+    },
+    {
+      "path": "auth logout",
+      "use": "logout",
+      "short": "Revoke and remove local Viceme credentials",
+      "runnable": true,
+      "side_effect": "remote_and_local",
+      "requires_confirmation": false
+    },
+    {
+      "path": "auth status",
+      "use": "status",
+      "short": "Show local Viceme authentication status",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "install",
+      "use": "install",
+      "short": "Persist the npm CLI, install its Viceme Skill, and initialize configuration",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "target",
+          "type": "string",
+          "default": "auto",
+          "usage": "Skill target: auto, codex, or claude"
+        }
+      ]
+    },
+    {
+      "path": "job",
+      "use": "job",
+      "short": "Read and control durable Skill Agent publications",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "job cancel",
+      "use": "cancel <publication-id>",
+      "short": "Cancel a publication",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": true,
+      "flags": [
+        {
+          "name": "yes",
+          "type": "bool",
+          "default": "false",
+          "usage": "confirm cancellation"
+        }
+      ]
+    },
+    {
+      "path": "job get",
+      "use": "get <publication-id>",
+      "short": "Get a publication's durable status",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "job resume",
+      "use": "resume <publication-id>",
+      "short": "Resolve a typed next action on the same publication",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "action-id",
+          "type": "string",
+          "usage": "typed action receipt ID"
+        },
+        {
+          "name": "expected-payload-digest",
+          "type": "string",
+          "usage": "digest of the action payload being answered"
+        },
+        {
+          "name": "payload-stdin",
+          "type": "bool",
+          "default": "false",
+          "usage": "read the structured action answer from stdin"
+        }
+      ]
+    },
+    {
+      "path": "job wait",
+      "use": "wait <publication-id>",
+      "short": "Wait for a bounded publication result",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "1m0s",
+          "usage": "maximum time to wait"
+        }
+      ]
+    },
+    {
+      "path": "skill",
+      "use": "skill",
+      "short": "Inspect and publish external Skills",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "skill inspect",
+      "use": "inspect [source]",
+      "short": "Resolve an immutable external Skill snapshot without publishing it",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "dry-run",
+          "type": "bool",
+          "default": "false",
+          "usage": "validate and print the operation without calling Viceme"
+        },
+        {
+          "name": "expression-stdin",
+          "type": "bool",
+          "default": "false",
+          "usage": "read a copied provider expression from stdin"
+        }
+      ]
+    },
+    {
+      "path": "skill publish",
+      "use": "publish [source]",
+      "short": "Create a durable Skill Agent publication",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": true,
+      "flags": [
+        {
+          "name": "client-request-id",
+          "type": "string",
+          "usage": "idempotency key for this publication action"
+        },
+        {
+          "name": "dir",
+          "type": "string",
+          "usage": "deterministically archive and upload a Skill directory"
+        },
+        {
+          "name": "dry-run",
+          "type": "bool",
+          "default": "false",
+          "usage": "validate and print the operation without reading input or calling Viceme"
+        },
+        {
+          "name": "expected-target-version",
+          "type": "int64",
+          "default": "0",
+          "usage": "expected CAS version of an existing Target"
+        },
+        {
+          "name": "expression-stdin",
+          "type": "bool",
+          "default": "false",
+          "usage": "read a copied provider expression from stdin"
+        },
+        {
+          "name": "file",
+          "type": "string",
+          "usage": "upload a Skill archive"
+        },
+        {
+          "name": "new-target",
+          "type": "bool",
+          "default": "false",
+          "usage": "create a new logical Agent Target"
+        },
+        {
+          "name": "resolution-id",
+          "type": "string",
+          "usage": "publish an immutable snapshot returned by inspect"
+        },
+        {
+          "name": "skill-root",
+          "type": "string",
+          "usage": "select a Skill root within the immutable source"
+        },
+        {
+          "name": "target-alias",
+          "type": "string",
+          "usage": "owner-scoped alias for a new Target"
+        },
+        {
+          "name": "target-id",
+          "type": "string",
+          "usage": "publish to an existing Target"
+        },
+        {
+          "name": "target-locale",
+          "type": "string",
+          "usage": "target locale for compiled instructions"
+        },
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "1m0s",
+          "usage": "maximum wait duration"
+        },
+        {
+          "name": "wait",
+          "type": "bool",
+          "default": "false",
+          "usage": "wait for a bounded publication result"
+        },
+        {
+          "name": "yes",
+          "type": "bool",
+          "default": "false",
+          "usage": "confirm the public publication side effect"
+        }
+      ]
+    },
+    {
+      "path": "skill target",
+      "use": "target",
+      "short": "Read stable Skill Agent Targets",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "skill target get",
+      "use": "get <target-id|share-url|alias>",
+      "short": "Get a Target owned by the authenticated user",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "skill target list",
+      "use": "list",
+      "short": "List Targets owned by the authenticated user",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "skills",
+      "use": "skills",
+      "short": "Read, install, and diagnose bundled Agent Skill content",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "skills doctor",
+      "use": "doctor",
+      "short": "Check installed Skill content against this CLI release",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "target",
+          "type": "string",
+          "default": "auto",
+          "usage": "Skill target: auto, codex, or claude"
+        }
+      ]
+    },
+    {
+      "path": "skills install",
+      "use": "install",
+      "short": "Atomically install the bundled Viceme Skill",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "target",
+          "type": "string",
+          "default": "auto",
+          "usage": "Skill target: auto, codex, or claude"
+        }
+      ]
+    },
+    {
+      "path": "skills list",
+      "use": "list",
+      "short": "List Skills embedded in this CLI build",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "skills read",
+      "use": "read <name>[/<path>] [path]",
+      "short": "Read embedded Skill content",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "update",
+      "use": "update",
+      "short": "Update the npm launcher, verified Go binary, and bundled Agent Skill",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "check",
+          "type": "bool",
+          "default": "false",
+          "usage": "check the latest npm release without changing local state"
+        },
+        {
+          "name": "skip-skill-install",
+          "type": "bool",
+          "default": "false",
+          "usage": "update only the npm launcher and binary"
+        },
+        {
+          "name": "target",
+          "type": "string",
+          "default": "auto",
+          "usage": "Agent Skill target refreshed after update: auto, codex, or claude"
+        }
+      ]
+    },
+    {
+      "path": "version",
+      "use": "version",
+      "short": "Print CLI and bundled Skill versions",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
+    }
+  ]
+}

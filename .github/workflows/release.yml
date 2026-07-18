@@ -1,0 +1,287 @@
+name: Release CLI and npm launcher
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+
+permissions:
+  contents: read
+
+concurrency:
+  # npm dist-tags do not provide compare-and-swap semantics. Serialize every
+  # release so an older rerun cannot move `latest` behind a newer version.
+  group: viceme-cli-release
+  cancel-in-progress: false
+
+jobs:
+  metadata:
+    if: >-
+      github.event.pull_request.merged == true &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.ref == 'dev' &&
+       startsWith(github.event.pull_request.title, 'chore(release): v')
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      tag: ${{ steps.release.outputs.tag }}
+      sha: ${{ steps.release.outputs.sha }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          # Publish the exact dev head reviewed by the merged Release PR.
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - id: release
+        name: Resolve and validate immutable release identity
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          SHA="$(git rev-parse HEAD)"
+
+          if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "package.json must contain a stable semantic version" >&2
+            exit 1
+          fi
+          if [[ "${PR_TITLE}" != "chore(release): ${TAG}" ]]; then
+            echo "Release PR title must be exactly chore(release): ${TAG}" >&2
+            exit 1
+          fi
+
+          EXISTING_SHA="$(git rev-list -n 1 "${TAG}" 2>/dev/null || true)"
+          if [[ -n "${EXISTING_SHA}" && "${EXISTING_SHA}" != "${SHA}" ]]; then
+            echo "immutable tag ${TAG} already points to ${EXISTING_SHA}, not ${SHA}" >&2
+            exit 1
+          fi
+
+          {
+            echo "version=${VERSION}"
+            echo "tag=${TAG}"
+            echo "sha=${SHA}"
+          } >>"${GITHUB_OUTPUT}"
+
+  quality:
+    needs: metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify generated release files are committed
+        run: |
+          make command-manifest
+          make release-manifest
+          git diff --exit-code
+      - run: make check
+      - run: make npm-package-check
+
+  tag:
+    needs:
+      - metadata
+      - quality
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+          fetch-depth: 0
+      - name: Create or verify immutable release tag
+        env:
+          TAG: ${{ needs.metadata.outputs.tag }}
+          RELEASE_SHA: ${{ needs.metadata.outputs.sha }}
+        run: |
+          git fetch origin --tags
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Reconnect dev to the merged main commit even when the Release PR
+          # was squash- or rebase-merged. The release tag still pins the exact
+          # reviewed dev head, while future Release PRs retain clean ancestry.
+          git fetch origin main dev
+          git switch --force-create release-sync-dev origin/dev
+          git merge --no-edit origin/main
+          git push origin HEAD:dev
+          git switch --detach "${RELEASE_SHA}"
+          EXISTING_SHA="$(git rev-list -n 1 "${TAG}" 2>/dev/null || true)"
+          if [[ -n "${EXISTING_SHA}" ]]; then
+            test "${EXISTING_SHA}" = "${RELEASE_SHA}"
+            exit 0
+          fi
+          git tag --annotate "${TAG}" "${RELEASE_SHA}" --message "Release ${TAG}"
+          git push origin "refs/tags/${TAG}"
+
+  binaries:
+    needs:
+      - metadata
+      - tag
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: darwin
+            goarch: amd64
+            extension: ""
+          - goos: darwin
+            goarch: arm64
+            extension: ""
+          - goos: linux
+            goarch: amd64
+            extension: ""
+          - goos: linux
+            goarch: arm64
+            extension: ""
+          - goos: windows
+            goarch: amd64
+            extension: ".exe"
+          - goos: windows
+            goarch: arm64
+            extension: ".exe"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build release binary
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_SHA: ${{ needs.metadata.outputs.sha }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          ASSET="viceme_${VERSION}_${GOOS}_${GOARCH}${{ matrix.extension }}"
+          mkdir -p dist
+          go build -trimpath -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=${VERSION} -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=${RELEASE_SHA}" -o "dist/${ASSET}" ./cmd/viceme
+          cd dist
+          sha256sum "${ASSET}" >"${ASSET}.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  github-release:
+    needs:
+      - metadata
+      - binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: binaries-*
+          merge-multiple: true
+          path: dist
+      - name: Verify complete launcher asset contract
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          for TARGET in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
+            test -f "dist/viceme_${VERSION}_${TARGET}"
+            test -f "dist/viceme_${VERSION}_${TARGET}.sha256"
+          done
+          for TARGET in windows_amd64 windows_arm64; do
+            test -f "dist/viceme_${VERSION}_${TARGET}.exe"
+            test -f "dist/viceme_${VERSION}_${TARGET}.exe.sha256"
+          done
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 12
+      - name: Publish or verify the immutable GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+        run: |
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            test "$(gh release view "${TAG}" --json isDraft --jq .isDraft)" = "false"
+            mapfile -t EXISTING_ASSETS < <(gh release view "${TAG}" --json assets --jq '.assets[].name')
+            asset_exists() {
+              local WANTED="$1"
+              local ASSET
+              for ASSET in "${EXISTING_ASSETS[@]}"; do
+                if [[ "${ASSET}" == "${WANTED}" ]]; then
+                  return 0
+                fi
+              done
+              return 1
+            }
+
+            for NAME in "${EXISTING_ASSETS[@]}"; do
+              test -f "dist/${NAME}"
+            done
+
+            mkdir -p existing-release
+            MISSING_ASSETS=()
+            for FILE in dist/*; do
+              NAME="${FILE#dist/}"
+              if asset_exists "${NAME}"; then
+                gh release download "${TAG}" --pattern "${NAME}" --dir existing-release
+                cmp --silent "${FILE}" "existing-release/${NAME}"
+              else
+                MISSING_ASSETS+=("${FILE}")
+              fi
+            done
+            if (( ${#MISSING_ASSETS[@]} > 0 )); then
+              gh release upload "${TAG}" "${MISSING_ASSETS[@]}"
+            fi
+          else
+            gh release create "${TAG}" dist/* --verify-tag --generate-notes --title "${TAG}"
+          fi
+
+          rm -rf verified-release
+          mkdir -p verified-release
+          gh release download "${TAG}" --dir verified-release
+          test "$(find verified-release -maxdepth 1 -type f | wc -l)" -eq 12
+          for FILE in dist/*; do
+            NAME="${FILE#dist/}"
+            cmp --silent "${FILE}" "verified-release/${NAME}"
+          done
+
+  npm-publish:
+    needs:
+      - metadata
+      - github-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Install OIDC-capable npm CLI
+        run: npm install --global npm@11.12.1
+      - run: npm ci
+      - name: Publish npm launcher or verify an exact prior publish
+        env:
+          # Empty after trusted publishing is configured. If npm requires a
+          # first-publication token, it is exposed only to this trusted step.
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: node npm/scripts/publish-or-verify.mjs

@@ -1,0 +1,60 @@
+[
+  {
+    "name": "github inspect",
+    "documentation_anchor": "viceme skill inspect https://github.com/acme/poster-skill --json",
+    "args": ["skill", "inspect", "https://github.com/acme/poster-skill", "--dry-run", "--json"],
+    "operation": "skill.inspect",
+    "source_mode": "argument"
+  },
+  {
+    "name": "copied provider expression inspect",
+    "documentation_anchor": "viceme skill inspect --expression-stdin --json",
+    "input": "copied Xiaohongshu expression",
+    "args": ["skill", "inspect", "--expression-stdin", "--dry-run", "--json"],
+    "operation": "skill.inspect",
+    "source_mode": "stdin"
+  },
+  {
+    "name": "github publish",
+    "documentation_anchor": "viceme skill publish https://github.com/acme/poster-skill --json --yes",
+    "args": ["skill", "publish", "https://github.com/acme/poster-skill", "--yes", "--dry-run", "--json"],
+    "operation": "skill.publish",
+    "source_mode": "argument"
+  },
+  {
+    "name": "resolution publish",
+    "documentation_anchor": "viceme skill publish --resolution-id <resolution-id> --json --yes",
+    "args": ["skill", "publish", "--resolution-id", "res_test", "--yes", "--dry-run", "--json"],
+    "operation": "skill.publish",
+    "source_mode": "resolution"
+  },
+  {
+    "name": "copied provider expression publish",
+    "documentation_anchor": "viceme skill publish --resolution-id <resolution-id> --json --yes",
+    "input": "copied Xiaohongshu expression",
+    "args": ["skill", "publish", "--expression-stdin", "--yes", "--dry-run", "--json"],
+    "operation": "skill.publish",
+    "source_mode": "stdin"
+  },
+  {
+    "name": "new target ZIP publish",
+    "documentation_anchor": "viceme skill publish --file ./poster-skill.zip --new-target --target-alias poster --json --yes",
+    "args": ["skill", "publish", "--file", "./poster-skill.zip", "--new-target", "--target-alias", "poster", "--yes", "--dry-run", "--json"],
+    "operation": "skill.publish",
+    "source_mode": "file"
+  },
+  {
+    "name": "new target folder publish",
+    "documentation_anchor": "viceme skill publish --dir ./poster-skill --new-target --target-alias poster --json --yes",
+    "args": ["skill", "publish", "--dir", "./poster-skill", "--new-target", "--target-alias", "poster", "--yes", "--dry-run", "--json"],
+    "operation": "skill.publish",
+    "source_mode": "directory"
+  },
+  {
+    "name": "existing target ZIP update",
+    "documentation_anchor": "viceme skill publish --file ./poster-skill-v2.zip --target-id target_123 --expected-target-version 4 --json --yes",
+    "args": ["skill", "publish", "--file", "./poster-skill-v2.zip", "--target-id", "target_123", "--expected-target-version", "4", "--yes", "--dry-run", "--json"],
+    "operation": "skill.publish",
+    "source_mode": "file"
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "npm_package": "@viceme-ai/cli",
+  "cli_version": "0.1.0",
+  "skill_version": "0.1.0",
+  "minimum_cli_version": "0.1.0",
+  "cli_compatibility": ">=0.1.0 <0.2.0",
+  "full_skill_bundle_digest": "sha256:aa7ceebd04e7e0fab0566e0892e5bbe5f9e1b69026a0081e3a0660a7a75b39af",
+  "embedded_content_digest": "sha256:345dfe06bedf2e957e5284863b61d17a2f83accdb8c99838a20c3ddaa0b53278",
+  "command_manifest_digest": "sha256:0966d0819001e0775843a911ba4c8e76948dc3b36141969035d10b6296a3ef3b"
+}
