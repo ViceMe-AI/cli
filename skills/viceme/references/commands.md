@@ -83,6 +83,28 @@ viceme job resume pub_123 --action-id act_123 --expected-payload-digest sha256:a
 
 Example stdin: `{"selector":"skills/poster"}`.
 
+## Preview and confirmation (T2)
+
+When `next_action.type` is `confirm_publish`, the exact release candidate is
+ready and must be previewed by the user before any release. Show the user
+`next_action.payload.preview_url` (private, short-lived) together with the
+candidate digest, and let them inspect the title, description and example
+outputs there. Only after the user explicitly approves what they previewed,
+resume with the digests from that same action:
+
+```bash
+viceme job resume pub_123 --action-id act_123 \
+  --expected-payload-digest sha256:abc \
+  --expected-release-candidate-digest sha256:def \
+  --decision confirm --json
+```
+
+Use `--decision cancel` when the user declines; it maps to `cancelled`
+everywhere. Never infer the decision from earlier conversation, never cache it
+across candidates: if the preview or candidate digest changes, ask the user
+again with the fresh action. A stale or expired action fails closed — fetch
+`job get` and present the new `next_action` instead of retrying the old one.
+
 ## Bounded jobs and cancellation
 
 ```bash

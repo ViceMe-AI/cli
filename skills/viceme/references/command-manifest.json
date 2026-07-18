@@ -136,9 +136,19 @@
           "usage": "typed action receipt ID"
         },
         {
+          "name": "decision",
+          "type": "string",
+          "usage": "confirm_publish decision: confirm or cancel"
+        },
+        {
           "name": "expected-payload-digest",
           "type": "string",
           "usage": "digest of the action payload being answered"
+        },
+        {
+          "name": "expected-release-candidate-digest",
+          "type": "string",
+          "usage": "exact release candidate digest shown in the preview"
         },
         {
           "name": "payload-stdin",

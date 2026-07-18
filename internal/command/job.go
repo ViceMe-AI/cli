@@ -64,26 +64,46 @@ func newJobWaitCommand(runtime *Runtime) *cobra.Command {
 func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 	var actionID string
 	var expectedDigest string
+	var expectedCandidateDigest string
+	var decision string
 	var payloadStdin bool
 	command := &cobra.Command{
 		Use:   "resume <publication-id>",
 		Short: "Resolve a typed next action on the same publication",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			if actionID == "" || expectedDigest == "" || !payloadStdin {
-				return output.Validation("resume_flags", "resume requires --action-id, --expected-payload-digest, and --payload-stdin")
+			if actionID == "" || expectedDigest == "" {
+				return output.Validation("resume_flags", "resume requires --action-id and --expected-payload-digest")
 			}
-			payload, err := readLimited(runtime.deps.In, maxStdinBytes)
-			if err != nil {
-				return err
+			request := api.ResolveActionRequest{ExpectedPayloadDigest: expectedDigest}
+			if decision != "" {
+				// confirm_publish binds the user's explicit decision to the exact
+				// previewed release candidate; the CLI never infers it.
+				if decision != "confirm" && decision != "cancel" {
+					return output.Validation("resume_decision", "--decision must be confirm or cancel")
+				}
+				if expectedCandidateDigest == "" {
+					return output.Validation("resume_flags", "confirm_publish resolution requires --expected-release-candidate-digest")
+				}
+				if payloadStdin {
+					return output.Validation("resume_flags", "--decision does not accept --payload-stdin")
+				}
+				request.Decision = decision
+				request.ExpectedReleaseCandidateDigest = expectedCandidateDigest
+			} else {
+				if !payloadStdin {
+					return output.Validation("resume_flags", "resume requires --payload-stdin for typed payload actions")
+				}
+				payload, err := readLimited(runtime.deps.In, maxStdinBytes)
+				if err != nil {
+					return err
+				}
+				if !json.Valid([]byte(payload)) {
+					return output.Validation("action_payload", "stdin must contain one valid JSON action payload")
+				}
+				request.Payload = json.RawMessage(payload)
 			}
-			if !json.Valid([]byte(payload)) {
-				return output.Validation("action_payload", "stdin must contain one valid JSON action payload")
-			}
-			publication, err := runtime.client().ResolveAction(command.Context(), args[0], actionID, api.ResolveActionRequest{
-				ExpectedPayloadDigest: expectedDigest,
-				Payload:               json.RawMessage(payload),
-			})
+			publication, err := runtime.client().ResolveAction(command.Context(), args[0], actionID, request)
 			if err != nil {
 				return err
 			}
@@ -92,6 +112,8 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&actionID, "action-id", "", "typed action receipt ID")
 	command.Flags().StringVar(&expectedDigest, "expected-payload-digest", "", "digest of the action payload being answered")
+	command.Flags().StringVar(&expectedCandidateDigest, "expected-release-candidate-digest", "", "exact release candidate digest shown in the preview")
+	command.Flags().StringVar(&decision, "decision", "", "confirm_publish decision: confirm or cancel")
 	command.Flags().BoolVar(&payloadStdin, "payload-stdin", false, "read the structured action answer from stdin")
 	return command
 }

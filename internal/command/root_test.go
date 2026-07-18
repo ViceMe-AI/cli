@@ -257,6 +257,77 @@ func TestJobWaitTimeoutReturnsLastStatus(t *testing.T) {
 	}
 }
 
+func TestJobResumeConfirmPublishSendsDecisionContract(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_1/resolve" || request.Method != http.MethodPost {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode resolve body: %v", err)
+		}
+		if body["decision"] != "confirm" ||
+			body["expected_release_candidate_digest"] != "sha256:candidate" ||
+			body["expected_payload_digest"] != "sha256:payload" {
+			t.Fatalf("confirm_publish resolve body = %#v", body)
+		}
+		if _, ok := body["payload"]; ok {
+			t.Fatalf("decision resolution must not carry a typed payload: %#v", body)
+		}
+		_, _ = io.WriteString(writer, `{"action_id":"act_1","status":"resolved","publication_status":"release_authorized","resolution_digest":"sha256:resolution","resolved_at":"2026-07-18T00:00:00Z"}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t),
+		"job", "resume", "pub_1",
+		"--action-id", "act_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--expected-release-candidate-digest", "sha256:candidate",
+		"--decision", "confirm",
+		"--json",
+	)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"publication_status":"release_authorized"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestJobResumeDecisionValidation(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLI(t, nil, authenticatedStore(t),
+		"job", "resume", "pub_1",
+		"--action-id", "act_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--decision", "confirm",
+		"--json",
+	)
+	if code != 2 || !strings.Contains(stderr, "resume_flags") {
+		t.Fatalf("missing candidate digest: code=%d stderr=%s", code, stderr)
+	}
+	code, _, stderr, _ = runCLI(t, nil, authenticatedStore(t),
+		"job", "resume", "pub_1",
+		"--action-id", "act_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--expected-release-candidate-digest", "sha256:candidate",
+		"--decision", "maybe",
+		"--json",
+	)
+	if code != 2 || !strings.Contains(stderr, "resume_decision") {
+		t.Fatalf("invalid decision: code=%d stderr=%s", code, stderr)
+	}
+	code, _, stderr, _ = runCLIWithInput(t, nil, authenticatedStore(t), `{"selector":"skills/poster"}`,
+		"job", "resume", "pub_1",
+		"--action-id", "act_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--expected-release-candidate-digest", "sha256:candidate",
+		"--decision", "confirm",
+		"--payload-stdin",
+		"--json",
+	)
+	if code != 2 || !strings.Contains(stderr, "resume_flags") {
+		t.Fatalf("decision with payload stdin: code=%d stderr=%s", code, stderr)
+	}
+}
+
 func authenticatedStore(t *testing.T) *securestore.MemoryStore {
 	t.Helper()
 	store := securestore.NewMemory()

@@ -81,8 +81,12 @@ func (p Publication) MarshalJSON() ([]byte, error) {
 }
 
 type ResolveActionRequest struct {
-	ExpectedPayloadDigest string          `json:"expected_payload_digest"`
-	Payload               json.RawMessage `json:"payload"`
+	ExpectedPayloadDigest string `json:"expected_payload_digest"`
+	// Payload answers typed payload actions (select_root). confirm_publish
+	// decisions instead carry Decision + ExpectedReleaseCandidateDigest.
+	Payload                        json.RawMessage `json:"payload,omitempty"`
+	ExpectedReleaseCandidateDigest string          `json:"expected_release_candidate_digest,omitempty"`
+	Decision                       string          `json:"decision,omitempty"`
 }
 
 type UploadPrepareRequest struct {

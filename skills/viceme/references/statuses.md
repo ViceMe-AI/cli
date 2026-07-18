@@ -8,6 +8,7 @@
 - `resolving`
 - `compiling`
 - `materializing`
+- `release_authorized`
 - `release_committed`
 - `waiting_projection`
 
@@ -15,7 +16,7 @@ Use another bounded wait when `meta.wait_timed_out` is true.
 
 ## User action
 
-- `awaiting_action`: read `next_action`, ask the user for the required selection, then resume the same publication.
+- `awaiting_action`: read `next_action`, ask the user for the required selection, then resume the same publication. For `confirm_publish`, present `next_action.payload.preview_url` and the candidate digest for explicit review, then resume with `--decision` (see commands.md).
 - `target_conflict`: refresh the Target. Do not use last-write-wins or create another link.
 - `payment_required`: explain the requirement and stop.
 
