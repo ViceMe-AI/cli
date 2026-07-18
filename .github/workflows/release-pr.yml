@@ -1,0 +1,101 @@
+name: Prepare Release PR
+
+on:
+  push:
+    branches:
+      - dev
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: viceme-cli-release-pr
+  cancel-in-progress: true
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: dev
+          fetch-depth: 0
+      - name: Fetch stable branch and release tags
+        run: git fetch origin main --tags
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Validate GitHub Actions workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Compute version, CHANGELOG, and generated release contracts
+        run: make release-prepare
+      - name: Verify prepared release
+        run: |
+          make check
+          make npm-package-check
+          git diff --check
+      - id: release
+        name: Commit prepared release to dev
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            CHANGELOG.md \
+            package.json \
+            package-lock.json \
+            internal/buildinfo/buildinfo.go \
+            skills/viceme/skill-package.json \
+            skills/viceme/references/command-manifest.json \
+            quality/release-manifest.json
+          if ! git diff --cached --quiet; then
+            git commit --message "chore(release): ${TAG}"
+            git push origin HEAD:dev
+          fi
+          {
+            echo "version=${VERSION}"
+            echo "tag=${TAG}"
+            echo "sha=$(git rev-parse HEAD)"
+          } >>"${GITHUB_OUTPUT}"
+      - name: Create or update dev to main Release PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          BODY_FILE="${RUNNER_TEMP}/release-pr.md"
+          {
+            echo "## Automated release"
+            echo
+            echo "This PR promotes the reviewed CLI changes from \`dev\` to \`main\` and releases **${TAG}** when merged."
+            echo
+            echo "The release preparation workflow automatically:"
+            echo
+            echo "- selected the semantic version from Conventional Commits;"
+            echo "- updated npm, Go, bundled Skill, command manifest, digests, and compatibility metadata;"
+            echo "- generated \`CHANGELOG.md\`;"
+            echo "- passed \`make check\` and \`make npm-package-check\`."
+            echo
+            echo "Prepared head: \`${RELEASE_SHA}\`  "
+            echo "Evidence: ${RUN_URL}"
+            echo
+            echo "> Merging is the release approval: GitHub Actions creates the tag, synchronizes the merged \`main\` commit back into \`dev\`, creates the GitHub Release and platform assets, and publishes npm automatically."
+          } >"${BODY_FILE}"
+
+          PR_URL="$(gh pr list --state open --base main --head dev --json url --jq '.[0].url // empty')"
+          if [[ -z "${PR_URL}" ]]; then
+            gh pr create --base main --head dev --title "chore(release): ${TAG}" --body-file "${BODY_FILE}"
+          else
+            gh pr edit "${PR_URL}" --title "chore(release): ${TAG}" --body-file "${BODY_FILE}"
+          fi

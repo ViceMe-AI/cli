@@ -7,8 +7,12 @@
 Node.js 18.20 or newer is required for the npm launcher.
 
 ```bash
-npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
+npm install --global @viceme-ai/cli
+viceme install
 ```
+
+For a one-shot bootstrap without a prior global install, use
+`npx --yes @viceme-ai/cli@latest install`.
 
 The root `install` command performs the complete bootstrap: it atomically installs the matching Viceme Skill into Codex and/or Claude Code, creates a non-sensitive local config, checks authentication without printing credentials, and returns the device-login command when needed.
 
@@ -57,7 +61,9 @@ The checked-in quality artifacts are:
 - `quality/example-dry-runs.json`, which executes the documented inspect/publish paths without network access;
 - `quality/release-manifest.json`, which pins CLI/Skill compatibility and both Skill digests.
 
-Set `VICEME_API_BASE_URL` for local integration. Release tags must exactly equal `v` plus the `package.json` version, and release asset names are fixed as `viceme_<version>_<goos>_<goarch>[.exe]` with a sibling `.sha256`. The workflow checks that exactly all six binary/checksum pairs exist and blocks npm publication until they have been uploaded to a completed GitHub Release.
+Set `VICEME_API_BASE_URL` for local integration. Release asset names are fixed as `viceme_<version>_<goos>_<goarch>[.exe]` with a sibling `.sha256`. The workflow checks that exactly all six binary/checksum pairs exist and blocks npm publication until they have been uploaded to a completed GitHub Release.
+
+Releases do not require a maintainer to edit versions, write a changelog, create a tag, or run `npm publish`. A push to `dev` runs `.github/workflows/release-pr.yml`, which selects the next stable semantic version from Conventional Commits, synchronizes npm/Go/Skill metadata and generated digests, updates `CHANGELOG.md`, runs the release quality gates, and creates or updates the `dev` to `main` Release PR. Merge that PR to approve the release; `.github/workflows/release.yml` then tags the exact reviewed head, reconnects the merged `main` commit into `dev`, creates or verifies the immutable GitHub Release, and publishes or verifies the npm package. See [`docs/releasing.md`](docs/releasing.md) for setup, recovery, and versioning details.
 
 npm publishing uses a pinned OIDC-capable npm CLI and provenance. The steady-state authentication path is GitHub Actions trusted publishing (`id-token: write`): configure `@viceme-ai/cli` to trust `ViceMe-AI/cli` and `.github/workflows/release.yml`. If npm requires a credential for the package's first-ever publication, temporarily configure a granular publish token as the `NPM_TOKEN` repository secret; the workflow exposes it only as `NODE_AUTH_TOKEN` to the final publish-or-verify step. Remove the secret after trusted publishing is configured.
 
