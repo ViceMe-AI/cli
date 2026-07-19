@@ -11,6 +11,8 @@ npm install --global @viceme-ai/cli
 viceme install
 ```
 
+`viceme install` defaults to the China service. Use `viceme install --region global` for the international service. The selected region is stored locally and all later commands use it automatically.
+
 For a one-shot bootstrap without a prior global install, use
 `npx --yes @viceme-ai/cli@latest install`.
 
@@ -23,20 +25,21 @@ The npm package is intentionally a small launcher, not six copies of the Go exec
 The current Core records `--yes` as a versioned publication-admission confirmation and remains an internal, default-off allowlist probe. That admission permits the background compile, but it is not proof that the user reviewed the resulting immutable Release Candidate. Do not expose it as the public product flow: external rollout is blocked until T2 adds exact-candidate preview and confirmation before commit. The commands below exercise the transport and stable-link Core while that gate is implemented.
 
 ```bash
-viceme auth login --no-wait --json
-viceme skill inspect https://github.com/acme/poster-skill --json
-viceme skill publish --resolution-id <resolution-id> --yes --json
-viceme job wait <publication-id> --timeout 60s --json
+viceme auth login --no-wait
+viceme skill inspect https://github.com/acme/poster-skill
+viceme skill publish --resolution-id <resolution-id> --yes
+viceme job wait <publication-id> --timeout 60s
 ```
 
 Credentials are stored only in the operating-system keychain. There is no plaintext token fallback.
+Data commands always emit the stable JSON envelope expected by the bundled Agent Skill; no output-format flag is required.
 
 ## Diagnose and update
 
 ```bash
-viceme skills doctor --json
-viceme update --check --json
-viceme update --json
+viceme skills doctor
+viceme update --check
+viceme update
 ```
 
 Every Skill installation records its CLI version, Skill version, minimum compatible CLI version, full bundle digest, and agent-readable embedded digest. `skills doctor` validates each item independently.

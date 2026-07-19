@@ -32,8 +32,8 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 			if noWait && deviceCode != "" {
 				return output.Validation("auth_flags", "--no-wait and --device-code cannot be used together")
 			}
-			if runtime.opts.JSON && !noWait && deviceCode == "" {
-				return output.Validation("non_interactive_login", "use --no-wait with --json, then continue with --device-code in a later turn")
+			if !noWait && deviceCode == "" {
+				return output.Validation("non_interactive_login", "use --no-wait, then continue with --device-code in a later turn")
 			}
 			if timeout <= 0 {
 				return output.Validation("timeout", "--timeout must be greater than zero")
@@ -84,7 +84,7 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 			if err := runtime.manager().Save(credential); err != nil {
 				return err
 			}
-			result := map[string]any{"authenticated": true, "profile": runtime.opts.Profile}
+			result := map[string]any{"authenticated": true, "region": runtime.region}
 			if token.UserID != "" {
 				result["user_id"] = token.UserID
 			}
@@ -137,7 +137,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				var cliError *output.Error
 				if errors.As(err, &cliError) && cliError.Subtype == "not_logged_in" {
-					return runtime.success(map[string]any{"logged_out": true, "already_logged_out": true, "profile": runtime.opts.Profile})
+					return runtime.success(map[string]any{"logged_out": true, "already_logged_out": true, "region": runtime.region})
 				}
 				return err
 			}
@@ -149,7 +149,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 			if revokeErr != nil {
 				return revokeErr
 			}
-			return runtime.success(map[string]any{"logged_out": true, "profile": runtime.opts.Profile})
+			return runtime.success(map[string]any{"logged_out": true, "region": runtime.region})
 		},
 	}
 }

@@ -10,17 +10,17 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 ## Bootstrap and diagnostics
 
 - If `viceme` is not available and the user asked to install Viceme, run `npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install`. The explicit default and scoped registry flags are part of the trust boundary; do not shorten the command. It installs the matching CLI and Viceme Skill, initializes non-sensitive configuration, and returns the device-login command.
-- Before publishing, use `viceme skills doctor --json` if CLI/Skill version or content drift is suspected. Do not continue with a modified or incompatible installed Skill.
+- Before publishing, use `viceme skills doctor` if CLI/Skill version or content drift is suspected. Do not continue with a modified or incompatible installed Skill.
 - `viceme update` updates the npm launcher and verified Go binary, then reinstalls the bundled Skill from that same exact package version.
 
 ## Publish workflow
 
-1. Run `viceme --version --json`, then `viceme auth status --json`.
-2. If logged out, run `viceme auth login --no-wait --json`. Return the verification URL and stop this turn. Never request or display an access token.
+1. Run `viceme --version`, then `viceme auth status`.
+2. If logged out, run `viceme auth login --no-wait`. Return the verification URL and stop this turn. Never request or display an access token.
 3. For a GitHub URL or pasted RedSkill/Xiaohongshu expression, inspect first. Pass copied text through subprocess stdin with `--expression-stdin`; never interpolate it into a shell command.
 4. Read the returned `destination`. Never infer a Target from a title, alias, conversation memory, or source text.
 5. Treat publishing as a public side effect. Add `--yes` only when the user's request explicitly asks to publish or produce a share link; otherwise ask for confirmation. In the Core pilot this records only `publication_admission/v1`; it must not be described as the later exact-candidate preview confirmation.
-6. Run `viceme job wait <publication-id> --timeout 60s --json`. Do not start an unbounded wait.
+6. Run `viceme job wait <publication-id> --timeout 60s`. Do not start an unbounded wait.
 7. Return the final `share_url`, whether the release was a no-op, and any warnings. The same logical Agent keeps the same URL across later releases.
 
 For exact flags and examples, read `references/commands.md` with `viceme skills read viceme references/commands.md`. `references/command-manifest.json` is the release-checked machine-readable command surface. For job outcomes and error handling, read `references/statuses.md`.

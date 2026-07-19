@@ -2,26 +2,7 @@
   "schema_version": 1,
   "cli_version": "0.1.0",
   "minimum_cli_version": "0.1.0",
-  "global_flags": [
-    {
-      "name": "api-base-url",
-      "type": "string",
-      "default": "https://api.viceme.ai",
-      "usage": "Viceme API base URL"
-    },
-    {
-      "name": "json",
-      "type": "bool",
-      "default": "false",
-      "usage": "emit stable JSON output"
-    },
-    {
-      "name": "profile",
-      "type": "string",
-      "default": "default",
-      "usage": "credential profile"
-    }
-  ],
+  "global_flags": null,
   "commands": [
     {
       "path": "auth",
@@ -82,6 +63,12 @@
       "side_effect": "local",
       "requires_confirmation": false,
       "flags": [
+        {
+          "name": "region",
+          "type": "string",
+          "default": "cn",
+          "usage": "Viceme region: cn or global"
+        },
         {
           "name": "target",
           "type": "string",
