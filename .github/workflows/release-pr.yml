@@ -4,18 +4,15 @@ on:
   pull_request:
     branches:
       - main
-      - dev
     types:
       - opened
       - reopened
       - synchronize
       - ready_for_review
-      - closed
   workflow_dispatch:
 
 permissions:
-  actions: write
-  contents: write
+  contents: read
   pull-requests: write
 
 concurrency:
@@ -26,22 +23,30 @@ jobs:
   prepare:
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      (github.event.action != 'closed' &&
-       github.base_ref == 'main' &&
+      (github.base_ref == 'main' &&
        github.head_ref == 'dev' &&
        github.event.pull_request.draft == false &&
        github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.head.ref == 'dev') ||
-      (github.event.action == 'closed' &&
-       github.event.pull_request.merged == true &&
-       github.base_ref == 'dev' &&
-       github.head_ref == 'release/prepare' &&
-       github.event.pull_request.head.repo.full_name == github.repository)
+       github.event.pull_request.head.ref == 'dev')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - id: release-app-token
+        name: Create repository-scoped Release App token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - id: release-app-user
+        name: Resolve Release App bot identity
+        env:
+          APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.release-app-token.outputs.token }}
+        run: echo "user-id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)" >>"${GITHUB_OUTPUT}"
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          token: ${{ steps.release-app-token.outputs.token }}
           ref: dev
           fetch-depth: 0
       - name: Fetch stable branch and release tags
@@ -65,15 +70,16 @@ jobs:
           make npm-package-check
           git diff --check
       - id: release
-        name: Commit prepared release to the preparation branch
+        name: Commit prepared release to protected dev
         env:
-          RELEASE_PREPARE_BRANCH: release/prepare
+          APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}
+          APP_USER_ID: ${{ steps.release-app-user.outputs.user-id }}
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           TAG="v${VERSION}"
-          PREPARED=false
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          PUSHED=false
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${APP_USER_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
           git add \
             CHANGELOG.md \
             package.json \
@@ -84,55 +90,16 @@ jobs:
             quality/release-manifest.json
           if ! git diff --cached --quiet; then
             git commit --message "chore(release): ${TAG}"
-            git fetch origin "refs/heads/${RELEASE_PREPARE_BRANCH}:refs/remotes/origin/${RELEASE_PREPARE_BRANCH}" || true
-            git push --force-with-lease origin "HEAD:refs/heads/${RELEASE_PREPARE_BRANCH}"
-            PREPARED=true
+            git push origin HEAD:dev
+            PUSHED=true
           fi
           {
             echo "version=${VERSION}"
             echo "tag=${TAG}"
             echo "sha=$(git rev-parse HEAD)"
-            echo "prepared=${PREPARED}"
-            echo "branch=${RELEASE_PREPARE_BRANCH}"
+            echo "pushed=${PUSHED}"
           } >>"${GITHUB_OUTPUT}"
-      - name: Run quality gates for the preparation branch
-        if: steps.release.outputs.prepared == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run ci.yml --ref "${{ steps.release.outputs.branch }}"
-      - name: Create or update the Release preparation PR
-        if: steps.release.outputs.prepared == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
-          RELEASE_PREPARE_BRANCH: ${{ steps.release.outputs.branch }}
-          SOURCE_PR_URL: ${{ github.event.pull_request.html_url }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          BODY_FILE="${RUNNER_TEMP}/release-prepare-pr.md"
-          {
-            echo "## Automated release preparation"
-            echo
-            echo "This PR was created only after the maintainer opened ${SOURCE_PR_URL:-a dev-to-main Release PR}."
-            echo "It writes the generated **${TAG}** release metadata back to \`dev\` before the original Release PR is merged."
-            echo
-            echo "Generated files include the version, \`CHANGELOG.md\`, bundled Skill metadata, command manifest, and release digests."
-            echo
-            echo "Prepared head: \`${RELEASE_SHA}\`  "
-            echo "Evidence: ${RUN_URL}"
-            echo
-            echo "> Merge this preparation PR after its required review and checks pass. The original \`dev\` to \`main\` PR will then update automatically and become the production release gate."
-          } >"${BODY_FILE}"
-
-          PR_URL="$(gh pr list --state open --base dev --head "${RELEASE_PREPARE_BRANCH}" --json url --jq '.[0].url // empty')"
-          if [[ -z "${PR_URL}" ]]; then
-            gh pr create --base dev --head "${RELEASE_PREPARE_BRANCH}" --title "chore(release): prepare ${TAG}" --body-file "${BODY_FILE}"
-          else
-            gh pr edit "${PR_URL}" --title "chore(release): prepare ${TAG}" --body-file "${BODY_FILE}"
-          fi
       - name: Create or update dev to main Release PR
-        if: steps.release.outputs.prepared != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag }}
@@ -151,6 +118,7 @@ jobs:
             echo "- updated npm, Go, bundled Skill, command manifest, digests, and compatibility metadata;"
             echo "- generated \`CHANGELOG.md\`;"
             echo "- passed \`make check\` and \`make npm-package-check\`."
+            echo "- committed the generated files to protected \`dev\` as the dedicated ViceMe Release App."
             echo
             echo "Prepared head: \`${RELEASE_SHA}\`  "
             echo "Evidence: ${RUN_URL}"
