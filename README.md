@@ -8,7 +8,7 @@
 
 The official command-line client and Agent Skill for publishing external Skills as stable, shareable Viceme Agents. It is built for AI coding tools such as Codex and Claude Code: the Agent Skill understands user intent, while the CLI provides the deterministic authentication, upload, publication, and status protocol.
 
-[Quick start](#quick-start-for-ai-agents) · [Regions](#regions) · [Agent Skill](#agent-skill) · [Authentication](#authentication) · [Commands](#command-overview) · [Output contract](#json-output-contract) · [Security](#security-and-risk-controls) · [Development](#development)
+[Install](#installation--quick-start) · [AI Agent Skills](#agent-skills) · [Auth](#authentication) · [Regions](#regions) · [Commands](#command-overview) · [Output contract](#json-output-contract) · [Security](#security-and-risk-controls) · [Development](#development)
 
 > **Rollout status:** the Core publication transport and stable-link path are implemented behind a controlled allowlist. Public rollout remains blocked until the exact Candidate preview, test run, and result-confirmation gate is complete. The current `--yes` confirms the publication request; it is not proof that the user reviewed the final Candidate.
 
@@ -22,80 +22,105 @@ The official command-line client and Agent Skill for publishing external Skills 
 - **Secure by default** — credentials use the operating-system keychain, public mutations require confirmation, and downloaded binaries are checksum-verified.
 - **Machine-stable output** — every data command uses the same JSON success/error envelope without an output-format flag.
 
-## Installation
+## Installation & Quick Start
 
 ### Requirements
 
 - Node.js 18.20 or newer
 - macOS or Linux on `amd64`/`arm64`, or Windows on `amd64`/`arm64`
 
-### Recommended installation
+### Quick Start (Human Users)
 
-The one-shot installer persists the npm launcher, downloads the matching verified Go binary, and installs the bundled Viceme Agent Skill:
+> **Note for AI assistants:** If you are an AI Agent helping the user install Viceme, jump directly to [Quick Start (AI Agent)](#quick-start-ai-agent). It defines the required cross-turn device login flow.
+
+#### Install
+
+Choose one of the following methods.
+
+**Option 1 — One-shot npm install (recommended):**
 
 ```bash
 npx --yes @viceme-ai/cli@latest install
 ```
 
-Alternatively, install the launcher globally first:
+**Option 2 — Install the npm launcher globally:**
 
 ```bash
 npm install --global @viceme-ai/cli
 viceme install
 ```
 
-Both forms default to the China service. For the international service:
+Both methods persist the npm launcher, download the matching checksum-verified Go binary, and install the bundled Viceme Agent Skill. They default to the China service. For the international service:
 
 ```bash
 npx --yes @viceme-ai/cli@latest install --region global
 ```
 
-## Quick Start for AI Agents
+#### Authenticate and verify
 
-Some steps require the user to complete authorization in a browser. Do not block the same Agent turn while waiting for that action.
-
-### 1. Install and verify
-
-```bash
-npx --yes @viceme-ai/cli@latest install
-viceme skills doctor
-viceme auth status
-```
-
-### 2. Start device login when required
+If the installation result says authentication is required, start device login:
 
 ```bash
 viceme auth login --no-wait
 ```
 
-Return the exact `verification_url` to the user and end the current turn. After the user confirms authorization, complete the same device flow:
+Open the returned `verification_url`, complete authorization, and then continue with the returned device code:
+
+```bash
+viceme auth login --device-code <device-code>
+viceme auth status
+viceme skills doctor
+```
+
+## Quick Start (AI Agent)
+
+> The following steps are for AI Agents. Browser authorization must be completed by the user in a separate turn; never wait indefinitely or ask the user for a token.
+
+**Step 1 — Install**
+
+Use the complete bootstrap command from the bundled Skill. The explicit npm registries are part of the installation trust boundary:
+
+```bash
+npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
+```
+
+Read `data.authenticated` and `data.next_step` from the result. If authentication is already valid, continue to Step 4.
+
+**Step 2 — Start device login when required**
+
+```bash
+viceme auth login --no-wait
+```
+
+Return the exact `data.verification_url` and `data.user_code` when present. Preserve `data.device_code` for the continuation command, then stop the current turn. Do not request, print, or place an access token in the conversation.
+
+**Step 3 — Continue the same login in a later turn**
+
+After the user confirms browser authorization:
 
 ```bash
 viceme auth login --device-code <device-code>
 ```
 
-Never request, print, or place an access token in the conversation.
+If authorization is still pending, reuse the same device code before it expires. Do not start a second device flow unless the original one has expired.
 
-### 3. Inspect an immutable source candidate
+**Step 4 — Verify**
+
+```bash
+viceme auth status
+viceme skills doctor
+viceme skills list
+```
+
+Continue only when authentication is valid and `skills doctor` reports a healthy, compatible installation.
+
+**Step 5 — Inspect the first source**
 
 ```bash
 viceme skill inspect https://github.com/acme/poster-skill
 ```
 
-For a copied Xiaohongshu or RedSkill expression, pass the original text through stdin instead of interpolating it into a shell command:
-
-```bash
-viceme skill inspect --expression-stdin
-```
-
-### 4. Publish only after confirmation
-
-```bash
-viceme skill publish --resolution-id <resolution-id> --yes
-viceme job wait <publication-id> --timeout 60s
-```
-
-Add `--yes` only when the user's original request explicitly asks to publish or create a share link, or after the user confirms. On `share_published`, return `data.result.share_url` and any warnings.
+Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. Public publication remains blocked until the exact Candidate confirmation gate described above is complete.
 
 ## Regions
 
@@ -110,9 +135,17 @@ The selected value is persisted as `region=cn|global`; later commands use it aut
 
 There is no public API URL, profile, or output-format configuration. For local development only, set `VICEME_API_BASE_URL` in the terminal environment.
 
-## Agent Skill
+## Agent Skills
 
-The CLI and official Viceme Agent Skill are released from this repository at the same version. `viceme install` installs the complete Skill bundle into supported hosts, while the binary embeds the agent-readable subset needed for deterministic self-inspection.
+The current release deliberately ships one platform-level Agent Skill:
+
+| Skill | Description | Supported hosts |
+|---|---|---|
+| `viceme` | Install, inspect, convert, publish, update, or share external Skills as stable Viceme Agents; enforces authentication, source, Target, confirmation, job, and safety rules | Codex, Claude Code |
+
+GitHub, Xiaohongshu/RedSkill, ZIP, and folder inputs are source types handled by the same `viceme` publication workflow, not separate Agent Skills. This keeps one consistent safety and stable-link contract across providers.
+
+The CLI and `viceme` Agent Skill are released from this repository at the same version. `viceme install` installs the complete Skill bundle into detected supported hosts, while the binary embeds the agent-readable subset needed for deterministic self-inspection.
 
 ```bash
 viceme skills list

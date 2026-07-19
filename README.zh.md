@@ -8,7 +8,7 @@
 
 Viceme 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为稳定、可分享的 Viceme Agent。它面向 Codex、Claude Code 等 AI 编程工具：Agent Skill 负责理解用户意图，CLI 负责确定性的认证、上传、发布和状态协议。
 
-[快速开始](#面向-ai-agent-的快速开始) · [区域](#区域) · [Agent Skill](#agent-skill) · [认证](#认证) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
+[安装](#安装与快速开始) · [AI Agent Skills](#agent-skills) · [认证](#认证) · [区域](#区域) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
 
 > **开放状态：** Core 发布传输和稳定链接链路已在受控白名单后实现。正式对外开放仍取决于精确 Candidate 预览、试运行和结果确认门的完成。当前 `--yes` 只确认发起发布请求，并不代表用户已经审阅最终 Candidate。
 
@@ -22,80 +22,105 @@ Viceme 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为
 - **默认安全** — 凭证保存在操作系统密钥链中，公开变更需要确认，下载的二进制文件必须通过校验和验证。
 - **机器稳定输出** — 所有数据命令统一使用 JSON 成功或错误信封，不需要输出格式参数。
 
-## 安装
+## 安装与快速开始
 
 ### 环境要求
 
 - Node.js 18.20 或更高版本
 - macOS 或 Linux `amd64`/`arm64`，或 Windows `amd64`/`arm64`
 
-### 推荐安装方式
+### 快速开始（人类用户）
 
-一次性安装命令会持久化 npm 启动器、下载并校验匹配的 Go 二进制文件，同时安装随包发布的 Viceme Agent Skill：
+> **AI 助手注意：** 如果你是正在帮助用户安装 Viceme 的 AI Agent，请直接跳转到[快速开始（AI Agent）](#快速开始ai-agent)。该章节定义了必须遵循的跨回合设备登录流程。
+
+#### 安装
+
+以下两种方式任选其一。
+
+**方式一 — 通过 npm 一次性安装（推荐）：**
 
 ```bash
 npx --yes @viceme-ai/cli@latest install
 ```
 
-也可以先全局安装启动器：
+**方式二 — 全局安装 npm 启动器：**
 
 ```bash
 npm install --global @viceme-ai/cli
 viceme install
 ```
 
-两种方式默认都使用中国区服务。使用国际区服务：
+两种方式都会持久化 npm 启动器、下载匹配且通过校验和验证的 Go 二进制文件，并安装随包发布的 Viceme Agent Skill。默认使用中国区服务。使用国际区服务：
 
 ```bash
 npx --yes @viceme-ai/cli@latest install --region global
 ```
 
-## 面向 AI Agent 的快速开始
+#### 认证并验证
 
-部分步骤需要用户在浏览器中完成授权。等待用户操作时，不要阻塞同一个 Agent 回合。
-
-### 1. 安装并检查
-
-```bash
-npx --yes @viceme-ai/cli@latest install
-viceme skills doctor
-viceme auth status
-```
-
-### 2. 需要登录时启动设备授权
+如果安装结果提示需要认证，启动设备登录：
 
 ```bash
 viceme auth login --no-wait
 ```
 
-将返回的准确 `verification_url` 交给用户，并结束当前回合。用户确认已经完成授权后，继续完成同一个设备授权流程：
+打开返回的 `verification_url`，完成授权，然后使用返回的 device code 继续：
+
+```bash
+viceme auth login --device-code <device-code>
+viceme auth status
+viceme skills doctor
+```
+
+## 快速开始（AI Agent）
+
+> 以下步骤面向 AI Agent。浏览器授权必须由用户在另一个回合完成；不要无限等待，也不要向用户索取令牌。
+
+**第 1 步 — 安装**
+
+使用随包 Skill 中定义的完整引导命令。显式 npm registry 是安装信任边界的一部分：
+
+```bash
+npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
+```
+
+读取结果中的 `data.authenticated` 和 `data.next_step`。如果认证已经有效，直接进入第 4 步。
+
+**第 2 步 — 需要时启动设备登录**
+
+```bash
+viceme auth login --no-wait
+```
+
+向用户返回准确的 `data.verification_url`，以及存在时的 `data.user_code`。保留 `data.device_code` 供后续命令使用，然后结束当前回合。不要在对话中索取、打印或传递访问令牌。
+
+**第 3 步 — 在后续回合继续同一个登录流程**
+
+用户确认已在浏览器完成授权后：
 
 ```bash
 viceme auth login --device-code <device-code>
 ```
 
-不要在对话中索取、打印或传递访问令牌。
+如果授权仍处于等待状态，应在过期前继续使用同一个 device code。只有原流程已过期时才能重新发起设备登录。
 
-### 3. 检查不可变来源候选
+**第 4 步 — 验证**
+
+```bash
+viceme auth status
+viceme skills doctor
+viceme skills list
+```
+
+只有认证有效且 `skills doctor` 报告安装健康、版本兼容时，才能继续。
+
+**第 5 步 — 检查第一个来源**
 
 ```bash
 viceme skill inspect https://github.com/acme/poster-skill
 ```
 
-对于从小红书或 RedSkill 复制的口令，应通过标准输入传递原始文本，不要把它插值到 shell 命令中：
-
-```bash
-viceme skill inspect --expression-stdin
-```
-
-### 4. 确认后再发布
-
-```bash
-viceme skill publish --resolution-id <resolution-id> --yes
-viceme job wait <publication-id> --timeout 60s
-```
-
-只有当用户最初明确要求发布或创建分享链接，或者用户后续明确确认时，才能添加 `--yes`。状态为 `share_published` 时，向用户返回 `data.result.share_url` 和所有警告。
+inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。在上方所述的精确 Candidate 确认门完成前，公开发布流程仍保持关闭。
 
 ## 区域
 
@@ -110,9 +135,17 @@ Viceme 在安装时只提供一个产品级区域选择：
 
 CLI 不提供公开的 API 地址、profile 或输出格式配置。本地开发时可以在终端环境中设置 `VICEME_API_BASE_URL`。
 
-## Agent Skill
+## Agent Skills
 
-CLI 与官方 Viceme Agent Skill 从同一个仓库以相同版本发布。`viceme install` 会把完整 Skill Bundle 安装到支持的宿主中；二进制文件同时嵌入用于确定性自检、可供 Agent 阅读的内容子集。
+当前版本有意只提供一个平台级 Agent Skill：
+
+| Skill | 说明 | 支持的宿主 |
+|---|---|---|
+| `viceme` | 将外部 Skill 安装、检查、转换、发布、更新或分享为稳定的 Viceme Agent；统一约束认证、来源、Target、确认、任务和安全规则 | Codex、Claude Code |
+
+GitHub、小红书/RedSkill、ZIP 和目录是同一个 `viceme` 发布流程处理的来源类型，不是相互独立的 Agent Skills。这样可以让不同来源共享一致的安全边界和稳定链接合同。
+
+CLI 与 `viceme` Agent Skill 从同一个仓库以相同版本发布。`viceme install` 会把完整 Skill Bundle 安装到检测到的受支持宿主中；二进制文件同时嵌入用于确定性自检、可供 Agent 阅读的内容子集。
 
 ```bash
 viceme skills list
