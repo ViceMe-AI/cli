@@ -7,13 +7,14 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/spf13/cobra"
 )
 
 func TestCheckedInCommandManifestMatchesCobraSurface(t *testing.T) {
 	t.Parallel()
-	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory()})
+	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory(), Region: config.RegionCN})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,7 +36,7 @@ func TestCheckedInCommandManifestMatchesCobraSurface(t *testing.T) {
 
 func TestMutatingCommandsHaveExplicitManifestPolicy(t *testing.T) {
 	t.Parallel()
-	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory()})
+	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory(), Region: config.RegionCN})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +53,7 @@ func TestMutatingCommandsHaveExplicitManifestPolicy(t *testing.T) {
 
 func TestNewRunnableCommandMustDeclareManifestPolicy(t *testing.T) {
 	t.Parallel()
-	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory()})
+	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory(), Region: config.RegionCN})
 	if err != nil {
 		t.Fatal(err)
 	}

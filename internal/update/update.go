@@ -174,7 +174,6 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 		"install",
 		"--target",
 		target,
-		"--json",
 	)
 	if err != nil {
 		skillTarget.Status = "failed"

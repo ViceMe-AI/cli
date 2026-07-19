@@ -3,7 +3,6 @@ package output
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 )
 
@@ -118,7 +117,6 @@ type errorEnvelope struct {
 type Printer struct {
 	Out    io.Writer
 	ErrOut io.Writer
-	JSON   bool
 	Meta   Meta
 }
 
@@ -127,10 +125,7 @@ func (p *Printer) Success(data any) error {
 }
 
 func (p *Printer) SuccessWithMeta(data any, meta Meta) error {
-	if p.JSON {
-		return writeJSON(p.Out, successEnvelope{OK: true, Data: data, Meta: meta}, false)
-	}
-	return writeJSON(p.Out, data, true)
+	return writeJSON(p.Out, successEnvelope{OK: true, Data: data, Meta: meta})
 }
 
 func (p *Printer) Failure(err error) int {
@@ -138,22 +133,12 @@ func (p *Printer) Failure(err error) int {
 	if cliErr.Code == 0 {
 		cliErr.Code = ExitInternal
 	}
-	if p.JSON {
-		_ = writeJSON(p.ErrOut, errorEnvelope{OK: false, Error: cliErr, Meta: p.Meta}, false)
-	} else {
-		_, _ = fmt.Fprintf(p.ErrOut, "%s: %s\n", cliErr.Subtype, cliErr.Message)
-		if cliErr.Hint != "" {
-			_, _ = fmt.Fprintf(p.ErrOut, "hint: %s\n", cliErr.Hint)
-		}
-	}
+	_ = writeJSON(p.ErrOut, errorEnvelope{OK: false, Error: cliErr, Meta: p.Meta})
 	return cliErr.Code
 }
 
-func writeJSON(w io.Writer, value any, indent bool) error {
+func writeJSON(w io.Writer, value any) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetEscapeHTML(false)
-	if indent {
-		encoder.SetIndent("", "  ")
-	}
 	return encoder.Encode(value)
 }

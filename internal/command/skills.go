@@ -1,7 +1,6 @@
 package command
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -48,16 +47,7 @@ func newSkillsReadCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if runtime.opts.JSON {
-				return runtime.success(map[string]any{"skill": name, "path": resolved, "content": string(data)})
-			}
-			if _, err := runtime.deps.Out.Write(data); err != nil {
-				return output.Internal("stdout_write", "failed to write Skill content", err)
-			}
-			if len(data) == 0 || data[len(data)-1] != '\n' {
-				_, _ = fmt.Fprintln(runtime.deps.Out)
-			}
-			return nil
+			return runtime.success(map[string]any{"skill": name, "path": resolved, "content": string(data)})
 		},
 	}
 	return command

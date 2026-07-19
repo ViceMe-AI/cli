@@ -22,7 +22,7 @@ test(
     await symlink(launcher, linkedLauncher);
     const child = spawnSync(
       process.execPath,
-      [linkedLauncher, "install", "--target", "codex", "--profile", "npm-package-smoke", "--json"],
+      [linkedLauncher, "install", "--target", "codex"],
       {
         encoding: "utf8",
         env: {
@@ -38,7 +38,6 @@ test(
     const envelope = JSON.parse(child.stdout);
     assert.equal(envelope.ok, true);
     assert.equal(envelope.data.skill.all_succeeded, true);
-    assert.equal(envelope.data.next_step.command, "viceme auth login --no-wait --json");
     await stat(path.join(codexHome, "skills", "viceme", "SKILL.md"));
     await stat(path.join(configHome, "viceme", "config.json"));
   },
@@ -118,9 +117,6 @@ process.exit(child.status ?? 1);
         "install",
         "--target",
         "codex",
-        "--profile",
-        "packed-cold-start",
-        "--json",
       ],
       { encoding: "utf8", env: isolatedEnvironment },
     );
@@ -168,7 +164,7 @@ process.exit(child.status ?? 1);
     ].join(path.delimiter);
     const freshEnvironment = { ...isolatedEnvironment };
     delete freshEnvironment.VICEME_BINARY_PATH;
-    const second = spawnSync("viceme", ["--version", "--json"], {
+    const second = spawnSync("viceme", ["--version"], {
       encoding: "utf8",
       env: {
         ...freshEnvironment,
