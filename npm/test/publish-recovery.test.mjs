@@ -6,6 +6,13 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+const packageDocument = JSON.parse(
+  await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+);
+const packageVersion = packageDocument.version;
+const packageID = `${packageDocument.name}@${packageVersion}`;
+const nextMajorVersion = `${Number(packageVersion.split(".")[0]) + 1}.0.0`;
+
 test(
   "release recovery verifies prior integrity or publishes only a missing version",
   { skip: process.platform === "win32" },
@@ -22,13 +29,13 @@ test(
 const { appendFileSync, existsSync, readFileSync, writeSync } = require("node:fs");
 const args = process.argv.slice(2);
 if (args[0] === "pack") {
-  writeSync(1, JSON.stringify([{ id: "@viceme-ai/cli@0.1.0", integrity: "sha512-local" }]));
+  writeSync(1, JSON.stringify([{ id: process.env.LOCAL_PACKAGE_ID, integrity: "sha512-local" }]));
   process.exit(0);
 }
 if (args[0] === "view") {
   if (args.includes("dist-tags.latest")) {
     const latest = existsSync(process.env.DIST_TAG_MARKER)
-      ? "0.1.0"
+      ? process.env.LOCAL_PACKAGE_VERSION
       : process.env.REMOTE_LATEST;
     writeSync(1, JSON.stringify(latest));
     process.exit(0);
@@ -70,7 +77,9 @@ process.exit(90);
       DIST_TAG_MARKER: distTagMarker,
       VICEME_NPM_VIEW_RETRY_ATTEMPTS: "4",
       VICEME_NPM_VIEW_RETRY_INITIAL_DELAY_MS: "0",
-      REMOTE_LATEST: "0.1.0",
+      LOCAL_PACKAGE_ID: packageID,
+      LOCAL_PACKAGE_VERSION: packageVersion,
+      REMOTE_LATEST: packageVersion,
     };
 
     const matching = spawnSync(process.execPath, [script], {
@@ -91,7 +100,7 @@ process.exit(90);
         ...baseEnvironment,
         REMOTE_MODE: "existing",
         REMOTE_INTEGRITY: "sha512-local",
-        REMOTE_LATEST: "0.2.0",
+        REMOTE_LATEST: nextMajorVersion,
       },
     });
     assert.equal(newerLatest.status, 0, newerLatest.stderr);
@@ -103,13 +112,12 @@ process.exit(90);
         ...baseEnvironment,
         REMOTE_MODE: "existing",
         REMOTE_INTEGRITY: "sha512-local",
-        REMOTE_LATEST: "0.0.9",
+        REMOTE_LATEST: "0.0.0",
       },
     });
     assert.equal(olderLatest.status, 0, olderLatest.stderr);
-    assert.match(
-      await readFile(distTagMarker, "utf8"),
-      /dist-tag add @viceme-ai\/cli@0\.1\.0 latest/,
+    assert.ok(
+      (await readFile(distTagMarker, "utf8")).includes(`dist-tag add ${packageID} latest`),
     );
 
     const missing = spawnSync(process.execPath, [script], {
