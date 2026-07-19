@@ -285,3 +285,53 @@ jobs:
           # first-publication token, it is exposed only to this trusted step.
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: node npm/scripts/publish-or-verify.mjs
+
+  notify:
+    name: AI Release Changelog
+    needs:
+      - metadata
+      - npm-publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+          fetch-depth: 0
+      - name: Resolve release range
+        id: range
+        env:
+          TAG: ${{ needs.metadata.outputs.tag }}
+        run: |
+          git fetch origin --tags --force
+          PREV_TAG="$(git describe --tags --abbrev=0 --match 'v[0-9]*' "${TAG}^" 2>/dev/null || true)"
+          if [[ -z "${PREV_TAG}" ]]; then
+            COMMITS="$(git log --oneline --no-merges -50 "${TAG}")"
+            COMPARE_URL="${{ github.server_url }}/${{ github.repository }}/commits/${TAG}"
+          else
+            COMMITS="$(git log --oneline --no-merges "${PREV_TAG}..${TAG}")"
+            COMPARE_URL="${{ github.server_url }}/${{ github.repository }}/compare/${PREV_TAG}...${TAG}"
+          fi
+          COMMIT_COUNT="$(printf '%s\n' "${COMMITS}" | grep -c '.' || true)"
+          DELIMITER="COMMITS_$(openssl rand -hex 16)"
+          {
+            echo "prev_tag=${PREV_TAG}"
+            echo "commit_count=${COMMIT_COUNT}"
+            echo "compare_url=${COMPARE_URL}"
+            echo "commits<<${DELIMITER}"
+            echo "${COMMITS}"
+            echo "${DELIMITER}"
+          } >>"${GITHUB_OUTPUT}"
+      - uses: Dogtiti/feishu-bot-webhook-action@fd68eb3a1e032761a500da0ec8ea82489a8b4d9c # main
+        with:
+          webhook: ${{ secrets.FEISHU_RELEASE_WEBHOOK }}
+          mode: release-changelog
+          ai_api_key: ${{ secrets.AI_API_KEY }}
+          ai_model: ${{ secrets.AI_MODEL || 'deepseek-chat' }}
+          ai_base_url: ${{ secrets.AI_BASE_URL || 'https://api.deepseek.com/v1' }}
+          service_name: viceme-cli
+          tag_name: ${{ needs.metadata.outputs.tag }}
+          commits: ${{ steps.range.outputs.commits }}
+          commit_count: ${{ steps.range.outputs.commit_count }}
+          compare_url: ${{ steps.range.outputs.compare_url }}

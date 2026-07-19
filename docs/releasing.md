@@ -24,7 +24,8 @@ files, create tags, write changelog entries, or run npm commands locally.
 7. `Release CLI and npm launcher` tags the exact reviewed PR head, reconnects
    the merged `main` commit into `dev` when necessary, reruns the quality gates,
    builds six platform binaries and six checksums, creates the GitHub Release,
-   and publishes the npm launcher.
+   publishes the npm launcher, and then sends an AI-generated release summary
+   to the release notification group in Feishu.
 
 ## One-time repository setup
 
@@ -44,9 +45,21 @@ its first release, add a repository secret named `NPM_TOKEN` containing a
 granular automation token limited to `@viceme-ai/cli` publication. Remove that
 secret after the package exists and trusted publishing is confirmed.
 
-No release-specific environment variables are required. `GITHUB_TOKEN` is
-provided by Actions. `NPM_TOKEN` is optional and should only be retained when
-the npm account policy requires it.
+`GITHUB_TOKEN` is provided by Actions. `NPM_TOKEN` is optional and should only
+be retained when the npm account policy requires it.
+
+The release notification job uses the same repository secrets as Viceme Web,
+API, and Engine:
+
+- `FEISHU_RELEASE_WEBHOOK`: webhook for the release notification group;
+- `AI_API_KEY`: API key used to generate the release summary;
+- `AI_MODEL`: optional model override, defaulting to `deepseek-chat`;
+- `AI_BASE_URL`: optional OpenAI-compatible endpoint override, defaulting to
+  `https://api.deepseek.com/v1`.
+
+The notification runs only after the GitHub Release and npm publication have
+both succeeded, so a failed or incomplete release is not announced as
+successful.
 
 ## Recovery
 
