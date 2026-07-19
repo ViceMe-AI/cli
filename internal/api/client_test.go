@@ -49,6 +49,47 @@ func TestInspectUsesAPIKeyAndAcceptsEnvelope(t *testing.T) {
 	}
 }
 
+func TestDeviceAuthorizationPrefersCompleteVerificationURL(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		response string
+		wantURL  string
+	}{
+		{
+			name:     "complete URL",
+			response: `{"verification_url":"https://viceme.test/cli/auth","verification_url_complete":"https://viceme.test/cli/auth?user_code=ABCD-EFGH","device_code":"device-public","expires_at":"2030-01-01T00:00:00Z","interval_seconds":5}`,
+			wantURL:  "https://viceme.test/cli/auth?user_code=ABCD-EFGH",
+		},
+		{
+			name:     "base URL fallback",
+			response: `{"verification_url":"https://viceme.test/cli/auth","device_code":"device-public","expires_at":"2030-01-01T00:00:00Z","interval_seconds":5}`,
+			wantURL:  "https://viceme.test/cli/auth",
+		},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.URL.Path != "/v1/cli/auth/device" {
+					t.Fatalf("unexpected path: %s", request.URL.Path)
+				}
+				_, _ = io.WriteString(writer, test.response)
+			}))
+			defer server.Close()
+
+			client := NewClient(server.URL, server.Client(), nil, "viceme/test")
+			authorization, err := client.StartDeviceAuthorization(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if authorization.VerificationURL != test.wantURL {
+				t.Fatalf("verification_url=%q want=%q", authorization.VerificationURL, test.wantURL)
+			}
+		})
+	}
+}
+
 func TestAuthenticatedRequestRejectsRemoteHTTPBeforeSendingCredential(t *testing.T) {
 	t.Parallel()
 	transportCalled := false
