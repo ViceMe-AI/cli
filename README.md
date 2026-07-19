@@ -4,6 +4,8 @@
 [![Go Version](https://img.shields.io/badge/go-%3E%3D1.23-blue.svg)](https://go.dev/)
 [![CLI quality gates](https://github.com/ViceMe-AI/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/ViceMe-AI/cli/actions/workflows/ci.yml)
 
+[中文版](./README.zh.md) | [English](./README.md)
+
 The official command-line client and Agent Skill for publishing external Skills as stable, shareable Viceme Agents. It is built for AI coding tools such as Codex and Claude Code: the Agent Skill understands user intent, while the CLI provides the deterministic authentication, upload, publication, and status protocol.
 
 [Quick start](#quick-start-for-ai-agents) · [Regions](#regions) · [Agent Skill](#agent-skill) · [Authentication](#authentication) · [Commands](#command-overview) · [Output contract](#json-output-contract) · [Security](#security-and-risk-controls) · [Development](#development)
