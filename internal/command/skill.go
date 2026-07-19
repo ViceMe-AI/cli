@@ -11,6 +11,7 @@ import (
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	archivepkg "github.com/ViceMe-AI/cli/internal/archive"
+	"github.com/ViceMe-AI/cli/internal/auth"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -22,6 +23,7 @@ func newSkillCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newSkillInspectCommand(runtime))
 	command.AddCommand(newSkillPublishCommand(runtime))
 	command.AddCommand(newTargetCommand(runtime))
+	command.AddCommand(newDelegatedGrantCommand(runtime))
 	return command
 }
 
@@ -89,6 +91,8 @@ type publishOptions struct {
 	timeout               time.Duration
 	dryRun                bool
 	clientRequestID       string
+	delegatedGrantStdin   bool
+	delegatedGrantRef     string
 }
 
 func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
@@ -108,7 +112,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			}
 			destination := publishDestination(opts)
 			if opts.dryRun {
-				return runtime.success(map[string]any{
+				result := map[string]any{
 					"dry_run":            true,
 					"operation":          "skill.publish",
 					"source_mode":        publishSourceMode(args, opts),
@@ -117,7 +121,16 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 					"confirmation_ok":    opts.yes,
 					"publish_mode":       "confirm",
 					"confirmation_scope": "publication_admission/v1",
-				})
+					"ownership_mode":     publishOwnershipMode(opts),
+				}
+				if source := delegatedCredentialSource(opts); source != "" {
+					result["delegated_credential_source"] = source
+				}
+				return runtime.success(result)
+			}
+			delegatedGrantCredential, err := resolveDelegatedGrantCredential(runtime, opts)
+			if err != nil {
+				return err
 			}
 			requestID := opts.clientRequestID
 			if requestID == "" {
@@ -141,10 +154,16 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				}
 				request.Source = &source
 			}
-			publication, err := createPublication(command.Context(), runtime, request)
+			publication, err := createPublication(command.Context(), runtime, request, delegatedGrantCredential)
 			if err != nil {
 				return err
 			}
+			if delegatedGrantCredential != "" {
+				if err := validateDelegatedPublicationReceipt(publication); err != nil {
+					return err
+				}
+			}
+			cleanupDelegatedGrantReference(runtime, opts, publication)
 			if !opts.wait {
 				return runtime.success(publication)
 			}
@@ -156,6 +175,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			carryDelegatedPublicationMetadata(final, publication)
 			meta := runtime.meta
 			if timedOut {
 				value := true
@@ -180,11 +200,50 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	flags.DurationVar(&opts.timeout, "timeout", 60*time.Second, "maximum wait duration")
 	flags.BoolVar(&opts.dryRun, "dry-run", false, "validate and print the operation without reading input or calling Viceme")
 	flags.StringVar(&opts.clientRequestID, "client-request-id", "", "idempotency key for this publication action")
+	flags.BoolVar(&opts.delegatedGrantStdin, "delegated-grant-stdin", false, "read a one-time delegated grant from stdin without persisting it")
+	flags.StringVar(&opts.delegatedGrantRef, "delegated-grant-ref", "", "read a delegated grant by non-sensitive OS keychain reference")
 	return command
 }
 
-func createPublication(ctx context.Context, runtime *Runtime, request api.CreatePublicationRequest) (api.Publication, error) {
-	publication, err := runtime.client().CreatePublication(ctx, request)
+func validateDelegatedPublicationReceipt(publication api.Publication) error {
+	receiptID, ok := publication["delegated_grant_receipt_id"].(string)
+	if !ok || strings.TrimSpace(receiptID) == "" || strings.TrimSpace(receiptID) != receiptID {
+		return output.Internal(
+			"delegated_grant_receipt_missing",
+			"Viceme accepted the request without returning a delegated grant receipt; the local credential was retained",
+			nil,
+		)
+	}
+	return nil
+}
+
+func cleanupDelegatedGrantReference(runtime *Runtime, opts publishOptions, publication api.Publication) {
+	if opts.delegatedGrantRef == "" {
+		return
+	}
+	if err := delegatedGrantManager(runtime).Delete(opts.delegatedGrantRef); err != nil {
+		publication["delegated_credential_cleanup"] = "required"
+		publication["delegated_credential_ref"] = opts.delegatedGrantRef
+		return
+	}
+	publication["delegated_credential_cleanup"] = "deleted"
+}
+
+func carryDelegatedPublicationMetadata(destination, source api.Publication) {
+	for _, key := range []string{
+		"delegated_grant_receipt_id",
+		"delegated_credential_cleanup",
+		"delegated_credential_ref",
+	} {
+		if value, ok := source[key]; ok {
+			destination[key] = value
+		}
+	}
+}
+
+func createPublication(ctx context.Context, runtime *Runtime, request api.CreatePublicationRequest, delegatedGrantCredential string) (api.Publication, error) {
+	client := runtime.client()
+	publication, err := client.CreatePublicationWithDelegatedGrant(ctx, request, delegatedGrantCredential)
 	if err == nil {
 		return publication, nil
 	}
@@ -198,7 +257,7 @@ func createPublication(ctx context.Context, runtime *Runtime, request api.Create
 	// Reuse the exact request and client_request_id. The server owns the
 	// idempotency receipt, so an ambiguous transport failure cannot create a
 	// second publication.
-	return runtime.client().CreatePublication(ctx, request)
+	return client.CreatePublicationWithDelegatedGrant(ctx, request, delegatedGrantCredential)
 }
 
 func validatePublishOptions(args []string, opts publishOptions) error {
@@ -213,6 +272,17 @@ func validatePublishOptions(args []string, opts publishOptions) error {
 	}
 	if sources != 1 {
 		return output.Validation("source_required", "provide exactly one source, --resolution-id, --expression-stdin, --file, or --dir")
+	}
+	if opts.delegatedGrantStdin && opts.delegatedGrantRef != "" {
+		return output.Validation("delegated_grant_source", "--delegated-grant-stdin and --delegated-grant-ref are mutually exclusive")
+	}
+	if opts.delegatedGrantStdin && opts.expressionStdin {
+		return output.Validation("stdin_conflict", "source expression and delegated grant cannot both read from stdin; store the grant and use --delegated-grant-ref")
+	}
+	if opts.delegatedGrantRef != "" {
+		if err := auth.ValidateDelegatedGrantReference(opts.delegatedGrantRef); err != nil {
+			return err
+		}
 	}
 	if !opts.yes && !opts.dryRun {
 		return output.Confirmation("confirmation_required", "publishing creates or updates a public share link; rerun with --yes after user confirmation")
@@ -236,6 +306,39 @@ func validatePublishOptions(args []string, opts publishOptions) error {
 		return output.Validation("upload_target", "uploaded input requires --new-target or --target-id with --expected-target-version")
 	}
 	return nil
+}
+
+func resolveDelegatedGrantCredential(runtime *Runtime, opts publishOptions) (string, error) {
+	switch {
+	case opts.delegatedGrantStdin:
+		value, err := readLimited(runtime.deps.In, maxDelegatedGrantStdinBytes)
+		if err != nil {
+			return "", err
+		}
+		return auth.NormalizeDelegatedGrantCredential(value)
+	case opts.delegatedGrantRef != "":
+		return delegatedGrantManager(runtime).Load(opts.delegatedGrantRef)
+	default:
+		return "", nil
+	}
+}
+
+func publishOwnershipMode(opts publishOptions) string {
+	if opts.delegatedGrantStdin || opts.delegatedGrantRef != "" {
+		return "delegated"
+	}
+	return "direct"
+}
+
+func delegatedCredentialSource(opts publishOptions) string {
+	switch {
+	case opts.delegatedGrantStdin:
+		return "stdin"
+	case opts.delegatedGrantRef != "":
+		return "keychain"
+	default:
+		return ""
+	}
 }
 
 func publishDestination(opts publishOptions) api.Destination {

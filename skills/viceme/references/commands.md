@@ -33,6 +33,25 @@ viceme auth logout
 
 The first login command returns immediately. Ask the user to open `verification_url`; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code in a later turn. Tokens stay in the operating system keychain.
 
+## Direct and delegated ownership
+
+An authenticated ordinary user publishes directly with the existing commands. No owner or creator identifier is accepted from the command line:
+
+```bash
+viceme skill publish --resolution-id <resolution-id> --yes
+```
+
+For staff-operated delegated publication, deliver the one-time credential through protected stdin and save it under a non-sensitive keychain reference:
+
+```bash
+viceme skill delegated-grant save creator-one --stdin
+viceme skill delegated-grant status creator-one
+viceme skill publish --resolution-id <resolution-id> --delegated-grant-ref creator-one --yes
+viceme skill delegated-grant delete creator-one
+```
+
+Hosts that already provide protected child-process stdin may publish once with `--delegated-grant-stdin`; it cannot be combined with `--expression-stdin`. Never place the raw credential in argv, environment variables, URLs, logs, stdout, source expressions, or JSON request bodies. Successful output contains only the non-sensitive server receipt ID.
+
 ## GitHub or trusted provider
 
 ```bash

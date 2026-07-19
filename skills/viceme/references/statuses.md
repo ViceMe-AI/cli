@@ -17,6 +17,9 @@ Use another bounded wait when `meta.wait_timed_out` is true.
 
 - `awaiting_action`: read `next_action`, ask the user for the required selection, then resume the same publication.
 - `target_conflict`: refresh the Target. Do not use last-write-wins or create another link.
+- `delegated_grant_not_found`: save the credential through protected stdin or choose an existing keychain reference.
+- `delegated_grant_invalid`: discard the local value and obtain a new one-time grant through the staff control plane; never print the rejected value.
+- `delegated_grant_expired`, `delegated_grant_replayed`, `delegated_grant_scope_mismatch`: stop and request a newly scoped grant. Do not retry the credential against another source or creator.
 - `payment_required`: explain the requirement and stop.
 
 ## Terminal outcomes

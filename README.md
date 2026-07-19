@@ -167,6 +167,8 @@ viceme skills doctor
 
 Tokens are stored only in the operating-system keychain. There is no plaintext token fallback, and successful login output never contains the access or refresh token.
 
+Ordinary authenticated users publish directly. Staff-operated delegated publication uses the same host-neutral command contract, with one-time credentials accepted only from protected stdin or an OS-keychain reference and sent only through a dedicated request header. Raw delegated credentials are never accepted as flags or environment configuration and are never returned in CLI output.
+
 ## Supported Sources
 
 ### GitHub or trusted provider

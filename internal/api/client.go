@@ -19,6 +19,8 @@ import (
 
 const maxResponseBytes = 8 << 20
 
+const delegatedPublishGrantHeader = "x-viceme-delegated-publish-grant"
+
 type TokenSource interface {
 	Token(context.Context) (string, error)
 }
@@ -84,8 +86,22 @@ func (c *Client) Inspect(ctx context.Context, request InspectRequest) (InspectRe
 }
 
 func (c *Client) CreatePublication(ctx context.Context, request CreatePublicationRequest) (Publication, error) {
+	return c.CreatePublicationWithDelegatedGrant(ctx, request, "")
+}
+
+// CreatePublicationWithDelegatedGrant sends the delegated grant only as a
+// dedicated header. It never serializes the credential into the URL or JSON
+// request, and redirects are disabled for this sensitive request.
+func (c *Client) CreatePublicationWithDelegatedGrant(ctx context.Context, request CreatePublicationRequest, delegatedGrantCredential string) (Publication, error) {
 	var response Publication
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications", request, &response, true, "")
+	headers := make(http.Header)
+	if delegatedGrantCredential != "" {
+		if strings.TrimSpace(delegatedGrantCredential) != delegatedGrantCredential || strings.ContainsAny(delegatedGrantCredential, "\r\n\x00") {
+			return nil, output.Validation("delegated_grant_invalid", "delegated grant credential is invalid")
+		}
+		headers.Set(delegatedPublishGrantHeader, delegatedGrantCredential)
+	}
+	err := c.doJSONWithHeaders(ctx, http.MethodPost, "/v1/skill-agent-publications", request, &response, true, "", headers, delegatedGrantCredential != "")
 	return response, err
 }
 
@@ -163,6 +179,10 @@ func (c *Client) PutUpload(ctx context.Context, prepared UploadPrepareResponse, 
 }
 
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string) error {
+	return c.doJSONWithHeaders(ctx, method, endpoint, requestBody, responseBody, authenticated, explicitToken, nil, false)
+}
+
+func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string, headers http.Header, disableRedirects bool) error {
 	base, err := validateAPIBaseURL(c.BaseURL)
 	if err != nil {
 		return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
@@ -187,6 +207,11 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 	if c.UserAgent != "" {
 		request.Header.Set("User-Agent", c.UserAgent)
 	}
+	for key, values := range headers {
+		for _, value := range values {
+			request.Header.Add(key, value)
+		}
+	}
 	token := explicitToken
 	if authenticated && token == "" {
 		if c.Tokens == nil {
@@ -204,7 +229,15 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 		}
 		applyCredential(request, token)
 	}
-	response, err := c.HTTPClient.Do(request)
+	httpClient := c.HTTPClient
+	if disableRedirects {
+		copy := *c.HTTPClient
+		copy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		httpClient = &copy
+	}
+	response, err := httpClient.Do(request)
 	if err != nil {
 		return output.Network("transport", "failed to reach the Viceme API", err)
 	}

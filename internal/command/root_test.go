@@ -187,6 +187,9 @@ func TestInspectAndPublishRequestContracts(t *testing.T) {
 			inspected.Store(true)
 			_, _ = io.WriteString(writer, `{"resolution_id":"res_1","destination":{"mode":"new_auto"}}`)
 		case "/v1/skill-agent-publications":
+			if request.Header.Get("x-viceme-delegated-publish-grant") != "" {
+				t.Fatal("ordinary publication unexpectedly sent a delegated grant")
+			}
 			var body map[string]any
 			_ = json.NewDecoder(request.Body).Decode(&body)
 			if body["client_request_id"] != "request-fixed" {
@@ -219,10 +222,117 @@ func TestInspectAndPublishRequestContracts(t *testing.T) {
 	}
 }
 
+func TestDelegatedGrantStdinUsesSensitiveHeaderAndNeverLeaks(t *testing.T) {
+	t.Parallel()
+	secret := strings.Repeat("s", 43)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		if request.Header.Get("x-viceme-delegated-publish-grant") != secret {
+			t.Fatal("delegated grant was not sent through the sensitive header")
+		}
+		body, _ := io.ReadAll(request.Body)
+		if strings.Contains(string(body), secret) || strings.Contains(request.URL.String(), secret) {
+			t.Fatal("delegated grant leaked into request body or URL")
+		}
+		writer.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_delegated","status":"received","delegated_grant_receipt_id":"grant_1"}`)
+	}))
+	defer server.Close()
+
+	code, stdout, stderr, _ := runCLIWithInput(
+		t,
+		server,
+		authenticatedStore(t),
+		secret+"\n",
+		"skill", "publish", "https://github.com/acme/skill", "--delegated-grant-stdin", "--yes",
+	)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"delegated_grant_receipt_id":"grant_1"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if strings.Contains(stdout, secret) || strings.Contains(stderr, secret) {
+		t.Fatal("delegated grant leaked into CLI output")
+	}
+}
+
+func TestDelegatedGrantKeychainReferenceLifecycleAndPublish(t *testing.T) {
+	t.Parallel()
+	secret := strings.Repeat("k", 43)
+	store := authenticatedStore(t)
+	code, stdout, stderr, _ := runCLIWithInput(t, nil, store, secret+"\n", "skill", "delegated-grant", "save", "creator-one", "--stdin")
+	if code != 0 || stderr != "" || strings.Contains(stdout, secret) || !strings.Contains(stdout, `"credential_ref":"creator-one"`) {
+		t.Fatalf("save code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("x-viceme-delegated-publish-grant") != secret {
+			t.Fatal("stored delegated grant was not applied")
+		}
+		writer.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_ref","status":"received","delegated_grant_receipt_id":"grant_ref_1"}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ = runCLI(t, server, store, "skill", "publish", "https://github.com/acme/skill", "--delegated-grant-ref", "creator-one", "--yes")
+	if code != 0 || stderr != "" || strings.Contains(stdout, secret) || !strings.Contains(stdout, "grant_ref_1") {
+		t.Fatalf("publish code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.Contains(stdout, `"delegated_credential_cleanup":"deleted"`) {
+		t.Fatalf("publish did not report keychain cleanup: %s", stdout)
+	}
+	code, stdout, stderr, _ = runCLI(t, nil, store, "skill", "delegated-grant", "status", "creator-one")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"stored":false`) {
+		t.Fatalf("status code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+
+	code, stdout, stderr, _ = runCLI(t, nil, store, "skill", "delegated-grant", "delete", "creator-one")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"stored":false`) {
+		t.Fatalf("delete code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestDelegatedGrantReferenceIsRetainedWhenServerOmitsReceipt(t *testing.T) {
+	t.Parallel()
+	secret := strings.Repeat("r", 43)
+	store := authenticatedStore(t)
+	if err := (&credentialauth.DelegatedGrantManager{Store: store, Region: "cn"}).Save("creator-retained", secret); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("x-viceme-delegated-publish-grant") != secret {
+			t.Fatal("stored delegated grant was not applied")
+		}
+		writer.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_without_receipt","status":"received"}`)
+	}))
+	defer server.Close()
+
+	code, stdout, stderr, _ := runCLI(t, server, store, "skill", "publish", "https://github.com/acme/skill", "--delegated-grant-ref", "creator-retained", "--yes")
+	if code != 5 || stdout != "" || !strings.Contains(stderr, "delegated_grant_receipt_missing") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	status, err := (&credentialauth.DelegatedGrantManager{Store: store, Region: "cn"}).Status("creator-retained")
+	if err != nil || !status.Stored {
+		t.Fatalf("delegated grant was not retained: status=%#v err=%v", status, err)
+	}
+}
+
+func TestDelegatedGrantStdinCannotShareSourceStdin(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLI(t, nil, nil, "skill", "publish", "--expression-stdin", "--delegated-grant-stdin", "--yes")
+	if code != 2 || !strings.Contains(stderr, "stdin_conflict") {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+}
+
 func TestPublishRetriesAmbiguousTransportWithSameRequestID(t *testing.T) {
 	t.Parallel()
+	secret := strings.Repeat("q", 43)
 	var calls atomic.Int32
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("x-viceme-delegated-publish-grant") != secret {
+			t.Fatal("retry changed or omitted the delegated grant")
+		}
 		if calls.Add(1) == 1 {
 			return nil, fmt.Errorf("connection closed after write")
 		}
@@ -238,14 +348,14 @@ func TestPublishRetriesAmbiguousTransportWithSameRequestID(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusAccepted,
 			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"publication_id":"pub_retry","status":"received"}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"publication_id":"pub_retry","status":"received","delegated_grant_receipt_id":"grant_retry"}`)),
 			Request:    request,
 		}, nil
 	})
-	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, authenticatedStore(t), "", Dependencies{
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, authenticatedStore(t), secret+"\n", Dependencies{
 		HTTPClient: &http.Client{Transport: transport},
 		APIBaseURL: "https://api.viceme.test",
-	}, "skill", "publish", "https://github.com/acme/skill", "--yes")
+	}, "skill", "publish", "https://github.com/acme/skill", "--delegated-grant-stdin", "--yes")
 	if code != 0 || stderr != "" || calls.Load() != 2 || !strings.Contains(stdout, "pub_retry") {
 		t.Fatalf("code=%d calls=%d stdout=%s stderr=%s", code, calls.Load(), stdout, stderr)
 	}
