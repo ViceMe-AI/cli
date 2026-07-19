@@ -16,10 +16,10 @@ files, create tags, write changelog entries, or run npm commands locally.
 4. The workflow synchronizes `package.json`, `package-lock.json`, Go build
    metadata, bundled Skill metadata, command manifest, release digests, and
    `CHANGELOG.md`.
-5. It runs `make check` and `make npm-package-check`, uses the GitHub Actions
-   ruleset bypass to commit only the generated release files to protected
-   `dev`, explicitly dispatches the quality workflow for that new head, and
-   creates or updates one `dev` to `main` PR titled
+5. It runs `make check` and `make npm-package-check`, uses the repository's
+   dedicated release Deploy Key to commit only the generated release files to
+   protected `dev`, explicitly dispatches the quality workflow for that new
+   head, and creates or updates one `dev` to `main` PR titled
    `chore(release): vX.Y.Z`.
 6. A maintainer reviews and merges that PR using the repository's preferred
    merge method.
@@ -32,24 +32,26 @@ files, create tags, write changelog entries, or run npm commands locally.
 ## One-time repository setup
 
 GitHub Actions needs `Read and write permissions` and permission to create pull
-requests so the built-in `GITHUB_TOKEN` can update `dev` and maintain the
-Release PR. No maintainer PAT is required by these workflows.
+requests so the built-in `GITHUB_TOKEN` can maintain the Release PR and start
+the exact-head quality workflow. No maintainer PAT is required.
 
 Protect `dev` with an active branch ruleset that keeps the normal requirements
 for a pull request, one approving review, and the four CLI quality checks. Add
-only the **GitHub Actions** GitHub App to that ruleset's bypass list with
-`Always allow`. The legacy branch-protection rule must not remain active beside
-the ruleset because its requirements have no equivalent app bypass and would
-still reject the release commit. Repository-wide workflow permissions remain
-read-only by default; only the reviewed release workflows request
+**Deploy keys** to that ruleset's bypass list with `Always allow`, create one
+repository-scoped write Deploy Key named `viceme-cli-release`, and store its
+private key only in the `RELEASE_DEPLOY_KEY` Actions secret. Do not add unrelated
+Deploy Keys to this repository: the ruleset bypass applies to the Deploy Key
+actor class. The legacy branch-protection rule must not remain active beside
+the ruleset because its requirements have no equivalent Deploy Key bypass and
+would still reject release commits. Repository-wide workflow permissions
+remain read-only by default; only the reviewed release workflows request
 `contents: write`.
 
 The general CLI quality workflow runs for pull requests, not branch pushes.
-After `GITHUB_TOKEN` writes the generated release commit, `Prepare Release PR`
-explicitly dispatches that workflow for the new `dev` head because GitHub does
-not recursively trigger workflows for a `GITHUB_TOKEN` push. This provides one
-set of required checks for the exact prepared commit without duplicate push and
-pull-request runs.
+After the release Deploy Key writes the generated release commit, `Prepare
+Release PR` explicitly dispatches the quality workflow for the new `dev` head.
+This provides one set of required checks for the exact prepared commit without
+restoring duplicate generic push and pull-request runs.
 
 Configure npm trusted publishing for:
 
@@ -63,8 +65,10 @@ its first release, add a repository secret named `NPM_TOKEN` containing a
 granular automation token limited to `@viceme-ai/cli` publication. Remove that
 secret after the package exists and trusted publishing is confirmed.
 
-`GITHUB_TOKEN` is provided by Actions. `NPM_TOKEN` is optional and should only
-be retained when the npm account policy requires it.
+`GITHUB_TOKEN` is provided by Actions. `RELEASE_DEPLOY_KEY` contains the private
+half of the repository-scoped `viceme-cli-release` Deploy Key and is required.
+`NPM_TOKEN` is optional and should only be retained when the npm account policy
+requires it.
 
 The release notification job uses the same repository secrets as Viceme Web,
 API, and Engine:
