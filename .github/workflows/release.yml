@@ -109,14 +109,6 @@ jobs:
           git fetch origin --tags
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          # Reconnect dev to the merged main commit even when the Release PR
-          # was squash- or rebase-merged. The release tag still pins the exact
-          # reviewed dev head, while future Release PRs retain clean ancestry.
-          git fetch origin main dev
-          git switch --force-create release-sync-dev origin/dev
-          git merge --no-edit origin/main
-          git push origin HEAD:dev
-          git switch --detach "${RELEASE_SHA}"
           EXISTING_SHA="$(git rev-list -n 1 "${TAG}" 2>/dev/null || true)"
           if [[ -n "${EXISTING_SHA}" ]]; then
             test "${EXISTING_SHA}" = "${RELEASE_SHA}"

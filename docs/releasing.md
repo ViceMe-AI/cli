@@ -6,32 +6,49 @@ files, create tags, write changelog entries, or run npm commands locally.
 
 ## Normal flow
 
-1. A non-bot push to `dev` starts `Prepare Release PR`.
-2. `npm/scripts/prepare-release.mjs` finds the newest reachable stable tag and
+1. Feature and fix PRs can merge into `dev` without starting release
+   preparation.
+2. A maintainer explicitly opens or marks ready a repository-owned `dev` to
+   `main` PR. That release intent starts `Prepare Release PR`.
+3. `npm/scripts/prepare-release.mjs` finds the newest reachable stable tag and
    reads all unreleased non-merge commits.
-3. Conventional Commits select the next version:
+4. Conventional Commits select the next version:
    - a `BREAKING CHANGE` footer or `type!:` selects major;
    - `feat:` selects minor;
    - every other releasable change selects patch.
-4. The workflow synchronizes `package.json`, `package-lock.json`, Go build
+5. The workflow synchronizes `package.json`, `package-lock.json`, Go build
    metadata, bundled Skill metadata, command manifest, release digests, and
    `CHANGELOG.md`.
-5. It runs `make check` and `make npm-package-check`, commits the generated
-   release files to `dev`, and creates or updates one `dev` to `main` PR titled
-   `chore(release): vX.Y.Z`.
-6. A maintainer reviews and merges that PR using the repository's preferred
-   merge method.
-7. `Release CLI and npm launcher` tags the exact reviewed PR head, reconnects
-   the merged `main` commit into `dev` when necessary, reruns the quality gates,
-   builds six platform binaries and six checksums, creates the GitHub Release,
-   publishes the npm launcher, and then sends an AI-generated release summary
-   to the release notification group in Feishu.
+6. It runs `make check` and `make npm-package-check`, pushes the generated
+   commit to `release/prepare`, explicitly dispatches the quality workflow for
+   that head, and creates or updates a `release/prepare` to `dev` preparation
+   PR.
+7. A maintainer reviews and merges the preparation PR. The original `dev` to
+   `main` PR then synchronizes, and the workflow updates its title and evidence
+   to `chore(release): vX.Y.Z` without generating another commit.
+8. A maintainer reviews and merges the original Release PR.
+9. `Release CLI and npm launcher` tags the exact reviewed `dev` head, reruns
+   the quality gates, builds six platform binaries and six checksums, creates
+   the GitHub Release, publishes the npm launcher, and then sends an
+   AI-generated release summary to the release notification group in Feishu.
 
 ## One-time repository setup
 
 GitHub Actions needs `Read and write permissions` and permission to create pull
-requests so the built-in `GITHUB_TOKEN` can update `dev` and maintain the
-Release PR. No maintainer PAT is required by these workflows.
+requests so the built-in `GITHUB_TOKEN` can maintain the preparation PR and
+start the exact-head quality workflow. No GitHub App, maintainer PAT, Deploy Key,
+or additional release credential is required.
+
+The existing `dev` protection remains unchanged: every generated release commit
+enters through a PR, one approving review, and the four CLI quality checks.
+There is no bypass actor.
+
+The general CLI quality workflow runs for pull requests, not branch pushes.
+The preparation workflow explicitly dispatches the quality workflow for the
+generated branch because events created by the built-in `GITHUB_TOKEN` do not
+recursively start another workflow. This provides one set of required checks
+for the exact prepared commit without restoring duplicate generic push and
+pull-request runs.
 
 Configure npm trusted publishing for:
 
