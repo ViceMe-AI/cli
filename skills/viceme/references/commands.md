@@ -31,7 +31,7 @@ viceme auth login --device-code <device-code>
 viceme auth logout
 ```
 
-The first login command returns immediately. Ask the user to open `verification_url`; continue with the returned device code in a later turn. Tokens stay in the operating system keychain.
+The first login command returns immediately. Ask the user to open `verification_url`; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code in a later turn. Tokens stay in the operating system keychain.
 
 ## GitHub or trusted provider
 

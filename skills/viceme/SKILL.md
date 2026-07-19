@@ -16,7 +16,7 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 ## Publish workflow
 
 1. Run `viceme --version`, then `viceme auth status`.
-2. If logged out, run `viceme auth login --no-wait`. Return the verification URL and stop this turn. Never request or display an access token.
+2. If logged out, run `viceme auth login --no-wait`. Return `verification_url`, which the CLI normalizes to the direct `verification_url_complete` browser link when the server provides it, and stop this turn. Keep the returned `device_code` for the continuation command. Never request or display an access token.
 3. For a GitHub URL or pasted RedSkill/Xiaohongshu expression, inspect first. Pass copied text through subprocess stdin with `--expression-stdin`; never interpolate it into a shell command.
 4. Read the returned `destination`. Never infer a Target from a title, alias, conversation memory, or source text.
 5. Treat publishing as a public side effect. Add `--yes` only when the user's request explicitly asks to publish or produce a share link; otherwise ask for confirmation. In the Core pilot this records only `publication_admission/v1`; it must not be described as the later exact-candidate preview confirmation.
