@@ -133,7 +133,7 @@ Viceme exposes one product-level region choice during installation:
 
 The selected value is persisted as `region=cn|global`; later commands use it automatically. Credentials are isolated by region, so a China token is never reused against the international API, or vice versa.
 
-There is no public API URL, profile, or output-format configuration. For local development only, set `VICEME_API_BASE_URL` in the terminal environment.
+There is no public API URL, profile, or output-format configuration. For local development only, set `VICEME_API_BASE_URL` in the terminal environment. An override on the current region's canonical origin keeps the compatible `cn` or `global` keychain scope, even with a base path; a different normalized origin uses an isolated scope and requires separate authentication. API and presigned-upload requests fail closed on redirects so credential headers are never forwarded to another origin.
 
 ## Agent Skills
 
@@ -167,7 +167,9 @@ viceme skills doctor
 
 Tokens are stored only in the operating-system keychain. There is no plaintext token fallback, and successful login output never contains the access or refresh token.
 
-Ordinary authenticated users publish directly. Staff-operated delegated publication uses the same host-neutral command contract, with one-time credentials accepted only from protected stdin or an OS-keychain reference and sent only through a dedicated request header. Raw delegated credentials are never accepted as flags or environment configuration and are never returned in CLI output.
+Ordinary authenticated users publish directly. Staff-operated delegated publication uses the same host-neutral command contract, with one-time credentials accepted only from protected non-TTY stdin or an OS-keychain reference and sent only through a dedicated request header. Raw delegated credentials are never accepted as flags or environment configuration and are never returned in CLI output.
+
+Saving a delegated grant creates one versioned keychain entry containing the credential and a stable, non-sensitive recovery identity. Publishing an expression with `--delegated-grant-ref` first inspects the source and selects an immutable candidate before reading the grant; use `--skill-root` when inspection returns multiple candidates. The grant's Target scope must match the destination: the default `auto` destination requires `UPSERT`, `--new-target` requires `CREATE`, and `--target-id` requires `UPDATE`. The first exact request is persisted and reused after an ambiguous transport failure, and the whole entry is deleted only after a valid server receipt. A direct protected-stdin publication has no persistent recovery boundary, so it requires both an existing `--resolution-id` and an explicit `--client-request-id`. Delegated ZIP and directory uploads are rejected before reading the grant or uploading data.
 
 ## Supported Sources
 
@@ -251,16 +253,16 @@ CLI execution errors are written to **stderr** with a non-zero exit code:
 }
 ```
 
-Determine command success from the process exit code or `ok == true`. A successfully read publication may still contain a business terminal status such as `unsupported`, `rejected`, or `failed`; inspect `data.status` instead of treating those states as CLI transport failures.
+Determine command success from the process exit code or `ok == true`. The API's domain-specific `error.type` is preserved; the exit code is only a coarse handling class. A successfully read publication may still contain a business terminal status such as `unsupported`, `rejected`, or `failed`; inspect `data.status` instead of treating those states as CLI transport failures.
 
 | Exit code | Meaning |
 |---|---|
 | `0` | Command completed; inspect returned business status when applicable |
 | `2` | Validation failure |
 | `3` | Authentication or authorization failure |
-| `4` | Retryable network failure |
+| `4` | Retryable transport or concurrency failure |
 | `5` | Internal or protocol failure |
-| `6` | Policy rejection before publication creation |
+| `6` | Policy or rollout-gate rejection |
 | `10` | Explicit confirmation required |
 
 ## Security and Risk Controls

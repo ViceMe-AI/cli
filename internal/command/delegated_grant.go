@@ -1,6 +1,8 @@
 package command
 
 import (
+	"path/filepath"
+
 	"github.com/ViceMe-AI/cli/internal/auth"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/spf13/cobra"
@@ -29,7 +31,7 @@ func newDelegatedGrantSaveCommand(runtime *Runtime) *cobra.Command {
 			if !stdin {
 				return output.Validation("delegated_grant_stdin_required", "use --stdin so the delegated grant is never passed as a command argument")
 			}
-			value, err := readLimited(runtime.deps.In, maxDelegatedGrantStdinBytes)
+			value, err := readDelegatedGrantStdin(runtime)
 			if err != nil {
 				return err
 			}
@@ -40,7 +42,7 @@ func newDelegatedGrantSaveCommand(runtime *Runtime) *cobra.Command {
 			return runtime.success(auth.DelegatedGrantStatus{CredentialRef: args[0], Stored: true})
 		},
 	}
-	command.Flags().BoolVar(&stdin, "stdin", false, "read the credential from stdin; raw credentials are never accepted as flags")
+	command.Flags().BoolVar(&stdin, "stdin", false, "read from protected non-TTY stdin; raw credentials are never accepted as flags")
 	return command
 }
 
@@ -74,5 +76,25 @@ func newDelegatedGrantDeleteCommand(runtime *Runtime) *cobra.Command {
 }
 
 func delegatedGrantManager(runtime *Runtime) *auth.DelegatedGrantManager {
-	return &auth.DelegatedGrantManager{Store: runtime.deps.Store, Region: string(runtime.region)}
+	return &auth.DelegatedGrantManager{
+		Store:  runtime.deps.Store,
+		Region: string(runtime.region),
+		Scope:  runtime.credentialScope,
+		NewID:  runtime.deps.NewID,
+		LockDir: filepath.Join(
+			runtimeConfigBase(runtime.deps.Environment),
+			"viceme",
+			"locks",
+		),
+	}
+}
+
+func readDelegatedGrantStdin(runtime *Runtime) (string, error) {
+	if runtime.deps.InputIsTerminal != nil && runtime.deps.InputIsTerminal() {
+		return "", output.Validation(
+			"delegated_grant_tty_unsupported",
+			"delegated grant stdin is an interactive terminal and may echo secrets; pipe it from a protected channel instead",
+		)
+	}
+	return readLimited(runtime.deps.In, maxDelegatedGrantStdinBytes)
 }

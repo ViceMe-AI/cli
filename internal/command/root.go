@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -35,8 +36,11 @@ type Dependencies struct {
 	Now         func() time.Time
 	Sleep       func(context.Context, time.Duration) error
 	NewID       func() string
-	APIBaseURL  string
-	Region      config.Region
+	// InputIsTerminal lets embedders identify whether secret stdin would be
+	// echoed. The default detects an interactive os.Stdin.
+	InputIsTerminal func() bool
+	APIBaseURL      string
+	Region          config.Region
 }
 
 type options struct {
@@ -51,6 +55,7 @@ type Runtime struct {
 	region               config.Region
 	apiBaseURL           string
 	apiBaseURLOverridden bool
+	credentialScope      string
 }
 
 func Execute(args []string, dependencies Dependencies) int {
@@ -98,6 +103,14 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	if apiBaseURL == "" {
 		apiBaseURL = config.APIBaseURL(region)
 	}
+	credentialScope := ""
+	if apiBaseURLOverridden {
+		resolvedScope, scopeErr := credentialScopeForAPIBase(apiBaseURL, region)
+		if scopeErr != nil {
+			return nil, nil, output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+		}
+		credentialScope = resolvedScope
+	}
 	digests, err := dependencies.Skills.Digests("viceme")
 	if err != nil {
 		return nil, nil, err
@@ -114,6 +127,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		region:               region,
 		apiBaseURL:           apiBaseURL,
 		apiBaseURLOverridden: apiBaseURLOverridden,
+		credentialScope:      credentialScope,
 		printer: &output.Printer{
 			Out:    dependencies.Out,
 			ErrOut: dependencies.ErrOut,
@@ -185,6 +199,16 @@ func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.NewID == nil {
 		dependencies.NewID = randomUUID
 	}
+	if dependencies.InputIsTerminal == nil {
+		dependencies.InputIsTerminal = func() bool {
+			file, ok := dependencies.In.(*os.File)
+			if !ok {
+				return false
+			}
+			info, err := file.Stat()
+			return err == nil && info.Mode()&os.ModeCharDevice != 0
+		}
+	}
 	return dependencies
 }
 
@@ -200,7 +224,7 @@ func newVersionCommand(runtime *Runtime) *cobra.Command {
 }
 
 func (r *Runtime) manager() *auth.Manager {
-	return &auth.Manager{Store: r.deps.Store, Region: string(r.region)}
+	return &auth.Manager{Store: r.deps.Store, Region: string(r.region), Scope: r.credentialScope}
 }
 
 func (r *Runtime) client() *api.Client {
@@ -264,6 +288,30 @@ func randomUUID() string {
 	value[8] = (value[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
 		value[0:4], value[4:6], value[6:8], value[8:10], value[10:16])
+}
+
+func customCredentialScope(apiBaseURL string) (string, error) {
+	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256([]byte(origin))
+	return fmt.Sprintf("custom:%x", digest[:]), nil
+}
+
+func credentialScopeForAPIBase(apiBaseURL string, region config.Region) (string, error) {
+	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	if err != nil {
+		return "", err
+	}
+	canonicalOrigin, err := api.NormalizeAPIOrigin(config.APIBaseURL(region))
+	if err != nil {
+		return "", err
+	}
+	if origin == canonicalOrigin {
+		return "", nil
+	}
+	return customCredentialScope(apiBaseURL)
 }
 
 // errorsAs is a small indirection so the rest of the command tree does not

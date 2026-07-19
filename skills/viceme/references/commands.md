@@ -11,7 +11,7 @@ viceme install --target codex --region global
 viceme skills doctor --target codex
 ```
 
-Installation defaults to `cn`. Pass `--region global` only for the international Viceme service. The CLI persists that choice; later commands do not take a region or API URL flag. All data commands emit the stable JSON envelope by default.
+Installation defaults to `cn`. Pass `--region global` only for the international Viceme service. The CLI persists that choice; later commands do not take a region or API URL flag. A `VICEME_API_BASE_URL` override on the selected region's canonical origin keeps its compatible region keychain scope, including when a base path is present. A different normalized origin uses an isolated scope and requires its own login and delegated-grant save. All API and presigned-upload redirects fail closed. All data commands emit the stable JSON envelope by default.
 
 Check first when desired, then update the npm launcher, verified Go binary, and matching Skill together:
 
@@ -41,16 +41,28 @@ An authenticated ordinary user publishes directly with the existing commands. No
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
 
-For staff-operated delegated publication, deliver the one-time credential through protected stdin and save it under a non-sensitive keychain reference:
+For staff-operated delegated publication, deliver the one-time credential through protected non-TTY stdin and save it under a non-sensitive keychain reference:
 
 ```bash
 viceme skill delegated-grant save creator-one --stdin
 viceme skill delegated-grant status creator-one
-viceme skill publish --resolution-id <resolution-id> --delegated-grant-ref creator-one --yes
+viceme skill publish https://github.com/acme/poster-skill --delegated-grant-ref creator-one --yes
+# Add --skill-root <returned-selector> if the CLI returns selection_required.
 viceme skill delegated-grant delete creator-one
 ```
 
-Hosts that already provide protected child-process stdin may publish once with `--delegated-grant-stdin`; it cannot be combined with `--expression-stdin`. Never place the raw credential in argv, environment variables, URLs, logs, stdout, source expressions, or JSON request bodies. Successful output contains only the non-sensitive server receipt ID.
+The ref path inspects an expression and freezes a unique immutable candidate before reading the grant. Its single versioned keychain entry stores a stable client request ID, intent fingerprint, resolution ID, and selector beside the credential. The grant's Target scope must match the destination: default `auto` requires `UPSERT`, `--new-target` requires `CREATE`, and `--target-id` requires `UPDATE`. An ambiguous retry of the same command reuses the exact persisted request; a different request fails closed. A valid server receipt deletes the whole entry, while missing/ambiguous receipts retain it for recovery.
+
+Hosts that already provide protected non-TTY child-process stdin may publish once only with an existing immutable resolution and a stable host-generated idempotency key:
+
+```bash
+<protected-grant-producer> | viceme skill publish \
+  --resolution-id <resolution-id> \
+  --client-request-id <stable-request-id> \
+  --delegated-grant-stdin --yes
+```
+
+Reuse both IDs for an ambiguous retry. `--delegated-grant-stdin` cannot be combined with `--expression-stdin`; interactive TTY input is rejected because it may echo the secret. Never place the raw credential in argv, environment variables, URLs, logs, stdout, source expressions, or JSON request bodies. Successful output contains only the non-sensitive server receipt ID. Delegated `--file` and `--dir` publication are unsupported and fail before the grant or upload is read.
 
 ## GitHub or trusted provider
 

@@ -187,7 +187,7 @@
           "name": "stdin",
           "type": "bool",
           "default": "false",
-          "usage": "read the credential from stdin; raw credentials are never accepted as flags"
+          "usage": "read from protected non-TTY stdin; raw credentials are never accepted as flags"
         }
       ]
     },
@@ -232,18 +232,18 @@
         {
           "name": "client-request-id",
           "type": "string",
-          "usage": "idempotency key for this publication action"
+          "usage": "idempotency key; required with --delegated-grant-stdin"
         },
         {
           "name": "delegated-grant-ref",
           "type": "string",
-          "usage": "read a delegated grant by non-sensitive OS keychain reference"
+          "usage": "publish with a keychain grant and persisted exact-request recovery state"
         },
         {
           "name": "delegated-grant-stdin",
           "type": "bool",
           "default": "false",
-          "usage": "read a one-time delegated grant from stdin without persisting it"
+          "usage": "read a grant from protected non-TTY stdin; requires --resolution-id and --client-request-id"
         },
         {
           "name": "dir",

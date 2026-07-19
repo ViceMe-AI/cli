@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -28,9 +29,16 @@ type Status struct {
 type Manager struct {
 	Store  securestore.Store
 	Region string
+	// Scope overrides the legacy region namespace. Production cn/global
+	// endpoints intentionally leave this empty so existing keychain entries
+	// remain compatible. Custom API origins must provide an isolated scope.
+	Scope string
 }
 
 func (m *Manager) key() string {
+	if scope := strings.TrimSpace(m.Scope); scope != "" {
+		return "credential:" + scope
+	}
 	region := m.Region
 	if region == "" {
 		region = "cn"

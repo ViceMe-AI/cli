@@ -58,3 +58,27 @@ func TestCredentialsAreIsolatedByRegion(t *testing.T) {
 		t.Fatalf("credentials crossed regions: cn=%q global=%q", cnCredential.AccessToken, globalCredential.AccessToken)
 	}
 }
+
+func TestCustomCredentialScopesNeverReadProductionRegionCredentials(t *testing.T) {
+	t.Parallel()
+	store := securestore.NewMemory()
+	production := &Manager{Store: store, Region: "cn"}
+	customA := &Manager{Store: store, Region: "cn", Scope: "custom:origin-a"}
+	customB := &Manager{Store: store, Region: "cn", Scope: "custom:origin-b"}
+	if err := production.Save(Credential{AccessToken: "production-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := customA.Load(); err == nil {
+		t.Fatal("custom API scope read the production credential")
+	}
+	if err := customA.Save(Credential{AccessToken: "custom-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := customB.Load(); err == nil {
+		t.Fatal("credential crossed custom API origins")
+	}
+	loaded, err := production.Load()
+	if err != nil || loaded.AccessToken != "production-token" {
+		t.Fatalf("legacy production credential changed: %#v err=%v", loaded, err)
+	}
+}

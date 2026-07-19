@@ -19,7 +19,15 @@ Use another bounded wait when `meta.wait_timed_out` is true.
 - `target_conflict`: refresh the Target. Do not use last-write-wins or create another link.
 - `delegated_grant_not_found`: save the credential through protected stdin or choose an existing keychain reference.
 - `delegated_grant_invalid`: discard the local value and obtain a new one-time grant through the staff control plane; never print the rejected value.
-- `delegated_grant_expired`, `delegated_grant_replayed`, `delegated_grant_scope_mismatch`: stop and request a newly scoped grant. Do not retry the credential against another source or creator.
+- `delegated_grant_ref_exists`: do not overwrite an entry that may contain recovery state; delete it explicitly only after deciding the old grant is no longer recoverable.
+- `delegated_grant_request_mismatch`: the ref is already bound to another exact request. Retry the original command or explicitly abandon/delete the ref; never replay it against the new request.
+- `delegated_grant_cleanup_conflict`: the server receipt succeeded but local recovery state changed. Keep the reported ref and inspect/delete it explicitly; do not resend the grant.
+- `selection_required`: no publication or grant reservation exists yet. Ask the user for one returned selector and rerun the same delegated-ref command with `--skill-root`.
+- `client_request_id_required`, `resolution_id_required`: protected-stdin delegated publication must provide both stable values so an ambiguous retry has the same request digest.
+- `delegated_grant_tty_unsupported`: use a protected pipe or keychain ref; never paste the grant into an echoing terminal.
+- `delegated_upload_unsupported`: delegated publication accepts immutable provider resolutions, not local file or directory uploads.
+- `delegated_grant_expired`, `delegated_grant_replayed`: stop and request a new grant. Do not retry the credential against another source or creator.
+- `delegated_grant_scope_mismatch`: stop and request a grant scoped to both the immutable source and the Target operation: `UPSERT` for default `auto`, `CREATE` for `--new-target`, or `UPDATE` for `--target-id`. Never reuse the rejected credential against another destination.
 - `payment_required`: explain the requirement and stop.
 
 ## Terminal outcomes
@@ -32,13 +40,13 @@ Use another bounded wait when `meta.wait_timed_out` is true.
 
 ## CLI execution errors
 
-Nonzero exits mean the CLI invocation itself did not complete:
+Nonzero exits mean the CLI invocation itself did not complete. Preserve and branch on the server's domain-specific `error.type`; the exit code is only a coarse handling class:
 
 - `2`: validation
 - `3`: authentication or authorization
-- `4`: network
+- `4`: retryable transport or concurrency
 - `5`: internal/protocol
-- `6`: policy before publication creation
+- `6`: policy or rollout gate
 - `10`: confirmation required
 
 Read the JSON error fields `type`, `subtype`, `message`, `retryable`, and optional `hint`. Never scrape human error text.
