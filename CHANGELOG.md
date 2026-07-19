@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.2.0] - 2026-07-19
+
+### Features
+
+- notify Feishu after CLI releases (`1584c09`)
+- simplify CLI region and output contract (`021704e`)
+
+### Fixes
+
+- publish through repository GitHub App (`7db30af`)
+- prepare only on release intent (`a28c0b5`)
+- use scoped deploy key for dev (`fcc7a0b`)
+- support protected dev automation (`5f490fd`)
+- make npm tests version agnostic (`01ef51f`)
+- return direct CLI device authorization link (`6f125f3`)
+- default CLI API to viceme.cn (`8ac5172`)
+- retry npm registry reads after publish (`2c757af`)
+
+### Other Changes
+
+- explain direct browser device authorization (`07a1cd9`)
+- clarify Agent Skills and AI quick start (`60672b2`)
+- add Chinese CLI guide (`aa892e0`)
+- improve CLI quick start and safety guide (`3f5e9e3`)
+
 ## [0.1.0] - 2026-07-18
 
 ### Features
