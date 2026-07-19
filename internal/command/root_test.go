@@ -112,11 +112,12 @@ func TestPublishRequiresConfirmationAndExplicitUploadTarget(t *testing.T) {
 
 func TestAuthNoWaitNeverReturnsToken(t *testing.T) {
 	t.Parallel()
+	completeURL := "https://viceme.test/cli/auth?user_code=ABCD-EFGH"
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v1/cli/auth/device" {
 			t.Fatalf("unexpected path: %s", request.URL.Path)
 		}
-		_, _ = io.WriteString(writer, `{"verification_url":"https://viceme.test/device","device_code":"device-public","user_code":"ABCD","expires_at":"2030-01-01T00:00:00Z","interval_seconds":2}`)
+		_, _ = io.WriteString(writer, `{"verification_url":"https://viceme.test/cli/auth","verification_url_complete":"`+completeURL+`","device_code":"device-public","user_code":"ABCD-EFGH","expires_at":"2030-01-01T00:00:00Z","interval_seconds":2}`)
 	}))
 	defer server.Close()
 	code, stdout, stderr, _ := runCLI(t, server, nil, "auth", "login", "--no-wait")
@@ -125,6 +126,18 @@ func TestAuthNoWaitNeverReturnsToken(t *testing.T) {
 	}
 	if strings.Contains(stdout, "access_token") || strings.Contains(stderr, "access_token") {
 		t.Fatal("login start leaked an access token field")
+	}
+	var envelope struct {
+		Data struct {
+			VerificationURL         string `json:"verification_url"`
+			VerificationURLComplete string `json:"verification_url_complete"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.VerificationURL != completeURL || envelope.Data.VerificationURLComplete != completeURL {
+		t.Fatalf("CLI did not return the direct browser URL: %#v", envelope.Data)
 	}
 }
 
