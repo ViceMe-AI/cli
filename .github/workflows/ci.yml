@@ -2,10 +2,7 @@ name: CLI quality gates
 
 on:
   pull_request:
-  push:
-    branches:
-      - main
-      - dev
+  workflow_dispatch:
 
 permissions:
   contents: read

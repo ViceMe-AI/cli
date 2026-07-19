@@ -6,6 +6,13 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+const packageDocument = JSON.parse(
+  await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+);
+const packageVersion = packageDocument.version;
+const packageID = `${packageDocument.name}@${packageVersion}`;
+const nextMajorVersion = `${Number(packageVersion.split(".")[0]) + 1}.0.0`;
+
 test(
   "release recovery verifies prior integrity or publishes only a missing version",
   { skip: process.platform === "win32" },
@@ -19,21 +26,30 @@ test(
     await writeFile(
       fakeNPM,
       `#!/usr/bin/env node
-const { appendFileSync, existsSync, writeSync } = require("node:fs");
+const { appendFileSync, existsSync, readFileSync, writeSync } = require("node:fs");
 const args = process.argv.slice(2);
 if (args[0] === "pack") {
-  writeSync(1, JSON.stringify([{ id: "@viceme-ai/cli@0.1.0", integrity: "sha512-local" }]));
+  writeSync(1, JSON.stringify([{ id: process.env.LOCAL_PACKAGE_ID, integrity: "sha512-local" }]));
   process.exit(0);
 }
 if (args[0] === "view") {
   if (args.includes("dist-tags.latest")) {
     const latest = existsSync(process.env.DIST_TAG_MARKER)
-      ? "0.1.0"
+      ? process.env.LOCAL_PACKAGE_VERSION
       : process.env.REMOTE_LATEST;
     writeSync(1, JSON.stringify(latest));
     process.exit(0);
   }
-  if (process.env.REMOTE_MODE === "missing") {
+  if (process.env.REMOTE_MODE === "missing" || process.env.REMOTE_MODE === "missing-forever") {
+    if (existsSync(process.env.PUBLISH_MARKER)) {
+      appendFileSync(process.env.VIEW_MARKER, "view\\n");
+      const attempts = readFileSync(process.env.VIEW_MARKER, "utf8").trim().split("\\n").length;
+      const misses = Number(process.env.POST_PUBLISH_MISSES || 0);
+      if (process.env.REMOTE_MODE !== "missing-forever" && attempts > misses) {
+        writeSync(1, JSON.stringify(process.env.REMOTE_INTEGRITY));
+        process.exit(0);
+      }
+    }
     writeSync(2, "npm error E404 Not Found\\n");
     process.exit(1);
   }
@@ -59,7 +75,11 @@ process.exit(90);
       PATH: `${fakeBin}${path.delimiter}${path.dirname(process.execPath)}${path.delimiter}/usr/bin${path.delimiter}/bin`,
       PUBLISH_MARKER: marker,
       DIST_TAG_MARKER: distTagMarker,
-      REMOTE_LATEST: "0.1.0",
+      VICEME_NPM_VIEW_RETRY_ATTEMPTS: "4",
+      VICEME_NPM_VIEW_RETRY_INITIAL_DELAY_MS: "0",
+      LOCAL_PACKAGE_ID: packageID,
+      LOCAL_PACKAGE_VERSION: packageVersion,
+      REMOTE_LATEST: packageVersion,
     };
 
     const matching = spawnSync(process.execPath, [script], {
@@ -80,7 +100,7 @@ process.exit(90);
         ...baseEnvironment,
         REMOTE_MODE: "existing",
         REMOTE_INTEGRITY: "sha512-local",
-        REMOTE_LATEST: "0.2.0",
+        REMOTE_LATEST: nextMajorVersion,
       },
     });
     assert.equal(newerLatest.status, 0, newerLatest.stderr);
@@ -92,23 +112,48 @@ process.exit(90);
         ...baseEnvironment,
         REMOTE_MODE: "existing",
         REMOTE_INTEGRITY: "sha512-local",
-        REMOTE_LATEST: "0.0.9",
+        REMOTE_LATEST: "0.0.0",
       },
     });
     assert.equal(olderLatest.status, 0, olderLatest.stderr);
-    assert.match(
-      await readFile(distTagMarker, "utf8"),
-      /dist-tag add @viceme-ai\/cli@0\.1\.0 latest/,
+    assert.ok(
+      (await readFile(distTagMarker, "utf8")).includes(`dist-tag add ${packageID} latest`),
     );
 
     const missing = spawnSync(process.execPath, [script], {
       encoding: "utf8",
-      env: { ...baseEnvironment, REMOTE_MODE: "missing", REMOTE_INTEGRITY: "" },
+      env: {
+        ...baseEnvironment,
+        REMOTE_MODE: "missing",
+        REMOTE_INTEGRITY: "sha512-local",
+        POST_PUBLISH_MISSES: "2",
+        VIEW_MARKER: path.join(directory, "post-publish-views"),
+      },
     });
     assert.equal(missing.status, 0, missing.stderr);
     assert.match(
       await readFile(marker, "utf8"),
       /publish --registry=https:\/\/registry\.npmjs\.org --@viceme-ai:registry=https:\/\/registry\.npmjs\.org/,
     );
+    assert.equal(
+      (await readFile(path.join(directory, "post-publish-views"), "utf8")).trim().split("\n").length,
+      3,
+    );
+
+    const neverVisibleMarker = path.join(directory, "published-never-visible");
+    const neverVisibleViews = path.join(directory, "never-visible-views");
+    const neverVisible = spawnSync(process.execPath, [script], {
+      encoding: "utf8",
+      env: {
+        ...baseEnvironment,
+        PUBLISH_MARKER: neverVisibleMarker,
+        REMOTE_MODE: "missing-forever",
+        REMOTE_INTEGRITY: "sha512-local",
+        VIEW_MARKER: neverVisibleViews,
+      },
+    });
+    assert.notEqual(neverVisible.status, 0);
+    assert.match(neverVisible.stderr, /npm error E404 Not Found/);
+    assert.equal((await readFile(neverVisibleViews, "utf8")).trim().split("\n").length, 4);
   },
 );

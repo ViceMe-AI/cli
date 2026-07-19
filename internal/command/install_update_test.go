@@ -17,12 +17,13 @@ func TestRootInstallBootstrapsSkillConfigAndLoginNextStep(t *testing.T) {
 	configDirectory := filepath.Join(home, "config")
 	environment := skillcontent.Environment{Home: home, ConfigDir: configDirectory}
 	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, nil, "", Dependencies{Environment: environment},
-		"install", "--target", "codex", "--json")
+		"install", "--target", "codex", "--region", "global")
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	var envelope struct {
 		Data struct {
+			Region string `json:"region"`
 			NextStep struct {
 				Command string `json:"command"`
 			} `json:"next_step"`
@@ -31,8 +32,11 @@ func TestRootInstallBootstrapsSkillConfigAndLoginNextStep(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Data.NextStep.Command != "viceme auth login --no-wait --json" {
+	if envelope.Data.NextStep.Command != "viceme auth login --no-wait" {
 		t.Fatalf("bootstrap did not return device-login next step: %s", stdout)
+	}
+	if envelope.Data.Region != "global" {
+		t.Fatalf("bootstrap did not select the global region: %s", stdout)
 	}
 	for _, filename := range []string{
 		filepath.Join(home, ".codex", "skills", "viceme", "SKILL.md"),
@@ -43,6 +47,13 @@ func TestRootInstallBootstrapsSkillConfigAndLoginNextStep(t *testing.T) {
 			t.Fatalf("bootstrap did not create %s: %v", filename, err)
 		}
 	}
+	configData, err := os.ReadFile(filepath.Join(configDirectory, "viceme", "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(configData) != "{\n  \"region\": \"global\"\n}\n" {
+		t.Fatalf("unexpected config: %s", configData)
+	}
 }
 
 func TestSkillsDoctorReportsEveryReleaseContractAndFailsOnVersionDrift(t *testing.T) {
@@ -50,12 +61,12 @@ func TestSkillsDoctorReportsEveryReleaseContractAndFailsOnVersionDrift(t *testin
 	home := t.TempDir()
 	environment := skillcontent.Environment{Home: home}
 	code, _, stderr, _ := runCLIWithDependencies(t, nil, nil, "", Dependencies{Environment: environment},
-		"skills", "install", "--target", "codex", "--json")
+		"skills", "install", "--target", "codex")
 	if code != 0 || stderr != "" {
 		t.Fatalf("install code=%d stderr=%s", code, stderr)
 	}
 	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, nil, "", Dependencies{Environment: environment},
-		"skills", "doctor", "--target", "codex", "--json")
+		"skills", "doctor", "--target", "codex")
 	if code != 0 || stderr != "" {
 		t.Fatalf("doctor code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
@@ -79,7 +90,7 @@ func TestSkillsDoctorReportsEveryReleaseContractAndFailsOnVersionDrift(t *testin
 		t.Fatal(err)
 	}
 	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, nil, "", Dependencies{Environment: environment},
-		"skills", "doctor", "--target", "codex", "--json")
+		"skills", "doctor", "--target", "codex")
 	if code != 5 || stdout != "" || !containsJSONKey(stderr, "skill_doctor_unhealthy") || !containsJSONKey(stderr, "installed Skill was written by a different CLI version") {
 		t.Fatalf("doctor did not fail closed on version drift: code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
@@ -125,11 +136,11 @@ func TestUpdateCommandChecksOrRefreshesPackageBinaryAndSkill(t *testing.T) {
 		check:  updatepkg.CheckResult{CurrentVersion: "0.1.0", AvailableVersion: "0.1.1", UpdateAvailable: true, Method: "npm"},
 		result: updatepkg.ApplyResult{PreviousCLIVersion: "0.1.0", CLIVersion: "0.1.1"},
 	}
-	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, nil, "", Dependencies{Updater: service}, "update", "--check", "--json")
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, nil, "", Dependencies{Updater: service}, "update", "--check")
 	if code != 0 || stderr != "" || service.applied || !stringContains(stdout, `"update_available":true`) {
 		t.Fatalf("check code=%d applied=%t stdout=%s stderr=%s", code, service.applied, stdout, stderr)
 	}
-	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, nil, "", Dependencies{Updater: service}, "update", "--target", "claude", "--json")
+	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, nil, "", Dependencies{Updater: service}, "update", "--target", "claude")
 	if code != 0 || stderr != "" || !service.applied || !service.options.RefreshSkills || service.options.SkillTarget != "claude" || !stringContains(stdout, `"cli_version":"0.1.1"`) {
 		t.Fatalf("apply code=%d applied=%t options=%#v stdout=%s stderr=%s", code, service.applied, service.options, stdout, stderr)
 	}

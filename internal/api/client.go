@@ -57,6 +57,13 @@ func NewClient(baseURL string, httpClient *http.Client, tokens TokenSource, user
 func (c *Client) StartDeviceAuthorization(ctx context.Context) (DeviceAuthorization, error) {
 	var response DeviceAuthorization
 	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/device", struct{}{}, &response, false, "")
+	if err == nil && response.VerificationURLComplete != "" {
+		// The complete URL carries the one-time user code and opens the exact
+		// authorization request in the browser. Keep verification_url as the
+		// canonical agent-facing field while retaining the explicit complete
+		// field for callers that understand the full server contract.
+		response.VerificationURL = response.VerificationURLComplete
+	}
 	return response, err
 }
 

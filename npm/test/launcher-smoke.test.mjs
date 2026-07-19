@@ -9,6 +9,11 @@ import test from "node:test";
 
 const localBinary = process.env.VICEME_TEST_BINARY;
 const packageTarball = process.env.VICEME_TEST_PACKAGE_TARBALL;
+const packageDocument = JSON.parse(
+  await readFile(new URL("../../package.json", import.meta.url), "utf8"),
+);
+const packageVersion = packageDocument.version;
+const packageArgumentPrefix = `${packageDocument.name}@`;
 
 test(
   "packed launcher executes root install with a local Go build",
@@ -22,7 +27,7 @@ test(
     await symlink(launcher, linkedLauncher);
     const child = spawnSync(
       process.execPath,
-      [linkedLauncher, "install", "--target", "codex", "--profile", "npm-package-smoke", "--json"],
+      [linkedLauncher, "install", "--target", "codex"],
       {
         encoding: "utf8",
         env: {
@@ -38,7 +43,6 @@ test(
     const envelope = JSON.parse(child.stdout);
     assert.equal(envelope.ok, true);
     assert.equal(envelope.data.skill.all_succeeded, true);
-    assert.equal(envelope.data.next_step.command, "viceme auth login --no-wait --json");
     await stat(path.join(codexHome, "skills", "viceme", "SKILL.md"));
     await stat(path.join(configHome, "viceme", "config.json"));
   },
@@ -63,7 +67,9 @@ test(
 const { appendFileSync, writeFileSync } = require("node:fs");
 const { spawnSync } = require("node:child_process");
 const args = process.argv.slice(2);
-const packageIndex = args.findIndex((arg) => arg.startsWith("@viceme-ai/cli@"));
+const packageIndex = args.findIndex((arg) =>
+  arg.startsWith(process.env.VICEME_TEST_PACKAGE_PREFIX),
+);
 if (args[0] !== "install" || packageIndex < 0) {
   process.stderr.write("unexpected npm invocation: " + args.join(" ") + "\\n");
   process.exit(91);
@@ -103,6 +109,7 @@ process.exit(child.status ?? 1);
       VICEME_INSTALL_METHOD: "npm",
       VICEME_REAL_NPM_CLI: npmCLI,
       VICEME_TEST_PACKAGE_TARBALL: path.resolve(packageTarball),
+      VICEME_TEST_PACKAGE_PREFIX: packageArgumentPrefix,
       VICEME_FAKE_NPM_MARKER: marker,
       VICEME_FAKE_NPM_DEBUG: npmDebug,
     };
@@ -118,9 +125,6 @@ process.exit(child.status ?? 1);
         "install",
         "--target",
         "codex",
-        "--profile",
-        "packed-cold-start",
-        "--json",
       ],
       { encoding: "utf8", env: isolatedEnvironment },
     );
@@ -144,11 +148,11 @@ process.exit(child.status ?? 1);
     const cacheRoot = path.join(home, "viceme-cache");
     const targetOS = process.platform === "darwin" ? "darwin" : "linux";
     const targetArch = process.arch === "arm64" ? "arm64" : "amd64";
-    const asset = `viceme_0.1.0_${targetOS}_${targetArch}`;
+    const asset = `viceme_${packageVersion}_${targetOS}_${targetArch}`;
     const cachedDirectory = path.join(
       cacheRoot,
       "cli",
-      "0.1.0",
+      packageVersion,
       "generations",
       "generation-package-smoke",
     );
@@ -168,7 +172,7 @@ process.exit(child.status ?? 1);
     ].join(path.delimiter);
     const freshEnvironment = { ...isolatedEnvironment };
     delete freshEnvironment.VICEME_BINARY_PATH;
-    const second = spawnSync("viceme", ["--version", "--json"], {
+    const second = spawnSync("viceme", ["--version"], {
       encoding: "utf8",
       env: {
         ...freshEnvironment,
@@ -179,7 +183,7 @@ process.exit(child.status ?? 1);
     assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
     const version = parseLastJSON(second.stdout);
     assert.equal(version.ok, true);
-    assert.equal(version.data.version, "0.1.0");
+    assert.equal(version.data.version, packageVersion);
     await stat(path.join(prefix, "bin", "viceme"));
   },
 );

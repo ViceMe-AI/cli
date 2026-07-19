@@ -59,7 +59,7 @@ func TestNPMServiceChecksAndAppliesExactVersion(t *testing.T) {
 	if !reflect.DeepEqual(runner.calls[1].args, wantInstall) {
 		t.Fatalf("unsafe or inexact npm install args: %#v", runner.calls[1])
 	}
-	wantExec := []string{"exec", "--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org", "--yes", "--package=@viceme-ai/cli@0.1.1", "--", "viceme", "skills", "install", "--target", "codex", "--json"}
+	wantExec := []string{"exec", "--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org", "--yes", "--package=@viceme-ai/cli@0.1.1", "--", "viceme", "skills", "install", "--target", "codex"}
 	if !reflect.DeepEqual(runner.calls[2].args, wantExec) {
 		t.Fatalf("unexpected Skill refresh args: %#v", runner.calls[2])
 	}
