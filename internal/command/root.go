@@ -21,7 +21,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const defaultAPIBaseURL = "https://api.viceme.ai"
+const defaultAPIBaseURL = "https://api.viceme.cn"
 
 type Dependencies struct {
 	In          io.Reader

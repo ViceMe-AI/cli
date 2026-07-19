@@ -6,7 +6,7 @@
     {
       "name": "api-base-url",
       "type": "string",
-      "default": "https://api.viceme.ai",
+      "default": "https://api.viceme.cn",
       "usage": "Viceme API base URL"
     },
     {

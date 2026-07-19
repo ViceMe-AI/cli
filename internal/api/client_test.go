@@ -73,7 +73,7 @@ func TestAPIBaseURLAllowsOnlyHTTPSOrLoopbackHTTP(t *testing.T) {
 		raw     string
 		wantErr bool
 	}{
-		{raw: "https://api.viceme.ai"},
+		{raw: "https://api.viceme.cn"},
 		{raw: "http://localhost:3991"},
 		{raw: "http://127.0.0.1:3991"},
 		{raw: "http://[::1]:3991"},

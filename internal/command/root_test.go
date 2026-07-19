@@ -18,6 +18,20 @@ import (
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
 
+func TestDefaultAPIBaseURL(t *testing.T) {
+	t.Setenv("VICEME_API_BASE_URL", "")
+	if got := defaults(Dependencies{}).APIBaseURL; got != "https://api.viceme.cn" {
+		t.Fatalf("default API base URL = %q", got)
+	}
+}
+
+func TestAPIBaseURLEnvironmentOverride(t *testing.T) {
+	t.Setenv("VICEME_API_BASE_URL", "http://localhost:3000")
+	if got := defaults(Dependencies{}).APIBaseURL; got != "http://localhost:3000" {
+		t.Fatalf("environment API base URL = %q", got)
+	}
+}
+
 func TestVersionJSONEnvelope(t *testing.T) {
 	t.Parallel()
 	code, stdout, stderr, _ := runCLI(t, nil, nil, "--version", "--json")
