@@ -7,6 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
+  actions: write
   contents: write
   pull-requests: write
 
@@ -48,6 +49,7 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           TAG="v${VERSION}"
+          PUSHED=false
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add \
@@ -61,12 +63,19 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit --message "chore(release): ${TAG}"
             git push origin HEAD:dev
+            PUSHED=true
           fi
           {
             echo "version=${VERSION}"
             echo "tag=${TAG}"
             echo "sha=$(git rev-parse HEAD)"
+            echo "pushed=${PUSHED}"
           } >>"${GITHUB_OUTPUT}"
+      - name: Run quality gates for the prepared dev head
+        if: steps.release.outputs.pushed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --ref dev
       - name: Create or update dev to main Release PR
         env:
           GH_TOKEN: ${{ github.token }}
@@ -90,7 +99,7 @@ jobs:
             echo "Prepared head: \`${RELEASE_SHA}\`  "
             echo "Evidence: ${RUN_URL}"
             echo
-            echo "> Merging is the release approval: GitHub Actions creates the tag, synchronizes the merged \`main\` commit back into \`dev\`, creates the GitHub Release and platform assets, and publishes npm automatically."
+            echo "> Merging is the release approval: GitHub Actions creates the tag, synchronizes the merged \`main\` commit back into \`dev\`, creates the GitHub Release and platform assets, publishes npm, and sends the Feishu summary automatically."
           } >"${BODY_FILE}"
 
           PR_URL="$(gh pr list --state open --base main --head dev --json url --jq '.[0].url // empty')"

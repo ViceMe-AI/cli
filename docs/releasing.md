@@ -16,8 +16,10 @@ files, create tags, write changelog entries, or run npm commands locally.
 4. The workflow synchronizes `package.json`, `package-lock.json`, Go build
    metadata, bundled Skill metadata, command manifest, release digests, and
    `CHANGELOG.md`.
-5. It runs `make check` and `make npm-package-check`, commits the generated
-   release files to `dev`, and creates or updates one `dev` to `main` PR titled
+5. It runs `make check` and `make npm-package-check`, uses the GitHub Actions
+   ruleset bypass to commit only the generated release files to protected
+   `dev`, explicitly dispatches the quality workflow for that new head, and
+   creates or updates one `dev` to `main` PR titled
    `chore(release): vX.Y.Z`.
 6. A maintainer reviews and merges that PR using the repository's preferred
    merge method.
@@ -32,6 +34,22 @@ files, create tags, write changelog entries, or run npm commands locally.
 GitHub Actions needs `Read and write permissions` and permission to create pull
 requests so the built-in `GITHUB_TOKEN` can update `dev` and maintain the
 Release PR. No maintainer PAT is required by these workflows.
+
+Protect `dev` with an active branch ruleset that keeps the normal requirements
+for a pull request, one approving review, and the four CLI quality checks. Add
+only the **GitHub Actions** GitHub App to that ruleset's bypass list with
+`Always allow`. The legacy branch-protection rule must not remain active beside
+the ruleset because its requirements have no equivalent app bypass and would
+still reject the release commit. Repository-wide workflow permissions remain
+read-only by default; only the reviewed release workflows request
+`contents: write`.
+
+The general CLI quality workflow runs for pull requests, not branch pushes.
+After `GITHUB_TOKEN` writes the generated release commit, `Prepare Release PR`
+explicitly dispatches that workflow for the new `dev` head because GitHub does
+not recursively trigger workflows for a `GITHUB_TOKEN` push. This provides one
+set of required checks for the exact prepared commit without duplicate push and
+pull-request runs.
 
 Configure npm trusted publishing for:
 
