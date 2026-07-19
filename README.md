@@ -64,7 +64,7 @@ If the installation result says authentication is required, start device login:
 viceme auth login --no-wait
 ```
 
-Open the returned `verification_url`, complete authorization, and then continue with the returned device code:
+Open the returned `verification_url`; it normally links directly to the matching prefilled device request. Complete authorization, and then continue with the returned device code:
 
 ```bash
 viceme auth login --device-code <device-code>
@@ -92,7 +92,7 @@ Read `data.authenticated` and `data.next_step` from the result. If authenticatio
 viceme auth login --no-wait
 ```
 
-Return the exact `data.verification_url` and `data.user_code` when present. Preserve `data.device_code` for the continuation command, then stop the current turn. Do not request, print, or place an access token in the conversation.
+Return the exact `data.verification_url`; the CLI normalizes it to the prefilled `verification_url_complete` browser link when available. Include `data.user_code` only as a fallback if the browser asks for it. Preserve `data.device_code` for the continuation command, then stop the current turn. Do not request, print, or place an access token in the conversation.
 
 **Step 3 — Continue the same login in a later turn**
 

@@ -64,7 +64,7 @@ npx --yes @viceme-ai/cli@latest install --region global
 viceme auth login --no-wait
 ```
 
-打开返回的 `verification_url`，完成授权，然后使用返回的 device code 继续：
+打开返回的 `verification_url`；它通常会直接进入已预填对应设备码的授权请求。完成授权，然后使用返回的 device code 继续：
 
 ```bash
 viceme auth login --device-code <device-code>
@@ -92,7 +92,7 @@ npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://re
 viceme auth login --no-wait
 ```
 
-向用户返回准确的 `data.verification_url`，以及存在时的 `data.user_code`。保留 `data.device_code` 供后续命令使用，然后结束当前回合。不要在对话中索取、打印或传递访问令牌。
+向用户返回准确的 `data.verification_url`；存在 `verification_url_complete` 时，CLI 会把这个已预填设备码的浏览器直达链接规范化为 `verification_url`。只有浏览器要求输入时，才把 `data.user_code` 作为备用信息提供。保留 `data.device_code` 供后续命令使用，然后结束当前回合。不要在对话中索取、打印或传递访问令牌。
 
 **第 3 步 — 在后续回合继续同一个登录流程**
 
