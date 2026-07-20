@@ -33,7 +33,7 @@ viceme update --check
 viceme update --target codex
 ```
 
-The update path uses an exact npm package version. It does not execute provider installation text or replace a standalone binary through an unsigned self-update path.
+The update path queries the canonical registry directly, caches only a successful version result for a bounded 24-hour registry-outage fallback, and uses `~/.viceme-cli/npm-cache` for npm subprocesses. It uses an exact npm package version, does not execute provider installation text, and does not replace a standalone binary through an unsigned self-update path.
 
 ## Authenticate
 
