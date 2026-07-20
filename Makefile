@@ -36,7 +36,7 @@ npm-package-check: build
 	mkdir -p .cache/npm-pack
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) build -trimpath -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=$(NPM_VERSION) -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=$(COMMIT)" -o bin/viceme-release-smoke ./cmd/viceme
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm npm pack --pack-destination .cache/npm-pack
-	VICEME_INSTALL_METHOD=npm VICEME_NPM_PACKAGE_VERSION=$(NPM_VERSION) ./bin/viceme-release-smoke --version --json
+	VICEME_INSTALL_METHOD=npm VICEME_NPM_PACKAGE_VERSION=$(NPM_VERSION) ./bin/viceme-release-smoke --version
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm VICEME_TEST_BINARY=$(CURDIR)/bin/viceme-release-smoke VICEME_TEST_PACKAGE_TARBALL=$(CURDIR)/.cache/npm-pack/viceme-ai-cli-$(NPM_VERSION).tgz npm test
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm npm pack --dry-run
 
@@ -54,7 +54,7 @@ release-prepare:
 	$(MAKE) release-manifest
 
 update-check: build
-	./bin/viceme update --check --json
+	./bin/viceme update --check
 
 clean:
 	rm -rf bin .cache

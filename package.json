@@ -1,6 +1,6 @@
 {
   "name": "@viceme-ai/cli",
-  "version": "0.1.0",
+  "version": "0.4.0",
   "description": "Install and run the Viceme CLI and Viceme Agent Skill",
   "type": "module",
   "bin": {
@@ -9,7 +9,9 @@
   "files": [
     "npm/bin/",
     "npm/lib/",
+    "checksums.txt",
     "README.md",
+    "README.zh.md",
     "CHANGELOG.md",
     "docs/releasing.md"
   ],

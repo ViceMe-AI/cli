@@ -8,20 +8,20 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	cliembed "github.com/ViceMe-AI/cli"
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/auth"
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
 	"github.com/spf13/cobra"
 )
-
-const defaultAPIBaseURL = "https://api.viceme.ai"
 
 type Dependencies struct {
 	In          io.Reader
@@ -36,26 +36,31 @@ type Dependencies struct {
 	Sleep       func(context.Context, time.Duration) error
 	NewID       func() string
 	APIBaseURL  string
+	Region      config.Region
 }
 
 type options struct {
-	JSON       bool
-	Profile    string
-	APIBaseURL string
-	version    bool
+	version bool
+	profile string
 }
 
 type Runtime struct {
-	deps    Dependencies
-	opts    options
-	printer *output.Printer
-	meta    output.Meta
+	deps                 Dependencies
+	opts                 options
+	printer              *output.Printer
+	meta                 output.Meta
+	region               config.Region
+	apiBaseURL           string
+	apiBaseURLOverridden bool
+	config               config.Config
+	profile              config.Profile
+	configBase           string
 }
 
 func Execute(args []string, dependencies Dependencies) int {
 	root, runtime, err := NewRoot(dependencies)
 	if err != nil {
-		printer := &output.Printer{Out: writerOr(dependencies.Out, os.Stdout), ErrOut: writerOr(dependencies.ErrOut, os.Stderr), JSON: hasJSONFlag(args)}
+		printer := &output.Printer{Out: writerOr(dependencies.Out, os.Stdout), ErrOut: writerOr(dependencies.ErrOut, os.Stderr)}
 		return printer.Failure(err)
 	}
 	root.SetArgs(args)
@@ -74,6 +79,35 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		return nil, nil, output.Internal("launcher_version_mismatch", "npm launcher and Go binary versions do not match", err)
 	}
 	dependencies = defaults(dependencies)
+	configBase := runtimeConfigBase(dependencies.Environment)
+	resolvedConfig := config.Default(config.RegionCN)
+	if dependencies.Region == "" {
+		var err error
+		resolvedConfig, err = config.LoadOrDefault(configBase)
+		if err != nil {
+			return nil, nil, output.Internal("config_load", "could not load Viceme CLI configuration", err)
+		}
+	} else {
+		resolvedRegion, err := config.ParseRegion(string(dependencies.Region))
+		if err != nil {
+			return nil, nil, output.Internal("config_region", "invalid injected Viceme region", err)
+		}
+		resolvedConfig = config.Default(resolvedRegion)
+	}
+	resolvedProfile, err := resolvedConfig.Resolve("")
+	if err != nil {
+		return nil, nil, output.Internal("config_profile", "could not resolve the active Viceme CLI profile", err)
+	}
+	region := resolvedProfile.Region
+	apiBaseURL := dependencies.APIBaseURL
+	apiBaseURLOverridden := apiBaseURL != ""
+	if apiBaseURL == "" {
+		apiBaseURL = os.Getenv("VICEME_API_BASE_URL")
+		apiBaseURLOverridden = apiBaseURL != ""
+	}
+	if apiBaseURL == "" {
+		apiBaseURL = config.APIBaseURL(region)
+	}
 	digests, err := dependencies.Skills.Digests("viceme")
 	if err != nil {
 		return nil, nil, err
@@ -85,15 +119,20 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		EmbeddedContentDigest: digests.Embedded,
 	}
 	runtime := &Runtime{
-		deps: dependencies,
-		meta: meta,
+		deps:                 dependencies,
+		meta:                 meta,
+		region:               region,
+		apiBaseURL:           apiBaseURL,
+		apiBaseURLOverridden: apiBaseURLOverridden,
+		config:               resolvedConfig,
+		profile:              *resolvedProfile,
+		configBase:           configBase,
 		printer: &output.Printer{
 			Out:    dependencies.Out,
 			ErrOut: dependencies.ErrOut,
 			Meta:   meta,
 		},
 	}
-	runtime.opts.APIBaseURL = dependencies.APIBaseURL
 	root := &cobra.Command{
 		Use:           "viceme",
 		Short:         "Publish external Skills as stable Viceme Agents",
@@ -111,10 +150,11 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.SetIn(dependencies.In)
 	root.SetOut(dependencies.Out)
 	root.SetErr(dependencies.ErrOut)
-	root.PersistentFlags().BoolVar(&runtime.opts.JSON, "json", false, "emit stable JSON output")
-	root.PersistentFlags().StringVar(&runtime.opts.Profile, "profile", "default", "credential profile")
-	root.PersistentFlags().StringVar(&runtime.opts.APIBaseURL, "api-base-url", dependencies.APIBaseURL, "Viceme API base URL")
 	root.Flags().BoolVarP(&runtime.opts.version, "version", "v", false, "print version information")
+	root.PersistentFlags().StringVar(&runtime.opts.profile, "profile", "", "use a specific profile for this command")
+	root.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+		return runtime.selectProfile(runtime.opts.profile)
+	}
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return output.Validation("invalid_flag", err.Error())
 	})
@@ -122,6 +162,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newInstallCommand(runtime))
 	root.AddCommand(newUpdateCommand(runtime))
 	root.AddCommand(newAuthCommand(runtime))
+	root.AddCommand(newProfileCommand(runtime))
 	root.AddCommand(newSkillCommand(runtime))
 	root.AddCommand(newJobCommand(runtime))
 	root.AddCommand(newSkillsCommand(runtime))
@@ -143,15 +184,18 @@ func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.Skills == nil {
 		dependencies.Skills = skillcontent.New(cliembed.EmbeddedSkills())
 	}
+	if dependencies.Environment.Home == "" {
+		dependencies.Environment = skillcontent.DefaultEnvironment()
+	}
 	if dependencies.Updater == nil {
-		dependencies.Updater = updatepkg.NewNPMService(
+		updater := updatepkg.NewNPMService(
 			buildinfo.Version,
 			buildinfo.CompatibilityVersion(),
 			os.Getenv("VICEME_INSTALL_METHOD"),
 		)
-	}
-	if dependencies.Environment.Home == "" {
-		dependencies.Environment = skillcontent.DefaultEnvironment()
+		updater.ConfigDir = runtimeConfigBase(dependencies.Environment)
+		updater.HTTPClient = dependencies.HTTPClient
+		dependencies.Updater = updater
 	}
 	if dependencies.Now == nil {
 		dependencies.Now = time.Now
@@ -161,12 +205,6 @@ func defaults(dependencies Dependencies) Dependencies {
 	}
 	if dependencies.NewID == nil {
 		dependencies.NewID = randomUUID
-	}
-	if dependencies.APIBaseURL == "" {
-		dependencies.APIBaseURL = os.Getenv("VICEME_API_BASE_URL")
-		if dependencies.APIBaseURL == "" {
-			dependencies.APIBaseURL = defaultAPIBaseURL
-		}
 	}
 	return dependencies
 }
@@ -183,25 +221,27 @@ func newVersionCommand(runtime *Runtime) *cobra.Command {
 }
 
 func (r *Runtime) manager() *auth.Manager {
-	return &auth.Manager{Store: r.deps.Store, Profile: r.opts.Profile}
+	return &auth.Manager{
+		Store:       r.deps.Store,
+		Region:      string(r.region),
+		ProfileID:   r.profile.ID,
+		ProfileName: r.profile.Name,
+	}
 }
 
 func (r *Runtime) client() *api.Client {
-	return api.NewClient(r.opts.APIBaseURL, r.deps.HTTPClient, r.manager(), "viceme/"+buildinfo.Version)
+	return api.NewClient(r.apiBaseURL, r.deps.HTTPClient, r.manager(), "viceme/"+buildinfo.Version)
 }
 
 func (r *Runtime) success(data any) error {
-	r.printer.JSON = r.opts.JSON
 	return r.printer.Success(data)
 }
 
 func (r *Runtime) successWithMeta(data any, meta output.Meta) error {
-	r.printer.JSON = r.opts.JSON
 	return r.printer.SuccessWithMeta(data, meta)
 }
 
 func (r *Runtime) failure(err error) int {
-	r.printer.JSON = r.opts.JSON
 	var cliError *output.Error
 	if !errorsAs(err, &cliError) {
 		err = output.Validation("invalid_command", err.Error())
@@ -216,13 +256,54 @@ func writerOr(value, fallback io.Writer) io.Writer {
 	return value
 }
 
-func hasJSONFlag(args []string) bool {
-	for _, arg := range args {
-		if arg == "--json" || arg == "--json=true" {
-			return true
-		}
+func (r *Runtime) setRegion(region config.Region) {
+	r.region = region
+	r.profile.Region = region
+	if !r.apiBaseURLOverridden {
+		r.apiBaseURL = config.APIBaseURL(region)
 	}
-	return false
+}
+
+func (r *Runtime) selectProfile(name string) error {
+	profile, err := r.config.Resolve(name)
+	if err != nil {
+		return output.Validation("profile_not_found", err.Error())
+	}
+	r.profile = *profile
+	r.setRegion(profile.Region)
+	return nil
+}
+
+func (r *Runtime) reloadConfig(profileName string) error {
+	resolved, err := config.LoadOrDefault(r.configBase)
+	if err != nil {
+		return output.Internal("config_load", "could not reload Viceme CLI configuration", err)
+	}
+	r.config = resolved
+	return r.selectProfile(profileName)
+}
+
+func (r *Runtime) recordProfileUserID(userID string) error {
+	if userID == "" {
+		return nil
+	}
+	profile, err := r.config.Resolve(r.profile.Name)
+	if err != nil {
+		return output.Internal("config_profile", "could not update the active profile", err)
+	}
+	profile.UserID = userID
+	if _, err := config.Save(r.configBase, r.config); err != nil {
+		return output.Internal("config_save", "could not save the authenticated profile", err)
+	}
+	r.profile = *profile
+	return nil
+}
+
+func runtimeConfigBase(environment skillcontent.Environment) string {
+	if environment.ConfigDir != "" {
+		return environment.ConfigDir
+	}
+	return filepath.Join(environment.Home, ".viceme-cli")
 }
 
 func sleepContext(ctx context.Context, duration time.Duration) error {

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/ViceMe-AI/cli/internal/command"
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 )
 
@@ -16,7 +17,7 @@ func main() {
 	output := flag.String("output", "", "write the command manifest to this path instead of stdout")
 	flag.Parse()
 
-	root, _, err := command.NewRoot(command.Dependencies{Store: securestore.NewMemory()})
+	root, _, err := command.NewRoot(command.Dependencies{Store: securestore.NewMemory(), Region: config.RegionCN})
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)

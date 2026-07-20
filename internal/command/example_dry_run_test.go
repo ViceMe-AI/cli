@@ -42,8 +42,8 @@ func TestDocumentedPublishExamplesExecuteAsNetworkFreeDryRuns(t *testing.T) {
 			if !strings.Contains(string(commandsDocument), example.DocumentationAnchor) {
 				t.Fatalf("quality case is not anchored to the Agent Skill documentation: %s", example.DocumentationAnchor)
 			}
-			if !containsArgument(example.Args, "--dry-run") || !containsArgument(example.Args, "--json") {
-				t.Fatal("quality case must execute the JSON dry-run path")
+			if !containsArgument(example.Args, "--dry-run") {
+				t.Fatal("quality case must execute the network-free dry-run path")
 			}
 			code, stdout, stderr, _ := runCLIWithDependencies(t, nil, nil, example.Input, Dependencies{
 				HTTPClient: &http.Client{Transport: noNetworkTransport{t: t}},

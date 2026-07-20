@@ -1,13 +1,18 @@
-name: Prepare Release PR
+name: CLI release preparation
 
 on:
-  push:
+  pull_request:
     branches:
-      - dev
+      - main
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pull-requests: write
 
 concurrency:
@@ -16,11 +21,33 @@ concurrency:
 
 jobs:
   prepare:
+    name: Release candidate preparation
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.base_ref == 'main' &&
+       github.head_ref == 'dev' &&
+       github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       github.event.pull_request.head.ref == 'dev')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      - id: release-app-token
+        name: Create repository-scoped Release App token
+        uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        with:
+          app-id: ${{ vars.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+          permission-contents: write
+      - id: release-app-user
+        name: Resolve Release App bot identity
+        env:
+          APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.release-app-token.outputs.token }}
+        run: echo "user-id=$(gh api "/users/${APP_SLUG}[bot]" --jq .id)" >>"${GITHUB_OUTPUT}"
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
+          token: ${{ steps.release-app-token.outputs.token }}
           ref: dev
           fetch-depth: 0
       - name: Fetch stable branch and release tags
@@ -44,12 +71,16 @@ jobs:
           make npm-package-check
           git diff --check
       - id: release
-        name: Commit prepared release to dev
+        name: Commit prepared release to protected dev
+        env:
+          APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}
+          APP_USER_ID: ${{ steps.release-app-user.outputs.user-id }}
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           TAG="v${VERSION}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          PUSHED=false
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${APP_USER_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
           git add \
             CHANGELOG.md \
             package.json \
@@ -61,11 +92,13 @@ jobs:
           if ! git diff --cached --quiet; then
             git commit --message "chore(release): ${TAG}"
             git push origin HEAD:dev
+            PUSHED=true
           fi
           {
             echo "version=${VERSION}"
             echo "tag=${TAG}"
             echo "sha=$(git rev-parse HEAD)"
+            echo "pushed=${PUSHED}"
           } >>"${GITHUB_OUTPUT}"
       - name: Create or update dev to main Release PR
         env:
@@ -86,11 +119,12 @@ jobs:
             echo "- updated npm, Go, bundled Skill, command manifest, digests, and compatibility metadata;"
             echo "- generated \`CHANGELOG.md\`;"
             echo "- passed \`make check\` and \`make npm-package-check\`."
+            echo "- committed the generated files to protected \`dev\` as the dedicated ViceMe Release App."
             echo
             echo "Prepared head: \`${RELEASE_SHA}\`  "
             echo "Evidence: ${RUN_URL}"
             echo
-            echo "> Merging is the release approval: GitHub Actions creates the tag, synchronizes the merged \`main\` commit back into \`dev\`, creates the GitHub Release and platform assets, and publishes npm automatically."
+            echo "> Merging is the release approval: GitHub Actions creates the tag, GitHub Release and platform assets, publishes npm, and sends the Feishu summary automatically."
           } >"${BODY_FILE}"
 
           PR_URL="$(gh pr list --state open --base main --head dev --json url --jq '.[0].url // empty')"

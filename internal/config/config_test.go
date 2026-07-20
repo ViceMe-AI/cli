@@ -3,15 +3,20 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-func TestEnsureCreatesAndPreservesConfig(t *testing.T) {
+func TestSaveCreatesPreservesAndUpdatesProfileConfig(t *testing.T) {
 	t.Parallel()
 	base := t.TempDir()
-	result, err := Ensure(base, Config{DefaultProfile: "default", APIBaseURL: "https://api.viceme.test"})
+	config := Default(RegionCN)
+	result, err := Save(base, config)
 	if err != nil || result.Status != "created" {
 		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	if result.Path != filepath.Join(base, "config.json") {
+		t.Fatalf("unexpected path: %s", result.Path)
 	}
 	info, err := os.Stat(result.Path)
 	if err != nil {
@@ -20,31 +25,95 @@ func TestEnsureCreatesAndPreservesConfig(t *testing.T) {
 	if info.Mode().Perm()&0o077 != 0 {
 		t.Fatalf("config permissions are too broad: %o", info.Mode().Perm())
 	}
-	result, err = Ensure(base, Config{DefaultProfile: "other", APIBaseURL: "https://changed.test"})
+	result, err = Save(base, config)
 	if err != nil || result.Status != "unchanged" {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
-	data, err := os.ReadFile(filepath.Join(base, "viceme", "config.json"))
+	config.Profiles[0].Region = RegionGlobal
+	result, err = Save(base, config)
+	if err != nil || result.Status != "updated" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	loaded, err := LoadOrDefault(base)
+	if err != nil || loaded.Profiles[0].Region != RegionGlobal {
+		t.Fatalf("config=%#v err=%v", loaded, err)
+	}
+	data, err := os.ReadFile(filepath.Join(base, "config.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(data) == "" {
-		t.Fatal("config is empty")
+	for _, expected := range []string{`"currentProfile": "default"`, `"id": "default"`, `"name": "default"`, `"region": "global"`} {
+		if !strings.Contains(string(data), expected) {
+			t.Fatalf("config lacks %s: %s", expected, data)
+		}
 	}
 }
 
-func TestEnsureRefusesInvalidExistingConfig(t *testing.T) {
+func TestLoadDefaultsToCN(t *testing.T) {
+	t.Parallel()
+	loaded, err := LoadOrDefault(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := loaded.Resolve("")
+	if err != nil || profile.Region != RegionCN || profile.Name != DefaultProfileName {
+		t.Fatalf("profile=%#v err=%v", profile, err)
+	}
+	if APIBaseURL(profile.Region) != "https://api.viceme.cn" || APIBaseURL(RegionGlobal) != "https://api.viceme.ai" {
+		t.Fatal("region endpoint mapping is incorrect")
+	}
+}
+
+func TestLoadRefusesInvalidExistingConfig(t *testing.T) {
 	t.Parallel()
 	base := t.TempDir()
-	directory := filepath.Join(base, "viceme")
-	if err := os.MkdirAll(directory, 0o700); err != nil {
+	if err := os.WriteFile(filepath.Join(base, "config.json"), []byte("not json\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	filename := filepath.Join(directory, "config.json")
-	if err := os.WriteFile(filename, []byte("not json\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := Ensure(base, Config{}); err == nil {
+	if _, err := LoadOrDefault(base); err == nil {
 		t.Fatal("expected invalid config to be preserved and reported")
+	}
+}
+
+func TestLoadDoesNotAcceptLegacySingleRegionDocument(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	if err := os.WriteFile(filepath.Join(base, "config.json"), []byte("{\"region\":\"global\"}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOrDefault(base); err == nil {
+		t.Fatal("legacy single-region config must not be migrated or accepted")
+	}
+}
+
+func TestProfilesResolveAndRemainStableAcrossRename(t *testing.T) {
+	t.Parallel()
+	config := Default(RegionCN)
+	profile, err := config.AddProfile("work", RegionGlobal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := profile.ID
+	config.CurrentProfile = profile.Name
+	profile.Name = "company"
+	config.CurrentProfile = profile.Name
+	resolved, err := config.Resolve("company")
+	if err != nil || resolved.ID != id || resolved.Region != RegionGlobal {
+		t.Fatalf("profile=%#v err=%v", resolved, err)
+	}
+	if _, err := config.AddProfile("company", RegionCN); err == nil {
+		t.Fatal("expected duplicate profile name to fail")
+	}
+}
+
+func TestParseRegionAndProfileNameRejectUnknownValues(t *testing.T) {
+	t.Parallel()
+	if _, err := ParseRegion("us"); err == nil {
+		t.Fatal("expected unknown region to fail")
+	}
+	for _, name := range []string{"", "has space", "../escape", "shell$var"} {
+		if err := ValidateProfileName(name); err == nil {
+			t.Fatalf("expected profile name %q to fail", name)
+		}
 	}
 }

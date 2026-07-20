@@ -40,3 +40,11 @@ Nonzero exits mean the CLI invocation itself did not complete:
 - `10`: confirmation required
 
 Read the JSON error fields `type`, `subtype`, `message`, `retryable`, and optional `hint`. Never scrape human error text.
+
+Update failures use stable safe subtypes instead of returning raw npm output:
+
+- `update_registry_unavailable`: registry transport, timeout, rate-limit, or server failure; retryable when no fresh cache is available.
+- `update_registry_response`: the registry returned an invalid or unsupported release response.
+- `update_npm_missing`: npm is not available for an npm-managed installation.
+- `update_npm_permission`: the isolated ViceMe cache or npm global prefix is not writable; follow the returned hint and do not use `sudo viceme`.
+- `update_npm_failed`: npm failed for another local registry, proxy, or installation reason; follow the returned diagnostic hint.

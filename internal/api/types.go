@@ -14,11 +14,12 @@ func (d Document) StringValue(key string) string {
 }
 
 type DeviceAuthorization struct {
-	VerificationURL string    `json:"verification_url"`
-	DeviceCode      string    `json:"device_code"`
-	UserCode        string    `json:"user_code,omitempty"`
-	ExpiresAt       time.Time `json:"expires_at"`
-	IntervalSeconds int       `json:"interval_seconds"`
+	VerificationURL         string    `json:"verification_url"`
+	VerificationURLComplete string    `json:"verification_url_complete,omitempty"`
+	DeviceCode              string    `json:"device_code"`
+	UserCode                string    `json:"user_code,omitempty"`
+	ExpiresAt               time.Time `json:"expires_at"`
+	IntervalSeconds         int       `json:"interval_seconds"`
 }
 
 type DeviceTokenRequest struct {

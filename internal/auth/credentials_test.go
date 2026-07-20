@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/securestore"
 )
 
 type failingStore struct{}
@@ -15,7 +16,7 @@ func (failingStore) Delete(string) error        { return errors.New("no keychain
 
 func TestSecureStoreFailsClosed(t *testing.T) {
 	t.Parallel()
-	manager := &Manager{Store: failingStore{}, Profile: "default"}
+	manager := &Manager{Store: failingStore{}}
 	if err := manager.Save(Credential{AccessToken: "secret"}); err == nil {
 		t.Fatal("expected save failure")
 	} else {
@@ -31,5 +32,68 @@ func TestSecureStoreFailsClosed(t *testing.T) {
 		if !errors.As(err, &cliError) || cliError.Subtype != "keychain_unavailable" {
 			t.Fatalf("unexpected load error: %#v", err)
 		}
+	}
+}
+
+func TestCredentialsAreIsolatedByRegion(t *testing.T) {
+	t.Parallel()
+	store := securestore.NewMemory()
+	cn := &Manager{Store: store, Region: "cn"}
+	global := &Manager{Store: store, Region: "global"}
+	if err := cn.Save(Credential{AccessToken: "cn-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := global.Save(Credential{AccessToken: "global-token"}); err != nil {
+		t.Fatal(err)
+	}
+	cnCredential, err := cn.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	globalCredential, err := global.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cnCredential.AccessToken != "cn-token" || globalCredential.AccessToken != "global-token" {
+		t.Fatalf("credentials crossed regions: cn=%q global=%q", cnCredential.AccessToken, globalCredential.AccessToken)
+	}
+}
+
+func TestCredentialsAreIsolatedByProfile(t *testing.T) {
+	t.Parallel()
+	store := securestore.NewMemory()
+	personal := &Manager{Store: store, Region: "cn", ProfileID: "personal", ProfileName: "personal"}
+	work := &Manager{Store: store, Region: "cn", ProfileID: "work", ProfileName: "work"}
+	if err := personal.Save(Credential{AccessToken: "personal-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := work.Save(Credential{AccessToken: "work-token"}); err != nil {
+		t.Fatal(err)
+	}
+	personalCredential, err := personal.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workCredential, err := work.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if personalCredential.AccessToken != "personal-token" || workCredential.AccessToken != "work-token" {
+		t.Fatalf("credentials crossed profiles: personal=%q work=%q", personalCredential.AccessToken, workCredential.AccessToken)
+	}
+}
+
+func TestDefaultProfileDoesNotReadLegacyRegionCredential(t *testing.T) {
+	t.Parallel()
+	store := securestore.NewMemory()
+	if err := store.Set("credential:cn", `{"access_token":"legacy-token"}`); err != nil {
+		t.Fatal(err)
+	}
+	manager := &Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default"}
+	if _, err := manager.Load(); err == nil {
+		t.Fatal("legacy region credential must not be read or migrated")
+	}
+	if value, err := store.Get("credential:cn"); err != nil || value == "" {
+		t.Fatalf("legacy credential was unexpectedly modified: value=%q err=%v", value, err)
 	}
 }

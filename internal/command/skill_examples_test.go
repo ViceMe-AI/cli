@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -15,12 +16,13 @@ import (
 
 func TestCommandSurface(t *testing.T) {
 	t.Parallel()
-	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory()})
+	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory(), Region: config.RegionCN})
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, path := range []string{
 		"version", "install", "update", "auth login", "auth status", "auth logout",
+		"profile list", "profile add", "profile use", "profile remove", "profile rename",
 		"skill inspect", "skill publish", "skill target get", "skill target list",
 		"job get", "job wait", "job resume", "job cancel",
 		"skills list", "skills read", "skills install", "skills doctor",
@@ -31,9 +33,29 @@ func TestCommandSurface(t *testing.T) {
 	}
 }
 
+func TestPublicConfigurationSurfaceStaysMinimal(t *testing.T) {
+	t.Parallel()
+	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory(), Region: config.RegionCN})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []string{"json", "api-base-url"} {
+		if root.PersistentFlags().Lookup(removed) != nil {
+			t.Errorf("unexpected public global flag --%s", removed)
+		}
+	}
+	if root.PersistentFlags().Lookup("profile") == nil {
+		t.Fatal("root command must expose the profile selector")
+	}
+	install := findCommand(root, []string{"install"})
+	if install == nil || install.Flags().Lookup("region") == nil {
+		t.Fatal("install command must expose the single region selector")
+	}
+}
+
 func TestCommandExamplesReferenceRealFlagsAndConfirmRisk(t *testing.T) {
 	t.Parallel()
-	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory()})
+	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory(), Region: config.RegionCN})
 	if err != nil {
 		t.Fatal(err)
 	}
