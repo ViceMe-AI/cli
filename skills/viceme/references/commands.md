@@ -105,6 +105,18 @@ across candidates: if the preview or candidate digest changes, ask the user
 again with the fresh action. A stale or expired action fails closed — fetch
 `job get` and present the new `next_action` instead of retrying the old one.
 
+Confirmation is additionally gated on a real test run: the exact candidate
+must have a succeeded preview run whose result the publishing account
+accepted. Test runs and acceptance are driven from the preview page (the
+`preview_url` above) or the
+`/v1/skill-agent-publications/:id/preview-runs` API — the CLI has no separate
+commands for them. If `job resume --decision confirm` is rejected with 409
+`preview_run_required`, guide the user through a test run and acceptance on
+the same candidate first, then resume again with the same action; do not
+retry the decision blindly or report it as a bug. Applying an edit on the
+preview page supersedes the pending action and invalidates earlier runs —
+re-read `job get` for the fresh action afterwards.
+
 ## Bounded jobs and cancellation
 
 ```bash

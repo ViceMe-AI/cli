@@ -19,9 +19,9 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 2. If logged out, run `viceme auth login --no-wait --json`. Return the verification URL and stop this turn. Never request or display an access token.
 3. For a GitHub URL or pasted RedSkill/Xiaohongshu expression, inspect first. Pass copied text through subprocess stdin with `--expression-stdin`; never interpolate it into a shell command.
 4. Read the returned `destination`. Never infer a Target from a title, alias, conversation memory, or source text.
-5. Treat publishing as a public side effect. Add `--yes` only when the user's request explicitly asks to publish or produce a share link; otherwise ask for confirmation. In the Core pilot this records only `publication_admission/v1`; it must not be described as the later exact-candidate preview confirmation.
-6. Run `viceme job wait <publication-id> --timeout 60s --json`. Do not start an unbounded wait.
-7. Return the final `share_url`, whether the release was a no-op, and any warnings. The same logical Agent keeps the same URL across later releases.
+5. Treat publishing as a public side effect. Add `--yes` only when the user's request explicitly asks to publish or produce a share link; otherwise ask for confirmation. This records only `publication_admission/v1`; it must not be described as the later exact-candidate preview confirmation.
+6. Run `viceme job wait <publication-id> --timeout 60s --json`. Do not start an unbounded wait. When the publication parks at `awaiting_action` with a `confirm_publish` action, show the user `next_action.payload.preview_url` and the candidate digest: they must review the candidate there, run a preview test run on that page (or via the `preview-runs` API) and accept its result before any decision. Confirm without a succeeded and accepted run is rejected with `preview_run_required`.
+7. Only after the user confirms what they previewed and the test-run result is accepted, resume with `job resume --action-id … --expected-payload-digest … --expected-release-candidate-digest … --decision confirm|cancel` (see `references/commands.md`). Then return the final `share_url`, whether the release was a no-op, and any warnings. The same logical Agent keeps the same URL across later releases.
 
 For exact flags and examples, read `references/commands.md` with `viceme skills read viceme references/commands.md`. `references/command-manifest.json` is the release-checked machine-readable command surface. For job outcomes and error handling, read `references/statuses.md`.
 

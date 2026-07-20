@@ -291,6 +291,40 @@ func TestJobResumeConfirmPublishSendsDecisionContract(t *testing.T) {
 	}
 }
 
+func TestJobResumeCancelPublishSendsDecisionContract(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_1/resolve" || request.Method != http.MethodPost {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode resolve body: %v", err)
+		}
+		if body["decision"] != "cancel" ||
+			body["expected_release_candidate_digest"] != "sha256:candidate" ||
+			body["expected_payload_digest"] != "sha256:payload" {
+			t.Fatalf("cancel resolve body = %#v", body)
+		}
+		if _, ok := body["payload"]; ok {
+			t.Fatalf("cancel resolution must not carry a typed payload: %#v", body)
+		}
+		_, _ = io.WriteString(writer, `{"action_id":"act_1","status":"resolved","publication_status":"cancelled","resolution_digest":"sha256:resolution","resolved_at":"2026-07-18T00:00:00Z"}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t),
+		"job", "resume", "pub_1",
+		"--action-id", "act_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--expected-release-candidate-digest", "sha256:candidate",
+		"--decision", "cancel",
+		"--json",
+	)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"publication_status":"cancelled"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
 func TestJobResumeDecisionValidation(t *testing.T) {
 	t.Parallel()
 	code, _, stderr, _ := runCLI(t, nil, authenticatedStore(t),
