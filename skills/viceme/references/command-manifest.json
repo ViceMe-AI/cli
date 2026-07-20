@@ -121,6 +121,41 @@
       "requires_confirmation": false
     },
     {
+      "path": "job metadata",
+      "use": "metadata <publication-id>",
+      "short": "Review or resolve the metadata checkpoint of a publication",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "action-id",
+          "type": "string",
+          "usage": "confirm_metadata action receipt ID"
+        },
+        {
+          "name": "decision",
+          "type": "string",
+          "usage": "metadata decision: confirm or cancel"
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "usage": "optional description edit (1-100 visible characters)"
+        },
+        {
+          "name": "expected-payload-digest",
+          "type": "string",
+          "usage": "digest of the metadata action payload"
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "usage": "optional title edit (1-20 visible characters)"
+        }
+      ]
+    },
+    {
       "path": "job resume",
       "use": "resume <publication-id>",
       "short": "Resolve a typed next action on the same publication",

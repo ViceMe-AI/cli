@@ -15,6 +15,7 @@ func newJobCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "job", Short: "Read and control durable Skill Agent publications"}
 	command.AddCommand(newJobGetCommand(runtime))
 	command.AddCommand(newJobWaitCommand(runtime))
+	command.AddCommand(newJobMetadataCommand(runtime))
 	command.AddCommand(newJobResumeCommand(runtime))
 	command.AddCommand(newJobCancelCommand(runtime))
 	return command
@@ -58,6 +59,48 @@ func newJobWaitCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "maximum time to wait")
+	return command
+}
+
+func newJobMetadataCommand(runtime *Runtime) *cobra.Command {
+	var actionID string
+	var expectedDigest string
+	var decision string
+	var title string
+	var description string
+	command := &cobra.Command{
+		Use:   "metadata <publication-id>",
+		Short: "Review or resolve the metadata checkpoint of a publication",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if decision == "" {
+				metadata, err := runtime.client().GetPublicationMetadata(command.Context(), args[0])
+				if err != nil {
+					return err
+				}
+				return runtime.success(metadata)
+			}
+			if decision != "confirm" && decision != "cancel" {
+				return output.Validation("metadata_decision", "--decision must be confirm or cancel")
+			}
+			if actionID == "" || expectedDigest == "" {
+				return output.Validation("metadata_flags", "resolving metadata requires --action-id and --expected-payload-digest")
+			}
+			publication, err := runtime.client().ResolvePublicationMetadata(command.Context(), args[0], api.ResolveMetadataRequest{
+				ActionID: actionID, ExpectedPayloadDigest: expectedDigest,
+				Decision: decision, Title: title, Description: description,
+			})
+			if err != nil {
+				return err
+			}
+			return runtime.success(publication)
+		},
+	}
+	command.Flags().StringVar(&actionID, "action-id", "", "confirm_metadata action receipt ID")
+	command.Flags().StringVar(&expectedDigest, "expected-payload-digest", "", "digest of the metadata action payload")
+	command.Flags().StringVar(&decision, "decision", "", "metadata decision: confirm or cancel")
+	command.Flags().StringVar(&title, "title", "", "optional title edit (1-20 visible characters)")
+	command.Flags().StringVar(&description, "description", "", "optional description edit (1-100 visible characters)")
 	return command
 }
 

@@ -324,6 +324,57 @@ func TestJobWaitReturnsBusinessFailureWithExitZero(t *testing.T) {
 	}
 }
 
+func TestJobMetadataReadAndResolveContract(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/metadata" && request.Method == http.MethodGet:
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"meta_review","title":"海报文案","description":"为产品海报写文案","author":"acme/poster","missing":[],"action_id":"meta_1","expires_at":"2030-01-01T00:00:00Z"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/metadata/resolve" && request.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode resolve body: %v", err)
+			}
+			if body["action_id"] != "meta_1" || body["decision"] != "confirm" || body["title"] != "探针海报" ||
+				body["expected_payload_digest"] != "sha256:payload" {
+				t.Fatalf("metadata resolve body = %#v", body)
+			}
+			_, _ = io.WriteString(writer, `{"action_id":"meta_1","status":"resolved","publication_status":"meta_confirmed","resolution_digest":"sha256:resolution","resolved_at":"2026-07-20T00:00:00Z"}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "metadata", "pub_1")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"author":"acme/poster"`) || !strings.Contains(stdout, `"status":"meta_review"`) {
+		t.Fatalf("metadata read: code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
+		"job", "metadata", "pub_1",
+		"--action-id", "meta_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--decision", "confirm",
+		"--title", "探针海报",
+	)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"publication_status":"meta_confirmed"`) {
+		t.Fatalf("metadata resolve: code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestJobMetadataDecisionValidation(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLI(t, nil, authenticatedStore(t),
+		"job", "metadata", "pub_1", "--decision", "maybe")
+	if code != 2 || !strings.Contains(stderr, "metadata_decision") {
+		t.Fatalf("invalid decision: code=%d stderr=%s", code, stderr)
+	}
+	code, _, stderr, _ = runCLI(t, nil, authenticatedStore(t),
+		"job", "metadata", "pub_1", "--decision", "confirm")
+	if code != 2 || !strings.Contains(stderr, "metadata_flags") {
+		t.Fatalf("missing action flags: code=%d stderr=%s", code, stderr)
+	}
+}
+
 func TestSkillsInstallAndDoctorCommands(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()

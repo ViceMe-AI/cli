@@ -89,7 +89,7 @@ func commandPolicy(path string, runnable bool) (string, bool) {
 	switch path {
 	case "skill publish", "job cancel":
 		return "public", true
-	case "job resume":
+	case "job resume", "job metadata":
 		return "public", false
 	case "auth logout":
 		return "remote_and_local", false

@@ -90,6 +90,29 @@ type ResolveActionRequest struct {
 	Decision                       string          `json:"decision,omitempty"`
 }
 
+// ResolveMetadataRequest resolves the confirm_metadata checkpoint: confirm
+// (optionally editing title/description within the visible-char limits) or
+// cancel with zero assets.
+type ResolveMetadataRequest struct {
+	ActionID              string `json:"action_id"`
+	ExpectedPayloadDigest string `json:"expected_payload_digest"`
+	Decision              string `json:"decision"`
+	Title                 string `json:"title,omitempty"`
+	Description           string `json:"description,omitempty"`
+}
+
+// PublicationMetadata is the metadata checkpoint read model.
+type PublicationMetadata struct {
+	PublicationID string   `json:"publication_id"`
+	Status        string   `json:"status"`
+	Title         string   `json:"title"`
+	Description   string   `json:"description"`
+	Author        string   `json:"author"`
+	Missing       []string `json:"missing"`
+	ActionID      string   `json:"action_id"`
+	ExpiresAt     string   `json:"expires_at"`
+}
+
 type UploadPrepareRequest struct {
 	Filename     string `json:"filename"`
 	ContentType  string `json:"content_type"`

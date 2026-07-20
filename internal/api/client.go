@@ -102,6 +102,18 @@ func (c *Client) ResolveAction(ctx context.Context, publicationID, actionID stri
 	return response, err
 }
 
+func (c *Client) GetPublicationMetadata(ctx context.Context, publicationID string) (PublicationMetadata, error) {
+	var response PublicationMetadata
+	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/metadata", nil, &response, true, "")
+	return response, err
+}
+
+func (c *Client) ResolvePublicationMetadata(ctx context.Context, publicationID string, request ResolveMetadataRequest) (Publication, error) {
+	var response Publication
+	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/metadata/resolve", request, &response, true, "")
+	return response, err
+}
+
 func (c *Client) CancelPublication(ctx context.Context, id string) (Publication, error) {
 	var response Publication
 	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(id)+"/cancel", struct{}{}, &response, true, "")
