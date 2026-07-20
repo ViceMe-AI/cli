@@ -9,19 +9,61 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/semver"
 )
 
 const (
-	PackageName      = "@viceme-ai/cli"
-	RegistryURL      = "https://registry.npmjs.org"
-	ScopeRegistryArg = "--@viceme-ai:registry=" + RegistryURL
+	PackageName             = "@viceme-ai/cli"
+	RegistryURL             = "https://registry.npmjs.org"
+	RegistryPackageURL      = RegistryURL + "/@viceme-ai%2fcli/latest"
+	ScopeRegistryArg        = "--@viceme-ai:registry=" + RegistryURL
+	updateStateFilename     = "update-state.json"
+	npmCacheDirectory       = "npm-cache"
+	updateCacheTTL          = 24 * time.Hour
+	maximumRegistryResponse = 256 << 10
 )
 
 var ErrNPMInstallRequired = errors.New("viceme update requires the npm-installed launcher")
+
+type ErrorKind string
+
+const (
+	ErrorRegistryNetwork  ErrorKind = "registry_network"
+	ErrorRegistryResponse ErrorKind = "registry_response"
+	ErrorNPMMissing       ErrorKind = "npm_missing"
+	ErrorNPMPermission    ErrorKind = "npm_permission"
+	ErrorNPMCommand       ErrorKind = "npm_command"
+)
+
+type OperationError struct {
+	Kind  ErrorKind
+	Cause error
+}
+
+func (err *OperationError) Error() string {
+	if err.Cause == nil {
+		return string(err.Kind)
+	}
+	return err.Cause.Error()
+}
+
+func (err *OperationError) Unwrap() error { return err.Cause }
+
+func ErrorKindOf(err error) ErrorKind {
+	var operationError *OperationError
+	if errors.As(err, &operationError) {
+		return operationError.Kind
+	}
+	return ""
+}
 
 type CheckResult struct {
 	CurrentVersion   string `json:"current_version"`
@@ -29,6 +71,7 @@ type CheckResult struct {
 	UpdateAvailable  bool   `json:"update_available"`
 	Method           string `json:"method"`
 	Package          string `json:"package"`
+	Source           string `json:"source"`
 }
 
 type TargetResult struct {
@@ -68,6 +111,10 @@ type NPMService struct {
 	CurrentVersion    string
 	ComparableVersion string
 	InstallMethod     string
+	ConfigDir         string
+	RegistryEndpoint  string
+	HTTPClient        *http.Client
+	Now               func() time.Time
 	Runner            Runner
 }
 
@@ -76,6 +123,9 @@ func NewNPMService(currentVersion, comparableVersion, installMethod string) *NPM
 		CurrentVersion:    currentVersion,
 		ComparableVersion: comparableVersion,
 		InstallMethod:     installMethod,
+		RegistryEndpoint:  RegistryPackageURL,
+		HTTPClient:        &http.Client{Timeout: 15 * time.Second},
+		Now:               time.Now,
 		Runner:            ExecRunner{},
 	}
 }
@@ -106,11 +156,7 @@ func (service *NPMService) Check(ctx context.Context) (CheckResult, error) {
 		Method:         "npm",
 		Package:        PackageName,
 	}
-	output, err := service.runner().Run(ctx, "npm", "view", PackageName, "version", "--json", "--registry="+RegistryURL, ScopeRegistryArg)
-	if err != nil {
-		return result, fmt.Errorf("query npm release: %w", err)
-	}
-	available, err := parseNPMVersion(output)
+	available, source, err := service.latestVersion(ctx)
 	if err != nil {
 		return result, err
 	}
@@ -120,6 +166,7 @@ func (service *NPMService) Check(ctx context.Context) (CheckResult, error) {
 	}
 	result.AvailableVersion = available
 	result.UpdateAvailable = comparison > 0
+	result.Source = source
 	return result, nil
 }
 
@@ -160,9 +207,8 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 		target = "auto"
 	}
 	skillTarget := TargetResult{Target: "agent_skill:" + target, Status: "updated"}
-	output, err := service.runner().Run(
+	output, err := service.runNPM(
 		ctx,
-		"npm",
 		"exec",
 		"--registry="+RegistryURL,
 		ScopeRegistryArg,
@@ -186,7 +232,7 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 }
 
 func (service *NPMService) installExactPackage(ctx context.Context, version string) ([]byte, error) {
-	return service.runner().Run(ctx, "npm", "install", "--registry="+RegistryURL, ScopeRegistryArg, "--global", "--ignore-scripts", "--no-audit", "--no-fund", PackageName+"@"+version)
+	return service.runNPM(ctx, "install", "--registry="+RegistryURL, ScopeRegistryArg, "--global", "--ignore-scripts", "--no-audit", "--no-fund", PackageName+"@"+version)
 }
 
 func (service *NPMService) runner() Runner {
@@ -196,16 +242,177 @@ func (service *NPMService) runner() Runner {
 	return service.Runner
 }
 
-func parseNPMVersion(output []byte) (string, error) {
-	var version string
-	if err := json.Unmarshal(output, &version); err != nil {
-		version = strings.TrimSpace(string(output))
+func (service *NPMService) latestVersion(ctx context.Context) (string, string, error) {
+	version, err := service.fetchLatestVersion(ctx)
+	if err == nil {
+		service.saveUpdateState(version)
+		return version, "registry", nil
 	}
-	version = strings.Trim(version, `"`)
+	if ErrorKindOf(err) == ErrorRegistryNetwork {
+		if cached, ok := service.loadFreshUpdateState(); ok {
+			return cached, "cache", nil
+		}
+	}
+	return "", "", err
+}
+
+func (service *NPMService) fetchLatestVersion(ctx context.Context) (string, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, service.registryEndpoint(), nil)
+	if err != nil {
+		return "", &OperationError{Kind: ErrorRegistryResponse, Cause: fmt.Errorf("build npm registry request: %w", err)}
+	}
+	request.Header.Set("Accept", "application/json")
+	response, err := service.httpClient().Do(request)
+	if err != nil {
+		return "", &OperationError{Kind: ErrorRegistryNetwork, Cause: fmt.Errorf("query npm registry: %w", err)}
+	}
+	defer response.Body.Close()
+	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
+		kind := ErrorRegistryResponse
+		if response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= http.StatusInternalServerError {
+			kind = ErrorRegistryNetwork
+		}
+		return "", &OperationError{Kind: kind, Cause: fmt.Errorf("npm registry returned HTTP %d", response.StatusCode)}
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, maximumRegistryResponse+1))
+	if err != nil {
+		return "", &OperationError{Kind: ErrorRegistryNetwork, Cause: fmt.Errorf("read npm registry response: %w", err)}
+	}
+	if len(body) > maximumRegistryResponse {
+		return "", &OperationError{Kind: ErrorRegistryResponse, Cause: errors.New("npm registry response exceeded the size limit")}
+	}
+	var document struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(body, &document); err != nil {
+		return "", &OperationError{Kind: ErrorRegistryResponse, Cause: errors.New("npm registry returned invalid JSON")}
+	}
+	version := strings.TrimSpace(document.Version)
 	if _, err := semver.Parse(version); err != nil {
-		return "", fmt.Errorf("npm returned an invalid package version: %w", err)
+		return "", &OperationError{Kind: ErrorRegistryResponse, Cause: fmt.Errorf("npm registry returned an invalid package version: %w", err)}
 	}
 	return version, nil
+}
+
+type updateState struct {
+	LatestVersion string `json:"latest_version"`
+	CheckedAt     int64  `json:"checked_at"`
+}
+
+func (service *NPMService) loadFreshUpdateState() (string, bool) {
+	filename := service.updateStatePath()
+	if filename == "" {
+		return "", false
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return "", false
+	}
+	var state updateState
+	if json.Unmarshal(data, &state) != nil || state.CheckedAt <= 0 {
+		return "", false
+	}
+	age := service.now().Sub(time.Unix(state.CheckedAt, 0))
+	if age < 0 || age > updateCacheTTL {
+		return "", false
+	}
+	if _, err := semver.Parse(state.LatestVersion); err != nil {
+		return "", false
+	}
+	return state.LatestVersion, true
+}
+
+func (service *NPMService) saveUpdateState(version string) {
+	filename := service.updateStatePath()
+	if filename == "" {
+		return
+	}
+	if err := os.MkdirAll(service.ConfigDir, 0o700); err != nil {
+		return
+	}
+	data, err := json.Marshal(updateState{LatestVersion: version, CheckedAt: service.now().Unix()})
+	if err != nil {
+		return
+	}
+	temporary, err := os.CreateTemp(service.ConfigDir, ".update-state-*")
+	if err != nil {
+		return
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if temporary.Chmod(0o600) != nil {
+		temporary.Close()
+		return
+	}
+	if _, err := temporary.Write(data); err != nil {
+		temporary.Close()
+		return
+	}
+	if temporary.Close() != nil {
+		return
+	}
+	_ = os.Rename(temporaryName, filename)
+}
+
+func (service *NPMService) runNPM(ctx context.Context, args ...string) ([]byte, error) {
+	if cacheArg := service.npmCacheArg(); cacheArg != "" {
+		if err := os.MkdirAll(filepath.Join(service.ConfigDir, npmCacheDirectory), 0o700); err != nil {
+			return nil, &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("could not create the ViceMe npm cache directory")}
+		}
+		args = append([]string{cacheArg}, args...)
+	}
+	output, err := service.runner().Run(ctx, "npm", args...)
+	if err == nil {
+		return output, nil
+	}
+	return output, classifyNPMError(err, output)
+}
+
+func classifyNPMError(err error, output []byte) error {
+	var executableError *exec.Error
+	if errors.As(err, &executableError) || errors.Is(err, exec.ErrNotFound) {
+		return &OperationError{Kind: ErrorNPMMissing, Cause: errors.New("npm is not available in PATH")}
+	}
+	normalized := strings.ToUpper(string(output))
+	if errors.Is(err, os.ErrPermission) || strings.Contains(normalized, "EPERM") || strings.Contains(normalized, "EACCES") {
+		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("npm could not write its cache or global installation directory")}
+	}
+	return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("npm command failed")}
+}
+
+func (service *NPMService) npmCacheArg() string {
+	if service.ConfigDir == "" {
+		return ""
+	}
+	return "--cache=" + filepath.Join(service.ConfigDir, npmCacheDirectory)
+}
+
+func (service *NPMService) updateStatePath() string {
+	if service.ConfigDir == "" {
+		return ""
+	}
+	return filepath.Join(service.ConfigDir, updateStateFilename)
+}
+
+func (service *NPMService) registryEndpoint() string {
+	if service.RegistryEndpoint == "" {
+		return RegistryPackageURL
+	}
+	return service.RegistryEndpoint
+}
+
+func (service *NPMService) httpClient() *http.Client {
+	if service.HTTPClient == nil {
+		return &http.Client{Timeout: 15 * time.Second}
+	}
+	return service.HTTPClient
+}
+
+func (service *NPMService) now() time.Time {
+	if service.Now == nil {
+		return time.Now()
+	}
+	return service.Now()
 }
 
 func commandError(err error, output []byte) string {

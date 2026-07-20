@@ -147,6 +147,8 @@ viceme profile remove company
 
 `VICEME_CLI_CONFIG_DIR` can override the config root. Local API development still uses the process-only `VICEME_API_BASE_URL`; it is never persisted in a profile.
 
+Update checks query the npm registry directly and store only the last successful version result in `~/.viceme-cli/update-state.json`. A result is used as a fallback for at most 24 hours when the registry is temporarily unavailable. npm operations launched by `viceme install` or `viceme update` use the isolated `~/.viceme-cli/npm-cache`, so a broken user-level `~/.npm` cache does not block the CLI. Both files are non-secret and can be deleted safely; credentials never enter either cache.
+
 ## Agent Skills
 
 The current release deliberately ships one platform-level Agent Skill:
