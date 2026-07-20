@@ -184,15 +184,18 @@ func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.Skills == nil {
 		dependencies.Skills = skillcontent.New(cliembed.EmbeddedSkills())
 	}
+	if dependencies.Environment.Home == "" {
+		dependencies.Environment = skillcontent.DefaultEnvironment()
+	}
 	if dependencies.Updater == nil {
-		dependencies.Updater = updatepkg.NewNPMService(
+		updater := updatepkg.NewNPMService(
 			buildinfo.Version,
 			buildinfo.CompatibilityVersion(),
 			os.Getenv("VICEME_INSTALL_METHOD"),
 		)
-	}
-	if dependencies.Environment.Home == "" {
-		dependencies.Environment = skillcontent.DefaultEnvironment()
+		updater.ConfigDir = runtimeConfigBase(dependencies.Environment)
+		updater.HTTPClient = dependencies.HTTPClient
+		dependencies.Updater = updater
 	}
 	if dependencies.Now == nil {
 		dependencies.Now = time.Now

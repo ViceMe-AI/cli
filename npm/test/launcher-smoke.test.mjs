@@ -70,7 +70,11 @@ const args = process.argv.slice(2);
 const packageIndex = args.findIndex((arg) =>
   arg.startsWith(process.env.VICEME_TEST_PACKAGE_PREFIX),
 );
-if (args[0] !== "install" || packageIndex < 0) {
+if (
+  args[0] !== process.env.VICEME_TEST_NPM_CACHE_ARG ||
+  args[1] !== "install" ||
+  packageIndex < 0
+) {
   process.stderr.write("unexpected npm invocation: " + args.join(" ") + "\\n");
   process.exit(91);
 }
@@ -110,6 +114,7 @@ process.exit(child.status ?? 1);
       VICEME_REAL_NPM_CLI: npmCLI,
       VICEME_TEST_PACKAGE_TARBALL: path.resolve(packageTarball),
       VICEME_TEST_PACKAGE_PREFIX: packageArgumentPrefix,
+      VICEME_TEST_NPM_CACHE_ARG: `--cache=${path.join(home, ".viceme-cli", "npm-cache")}`,
       VICEME_FAKE_NPM_MARKER: marker,
       VICEME_FAKE_NPM_DEBUG: npmDebug,
     };
