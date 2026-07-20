@@ -9,6 +9,7 @@
   "files": [
     "npm/bin/",
     "npm/lib/",
+    "checksums.txt",
     "README.md",
     "README.zh.md",
     "CHANGELOG.md",

@@ -50,7 +50,7 @@ npm install --global @viceme-ai/cli
 viceme install
 ```
 
-Both methods persist the npm launcher, download the matching checksum-verified Go binary, and install the bundled Viceme Agent Skill. They default to the China service. For the international service:
+Both methods persist the npm launcher, download the matching checksum-verified Go binary, and install the bundled Viceme Agent Skill. Binary downloads try GitHub Release first, then a configured non-default npm registry's `/-/binary/viceme-cli/` mirror, and finally the public npmmirror binary mirror. The launcher uses system `curl`, so standard proxy environment variables are honored. They default to the China service. For the international service:
 
 ```bash
 npx --yes @viceme-ai/cli@latest install --region global
@@ -269,7 +269,7 @@ Determine command success from the process exit code or `ok == true`. A successf
 - **Credential isolation** — credentials stay in the OS keychain and are namespaced by region.
 - **Immutable inputs** — inspection binds publication to an immutable source snapshot rather than re-reading a floating URL later.
 - **Bounded waiting** — `job wait` has a maximum duration and returns the latest durable state without cancelling the workflow.
-- **Verified distribution** — the npm launcher downloads the binary for its exact package version and verifies the published SHA-256 checksum before activation.
+- **Verified distribution** — the npm launcher downloads the binary for its exact package version from GitHub or a binary mirror and verifies it against the checksum manifest bundled in the npm package before activation.
 
 ## Diagnose and Update
 
