@@ -1,4 +1,4 @@
-name: Prepare Release PR
+name: CLI release preparation
 
 on:
   pull_request:
@@ -21,6 +21,7 @@ concurrency:
 
 jobs:
   prepare:
+    name: Release candidate preparation
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.base_ref == 'main' &&
