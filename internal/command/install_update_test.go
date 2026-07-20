@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -112,10 +113,12 @@ func stringContains(document, value string) bool {
 }
 
 type fakeUpdateService struct {
-	check   updatepkg.CheckResult
-	result  updatepkg.ApplyResult
-	options updatepkg.ApplyOptions
-	applied bool
+	check    updatepkg.CheckResult
+	checkErr error
+	result   updatepkg.ApplyResult
+	applyErr error
+	options  updatepkg.ApplyOptions
+	applied  bool
 }
 
 func (service *fakeUpdateService) EnsureLauncher(context.Context) (updatepkg.TargetResult, error) {
@@ -123,13 +126,33 @@ func (service *fakeUpdateService) EnsureLauncher(context.Context) (updatepkg.Tar
 }
 
 func (service *fakeUpdateService) Check(context.Context) (updatepkg.CheckResult, error) {
-	return service.check, nil
+	return service.check, service.checkErr
 }
 
 func (service *fakeUpdateService) Apply(_ context.Context, _ updatepkg.CheckResult, options updatepkg.ApplyOptions) (updatepkg.ApplyResult, error) {
 	service.applied = true
 	service.options = options
-	return service.result, nil
+	return service.result, service.applyErr
+}
+
+func TestUpdateCommandReturnsSafeActionableFailures(t *testing.T) {
+	t.Parallel()
+	registryFailure := &fakeUpdateService{
+		checkErr: &updatepkg.OperationError{Kind: updatepkg.ErrorRegistryNetwork, Cause: errors.New("dial failed")},
+	}
+	code, _, stderr, _ := runCLIWithDependencies(t, nil, nil, "", Dependencies{Updater: registryFailure}, "update", "--check")
+	if code != 4 || !stringContains(stderr, `"subtype":"update_registry_unavailable"`) || !stringContains(stderr, `"retryable":true`) {
+		t.Fatalf("registry error was not classified safely: code=%d stderr=%s", code, stderr)
+	}
+	permissionFailure := &fakeUpdateService{
+		check:    updatepkg.CheckResult{CurrentVersion: "0.2.1", AvailableVersion: "0.3.0", UpdateAvailable: true, Method: "npm", Source: "registry"},
+		result:   updatepkg.ApplyResult{PreviousCLIVersion: "0.2.1", CLIVersion: "0.2.1"},
+		applyErr: &updatepkg.OperationError{Kind: updatepkg.ErrorNPMPermission, Cause: errors.New("safe permission failure")},
+	}
+	code, _, stderr, _ = runCLIWithDependencies(t, nil, nil, "", Dependencies{Updater: permissionFailure}, "update")
+	if code != 5 || !stringContains(stderr, `"subtype":"update_npm_permission"`) || !stringContains(stderr, `"hint":"ensure ~/.viceme-cli`) {
+		t.Fatalf("npm permission error was not actionable: code=%d stderr=%s", code, stderr)
+	}
 }
 
 func TestUpdateCommandChecksOrRefreshesPackageBinaryAndSkill(t *testing.T) {
