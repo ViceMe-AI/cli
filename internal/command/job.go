@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
@@ -16,6 +17,10 @@ func newJobCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newJobGetCommand(runtime))
 	command.AddCommand(newJobWaitCommand(runtime))
 	command.AddCommand(newJobMetadataCommand(runtime))
+	command.AddCommand(newJobPreviewCommand(runtime))
+	command.AddCommand(newJobEditCommand(runtime))
+	command.AddCommand(newJobRunCommand(runtime))
+	command.AddCommand(newJobAcceptCommand(runtime))
 	command.AddCommand(newJobResumeCommand(runtime))
 	command.AddCommand(newJobCancelCommand(runtime))
 	return command
@@ -59,6 +64,170 @@ func newJobWaitCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "maximum time to wait")
+	return command
+}
+
+func newJobPreviewCommand(runtime *Runtime) *cobra.Command {
+	var actionID string
+	command := &cobra.Command{
+		Use:   "preview <publication-id>",
+		Short: "Show the frozen public summary of the exact release candidate",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			preview, err := runtime.client().GetPublicationPreview(command.Context(), args[0], actionID)
+			if err != nil {
+				return err
+			}
+			return runtime.success(preview)
+		},
+	}
+	command.Flags().StringVar(&actionID, "action-id", "", "confirm_publish action receipt ID (defaults to the latest)")
+	return command
+}
+
+func newJobEditCommand(runtime *Runtime) *cobra.Command {
+	var candidateDigest, editRequest string
+	var timeout time.Duration
+	command := &cobra.Command{
+		Use:   "edit <publication-id>",
+		Short: "Submit a natural-language candidate edit and wait for the new candidate",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if strings.TrimSpace(editRequest) == "" {
+				return output.Validation("edit_request", "edit requires --request with a natural-language edit")
+			}
+			if candidateDigest == "" {
+				return output.Validation("edit_flags", "edit requires --candidate-digest binding the current candidate")
+			}
+			if timeout <= 0 {
+				timeout = 2 * time.Minute
+			}
+			receipt, err := runtime.client().RequestPublicationEdit(command.Context(), args[0], api.PublicationEditRequest{
+				EditRequest: editRequest, CurrentCandidateDigest: candidateDigest,
+			})
+			if err != nil {
+				return err
+			}
+			final, err := waitPublicationEdit(command.Context(), runtime, args[0], receipt.EditID, timeout)
+			if err != nil {
+				return err
+			}
+			return runtime.success(final)
+		},
+	}
+	command.Flags().StringVar(&candidateDigest, "candidate-digest", "", "current exact release candidate digest")
+	command.Flags().StringVar(&editRequest, "request", "", "natural-language edit request")
+	command.Flags().DurationVar(&timeout, "timeout", 2*time.Minute, "maximum time to wait for the edit")
+	return command
+}
+
+func waitPublicationEdit(ctx context.Context, runtime *Runtime, publicationID, editID string, timeout time.Duration) (api.PublicationEditReceipt, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	for {
+		receipt, err := runtime.client().GetPublicationEdit(ctx, publicationID, editID)
+		if err != nil {
+			return receipt, err
+		}
+		switch receipt.Status {
+		case "applied", "failed":
+			return receipt, nil
+		}
+		if err := runtime.deps.Sleep(ctx, 3*time.Second); err != nil {
+			return receipt, err
+		}
+	}
+}
+
+func newJobRunCommand(runtime *Runtime) *cobra.Command {
+	var candidateDigest string
+	var inputFlags []string
+	var timeout time.Duration
+	command := &cobra.Command{
+		Use:   "run <publication-id>",
+		Short: "Run one real preview test of the exact candidate and show the result",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if candidateDigest == "" {
+				return output.Validation("run_flags", "run requires --candidate-digest binding the exact candidate")
+			}
+			inputs, err := parseKeyValueInputs(inputFlags)
+			if err != nil {
+				return err
+			}
+			if timeout <= 0 {
+				timeout = 3 * time.Minute
+			}
+			started, err := runtime.client().StartSkillPreviewRun(command.Context(), args[0], api.PreviewRunStartRequest{
+				Inputs: inputs, ExpectedCandidateDigest: candidateDigest,
+			})
+			if err != nil {
+				return err
+			}
+			final, err := waitSkillPreviewRun(command.Context(), runtime, args[0], started.PreviewRunID, timeout)
+			if err != nil {
+				return err
+			}
+			return runtime.success(final)
+		},
+	}
+	command.Flags().StringVar(&candidateDigest, "candidate-digest", "", "exact release candidate digest to test")
+	command.Flags().StringArrayVar(&inputFlags, "input", nil, "preview input as name=value (repeatable)")
+	command.Flags().DurationVar(&timeout, "timeout", 3*time.Minute, "maximum time to wait for the run")
+	return command
+}
+
+func parseKeyValueInputs(flags []string) (map[string]string, error) {
+	inputs := make(map[string]string, len(flags))
+	for _, flag := range flags {
+		name, value, found := strings.Cut(flag, "=")
+		if !found || strings.TrimSpace(name) == "" {
+			return nil, output.Validation("run_inputs", "--input must be name=value")
+		}
+		inputs[name] = value
+	}
+	return inputs, nil
+}
+
+func waitSkillPreviewRun(ctx context.Context, runtime *Runtime, publicationID, previewRunID string, timeout time.Duration) (api.SkillPreviewRun, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	for {
+		run, err := runtime.client().GetSkillPreviewRun(ctx, publicationID, previewRunID)
+		if err != nil {
+			return run, err
+		}
+		if run.Status == "succeeded" || run.Status == "failed" {
+			return run, nil
+		}
+		if err := runtime.deps.Sleep(ctx, 3*time.Second); err != nil {
+			return run, err
+		}
+	}
+}
+
+func newJobAcceptCommand(runtime *Runtime) *cobra.Command {
+	var previewRunID, candidateDigest, inputsDigest string
+	command := &cobra.Command{
+		Use:   "accept <publication-id>",
+		Short: "Accept the actual result of a preview test run",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if previewRunID == "" || candidateDigest == "" {
+				return output.Validation("accept_flags", "accept requires --run-id and --candidate-digest")
+			}
+			receipt, err := runtime.client().AcceptSkillPreviewRun(command.Context(), args[0], previewRunID, api.PreviewRunAcceptRequest{
+				ExpectedCandidateDigest: candidateDigest, ExpectedInputsDigest: inputsDigest,
+			})
+			if err != nil {
+				return err
+			}
+			return runtime.success(receipt)
+		},
+	}
+	command.Flags().StringVar(&previewRunID, "run-id", "", "preview run receipt ID")
+	command.Flags().StringVar(&candidateDigest, "candidate-digest", "", "exact release candidate digest of the accepted result")
+	command.Flags().StringVar(&inputsDigest, "inputs-digest", "", "optional digest of the exact input set (PRE-04)")
 	return command
 }
 

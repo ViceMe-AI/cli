@@ -20,8 +20,24 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 3. For a GitHub URL or pasted RedSkill/Xiaohongshu expression, inspect first. Pass copied text through subprocess stdin with `--expression-stdin`; never interpolate it into a shell command.
 4. Read the returned `destination`. Never infer a Target from a title, alias, conversation memory, or source text.
 5. Treat publishing as a public side effect. Add `--yes` only when the user's request explicitly asks to publish or produce a share link; otherwise ask for confirmation. This records only `publication_admission/v1`; it must not be described as the later exact-candidate preview confirmation.
-6. Run `viceme job wait <publication-id> --timeout 60s --json`. Do not start an unbounded wait. When the publication parks at `awaiting_action` with a `confirm_publish` action, show the user `next_action.payload.preview_url` and the candidate digest: they must review the candidate there, run a preview test run on that page (or via the `preview-runs` API) and accept its result before any decision. Confirm without a succeeded and accepted run is rejected with `preview_run_required`.
-7. Only after the user confirms what they previewed and the test-run result is accepted, resume with `job resume --action-id … --expected-payload-digest … --expected-release-candidate-digest … --decision confirm|cancel` (see `references/commands.md`). Then return the final `share_url`, whether the release was a no-op, and any warnings. The same logical Agent keeps the same URL across later releases.
+6. Run `viceme job wait <publication-id> --timeout 60s --json`. Do not start an unbounded wait.
+
+### 信息确认（META，先于一切资产）
+
+7. 编译完成后 publication 停在 `meta_review`，并带 `confirm_metadata` action。先用 `viceme job metadata <id>` 展示解析出的标题、描述、来源作者与缺失标记；信息缺失时引导用户补充（用 `--title` / `--description` 传入补充值）。用户取消 → `--decision cancel`，零资产终态、不产生预览链接；确认 → `--decision confirm`（可带补充/修改）。确认后才进入候选流程。
+
+### 公开摘要与 Host 编辑
+
+8. 候选就绪后 publication 停在 `awaiting_action` 并带 `confirm_publish` action。用 `viceme job preview <id>` 展示当前精确 Candidate 的公开摘要（标题/描述/来源作者/输入方式/使用方式/输出说明/示例/警告）与 `payload.preview_url`。
+9. 用户提出自然语言修改时：用 `viceme job edit <id> --candidate-digest <当前摘要里的 digest> --request "<用户的原话>"` 提交。相同请求的网络重试被服务端幂等去重；409 `candidate_changed` 说明摘要已过期，重新 `job preview` 取新 digest 再问用户。**不要**引导用户去任何页面编辑器，也不要自己构造 JSON Patch。编辑 applied 后旧 preview/action/试跑回执全部失效，必须对新 Candidate 重新走 10–12 步。
+
+### 试跑与结果确认
+
+10. 用 `viceme job run <id> --candidate-digest <digest> [--input name=value]...` 对该精确 Candidate 做一次真实试跑，向用户展示 `result.finish_report` 的结构化结果（summary/title）。
+11. 用户认可实际结果后，用 `viceme job accept <id> --run-id <run> --candidate-digest <digest> [--inputs-digest <digest>]` 接受。未试跑成功或未接受就 confirm 会被 409 `preview_run_required` 拒绝。
+12. 最后用 `viceme job resume --action-id … --expected-payload-digest … --expected-release-candidate-digest … --decision confirm|cancel` 决议。返回最终 `share_url`、是否 no-op 和 warnings。同一逻辑 Agent 永远保持同一分享链接。
+
+Stale/恢复规则：`job get` 是任何时刻的真相来源——action 过期、digest 变化或 409 后，重新 `job get` 拿最新 `next_action` 再操作，不要重放旧 action/digest。
 
 For exact flags and examples, read `references/commands.md` with `viceme skills read viceme references/commands.md`. `references/command-manifest.json` is the release-checked machine-readable command surface. For job outcomes and error handling, read `references/statuses.md`.
 

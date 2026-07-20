@@ -100,14 +100,58 @@ viceme job resume pub_123 --action-id act_123 --expected-payload-digest sha256:a
 
 Example stdin: `{"selector":"skills/poster"}`.
 
-## Preview and confirmation (T2)
+## Metadata confirmation (T2)
+
+After a successful compile the publication parks at `meta_review` with a
+`confirm_metadata` action — before any target/agent/build asset exists. Read
+the parsed basic info, ask the user to confirm, supplement, or cancel:
+
+```bash
+viceme job metadata pub_123
+viceme job metadata pub_123 --action-id meta_1 \
+  --expected-payload-digest sha256:abc --decision confirm \
+  --title "探针海报" --description "为产品海报写一句主标题"
+```
+
+`missing` lists absent fields (title/description/author) — guide the user to
+fill them with `--title` / `--description`. Cancel maps to `cancelled` with
+zero assets and no preview link.
+
+## Preview, edit, test run and confirmation (T2)
 
 When `next_action.type` is `confirm_publish`, the exact release candidate is
-ready and must be previewed by the user before any release. Show the user
-`next_action.payload.preview_url` (private, short-lived) together with the
-candidate digest, and let them inspect the title, description and example
-outputs there. Only after the user explicitly approves what they previewed,
-resume with the digests from that same action:
+ready. Show its frozen public summary first:
+
+```bash
+viceme job preview pub_123 [--action-id act_123]
+```
+
+Edits happen only as natural language inside the conversation — never via a
+page editor or JSON Patch. Bind the digest shown by the preview:
+
+```bash
+viceme job edit pub_123 --candidate-digest sha256:def \
+  --request "把标题改成探针海报" [--timeout 2m]
+```
+
+An applied edit supersedes the old preview/action/run receipts — re-run
+`job preview` / `job get` for the fresh candidate before continuing. Identical
+retries are deduplicated server-side; 409 `candidate_changed` means the digest
+is stale.
+
+Run one real preview test of the exact candidate and show the structured
+result, then accept it only after the user approves what they saw:
+
+```bash
+viceme job run pub_123 --candidate-digest sha256:def \
+  --input theme=咖啡 [--timeout 3m]
+viceme job accept pub_123 --run-id run_1 \
+  --candidate-digest sha256:def [--inputs-digest sha256:ghi]
+```
+
+Confirmation requires a succeeded and accepted run of the same candidate;
+otherwise `job resume --decision confirm` is rejected with 409
+`preview_run_required`:
 
 ```bash
 viceme job resume pub_123 --action-id act_123 \
@@ -121,18 +165,6 @@ everywhere. Never infer the decision from earlier conversation, never cache it
 across candidates: if the preview or candidate digest changes, ask the user
 again with the fresh action. A stale or expired action fails closed — fetch
 `job get` and present the new `next_action` instead of retrying the old one.
-
-Confirmation is additionally gated on a real test run: the exact candidate
-must have a succeeded preview run whose result the publishing account
-accepted. Test runs and acceptance are driven from the preview page (the
-`preview_url` above) or the
-`/v1/skill-agent-publications/:id/preview-runs` API — the CLI has no separate
-commands for them. If `job resume --decision confirm` is rejected with 409
-`preview_run_required`, guide the user through a test run and acceptance on
-the same candidate first, then resume again with the same action; do not
-retry the decision blindly or report it as a bug. Applying an edit on the
-preview page supersedes the pending action and invalidates earlier runs —
-re-read `job get` for the fresh action afterwards.
 
 ## Bounded jobs and cancellation
 

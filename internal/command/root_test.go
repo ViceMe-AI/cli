@@ -375,6 +375,78 @@ func TestJobMetadataDecisionValidation(t *testing.T) {
 	}
 }
 
+func TestHostTypedActionLoopPreviewEditRunAccept(t *testing.T) {
+	t.Parallel()
+	var edits, runs, accepts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview" && request.Method == http.MethodGet:
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","preview":{"title":"海报文案","description":"为产品海报写文案","author":"acme/poster","input_method":"提供输入参数:theme(必填)","usage":"为产品海报写文案","output_description":"一句主标题和一段卖点","release_candidate_digest":"sha256:cand1","preview_expires_at":"2030-01-01T00:00:00Z"}}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits" && request.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode edit body: %v", err)
+			}
+			if body["edit_request"] != "把标题改成探针海报" || body["current_candidate_digest"] != "sha256:cand1" {
+				t.Fatalf("edit body = %#v", body)
+			}
+			edits.Add(1)
+			_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"pending"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits/edit_1" && request.Method == http.MethodGet:
+			_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"applied","class":"presentation","result_candidate_digest":"sha256:cand2"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview-runs" && request.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode run body: %v", err)
+			}
+			if body["expected_candidate_digest"] != "sha256:cand2" {
+				t.Fatalf("run body = %#v", body)
+			}
+			runs.Add(1)
+			_, _ = io.WriteString(writer, `{"preview_run_id":"run_1","status":"running"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview-runs/run_1" && request.Method == http.MethodGet:
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","preview_run_id":"run_1","runner_run_id":"rr_1","candidate_digest":"sha256:cand2","inputs_digest":"sha256:inputs","status":"succeeded","result":{"outcome":"succeeded","finish_report":{"title":"海报文案已生成","summary":"已生成"},"output_links":[]},"accepted":false}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview-runs/run_1/accept" && request.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode accept body: %v", err)
+			}
+			if body["expected_candidate_digest"] != "sha256:cand2" || body["expected_inputs_digest"] != "sha256:inputs" {
+				t.Fatalf("accept body = %#v", body)
+			}
+			accepts.Add(1)
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","preview_run_id":"run_1","status":"succeeded","accepted_at":"2026-07-20T00:00:00Z"}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	// Host 闭环:展示摘要 → 自然语言编辑 → 新候选试跑 → 接受结果。
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "preview", "pub_1")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"author":"acme/poster"`) || !strings.Contains(stdout, `"input_method"`) {
+		t.Fatalf("preview: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request", "把标题改成探针海报", "--timeout", "10s")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
+		t.Fatalf("edit: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
+		"job", "run", "pub_1", "--candidate-digest", "sha256:cand2", "--input", "theme=咖啡", "--timeout", "10s")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"succeeded"`) {
+		t.Fatalf("run: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
+		"job", "accept", "pub_1", "--run-id", "run_1", "--candidate-digest", "sha256:cand2", "--inputs-digest", "sha256:inputs")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"accepted_at"`) {
+		t.Fatalf("accept: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	if edits.Load() != 1 || runs.Load() != 1 || accepts.Load() != 1 {
+		t.Fatalf("typed actions must fire exactly once each: edits=%d runs=%d accepts=%d", edits.Load(), runs.Load(), accepts.Load())
+	}
+}
+
 func TestSkillsInstallAndDoctorCommands(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()

@@ -97,6 +97,31 @@
       "requires_confirmation": false
     },
     {
+      "path": "job accept",
+      "use": "accept <publication-id>",
+      "short": "Accept the actual result of a preview test run",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "candidate-digest",
+          "type": "string",
+          "usage": "exact release candidate digest of the accepted result"
+        },
+        {
+          "name": "inputs-digest",
+          "type": "string",
+          "usage": "optional digest of the exact input set (PRE-04)"
+        },
+        {
+          "name": "run-id",
+          "type": "string",
+          "usage": "preview run receipt ID"
+        }
+      ]
+    },
+    {
       "path": "job cancel",
       "use": "cancel <publication-id>",
       "short": "Cancel a publication",
@@ -109,6 +134,32 @@
           "type": "bool",
           "default": "false",
           "usage": "confirm cancellation"
+        }
+      ]
+    },
+    {
+      "path": "job edit",
+      "use": "edit <publication-id>",
+      "short": "Submit a natural-language candidate edit and wait for the new candidate",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "candidate-digest",
+          "type": "string",
+          "usage": "current exact release candidate digest"
+        },
+        {
+          "name": "request",
+          "type": "string",
+          "usage": "natural-language edit request"
+        },
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "2m0s",
+          "usage": "maximum time to wait for the edit"
         }
       ]
     },
@@ -156,6 +207,21 @@
       ]
     },
     {
+      "path": "job preview",
+      "use": "preview <publication-id>",
+      "short": "Show the frozen public summary of the exact release candidate",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "action-id",
+          "type": "string",
+          "usage": "confirm_publish action receipt ID (defaults to the latest)"
+        }
+      ]
+    },
+    {
       "path": "job resume",
       "use": "resume <publication-id>",
       "short": "Resolve a typed next action on the same publication",
@@ -188,6 +254,33 @@
           "type": "bool",
           "default": "false",
           "usage": "read the structured action answer from stdin"
+        }
+      ]
+    },
+    {
+      "path": "job run",
+      "use": "run <publication-id>",
+      "short": "Run one real preview test of the exact candidate and show the result",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "candidate-digest",
+          "type": "string",
+          "usage": "exact release candidate digest to test"
+        },
+        {
+          "name": "input",
+          "type": "stringArray",
+          "default": "[]",
+          "usage": "preview input as name=value (repeatable)"
+        },
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "3m0s",
+          "usage": "maximum time to wait for the run"
         }
       ]
     },
