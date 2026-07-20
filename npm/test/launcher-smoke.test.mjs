@@ -34,7 +34,7 @@ test(
           ...process.env,
           HOME: home,
           CODEX_HOME: codexHome,
-          XDG_CONFIG_HOME: configHome,
+          VICEME_CLI_CONFIG_DIR: configHome,
           VICEME_BINARY_PATH: path.resolve(localBinary),
         },
       },
@@ -44,7 +44,7 @@ test(
     assert.equal(envelope.ok, true);
     assert.equal(envelope.data.skill.all_succeeded, true);
     await stat(path.join(codexHome, "skills", "viceme", "SKILL.md"));
-    await stat(path.join(configHome, "viceme", "config.json"));
+    await stat(path.join(configHome, "config.json"));
   },
 );
 
@@ -96,7 +96,7 @@ process.exit(child.status ?? 1);
       ...process.env,
       HOME: home,
       CODEX_HOME: path.join(home, "codex"),
-      XDG_CONFIG_HOME: path.join(home, "config"),
+      VICEME_CLI_CONFIG_DIR: path.join(home, ".viceme-cli"),
       NPM_CONFIG_CACHE: path.join(home, "npm-cache"),
       NPM_CONFIG_PREFIX: prefix,
       // npm itself launches this test and exports lower-case npm_config_*

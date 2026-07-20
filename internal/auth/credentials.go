@@ -20,22 +20,29 @@ type Credential struct {
 
 type Status struct {
 	Authenticated bool       `json:"authenticated"`
+	Profile       string     `json:"profile"`
 	Region        string     `json:"region"`
 	UserID        string     `json:"user_id,omitempty"`
 	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
 }
 
 type Manager struct {
-	Store  securestore.Store
-	Region string
+	Store       securestore.Store
+	Region      string
+	ProfileID   string
+	ProfileName string
 }
 
 func (m *Manager) key() string {
+	profileID := m.ProfileID
+	if profileID == "" {
+		profileID = "default"
+	}
 	region := m.Region
 	if region == "" {
 		region = "cn"
 	}
-	return "credential:" + region
+	return "credential:" + profileID + ":" + region
 }
 
 func (m *Manager) Save(credential Credential) error {
@@ -94,11 +101,11 @@ func (m *Manager) CurrentStatus() (Status, error) {
 	if err != nil {
 		var cliErr *output.Error
 		if errors.As(err, &cliErr) && cliErr.Subtype == "not_logged_in" {
-			return Status{Authenticated: false, Region: m.region()}, nil
+			return Status{Authenticated: false, Profile: m.profile(), Region: m.region()}, nil
 		}
 		return Status{}, err
 	}
-	status := Status{Authenticated: true, Region: m.region(), UserID: credential.UserID}
+	status := Status{Authenticated: true, Profile: m.profile(), Region: m.region(), UserID: credential.UserID}
 	if !credential.ExpiresAt.IsZero() {
 		expires := credential.ExpiresAt
 		status.ExpiresAt = &expires
@@ -107,6 +114,13 @@ func (m *Manager) CurrentStatus() (Status, error) {
 		}
 	}
 	return status, nil
+}
+
+func (m *Manager) profile() string {
+	if m.ProfileName == "" {
+		return "default"
+	}
+	return m.ProfileName
 }
 
 func (m *Manager) region() string {
