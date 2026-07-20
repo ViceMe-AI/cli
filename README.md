@@ -20,14 +20,23 @@ The npm package is intentionally a small launcher, not six copies of the Go exec
 
 ## Authenticate and publish
 
-The current Core records `--yes` as a versioned publication-admission confirmation and remains an internal, default-off allowlist probe. That admission permits the background compile, but it is not proof that the user reviewed the resulting immutable Release Candidate. Do not expose it as the public product flow: external rollout is blocked until T2 adds exact-candidate preview and confirmation before commit. The commands below exercise the transport and stable-link Core while that gate is implemented.
+`skill publish --yes` records only a versioned publication admission: it permits the background compile and remains an internal, default-off allowlist probe. The publish gate itself runs afterwards — the publication parks at `awaiting_action` with a typed `confirm_publish` action binding the exact immutable release candidate, and the candidate must be explicitly confirmed before any release commit.
+
+Confirmation is gated on a real test run: the exact candidate must have a succeeded preview run whose result the publishing account accepted, otherwise resolution is rejected with `preview_run_required`. Test runs, result acceptance, and natural-language candidate edits are driven from the confirmation page (the `preview_url` carried by the typed action) or the `/v1/skill-agent-publications/:id/preview-runs` and `/edits` API endpoints; the CLI intentionally ships no separate commands for them. Note that applying an edit supersedes the pending action and invalidates earlier test runs — the `job resume` arguments below then refer to a stale action and must be re-read from the new preview.
 
 ```bash
 viceme auth login --no-wait --json
 viceme skill inspect https://github.com/acme/poster-skill --json
 viceme skill publish --resolution-id <resolution-id> --yes --json
 viceme job wait <publication-id> --timeout 60s --json
+# after reviewing the preview and accepting a test-run result:
+viceme job resume <publication-id> --action-id <action-id> \
+  --expected-payload-digest sha256:<payload-digest> \
+  --decision confirm \
+  --expected-release-candidate-digest sha256:<candidate-digest> --json
 ```
+
+`--decision` accepts `confirm` or `cancel` and never defaults; cancel is the durable `cancelled` terminal. Both digests must be copied from the preview payload — the CLI fails closed on any mismatch rather than resolving against a moved candidate.
 
 Credentials are stored only in the operating-system keychain. There is no plaintext token fallback.
 
