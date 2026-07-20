@@ -1,10 +1,15 @@
+import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { access, chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const RELEASE_BASE_URL = "https://github.com/ViceMe-AI/cli/releases/download";
+const GITHUB_RELEASE_BASE_URL = "https://github.com/ViceMe-AI/cli/releases/download";
+const NPM_REGISTRY_URL = "https://registry.npmjs.org";
+const NPMMIRROR_BINARY_BASE_URL =
+  "https://registry.npmmirror.com/-/binary/viceme-cli";
+const CHECKSUMS_URL = new URL("../../checksums.txt", import.meta.url);
 const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const GENERATIONS_DIRECTORY = "generations";
 const GENERATION_PREFIX = "generation-";
@@ -40,14 +45,40 @@ export function releaseAssetName(version, platform, architecture) {
   return `viceme_${version}_${target.operatingSystem}_${target.architecture}${target.extension}`;
 }
 
+export function binaryDownloadURLs({
+  packageVersion,
+  asset,
+  environment = process.env,
+  sourceBaseURLs,
+  allowInsecureURL = false,
+}) {
+  const bases = sourceBaseURLs ?? defaultBinarySourceBaseURLs(environment);
+  const urls = [];
+  const seen = new Set();
+  for (const base of bases) {
+    const parsed = parseDownloadBaseURL(base, allowInsecureURL);
+    const normalizedBase = parsed.href.replace(/\/$/, "");
+    const url = `${normalizedBase}/v${packageVersion}/${asset}`;
+    if (!seen.has(url)) {
+      seen.add(url);
+      urls.push(url);
+    }
+  }
+  if (urls.length === 0) {
+    throw new Error("no valid binary download source is configured");
+  }
+  return urls;
+}
+
 export async function ensureBinary({
   packageVersion,
   environment = process.env,
   platform = process.platform,
   architecture = process.arch,
-  fetchImplementation = globalThis.fetch,
-  releaseBaseURL = RELEASE_BASE_URL,
+  downloadImplementation = downloadWithCurl,
+  sourceBaseURLs,
   cacheDirectory,
+  checksumsDocument,
   allowInsecureURL = false,
 }) {
   if (environment.VICEME_BINARY_PATH) {
@@ -55,8 +86,8 @@ export async function ensureBinary({
     await access(overridden, constants.X_OK);
     return overridden;
   }
-  if (typeof fetchImplementation !== "function") {
-    throw new Error("Node.js fetch support is required");
+  if (typeof downloadImplementation !== "function") {
+    throw new Error("a binary download implementation is required");
   }
   const asset = releaseAssetName(packageVersion, platform, architecture);
   const root = cacheDirectory ?? defaultCacheDirectory(environment, platform);
@@ -67,18 +98,23 @@ export async function ensureBinary({
     return cached;
   }
   await mkdir(generationsDirectory, { recursive: true, mode: 0o700 });
-  const versionURL = `${releaseBaseURL}/v${packageVersion}`;
-  const checksumURL = `${versionURL}/${asset}.sha256`;
-  const binaryURL = `${versionURL}/${asset}`;
-  const [checksumDocument, binary] = await Promise.all([
-    download(checksumURL, fetchImplementation, allowInsecureURL),
-    download(binaryURL, fetchImplementation, allowInsecureURL),
-  ]);
-  const expectedChecksum = parseChecksum(checksumDocument.toString("utf8"));
-  const actualChecksum = digest(binary);
-  if (actualChecksum !== expectedChecksum) {
-    throw new Error(`checksum mismatch for ${asset}`);
-  }
+  const checksumSource =
+    checksumsDocument ?? (await readFile(CHECKSUMS_URL, "utf8"));
+  const expectedChecksum = checksumForAsset(checksumSource, asset);
+  const urls = binaryDownloadURLs({
+    packageVersion,
+    asset,
+    environment,
+    sourceBaseURLs,
+    allowInsecureURL,
+  });
+  const binary = await downloadVerifiedBinary({
+    asset,
+    expectedChecksum,
+    urls,
+    downloadImplementation,
+    allowInsecureURL,
+  });
 
   // If another cold start finished while this process downloaded, reuse its
   // complete immutable generation. Duplicate downloads are harmless; shared
@@ -120,6 +156,130 @@ export async function ensureBinary({
     throw new Error(`published binary verification failed for ${asset}`);
   }
   return installedBinary;
+}
+
+function defaultBinarySourceBaseURLs(environment) {
+  const sources = [GITHUB_RELEASE_BASE_URL];
+  const configuredRegistry =
+    environment.npm_config_registry ?? environment.NPM_CONFIG_REGISTRY;
+  const registryBinaryBase = customRegistryBinaryBaseURL(configuredRegistry);
+  if (registryBinaryBase) {
+    sources.push(registryBinaryBase);
+  }
+  sources.push(NPMMIRROR_BINARY_BASE_URL);
+  return sources;
+}
+
+function customRegistryBinaryBaseURL(value) {
+  if (!value) {
+    return undefined;
+  }
+  let registry;
+  try {
+    registry = new URL(value);
+  } catch {
+    return undefined;
+  }
+  if (
+    registry.protocol !== "https:" ||
+    registry.username ||
+    registry.password ||
+    registry.origin === new URL(NPM_REGISTRY_URL).origin
+  ) {
+    return undefined;
+  }
+  return `${registry.href.replace(/\/$/, "")}/-/binary/viceme-cli`;
+}
+
+function parseDownloadBaseURL(value, allowInsecureURL) {
+  let parsed;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`invalid binary download source ${value}`);
+  }
+  if (parsed.username || parsed.password) {
+    throw new Error("binary download sources must not contain credentials");
+  }
+  if (!allowInsecureURL && parsed.protocol !== "https:") {
+    throw new Error(`refusing non-HTTPS binary download source ${value}`);
+  }
+  if (allowInsecureURL && !["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error(`unsupported binary download protocol ${parsed.protocol}`);
+  }
+  return parsed;
+}
+
+async function downloadVerifiedBinary({
+  asset,
+  expectedChecksum,
+  urls,
+  downloadImplementation,
+  allowInsecureURL,
+}) {
+  const failures = [];
+  for (const url of urls) {
+    try {
+      const downloaded = await downloadImplementation(url, { allowInsecureURL });
+      const binary = Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded);
+      if (digest(binary) !== expectedChecksum) {
+        throw new Error(`checksum mismatch for ${asset}`);
+      }
+      return binary;
+    } catch (error) {
+      failures.push(`- ${url}: ${errorMessage(error)}`);
+    }
+  }
+  throw new Error(
+    `could not download a verified ${asset}; attempted:\n${failures.join("\n")}`,
+  );
+}
+
+async function downloadWithCurl(url, { allowInsecureURL = false } = {}) {
+  const parsed = parseDownloadBaseURL(url, allowInsecureURL);
+  const arguments_ = [
+    "--fail",
+    "--location",
+    "--silent",
+    "--show-error",
+    "--connect-timeout",
+    "10",
+    "--max-time",
+    "120",
+    "--max-redirs",
+    "5",
+  ];
+  if (!allowInsecureURL) {
+    arguments_.push("--proto", "=https", "--proto-redir", "=https");
+  }
+  arguments_.push(parsed.href);
+  return await new Promise((resolve, reject) => {
+    const child = spawn("curl", arguments_, {
+      stdio: ["ignore", "pipe", "pipe"],
+      windowsHide: true,
+    });
+    const stdout = [];
+    let stderr = "";
+    child.stdout.on("data", (chunk) => stdout.push(chunk));
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk;
+    });
+    child.on("error", (error) => {
+      if (error.code === "ENOENT") {
+        reject(new Error("curl is required to download the ViceMe CLI binary"));
+        return;
+      }
+      reject(error);
+    });
+    child.on("close", (code, signal) => {
+      if (code === 0) {
+        resolve(Buffer.concat(stdout));
+        return;
+      }
+      const reason = stderr.trim() || `curl exited ${code ?? `on signal ${signal}`}`;
+      reject(new Error(reason));
+    });
+  });
 }
 
 async function findValidGeneration(generationsDirectory, asset) {
@@ -170,22 +330,27 @@ async function cachedBinaryIsValid(binaryPath, checksumPath) {
   }
 }
 
-async function download(url, fetchImplementation, allowInsecureURL) {
-  const parsed = new URL(url);
-  if (!allowInsecureURL && parsed.protocol !== "https:") {
-    throw new Error(`refusing non-HTTPS release URL ${url}`);
+function checksumForAsset(document, asset) {
+  let checksum;
+  for (const line of document.split(/\r?\n/)) {
+    if (line.trim() === "") {
+      continue;
+    }
+    const match = line.match(/^([a-fA-F0-9]{64})\s+([^\s]+)$/);
+    if (!match) {
+      throw new Error("bundled checksum document is invalid");
+    }
+    if (match[2] === asset) {
+      if (checksum) {
+        throw new Error(`bundled checksum document contains duplicate ${asset}`);
+      }
+      checksum = match[1].toLowerCase();
+    }
   }
-  const response = await fetchImplementation(url, {
-    redirect: "follow",
-    headers: { "user-agent": "@viceme-ai/cli npm launcher" },
-  });
-  if (!response.ok) {
-    throw new Error(`download failed (${response.status}) for ${url}`);
+  if (!checksum) {
+    throw new Error(`bundled checksum document does not contain ${asset}`);
   }
-  if (!allowInsecureURL && response.url && new URL(response.url).protocol !== "https:") {
-    throw new Error(`release download redirected to a non-HTTPS URL`);
-  }
-  return Buffer.from(await response.arrayBuffer());
+  return checksum;
 }
 
 function parseChecksum(document) {
@@ -198,4 +363,8 @@ function parseChecksum(document) {
 
 function digest(buffer) {
   return createHash("sha256").update(buffer).digest("hex");
+}
+
+function errorMessage(error) {
+  return error instanceof Error ? error.message : String(error);
 }
