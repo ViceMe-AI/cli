@@ -8,9 +8,9 @@
 
 Viceme 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为稳定、可分享的 Viceme Agent。它面向 Codex、Claude Code 等 AI 编程工具：Agent Skill 负责理解用户意图，CLI 负责确定性的认证、上传、发布和状态协议。
 
-[安装](#安装与快速开始) · [AI Agent Skills](#agent-skills) · [认证](#认证) · [区域](#区域) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
+[安装](#安装与快速开始) · [AI Agent Skills](#agent-skills) · [认证](#认证) · [区域与-profile](#区域与-profile) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
 
-> **开放状态：** Core 发布传输和稳定链接链路已在受控白名单后实现。正式对外开放仍取决于精确 Candidate 预览、试运行和结果确认门的完成。当前 `--yes` 只确认发起发布请求，并不代表用户已经审阅最终 Candidate。
+> **开放状态：** Core 发布传输和稳定链接链路已经实现。正式对外开放仍取决于精确 Candidate 预览、试运行和结果确认门的完成。当前 `--yes` 只确认发起发布请求，并不代表用户已经审阅最终 Candidate。
 
 ## 为什么选择 Viceme CLI？
 
@@ -103,6 +103,7 @@ viceme auth login --device-code <device-code>
 ```
 
 如果授权仍处于等待状态，应在过期前继续使用同一个 device code。只有原流程已过期时才能重新发起设备登录。
+使用非默认 Profile 时，启动和继续设备登录必须传入同一个全局 `--profile <name>`；启动结果会返回实际的 `profile` 与 `region`。
 
 **第 4 步 — 验证**
 
@@ -122,18 +123,29 @@ viceme skill inspect https://github.com/acme/poster-skill
 
 inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。在上方所述的精确 Candidate 确认门完成前，公开发布流程仍保持关闭。
 
-## 区域
+## 区域与 Profile
 
-Viceme 在安装时只提供一个产品级区域选择：
+每个 Profile 独立选择一个 Viceme 区域：
 
 | 区域 | 安装命令 | API 地址 |
 |---|---|---|
 | 中国区 | `viceme install` | `https://api.viceme.cn` |
 | 国际区 | `viceme install --region global` | `https://api.viceme.ai` |
 
-选择结果保存为 `region=cn|global`，后续命令会自动使用。不同区域的凭证彼此隔离，中国区令牌不会用于国际区 API，反之亦然。
+首次安装会创建 `default` Profile。配置保存在 `~/.viceme-cli/config.json`，访问令牌仍只保存在操作系统密钥链中。不同 Profile 和区域的凭证彼此隔离。
 
-CLI 不提供公开的 API 地址、profile 或输出格式配置。本地开发时可以在终端环境中设置 `VICEME_API_BASE_URL`。
+```bash
+viceme profile list
+viceme profile add --name work --region global --use
+viceme profile use default
+viceme --profile work auth status
+viceme profile rename work company
+viceme profile remove company
+```
+
+`profile use` 修改持久化的当前 Profile；全局 `--profile` 只覆盖本次命令。不要让 AI Agent 在用户没有明确要求时切换或删除 Profile。
+
+可以用 `VICEME_CLI_CONFIG_DIR` 覆盖配置根目录。本地 API 联调仍使用进程环境变量 `VICEME_API_BASE_URL`，不会写入 Profile。
 
 ## Agent Skills
 
@@ -160,10 +172,10 @@ viceme skills doctor
 
 | 命令 | 用途 |
 |---|---|
-| `viceme auth status` | 查看当前区域是否已认证 |
+| `viceme auth status` | 查看当前 Profile 是否已认证 |
 | `viceme auth login --no-wait` | 启动设备授权并立即返回 |
 | `viceme auth login --device-code <code>` | 完成之前启动的设备授权 |
-| `viceme auth logout` | 撤销并删除当前区域的凭证 |
+| `viceme auth logout` | 撤销并删除当前 Profile 的凭证 |
 
 令牌只保存在操作系统密钥链中，不会回退到明文存储；登录成功的输出也不会包含访问令牌或刷新令牌。
 
@@ -204,8 +216,9 @@ viceme skill publish --file ./poster-skill-v2.zip \
 
 | 命令组 | 用途 |
 |---|---|
-| `viceme install` | 安装持久化启动器、Agent Skill 和区域配置 |
+| `viceme install` | 安装持久化启动器、Agent Skill 和默认 Profile |
 | `viceme auth` | 启动、完成、检查或撤销设备认证 |
+| `viceme profile` | 新增、列出、切换、重命名或删除本地 Profile |
 | `viceme skill inspect` | 固化并检查来源候选，不执行发布 |
 | `viceme skill publish` | 创建或更新具有稳定链接的 Skill Agent 发布 |
 | `viceme skill target` | 解析现有逻辑 Agent Target 及其版本 |
@@ -266,7 +279,7 @@ CLI 执行错误写入 **stderr**，退出码非零：
 - **不执行来源内容** — CLI 和编译器不会执行第三方脚本、二进制文件、shell 片段、市场命令或复制口令中的指令。
 - **公开变更需要明确确认** — 发布和取消操作需要 `--yes`；退出码 `10` 表示 Agent 必须向用户取得确认，不能静默重试。
 - **安全预览** — 用户需要检查计划请求时，可以对 inspect 或 publish 使用 `--dry-run`，不会产生网络请求或发布副作用。
-- **凭证隔离** — 凭证保存在操作系统密钥链中，并按区域隔离。
+- **凭证隔离** — 凭证保存在操作系统密钥链中，并按 Profile 与区域隔离。
 - **不可变输入** — inspect 会把发布绑定到不可变来源快照，而不是在之后重新读取浮动 URL。
 - **有界等待** — `job wait` 有最大等待时间；超时后返回最新持久化状态，不会取消工作流。
 - **可信分发** — npm 启动器从 GitHub 或 binary 镜像下载与其准确包版本匹配的二进制文件，并在启用前使用 npm 包内置的校验清单验证 SHA-256。

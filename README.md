@@ -8,9 +8,9 @@
 
 The official command-line client and Agent Skill for publishing external Skills as stable, shareable Viceme Agents. It is built for AI coding tools such as Codex and Claude Code: the Agent Skill understands user intent, while the CLI provides the deterministic authentication, upload, publication, and status protocol.
 
-[Install](#installation--quick-start) · [AI Agent Skills](#agent-skills) · [Auth](#authentication) · [Regions](#regions) · [Commands](#command-overview) · [Output contract](#json-output-contract) · [Security](#security-and-risk-controls) · [Development](#development)
+[Install](#installation--quick-start) · [AI Agent Skills](#agent-skills) · [Auth](#authentication) · [Regions & profiles](#regions--profiles) · [Commands](#command-overview) · [Output contract](#json-output-contract) · [Security](#security-and-risk-controls) · [Development](#development)
 
-> **Rollout status:** the Core publication transport and stable-link path are implemented behind a controlled allowlist. Public rollout remains blocked until the exact Candidate preview, test run, and result-confirmation gate is complete. The current `--yes` confirms the publication request; it is not proof that the user reviewed the final Candidate.
+> **Rollout status:** the Core publication transport and stable-link path are implemented. Public rollout remains blocked until the exact Candidate preview, test run, and result-confirmation gate is complete. The current `--yes` confirms the publication request; it is not proof that the user reviewed the final Candidate.
 
 ## Why Viceme CLI?
 
@@ -103,6 +103,7 @@ viceme auth login --device-code <device-code>
 ```
 
 If authorization is still pending, reuse the same device code before it expires. Do not start a second device flow unless the original one has expired.
+For a non-default profile, pass the same global `--profile <name>` when starting and continuing device login; the start result reports the effective `profile` and `region`.
 
 **Step 4 — Verify**
 
@@ -122,18 +123,29 @@ viceme skill inspect https://github.com/acme/poster-skill
 
 Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. Public publication remains blocked until the exact Candidate confirmation gate described above is complete.
 
-## Regions
+## Regions & Profiles
 
-Viceme exposes one product-level region choice during installation:
+Each profile selects one Viceme region:
 
 | Region | Install command | API endpoint |
 |---|---|---|
 | China | `viceme install` | `https://api.viceme.cn` |
 | International | `viceme install --region global` | `https://api.viceme.ai` |
 
-The selected value is persisted as `region=cn|global`; later commands use it automatically. Credentials are isolated by region, so a China token is never reused against the international API, or vice versa.
+The first install creates the `default` profile. Non-sensitive configuration is stored in `~/.viceme-cli/config.json`; access tokens remain exclusively in the operating-system keychain. Credentials are isolated by both profile and region.
 
-There is no public API URL, profile, or output-format configuration. For local development only, set `VICEME_API_BASE_URL` in the terminal environment.
+```bash
+viceme profile list
+viceme profile add --name work --region global --use
+viceme profile use default
+viceme --profile work auth status
+viceme profile rename work company
+viceme profile remove company
+```
+
+`profile use` changes the persistent active profile; the global `--profile` flag overrides only one command. AI Agents must not switch or remove profiles unless the user explicitly requests it.
+
+`VICEME_CLI_CONFIG_DIR` can override the config root. Local API development still uses the process-only `VICEME_API_BASE_URL`; it is never persisted in a profile.
 
 ## Agent Skills
 
@@ -160,10 +172,10 @@ viceme skills doctor
 
 | Command | Purpose |
 |---|---|
-| `viceme auth status` | Show whether the current region is authenticated |
+| `viceme auth status` | Show whether the current profile is authenticated |
 | `viceme auth login --no-wait` | Start device authorization and return immediately |
 | `viceme auth login --device-code <code>` | Complete a previously started authorization |
-| `viceme auth logout` | Revoke and remove the current region credential |
+| `viceme auth logout` | Revoke and remove the current profile credential |
 
 Tokens are stored only in the operating-system keychain. There is no plaintext token fallback, and successful login output never contains the access or refresh token.
 
@@ -204,8 +216,9 @@ viceme skill publish --file ./poster-skill-v2.zip \
 
 | Command group | Purpose |
 |---|---|
-| `viceme install` | Install the persistent launcher, Agent Skill, and region configuration |
+| `viceme install` | Install the persistent launcher, Agent Skill, and default profile |
 | `viceme auth` | Start, complete, inspect, or revoke device authentication |
+| `viceme profile` | Add, list, switch, rename, or remove local profiles |
 | `viceme skill inspect` | Freeze and inspect a source candidate without publishing |
 | `viceme skill publish` | Create or update a stable Skill Agent publication |
 | `viceme skill target` | Resolve existing logical Agent Targets and versions |
@@ -266,7 +279,7 @@ Determine command success from the process exit code or `ok == true`. A successf
 - **No source execution** — the CLI and compiler do not execute third-party scripts, binaries, shell fragments, marketplace commands, or copied instructions.
 - **Explicit public mutation** — publishing and cancellation require `--yes`; exit code `10` means the Agent must obtain confirmation, not silently retry.
 - **Safe preview** — use `--dry-run` on inspect or publish when the user needs to review the planned request without network or publication side effects.
-- **Credential isolation** — credentials stay in the OS keychain and are namespaced by region.
+- **Credential isolation** — credentials stay in the OS keychain and are namespaced by profile and region.
 - **Immutable inputs** — inspection binds publication to an immutable source snapshot rather than re-reading a floating URL later.
 - **Bounded waiting** — `job wait` has a maximum duration and returns the latest durable state without cancelling the workflow.
 - **Verified distribution** — the npm launcher downloads the binary for its exact package version from GitHub or a binary mirror and verifies it against the checksum manifest bundled in the npm package before activation.

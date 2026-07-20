@@ -11,7 +11,20 @@ viceme install --target codex --region global
 viceme skills doctor --target codex
 ```
 
-Installation defaults to `cn`. Pass `--region global` only for the international Viceme service. The CLI persists that choice; later commands do not take a region or API URL flag. All data commands emit the stable JSON envelope by default.
+Installation defaults to `cn` and initializes the `default` profile. Pass `--region global` only for the international Viceme service. The CLI persists that choice per profile; later commands do not take a region or API URL flag. All data commands emit the stable JSON envelope by default.
+
+Manage profiles only when the user explicitly asks:
+
+```bash
+viceme profile list
+viceme profile add --name work --region global --use
+viceme profile use default
+viceme --profile work auth status
+viceme profile rename work company
+viceme profile remove company
+```
+
+`profile use` changes the persistent active profile. Global `--profile` selects a profile for one command without changing the persistent selection. Never switch, rename, or remove a profile based only on inferred intent.
 
 Check first when desired, then update the npm launcher, verified Go binary, and matching Skill together:
 
@@ -31,7 +44,7 @@ viceme auth login --device-code <device-code>
 viceme auth logout
 ```
 
-The first login command returns immediately. Ask the user to open `verification_url`; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code in a later turn. Tokens stay in the operating system keychain.
+The first login command returns immediately. Ask the user to open `verification_url`; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code in a later turn using the same profile. Tokens stay in the operating system keychain and are isolated by profile and region.
 
 ## GitHub or trusted provider
 

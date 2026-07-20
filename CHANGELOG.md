@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.0] - 2026-07-20
+
+### Features
+
+- add profile management (`fec286e`)
+
 ## [0.2.1] - 2026-07-20
 
 ### Fixes
