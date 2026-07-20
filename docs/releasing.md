@@ -28,7 +28,8 @@ files, create tags, write changelog entries, or run npm commands locally.
 8. A maintainer reviews and merges that same Release PR.
 9. `Release CLI and npm launcher` tags the exact reviewed `dev` head, reruns
    the quality gates, builds six platform binaries and six checksums, creates
-   the GitHub Release, publishes the npm launcher, and then sends an
+   the GitHub Release, bundles those exact checksums into the npm launcher,
+   publishes it, and then sends an
    AI-generated release summary to the release notification group in Feishu.
 
 ## One-time repository setup
@@ -72,6 +73,14 @@ provenance. If npm does not allow trusted publishing to create the package on
 its first release, add a repository secret named `NPM_TOKEN` containing a
 granular automation token limited to `@viceme-ai/cli` publication. Remove that
 secret after the package exists and trusted publishing is confirmed.
+
+The npm tarball contains `checksums.txt`, generated from the six immutable
+GitHub Release checksum assets immediately before publication. The launcher
+uses that bundled manifest as its trust root whether the matching binary is
+transported by GitHub Release, a configured npm registry binary mirror, or the
+public npmmirror binary mirror. Registering `viceme-cli` with cnpmcore enables
+the public `/-/binary/viceme-cli/` mirror; it does not create another npm
+package.
 
 `GITHUB_TOKEN` is provided by Actions and is used only to maintain the Release
 PR. `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` authenticate the narrowly

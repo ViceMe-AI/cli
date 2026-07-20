@@ -10,6 +10,7 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import {
+  binaryDownloadURLs,
   ensureBinary,
   releaseAssetName,
   releaseTarget,
@@ -34,65 +35,159 @@ test("maps supported Node targets to Go release assets", () => {
   assert.throws(() => releaseTarget("freebsd", "x64"), /unsupported platform/);
 });
 
+test("orders GitHub, configured registry mirror, and public npmmirror sources", () => {
+  const common = {
+    packageVersion: "0.1.0",
+    asset: "viceme_0.1.0_linux_amd64",
+  };
+  assert.deepEqual(binaryDownloadURLs({ ...common, environment: {} }), [
+    "https://github.com/ViceMe-AI/cli/releases/download/v0.1.0/viceme_0.1.0_linux_amd64",
+    "https://registry.npmmirror.com/-/binary/viceme-cli/v0.1.0/viceme_0.1.0_linux_amd64",
+  ]);
+  assert.deepEqual(
+    binaryDownloadURLs({
+      ...common,
+      environment: { npm_config_registry: "https://npm.corp.example/repository/npm/" },
+    }),
+    [
+      "https://github.com/ViceMe-AI/cli/releases/download/v0.1.0/viceme_0.1.0_linux_amd64",
+      "https://npm.corp.example/repository/npm/-/binary/viceme-cli/v0.1.0/viceme_0.1.0_linux_amd64",
+      "https://registry.npmmirror.com/-/binary/viceme-cli/v0.1.0/viceme_0.1.0_linux_amd64",
+    ],
+  );
+});
+
+test("does not add npmjs, insecure, invalid, or duplicate registry sources", () => {
+  const common = {
+    packageVersion: "0.1.0",
+    asset: "viceme_0.1.0_linux_amd64",
+  };
+  for (const registry of [
+    "https://registry.npmjs.org/",
+    "http://npm.corp.example/",
+    "not a url",
+    "https://registry.npmmirror.com/",
+  ]) {
+    assert.deepEqual(
+      binaryDownloadURLs({
+        ...common,
+        environment: { npm_config_registry: registry },
+      }),
+      [
+        "https://github.com/ViceMe-AI/cli/releases/download/v0.1.0/viceme_0.1.0_linux_amd64",
+        "https://registry.npmmirror.com/-/binary/viceme-cli/v0.1.0/viceme_0.1.0_linux_amd64",
+      ],
+    );
+  }
+});
+
 test("downloads an exact-version binary, verifies checksum, and reuses cache", async () => {
   const cacheDirectory = await mkdtemp(path.join(os.tmpdir(), "viceme-npm-test-"));
   const binary = Buffer.from("verified test binary\n");
-  const checksum = createHash("sha256").update(binary).digest("hex");
-  let fetches = 0;
-  const fetchImplementation = async (url) => {
-    fetches += 1;
-    return new Response(url.endsWith(".sha256") ? `${checksum}  viceme\n` : binary);
+  const asset = "viceme_0.1.0_linux_amd64";
+  let downloads = 0;
+  const downloadImplementation = async () => {
+    downloads += 1;
+    return binary;
   };
   const options = {
     packageVersion: "0.1.0",
     platform: "linux",
     architecture: "x64",
     cacheDirectory,
-    releaseBaseURL: "http://release.test",
+    sourceBaseURLs: ["http://release.test"],
     allowInsecureURL: true,
-    fetchImplementation,
+    downloadImplementation,
+    checksumsDocument: checksumDocument(asset, binary),
     environment: {},
   };
   const installed = await ensureBinary(options);
   assert.deepEqual(await readFile(installed), binary);
-  assert.equal(fetches, 2);
+  assert.equal(downloads, 1);
   assert.equal(await ensureBinary(options), installed);
-  assert.equal(fetches, 2);
+  assert.equal(downloads, 1);
+});
+
+test("falls back in order and verifies every source against the bundled checksum", async () => {
+  const cacheDirectory = await mkdtemp(path.join(os.tmpdir(), "viceme-npm-fallback-"));
+  const binary = Buffer.from("verified fallback binary\n");
+  const asset = "viceme_0.1.0_linux_amd64";
+  const attempted = [];
+  const installed = await ensureBinary({
+    packageVersion: "0.1.0",
+    platform: "linux",
+    architecture: "x64",
+    cacheDirectory,
+    sourceBaseURLs: ["https://first.example", "https://second.example"],
+    checksumsDocument: checksumDocument(asset, binary),
+    downloadImplementation: async (url) => {
+      attempted.push(url);
+      if (url.startsWith("https://first.example/")) {
+        throw new Error("temporary network failure");
+      }
+      return binary;
+    },
+    environment: {},
+  });
+  assert.deepEqual(await readFile(installed), binary);
+  assert.deepEqual(attempted, [
+    `https://first.example/v0.1.0/${asset}`,
+    `https://second.example/v0.1.0/${asset}`,
+  ]);
 });
 
 test("rejects a release binary whose checksum does not match", async () => {
   const cacheDirectory = await mkdtemp(path.join(os.tmpdir(), "viceme-npm-test-"));
-  const fetchImplementation = async (url) =>
-    new Response(url.endsWith(".sha256") ? `${"0".repeat(64)}  viceme\n` : "tampered");
+  const asset = "viceme_0.1.0_linux_amd64";
   await assert.rejects(
     ensureBinary({
       packageVersion: "0.1.0",
       platform: "linux",
       architecture: "x64",
       cacheDirectory,
-      releaseBaseURL: "http://release.test",
+      sourceBaseURLs: ["http://release.test"],
       allowInsecureURL: true,
-      fetchImplementation,
+      downloadImplementation: async () => Buffer.from("tampered"),
+      checksumsDocument: `${"0".repeat(64)}  ${asset}\n`,
       environment: {},
     }),
-    /checksum mismatch/,
+    /attempted:[\s\S]*checksum mismatch/,
+  );
+});
+
+test("reports every attempted source when no verified binary is available", async () => {
+  const cacheDirectory = await mkdtemp(path.join(os.tmpdir(), "viceme-npm-failures-"));
+  const asset = "viceme_0.1.0_linux_amd64";
+  await assert.rejects(
+    ensureBinary({
+      packageVersion: "0.1.0",
+      platform: "linux",
+      architecture: "x64",
+      cacheDirectory,
+      sourceBaseURLs: ["https://first.example", "https://second.example"],
+      checksumsDocument: `${"0".repeat(64)}  ${asset}\n`,
+      downloadImplementation: async (url) => {
+        throw new Error(url.includes("first") ? "HTTP 404" : "connection refused");
+      },
+      environment: {},
+    }),
+    /first\.example[\s\S]*HTTP 404[\s\S]*second\.example[\s\S]*connection refused/,
   );
 });
 
 test("publishes a new Windows generation instead of mutating a corrupted one", async () => {
   const cacheDirectory = await mkdtemp(path.join(os.tmpdir(), "viceme-npm-windows-"));
   const binary = Buffer.from("verified windows binary\n");
-  const checksum = createHash("sha256").update(binary).digest("hex");
-  const fetchImplementation = async (url) =>
-    new Response(url.endsWith(".sha256") ? `${checksum}  viceme.exe\n` : binary);
+  const asset = "viceme_0.1.0_windows_amd64.exe";
   const options = {
     packageVersion: "0.1.0",
     platform: "win32",
     architecture: "x64",
     cacheDirectory,
-    releaseBaseURL: "http://release.test",
+    sourceBaseURLs: ["http://release.test"],
     allowInsecureURL: true,
-    fetchImplementation,
+    downloadImplementation: async () => binary,
+    checksumsDocument: checksumDocument(asset, binary),
     environment: {},
   };
   const installed = await ensureBinary(options);
@@ -111,7 +206,7 @@ test("concurrent cold starts publish only complete immutable generations", async
   const server = createServer((request, response) => {
     requests += 1;
     setTimeout(() => {
-      response.end(request.url.endsWith(".sha256") ? `${checksum}  viceme\n` : binary);
+      response.end(binary);
     }, 100);
   });
   server.listen(0, "127.0.0.1");
@@ -119,14 +214,18 @@ test("concurrent cold starts publish only complete immutable generations", async
   const address = server.address();
   const releaseBaseURL = `http://127.0.0.1:${address.port}`;
   const child = new URL("./installer-child.mjs", import.meta.url);
+  const checksumsDocument = checksumDocument(
+    "viceme_0.1.0_linux_amd64",
+    binary,
+  );
   try {
     const installed = await Promise.all([
-      runNodeChild(child, cacheDirectory, releaseBaseURL),
-      runNodeChild(child, cacheDirectory, releaseBaseURL),
-      runNodeChild(child, cacheDirectory, releaseBaseURL),
-      runNodeChild(child, cacheDirectory, releaseBaseURL),
+      runNodeChild(child, cacheDirectory, releaseBaseURL, checksumsDocument),
+      runNodeChild(child, cacheDirectory, releaseBaseURL, checksumsDocument),
+      runNodeChild(child, cacheDirectory, releaseBaseURL, checksumsDocument),
+      runNodeChild(child, cacheDirectory, releaseBaseURL, checksumsDocument),
     ]);
-    assert.ok(requests >= 2 && requests <= 8);
+    assert.ok(requests >= 1 && requests <= 4);
     for (const installedPath of installed.map((value) => value.trim())) {
       assert.match(installedPath, /[/\\]generations[/\\]generation-/);
       assert.deepEqual(await readFile(installedPath), binary);
@@ -162,20 +261,39 @@ test("multiple contenders ignore crashed reaper state without fencing an old liv
   const server = createServer((request, response) => {
     requests += 1;
     setTimeout(() => {
-      response.end(request.url.endsWith(".sha256") ? `${checksum}  viceme\n` : binary);
+      response.end(binary);
     }, 100);
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
   const address = server.address();
   const child = new URL("./installer-child.mjs", import.meta.url);
+  const checksumsDocument = checksumDocument(
+    "viceme_0.1.0_linux_amd64",
+    binary,
+  );
   try {
     const installed = await Promise.all([
-      runNodeChild(child, cacheDirectory, `http://127.0.0.1:${address.port}`),
-      runNodeChild(child, cacheDirectory, `http://127.0.0.1:${address.port}`),
-      runNodeChild(child, cacheDirectory, `http://127.0.0.1:${address.port}`),
+      runNodeChild(
+        child,
+        cacheDirectory,
+        `http://127.0.0.1:${address.port}`,
+        checksumsDocument,
+      ),
+      runNodeChild(
+        child,
+        cacheDirectory,
+        `http://127.0.0.1:${address.port}`,
+        checksumsDocument,
+      ),
+      runNodeChild(
+        child,
+        cacheDirectory,
+        `http://127.0.0.1:${address.port}`,
+        checksumsDocument,
+      ),
     ]);
-    assert.ok(requests >= 2 && requests <= 6);
+    assert.ok(requests >= 1 && requests <= 3);
     for (const installedPath of installed.map((value) => value.trim())) {
       assert.deepEqual(await readFile(installedPath), binary);
     }
@@ -211,10 +329,10 @@ test("ignores crash-left staging and corrupt generations without deleting them",
     platform: "linux",
     architecture: "x64",
     cacheDirectory,
-    releaseBaseURL: "http://release.test",
+    sourceBaseURLs: ["http://release.test"],
     allowInsecureURL: true,
-    fetchImplementation: async (url) =>
-      new Response(url.endsWith(".sha256") ? `${checksum}  ${asset}\n` : binary),
+    downloadImplementation: async () => binary,
+    checksumsDocument: checksumDocument(asset, binary),
     environment: {},
   });
   assert.deepEqual(await readFile(installed), binary);
@@ -238,11 +356,13 @@ test("supports an explicit local binary for package smoke tests", async () => {
   );
 });
 
-function runNodeChild(moduleURL, cacheDirectory, releaseBaseURL) {
+function runNodeChild(moduleURL, cacheDirectory, releaseBaseURL, checksumsDocument) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [fileURLToPath(moduleURL), cacheDirectory, releaseBaseURL], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    const child = spawn(
+      process.execPath,
+      [fileURLToPath(moduleURL), cacheDirectory, releaseBaseURL, checksumsDocument],
+      { stdio: ["ignore", "pipe", "pipe"] },
+    );
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (chunk) => {
@@ -260,6 +380,11 @@ function runNodeChild(moduleURL, cacheDirectory, releaseBaseURL) {
       }
     });
   });
+}
+
+function checksumDocument(asset, binary) {
+  const checksum = createHash("sha256").update(binary).digest("hex");
+  return `${checksum}  ${asset}\n`;
 }
 
 async function assertEveryPublishedGenerationIsComplete(cacheDirectory, binary, checksum) {

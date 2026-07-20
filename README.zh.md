@@ -50,7 +50,7 @@ npm install --global @viceme-ai/cli
 viceme install
 ```
 
-两种方式都会持久化 npm 启动器、下载匹配且通过校验和验证的 Go 二进制文件，并安装随包发布的 Viceme Agent Skill。默认使用中国区服务。使用国际区服务：
+两种方式都会持久化 npm 启动器、下载匹配且通过校验和验证的 Go 二进制文件，并安装随包发布的 Viceme Agent Skill。二进制下载依次尝试 GitHub Release、用户配置的非默认 npm registry 的 `/-/binary/viceme-cli/` 镜像，最后回退到公共 npmmirror binary 镜像。启动器使用系统 `curl`，因此会遵循标准代理环境变量。默认使用中国区服务。使用国际区服务：
 
 ```bash
 npx --yes @viceme-ai/cli@latest install --region global
@@ -269,7 +269,7 @@ CLI 执行错误写入 **stderr**，退出码非零：
 - **凭证隔离** — 凭证保存在操作系统密钥链中，并按区域隔离。
 - **不可变输入** — inspect 会把发布绑定到不可变来源快照，而不是在之后重新读取浮动 URL。
 - **有界等待** — `job wait` 有最大等待时间；超时后返回最新持久化状态，不会取消工作流。
-- **可信分发** — npm 启动器下载与其准确包版本匹配的二进制文件，并在启用前验证发布的 SHA-256 校验和。
+- **可信分发** — npm 启动器从 GitHub 或 binary 镜像下载与其准确包版本匹配的二进制文件，并在启用前使用 npm 包内置的校验清单验证 SHA-256。
 
 ## 诊断与更新
 

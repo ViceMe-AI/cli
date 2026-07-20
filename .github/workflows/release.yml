@@ -271,6 +271,36 @@ jobs:
       - name: Install OIDC-capable npm CLI
         run: npm install --global npm@11.12.1
       - run: npm ci
+      - name: Bundle the immutable release checksums into npm
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          mkdir -p release-checksums
+          gh release download "${TAG}" --pattern '*.sha256' --dir release-checksums
+
+          for TARGET in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
+            ASSET="viceme_${VERSION}_${TARGET}"
+            FILE="release-checksums/${ASSET}.sha256"
+            test -f "${FILE}"
+            read -r CHECKSUM NAME EXTRA <"${FILE}"
+            [[ "${CHECKSUM}" =~ ^[a-f0-9]{64}$ ]]
+            test "${NAME}" = "${ASSET}"
+            test -z "${EXTRA:-}"
+          done
+          for TARGET in windows_amd64 windows_arm64; do
+            ASSET="viceme_${VERSION}_${TARGET}.exe"
+            FILE="release-checksums/${ASSET}.sha256"
+            test -f "${FILE}"
+            read -r CHECKSUM NAME EXTRA <"${FILE}"
+            [[ "${CHECKSUM}" =~ ^[a-f0-9]{64}$ ]]
+            test "${NAME}" = "${ASSET}"
+            test -z "${EXTRA:-}"
+          done
+          test "$(find release-checksums -maxdepth 1 -type f | wc -l)" -eq 6
+          LC_ALL=C sort -k2 release-checksums/*.sha256 >checksums.txt
+          test "$(wc -l <checksums.txt)" -eq 6
       - name: Publish npm launcher or verify an exact prior publish
         env:
           # Empty after trusted publishing is configured. If npm requires a
