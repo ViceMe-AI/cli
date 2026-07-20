@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.4.0] - 2026-07-20
+
+### Features
+
+- add guided human login flow (`b883736`)
+
 ## [0.3.1] - 2026-07-20
 
 ### Fixes
