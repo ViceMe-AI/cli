@@ -29,19 +29,25 @@
         {
           "name": "device-code",
           "type": "string",
-          "usage": "continue a previously started device authorization"
+          "usage": "continue a previously started Agent authorization (requires --json)"
+        },
+        {
+          "name": "json",
+          "type": "bool",
+          "default": "false",
+          "usage": "use structured JSON output for an Agent split-flow"
         },
         {
           "name": "no-wait",
           "type": "bool",
           "default": "false",
-          "usage": "return the device authorization immediately"
+          "usage": "return device authorization immediately for an Agent split-flow (requires --json)"
         },
         {
           "name": "timeout",
           "type": "duration",
-          "default": "1m0s",
-          "usage": "maximum time to poll for authorization"
+          "default": "10m0s",
+          "usage": "maximum time to wait for browser authorization"
         }
       ]
     },
