@@ -20,7 +20,7 @@ Viceme 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为
 - **稳定发布** — 同一个逻辑 Agent 后续发布新版本时继续使用同一个分享链接。
 - **支持多种来源** — 支持 GitHub Skill、小红书或 RedSkill 复制口令、压缩包和本地 Skill 目录。
 - **默认安全** — 凭证保存在操作系统密钥链中，公开变更需要确认，下载的二进制文件必须通过校验和验证。
-- **机器稳定输出** — 所有数据命令统一使用 JSON 成功或错误信封，不需要输出格式参数。
+- **人类与 Agent 双登录模式** — `viceme auth login` 在终端中引导用户，Agent 跨回合流程则显式使用 JSON。
 
 ## 安装与快速开始
 
@@ -58,16 +58,15 @@ npx --yes @viceme-ai/cli@latest install --region global
 
 #### 认证并验证
 
-如果安装结果提示需要认证，启动设备登录：
+如果安装结果提示需要认证，启动引导式设备登录：
 
 ```bash
-viceme auth login --no-wait
+viceme auth login
 ```
 
-打开返回的 `verification_url`；它通常会直接进入已预填对应设备码的授权请求。完成授权，然后使用返回的 device code 继续：
+CLI 会显示浏览器登录链接、等待授权，并在同一个终端中报告成功。然后验证安装：
 
 ```bash
-viceme auth login --device-code <device-code>
 viceme auth status
 viceme skills doctor
 ```
@@ -84,12 +83,12 @@ viceme skills doctor
 npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
 ```
 
-读取结果中的 `data.authenticated` 和 `data.next_step`。如果认证已经有效，直接进入第 4 步。
+读取结果中的 `data.authenticated` 和 `data.next_step`。如果认证已经有效，直接进入第 4 步。如果需要登录，Agent 不要执行面向人类的 `data.next_step`，而应使用第 2 步的 JSON 跨回合流程。
 
 **第 2 步 — 需要时启动设备登录**
 
 ```bash
-viceme auth login --no-wait
+viceme auth login --no-wait --json
 ```
 
 向用户返回准确的 `data.verification_url`；存在 `verification_url_complete` 时，CLI 会把这个已预填设备码的浏览器直达链接规范化为 `verification_url`。只有浏览器要求输入时，才把 `data.user_code` 作为备用信息提供。保留 `data.device_code` 供后续命令使用，然后结束当前回合。不要在对话中索取、打印或传递访问令牌。
@@ -99,7 +98,7 @@ viceme auth login --no-wait
 用户确认已在浏览器完成授权后：
 
 ```bash
-viceme auth login --device-code <device-code>
+viceme auth login --device-code <device-code> --json
 ```
 
 如果授权仍处于等待状态，应在过期前继续使用同一个 device code。只有原流程已过期时才能重新发起设备登录。
@@ -175,8 +174,9 @@ viceme skills doctor
 | 命令 | 用途 |
 |---|---|
 | `viceme auth status` | 查看当前 Profile 是否已认证 |
-| `viceme auth login --no-wait` | 启动设备授权并立即返回 |
-| `viceme auth login --device-code <code>` | 完成之前启动的设备授权 |
+| `viceme auth login` | 引导人类用户完成浏览器授权并等待结果 |
+| `viceme auth login --no-wait --json` | 启动 Agent 跨回合流程并返回结构化设备授权信息 |
+| `viceme auth login --device-code <code> --json` | 在后续回合完成 Agent 登录流程 |
 | `viceme auth logout` | 撤销并删除当前 Profile 的凭证 |
 
 令牌只保存在操作系统密钥链中，不会回退到明文存储；登录成功的输出也不会包含访问令牌或刷新令牌。
@@ -232,7 +232,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 
 ## JSON 输出契约
 
-所有数据命令默认输出稳定的 JSON 信封。
+面向自动化的数据命令默认输出稳定的 JSON 信封。交互式 `viceme auth login` 是特意保留的人类友好例外；AI Agent 和脚本必须使用 `--no-wait --json`，并在后续回合使用 `--device-code <code> --json` 继续。
 
 成功结果写入 **stdout**，退出码为 `0`：
 

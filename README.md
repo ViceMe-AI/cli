@@ -20,7 +20,7 @@ The official command-line client and Agent Skill for publishing external Skills 
 - **Stable publishing** — later releases of the same logical Agent keep the same share URL.
 - **Multiple source types** — accepts GitHub Skills, pasted Xiaohongshu/RedSkill expressions, archives, and local Skill folders.
 - **Secure by default** — credentials use the operating-system keychain, public mutations require confirmation, and downloaded binaries are checksum-verified.
-- **Machine-stable output** — every data command uses the same JSON success/error envelope without an output-format flag.
+- **Human and Agent login modes** — `viceme auth login` guides a person in the terminal, while Agent split-flows use explicit JSON.
 
 ## Installation & Quick Start
 
@@ -58,16 +58,15 @@ npx --yes @viceme-ai/cli@latest install --region global
 
 #### Authenticate and verify
 
-If the installation result says authentication is required, start device login:
+If the installation result says authentication is required, start the guided device login:
 
 ```bash
-viceme auth login --no-wait
+viceme auth login
 ```
 
-Open the returned `verification_url`; it normally links directly to the matching prefilled device request. Complete authorization, and then continue with the returned device code:
+The CLI prints the browser URL, waits for authorization, and reports success in the same terminal. Then verify the installation:
 
 ```bash
-viceme auth login --device-code <device-code>
 viceme auth status
 viceme skills doctor
 ```
@@ -84,12 +83,12 @@ Use the complete bootstrap command from the bundled Skill. The explicit npm regi
 npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
 ```
 
-Read `data.authenticated` and `data.next_step` from the result. If authentication is already valid, continue to Step 4.
+Read `data.authenticated` and `data.next_step` from the result. If authentication is already valid, continue to Step 4. If login is required, do not execute the human-oriented `data.next_step` inside the Agent; use the JSON split-flow in Step 2.
 
 **Step 2 — Start device login when required**
 
 ```bash
-viceme auth login --no-wait
+viceme auth login --no-wait --json
 ```
 
 Return the exact `data.verification_url`; the CLI normalizes it to the prefilled `verification_url_complete` browser link when available. Include `data.user_code` only as a fallback if the browser asks for it. Preserve `data.device_code` for the continuation command, then stop the current turn. Do not request, print, or place an access token in the conversation.
@@ -99,7 +98,7 @@ Return the exact `data.verification_url`; the CLI normalizes it to the prefilled
 After the user confirms browser authorization:
 
 ```bash
-viceme auth login --device-code <device-code>
+viceme auth login --device-code <device-code> --json
 ```
 
 If authorization is still pending, reuse the same device code before it expires. Do not start a second device flow unless the original one has expired.
@@ -175,8 +174,9 @@ viceme skills doctor
 | Command | Purpose |
 |---|---|
 | `viceme auth status` | Show whether the current profile is authenticated |
-| `viceme auth login --no-wait` | Start device authorization and return immediately |
-| `viceme auth login --device-code <code>` | Complete a previously started authorization |
+| `viceme auth login` | Guide a human through browser authorization and wait for completion |
+| `viceme auth login --no-wait --json` | Start an Agent split-flow and return structured device authorization |
+| `viceme auth login --device-code <code> --json` | Complete an Agent split-flow in a later turn |
 | `viceme auth logout` | Revoke and remove the current profile credential |
 
 Tokens are stored only in the operating-system keychain. There is no plaintext token fallback, and successful login output never contains the access or refresh token.
@@ -232,7 +232,7 @@ Use `viceme <command> --help` for the exact flags. The release-checked machine-r
 
 ## JSON Output Contract
 
-All data commands emit a stable JSON envelope by default.
+Automation-oriented data commands emit a stable JSON envelope by default. Interactive `viceme auth login` is the deliberate human-facing exception; AI Agents and scripts must use `--no-wait --json`, then continue with `--device-code <code> --json` in a later turn.
 
 Success is written to **stdout** with exit code `0`:
 

@@ -33,7 +33,7 @@ func TestRootInstallBootstrapsSkillConfigAndLoginNextStep(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Data.NextStep.Command != "viceme auth login --no-wait" {
+	if envelope.Data.NextStep.Command != "viceme auth login" {
 		t.Fatalf("bootstrap did not return device-login next step: %s", stdout)
 	}
 	if envelope.Data.Region != "global" {

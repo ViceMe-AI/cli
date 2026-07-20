@@ -11,7 +11,7 @@ viceme install --target codex --region global
 viceme skills doctor --target codex
 ```
 
-Installation defaults to `cn` and initializes the `default` profile. Pass `--region global` only for the international Viceme service. The CLI persists that choice per profile; later commands do not take a region or API URL flag. All data commands emit the stable JSON envelope by default.
+Installation defaults to `cn` and initializes the `default` profile. Pass `--region global` only for the international Viceme service. The CLI persists that choice per profile; later commands do not take a region or API URL flag. Automation-oriented data commands emit the stable JSON envelope by default; interactive `viceme auth login` is the human-facing exception.
 
 Manage profiles only when the user explicitly asks:
 
@@ -39,12 +39,13 @@ The update path queries the canonical registry directly, caches only a successfu
 
 ```bash
 viceme auth status
-viceme auth login --no-wait
-viceme auth login --device-code <device-code>
+viceme auth login
+viceme auth login --no-wait --json
+viceme auth login --device-code <device-code> --json
 viceme auth logout
 ```
 
-The first login command returns immediately. Ask the user to open `verification_url`; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code in a later turn using the same profile. Tokens stay in the operating system keychain and are isolated by profile and region.
+Use plain `viceme auth login` for a person at a terminal: it prints the browser URL and waits for completion. AI Agents must use `--no-wait --json`, ask the user to open `verification_url`, and stop the current turn; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code and `--json` in a later turn using the same profile. Tokens stay in the operating system keychain and are isolated by profile and region.
 
 ## GitHub or trusted provider
 

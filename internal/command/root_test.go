@@ -110,7 +110,7 @@ func TestPublishRequiresConfirmationAndExplicitUploadTarget(t *testing.T) {
 	}
 }
 
-func TestAuthNoWaitNeverReturnsToken(t *testing.T) {
+func TestAuthNoWaitJSONNeverReturnsToken(t *testing.T) {
 	t.Parallel()
 	completeURL := "https://viceme.test/cli/auth?user_code=ABCD-EFGH"
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -120,7 +120,7 @@ func TestAuthNoWaitNeverReturnsToken(t *testing.T) {
 		_, _ = io.WriteString(writer, `{"verification_url":"https://viceme.test/cli/auth","verification_url_complete":"`+completeURL+`","device_code":"device-public","user_code":"ABCD-EFGH","expires_at":"2030-01-01T00:00:00Z","interval_seconds":2}`)
 	}))
 	defer server.Close()
-	code, stdout, stderr, _ := runCLI(t, server, nil, "auth", "login", "--no-wait")
+	code, stdout, stderr, _ := runCLI(t, server, nil, "auth", "login", "--no-wait", "--json")
 	if code != 0 || stderr != "" || !strings.Contains(stdout, "device-public") || !strings.Contains(stdout, `"profile":"default"`) || !strings.Contains(stdout, `"region":"cn"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
@@ -141,6 +141,59 @@ func TestAuthNoWaitNeverReturnsToken(t *testing.T) {
 	}
 }
 
+func TestAuthLoginGuidesHumanAndWaitsForAuthorization(t *testing.T) {
+	t.Parallel()
+	completeURL := "https://viceme.test/cli/auth?user_code=ABCD-EFGH"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/cli/auth/device":
+			_, _ = io.WriteString(writer, `{"verification_url":"https://viceme.test/cli/auth","verification_url_complete":"`+completeURL+`","device_code":"device-public","user_code":"ABCD-EFGH","expires_at":"2030-01-01T00:00:00Z","interval_seconds":0}`)
+		case "/v1/cli/auth/token":
+			_, _ = io.WriteString(writer, `{"access_token":"top-secret","refresh_token":"refresh-secret","user_id":"user_1","expires_at":"2030-01-01T00:00:00Z"}`)
+		default:
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	store := securestore.NewMemory()
+	code, stdout, stderr, _ := runCLI(t, server, store, "auth", "login")
+	if code != 0 || stdout != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, expected := range []string{completeURL, "ABCD-EFGH", "Waiting for authorization...", "Authorization successful.", "Profile: default", "Region: cn"} {
+		if !strings.Contains(stderr, expected) {
+			t.Fatalf("human login output lacks %q: %s", expected, stderr)
+		}
+	}
+	for _, secret := range []string{"device-public", "top-secret", "refresh-secret", `{"ok":`} {
+		if strings.Contains(stderr, secret) {
+			t.Fatalf("human login leaked %q: %s", secret, stderr)
+		}
+	}
+	manager := &credentialauth.Manager{Store: store, Region: "cn"}
+	credential, err := manager.Load()
+	if err != nil || credential.AccessToken != "top-secret" {
+		t.Fatalf("credential was not stored: credential=%#v err=%v", credential, err)
+	}
+}
+
+func TestAgentLoginFlowRequiresJSON(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		args    []string
+		subtype string
+	}{
+		{args: []string{"auth", "login", "--no-wait"}, subtype: "auth_json_required"},
+		{args: []string{"auth", "login", "--device-code", "device-public"}, subtype: "auth_json_required"},
+		{args: []string{"auth", "login", "--json"}, subtype: "auth_json_flow"},
+	} {
+		code, stdout, stderr, _ := runCLI(t, nil, nil, test.args...)
+		if code != 2 || stdout != "" || !strings.Contains(stderr, `"subtype":"`+test.subtype+`"`) {
+			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", test.args, code, stdout, stderr)
+		}
+	}
+}
+
 func TestDeviceLoginStoresTokenButDoesNotPrintIt(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -151,7 +204,7 @@ func TestDeviceLoginStoresTokenButDoesNotPrintIt(t *testing.T) {
 	}))
 	defer server.Close()
 	store := securestore.NewMemory()
-	code, stdout, stderr, _ := runCLI(t, server, store, "auth", "login", "--device-code", "device-public")
+	code, stdout, stderr, _ := runCLI(t, server, store, "auth", "login", "--device-code", "device-public", "--json")
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
