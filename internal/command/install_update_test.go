@@ -23,7 +23,7 @@ func TestRootInstallBootstrapsSkillConfigAndLoginNextStep(t *testing.T) {
 	}
 	var envelope struct {
 		Data struct {
-			Region string `json:"region"`
+			Region   string `json:"region"`
 			NextStep struct {
 				Command string `json:"command"`
 			} `json:"next_step"`
@@ -41,18 +41,20 @@ func TestRootInstallBootstrapsSkillConfigAndLoginNextStep(t *testing.T) {
 	for _, filename := range []string{
 		filepath.Join(home, ".codex", "skills", "viceme", "SKILL.md"),
 		filepath.Join(home, ".codex", "skills", "viceme", ".viceme", "install-manifest.json"),
-		filepath.Join(configDirectory, "viceme", "config.json"),
+		filepath.Join(configDirectory, "config.json"),
 	} {
 		if _, err := os.Stat(filename); err != nil {
 			t.Fatalf("bootstrap did not create %s: %v", filename, err)
 		}
 	}
-	configData, err := os.ReadFile(filepath.Join(configDirectory, "viceme", "config.json"))
+	configData, err := os.ReadFile(filepath.Join(configDirectory, "config.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(configData) != "{\n  \"region\": \"global\"\n}\n" {
-		t.Fatalf("unexpected config: %s", configData)
+	for _, expected := range []string{`"currentProfile": "default"`, `"name": "default"`, `"region": "global"`} {
+		if !stringContains(string(configData), expected) {
+			t.Fatalf("config lacks %s: %s", expected, configData)
+		}
 	}
 }
 

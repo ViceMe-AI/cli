@@ -36,13 +36,10 @@ func DefaultEnvironment() Environment {
 }
 
 func defaultConfigDir(home string) string {
-	if directory := os.Getenv("XDG_CONFIG_HOME"); directory != "" {
+	if directory := os.Getenv("VICEME_CLI_CONFIG_DIR"); directory != "" {
 		return directory
 	}
-	if directory, err := os.UserConfigDir(); err == nil && directory != "" {
-		return directory
-	}
-	return filepath.Join(home, ".config")
+	return filepath.Join(home, ".viceme-cli")
 }
 
 type InstallResult struct {

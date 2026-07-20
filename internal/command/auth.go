@@ -12,6 +12,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+type deviceLoginStartResult struct {
+	api.DeviceAuthorization
+	Profile string `json:"profile"`
+	Region  string `json:"region"`
+}
+
 func newAuthCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "auth", Short: "Manage Viceme CLI authentication"}
 	command.AddCommand(newAuthLoginCommand(runtime))
@@ -48,7 +54,11 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 					return output.Internal("device_authorization_response", "Viceme API returned an incomplete device authorization", nil)
 				}
 				if noWait {
-					return runtime.success(authorization)
+					return runtime.success(deviceLoginStartResult{
+						DeviceAuthorization: authorization,
+						Profile:             runtime.profile.Name,
+						Region:              string(runtime.region),
+					})
 				}
 				_, _ = fmt.Fprintf(runtime.deps.ErrOut, "Open %s and authorize code %s\n", authorization.VerificationURL, authorization.UserCode)
 				deviceCode = authorization.DeviceCode
@@ -81,10 +91,15 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 				ExpiresAt:    token.ExpiresAt,
 				UserID:       token.UserID,
 			}
-			if err := runtime.manager().Save(credential); err != nil {
+			manager := runtime.manager()
+			if err := manager.Save(credential); err != nil {
 				return err
 			}
-			result := map[string]any{"authenticated": true, "region": runtime.region}
+			if err := runtime.recordProfileUserID(token.UserID); err != nil {
+				_ = manager.Delete()
+				return err
+			}
+			result := map[string]any{"authenticated": true, "profile": runtime.profile.Name, "region": runtime.region}
 			if token.UserID != "" {
 				result["user_id"] = token.UserID
 			}
@@ -137,7 +152,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				var cliError *output.Error
 				if errors.As(err, &cliError) && cliError.Subtype == "not_logged_in" {
-					return runtime.success(map[string]any{"logged_out": true, "already_logged_out": true, "region": runtime.region})
+					return runtime.success(map[string]any{"logged_out": true, "already_logged_out": true, "profile": runtime.profile.Name, "region": runtime.region})
 				}
 				return err
 			}
@@ -149,7 +164,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 			if revokeErr != nil {
 				return revokeErr
 			}
-			return runtime.success(map[string]any{"logged_out": true, "region": runtime.region})
+			return runtime.success(map[string]any{"logged_out": true, "profile": runtime.profile.Name, "region": runtime.region})
 		},
 	}
 }

@@ -50,7 +50,7 @@ func TestAPIBaseURLEnvironmentOverride(t *testing.T) {
 func TestStoredGlobalRegionUsesGlobalEndpoint(t *testing.T) {
 	t.Setenv("VICEME_API_BASE_URL", "")
 	configBase := t.TempDir()
-	if _, err := config.Ensure(configBase, config.Config{Region: config.RegionGlobal}); err != nil {
+	if _, err := config.Save(configBase, config.Default(config.RegionGlobal)); err != nil {
 		t.Fatal(err)
 	}
 	_, runtime, err := NewRoot(Dependencies{
@@ -121,7 +121,7 @@ func TestAuthNoWaitNeverReturnsToken(t *testing.T) {
 	}))
 	defer server.Close()
 	code, stdout, stderr, _ := runCLI(t, server, nil, "auth", "login", "--no-wait")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, "device-public") {
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "device-public") || !strings.Contains(stdout, `"profile":"default"`) || !strings.Contains(stdout, `"region":"cn"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	if strings.Contains(stdout, "access_token") || strings.Contains(stderr, "access_token") {
