@@ -162,6 +162,20 @@ func TestDelegatedGrantScopesAndReplacementAreFailClosed(t *testing.T) {
 	}
 }
 
+func TestDelegatedGrantsAreIsolatedByProfile(t *testing.T) {
+	t.Parallel()
+	store := securestore.NewMemory()
+	lockDir := t.TempDir()
+	personal := &DelegatedGrantManager{Store: store, Region: "cn", ProfileID: "personal", LockDir: lockDir}
+	work := &DelegatedGrantManager{Store: store, Region: "cn", ProfileID: "work", LockDir: lockDir}
+	if err := personal.Save("creator", strings.Repeat("p", 43)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := work.Load("creator"); err == nil {
+		t.Fatal("delegated grant crossed profiles")
+	}
+}
+
 func TestDelegatedRecoveryPeekNeverReadsCredentialEntry(t *testing.T) {
 	t.Parallel()
 	base := securestore.NewMemory()

@@ -36,11 +36,13 @@ type DelegatedGrantStatus struct {
 // namespace. Callers only handle a non-sensitive reference after Save.
 type DelegatedGrantManager struct {
 	Store securestore.Store
-	// Region is the backwards-compatible namespace for the canonical cn and
-	// global API origins. Scope is required for custom API origins.
-	Region string
-	Scope  string
-	NewID  func() string
+	// Region is the backwards-compatible namespace for the default profile on
+	// canonical cn/global origins. Scope replaces it for custom API origins.
+	// Non-default profiles add ProfileID so grants cannot cross identities.
+	Region    string
+	Scope     string
+	ProfileID string
+	NewID     func() string
 	// LockDir must resolve to the same directory in every CLI process that can
 	// access Store. Per-reference OS file locks serialize keychain state changes.
 	LockDir string
@@ -353,14 +355,18 @@ func (m *DelegatedGrantManager) recoveryKey(reference string) string {
 }
 
 func (m *DelegatedGrantManager) namespace() string {
-	if scope := strings.TrimSpace(m.Scope); scope != "" {
-		return scope
+	endpointScope := strings.TrimSpace(m.Scope)
+	if endpointScope == "" {
+		endpointScope = strings.ToLower(strings.TrimSpace(m.Region))
+		if endpointScope == "" {
+			endpointScope = "cn"
+		}
 	}
-	region := strings.ToLower(strings.TrimSpace(m.Region))
-	if region == "" {
-		region = "cn"
+	profileID := strings.TrimSpace(m.ProfileID)
+	if profileID == "" || profileID == "default" {
+		return endpointScope
 	}
-	return region
+	return profileID + ":" + endpointScope
 }
 
 func (m *DelegatedGrantManager) decode(value string) (delegatedGrantEnvelope, bool, error) {

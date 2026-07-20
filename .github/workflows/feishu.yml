@@ -1,4 +1,4 @@
-name: feishu bot
+name: Feishu PR notifications
 
 on:
   pull_request:
@@ -16,7 +16,7 @@ on:
 
 jobs:
   send-event:
-    name: Webhook
+    name: Feishu PR notification
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     permissions:
       contents: read

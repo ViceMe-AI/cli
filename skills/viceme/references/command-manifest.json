@@ -1,8 +1,14 @@
 {
   "schema_version": 1,
-  "cli_version": "0.2.0",
-  "minimum_cli_version": "0.2.0",
-  "global_flags": null,
+  "cli_version": "0.4.0",
+  "minimum_cli_version": "0.4.0",
+  "global_flags": [
+    {
+      "name": "profile",
+      "type": "string",
+      "usage": "use a specific profile for this command"
+    }
+  ],
   "commands": [
     {
       "path": "auth",
@@ -23,19 +29,25 @@
         {
           "name": "device-code",
           "type": "string",
-          "usage": "continue a previously started device authorization"
+          "usage": "continue a previously started Agent authorization (requires --json)"
+        },
+        {
+          "name": "json",
+          "type": "bool",
+          "default": "false",
+          "usage": "use structured JSON output for an Agent split-flow"
         },
         {
           "name": "no-wait",
           "type": "bool",
           "default": "false",
-          "usage": "return the device authorization immediately"
+          "usage": "return device authorization immediately for an Agent split-flow (requires --json)"
         },
         {
           "name": "timeout",
           "type": "duration",
-          "default": "1m0s",
-          "usage": "maximum time to poll for authorization"
+          "default": "10m0s",
+          "usage": "maximum time to wait for browser authorization"
         }
       ]
     },
@@ -66,8 +78,7 @@
         {
           "name": "region",
           "type": "string",
-          "default": "cn",
-          "usage": "Viceme region: cn or global"
+          "usage": "Viceme region: cn or global (defaults to the selected profile region)"
         },
         {
           "name": "target",
@@ -150,6 +161,72 @@
           "usage": "maximum time to wait"
         }
       ]
+    },
+    {
+      "path": "profile",
+      "use": "profile",
+      "short": "Manage Viceme CLI profiles",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "profile add",
+      "use": "add",
+      "short": "Add a new profile",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "name",
+          "type": "string",
+          "usage": "profile name (required)"
+        },
+        {
+          "name": "region",
+          "type": "string",
+          "usage": "Viceme region: cn or global (defaults to the selected profile region)"
+        },
+        {
+          "name": "use",
+          "type": "bool",
+          "default": "false",
+          "usage": "switch to this profile after adding"
+        }
+      ]
+    },
+    {
+      "path": "profile list",
+      "use": "list",
+      "short": "List all profiles",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "profile remove",
+      "use": "remove <name>",
+      "short": "Remove a profile and its local credentials",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false
+    },
+    {
+      "path": "profile rename",
+      "use": "rename <old> <new>",
+      "short": "Rename a profile",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false
+    },
+    {
+      "path": "profile use",
+      "use": "use <name>",
+      "short": "Switch to a profile (use '-' to toggle back)",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false
     },
     {
       "path": "skill",

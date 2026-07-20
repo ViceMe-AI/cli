@@ -9,7 +9,7 @@ files, create tags, write changelog entries, or run npm commands locally.
 1. Feature and fix PRs can merge into `dev` without starting release
    preparation.
 2. A maintainer explicitly opens or marks ready a repository-owned `dev` to
-   `main` PR. That release intent starts `Prepare Release PR`.
+   `main` PR. That release intent starts `CLI release preparation`.
 3. `npm/scripts/prepare-release.mjs` finds the newest reachable stable tag and
    reads all unreleased non-merge commits.
 4. Conventional Commits select the next version:
@@ -26,9 +26,10 @@ files, create tags, write changelog entries, or run npm commands locally.
    checks, and is updated to `chore(release): vX.Y.Z` with exact run and commit
    evidence. No internal preparation PR is created.
 8. A maintainer reviews and merges that same Release PR.
-9. `Release CLI and npm launcher` tags the exact reviewed `dev` head, reruns
+9. `CLI release publication` tags the exact reviewed `dev` head, reruns
    the quality gates, builds six platform binaries and six checksums, creates
-   the GitHub Release, publishes the npm launcher, and then sends an
+   the GitHub Release, bundles those exact checksums into the npm launcher,
+   publishes it, and then sends an
    AI-generated release summary to the release notification group in Feishu.
 
 ## One-time repository setup
@@ -42,8 +43,9 @@ are not required. Configure:
 - repository secret `RELEASE_APP_PRIVATE_KEY`: the complete generated PEM key.
 
 Protect `dev` with an active branch ruleset that retains the normal pull request,
-one approving review, four CLI quality checks, deletion protection, and force
-push protection. Add `ViceMe CLI Release Bot` and the organization-admin role to
+one approving review, the `PR quality` check, all three `PR npm installer
+(<runner>)` checks, deletion protection, and force push protection. Add `ViceMe
+CLI Release Bot` and the organization-admin role to
 the bypass list with `Always allow`; the latter preserves the legacy rule's
 existing `enforce_admins: false` behavior. Do not leave the legacy
 branch-protection rule active beside the ruleset because it cannot recognize the
@@ -55,11 +57,17 @@ when the job finishes. The workflow still stages an explicit allowlist of
 generated files and validates the complete release before pushing. No
 maintainer PAT or Deploy Key is used.
 
-The general CLI quality workflow runs for pull requests, not branch pushes. A
+The general `CLI PR checks` workflow runs for pull requests, not branch pushes. A
 Release App push synchronizes the already-open `dev` to `main` PR, producing one
 set of required checks for the exact prepared commit without duplicate generic
 push and pull-request runs. The synchronize event may run release preparation a
 second time; that run is intentionally idempotent and produces no new commit.
+
+Protect `main` with the same four PR checks plus `Release candidate
+preparation`. The checks from `CLI release publication` are deliberately not
+required for merging: that workflow starts only after the release PR has been
+merged and performs the tag, binary, GitHub Release, npm, and notification
+steps.
 
 Configure npm trusted publishing for:
 
@@ -72,6 +80,14 @@ provenance. If npm does not allow trusted publishing to create the package on
 its first release, add a repository secret named `NPM_TOKEN` containing a
 granular automation token limited to `@viceme-ai/cli` publication. Remove that
 secret after the package exists and trusted publishing is confirmed.
+
+The npm tarball contains `checksums.txt`, generated from the six immutable
+GitHub Release checksum assets immediately before publication. The launcher
+uses that bundled manifest as its trust root whether the matching binary is
+transported by GitHub Release, a configured npm registry binary mirror, or the
+public npmmirror binary mirror. Registering `viceme-cli` with cnpmcore enables
+the public `/-/binary/viceme-cli/` mirror; it does not create another npm
+package.
 
 `GITHUB_TOKEN` is provided by Actions and is used only to maintain the Release
 PR. `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` authenticate the narrowly

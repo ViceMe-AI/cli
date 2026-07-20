@@ -11,7 +11,22 @@ viceme install --target codex --region global
 viceme skills doctor --target codex
 ```
 
-Installation defaults to `cn`. Pass `--region global` only for the international Viceme service. The CLI persists that choice; later commands do not take a region or API URL flag. A `VICEME_API_BASE_URL` override on the selected region's canonical origin keeps its compatible region keychain scope, including when a base path is present. A different normalized origin uses an isolated scope and requires its own login and delegated-grant save. All API and presigned-upload redirects fail closed. All data commands emit the stable JSON envelope by default.
+Installation defaults to `cn` and initializes the `default` profile. Pass `--region global` only for the international Viceme service. The CLI persists that choice per profile; later commands do not take a region or API URL flag. Automation-oriented data commands emit the stable JSON envelope by default; interactive `viceme auth login` is the human-facing exception.
+
+Manage profiles only when the user explicitly asks:
+
+```bash
+viceme profile list
+viceme profile add --name work --region global --use
+viceme profile use default
+viceme --profile work auth status
+viceme profile rename work company
+viceme profile remove company
+```
+
+`profile use` changes the persistent active profile. Global `--profile` selects a profile for one command without changing the persistent selection. Never switch, rename, or remove a profile based only on inferred intent.
+
+A `VICEME_API_BASE_URL` override on the selected region's canonical origin keeps that region's endpoint scope, including when a base path is present. A different normalized origin uses an isolated scope and requires its own login and delegated-grant save. Credentials and delegated grants are isolated by profile and region/origin. All API and presigned-upload redirects fail closed.
 
 Check first when desired, then update the npm launcher, verified Go binary, and matching Skill together:
 
@@ -20,18 +35,19 @@ viceme update --check
 viceme update --target codex
 ```
 
-The update path uses an exact npm package version. It does not execute provider installation text or replace a standalone binary through an unsigned self-update path.
+The update path queries the canonical registry directly, caches only a successful version result for a bounded 24-hour registry-outage fallback, and uses `~/.viceme-cli/npm-cache` for npm subprocesses. It uses an exact npm package version, does not execute provider installation text, and does not replace a standalone binary through an unsigned self-update path.
 
 ## Authenticate
 
 ```bash
 viceme auth status
-viceme auth login --no-wait
-viceme auth login --device-code <device-code>
+viceme auth login
+viceme auth login --no-wait --json
+viceme auth login --device-code <device-code> --json
 viceme auth logout
 ```
 
-The first login command returns immediately. Ask the user to open `verification_url`; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code in a later turn. Tokens stay in the operating system keychain.
+Use plain `viceme auth login` for a person at a terminal: it prints the browser URL and waits for completion. AI Agents must use `--no-wait --json`, ask the user to open `verification_url`, and stop the current turn; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code and `--json` in a later turn using the same profile. Tokens stay in the operating system keychain and are isolated by profile and region.
 
 ## Direct and delegated ownership
 

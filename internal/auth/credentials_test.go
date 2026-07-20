@@ -82,3 +82,55 @@ func TestCustomCredentialScopesNeverReadProductionRegionCredentials(t *testing.T
 		t.Fatalf("legacy production credential changed: %#v err=%v", loaded, err)
 	}
 }
+
+func TestCredentialsAreIsolatedByProfile(t *testing.T) {
+	t.Parallel()
+	store := securestore.NewMemory()
+	personal := &Manager{Store: store, Region: "cn", ProfileID: "personal", ProfileName: "personal"}
+	work := &Manager{Store: store, Region: "cn", ProfileID: "work", ProfileName: "work"}
+	if err := personal.Save(Credential{AccessToken: "personal-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := work.Save(Credential{AccessToken: "work-token"}); err != nil {
+		t.Fatal(err)
+	}
+	personalCredential, err := personal.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	workCredential, err := work.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if personalCredential.AccessToken != "personal-token" || workCredential.AccessToken != "work-token" {
+		t.Fatalf("credentials crossed profiles: personal=%q work=%q", personalCredential.AccessToken, workCredential.AccessToken)
+	}
+}
+
+func TestDefaultProfileDoesNotReadLegacyRegionCredential(t *testing.T) {
+	t.Parallel()
+	store := securestore.NewMemory()
+	if err := store.Set("credential:cn", `{"access_token":"legacy-token"}`); err != nil {
+		t.Fatal(err)
+	}
+	manager := &Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default"}
+	if _, err := manager.Load(); err == nil {
+		t.Fatal("legacy region credential must not be read or migrated")
+	}
+	if value, err := store.Get("credential:cn"); err != nil || value == "" {
+		t.Fatalf("legacy credential was unexpectedly modified: value=%q err=%v", value, err)
+	}
+}
+
+func TestCustomCredentialScopesAreIsolatedByProfile(t *testing.T) {
+	t.Parallel()
+	store := securestore.NewMemory()
+	personal := &Manager{Store: store, Region: "cn", ProfileID: "personal", Scope: "custom:origin"}
+	work := &Manager{Store: store, Region: "cn", ProfileID: "work", Scope: "custom:origin"}
+	if err := personal.Save(Credential{AccessToken: "personal-custom-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := work.Load(); err == nil {
+		t.Fatal("custom API credential crossed profiles")
+	}
+}

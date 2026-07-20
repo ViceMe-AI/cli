@@ -23,7 +23,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 			defer cancel()
 			check, err := runtime.deps.Updater.Check(ctx)
 			if err != nil {
-				return output.Network("update_check_failed", "could not query the npm release", err)
+				return updaterError(err, nil)
 			}
 			if checkOnly {
 				return runtime.success(check)
@@ -36,7 +36,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 				return output.Policy("update_install_method", "this CLI was not started through the npm launcher").WithHint("run 'npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install', then use the installed 'viceme' launcher")
 			}
 			if err != nil {
-				return output.Internal("update_partial", "CLI update did not complete for every target", err).WithDetails(result)
+				return updaterError(err, result)
 			}
 			return runtime.success(result)
 		},
@@ -45,4 +45,26 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().BoolVar(&skipSkillInstall, "skip-skill-install", false, "update only the npm launcher and binary")
 	command.Flags().StringVar(&target, "target", "auto", "Agent Skill target refreshed after update: auto, codex, or claude")
 	return command
+}
+
+func updaterError(err error, details any) *output.Error {
+	var result *output.Error
+	switch updatepkg.ErrorKindOf(err) {
+	case updatepkg.ErrorRegistryNetwork:
+		result = output.Network("update_registry_unavailable", "could not reach the npm registry", err)
+	case updatepkg.ErrorRegistryResponse:
+		result = output.Internal("update_registry_response", "npm registry returned an invalid release response", err)
+	case updatepkg.ErrorNPMMissing:
+		result = output.Policy("update_npm_missing", "npm is required to update this installation").WithHint("install npm and ensure it is available in PATH")
+	case updatepkg.ErrorNPMPermission:
+		result = output.Internal("update_npm_permission", "npm could not write the ViceMe cache or global installation directory", err).WithHint("ensure ~/.viceme-cli and the npm global prefix are writable; do not run viceme with sudo")
+	case updatepkg.ErrorNPMCommand:
+		result = output.Internal("update_npm_failed", "npm did not complete the CLI update", err).WithHint("run 'npm doctor' and verify the configured npm registry, proxy, and global prefix")
+	default:
+		result = output.Internal("update_partial", "CLI update did not complete for every target", err)
+	}
+	if details != nil {
+		result.WithDetails(details)
+	}
+	return result
 }

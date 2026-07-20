@@ -34,7 +34,7 @@ test(
           ...process.env,
           HOME: home,
           CODEX_HOME: codexHome,
-          XDG_CONFIG_HOME: configHome,
+          VICEME_CLI_CONFIG_DIR: configHome,
           VICEME_BINARY_PATH: path.resolve(localBinary),
         },
       },
@@ -44,7 +44,7 @@ test(
     assert.equal(envelope.ok, true);
     assert.equal(envelope.data.skill.all_succeeded, true);
     await stat(path.join(codexHome, "skills", "viceme", "SKILL.md"));
-    await stat(path.join(configHome, "viceme", "config.json"));
+    await stat(path.join(configHome, "config.json"));
   },
 );
 
@@ -70,7 +70,11 @@ const args = process.argv.slice(2);
 const packageIndex = args.findIndex((arg) =>
   arg.startsWith(process.env.VICEME_TEST_PACKAGE_PREFIX),
 );
-if (args[0] !== "install" || packageIndex < 0) {
+if (
+  args[0] !== process.env.VICEME_TEST_NPM_CACHE_ARG ||
+  args[1] !== "install" ||
+  packageIndex < 0
+) {
   process.stderr.write("unexpected npm invocation: " + args.join(" ") + "\\n");
   process.exit(91);
 }
@@ -96,7 +100,7 @@ process.exit(child.status ?? 1);
       ...process.env,
       HOME: home,
       CODEX_HOME: path.join(home, "codex"),
-      XDG_CONFIG_HOME: path.join(home, "config"),
+      VICEME_CLI_CONFIG_DIR: path.join(home, ".viceme-cli"),
       NPM_CONFIG_CACHE: path.join(home, "npm-cache"),
       NPM_CONFIG_PREFIX: prefix,
       // npm itself launches this test and exports lower-case npm_config_*
@@ -110,6 +114,7 @@ process.exit(child.status ?? 1);
       VICEME_REAL_NPM_CLI: npmCLI,
       VICEME_TEST_PACKAGE_TARBALL: path.resolve(packageTarball),
       VICEME_TEST_PACKAGE_PREFIX: packageArgumentPrefix,
+      VICEME_TEST_NPM_CACHE_ARG: `--cache=${path.join(home, ".viceme-cli", "npm-cache")}`,
       VICEME_FAKE_NPM_MARKER: marker,
       VICEME_FAKE_NPM_DEBUG: npmDebug,
     };

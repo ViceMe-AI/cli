@@ -77,10 +77,11 @@ func newDelegatedGrantDeleteCommand(runtime *Runtime) *cobra.Command {
 
 func delegatedGrantManager(runtime *Runtime) *auth.DelegatedGrantManager {
 	return &auth.DelegatedGrantManager{
-		Store:  runtime.deps.Store,
-		Region: string(runtime.region),
-		Scope:  runtime.credentialScope,
-		NewID:  runtime.deps.NewID,
+		Store:     runtime.deps.Store,
+		Region:    string(runtime.region),
+		Scope:     runtime.credentialScope,
+		ProfileID: runtime.profile.ID,
+		NewID:     runtime.deps.NewID,
 		LockDir: filepath.Join(
 			runtimeConfigBase(runtime.deps.Environment),
 			"viceme",

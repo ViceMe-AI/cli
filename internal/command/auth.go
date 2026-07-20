@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
@@ -11,6 +12,20 @@ import (
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/spf13/cobra"
 )
+
+type deviceLoginStartResult struct {
+	api.DeviceAuthorization
+	Profile string `json:"profile"`
+	Region  string `json:"region"`
+}
+
+type deviceLoginResult struct {
+	Authenticated bool       `json:"authenticated"`
+	Profile       string     `json:"profile"`
+	Region        string     `json:"region"`
+	UserID        string     `json:"user_id,omitempty"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+}
 
 func newAuthCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "auth", Short: "Manage Viceme CLI authentication"}
@@ -22,6 +37,7 @@ func newAuthCommand(runtime *Runtime) *cobra.Command {
 
 func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 	var noWait bool
+	var jsonOutput bool
 	var deviceCode string
 	var timeout time.Duration
 	command := &cobra.Command{
@@ -32,8 +48,11 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 			if noWait && deviceCode != "" {
 				return output.Validation("auth_flags", "--no-wait and --device-code cannot be used together")
 			}
-			if !noWait && deviceCode == "" {
-				return output.Validation("non_interactive_login", "use --no-wait, then continue with --device-code in a later turn")
+			if (noWait || deviceCode != "") && !jsonOutput {
+				return output.Validation("auth_json_required", "--no-wait and --device-code are Agent flows and require --json")
+			}
+			if jsonOutput && !noWait && deviceCode == "" {
+				return output.Validation("auth_json_flow", "use --no-wait --json, then continue with --device-code <code> --json in a later turn")
 			}
 			if timeout <= 0 {
 				return output.Validation("timeout", "--timeout must be greater than zero")
@@ -48,24 +67,40 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 					return output.Internal("device_authorization_response", "Viceme API returned an incomplete device authorization", nil)
 				}
 				if noWait {
-					return runtime.success(authorization)
+					return runtime.success(deviceLoginStartResult{
+						DeviceAuthorization: authorization,
+						Profile:             runtime.profile.Name,
+						Region:              string(runtime.region),
+					})
 				}
-				_, _ = fmt.Fprintf(runtime.deps.ErrOut, "Open %s and authorize code %s\n", authorization.VerificationURL, authorization.UserCode)
+				writeHumanLoginStart(runtime.deps.ErrOut, authorization)
 				deviceCode = authorization.DeviceCode
+				interval := 2 * time.Second
 				if authorization.IntervalSeconds > 0 {
-					return finishDeviceLogin(command.Context(), runtime, client, deviceCode, timeout, time.Duration(authorization.IntervalSeconds)*time.Second)
+					interval = time.Duration(authorization.IntervalSeconds) * time.Second
 				}
+				return finishDeviceLogin(command.Context(), runtime, client, deviceCode, timeout, interval, false)
 			}
-			return finishDeviceLogin(command.Context(), runtime, client, deviceCode, timeout, 2*time.Second)
+			return finishDeviceLogin(command.Context(), runtime, client, deviceCode, timeout, 2*time.Second, true)
 		},
 	}
-	command.Flags().BoolVar(&noWait, "no-wait", false, "return the device authorization immediately")
-	command.Flags().StringVar(&deviceCode, "device-code", "", "continue a previously started device authorization")
-	command.Flags().DurationVar(&timeout, "timeout", 60*time.Second, "maximum time to poll for authorization")
+	command.Flags().BoolVar(&noWait, "no-wait", false, "return device authorization immediately for an Agent split-flow (requires --json)")
+	command.Flags().BoolVar(&jsonOutput, "json", false, "use structured JSON output for an Agent split-flow")
+	command.Flags().StringVar(&deviceCode, "device-code", "", "continue a previously started Agent authorization (requires --json)")
+	command.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "maximum time to wait for browser authorization")
 	return command
 }
 
-func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client, deviceCode string, timeout, interval time.Duration) error {
+func writeHumanLoginStart(writer io.Writer, authorization api.DeviceAuthorization) {
+	_, _ = fmt.Fprintln(writer, "Open this URL in your browser to sign in to Viceme:")
+	_, _ = fmt.Fprintf(writer, "\n  %s\n\n", authorization.VerificationURL)
+	if authorization.UserCode != "" {
+		_, _ = fmt.Fprintf(writer, "If prompted, enter code: %s\n\n", authorization.UserCode)
+	}
+	_, _ = fmt.Fprintln(writer, "Waiting for authorization...")
+}
+
+func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client, deviceCode string, timeout, interval time.Duration, jsonOutput bool) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if interval < time.Second {
@@ -81,17 +116,25 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 				ExpiresAt:    token.ExpiresAt,
 				UserID:       token.UserID,
 			}
-			if err := runtime.manager().Save(credential); err != nil {
+			manager := runtime.manager()
+			if err := manager.Save(credential); err != nil {
 				return err
 			}
-			result := map[string]any{"authenticated": true, "region": runtime.region}
-			if token.UserID != "" {
-				result["user_id"] = token.UserID
+			if err := runtime.recordProfileUserID(token.UserID); err != nil {
+				_ = manager.Delete()
+				return err
 			}
+			result := deviceLoginResult{Authenticated: true, Profile: runtime.profile.Name, Region: string(runtime.region), UserID: token.UserID}
 			if !token.ExpiresAt.IsZero() {
-				result["expires_at"] = token.ExpiresAt
+				expiresAt := token.ExpiresAt
+				result.ExpiresAt = &expiresAt
 			}
-			return runtime.success(result)
+			if jsonOutput {
+				return runtime.success(result)
+			}
+			_, _ = fmt.Fprintln(runtime.deps.ErrOut, "Authorization successful.")
+			_, _ = fmt.Fprintf(runtime.deps.ErrOut, "Profile: %s\nRegion: %s\n", result.Profile, result.Region)
+			return nil
 		}
 		if !api.IsSubtype(err, "authorization_pending") && !api.IsSubtype(err, "slow_down") {
 			return err
@@ -103,7 +146,11 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 			if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 				pending := output.Authentication("authorization_pending", "device authorization is still pending")
 				pending.Retryable = true
-				pending.Hint = "run auth login again with the same --device-code before it expires"
+				if jsonOutput {
+					pending.Hint = "run 'viceme auth login --device-code <code> --json' again with the same device code before it expires"
+				} else {
+					pending.Hint = "run 'viceme auth login' again"
+				}
 				return pending
 			}
 			return err
@@ -137,7 +184,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				var cliError *output.Error
 				if errors.As(err, &cliError) && cliError.Subtype == "not_logged_in" {
-					return runtime.success(map[string]any{"logged_out": true, "already_logged_out": true, "region": runtime.region})
+					return runtime.success(map[string]any{"logged_out": true, "already_logged_out": true, "profile": runtime.profile.Name, "region": runtime.region})
 				}
 				return err
 			}
@@ -149,7 +196,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 			if revokeErr != nil {
 				return revokeErr
 			}
-			return runtime.success(map[string]any{"logged_out": true, "region": runtime.region})
+			return runtime.success(map[string]any{"logged_out": true, "profile": runtime.profile.Name, "region": runtime.region})
 		},
 	}
 }

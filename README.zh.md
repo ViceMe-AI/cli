@@ -2,15 +2,15 @@
 
 [![npm version](https://img.shields.io/npm/v/@viceme-ai/cli.svg)](https://www.npmjs.com/package/@viceme-ai/cli)
 [![Go Version](https://img.shields.io/badge/go-%3E%3D1.23-blue.svg)](https://go.dev/)
-[![CLI quality gates](https://github.com/ViceMe-AI/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/ViceMe-AI/cli/actions/workflows/ci.yml)
+[![CLI PR checks](https://github.com/ViceMe-AI/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/ViceMe-AI/cli/actions/workflows/ci.yml)
 
 [中文版](./README.zh.md) | [English](./README.md)
 
 Viceme 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为稳定、可分享的 Viceme Agent。它面向 Codex、Claude Code 等 AI 编程工具：Agent Skill 负责理解用户意图，CLI 负责确定性的认证、上传、发布和状态协议。
 
-[安装](#安装与快速开始) · [AI Agent Skills](#agent-skills) · [认证](#认证) · [区域](#区域) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
+[安装](#安装与快速开始) · [AI Agent Skills](#agent-skills) · [认证](#认证) · [区域与-profile](#区域与-profile) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
 
-> **开放状态：** Core 发布传输和稳定链接链路已在受控白名单后实现。正式对外开放仍取决于精确 Candidate 预览、试运行和结果确认门的完成。当前 `--yes` 只确认发起发布请求，并不代表用户已经审阅最终 Candidate。
+> **开放状态：** Core 发布传输和稳定链接链路已经实现。正式对外开放仍取决于精确 Candidate 预览、试运行和结果确认门的完成。当前 `--yes` 只确认发起发布请求，并不代表用户已经审阅最终 Candidate。
 
 ## 为什么选择 Viceme CLI？
 
@@ -20,7 +20,7 @@ Viceme 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为
 - **稳定发布** — 同一个逻辑 Agent 后续发布新版本时继续使用同一个分享链接。
 - **支持多种来源** — 支持 GitHub Skill、小红书或 RedSkill 复制口令、压缩包和本地 Skill 目录。
 - **默认安全** — 凭证保存在操作系统密钥链中，公开变更需要确认，下载的二进制文件必须通过校验和验证。
-- **机器稳定输出** — 所有数据命令统一使用 JSON 成功或错误信封，不需要输出格式参数。
+- **人类与 Agent 双登录模式** — `viceme auth login` 在终端中引导用户，Agent 跨回合流程则显式使用 JSON。
 
 ## 安装与快速开始
 
@@ -50,7 +50,7 @@ npm install --global @viceme-ai/cli
 viceme install
 ```
 
-两种方式都会持久化 npm 启动器、下载匹配且通过校验和验证的 Go 二进制文件，并安装随包发布的 Viceme Agent Skill。默认使用中国区服务。使用国际区服务：
+两种方式都会持久化 npm 启动器、下载匹配且通过校验和验证的 Go 二进制文件，并安装随包发布的 Viceme Agent Skill。二进制下载依次尝试 GitHub Release、用户配置的非默认 npm registry 的 `/-/binary/viceme-cli/` 镜像，最后回退到公共 npmmirror binary 镜像。启动器使用系统 `curl`，因此会遵循标准代理环境变量。默认使用中国区服务。使用国际区服务：
 
 ```bash
 npx --yes @viceme-ai/cli@latest install --region global
@@ -58,16 +58,15 @@ npx --yes @viceme-ai/cli@latest install --region global
 
 #### 认证并验证
 
-如果安装结果提示需要认证，启动设备登录：
+如果安装结果提示需要认证，启动引导式设备登录：
 
 ```bash
-viceme auth login --no-wait
+viceme auth login
 ```
 
-打开返回的 `verification_url`；它通常会直接进入已预填对应设备码的授权请求。完成授权，然后使用返回的 device code 继续：
+CLI 会显示浏览器登录链接、等待授权，并在同一个终端中报告成功。然后验证安装：
 
 ```bash
-viceme auth login --device-code <device-code>
 viceme auth status
 viceme skills doctor
 ```
@@ -84,12 +83,12 @@ viceme skills doctor
 npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
 ```
 
-读取结果中的 `data.authenticated` 和 `data.next_step`。如果认证已经有效，直接进入第 4 步。
+读取结果中的 `data.authenticated` 和 `data.next_step`。如果认证已经有效，直接进入第 4 步。如果需要登录，Agent 不要执行面向人类的 `data.next_step`，而应使用第 2 步的 JSON 跨回合流程。
 
 **第 2 步 — 需要时启动设备登录**
 
 ```bash
-viceme auth login --no-wait
+viceme auth login --no-wait --json
 ```
 
 向用户返回准确的 `data.verification_url`；存在 `verification_url_complete` 时，CLI 会把这个已预填设备码的浏览器直达链接规范化为 `verification_url`。只有浏览器要求输入时，才把 `data.user_code` 作为备用信息提供。保留 `data.device_code` 供后续命令使用，然后结束当前回合。不要在对话中索取、打印或传递访问令牌。
@@ -99,10 +98,11 @@ viceme auth login --no-wait
 用户确认已在浏览器完成授权后：
 
 ```bash
-viceme auth login --device-code <device-code>
+viceme auth login --device-code <device-code> --json
 ```
 
 如果授权仍处于等待状态，应在过期前继续使用同一个 device code。只有原流程已过期时才能重新发起设备登录。
+使用非默认 Profile 时，启动和继续设备登录必须传入同一个全局 `--profile <name>`；启动结果会返回实际的 `profile` 与 `region`。
 
 **第 4 步 — 验证**
 
@@ -122,18 +122,31 @@ viceme skill inspect https://github.com/acme/poster-skill
 
 inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。在上方所述的精确 Candidate 确认门完成前，公开发布流程仍保持关闭。
 
-## 区域
+## 区域与 Profile
 
-Viceme 在安装时只提供一个产品级区域选择：
+每个 Profile 独立选择一个 Viceme 区域：
 
 | 区域 | 安装命令 | API 地址 |
 |---|---|---|
 | 中国区 | `viceme install` | `https://api.viceme.cn` |
 | 国际区 | `viceme install --region global` | `https://api.viceme.ai` |
 
-选择结果保存为 `region=cn|global`，后续命令会自动使用。不同区域的凭证彼此隔离，中国区令牌不会用于国际区 API，反之亦然。
+首次安装会创建 `default` Profile。配置保存在 `~/.viceme-cli/config.json`，访问令牌仍只保存在操作系统密钥链中。不同 Profile 和区域的凭证彼此隔离。
 
-CLI 不提供公开的 API 地址、profile 或输出格式配置。本地开发时可以在终端环境中设置 `VICEME_API_BASE_URL`。如果覆盖地址仍属于当前区域的规范化 canonical origin，即使带有 base path，也继续使用兼容的 `cn` 或 `global` 密钥链 scope；只有不同 origin 才使用独立 scope 并要求单独登录。API 与预签名上传请求遇到重定向会直接失败，凭证请求头不会被转发到其他 origin。
+```bash
+viceme profile list
+viceme profile add --name work --region global --use
+viceme profile use default
+viceme --profile work auth status
+viceme profile rename work company
+viceme profile remove company
+```
+
+`profile use` 修改持久化的当前 Profile；全局 `--profile` 只覆盖本次命令。不要让 AI Agent 在用户没有明确要求时切换或删除 Profile。
+
+可以用 `VICEME_CLI_CONFIG_DIR` 覆盖配置根目录。本地 API 联调使用进程环境变量 `VICEME_API_BASE_URL`，不会写入 Profile。如果覆盖地址仍属于所选区域的规范化 canonical origin，即使带有 base path，也继续使用该区域的 endpoint scope；不同 origin 使用独立 scope，并要求分别登录和保存代发 grant。登录凭证与代发 grant 始终按 Profile 和区域/origin 隔离。API 与预签名上传请求遇到重定向会直接失败，凭证请求头不会被转发到其他 origin。
+
+更新检查直接请求 npm registry，并且只把最近一次成功查询到的版本写入 `~/.viceme-cli/update-state.json`；registry 暂时不可用时，该结果最多回退使用 24 小时。`viceme install` 和 `viceme update` 启动的 npm 操作统一使用隔离的 `~/.viceme-cli/npm-cache`，不会因为用户级 `~/.npm` 缓存损坏而失败。这两个位置都不包含秘密信息，可以安全删除；凭证不会进入任何更新缓存。
 
 ## Agent Skills
 
@@ -160,10 +173,11 @@ viceme skills doctor
 
 | 命令 | 用途 |
 |---|---|
-| `viceme auth status` | 查看当前区域是否已认证 |
-| `viceme auth login --no-wait` | 启动设备授权并立即返回 |
-| `viceme auth login --device-code <code>` | 完成之前启动的设备授权 |
-| `viceme auth logout` | 撤销并删除当前区域的凭证 |
+| `viceme auth status` | 查看当前 Profile 是否已认证 |
+| `viceme auth login` | 引导人类用户完成浏览器授权并等待结果 |
+| `viceme auth login --no-wait --json` | 启动 Agent 跨回合流程并返回结构化设备授权信息 |
+| `viceme auth login --device-code <code> --json` | 在后续回合完成 Agent 登录流程 |
+| `viceme auth logout` | 撤销并删除当前 Profile 的凭证 |
 
 令牌只保存在操作系统密钥链中，不会回退到明文存储；登录成功的输出也不会包含访问令牌或刷新令牌。
 
@@ -208,8 +222,9 @@ viceme skill publish --file ./poster-skill-v2.zip \
 
 | 命令组 | 用途 |
 |---|---|
-| `viceme install` | 安装持久化启动器、Agent Skill 和区域配置 |
+| `viceme install` | 安装持久化启动器、Agent Skill 和默认 Profile |
 | `viceme auth` | 启动、完成、检查或撤销设备认证 |
+| `viceme profile` | 新增、列出、切换、重命名或删除本地 Profile |
 | `viceme skill inspect` | 固化并检查来源候选，不执行发布 |
 | `viceme skill publish` | 创建或更新具有稳定链接的 Skill Agent 发布 |
 | `viceme skill target` | 解析现有逻辑 Agent Target 及其版本 |
@@ -221,7 +236,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 
 ## JSON 输出契约
 
-所有数据命令默认输出稳定的 JSON 信封。
+面向自动化的数据命令默认输出稳定的 JSON 信封。交互式 `viceme auth login` 是特意保留的人类友好例外；AI Agent 和脚本必须使用 `--no-wait --json`，并在后续回合使用 `--device-code <code> --json` 继续。
 
 成功结果写入 **stdout**，退出码为 `0`：
 
@@ -270,10 +285,10 @@ CLI 执行错误写入 **stderr**，退出码非零：
 - **不执行来源内容** — CLI 和编译器不会执行第三方脚本、二进制文件、shell 片段、市场命令或复制口令中的指令。
 - **公开变更需要明确确认** — 发布和取消操作需要 `--yes`；退出码 `10` 表示 Agent 必须向用户取得确认，不能静默重试。
 - **安全预览** — 用户需要检查计划请求时，可以对 inspect 或 publish 使用 `--dry-run`，不会产生网络请求或发布副作用。
-- **凭证隔离** — 凭证保存在操作系统密钥链中，并按区域隔离。
+- **凭证隔离** — 凭证保存在操作系统密钥链中，并按 Profile 与区域隔离。
 - **不可变输入** — inspect 会把发布绑定到不可变来源快照，而不是在之后重新读取浮动 URL。
 - **有界等待** — `job wait` 有最大等待时间；超时后返回最新持久化状态，不会取消工作流。
-- **可信分发** — npm 启动器下载与其准确包版本匹配的二进制文件，并在启用前验证发布的 SHA-256 校验和。
+- **可信分发** — npm 启动器从 GitHub 或 binary 镜像下载与其准确包版本匹配的二进制文件，并在启用前使用 npm 包内置的校验清单验证 SHA-256。
 
 ## 诊断与更新
 

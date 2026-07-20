@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.4.0] - 2026-07-20
+
+### Features
+
+- add guided human login flow (`b883736`)
+
+## [0.3.1] - 2026-07-20
+
+### Fixes
+
+- isolate npm cache and classify failures (`b778aa1`)
+
+### Other Changes
+
+- clarify workflow check names (`cf7da33`)
+
+## [0.3.0] - 2026-07-20
+
+### Features
+
+- add profile management (`fec286e`)
+
+## [0.2.1] - 2026-07-20
+
+### Fixes
+
+- add verified binary mirror fallback (`efb0d83`)
+
+### Other Changes
+
+- add Feishu pull request notifications (`b6174b1`)
+
 ## [0.2.0] - 2026-07-19
 
 ### Features

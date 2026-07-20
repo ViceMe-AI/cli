@@ -21,29 +21,35 @@ type Credential struct {
 
 type Status struct {
 	Authenticated bool       `json:"authenticated"`
+	Profile       string     `json:"profile"`
 	Region        string     `json:"region"`
 	UserID        string     `json:"user_id,omitempty"`
 	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
 }
 
 type Manager struct {
-	Store  securestore.Store
-	Region string
-	// Scope overrides the legacy region namespace. Production cn/global
-	// endpoints intentionally leave this empty so existing keychain entries
-	// remain compatible. Custom API origins must provide an isolated scope.
+	Store       securestore.Store
+	Region      string
+	ProfileID   string
+	ProfileName string
+	// Scope overrides the region namespace for custom API origins. It is still
+	// nested under ProfileID so credentials never cross profiles.
 	Scope string
 }
 
 func (m *Manager) key() string {
-	if scope := strings.TrimSpace(m.Scope); scope != "" {
-		return "credential:" + scope
+	profileID := m.ProfileID
+	if profileID == "" {
+		profileID = "default"
 	}
-	region := m.Region
-	if region == "" {
-		region = "cn"
+	endpointScope := strings.TrimSpace(m.Scope)
+	if endpointScope == "" {
+		endpointScope = strings.ToLower(strings.TrimSpace(m.Region))
+		if endpointScope == "" {
+			endpointScope = "cn"
+		}
 	}
-	return "credential:" + region
+	return "credential:" + profileID + ":" + endpointScope
 }
 
 func (m *Manager) Save(credential Credential) error {
@@ -92,7 +98,7 @@ func (m *Manager) Token(_ context.Context) (string, error) {
 		return "", err
 	}
 	if !credential.ExpiresAt.IsZero() && time.Now().After(credential.ExpiresAt) {
-		return "", output.Authentication("token_expired", "Viceme login has expired; run 'viceme auth login --no-wait'")
+		return "", output.Authentication("token_expired", "Viceme login has expired; run 'viceme auth login'")
 	}
 	return credential.AccessToken, nil
 }
@@ -102,11 +108,11 @@ func (m *Manager) CurrentStatus() (Status, error) {
 	if err != nil {
 		var cliErr *output.Error
 		if errors.As(err, &cliErr) && cliErr.Subtype == "not_logged_in" {
-			return Status{Authenticated: false, Region: m.region()}, nil
+			return Status{Authenticated: false, Profile: m.profile(), Region: m.region()}, nil
 		}
 		return Status{}, err
 	}
-	status := Status{Authenticated: true, Region: m.region(), UserID: credential.UserID}
+	status := Status{Authenticated: true, Profile: m.profile(), Region: m.region(), UserID: credential.UserID}
 	if !credential.ExpiresAt.IsZero() {
 		expires := credential.ExpiresAt
 		status.ExpiresAt = &expires
@@ -115,6 +121,13 @@ func (m *Manager) CurrentStatus() (Status, error) {
 		}
 	}
 	return status, nil
+}
+
+func (m *Manager) profile() string {
+	if m.ProfileName == "" {
+		return "default"
+	}
+	return m.ProfileName
 }
 
 func (m *Manager) region() string {
