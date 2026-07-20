@@ -107,7 +107,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 			} else {
 				result.NextStep = installNextStep{
 					Required: true,
-					Command:  "viceme auth login --no-wait",
+					Command:  "viceme auth login",
 					Reason:   "complete device login before publishing a Skill Agent",
 				}
 			}

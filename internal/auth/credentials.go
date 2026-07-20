@@ -91,7 +91,7 @@ func (m *Manager) Token(_ context.Context) (string, error) {
 		return "", err
 	}
 	if !credential.ExpiresAt.IsZero() && time.Now().After(credential.ExpiresAt) {
-		return "", output.Authentication("token_expired", "Viceme login has expired; run 'viceme auth login --no-wait'")
+		return "", output.Authentication("token_expired", "Viceme login has expired; run 'viceme auth login'")
 	}
 	return credential.AccessToken, nil
 }
