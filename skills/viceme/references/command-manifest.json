@@ -112,7 +112,7 @@
         {
           "name": "inputs-digest",
           "type": "string",
-          "usage": "optional digest of the exact input set (PRE-04)"
+          "usage": "digest of the exact input set being accepted (PRE-04, from the job run receipt)"
         },
         {
           "name": "run-id",
@@ -185,6 +185,11 @@
           "usage": "confirm_metadata action receipt ID"
         },
         {
+          "name": "author",
+          "type": "string",
+          "usage": "optional source-author edit / missing-author fill (1-100 visible characters)"
+        },
+        {
           "name": "decision",
           "type": "string",
           "usage": "metadata decision: confirm or cancel"
@@ -243,6 +248,11 @@
           "name": "expected-payload-digest",
           "type": "string",
           "usage": "digest of the action payload being answered"
+        },
+        {
+          "name": "expected-public-summary-digest",
+          "type": "string",
+          "usage": "public_summary_digest from the job preview output (binds the confirmation to the summary receipt)"
         },
         {
           "name": "expected-release-candidate-digest",
