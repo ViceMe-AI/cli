@@ -14,6 +14,22 @@ import (
 	"time"
 )
 
+func TestUpdateChildProcessDoesNotInheritPublicationCredential(t *testing.T) {
+	environment := []string{
+		"PATH=/usr/bin",
+		"VICEME_ACCESS_TOKEN=must-not-cross-exec",
+		"VICEME_API_BASE_URL=https://api.viceme.ai",
+	}
+	filtered := withoutEnvironmentVariable(environment, "VICEME_ACCESS_TOKEN")
+	joined := strings.Join(filtered, "\n")
+	if strings.Contains(joined, "VICEME_ACCESS_TOKEN=") {
+		t.Fatalf("process credential remained in child environment: %q", joined)
+	}
+	if !strings.Contains(joined, "PATH=/usr/bin") || !strings.Contains(joined, "VICEME_API_BASE_URL=https://api.viceme.ai") {
+		t.Fatalf("unrelated environment was removed: %q", joined)
+	}
+}
+
 type runCall struct {
 	name string
 	args []string

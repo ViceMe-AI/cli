@@ -45,6 +45,136 @@ func TestAPIBaseURLEnvironmentOverride(t *testing.T) {
 	if runtime.apiBaseURL != "http://localhost:3000" {
 		t.Fatalf("environment API base URL = %q", runtime.apiBaseURL)
 	}
+	if !strings.HasPrefix(runtime.credentialScope, "custom:") {
+		t.Fatalf("custom API origin did not receive an isolated credential scope: %q", runtime.credentialScope)
+	}
+}
+
+func TestCanonicalAPIOverridesPreserveLegacyRegionCredentialScope(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		region  config.Region
+		baseURL string
+	}{
+		{name: "china exact", region: config.RegionCN, baseURL: "https://api.viceme.cn"},
+		{name: "china normalized default port and path", region: config.RegionCN, baseURL: "https://API.VICEME.CN:443/internal/base/"},
+		{name: "global exact", region: config.RegionGlobal, baseURL: "https://api.viceme.ai"},
+		{name: "global normalized default port and path", region: config.RegionGlobal, baseURL: "https://API.VICEME.AI:443/v1/"},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			store := securestore.NewMemory()
+			legacy := &credentialauth.Manager{Store: store, Region: string(test.region)}
+			if err := legacy.Save(credentialauth.Credential{AccessToken: "legacy-token"}); err != nil {
+				t.Fatal(err)
+			}
+			_, runtime, err := NewRoot(Dependencies{
+				APIBaseURL: test.baseURL,
+				Region:     test.region,
+				Store:      store,
+				Environment: skillcontent.Environment{
+					Home:      t.TempDir(),
+					ConfigDir: t.TempDir(),
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if runtime.credentialScope != "" {
+				t.Fatalf("canonical origin selected custom scope %q", runtime.credentialScope)
+			}
+			credential, err := runtime.manager().Load()
+			if err != nil || credential.AccessToken != "legacy-token" {
+				t.Fatalf("canonical override lost the legacy credential: %#v err=%v", credential, err)
+			}
+		})
+	}
+}
+
+func TestTrulyCustomAPIOriginsUseStableIsolatedScopes(t *testing.T) {
+	first, err := credentialScopeForAPIBase("https://DEV.VICEME.EXAMPLE:443/api/one", config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameOrigin, err := credentialScopeForAPIBase("https://dev.viceme.example/api/two", config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	differentPort, err := credentialScopeForAPIBase("https://dev.viceme.example:8443/api/one", config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(first, "custom:") || first != sameOrigin || first == differentPort {
+		t.Fatalf("custom origin scopes are not stable and isolated: first=%q same=%q port=%q", first, sameOrigin, differentPort)
+	}
+}
+
+func TestProfileSelectionRecomputesScopeAgainstFixedAPIOrigin(t *testing.T) {
+	t.Parallel()
+	configBase := t.TempDir()
+	configured := config.Default(config.RegionCN)
+	work, err := configured.AddProfile("work", config.RegionGlobal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Save(configBase, configured); err != nil {
+		t.Fatal(err)
+	}
+	store := securestore.NewMemory()
+	defaultManager := &credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default"}
+	if err := defaultManager.Save(credentialauth.Credential{AccessToken: "default-token"}); err != nil {
+		t.Fatal(err)
+	}
+	_, runtime, err := NewRoot(Dependencies{
+		APIBaseURL: "https://api.viceme.cn",
+		Store:      store,
+		Environment: skillcontent.Environment{
+			Home:      t.TempDir(),
+			ConfigDir: configBase,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.credentialScope != "" {
+		t.Fatalf("default cn profile unexpectedly used scope %q", runtime.credentialScope)
+	}
+	if err := runtime.selectProfile(work.Name); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(runtime.credentialScope, "custom:") {
+		t.Fatalf("global profile did not isolate fixed cn endpoint: %q", runtime.credentialScope)
+	}
+	if _, err := runtime.manager().Load(); err == nil {
+		t.Fatal("selected profile reused the default profile credential")
+	}
+}
+
+func TestCustomAPIOriginCannotReadProductionCredentials(t *testing.T) {
+	t.Setenv("VICEME_API_BASE_URL", "http://localhost:3000/dev")
+	store := securestore.NewMemory()
+	production := &credentialauth.Manager{Store: store, Region: "cn"}
+	if err := production.Save(credentialauth.Credential{AccessToken: "production-token"}); err != nil {
+		t.Fatal(err)
+	}
+	_, runtime, err := NewRoot(Dependencies{
+		Store:       store,
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := runtime.manager().CurrentStatus()
+	if err != nil || status.Authenticated {
+		t.Fatalf("custom origin reused production login: %#v err=%v", status, err)
+	}
+	if err := runtime.manager().Save(credentialauth.Credential{AccessToken: "custom-token"}); err != nil {
+		t.Fatal(err)
+	}
+	credential, err := production.Load()
+	if err != nil || credential.AccessToken != "production-token" {
+		t.Fatalf("custom login overwrote production credential: %#v err=%v", credential, err)
+	}
 }
 
 func TestStoredGlobalRegionUsesGlobalEndpoint(t *testing.T) {
@@ -108,6 +238,52 @@ func TestPublishRequiresConfirmationAndExplicitUploadTarget(t *testing.T) {
 	if code != 0 || stderr != "" || !strings.Contains(stdout, `"expected_target_version":4`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
+	code, stdout, stderr, _ = runCLI(t, nil, nil, "skill", "publish", "https://github.com/acme/skill", "--target-id", "target_0", "--expected-target-version", "0", "--yes", "--dry-run")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"expected_target_version":0`) {
+		t.Fatalf("explicit version zero was not preserved: code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	code, _, stderr, _ = runCLI(t, nil, nil, "skill", "publish", "https://github.com/acme/skill", "--target-id", "target_0", "--expected-target-version", "-1", "--yes", "--dry-run")
+	if code != 2 || !strings.Contains(stderr, "target_version") {
+		t.Fatalf("negative target version was accepted: code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestPublishTargetAliasCanonicality(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		alias     string
+		newTarget bool
+		wantCode  int
+	}{
+		{name: "explicit empty", alias: "", newTarget: true, wantCode: 2},
+		{name: "surrounding whitespace", alias: " poster ", newTarget: true, wantCode: 2},
+		{name: "more than 191 Unicode characters", alias: strings.Repeat("技", 192), newTarget: true, wantCode: 2},
+		{name: "invalid UTF-8", alias: string([]byte{0xff}), newTarget: true, wantCode: 2},
+		{name: "alias without new target", alias: "poster", wantCode: 2},
+		{name: "legal Unicode alias", alias: strings.Repeat("技", 191), newTarget: true, wantCode: 0},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			args := []string{"skill", "publish", "https://github.com/acme/skill", "--target-alias", test.alias, "--yes", "--dry-run"}
+			if test.newTarget {
+				args = append(args, "--new-target")
+			}
+			code, stdout, stderr, _ := runCLI(t, nil, nil, args...)
+			if code != test.wantCode {
+				t.Fatalf("code=%d want=%d stdout=%s stderr=%s", code, test.wantCode, stdout, stderr)
+			}
+			if test.wantCode == 0 {
+				if stderr != "" || !strings.Contains(stdout, `"alias":"`+test.alias+`"`) {
+					t.Fatalf("legal alias was not preserved: stdout=%s stderr=%s", stdout, stderr)
+				}
+			} else if !strings.Contains(stderr, "target_alias") {
+				t.Fatalf("invalid alias returned the wrong error: %s", stderr)
+			}
+		})
+	}
 }
 
 func TestAuthNoWaitJSONNeverReturnsToken(t *testing.T) {
@@ -170,7 +346,11 @@ func TestAuthLoginGuidesHumanAndWaitsForAuthorization(t *testing.T) {
 			t.Fatalf("human login leaked %q: %s", secret, stderr)
 		}
 	}
-	manager := &credentialauth.Manager{Store: store, Region: "cn"}
+	scope, err := customCredentialScope(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", Scope: scope}
 	credential, err := manager.Load()
 	if err != nil || credential.AccessToken != "top-secret" {
 		t.Fatalf("credential was not stored: credential=%#v err=%v", credential, err)
@@ -211,13 +391,60 @@ func TestDeviceLoginStoresTokenButDoesNotPrintIt(t *testing.T) {
 	if strings.Contains(stdout, "top-secret") || strings.Contains(stdout, "refresh-secret") {
 		t.Fatal("completed login leaked credentials")
 	}
-	manager := &credentialauth.Manager{Store: store, Region: "cn"}
+	scope, err := customCredentialScope(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &credentialauth.Manager{Store: store, Region: "cn", Scope: scope}
 	credential, err := manager.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if credential.AccessToken != "top-secret" {
 		t.Fatal("credential was not stored")
+	}
+}
+
+func TestProcessCredentialUsesStandardAPIKeyWithoutPersistenceOrOutput(t *testing.T) {
+	const processToken = "vpa_process_only_secret"
+	t.Setenv(processAccessTokenEnvironment, processToken)
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("x-api-key") != processToken {
+			t.Fatalf("standard API key header = %q", request.Header.Get("x-api-key"))
+		}
+		return jsonHTTPResponse(request, http.StatusAccepted, `{"publication_id":"pub_process","status":"received"}`), nil
+	})
+	store := securestore.NewMemory()
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", Dependencies{
+		HTTPClient: &http.Client{Transport: transport},
+		APIBaseURL: "https://api.viceme.test",
+	}, "skill", "publish", "--resolution-id", "res_process", "--yes")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "pub_process") || strings.Contains(stdout, processToken) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if _, err := (&credentialauth.Manager{Store: store, Region: "cn"}).Load(); err == nil {
+		t.Fatal("process credential was persisted to the keychain")
+	}
+
+	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", Dependencies{}, "auth", "status")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"source":"process"`) ||
+		!strings.Contains(stdout, `"persistent":false`) || strings.Contains(stdout, processToken) {
+		t.Fatalf("status code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", Dependencies{}, "auth", "logout")
+	if code == 0 || !strings.Contains(stderr, "process_credential_active") || strings.Contains(stderr, processToken) {
+		t.Fatalf("logout code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestProcessCredentialRejectsNonCanonicalSecret(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, " secret-with-space ")
+	_, _, err := NewRoot(Dependencies{
+		Store:       securestore.NewMemory(),
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()},
+	})
+	if err == nil || !strings.Contains(err.Error(), "process publication credential is invalid") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -276,6 +503,9 @@ func TestPublishRetriesAmbiguousTransportWithSameRequestID(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("x-api-key") != "test-token" {
+			t.Fatal("retry changed or omitted the standard credential")
+		}
 		if calls.Add(1) == 1 {
 			return nil, fmt.Errorf("connection closed after write")
 		}
@@ -298,7 +528,7 @@ func TestPublishRetriesAmbiguousTransportWithSameRequestID(t *testing.T) {
 	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, authenticatedStore(t), "", Dependencies{
 		HTTPClient: &http.Client{Transport: transport},
 		APIBaseURL: "https://api.viceme.test",
-	}, "skill", "publish", "https://github.com/acme/skill", "--yes")
+	}, "skill", "publish", "--resolution-id", "res_retry", "--client-request-id", "request-fixed", "--yes")
 	if code != 0 || stderr != "" || calls.Load() != 2 || !strings.Contains(stdout, "pub_retry") {
 		t.Fatalf("code=%d calls=%d stdout=%s stderr=%s", code, calls.Load(), stdout, stderr)
 	}
@@ -320,6 +550,164 @@ func TestJobWaitReturnsBusinessFailureWithExitZero(t *testing.T) {
 	defer server.Close()
 	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "wait", "pub_1")
 	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"unsupported"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestJobMetadataReadAndResolveContract(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/metadata" && request.Method == http.MethodGet:
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"meta_review","title":"海报文案","description":"为产品海报写文案","author":"acme/poster","missing":[],"action_id":"meta_1","expires_at":"2030-01-01T00:00:00Z"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/metadata/resolve" && request.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode resolve body: %v", err)
+			}
+			if body["action_id"] != "meta_1" || body["decision"] != "confirm" || body["title"] != "探针海报" ||
+				body["author"] != "acme/ops" || body["expected_payload_digest"] != "sha256:payload" {
+				t.Fatalf("metadata resolve body = %#v", body)
+			}
+			_, _ = io.WriteString(writer, `{"action_id":"meta_1","status":"resolved","publication_status":"meta_confirmed","resolution_digest":"sha256:resolution","resolved_at":"2026-07-20T00:00:00Z"}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "metadata", "pub_1")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"author":"acme/poster"`) || !strings.Contains(stdout, `"status":"meta_review"`) {
+		t.Fatalf("metadata read: code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
+		"job", "metadata", "pub_1",
+		"--action-id", "meta_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--decision", "confirm",
+		"--title", "探针海报",
+		"--author", "acme/ops",
+	)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"publication_status":"meta_confirmed"`) {
+		t.Fatalf("metadata resolve: code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestJobMetadataDecisionValidation(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLI(t, nil, authenticatedStore(t),
+		"job", "metadata", "pub_1", "--decision", "maybe")
+	if code != 2 || !strings.Contains(stderr, "metadata_decision") {
+		t.Fatalf("invalid decision: code=%d stderr=%s", code, stderr)
+	}
+	code, _, stderr, _ = runCLI(t, nil, authenticatedStore(t),
+		"job", "metadata", "pub_1", "--decision", "confirm")
+	if code != 2 || !strings.Contains(stderr, "metadata_flags") {
+		t.Fatalf("missing action flags: code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestHostTypedActionLoopPreviewEditRunAccept(t *testing.T) {
+	t.Parallel()
+	var edits, runs, accepts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview" && request.Method == http.MethodGet:
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","preview":{"title":"海报文案","description":"为产品海报写文案","author":"acme/poster","input_method":"提供输入参数:theme(必填)","usage":"为产品海报写文案","output_description":"一句主标题和一段卖点","release_candidate_digest":"sha256:cand1","public_summary_digest":"sha256:summary1","preview_expires_at":"2030-01-01T00:00:00Z"}}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits" && request.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode edit body: %v", err)
+			}
+			if body["edit_request"] != "把标题改成探针海报" || body["current_candidate_digest"] != "sha256:cand1" {
+				t.Fatalf("edit body = %#v", body)
+			}
+			edits.Add(1)
+			_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"pending"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits/edit_1" && request.Method == http.MethodGet:
+			_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"applied","class":"presentation","result_candidate_digest":"sha256:cand2"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview-runs" && request.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode run body: %v", err)
+			}
+			if body["expected_candidate_digest"] != "sha256:cand2" {
+				t.Fatalf("run body = %#v", body)
+			}
+			runs.Add(1)
+			_, _ = io.WriteString(writer, `{"preview_run_id":"run_1","status":"running"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview-runs/run_1" && request.Method == http.MethodGet:
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","preview_run_id":"run_1","runner_run_id":"rr_1","candidate_digest":"sha256:cand2","inputs_digest":"sha256:inputs","status":"succeeded","result":{"outcome":"succeeded","finish_report":{"title":"海报文案已生成","summary":"已生成"},"output_links":[]},"accepted":false}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview-runs/run_1/accept" && request.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode accept body: %v", err)
+			}
+			if body["expected_candidate_digest"] != "sha256:cand2" || body["expected_inputs_digest"] != "sha256:inputs" {
+				t.Fatalf("accept body = %#v", body)
+			}
+			accepts.Add(1)
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","preview_run_id":"run_1","status":"succeeded","accepted_at":"2026-07-20T00:00:00Z"}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	// Host 闭环:展示摘要 → 自然语言编辑 → 新候选试跑 → 接受结果。
+	// preview 原样透传 public_summary_digest,供 resume 的确认门绑定。
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "preview", "pub_1")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"author":"acme/poster"`) || !strings.Contains(stdout, `"input_method"`) ||
+		!strings.Contains(stdout, `"public_summary_digest":"sha256:summary1"`) {
+		t.Fatalf("preview: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request", "把标题改成探针海报", "--timeout", "10s")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
+		t.Fatalf("edit: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
+		"job", "run", "pub_1", "--candidate-digest", "sha256:cand2", "--input", "theme=咖啡", "--timeout", "10s")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"succeeded"`) {
+		t.Fatalf("run: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
+		"job", "accept", "pub_1", "--run-id", "run_1", "--candidate-digest", "sha256:cand2", "--inputs-digest", "sha256:inputs")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"accepted_at"`) {
+		t.Fatalf("accept: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	if edits.Load() != 1 || runs.Load() != 1 || accepts.Load() != 1 {
+		t.Fatalf("typed actions must fire exactly once each: edits=%d runs=%d accepts=%d", edits.Load(), runs.Load(), accepts.Load())
+	}
+}
+
+func TestJobAcceptRequiresInputsDigest(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLI(t, nil, authenticatedStore(t),
+		"job", "accept", "pub_1", "--run-id", "run_1", "--candidate-digest", "sha256:cand2")
+	if code != 2 || !strings.Contains(stderr, "accept_flags") || !strings.Contains(stderr, "--inputs-digest") {
+		t.Fatalf("missing inputs digest: code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestJobRetryRequiresConfirmationAndUsesExplicitRetryEndpoint(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLI(t, nil, nil, "job", "retry", "pub_1")
+	if code != 10 || !strings.Contains(stderr, "confirmation_required") {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/skill-agent-publications/pub_1/retry" {
+			t.Fatalf("unexpected retry request: %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("x-api-key") != "test-token" {
+			t.Fatalf("missing API key: %q", request.Header.Get("x-api-key"))
+		}
+		writer.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"source_resolved","retry_ordinal":1}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "retry", "pub_1", "--yes")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"retry_ordinal":1`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
@@ -370,6 +758,122 @@ func TestJobWaitTimeoutReturnsLastStatus(t *testing.T) {
 	}
 }
 
+func TestJobResumeConfirmPublishSendsDecisionContract(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_1/resolve" || request.Method != http.MethodPost {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode resolve body: %v", err)
+		}
+		if body["decision"] != "confirm" ||
+			body["expected_release_candidate_digest"] != "sha256:candidate" ||
+			body["expected_public_summary_digest"] != "sha256:summary" ||
+			body["expected_payload_digest"] != "sha256:payload" {
+			t.Fatalf("confirm_publish resolve body = %#v", body)
+		}
+		if _, ok := body["payload"]; ok {
+			t.Fatalf("decision resolution must not carry a typed payload: %#v", body)
+		}
+		_, _ = io.WriteString(writer, `{"action_id":"act_1","status":"resolved","publication_status":"release_authorized","resolution_digest":"sha256:resolution","resolved_at":"2026-07-18T00:00:00Z"}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t),
+		"job", "resume", "pub_1",
+		"--action-id", "act_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--expected-release-candidate-digest", "sha256:candidate",
+		"--expected-public-summary-digest", "sha256:summary",
+		"--decision", "confirm",
+	)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"publication_status":"release_authorized"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestJobResumeCancelPublishSendsDecisionContract(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_1/resolve" || request.Method != http.MethodPost {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode resolve body: %v", err)
+		}
+		if body["decision"] != "cancel" ||
+			body["expected_release_candidate_digest"] != "sha256:candidate" ||
+			body["expected_public_summary_digest"] != "sha256:summary" ||
+			body["expected_payload_digest"] != "sha256:payload" {
+			t.Fatalf("cancel resolve body = %#v", body)
+		}
+		if _, ok := body["payload"]; ok {
+			t.Fatalf("cancel resolution must not carry a typed payload: %#v", body)
+		}
+		_, _ = io.WriteString(writer, `{"action_id":"act_1","status":"resolved","publication_status":"cancelled","resolution_digest":"sha256:resolution","resolved_at":"2026-07-18T00:00:00Z"}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t),
+		"job", "resume", "pub_1",
+		"--action-id", "act_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--expected-release-candidate-digest", "sha256:candidate",
+		"--expected-public-summary-digest", "sha256:summary",
+		"--decision", "cancel",
+	)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"publication_status":"cancelled"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestJobResumeDecisionValidation(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLI(t, nil, authenticatedStore(t),
+		"job", "resume", "pub_1",
+		"--action-id", "act_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--decision", "confirm",
+	)
+	if code != 2 || !strings.Contains(stderr, "resume_flags") {
+		t.Fatalf("missing candidate digest: code=%d stderr=%s", code, stderr)
+	}
+	code, _, stderr, _ = runCLI(t, nil, authenticatedStore(t),
+		"job", "resume", "pub_1",
+		"--action-id", "act_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--expected-release-candidate-digest", "sha256:candidate",
+		"--decision", "confirm",
+	)
+	if code != 2 || !strings.Contains(stderr, "resume_flags") || !strings.Contains(stderr, "--expected-public-summary-digest") {
+		t.Fatalf("missing public summary digest: code=%d stderr=%s", code, stderr)
+	}
+	code, _, stderr, _ = runCLI(t, nil, authenticatedStore(t),
+		"job", "resume", "pub_1",
+		"--action-id", "act_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--expected-release-candidate-digest", "sha256:candidate",
+		"--expected-public-summary-digest", "sha256:summary",
+		"--decision", "maybe",
+	)
+	if code != 2 || !strings.Contains(stderr, "resume_decision") {
+		t.Fatalf("invalid decision: code=%d stderr=%s", code, stderr)
+	}
+	code, _, stderr, _ = runCLIWithInput(t, nil, authenticatedStore(t), `{"selector":"skills/poster"}`,
+		"job", "resume", "pub_1",
+		"--action-id", "act_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--expected-release-candidate-digest", "sha256:candidate",
+		"--expected-public-summary-digest", "sha256:summary",
+		"--decision", "confirm",
+		"--payload-stdin",
+	)
+	if code != 2 || !strings.Contains(stderr, "resume_flags") {
+		t.Fatalf("decision with payload stdin: code=%d stderr=%s", code, stderr)
+	}
+}
+
 func authenticatedStore(t *testing.T) *securestore.MemoryStore {
 	t.Helper()
 	store := securestore.NewMemory()
@@ -401,8 +905,12 @@ func runCLIWithDependencies(t *testing.T, server *httptest.Server, store secures
 	extra.Out = &stdout
 	extra.ErrOut = &stderr
 	extra.Store = store
-	extra.NewID = func() string { return "request-fixed" }
-	extra.Sleep = func(context.Context, time.Duration) error { return nil }
+	if extra.NewID == nil {
+		extra.NewID = func() string { return "request-fixed" }
+	}
+	if extra.Sleep == nil {
+		extra.Sleep = func(context.Context, time.Duration) error { return nil }
+	}
 	if extra.Environment.Home == "" {
 		extra.Environment = skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()}
 	}
@@ -413,6 +921,20 @@ func runCLIWithDependencies(t *testing.T, server *httptest.Server, store secures
 		extra.HTTPClient = server.Client()
 		extra.APIBaseURL = server.URL
 	}
+	// Tests that seed the default-profile canonical login explicitly mirror it into the
+	// custom httptest origin. Production code never performs this migration.
+	if extra.APIBaseURL != "" {
+		canonical := &credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default"}
+		if credential, loadErr := canonical.Load(); loadErr == nil && credential.AccessToken == "test-token" {
+			scope, scopeErr := customCredentialScope(extra.APIBaseURL)
+			if scopeErr != nil {
+				t.Fatal(scopeErr)
+			}
+			if saveErr := (&credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", Scope: scope}).Save(credential); saveErr != nil {
+				t.Fatal(saveErr)
+			}
+		}
+	}
 	code := Execute(args, extra)
 	return code, stdout.String(), stderr.String(), store
 }
@@ -421,4 +943,13 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return function(request)
+}
+
+func jsonHTTPResponse(request *http.Request, status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Request:    request,
+	}
 }

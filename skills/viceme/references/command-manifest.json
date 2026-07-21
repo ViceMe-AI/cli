@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "cli_version": "0.4.0",
-  "minimum_cli_version": "0.4.0",
+  "cli_version": "0.5.0",
+  "minimum_cli_version": "0.5.0",
   "global_flags": [
     {
       "name": "profile",
@@ -97,6 +97,31 @@
       "requires_confirmation": false
     },
     {
+      "path": "job accept",
+      "use": "accept <publication-id>",
+      "short": "Accept the actual result of a preview test run",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "candidate-digest",
+          "type": "string",
+          "usage": "exact release candidate digest of the accepted result"
+        },
+        {
+          "name": "inputs-digest",
+          "type": "string",
+          "usage": "digest of the exact input set being accepted (PRE-04, from the job run receipt)"
+        },
+        {
+          "name": "run-id",
+          "type": "string",
+          "usage": "preview run receipt ID"
+        }
+      ]
+    },
+    {
       "path": "job cancel",
       "use": "cancel <publication-id>",
       "short": "Cancel a publication",
@@ -113,12 +138,93 @@
       ]
     },
     {
+      "path": "job edit",
+      "use": "edit <publication-id>",
+      "short": "Submit a natural-language candidate edit and wait for the new candidate",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "candidate-digest",
+          "type": "string",
+          "usage": "current exact release candidate digest"
+        },
+        {
+          "name": "request",
+          "type": "string",
+          "usage": "natural-language edit request"
+        },
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "2m0s",
+          "usage": "maximum time to wait for the edit"
+        }
+      ]
+    },
+    {
       "path": "job get",
       "use": "get <publication-id>",
       "short": "Get a publication's durable status",
       "runnable": true,
       "side_effect": "none",
       "requires_confirmation": false
+    },
+    {
+      "path": "job metadata",
+      "use": "metadata <publication-id>",
+      "short": "Review or resolve the metadata checkpoint of a publication",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "action-id",
+          "type": "string",
+          "usage": "confirm_metadata action receipt ID"
+        },
+        {
+          "name": "author",
+          "type": "string",
+          "usage": "optional source-author edit / missing-author fill (1-100 visible characters)"
+        },
+        {
+          "name": "decision",
+          "type": "string",
+          "usage": "metadata decision: confirm or cancel"
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "usage": "optional description edit (1-100 visible characters)"
+        },
+        {
+          "name": "expected-payload-digest",
+          "type": "string",
+          "usage": "digest of the metadata action payload"
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "usage": "optional title edit (1-20 visible characters)"
+        }
+      ]
+    },
+    {
+      "path": "job preview",
+      "use": "preview <publication-id>",
+      "short": "Show the frozen public summary of the exact release candidate",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "action-id",
+          "type": "string",
+          "usage": "confirm_publish action receipt ID (defaults to the latest)"
+        }
+      ]
     },
     {
       "path": "job resume",
@@ -134,15 +240,73 @@
           "usage": "typed action receipt ID"
         },
         {
+          "name": "decision",
+          "type": "string",
+          "usage": "confirm_publish decision: confirm or cancel"
+        },
+        {
           "name": "expected-payload-digest",
           "type": "string",
           "usage": "digest of the action payload being answered"
+        },
+        {
+          "name": "expected-public-summary-digest",
+          "type": "string",
+          "usage": "public_summary_digest from the job preview output (binds the confirmation to the summary receipt)"
+        },
+        {
+          "name": "expected-release-candidate-digest",
+          "type": "string",
+          "usage": "exact release candidate digest shown in the preview"
         },
         {
           "name": "payload-stdin",
           "type": "bool",
           "default": "false",
           "usage": "read the structured action answer from stdin"
+        }
+      ]
+    },
+    {
+      "path": "job retry",
+      "use": "retry <publication-id>",
+      "short": "Explicitly retry a retryable compiler failure",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": true,
+      "flags": [
+        {
+          "name": "yes",
+          "type": "bool",
+          "default": "false",
+          "usage": "confirm one bounded compiler retry"
+        }
+      ]
+    },
+    {
+      "path": "job run",
+      "use": "run <publication-id>",
+      "short": "Run one real preview test of the exact candidate and show the result",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "candidate-digest",
+          "type": "string",
+          "usage": "exact release candidate digest to test"
+        },
+        {
+          "name": "input",
+          "type": "stringArray",
+          "default": "[]",
+          "usage": "preview input as name=value (repeatable)"
+        },
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "3m0s",
+          "usage": "maximum time to wait for the run"
         }
       ]
     },
@@ -255,6 +419,11 @@
           "type": "bool",
           "default": "false",
           "usage": "read a copied provider expression from stdin"
+        },
+        {
+          "name": "skill-root",
+          "type": "string",
+          "usage": "exact repository-relative directory containing SKILL.md; use . for the repository root"
         }
       ]
     },
@@ -269,7 +438,7 @@
         {
           "name": "client-request-id",
           "type": "string",
-          "usage": "idempotency key for this publication action"
+          "usage": "stable idempotency key for an exact publication request"
         },
         {
           "name": "dir",

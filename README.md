@@ -10,7 +10,7 @@ The official command-line client and Agent Skill for publishing external Skills 
 
 [Install](#installation--quick-start) · [AI Agent Skills](#agent-skills) · [Auth](#authentication) · [Regions & profiles](#regions--profiles) · [Commands](#command-overview) · [Output contract](#json-output-contract) · [Security](#security-and-risk-controls) · [Development](#development)
 
-> **Rollout status:** the Core publication transport and stable-link path are implemented. Public rollout remains blocked until the exact Candidate preview, test run, and result-confirmation gate is complete. The current `--yes` confirms the publication request; it is not proof that the user reviewed the final Candidate.
+> **Rollout status:** the Core publication transport and stable-link path are implemented, and the exact Candidate preview → test run → result-confirmation gate is enforced: after `--yes`, the publication parks at `awaiting_action` with a typed `confirm_publish` action, and `job resume --decision confirm` is accepted only after the exact candidate has a succeeded, owner-accepted preview test run (otherwise 409 `preview_run_required`). Test runs, acceptance, and natural-language candidate edits are driven from the confirmation page (`next_action.payload.preview_url`) or the `/v1/skill-agent-publications/:id/preview-runs` and `/edits` endpoints; the CLI ships no separate commands for them. `--yes` confirms the publication request; it is not proof that the user reviewed the final Candidate.
 
 ## Why Viceme CLI?
 
@@ -117,10 +117,10 @@ Continue only when authentication is valid and `skills doctor` reports a healthy
 **Step 5 — Inspect the first source**
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill
+viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. Public publication remains blocked until the exact Candidate confirmation gate described above is complete.
+Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. After the publication parks at `awaiting_action`, guide the user through candidate preview and a test run with accepted result before resolving with `job resume --decision confirm` (see the rollout status above).
 
 ## Regions & Profiles
 
@@ -144,7 +144,7 @@ viceme profile remove company
 
 `profile use` changes the persistent active profile; the global `--profile` flag overrides only one command. AI Agents must not switch or remove profiles unless the user explicitly requests it.
 
-`VICEME_CLI_CONFIG_DIR` can override the config root. Local API development still uses the process-only `VICEME_API_BASE_URL`; it is never persisted in a profile.
+`VICEME_CLI_CONFIG_DIR` can override the config root. Local API development uses the process-only `VICEME_API_BASE_URL`; it is never persisted in a profile. An override on the selected region's canonical origin keeps that region's endpoint scope, even with a base path; a different normalized origin uses an isolated scope and requires separate authentication. Persistent login credentials remain isolated by profile and region/origin. API and presigned-upload requests fail closed on redirects so credential headers are never forwarded to another origin.
 
 Update checks query the npm registry directly and store only the last successful version result in `~/.viceme-cli/update-state.json`. A result is used as a fallback for at most 24 hours when the registry is temporarily unavailable. npm operations launched by `viceme install` or `viceme update` use the isolated `~/.viceme-cli/npm-cache`, so a broken user-level `~/.npm` cache does not block the CLI. Both files are non-secret and can be deleted safely; credentials never enter either cache.
 
@@ -179,16 +179,20 @@ viceme skills doctor
 | `viceme auth login --device-code <code> --json` | Complete an Agent split-flow in a later turn |
 | `viceme auth logout` | Revoke and remove the current profile credential |
 
-Tokens are stored only in the operating-system keychain. There is no plaintext token fallback, and successful login output never contains the access or refresh token.
+Tokens created by device login are stored only in the operating-system keychain. There is no plaintext fallback, and successful login output never contains the access or refresh token.
+
+The public CLI exposes one standard authentication and publication surface. A trusted launcher may inject a short-lived generic process credential for a staff-authorized operation; `auth status` reports it as `source=process`, and the normal inspect/publish/job commands send it through `x-api-key`. It is never persisted or printed, login/logout fail closed while it is active, and update subprocesses do not inherit it. There are no public identity-selection or authorization-secret flags or credential-management commands.
 
 ## Supported Sources
 
 ### GitHub or trusted provider
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill
+viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
+
+For GitHub, `--skill-root` is required and names the exact repository-relative directory containing `SKILL.md`; use `.` only for a root-level Skill. The calling Agent determines this path from the user input or read-only repository tree. Viceme does not scan the repository to guess a Skill.
 
 ### Xiaohongshu or RedSkill copied expression
 
@@ -224,7 +228,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 | `viceme skill inspect` | Freeze and inspect a source candidate without publishing |
 | `viceme skill publish` | Create or update a stable Skill Agent publication |
 | `viceme skill target` | Resolve existing logical Agent Targets and versions |
-| `viceme job` | Read, wait for, resume, or cancel a durable publication |
+| `viceme job` | Read, wait for, resume, explicitly retry, or cancel a durable publication |
 | `viceme skills` | Read, install, and diagnose the bundled Agent Skill |
 | `viceme update` | Update the npm launcher, verified binary, and bundled Skill together |
 
@@ -264,26 +268,27 @@ CLI execution errors are written to **stderr** with a non-zero exit code:
 }
 ```
 
-Determine command success from the process exit code or `ok == true`. A successfully read publication may still contain a business terminal status such as `unsupported`, `rejected`, or `failed`; inspect `data.status` instead of treating those states as CLI transport failures.
+Determine command success from the process exit code or `ok == true`. The API's domain-specific `error.type` is preserved; the exit code is only a coarse handling class. A successfully read publication may still contain a business terminal status such as `unsupported`, `rejected`, or `failed`; inspect `data.status` instead of treating those states as CLI transport failures.
 
 | Exit code | Meaning |
 |---|---|
 | `0` | Command completed; inspect returned business status when applicable |
 | `2` | Validation failure |
 | `3` | Authentication or authorization failure |
-| `4` | Retryable network failure |
+| `4` | Retryable transport or concurrency failure |
 | `5` | Internal or protocol failure |
-| `6` | Policy rejection before publication creation |
+| `6` | Policy or rollout-gate rejection |
 | `10` | Explicit confirmation required |
 
 ## Security and Risk Controls
 
 - **No source execution** — the CLI and compiler do not execute third-party scripts, binaries, shell fragments, marketplace commands, or copied instructions.
-- **Explicit public mutation** — publishing and cancellation require `--yes`; exit code `10` means the Agent must obtain confirmation, not silently retry.
+- **Explicit public mutation** — publishing, compiler retry, and cancellation require `--yes`; exit code `10` means the Agent must obtain confirmation, not silently retry.
 - **Safe preview** — use `--dry-run` on inspect or publish when the user needs to review the planned request without network or publication side effects.
 - **Credential isolation** — credentials stay in the OS keychain and are namespaced by profile and region.
 - **Immutable inputs** — inspection binds publication to an immutable source snapshot rather than re-reading a floating URL later.
 - **Bounded waiting** — `job wait` has a maximum duration and returns the latest durable state without cancelling the workflow.
+- **Bounded compiler recovery** — `job retry` keeps the frozen source and publication, accepts only an explicitly retryable platform failure, and is capped by the server.
 - **Verified distribution** — the npm launcher downloads the binary for its exact package version from GitHub or a binary mirror and verifies it against the checksum manifest bundled in the npm package before activation.
 
 ## Diagnose and Update

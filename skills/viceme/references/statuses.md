@@ -8,6 +8,7 @@
 - `resolving`
 - `compiling`
 - `materializing`
+- `release_authorized`
 - `release_committed`
 - `waiting_projection`
 
@@ -15,8 +16,12 @@ Use another bounded wait when `meta.wait_timed_out` is true.
 
 ## User action
 
-- `awaiting_action`: read `next_action`, ask the user for the required selection, then resume the same publication.
+- `meta_review`: the parsed basic info is ready for review — show `job metadata` output (title/description/author/missing), resolve with `job metadata --decision confirm|cancel`, filling or editing fields with `--title` / `--description` / `--author` (see commands.md). Cancel here leaves zero assets.
+- `awaiting_action`: read `next_action`, ask the user for the required selection, then resume the same publication. For `confirm_publish`, show the frozen summary via `job preview`, complete a succeeded `job run` and `job accept` on the exact candidate first (accept requires `--inputs-digest` from the run receipt), then resume with `--decision` plus `--expected-public-summary-digest` taken from the preview output's `public_summary_digest` (see commands.md).
 - `target_conflict`: refresh the Target. Do not use last-write-wins or create another link.
+- `selection_required`: ask the user to choose one returned selector, then resume the same publication with the exact action ID and payload digest.
+- `process_credential_active`: login/logout is unavailable in a trusted-launcher process; keep using standard commands or start a normal process for persistent login management.
+- `process_credential_invalid`: stop without retrying or printing the injected value; the trusted launcher must replace it.
 - `payment_required`: explain the requirement and stop.
 
 ## Terminal outcomes
@@ -25,17 +30,17 @@ Use another bounded wait when `meta.wait_timed_out` is true.
 - `unsupported`: a hard dependency cannot be mapped; stop without publishing a reduced Agent.
 - `rejected`: source or policy validation rejected the publication.
 - `cancelled`: the publication was cancelled.
-- `failed`: the durable workflow failed; report `data.failure` and the publication ID.
+- `failed`: report `data.failure` and the publication ID. Only when `data.failure.details.type` is `PLATFORM_FAILURE` and `data.failure.details.retryable` is `true`, the user may explicitly request `viceme job retry <publication-id> --yes`. Retry the same publication at most through the server-controlled limit; never alter or re-upload the source as a workaround.
 
 ## CLI execution errors
 
-Nonzero exits mean the CLI invocation itself did not complete:
+Nonzero exits mean the CLI invocation itself did not complete. Preserve and branch on the server's domain-specific `error.type`; the exit code is only a coarse handling class:
 
 - `2`: validation
 - `3`: authentication or authorization
-- `4`: network
+- `4`: retryable transport or concurrency
 - `5`: internal/protocol
-- `6`: policy before publication creation
+- `6`: policy or rollout gate
 - `10`: confirmation required
 
 Read the JSON error fields `type`, `subtype`, `message`, `retryable`, and optional `hint`. Never scrape human error text.

@@ -73,17 +73,24 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 			}
 			var warnings []string
 			if previousRegion != resolvedRegion {
+				previousScope, scopeErr := runtime.credentialScopeForRegion(previousRegion)
+				if scopeErr != nil {
+					return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+				}
 				previousManager := credentialauth.Manager{
 					Store:       runtime.deps.Store,
 					Region:      string(previousRegion),
 					ProfileID:   activeProfile.ID,
 					ProfileName: activeProfile.Name,
+					Scope:       previousScope,
 				}
 				if err := previousManager.Delete(); err != nil {
 					warnings = append(warnings, "profile region changed but the previous local credential could not be removed from the operating system keychain")
 				}
 			}
-			runtime.setRegion(resolvedRegion)
+			if err := runtime.setRegion(resolvedRegion); err != nil {
+				return err
+			}
 			result := bootstrapInstallResult{
 				CLI:      launcher,
 				Skill:    report,
@@ -101,7 +108,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 			}
 			if result.Authenticated {
 				result.NextStep = installNextStep{
-					Command: "viceme skill inspect <source>",
+					Command: "viceme skill inspect <source> [--skill-root <path>]",
 					Reason:  "CLI, Skill, and authentication are ready",
 				}
 			} else {

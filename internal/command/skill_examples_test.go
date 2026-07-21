@@ -24,7 +24,7 @@ func TestCommandSurface(t *testing.T) {
 		"version", "install", "update", "auth login", "auth status", "auth logout",
 		"profile list", "profile add", "profile use", "profile remove", "profile rename",
 		"skill inspect", "skill publish", "skill target get", "skill target list",
-		"job get", "job wait", "job resume", "job cancel",
+		"job get", "job wait", "job resume", "job retry", "job cancel",
 		"skills list", "skills read", "skills install", "skills doctor",
 	} {
 		if findCommand(root, strings.Fields(path)) == nil {
@@ -136,7 +136,7 @@ func validateExample(t *testing.T, root *cobra.Command, example string) {
 			t.Errorf("example uses unknown flag --%s for %s: %s", name, command.CommandPath(), example)
 		}
 	}
-	if (strings.HasPrefix(example, "viceme skill publish ") || strings.HasPrefix(example, "viceme job cancel ")) && !strings.Contains(example, "--yes") {
+	if (strings.HasPrefix(example, "viceme skill publish ") || strings.HasPrefix(example, "viceme job cancel ") || strings.HasPrefix(example, "viceme job retry ")) && !strings.Contains(example, "--yes") {
 		t.Errorf("high-risk example lacks --yes: %s", example)
 	}
 }

@@ -117,7 +117,7 @@ viceme skills list
 **第 5 步 — 检查第一个来源**
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill
+viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
 inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。在上方所述的精确 Candidate 确认门完成前，公开发布流程仍保持关闭。
@@ -144,7 +144,7 @@ viceme profile remove company
 
 `profile use` 修改持久化的当前 Profile；全局 `--profile` 只覆盖本次命令。不要让 AI Agent 在用户没有明确要求时切换或删除 Profile。
 
-可以用 `VICEME_CLI_CONFIG_DIR` 覆盖配置根目录。本地 API 联调仍使用进程环境变量 `VICEME_API_BASE_URL`，不会写入 Profile。
+可以用 `VICEME_CLI_CONFIG_DIR` 覆盖配置根目录。本地 API 联调使用进程环境变量 `VICEME_API_BASE_URL`，不会写入 Profile。如果覆盖地址仍属于所选区域的规范化 canonical origin，即使带有 base path，也继续使用该区域的 endpoint scope；不同 origin 使用独立 scope，并要求分别登录。持久登录凭证始终按 Profile 和区域/origin 隔离。API 与预签名上传请求遇到重定向会直接失败，凭证请求头不会被转发到其他 origin。
 
 更新检查直接请求 npm registry，并且只把最近一次成功查询到的版本写入 `~/.viceme-cli/update-state.json`；registry 暂时不可用时，该结果最多回退使用 24 小时。`viceme install` 和 `viceme update` 启动的 npm 操作统一使用隔离的 `~/.viceme-cli/npm-cache`，不会因为用户级 `~/.npm` 缓存损坏而失败。这两个位置都不包含秘密信息，可以安全删除；凭证不会进入任何更新缓存。
 
@@ -179,16 +179,20 @@ viceme skills doctor
 | `viceme auth login --device-code <code> --json` | 在后续回合完成 Agent 登录流程 |
 | `viceme auth logout` | 撤销并删除当前 Profile 的凭证 |
 
-令牌只保存在操作系统密钥链中，不会回退到明文存储；登录成功的输出也不会包含访问令牌或刷新令牌。
+设备登录生成的令牌只保存在操作系统密钥链中，不会回退到明文存储；登录成功的输出也不会包含访问令牌或刷新令牌。
+
+公共 CLI 只有一套标准认证与发布命令面。受信启动器可为工作人员授权操作注入短期通用进程凭证；`auth status` 会显示 `source=process`，普通 inspect/publish/job 命令仍通过 `x-api-key` 发送。该凭证不会持久化或输出，生效期间 login/logout 直接拒绝，update 子进程也不会继承它。CLI 不提供公开的身份选择、授权秘密参数或凭证管理命令。
 
 ## 支持的来源
 
 ### GitHub 或可信来源平台
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill
+viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
+
+GitHub 来源必须传 `--skill-root`，它是包含 `SKILL.md` 的精确仓库相对目录；只有根级 Skill 才使用 `.`。调用 Agent 根据用户输入或只读仓库文件树确定该路径，Viceme 不扫描全仓猜测 Skill。
 
 ### 小红书或 RedSkill 复制口令
 
@@ -224,7 +228,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 | `viceme skill inspect` | 固化并检查来源候选，不执行发布 |
 | `viceme skill publish` | 创建或更新具有稳定链接的 Skill Agent 发布 |
 | `viceme skill target` | 解析现有逻辑 Agent Target 及其版本 |
-| `viceme job` | 读取、等待、恢复或取消持久化发布任务 |
+| `viceme job` | 读取、等待、恢复、显式重试或取消持久化发布任务 |
 | `viceme skills` | 读取、安装和诊断随包发布的 Agent Skill |
 | `viceme update` | 同时更新 npm 启动器、已校验二进制文件和随包发布的 Skill |
 
@@ -264,26 +268,27 @@ CLI 执行错误写入 **stderr**，退出码非零：
 }
 ```
 
-应根据进程退出码或 `ok == true` 判断命令是否成功。成功读取发布任务时，业务状态仍可能是 `unsupported`、`rejected` 或 `failed`；这时应检查 `data.status`，不能把这些状态当成 CLI 传输失败。
+应根据进程退出码或 `ok == true` 判断命令是否成功。API 返回的领域 `error.type` 会原样保留，退出码只表示粗粒度处理类别。成功读取发布任务时，业务状态仍可能是 `unsupported`、`rejected` 或 `failed`；这时应检查 `data.status`，不能把这些状态当成 CLI 传输失败。
 
 | 退出码 | 含义 |
 |---|---|
 | `0` | 命令完成；适用时继续检查返回的业务状态 |
 | `2` | 参数校验失败 |
 | `3` | 认证或授权失败 |
-| `4` | 可重试的网络失败 |
+| `4` | 可重试的传输或并发失败 |
 | `5` | 内部或协议失败 |
-| `6` | 创建发布前被策略拒绝 |
+| `6` | 策略或开放门禁拒绝 |
 | `10` | 需要明确确认 |
 
 ## 安全与风险控制
 
 - **不执行来源内容** — CLI 和编译器不会执行第三方脚本、二进制文件、shell 片段、市场命令或复制口令中的指令。
-- **公开变更需要明确确认** — 发布和取消操作需要 `--yes`；退出码 `10` 表示 Agent 必须向用户取得确认，不能静默重试。
+- **公开变更需要明确确认** — 发布、编译重试和取消操作需要 `--yes`；退出码 `10` 表示 Agent 必须向用户取得确认，不能静默重试。
 - **安全预览** — 用户需要检查计划请求时，可以对 inspect 或 publish 使用 `--dry-run`，不会产生网络请求或发布副作用。
 - **凭证隔离** — 凭证保存在操作系统密钥链中，并按 Profile 与区域隔离。
 - **不可变输入** — inspect 会把发布绑定到不可变来源快照，而不是在之后重新读取浮动 URL。
 - **有界等待** — `job wait` 有最大等待时间；超时后返回最新持久化状态，不会取消工作流。
+- **有界编译恢复** — `job retry` 复用已冻结的来源与同一发布任务，只接受明确标记为可重试的平台故障，并由服务端限制次数。
 - **可信分发** — npm 启动器从 GitHub 或 binary 镜像下载与其准确包版本匹配的二进制文件，并在启用前使用 npm 包内置的校验清单验证 SHA-256。
 
 ## 诊断与更新
