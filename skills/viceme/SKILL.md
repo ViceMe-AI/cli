@@ -23,6 +23,8 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 6. Run `viceme job wait <publication-id> --timeout 60s`. Do not start an unbounded wait.
 7. Return the final `share_url`, whether the release was a no-op, and any warnings. The same logical Agent keeps the same URL across later releases.
 
+If a terminal `failed` receipt has `failure.details.type=PLATFORM_FAILURE` and `failure.details.retryable=true`, report the failure first. Retry only after the user explicitly asks to try again: run `viceme job retry <publication-id> --yes`, then one bounded `job wait`. The server enforces the retry limit. Never retry `unsupported`, `rejected`, deterministic compiler failures, or a failure not explicitly marked retryable; never change the source, upload, Target, or version to manufacture another attempt.
+
 For exact flags and examples, read `references/commands.md` with `viceme skills read viceme references/commands.md`. `references/command-manifest.json` is the release-checked machine-readable command surface. For job outcomes and error handling, read `references/statuses.md`.
 
 ## Source and Target rules
@@ -41,3 +43,4 @@ For exact flags and examples, read `references/commands.md` with `viceme skills 
 - Do not rewrite CLI JSON or guess missing fields.
 - Do not switch, rename, or remove profiles unless the user explicitly asks. Global `--profile` is a one-command override and must name an existing profile.
 - Do not cancel a publication without explicit confirmation.
+- Do not retry a failed compilation without explicit confirmation.

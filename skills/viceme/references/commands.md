@@ -100,12 +100,13 @@ viceme job resume pub_123 --action-id act_123 --expected-payload-digest sha256:a
 
 Example stdin: `{"selector":"skills/poster"}`.
 
-## Bounded jobs and cancellation
+## Bounded jobs, explicit compiler retry, and cancellation
 
 ```bash
 viceme job get pub_123
 viceme job wait pub_123 --timeout 60s
+viceme job retry pub_123 --yes
 viceme job cancel pub_123 --yes
 ```
 
-Cancellation is a public mutation and always requires explicit user confirmation.
+`job retry` is valid only when the durable compiler failure is a retryable `PLATFORM_FAILURE`. It reuses the frozen source and same publication, has a server-enforced attempt limit, and always requires explicit user confirmation. Cancellation also requires explicit confirmation.

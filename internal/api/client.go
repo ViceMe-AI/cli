@@ -108,6 +108,12 @@ func (c *Client) CancelPublication(ctx context.Context, id string) (Publication,
 	return response, err
 }
 
+func (c *Client) RetryPublication(ctx context.Context, id string) (Publication, error) {
+	var response Publication
+	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(id)+"/retry", struct{}{}, &response, true, "")
+	return response, err
+}
+
 func (c *Client) ListTargets(ctx context.Context) (TargetList, error) {
 	var response TargetList
 	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publish-targets", nil, &response, true, "")

@@ -87,7 +87,7 @@ func manifestFlags(flags *pflag.FlagSet) []ManifestFlag {
 
 func commandPolicy(path string, runnable bool) (string, bool) {
 	switch path {
-	case "skill publish", "job cancel":
+	case "skill publish", "job cancel", "job retry":
 		return "public", true
 	case "job resume":
 		return "public", false

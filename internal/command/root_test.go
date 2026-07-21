@@ -324,6 +324,29 @@ func TestJobWaitReturnsBusinessFailureWithExitZero(t *testing.T) {
 	}
 }
 
+func TestJobRetryRequiresConfirmationAndUsesExplicitRetryEndpoint(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLI(t, nil, nil, "job", "retry", "pub_1")
+	if code != 10 || !strings.Contains(stderr, "confirmation_required") {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/skill-agent-publications/pub_1/retry" {
+			t.Fatalf("unexpected retry request: %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("x-api-key") != "test-token" {
+			t.Fatalf("missing API key: %q", request.Header.Get("x-api-key"))
+		}
+		writer.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"source_resolved","retry_ordinal":1}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "retry", "pub_1", "--yes")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"retry_ordinal":1`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
 func TestSkillsInstallAndDoctorCommands(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
