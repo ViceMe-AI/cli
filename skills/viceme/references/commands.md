@@ -110,17 +110,19 @@ the parsed basic info, ask the user to confirm, supplement, or cancel:
 viceme job metadata pub_123
 viceme job metadata pub_123 --action-id meta_1 \
   --expected-payload-digest sha256:abc --decision confirm \
-  --title "探针海报" --description "为产品海报写一句主标题"
+  --title "探针海报" --description "为产品海报写一句主标题" --author "acme/ops"
 ```
 
 `missing` lists absent fields (title/description/author) — guide the user to
-fill them with `--title` / `--description`. Cancel maps to `cancelled` with
-zero assets and no preview link.
+fill them with `--title` / `--description` / `--author`; `--author` also
+covers source-author edits (1-100 visible characters). Cancel maps to
+`cancelled` with zero assets and no preview link.
 
 ## Preview, edit, test run and confirmation (T2)
 
 When `next_action.type` is `confirm_publish`, the exact release candidate is
-ready. Show its frozen public summary first:
+ready. Show its frozen public summary first — the preview output carries
+`public_summary_digest`, which the confirmation step binds:
 
 ```bash
 viceme job preview pub_123 [--action-id act_123]
@@ -146,17 +148,24 @@ result, then accept it only after the user approves what they saw:
 viceme job run pub_123 --candidate-digest sha256:def \
   --input theme=咖啡 [--timeout 3m]
 viceme job accept pub_123 --run-id run_1 \
-  --candidate-digest sha256:def [--inputs-digest sha256:ghi]
+  --candidate-digest sha256:def --inputs-digest sha256:ghi
 ```
+
+`--inputs-digest` is required (PRE-04): take `inputs_digest` from the
+`job run` receipt so the acceptance binds the exact input set that produced
+the result.
 
 Confirmation requires a succeeded and accepted run of the same candidate;
 otherwise `job resume --decision confirm` is rejected with 409
-`preview_run_required`:
+`preview_run_required`. `--expected-public-summary-digest` is required too —
+take `public_summary_digest` from the `job preview` output, binding the
+decision to the exact summary receipt the user saw:
 
 ```bash
 viceme job resume pub_123 --action-id act_123 \
   --expected-payload-digest sha256:abc \
   --expected-release-candidate-digest sha256:def \
+  --expected-public-summary-digest sha256:sum \
   --decision confirm
 ```
 

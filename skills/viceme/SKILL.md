@@ -24,7 +24,7 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 
 ### 信息确认（META，先于一切资产）
 
-7. 编译完成后 publication 停在 `meta_review`，并带 `confirm_metadata` action。先用 `viceme job metadata <id>` 展示解析出的标题、描述、来源作者与缺失标记；信息缺失时引导用户补充（用 `--title` / `--description` 传入补充值）。用户取消 → `--decision cancel`，零资产终态、不产生预览链接；确认 → `--decision confirm`（可带补充/修改）。确认后才进入候选流程。
+7. 编译完成后 publication 停在 `meta_review`，并带 `confirm_metadata` action。先用 `viceme job metadata <id>` 展示解析出的标题、描述、来源作者与缺失标记；信息缺失时引导用户补充（用 `--title` / `--description` / `--author` 传入补充值，来源作者修改同样走 `--author`）。用户取消 → `--decision cancel`，零资产终态、不产生预览链接；确认 → `--decision confirm`（可带补充/修改）。确认后才进入候选流程。
 
 ### 公开摘要与 Host 编辑
 
@@ -34,8 +34,8 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 ### 试跑与结果确认
 
 10. 用 `viceme job run <id> --candidate-digest <digest> [--input name=value]...` 对该精确 Candidate 做一次真实试跑，向用户展示 `result.finish_report` 的结构化结果（summary/title）。
-11. 用户认可实际结果后，用 `viceme job accept <id> --run-id <run> --candidate-digest <digest> [--inputs-digest <digest>]` 接受。未试跑成功或未接受就 confirm 会被 409 `preview_run_required` 拒绝。
-12. 最后用 `viceme job resume --action-id … --expected-payload-digest … --expected-release-candidate-digest … --decision confirm|cancel` 决议。返回最终 `share_url`、是否 no-op 和 warnings。同一逻辑 Agent 永远保持同一分享链接。
+11. 用户认可实际结果后，用 `viceme job accept <id> --run-id <run> --candidate-digest <digest> --inputs-digest <digest>` 接受。`--inputs-digest` 必填（PRE-04：接受动作必须绑定产生结果的输入组），取值是第 10 步 `job run` 回执里的 `inputs_digest`。未试跑成功或未接受就 confirm 会被 409 `preview_run_required` 拒绝。
+12. 最后用 `viceme job resume --action-id … --expected-payload-digest … --expected-release-candidate-digest … --expected-public-summary-digest … --decision confirm|cancel` 决议。`--expected-public-summary-digest` 必填（确认门绑定摘要 receipt），取值是 `job preview` 输出里的 `public_summary_digest`——先把第 8 步 preview 的摘要展示给用户，再用同一份 digest 决议。返回最终 `share_url`、是否 no-op 和 warnings。同一逻辑 Agent 永远保持同一分享链接。
 
 Stale/恢复规则：`job get` 是任何时刻的真相来源——action 过期、digest 变化或 409 后，重新 `job get` 拿最新 `next_action` 再操作，不要重放旧 action/digest。
 
