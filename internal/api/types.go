@@ -92,14 +92,15 @@ type ResolveActionRequest struct {
 }
 
 // ResolveMetadataRequest resolves the confirm_metadata checkpoint: confirm
-// (optionally editing title/description within the visible-char limits) or
-// cancel with zero assets.
+// (optionally editing title/description/author within the visible-char
+// limits) or cancel with zero assets.
 type ResolveMetadataRequest struct {
 	ActionID              string `json:"action_id"`
 	ExpectedPayloadDigest string `json:"expected_payload_digest"`
 	Decision              string `json:"decision"`
 	Title                 string `json:"title,omitempty"`
 	Description           string `json:"description,omitempty"`
+	Author                string `json:"author,omitempty"`
 }
 
 // PublicationEditRequest submits a natural-language candidate edit (Host typed action).

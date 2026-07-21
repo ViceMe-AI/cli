@@ -336,7 +336,7 @@ func TestJobMetadataReadAndResolveContract(t *testing.T) {
 				t.Fatalf("decode resolve body: %v", err)
 			}
 			if body["action_id"] != "meta_1" || body["decision"] != "confirm" || body["title"] != "探针海报" ||
-				body["expected_payload_digest"] != "sha256:payload" {
+				body["author"] != "acme/ops" || body["expected_payload_digest"] != "sha256:payload" {
 				t.Fatalf("metadata resolve body = %#v", body)
 			}
 			_, _ = io.WriteString(writer, `{"action_id":"meta_1","status":"resolved","publication_status":"meta_confirmed","resolution_digest":"sha256:resolution","resolved_at":"2026-07-20T00:00:00Z"}`)
@@ -355,6 +355,7 @@ func TestJobMetadataReadAndResolveContract(t *testing.T) {
 		"--expected-payload-digest", "sha256:payload",
 		"--decision", "confirm",
 		"--title", "探针海报",
+		"--author", "acme/ops",
 	)
 	if code != 0 || stderr != "" || !strings.Contains(stdout, `"publication_status":"meta_confirmed"`) {
 		t.Fatalf("metadata resolve: code=%d stdout=%s stderr=%s", code, stdout, stderr)

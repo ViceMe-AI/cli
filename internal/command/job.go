@@ -240,6 +240,7 @@ func newJobMetadataCommand(runtime *Runtime) *cobra.Command {
 	var decision string
 	var title string
 	var description string
+	var author string
 	command := &cobra.Command{
 		Use:   "metadata <publication-id>",
 		Short: "Review or resolve the metadata checkpoint of a publication",
@@ -260,7 +261,7 @@ func newJobMetadataCommand(runtime *Runtime) *cobra.Command {
 			}
 			publication, err := runtime.client().ResolvePublicationMetadata(command.Context(), args[0], api.ResolveMetadataRequest{
 				ActionID: actionID, ExpectedPayloadDigest: expectedDigest,
-				Decision: decision, Title: title, Description: description,
+				Decision: decision, Title: title, Description: description, Author: author,
 			})
 			if err != nil {
 				return err
@@ -273,6 +274,7 @@ func newJobMetadataCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&decision, "decision", "", "metadata decision: confirm or cancel")
 	command.Flags().StringVar(&title, "title", "", "optional title edit (1-20 visible characters)")
 	command.Flags().StringVar(&description, "description", "", "optional description edit (1-100 visible characters)")
+	command.Flags().StringVar(&author, "author", "", "optional source-author edit / missing-author fill (1-100 visible characters)")
 	return command
 }
 
