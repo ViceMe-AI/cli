@@ -216,6 +216,9 @@ func newJobAcceptCommand(runtime *Runtime) *cobra.Command {
 			if previewRunID == "" || candidateDigest == "" {
 				return output.Validation("accept_flags", "accept requires --run-id and --candidate-digest")
 			}
+			if inputsDigest == "" {
+				return output.Validation("accept_flags", "accept requires --inputs-digest binding the accepted input set (PRE-04); take inputs_digest from the job run receipt")
+			}
 			receipt, err := runtime.client().AcceptSkillPreviewRun(command.Context(), args[0], previewRunID, api.PreviewRunAcceptRequest{
 				ExpectedCandidateDigest: candidateDigest, ExpectedInputsDigest: inputsDigest,
 			})
@@ -227,7 +230,7 @@ func newJobAcceptCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&previewRunID, "run-id", "", "preview run receipt ID")
 	command.Flags().StringVar(&candidateDigest, "candidate-digest", "", "exact release candidate digest of the accepted result")
-	command.Flags().StringVar(&inputsDigest, "inputs-digest", "", "optional digest of the exact input set (PRE-04)")
+	command.Flags().StringVar(&inputsDigest, "inputs-digest", "", "digest of the exact input set being accepted (PRE-04, from the job run receipt)")
 	return command
 }
 

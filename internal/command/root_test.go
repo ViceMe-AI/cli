@@ -447,6 +447,15 @@ func TestHostTypedActionLoopPreviewEditRunAccept(t *testing.T) {
 	}
 }
 
+func TestJobAcceptRequiresInputsDigest(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLI(t, nil, authenticatedStore(t),
+		"job", "accept", "pub_1", "--run-id", "run_1", "--candidate-digest", "sha256:cand2")
+	if code != 2 || !strings.Contains(stderr, "accept_flags") || !strings.Contains(stderr, "--inputs-digest") {
+		t.Fatalf("missing inputs digest: code=%d stderr=%s", code, stderr)
+	}
+}
+
 func TestSkillsInstallAndDoctorCommands(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()

@@ -146,9 +146,11 @@ type SkillPreviewRun struct {
 }
 
 // PreviewRunAcceptRequest accepts the actual result of a preview run.
+// PRE-04: the acceptance must bind the exact input set that produced the
+// result, so ExpectedInputsDigest is required.
 type PreviewRunAcceptRequest struct {
 	ExpectedCandidateDigest string `json:"expected_candidate_digest"`
-	ExpectedInputsDigest    string `json:"expected_inputs_digest,omitempty"`
+	ExpectedInputsDigest    string `json:"expected_inputs_digest"`
 }
 
 // PreviewRunAcceptResponse is the acceptance receipt.
