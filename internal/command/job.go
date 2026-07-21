@@ -280,6 +280,7 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 	var actionID string
 	var expectedDigest string
 	var expectedCandidateDigest string
+	var expectedSummaryDigest string
 	var decision string
 	var payloadStdin bool
 	command := &cobra.Command{
@@ -300,11 +301,15 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 				if expectedCandidateDigest == "" {
 					return output.Validation("resume_flags", "confirm_publish resolution requires --expected-release-candidate-digest")
 				}
+				if expectedSummaryDigest == "" {
+					return output.Validation("resume_flags", "confirm_publish resolution requires --expected-public-summary-digest; take public_summary_digest from the job preview output")
+				}
 				if payloadStdin {
 					return output.Validation("resume_flags", "--decision does not accept --payload-stdin")
 				}
 				request.Decision = decision
 				request.ExpectedReleaseCandidateDigest = expectedCandidateDigest
+				request.ExpectedPublicSummaryDigest = expectedSummaryDigest
 			} else {
 				if !payloadStdin {
 					return output.Validation("resume_flags", "resume requires --payload-stdin for typed payload actions")
@@ -328,6 +333,7 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&actionID, "action-id", "", "typed action receipt ID")
 	command.Flags().StringVar(&expectedDigest, "expected-payload-digest", "", "digest of the action payload being answered")
 	command.Flags().StringVar(&expectedCandidateDigest, "expected-release-candidate-digest", "", "exact release candidate digest shown in the preview")
+	command.Flags().StringVar(&expectedSummaryDigest, "expected-public-summary-digest", "", "public_summary_digest from the job preview output (binds the confirmation to the summary receipt)")
 	command.Flags().StringVar(&decision, "decision", "", "confirm_publish decision: confirm or cancel")
 	command.Flags().BoolVar(&payloadStdin, "payload-stdin", false, "read the structured action answer from stdin")
 	return command

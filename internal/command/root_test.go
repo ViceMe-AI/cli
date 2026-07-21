@@ -381,7 +381,7 @@ func TestHostTypedActionLoopPreviewEditRunAccept(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {
 		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview" && request.Method == http.MethodGet:
-			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","preview":{"title":"海报文案","description":"为产品海报写文案","author":"acme/poster","input_method":"提供输入参数:theme(必填)","usage":"为产品海报写文案","output_description":"一句主标题和一段卖点","release_candidate_digest":"sha256:cand1","preview_expires_at":"2030-01-01T00:00:00Z"}}`)
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","preview":{"title":"海报文案","description":"为产品海报写文案","author":"acme/poster","input_method":"提供输入参数:theme(必填)","usage":"为产品海报写文案","output_description":"一句主标题和一段卖点","release_candidate_digest":"sha256:cand1","public_summary_digest":"sha256:summary1","preview_expires_at":"2030-01-01T00:00:00Z"}}`)
 		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits" && request.Method == http.MethodPost:
 			var body map[string]any
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
@@ -423,8 +423,10 @@ func TestHostTypedActionLoopPreviewEditRunAccept(t *testing.T) {
 	defer server.Close()
 
 	// Host 闭环:展示摘要 → 自然语言编辑 → 新候选试跑 → 接受结果。
+	// preview 原样透传 public_summary_digest,供 resume 的确认门绑定。
 	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "preview", "pub_1")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"author":"acme/poster"`) || !strings.Contains(stdout, `"input_method"`) {
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"author":"acme/poster"`) || !strings.Contains(stdout, `"input_method"`) ||
+		!strings.Contains(stdout, `"public_summary_digest":"sha256:summary1"`) {
 		t.Fatalf("preview: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
 	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
@@ -514,6 +516,7 @@ func TestJobResumeConfirmPublishSendsDecisionContract(t *testing.T) {
 		}
 		if body["decision"] != "confirm" ||
 			body["expected_release_candidate_digest"] != "sha256:candidate" ||
+			body["expected_public_summary_digest"] != "sha256:summary" ||
 			body["expected_payload_digest"] != "sha256:payload" {
 			t.Fatalf("confirm_publish resolve body = %#v", body)
 		}
@@ -528,6 +531,7 @@ func TestJobResumeConfirmPublishSendsDecisionContract(t *testing.T) {
 		"--action-id", "act_1",
 		"--expected-payload-digest", "sha256:payload",
 		"--expected-release-candidate-digest", "sha256:candidate",
+		"--expected-public-summary-digest", "sha256:summary",
 		"--decision", "confirm",
 	)
 	if code != 0 || stderr != "" || !strings.Contains(stdout, `"publication_status":"release_authorized"`) {
@@ -547,6 +551,7 @@ func TestJobResumeCancelPublishSendsDecisionContract(t *testing.T) {
 		}
 		if body["decision"] != "cancel" ||
 			body["expected_release_candidate_digest"] != "sha256:candidate" ||
+			body["expected_public_summary_digest"] != "sha256:summary" ||
 			body["expected_payload_digest"] != "sha256:payload" {
 			t.Fatalf("cancel resolve body = %#v", body)
 		}
@@ -561,6 +566,7 @@ func TestJobResumeCancelPublishSendsDecisionContract(t *testing.T) {
 		"--action-id", "act_1",
 		"--expected-payload-digest", "sha256:payload",
 		"--expected-release-candidate-digest", "sha256:candidate",
+		"--expected-public-summary-digest", "sha256:summary",
 		"--decision", "cancel",
 	)
 	if code != 0 || stderr != "" || !strings.Contains(stdout, `"publication_status":"cancelled"`) {
@@ -584,6 +590,17 @@ func TestJobResumeDecisionValidation(t *testing.T) {
 		"--action-id", "act_1",
 		"--expected-payload-digest", "sha256:payload",
 		"--expected-release-candidate-digest", "sha256:candidate",
+		"--decision", "confirm",
+	)
+	if code != 2 || !strings.Contains(stderr, "resume_flags") || !strings.Contains(stderr, "--expected-public-summary-digest") {
+		t.Fatalf("missing public summary digest: code=%d stderr=%s", code, stderr)
+	}
+	code, _, stderr, _ = runCLI(t, nil, authenticatedStore(t),
+		"job", "resume", "pub_1",
+		"--action-id", "act_1",
+		"--expected-payload-digest", "sha256:payload",
+		"--expected-release-candidate-digest", "sha256:candidate",
+		"--expected-public-summary-digest", "sha256:summary",
 		"--decision", "maybe",
 	)
 	if code != 2 || !strings.Contains(stderr, "resume_decision") {
@@ -594,6 +611,7 @@ func TestJobResumeDecisionValidation(t *testing.T) {
 		"--action-id", "act_1",
 		"--expected-payload-digest", "sha256:payload",
 		"--expected-release-candidate-digest", "sha256:candidate",
+		"--expected-public-summary-digest", "sha256:summary",
 		"--decision", "confirm",
 		"--payload-stdin",
 	)
