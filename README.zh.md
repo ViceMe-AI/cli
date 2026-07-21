@@ -117,7 +117,7 @@ viceme skills list
 **第 5 步 — 检查第一个来源**
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill
+viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
 inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。在上方所述的精确 Candidate 确认门完成前，公开发布流程仍保持关闭。
@@ -186,9 +186,11 @@ viceme skills doctor
 ### GitHub 或可信来源平台
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill
+viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
+
+GitHub 来源必须传 `--skill-root`，它是包含 `SKILL.md` 的精确仓库相对目录；只有根级 Skill 才使用 `.`。调用 Agent 根据用户输入或只读仓库文件树确定该路径，Viceme 不扫描全仓猜测 Skill。
 
 ### 小红书或 RedSkill 复制口令
 

@@ -117,7 +117,7 @@ Continue only when authentication is valid and `skills doctor` reports a healthy
 **Step 5 — Inspect the first source**
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill
+viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
 Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. Public publication remains blocked until the exact Candidate confirmation gate described above is complete.
@@ -186,9 +186,11 @@ Tokens are stored only in the operating-system keychain. There is no plaintext t
 ### GitHub or trusted provider
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill
+viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
+
+For GitHub, `--skill-root` is required and names the exact repository-relative directory containing `SKILL.md`; use `.` only for a root-level Skill. The calling Agent determines this path from the user input or read-only repository tree. Viceme does not scan the repository to guess a Skill.
 
 ### Xiaohongshu or RedSkill copied expression
 

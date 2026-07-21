@@ -27,6 +27,7 @@ func newSkillCommand(runtime *Runtime) *cobra.Command {
 
 func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 	var expressionStdin bool
+	var skillRoot string
 	var dryRun bool
 	command := &cobra.Command{
 		Use:   "inspect [source]",
@@ -46,7 +47,7 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 				if expressionStdin {
 					mode = "stdin"
 				}
-				return runtime.success(map[string]any{"dry_run": true, "operation": "skill.inspect", "source_mode": mode})
+				return runtime.success(map[string]any{"dry_run": true, "operation": "skill.inspect", "source_mode": mode, "skill_root": strings.TrimSpace(skillRoot)})
 			}
 			expression := ""
 			if expressionStdin {
@@ -61,7 +62,10 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 			if strings.TrimSpace(expression) == "" {
 				return output.Validation("source_empty", "source expression cannot be empty")
 			}
-			response, err := runtime.client().Inspect(command.Context(), api.InspectRequest{Source: api.Source{Kind: "expression", Value: expression}})
+			response, err := runtime.client().Inspect(command.Context(), api.InspectRequest{
+				Source:    api.Source{Kind: "expression", Value: expression},
+				SkillRoot: strings.TrimSpace(skillRoot),
+			})
 			if err != nil {
 				return err
 			}
@@ -69,6 +73,7 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().BoolVar(&expressionStdin, "expression-stdin", false, "read a copied provider expression from stdin")
+	command.Flags().StringVar(&skillRoot, "skill-root", "", "exact repository-relative directory containing SKILL.md; use . for the repository root")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print the operation without calling Viceme")
 	return command
 }

@@ -40,7 +40,8 @@ type Source struct {
 }
 
 type InspectRequest struct {
-	Source Source `json:"source"`
+	Source    Source `json:"source"`
+	SkillRoot string `json:"skill_root,omitempty"`
 }
 
 type InspectResponse Document

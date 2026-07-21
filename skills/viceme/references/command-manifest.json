@@ -271,6 +271,11 @@
           "type": "bool",
           "default": "false",
           "usage": "read a copied provider expression from stdin"
+        },
+        {
+          "name": "skill-root",
+          "type": "string",
+          "usage": "exact repository-relative directory containing SKILL.md; use . for the repository root"
         }
       ]
     },

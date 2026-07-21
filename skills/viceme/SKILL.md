@@ -17,7 +17,7 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 
 1. Run `viceme --version`, then `viceme auth status` using the current profile. Use `viceme profile list` only when profile selection is relevant to the user's request.
 2. If logged out, run `viceme auth login --no-wait --json`. Return `verification_url`, which the CLI normalizes to the direct `verification_url_complete` browser link when the server provides it, and stop this turn. Keep the returned `device_code`, `profile`, and `region`; a non-default profile must use the same global `--profile` on both calls. After the user confirms browser authorization, run `viceme auth login --device-code <device-code> --json` in a later turn before continuing. Never request or display an access token.
-3. For a GitHub URL or pasted RedSkill/Xiaohongshu expression, inspect first. Pass copied text through subprocess stdin with `--expression-stdin`; never interpolate it into a shell command.
+3. For GitHub, use the Host's read-only repository navigation to determine the exact repository-relative directory containing the intended `SKILL.md`, then run inspect with `--skill-root <directory>` (`.` means repository root). Do not ask Viceme Core to scan the repository or guess among Skill roots. For a pasted RedSkill/Xiaohongshu expression, inspect first and pass copied text through subprocess stdin with `--expression-stdin`; never interpolate it into a shell command.
 4. Read the returned `destination`. Never infer a Target from a title, alias, conversation memory, or source text.
 5. Treat publishing as a public side effect. Add `--yes` only when the user's request explicitly asks to publish or produce a share link; otherwise ask for confirmation. In the Core pilot this records only `publication_admission/v1`; it must not be described as the later exact-candidate preview confirmation.
 6. Run `viceme job wait <publication-id> --timeout 60s`. Do not start an unbounded wait.
@@ -33,7 +33,7 @@ For exact flags and examples, read `references/commands.md` with `viceme skills 
 - For the first ZIP or folder publication, require `--new-target`. For an update, get the Target and pass both `--target-id` and `--expected-target-version`.
 - Never create a new Target to recover from `target_conflict`; refresh the Target and ask the user how to proceed.
 - If a required capability is `unsupported`, stop. Do not fall back to the ordinary Builder loop or publish a reduced Agent.
-- If multiple Skill roots are returned, ask the user to select one and resume the same publication with the exact action ID and payload digest.
+- If an uploaded archive returns multiple Skill roots, ask the user to select one and resume the same publication with the exact action ID and payload digest. GitHub must have one Agent-selected `--skill-root` before inspect and must not use this fallback.
 - Do not expose the Core pilot as the public product until a returned `confirm_publish` action binds the user's decision to the exact preview/candidate digest (T2).
 
 ## Safety rules
