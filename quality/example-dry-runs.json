@@ -1,23 +1,5 @@
 [
   {
-    "name": "delegated publication by keychain reference",
-    "documentation_anchor": "viceme skill publish https://github.com/acme/poster-skill --delegated-grant-ref creator-one --yes",
-    "args": ["skill", "publish", "https://github.com/acme/poster-skill", "--delegated-grant-ref", "creator-one", "--yes", "--dry-run"],
-    "operation": "skill.publish",
-    "source_mode": "argument",
-    "want_substrings": ["\"ownership_mode\":\"delegated\"", "\"delegated_credential_source\":\"keychain\""],
-    "forbid_substrings": ["delegated_grant_credential", "secret"]
-  },
-  {
-    "name": "delegated publication through protected stdin",
-    "documentation_anchor": "--client-request-id <stable-request-id>",
-    "args": ["skill", "publish", "--resolution-id", "res_123", "--client-request-id", "request_123", "--delegated-grant-stdin", "--yes", "--dry-run"],
-    "operation": "skill.publish",
-    "source_mode": "resolution",
-    "want_substrings": ["\"ownership_mode\":\"delegated\"", "\"delegated_credential_source\":\"stdin\""],
-    "forbid_substrings": ["delegated_grant_credential", "secret"]
-  },
-  {
     "name": "github inspect",
     "documentation_anchor": "viceme skill inspect https://github.com/acme/poster-skill",
     "args": ["skill", "inspect", "https://github.com/acme/poster-skill", "--dry-run"],

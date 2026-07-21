@@ -17,17 +17,9 @@ Use another bounded wait when `meta.wait_timed_out` is true.
 
 - `awaiting_action`: read `next_action`, ask the user for the required selection, then resume the same publication.
 - `target_conflict`: refresh the Target. Do not use last-write-wins or create another link.
-- `delegated_grant_not_found`: save the credential through protected stdin or choose an existing keychain reference.
-- `delegated_grant_invalid`: discard the local value and obtain a new one-time grant through the staff control plane; never print the rejected value.
-- `delegated_grant_ref_exists`: do not overwrite an entry that may contain recovery state; delete it explicitly only after deciding the old grant is no longer recoverable.
-- `delegated_grant_request_mismatch`: the ref is already bound to another exact request. Retry the original command or explicitly abandon/delete the ref; never replay it against the new request.
-- `delegated_grant_cleanup_conflict`: the server receipt succeeded but local recovery state changed. Keep the reported ref and inspect/delete it explicitly; do not resend the grant.
-- `selection_required`: no publication or grant reservation exists yet. Ask the user for one returned selector and rerun the same delegated-ref command with `--skill-root`.
-- `client_request_id_required`, `resolution_id_required`: protected-stdin delegated publication must provide both stable values so an ambiguous retry has the same request digest.
-- `delegated_grant_tty_unsupported`: use a protected pipe or keychain ref; never paste the grant into an echoing terminal.
-- `delegated_upload_unsupported`: delegated publication accepts immutable provider resolutions, not local file or directory uploads.
-- `delegated_grant_expired`, `delegated_grant_replayed`: stop and request a new grant. Do not retry the credential against another source or creator.
-- `delegated_grant_scope_mismatch`: stop and request a grant scoped to both the immutable source and the Target operation: `UPSERT` for default `auto`, `CREATE` for `--new-target`, or `UPDATE` for `--target-id`. Never reuse the rejected credential against another destination.
+- `selection_required`: ask the user to choose one returned selector, then resume the same publication with the exact action ID and payload digest.
+- `process_credential_active`: login/logout is unavailable in a trusted-launcher process; keep using standard commands or start a normal process for persistent login management.
+- `process_credential_invalid`: stop without retrying or printing the injected value; the trusted launcher must replace it.
 - `payment_required`: explain the requirement and stop.
 
 ## Terminal outcomes

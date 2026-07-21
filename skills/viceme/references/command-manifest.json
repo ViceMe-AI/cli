@@ -237,46 +237,6 @@
       "requires_confirmation": false
     },
     {
-      "path": "skill delegated-grant",
-      "use": "delegated-grant",
-      "short": "Manage delegated publication credentials in the OS keychain",
-      "runnable": false,
-      "side_effect": "none",
-      "requires_confirmation": false
-    },
-    {
-      "path": "skill delegated-grant delete",
-      "use": "delete <credential-ref>",
-      "short": "Delete a delegated grant reference from the OS keychain",
-      "runnable": true,
-      "side_effect": "local",
-      "requires_confirmation": false
-    },
-    {
-      "path": "skill delegated-grant save",
-      "use": "save <credential-ref>",
-      "short": "Read a delegated grant from stdin and save it without printing it",
-      "runnable": true,
-      "side_effect": "local",
-      "requires_confirmation": false,
-      "flags": [
-        {
-          "name": "stdin",
-          "type": "bool",
-          "default": "false",
-          "usage": "read from protected non-TTY stdin; raw credentials are never accepted as flags"
-        }
-      ]
-    },
-    {
-      "path": "skill delegated-grant status",
-      "use": "status <credential-ref>",
-      "short": "Check whether a delegated grant reference exists without reading its value",
-      "runnable": true,
-      "side_effect": "none",
-      "requires_confirmation": false
-    },
-    {
       "path": "skill inspect",
       "use": "inspect [source]",
       "short": "Resolve an immutable external Skill snapshot without publishing it",
@@ -309,18 +269,7 @@
         {
           "name": "client-request-id",
           "type": "string",
-          "usage": "idempotency key; required with --delegated-grant-stdin"
-        },
-        {
-          "name": "delegated-grant-ref",
-          "type": "string",
-          "usage": "publish with a keychain grant and persisted exact-request recovery state"
-        },
-        {
-          "name": "delegated-grant-stdin",
-          "type": "bool",
-          "default": "false",
-          "usage": "read a grant from protected non-TTY stdin; requires --resolution-id and --client-request-id"
+          "usage": "stable idempotency key for an exact publication request"
         },
         {
           "name": "dir",

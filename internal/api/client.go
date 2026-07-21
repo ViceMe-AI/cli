@@ -19,8 +19,6 @@ import (
 
 const maxResponseBytes = 8 << 20
 
-const delegatedPublishGrantHeader = "x-viceme-delegated-publish-grant"
-
 type TokenSource interface {
 	Token(context.Context) (string, error)
 }
@@ -86,22 +84,8 @@ func (c *Client) Inspect(ctx context.Context, request InspectRequest) (InspectRe
 }
 
 func (c *Client) CreatePublication(ctx context.Context, request CreatePublicationRequest) (Publication, error) {
-	return c.CreatePublicationWithDelegatedGrant(ctx, request, "")
-}
-
-// CreatePublicationWithDelegatedGrant sends the delegated grant only as a
-// dedicated header. It never serializes the credential into the URL or JSON
-// request, and redirects are disabled for this sensitive request.
-func (c *Client) CreatePublicationWithDelegatedGrant(ctx context.Context, request CreatePublicationRequest, delegatedGrantCredential string) (Publication, error) {
 	var response Publication
-	headers := make(http.Header)
-	if delegatedGrantCredential != "" {
-		if strings.TrimSpace(delegatedGrantCredential) != delegatedGrantCredential || strings.ContainsAny(delegatedGrantCredential, "\r\n\x00") {
-			return nil, output.Validation("delegated_grant_invalid", "delegated grant credential is invalid")
-		}
-		headers.Set(delegatedPublishGrantHeader, delegatedGrantCredential)
-	}
-	err := c.doJSONWithHeaders(ctx, http.MethodPost, "/v1/skill-agent-publications", request, &response, true, "", headers)
+	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications", request, &response, true, "")
 	return response, err
 }
 

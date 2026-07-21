@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	cliembed "github.com/ViceMe-AI/cli"
@@ -36,11 +37,8 @@ type Dependencies struct {
 	Now         func() time.Time
 	Sleep       func(context.Context, time.Duration) error
 	NewID       func() string
-	// InputIsTerminal lets embedders identify whether secret stdin would be
-	// echoed. The default detects an interactive os.Stdin.
-	InputIsTerminal func() bool
-	APIBaseURL      string
-	Region          config.Region
+	APIBaseURL  string
+	Region      config.Region
 }
 
 type options struct {
@@ -60,6 +58,15 @@ type Runtime struct {
 	config               config.Config
 	profile              config.Profile
 	configBase           string
+	processAccessToken   string
+}
+
+const processAccessTokenEnvironment = "VICEME_ACCESS_TOKEN"
+
+type processTokenSource string
+
+func (source processTokenSource) Token(context.Context) (string, error) {
+	return string(source), nil
 }
 
 func Execute(args []string, dependencies Dependencies) int {
@@ -113,6 +120,11 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	if apiBaseURL == "" {
 		apiBaseURL = config.APIBaseURL(region)
 	}
+	processAccessToken := os.Getenv(processAccessTokenEnvironment)
+	if processAccessToken != "" &&
+		(strings.TrimSpace(processAccessToken) != processAccessToken || strings.ContainsAny(processAccessToken, "\r\n\x00")) {
+		return nil, nil, output.Authentication("process_credential_invalid", "the process publication credential is invalid")
+	}
 	credentialScope := ""
 	if apiBaseURLOverridden {
 		resolvedScope, scopeErr := credentialScopeForAPIBase(apiBaseURL, region)
@@ -141,6 +153,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		config:               resolvedConfig,
 		profile:              *resolvedProfile,
 		configBase:           configBase,
+		processAccessToken:   processAccessToken,
 		printer: &output.Printer{
 			Out:    dependencies.Out,
 			ErrOut: dependencies.ErrOut,
@@ -220,16 +233,6 @@ func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.NewID == nil {
 		dependencies.NewID = randomUUID
 	}
-	if dependencies.InputIsTerminal == nil {
-		dependencies.InputIsTerminal = func() bool {
-			file, ok := dependencies.In.(*os.File)
-			if !ok {
-				return false
-			}
-			info, err := file.Stat()
-			return err == nil && info.Mode()&os.ModeCharDevice != 0
-		}
-	}
 	return dependencies
 }
 
@@ -255,7 +258,11 @@ func (r *Runtime) manager() *auth.Manager {
 }
 
 func (r *Runtime) client() *api.Client {
-	return api.NewClient(r.apiBaseURL, r.deps.HTTPClient, r.manager(), "viceme/"+buildinfo.Version)
+	var tokens api.TokenSource = r.manager()
+	if r.processAccessToken != "" {
+		tokens = processTokenSource(r.processAccessToken)
+	}
+	return api.NewClient(r.apiBaseURL, r.deps.HTTPClient, tokens, "viceme/"+buildinfo.Version)
 }
 
 func (r *Runtime) success(data any) error {

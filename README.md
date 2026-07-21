@@ -144,7 +144,7 @@ viceme profile remove company
 
 `profile use` changes the persistent active profile; the global `--profile` flag overrides only one command. AI Agents must not switch or remove profiles unless the user explicitly requests it.
 
-`VICEME_CLI_CONFIG_DIR` can override the config root. Local API development uses the process-only `VICEME_API_BASE_URL`; it is never persisted in a profile. An override on the selected region's canonical origin keeps that region's endpoint scope, even with a base path; a different normalized origin uses an isolated scope and requires separate authentication and delegated-grant storage. Login credentials and delegated grants remain isolated by profile and region/origin. API and presigned-upload requests fail closed on redirects so credential headers are never forwarded to another origin.
+`VICEME_CLI_CONFIG_DIR` can override the config root. Local API development uses the process-only `VICEME_API_BASE_URL`; it is never persisted in a profile. An override on the selected region's canonical origin keeps that region's endpoint scope, even with a base path; a different normalized origin uses an isolated scope and requires separate authentication. Persistent login credentials remain isolated by profile and region/origin. API and presigned-upload requests fail closed on redirects so credential headers are never forwarded to another origin.
 
 Update checks query the npm registry directly and store only the last successful version result in `~/.viceme-cli/update-state.json`. A result is used as a fallback for at most 24 hours when the registry is temporarily unavailable. npm operations launched by `viceme install` or `viceme update` use the isolated `~/.viceme-cli/npm-cache`, so a broken user-level `~/.npm` cache does not block the CLI. Both files are non-secret and can be deleted safely; credentials never enter either cache.
 
@@ -179,11 +179,9 @@ viceme skills doctor
 | `viceme auth login --device-code <code> --json` | Complete an Agent split-flow in a later turn |
 | `viceme auth logout` | Revoke and remove the current profile credential |
 
-Tokens are stored only in the operating-system keychain. There is no plaintext token fallback, and successful login output never contains the access or refresh token.
+Tokens created by device login are stored only in the operating-system keychain. There is no plaintext fallback, and successful login output never contains the access or refresh token.
 
-Ordinary authenticated users publish directly. Staff-operated delegated publication uses the same host-neutral command contract, with one-time credentials accepted only from protected non-TTY stdin or an OS-keychain reference and sent only through a dedicated request header. Raw delegated credentials are never accepted as flags or environment configuration and are never returned in CLI output.
-
-Saving a delegated grant creates one versioned keychain entry containing the credential and a stable, non-sensitive recovery identity. Publishing an expression with `--delegated-grant-ref` first inspects the source and selects an immutable candidate before reading the grant; use `--skill-root` when inspection returns multiple candidates. The grant's Target scope must match the destination: the default `auto` destination requires `UPSERT`, `--new-target` requires `CREATE`, and `--target-id` requires `UPDATE`. The first exact request is persisted and reused after an ambiguous transport failure, and the whole entry is deleted only after a valid server receipt. A direct protected-stdin publication has no persistent recovery boundary, so it requires both an existing `--resolution-id` and an explicit `--client-request-id`. Delegated ZIP and directory uploads are rejected before reading the grant or uploading data.
+The public CLI exposes one standard authentication and publication surface. A trusted launcher may inject a short-lived generic process credential for a staff-authorized operation; `auth status` reports it as `source=process`, and the normal inspect/publish/job commands send it through `x-api-key`. It is never persisted or printed, login/logout fail closed while it is active, and update subprocesses do not inherit it. There are no public identity-selection or authorization-secret flags or credential-management commands.
 
 ## Supported Sources
 

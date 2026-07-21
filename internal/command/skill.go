@@ -2,8 +2,6 @@ package command
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,7 +12,6 @@ import (
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	archivepkg "github.com/ViceMe-AI/cli/internal/archive"
-	"github.com/ViceMe-AI/cli/internal/auth"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -26,7 +23,6 @@ func newSkillCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newSkillInspectCommand(runtime))
 	command.AddCommand(newSkillPublishCommand(runtime))
 	command.AddCommand(newTargetCommand(runtime))
-	command.AddCommand(newDelegatedGrantCommand(runtime))
 	return command
 }
 
@@ -96,8 +92,6 @@ type publishOptions struct {
 	timeout               time.Duration
 	dryRun                bool
 	clientRequestID       string
-	delegatedGrantStdin   bool
-	delegatedGrantRef     string
 }
 
 func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
@@ -128,14 +122,10 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 					"confirmation_ok":    opts.yes,
 					"publish_mode":       "confirm",
 					"confirmation_scope": "publication_admission/v1",
-					"ownership_mode":     publishOwnershipMode(opts),
-				}
-				if source := delegatedCredentialSource(opts); source != "" {
-					result["delegated_credential_source"] = source
+					"ownership_mode":     "server_resolved",
 				}
 				return runtime.success(result)
 			}
-			delegated := opts.delegatedGrantStdin || opts.delegatedGrantRef != ""
 			request := api.CreatePublicationRequest{
 				ClientRequestID: opts.clientRequestID,
 				ResolutionID:    opts.resolutionID,
@@ -147,100 +137,20 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 					AdmissionConfirmation: true,
 				},
 			}
-			var delegatedIntentFingerprint string
-			var grantManager *auth.DelegatedGrantManager
-			var err error
-			if delegated && opts.resolutionID == "" {
-				source, err := expressionPublicationSource(runtime, args, opts)
-				if err != nil {
-					return err
-				}
-				delegatedIntentFingerprint, err = delegatedPublicationIntentFingerprint(request, &source)
-				if err != nil {
-					return err
-				}
-				grantManager = delegatedGrantManager(runtime)
-				resume, err := grantManager.PeekPublication(opts.delegatedGrantRef, delegatedIntentFingerprint)
-				if err != nil {
-					return err
-				}
-				if resume.Bound {
-					request.ClientRequestID = resume.ClientRequestID
-					request.ResolutionID = resume.ResolutionID
-					request.Selector = resume.Selector
-				} else {
-					inspection, inspectErr := runtime.client().Inspect(command.Context(), api.InspectRequest{Source: source})
-					if inspectErr != nil {
-						return inspectErr
-					}
-					resolutionID, selector, selectionErr := selectInspectedCandidate(inspection, opts.skillRoot)
-					if selectionErr != nil {
-						return selectionErr
-					}
-					request.ResolutionID = resolutionID
-					request.Selector = selector
-				}
-			} else if opts.resolutionID == "" {
+			if opts.resolutionID == "" {
 				source, err := publicationSource(command, runtime, args, opts)
 				if err != nil {
 					return err
 				}
 				request.Source = &source
 			}
-			if request.ClientRequestID == "" && opts.delegatedGrantRef == "" {
+			if request.ClientRequestID == "" {
 				request.ClientRequestID = runtime.deps.NewID()
 			}
-			delegatedGrantCredential := ""
-			var delegatedLease auth.DelegatedPublicationLease
-			if delegated {
-				if opts.delegatedGrantRef != "" {
-					if grantManager == nil {
-						grantManager = delegatedGrantManager(runtime)
-					}
-					if delegatedIntentFingerprint == "" {
-						delegatedIntentFingerprint, err = delegatedPublicationIntentFingerprint(request, nil)
-						if err != nil {
-							return err
-						}
-					}
-					requestFingerprint, fingerprintErr := delegatedPublicationRequestFingerprint(request)
-					if fingerprintErr != nil {
-						return fingerprintErr
-					}
-					delegatedLease, err = grantManager.BeginPublication(opts.delegatedGrantRef, auth.DelegatedPublicationBinding{
-						IntentFingerprint:  delegatedIntentFingerprint,
-						RequestFingerprint: requestFingerprint,
-						ResolutionID:       request.ResolutionID,
-						Selector:           request.Selector,
-					})
-					if err != nil {
-						return err
-					}
-					delegatedGrantCredential = delegatedLease.Credential
-					request.ClientRequestID = delegatedLease.ClientRequestID
-					request.ResolutionID = delegatedLease.ResolutionID
-					request.Selector = delegatedLease.Selector
-				} else {
-					delegatedGrantCredential, err = readDelegatedGrantStdin(runtime)
-					if err != nil {
-						return err
-					}
-					delegatedGrantCredential, err = auth.NormalizeDelegatedGrantCredential(delegatedGrantCredential)
-					if err != nil {
-						return err
-					}
-				}
-			}
-			publication, err := createPublication(command.Context(), runtime, request, delegatedGrantCredential)
+			publication, err := createPublication(command.Context(), runtime, request)
 			if err != nil {
 				return err
 			}
-			if delegatedGrantCredential != "" {
-				if err := validateDelegatedPublicationReceipt(publication); err != nil {
-					return err
-				}
-			}
-			cleanupDelegatedGrantReference(runtime, opts, publication, delegatedLease)
 			if !opts.wait {
 				return runtime.success(publication)
 			}
@@ -252,7 +162,6 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			carryDelegatedPublicationMetadata(final, publication)
 			meta := runtime.meta
 			if timedOut {
 				value := true
@@ -276,55 +185,13 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	flags.BoolVar(&opts.wait, "wait", false, "wait for a bounded publication result")
 	flags.DurationVar(&opts.timeout, "timeout", 60*time.Second, "maximum wait duration")
 	flags.BoolVar(&opts.dryRun, "dry-run", false, "validate and print the operation without reading input or calling Viceme")
-	flags.StringVar(&opts.clientRequestID, "client-request-id", "", "idempotency key; required with --delegated-grant-stdin")
-	flags.BoolVar(&opts.delegatedGrantStdin, "delegated-grant-stdin", false, "read a grant from protected non-TTY stdin; requires --resolution-id and --client-request-id")
-	flags.StringVar(&opts.delegatedGrantRef, "delegated-grant-ref", "", "publish with a keychain grant and persisted exact-request recovery state")
+	flags.StringVar(&opts.clientRequestID, "client-request-id", "", "stable idempotency key for an exact publication request")
 	return command
 }
 
-func validateDelegatedPublicationReceipt(publication api.Publication) error {
-	receiptID, ok := publication["delegated_grant_receipt_id"].(string)
-	if !ok || strings.TrimSpace(receiptID) == "" || strings.TrimSpace(receiptID) != receiptID {
-		return output.Internal(
-			"delegated_grant_receipt_missing",
-			"Viceme accepted the request without returning a delegated grant receipt; the local credential was retained",
-			nil,
-		)
-	}
-	return nil
-}
-
-func cleanupDelegatedGrantReference(runtime *Runtime, opts publishOptions, publication api.Publication, lease auth.DelegatedPublicationLease) {
-	if opts.delegatedGrantRef == "" {
-		return
-	}
-	if err := delegatedGrantManager(runtime).CompletePublication(
-		opts.delegatedGrantRef,
-		lease.ClientRequestID,
-		lease.RequestFingerprint,
-	); err != nil {
-		publication["delegated_credential_cleanup"] = "required"
-		publication["delegated_credential_ref"] = opts.delegatedGrantRef
-		return
-	}
-	publication["delegated_credential_cleanup"] = "deleted"
-}
-
-func carryDelegatedPublicationMetadata(destination, source api.Publication) {
-	for _, key := range []string{
-		"delegated_grant_receipt_id",
-		"delegated_credential_cleanup",
-		"delegated_credential_ref",
-	} {
-		if value, ok := source[key]; ok {
-			destination[key] = value
-		}
-	}
-}
-
-func createPublication(ctx context.Context, runtime *Runtime, request api.CreatePublicationRequest, delegatedGrantCredential string) (api.Publication, error) {
+func createPublication(ctx context.Context, runtime *Runtime, request api.CreatePublicationRequest) (api.Publication, error) {
 	client := runtime.client()
-	publication, err := client.CreatePublicationWithDelegatedGrant(ctx, request, delegatedGrantCredential)
+	publication, err := client.CreatePublication(ctx, request)
 	if err == nil {
 		return publication, nil
 	}
@@ -338,7 +205,7 @@ func createPublication(ctx context.Context, runtime *Runtime, request api.Create
 	// Reuse the exact request and client_request_id. The server owns the
 	// idempotency receipt, so an ambiguous transport failure cannot create a
 	// second publication.
-	return client.CreatePublicationWithDelegatedGrant(ctx, request, delegatedGrantCredential)
+	return client.CreatePublication(ctx, request)
 }
 
 func validatePublishOptions(args []string, opts publishOptions) error {
@@ -353,29 +220,6 @@ func validatePublishOptions(args []string, opts publishOptions) error {
 	}
 	if sources != 1 {
 		return output.Validation("source_required", "provide exactly one source, --resolution-id, --expression-stdin, --file, or --dir")
-	}
-	if opts.delegatedGrantStdin && opts.delegatedGrantRef != "" {
-		return output.Validation("delegated_grant_source", "--delegated-grant-stdin and --delegated-grant-ref are mutually exclusive")
-	}
-	if opts.delegatedGrantStdin && opts.expressionStdin {
-		return output.Validation("stdin_conflict", "source expression and delegated grant cannot both read from stdin; store the grant and use --delegated-grant-ref")
-	}
-	if opts.delegatedGrantRef != "" {
-		if err := auth.ValidateDelegatedGrantReference(opts.delegatedGrantRef); err != nil {
-			return err
-		}
-		if opts.clientRequestID != "" {
-			return output.Validation("client_request_id_managed", "--delegated-grant-ref manages its stable client request id; do not also pass --client-request-id")
-		}
-	}
-	if opts.delegatedGrantStdin && opts.clientRequestID == "" && !opts.dryRun {
-		return output.Validation("client_request_id_required", "--delegated-grant-stdin requires --client-request-id so an ambiguous create can be retried safely")
-	}
-	if opts.delegatedGrantStdin && opts.resolutionID == "" && !opts.dryRun {
-		return output.Validation("resolution_id_required", "--delegated-grant-stdin requires --resolution-id so retries reuse the exact immutable request")
-	}
-	if (opts.delegatedGrantStdin || opts.delegatedGrantRef != "") && (opts.file != "" || opts.directory != "") {
-		return output.Validation("delegated_upload_unsupported", "delegated publication requires an inspected immutable provider resolution; file and directory upload are not supported")
 	}
 	if opts.clientRequestID != "" && (strings.TrimSpace(opts.clientRequestID) != opts.clientRequestID || len(opts.clientRequestID) > 128) {
 		return output.Validation("client_request_id_invalid", "--client-request-id must be 1 to 128 non-whitespace characters")
@@ -408,127 +252,6 @@ func validatePublishOptions(args []string, opts publishOptions) error {
 		return output.Validation("upload_target", "uploaded input requires --new-target or --target-id with --expected-target-version")
 	}
 	return nil
-}
-
-func publishOwnershipMode(opts publishOptions) string {
-	if opts.delegatedGrantStdin || opts.delegatedGrantRef != "" {
-		return "delegated"
-	}
-	return "direct"
-}
-
-func expressionPublicationSource(runtime *Runtime, args []string, opts publishOptions) (api.Source, error) {
-	if len(args) == 1 {
-		if strings.TrimSpace(args[0]) == "" {
-			return api.Source{}, output.Validation("source_empty", "source expression cannot be empty")
-		}
-		return api.Source{Kind: "expression", Value: args[0]}, nil
-	}
-	if opts.expressionStdin {
-		value, err := readLimited(runtime.deps.In, maxStdinBytes)
-		if err != nil {
-			return api.Source{}, err
-		}
-		if strings.TrimSpace(value) == "" {
-			return api.Source{}, output.Validation("source_empty", "source expression cannot be empty")
-		}
-		return api.Source{Kind: "expression", Value: value}, nil
-	}
-	return api.Source{}, output.Validation("delegated_source_invalid", "delegated publication requires an expression source or --resolution-id")
-}
-
-func selectInspectedCandidate(inspection api.InspectResponse, requestedSelector string) (string, string, error) {
-	resolutionID := strings.TrimSpace(inspection.ResolutionID)
-	if resolutionID == "" || resolutionID != inspection.ResolutionID || len(resolutionID) > 255 {
-		return "", "", output.Internal("inspect_response_invalid", "Viceme API did not return a valid immutable resolution id", nil)
-	}
-	if len(inspection.Candidates) == 0 {
-		return "", "", output.Internal("inspect_response_invalid", "Viceme API did not return any immutable Skill candidates", nil)
-	}
-	if len(inspection.Candidates) > 1 && requestedSelector == "" {
-		choices := make([]map[string]string, 0, len(inspection.Candidates))
-		for _, candidate := range inspection.Candidates {
-			choices = append(choices, map[string]string{"selector": candidate.Selector, "title": candidate.Title})
-		}
-		return "", "", output.Validation(
-			"selection_required",
-			"multiple Skill roots were found; rerun with --skill-root using one returned selector",
-		).WithDetails(map[string]any{"candidates": choices})
-	}
-	selected := inspection.Candidates[0]
-	if requestedSelector != "" {
-		matched := false
-		for _, candidate := range inspection.Candidates {
-			if candidate.Selector == requestedSelector {
-				selected = candidate
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			return "", "", output.Validation("selector_invalid", "--skill-root does not match any immutable candidate returned by inspect")
-		}
-	}
-	if strings.TrimSpace(selected.Selector) == "" || strings.TrimSpace(selected.Selector) != selected.Selector || len(selected.Selector) > 512 {
-		return "", "", output.Internal("inspect_response_invalid", "Viceme API returned an invalid candidate selector", nil)
-	}
-	return resolutionID, selected.Selector, nil
-}
-
-func delegatedPublicationIntentFingerprint(request api.CreatePublicationRequest, inspectedSource *api.Source) (string, error) {
-	intent := struct {
-		Format       string                 `json:"format"`
-		Source       *api.Source            `json:"source,omitempty"`
-		ResolutionID string                 `json:"resolution_id,omitempty"`
-		Selector     string                 `json:"selector,omitempty"`
-		Destination  api.Destination        `json:"destination"`
-		Options      api.PublicationOptions `json:"options"`
-	}{
-		Format:       "viceme-delegated-publication-intent/v2",
-		Source:       inspectedSource,
-		ResolutionID: request.ResolutionID,
-		Selector:     request.Selector,
-		Destination:  request.Destination,
-		Options:      request.Options,
-	}
-	return delegatedPublicationFingerprint(intent)
-}
-
-func delegatedPublicationRequestFingerprint(request api.CreatePublicationRequest) (string, error) {
-	frozen := struct {
-		Format       string                 `json:"format"`
-		ResolutionID string                 `json:"resolution_id"`
-		Selector     string                 `json:"selector,omitempty"`
-		Destination  api.Destination        `json:"destination"`
-		Options      api.PublicationOptions `json:"options"`
-	}{
-		Format:       "viceme-delegated-publication-request/v1",
-		ResolutionID: request.ResolutionID,
-		Selector:     request.Selector,
-		Destination:  request.Destination,
-		Options:      request.Options,
-	}
-	return delegatedPublicationFingerprint(frozen)
-}
-
-func delegatedPublicationFingerprint(value any) (string, error) {
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return "", output.Internal("delegated_publication_fingerprint", "failed to encode delegated publication state", err)
-	}
-	digest := sha256.Sum256(encoded)
-	return fmt.Sprintf("sha256:%x", digest[:]), nil
-}
-
-func delegatedCredentialSource(opts publishOptions) string {
-	switch {
-	case opts.delegatedGrantStdin:
-		return "stdin"
-	case opts.delegatedGrantRef != "":
-		return "keychain"
-	default:
-		return ""
-	}
 }
 
 func publishDestination(opts publishOptions) api.Destination {

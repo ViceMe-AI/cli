@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -406,6 +405,49 @@ func TestDeviceLoginStoresTokenButDoesNotPrintIt(t *testing.T) {
 	}
 }
 
+func TestProcessCredentialUsesStandardAPIKeyWithoutPersistenceOrOutput(t *testing.T) {
+	const processToken = "vpa_process_only_secret"
+	t.Setenv(processAccessTokenEnvironment, processToken)
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("x-api-key") != processToken {
+			t.Fatalf("standard API key header = %q", request.Header.Get("x-api-key"))
+		}
+		return jsonHTTPResponse(request, http.StatusAccepted, `{"publication_id":"pub_process","status":"received"}`), nil
+	})
+	store := securestore.NewMemory()
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", Dependencies{
+		HTTPClient: &http.Client{Transport: transport},
+		APIBaseURL: "https://api.viceme.test",
+	}, "skill", "publish", "--resolution-id", "res_process", "--yes")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "pub_process") || strings.Contains(stdout, processToken) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if _, err := (&credentialauth.Manager{Store: store, Region: "cn"}).Load(); err == nil {
+		t.Fatal("process credential was persisted to the keychain")
+	}
+
+	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", Dependencies{}, "auth", "status")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"source":"process"`) ||
+		!strings.Contains(stdout, `"persistent":false`) || strings.Contains(stdout, processToken) {
+		t.Fatalf("status code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", Dependencies{}, "auth", "logout")
+	if code == 0 || !strings.Contains(stderr, "process_credential_active") || strings.Contains(stderr, processToken) {
+		t.Fatalf("logout code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestProcessCredentialRejectsNonCanonicalSecret(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, " secret-with-space ")
+	_, _, err := NewRoot(Dependencies{
+		Store:       securestore.NewMemory(),
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()},
+	})
+	if err == nil || !strings.Contains(err.Error(), "process publication credential is invalid") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
 func TestInspectAndPublishRequestContracts(t *testing.T) {
 	t.Parallel()
 	var inspected atomic.Bool
@@ -425,9 +467,6 @@ func TestInspectAndPublishRequestContracts(t *testing.T) {
 			inspected.Store(true)
 			_, _ = io.WriteString(writer, `{"resolution_id":"res_1","destination":{"mode":"new_auto"}}`)
 		case "/v1/skill-agent-publications":
-			if request.Header.Get("x-viceme-delegated-publish-grant") != "" {
-				t.Fatal("ordinary publication unexpectedly sent a delegated grant")
-			}
 			var body map[string]any
 			_ = json.NewDecoder(request.Body).Decode(&body)
 			if body["client_request_id"] != "request-fixed" {
@@ -460,352 +499,12 @@ func TestInspectAndPublishRequestContracts(t *testing.T) {
 	}
 }
 
-func TestDelegatedGrantStdinUsesSensitiveHeaderAndNeverLeaks(t *testing.T) {
-	t.Parallel()
-	secret := strings.Repeat("s", 43)
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case "/v1/skill-agent-publications":
-			if request.Header.Get("x-viceme-delegated-publish-grant") != secret {
-				t.Fatal("delegated grant was not sent through the sensitive header")
-			}
-			body, _ := io.ReadAll(request.Body)
-			if strings.Contains(string(body), secret) || strings.Contains(request.URL.String(), secret) {
-				t.Fatal("delegated grant leaked into request body or URL")
-			}
-			if strings.Contains(string(body), `"source"`) || !strings.Contains(string(body), `"resolution_id":"res_stdin"`) {
-				t.Fatalf("delegated create did not use the frozen resolution: %s", body)
-			}
-			writer.WriteHeader(http.StatusAccepted)
-			_, _ = io.WriteString(writer, `{"publication_id":"pub_delegated","status":"received","delegated_grant_receipt_id":"grant_1"}`)
-		default:
-			t.Fatalf("unexpected path: %s", request.URL.Path)
-		}
-	}))
-	defer server.Close()
-
-	code, stdout, stderr, _ := runCLIWithInput(
-		t,
-		server,
-		authenticatedStore(t),
-		secret+"\n",
-		"skill", "publish", "--resolution-id", "res_stdin", "--delegated-grant-stdin", "--client-request-id", "stdin-request-1", "--yes",
-	)
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"delegated_grant_receipt_id":"grant_1"`) {
-		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
-	if strings.Contains(stdout, secret) || strings.Contains(stderr, secret) {
-		t.Fatal("delegated grant leaked into CLI output")
-	}
-}
-
-func TestDelegatedGrantKeychainReferenceLifecycleAndPublish(t *testing.T) {
-	t.Parallel()
-	secret := strings.Repeat("k", 43)
-	store := authenticatedStore(t)
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case "/v1/skill-agent-publications/inspect":
-			_, _ = io.WriteString(writer, `{"resolution_id":"res_ref","candidates":[{"selector":"skills/poster"}]}`)
-		case "/v1/skill-agent-publications":
-			if request.Header.Get("x-viceme-delegated-publish-grant") != secret {
-				t.Fatal("stored delegated grant was not applied")
-			}
-			writer.WriteHeader(http.StatusAccepted)
-			_, _ = io.WriteString(writer, `{"publication_id":"pub_ref","status":"received","delegated_grant_receipt_id":"grant_ref_1"}`)
-		default:
-			t.Fatalf("unexpected path: %s", request.URL.Path)
-		}
-	}))
-	defer server.Close()
-	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, secret+"\n", Dependencies{APIBaseURL: server.URL}, "skill", "delegated-grant", "save", "creator-one", "--stdin")
-	if code != 0 || stderr != "" || strings.Contains(stdout, secret) || !strings.Contains(stdout, `"credential_ref":"creator-one"`) {
-		t.Fatalf("save code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
-	code, stdout, stderr, _ = runCLI(t, server, store, "skill", "publish", "https://github.com/acme/skill", "--delegated-grant-ref", "creator-one", "--yes")
-	if code != 0 || stderr != "" || strings.Contains(stdout, secret) || !strings.Contains(stdout, "grant_ref_1") {
-		t.Fatalf("publish code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
-	if !strings.Contains(stdout, `"delegated_credential_cleanup":"deleted"`) {
-		t.Fatalf("publish did not report keychain cleanup: %s", stdout)
-	}
-	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", Dependencies{APIBaseURL: server.URL}, "skill", "delegated-grant", "status", "creator-one")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"stored":false`) {
-		t.Fatalf("status code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
-
-	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", Dependencies{APIBaseURL: server.URL}, "skill", "delegated-grant", "delete", "creator-one")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"stored":false`) {
-		t.Fatalf("delete code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
-}
-
-func TestDelegatedGrantReferenceIsRetainedWhenServerOmitsReceipt(t *testing.T) {
-	t.Parallel()
-	secret := strings.Repeat("r", 43)
-	store := authenticatedStore(t)
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/v1/skill-agent-publications/inspect" {
-			_, _ = io.WriteString(writer, `{"resolution_id":"res_retained","candidates":[{"selector":"."}]}`)
-			return
-		}
-		if request.URL.Path != "/v1/skill-agent-publications" || request.Header.Get("x-viceme-delegated-publish-grant") != secret {
-			t.Fatal("stored delegated grant was not applied to create")
-		}
-		writer.WriteHeader(http.StatusAccepted)
-		_, _ = io.WriteString(writer, `{"publication_id":"pub_without_receipt","status":"received"}`)
-	}))
-	defer server.Close()
-	scope, err := customCredentialScope(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := (&credentialauth.DelegatedGrantManager{Store: store, Region: "cn", Scope: scope, LockDir: t.TempDir()}).Save("creator-retained", secret); err != nil {
-		t.Fatal(err)
-	}
-
-	code, stdout, stderr, _ := runCLI(t, server, store, "skill", "publish", "https://github.com/acme/skill", "--delegated-grant-ref", "creator-retained", "--yes")
-	if code != 5 || stdout != "" || !strings.Contains(stderr, "delegated_grant_receipt_missing") {
-		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
-	status, err := (&credentialauth.DelegatedGrantManager{Store: store, Region: "cn", Scope: scope}).Status("creator-retained")
-	if err != nil || !status.Stored {
-		t.Fatalf("delegated grant was not retained: status=%#v err=%v", status, err)
-	}
-}
-
-func TestDelegatedGrantStdinCannotShareSourceStdin(t *testing.T) {
-	t.Parallel()
-	code, _, stderr, _ := runCLI(t, nil, nil, "skill", "publish", "--expression-stdin", "--delegated-grant-stdin", "--yes")
-	if code != 2 || !strings.Contains(stderr, "stdin_conflict") {
-		t.Fatalf("code=%d stderr=%s", code, stderr)
-	}
-}
-
-func TestDelegatedGrantStdinRequiresExactRecoverableRequest(t *testing.T) {
-	t.Parallel()
-	secret := strings.Repeat("z", 43) + "\n"
-	for _, test := range []struct {
-		name string
-		args []string
-		want string
-	}{
-		{
-			name: "missing client request id",
-			args: []string{"skill", "publish", "--resolution-id", "res_1", "--delegated-grant-stdin", "--yes"},
-			want: "client_request_id_required",
-		},
-		{
-			name: "missing immutable resolution",
-			args: []string{"skill", "publish", "https://github.com/acme/skill", "--delegated-grant-stdin", "--client-request-id", "request-1", "--yes"},
-			want: "resolution_id_required",
-		},
-	} {
-		test := test
-		t.Run(test.name, func(t *testing.T) {
-			code, _, stderr, _ := runCLIWithInput(t, nil, authenticatedStore(t), secret, test.args...)
-			if code != 2 || !strings.Contains(stderr, test.want) {
-				t.Fatalf("code=%d stderr=%s", code, stderr)
-			}
-		})
-	}
-}
-
-func TestDelegatedGrantReferenceOwnsItsStableRequestID(t *testing.T) {
-	t.Parallel()
-	code, _, stderr, _ := runCLI(t, nil, securestore.NewMemory(),
-		"skill", "publish", "--resolution-id", "res_1", "--delegated-grant-ref", "creator", "--client-request-id", "caller-id", "--yes",
-	)
-	if code != 2 || !strings.Contains(stderr, "client_request_id_managed") || strings.Contains(stderr, "delegated_grant_not_found") {
-		t.Fatalf("code=%d stderr=%s", code, stderr)
-	}
-}
-
-func TestDelegatedGrantTTYInputFailsBeforeReadingSecret(t *testing.T) {
-	t.Parallel()
-	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, securestore.NewMemory(), strings.Repeat("t", 43)+"\n", Dependencies{
-		InputIsTerminal: func() bool { return true },
-	}, "skill", "delegated-grant", "save", "creator-tty", "--stdin")
-	if code != 2 || stdout != "" || !strings.Contains(stderr, "delegated_grant_tty_unsupported") {
-		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
-}
-
-func TestDelegatedUploadRejectsBeforeCredentialOrFileAccess(t *testing.T) {
-	t.Parallel()
-	code, _, stderr, _ := runCLI(t, nil, securestore.NewMemory(),
-		"skill", "publish", "--file", "definitely-missing.zip", "--new-target", "--delegated-grant-ref", "missing-ref", "--yes",
-	)
-	if code != 2 || !strings.Contains(stderr, "delegated_upload_unsupported") || strings.Contains(stderr, "delegated_grant_not_found") {
-		t.Fatalf("code=%d stderr=%s", code, stderr)
-	}
-}
-
-func TestDelegatedExpressionInspectsAndSelectsBeforeReadingGrant(t *testing.T) {
-	t.Parallel()
-	secret := strings.Repeat("i", 43)
-	baseStore := authenticatedStore(t)
-	var inspected atomic.Bool
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case "/v1/skill-agent-publications/inspect":
-			if request.Header.Get("x-viceme-delegated-publish-grant") != "" {
-				t.Fatal("inspect received delegated credential")
-			}
-			inspected.Store(true)
-			_, _ = io.WriteString(writer, `{"resolution_id":"res_selected","candidates":[{"selector":"skills/poster","title":"Poster"}]}`)
-		case "/v1/skill-agent-publications":
-			var body map[string]any
-			_ = json.NewDecoder(request.Body).Decode(&body)
-			if body["resolution_id"] != "res_selected" || body["selector"] != "skills/poster" || body["source"] != nil {
-				t.Fatalf("create did not use selected immutable candidate: %#v", body)
-			}
-			writer.WriteHeader(http.StatusAccepted)
-			_, _ = io.WriteString(writer, `{"publication_id":"pub_selected","status":"received","delegated_grant_receipt_id":"receipt_selected"}`)
-		default:
-			t.Fatalf("unexpected path: %s", request.URL.Path)
-		}
-	}))
-	defer server.Close()
-	scope, err := customCredentialScope(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manager := &credentialauth.DelegatedGrantManager{Store: baseStore, Region: "cn", Scope: scope, NewID: func() string { return "stable-selected" }, LockDir: t.TempDir()}
-	if err := manager.Save("creator-selected", secret); err != nil {
-		t.Fatal(err)
-	}
-	store := &observingStore{Store: baseStore, beforeDelegatedGet: func() {
-		if !inspected.Load() {
-			t.Fatal("delegated grant was read before inspect selected a candidate")
-		}
-	}}
-	code, stdout, stderr, _ := runCLI(t, server, store,
-		"skill", "publish", "https://github.com/acme/pack", "--delegated-grant-ref", "creator-selected", "--yes",
-	)
-	if code != 0 || stderr != "" || !strings.Contains(stdout, "pub_selected") {
-		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
-}
-
-func TestDelegatedMultipleCandidatesFailsBeforeReadingGrant(t *testing.T) {
-	t.Parallel()
-	secret := strings.Repeat("m", 43)
-	baseStore := authenticatedStore(t)
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/skill-agent-publications/inspect" {
-			t.Fatalf("create must not run before candidate selection: %s", request.URL.Path)
-		}
-		_, _ = io.WriteString(writer, `{"resolution_id":"res_multiple","candidates":[{"selector":"skills/one","title":"One"},{"selector":"skills/two","title":"Two"}]}`)
-	}))
-	defer server.Close()
-	scope, err := customCredentialScope(server.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manager := &credentialauth.DelegatedGrantManager{Store: baseStore, Region: "cn", Scope: scope, LockDir: t.TempDir()}
-	if err := manager.Save("creator-multiple", secret); err != nil {
-		t.Fatal(err)
-	}
-	grantRead := atomic.Bool{}
-	store := &observingStore{Store: baseStore, beforeDelegatedGet: func() { grantRead.Store(true) }}
-	code, _, stderr, _ := runCLI(t, server, store,
-		"skill", "publish", "https://github.com/acme/pack", "--delegated-grant-ref", "creator-multiple", "--yes",
-	)
-	if code != 2 || !strings.Contains(stderr, "selection_required") || !strings.Contains(stderr, "skills/one") {
-		t.Fatalf("code=%d stderr=%s", code, stderr)
-	}
-	if grantRead.Load() {
-		t.Fatal("multiple-candidate rejection read the delegated grant")
-	}
-	status, err := manager.Status("creator-multiple")
-	if err != nil || !status.Stored {
-		t.Fatalf("selection rejection changed the grant: %#v err=%v", status, err)
-	}
-}
-
-func TestDelegatedReferenceRecoversAmbiguousCreateAcrossProcesses(t *testing.T) {
-	t.Parallel()
-	const apiBase = "https://api.recovery.test"
-	secret := strings.Repeat("v", 43)
-	store := authenticatedStore(t)
-	configBase := t.TempDir()
-	lockDir := filepath.Join(configBase, "viceme", "locks")
-	scope, err := customCredentialScope(apiBase)
-	if err != nil {
-		t.Fatal(err)
-	}
-	manager := &credentialauth.DelegatedGrantManager{Store: store, Region: "cn", Scope: scope, NewID: func() string { return "stable-cross-process" }, LockDir: lockDir}
-	if err := manager.Save("creator-recovery", secret); err != nil {
-		t.Fatal(err)
-	}
-	var inspectCalls atomic.Int32
-	var createCalls atomic.Int32
-	var providerAvailable atomic.Bool
-	providerAvailable.Store(true)
-	var requestIDs []string
-	var resolutionIDs []string
-	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		switch request.URL.Path {
-		case "/v1/skill-agent-publications/inspect":
-			inspectCalls.Add(1)
-			if !providerAvailable.Load() {
-				return nil, fmt.Errorf("provider unavailable")
-			}
-			return jsonHTTPResponse(request, http.StatusOK, `{"resolution_id":"res_1","candidates":[{"selector":"skills/poster"}]}`), nil
-		case "/v1/skill-agent-publications":
-			var body map[string]any
-			_ = json.NewDecoder(request.Body).Decode(&body)
-			requestIDs = append(requestIDs, body["client_request_id"].(string))
-			resolutionIDs = append(resolutionIDs, body["resolution_id"].(string))
-			if createCalls.Add(1) <= 2 {
-				return nil, fmt.Errorf("connection lost after write")
-			}
-			return jsonHTTPResponse(request, http.StatusAccepted, `{"publication_id":"pub_recovered","status":"received","delegated_grant_receipt_id":"receipt_recovered"}`), nil
-		default:
-			t.Fatalf("unexpected path: %s", request.URL.Path)
-			return nil, fmt.Errorf("unexpected path")
-		}
-	})
-	deps := Dependencies{
-		HTTPClient: &http.Client{Transport: transport},
-		APIBaseURL: apiBase,
-		Environment: skillcontent.Environment{
-			Home:      t.TempDir(),
-			ConfigDir: configBase,
-		},
-	}
-	args := []string{"skill", "publish", "https://github.com/acme/pack", "--skill-root", "skills/poster", "--delegated-grant-ref", "creator-recovery", "--yes"}
-	code, _, stderr, _ := runCLIWithDependencies(t, nil, store, "", deps, args...)
-	if code != 4 || !strings.Contains(stderr, "transport") {
-		t.Fatalf("first process code=%d stderr=%s", code, stderr)
-	}
-	providerAvailable.Store(false)
-	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", deps, args...)
-	if code != 0 || stderr != "" || !strings.Contains(stdout, "pub_recovered") {
-		t.Fatalf("recovery code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
-	if len(requestIDs) != 3 || inspectCalls.Load() != 1 {
-		t.Fatalf("unexpected calls: request_ids=%v inspect=%d", requestIDs, inspectCalls.Load())
-	}
-	for index := range requestIDs {
-		if requestIDs[index] != "stable-cross-process" || resolutionIDs[index] != "res_1" {
-			t.Fatalf("ambiguous retry changed the exact request: ids=%v resolutions=%v", requestIDs, resolutionIDs)
-		}
-	}
-	status, err := manager.Status("creator-recovery")
-	if err != nil || status.Stored {
-		t.Fatalf("successful recovery did not clean the envelope: %#v err=%v", status, err)
-	}
-}
-
 func TestPublishRetriesAmbiguousTransportWithSameRequestID(t *testing.T) {
 	t.Parallel()
-	secret := strings.Repeat("q", 43)
 	var calls atomic.Int32
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if request.Header.Get("x-viceme-delegated-publish-grant") != secret {
-			t.Fatal("retry changed or omitted the delegated grant")
+		if request.Header.Get("x-api-key") != "test-token" {
+			t.Fatal("retry changed or omitted the standard credential")
 		}
 		if calls.Add(1) == 1 {
 			return nil, fmt.Errorf("connection closed after write")
@@ -822,14 +521,14 @@ func TestPublishRetriesAmbiguousTransportWithSameRequestID(t *testing.T) {
 		return &http.Response{
 			StatusCode: http.StatusAccepted,
 			Header:     make(http.Header),
-			Body:       io.NopCloser(strings.NewReader(`{"publication_id":"pub_retry","status":"received","delegated_grant_receipt_id":"grant_retry"}`)),
+			Body:       io.NopCloser(strings.NewReader(`{"publication_id":"pub_retry","status":"received"}`)),
 			Request:    request,
 		}, nil
 	})
-	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, authenticatedStore(t), secret+"\n", Dependencies{
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, authenticatedStore(t), "", Dependencies{
 		HTTPClient: &http.Client{Transport: transport},
 		APIBaseURL: "https://api.viceme.test",
-	}, "skill", "publish", "--resolution-id", "res_retry", "--delegated-grant-stdin", "--client-request-id", "request-fixed", "--yes")
+	}, "skill", "publish", "--resolution-id", "res_retry", "--client-request-id", "request-fixed", "--yes")
 	if code != 0 || stderr != "" || calls.Load() != 2 || !strings.Contains(stdout, "pub_retry") {
 		t.Fatalf("code=%d calls=%d stdout=%s stderr=%s", code, calls.Load(), stdout, stderr)
 	}
@@ -970,18 +669,6 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return function(request)
-}
-
-type observingStore struct {
-	securestore.Store
-	beforeDelegatedGet func()
-}
-
-func (store *observingStore) Get(key string) (string, error) {
-	if strings.HasPrefix(key, "delegated-grant:") && store.beforeDelegatedGet != nil {
-		store.beforeDelegatedGet()
-	}
-	return store.Store.Get(key)
 }
 
 func jsonHTTPResponse(request *http.Request, status int, body string) *http.Response {

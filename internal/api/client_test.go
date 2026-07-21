@@ -185,49 +185,6 @@ func TestCreatePublicationPreservesExplicitZeroExpectedTargetVersion(t *testing.
 	}
 }
 
-func TestDelegatedPublicationCredentialUsesHeaderOnlyAndIsNotRedirected(t *testing.T) {
-	t.Parallel()
-	secret := strings.Repeat("g", 43)
-	redirected := false
-	destination := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, request *http.Request) {
-		redirected = true
-		if request.Header.Get(delegatedPublishGrantHeader) != "" {
-			t.Fatal("delegated credential was forwarded across a redirect")
-		}
-	}))
-	defer destination.Close()
-
-	origin := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Header.Get(delegatedPublishGrantHeader) != secret {
-			t.Fatal("delegated credential header is missing")
-		}
-		body, _ := io.ReadAll(request.Body)
-		if strings.Contains(string(body), secret) || strings.Contains(request.URL.String(), secret) {
-			t.Fatal("delegated credential leaked into body or URL")
-		}
-		writer.Header().Set("Location", destination.URL+"/capture")
-		writer.WriteHeader(http.StatusTemporaryRedirect)
-	}))
-	defer origin.Close()
-
-	client := NewClient(origin.URL, origin.Client(), staticToken("login-token"), "")
-	_, err := client.CreatePublicationWithDelegatedGrant(context.Background(), CreatePublicationRequest{
-		ClientRequestID: "request-1",
-		Source:          &Source{Kind: "expression", Value: "https://github.com/acme/skill"},
-		Destination:     Destination{Mode: "auto"},
-		Options: PublicationOptions{
-			PublishMode:           "confirm",
-			AdmissionConfirmation: true,
-		},
-	}, secret)
-	if err == nil {
-		t.Fatal("expected the redirect response to be rejected")
-	}
-	if redirected {
-		t.Fatal("sensitive request followed a redirect")
-	}
-}
-
 func TestAPIKeyIsNeverForwardedAcrossRedirect(t *testing.T) {
 	t.Parallel()
 	redirected := false

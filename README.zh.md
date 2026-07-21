@@ -144,7 +144,7 @@ viceme profile remove company
 
 `profile use` 修改持久化的当前 Profile；全局 `--profile` 只覆盖本次命令。不要让 AI Agent 在用户没有明确要求时切换或删除 Profile。
 
-可以用 `VICEME_CLI_CONFIG_DIR` 覆盖配置根目录。本地 API 联调使用进程环境变量 `VICEME_API_BASE_URL`，不会写入 Profile。如果覆盖地址仍属于所选区域的规范化 canonical origin，即使带有 base path，也继续使用该区域的 endpoint scope；不同 origin 使用独立 scope，并要求分别登录和保存代发 grant。登录凭证与代发 grant 始终按 Profile 和区域/origin 隔离。API 与预签名上传请求遇到重定向会直接失败，凭证请求头不会被转发到其他 origin。
+可以用 `VICEME_CLI_CONFIG_DIR` 覆盖配置根目录。本地 API 联调使用进程环境变量 `VICEME_API_BASE_URL`，不会写入 Profile。如果覆盖地址仍属于所选区域的规范化 canonical origin，即使带有 base path，也继续使用该区域的 endpoint scope；不同 origin 使用独立 scope，并要求分别登录。持久登录凭证始终按 Profile 和区域/origin 隔离。API 与预签名上传请求遇到重定向会直接失败，凭证请求头不会被转发到其他 origin。
 
 更新检查直接请求 npm registry，并且只把最近一次成功查询到的版本写入 `~/.viceme-cli/update-state.json`；registry 暂时不可用时，该结果最多回退使用 24 小时。`viceme install` 和 `viceme update` 启动的 npm 操作统一使用隔离的 `~/.viceme-cli/npm-cache`，不会因为用户级 `~/.npm` 缓存损坏而失败。这两个位置都不包含秘密信息，可以安全删除；凭证不会进入任何更新缓存。
 
@@ -179,11 +179,9 @@ viceme skills doctor
 | `viceme auth login --device-code <code> --json` | 在后续回合完成 Agent 登录流程 |
 | `viceme auth logout` | 撤销并删除当前 Profile 的凭证 |
 
-令牌只保存在操作系统密钥链中，不会回退到明文存储；登录成功的输出也不会包含访问令牌或刷新令牌。
+设备登录生成的令牌只保存在操作系统密钥链中，不会回退到明文存储；登录成功的输出也不会包含访问令牌或刷新令牌。
 
-普通已认证用户直接发布。由工作人员操作的委托发布使用同一套宿主无关命令契约：一次性凭证只能通过受保护且非 TTY 的标准输入或操作系统密钥链引用提供，并且只通过专用请求头发送。CLI 不接受命令行参数或环境变量中的原始委托凭证，也不会在输出中返回该凭证。
-
-保存委托 grant 时，CLI 会在单条 versioned 密钥链记录中同时生成稳定、非敏感的恢复标识。使用 `--delegated-grant-ref` 发布表达式时，CLI 会先 Inspect 并确定不可变 Candidate，再读取 grant；有多个候选时必须传入 `--skill-root`。grant 的 Target scope 必须与目标模式一致：默认 `auto` 需要 `UPSERT`，`--new-target` 需要 `CREATE`，`--target-id` 需要 `UPDATE`。首次发布的精确请求会持久化，网络结果不确定时后续进程复用同一个 request 与 resolution；只有收到有效服务端 receipt 后才整体删除该记录。直接从受保护 stdin 发布没有持久恢复边界，因此必须同时提供已有的 `--resolution-id` 和显式 `--client-request-id`。委托 ZIP/目录上传会在读取 grant 或上传数据前被拒绝。
+公共 CLI 只有一套标准认证与发布命令面。受信启动器可为工作人员授权操作注入短期通用进程凭证；`auth status` 会显示 `source=process`，普通 inspect/publish/job 命令仍通过 `x-api-key` 发送。该凭证不会持久化或输出，生效期间 login/logout 直接拒绝，update 子进程也不会继承它。CLI 不提供公开的身份选择、授权秘密参数或凭证管理命令。
 
 ## 支持的来源
 
