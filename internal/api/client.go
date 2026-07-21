@@ -95,10 +95,62 @@ func (c *Client) GetPublication(ctx context.Context, id string) (Publication, er
 	return response, err
 }
 
+func (c *Client) GetPublicationPreview(ctx context.Context, publicationID, actionID string) (map[string]any, error) {
+	var response map[string]any
+	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/preview"
+	if actionID != "" {
+		endpoint += "?action_id=" + url.QueryEscape(actionID)
+	}
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, true, "")
+	return response, err
+}
+
+func (c *Client) RequestPublicationEdit(ctx context.Context, publicationID string, request PublicationEditRequest) (PublicationEditReceipt, error) {
+	var response PublicationEditReceipt
+	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/edits", request, &response, true, "")
+	return response, err
+}
+
+func (c *Client) GetPublicationEdit(ctx context.Context, publicationID, editID string) (PublicationEditReceipt, error) {
+	var response PublicationEditReceipt
+	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/edits/"+url.PathEscape(editID), nil, &response, true, "")
+	return response, err
+}
+
+func (c *Client) StartSkillPreviewRun(ctx context.Context, publicationID string, request PreviewRunStartRequest) (PreviewRunStartResponse, error) {
+	var response PreviewRunStartResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/preview-runs", request, &response, true, "")
+	return response, err
+}
+
+func (c *Client) GetSkillPreviewRun(ctx context.Context, publicationID, previewRunID string) (SkillPreviewRun, error) {
+	var response SkillPreviewRun
+	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/preview-runs/"+url.PathEscape(previewRunID), nil, &response, true, "")
+	return response, err
+}
+
+func (c *Client) AcceptSkillPreviewRun(ctx context.Context, publicationID, previewRunID string, request PreviewRunAcceptRequest) (PreviewRunAcceptResponse, error) {
+	var response PreviewRunAcceptResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/preview-runs/"+url.PathEscape(previewRunID)+"/accept", request, &response, true, "")
+	return response, err
+}
+
 func (c *Client) ResolveAction(ctx context.Context, publicationID, actionID string, request ResolveActionRequest) (Publication, error) {
 	var response Publication
 	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/actions/" + url.PathEscape(actionID) + "/resolve"
 	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "")
+	return response, err
+}
+
+func (c *Client) GetPublicationMetadata(ctx context.Context, publicationID string) (PublicationMetadata, error) {
+	var response PublicationMetadata
+	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/metadata", nil, &response, true, "")
+	return response, err
+}
+
+func (c *Client) ResolvePublicationMetadata(ctx context.Context, publicationID string, request ResolveMetadataRequest) (Publication, error) {
+	var response Publication
+	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/metadata/resolve", request, &response, true, "")
 	return response, err
 }
 

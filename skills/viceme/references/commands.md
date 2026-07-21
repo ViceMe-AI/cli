@@ -114,6 +114,84 @@ viceme job resume pub_123 --action-id act_123 --expected-payload-digest sha256:a
 
 Example stdin: `{"selector":"skills/poster"}`.
 
+## Metadata confirmation (T2)
+
+After a successful compile the publication parks at `meta_review` with a
+`confirm_metadata` action — before any target/agent/build asset exists. Read
+the parsed basic info, ask the user to confirm, supplement, or cancel:
+
+```bash
+viceme job metadata pub_123
+viceme job metadata pub_123 --action-id meta_1 \
+  --expected-payload-digest sha256:abc --decision confirm \
+  --title "探针海报" --description "为产品海报写一句主标题" --author "acme/ops"
+```
+
+`missing` lists absent fields (title/description/author) — guide the user to
+fill them with `--title` / `--description` / `--author`; `--author` also
+covers source-author edits (1-100 visible characters). Cancel maps to
+`cancelled` with zero assets and no preview link.
+
+## Preview, edit, test run and confirmation (T2)
+
+When `next_action.type` is `confirm_publish`, the exact release candidate is
+ready. Show its frozen public summary first — the preview output carries
+`public_summary_digest`, which the confirmation step binds:
+
+```bash
+viceme job preview pub_123 [--action-id act_123]
+```
+
+Edits happen only as natural language inside the conversation — never via a
+page editor or JSON Patch. Bind the digest shown by the preview:
+
+```bash
+viceme job edit pub_123 --candidate-digest sha256:def \
+  --request "把标题改成探针海报" [--timeout 2m]
+```
+
+An applied edit supersedes the old preview/action/run receipts — re-run
+`job preview` / `job get` for the fresh candidate before continuing. Identical
+retries are deduplicated server-side; 409 `candidate_changed` means the digest
+is stale.
+
+Run one real preview test of the exact candidate and show the structured
+result, then accept it only after the user approves what they saw:
+
+```bash
+viceme job run pub_123 --candidate-digest sha256:def \
+  --input theme=咖啡 [--timeout 3m]
+viceme job accept pub_123 --run-id run_1 \
+  --candidate-digest sha256:def --inputs-digest sha256:ghi
+```
+
+`--inputs-digest` is required (PRE-04): take `inputs_digest` from the
+`job run` receipt so the acceptance binds the exact input set that produced
+the result.
+
+Confirmation requires a succeeded and accepted run of the same candidate;
+otherwise `job resume --decision confirm` is rejected with 409
+`preview_run_required`. `--expected-public-summary-digest` is required too —
+take `public_summary_digest` from the `job preview` output, binding the
+decision to the exact summary receipt the user saw:
+
+```bash
+viceme job resume pub_123 --action-id act_123 \
+  --expected-payload-digest sha256:abc \
+  --expected-release-candidate-digest sha256:def \
+  --expected-public-summary-digest sha256:sum \
+  --decision confirm
+```
+
+Use `--decision cancel` when the user declines; it maps to `cancelled`
+everywhere. Never infer the decision from earlier conversation, never cache it
+across candidates: if the preview or candidate digest changes, ask the user
+again with the fresh action. A stale or expired action fails closed — fetch
+`job get` and present the new `next_action` instead of retrying the old one.
+
+## Bounded jobs and cancellation
+||||||| 2895654
+## Bounded jobs and cancellation
 ## Bounded jobs, explicit compiler retry, and cancellation
 
 ```bash

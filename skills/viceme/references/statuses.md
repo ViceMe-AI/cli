@@ -8,6 +8,7 @@
 - `resolving`
 - `compiling`
 - `materializing`
+- `release_authorized`
 - `release_committed`
 - `waiting_projection`
 
@@ -15,7 +16,8 @@ Use another bounded wait when `meta.wait_timed_out` is true.
 
 ## User action
 
-- `awaiting_action`: read `next_action`, ask the user for the required selection, then resume the same publication.
+- `meta_review`: the parsed basic info is ready for review — show `job metadata` output (title/description/author/missing), resolve with `job metadata --decision confirm|cancel`, filling or editing fields with `--title` / `--description` / `--author` (see commands.md). Cancel here leaves zero assets.
+- `awaiting_action`: read `next_action`, ask the user for the required selection, then resume the same publication. For `confirm_publish`, show the frozen summary via `job preview`, complete a succeeded `job run` and `job accept` on the exact candidate first (accept requires `--inputs-digest` from the run receipt), then resume with `--decision` plus `--expected-public-summary-digest` taken from the preview output's `public_summary_digest` (see commands.md).
 - `target_conflict`: refresh the Target. Do not use last-write-wins or create another link.
 - `selection_required`: ask the user to choose one returned selector, then resume the same publication with the exact action ID and payload digest.
 - `process_credential_active`: login/logout is unavailable in a trusted-launcher process; keep using standard commands or start a normal process for persistent login management.

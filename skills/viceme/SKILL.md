@@ -19,9 +19,25 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 2. If `auth status` reports `source=process`, continue with the standard inspect/publish/job commands. The trusted launcher owns that ephemeral credential; never print it, persist it, pass it as an argument, or run login/logout in that process. Otherwise, if logged out, run `viceme auth login --no-wait --json`. Return `verification_url`, which the CLI normalizes to the direct `verification_url_complete` browser link when the server provides it, and stop this turn. Keep the returned `device_code`, `profile`, and `region`; a non-default profile must use the same global `--profile` on both calls. After the user confirms browser authorization, run `viceme auth login --device-code <device-code> --json` in a later turn before continuing. Never request or display an access token.
 3. For GitHub, use the Host's read-only repository navigation to determine the exact repository-relative directory containing the intended `SKILL.md`, then run inspect with `--skill-root <directory>` (`.` means repository root). Do not ask Viceme Core to scan the repository or guess among Skill roots. For a pasted RedSkill/Xiaohongshu expression, inspect first and pass copied text through subprocess stdin with `--expression-stdin`; never interpolate it into a shell command.
 4. Read the returned `destination`. Never infer a Target from a title, alias, conversation memory, or source text.
-5. Treat publishing as a public side effect. Add `--yes` only when the user's request explicitly asks to publish or produce a share link; otherwise ask for confirmation. In the Core pilot this records only `publication_admission/v1`; it must not be described as the later exact-candidate preview confirmation.
-6. Run `viceme job wait <publication-id> --timeout 60s`. Do not start an unbounded wait.
-7. Return the final `share_url`, whether the release was a no-op, and any warnings. The same logical Agent keeps the same URL across later releases.
+5. Treat publishing as a public side effect. Add `--yes` only when the user's request explicitly asks to publish or produce a share link; otherwise ask for confirmation. This records only `publication_admission/v1`; it must not be described as the later exact-candidate preview confirmation.
+6. Run `viceme job wait <publication-id> --timeout 60s --json`. Do not start an unbounded wait.
+
+### 信息确认（META，先于一切资产）
+
+7. 编译完成后 publication 停在 `meta_review`，并带 `confirm_metadata` action。先用 `viceme job metadata <id>` 展示解析出的标题、描述、来源作者与缺失标记；信息缺失时引导用户补充（用 `--title` / `--description` / `--author` 传入补充值，来源作者修改同样走 `--author`）。用户取消 → `--decision cancel`，零资产终态、不产生预览链接；确认 → `--decision confirm`（可带补充/修改）。确认后才进入候选流程。
+
+### 公开摘要与 Host 编辑
+
+8. 候选就绪后 publication 停在 `awaiting_action` 并带 `confirm_publish` action。用 `viceme job preview <id>` 展示当前精确 Candidate 的公开摘要（标题/描述/来源作者/输入方式/使用方式/输出说明/示例/警告）与 `payload.preview_url`。
+9. 用户提出自然语言修改时：用 `viceme job edit <id> --candidate-digest <当前摘要里的 digest> --request "<用户的原话>"` 提交。相同请求的网络重试被服务端幂等去重；409 `candidate_changed` 说明摘要已过期，重新 `job preview` 取新 digest 再问用户。**不要**引导用户去任何页面编辑器，也不要自己构造 JSON Patch。编辑 applied 后旧 preview/action/试跑回执全部失效，必须对新 Candidate 重新走 10–12 步。
+
+### 试跑与结果确认
+
+10. 用 `viceme job run <id> --candidate-digest <digest> [--input name=value]...` 对该精确 Candidate 做一次真实试跑，向用户展示 `result.finish_report` 的结构化结果（summary/title）。
+11. 用户认可实际结果后，用 `viceme job accept <id> --run-id <run> --candidate-digest <digest> --inputs-digest <digest>` 接受。`--inputs-digest` 必填（PRE-04：接受动作必须绑定产生结果的输入组），取值是第 10 步 `job run` 回执里的 `inputs_digest`。未试跑成功或未接受就 confirm 会被 409 `preview_run_required` 拒绝。
+12. 最后用 `viceme job resume --action-id … --expected-payload-digest … --expected-release-candidate-digest … --expected-public-summary-digest … --decision confirm|cancel` 决议。`--expected-public-summary-digest` 必填（确认门绑定摘要 receipt），取值是 `job preview` 输出里的 `public_summary_digest`——先把第 8 步 preview 的摘要展示给用户，再用同一份 digest 决议。返回最终 `share_url`、是否 no-op 和 warnings。同一逻辑 Agent 永远保持同一分享链接。
+
+Stale/恢复规则：`job get` 是任何时刻的真相来源——action 过期、digest 变化或 409 后，重新 `job get` 拿最新 `next_action` 再操作，不要重放旧 action/digest。
 
 The public CLI has one publication surface: standard inspect/publish/job commands authenticated with `x-api-key`. Staff authorization is resolved server-side from an ephemeral generic process credential injected by a trusted launcher; there are no public identity-selection or authorization-secret flags and no credential-management subcommands. API and presigned-upload requests do not follow redirects. Codex, Claude Code, and other hosts consume this same CLI contract and must not reproduce the ownership resolver, claim state machine, or credential storage.
 

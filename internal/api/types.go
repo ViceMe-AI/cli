@@ -97,8 +97,97 @@ func (p Publication) MarshalJSON() ([]byte, error) {
 }
 
 type ResolveActionRequest struct {
-	ExpectedPayloadDigest string          `json:"expected_payload_digest"`
-	Payload               json.RawMessage `json:"payload"`
+	ExpectedPayloadDigest string `json:"expected_payload_digest"`
+	// Payload answers typed payload actions (select_root). confirm_publish
+	// decisions instead carry Decision plus the candidate/summary digests.
+	Payload                        json.RawMessage `json:"payload,omitempty"`
+	ExpectedReleaseCandidateDigest string          `json:"expected_release_candidate_digest,omitempty"`
+	ExpectedPublicSummaryDigest    string          `json:"expected_public_summary_digest,omitempty"`
+	Decision                       string          `json:"decision,omitempty"`
+}
+
+// ResolveMetadataRequest resolves the confirm_metadata checkpoint: confirm
+// (optionally editing title/description/author within the visible-char
+// limits) or cancel with zero assets.
+type ResolveMetadataRequest struct {
+	ActionID              string `json:"action_id"`
+	ExpectedPayloadDigest string `json:"expected_payload_digest"`
+	Decision              string `json:"decision"`
+	Title                 string `json:"title,omitempty"`
+	Description           string `json:"description,omitempty"`
+	Author                string `json:"author,omitempty"`
+}
+
+// PublicationEditRequest submits a natural-language candidate edit (Host typed action).
+type PublicationEditRequest struct {
+	EditRequest            string `json:"edit_request"`
+	CurrentCandidateDigest string `json:"current_candidate_digest"`
+}
+
+// PublicationEditReceipt is the durable edit receipt (pending/applied/failed).
+type PublicationEditReceipt struct {
+	EditID                string  `json:"edit_id"`
+	Status                string  `json:"status"`
+	Class                 *string `json:"class"`
+	BaseCandidateDigest   string  `json:"base_candidate_digest"`
+	ResultCandidateDigest *string `json:"result_candidate_digest"`
+	Error                 any     `json:"error"`
+	CreatedAt             string  `json:"created_at"`
+	CompletedAt           *string `json:"completed_at"`
+}
+
+// PreviewRunStartRequest starts one real test run of the exact candidate.
+type PreviewRunStartRequest struct {
+	Inputs                   map[string]string `json:"inputs"`
+	ExpectedCandidateDigest  string            `json:"expected_candidate_digest"`
+}
+
+// PreviewRunStartResponse is the accepted start receipt.
+type PreviewRunStartResponse struct {
+	PreviewRunID string `json:"preview_run_id"`
+	Status       string `json:"status"`
+}
+
+// SkillPreviewRun is the durable preview-run receipt with the bounded result.
+type SkillPreviewRun struct {
+	PublicationID   string         `json:"publication_id"`
+	PreviewRunID    string         `json:"preview_run_id"`
+	RunnerRunID     string         `json:"runner_run_id"`
+	CandidateDigest string         `json:"candidate_digest"`
+	InputsDigest    *string        `json:"inputs_digest"`
+	Status          string         `json:"status"`
+	ResultDigest    *string        `json:"result_digest"`
+	Result          map[string]any `json:"result"`
+	Accepted        bool           `json:"accepted"`
+	AcceptedAt      *string        `json:"accepted_at"`
+}
+
+// PreviewRunAcceptRequest accepts the actual result of a preview run.
+// PRE-04: the acceptance must bind the exact input set that produced the
+// result, so ExpectedInputsDigest is required.
+type PreviewRunAcceptRequest struct {
+	ExpectedCandidateDigest string `json:"expected_candidate_digest"`
+	ExpectedInputsDigest    string `json:"expected_inputs_digest"`
+}
+
+// PreviewRunAcceptResponse is the acceptance receipt.
+type PreviewRunAcceptResponse struct {
+	PublicationID string `json:"publication_id"`
+	PreviewRunID  string `json:"preview_run_id"`
+	Status        string `json:"status"`
+	AcceptedAt    string `json:"accepted_at"`
+}
+
+// PublicationMetadata is the metadata checkpoint read model.
+type PublicationMetadata struct {
+	PublicationID string   `json:"publication_id"`
+	Status        string   `json:"status"`
+	Title         string   `json:"title"`
+	Description   string   `json:"description"`
+	Author        string   `json:"author"`
+	Missing       []string `json:"missing"`
+	ActionID      string   `json:"action_id"`
+	ExpiresAt     string   `json:"expires_at"`
 }
 
 type UploadPrepareRequest struct {

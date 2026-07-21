@@ -89,13 +89,13 @@ func commandPolicy(path string, runnable bool) (string, bool) {
 	switch path {
 	case "skill publish", "job cancel", "job retry":
 		return "public", true
-	case "job resume":
+	case "job resume", "job metadata", "job edit", "job run", "job accept":
 		return "public", false
 	case "auth logout":
 		return "remote_and_local", false
 	case "auth login", "install", "profile add", "profile use", "profile remove", "profile rename", "skills install", "update":
 		return "local", false
-	case "version", "auth status", "profile list", "skill inspect", "skill target get", "skill target list", "job get", "job wait", "skills list", "skills read", "skills doctor":
+	case "version", "auth status", "profile list", "skill inspect", "skill target get", "skill target list", "job get", "job wait", "job preview", "skills list", "skills read", "skills doctor":
 		return "none", false
 	default:
 		if runnable {

@@ -10,7 +10,7 @@ The official command-line client and Agent Skill for publishing external Skills 
 
 [Install](#installation--quick-start) · [AI Agent Skills](#agent-skills) · [Auth](#authentication) · [Regions & profiles](#regions--profiles) · [Commands](#command-overview) · [Output contract](#json-output-contract) · [Security](#security-and-risk-controls) · [Development](#development)
 
-> **Rollout status:** the Core publication transport and stable-link path are implemented. Public rollout remains blocked until the exact Candidate preview, test run, and result-confirmation gate is complete. The current `--yes` confirms the publication request; it is not proof that the user reviewed the final Candidate.
+> **Rollout status:** the Core publication transport and stable-link path are implemented, and the exact Candidate preview → test run → result-confirmation gate is enforced: after `--yes`, the publication parks at `awaiting_action` with a typed `confirm_publish` action, and `job resume --decision confirm` is accepted only after the exact candidate has a succeeded, owner-accepted preview test run (otherwise 409 `preview_run_required`). Test runs, acceptance, and natural-language candidate edits are driven from the confirmation page (`next_action.payload.preview_url`) or the `/v1/skill-agent-publications/:id/preview-runs` and `/edits` endpoints; the CLI ships no separate commands for them. `--yes` confirms the publication request; it is not proof that the user reviewed the final Candidate.
 
 ## Why Viceme CLI?
 
@@ -120,7 +120,7 @@ Continue only when authentication is valid and `skills doctor` reports a healthy
 viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. Public publication remains blocked until the exact Candidate confirmation gate described above is complete.
+Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. After the publication parks at `awaiting_action`, guide the user through candidate preview and a test run with accepted result before resolving with `job resume --decision confirm` (see the rollout status above).
 
 ## Regions & Profiles
 
