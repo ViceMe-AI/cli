@@ -59,6 +59,30 @@ func TestCredentialsAreIsolatedByRegion(t *testing.T) {
 	}
 }
 
+func TestCustomCredentialScopesNeverReadProductionRegionCredentials(t *testing.T) {
+	t.Parallel()
+	store := securestore.NewMemory()
+	production := &Manager{Store: store, Region: "cn"}
+	customA := &Manager{Store: store, Region: "cn", Scope: "custom:origin-a"}
+	customB := &Manager{Store: store, Region: "cn", Scope: "custom:origin-b"}
+	if err := production.Save(Credential{AccessToken: "production-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := customA.Load(); err == nil {
+		t.Fatal("custom API scope read the production credential")
+	}
+	if err := customA.Save(Credential{AccessToken: "custom-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := customB.Load(); err == nil {
+		t.Fatal("credential crossed custom API origins")
+	}
+	loaded, err := production.Load()
+	if err != nil || loaded.AccessToken != "production-token" {
+		t.Fatalf("legacy production credential changed: %#v err=%v", loaded, err)
+	}
+}
+
 func TestCredentialsAreIsolatedByProfile(t *testing.T) {
 	t.Parallel()
 	store := securestore.NewMemory()
@@ -95,5 +119,18 @@ func TestDefaultProfileDoesNotReadLegacyRegionCredential(t *testing.T) {
 	}
 	if value, err := store.Get("credential:cn"); err != nil || value == "" {
 		t.Fatalf("legacy credential was unexpectedly modified: value=%q err=%v", value, err)
+	}
+}
+
+func TestCustomCredentialScopesAreIsolatedByProfile(t *testing.T) {
+	t.Parallel()
+	store := securestore.NewMemory()
+	personal := &Manager{Store: store, Region: "cn", ProfileID: "personal", Scope: "custom:origin"}
+	work := &Manager{Store: store, Region: "cn", ProfileID: "work", Scope: "custom:origin"}
+	if err := personal.Save(Credential{AccessToken: "personal-custom-token"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := work.Load(); err == nil {
+		t.Fatal("custom API credential crossed profiles")
 	}
 }

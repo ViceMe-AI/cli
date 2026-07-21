@@ -35,11 +35,16 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 		RunE: func(_ *cobra.Command, _ []string) error {
 			items := make([]profileListItem, 0, len(runtime.config.Profiles))
 			for _, profile := range runtime.config.Profiles {
+				scope, scopeErr := runtime.credentialScopeForRegion(profile.Region)
+				if scopeErr != nil {
+					return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+				}
 				manager := credentialauth.Manager{
 					Store:       runtime.deps.Store,
 					Region:      string(profile.Region),
 					ProfileID:   profile.ID,
 					ProfileName: profile.Name,
+					Scope:       scope,
 				}
 				status, err := manager.CurrentStatus()
 				if err != nil {
@@ -206,11 +211,16 @@ func newProfileRemoveCommand(runtime *Runtime) *cobra.Command {
 			if _, err := config.Save(runtime.configBase, runtime.config); err != nil {
 				return output.Internal("config_save", "could not remove the profile", err)
 			}
+			scope, scopeErr := runtime.credentialScopeForRegion(removed.Region)
+			if scopeErr != nil {
+				return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+			}
 			manager := credentialauth.Manager{
 				Store:       runtime.deps.Store,
 				Region:      string(removed.Region),
 				ProfileID:   removed.ID,
 				ProfileName: removed.Name,
+				Scope:       scope,
 			}
 			var warnings []string
 			if err := manager.Delete(); err != nil {

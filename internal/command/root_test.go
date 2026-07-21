@@ -45,6 +45,136 @@ func TestAPIBaseURLEnvironmentOverride(t *testing.T) {
 	if runtime.apiBaseURL != "http://localhost:3000" {
 		t.Fatalf("environment API base URL = %q", runtime.apiBaseURL)
 	}
+	if !strings.HasPrefix(runtime.credentialScope, "custom:") {
+		t.Fatalf("custom API origin did not receive an isolated credential scope: %q", runtime.credentialScope)
+	}
+}
+
+func TestCanonicalAPIOverridesPreserveLegacyRegionCredentialScope(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		region  config.Region
+		baseURL string
+	}{
+		{name: "china exact", region: config.RegionCN, baseURL: "https://api.viceme.cn"},
+		{name: "china normalized default port and path", region: config.RegionCN, baseURL: "https://API.VICEME.CN:443/internal/base/"},
+		{name: "global exact", region: config.RegionGlobal, baseURL: "https://api.viceme.ai"},
+		{name: "global normalized default port and path", region: config.RegionGlobal, baseURL: "https://API.VICEME.AI:443/v1/"},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			store := securestore.NewMemory()
+			legacy := &credentialauth.Manager{Store: store, Region: string(test.region)}
+			if err := legacy.Save(credentialauth.Credential{AccessToken: "legacy-token"}); err != nil {
+				t.Fatal(err)
+			}
+			_, runtime, err := NewRoot(Dependencies{
+				APIBaseURL: test.baseURL,
+				Region:     test.region,
+				Store:      store,
+				Environment: skillcontent.Environment{
+					Home:      t.TempDir(),
+					ConfigDir: t.TempDir(),
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if runtime.credentialScope != "" {
+				t.Fatalf("canonical origin selected custom scope %q", runtime.credentialScope)
+			}
+			credential, err := runtime.manager().Load()
+			if err != nil || credential.AccessToken != "legacy-token" {
+				t.Fatalf("canonical override lost the legacy credential: %#v err=%v", credential, err)
+			}
+		})
+	}
+}
+
+func TestTrulyCustomAPIOriginsUseStableIsolatedScopes(t *testing.T) {
+	first, err := credentialScopeForAPIBase("https://DEV.VICEME.EXAMPLE:443/api/one", config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sameOrigin, err := credentialScopeForAPIBase("https://dev.viceme.example/api/two", config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	differentPort, err := credentialScopeForAPIBase("https://dev.viceme.example:8443/api/one", config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(first, "custom:") || first != sameOrigin || first == differentPort {
+		t.Fatalf("custom origin scopes are not stable and isolated: first=%q same=%q port=%q", first, sameOrigin, differentPort)
+	}
+}
+
+func TestProfileSelectionRecomputesScopeAgainstFixedAPIOrigin(t *testing.T) {
+	t.Parallel()
+	configBase := t.TempDir()
+	configured := config.Default(config.RegionCN)
+	work, err := configured.AddProfile("work", config.RegionGlobal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Save(configBase, configured); err != nil {
+		t.Fatal(err)
+	}
+	store := securestore.NewMemory()
+	defaultManager := &credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default"}
+	if err := defaultManager.Save(credentialauth.Credential{AccessToken: "default-token"}); err != nil {
+		t.Fatal(err)
+	}
+	_, runtime, err := NewRoot(Dependencies{
+		APIBaseURL: "https://api.viceme.cn",
+		Store:      store,
+		Environment: skillcontent.Environment{
+			Home:      t.TempDir(),
+			ConfigDir: configBase,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.credentialScope != "" {
+		t.Fatalf("default cn profile unexpectedly used scope %q", runtime.credentialScope)
+	}
+	if err := runtime.selectProfile(work.Name); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(runtime.credentialScope, "custom:") {
+		t.Fatalf("global profile did not isolate fixed cn endpoint: %q", runtime.credentialScope)
+	}
+	if _, err := runtime.manager().Load(); err == nil {
+		t.Fatal("selected profile reused the default profile credential")
+	}
+}
+
+func TestCustomAPIOriginCannotReadProductionCredentials(t *testing.T) {
+	t.Setenv("VICEME_API_BASE_URL", "http://localhost:3000/dev")
+	store := securestore.NewMemory()
+	production := &credentialauth.Manager{Store: store, Region: "cn"}
+	if err := production.Save(credentialauth.Credential{AccessToken: "production-token"}); err != nil {
+		t.Fatal(err)
+	}
+	_, runtime, err := NewRoot(Dependencies{
+		Store:       store,
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := runtime.manager().CurrentStatus()
+	if err != nil || status.Authenticated {
+		t.Fatalf("custom origin reused production login: %#v err=%v", status, err)
+	}
+	if err := runtime.manager().Save(credentialauth.Credential{AccessToken: "custom-token"}); err != nil {
+		t.Fatal(err)
+	}
+	credential, err := production.Load()
+	if err != nil || credential.AccessToken != "production-token" {
+		t.Fatalf("custom login overwrote production credential: %#v err=%v", credential, err)
+	}
 }
 
 func TestStoredGlobalRegionUsesGlobalEndpoint(t *testing.T) {
@@ -108,6 +238,52 @@ func TestPublishRequiresConfirmationAndExplicitUploadTarget(t *testing.T) {
 	if code != 0 || stderr != "" || !strings.Contains(stdout, `"expected_target_version":4`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
+	code, stdout, stderr, _ = runCLI(t, nil, nil, "skill", "publish", "https://github.com/acme/skill", "--target-id", "target_0", "--expected-target-version", "0", "--yes", "--dry-run")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"expected_target_version":0`) {
+		t.Fatalf("explicit version zero was not preserved: code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	code, _, stderr, _ = runCLI(t, nil, nil, "skill", "publish", "https://github.com/acme/skill", "--target-id", "target_0", "--expected-target-version", "-1", "--yes", "--dry-run")
+	if code != 2 || !strings.Contains(stderr, "target_version") {
+		t.Fatalf("negative target version was accepted: code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestPublishTargetAliasCanonicality(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		alias     string
+		newTarget bool
+		wantCode  int
+	}{
+		{name: "explicit empty", alias: "", newTarget: true, wantCode: 2},
+		{name: "surrounding whitespace", alias: " poster ", newTarget: true, wantCode: 2},
+		{name: "more than 191 Unicode characters", alias: strings.Repeat("技", 192), newTarget: true, wantCode: 2},
+		{name: "invalid UTF-8", alias: string([]byte{0xff}), newTarget: true, wantCode: 2},
+		{name: "alias without new target", alias: "poster", wantCode: 2},
+		{name: "legal Unicode alias", alias: strings.Repeat("技", 191), newTarget: true, wantCode: 0},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			args := []string{"skill", "publish", "https://github.com/acme/skill", "--target-alias", test.alias, "--yes", "--dry-run"}
+			if test.newTarget {
+				args = append(args, "--new-target")
+			}
+			code, stdout, stderr, _ := runCLI(t, nil, nil, args...)
+			if code != test.wantCode {
+				t.Fatalf("code=%d want=%d stdout=%s stderr=%s", code, test.wantCode, stdout, stderr)
+			}
+			if test.wantCode == 0 {
+				if stderr != "" || !strings.Contains(stdout, `"alias":"`+test.alias+`"`) {
+					t.Fatalf("legal alias was not preserved: stdout=%s stderr=%s", stdout, stderr)
+				}
+			} else if !strings.Contains(stderr, "target_alias") {
+				t.Fatalf("invalid alias returned the wrong error: %s", stderr)
+			}
+		})
+	}
 }
 
 func TestAuthNoWaitJSONNeverReturnsToken(t *testing.T) {
@@ -170,7 +346,11 @@ func TestAuthLoginGuidesHumanAndWaitsForAuthorization(t *testing.T) {
 			t.Fatalf("human login leaked %q: %s", secret, stderr)
 		}
 	}
-	manager := &credentialauth.Manager{Store: store, Region: "cn"}
+	scope, err := customCredentialScope(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", Scope: scope}
 	credential, err := manager.Load()
 	if err != nil || credential.AccessToken != "top-secret" {
 		t.Fatalf("credential was not stored: credential=%#v err=%v", credential, err)
@@ -211,13 +391,60 @@ func TestDeviceLoginStoresTokenButDoesNotPrintIt(t *testing.T) {
 	if strings.Contains(stdout, "top-secret") || strings.Contains(stdout, "refresh-secret") {
 		t.Fatal("completed login leaked credentials")
 	}
-	manager := &credentialauth.Manager{Store: store, Region: "cn"}
+	scope, err := customCredentialScope(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := &credentialauth.Manager{Store: store, Region: "cn", Scope: scope}
 	credential, err := manager.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	if credential.AccessToken != "top-secret" {
 		t.Fatal("credential was not stored")
+	}
+}
+
+func TestProcessCredentialUsesStandardAPIKeyWithoutPersistenceOrOutput(t *testing.T) {
+	const processToken = "vpa_process_only_secret"
+	t.Setenv(processAccessTokenEnvironment, processToken)
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("x-api-key") != processToken {
+			t.Fatalf("standard API key header = %q", request.Header.Get("x-api-key"))
+		}
+		return jsonHTTPResponse(request, http.StatusAccepted, `{"publication_id":"pub_process","status":"received"}`), nil
+	})
+	store := securestore.NewMemory()
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", Dependencies{
+		HTTPClient: &http.Client{Transport: transport},
+		APIBaseURL: "https://api.viceme.test",
+	}, "skill", "publish", "--resolution-id", "res_process", "--yes")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "pub_process") || strings.Contains(stdout, processToken) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if _, err := (&credentialauth.Manager{Store: store, Region: "cn"}).Load(); err == nil {
+		t.Fatal("process credential was persisted to the keychain")
+	}
+
+	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", Dependencies{}, "auth", "status")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"source":"process"`) ||
+		!strings.Contains(stdout, `"persistent":false`) || strings.Contains(stdout, processToken) {
+		t.Fatalf("status code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", Dependencies{}, "auth", "logout")
+	if code == 0 || !strings.Contains(stderr, "process_credential_active") || strings.Contains(stderr, processToken) {
+		t.Fatalf("logout code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestProcessCredentialRejectsNonCanonicalSecret(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, " secret-with-space ")
+	_, _, err := NewRoot(Dependencies{
+		Store:       securestore.NewMemory(),
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()},
+	})
+	if err == nil || !strings.Contains(err.Error(), "process publication credential is invalid") {
+		t.Fatalf("error = %v", err)
 	}
 }
 
@@ -276,6 +503,9 @@ func TestPublishRetriesAmbiguousTransportWithSameRequestID(t *testing.T) {
 	t.Parallel()
 	var calls atomic.Int32
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("x-api-key") != "test-token" {
+			t.Fatal("retry changed or omitted the standard credential")
+		}
 		if calls.Add(1) == 1 {
 			return nil, fmt.Errorf("connection closed after write")
 		}
@@ -298,7 +528,7 @@ func TestPublishRetriesAmbiguousTransportWithSameRequestID(t *testing.T) {
 	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, authenticatedStore(t), "", Dependencies{
 		HTTPClient: &http.Client{Transport: transport},
 		APIBaseURL: "https://api.viceme.test",
-	}, "skill", "publish", "https://github.com/acme/skill", "--yes")
+	}, "skill", "publish", "--resolution-id", "res_retry", "--client-request-id", "request-fixed", "--yes")
 	if code != 0 || stderr != "" || calls.Load() != 2 || !strings.Contains(stdout, "pub_retry") {
 		t.Fatalf("code=%d calls=%d stdout=%s stderr=%s", code, calls.Load(), stdout, stderr)
 	}
@@ -675,8 +905,12 @@ func runCLIWithDependencies(t *testing.T, server *httptest.Server, store secures
 	extra.Out = &stdout
 	extra.ErrOut = &stderr
 	extra.Store = store
-	extra.NewID = func() string { return "request-fixed" }
-	extra.Sleep = func(context.Context, time.Duration) error { return nil }
+	if extra.NewID == nil {
+		extra.NewID = func() string { return "request-fixed" }
+	}
+	if extra.Sleep == nil {
+		extra.Sleep = func(context.Context, time.Duration) error { return nil }
+	}
 	if extra.Environment.Home == "" {
 		extra.Environment = skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()}
 	}
@@ -687,6 +921,20 @@ func runCLIWithDependencies(t *testing.T, server *httptest.Server, store secures
 		extra.HTTPClient = server.Client()
 		extra.APIBaseURL = server.URL
 	}
+	// Tests that seed the default-profile canonical login explicitly mirror it into the
+	// custom httptest origin. Production code never performs this migration.
+	if extra.APIBaseURL != "" {
+		canonical := &credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default"}
+		if credential, loadErr := canonical.Load(); loadErr == nil && credential.AccessToken == "test-token" {
+			scope, scopeErr := customCredentialScope(extra.APIBaseURL)
+			if scopeErr != nil {
+				t.Fatal(scopeErr)
+			}
+			if saveErr := (&credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", Scope: scope}).Save(credential); saveErr != nil {
+				t.Fatal(saveErr)
+			}
+		}
+	}
 	code := Execute(args, extra)
 	return code, stdout.String(), stderr.String(), store
 }
@@ -695,4 +943,13 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return function(request)
+}
+
+func jsonHTTPResponse(request *http.Request, status int, body string) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Header:     make(http.Header),
+		Body:       io.NopCloser(strings.NewReader(body)),
+		Request:    request,
+	}
 }

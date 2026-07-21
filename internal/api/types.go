@@ -44,13 +44,27 @@ type InspectRequest struct {
 	SkillRoot string `json:"skill_root,omitempty"`
 }
 
-type InspectResponse Document
+type InspectCandidate struct {
+	Selector    string   `json:"selector"`
+	Title       string   `json:"title,omitempty"`
+	Source      Document `json:"source,omitempty"`
+	Destination Document `json:"destination,omitempty"`
+}
+
+type InspectResponse struct {
+	ResolutionID  string             `json:"resolution_id"`
+	ExpiresAt     time.Time          `json:"expires_at,omitempty"`
+	Source        Document           `json:"source,omitempty"`
+	SourceVersion Document           `json:"source_version,omitempty"`
+	Destination   Document           `json:"destination,omitempty"`
+	Candidates    []InspectCandidate `json:"candidates"`
+}
 
 type Destination struct {
 	Mode                  string `json:"mode"`
 	Alias                 string `json:"alias,omitempty"`
 	TargetID              string `json:"target_id,omitempty"`
-	ExpectedTargetVersion int64  `json:"expected_target_version,omitempty"`
+	ExpectedTargetVersion *int64 `json:"expected_target_version,omitempty"`
 }
 
 type PublicationOptions struct {

@@ -438,7 +438,7 @@
         {
           "name": "client-request-id",
           "type": "string",
-          "usage": "idempotency key for this publication action"
+          "usage": "stable idempotency key for an exact publication request"
         },
         {
           "name": "dir",

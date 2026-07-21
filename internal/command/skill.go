@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	archivepkg "github.com/ViceMe-AI/cli/internal/archive"
@@ -86,8 +87,10 @@ type publishOptions struct {
 	skillRoot             string
 	newTarget             bool
 	targetAlias           string
+	targetAliasSet        bool
 	targetID              string
 	expectedTargetVersion int64
+	expectedVersionSet    bool
 	targetLocale          string
 	yes                   bool
 	wait                  bool
@@ -108,12 +111,14 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			return nil
 		},
 		RunE: func(command *cobra.Command, args []string) error {
+			opts.expectedVersionSet = command.Flags().Changed("expected-target-version")
+			opts.targetAliasSet = command.Flags().Changed("target-alias")
 			if err := validatePublishOptions(args, opts); err != nil {
 				return err
 			}
 			destination := publishDestination(opts)
 			if opts.dryRun {
-				return runtime.success(map[string]any{
+				result := map[string]any{
 					"dry_run":            true,
 					"operation":          "skill.publish",
 					"source_mode":        publishSourceMode(args, opts),
@@ -122,14 +127,12 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 					"confirmation_ok":    opts.yes,
 					"publish_mode":       "confirm",
 					"confirmation_scope": "publication_admission/v1",
-				})
-			}
-			requestID := opts.clientRequestID
-			if requestID == "" {
-				requestID = runtime.deps.NewID()
+					"ownership_mode":     "server_resolved",
+				}
+				return runtime.success(result)
 			}
 			request := api.CreatePublicationRequest{
-				ClientRequestID: requestID,
+				ClientRequestID: opts.clientRequestID,
 				ResolutionID:    opts.resolutionID,
 				Selector:        opts.skillRoot,
 				Destination:     destination,
@@ -145,6 +148,9 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 					return err
 				}
 				request.Source = &source
+			}
+			if request.ClientRequestID == "" {
+				request.ClientRequestID = runtime.deps.NewID()
 			}
 			publication, err := createPublication(command.Context(), runtime, request)
 			if err != nil {
@@ -184,12 +190,13 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	flags.BoolVar(&opts.wait, "wait", false, "wait for a bounded publication result")
 	flags.DurationVar(&opts.timeout, "timeout", 60*time.Second, "maximum wait duration")
 	flags.BoolVar(&opts.dryRun, "dry-run", false, "validate and print the operation without reading input or calling Viceme")
-	flags.StringVar(&opts.clientRequestID, "client-request-id", "", "idempotency key for this publication action")
+	flags.StringVar(&opts.clientRequestID, "client-request-id", "", "stable idempotency key for an exact publication request")
 	return command
 }
 
 func createPublication(ctx context.Context, runtime *Runtime, request api.CreatePublicationRequest) (api.Publication, error) {
-	publication, err := runtime.client().CreatePublication(ctx, request)
+	client := runtime.client()
+	publication, err := client.CreatePublication(ctx, request)
 	if err == nil {
 		return publication, nil
 	}
@@ -203,7 +210,7 @@ func createPublication(ctx context.Context, runtime *Runtime, request api.Create
 	// Reuse the exact request and client_request_id. The server owns the
 	// idempotency receipt, so an ambiguous transport failure cannot create a
 	// second publication.
-	return runtime.client().CreatePublication(ctx, request)
+	return client.CreatePublication(ctx, request)
 }
 
 func validatePublishOptions(args []string, opts publishOptions) error {
@@ -219,6 +226,9 @@ func validatePublishOptions(args []string, opts publishOptions) error {
 	if sources != 1 {
 		return output.Validation("source_required", "provide exactly one source, --resolution-id, --expression-stdin, --file, or --dir")
 	}
+	if opts.clientRequestID != "" && (strings.TrimSpace(opts.clientRequestID) != opts.clientRequestID || len(opts.clientRequestID) > 128) {
+		return output.Validation("client_request_id_invalid", "--client-request-id must be 1 to 128 non-whitespace characters")
+	}
 	if !opts.yes && !opts.dryRun {
 		return output.Confirmation("confirmation_required", "publishing creates or updates a public share link; rerun with --yes after user confirmation")
 	}
@@ -228,14 +238,20 @@ func validatePublishOptions(args []string, opts publishOptions) error {
 	if opts.newTarget && opts.targetID != "" {
 		return output.Validation("target_flags", "--new-target and --target-id are mutually exclusive")
 	}
-	if opts.targetAlias != "" && !opts.newTarget {
+	if opts.targetAliasSet && !opts.newTarget {
 		return output.Validation("target_alias", "--target-alias requires --new-target")
 	}
-	if opts.targetID == "" && opts.expectedTargetVersion != 0 {
+	if opts.targetAliasSet && (opts.targetAlias == "" || !utf8.ValidString(opts.targetAlias) || strings.TrimSpace(opts.targetAlias) != opts.targetAlias || utf8.RuneCountInString(opts.targetAlias) > 191) {
+		return output.Validation("target_alias", "--target-alias must be 1 to 191 Unicode characters without leading or trailing whitespace")
+	}
+	if opts.targetID == "" && opts.expectedVersionSet {
 		return output.Validation("target_version", "--expected-target-version requires --target-id")
 	}
-	if opts.targetID != "" && opts.expectedTargetVersion <= 0 {
-		return output.Validation("target_version", "--target-id requires a positive --expected-target-version")
+	if opts.targetID != "" && !opts.expectedVersionSet {
+		return output.Validation("target_version", "--target-id requires --expected-target-version")
+	}
+	if opts.expectedVersionSet && opts.expectedTargetVersion < 0 {
+		return output.Validation("target_version", "--expected-target-version must be zero or greater")
 	}
 	if (opts.file != "" || opts.directory != "") && !opts.newTarget && opts.targetID == "" {
 		return output.Validation("upload_target", "uploaded input requires --new-target or --target-id with --expected-target-version")
@@ -248,7 +264,8 @@ func publishDestination(opts publishOptions) api.Destination {
 	case opts.newTarget:
 		return api.Destination{Mode: "new", Alias: opts.targetAlias}
 	case opts.targetID != "":
-		return api.Destination{Mode: "existing", TargetID: opts.targetID, ExpectedTargetVersion: opts.expectedTargetVersion}
+		version := opts.expectedTargetVersion
+		return api.Destination{Mode: "existing", TargetID: opts.targetID, ExpectedTargetVersion: &version}
 	default:
 		return api.Destination{Mode: "auto"}
 	}
