@@ -117,7 +117,7 @@ Continue only when authentication is valid and `skills doctor` reports a healthy
 **Step 5 — Inspect the first source**
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill
+viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
 Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. Public publication remains blocked until the exact Candidate confirmation gate described above is complete.
@@ -188,9 +188,11 @@ The public CLI exposes one standard authentication and publication surface. A tr
 ### GitHub or trusted provider
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill
+viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
+
+For GitHub, `--skill-root` is required and names the exact repository-relative directory containing `SKILL.md`; use `.` only for a root-level Skill. The calling Agent determines this path from the user input or read-only repository tree. Viceme does not scan the repository to guess a Skill.
 
 ### Xiaohongshu or RedSkill copied expression
 
@@ -226,7 +228,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 | `viceme skill inspect` | Freeze and inspect a source candidate without publishing |
 | `viceme skill publish` | Create or update a stable Skill Agent publication |
 | `viceme skill target` | Resolve existing logical Agent Targets and versions |
-| `viceme job` | Read, wait for, resume, or cancel a durable publication |
+| `viceme job` | Read, wait for, resume, explicitly retry, or cancel a durable publication |
 | `viceme skills` | Read, install, and diagnose the bundled Agent Skill |
 | `viceme update` | Update the npm launcher, verified binary, and bundled Skill together |
 
@@ -281,11 +283,12 @@ Determine command success from the process exit code or `ok == true`. The API's 
 ## Security and Risk Controls
 
 - **No source execution** — the CLI and compiler do not execute third-party scripts, binaries, shell fragments, marketplace commands, or copied instructions.
-- **Explicit public mutation** — publishing and cancellation require `--yes`; exit code `10` means the Agent must obtain confirmation, not silently retry.
+- **Explicit public mutation** — publishing, compiler retry, and cancellation require `--yes`; exit code `10` means the Agent must obtain confirmation, not silently retry.
 - **Safe preview** — use `--dry-run` on inspect or publish when the user needs to review the planned request without network or publication side effects.
 - **Credential isolation** — credentials stay in the OS keychain and are namespaced by profile and region.
 - **Immutable inputs** — inspection binds publication to an immutable source snapshot rather than re-reading a floating URL later.
 - **Bounded waiting** — `job wait` has a maximum duration and returns the latest durable state without cancelling the workflow.
+- **Bounded compiler recovery** — `job retry` keeps the frozen source and publication, accepts only an explicitly retryable platform failure, and is capped by the server.
 - **Verified distribution** — the npm launcher downloads the binary for its exact package version from GitHub or a binary mirror and verifies it against the checksum manifest bundled in the npm package before activation.
 
 ## Diagnose and Update

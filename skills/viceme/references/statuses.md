@@ -28,7 +28,7 @@ Use another bounded wait when `meta.wait_timed_out` is true.
 - `unsupported`: a hard dependency cannot be mapped; stop without publishing a reduced Agent.
 - `rejected`: source or policy validation rejected the publication.
 - `cancelled`: the publication was cancelled.
-- `failed`: the durable workflow failed; report `data.failure` and the publication ID.
+- `failed`: report `data.failure` and the publication ID. Only when `data.failure.details.type` is `PLATFORM_FAILURE` and `data.failure.details.retryable` is `true`, the user may explicitly request `viceme job retry <publication-id> --yes`. Retry the same publication at most through the server-controlled limit; never alter or re-upload the source as a workaround.
 
 ## CLI execution errors
 

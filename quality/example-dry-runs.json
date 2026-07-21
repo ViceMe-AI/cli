@@ -1,8 +1,8 @@
 [
   {
     "name": "github inspect",
-    "documentation_anchor": "viceme skill inspect https://github.com/acme/poster-skill",
-    "args": ["skill", "inspect", "https://github.com/acme/poster-skill", "--dry-run"],
+    "documentation_anchor": "viceme skill inspect https://github.com/acme/poster-skill --skill-root .",
+    "args": ["skill", "inspect", "https://github.com/acme/poster-skill", "--skill-root", ".", "--dry-run"],
     "operation": "skill.inspect",
     "source_mode": "argument"
   },
@@ -16,8 +16,8 @@
   },
   {
     "name": "github publish",
-    "documentation_anchor": "viceme skill publish https://github.com/acme/poster-skill --yes",
-    "args": ["skill", "publish", "https://github.com/acme/poster-skill", "--yes", "--dry-run"],
+    "documentation_anchor": "viceme skill publish https://github.com/acme/poster-skill --skill-root . --yes",
+    "args": ["skill", "publish", "https://github.com/acme/poster-skill", "--skill-root", ".", "--yes", "--dry-run"],
     "operation": "skill.publish",
     "source_mode": "argument"
   },

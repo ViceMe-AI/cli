@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -34,13 +35,22 @@ func TestInspectUsesAPIKeyAndAcceptsEnvelope(t *testing.T) {
 		if request.Header.Get("Authorization") != "" {
 			t.Fatalf("API key must not be sent as Bearer: %q", request.Header.Get("Authorization"))
 		}
+		var body InspectRequest
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode inspect request: %v", err)
+		}
+		if body.SkillRoot != "skills/poster" {
+			t.Fatalf("skill_root = %q; want skills/poster", body.SkillRoot)
+		}
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(writer, `{"ok":true,"data":{"resolution_id":"res_1","destination":{"mode":"new_auto"}}}`)
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client(), staticToken("secret"), "viceme/test")
-	response, err := client.Inspect(context.Background(), InspectRequest{Source: Source{Kind: "expression", Value: "https://github.com/acme/skill"}})
+	response, err := client.Inspect(context.Background(), InspectRequest{
+		Source: Source{Kind: "expression", Value: "https://github.com/acme/skill"}, SkillRoot: "skills/poster",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

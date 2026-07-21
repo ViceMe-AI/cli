@@ -16,7 +16,29 @@ func newJobCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newJobGetCommand(runtime))
 	command.AddCommand(newJobWaitCommand(runtime))
 	command.AddCommand(newJobResumeCommand(runtime))
+	command.AddCommand(newJobRetryCommand(runtime))
 	command.AddCommand(newJobCancelCommand(runtime))
+	return command
+}
+
+func newJobRetryCommand(runtime *Runtime) *cobra.Command {
+	var yes bool
+	command := &cobra.Command{
+		Use:   "retry <publication-id>",
+		Short: "Explicitly retry a retryable compiler failure",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if !yes {
+				return output.Confirmation("confirmation_required", "retrying compilation may invoke the model again; explicit confirmation with --yes is required")
+			}
+			publication, err := runtime.client().RetryPublication(command.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return runtime.success(publication)
+		},
+	}
+	command.Flags().BoolVar(&yes, "yes", false, "confirm one bounded compiler retry")
 	return command
 }
 

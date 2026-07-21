@@ -147,6 +147,22 @@
       ]
     },
     {
+      "path": "job retry",
+      "use": "retry <publication-id>",
+      "short": "Explicitly retry a retryable compiler failure",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": true,
+      "flags": [
+        {
+          "name": "yes",
+          "type": "bool",
+          "default": "false",
+          "usage": "confirm one bounded compiler retry"
+        }
+      ]
+    },
+    {
       "path": "job wait",
       "use": "wait <publication-id>",
       "short": "Wait for a bounded publication result",
@@ -255,6 +271,11 @@
           "type": "bool",
           "default": "false",
           "usage": "read a copied provider expression from stdin"
+        },
+        {
+          "name": "skill-root",
+          "type": "string",
+          "usage": "exact repository-relative directory containing SKILL.md; use . for the repository root"
         }
       ]
     },
