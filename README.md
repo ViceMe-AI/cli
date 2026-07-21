@@ -144,7 +144,7 @@ viceme profile remove company
 
 `profile use` changes the persistent active profile; the global `--profile` flag overrides only one command. AI Agents must not switch or remove profiles unless the user explicitly requests it.
 
-`VICEME_CLI_CONFIG_DIR` can override the config root. Local API development still uses the process-only `VICEME_API_BASE_URL`; it is never persisted in a profile.
+`VICEME_CLI_CONFIG_DIR` can override the config root. Local API development uses the process-only `VICEME_API_BASE_URL`; it is never persisted in a profile. An override on the selected region's canonical origin keeps that region's endpoint scope, even with a base path; a different normalized origin uses an isolated scope and requires separate authentication. Persistent login credentials remain isolated by profile and region/origin. API and presigned-upload requests fail closed on redirects so credential headers are never forwarded to another origin.
 
 Update checks query the npm registry directly and store only the last successful version result in `~/.viceme-cli/update-state.json`. A result is used as a fallback for at most 24 hours when the registry is temporarily unavailable. npm operations launched by `viceme install` or `viceme update` use the isolated `~/.viceme-cli/npm-cache`, so a broken user-level `~/.npm` cache does not block the CLI. Both files are non-secret and can be deleted safely; credentials never enter either cache.
 
@@ -179,7 +179,9 @@ viceme skills doctor
 | `viceme auth login --device-code <code> --json` | Complete an Agent split-flow in a later turn |
 | `viceme auth logout` | Revoke and remove the current profile credential |
 
-Tokens are stored only in the operating-system keychain. There is no plaintext token fallback, and successful login output never contains the access or refresh token.
+Tokens created by device login are stored only in the operating-system keychain. There is no plaintext fallback, and successful login output never contains the access or refresh token.
+
+The public CLI exposes one standard authentication and publication surface. A trusted launcher may inject a short-lived generic process credential for a staff-authorized operation; `auth status` reports it as `source=process`, and the normal inspect/publish/job commands send it through `x-api-key`. It is never persisted or printed, login/logout fail closed while it is active, and update subprocesses do not inherit it. There are no public identity-selection or authorization-secret flags or credential-management commands.
 
 ## Supported Sources
 
@@ -266,16 +268,16 @@ CLI execution errors are written to **stderr** with a non-zero exit code:
 }
 ```
 
-Determine command success from the process exit code or `ok == true`. A successfully read publication may still contain a business terminal status such as `unsupported`, `rejected`, or `failed`; inspect `data.status` instead of treating those states as CLI transport failures.
+Determine command success from the process exit code or `ok == true`. The API's domain-specific `error.type` is preserved; the exit code is only a coarse handling class. A successfully read publication may still contain a business terminal status such as `unsupported`, `rejected`, or `failed`; inspect `data.status` instead of treating those states as CLI transport failures.
 
 | Exit code | Meaning |
 |---|---|
 | `0` | Command completed; inspect returned business status when applicable |
 | `2` | Validation failure |
 | `3` | Authentication or authorization failure |
-| `4` | Retryable network failure |
+| `4` | Retryable transport or concurrency failure |
 | `5` | Internal or protocol failure |
-| `6` | Policy rejection before publication creation |
+| `6` | Policy or rollout-gate rejection |
 | `10` | Explicit confirmation required |
 
 ## Security and Risk Controls

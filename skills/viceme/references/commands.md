@@ -26,6 +26,8 @@ viceme profile remove company
 
 `profile use` changes the persistent active profile. Global `--profile` selects a profile for one command without changing the persistent selection. Never switch, rename, or remove a profile based only on inferred intent.
 
+A `VICEME_API_BASE_URL` override on the selected region's canonical origin keeps that region's endpoint scope, including when a base path is present. A different normalized origin uses an isolated scope and requires its own login. Persistent credentials are isolated by profile and region/origin. All API and presigned-upload redirects fail closed.
+
 Check first when desired, then update the npm launcher, verified Go binary, and matching Skill together:
 
 ```bash
@@ -46,6 +48,16 @@ viceme auth logout
 ```
 
 Use plain `viceme auth login` for a person at a terminal: it prints the browser URL and waits for completion. AI Agents must use `--no-wait --json`, ask the user to open `verification_url`, and stop the current turn; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code and `--json` in a later turn using the same profile. Tokens stay in the operating system keychain and are isolated by profile and region.
+
+## Authentication and server-resolved ownership
+
+An authenticated user publishes with the standard commands. No owner, creator, or authorization selector is accepted from the command line:
+
+```bash
+viceme skill publish --resolution-id <resolution-id> --yes
+```
+
+For a staff-authorized operation, a trusted launcher may inject the generic process-only credential before starting the CLI. `viceme auth status` then reports `source=process` and `persistent=false`; standard inspect/publish/job commands remain unchanged and use the normal `x-api-key` transport. Login and logout fail closed in that process. The credential is never stored, printed, exposed through a flag or command, or inherited by update subprocesses.
 
 ## GitHub or trusted provider
 

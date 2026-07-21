@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -31,6 +32,9 @@ type Manager struct {
 	Region      string
 	ProfileID   string
 	ProfileName string
+	// Scope overrides the region namespace for custom API origins. It is still
+	// nested under ProfileID so credentials never cross profiles.
+	Scope string
 }
 
 func (m *Manager) key() string {
@@ -38,11 +42,14 @@ func (m *Manager) key() string {
 	if profileID == "" {
 		profileID = "default"
 	}
-	region := m.Region
-	if region == "" {
-		region = "cn"
+	endpointScope := strings.TrimSpace(m.Scope)
+	if endpointScope == "" {
+		endpointScope = strings.ToLower(strings.TrimSpace(m.Region))
+		if endpointScope == "" {
+			endpointScope = "cn"
+		}
 	}
-	return "credential:" + profileID + ":" + region
+	return "credential:" + profileID + ":" + endpointScope
 }
 
 func (m *Manager) Save(credential Credential) error {

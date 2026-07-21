@@ -17,6 +17,8 @@ type dryRunExample struct {
 	Args                []string `json:"args"`
 	Operation           string   `json:"operation"`
 	SourceMode          string   `json:"source_mode"`
+	WantSubstrings      []string `json:"want_substrings"`
+	ForbidSubstrings    []string `json:"forbid_substrings"`
 }
 
 func TestDocumentedPublishExamplesExecuteAsNetworkFreeDryRuns(t *testing.T) {
@@ -51,6 +53,16 @@ func TestDocumentedPublishExamplesExecuteAsNetworkFreeDryRuns(t *testing.T) {
 			}, example.Args...)
 			if code != 0 || stderr != "" {
 				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			for _, wanted := range example.WantSubstrings {
+				if !strings.Contains(stdout, wanted) {
+					t.Fatalf("dry-run output is missing %q: %s", wanted, stdout)
+				}
+			}
+			for _, forbidden := range example.ForbidSubstrings {
+				if strings.Contains(stdout, forbidden) || strings.Contains(stderr, forbidden) {
+					t.Fatalf("dry-run output contains forbidden %q", forbidden)
+				}
 			}
 			var envelope struct {
 				Data map[string]any `json:"data"`

@@ -156,7 +156,7 @@ func (c *Client) PutUpload(ctx context.Context, prepared UploadPrepareResponse, 
 	for key, value := range prepared.Headers {
 		request.Header.Set(key, value)
 	}
-	response, err := c.HTTPClient.Do(request)
+	response, err := withoutRedirects(c.HTTPClient).Do(request)
 	if err != nil {
 		return output.Network("upload_transport", "failed to upload the Skill bundle", err)
 	}
@@ -169,6 +169,10 @@ func (c *Client) PutUpload(ctx context.Context, prepared UploadPrepareResponse, 
 }
 
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string) error {
+	return c.doJSONWithHeaders(ctx, method, endpoint, requestBody, responseBody, authenticated, explicitToken, nil)
+}
+
+func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string, headers http.Header) error {
 	base, err := validateAPIBaseURL(c.BaseURL)
 	if err != nil {
 		return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
@@ -193,6 +197,11 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 	if c.UserAgent != "" {
 		request.Header.Set("User-Agent", c.UserAgent)
 	}
+	for key, values := range headers {
+		for _, value := range values {
+			request.Header.Add(key, value)
+		}
+	}
 	token := explicitToken
 	if authenticated && token == "" {
 		if c.Tokens == nil {
@@ -210,7 +219,7 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 		}
 		applyCredential(request, token)
 	}
-	response, err := c.HTTPClient.Do(request)
+	response, err := withoutRedirects(c.HTTPClient).Do(request)
 	if err != nil {
 		return output.Network("transport", "failed to reach the Viceme API", err)
 	}
@@ -231,9 +240,43 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 	return decodeSuccess(data, responseBody)
 }
 
+// NormalizeAPIOrigin validates an API base URL and returns the canonical
+// credential boundary. Paths do not create a separate browser/network origin;
+// scheme, lower-cased host, and non-default port do.
+func NormalizeAPIOrigin(raw string) (string, error) {
+	base, err := validateAPIBaseURL(raw)
+	if err != nil {
+		return "", err
+	}
+	scheme := strings.ToLower(base.Scheme)
+	host := strings.ToLower(base.Hostname())
+	port := base.Port()
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	return scheme + "://" + host, nil
+}
+
+func withoutRedirects(client *http.Client) *http.Client {
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
+	}
+	copy := *client
+	copy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
+		return http.ErrUseLastResponse
+	}
+	return &copy
+}
+
 func validateAPIBaseURL(raw string) (*url.URL, error) {
 	base, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || base.Hostname() == "" || base.User != nil {
+	if err != nil || base.Hostname() == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" || base.Opaque != "" {
 		return nil, errors.New("invalid API URL")
 	}
 	switch strings.ToLower(base.Scheme) {
@@ -283,7 +326,7 @@ func decodeServerError(status int, data []byte) error {
 	if serverError.Subtype == "" {
 		serverError.Subtype = http.StatusText(status)
 	}
-	code, typ := exitForStatus(status, serverError.Type)
+	code, typ := exitForServerError(status, serverError.Type)
 	cliError := output.NewError(code, typ, serverError.Subtype, serverError.Message)
 	cliError.Retryable = serverError.Retryable
 	cliError.Hint = serverError.Hint
@@ -293,17 +336,39 @@ func decodeServerError(status int, data []byte) error {
 	return cliError
 }
 
-func exitForStatus(status int, serverType string) (int, string) {
-	if serverType != "" {
-		switch serverType {
-		case "authentication", "authorization":
-			return output.ExitAuthentication, serverType
-		case "validation":
-			return output.ExitValidation, serverType
-		case "policy":
-			return output.ExitPolicy, serverType
-		}
+func exitForServerError(status int, serverType string) (int, string) {
+	if serverType == "" {
+		return exitForStatus(status)
 	}
+	if code, known := exitForType(serverType); known {
+		return code, serverType
+	}
+	// Preserve future server taxonomy instead of pretending it is a known CLI
+	// type. HTTP status still supplies a fail-safe nonzero exit category.
+	code, _ := exitForStatus(status)
+	return code, serverType
+}
+
+func exitForType(serverType string) (int, bool) {
+	switch serverType {
+	case "authentication", "authorization":
+		return output.ExitAuthentication, true
+	case "validation", "target_conflict":
+		return output.ExitValidation, true
+	case "network", "concurrency":
+		return output.ExitNetwork, true
+	case "internal":
+		return output.ExitInternal, true
+	case "policy", "rollout_gate":
+		return output.ExitPolicy, true
+	case "confirmation":
+		return output.ExitConfirmation, true
+	default:
+		return 0, false
+	}
+}
+
+func exitForStatus(status int) (int, string) {
 	switch status {
 	case http.StatusBadRequest,
 		http.StatusNotFound,

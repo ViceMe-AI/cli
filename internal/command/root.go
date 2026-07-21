@@ -3,12 +3,14 @@ package command
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	cliembed "github.com/ViceMe-AI/cli"
@@ -52,9 +54,19 @@ type Runtime struct {
 	region               config.Region
 	apiBaseURL           string
 	apiBaseURLOverridden bool
+	credentialScope      string
 	config               config.Config
 	profile              config.Profile
 	configBase           string
+	processAccessToken   string
+}
+
+const processAccessTokenEnvironment = "VICEME_ACCESS_TOKEN"
+
+type processTokenSource string
+
+func (source processTokenSource) Token(context.Context) (string, error) {
+	return string(source), nil
 }
 
 func Execute(args []string, dependencies Dependencies) int {
@@ -108,6 +120,19 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	if apiBaseURL == "" {
 		apiBaseURL = config.APIBaseURL(region)
 	}
+	processAccessToken := os.Getenv(processAccessTokenEnvironment)
+	if processAccessToken != "" &&
+		(strings.TrimSpace(processAccessToken) != processAccessToken || strings.ContainsAny(processAccessToken, "\r\n\x00")) {
+		return nil, nil, output.Authentication("process_credential_invalid", "the process publication credential is invalid")
+	}
+	credentialScope := ""
+	if apiBaseURLOverridden {
+		resolvedScope, scopeErr := credentialScopeForAPIBase(apiBaseURL, region)
+		if scopeErr != nil {
+			return nil, nil, output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+		}
+		credentialScope = resolvedScope
+	}
 	digests, err := dependencies.Skills.Digests("viceme")
 	if err != nil {
 		return nil, nil, err
@@ -124,9 +149,11 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		region:               region,
 		apiBaseURL:           apiBaseURL,
 		apiBaseURLOverridden: apiBaseURLOverridden,
+		credentialScope:      credentialScope,
 		config:               resolvedConfig,
 		profile:              *resolvedProfile,
 		configBase:           configBase,
+		processAccessToken:   processAccessToken,
 		printer: &output.Printer{
 			Out:    dependencies.Out,
 			ErrOut: dependencies.ErrOut,
@@ -226,11 +253,16 @@ func (r *Runtime) manager() *auth.Manager {
 		Region:      string(r.region),
 		ProfileID:   r.profile.ID,
 		ProfileName: r.profile.Name,
+		Scope:       r.credentialScope,
 	}
 }
 
 func (r *Runtime) client() *api.Client {
-	return api.NewClient(r.apiBaseURL, r.deps.HTTPClient, r.manager(), "viceme/"+buildinfo.Version)
+	var tokens api.TokenSource = r.manager()
+	if r.processAccessToken != "" {
+		tokens = processTokenSource(r.processAccessToken)
+	}
+	return api.NewClient(r.apiBaseURL, r.deps.HTTPClient, tokens, "viceme/"+buildinfo.Version)
 }
 
 func (r *Runtime) success(data any) error {
@@ -256,12 +288,25 @@ func writerOr(value, fallback io.Writer) io.Writer {
 	return value
 }
 
-func (r *Runtime) setRegion(region config.Region) {
+func (r *Runtime) setRegion(region config.Region) error {
 	r.region = region
 	r.profile.Region = region
 	if !r.apiBaseURLOverridden {
 		r.apiBaseURL = config.APIBaseURL(region)
 	}
+	scope, err := r.credentialScopeForRegion(region)
+	if err != nil {
+		return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+	}
+	r.credentialScope = scope
+	return nil
+}
+
+func (r *Runtime) credentialScopeForRegion(region config.Region) (string, error) {
+	if !r.apiBaseURLOverridden {
+		return "", nil
+	}
+	return credentialScopeForAPIBase(r.apiBaseURL, region)
 }
 
 func (r *Runtime) selectProfile(name string) error {
@@ -270,8 +315,7 @@ func (r *Runtime) selectProfile(name string) error {
 		return output.Validation("profile_not_found", err.Error())
 	}
 	r.profile = *profile
-	r.setRegion(profile.Region)
-	return nil
+	return r.setRegion(profile.Region)
 }
 
 func (r *Runtime) reloadConfig(profileName string) error {
@@ -326,6 +370,30 @@ func randomUUID() string {
 	value[8] = (value[8] & 0x3f) | 0x80
 	return fmt.Sprintf("%08x-%04x-%04x-%04x-%012x",
 		value[0:4], value[4:6], value[6:8], value[8:10], value[10:16])
+}
+
+func customCredentialScope(apiBaseURL string) (string, error) {
+	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	if err != nil {
+		return "", err
+	}
+	digest := sha256.Sum256([]byte(origin))
+	return fmt.Sprintf("custom:%x", digest[:]), nil
+}
+
+func credentialScopeForAPIBase(apiBaseURL string, region config.Region) (string, error) {
+	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	if err != nil {
+		return "", err
+	}
+	canonicalOrigin, err := api.NormalizeAPIOrigin(config.APIBaseURL(region))
+	if err != nil {
+		return "", err
+	}
+	if origin == canonicalOrigin {
+		return "", nil
+	}
+	return customCredentialScope(apiBaseURL)
 }
 
 // errorsAs is a small indirection so the rest of the command tree does not

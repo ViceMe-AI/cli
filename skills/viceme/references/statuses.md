@@ -17,6 +17,9 @@ Use another bounded wait when `meta.wait_timed_out` is true.
 
 - `awaiting_action`: read `next_action`, ask the user for the required selection, then resume the same publication.
 - `target_conflict`: refresh the Target. Do not use last-write-wins or create another link.
+- `selection_required`: ask the user to choose one returned selector, then resume the same publication with the exact action ID and payload digest.
+- `process_credential_active`: login/logout is unavailable in a trusted-launcher process; keep using standard commands or start a normal process for persistent login management.
+- `process_credential_invalid`: stop without retrying or printing the injected value; the trusted launcher must replace it.
 - `payment_required`: explain the requirement and stop.
 
 ## Terminal outcomes
@@ -29,13 +32,13 @@ Use another bounded wait when `meta.wait_timed_out` is true.
 
 ## CLI execution errors
 
-Nonzero exits mean the CLI invocation itself did not complete:
+Nonzero exits mean the CLI invocation itself did not complete. Preserve and branch on the server's domain-specific `error.type`; the exit code is only a coarse handling class:
 
 - `2`: validation
 - `3`: authentication or authorization
-- `4`: network
+- `4`: retryable transport or concurrency
 - `5`: internal/protocol
-- `6`: policy before publication creation
+- `6`: policy or rollout gate
 - `10`: confirmation required
 
 Read the JSON error fields `type`, `subtype`, `message`, `retryable`, and optional `hint`. Never scrape human error text.
