@@ -101,7 +101,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 			}
 			if result.Authenticated {
 				result.NextStep = installNextStep{
-					Command: "viceme skill inspect <source>",
+					Command: "viceme skill inspect <source> [--skill-root <path>]",
 					Reason:  "CLI, Skill, and authentication are ready",
 				}
 			} else {

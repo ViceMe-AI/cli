@@ -50,15 +50,17 @@ Use plain `viceme auth login` for a person at a terminal: it prints the browser 
 ## GitHub or trusted provider
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill
+viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 viceme skill publish --resolution-id <resolution-id> --yes
 viceme job wait <publication-id> --timeout 60s
 ```
 
+`--skill-root` is the exact repository-relative directory containing `SKILL.md`; use `.` only when `SKILL.md` is at the repository root. The calling Agent must determine it from the user-provided path or read-only repository tree before invoking Viceme. Viceme does not discover or rank GitHub Skill roots.
+
 The internal Core pilot can also exercise direct admission, but this is not a substitute for the T2 exact-candidate preview/confirmation required before public rollout:
 
 ```bash
-viceme skill publish https://github.com/acme/poster-skill --yes
+viceme skill publish https://github.com/acme/poster-skill --skill-root . --yes
 ```
 
 ## Pasted Xiaohongshu or RedSkill expression
@@ -176,11 +178,15 @@ again with the fresh action. A stale or expired action fails closed — fetch
 `job get` and present the new `next_action` instead of retrying the old one.
 
 ## Bounded jobs and cancellation
+||||||| 2895654
+## Bounded jobs and cancellation
+## Bounded jobs, explicit compiler retry, and cancellation
 
 ```bash
 viceme job get pub_123
 viceme job wait pub_123 --timeout 60s
+viceme job retry pub_123 --yes
 viceme job cancel pub_123 --yes
 ```
 
-Cancellation is a public mutation and always requires explicit user confirmation.
+`job retry` is valid only when the durable compiler failure is a retryable `PLATFORM_FAILURE`. It reuses the frozen source and same publication, has a server-enforced attempt limit, and always requires explicit user confirmation. Cancellation also requires explicit confirmation.
