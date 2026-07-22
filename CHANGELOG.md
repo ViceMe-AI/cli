@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.6.0] - 2026-07-22
+
+### Features
+
+- persist explicit local profile overrides (`ba33f0b`)
+
+### Other Changes
+
+- configure profile token explicitly (`c183ec5`)
+
 ## [0.5.0] - 2026-07-21
 
 ### Features
