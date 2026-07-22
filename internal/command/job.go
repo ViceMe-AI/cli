@@ -38,6 +38,9 @@ func newJobBindCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if strings.TrimSpace(publication.Status()) != "binding_required" {
+				return output.Validation("channel_binding_not_required", "this publication does not require channel account binding")
+			}
 			nextAction, ok := publication["next_action"].(map[string]any)
 			if !ok || nextAction["type"] != "bind_channel_account" {
 				return output.Validation("channel_binding_not_required", "this publication does not require channel account binding")
@@ -46,6 +49,10 @@ func newJobBindCommand(runtime *Runtime) *cobra.Command {
 			if strings.TrimSpace(bindingURL) == "" {
 				return output.Internal("channel_binding_url_missing", "the ViceMe API did not return a channel binding URL", nil)
 			}
+			retryMode, _ := nextAction["retry_mode"].(string)
+			if retryMode != "new_publication" {
+				return output.Internal("channel_binding_retry_mode_invalid", "the ViceMe API returned an invalid channel binding retry mode", nil)
+			}
 			return runtime.success(map[string]any{
 				"publication_id": publication.ID(),
 				"status":         publication.Status(),
@@ -53,7 +60,7 @@ func newJobBindCommand(runtime *Runtime) *cobra.Command {
 				"binding_status": nextAction["binding_status"],
 				"provider":       nextAction["provider"],
 				"expires_at":     nextAction["expires_at"],
-				"retry_mode":     "new_publication",
+				"retry_mode":     retryMode,
 				"hints":          nextAction["hints"],
 			})
 		},
