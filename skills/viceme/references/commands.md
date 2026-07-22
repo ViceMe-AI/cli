@@ -29,8 +29,8 @@ viceme profile remove company
 Only when the user explicitly requests an authorized local/internal test may an Agent configure explicit profile overrides:
 
 ```bash
-pbpaste | viceme profile add --name local --region cn --api-base-url http://localhost:8090 --access-token-stdin --use
-pbpaste | viceme profile configure local --access-token-stdin
+viceme profile add --name local --region cn --api-base-url http://localhost:8090 --access-token 'YOUR_ACCESS_TOKEN' --use
+viceme profile configure local --access-token 'YOUR_ACCESS_TOKEN'
 viceme profile configure local --clear-access-token
 ```
 
