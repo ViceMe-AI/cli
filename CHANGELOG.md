@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.8.0] - 2026-07-22
+
+### Features
+
+- surface channel binding actions (`18c1ca1`)
+
+### Fixes
+
+- validate channel binding contract (`629eaf9`)
+
 ## [0.7.0] - 2026-07-22
 
 ### Features

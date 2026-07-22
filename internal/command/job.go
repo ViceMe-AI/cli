@@ -16,6 +16,7 @@ func newJobCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "job", Short: "Read and control durable Skill Agent publications"}
 	command.AddCommand(newJobGetCommand(runtime))
 	command.AddCommand(newJobWaitCommand(runtime))
+	command.AddCommand(newJobBindCommand(runtime))
 	command.AddCommand(newJobMetadataCommand(runtime))
 	command.AddCommand(newJobPreviewCommand(runtime))
 	command.AddCommand(newJobEditCommand(runtime))
@@ -25,6 +26,45 @@ func newJobCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newJobRetryCommand(runtime))
 	command.AddCommand(newJobCancelCommand(runtime))
 	return command
+}
+
+func newJobBindCommand(runtime *Runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "bind <publication-id>",
+		Short: "Show the channel account binding URL for a blocked publication",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			publication, err := runtime.client().GetPublication(command.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(publication.Status()) != "binding_required" {
+				return output.Validation("channel_binding_not_required", "this publication does not require channel account binding")
+			}
+			nextAction, ok := publication["next_action"].(map[string]any)
+			if !ok || nextAction["type"] != "bind_channel_account" {
+				return output.Validation("channel_binding_not_required", "this publication does not require channel account binding")
+			}
+			bindingURL, _ := nextAction["binding_url"].(string)
+			if strings.TrimSpace(bindingURL) == "" {
+				return output.Internal("channel_binding_url_missing", "the ViceMe API did not return a channel binding URL", nil)
+			}
+			retryMode, _ := nextAction["retry_mode"].(string)
+			if retryMode != "new_publication" {
+				return output.Internal("channel_binding_retry_mode_invalid", "the ViceMe API returned an invalid channel binding retry mode", nil)
+			}
+			return runtime.success(map[string]any{
+				"publication_id": publication.ID(),
+				"status":         publication.Status(),
+				"binding_url":    bindingURL,
+				"binding_status": nextAction["binding_status"],
+				"provider":       nextAction["provider"],
+				"expires_at":     nextAction["expires_at"],
+				"retry_mode":     retryMode,
+				"hints":          nextAction["hints"],
+			})
+		},
+	}
 }
 
 func newJobRetryCommand(runtime *Runtime) *cobra.Command {
@@ -420,7 +460,7 @@ func waitPublication(ctx context.Context, runtime *Runtime, id string, timeout t
 
 func publicationWaitComplete(status string) bool {
 	switch status {
-	case "share_published", "awaiting_action", "unsupported", "rejected", "payment_required", "target_conflict", "cancelled", "failed":
+	case "share_published", "awaiting_action", "binding_required", "unsupported", "rejected", "payment_required", "target_conflict", "cancelled", "failed":
 		return true
 	default:
 		return false

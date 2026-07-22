@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "cli_version": "0.7.0",
-  "minimum_cli_version": "0.7.0",
+  "cli_version": "0.8.0",
+  "minimum_cli_version": "0.8.0",
   "global_flags": [
     {
       "name": "profile",
@@ -136,6 +136,14 @@
           "usage": "preview run receipt ID"
         }
       ]
+    },
+    {
+      "path": "job bind",
+      "use": "bind <publication-id>",
+      "short": "Show the channel account binding URL for a blocked publication",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
     },
     {
       "path": "job cancel",
