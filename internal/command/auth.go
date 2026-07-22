@@ -49,7 +49,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 				if source == "process" {
 					return output.Policy("process_credential_active", "device login is disabled while a process credential is active").WithHint("start a normal CLI process without VICEME_ACCESS_TOKEN to manage persistent login")
 				}
-				return output.Policy("local_profile_credential_active", "device login is disabled while the selected profile has an explicit local access token").WithHint("clear the local profile access token before managing Keychain login")
+				return output.Policy("local_profile_credential_active", "device login is disabled while the selected profile has an explicit local access token").WithHint("clear the local profile access token before managing persistent device login")
 			}
 			if noWait && deviceCode != "" {
 				return output.Validation("auth_flags", "--no-wait and --device-code cannot be used together")

@@ -72,7 +72,7 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 					userID = status.UserID
 				}
 				if status.Authenticated {
-					credentialSource = "keychain"
+					credentialSource = "secure_store"
 				}
 				items = append(items, profileListItem{
 					Name:             profile.Name,
