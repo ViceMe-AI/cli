@@ -121,7 +121,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 			return runtime.success(result)
 		},
 	}
-	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, or claude")
+	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, claude, or agents")
 	command.Flags().StringVar(&region, "region", "", "Viceme region: cn or global (defaults to the selected profile region)")
 	return command
 }

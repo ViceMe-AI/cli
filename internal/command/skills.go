@@ -81,7 +81,7 @@ func newSkillsInstallCommand(runtime *Runtime) *cobra.Command {
 			return runtime.success(report)
 		},
 	}
-	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, or claude")
+	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, claude, or agents")
 	return command
 }
 
@@ -99,6 +99,6 @@ func newSkillsDoctorCommand(runtime *Runtime) *cobra.Command {
 			return runtime.success(report)
 		},
 	}
-	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, or claude")
+	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, claude, or agents")
 	return command
 }
