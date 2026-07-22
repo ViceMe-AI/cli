@@ -138,6 +138,14 @@
       ]
     },
     {
+      "path": "job bind",
+      "use": "bind <publication-id>",
+      "short": "Show the channel account binding URL for a blocked publication",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
       "path": "job cancel",
       "use": "cancel <publication-id>",
       "short": "Cancel a publication",

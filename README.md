@@ -120,7 +120,7 @@ Continue only when authentication is valid and `skills doctor` reports a healthy
 viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. After the publication parks at `awaiting_action`, guide the user through candidate preview and a test run with accepted result before resolving with `job resume --decision confirm` (see the rollout status above).
+Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. If a publication ends at `binding_required`, run `viceme job bind <publication-id>`, give the signed ViceMe URL to the user, and stop. Downloading or forking is only an informational alternative; the CLI never performs it automatically. After the user binds the exact GitHub/Xiaohongshu channel account, inspect again and create a fresh ordinary publication rather than resuming the terminal one. Otherwise, when the publication parks at `awaiting_action`, guide the user through candidate preview and a test run with accepted result before resolving with `job resume --decision confirm` (see the rollout status above).
 
 ## Regions & Profiles
 
@@ -254,7 +254,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 | `viceme skill inspect` | Freeze and inspect a source candidate without publishing |
 | `viceme skill publish` | Create or update a stable Skill Agent publication |
 | `viceme skill target` | Resolve existing logical Agent Targets and versions |
-| `viceme job` | Read, wait for, resume, explicitly retry, or cancel a durable publication |
+| `viceme job` | Read, wait for, show a signed channel-binding URL, resume, explicitly retry, or cancel a durable publication |
 | `viceme skills` | Read, install, and diagnose the bundled Agent Skill |
 | `viceme update` | Update the npm launcher, verified binary, and bundled Skill together |
 

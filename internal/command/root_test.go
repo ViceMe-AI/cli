@@ -748,6 +748,60 @@ func TestJobWaitReturnsBusinessFailureWithExitZero(t *testing.T) {
 	}
 }
 
+func TestJobBindReturnsSignedBrowserAction(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_binding" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_binding","status":"binding_required","next_action":{"type":"bind_channel_account","provider":"github","binding_status":"required","binding_url":"https://viceme.example/channel-bindings/signed","expires_at":"2030-01-01T00:00:00Z","retry_mode":"new_publication","hints":[{"type":"download_source"},{"type":"fork_source"}]}}`)
+	}))
+	defer server.Close()
+
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "bind", "pub_binding")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(stdout, `"binding_url":"https://viceme.example/channel-bindings/signed"`) ||
+		!strings.Contains(stdout, `"retry_mode":"new_publication"`) ||
+		!strings.Contains(stdout, `"type":"fork_source"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestJobBindRequiresAuthoritativeTerminalContract(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		response string
+		code     string
+	}{
+		{
+			name:     "publication is not binding required",
+			response: `{"publication_id":"pub_binding","status":"failed","next_action":{"type":"bind_channel_account","binding_url":"https://viceme.example/channel-bindings/signed","retry_mode":"new_publication"}}`,
+			code:     "channel_binding_not_required",
+		},
+		{
+			name:     "retry mode is missing",
+			response: `{"publication_id":"pub_binding","status":"binding_required","next_action":{"type":"bind_channel_account","binding_url":"https://viceme.example/channel-bindings/signed"}}`,
+			code:     "channel_binding_retry_mode_invalid",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				_, _ = io.WriteString(writer, test.response)
+			}))
+			defer server.Close()
+
+			code, _, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "bind", "pub_binding")
+			if code == 0 || !strings.Contains(stderr, test.code) {
+				t.Fatalf("code=%d stderr=%s", code, stderr)
+			}
+		})
+	}
+}
+
 func TestJobMetadataReadAndResolveContract(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
