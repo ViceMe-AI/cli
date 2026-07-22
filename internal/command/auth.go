@@ -63,6 +63,9 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 			if timeout <= 0 {
 				return output.Validation("timeout", "--timeout must be greater than zero")
 			}
+			if err := runtime.manager().PreflightSave(); err != nil {
+				return err
+			}
 			client := runtime.client()
 			if deviceCode == "" {
 				authorization, err := client.StartDeviceAuthorization(command.Context())
@@ -124,7 +127,11 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 			}
 			manager := runtime.manager()
 			if err := manager.Save(credential); err != nil {
-				return err
+				revoked := client.Revoke(ctx, token.AccessToken) == nil
+				return output.Authentication("credential_persistence_failed", "device authorization succeeded, but the issued credential could not be saved").
+					WithHint("the one-time device authorization was consumed; fix the local credential store and start a new 'viceme auth login' flow").
+					WithDetails(map[string]any{"authorization_consumed": true, "issued_credential_revoked": revoked}).
+					WithCause(err)
 			}
 			if err := runtime.recordProfileUserID(token.UserID); err != nil {
 				_ = manager.Delete()

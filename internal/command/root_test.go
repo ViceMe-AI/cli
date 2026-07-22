@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,6 +19,28 @@ import (
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
+
+type preflightFailureStore struct{}
+
+func (s *preflightFailureStore) Get(string) (string, error) { return "", securestore.ErrNotFound }
+func (s *preflightFailureStore) Set(string, string) error   { return nil }
+func (s *preflightFailureStore) Delete(string) error        { return nil }
+func (s *preflightFailureStore) Preflight(string) error {
+	return fmt.Errorf("sandbox cannot persist credentials")
+}
+
+type saveFailureStore struct{}
+
+func (saveFailureStore) Get(string) (string, error) { return "", securestore.ErrNotFound }
+func (saveFailureStore) Set(string, string) error   { return fmt.Errorf("disk became read-only") }
+func (saveFailureStore) Delete(string) error        { return nil }
+func (saveFailureStore) Preflight(string) error     { return nil }
+
+type blockedKeyringStore struct{}
+
+func (blockedKeyringStore) Get(string) (string, error) { return "", fmt.Errorf("keychain blocked") }
+func (blockedKeyringStore) Set(string, string) error   { return fmt.Errorf("keychain blocked") }
+func (blockedKeyringStore) Delete(string) error        { return fmt.Errorf("keychain blocked") }
 
 func TestDefaultRegionUsesChinaEndpoint(t *testing.T) {
 	t.Setenv("VICEME_API_BASE_URL", "")
@@ -402,6 +425,32 @@ func TestAuthNoWaitJSONNeverReturnsToken(t *testing.T) {
 	}
 }
 
+func TestDeviceLoginPreflightFailureDoesNotCreateOrExchangeAuthorization(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{name: "before create", args: []string{"auth", "login", "--no-wait", "--json"}},
+		{name: "before exchange", args: []string{"auth", "login", "--device-code", "device-once", "--json"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				calls.Add(1)
+			}))
+			defer server.Close()
+			code, stdout, stderr, _ := runCLI(t, server, &preflightFailureStore{}, test.args...)
+			if code != 3 || stdout != "" || !strings.Contains(stderr, `"subtype":"credential_store_unavailable"`) {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			if calls.Load() != 0 {
+				t.Fatalf("server was called %d times after persistence preflight failed", calls.Load())
+			}
+		})
+	}
+}
+
 func TestAuthLoginGuidesHumanAndWaitsForAuthorization(t *testing.T) {
 	t.Parallel()
 	completeURL := "https://viceme.test/cli/auth?user_code=ABCD-EFGH"
@@ -487,6 +536,66 @@ func TestDeviceLoginStoresTokenButDoesNotPrintIt(t *testing.T) {
 	}
 	if credential.AccessToken != "top-secret" {
 		t.Fatal("credential was not stored")
+	}
+}
+
+func TestDeviceLoginSaveFailureReturnsRecoverableConsumedAuthorizationContract(t *testing.T) {
+	t.Parallel()
+	var exchanges atomic.Int32
+	var revocations atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/cli/auth/token":
+			exchanges.Add(1)
+			_, _ = io.WriteString(writer, `{"access_token":"issued-secret","user_id":"user_1"}`)
+		case "/v1/cli/auth/revoke":
+			revocations.Add(1)
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, saveFailureStore{}, "auth", "login", "--device-code", "device-once", "--json")
+	if code != 3 || stdout != "" || !strings.Contains(stderr, `"subtype":"credential_persistence_failed"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, forbidden := range []string{"issued-secret", "device-once"} {
+		if strings.Contains(stderr, forbidden) {
+			t.Fatalf("save failure leaked %q: %s", forbidden, stderr)
+		}
+	}
+	if !strings.Contains(stderr, `"authorization_consumed":true`) || !strings.Contains(stderr, `"issued_credential_revoked":true`) {
+		t.Fatalf("save failure omitted recovery details: %s", stderr)
+	}
+	if exchanges.Load() != 1 || revocations.Load() != 1 {
+		t.Fatalf("exchanges=%d revocations=%d", exchanges.Load(), revocations.Load())
+	}
+}
+
+func TestSandboxFallbackNeverWritesDeviceTokenToProfileConfig(t *testing.T) {
+	t.Parallel()
+	configBase := t.TempDir()
+	store := securestore.NewEncryptedFile(configBase, "viceme-cli-test", blockedKeyringStore{})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/cli/auth/token" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"access_token":"sandbox-device-secret","user_id":"sandbox-user"}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLIWithDependencies(t, server, store, "", Dependencies{
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: configBase},
+	}, "auth", "login", "--device-code", "device-sandbox", "--json")
+	if code != 0 || stderr != "" || strings.Contains(stdout, "sandbox-device-secret") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	configData, err := os.ReadFile(config.ConfigPath(configBase))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(configData), "sandbox-device-secret") || strings.Contains(string(configData), "access_token") {
+		t.Fatalf("profile config contains device credential material: %s", configData)
 	}
 }
 

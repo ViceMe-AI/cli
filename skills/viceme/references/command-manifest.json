@@ -68,6 +68,22 @@
       "requires_confirmation": false
     },
     {
+      "path": "config",
+      "use": "config",
+      "short": "Manage ViceMe CLI runtime configuration",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "config keychain-downgrade",
+      "use": "keychain-downgrade",
+      "short": "Enable encrypted credential access from macOS sandboxes",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false
+    },
+    {
       "path": "install",
       "use": "install",
       "short": "Persist the npm CLI, install its ViceMe Skill, and initialize configuration",
