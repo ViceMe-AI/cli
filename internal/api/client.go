@@ -135,9 +135,23 @@ func (c *Client) AcceptSkillPreviewRun(ctx context.Context, publicationID, previ
 	return response, err
 }
 
+// ResolveAction answers a typed payload action (select_root). confirm_publish
+// decisions must go through ResolveConfirmation: the API owns a dedicated
+// endpoint whose OpenAPI/SDK/runtime digest contract is identical.
 func (c *Client) ResolveAction(ctx context.Context, publicationID, actionID string, request ResolveActionRequest) (Publication, error) {
 	var response Publication
 	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/actions/" + url.PathEscape(actionID) + "/resolve"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "")
+	return response, err
+}
+
+// ResolveConfirmation resolves a confirm_publish action. All three digests
+// and the decision are required — the same contract the API validates and the
+// OpenAPI/SDK documents, so a cancel resolution is never rejected for missing
+// digests.
+func (c *Client) ResolveConfirmation(ctx context.Context, publicationID, actionID string, request ResolveConfirmationRequest) (Publication, error) {
+	var response Publication
+	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/actions/" + url.PathEscape(actionID) + "/resolve-confirmation"
 	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "")
 	return response, err
 }

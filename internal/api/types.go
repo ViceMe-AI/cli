@@ -99,11 +99,18 @@ func (p Publication) MarshalJSON() ([]byte, error) {
 type ResolveActionRequest struct {
 	ExpectedPayloadDigest string `json:"expected_payload_digest"`
 	// Payload answers typed payload actions (select_root). confirm_publish
-	// decisions instead carry Decision plus the candidate/summary digests.
-	Payload                        json.RawMessage `json:"payload,omitempty"`
-	ExpectedReleaseCandidateDigest string          `json:"expected_release_candidate_digest,omitempty"`
-	ExpectedPublicSummaryDigest    string          `json:"expected_public_summary_digest,omitempty"`
-	Decision                       string          `json:"decision,omitempty"`
+	// decisions use ResolveConfirmationRequest against the dedicated endpoint.
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+// ResolveConfirmationRequest resolves a confirm_publish action via
+// /resolve-confirmation: every digest and the decision are required
+// (OpenAPI/SDK/runtime 同一合同).
+type ResolveConfirmationRequest struct {
+	ExpectedPayloadDigest          string `json:"expected_payload_digest"`
+	ExpectedReleaseCandidateDigest string `json:"expected_release_candidate_digest"`
+	ExpectedPublicSummaryDigest    string `json:"expected_public_summary_digest"`
+	Decision                       string `json:"decision"`
 }
 
 // ResolveMetadataRequest resolves the confirm_metadata checkpoint: confirm

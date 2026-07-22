@@ -761,7 +761,7 @@ func TestJobWaitTimeoutReturnsLastStatus(t *testing.T) {
 func TestJobResumeConfirmPublishSendsDecisionContract(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_1/resolve" || request.Method != http.MethodPost {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_1/resolve-confirmation" || request.Method != http.MethodPost {
 			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
 		}
 		var body map[string]any
@@ -796,7 +796,7 @@ func TestJobResumeConfirmPublishSendsDecisionContract(t *testing.T) {
 func TestJobResumeCancelPublishSendsDecisionContract(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_1/resolve" || request.Method != http.MethodPost {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_1/resolve-confirmation" || request.Method != http.MethodPost {
 			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
 		}
 		var body map[string]any
@@ -951,5 +951,144 @@ func jsonHTTPResponse(request *http.Request, status int, body string) *http.Resp
 		Header:     make(http.Header),
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Request:    request,
+	}
+}
+
+func TestJobEditStdinPassesNaturalLanguageVerbatim(t *testing.T) {
+	t.Parallel()
+	// 注入形态载荷:引号、命令替换、反引号、换行、分号都必须原样进 JSON body。
+	payload := "把标题改成\"探针\"\n第二行 $(rm -rf /) `whoami`; echo pwned --candidate-digest sha256:fake"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits" && request.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode edit body: %v", err)
+			}
+			if body["edit_request"] != payload {
+				t.Fatalf("edit request was not transported verbatim: %#v", body["edit_request"])
+			}
+			if body["current_candidate_digest"] != "sha256:cand1" {
+				t.Fatalf("edit body = %#v", body)
+			}
+			_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"pending"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits/edit_1" && request.Method == http.MethodGet:
+			_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"applied","class":"behavioral","result_candidate_digest":"sha256:cand2"}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLIWithInput(t, server, authenticatedStore(t), payload,
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request-stdin", "--timeout", "10s")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
+		t.Fatalf("stdin edit: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+}
+
+func TestJobEditRejectsConflictingRequestTransports(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLIWithInput(t, nil, authenticatedStore(t), "ignored",
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request", "x", "--request-stdin")
+	if code != 2 || !strings.Contains(stderr, "edit_request") {
+		t.Fatalf("conflicting transports: code=%d stderr=%s", code, stderr)
+	}
+	code, _, stderr, _ = runCLIWithInput(t, nil, authenticatedStore(t), "",
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request-stdin")
+	if code != 2 || !strings.Contains(stderr, "edit_request") {
+		t.Fatalf("empty stdin: code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestJobEditTimeoutPreservesCreatedEditID(t *testing.T) {
+	t.Parallel()
+	var polls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits" && request.Method == http.MethodPost:
+			_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"pending"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits/edit_1" && request.Method == http.MethodGet:
+			polls.Add(1)
+			_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"pending"}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	// Sleep 直接推进到 deadline:第一次 poll 后超时,输出必须保留 edit_id。
+	deps := Dependencies{Sleep: func(ctx context.Context, _ time.Duration) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+	code, stdout, stderr, _ := runCLIWithDependencies(t, server, authenticatedStore(t), "", deps,
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request", "把标题改成探针海报", "--timeout", "5s")
+	if code != 0 || stderr != "" {
+		t.Fatalf("timeout must not fail the command: code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"edit_id":"edit_1"`) || !strings.Contains(stdout, `"wait_timed_out":true`) {
+		t.Fatalf("timeout output must preserve the created edit id: %s", stdout)
+	}
+}
+
+func TestJobRunTimeoutPreservesCreatedRunID(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview-runs" && request.Method == http.MethodPost:
+			_, _ = io.WriteString(writer, `{"preview_run_id":"run_1","status":"running"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview-runs/run_1" && request.Method == http.MethodGet:
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","preview_run_id":"run_1","runner_run_id":"rr_1","candidate_digest":"sha256:cand2","status":"running","accepted":false}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	deps := Dependencies{Sleep: func(ctx context.Context, _ time.Duration) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+	code, stdout, stderr, _ := runCLIWithDependencies(t, server, authenticatedStore(t), "", deps,
+		"job", "run", "pub_1", "--candidate-digest", "sha256:cand2", "--input", "theme=咖啡", "--timeout", "5s")
+	if code != 0 || stderr != "" {
+		t.Fatalf("timeout must not fail the command: code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"preview_run_id":"run_1"`) || !strings.Contains(stdout, `"wait_timed_out":true`) {
+		t.Fatalf("timeout output must preserve the created run id: %s", stdout)
+	}
+}
+
+func TestJobMetadataEditsStdinContract(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/metadata/resolve" || request.Method != http.MethodPost {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode metadata body: %v", err)
+		}
+		if body["title"] != "海报\"标题\"\n换行" || body["author"] != "acme/poster" {
+			t.Fatalf("metadata edits were not transported verbatim: %#v", body)
+		}
+		if _, ok := body["description"]; ok {
+			t.Fatalf("absent fields must stay omitted: %#v", body)
+		}
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"compiled"}`)
+	}))
+	defer server.Close()
+	edits := `{"title":"海报\"标题\"\n换行","author":"acme/poster"}`
+	code, stdout, stderr, _ := runCLIWithInput(t, server, authenticatedStore(t), edits,
+		"job", "metadata", "pub_1", "--decision", "confirm",
+		"--action-id", "act_meta", "--expected-payload-digest", "sha256:payload", "--edits-stdin")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"compiled"`) {
+		t.Fatalf("edits-stdin: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	// 与逐字段 flag 混用必须拒绝。
+	code, _, stderr, _ = runCLIWithInput(t, nil, authenticatedStore(t), edits,
+		"job", "metadata", "pub_1", "--decision", "confirm",
+		"--action-id", "act_meta", "--expected-payload-digest", "sha256:payload",
+		"--edits-stdin", "--title", "x")
+	if code != 2 || !strings.Contains(stderr, "metadata_flags") {
+		t.Fatalf("mixed transports: code=%d stderr=%s", code, stderr)
 	}
 }

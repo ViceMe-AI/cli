@@ -153,7 +153,13 @@
         {
           "name": "request",
           "type": "string",
-          "usage": "natural-language edit request"
+          "usage": "natural-language edit request (machine callers: prefer --request-stdin)"
+        },
+        {
+          "name": "request-stdin",
+          "type": "bool",
+          "default": "false",
+          "usage": "read the exact natural-language edit request from stdin (no shell interpolation)"
         },
         {
           "name": "timeout",
@@ -187,7 +193,7 @@
         {
           "name": "author",
           "type": "string",
-          "usage": "optional source-author edit / missing-author fill (1-100 visible characters)"
+          "usage": "optional source-author edit / missing-author fill (1-100 visible characters; machine callers: prefer --edits-stdin)"
         },
         {
           "name": "decision",
@@ -197,7 +203,13 @@
         {
           "name": "description",
           "type": "string",
-          "usage": "optional description edit (1-100 visible characters)"
+          "usage": "optional description edit (1-100 visible characters; machine callers: prefer --edits-stdin)"
+        },
+        {
+          "name": "edits-stdin",
+          "type": "bool",
+          "default": "false",
+          "usage": "read optional {\"title\",\"description\",\"author\"} edits as one JSON object from stdin (no shell interpolation)"
         },
         {
           "name": "expected-payload-digest",
@@ -207,7 +219,7 @@
         {
           "name": "title",
           "type": "string",
-          "usage": "optional title edit (1-20 visible characters)"
+          "usage": "optional title edit (1-20 visible characters; machine callers: prefer --edits-stdin)"
         }
       ]
     },

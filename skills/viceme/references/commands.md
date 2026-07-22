@@ -123,14 +123,18 @@ the parsed basic info, ask the user to confirm, supplement, or cancel:
 ```bash
 viceme job metadata pub_123
 viceme job metadata pub_123 --action-id meta_1 \
-  --expected-payload-digest sha256:abc --decision confirm \
-  --title "探针海报" --description "为产品海报写一句主标题" --author "acme/ops"
+  --expected-payload-digest sha256:abc --decision confirm --edits-stdin
 ```
 
+User-authored fields travel as one JSON object on stdin — never interpolate
+the user's text into a quoted shell command line (quotes, backticks, `$()`
+and newlines escape the argument boundary). Example stdin:
+`{"title":"探针海报","description":"为产品海报写一句主标题","author":"acme/ops"}`.
+
 `missing` lists absent fields (title/description/author) — guide the user to
-fill them with `--title` / `--description` / `--author`; `--author` also
-covers source-author edits (1-100 visible characters). Cancel maps to
-`cancelled` with zero assets and no preview link.
+fill them (same JSON keys); `author` also covers source-author edits (1-100
+visible characters). Cancel maps to `cancelled` with zero assets and no
+preview link.
 
 ## Preview, edit, test run and confirmation (T2)
 
@@ -143,12 +147,17 @@ viceme job preview pub_123 [--action-id act_123]
 ```
 
 Edits happen only as natural language inside the conversation — never via a
-page editor or JSON Patch. Bind the digest shown by the preview:
+page editor or JSON Patch. Pass the user's exact words through subprocess
+stdin; never interpolate them into a quoted shell command line. Bind the
+digest shown by the preview:
 
 ```bash
-viceme job edit pub_123 --candidate-digest sha256:def \
-  --request "把标题改成探针海报" [--timeout 2m]
+viceme job edit pub_123 --candidate-digest sha256:def --request-stdin [--timeout 2m]
 ```
+
+When a bounded wait times out, the command still prints the created
+`edit_id` / `preview_run_id` with `meta.wait_timed_out=true` — keep polling
+or resume with that same ID instead of starting a second logical operation.
 
 An applied edit supersedes the old preview/action/run receipts — re-run
 `job preview` / `job get` for the fresh candidate before continuing. Identical
