@@ -57,6 +57,14 @@ viceme auth logout
 
 Use plain `viceme auth login` for a person at a terminal: it prints the browser URL and waits for completion. AI Agents must use `--no-wait --json`, ask the user to open `verification_url`, and stop the current turn; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code and `--json` in a later turn using the same profile. On macOS, device-login tokens stay in AES-256-GCM encrypted files; all platforms isolate them by profile plus normalized API origin. Normal login never backfills explicit local profile overrides.
 
+When a publication ends in `binding_required`, read its signed browser action with:
+
+```bash
+viceme job bind <publication-id>
+```
+
+Give `binding_url` to the user and stop. After the browser flow succeeds, repeat inspect and publish with a fresh client request ID. The blocked publication is intentionally terminal and is not resumed.
+
 Login preflights credential persistence before creating or consuming a device authorization. If `credential_store_unavailable` says an existing macOS login is protected by Keychain, do not keep retrying or start another device flow. Ask the user to run the following command once from an interactive macOS Terminal, then retry the same ViceMe operation from the sandbox:
 
 ```bash

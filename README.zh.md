@@ -120,7 +120,7 @@ viceme skills list
 viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。在上方所述的精确 Candidate 确认门完成前，公开发布流程仍保持关闭。
+inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。在上方所述的精确 Candidate 确认门完成前，公开发布流程仍保持关闭。
 
 ## 区域与 Profile
 
@@ -254,7 +254,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 | `viceme skill inspect` | 固化并检查来源候选，不执行发布 |
 | `viceme skill publish` | 创建或更新具有稳定链接的 Skill Agent 发布 |
 | `viceme skill target` | 解析现有逻辑 Agent Target 及其版本 |
-| `viceme job` | 读取、等待、恢复、显式重试或取消持久化发布任务 |
+| `viceme job` | 读取、等待、展示签名渠道绑定链接、恢复、显式重试或取消持久化发布任务 |
 | `viceme skills` | 读取、安装和诊断随包发布的 Agent Skill |
 | `viceme update` | 同时更新 npm 启动器、已校验二进制文件和随包发布的 Skill |
 
