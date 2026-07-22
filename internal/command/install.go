@@ -35,7 +35,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 	var region string
 	command := &cobra.Command{
 		Use:   "install",
-		Short: "Persist the npm CLI, install its Viceme Skill, and initialize configuration",
+		Short: "Persist the npm CLI, install its ViceMe Skill, and initialize configuration",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if region == "" {
@@ -76,11 +76,11 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 			if previousRegion != resolvedRegion {
 				previousScope, scopeErr := runtime.credentialScopeForProfile(previousProfile)
 				if scopeErr != nil {
-					return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+					return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 				}
 				currentScope, scopeErr := runtime.credentialScopeForProfile(*activeProfile)
 				if scopeErr != nil {
-					return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+					return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 				}
 				if credentialNamespace(previousRegion, previousScope) != credentialNamespace(resolvedRegion, currentScope) {
 					previousManager := credentialauth.Manager{
@@ -91,7 +91,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 						Scope:       previousScope,
 					}
 					if err := previousManager.Delete(); err != nil {
-						warnings = append(warnings, "profile region changed but the previous local credential could not be removed from the operating system keychain")
+						warnings = append(warnings, "profile region changed but the previous local credential could not be removed from the secure credential store")
 					}
 				}
 			}
@@ -115,7 +115,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 					result.AuthStatusKnown = true
 					result.Authenticated = status.Authenticated
 				} else {
-					result.Warnings = append(result.Warnings, "authentication status could not be read from the operating system keychain")
+					result.Warnings = append(result.Warnings, "authentication status could not be read from the secure credential store")
 				}
 			}
 			if result.Authenticated {
@@ -133,7 +133,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 			return runtime.success(result)
 		},
 	}
-	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, or claude")
-	command.Flags().StringVar(&region, "region", "", "Viceme region: cn or global (defaults to the selected profile region)")
+	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, claude, or agents")
+	command.Flags().StringVar(&region, "region", "", "ViceMe region: cn or global (defaults to the selected profile region)")
 	return command
 }

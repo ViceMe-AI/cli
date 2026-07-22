@@ -1,7 +1,7 @@
 {
   "name": "@viceme-ai/cli",
-  "version": "0.6.0",
-  "description": "Install and run the Viceme CLI and Viceme Agent Skill",
+  "version": "0.7.0",
+  "description": "Install and run the ViceMe CLI and ViceMe Agent Skill",
   "type": "module",
   "bin": {
     "viceme": "npm/bin/viceme.mjs"

@@ -21,7 +21,7 @@ func TestSecureStoreFailsClosed(t *testing.T) {
 		t.Fatal("expected save failure")
 	} else {
 		var cliError *output.Error
-		if !errors.As(err, &cliError) || cliError.Subtype != "keychain_unavailable" {
+		if !errors.As(err, &cliError) || cliError.Subtype != "credential_store_unavailable" {
 			t.Fatalf("unexpected save error: %#v", err)
 		}
 	}
@@ -29,9 +29,18 @@ func TestSecureStoreFailsClosed(t *testing.T) {
 		t.Fatal("expected load failure")
 	} else {
 		var cliError *output.Error
-		if !errors.As(err, &cliError) || cliError.Subtype != "keychain_unavailable" {
+		if !errors.As(err, &cliError) || cliError.Subtype != "credential_store_unavailable" {
 			t.Fatalf("unexpected load error: %#v", err)
 		}
+	}
+}
+
+func TestCredentialStorePreflightFailsClosedWhenUnsupported(t *testing.T) {
+	t.Parallel()
+	err := (&Manager{Store: failingStore{}}).PreflightSave()
+	var cliError *output.Error
+	if !errors.As(err, &cliError) || cliError.Subtype != "credential_store_unavailable" {
+		t.Fatalf("unexpected preflight error: %#v", err)
 	}
 }
 

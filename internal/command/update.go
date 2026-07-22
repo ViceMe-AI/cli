@@ -43,7 +43,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().BoolVar(&checkOnly, "check", false, "check the latest npm release without changing local state")
 	command.Flags().BoolVar(&skipSkillInstall, "skip-skill-install", false, "update only the npm launcher and binary")
-	command.Flags().StringVar(&target, "target", "auto", "Agent Skill target refreshed after update: auto, codex, or claude")
+	command.Flags().StringVar(&target, "target", "auto", "Agent Skill target refreshed after update: auto, codex, claude, or agents")
 	return command
 }
 

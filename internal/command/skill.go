@@ -75,7 +75,7 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().BoolVar(&expressionStdin, "expression-stdin", false, "read a copied provider expression from stdin")
 	command.Flags().StringVar(&skillRoot, "skill-root", "", "exact repository-relative directory containing SKILL.md; use . for the repository root")
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print the operation without calling Viceme")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print the operation without calling ViceMe")
 	return command
 }
 
@@ -161,7 +161,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			}
 			publicationID := publication.ID()
 			if publicationID == "" {
-				return output.Internal("publication_response", "Viceme API did not return a publication_id", nil)
+				return output.Internal("publication_response", "ViceMe API did not return a publication_id", nil)
 			}
 			final, timedOut, err := waitPublication(command.Context(), runtime, publicationID, opts.timeout)
 			if err != nil {
@@ -189,7 +189,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	flags.BoolVar(&opts.yes, "yes", false, "confirm the public publication side effect")
 	flags.BoolVar(&opts.wait, "wait", false, "wait for a bounded publication result")
 	flags.DurationVar(&opts.timeout, "timeout", 60*time.Second, "maximum wait duration")
-	flags.BoolVar(&opts.dryRun, "dry-run", false, "validate and print the operation without reading input or calling Viceme")
+	flags.BoolVar(&opts.dryRun, "dry-run", false, "validate and print the operation without reading input or calling ViceMe")
 	flags.StringVar(&opts.clientRequestID, "client-request-id", "", "stable idempotency key for an exact publication request")
 	return command
 }
@@ -344,7 +344,7 @@ func uploadArtifact(command *cobra.Command, runtime *Runtime, artifact archivepk
 		return "", err
 	}
 	if prepared.UploadID == "" || prepared.UploadURL == "" {
-		return "", output.Internal("upload_prepare_response", "Viceme API returned an incomplete upload slot", nil)
+		return "", output.Internal("upload_prepare_response", "ViceMe API returned an incomplete upload slot", nil)
 	}
 	file, err := artifact.Open()
 	if err != nil {
@@ -359,7 +359,7 @@ func uploadArtifact(command *cobra.Command, runtime *Runtime, artifact archivepk
 		return "", err
 	}
 	if completed.UploadID != "" && completed.UploadID != prepared.UploadID {
-		return "", output.Internal("upload_complete_response", "Viceme API changed upload identity during completion", nil)
+		return "", output.Internal("upload_complete_response", "ViceMe API changed upload identity during completion", nil)
 	}
 	return prepared.UploadID, nil
 }

@@ -257,16 +257,17 @@ func resolveTargets(target string, environment Environment, forInstall bool) ([]
 	known := map[string]targetPath{
 		"codex":  {name: "codex", path: filepath.Join(codexHome, "skills", "viceme")},
 		"claude": {name: "claude", path: filepath.Join(claudeHome, "skills", "viceme")},
+		"agents": {name: "agents", path: filepath.Join(environment.Home, ".agents", "skills", "viceme")},
 	}
 	if target != "auto" {
 		resolved, ok := known[target]
 		if !ok {
-			return nil, fmt.Errorf("unsupported Skill target %q; use auto, codex, or claude", target)
+			return nil, fmt.Errorf("unsupported Skill target %q; use auto, codex, claude, or agents", target)
 		}
 		return []targetPath{resolved}, nil
 	}
 	var result []targetPath
-	for _, name := range []string{"codex", "claude"} {
+	for _, name := range []string{"codex", "claude", "agents"} {
 		resolved := known[name]
 		base := filepath.Dir(filepath.Dir(resolved.path))
 		if _, err := os.Stat(base); err == nil {
@@ -277,7 +278,7 @@ func resolveTargets(target string, environment Environment, forInstall bool) ([]
 		if forInstall {
 			result = append(result, known["codex"])
 		} else {
-			result = append(result, known["codex"], known["claude"])
+			result = append(result, known["codex"], known["claude"], known["agents"])
 		}
 	}
 	return result, nil

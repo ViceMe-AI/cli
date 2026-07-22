@@ -51,14 +51,14 @@ func TestInstallAndDoctorTargetsIndependently(t *testing.T) {
 	t.Parallel()
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
 	home := t.TempDir()
-	for _, directory := range []string{filepath.Join(home, ".codex"), filepath.Join(home, ".claude")} {
+	for _, directory := range []string{filepath.Join(home, ".codex"), filepath.Join(home, ".claude"), filepath.Join(home, ".agents")} {
 		if err := os.MkdirAll(directory, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
 	environment := skillcontent.Environment{Home: home}
 	report := bundle.Install("viceme", "auto", environment)
-	if !report.AllSucceeded || len(report.Results) != 2 {
+	if !report.AllSucceeded || len(report.Results) != 3 {
 		t.Fatalf("unexpected install report: %#v", report)
 	}
 	for _, result := range report.Results {
@@ -70,7 +70,7 @@ func TestInstallAndDoctorTargetsIndependently(t *testing.T) {
 		}
 	}
 	doctor := bundle.Doctor("viceme", "auto", environment)
-	if !doctor.Healthy || len(doctor.Results) != 2 {
+	if !doctor.Healthy || len(doctor.Results) != 3 {
 		t.Fatalf("unexpected doctor report: %#v", doctor)
 	}
 	manifestPath := filepath.Join(home, ".codex", "skills", "viceme", ".viceme", "install-manifest.json")

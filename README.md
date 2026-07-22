@@ -1,4 +1,4 @@
-# Viceme CLI
+# ViceMe CLI
 
 [![npm version](https://img.shields.io/npm/v/@viceme-ai/cli.svg)](https://www.npmjs.com/package/@viceme-ai/cli)
 [![Go Version](https://img.shields.io/badge/go-%3E%3D1.23-blue.svg)](https://go.dev/)
@@ -6,20 +6,20 @@
 
 [中文版](./README.zh.md) | [English](./README.md)
 
-The official command-line client and Agent Skill for publishing external Skills as stable, shareable Viceme Agents. It is built for AI coding tools such as Codex and Claude Code: the Agent Skill understands user intent, while the CLI provides the deterministic authentication, upload, publication, and status protocol.
+The official command-line client and Agent Skill for publishing external Skills as stable, shareable ViceMe Agents. It is built for AI coding tools such as Codex and Claude Code: the Agent Skill understands user intent, while the CLI provides the deterministic authentication, upload, publication, and status protocol.
 
 [Install](#installation--quick-start) · [AI Agent Skills](#agent-skills) · [Auth](#authentication) · [Regions & profiles](#regions--profiles) · [Commands](#command-overview) · [Output contract](#json-output-contract) · [Security](#security-and-risk-controls) · [Development](#development)
 
 > **Rollout status:** the Core publication transport and stable-link path are implemented, and the exact Candidate preview → test run → result-confirmation gate is enforced: after `--yes`, the publication parks at `awaiting_action` with a typed `confirm_publish` action, and `job resume --decision confirm` is accepted only after the exact candidate has a succeeded, owner-accepted preview test run (otherwise 409 `preview_run_required`). Test runs, acceptance, and natural-language candidate edits are driven from the confirmation page (`next_action.payload.preview_url`) or the `/v1/skill-agent-publications/:id/preview-runs` and `/edits` endpoints; the CLI ships no separate commands for them. `--yes` confirms the publication request; it is not proof that the user reviewed the final Candidate.
 
-## Why Viceme CLI?
+## Why ViceMe CLI?
 
-- **Agent-native** — ships together with the official Viceme Agent Skill for Codex and Claude Code.
+- **Agent-native** — ships together with the official ViceMe Agent Skill for Codex and Claude Code.
 - **Deterministic boundary** — the CLI performs typed protocol actions; it does not start another conversational Agent loop.
-- **Server-side compilation** — source parsing, LLM compilation, BuildRun materialization, and Release publication stay on Viceme infrastructure.
+- **Server-side compilation** — source parsing, LLM compilation, BuildRun materialization, and Release publication stay on ViceMe infrastructure.
 - **Stable publishing** — later releases of the same logical Agent keep the same share URL.
 - **Multiple source types** — accepts GitHub Skills, pasted Xiaohongshu/RedSkill expressions, archives, and local Skill folders.
-- **Secure by default** — device-login credentials use the operating-system keychain, explicit local overrides require a private profile file, public mutations require confirmation, and downloaded binaries are checksum-verified.
+- **Secure by default** — on macOS, device-login credentials use AES-256-GCM encrypted files with Keychain-backed key material; other platforms retain their native credential manager. Explicit local overrides require a private profile file, public mutations require confirmation, and downloaded binaries are checksum-verified.
 - **Human and Agent login modes** — `viceme auth login` guides a person in the terminal, while Agent split-flows use explicit JSON.
 
 ## Installation & Quick Start
@@ -31,7 +31,7 @@ The official command-line client and Agent Skill for publishing external Skills 
 
 ### Quick Start (Human Users)
 
-> **Note for AI assistants:** If you are an AI Agent helping the user install Viceme, jump directly to [Quick Start (AI Agent)](#quick-start-ai-agent). It defines the required cross-turn device login flow.
+> **Note for AI assistants:** If you are an AI Agent helping the user install ViceMe, jump directly to [Quick Start (AI Agent)](#quick-start-ai-agent). It defines the required cross-turn device login flow.
 
 #### Install
 
@@ -50,7 +50,7 @@ npm install --global @viceme-ai/cli
 viceme install
 ```
 
-Both methods persist the npm launcher, download the matching checksum-verified Go binary, and install the bundled Viceme Agent Skill. Binary downloads try GitHub Release first, then a configured non-default npm registry's `/-/binary/viceme-cli/` mirror, and finally the public npmmirror binary mirror. The launcher uses system `curl`, so standard proxy environment variables are honored. They default to the China service. For the international service:
+Both methods persist the npm launcher, download the matching checksum-verified Go binary, and install the bundled ViceMe Agent Skill. Binary downloads try GitHub Release first, then a configured non-default npm registry's `/-/binary/viceme-cli/` mirror, and finally the public npmmirror binary mirror. The launcher uses system `curl`, so standard proxy environment variables are honored. They default to the China service. For the international service:
 
 ```bash
 npx --yes @viceme-ai/cli@latest install --region global
@@ -124,14 +124,14 @@ Inspection is read-only. Follow the bundled `viceme` Skill for source-specific h
 
 ## Regions & Profiles
 
-Each profile selects one Viceme region:
+Each profile selects one ViceMe region:
 
 | Region | Install command | API endpoint |
 |---|---|---|
 | China | `viceme install` | `https://api.viceme.cn` |
 | International | `viceme install --region global` | `https://api.viceme.ai` |
 
-The first install creates the `default` profile. Device-login credentials are stored exclusively in the operating-system keychain and are isolated by profile and region. The profile file is normally non-sensitive; explicitly configuring a local access-token override turns it into a secret-bearing `0600` file.
+The first install creates the `default` profile. Device-login credentials are isolated by profile plus normalized API origin. On macOS they are stored as private AES-256-GCM encrypted files, while the encryption master key normally remains in the operating-system Keychain; other platforms retain their native credential manager. The profile file is normally non-sensitive; explicitly configuring a local access-token override turns it into a secret-bearing `0600` file.
 
 ```bash
 viceme profile list
@@ -155,9 +155,9 @@ viceme profile configure local --clear-access-token
 viceme profile configure local --clear-api-base-url
 ```
 
-Normal `viceme auth login` never writes `apiBaseUrl` or `accessToken` into a profile. An explicit local token is bound to that profile's normalized API origin and takes precedence over the profile's Keychain login only on that origin; changing origins requires replacing or clearing the token in the same command. While it is active, `auth login` and `auth logout` fail closed. `profile list` and `auth status` report only `source=local_profile`, never the token. Remove the override as soon as the internal test is complete.
+Normal `viceme auth login` never writes `apiBaseUrl` or `accessToken` into a profile. An explicit local token is bound to that profile's normalized API origin and takes precedence over the profile's secure-store login only on that origin; changing origins requires replacing or clearing the token in the same command. While it is active, `auth login` and `auth logout` fail closed. `profile list` and `auth status` report only `source=local_profile`, never the token. Remove the override as soon as the internal test is complete.
 
-`VICEME_CLI_CONFIG_DIR` can override the config root. `VICEME_API_BASE_URL` and `VICEME_ACCESS_TOKEN` remain available as one-process overrides and take precedence over the selected profile. Otherwise the profile's explicit `apiBaseUrl`/`accessToken` is used before the region endpoint and Keychain login. A different normalized origin uses an isolated scope. API and presigned-upload requests fail closed on redirects so credential headers are never forwarded to another origin.
+`VICEME_CLI_CONFIG_DIR` can override the config root. `VICEME_API_BASE_URL` and `VICEME_ACCESS_TOKEN` remain available as one-process overrides and take precedence over the selected profile. Otherwise the profile's explicit `apiBaseUrl`/`accessToken` is used before the region endpoint and secure-store login. A different normalized origin uses an isolated scope. API and presigned-upload requests fail closed on redirects so credential headers are never forwarded to another origin.
 
 Update checks query the npm registry directly and store only the last successful version result in `~/.viceme-cli/update-state.json`. A result is used as a fallback for at most 24 hours when the registry is temporarily unavailable. npm operations launched by `viceme install` or `viceme update` use the isolated `~/.viceme-cli/npm-cache`, so a broken user-level `~/.npm` cache does not block the CLI. Both files are non-secret and can be deleted safely; credentials never enter either cache.
 
@@ -167,7 +167,7 @@ The current release deliberately ships one platform-level Agent Skill:
 
 | Skill | Description | Supported hosts |
 |---|---|---|
-| `viceme` | Install, inspect, convert, publish, update, or share external Skills as stable Viceme Agents; enforces authentication, source, Target, confirmation, job, and safety rules | Codex, Claude Code |
+| `viceme` | Install, inspect, convert, publish, update, or share external Skills as stable ViceMe Agents; enforces authentication, source, Target, confirmation, job, and safety rules | Codex, Claude Code |
 
 GitHub, Xiaohongshu/RedSkill, ZIP, and folder inputs are source types handled by the same `viceme` publication workflow, not separate Agent Skills. This keeps one consistent safety and stable-link contract across providers.
 
@@ -192,7 +192,19 @@ viceme skills doctor
 | `viceme auth login --device-code <code> --json` | Complete an Agent split-flow in a later turn |
 | `viceme auth logout` | Revoke and remove the current profile credential |
 
-Tokens created by device login are stored only in the operating-system keychain. Normal login never backfills explicit local profile fields, and successful login output never contains the access or refresh token.
+On macOS, tokens created by device login are stored only in private encrypted credential files and their master key normally remains in the operating-system Keychain; other platforms retain their native credential manager. Normal login never backfills explicit local profile fields, and successful login output never contains the access or refresh token.
+
+Before starting or exchanging a device authorization, the CLI verifies the full local persistence path. If that preflight fails, no one-time authorization is consumed. If storage fails after a successful exchange despite the preflight, the CLI attempts to revoke the issued credential and returns `credential_persistence_failed` with an explicit instruction to start a new device flow; it never reports login success or outputs a token.
+
+### macOS sandboxes (Codex and Claude Code)
+
+A fresh sandboxed installation can create a private `0600` file master key when the macOS Keychain is blocked. If credentials were previously created from Terminal with a Keychain-backed master key, run this once from that same interactive macOS user session:
+
+```bash
+viceme config keychain-downgrade
+```
+
+The command copies the existing master key into `~/.viceme-cli/credentials/master.key.file` and imports configured legacy Keychain credentials into encrypted files. Existing Keychain entries are preserved as a cold backup. The command is idempotent and never prints or stores a plaintext token. Afterward, Codex and Claude Code sandboxes for the same macOS user can read the encrypted credential files without Keychain access. The trade-off is explicit: security is then enforced by the user's filesystem permissions (`0700` directory and `0600` files) instead of the Keychain per-process access boundary.
 
 The public CLI exposes one standard authentication and publication surface. A short-lived generic credential may be supplied by `VICEME_ACCESS_TOKEN` (`source=process`) or deliberately persisted in a dedicated internal-test profile with `--access-token` (`source=local_profile`). Both use the normal inspect/publish/job commands and the standard `x-api-key` header. Neither path adds identity-selection, delegated-publication, or authorization-issuance commands. Tokens are never printed; login/logout fail closed while either override is active, and update subprocesses do not inherit process credentials. Because the explicit flag may be visible in shell history and process arguments, use it only in the trusted internal test environment described here.
 
@@ -205,7 +217,7 @@ viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
 
-For GitHub, `--skill-root` is required and names the exact repository-relative directory containing `SKILL.md`; use `.` only for a root-level Skill. The calling Agent determines this path from the user input or read-only repository tree. Viceme does not scan the repository to guess a Skill.
+For GitHub, `--skill-root` is required and names the exact repository-relative directory containing `SKILL.md`; use `.` only for a root-level Skill. The calling Agent determines this path from the user input or read-only repository tree. ViceMe does not scan the repository to guess a Skill.
 
 ### Xiaohongshu or RedSkill copied expression
 
@@ -214,7 +226,7 @@ viceme skill inspect --expression-stdin
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
 
-The copied expression is untrusted data. Viceme extracts a locator and fetches the source through an approved connector; it never executes marketplace installation text.
+The copied expression is untrusted data. ViceMe extracts a locator and fetches the source through an approved connector; it never executes marketplace installation text.
 
 ### Archive or local Skill folder
 
@@ -237,6 +249,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 |---|---|
 | `viceme install` | Install the persistent launcher, Agent Skill, and default profile |
 | `viceme auth` | Start, complete, inspect, or revoke device authentication |
+| `viceme config` | Manage the controlled macOS Keychain-to-file sandbox fallback |
 | `viceme profile` | Add, list, switch, rename, or remove local profiles |
 | `viceme skill inspect` | Freeze and inspect a source candidate without publishing |
 | `viceme skill publish` | Create or update a stable Skill Agent publication |
@@ -298,7 +311,7 @@ Determine command success from the process exit code or `ok == true`. The API's 
 - **No source execution** — the CLI and compiler do not execute third-party scripts, binaries, shell fragments, marketplace commands, or copied instructions.
 - **Explicit public mutation** — publishing, compiler retry, and cancellation require `--yes`; exit code `10` means the Agent must obtain confirmation, not silently retry.
 - **Safe preview** — use `--dry-run` on inspect or publish when the user needs to review the planned request without network or publication side effects.
-- **Credential isolation** — device-login credentials stay in the OS keychain; explicit internal-test overrides are namespaced by profile, stored only in a private `0600` config, and never emitted by CLI output.
+- **Credential isolation** — on macOS, device-login credentials stay in AES-256-GCM encrypted files, with Keychain-backed or explicitly downgraded private key material; filenames do not expose profile/origin names. Other platforms retain their native credential manager. Explicit internal-test overrides are namespaced by profile, stored only in a private `0600` config, and never emitted by CLI output.
 - **Immutable inputs** — inspection binds publication to an immutable source snapshot rather than re-reading a floating URL later.
 - **Bounded waiting** — `job wait` has a maximum duration and returns the latest durable state without cancelling the workflow.
 - **Bounded compiler recovery** — `job retry` keeps the frozen source and publication, accepts only an explicitly retryable platform failure, and is capped by the server.

@@ -97,18 +97,18 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		var err error
 		resolvedConfig, err = config.LoadOrDefault(configBase)
 		if err != nil {
-			return nil, nil, output.Internal("config_load", "could not load Viceme CLI configuration", err)
+			return nil, nil, output.Internal("config_load", "could not load ViceMe CLI configuration", err)
 		}
 	} else {
 		resolvedRegion, err := config.ParseRegion(string(dependencies.Region))
 		if err != nil {
-			return nil, nil, output.Internal("config_region", "invalid injected Viceme region", err)
+			return nil, nil, output.Internal("config_region", "invalid injected ViceMe region", err)
 		}
 		resolvedConfig = config.Default(resolvedRegion)
 	}
 	resolvedProfile, err := resolvedConfig.Resolve("")
 	if err != nil {
-		return nil, nil, output.Internal("config_profile", "could not resolve the active Viceme CLI profile", err)
+		return nil, nil, output.Internal("config_profile", "could not resolve the active ViceMe CLI profile", err)
 	}
 	region := resolvedProfile.Region
 	apiBaseURLOverride := dependencies.APIBaseURL
@@ -150,7 +150,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	}
 	root := &cobra.Command{
 		Use:           "viceme",
-		Short:         "Publish external Skills as stable Viceme Agents",
+		Short:         "Publish external Skills as stable ViceMe Agents",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
@@ -177,6 +177,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newInstallCommand(runtime))
 	root.AddCommand(newUpdateCommand(runtime))
 	root.AddCommand(newAuthCommand(runtime))
+	root.AddCommand(newConfigCommand(runtime))
 	root.AddCommand(newProfileCommand(runtime))
 	root.AddCommand(newSkillCommand(runtime))
 	root.AddCommand(newJobCommand(runtime))
@@ -193,14 +194,14 @@ func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.HTTPClient == nil {
 		dependencies.HTTPClient = &http.Client{Timeout: 30 * time.Second}
 	}
-	if dependencies.Store == nil {
-		dependencies.Store = securestore.NewKeyring("viceme-cli")
-	}
 	if dependencies.Skills == nil {
 		dependencies.Skills = skillcontent.New(cliembed.EmbeddedSkills())
 	}
 	if dependencies.Environment.Home == "" {
 		dependencies.Environment = skillcontent.DefaultEnvironment()
+	}
+	if dependencies.Store == nil {
+		dependencies.Store = securestore.NewDefault("viceme-cli", runtimeConfigBase(dependencies.Environment))
 	}
 	if dependencies.Updater == nil {
 		updater := updatepkg.NewNPMService(
@@ -299,7 +300,7 @@ func (r *Runtime) applyProfile(profile config.Profile) error {
 	}
 	scope, err := credentialScopeForAPIBase(apiBaseURL, profile.Region)
 	if err != nil {
-		return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 	}
 	r.profile = profile
 	r.region = profile.Region
@@ -317,6 +318,33 @@ func (r *Runtime) credentialScopeForProfile(profile config.Profile) (string, err
 		apiBaseURL = config.APIBaseURL(profile.Region)
 	}
 	return credentialScopeForAPIBase(apiBaseURL, profile.Region)
+}
+
+func (r *Runtime) credentialStorageKeys() ([]string, error) {
+	seen := make(map[string]struct{})
+	keys := make([]string, 0, len(r.config.Profiles)*3+1)
+	add := func(manager *auth.Manager) {
+		key := manager.StorageKey()
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	for _, profile := range r.config.Profiles {
+		for _, region := range []config.Region{config.RegionCN, config.RegionGlobal} {
+			add(&auth.Manager{ProfileID: profile.ID, ProfileName: profile.Name, Region: string(region)})
+		}
+		if profile.APIBaseURL != "" {
+			scope, err := credentialScopeForAPIBase(profile.APIBaseURL, profile.Region)
+			if err != nil {
+				return nil, err
+			}
+			add(&auth.Manager{ProfileID: profile.ID, ProfileName: profile.Name, Region: string(profile.Region), Scope: scope})
+		}
+	}
+	add(r.manager())
+	return keys, nil
 }
 
 func (r *Runtime) overrideCredential() (token, source string, persistent bool) {
@@ -338,7 +366,7 @@ func sameAPIOrigin(left, right string) bool {
 func (r *Runtime) reloadConfig(profileName string) error {
 	resolved, err := config.LoadOrDefault(r.configBase)
 	if err != nil {
-		return output.Internal("config_load", "could not reload Viceme CLI configuration", err)
+		return output.Internal("config_load", "could not reload ViceMe CLI configuration", err)
 	}
 	r.config = resolved
 	return r.selectProfile(profileName)

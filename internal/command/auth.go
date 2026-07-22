@@ -28,7 +28,7 @@ type deviceLoginResult struct {
 }
 
 func newAuthCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "auth", Short: "Manage Viceme CLI authentication"}
+	command := &cobra.Command{Use: "auth", Short: "Manage ViceMe CLI authentication"}
 	command.AddCommand(newAuthLoginCommand(runtime))
 	command.AddCommand(newAuthStatusCommand(runtime))
 	command.AddCommand(newAuthLogoutCommand(runtime))
@@ -42,14 +42,14 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 	var timeout time.Duration
 	command := &cobra.Command{
 		Use:   "login",
-		Short: "Start or continue the Viceme device login flow",
+		Short: "Start or continue the ViceMe device login flow",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if _, source, _ := runtime.overrideCredential(); source != "" {
 				if source == "process" {
 					return output.Policy("process_credential_active", "device login is disabled while a process credential is active").WithHint("start a normal CLI process without VICEME_ACCESS_TOKEN to manage persistent login")
 				}
-				return output.Policy("local_profile_credential_active", "device login is disabled while the selected profile has an explicit local access token").WithHint("clear the local profile access token before managing Keychain login")
+				return output.Policy("local_profile_credential_active", "device login is disabled while the selected profile has an explicit local access token").WithHint("clear the local profile access token before managing persistent device login")
 			}
 			if noWait && deviceCode != "" {
 				return output.Validation("auth_flags", "--no-wait and --device-code cannot be used together")
@@ -63,6 +63,9 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 			if timeout <= 0 {
 				return output.Validation("timeout", "--timeout must be greater than zero")
 			}
+			if err := runtime.manager().PreflightSave(); err != nil {
+				return err
+			}
 			client := runtime.client()
 			if deviceCode == "" {
 				authorization, err := client.StartDeviceAuthorization(command.Context())
@@ -70,7 +73,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 					return err
 				}
 				if authorization.DeviceCode == "" || authorization.VerificationURL == "" {
-					return output.Internal("device_authorization_response", "Viceme API returned an incomplete device authorization", nil)
+					return output.Internal("device_authorization_response", "ViceMe API returned an incomplete device authorization", nil)
 				}
 				if noWait {
 					return runtime.success(deviceLoginStartResult{
@@ -98,7 +101,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 }
 
 func writeHumanLoginStart(writer io.Writer, authorization api.DeviceAuthorization) {
-	_, _ = fmt.Fprintln(writer, "Open this URL in your browser to sign in to Viceme:")
+	_, _ = fmt.Fprintln(writer, "Open this URL in your browser to sign in to ViceMe:")
 	_, _ = fmt.Fprintf(writer, "\n  %s\n\n", authorization.VerificationURL)
 	if authorization.UserCode != "" {
 		_, _ = fmt.Fprintf(writer, "If prompted, enter code: %s\n\n", authorization.UserCode)
@@ -124,7 +127,11 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 			}
 			manager := runtime.manager()
 			if err := manager.Save(credential); err != nil {
-				return err
+				revoked := client.Revoke(ctx, token.AccessToken) == nil
+				return output.Authentication("credential_persistence_failed", "device authorization succeeded, but the issued credential could not be saved").
+					WithHint("the one-time device authorization was consumed; fix the local credential store and start a new 'viceme auth login' flow").
+					WithDetails(map[string]any{"authorization_consumed": true, "issued_credential_revoked": revoked}).
+					WithCause(err)
 			}
 			if err := runtime.recordProfileUserID(token.UserID); err != nil {
 				_ = manager.Delete()
@@ -167,7 +174,7 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 func newAuthStatusCommand(runtime *Runtime) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show local Viceme authentication status",
+		Short: "Show local ViceMe authentication status",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if _, source, persistent := runtime.overrideCredential(); source != "" {
@@ -191,7 +198,7 @@ func newAuthStatusCommand(runtime *Runtime) *cobra.Command {
 func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
-		Short: "Revoke and remove local Viceme credentials",
+		Short: "Revoke and remove local ViceMe credentials",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if _, source, _ := runtime.overrideCredential(); source != "" {

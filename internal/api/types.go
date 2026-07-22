@@ -234,5 +234,5 @@ func (e ServerError) Error() string {
 	if e.Message != "" {
 		return e.Message
 	}
-	return fmt.Sprintf("Viceme API error (%s)", e.Subtype)
+	return fmt.Sprintf("ViceMe API error (%s)", e.Subtype)
 }

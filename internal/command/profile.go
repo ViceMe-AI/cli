@@ -21,7 +21,7 @@ type profileListItem struct {
 }
 
 func newProfileCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "profile", Short: "Manage Viceme CLI profiles"}
+	command := &cobra.Command{Use: "profile", Short: "Manage ViceMe CLI profiles"}
 	command.AddCommand(newProfileListCommand(runtime))
 	command.AddCommand(newProfileAddCommand(runtime))
 	command.AddCommand(newProfileConfigureCommand(runtime))
@@ -41,7 +41,7 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 			for _, profile := range runtime.config.Profiles {
 				scope, scopeErr := runtime.credentialScopeForProfile(profile)
 				if scopeErr != nil {
-					return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+					return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 				}
 				if profile.AccessToken != "" {
 					items = append(items, profileListItem{
@@ -72,7 +72,7 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 					userID = status.UserID
 				}
 				if status.Authenticated {
-					credentialSource = "keychain"
+					credentialSource = "secure_store"
 				}
 				items = append(items, profileListItem{
 					Name:             profile.Name,
@@ -152,7 +152,7 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&name, "name", "", "profile name (required)")
-	command.Flags().StringVar(&region, "region", "", "Viceme region: cn or global (defaults to the selected profile region)")
+	command.Flags().StringVar(&region, "region", "", "ViceMe region: cn or global (defaults to the selected profile region)")
 	command.Flags().StringVar(&apiBaseURL, "api-base-url", "", "persist an API base URL for this profile")
 	command.Flags().StringVar(&accessToken, "access-token", "", "persist an explicit local access token")
 	command.Flags().BoolVar(&use, "use", false, "switch to this profile after adding")
@@ -217,7 +217,7 @@ func newProfileConfigureCommand(runtime *Runtime) *cobra.Command {
 			previousScope, previousScopeErr := credentialScopeForStoredProfile(previousProfile)
 			currentScope, currentScopeErr := credentialScopeForStoredProfile(*profile)
 			if previousScopeErr != nil || currentScopeErr != nil {
-				return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+				return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 			}
 			if credentialNamespace(previousProfile.Region, previousScope) != credentialNamespace(profile.Region, currentScope) {
 				manager := credentialauth.Manager{
@@ -264,7 +264,7 @@ func validateProfileAPIBaseURL(value string) (string, error) {
 		return "", nil
 	}
 	if _, err := api.NormalizeAPIOrigin(value); err != nil {
-		return "", output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+		return "", output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 	}
 	return strings.TrimRight(value, "/"), nil
 }
@@ -393,7 +393,7 @@ func newProfileRemoveCommand(runtime *Runtime) *cobra.Command {
 			}
 			scope, scopeErr := runtime.credentialScopeForProfile(removed)
 			if scopeErr != nil {
-				return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+				return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 			}
 			manager := credentialauth.Manager{
 				Store:       runtime.deps.Store,
@@ -404,7 +404,7 @@ func newProfileRemoveCommand(runtime *Runtime) *cobra.Command {
 			}
 			var warnings []string
 			if err := manager.Delete(); err != nil {
-				warnings = append(warnings, "profile was removed but its local credential could not be removed from the operating system keychain")
+				warnings = append(warnings, "profile was removed but its local credential could not be removed from the secure credential store")
 			}
 			if err := runtime.reloadConfig(runtime.config.CurrentProfile); err != nil {
 				return err

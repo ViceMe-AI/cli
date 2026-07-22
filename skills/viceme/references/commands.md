@@ -1,8 +1,8 @@
-# Viceme CLI commands
+# ViceMe CLI commands
 
 ## Install, diagnose, and update
 
-Cold-start the CLI and bundled Viceme Skill from an AI coding tool or terminal:
+Cold-start the CLI and bundled ViceMe Skill from an AI coding tool or terminal:
 
 ```bash
 npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
@@ -11,7 +11,7 @@ viceme install --target codex --region global
 viceme skills doctor --target codex
 ```
 
-Installation defaults to `cn` and initializes the `default` profile. Pass `--region global` only for the international Viceme service. The CLI persists that choice per profile; later commands do not take a region or API URL flag. Automation-oriented data commands emit the stable JSON envelope by default; interactive `viceme auth login` is the human-facing exception.
+Installation defaults to `cn` and initializes the `default` profile. Pass `--region global` only for the international ViceMe service. The CLI persists that choice per profile; later commands do not take a region or API URL flag. Automation-oriented data commands emit the stable JSON envelope by default; interactive `viceme auth login` is the human-facing exception.
 
 Manage profiles only when the user explicitly asks:
 
@@ -34,7 +34,7 @@ viceme profile configure local --access-token 'YOUR_ACCESS_TOKEN'
 viceme profile configure local --clear-access-token
 ```
 
-Never place a token in argv, command examples, chat, or output. Normal device login never writes these fields. A local profile token requires an explicit API base URL and is used only on the same normalized origin; changing origins requires replacing or clearing it in the same command. Environment overrides take precedence, followed by matching explicit local profile overrides, then the region endpoint and Keychain login. A custom normalized origin uses an isolated credential scope. All API and presigned-upload redirects fail closed.
+Never place a token in argv, command examples, chat, or output. Normal device login never writes these fields. A local profile token requires an explicit API base URL and is used only on the same normalized origin; changing origins requires replacing or clearing it in the same command. Environment overrides take precedence, followed by matching explicit local profile overrides, then the region endpoint and secure-store login. A custom normalized origin uses an isolated credential scope. All API and presigned-upload redirects fail closed.
 
 Check first when desired, then update the npm launcher, verified Go binary, and matching Skill together:
 
@@ -55,7 +55,15 @@ viceme auth login --device-code <device-code> --json
 viceme auth logout
 ```
 
-Use plain `viceme auth login` for a person at a terminal: it prints the browser URL and waits for completion. AI Agents must use `--no-wait --json`, ask the user to open `verification_url`, and stop the current turn; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code and `--json` in a later turn using the same profile. Device-login tokens stay in the operating system keychain and are isolated by profile and region; normal login never backfills explicit local profile overrides.
+Use plain `viceme auth login` for a person at a terminal: it prints the browser URL and waits for completion. AI Agents must use `--no-wait --json`, ask the user to open `verification_url`, and stop the current turn; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code and `--json` in a later turn using the same profile. On macOS, device-login tokens stay in AES-256-GCM encrypted files; all platforms isolate them by profile plus normalized API origin. Normal login never backfills explicit local profile overrides.
+
+Login preflights credential persistence before creating or consuming a device authorization. If `credential_store_unavailable` says an existing macOS login is protected by Keychain, do not keep retrying or start another device flow. Ask the user to run the following command once from an interactive macOS Terminal, then retry the same ViceMe operation from the sandbox:
+
+```bash
+viceme config keychain-downgrade
+```
+
+The command copies only encryption key material to a private `0600` local file and imports configured legacy credentials into encrypted files. It never prints a token. Do not run it unless the user is experiencing the documented macOS sandbox boundary or explicitly requests it.
 
 ## Authentication and server-resolved ownership
 
@@ -75,7 +83,7 @@ viceme skill publish --resolution-id <resolution-id> --yes
 viceme job wait <publication-id> --timeout 60s
 ```
 
-`--skill-root` is the exact repository-relative directory containing `SKILL.md`; use `.` only when `SKILL.md` is at the repository root. The calling Agent must determine it from the user-provided path or read-only repository tree before invoking Viceme. Viceme does not discover or rank GitHub Skill roots.
+`--skill-root` is the exact repository-relative directory containing `SKILL.md`; use `.` only when `SKILL.md` is at the repository root. The calling Agent must determine it from the user-provided path or read-only repository tree before invoking ViceMe. ViceMe does not discover or rank GitHub Skill roots.
 
 The internal Core pilot can also exercise direct admission, but this is not a substitute for the T2 exact-candidate preview/confirmation required before public rollout:
 
