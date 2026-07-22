@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "cli_version": "0.5.0",
-  "minimum_cli_version": "0.5.0",
+  "cli_version": "0.6.0",
+  "minimum_cli_version": "0.6.0",
   "global_flags": [
     {
       "name": "profile",
@@ -343,10 +343,9 @@
       "requires_confirmation": false,
       "flags": [
         {
-          "name": "access-token-stdin",
-          "type": "bool",
-          "default": "false",
-          "usage": "read an explicit local access token from stdin"
+          "name": "access-token",
+          "type": "string",
+          "usage": "persist an explicit local access token"
         },
         {
           "name": "api-base-url",
@@ -380,10 +379,9 @@
       "requires_confirmation": false,
       "flags": [
         {
-          "name": "access-token-stdin",
-          "type": "bool",
-          "default": "false",
-          "usage": "replace the explicit local access token from stdin"
+          "name": "access-token",
+          "type": "string",
+          "usage": "replace the explicit local access token"
         },
         {
           "name": "api-base-url",

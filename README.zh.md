@@ -144,13 +144,13 @@ viceme profile remove company
 
 `profile use` 修改持久化的当前 Profile；全局 `--profile` 只覆盖本次命令。不要让 AI Agent 在用户没有明确要求时切换或删除 Profile。
 
-只有在明确授权的本地/内部测试中，才创建独立 Profile，并从 stdin 读取短时 token，避免进入 argv 和 shell history：
+只有在明确授权的本地/内部测试中，才创建独立 Profile，并显式配置 endpoint 与 token：
 
 ```bash
-pbpaste | viceme profile add --name local --region cn \
-  --api-base-url http://localhost:8090 --access-token-stdin --use
+viceme profile add --name local --region cn \
+  --api-base-url http://localhost:8090 --access-token 'YOUR_ACCESS_TOKEN' --use
 
-pbpaste | viceme profile configure local --access-token-stdin
+viceme profile configure local --access-token 'YOUR_ACCESS_TOKEN'
 viceme profile configure local --clear-access-token
 viceme profile configure local --clear-api-base-url
 ```
@@ -194,7 +194,7 @@ viceme skills doctor
 
 设备登录生成的令牌只保存在操作系统密钥链中；正常登录不会回填显式本地 Profile 字段，登录成功的输出也不会包含访问令牌或刷新令牌。
 
-公开 CLI 只提供一套标准认证与发布命令面。短时通用凭证既可以由 `VICEME_ACCESS_TOKEN` 提供（`source=process`），也可以由运营人员通过 stdin 显式写入专用内部测试 Profile（`source=local_profile`）。两者都只调用标准 `inspect/publish/job` 并使用统一 `x-api-key`；不会新增身份选择、代发布或授权签发命令。CLI 永远不输出 token；覆盖生效时 login/logout fail closed，update 子进程也不会继承进程凭证。
+公开 CLI 只提供一套标准认证与发布命令面。短时通用凭证既可以由 `VICEME_ACCESS_TOKEN` 提供（`source=process`），也可以由运营人员通过 `--access-token` 显式写入专用内部测试 Profile（`source=local_profile`）。两者都只调用标准 `inspect/publish/job` 并使用统一 `x-api-key`；不会新增身份选择、代发布或授权签发命令。CLI 永远不输出 token；覆盖生效时 login/logout fail closed，update 子进程也不会继承进程凭证。显式参数可能出现在 shell history 和进程参数中，仅允许在本文约定的受信任内部联调环境使用。
 
 ## 支持的来源
 

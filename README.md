@@ -144,13 +144,13 @@ viceme profile remove company
 
 `profile use` changes the persistent active profile; the global `--profile` flag overrides only one command. AI Agents must not switch or remove profiles unless the user explicitly requests it.
 
-For an explicitly authorized local/internal test, create a dedicated profile and read the short-lived token from stdin so it never enters argv or shell history:
+For an explicitly authorized local/internal test, create a dedicated profile with explicit endpoint and token overrides:
 
 ```bash
-pbpaste | viceme profile add --name local --region cn \
-  --api-base-url http://localhost:8090 --access-token-stdin --use
+viceme profile add --name local --region cn \
+  --api-base-url http://localhost:8090 --access-token 'YOUR_ACCESS_TOKEN' --use
 
-pbpaste | viceme profile configure local --access-token-stdin
+viceme profile configure local --access-token 'YOUR_ACCESS_TOKEN'
 viceme profile configure local --clear-access-token
 viceme profile configure local --clear-api-base-url
 ```
@@ -194,7 +194,7 @@ viceme skills doctor
 
 Tokens created by device login are stored only in the operating-system keychain. Normal login never backfills explicit local profile fields, and successful login output never contains the access or refresh token.
 
-The public CLI exposes one standard authentication and publication surface. A short-lived generic credential may be supplied by `VICEME_ACCESS_TOKEN` (`source=process`) or deliberately persisted in a dedicated internal-test profile via stdin (`source=local_profile`). Both use the normal inspect/publish/job commands and the standard `x-api-key` header. Neither path adds identity-selection, delegated-publication, or authorization-issuance commands. Tokens are never printed; login/logout fail closed while either override is active, and update subprocesses do not inherit process credentials.
+The public CLI exposes one standard authentication and publication surface. A short-lived generic credential may be supplied by `VICEME_ACCESS_TOKEN` (`source=process`) or deliberately persisted in a dedicated internal-test profile with `--access-token` (`source=local_profile`). Both use the normal inspect/publish/job commands and the standard `x-api-key` header. Neither path adds identity-selection, delegated-publication, or authorization-issuance commands. Tokens are never printed; login/logout fail closed while either override is active, and update subprocesses do not inherit process credentials. Because the explicit flag may be visible in shell history and process arguments, use it only in the trusted internal test environment described here.
 
 ## Supported Sources
 
