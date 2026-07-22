@@ -22,7 +22,7 @@ func TestCommandSurface(t *testing.T) {
 	}
 	for _, path := range []string{
 		"version", "install", "update", "auth login", "auth status", "auth logout",
-		"profile list", "profile add", "profile use", "profile remove", "profile rename",
+		"profile list", "profile add", "profile configure", "profile use", "profile remove", "profile rename",
 		"skill inspect", "skill publish", "skill target get", "skill target list",
 		"job get", "job wait", "job resume", "job retry", "job cancel",
 		"skills list", "skills read", "skills install", "skills doctor",
