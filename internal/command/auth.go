@@ -28,7 +28,7 @@ type deviceLoginResult struct {
 }
 
 func newAuthCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "auth", Short: "Manage Viceme CLI authentication"}
+	command := &cobra.Command{Use: "auth", Short: "Manage ViceMe CLI authentication"}
 	command.AddCommand(newAuthLoginCommand(runtime))
 	command.AddCommand(newAuthStatusCommand(runtime))
 	command.AddCommand(newAuthLogoutCommand(runtime))
@@ -42,7 +42,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 	var timeout time.Duration
 	command := &cobra.Command{
 		Use:   "login",
-		Short: "Start or continue the Viceme device login flow",
+		Short: "Start or continue the ViceMe device login flow",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if _, source, _ := runtime.overrideCredential(); source != "" {
@@ -70,7 +70,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 					return err
 				}
 				if authorization.DeviceCode == "" || authorization.VerificationURL == "" {
-					return output.Internal("device_authorization_response", "Viceme API returned an incomplete device authorization", nil)
+					return output.Internal("device_authorization_response", "ViceMe API returned an incomplete device authorization", nil)
 				}
 				if noWait {
 					return runtime.success(deviceLoginStartResult{
@@ -98,7 +98,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 }
 
 func writeHumanLoginStart(writer io.Writer, authorization api.DeviceAuthorization) {
-	_, _ = fmt.Fprintln(writer, "Open this URL in your browser to sign in to Viceme:")
+	_, _ = fmt.Fprintln(writer, "Open this URL in your browser to sign in to ViceMe:")
 	_, _ = fmt.Fprintf(writer, "\n  %s\n\n", authorization.VerificationURL)
 	if authorization.UserCode != "" {
 		_, _ = fmt.Fprintf(writer, "If prompted, enter code: %s\n\n", authorization.UserCode)
@@ -167,7 +167,7 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 func newAuthStatusCommand(runtime *Runtime) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
-		Short: "Show local Viceme authentication status",
+		Short: "Show local ViceMe authentication status",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if _, source, persistent := runtime.overrideCredential(); source != "" {
@@ -191,7 +191,7 @@ func newAuthStatusCommand(runtime *Runtime) *cobra.Command {
 func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
-		Short: "Revoke and remove local Viceme credentials",
+		Short: "Revoke and remove local ViceMe credentials",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if _, source, _ := runtime.overrideCredential(); source != "" {

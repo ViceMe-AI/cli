@@ -98,7 +98,7 @@
 ### Features
 
 - automate CLI releases (`b1c27a5`)
-- publish the Viceme CLI through npm (`80a45d3`)
+- publish the ViceMe CLI through npm (`80a45d3`)
 - add skill agent publishing CLI (`00f173c`)
 
 ### Fixes

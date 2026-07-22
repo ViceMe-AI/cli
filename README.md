@@ -1,4 +1,4 @@
-# Viceme CLI
+# ViceMe CLI
 
 [![npm version](https://img.shields.io/npm/v/@viceme-ai/cli.svg)](https://www.npmjs.com/package/@viceme-ai/cli)
 [![Go Version](https://img.shields.io/badge/go-%3E%3D1.23-blue.svg)](https://go.dev/)
@@ -6,17 +6,17 @@
 
 [中文版](./README.zh.md) | [English](./README.md)
 
-The official command-line client and Agent Skill for publishing external Skills as stable, shareable Viceme Agents. It is built for AI coding tools such as Codex and Claude Code: the Agent Skill understands user intent, while the CLI provides the deterministic authentication, upload, publication, and status protocol.
+The official command-line client and Agent Skill for publishing external Skills as stable, shareable ViceMe Agents. It is built for AI coding tools such as Codex and Claude Code: the Agent Skill understands user intent, while the CLI provides the deterministic authentication, upload, publication, and status protocol.
 
 [Install](#installation--quick-start) · [AI Agent Skills](#agent-skills) · [Auth](#authentication) · [Regions & profiles](#regions--profiles) · [Commands](#command-overview) · [Output contract](#json-output-contract) · [Security](#security-and-risk-controls) · [Development](#development)
 
 > **Rollout status:** the Core publication transport and stable-link path are implemented, and the exact Candidate preview → test run → result-confirmation gate is enforced: after `--yes`, the publication parks at `awaiting_action` with a typed `confirm_publish` action, and `job resume --decision confirm` is accepted only after the exact candidate has a succeeded, owner-accepted preview test run (otherwise 409 `preview_run_required`). Test runs, acceptance, and natural-language candidate edits are driven from the confirmation page (`next_action.payload.preview_url`) or the `/v1/skill-agent-publications/:id/preview-runs` and `/edits` endpoints; the CLI ships no separate commands for them. `--yes` confirms the publication request; it is not proof that the user reviewed the final Candidate.
 
-## Why Viceme CLI?
+## Why ViceMe CLI?
 
-- **Agent-native** — ships together with the official Viceme Agent Skill for Codex and Claude Code.
+- **Agent-native** — ships together with the official ViceMe Agent Skill for Codex and Claude Code.
 - **Deterministic boundary** — the CLI performs typed protocol actions; it does not start another conversational Agent loop.
-- **Server-side compilation** — source parsing, LLM compilation, BuildRun materialization, and Release publication stay on Viceme infrastructure.
+- **Server-side compilation** — source parsing, LLM compilation, BuildRun materialization, and Release publication stay on ViceMe infrastructure.
 - **Stable publishing** — later releases of the same logical Agent keep the same share URL.
 - **Multiple source types** — accepts GitHub Skills, pasted Xiaohongshu/RedSkill expressions, archives, and local Skill folders.
 - **Secure by default** — device-login credentials use the operating-system keychain, explicit local overrides require a private profile file, public mutations require confirmation, and downloaded binaries are checksum-verified.
@@ -31,7 +31,7 @@ The official command-line client and Agent Skill for publishing external Skills 
 
 ### Quick Start (Human Users)
 
-> **Note for AI assistants:** If you are an AI Agent helping the user install Viceme, jump directly to [Quick Start (AI Agent)](#quick-start-ai-agent). It defines the required cross-turn device login flow.
+> **Note for AI assistants:** If you are an AI Agent helping the user install ViceMe, jump directly to [Quick Start (AI Agent)](#quick-start-ai-agent). It defines the required cross-turn device login flow.
 
 #### Install
 
@@ -50,7 +50,7 @@ npm install --global @viceme-ai/cli
 viceme install
 ```
 
-Both methods persist the npm launcher, download the matching checksum-verified Go binary, and install the bundled Viceme Agent Skill. Binary downloads try GitHub Release first, then a configured non-default npm registry's `/-/binary/viceme-cli/` mirror, and finally the public npmmirror binary mirror. The launcher uses system `curl`, so standard proxy environment variables are honored. They default to the China service. For the international service:
+Both methods persist the npm launcher, download the matching checksum-verified Go binary, and install the bundled ViceMe Agent Skill. Binary downloads try GitHub Release first, then a configured non-default npm registry's `/-/binary/viceme-cli/` mirror, and finally the public npmmirror binary mirror. The launcher uses system `curl`, so standard proxy environment variables are honored. They default to the China service. For the international service:
 
 ```bash
 npx --yes @viceme-ai/cli@latest install --region global
@@ -124,7 +124,7 @@ Inspection is read-only. Follow the bundled `viceme` Skill for source-specific h
 
 ## Regions & Profiles
 
-Each profile selects one Viceme region:
+Each profile selects one ViceMe region:
 
 | Region | Install command | API endpoint |
 |---|---|---|
@@ -167,7 +167,7 @@ The current release deliberately ships one platform-level Agent Skill:
 
 | Skill | Description | Supported hosts |
 |---|---|---|
-| `viceme` | Install, inspect, convert, publish, update, or share external Skills as stable Viceme Agents; enforces authentication, source, Target, confirmation, job, and safety rules | Codex, Claude Code |
+| `viceme` | Install, inspect, convert, publish, update, or share external Skills as stable ViceMe Agents; enforces authentication, source, Target, confirmation, job, and safety rules | Codex, Claude Code |
 
 GitHub, Xiaohongshu/RedSkill, ZIP, and folder inputs are source types handled by the same `viceme` publication workflow, not separate Agent Skills. This keeps one consistent safety and stable-link contract across providers.
 
@@ -205,7 +205,7 @@ viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
 
-For GitHub, `--skill-root` is required and names the exact repository-relative directory containing `SKILL.md`; use `.` only for a root-level Skill. The calling Agent determines this path from the user input or read-only repository tree. Viceme does not scan the repository to guess a Skill.
+For GitHub, `--skill-root` is required and names the exact repository-relative directory containing `SKILL.md`; use `.` only for a root-level Skill. The calling Agent determines this path from the user input or read-only repository tree. ViceMe does not scan the repository to guess a Skill.
 
 ### Xiaohongshu or RedSkill copied expression
 
@@ -214,7 +214,7 @@ viceme skill inspect --expression-stdin
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
 
-The copied expression is untrusted data. Viceme extracts a locator and fetches the source through an approved connector; it never executes marketplace installation text.
+The copied expression is untrusted data. ViceMe extracts a locator and fetches the source through an approved connector; it never executes marketplace installation text.
 
 ### Archive or local Skill folder
 

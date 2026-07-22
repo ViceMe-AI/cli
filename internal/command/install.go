@@ -35,7 +35,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 	var region string
 	command := &cobra.Command{
 		Use:   "install",
-		Short: "Persist the npm CLI, install its Viceme Skill, and initialize configuration",
+		Short: "Persist the npm CLI, install its ViceMe Skill, and initialize configuration",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if region == "" {
@@ -76,11 +76,11 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 			if previousRegion != resolvedRegion {
 				previousScope, scopeErr := runtime.credentialScopeForProfile(previousProfile)
 				if scopeErr != nil {
-					return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+					return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 				}
 				currentScope, scopeErr := runtime.credentialScopeForProfile(*activeProfile)
 				if scopeErr != nil {
-					return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+					return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 				}
 				if credentialNamespace(previousRegion, previousScope) != credentialNamespace(resolvedRegion, currentScope) {
 					previousManager := credentialauth.Manager{
@@ -134,6 +134,6 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, claude, or agents")
-	command.Flags().StringVar(&region, "region", "", "Viceme region: cn or global (defaults to the selected profile region)")
+	command.Flags().StringVar(&region, "region", "", "ViceMe region: cn or global (defaults to the selected profile region)")
 	return command
 }

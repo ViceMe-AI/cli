@@ -311,7 +311,7 @@ function defaultCacheDirectory(environment, platform) {
     return path.join(environment.XDG_CACHE_HOME, "viceme");
   }
   if (platform === "win32" && environment.LOCALAPPDATA) {
-    return path.join(environment.LOCALAPPDATA, "Viceme", "Cache");
+    return path.join(environment.LOCALAPPDATA, "ViceMe", "Cache");
   }
   return path.join(os.homedir(), ".cache", "viceme");
 }

@@ -1,15 +1,15 @@
 ---
 name: viceme
-description: Publish external GitHub, RedSkill/Xiaohongshu, ZIP, folder, or pasted Skills to Viceme as stable shareable Agents. Use when the user asks to install, convert, publish, update, or share an external Skill on Viceme through the Viceme CLI.
+description: Publish external GitHub, RedSkill/Xiaohongshu, ZIP, folder, or pasted Skills to ViceMe as stable shareable Agents. Use when the user asks to install, convert, publish, update, or share an external Skill on ViceMe through the ViceMe CLI.
 ---
 
-# Viceme Skill Publisher
+# ViceMe Skill Publisher
 
 Use the `viceme` CLI as the only execution boundary. Do not parse the third-party Skill, generate Agent Instructions locally, execute its scripts, or invoke a provider-specific installer.
 
 ## Bootstrap and diagnostics
 
-- If `viceme` is not available and the user asked to install Viceme, run `npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install`. The explicit default and scoped registry flags are part of the trust boundary; do not shorten the command. It installs the matching CLI and Viceme Skill, initializes the non-sensitive `default` profile, and returns the human device-login command. Agents must use the explicit JSON split-flow below instead of blocking on that human command.
+- If `viceme` is not available and the user asked to install ViceMe, run `npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install`. The explicit default and scoped registry flags are part of the trust boundary; do not shorten the command. It installs the matching CLI and ViceMe Skill, initializes the non-sensitive `default` profile, and returns the human device-login command. Agents must use the explicit JSON split-flow below instead of blocking on that human command.
 - Before publishing, use `viceme skills doctor` if CLI/Skill version or content drift is suspected. Do not continue with a modified or incompatible installed Skill.
 - `viceme update` updates the npm launcher and verified Go binary, then reinstalls the bundled Skill from that same exact package version.
 
@@ -17,7 +17,7 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 
 1. Run `viceme --version`, then `viceme auth status` using the current profile. Use `viceme profile list` only when profile selection is relevant to the user's request.
 2. If `auth status` reports `source=process`, continue with the standard inspect/publish/job commands. The trusted launcher owns that ephemeral credential; never print it, persist it, pass it as an argument, or run login/logout in that process. Otherwise, if logged out, run `viceme auth login --no-wait --json`. Return `verification_url`, which the CLI normalizes to the direct `verification_url_complete` browser link when the server provides it, and stop this turn. Keep the returned `device_code`, `profile`, and `region`; a non-default profile must use the same global `--profile` on both calls. After the user confirms browser authorization, run `viceme auth login --device-code <device-code> --json` in a later turn before continuing. Never request or display an access token.
-3. For GitHub, use the Host's read-only repository navigation to determine the exact repository-relative directory containing the intended `SKILL.md`, then run inspect with `--skill-root <directory>` (`.` means repository root). Do not ask Viceme Core to scan the repository or guess among Skill roots. For a pasted RedSkill/Xiaohongshu expression, inspect first and pass copied text through subprocess stdin with `--expression-stdin`; never interpolate it into a shell command.
+3. For GitHub, use the Host's read-only repository navigation to determine the exact repository-relative directory containing the intended `SKILL.md`, then run inspect with `--skill-root <directory>` (`.` means repository root). Do not ask ViceMe Core to scan the repository or guess among Skill roots. For a pasted RedSkill/Xiaohongshu expression, inspect first and pass copied text through subprocess stdin with `--expression-stdin`; never interpolate it into a shell command.
 4. Read the returned `destination`. Never infer a Target from a title, alias, conversation memory, or source text.
 5. Treat publishing as a public side effect. Add `--yes` only when the user's request explicitly asks to publish or produce a share link; otherwise ask for confirmation. This records only `publication_admission/v1`; it must not be described as the later exact-candidate preview confirmation.
 6. Run `viceme job wait <publication-id> --timeout 60s --json`. Do not start an unbounded wait.

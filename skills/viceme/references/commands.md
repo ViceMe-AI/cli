@@ -1,8 +1,8 @@
-# Viceme CLI commands
+# ViceMe CLI commands
 
 ## Install, diagnose, and update
 
-Cold-start the CLI and bundled Viceme Skill from an AI coding tool or terminal:
+Cold-start the CLI and bundled ViceMe Skill from an AI coding tool or terminal:
 
 ```bash
 npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
@@ -11,7 +11,7 @@ viceme install --target codex --region global
 viceme skills doctor --target codex
 ```
 
-Installation defaults to `cn` and initializes the `default` profile. Pass `--region global` only for the international Viceme service. The CLI persists that choice per profile; later commands do not take a region or API URL flag. Automation-oriented data commands emit the stable JSON envelope by default; interactive `viceme auth login` is the human-facing exception.
+Installation defaults to `cn` and initializes the `default` profile. Pass `--region global` only for the international ViceMe service. The CLI persists that choice per profile; later commands do not take a region or API URL flag. Automation-oriented data commands emit the stable JSON envelope by default; interactive `viceme auth login` is the human-facing exception.
 
 Manage profiles only when the user explicitly asks:
 
@@ -75,7 +75,7 @@ viceme skill publish --resolution-id <resolution-id> --yes
 viceme job wait <publication-id> --timeout 60s
 ```
 
-`--skill-root` is the exact repository-relative directory containing `SKILL.md`; use `.` only when `SKILL.md` is at the repository root. The calling Agent must determine it from the user-provided path or read-only repository tree before invoking Viceme. Viceme does not discover or rank GitHub Skill roots.
+`--skill-root` is the exact repository-relative directory containing `SKILL.md`; use `.` only when `SKILL.md` is at the repository root. The calling Agent must determine it from the user-provided path or read-only repository tree before invoking ViceMe. ViceMe does not discover or rank GitHub Skill roots.
 
 The internal Core pilot can also exercise direct admission, but this is not a substitute for the T2 exact-candidate preview/confirmation required before public rollout:
 

@@ -69,14 +69,14 @@ func (m *Manager) Save(credential Credential) error {
 func (m *Manager) Load() (Credential, error) {
 	value, err := m.Store.Get(m.key())
 	if errors.Is(err, securestore.ErrNotFound) {
-		return Credential{}, output.Authentication("not_logged_in", "not logged in to Viceme")
+		return Credential{}, output.Authentication("not_logged_in", "not logged in to ViceMe")
 	}
 	if err != nil {
 		return Credential{}, output.Authentication("keychain_unavailable", "could not read credentials from the operating system keychain").WithCause(err)
 	}
 	var credential Credential
 	if err := json.Unmarshal([]byte(value), &credential); err != nil || credential.AccessToken == "" {
-		return Credential{}, output.Authentication("credential_invalid", "stored Viceme credentials are invalid")
+		return Credential{}, output.Authentication("credential_invalid", "stored ViceMe credentials are invalid")
 	}
 	return credential, nil
 }
@@ -98,7 +98,7 @@ func (m *Manager) Token(_ context.Context) (string, error) {
 		return "", err
 	}
 	if !credential.ExpiresAt.IsZero() && time.Now().After(credential.ExpiresAt) {
-		return "", output.Authentication("token_expired", "Viceme login has expired; run 'viceme auth login'")
+		return "", output.Authentication("token_expired", "ViceMe login has expired; run 'viceme auth login'")
 	}
 	return credential.AccessToken, nil
 }
