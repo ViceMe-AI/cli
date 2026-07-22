@@ -26,15 +26,14 @@ viceme profile remove company
 
 `profile use` changes the persistent active profile. Global `--profile` selects a profile for one command without changing the persistent selection. Never switch, rename, or remove a profile based only on inferred intent.
 
-Only when the user explicitly requests an authorized local/internal test may an Agent configure explicit profile overrides:
+Only when the user explicitly requests local endpoint testing may an Agent configure an endpoint-only profile override:
 
 ```bash
-viceme profile add --name local --region cn --api-base-url http://localhost:8090 --access-token 'YOUR_ACCESS_TOKEN' --use
-viceme profile configure local --access-token 'YOUR_ACCESS_TOKEN'
-viceme profile configure local --clear-access-token
+viceme profile add --name local --region cn --api-base-url http://localhost:8090 --use
+viceme profile configure local --clear-api-base-url
 ```
 
-Never place a token in argv, command examples, chat, or output. Normal device login never writes these fields. A local profile token requires an explicit API base URL and is used only on the same normalized origin; changing origins requires replacing or clearing it in the same command. Environment overrides take precedence, followed by matching explicit local profile overrides, then the region endpoint and secure-store login. A custom normalized origin uses an isolated credential scope. All API and presigned-upload redirects fail closed.
+Never place a token in argv, command examples, chat, output, or profile configuration. A trusted launcher may inject an audience-bound `VICEME_ACCESS_TOKEN` into one process: production audiences are pinned to their canonical API origins; `local-dev` additionally requires an explicit loopback endpoint and `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. Without a process credential, device login uses the selected profile's secure-store credential scoped by profile plus normalized API origin. All API and presigned-upload redirects fail closed.
 
 Check first when desired, then update the npm launcher, verified Go binary, and matching Skill together:
 

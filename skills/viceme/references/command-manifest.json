@@ -406,11 +406,6 @@
       "requires_confirmation": false,
       "flags": [
         {
-          "name": "access-token",
-          "type": "string",
-          "usage": "persist an explicit local access token"
-        },
-        {
           "name": "api-base-url",
           "type": "string",
           "usage": "persist an API base URL for this profile"
@@ -442,20 +437,9 @@
       "requires_confirmation": false,
       "flags": [
         {
-          "name": "access-token",
-          "type": "string",
-          "usage": "replace the explicit local access token"
-        },
-        {
           "name": "api-base-url",
           "type": "string",
           "usage": "persist an API base URL for this profile"
-        },
-        {
-          "name": "clear-access-token",
-          "type": "bool",
-          "default": "false",
-          "usage": "clear the explicit local access token"
         },
         {
           "name": "clear-api-base-url",

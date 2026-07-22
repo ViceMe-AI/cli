@@ -28,13 +28,10 @@
 
 ## [0.6.0] - 2026-07-22
 
-### Features
+### Security
 
-- persist explicit local profile overrides (`ba33f0b`)
-
-### Other Changes
-
-- configure profile token explicitly (`c183ec5`)
+- bind process publication credentials to a versioned audience and canonical API origin
+- remove profile and command-line publication credential persistence
 
 ## [0.5.0] - 2026-07-21
 
@@ -47,13 +44,13 @@
 - add explicit compiler retry command (`efcaa0e`)
 - Host typed-action 闭环(job preview/edit/run/accept + META) (`ec6479a`)
 - job metadata 支持信息确认检查点(产品 3098) (`56cf083`)
-- add delegated skill publication credentials (`91fee90`)
+- add staff-authorized Skill publication credentials (`91fee90`)
 - job resume 支持 confirm_publish 精确候选确认 (`5707afa`)
 
 ### Fixes
 
-- narrow delegated publication client boundary (`3a3647c`)
-- make delegated publishing recovery-safe (`a15b6bd`)
+- narrow staff-authorized publication client boundary (`3a3647c`)
+- make staff-authorized publishing recovery-safe (`a15b6bd`)
 
 ### Other Changes
 

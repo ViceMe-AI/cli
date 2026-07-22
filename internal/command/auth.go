@@ -46,10 +46,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if _, source, _ := runtime.overrideCredential(); source != "" {
-				if source == "process" {
-					return output.Policy("process_credential_active", "device login is disabled while a process credential is active").WithHint("start a normal CLI process without VICEME_ACCESS_TOKEN to manage persistent login")
-				}
-				return output.Policy("local_profile_credential_active", "device login is disabled while the selected profile has an explicit local access token").WithHint("clear the local profile access token before managing persistent device login")
+				return output.Policy("process_credential_active", "device login is disabled while a process credential is active").WithHint("start a normal CLI process without VICEME_ACCESS_TOKEN to manage persistent login")
 			}
 			if noWait && deviceCode != "" {
 				return output.Validation("auth_flags", "--no-wait and --device-code cannot be used together")
@@ -202,10 +199,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if _, source, _ := runtime.overrideCredential(); source != "" {
-				if source == "process" {
-					return output.Policy("process_credential_active", "logout cannot revoke or delete a process credential").WithHint("stop the trusted launcher process to discard its credential")
-				}
-				return output.Policy("local_profile_credential_active", "logout cannot revoke or delete an explicit local profile credential").WithHint("run 'viceme profile configure <name> --clear-access-token' to remove the local override")
+				return output.Policy("process_credential_active", "logout cannot revoke or delete a process credential").WithHint("stop the trusted launcher process to discard its credential")
 			}
 			manager := runtime.manager()
 			credential, err := manager.Load()
