@@ -22,8 +22,8 @@ func TestProfileAddAndConfigureExplicitLocalOverrides(t *testing.T) {
 	store := securestore.NewMemory()
 	dependencies := Dependencies{Environment: environment}
 
-	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, localToken+"\n", dependencies,
-		"profile", "add", "--name", "local", "--region", "cn", "--api-base-url", "http://localhost:8090/", "--access-token-stdin", "--use")
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", dependencies,
+		"profile", "add", "--name", "local", "--region", "cn", "--api-base-url", "http://localhost:8090/", "--access-token", localToken, "--use")
 	if code != 0 || stderr != "" || strings.Contains(stdout, localToken) || !strings.Contains(stdout, `"access_token_configured":true`) {
 		t.Fatalf("add code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
@@ -96,7 +96,7 @@ func TestProfileAddAndConfigureExplicitLocalOverrides(t *testing.T) {
 	}
 }
 
-func TestProfileConfigureReadsReplacementTokenOnlyFromStdin(t *testing.T) {
+func TestProfileConfigureValidatesExplicitAccessToken(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()
 	environment := skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
@@ -106,13 +106,13 @@ func TestProfileConfigureReadsReplacementTokenOnlyFromStdin(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("add code=%d stderr=%s", code, stderr)
 	}
-	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, " replacement-secret \n", dependencies,
-		"profile", "configure", "local", "--access-token-stdin")
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", dependencies,
+		"profile", "configure", "local", "--access-token", " replacement-secret ")
 	if code == 0 || !strings.Contains(stderr, "profile_access_token") || strings.Contains(stdout+stderr, "replacement-secret") {
 		t.Fatalf("invalid token code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
-	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, strings.Repeat("x", maxLocalProfileTokenBytes+1), dependencies,
-		"profile", "configure", "local", "--access-token-stdin")
+	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
+		"profile", "configure", "local", "--access-token", strings.Repeat("x", (64<<10)+1))
 	if code == 0 || !strings.Contains(stderr, "64 KiB") {
 		t.Fatalf("oversized token code=%d stderr=%s", code, stderr)
 	}

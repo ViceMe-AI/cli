@@ -1,8 +1,6 @@
 package command
 
 import (
-	"fmt"
-	"io"
 	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/api"
@@ -21,8 +19,6 @@ type profileListItem struct {
 	UserID           string        `json:"user_id,omitempty"`
 	Authenticated    bool          `json:"authenticated"`
 }
-
-const maxLocalProfileTokenBytes = 64 << 10
 
 func newProfileCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "profile", Short: "Manage Viceme CLI profiles"}
@@ -97,7 +93,7 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 	var name string
 	var region string
 	var apiBaseURL string
-	var accessTokenStdin bool
+	var accessToken string
 	var use bool
 	command := &cobra.Command{
 		Use:   "add",
@@ -115,10 +111,8 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			accessToken := ""
-			if accessTokenStdin {
-				accessToken, err = readLocalProfileAccessToken(command.InOrStdin())
-				if err != nil {
+			if command.Flags().Changed("access-token") {
+				if err := validateLocalProfileAccessToken(accessToken); err != nil {
 					return err
 				}
 			}
@@ -160,7 +154,7 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&name, "name", "", "profile name (required)")
 	command.Flags().StringVar(&region, "region", "", "Viceme region: cn or global (defaults to the selected profile region)")
 	command.Flags().StringVar(&apiBaseURL, "api-base-url", "", "persist an API base URL for this profile")
-	command.Flags().BoolVar(&accessTokenStdin, "access-token-stdin", false, "read an explicit local access token from stdin")
+	command.Flags().StringVar(&accessToken, "access-token", "", "persist an explicit local access token")
 	command.Flags().BoolVar(&use, "use", false, "switch to this profile after adding")
 	_ = command.MarkFlagRequired("name")
 	return command
@@ -169,7 +163,7 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 func newProfileConfigureCommand(runtime *Runtime) *cobra.Command {
 	var apiBaseURL string
 	var clearAPIBaseURL bool
-	var accessTokenStdin bool
+	var accessToken string
 	var clearAccessToken bool
 	command := &cobra.Command{
 		Use:   "configure <name>",
@@ -179,10 +173,10 @@ func newProfileConfigureCommand(runtime *Runtime) *cobra.Command {
 			if command.Flags().Changed("api-base-url") && clearAPIBaseURL {
 				return output.Validation("profile_config", "--api-base-url and --clear-api-base-url cannot be used together")
 			}
-			if accessTokenStdin && clearAccessToken {
-				return output.Validation("profile_config", "--access-token-stdin and --clear-access-token cannot be used together")
+			if command.Flags().Changed("access-token") && clearAccessToken {
+				return output.Validation("profile_config", "--access-token and --clear-access-token cannot be used together")
 			}
-			if !command.Flags().Changed("api-base-url") && !clearAPIBaseURL && !accessTokenStdin && !clearAccessToken {
+			if !command.Flags().Changed("api-base-url") && !clearAPIBaseURL && !command.Flags().Changed("access-token") && !clearAccessToken {
 				return output.Validation("profile_config", "provide an API base URL or access token change")
 			}
 			index := runtime.config.FindProfileIndex(args[0])
@@ -200,19 +194,18 @@ func newProfileConfigureCommand(runtime *Runtime) *cobra.Command {
 			} else if clearAPIBaseURL {
 				profile.APIBaseURL = ""
 			}
-			if accessTokenStdin {
-				token, err := readLocalProfileAccessToken(command.InOrStdin())
-				if err != nil {
+			if command.Flags().Changed("access-token") {
+				if err := validateLocalProfileAccessToken(accessToken); err != nil {
 					return err
 				}
-				profile.AccessToken = token
+				profile.AccessToken = accessToken
 			} else if clearAccessToken {
 				profile.AccessToken = ""
 			}
 			if profile.AccessToken != "" && profile.APIBaseURL == "" {
 				return output.Validation("profile_access_token", "an explicit local access token requires an explicit profile API base URL")
 			}
-			if previousProfile.AccessToken != "" && !accessTokenStdin && !clearAccessToken &&
+			if previousProfile.AccessToken != "" && !command.Flags().Changed("access-token") && !clearAccessToken &&
 				!sameAPIOrigin(previousProfile.APIBaseURL, profile.APIBaseURL) {
 				return output.Validation("profile_access_token_scope", "changing the API origin requires replacing or clearing the explicit local access token in the same command")
 			}
@@ -260,7 +253,7 @@ func newProfileConfigureCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&apiBaseURL, "api-base-url", "", "persist an API base URL for this profile")
 	command.Flags().BoolVar(&clearAPIBaseURL, "clear-api-base-url", false, "clear the persisted API base URL")
-	command.Flags().BoolVar(&accessTokenStdin, "access-token-stdin", false, "replace the explicit local access token from stdin")
+	command.Flags().StringVar(&accessToken, "access-token", "", "replace the explicit local access token")
 	command.Flags().BoolVar(&clearAccessToken, "clear-access-token", false, "clear the explicit local access token")
 	return command
 }
@@ -291,23 +284,14 @@ func credentialNamespace(region config.Region, scope string) string {
 	return string(region)
 }
 
-func readLocalProfileAccessToken(reader io.Reader) (string, error) {
-	data, err := io.ReadAll(io.LimitReader(reader, maxLocalProfileTokenBytes+1))
-	if err != nil {
-		return "", output.Internal("profile_access_token_read", "could not read the local profile access token", err)
-	}
-	if len(data) > maxLocalProfileTokenBytes {
-		return "", output.Validation("profile_access_token", "local profile access token exceeds the 64 KiB limit")
-	}
-	value := strings.TrimSuffix(string(data), "\n")
-	value = strings.TrimSuffix(value, "\r")
+func validateLocalProfileAccessToken(value string) error {
 	if value == "" {
-		return "", output.Validation("profile_access_token", "local profile access token cannot be empty")
+		return output.Validation("profile_access_token", "local profile access token cannot be empty")
 	}
 	if err := config.ValidateLocalAccessToken(value); err != nil {
-		return "", output.Validation("profile_access_token", fmt.Sprintf("invalid local profile access token: %s", err))
+		return output.Validation("profile_access_token", "invalid local profile access token: "+err.Error())
 	}
-	return value, nil
+	return nil
 }
 
 func newProfileUseCommand(runtime *Runtime) *cobra.Command {
