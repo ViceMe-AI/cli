@@ -343,6 +343,17 @@
       "requires_confirmation": false,
       "flags": [
         {
+          "name": "access-token-stdin",
+          "type": "bool",
+          "default": "false",
+          "usage": "read an explicit local access token from stdin"
+        },
+        {
+          "name": "api-base-url",
+          "type": "string",
+          "usage": "persist an API base URL for this profile"
+        },
+        {
           "name": "name",
           "type": "string",
           "usage": "profile name (required)"
@@ -357,6 +368,39 @@
           "type": "bool",
           "default": "false",
           "usage": "switch to this profile after adding"
+        }
+      ]
+    },
+    {
+      "path": "profile configure",
+      "use": "configure <name>",
+      "short": "Configure explicit local overrides for a profile",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "access-token-stdin",
+          "type": "bool",
+          "default": "false",
+          "usage": "replace the explicit local access token from stdin"
+        },
+        {
+          "name": "api-base-url",
+          "type": "string",
+          "usage": "persist an API base URL for this profile"
+        },
+        {
+          "name": "clear-access-token",
+          "type": "bool",
+          "default": "false",
+          "usage": "clear the explicit local access token"
+        },
+        {
+          "name": "clear-api-base-url",
+          "type": "bool",
+          "default": "false",
+          "usage": "clear the persisted API base URL"
         }
       ]
     },

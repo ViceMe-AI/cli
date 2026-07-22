@@ -63,6 +63,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 				return output.Internal("bootstrap_config", "could not resolve the active CLI profile", err)
 			}
 			previousRegion := activeProfile.Region
+			previousProfile := *activeProfile
 			activeProfile.Region = resolvedRegion
 			configResult, err := config.Save(runtime.configBase, runtime.config)
 			if err != nil {
@@ -73,19 +74,25 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 			}
 			var warnings []string
 			if previousRegion != resolvedRegion {
-				previousScope, scopeErr := runtime.credentialScopeForRegion(previousRegion)
+				previousScope, scopeErr := runtime.credentialScopeForProfile(previousProfile)
 				if scopeErr != nil {
 					return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 				}
-				previousManager := credentialauth.Manager{
-					Store:       runtime.deps.Store,
-					Region:      string(previousRegion),
-					ProfileID:   activeProfile.ID,
-					ProfileName: activeProfile.Name,
-					Scope:       previousScope,
+				currentScope, scopeErr := runtime.credentialScopeForProfile(*activeProfile)
+				if scopeErr != nil {
+					return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 				}
-				if err := previousManager.Delete(); err != nil {
-					warnings = append(warnings, "profile region changed but the previous local credential could not be removed from the operating system keychain")
+				if credentialNamespace(previousRegion, previousScope) != credentialNamespace(resolvedRegion, currentScope) {
+					previousManager := credentialauth.Manager{
+						Store:       runtime.deps.Store,
+						Region:      string(previousRegion),
+						ProfileID:   activeProfile.ID,
+						ProfileName: activeProfile.Name,
+						Scope:       previousScope,
+					}
+					if err := previousManager.Delete(); err != nil {
+						warnings = append(warnings, "profile region changed but the previous local credential could not be removed from the operating system keychain")
+					}
 				}
 			}
 			if err := runtime.setRegion(resolvedRegion); err != nil {
@@ -99,12 +106,17 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 				Region:   resolvedRegion,
 				Warnings: warnings,
 			}
-			status, statusErr := runtime.manager().CurrentStatus()
-			if statusErr == nil {
+			if token, _, _ := runtime.overrideCredential(); token != "" {
 				result.AuthStatusKnown = true
-				result.Authenticated = status.Authenticated
+				result.Authenticated = true
 			} else {
-				result.Warnings = append(result.Warnings, "authentication status could not be read from the operating system keychain")
+				status, statusErr := runtime.manager().CurrentStatus()
+				if statusErr == nil {
+					result.AuthStatusKnown = true
+					result.Authenticated = status.Authenticated
+				} else {
+					result.Warnings = append(result.Warnings, "authentication status could not be read from the operating system keychain")
+				}
 			}
 			if result.Authenticated {
 				result.NextStep = installNextStep{
