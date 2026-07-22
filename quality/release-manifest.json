@@ -5,7 +5,7 @@
   "skill_version": "0.6.0",
   "minimum_cli_version": "0.6.0",
   "cli_compatibility": ">=0.6.0 <0.7.0",
-  "full_skill_bundle_digest": "sha256:b60df27ac36b0c9ac05c4d128b2c0447f0d965bd1c32a64f53fdcc58b8161308",
-  "embedded_content_digest": "sha256:5515f559de834c92363d7c5863de60ce103cfcde6acca6da02f184b8cd2c8aba",
-  "command_manifest_digest": "sha256:64910d3d92265d622edef0a2120a4594a1040f475ef94f71cebff35739843d82"
+  "full_skill_bundle_digest": "sha256:97133b4872a64c6bb719c28d4a335e9df41a7368babadba0ea45f0a45ae0df70",
+  "embedded_content_digest": "sha256:0401ce7eb016b6eb4f283c54659a48b4757819ed94aea5d9d6aa0b6da287a253",
+  "command_manifest_digest": "sha256:f9c848be499b233a3b9cdde3805114a1b467b7c55e105428fdf05dacd848b047"
 }

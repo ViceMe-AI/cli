@@ -84,7 +84,7 @@
           "name": "target",
           "type": "string",
           "default": "auto",
-          "usage": "Skill target: auto, codex, or claude"
+          "usage": "Skill target: auto, codex, claude, or agents"
         }
       ]
     },
@@ -605,7 +605,7 @@
           "name": "target",
           "type": "string",
           "default": "auto",
-          "usage": "Skill target: auto, codex, or claude"
+          "usage": "Skill target: auto, codex, claude, or agents"
         }
       ]
     },
@@ -621,7 +621,7 @@
           "name": "target",
           "type": "string",
           "default": "auto",
-          "usage": "Skill target: auto, codex, or claude"
+          "usage": "Skill target: auto, codex, claude, or agents"
         }
       ]
     },
@@ -665,7 +665,7 @@
           "name": "target",
           "type": "string",
           "default": "auto",
-          "usage": "Agent Skill target refreshed after update: auto, codex, or claude"
+          "usage": "Agent Skill target refreshed after update: auto, codex, claude, or agents"
         }
       ]
     },
