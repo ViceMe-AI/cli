@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "cli_version": "0.5.0",
-  "minimum_cli_version": "0.5.0",
+  "cli_version": "0.6.0",
+  "minimum_cli_version": "0.6.0",
   "global_flags": [
     {
       "name": "profile",
@@ -343,6 +343,16 @@
       "requires_confirmation": false,
       "flags": [
         {
+          "name": "access-token",
+          "type": "string",
+          "usage": "persist an explicit local access token"
+        },
+        {
+          "name": "api-base-url",
+          "type": "string",
+          "usage": "persist an API base URL for this profile"
+        },
+        {
           "name": "name",
           "type": "string",
           "usage": "profile name (required)"
@@ -357,6 +367,38 @@
           "type": "bool",
           "default": "false",
           "usage": "switch to this profile after adding"
+        }
+      ]
+    },
+    {
+      "path": "profile configure",
+      "use": "configure <name>",
+      "short": "Configure explicit local overrides for a profile",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "access-token",
+          "type": "string",
+          "usage": "replace the explicit local access token"
+        },
+        {
+          "name": "api-base-url",
+          "type": "string",
+          "usage": "persist an API base URL for this profile"
+        },
+        {
+          "name": "clear-access-token",
+          "type": "bool",
+          "default": "false",
+          "usage": "clear the explicit local access token"
+        },
+        {
+          "name": "clear-api-base-url",
+          "type": "bool",
+          "default": "false",
+          "usage": "clear the persisted API base URL"
         }
       ]
     },

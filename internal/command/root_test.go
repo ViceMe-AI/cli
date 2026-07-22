@@ -50,6 +50,91 @@ func TestAPIBaseURLEnvironmentOverride(t *testing.T) {
 	}
 }
 
+func TestEnvironmentOverridesExplicitLocalProfile(t *testing.T) {
+	const profileToken = "profile-secret"
+	const processToken = "process-secret"
+	configBase := t.TempDir()
+	configured := config.Default(config.RegionCN)
+	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
+	configured.Profiles[0].AccessToken = profileToken
+	if _, err := config.Save(configBase, configured); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VICEME_API_BASE_URL", "http://localhost:9090")
+	t.Setenv(processAccessTokenEnvironment, processToken)
+	_, runtime, err := NewRoot(Dependencies{
+		Store: securestore.NewMemory(),
+		Environment: skillcontent.Environment{
+			Home:      t.TempDir(),
+			ConfigDir: configBase,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.apiBaseURL != "http://localhost:9090" {
+		t.Fatalf("API base URL=%q", runtime.apiBaseURL)
+	}
+	if token, source, persistent := runtime.overrideCredential(); token != processToken || source != "process" || persistent {
+		t.Fatalf("override token=%q source=%q persistent=%v", token, source, persistent)
+	}
+}
+
+func TestAPIEnvironmentOverrideDoesNotForwardLocalProfileTokenToAnotherOrigin(t *testing.T) {
+	configBase := t.TempDir()
+	configured := config.Default(config.RegionCN)
+	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
+	configured.Profiles[0].AccessToken = "profile-secret"
+	if _, err := config.Save(configBase, configured); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VICEME_API_BASE_URL", "http://localhost:9090")
+	t.Setenv(processAccessTokenEnvironment, "")
+	_, runtime, err := NewRoot(Dependencies{
+		Store: securestore.NewMemory(),
+		Environment: skillcontent.Environment{
+			Home:      t.TempDir(),
+			ConfigDir: configBase,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token, source, _ := runtime.overrideCredential(); token != "" || source != "" {
+		t.Fatalf("profile token crossed origins: token=%q source=%q", token, source)
+	}
+}
+
+func TestDeviceLoginDoesNotBackfillExplicitProfileOverrides(t *testing.T) {
+	configBase := t.TempDir()
+	configured := config.Default(config.RegionCN)
+	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
+	if _, err := config.Save(configBase, configured); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/cli/auth/token" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"access_token":"device-secret","user_id":"user-local","expires_at":"2030-01-01T00:00:00Z"}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLIWithDependencies(t, server, securestore.NewMemory(), "", Dependencies{
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: configBase},
+	}, "auth", "login", "--device-code", "device-local", "--json")
+	if code != 0 || stderr != "" || strings.Contains(stdout, "device-secret") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	loaded, err := config.LoadOrDefault(configBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := loaded.Resolve("default")
+	if err != nil || profile.APIBaseURL != "http://localhost:8090" || profile.AccessToken != "" {
+		t.Fatalf("normal login changed explicit profile overrides: %#v err=%v", profile, err)
+	}
+}
+
 func TestCanonicalAPIOverridesPreserveLegacyRegionCredentialScope(t *testing.T) {
 	for _, test := range []struct {
 		name    string

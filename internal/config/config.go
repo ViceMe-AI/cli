@@ -23,10 +23,12 @@ const (
 )
 
 type Profile struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Region Region `json:"region"`
-	UserID string `json:"userId,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Region      Region `json:"region"`
+	UserID      string `json:"userId,omitempty"`
+	APIBaseURL  string `json:"apiBaseUrl,omitempty"`
+	AccessToken string `json:"accessToken,omitempty"`
 }
 
 type Config struct {
@@ -190,6 +192,15 @@ func load(filename string) (Config, error) {
 	if err := validate(&config); err != nil {
 		return Config{}, err
 	}
+	if hasLocalAccessToken(config) {
+		info, statErr := os.Stat(filename)
+		if statErr != nil {
+			return Config{}, statErr
+		}
+		if info.Mode().Perm()&0o077 != 0 {
+			return Config{}, fmt.Errorf("config containing a local access token must have permissions 0600")
+		}
+	}
 	return config, nil
 }
 
@@ -220,6 +231,12 @@ func validate(config *Config) error {
 			return fmt.Errorf("profile %q: %w", profile.Name, err)
 		}
 		profile.Region = region
+		if err := ValidateLocalAccessToken(profile.AccessToken); err != nil {
+			return fmt.Errorf("profile %q: %w", profile.Name, err)
+		}
+		if profile.AccessToken != "" && profile.APIBaseURL == "" {
+			return fmt.Errorf("profile %q: a local access token requires an explicit API base URL", profile.Name)
+		}
 	}
 	if config.CurrentProfile == "" {
 		config.CurrentProfile = config.Profiles[0].Name
@@ -236,6 +253,10 @@ func validate(config *Config) error {
 }
 
 func isCanonical(filename string, config Config) bool {
+	info, err := os.Stat(filename)
+	if err != nil || info.Mode().Perm()&0o077 != 0 {
+		return false
+	}
 	actual, err := os.ReadFile(filename)
 	if err != nil {
 		return false
@@ -246,6 +267,28 @@ func isCanonical(filename string, config Config) bool {
 	}
 	expected = append(expected, '\n')
 	return bytes.Equal(actual, expected)
+}
+
+func ValidateLocalAccessToken(value string) error {
+	if value == "" {
+		return nil
+	}
+	if len(value) > 64<<10 {
+		return fmt.Errorf("local access token exceeds the 64 KiB limit")
+	}
+	if strings.TrimSpace(value) != value || strings.ContainsAny(value, "\r\n\x00") {
+		return fmt.Errorf("local access token contains surrounding whitespace or control characters")
+	}
+	return nil
+}
+
+func hasLocalAccessToken(config Config) bool {
+	for _, profile := range config.Profiles {
+		if profile.AccessToken != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func write(filename string, config Config) error {

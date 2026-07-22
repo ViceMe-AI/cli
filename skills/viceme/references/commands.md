@@ -26,7 +26,15 @@ viceme profile remove company
 
 `profile use` changes the persistent active profile. Global `--profile` selects a profile for one command without changing the persistent selection. Never switch, rename, or remove a profile based only on inferred intent.
 
-A `VICEME_API_BASE_URL` override on the selected region's canonical origin keeps that region's endpoint scope, including when a base path is present. A different normalized origin uses an isolated scope and requires its own login. Persistent credentials are isolated by profile and region/origin. All API and presigned-upload redirects fail closed.
+Only when the user explicitly requests an authorized local/internal test may an Agent configure explicit profile overrides:
+
+```bash
+viceme profile add --name local --region cn --api-base-url http://localhost:8090 --access-token 'YOUR_ACCESS_TOKEN' --use
+viceme profile configure local --access-token 'YOUR_ACCESS_TOKEN'
+viceme profile configure local --clear-access-token
+```
+
+Never place a token in argv, command examples, chat, or output. Normal device login never writes these fields. A local profile token requires an explicit API base URL and is used only on the same normalized origin; changing origins requires replacing or clearing it in the same command. Environment overrides take precedence, followed by matching explicit local profile overrides, then the region endpoint and Keychain login. A custom normalized origin uses an isolated credential scope. All API and presigned-upload redirects fail closed.
 
 Check first when desired, then update the npm launcher, verified Go binary, and matching Skill together:
 
@@ -47,7 +55,7 @@ viceme auth login --device-code <device-code> --json
 viceme auth logout
 ```
 
-Use plain `viceme auth login` for a person at a terminal: it prints the browser URL and waits for completion. AI Agents must use `--no-wait --json`, ask the user to open `verification_url`, and stop the current turn; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code and `--json` in a later turn using the same profile. Tokens stay in the operating system keychain and are isolated by profile and region.
+Use plain `viceme auth login` for a person at a terminal: it prints the browser URL and waits for completion. AI Agents must use `--no-wait --json`, ask the user to open `verification_url`, and stop the current turn; when the server provides `verification_url_complete`, the CLI makes that prefilled direct browser link the canonical `verification_url`. Continue with the returned device code and `--json` in a later turn using the same profile. Device-login tokens stay in the operating system keychain and are isolated by profile and region; normal login never backfills explicit local profile overrides.
 
 ## Authentication and server-resolved ownership
 
