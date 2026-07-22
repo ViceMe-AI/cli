@@ -1,6 +1,6 @@
 # Automated CLI releases
 
-Viceme CLI uses an automated Release PR as the only normal production release
+ViceMe CLI uses an automated Release PR as the only normal production release
 gate. Maintainers merge feature and fix PRs into `dev`; they do not edit version
 files, create tags, write changelog entries, or run npm commands locally.
 
@@ -94,7 +94,7 @@ PR. `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` authenticate the narrowly
 scoped Release App. `NPM_TOKEN` is optional and should only be retained when the
 npm account policy requires it.
 
-The release notification job uses the same repository secrets as Viceme Web,
+The release notification job uses the same repository secrets as ViceMe Web,
 API, and Engine:
 
 - `FEISHU_RELEASE_WEBHOOK`: webhook for the release notification group;

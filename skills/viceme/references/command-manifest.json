@@ -13,7 +13,7 @@
     {
       "path": "auth",
       "use": "auth",
-      "short": "Manage Viceme CLI authentication",
+      "short": "Manage ViceMe CLI authentication",
       "runnable": false,
       "side_effect": "none",
       "requires_confirmation": false
@@ -21,7 +21,7 @@
     {
       "path": "auth login",
       "use": "login",
-      "short": "Start or continue the Viceme device login flow",
+      "short": "Start or continue the ViceMe device login flow",
       "runnable": true,
       "side_effect": "local",
       "requires_confirmation": false,
@@ -54,7 +54,7 @@
     {
       "path": "auth logout",
       "use": "logout",
-      "short": "Revoke and remove local Viceme credentials",
+      "short": "Revoke and remove local ViceMe credentials",
       "runnable": true,
       "side_effect": "remote_and_local",
       "requires_confirmation": false
@@ -62,7 +62,7 @@
     {
       "path": "auth status",
       "use": "status",
-      "short": "Show local Viceme authentication status",
+      "short": "Show local ViceMe authentication status",
       "runnable": true,
       "side_effect": "none",
       "requires_confirmation": false
@@ -70,7 +70,7 @@
     {
       "path": "install",
       "use": "install",
-      "short": "Persist the npm CLI, install its Viceme Skill, and initialize configuration",
+      "short": "Persist the npm CLI, install its ViceMe Skill, and initialize configuration",
       "runnable": true,
       "side_effect": "local",
       "requires_confirmation": false,
@@ -78,7 +78,7 @@
         {
           "name": "region",
           "type": "string",
-          "usage": "Viceme region: cn or global (defaults to the selected profile region)"
+          "usage": "ViceMe region: cn or global (defaults to the selected profile region)"
         },
         {
           "name": "target",
@@ -329,7 +329,7 @@
     {
       "path": "profile",
       "use": "profile",
-      "short": "Manage Viceme CLI profiles",
+      "short": "Manage ViceMe CLI profiles",
       "runnable": false,
       "side_effect": "none",
       "requires_confirmation": false
@@ -360,7 +360,7 @@
         {
           "name": "region",
           "type": "string",
-          "usage": "Viceme region: cn or global (defaults to the selected profile region)"
+          "usage": "ViceMe region: cn or global (defaults to the selected profile region)"
         },
         {
           "name": "use",
@@ -454,7 +454,7 @@
           "name": "dry-run",
           "type": "bool",
           "default": "false",
-          "usage": "validate and print the operation without calling Viceme"
+          "usage": "validate and print the operation without calling ViceMe"
         },
         {
           "name": "expression-stdin",
@@ -491,7 +491,7 @@
           "name": "dry-run",
           "type": "bool",
           "default": "false",
-          "usage": "validate and print the operation without reading input or calling Viceme"
+          "usage": "validate and print the operation without reading input or calling ViceMe"
         },
         {
           "name": "expected-target-version",
@@ -612,7 +612,7 @@
     {
       "path": "skills install",
       "use": "install",
-      "short": "Atomically install the bundled Viceme Skill",
+      "short": "Atomically install the bundled ViceMe Skill",
       "runnable": true,
       "side_effect": "local",
       "requires_confirmation": false,

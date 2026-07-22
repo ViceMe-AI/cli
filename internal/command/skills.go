@@ -68,7 +68,7 @@ func newSkillsInstallCommand(runtime *Runtime) *cobra.Command {
 	var target string
 	command := &cobra.Command{
 		Use:   "install",
-		Short: "Atomically install the bundled Viceme Skill",
+		Short: "Atomically install the bundled ViceMe Skill",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
 			if err := runtime.deps.Skills.Validate("viceme"); err != nil {

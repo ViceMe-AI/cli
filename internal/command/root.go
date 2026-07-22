@@ -97,18 +97,18 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		var err error
 		resolvedConfig, err = config.LoadOrDefault(configBase)
 		if err != nil {
-			return nil, nil, output.Internal("config_load", "could not load Viceme CLI configuration", err)
+			return nil, nil, output.Internal("config_load", "could not load ViceMe CLI configuration", err)
 		}
 	} else {
 		resolvedRegion, err := config.ParseRegion(string(dependencies.Region))
 		if err != nil {
-			return nil, nil, output.Internal("config_region", "invalid injected Viceme region", err)
+			return nil, nil, output.Internal("config_region", "invalid injected ViceMe region", err)
 		}
 		resolvedConfig = config.Default(resolvedRegion)
 	}
 	resolvedProfile, err := resolvedConfig.Resolve("")
 	if err != nil {
-		return nil, nil, output.Internal("config_profile", "could not resolve the active Viceme CLI profile", err)
+		return nil, nil, output.Internal("config_profile", "could not resolve the active ViceMe CLI profile", err)
 	}
 	region := resolvedProfile.Region
 	apiBaseURLOverride := dependencies.APIBaseURL
@@ -150,7 +150,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	}
 	root := &cobra.Command{
 		Use:           "viceme",
-		Short:         "Publish external Skills as stable Viceme Agents",
+		Short:         "Publish external Skills as stable ViceMe Agents",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
@@ -299,7 +299,7 @@ func (r *Runtime) applyProfile(profile config.Profile) error {
 	}
 	scope, err := credentialScopeForAPIBase(apiBaseURL, profile.Region)
 	if err != nil {
-		return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 	}
 	r.profile = profile
 	r.region = profile.Region
@@ -338,7 +338,7 @@ func sameAPIOrigin(left, right string) bool {
 func (r *Runtime) reloadConfig(profileName string) error {
 	resolved, err := config.LoadOrDefault(r.configBase)
 	if err != nil {
-		return output.Internal("config_load", "could not reload Viceme CLI configuration", err)
+		return output.Internal("config_load", "could not reload ViceMe CLI configuration", err)
 	}
 	r.config = resolved
 	return r.selectProfile(profileName)

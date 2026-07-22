@@ -1,4 +1,4 @@
-// Package update implements the npm-backed Viceme CLI update path. The npm
+// Package update implements the npm-backed ViceMe CLI update path. The npm
 // launcher owns binary acquisition and checksum verification; this package
 // updates that launcher at an exact version and then refreshes the bundled
 // Agent Skill using the same exact package version.
