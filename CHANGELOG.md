@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.7.0] - 2026-07-22
+
+### Features
+
+- skills 安装新增通用 agents target（~/.agents/skills/viceme） (`ed6be01`)
+
+### Fixes
+
+- align secure store contract (`9dcaf0c`)
+- support credentials across macOS sandboxes (`e79ceb0`)
+- standardize ViceMe display name (`dbca4fa`)
+
+### Other Changes
+
+- 同步 release manifest 摘要以匹配 agents target 改动 (`03c909d`)
+
 ## [0.6.0] - 2026-07-22
 
 ### Features
@@ -98,7 +114,7 @@
 ### Features
 
 - automate CLI releases (`b1c27a5`)
-- publish the ViceMe CLI through npm (`80a45d3`)
+- publish the Viceme CLI through npm (`80a45d3`)
 - add skill agent publishing CLI (`00f173c`)
 
 ### Fixes
