@@ -72,7 +72,7 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 					userID = status.UserID
 				}
 				if status.Authenticated {
-					credentialSource = "keychain"
+					credentialSource = "secure_store"
 				}
 				items = append(items, profileListItem{
 					Name:             profile.Name,
@@ -404,7 +404,7 @@ func newProfileRemoveCommand(runtime *Runtime) *cobra.Command {
 			}
 			var warnings []string
 			if err := manager.Delete(); err != nil {
-				warnings = append(warnings, "profile was removed but its local credential could not be removed from the operating system keychain")
+				warnings = append(warnings, "profile was removed but its local credential could not be removed from the secure credential store")
 			}
 			if err := runtime.reloadConfig(runtime.config.CurrentProfile); err != nil {
 				return err

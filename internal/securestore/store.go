@@ -1,7 +1,10 @@
 package securestore
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"sync"
 
 	keyring "github.com/zalando/go-keyring"
@@ -13,6 +16,27 @@ type Store interface {
 	Get(key string) (string, error)
 	Set(key, value string) error
 	Delete(key string) error
+}
+
+// PersistenceProbe is implemented by stores that can verify the complete
+// persistence path without receiving a real credential. Device login uses it
+// before exchanging a one-time authorization code.
+type PersistenceProbe interface {
+	Preflight(key string) error
+}
+
+// KeychainDowngradeResult describes a controlled macOS downgrade from an OS
+// Keychain protected master key to a private local master-key file.
+type KeychainDowngradeResult struct {
+	Status              string `json:"status"`
+	MasterKeyPath       string `json:"master_key_path"`
+	MigratedCredentials int    `json:"migrated_credentials"`
+}
+
+// KeychainDowngrader is intentionally separate from Store so the public
+// command can fail closed on platforms/backends where it is not supported.
+type KeychainDowngrader interface {
+	DowngradeKeychain(keys []string) (KeychainDowngradeResult, error)
 }
 
 type KeyringStore struct {
@@ -40,6 +64,37 @@ func (s *KeyringStore) Delete(key string) error {
 	if errors.Is(err, keyring.ErrNotFound) {
 		return ErrNotFound
 	}
+	return err
+}
+
+// Preflight verifies that this process can write, read, and delete a harmless
+// probe entry. The random account prevents concurrent CLI processes from
+// interfering with each other.
+func (s *KeyringStore) Preflight(key string) error {
+	var random [16]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return err
+	}
+	probeKey := fmt.Sprintf("%s:preflight:%s", key, hex.EncodeToString(random[:]))
+	const probeValue = "viceme-credential-store-preflight"
+	if err := s.Set(probeKey, probeValue); err != nil {
+		return err
+	}
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = s.Delete(probeKey)
+		}
+	}()
+	value, err := s.Get(probeKey)
+	if err != nil {
+		return err
+	}
+	if value != probeValue {
+		return errors.New("secure store preflight read-back mismatch")
+	}
+	err = s.Delete(probeKey)
+	cleanup = false
 	return err
 }
 
@@ -80,3 +135,5 @@ func (s *MemoryStore) Delete(key string) error {
 	delete(s.values, key)
 	return nil
 }
+
+func (s *MemoryStore) Preflight(string) error { return nil }

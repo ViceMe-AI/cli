@@ -177,6 +177,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newInstallCommand(runtime))
 	root.AddCommand(newUpdateCommand(runtime))
 	root.AddCommand(newAuthCommand(runtime))
+	root.AddCommand(newConfigCommand(runtime))
 	root.AddCommand(newProfileCommand(runtime))
 	root.AddCommand(newSkillCommand(runtime))
 	root.AddCommand(newJobCommand(runtime))
@@ -193,14 +194,14 @@ func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.HTTPClient == nil {
 		dependencies.HTTPClient = &http.Client{Timeout: 30 * time.Second}
 	}
-	if dependencies.Store == nil {
-		dependencies.Store = securestore.NewKeyring("viceme-cli")
-	}
 	if dependencies.Skills == nil {
 		dependencies.Skills = skillcontent.New(cliembed.EmbeddedSkills())
 	}
 	if dependencies.Environment.Home == "" {
 		dependencies.Environment = skillcontent.DefaultEnvironment()
+	}
+	if dependencies.Store == nil {
+		dependencies.Store = securestore.NewDefault("viceme-cli", runtimeConfigBase(dependencies.Environment))
 	}
 	if dependencies.Updater == nil {
 		updater := updatepkg.NewNPMService(
@@ -317,6 +318,33 @@ func (r *Runtime) credentialScopeForProfile(profile config.Profile) (string, err
 		apiBaseURL = config.APIBaseURL(profile.Region)
 	}
 	return credentialScopeForAPIBase(apiBaseURL, profile.Region)
+}
+
+func (r *Runtime) credentialStorageKeys() ([]string, error) {
+	seen := make(map[string]struct{})
+	keys := make([]string, 0, len(r.config.Profiles)*3+1)
+	add := func(manager *auth.Manager) {
+		key := manager.StorageKey()
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	for _, profile := range r.config.Profiles {
+		for _, region := range []config.Region{config.RegionCN, config.RegionGlobal} {
+			add(&auth.Manager{ProfileID: profile.ID, ProfileName: profile.Name, Region: string(region)})
+		}
+		if profile.APIBaseURL != "" {
+			scope, err := credentialScopeForAPIBase(profile.APIBaseURL, profile.Region)
+			if err != nil {
+				return nil, err
+			}
+			add(&auth.Manager{ProfileID: profile.ID, ProfileName: profile.Name, Region: string(profile.Region), Scope: scope})
+		}
+	}
+	add(r.manager())
+	return keys, nil
 }
 
 func (r *Runtime) overrideCredential() (token, source string, persistent bool) {

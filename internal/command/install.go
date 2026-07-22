@@ -91,7 +91,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 						Scope:       previousScope,
 					}
 					if err := previousManager.Delete(); err != nil {
-						warnings = append(warnings, "profile region changed but the previous local credential could not be removed from the operating system keychain")
+						warnings = append(warnings, "profile region changed but the previous local credential could not be removed from the secure credential store")
 					}
 				}
 			}
@@ -115,7 +115,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 					result.AuthStatusKnown = true
 					result.Authenticated = status.Authenticated
 				} else {
-					result.Warnings = append(result.Warnings, "authentication status could not be read from the operating system keychain")
+					result.Warnings = append(result.Warnings, "authentication status could not be read from the secure credential store")
 				}
 			}
 			if result.Authenticated {
