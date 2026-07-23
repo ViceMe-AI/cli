@@ -10,7 +10,7 @@ ViceMe 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为
 
 [安装](#安装与快速开始) · [AI Agent Skills](#agent-skills) · [认证](#认证) · [区域与-profile](#区域与-profile) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
 
-> **开放状态：** Core 发布传输和稳定链接链路已经实现。正式对外开放仍取决于精确 Candidate 预览、试运行和结果确认门的完成。当前 `--yes` 只确认发起发布请求，并不代表用户已经审阅最终 Candidate。
+> **开放状态：** Core 发布传输和稳定链接链路已经实现，信息确认门以及精确 Candidate 的预览 → 试跑 → 结果确认门均已生效。`--yes` 后，Publication 先停在 `meta_review`，由 `job metadata` 完成信息确认；随后停在 `awaiting_action`，依次使用 `job preview`、可选的 `job edit`、`job run`、`job accept` 和 `job resume`。只有同一 Candidate 的试跑成功且结果已由发布者接受时才能确认，否则返回 409 `preview_run_required`。确认回执只授权发布，不包含最终分享链接；需要再次有界执行 `job wait` 直到 `share_published`。`--yes` 只确认发起发布请求，不代表用户已确认信息或最终 Candidate。
 
 ## 为什么选择 ViceMe CLI？
 
@@ -120,7 +120,7 @@ viceme skills list
 viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。在上方所述的精确 Candidate 确认门完成前，公开发布流程仍保持关闭。
+inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。进入 `meta_review` 后，使用同一 action ID 与 payload digest 展示并决议信息，然后再次等待；进入 `awaiting_action` 后，展示冻结摘要、完成同一 Candidate 的试跑与结果接受，并取得用户决定后再执行 `job resume`。确认后还需再次等待到 `share_published`，才能返回分享链接。
 
 ## 区域与 Profile
 
