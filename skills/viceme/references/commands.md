@@ -208,13 +208,18 @@ viceme job preview pub_123 [--action-id act_123]
 ```
 
 Edits happen only as natural language inside the conversation — never via a
-page editor or JSON Patch. Pass the user's exact words through subprocess
-stdin; never interpolate them into a quoted shell command line. Bind the
-digest shown by the preview:
+page editor or JSON Patch. Bind the digest shown by the preview and start the
+CLI with an explicit stdin input mode:
 
 ```bash
-viceme job edit pub_123 --candidate-digest sha256:def --request-stdin [--timeout 2m]
+viceme job edit pub_123 --candidate-digest sha256:def \
+  --request-stdin [--timeout 2m]
 ```
+
+Send the user's exact request through the Host's subprocess stdin channel.
+Never interpolate it into a command string, argv, an environment variable, or
+a shell pipeline. The CLI preserves the complete input, including newlines and
+shell metacharacters.
 
 When a bounded wait times out, the command still prints the created
 `edit_id` / `preview_run_id` with `meta.wait_timed_out=true` — resume with

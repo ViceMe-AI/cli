@@ -254,7 +254,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 | `viceme skill inspect` | Freeze and inspect a source candidate without publishing |
 | `viceme skill publish` | Create or update a stable Skill Agent publication |
 | `viceme skill target` | Resolve existing logical Agent Targets and versions |
-| `viceme job` | Read, wait for, show a signed channel-binding URL, resume, explicitly retry, or cancel a durable publication |
+| `viceme job` | Read or wait for a publication, review metadata, preview/edit/test/accept its Candidate, show a signed channel-binding URL, resume an action, explicitly retry, or cancel |
 | `viceme skills` | Read, install, and diagnose the bundled Agent Skill |
 | `viceme update` | Update the npm launcher, verified binary, and bundled Skill together |
 
@@ -309,6 +309,7 @@ Determine command success from the process exit code or `ok == true`. The API's 
 ## Security and Risk Controls
 
 - **No source execution** — the CLI and compiler do not execute third-party scripts, binaries, shell fragments, marketplace commands, or copied instructions.
+- **Untrusted text stays off argv** — AI Hosts must pass copied provider expressions and natural-language Candidate edits through the explicit `--expression-stdin` and `--request-stdin` modes. Never interpolate that text into command strings, argv, environment variables, or shell pipelines.
 - **Explicit public mutation** — publishing, compiler retry, and cancellation require `--yes`; exit code `10` means the Agent must obtain confirmation, not silently retry.
 - **Safe preview** — use `--dry-run` on inspect or publish when the user needs to review the planned request without network or publication side effects.
 - **Credential isolation** — on macOS, device-login credentials stay in AES-256-GCM encrypted files, with Keychain-backed or explicitly downgraded private key material; filenames do not expose profile/origin names. Other platforms retain their native credential manager. Explicit internal-test overrides are namespaced by profile, stored only in a private `0600` config, and never emitted by CLI output.

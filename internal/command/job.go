@@ -150,7 +150,7 @@ func newJobPreviewCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newJobEditCommand(runtime *Runtime) *cobra.Command {
-	var candidateDigest, editRequest string
+	var candidateDigest string
 	var requestStdin bool
 	var timeout time.Duration
 	command := &cobra.Command{
@@ -158,23 +158,18 @@ func newJobEditCommand(runtime *Runtime) *cobra.Command {
 		Short: "Submit a natural-language candidate edit and wait for the new candidate",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			// 用户自然语言必须走结构化 stdin 传输,绝不插值进带引号的 shell
-			// 命令行 —— 与 inspect --expression-stdin 同一注入防线。
-			if requestStdin == (editRequest != "") {
-				return output.Validation("edit_request", "edit requires exactly one of --request or --request-stdin")
-			}
-			if requestStdin {
-				value, err := readLimited(runtime.deps.In, maxStdinBytes)
-				if err != nil {
-					return err
-				}
-				editRequest = value
-			}
-			if strings.TrimSpace(editRequest) == "" {
-				return output.Validation("edit_request", "edit request cannot be empty")
-			}
 			if candidateDigest == "" {
 				return output.Validation("edit_flags", "edit requires --candidate-digest binding the current candidate")
+			}
+			if !requestStdin {
+				return output.Validation("edit_flags", "edit requires --request-stdin; natural-language edit requests are never accepted through argv")
+			}
+			editRequest, err := readLimited(runtime.deps.In, maxStdinBytes)
+			if err != nil {
+				return err
+			}
+			if strings.TrimSpace(editRequest) == "" {
+				return output.Validation("edit_request", "stdin must contain a natural-language edit request")
 			}
 			if timeout <= 0 {
 				timeout = 2 * time.Minute
@@ -200,8 +195,7 @@ func newJobEditCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&candidateDigest, "candidate-digest", "", "current exact release candidate digest")
-	command.Flags().StringVar(&editRequest, "request", "", "natural-language edit request (machine callers: prefer --request-stdin)")
-	command.Flags().BoolVar(&requestStdin, "request-stdin", false, "read the exact natural-language edit request from stdin (no shell interpolation)")
+	command.Flags().BoolVar(&requestStdin, "request-stdin", false, "read the complete natural-language edit request from stdin")
 	command.Flags().DurationVar(&timeout, "timeout", 2*time.Minute, "maximum time to wait for the edit")
 	return command
 }
@@ -610,7 +604,7 @@ func waitPublication(ctx context.Context, runtime *Runtime, id string, timeout t
 
 func publicationWaitComplete(status string) bool {
 	switch status {
-	case "share_published", "awaiting_action", "binding_required", "unsupported", "rejected", "payment_required", "target_conflict", "cancelled", "failed":
+	case "share_published", "meta_review", "awaiting_action", "binding_required", "unsupported", "rejected", "payment_required", "target_conflict", "cancelled", "failed":
 		return true
 	default:
 		return false

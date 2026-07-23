@@ -856,6 +856,7 @@ func TestJobMetadataDecisionValidation(t *testing.T) {
 
 func TestHostTypedActionLoopPreviewEditRunAccept(t *testing.T) {
 	t.Parallel()
+	const editRequest = "把标题改成探针海报\n保留原文：$(touch /tmp/viceme-pwned) `whoami` \"quoted\""
 	var edits, runs, accepts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {
@@ -866,7 +867,7 @@ func TestHostTypedActionLoopPreviewEditRunAccept(t *testing.T) {
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 				t.Fatalf("decode edit body: %v", err)
 			}
-			if body["edit_request"] != "把标题改成探针海报" || body["current_candidate_digest"] != "sha256:cand1" {
+			if body["edit_request"] != editRequest || body["current_candidate_digest"] != "sha256:cand1" {
 				t.Fatalf("edit body = %#v", body)
 			}
 			edits.Add(1)
@@ -908,8 +909,8 @@ func TestHostTypedActionLoopPreviewEditRunAccept(t *testing.T) {
 		!strings.Contains(stdout, `"public_summary_digest":"sha256:summary1"`) {
 		t.Fatalf("preview: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
-	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
-		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request", "把标题改成探针海报", "--timeout", "10s")
+	code, stdout, stderr, _ = runCLIWithInput(t, server, authenticatedStore(t), editRequest,
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request-stdin", "--timeout", "10s")
 	if code != 0 || stderr != "" || !strings.Contains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
 		t.Fatalf("edit: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
@@ -925,6 +926,20 @@ func TestHostTypedActionLoopPreviewEditRunAccept(t *testing.T) {
 	}
 	if edits.Load() != 1 || runs.Load() != 1 || accepts.Load() != 1 {
 		t.Fatalf("typed actions must fire exactly once each: edits=%d runs=%d accepts=%d", edits.Load(), runs.Load(), accepts.Load())
+	}
+}
+
+func TestJobEditRequiresExplicitNonEmptyStdin(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLI(t, nil, authenticatedStore(t),
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1")
+	if code != 2 || !strings.Contains(stderr, "edit_flags") || !strings.Contains(stderr, "--request-stdin") {
+		t.Fatalf("missing stdin mode: code=%d stderr=%s", code, stderr)
+	}
+	code, _, stderr, _ = runCLIWithInput(t, nil, authenticatedStore(t), " \n\t",
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request-stdin")
+	if code != 2 || !strings.Contains(stderr, "edit_request") {
+		t.Fatalf("empty stdin request: code=%d stderr=%s", code, stderr)
 	}
 }
 
@@ -1002,6 +1017,25 @@ func TestJobWaitTimeoutReturnsLastStatus(t *testing.T) {
 		},
 	}, "job", "wait", "pub_1", "--timeout", "1s")
 	if code != 0 || stderr != "" || !strings.Contains(stdout, `"wait_timed_out":true`) || !strings.Contains(stdout, `"status":"compiling"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestJobWaitReturnsImmediatelyForMetadataReview(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"meta_review","next_action":{"type":"confirm_metadata","action_id":"meta_1","payload_digest":"sha256:payload"}}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLIWithDependencies(t, server, authenticatedStore(t), "", Dependencies{
+		Sleep: func(context.Context, time.Duration) error {
+			t.Fatal("meta_review must return without polling again")
+			return nil
+		},
+	}, "job", "wait", "pub_1", "--timeout", "60s")
+	if code != 0 || stderr != "" || strings.Contains(stdout, `"wait_timed_out"`) ||
+		!strings.Contains(stdout, `"status":"meta_review"`) ||
+		!strings.Contains(stdout, `"type":"confirm_metadata"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
@@ -1234,12 +1268,12 @@ func TestJobEditStdinPassesNaturalLanguageVerbatim(t *testing.T) {
 	}
 }
 
-func TestJobEditRejectsConflictingRequestTransports(t *testing.T) {
+func TestJobEditRejectsArgvRequestTransport(t *testing.T) {
 	t.Parallel()
 	code, _, stderr, _ := runCLIWithInput(t, nil, authenticatedStore(t), "ignored",
 		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request", "x", "--request-stdin")
-	if code != 2 || !strings.Contains(stderr, "edit_request") {
-		t.Fatalf("conflicting transports: code=%d stderr=%s", code, stderr)
+	if code != 2 || !strings.Contains(stderr, "invalid_flag") || !strings.Contains(stderr, "--request") {
+		t.Fatalf("argv request transport: code=%d stderr=%s", code, stderr)
 	}
 	code, _, stderr, _ = runCLIWithInput(t, nil, authenticatedStore(t), "",
 		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request-stdin")
@@ -1268,8 +1302,8 @@ func TestJobEditTimeoutPreservesCreatedEditID(t *testing.T) {
 		<-ctx.Done()
 		return ctx.Err()
 	}}
-	code, stdout, stderr, _ := runCLIWithDependencies(t, server, authenticatedStore(t), "", deps,
-		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request", "把标题改成探针海报", "--timeout", "5s")
+	code, stdout, stderr, _ := runCLIWithDependencies(t, server, authenticatedStore(t), "把标题改成探针海报", deps,
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request-stdin", "--timeout", "5s")
 	if code != 0 || stderr != "" {
 		t.Fatalf("timeout must not fail the command: code=%d stderr=%s", code, stderr)
 	}

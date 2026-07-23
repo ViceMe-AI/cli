@@ -254,7 +254,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 | `viceme skill inspect` | 固化并检查来源候选，不执行发布 |
 | `viceme skill publish` | 创建或更新具有稳定链接的 Skill Agent 发布 |
 | `viceme skill target` | 解析现有逻辑 Agent Target 及其版本 |
-| `viceme job` | 读取、等待、展示签名渠道绑定链接、恢复、显式重试或取消持久化发布任务 |
+| `viceme job` | 读取或等待发布任务，审阅信息，预览、编辑、试跑并接受 Candidate，展示签名渠道绑定链接，决议 action，以及显式重试或取消 |
 | `viceme skills` | 读取、安装和诊断随包发布的 Agent Skill |
 | `viceme update` | 同时更新 npm 启动器、已校验二进制文件和随包发布的 Skill |
 
@@ -309,6 +309,7 @@ CLI 执行错误写入 **stderr**，退出码非零：
 ## 安全与风险控制
 
 - **不执行来源内容** — CLI 和编译器不会执行第三方脚本、二进制文件、shell 片段、市场命令或复制口令中的指令。
+- **不让不可信文本进入 argv** — AI Host 必须通过显式的 `--expression-stdin` 和 `--request-stdin` 模式传递复制的来源表达式与 Candidate 自然语言修改要求；不得把这些文本拼入命令字符串、argv、环境变量或 shell 管道。
 - **公开变更需要明确确认** — 发布、编译重试和取消操作需要 `--yes`；退出码 `10` 表示 Agent 必须向用户取得确认，不能静默重试。
 - **安全预览** — 用户需要检查计划请求时，可以对 inspect 或 publish 使用 `--dry-run`，不会产生网络请求或发布副作用。
 - **凭证隔离** — 在 macOS 上，设备登录凭证保存在 AES-256-GCM 加密文件中，主密钥由 Keychain 或显式降级后的私有文件保护，文件名不会暴露 Profile/origin；其他平台继续使用原生凭证管理器。显式内部测试覆盖按 Profile 隔离，仅允许保存在 `0600` 配置中，并且不会出现在 CLI 输出中。

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -51,6 +52,50 @@ func TestPublicConfigurationSurfaceStaysMinimal(t *testing.T) {
 	install := findCommand(root, []string{"install"})
 	if install == nil || install.Flags().Lookup("region") == nil {
 		t.Fatal("install command must expose the single region selector")
+	}
+}
+
+func TestJobEditAcceptsUntrustedTextOnlyFromStdin(t *testing.T) {
+	t.Parallel()
+	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory(), Region: config.RegionCN})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edit := findCommand(root, []string{"job", "edit"})
+	if edit == nil {
+		t.Fatal("missing job edit command")
+	}
+	if edit.Flags().Lookup("request") != nil {
+		t.Fatal("job edit must not expose natural-language input through argv")
+	}
+	if edit.Flags().Lookup("request-stdin") == nil {
+		t.Fatal("job edit must expose the explicit stdin input mode")
+	}
+}
+
+func TestBundledSkillPreservesSafeActionCommandContracts(t *testing.T) {
+	t.Parallel()
+	unsafeRequestFlag := regexp.MustCompile(`--request(?:\s|=)`)
+	for _, relative := range []string{
+		"skills/viceme/SKILL.md",
+		"skills/viceme/references/commands.md",
+		"skills/viceme/references/statuses.md",
+	} {
+		data, err := os.ReadFile(filepath.Join(repositoryRoot(t), relative))
+		if err != nil {
+			t.Fatal(err)
+		}
+		content := string(data)
+		if unsafeRequestFlag.MatchString(content) {
+			t.Errorf("%s passes an edit request through argv", relative)
+		}
+		if !strings.Contains(content, "--request-stdin") {
+			t.Errorf("%s does not document the safe edit request input", relative)
+		}
+		if relative == "skills/viceme/SKILL.md" &&
+			!strings.Contains(content, "viceme job resume <publication-id> --action-id") {
+			t.Error("main Skill omits the required publication ID from job resume")
+		}
 	}
 }
 
