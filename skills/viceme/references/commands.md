@@ -160,11 +160,30 @@ fill them (same JSON keys); `author` also covers source-author edits (1-100
 visible characters). Cancel maps to `cancelled` with zero assets and no
 preview link.
 
-## Preview, edit, test run and confirmation (T2)
+## Interaction steps confirmation, preview, edit, test run and confirmation (T2)
 
-When `next_action.type` is `confirm_publish`, the exact release candidate is
-ready. Show its frozen public summary first — the preview output carries
-`public_summary_digest`, which the confirmation step binds:
+When `next_action.type` is `confirm_steps`, the exact release candidate is
+ready but **no preview link exists yet**. Show the interaction steps from the
+action `payload.steps` (title/description/author/input method/usage/output
+description), then resolve inside the conversation — confirm, edit
+(natural language, below), or decline:
+
+```bash
+viceme job resume pub_123 --action-id act_steps \
+  --expected-payload-digest sha256:abc \
+  --expected-release-candidate-digest sha256:def \
+  --expected-public-summary-digest sha256:sum \
+  --decision confirm
+```
+
+`--decision cancel` maps to `cancelled` with zero preview link. After a
+confirmed steps gate the publication issues `confirm_publish` (with
+`payload.preview_url`); an applied edit supersedes the steps action and the
+fresh candidate must be confirmed again.
+
+When `next_action.type` is `confirm_publish`, show its frozen public summary
+first — the preview output carries `public_summary_digest`, which the
+confirmation step binds:
 
 ```bash
 viceme job preview pub_123 [--action-id act_123]
