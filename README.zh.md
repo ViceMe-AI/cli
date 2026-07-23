@@ -150,10 +150,12 @@ viceme profile remove company
 viceme profile add --name local --region cn \
   --api-base-url http://localhost:8090 \
   --access-token '<vpa1.local-dev.credential>' --use
-viceme profile configure local --clear-access-token --clear-api-base-url
+viceme profile configure local --access-token 'YOUR_ACCESS_TOKEN'
+viceme profile configure local --clear-access-token
+viceme profile configure local --clear-api-base-url
 ```
 
-正常 `viceme auth login` 永远不会向 Profile 写入凭证。本地 Profile credential 只能通过显式的 `profile add/configure` flag 设置或清除，list/status 只报告 `source=local_profile`，不会返回 token。
+正常 `viceme auth login` 永远不会向 Profile 写入凭证。本地 Profile credential 只能通过显式的 `profile add/configure` flag 设置、替换或清除，list/status 只报告 `source=local_profile`，不会返回 token。`--access-token` 会出现在 argv 中且可能进入 shell history，因此只能用于本文约定的受控本地/内部环境。
 
 凭证优先级为进程 `VICEME_ACCESS_TOKEN` → 当前本地 Profile → 设备登录。publication credential 必须使用 `vpa1.<audience>.<secret>`：`cn-prod` 只能访问 `https://api.viceme.cn`，`global-prod` 只能访问 `https://api.viceme.ai`，Profile 中的 `local-dev` 只能访问 loopback endpoint；进程 `local-dev` 还要求 `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`。`VICEME_CLI_CONFIG_DIR` 可覆盖配置根目录，`VICEME_API_BASE_URL` 仍只是单进程 endpoint 覆盖，不能放宽 Profile credential 的 origin。API 与预签名上传重定向一律 fail closed。
 

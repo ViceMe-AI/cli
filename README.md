@@ -150,10 +150,12 @@ For controlled local/internal operation, create a dedicated profile with both an
 viceme profile add --name local --region cn \
   --api-base-url http://localhost:8090 \
   --access-token '<vpa1.local-dev.credential>' --use
-viceme profile configure local --clear-access-token --clear-api-base-url
+viceme profile configure local --access-token 'YOUR_ACCESS_TOKEN'
+viceme profile configure local --clear-access-token
+viceme profile configure local --clear-api-base-url
 ```
 
-Normal `viceme auth login` never writes a credential into a profile. A local Profile credential is set or cleared only by the explicit `profile add/configure` flags, is reported only as `source=local_profile`, and is never returned by list/status output.
+Normal `viceme auth login` never writes a credential into a profile. A local Profile credential is set, replaced, or cleared only by the explicit `profile add/configure` flags, is reported only as `source=local_profile`, and is never returned by list/status output. Because `--access-token` is visible in argv and may enter shell history, use it only in the controlled local/internal environment described here.
 
 Credential priority is process (`VICEME_ACCESS_TOKEN`) → selected local Profile → device login. Every publication credential must use `vpa1.<audience>.<secret>`: `cn-prod` is accepted only for `https://api.viceme.cn`, `global-prod` only for `https://api.viceme.ai`, and `local-dev` Profile credentials only for loopback endpoints. A process `local-dev` credential additionally requires `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. `VICEME_CLI_CONFIG_DIR` can override the config root, while `VICEME_API_BASE_URL` remains a one-process endpoint override and never widens a Profile credential's origin. API and presigned-upload redirects fail closed.
 

@@ -203,7 +203,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			if _, source, _ := runtime.overrideCredential(); source != "" {
 				if source == "process" {
-				return output.Policy("process_credential_active", "logout cannot revoke or delete a process credential").WithHint("stop passing VICEME_ACCESS_TOKEN to discard the process credential")
+					return output.Policy("process_credential_active", "logout cannot revoke or delete a process credential").WithHint("stop passing VICEME_ACCESS_TOKEN to discard the process credential")
 				}
 				return output.Policy("local_profile_credential_active", "logout cannot revoke or delete an explicit local profile credential").WithHint("run 'viceme profile configure <name> --clear-access-token' to remove the local override")
 			}
