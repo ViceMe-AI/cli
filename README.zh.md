@@ -1,4 +1,4 @@
-# Viceme CLI
+# ViceMe CLI
 
 [![npm version](https://img.shields.io/npm/v/@viceme-ai/cli.svg)](https://www.npmjs.com/package/@viceme-ai/cli)
 [![Go Version](https://img.shields.io/badge/go-%3E%3D1.23-blue.svg)](https://go.dev/)
@@ -6,20 +6,20 @@
 
 [中文版](./README.zh.md) | [English](./README.md)
 
-Viceme 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为稳定、可分享的 Viceme Agent。它面向 Codex、Claude Code 等 AI 编程工具：Agent Skill 负责理解用户意图，CLI 负责确定性的认证、上传、发布和状态协议。
+ViceMe 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为稳定、可分享的 ViceMe Agent。它面向 Codex、Claude Code 等 AI 编程工具：Agent Skill 负责理解用户意图，CLI 负责确定性的认证、上传、发布和状态协议。
 
 [安装](#安装与快速开始) · [AI Agent Skills](#agent-skills) · [认证](#认证) · [区域与-profile](#区域与-profile) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
 
 > **开放状态：** Core 发布传输和稳定链接链路已经实现。正式对外开放仍取决于精确 Candidate 预览、试运行和结果确认门的完成。当前 `--yes` 只确认发起发布请求，并不代表用户已经审阅最终 Candidate。
 
-## 为什么选择 Viceme CLI？
+## 为什么选择 ViceMe CLI？
 
-- **为 Agent 原生设计** — 与 Codex、Claude Code 可使用的官方 Viceme Agent Skill 一起发布。
+- **为 Agent 原生设计** — 与 Codex、Claude Code 可使用的官方 ViceMe Agent Skill 一起发布。
 - **确定性边界** — CLI 执行类型化协议操作，不会再启动一层对话式 Agent Loop。
-- **服务端编译** — 来源解析、LLM 编译、BuildRun 固化和 Release 发布均在 Viceme 基础设施中完成。
+- **服务端编译** — 来源解析、LLM 编译、BuildRun 固化和 Release 发布均在 ViceMe 基础设施中完成。
 - **稳定发布** — 同一个逻辑 Agent 后续发布新版本时继续使用同一个分享链接。
 - **支持多种来源** — 支持 GitHub Skill、小红书或 RedSkill 复制口令、压缩包和本地 Skill 目录。
-- **默认安全** — 凭证保存在操作系统密钥链中，公开变更需要确认，下载的二进制文件必须通过校验和验证。
+- **默认安全** — 在 macOS 上，设备登录凭证保存在 AES-256-GCM 加密文件中，主密钥默认由系统 Keychain 保护；其他平台继续使用原生凭证管理器。显式本地覆盖要求私有 Profile 文件，公开变更需要确认，下载的二进制文件必须通过校验和验证。
 - **人类与 Agent 双登录模式** — `viceme auth login` 在终端中引导用户，Agent 跨回合流程则显式使用 JSON。
 
 ## 安装与快速开始
@@ -31,7 +31,7 @@ Viceme 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为
 
 ### 快速开始（人类用户）
 
-> **AI 助手注意：** 如果你是正在帮助用户安装 Viceme 的 AI Agent，请直接跳转到[快速开始（AI Agent）](#快速开始ai-agent)。该章节定义了必须遵循的跨回合设备登录流程。
+> **AI 助手注意：** 如果你是正在帮助用户安装 ViceMe 的 AI Agent，请直接跳转到[快速开始（AI Agent）](#快速开始ai-agent)。该章节定义了必须遵循的跨回合设备登录流程。
 
 #### 安装
 
@@ -50,7 +50,7 @@ npm install --global @viceme-ai/cli
 viceme install
 ```
 
-两种方式都会持久化 npm 启动器、下载匹配且通过校验和验证的 Go 二进制文件，并安装随包发布的 Viceme Agent Skill。二进制下载依次尝试 GitHub Release、用户配置的非默认 npm registry 的 `/-/binary/viceme-cli/` 镜像，最后回退到公共 npmmirror binary 镜像。启动器使用系统 `curl`，因此会遵循标准代理环境变量。默认使用中国区服务。使用国际区服务：
+两种方式都会持久化 npm 启动器、下载匹配且通过校验和验证的 Go 二进制文件，并安装随包发布的 ViceMe Agent Skill。二进制下载依次尝试 GitHub Release、用户配置的非默认 npm registry 的 `/-/binary/viceme-cli/` 镜像，最后回退到公共 npmmirror binary 镜像。启动器使用系统 `curl`，因此会遵循标准代理环境变量。默认使用中国区服务。使用国际区服务：
 
 ```bash
 npx --yes @viceme-ai/cli@latest install --region global
@@ -120,18 +120,18 @@ viceme skills list
 viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。在上方所述的精确 Candidate 确认门完成前，公开发布流程仍保持关闭。
+inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。在上方所述的精确 Candidate 确认门完成前，公开发布流程仍保持关闭。
 
 ## 区域与 Profile
 
-每个 Profile 独立选择一个 Viceme 区域：
+每个 Profile 独立选择一个 ViceMe 区域：
 
 | 区域 | 安装命令 | API 地址 |
 |---|---|---|
 | 中国区 | `viceme install` | `https://api.viceme.cn` |
 | 国际区 | `viceme install --region global` | `https://api.viceme.ai` |
 
-首次安装会创建 `default` Profile。配置保存在 `~/.viceme-cli/config.json`，访问令牌仍只保存在操作系统密钥链中。不同 Profile 和区域的凭证彼此隔离。
+首次安装会创建 `default` Profile。设备登录凭证按 Profile 与规范化 API origin 隔离；在 macOS 上，它们保存在私有的 AES-256-GCM 加密文件中，加密主密钥通常只保存在系统 Keychain；其他平台继续使用原生凭证管理器。Profile 文件通常不含秘密；显式配置本地 access-token 覆盖后，它会成为必须保持 `0600` 权限的敏感文件。
 
 ```bash
 viceme profile list
@@ -144,7 +144,20 @@ viceme profile remove company
 
 `profile use` 修改持久化的当前 Profile；全局 `--profile` 只覆盖本次命令。不要让 AI Agent 在用户没有明确要求时切换或删除 Profile。
 
-可以用 `VICEME_CLI_CONFIG_DIR` 覆盖配置根目录。本地 API 联调使用进程环境变量 `VICEME_API_BASE_URL`，不会写入 Profile。如果覆盖地址仍属于所选区域的规范化 canonical origin，即使带有 base path，也继续使用该区域的 endpoint scope；不同 origin 使用独立 scope，并要求分别登录。持久登录凭证始终按 Profile 和区域/origin 隔离。API 与预签名上传请求遇到重定向会直接失败，凭证请求头不会被转发到其他 origin。
+只有在明确授权的本地/内部测试中，才创建独立 Profile，并显式配置 endpoint 与 token：
+
+```bash
+viceme profile add --name local --region cn \
+  --api-base-url http://localhost:8090 --access-token 'YOUR_ACCESS_TOKEN' --use
+
+viceme profile configure local --access-token 'YOUR_ACCESS_TOKEN'
+viceme profile configure local --clear-access-token
+viceme profile configure local --clear-api-base-url
+```
+
+正常 `viceme auth login` 永远不会向 Profile 回填 `apiBaseUrl` 或 `accessToken`。显式本地 token 绑定到该 Profile 的 normalized API origin，只会在同一 origin 上优先于安全凭证存储中的登录；切换 origin 时必须在同一条配置命令中替换或清除 token。覆盖生效时 `auth login` 与 `auth logout` 都会 fail closed。`profile list` 和 `auth status` 只报告 `source=local_profile`，不会输出 token。内部测试结束后应立即清除覆盖。
+
+可以用 `VICEME_CLI_CONFIG_DIR` 覆盖配置根目录。`VICEME_API_BASE_URL` 与 `VICEME_ACCESS_TOKEN` 仍可作为单进程覆盖，并优先于所选 Profile；否则先使用 Profile 显式配置的 `apiBaseUrl`/`accessToken`，再回退到区域地址和安全凭证存储中的登录。不同 normalized origin 使用独立 scope。API 与预签名上传请求遇到重定向会直接失败，凭证请求头不会被转发到其他 origin。
 
 更新检查直接请求 npm registry，并且只把最近一次成功查询到的版本写入 `~/.viceme-cli/update-state.json`；registry 暂时不可用时，该结果最多回退使用 24 小时。`viceme install` 和 `viceme update` 启动的 npm 操作统一使用隔离的 `~/.viceme-cli/npm-cache`，不会因为用户级 `~/.npm` 缓存损坏而失败。这两个位置都不包含秘密信息，可以安全删除；凭证不会进入任何更新缓存。
 
@@ -154,7 +167,7 @@ viceme profile remove company
 
 | Skill | 说明 | 支持的宿主 |
 |---|---|---|
-| `viceme` | 将外部 Skill 安装、检查、转换、发布、更新或分享为稳定的 Viceme Agent；统一约束认证、来源、Target、确认、任务和安全规则 | Codex、Claude Code |
+| `viceme` | 将外部 Skill 安装、检查、转换、发布、更新或分享为稳定的 ViceMe Agent；统一约束认证、来源、Target、确认、任务和安全规则 | Codex、Claude Code |
 
 GitHub、小红书/RedSkill、ZIP 和目录是同一个 `viceme` 发布流程处理的来源类型，不是相互独立的 Agent Skills。这样可以让不同来源共享一致的安全边界和稳定链接合同。
 
@@ -179,9 +192,21 @@ viceme skills doctor
 | `viceme auth login --device-code <code> --json` | 在后续回合完成 Agent 登录流程 |
 | `viceme auth logout` | 撤销并删除当前 Profile 的凭证 |
 
-设备登录生成的令牌只保存在操作系统密钥链中，不会回退到明文存储；登录成功的输出也不会包含访问令牌或刷新令牌。
+在 macOS 上，设备登录生成的令牌只保存在私有加密凭证文件中，加密主密钥通常保存在系统 Keychain；其他平台继续使用原生凭证管理器。正常登录不会回填显式本地 Profile 字段，登录成功的输出也不会包含访问令牌或刷新令牌。
 
-公共 CLI 只有一套标准认证与发布命令面。受信启动器可为工作人员授权操作注入短期通用进程凭证；`auth status` 会显示 `source=process`，普通 inspect/publish/job 命令仍通过 `x-api-key` 发送。该凭证不会持久化或输出，生效期间 login/logout 直接拒绝，update 子进程也不会继承它。CLI 不提供公开的身份选择、授权秘密参数或凭证管理命令。
+CLI 会在创建设备授权或兑换一次性 device code 之前，对完整的本地持久化链路做预检。预检失败时不会消费任何一次性授权。如果预检后仍在兑换成功时发生存储故障，CLI 会尝试撤销刚签发的凭证，并以 `credential_persistence_failed` 明确说明必须重新发起 device flow；不会误报登录成功，也不会输出 token。
+
+### macOS 沙箱（Codex 与 Claude Code）
+
+全新沙箱环境在系统 Keychain 被阻断时，可以自动创建私有的 `0600` 文件主密钥。如果凭证此前是在 Terminal 中使用 Keychain 主密钥创建的，请从同一 macOS 用户的交互式终端执行一次：
+
+```bash
+viceme config keychain-downgrade
+```
+
+该命令会把现有主密钥复制到 `~/.viceme-cli/credentials/master.key.file`，并将已配置 Profile 的旧 Keychain 凭证导入加密文件。原 Keychain 条目会保留为冷备份。命令可重复执行，不会打印 token，也不会将 token 明文落盘。完成后，同一 macOS 用户下的 Codex、Claude Code 沙箱无需访问 Keychain 即可读取加密凭证。其明确的安全取舍是：降级后由用户文件权限（目录 `0700`、文件 `0600`）代替 Keychain 的进程级访问边界。
+
+公开 CLI 只提供一套标准认证与发布命令面。短时通用凭证既可以由 `VICEME_ACCESS_TOKEN` 提供（`source=process`），也可以由运营人员通过 `--access-token` 显式写入专用内部测试 Profile（`source=local_profile`）。两者都只调用标准 `inspect/publish/job` 并使用统一 `x-api-key`；不会新增身份选择、代发布或授权签发命令。CLI 永远不输出 token；覆盖生效时 login/logout fail closed，update 子进程也不会继承进程凭证。显式参数可能出现在 shell history 和进程参数中，仅允许在本文约定的受信任内部联调环境使用。
 
 ## 支持的来源
 
@@ -192,7 +217,7 @@ viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
 
-GitHub 来源必须传 `--skill-root`，它是包含 `SKILL.md` 的精确仓库相对目录；只有根级 Skill 才使用 `.`。调用 Agent 根据用户输入或只读仓库文件树确定该路径，Viceme 不扫描全仓猜测 Skill。
+GitHub 来源必须传 `--skill-root`，它是包含 `SKILL.md` 的精确仓库相对目录；只有根级 Skill 才使用 `.`。调用 Agent 根据用户输入或只读仓库文件树确定该路径，ViceMe 不扫描全仓猜测 Skill。
 
 ### 小红书或 RedSkill 复制口令
 
@@ -201,7 +226,7 @@ viceme skill inspect --expression-stdin
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
 
-复制口令属于不可信数据。Viceme 只从中提取定位信息，并通过允许的连接器获取来源；不会执行市场安装文案中的命令。
+复制口令属于不可信数据。ViceMe 只从中提取定位信息，并通过允许的连接器获取来源；不会执行市场安装文案中的命令。
 
 ### 压缩包或本地 Skill 目录
 
@@ -224,11 +249,12 @@ viceme skill publish --file ./poster-skill-v2.zip \
 |---|---|
 | `viceme install` | 安装持久化启动器、Agent Skill 和默认 Profile |
 | `viceme auth` | 启动、完成、检查或撤销设备认证 |
+| `viceme config` | 管理受控的 macOS Keychain 到文件的沙箱降级 |
 | `viceme profile` | 新增、列出、切换、重命名或删除本地 Profile |
 | `viceme skill inspect` | 固化并检查来源候选，不执行发布 |
 | `viceme skill publish` | 创建或更新具有稳定链接的 Skill Agent 发布 |
 | `viceme skill target` | 解析现有逻辑 Agent Target 及其版本 |
-| `viceme job` | 读取、等待、恢复、显式重试或取消持久化发布任务 |
+| `viceme job` | 读取、等待、展示签名渠道绑定链接、恢复、显式重试或取消持久化发布任务 |
 | `viceme skills` | 读取、安装和诊断随包发布的 Agent Skill |
 | `viceme update` | 同时更新 npm 启动器、已校验二进制文件和随包发布的 Skill |
 
@@ -285,7 +311,7 @@ CLI 执行错误写入 **stderr**，退出码非零：
 - **不执行来源内容** — CLI 和编译器不会执行第三方脚本、二进制文件、shell 片段、市场命令或复制口令中的指令。
 - **公开变更需要明确确认** — 发布、编译重试和取消操作需要 `--yes`；退出码 `10` 表示 Agent 必须向用户取得确认，不能静默重试。
 - **安全预览** — 用户需要检查计划请求时，可以对 inspect 或 publish 使用 `--dry-run`，不会产生网络请求或发布副作用。
-- **凭证隔离** — 凭证保存在操作系统密钥链中，并按 Profile 与区域隔离。
+- **凭证隔离** — 在 macOS 上，设备登录凭证保存在 AES-256-GCM 加密文件中，主密钥由 Keychain 或显式降级后的私有文件保护，文件名不会暴露 Profile/origin；其他平台继续使用原生凭证管理器。显式内部测试覆盖按 Profile 隔离，仅允许保存在 `0600` 配置中，并且不会出现在 CLI 输出中。
 - **不可变输入** — inspect 会把发布绑定到不可变来源快照，而不是在之后重新读取浮动 URL。
 - **有界等待** — `job wait` 有最大等待时间；超时后返回最新持久化状态，不会取消工作流。
 - **有界编译恢复** — `job retry` 复用已冻结的来源与同一发布任务，只接受明确标记为可重试的平台故障，并由服务端限制次数。

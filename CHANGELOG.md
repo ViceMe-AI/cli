@@ -1,5 +1,67 @@
 # Changelog
 
+## [0.8.0] - 2026-07-22
+
+### Features
+
+- surface channel binding actions (`18c1ca1`)
+
+### Fixes
+
+- validate channel binding contract (`629eaf9`)
+
+## [0.7.0] - 2026-07-22
+
+### Features
+
+- skills 安装新增通用 agents target（~/.agents/skills/viceme） (`ed6be01`)
+
+### Fixes
+
+- align secure store contract (`9dcaf0c`)
+- support credentials across macOS sandboxes (`e79ceb0`)
+- standardize ViceMe display name (`dbca4fa`)
+
+### Other Changes
+
+- 同步 release manifest 摘要以匹配 agents target 改动 (`03c909d`)
+
+## [0.6.0] - 2026-07-22
+
+### Features
+
+- persist explicit local profile overrides (`ba33f0b`)
+
+### Other Changes
+
+- configure profile token explicitly (`c183ec5`)
+
+## [0.5.0] - 2026-07-21
+
+### Features
+
+- pass explicit source root (`e4b4a78`)
+- job metadata 新增 --author 透传来源作者修改 (`bab2399`)
+- job resume 新增 --expected-public-summary-digest 绑定摘要回执 (`1cf648c`)
+- job accept 强制 --inputs-digest 绑定试跑输入集(PRE-04) (`841b4eb`)
+- add explicit compiler retry command (`efcaa0e`)
+- Host typed-action 闭环(job preview/edit/run/accept + META) (`ec6479a`)
+- job metadata 支持信息确认检查点(产品 3098) (`56cf083`)
+- add delegated skill publication credentials (`91fee90`)
+- job resume 支持 confirm_publish 精确候选确认 (`5707afa`)
+
+### Fixes
+
+- narrow delegated publication client boundary (`3a3647c`)
+- make delegated publishing recovery-safe (`a15b6bd`)
+
+### Other Changes
+
+- 重新生成命令清单与发布清单 (`b72c634`)
+- 同步 T2 发布门三项强制契约的 Host 指引 (`bc8e170`)
+- docs+test: cancel decision 契约测试与确认门试跑引导 (`73e8ad6`)
+- 发布流程补充 T2 确认门与试跑门禁说明 (`764dbd8`)
+
 ## [0.4.0] - 2026-07-20
 
 ### Features

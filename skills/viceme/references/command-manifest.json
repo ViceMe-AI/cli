@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "cli_version": "0.4.0",
-  "minimum_cli_version": "0.4.0",
+  "cli_version": "0.8.0",
+  "minimum_cli_version": "0.8.0",
   "global_flags": [
     {
       "name": "profile",
@@ -13,7 +13,7 @@
     {
       "path": "auth",
       "use": "auth",
-      "short": "Manage Viceme CLI authentication",
+      "short": "Manage ViceMe CLI authentication",
       "runnable": false,
       "side_effect": "none",
       "requires_confirmation": false
@@ -21,7 +21,7 @@
     {
       "path": "auth login",
       "use": "login",
-      "short": "Start or continue the Viceme device login flow",
+      "short": "Start or continue the ViceMe device login flow",
       "runnable": true,
       "side_effect": "local",
       "requires_confirmation": false,
@@ -54,7 +54,7 @@
     {
       "path": "auth logout",
       "use": "logout",
-      "short": "Revoke and remove local Viceme credentials",
+      "short": "Revoke and remove local ViceMe credentials",
       "runnable": true,
       "side_effect": "remote_and_local",
       "requires_confirmation": false
@@ -62,15 +62,31 @@
     {
       "path": "auth status",
       "use": "status",
-      "short": "Show local Viceme authentication status",
+      "short": "Show local ViceMe authentication status",
       "runnable": true,
       "side_effect": "none",
       "requires_confirmation": false
     },
     {
+      "path": "config",
+      "use": "config",
+      "short": "Manage ViceMe CLI runtime configuration",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "config keychain-downgrade",
+      "use": "keychain-downgrade",
+      "short": "Enable encrypted credential access from macOS sandboxes",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false
+    },
+    {
       "path": "install",
       "use": "install",
-      "short": "Persist the npm CLI, install its Viceme Skill, and initialize configuration",
+      "short": "Persist the npm CLI, install its ViceMe Skill, and initialize configuration",
       "runnable": true,
       "side_effect": "local",
       "requires_confirmation": false,
@@ -78,13 +94,13 @@
         {
           "name": "region",
           "type": "string",
-          "usage": "Viceme region: cn or global (defaults to the selected profile region)"
+          "usage": "ViceMe region: cn or global (defaults to the selected profile region)"
         },
         {
           "name": "target",
           "type": "string",
           "default": "auto",
-          "usage": "Skill target: auto, codex, or claude"
+          "usage": "Skill target: auto, codex, claude, or agents"
         }
       ]
     },
@@ -120,6 +136,14 @@
           "usage": "preview run receipt ID"
         }
       ]
+    },
+    {
+      "path": "job bind",
+      "use": "bind <publication-id>",
+      "short": "Show the channel account binding URL for a blocked publication",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
     },
     {
       "path": "job cancel",
@@ -166,6 +190,22 @@
           "type": "duration",
           "default": "2m0s",
           "usage": "maximum time to wait for the edit"
+        }
+      ]
+    },
+    {
+      "path": "job edit-get",
+      "use": "edit-get <publication-id> <edit-id>",
+      "short": "Read a candidate edit receipt by ID, optionally resuming the wait after a timeout",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "0s",
+          "usage": "resume waiting for the edit (0 = single read)"
         }
       ]
     },
@@ -323,6 +363,22 @@
       ]
     },
     {
+      "path": "job run-get",
+      "use": "run-get <publication-id> <preview-run-id>",
+      "short": "Read a preview run receipt by ID, optionally resuming the wait after a timeout",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "0s",
+          "usage": "resume waiting for the run (0 = single read)"
+        }
+      ]
+    },
+    {
       "path": "job wait",
       "use": "wait <publication-id>",
       "short": "Wait for a bounded publication result",
@@ -341,7 +397,7 @@
     {
       "path": "profile",
       "use": "profile",
-      "short": "Manage Viceme CLI profiles",
+      "short": "Manage ViceMe CLI profiles",
       "runnable": false,
       "side_effect": "none",
       "requires_confirmation": false
@@ -355,6 +411,16 @@
       "requires_confirmation": false,
       "flags": [
         {
+          "name": "access-token",
+          "type": "string",
+          "usage": "persist an explicit local access token"
+        },
+        {
+          "name": "api-base-url",
+          "type": "string",
+          "usage": "persist an API base URL for this profile"
+        },
+        {
           "name": "name",
           "type": "string",
           "usage": "profile name (required)"
@@ -362,13 +428,45 @@
         {
           "name": "region",
           "type": "string",
-          "usage": "Viceme region: cn or global (defaults to the selected profile region)"
+          "usage": "ViceMe region: cn or global (defaults to the selected profile region)"
         },
         {
           "name": "use",
           "type": "bool",
           "default": "false",
           "usage": "switch to this profile after adding"
+        }
+      ]
+    },
+    {
+      "path": "profile configure",
+      "use": "configure <name>",
+      "short": "Configure explicit local overrides for a profile",
+      "runnable": true,
+      "side_effect": "local",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "access-token",
+          "type": "string",
+          "usage": "replace the explicit local access token"
+        },
+        {
+          "name": "api-base-url",
+          "type": "string",
+          "usage": "persist an API base URL for this profile"
+        },
+        {
+          "name": "clear-access-token",
+          "type": "bool",
+          "default": "false",
+          "usage": "clear the explicit local access token"
+        },
+        {
+          "name": "clear-api-base-url",
+          "type": "bool",
+          "default": "false",
+          "usage": "clear the persisted API base URL"
         }
       ]
     },
@@ -424,7 +522,7 @@
           "name": "dry-run",
           "type": "bool",
           "default": "false",
-          "usage": "validate and print the operation without calling Viceme"
+          "usage": "validate and print the operation without calling ViceMe"
         },
         {
           "name": "expression-stdin",
@@ -461,7 +559,7 @@
           "name": "dry-run",
           "type": "bool",
           "default": "false",
-          "usage": "validate and print the operation without reading input or calling Viceme"
+          "usage": "validate and print the operation without reading input or calling ViceMe"
         },
         {
           "name": "expected-target-version",
@@ -575,14 +673,14 @@
           "name": "target",
           "type": "string",
           "default": "auto",
-          "usage": "Skill target: auto, codex, or claude"
+          "usage": "Skill target: auto, codex, claude, or agents"
         }
       ]
     },
     {
       "path": "skills install",
       "use": "install",
-      "short": "Atomically install the bundled Viceme Skill",
+      "short": "Atomically install the bundled ViceMe Skill",
       "runnable": true,
       "side_effect": "local",
       "requires_confirmation": false,
@@ -591,7 +689,7 @@
           "name": "target",
           "type": "string",
           "default": "auto",
-          "usage": "Skill target: auto, codex, or claude"
+          "usage": "Skill target: auto, codex, claude, or agents"
         }
       ]
     },
@@ -635,7 +733,7 @@
           "name": "target",
           "type": "string",
           "default": "auto",
-          "usage": "Agent Skill target refreshed after update: auto, codex, or claude"
+          "usage": "Agent Skill target refreshed after update: auto, codex, claude, or agents"
         }
       ]
     },

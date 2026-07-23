@@ -47,18 +47,18 @@ type options struct {
 }
 
 type Runtime struct {
-	deps                 Dependencies
-	opts                 options
-	printer              *output.Printer
-	meta                 output.Meta
-	region               config.Region
-	apiBaseURL           string
-	apiBaseURLOverridden bool
-	credentialScope      string
-	config               config.Config
-	profile              config.Profile
-	configBase           string
-	processAccessToken   string
+	deps               Dependencies
+	opts               options
+	printer            *output.Printer
+	meta               output.Meta
+	region             config.Region
+	apiBaseURL         string
+	apiBaseURLOverride string
+	credentialScope    string
+	config             config.Config
+	profile            config.Profile
+	configBase         string
+	processAccessToken string
 }
 
 const processAccessTokenEnvironment = "VICEME_ACCESS_TOKEN"
@@ -97,41 +97,28 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		var err error
 		resolvedConfig, err = config.LoadOrDefault(configBase)
 		if err != nil {
-			return nil, nil, output.Internal("config_load", "could not load Viceme CLI configuration", err)
+			return nil, nil, output.Internal("config_load", "could not load ViceMe CLI configuration", err)
 		}
 	} else {
 		resolvedRegion, err := config.ParseRegion(string(dependencies.Region))
 		if err != nil {
-			return nil, nil, output.Internal("config_region", "invalid injected Viceme region", err)
+			return nil, nil, output.Internal("config_region", "invalid injected ViceMe region", err)
 		}
 		resolvedConfig = config.Default(resolvedRegion)
 	}
 	resolvedProfile, err := resolvedConfig.Resolve("")
 	if err != nil {
-		return nil, nil, output.Internal("config_profile", "could not resolve the active Viceme CLI profile", err)
+		return nil, nil, output.Internal("config_profile", "could not resolve the active ViceMe CLI profile", err)
 	}
 	region := resolvedProfile.Region
-	apiBaseURL := dependencies.APIBaseURL
-	apiBaseURLOverridden := apiBaseURL != ""
-	if apiBaseURL == "" {
-		apiBaseURL = os.Getenv("VICEME_API_BASE_URL")
-		apiBaseURLOverridden = apiBaseURL != ""
-	}
-	if apiBaseURL == "" {
-		apiBaseURL = config.APIBaseURL(region)
+	apiBaseURLOverride := dependencies.APIBaseURL
+	if apiBaseURLOverride == "" {
+		apiBaseURLOverride = os.Getenv("VICEME_API_BASE_URL")
 	}
 	processAccessToken := os.Getenv(processAccessTokenEnvironment)
 	if processAccessToken != "" &&
 		(strings.TrimSpace(processAccessToken) != processAccessToken || strings.ContainsAny(processAccessToken, "\r\n\x00")) {
 		return nil, nil, output.Authentication("process_credential_invalid", "the process publication credential is invalid")
-	}
-	credentialScope := ""
-	if apiBaseURLOverridden {
-		resolvedScope, scopeErr := credentialScopeForAPIBase(apiBaseURL, region)
-		if scopeErr != nil {
-			return nil, nil, output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
-		}
-		credentialScope = resolvedScope
 	}
 	digests, err := dependencies.Skills.Digests("viceme")
 	if err != nil {
@@ -144,25 +131,26 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		EmbeddedContentDigest: digests.Embedded,
 	}
 	runtime := &Runtime{
-		deps:                 dependencies,
-		meta:                 meta,
-		region:               region,
-		apiBaseURL:           apiBaseURL,
-		apiBaseURLOverridden: apiBaseURLOverridden,
-		credentialScope:      credentialScope,
-		config:               resolvedConfig,
-		profile:              *resolvedProfile,
-		configBase:           configBase,
-		processAccessToken:   processAccessToken,
+		deps:               dependencies,
+		meta:               meta,
+		region:             region,
+		apiBaseURLOverride: apiBaseURLOverride,
+		config:             resolvedConfig,
+		profile:            *resolvedProfile,
+		configBase:         configBase,
+		processAccessToken: processAccessToken,
 		printer: &output.Printer{
 			Out:    dependencies.Out,
 			ErrOut: dependencies.ErrOut,
 			Meta:   meta,
 		},
 	}
+	if err := runtime.selectProfile(resolvedProfile.Name); err != nil {
+		return nil, nil, err
+	}
 	root := &cobra.Command{
 		Use:           "viceme",
-		Short:         "Publish external Skills as stable Viceme Agents",
+		Short:         "Publish external Skills as stable ViceMe Agents",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
@@ -189,6 +177,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newInstallCommand(runtime))
 	root.AddCommand(newUpdateCommand(runtime))
 	root.AddCommand(newAuthCommand(runtime))
+	root.AddCommand(newConfigCommand(runtime))
 	root.AddCommand(newProfileCommand(runtime))
 	root.AddCommand(newSkillCommand(runtime))
 	root.AddCommand(newJobCommand(runtime))
@@ -205,14 +194,14 @@ func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.HTTPClient == nil {
 		dependencies.HTTPClient = &http.Client{Timeout: 30 * time.Second}
 	}
-	if dependencies.Store == nil {
-		dependencies.Store = securestore.NewKeyring("viceme-cli")
-	}
 	if dependencies.Skills == nil {
 		dependencies.Skills = skillcontent.New(cliembed.EmbeddedSkills())
 	}
 	if dependencies.Environment.Home == "" {
 		dependencies.Environment = skillcontent.DefaultEnvironment()
+	}
+	if dependencies.Store == nil {
+		dependencies.Store = securestore.NewDefault("viceme-cli", runtimeConfigBase(dependencies.Environment))
 	}
 	if dependencies.Updater == nil {
 		updater := updatepkg.NewNPMService(
@@ -259,8 +248,8 @@ func (r *Runtime) manager() *auth.Manager {
 
 func (r *Runtime) client() *api.Client {
 	var tokens api.TokenSource = r.manager()
-	if r.processAccessToken != "" {
-		tokens = processTokenSource(r.processAccessToken)
+	if token, _, _ := r.overrideCredential(); token != "" {
+		tokens = processTokenSource(token)
 	}
 	return api.NewClient(r.apiBaseURL, r.deps.HTTPClient, tokens, "viceme/"+buildinfo.Version)
 }
@@ -289,24 +278,8 @@ func writerOr(value, fallback io.Writer) io.Writer {
 }
 
 func (r *Runtime) setRegion(region config.Region) error {
-	r.region = region
 	r.profile.Region = region
-	if !r.apiBaseURLOverridden {
-		r.apiBaseURL = config.APIBaseURL(region)
-	}
-	scope, err := r.credentialScopeForRegion(region)
-	if err != nil {
-		return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
-	}
-	r.credentialScope = scope
-	return nil
-}
-
-func (r *Runtime) credentialScopeForRegion(region config.Region) (string, error) {
-	if !r.apiBaseURLOverridden {
-		return "", nil
-	}
-	return credentialScopeForAPIBase(r.apiBaseURL, region)
+	return r.applyProfile(r.profile)
 }
 
 func (r *Runtime) selectProfile(name string) error {
@@ -314,14 +287,86 @@ func (r *Runtime) selectProfile(name string) error {
 	if err != nil {
 		return output.Validation("profile_not_found", err.Error())
 	}
-	r.profile = *profile
-	return r.setRegion(profile.Region)
+	return r.applyProfile(*profile)
+}
+
+func (r *Runtime) applyProfile(profile config.Profile) error {
+	apiBaseURL := r.apiBaseURLOverride
+	if apiBaseURL == "" {
+		apiBaseURL = profile.APIBaseURL
+	}
+	if apiBaseURL == "" {
+		apiBaseURL = config.APIBaseURL(profile.Region)
+	}
+	scope, err := credentialScopeForAPIBase(apiBaseURL, profile.Region)
+	if err != nil {
+		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+	}
+	r.profile = profile
+	r.region = profile.Region
+	r.apiBaseURL = apiBaseURL
+	r.credentialScope = scope
+	return nil
+}
+
+func (r *Runtime) credentialScopeForProfile(profile config.Profile) (string, error) {
+	apiBaseURL := r.apiBaseURLOverride
+	if apiBaseURL == "" {
+		apiBaseURL = profile.APIBaseURL
+	}
+	if apiBaseURL == "" {
+		apiBaseURL = config.APIBaseURL(profile.Region)
+	}
+	return credentialScopeForAPIBase(apiBaseURL, profile.Region)
+}
+
+func (r *Runtime) credentialStorageKeys() ([]string, error) {
+	seen := make(map[string]struct{})
+	keys := make([]string, 0, len(r.config.Profiles)*3+1)
+	add := func(manager *auth.Manager) {
+		key := manager.StorageKey()
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		keys = append(keys, key)
+	}
+	for _, profile := range r.config.Profiles {
+		for _, region := range []config.Region{config.RegionCN, config.RegionGlobal} {
+			add(&auth.Manager{ProfileID: profile.ID, ProfileName: profile.Name, Region: string(region)})
+		}
+		if profile.APIBaseURL != "" {
+			scope, err := credentialScopeForAPIBase(profile.APIBaseURL, profile.Region)
+			if err != nil {
+				return nil, err
+			}
+			add(&auth.Manager{ProfileID: profile.ID, ProfileName: profile.Name, Region: string(profile.Region), Scope: scope})
+		}
+	}
+	add(r.manager())
+	return keys, nil
+}
+
+func (r *Runtime) overrideCredential() (token, source string, persistent bool) {
+	if r.processAccessToken != "" {
+		return r.processAccessToken, "process", false
+	}
+	if r.profile.AccessToken != "" && sameAPIOrigin(r.profile.APIBaseURL, r.apiBaseURL) {
+		return r.profile.AccessToken, "local_profile", true
+	}
+	return "", "", false
+}
+
+func sameAPIOrigin(left, right string) bool {
+	leftOrigin, leftErr := api.NormalizeAPIOrigin(left)
+	rightOrigin, rightErr := api.NormalizeAPIOrigin(right)
+	return leftErr == nil && rightErr == nil && leftOrigin == rightOrigin
 }
 
 func (r *Runtime) reloadConfig(profileName string) error {
 	resolved, err := config.LoadOrDefault(r.configBase)
 	if err != nil {
-		return output.Internal("config_load", "could not reload Viceme CLI configuration", err)
+		return output.Internal("config_load", "could not reload ViceMe CLI configuration", err)
 	}
 	r.config = resolved
 	return r.selectProfile(profileName)

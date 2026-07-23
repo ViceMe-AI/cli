@@ -157,16 +157,19 @@ type PreviewRunStartResponse struct {
 
 // SkillPreviewRun is the durable preview-run receipt with the bounded result.
 type SkillPreviewRun struct {
-	PublicationID   string         `json:"publication_id"`
-	PreviewRunID    string         `json:"preview_run_id"`
-	RunnerRunID     string         `json:"runner_run_id"`
-	CandidateDigest string         `json:"candidate_digest"`
-	InputsDigest    *string        `json:"inputs_digest"`
-	Status          string         `json:"status"`
-	ResultDigest    *string        `json:"result_digest"`
-	Result          map[string]any `json:"result"`
-	Accepted        bool           `json:"accepted"`
-	AcceptedAt      *string        `json:"accepted_at"`
+	PublicationID   string            `json:"publication_id"`
+	PreviewRunID    string            `json:"preview_run_id"`
+	RunnerRunID     string            `json:"runner_run_id"`
+	CandidateDigest string            `json:"candidate_digest"`
+	InputsDigest    *string           `json:"inputs_digest"`
+	// Inputs 是产生本次结果的 canonical 输入值(与 InputsDigest 同源),让
+	// 用户能看到并接受「看得见的」那组输入,而不是隐藏 digest。
+	Inputs       map[string]string `json:"inputs"`
+	Status       string            `json:"status"`
+	ResultDigest *string           `json:"result_digest"`
+	Result       map[string]any    `json:"result"`
+	Accepted     bool              `json:"accepted"`
+	AcceptedAt   *string           `json:"accepted_at"`
 }
 
 // PreviewRunAcceptRequest accepts the actual result of a preview run.
@@ -241,5 +244,5 @@ func (e ServerError) Error() string {
 	if e.Message != "" {
 		return e.Message
 	}
-	return fmt.Sprintf("Viceme API error (%s)", e.Subtype)
+	return fmt.Sprintf("ViceMe API error (%s)", e.Subtype)
 }

@@ -241,7 +241,7 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string, headers http.Header) error {
 	base, err := validateAPIBaseURL(c.BaseURL)
 	if err != nil {
-		return output.Validation("api_base_url", "Viceme API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 	}
 	base.Path = path.Join(base.Path, endpoint)
 	var body io.Reader
@@ -271,7 +271,7 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string,
 	token := explicitToken
 	if authenticated && token == "" {
 		if c.Tokens == nil {
-			return output.Authentication("not_logged_in", "not logged in to Viceme")
+			return output.Authentication("not_logged_in", "not logged in to ViceMe")
 		}
 		token, err = c.Tokens.Token(ctx)
 		if err != nil {
@@ -287,15 +287,15 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string,
 	}
 	response, err := withoutRedirects(c.HTTPClient).Do(request)
 	if err != nil {
-		return output.Network("transport", "failed to reach the Viceme API", err)
+		return output.Network("transport", "failed to reach the ViceMe API", err)
 	}
 	defer response.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
-		return output.Network("response_read", "failed to read the Viceme API response", err)
+		return output.Network("response_read", "failed to read the ViceMe API response", err)
 	}
 	if len(data) > maxResponseBytes {
-		return output.Internal("response_too_large", "Viceme API response exceeded the client limit", nil)
+		return output.Internal("response_too_large", "ViceMe API response exceeded the client limit", nil)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return decodeServerError(response.StatusCode, data)
@@ -371,7 +371,7 @@ func decodeSuccess(data []byte, out any) error {
 		data = possibleEnvelope.Data
 	}
 	if err := json.Unmarshal(data, out); err != nil {
-		return output.Internal("response_decode", "Viceme API returned an invalid JSON response", err)
+		return output.Internal("response_decode", "ViceMe API returned an invalid JSON response", err)
 	}
 	return nil
 }
@@ -387,7 +387,7 @@ func decodeServerError(status int, data []byte) error {
 		_ = json.Unmarshal(data, &serverError)
 	}
 	if serverError.Message == "" {
-		serverError.Message = fmt.Sprintf("Viceme API returned HTTP %d", status)
+		serverError.Message = fmt.Sprintf("ViceMe API returned HTTP %d", status)
 	}
 	if serverError.Subtype == "" {
 		serverError.Subtype = http.StatusText(status)

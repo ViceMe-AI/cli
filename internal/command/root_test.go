@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -18,6 +19,28 @@ import (
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
+
+type preflightFailureStore struct{}
+
+func (s *preflightFailureStore) Get(string) (string, error) { return "", securestore.ErrNotFound }
+func (s *preflightFailureStore) Set(string, string) error   { return nil }
+func (s *preflightFailureStore) Delete(string) error        { return nil }
+func (s *preflightFailureStore) Preflight(string) error {
+	return fmt.Errorf("sandbox cannot persist credentials")
+}
+
+type saveFailureStore struct{}
+
+func (saveFailureStore) Get(string) (string, error) { return "", securestore.ErrNotFound }
+func (saveFailureStore) Set(string, string) error   { return fmt.Errorf("disk became read-only") }
+func (saveFailureStore) Delete(string) error        { return nil }
+func (saveFailureStore) Preflight(string) error     { return nil }
+
+type blockedKeyringStore struct{}
+
+func (blockedKeyringStore) Get(string) (string, error) { return "", fmt.Errorf("keychain blocked") }
+func (blockedKeyringStore) Set(string, string) error   { return fmt.Errorf("keychain blocked") }
+func (blockedKeyringStore) Delete(string) error        { return fmt.Errorf("keychain blocked") }
 
 func TestDefaultRegionUsesChinaEndpoint(t *testing.T) {
 	t.Setenv("VICEME_API_BASE_URL", "")
@@ -47,6 +70,91 @@ func TestAPIBaseURLEnvironmentOverride(t *testing.T) {
 	}
 	if !strings.HasPrefix(runtime.credentialScope, "custom:") {
 		t.Fatalf("custom API origin did not receive an isolated credential scope: %q", runtime.credentialScope)
+	}
+}
+
+func TestEnvironmentOverridesExplicitLocalProfile(t *testing.T) {
+	const profileToken = "profile-secret"
+	const processToken = "process-secret"
+	configBase := t.TempDir()
+	configured := config.Default(config.RegionCN)
+	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
+	configured.Profiles[0].AccessToken = profileToken
+	if _, err := config.Save(configBase, configured); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VICEME_API_BASE_URL", "http://localhost:9090")
+	t.Setenv(processAccessTokenEnvironment, processToken)
+	_, runtime, err := NewRoot(Dependencies{
+		Store: securestore.NewMemory(),
+		Environment: skillcontent.Environment{
+			Home:      t.TempDir(),
+			ConfigDir: configBase,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.apiBaseURL != "http://localhost:9090" {
+		t.Fatalf("API base URL=%q", runtime.apiBaseURL)
+	}
+	if token, source, persistent := runtime.overrideCredential(); token != processToken || source != "process" || persistent {
+		t.Fatalf("override token=%q source=%q persistent=%v", token, source, persistent)
+	}
+}
+
+func TestAPIEnvironmentOverrideDoesNotForwardLocalProfileTokenToAnotherOrigin(t *testing.T) {
+	configBase := t.TempDir()
+	configured := config.Default(config.RegionCN)
+	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
+	configured.Profiles[0].AccessToken = "profile-secret"
+	if _, err := config.Save(configBase, configured); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("VICEME_API_BASE_URL", "http://localhost:9090")
+	t.Setenv(processAccessTokenEnvironment, "")
+	_, runtime, err := NewRoot(Dependencies{
+		Store: securestore.NewMemory(),
+		Environment: skillcontent.Environment{
+			Home:      t.TempDir(),
+			ConfigDir: configBase,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token, source, _ := runtime.overrideCredential(); token != "" || source != "" {
+		t.Fatalf("profile token crossed origins: token=%q source=%q", token, source)
+	}
+}
+
+func TestDeviceLoginDoesNotBackfillExplicitProfileOverrides(t *testing.T) {
+	configBase := t.TempDir()
+	configured := config.Default(config.RegionCN)
+	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
+	if _, err := config.Save(configBase, configured); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/cli/auth/token" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"access_token":"device-secret","user_id":"user-local","expires_at":"2030-01-01T00:00:00Z"}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLIWithDependencies(t, server, securestore.NewMemory(), "", Dependencies{
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: configBase},
+	}, "auth", "login", "--device-code", "device-local", "--json")
+	if code != 0 || stderr != "" || strings.Contains(stdout, "device-secret") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	loaded, err := config.LoadOrDefault(configBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := loaded.Resolve("default")
+	if err != nil || profile.APIBaseURL != "http://localhost:8090" || profile.AccessToken != "" {
+		t.Fatalf("normal login changed explicit profile overrides: %#v err=%v", profile, err)
 	}
 }
 
@@ -317,6 +425,32 @@ func TestAuthNoWaitJSONNeverReturnsToken(t *testing.T) {
 	}
 }
 
+func TestDeviceLoginPreflightFailureDoesNotCreateOrExchangeAuthorization(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name string
+		args []string
+	}{
+		{name: "before create", args: []string{"auth", "login", "--no-wait", "--json"}},
+		{name: "before exchange", args: []string{"auth", "login", "--device-code", "device-once", "--json"}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				calls.Add(1)
+			}))
+			defer server.Close()
+			code, stdout, stderr, _ := runCLI(t, server, &preflightFailureStore{}, test.args...)
+			if code != 3 || stdout != "" || !strings.Contains(stderr, `"subtype":"credential_store_unavailable"`) {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+			}
+			if calls.Load() != 0 {
+				t.Fatalf("server was called %d times after persistence preflight failed", calls.Load())
+			}
+		})
+	}
+}
+
 func TestAuthLoginGuidesHumanAndWaitsForAuthorization(t *testing.T) {
 	t.Parallel()
 	completeURL := "https://viceme.test/cli/auth?user_code=ABCD-EFGH"
@@ -402,6 +536,66 @@ func TestDeviceLoginStoresTokenButDoesNotPrintIt(t *testing.T) {
 	}
 	if credential.AccessToken != "top-secret" {
 		t.Fatal("credential was not stored")
+	}
+}
+
+func TestDeviceLoginSaveFailureReturnsRecoverableConsumedAuthorizationContract(t *testing.T) {
+	t.Parallel()
+	var exchanges atomic.Int32
+	var revocations atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/cli/auth/token":
+			exchanges.Add(1)
+			_, _ = io.WriteString(writer, `{"access_token":"issued-secret","user_id":"user_1"}`)
+		case "/v1/cli/auth/revoke":
+			revocations.Add(1)
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, saveFailureStore{}, "auth", "login", "--device-code", "device-once", "--json")
+	if code != 3 || stdout != "" || !strings.Contains(stderr, `"subtype":"credential_persistence_failed"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, forbidden := range []string{"issued-secret", "device-once"} {
+		if strings.Contains(stderr, forbidden) {
+			t.Fatalf("save failure leaked %q: %s", forbidden, stderr)
+		}
+	}
+	if !strings.Contains(stderr, `"authorization_consumed":true`) || !strings.Contains(stderr, `"issued_credential_revoked":true`) {
+		t.Fatalf("save failure omitted recovery details: %s", stderr)
+	}
+	if exchanges.Load() != 1 || revocations.Load() != 1 {
+		t.Fatalf("exchanges=%d revocations=%d", exchanges.Load(), revocations.Load())
+	}
+}
+
+func TestSandboxFallbackNeverWritesDeviceTokenToProfileConfig(t *testing.T) {
+	t.Parallel()
+	configBase := t.TempDir()
+	store := securestore.NewEncryptedFile(configBase, "viceme-cli-test", blockedKeyringStore{})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/cli/auth/token" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"access_token":"sandbox-device-secret","user_id":"sandbox-user"}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLIWithDependencies(t, server, store, "", Dependencies{
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: configBase},
+	}, "auth", "login", "--device-code", "device-sandbox", "--json")
+	if code != 0 || stderr != "" || strings.Contains(stdout, "sandbox-device-secret") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	configData, err := os.ReadFile(config.ConfigPath(configBase))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(configData), "sandbox-device-secret") || strings.Contains(string(configData), "access_token") {
+		t.Fatalf("profile config contains device credential material: %s", configData)
 	}
 }
 
@@ -551,6 +745,60 @@ func TestJobWaitReturnsBusinessFailureWithExitZero(t *testing.T) {
 	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "wait", "pub_1")
 	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"unsupported"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestJobBindReturnsSignedBrowserAction(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_binding" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_binding","status":"binding_required","next_action":{"type":"bind_channel_account","provider":"github","binding_status":"required","binding_url":"https://viceme.example/channel-bindings/signed","expires_at":"2030-01-01T00:00:00Z","retry_mode":"new_publication","hints":[{"type":"download_source"},{"type":"fork_source"}]}}`)
+	}))
+	defer server.Close()
+
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "bind", "pub_binding")
+	if code != 0 || stderr != "" ||
+		!strings.Contains(stdout, `"binding_url":"https://viceme.example/channel-bindings/signed"`) ||
+		!strings.Contains(stdout, `"retry_mode":"new_publication"`) ||
+		!strings.Contains(stdout, `"type":"fork_source"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestJobBindRequiresAuthoritativeTerminalContract(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name     string
+		response string
+		code     string
+	}{
+		{
+			name:     "publication is not binding required",
+			response: `{"publication_id":"pub_binding","status":"failed","next_action":{"type":"bind_channel_account","binding_url":"https://viceme.example/channel-bindings/signed","retry_mode":"new_publication"}}`,
+			code:     "channel_binding_not_required",
+		},
+		{
+			name:     "retry mode is missing",
+			response: `{"publication_id":"pub_binding","status":"binding_required","next_action":{"type":"bind_channel_account","binding_url":"https://viceme.example/channel-bindings/signed"}}`,
+			code:     "channel_binding_retry_mode_invalid",
+		},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				_, _ = io.WriteString(writer, test.response)
+			}))
+			defer server.Close()
+
+			code, _, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "bind", "pub_binding")
+			if code == 0 || !strings.Contains(stderr, test.code) {
+				t.Fatalf("code=%d stderr=%s", code, stderr)
+			}
+		})
 	}
 }
 
@@ -1090,5 +1338,86 @@ func TestJobMetadataEditsStdinContract(t *testing.T) {
 		"--edits-stdin", "--title", "x")
 	if code != 2 || !strings.Contains(stderr, "metadata_flags") {
 		t.Fatalf("mixed transports: code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestJobRunGetReadsSameIDWithAuthoritativeInputs(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/preview-runs/run_1" || request.Method != http.MethodGet {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","preview_run_id":"run_1","runner_run_id":"rr_1","candidate_digest":"sha256:cand2","inputs_digest":"sha256:inputs","inputs":{"theme":"咖啡"},"status":"succeeded","result":{"outcome":"succeeded","finish_report":{"summary":"已生成"},"output_links":[]},"accepted":false}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "run-get", "pub_1", "run_1")
+	if code != 0 || stderr != "" {
+		t.Fatalf("run-get: code=%d stderr=%s", code, stderr)
+	}
+	// 权威输入值必须与 digest 一并展示,CLI 不再静默丢弃 inputs。
+	if !strings.Contains(stdout, `"inputs":{"theme":"咖啡"}`) || !strings.Contains(stdout, `"inputs_digest":"sha256:inputs"`) {
+		t.Fatalf("authoritative inputs not surfaced: %s", stdout)
+	}
+}
+
+func TestJobRunGetResumesBoundedWaitAfterProcessRestart(t *testing.T) {
+	t.Parallel()
+	var polls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/preview-runs/run_1" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		if polls.Add(1) < 2 {
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","preview_run_id":"run_1","runner_run_id":"rr_1","candidate_digest":"sha256:cand2","inputs_digest":"sha256:inputs","inputs":{"theme":"咖啡"},"status":"running","accepted":false}`)
+			return
+		}
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","preview_run_id":"run_1","runner_run_id":"rr_1","candidate_digest":"sha256:cand2","inputs_digest":"sha256:inputs","inputs":{"theme":"咖啡"},"status":"succeeded","result":{"outcome":"succeeded","finish_report":{"summary":"已生成"},"output_links":[]},"accepted":false}`)
+	}))
+	defer server.Close()
+	// 进程重启后凭同一 run ID 续等:第一次 poll 仍 running,第二次到终态。
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "run-get", "pub_1", "run_1", "--timeout", "10s")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"succeeded"`) {
+		t.Fatalf("resumed wait: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	if strings.Contains(stdout, `"wait_timed_out"`) {
+		t.Fatalf("completed wait must not carry the timeout marker: %s", stdout)
+	}
+}
+
+func TestJobEditGetReadsAndResumesSameLogicalEdit(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/edits/edit_1" || request.Method != http.MethodGet {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"applied","class":"behavioral","base_candidate_digest":"sha256:cand1","result_candidate_digest":"sha256:cand2","error":null,"created_at":"2026-07-22T00:00:00Z","completed_at":"2026-07-22T00:01:00Z"}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "edit-get", "pub_1", "edit_1")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
+		t.Fatalf("edit-get: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+}
+
+func TestJobEditGetTimeoutKeepsSameID(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/edits/edit_1" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"pending"}`)
+	}))
+	defer server.Close()
+	deps := Dependencies{Sleep: func(ctx context.Context, _ time.Duration) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+	code, stdout, stderr, _ := runCLIWithDependencies(t, server, authenticatedStore(t), "", deps,
+		"job", "edit-get", "pub_1", "edit_1", "--timeout", "5s")
+	if code != 0 || stderr != "" {
+		t.Fatalf("timeout must not fail the command: code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"edit_id":"edit_1"`) || !strings.Contains(stdout, `"wait_timed_out":true`) {
+		t.Fatalf("timeout output must preserve the same edit id: %s", stdout)
 	}
 }
