@@ -1421,3 +1421,70 @@ func TestJobEditGetTimeoutKeepsSameID(t *testing.T) {
 		t.Fatalf("timeout output must preserve the same edit id: %s", stdout)
 	}
 }
+
+func TestConfirmStepsFlowUsesOnlyActionPayloadDigests(t *testing.T) {
+	t.Parallel()
+	// steps payload 不带 preview_url;四个绑定字段全部来自 action payload 本身。
+	stepsPayload := `{"publication_id":"pub_1","target_id":"t_1","expected_release_candidate_digest":"sha256:cand","expected_public_summary_digest":"sha256:sum","steps":{"title":"海报","author":"acme","input_method":"theme","usage":"写海报","output_description":"一句标题"}}`
+	var resolved atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1" && request.Method == http.MethodGet:
+			if resolved.Load() == 0 {
+				_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","next_action":{"type":"confirm_steps","action_id":"act_steps","payload_digest":"sha256:payload","expires_at":"2030-01-01T00:00:00Z","payload":`+stepsPayload+`}}`)
+				return
+			}
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","next_action":{"type":"confirm_publish","action_id":"act_pub","payload_digest":"sha256:payload2","expires_at":"2030-01-01T00:00:00Z","payload":{"publication_id":"pub_1","target_id":"t_1","expected_release_candidate_digest":"sha256:cand","expected_public_summary_digest":"sha256:sum","preview_url":"https://app.viceme.ai/skill-agent-publications/pub_1/preview?action_id=act_pub","preview_expires_at":"2030-01-01T00:00:00Z"}}}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/actions/act_steps/resolve-confirmation" && request.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode steps resolve body: %v", err)
+			}
+			if body["expected_payload_digest"] != "sha256:payload" ||
+				body["expected_release_candidate_digest"] != "sha256:cand" ||
+				body["expected_public_summary_digest"] != "sha256:sum" ||
+				body["decision"] != "confirm" {
+				t.Fatalf("steps resolution does not bind the payload digests: %#v", body)
+			}
+			resolved.Add(1)
+			_, _ = io.WriteString(writer, `{"action_id":"act_steps","status":"resolved","publication_status":"awaiting_action","resolution_digest":"sha256:res","resolved_at":"2026-07-23T00:00:00Z"}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	// job get:steps action 无 preview_url,绑定字段全部可读。
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "get", "pub_1")
+	if code != 0 || stderr != "" {
+		t.Fatalf("job get: code=%d stderr=%s", code, stderr)
+	}
+	if strings.Contains(stdout, "preview_url") {
+		t.Fatalf("confirm_steps must not carry a preview link: %s", stdout)
+	}
+	for _, field := range []string{`"payload_digest":"sha256:payload"`, `"expected_release_candidate_digest":"sha256:cand"`, `"expected_public_summary_digest":"sha256:sum"`} {
+		if !strings.Contains(stdout, field) {
+			t.Fatalf("steps payload misses binding field %s: %s", field, stdout)
+		}
+	}
+	// 仅凭 action payload 的四个绑定字段即可完成 steps 确认(无需 job preview)。
+	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
+		"job", "resume", "pub_1",
+		"--action-id", "act_steps",
+		"--expected-payload-digest", "sha256:payload",
+		"--expected-release-candidate-digest", "sha256:cand",
+		"--expected-public-summary-digest", "sha256:sum",
+		"--decision", "confirm",
+	)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"resolved"`) {
+		t.Fatalf("steps resolve: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	// 确认通过后才出现 confirm_publish 与 preview_url。
+	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t), "job", "get", "pub_1")
+	if code != 0 || !strings.Contains(stdout, `"type":"confirm_publish"`) || !strings.Contains(stdout, `"preview_url"`) {
+		t.Fatalf("confirm_publish preview must appear only after steps confirmation: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	if resolved.Load() != 1 {
+		t.Fatalf("steps action resolved %d times, want exactly 1", resolved.Load())
+	}
+}

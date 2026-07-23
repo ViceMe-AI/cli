@@ -30,7 +30,7 @@ If the terminal receipt is `binding_required`, run `viceme job bind <publication
 
 ### 交互步骤确认（产品 3427，先于一切预览链接）
 
-8. 候选就绪后 publication 停在 `awaiting_action`，先带 `confirm_steps` action（**没有** preview_url）。向用户展示 action `payload.steps` 里的交互步骤（标题/描述/来源作者/输入方式/使用方式/输出说明），用户确认、修改或拒绝：确认 → `job resume --action-id … --expected-payload-digest … --expected-release-candidate-digest … --expected-public-summary-digest … --decision confirm`（payload 里的 `steps` 即公开摘要，`expected_public_summary_digest` 取 `job preview` 输出里的 `public_summary_digest`）；拒绝 → `--decision cancel`，`cancelled` 终态且零预览链接。自然语言修改走第 9 步编辑——编辑 applied 后旧 steps/confirm/试跑回执全部失效，必须对新 Candidate 重新确认步骤。
+8. 候选就绪后 publication 停在 `awaiting_action`，先带 `confirm_steps` action（**没有** preview_url，此时**不要也无法**调用 `job preview`）。向用户展示 action `payload.steps` 里的交互步骤（标题/描述/来源作者/输入方式/使用方式/输出说明），用户确认、修改或拒绝：确认 → `job resume --action-id … --expected-payload-digest … --expected-release-candidate-digest … --expected-public-summary-digest … --decision confirm`——后三个绑定值全部直接取自 `confirm_steps` action 的 payload（`payload_digest`、`expected_release_candidate_digest`、`expected_public_summary_digest`），本阶段不需要任何 preview 调用；拒绝 → `--decision cancel`，`cancelled` 终态且零预览链接。自然语言修改走第 9 步编辑——编辑 applied 后旧 steps/confirm/试跑回执全部失效，必须对新 Candidate 重新确认步骤。
 9. steps 确认通过后 publication 换发 `confirm_publish` action（带 `payload.preview_url`）。用 `viceme job preview <id>` 展示当前精确 Candidate 的公开摘要（标题/描述/来源作者/输入方式/使用方式/输出说明/示例/警告）。用户提出自然语言修改时：把用户的原话经 subprocess stdin 传给 `viceme job edit <id> --candidate-digest <当前摘要里的 digest> --request-stdin` 提交——**绝不**把用户文本插值进带引号的 shell 命令行（引号/反引号/`$()`/换行会注出参数边界）。相同请求的网络重试被服务端幂等去重；409 `candidate_changed` 说明摘要已过期，重新 `job preview` 取新 digest 再问用户。**不要**引导用户去任何页面编辑器，也不要自己构造 JSON Patch。
 
 ### 试跑与结果确认

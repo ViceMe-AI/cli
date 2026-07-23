@@ -176,10 +176,14 @@ viceme job resume pub_123 --action-id act_steps \
   --decision confirm
 ```
 
-`--decision cancel` maps to `cancelled` with zero preview link. After a
-confirmed steps gate the publication issues `confirm_publish` (with
-`payload.preview_url`); an applied edit supersedes the steps action and the
-fresh candidate must be confirmed again.
+All three binding digests come **directly from the confirm_steps action
+payload** (`payload_digest`, `expected_release_candidate_digest`,
+`expected_public_summary_digest`) — do **not** call `job preview` at this
+stage: the preview only exists after the steps gate passes, so the digest can
+never come from it here. `--decision cancel` maps to `cancelled` with zero
+preview link. After a confirmed steps gate the publication issues
+`confirm_publish` (with `payload.preview_url`); an applied edit supersedes the
+steps action and the fresh candidate must be confirmed again.
 
 When `next_action.type` is `confirm_publish`, show its frozen public summary
 first — the preview output carries `public_summary_digest`, which the
