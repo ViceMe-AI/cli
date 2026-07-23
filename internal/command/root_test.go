@@ -1424,7 +1424,7 @@ func TestJobEditGetTimeoutKeepsSameID(t *testing.T) {
 
 func TestConfirmStepsFlowUsesOnlyActionPayloadDigests(t *testing.T) {
 	t.Parallel()
-	// steps payload 不带 preview_url;四个绑定字段全部来自 action payload 本身。
+	// steps payload 不带 preview_url；payload_digest 位于 action 顶层，另外两个 digest 位于 payload。
 	stepsPayload := `{"publication_id":"pub_1","target_id":"t_1","expected_release_candidate_digest":"sha256:cand","expected_public_summary_digest":"sha256:sum","steps":{"title":"海报","author":"acme","input_method":"theme","usage":"写海报","output_description":"一句标题"}}`
 	var resolved atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -1454,26 +1454,43 @@ func TestConfirmStepsFlowUsesOnlyActionPayloadDigests(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// job get:steps action 无 preview_url,绑定字段全部可读。
+	// job get:steps action 无 preview_url；按真实 JSON 结构从三个精确路径组装 resume。
 	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "get", "pub_1")
 	if code != 0 || stderr != "" {
 		t.Fatalf("job get: code=%d stderr=%s", code, stderr)
 	}
-	if strings.Contains(stdout, "preview_url") {
+	var envelope struct {
+		Data struct {
+			NextAction struct {
+				ActionID      string `json:"action_id"`
+				PayloadDigest string `json:"payload_digest"`
+				Payload       struct {
+					ExpectedReleaseCandidateDigest string `json:"expected_release_candidate_digest"`
+					ExpectedPublicSummaryDigest    string `json:"expected_public_summary_digest"`
+					PreviewURL                     string `json:"preview_url"`
+				} `json:"payload"`
+			} `json:"next_action"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("decode job get output: %v\n%s", err, stdout)
+	}
+	action := envelope.Data.NextAction
+	if action.Payload.PreviewURL != "" {
 		t.Fatalf("confirm_steps must not carry a preview link: %s", stdout)
 	}
-	for _, field := range []string{`"payload_digest":"sha256:payload"`, `"expected_release_candidate_digest":"sha256:cand"`, `"expected_public_summary_digest":"sha256:sum"`} {
-		if !strings.Contains(stdout, field) {
-			t.Fatalf("steps payload misses binding field %s: %s", field, stdout)
-		}
+	if action.PayloadDigest == "" ||
+		action.Payload.ExpectedReleaseCandidateDigest == "" ||
+		action.Payload.ExpectedPublicSummaryDigest == "" {
+		t.Fatalf("confirm_steps digest paths are incomplete: %#v", action)
 	}
-	// 仅凭 action payload 的四个绑定字段即可完成 steps 确认(无需 job preview)。
+	// 仅凭 action 顶层 payload_digest 与 payload 内两个 expected digest 完成确认。
 	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
 		"job", "resume", "pub_1",
-		"--action-id", "act_steps",
-		"--expected-payload-digest", "sha256:payload",
-		"--expected-release-candidate-digest", "sha256:cand",
-		"--expected-public-summary-digest", "sha256:sum",
+		"--action-id", action.ActionID,
+		"--expected-payload-digest", action.PayloadDigest,
+		"--expected-release-candidate-digest", action.Payload.ExpectedReleaseCandidateDigest,
+		"--expected-public-summary-digest", action.Payload.ExpectedPublicSummaryDigest,
 		"--decision", "confirm",
 	)
 	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"resolved"`) {

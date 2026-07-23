@@ -176,11 +176,13 @@ viceme job resume pub_123 --action-id act_steps \
   --decision confirm
 ```
 
-All three binding digests come **directly from the confirm_steps action
-payload** (`payload_digest`, `expected_release_candidate_digest`,
-`expected_public_summary_digest`) — do **not** call `job preview` at this
-stage: the preview only exists after the steps gate passes, so the digest can
-never come from it here. `--decision cancel` maps to `cancelled` with zero
+Read the three binding digests from these exact `job get` JSON paths:
+`next_action.payload_digest`,
+`next_action.payload.expected_release_candidate_digest`, and
+`next_action.payload.expected_public_summary_digest`. In particular,
+`payload_digest` is on the action itself, not inside its `payload`. Do **not**
+call `job preview` at this stage: the preview only exists after the steps gate
+passes, so the digest can never come from it here. `--decision cancel` maps to `cancelled` with zero
 preview link. After a confirmed steps gate the publication issues
 `confirm_publish` (with `payload.preview_url`); an applied edit supersedes the
 steps action and the fresh candidate must be confirmed again.
