@@ -49,11 +49,12 @@ func TestSaveCreatesPreservesAndUpdatesProfileConfig(t *testing.T) {
 	}
 }
 
-func TestExplicitAPIProfileOverrideRemainsNonSecret(t *testing.T) {
+func TestExplicitLocalProfileOverridesRemainLocalAndRequirePrivatePermissions(t *testing.T) {
 	t.Parallel()
 	base := t.TempDir()
 	configured := Default(RegionCN)
 	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
+	configured.Profiles[0].AccessToken = "local-operator-secret"
 	if _, err := Save(base, configured); err != nil {
 		t.Fatal(err)
 	}
@@ -62,8 +63,26 @@ func TestExplicitAPIProfileOverrideRemainsNonSecret(t *testing.T) {
 		t.Fatal(err)
 	}
 	profile, err := loaded.Resolve("default")
-	if err != nil || profile.APIBaseURL != "http://localhost:8090" {
+	if err != nil || profile.APIBaseURL != "http://localhost:8090" || profile.AccessToken != "local-operator-secret" {
 		t.Fatalf("profile=%#v err=%v", profile, err)
+	}
+	filename := filepath.Join(base, "config.json")
+	if err := os.Chmod(filename, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadOrDefault(base); err == nil || !strings.Contains(err.Error(), "permissions 0600") {
+		t.Fatalf("broad secret config permissions were accepted: %v", err)
+	}
+}
+
+func TestLocalAccessTokenValidationDoesNotEchoSecret(t *testing.T) {
+	t.Parallel()
+	configured := Default(RegionCN)
+	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
+	configured.Profiles[0].AccessToken = " secret-value "
+	_, err := Save(t.TempDir(), configured)
+	if err == nil || strings.Contains(err.Error(), "secret-value") {
+		t.Fatalf("invalid token error=%v", err)
 	}
 }
 

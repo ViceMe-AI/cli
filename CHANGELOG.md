@@ -31,7 +31,7 @@
 ### Security
 
 - bind process publication credentials to a versioned audience and canonical API origin
-- remove profile and command-line publication credential persistence
+- restore explicit local Profile publication credentials for controlled internal operation
 
 ## [0.5.0] - 2026-07-21
 

@@ -131,7 +131,7 @@ Each profile selects one ViceMe region:
 | China | `viceme install` | `https://api.viceme.cn` |
 | International | `viceme install --region global` | `https://api.viceme.ai` |
 
-The first install creates the `default` profile. Device-login credentials are isolated by profile plus normalized API origin. On macOS they are stored as private AES-256-GCM encrypted files, while the encryption master key normally remains in the operating-system Keychain; other platforms retain their native credential manager. Profile files contain endpoint and selection settings, never access tokens.
+The first install creates the `default` profile. Device-login credentials are isolated by profile plus normalized API origin. On macOS they are stored as private AES-256-GCM encrypted files, while the encryption master key normally remains in the operating-system Keychain; other platforms retain their native credential manager. A profile may also contain an explicitly configured publication credential for controlled local/internal operation; any such config remains private `0600`.
 
 ```bash
 viceme profile list
@@ -144,17 +144,18 @@ viceme profile remove company
 
 `profile use` changes the persistent active profile; the global `--profile` flag overrides only one command. AI Agents must not switch or remove profiles unless the user explicitly requests it.
 
-For local endpoint testing, create a dedicated profile containing only the endpoint override:
+For controlled local/internal operation, create a dedicated profile with both an explicit endpoint and its audience-bound publication credential:
 
 ```bash
 viceme profile add --name local --region cn \
-  --api-base-url http://localhost:8090 --use
-viceme profile configure local --clear-api-base-url
+  --api-base-url http://localhost:8090 \
+  --access-token '<vpa1.local-dev.credential>' --use
+viceme profile configure local --clear-access-token --clear-api-base-url
 ```
 
-Normal `viceme auth login` never writes credentials into a profile. The CLI has no flag or profile field for storing a publication authorization credential.
+Normal `viceme auth login` never writes a credential into a profile. A local Profile credential is set or cleared only by the explicit `profile add/configure` flags, is reported only as `source=local_profile`, and is never returned by list/status output.
 
-`VICEME_CLI_CONFIG_DIR` can override the config root. `VICEME_API_BASE_URL` remains a one-process endpoint override. `VICEME_ACCESS_TOKEN`, when injected by a trusted launcher, must use `vpa1.<audience>.<secret>` and is process-only: `cn-prod` is accepted only for `https://api.viceme.cn`, `global-prod` only for `https://api.viceme.ai`, and `local-dev` only for a loopback endpoint with `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. The selected endpoint is validated before any request. API and presigned-upload redirects fail closed so credential headers are never forwarded to another origin.
+Credential priority is process (`VICEME_ACCESS_TOKEN`) → selected local Profile → device login. Every publication credential must use `vpa1.<audience>.<secret>`: `cn-prod` is accepted only for `https://api.viceme.cn`, `global-prod` only for `https://api.viceme.ai`, and `local-dev` Profile credentials only for loopback endpoints. A process `local-dev` credential additionally requires `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. `VICEME_CLI_CONFIG_DIR` can override the config root, while `VICEME_API_BASE_URL` remains a one-process endpoint override and never widens a Profile credential's origin. API and presigned-upload redirects fail closed.
 
 Update checks query the npm registry directly and store only the last successful version result in `~/.viceme-cli/update-state.json`. A result is used as a fallback for at most 24 hours when the registry is temporarily unavailable. npm operations launched by `viceme install` or `viceme update` use the isolated `~/.viceme-cli/npm-cache`, so a broken user-level `~/.npm` cache does not block the CLI. Both files are non-secret and can be deleted safely; credentials never enter either cache.
 
@@ -203,7 +204,7 @@ viceme config keychain-downgrade
 
 The command copies the existing master key into `~/.viceme-cli/credentials/master.key.file` and imports configured legacy Keychain credentials into encrypted files. Existing Keychain entries are preserved as a cold backup. The command is idempotent and never prints or stores a plaintext token. Afterward, Codex and Claude Code sandboxes for the same macOS user can read the encrypted credential files without Keychain access. The trade-off is explicit: security is then enforced by the user's filesystem permissions (`0700` directory and `0600` files) instead of the Keychain per-process access boundary.
 
-The public CLI exposes one standard authentication and publication surface. A short-lived staff authorization credential may be supplied only through process environment `VICEME_ACCESS_TOKEN` (`source=process`) by a trusted launcher. It uses normal inspect/publish/job commands and the standard `x-api-key` header; there are no identity-selection, staff-authorization issuance, or credential persistence commands. The token is never printed or inherited by update subprocesses, and login/logout fail closed while it is active.
+The public CLI exposes one standard authentication and publication surface. A short-lived staff authorization credential may be supplied through process environment (`source=process`) or an explicitly configured local Profile (`source=local_profile`). Both use normal inspect/publish/job commands and the standard `x-api-key` header; there are no identity-selection or staff-authorization issuance commands. Tokens are never printed or inherited by update subprocesses, and login/logout fail closed while either override is active.
 
 ## Supported Sources
 

@@ -26,14 +26,14 @@ viceme profile remove company
 
 `profile use` changes the persistent active profile. Global `--profile` selects a profile for one command without changing the persistent selection. Never switch, rename, or remove a profile based only on inferred intent.
 
-Only when the user explicitly requests local endpoint testing may an Agent configure an endpoint-only profile override:
+Only when the user explicitly requests controlled local/internal testing may an Agent configure an endpoint and its matching audience-bound local Profile credential:
 
 ```bash
-viceme profile add --name local --region cn --api-base-url http://localhost:8090 --use
-viceme profile configure local --clear-api-base-url
+viceme profile add --name local --region cn --api-base-url http://localhost:8090 --access-token '<vpa1.local-dev.credential>' --use
+viceme profile configure local --clear-access-token --clear-api-base-url
 ```
 
-Never place a token in argv, command examples, chat, output, or profile configuration. A trusted launcher may inject an audience-bound `VICEME_ACCESS_TOKEN` into one process: production audiences are pinned to their canonical API origins; `local-dev` additionally requires an explicit loopback endpoint and `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. Without a process credential, device login uses the selected profile's secure-store credential scoped by profile plus normalized API origin. All API and presigned-upload redirects fail closed.
+Never infer, print, or copy a token from Skill content. Credential priority is process `VICEME_ACCESS_TOKEN` → selected local Profile → device login. Production audiences are pinned to their canonical API origins; `local-dev` Profile credentials require an explicit loopback endpoint, while process `local-dev` additionally requires `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. Normal login never writes a Profile token. Profile list/status expose only whether it is configured, and all API and presigned-upload redirects fail closed.
 
 Check first when desired, then update the npm launcher, verified Go binary, and matching Skill together:
 
@@ -80,7 +80,7 @@ An authenticated user publishes with the standard commands. No owner, creator, o
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
 
-For a staff-authorized operation, a trusted launcher may inject the generic process-only credential before starting the CLI. `viceme auth status` then reports `source=process` and `persistent=false`; standard inspect/publish/job commands remain unchanged and use the normal `x-api-key` transport. Login and logout fail closed in that process. The credential is never stored, printed, exposed through a flag or command, or inherited by update subprocesses.
+For a staff-authorized operation, an audience-bound credential may be injected for one process (`source=process`, `persistent=false`) or explicitly configured in a controlled local Profile (`source=local_profile`, `persistent=true`). Standard inspect/publish/job commands remain unchanged and use the normal `x-api-key` transport. Login and logout fail closed while either override is active. The credential is never printed or inherited by update subprocesses.
 
 ## GitHub or trusted provider
 
