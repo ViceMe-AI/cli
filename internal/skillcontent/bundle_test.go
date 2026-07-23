@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	cliembed "github.com/ViceMe-AI/cli"
@@ -117,5 +118,33 @@ func TestInstallAndDoctorTargetsIndependently(t *testing.T) {
 	unchanged := bundle.Install("viceme", "codex", environment)
 	if !unchanged.AllSucceeded || unchanged.Results[0].Status != "unchanged" {
 		t.Fatalf("expected unchanged install: %#v", unchanged)
+	}
+}
+
+func TestValidateRejectsMergeConflictMarkers(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	source := filepath.Join(root, "src")
+	if err := os.MkdirAll(filepath.Join(source, "viceme", "agents"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(source, "viceme", "references"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]string{
+		"viceme/SKILL.md":               "---\nname: viceme\ndescription: test\n---\n# ok\n",
+		"viceme/agents/openai.yaml":     "interface: {}\n",
+		"viceme/skill-package.json":     `{"schema_version":1,"skill_version":"0.1.0","minimum_cli_version":"0.1.0","cli_compatibility":">=0.1.0 <0.2.0"}`,
+		"viceme/references/commands.md": "safe\n||||||| 2895654\n## duplicated\n",
+	}
+	for relative, content := range files {
+		if err := os.WriteFile(filepath.Join(source, relative), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	bundle := skillcontent.New(os.DirFS(source))
+	err := bundle.Validate("viceme")
+	if err == nil || !strings.Contains(err.Error(), "merge conflict marker") {
+		t.Fatalf("merge markers must fail validation: %v", err)
 	}
 }

@@ -1009,7 +1009,7 @@ func TestJobWaitTimeoutReturnsLastStatus(t *testing.T) {
 func TestJobResumeConfirmPublishSendsDecisionContract(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_1/resolve" || request.Method != http.MethodPost {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_1/resolve-confirmation" || request.Method != http.MethodPost {
 			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
 		}
 		var body map[string]any
@@ -1044,7 +1044,7 @@ func TestJobResumeConfirmPublishSendsDecisionContract(t *testing.T) {
 func TestJobResumeCancelPublishSendsDecisionContract(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_1/resolve" || request.Method != http.MethodPost {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_1/resolve-confirmation" || request.Method != http.MethodPost {
 			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
 		}
 		var body map[string]any
@@ -1199,5 +1199,309 @@ func jsonHTTPResponse(request *http.Request, status int, body string) *http.Resp
 		Header:     make(http.Header),
 		Body:       io.NopCloser(strings.NewReader(body)),
 		Request:    request,
+	}
+}
+
+func TestJobEditStdinPassesNaturalLanguageVerbatim(t *testing.T) {
+	t.Parallel()
+	// 注入形态载荷:引号、命令替换、反引号、换行、分号都必须原样进 JSON body。
+	payload := "把标题改成\"探针\"\n第二行 $(rm -rf /) `whoami`; echo pwned --candidate-digest sha256:fake"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits" && request.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode edit body: %v", err)
+			}
+			if body["edit_request"] != payload {
+				t.Fatalf("edit request was not transported verbatim: %#v", body["edit_request"])
+			}
+			if body["current_candidate_digest"] != "sha256:cand1" {
+				t.Fatalf("edit body = %#v", body)
+			}
+			_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"pending"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits/edit_1" && request.Method == http.MethodGet:
+			_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"applied","class":"behavioral","result_candidate_digest":"sha256:cand2"}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLIWithInput(t, server, authenticatedStore(t), payload,
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request-stdin", "--timeout", "10s")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
+		t.Fatalf("stdin edit: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+}
+
+func TestJobEditRejectsConflictingRequestTransports(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLIWithInput(t, nil, authenticatedStore(t), "ignored",
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request", "x", "--request-stdin")
+	if code != 2 || !strings.Contains(stderr, "edit_request") {
+		t.Fatalf("conflicting transports: code=%d stderr=%s", code, stderr)
+	}
+	code, _, stderr, _ = runCLIWithInput(t, nil, authenticatedStore(t), "",
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request-stdin")
+	if code != 2 || !strings.Contains(stderr, "edit_request") {
+		t.Fatalf("empty stdin: code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestJobEditTimeoutPreservesCreatedEditID(t *testing.T) {
+	t.Parallel()
+	var polls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits" && request.Method == http.MethodPost:
+			_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"pending"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/edits/edit_1" && request.Method == http.MethodGet:
+			polls.Add(1)
+			_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"pending"}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	// Sleep 直接推进到 deadline:第一次 poll 后超时,输出必须保留 edit_id。
+	deps := Dependencies{Sleep: func(ctx context.Context, _ time.Duration) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+	code, stdout, stderr, _ := runCLIWithDependencies(t, server, authenticatedStore(t), "", deps,
+		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request", "把标题改成探针海报", "--timeout", "5s")
+	if code != 0 || stderr != "" {
+		t.Fatalf("timeout must not fail the command: code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"edit_id":"edit_1"`) || !strings.Contains(stdout, `"wait_timed_out":true`) {
+		t.Fatalf("timeout output must preserve the created edit id: %s", stdout)
+	}
+}
+
+func TestJobRunTimeoutPreservesCreatedRunID(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview-runs" && request.Method == http.MethodPost:
+			_, _ = io.WriteString(writer, `{"preview_run_id":"run_1","status":"running"}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/preview-runs/run_1" && request.Method == http.MethodGet:
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","preview_run_id":"run_1","runner_run_id":"rr_1","candidate_digest":"sha256:cand2","status":"running","accepted":false}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+	deps := Dependencies{Sleep: func(ctx context.Context, _ time.Duration) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+	code, stdout, stderr, _ := runCLIWithDependencies(t, server, authenticatedStore(t), "", deps,
+		"job", "run", "pub_1", "--candidate-digest", "sha256:cand2", "--input", "theme=咖啡", "--timeout", "5s")
+	if code != 0 || stderr != "" {
+		t.Fatalf("timeout must not fail the command: code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"preview_run_id":"run_1"`) || !strings.Contains(stdout, `"wait_timed_out":true`) {
+		t.Fatalf("timeout output must preserve the created run id: %s", stdout)
+	}
+}
+
+func TestJobMetadataEditsStdinContract(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/metadata/resolve" || request.Method != http.MethodPost {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode metadata body: %v", err)
+		}
+		if body["title"] != "海报\"标题\"\n换行" || body["author"] != "acme/poster" {
+			t.Fatalf("metadata edits were not transported verbatim: %#v", body)
+		}
+		if _, ok := body["description"]; ok {
+			t.Fatalf("absent fields must stay omitted: %#v", body)
+		}
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"compiled"}`)
+	}))
+	defer server.Close()
+	edits := `{"title":"海报\"标题\"\n换行","author":"acme/poster"}`
+	code, stdout, stderr, _ := runCLIWithInput(t, server, authenticatedStore(t), edits,
+		"job", "metadata", "pub_1", "--decision", "confirm",
+		"--action-id", "act_meta", "--expected-payload-digest", "sha256:payload", "--edits-stdin")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"compiled"`) {
+		t.Fatalf("edits-stdin: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	// 与逐字段 flag 混用必须拒绝。
+	code, _, stderr, _ = runCLIWithInput(t, nil, authenticatedStore(t), edits,
+		"job", "metadata", "pub_1", "--decision", "confirm",
+		"--action-id", "act_meta", "--expected-payload-digest", "sha256:payload",
+		"--edits-stdin", "--title", "x")
+	if code != 2 || !strings.Contains(stderr, "metadata_flags") {
+		t.Fatalf("mixed transports: code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestJobRunGetReadsSameIDWithAuthoritativeInputs(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/preview-runs/run_1" || request.Method != http.MethodGet {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","preview_run_id":"run_1","runner_run_id":"rr_1","candidate_digest":"sha256:cand2","inputs_digest":"sha256:inputs","inputs":{"theme":"咖啡"},"status":"succeeded","result":{"outcome":"succeeded","finish_report":{"summary":"已生成"},"output_links":[]},"accepted":false}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "run-get", "pub_1", "run_1")
+	if code != 0 || stderr != "" {
+		t.Fatalf("run-get: code=%d stderr=%s", code, stderr)
+	}
+	// 权威输入值必须与 digest 一并展示,CLI 不再静默丢弃 inputs。
+	if !strings.Contains(stdout, `"inputs":{"theme":"咖啡"}`) || !strings.Contains(stdout, `"inputs_digest":"sha256:inputs"`) {
+		t.Fatalf("authoritative inputs not surfaced: %s", stdout)
+	}
+}
+
+func TestJobRunGetResumesBoundedWaitAfterProcessRestart(t *testing.T) {
+	t.Parallel()
+	var polls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/preview-runs/run_1" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		if polls.Add(1) < 2 {
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","preview_run_id":"run_1","runner_run_id":"rr_1","candidate_digest":"sha256:cand2","inputs_digest":"sha256:inputs","inputs":{"theme":"咖啡"},"status":"running","accepted":false}`)
+			return
+		}
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","preview_run_id":"run_1","runner_run_id":"rr_1","candidate_digest":"sha256:cand2","inputs_digest":"sha256:inputs","inputs":{"theme":"咖啡"},"status":"succeeded","result":{"outcome":"succeeded","finish_report":{"summary":"已生成"},"output_links":[]},"accepted":false}`)
+	}))
+	defer server.Close()
+	// 进程重启后凭同一 run ID 续等:第一次 poll 仍 running,第二次到终态。
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "run-get", "pub_1", "run_1", "--timeout", "10s")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"succeeded"`) {
+		t.Fatalf("resumed wait: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	if strings.Contains(stdout, `"wait_timed_out"`) {
+		t.Fatalf("completed wait must not carry the timeout marker: %s", stdout)
+	}
+}
+
+func TestJobEditGetReadsAndResumesSameLogicalEdit(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/edits/edit_1" || request.Method != http.MethodGet {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"applied","class":"behavioral","base_candidate_digest":"sha256:cand1","result_candidate_digest":"sha256:cand2","error":null,"created_at":"2026-07-22T00:00:00Z","completed_at":"2026-07-22T00:01:00Z"}`)
+	}))
+	defer server.Close()
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "edit-get", "pub_1", "edit_1")
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
+		t.Fatalf("edit-get: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+}
+
+func TestJobEditGetTimeoutKeepsSameID(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/skill-agent-publications/pub_1/edits/edit_1" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		_, _ = io.WriteString(writer, `{"edit_id":"edit_1","status":"pending"}`)
+	}))
+	defer server.Close()
+	deps := Dependencies{Sleep: func(ctx context.Context, _ time.Duration) error {
+		<-ctx.Done()
+		return ctx.Err()
+	}}
+	code, stdout, stderr, _ := runCLIWithDependencies(t, server, authenticatedStore(t), "", deps,
+		"job", "edit-get", "pub_1", "edit_1", "--timeout", "5s")
+	if code != 0 || stderr != "" {
+		t.Fatalf("timeout must not fail the command: code=%d stderr=%s", code, stderr)
+	}
+	if !strings.Contains(stdout, `"edit_id":"edit_1"`) || !strings.Contains(stdout, `"wait_timed_out":true`) {
+		t.Fatalf("timeout output must preserve the same edit id: %s", stdout)
+	}
+}
+
+func TestConfirmStepsFlowUsesOnlyActionPayloadDigests(t *testing.T) {
+	t.Parallel()
+	// steps payload 不带 preview_url；payload_digest 位于 action 顶层，另外两个 digest 位于 payload。
+	stepsPayload := `{"publication_id":"pub_1","target_id":"t_1","expected_release_candidate_digest":"sha256:cand","expected_public_summary_digest":"sha256:sum","steps":{"title":"海报","author":"acme","input_method":"theme","usage":"写海报","output_description":"一句标题"}}`
+	var resolved atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1" && request.Method == http.MethodGet:
+			if resolved.Load() == 0 {
+				_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","next_action":{"type":"confirm_steps","action_id":"act_steps","payload_digest":"sha256:payload","expires_at":"2030-01-01T00:00:00Z","payload":`+stepsPayload+`}}`)
+				return
+			}
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","next_action":{"type":"confirm_publish","action_id":"act_pub","payload_digest":"sha256:payload2","expires_at":"2030-01-01T00:00:00Z","payload":{"publication_id":"pub_1","target_id":"t_1","expected_release_candidate_digest":"sha256:cand","expected_public_summary_digest":"sha256:sum","preview_url":"https://app.viceme.ai/skill-agent-publications/pub_1/preview?action_id=act_pub","preview_expires_at":"2030-01-01T00:00:00Z"}}}`)
+		case request.URL.Path == "/v1/skill-agent-publications/pub_1/actions/act_steps/resolve-confirmation" && request.Method == http.MethodPost:
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode steps resolve body: %v", err)
+			}
+			if body["expected_payload_digest"] != "sha256:payload" ||
+				body["expected_release_candidate_digest"] != "sha256:cand" ||
+				body["expected_public_summary_digest"] != "sha256:sum" ||
+				body["decision"] != "confirm" {
+				t.Fatalf("steps resolution does not bind the payload digests: %#v", body)
+			}
+			resolved.Add(1)
+			_, _ = io.WriteString(writer, `{"action_id":"act_steps","status":"resolved","publication_status":"awaiting_action","resolution_digest":"sha256:res","resolved_at":"2026-07-23T00:00:00Z"}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	// job get:steps action 无 preview_url；按真实 JSON 结构从三个精确路径组装 resume。
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "get", "pub_1")
+	if code != 0 || stderr != "" {
+		t.Fatalf("job get: code=%d stderr=%s", code, stderr)
+	}
+	var envelope struct {
+		Data struct {
+			NextAction struct {
+				ActionID      string `json:"action_id"`
+				PayloadDigest string `json:"payload_digest"`
+				Payload       struct {
+					ExpectedReleaseCandidateDigest string `json:"expected_release_candidate_digest"`
+					ExpectedPublicSummaryDigest    string `json:"expected_public_summary_digest"`
+					PreviewURL                     string `json:"preview_url"`
+				} `json:"payload"`
+			} `json:"next_action"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+		t.Fatalf("decode job get output: %v\n%s", err, stdout)
+	}
+	action := envelope.Data.NextAction
+	if action.Payload.PreviewURL != "" {
+		t.Fatalf("confirm_steps must not carry a preview link: %s", stdout)
+	}
+	if action.PayloadDigest == "" ||
+		action.Payload.ExpectedReleaseCandidateDigest == "" ||
+		action.Payload.ExpectedPublicSummaryDigest == "" {
+		t.Fatalf("confirm_steps digest paths are incomplete: %#v", action)
+	}
+	// 仅凭 action 顶层 payload_digest 与 payload 内两个 expected digest 完成确认。
+	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
+		"job", "resume", "pub_1",
+		"--action-id", action.ActionID,
+		"--expected-payload-digest", action.PayloadDigest,
+		"--expected-release-candidate-digest", action.Payload.ExpectedReleaseCandidateDigest,
+		"--expected-public-summary-digest", action.Payload.ExpectedPublicSummaryDigest,
+		"--decision", "confirm",
+	)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"resolved"`) {
+		t.Fatalf("steps resolve: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	// 确认通过后才出现 confirm_publish 与 preview_url。
+	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t), "job", "get", "pub_1")
+	if code != 0 || !strings.Contains(stdout, `"type":"confirm_publish"`) || !strings.Contains(stdout, `"preview_url"`) {
+		t.Fatalf("confirm_publish preview must appear only after steps confirmation: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	}
+	if resolved.Load() != 1 {
+		t.Fatalf("steps action resolved %d times, want exactly 1", resolved.Load())
 	}
 }

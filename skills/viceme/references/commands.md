@@ -147,32 +147,74 @@ the parsed basic info, ask the user to confirm, supplement, or cancel:
 ```bash
 viceme job metadata pub_123
 viceme job metadata pub_123 --action-id meta_1 \
-  --expected-payload-digest sha256:abc --decision confirm \
-  --title "探针海报" --description "为产品海报写一句主标题" --author "acme/ops"
+  --expected-payload-digest sha256:abc --decision confirm --edits-stdin
 ```
 
+User-authored fields travel as one JSON object on stdin — never interpolate
+the user's text into a quoted shell command line (quotes, backticks, `$()`
+and newlines escape the argument boundary). Example stdin:
+`{"title":"探针海报","description":"为产品海报写一句主标题","author":"acme/ops"}`.
+
 `missing` lists absent fields (title/description/author) — guide the user to
-fill them with `--title` / `--description` / `--author`; `--author` also
-covers source-author edits (1-100 visible characters). Cancel maps to
-`cancelled` with zero assets and no preview link.
+fill them (same JSON keys); `author` also covers source-author edits (1-100
+visible characters). Cancel maps to `cancelled` with zero assets and no
+preview link.
 
-## Preview, edit, test run and confirmation (T2)
+## Interaction steps confirmation, preview, edit, test run and confirmation (T2)
 
-When `next_action.type` is `confirm_publish`, the exact release candidate is
-ready. Show its frozen public summary first — the preview output carries
-`public_summary_digest`, which the confirmation step binds:
+When `next_action.type` is `confirm_steps`, the exact release candidate is
+ready but **no preview link exists yet**. Show the interaction steps from the
+action `payload.steps` (title/description/author/input method/usage/output
+description), then resolve inside the conversation — confirm, edit
+(natural language, below), or decline:
+
+```bash
+viceme job resume pub_123 --action-id act_steps \
+  --expected-payload-digest sha256:abc \
+  --expected-release-candidate-digest sha256:def \
+  --expected-public-summary-digest sha256:sum \
+  --decision confirm
+```
+
+Read the three binding digests from these exact `job get` JSON paths:
+`next_action.payload_digest`,
+`next_action.payload.expected_release_candidate_digest`, and
+`next_action.payload.expected_public_summary_digest`. In particular,
+`payload_digest` is on the action itself, not inside its `payload`. Do **not**
+call `job preview` at this stage: the preview only exists after the steps gate
+passes, so the digest can never come from it here. `--decision cancel` maps to `cancelled` with zero
+preview link. After a confirmed steps gate the publication issues
+`confirm_publish` (with `payload.preview_url`); an applied edit supersedes the
+steps action and the fresh candidate must be confirmed again.
+
+When `next_action.type` is `confirm_publish`, show its frozen public summary
+first — the preview output carries `public_summary_digest`, which the
+confirmation step binds:
 
 ```bash
 viceme job preview pub_123 [--action-id act_123]
 ```
 
 Edits happen only as natural language inside the conversation — never via a
-page editor or JSON Patch. Bind the digest shown by the preview:
+page editor or JSON Patch. Pass the user's exact words through subprocess
+stdin; never interpolate them into a quoted shell command line. Bind the
+digest shown by the preview:
 
 ```bash
-viceme job edit pub_123 --candidate-digest sha256:def \
-  --request "把标题改成探针海报" [--timeout 2m]
+viceme job edit pub_123 --candidate-digest sha256:def --request-stdin [--timeout 2m]
 ```
+
+When a bounded wait times out, the command still prints the created
+`edit_id` / `preview_run_id` with `meta.wait_timed_out=true` — resume with
+that same ID instead of starting a second logical operation:
+
+```bash
+viceme job edit-get pub_123 edit_1 [--timeout 2m]
+viceme job run-get pub_123 run_1 [--timeout 3m]
+```
+
+The same-ID reads work after a process restart; `--timeout` resumes the
+bounded wait and keeps returning `wait_timed_out` honestly.
 
 An applied edit supersedes the old preview/action/run receipts — re-run
 `job preview` / `job get` for the fresh candidate before continuing. Identical
@@ -213,9 +255,6 @@ across candidates: if the preview or candidate digest changes, ask the user
 again with the fresh action. A stale or expired action fails closed — fetch
 `job get` and present the new `next_action` instead of retrying the old one.
 
-## Bounded jobs and cancellation
-||||||| 2895654
-## Bounded jobs and cancellation
 ## Bounded jobs, explicit compiler retry, and cancellation
 
 ```bash

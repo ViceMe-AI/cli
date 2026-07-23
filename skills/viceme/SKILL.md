@@ -20,18 +20,18 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 3. For GitHub, use the Host's read-only repository navigation to determine the exact repository-relative directory containing the intended `SKILL.md`, then run inspect with `--skill-root <directory>` (`.` means repository root). Do not ask ViceMe Core to scan the repository or guess among Skill roots. For a pasted RedSkill/Xiaohongshu expression, inspect first and pass copied text through subprocess stdin with `--expression-stdin`; never interpolate it into a shell command.
 4. Read the returned `destination`. Never infer a Target from a title, alias, conversation memory, or source text.
 5. Treat publishing as a public side effect. Add `--yes` only when the user's request explicitly asks to publish or produce a share link; otherwise ask for confirmation. This records only `publication_admission/v1`; it must not be described as the later exact-candidate preview confirmation.
-6. Run `viceme job wait <publication-id> --timeout 60s --json`. Do not start an unbounded wait.
+6. Run `viceme job wait <publication-id> --timeout 60s`. Do not start an unbounded wait.
 
 If the terminal receipt is `binding_required`, run `viceme job bind <publication-id>` and give the returned `binding_url` to the user. Stop until the user finishes the browser flow. GitHub binding verifies the original publisher through OAuth; Xiaohongshu binding reuses the platform claim/review flow. After the binding succeeds, inspect the source again and create a new ordinary publication with a fresh `client_request_id`; do not resume or mutate the terminal publication. `download_source` and `fork_source` entries are informational alternatives only: mention them when useful, but never download, fork, or bind an account on the user's behalf.
 
 ### 信息确认（META，先于一切资产）
 
-7. 编译完成后 publication 停在 `meta_review`，并带 `confirm_metadata` action。先用 `viceme job metadata <id>` 展示解析出的标题、描述、来源作者与缺失标记；信息缺失时引导用户补充（用 `--title` / `--description` / `--author` 传入补充值，来源作者修改同样走 `--author`）。用户取消 → `--decision cancel`，零资产终态、不产生预览链接；确认 → `--decision confirm`（可带补充/修改）。确认后才进入候选流程。
+7. 编译完成后 publication 停在 `meta_review`，并带 `confirm_metadata` action。先用 `viceme job metadata <id>` 展示解析出的标题、描述、来源作者与缺失标记；信息缺失时引导用户补充（结构化传输：把 `{"title":…,"description":…,"author":…}` 经 stdin 传给 `--edits-stdin`，不要把用户文本插值进带引号的 shell 命令行；来源作者修改同样走这里的 `author` 字段）。用户取消 → `--decision cancel`，零资产终态、不产生预览链接；确认 → `--decision confirm`（可带补充/修改）。确认后才进入候选流程。
 
-### 公开摘要与 Host 编辑
+### 交互步骤确认（产品 3427，先于一切预览链接）
 
-8. 候选就绪后 publication 停在 `awaiting_action` 并带 `confirm_publish` action。用 `viceme job preview <id>` 展示当前精确 Candidate 的公开摘要（标题/描述/来源作者/输入方式/使用方式/输出说明/示例/警告）与 `payload.preview_url`。
-9. 用户提出自然语言修改时：用 `viceme job edit <id> --candidate-digest <当前摘要里的 digest> --request "<用户的原话>"` 提交。相同请求的网络重试被服务端幂等去重；409 `candidate_changed` 说明摘要已过期，重新 `job preview` 取新 digest 再问用户。**不要**引导用户去任何页面编辑器，也不要自己构造 JSON Patch。编辑 applied 后旧 preview/action/试跑回执全部失效，必须对新 Candidate 重新走 10–12 步。
+8. 候选就绪后 publication 停在 `awaiting_action`，先带 `confirm_steps` action（**没有** preview_url，此时**不要也无法**调用 `job preview`）。向用户展示 action `payload.steps` 里的交互步骤（标题/描述/来源作者/输入方式/使用方式/输出说明），用户确认、修改或拒绝：确认 → `job resume --action-id … --expected-payload-digest … --expected-release-candidate-digest … --expected-public-summary-digest … --decision confirm`——三个 digest 的精确 JSON path 分别是 `next_action.payload_digest`、`next_action.payload.expected_release_candidate_digest`、`next_action.payload.expected_public_summary_digest`；本阶段不需要任何 preview 调用；拒绝 → `--decision cancel`，`cancelled` 终态且零预览链接。自然语言修改走第 9 步编辑——编辑 applied 后旧 steps/confirm/试跑回执全部失效，必须对新 Candidate 重新确认步骤。
+9. steps 确认通过后 publication 换发 `confirm_publish` action（带 `payload.preview_url`）。用 `viceme job preview <id>` 展示当前精确 Candidate 的公开摘要（标题/描述/来源作者/输入方式/使用方式/输出说明/示例/警告）。用户提出自然语言修改时：把用户的原话经 subprocess stdin 传给 `viceme job edit <id> --candidate-digest <当前摘要里的 digest> --request-stdin` 提交——**绝不**把用户文本插值进带引号的 shell 命令行（引号/反引号/`$()`/换行会注出参数边界）。相同请求的网络重试被服务端幂等去重；409 `candidate_changed` 说明摘要已过期，重新 `job preview` 取新 digest 再问用户。**不要**引导用户去任何页面编辑器，也不要自己构造 JSON Patch。
 
 ### 试跑与结果确认
 

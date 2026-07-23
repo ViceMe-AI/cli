@@ -20,7 +20,9 @@ func newJobCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newJobMetadataCommand(runtime))
 	command.AddCommand(newJobPreviewCommand(runtime))
 	command.AddCommand(newJobEditCommand(runtime))
+	command.AddCommand(newJobEditGetCommand(runtime))
 	command.AddCommand(newJobRunCommand(runtime))
+	command.AddCommand(newJobRunGetCommand(runtime))
 	command.AddCommand(newJobAcceptCommand(runtime))
 	command.AddCommand(newJobResumeCommand(runtime))
 	command.AddCommand(newJobRetryCommand(runtime))
@@ -149,14 +151,27 @@ func newJobPreviewCommand(runtime *Runtime) *cobra.Command {
 
 func newJobEditCommand(runtime *Runtime) *cobra.Command {
 	var candidateDigest, editRequest string
+	var requestStdin bool
 	var timeout time.Duration
 	command := &cobra.Command{
 		Use:   "edit <publication-id>",
 		Short: "Submit a natural-language candidate edit and wait for the new candidate",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			// 用户自然语言必须走结构化 stdin 传输,绝不插值进带引号的 shell
+			// 命令行 —— 与 inspect --expression-stdin 同一注入防线。
+			if requestStdin == (editRequest != "") {
+				return output.Validation("edit_request", "edit requires exactly one of --request or --request-stdin")
+			}
+			if requestStdin {
+				value, err := readLimited(runtime.deps.In, maxStdinBytes)
+				if err != nil {
+					return err
+				}
+				editRequest = value
+			}
 			if strings.TrimSpace(editRequest) == "" {
-				return output.Validation("edit_request", "edit requires --request with a natural-language edit")
+				return output.Validation("edit_request", "edit request cannot be empty")
 			}
 			if candidateDigest == "" {
 				return output.Validation("edit_flags", "edit requires --candidate-digest binding the current candidate")
@@ -170,33 +185,52 @@ func newJobEditCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			final, err := waitPublicationEdit(command.Context(), runtime, args[0], receipt.EditID, timeout)
+			final, timedOut, err := waitPublicationEdit(command.Context(), runtime, args[0], receipt.EditID, timeout)
 			if err != nil {
 				return err
 			}
-			return runtime.success(final)
+			// 轮询超时也必须保留已创建的 edit ID:调用方拿着同一 edit_id 继续
+			// 轮询/恢复,而不是盲目重发产生第二个逻辑编辑。
+			meta := runtime.meta
+			if timedOut {
+				value := true
+				meta.WaitTimedOut = &value
+			}
+			return runtime.successWithMeta(final, meta)
 		},
 	}
 	command.Flags().StringVar(&candidateDigest, "candidate-digest", "", "current exact release candidate digest")
-	command.Flags().StringVar(&editRequest, "request", "", "natural-language edit request")
+	command.Flags().StringVar(&editRequest, "request", "", "natural-language edit request (machine callers: prefer --request-stdin)")
+	command.Flags().BoolVar(&requestStdin, "request-stdin", false, "read the exact natural-language edit request from stdin (no shell interpolation)")
 	command.Flags().DurationVar(&timeout, "timeout", 2*time.Minute, "maximum time to wait for the edit")
 	return command
 }
 
-func waitPublicationEdit(ctx context.Context, runtime *Runtime, publicationID, editID string, timeout time.Duration) (api.PublicationEditReceipt, error) {
+func waitPublicationEdit(ctx context.Context, runtime *Runtime, publicationID, editID string, timeout time.Duration) (api.PublicationEditReceipt, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	last := api.PublicationEditReceipt{}
 	for {
 		receipt, err := runtime.client().GetPublicationEdit(ctx, publicationID, editID)
 		if err != nil {
-			return receipt, err
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				if last.EditID == "" {
+					last = api.PublicationEditReceipt{EditID: editID, Status: "pending"}
+				}
+				return last, true, nil
+			}
+			return receipt, false, err
 		}
+		last = receipt
 		switch receipt.Status {
 		case "applied", "failed":
-			return receipt, nil
+			return receipt, false, nil
 		}
 		if err := runtime.deps.Sleep(ctx, 3*time.Second); err != nil {
-			return receipt, err
+			if errors.Is(err, context.DeadlineExceeded) {
+				return last, true, nil
+			}
+			return last, false, err
 		}
 	}
 }
@@ -226,11 +260,18 @@ func newJobRunCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			final, err := waitSkillPreviewRun(command.Context(), runtime, args[0], started.PreviewRunID, timeout)
+			final, timedOut, err := waitSkillPreviewRun(command.Context(), runtime, args[0], started.PreviewRunID, timeout)
 			if err != nil {
 				return err
 			}
-			return runtime.success(final)
+			// 轮询超时同样保留已创建的 run ID:同一 preview_run_id 可继续
+			// 轮询/接受,恢复不丢已经创建的试跑。
+			meta := runtime.meta
+			if timedOut {
+				value := true
+				meta.WaitTimedOut = &value
+			}
+			return runtime.successWithMeta(final, meta)
 		},
 	}
 	command.Flags().StringVar(&candidateDigest, "candidate-digest", "", "exact release candidate digest to test")
@@ -251,21 +292,92 @@ func parseKeyValueInputs(flags []string) (map[string]string, error) {
 	return inputs, nil
 }
 
-func waitSkillPreviewRun(ctx context.Context, runtime *Runtime, publicationID, previewRunID string, timeout time.Duration) (api.SkillPreviewRun, error) {
+func waitSkillPreviewRun(ctx context.Context, runtime *Runtime, publicationID, previewRunID string, timeout time.Duration) (api.SkillPreviewRun, bool, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	last := api.SkillPreviewRun{}
 	for {
 		run, err := runtime.client().GetSkillPreviewRun(ctx, publicationID, previewRunID)
 		if err != nil {
-			return run, err
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				if last.PreviewRunID == "" {
+					last = api.SkillPreviewRun{PublicationID: publicationID, PreviewRunID: previewRunID, Status: "running"}
+				}
+				return last, true, nil
+			}
+			return run, false, err
 		}
+		last = run
 		if run.Status == "succeeded" || run.Status == "failed" {
-			return run, nil
+			return run, false, nil
 		}
 		if err := runtime.deps.Sleep(ctx, 3*time.Second); err != nil {
-			return run, err
+			if errors.Is(err, context.DeadlineExceeded) {
+				return last, true, nil
+			}
+			return last, false, err
 		}
 	}
+}
+
+func newJobRunGetCommand(runtime *Runtime) *cobra.Command {
+	var timeout time.Duration
+	command := &cobra.Command{
+		Use:   "run-get <publication-id> <preview-run-id>",
+		Short: "Read a preview run receipt by ID, optionally resuming the wait after a timeout",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(command *cobra.Command, args []string) error {
+			if timeout <= 0 {
+				run, err := runtime.client().GetSkillPreviewRun(command.Context(), args[0], args[1])
+				if err != nil {
+					return err
+				}
+				return runtime.success(run)
+			}
+			final, timedOut, err := waitSkillPreviewRun(command.Context(), runtime, args[0], args[1], timeout)
+			if err != nil {
+				return err
+			}
+			meta := runtime.meta
+			if timedOut {
+				value := true
+				meta.WaitTimedOut = &value
+			}
+			return runtime.successWithMeta(final, meta)
+		},
+	}
+	command.Flags().DurationVar(&timeout, "timeout", 0, "resume waiting for the run (0 = single read)")
+	return command
+}
+
+func newJobEditGetCommand(runtime *Runtime) *cobra.Command {
+	var timeout time.Duration
+	command := &cobra.Command{
+		Use:   "edit-get <publication-id> <edit-id>",
+		Short: "Read a candidate edit receipt by ID, optionally resuming the wait after a timeout",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(command *cobra.Command, args []string) error {
+			if timeout <= 0 {
+				receipt, err := runtime.client().GetPublicationEdit(command.Context(), args[0], args[1])
+				if err != nil {
+					return err
+				}
+				return runtime.success(receipt)
+			}
+			final, timedOut, err := waitPublicationEdit(command.Context(), runtime, args[0], args[1], timeout)
+			if err != nil {
+				return err
+			}
+			meta := runtime.meta
+			if timedOut {
+				value := true
+				meta.WaitTimedOut = &value
+			}
+			return runtime.successWithMeta(final, meta)
+		},
+	}
+	command.Flags().DurationVar(&timeout, "timeout", 0, "resume waiting for the edit (0 = single read)")
+	return command
 }
 
 func newJobAcceptCommand(runtime *Runtime) *cobra.Command {
@@ -303,6 +415,7 @@ func newJobMetadataCommand(runtime *Runtime) *cobra.Command {
 	var title string
 	var description string
 	var author string
+	var editsStdin bool
 	command := &cobra.Command{
 		Use:   "metadata <publication-id>",
 		Short: "Review or resolve the metadata checkpoint of a publication",
@@ -321,6 +434,34 @@ func newJobMetadataCommand(runtime *Runtime) *cobra.Command {
 			if actionID == "" || expectedDigest == "" {
 				return output.Validation("metadata_flags", "resolving metadata requires --action-id and --expected-payload-digest")
 			}
+			// 用户提供的自然语言字段(标题/描述/作者)走结构化 stdin JSON 传输,
+			// 不插值进带引号的 shell 命令行。
+			if editsStdin {
+				if command.Flags().Changed("title") || command.Flags().Changed("description") || command.Flags().Changed("author") {
+					return output.Validation("metadata_flags", "--edits-stdin does not combine with --title/--description/--author")
+				}
+				raw, err := readLimited(runtime.deps.In, maxStdinBytes)
+				if err != nil {
+					return err
+				}
+				var edits struct {
+					Title       *string `json:"title"`
+					Description *string `json:"description"`
+					Author      *string `json:"author"`
+				}
+				if !json.Valid([]byte(raw)) || json.Unmarshal([]byte(raw), &edits) != nil {
+					return output.Validation("metadata_edits", "stdin must contain one JSON object with optional title/description/author")
+				}
+				if edits.Title != nil {
+					title = *edits.Title
+				}
+				if edits.Description != nil {
+					description = *edits.Description
+				}
+				if edits.Author != nil {
+					author = *edits.Author
+				}
+			}
 			publication, err := runtime.client().ResolvePublicationMetadata(command.Context(), args[0], api.ResolveMetadataRequest{
 				ActionID: actionID, ExpectedPayloadDigest: expectedDigest,
 				Decision: decision, Title: title, Description: description, Author: author,
@@ -334,9 +475,10 @@ func newJobMetadataCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&actionID, "action-id", "", "confirm_metadata action receipt ID")
 	command.Flags().StringVar(&expectedDigest, "expected-payload-digest", "", "digest of the metadata action payload")
 	command.Flags().StringVar(&decision, "decision", "", "metadata decision: confirm or cancel")
-	command.Flags().StringVar(&title, "title", "", "optional title edit (1-20 visible characters)")
-	command.Flags().StringVar(&description, "description", "", "optional description edit (1-100 visible characters)")
-	command.Flags().StringVar(&author, "author", "", "optional source-author edit / missing-author fill (1-100 visible characters)")
+	command.Flags().StringVar(&title, "title", "", "optional title edit (1-20 visible characters; machine callers: prefer --edits-stdin)")
+	command.Flags().StringVar(&description, "description", "", "optional description edit (1-100 visible characters; machine callers: prefer --edits-stdin)")
+	command.Flags().StringVar(&author, "author", "", "optional source-author edit / missing-author fill (1-100 visible characters; machine callers: prefer --edits-stdin)")
+	command.Flags().BoolVar(&editsStdin, "edits-stdin", false, "read optional {\"title\",\"description\",\"author\"} edits as one JSON object from stdin (no shell interpolation)")
 	return command
 }
 
@@ -358,7 +500,9 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 			request := api.ResolveActionRequest{ExpectedPayloadDigest: expectedDigest}
 			if decision != "" {
 				// confirm_publish binds the user's explicit decision to the exact
-				// previewed release candidate; the CLI never infers it.
+				// previewed release candidate; the CLI never infers it. The decision
+				// goes to the dedicated resolve-confirmation endpoint whose digest
+				// contract is identical across OpenAPI/SDK/runtime.
 				if decision != "confirm" && decision != "cancel" {
 					return output.Validation("resume_decision", "--decision must be confirm or cancel")
 				}
@@ -371,22 +515,28 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 				if payloadStdin {
 					return output.Validation("resume_flags", "--decision does not accept --payload-stdin")
 				}
-				request.Decision = decision
-				request.ExpectedReleaseCandidateDigest = expectedCandidateDigest
-				request.ExpectedPublicSummaryDigest = expectedSummaryDigest
-			} else {
-				if !payloadStdin {
-					return output.Validation("resume_flags", "resume requires --payload-stdin for typed payload actions")
-				}
-				payload, err := readLimited(runtime.deps.In, maxStdinBytes)
+				publication, err := runtime.client().ResolveConfirmation(command.Context(), args[0], actionID, api.ResolveConfirmationRequest{
+					ExpectedPayloadDigest:          expectedDigest,
+					ExpectedReleaseCandidateDigest: expectedCandidateDigest,
+					ExpectedPublicSummaryDigest:    expectedSummaryDigest,
+					Decision:                       decision,
+				})
 				if err != nil {
 					return err
 				}
-				if !json.Valid([]byte(payload)) {
-					return output.Validation("action_payload", "stdin must contain one valid JSON action payload")
-				}
-				request.Payload = json.RawMessage(payload)
+				return runtime.success(publication)
 			}
+			if !payloadStdin {
+				return output.Validation("resume_flags", "resume requires --payload-stdin for typed payload actions")
+			}
+			payload, err := readLimited(runtime.deps.In, maxStdinBytes)
+			if err != nil {
+				return err
+			}
+			if !json.Valid([]byte(payload)) {
+				return output.Validation("action_payload", "stdin must contain one valid JSON action payload")
+			}
+			request.Payload = json.RawMessage(payload)
 			publication, err := runtime.client().ResolveAction(command.Context(), args[0], actionID, request)
 			if err != nil {
 				return err
