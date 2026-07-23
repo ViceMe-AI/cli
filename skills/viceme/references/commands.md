@@ -142,7 +142,10 @@ Example stdin: `{"selector":"skills/poster"}`.
 
 After a successful compile the publication parks at `meta_review` with a
 `confirm_metadata` action — before any target/agent/build asset exists. Read
-the parsed basic info, ask the user to confirm, supplement, or cancel:
+the parsed basic info, ask the user to confirm, supplement, or cancel. Preserve
+`next_action.action_id` and `next_action.payload_digest` from the latest
+`job wait` / `job get`; `job metadata` returns the fields under review but does
+not replace that action receipt:
 
 ```bash
 viceme job metadata pub_123
@@ -157,8 +160,14 @@ and newlines escape the argument boundary). Example stdin:
 
 `missing` lists absent fields (title/description/author) — guide the user to
 fill them (same JSON keys); `author` also covers source-author edits (1-100
-visible characters). Cancel maps to `cancelled` with zero assets and no
-preview link.
+visible characters). Cancel maps to `cancelled` with zero assets and no preview
+link; report it and stop. A confirm
+returns a `meta_confirmed` action receipt, not the next Candidate. Continue with
+another bounded wait:
+
+```bash
+viceme job wait pub_123 --timeout 60s
+```
 
 ## Interaction steps confirmation, preview, edit, test run and confirmation (T2)
 
@@ -187,22 +196,30 @@ preview link. After a confirmed steps gate the publication issues
 `confirm_publish` (with `payload.preview_url`); an applied edit supersedes the
 steps action and the fresh candidate must be confirmed again.
 
-When `next_action.type` is `confirm_publish`, show its frozen public summary
-first — the preview output carries `public_summary_digest`, which the
-confirmation step binds:
+When `next_action.type` is `confirm_publish`, the exact release candidate is
+ready. Read the private browser link from
+`next_action.payload.preview_url` in the latest `job wait` / `job get`. Then
+show the frozen public summary from `data.preview`; that response carries the
+candidate, payload, and `public_summary_digest` receipts that confirmation
+binds:
 
 ```bash
 viceme job preview pub_123 [--action-id act_123]
 ```
 
 Edits happen only as natural language inside the conversation — never via a
-page editor or JSON Patch. Pass the user's exact words through subprocess
-stdin; never interpolate them into a quoted shell command line. Bind the
-digest shown by the preview:
+page editor or JSON Patch. Bind the digest shown by the preview and start the
+CLI with an explicit stdin input mode:
 
 ```bash
-viceme job edit pub_123 --candidate-digest sha256:def --request-stdin [--timeout 2m]
+viceme job edit pub_123 --candidate-digest sha256:def \
+  --request-stdin [--timeout 2m]
 ```
+
+Send the user's exact request through the Host's subprocess stdin channel.
+Never interpolate it into a command string, argv, an environment variable, or
+a shell pipeline. The CLI preserves the complete input, including newlines and
+shell metacharacters.
 
 When a bounded wait times out, the command still prints the created
 `edit_id` / `preview_run_id` with `meta.wait_timed_out=true` — resume with
@@ -247,13 +264,22 @@ viceme job resume pub_123 --action-id act_123 \
   --expected-release-candidate-digest sha256:def \
   --expected-public-summary-digest sha256:sum \
   --decision confirm
+viceme job wait pub_123 --timeout 60s
 ```
 
+`job resume --decision confirm` returns a `release_authorized` action receipt;
+it does not return the final share link. Wait until `data.status` becomes
+`share_published`, then return `data.result.share_url`,
+`data.result.published_noop`, and warnings. If the bounded wait reports
+`meta.wait_timed_out=true`, use `job get` or another bounded wait in a later
+turn rather than looping indefinitely.
+
 Use `--decision cancel` when the user declines; it maps to `cancelled`
-everywhere. Never infer the decision from earlier conversation, never cache it
-across candidates: if the preview or candidate digest changes, ask the user
-again with the fresh action. A stale or expired action fails closed — fetch
-`job get` and present the new `next_action` instead of retrying the old one.
+everywhere, so report cancellation and stop without expecting a share link.
+Never infer the decision from earlier conversation, never cache it across
+candidates: if the preview or candidate digest changes, ask the user again
+with the fresh action. A stale or expired action fails closed — fetch `job get`
+and present the new `next_action` instead of retrying the old one.
 
 ## Bounded jobs, explicit compiler retry, and cancellation
 

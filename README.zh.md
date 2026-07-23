@@ -10,7 +10,7 @@ ViceMe 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为
 
 [安装](#安装与快速开始) · [AI Agent Skills](#agent-skills) · [认证](#认证) · [区域与-profile](#区域与-profile) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
 
-> **开放状态：** Core 发布传输和稳定链接链路已经实现。正式对外开放仍取决于精确 Candidate 预览、试运行和结果确认门的完成。当前 `--yes` 只确认发起发布请求，并不代表用户已经审阅最终 Candidate。
+> **开放状态：** Core 发布传输和稳定链接链路已经实现，信息确认门以及精确 Candidate 的预览 → 试跑 → 结果确认门均已生效。`--yes` 后，Publication 先停在 `meta_review`，由 `job metadata` 完成信息确认；随后停在 `awaiting_action`，依次使用 `job preview`、可选的 `job edit`、`job run`、`job accept` 和 `job resume`。只有同一 Candidate 的试跑成功且结果已由发布者接受时才能确认，否则返回 409 `preview_run_required`。确认回执只授权发布，不包含最终分享链接；需要再次有界执行 `job wait` 直到 `share_published`。`--yes` 只确认发起发布请求，不代表用户已确认信息或最终 Candidate。
 
 ## 为什么选择 ViceMe CLI？
 
@@ -120,7 +120,7 @@ viceme skills list
 viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。在上方所述的精确 Candidate 确认门完成前，公开发布流程仍保持关闭。
+inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。进入 `meta_review` 后，使用同一 action ID 与 payload digest 展示并决议信息，然后再次等待；进入 `awaiting_action` 后，展示冻结摘要、完成同一 Candidate 的试跑与结果接受，并取得用户决定后再执行 `job resume`。确认后还需再次等待到 `share_published`，才能返回分享链接。
 
 ## 区域与 Profile
 
@@ -254,7 +254,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 | `viceme skill inspect` | 固化并检查来源候选，不执行发布 |
 | `viceme skill publish` | 创建或更新具有稳定链接的 Skill Agent 发布 |
 | `viceme skill target` | 解析现有逻辑 Agent Target 及其版本 |
-| `viceme job` | 读取、等待、展示签名渠道绑定链接、恢复、显式重试或取消持久化发布任务 |
+| `viceme job` | 读取或等待发布任务，审阅信息，预览、编辑、试跑并接受 Candidate，展示签名渠道绑定链接，决议 action，以及显式重试或取消 |
 | `viceme skills` | 读取、安装和诊断随包发布的 Agent Skill |
 | `viceme update` | 同时更新 npm 启动器、已校验二进制文件和随包发布的 Skill |
 
@@ -309,6 +309,7 @@ CLI 执行错误写入 **stderr**，退出码非零：
 ## 安全与风险控制
 
 - **不执行来源内容** — CLI 和编译器不会执行第三方脚本、二进制文件、shell 片段、市场命令或复制口令中的指令。
+- **不让不可信文本进入 argv** — AI Host 必须通过显式的 `--expression-stdin` 和 `--request-stdin` 模式传递复制的来源表达式与 Candidate 自然语言修改要求；不得把这些文本拼入命令字符串、argv、环境变量或 shell 管道。
 - **公开变更需要明确确认** — 发布、编译重试和取消操作需要 `--yes`；退出码 `10` 表示 Agent 必须向用户取得确认，不能静默重试。
 - **安全预览** — 用户需要检查计划请求时，可以对 inspect 或 publish 使用 `--dry-run`，不会产生网络请求或发布副作用。
 - **凭证隔离** — 在 macOS 上，设备登录凭证保存在 AES-256-GCM 加密文件中，主密钥由 Keychain 或显式降级后的私有文件保护，文件名不会暴露 Profile/origin；其他平台继续使用原生凭证管理器。显式内部测试覆盖按 Profile 隔离，仅允许保存在 `0600` 配置中，并且不会出现在 CLI 输出中。
