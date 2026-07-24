@@ -83,7 +83,7 @@ viceme skills doctor
 npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
 ```
 
-读取结果中的 `data.authenticated` 和 `data.next_step`。如果认证已经有效，直接进入第 4 步。如果需要登录，Agent 不要执行面向人类的 `data.next_step`，而应使用第 2 步的 JSON 跨回合流程。
+读取格式化业务结果中的 `authenticated` 和 `next_step`。如果认证已经有效，直接进入第 4 步。如果需要登录，Agent 不要执行面向人类的 `next_step`，而应使用第 2 步的 JSON 跨回合流程。
 
 **第 2 步 — 需要时启动设备登录**
 
@@ -91,7 +91,7 @@ npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://re
 viceme auth login --no-wait --json
 ```
 
-向用户返回准确的 `data.verification_url`；存在 `verification_url_complete` 时，CLI 会把这个已预填设备码的浏览器直达链接规范化为 `verification_url`。只有浏览器要求输入时，才把 `data.user_code` 作为备用信息提供。保留 `data.device_code` 供后续命令使用，然后结束当前回合。不要在对话中索取、打印或传递访问令牌。
+向用户返回准确的 `verification_url`；存在 `verification_url_complete` 时，CLI 会把这个已预填设备码的浏览器直达链接规范化为 `verification_url`。只有浏览器要求输入时，才把 `user_code` 作为备用信息提供。保留 `device_code` 供后续命令使用，然后结束当前回合。不要在对话中索取、打印或传递访问令牌。
 
 **第 3 步 — 在后续回合继续同一个登录流程**
 
@@ -260,24 +260,37 @@ viceme skill publish --file ./poster-skill-v2.zip \
 
 使用 `viceme <command> --help` 查看准确参数。经过发布检查的机器可读命令面存放在 [`skills/viceme/references/command-manifest.json`](skills/viceme/references/command-manifest.json)。
 
-## JSON 输出契约
+## 输出契约
 
-面向自动化的数据命令默认输出稳定的 JSON 信封。交互式 `viceme auth login` 是特意保留的人类友好例外；AI Agent 和脚本必须使用 `--no-wait --json`，并在后续回合使用 `--device-code <code> --json` 继续。
+ViceMe 根据命令语义选择最小且稳定的输出形式：
 
-成功结果写入 **stdout**，退出码为 `0`：
+- `version`、`install`、`update`、`auth status`、`profile *`、`skills doctor` 等本地/引导命令，将格式化后的业务结果直接写入 **stdout**，不附加 `ok`、`data` 或无关构建元数据。
+- `skills read` 按原始字节输出目标文件，不添加 JSON 包装。
+- 交互式 `viceme auth login` 输出面向人的引导；AI Agent 使用 `--no-wait --json`，并在后续回合用 `--device-code <code> --json` 继续，这两个命令返回格式化的裸业务对象。
+- `skill` 和 `job` 下的发布协议命令继续使用稳定 Envelope，因为 action receipt、持久状态与有界等待元数据共同构成跨命令协议。
+
+发布协议命令成功时写入 **stdout**，退出码为 `0`：
+
+```json
+{
+  "ok": true,
+  "data": {}
+}
+```
+
+只有有界等待真实超时时才附加协议元数据：
 
 ```json
 {
   "ok": true,
   "data": {},
   "meta": {
-    "cli_version": "0.1.0",
-    "skill_version": "0.1.0"
+    "wait_timed_out": true
   }
 }
 ```
 
-CLI 执行错误写入 **stderr**，退出码非零：
+CLI 执行错误以格式化形式写入 **stderr**，退出码非零：
 
 ```json
 {
@@ -286,15 +299,11 @@ CLI 执行错误写入 **stderr**，退出码非零：
     "type": "validation",
     "subtype": "source_required",
     "message": "provide exactly one source argument or --expression-stdin"
-  },
-  "meta": {
-    "cli_version": "0.1.0",
-    "skill_version": "0.1.0"
   }
 }
 ```
 
-应根据进程退出码或 `ok == true` 判断命令是否成功。API 返回的领域 `error.type` 会原样保留，退出码只表示粗粒度处理类别。成功读取发布任务时，业务状态仍可能是 `unsupported`、`rejected` 或 `failed`；这时应检查 `data.status`，不能把这些状态当成 CLI 传输失败。
+本地/引导命令根据进程退出码判断成功；发布协议命令可以检查退出码或 `ok == true`。API 返回的领域 `error.type` 会原样保留，退出码只表示粗粒度处理类别。成功读取发布任务时，业务状态仍可能是 `unsupported`、`rejected` 或 `failed`；这时应检查 `data.status`，不能把这些状态当成 CLI 传输失败。
 
 | 退出码 | 含义 |
 |---|---|

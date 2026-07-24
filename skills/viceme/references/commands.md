@@ -11,7 +11,7 @@ viceme install --target codex --region global
 viceme skills doctor --target codex
 ```
 
-Installation defaults to `cn` and initializes the `default` profile. Pass `--region global` only for the international ViceMe service. The CLI persists that choice per profile; later commands do not take a region or API URL flag. Automation-oriented data commands emit the stable JSON envelope by default; interactive `viceme auth login` is the human-facing exception.
+Installation defaults to `cn` and initializes the `default` profile. Pass `--region global` only for the international ViceMe service. The CLI persists that choice per profile; later commands do not take a region or API URL flag. Local/bootstrap commands return formatted bare business JSON, `skills read` returns raw file content, and only publication protocol commands under `skill` and `job` use the stable JSON envelope.
 
 Manage profiles only when the user explicitly asks:
 

@@ -119,7 +119,7 @@ func newJobWaitCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			meta := runtime.meta
+			meta := output.Meta{}
 			if timedOut {
 				value := true
 				meta.WaitTimedOut = &value
@@ -186,7 +186,7 @@ func newJobEditCommand(runtime *Runtime) *cobra.Command {
 			}
 			// 轮询超时也必须保留已创建的 edit ID:调用方拿着同一 edit_id 继续
 			// 轮询/恢复,而不是盲目重发产生第二个逻辑编辑。
-			meta := runtime.meta
+			meta := output.Meta{}
 			if timedOut {
 				value := true
 				meta.WaitTimedOut = &value
@@ -260,7 +260,7 @@ func newJobRunCommand(runtime *Runtime) *cobra.Command {
 			}
 			// 轮询超时同样保留已创建的 run ID:同一 preview_run_id 可继续
 			// 轮询/接受,恢复不丢已经创建的试跑。
-			meta := runtime.meta
+			meta := output.Meta{}
 			if timedOut {
 				value := true
 				meta.WaitTimedOut = &value
@@ -332,7 +332,7 @@ func newJobRunGetCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			meta := runtime.meta
+			meta := output.Meta{}
 			if timedOut {
 				value := true
 				meta.WaitTimedOut = &value
@@ -362,7 +362,7 @@ func newJobEditGetCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			meta := runtime.meta
+			meta := output.Meta{}
 			if timedOut {
 				value := true
 				meta.WaitTimedOut = &value
