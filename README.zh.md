@@ -10,7 +10,7 @@ ViceMe 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为
 
 [安装](#安装与快速开始) · [AI Agent Skills](#agent-skills) · [认证](#认证) · [区域与-profile](#区域与-profile) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
 
-> **开放状态：** Core 发布传输和稳定链接链路已经实现。正式对外开放仍取决于精确 Candidate 预览、试运行和结果确认门的完成。当前 `--yes` 只确认发起发布请求，并不代表用户已经审阅最终 Candidate。
+> **开放状态：** Core 发布传输和稳定链接链路已经实现，信息确认门以及精确 Candidate 的预览 → 试跑 → 结果确认门均已生效。`--yes` 后，Publication 先停在 `meta_review`，由 `job metadata` 完成信息确认；随后停在 `awaiting_action`，依次使用 `job preview`、可选的 `job edit`、`job run`、`job accept` 和 `job resume`。只有同一 Candidate 的试跑成功且结果已由发布者接受时才能确认，否则返回 409 `preview_run_required`。确认回执只授权发布，不包含最终分享链接；需要再次有界执行 `job wait` 直到 `share_published`。`--yes` 只确认发起发布请求，不代表用户已确认信息或最终 Candidate。
 
 ## 为什么选择 ViceMe CLI？
 
@@ -83,7 +83,7 @@ viceme skills doctor
 npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
 ```
 
-读取结果中的 `data.authenticated` 和 `data.next_step`。如果认证已经有效，直接进入第 4 步。如果需要登录，Agent 不要执行面向人类的 `data.next_step`，而应使用第 2 步的 JSON 跨回合流程。
+读取格式化业务结果中的 `authenticated` 和 `next_step`。如果认证已经有效，直接进入第 4 步。如果需要登录，Agent 不要执行面向人类的 `next_step`，而应使用第 2 步的 JSON 跨回合流程。
 
 **第 2 步 — 需要时启动设备登录**
 
@@ -91,7 +91,7 @@ npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://re
 viceme auth login --no-wait --json
 ```
 
-向用户返回准确的 `data.verification_url`；存在 `verification_url_complete` 时，CLI 会把这个已预填设备码的浏览器直达链接规范化为 `verification_url`。只有浏览器要求输入时，才把 `data.user_code` 作为备用信息提供。保留 `data.device_code` 供后续命令使用，然后结束当前回合。不要在对话中索取、打印或传递访问令牌。
+向用户返回准确的 `verification_url`；存在 `verification_url_complete` 时，CLI 会把这个已预填设备码的浏览器直达链接规范化为 `verification_url`。只有浏览器要求输入时，才把 `user_code` 作为备用信息提供。保留 `device_code` 供后续命令使用，然后结束当前回合。不要在对话中索取、打印或传递访问令牌。
 
 **第 3 步 — 在后续回合继续同一个登录流程**
 
@@ -120,7 +120,7 @@ viceme skills list
 viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。在上方所述的精确 Candidate 确认门完成前，公开发布流程仍保持关闭。
+inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。进入 `meta_review` 后，使用同一 action ID 与 payload digest 展示并决议信息，然后再次等待；进入 `awaiting_action` 后，展示冻结摘要、完成同一 Candidate 的试跑与结果接受，并取得用户决定后再执行 `job resume`。确认后还需再次等待到 `share_published`，才能返回分享链接。
 
 ## 区域与 Profile
 
@@ -254,30 +254,43 @@ viceme skill publish --file ./poster-skill-v2.zip \
 | `viceme skill inspect` | 固化并检查来源候选，不执行发布 |
 | `viceme skill publish` | 创建或更新具有稳定链接的 Skill Agent 发布 |
 | `viceme skill target` | 解析现有逻辑 Agent Target 及其版本 |
-| `viceme job` | 读取、等待、展示签名渠道绑定链接、恢复、显式重试或取消持久化发布任务 |
+| `viceme job` | 读取或等待发布任务，审阅信息，预览、编辑、试跑并接受 Candidate，展示签名渠道绑定链接，决议 action，以及显式重试或取消 |
 | `viceme skills` | 读取、安装和诊断随包发布的 Agent Skill |
 | `viceme update` | 同时更新 npm 启动器、已校验二进制文件和随包发布的 Skill |
 
 使用 `viceme <command> --help` 查看准确参数。经过发布检查的机器可读命令面存放在 [`skills/viceme/references/command-manifest.json`](skills/viceme/references/command-manifest.json)。
 
-## JSON 输出契约
+## 输出契约
 
-面向自动化的数据命令默认输出稳定的 JSON 信封。交互式 `viceme auth login` 是特意保留的人类友好例外；AI Agent 和脚本必须使用 `--no-wait --json`，并在后续回合使用 `--device-code <code> --json` 继续。
+ViceMe 根据命令语义选择最小且稳定的输出形式：
 
-成功结果写入 **stdout**，退出码为 `0`：
+- `version`、`install`、`update`、`auth status`、`profile *`、`skills doctor` 等本地/引导命令，将格式化后的业务结果直接写入 **stdout**，不附加 `ok`、`data` 或无关构建元数据。
+- `skills read` 按原始字节输出目标文件，不添加 JSON 包装。
+- 交互式 `viceme auth login` 输出面向人的引导；AI Agent 使用 `--no-wait --json`，并在后续回合用 `--device-code <code> --json` 继续，这两个命令返回格式化的裸业务对象。
+- `skill` 和 `job` 下的发布协议命令继续使用稳定 Envelope，因为 action receipt、持久状态与有界等待元数据共同构成跨命令协议。
+
+发布协议命令成功时写入 **stdout**，退出码为 `0`：
+
+```json
+{
+  "ok": true,
+  "data": {}
+}
+```
+
+只有有界等待真实超时时才附加协议元数据：
 
 ```json
 {
   "ok": true,
   "data": {},
   "meta": {
-    "cli_version": "0.1.0",
-    "skill_version": "0.1.0"
+    "wait_timed_out": true
   }
 }
 ```
 
-CLI 执行错误写入 **stderr**，退出码非零：
+CLI 执行错误以格式化形式写入 **stderr**，退出码非零：
 
 ```json
 {
@@ -286,15 +299,11 @@ CLI 执行错误写入 **stderr**，退出码非零：
     "type": "validation",
     "subtype": "source_required",
     "message": "provide exactly one source argument or --expression-stdin"
-  },
-  "meta": {
-    "cli_version": "0.1.0",
-    "skill_version": "0.1.0"
   }
 }
 ```
 
-应根据进程退出码或 `ok == true` 判断命令是否成功。API 返回的领域 `error.type` 会原样保留，退出码只表示粗粒度处理类别。成功读取发布任务时，业务状态仍可能是 `unsupported`、`rejected` 或 `failed`；这时应检查 `data.status`，不能把这些状态当成 CLI 传输失败。
+本地/引导命令根据进程退出码判断成功；发布协议命令可以检查退出码或 `ok == true`。API 返回的领域 `error.type` 会原样保留，退出码只表示粗粒度处理类别。成功读取发布任务时，业务状态仍可能是 `unsupported`、`rejected` 或 `failed`；这时应检查 `data.status`，不能把这些状态当成 CLI 传输失败。
 
 | 退出码 | 含义 |
 |---|---|
@@ -309,6 +318,7 @@ CLI 执行错误写入 **stderr**，退出码非零：
 ## 安全与风险控制
 
 - **不执行来源内容** — CLI 和编译器不会执行第三方脚本、二进制文件、shell 片段、市场命令或复制口令中的指令。
+- **不让不可信文本进入 argv** — AI Host 必须通过显式的 `--expression-stdin` 和 `--request-stdin` 模式传递复制的来源表达式与 Candidate 自然语言修改要求；不得把这些文本拼入命令字符串、argv、环境变量或 shell 管道。
 - **公开变更需要明确确认** — 发布、编译重试和取消操作需要 `--yes`；退出码 `10` 表示 Agent 必须向用户取得确认，不能静默重试。
 - **安全预览** — 用户需要检查计划请求时，可以对 inspect 或 publish 使用 `--dry-run`，不会产生网络请求或发布副作用。
 - **凭证隔离** — 在 macOS 上，设备登录凭证保存在 AES-256-GCM 加密文件中，主密钥由 Keychain 或显式降级后的私有文件保护，文件名不会暴露 Profile/origin；其他平台继续使用原生凭证管理器。显式内部测试覆盖按 Profile 隔离，仅允许保存在 `0600` 配置中，并且不会出现在 CLI 输出中。

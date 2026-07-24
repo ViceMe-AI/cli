@@ -16,11 +16,7 @@ const (
 )
 
 type Meta struct {
-	CLIVersion            string `json:"cli_version"`
-	SkillVersion          string `json:"skill_version"`
-	FullSkillBundleDigest string `json:"full_skill_bundle_digest"`
-	EmbeddedContentDigest string `json:"embedded_content_digest"`
-	WaitTimedOut          *bool  `json:"wait_timed_out,omitempty"`
+	WaitTimedOut *bool `json:"wait_timed_out,omitempty"`
 }
 
 type Error struct {
@@ -103,29 +99,46 @@ func AsError(err error) *Error {
 }
 
 type successEnvelope struct {
-	OK   bool `json:"ok"`
-	Data any  `json:"data"`
-	Meta Meta `json:"meta"`
+	OK   bool  `json:"ok"`
+	Data any   `json:"data"`
+	Meta *Meta `json:"meta,omitempty"`
 }
 
 type errorEnvelope struct {
 	OK    bool   `json:"ok"`
 	Error *Error `json:"error"`
-	Meta  Meta   `json:"meta"`
 }
 
 type Printer struct {
 	Out    io.Writer
 	ErrOut io.Writer
-	Meta   Meta
 }
 
 func (p *Printer) Success(data any) error {
-	return p.SuccessWithMeta(data, p.Meta)
+	return writeJSON(p.Out, successEnvelope{OK: true, Data: data})
 }
 
 func (p *Printer) SuccessWithMeta(data any, meta Meta) error {
-	return writeJSON(p.Out, successEnvelope{OK: true, Data: data, Meta: meta})
+	var emitted *Meta
+	if meta.WaitTimedOut != nil {
+		emitted = &meta
+	}
+	return writeJSON(p.Out, successEnvelope{OK: true, Data: data, Meta: emitted})
+}
+
+// Business writes one command-owned result without the transport envelope.
+// Local/bootstrap commands use this mode because their stdout value is already
+// the complete answer; publication protocol commands continue to use Success.
+func (p *Printer) Business(data any) error {
+	return writeJSON(p.Out, data)
+}
+
+// Raw writes byte-identical content for commands such as `skills read`.
+func (p *Printer) Raw(data []byte) error {
+	if _, err := p.Out.Write(data); err != nil {
+		return Internal("output_write", "could not write command output", err)
+	}
+	return nil
 }
 
 func (p *Printer) Failure(err error) int {
@@ -133,12 +146,13 @@ func (p *Printer) Failure(err error) int {
 	if cliErr.Code == 0 {
 		cliErr.Code = ExitInternal
 	}
-	_ = writeJSON(p.ErrOut, errorEnvelope{OK: false, Error: cliErr, Meta: p.Meta})
+	_ = writeJSON(p.ErrOut, errorEnvelope{OK: false, Error: cliErr})
 	return cliErr.Code
 }
 
 func writeJSON(w io.Writer, value any) error {
 	encoder := json.NewEncoder(w)
 	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
 	return encoder.Encode(value)
 }

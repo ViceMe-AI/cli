@@ -90,6 +90,9 @@ func (b *Bundle) Validate(name string) error {
 	if meta.Name != name {
 		return output.Validation("skill_name", fmt.Sprintf("Skill frontmatter name %q does not match directory %q", meta.Name, name))
 	}
+	if err := b.rejectMergeMarkers(name); err != nil {
+		return err
+	}
 	if _, err := fs.Stat(b.FS, path.Join(name, "agents/openai.yaml")); err != nil {
 		return output.Validation("skill_openai_metadata", "agents/openai.yaml is required in the install bundle")
 	}
@@ -108,6 +111,33 @@ func (b *Bundle) Validate(name string) error {
 		return err
 	}
 	return nil
+}
+
+// rejectMergeMarkers fails the bundle when any bundled Markdown file still
+// carries git merge/diff3 conflict markers. The bundled Agent Skill ships to
+// every host; an unresolved merge hunk silently corrupts host guidance.
+func (b *Bundle) rejectMergeMarkers(name string) error {
+	markers := []string{">>>>>>>", "=======", "\u003c\u003c\u003c\u003c\u003c\u003c\u003c", "|||||||"}
+	return fs.WalkDir(b.FS, name, func(filePath string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(filePath, ".md") {
+			return nil
+		}
+		data, err := fs.ReadFile(b.FS, filePath)
+		if err != nil {
+			return err
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			for _, marker := range markers {
+				if strings.HasPrefix(line, marker) {
+					return output.Validation("skill_merge_marker", fmt.Sprintf("%s contains an unresolved merge conflict marker %q", filePath, marker))
+				}
+			}
+		}
+		return nil
+	})
 }
 
 func (b *Bundle) Package(name string) (PackageMetadata, error) {

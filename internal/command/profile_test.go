@@ -24,7 +24,7 @@ func TestProfileAddAndConfigureExplicitLocalOverrides(t *testing.T) {
 
 	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", dependencies,
 		"profile", "add", "--name", "local", "--region", "cn", "--api-base-url", "http://localhost:8090/", "--access-token", localToken, "--use")
-	if code != 0 || stderr != "" || strings.Contains(stdout, localToken) || !strings.Contains(stdout, `"access_token_configured":true`) {
+	if code != 0 || stderr != "" || strings.Contains(stdout, localToken) || !stringContains(stdout, `"access_token_configured":true`) {
 		t.Fatalf("add code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	loaded, err := config.LoadOrDefault(environment.ConfigDir)
@@ -56,7 +56,7 @@ func TestProfileAddAndConfigureExplicitLocalOverrides(t *testing.T) {
 	}
 
 	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies, "auth", "status")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"source":"local_profile"`) || strings.Contains(stdout, localToken) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"source":"local_profile"`) || strings.Contains(stdout, localToken) {
 		t.Fatalf("status code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies, "auth", "login")
@@ -64,7 +64,7 @@ func TestProfileAddAndConfigureExplicitLocalOverrides(t *testing.T) {
 		t.Fatalf("login code=%d stderr=%s", code, stderr)
 	}
 	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies, "profile", "list")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"credential_source":"local_profile"`) || strings.Contains(stdout, localToken) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"credential_source":"local_profile"`) || strings.Contains(stdout, localToken) {
 		t.Fatalf("list code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
@@ -83,7 +83,7 @@ func TestProfileAddAndConfigureExplicitLocalOverrides(t *testing.T) {
 
 	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
 		"profile", "configure", "local", "--clear-access-token", "--clear-api-base-url")
-	if code != 0 || stderr != "" || strings.Contains(stdout, localToken) || !strings.Contains(stdout, `"access_token_configured":false`) {
+	if code != 0 || stderr != "" || strings.Contains(stdout, localToken) || !stringContains(stdout, `"access_token_configured":false`) {
 		t.Fatalf("clear code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	loaded, err = config.LoadOrDefault(environment.ConfigDir)
@@ -127,7 +127,7 @@ func TestProfileLifecycleAndGlobalOverride(t *testing.T) {
 
 	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", dependencies,
 		"profile", "add", "--name", "work", "--region", "global", "--use")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"name":"work"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"name":"work"`) {
 		t.Fatalf("add code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 
@@ -151,7 +151,7 @@ func TestProfileLifecycleAndGlobalOverride(t *testing.T) {
 
 	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
 		"--profile", "work", "auth", "status")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"profile":"work"`) || !strings.Contains(stdout, `"authenticated":true`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"profile":"work"`) || !stringContains(stdout, `"authenticated":true`) {
 		t.Fatalf("status code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 
@@ -160,14 +160,12 @@ func TestProfileLifecycleAndGlobalOverride(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("list code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
-	var envelope struct {
-		Data []profileListItem `json:"data"`
-	}
-	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+	var profiles []profileListItem
+	if err := json.Unmarshal([]byte(stdout), &profiles); err != nil {
 		t.Fatal(err)
 	}
-	if len(envelope.Data) != 2 || envelope.Data[1].Name != "work" || !envelope.Data[1].Active || !envelope.Data[1].Authenticated {
-		t.Fatalf("unexpected profiles: %#v", envelope.Data)
+	if len(profiles) != 2 || profiles[1].Name != "work" || !profiles[1].Active || !profiles[1].Authenticated {
+		t.Fatalf("unexpected profiles: %#v", profiles)
 	}
 
 	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
@@ -240,7 +238,7 @@ func TestInstallUsesSelectedProfileRegionWhenRegionFlagIsOmitted(t *testing.T) {
 	}
 	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", dependencies,
 		"--profile", "work", "install", "--target", "codex")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"profile":"work"`) || !strings.Contains(stdout, `"region":"global"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"profile":"work"`) || !stringContains(stdout, `"region":"global"`) {
 		t.Fatalf("install code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	loaded, err := config.LoadOrDefault(environment.ConfigDir)
@@ -272,7 +270,7 @@ func TestInstallRegionChangeRemovesPreviousProfileCredential(t *testing.T) {
 		Environment: environment,
 		Updater:     &fakeUpdateService{},
 	}, "install", "--target", "codex", "--region", "global")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"region":"global"`) || !strings.Contains(stdout, `"authenticated":false`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"region":"global"`) || !stringContains(stdout, `"authenticated":false`) {
 		t.Fatalf("install code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	if _, err := manager.Load(); err == nil {

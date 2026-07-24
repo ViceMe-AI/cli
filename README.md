@@ -10,7 +10,7 @@ The official command-line client and Agent Skill for publishing external Skills 
 
 [Install](#installation--quick-start) · [AI Agent Skills](#agent-skills) · [Auth](#authentication) · [Regions & profiles](#regions--profiles) · [Commands](#command-overview) · [Output contract](#json-output-contract) · [Security](#security-and-risk-controls) · [Development](#development)
 
-> **Rollout status:** the Core publication transport and stable-link path are implemented, and the exact Candidate preview → test run → result-confirmation gate is enforced: after `--yes`, the publication parks at `awaiting_action` with a typed `confirm_publish` action, and `job resume --decision confirm` is accepted only after the exact candidate has a succeeded, owner-accepted preview test run (otherwise 409 `preview_run_required`). Test runs, acceptance, and natural-language candidate edits are driven from the confirmation page (`next_action.payload.preview_url`) or the `/v1/skill-agent-publications/:id/preview-runs` and `/edits` endpoints; the CLI ships no separate commands for them. `--yes` confirms the publication request; it is not proof that the user reviewed the final Candidate.
+> **Rollout status:** the Core publication transport and stable-link path are implemented, and the metadata review plus exact Candidate preview → test run → result-confirmation gates are enforced. After `--yes`, the publication first parks at `meta_review` for `job metadata`, then at `awaiting_action` for `job preview`, optional `job edit`, `job run`, `job accept`, and `job resume`. Confirm is accepted only after the exact Candidate has a succeeded, owner-accepted preview run (otherwise 409 `preview_run_required`). A confirm receipt authorizes release but does not contain the final share link; run another bounded `job wait` until `share_published`. `--yes` confirms only the publication request, not the metadata or final Candidate.
 
 ## Why ViceMe CLI?
 
@@ -83,7 +83,7 @@ Use the complete bootstrap command from the bundled Skill. The explicit npm regi
 npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
 ```
 
-Read `data.authenticated` and `data.next_step` from the result. If authentication is already valid, continue to Step 4. If login is required, do not execute the human-oriented `data.next_step` inside the Agent; use the JSON split-flow in Step 2.
+Read `authenticated` and `next_step` from the formatted business result. If authentication is already valid, continue to Step 4. If login is required, do not execute the human-oriented `next_step` inside the Agent; use the JSON split-flow in Step 2.
 
 **Step 2 — Start device login when required**
 
@@ -91,7 +91,7 @@ Read `data.authenticated` and `data.next_step` from the result. If authenticatio
 viceme auth login --no-wait --json
 ```
 
-Return the exact `data.verification_url`; the CLI normalizes it to the prefilled `verification_url_complete` browser link when available. Include `data.user_code` only as a fallback if the browser asks for it. Preserve `data.device_code` for the continuation command, then stop the current turn. Do not request, print, or place an access token in the conversation.
+Return the exact `verification_url`; the CLI normalizes it to the prefilled `verification_url_complete` browser link when available. Include `user_code` only as a fallback if the browser asks for it. Preserve `device_code` for the continuation command, then stop the current turn. Do not request, print, or place an access token in the conversation.
 
 **Step 3 — Continue the same login in a later turn**
 
@@ -120,7 +120,7 @@ Continue only when authentication is valid and `skills doctor` reports a healthy
 viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. If a publication ends at `binding_required`, run `viceme job bind <publication-id>`, give the signed ViceMe URL to the user, and stop. Downloading or forking is only an informational alternative; the CLI never performs it automatically. After the user binds the exact GitHub/Xiaohongshu channel account, inspect again and create a fresh ordinary publication rather than resuming the terminal one. Otherwise, when the publication parks at `awaiting_action`, guide the user through candidate preview and a test run with accepted result before resolving with `job resume --decision confirm` (see the rollout status above).
+Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. If a publication ends at `binding_required`, run `viceme job bind <publication-id>`, give the signed ViceMe URL to the user, and stop. Downloading or forking is only an informational alternative; the CLI never performs it automatically. After the user binds the exact GitHub/Xiaohongshu channel account, inspect again and create a fresh ordinary publication rather than resuming the terminal one. At `meta_review`, show and resolve the metadata using the exact action ID and payload digest, then wait again. At `awaiting_action`, show the frozen Candidate summary, run and accept one exact-Candidate test result, and obtain the user's decision before `job resume`. After confirm, wait again until `share_published` before returning the share link.
 
 ## Regions & Profiles
 
@@ -254,30 +254,43 @@ viceme skill publish --file ./poster-skill-v2.zip \
 | `viceme skill inspect` | Freeze and inspect a source candidate without publishing |
 | `viceme skill publish` | Create or update a stable Skill Agent publication |
 | `viceme skill target` | Resolve existing logical Agent Targets and versions |
-| `viceme job` | Read, wait for, show a signed channel-binding URL, resume, explicitly retry, or cancel a durable publication |
+| `viceme job` | Read or wait for a publication, review metadata, preview/edit/test/accept its Candidate, show a signed channel-binding URL, resume an action, explicitly retry, or cancel |
 | `viceme skills` | Read, install, and diagnose the bundled Agent Skill |
 | `viceme update` | Update the npm launcher, verified binary, and bundled Skill together |
 
 Use `viceme <command> --help` for the exact flags. The release-checked machine-readable surface is stored in [`skills/viceme/references/command-manifest.json`](skills/viceme/references/command-manifest.json).
 
-## JSON Output Contract
+## Output Contract
 
-Automation-oriented data commands emit a stable JSON envelope by default. Interactive `viceme auth login` is the deliberate human-facing exception; AI Agents and scripts must use `--no-wait --json`, then continue with `--device-code <code> --json` in a later turn.
+ViceMe selects the smallest stable representation for each command:
 
-Success is written to **stdout** with exit code `0`:
+- Local/bootstrap commands such as `version`, `install`, `update`, `auth status`, `profile *`, and `skills doctor` write their formatted business result directly to **stdout**. They do not add `ok`, `data`, or unrelated build metadata.
+- `skills read` writes the requested file byte-for-byte without a JSON wrapper.
+- Interactive `viceme auth login` writes human guidance. AI Agents use `--no-wait --json`, then continue with `--device-code <code> --json`; those two commands return a formatted bare business object.
+- Publication protocol commands under `skill` and `job` keep a stable envelope because action receipts, durable status, and bounded-wait metadata form one cross-command protocol.
+
+A successful publication protocol result is written to **stdout** with exit code `0`:
+
+```json
+{
+  "ok": true,
+  "data": {}
+}
+```
+
+Only a bounded wait that actually times out adds protocol metadata:
 
 ```json
 {
   "ok": true,
   "data": {},
   "meta": {
-    "cli_version": "0.1.0",
-    "skill_version": "0.1.0"
+    "wait_timed_out": true
   }
 }
 ```
 
-CLI execution errors are written to **stderr** with a non-zero exit code:
+CLI execution errors are formatted and written to **stderr** with a non-zero exit code:
 
 ```json
 {
@@ -286,15 +299,11 @@ CLI execution errors are written to **stderr** with a non-zero exit code:
     "type": "validation",
     "subtype": "source_required",
     "message": "provide exactly one source argument or --expression-stdin"
-  },
-  "meta": {
-    "cli_version": "0.1.0",
-    "skill_version": "0.1.0"
   }
 }
 ```
 
-Determine command success from the process exit code or `ok == true`. The API's domain-specific `error.type` is preserved; the exit code is only a coarse handling class. A successfully read publication may still contain a business terminal status such as `unsupported`, `rejected`, or `failed`; inspect `data.status` instead of treating those states as CLI transport failures.
+Determine local/bootstrap command success from the process exit code. For publication protocol commands, use the process exit code or `ok == true`. The API's domain-specific `error.type` is preserved; the exit code is only a coarse handling class. A successfully read publication may still contain a business terminal status such as `unsupported`, `rejected`, or `failed`; inspect `data.status` instead of treating those states as CLI transport failures.
 
 | Exit code | Meaning |
 |---|---|
@@ -309,6 +318,7 @@ Determine command success from the process exit code or `ok == true`. The API's 
 ## Security and Risk Controls
 
 - **No source execution** — the CLI and compiler do not execute third-party scripts, binaries, shell fragments, marketplace commands, or copied instructions.
+- **Untrusted text stays off argv** — AI Hosts must pass copied provider expressions and natural-language Candidate edits through the explicit `--expression-stdin` and `--request-stdin` modes. Never interpolate that text into command strings, argv, environment variables, or shell pipelines.
 - **Explicit public mutation** — publishing, compiler retry, and cancellation require `--yes`; exit code `10` means the Agent must obtain confirmation, not silently retry.
 - **Safe preview** — use `--dry-run` on inspect or publish when the user needs to review the planned request without network or publication side effects.
 - **Credential isolation** — on macOS, device-login credentials stay in AES-256-GCM encrypted files, with Keychain-backed or explicitly downgraded private key material; filenames do not expose profile/origin names. Other platforms retain their native credential manager. Explicit internal-test overrides are namespaced by profile, stored only in a private `0600` config, and never emitted by CLI output.

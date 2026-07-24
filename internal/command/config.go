@@ -42,7 +42,7 @@ backup; no token is printed or written in plaintext.`,
 					WithHint("run this command from Terminal.app or iTerm where the macOS Keychain is reachable; then retry the original command inside Codex or Claude Code").
 					WithCause(err)
 			}
-			return runtimeState.success(result)
+			return runtimeState.business(result)
 		},
 	}
 }

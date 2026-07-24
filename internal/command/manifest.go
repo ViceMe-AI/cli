@@ -95,7 +95,7 @@ func commandPolicy(path string, runnable bool) (string, bool) {
 		return "remote_and_local", false
 	case "auth login", "config keychain-downgrade", "install", "profile add", "profile configure", "profile use", "profile remove", "profile rename", "skills install", "update":
 		return "local", false
-	case "version", "auth status", "profile list", "skill inspect", "skill target get", "skill target list", "job bind", "job get", "job wait", "job preview", "skills list", "skills read", "skills doctor":
+	case "version", "auth status", "profile list", "skill inspect", "skill target get", "skill target list", "job bind", "job get", "job wait", "job preview", "job edit-get", "job run-get", "skills list", "skills read", "skills doctor":
 		return "none", false
 	default:
 		if runnable {

@@ -84,7 +84,7 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 					Authenticated:    status.Authenticated,
 				})
 			}
-			return runtime.success(items)
+			return runtime.business(items)
 		},
 	}
 }
@@ -141,7 +141,7 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.reloadConfig(selected); err != nil {
 				return err
 			}
-			return runtime.success(map[string]any{
+			return runtime.business(map[string]any{
 				"name":                    responseName,
 				"region":                  responseRegion,
 				"api_base_url":            responseAPIBaseURL,
@@ -248,7 +248,7 @@ func newProfileConfigureCommand(runtime *Runtime) *cobra.Command {
 			if len(warnings) > 0 {
 				response["warnings"] = warnings
 			}
-			return runtime.success(response)
+			return runtime.business(response)
 		},
 	}
 	command.Flags().StringVar(&apiBaseURL, "api-base-url", "", "persist an API base URL for this profile")
@@ -312,7 +312,7 @@ func newProfileUseCommand(runtime *Runtime) *cobra.Command {
 				return output.Validation("profile_not_found", err.Error())
 			}
 			if runtime.config.CurrentProfile == profile.Name {
-				return runtime.success(map[string]any{"name": profile.Name, "region": profile.Region, "active": true, "unchanged": true})
+				return runtime.business(map[string]any{"name": profile.Name, "region": profile.Region, "active": true, "unchanged": true})
 			}
 			runtime.config.PreviousProfile = runtime.config.CurrentProfile
 			runtime.config.CurrentProfile = profile.Name
@@ -322,7 +322,7 @@ func newProfileUseCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.reloadConfig(profile.Name); err != nil {
 				return err
 			}
-			return runtime.success(map[string]any{"name": profile.Name, "region": profile.Region, "active": true})
+			return runtime.business(map[string]any{"name": profile.Name, "region": profile.Region, "active": true})
 		},
 	}
 }
@@ -343,7 +343,7 @@ func newProfileRenameCommand(runtime *Runtime) *cobra.Command {
 			}
 			if oldName == newName {
 				profile := runtime.config.Profiles[index]
-				return runtime.success(map[string]any{"old_name": oldName, "name": newName, "region": profile.Region, "unchanged": true})
+				return runtime.business(map[string]any{"old_name": oldName, "name": newName, "region": profile.Region, "unchanged": true})
 			}
 			if runtime.config.FindProfileIndex(newName) >= 0 {
 				return output.Validation("profile_exists", "profile already exists")
@@ -361,7 +361,7 @@ func newProfileRenameCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.reloadConfig(newName); err != nil {
 				return err
 			}
-			return runtime.success(map[string]any{"old_name": oldName, "name": newName})
+			return runtime.business(map[string]any{"old_name": oldName, "name": newName})
 		},
 	}
 }
@@ -413,7 +413,7 @@ func newProfileRemoveCommand(runtime *Runtime) *cobra.Command {
 			if len(warnings) > 0 {
 				result["warnings"] = warnings
 			}
-			return runtime.success(result)
+			return runtime.business(result)
 		},
 	}
 }

@@ -99,11 +99,18 @@ func (p Publication) MarshalJSON() ([]byte, error) {
 type ResolveActionRequest struct {
 	ExpectedPayloadDigest string `json:"expected_payload_digest"`
 	// Payload answers typed payload actions (select_root). confirm_publish
-	// decisions instead carry Decision plus the candidate/summary digests.
-	Payload                        json.RawMessage `json:"payload,omitempty"`
-	ExpectedReleaseCandidateDigest string          `json:"expected_release_candidate_digest,omitempty"`
-	ExpectedPublicSummaryDigest    string          `json:"expected_public_summary_digest,omitempty"`
-	Decision                       string          `json:"decision,omitempty"`
+	// decisions use ResolveConfirmationRequest against the dedicated endpoint.
+	Payload json.RawMessage `json:"payload,omitempty"`
+}
+
+// ResolveConfirmationRequest resolves a confirm_publish action via
+// /resolve-confirmation: every digest and the decision are required
+// (OpenAPI/SDK/runtime 同一合同).
+type ResolveConfirmationRequest struct {
+	ExpectedPayloadDigest          string `json:"expected_payload_digest"`
+	ExpectedReleaseCandidateDigest string `json:"expected_release_candidate_digest"`
+	ExpectedPublicSummaryDigest    string `json:"expected_public_summary_digest"`
+	Decision                       string `json:"decision"`
 }
 
 // ResolveMetadataRequest resolves the confirm_metadata checkpoint: confirm
@@ -150,16 +157,19 @@ type PreviewRunStartResponse struct {
 
 // SkillPreviewRun is the durable preview-run receipt with the bounded result.
 type SkillPreviewRun struct {
-	PublicationID   string         `json:"publication_id"`
-	PreviewRunID    string         `json:"preview_run_id"`
-	RunnerRunID     string         `json:"runner_run_id"`
-	CandidateDigest string         `json:"candidate_digest"`
-	InputsDigest    *string        `json:"inputs_digest"`
-	Status          string         `json:"status"`
-	ResultDigest    *string        `json:"result_digest"`
-	Result          map[string]any `json:"result"`
-	Accepted        bool           `json:"accepted"`
-	AcceptedAt      *string        `json:"accepted_at"`
+	PublicationID   string            `json:"publication_id"`
+	PreviewRunID    string            `json:"preview_run_id"`
+	RunnerRunID     string            `json:"runner_run_id"`
+	CandidateDigest string            `json:"candidate_digest"`
+	InputsDigest    *string           `json:"inputs_digest"`
+	// Inputs 是产生本次结果的 canonical 输入值(与 InputsDigest 同源),让
+	// 用户能看到并接受「看得见的」那组输入,而不是隐藏 digest。
+	Inputs       map[string]string `json:"inputs"`
+	Status       string            `json:"status"`
+	ResultDigest *string           `json:"result_digest"`
+	Result       map[string]any    `json:"result"`
+	Accepted     bool              `json:"accepted"`
+	AcceptedAt   *string           `json:"accepted_at"`
 }
 
 // PreviewRunAcceptRequest accepts the actual result of a preview run.

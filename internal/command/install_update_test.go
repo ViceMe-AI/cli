@@ -1,11 +1,13 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
@@ -22,21 +24,19 @@ func TestRootInstallBootstrapsSkillConfigAndLoginNextStep(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
-	var envelope struct {
-		Data struct {
-			Region   string `json:"region"`
-			NextStep struct {
-				Command string `json:"command"`
-			} `json:"next_step"`
-		} `json:"data"`
+	var result struct {
+		Region   string `json:"region"`
+		NextStep struct {
+			Command string `json:"command"`
+		} `json:"next_step"`
 	}
-	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Data.NextStep.Command != "viceme auth login" {
+	if result.NextStep.Command != "viceme auth login" {
 		t.Fatalf("bootstrap did not return device-login next step: %s", stdout)
 	}
-	if envelope.Data.Region != "global" {
+	if result.Region != "global" {
 		t.Fatalf("bootstrap did not select the global region: %s", stdout)
 	}
 	for _, filename := range []string{
@@ -104,12 +104,14 @@ func containsJSONKey(document, value string) bool {
 }
 
 func stringContains(document, value string) bool {
-	for index := 0; index+len(value) <= len(document); index++ {
-		if document[index:index+len(value)] == value {
-			return true
-		}
+	if strings.Contains(document, value) {
+		return true
 	}
-	return false
+	var compact bytes.Buffer
+	if json.Compact(&compact, []byte(document)) != nil {
+		return false
+	}
+	return strings.Contains(compact.String(), value)
 }
 
 type fakeUpdateService struct {

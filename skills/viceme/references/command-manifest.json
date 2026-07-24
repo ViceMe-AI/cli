@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "cli_version": "0.8.0",
-  "minimum_cli_version": "0.8.0",
+  "cli_version": "0.8.1",
+  "minimum_cli_version": "0.8.1",
   "global_flags": [
     {
       "name": "profile",
@@ -175,15 +175,32 @@
           "usage": "current exact release candidate digest"
         },
         {
-          "name": "request",
-          "type": "string",
-          "usage": "natural-language edit request"
+          "name": "request-stdin",
+          "type": "bool",
+          "default": "false",
+          "usage": "read the complete natural-language edit request from stdin"
         },
         {
           "name": "timeout",
           "type": "duration",
           "default": "2m0s",
           "usage": "maximum time to wait for the edit"
+        }
+      ]
+    },
+    {
+      "path": "job edit-get",
+      "use": "edit-get <publication-id> <edit-id>",
+      "short": "Read a candidate edit receipt by ID, optionally resuming the wait after a timeout",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "0s",
+          "usage": "resume waiting for the edit (0 = single read)"
         }
       ]
     },
@@ -211,7 +228,7 @@
         {
           "name": "author",
           "type": "string",
-          "usage": "optional source-author edit / missing-author fill (1-100 visible characters)"
+          "usage": "optional source-author edit / missing-author fill (1-100 visible characters; machine callers: prefer --edits-stdin)"
         },
         {
           "name": "decision",
@@ -221,7 +238,13 @@
         {
           "name": "description",
           "type": "string",
-          "usage": "optional description edit (1-100 visible characters)"
+          "usage": "optional description edit (1-100 visible characters; machine callers: prefer --edits-stdin)"
+        },
+        {
+          "name": "edits-stdin",
+          "type": "bool",
+          "default": "false",
+          "usage": "read optional {\"title\",\"description\",\"author\"} edits as one JSON object from stdin (no shell interpolation)"
         },
         {
           "name": "expected-payload-digest",
@@ -231,7 +254,7 @@
         {
           "name": "title",
           "type": "string",
-          "usage": "optional title edit (1-20 visible characters)"
+          "usage": "optional title edit (1-20 visible characters; machine callers: prefer --edits-stdin)"
         }
       ]
     },
@@ -331,6 +354,22 @@
           "type": "duration",
           "default": "3m0s",
           "usage": "maximum time to wait for the run"
+        }
+      ]
+    },
+    {
+      "path": "job run-get",
+      "use": "run-get <publication-id> <preview-run-id>",
+      "short": "Read a preview run receipt by ID, optionally resuming the wait after a timeout",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "0s",
+          "usage": "resume waiting for the run (0 = single read)"
         }
       ]
     },
@@ -660,7 +699,7 @@
     {
       "path": "skills read",
       "use": "read <name>[/<path>] [path]",
-      "short": "Read embedded Skill content",
+      "short": "Print embedded Skill content without a JSON wrapper",
       "runnable": true,
       "side_effect": "none",
       "requires_confirmation": false

@@ -40,9 +40,10 @@ test(
       },
     );
     assert.equal(child.status, 0, child.stderr);
-    const envelope = JSON.parse(child.stdout);
-    assert.equal(envelope.ok, true);
-    assert.equal(envelope.data.skill.all_succeeded, true);
+    const result = JSON.parse(child.stdout);
+    assert.equal(result.skill.all_succeeded, true);
+    assert.equal("ok" in result, false);
+    assert.equal("data" in result, false);
     await stat(path.join(codexHome, "skills", "viceme", "SKILL.md"));
     await stat(path.join(configHome, "config.json"));
   },
@@ -140,7 +141,10 @@ process.exit(child.status ?? 1);
       // Keep the primary assertion useful even if npm did not reach the shim.
     }
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}\n${debug}`);
-    assert.equal(parseLastJSON(first.stdout).ok, true);
+    const install = JSON.parse(first.stdout);
+    assert.equal(install.skill.all_succeeded, true);
+    assert.equal("ok" in install, false);
+    assert.equal("data" in install, false);
     assert.match(
       await readFile(marker, "utf8"),
       /install --registry=https:\/\/registry\.npmjs\.org --@viceme-ai:registry=https:\/\/registry\.npmjs\.org --global/,
@@ -186,14 +190,11 @@ process.exit(child.status ?? 1);
       },
     });
     assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
-    const version = parseLastJSON(second.stdout);
-    assert.equal(version.ok, true);
-    assert.equal(version.data.version, packageVersion);
+    const version = JSON.parse(second.stdout);
+    assert.equal(version.version, packageVersion);
+    assert.equal("ok" in version, false);
+    assert.equal("data" in version, false);
+    assert.equal("meta" in version, false);
     await stat(path.join(prefix, "bin", "viceme"));
   },
 );
-
-function parseLastJSON(output) {
-  const lines = output.trim().split("\n");
-  return JSON.parse(lines.at(-1));
-}
