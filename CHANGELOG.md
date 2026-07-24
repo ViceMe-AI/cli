@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.8.1] - 2026-07-24
+
+### Fixes
+
+- 修正 Skill 编辑与等待契约 (`e5b92d9`)
+- 修正 ViceMe Skill 发布命令契约 (`23f140b`)
+- 明确步骤确认摘要路径 (`adc70a3`)
+- 六轮复审——confirm_steps 指引消除 preview 死锁 (`3b33b91`)
+- T2 复审修复——自然语言走 stdin 结构化传输/超时保留 edit-run ID/resume 对齐确认端点 (`852c234`)
+
+### Other Changes
+
+- separate business and protocol results (`f1f9f9d`)
+- 内置 Agent Skill 对齐交互步骤确认门(产品 3427) (`1992801`)
+- 中文化 T2 复审交接 (`175e838`)
+- add T2 review remediation handoff (`e689dff`)
+
 ## [0.8.0] - 2026-07-22
 
 ### Features
