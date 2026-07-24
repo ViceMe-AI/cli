@@ -26,7 +26,7 @@ func newSkillsListCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.success(map[string]any{"skills": skills, "count": len(skills)})
+			return runtime.business(map[string]any{"skills": skills, "count": len(skills)})
 		},
 	}
 }
@@ -34,7 +34,7 @@ func newSkillsListCommand(runtime *Runtime) *cobra.Command {
 func newSkillsReadCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "read <name>[/<path>] [path]",
-		Short: "Read embedded Skill content",
+		Short: "Print embedded Skill content without a JSON wrapper",
 		Args: func(_ *cobra.Command, args []string) error {
 			if len(args) < 1 || len(args) > 2 {
 				return output.Validation("skill_read_args", "read requires <name>[/<path>] [path]")
@@ -43,11 +43,11 @@ func newSkillsReadCommand(runtime *Runtime) *cobra.Command {
 		},
 		RunE: func(_ *cobra.Command, args []string) error {
 			name, relative := splitSkillReadArgs(args)
-			data, resolved, err := runtime.deps.Skills.Read(name, relative)
+			data, _, err := runtime.deps.Skills.Read(name, relative)
 			if err != nil {
 				return err
 			}
-			return runtime.success(map[string]any{"skill": name, "path": resolved, "content": string(data)})
+			return runtime.printer.Raw(data)
 		},
 	}
 	return command
@@ -78,7 +78,7 @@ func newSkillsInstallCommand(runtime *Runtime) *cobra.Command {
 			if !report.AllSucceeded {
 				return output.Internal("skill_install_partial", "one or more Skill targets could not be installed", nil).WithDetails(report)
 			}
-			return runtime.success(report)
+			return runtime.business(report)
 		},
 	}
 	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, claude, or agents")
@@ -96,7 +96,7 @@ func newSkillsDoctorCommand(runtime *Runtime) *cobra.Command {
 			if !report.Healthy {
 				return output.Internal("skill_doctor_unhealthy", "installed Skill does not match this CLI release", nil).WithDetails(report)
 			}
-			return runtime.success(report)
+			return runtime.business(report)
 		},
 	}
 	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, claude, or agents")

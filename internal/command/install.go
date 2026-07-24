@@ -130,7 +130,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 					Reason:   "complete device login before publishing a Skill Agent",
 				}
 			}
-			return runtime.success(result)
+			return runtime.business(result)
 		},
 	}
 	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, claude, or agents")
