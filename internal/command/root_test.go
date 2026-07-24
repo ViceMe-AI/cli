@@ -303,22 +303,64 @@ func TestStoredGlobalRegionUsesGlobalEndpoint(t *testing.T) {
 	}
 }
 
-func TestVersionJSONEnvelope(t *testing.T) {
+func TestVersionWritesBareBusinessJSON(t *testing.T) {
 	t.Parallel()
 	code, stdout, stderr, _ := runCLI(t, nil, nil, "--version")
 	if code != 0 || stderr != "" {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
-	var envelope map[string]any
-	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatal(err)
 	}
-	if envelope["ok"] != true {
-		t.Fatalf("unexpected envelope: %#v", envelope)
+	for _, transportField := range []string{"ok", "data", "meta"} {
+		if _, exists := result[transportField]; exists {
+			t.Fatalf("version contains transport field %q: %#v", transportField, result)
+		}
 	}
-	meta := envelope["meta"].(map[string]any)
-	if meta["full_skill_bundle_digest"] == "" || meta["embedded_content_digest"] == "" {
-		t.Fatalf("missing digest metadata: %#v", meta)
+	if result["version"] == "" || result["skill_version"] == "" ||
+		result["full_skill_bundle_digest"] == "" || result["embedded_content_digest"] == "" {
+		t.Fatalf("missing version diagnostics: %#v", result)
+	}
+	if !strings.Contains(stdout, "\n  \"version\": ") {
+		t.Fatalf("version output is not indented: %q", stdout)
+	}
+}
+
+func TestAuthStatusWritesBareIndentedBusinessJSON(t *testing.T) {
+	t.Parallel()
+	code, stdout, stderr, _ := runCLI(t, nil, nil, "auth", "status")
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["authenticated"] != false || result["profile"] != "default" || result["region"] != "cn" {
+		t.Fatalf("unexpected auth status: %#v", result)
+	}
+	for _, transportField := range []string{"ok", "data", "meta"} {
+		if _, exists := result[transportField]; exists {
+			t.Fatalf("auth status contains transport field %q: %#v", transportField, result)
+		}
+	}
+	if !strings.Contains(stdout, "\n  \"authenticated\": false,") {
+		t.Fatalf("auth status is not indented: %q", stdout)
+	}
+}
+
+func TestSkillsReadWritesRawContent(t *testing.T) {
+	t.Parallel()
+	code, stdout, stderr, _ := runCLI(t, nil, nil, "skills", "read", "viceme")
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	if !strings.HasPrefix(stdout, "---\n") || !strings.Contains(stdout, "\nname: viceme\n") {
+		t.Fatalf("skills read did not return raw SKILL.md: %q", stdout)
+	}
+	if stringContains(stdout, `"ok"`) || stringContains(stdout, `"data"`) || stringContains(stdout, `"content"`) {
+		t.Fatalf("skills read wrapped raw content: %q", stdout)
 	}
 }
 
@@ -333,9 +375,9 @@ func TestPublishRequiresConfirmationAndExplicitUploadTarget(t *testing.T) {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
 	code, stdout, stderr, _ := runCLI(t, nil, nil, "skill", "publish", "--file", "missing.zip", "--new-target", "--yes", "--dry-run")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"source_mode":"file"`) ||
-		!strings.Contains(stdout, `"publish_mode":"confirm"`) ||
-		!strings.Contains(stdout, `"confirmation_scope":"publication_admission/v1"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"source_mode":"file"`) ||
+		!stringContains(stdout, `"publish_mode":"confirm"`) ||
+		!stringContains(stdout, `"confirmation_scope":"publication_admission/v1"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	code, _, stderr, _ = runCLI(t, nil, nil, "skill", "publish", "https://github.com/acme/skill", "--target-id", "target_1", "--yes")
@@ -343,11 +385,11 @@ func TestPublishRequiresConfirmationAndExplicitUploadTarget(t *testing.T) {
 		t.Fatalf("code=%d stderr=%s", code, stderr)
 	}
 	code, stdout, stderr, _ = runCLI(t, nil, nil, "skill", "publish", "https://github.com/acme/skill", "--target-id", "target_1", "--expected-target-version", "4", "--yes", "--dry-run")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"expected_target_version":4`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"expected_target_version":4`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	code, stdout, stderr, _ = runCLI(t, nil, nil, "skill", "publish", "https://github.com/acme/skill", "--target-id", "target_0", "--expected-target-version", "0", "--yes", "--dry-run")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"expected_target_version":0`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"expected_target_version":0`) {
 		t.Fatalf("explicit version zero was not preserved: code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	code, _, stderr, _ = runCLI(t, nil, nil, "skill", "publish", "https://github.com/acme/skill", "--target-id", "target_0", "--expected-target-version", "-1", "--yes", "--dry-run")
@@ -384,7 +426,7 @@ func TestPublishTargetAliasCanonicality(t *testing.T) {
 				t.Fatalf("code=%d want=%d stdout=%s stderr=%s", code, test.wantCode, stdout, stderr)
 			}
 			if test.wantCode == 0 {
-				if stderr != "" || !strings.Contains(stdout, `"alias":"`+test.alias+`"`) {
+				if stderr != "" || !stringContains(stdout, `"alias":"`+test.alias+`"`) {
 					t.Fatalf("legal alias was not preserved: stdout=%s stderr=%s", stdout, stderr)
 				}
 			} else if !strings.Contains(stderr, "target_alias") {
@@ -405,23 +447,21 @@ func TestAuthNoWaitJSONNeverReturnsToken(t *testing.T) {
 	}))
 	defer server.Close()
 	code, stdout, stderr, _ := runCLI(t, server, nil, "auth", "login", "--no-wait", "--json")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, "device-public") || !strings.Contains(stdout, `"profile":"default"`) || !strings.Contains(stdout, `"region":"cn"`) {
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "device-public") || !stringContains(stdout, `"profile":"default"`) || !stringContains(stdout, `"region":"cn"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	if strings.Contains(stdout, "access_token") || strings.Contains(stderr, "access_token") {
 		t.Fatal("login start leaked an access token field")
 	}
-	var envelope struct {
-		Data struct {
-			VerificationURL         string `json:"verification_url"`
-			VerificationURLComplete string `json:"verification_url_complete"`
-		} `json:"data"`
+	var result struct {
+		VerificationURL         string `json:"verification_url"`
+		VerificationURLComplete string `json:"verification_url_complete"`
 	}
-	if err := json.Unmarshal([]byte(stdout), &envelope); err != nil {
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
 		t.Fatal(err)
 	}
-	if envelope.Data.VerificationURL != completeURL || envelope.Data.VerificationURLComplete != completeURL {
-		t.Fatalf("CLI did not return the direct browser URL: %#v", envelope.Data)
+	if result.VerificationURL != completeURL || result.VerificationURLComplete != completeURL {
+		t.Fatalf("CLI did not return the direct browser URL: %#v", result)
 	}
 }
 
@@ -441,7 +481,7 @@ func TestDeviceLoginPreflightFailureDoesNotCreateOrExchangeAuthorization(t *test
 			}))
 			defer server.Close()
 			code, stdout, stderr, _ := runCLI(t, server, &preflightFailureStore{}, test.args...)
-			if code != 3 || stdout != "" || !strings.Contains(stderr, `"subtype":"credential_store_unavailable"`) {
+			if code != 3 || stdout != "" || !stringContains(stderr, `"subtype":"credential_store_unavailable"`) {
 				t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 			}
 			if calls.Load() != 0 {
@@ -502,7 +542,7 @@ func TestAgentLoginFlowRequiresJSON(t *testing.T) {
 		{args: []string{"auth", "login", "--json"}, subtype: "auth_json_flow"},
 	} {
 		code, stdout, stderr, _ := runCLI(t, nil, nil, test.args...)
-		if code != 2 || stdout != "" || !strings.Contains(stderr, `"subtype":"`+test.subtype+`"`) {
+		if code != 2 || stdout != "" || !stringContains(stderr, `"subtype":"`+test.subtype+`"`) {
 			t.Fatalf("args=%v code=%d stdout=%s stderr=%s", test.args, code, stdout, stderr)
 		}
 	}
@@ -557,7 +597,7 @@ func TestDeviceLoginSaveFailureReturnsRecoverableConsumedAuthorizationContract(t
 	}))
 	defer server.Close()
 	code, stdout, stderr, _ := runCLI(t, server, saveFailureStore{}, "auth", "login", "--device-code", "device-once", "--json")
-	if code != 3 || stdout != "" || !strings.Contains(stderr, `"subtype":"credential_persistence_failed"`) {
+	if code != 3 || stdout != "" || !stringContains(stderr, `"subtype":"credential_persistence_failed"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	for _, forbidden := range []string{"issued-secret", "device-once"} {
@@ -565,7 +605,7 @@ func TestDeviceLoginSaveFailureReturnsRecoverableConsumedAuthorizationContract(t
 			t.Fatalf("save failure leaked %q: %s", forbidden, stderr)
 		}
 	}
-	if !strings.Contains(stderr, `"authorization_consumed":true`) || !strings.Contains(stderr, `"issued_credential_revoked":true`) {
+	if !stringContains(stderr, `"authorization_consumed":true`) || !stringContains(stderr, `"issued_credential_revoked":true`) {
 		t.Fatalf("save failure omitted recovery details: %s", stderr)
 	}
 	if exchanges.Load() != 1 || revocations.Load() != 1 {
@@ -621,8 +661,8 @@ func TestProcessCredentialUsesStandardAPIKeyWithoutPersistenceOrOutput(t *testin
 	}
 
 	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", Dependencies{}, "auth", "status")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"source":"process"`) ||
-		!strings.Contains(stdout, `"persistent":false`) || strings.Contains(stdout, processToken) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"source":"process"`) ||
+		!stringContains(stdout, `"persistent":false`) || strings.Contains(stdout, processToken) {
 		t.Fatalf("status code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", Dependencies{}, "auth", "logout")
@@ -743,7 +783,7 @@ func TestJobWaitReturnsBusinessFailureWithExitZero(t *testing.T) {
 	}))
 	defer server.Close()
 	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "wait", "pub_1")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"unsupported"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"status":"unsupported"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
@@ -760,9 +800,9 @@ func TestJobBindReturnsSignedBrowserAction(t *testing.T) {
 
 	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "bind", "pub_binding")
 	if code != 0 || stderr != "" ||
-		!strings.Contains(stdout, `"binding_url":"https://viceme.example/channel-bindings/signed"`) ||
-		!strings.Contains(stdout, `"retry_mode":"new_publication"`) ||
-		!strings.Contains(stdout, `"type":"fork_source"`) {
+		!stringContains(stdout, `"binding_url":"https://viceme.example/channel-bindings/signed"`) ||
+		!stringContains(stdout, `"retry_mode":"new_publication"`) ||
+		!stringContains(stdout, `"type":"fork_source"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
@@ -824,7 +864,7 @@ func TestJobMetadataReadAndResolveContract(t *testing.T) {
 	}))
 	defer server.Close()
 	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "metadata", "pub_1")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"author":"acme/poster"`) || !strings.Contains(stdout, `"status":"meta_review"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"author":"acme/poster"`) || !stringContains(stdout, `"status":"meta_review"`) {
 		t.Fatalf("metadata read: code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
@@ -835,7 +875,7 @@ func TestJobMetadataReadAndResolveContract(t *testing.T) {
 		"--title", "探针海报",
 		"--author", "acme/ops",
 	)
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"publication_status":"meta_confirmed"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"publication_status":"meta_confirmed"`) {
 		t.Fatalf("metadata resolve: code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
@@ -905,23 +945,23 @@ func TestHostTypedActionLoopPreviewEditRunAccept(t *testing.T) {
 	// Host 闭环:展示摘要 → 自然语言编辑 → 新候选试跑 → 接受结果。
 	// preview 原样透传 public_summary_digest,供 resume 的确认门绑定。
 	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "preview", "pub_1")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"author":"acme/poster"`) || !strings.Contains(stdout, `"input_method"`) ||
-		!strings.Contains(stdout, `"public_summary_digest":"sha256:summary1"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"author":"acme/poster"`) || !stringContains(stdout, `"input_method"`) ||
+		!stringContains(stdout, `"public_summary_digest":"sha256:summary1"`) {
 		t.Fatalf("preview: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
 	code, stdout, stderr, _ = runCLIWithInput(t, server, authenticatedStore(t), editRequest,
 		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request-stdin", "--timeout", "10s")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
 		t.Fatalf("edit: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
 	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
 		"job", "run", "pub_1", "--candidate-digest", "sha256:cand2", "--input", "theme=咖啡", "--timeout", "10s")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"succeeded"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"status":"succeeded"`) {
 		t.Fatalf("run: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
 	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t),
 		"job", "accept", "pub_1", "--run-id", "run_1", "--candidate-digest", "sha256:cand2", "--inputs-digest", "sha256:inputs")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"accepted_at"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"accepted_at"`) {
 		t.Fatalf("accept: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
 	if edits.Load() != 1 || runs.Load() != 1 || accepts.Load() != 1 {
@@ -970,7 +1010,7 @@ func TestJobRetryRequiresConfirmationAndUsesExplicitRetryEndpoint(t *testing.T) 
 	}))
 	defer server.Close()
 	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "retry", "pub_1", "--yes")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"retry_ordinal":1`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"retry_ordinal":1`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
@@ -981,13 +1021,13 @@ func TestSkillsInstallAndDoctorCommands(t *testing.T) {
 	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, nil, "", Dependencies{
 		Environment: skillcontent.Environment{Home: home},
 	}, "skills", "install", "--target", "codex")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"all_succeeded":true`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"all_succeeded":true`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, nil, "", Dependencies{
 		Environment: skillcontent.Environment{Home: home},
 	}, "skills", "doctor", "--target", "codex")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"healthy":true`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"healthy":true`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
@@ -1016,7 +1056,7 @@ func TestJobWaitTimeoutReturnsLastStatus(t *testing.T) {
 			return base.Add(2 * time.Second)
 		},
 	}, "job", "wait", "pub_1", "--timeout", "1s")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"wait_timed_out":true`) || !strings.Contains(stdout, `"status":"compiling"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"wait_timed_out":true`) || !stringContains(stdout, `"status":"compiling"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
@@ -1033,9 +1073,9 @@ func TestJobWaitReturnsImmediatelyForMetadataReview(t *testing.T) {
 			return nil
 		},
 	}, "job", "wait", "pub_1", "--timeout", "60s")
-	if code != 0 || stderr != "" || strings.Contains(stdout, `"wait_timed_out"`) ||
-		!strings.Contains(stdout, `"status":"meta_review"`) ||
-		!strings.Contains(stdout, `"type":"confirm_metadata"`) {
+	if code != 0 || stderr != "" || stringContains(stdout, `"wait_timed_out"`) ||
+		!stringContains(stdout, `"status":"meta_review"`) ||
+		!stringContains(stdout, `"type":"confirm_metadata"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
@@ -1070,7 +1110,7 @@ func TestJobResumeConfirmPublishSendsDecisionContract(t *testing.T) {
 		"--expected-public-summary-digest", "sha256:summary",
 		"--decision", "confirm",
 	)
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"publication_status":"release_authorized"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"publication_status":"release_authorized"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
@@ -1105,7 +1145,7 @@ func TestJobResumeCancelPublishSendsDecisionContract(t *testing.T) {
 		"--expected-public-summary-digest", "sha256:summary",
 		"--decision", "cancel",
 	)
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"publication_status":"cancelled"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"publication_status":"cancelled"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
@@ -1263,7 +1303,7 @@ func TestJobEditStdinPassesNaturalLanguageVerbatim(t *testing.T) {
 	defer server.Close()
 	code, stdout, stderr, _ := runCLIWithInput(t, server, authenticatedStore(t), payload,
 		"job", "edit", "pub_1", "--candidate-digest", "sha256:cand1", "--request-stdin", "--timeout", "10s")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
 		t.Fatalf("stdin edit: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
 }
@@ -1307,7 +1347,7 @@ func TestJobEditTimeoutPreservesCreatedEditID(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("timeout must not fail the command: code=%d stderr=%s", code, stderr)
 	}
-	if !strings.Contains(stdout, `"edit_id":"edit_1"`) || !strings.Contains(stdout, `"wait_timed_out":true`) {
+	if !stringContains(stdout, `"edit_id":"edit_1"`) || !stringContains(stdout, `"wait_timed_out":true`) {
 		t.Fatalf("timeout output must preserve the created edit id: %s", stdout)
 	}
 }
@@ -1334,7 +1374,7 @@ func TestJobRunTimeoutPreservesCreatedRunID(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("timeout must not fail the command: code=%d stderr=%s", code, stderr)
 	}
-	if !strings.Contains(stdout, `"preview_run_id":"run_1"`) || !strings.Contains(stdout, `"wait_timed_out":true`) {
+	if !stringContains(stdout, `"preview_run_id":"run_1"`) || !stringContains(stdout, `"wait_timed_out":true`) {
 		t.Fatalf("timeout output must preserve the created run id: %s", stdout)
 	}
 }
@@ -1362,7 +1402,7 @@ func TestJobMetadataEditsStdinContract(t *testing.T) {
 	code, stdout, stderr, _ := runCLIWithInput(t, server, authenticatedStore(t), edits,
 		"job", "metadata", "pub_1", "--decision", "confirm",
 		"--action-id", "act_meta", "--expected-payload-digest", "sha256:payload", "--edits-stdin")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"compiled"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"status":"compiled"`) {
 		t.Fatalf("edits-stdin: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
 	// 与逐字段 flag 混用必须拒绝。
@@ -1389,7 +1429,7 @@ func TestJobRunGetReadsSameIDWithAuthoritativeInputs(t *testing.T) {
 		t.Fatalf("run-get: code=%d stderr=%s", code, stderr)
 	}
 	// 权威输入值必须与 digest 一并展示,CLI 不再静默丢弃 inputs。
-	if !strings.Contains(stdout, `"inputs":{"theme":"咖啡"}`) || !strings.Contains(stdout, `"inputs_digest":"sha256:inputs"`) {
+	if !stringContains(stdout, `"inputs":{"theme":"咖啡"}`) || !stringContains(stdout, `"inputs_digest":"sha256:inputs"`) {
 		t.Fatalf("authoritative inputs not surfaced: %s", stdout)
 	}
 }
@@ -1410,10 +1450,10 @@ func TestJobRunGetResumesBoundedWaitAfterProcessRestart(t *testing.T) {
 	defer server.Close()
 	// 进程重启后凭同一 run ID 续等:第一次 poll 仍 running,第二次到终态。
 	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "run-get", "pub_1", "run_1", "--timeout", "10s")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"succeeded"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"status":"succeeded"`) {
 		t.Fatalf("resumed wait: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
-	if strings.Contains(stdout, `"wait_timed_out"`) {
+	if stringContains(stdout, `"wait_timed_out"`) {
 		t.Fatalf("completed wait must not carry the timeout marker: %s", stdout)
 	}
 }
@@ -1428,7 +1468,7 @@ func TestJobEditGetReadsAndResumesSameLogicalEdit(t *testing.T) {
 	}))
 	defer server.Close()
 	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "edit-get", "pub_1", "edit_1")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"result_candidate_digest":"sha256:cand2"`) {
 		t.Fatalf("edit-get: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
 }
@@ -1451,7 +1491,7 @@ func TestJobEditGetTimeoutKeepsSameID(t *testing.T) {
 	if code != 0 || stderr != "" {
 		t.Fatalf("timeout must not fail the command: code=%d stderr=%s", code, stderr)
 	}
-	if !strings.Contains(stdout, `"edit_id":"edit_1"`) || !strings.Contains(stdout, `"wait_timed_out":true`) {
+	if !stringContains(stdout, `"edit_id":"edit_1"`) || !stringContains(stdout, `"wait_timed_out":true`) {
 		t.Fatalf("timeout output must preserve the same edit id: %s", stdout)
 	}
 }
@@ -1527,12 +1567,12 @@ func TestConfirmStepsFlowUsesOnlyActionPayloadDigests(t *testing.T) {
 		"--expected-public-summary-digest", action.Payload.ExpectedPublicSummaryDigest,
 		"--decision", "confirm",
 	)
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"resolved"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"status":"resolved"`) {
 		t.Fatalf("steps resolve: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
 	// 确认通过后才出现 confirm_publish 与 preview_url。
 	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t), "job", "get", "pub_1")
-	if code != 0 || !strings.Contains(stdout, `"type":"confirm_publish"`) || !strings.Contains(stdout, `"preview_url"`) {
+	if code != 0 || !stringContains(stdout, `"type":"confirm_publish"`) || !stringContains(stdout, `"preview_url"`) {
 		t.Fatalf("confirm_publish preview must appear only after steps confirmation: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
 	if resolved.Load() != 1 {

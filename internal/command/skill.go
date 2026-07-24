@@ -167,7 +167,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			meta := runtime.meta
+			meta := output.Meta{}
 			if timedOut {
 				value := true
 				meta.WaitTimedOut = &value

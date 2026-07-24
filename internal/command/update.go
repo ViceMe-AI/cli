@@ -26,7 +26,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 				return updaterError(err, nil)
 			}
 			if checkOnly {
-				return runtime.success(check)
+				return runtime.business(check)
 			}
 			result, err := runtime.deps.Updater.Apply(ctx, check, updatepkg.ApplyOptions{
 				RefreshSkills: !skipSkillInstall,
@@ -38,7 +38,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return updaterError(err, result)
 			}
-			return runtime.success(result)
+			return runtime.business(result)
 		},
 	}
 	command.Flags().BoolVar(&checkOnly, "check", false, "check the latest npm release without changing local state")

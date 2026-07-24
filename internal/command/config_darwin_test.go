@@ -41,7 +41,7 @@ func TestConfigKeychainDowngradeEnumeratesProfileAndOriginScopesWithoutSecrets(t
 	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", Dependencies{
 		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: configBase},
 	}, "config", "keychain-downgrade")
-	if code != 0 || stderr != "" || !strings.Contains(stdout, `"status":"copied_keychain_master_key"`) {
+	if code != 0 || stderr != "" || !stringContains(stdout, `"status":"copied_keychain_master_key"`) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 

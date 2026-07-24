@@ -699,7 +699,7 @@
     {
       "path": "skills read",
       "use": "read <name>[/<path>] [path]",
-      "short": "Read embedded Skill content",
+      "short": "Print embedded Skill content without a JSON wrapper",
       "runnable": true,
       "side_effect": "none",
       "requires_confirmation": false

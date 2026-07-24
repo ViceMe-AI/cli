@@ -83,7 +83,7 @@ Use the complete bootstrap command from the bundled Skill. The explicit npm regi
 npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
 ```
 
-Read `data.authenticated` and `data.next_step` from the result. If authentication is already valid, continue to Step 4. If login is required, do not execute the human-oriented `data.next_step` inside the Agent; use the JSON split-flow in Step 2.
+Read `authenticated` and `next_step` from the formatted business result. If authentication is already valid, continue to Step 4. If login is required, do not execute the human-oriented `next_step` inside the Agent; use the JSON split-flow in Step 2.
 
 **Step 2 — Start device login when required**
 
@@ -91,7 +91,7 @@ Read `data.authenticated` and `data.next_step` from the result. If authenticatio
 viceme auth login --no-wait --json
 ```
 
-Return the exact `data.verification_url`; the CLI normalizes it to the prefilled `verification_url_complete` browser link when available. Include `data.user_code` only as a fallback if the browser asks for it. Preserve `data.device_code` for the continuation command, then stop the current turn. Do not request, print, or place an access token in the conversation.
+Return the exact `verification_url`; the CLI normalizes it to the prefilled `verification_url_complete` browser link when available. Include `user_code` only as a fallback if the browser asks for it. Preserve `device_code` for the continuation command, then stop the current turn. Do not request, print, or place an access token in the conversation.
 
 **Step 3 — Continue the same login in a later turn**
 
@@ -260,24 +260,37 @@ viceme skill publish --file ./poster-skill-v2.zip \
 
 Use `viceme <command> --help` for the exact flags. The release-checked machine-readable surface is stored in [`skills/viceme/references/command-manifest.json`](skills/viceme/references/command-manifest.json).
 
-## JSON Output Contract
+## Output Contract
 
-Automation-oriented data commands emit a stable JSON envelope by default. Interactive `viceme auth login` is the deliberate human-facing exception; AI Agents and scripts must use `--no-wait --json`, then continue with `--device-code <code> --json` in a later turn.
+ViceMe selects the smallest stable representation for each command:
 
-Success is written to **stdout** with exit code `0`:
+- Local/bootstrap commands such as `version`, `install`, `update`, `auth status`, `profile *`, and `skills doctor` write their formatted business result directly to **stdout**. They do not add `ok`, `data`, or unrelated build metadata.
+- `skills read` writes the requested file byte-for-byte without a JSON wrapper.
+- Interactive `viceme auth login` writes human guidance. AI Agents use `--no-wait --json`, then continue with `--device-code <code> --json`; those two commands return a formatted bare business object.
+- Publication protocol commands under `skill` and `job` keep a stable envelope because action receipts, durable status, and bounded-wait metadata form one cross-command protocol.
+
+A successful publication protocol result is written to **stdout** with exit code `0`:
+
+```json
+{
+  "ok": true,
+  "data": {}
+}
+```
+
+Only a bounded wait that actually times out adds protocol metadata:
 
 ```json
 {
   "ok": true,
   "data": {},
   "meta": {
-    "cli_version": "0.1.0",
-    "skill_version": "0.1.0"
+    "wait_timed_out": true
   }
 }
 ```
 
-CLI execution errors are written to **stderr** with a non-zero exit code:
+CLI execution errors are formatted and written to **stderr** with a non-zero exit code:
 
 ```json
 {
@@ -286,15 +299,11 @@ CLI execution errors are written to **stderr** with a non-zero exit code:
     "type": "validation",
     "subtype": "source_required",
     "message": "provide exactly one source argument or --expression-stdin"
-  },
-  "meta": {
-    "cli_version": "0.1.0",
-    "skill_version": "0.1.0"
   }
 }
 ```
 
-Determine command success from the process exit code or `ok == true`. The API's domain-specific `error.type` is preserved; the exit code is only a coarse handling class. A successfully read publication may still contain a business terminal status such as `unsupported`, `rejected`, or `failed`; inspect `data.status` instead of treating those states as CLI transport failures.
+Determine local/bootstrap command success from the process exit code. For publication protocol commands, use the process exit code or `ok == true`. The API's domain-specific `error.type` is preserved; the exit code is only a coarse handling class. A successfully read publication may still contain a business terminal status such as `unsupported`, `rejected`, or `failed`; inspect `data.status` instead of treating those states as CLI transport failures.
 
 | Exit code | Meaning |
 |---|---|

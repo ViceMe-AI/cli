@@ -50,7 +50,6 @@ type Runtime struct {
 	deps               Dependencies
 	opts               options
 	printer            *output.Printer
-	meta               output.Meta
 	region             config.Region
 	apiBaseURL         string
 	apiBaseURLOverride string
@@ -120,19 +119,8 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		(strings.TrimSpace(processAccessToken) != processAccessToken || strings.ContainsAny(processAccessToken, "\r\n\x00")) {
 		return nil, nil, output.Authentication("process_credential_invalid", "the process publication credential is invalid")
 	}
-	digests, err := dependencies.Skills.Digests("viceme")
-	if err != nil {
-		return nil, nil, err
-	}
-	meta := output.Meta{
-		CLIVersion:            buildinfo.Version,
-		SkillVersion:          buildinfo.SkillVersion,
-		FullSkillBundleDigest: digests.Full,
-		EmbeddedContentDigest: digests.Embedded,
-	}
 	runtime := &Runtime{
 		deps:               dependencies,
-		meta:               meta,
 		region:             region,
 		apiBaseURLOverride: apiBaseURLOverride,
 		config:             resolvedConfig,
@@ -142,7 +130,6 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		printer: &output.Printer{
 			Out:    dependencies.Out,
 			ErrOut: dependencies.ErrOut,
-			Meta:   meta,
 		},
 	}
 	if err := runtime.selectProfile(resolvedProfile.Name); err != nil {
@@ -156,7 +143,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		Args:          cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if runtime.opts.version {
-				return runtime.success(buildinfo.Current())
+				return runtime.writeVersion()
 			}
 			return cmd.Help()
 		},
@@ -231,7 +218,7 @@ func newVersionCommand(runtime *Runtime) *cobra.Command {
 		Short: "Print CLI and bundled Skill versions",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			return runtime.success(buildinfo.Current())
+			return runtime.writeVersion()
 		},
 	}
 }
@@ -258,8 +245,28 @@ func (r *Runtime) success(data any) error {
 	return r.printer.Success(data)
 }
 
+func (r *Runtime) business(data any) error {
+	return r.printer.Business(data)
+}
+
 func (r *Runtime) successWithMeta(data any, meta output.Meta) error {
 	return r.printer.SuccessWithMeta(data, meta)
+}
+
+type versionResult struct {
+	buildinfo.Info
+	skillcontent.Digests
+}
+
+func (r *Runtime) writeVersion() error {
+	digests, err := r.deps.Skills.Digests("viceme")
+	if err != nil {
+		return err
+	}
+	return r.business(versionResult{
+		Info:    buildinfo.Current(),
+		Digests: digests,
+	})
 }
 
 func (r *Runtime) failure(err error) int {
