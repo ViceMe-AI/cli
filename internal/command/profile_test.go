@@ -16,7 +16,7 @@ import (
 
 func TestProfileAddAndConfigureExplicitLocalOverrides(t *testing.T) {
 	t.Parallel()
-	const localToken = "vpa_local_profile_secret"
+	localToken := testProcessCredential("local-dev")
 	home := t.TempDir()
 	environment := skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
 	store := securestore.NewMemory()
@@ -43,7 +43,7 @@ func TestProfileAddAndConfigureExplicitLocalOverrides(t *testing.T) {
 			t.Fatalf("request origin=%s", request.URL.Scheme+"://"+request.URL.Host)
 		}
 		if request.Header.Get("x-api-key") != localToken {
-			t.Fatalf("local profile token was not applied")
+			t.Fatal("local profile token was not applied")
 		}
 		return jsonHTTPResponse(request, http.StatusOK, `{"targets":[]}`), nil
 	})
@@ -112,9 +112,42 @@ func TestProfileConfigureValidatesExplicitAccessToken(t *testing.T) {
 		t.Fatalf("invalid token code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
-		"profile", "configure", "local", "--access-token", strings.Repeat("x", (64<<10)+1))
+		"profile", "configure", "local", "--api-base-url", "http://localhost:8090", "--access-token", strings.Repeat("x", (64<<10)+1))
 	if code == 0 || !strings.Contains(stderr, "64 KiB") {
 		t.Fatalf("oversized token code=%d stderr=%s", code, stderr)
+	}
+	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
+		"profile", "configure", "local", "--api-base-url", "http://localhost:8090", "--access-token", testProcessCredential("cn-prod"))
+	if code == 0 || !strings.Contains(stderr, "profile_access_token_scope") {
+		t.Fatalf("audience mismatch code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestProcessCredentialTakesPriorityOverLocalProfileCredential(t *testing.T) {
+	processToken := "vpa1.local-dev." + strings.Repeat("p", 43)
+	profileToken := "vpa1.local-dev." + strings.Repeat("l", 43)
+	t.Setenv(processAccessTokenEnvironment, processToken)
+	t.Setenv(localProcessCredentialEnvironment, "1")
+	home := t.TempDir()
+	environment := skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
+	configured := config.Default(config.RegionCN)
+	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
+	configured.Profiles[0].AccessToken = profileToken
+	if _, err := config.Save(environment.ConfigDir, configured); err != nil {
+		t.Fatal(err)
+	}
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Header.Get("x-api-key") != processToken {
+			t.Fatalf("credential priority header=%q", request.Header.Get("x-api-key"))
+		}
+		return jsonHTTPResponse(request, http.StatusOK, `{"targets":[]}`), nil
+	})
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, securestore.NewMemory(), "", Dependencies{
+		Environment: environment,
+		HTTPClient:  &http.Client{Transport: transport},
+	}, "skill", "target", "list")
+	if code != 0 || stderr != "" || strings.Contains(stdout, processToken) || strings.Contains(stdout, profileToken) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
 

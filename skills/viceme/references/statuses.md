@@ -21,8 +21,10 @@ Use another bounded wait when `meta.wait_timed_out` is true — resume by ID wit
 - `binding_required`: terminal for this publication. Run `job bind`, give the user the signed browser URL, and wait for channel verification. Once bound, start a fresh normal inspect/publish request; never resume the old publication. Downloading the Skill or forking its GitHub repository are suggestions, not CLI actions.
 - `target_conflict`: refresh the Target. Do not use last-write-wins or create another link.
 - `selection_required`: ask the user to choose one returned selector, then resume the same publication with the exact action ID and payload digest.
-- `process_credential_active`: login/logout is unavailable in a trusted-launcher process; keep using standard commands or start a normal process for persistent login management.
-- `process_credential_invalid`: stop without retrying or printing the injected value; the trusted launcher must replace it.
+- `process_credential_active`: login/logout is unavailable while a process credential is active; keep using standard commands or start a process without `VICEME_ACCESS_TOKEN` for persistent login management.
+- `process_credential_invalid`: stop without retrying or printing the injected value; replace the process credential.
+- `local_profile_credential_active`: login/logout is unavailable while the selected Profile has an explicit publication credential; keep using standard commands or explicitly clear the Profile override.
+- `profile_credential_invalid` / `profile_credential_origin_mismatch`: stop without printing the stored value; an operator must replace or clear the Profile credential and its bound endpoint.
 - `payment_required`: explain the requirement and stop.
 
 ## Terminal outcomes

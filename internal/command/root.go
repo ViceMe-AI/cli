@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -57,10 +59,26 @@ type Runtime struct {
 	config             config.Config
 	profile            config.Profile
 	configBase         string
-	processAccessToken string
+	processCredential  *publicationCredential
 }
 
-const processAccessTokenEnvironment = "VICEME_ACCESS_TOKEN"
+const (
+	processAccessTokenEnvironment     = "VICEME_ACCESS_TOKEN"
+	localProcessCredentialEnvironment = "VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL"
+)
+
+type publicationCredentialAudience string
+
+const (
+	publicationCredentialAudienceCNProd     publicationCredentialAudience = "cn-prod"
+	publicationCredentialAudienceGlobalProd publicationCredentialAudience = "global-prod"
+	publicationCredentialAudienceLocalDev   publicationCredentialAudience = "local-dev"
+)
+
+type publicationCredential struct {
+	raw      string
+	audience publicationCredentialAudience
+}
 
 type processTokenSource string
 
@@ -114,10 +132,9 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	if apiBaseURLOverride == "" {
 		apiBaseURLOverride = os.Getenv("VICEME_API_BASE_URL")
 	}
-	processAccessToken := os.Getenv(processAccessTokenEnvironment)
-	if processAccessToken != "" &&
-		(strings.TrimSpace(processAccessToken) != processAccessToken || strings.ContainsAny(processAccessToken, "\r\n\x00")) {
-		return nil, nil, output.Authentication("process_credential_invalid", "the process publication credential is invalid")
+	processCredential, err := parsePublicationCredential(os.Getenv(processAccessTokenEnvironment))
+	if err != nil {
+		return nil, nil, output.Authentication("process_credential_invalid", err.Error())
 	}
 	runtime := &Runtime{
 		deps:               dependencies,
@@ -126,7 +143,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		config:             resolvedConfig,
 		profile:            *resolvedProfile,
 		configBase:         configBase,
-		processAccessToken: processAccessToken,
+		processCredential:  processCredential,
 		printer: &output.Printer{
 			Out:    dependencies.Out,
 			ErrOut: dependencies.ErrOut,
@@ -305,6 +322,18 @@ func (r *Runtime) applyProfile(profile config.Profile) error {
 	if apiBaseURL == "" {
 		apiBaseURL = config.APIBaseURL(profile.Region)
 	}
+	if profile.AccessToken != "" {
+		credential, err := parsePublicationCredential(profile.AccessToken)
+		if err != nil {
+			return output.Authentication("profile_credential_invalid", "the selected profile access token is not a supported audience-bound publication credential")
+		}
+		if err := validatePublicationCredentialTarget(credential, profile.APIBaseURL, true); err != nil {
+			return output.Authentication("profile_credential_origin_mismatch", err.Error())
+		}
+	}
+	if err := validatePublicationProcessCredentialTarget(r.processCredential, apiBaseURL); err != nil {
+		return err
+	}
 	scope, err := credentialScopeForAPIBase(apiBaseURL, profile.Region)
 	if err != nil {
 		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
@@ -355,8 +384,8 @@ func (r *Runtime) credentialStorageKeys() ([]string, error) {
 }
 
 func (r *Runtime) overrideCredential() (token, source string, persistent bool) {
-	if r.processAccessToken != "" {
-		return r.processAccessToken, "process", false
+	if r.processCredential != nil {
+		return r.processCredential.raw, "process", false
 	}
 	if r.profile.AccessToken != "" && sameAPIOrigin(r.profile.APIBaseURL, r.apiBaseURL) {
 		return r.profile.AccessToken, "local_profile", true
@@ -368,6 +397,87 @@ func sameAPIOrigin(left, right string) bool {
 	leftOrigin, leftErr := api.NormalizeAPIOrigin(left)
 	rightOrigin, rightErr := api.NormalizeAPIOrigin(right)
 	return leftErr == nil && rightErr == nil && leftOrigin == rightOrigin
+}
+
+func parsePublicationCredential(raw string) (*publicationCredential, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	if strings.TrimSpace(raw) != raw || strings.ContainsAny(raw, "\r\n\x00") {
+		return nil, errors.New("the process publication credential is invalid")
+	}
+	parts := strings.SplitN(raw, ".", 3)
+	if len(parts) != 3 || parts[0] != "vpa1" || len(parts[2]) != 43 {
+		return nil, errors.New("the process publication credential is not a supported audience-bound credential")
+	}
+	audience := publicationCredentialAudience(parts[1])
+	switch audience {
+	case publicationCredentialAudienceCNProd,
+		publicationCredentialAudienceGlobalProd,
+		publicationCredentialAudienceLocalDev:
+	default:
+		return nil, errors.New("the process publication credential audience is unsupported")
+	}
+	for _, character := range parts[2] {
+		if !((character >= 'a' && character <= 'z') ||
+			(character >= 'A' && character <= 'Z') ||
+			(character >= '0' && character <= '9') || character == '-' || character == '_') {
+			return nil, errors.New("the process publication credential is invalid")
+		}
+	}
+	return &publicationCredential{raw: raw, audience: audience}, nil
+}
+
+func validatePublicationProcessCredentialTarget(credential *publicationCredential, apiBaseURL string) error {
+	if credential == nil {
+		return nil
+	}
+	if err := validatePublicationCredentialTarget(credential, apiBaseURL, false); err != nil {
+		message := strings.Replace(err.Error(), "the publication credential", "the process publication credential", 1)
+		return output.Authentication("process_credential_origin_mismatch", message)
+	}
+	return nil
+}
+
+func validatePublicationCredentialTarget(credential *publicationCredential, apiBaseURL string, allowLocalProfile bool) error {
+	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	if err != nil {
+		return errors.New("the publication credential target is invalid")
+	}
+	var expected string
+	switch credential.audience {
+	case publicationCredentialAudienceCNProd:
+		expected, err = api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionCN))
+	case publicationCredentialAudienceGlobalProd:
+		expected, err = api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionGlobal))
+	case publicationCredentialAudienceLocalDev:
+		if !isLoopbackOrigin(origin) {
+			return errors.New("local-dev publication credentials require a loopback target")
+		}
+		if !allowLocalProfile && os.Getenv(localProcessCredentialEnvironment) != "1" {
+			return errors.New("local process credentials require an explicit loopback debug target")
+		}
+		return nil
+	default:
+		return errors.New("the publication credential audience is unsupported")
+	}
+	if err != nil || origin != expected {
+		return errors.New("the publication credential audience does not match the selected ViceMe API origin")
+	}
+	return nil
+}
+
+func isLoopbackOrigin(origin string) bool {
+	parsed, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	if host == "localhost" {
+		return true
+	}
+	address := net.ParseIP(host)
+	return address != nil && address.IsLoopback()
 }
 
 func (r *Runtime) reloadConfig(profileName string) error {

@@ -73,58 +73,30 @@ func TestAPIBaseURLEnvironmentOverride(t *testing.T) {
 	}
 }
 
-func TestEnvironmentOverridesExplicitLocalProfile(t *testing.T) {
-	const profileToken = "profile-secret"
-	const processToken = "process-secret"
-	configBase := t.TempDir()
-	configured := config.Default(config.RegionCN)
-	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
-	configured.Profiles[0].AccessToken = profileToken
-	if _, err := config.Save(configBase, configured); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("VICEME_API_BASE_URL", "http://localhost:9090")
-	t.Setenv(processAccessTokenEnvironment, processToken)
-	_, runtime, err := NewRoot(Dependencies{
-		Store: securestore.NewMemory(),
-		Environment: skillcontent.Environment{
-			Home:      t.TempDir(),
-			ConfigDir: configBase,
-		},
+func TestProductionProcessCredentialRejectsAPIEnvironmentOverride(t *testing.T) {
+	t.Setenv("VICEME_API_BASE_URL", "https://malicious.example")
+	t.Setenv(processAccessTokenEnvironment, testProcessCredential("cn-prod"))
+	_, _, err := NewRoot(Dependencies{
+		Store:       securestore.NewMemory(),
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if runtime.apiBaseURL != "http://localhost:9090" {
-		t.Fatalf("API base URL=%q", runtime.apiBaseURL)
-	}
-	if token, source, persistent := runtime.overrideCredential(); token != processToken || source != "process" || persistent {
-		t.Fatalf("override token=%q source=%q persistent=%v", token, source, persistent)
+	if err == nil || !strings.Contains(err.Error(), "process publication credential audience does not match") {
+		t.Fatalf("malicious API override error=%v", err)
 	}
 }
 
-func TestAPIEnvironmentOverrideDoesNotForwardLocalProfileTokenToAnotherOrigin(t *testing.T) {
-	configBase := t.TempDir()
-	configured := config.Default(config.RegionCN)
-	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
-	configured.Profiles[0].AccessToken = "profile-secret"
-	if _, err := config.Save(configBase, configured); err != nil {
-		t.Fatal(err)
-	}
+func TestLocalProcessCredentialRequiresExplicitLoopbackDebug(t *testing.T) {
 	t.Setenv("VICEME_API_BASE_URL", "http://localhost:9090")
-	t.Setenv(processAccessTokenEnvironment, "")
-	_, runtime, err := NewRoot(Dependencies{
-		Store: securestore.NewMemory(),
-		Environment: skillcontent.Environment{
-			Home:      t.TempDir(),
-			ConfigDir: configBase,
-		},
-	})
-	if err != nil {
-		t.Fatal(err)
+	t.Setenv(processAccessTokenEnvironment, testProcessCredential("local-dev"))
+	t.Setenv(localProcessCredentialEnvironment, "")
+	_, _, err := NewRoot(Dependencies{Store: securestore.NewMemory(), Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()}})
+	if err == nil || !strings.Contains(err.Error(), "explicit loopback debug target") {
+		t.Fatalf("implicit local credential error=%v", err)
 	}
-	if token, source, _ := runtime.overrideCredential(); token != "" || source != "" {
-		t.Fatalf("profile token crossed origins: token=%q source=%q", token, source)
+	t.Setenv(localProcessCredentialEnvironment, "1")
+	_, runtime, err := NewRoot(Dependencies{Store: securestore.NewMemory(), Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()}})
+	if err != nil || runtime.apiBaseURL != "http://localhost:9090" {
+		t.Fatalf("explicit local credential runtime=%#v err=%v", runtime, err)
 	}
 }
 
@@ -640,7 +612,7 @@ func TestSandboxFallbackNeverWritesDeviceTokenToProfileConfig(t *testing.T) {
 }
 
 func TestProcessCredentialUsesStandardAPIKeyWithoutPersistenceOrOutput(t *testing.T) {
-	const processToken = "vpa_process_only_secret"
+	processToken := testProcessCredential("cn-prod")
 	t.Setenv(processAccessTokenEnvironment, processToken)
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
 		if request.Header.Get("x-api-key") != processToken {
@@ -651,7 +623,7 @@ func TestProcessCredentialUsesStandardAPIKeyWithoutPersistenceOrOutput(t *testin
 	store := securestore.NewMemory()
 	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", Dependencies{
 		HTTPClient: &http.Client{Transport: transport},
-		APIBaseURL: "https://api.viceme.test",
+		APIBaseURL: config.APIBaseURL(config.RegionCN),
 	}, "skill", "publish", "--resolution-id", "res_process", "--yes")
 	if code != 0 || stderr != "" || !strings.Contains(stdout, "pub_process") || strings.Contains(stdout, processToken) {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
@@ -680,6 +652,10 @@ func TestProcessCredentialRejectsNonCanonicalSecret(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "process publication credential is invalid") {
 		t.Fatalf("error = %v", err)
 	}
+}
+
+func testProcessCredential(audience string) string {
+	return "vpa1." + audience + "." + strings.Repeat("a", 43)
 }
 
 func TestInspectAndPublishRequestContracts(t *testing.T) {
