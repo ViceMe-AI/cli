@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -27,11 +28,11 @@ func newSkillCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
-	var expressionStdin bool
+	var sourceStdin bool
 	var skillRoot string
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "inspect [source]",
+		Use:   "inspect [github-url]",
 		Short: "Resolve an immutable external Skill snapshot without publishing it",
 		Args: func(_ *cobra.Command, args []string) error {
 			if len(args) > 1 {
@@ -40,31 +41,31 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 			return nil
 		},
 		RunE: func(command *cobra.Command, args []string) error {
-			if expressionStdin == (len(args) == 1) {
-				return output.Validation("source_required", "provide exactly one source argument or --expression-stdin")
+			if sourceStdin == (len(args) == 1) {
+				return output.Validation("source_required", "provide exactly one GitHub URL argument or --source-stdin")
 			}
 			if dryRun {
-				mode := "argument"
-				if expressionStdin {
-					mode = "stdin"
+				mode := "github_argument"
+				if sourceStdin {
+					mode = "source_stdin"
 				}
 				return runtime.success(map[string]any{"dry_run": true, "operation": "skill.inspect", "source_mode": mode, "skill_root": strings.TrimSpace(skillRoot)})
 			}
-			expression := ""
-			if expressionStdin {
-				value, err := readLimited(runtime.deps.In, maxStdinBytes)
+			var source api.Source
+			if sourceStdin {
+				parsed, err := readSourceSpec(runtime.deps.In)
 				if err != nil {
 					return err
 				}
-				expression = value
+				source = parsed
 			} else {
-				expression = args[0]
-			}
-			if strings.TrimSpace(expression) == "" {
-				return output.Validation("source_empty", "source expression cannot be empty")
+				if strings.TrimSpace(args[0]) == "" {
+					return output.Validation("source_empty", "GitHub URL cannot be empty")
+				}
+				source = api.Source{Kind: "github", Value: args[0]}
 			}
 			response, err := runtime.client().Inspect(command.Context(), api.InspectRequest{
-				Source:    api.Source{Kind: "expression", Value: expression},
+				Source:    source,
 				SkillRoot: strings.TrimSpace(skillRoot),
 			})
 			if err != nil {
@@ -73,7 +74,7 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 			return runtime.success(response)
 		},
 	}
-	command.Flags().BoolVar(&expressionStdin, "expression-stdin", false, "read a copied provider expression from stdin")
+	command.Flags().BoolVar(&sourceStdin, "source-stdin", false, "read a typed SourceSpec JSON object from stdin")
 	command.Flags().StringVar(&skillRoot, "skill-root", "", "exact repository-relative directory containing SKILL.md; use . for the repository root")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print the operation without calling ViceMe")
 	return command
@@ -81,7 +82,7 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 
 type publishOptions struct {
 	resolutionID          string
-	expressionStdin       bool
+	sourceStdin           bool
 	file                  string
 	directory             string
 	skillRoot             string
@@ -102,7 +103,7 @@ type publishOptions struct {
 func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	var opts publishOptions
 	command := &cobra.Command{
-		Use:   "publish [source]",
+		Use:   "publish [github-url]",
 		Short: "Create a durable Skill Agent publication",
 		Args: func(_ *cobra.Command, args []string) error {
 			if len(args) > 1 {
@@ -177,7 +178,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	}
 	flags := command.Flags()
 	flags.StringVar(&opts.resolutionID, "resolution-id", "", "publish an immutable snapshot returned by inspect")
-	flags.BoolVar(&opts.expressionStdin, "expression-stdin", false, "read a copied provider expression from stdin")
+	flags.BoolVar(&opts.sourceStdin, "source-stdin", false, "read a typed SourceSpec JSON object from stdin")
 	flags.StringVar(&opts.file, "file", "", "upload a Skill archive")
 	flags.StringVar(&opts.directory, "dir", "", "deterministically archive and upload a Skill directory")
 	flags.StringVar(&opts.skillRoot, "skill-root", "", "select a Skill root within the immutable source")
@@ -218,13 +219,13 @@ func validatePublishOptions(args []string, opts publishOptions) error {
 	if len(args) == 1 {
 		sources++
 	}
-	for _, present := range []bool{opts.resolutionID != "", opts.expressionStdin, opts.file != "", opts.directory != ""} {
+	for _, present := range []bool{opts.resolutionID != "", opts.sourceStdin, opts.file != "", opts.directory != ""} {
 		if present {
 			sources++
 		}
 	}
 	if sources != 1 {
-		return output.Validation("source_required", "provide exactly one source, --resolution-id, --expression-stdin, --file, or --dir")
+		return output.Validation("source_required", "provide exactly one GitHub URL, --resolution-id, --source-stdin, --file, or --dir")
 	}
 	if opts.clientRequestID != "" && (strings.TrimSpace(opts.clientRequestID) != opts.clientRequestID || len(opts.clientRequestID) > 128) {
 		return output.Validation("client_request_id_invalid", "--client-request-id must be 1 to 128 non-whitespace characters")
@@ -274,11 +275,11 @@ func publishDestination(opts publishOptions) api.Destination {
 func publishSourceMode(args []string, opts publishOptions) string {
 	switch {
 	case len(args) == 1:
-		return "argument"
+		return "github_argument"
 	case opts.resolutionID != "":
 		return "resolution"
-	case opts.expressionStdin:
-		return "stdin"
+	case opts.sourceStdin:
+		return "source_stdin"
 	case opts.file != "":
 		return "file"
 	case opts.directory != "":
@@ -291,19 +292,12 @@ func publishSourceMode(args []string, opts publishOptions) string {
 func publicationSource(command *cobra.Command, runtime *Runtime, args []string, opts publishOptions) (api.Source, error) {
 	if len(args) == 1 {
 		if strings.TrimSpace(args[0]) == "" {
-			return api.Source{}, output.Validation("source_empty", "source expression cannot be empty")
+			return api.Source{}, output.Validation("source_empty", "GitHub URL cannot be empty")
 		}
-		return api.Source{Kind: "expression", Value: args[0]}, nil
+		return api.Source{Kind: "github", Value: args[0]}, nil
 	}
-	if opts.expressionStdin {
-		value, err := readLimited(runtime.deps.In, maxStdinBytes)
-		if err != nil {
-			return api.Source{}, err
-		}
-		if strings.TrimSpace(value) == "" {
-			return api.Source{}, output.Validation("source_empty", "source expression cannot be empty")
-		}
-		return api.Source{Kind: "expression", Value: value}, nil
+	if opts.sourceStdin {
+		return readSourceSpec(runtime.deps.In)
 	}
 	artifact, err := publicationArtifact(command, opts)
 	if err != nil {
@@ -315,6 +309,36 @@ func publicationSource(command *cobra.Command, runtime *Runtime, args []string, 
 		return api.Source{}, err
 	}
 	return api.Source{Kind: "upload", Value: uploadID}, nil
+}
+
+func readSourceSpec(reader io.Reader) (api.Source, error) {
+	raw, err := readLimited(reader, maxStdinBytes)
+	if err != nil {
+		return api.Source{}, err
+	}
+	if strings.TrimSpace(raw) == "" {
+		return api.Source{}, output.Validation("source_empty", "SourceSpec cannot be empty")
+	}
+
+	var source api.Source
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&source); err != nil {
+		return api.Source{}, output.Validation("source_spec_invalid", "stdin must contain one SourceSpec JSON object")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return api.Source{}, output.Validation("source_spec_invalid", "stdin must contain exactly one SourceSpec JSON object")
+	}
+	switch source.Kind {
+	case "github", "redskill", "inline":
+	default:
+		return api.Source{}, output.Validation("source_kind_invalid", "SourceSpec kind must be github, redskill, or inline")
+	}
+	if strings.TrimSpace(source.Value) == "" {
+		return api.Source{}, output.Validation("source_empty", "SourceSpec value cannot be empty")
+	}
+	return source, nil
 }
 
 func publicationArtifact(command *cobra.Command, opts publishOptions) (archivepkg.Artifact, error) {

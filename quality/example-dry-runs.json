@@ -4,22 +4,22 @@
     "documentation_anchor": "viceme skill inspect https://github.com/acme/poster-skill --skill-root .",
     "args": ["skill", "inspect", "https://github.com/acme/poster-skill", "--skill-root", ".", "--dry-run"],
     "operation": "skill.inspect",
-    "source_mode": "argument"
+    "source_mode": "github_argument"
   },
   {
-    "name": "copied provider expression inspect",
-    "documentation_anchor": "viceme skill inspect --expression-stdin",
-    "input": "copied Xiaohongshu expression",
-    "args": ["skill", "inspect", "--expression-stdin", "--dry-run"],
+    "name": "typed provider source inspect",
+    "documentation_anchor": "viceme skill inspect --source-stdin",
+    "input": "{\"kind\":\"redskill\",\"value\":\"ai-desk-card\"}",
+    "args": ["skill", "inspect", "--source-stdin", "--dry-run"],
     "operation": "skill.inspect",
-    "source_mode": "stdin"
+    "source_mode": "source_stdin"
   },
   {
     "name": "github publish",
     "documentation_anchor": "viceme skill publish https://github.com/acme/poster-skill --skill-root . --yes",
     "args": ["skill", "publish", "https://github.com/acme/poster-skill", "--skill-root", ".", "--yes", "--dry-run"],
     "operation": "skill.publish",
-    "source_mode": "argument"
+    "source_mode": "github_argument"
   },
   {
     "name": "resolution publish",
@@ -29,12 +29,12 @@
     "source_mode": "resolution"
   },
   {
-    "name": "copied provider expression publish",
+    "name": "typed provider source publish",
     "documentation_anchor": "viceme skill publish --resolution-id <resolution-id> --yes",
-    "input": "copied Xiaohongshu expression",
-    "args": ["skill", "publish", "--expression-stdin", "--yes", "--dry-run"],
+    "input": "{\"kind\":\"redskill\",\"value\":\"ai-desk-card\"}",
+    "args": ["skill", "publish", "--source-stdin", "--yes", "--dry-run"],
     "operation": "skill.publish",
-    "source_mode": "stdin"
+    "source_mode": "source_stdin"
   },
   {
     "name": "new target ZIP publish",
