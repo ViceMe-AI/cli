@@ -18,7 +18,7 @@ The official command-line client and Agent Skill for publishing external Skills 
 - **Deterministic boundary** — the CLI performs typed protocol actions; it does not start another conversational Agent loop.
 - **Server-side compilation** — source parsing, LLM compilation, BuildRun materialization, and Release publication stay on ViceMe infrastructure.
 - **Stable publishing** — later releases of the same logical Agent keep the same share URL.
-- **Multiple source types** — accepts GitHub Skills, pasted Xiaohongshu/RedSkill expressions, archives, and local Skill folders.
+- **Multiple source types** — accepts typed GitHub and Xiaohongshu/RedSkill sources, archives, and local Skill folders.
 - **Secure by default** — on macOS, device-login credentials use AES-256-GCM encrypted files with Keychain-backed key material; other platforms retain their native credential manager. Explicit local overrides require a private profile file, public mutations require confirmation, and downloaded binaries are checksum-verified.
 - **Human and Agent login modes** — `viceme auth login` guides a person in the terminal, while Agent split-flows use explicit JSON.
 
@@ -219,14 +219,19 @@ viceme skill publish --resolution-id <resolution-id> --yes
 
 For GitHub, `--skill-root` is required and names the exact repository-relative directory containing `SKILL.md`; use `.` only for a root-level Skill. The calling Agent determines this path from the user input or read-only repository tree. ViceMe does not scan the repository to guess a Skill.
 
-### Xiaohongshu or RedSkill copied expression
+### Xiaohongshu or RedSkill
 
 ```bash
-viceme skill inspect --expression-stdin
+viceme skill inspect --source-stdin
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
 
-The copied expression is untrusted data. ViceMe extracts a locator and fetches the source through an approved connector; it never executes marketplace installation text.
+The AI Host interprets the user's source intent and passes one typed JSON
+`SourceSpec` through stdin, for example
+`{"kind":"redskill","value":"ai-desk-card"}`. CLI/Core do not classify copied
+natural language with keyword or regex rules. Explicit platform intent is
+authoritative; ambiguous source requests must be clarified instead of silently
+substituting a same-name source from another provider.
 
 ### Archive or local Skill folder
 
@@ -298,7 +303,7 @@ CLI execution errors are formatted and written to **stderr** with a non-zero exi
   "error": {
     "type": "validation",
     "subtype": "source_required",
-    "message": "provide exactly one source argument or --expression-stdin"
+    "message": "provide exactly one GitHub URL argument or --source-stdin"
   }
 }
 ```
@@ -318,7 +323,7 @@ Determine local/bootstrap command success from the process exit code. For public
 ## Security and Risk Controls
 
 - **No source execution** — the CLI and compiler do not execute third-party scripts, binaries, shell fragments, marketplace commands, or copied instructions.
-- **Untrusted text stays off argv** — AI Hosts must pass copied provider expressions and natural-language Candidate edits through the explicit `--expression-stdin` and `--request-stdin` modes. Never interpolate that text into command strings, argv, environment variables, or shell pipelines.
+- **Typed source intent** — AI Hosts interpret natural-language source requests and pass only a typed `SourceSpec` through `--source-stdin`; CLI/Core never guess a provider from user phrases. Natural-language Candidate edits use `--request-stdin`. Never interpolate untrusted text into command strings, argv, environment variables, or shell pipelines.
 - **Explicit public mutation** — publishing, compiler retry, and cancellation require `--yes`; exit code `10` means the Agent must obtain confirmation, not silently retry.
 - **Safe preview** — use `--dry-run` on inspect or publish when the user needs to review the planned request without network or publication side effects.
 - **Credential isolation** — on macOS, device-login credentials stay in AES-256-GCM encrypted files, with Keychain-backed or explicitly downgraded private key material; filenames do not expose profile/origin names. Other platforms retain their native credential manager. Explicit internal-test overrides are namespaced by profile, stored only in a private `0600` config, and never emitted by CLI output.
