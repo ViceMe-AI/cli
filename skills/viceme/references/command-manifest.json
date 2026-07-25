@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "cli_version": "0.8.1",
-  "minimum_cli_version": "0.8.1",
+  "cli_version": "0.8.2",
+  "minimum_cli_version": "0.8.2",
   "global_flags": [
     {
       "name": "profile",
@@ -507,7 +507,7 @@
     },
     {
       "path": "skill inspect",
-      "use": "inspect [source]",
+      "use": "inspect [github-url]",
       "short": "Resolve an immutable external Skill snapshot without publishing it",
       "runnable": true,
       "side_effect": "none",
@@ -520,21 +520,21 @@
           "usage": "validate and print the operation without calling ViceMe"
         },
         {
-          "name": "expression-stdin",
-          "type": "bool",
-          "default": "false",
-          "usage": "read a copied provider expression from stdin"
-        },
-        {
           "name": "skill-root",
           "type": "string",
           "usage": "exact repository-relative directory containing SKILL.md; use . for the repository root"
+        },
+        {
+          "name": "source-stdin",
+          "type": "bool",
+          "default": "false",
+          "usage": "read a typed SourceSpec JSON object from stdin"
         }
       ]
     },
     {
       "path": "skill publish",
-      "use": "publish [source]",
+      "use": "publish [github-url]",
       "short": "Create a durable Skill Agent publication",
       "runnable": true,
       "side_effect": "public",
@@ -563,12 +563,6 @@
           "usage": "expected CAS version of an existing Target"
         },
         {
-          "name": "expression-stdin",
-          "type": "bool",
-          "default": "false",
-          "usage": "read a copied provider expression from stdin"
-        },
-        {
           "name": "file",
           "type": "string",
           "usage": "upload a Skill archive"
@@ -588,6 +582,12 @@
           "name": "skill-root",
           "type": "string",
           "usage": "select a Skill root within the immutable source"
+        },
+        {
+          "name": "source-stdin",
+          "type": "bool",
+          "default": "false",
+          "usage": "read a typed SourceSpec JSON object from stdin"
         },
         {
           "name": "target-alias",

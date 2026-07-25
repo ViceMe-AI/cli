@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.2] - 2026-07-25
+
+### Fixes
+
+- accept typed source specs (`167656c`)
+
 ## [0.8.1] - 2026-07-24
 
 ### Fixes

@@ -49,7 +49,7 @@ func TestInspectUsesAPIKeyAndAcceptsEnvelope(t *testing.T) {
 
 	client := NewClient(server.URL, server.Client(), staticToken("secret"), "viceme/test")
 	response, err := client.Inspect(context.Background(), InspectRequest{
-		Source: Source{Kind: "expression", Value: "https://github.com/acme/skill"}, SkillRoot: "skills/poster",
+		Source: Source{Kind: "github", Value: "https://github.com/acme/skill"}, SkillRoot: "skills/poster",
 	})
 	if err != nil {
 		t.Fatal(err)
