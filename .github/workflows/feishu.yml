@@ -69,9 +69,8 @@ jobs:
 
             core.setOutput('should_notify', shouldNotify ? 'true' : 'false')
 
-      - uses: Dogtiti/feishu-bot-webhook-action@fd68eb3a1e032761a500da0ec8ea82489a8b4d9c # main
+      - uses: Dogtiti/feishu-bot-webhook-action@0b4824f20b79cd42f0e9298cfd8a43d746d9563e # main
         if: steps.filter.outputs.should_notify == 'true'
         with:
           webhook: ${{ secrets.FEISHU_BOT_WEBHOOK }}
           signkey: ${{ secrets.FEISHU_BOT_SIGNKEY }}
-          comment_max_length: '120'
