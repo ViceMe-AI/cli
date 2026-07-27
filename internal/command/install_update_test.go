@@ -123,6 +123,25 @@ type fakeUpdateService struct {
 	applied  bool
 }
 
+type fakeNoticeUpdateService struct {
+	fakeUpdateService
+	notice    *updatepkg.Notice
+	refreshed chan struct{}
+}
+
+func (service *fakeNoticeUpdateService) CachedNotice() *updatepkg.Notice {
+	return service.notice
+}
+
+func (service *fakeNoticeUpdateService) RefreshNotice(context.Context) {
+	if service.refreshed != nil {
+		select {
+		case service.refreshed <- struct{}{}:
+		default:
+		}
+	}
+}
+
 func (service *fakeUpdateService) EnsureLauncher(context.Context) (updatepkg.TargetResult, error) {
 	return updatepkg.TargetResult{Target: "npm_global", Status: "skipped"}, nil
 }
@@ -170,5 +189,52 @@ func TestUpdateCommandChecksOrRefreshesPackageBinaryAndSkill(t *testing.T) {
 	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, nil, "", Dependencies{Updater: service}, "update", "--target", "claude")
 	if code != 0 || stderr != "" || !service.applied || !service.options.RefreshSkills || service.options.SkillTarget != "claude" || !stringContains(stdout, `"cli_version":"0.1.1"`) {
 		t.Fatalf("apply code=%d applied=%t options=%#v stdout=%s stderr=%s", code, service.applied, service.options, stdout, stderr)
+	}
+}
+
+func TestNormalCommandSurfacesCachedUpdateNoticeForAgents(t *testing.T) {
+	t.Parallel()
+	service := &fakeNoticeUpdateService{
+		notice: &updatepkg.Notice{Current: "0.8.2", Latest: "0.8.3"},
+	}
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, nil, "", Dependencies{
+		Updater: service,
+	}, "version")
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	var result map[string]any
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatal(err)
+	}
+	notice, ok := result["_notice"].(map[string]any)
+	if !ok {
+		t.Fatalf("version result lacks _notice: %s", stdout)
+	}
+	updateNotice, ok := notice["update"].(map[string]any)
+	if !ok || updateNotice["current"] != "0.8.2" || updateNotice["latest"] != "0.8.3" ||
+		updateNotice["command"] != "viceme update" {
+		t.Fatalf("version update notice=%#v", updateNotice)
+	}
+}
+
+func TestUpdateCommandSuppressesItsOwnStaleNotice(t *testing.T) {
+	t.Parallel()
+	service := &fakeNoticeUpdateService{
+		fakeUpdateService: fakeUpdateService{
+			check: updatepkg.CheckResult{
+				CurrentVersion:   "0.8.2",
+				AvailableVersion: "0.8.3",
+				UpdateAvailable:  true,
+				Method:           "npm",
+			},
+		},
+		notice: &updatepkg.Notice{Current: "0.8.2", Latest: "0.8.3"},
+	}
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, nil, "", Dependencies{
+		Updater: service,
+	}, "update", "--check")
+	if code != 0 || stderr != "" || strings.Contains(stdout, `"_notice"`) {
+		t.Fatalf("update command emitted stale notice: code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }

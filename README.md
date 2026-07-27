@@ -159,7 +159,7 @@ Normal `viceme auth login` never writes `apiBaseUrl` or `accessToken` into a pro
 
 `VICEME_CLI_CONFIG_DIR` can override the config root. `VICEME_API_BASE_URL` and `VICEME_ACCESS_TOKEN` remain available as one-process overrides and take precedence over the selected profile. Otherwise the profile's explicit `apiBaseUrl`/`accessToken` is used before the region endpoint and secure-store login. A different normalized origin uses an isolated scope. API and presigned-upload requests fail closed on redirects so credential headers are never forwarded to another origin.
 
-Update checks query the npm registry directly and store only the last successful version result in `~/.viceme-cli/update-state.json`. A result is used as a fallback for at most 24 hours when the registry is temporarily unavailable. npm operations launched by `viceme install` or `viceme update` use the isolated `~/.viceme-cli/npm-cache`, so a broken user-level `~/.npm` cache does not block the CLI. Both files are non-secret and can be deleted safely; credentials never enter either cache.
+Update checks query the npm registry directly and store only the last successful version result in `~/.viceme-cli/update-state.json`. A result is used as a fallback for at most 24 hours when the registry is temporarily unavailable. Normal npm-managed CLI invocations read this cache synchronously and refresh it in the background at most once per 24 hours, so commands never wait for update discovery. When a newer release is known, structured success and error objects include `_notice.update` with `current`, `latest`, `message`, and the exact `viceme update` command so AI Agents can notify the user. The advisory never changes the command exit status and does not trigger an automatic update. Set `VICEME_NO_UPDATE_NOTIFIER=1` to suppress it outside CI; standard CI environments are skipped automatically. npm operations launched by `viceme install` or `viceme update` use the isolated `~/.viceme-cli/npm-cache`, so a broken user-level `~/.npm` cache does not block the CLI. Both files are non-secret and can be deleted safely; credentials never enter either cache.
 
 ## Agent Skills
 
@@ -269,7 +269,7 @@ Use `viceme <command> --help` for the exact flags. The release-checked machine-r
 
 ViceMe selects the smallest stable representation for each command:
 
-- Local/bootstrap commands such as `version`, `install`, `update`, `auth status`, `profile *`, and `skills doctor` write their formatted business result directly to **stdout**. They do not add `ok`, `data`, or unrelated build metadata.
+- Local/bootstrap commands such as `version`, `install`, `update`, `auth status`, `profile *`, and `skills doctor` write their formatted business result directly to **stdout**. They do not add `ok`, `data`, or unrelated build metadata; a normal npm-managed invocation may add only the reserved `_notice.update` advisory described above.
 - `skills read` writes the requested file byte-for-byte without a JSON wrapper.
 - Interactive `viceme auth login` writes human guidance. AI Agents use `--no-wait --json`, then continue with `--device-code <code> --json`; those two commands return a formatted bare business object.
 - Publication protocol commands under `skill` and `job` keep a stable envelope because action receipts, durable status, and bounded-wait metadata form one cross-command protocol.

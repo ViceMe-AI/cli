@@ -12,6 +12,7 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 - If `viceme` is not available and the user asked to install ViceMe, run `npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install`. The explicit default and scoped registry flags are part of the trust boundary; do not shorten the command. It installs the matching CLI and ViceMe Skill, initializes the non-sensitive `default` profile, and returns the human device-login command. Agents must use the explicit JSON split-flow below instead of blocking on that human command.
 - Before publishing, use `viceme skills doctor` if CLI/Skill version or content drift is suspected. Do not continue with a modified or incompatible installed Skill.
 - `viceme update` updates the npm launcher and verified Go binary, then reinstalls the bundled Skill from that same exact package version.
+- If any structured CLI response contains `_notice.update`, tell the user that the current CLI is outdated and repeat its exact `current`, `latest`, and `command` fields. Do not treat the notice as a command failure, hide it, or run the update without the user's approval.
 
 ## Publish workflow
 

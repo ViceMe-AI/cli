@@ -46,6 +46,46 @@ func TestPrinterSuccessKeepsProtocolEnvelopeWithoutDefaultMeta(t *testing.T) {
 	}
 }
 
+func TestPrinterInjectsMachineReadableNoticeIntoStructuredObjects(t *testing.T) {
+	t.Parallel()
+	notice := func() map[string]any {
+		return map[string]any{
+			"update": map[string]any{
+				"current": "0.8.2",
+				"latest":  "0.8.3",
+				"command": "viceme update",
+			},
+		}
+	}
+	for _, test := range []struct {
+		name  string
+		write func(*Printer) error
+	}{
+		{name: "success envelope", write: func(printer *Printer) error {
+			return printer.Success(map[string]any{"status": "compiling"})
+		}},
+		{name: "business object", write: func(printer *Printer) error {
+			return printer.Business(map[string]any{"authenticated": true})
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var stdout bytes.Buffer
+			printer := &Printer{Out: &stdout, ErrOut: &bytes.Buffer{}, Notice: notice}
+			if err := test.write(printer); err != nil {
+				t.Fatal(err)
+			}
+			var object map[string]any
+			if err := json.Unmarshal(stdout.Bytes(), &object); err != nil {
+				t.Fatal(err)
+			}
+			update, ok := object["_notice"].(map[string]any)["update"].(map[string]any)
+			if !ok || update["current"] != "0.8.2" || update["latest"] != "0.8.3" || update["command"] != "viceme update" {
+				t.Fatalf("missing or malformed update notice: %#v", object)
+			}
+		})
+	}
+}
+
 func TestPrinterSuccessWithMetaEmitsOnlyMeaningfulMeta(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
@@ -97,10 +137,39 @@ func TestPrinterFailureWritesIndentedTypedEnvelopeWithoutMeta(t *testing.T) {
 	}
 }
 
+func TestPrinterFailureIncludesNoticeWithoutChangingExitCode(t *testing.T) {
+	t.Parallel()
+	var stderr bytes.Buffer
+	printer := &Printer{
+		Out:    &bytes.Buffer{},
+		ErrOut: &stderr,
+		Notice: func() map[string]any {
+			return map[string]any{"update": map[string]any{"latest": "0.8.3"}}
+		},
+	}
+
+	if code := printer.Failure(Validation("bad_input", "bad input")); code != ExitValidation {
+		t.Fatalf("exit code=%d", code)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stderr.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope["ok"] != false || envelope["_notice"] == nil {
+		t.Fatalf("failure lost its result or notice: %#v", envelope)
+	}
+}
+
 func TestPrinterRawPreservesBytes(t *testing.T) {
 	t.Parallel()
 	var stdout bytes.Buffer
-	printer := &Printer{Out: &stdout, ErrOut: &bytes.Buffer{}}
+	printer := &Printer{
+		Out:    &stdout,
+		ErrOut: &bytes.Buffer{},
+		Notice: func() map[string]any {
+			return map[string]any{"update": map[string]any{"latest": "0.8.3"}}
+		},
+	}
 	content := []byte("# Skill\n\nExact content.\n")
 
 	if err := printer.Raw(content); err != nil {
