@@ -1,11 +1,11 @@
 {
   "schema_version": 1,
   "npm_package": "@viceme-ai/cli",
-  "cli_version": "0.8.1",
-  "skill_version": "0.8.1",
-  "minimum_cli_version": "0.8.1",
-  "cli_compatibility": ">=0.8.1 <0.9.0",
-  "full_skill_bundle_digest": "sha256:34fcd8be69eadf10300e861e01e82b71afb3c8e90e4add6ae3b6eae207f5266e",
-  "embedded_content_digest": "sha256:969d3149c0d8ae9df4f5e71644e2aefe54a8f28bec0b6a8bae44b385e8ab13ff",
-  "command_manifest_digest": "sha256:89a3aa13f51eb3d35d129bb65b8d0fd836c9b79ee64464ccc4b4c2a18f030962"
+  "cli_version": "0.9.1",
+  "skill_version": "0.9.1",
+  "minimum_cli_version": "0.9.1",
+  "cli_compatibility": ">=0.9.1 <0.10.0",
+  "full_skill_bundle_digest": "sha256:dc32e540c25910a012735ac05161b5be5153801e0caec648db1a03f67a1ad16f",
+  "embedded_content_digest": "sha256:f0cf6bdd8a86cc2d5a1651ce725cb43c3f2382e2932f9182eddb9c4da00df1d8",
+  "command_manifest_digest": "sha256:53e901cc48fb47a55194415de5631df3fb5175cd9a1486e9edcbbbfb0c88bdcd"
 }

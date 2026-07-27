@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	credentialauth "github.com/ViceMe-AI/cli/internal/auth"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
@@ -671,7 +672,7 @@ func TestInspectAndPublishRequestContracts(t *testing.T) {
 			var body map[string]any
 			_ = json.NewDecoder(request.Body).Decode(&body)
 			source := body["source"].(map[string]any)
-			if source["kind"] != "expression" || source["value"] != "copied expression" {
+			if source["kind"] != "redskill" || source["value"] != "ai-desk-card" {
 				t.Fatalf("unexpected inspect body: %#v", body)
 			}
 			inspected.Store(true)
@@ -690,6 +691,10 @@ func TestInspectAndPublishRequestContracts(t *testing.T) {
 			if options["publish_mode"] != "confirm" || options["admission_confirmation"] != true {
 				t.Fatalf("unexpected publication admission: %#v", options)
 			}
+			source := body["source"].(map[string]any)
+			if source["kind"] != "github" || source["value"] != "https://github.com/acme/skill" {
+				t.Fatalf("unexpected publication source: %#v", source)
+			}
 			published.Store(true)
 			writer.WriteHeader(http.StatusAccepted)
 			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"received","status_url":"/v1/skill-agent-publications/pub_1"}`)
@@ -699,13 +704,61 @@ func TestInspectAndPublishRequestContracts(t *testing.T) {
 	}))
 	defer server.Close()
 	store := authenticatedStore(t)
-	code, stdout, stderr, _ := runCLIWithInput(t, server, store, "copied expression", "skill", "inspect", "--expression-stdin")
+	code, stdout, stderr, _ := runCLIWithInput(t, server, store, `{"kind":"redskill","value":"ai-desk-card"}`, "skill", "inspect", "--source-stdin")
 	if code != 0 || stderr != "" || !strings.Contains(stdout, "res_1") || !inspected.Load() {
 		t.Fatalf("inspect code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	code, stdout, stderr, _ = runCLI(t, server, store, "skill", "publish", "https://github.com/acme/skill", "--yes")
 	if code != 0 || stderr != "" || !strings.Contains(stdout, "pub_1") || !published.Load() {
 		t.Fatalf("publish code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestSourceStdinRejectsNaturalLanguageAndSemanticExpressionKind(t *testing.T) {
+	t.Parallel()
+	store := authenticatedStore(t)
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("invalid SourceSpec reached the API")
+	}))
+	defer server.Close()
+	for _, input := range []string{
+		"请在 ViceMe 发布小红书 Skill：ai-desk-card",
+		`{"kind":"expression","value":"小红书 Skill ai-desk-card"}`,
+	} {
+		code, _, stderr, _ := runCLIWithInput(t, server, store, input, "skill", "inspect", "--source-stdin")
+		if code != 2 || !strings.Contains(stderr, "source_") {
+			t.Fatalf("input=%q code=%d stderr=%s", input, code, stderr)
+		}
+	}
+}
+
+func TestPublishAcceptsTypedSourceSpecFromStdin(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var body api.CreatePublicationRequest
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		if body.Source == nil || body.Source.Kind != "redskill" || body.Source.Value != "ai-desk-card" {
+			t.Fatalf("source = %#v", body.Source)
+		}
+		writer.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_redskill","status":"received"}`)
+	}))
+	defer server.Close()
+
+	code, stdout, stderr, _ := runCLIWithInput(
+		t,
+		server,
+		authenticatedStore(t),
+		`{"kind":"redskill","value":"ai-desk-card"}`,
+		"skill",
+		"publish",
+		"--source-stdin",
+		"--yes",
+	)
+	if code != 0 || stderr != "" || !strings.Contains(stdout, "pub_redskill") {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 }
 

@@ -18,7 +18,7 @@ ViceMe 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为
 - **确定性边界** — CLI 执行类型化协议操作，不会再启动一层对话式 Agent Loop。
 - **服务端编译** — 来源解析、LLM 编译、BuildRun 固化和 Release 发布均在 ViceMe 基础设施中完成。
 - **稳定发布** — 同一个逻辑 Agent 后续发布新版本时继续使用同一个分享链接。
-- **支持多种来源** — 支持 GitHub Skill、小红书或 RedSkill 复制口令、压缩包和本地 Skill 目录。
+- **支持多种来源** — 支持结构化 GitHub 与小红书/RedSkill 来源、压缩包和本地 Skill 目录。
 - **默认安全** — 在 macOS 上，设备登录凭证保存在 AES-256-GCM 加密文件中，主密钥默认由系统 Keychain 保护；其他平台继续使用原生凭证管理器。显式本地覆盖要求私有 Profile 文件，公开变更需要确认，下载的二进制文件必须通过校验和验证。
 - **人类与 Agent 双登录模式** — `viceme auth login` 在终端中引导用户，Agent 跨回合流程则显式使用 JSON。
 
@@ -159,7 +159,7 @@ viceme profile configure local --clear-api-base-url
 
 凭证优先级为进程 `VICEME_ACCESS_TOKEN` → 当前本地 Profile → 设备登录。publication credential 必须使用 `vpa1.<audience>.<secret>`：`cn-prod` 只能访问 `https://api.viceme.cn`，`global-prod` 只能访问 `https://api.viceme.ai`，Profile 中的 `local-dev` 只能访问 loopback endpoint；进程 `local-dev` 还要求 `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`。`VICEME_CLI_CONFIG_DIR` 可覆盖配置根目录，`VICEME_API_BASE_URL` 仍只是单进程 endpoint 覆盖，不能放宽 Profile credential 的 origin。API 与预签名上传重定向一律 fail closed。
 
-更新检查直接请求 npm registry，并且只把最近一次成功查询到的版本写入 `~/.viceme-cli/update-state.json`；registry 暂时不可用时，该结果最多回退使用 24 小时。`viceme install` 和 `viceme update` 启动的 npm 操作统一使用隔离的 `~/.viceme-cli/npm-cache`，不会因为用户级 `~/.npm` 缓存损坏而失败。这两个位置都不包含秘密信息，可以安全删除；凭证不会进入任何更新缓存。
+更新检查直接请求 npm registry，并且只把最近一次成功查询到的版本写入 `~/.viceme-cli/update-state.json`；registry 暂时不可用时，该结果最多回退使用 24 小时。npm 管理的 CLI 在普通命令中只同步读取本地缓存，并且最多每 24 小时在后台刷新一次，因此命令不会等待版本发现。当缓存确认存在新版本时，结构化成功与错误对象都会携带 `_notice.update`，其中包含 `current`、`latest`、`message` 和精确的 `viceme update` 命令，AI Agent 可以据此提醒用户。该提醒不会改变命令退出码，也不会自动执行更新。非 CI 环境可以设置 `VICEME_NO_UPDATE_NOTIFIER=1` 关闭提醒；标准 CI 环境会自动跳过。`viceme install` 和 `viceme update` 启动的 npm 操作统一使用隔离的 `~/.viceme-cli/npm-cache`，不会因为用户级 `~/.npm` 缓存损坏而失败。这两个位置都不包含秘密信息，可以安全删除；凭证不会进入任何更新缓存。
 
 ## Agent Skills
 
@@ -219,14 +219,16 @@ viceme skill publish --resolution-id <resolution-id> --yes
 
 GitHub 来源必须传 `--skill-root`，它是包含 `SKILL.md` 的精确仓库相对目录；只有根级 Skill 才使用 `.`。调用 Agent 根据用户输入或只读仓库文件树确定该路径，ViceMe 不扫描全仓猜测 Skill。
 
-### 小红书或 RedSkill 复制口令
+### 小红书或 RedSkill
 
 ```bash
-viceme skill inspect --expression-stdin
+viceme skill inspect --source-stdin
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
 
-复制口令属于不可信数据。ViceMe 只从中提取定位信息，并通过允许的连接器获取来源；不会执行市场安装文案中的命令。
+AI Host 先理解用户的来源意图，再通过 stdin 传入唯一的结构化
+`SourceSpec`，例如 `{"kind":"redskill","value":"ai-desk-card"}`。CLI/Core
+不再用关键词或正则分类自然语言；用户明确指定的平台必须保持不变，来源存在歧义时必须先询问，不能静默替换为其他平台的同名来源。
 
 ### 压缩包或本地 Skill 目录
 
@@ -264,7 +266,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 
 ViceMe 根据命令语义选择最小且稳定的输出形式：
 
-- `version`、`install`、`update`、`auth status`、`profile *`、`skills doctor` 等本地/引导命令，将格式化后的业务结果直接写入 **stdout**，不附加 `ok`、`data` 或无关构建元数据。
+- `version`、`install`、`update`、`auth status`、`profile *`、`skills doctor` 等本地/引导命令，将格式化后的业务结果直接写入 **stdout**，不附加 `ok`、`data` 或无关构建元数据；npm 管理的普通调用最多只会附加上文约定的保留字段 `_notice.update`。
 - `skills read` 按原始字节输出目标文件，不添加 JSON 包装。
 - 交互式 `viceme auth login` 输出面向人的引导；AI Agent 使用 `--no-wait --json`，并在后续回合用 `--device-code <code> --json` 继续，这两个命令返回格式化的裸业务对象。
 - `skill` 和 `job` 下的发布协议命令继续使用稳定 Envelope，因为 action receipt、持久状态与有界等待元数据共同构成跨命令协议。
@@ -298,7 +300,7 @@ CLI 执行错误以格式化形式写入 **stderr**，退出码非零：
   "error": {
     "type": "validation",
     "subtype": "source_required",
-    "message": "provide exactly one source argument or --expression-stdin"
+    "message": "provide exactly one GitHub URL argument or --source-stdin"
   }
 }
 ```
@@ -318,7 +320,7 @@ CLI 执行错误以格式化形式写入 **stderr**，退出码非零：
 ## 安全与风险控制
 
 - **不执行来源内容** — CLI 和编译器不会执行第三方脚本、二进制文件、shell 片段、市场命令或复制口令中的指令。
-- **不让不可信文本进入 argv** — AI Host 必须通过显式的 `--expression-stdin` 和 `--request-stdin` 模式传递复制的来源表达式与 Candidate 自然语言修改要求；不得把这些文本拼入命令字符串、argv、环境变量或 shell 管道。
+- **结构化来源意图** — AI Host 负责理解自然语言来源，并只通过 `--source-stdin` 传递 typed `SourceSpec`；CLI/Core 不根据用户措辞猜 Provider。Candidate 的自然语言修改通过 `--request-stdin` 传递。不得把不可信文本拼入命令字符串、argv、环境变量或 shell 管道。
 - **公开变更需要明确确认** — 发布、编译重试和取消操作需要 `--yes`；退出码 `10` 表示 Agent 必须向用户取得确认，不能静默重试。
 - **安全预览** — 用户需要检查计划请求时，可以对 inspect 或 publish 使用 `--dry-run`，不会产生网络请求或发布副作用。
 - **凭证隔离** — 在 macOS 上，设备登录凭证保存在 AES-256-GCM 加密文件中，主密钥由 Keychain 或显式降级后的私有文件保护，文件名不会暴露 Profile/origin；其他平台继续使用原生凭证管理器。显式内部测试覆盖按 Profile 隔离，仅允许保存在 `0600` 配置中，并且不会出现在 CLI 输出中。

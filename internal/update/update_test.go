@@ -148,6 +148,81 @@ func TestNPMServiceUsesOnlyFreshCacheWhenRegistryIsUnavailable(t *testing.T) {
 	}
 }
 
+func TestNPMServiceRefreshesNotifierCacheWithoutBlockingCommands(t *testing.T) {
+	for _, key := range []string{NoUpdateNotifierEnv, "CI", "BUILD_NUMBER", "RUN_ID"} {
+		t.Setenv(key, "")
+	}
+	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
+	var calls atomic.Int32
+	latest := atomic.Value{}
+	latest.Store("0.8.3")
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		_, _ = writer.Write([]byte(`{"version":"` + latest.Load().(string) + `"}`))
+	}))
+	defer server.Close()
+
+	service := NewNPMService("0.8.2", "0.8.2", "npm")
+	service.ConfigDir = t.TempDir()
+	service.RegistryEndpoint = server.URL
+	service.HTTPClient = server.Client()
+	service.Now = func() time.Time { return now }
+
+	if notice := service.CachedNotice(); notice != nil {
+		t.Fatalf("empty cache returned notice: %#v", notice)
+	}
+	service.RefreshNotice(context.Background())
+	if calls.Load() != 1 {
+		t.Fatalf("initial refresh calls=%d", calls.Load())
+	}
+	notice := service.CachedNotice()
+	if notice == nil || notice.Current != "0.8.2" || notice.Latest != "0.8.3" ||
+		!strings.Contains(notice.Message(), "viceme update") {
+		t.Fatalf("cached notice=%#v", notice)
+	}
+
+	service.RefreshNotice(context.Background())
+	if calls.Load() != 1 {
+		t.Fatalf("fresh cache unexpectedly refreshed: calls=%d", calls.Load())
+	}
+
+	now = now.Add(updateCacheTTL + time.Second)
+	if stale := service.CachedNotice(); stale == nil || stale.Latest != "0.8.3" {
+		t.Fatalf("stale validated cache was unavailable during background refresh: %#v", stale)
+	}
+	latest.Store("0.8.4")
+	service.RefreshNotice(context.Background())
+	if calls.Load() != 2 {
+		t.Fatalf("stale cache refresh calls=%d", calls.Load())
+	}
+	if refreshed := service.CachedNotice(); refreshed == nil || refreshed.Latest != "0.8.4" {
+		t.Fatalf("refreshed notice=%#v", refreshed)
+	}
+}
+
+func TestNPMServiceNotifierSkipsNonNPMCIAndExplicitOptOut(t *testing.T) {
+	for _, key := range []string{NoUpdateNotifierEnv, "CI", "BUILD_NUMBER", "RUN_ID"} {
+		t.Setenv(key, "")
+	}
+	service := NewNPMService("0.8.2", "0.8.2", "standalone")
+	service.ConfigDir = t.TempDir()
+	service.saveUpdateState("0.8.3")
+	if notice := service.CachedNotice(); notice != nil {
+		t.Fatalf("standalone build returned update notice: %#v", notice)
+	}
+
+	service.InstallMethod = "npm"
+	t.Setenv(NoUpdateNotifierEnv, "1")
+	if notice := service.CachedNotice(); notice != nil {
+		t.Fatalf("opted-out notifier returned notice: %#v", notice)
+	}
+	t.Setenv(NoUpdateNotifierEnv, "")
+	t.Setenv("CI", "true")
+	if notice := service.CachedNotice(); notice != nil {
+		t.Fatalf("CI notifier returned notice: %#v", notice)
+	}
+}
+
 func TestNPMServiceClassifiesPermissionFailureWithoutLeakingOutput(t *testing.T) {
 	t.Parallel()
 	runner := &fakeRunner{

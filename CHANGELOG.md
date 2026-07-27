@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.9.1] - 2026-07-27
+
+### Fixes
+
+- 修复 npm OIDC 发布与恢复流程 (`1f7567b`)
+
+### Other Changes
+
+- 更新飞书卡片 Action 版本 (`bab230a`)
+
+## [0.9.0] - 2026-07-27
+
+### Features
+
+- 新增结构化版本更新提醒 (`be3e975`)
+
+### Fixes
+
+- 修正 Profile 授权与编译等待指引 (`a62d199`)
+
+## [0.8.2] - 2026-07-25
+
+### Fixes
+
+- accept typed source specs (`167656c`)
+
 ## [0.8.1] - 2026-07-24
 
 ### Fixes

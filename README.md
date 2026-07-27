@@ -18,7 +18,7 @@ The official command-line client and Agent Skill for publishing external Skills 
 - **Deterministic boundary** — the CLI performs typed protocol actions; it does not start another conversational Agent loop.
 - **Server-side compilation** — source parsing, LLM compilation, BuildRun materialization, and Release publication stay on ViceMe infrastructure.
 - **Stable publishing** — later releases of the same logical Agent keep the same share URL.
-- **Multiple source types** — accepts GitHub Skills, pasted Xiaohongshu/RedSkill expressions, archives, and local Skill folders.
+- **Multiple source types** — accepts typed GitHub and Xiaohongshu/RedSkill sources, archives, and local Skill folders.
 - **Secure by default** — on macOS, device-login credentials use AES-256-GCM encrypted files with Keychain-backed key material; other platforms retain their native credential manager. Explicit local overrides require a private profile file, public mutations require confirmation, and downloaded binaries are checksum-verified.
 - **Human and Agent login modes** — `viceme auth login` guides a person in the terminal, while Agent split-flows use explicit JSON.
 
@@ -159,7 +159,7 @@ Normal `viceme auth login` never writes a credential into a profile. A local Pro
 
 Credential priority is process (`VICEME_ACCESS_TOKEN`) → selected local Profile → device login. Every publication credential must use `vpa1.<audience>.<secret>`: `cn-prod` is accepted only for `https://api.viceme.cn`, `global-prod` only for `https://api.viceme.ai`, and `local-dev` Profile credentials only for loopback endpoints. A process `local-dev` credential additionally requires `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. `VICEME_CLI_CONFIG_DIR` can override the config root, while `VICEME_API_BASE_URL` remains a one-process endpoint override and never widens a Profile credential's origin. API and presigned-upload redirects fail closed.
 
-Update checks query the npm registry directly and store only the last successful version result in `~/.viceme-cli/update-state.json`. A result is used as a fallback for at most 24 hours when the registry is temporarily unavailable. npm operations launched by `viceme install` or `viceme update` use the isolated `~/.viceme-cli/npm-cache`, so a broken user-level `~/.npm` cache does not block the CLI. Both files are non-secret and can be deleted safely; credentials never enter either cache.
+Update checks query the npm registry directly and store only the last successful version result in `~/.viceme-cli/update-state.json`. A result is used as a fallback for at most 24 hours when the registry is temporarily unavailable. Normal npm-managed CLI invocations read this cache synchronously and refresh it in the background at most once per 24 hours, so commands never wait for update discovery. When a newer release is known, structured success and error objects include `_notice.update` with `current`, `latest`, `message`, and the exact `viceme update` command so AI Agents can notify the user. The advisory never changes the command exit status and does not trigger an automatic update. Set `VICEME_NO_UPDATE_NOTIFIER=1` to suppress it outside CI; standard CI environments are skipped automatically. npm operations launched by `viceme install` or `viceme update` use the isolated `~/.viceme-cli/npm-cache`, so a broken user-level `~/.npm` cache does not block the CLI. Both files are non-secret and can be deleted safely; credentials never enter either cache.
 
 ## Agent Skills
 
@@ -219,14 +219,19 @@ viceme skill publish --resolution-id <resolution-id> --yes
 
 For GitHub, `--skill-root` is required and names the exact repository-relative directory containing `SKILL.md`; use `.` only for a root-level Skill. The calling Agent determines this path from the user input or read-only repository tree. ViceMe does not scan the repository to guess a Skill.
 
-### Xiaohongshu or RedSkill copied expression
+### Xiaohongshu or RedSkill
 
 ```bash
-viceme skill inspect --expression-stdin
+viceme skill inspect --source-stdin
 viceme skill publish --resolution-id <resolution-id> --yes
 ```
 
-The copied expression is untrusted data. ViceMe extracts a locator and fetches the source through an approved connector; it never executes marketplace installation text.
+The AI Host interprets the user's source intent and passes one typed JSON
+`SourceSpec` through stdin, for example
+`{"kind":"redskill","value":"ai-desk-card"}`. CLI/Core do not classify copied
+natural language with keyword or regex rules. Explicit platform intent is
+authoritative; ambiguous source requests must be clarified instead of silently
+substituting a same-name source from another provider.
 
 ### Archive or local Skill folder
 
@@ -264,7 +269,7 @@ Use `viceme <command> --help` for the exact flags. The release-checked machine-r
 
 ViceMe selects the smallest stable representation for each command:
 
-- Local/bootstrap commands such as `version`, `install`, `update`, `auth status`, `profile *`, and `skills doctor` write their formatted business result directly to **stdout**. They do not add `ok`, `data`, or unrelated build metadata.
+- Local/bootstrap commands such as `version`, `install`, `update`, `auth status`, `profile *`, and `skills doctor` write their formatted business result directly to **stdout**. They do not add `ok`, `data`, or unrelated build metadata; a normal npm-managed invocation may add only the reserved `_notice.update` advisory described above.
 - `skills read` writes the requested file byte-for-byte without a JSON wrapper.
 - Interactive `viceme auth login` writes human guidance. AI Agents use `--no-wait --json`, then continue with `--device-code <code> --json`; those two commands return a formatted bare business object.
 - Publication protocol commands under `skill` and `job` keep a stable envelope because action receipts, durable status, and bounded-wait metadata form one cross-command protocol.
@@ -298,7 +303,7 @@ CLI execution errors are formatted and written to **stderr** with a non-zero exi
   "error": {
     "type": "validation",
     "subtype": "source_required",
-    "message": "provide exactly one source argument or --expression-stdin"
+    "message": "provide exactly one GitHub URL argument or --source-stdin"
   }
 }
 ```
@@ -318,7 +323,7 @@ Determine local/bootstrap command success from the process exit code. For public
 ## Security and Risk Controls
 
 - **No source execution** — the CLI and compiler do not execute third-party scripts, binaries, shell fragments, marketplace commands, or copied instructions.
-- **Untrusted text stays off argv** — AI Hosts must pass copied provider expressions and natural-language Candidate edits through the explicit `--expression-stdin` and `--request-stdin` modes. Never interpolate that text into command strings, argv, environment variables, or shell pipelines.
+- **Typed source intent** — AI Hosts interpret natural-language source requests and pass only a typed `SourceSpec` through `--source-stdin`; CLI/Core never guess a provider from user phrases. Natural-language Candidate edits use `--request-stdin`. Never interpolate untrusted text into command strings, argv, environment variables, or shell pipelines.
 - **Explicit public mutation** — publishing, compiler retry, and cancellation require `--yes`; exit code `10` means the Agent must obtain confirmation, not silently retry.
 - **Safe preview** — use `--dry-run` on inspect or publish when the user needs to review the planned request without network or publication side effects.
 - **Credential isolation** — on macOS, device-login credentials stay in AES-256-GCM encrypted files, with Keychain-backed or explicitly downgraded private key material; filenames do not expose profile/origin names. Other platforms retain their native credential manager. Explicit internal-test overrides are namespaced by profile, stored only in a private `0600` config, and never emitted by CLI output.
