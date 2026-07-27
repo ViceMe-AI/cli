@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.2] - 2026-07-27
+
+### Fixes
+
+- restore profile publication credentials (`f50c397`)
+- bind T1 process credentials to API origins (`801b3ba`)
+
+### Other Changes
+
+- 更新 T1 权威来源追溯 (`ca9b059`)
+- restore profile token rotation example (`eac514d`)
+- 中文化 T1 复审交接 (`f549459`)
+- add T1 review remediation handoff (`33ddc8b`)
+
 ## [0.9.1] - 2026-07-27
 
 ### Fixes

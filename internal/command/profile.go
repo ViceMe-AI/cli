@@ -44,6 +44,9 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 					return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 				}
 				if profile.AccessToken != "" {
+					if err := validateLocalProfileAccessToken(profile.AccessToken, profile.APIBaseURL); err != nil {
+						return err
+					}
 					items = append(items, profileListItem{
 						Name:             profile.Name,
 						Region:           profile.Region,
@@ -111,10 +114,8 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if command.Flags().Changed("access-token") {
-				if err := validateLocalProfileAccessToken(accessToken); err != nil {
-					return err
-				}
+			if command.Flags().Changed("access-token") && accessToken == "" {
+				return output.Validation("profile_access_token", "local profile access token cannot be empty")
 			}
 			profile, err := runtime.config.AddProfile(name, resolvedRegion)
 			if err != nil {
@@ -124,6 +125,11 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 			profile.AccessToken = accessToken
 			if profile.AccessToken != "" && profile.APIBaseURL == "" {
 				return output.Validation("profile_access_token", "an explicit local access token requires --api-base-url")
+			}
+			if profile.AccessToken != "" {
+				if err := validateLocalProfileAccessToken(profile.AccessToken, profile.APIBaseURL); err != nil {
+					return err
+				}
 			}
 			if use {
 				runtime.config.PreviousProfile = runtime.config.CurrentProfile
@@ -195,8 +201,8 @@ func newProfileConfigureCommand(runtime *Runtime) *cobra.Command {
 				profile.APIBaseURL = ""
 			}
 			if command.Flags().Changed("access-token") {
-				if err := validateLocalProfileAccessToken(accessToken); err != nil {
-					return err
+				if accessToken == "" {
+					return output.Validation("profile_access_token", "local profile access token cannot be empty")
 				}
 				profile.AccessToken = accessToken
 			} else if clearAccessToken {
@@ -208,6 +214,11 @@ func newProfileConfigureCommand(runtime *Runtime) *cobra.Command {
 			if previousProfile.AccessToken != "" && !command.Flags().Changed("access-token") && !clearAccessToken &&
 				!sameAPIOrigin(previousProfile.APIBaseURL, profile.APIBaseURL) {
 				return output.Validation("profile_access_token_scope", "changing the API origin requires replacing or clearing the explicit local access token in the same command")
+			}
+			if profile.AccessToken != "" {
+				if err := validateLocalProfileAccessToken(profile.AccessToken, profile.APIBaseURL); err != nil {
+					return err
+				}
 			}
 			result, err := config.Save(runtime.configBase, runtime.config)
 			if err != nil {
@@ -284,12 +295,19 @@ func credentialNamespace(region config.Region, scope string) string {
 	return string(region)
 }
 
-func validateLocalProfileAccessToken(value string) error {
+func validateLocalProfileAccessToken(value, apiBaseURL string) error {
 	if value == "" {
 		return output.Validation("profile_access_token", "local profile access token cannot be empty")
 	}
 	if err := config.ValidateLocalAccessToken(value); err != nil {
 		return output.Validation("profile_access_token", "invalid local profile access token: "+err.Error())
+	}
+	credential, err := parsePublicationCredential(value)
+	if err != nil {
+		return output.Validation("profile_access_token", "the local profile access token is not a supported audience-bound publication credential")
+	}
+	if err := validatePublicationCredentialTarget(credential, apiBaseURL, true); err != nil {
+		return output.Validation("profile_access_token_scope", err.Error())
 	}
 	return nil
 }
