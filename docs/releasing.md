@@ -26,10 +26,12 @@ files, create tags, write changelog entries, or run npm commands locally.
    checks, and is updated to `chore(release): vX.Y.Z` with exact run and commit
    evidence. No internal preparation PR is created.
 8. A maintainer reviews and merges that same Release PR.
-9. `CLI release publication` tags the exact reviewed `dev` head, reruns
-   the quality gates, builds six platform binaries and six checksums, creates
-   the GitHub Release, bundles those exact checksums into the npm launcher,
-   publishes it, and then sends an
+9. Merging the Release PR pushes its merge commit to `main`.
+   `CLI release publication` resolves that commit back to exactly one merged,
+   repository-owned `dev` to `main` PR, then tags the exact reviewed `dev`
+   head, reruns the quality gates, builds six platform binaries and six
+   checksums, creates the GitHub Release, bundles those exact checksums into
+   the npm launcher, publishes it, and then sends an
    AI-generated release summary to the release notification group in Feishu.
 
 ## One-time repository setup
@@ -73,13 +75,11 @@ Configure npm trusted publishing for:
 
 - npm package: `@viceme-ai/cli`;
 - GitHub organization/repository: `ViceMe-AI/cli`;
-- workflow file: `.github/workflows/release.yml`.
+- workflow filename: `release.yml`.
 
-Trusted publishing is the steady-state path and uses GitHub OIDC plus npm
-provenance. If npm does not allow trusted publishing to create the package on
-its first release, add a repository secret named `NPM_TOKEN` containing a
-granular automation token limited to `@viceme-ai/cli` publication. Remove that
-secret after the package exists and trusted publishing is confirmed.
+Trusted publishing is the only publication credential path and uses GitHub OIDC
+plus npm provenance. Do not configure `NPM_TOKEN`; the publication job does not
+generate an npm auth file or expose a long-lived token.
 
 The npm tarball contains `checksums.txt`, generated from the six immutable
 GitHub Release checksum assets immediately before publication. The launcher
@@ -89,10 +89,10 @@ public npmmirror binary mirror. Registering `viceme-cli` with cnpmcore enables
 the public `/-/binary/viceme-cli/` mirror; it does not create another npm
 package.
 
-`GITHUB_TOKEN` is provided by Actions and is used only to maintain the Release
-PR. `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` authenticate the narrowly
-scoped Release App. `NPM_TOKEN` is optional and should only be retained when the
-npm account policy requires it.
+`GITHUB_TOKEN` is provided by Actions and is used to maintain the Release PR
+and resolve a merged `main` commit back to its reviewed Release PR.
+`RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` authenticate the narrowly scoped
+Release App.
 
 The release notification job uses the same repository secrets as ViceMe Web,
 API, and Engine:
@@ -109,14 +109,16 @@ successful.
 
 ## Recovery
 
-The original merged Release PR workflow run is safe to rerun from GitHub
-Actions. Existing tags must point to the same reviewed commit. Existing GitHub
-Release assets are compared byte-for-byte and never overwritten. Existing npm
-versions must have the same registry integrity as the locally packed artifact;
-otherwise the workflow fails closed. A rerun of an older version cannot move
-the npm `latest` tag behind a newer release.
+The original `push` publication run is safe to rerun from GitHub Actions.
+Existing tags must point to the same reviewed commit. Existing GitHub Release
+assets are compared byte-for-byte and never overwritten. Existing npm versions
+must have the same registry integrity as the locally packed artifact; otherwise
+the workflow fails closed. A rerun of an older version cannot move the npm
+`latest` tag behind a newer release.
 
-There is deliberately no tag-push or manual-dispatch production trigger. A
-production release can only originate from merging the repository-owned `dev`
-Release PR into `main`; recovery reruns that same authorized event and exact
-reviewed SHA.
+If the tag and GitHub Release succeeded but npm publication did not, a
+maintainer may manually dispatch `CLI release publication` with that exact
+stable tag. Recovery refuses missing tags, version mismatches, draft or missing
+GitHub Releases, changed release assets, and npm integrity mismatches. It cannot
+create a new release identity. Normal production releases still originate only
+from merging the repository-owned `dev` Release PR into `main`.
