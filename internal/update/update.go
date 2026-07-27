@@ -25,6 +25,7 @@ const (
 	RegistryURL             = "https://registry.npmjs.org"
 	RegistryPackageURL      = RegistryURL + "/@viceme-ai%2fcli/latest"
 	ScopeRegistryArg        = "--@viceme-ai:registry=" + RegistryURL
+	NoUpdateNotifierEnv     = "VICEME_NO_UPDATE_NOTIFIER"
 	updateStateFilename     = "update-state.json"
 	npmCacheDirectory       = "npm-cache"
 	updateCacheTTL          = 24 * time.Hour
@@ -91,10 +92,29 @@ type ApplyResult struct {
 	Targets            []TargetResult `json:"targets"`
 }
 
+// Notice is the stable machine-readable update hint injected into CLI output.
+// It intentionally contains no registry response or local filesystem details.
+type Notice struct {
+	Current string `json:"current"`
+	Latest  string `json:"latest"`
+}
+
+func (notice Notice) Message() string {
+	return fmt.Sprintf("ViceMe CLI %s is available; current %s; run: viceme update", notice.Latest, notice.Current)
+}
+
 type Service interface {
 	EnsureLauncher(context.Context) (TargetResult, error)
 	Check(context.Context) (CheckResult, error)
 	Apply(context.Context, CheckResult, ApplyOptions) (ApplyResult, error)
+}
+
+// Notifier is an optional read-only extension implemented by npm-backed
+// services. Commands never fail when the registry or notification cache is
+// unavailable.
+type Notifier interface {
+	CachedNotice() *Notice
+	RefreshNotice(context.Context)
 }
 
 type Runner interface {
@@ -269,6 +289,52 @@ func (service *NPMService) latestVersion(ctx context.Context) (string, string, e
 	return "", "", err
 }
 
+// CachedNotice performs local I/O only. Like lark-cli, it may use the last
+// validated cached version while a stale cache is refreshed in the background.
+func (service *NPMService) CachedNotice() *Notice {
+	if service.shouldSkipNotifier() {
+		return nil
+	}
+	state, ok := service.loadUpdateState()
+	if !ok {
+		return nil
+	}
+	comparison, err := semver.Compare(state.LatestVersion, service.ComparableVersion)
+	if err != nil || comparison <= 0 {
+		return nil
+	}
+	return &Notice{Current: service.CurrentVersion, Latest: state.LatestVersion}
+}
+
+// RefreshNotice refreshes the version cache at most once per 24 hours.
+// All failures are intentionally ignored by callers: update discovery must
+// never change command output, latency, or exit status.
+func (service *NPMService) RefreshNotice(ctx context.Context) {
+	if service.shouldSkipNotifier() {
+		return
+	}
+	if state, ok := service.loadUpdateState(); ok && service.updateStateIsFresh(state) {
+		return
+	}
+	version, err := service.fetchLatestVersion(ctx)
+	if err == nil {
+		service.saveUpdateState(version)
+	}
+}
+
+func (service *NPMService) shouldSkipNotifier() bool {
+	if service.InstallMethod != "npm" || os.Getenv(NoUpdateNotifierEnv) != "" {
+		return true
+	}
+	for _, key := range []string{"CI", "BUILD_NUMBER", "RUN_ID"} {
+		if os.Getenv(key) != "" {
+			return true
+		}
+	}
+	_, err := semver.Parse(service.ComparableVersion)
+	return err != nil
+}
+
 func (service *NPMService) fetchLatestVersion(ctx context.Context) (string, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, service.registryEndpoint(), nil)
 	if err != nil {
@@ -312,24 +378,33 @@ type updateState struct {
 	CheckedAt     int64  `json:"checked_at"`
 }
 
-func (service *NPMService) loadFreshUpdateState() (string, bool) {
+func (service *NPMService) loadUpdateState() (updateState, bool) {
 	filename := service.updateStatePath()
 	if filename == "" {
-		return "", false
+		return updateState{}, false
 	}
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return "", false
+		return updateState{}, false
 	}
 	var state updateState
 	if json.Unmarshal(data, &state) != nil || state.CheckedAt <= 0 {
-		return "", false
-	}
-	age := service.now().Sub(time.Unix(state.CheckedAt, 0))
-	if age < 0 || age > updateCacheTTL {
-		return "", false
+		return updateState{}, false
 	}
 	if _, err := semver.Parse(state.LatestVersion); err != nil {
+		return updateState{}, false
+	}
+	return state, true
+}
+
+func (service *NPMService) updateStateIsFresh(state updateState) bool {
+	age := service.now().Sub(time.Unix(state.CheckedAt, 0))
+	return age >= 0 && age <= updateCacheTTL
+}
+
+func (service *NPMService) loadFreshUpdateState() (string, bool) {
+	state, ok := service.loadUpdateState()
+	if !ok || !service.updateStateIsFresh(state) {
 		return "", false
 	}
 	return state.LatestVersion, true

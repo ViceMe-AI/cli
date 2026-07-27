@@ -154,7 +154,8 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.SetErr(dependencies.ErrOut)
 	root.Flags().BoolVarP(&runtime.opts.version, "version", "v", false, "print version information")
 	root.PersistentFlags().StringVar(&runtime.opts.profile, "profile", "", "use a specific profile for this command")
-	root.PersistentPreRunE = func(_ *cobra.Command, _ []string) error {
+	root.PersistentPreRunE = func(command *cobra.Command, _ []string) error {
+		runtime.prepareUpdateNotice(command)
 		return runtime.selectProfile(runtime.opts.profile)
 	}
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
@@ -170,6 +171,38 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newJobCommand(runtime))
 	root.AddCommand(newSkillsCommand(runtime))
 	return root, runtime, nil
+}
+
+func (r *Runtime) prepareUpdateNotice(command *cobra.Command) {
+	if command != nil && command.Name() == "update" {
+		// The update result already reports its exact outcome. Do not attach a
+		// stale pre-update reminder to that response.
+		r.printer.Notice = nil
+		return
+	}
+	notifier, ok := r.deps.Updater.(updatepkg.Notifier)
+	if !ok {
+		return
+	}
+	r.printer.Notice = func() map[string]any {
+		notice := notifier.CachedNotice()
+		if notice == nil {
+			return nil
+		}
+		return map[string]any{
+			"update": map[string]any{
+				"current": notice.Current,
+				"latest":  notice.Latest,
+				"message": notice.Message(),
+				"command": "viceme update",
+			},
+		}
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		notifier.RefreshNotice(ctx)
+	}()
 }
 
 func defaults(dependencies Dependencies) Dependencies {
