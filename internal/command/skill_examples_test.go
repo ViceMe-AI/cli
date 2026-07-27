@@ -96,6 +96,18 @@ func TestBundledSkillPreservesSafeActionCommandContracts(t *testing.T) {
 			!strings.Contains(content, "viceme job resume <publication-id> --action-id") {
 			t.Error("main Skill omits the required publication ID from job resume")
 		}
+		if relative == "skills/viceme/SKILL.md" {
+			for _, required := range []string{
+				"viceme profile configure <profile-name> --access-token",
+				"source=local_profile",
+				"up to five consecutive 60-second bounded waits",
+				"does not mean the Compiler failed or is stuck",
+			} {
+				if !strings.Contains(content, required) {
+					t.Errorf("main Skill omits required auth/wait guidance %q", required)
+				}
+			}
+		}
 	}
 }
 
