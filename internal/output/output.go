@@ -99,23 +99,26 @@ func AsError(err error) *Error {
 }
 
 type successEnvelope struct {
-	OK   bool  `json:"ok"`
-	Data any   `json:"data"`
-	Meta *Meta `json:"meta,omitempty"`
+	OK     bool           `json:"ok"`
+	Data   any            `json:"data"`
+	Meta   *Meta          `json:"meta,omitempty"`
+	Notice map[string]any `json:"_notice,omitempty"`
 }
 
 type errorEnvelope struct {
-	OK    bool   `json:"ok"`
-	Error *Error `json:"error"`
+	OK     bool           `json:"ok"`
+	Error  *Error         `json:"error"`
+	Notice map[string]any `json:"_notice,omitempty"`
 }
 
 type Printer struct {
 	Out    io.Writer
 	ErrOut io.Writer
+	Notice func() map[string]any
 }
 
 func (p *Printer) Success(data any) error {
-	return writeJSON(p.Out, successEnvelope{OK: true, Data: data})
+	return writeJSON(p.Out, successEnvelope{OK: true, Data: data, Notice: p.notice()})
 }
 
 func (p *Printer) SuccessWithMeta(data any, meta Meta) error {
@@ -123,14 +126,14 @@ func (p *Printer) SuccessWithMeta(data any, meta Meta) error {
 	if meta.WaitTimedOut != nil {
 		emitted = &meta
 	}
-	return writeJSON(p.Out, successEnvelope{OK: true, Data: data, Meta: emitted})
+	return writeJSON(p.Out, successEnvelope{OK: true, Data: data, Meta: emitted, Notice: p.notice()})
 }
 
 // Business writes one command-owned result without the transport envelope.
 // Local/bootstrap commands use this mode because their stdout value is already
 // the complete answer; publication protocol commands continue to use Success.
 func (p *Printer) Business(data any) error {
-	return writeJSON(p.Out, data)
+	return writeBusinessJSON(p.Out, data, p.notice())
 }
 
 // Raw writes byte-identical content for commands such as `skills read`.
@@ -146,8 +149,39 @@ func (p *Printer) Failure(err error) int {
 	if cliErr.Code == 0 {
 		cliErr.Code = ExitInternal
 	}
-	_ = writeJSON(p.ErrOut, errorEnvelope{OK: false, Error: cliErr})
+	_ = writeJSON(p.ErrOut, errorEnvelope{OK: false, Error: cliErr, Notice: p.notice()})
 	return cliErr.Code
+}
+
+func (p *Printer) notice() map[string]any {
+	if p == nil || p.Notice == nil {
+		return nil
+	}
+	return p.Notice()
+}
+
+func writeBusinessJSON(w io.Writer, value any, notice map[string]any) error {
+	if len(notice) == 0 {
+		return writeJSON(w, value)
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(data, &object); err != nil || object == nil {
+		// Business output is normally an object. Preserve an unexpected scalar
+		// or array byte shape instead of wrapping it in a new contract.
+		return writeJSON(w, value)
+	}
+	if _, exists := object["_notice"]; !exists {
+		encodedNotice, err := json.Marshal(notice)
+		if err != nil {
+			return err
+		}
+		object["_notice"] = encodedNotice
+	}
+	return writeJSON(w, object)
 }
 
 func writeJSON(w io.Writer, value any) error {

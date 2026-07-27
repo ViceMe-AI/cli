@@ -159,7 +159,7 @@ viceme profile configure local --clear-api-base-url
 
 可以用 `VICEME_CLI_CONFIG_DIR` 覆盖配置根目录。`VICEME_API_BASE_URL` 与 `VICEME_ACCESS_TOKEN` 仍可作为单进程覆盖，并优先于所选 Profile；否则先使用 Profile 显式配置的 `apiBaseUrl`/`accessToken`，再回退到区域地址和安全凭证存储中的登录。不同 normalized origin 使用独立 scope。API 与预签名上传请求遇到重定向会直接失败，凭证请求头不会被转发到其他 origin。
 
-更新检查直接请求 npm registry，并且只把最近一次成功查询到的版本写入 `~/.viceme-cli/update-state.json`；registry 暂时不可用时，该结果最多回退使用 24 小时。`viceme install` 和 `viceme update` 启动的 npm 操作统一使用隔离的 `~/.viceme-cli/npm-cache`，不会因为用户级 `~/.npm` 缓存损坏而失败。这两个位置都不包含秘密信息，可以安全删除；凭证不会进入任何更新缓存。
+更新检查直接请求 npm registry，并且只把最近一次成功查询到的版本写入 `~/.viceme-cli/update-state.json`；registry 暂时不可用时，该结果最多回退使用 24 小时。npm 管理的 CLI 在普通命令中只同步读取本地缓存，并且最多每 24 小时在后台刷新一次，因此命令不会等待版本发现。当缓存确认存在新版本时，结构化成功与错误对象都会携带 `_notice.update`，其中包含 `current`、`latest`、`message` 和精确的 `viceme update` 命令，AI Agent 可以据此提醒用户。该提醒不会改变命令退出码，也不会自动执行更新。非 CI 环境可以设置 `VICEME_NO_UPDATE_NOTIFIER=1` 关闭提醒；标准 CI 环境会自动跳过。`viceme install` 和 `viceme update` 启动的 npm 操作统一使用隔离的 `~/.viceme-cli/npm-cache`，不会因为用户级 `~/.npm` 缓存损坏而失败。这两个位置都不包含秘密信息，可以安全删除；凭证不会进入任何更新缓存。
 
 ## Agent Skills
 
@@ -266,7 +266,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 
 ViceMe 根据命令语义选择最小且稳定的输出形式：
 
-- `version`、`install`、`update`、`auth status`、`profile *`、`skills doctor` 等本地/引导命令，将格式化后的业务结果直接写入 **stdout**，不附加 `ok`、`data` 或无关构建元数据。
+- `version`、`install`、`update`、`auth status`、`profile *`、`skills doctor` 等本地/引导命令，将格式化后的业务结果直接写入 **stdout**，不附加 `ok`、`data` 或无关构建元数据；npm 管理的普通调用最多只会附加上文约定的保留字段 `_notice.update`。
 - `skills read` 按原始字节输出目标文件，不添加 JSON 包装。
 - 交互式 `viceme auth login` 输出面向人的引导；AI Agent 使用 `--no-wait --json`，并在后续回合用 `--device-code <code> --json` 继续，这两个命令返回格式化的裸业务对象。
 - `skill` 和 `job` 下的发布协议命令继续使用稳定 Envelope，因为 action receipt、持久状态与有界等待元数据共同构成跨命令协议。

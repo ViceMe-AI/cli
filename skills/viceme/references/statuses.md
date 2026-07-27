@@ -48,6 +48,8 @@ Nonzero exits mean the CLI invocation itself did not complete. Preserve and bran
 
 Read the JSON error fields `type`, `subtype`, `message`, `retryable`, and optional `hint`. Never scrape human error text.
 
+Structured success and error objects may also contain `_notice.update`. This is a non-blocking machine-readable advisory, not an execution error. Tell the user its `current`, `latest`, and exact `command`; never silently discard it or auto-update without approval.
+
 Update failures use stable safe subtypes instead of returning raw npm output:
 
 - `update_registry_unavailable`: registry transport, timeout, rate-limit, or server failure; retryable when no fresh cache is available.
