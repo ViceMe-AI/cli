@@ -18,7 +18,7 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 
 1. Run `viceme --version`, then `viceme auth status` using the current profile. Use `viceme profile list` only when profile selection is relevant to the user's request.
 2. Select exactly one authentication path:
-   - If `auth status` reports `source=process` or `source=local_profile`, continue with the standard inspect/publish/job commands. The CLI has already bound that credential to its allowed production or loopback origin. Do not run login/logout while the override is active.
+   - If `auth status` reports `source=process` or `source=local_profile`, continue with the standard inspect/publish/job commands. The CLI has already bound that credential to its allowed production or loopback origin. Never print it, pass it as an argument, change its Profile or endpoint without an explicit user request, or run login/logout while the override is active.
    - If the user explicitly supplied an operations-issued access token and asked to use it, persist it only into the Profile selected by the user (or the current Profile when the user did not name another one):
 
      ```bash

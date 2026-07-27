@@ -131,7 +131,7 @@ inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理�
 | 中国区 | `viceme install` | `https://api.viceme.cn` |
 | 国际区 | `viceme install --region global` | `https://api.viceme.ai` |
 
-首次安装会创建 `default` Profile。设备登录凭证按 Profile 与规范化 API origin 隔离；在 macOS 上，它们保存在私有的 AES-256-GCM 加密文件中，加密主密钥通常只保存在系统 Keychain；其他平台继续使用原生凭证管理器。Profile 文件通常不含秘密；显式配置本地 access-token 覆盖后，它会成为必须保持 `0600` 权限的敏感文件。
+首次安装会创建 `default` Profile。设备登录凭证按 Profile 与规范化 API origin 隔离；在 macOS 上，它们保存在私有的 AES-256-GCM 加密文件中，加密主密钥通常只保存在系统 Keychain；其他平台继续使用原生凭证管理器。受控本地/内部操作还可以在 Profile 中显式配置 publication credential；此类配置文件始终保持 `0600` 私有权限。
 
 ```bash
 viceme profile list
@@ -144,20 +144,20 @@ viceme profile remove company
 
 `profile use` 修改持久化的当前 Profile；全局 `--profile` 只覆盖本次命令。不要让 AI Agent 在用户没有明确要求时切换或删除 Profile。
 
-只有在明确授权的本地/内部测试中，才创建独立 Profile，并显式配置 endpoint 与 token：
+受控本地/内部操作可创建同时包含显式 endpoint 与 audience-bound publication credential 的独立 Profile：
 
 ```bash
 viceme profile add --name local --region cn \
-  --api-base-url http://localhost:8090 --access-token 'YOUR_ACCESS_TOKEN' --use
-
+  --api-base-url http://localhost:8090 \
+  --access-token '<vpa1.local-dev.credential>' --use
 viceme profile configure local --access-token 'YOUR_ACCESS_TOKEN'
 viceme profile configure local --clear-access-token
 viceme profile configure local --clear-api-base-url
 ```
 
-正常 `viceme auth login` 永远不会向 Profile 回填 `apiBaseUrl` 或 `accessToken`。显式本地 token 绑定到该 Profile 的 normalized API origin，只会在同一 origin 上优先于安全凭证存储中的登录；切换 origin 时必须在同一条配置命令中替换或清除 token。覆盖生效时 `auth login` 与 `auth logout` 都会 fail closed。`profile list` 和 `auth status` 只报告 `source=local_profile`，不会输出 token。内部测试结束后应立即清除覆盖。
+正常 `viceme auth login` 永远不会向 Profile 写入凭证。本地 Profile credential 只能通过显式的 `profile add/configure` flag 设置、替换或清除，list/status 只报告 `source=local_profile`，不会返回 token。`--access-token` 会出现在 argv 中且可能进入 shell history，因此只能用于本文约定的受控本地/内部环境。
 
-可以用 `VICEME_CLI_CONFIG_DIR` 覆盖配置根目录。`VICEME_API_BASE_URL` 与 `VICEME_ACCESS_TOKEN` 仍可作为单进程覆盖，并优先于所选 Profile；否则先使用 Profile 显式配置的 `apiBaseUrl`/`accessToken`，再回退到区域地址和安全凭证存储中的登录。不同 normalized origin 使用独立 scope。API 与预签名上传请求遇到重定向会直接失败，凭证请求头不会被转发到其他 origin。
+凭证优先级为进程 `VICEME_ACCESS_TOKEN` → 当前本地 Profile → 设备登录。publication credential 必须使用 `vpa1.<audience>.<secret>`：`cn-prod` 只能访问 `https://api.viceme.cn`，`global-prod` 只能访问 `https://api.viceme.ai`，Profile 中的 `local-dev` 只能访问 loopback endpoint；进程 `local-dev` 还要求 `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`。`VICEME_CLI_CONFIG_DIR` 可覆盖配置根目录，`VICEME_API_BASE_URL` 仍只是单进程 endpoint 覆盖，不能放宽 Profile credential 的 origin。API 与预签名上传重定向一律 fail closed。
 
 更新检查直接请求 npm registry，并且只把最近一次成功查询到的版本写入 `~/.viceme-cli/update-state.json`；registry 暂时不可用时，该结果最多回退使用 24 小时。npm 管理的 CLI 在普通命令中只同步读取本地缓存，并且最多每 24 小时在后台刷新一次，因此命令不会等待版本发现。当缓存确认存在新版本时，结构化成功与错误对象都会携带 `_notice.update`，其中包含 `current`、`latest`、`message` 和精确的 `viceme update` 命令，AI Agent 可以据此提醒用户。该提醒不会改变命令退出码，也不会自动执行更新。非 CI 环境可以设置 `VICEME_NO_UPDATE_NOTIFIER=1` 关闭提醒；标准 CI 环境会自动跳过。`viceme install` 和 `viceme update` 启动的 npm 操作统一使用隔离的 `~/.viceme-cli/npm-cache`，不会因为用户级 `~/.npm` 缓存损坏而失败。这两个位置都不包含秘密信息，可以安全删除；凭证不会进入任何更新缓存。
 
@@ -206,7 +206,7 @@ viceme config keychain-downgrade
 
 该命令会把现有主密钥复制到 `~/.viceme-cli/credentials/master.key.file`，并将已配置 Profile 的旧 Keychain 凭证导入加密文件。原 Keychain 条目会保留为冷备份。命令可重复执行，不会打印 token，也不会将 token 明文落盘。完成后，同一 macOS 用户下的 Codex、Claude Code 沙箱无需访问 Keychain 即可读取加密凭证。其明确的安全取舍是：降级后由用户文件权限（目录 `0700`、文件 `0600`）代替 Keychain 的进程级访问边界。
 
-公开 CLI 只提供一套标准认证与发布命令面。短时通用凭证既可以由 `VICEME_ACCESS_TOKEN` 提供（`source=process`），也可以由运营人员通过 `--access-token` 显式写入专用内部测试 Profile（`source=local_profile`）。两者都只调用标准 `inspect/publish/job` 并使用统一 `x-api-key`；不会新增身份选择、代发布或授权签发命令。CLI 永远不输出 token；覆盖生效时 login/logout fail closed，update 子进程也不会继承进程凭证。显式参数可能出现在 shell history 和进程参数中，仅允许在本文约定的受信任内部联调环境使用。
+公开 CLI 只提供一套标准认证与发布命令面。工作人员短时授权凭证可由进程环境注入（`source=process`），也可由受控本地 Profile 显式配置（`source=local_profile`）；两者都只调用标准 `inspect/publish/job` 并使用统一 `x-api-key`。CLI 不提供身份选择或 staff authorization 签发命令；永远不输出 token，任一覆盖凭证生效时 login/logout fail closed，update 子进程也不会继承该凭证。
 
 ## 支持的来源
 
