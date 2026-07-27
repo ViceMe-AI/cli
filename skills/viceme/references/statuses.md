@@ -12,7 +12,9 @@
 - `release_committed`
 - `waiting_projection`
 
-Use another bounded wait when `meta.wait_timed_out` is true — resume by ID with `job edit-get <pub> <edit-id> --timeout <d>` or `job run-get <pub> <run-id> --timeout <d>`, never by re-submitting the payload.
+For publication `job wait`, `meta.wait_timed_out=true` means only that the bounded observation window ended. It is not a failure and must not be described as a stuck Compiler. While the receipt remains nonterminal, use up to five consecutive 60-second waits (five minutes total), then report that processing continues in the background and preserve the publication ID for a later bounded wait. If the receipt includes `progress.kind=in_progress`, its `phase` is the authoritative server phase and `poll_after_seconds` is the minimum suggested polling interval.
+
+For edit/run sub-jobs, resume by ID with `job edit-get <pub> <edit-id> --timeout <d>` or `job run-get <pub> <run-id> --timeout <d>`, never by re-submitting the payload.
 
 ## User action
 
