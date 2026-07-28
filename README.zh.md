@@ -198,13 +198,15 @@ CLI 会在创建设备授权或兑换一次性 device code 之前，对完整的
 
 ### macOS 沙箱（Codex 与 Claude Code）
 
-全新沙箱环境在系统 Keychain 被阻断时，可以自动创建私有的 `0600` 文件主密钥。如果凭证此前是在 Terminal 中使用 Keychain 主密钥创建的，请从同一 macOS 用户的交互式终端执行一次：
+当用户在无法访问 macOS Keychain 的沙箱中显式执行设备登录时，CLI 会自动创建私有的 `0600` 文件主密钥，并将新授权的凭证保存到本地加密文件中，无需用户预先执行额外命令。
+
+如果用户不想重新登录，希望直接复用此前在 Terminal 中使用 Keychain 主密钥创建的凭证，可以从同一 macOS 用户的交互式终端执行一次：
 
 ```bash
 viceme config keychain-downgrade
 ```
 
-该命令会把现有主密钥复制到 `~/.viceme-cli/credentials/master.key.file`，并将已配置 Profile 的旧 Keychain 凭证导入加密文件。原 Keychain 条目会保留为冷备份。命令可重复执行，不会打印 token，也不会将 token 明文落盘。完成后，同一 macOS 用户下的 Codex、Claude Code 沙箱无需访问 Keychain 即可读取加密凭证。其明确的安全取舍是：降级后由用户文件权限（目录 `0700`、文件 `0600`）代替 Keychain 的进程级访问边界。
+该命令会把现有主密钥复制到 `~/.viceme-cli/credentials/master.key.file`，并将已配置 Profile 的旧 Keychain 凭证导入加密文件。原 Keychain 条目会保留为冷备份。命令可重复执行，不会打印 token，也不会将 token 明文落盘。完成后，同一 macOS 用户下的 Codex、Claude Code 沙箱无需访问 Keychain 即可读取加密凭证；如果愿意重新登录，则不需要执行该迁移命令。其明确的安全取舍是：降级后由用户文件权限（目录 `0700`、文件 `0600`）代替 Keychain 的进程级访问边界。
 
 公开 CLI 只提供一套标准认证与发布命令面。工作人员短时授权凭证可由进程环境注入（`source=process`），也可由受控本地 Profile 显式配置（`source=local_profile`）；两者都只调用标准 `inspect/publish/job` 并使用统一 `x-api-key`。CLI 不提供身份选择或 staff authorization 签发命令；永远不输出 token，任一覆盖凭证生效时 login/logout fail closed，update 子进程也不会继承该凭证。
 

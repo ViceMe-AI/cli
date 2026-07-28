@@ -198,13 +198,15 @@ Before starting or exchanging a device authorization, the CLI verifies the full 
 
 ### macOS sandboxes (Codex and Claude Code)
 
-A fresh sandboxed installation can create a private `0600` file master key when the macOS Keychain is blocked. If credentials were previously created from Terminal with a Keychain-backed master key, run this once from that same interactive macOS user session:
+When an explicit device login runs inside a sandbox that cannot access the macOS Keychain, the CLI automatically creates a private `0600` file master key and saves the newly authorized credential there. No manual preparation is required.
+
+To reuse credentials previously created from Terminal with a Keychain-backed master key without logging in again, run this once from that same interactive macOS user session:
 
 ```bash
 viceme config keychain-downgrade
 ```
 
-The command copies the existing master key into `~/.viceme-cli/credentials/master.key.file` and imports configured legacy Keychain credentials into encrypted files. Existing Keychain entries are preserved as a cold backup. The command is idempotent and never prints or stores a plaintext token. Afterward, Codex and Claude Code sandboxes for the same macOS user can read the encrypted credential files without Keychain access. The trade-off is explicit: security is then enforced by the user's filesystem permissions (`0700` directory and `0600` files) instead of the Keychain per-process access boundary.
+The command copies the existing master key into `~/.viceme-cli/credentials/master.key.file` and imports configured legacy Keychain credentials into encrypted files. Existing Keychain entries are preserved as a cold backup. The command is idempotent and never prints or stores a plaintext token. Afterward, Codex and Claude Code sandboxes for the same macOS user can read the encrypted credential files without Keychain access. This migration is optional when the user is willing to log in again. The trade-off is explicit: security is then enforced by the user's filesystem permissions (`0700` directory and `0600` files) instead of the Keychain per-process access boundary.
 
 The public CLI exposes one standard authentication and publication surface. A short-lived staff authorization credential may be supplied through process environment (`source=process`) or an explicitly configured local Profile (`source=local_profile`). Both use normal inspect/publish/job commands and the standard `x-api-key` header; there are no identity-selection or staff-authorization issuance commands. Tokens are never printed or inherited by update subprocesses, and login/logout fail closed while either override is active.
 
