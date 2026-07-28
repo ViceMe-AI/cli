@@ -66,13 +66,15 @@ viceme job bind <publication-id>
 
 Give `binding_url` to the user and stop. After the browser flow succeeds, repeat inspect and publish with a fresh client request ID. The blocked publication is intentionally terminal and is not resumed.
 
-Login preflights credential persistence before creating or consuming a device authorization. If `credential_store_unavailable` says an existing macOS login is protected by Keychain, do not keep retrying or start another device flow. Ask the user to run the following command once from an interactive macOS Terminal, then retry the same ViceMe operation from the sandbox:
+Login preflights credential persistence before creating or consuming a device authorization. On macOS, an explicit login automatically creates a private local encryption key when the current sandbox cannot access Keychain. Do not tell the user to run a separate setup command before logging in.
+
+If the user wants to reuse an existing Keychain-protected login inside Codex or Claude Code without logging in again, they can migrate that existing credential once from an interactive macOS Terminal:
 
 ```bash
 viceme config keychain-downgrade
 ```
 
-The command copies only encryption key material to a private `0600` local file and imports configured legacy credentials into encrypted files. It never prints a token. Do not run it unless the user is experiencing the documented macOS sandbox boundary or explicitly requests it.
+The command copies only encryption key material to a private `0600` local file and imports configured legacy credentials into encrypted files. It never prints a token. It is optional for explicit re-login and exists only to preserve an existing login without reauthorization.
 
 ## Authentication and server-resolved ownership
 
