@@ -101,6 +101,31 @@ func TestLocalProcessCredentialRequiresExplicitLoopbackDebug(t *testing.T) {
 	}
 }
 
+func TestDevPreviewCredentialOnlyAcceptsCanonicalOrigin(t *testing.T) {
+	credential, err := parsePublicationCredential(testProcessCredential("dev-preview"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, accepted := range []string{
+		"https://viceme-envoy-dev.preview.tencent-zeabur.cn",
+		"https://VICEME-ENVOY-DEV.PREVIEW.TENCENT-ZEABUR.CN:443/v1",
+	} {
+		if err := validatePublicationCredentialTarget(credential, accepted, true); err != nil {
+			t.Fatalf("canonical preview origin %q was rejected: %v", accepted, err)
+		}
+	}
+	for _, rejected := range []string{
+		"https://preview.tencent-zeabur.cn",
+		"https://viceme-envoy-dev.preview.tencent-zeabur.cn:8443",
+		"http://viceme-envoy-dev.preview.tencent-zeabur.cn",
+		"http://localhost:8090",
+	} {
+		if err := validatePublicationCredentialTarget(credential, rejected, true); err == nil {
+			t.Fatalf("non-canonical preview origin %q was accepted", rejected)
+		}
+	}
+}
+
 func TestDeviceLoginDoesNotBackfillExplicitProfileOverrides(t *testing.T) {
 	configBase := t.TempDir()
 	configured := config.Default(config.RegionCN)
