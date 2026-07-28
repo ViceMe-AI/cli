@@ -35,7 +35,7 @@ viceme profile configure local --clear-access-token
 viceme profile configure local --clear-api-base-url
 ```
 
-Never infer, print, or copy a token from Skill content. The `YOUR_ACCESS_TOKEN` value above must come from an explicitly authorized user-provided or staff reissue flow; `--access-token` is visible in argv and may enter shell history. Credential priority is process `VICEME_ACCESS_TOKEN` → selected local Profile → device login. Production audiences are pinned to their canonical API origins; `local-dev` Profile credentials require an explicit loopback endpoint, while process `local-dev` additionally requires `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. Normal login never writes a Profile token. Profile list/status expose only whether it is configured, and all API and presigned-upload redirects fail closed.
+Never infer, print, or copy a token from Skill content. The `YOUR_ACCESS_TOKEN` value above must come from an explicitly authorized user-provided or staff reissue flow; `--access-token` is visible in argv and may enter shell history. Credential priority is process `VICEME_ACCESS_TOKEN` → selected local Profile → device login. Non-local audiences are pinned to their canonical API origins, including `dev-preview` at `https://viceme-envoy-dev.preview.tencent-zeabur.cn`; `local-dev` Profile credentials require an explicit loopback endpoint, while process `local-dev` additionally requires `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. Normal login never writes a Profile token. Profile list/status expose only whether it is configured, and all API and presigned-upload redirects fail closed.
 
 Check first when desired, then update the npm launcher, verified Go binary, and matching Skill together:
 
