@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.9.2] - 2026-07-27
+
+### Fixes
+
+- restore profile publication credentials (`f50c397`)
+- bind T1 process credentials to API origins (`801b3ba`)
+
+### Other Changes
+
+- 更新 T1 权威来源追溯 (`ca9b059`)
+- restore profile token rotation example (`eac514d`)
+- 中文化 T1 复审交接 (`f549459`)
+- add T1 review remediation handoff (`33ddc8b`)
+
 ## [0.9.1] - 2026-07-27
 
 ### Fixes
@@ -71,10 +85,13 @@
 
 ## [0.6.0] - 2026-07-22
 
-### Security
+### Features
 
-- bind process publication credentials to a versioned audience and canonical API origin
-- restore explicit local Profile publication credentials for controlled internal operation
+- persist explicit local profile overrides (`ba33f0b`)
+
+### Other Changes
+
+- configure profile token explicitly (`c183ec5`)
 
 ## [0.5.0] - 2026-07-21
 
@@ -87,13 +104,13 @@
 - add explicit compiler retry command (`efcaa0e`)
 - Host typed-action 闭环(job preview/edit/run/accept + META) (`ec6479a`)
 - job metadata 支持信息确认检查点(产品 3098) (`56cf083`)
-- add staff-authorized Skill publication credentials (`91fee90`)
+- add delegated skill publication credentials (`91fee90`)
 - job resume 支持 confirm_publish 精确候选确认 (`5707afa`)
 
 ### Fixes
 
-- narrow staff-authorized publication client boundary (`3a3647c`)
-- make staff-authorized publishing recovery-safe (`a15b6bd`)
+- narrow delegated publication client boundary (`3a3647c`)
+- make delegated publishing recovery-safe (`a15b6bd`)
 
 ### Other Changes
 
