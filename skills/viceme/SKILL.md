@@ -28,14 +28,13 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 
 ### 公开摘要与 Host 编辑
 
-8. 候选就绪后 publication 停在 `awaiting_action` 并带 `confirm_publish` action。用 `viceme job preview <id>` 展示当前精确 Candidate 的公开摘要（标题/描述/来源作者/输入方式/使用方式/输出说明/示例/警告）与 `payload.preview_url`。
+8. 候选就绪后 publication 停在 `awaiting_action` 并带 `confirm_publish` action。用 `viceme job preview <id>` 展示当前精确 Candidate 的公开摘要（标题/描述/来源作者/输入方式/使用方式/输出说明/示例/警告），并把输出顶层的 `preview_share_url` 发给用户——那就是预览链接（仅创作者本人可见），也是确认发布后公开生效的同一个分享链接。（旧 `payload.preview_url` 会 302 重定向到同一链接，可忽略。）
 9. 用户提出自然语言修改时：用 `viceme job edit <id> --candidate-digest <当前摘要里的 digest> --request "<用户的原话>"` 提交。相同请求的网络重试被服务端幂等去重；409 `candidate_changed` 说明摘要已过期，重新 `job preview` 取新 digest 再问用户。**不要**引导用户去任何页面编辑器，也不要自己构造 JSON Patch。编辑 applied 后旧 preview/action/试跑回执全部失效，必须对新 Candidate 重新走 10–12 步。
 
 ### 试跑与结果确认
 
-10. 用 `viceme job run <id> --candidate-digest <digest> [--input name=value]...` 对该精确 Candidate 做一次真实试跑，向用户展示 `result.finish_report` 的结构化结果（summary/title）。
-11. 用户认可实际结果后，用 `viceme job accept <id> --run-id <run> --candidate-digest <digest> --inputs-digest <digest>` 接受。`--inputs-digest` 必填（PRE-04：接受动作必须绑定产生结果的输入组），取值是第 10 步 `job run` 回执里的 `inputs_digest`。未试跑成功或未接受就 confirm 会被 409 `preview_run_required` 拒绝。
-12. 最后用 `viceme job resume --action-id … --expected-payload-digest … --expected-release-candidate-digest … --expected-public-summary-digest … --decision confirm|cancel` 决议。`--expected-public-summary-digest` 必填（确认门绑定摘要 receipt），取值是 `job preview` 输出里的 `public_summary_digest`——先把第 8 步 preview 的摘要展示给用户，再用同一份 digest 决议。返回最终 `share_url`、是否 no-op 和 warnings。同一逻辑 Agent 永远保持同一分享链接。
+10. 引导用户打开第 8 步的 `preview_share_url`，点「去使用」真实试跑一次并查看效果——预览页就是分享页，用户看到/跑到的与发布后访客完全一致。发布门要求：确认前该链接下必须有创作者本人至少一次成功 run（finishReport 非空，且晚于最近一次候选刷新），否则 confirm 会被 409 `preview_run_required` 拒绝。`job run`/`job accept` 命令已不再是发布门路径。
+11. 用户确认效果符合预期后，用 `viceme job resume --action-id … --expected-payload-digest … --expected-release-candidate-digest … --expected-public-summary-digest … --decision confirm|cancel` 决议。`--expected-public-summary-digest` 必填（确认门绑定摘要 receipt），取值是 `job preview` 输出里的 `public_summary_digest`——先把第 8 步 preview 的摘要展示给用户，再用同一份 digest 决议。确认后同一个 `preview_share_url` 即刻转为公开分享链接；取消则该链接下架。返回最终 `share_url`、是否 no-op 和 warnings。同一逻辑 Agent 永远保持同一分享链接。
 
 Stale/恢复规则：`job get` 是任何时刻的真相来源——action 过期、digest 变化或 409 后，重新 `job get` 拿最新 `next_action` 再操作，不要重放旧 action/digest。
 
