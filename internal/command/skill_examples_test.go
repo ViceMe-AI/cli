@@ -26,11 +26,17 @@ func TestCommandSurface(t *testing.T) {
 		"config keychain-downgrade",
 		"profile list", "profile add", "profile configure", "profile use", "profile remove", "profile rename",
 		"skill inspect", "skill publish", "skill target get", "skill target list",
-		"job get", "job wait", "job resume", "job retry", "job cancel",
+		"job get", "job wait", "job preview", "job edit", "job edit-get",
+		"job resume", "job retry", "job cancel",
 		"skills list", "skills read", "skills install", "skills doctor",
 	} {
 		if findCommand(root, strings.Fields(path)) == nil {
 			t.Errorf("missing command %q", path)
+		}
+	}
+	for _, removed := range []string{"job run", "job run-get", "job accept"} {
+		if findCommand(root, strings.Fields(removed)) != nil {
+			t.Errorf("obsolete PreviewRun command %q is still exposed", removed)
 		}
 	}
 }

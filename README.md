@@ -10,7 +10,7 @@ The official command-line client and Agent Skill for publishing external Skills 
 
 [Install](#installation--quick-start) · [AI Agent Skills](#agent-skills) · [Auth](#authentication) · [Regions & profiles](#regions--profiles) · [Commands](#command-overview) · [Output contract](#json-output-contract) · [Security](#security-and-risk-controls) · [Development](#development)
 
-> **Rollout status:** the Core publication transport and stable-link path are implemented, and the metadata review plus exact Candidate preview → test run → result-confirmation gates are enforced. After `--yes`, the publication first parks at `meta_review` for `job metadata`, then at `awaiting_action` for `job preview`, optional `job edit`, `job run`, `job accept`, and `job resume`. Confirm is accepted only after the exact Candidate has a succeeded, owner-accepted preview run (otherwise 409 `preview_run_required`). A confirm receipt authorizes release but does not contain the final share link; run another bounded `job wait` until `share_published`. `--yes` confirms only the publication request, not the metadata or final Candidate.
+> **Rollout status:** the Core publication transport and stable-link path are implemented. After `--yes`, a publication first parks at `meta_review` for metadata confirmation, then at `awaiting_action` for interaction-step confirmation. `confirm_publish` then returns the one stable `preview_share_url` that will remain the public URL after release. The creator completes one ordinary successful run on that share page, returns to the Agent Host, and explicitly confirms. The CLI no longer exposes a separate PreviewRun surface. Preview inputs, outputs, files, sessions, and Runner history are temporary, are purged after resolution, and never enter public usage or work history.
 
 ## Why ViceMe CLI?
 
@@ -120,7 +120,7 @@ Continue only when authentication is valid and `skills doctor` reports a healthy
 viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. If a publication ends at `binding_required`, run `viceme job bind <publication-id>`, give the signed ViceMe URL to the user, and stop. Downloading or forking is only an informational alternative; the CLI never performs it automatically. After the user binds the exact GitHub/Xiaohongshu channel account, inspect again and create a fresh ordinary publication rather than resuming the terminal one. At `meta_review`, show and resolve the metadata using the exact action ID and payload digest, then wait again. At `awaiting_action`, show the frozen Candidate summary, run and accept one exact-Candidate test result, and obtain the user's decision before `job resume`. After confirm, wait again until `share_published` before returning the share link.
+Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. If a publication ends at `binding_required`, run `viceme job bind <publication-id>`, give the signed ViceMe URL to the user, and stop. Downloading or forking is only an informational alternative; the CLI never performs it automatically. After the user binds the exact GitHub/Xiaohongshu channel account, inspect again and create a fresh ordinary publication rather than resuming the terminal one. At `meta_review`, show and resolve the metadata using the exact action ID and payload digest, then wait again. At `awaiting_action`, confirm the interaction steps, open `preview_share_url`, and complete one successful ordinary use on the share page. Return to the conversation for an explicit confirm or cancel decision. After confirm, wait until `share_published`; the final URL must be identical to the preview URL.
 
 ## Regions & Profiles
 
@@ -261,7 +261,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 | `viceme skill inspect` | Freeze and inspect a source candidate without publishing |
 | `viceme skill publish` | Create or update a stable Skill Agent publication |
 | `viceme skill target` | Resolve existing logical Agent Targets and versions |
-| `viceme job` | Read or wait for a publication, review metadata, preview/edit/test/accept its Candidate, show a signed channel-binding URL, resume an action, explicitly retry, or cancel |
+| `viceme job` | Read or wait for a publication, review metadata and the frozen summary, edit its Candidate, show stable preview/public and signed channel-binding URLs, resume an action, explicitly retry, or cancel |
 | `viceme skills` | Read, install, and diagnose the bundled Agent Skill |
 | `viceme update` | Update the npm launcher, verified binary, and bundled Skill together |
 

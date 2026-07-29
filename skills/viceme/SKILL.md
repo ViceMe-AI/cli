@@ -52,16 +52,17 @@ viceme job metadata <id> --action-id <action-id> \
 
 用户提供或修改的标题、描述、来源作者必须作为 `{"title":…,"description":…,"author":…}` 经 stdin 传入 `--edits-stdin`，不要插值进 shell 参数。取消会进入零资产终态且不产生预览链接，报告取消并停止。确认只返回 `meta_confirmed` receipt；随后再次运行 `viceme job wait <id> --timeout 60s`，直到进入下一用户动作或终态。
 
-### 交互步骤确认（产品 3427，先于一切预览链接）
+### 交互步骤确认（先于稳定分享链接）
 
-8. 候选就绪后 publication 停在 `awaiting_action`，先带 `confirm_steps` action（**没有** preview_url，此时**不要也无法**调用 `job preview`）。向用户展示 action `payload.steps` 里的交互步骤（标题/描述/来源作者/输入方式/使用方式/输出说明），用户确认、修改或拒绝：确认 → `job resume <publication-id> --action-id … --expected-payload-digest … --expected-release-candidate-digest … --expected-public-summary-digest … --decision confirm`——三个 digest 的精确 JSON path 分别是 `next_action.payload_digest`、`next_action.payload.expected_release_candidate_digest`、`next_action.payload.expected_public_summary_digest`；本阶段不需要任何 preview 调用；拒绝 → `--decision cancel`，`cancelled` 终态且零预览链接。自然语言修改走第 9 步编辑——编辑 applied 后旧 steps/confirm/试跑回执全部失效，必须对新 Candidate 重新确认步骤。
-9. steps 确认通过后 publication 换发 `confirm_publish` action；从最新 `job wait` / `job get` 的 `next_action.payload.preview_url` 读取私有预览链接。用 `viceme job preview <id>` 读取 `data.preview` 中当前精确 Candidate 的公开摘要、candidate digest、payload digest 与 public-summary digest，并向用户展示标题、描述、来源作者、输入方式、使用方式、输出说明、示例和警告。用户提出自然语言修改时，将用户原话作为子进程的标准输入，运行 `viceme job edit <id> --candidate-digest <当前摘要里的 digest> --request-stdin`。只能通过 Host 的 subprocess stdin 通道传递原文；不得把原文拼入命令字符串、argv、环境变量或 shell 管道。CLI 会原样读取完整输入（包括换行和 shell 元字符）。相同请求的网络重试被服务端幂等去重；409 `candidate_changed` 说明摘要已过期，重新 `job preview` 取新 digest 再问用户。**不要**引导用户去任何页面编辑器，也不要自己构造 JSON Patch。编辑 applied 后旧 steps/confirm/试跑回执全部失效；重新运行 `job get` / `job preview`，并对新 Candidate 重新确认步骤。
+8. 候选就绪后 publication 停在 `awaiting_action`，先带 `confirm_steps` action（**没有** `preview_share_url`，此时不要调用 `job preview`）。向用户展示 action `payload.steps` 里的交互步骤（标题/描述/来源作者/输入方式/使用方式/输出说明），用户确认、修改或拒绝：确认 → `job resume <publication-id> --action-id … --expected-payload-digest … --expected-release-candidate-digest … --expected-public-summary-digest … --decision confirm`——三个 digest 的精确 JSON path 分别是 `next_action.payload_digest`、`next_action.payload.expected_release_candidate_digest`、`next_action.payload.expected_public_summary_digest`；拒绝 → `--decision cancel`，`cancelled` 终态且不签发预览链接。自然语言修改走第 9 步编辑；编辑 applied 后旧 steps/action、稳定链接上的待发布投影和临时预览产物全部失效，必须对新 Candidate 重新确认步骤。
+9. steps 确认通过后 publication 换发 `confirm_publish` action。从最新 `job wait` / `job get` 的 `next_action.payload.preview_share_url` 读取稳定分享链接；该链接发布后保持不变，不存在第二条正式链接。用 `viceme job preview <id>` 读取 `data.preview` 中当前精确 Candidate 的公开摘要、candidate digest、payload digest 与 public-summary digest，并向用户展示标题、描述、来源作者、输入方式、使用方式、输出说明、示例和警告。用户提出自然语言修改时，将用户原话作为子进程的标准输入，运行 `viceme job edit <id> --candidate-digest <当前摘要里的 digest> --request-stdin`。只能通过 Host 的 subprocess stdin 通道传递原文；不得把原文拼入命令字符串、argv、环境变量或 shell 管道。CLI 会原样读取完整输入（包括换行和 shell 元字符）。相同请求的网络重试被服务端幂等去重；409 `candidate_changed` 说明摘要已过期，重新 `job get` / `job preview` 取新 digest 再问用户。不要引导用户去页面编辑器，也不要自己构造 JSON Patch。
 
-### 试跑与结果确认
+### 稳定分享链接预览与发布确认
 
-10. 用 `viceme job run <id> --candidate-digest <digest> [--input name=value]...` 对该精确 Candidate 做一次真实试跑，向用户展示 `result.finish_report` 的结构化结果（summary/title）。
-11. 用户认可实际结果后，用 `viceme job accept <id> --run-id <run> --candidate-digest <digest> --inputs-digest <digest>` 接受。`--inputs-digest` 必填（PRE-04：接受动作必须绑定产生结果的输入组），取值是第 10 步 `job run` 回执里的 `inputs_digest`。未试跑成功或未接受就 confirm 会被 409 `preview_run_required` 拒绝。
-12. 最后用 `viceme job resume <publication-id> --action-id … --expected-payload-digest … --expected-release-candidate-digest … --expected-public-summary-digest … --decision confirm|cancel` 决议。`--expected-public-summary-digest` 必填（确认门绑定摘要 receipt），取值是 `data.preview.public_summary_digest`——先把第 8 步 preview 的摘要展示给用户，再用同一份 digest 决议。取消时报告 `cancelled` 并停止。确认只返回 `release_authorized` receipt；随后再次运行 `viceme job wait <id> --timeout 60s`，直到 `share_published` 或其他终态，再返回 `data.result.share_url`、`data.result.published_noop` 和 warnings。同一逻辑 Agent 永远保持同一分享链接。
+10. 把 `preview_share_url` 交给用户打开。用户在这个普通分享页中像正式使用 Agent 一样输入需求并至少完成一次成功运行；分享页没有“试跑”“接受结果”或“确认发布”专用控件。CLI 不再提供 `job run`、`job run-get` 或 `job accept`，不得模拟另一条试跑链路。首次发布时只有当前创作者能看到待发布 Candidate；更新时其他访问者继续看到当前正式 Release。
+11. 用户在普通分享页核对结果后回到当前对话，明确确认或取消。用 `viceme job resume <publication-id> --action-id … --expected-payload-digest … --expected-release-candidate-digest … --expected-public-summary-digest … --decision confirm|cancel` 决议。`--expected-public-summary-digest` 取自 `data.preview.public_summary_digest`。若当前稳定链接尚无一次成功的普通分享运行，确认会返回 409 `preview_share_run_required`；请用户回到同一链接完成使用，不要创建额外运行。取消时报告 `cancelled` 并停止。确认只返回 `release_authorized` receipt；随后有界运行 `viceme job wait <id> --timeout 60s`，直到 `share_published` 或其他终态，再返回 `data.result.share_url`、`data.result.published_noop` 和 warnings。返回的正式链接必须与 `preview_share_url` 完全相同。
+
+预览阶段的输入、输出、文件、媒体、会话和 Runner 历史均为临时数据：确认发布、取消、过期、被新 Candidate 取代或提交 Release 后都会由平台清理，不进入公开浏览量、使用量、作品或历史。不要承诺用户可在发布后找回这些预览产物；需要长期保留的结果应在正式发布后重新运行。
 
 Stale/恢复规则：`job get` 是任何时刻的真相来源——action 过期、digest 变化或 409 后，重新 `job get` 拿最新 `next_action` 再操作，不要重放旧 action/digest。
 
@@ -79,7 +80,7 @@ For exact flags and examples, read `references/commands.md` with `viceme skills 
 - If a required capability is `unsupported`, stop. Do not fall back to the ordinary Builder loop or publish a reduced Agent.
 - If an uploaded archive returns multiple Skill roots, ask the user to select one and resume the same publication with the exact action ID and payload digest. GitHub must have one Agent-selected `--skill-root` before inspect and must not use this fallback.
 - If another existing publication returns `awaiting_action`, do not resume it blindly. Read `next_action.type`, present the required selection or exact Candidate to the user, and follow the corresponding `select_root` or `confirm_publish` flow with that action's exact ID and payload digest. Never infer its payload or decision.
-- Do not expose the Core pilot as the public product until a returned `confirm_publish` action binds the user's decision to the exact preview/candidate digest (T2).
+- Do not expose the Core pilot as the public product until a returned `confirm_publish` action binds the user's decision to the exact stable-share preview/candidate digest (T2).
 
 ## Safety rules
 
