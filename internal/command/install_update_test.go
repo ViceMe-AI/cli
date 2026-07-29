@@ -171,7 +171,10 @@ func TestUpdateCommandReturnsSafeActionableFailures(t *testing.T) {
 		applyErr: &updatepkg.OperationError{Kind: updatepkg.ErrorNPMPermission, Cause: errors.New("safe permission failure")},
 	}
 	code, _, stderr, _ = runCLIWithDependencies(t, nil, nil, "", Dependencies{Updater: permissionFailure}, "update")
-	if code != 5 || !stringContains(stderr, `"subtype":"update_npm_permission"`) || !stringContains(stderr, `"hint":"ensure ~/.viceme-cli`) {
+	if code != 5 ||
+		!stringContains(stderr, `"subtype":"update_npm_permission"`) ||
+		!stringContains(stderr, `"hint":"ensure the ViceMe configuration directory and the npm global prefix are writable"`) ||
+		strings.Contains(stderr, "~/.viceme-cli") {
 		t.Fatalf("npm permission error was not actionable: code=%d stderr=%s", code, stderr)
 	}
 }
