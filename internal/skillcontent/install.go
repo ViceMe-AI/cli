@@ -47,7 +47,7 @@ func defaultConfigDir(home string) string {
 			if _, err := os.Stat(filepath.Join(preferred, "config.json")); err == nil || !errors.Is(err, fs.ErrNotExist) {
 				return preferred
 			}
-			if _, err := os.Stat(filepath.Join(legacy, "config.json")); err == nil {
+			if _, err := os.Stat(filepath.Join(legacy, "config.json")); err == nil || !errors.Is(err, fs.ErrNotExist) {
 				return legacy
 			}
 			return preferred

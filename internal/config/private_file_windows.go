@@ -54,13 +54,17 @@ func requirePrivateFile(filename string) error {
 	if err != nil {
 		return fmt.Errorf("read Windows ACL: %w", err)
 	}
-	owner, _, err := descriptor.Owner()
-	if err != nil {
-		return fmt.Errorf("read Windows config owner: %w", err)
-	}
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return fmt.Errorf("resolve current Windows user: %w", err)
+	}
+	return requirePrivateDescriptor(descriptor, user.User.Sid)
+}
+
+func requirePrivateDescriptor(descriptor *windows.SECURITY_DESCRIPTOR, user *windows.SID) error {
+	owner, _, err := descriptor.Owner()
+	if err != nil {
+		return fmt.Errorf("read Windows config owner: %w", err)
 	}
 	system, err := windows.StringToSid("S-1-5-18")
 	if err != nil {
@@ -70,7 +74,10 @@ func requirePrivateFile(filename string) error {
 	if err != nil {
 		return err
 	}
-	allowed := []*windows.SID{owner, user.User.Sid, system, administrators}
+	allowed := []*windows.SID{user, system, administrators}
+	if !sidAllowed(owner, allowed) {
+		return fmt.Errorf("config containing a local access token has an unsupported Windows owner")
+	}
 
 	dacl, _, err := descriptor.DACL()
 	if err != nil || dacl == nil {

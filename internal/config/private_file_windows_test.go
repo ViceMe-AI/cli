@@ -49,3 +49,19 @@ func TestLocalAccessTokenUsesWindowsACLInUnicodeConfigPath(t *testing.T) {
 		t.Fatalf("broad Windows ACL was accepted: %v", err)
 	}
 }
+
+func TestForeignWindowsConfigOwnerIsRejected(t *testing.T) {
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
+	if err != nil {
+		t.Fatal(err)
+	}
+	descriptor, err := windows.SecurityDescriptorFromString(
+		"O:WDD:P(A;;FA;;;" + user.User.Sid.String() + ")",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := requirePrivateDescriptor(descriptor, user.User.Sid); err == nil {
+		t.Fatal("config owned outside the current user was accepted")
+	}
+}
