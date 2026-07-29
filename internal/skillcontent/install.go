@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -38,6 +39,19 @@ func DefaultEnvironment() Environment {
 func defaultConfigDir(home string) string {
 	if directory := os.Getenv("VICEME_CLI_CONFIG_DIR"); directory != "" {
 		return directory
+	}
+	if runtime.GOOS == "windows" {
+		if directory := os.Getenv("LOCALAPPDATA"); directory != "" {
+			preferred := filepath.Join(directory, "ViceMe", "Config")
+			legacy := filepath.Join(home, ".viceme-cli")
+			if _, err := os.Stat(filepath.Join(preferred, "config.json")); err == nil || !errors.Is(err, fs.ErrNotExist) {
+				return preferred
+			}
+			if _, err := os.Stat(filepath.Join(legacy, "config.json")); err == nil || !errors.Is(err, fs.ErrNotExist) {
+				return legacy
+			}
+			return preferred
+		}
 	}
 	return filepath.Join(home, ".viceme-cli")
 }
