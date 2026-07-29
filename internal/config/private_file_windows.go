@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"unsafe"
 
@@ -15,6 +16,8 @@ const (
 	accessDeniedCallbackACE        = 0xa
 	accessDeniedCallbackObjectACE  = 0xc
 )
+
+var errUnprotectedWindowsDACL = errors.New("config containing a local access token must have a protected Windows ACL")
 
 func securePrivateFile(filename string) error {
 	user, err := windows.GetCurrentProcessToken().GetTokenUser()
@@ -46,19 +49,30 @@ func securePrivateFile(filename string) error {
 }
 
 func requirePrivateFile(filename string) error {
-	descriptor, err := windows.GetNamedSecurityInfo(
-		filename,
-		windows.SE_FILE_OBJECT,
-		windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION,
-	)
-	if err != nil {
-		return fmt.Errorf("read Windows ACL: %w", err)
+	validate := func() error {
+		descriptor, err := windows.GetNamedSecurityInfo(
+			filename,
+			windows.SE_FILE_OBJECT,
+			windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION,
+		)
+		if err != nil {
+			return fmt.Errorf("read Windows ACL: %w", err)
+		}
+		user, err := windows.GetCurrentProcessToken().GetTokenUser()
+		if err != nil {
+			return fmt.Errorf("resolve current Windows user: %w", err)
+		}
+		return requirePrivateDescriptor(descriptor, user.User.Sid)
 	}
-	user, err := windows.GetCurrentProcessToken().GetTokenUser()
-	if err != nil {
-		return fmt.Errorf("resolve current Windows user: %w", err)
+
+	err := validate()
+	if !errors.Is(err, errUnprotectedWindowsDACL) {
+		return err
 	}
-	return requirePrivateDescriptor(descriptor, user.User.Sid)
+	if err := securePrivateFile(filename); err != nil {
+		return fmt.Errorf("protect existing Windows config ACL: %w", err)
+	}
+	return validate()
 }
 
 func requirePrivateDescriptor(descriptor *windows.SECURITY_DESCRIPTOR, user *windows.SID) error {
@@ -104,6 +118,13 @@ func requirePrivateDescriptor(descriptor *windows.SECURITY_DESCRIPTOR, user *win
 		default:
 			return fmt.Errorf("config containing a local access token uses an unsupported Windows ACL entry")
 		}
+	}
+	control, _, err := descriptor.Control()
+	if err != nil {
+		return fmt.Errorf("read Windows config ACL control: %w", err)
+	}
+	if control&windows.SE_DACL_PROTECTED == 0 {
+		return errUnprotectedWindowsDACL
 	}
 	return nil
 }
