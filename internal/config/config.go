@@ -42,6 +42,20 @@ type EnsureResult struct {
 	Status string `json:"status"`
 }
 
+type LoadError struct {
+	Path  string
+	Stage string
+	Err   error
+}
+
+func (err *LoadError) Error() string {
+	return fmt.Sprintf("%s config: %v", err.Stage, err.Err)
+}
+
+func (err *LoadError) Unwrap() error {
+	return err.Err
+}
+
 func ParseRegion(raw string) (Region, error) {
 	region := Region(strings.ToLower(strings.TrimSpace(raw)))
 	switch region {
@@ -183,25 +197,25 @@ func ConfigPath(configBase string) string {
 func load(filename string) (Config, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return Config{}, err
+		return Config{}, configLoadError(filename, "read", err)
 	}
 	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
-		return Config{}, fmt.Errorf("decode config: %w", err)
+		return Config{}, configLoadError(filename, "decode", err)
 	}
 	if err := validate(&config); err != nil {
-		return Config{}, err
+		return Config{}, configLoadError(filename, "validate", err)
 	}
 	if hasLocalAccessToken(config) {
-		info, statErr := os.Stat(filename)
-		if statErr != nil {
-			return Config{}, statErr
-		}
-		if info.Mode().Perm()&0o077 != 0 {
-			return Config{}, fmt.Errorf("config containing a local access token must have permissions 0600")
+		if err := requirePrivateFile(filename); err != nil {
+			return Config{}, configLoadError(filename, "permissions", err)
 		}
 	}
 	return config, nil
+}
+
+func configLoadError(path, stage string, err error) error {
+	return &LoadError{Path: path, Stage: stage, Err: err}
 }
 
 func validate(config *Config) error {
@@ -253,8 +267,7 @@ func validate(config *Config) error {
 }
 
 func isCanonical(filename string, config Config) bool {
-	info, err := os.Stat(filename)
-	if err != nil || info.Mode().Perm()&0o077 != 0 {
+	if err := requirePrivateFile(filename); err != nil {
 		return false
 	}
 	actual, err := os.ReadFile(filename)
@@ -307,7 +320,7 @@ func write(filename string, config Config) error {
 	}
 	temporaryName := temporary.Name()
 	defer os.Remove(temporaryName)
-	if err := temporary.Chmod(0o600); err != nil {
+	if err := securePrivateFile(temporaryName); err != nil {
 		_ = temporary.Close()
 		return fmt.Errorf("secure config staging file: %w", err)
 	}

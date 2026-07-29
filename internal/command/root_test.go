@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,6 +18,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/api"
 	credentialauth "github.com/ViceMe-AI/cli/internal/auth"
 	"github.com/ViceMe-AI/cli/internal/config"
+	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
@@ -54,6 +56,39 @@ func TestDefaultRegionUsesChinaEndpoint(t *testing.T) {
 	}
 	if runtime.region != config.RegionCN || runtime.apiBaseURL != "https://api.viceme.cn" {
 		t.Fatalf("region=%q API base URL=%q", runtime.region, runtime.apiBaseURL)
+	}
+}
+
+func TestConfigLoadFailureReportsPathAndStageWithoutFileContents(t *testing.T) {
+	configBase := filepath.Join(t.TempDir(), "谢忻彤", "AppData", "Local", "ViceMe", "Config")
+	if err := os.MkdirAll(configBase, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	filename := filepath.Join(configBase, "config.json")
+	if err := os.WriteFile(filename, []byte("not-json-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, securestore.NewMemory(), "", Dependencies{
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: configBase},
+	}, "auth", "status")
+	if code != output.ExitInternal || stdout != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	var envelope struct {
+		Error *output.Error `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(stderr), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Error == nil || envelope.Error.Subtype != "config_load" || envelope.Error.Hint == "" {
+		t.Fatalf("unexpected error: %#v", envelope.Error)
+	}
+	details, ok := envelope.Error.Details.(map[string]any)
+	if !ok || details["path"] != filename || details["stage"] != "decode" {
+		t.Fatalf("unexpected details: %#v", envelope.Error.Details)
+	}
+	if strings.Contains(stderr, "not-json-secret") {
+		t.Fatalf("config error leaked file contents: %s", stderr)
 	}
 }
 
