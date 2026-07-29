@@ -66,6 +66,15 @@ viceme job bind <publication-id>
 
 Give `binding_url` to the user and stop. After the browser flow succeeds, repeat inspect and publish with a fresh client request ID. The blocked publication is intentionally terminal and is not resumed.
 
+An `unsupported` or `rejected` publication is also immutable: do not retry or
+resume that publication ID. This does not permanently ban the same frozen
+source. If the user later explicitly asks to publish again, repeat the ordinary
+inspect/publish flow with the same source unchanged and a fresh client request
+ID. Keep the server-resolved Target; never require an artificial source commit,
+upload replacement, Target change, or version bump. The server's current full
+compile identity determines whether it reuses a result or runs the Compiler
+again.
+
 Login preflights credential persistence before creating or consuming a device authorization. On macOS, an explicit login automatically creates a private local encryption key when the current sandbox cannot access Keychain. Do not tell the user to run a separate setup command before logging in.
 
 If the user wants to reuse an existing Keychain-protected login inside Codex or Claude Code without logging in again, they can migrate that existing credential once from an interactive macOS Terminal:

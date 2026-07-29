@@ -102,6 +102,10 @@ func TestBundledSkillPreservesSafeActionCommandContracts(t *testing.T) {
 				"source=local_profile",
 				"up to five consecutive 60-second bounded waits",
 				"does not mean the Compiler failed or is stuck",
+				"not a permanent ban on the frozen source",
+				"inspect the same source unchanged",
+				"fresh `client_request_id`",
+				"current full compile identity",
 			} {
 				if !strings.Contains(content, required) {
 					t.Errorf("main Skill omits required auth/wait guidance %q", required)
