@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.4] - 2026-07-29
+
+### Fixes
+
+- 避免规范化 Skill 二进制资源 (`c30d422`)
+- 修复 Windows CI 平台差异 (`bf8c3d0`)
+- 加固 Windows 配置 ACL 继承 (`ab929c1`)
+- 修正 Windows 更新目录提示 (`f99bf6c`)
+- 收紧 Windows 配置加载校验 (`6f42059`)
+- 修复 Windows 配置加载 (`3760b07`)
+
 ## [0.9.3] - 2026-07-29
 
 ### Fixes
