@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -648,6 +649,9 @@ func TestDeviceLoginSaveFailureReturnsRecoverableConsumedAuthorizationContract(t
 
 func TestSandboxFallbackNeverWritesDeviceTokenToProfileConfig(t *testing.T) {
 	t.Parallel()
+	if runtime.GOOS != "darwin" {
+		t.Skip("encrypted file fallback is used only on macOS")
+	}
 	configBase := t.TempDir()
 	store := securestore.NewEncryptedFile(configBase, "viceme-cli-test", blockedKeyringStore{})
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
