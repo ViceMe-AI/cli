@@ -32,10 +32,18 @@ For edit/run sub-jobs, resume by ID with `job edit-get <pub> <edit-id> --timeout
 ## Terminal outcomes
 
 - `share_published`: return `data.result.share_url` and `published_noop`.
-- `unsupported`: a hard dependency cannot be mapped; stop without publishing a reduced Agent.
-- `rejected`: source or policy validation rejected the publication.
+- `unsupported`: a hard dependency cannot be mapped under the current compilation contract; stop this publication without publishing a reduced Agent.
+- `rejected`: source or policy validation rejected this publication under the current compilation contract.
 - `cancelled`: the publication was cancelled.
 - `failed`: report `data.failure` and the publication ID. Only when `data.failure.details.type` is `PLATFORM_FAILURE` and `data.failure.details.retryable` is `true`, the user may explicitly request `viceme job retry <publication-id> --yes`. Retry the same publication at most through the server-controlled limit; never alter or re-upload the source as a workaround.
+
+`unsupported` and `rejected` are terminal only for their publication ID, not a
+permanent ban on the frozen source. Never retry or resume the terminal
+publication. When the user later makes a new explicit publish request, use a
+fresh client request ID and the ordinary inspect/publish flow with the same
+source unchanged. Do not manufacture a source, Target, or version change. The
+server's current full compile identity decides whether to reuse a prior result
+or compile again.
 
 ## CLI execution errors
 
