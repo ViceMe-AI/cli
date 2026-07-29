@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "skill_version": "0.9.2",
-  "minimum_cli_version": "0.9.2",
-  "cli_compatibility": ">=0.9.2 <0.10.0"
+  "skill_version": "0.9.3",
+  "minimum_cli_version": "0.9.3",
+  "cli_compatibility": ">=0.9.3 <0.10.0"
 }

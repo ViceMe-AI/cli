@@ -35,7 +35,7 @@ viceme profile configure local --clear-access-token
 viceme profile configure local --clear-api-base-url
 ```
 
-Never infer, print, or copy a token from Skill content. The `YOUR_ACCESS_TOKEN` value above must come from an explicitly authorized user-provided or staff reissue flow; `--access-token` is visible in argv and may enter shell history. Credential priority is process `VICEME_ACCESS_TOKEN` → selected local Profile → device login. Production audiences are pinned to their canonical API origins; `local-dev` Profile credentials require an explicit loopback endpoint, while process `local-dev` additionally requires `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. Normal login never writes a Profile token. Profile list/status expose only whether it is configured, and all API and presigned-upload redirects fail closed.
+Never infer, print, or copy a token from Skill content. The `YOUR_ACCESS_TOKEN` value above must come from an explicitly authorized user-provided or staff reissue flow; `--access-token` is visible in argv and may enter shell history. Credential priority is process `VICEME_ACCESS_TOKEN` → selected local Profile → device login. Non-local audiences are pinned to their canonical API origins, including `dev-preview` at `https://viceme-envoy-dev.preview.tencent-zeabur.cn`; `local-dev` Profile credentials require an explicit loopback endpoint, while process `local-dev` additionally requires `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. Normal login never writes a Profile token. Profile list/status expose only whether it is configured, and all API and presigned-upload redirects fail closed.
 
 Check first when desired, then update the npm launcher, verified Go binary, and matching Skill together:
 
@@ -66,13 +66,24 @@ viceme job bind <publication-id>
 
 Give `binding_url` to the user and stop. After the browser flow succeeds, repeat inspect and publish with a fresh client request ID. The blocked publication is intentionally terminal and is not resumed.
 
-Login preflights credential persistence before creating or consuming a device authorization. If `credential_store_unavailable` says an existing macOS login is protected by Keychain, do not keep retrying or start another device flow. Ask the user to run the following command once from an interactive macOS Terminal, then retry the same ViceMe operation from the sandbox:
+An `unsupported` or `rejected` publication is also immutable: do not retry or
+resume that publication ID. This does not permanently ban the same frozen
+source. If the user later explicitly asks to publish again, repeat the ordinary
+inspect/publish flow with the same source unchanged and a fresh client request
+ID. Keep the server-resolved Target; never require an artificial source commit,
+upload replacement, Target change, or version bump. The server's current full
+compile identity determines whether it reuses a result or runs the Compiler
+again.
+
+Login preflights credential persistence before creating or consuming a device authorization. On macOS, an explicit login automatically creates a private local encryption key when the current sandbox cannot access Keychain. Do not tell the user to run a separate setup command before logging in.
+
+If the user wants to reuse an existing Keychain-protected login inside Codex or Claude Code without logging in again, they can migrate that existing credential once from an interactive macOS Terminal:
 
 ```bash
 viceme config keychain-downgrade
 ```
 
-The command copies only encryption key material to a private `0600` local file and imports configured legacy credentials into encrypted files. It never prints a token. Do not run it unless the user is experiencing the documented macOS sandbox boundary or explicitly requests it.
+The command copies only encryption key material to a private `0600` local file and imports configured legacy credentials into encrypted files. It never prints a token. It is optional for explicit re-login and exists only to preserve an existing login without reauthorization.
 
 ## Authentication and server-resolved ownership
 

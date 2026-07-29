@@ -157,7 +157,7 @@ viceme profile configure local --clear-api-base-url
 
 正常 `viceme auth login` 永远不会向 Profile 写入凭证。本地 Profile credential 只能通过显式的 `profile add/configure` flag 设置、替换或清除，list/status 只报告 `source=local_profile`，不会返回 token。`--access-token` 会出现在 argv 中且可能进入 shell history，因此只能用于本文约定的受控本地/内部环境。
 
-凭证优先级为进程 `VICEME_ACCESS_TOKEN` → 当前本地 Profile → 设备登录。publication credential 必须使用 `vpa1.<audience>.<secret>`：`cn-prod` 只能访问 `https://api.viceme.cn`，`global-prod` 只能访问 `https://api.viceme.ai`，Profile 中的 `local-dev` 只能访问 loopback endpoint；进程 `local-dev` 还要求 `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`。`VICEME_CLI_CONFIG_DIR` 可覆盖配置根目录，`VICEME_API_BASE_URL` 仍只是单进程 endpoint 覆盖，不能放宽 Profile credential 的 origin。API 与预签名上传重定向一律 fail closed。
+凭证优先级为进程 `VICEME_ACCESS_TOKEN` → 当前本地 Profile → 设备登录。publication credential 必须使用 `vpa1.<audience>.<secret>`：`cn-prod` 只能访问 `https://api.viceme.cn`，`global-prod` 只能访问 `https://api.viceme.ai`，`dev-preview` 只能访问 `https://viceme-envoy-dev.preview.tencent-zeabur.cn`，Profile 中的 `local-dev` 只能访问 loopback endpoint；进程 `local-dev` 还要求 `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`。`VICEME_CLI_CONFIG_DIR` 可覆盖配置根目录，`VICEME_API_BASE_URL` 仍只是单进程 endpoint 覆盖，不能放宽 Profile credential 的 origin。API 与预签名上传重定向一律 fail closed。
 
 更新检查直接请求 npm registry，并且只把最近一次成功查询到的版本写入 `~/.viceme-cli/update-state.json`；registry 暂时不可用时，该结果最多回退使用 24 小时。npm 管理的 CLI 在普通命令中只同步读取本地缓存，并且最多每 24 小时在后台刷新一次，因此命令不会等待版本发现。当缓存确认存在新版本时，结构化成功与错误对象都会携带 `_notice.update`，其中包含 `current`、`latest`、`message` 和精确的 `viceme update` 命令，AI Agent 可以据此提醒用户。该提醒不会改变命令退出码，也不会自动执行更新。非 CI 环境可以设置 `VICEME_NO_UPDATE_NOTIFIER=1` 关闭提醒；标准 CI 环境会自动跳过。`viceme install` 和 `viceme update` 启动的 npm 操作统一使用隔离的 `~/.viceme-cli/npm-cache`，不会因为用户级 `~/.npm` 缓存损坏而失败。这两个位置都不包含秘密信息，可以安全删除；凭证不会进入任何更新缓存。
 
@@ -198,13 +198,15 @@ CLI 会在创建设备授权或兑换一次性 device code 之前，对完整的
 
 ### macOS 沙箱（Codex 与 Claude Code）
 
-全新沙箱环境在系统 Keychain 被阻断时，可以自动创建私有的 `0600` 文件主密钥。如果凭证此前是在 Terminal 中使用 Keychain 主密钥创建的，请从同一 macOS 用户的交互式终端执行一次：
+当用户在无法访问 macOS Keychain 的沙箱中显式执行设备登录时，CLI 会自动创建私有的 `0600` 文件主密钥，并将新授权的凭证保存到本地加密文件中，无需用户预先执行额外命令。
+
+如果用户不想重新登录，希望直接复用此前在 Terminal 中使用 Keychain 主密钥创建的凭证，可以从同一 macOS 用户的交互式终端执行一次：
 
 ```bash
 viceme config keychain-downgrade
 ```
 
-该命令会把现有主密钥复制到 `~/.viceme-cli/credentials/master.key.file`，并将已配置 Profile 的旧 Keychain 凭证导入加密文件。原 Keychain 条目会保留为冷备份。命令可重复执行，不会打印 token，也不会将 token 明文落盘。完成后，同一 macOS 用户下的 Codex、Claude Code 沙箱无需访问 Keychain 即可读取加密凭证。其明确的安全取舍是：降级后由用户文件权限（目录 `0700`、文件 `0600`）代替 Keychain 的进程级访问边界。
+该命令会把现有主密钥复制到 `~/.viceme-cli/credentials/master.key.file`，并将已配置 Profile 的旧 Keychain 凭证导入加密文件。原 Keychain 条目会保留为冷备份。命令可重复执行，不会打印 token，也不会将 token 明文落盘。完成后，同一 macOS 用户下的 Codex、Claude Code 沙箱无需访问 Keychain 即可读取加密凭证；如果愿意重新登录，则不需要执行该迁移命令。其明确的安全取舍是：降级后由用户文件权限（目录 `0700`、文件 `0600`）代替 Keychain 的进程级访问边界。
 
 公开 CLI 只提供一套标准认证与发布命令面。工作人员短时授权凭证可由进程环境注入（`source=process`），也可由受控本地 Profile 显式配置（`source=local_profile`）；两者都只调用标准 `inspect/publish/job` 并使用统一 `x-api-key`。CLI 不提供身份选择或 staff authorization 签发命令；永远不输出 token，任一覆盖凭证生效时 login/logout fail closed，update 子进程也不会继承该凭证。
 

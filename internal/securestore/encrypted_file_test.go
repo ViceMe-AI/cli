@@ -111,6 +111,48 @@ func TestEncryptedFileStoreFallsBackWhenKeychainIsBlocked(t *testing.T) {
 	}
 }
 
+func TestExplicitReloginFallsBackWithExistingKeychainCredential(t *testing.T) {
+	keyring := newFakeKeyring()
+	root := t.TempDir()
+	store := NewEncryptedFile(root, "viceme-cli-test", keyring)
+	const storageKey = "credential:default:custom:origin-a"
+	const oldCredential = `{"access_token":"keychain-token"}`
+	const newCredential = `{"access_token":"sandbox-token"}`
+
+	if err := store.Set(storageKey, oldCredential); err != nil {
+		t.Fatalf("initial Keychain-backed Set() error = %v", err)
+	}
+	if _, err := os.Stat(store.masterKeyPath()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("normal Keychain-backed storage unexpectedly created file master key: %v", err)
+	}
+
+	keyring.setBlocked(true)
+	if err := store.Preflight(storageKey); err != nil {
+		t.Fatalf("sandbox relogin Preflight() error = %v", err)
+	}
+	// Creating the local fallback key must not destroy the existing credential:
+	// an interactive process that can still reach Keychain can continue reading
+	// it until the explicit relogin overwrites this scope.
+	keyring.setBlocked(false)
+	if got, err := store.Get(storageKey); err != nil || got != oldCredential {
+		t.Fatalf("interactive Get() after fallback creation = %q, %v; want %q", got, err, oldCredential)
+	}
+	keyring.setBlocked(true)
+	if err := store.Set(storageKey, newCredential); err != nil {
+		t.Fatalf("sandbox relogin Set() error = %v", err)
+	}
+	got, err := store.Get(storageKey)
+	if err != nil || got != newCredential {
+		t.Fatalf("sandbox Get() after relogin = %q, %v; want %q", got, err, newCredential)
+	}
+
+	if info, err := os.Stat(store.masterKeyPath()); err != nil {
+		t.Fatalf("file master key missing after sandbox relogin: %v", err)
+	} else if info.Mode().Perm() != 0o600 {
+		t.Fatalf("master key mode = %o, want 600", info.Mode().Perm())
+	}
+}
+
 func TestDowngradeMigratesExistingLegacyKeychainCredential(t *testing.T) {
 	keyring := newFakeKeyring()
 	const storageKey = "credential:profile-work:custom:origin-work"
