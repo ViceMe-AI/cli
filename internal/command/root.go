@@ -116,7 +116,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		var err error
 		resolvedConfig, err = config.LoadOrDefault(configBase)
 		if err != nil {
-			return nil, nil, output.Internal("config_load", "could not load ViceMe CLI configuration", err)
+			return nil, nil, configLoadFailure("could not load ViceMe CLI configuration", err)
 		}
 	} else {
 		resolvedRegion, err := config.ParseRegion(string(dependencies.Region))
@@ -521,7 +521,7 @@ func isLoopbackOrigin(origin string) bool {
 func (r *Runtime) reloadConfig(profileName string) error {
 	resolved, err := config.LoadOrDefault(r.configBase)
 	if err != nil {
-		return output.Internal("config_load", "could not reload ViceMe CLI configuration", err)
+		return configLoadFailure("could not reload ViceMe CLI configuration", err)
 	}
 	r.config = resolved
 	return r.selectProfile(profileName)
@@ -548,6 +548,27 @@ func runtimeConfigBase(environment skillcontent.Environment) string {
 		return environment.ConfigDir
 	}
 	return filepath.Join(environment.Home, ".viceme-cli")
+}
+
+func configLoadFailure(message string, err error) *output.Error {
+	result := output.Internal("config_load", message, err)
+	var loadErr *config.LoadError
+	if !errors.As(err, &loadErr) {
+		return result
+	}
+	result.WithDetails(map[string]any{
+		"path":  loadErr.Path,
+		"stage": loadErr.Stage,
+	})
+	switch loadErr.Stage {
+	case "read":
+		result.WithHint("verify that the reported configuration path exists and is readable by this process")
+	case "decode", "validate":
+		result.WithHint("repair or recreate the reported configuration file; do not share credentials from it")
+	case "permissions":
+		result.WithHint("restrict the reported configuration file to the current user and retry")
+	}
+	return result
 }
 
 func sleepContext(ctx context.Context, duration time.Duration) error {
