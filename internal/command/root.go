@@ -65,6 +65,7 @@ type Runtime struct {
 const (
 	processAccessTokenEnvironment     = "VICEME_ACCESS_TOKEN"
 	localProcessCredentialEnvironment = "VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL"
+	devPreviewAPIBaseURL              = "https://viceme-envoy-dev.preview.tencent-zeabur.cn"
 )
 
 type publicationCredentialAudience string
@@ -72,6 +73,7 @@ type publicationCredentialAudience string
 const (
 	publicationCredentialAudienceCNProd     publicationCredentialAudience = "cn-prod"
 	publicationCredentialAudienceGlobalProd publicationCredentialAudience = "global-prod"
+	publicationCredentialAudienceDevPreview publicationCredentialAudience = "dev-preview"
 	publicationCredentialAudienceLocalDev   publicationCredentialAudience = "local-dev"
 )
 
@@ -447,6 +449,7 @@ func parsePublicationCredential(raw string) (*publicationCredential, error) {
 	switch audience {
 	case publicationCredentialAudienceCNProd,
 		publicationCredentialAudienceGlobalProd,
+		publicationCredentialAudienceDevPreview,
 		publicationCredentialAudienceLocalDev:
 	default:
 		return nil, errors.New("the process publication credential audience is unsupported")
@@ -483,6 +486,8 @@ func validatePublicationCredentialTarget(credential *publicationCredential, apiB
 		expected, err = api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionCN))
 	case publicationCredentialAudienceGlobalProd:
 		expected, err = api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionGlobal))
+	case publicationCredentialAudienceDevPreview:
+		expected, err = api.NormalizeAPIOrigin(devPreviewAPIBaseURL)
 	case publicationCredentialAudienceLocalDev:
 		if !isLoopbackOrigin(origin) {
 			return errors.New("local-dev publication credentials require a loopback target")

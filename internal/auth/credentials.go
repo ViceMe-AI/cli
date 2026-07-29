@@ -67,7 +67,7 @@ func (m *Manager) PreflightSave() error {
 	}
 	if err := probe.Preflight(m.key()); err != nil {
 		return output.Authentication("credential_store_unavailable", "the local credential store is not writable from this process").
-			WithHint("on macOS, run 'viceme config keychain-downgrade' once from an interactive Terminal if an existing login is protected by Keychain, then retry; no device authorization was consumed").
+			WithHint("verify that the ViceMe configuration directory is writable, then retry; no device authorization was consumed").
 			WithCause(err)
 	}
 	return nil
@@ -83,7 +83,7 @@ func (m *Manager) Save(credential Credential) error {
 	}
 	if err := m.Store.Set(m.key(), string(data)); err != nil {
 		return output.Authentication("credential_store_unavailable", "could not save credentials in the secure local credential store").
-			WithHint("on macOS, an existing Keychain-protected login can be made available to Codex or Claude Code by running 'viceme config keychain-downgrade' once from an interactive Terminal").
+			WithHint("verify that the ViceMe configuration directory is private and writable, then start a new login flow").
 			WithCause(err)
 	}
 	return nil

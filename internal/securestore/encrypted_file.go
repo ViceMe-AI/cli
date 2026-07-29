@@ -30,8 +30,8 @@ var (
 
 // EncryptedFileStore keeps credential payloads in private AES-256-GCM files.
 // The master key normally lives in the operating-system keychain. A private
-// file master key is used only after an explicit downgrade or when a fresh
-// sandboxed installation cannot access the keychain.
+// file master key is used after an explicit downgrade or when a sandboxed
+// login cannot access the keychain.
 type EncryptedFileStore struct {
 	Service string
 	Root    string
@@ -241,8 +241,6 @@ func (s *EncryptedFileStore) masterKeyForWrite() ([]byte, error) {
 	}
 	if key, err := s.systemMasterKey(true); err == nil {
 		return key, nil
-	} else if s.hasEncryptedCredentials() {
-		return nil, fmt.Errorf("%w; run 'viceme config keychain-downgrade' from an interactive macOS terminal before using this sandbox", err)
 	}
 	key := make([]byte, masterKeyBytes)
 	if _, err := rand.Read(key); err != nil {

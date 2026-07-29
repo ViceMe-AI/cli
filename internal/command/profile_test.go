@@ -121,6 +121,25 @@ func TestProfileConfigureValidatesExplicitAccessToken(t *testing.T) {
 	if code == 0 || !strings.Contains(stderr, "profile_access_token_scope") {
 		t.Fatalf("audience mismatch code=%d stderr=%s", code, stderr)
 	}
+
+	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies, "profile", "add", "--name", "preview")
+	if code != 0 || stderr != "" {
+		t.Fatalf("preview add code=%d stderr=%s", code, stderr)
+	}
+	previewToken := testProcessCredential("dev-preview")
+	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
+		"profile", "configure", "preview", "--api-base-url", devPreviewAPIBaseURL, "--access-token", previewToken)
+	if code != 0 || stderr != "" || strings.Contains(stdout, previewToken) {
+		t.Fatalf("preview configure code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	loaded, err := config.LoadOrDefault(environment.ConfigDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	preview, err := loaded.Resolve("preview")
+	if err != nil || preview.APIBaseURL != devPreviewAPIBaseURL || preview.AccessToken != previewToken {
+		t.Fatalf("preview profile=%#v err=%v", preview, err)
+	}
 }
 
 func TestProcessCredentialTakesPriorityOverLocalProfileCredential(t *testing.T) {
