@@ -113,6 +113,14 @@ type ResolveConfirmationRequest struct {
 	Decision                       string `json:"decision"`
 }
 
+// RenewActionReceipt is the next generation of an expired confirm_steps or
+// confirm_publish action on the same publication and frozen candidate.
+type RenewActionReceipt struct {
+	PublicationID string   `json:"publication_id"`
+	Status        string   `json:"status"`
+	NextAction    Document `json:"next_action"`
+}
+
 // ResolveMetadataRequest resolves the confirm_metadata checkpoint: confirm
 // (optionally editing title/description/author within the visible-char
 // limits) or cancel with zero assets.
@@ -141,51 +149,6 @@ type PublicationEditReceipt struct {
 	Error                 any     `json:"error"`
 	CreatedAt             string  `json:"created_at"`
 	CompletedAt           *string `json:"completed_at"`
-}
-
-// PreviewRunStartRequest starts one real test run of the exact candidate.
-type PreviewRunStartRequest struct {
-	Inputs                   map[string]string `json:"inputs"`
-	ExpectedCandidateDigest  string            `json:"expected_candidate_digest"`
-}
-
-// PreviewRunStartResponse is the accepted start receipt.
-type PreviewRunStartResponse struct {
-	PreviewRunID string `json:"preview_run_id"`
-	Status       string `json:"status"`
-}
-
-// SkillPreviewRun is the durable preview-run receipt with the bounded result.
-type SkillPreviewRun struct {
-	PublicationID   string            `json:"publication_id"`
-	PreviewRunID    string            `json:"preview_run_id"`
-	RunnerRunID     string            `json:"runner_run_id"`
-	CandidateDigest string            `json:"candidate_digest"`
-	InputsDigest    *string           `json:"inputs_digest"`
-	// Inputs 是产生本次结果的 canonical 输入值(与 InputsDigest 同源),让
-	// 用户能看到并接受「看得见的」那组输入,而不是隐藏 digest。
-	Inputs       map[string]string `json:"inputs"`
-	Status       string            `json:"status"`
-	ResultDigest *string           `json:"result_digest"`
-	Result       map[string]any    `json:"result"`
-	Accepted     bool              `json:"accepted"`
-	AcceptedAt   *string           `json:"accepted_at"`
-}
-
-// PreviewRunAcceptRequest accepts the actual result of a preview run.
-// PRE-04: the acceptance must bind the exact input set that produced the
-// result, so ExpectedInputsDigest is required.
-type PreviewRunAcceptRequest struct {
-	ExpectedCandidateDigest string `json:"expected_candidate_digest"`
-	ExpectedInputsDigest    string `json:"expected_inputs_digest"`
-}
-
-// PreviewRunAcceptResponse is the acceptance receipt.
-type PreviewRunAcceptResponse struct {
-	PublicationID string `json:"publication_id"`
-	PreviewRunID  string `json:"preview_run_id"`
-	Status        string `json:"status"`
-	AcceptedAt    string `json:"accepted_at"`
 }
 
 // PublicationMetadata is the metadata checkpoint read model.

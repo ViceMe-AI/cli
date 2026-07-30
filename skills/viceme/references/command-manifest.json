@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "cli_version": "0.9.4",
-  "minimum_cli_version": "0.9.4",
+  "cli_version": "0.10.0",
+  "minimum_cli_version": "0.10.0",
   "global_flags": [
     {
       "name": "profile",
@@ -111,31 +111,6 @@
       "runnable": false,
       "side_effect": "none",
       "requires_confirmation": false
-    },
-    {
-      "path": "job accept",
-      "use": "accept <publication-id>",
-      "short": "Accept the actual result of a preview test run",
-      "runnable": true,
-      "side_effect": "public",
-      "requires_confirmation": false,
-      "flags": [
-        {
-          "name": "candidate-digest",
-          "type": "string",
-          "usage": "exact release candidate digest of the accepted result"
-        },
-        {
-          "name": "inputs-digest",
-          "type": "string",
-          "usage": "digest of the exact input set being accepted (PRE-04, from the job run receipt)"
-        },
-        {
-          "name": "run-id",
-          "type": "string",
-          "usage": "preview run receipt ID"
-        }
-      ]
     },
     {
       "path": "job bind",
@@ -274,6 +249,21 @@
       ]
     },
     {
+      "path": "job renew",
+      "use": "renew <publication-id>",
+      "short": "Explicitly renew an expired confirmation action on the same publication",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "action-id",
+          "type": "string",
+          "usage": "expired confirm_steps or confirm_publish action receipt ID"
+        }
+      ]
+    },
+    {
       "path": "job resume",
       "use": "resume <publication-id>",
       "short": "Resolve a typed next action on the same publication",
@@ -299,12 +289,12 @@
         {
           "name": "expected-public-summary-digest",
           "type": "string",
-          "usage": "public_summary_digest from the job preview output (binds the confirmation to the summary receipt)"
+          "usage": "public_summary_digest from the job preview output (binds the confirmation to the frozen summary)"
         },
         {
           "name": "expected-release-candidate-digest",
           "type": "string",
-          "usage": "exact release candidate digest shown in the preview"
+          "usage": "exact release candidate digest shown before opening the private Candidate preview"
         },
         {
           "name": "payload-stdin",
@@ -327,49 +317,6 @@
           "type": "bool",
           "default": "false",
           "usage": "confirm one bounded compiler retry"
-        }
-      ]
-    },
-    {
-      "path": "job run",
-      "use": "run <publication-id>",
-      "short": "Run one real preview test of the exact candidate and show the result",
-      "runnable": true,
-      "side_effect": "public",
-      "requires_confirmation": false,
-      "flags": [
-        {
-          "name": "candidate-digest",
-          "type": "string",
-          "usage": "exact release candidate digest to test"
-        },
-        {
-          "name": "input",
-          "type": "stringArray",
-          "default": "[]",
-          "usage": "preview input as name=value (repeatable)"
-        },
-        {
-          "name": "timeout",
-          "type": "duration",
-          "default": "3m0s",
-          "usage": "maximum time to wait for the run"
-        }
-      ]
-    },
-    {
-      "path": "job run-get",
-      "use": "run-get <publication-id> <preview-run-id>",
-      "short": "Read a preview run receipt by ID, optionally resuming the wait after a timeout",
-      "runnable": true,
-      "side_effect": "none",
-      "requires_confirmation": false,
-      "flags": [
-        {
-          "name": "timeout",
-          "type": "duration",
-          "default": "0s",
-          "usage": "resume waiting for the run (0 = single read)"
         }
       ]
     },

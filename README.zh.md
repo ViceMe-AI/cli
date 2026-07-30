@@ -10,7 +10,7 @@ ViceMe 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为
 
 [安装](#安装与快速开始) · [AI Agent Skills](#agent-skills) · [认证](#认证) · [区域与-profile](#区域与-profile) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
 
-> **开放状态：** Core 发布传输和稳定链接链路已经实现，信息确认门以及精确 Candidate 的预览 → 试跑 → 结果确认门均已生效。`--yes` 后，Publication 先停在 `meta_review`，由 `job metadata` 完成信息确认；随后停在 `awaiting_action`，依次使用 `job preview`、可选的 `job edit`、`job run`、`job accept` 和 `job resume`。只有同一 Candidate 的试跑成功且结果已由发布者接受时才能确认，否则返回 409 `preview_run_required`。确认回执只授权发布，不包含最终分享链接；需要再次有界执行 `job wait` 直到 `share_published`。`--yes` 只确认发起发布请求，不代表用户已确认信息或最终 Candidate。
+> **开放状态：** Core 发布传输和稳定链接链路已经实现。`--yes` 后，Publication 先停在 `meta_review` 完成基本信息确认，再在 `awaiting_action` 中确认交互步骤。之后 `confirm_publish` 返回仅创作者可访问的 `/p/{code}` `preview_share_url`；创作者在该页面完成一次真实使用，回到 Agent Host 明确确认。发布完成后，持久回执返回正式 `/v/{code}` `share_url`，旧预览地址会重定向到它。CLI 不再提供独立 PreviewRun 命令。预览阶段的输入、输出、文件、会话和 Runner 历史均为临时数据，终态后会被清理，不进入公开统计或作品历史。
 
 ## 为什么选择 ViceMe CLI？
 
@@ -120,7 +120,7 @@ viceme skills list
 viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。进入 `meta_review` 后，使用同一 action ID 与 payload digest 展示并决议信息，然后再次等待；进入 `awaiting_action` 后，展示冻结摘要、完成同一 Candidate 的试跑与结果接受，并取得用户决定后再执行 `job resume`。确认后还需再次等待到 `share_published`，才能返回分享链接。
+inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 `destination.recovery.mode=resume_existing_publication`，必须用其中的 `publication_id` 运行 `job get` 并恢复该非终态 Publication，不能用本次 inspect resolution 再次发布。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。进入 `meta_review` 后，使用同一 action ID 与 payload digest 展示并决议信息，然后再次等待；进入 `awaiting_action` 后，确认交互步骤，打开私有 `preview_share_url` 在预览页完成一次成功使用。若 `confirm_steps` 或 `confirm_publish` action 过期，先用 `job get` 读取同一 Publication，再显式运行 `viceme job renew <publication-id> --action-id <expired-action-id>`，只使用返回的新 `next_action` 继续，不能创建第二条 Publication。最后回到对话明确确认或取消。确认后继续等待到 `share_published`，返回正式 `data.result.share_url`；不要要求它与私有预览地址相同。
 
 ## 区域与 Profile
 
@@ -258,7 +258,7 @@ viceme skill publish --file ./poster-skill-v2.zip \
 | `viceme skill inspect` | 固化并检查来源候选，不执行发布 |
 | `viceme skill publish` | 创建或更新具有稳定链接的 Skill Agent 发布 |
 | `viceme skill target` | 解析现有逻辑 Agent Target 及其版本 |
-| `viceme job` | 读取或等待发布任务，审阅信息，预览、编辑、试跑并接受 Candidate，展示签名渠道绑定链接，决议 action，以及显式重试或取消 |
+| `viceme job` | 读取或等待发布任务，审阅信息与冻结摘要，编辑 Candidate，展示稳定预览/正式分享链接和签名渠道绑定链接，决议 action，以及显式重试或取消 |
 | `viceme skills` | 读取、安装和诊断随包发布的 Agent Skill |
 | `viceme update` | 同时更新 npm 启动器、已校验二进制文件和随包发布的 Skill |
 

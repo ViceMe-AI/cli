@@ -26,11 +26,39 @@ func TestCommandSurface(t *testing.T) {
 		"config keychain-downgrade",
 		"profile list", "profile add", "profile configure", "profile use", "profile remove", "profile rename",
 		"skill inspect", "skill publish", "skill target get", "skill target list",
-		"job get", "job wait", "job resume", "job retry", "job cancel",
+		"job get", "job wait", "job preview", "job edit", "job edit-get",
+		"job resume", "job renew", "job retry", "job cancel",
 		"skills list", "skills read", "skills install", "skills doctor",
 	} {
 		if findCommand(root, strings.Fields(path)) == nil {
 			t.Errorf("missing command %q", path)
+		}
+	}
+	for _, removed := range []string{"job run", "job run-get", "job accept"} {
+		if findCommand(root, strings.Fields(removed)) != nil {
+			t.Errorf("obsolete PreviewRun command %q is still exposed", removed)
+		}
+	}
+}
+
+func TestBundledSkillRenewsExpiredConfirmationWithoutNewPublication(t *testing.T) {
+	t.Parallel()
+	data, err := os.ReadFile(filepath.Join(repositoryRoot(t), "skills/viceme/SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	for _, required := range []string{
+		"viceme job get <publication-id>",
+		"viceme job renew <publication-id> --action-id <expired-action-id>",
+		"destination.recovery.mode=resume_existing_publication",
+		"destination.recovery.publication_id",
+		"不得重新 inspect、publish 或创建另一条 Publication",
+		"绝不能用于普通 terminal `failed`、`unsupported`、`rejected`",
+		"不要创建新 Publication 作为恢复手段",
+	} {
+		if !strings.Contains(content, required) {
+			t.Errorf("main Skill omits expired-action recovery guard %q", required)
 		}
 	}
 }
