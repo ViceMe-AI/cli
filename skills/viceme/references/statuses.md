@@ -16,12 +16,20 @@ For publication `job wait`, `meta.wait_timed_out=true` means only that the bound
 
 For edit sub-jobs, resume by ID with `job edit-get <pub> <edit-id> --timeout <d>`, never by re-submitting the payload. Ordinary preview usage happens on the stable share link and has no CLI PreviewRun sub-job.
 
+If `skill inspect` returns
+`data.destination.recovery.mode=resume_existing_publication`, do not publish
+the new inspection resolution. Read
+`data.destination.recovery.publication_id` with `job get` and resume that
+durable receipt. The recovery pointer intentionally carries no action digest;
+only `job get` and `job renew` are authoritative for the current action
+generation.
+
 ## User action
 
 - `meta_review`: the parsed basic info is ready for review — show `job metadata` output (title/description/author/missing), resolve with `job metadata --decision confirm|cancel`; user-authored fields go through `--edits-stdin` as one JSON object, never a quoted shell argument (see commands.md). Cancel here leaves zero assets.
 - `awaiting_action`: read `next_action`, ask the user for the required selection, then resume the same publication. For `confirm_steps`, show `payload.steps` and resolve first (confirm/cancel) — no stable share preview exists before this gate passes. For `confirm_publish`, show the frozen summary via `job preview`, give the user `payload.preview_share_url`, and ask them to complete one successful ordinary run on that page. If the current confirmation action expires, first `job get` the same Publication and confirm the expired action ID, then run `job renew <publication-id> --action-id <expired-action-id>` and continue only with the returned `data.next_action`; never create a new Publication or replay the old receipt. Renewal is valid only for expired `confirm_steps` / `confirm_publish`, not for any terminal outcome. If the user requests a change, pass their exact request only through subprocess stdin to `job edit --candidate-digest <digest> --request-stdin`; an applied edit invalidates the old steps/action, pending share projection, and temporary preview artifacts, so fetch the fresh Candidate and confirm its steps again. After the user returns and explicitly confirms, resume with `--decision` plus `--expected-public-summary-digest` from the preview output. A 409 `preview_share_run_required` means the user has not yet completed a successful ordinary run on that same link. Preview inputs, outputs, files, sessions, and Runner history are temporary and are removed on confirm, cancel, expiry, supersede, or Release commit.
 - `binding_required`: terminal for this publication. Run `job bind`, give the user the signed browser URL, and wait for channel verification. Once bound, start a fresh normal inspect/publish request; never resume the old publication. Downloading the Skill or forking its GitHub repository are suggestions, not CLI actions.
-- `target_conflict`: refresh the Target. Do not use last-write-wins or create another link.
+- `target_conflict`: refresh the source with `skill inspect`. If the returned destination contains `recovery.mode=resume_existing_publication`, use its `publication_id` with `job get` and continue that Publication; otherwise report the conflict and stop. Do not use last-write-wins, create another Publication, or create another link.
 - `selection_required`: ask the user to choose one returned selector, then resume the same publication with the exact action ID and payload digest.
 - `process_credential_active`: login/logout is unavailable while a process credential is active; keep using standard commands or start a process without `VICEME_ACCESS_TOKEN` for persistent login management.
 - `process_credential_invalid`: stop without retrying or printing the injected value; replace the process credential.

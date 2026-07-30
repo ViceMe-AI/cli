@@ -51,6 +51,8 @@ func TestBundledSkillRenewsExpiredConfirmationWithoutNewPublication(t *testing.T
 	for _, required := range []string{
 		"viceme job get <publication-id>",
 		"viceme job renew <publication-id> --action-id <expired-action-id>",
+		"destination.recovery.mode=resume_existing_publication",
+		"destination.recovery.publication_id",
 		"不得重新 inspect、publish 或创建另一条 Publication",
 		"绝不能用于普通 terminal `failed`、`unsupported`、`rejected`",
 		"不要创建新 Publication 作为恢复手段",
