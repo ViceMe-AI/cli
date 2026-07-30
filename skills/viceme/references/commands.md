@@ -229,6 +229,26 @@ receipts that confirmation binds:
 viceme job preview pub_123 [--action-id act_123]
 ```
 
+If the current `confirm_steps` or `confirm_publish` receipt expires, keep the
+same publication and frozen Candidate. First read the durable publication and
+verify that the expired action ID is still the current action, then explicitly
+renew that exact receipt:
+
+```bash
+viceme job get pub_123
+viceme job renew pub_123 --action-id act_expired
+```
+
+The success envelope contains `data.publication_id`, `data.status`, and the new
+`data.next_action`. Continue only with the new action ID, digests, and
+`preview_share_url`; never replay the expired receipt. Do not inspect/publish
+again or create another publication to recover an expired confirmation action.
+`job renew` is not a generic retry: it must never be used for terminal
+`failed`, `unsupported`, `rejected`, `cancelled`, or `binding_required`
+publications, and it does not replace `job retry` for an explicitly retryable
+compiler platform failure. The server rejects any non-expired, superseded, or
+non-confirmation action.
+
 Edits happen only as natural language inside the conversation — never via a
 page editor or JSON Patch. Bind the digest shown by the preview and start the
 CLI with an explicit stdin input mode:
@@ -308,8 +328,14 @@ again on the published Agent when the user needs a durable result.
 ```bash
 viceme job get pub_123
 viceme job wait pub_123 --timeout 60s
+viceme job renew pub_123 --action-id act_expired
 viceme job retry pub_123 --yes
 viceme job cancel pub_123 --yes
 ```
 
-`job retry` is valid only when the durable compiler failure is a retryable `PLATFORM_FAILURE`. It reuses the frozen source and same publication, has a server-enforced attempt limit, and always requires explicit user confirmation. Cancellation also requires explicit confirmation.
+`job renew` and `job retry` are separate recovery contracts. Renewal only
+reissues an expired confirmation action on the same frozen Candidate. `job
+retry` is valid only when the durable compiler failure is a retryable
+`PLATFORM_FAILURE`; it reuses the frozen source and same publication, has a
+server-enforced attempt limit, and always requires explicit user confirmation.
+Cancellation also requires explicit confirmation.

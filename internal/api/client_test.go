@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -21,6 +22,44 @@ type apiRoundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f apiRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+func TestRenewExpiredActionUsesExactEndpointAndPreservesTypedError(t *testing.T) {
+	t.Parallel()
+	var requestCount atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_expired/renew" {
+			t.Fatalf("unexpected renew request: %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("x-api-key") != "secret" {
+			t.Fatalf("missing API key: %q", request.Header.Get("x-api-key"))
+		}
+		if requestCount.Add(1) == 1 {
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","next_action":{"type":"confirm_steps","action_id":"act_new"}}`)
+			return
+		}
+		writer.WriteHeader(http.StatusConflict)
+		_, _ = io.WriteString(writer, `{"error":{"type":"validation","subtype":"action_not_expired","message":"Only an expired confirmation action can be renewed","retryable":false}}`)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), staticToken("secret"), "")
+	receipt, err := client.RenewExpiredAction(context.Background(), "pub_1", "act_expired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if receipt.PublicationID != "pub_1" || receipt.Status != "awaiting_action" || receipt.NextAction.StringValue("action_id") != "act_new" {
+		t.Fatalf("unexpected renew receipt: %#v", receipt)
+	}
+
+	_, err = client.RenewExpiredAction(context.Background(), "pub_1", "act_expired")
+	var cliError *output.Error
+	if !errors.As(err, &cliError) {
+		t.Fatalf("expected typed renewal error, got %T: %v", err, err)
+	}
+	if cliError.Type != "validation" || cliError.Subtype != "action_not_expired" || cliError.Retryable {
+		t.Fatalf("unexpected renewal error: %#v", cliError)
+	}
 }
 
 func TestInspectUsesAPIKeyAndAcceptsEnvelope(t *testing.T) {

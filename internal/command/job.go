@@ -22,6 +22,7 @@ func newJobCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newJobEditCommand(runtime))
 	command.AddCommand(newJobEditGetCommand(runtime))
 	command.AddCommand(newJobResumeCommand(runtime))
+	command.AddCommand(newJobRenewCommand(runtime))
 	command.AddCommand(newJobRetryCommand(runtime))
 	command.AddCommand(newJobCancelCommand(runtime))
 	return command
@@ -100,6 +101,28 @@ func newJobGetCommand(runtime *Runtime) *cobra.Command {
 			return runtime.success(publication)
 		},
 	}
+}
+
+func newJobRenewCommand(runtime *Runtime) *cobra.Command {
+	var actionID string
+	command := &cobra.Command{
+		Use:   "renew <publication-id>",
+		Short: "Explicitly renew an expired confirmation action on the same publication",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			actionID = strings.TrimSpace(actionID)
+			if actionID == "" {
+				return output.Validation("renew_flags", "renew requires --action-id identifying the expired confirmation action")
+			}
+			receipt, err := runtime.client().RenewExpiredAction(command.Context(), args[0], actionID)
+			if err != nil {
+				return err
+			}
+			return runtime.success(receipt)
+		},
+	}
+	command.Flags().StringVar(&actionID, "action-id", "", "expired confirm_steps or confirm_publish action receipt ID")
+	return command
 }
 
 func newJobWaitCommand(runtime *Runtime) *cobra.Command {

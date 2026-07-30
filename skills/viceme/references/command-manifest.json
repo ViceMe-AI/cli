@@ -249,6 +249,21 @@
       ]
     },
     {
+      "path": "job renew",
+      "use": "renew <publication-id>",
+      "short": "Explicitly renew an expired confirmation action on the same publication",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "action-id",
+          "type": "string",
+          "usage": "expired confirm_steps or confirm_publish action receipt ID"
+        }
+      ]
+    },
+    {
       "path": "job resume",
       "use": "resume <publication-id>",
       "short": "Resolve a typed next action on the same publication",

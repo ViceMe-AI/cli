@@ -1029,6 +1029,40 @@ func TestJobRetryRequiresConfirmationAndUsesExplicitRetryEndpoint(t *testing.T) 
 	}
 }
 
+func TestJobRenewRequiresActionIDAndReturnsNewAction(t *testing.T) {
+	t.Parallel()
+	code, _, stderr, _ := runCLI(t, nil, nil, "job", "renew", "pub_1")
+	if code != 2 || !strings.Contains(stderr, "renew_flags") {
+		t.Fatalf("code=%d stderr=%s", code, stderr)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/skill-agent-publications/pub_1/actions/act_expired/renew" {
+			t.Fatalf("unexpected renew request: %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("x-api-key") != "test-token" {
+			t.Fatalf("missing API key: %q", request.Header.Get("x-api-key"))
+		}
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","next_action":{"type":"confirm_publish","action_id":"act_new","payload":{"preview_share_url":"https://www.viceme.cn/v/Stable42"}}}`)
+	}))
+	defer server.Close()
+
+	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "renew", "pub_1", "--action-id", "act_expired")
+	if code != 0 || stderr != "" {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	for _, expected := range []string{
+		`"publication_id":"pub_1"`,
+		`"status":"awaiting_action"`,
+		`"action_id":"act_new"`,
+		`"preview_share_url":"https://www.viceme.cn/v/Stable42"`,
+	} {
+		if !stringContains(stdout, expected) {
+			t.Errorf("renew output omits %s:\n%s", expected, stdout)
+		}
+	}
+}
+
 func TestSkillsInstallAndDoctorCommands(t *testing.T) {
 	t.Parallel()
 	home := t.TempDir()

@@ -120,7 +120,7 @@ viceme skills list
 viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。进入 `meta_review` 后，使用同一 action ID 与 payload digest 展示并决议信息，然后再次等待；进入 `awaiting_action` 后，确认交互步骤，打开 `preview_share_url` 在普通分享页完成一次成功使用，再回到对话明确确认或取消。确认后继续等待到 `share_published`；返回的正式链接与预览链接完全相同。
+inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。进入 `meta_review` 后，使用同一 action ID 与 payload digest 展示并决议信息，然后再次等待；进入 `awaiting_action` 后，确认交互步骤，打开 `preview_share_url` 在普通分享页完成一次成功使用。若 `confirm_steps` 或 `confirm_publish` action 过期，先用 `job get` 读取同一 Publication，再显式运行 `viceme job renew <publication-id> --action-id <expired-action-id>`，只使用返回的新 `next_action` 继续，不能创建第二条 Publication。最后回到对话明确确认或取消。确认后继续等待到 `share_published`；返回的正式链接与预览链接完全相同。
 
 ## 区域与 Profile
 

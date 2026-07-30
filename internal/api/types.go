@@ -113,6 +113,14 @@ type ResolveConfirmationRequest struct {
 	Decision                       string `json:"decision"`
 }
 
+// RenewActionReceipt is the next generation of an expired confirm_steps or
+// confirm_publish action on the same publication and frozen candidate.
+type RenewActionReceipt struct {
+	PublicationID string   `json:"publication_id"`
+	Status        string   `json:"status"`
+	NextAction    Document `json:"next_action"`
+}
+
 // ResolveMetadataRequest resolves the confirm_metadata checkpoint: confirm
 // (optionally editing title/description/author within the visible-char
 // limits) or cancel with zero assets.

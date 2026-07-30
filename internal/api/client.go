@@ -138,6 +138,16 @@ func (c *Client) ResolveConfirmation(ctx context.Context, publicationID, actionI
 	return response, err
 }
 
+// RenewExpiredAction explicitly issues a new generation for an expired
+// confirm_steps or confirm_publish action. The publication and frozen candidate
+// remain unchanged; the server owns all eligibility checks.
+func (c *Client) RenewExpiredAction(ctx context.Context, publicationID, actionID string) (RenewActionReceipt, error) {
+	var response RenewActionReceipt
+	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/actions/" + url.PathEscape(actionID) + "/renew"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, true, "")
+	return response, err
+}
+
 func (c *Client) GetPublicationMetadata(ctx context.Context, publicationID string) (PublicationMetadata, error) {
 	var response PublicationMetadata
 	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/metadata", nil, &response, true, "")
