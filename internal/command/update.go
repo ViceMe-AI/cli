@@ -57,7 +57,7 @@ func updaterError(err error, details any) *output.Error {
 	case updatepkg.ErrorNPMMissing:
 		result = output.Policy("update_npm_missing", "npm is required to update this installation").WithHint("install npm and ensure it is available in PATH")
 	case updatepkg.ErrorNPMPermission:
-		result = output.Internal("update_npm_permission", "npm could not write the ViceMe cache or global installation directory", err).WithHint("ensure ~/.viceme-cli and the npm global prefix are writable; do not run viceme with sudo")
+		result = output.Internal("update_npm_permission", "npm could not write the ViceMe cache or global installation directory", err).WithHint("ensure the ViceMe configuration directory and the npm global prefix are writable")
 	case updatepkg.ErrorNPMCommand:
 		result = output.Internal("update_npm_failed", "npm did not complete the CLI update", err).WithHint("run 'npm doctor' and verify the configured npm registry, proxy, and global prefix")
 	default:

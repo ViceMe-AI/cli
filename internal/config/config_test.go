@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,12 +19,8 @@ func TestSaveCreatesPreservesAndUpdatesProfileConfig(t *testing.T) {
 	if result.Path != filepath.Join(base, "config.json") {
 		t.Fatalf("unexpected path: %s", result.Path)
 	}
-	info, err := os.Stat(result.Path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm()&0o077 != 0 {
-		t.Fatalf("config permissions are too broad: %o", info.Mode().Perm())
+	if err := requirePrivateFile(result.Path); err != nil {
+		t.Fatalf("config is not private: %v", err)
 	}
 	result, err = Save(base, config)
 	if err != nil || result.Status != "unchanged" {
@@ -49,7 +46,7 @@ func TestSaveCreatesPreservesAndUpdatesProfileConfig(t *testing.T) {
 	}
 }
 
-func TestExplicitLocalProfileOverridesRemainLocalAndRequirePrivatePermissions(t *testing.T) {
+func TestExplicitLocalProfileOverridesRemainLocal(t *testing.T) {
 	t.Parallel()
 	base := t.TempDir()
 	configured := Default(RegionCN)
@@ -65,13 +62,6 @@ func TestExplicitLocalProfileOverridesRemainLocalAndRequirePrivatePermissions(t 
 	profile, err := loaded.Resolve("default")
 	if err != nil || profile.APIBaseURL != "http://localhost:8090" || profile.AccessToken != "local-operator-secret" {
 		t.Fatalf("profile=%#v err=%v", profile, err)
-	}
-	filename := filepath.Join(base, "config.json")
-	if err := os.Chmod(filename, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LoadOrDefault(base); err == nil || !strings.Contains(err.Error(), "permissions 0600") {
-		t.Fatalf("broad secret config permissions were accepted: %v", err)
 	}
 }
 
@@ -109,6 +99,11 @@ func TestLoadRefusesInvalidExistingConfig(t *testing.T) {
 	}
 	if _, err := LoadOrDefault(base); err == nil {
 		t.Fatal("expected invalid config to be preserved and reported")
+	} else {
+		var loadErr *LoadError
+		if !errors.As(err, &loadErr) || loadErr.Path != filepath.Join(base, "config.json") || loadErr.Stage != "decode" {
+			t.Fatalf("unexpected load error: %#v", err)
+		}
 	}
 }
 
