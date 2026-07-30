@@ -294,7 +294,7 @@
         {
           "name": "expected-release-candidate-digest",
           "type": "string",
-          "usage": "exact release candidate digest shown before opening the stable share preview"
+          "usage": "exact release candidate digest shown before opening the private Candidate preview"
         },
         {
           "name": "payload-stdin",

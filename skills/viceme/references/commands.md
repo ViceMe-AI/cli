@@ -189,10 +189,10 @@ another bounded wait:
 viceme job wait pub_123 --timeout 60s
 ```
 
-## Interaction steps confirmation, stable share preview, edit, and confirmation (T2)
+## Interaction steps confirmation, private Candidate preview, edit, and confirmation (T2)
 
 When `next_action.type` is `confirm_steps`, the exact release candidate is
-ready but **no stable share preview exists yet**. Show the interaction steps from the
+ready but **no private Candidate preview exists yet**. Show the interaction steps from the
 action `payload.steps` (title/description/author/input method/usage/output
 description), then resolve inside the conversation — confirm, edit
 (natural language, below), or decline:
@@ -218,10 +218,10 @@ supersedes the steps action, pending share projection, and temporary preview
 artifacts, and the fresh candidate must be confirmed again.
 
 When `next_action.type` is `confirm_publish`, the exact release candidate is
-ready. Read the stable browser link from
+ready. Read the owner-only private browser link from
 `next_action.payload.preview_share_url` in the latest `job wait` / `job get`.
-This is the same URL that will become public after release; do not expect or
-create a second final URL. Show the frozen public summary from `data.preview`;
+It resolves `/p/{code}` and is separate from the official `/v/{code}` link
+returned after release. Show the frozen public summary from `data.preview`;
 that response carries the candidate, payload, and `public_summary_digest`
 receipts that confirmation binds:
 
@@ -304,8 +304,9 @@ viceme job wait pub_123 --timeout 60s
 `job resume --decision confirm` returns a `release_authorized` action receipt;
 it does not return the final share link. Wait until `data.status` becomes
 `share_published`, then return `data.result.share_url`,
-`data.result.published_noop`, and warnings. The returned `share_url` must equal
-the earlier `preview_share_url`. If the bounded wait reports
+`data.result.published_noop`, and warnings. Do not require the official
+`share_url` to equal the private `preview_share_url`; after publication the old
+preview URL redirects to the official link. If the bounded wait reports
 `meta.wait_timed_out=true`, use `job get` or another bounded wait in a later
 turn rather than looping indefinitely.
 
@@ -316,7 +317,7 @@ candidates: if the preview or candidate digest changes, ask the user again
 with the fresh action. A stale or expired action fails closed — fetch `job get`
 and present the new `next_action` instead of retrying the old one.
 
-All data produced while using the pending Candidate on the stable share link is
+All data produced while using the pending Candidate on the private preview link is
 temporary. Preview inputs, outputs, files, media, sessions, Runner events, and
 workspace history are purged after confirm, cancel, expiry, supersede, or
 Release commit. They do not count as public views, usage, works, or history.

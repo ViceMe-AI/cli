@@ -62,6 +62,33 @@ func TestRenewExpiredActionUsesExactEndpointAndPreservesTypedError(t *testing.T)
 	}
 }
 
+func TestGetPublicationPreviewPreservesActionIDAsQuery(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/skill-agent-publications/pub_1/preview" {
+			t.Fatalf("unexpected preview request: %s %s", request.Method, request.URL.Path)
+		}
+		if request.URL.Query().Get("action_id") != "act/with space" {
+			t.Fatalf("action_id query was not preserved: %q", request.URL.RawQuery)
+		}
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","preview":{"title":"Poster"}}`)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), staticToken("secret"), "")
+	preview, err := client.GetPublicationPreview(
+		context.Background(),
+		"pub_1",
+		"act/with space",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview["status"] != "awaiting_action" {
+		t.Fatalf("unexpected preview response: %#v", preview)
+	}
+}
+
 func TestInspectUsesAPIKeyAndAcceptsEnvelope(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

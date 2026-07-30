@@ -1013,7 +1013,7 @@ func TestHostTypedActionLoopPreviewAndEdit(t *testing.T) {
 	}))
 	defer server.Close()
 
-	// Host 闭环:展示冻结摘要 → 自然语言编辑。真实使用发生在稳定分享链接上，
+	// Host 闭环:展示冻结摘要 → 自然语言编辑。真实使用发生在私有 Candidate 预览链接上，
 	// CLI 不再创建或接受独立 PreviewRun。
 	// preview 原样透传 public_summary_digest,供 resume 的确认门绑定。
 	code, stdout, stderr, _ := runCLI(t, server, authenticatedStore(t), "job", "preview", "pub_1")
@@ -1082,7 +1082,7 @@ func TestJobRenewRequiresActionIDAndReturnsNewAction(t *testing.T) {
 		if request.Header.Get("x-api-key") != "test-token" {
 			t.Fatalf("missing API key: %q", request.Header.Get("x-api-key"))
 		}
-		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","next_action":{"type":"confirm_publish","action_id":"act_new","payload":{"preview_share_url":"https://www.viceme.cn/v/Stable42"}}}`)
+		_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","next_action":{"type":"confirm_publish","action_id":"act_new","payload":{"preview_share_url":"https://www.viceme.cn/p/Preview42"}}}`)
 	}))
 	defer server.Close()
 
@@ -1094,7 +1094,7 @@ func TestJobRenewRequiresActionIDAndReturnsNewAction(t *testing.T) {
 		`"publication_id":"pub_1"`,
 		`"status":"awaiting_action"`,
 		`"action_id":"act_new"`,
-		`"preview_share_url":"https://www.viceme.cn/v/Stable42"`,
+		`"preview_share_url":"https://www.viceme.cn/p/Preview42"`,
 	} {
 		if !stringContains(stdout, expected) {
 			t.Errorf("renew output omits %s:\n%s", expected, stdout)
@@ -1525,7 +1525,7 @@ func TestConfirmStepsFlowUsesOnlyActionPayloadDigests(t *testing.T) {
 				_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","next_action":{"type":"confirm_steps","action_id":"act_steps","payload_digest":"sha256:payload","expires_at":"2030-01-01T00:00:00Z","payload":`+stepsPayload+`}}`)
 				return
 			}
-			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","next_action":{"type":"confirm_publish","action_id":"act_pub","payload_digest":"sha256:payload2","expires_at":"2030-01-01T00:00:00Z","payload":{"publication_id":"pub_1","target_id":"t_1","expected_release_candidate_digest":"sha256:cand","expected_public_summary_digest":"sha256:sum","preview_share_url":"https://www.viceme.cn/v/Stable42","preview_expires_at":"2030-01-01T00:00:00Z"}}}`)
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","next_action":{"type":"confirm_publish","action_id":"act_pub","payload_digest":"sha256:payload2","expires_at":"2030-01-01T00:00:00Z","payload":{"publication_id":"pub_1","target_id":"t_1","expected_release_candidate_digest":"sha256:cand","expected_public_summary_digest":"sha256:sum","preview_share_url":"https://www.viceme.cn/p/Preview42","preview_expires_at":"2030-01-01T00:00:00Z"}}}`)
 		case request.URL.Path == "/v1/skill-agent-publications/pub_1/actions/act_steps/resolve-confirmation" && request.Method == http.MethodPost:
 			var body map[string]any
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
@@ -1587,10 +1587,10 @@ func TestConfirmStepsFlowUsesOnlyActionPayloadDigests(t *testing.T) {
 	if code != 0 || stderr != "" || !stringContains(stdout, `"status":"resolved"`) {
 		t.Fatalf("steps resolve: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
-	// 确认通过后才出现 confirm_publish 与稳定 preview_share_url。
+	// 确认通过后才出现 confirm_publish 与私有 preview_share_url。
 	code, stdout, stderr, _ = runCLI(t, server, authenticatedStore(t), "job", "get", "pub_1")
-	if code != 0 || !stringContains(stdout, `"type":"confirm_publish"`) || !stringContains(stdout, `"preview_share_url":"https://www.viceme.cn/v/Stable42"`) {
-		t.Fatalf("stable share preview must appear only after steps confirmation: code=%d stderr=%s stdout=%s", code, stderr, stdout)
+	if code != 0 || !stringContains(stdout, `"type":"confirm_publish"`) || !stringContains(stdout, `"preview_share_url":"https://www.viceme.cn/p/Preview42"`) {
+		t.Fatalf("private Candidate preview must appear only after steps confirmation: code=%d stderr=%s stdout=%s", code, stderr, stdout)
 	}
 	if resolved.Load() != 1 {
 		t.Fatalf("steps action resolved %d times, want exactly 1", resolved.Load())

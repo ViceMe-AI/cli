@@ -371,7 +371,7 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 			request := api.ResolveActionRequest{ExpectedPayloadDigest: expectedDigest}
 			if decision != "" {
 				// confirm_publish binds the user's explicit decision to the exact
-				// release candidate shown through the stable share preview; the CLI
+				// release candidate shown through the private Candidate preview; the CLI
 				// never infers it. The decision
 				// goes to the dedicated resolve-confirmation endpoint whose digest
 				// contract is identical across OpenAPI/SDK/runtime.
@@ -418,7 +418,7 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&actionID, "action-id", "", "typed action receipt ID")
 	command.Flags().StringVar(&expectedDigest, "expected-payload-digest", "", "digest of the action payload being answered")
-	command.Flags().StringVar(&expectedCandidateDigest, "expected-release-candidate-digest", "", "exact release candidate digest shown before opening the stable share preview")
+	command.Flags().StringVar(&expectedCandidateDigest, "expected-release-candidate-digest", "", "exact release candidate digest shown before opening the private Candidate preview")
 	command.Flags().StringVar(&expectedSummaryDigest, "expected-public-summary-digest", "", "public_summary_digest from the job preview output (binds the confirmation to the frozen summary)")
 	command.Flags().StringVar(&decision, "decision", "", "confirm_publish decision: confirm or cancel")
 	command.Flags().BoolVar(&payloadStdin, "payload-stdin", false, "read the structured action answer from stdin")

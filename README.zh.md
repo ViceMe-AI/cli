@@ -10,7 +10,7 @@ ViceMe 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为
 
 [安装](#安装与快速开始) · [AI Agent Skills](#agent-skills) · [认证](#认证) · [区域与-profile](#区域与-profile) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
 
-> **开放状态：** Core 发布传输和稳定链接链路已经实现。`--yes` 后，Publication 先停在 `meta_review` 完成基本信息确认，再在 `awaiting_action` 中确认交互步骤。之后 `confirm_publish` 返回将长期使用的同一条 `preview_share_url`；创作者在普通分享页完成一次真实使用，回到 Agent Host 明确确认后，该链接原地转为正式公开链接。CLI 不再提供独立 PreviewRun 命令。预览阶段的输入、输出、文件、会话和 Runner 历史均为临时数据，终态后会被清理，不进入公开统计或作品历史。
+> **开放状态：** Core 发布传输和稳定链接链路已经实现。`--yes` 后，Publication 先停在 `meta_review` 完成基本信息确认，再在 `awaiting_action` 中确认交互步骤。之后 `confirm_publish` 返回仅创作者可访问的 `/p/{code}` `preview_share_url`；创作者在该页面完成一次真实使用，回到 Agent Host 明确确认。发布完成后，持久回执返回正式 `/v/{code}` `share_url`，旧预览地址会重定向到它。CLI 不再提供独立 PreviewRun 命令。预览阶段的输入、输出、文件、会话和 Runner 历史均为临时数据，终态后会被清理，不进入公开统计或作品历史。
 
 ## 为什么选择 ViceMe CLI？
 
@@ -120,7 +120,7 @@ viceme skills list
 viceme skill inspect https://github.com/acme/poster-skill --skill-root .
 ```
 
-inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 `destination.recovery.mode=resume_existing_publication`，必须用其中的 `publication_id` 运行 `job get` 并恢复该非终态 Publication，不能用本次 inspect resolution 再次发布。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。进入 `meta_review` 后，使用同一 action ID 与 payload digest 展示并决议信息，然后再次等待；进入 `awaiting_action` 后，确认交互步骤，打开 `preview_share_url` 在普通分享页完成一次成功使用。若 `confirm_steps` 或 `confirm_publish` action 过期，先用 `job get` 读取同一 Publication，再显式运行 `viceme job renew <publication-id> --action-id <expired-action-id>`，只使用返回的新 `next_action` 继续，不能创建第二条 Publication。最后回到对话明确确认或取消。确认后继续等待到 `share_published`；返回的正式链接与预览链接完全相同。
+inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 `destination.recovery.mode=resume_existing_publication`，必须用其中的 `publication_id` 运行 `job get` 并恢复该非终态 Publication，不能用本次 inspect resolution 再次发布。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。进入 `meta_review` 后，使用同一 action ID 与 payload digest 展示并决议信息，然后再次等待；进入 `awaiting_action` 后，确认交互步骤，打开私有 `preview_share_url` 在预览页完成一次成功使用。若 `confirm_steps` 或 `confirm_publish` action 过期，先用 `job get` 读取同一 Publication，再显式运行 `viceme job renew <publication-id> --action-id <expired-action-id>`，只使用返回的新 `next_action` 继续，不能创建第二条 Publication。最后回到对话明确确认或取消。确认后继续等待到 `share_published`，返回正式 `data.result.share_url`；不要要求它与私有预览地址相同。
 
 ## 区域与 Profile
 

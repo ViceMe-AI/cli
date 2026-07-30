@@ -235,7 +235,12 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string,
 	if err != nil {
 		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 	}
-	base.Path = path.Join(base.Path, endpoint)
+	relative, err := url.Parse(endpoint)
+	if err != nil || relative.IsAbs() || relative.Host != "" {
+		return output.Internal("request_endpoint", "failed to construct the ViceMe API endpoint", err)
+	}
+	base.Path = path.Join(base.Path, relative.Path)
+	base.RawQuery = relative.RawQuery
 	var body io.Reader
 	if requestBody != nil {
 		data, err := json.Marshal(requestBody)
