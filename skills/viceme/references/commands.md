@@ -26,6 +26,8 @@ viceme profile remove company
 
 `profile use` changes the persistent active profile. Global `--profile` selects a profile for one command without changing the persistent selection. Never switch, rename, or remove a profile based only on inferred intent.
 
+Profile authority is scoped to the user's current request. A profile selected in a prior task, conversation memory, a matching repository or Target, or another authenticated configuration is not authorization to reuse it. When the current request does not name a profile, omit both `--profile` and `VICEME_API_BASE_URL` and use the active profile reported by `viceme auth status`. When the current request names an existing profile, use only `--profile <name>` consistently. The CLI rejects combining global `--profile` with `VICEME_API_BASE_URL`; configure an explicitly requested endpoint on the selected profile instead of layering a process endpoint over it.
+
 Only when the user explicitly requests controlled local/internal testing may an Agent configure an endpoint and its matching audience-bound local Profile credential:
 
 ```bash
