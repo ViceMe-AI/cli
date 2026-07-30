@@ -21,10 +21,8 @@ func newJobCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newJobPreviewCommand(runtime))
 	command.AddCommand(newJobEditCommand(runtime))
 	command.AddCommand(newJobEditGetCommand(runtime))
-	command.AddCommand(newJobRunCommand(runtime))
-	command.AddCommand(newJobRunGetCommand(runtime))
-	command.AddCommand(newJobAcceptCommand(runtime))
 	command.AddCommand(newJobResumeCommand(runtime))
+	command.AddCommand(newJobRenewCommand(runtime))
 	command.AddCommand(newJobRetryCommand(runtime))
 	command.AddCommand(newJobCancelCommand(runtime))
 	return command
@@ -103,6 +101,28 @@ func newJobGetCommand(runtime *Runtime) *cobra.Command {
 			return runtime.success(publication)
 		},
 	}
+}
+
+func newJobRenewCommand(runtime *Runtime) *cobra.Command {
+	var actionID string
+	command := &cobra.Command{
+		Use:   "renew <publication-id>",
+		Short: "Explicitly renew an expired confirmation action on the same publication",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			actionID = strings.TrimSpace(actionID)
+			if actionID == "" {
+				return output.Validation("renew_flags", "renew requires --action-id identifying the expired confirmation action")
+			}
+			receipt, err := runtime.client().RenewExpiredAction(command.Context(), args[0], actionID)
+			if err != nil {
+				return err
+			}
+			return runtime.success(receipt)
+		},
+	}
+	command.Flags().StringVar(&actionID, "action-id", "", "expired confirm_steps or confirm_publish action receipt ID")
+	return command
 }
 
 func newJobWaitCommand(runtime *Runtime) *cobra.Command {
@@ -229,121 +249,6 @@ func waitPublicationEdit(ctx context.Context, runtime *Runtime, publicationID, e
 	}
 }
 
-func newJobRunCommand(runtime *Runtime) *cobra.Command {
-	var candidateDigest string
-	var inputFlags []string
-	var timeout time.Duration
-	command := &cobra.Command{
-		Use:   "run <publication-id>",
-		Short: "Run one real preview test of the exact candidate and show the result",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(command *cobra.Command, args []string) error {
-			if candidateDigest == "" {
-				return output.Validation("run_flags", "run requires --candidate-digest binding the exact candidate")
-			}
-			inputs, err := parseKeyValueInputs(inputFlags)
-			if err != nil {
-				return err
-			}
-			if timeout <= 0 {
-				timeout = 3 * time.Minute
-			}
-			started, err := runtime.client().StartSkillPreviewRun(command.Context(), args[0], api.PreviewRunStartRequest{
-				Inputs: inputs, ExpectedCandidateDigest: candidateDigest,
-			})
-			if err != nil {
-				return err
-			}
-			final, timedOut, err := waitSkillPreviewRun(command.Context(), runtime, args[0], started.PreviewRunID, timeout)
-			if err != nil {
-				return err
-			}
-			// 轮询超时同样保留已创建的 run ID:同一 preview_run_id 可继续
-			// 轮询/接受,恢复不丢已经创建的试跑。
-			meta := output.Meta{}
-			if timedOut {
-				value := true
-				meta.WaitTimedOut = &value
-			}
-			return runtime.successWithMeta(final, meta)
-		},
-	}
-	command.Flags().StringVar(&candidateDigest, "candidate-digest", "", "exact release candidate digest to test")
-	command.Flags().StringArrayVar(&inputFlags, "input", nil, "preview input as name=value (repeatable)")
-	command.Flags().DurationVar(&timeout, "timeout", 3*time.Minute, "maximum time to wait for the run")
-	return command
-}
-
-func parseKeyValueInputs(flags []string) (map[string]string, error) {
-	inputs := make(map[string]string, len(flags))
-	for _, flag := range flags {
-		name, value, found := strings.Cut(flag, "=")
-		if !found || strings.TrimSpace(name) == "" {
-			return nil, output.Validation("run_inputs", "--input must be name=value")
-		}
-		inputs[name] = value
-	}
-	return inputs, nil
-}
-
-func waitSkillPreviewRun(ctx context.Context, runtime *Runtime, publicationID, previewRunID string, timeout time.Duration) (api.SkillPreviewRun, bool, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	last := api.SkillPreviewRun{}
-	for {
-		run, err := runtime.client().GetSkillPreviewRun(ctx, publicationID, previewRunID)
-		if err != nil {
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				if last.PreviewRunID == "" {
-					last = api.SkillPreviewRun{PublicationID: publicationID, PreviewRunID: previewRunID, Status: "running"}
-				}
-				return last, true, nil
-			}
-			return run, false, err
-		}
-		last = run
-		if run.Status == "succeeded" || run.Status == "failed" {
-			return run, false, nil
-		}
-		if err := runtime.deps.Sleep(ctx, 3*time.Second); err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				return last, true, nil
-			}
-			return last, false, err
-		}
-	}
-}
-
-func newJobRunGetCommand(runtime *Runtime) *cobra.Command {
-	var timeout time.Duration
-	command := &cobra.Command{
-		Use:   "run-get <publication-id> <preview-run-id>",
-		Short: "Read a preview run receipt by ID, optionally resuming the wait after a timeout",
-		Args:  cobra.ExactArgs(2),
-		RunE: func(command *cobra.Command, args []string) error {
-			if timeout <= 0 {
-				run, err := runtime.client().GetSkillPreviewRun(command.Context(), args[0], args[1])
-				if err != nil {
-					return err
-				}
-				return runtime.success(run)
-			}
-			final, timedOut, err := waitSkillPreviewRun(command.Context(), runtime, args[0], args[1], timeout)
-			if err != nil {
-				return err
-			}
-			meta := output.Meta{}
-			if timedOut {
-				value := true
-				meta.WaitTimedOut = &value
-			}
-			return runtime.successWithMeta(final, meta)
-		},
-	}
-	command.Flags().DurationVar(&timeout, "timeout", 0, "resume waiting for the run (0 = single read)")
-	return command
-}
-
 func newJobEditGetCommand(runtime *Runtime) *cobra.Command {
 	var timeout time.Duration
 	command := &cobra.Command{
@@ -371,34 +276,6 @@ func newJobEditGetCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().DurationVar(&timeout, "timeout", 0, "resume waiting for the edit (0 = single read)")
-	return command
-}
-
-func newJobAcceptCommand(runtime *Runtime) *cobra.Command {
-	var previewRunID, candidateDigest, inputsDigest string
-	command := &cobra.Command{
-		Use:   "accept <publication-id>",
-		Short: "Accept the actual result of a preview test run",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(command *cobra.Command, args []string) error {
-			if previewRunID == "" || candidateDigest == "" {
-				return output.Validation("accept_flags", "accept requires --run-id and --candidate-digest")
-			}
-			if inputsDigest == "" {
-				return output.Validation("accept_flags", "accept requires --inputs-digest binding the accepted input set (PRE-04); take inputs_digest from the job run receipt")
-			}
-			receipt, err := runtime.client().AcceptSkillPreviewRun(command.Context(), args[0], previewRunID, api.PreviewRunAcceptRequest{
-				ExpectedCandidateDigest: candidateDigest, ExpectedInputsDigest: inputsDigest,
-			})
-			if err != nil {
-				return err
-			}
-			return runtime.success(receipt)
-		},
-	}
-	command.Flags().StringVar(&previewRunID, "run-id", "", "preview run receipt ID")
-	command.Flags().StringVar(&candidateDigest, "candidate-digest", "", "exact release candidate digest of the accepted result")
-	command.Flags().StringVar(&inputsDigest, "inputs-digest", "", "digest of the exact input set being accepted (PRE-04, from the job run receipt)")
 	return command
 }
 
@@ -494,7 +371,8 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 			request := api.ResolveActionRequest{ExpectedPayloadDigest: expectedDigest}
 			if decision != "" {
 				// confirm_publish binds the user's explicit decision to the exact
-				// previewed release candidate; the CLI never infers it. The decision
+				// release candidate shown through the private Candidate preview; the CLI
+				// never infers it. The decision
 				// goes to the dedicated resolve-confirmation endpoint whose digest
 				// contract is identical across OpenAPI/SDK/runtime.
 				if decision != "confirm" && decision != "cancel" {
@@ -540,8 +418,8 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&actionID, "action-id", "", "typed action receipt ID")
 	command.Flags().StringVar(&expectedDigest, "expected-payload-digest", "", "digest of the action payload being answered")
-	command.Flags().StringVar(&expectedCandidateDigest, "expected-release-candidate-digest", "", "exact release candidate digest shown in the preview")
-	command.Flags().StringVar(&expectedSummaryDigest, "expected-public-summary-digest", "", "public_summary_digest from the job preview output (binds the confirmation to the summary receipt)")
+	command.Flags().StringVar(&expectedCandidateDigest, "expected-release-candidate-digest", "", "exact release candidate digest shown before opening the private Candidate preview")
+	command.Flags().StringVar(&expectedSummaryDigest, "expected-public-summary-digest", "", "public_summary_digest from the job preview output (binds the confirmation to the frozen summary)")
 	command.Flags().StringVar(&decision, "decision", "", "confirm_publish decision: confirm or cancel")
 	command.Flags().BoolVar(&payloadStdin, "payload-stdin", false, "read the structured action answer from stdin")
 	return command

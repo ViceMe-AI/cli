@@ -117,24 +117,6 @@ func (c *Client) GetPublicationEdit(ctx context.Context, publicationID, editID s
 	return response, err
 }
 
-func (c *Client) StartSkillPreviewRun(ctx context.Context, publicationID string, request PreviewRunStartRequest) (PreviewRunStartResponse, error) {
-	var response PreviewRunStartResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/preview-runs", request, &response, true, "")
-	return response, err
-}
-
-func (c *Client) GetSkillPreviewRun(ctx context.Context, publicationID, previewRunID string) (SkillPreviewRun, error) {
-	var response SkillPreviewRun
-	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/preview-runs/"+url.PathEscape(previewRunID), nil, &response, true, "")
-	return response, err
-}
-
-func (c *Client) AcceptSkillPreviewRun(ctx context.Context, publicationID, previewRunID string, request PreviewRunAcceptRequest) (PreviewRunAcceptResponse, error) {
-	var response PreviewRunAcceptResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/preview-runs/"+url.PathEscape(previewRunID)+"/accept", request, &response, true, "")
-	return response, err
-}
-
 // ResolveAction answers a typed payload action (select_root). confirm_publish
 // decisions must go through ResolveConfirmation: the API owns a dedicated
 // endpoint whose OpenAPI/SDK/runtime digest contract is identical.
@@ -153,6 +135,16 @@ func (c *Client) ResolveConfirmation(ctx context.Context, publicationID, actionI
 	var response Publication
 	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/actions/" + url.PathEscape(actionID) + "/resolve-confirmation"
 	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "")
+	return response, err
+}
+
+// RenewExpiredAction explicitly issues a new generation for an expired
+// confirm_steps or confirm_publish action. The publication and frozen candidate
+// remain unchanged; the server owns all eligibility checks.
+func (c *Client) RenewExpiredAction(ctx context.Context, publicationID, actionID string) (RenewActionReceipt, error) {
+	var response RenewActionReceipt
+	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/actions/" + url.PathEscape(actionID) + "/renew"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, true, "")
 	return response, err
 }
 
@@ -243,7 +235,12 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string,
 	if err != nil {
 		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 	}
-	base.Path = path.Join(base.Path, endpoint)
+	relative, err := url.Parse(endpoint)
+	if err != nil || relative.IsAbs() || relative.Host != "" {
+		return output.Internal("request_endpoint", "failed to construct the ViceMe API endpoint", err)
+	}
+	base.Path = path.Join(base.Path, relative.Path)
+	base.RawQuery = relative.RawQuery
 	var body io.Reader
 	if requestBody != nil {
 		data, err := json.Marshal(requestBody)

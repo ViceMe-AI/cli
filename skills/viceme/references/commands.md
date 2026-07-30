@@ -189,10 +189,10 @@ another bounded wait:
 viceme job wait pub_123 --timeout 60s
 ```
 
-## Interaction steps confirmation, preview, edit, test run and confirmation (T2)
+## Interaction steps confirmation, private Candidate preview, edit, and confirmation (T2)
 
 When `next_action.type` is `confirm_steps`, the exact release candidate is
-ready but **no preview link exists yet**. Show the interaction steps from the
+ready but **no private Candidate preview exists yet**. Show the interaction steps from the
 action `payload.steps` (title/description/author/input method/usage/output
 description), then resolve inside the conversation — confirm, edit
 (natural language, below), or decline:
@@ -213,19 +213,41 @@ Read the three binding digests from these exact `job get` JSON paths:
 call `job preview` at this stage: the preview only exists after the steps gate
 passes, so the digest can never come from it here. `--decision cancel` maps to `cancelled` with zero
 preview link. After a confirmed steps gate the publication issues
-`confirm_publish` (with `payload.preview_url`); an applied edit supersedes the
-steps action and the fresh candidate must be confirmed again.
+`confirm_publish` (with `payload.preview_share_url`); an applied edit
+supersedes the steps action, pending share projection, and temporary preview
+artifacts, and the fresh candidate must be confirmed again.
 
 When `next_action.type` is `confirm_publish`, the exact release candidate is
-ready. Read the private browser link from
-`next_action.payload.preview_url` in the latest `job wait` / `job get`. Then
-show the frozen public summary from `data.preview`; that response carries the
-candidate, payload, and `public_summary_digest` receipts that confirmation
-binds:
+ready. Read the owner-only private browser link from
+`next_action.payload.preview_share_url` in the latest `job wait` / `job get`.
+It resolves `/p/{code}` and is separate from the official `/v/{code}` link
+returned after release. Show the frozen public summary from `data.preview`;
+that response carries the candidate, payload, and `public_summary_digest`
+receipts that confirmation binds:
 
 ```bash
 viceme job preview pub_123 [--action-id act_123]
 ```
+
+If the current `confirm_steps` or `confirm_publish` receipt expires, keep the
+same publication and frozen Candidate. First read the durable publication and
+verify that the expired action ID is still the current action, then explicitly
+renew that exact receipt:
+
+```bash
+viceme job get pub_123
+viceme job renew pub_123 --action-id act_expired
+```
+
+The success envelope contains `data.publication_id`, `data.status`, and the new
+`data.next_action`. Continue only with the new action ID, digests, and
+`preview_share_url`; never replay the expired receipt. Do not inspect/publish
+again or create another publication to recover an expired confirmation action.
+`job renew` is not a generic retry: it must never be used for terminal
+`failed`, `unsupported`, `rejected`, `cancelled`, or `binding_required`
+publications, and it does not replace `job retry` for an explicitly retryable
+compiler platform failure. The server rejects any non-expired, superseded, or
+non-confirmation action.
 
 Edits happen only as natural language inside the conversation — never via a
 page editor or JSON Patch. Bind the digest shown by the preview and start the
@@ -241,42 +263,34 @@ Never interpolate it into a command string, argv, an environment variable, or
 a shell pipeline. The CLI preserves the complete input, including newlines and
 shell metacharacters.
 
-When a bounded wait times out, the command still prints the created
-`edit_id` / `preview_run_id` with `meta.wait_timed_out=true` — resume with
-that same ID instead of starting a second logical operation:
+When a bounded edit wait times out, the command still prints the created
+`edit_id` with `meta.wait_timed_out=true` — resume with that same ID instead
+of starting a second logical operation:
 
 ```bash
 viceme job edit-get pub_123 edit_1 [--timeout 2m]
-viceme job run-get pub_123 run_1 [--timeout 3m]
 ```
 
-The same-ID reads work after a process restart; `--timeout` resumes the
-bounded wait and keeps returning `wait_timed_out` honestly.
+The same-ID read works after a process restart; `--timeout` resumes the bounded
+wait and keeps returning `wait_timed_out` honestly.
 
-An applied edit supersedes the old preview/action/run receipts — re-run
-`job preview` / `job get` for the fresh candidate before continuing. Identical
-retries are deduplicated server-side; 409 `candidate_changed` means the digest
-is stale.
+An applied edit supersedes the old preview/action receipt and temporary share
+preview data — re-run `job get` / `job preview` for the fresh candidate before
+continuing. Identical retries are deduplicated server-side; 409
+`candidate_changed` means the digest is stale.
 
-Run one real preview test of the exact candidate and show the structured
-result, then accept it only after the user approves what they saw:
+Give `preview_share_url` to the user and ask them to use the Agent normally on
+that page. The ordinary share page has no special test, accept-result, or
+publish controls. The creator must complete at least one successful ordinary
+run of the exact pending Candidate, then return to the Agent Host and explicitly
+confirm or cancel. The CLI intentionally has no `job run`, `job run-get`, or
+`job accept` command.
 
-```bash
-viceme job run pub_123 --candidate-digest sha256:def \
-  --input theme=咖啡 [--timeout 3m]
-viceme job accept pub_123 --run-id run_1 \
-  --candidate-digest sha256:def --inputs-digest sha256:ghi
-```
-
-`--inputs-digest` is required (PRE-04): take `inputs_digest` from the
-`job run` receipt so the acceptance binds the exact input set that produced
-the result.
-
-Confirmation requires a succeeded and accepted run of the same candidate;
-otherwise `job resume --decision confirm` is rejected with 409
-`preview_run_required`. `--expected-public-summary-digest` is required too —
-take `public_summary_digest` from the `job preview` output, binding the
-decision to the exact summary receipt the user saw:
+Confirmation requires a successful ordinary share run bound to that same
+pending Candidate; otherwise `job resume --decision confirm` is rejected with
+409 `preview_share_run_required`. `--expected-public-summary-digest` is
+required too — take `public_summary_digest` from the `job preview` output,
+binding the decision to the exact summary receipt the user saw:
 
 ```bash
 viceme job resume pub_123 --action-id act_123 \
@@ -290,7 +304,9 @@ viceme job wait pub_123 --timeout 60s
 `job resume --decision confirm` returns a `release_authorized` action receipt;
 it does not return the final share link. Wait until `data.status` becomes
 `share_published`, then return `data.result.share_url`,
-`data.result.published_noop`, and warnings. If the bounded wait reports
+`data.result.published_noop`, and warnings. Do not require the official
+`share_url` to equal the private `preview_share_url`; after publication the old
+preview URL redirects to the official link. If the bounded wait reports
 `meta.wait_timed_out=true`, use `job get` or another bounded wait in a later
 turn rather than looping indefinitely.
 
@@ -301,13 +317,26 @@ candidates: if the preview or candidate digest changes, ask the user again
 with the fresh action. A stale or expired action fails closed — fetch `job get`
 and present the new `next_action` instead of retrying the old one.
 
+All data produced while using the pending Candidate on the private preview link is
+temporary. Preview inputs, outputs, files, media, sessions, Runner events, and
+workspace history are purged after confirm, cancel, expiry, supersede, or
+Release commit. They do not count as public views, usage, works, or history.
+Never promise that a preview result can be recovered after publication; run
+again on the published Agent when the user needs a durable result.
+
 ## Bounded jobs, explicit compiler retry, and cancellation
 
 ```bash
 viceme job get pub_123
 viceme job wait pub_123 --timeout 60s
+viceme job renew pub_123 --action-id act_expired
 viceme job retry pub_123 --yes
 viceme job cancel pub_123 --yes
 ```
 
-`job retry` is valid only when the durable compiler failure is a retryable `PLATFORM_FAILURE`. It reuses the frozen source and same publication, has a server-enforced attempt limit, and always requires explicit user confirmation. Cancellation also requires explicit confirmation.
+`job renew` and `job retry` are separate recovery contracts. Renewal only
+reissues an expired confirmation action on the same frozen Candidate. `job
+retry` is valid only when the durable compiler failure is a retryable
+`PLATFORM_FAILURE`; it reuses the frozen source and same publication, has a
+server-enforced attempt limit, and always requires explicit user confirmation.
+Cancellation also requires explicit confirmation.
