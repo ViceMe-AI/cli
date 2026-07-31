@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.10.1] - 2026-07-31
+
+### Fixes
+
+- 阻止隐式 profile 与 endpoint 覆盖 (`602c16f`)
+
 ## [0.10.0] - 2026-07-30
 
 ### Features
