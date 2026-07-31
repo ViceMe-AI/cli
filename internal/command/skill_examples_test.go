@@ -63,6 +63,40 @@ func TestBundledSkillRenewsExpiredConfirmationWithoutNewPublication(t *testing.T
 	}
 }
 
+func TestBundledSkillKeepsProfileAuthorityTaskLocal(t *testing.T) {
+	t.Parallel()
+	repoRoot := repositoryRoot(t)
+	for relative, required := range map[string][]string{
+		"skills/viceme/SKILL.md": {
+			"Profile selection authority is scoped to the user's current request",
+			"conversation memory",
+			"omit both `--profile` and `VICEME_API_BASE_URL`",
+			"never pair it with `VICEME_API_BASE_URL`",
+			"stop and discard pending calls",
+		},
+		"skills/viceme/references/commands.md": {
+			"Profile authority is scoped to the user's current request",
+			"prior task, conversation memory",
+			"omit both `--profile` and `VICEME_API_BASE_URL`",
+			"rejects combining global `--profile` with `VICEME_API_BASE_URL`",
+		},
+		"skills/viceme/agents/openai.yaml": {
+			"current profile unless I explicitly name another profile in this request",
+		},
+	} {
+		data, err := os.ReadFile(filepath.Join(repoRoot, relative))
+		if err != nil {
+			t.Fatal(err)
+		}
+		content := string(data)
+		for _, value := range required {
+			if !strings.Contains(content, value) {
+				t.Errorf("%s omits profile-authority guard %q", relative, value)
+			}
+		}
+	}
+}
+
 func TestPublicConfigurationSurfaceStaysMinimal(t *testing.T) {
 	t.Parallel()
 	root, _, err := NewRoot(Dependencies{Store: securestore.NewMemory(), Region: config.RegionCN})
