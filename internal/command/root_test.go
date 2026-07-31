@@ -94,7 +94,7 @@ func TestConfigLoadFailureReportsPathAndStageWithoutFileContents(t *testing.T) {
 }
 
 func TestAPIBaseURLEnvironmentOverride(t *testing.T) {
-	t.Setenv("VICEME_API_BASE_URL", "http://localhost:3000")
+	t.Setenv(apiBaseURLEnvironment, "http://localhost:3000")
 	_, runtime, err := NewRoot(Dependencies{
 		Store:       securestore.NewMemory(),
 		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()},
@@ -110,8 +110,45 @@ func TestAPIBaseURLEnvironmentOverride(t *testing.T) {
 	}
 }
 
+func TestGlobalProfileRejectsProcessAPIBaseURLOverride(t *testing.T) {
+	t.Setenv(apiBaseURLEnvironment, "http://localhost:8090")
+	home := t.TempDir()
+	environment := skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
+	configured := config.Default(config.RegionCN)
+	local, err := configured.AddProfile("local", config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	local.APIBaseURL = "http://localhost:8090"
+	if _, err := config.Save(environment.ConfigDir, configured); err != nil {
+		t.Fatal(err)
+	}
+
+	code, stdout, stderr, _ := runCLIWithDependencies(
+		t,
+		nil,
+		securestore.NewMemory(),
+		"",
+		Dependencies{Environment: environment},
+		"--profile",
+		"local",
+		"auth",
+		"status",
+	)
+	if code != output.ExitValidation || stdout != "" || !stringContains(stderr, `"subtype":"profile_api_base_url_conflict"`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	loaded, err := config.LoadOrDefault(environment.ConfigDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.CurrentProfile != config.DefaultProfileName {
+		t.Fatalf("ambiguous one-command override changed the active profile: %#v", loaded)
+	}
+}
+
 func TestProductionProcessCredentialRejectsAPIEnvironmentOverride(t *testing.T) {
-	t.Setenv("VICEME_API_BASE_URL", "https://malicious.example")
+	t.Setenv(apiBaseURLEnvironment, "https://malicious.example")
 	t.Setenv(processAccessTokenEnvironment, testProcessCredential("cn-prod"))
 	_, _, err := NewRoot(Dependencies{
 		Store:       securestore.NewMemory(),

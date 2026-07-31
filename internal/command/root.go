@@ -55,6 +55,7 @@ type Runtime struct {
 	region             config.Region
 	apiBaseURL         string
 	apiBaseURLOverride string
+	apiBaseURLFromEnv  bool
 	credentialScope    string
 	config             config.Config
 	profile            config.Profile
@@ -63,6 +64,7 @@ type Runtime struct {
 }
 
 const (
+	apiBaseURLEnvironment             = "VICEME_API_BASE_URL"
 	processAccessTokenEnvironment     = "VICEME_ACCESS_TOKEN"
 	localProcessCredentialEnvironment = "VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL"
 	devPreviewAPIBaseURL              = "https://viceme-envoy-dev.preview.tencent-zeabur.cn"
@@ -131,8 +133,10 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	}
 	region := resolvedProfile.Region
 	apiBaseURLOverride := dependencies.APIBaseURL
+	apiBaseURLFromEnv := false
 	if apiBaseURLOverride == "" {
-		apiBaseURLOverride = os.Getenv("VICEME_API_BASE_URL")
+		apiBaseURLOverride = os.Getenv(apiBaseURLEnvironment)
+		apiBaseURLFromEnv = apiBaseURLOverride != ""
 	}
 	processCredential, err := parsePublicationCredential(os.Getenv(processAccessTokenEnvironment))
 	if err != nil {
@@ -142,6 +146,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		deps:               dependencies,
 		region:             region,
 		apiBaseURLOverride: apiBaseURLOverride,
+		apiBaseURLFromEnv:  apiBaseURLFromEnv,
 		config:             resolvedConfig,
 		profile:            *resolvedProfile,
 		configBase:         configBase,
@@ -175,6 +180,9 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.PersistentFlags().StringVar(&runtime.opts.profile, "profile", "", "use a specific profile for this command")
 	root.PersistentPreRunE = func(command *cobra.Command, _ []string) error {
 		runtime.prepareUpdateNotice(command)
+		if err := runtime.validateProfileOverrideAuthority(runtime.opts.profile); err != nil {
+			return err
+		}
 		return runtime.selectProfile(runtime.opts.profile)
 	}
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
@@ -347,6 +355,18 @@ func (r *Runtime) selectProfile(name string) error {
 		return output.Validation("profile_not_found", err.Error())
 	}
 	return r.applyProfile(*profile)
+}
+
+func (r *Runtime) validateProfileOverrideAuthority(name string) error {
+	if name == "" || !r.apiBaseURLFromEnv {
+		return nil
+	}
+	return output.Validation(
+		"profile_api_base_url_conflict",
+		"`--profile` cannot be combined with `VICEME_API_BASE_URL`; select one profile and endpoint authority",
+	).WithHint(
+		"Unset VICEME_API_BASE_URL to use the selected profile's configured endpoint, or omit --profile to use the process endpoint override.",
+	)
 }
 
 func (r *Runtime) applyProfile(profile config.Profile) error {

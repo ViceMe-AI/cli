@@ -16,7 +16,7 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 
 ## Publish workflow
 
-1. Run `viceme --version`, then `viceme auth status` using the current profile. Use `viceme profile list` only when profile selection is relevant to the user's request.
+1. Run `viceme --version`, then `viceme auth status` using the current profile. Use `viceme profile list` only when profile selection is relevant to the user's request. Profile selection authority is scoped to the user's current request: a profile used in an earlier turn or task, conversation memory, a matching repository or Target, or another configured/authenticated profile does not authorize reusing it. When the current request does not name a profile, omit both `--profile` and `VICEME_API_BASE_URL` and let every command use the active profile reported by `auth status`. If the current request explicitly names an existing profile, pass only `--profile <name>` consistently; never pair it with `VICEME_API_BASE_URL`. If the user changes profile direction while commands are running, stop and discard pending calls before issuing any further command.
 2. Select exactly one authentication path:
    - If `auth status` reports `source=process` or `source=local_profile`, continue with the standard inspect/publish/job commands. The CLI has already bound that credential to its allowed production, development-preview, or loopback origin. Never print it, pass it as an argument, change its Profile or endpoint without an explicit user request, or run login/logout while the override is active.
    - If the user explicitly supplied an operations-issued access token and asked to use it, persist it only into the Profile selected by the user (or the current Profile when the user did not name another one):
@@ -88,6 +88,7 @@ For exact flags and examples, read `references/commands.md` with `viceme skills 
 - Do not place copied source text, action payloads, tokens, or file contents in `sh -c` strings.
 - Do not persist, echo, forward to child processes, or place any process credential in argv, source text, logs, or output. The only credential-persistence exception is the explicit operations-token Profile flow in step 2, requested by the user and performed once through `profile configure --access-token`; never infer or silently create that override.
 - Do not rewrite CLI JSON or guess missing fields.
-- Do not switch, rename, or remove profiles unless the user explicitly asks. Global `--profile` is a one-command override and must name an existing profile.
+- Do not switch, rename, remove, or temporarily select profiles unless the user explicitly asks in the current request. Historical instructions and conversation memory are context, never profile authority. Global `--profile` is a one-command override and must name an existing profile.
+- Never combine global `--profile` with process `VICEME_API_BASE_URL`; the CLI rejects these competing profile/endpoint authority sources.
 - Do not cancel a publication without explicit confirmation.
 - Do not retry a failed compilation without explicit confirmation.
