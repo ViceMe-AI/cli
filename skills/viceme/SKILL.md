@@ -16,14 +16,14 @@ Use the `viceme` CLI as the only execution boundary. Do not parse the third-part
 
 ## Publish workflow
 
-1. Run `viceme --version`, then `viceme auth status` using the current profile. Use `viceme profile list` only when profile selection is relevant to the user's request. Profile selection authority is scoped to the user's current request: a profile used in an earlier turn or task, conversation memory, a matching repository or Target, or another configured/authenticated profile does not authorize reusing it. When the current request does not name a profile, omit both `--profile` and `VICEME_API_BASE_URL` and let every command use the active profile reported by `auth status`. If the current request explicitly names an existing profile, pass only `--profile <name>` consistently; never pair it with `VICEME_API_BASE_URL`. If the user changes profile direction while commands are running, stop and discard pending calls before issuing any further command.
+1. Run `viceme --version`, then `viceme auth status --verify` using the current profile. Use `viceme profile list` only when profile selection is relevant to the user's request. Profile selection authority is scoped to the user's current request: a profile used in an earlier turn or task, conversation memory, a matching repository or Target, or another configured/authenticated profile does not authorize reusing it. When the current request does not name a profile, omit both `--profile` and `VICEME_API_BASE_URL` and let every command use the active profile reported by `auth status`. If the current request explicitly names an existing profile, pass only `--profile <name>` consistently; never pair it with `VICEME_API_BASE_URL`. If the user changes profile direction while commands are running, stop and discard pending calls before issuing any further command.
 2. Select exactly one authentication path:
    - If `auth status` reports `source=process` or `source=local_profile`, continue with the standard inspect/publish/job commands. The CLI has already bound that credential to its allowed production, development-preview, or loopback origin. Never print it, pass it as an argument, change its Profile or endpoint without an explicit user request, or run login/logout while the override is active.
    - If the user explicitly supplied an operations-issued access token and asked to use it, persist it only into the Profile selected by the user (or the current Profile when the user did not name another one):
 
      ```bash
      viceme profile configure <profile-name> --access-token '<operations-token>'
-     viceme --profile <profile-name> auth status
+     viceme --profile <profile-name> auth status --verify
      ```
 
      Add `--api-base-url <url>` to the configure command only when the user explicitly supplied that endpoint. The verification command must report `authenticated=true` and `source=local_profile`; then use that same `--profile` with the ordinary inspect/publish/job flow. Do not start Device Login, invent another delegated-publish command, or reproduce the token in the conversational response. Clear the override with `viceme profile configure <profile-name> --clear-access-token` when the user asks to remove it.

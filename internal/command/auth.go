@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	credentialauth "github.com/ViceMe-AI/cli/internal/auth"
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -172,27 +174,178 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 }
 
 func newAuthStatusCommand(runtime *Runtime) *cobra.Command {
-	return &cobra.Command{
+	var verify bool
+	command := &cobra.Command{
 		Use:   "status",
 		Short: "Show local ViceMe authentication status",
 		Args:  cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			if _, source, persistent := runtime.overrideCredential(); source != "" {
-				return runtime.business(map[string]any{
-					"authenticated": true,
-					"source":        source,
-					"persistent":    persistent,
-					"profile":       runtime.profile.Name,
-					"region":        runtime.region,
-				})
+		RunE: func(command *cobra.Command, _ []string) error {
+			credential := runtime.overrideCredentialDetails()
+			if credential.source != "" {
+				result := runtime.overrideAuthStatus(credential)
+				if !verify || result["authenticated"] == false {
+					return runtime.business(result)
+				}
+				remote, err := runtime.client().CredentialStatus(command.Context())
+				if err != nil {
+					return runtime.business(runtime.failedCredentialVerification(result, credential, err))
+				}
+				if credential.source == "local_profile" {
+					if err := runtime.cacheProfileCredentialMetadata(remote.CredentialStatus, remote.ExpiresAt); err != nil {
+						return err
+					}
+				}
+				mergeCredentialStatus(result, remote)
+				result["verified"] = true
+				return runtime.business(result)
 			}
 			status, err := runtime.manager().CurrentStatus()
 			if err != nil {
 				return err
 			}
-			return runtime.business(status)
+			if !verify || !status.Authenticated {
+				return runtime.business(status)
+			}
+			result := map[string]any{
+				"authenticated": status.Authenticated,
+				"profile":       status.Profile,
+				"region":        status.Region,
+			}
+			if status.UserID != "" {
+				result["user_id"] = status.UserID
+			}
+			if status.ExpiresAt != nil {
+				result["expires_at"] = status.ExpiresAt
+			}
+			remote, err := runtime.client().CredentialStatus(command.Context())
+			if err != nil {
+				return runtime.business(runtime.failedCredentialVerification(result, credential, err))
+			}
+			mergeCredentialStatus(result, remote)
+			result["verified"] = true
+			return runtime.business(result)
 		},
 	}
+	command.Flags().BoolVar(&verify, "verify", false, "verify the active credential against the ViceMe API")
+	return command
+}
+
+const publicationCredentialExpiryWarning = 5 * time.Minute
+
+func localPublicationCredentialStatus(now time.Time, profile config.Profile) (bool, string) {
+	status := strings.ToUpper(profile.AccessTokenStatus)
+	if status == "REVOKED" || status == "EXPIRED" || status == "INVALID" {
+		return false, strings.ToLower(status)
+	}
+	if profile.AccessTokenExpiresAt == nil {
+		if status == "" {
+			return true, "unknown"
+		}
+		return true, strings.ToLower(status)
+	}
+	if !now.Before(*profile.AccessTokenExpiresAt) {
+		return false, "expired"
+	}
+	if !now.Add(publicationCredentialExpiryWarning).Before(*profile.AccessTokenExpiresAt) {
+		return true, "expiring"
+	}
+	if status == "" {
+		return true, "ready"
+	}
+	return true, strings.ToLower(status)
+}
+
+func (r *Runtime) overrideAuthStatus(credential overrideCredential) map[string]any {
+	authenticated, status := true, "unknown"
+	if credential.source == "local_profile" {
+		authenticated, status = localPublicationCredentialStatus(r.deps.Now(), r.profile)
+	}
+	result := map[string]any{
+		"authenticated":     authenticated,
+		"source":            credential.source,
+		"persistent":        credential.persistent,
+		"profile":           r.profile.Name,
+		"region":            r.region,
+		"credential_status": status,
+	}
+	if credential.expiresAt != nil {
+		result["expires_at"] = credential.expiresAt
+	}
+	return result
+}
+
+func (r *Runtime) failedCredentialVerification(result map[string]any, credential overrideCredential, err error) map[string]any {
+	result["verified"] = false
+	result["verify_error"] = err.Error()
+	var cliError *output.Error
+	if !errors.As(err, &cliError) {
+		result["credential_status"] = "verify_failed"
+		return result
+	}
+	switch cliError.Subtype {
+	case "publication_credential_expired":
+		result["authenticated"] = false
+		result["credential_status"] = "expired"
+		if credential.source == "local_profile" {
+			_ = r.cacheProfileCredentialMetadata("EXPIRED", credential.expiresAt)
+		}
+	case "publication_credential_revoked":
+		result["authenticated"] = false
+		result["credential_status"] = "revoked"
+		if credential.source == "local_profile" {
+			_ = r.cacheProfileCredentialMetadata("REVOKED", credential.expiresAt)
+		}
+	default:
+		if cliError.Type == "authentication" || cliError.Type == "authorization" {
+			result["authenticated"] = false
+			result["credential_status"] = "invalid"
+			if credential.source == "local_profile" {
+				_ = r.cacheProfileCredentialMetadata("INVALID", credential.expiresAt)
+			}
+		} else {
+			result["credential_status"] = "verify_failed"
+		}
+	}
+	if cliError.Hint != "" {
+		result["hint"] = cliError.Hint
+	}
+	return result
+}
+
+func mergeCredentialStatus(result map[string]any, status api.CredentialStatus) {
+	result["authenticated"] = status.Authenticated
+	result["credential_type"] = status.CredentialType
+	result["credential_status"] = strings.ToLower(status.CredentialStatus)
+	result["new_publication_allowed"] = status.NewPublicationAllowed
+	result["actor_user_id"] = status.ActorUserID
+	result["effective_user_id"] = status.EffectiveUserID
+	if status.ExpiresAt != nil {
+		result["expires_at"] = status.ExpiresAt
+	}
+	if status.AuthorizationKind != nil {
+		result["authorization_kind"] = *status.AuthorizationKind
+	}
+	if status.AuthorizationID != nil {
+		result["authorization_id"] = *status.AuthorizationID
+	}
+	if status.PublicationID != nil {
+		result["publication_id"] = *status.PublicationID
+	}
+}
+
+func (r *Runtime) cacheProfileCredentialMetadata(status string, expiresAt *time.Time) error {
+	index := r.config.FindProfileIndex(r.profile.Name)
+	if index < 0 || r.config.Profiles[index].AccessToken != r.profile.AccessToken {
+		return output.Internal("config_profile", "could not update publication credential metadata", nil)
+	}
+	profile := &r.config.Profiles[index]
+	profile.AccessTokenStatus = strings.ToUpper(status)
+	profile.AccessTokenExpiresAt = expiresAt
+	if _, err := config.Save(r.configBase, r.config); err != nil {
+		return output.Internal("config_save", "could not save publication credential metadata", err)
+	}
+	r.profile = *profile
+	return nil
 }
 
 func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {

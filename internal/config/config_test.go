@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSaveCreatesPreservesAndUpdatesProfileConfig(t *testing.T) {
@@ -62,6 +63,33 @@ func TestExplicitLocalProfileOverridesRemainLocal(t *testing.T) {
 	profile, err := loaded.Resolve("default")
 	if err != nil || profile.APIBaseURL != "http://localhost:8090" || profile.AccessToken != "local-operator-secret" {
 		t.Fatalf("profile=%#v err=%v", profile, err)
+	}
+}
+
+func TestPublicationCredentialMetadataRequiresAndFollowsToken(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	configured := Default(RegionCN)
+	expiresAt := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
+	configured.Profiles[0].AccessToken = "local-operator-secret"
+	configured.Profiles[0].AccessTokenExpiresAt = &expiresAt
+	configured.Profiles[0].AccessTokenStatus = "issued"
+	if _, err := Save(base, configured); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadOrDefault(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, _ := loaded.Resolve("default")
+	if profile.AccessTokenStatus != "ISSUED" || profile.AccessTokenExpiresAt == nil || !profile.AccessTokenExpiresAt.Equal(expiresAt) {
+		t.Fatalf("credential metadata was not preserved: %#v", profile)
+	}
+
+	configured.Profiles[0].AccessToken = ""
+	if _, err := Save(t.TempDir(), configured); err == nil {
+		t.Fatal("credential metadata without a token must be rejected")
 	}
 }
 

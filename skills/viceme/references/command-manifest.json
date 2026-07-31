@@ -65,7 +65,15 @@
       "short": "Show local ViceMe authentication status",
       "runnable": true,
       "side_effect": "none",
-      "requires_confirmation": false
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "verify",
+          "type": "bool",
+          "default": "false",
+          "usage": "verify the active credential against the ViceMe API"
+        }
+      ]
     },
     {
       "path": "config",

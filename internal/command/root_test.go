@@ -756,6 +756,112 @@ func TestProcessCredentialRejectsNonCanonicalSecret(t *testing.T) {
 	}
 }
 
+func TestAuthStatusVerifyCachesPublicationCredentialExpiry(t *testing.T) {
+	token := testProcessCredential("cn-prod")
+	configBase := t.TempDir()
+	environment := skillcontent.Environment{Home: t.TempDir(), ConfigDir: configBase}
+	configured := config.Default(config.RegionCN)
+	configured.Profiles[0].APIBaseURL = config.APIBaseURL(config.RegionCN)
+	configured.Profiles[0].AccessToken = token
+	if _, err := config.Save(configBase, configured); err != nil {
+		t.Fatal(err)
+	}
+	expiresAt := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	var calls atomic.Int32
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		calls.Add(1)
+		if request.URL.Path != "/v1/cli/auth/status" || request.Header.Get("x-api-key") != token {
+			t.Fatalf("unexpected status request: %s credential=%q", request.URL.Path, request.Header.Get("x-api-key"))
+		}
+		return jsonHTTPResponse(request, http.StatusOK, `{"authenticated":true,"credential_type":"publication_credential","credential_status":"ISSUED","expires_at":"2030-01-01T00:00:00Z","authorization_kind":"CHANNEL","authorization_id":"authorization-1","publication_id":null,"new_publication_allowed":true,"actor_user_id":"17","effective_user_id":"901"}`), nil
+	})
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, securestore.NewMemory(), "", Dependencies{
+		Environment: environment,
+		HTTPClient:  &http.Client{Transport: transport},
+		Now:         func() time.Time { return expiresAt.Add(-time.Hour) },
+	}, "auth", "status", "--verify")
+	if code != 0 || stderr != "" || !stringContains(stdout, `"verified":true`) || strings.Contains(stdout, token) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+	loaded, err := config.LoadOrDefault(configBase)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, _ := loaded.Resolve("default")
+	if profile.AccessTokenExpiresAt == nil || !profile.AccessTokenExpiresAt.Equal(expiresAt) || profile.AccessTokenStatus != "ISSUED" {
+		t.Fatalf("credential metadata was not cached: %#v", profile)
+	}
+
+	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, securestore.NewMemory(), "", Dependencies{
+		Environment: environment,
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			t.Fatal("known expired credential must fail before network access")
+			return nil, nil
+		})},
+		Now: func() time.Time { return expiresAt.Add(time.Second) },
+	}, "auth", "status")
+	if code != 0 || stderr != "" || !stringContains(stdout, `"authenticated":false`) || !stringContains(stdout, `"credential_status":"expired"`) || calls.Load() != 1 {
+		t.Fatalf("expired status code=%d stdout=%s stderr=%s calls=%d", code, stdout, stderr, calls.Load())
+	}
+}
+
+func TestLocalPublicationCredentialStatusWarnsFiveMinutesBeforeExpiry(t *testing.T) {
+	now := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(publicationCredentialExpiryWarning)
+	authenticated, status := localPublicationCredentialStatus(now, config.Profile{
+		AccessTokenStatus:    "ISSUED",
+		AccessTokenExpiresAt: &expiresAt,
+	})
+	if !authenticated || status != "expiring" {
+		t.Fatalf("authenticated=%t status=%q", authenticated, status)
+	}
+}
+
+func TestProcessCredentialVerifyReportsExpiredWithoutLeakingToken(t *testing.T) {
+	token := testProcessCredential("cn-prod")
+	t.Setenv(processAccessTokenEnvironment, token)
+	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		return jsonHTTPResponse(request, http.StatusUnauthorized, `{"message":"Publication credential has expired","type":"authentication","subtype":"publication_credential_expired","retryable":false}`), nil
+	})
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, securestore.NewMemory(), "", Dependencies{
+		HTTPClient: &http.Client{Transport: transport},
+	}, "auth", "status", "--verify")
+	if code != 0 || stderr != "" || !stringContains(stdout, `"authenticated":false`) ||
+		!stringContains(stdout, `"credential_status":"expired"`) || !strings.Contains(stdout, "VICEME_ACCESS_TOKEN") || strings.Contains(stdout, token) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
+func TestKnownExpiredProfileCredentialBlocksRequestsWithoutIdentityFallback(t *testing.T) {
+	token := testProcessCredential("cn-prod")
+	configBase := t.TempDir()
+	environment := skillcontent.Environment{Home: t.TempDir(), ConfigDir: configBase}
+	configured := config.Default(config.RegionCN)
+	expiresAt := time.Date(2029, 1, 1, 0, 0, 0, 0, time.UTC)
+	configured.Profiles[0].APIBaseURL = config.APIBaseURL(config.RegionCN)
+	configured.Profiles[0].AccessToken = token
+	configured.Profiles[0].AccessTokenExpiresAt = &expiresAt
+	configured.Profiles[0].AccessTokenStatus = "ISSUED"
+	if _, err := config.Save(configBase, configured); err != nil {
+		t.Fatal(err)
+	}
+	store := securestore.NewMemory()
+	if err := (&credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default"}).Save(credentialauth.Credential{AccessToken: "device-token"}); err != nil {
+		t.Fatal(err)
+	}
+	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", Dependencies{
+		Environment: environment,
+		HTTPClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			t.Fatal("expired override must not reach the API or fall back to device login")
+			return nil, nil
+		})},
+		Now: func() time.Time { return expiresAt.Add(time.Second) },
+	}, "skill", "inspect", "https://github.com/acme/skill")
+	if code != output.ExitAuthentication || stdout != "" || !strings.Contains(stderr, "publication_credential_expired") || strings.Contains(stderr, token) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
 func testProcessCredential(audience string) string {
 	return "vpa1." + audience + "." + strings.Repeat("a", 43)
 }

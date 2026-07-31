@@ -515,3 +515,44 @@ func TestNormalizeAPIOrigin(t *testing.T) {
 		}
 	}
 }
+
+func TestCredentialStatusUsesAuthenticatedCLIEndpoint(t *testing.T) {
+	t.Parallel()
+	client := NewClient("https://api.viceme.test", &http.Client{Transport: apiRoundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/cli/auth/status" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("x-api-key") != "secret" {
+			t.Fatal("credential status omitted the API key")
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     make(http.Header),
+			Body:       io.NopCloser(strings.NewReader(`{"authenticated":true,"credential_type":"publication_credential","credential_status":"ISSUED","expires_at":"2030-01-01T00:00:00Z","new_publication_allowed":true,"actor_user_id":"17","effective_user_id":"901"}`)),
+			Request:    request,
+		}, nil
+	})}, staticToken("secret"), "")
+
+	status, err := client.CredentialStatus(context.Background())
+	if err != nil || !status.Authenticated || status.CredentialStatus != "ISSUED" || status.ExpiresAt == nil {
+		t.Fatalf("status=%#v err=%v", status, err)
+	}
+}
+
+func TestPublicationCredentialErrorUsesSourceSpecificRecovery(t *testing.T) {
+	t.Parallel()
+	client := NewClient("https://api.viceme.test", nil, nil, "")
+	client.CredentialSource = "process"
+	err := client.contextualizeCredentialError(output.Authentication("publication_credential_expired", "expired"))
+	var cliError *output.Error
+	if !errors.As(err, &cliError) || !strings.Contains(cliError.Hint, "VICEME_ACCESS_TOKEN") {
+		t.Fatalf("process recovery hint=%#v", cliError)
+	}
+
+	client.CredentialSource = "local_profile"
+	client.CredentialProfile = "staff"
+	err = client.contextualizeCredentialError(output.Authentication("publication_credential_revoked", "revoked"))
+	if !errors.As(err, &cliError) || !strings.Contains(cliError.Hint, `profile "staff"`) {
+		t.Fatalf("profile recovery hint=%#v", cliError)
+	}
+}
