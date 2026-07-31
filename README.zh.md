@@ -155,7 +155,7 @@ viceme profile configure local --clear-access-token
 viceme profile configure local --clear-api-base-url
 ```
 
-正常 `viceme auth login` 永远不会向 Profile 写入凭证。本地 Profile credential 只能通过显式的 `profile add/configure` flag 设置、替换或清除，list/status 只报告 `source=local_profile`，不会返回 token。`--access-token` 会出现在 argv 中且可能进入 shell history，因此只能用于本文约定的受控本地/内部环境。
+正常 `viceme auth login` 永远不会向 Profile 写入凭证。本地 Profile credential 只能通过显式的 `profile add/configure` flag 设置、替换或清除，list/status 只报告 `source=local_profile`，不会返回 token。配置后应执行 `viceme auth status --verify`；CLI 会向 API 验证凭证，并且只缓存非敏感的状态与过期时间。`--access-token` 会出现在 argv 中且可能进入 shell history，因此只能用于本文约定的受控本地/内部环境。
 
 凭证优先级为进程 `VICEME_ACCESS_TOKEN` → 当前本地 Profile → 设备登录。publication credential 必须使用 `vpa1.<audience>.<secret>`：`cn-prod` 只能访问 `https://api.viceme.cn`，`global-prod` 只能访问 `https://api.viceme.ai`，`dev-preview` 只能访问 `https://viceme-envoy-dev.preview.tencent-zeabur.cn`，Profile 中的 `local-dev` 只能访问 loopback endpoint；进程 `local-dev` 还要求 `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`。macOS 和 Linux 的配置默认位于 `~/.viceme-cli`，Windows 默认位于 `%LOCALAPPDATA%\ViceMe\Config`；Windows 上既有的 `~/.viceme-cli/config.json` 会继续使用，直到显式迁移。`VICEME_CLI_CONFIG_DIR` 可覆盖配置根目录。`VICEME_API_BASE_URL` 仍只是单进程 endpoint 覆盖，不能放宽 Profile credential 的 origin；它不能与全局 `--profile` 同时使用，必须在选中 Profile 的持久 endpoint 与进程 endpoint 覆盖之间只保留一个权威来源。API 与预签名上传重定向一律 fail closed。
 
@@ -187,6 +187,7 @@ viceme skills doctor
 | 命令 | 用途 |
 |---|---|
 | `viceme auth status` | 查看当前 Profile 是否已认证 |
+| `viceme auth status --verify` | 向 API 验证凭证并刷新本地生命周期元数据 |
 | `viceme auth login` | 引导人类用户完成浏览器授权并等待结果 |
 | `viceme auth login --no-wait --json` | 启动 Agent 跨回合流程并返回结构化设备授权信息 |
 | `viceme auth login --device-code <code> --json` | 在后续回合完成 Agent 登录流程 |
@@ -208,7 +209,7 @@ viceme config keychain-downgrade
 
 该命令会把现有主密钥复制到 `~/.viceme-cli/credentials/master.key.file`，并将已配置 Profile 的旧 Keychain 凭证导入加密文件。原 Keychain 条目会保留为冷备份。命令可重复执行，不会打印 token，也不会将 token 明文落盘。完成后，同一 macOS 用户下的 Codex、Claude Code 沙箱无需访问 Keychain 即可读取加密凭证；如果愿意重新登录，则不需要执行该迁移命令。其明确的安全取舍是：降级后由用户文件权限（目录 `0700`、文件 `0600`）代替 Keychain 的进程级访问边界。
 
-公开 CLI 只提供一套标准认证与发布命令面。工作人员短时授权凭证可由进程环境注入（`source=process`），也可由受控本地 Profile 显式配置（`source=local_profile`）；两者都只调用标准 `inspect/publish/job` 并使用统一 `x-api-key`。CLI 不提供身份选择或 staff authorization 签发命令；永远不输出 token，任一覆盖凭证生效时 login/logout fail closed，update 子进程也不会继承该凭证。
+公开 CLI 只提供一套标准认证与发布命令面。工作人员短时授权凭证可由进程环境注入（`source=process`），也可由受控本地 Profile 显式配置（`source=local_profile`）；两者都只调用标准 `inspect/publish/job` 并使用统一 `x-api-key`。`auth status --verify` 会报告并缓存 Profile 凭证的过期时间，但不会缓存进程凭证；已知过期凭证会在请求前失败，绝不会静默回退到 device login。CLI 不提供身份选择或 staff authorization 签发命令；永远不输出 token，任一覆盖凭证生效时 login/logout fail closed，update 子进程也不会继承该凭证。
 
 ## 支持的来源
 

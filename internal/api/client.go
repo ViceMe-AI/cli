@@ -34,11 +34,13 @@ func ApplyAPIKeyCredential(request *http.Request, credential string) {
 }
 
 type Client struct {
-	BaseURL          string
-	HTTPClient       *http.Client
-	Tokens           TokenSource
-	UserAgent        string
-	CredentialHeader CredentialHeaderFunc
+	BaseURL           string
+	HTTPClient        *http.Client
+	Tokens            TokenSource
+	UserAgent         string
+	CredentialHeader  CredentialHeaderFunc
+	CredentialSource  string
+	CredentialProfile string
 }
 
 func NewClient(baseURL string, httpClient *http.Client, tokens TokenSource, userAgent string) *Client {
@@ -75,6 +77,12 @@ func (c *Client) ExchangeDeviceToken(ctx context.Context, deviceCode string) (De
 
 func (c *Client) Revoke(ctx context.Context, accessToken string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/revoke", struct{}{}, nil, false, accessToken)
+}
+
+func (c *Client) CredentialStatus(ctx context.Context) (CredentialStatus, error) {
+	var response CredentialStatus
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/auth/status", nil, &response, true, "")
+	return response, err
 }
 
 func (c *Client) Inspect(ctx context.Context, request InspectRequest) (InspectResponse, error) {
@@ -295,12 +303,29 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string,
 		return output.Internal("response_too_large", "ViceMe API response exceeded the client limit", nil)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return decodeServerError(response.StatusCode, data)
+		return c.contextualizeCredentialError(decodeServerError(response.StatusCode, data))
 	}
 	if responseBody == nil || len(bytes.TrimSpace(data)) == 0 {
 		return nil
 	}
 	return decodeSuccess(data, responseBody)
+}
+
+func (c *Client) contextualizeCredentialError(err error) error {
+	var cliError *output.Error
+	if !errors.As(err, &cliError) {
+		return err
+	}
+	if cliError.Subtype != "publication_credential_expired" && cliError.Subtype != "publication_credential_revoked" {
+		return err
+	}
+	switch c.CredentialSource {
+	case "process":
+		cliError.Hint = "rotate VICEME_ACCESS_TOKEN and start a new CLI process before retrying"
+	case "local_profile":
+		cliError.Hint = fmt.Sprintf("obtain a replacement publication credential, then replace or clear the token for profile %q", c.CredentialProfile)
+	}
+	return cliError
 }
 
 // NormalizeAPIOrigin validates an API base URL and returns the canonical

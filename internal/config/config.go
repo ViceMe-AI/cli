@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 	"unicode/utf8"
 )
 
@@ -23,12 +24,14 @@ const (
 )
 
 type Profile struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Region      Region `json:"region"`
-	UserID      string `json:"userId,omitempty"`
-	APIBaseURL  string `json:"apiBaseUrl,omitempty"`
-	AccessToken string `json:"accessToken,omitempty"`
+	ID                   string     `json:"id"`
+	Name                 string     `json:"name"`
+	Region               Region     `json:"region"`
+	UserID               string     `json:"userId,omitempty"`
+	APIBaseURL           string     `json:"apiBaseUrl,omitempty"`
+	AccessToken          string     `json:"accessToken,omitempty"`
+	AccessTokenExpiresAt *time.Time `json:"accessTokenExpiresAt,omitempty"`
+	AccessTokenStatus    string     `json:"accessTokenStatus,omitempty"`
 }
 
 type Config struct {
@@ -250,6 +253,21 @@ func validate(config *Config) error {
 		}
 		if profile.AccessToken != "" && profile.APIBaseURL == "" {
 			return fmt.Errorf("profile %q: a local access token requires an explicit API base URL", profile.Name)
+		}
+		if profile.AccessToken == "" && (profile.AccessTokenExpiresAt != nil || profile.AccessTokenStatus != "") {
+			return fmt.Errorf("profile %q: local credential metadata requires an access token", profile.Name)
+		}
+		if profile.AccessTokenStatus != "" {
+			profile.AccessTokenStatus = strings.ToUpper(profile.AccessTokenStatus)
+			switch profile.AccessTokenStatus {
+			case "ISSUED", "RESERVED", "CONSUMED", "EXPIRED", "REVOKED", "INVALID":
+			default:
+				return fmt.Errorf("profile %q: unsupported local credential status", profile.Name)
+			}
+		}
+		if profile.AccessTokenExpiresAt != nil {
+			expiresAt := profile.AccessTokenExpiresAt.UTC()
+			profile.AccessTokenExpiresAt = &expiresAt
 		}
 	}
 	if config.CurrentProfile == "" {

@@ -84,10 +84,19 @@ type publicationCredential struct {
 	audience publicationCredentialAudience
 }
 
-type processTokenSource string
+type publicationTokenSource struct {
+	token     string
+	source    string
+	profile   string
+	expiresAt *time.Time
+	now       func() time.Time
+}
 
-func (source processTokenSource) Token(context.Context) (string, error) {
-	return string(source), nil
+func (source publicationTokenSource) Token(context.Context) (string, error) {
+	if source.expiresAt != nil && !source.now().Before(*source.expiresAt) {
+		return "", publicationCredentialLifecycleError("publication_credential_expired", source.source, source.profile)
+	}
+	return source.token, nil
 }
 
 func Execute(args []string, dependencies Dependencies) int {
@@ -295,10 +304,17 @@ func (r *Runtime) manager() *auth.Manager {
 
 func (r *Runtime) client() *api.Client {
 	var tokens api.TokenSource = r.manager()
-	if token, _, _ := r.overrideCredential(); token != "" {
-		tokens = processTokenSource(token)
+	credential := r.overrideCredentialDetails()
+	if credential.token != "" {
+		tokens = publicationTokenSource{
+			token: credential.token, source: credential.source, profile: r.profile.Name,
+			expiresAt: credential.expiresAt, now: r.deps.Now,
+		}
 	}
-	return api.NewClient(r.apiBaseURL, r.deps.HTTPClient, tokens, "viceme/"+buildinfo.Version)
+	client := api.NewClient(r.apiBaseURL, r.deps.HTTPClient, tokens, "viceme/"+buildinfo.Version)
+	client.CredentialSource = credential.source
+	client.CredentialProfile = r.profile.Name
+	return client
 }
 
 func (r *Runtime) success(data any) error {
@@ -439,13 +455,42 @@ func (r *Runtime) credentialStorageKeys() ([]string, error) {
 }
 
 func (r *Runtime) overrideCredential() (token, source string, persistent bool) {
+	credential := r.overrideCredentialDetails()
+	return credential.token, credential.source, credential.persistent
+}
+
+type overrideCredential struct {
+	token      string
+	source     string
+	persistent bool
+	expiresAt  *time.Time
+}
+
+func (r *Runtime) overrideCredentialDetails() overrideCredential {
 	if r.processCredential != nil {
-		return r.processCredential.raw, "process", false
+		return overrideCredential{token: r.processCredential.raw, source: "process"}
 	}
 	if r.profile.AccessToken != "" && sameAPIOrigin(r.profile.APIBaseURL, r.apiBaseURL) {
-		return r.profile.AccessToken, "local_profile", true
+		return overrideCredential{
+			token: r.profile.AccessToken, source: "local_profile", persistent: true,
+			expiresAt: r.profile.AccessTokenExpiresAt,
+		}
 	}
-	return "", "", false
+	return overrideCredential{}
+}
+
+func publicationCredentialLifecycleError(subtype, source, profile string) *output.Error {
+	message := "publication credential is unavailable"
+	if subtype == "publication_credential_expired" {
+		message = "publication credential has expired"
+	} else if subtype == "publication_credential_revoked" {
+		message = "publication credential has been revoked"
+	}
+	err := output.Authentication(subtype, message)
+	if source == "process" {
+		return err.WithHint("rotate VICEME_ACCESS_TOKEN and start a new CLI process before retrying")
+	}
+	return err.WithHint(fmt.Sprintf("obtain a replacement publication credential, then replace or clear the token for profile %q", profile))
 }
 
 func sameAPIOrigin(left, right string) bool {

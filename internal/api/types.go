@@ -34,6 +34,19 @@ type DeviceToken struct {
 	UserID       string    `json:"user_id,omitempty"`
 }
 
+type CredentialStatus struct {
+	Authenticated         bool       `json:"authenticated"`
+	CredentialType        string     `json:"credential_type"`
+	CredentialStatus      string     `json:"credential_status"`
+	ExpiresAt             *time.Time `json:"expires_at"`
+	AuthorizationKind     *string    `json:"authorization_kind"`
+	AuthorizationID       *string    `json:"authorization_id"`
+	PublicationID         *string    `json:"publication_id"`
+	NewPublicationAllowed bool       `json:"new_publication_allowed"`
+	ActorUserID           string     `json:"actor_user_id"`
+	EffectiveUserID       string     `json:"effective_user_id"`
+}
+
 type Source struct {
 	Kind  string `json:"kind"`
 	Value string `json:"value"`

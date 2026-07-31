@@ -35,6 +35,8 @@ generation.
 - `process_credential_invalid`: stop without retrying or printing the injected value; replace the process credential.
 - `local_profile_credential_active`: login/logout is unavailable while the selected Profile has an explicit publication credential; keep using standard commands or explicitly clear the Profile override.
 - `profile_credential_invalid` / `profile_credential_origin_mismatch`: stop without printing the stored value; an operator must replace or clear the Profile credential and its bound endpoint.
+- `publication_credential_expired`: do not retry or fall back to device login; rotate `VICEME_ACCESS_TOKEN` for a process credential, or replace/clear the selected Profile token.
+- `publication_credential_revoked`: handle like expiry; the authorization must be reissued before another publication command.
 - `payment_required`: explain the requirement and stop.
 
 ## Terminal outcomes

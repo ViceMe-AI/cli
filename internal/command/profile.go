@@ -2,6 +2,7 @@ package command
 
 import (
 	"strings"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	credentialauth "github.com/ViceMe-AI/cli/internal/auth"
@@ -18,6 +19,8 @@ type profileListItem struct {
 	Active           bool          `json:"active"`
 	UserID           string        `json:"user_id,omitempty"`
 	Authenticated    bool          `json:"authenticated"`
+	CredentialStatus string        `json:"credential_status,omitempty"`
+	ExpiresAt        *time.Time    `json:"expires_at,omitempty"`
 }
 
 func newProfileCommand(runtime *Runtime) *cobra.Command {
@@ -47,6 +50,7 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 					if err := validateLocalProfileAccessToken(profile.AccessToken, profile.APIBaseURL); err != nil {
 						return err
 					}
+					authenticated, credentialStatus := localPublicationCredentialStatus(runtime.deps.Now(), profile)
 					items = append(items, profileListItem{
 						Name:             profile.Name,
 						Region:           profile.Region,
@@ -54,7 +58,9 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 						CredentialSource: "local_profile",
 						Active:           profile.Name == runtime.config.CurrentProfile,
 						UserID:           profile.UserID,
-						Authenticated:    true,
+						Authenticated:    authenticated,
+						CredentialStatus: credentialStatus,
+						ExpiresAt:        profile.AccessTokenExpiresAt,
 					})
 					continue
 				}
@@ -205,8 +211,12 @@ func newProfileConfigureCommand(runtime *Runtime) *cobra.Command {
 					return output.Validation("profile_access_token", "local profile access token cannot be empty")
 				}
 				profile.AccessToken = accessToken
+				profile.AccessTokenExpiresAt = nil
+				profile.AccessTokenStatus = ""
 			} else if clearAccessToken {
 				profile.AccessToken = ""
+				profile.AccessTokenExpiresAt = nil
+				profile.AccessTokenStatus = ""
 			}
 			if profile.AccessToken != "" && profile.APIBaseURL == "" {
 				return output.Validation("profile_access_token", "an explicit local access token requires an explicit profile API base URL")

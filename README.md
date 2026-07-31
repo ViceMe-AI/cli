@@ -155,7 +155,7 @@ viceme profile configure local --clear-access-token
 viceme profile configure local --clear-api-base-url
 ```
 
-Normal `viceme auth login` never writes a credential into a profile. A local Profile credential is set, replaced, or cleared only by the explicit `profile add/configure` flags, is reported only as `source=local_profile`, and is never returned by list/status output. Because `--access-token` is visible in argv and may enter shell history, use it only in the controlled local/internal environment described here.
+Normal `viceme auth login` never writes a credential into a profile. A local Profile credential is set, replaced, or cleared only by the explicit `profile add/configure` flags, is reported only as `source=local_profile`, and is never returned by list/status output. Run `viceme auth status --verify` after configuring it: the CLI verifies the credential with the API and caches only its non-secret status and expiry. Because `--access-token` is visible in argv and may enter shell history, use it only in the controlled local/internal environment described here.
 
 Credential priority is process (`VICEME_ACCESS_TOKEN`) → selected local Profile → device login. Every publication credential must use `vpa1.<audience>.<secret>`: `cn-prod` is accepted only for `https://api.viceme.cn`, `global-prod` only for `https://api.viceme.ai`, `dev-preview` only for `https://viceme-envoy-dev.preview.tencent-zeabur.cn`, and `local-dev` Profile credentials only for loopback endpoints. A process `local-dev` credential additionally requires `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. Configuration defaults to `~/.viceme-cli` on macOS and Linux and `%LOCALAPPDATA%\ViceMe\Config` on Windows; an existing Windows `~/.viceme-cli/config.json` remains in use until it is explicitly migrated. `VICEME_CLI_CONFIG_DIR` can override the config root. `VICEME_API_BASE_URL` remains a one-process endpoint override and never widens a Profile credential's origin. It cannot be combined with global `--profile`; use the selected Profile's configured endpoint or the process endpoint override as one authority source, never both. API and presigned-upload redirects fail closed.
 
@@ -187,6 +187,7 @@ viceme skills doctor
 | Command | Purpose |
 |---|---|
 | `viceme auth status` | Show whether the current profile is authenticated |
+| `viceme auth status --verify` | Verify the credential with the API and refresh local lifecycle metadata |
 | `viceme auth login` | Guide a human through browser authorization and wait for completion |
 | `viceme auth login --no-wait --json` | Start an Agent split-flow and return structured device authorization |
 | `viceme auth login --device-code <code> --json` | Complete an Agent split-flow in a later turn |
@@ -208,7 +209,7 @@ viceme config keychain-downgrade
 
 The command copies the existing master key into `~/.viceme-cli/credentials/master.key.file` and imports configured legacy Keychain credentials into encrypted files. Existing Keychain entries are preserved as a cold backup. The command is idempotent and never prints or stores a plaintext token. Afterward, Codex and Claude Code sandboxes for the same macOS user can read the encrypted credential files without Keychain access. This migration is optional when the user is willing to log in again. The trade-off is explicit: security is then enforced by the user's filesystem permissions (`0700` directory and `0600` files) instead of the Keychain per-process access boundary.
 
-The public CLI exposes one standard authentication and publication surface. A short-lived staff authorization credential may be supplied through process environment (`source=process`) or an explicitly configured local Profile (`source=local_profile`). Both use normal inspect/publish/job commands and the standard `x-api-key` header; there are no identity-selection or staff-authorization issuance commands. Tokens are never printed or inherited by update subprocesses, and login/logout fail closed while either override is active.
+The public CLI exposes one standard authentication and publication surface. A short-lived staff authorization credential may be supplied through process environment (`source=process`) or an explicitly configured local Profile (`source=local_profile`). Both use normal inspect/publish/job commands and the standard `x-api-key` header; there are no identity-selection or staff-authorization issuance commands. `auth status --verify` reports and caches Profile expiry without caching process credentials. Known expired credentials fail before network access and never fall back silently to device login. Tokens are never printed or inherited by update subprocesses, and login/logout fail closed while either override is active.
 
 ## Supported Sources
 
