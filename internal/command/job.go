@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"strings"
 	"time"
 
@@ -153,6 +154,7 @@ func newJobWaitCommand(runtime *Runtime) *cobra.Command {
 
 func newJobPreviewCommand(runtime *Runtime) *cobra.Command {
 	var actionID string
+	var classifications []string
 	command := &cobra.Command{
 		Use:   "preview <publication-id>",
 		Short: "Show the frozen public summary of the exact release candidate",
@@ -162,11 +164,64 @@ func newJobPreviewCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if len(classifications) > 0 {
+				requested, err := parseClassificationFlags(classifications)
+				if err != nil {
+					return err
+				}
+				previewBody, ok := preview["preview"].(map[string]any)
+				if !ok {
+					return output.Validation("preview_contract", "preview response is missing the candidate preview body")
+				}
+				schema, ok := previewBody["classification_schema"].(map[string]any)
+				if !ok {
+					return output.Validation("classification_not_supported", "this Skill has no selectable classification")
+				}
+				definitionDigest, _ := schema["definition_digest"].(string)
+				previewURL, _ := previewBody["preview_share_url"].(string)
+				if definitionDigest == "" || previewURL == "" {
+					return output.Validation("preview_contract", "preview response is missing classification or private URL binding")
+				}
+				receipt, err := runtime.client().CreatePublicationPreviewSelection(command.Context(), args[0], api.PreviewSelectionRequest{
+					RequestedDimensions: requested, ClassificationDefinitionDigest: definitionDigest,
+				})
+				if err != nil {
+					return err
+				}
+				parsed, err := url.Parse(previewURL)
+				if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+					return output.Validation("preview_contract", "preview_share_url is invalid")
+				}
+				query := parsed.Query()
+				query.Set("selection_receipt", receipt.SelectionReceipt)
+				parsed.RawQuery = query.Encode()
+				previewBody["preview_share_url"] = parsed.String()
+				previewBody["selection_receipt"] = receipt.SelectionReceipt
+				previewBody["selected_dimensions"] = receipt.SelectedDimensions
+				previewBody["selection_digest"] = receipt.SelectionDigest
+			}
 			return runtime.success(preview)
 		},
 	}
 	command.Flags().StringVar(&actionID, "action-id", "", "confirm_publish action receipt ID (defaults to the latest)")
+	command.Flags().StringArrayVar(&classifications, "classification", nil, "pre-run classification as key=value (repeatable)")
 	return command
+}
+
+func parseClassificationFlags(values []string) (map[string]string, error) {
+	result := make(map[string]string, len(values))
+	for _, raw := range values {
+		key, value, ok := strings.Cut(raw, "=")
+		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+		if !ok || key == "" || value == "" {
+			return nil, output.Validation("classification_flag", "--classification must use non-empty key=value")
+		}
+		if _, exists := result[key]; exists {
+			return nil, output.Validation("classification_flag", "duplicate --classification key: "+key)
+		}
+		result[key] = value
+	}
+	return result, nil
 }
 
 func newJobEditCommand(runtime *Runtime) *cobra.Command {
@@ -358,6 +413,7 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 	var expectedDigest string
 	var expectedCandidateDigest string
 	var expectedSummaryDigest string
+	var expectedResultManifestDigest string
 	var decision string
 	var payloadStdin bool
 	command := &cobra.Command{
@@ -391,6 +447,7 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 					ExpectedPayloadDigest:          expectedDigest,
 					ExpectedReleaseCandidateDigest: expectedCandidateDigest,
 					ExpectedPublicSummaryDigest:    expectedSummaryDigest,
+					ExpectedResultManifestDigest:   expectedResultManifestDigest,
 					Decision:                       decision,
 				})
 				if err != nil {
@@ -420,6 +477,7 @@ func newJobResumeCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&expectedDigest, "expected-payload-digest", "", "digest of the action payload being answered")
 	command.Flags().StringVar(&expectedCandidateDigest, "expected-release-candidate-digest", "", "exact release candidate digest shown before opening the private Candidate preview")
 	command.Flags().StringVar(&expectedSummaryDigest, "expected-public-summary-digest", "", "public_summary_digest from the job preview output (binds the confirmation to the frozen summary)")
+	command.Flags().StringVar(&expectedResultManifestDigest, "expected-result-manifest-digest", "", "result_manifest_digest from job preview after successful classification runs")
 	command.Flags().StringVar(&decision, "decision", "", "confirm_publish decision: confirm or cancel")
 	command.Flags().BoolVar(&payloadStdin, "payload-stdin", false, "read the structured action answer from stdin")
 	return command

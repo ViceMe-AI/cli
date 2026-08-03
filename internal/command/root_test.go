@@ -1068,6 +1068,42 @@ func TestHostTypedActionLoopPreviewAndEdit(t *testing.T) {
 	}
 }
 
+func TestJobPreviewCreatesOpaqueClassificationSelectionReceipt(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/skill-agent-publications/pub_1/preview":
+			_, _ = io.WriteString(writer, `{"publication_id":"pub_1","status":"awaiting_action","preview":{"preview_share_url":"https://app.viceme.ai/p/private-code?source=cli","classification_schema":{"version":"skill_classification/v1","definition_digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","dimensions":[{"key":"layout","label":"版式","selection_phase":"pre_run","required":true,"default_value":"poster","options":[{"id":"poster","label":"海报"},{"id":"story","label":"故事"}]}]}}}`)
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/skill-agent-publications/pub_1/preview-selections":
+			var body api.PreviewSelectionRequest
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatal(err)
+			}
+			if body.ClassificationDefinitionDigest != "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || body.RequestedDimensions["layout"] != "story" {
+				t.Fatalf("selection request = %#v", body)
+			}
+			_, _ = io.WriteString(writer, `{"selection_receipt":"2a2eab4a-2398-4e93-a91b-cb9bcf66561c","expires_at":"2030-01-01T00:00:00Z","selected_dimensions":{"layout":"story"},"selection_digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	code, stdout, stderr, _ := runCLI(
+		t,
+		server,
+		authenticatedStore(t),
+		"job", "preview", "pub_1", "--classification", "layout=story",
+	)
+	if code != 0 || stderr != "" ||
+		!strings.Contains(stdout, `"layout": "story"`) ||
+		!strings.Contains(stdout, `"selection_receipt": "2a2eab4a-2398-4e93-a91b-cb9bcf66561c"`) ||
+		!strings.Contains(stdout, `selection_receipt=2a2eab4a-2398-4e93-a91b-cb9bcf66561c`) ||
+		strings.Contains(stdout, `requested_dimensions`) {
+		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
+
 func TestJobEditRequiresExplicitNonEmptyStdin(t *testing.T) {
 	t.Parallel()
 	code, _, stderr, _ := runCLI(t, nil, authenticatedStore(t),
@@ -1217,6 +1253,7 @@ func TestJobResumeConfirmPublishSendsDecisionContract(t *testing.T) {
 		if body["decision"] != "confirm" ||
 			body["expected_release_candidate_digest"] != "sha256:candidate" ||
 			body["expected_public_summary_digest"] != "sha256:summary" ||
+			body["expected_result_manifest_digest"] != "sha256:manifest" ||
 			body["expected_payload_digest"] != "sha256:payload" {
 			t.Fatalf("confirm_publish resolve body = %#v", body)
 		}
@@ -1232,6 +1269,7 @@ func TestJobResumeConfirmPublishSendsDecisionContract(t *testing.T) {
 		"--expected-payload-digest", "sha256:payload",
 		"--expected-release-candidate-digest", "sha256:candidate",
 		"--expected-public-summary-digest", "sha256:summary",
+		"--expected-result-manifest-digest", "sha256:manifest",
 		"--decision", "confirm",
 	)
 	if code != 0 || stderr != "" || !stringContains(stdout, `"publication_status":"release_authorized"`) {

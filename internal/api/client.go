@@ -105,6 +105,13 @@ func (c *Client) GetPublicationPreview(ctx context.Context, publicationID, actio
 	return response, err
 }
 
+func (c *Client) CreatePublicationPreviewSelection(ctx context.Context, publicationID string, request PreviewSelectionRequest) (PreviewSelectionReceipt, error) {
+	var response PreviewSelectionReceipt
+	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/preview-selections"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "")
+	return response, err
+}
+
 func (c *Client) RequestPublicationEdit(ctx context.Context, publicationID string, request PublicationEditRequest) (PublicationEditReceipt, error) {
 	var response PublicationEditReceipt
 	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/edits", request, &response, true, "")
