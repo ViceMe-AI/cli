@@ -231,6 +231,24 @@ receipts that confirmation binds:
 viceme job preview pub_123 [--action-id act_123]
 ```
 
+If `data.preview.classification_schema` exposes multiple pre-run options, create
+one opaque, Candidate-bound selection receipt and open the returned URL:
+
+```bash
+viceme job preview pub_123 \
+  --classification layout=poster \
+  --classification tone=concise
+```
+
+Repeat the command with another selection to test another classification. Each
+different selection supersedes the prior preview-session generation; it never
+mutates an already started session. Only pre-run dimensions are accepted here.
+In-run dimensions are resolved by the Runner and reported through
+`finish_run.resolved_dimensions`. The URL contains only `selection_receipt`,
+not raw classification values. Do not enumerate every possible combination:
+run only the classifications the publisher wants mounted, once each until a
+successful run with a real result exists.
+
 If the current `confirm_steps` or `confirm_publish` receipt expires, keep the
 same publication and frozen Candidate. First read the durable publication and
 verify that the expired action ID is still the current action, then explicitly
@@ -288,17 +306,20 @@ run of the exact pending Candidate, then return to the Agent Host and explicitly
 confirm or cancel. The CLI intentionally has no `job run`, `job run-get`, or
 `job accept` command.
 
-Confirmation requires a successful ordinary share run bound to that same
-pending Candidate; otherwise `job resume --decision confirm` is rejected with
-409 `preview_share_run_required`. `--expected-public-summary-digest` is
-required too — take `public_summary_digest` from the `job preview` output,
-binding the decision to the exact summary receipt the user saw:
+Confirmation requires a successful ordinary share run with a real result bound
+to that same pending Candidate; otherwise `job resume --decision confirm` is
+rejected with 409 `preview_share_run_required`. After the last selected
+classification finishes, run `job preview` again and bind both
+`public_summary_digest` and the latest `result_manifest_digest`. A concurrent
+or later successful result makes the old manifest digest stale and confirmation
+fails with 409 `result_manifest_stale`:
 
 ```bash
 viceme job resume pub_123 --action-id act_123 \
   --expected-payload-digest sha256:abc \
   --expected-release-candidate-digest sha256:def \
   --expected-public-summary-digest sha256:sum \
+  --expected-result-manifest-digest sha256:manifest \
   --decision confirm
 viceme job wait pub_123 --timeout 60s
 ```
@@ -319,10 +340,13 @@ candidates: if the preview or candidate digest changes, ask the user again
 with the fresh action. A stale or expired action fails closed — fetch `job get`
 and present the new `next_action` instead of retrying the old one.
 
-All data produced while using the pending Candidate on the private preview link is
-temporary. Preview inputs, outputs, files, media, sessions, Runner events, and
-workspace history are purged after confirm, cancel, expiry, supersede, or
-Release commit. They do not count as public views, usage, works, or history.
+Preview inputs, messages, sessions, Runner events, workspace history, and files
+not referenced by the final manifest are temporary. The final manifest freezes
+only successful result bundles under the main Skill; referenced platform files
+are retained through immutable read-only references and freshly signed when a
+share page reads them. External links remain structured metadata and can still
+expire at their provider. Preview activity does not count as public views,
+usage, works, or history.
 Never promise that a preview result can be recovered after publication; run
 again on the published Agent when the user needs a durable result.
 

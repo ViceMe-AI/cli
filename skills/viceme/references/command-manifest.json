@@ -238,13 +238,19 @@
       "use": "preview <publication-id>",
       "short": "Show the frozen public summary of the exact release candidate",
       "runnable": true,
-      "side_effect": "none",
+      "side_effect": "public",
       "requires_confirmation": false,
       "flags": [
         {
           "name": "action-id",
           "type": "string",
           "usage": "confirm_publish action receipt ID (defaults to the latest)"
+        },
+        {
+          "name": "classification",
+          "type": "stringArray",
+          "default": "[]",
+          "usage": "pre-run classification as key=value (repeatable)"
         }
       ]
     },
@@ -295,6 +301,11 @@
           "name": "expected-release-candidate-digest",
           "type": "string",
           "usage": "exact release candidate digest shown before opening the private Candidate preview"
+        },
+        {
+          "name": "expected-result-manifest-digest",
+          "type": "string",
+          "usage": "result_manifest_digest from job preview after successful classification runs"
         },
         {
           "name": "payload-stdin",

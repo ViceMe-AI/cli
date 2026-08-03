@@ -110,7 +110,20 @@ type ResolveConfirmationRequest struct {
 	ExpectedPayloadDigest          string `json:"expected_payload_digest"`
 	ExpectedReleaseCandidateDigest string `json:"expected_release_candidate_digest"`
 	ExpectedPublicSummaryDigest    string `json:"expected_public_summary_digest"`
+	ExpectedResultManifestDigest   string `json:"expected_result_manifest_digest,omitempty"`
 	Decision                       string `json:"decision"`
+}
+
+type PreviewSelectionRequest struct {
+	RequestedDimensions            map[string]string `json:"requested_dimensions"`
+	ClassificationDefinitionDigest string            `json:"classification_definition_digest"`
+}
+
+type PreviewSelectionReceipt struct {
+	SelectionReceipt   string            `json:"selection_receipt"`
+	ExpiresAt          string            `json:"expires_at"`
+	SelectedDimensions map[string]string `json:"selected_dimensions"`
+	SelectionDigest    string            `json:"selection_digest"`
 }
 
 // RenewActionReceipt is the next generation of an expired confirm_steps or
