@@ -62,9 +62,9 @@ func (c *Client) ExchangeDeviceToken(ctx context.Context, deviceCode string) (De
 	return response, err
 }
 
-func (c *Client) RefreshDeviceToken(ctx context.Context, refreshToken string) (DeviceToken, error) {
+func (c *Client) RefreshDeviceToken(ctx context.Context, refreshToken, clientRequestID string) (DeviceToken, error) {
 	var response DeviceToken
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/refresh", RefreshTokenRequest{RefreshToken: refreshToken}, &response, false, "", nil)
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/refresh", RefreshTokenRequest{RefreshToken: refreshToken, ClientRequestID: clientRequestID}, &response, false, "", nil)
 	return response, err
 }
 
@@ -215,6 +215,26 @@ func NormalizeAPIOrigin(raw string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return normalizedAPIOrigin(base), nil
+}
+
+// NormalizeAPIBaseURL canonicalizes the credential and request namespace while
+// preserving a meaningful API path. Query strings and fragments are rejected
+// by validateAPIBaseURL because they are not stable endpoint authority.
+func NormalizeAPIBaseURL(raw string) (string, error) {
+	base, err := validateAPIBaseURL(raw)
+	if err != nil {
+		return "", err
+	}
+	origin := normalizedAPIOrigin(base)
+	basePath := strings.TrimRight(base.EscapedPath(), "/")
+	if basePath == "" {
+		return origin, nil
+	}
+	return origin + basePath, nil
+}
+
+func normalizedAPIOrigin(base *url.URL) string {
 	scheme := strings.ToLower(base.Scheme)
 	host := strings.ToLower(base.Hostname())
 	port := base.Port()
@@ -227,7 +247,7 @@ func NormalizeAPIOrigin(raw string) (string, error) {
 	if port != "" {
 		host += ":" + port
 	}
-	return scheme + "://" + host, nil
+	return scheme + "://" + host
 }
 
 func withoutRedirects(client *http.Client) *http.Client {

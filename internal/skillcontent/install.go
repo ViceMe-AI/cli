@@ -343,10 +343,9 @@ func (b *Bundle) installAtomically(name string, targets []targetPath) (map[strin
 		return statuses, err
 	}
 	var staged []*stagedInstall
+	committed := false
 	defer func() {
-		for _, item := range staged {
-			_ = os.RemoveAll(item.stageRoot)
-		}
+		cleanupSkillInstallStaging(staged, committed)
 	}()
 	for _, target := range ordered {
 		if b.installationCurrent(name, target.path) {
@@ -411,7 +410,20 @@ func (b *Bundle) installAtomically(name string, targets []targetPath) (map[strin
 		}
 		statuses[item.target.path] = "updated"
 	}
+	committed = true
 	return statuses, nil
+}
+
+func cleanupSkillInstallStaging(staged []*stagedInstall, committed bool) {
+	for _, item := range staged {
+		// A failed rollback leaves the only copy of the user's previous Skill in
+		// this staging root. Preserve it for manual recovery and include its path
+		// in the rollback error instead of deleting it during deferred cleanup.
+		if !committed && item.backedUp {
+			continue
+		}
+		_ = os.RemoveAll(item.stageRoot)
+	}
 }
 
 func failedInstallStatuses(statuses map[string]string) map[string]string {
@@ -436,7 +448,7 @@ func rollbackSkillInstalls(staged []*stagedInstall) error {
 		}
 		if item.backedUp {
 			if err := os.Rename(item.backup, item.target.path); err != nil {
-				rollbackErrors = append(rollbackErrors, fmt.Errorf("restore previous %s Skill: %w", item.target.name, err))
+				rollbackErrors = append(rollbackErrors, fmt.Errorf("restore previous %s Skill from %s: %w", item.target.name, item.backup, err))
 				continue
 			}
 			item.backedUp = false

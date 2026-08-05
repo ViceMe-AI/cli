@@ -17,6 +17,7 @@ type Credential struct {
 	TokenType        string    `json:"token_type,omitempty"`
 	ExpiresAt        time.Time `json:"expires_at,omitempty"`
 	RefreshExpiresAt time.Time `json:"refresh_expires_at,omitempty"`
+	RefreshRequestID string    `json:"refresh_request_id,omitempty"`
 	UserID           string    `json:"user_id,omitempty"`
 	Scope            []string  `json:"scope,omitempty"`
 }

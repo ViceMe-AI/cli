@@ -247,7 +247,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			manager := runtime.manager()
-			_, err := manager.Load()
+			credential, err := manager.Load()
 			if err != nil {
 				var cliError *output.Error
 				if errors.As(err, &cliError) && cliError.Subtype == "not_logged_in" {
@@ -255,7 +255,15 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 				}
 				return err
 			}
-			if err := runtime.client().Revoke(command.Context()); err != nil {
+			client := runtime.client()
+			accessToken := credential.AccessToken
+			if credential.RefreshRequestID != "" {
+				accessToken, err = client.Tokens.Token(command.Context())
+				if err != nil {
+					return err
+				}
+			}
+			if err := client.RevokeWithToken(command.Context(), accessToken); err != nil {
 				return err
 			}
 			if err := manager.Delete(); err != nil {

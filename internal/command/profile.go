@@ -214,10 +214,11 @@ func validateProfileAPIBaseURL(value string) (string, error) {
 	if value == "" {
 		return "", nil
 	}
-	if _, err := api.NormalizeAPIOrigin(value); err != nil {
+	normalized, err := api.NormalizeAPIBaseURL(value)
+	if err != nil {
 		return "", output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 	}
-	return strings.TrimRight(value, "/"), nil
+	return normalized, nil
 }
 
 func credentialScopeForStoredProfile(profile config.Profile) (string, error) {

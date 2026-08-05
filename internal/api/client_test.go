@@ -127,6 +127,19 @@ func TestCanonicalErrorPreservesCodeAndRequestID(t *testing.T) {
 	}
 }
 
+func TestNormalizeAPIBaseURLPreservesCanonicalPathAuthority(t *testing.T) {
+	for input, expected := range map[string]string{
+		"https://API.Example.com:443/staging/": "https://api.example.com/staging",
+		"https://api.example.com/":             "https://api.example.com",
+		"http://LOCALHOST:80/v1/":              "http://localhost/v1",
+	} {
+		actual, err := NormalizeAPIBaseURL(input)
+		if err != nil || actual != expected {
+			t.Fatalf("NormalizeAPIBaseURL(%q)=%q err=%v; want %q", input, actual, err, expected)
+		}
+	}
+}
+
 func writeJSONResponse(t *testing.T, writer http.ResponseWriter, value any) {
 	t.Helper()
 	writer.Header().Set("Content-Type", "application/json")

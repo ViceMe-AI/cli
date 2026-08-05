@@ -12,7 +12,9 @@ viceme --profile <original-profile> auth login --device-code <opaque-device-code
 viceme auth logout
 ```
 
-The first command returns exact `continue_args`; use them unchanged. The CLI keeps only hashed-key pending metadata in its secure store and rejects a continuation under another Profile, Region, or API endpoint. `--device-code` is an opaque one-time authorization value. Do not log it, put it in project files, or confuse it with the human `user_code` shown in the browser.
+The first command returns exact `continue_args`; use them unchanged. The CLI keeps only hashed-key pending metadata in its secure store and rejects a continuation under another Profile, Region, or exact API base URL. API paths are part of the credential namespace, so `/production` and `/staging` never share credentials even on the same Origin. `--device-code` is an opaque one-time authorization value. Do not log it, put it in project files, or confuse it with the human `user_code` shown in the browser.
+
+Refresh recovery is automatic and local to the secure store. Before contacting the API, the CLI persists a request UUID beside the current refresh credential. A lost response is retried with the same old credential and request UUID; a different UUID is token reuse, not a second recovery attempt. `auth logout` first completes and persists any pending refresh recovery, then keeps the current local access credential until the idempotent remote revocation is confirmed.
 
 ## Profiles and bundled Skill
 

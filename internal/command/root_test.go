@@ -49,6 +49,35 @@ func TestRootExposesCreatorCapabilitySurfaceOnly(t *testing.T) {
 	}
 }
 
+func TestCredentialScopeIncludesTheCanonicalAPIBasePath(t *testing.T) {
+	first, err := customCredentialScope("https://api.example.com/a/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstEquivalent, err := customCredentialScope("https://API.example.com:443/a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := customCredentialScope("https://api.example.com/b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first != firstEquivalent {
+		t.Fatalf("equivalent API bases used different credential scopes: %q != %q", first, firstEquivalent)
+	}
+	if first == second {
+		t.Fatalf("different API paths shared credential scope %q", first)
+	}
+
+	officialStaging, err := credentialScopeForAPIBase(config.APIBaseURL(config.RegionCN)+"/staging", config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if officialStaging == "" {
+		t.Fatal("an API path below the official origin fell into the production credential namespace")
+	}
+}
+
 func TestAppLinkCapabilityAddAndDoctor(t *testing.T) {
 	const appID = "550e8400-e29b-41d4-a716-446655440000"
 	const publishableKey = "app_pk_test_abcdefghijklmnopqrstuvwxyz123456"
@@ -191,6 +220,13 @@ func TestRefreshingTokenSourceRotatesExpiredCredential(t *testing.T) {
 		if request.URL.Path != "/v1/cli/auth/refresh" {
 			t.Fatalf("unexpected path %s", request.URL.Path)
 		}
+		var input api.RefreshTokenRequest
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+			t.Fatal(err)
+		}
+		if input.RefreshToken != "refresh" || input.ClientRequestID != "550e8400-e29b-41d4-a716-446655440050" {
+			t.Fatalf("unexpected refresh request %#v", input)
+		}
 		writeCommandJSON(t, writer, map[string]any{
 			"access_token":       "vcm_at_new",
 			"refresh_token":      "vcm_rt_new",
@@ -208,7 +244,12 @@ func TestRefreshingTokenSourceRotatesExpiredCredential(t *testing.T) {
 		t.Fatal(err)
 	}
 	client := apiClientForTest(server)
-	source := &refreshingTokenSource{manager: manager, client: client, now: time.Now}
+	source := &refreshingTokenSource{
+		manager: manager,
+		client:  client,
+		now:     time.Now,
+		newID:   func() string { return "550e8400-e29b-41d4-a716-446655440050" },
+	}
 	token, err := source.Token(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -219,6 +260,9 @@ func TestRefreshingTokenSourceRotatesExpiredCredential(t *testing.T) {
 	stored, err := manager.Load()
 	if err != nil || stored.RefreshToken != "vcm_rt_new" {
 		t.Fatalf("refresh rotation not persisted %#v err=%v", stored, err)
+	}
+	if stored.RefreshRequestID != "" {
+		t.Fatalf("completed refresh left recovery state %#v", stored)
 	}
 }
 
@@ -235,6 +279,9 @@ func TestRefreshingTokenSourceRetriesSameRefreshAfterResponseLoss(t *testing.T) 
 		}
 		if input.RefreshToken != "vcm_rt_original" {
 			t.Fatalf("retry did not use the original refresh credential: %#v", input)
+		}
+		if input.ClientRequestID != "550e8400-e29b-41d4-a716-446655440051" {
+			t.Fatalf("retry changed the refresh request identity: %#v", input)
 		}
 		if calls.Add(1) == 1 {
 			hijacker := writer.(http.Hijacker)
@@ -265,17 +312,26 @@ func TestRefreshingTokenSourceRetriesSameRefreshAfterResponseLoss(t *testing.T) 
 		t.Fatal(err)
 	}
 	client := apiClientForTest(server)
-	source := &refreshingTokenSource{manager: manager, client: client, now: func() time.Time { return now }}
+	source := &refreshingTokenSource{
+		manager: manager,
+		client:  client,
+		now:     func() time.Time { return now },
+		newID:   func() string { return "550e8400-e29b-41d4-a716-446655440051" },
+	}
 	if _, err := source.Token(context.Background()); err == nil {
 		t.Fatal("simulated response loss unexpectedly succeeded")
 	}
 	unchanged, err := manager.Load()
-	if err != nil || unchanged.RefreshToken != "vcm_rt_original" {
+	if err != nil || unchanged.RefreshToken != "vcm_rt_original" || unchanged.RefreshRequestID != "550e8400-e29b-41d4-a716-446655440051" {
 		t.Fatalf("response loss corrupted stored rotation state: %#v err=%v", unchanged, err)
 	}
 	token, err := source.Token(context.Background())
 	if err != nil || token != "vcm_at_recovered" {
 		t.Fatalf("refresh retry did not recover: token=%q err=%v", token, err)
+	}
+	completed, err := manager.Load()
+	if err != nil || completed.RefreshRequestID != "" {
+		t.Fatalf("recovered refresh did not clear request identity: %#v err=%v", completed, err)
 	}
 }
 

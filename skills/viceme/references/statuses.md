@@ -26,7 +26,8 @@ Branch on `error.subtype`; never scrape `message`.
 - `device_authorization_context_missing`: the secure pending context is unavailable; start a new split login flow.
 - `device_authorization_context_mismatch`: use the exact `continue_args` returned by the first turn. Never retry against another Profile or endpoint.
 - `cli_access_token_invalid`: the session is expired, revoked, or invalid. The CLI refreshes locally expired access tokens automatically; if this remains, sign in again.
-- `cli_refresh_token_invalid` / `cli_refresh_token_reused`: the bounded recovery window is unavailable or expired; sign in again. Never intentionally replay an old refresh token.
+- `cli_refresh_token_invalid`: the refresh credential or Session is unavailable, expired, revoked, or for another Audience; sign in again.
+- `cli_refresh_token_reused`: an old refresh token was presented with another request identity or outside its bounded recovery window, so the server revoked the token family; sign in again. Never construct or change a refresh request identity manually.
 - `cli_scope_required`: the current session lacks the command's scope. Sign in again only if the server policy changed; do not bypass the guard.
 
 ## Creator App

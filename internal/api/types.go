@@ -16,7 +16,8 @@ type DeviceTokenRequest struct {
 }
 
 type RefreshTokenRequest struct {
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken    string `json:"refresh_token"`
+	ClientRequestID string `json:"client_request_id"`
 }
 
 type DeviceToken struct {

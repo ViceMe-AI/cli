@@ -148,7 +148,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.PersistentFlags().StringVar(&runtime.opts.profile, "profile", "", "use a specific profile for this command")
 	root.PersistentPreRunE = func(command *cobra.Command, _ []string) error {
 		runtime.prepareUpdateNotice(command)
-		if err := runtime.validateProfileOverrideAuthority(runtime.opts.profile); err != nil {
+		if err := runtime.validateProfileOverrideAuthority(command, runtime.opts.profile); err != nil {
 			return err
 		}
 		return runtime.selectProfile(runtime.opts.profile)
@@ -268,6 +268,7 @@ func (r *Runtime) client() *api.Client {
 		manager: r.manager(),
 		client:  client,
 		now:     r.deps.Now,
+		newID:   r.deps.NewID,
 	}
 	return client
 }
@@ -276,6 +277,7 @@ type refreshingTokenSource struct {
 	manager *auth.Manager
 	client  *api.Client
 	now     func() time.Time
+	newID   func() string
 }
 
 func (source *refreshingTokenSource) Token(ctx context.Context) (string, error) {
@@ -290,7 +292,21 @@ func (source *refreshingTokenSource) Token(ctx context.Context) (string, error) 
 	if credential.RefreshToken == "" || (!credential.RefreshExpiresAt.IsZero() && !now.Before(credential.RefreshExpiresAt)) {
 		return "", output.Authentication("token_expired", "ViceMe login has expired; run 'viceme auth login'")
 	}
-	refreshed, err := source.client.RefreshDeviceToken(ctx, credential.RefreshToken)
+	requestID := credential.RefreshRequestID
+	if requestID == "" {
+		newID := source.newID
+		if newID == nil {
+			newID = randomUUID
+		}
+		requestID = newID()
+		credential.RefreshRequestID = requestID
+		if err := source.manager.Save(credential); err != nil {
+			return "", output.Authentication("credential_persistence_failed", "the refresh recovery state could not be saved; no token request was sent").
+				WithHint("fix the local credential store and retry the command").
+				WithCause(err)
+		}
+	}
+	refreshed, err := source.client.RefreshDeviceToken(ctx, credential.RefreshToken, requestID)
 	if err != nil {
 		return "", err
 	}
@@ -300,13 +316,13 @@ func (source *refreshingTokenSource) Token(ctx context.Context) (string, error) 
 		TokenType:        refreshed.TokenType,
 		ExpiresAt:        refreshed.ExpiresAt,
 		RefreshExpiresAt: refreshed.RefreshExpiresAt,
+		RefreshRequestID: "",
 		UserID:           refreshed.UserID,
 		Scope:            refreshed.Scope,
 	}
 	if err := source.manager.Save(next); err != nil {
-		_ = source.client.RevokeWithToken(ctx, refreshed.AccessToken)
 		return "", output.Authentication("credential_persistence_failed", "refreshed credentials could not be saved").
-			WithHint("fix the local credential store and run 'viceme auth login' again").
+			WithHint("fix the local credential store and retry the command; the persisted refresh request can recover the same server result").
 			WithCause(err)
 	}
 	return refreshed.AccessToken, nil
@@ -368,9 +384,15 @@ func (r *Runtime) selectProfile(name string) error {
 	return r.applyProfile(*profile)
 }
 
-func (r *Runtime) validateProfileOverrideAuthority(name string) error {
+func (r *Runtime) validateProfileOverrideAuthority(command *cobra.Command, name string) error {
 	if name == "" || !r.apiBaseURLFromEnv {
 		return nil
+	}
+	if command != nil && command.Name() == "login" && command.Parent() != nil && command.Parent().Name() == "auth" {
+		deviceCode, err := command.Flags().GetString("device-code")
+		if err == nil && deviceCode != "" {
+			return nil
+		}
 	}
 	return output.Validation(
 		"profile_api_base_url_conflict",
@@ -388,13 +410,17 @@ func (r *Runtime) applyProfile(profile config.Profile) error {
 	if apiBaseURL == "" {
 		apiBaseURL = config.APIBaseURL(profile.Region)
 	}
-	scope, err := credentialScopeForAPIBase(apiBaseURL, profile.Region)
+	normalizedAPIBaseURL, err := api.NormalizeAPIBaseURL(apiBaseURL)
+	if err != nil {
+		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+	}
+	scope, err := credentialScopeForAPIBase(normalizedAPIBaseURL, profile.Region)
 	if err != nil {
 		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 	}
 	r.profile = profile
 	r.region = profile.Region
-	r.apiBaseURL = apiBaseURL
+	r.apiBaseURL = normalizedAPIBaseURL
 	r.credentialScope = scope
 	return nil
 }
@@ -514,24 +540,24 @@ func randomUUID() string {
 }
 
 func customCredentialScope(apiBaseURL string) (string, error) {
-	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	normalized, err := api.NormalizeAPIBaseURL(apiBaseURL)
 	if err != nil {
 		return "", err
 	}
-	digest := sha256.Sum256([]byte(origin))
+	digest := sha256.Sum256([]byte(normalized))
 	return fmt.Sprintf("custom:%x", digest[:]), nil
 }
 
 func credentialScopeForAPIBase(apiBaseURL string, region config.Region) (string, error) {
-	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	normalized, err := api.NormalizeAPIBaseURL(apiBaseURL)
 	if err != nil {
 		return "", err
 	}
-	canonicalOrigin, err := api.NormalizeAPIOrigin(config.APIBaseURL(region))
+	canonical, err := api.NormalizeAPIBaseURL(config.APIBaseURL(region))
 	if err != nil {
 		return "", err
 	}
-	if origin == canonicalOrigin {
+	if normalized == canonical {
 		return "", nil
 	}
 	return customCredentialScope(apiBaseURL)

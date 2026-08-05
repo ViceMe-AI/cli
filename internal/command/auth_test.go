@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -66,18 +67,20 @@ func TestAgentDeviceLoginContinuesAcrossCLIInvocations(t *testing.T) {
 		}
 	}))
 	defer server.Close()
+	t.Setenv(apiBaseURLEnvironment, server.URL)
 
 	var store securestore.Store = securestore.NewMemory()
 	environment := skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()}
 	dependencies := Dependencies{
 		Region:      config.RegionCN,
 		Environment: environment,
+		HTTPClient:  server.Client(),
 	}
 	var slept []time.Duration
 
 	code, stdout, stderr, store := runCLIWithDependencies(
 		t,
-		server,
+		nil,
 		store,
 		"",
 		dependencies,
@@ -92,12 +95,13 @@ func TestAgentDeviceLoginContinuesAcrossCLIInvocations(t *testing.T) {
 
 	code, stdout, stderr, store = runCLIWithDependencies(
 		t,
-		server,
+		nil,
 		store,
 		"",
 		Dependencies{
 			Region:      config.RegionCN,
 			Environment: environment,
+			HTTPClient:  server.Client(),
 			Sleep: func(_ context.Context, duration time.Duration) error {
 				slept = append(slept, duration)
 				return nil
@@ -120,7 +124,7 @@ func TestAgentDeviceLoginContinuesAcrossCLIInvocations(t *testing.T) {
 
 	code, stdout, stderr, _ = runCLIWithDependencies(
 		t,
-		server,
+		nil,
 		store,
 		"",
 		dependencies,
@@ -186,6 +190,24 @@ func TestAgentDeviceLoginRejectsProfileOrEndpointSwitchBeforeExchange(t *testing
 	}
 }
 
+func TestProfileAndEnvironmentEndpointRemainExclusiveOutsideDeviceContinuation(t *testing.T) {
+	t.Setenv(apiBaseURLEnvironment, "https://api.example.com/staging")
+	code, _, stderr, _ := runCLIWithDependencies(
+		t,
+		nil,
+		securestore.NewMemory(),
+		"",
+		Dependencies{Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()}},
+		"--profile",
+		"default",
+		"auth",
+		"status",
+	)
+	if code != 2 || !strings.Contains(stderr, "profile_api_base_url_conflict") {
+		t.Fatalf("profile/environment conflict code=%d stderr=%s", code, stderr)
+	}
+}
+
 func TestHumanDeviceLoginUsesCompleteVerificationURL(t *testing.T) {
 	var output bytes.Buffer
 	writeHumanLoginStart(&output, api.DeviceAuthorization{
@@ -199,28 +221,16 @@ func TestHumanDeviceLoginUsesCompleteVerificationURL(t *testing.T) {
 	}
 }
 
-func TestLogoutRefreshesBeforeRevokeAndKeepsCredentialOnRemoteFailure(t *testing.T) {
+func TestLogoutUsesStoredAccessCredentialAndKeepsItOnRemoteFailure(t *testing.T) {
 	now := time.Now().UTC()
-	var refreshCalls atomic.Int32
 	var revokeCalls atomic.Int32
 	var failRevoke atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
-		case "/v1/cli/auth/refresh":
-			refreshCalls.Add(1)
-			writeCommandJSON(t, writer, map[string]any{
-				"access_token":       "vcm_at_refreshed_logout",
-				"refresh_token":      "vcm_rt_rotated_logout",
-				"token_type":         "api_key",
-				"expires_at":         now.Add(time.Hour).Format(time.RFC3339Nano),
-				"refresh_expires_at": now.Add(24 * time.Hour).Format(time.RFC3339Nano),
-				"user_id":            "550e8400-e29b-41d4-a716-446655440000",
-				"scope":              []string{"app:read"},
-			})
 		case "/v1/cli/auth/revoke":
 			revokeCalls.Add(1)
-			if request.Header.Get("x-api-key") != "vcm_at_refreshed_logout" {
-				t.Fatalf("logout did not use refreshed access credential: %q", request.Header.Get("x-api-key"))
+			if request.Header.Get("x-api-key") != "vcm_at_expired_logout" {
+				t.Fatalf("logout did not use the stored access credential: %q", request.Header.Get("x-api-key"))
 			}
 			if failRevoke.Load() {
 				writer.WriteHeader(http.StatusServiceUnavailable)
@@ -252,8 +262,8 @@ func TestLogoutRefreshesBeforeRevokeAndKeepsCredentialOnRemoteFailure(t *testing
 	saveExpired()
 	dependencies := Dependencies{Region: config.RegionCN, APIBaseURL: server.URL, HTTPClient: server.Client(), Now: func() time.Time { return now }}
 	code, _, stderr, _ := runCLIWithDependencies(t, nil, store, "", dependencies, "auth", "logout")
-	if code != 0 || stderr != "" || refreshCalls.Load() != 1 || revokeCalls.Load() != 1 {
-		t.Fatalf("logout code=%d stderr=%s refresh=%d revoke=%d", code, stderr, refreshCalls.Load(), revokeCalls.Load())
+	if code != 0 || stderr != "" || revokeCalls.Load() != 1 {
+		t.Fatalf("logout code=%d stderr=%s revoke=%d", code, stderr, revokeCalls.Load())
 	}
 	if _, err := manager.Load(); err == nil {
 		t.Fatal("successful remote revoke left local credentials")
@@ -268,4 +278,152 @@ func TestLogoutRefreshesBeforeRevokeAndKeepsCredentialOnRemoteFailure(t *testing
 	if _, err := manager.Load(); err != nil {
 		t.Fatalf("remote revoke failure deleted the recoverable local credential: %v", err)
 	}
+}
+
+func TestLogoutConvergesAfterRevocationResponseLoss(t *testing.T) {
+	var revokeCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/cli/auth/revoke" || request.Header.Get("x-api-key") != "vcm_at_logout_retry" {
+			t.Fatalf("unexpected revoke request %s token=%q", request.URL.Path, request.Header.Get("x-api-key"))
+		}
+		if revokeCalls.Add(1) == 1 {
+			connection, _, err := writer.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_ = connection.Close()
+			return
+		}
+		writeCommandJSON(t, writer, map[string]any{"revoked": true})
+	}))
+	defer server.Close()
+
+	store := securestore.NewMemory()
+	scope, err := customCredentialScope(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", Scope: scope}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "vcm_at_logout_retry"}); err != nil {
+		t.Fatal(err)
+	}
+	dependencies := Dependencies{Region: config.RegionCN, APIBaseURL: server.URL, HTTPClient: server.Client()}
+	code, _, _, _ := runCLIWithDependencies(t, nil, store, "", dependencies, "auth", "logout")
+	if code == 0 {
+		t.Fatal("lost revoke response unexpectedly reported success")
+	}
+	if _, err := manager.Load(); err != nil {
+		t.Fatalf("lost revoke response removed local recovery credential: %v", err)
+	}
+	code, _, stderr, _ := runCLIWithDependencies(t, nil, store, "", dependencies, "auth", "logout")
+	if code != 0 || stderr != "" || revokeCalls.Load() != 2 {
+		t.Fatalf("retry code=%d stderr=%s revoke calls=%d", code, stderr, revokeCalls.Load())
+	}
+	if _, err := manager.Load(); err == nil {
+		t.Fatal("converged logout left local credentials")
+	}
+}
+
+func TestLogoutRecoversAPendingRefreshBeforeRevocation(t *testing.T) {
+	now := time.Now().UTC()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/cli/auth/refresh":
+			var input api.RefreshTokenRequest
+			if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+				t.Fatal(err)
+			}
+			if input.RefreshToken != "vcm_rt_logout_pending" || input.ClientRequestID != "550e8400-e29b-41d4-a716-446655440060" {
+				t.Fatalf("logout changed pending refresh state %#v", input)
+			}
+			writeCommandJSON(t, writer, map[string]any{
+				"access_token":       "vcm_at_logout_recovered",
+				"refresh_token":      "vcm_rt_logout_recovered",
+				"token_type":         "api_key",
+				"expires_at":         now.Add(time.Hour).Format(time.RFC3339Nano),
+				"refresh_expires_at": now.Add(24 * time.Hour).Format(time.RFC3339Nano),
+				"user_id":            "550e8400-e29b-41d4-a716-446655440000",
+				"scope":              []string{"app:read"},
+			})
+		case "/v1/cli/auth/revoke":
+			if request.Header.Get("x-api-key") != "vcm_at_logout_recovered" {
+				t.Fatalf("logout did not revoke the recovered Session: %q", request.Header.Get("x-api-key"))
+			}
+			writeCommandJSON(t, writer, map[string]any{"revoked": true})
+		default:
+			http.Error(writer, "not found", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	store := securestore.NewMemory()
+	scope, err := customCredentialScope(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", Scope: scope}
+	if err := manager.Save(credentialauth.Credential{
+		AccessToken:      "vcm_at_logout_stale",
+		RefreshToken:     "vcm_rt_logout_pending",
+		RefreshRequestID: "550e8400-e29b-41d4-a716-446655440060",
+		ExpiresAt:        now.Add(-time.Minute),
+		RefreshExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	dependencies := Dependencies{Region: config.RegionCN, APIBaseURL: server.URL, HTTPClient: server.Client(), Now: func() time.Time { return now }}
+	code, _, stderr, _ := runCLIWithDependencies(t, nil, store, "", dependencies, "auth", "logout")
+	if code != 0 || stderr != "" {
+		t.Fatalf("pending refresh logout code=%d stderr=%s", code, stderr)
+	}
+	if _, err := manager.Load(); err == nil {
+		t.Fatal("pending refresh logout left local credentials")
+	}
+}
+
+func TestLogoutRetriesRemoteRevocationAfterLocalDeleteFailure(t *testing.T) {
+	var revokeCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/cli/auth/revoke" || request.Header.Get("x-api-key") != "vcm_at_logout_delete_retry" {
+			t.Fatalf("unexpected revoke request %s token=%q", request.URL.Path, request.Header.Get("x-api-key"))
+		}
+		revokeCalls.Add(1)
+		writeCommandJSON(t, writer, map[string]any{"revoked": true})
+	}))
+	defer server.Close()
+
+	backing := securestore.NewMemory()
+	store := &deleteFailOnceStore{Store: backing}
+	scope, err := customCredentialScope(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", Scope: scope}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "vcm_at_logout_delete_retry"}); err != nil {
+		t.Fatal(err)
+	}
+	dependencies := Dependencies{Region: config.RegionCN, APIBaseURL: server.URL, HTTPClient: server.Client()}
+	code, _, stderr, _ := runCLIWithDependencies(t, nil, store, "", dependencies, "auth", "logout")
+	if code == 0 || !strings.Contains(stderr, "credential_store_unavailable") {
+		t.Fatalf("delete failure code=%d stderr=%s", code, stderr)
+	}
+	if _, err := manager.Load(); err != nil {
+		t.Fatalf("delete failure lost local credential: %v", err)
+	}
+	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies, "auth", "logout")
+	if code != 0 || stderr != "" || revokeCalls.Load() != 2 {
+		t.Fatalf("retry code=%d stderr=%s revoke calls=%d", code, stderr, revokeCalls.Load())
+	}
+}
+
+type deleteFailOnceStore struct {
+	securestore.Store
+	failed atomic.Bool
+}
+
+func (store *deleteFailOnceStore) Delete(key string) error {
+	if !store.failed.Swap(true) {
+		return errors.New("simulated secure-store delete failure")
+	}
+	return store.Store.Delete(key)
 }
