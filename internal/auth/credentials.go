@@ -12,19 +12,22 @@ import (
 )
 
 type Credential struct {
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token,omitempty"`
-	TokenType    string    `json:"token_type,omitempty"`
-	ExpiresAt    time.Time `json:"expires_at,omitempty"`
-	UserID       string    `json:"user_id,omitempty"`
+	AccessToken      string    `json:"access_token"`
+	RefreshToken     string    `json:"refresh_token,omitempty"`
+	TokenType        string    `json:"token_type,omitempty"`
+	ExpiresAt        time.Time `json:"expires_at,omitempty"`
+	RefreshExpiresAt time.Time `json:"refresh_expires_at,omitempty"`
+	UserID           string    `json:"user_id,omitempty"`
+	Scope            []string  `json:"scope,omitempty"`
 }
 
 type Status struct {
-	Authenticated bool       `json:"authenticated"`
-	Profile       string     `json:"profile"`
-	Region        string     `json:"region"`
-	UserID        string     `json:"user_id,omitempty"`
-	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	Authenticated    bool       `json:"authenticated"`
+	Profile          string     `json:"profile"`
+	Region           string     `json:"region"`
+	UserID           string     `json:"user_id,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	RefreshExpiresAt *time.Time `json:"refresh_expires_at,omitempty"`
 }
 
 type Manager struct {
@@ -35,6 +38,7 @@ type Manager struct {
 	// Scope overrides the region namespace for custom API origins. It is still
 	// nested under ProfileID so credentials never cross profiles.
 	Scope string
+	Now   func() time.Time
 }
 
 func (m *Manager) key() string {
@@ -124,7 +128,7 @@ func (m *Manager) Token(_ context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !credential.ExpiresAt.IsZero() && time.Now().After(credential.ExpiresAt) {
+	if !credential.ExpiresAt.IsZero() && !m.now().Before(credential.ExpiresAt) {
 		return "", output.Authentication("token_expired", "ViceMe login has expired; run 'viceme auth login'")
 	}
 	return credential.AccessToken, nil
@@ -139,15 +143,28 @@ func (m *Manager) CurrentStatus() (Status, error) {
 		}
 		return Status{}, err
 	}
+	now := m.now()
 	status := Status{Authenticated: true, Profile: m.profile(), Region: m.region(), UserID: credential.UserID}
 	if !credential.ExpiresAt.IsZero() {
 		expires := credential.ExpiresAt
 		status.ExpiresAt = &expires
-		if time.Now().After(expires) {
-			status.Authenticated = false
-		}
 	}
+	if !credential.RefreshExpiresAt.IsZero() {
+		refreshExpires := credential.RefreshExpiresAt
+		status.RefreshExpiresAt = &refreshExpires
+	}
+	accessValid := credential.ExpiresAt.IsZero() || now.Before(credential.ExpiresAt)
+	refreshValid := credential.RefreshToken != "" &&
+		(credential.RefreshExpiresAt.IsZero() || now.Before(credential.RefreshExpiresAt))
+	status.Authenticated = credential.AccessToken != "" && (accessValid || refreshValid)
 	return status, nil
+}
+
+func (m *Manager) now() time.Time {
+	if m.Now != nil {
+		return m.Now()
+	}
+	return time.Now()
 }
 
 func (m *Manager) profile() string {

@@ -9,11 +9,9 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-func TestLocalAccessTokenUsesWindowsACLInUnicodeConfigPath(t *testing.T) {
+func TestConfigUsesWindowsACLInUnicodeConfigPath(t *testing.T) {
 	base := filepath.Join(t.TempDir(), "谢忻彤", "AppData", "Local", "ViceMe", "Config")
 	configured := Default(RegionCN)
-	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
-	configured.Profiles[0].AccessToken = "local-operator-secret"
 	result, err := Save(base, configured)
 	if err != nil {
 		t.Fatal(err)
@@ -84,8 +82,6 @@ func TestLoadHardensSafeUnprotectedWindowsConfig(t *testing.T) {
 	}
 
 	configured := Default(RegionCN)
-	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
-	configured.Profiles[0].AccessToken = "local-operator-secret"
 	result, err := Save(base, configured)
 	if err != nil {
 		t.Fatal(err)

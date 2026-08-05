@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
@@ -15,8 +16,9 @@ import (
 
 type deviceLoginStartResult struct {
 	api.DeviceAuthorization
-	Profile string `json:"profile"`
-	Region  string `json:"region"`
+	Profile      string   `json:"profile"`
+	Region       string   `json:"region"`
+	ContinueArgs []string `json:"continue_args"`
 }
 
 type deviceLoginResult struct {
@@ -25,6 +27,7 @@ type deviceLoginResult struct {
 	Region        string     `json:"region"`
 	UserID        string     `json:"user_id,omitempty"`
 	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	Warnings      []string   `json:"warnings,omitempty"`
 }
 
 func newAuthCommand(runtime *Runtime) *cobra.Command {
@@ -45,12 +48,6 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 		Short: "Start or continue the ViceMe device login flow",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if _, source, _ := runtime.overrideCredential(); source != "" {
-				if source == "process" {
-					return output.Policy("process_credential_active", "device login is disabled while a process credential is active").WithHint("start a CLI process without VICEME_ACCESS_TOKEN to manage persistent login")
-				}
-				return output.Policy("local_profile_credential_active", "device login is disabled while the selected profile has an explicit local access token").WithHint("clear the local profile access token before managing persistent device login")
-			}
 			if noWait && deviceCode != "" {
 				return output.Validation("auth_flags", "--no-wait and --device-code cannot be used together")
 			}
@@ -76,10 +73,36 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 					return output.Internal("device_authorization_response", "ViceMe API returned an incomplete device authorization", nil)
 				}
 				if noWait {
+					intervalSeconds := authorization.IntervalSeconds
+					if intervalSeconds < 1 {
+						intervalSeconds = 1
+					}
+					apiBaseURL := strings.TrimRight(runtime.apiBaseURL, "/")
+					apiOrigin, originErr := api.NormalizeAPIOrigin(apiBaseURL)
+					if originErr != nil {
+						return output.Validation("api_base_url", "ViceMe API base URL is invalid")
+					}
+					pending := credentialauth.PendingDeviceLogin{
+						SchemaVersion:   1,
+						ProfileID:       runtime.profile.ID,
+						ProfileName:     runtime.profile.Name,
+						Region:          string(runtime.region),
+						APIBaseURL:      apiBaseURL,
+						APIOrigin:       apiOrigin,
+						CredentialScope: runtime.credentialScope,
+						IntervalSeconds: intervalSeconds,
+						ExpiresAt:       authorization.ExpiresAt,
+					}
+					if err := credentialauth.SavePendingDeviceLogin(runtime.deps.Store, authorization.DeviceCode, pending); err != nil {
+						return output.Authentication("device_authorization_context_save", "could not save the pending device authorization context").
+							WithHint("fix the secure credential store and start a new login flow").
+							WithCause(err)
+					}
 					return runtime.business(deviceLoginStartResult{
 						DeviceAuthorization: authorization,
 						Profile:             runtime.profile.Name,
 						Region:              string(runtime.region),
+						ContinueArgs:        []string{"--profile", runtime.profile.Name, "auth", "login", "--device-code", authorization.DeviceCode, "--json"},
 					})
 				}
 				writeHumanLoginStart(runtime.deps.ErrOut, authorization)
@@ -90,7 +113,19 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 				}
 				return finishDeviceLogin(command.Context(), runtime, client, deviceCode, timeout, interval, false)
 			}
-			return finishDeviceLogin(command.Context(), runtime, client, deviceCode, timeout, 2*time.Second, true)
+			pending, err := loadAndValidatePendingDeviceLogin(runtime, deviceCode)
+			if err != nil {
+				return err
+			}
+			remaining := pending.ExpiresAt.Sub(runtime.deps.Now())
+			if remaining <= 0 {
+				_ = credentialauth.DeletePendingDeviceLogin(runtime.deps.Store, deviceCode)
+				return output.Authentication("device_code_expired", "the pending device authorization has expired")
+			}
+			if timeout > remaining {
+				timeout = remaining
+			}
+			return finishDeviceLogin(command.Context(), runtime, client, deviceCode, timeout, time.Duration(pending.IntervalSeconds)*time.Second, true)
 		},
 	}
 	command.Flags().BoolVar(&noWait, "no-wait", false, "return device authorization immediately for an Agent split-flow (requires --json)")
@@ -101,8 +136,12 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 }
 
 func writeHumanLoginStart(writer io.Writer, authorization api.DeviceAuthorization) {
+	verificationURL := authorization.VerificationURLComplete
+	if verificationURL == "" {
+		verificationURL = authorization.VerificationURL
+	}
 	_, _ = fmt.Fprintln(writer, "Open this URL in your browser to sign in to ViceMe:")
-	_, _ = fmt.Fprintf(writer, "\n  %s\n\n", authorization.VerificationURL)
+	_, _ = fmt.Fprintf(writer, "\n  %s\n\n", verificationURL)
 	if authorization.UserCode != "" {
 		_, _ = fmt.Fprintf(writer, "If prompted, enter code: %s\n\n", authorization.UserCode)
 	}
@@ -119,25 +158,37 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 		token, err := client.ExchangeDeviceToken(ctx, deviceCode)
 		if err == nil {
 			credential := credentialauth.Credential{
-				AccessToken:  token.AccessToken,
-				RefreshToken: token.RefreshToken,
-				TokenType:    token.TokenType,
-				ExpiresAt:    token.ExpiresAt,
-				UserID:       token.UserID,
+				AccessToken:      token.AccessToken,
+				RefreshToken:     token.RefreshToken,
+				TokenType:        token.TokenType,
+				ExpiresAt:        token.ExpiresAt,
+				RefreshExpiresAt: token.RefreshExpiresAt,
+				UserID:           token.UserID,
+				Scope:            token.Scope,
 			}
 			manager := runtime.manager()
 			if err := manager.Save(credential); err != nil {
-				revoked := client.Revoke(ctx, token.AccessToken) == nil
+				if !jsonOutput {
+					revoked := client.RevokeWithToken(ctx, token.AccessToken) == nil
+					return output.Authentication("credential_persistence_failed", "device authorization succeeded, but the issued credential could not be saved").
+						WithHint("fix the local credential store and start a new 'viceme auth login' flow").
+						WithDetails(map[string]any{"issued_credential_revoked": revoked}).
+						WithCause(err)
+				}
 				return output.Authentication("credential_persistence_failed", "device authorization succeeded, but the issued credential could not be saved").
-					WithHint("the one-time device authorization was consumed; fix the local credential store and start a new 'viceme auth login' flow").
-					WithDetails(map[string]any{"authorization_consumed": true, "issued_credential_revoked": revoked}).
+					WithHint("fix the local credential store, then retry the exact continuation command before the device authorization expires").
+					WithDetails(map[string]any{"authorization_recoverable": true}).
 					WithCause(err)
 			}
-			if err := runtime.recordProfileUserID(token.UserID); err != nil {
-				_ = manager.Delete()
-				return err
-			}
 			result := deviceLoginResult{Authenticated: true, Profile: runtime.profile.Name, Region: string(runtime.region), UserID: token.UserID}
+			if err := runtime.recordProfileUserID(token.UserID); err != nil {
+				result.Warnings = append(result.Warnings, "authenticated successfully, but the profile user ID metadata could not be updated")
+			}
+			if jsonOutput {
+				if err := credentialauth.DeletePendingDeviceLogin(runtime.deps.Store, deviceCode); err != nil {
+					result.Warnings = append(result.Warnings, "the expired continuation metadata could not be removed from the secure store")
+				}
+			}
 			if !token.ExpiresAt.IsZero() {
 				expiresAt := token.ExpiresAt
 				result.ExpiresAt = &expiresAt
@@ -149,10 +200,13 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 			_, _ = fmt.Fprintf(runtime.deps.ErrOut, "Profile: %s\nRegion: %s\n", result.Profile, result.Region)
 			return nil
 		}
-		if !api.IsSubtype(err, "authorization_pending") && !api.IsSubtype(err, "slow_down") {
+		if !api.IsSubtype(err, "authorization_pending") && !api.IsSubtype(err, "device_poll_too_fast") {
+			if jsonOutput && isTerminalDeviceAuthorizationError(err) {
+				_ = credentialauth.DeletePendingDeviceLogin(runtime.deps.Store, deviceCode)
+			}
 			return err
 		}
-		if api.IsSubtype(err, "slow_down") {
+		if api.IsSubtype(err, "device_poll_too_fast") {
 			interval += time.Second
 		}
 		if err := runtime.deps.Sleep(ctx, interval); err != nil {
@@ -177,15 +231,6 @@ func newAuthStatusCommand(runtime *Runtime) *cobra.Command {
 		Short: "Show local ViceMe authentication status",
 		Args:  cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			if _, source, persistent := runtime.overrideCredential(); source != "" {
-				return runtime.business(map[string]any{
-					"authenticated": true,
-					"source":        source,
-					"persistent":    persistent,
-					"profile":       runtime.profile.Name,
-					"region":        runtime.region,
-				})
-			}
 			status, err := runtime.manager().CurrentStatus()
 			if err != nil {
 				return err
@@ -201,14 +246,8 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 		Short: "Revoke and remove local ViceMe credentials",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if _, source, _ := runtime.overrideCredential(); source != "" {
-				if source == "process" {
-					return output.Policy("process_credential_active", "logout cannot revoke or delete a process credential").WithHint("stop passing VICEME_ACCESS_TOKEN to discard the process credential")
-				}
-				return output.Policy("local_profile_credential_active", "logout cannot revoke or delete an explicit local profile credential").WithHint("run 'viceme profile configure <name> --clear-access-token' to remove the local override")
-			}
 			manager := runtime.manager()
-			credential, err := manager.Load()
+			_, err := manager.Load()
 			if err != nil {
 				var cliError *output.Error
 				if errors.As(err, &cliError) && cliError.Subtype == "not_logged_in" {
@@ -216,15 +255,46 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 				}
 				return err
 			}
-			revokeErr := runtime.client().Revoke(command.Context(), credential.AccessToken)
-			deleteErr := manager.Delete()
-			if deleteErr != nil {
-				return deleteErr
+			if err := runtime.client().Revoke(command.Context()); err != nil {
+				return err
 			}
-			if revokeErr != nil {
-				return revokeErr
+			if err := manager.Delete(); err != nil {
+				return err
 			}
 			return runtime.business(map[string]any{"logged_out": true, "profile": runtime.profile.Name, "region": runtime.region})
 		},
 	}
+}
+
+func loadAndValidatePendingDeviceLogin(runtime *Runtime, deviceCode string) (credentialauth.PendingDeviceLogin, error) {
+	pending, err := credentialauth.LoadPendingDeviceLogin(runtime.deps.Store, deviceCode)
+	if err != nil {
+		return credentialauth.PendingDeviceLogin{}, output.Authentication("device_authorization_context_missing", "the pending device authorization context is missing or invalid").
+			WithHint("restart login with 'viceme auth login --no-wait --json'; do not continue a device code on another machine or profile").
+			WithCause(err)
+	}
+	apiBaseURL := strings.TrimRight(runtime.apiBaseURL, "/")
+	apiOrigin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	if err != nil {
+		return credentialauth.PendingDeviceLogin{}, output.Validation("api_base_url", "ViceMe API base URL is invalid")
+	}
+	if pending.ProfileID != runtime.profile.ID ||
+		pending.ProfileName != runtime.profile.Name ||
+		pending.Region != string(runtime.region) ||
+		pending.APIBaseURL != apiBaseURL ||
+		pending.APIOrigin != apiOrigin ||
+		pending.CredentialScope != runtime.credentialScope {
+		return credentialauth.PendingDeviceLogin{}, output.Authentication("device_authorization_context_mismatch", "the device authorization must be continued with the original profile and API endpoint").
+			WithHint("run the exact continue_args returned by 'viceme auth login --no-wait --json'")
+	}
+	return pending, nil
+}
+
+func isTerminalDeviceAuthorizationError(err error) bool {
+	for _, subtype := range []string{"authorization_denied", "device_code_expired", "device_authorization_not_found"} {
+		if api.IsSubtype(err, subtype) {
+			return true
+		}
+	}
+	return false
 }

@@ -1,6 +1,6 @@
 interface:
-  display_name: "ViceMe Skill Publisher"
-  short_description: "Publish external Skills as shareable ViceMe Agents"
-  default_prompt: "Use $viceme to publish this external skill to ViceMe with the current profile unless I explicitly name another profile in this request, and return its stable share link."
+  display_name: "ViceMe Creator App"
+  short_description: "Connect projects to ViceMe platform capabilities"
+  default_prompt: "Use $viceme to inspect this project, bind it to a TEST Creator App, add only the requested capability, and validate the integration without exposing credentials."
 policy:
   allow_implicit_invocation: true

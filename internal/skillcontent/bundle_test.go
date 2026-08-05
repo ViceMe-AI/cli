@@ -9,6 +9,7 @@ import (
 
 	cliembed "github.com/ViceMe-AI/cli"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
+	"github.com/gofrs/flock"
 )
 
 func TestEmbeddedVicemeSkillIsValid(t *testing.T) {
@@ -118,6 +119,45 @@ func TestInstallAndDoctorTargetsIndependently(t *testing.T) {
 	unchanged := bundle.Install("viceme", "codex", environment)
 	if !unchanged.AllSucceeded || unchanged.Results[0].Status != "unchanged" {
 		t.Fatalf("expected unchanged install: %#v", unchanged)
+	}
+}
+
+func TestMultiTargetInstallDoesNotMutateAnyTargetWhenOneLockIsUnavailable(t *testing.T) {
+	bundle := skillcontent.New(cliembed.EmbeddedSkills())
+	home := t.TempDir()
+	for _, directory := range []string{filepath.Join(home, ".codex"), filepath.Join(home, ".claude")} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claudeSkill := filepath.Join(home, ".claude", "skills", "viceme")
+	if err := os.MkdirAll(claudeSkill, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	marker := filepath.Join(claudeSkill, "SKILL.md")
+	if err := os.WriteFile(marker, []byte("previous installation\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	codexSkill := filepath.Join(home, ".codex", "skills", "viceme")
+	if err := os.MkdirAll(filepath.Dir(codexSkill), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	blocked := flock.New(codexSkill + ".viceme-install-lock")
+	if err := blocked.Lock(); err != nil {
+		t.Fatal(err)
+	}
+	defer blocked.Unlock()
+
+	report := bundle.Install("viceme", "auto", skillcontent.Environment{Home: home})
+	if report.AllSucceeded {
+		t.Fatalf("blocked multi-target install succeeded: %#v", report)
+	}
+	data, err := os.ReadFile(marker)
+	if err != nil || string(data) != "previous installation\n" {
+		t.Fatalf("another target changed before all locks were acquired: data=%q err=%v report=%#v", data, err, report)
+	}
+	if _, err := os.Stat(filepath.Join(codexSkill, "SKILL.md")); !os.IsNotExist(err) {
+		t.Fatalf("blocked target was partially installed: %v", err)
 	}
 }
 

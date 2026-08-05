@@ -46,12 +46,11 @@ func TestSaveCreatesPreservesAndUpdatesProfileConfig(t *testing.T) {
 	}
 }
 
-func TestExplicitLocalProfileOverridesRemainLocal(t *testing.T) {
+func TestExplicitLocalAPIEndpointRemainsLocal(t *testing.T) {
 	t.Parallel()
 	base := t.TempDir()
 	configured := Default(RegionCN)
 	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
-	configured.Profiles[0].AccessToken = "local-operator-secret"
 	if _, err := Save(base, configured); err != nil {
 		t.Fatal(err)
 	}
@@ -60,19 +59,8 @@ func TestExplicitLocalProfileOverridesRemainLocal(t *testing.T) {
 		t.Fatal(err)
 	}
 	profile, err := loaded.Resolve("default")
-	if err != nil || profile.APIBaseURL != "http://localhost:8090" || profile.AccessToken != "local-operator-secret" {
+	if err != nil || profile.APIBaseURL != "http://localhost:8090" {
 		t.Fatalf("profile=%#v err=%v", profile, err)
-	}
-}
-
-func TestLocalAccessTokenValidationDoesNotEchoSecret(t *testing.T) {
-	t.Parallel()
-	configured := Default(RegionCN)
-	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
-	configured.Profiles[0].AccessToken = " secret-value "
-	_, err := Save(t.TempDir(), configured)
-	if err == nil || strings.Contains(err.Error(), "secret-value") {
-		t.Fatalf("invalid token error=%v", err)
 	}
 }
 
@@ -115,6 +103,21 @@ func TestLoadDoesNotAcceptLegacySingleRegionDocument(t *testing.T) {
 	}
 	if _, err := LoadOrDefault(base); err == nil {
 		t.Fatal("legacy single-region config must not be migrated or accepted")
+	}
+}
+
+func TestLoadRejectsLegacyCredentialFieldsWithoutEchoingThem(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	filename := filepath.Join(base, "config.json")
+	secret := "legacy-secret-that-must-not-be-accepted"
+	document := `{"currentProfile":"default","profiles":[{"id":"default","name":"default","region":"cn","accessToken":"` + secret + `"}]}`
+	if err := os.WriteFile(filename, []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadOrDefault(base)
+	if err == nil || strings.Contains(err.Error(), secret) {
+		t.Fatalf("legacy credential field was accepted or exposed: %v", err)
 	}
 }
 

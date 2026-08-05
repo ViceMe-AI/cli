@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "cli_version": "0.10.1",
-  "minimum_cli_version": "0.10.1",
+  "cli_version": "1.0.0",
+  "minimum_cli_version": "1.0.0",
   "global_flags": [
     {
       "name": "profile",
@@ -10,6 +10,83 @@
     }
   ],
   "commands": [
+    {
+      "path": "app",
+      "use": "app",
+      "short": "Bind and diagnose ViceMe Creator Apps",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "app doctor",
+      "use": "doctor",
+      "short": "Check the local App binding against the ViceMe control plane",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "dir",
+          "type": "string",
+          "default": ".",
+          "usage": "project directory"
+        }
+      ]
+    },
+    {
+      "path": "app get",
+      "use": "get <app-id>",
+      "short": "Get one owned Creator App",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "app link",
+      "use": "link",
+      "short": "Bind the current project to a TEST or LIVE Creator App",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "app",
+          "type": "string",
+          "usage": "bind an existing Creator App instead of creating one"
+        },
+        {
+          "name": "dir",
+          "type": "string",
+          "default": ".",
+          "usage": "project directory"
+        },
+        {
+          "name": "environment",
+          "type": "string",
+          "default": "TEST",
+          "usage": "Creator App environment: TEST or LIVE"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "usage": "name for a newly created Creator App (defaults to directory name)"
+        },
+        {
+          "name": "origin",
+          "type": "string",
+          "usage": "canonical browser origin to register, for example http://localhost:3000"
+        }
+      ]
+    },
+    {
+      "path": "app list",
+      "use": "list",
+      "short": "List owned Creator Apps",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
     {
       "path": "auth",
       "use": "auth",
@@ -68,6 +145,85 @@
       "requires_confirmation": false
     },
     {
+      "path": "capability",
+      "use": "capability",
+      "short": "Configure Creator App capabilities",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "capability add",
+      "use": "add <name>",
+      "short": "Enable one capability foundation for the linked App environment",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "app",
+          "type": "string",
+          "usage": "assert the expected linked Creator App ID"
+        },
+        {
+          "name": "dir",
+          "type": "string",
+          "default": ".",
+          "usage": "project directory containing .viceme/app.json"
+        }
+      ]
+    },
+    {
+      "path": "capability catalog",
+      "use": "catalog",
+      "short": "List platform capabilities and availability",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "capability doctor",
+      "use": "doctor <name>",
+      "short": "Check one local capability binding against the control plane",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "app",
+          "type": "string",
+          "usage": "assert the expected linked Creator App ID"
+        },
+        {
+          "name": "dir",
+          "type": "string",
+          "default": ".",
+          "usage": "project directory containing .viceme/app.json"
+        }
+      ]
+    },
+    {
+      "path": "capability get",
+      "use": "get <name>",
+      "short": "Get one capability from the linked App environment",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "app",
+          "type": "string",
+          "usage": "assert the expected linked Creator App ID"
+        },
+        {
+          "name": "dir",
+          "type": "string",
+          "default": ".",
+          "usage": "project directory containing .viceme/app.json"
+        }
+      ]
+    },
+    {
       "path": "config",
       "use": "config",
       "short": "Manage ViceMe CLI runtime configuration",
@@ -105,238 +261,6 @@
       ]
     },
     {
-      "path": "job",
-      "use": "job",
-      "short": "Read and control durable Skill Agent publications",
-      "runnable": false,
-      "side_effect": "none",
-      "requires_confirmation": false
-    },
-    {
-      "path": "job bind",
-      "use": "bind <publication-id>",
-      "short": "Show the channel account binding URL for a blocked publication",
-      "runnable": true,
-      "side_effect": "none",
-      "requires_confirmation": false
-    },
-    {
-      "path": "job cancel",
-      "use": "cancel <publication-id>",
-      "short": "Cancel a publication",
-      "runnable": true,
-      "side_effect": "public",
-      "requires_confirmation": true,
-      "flags": [
-        {
-          "name": "yes",
-          "type": "bool",
-          "default": "false",
-          "usage": "confirm cancellation"
-        }
-      ]
-    },
-    {
-      "path": "job edit",
-      "use": "edit <publication-id>",
-      "short": "Submit a natural-language candidate edit and wait for the new candidate",
-      "runnable": true,
-      "side_effect": "public",
-      "requires_confirmation": false,
-      "flags": [
-        {
-          "name": "candidate-digest",
-          "type": "string",
-          "usage": "current exact release candidate digest"
-        },
-        {
-          "name": "request-stdin",
-          "type": "bool",
-          "default": "false",
-          "usage": "read the complete natural-language edit request from stdin"
-        },
-        {
-          "name": "timeout",
-          "type": "duration",
-          "default": "2m0s",
-          "usage": "maximum time to wait for the edit"
-        }
-      ]
-    },
-    {
-      "path": "job edit-get",
-      "use": "edit-get <publication-id> <edit-id>",
-      "short": "Read a candidate edit receipt by ID, optionally resuming the wait after a timeout",
-      "runnable": true,
-      "side_effect": "none",
-      "requires_confirmation": false,
-      "flags": [
-        {
-          "name": "timeout",
-          "type": "duration",
-          "default": "0s",
-          "usage": "resume waiting for the edit (0 = single read)"
-        }
-      ]
-    },
-    {
-      "path": "job get",
-      "use": "get <publication-id>",
-      "short": "Get a publication's durable status",
-      "runnable": true,
-      "side_effect": "none",
-      "requires_confirmation": false
-    },
-    {
-      "path": "job metadata",
-      "use": "metadata <publication-id>",
-      "short": "Review or resolve the metadata checkpoint of a publication",
-      "runnable": true,
-      "side_effect": "public",
-      "requires_confirmation": false,
-      "flags": [
-        {
-          "name": "action-id",
-          "type": "string",
-          "usage": "confirm_metadata action receipt ID"
-        },
-        {
-          "name": "author",
-          "type": "string",
-          "usage": "optional source-author edit / missing-author fill (1-100 visible characters; machine callers: prefer --edits-stdin)"
-        },
-        {
-          "name": "decision",
-          "type": "string",
-          "usage": "metadata decision: confirm or cancel"
-        },
-        {
-          "name": "description",
-          "type": "string",
-          "usage": "optional description edit (1-100 visible characters; machine callers: prefer --edits-stdin)"
-        },
-        {
-          "name": "edits-stdin",
-          "type": "bool",
-          "default": "false",
-          "usage": "read optional {\"title\",\"description\",\"author\"} edits as one JSON object from stdin (no shell interpolation)"
-        },
-        {
-          "name": "expected-payload-digest",
-          "type": "string",
-          "usage": "digest of the metadata action payload"
-        },
-        {
-          "name": "title",
-          "type": "string",
-          "usage": "optional title edit (1-20 visible characters; machine callers: prefer --edits-stdin)"
-        }
-      ]
-    },
-    {
-      "path": "job preview",
-      "use": "preview <publication-id>",
-      "short": "Show the frozen public summary of the exact release candidate",
-      "runnable": true,
-      "side_effect": "none",
-      "requires_confirmation": false,
-      "flags": [
-        {
-          "name": "action-id",
-          "type": "string",
-          "usage": "confirm_publish action receipt ID (defaults to the latest)"
-        }
-      ]
-    },
-    {
-      "path": "job renew",
-      "use": "renew <publication-id>",
-      "short": "Explicitly renew an expired confirmation action on the same publication",
-      "runnable": true,
-      "side_effect": "public",
-      "requires_confirmation": false,
-      "flags": [
-        {
-          "name": "action-id",
-          "type": "string",
-          "usage": "expired confirm_steps or confirm_publish action receipt ID"
-        }
-      ]
-    },
-    {
-      "path": "job resume",
-      "use": "resume <publication-id>",
-      "short": "Resolve a typed next action on the same publication",
-      "runnable": true,
-      "side_effect": "public",
-      "requires_confirmation": false,
-      "flags": [
-        {
-          "name": "action-id",
-          "type": "string",
-          "usage": "typed action receipt ID"
-        },
-        {
-          "name": "decision",
-          "type": "string",
-          "usage": "confirm_publish decision: confirm or cancel"
-        },
-        {
-          "name": "expected-payload-digest",
-          "type": "string",
-          "usage": "digest of the action payload being answered"
-        },
-        {
-          "name": "expected-public-summary-digest",
-          "type": "string",
-          "usage": "public_summary_digest from the job preview output (binds the confirmation to the frozen summary)"
-        },
-        {
-          "name": "expected-release-candidate-digest",
-          "type": "string",
-          "usage": "exact release candidate digest shown before opening the private Candidate preview"
-        },
-        {
-          "name": "payload-stdin",
-          "type": "bool",
-          "default": "false",
-          "usage": "read the structured action answer from stdin"
-        }
-      ]
-    },
-    {
-      "path": "job retry",
-      "use": "retry <publication-id>",
-      "short": "Explicitly retry a retryable compiler failure",
-      "runnable": true,
-      "side_effect": "public",
-      "requires_confirmation": true,
-      "flags": [
-        {
-          "name": "yes",
-          "type": "bool",
-          "default": "false",
-          "usage": "confirm one bounded compiler retry"
-        }
-      ]
-    },
-    {
-      "path": "job wait",
-      "use": "wait <publication-id>",
-      "short": "Wait for a bounded publication result",
-      "runnable": true,
-      "side_effect": "none",
-      "requires_confirmation": false,
-      "flags": [
-        {
-          "name": "timeout",
-          "type": "duration",
-          "default": "1m0s",
-          "usage": "maximum time to wait"
-        }
-      ]
-    },
-    {
       "path": "profile",
       "use": "profile",
       "short": "Manage ViceMe CLI profiles",
@@ -352,11 +276,6 @@
       "side_effect": "local",
       "requires_confirmation": false,
       "flags": [
-        {
-          "name": "access-token",
-          "type": "string",
-          "usage": "persist an explicit local access token"
-        },
         {
           "name": "api-base-url",
           "type": "string",
@@ -383,26 +302,15 @@
     {
       "path": "profile configure",
       "use": "configure <name>",
-      "short": "Configure explicit local overrides for a profile",
+      "short": "Configure the API endpoint for a profile",
       "runnable": true,
       "side_effect": "local",
       "requires_confirmation": false,
       "flags": [
         {
-          "name": "access-token",
-          "type": "string",
-          "usage": "replace the explicit local access token"
-        },
-        {
           "name": "api-base-url",
           "type": "string",
           "usage": "persist an API base URL for this profile"
-        },
-        {
-          "name": "clear-access-token",
-          "type": "bool",
-          "default": "false",
-          "usage": "clear the explicit local access token"
         },
         {
           "name": "clear-api-base-url",
@@ -442,157 +350,6 @@
       "short": "Switch to a profile (use '-' to toggle back)",
       "runnable": true,
       "side_effect": "local",
-      "requires_confirmation": false
-    },
-    {
-      "path": "skill",
-      "use": "skill",
-      "short": "Inspect and publish external Skills",
-      "runnable": false,
-      "side_effect": "none",
-      "requires_confirmation": false
-    },
-    {
-      "path": "skill inspect",
-      "use": "inspect [github-url]",
-      "short": "Resolve an immutable external Skill snapshot without publishing it",
-      "runnable": true,
-      "side_effect": "none",
-      "requires_confirmation": false,
-      "flags": [
-        {
-          "name": "dry-run",
-          "type": "bool",
-          "default": "false",
-          "usage": "validate and print the operation without calling ViceMe"
-        },
-        {
-          "name": "skill-root",
-          "type": "string",
-          "usage": "exact repository-relative directory containing SKILL.md; use . for the repository root"
-        },
-        {
-          "name": "source-stdin",
-          "type": "bool",
-          "default": "false",
-          "usage": "read a typed SourceSpec JSON object from stdin"
-        }
-      ]
-    },
-    {
-      "path": "skill publish",
-      "use": "publish [github-url]",
-      "short": "Create a durable Skill Agent publication",
-      "runnable": true,
-      "side_effect": "public",
-      "requires_confirmation": true,
-      "flags": [
-        {
-          "name": "client-request-id",
-          "type": "string",
-          "usage": "stable idempotency key for an exact publication request"
-        },
-        {
-          "name": "dir",
-          "type": "string",
-          "usage": "deterministically archive and upload a Skill directory"
-        },
-        {
-          "name": "dry-run",
-          "type": "bool",
-          "default": "false",
-          "usage": "validate and print the operation without reading input or calling ViceMe"
-        },
-        {
-          "name": "expected-target-version",
-          "type": "int64",
-          "default": "0",
-          "usage": "expected CAS version of an existing Target"
-        },
-        {
-          "name": "file",
-          "type": "string",
-          "usage": "upload a Skill archive"
-        },
-        {
-          "name": "new-target",
-          "type": "bool",
-          "default": "false",
-          "usage": "create a new logical Agent Target"
-        },
-        {
-          "name": "resolution-id",
-          "type": "string",
-          "usage": "publish an immutable snapshot returned by inspect"
-        },
-        {
-          "name": "skill-root",
-          "type": "string",
-          "usage": "select a Skill root within the immutable source"
-        },
-        {
-          "name": "source-stdin",
-          "type": "bool",
-          "default": "false",
-          "usage": "read a typed SourceSpec JSON object from stdin"
-        },
-        {
-          "name": "target-alias",
-          "type": "string",
-          "usage": "owner-scoped alias for a new Target"
-        },
-        {
-          "name": "target-id",
-          "type": "string",
-          "usage": "publish to an existing Target"
-        },
-        {
-          "name": "target-locale",
-          "type": "string",
-          "usage": "target locale for compiled instructions"
-        },
-        {
-          "name": "timeout",
-          "type": "duration",
-          "default": "1m0s",
-          "usage": "maximum wait duration"
-        },
-        {
-          "name": "wait",
-          "type": "bool",
-          "default": "false",
-          "usage": "wait for a bounded publication result"
-        },
-        {
-          "name": "yes",
-          "type": "bool",
-          "default": "false",
-          "usage": "confirm the public publication side effect"
-        }
-      ]
-    },
-    {
-      "path": "skill target",
-      "use": "target",
-      "short": "Read stable Skill Agent Targets",
-      "runnable": false,
-      "side_effect": "none",
-      "requires_confirmation": false
-    },
-    {
-      "path": "skill target get",
-      "use": "get <target-id|share-url|alias>",
-      "short": "Get a Target owned by the authenticated user",
-      "runnable": true,
-      "side_effect": "none",
-      "requires_confirmation": false
-    },
-    {
-      "path": "skill target list",
-      "use": "list",
-      "short": "List Targets owned by the authenticated user",
-      "runnable": true,
-      "side_effect": "none",
       "requires_confirmation": false
     },
     {

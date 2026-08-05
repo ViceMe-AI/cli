@@ -23,10 +23,6 @@ type TokenSource interface {
 	Token(context.Context) (string, error)
 }
 
-// CredentialHeaderFunc applies a stored CLI credential to an API request.
-// Device login currently issues scoped API keys, so the default transport is
-// x-api-key. Keeping this injectable prevents a future credential type from
-// requiring route-by-route client changes.
 type CredentialHeaderFunc func(*http.Request, string)
 
 func ApplyAPIKeyCredential(request *http.Request, credential string) {
@@ -56,181 +52,88 @@ func NewClient(baseURL string, httpClient *http.Client, tokens TokenSource, user
 
 func (c *Client) StartDeviceAuthorization(ctx context.Context) (DeviceAuthorization, error) {
 	var response DeviceAuthorization
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/device", struct{}{}, &response, false, "")
-	if err == nil && response.VerificationURLComplete != "" {
-		// The complete URL carries the one-time user code and opens the exact
-		// authorization request in the browser. Keep verification_url as the
-		// canonical agent-facing field while retaining the explicit complete
-		// field for callers that understand the full server contract.
-		response.VerificationURL = response.VerificationURLComplete
-	}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/device", map[string]string{"client_id": "viceme-cli"}, &response, false, "", nil)
 	return response, err
 }
 
 func (c *Client) ExchangeDeviceToken(ctx context.Context, deviceCode string) (DeviceToken, error) {
 	var response DeviceToken
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/token", DeviceTokenRequest{DeviceCode: deviceCode}, &response, false, "")
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/token", DeviceTokenRequest{DeviceCode: deviceCode}, &response, false, "", nil)
 	return response, err
 }
 
-func (c *Client) Revoke(ctx context.Context, accessToken string) error {
-	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/revoke", struct{}{}, nil, false, accessToken)
-}
-
-func (c *Client) Inspect(ctx context.Context, request InspectRequest) (InspectResponse, error) {
-	var response InspectResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/inspect", request, &response, true, "")
+func (c *Client) RefreshDeviceToken(ctx context.Context, refreshToken string) (DeviceToken, error) {
+	var response DeviceToken
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/refresh", RefreshTokenRequest{RefreshToken: refreshToken}, &response, false, "", nil)
 	return response, err
 }
 
-func (c *Client) CreatePublication(ctx context.Context, request CreatePublicationRequest) (Publication, error) {
-	var response Publication
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications", request, &response, true, "")
+func (c *Client) Revoke(ctx context.Context) error {
+	var response RevokeResponse
+	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/revoke", struct{}{}, &response, true, "", nil)
+}
+
+func (c *Client) RevokeWithToken(ctx context.Context, accessToken string) error {
+	var response RevokeResponse
+	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/revoke", struct{}{}, &response, false, accessToken, nil)
+}
+
+func (c *Client) CreateCreatorApp(ctx context.Context, request CreateCreatorAppRequest) (CreatorApp, error) {
+	var response CreatorApp
+	err := c.doJSON(ctx, http.MethodPost, "/v1/creator-apps", request, &response, true, "", nil)
 	return response, err
 }
 
-func (c *Client) GetPublication(ctx context.Context, id string) (Publication, error) {
-	var response Publication
-	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publications/"+url.PathEscape(id), nil, &response, true, "")
+func (c *Client) ListCreatorApps(ctx context.Context) (CreatorAppsResponse, error) {
+	var response CreatorAppsResponse
+	err := c.doJSON(ctx, http.MethodGet, "/v1/creator-apps", nil, &response, true, "", nil)
 	return response, err
 }
 
-func (c *Client) GetPublicationPreview(ctx context.Context, publicationID, actionID string) (map[string]any, error) {
-	var response map[string]any
-	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/preview"
-	if actionID != "" {
-		endpoint += "?action_id=" + url.QueryEscape(actionID)
+func (c *Client) GetCreatorApp(ctx context.Context, appID string) (CreatorApp, error) {
+	var response CreatorApp
+	err := c.doJSON(ctx, http.MethodGet, "/v1/creator-apps/"+url.PathEscape(appID), nil, &response, true, "", nil)
+	return response, err
+}
+
+func (c *Client) AddCreatorAppOrigin(ctx context.Context, appID, environment, origin string) (OriginResponse, error) {
+	var response OriginResponse
+	endpoint := "/v1/creator-apps/" + url.PathEscape(appID) + "/environments/" + url.PathEscape(environment) + "/origins"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, AddOriginRequest{Origin: origin}, &response, true, "", nil)
+	return response, err
+}
+
+func (c *Client) CapabilityCatalog(ctx context.Context) (CapabilityCatalog, error) {
+	var response CapabilityCatalog
+	err := c.doJSON(ctx, http.MethodGet, "/v1/creator-apps/capabilities/catalog", nil, &response, true, "", nil)
+	return response, err
+}
+
+func (c *Client) AddCreatorAppCapability(ctx context.Context, appID, environment string, request AddCapabilityRequest) (CreatorAppCapability, error) {
+	var response CreatorAppCapability
+	endpoint := "/v1/creator-apps/" + url.PathEscape(appID) + "/environments/" + url.PathEscape(environment) + "/capabilities"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "", nil)
+	return response, err
+}
+
+func (c *Client) GetCreatorAppCapability(ctx context.Context, appID, environment, capability string) (CreatorAppCapability, error) {
+	var response CreatorAppCapability
+	endpoint := "/v1/creator-apps/" + url.PathEscape(appID) + "/environments/" + url.PathEscape(environment) + "/capabilities/" + url.PathEscape(capability)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, true, "", nil)
+	return response, err
+}
+
+func (c *Client) GetPublicAppContext(ctx context.Context, publishableKey, origin string) (PublicAppContext, error) {
+	var response PublicAppContext
+	headers := http.Header{}
+	if origin != "" {
+		headers.Set("Origin", origin)
 	}
-	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, true, "")
+	err := c.doJSON(ctx, http.MethodGet, "/v1/creator-app-context/"+url.PathEscape(publishableKey), nil, &response, false, "", headers)
 	return response, err
 }
 
-func (c *Client) RequestPublicationEdit(ctx context.Context, publicationID string, request PublicationEditRequest) (PublicationEditReceipt, error) {
-	var response PublicationEditReceipt
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/edits", request, &response, true, "")
-	return response, err
-}
-
-func (c *Client) GetPublicationEdit(ctx context.Context, publicationID, editID string) (PublicationEditReceipt, error) {
-	var response PublicationEditReceipt
-	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/edits/"+url.PathEscape(editID), nil, &response, true, "")
-	return response, err
-}
-
-// ResolveAction answers a typed payload action (select_root). confirm_publish
-// decisions must go through ResolveConfirmation: the API owns a dedicated
-// endpoint whose OpenAPI/SDK/runtime digest contract is identical.
-func (c *Client) ResolveAction(ctx context.Context, publicationID, actionID string, request ResolveActionRequest) (Publication, error) {
-	var response Publication
-	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/actions/" + url.PathEscape(actionID) + "/resolve"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "")
-	return response, err
-}
-
-// ResolveConfirmation resolves a confirm_publish action. All three digests
-// and the decision are required — the same contract the API validates and the
-// OpenAPI/SDK documents, so a cancel resolution is never rejected for missing
-// digests.
-func (c *Client) ResolveConfirmation(ctx context.Context, publicationID, actionID string, request ResolveConfirmationRequest) (Publication, error) {
-	var response Publication
-	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/actions/" + url.PathEscape(actionID) + "/resolve-confirmation"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "")
-	return response, err
-}
-
-// RenewExpiredAction explicitly issues a new generation for an expired
-// confirm_steps or confirm_publish action. The publication and frozen candidate
-// remain unchanged; the server owns all eligibility checks.
-func (c *Client) RenewExpiredAction(ctx context.Context, publicationID, actionID string) (RenewActionReceipt, error) {
-	var response RenewActionReceipt
-	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/actions/" + url.PathEscape(actionID) + "/renew"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, true, "")
-	return response, err
-}
-
-func (c *Client) GetPublicationMetadata(ctx context.Context, publicationID string) (PublicationMetadata, error) {
-	var response PublicationMetadata
-	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/metadata", nil, &response, true, "")
-	return response, err
-}
-
-func (c *Client) ResolvePublicationMetadata(ctx context.Context, publicationID string, request ResolveMetadataRequest) (Publication, error) {
-	var response Publication
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/metadata/resolve", request, &response, true, "")
-	return response, err
-}
-
-func (c *Client) CancelPublication(ctx context.Context, id string) (Publication, error) {
-	var response Publication
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(id)+"/cancel", struct{}{}, &response, true, "")
-	return response, err
-}
-
-func (c *Client) RetryPublication(ctx context.Context, id string) (Publication, error) {
-	var response Publication
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(id)+"/retry", struct{}{}, &response, true, "")
-	return response, err
-}
-
-func (c *Client) ListTargets(ctx context.Context) (TargetList, error) {
-	var response TargetList
-	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publish-targets", nil, &response, true, "")
-	return response, err
-}
-
-func (c *Client) GetTarget(ctx context.Context, identifier string) (Target, error) {
-	var response Target
-	endpoint := "/v1/skill-agent-publish-targets/" + url.PathEscape(identifier)
-	if code, ok := shareCode(identifier); ok {
-		endpoint = "/v1/skill-agent-publish-targets/by-share-code/" + url.PathEscape(code)
-	}
-	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, true, "")
-	return response, err
-}
-
-func (c *Client) PrepareUpload(ctx context.Context, request UploadPrepareRequest) (UploadPrepareResponse, error) {
-	var response UploadPrepareResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publication-uploads", request, &response, true, "")
-	return response, err
-}
-
-func (c *Client) CompleteUpload(ctx context.Context, id string, request UploadCompleteRequest) (UploadCompleteResponse, error) {
-	var response UploadCompleteResponse
-	endpoint := "/v1/skill-agent-publication-uploads/" + url.PathEscape(id) + "/complete"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "")
-	return response, err
-}
-
-func (c *Client) PutUpload(ctx context.Context, prepared UploadPrepareResponse, body io.Reader, size int64) error {
-	method := prepared.Method
-	if method == "" {
-		method = http.MethodPut
-	}
-	request, err := http.NewRequestWithContext(ctx, method, prepared.UploadURL, body)
-	if err != nil {
-		return output.Internal("upload_request", "failed to create upload request", err)
-	}
-	request.ContentLength = size
-	for key, value := range prepared.Headers {
-		request.Header.Set(key, value)
-	}
-	response, err := withoutRedirects(c.HTTPClient).Do(request)
-	if err != nil {
-		return output.Network("upload_transport", "failed to upload the Skill bundle", err)
-	}
-	defer response.Body.Close()
-	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return output.Network("upload_rejected", fmt.Sprintf("upload endpoint returned HTTP %d", response.StatusCode), nil)
-	}
-	return nil
-}
-
-func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string) error {
-	return c.doJSONWithHeaders(ctx, method, endpoint, requestBody, responseBody, authenticated, explicitToken, nil)
-}
-
-func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string, headers http.Header) error {
+func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string, headers http.Header) error {
 	base, err := validateAPIBaseURL(c.BaseURL)
 	if err != nil {
 		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
@@ -241,17 +144,17 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string,
 	}
 	base.Path = path.Join(base.Path, relative.Path)
 	base.RawQuery = relative.RawQuery
-	var body io.Reader
+
+	var encoded []byte
 	if requestBody != nil {
-		data, err := json.Marshal(requestBody)
+		encoded, err = json.Marshal(requestBody)
 		if err != nil {
 			return output.Internal("request_encode", "failed to encode the API request", err)
 		}
-		body = bytes.NewReader(data)
 	}
-	request, err := http.NewRequestWithContext(ctx, method, base.String(), body)
+	request, err := http.NewRequestWithContext(ctx, method, base.String(), bytes.NewReader(encoded))
 	if err != nil {
-		return output.Internal("request_create", "failed to create the API request", err)
+		return output.Internal("request_create", "failed to create the ViceMe API request", err)
 	}
 	request.Header.Set("Accept", "application/json")
 	if requestBody != nil {
@@ -276,12 +179,13 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string,
 		}
 	}
 	if token != "" {
-		applyCredential := c.CredentialHeader
-		if applyCredential == nil {
-			applyCredential = ApplyAPIKeyCredential
+		apply := c.CredentialHeader
+		if apply == nil {
+			apply = ApplyAPIKeyCredential
 		}
-		applyCredential(request, token)
+		apply(request, token)
 	}
+
 	response, err := withoutRedirects(c.HTTPClient).Do(request)
 	if err != nil {
 		return output.Network("transport", "failed to reach the ViceMe API", err)
@@ -300,12 +204,12 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string,
 	if responseBody == nil || len(bytes.TrimSpace(data)) == 0 {
 		return nil
 	}
-	return decodeSuccess(data, responseBody)
+	if err := json.Unmarshal(data, responseBody); err != nil {
+		return output.Internal("response_decode", "ViceMe API returned an invalid JSON response", err)
+	}
+	return nil
 }
 
-// NormalizeAPIOrigin validates an API base URL and returns the canonical
-// credential boundary. Paths do not create a separate browser/network origin;
-// scheme, lower-cased host, and non-default port do.
 func NormalizeAPIOrigin(raw string) (string, error) {
 	base, err := validateAPIBaseURL(raw)
 	if err != nil {
@@ -359,86 +263,45 @@ func validateAPIBaseURL(raw string) (*url.URL, error) {
 	}
 }
 
-func decodeSuccess(data []byte, out any) error {
-	var possibleEnvelope struct {
-		OK   *bool           `json:"ok"`
-		Data json.RawMessage `json:"data"`
-	}
-	if err := json.Unmarshal(data, &possibleEnvelope); err == nil && possibleEnvelope.OK != nil && len(possibleEnvelope.Data) > 0 {
-		data = possibleEnvelope.Data
-	}
-	if err := json.Unmarshal(data, out); err != nil {
-		return output.Internal("response_decode", "ViceMe API returned an invalid JSON response", err)
-	}
-	return nil
-}
-
 func decodeServerError(status int, data []byte) error {
-	var envelope struct {
-		Error ServerError `json:"error"`
+	var response struct {
+		Code      string          `json:"code"`
+		Message   json.RawMessage `json:"message"`
+		RequestID string          `json:"requestId"`
 	}
-	serverError := ServerError{}
-	if err := json.Unmarshal(data, &envelope); err == nil && envelope.Error.Message != "" {
-		serverError = envelope.Error
-	} else {
-		_ = json.Unmarshal(data, &serverError)
+	_ = json.Unmarshal(data, &response)
+	message := decodeMessage(response.Message)
+	if message == "" {
+		message = fmt.Sprintf("ViceMe API returned HTTP %d", status)
 	}
-	if serverError.Message == "" {
-		serverError.Message = fmt.Sprintf("ViceMe API returned HTTP %d", status)
+	subtype := strings.ToLower(response.Code)
+	if subtype == "" {
+		subtype = strings.ToLower(strings.ReplaceAll(http.StatusText(status), " ", "_"))
 	}
-	if serverError.Subtype == "" {
-		serverError.Subtype = http.StatusText(status)
+	code, typ := exitForStatus(status)
+	result := output.NewError(code, typ, subtype, message)
+	result.Retryable = status == http.StatusTooManyRequests || status >= 500
+	if response.RequestID != "" {
+		result.Details = map[string]any{"request_id": response.RequestID}
 	}
-	code, typ := exitForServerError(status, serverError.Type)
-	cliError := output.NewError(code, typ, serverError.Subtype, serverError.Message)
-	cliError.Retryable = serverError.Retryable
-	cliError.Hint = serverError.Hint
-	cliError.PublicationID = serverError.PublicationID
-	cliError.ConsoleURL = serverError.ConsoleURL
-	cliError.Details = serverError.Details
-	return cliError
+	return result
 }
 
-func exitForServerError(status int, serverType string) (int, string) {
-	if serverType == "" {
-		return exitForStatus(status)
+func decodeMessage(raw json.RawMessage) string {
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return text
 	}
-	if code, known := exitForType(serverType); known {
-		return code, serverType
+	var list []string
+	if json.Unmarshal(raw, &list) == nil {
+		return strings.Join(list, "; ")
 	}
-	// Preserve future server taxonomy instead of pretending it is a known CLI
-	// type. HTTP status still supplies a fail-safe nonzero exit category.
-	code, _ := exitForStatus(status)
-	return code, serverType
-}
-
-func exitForType(serverType string) (int, bool) {
-	switch serverType {
-	case "authentication", "authorization":
-		return output.ExitAuthentication, true
-	case "validation", "target_conflict":
-		return output.ExitValidation, true
-	case "network", "concurrency":
-		return output.ExitNetwork, true
-	case "internal":
-		return output.ExitInternal, true
-	case "policy", "rollout_gate":
-		return output.ExitPolicy, true
-	case "confirmation":
-		return output.ExitConfirmation, true
-	default:
-		return 0, false
-	}
+	return ""
 }
 
 func exitForStatus(status int) (int, string) {
 	switch status {
-	case http.StatusBadRequest,
-		http.StatusNotFound,
-		http.StatusGone,
-		http.StatusConflict,
-		http.StatusUnsupportedMediaType,
-		http.StatusUnprocessableEntity:
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusGone, http.StatusConflict, http.StatusUnsupportedMediaType, http.StatusUnprocessableEntity:
 		return output.ExitValidation, "validation"
 	case http.StatusUnauthorized:
 		return output.ExitAuthentication, "authentication"
@@ -449,18 +312,6 @@ func exitForStatus(status int) (int, string) {
 	default:
 		return output.ExitInternal, "internal"
 	}
-}
-
-func shareCode(identifier string) (string, bool) {
-	parsed, err := url.Parse(identifier)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", false
-	}
-	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	if len(parts) >= 2 && (parts[len(parts)-2] == "v" || parts[len(parts)-2] == "share") && parts[len(parts)-1] != "" {
-		return parts[len(parts)-1], true
-	}
-	return "", false
 }
 
 func IsSubtype(err error, subtype string) bool {

@@ -2,7 +2,6 @@ package command
 
 import (
 	"encoding/json"
-	"net/http"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,17 +13,16 @@ import (
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
 
-func TestProfileAddAndConfigureExplicitLocalOverrides(t *testing.T) {
+func TestProfileAddAndConfigureEndpointOverride(t *testing.T) {
 	t.Parallel()
-	localToken := testProcessCredential("local-dev")
 	home := t.TempDir()
 	environment := skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
 	store := securestore.NewMemory()
 	dependencies := Dependencies{Environment: environment}
 
 	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", dependencies,
-		"profile", "add", "--name", "local", "--region", "cn", "--api-base-url", "http://localhost:8090/", "--access-token", localToken, "--use")
-	if code != 0 || stderr != "" || strings.Contains(stdout, localToken) || !stringContains(stdout, `"access_token_configured":true`) {
+		"profile", "add", "--name", "local", "--region", "cn", "--api-base-url", "http://localhost:8090/", "--use")
+	if code != 0 || stderr != "" || !stringContains(stdout, `"api_base_url":"http://localhost:8090"`) {
 		t.Fatalf("add code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	loaded, err := config.LoadOrDefault(environment.ConfigDir)
@@ -32,58 +30,27 @@ func TestProfileAddAndConfigureExplicitLocalOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	local, err := loaded.Resolve("local")
-	if err != nil || local.APIBaseURL != "http://localhost:8090" || local.AccessToken != localToken {
+	if err != nil || local.APIBaseURL != "http://localhost:8090" {
 		t.Fatalf("profile=%#v err=%v", local, err)
 	}
 
-	var requestSeen bool
-	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		requestSeen = true
-		if request.URL.Scheme+"://"+request.URL.Host != "http://localhost:8090" {
-			t.Fatalf("request origin=%s", request.URL.Scheme+"://"+request.URL.Host)
-		}
-		if request.Header.Get("x-api-key") != localToken {
-			t.Fatal("local profile token was not applied")
-		}
-		return jsonHTTPResponse(request, http.StatusOK, `{"targets":[]}`), nil
-	})
-	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", Dependencies{
-		Environment: environment,
-		HTTPClient:  &http.Client{Transport: transport},
-	}, "skill", "target", "list")
-	if code != 0 || stderr != "" || !requestSeen || strings.Contains(stdout, localToken) {
-		t.Fatalf("request code=%d seen=%v stdout=%s stderr=%s", code, requestSeen, stdout, stderr)
-	}
-
-	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies, "auth", "status")
-	if code != 0 || stderr != "" || !stringContains(stdout, `"source":"local_profile"`) || strings.Contains(stdout, localToken) {
-		t.Fatalf("status code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
-	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies, "auth", "login")
-	if code == 0 || !strings.Contains(stderr, "local_profile_credential_active") || strings.Contains(stderr, localToken) {
-		t.Fatalf("login code=%d stderr=%s", code, stderr)
-	}
-	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies, "profile", "list")
-	if code != 0 || stderr != "" || !stringContains(stdout, `"credential_source":"local_profile"`) || strings.Contains(stdout, localToken) {
-		t.Fatalf("list code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
 	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
 		"profile", "configure", "local", "--api-base-url", "http://localhost:9090")
-	if code == 0 || !strings.Contains(stderr, "profile_access_token_scope") || strings.Contains(stdout+stderr, localToken) {
-		t.Fatalf("cross-origin configure code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	if code != 0 || stderr != "" || !stringContains(stdout, `"api_base_url":"http://localhost:9090"`) {
+		t.Fatalf("configure code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	loaded, err = config.LoadOrDefault(environment.ConfigDir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	local, _ = loaded.Resolve("local")
-	if local.APIBaseURL != "http://localhost:8090" || local.AccessToken != localToken {
-		t.Fatalf("rejected endpoint change was persisted: %#v", local)
+	if local.APIBaseURL != "http://localhost:9090" {
+		t.Fatalf("endpoint change was not persisted: %#v", local)
 	}
 
 	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
-		"profile", "configure", "local", "--clear-access-token", "--clear-api-base-url")
-	if code != 0 || stderr != "" || strings.Contains(stdout, localToken) || !stringContains(stdout, `"access_token_configured":false`) {
+		"profile", "configure", "local", "--clear-api-base-url")
+	if code != 0 || stderr != "" {
 		t.Fatalf("clear code=%d stdout=%s stderr=%s", code, stdout, stderr)
 	}
 	loaded, err = config.LoadOrDefault(environment.ConfigDir)
@@ -91,82 +58,8 @@ func TestProfileAddAndConfigureExplicitLocalOverrides(t *testing.T) {
 		t.Fatal(err)
 	}
 	local, _ = loaded.Resolve("local")
-	if local.AccessToken != "" || local.APIBaseURL != "" {
-		t.Fatalf("local overrides were not cleared: %#v", local)
-	}
-}
-
-func TestProfileConfigureValidatesExplicitAccessToken(t *testing.T) {
-	t.Parallel()
-	home := t.TempDir()
-	environment := skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
-	store := securestore.NewMemory()
-	dependencies := Dependencies{Environment: environment}
-	code, _, stderr, _ := runCLIWithDependencies(t, nil, store, "", dependencies, "profile", "add", "--name", "local")
-	if code != 0 || stderr != "" {
-		t.Fatalf("add code=%d stderr=%s", code, stderr)
-	}
-	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, store, "", dependencies,
-		"profile", "configure", "local", "--access-token", " replacement-secret ")
-	if code == 0 || !strings.Contains(stderr, "profile_access_token") || strings.Contains(stdout+stderr, "replacement-secret") {
-		t.Fatalf("invalid token code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
-	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
-		"profile", "configure", "local", "--api-base-url", "http://localhost:8090", "--access-token", strings.Repeat("x", (64<<10)+1))
-	if code == 0 || !strings.Contains(stderr, "64 KiB") {
-		t.Fatalf("oversized token code=%d stderr=%s", code, stderr)
-	}
-	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
-		"profile", "configure", "local", "--api-base-url", "http://localhost:8090", "--access-token", testProcessCredential("cn-prod"))
-	if code == 0 || !strings.Contains(stderr, "profile_access_token_scope") {
-		t.Fatalf("audience mismatch code=%d stderr=%s", code, stderr)
-	}
-
-	code, _, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies, "profile", "add", "--name", "preview")
-	if code != 0 || stderr != "" {
-		t.Fatalf("preview add code=%d stderr=%s", code, stderr)
-	}
-	previewToken := testProcessCredential("dev-preview")
-	code, stdout, stderr, _ = runCLIWithDependencies(t, nil, store, "", dependencies,
-		"profile", "configure", "preview", "--api-base-url", devPreviewAPIBaseURL, "--access-token", previewToken)
-	if code != 0 || stderr != "" || strings.Contains(stdout, previewToken) {
-		t.Fatalf("preview configure code=%d stdout=%s stderr=%s", code, stdout, stderr)
-	}
-	loaded, err := config.LoadOrDefault(environment.ConfigDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	preview, err := loaded.Resolve("preview")
-	if err != nil || preview.APIBaseURL != devPreviewAPIBaseURL || preview.AccessToken != previewToken {
-		t.Fatalf("preview profile=%#v err=%v", preview, err)
-	}
-}
-
-func TestProcessCredentialTakesPriorityOverLocalProfileCredential(t *testing.T) {
-	processToken := "vpa1.local-dev." + strings.Repeat("p", 43)
-	profileToken := "vpa1.local-dev." + strings.Repeat("l", 43)
-	t.Setenv(processAccessTokenEnvironment, processToken)
-	t.Setenv(localProcessCredentialEnvironment, "1")
-	home := t.TempDir()
-	environment := skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
-	configured := config.Default(config.RegionCN)
-	configured.Profiles[0].APIBaseURL = "http://localhost:8090"
-	configured.Profiles[0].AccessToken = profileToken
-	if _, err := config.Save(environment.ConfigDir, configured); err != nil {
-		t.Fatal(err)
-	}
-	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
-		if request.Header.Get("x-api-key") != processToken {
-			t.Fatalf("credential priority header=%q", request.Header.Get("x-api-key"))
-		}
-		return jsonHTTPResponse(request, http.StatusOK, `{"targets":[]}`), nil
-	})
-	code, stdout, stderr, _ := runCLIWithDependencies(t, nil, securestore.NewMemory(), "", Dependencies{
-		Environment: environment,
-		HTTPClient:  &http.Client{Transport: transport},
-	}, "skill", "target", "list")
-	if code != 0 || stderr != "" || strings.Contains(stdout, processToken) || strings.Contains(stdout, profileToken) {
-		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout, stderr)
+	if local.APIBaseURL != "" {
+		t.Fatalf("endpoint override was not cleared: %#v", local)
 	}
 }
 

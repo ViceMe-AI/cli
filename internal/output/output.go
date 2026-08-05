@@ -20,16 +20,15 @@ type Meta struct {
 }
 
 type Error struct {
-	Code          int    `json:"-"`
-	Type          string `json:"type"`
-	Subtype       string `json:"subtype"`
-	Message       string `json:"message"`
-	Retryable     bool   `json:"retryable"`
-	Hint          string `json:"hint,omitempty"`
-	PublicationID string `json:"publication_id,omitempty"`
-	ConsoleURL    string `json:"console_url,omitempty"`
-	Details       any    `json:"details,omitempty"`
-	Cause         error  `json:"-"`
+	Code       int    `json:"-"`
+	Type       string `json:"type"`
+	Subtype    string `json:"subtype"`
+	Message    string `json:"message"`
+	Retryable  bool   `json:"retryable"`
+	Hint       string `json:"hint,omitempty"`
+	ConsoleURL string `json:"console_url,omitempty"`
+	Details    any    `json:"details,omitempty"`
+	Cause      error  `json:"-"`
 }
 
 func (e *Error) Error() string { return e.Message }
@@ -131,7 +130,7 @@ func (p *Printer) SuccessWithMeta(data any, meta Meta) error {
 
 // Business writes one command-owned result without the transport envelope.
 // Local/bootstrap commands use this mode because their stdout value is already
-// the complete answer; publication protocol commands continue to use Success.
+// the complete answer; asynchronous protocol commands use Success.
 func (p *Printer) Business(data any) error {
 	return writeBusinessJSON(p.Out, data, p.notice())
 }
