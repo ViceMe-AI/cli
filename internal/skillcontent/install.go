@@ -454,6 +454,11 @@ func rollbackSkillInstalls(staged []*stagedInstall) error {
 			item.backedUp = false
 		}
 	}
+	for _, item := range staged {
+		if item.backedUp {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("previous %s Skill is preserved at %s for manual recovery", item.target.name, item.backup))
+		}
+	}
 	return errors.Join(rollbackErrors...)
 }
 

@@ -258,6 +258,7 @@ func (r *Runtime) manager() *auth.Manager {
 		ProfileID:   r.profile.ID,
 		ProfileName: r.profile.Name,
 		Scope:       r.credentialScope,
+		LockRoot:    r.configBase,
 		Now:         r.deps.Now,
 	}
 }
@@ -286,7 +287,25 @@ func (source *refreshingTokenSource) Token(ctx context.Context) (string, error) 
 		return "", err
 	}
 	now := source.now()
-	if credential.ExpiresAt.IsZero() || now.Before(credential.ExpiresAt.Add(-30*time.Second)) {
+	if credential.RefreshRequestID == "" && (credential.ExpiresAt.IsZero() || now.Before(credential.ExpiresAt.Add(-30*time.Second))) {
+		return credential.AccessToken, nil
+	}
+	var token string
+	err = source.manager.WithCredentialLock(ctx, func() error {
+		var refreshErr error
+		token, refreshErr = source.tokenWhileLocked(ctx)
+		return refreshErr
+	})
+	return token, err
+}
+
+func (source *refreshingTokenSource) tokenWhileLocked(ctx context.Context) (string, error) {
+	credential, err := source.manager.Load()
+	if err != nil {
+		return "", err
+	}
+	now := source.now()
+	if credential.RefreshRequestID == "" && (credential.ExpiresAt.IsZero() || now.Before(credential.ExpiresAt.Add(-30*time.Second))) {
 		return credential.AccessToken, nil
 	}
 	if credential.RefreshToken == "" || (!credential.RefreshExpiresAt.IsZero() && !now.Before(credential.RefreshExpiresAt)) {

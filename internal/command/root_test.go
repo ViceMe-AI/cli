@@ -239,7 +239,7 @@ func TestRefreshingTokenSourceRotatesExpiredCredential(t *testing.T) {
 	}))
 	defer server.Close()
 	store := securestore.NewMemory()
-	manager := &credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default"}
+	manager := &credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", LockRoot: t.TempDir()}
 	if err := manager.Save(credentialauth.Credential{AccessToken: "old", RefreshToken: "refresh", ExpiresAt: time.Now().Add(-time.Minute), RefreshExpiresAt: time.Now().Add(time.Hour)}); err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestRefreshingTokenSourceRetriesSameRefreshAfterResponseLoss(t *testing.T) 
 	}))
 	defer server.Close()
 	store := securestore.NewMemory()
-	manager := &credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default"}
+	manager := &credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", LockRoot: t.TempDir()}
 	if err := manager.Save(credentialauth.Credential{
 		AccessToken: "vcm_at_expired", RefreshToken: "vcm_rt_original",
 		ExpiresAt: now.Add(-time.Minute), RefreshExpiresAt: now.Add(24 * time.Hour),
@@ -333,6 +333,108 @@ func TestRefreshingTokenSourceRetriesSameRefreshAfterResponseLoss(t *testing.T) 
 	if err != nil || completed.RefreshRequestID != "" {
 		t.Fatalf("recovered refresh did not clear request identity: %#v err=%v", completed, err)
 	}
+}
+
+func TestRefreshingTokenSourceSerializesConcurrentCredentialTransactions(t *testing.T) {
+	now := time.Now().UTC()
+	requestStarted := make(chan struct{})
+	releaseResponse := make(chan struct{})
+	var refreshCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/cli/auth/refresh" {
+			t.Fatalf("unexpected path %s", request.URL.Path)
+		}
+		var input api.RefreshTokenRequest
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+			t.Fatal(err)
+		}
+		if input.RefreshToken != "vcm_rt_concurrent" || input.ClientRequestID != "550e8400-e29b-41d4-a716-446655440070" {
+			t.Fatalf("unexpected first refresh request %#v", input)
+		}
+		if refreshCalls.Add(1) == 1 {
+			close(requestStarted)
+		}
+		<-releaseResponse
+		writeCommandJSON(t, writer, map[string]any{
+			"access_token":       "vcm_at_concurrent_new",
+			"refresh_token":      "vcm_rt_concurrent_new",
+			"token_type":         "api_key",
+			"expires_at":         now.Add(time.Hour).Format(time.RFC3339Nano),
+			"refresh_expires_at": now.Add(24 * time.Hour).Format(time.RFC3339Nano),
+			"user_id":            "550e8400-e29b-41d4-a716-446655440000",
+			"scope":              []string{"app:read"},
+		})
+	}))
+	defer server.Close()
+
+	store := &observedCredentialStore{
+		MemoryStore: securestore.NewMemory(),
+		thirdRead:   make(chan struct{}),
+	}
+	lockRoot := t.TempDir()
+	initialManager := &credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", LockRoot: lockRoot}
+	if err := initialManager.Save(credentialauth.Credential{
+		AccessToken:      "vcm_at_concurrent_old",
+		RefreshToken:     "vcm_rt_concurrent",
+		ExpiresAt:        now.Add(-time.Minute),
+		RefreshExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	newSource := func(requestID string) *refreshingTokenSource {
+		return &refreshingTokenSource{
+			manager: &credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", LockRoot: lockRoot},
+			client:  apiClientForTest(server),
+			now:     func() time.Time { return now },
+			newID:   func() string { return requestID },
+		}
+	}
+	results := make(chan struct {
+		token string
+		err   error
+	}, 2)
+	go func() {
+		token, err := newSource("550e8400-e29b-41d4-a716-446655440070").Token(context.Background())
+		results <- struct {
+			token string
+			err   error
+		}{token: token, err: err}
+	}()
+	<-requestStarted
+	go func() {
+		token, err := newSource("550e8400-e29b-41d4-a716-446655440071").Token(context.Background())
+		results <- struct {
+			token string
+			err   error
+		}{token: token, err: err}
+	}()
+	<-store.thirdRead
+	close(releaseResponse)
+
+	for range 2 {
+		result := <-results
+		if result.err != nil || result.token != "vcm_at_concurrent_new" {
+			t.Fatalf("concurrent refresh token=%q err=%v", result.token, result.err)
+		}
+	}
+	if refreshCalls.Load() != 1 {
+		t.Fatalf("concurrent credential transaction made %d refresh requests", refreshCalls.Load())
+	}
+}
+
+type observedCredentialStore struct {
+	*securestore.MemoryStore
+	reads     atomic.Int32
+	thirdRead chan struct{}
+	once      sync.Once
+}
+
+func (store *observedCredentialStore) Get(key string) (string, error) {
+	value, err := store.MemoryStore.Get(key)
+	if store.reads.Add(1) >= 3 {
+		store.once.Do(func() { close(store.thirdRead) })
+	}
+	return value, err
 }
 
 func apiClientForTest(server *httptest.Server) *api.Client {
