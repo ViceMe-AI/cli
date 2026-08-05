@@ -96,6 +96,86 @@ func TestAppLinkRetriesCreateWithStableRequestIDAfterResponseLoss(t *testing.T) 
 	}
 }
 
+func TestAppLinkSerializesConcurrentFirstCreation(t *testing.T) {
+	firstCreateStarted := make(chan struct{})
+	releaseFirstCreate := make(chan struct{})
+	var createRequests atomic.Int32
+	var getRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/creator-apps":
+			var input api.CreateCreatorAppRequest
+			if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+				http.Error(writer, err.Error(), http.StatusBadRequest)
+				return
+			}
+			if input.ClientRequestID != testClientRequestID {
+				http.Error(writer, "unexpected request ID", http.StatusBadRequest)
+				return
+			}
+			if createRequests.Add(1) == 1 {
+				close(firstCreateStarted)
+				<-releaseFirstCreate
+			}
+			writeCommandJSON(t, writer, creatorAppFixture("Concurrent App", nil, nil))
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/creator-apps/"+testAppID:
+			getRequests.Add(1)
+			writeCommandJSON(t, writer, creatorAppFixture("Concurrent App", nil, nil))
+		default:
+			http.Error(writer, "not found", http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	project := filepath.Join(t.TempDir(), "Concurrent App")
+	if err := os.Mkdir(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store := securestore.NewMemory()
+	dependencies := authenticatedDependencies(t, server, store)
+	var idCalls atomic.Int32
+	dependencies.NewID = func() string {
+		idCalls.Add(1)
+		return testClientRequestID
+	}
+	type result struct {
+		code   int
+		stderr string
+	}
+	results := make(chan result, 2)
+	run := func() {
+		code, _, stderr, _ := runCLIWithDependencies(t, server, store, "", dependencies, "app", "link", "--dir", project)
+		results <- result{code: code, stderr: stderr}
+	}
+	go run()
+	<-firstCreateStarted
+	secondStarted := make(chan struct{})
+	go func() {
+		close(secondStarted)
+		run()
+	}()
+	<-secondStarted
+	time.Sleep(50 * time.Millisecond)
+	if createRequests.Load() != 1 {
+		t.Fatalf("second App link reached remote creation before the first transaction completed: creates=%d", createRequests.Load())
+	}
+	close(releaseFirstCreate)
+
+	for range 2 {
+		result := <-results
+		if result.code != 0 || result.stderr != "" {
+			t.Fatalf("concurrent link code=%d stderr=%s", result.code, result.stderr)
+		}
+	}
+	if createRequests.Load() != 1 || getRequests.Load() != 1 || idCalls.Load() != 1 {
+		t.Fatalf("concurrent App link did not converge: creates=%d gets=%d id_calls=%d", createRequests.Load(), getRequests.Load(), idCalls.Load())
+	}
+	manifest, err := appmanifest.Load(project)
+	if err != nil || manifest.AppID != testAppID {
+		t.Fatalf("manifest=%#v err=%v", manifest, err)
+	}
+}
+
 func TestAppLinkExplicitSameAppPreservesEnvironmentOriginAndProtocols(t *testing.T) {
 	capability := api.CreatorAppCapability{
 		Type: "COMMERCE", Status: "DRAFT", ConfigVersion: 1,

@@ -61,72 +61,19 @@ func newAppLinkCommand(runtime *Runtime) *cobra.Command {
 				}
 			}
 
-			existing, loadErr := appmanifest.Load(projectDirectory)
-			if loadErr != nil && !errors.Is(loadErr, appmanifest.ErrNotFound) {
-				return output.Validation("app_manifest_invalid", loadErr.Error())
+			linkErr := appmanifest.WithLinkLock(
+				command.Context(),
+				runtime.processLockRoot,
+				projectDirectory,
+				func() error {
+					return executeAppLink(command, runtime, projectDirectory, appID, name, environment, origin)
+				},
+			)
+			if errors.Is(linkErr, appmanifest.ErrLinkLock) {
+				return output.Internal("app_link_lock", "the project App binding lock is unavailable", linkErr).
+					WithHint("wait for the other 'viceme app link' command to finish, then retry")
 			}
-			if appID == "" && loadErr == nil {
-				appID = existing.AppID
-			}
-			if appID != "" && loadErr == nil && existing.AppID != appID {
-				return output.Validation("app_binding_conflict", "the project is already bound to a different Creator App")
-			}
-			if appID != "" && loadErr == nil {
-				if !command.Flags().Changed("environment") {
-					environment = existing.Environment
-				}
-				if !command.Flags().Changed("origin") {
-					origin = existing.Origin
-				}
-			}
-
-			client := runtime.client()
-			var app api.CreatorApp
-			if appID == "" {
-				if name == "" {
-					name = filepath.Base(projectDirectory)
-				}
-				intent, intentErr := appmanifest.LoadOrCreateLinkIntent(projectDirectory, name, "EXTERNAL", runtime.deps.NewID)
-				if intentErr != nil {
-					return output.Validation("app_link_intent", intentErr.Error())
-				}
-				app, err = client.CreateCreatorApp(command.Context(), api.CreateCreatorAppRequest{
-					ClientRequestID: intent.ClientRequestID,
-					Name:            name,
-					HostingMode:     "EXTERNAL",
-				})
-			} else {
-				app, err = client.GetCreatorApp(command.Context(), appID)
-			}
-			if err != nil {
-				return err
-			}
-			target, err := selectAppEnvironment(app, environment)
-			if err != nil {
-				return err
-			}
-			if origin != "" {
-				if _, err := client.AddCreatorAppOrigin(command.Context(), app.ID, target.Type, origin); err != nil {
-					return err
-				}
-			}
-			manifest := manifestFromApp(app, target, origin)
-			manifestPath, err := appmanifest.Save(projectDirectory, manifest)
-			if err != nil {
-				return output.Internal("app_manifest_save", "Creator App was resolved but the local manifest could not be saved", err).
-					WithHint("fix local project permissions and rerun the same 'viceme app link' command; creation is idempotent").
-					WithDetails(map[string]any{"app_id": app.ID})
-			}
-			if err := appmanifest.RemoveLinkIntent(projectDirectory); err != nil {
-				return output.Internal("app_link_intent_cleanup", "the App manifest was saved, but its pending link intent could not be removed", err).
-					WithDetails(map[string]any{"app_id": app.ID, "manifest": manifestPath})
-			}
-			return runtime.business(map[string]any{
-				"app":          app,
-				"binding":      manifest,
-				"manifest":     manifestPath,
-				"api_base_url": strings.TrimRight(runtime.apiBaseURL, "/") + "/v1",
-			})
+			return linkErr
 		},
 	}
 	command.Flags().StringVar(&directory, "dir", ".", "project directory")
@@ -135,6 +82,76 @@ func newAppLinkCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&environment, "environment", "TEST", "Creator App environment: TEST or LIVE")
 	command.Flags().StringVar(&origin, "origin", "", "canonical browser origin to register, for example http://localhost:3000")
 	return command
+}
+
+func executeAppLink(command *cobra.Command, runtime *Runtime, projectDirectory, appID, name, environment, origin string) error {
+	existing, loadErr := appmanifest.Load(projectDirectory)
+	if loadErr != nil && !errors.Is(loadErr, appmanifest.ErrNotFound) {
+		return output.Validation("app_manifest_invalid", loadErr.Error())
+	}
+	if appID == "" && loadErr == nil {
+		appID = existing.AppID
+	}
+	if appID != "" && loadErr == nil && existing.AppID != appID {
+		return output.Validation("app_binding_conflict", "the project is already bound to a different Creator App")
+	}
+	if appID != "" && loadErr == nil {
+		if !command.Flags().Changed("environment") {
+			environment = existing.Environment
+		}
+		if !command.Flags().Changed("origin") {
+			origin = existing.Origin
+		}
+	}
+
+	client := runtime.client()
+	var app api.CreatorApp
+	var err error
+	if appID == "" {
+		if name == "" {
+			name = filepath.Base(projectDirectory)
+		}
+		intent, intentErr := appmanifest.LoadOrCreateLinkIntent(projectDirectory, name, "EXTERNAL", runtime.deps.NewID)
+		if intentErr != nil {
+			return output.Validation("app_link_intent", intentErr.Error())
+		}
+		app, err = client.CreateCreatorApp(command.Context(), api.CreateCreatorAppRequest{
+			ClientRequestID: intent.ClientRequestID,
+			Name:            name,
+			HostingMode:     "EXTERNAL",
+		})
+	} else {
+		app, err = client.GetCreatorApp(command.Context(), appID)
+	}
+	if err != nil {
+		return err
+	}
+	target, err := selectAppEnvironment(app, environment)
+	if err != nil {
+		return err
+	}
+	if origin != "" {
+		if _, err := client.AddCreatorAppOrigin(command.Context(), app.ID, target.Type, origin); err != nil {
+			return err
+		}
+	}
+	manifest := manifestFromApp(app, target, origin)
+	manifestPath, err := appmanifest.Save(projectDirectory, manifest)
+	if err != nil {
+		return output.Internal("app_manifest_save", "Creator App was resolved but the local manifest could not be saved", err).
+			WithHint("fix local project permissions and rerun the same 'viceme app link' command; creation is idempotent").
+			WithDetails(map[string]any{"app_id": app.ID})
+	}
+	if err := appmanifest.RemoveLinkIntent(projectDirectory); err != nil {
+		return output.Internal("app_link_intent_cleanup", "the App manifest was saved, but its pending link intent could not be removed", err).
+			WithDetails(map[string]any{"app_id": app.ID, "manifest": manifestPath})
+	}
+	return runtime.business(map[string]any{
+		"app":          app,
+		"binding":      manifest,
+		"manifest":     manifestPath,
+		"api_base_url": strings.TrimRight(runtime.apiBaseURL, "/") + "/v1",
+	})
 }
 
 func newAppGetCommand(runtime *Runtime) *cobra.Command {

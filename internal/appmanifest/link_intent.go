@@ -2,6 +2,7 @@ package appmanifest
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,9 +11,13 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/ViceMe-AI/cli/internal/processlock"
 )
 
 const linkIntentSchemaVersion = 1
+
+var ErrLinkLock = errors.New("App link process lock unavailable")
 
 type LinkIntent struct {
 	SchemaVersion   int    `json:"schemaVersion"`
@@ -23,6 +28,17 @@ type LinkIntent struct {
 
 func LinkIntentPath(directory string) string {
 	return filepath.Join(directory, ".viceme", "app-link-pending.json")
+}
+
+// WithLinkLock serializes the full remote create and local manifest commit for
+// a canonical project path. The lock root is stable per OS user and does not
+// follow the configurable CLI config directory.
+func WithLinkLock(ctx context.Context, lockRoot, directory string, action func() error) error {
+	err := processlock.With(ctx, lockRoot, "app-link", filepath.Clean(directory), action)
+	if errors.Is(err, processlock.ErrUnavailable) {
+		return fmt.Errorf("%w: %v", ErrLinkLock, err)
+	}
+	return err
 }
 
 func LoadOrCreateLinkIntent(directory, name, hostingMode string, newID func() string) (LinkIntent, error) {

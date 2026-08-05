@@ -2,18 +2,14 @@ package auth
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/processlock"
 	"github.com/ViceMe-AI/cli/internal/securestore"
-	"github.com/gofrs/flock"
 )
 
 type Credential struct {
@@ -44,8 +40,8 @@ type Manager struct {
 	// Scope overrides the region namespace for custom API origins. It is still
 	// nested under ProfileID so credentials never cross profiles.
 	Scope string
-	// LockRoot is the CLI-owned private configuration directory used for an
-	// OS-level lock around refresh credential read/modify/write operations.
+	// LockRoot is the stable per-user process-lock directory. It must not vary
+	// with the configurable CLI config directory because the OS Keyring does not.
 	LockRoot string
 	Now      func() time.Time
 }
@@ -74,32 +70,11 @@ func (m *Manager) StorageKey() string { return m.key() }
 // processes. Atomic Store.Set calls alone cannot protect Load -> refresh -> Set
 // from two processes generating different recovery request IDs.
 func (m *Manager) WithCredentialLock(ctx context.Context, action func() error) error {
-	if strings.TrimSpace(m.LockRoot) == "" {
-		return output.Authentication("credential_lock_unavailable", "the credential transaction lock directory is not configured")
+	err := processlock.With(ctx, m.LockRoot, "credential", m.key(), action)
+	if errors.Is(err, processlock.ErrUnavailable) {
+		return output.Authentication("credential_lock_unavailable", "the credential transaction lock is unavailable").WithCause(err)
 	}
-	lockDirectory := filepath.Join(m.LockRoot, "locks")
-	if err := os.MkdirAll(lockDirectory, 0o700); err != nil {
-		return output.Authentication("credential_lock_unavailable", "could not create the credential transaction lock directory").WithCause(err)
-	}
-	digest := sha256.Sum256([]byte(m.key()))
-	fileLock := flock.New(filepath.Join(lockDirectory, fmt.Sprintf("credential-%x.lock", digest[:])))
-	locked, err := fileLock.TryLockContext(ctx, 50*time.Millisecond)
-	if err != nil || !locked {
-		return output.Authentication("credential_lock_unavailable", "could not acquire the credential transaction lock").WithCause(err)
-	}
-	var actionErr error
-	var unlockErr error
-	func() {
-		defer func() { unlockErr = fileLock.Unlock() }()
-		actionErr = action()
-	}()
-	if actionErr != nil {
-		return actionErr
-	}
-	if unlockErr != nil {
-		return output.Internal("credential_lock_release", "could not release the credential transaction lock", unlockErr)
-	}
-	return nil
+	return err
 }
 
 // PreflightSave verifies the complete local persistence path before a device

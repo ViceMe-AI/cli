@@ -29,7 +29,7 @@ viceme auth login --no-wait --json
 viceme --profile <original-profile> auth login --device-code <opaque-device-code> --json
 ```
 
-The browser reuses the normal ViceMe login page. Access and rotating refresh credentials are stored only in the operating-system credential store (or the CLI's encrypted fallback). Refresh read/modify/write transactions are serialized across CLI processes for each profile and exact API endpoint namespace. Project files never contain tokens.
+The browser reuses the normal ViceMe login page. Access and rotating refresh credentials are stored only in the operating-system credential store (or the CLI's encrypted fallback). Refresh read/modify/write transactions are serialized across CLI processes for each profile and exact API endpoint namespace through a stable per-user lock root that does not follow `VICEME_CLI_CONFIG_DIR`. Project files never contain tokens.
 
 ## Bind an existing project
 

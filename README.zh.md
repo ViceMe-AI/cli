@@ -37,6 +37,9 @@ viceme --profile <original-profile> auth login --device-code <opaque-device-code
 viceme app link --dir . --origin http://localhost:3000
 ```
 
+凭据刷新事务使用不随 `VICEME_CLI_CONFIG_DIR` 变化的每用户进程锁；同一项目的
+`app link` 也会按真实项目路径串行化首次创建，避免并发命令生成两个 App。
+
 命令会创建或选择一个 EXTERNAL Creator App，绑定 TEST 环境，注册精确的浏览器 Origin，并写入 `.viceme/app.json`：
 
 ```json

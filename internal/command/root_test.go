@@ -78,6 +78,21 @@ func TestCredentialScopeIncludesTheCanonicalAPIBasePath(t *testing.T) {
 	}
 }
 
+func TestStableProcessLockRootIgnoresConfigDirectoryOverride(t *testing.T) {
+	home := t.TempDir()
+	first := stableProcessLockRoot(skillcontent.Environment{
+		Home:      home,
+		ConfigDir: filepath.Join(t.TempDir(), "config-a"),
+	})
+	second := stableProcessLockRoot(skillcontent.Environment{
+		Home:      home,
+		ConfigDir: filepath.Join(t.TempDir(), "config-b"),
+	})
+	if first != second {
+		t.Fatalf("config directory override changed shared process lock root: %q != %q", first, second)
+	}
+}
+
 func TestAppLinkCapabilityAddAndDoctor(t *testing.T) {
 	const appID = "550e8400-e29b-41d4-a716-446655440000"
 	const publishableKey = "app_pk_test_abcdefghijklmnopqrstuvwxyz123456"

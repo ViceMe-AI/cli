@@ -57,6 +57,7 @@ type Runtime struct {
 	config             config.Config
 	profile            config.Profile
 	configBase         string
+	processLockRoot    string
 }
 
 const (
@@ -119,6 +120,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		config:             resolvedConfig,
 		profile:            *resolvedProfile,
 		configBase:         configBase,
+		processLockRoot:    stableProcessLockRoot(dependencies.Environment),
 		printer: &output.Printer{
 			Out:    dependencies.Out,
 			ErrOut: dependencies.ErrOut,
@@ -258,7 +260,7 @@ func (r *Runtime) manager() *auth.Manager {
 		ProfileID:   r.profile.ID,
 		ProfileName: r.profile.Name,
 		Scope:       r.credentialScope,
-		LockRoot:    r.configBase,
+		LockRoot:    r.processLockRoot,
 		Now:         r.deps.Now,
 	}
 }
@@ -512,6 +514,10 @@ func runtimeConfigBase(environment skillcontent.Environment) string {
 		return environment.ConfigDir
 	}
 	return filepath.Join(environment.Home, ".viceme-cli")
+}
+
+func stableProcessLockRoot(environment skillcontent.Environment) string {
+	return filepath.Join(environment.Home, ".viceme-cli-locks")
 }
 
 func configLoadFailure(message string, err error) *output.Error {
