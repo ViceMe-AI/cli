@@ -126,6 +126,42 @@ func TestRequiredListingURLMatchesCanonicalFragmentAndLengthRules(t *testing.T) 
 	if _, err := requiredListingURL("external-url", tooLong); err == nil {
 		t.Fatal("URL longer than 2048 characters was accepted")
 	}
+	unicodeURL := "https://creator.example/" + strings.Repeat("中", 700)
+	if value, err := requiredListingURL("external-url", unicodeURL); err != nil || value != unicodeURL {
+		t.Fatalf("Unicode URL value=%q err=%v", value, err)
+	}
+}
+
+func TestListingInputCoversCanonicalMaximumMultibytePayload(t *testing.T) {
+	longURL := "https://creator.example/" + strings.Repeat("中", 700)
+	mediaURLs := make([]string, 12)
+	for index := range mediaURLs {
+		mediaURLs[index] = longURL
+	}
+	document, err := json.Marshal(api.UpsertCreatorAppListingRequest{
+		Slug:        "maximum-listing",
+		Title:       strings.Repeat("中", 100),
+		Summary:     strings.Repeat("中", 280),
+		Description: strings.Repeat("中", 20_000),
+		ExternalURL: &longURL,
+		CoverURL:    &longURL,
+		MediaURLs:   mediaURLs,
+		OfferID:     nil,
+		Status:      "PUBLIC",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(document) <= 64<<10 {
+		t.Fatalf("fixture does not cover the old limit: %d bytes", len(document))
+	}
+	input, err := readListingInput(strings.NewReader(string(document)), "-")
+	if err != nil {
+		t.Fatalf("canonical maximum input was rejected: %v", err)
+	}
+	if err := validateListingInput("EXTERNAL", &input); err != nil {
+		t.Fatalf("canonical maximum fields were rejected: %v", err)
+	}
 }
 
 func TestCommerceLedgerListForwardsOpaqueCursor(t *testing.T) {

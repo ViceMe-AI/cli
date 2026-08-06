@@ -19,7 +19,7 @@ import (
 
 var listingSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
-const maxListingInputBytes = 64 << 10
+const maxListingInputBytes = 128 << 10
 
 func newListingCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "listing", Short: "Manage the public Listing for a Creator App"}
@@ -96,7 +96,7 @@ func validateListingText(name, value string, max int) error {
 func requiredListingURL(name, value string) (string, error) {
 	value = strings.TrimSpace(value)
 	parsed, err := url.Parse(value)
-	if len(value) > 2_048 || err != nil || parsed.Hostname() == "" || parsed.User != nil {
+	if len(utf16.Encode([]rune(value))) > 2_048 || err != nil || parsed.Hostname() == "" || parsed.User != nil {
 		return "", output.Validation("listing_"+strings.ReplaceAll(name, "-", "_"), name+" must be an absolute HTTP(S) URL of at most 2048 characters without credentials")
 	}
 	if parsed.Scheme != "https" {
@@ -105,7 +105,7 @@ func requiredListingURL(name, value string) (string, error) {
 			return "", output.Validation("listing_"+strings.ReplaceAll(name, "-", "_"), "--"+name+" must use HTTPS; HTTP is allowed only for loopback development")
 		}
 	}
-	return parsed.String(), nil
+	return value, nil
 }
 
 func readListingInput(stdin io.Reader, inputFile string) (api.UpsertCreatorAppListingRequest, error) {
@@ -131,7 +131,7 @@ func readListingInput(stdin io.Reader, inputFile string) (api.UpsertCreatorAppLi
 		return api.UpsertCreatorAppListingRequest{}, output.Validation("listing_input_file", "could not read --input-file")
 	}
 	if len(data) > maxListingInputBytes {
-		return api.UpsertCreatorAppListingRequest{}, output.Validation("listing_input_file", "--input-file exceeds 64 KiB")
+		return api.UpsertCreatorAppListingRequest{}, output.Validation("listing_input_file", "--input-file exceeds 128 KiB")
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
