@@ -42,9 +42,19 @@ Branch on `error.subtype`; never scrape `message`.
 ## Capability
 
 - `capability_not_available`: the capability is planned but not implemented in this CLI/API Slice. Stop; do not emulate it client-side.
-- `commerce_test_only`: the linked manifest uses LIVE, but Commerce is available only in TEST in this release. Link the intended TEST environment; do not bypass the server boundary.
+- `commerce_live_funds_model_disabled`: LIVE Commerce has not been approved for the current deployment. Continue in TEST or wait for the Merchant of Record decision; do not insert Provider credentials into the project.
+- `commerce_live_provider_not_configured`: staff activation cannot proceed until the deployment has a configured WeChat Pay or Alipay adapter. This is an operator boundary, not a creator-side configuration task.
+- `commerce_capability_not_enabled`: the App, environment, or Commerce capability is not ACTIVE for the requested public flow. Run `app doctor` and wait for operator activation; do not edit the local manifest to hide it.
 - `app_capability_not_found`: add the requested available capability first.
 - `capability_doctor_unhealthy`: compare local contract/SDK versions with the server result and rerun `capability add` only when the operation is idempotent.
+
+## Listing and Ledger
+
+- `listing_not_publishable`: repair the server-reported prerequisite. EXTERNAL Listings need a deployed URL; an attached Offer must be an ACTIVE LIVE Offer from the same App.
+- `listing_slug_taken`: choose a different stable public slug. Do not overwrite another App's Listing.
+- `listing_offer_not_owned`: remove the Offer or select the same App's LIVE Offer; never copy another App's ID.
+- `listing_not_found`: the App has no Listing, or the public slug is not currently PUBLIC.
+- `creator_ledger_cursor_invalid`: discard only the malformed pagination cursor and restart the read from the first page. Ledger entries themselves are immutable.
 
 ## Exit codes
 

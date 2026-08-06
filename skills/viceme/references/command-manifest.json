@@ -232,6 +232,46 @@
       "requires_confirmation": false
     },
     {
+      "path": "commerce ledger",
+      "use": "ledger",
+      "short": "Inspect the Creator App Commerce ledger",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "commerce ledger list",
+      "use": "list",
+      "short": "List immutable payable, refund, payout, and adjustment entries",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "app",
+          "type": "string",
+          "usage": "assert the expected linked Creator App ID"
+        },
+        {
+          "name": "cursor",
+          "type": "string",
+          "usage": "opaque cursor from the previous response"
+        },
+        {
+          "name": "dir",
+          "type": "string",
+          "default": ".",
+          "usage": "project directory containing .viceme/app.json"
+        },
+        {
+          "name": "limit",
+          "type": "int",
+          "default": "50",
+          "usage": "maximum entries to return (1-100)"
+        }
+      ]
+    },
+    {
       "path": "commerce offer",
       "use": "offer",
       "short": "Manage fixed-price Commerce Offers",
@@ -242,7 +282,7 @@
     {
       "path": "commerce offer create",
       "use": "create",
-      "short": "Create one fixed-price Offer in the linked TEST environment",
+      "short": "Create one fixed-price Offer in the linked App environment",
       "runnable": true,
       "side_effect": "public",
       "requires_confirmation": false,
@@ -291,7 +331,7 @@
     {
       "path": "commerce offer list",
       "use": "list",
-      "short": "List Offers in the linked TEST environment",
+      "short": "List Offers in the linked App environment",
       "runnable": true,
       "side_effect": "none",
       "requires_confirmation": false,
@@ -343,6 +383,103 @@
           "type": "string",
           "default": "auto",
           "usage": "Skill target: auto, codex, claude, or agents"
+        }
+      ]
+    },
+    {
+      "path": "listing",
+      "use": "listing",
+      "short": "Manage the public Listing for a Creator App",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "listing get",
+      "use": "get",
+      "short": "Get the linked App Listing",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "app",
+          "type": "string",
+          "usage": "assert the expected linked Creator App ID"
+        },
+        {
+          "name": "dir",
+          "type": "string",
+          "default": ".",
+          "usage": "project directory containing .viceme/app.json"
+        }
+      ]
+    },
+    {
+      "path": "listing upsert",
+      "use": "upsert",
+      "short": "Create or update the linked App public Listing",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "app",
+          "type": "string",
+          "usage": "assert the expected linked Creator App ID"
+        },
+        {
+          "name": "cover-url",
+          "type": "string",
+          "usage": "public HTTPS cover image URL"
+        },
+        {
+          "name": "description",
+          "type": "string",
+          "usage": "Listing description"
+        },
+        {
+          "name": "dir",
+          "type": "string",
+          "default": ".",
+          "usage": "project directory containing .viceme/app.json"
+        },
+        {
+          "name": "external-url",
+          "type": "string",
+          "usage": "deployed external App URL"
+        },
+        {
+          "name": "media-url",
+          "type": "stringSlice",
+          "default": "[]",
+          "usage": "public HTTPS media URL; repeat for multiple items"
+        },
+        {
+          "name": "offer",
+          "type": "string",
+          "usage": "optional LIVE Commerce Offer UUID"
+        },
+        {
+          "name": "slug",
+          "type": "string",
+          "usage": "public Listing slug"
+        },
+        {
+          "name": "status",
+          "type": "string",
+          "default": "DRAFT",
+          "usage": "Listing status: DRAFT, PUBLIC, or UNLISTED"
+        },
+        {
+          "name": "summary",
+          "type": "string",
+          "usage": "Listing summary"
+        },
+        {
+          "name": "title",
+          "type": "string",
+          "usage": "Listing title"
         }
       ]
     },

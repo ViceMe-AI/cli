@@ -20,6 +20,9 @@ func newCommerceCommand(runtime *Runtime) *cobra.Command {
 	offer.AddCommand(newCommerceOfferCreateCommand(runtime))
 	offer.AddCommand(newCommerceOfferListCommand(runtime))
 	command.AddCommand(offer)
+	ledger := &cobra.Command{Use: "ledger", Short: "Inspect the Creator App Commerce ledger"}
+	ledger.AddCommand(newCommerceLedgerListCommand(runtime))
+	command.AddCommand(ledger)
 	return command
 }
 
@@ -33,7 +36,7 @@ func newCommerceOfferCreateCommand(runtime *Runtime) *cobra.Command {
 	var purpose string
 	command := &cobra.Command{
 		Use:   "create",
-		Short: "Create one fixed-price Offer in the linked TEST environment",
+		Short: "Create one fixed-price Offer in the linked App environment",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			_, manifest, err := loadCommerceBinding(directory, appID)
@@ -57,6 +60,9 @@ func newCommerceOfferCreateCommand(runtime *Runtime) *cobra.Command {
 			currency = strings.ToUpper(strings.TrimSpace(currency))
 			if currency != "CNY" && currency != "USD" {
 				return output.Validation("commerce_offer_currency", "--currency must be CNY or USD")
+			}
+			if manifest.Environment == "LIVE" && currency != "CNY" {
+				return output.Policy("commerce_live_currency", "Commerce LIVE supports CNY only")
 			}
 			purpose = strings.ToUpper(strings.TrimSpace(purpose))
 			if purpose != "TIP" && purpose != "UNLOCK" {
@@ -103,7 +109,7 @@ func newCommerceOfferListCommand(runtime *Runtime) *cobra.Command {
 	var appID string
 	command := &cobra.Command{
 		Use:   "list",
-		Short: "List Offers in the linked TEST environment",
+		Short: "List Offers in the linked App environment",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			_, manifest, err := loadCommerceBinding(directory, appID)
@@ -121,13 +127,40 @@ func newCommerceOfferListCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
+func newCommerceLedgerListCommand(runtime *Runtime) *cobra.Command {
+	var directory string
+	var appID string
+	var cursor string
+	var limit int
+	command := &cobra.Command{
+		Use:   "list",
+		Short: "List immutable payable, refund, payout, and adjustment entries",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			_, manifest, err := loadCommerceBinding(directory, appID)
+			if err != nil {
+				return err
+			}
+			if limit < 1 || limit > 100 {
+				return output.Validation("commerce_ledger_limit", "--limit must be between 1 and 100")
+			}
+			ledger, err := runtime.client().ListCreatorLedger(command.Context(), manifest.AppID, strings.TrimSpace(cursor), limit)
+			if err != nil {
+				return err
+			}
+			return runtime.business(ledger)
+		},
+	}
+	addBindingFlags(command, &directory, &appID)
+	command.Flags().StringVar(&cursor, "cursor", "", "opaque cursor from the previous response")
+	command.Flags().IntVar(&limit, "limit", 50, "maximum entries to return (1-100)")
+	return command
+}
+
 func loadCommerceBinding(directory, expectedAppID string) (string, appmanifest.Manifest, error) {
 	projectDirectory, manifest, err := loadAppBinding(directory, expectedAppID)
 	if err != nil {
 		return "", appmanifest.Manifest{}, err
-	}
-	if manifest.Environment != "TEST" {
-		return "", appmanifest.Manifest{}, output.Policy("commerce_test_only", "Commerce Offer commands are available only for the linked TEST environment in this release")
 	}
 	if _, ok := manifest.Capabilities["commerce"]; !ok {
 		return "", appmanifest.Manifest{}, output.Validation("commerce_capability_missing", "Commerce is not enabled; run 'viceme capability add commerce' first")

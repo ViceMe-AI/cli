@@ -137,6 +137,37 @@ func (c *Client) ListCommerceOffers(ctx context.Context, appID, environment stri
 	return response, err
 }
 
+func (c *Client) UpsertCreatorAppListing(ctx context.Context, appID string, request UpsertCreatorAppListingRequest) (CreatorAppListing, error) {
+	var response CreatorAppListing
+	endpoint := "/v1/creator-apps/" + url.PathEscape(appID) + "/listing"
+	err := c.doJSON(ctx, http.MethodPut, endpoint, request, &response, true, "", nil)
+	return response, err
+}
+
+func (c *Client) GetCreatorAppListing(ctx context.Context, appID string) (CreatorAppListing, error) {
+	var response CreatorAppListing
+	endpoint := "/v1/creator-apps/" + url.PathEscape(appID) + "/listing"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, true, "", nil)
+	return response, err
+}
+
+func (c *Client) ListCreatorLedger(ctx context.Context, appID, cursor string, limit int) (CreatorLedgerResponse, error) {
+	var response CreatorLedgerResponse
+	query := url.Values{}
+	if cursor != "" {
+		query.Set("cursor", cursor)
+	}
+	if limit > 0 {
+		query.Set("limit", fmt.Sprintf("%d", limit))
+	}
+	endpoint := "/v1/creator-apps/" + url.PathEscape(appID) + "/commerce/ledger"
+	if encoded := query.Encode(); encoded != "" {
+		endpoint += "?" + encoded
+	}
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, true, "", nil)
+	return response, err
+}
+
 func (c *Client) GetPublicAppContext(ctx context.Context, publishableKey, origin string) (PublicAppContext, error) {
 	var response PublicAppContext
 	headers := http.Header{}
