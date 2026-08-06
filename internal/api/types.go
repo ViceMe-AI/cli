@@ -102,6 +102,31 @@ type AddCapabilityRequest struct {
 	Config map[string]any `json:"config"`
 }
 
+type CommerceOffer struct {
+	ID          string    `json:"id"`
+	AppID       string    `json:"appId"`
+	Environment string    `json:"environment"`
+	Name        string    `json:"name"`
+	AmountMinor int       `json:"amountMinor"`
+	Currency    string    `json:"currency"`
+	Purpose     string    `json:"purpose"`
+	Status      string    `json:"status"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
+type CreateCommerceOfferRequest struct {
+	ClientRequestID string `json:"clientRequestId"`
+	Name            string `json:"name"`
+	AmountMinor     int    `json:"amountMinor"`
+	Currency        string `json:"currency"`
+	Purpose         string `json:"purpose"`
+}
+
+type CommerceOffersResponse struct {
+	Items []CommerceOffer `json:"items"`
+}
+
 type PublicAppContext struct {
 	App struct {
 		Name string `json:"name"`

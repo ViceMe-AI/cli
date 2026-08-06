@@ -87,13 +87,13 @@ func manifestFlags(flags *pflag.FlagSet) []ManifestFlag {
 
 func commandPolicy(path string, runnable bool) (string, bool) {
 	switch path {
-	case "app link", "capability add":
+	case "app link", "capability add", "commerce offer create":
 		return "public", false
 	case "auth logout":
 		return "remote_and_local", false
 	case "auth login", "config keychain-downgrade", "install", "profile add", "profile configure", "profile use", "profile remove", "profile rename", "skills install", "update":
 		return "local", false
-	case "version", "auth status", "profile list", "app get", "app list", "app doctor", "capability catalog", "capability get", "capability doctor", "skills list", "skills read", "skills doctor":
+	case "version", "auth status", "profile list", "app get", "app list", "app doctor", "capability catalog", "capability get", "capability doctor", "commerce offer list", "skills list", "skills read", "skills doctor":
 		return "none", false
 	default:
 		if runnable {

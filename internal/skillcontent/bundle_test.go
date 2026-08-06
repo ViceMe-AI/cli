@@ -39,6 +39,20 @@ func TestEmbeddedVicemeSkillIsValid(t *testing.T) {
 	if resolved != "references/commands.md" || len(data) == 0 {
 		t.Fatalf("unexpected read result: %q %d", resolved, len(data))
 	}
+	commands := string(data)
+	for _, required := range []string{
+		"pnpm add @viceme/web-sdk@0.1.0",
+		"https://cdn.jsdelivr.net/npm/@viceme/web-sdk@0.1.0",
+		"mountCommerceCheckoutWidget",
+		"Next.js Client Component",
+	} {
+		if !strings.Contains(commands, required) {
+			t.Fatalf("embedded Commerce integration omitted %q", required)
+		}
+	}
+	if strings.Contains(commands, "<ViceMe CDN>") {
+		t.Fatal("embedded Commerce integration contains an unresolved CDN placeholder")
+	}
 }
 
 func TestReadRejectsPathTraversal(t *testing.T) {

@@ -33,7 +33,7 @@ Branch on `error.subtype`; never scrape `message`.
 ## Creator App
 
 - `creator_app_not_found`: the App does not exist or is not owned by the authenticated user. Do not distinguish those cases or try another owner's ID.
-- `idempotency_key_reused`: a pending App creation request ID was reused with different input. Preserve the original intent and inspect the remote result before removing local pending metadata.
+- `idempotency_key_reused`: branch on the command being retried. For `app link`, preserve the original pending App intent and inspect the remote result before removing local pending metadata. For `commerce offer create`, reuse the key only with the exact original name, amount, currency, and purpose; if the user intentionally wants a different Offer, generate a new UUID. Never delete or rewrite App pending metadata to recover an Offer conflict.
 - `app_binding_conflict`: local `--app` and `.viceme/app.json` disagree. Ask the user which project/App is intended; do not overwrite silently.
 - `app_origin_not_allowed`: register the exact canonical Origin with `app link --origin ...`; never relax CORS or place a token in the browser.
 - `app_context_not_found`: the publishable key is unknown or its App/environment is unavailable. Run `app link` and `app doctor`.
@@ -42,6 +42,7 @@ Branch on `error.subtype`; never scrape `message`.
 ## Capability
 
 - `capability_not_available`: the capability is planned but not implemented in this CLI/API Slice. Stop; do not emulate it client-side.
+- `commerce_test_only`: the linked manifest uses LIVE, but Commerce is available only in TEST in this release. Link the intended TEST environment; do not bypass the server boundary.
 - `app_capability_not_found`: add the requested available capability first.
 - `capability_doctor_unhealthy`: compare local contract/SDK versions with the server result and rerun `capability add` only when the operation is idempotent.
 

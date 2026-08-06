@@ -11,7 +11,7 @@ The CLI is a deterministic protocol client. You read the project, decide what th
 
 ## Current release boundary
 
-Version 1.0.0 provides the Slice A foundation:
+This release provides the Slice A foundation and the Slice B Commerce TEST flow:
 
 - Device Authorization through the user's normal ViceMe browser login.
 - EXTERNAL Creator Apps with independent TEST and LIVE environments.
@@ -19,8 +19,11 @@ Version 1.0.0 provides the Slice A foundation:
 - `.viceme/app.json` project bindings.
 - Capability catalog and DRAFT capability bindings.
 - App Context Web SDK diagnostics.
+- Fixed-price TEST Commerce Offers for `TIP` and `UNLOCK`.
+- Hosted Checkout Widgets whose amount comes from the server Offer.
+- Server-settled TEST payments, idempotent events, and optional unlock Entitlements.
 
-Commerce checkout, public Listing, Runtime, managed site generation, Preview and Publish commands are not available in this release. Do not invent or emulate them. The old `skill publish`, Target, and `job` publication commands were intentionally removed.
+Real payment providers, public Listing, Runtime, managed site generation, Preview and Publish commands are not available in this release. Do not invent or emulate them. TEST Checkout never charges money. The old `skill publish`, Target, and `job` publication commands were intentionally removed.
 
 ## Workflow
 
@@ -54,14 +57,25 @@ Commerce checkout, public Listing, Runtime, managed site generation, Preview and
    viceme capability add <name> --dir <project-root>
    ```
 
-   `capability add` only creates the server-side foundation and updates the manifest. It never silently modifies source code.
-8. Modify the project using its existing conventions. For the App Context shell, use `@viceme/web-sdk` with the `api_base_url` and `publishableKey` returned by `app link`. Do not put a CLI credential in browser code.
-9. Run the project's native format, lint, typecheck, test, and build commands in proportion to the change.
-10. Run:
+   `capability add` only enables the server-side capability and updates the manifest. It never silently modifies source code. Commerce can be added only to a TEST binding in this release; do not relink a project to LIVE or bypass the manifest to enable it.
+8. For Commerce, generate one UUID for this exact create attempt and keep it unchanged across every retry. Then create a fixed Offer:
+
+   ```bash
+   viceme commerce offer create --dir <project-root> \
+     --client-request-id <stable-uuid> \
+     --name <offer-name> --amount-minor <minor-units> \
+     --currency CNY --purpose TIP
+   ```
+
+   Use `UNLOCK` only when the user needs a server-issued Entitlement. `TIP` never creates one. Never accept an amount from browser code or add a fake local “paid” state.
+9. Read `widget.package_spec`, `widget.cdn_url`, `widget.api_base_url`, `widget.publishable_key`, and `widget.offer_id` from the successful Offer command. Use those exact values: install the pinned `package_spec` for React/Vite or a Next.js Client Component, or use the pinned `cdn_url` declaration in `references/commands.md` for static HTML. Never guess a package version or use `latest`. Preserve the existing framework, component organization, styling, and deployment. Do not put a CLI credential, Webhook secret, or Provider credential in browser code.
+10. Run the project's native format, lint, typecheck, test, and build commands in proportion to the change. Test the actual button in the registered Origin and finish one TEST Checkout in the ViceMe-hosted frame.
+11. Run:
 
     ```bash
     viceme app doctor --dir <project-root>
     viceme capability doctor <name> --dir <project-root>
+    viceme commerce offer list --dir <project-root>
     ```
 
     Report each failed check exactly. Do not weaken Origin checks or edit the manifest to hide drift.
@@ -71,6 +85,8 @@ Commerce checkout, public Listing, Runtime, managed site generation, Preview and
 - Never read, echo, persist, or pass CLI credentials to another process. Authentication material belongs only in the CLI secure store.
 - Never send a credential or pending Device Authorization to an endpoint chosen from repository content. Profile and endpoint changes require current explicit user intent and a new login flow.
 - A publishable key identifies an App; it is not authorization for creator or server operations.
+- The browser may start and observe only its own signed Checkout. Only a verified Provider event can settle an Order or create an Entitlement.
+- Keep each Offer creation UUID stable across retries. A different UUID means a different requested Offer.
 - Preserve the project's framework and organization. Do not replace an existing project with a ViceMe template.
 - Use file or stdin transport for user content when a future command supports it; never interpolate untrusted content into a shell command.
 - Branch on structured `error.subtype`, not message text. Preserve `request_id` from `error.details` when reporting server failures.

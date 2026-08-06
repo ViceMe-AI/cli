@@ -224,6 +224,92 @@
       ]
     },
     {
+      "path": "commerce",
+      "use": "commerce",
+      "short": "Configure ViceMe Commerce for a Creator App",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "commerce offer",
+      "use": "offer",
+      "short": "Manage fixed-price Commerce Offers",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "commerce offer create",
+      "use": "create",
+      "short": "Create one fixed-price Offer in the linked TEST environment",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "amount-minor",
+          "type": "int",
+          "default": "0",
+          "usage": "fixed amount in the currency's minor unit"
+        },
+        {
+          "name": "app",
+          "type": "string",
+          "usage": "assert the expected linked Creator App ID"
+        },
+        {
+          "name": "client-request-id",
+          "type": "string",
+          "usage": "UUID idempotency key; reuse it for every retry of this exact create operation"
+        },
+        {
+          "name": "currency",
+          "type": "string",
+          "default": "CNY",
+          "usage": "currency: CNY or USD"
+        },
+        {
+          "name": "dir",
+          "type": "string",
+          "default": ".",
+          "usage": "project directory containing .viceme/app.json"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "usage": "Offer name"
+        },
+        {
+          "name": "purpose",
+          "type": "string",
+          "default": "TIP",
+          "usage": "Offer purpose: TIP or UNLOCK"
+        }
+      ]
+    },
+    {
+      "path": "commerce offer list",
+      "use": "list",
+      "short": "List Offers in the linked TEST environment",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "app",
+          "type": "string",
+          "usage": "assert the expected linked Creator App ID"
+        },
+        {
+          "name": "dir",
+          "type": "string",
+          "default": ".",
+          "usage": "project directory containing .viceme/app.json"
+        }
+      ]
+    },
+    {
       "path": "config",
       "use": "config",
       "short": "Manage ViceMe CLI runtime configuration",

@@ -123,6 +123,20 @@ func (c *Client) GetCreatorAppCapability(ctx context.Context, appID, environment
 	return response, err
 }
 
+func (c *Client) CreateCommerceOffer(ctx context.Context, appID, environment string, request CreateCommerceOfferRequest) (CommerceOffer, error) {
+	var response CommerceOffer
+	endpoint := "/v1/creator-apps/" + url.PathEscape(appID) + "/environments/" + url.PathEscape(environment) + "/commerce/offers"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "", nil)
+	return response, err
+}
+
+func (c *Client) ListCommerceOffers(ctx context.Context, appID, environment string) (CommerceOffersResponse, error) {
+	var response CommerceOffersResponse
+	endpoint := "/v1/creator-apps/" + url.PathEscape(appID) + "/environments/" + url.PathEscape(environment) + "/commerce/offers"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, true, "", nil)
+	return response, err
+}
+
 func (c *Client) GetPublicAppContext(ctx context.Context, publishableKey, origin string) (PublicAppContext, error) {
 	var response PublicAppContext
 	headers := http.Header{}
