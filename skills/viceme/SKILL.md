@@ -57,7 +57,7 @@ Real payment providers, public Listing, Runtime, managed site generation, Previe
    viceme capability add <name> --dir <project-root>
    ```
 
-   `capability add` only enables the server-side capability and updates the manifest. It never silently modifies source code.
+   `capability add` only enables the server-side capability and updates the manifest. It never silently modifies source code. Commerce can be added only to a TEST binding in this release; do not relink a project to LIVE or bypass the manifest to enable it.
 8. For Commerce, generate one UUID for this exact create attempt and keep it unchanged across every retry. Then create a fixed Offer:
 
    ```bash

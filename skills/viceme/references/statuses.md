@@ -42,6 +42,7 @@ Branch on `error.subtype`; never scrape `message`.
 ## Capability
 
 - `capability_not_available`: the capability is planned but not implemented in this CLI/API Slice. Stop; do not emulate it client-side.
+- `commerce_test_only`: the linked manifest uses LIVE, but Commerce is available only in TEST in this release. Link the intended TEST environment; do not bypass the server boundary.
 - `app_capability_not_found`: add the requested available capability first.
 - `capability_doctor_unhealthy`: compare local contract/SDK versions with the server result and rerun `capability add` only when the operation is idempotent.
 

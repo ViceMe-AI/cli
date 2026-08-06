@@ -142,7 +142,12 @@ func TestCommerceOfferCommandsRequireTESTCommerceBinding(t *testing.T) {
 	dependencies := authenticatedDependencies(t, server, store)
 
 	liveProject := createCommerceProject(t, "LIVE", true)
-	code, _, stderr, _ := runCLIWithDependencies(t, server, store, "", dependencies, "commerce", "offer", "list", "--dir", liveProject)
+	code, _, stderr, _ := runCLIWithDependencies(t, server, store, "", dependencies, "capability", "add", "commerce", "--dir", liveProject)
+	if code == 0 || !strings.Contains(stderr, "commerce_test_only") {
+		t.Fatalf("LIVE capability add code=%d stderr=%s", code, stderr)
+	}
+
+	code, _, stderr, _ = runCLIWithDependencies(t, server, store, "", dependencies, "commerce", "offer", "list", "--dir", liveProject)
 	if code == 0 || !strings.Contains(stderr, "commerce_test_only") {
 		t.Fatalf("LIVE binding code=%d stderr=%s", code, stderr)
 	}
