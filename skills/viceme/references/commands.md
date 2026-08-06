@@ -49,16 +49,26 @@ viceme app doctor --dir .
 
 `app link` acquires a per-user process lock keyed by the canonical project path, then persists a non-secret `.viceme/app-link-pending.json` idempotency intent before remote creation, writes `.viceme/app.json` atomically, and removes the intent only after the manifest commits. Retrying after a lost response or starting two concurrent first-link commands therefore resolves the same App. The manifest is public project metadata. `app doctor` verifies App ownership, environment/key drift, server-returned Contract/SDK versions, Origin registration, and the public Widget context.
 
-## Capability foundation
+## Capability and Commerce TEST
 
 ```bash
 viceme capability catalog
 viceme capability add commerce --dir .
 viceme capability get commerce --dir .
 viceme capability doctor commerce --dir .
+
+# Generate one UUID in the Agent host and reuse it for retries of this exact operation.
+viceme commerce offer create --dir . \
+  --client-request-id <stable-uuid> \
+  --name "Support this work" \
+  --amount-minor 1 \
+  --currency CNY \
+  --purpose TIP
+
+viceme commerce offer list --dir .
 ```
 
-In Slice A, Commerce is a DRAFT foundation. Checkout commands do not exist yet. Identity, Comments, Storage, and Runtime are returned as planned and `capability add` rejects them until their implementation Slice lands.
+Commerce is available in the linked TEST environment. `amount-minor` is the fixed server-owned amount in the currency's minor unit. `TIP` completes without an Entitlement; `UNLOCK` creates one only after the server processes a verified TEST Provider event. Identity, Comments, Storage, and Runtime remain planned and `capability add` rejects them until their implementation Slice lands.
 
 ## App Context shell
 
@@ -76,3 +86,48 @@ mountAppContextWidget(document.querySelector("#viceme-app")!, {
 The browser package sends no CLI token. The API validates the request Origin against the App environment and returns only the public App name, environment, and capability projection.
 
 For static HTML, use the self-contained CDN entry documented by `@viceme/web-sdk`; it auto-mounts declared `data-viceme-app-context` targets and has no external module dependency.
+
+## Hosted Checkout Widget
+
+The Widget opens a ViceMe-hosted checkout. It never receives a payment credential and never sends an amount.
+
+Static HTML:
+
+```html
+<script
+  src="<ViceMe CDN>/sdk/web/v1.js"
+  data-viceme-api-base="<api_base_url from app link>"
+  data-viceme-app-key="<publishableKey from .viceme/app.json>"
+  defer
+></script>
+<button type="button" data-viceme-checkout="<offer id>">
+  Support this work
+</button>
+```
+
+React/Vite or a Next.js Client Component:
+
+```tsx
+"use client";
+
+import { mountCommerceCheckoutWidget } from "@viceme/web-sdk";
+import { useEffect, useRef } from "react";
+
+export function SupportButton() {
+  const button = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!button.current) return;
+    const widget = mountCommerceCheckoutWidget(button.current, {
+      apiBaseUrl: "<api_base_url from app link>",
+      publishableKey: "<publishableKey from .viceme/app.json>",
+      offerId: "<offer id>",
+    });
+    return () => widget.destroy();
+  }, []);
+
+  return <button ref={button}>Support this work</button>;
+}
+```
+
+The SDK creates one explicit idempotency UUID per browser attempt, uses a simple Origin-bearing form request, and accepts completion messages only from the exact Hosted Checkout origin and iframe window. Do not replace this with a frontend-only paid flag. A static frontend can improve the interaction, but protected content still requires a server-side Entitlement check in a later supported flow.
