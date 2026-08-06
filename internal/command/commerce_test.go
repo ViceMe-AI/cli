@@ -135,20 +135,32 @@ func TestCommerceOfferCreateRejectsNameBeyondCanonicalLimitBeforeNetwork(t *test
 	}
 }
 
-func TestCommerceOfferCommandsRequireTESTCommerceBinding(t *testing.T) {
-	server := httptest.NewServer(http.NotFoundHandler())
+func TestCommerceOfferCommandsAllowLiveBindingAndStillRequireCapability(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/environments/LIVE/capabilities"):
+			writeCommandJSON(t, writer, api.CreatorAppCapability{
+				Type: "COMMERCE", Status: "DRAFT", ConfigVersion: 1,
+				ContractVersion: "1.1.0", SDKPackage: "@viceme/web-sdk", SDKVersion: "0.1.0",
+			})
+		case request.Method == http.MethodGet && strings.HasSuffix(request.URL.Path, "/environments/LIVE/commerce/offers"):
+			writeCommandJSON(t, writer, api.CommerceOffersResponse{Items: []api.CommerceOffer{}})
+		default:
+			http.Error(writer, "not found", http.StatusNotFound)
+		}
+	}))
 	defer server.Close()
 	store := securestore.NewMemory()
 	dependencies := authenticatedDependencies(t, server, store)
 
 	liveProject := createCommerceProject(t, "LIVE", true)
 	code, _, stderr, _ := runCLIWithDependencies(t, server, store, "", dependencies, "capability", "add", "commerce", "--dir", liveProject)
-	if code == 0 || !strings.Contains(stderr, "commerce_test_only") {
+	if code != 0 || stderr != "" {
 		t.Fatalf("LIVE capability add code=%d stderr=%s", code, stderr)
 	}
 
 	code, _, stderr, _ = runCLIWithDependencies(t, server, store, "", dependencies, "commerce", "offer", "list", "--dir", liveProject)
-	if code == 0 || !strings.Contains(stderr, "commerce_test_only") {
+	if code != 0 || stderr != "" {
 		t.Fatalf("LIVE binding code=%d stderr=%s", code, stderr)
 	}
 
@@ -168,7 +180,7 @@ func createCommerceProject(t *testing.T, environment string, commerce bool) stri
 	capabilities := map[string]appmanifest.Capability{}
 	if commerce {
 		capabilities["commerce"] = appmanifest.Capability{
-			ContractVersion: "1.0.0",
+			ContractVersion: "1.1.0",
 			SDKPackage:      "@viceme/web-sdk",
 			SDKVersion:      "0.1.0",
 		}
@@ -189,4 +201,31 @@ func createCommerceProject(t *testing.T, environment string, commerce bool) stri
 		t.Fatal(err)
 	}
 	return project
+}
+
+func TestCommerceLiveOfferRejectsNonCNYBeforeNetwork(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		http.Error(writer, "unexpected", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	project := createCommerceProject(t, "LIVE", true)
+	store := securestore.NewMemory()
+	dependencies := authenticatedDependencies(t, server, store)
+	code, _, stderr, _ := runCLIWithDependencies(
+		t, server, store, "", dependencies,
+		"commerce", "offer", "create",
+		"--dir", project,
+		"--client-request-id", "018f0d5e-7b54-7c55-b52f-bc1f5c25f1b4",
+		"--name", "USD live",
+		"--amount-minor", "100",
+		"--currency", "USD",
+	)
+	if code == 0 || !strings.Contains(stderr, "commerce_live_currency") {
+		t.Fatalf("LIVE USD code=%d stderr=%s", code, stderr)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("invalid LIVE currency reached API: requests=%d", requests.Load())
+	}
 }

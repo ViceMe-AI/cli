@@ -49,7 +49,7 @@ viceme app doctor --dir .
 
 `app link` acquires a per-user process lock keyed by the canonical project path, then persists a non-secret `.viceme/app-link-pending.json` idempotency intent before remote creation, writes `.viceme/app.json` atomically, and removes the intent only after the manifest commits. Retrying after a lost response or starting two concurrent first-link commands therefore resolves the same App. The manifest is public project metadata. `app doctor` verifies App ownership, environment/key drift, server-returned Contract/SDK versions, Origin registration, and the public Widget context.
 
-## Capability and Commerce TEST
+## Capability and Commerce TEST/LIVE
 
 ```bash
 viceme capability catalog
@@ -66,9 +66,44 @@ viceme commerce offer create --dir . \
   --purpose TIP
 
 viceme commerce offer list --dir .
+viceme commerce ledger list --dir . --limit 50
 ```
 
-Commerce is available in the linked TEST environment. `amount-minor` is the fixed server-owned amount in the currency's minor unit. `TIP` completes without an Entitlement; `UNLOCK` creates one only after the server processes a verified TEST Provider event. Identity, Comments, Storage, and Runtime remain planned and `capability add` rejects them until their implementation Slice lands.
+`amount-minor` is the fixed server-owned amount in the currency's minor unit. `TIP` completes without an Entitlement; `UNLOCK` creates one only after the server processes a verified Provider event. TEST is immediately usable and never charges money. LIVE supports CNY and remains unavailable until ViceMe staff approves the Merchant of Record boundary and activates the App, environment, and capability. `commerce ledger list` returns immutable sale payables and later staff-controlled debit/adjustment entries; it never mutates money. Identity, Storage, and Runtime remain planned and `capability add` rejects them until their implementation Slice lands.
+
+## Public Listing
+
+`listing upsert` accepts a complete replacement document so an omitted flag
+cannot silently clear an existing Offer or media item. Run `listing get` first,
+then write a JSON file with the host's file-editing tool:
+
+```json
+{
+  "slug": "my-public-work",
+  "title": "My public work",
+  "summary": "A short public summary",
+  "description": "The full public description",
+  "externalUrl": "https://project.example",
+  "coverUrl": "https://cdn.example/cover.webp",
+  "mediaUrls": ["https://cdn.example/one.webp"],
+  "offerId": null,
+  "status": "PUBLIC"
+}
+```
+
+```bash
+viceme listing get --dir .
+viceme listing upsert --dir . --input-file ./listing.json
+# Use --input-file - only when the complete JSON already arrives on stdin.
+```
+
+Every key in the example is required; nullable values use explicit JSON `null`
+and `mediaUrls` is always an array. Do not construct this document through
+shell interpolation. An EXTERNAL App must have a safe HTTPS (or loopback
+development) `externalUrl` before it can become PUBLIC. A non-null `offerId`
+must identify the same App's ACTIVE LIVE Offer. The server-returned `publicUrl`
+is the share URL; do not construct it from the slug or a guessed domain.
+Listing comments use a dedicated public API and are not Skill product comments.
 
 ## App Context shell
 

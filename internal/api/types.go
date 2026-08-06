@@ -127,6 +127,58 @@ type CommerceOffersResponse struct {
 	Items []CommerceOffer `json:"items"`
 }
 
+type CreatorAppListing struct {
+	ID          string     `json:"id"`
+	AppID       string     `json:"appId"`
+	Slug        string     `json:"slug"`
+	Title       string     `json:"title"`
+	Summary     string     `json:"summary"`
+	Description string     `json:"description"`
+	ExternalURL *string    `json:"externalUrl"`
+	CoverURL    *string    `json:"coverUrl"`
+	MediaURLs   []string   `json:"mediaUrls"`
+	OfferID     *string    `json:"offerId"`
+	Status      string     `json:"status"`
+	PublishedAt *time.Time `json:"publishedAt"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	UpdatedAt   time.Time  `json:"updatedAt"`
+	PublicURL   *string    `json:"publicUrl"`
+}
+
+type UpsertCreatorAppListingRequest struct {
+	Slug        string   `json:"slug"`
+	Title       string   `json:"title"`
+	Summary     string   `json:"summary"`
+	Description string   `json:"description"`
+	ExternalURL *string  `json:"externalUrl"`
+	CoverURL    *string  `json:"coverUrl"`
+	MediaURLs   []string `json:"mediaUrls"`
+	OfferID     *string  `json:"offerId"`
+	Status      string   `json:"status"`
+}
+
+type CreatorLedgerEntry struct {
+	ID          string    `json:"id"`
+	OrderID     *string   `json:"orderId"`
+	Type        string    `json:"type"`
+	Currency    string    `json:"currency"`
+	AmountMinor int       `json:"amountMinor"`
+	SourceKey   string    `json:"sourceKey"`
+	Note        *string   `json:"note"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
+type CreatorLedgerBalance struct {
+	Currency    string `json:"currency"`
+	AmountMinor int    `json:"amountMinor"`
+}
+
+type CreatorLedgerResponse struct {
+	Items      []CreatorLedgerEntry   `json:"items"`
+	NextCursor *string                `json:"nextCursor"`
+	Balances   []CreatorLedgerBalance `json:"balances"`
+}
+
 type PublicAppContext struct {
 	App struct {
 		Name string `json:"name"`

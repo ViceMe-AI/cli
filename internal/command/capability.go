@@ -47,12 +47,6 @@ func newCapabilityAddCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			name := strings.ToUpper(args[0])
-			if name == "COMMERCE" && manifest.Environment != "TEST" {
-				return output.Policy(
-					"commerce_test_only",
-					"Commerce capability is available only for the linked TEST environment in this release",
-				)
-			}
 			capability, err := runtime.client().AddCreatorAppCapability(command.Context(), manifest.AppID, manifest.Environment, api.AddCapabilityRequest{Type: name, Config: map[string]any{}})
 			if err != nil {
 				return err
