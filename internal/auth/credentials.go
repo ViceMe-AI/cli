@@ -8,23 +8,28 @@ import (
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/processlock"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 )
 
 type Credential struct {
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token,omitempty"`
-	TokenType    string    `json:"token_type,omitempty"`
-	ExpiresAt    time.Time `json:"expires_at,omitempty"`
-	UserID       string    `json:"user_id,omitempty"`
+	AccessToken      string    `json:"access_token"`
+	RefreshToken     string    `json:"refresh_token,omitempty"`
+	TokenType        string    `json:"token_type,omitempty"`
+	ExpiresAt        time.Time `json:"expires_at,omitempty"`
+	RefreshExpiresAt time.Time `json:"refresh_expires_at,omitempty"`
+	RefreshRequestID string    `json:"refresh_request_id,omitempty"`
+	UserID           string    `json:"user_id,omitempty"`
+	Scope            []string  `json:"scope,omitempty"`
 }
 
 type Status struct {
-	Authenticated bool       `json:"authenticated"`
-	Profile       string     `json:"profile"`
-	Region        string     `json:"region"`
-	UserID        string     `json:"user_id,omitempty"`
-	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	Authenticated    bool       `json:"authenticated"`
+	Profile          string     `json:"profile"`
+	Region           string     `json:"region"`
+	UserID           string     `json:"user_id,omitempty"`
+	ExpiresAt        *time.Time `json:"expires_at,omitempty"`
+	RefreshExpiresAt *time.Time `json:"refresh_expires_at,omitempty"`
 }
 
 type Manager struct {
@@ -35,6 +40,10 @@ type Manager struct {
 	// Scope overrides the region namespace for custom API origins. It is still
 	// nested under ProfileID so credentials never cross profiles.
 	Scope string
+	// LockRoot is the stable per-user process-lock directory. It must not vary
+	// with the configurable CLI config directory because the OS Keyring does not.
+	LockRoot string
+	Now      func() time.Time
 }
 
 func (m *Manager) key() string {
@@ -56,6 +65,17 @@ func (m *Manager) key() string {
 // secure store. It contains no credential material and is exposed so the
 // controlled macOS downgrade can migrate every configured profile.
 func (m *Manager) StorageKey() string { return m.key() }
+
+// WithCredentialLock serializes a complete credential transaction across CLI
+// processes. Atomic Store.Set calls alone cannot protect Load -> refresh -> Set
+// from two processes generating different recovery request IDs.
+func (m *Manager) WithCredentialLock(ctx context.Context, action func() error) error {
+	err := processlock.With(ctx, m.LockRoot, "credential", m.key(), action)
+	if errors.Is(err, processlock.ErrUnavailable) {
+		return output.Authentication("credential_lock_unavailable", "the credential transaction lock is unavailable").WithCause(err)
+	}
+	return err
+}
 
 // PreflightSave verifies the complete local persistence path before a device
 // authorization is created or its one-time code is exchanged.
@@ -124,7 +144,7 @@ func (m *Manager) Token(_ context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if !credential.ExpiresAt.IsZero() && time.Now().After(credential.ExpiresAt) {
+	if !credential.ExpiresAt.IsZero() && !m.now().Before(credential.ExpiresAt) {
 		return "", output.Authentication("token_expired", "ViceMe login has expired; run 'viceme auth login'")
 	}
 	return credential.AccessToken, nil
@@ -139,15 +159,28 @@ func (m *Manager) CurrentStatus() (Status, error) {
 		}
 		return Status{}, err
 	}
+	now := m.now()
 	status := Status{Authenticated: true, Profile: m.profile(), Region: m.region(), UserID: credential.UserID}
 	if !credential.ExpiresAt.IsZero() {
 		expires := credential.ExpiresAt
 		status.ExpiresAt = &expires
-		if time.Now().After(expires) {
-			status.Authenticated = false
-		}
 	}
+	if !credential.RefreshExpiresAt.IsZero() {
+		refreshExpires := credential.RefreshExpiresAt
+		status.RefreshExpiresAt = &refreshExpires
+	}
+	accessValid := credential.ExpiresAt.IsZero() || now.Before(credential.ExpiresAt)
+	refreshValid := credential.RefreshToken != "" &&
+		(credential.RefreshExpiresAt.IsZero() || now.Before(credential.RefreshExpiresAt))
+	status.Authenticated = credential.AccessToken != "" && (accessValid || refreshValid)
 	return status, nil
+}
+
+func (m *Manager) now() time.Time {
+	if m.Now != nil {
+		return m.Now()
+	}
+	return time.Now()
 }
 
 func (m *Manager) profile() string {

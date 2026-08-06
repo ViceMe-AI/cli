@@ -12,6 +12,7 @@ import (
 
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
+	"github.com/gofrs/flock"
 )
 
 func TestRootInstallBootstrapsSkillConfigAndLoginNextStep(t *testing.T) {
@@ -115,12 +116,14 @@ func stringContains(document, value string) bool {
 }
 
 type fakeUpdateService struct {
-	check    updatepkg.CheckResult
-	checkErr error
-	result   updatepkg.ApplyResult
-	applyErr error
-	options  updatepkg.ApplyOptions
-	applied  bool
+	check          updatepkg.CheckResult
+	checkErr       error
+	result         updatepkg.ApplyResult
+	applyErr       error
+	options        updatepkg.ApplyOptions
+	applied        bool
+	rollbackCalled bool
+	rollbackErr    error
 }
 
 type fakeNoticeUpdateService struct {
@@ -146,6 +149,15 @@ func (service *fakeUpdateService) EnsureLauncher(context.Context) (updatepkg.Tar
 	return updatepkg.TargetResult{Target: "npm_global", Status: "skipped"}, nil
 }
 
+func (service *fakeUpdateService) RollbackLauncher(context.Context) (updatepkg.TargetResult, error) {
+	service.rollbackCalled = true
+	status := "rolled_back"
+	if service.rollbackErr != nil {
+		status = "rollback_failed"
+	}
+	return updatepkg.TargetResult{Target: "npm_global", Status: status}, service.rollbackErr
+}
+
 func (service *fakeUpdateService) Check(context.Context) (updatepkg.CheckResult, error) {
 	return service.check, service.checkErr
 }
@@ -154,6 +166,28 @@ func (service *fakeUpdateService) Apply(_ context.Context, _ updatepkg.CheckResu
 	service.applied = true
 	service.options = options
 	return service.result, service.applyErr
+}
+
+func TestInstallRollsBackLauncherWhenSkillTransactionFails(t *testing.T) {
+	home := t.TempDir()
+	environment := skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, "config")}
+	destination := filepath.Join(home, ".codex", "skills", "viceme")
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	blocked := flock.New(destination + ".viceme-install-lock")
+	if err := blocked.Lock(); err != nil {
+		t.Fatal(err)
+	}
+	defer blocked.Unlock()
+	updater := &fakeUpdateService{}
+	code, _, stderr, _ := runCLIWithDependencies(t, nil, nil, "", Dependencies{
+		Environment: environment,
+		Updater:     updater,
+	}, "install", "--target", "codex")
+	if code == 0 || !updater.rollbackCalled || !stringContains(stderr, "bootstrap_install_partial") {
+		t.Fatalf("failed install did not roll back launcher: code=%d rollback=%v stderr=%s", code, updater.rollbackCalled, stderr)
+	}
 }
 
 func TestUpdateCommandReturnsSafeActionableFailures(t *testing.T) {

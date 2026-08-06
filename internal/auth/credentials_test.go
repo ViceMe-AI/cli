@@ -3,6 +3,7 @@ package auth
 import (
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/securestore"
@@ -141,5 +142,28 @@ func TestCustomCredentialScopesAreIsolatedByProfile(t *testing.T) {
 	}
 	if _, err := work.Load(); err == nil {
 		t.Fatal("custom API credential crossed profiles")
+	}
+}
+
+func TestStatusRemainsAuthenticatedWhileRefreshCredentialIsValid(t *testing.T) {
+	now := time.Date(2026, time.August, 6, 0, 0, 0, 0, time.UTC)
+	store := securestore.NewMemory()
+	manager := &Manager{Store: store, Region: "cn", Now: func() time.Time { return now }}
+	if err := manager.Save(Credential{
+		AccessToken:      "expired-access",
+		RefreshToken:     "valid-refresh",
+		ExpiresAt:        now.Add(-time.Minute),
+		RefreshExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	status, err := manager.CurrentStatus()
+	if err != nil || !status.Authenticated || status.RefreshExpiresAt == nil {
+		t.Fatalf("valid refresh credential was reported logged out: status=%#v err=%v", status, err)
+	}
+	now = now.Add(2 * time.Hour)
+	status, err = manager.CurrentStatus()
+	if err != nil || status.Authenticated {
+		t.Fatalf("expired refresh credential was reported authenticated: status=%#v err=%v", status, err)
 	}
 }

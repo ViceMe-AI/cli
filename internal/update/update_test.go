@@ -101,7 +101,7 @@ func TestNPMServiceChecksAndAppliesExactVersion(t *testing.T) {
 
 func TestNPMServiceBootstrapInstallsPersistentExactLauncher(t *testing.T) {
 	t.Parallel()
-	runner := &fakeRunner{}
+	runner := &fakeRunner{outputs: [][]byte{[]byte(`{"dependencies":{}}`), nil}}
 	service := NewNPMService("0.1.0", "0.1.0", "npm")
 	service.ConfigDir = t.TempDir()
 	service.Runner = runner
@@ -110,8 +110,30 @@ func TestNPMServiceBootstrapInstallsPersistentExactLauncher(t *testing.T) {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
 	want := []string{"--cache=" + filepath.Join(service.ConfigDir, npmCacheDirectory), "install", "--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org", "--global", "--ignore-scripts", "--no-audit", "--no-fund", "@viceme-ai/cli@0.1.0"}
-	if len(runner.calls) != 1 || !reflect.DeepEqual(runner.calls[0].args, want) {
+	if len(runner.calls) != 2 || !reflect.DeepEqual(runner.calls[1].args, want) {
 		t.Fatalf("bootstrap did not install exact persistent launcher: %#v", runner.calls)
+	}
+}
+
+func TestNPMServiceBootstrapRollbackRestoresPreviousLauncher(t *testing.T) {
+	t.Parallel()
+	runner := &fakeRunner{outputs: [][]byte{
+		[]byte(`{"dependencies":{"@viceme-ai/cli":{"version":"0.9.0"}}}`),
+		nil,
+		nil,
+	}}
+	service := NewNPMService("1.0.0", "1.0.0", "npm")
+	service.ConfigDir = t.TempDir()
+	service.Runner = runner
+	if _, err := service.EnsureLauncher(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	rollback, err := service.RollbackLauncher(context.Background())
+	if err != nil || rollback.Status != "rolled_back" {
+		t.Fatalf("rollback=%#v err=%v", rollback, err)
+	}
+	if len(runner.calls) != 3 || runner.calls[2].args[len(runner.calls[2].args)-1] != "@viceme-ai/cli@0.9.0" {
+		t.Fatalf("previous launcher version was not restored: %#v", runner.calls)
 	}
 }
 
@@ -259,6 +281,33 @@ func TestNPMServiceReturnsPartialResultWhenSkillRefreshFails(t *testing.T) {
 	result, err := service.Apply(context.Background(), CheckResult{AvailableVersion: "0.1.0"}, ApplyOptions{RefreshSkills: true})
 	if err == nil || len(result.Targets) != 2 || result.Targets[1].Status != "failed" {
 		t.Fatalf("expected typed partial result, result=%#v err=%v", result, err)
+	}
+}
+
+func TestNPMServiceRollsBackLauncherWhenAtomicSkillRefreshFails(t *testing.T) {
+	t.Parallel()
+	runner := &fakeRunner{errors: []error{nil, errors.New("refresh failed"), nil}}
+	service := NewNPMService("0.1.0", "0.1.0", "npm")
+	service.ConfigDir = t.TempDir()
+	service.Runner = runner
+	result, err := service.Apply(
+		context.Background(),
+		CheckResult{AvailableVersion: "0.2.0", UpdateAvailable: true},
+		ApplyOptions{RefreshSkills: true, SkillTarget: "auto"},
+	)
+	if err == nil {
+		t.Fatal("failed Skill refresh unexpectedly succeeded")
+	}
+	if result.CLIVersion != "0.1.0" || len(result.Targets) != 2 || result.Targets[0].Status != "rolled_back" {
+		t.Fatalf("launcher was not rolled back: %#v", result)
+	}
+	if len(runner.calls) != 3 {
+		t.Fatalf("unexpected update/rollback call sequence: %#v", runner.calls)
+	}
+	wantRollback := "@viceme-ai/cli@0.1.0"
+	last := runner.calls[2].args
+	if len(last) == 0 || last[len(last)-1] != wantRollback {
+		t.Fatalf("rollback did not reinstall the prior exact version: %#v", runner.calls[2])
 	}
 }
 

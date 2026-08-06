@@ -118,18 +118,18 @@ func (b *Bundle) Install(name, target string, environment Environment) InstallRe
 	if err != nil {
 		return InstallReport{AllSucceeded: false, Results: []InstallResult{{Target: target, Status: "failed", Error: err.Error()}}}
 	}
-	report := InstallReport{AllSucceeded: true}
+	statuses, installErr := b.installAtomically(name, paths)
+	report := InstallReport{AllSucceeded: installErr == nil}
 	for _, resolved := range paths {
-		result := InstallResult{Target: resolved.name, Path: resolved.path, Status: "updated"}
-		if b.installationCurrent(name, resolved.path) {
-			result.Status = "unchanged"
-			report.Results = append(report.Results, result)
-			continue
+		status := statuses[resolved.path]
+		if installErr != nil && status != "unchanged" {
+			status = "failed"
+		} else if status == "" {
+			status = "failed"
 		}
-		if err := b.installOne(name, resolved.path); err != nil {
-			result.Status = "failed"
-			result.Error = err.Error()
-			report.AllSucceeded = false
+		result := InstallResult{Target: resolved.name, Path: resolved.path, Status: status}
+		if status == "failed" && installErr != nil {
+			result.Error = installErr.Error()
 		}
 		report.Results = append(report.Results, result)
 	}
@@ -298,80 +298,168 @@ func resolveTargets(target string, environment Environment, forInstall bool) ([]
 	return result, nil
 }
 
-func (b *Bundle) installOne(name, destination string) error {
-	parent := filepath.Dir(destination)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return fmt.Errorf("create Skill parent: %w", err)
+type stagedInstall struct {
+	target      targetPath
+	stageRoot   string
+	stagedSkill string
+	backup      string
+	hadExisting bool
+	backedUp    bool
+	activated   bool
+}
+
+func (b *Bundle) installAtomically(name string, targets []targetPath) (map[string]string, error) {
+	statuses := make(map[string]string, len(targets))
+	ordered := append([]targetPath(nil), targets...)
+	sort.Slice(ordered, func(left, right int) bool { return ordered[left].path < ordered[right].path })
+	locks := make([]*flock.Flock, 0, len(ordered))
+	defer func() {
+		for index := len(locks) - 1; index >= 0; index-- {
+			_ = locks[index].Unlock()
+		}
+	}()
+	for _, target := range ordered {
+		parent := filepath.Dir(target.path)
+		if err := os.MkdirAll(parent, 0o755); err != nil {
+			return statuses, fmt.Errorf("create %s Skill parent: %w", target.name, err)
+		}
+		installLock := flock.New(target.path + ".viceme-install-lock")
+		locked, err := installLock.TryLock()
+		if err != nil {
+			return statuses, fmt.Errorf("acquire %s Skill install lock: %w", target.name, err)
+		}
+		if !locked {
+			return statuses, fmt.Errorf("another Skill install is already updating %s", target.path)
+		}
+		locks = append(locks, installLock)
 	}
-	lockPath := destination + ".viceme-install-lock"
-	installLock := flock.New(lockPath)
-	locked, err := installLock.TryLock()
-	if err != nil {
-		return fmt.Errorf("acquire Skill install lock: %w", err)
-	}
-	if !locked {
-		return fmt.Errorf("another Skill install is already updating %s", destination)
-	}
-	defer installLock.Unlock()
+
 	expected, err := b.Digests(name)
 	if err != nil {
-		return err
-	}
-	stage, err := os.MkdirTemp(parent, ".viceme-stage-")
-	if err != nil {
-		return fmt.Errorf("create Skill staging directory: %w", err)
-	}
-	defer os.RemoveAll(stage)
-	stagedSkill := filepath.Join(stage, name)
-	if err := os.MkdirAll(stagedSkill, 0o755); err != nil {
-		return fmt.Errorf("create staged Skill directory: %w", err)
-	}
-	if err := copyTree(b.FS, name, stagedSkill); err != nil {
-		return err
+		return statuses, err
 	}
 	manifest, err := b.installManifest(name)
 	if err != nil {
-		return err
+		return statuses, err
 	}
-	if err := writeInstallManifest(stagedSkill, manifest); err != nil {
-		return err
-	}
-	stagedBundle := New(os.DirFS(stage))
-	if err := stagedBundle.Validate(name); err != nil {
-		return fmt.Errorf("validate staged Skill: %w", err)
-	}
-	backup := destination + ".viceme-backup"
-	_ = os.RemoveAll(backup)
-	hadExisting := false
-	if _, err := os.Lstat(destination); err == nil {
-		hadExisting = true
-		if err := os.Rename(destination, backup); err != nil {
-			return fmt.Errorf("stage existing Skill: %w", err)
+	var staged []*stagedInstall
+	committed := false
+	defer func() {
+		cleanupSkillInstallStaging(staged, committed)
+	}()
+	for _, target := range ordered {
+		if b.installationCurrent(name, target.path) {
+			statuses[target.path] = "unchanged"
+			continue
 		}
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("inspect existing Skill: %w", err)
-	}
-	if err := os.Rename(stagedSkill, destination); err != nil {
-		if hadExisting {
-			_ = os.Rename(backup, destination)
-		}
-		return fmt.Errorf("activate staged Skill: %w", err)
-	}
-	actualDigests, err := digestsInstalled(destination)
-	if err != nil || actualDigests != expected {
-		_ = os.RemoveAll(destination)
-		if hadExisting {
-			_ = os.Rename(backup, destination)
-		}
+		item := &stagedInstall{target: target}
+		item.stageRoot, err = os.MkdirTemp(filepath.Dir(target.path), ".viceme-stage-")
 		if err != nil {
-			return fmt.Errorf("verify installed Skill: %w", err)
+			return statuses, fmt.Errorf("create %s Skill staging directory: %w", target.name, err)
 		}
-		return fmt.Errorf("verify installed Skill: digest mismatch")
+		staged = append(staged, item)
+		item.stagedSkill = filepath.Join(item.stageRoot, name)
+		item.backup = filepath.Join(item.stageRoot, "previous")
+		if err := os.MkdirAll(item.stagedSkill, 0o755); err != nil {
+			return statuses, fmt.Errorf("create staged %s Skill directory: %w", target.name, err)
+		}
+		if err := copyTree(b.FS, name, item.stagedSkill); err != nil {
+			return statuses, fmt.Errorf("stage %s Skill: %w", target.name, err)
+		}
+		if err := writeInstallManifest(item.stagedSkill, manifest); err != nil {
+			return statuses, fmt.Errorf("stage %s Skill manifest: %w", target.name, err)
+		}
+		stagedBundle := New(os.DirFS(item.stageRoot))
+		if err := stagedBundle.Validate(name); err != nil {
+			return statuses, fmt.Errorf("validate staged %s Skill: %w", target.name, err)
+		}
+		actual, err := digestsInstalled(item.stagedSkill)
+		if err != nil || actual != expected {
+			if err != nil {
+				return statuses, fmt.Errorf("verify staged %s Skill: %w", target.name, err)
+			}
+			return statuses, fmt.Errorf("verify staged %s Skill: digest mismatch", target.name)
+		}
+		statuses[target.path] = "pending"
 	}
-	if hadExisting {
-		_ = os.RemoveAll(backup)
+
+	for _, item := range staged {
+		if _, err := os.Lstat(item.target.path); err == nil {
+			item.hadExisting = true
+			if err := os.Rename(item.target.path, item.backup); err != nil {
+				rollbackErr := rollbackSkillInstalls(staged)
+				return failedInstallStatuses(statuses), errors.Join(fmt.Errorf("back up %s Skill: %w", item.target.name, err), rollbackErr)
+			}
+			item.backedUp = true
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			rollbackErr := rollbackSkillInstalls(staged)
+			return failedInstallStatuses(statuses), errors.Join(fmt.Errorf("inspect existing %s Skill: %w", item.target.name, err), rollbackErr)
+		}
+		if err := os.Rename(item.stagedSkill, item.target.path); err != nil {
+			rollbackErr := rollbackSkillInstalls(staged)
+			return failedInstallStatuses(statuses), errors.Join(fmt.Errorf("activate staged %s Skill: %w", item.target.name, err), rollbackErr)
+		}
+		item.activated = true
+		actual, err := digestsInstalled(item.target.path)
+		if err != nil || actual != expected {
+			rollbackErr := rollbackSkillInstalls(staged)
+			if err != nil {
+				return failedInstallStatuses(statuses), errors.Join(fmt.Errorf("verify installed %s Skill: %w", item.target.name, err), rollbackErr)
+			}
+			return failedInstallStatuses(statuses), errors.Join(fmt.Errorf("verify installed %s Skill: digest mismatch", item.target.name), rollbackErr)
+		}
+		statuses[item.target.path] = "updated"
 	}
-	return nil
+	committed = true
+	return statuses, nil
+}
+
+func cleanupSkillInstallStaging(staged []*stagedInstall, committed bool) {
+	for _, item := range staged {
+		// A failed rollback leaves the only copy of the user's previous Skill in
+		// this staging root. Preserve it for manual recovery and include its path
+		// in the rollback error instead of deleting it during deferred cleanup.
+		if !committed && item.backedUp {
+			continue
+		}
+		_ = os.RemoveAll(item.stageRoot)
+	}
+}
+
+func failedInstallStatuses(statuses map[string]string) map[string]string {
+	for target, status := range statuses {
+		if status != "unchanged" {
+			statuses[target] = "failed"
+		}
+	}
+	return statuses
+}
+
+func rollbackSkillInstalls(staged []*stagedInstall) error {
+	var rollbackErrors []error
+	for index := len(staged) - 1; index >= 0; index-- {
+		item := staged[index]
+		if item.activated {
+			if err := os.RemoveAll(item.target.path); err != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Errorf("remove new %s Skill: %w", item.target.name, err))
+				continue
+			}
+			item.activated = false
+		}
+		if item.backedUp {
+			if err := os.Rename(item.backup, item.target.path); err != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Errorf("restore previous %s Skill from %s: %w", item.target.name, item.backup, err))
+				continue
+			}
+			item.backedUp = false
+		}
+	}
+	for _, item := range staged {
+		if item.backedUp {
+			rollbackErrors = append(rollbackErrors, fmt.Errorf("previous %s Skill is preserved at %s for manual recovery", item.target.name, item.backup))
+		}
+	}
+	return errors.Join(rollbackErrors...)
 }
 
 func (b *Bundle) installManifest(name string) (installManifest, error) {

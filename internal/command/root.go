@@ -7,12 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	cliembed "github.com/ViceMe-AI/cli"
@@ -60,35 +57,12 @@ type Runtime struct {
 	config             config.Config
 	profile            config.Profile
 	configBase         string
-	processCredential  *publicationCredential
+	processLockRoot    string
 }
 
 const (
-	apiBaseURLEnvironment             = "VICEME_API_BASE_URL"
-	processAccessTokenEnvironment     = "VICEME_ACCESS_TOKEN"
-	localProcessCredentialEnvironment = "VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL"
-	devPreviewAPIBaseURL              = "https://viceme-envoy-dev.preview.tencent-zeabur.cn"
+	apiBaseURLEnvironment = "VICEME_API_BASE_URL"
 )
-
-type publicationCredentialAudience string
-
-const (
-	publicationCredentialAudienceCNProd     publicationCredentialAudience = "cn-prod"
-	publicationCredentialAudienceGlobalProd publicationCredentialAudience = "global-prod"
-	publicationCredentialAudienceDevPreview publicationCredentialAudience = "dev-preview"
-	publicationCredentialAudienceLocalDev   publicationCredentialAudience = "local-dev"
-)
-
-type publicationCredential struct {
-	raw      string
-	audience publicationCredentialAudience
-}
-
-type processTokenSource string
-
-func (source processTokenSource) Token(context.Context) (string, error) {
-	return string(source), nil
-}
 
 func Execute(args []string, dependencies Dependencies) int {
 	root, runtime, err := NewRoot(dependencies)
@@ -138,10 +112,6 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		apiBaseURLOverride = os.Getenv(apiBaseURLEnvironment)
 		apiBaseURLFromEnv = apiBaseURLOverride != ""
 	}
-	processCredential, err := parsePublicationCredential(os.Getenv(processAccessTokenEnvironment))
-	if err != nil {
-		return nil, nil, output.Authentication("process_credential_invalid", err.Error())
-	}
 	runtime := &Runtime{
 		deps:               dependencies,
 		region:             region,
@@ -150,7 +120,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		config:             resolvedConfig,
 		profile:            *resolvedProfile,
 		configBase:         configBase,
-		processCredential:  processCredential,
+		processLockRoot:    stableProcessLockRoot(dependencies.Environment),
 		printer: &output.Printer{
 			Out:    dependencies.Out,
 			ErrOut: dependencies.ErrOut,
@@ -161,7 +131,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	}
 	root := &cobra.Command{
 		Use:           "viceme",
-		Short:         "Publish external Skills as stable ViceMe Agents",
+		Short:         "Connect projects to ViceMe Creator capabilities",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
@@ -180,7 +150,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.PersistentFlags().StringVar(&runtime.opts.profile, "profile", "", "use a specific profile for this command")
 	root.PersistentPreRunE = func(command *cobra.Command, _ []string) error {
 		runtime.prepareUpdateNotice(command)
-		if err := runtime.validateProfileOverrideAuthority(runtime.opts.profile); err != nil {
+		if err := runtime.validateProfileOverrideAuthority(command, runtime.opts.profile); err != nil {
 			return err
 		}
 		return runtime.selectProfile(runtime.opts.profile)
@@ -194,8 +164,8 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newAuthCommand(runtime))
 	root.AddCommand(newConfigCommand(runtime))
 	root.AddCommand(newProfileCommand(runtime))
-	root.AddCommand(newSkillCommand(runtime))
-	root.AddCommand(newJobCommand(runtime))
+	root.AddCommand(newAppCommand(runtime))
+	root.AddCommand(newCapabilityCommand(runtime))
 	root.AddCommand(newSkillsCommand(runtime))
 	return root, runtime, nil
 }
@@ -290,15 +260,93 @@ func (r *Runtime) manager() *auth.Manager {
 		ProfileID:   r.profile.ID,
 		ProfileName: r.profile.Name,
 		Scope:       r.credentialScope,
+		LockRoot:    r.processLockRoot,
+		Now:         r.deps.Now,
 	}
 }
 
 func (r *Runtime) client() *api.Client {
-	var tokens api.TokenSource = r.manager()
-	if token, _, _ := r.overrideCredential(); token != "" {
-		tokens = processTokenSource(token)
+	client := api.NewClient(r.apiBaseURL, r.deps.HTTPClient, nil, "viceme/"+buildinfo.Version)
+	client.Tokens = &refreshingTokenSource{
+		manager: r.manager(),
+		client:  client,
+		now:     r.deps.Now,
+		newID:   r.deps.NewID,
 	}
-	return api.NewClient(r.apiBaseURL, r.deps.HTTPClient, tokens, "viceme/"+buildinfo.Version)
+	return client
+}
+
+type refreshingTokenSource struct {
+	manager *auth.Manager
+	client  *api.Client
+	now     func() time.Time
+	newID   func() string
+}
+
+func (source *refreshingTokenSource) Token(ctx context.Context) (string, error) {
+	credential, err := source.manager.Load()
+	if err != nil {
+		return "", err
+	}
+	now := source.now()
+	if credential.RefreshRequestID == "" && (credential.ExpiresAt.IsZero() || now.Before(credential.ExpiresAt.Add(-30*time.Second))) {
+		return credential.AccessToken, nil
+	}
+	var token string
+	err = source.manager.WithCredentialLock(ctx, func() error {
+		var refreshErr error
+		token, refreshErr = source.tokenWhileLocked(ctx)
+		return refreshErr
+	})
+	return token, err
+}
+
+func (source *refreshingTokenSource) tokenWhileLocked(ctx context.Context) (string, error) {
+	credential, err := source.manager.Load()
+	if err != nil {
+		return "", err
+	}
+	now := source.now()
+	if credential.RefreshRequestID == "" && (credential.ExpiresAt.IsZero() || now.Before(credential.ExpiresAt.Add(-30*time.Second))) {
+		return credential.AccessToken, nil
+	}
+	if credential.RefreshToken == "" || (!credential.RefreshExpiresAt.IsZero() && !now.Before(credential.RefreshExpiresAt)) {
+		return "", output.Authentication("token_expired", "ViceMe login has expired; run 'viceme auth login'")
+	}
+	requestID := credential.RefreshRequestID
+	if requestID == "" {
+		newID := source.newID
+		if newID == nil {
+			newID = randomUUID
+		}
+		requestID = newID()
+		credential.RefreshRequestID = requestID
+		if err := source.manager.Save(credential); err != nil {
+			return "", output.Authentication("credential_persistence_failed", "the refresh recovery state could not be saved; no token request was sent").
+				WithHint("fix the local credential store and retry the command").
+				WithCause(err)
+		}
+	}
+	refreshed, err := source.client.RefreshDeviceToken(ctx, credential.RefreshToken, requestID)
+	if err != nil {
+		return "", err
+	}
+	next := auth.Credential{
+		AccessToken:      refreshed.AccessToken,
+		RefreshToken:     refreshed.RefreshToken,
+		TokenType:        refreshed.TokenType,
+		ExpiresAt:        refreshed.ExpiresAt,
+		RefreshExpiresAt: refreshed.RefreshExpiresAt,
+		RefreshRequestID: "",
+		UserID:           refreshed.UserID,
+		Scope:            refreshed.Scope,
+	}
+	if err := source.manager.Save(next); err != nil {
+		return "", output.Authentication("credential_persistence_failed", "refreshed credentials could not be saved").
+			WithHint("fix the local credential store and retry the command; the persisted refresh request can recover the same server result").
+			WithCause(err)
+	}
+	return refreshed.AccessToken, nil
 }
 
 func (r *Runtime) success(data any) error {
@@ -357,9 +405,15 @@ func (r *Runtime) selectProfile(name string) error {
 	return r.applyProfile(*profile)
 }
 
-func (r *Runtime) validateProfileOverrideAuthority(name string) error {
+func (r *Runtime) validateProfileOverrideAuthority(command *cobra.Command, name string) error {
 	if name == "" || !r.apiBaseURLFromEnv {
 		return nil
+	}
+	if command != nil && command.Name() == "login" && command.Parent() != nil && command.Parent().Name() == "auth" {
+		deviceCode, err := command.Flags().GetString("device-code")
+		if err == nil && deviceCode != "" {
+			return nil
+		}
 	}
 	return output.Validation(
 		"profile_api_base_url_conflict",
@@ -377,25 +431,17 @@ func (r *Runtime) applyProfile(profile config.Profile) error {
 	if apiBaseURL == "" {
 		apiBaseURL = config.APIBaseURL(profile.Region)
 	}
-	if profile.AccessToken != "" {
-		credential, err := parsePublicationCredential(profile.AccessToken)
-		if err != nil {
-			return output.Authentication("profile_credential_invalid", "the selected profile access token is not a supported audience-bound publication credential")
-		}
-		if err := validatePublicationCredentialTarget(credential, profile.APIBaseURL, true); err != nil {
-			return output.Authentication("profile_credential_origin_mismatch", err.Error())
-		}
+	normalizedAPIBaseURL, err := api.NormalizeAPIBaseURL(apiBaseURL)
+	if err != nil {
+		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 	}
-	if err := validatePublicationProcessCredentialTarget(r.processCredential, apiBaseURL); err != nil {
-		return err
-	}
-	scope, err := credentialScopeForAPIBase(apiBaseURL, profile.Region)
+	scope, err := credentialScopeForAPIBase(normalizedAPIBaseURL, profile.Region)
 	if err != nil {
 		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 	}
 	r.profile = profile
 	r.region = profile.Region
-	r.apiBaseURL = apiBaseURL
+	r.apiBaseURL = normalizedAPIBaseURL
 	r.credentialScope = scope
 	return nil
 }
@@ -438,106 +484,6 @@ func (r *Runtime) credentialStorageKeys() ([]string, error) {
 	return keys, nil
 }
 
-func (r *Runtime) overrideCredential() (token, source string, persistent bool) {
-	if r.processCredential != nil {
-		return r.processCredential.raw, "process", false
-	}
-	if r.profile.AccessToken != "" && sameAPIOrigin(r.profile.APIBaseURL, r.apiBaseURL) {
-		return r.profile.AccessToken, "local_profile", true
-	}
-	return "", "", false
-}
-
-func sameAPIOrigin(left, right string) bool {
-	leftOrigin, leftErr := api.NormalizeAPIOrigin(left)
-	rightOrigin, rightErr := api.NormalizeAPIOrigin(right)
-	return leftErr == nil && rightErr == nil && leftOrigin == rightOrigin
-}
-
-func parsePublicationCredential(raw string) (*publicationCredential, error) {
-	if raw == "" {
-		return nil, nil
-	}
-	if strings.TrimSpace(raw) != raw || strings.ContainsAny(raw, "\r\n\x00") {
-		return nil, errors.New("the process publication credential is invalid")
-	}
-	parts := strings.SplitN(raw, ".", 3)
-	if len(parts) != 3 || parts[0] != "vpa1" || len(parts[2]) != 43 {
-		return nil, errors.New("the process publication credential is not a supported audience-bound credential")
-	}
-	audience := publicationCredentialAudience(parts[1])
-	switch audience {
-	case publicationCredentialAudienceCNProd,
-		publicationCredentialAudienceGlobalProd,
-		publicationCredentialAudienceDevPreview,
-		publicationCredentialAudienceLocalDev:
-	default:
-		return nil, errors.New("the process publication credential audience is unsupported")
-	}
-	for _, character := range parts[2] {
-		if !((character >= 'a' && character <= 'z') ||
-			(character >= 'A' && character <= 'Z') ||
-			(character >= '0' && character <= '9') || character == '-' || character == '_') {
-			return nil, errors.New("the process publication credential is invalid")
-		}
-	}
-	return &publicationCredential{raw: raw, audience: audience}, nil
-}
-
-func validatePublicationProcessCredentialTarget(credential *publicationCredential, apiBaseURL string) error {
-	if credential == nil {
-		return nil
-	}
-	if err := validatePublicationCredentialTarget(credential, apiBaseURL, false); err != nil {
-		message := strings.Replace(err.Error(), "the publication credential", "the process publication credential", 1)
-		return output.Authentication("process_credential_origin_mismatch", message)
-	}
-	return nil
-}
-
-func validatePublicationCredentialTarget(credential *publicationCredential, apiBaseURL string, allowLocalProfile bool) error {
-	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
-	if err != nil {
-		return errors.New("the publication credential target is invalid")
-	}
-	var expected string
-	switch credential.audience {
-	case publicationCredentialAudienceCNProd:
-		expected, err = api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionCN))
-	case publicationCredentialAudienceGlobalProd:
-		expected, err = api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionGlobal))
-	case publicationCredentialAudienceDevPreview:
-		expected, err = api.NormalizeAPIOrigin(devPreviewAPIBaseURL)
-	case publicationCredentialAudienceLocalDev:
-		if !isLoopbackOrigin(origin) {
-			return errors.New("local-dev publication credentials require a loopback target")
-		}
-		if !allowLocalProfile && os.Getenv(localProcessCredentialEnvironment) != "1" {
-			return errors.New("local process credentials require an explicit loopback debug target")
-		}
-		return nil
-	default:
-		return errors.New("the publication credential audience is unsupported")
-	}
-	if err != nil || origin != expected {
-		return errors.New("the publication credential audience does not match the selected ViceMe API origin")
-	}
-	return nil
-}
-
-func isLoopbackOrigin(origin string) bool {
-	parsed, err := url.Parse(origin)
-	if err != nil {
-		return false
-	}
-	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
-	if host == "localhost" {
-		return true
-	}
-	address := net.ParseIP(host)
-	return address != nil && address.IsLoopback()
-}
-
 func (r *Runtime) reloadConfig(profileName string) error {
 	resolved, err := config.LoadOrDefault(r.configBase)
 	if err != nil {
@@ -568,6 +514,10 @@ func runtimeConfigBase(environment skillcontent.Environment) string {
 		return environment.ConfigDir
 	}
 	return filepath.Join(environment.Home, ".viceme-cli")
+}
+
+func stableProcessLockRoot(environment skillcontent.Environment) string {
+	return filepath.Join(environment.Home, ".viceme-cli-locks")
 }
 
 func configLoadFailure(message string, err error) *output.Error {
@@ -605,7 +555,8 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 func randomUUID() string {
 	var value [16]byte
 	if _, err := rand.Read(value[:]); err != nil {
-		return fmt.Sprintf("request-%d", time.Now().UnixNano())
+		digest := sha256.Sum256([]byte(fmt.Sprintf("viceme-request-%d", time.Now().UnixNano())))
+		copy(value[:], digest[:16])
 	}
 	value[6] = (value[6] & 0x0f) | 0x40
 	value[8] = (value[8] & 0x3f) | 0x80
@@ -614,24 +565,24 @@ func randomUUID() string {
 }
 
 func customCredentialScope(apiBaseURL string) (string, error) {
-	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	normalized, err := api.NormalizeAPIBaseURL(apiBaseURL)
 	if err != nil {
 		return "", err
 	}
-	digest := sha256.Sum256([]byte(origin))
+	digest := sha256.Sum256([]byte(normalized))
 	return fmt.Sprintf("custom:%x", digest[:]), nil
 }
 
 func credentialScopeForAPIBase(apiBaseURL string, region config.Region) (string, error) {
-	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	normalized, err := api.NormalizeAPIBaseURL(apiBaseURL)
 	if err != nil {
 		return "", err
 	}
-	canonicalOrigin, err := api.NormalizeAPIOrigin(config.APIBaseURL(region))
+	canonical, err := api.NormalizeAPIBaseURL(config.APIBaseURL(region))
 	if err != nil {
 		return "", err
 	}
-	if origin == canonicalOrigin {
+	if normalized == canonical {
 		return "", nil
 	}
 	return customCredentialScope(apiBaseURL)

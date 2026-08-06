@@ -1,77 +1,57 @@
-# Publication statuses and errors
+# CLI statuses and errors
 
-`job get` and `job wait` return exit code 0 whenever the publication was read successfully. Inspect `data.status`; do not treat a business outcome as a CLI transport failure.
+CLI errors use a stable JSON envelope on stderr:
 
-## Continue polling
+```json
+{
+  "ok": false,
+  "error": {
+    "type": "validation",
+    "subtype": "app_origin_not_allowed",
+    "message": "Request origin is not registered for this App environment",
+    "retryable": false,
+    "details": { "request_id": "..." }
+  }
+}
+```
 
-- `received`
-- `resolving`
-- `compiling`
-- `materializing`
-- `release_authorized`
-- `release_committed`
-- `waiting_projection`
+Branch on `error.subtype`; never scrape `message`.
 
-For publication `job wait`, `meta.wait_timed_out=true` means only that the bounded observation window ended. It is not a failure and must not be described as a stuck Compiler. While the receipt remains nonterminal, use up to five consecutive 60-second waits (five minutes total), then report that processing continues in the background and preserve the publication ID for a later bounded wait. If the receipt includes `progress.kind=in_progress`, its `phase` is the authoritative server phase and `poll_after_seconds` is the minimum suggested polling interval.
+## Authentication
 
-For edit sub-jobs, resume by ID with `job edit-get <pub> <edit-id> --timeout <d>`, never by re-submitting the payload. Ordinary preview usage happens on the private Candidate preview link and has no CLI PreviewRun sub-job.
+- `authorization_pending`: browser authorization is not complete. Wait at least the returned `interval_seconds` before polling again.
+- `device_poll_too_fast`: polling exceeded the server interval. Increase the next interval; do not create another device request.
+- `authorization_denied`: the user rejected the request. Stop.
+- `device_code_expired`: start a new `auth login` flow.
+- `device_authorization_context_missing`: the secure pending context is unavailable; start a new split login flow.
+- `device_authorization_context_mismatch`: use the exact `continue_args` returned by the first turn. Never retry against another Profile or endpoint.
+- `cli_access_token_invalid`: the session is expired, revoked, or invalid. The CLI refreshes locally expired access tokens automatically; if this remains, sign in again.
+- `cli_refresh_token_invalid`: the refresh credential or Session is unavailable, expired, revoked, or for another Audience; sign in again.
+- `cli_refresh_token_reused`: an old refresh token was presented with another request identity or outside its bounded recovery window, so the server revoked the token family; sign in again. Never construct or change a refresh request identity manually.
+- `cli_scope_required`: the current session lacks the command's scope. Sign in again only if the server policy changed; do not bypass the guard.
 
-If `skill inspect` returns
-`data.destination.recovery.mode=resume_existing_publication`, do not publish
-the new inspection resolution. Read
-`data.destination.recovery.publication_id` with `job get` and resume that
-durable receipt. The recovery pointer intentionally carries no action digest;
-only `job get` and `job renew` are authoritative for the current action
-generation.
+## Creator App
 
-## User action
+- `creator_app_not_found`: the App does not exist or is not owned by the authenticated user. Do not distinguish those cases or try another owner's ID.
+- `idempotency_key_reused`: a pending App creation request ID was reused with different input. Preserve the original intent and inspect the remote result before removing local pending metadata.
+- `app_binding_conflict`: local `--app` and `.viceme/app.json` disagree. Ask the user which project/App is intended; do not overwrite silently.
+- `app_origin_not_allowed`: register the exact canonical Origin with `app link --origin ...`; never relax CORS or place a token in the browser.
+- `app_context_not_found`: the publishable key is unknown or its App/environment is unavailable. Run `app link` and `app doctor`.
+- `app_doctor_unhealthy`: inspect `error.details.checks` and repair the authoritative source of each failed check.
 
-- `meta_review`: the parsed basic info is ready for review — show `job metadata` output (title/description/author/missing), resolve with `job metadata --decision confirm|cancel`; user-authored fields go through `--edits-stdin` as one JSON object, never a quoted shell argument (see commands.md). Cancel here leaves zero assets.
-- `awaiting_action`: read `next_action`, ask the user for the required selection, then resume the same publication. For `confirm_steps`, show `payload.steps` and resolve first (confirm/cancel) — no private Candidate preview exists before this gate passes. For `confirm_publish`, show the frozen summary via `job preview`, give the user the private `payload.preview_share_url`, and ask them to complete one successful ordinary run on that page. If the current confirmation action expires, first `job get` the same Publication and confirm the expired action ID, then run `job renew <publication-id> --action-id <expired-action-id>` and continue only with the returned `data.next_action`; never create a new Publication or replay the old receipt. Renewal is valid only for expired `confirm_steps` / `confirm_publish`, not for any terminal outcome. If the user requests a change, pass their exact request only through subprocess stdin to `job edit --candidate-digest <digest> --request-stdin`; an applied edit invalidates the old steps/action, pending share projection, and temporary preview artifacts, so fetch the fresh Candidate and confirm its steps again. After the user returns and explicitly confirms, resume with `--decision` plus `--expected-public-summary-digest` from the preview output. A 409 `preview_share_run_required` means the user has not yet completed a successful ordinary run on that private preview link. Preview inputs, outputs, files, sessions, and Runner history are temporary and are removed on confirm, cancel, expiry, supersede, or Release commit. After publication, return the distinct official `data.result.share_url`; the old preview URL redirects to it.
-- `binding_required`: terminal for this publication. Run `job bind`, give the user the signed browser URL, and wait for channel verification. Once bound, start a fresh normal inspect/publish request; never resume the old publication. Downloading the Skill or forking its GitHub repository are suggestions, not CLI actions.
-- `target_conflict`: refresh the source with `skill inspect`. If the returned destination contains `recovery.mode=resume_existing_publication`, use its `publication_id` with `job get` and continue that Publication; otherwise report the conflict and stop. Do not use last-write-wins, create another Publication, or create another link.
-- `selection_required`: ask the user to choose one returned selector, then resume the same publication with the exact action ID and payload digest.
-- `process_credential_active`: login/logout is unavailable while a process credential is active; keep using standard commands or start a process without `VICEME_ACCESS_TOKEN` for persistent login management.
-- `process_credential_invalid`: stop without retrying or printing the injected value; replace the process credential.
-- `local_profile_credential_active`: login/logout is unavailable while the selected Profile has an explicit publication credential; keep using standard commands or explicitly clear the Profile override.
-- `profile_credential_invalid` / `profile_credential_origin_mismatch`: stop without printing the stored value; an operator must replace or clear the Profile credential and its bound endpoint.
-- `payment_required`: explain the requirement and stop.
+## Capability
 
-## Terminal outcomes
+- `capability_not_available`: the capability is planned but not implemented in this CLI/API Slice. Stop; do not emulate it client-side.
+- `app_capability_not_found`: add the requested available capability first.
+- `capability_doctor_unhealthy`: compare local contract/SDK versions with the server result and rerun `capability add` only when the operation is idempotent.
 
-- `share_published`: return `data.result.share_url` and `published_noop`.
-- `unsupported`: a hard dependency cannot be mapped under the current compilation contract; stop this publication without publishing a reduced Agent.
-- `rejected`: source or policy validation rejected this publication under the current compilation contract.
-- `cancelled`: the publication was cancelled.
-- `failed`: report `data.failure` and the publication ID. Only when `data.failure.details.type` is `PLATFORM_FAILURE` and `data.failure.details.retryable` is `true`, the user may explicitly request `viceme job retry <publication-id> --yes`. Retry the same publication at most through the server-controlled limit; never alter or re-upload the source as a workaround.
+## Exit codes
 
-`unsupported` and `rejected` are terminal only for their publication ID, not a
-permanent ban on the frozen source. Never retry or resume the terminal
-publication. When the user later makes a new explicit publish request, use a
-fresh client request ID and the ordinary inspect/publish flow with the same
-source unchanged. Do not manufacture a source, Target, or version change. The
-server's current full compile identity decides whether to reuse a prior result
-or compile again.
-
-## CLI execution errors
-
-Nonzero exits mean the CLI invocation itself did not complete. Preserve and branch on the server's domain-specific `error.type`; the exit code is only a coarse handling class:
-
-- `2`: validation
+- `2`: validation or missing resource
 - `3`: authentication or authorization
-- `4`: retryable transport or concurrency
-- `5`: internal/protocol
-- `6`: policy or rollout gate
-- `10`: confirmation required
+- `4`: retryable network, rate limit, or upstream availability
+- `5`: internal or protocol failure
+- `6`: policy/doctor failure
+- `10`: explicit confirmation required
 
-Read the JSON error fields `type`, `subtype`, `message`, `retryable`, and optional `hint`. Never scrape human error text.
-
-Structured success and error objects may also contain `_notice.update`. This is a non-blocking machine-readable advisory, not an execution error. Tell the user its `current`, `latest`, and exact `command`; never silently discard it or auto-update without approval.
-
-Update failures use stable safe subtypes instead of returning raw npm output:
-
-- `update_registry_unavailable`: registry transport, timeout, rate-limit, or server failure; retryable when no fresh cache is available.
-- `update_registry_response`: the registry returned an invalid or unsupported release response.
-- `update_npm_missing`: npm is not available for an npm-managed installation.
-- `update_npm_permission`: the isolated ViceMe cache or npm global prefix is not writable; follow the returned hint and do not use `sudo viceme`.
-- `update_npm_failed`: npm failed for another local registry, proxy, or installation reason; follow the returned diagnostic hint.
+Successful install, auth, profile, App, and Capability commands return their business object directly on stdout. `skills read` returns raw bytes. `_notice.update`, when present, is advisory and never authorizes an automatic update.

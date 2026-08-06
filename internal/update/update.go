@@ -105,6 +105,7 @@ func (notice Notice) Message() string {
 
 type Service interface {
 	EnsureLauncher(context.Context) (TargetResult, error)
+	RollbackLauncher(context.Context) (TargetResult, error)
 	Check(context.Context) (CheckResult, error)
 	Apply(context.Context, CheckResult, ApplyOptions) (ApplyResult, error)
 }
@@ -141,14 +142,17 @@ func withoutEnvironmentVariable(environment []string, name string) []string {
 }
 
 type NPMService struct {
-	CurrentVersion    string
-	ComparableVersion string
-	InstallMethod     string
-	ConfigDir         string
-	RegistryEndpoint  string
-	HTTPClient        *http.Client
-	Now               func() time.Time
-	Runner            Runner
+	CurrentVersion             string
+	ComparableVersion          string
+	InstallMethod              string
+	ConfigDir                  string
+	RegistryEndpoint           string
+	HTTPClient                 *http.Client
+	Now                        func() time.Time
+	Runner                     Runner
+	bootstrapPreviousVersion   string
+	bootstrapPreviousInstalled bool
+	bootstrapChanged           bool
 }
 
 func NewNPMService(currentVersion, comparableVersion, installMethod string) *NPMService {
@@ -173,6 +177,19 @@ func (service *NPMService) EnsureLauncher(ctx context.Context) (TargetResult, er
 		result.Error = err.Error()
 		return result, fmt.Errorf("refuse launcher install without an exact semantic version: %w", err)
 	}
+	previousVersion, previousInstalled, err := service.installedGlobalVersion(ctx)
+	if err != nil {
+		result.Status = "failed"
+		result.Error = err.Error()
+		return result, err
+	}
+	service.bootstrapPreviousVersion = previousVersion
+	service.bootstrapPreviousInstalled = previousInstalled
+	service.bootstrapChanged = !previousInstalled || previousVersion != service.ComparableVersion
+	if !service.bootstrapChanged {
+		result.Status = "unchanged"
+		return result, nil
+	}
 	result.Status = "updated"
 	output, err := service.installExactPackage(ctx, service.ComparableVersion)
 	if err != nil {
@@ -181,6 +198,72 @@ func (service *NPMService) EnsureLauncher(ctx context.Context) (TargetResult, er
 		return result, fmt.Errorf("install persistent npm launcher: %w", err)
 	}
 	return result, nil
+}
+
+func (service *NPMService) RollbackLauncher(ctx context.Context) (TargetResult, error) {
+	result := TargetResult{Target: "npm_global", Status: "unchanged"}
+	if !service.bootstrapChanged {
+		return result, nil
+	}
+	var output []byte
+	var err error
+	if service.bootstrapPreviousInstalled {
+		output, err = service.installExactPackage(ctx, service.bootstrapPreviousVersion)
+	} else {
+		output, err = service.runNPM(
+			ctx,
+			"uninstall",
+			"--registry="+RegistryURL,
+			ScopeRegistryArg,
+			"--global",
+			"--ignore-scripts",
+			"--no-audit",
+			"--no-fund",
+			PackageName,
+		)
+	}
+	if err != nil {
+		result.Status = "rollback_failed"
+		result.Error = commandError(err, output)
+		return result, fmt.Errorf("roll back persistent npm launcher: %w", err)
+	}
+	result.Status = "rolled_back"
+	service.bootstrapChanged = false
+	return result, nil
+}
+
+func (service *NPMService) installedGlobalVersion(ctx context.Context) (string, bool, error) {
+	output, commandErr := service.runNPM(
+		ctx,
+		"list",
+		"--loglevel=silent",
+		"--global",
+		"--depth=0",
+		"--json",
+		PackageName,
+	)
+	if len(output) > maximumRegistryResponse {
+		return "", false, &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("npm global package query exceeded the output limit")}
+	}
+	var document struct {
+		Dependencies map[string]struct {
+			Version string `json:"version"`
+		} `json:"dependencies"`
+	}
+	if err := json.Unmarshal(output, &document); err != nil {
+		if commandErr != nil {
+			return "", false, commandErr
+		}
+		return "", false, &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("npm returned invalid global package metadata")}
+	}
+	installed, exists := document.Dependencies[PackageName]
+	if !exists || installed.Version == "" {
+		return "", false, nil
+	}
+	if _, err := semver.Parse(installed.Version); err != nil {
+		return "", false, &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("installed global ViceMe launcher has an invalid version")}
+	}
+	return installed.Version, true, nil
 }
 
 func (service *NPMService) Check(ctx context.Context) (CheckResult, error) {
@@ -258,7 +341,19 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 		skillTarget.Status = "failed"
 		skillTarget.Error = commandError(err, output)
 		result.Targets = append(result.Targets, skillTarget)
-		return result, fmt.Errorf("refresh Agent Skill with updated CLI: %w", err)
+		refreshErr := fmt.Errorf("refresh Agent Skill with updated CLI: %w", err)
+		if !check.UpdateAvailable {
+			return result, refreshErr
+		}
+		rollbackOutput, rollbackErr := service.installExactPackage(ctx, service.ComparableVersion)
+		if rollbackErr != nil {
+			result.Targets[0].Status = "rollback_failed"
+			result.Targets[0].Error = commandError(rollbackErr, rollbackOutput)
+			return result, errors.Join(refreshErr, fmt.Errorf("roll back npm launcher: %w", rollbackErr))
+		}
+		result.Targets[0].Status = "rolled_back"
+		result.CLIVersion = service.CurrentVersion
+		return result, refreshErr
 	}
 	result.Targets = append(result.Targets, skillTarget)
 	return result, nil

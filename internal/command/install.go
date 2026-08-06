@@ -56,7 +56,13 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 			}
 			report := runtime.deps.Skills.Install("viceme", target, runtime.deps.Environment)
 			if !report.AllSucceeded {
-				return output.Internal("bootstrap_install_partial", "one or more Skill targets could not be installed", nil).WithDetails(report)
+				rollback, rollbackErr := runtime.deps.Updater.RollbackLauncher(installContext)
+				result := output.Internal("bootstrap_install_partial", "the CLI and Agent Skill installation was rolled back because one or more Skill targets failed", rollbackErr).
+					WithDetails(map[string]any{"skill": report, "launcher_rollback": rollback})
+				if rollbackErr != nil {
+					result.Message = "the Agent Skill installation failed and the persistent CLI launcher could not be rolled back"
+				}
+				return result
 			}
 			activeProfile, err := runtime.config.Resolve(runtime.profile.Name)
 			if err != nil {
@@ -106,28 +112,23 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 				Region:   resolvedRegion,
 				Warnings: warnings,
 			}
-			if token, _, _ := runtime.overrideCredential(); token != "" {
+			status, statusErr := runtime.manager().CurrentStatus()
+			if statusErr == nil {
 				result.AuthStatusKnown = true
-				result.Authenticated = true
+				result.Authenticated = status.Authenticated
 			} else {
-				status, statusErr := runtime.manager().CurrentStatus()
-				if statusErr == nil {
-					result.AuthStatusKnown = true
-					result.Authenticated = status.Authenticated
-				} else {
-					result.Warnings = append(result.Warnings, "authentication status could not be read from the secure credential store")
-				}
+				result.Warnings = append(result.Warnings, "authentication status could not be read from the secure credential store")
 			}
 			if result.Authenticated {
 				result.NextStep = installNextStep{
-					Command: "viceme skill inspect <source> [--skill-root <path>]",
-					Reason:  "CLI, Skill, and authentication are ready",
+					Command: "viceme app link --origin <origin>",
+					Reason:  "CLI, Skill, and authentication are ready to link a project",
 				}
 			} else {
 				result.NextStep = installNextStep{
 					Required: true,
 					Command:  "viceme auth login",
-					Reason:   "complete device login before publishing a Skill Agent",
+					Reason:   "complete device login before linking a Creator App",
 				}
 			}
 			return runtime.business(result)

@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.0] - 2026-08-06
+
+### Breaking Changes
+
+- 以 Creator App 与 Capability 命令替换旧 Skill Agent 发布状态机。
+- CLI 接入 Shop Device Authorization、Refresh Token 轮换和 App Manifest。
+- 移除 `skill-agent-publications`、Target 与旧 `job` 命令。
+
 ## [0.10.1] - 2026-07-31
 
 ### Fixes

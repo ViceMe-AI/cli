@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -23,12 +24,11 @@ const (
 )
 
 type Profile struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Region      Region `json:"region"`
-	UserID      string `json:"userId,omitempty"`
-	APIBaseURL  string `json:"apiBaseUrl,omitempty"`
-	AccessToken string `json:"accessToken,omitempty"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Region     Region `json:"region"`
+	UserID     string `json:"userId,omitempty"`
+	APIBaseURL string `json:"apiBaseUrl,omitempty"`
 }
 
 type Config struct {
@@ -200,16 +200,19 @@ func load(filename string) (Config, error) {
 		return Config{}, configLoadError(filename, "read", err)
 	}
 	var config Config
-	if err := json.Unmarshal(data, &config); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&config); err != nil {
 		return Config{}, configLoadError(filename, "decode", err)
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return Config{}, configLoadError(filename, "decode", errors.New("config contains trailing JSON data"))
 	}
 	if err := validate(&config); err != nil {
 		return Config{}, configLoadError(filename, "validate", err)
 	}
-	if hasLocalAccessToken(config) {
-		if err := requirePrivateFile(filename); err != nil {
-			return Config{}, configLoadError(filename, "permissions", err)
-		}
+	if err := requirePrivateFile(filename); err != nil {
+		return Config{}, configLoadError(filename, "permissions", err)
 	}
 	return config, nil
 }
@@ -245,12 +248,6 @@ func validate(config *Config) error {
 			return fmt.Errorf("profile %q: %w", profile.Name, err)
 		}
 		profile.Region = region
-		if err := ValidateLocalAccessToken(profile.AccessToken); err != nil {
-			return fmt.Errorf("profile %q: %w", profile.Name, err)
-		}
-		if profile.AccessToken != "" && profile.APIBaseURL == "" {
-			return fmt.Errorf("profile %q: a local access token requires an explicit API base URL", profile.Name)
-		}
 	}
 	if config.CurrentProfile == "" {
 		config.CurrentProfile = config.Profiles[0].Name
@@ -280,28 +277,6 @@ func isCanonical(filename string, config Config) bool {
 	}
 	expected = append(expected, '\n')
 	return bytes.Equal(actual, expected)
-}
-
-func ValidateLocalAccessToken(value string) error {
-	if value == "" {
-		return nil
-	}
-	if len(value) > 64<<10 {
-		return fmt.Errorf("local access token exceeds the 64 KiB limit")
-	}
-	if strings.TrimSpace(value) != value || strings.ContainsAny(value, "\r\n\x00") {
-		return fmt.Errorf("local access token contains surrounding whitespace or control characters")
-	}
-	return nil
-}
-
-func hasLocalAccessToken(config Config) bool {
-	for _, profile := range config.Profiles {
-		if profile.AccessToken != "" {
-			return true
-		}
-	}
-	return false
 }
 
 func write(filename string, config Config) error {
