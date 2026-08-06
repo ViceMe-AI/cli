@@ -1,8 +1,10 @@
 package command
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
+	"unicode/utf16"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/appmanifest"
@@ -10,7 +12,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var commerceUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+var commerceUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
 func newCommerceCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "commerce", Short: "Configure ViceMe Commerce for a Creator App"}
@@ -46,6 +48,9 @@ func newCommerceOfferCreateCommand(runtime *Runtime) *cobra.Command {
 			if name == "" {
 				return output.Validation("commerce_offer_name", "--name is required")
 			}
+			if len(utf16.Encode([]rune(name))) > 100 {
+				return output.Validation("commerce_offer_name", "--name must contain at most 100 UTF-16 code units")
+			}
 			if amountMinor < 1 || amountMinor > 100_000_000 {
 				return output.Validation("commerce_offer_amount", "--amount-minor must be between 1 and 100000000")
 			}
@@ -67,12 +72,19 @@ func newCommerceOfferCreateCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			binding := manifest.Capabilities["commerce"]
+			packageSpec := binding.SDKPackage + "@" + binding.SDKVersion
 			return runtime.business(map[string]any{
 				"offer": offer,
 				"widget": map[string]string{
 					"attribute":       "data-viceme-checkout",
 					"offer_id":        offer.ID,
 					"publishable_key": manifest.PublishableKey,
+					"api_base_url":    strings.TrimRight(runtime.apiBaseURL, "/") + "/v1",
+					"sdk_package":     binding.SDKPackage,
+					"sdk_version":     binding.SDKVersion,
+					"package_spec":    packageSpec,
+					"cdn_url":         fmt.Sprintf("https://cdn.jsdelivr.net/npm/%s", packageSpec),
 				},
 			})
 		},

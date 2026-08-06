@@ -17,6 +17,7 @@ import (
 )
 
 func TestCommerceOfferCreateUsesLinkedEnvironmentAndExplicitIdempotencyKey(t *testing.T) {
+	const uuidV7 = "018f0d5e-7b54-7c55-b52f-bc1f5c25f1b4"
 	var received api.CreateCommerceOfferRequest
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Method != http.MethodPost || request.URL.Path != "/v1/creator-apps/"+testAppID+"/environments/TEST/commerce/offers" {
@@ -52,7 +53,7 @@ func TestCommerceOfferCreateUsesLinkedEnvironmentAndExplicitIdempotencyKey(t *te
 		dependencies,
 		"commerce", "offer", "create",
 		"--dir", project,
-		"--client-request-id", testClientRequestID,
+		"--client-request-id", uuidV7,
 		"--name", "Support this work",
 		"--amount-minor", "1",
 		"--currency", "cny",
@@ -61,10 +62,14 @@ func TestCommerceOfferCreateUsesLinkedEnvironmentAndExplicitIdempotencyKey(t *te
 	if code != 0 || stderr != "" {
 		t.Fatalf("commerce create code=%d stderr=%s", code, stderr)
 	}
-	if received.ClientRequestID != testClientRequestID || received.AmountMinor != 1 || received.Currency != "CNY" || received.Purpose != "TIP" {
+	if received.ClientRequestID != uuidV7 || received.AmountMinor != 1 || received.Currency != "CNY" || received.Purpose != "TIP" {
 		t.Fatalf("unexpected request: %#v", received)
 	}
-	if !strings.Contains(stdout, `"data-viceme-checkout"`) || !strings.Contains(stdout, testPublishableKey) {
+	if !strings.Contains(stdout, `"data-viceme-checkout"`) ||
+		!strings.Contains(stdout, testPublishableKey) ||
+		!strings.Contains(stdout, `"package_spec": "@viceme/web-sdk@0.1.0"`) ||
+		!strings.Contains(stdout, `"cdn_url": "https://cdn.jsdelivr.net/npm/@viceme/web-sdk@0.1.0"`) ||
+		!strings.Contains(stdout, `"api_base_url": "`+server.URL+`/v1"`) {
 		t.Fatalf("output omitted Widget integration data: %s", stdout)
 	}
 }
@@ -93,6 +98,37 @@ func TestCommerceOfferCreateRejectsMissingIdempotencyBeforeNetwork(t *testing.T)
 	)
 	if code == 0 || !strings.Contains(stderr, "commerce_request_id") {
 		t.Fatalf("missing idempotency key code=%d stderr=%s", code, stderr)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("invalid command reached the API: requests=%d", requests.Load())
+	}
+}
+
+func TestCommerceOfferCreateRejectsNameBeyondCanonicalLimitBeforeNetwork(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		http.Error(writer, "unexpected", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	project := createCommerceProject(t, "TEST", true)
+	store := securestore.NewMemory()
+	dependencies := authenticatedDependencies(t, server, store)
+	code, _, stderr, _ := runCLIWithDependencies(
+		t,
+		server,
+		store,
+		"",
+		dependencies,
+		"commerce", "offer", "create",
+		"--dir", project,
+		"--client-request-id", "018f0d5e-7b54-7c55-b52f-bc1f5c25f1b4",
+		"--name", strings.Repeat("x", 101),
+		"--amount-minor", "1",
+	)
+	if code == 0 || !strings.Contains(stderr, "commerce_offer_name") {
+		t.Fatalf("oversized name code=%d stderr=%s", code, stderr)
 	}
 	if requests.Load() != 0 {
 		t.Fatalf("invalid command reached the API: requests=%d", requests.Load())

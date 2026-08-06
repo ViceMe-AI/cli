@@ -68,7 +68,7 @@ Real payment providers, public Listing, Runtime, managed site generation, Previe
    ```
 
    Use `UNLOCK` only when the user needs a server-issued Entitlement. `TIP` never creates one. Never accept an amount from browser code or add a fake local “paid” state.
-9. Modify the project using its existing conventions. Use `@viceme/web-sdk` and the returned Offer ID for React/Vite or a Next.js Client Component. For static HTML, use the declaration shown in `references/commands.md`. Preserve the existing framework, component organization, styling, and deployment. Do not put a CLI credential, Webhook secret, or Provider credential in browser code.
+9. Read `widget.package_spec`, `widget.cdn_url`, `widget.api_base_url`, `widget.publishable_key`, and `widget.offer_id` from the successful Offer command. Use those exact values: install the pinned `package_spec` for React/Vite or a Next.js Client Component, or use the pinned `cdn_url` declaration in `references/commands.md` for static HTML. Never guess a package version or use `latest`. Preserve the existing framework, component organization, styling, and deployment. Do not put a CLI credential, Webhook secret, or Provider credential in browser code.
 10. Run the project's native format, lint, typecheck, test, and build commands in proportion to the change. Test the actual button in the registered Origin and finish one TEST Checkout in the ViceMe-hosted frame.
 11. Run:
 

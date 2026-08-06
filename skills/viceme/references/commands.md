@@ -72,7 +72,17 @@ Commerce is available in the linked TEST environment. `amount-minor` is the fixe
 
 ## App Context shell
 
-Install the public browser package using the project's existing package manager, then mount it from client-side code:
+Install the exact `widget.package_spec` returned by `commerce offer create`
+using the project's existing package manager. For the current
+`.viceme/app.json` binding that is:
+
+```bash
+pnpm add @viceme/web-sdk@0.1.0
+```
+
+Use the equivalent exact-version command for npm, yarn, or bun when that is the
+project's existing package manager. Never install `latest`. Then mount it from
+client-side code:
 
 ```ts
 import { mountAppContextWidget } from "@viceme/web-sdk";
@@ -85,7 +95,9 @@ mountAppContextWidget(document.querySelector("#viceme-app")!, {
 
 The browser package sends no CLI token. The API validates the request Origin against the App environment and returns only the public App name, environment, and capability projection.
 
-For static HTML, use the self-contained CDN entry documented by `@viceme/web-sdk`; it auto-mounts declared `data-viceme-app-context` targets and has no external module dependency.
+For static HTML, use the exact `widget.cdn_url` returned by the Offer command.
+It is derived from the manifest's `sdkPackage` and `sdkVersion`, auto-mounts
+declared targets, and has no external module dependency.
 
 ## Hosted Checkout Widget
 
@@ -95,7 +107,7 @@ Static HTML:
 
 ```html
 <script
-  src="<ViceMe CDN>/sdk/web/v1.js"
+  src="https://cdn.jsdelivr.net/npm/@viceme/web-sdk@0.1.0"
   data-viceme-api-base="<api_base_url from app link>"
   data-viceme-app-key="<publishableKey from .viceme/app.json>"
   defer
@@ -106,6 +118,10 @@ Static HTML:
 ```
 
 React/Vite or a Next.js Client Component:
+
+Install `widget.package_spec` with the project's existing package manager
+before adding the component. The example version must equal
+`.viceme/app.json -> capabilities.commerce.sdkVersion`.
 
 ```tsx
 "use client";
