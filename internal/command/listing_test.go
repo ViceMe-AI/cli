@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -36,21 +38,27 @@ func TestListingUpsertUsesLinkedAppAndReturnsAuthoritativePublicURL(t *testing.T
 	defer server.Close()
 
 	project := createCommerceProject(t, "LIVE", true)
+	inputFile := filepath.Join(t.TempDir(), "listing.json")
+	if err := os.WriteFile(inputFile, []byte(`{
+		"slug": "example-work",
+		"title": "Example Work",
+		"summary": "A complete public work",
+		"description": "Longer description",
+		"externalUrl": "https://creator.example/work#demo",
+		"coverUrl": "https://creator.example/cover.png",
+		"mediaUrls": ["https://creator.example/one.png"],
+		"offerId": "`+offerID+`",
+		"status": "PUBLIC"
+	}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	store := securestore.NewMemory()
 	dependencies := authenticatedDependencies(t, server, store)
 	code, stdout, stderr, _ := runCLIWithDependencies(
 		t, server, store, "", dependencies,
 		"listing", "upsert",
 		"--dir", project,
-		"--slug", "example-work",
-		"--title", "Example Work",
-		"--summary", "A complete public work",
-		"--description", "Longer description",
-		"--external-url", "https://creator.example/work",
-		"--cover-url", "https://creator.example/cover.png",
-		"--media-url", "https://creator.example/one.png",
-		"--offer", offerID,
-		"--status", "public",
+		"--input-file", inputFile,
 	)
 	if code != 0 || stderr != "" {
 		t.Fatalf("listing upsert code=%d stderr=%s", code, stderr)
@@ -69,19 +77,54 @@ func TestListingUpsertRejectsUnsafeURLBeforeNetwork(t *testing.T) {
 	project := createCommerceProject(t, "LIVE", true)
 	store := securestore.NewMemory()
 	dependencies := authenticatedDependencies(t, server, store)
+	input := `{
+		"slug": "unsafe-work",
+		"title": "Unsafe",
+		"summary": "Unsafe URL",
+		"description": "Description",
+		"externalUrl": "http://public.example/work",
+		"coverUrl": null,
+		"mediaUrls": [],
+		"offerId": null,
+		"status": "PUBLIC"
+	}`
 	code, _, stderr, _ := runCLIWithDependencies(
-		t, server, store, "", dependencies,
+		t, server, store, input, dependencies,
 		"listing", "upsert",
 		"--dir", project,
-		"--slug", "unsafe-work",
-		"--title", "Unsafe",
-		"--summary", "Unsafe URL",
-		"--description", "Description",
-		"--external-url", "http://public.example/work",
-		"--status", "PUBLIC",
+		"--input-file", "-",
 	)
 	if code == 0 || !strings.Contains(stderr, "listing_external_url") {
 		t.Fatalf("unsafe URL code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestListingUpsertRequiresCompleteReplacementDocument(t *testing.T) {
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+	project := createCommerceProject(t, "LIVE", true)
+	store := securestore.NewMemory()
+	dependencies := authenticatedDependencies(t, server, store)
+	code, _, stderr, _ := runCLIWithDependencies(
+		t, server, store,
+		`{"slug":"partial","title":"Only a title"}`,
+		dependencies,
+		"listing", "upsert",
+		"--dir", project,
+		"--input-file", "-",
+	)
+	if code == 0 || !strings.Contains(stderr, "listing_input_json") {
+		t.Fatalf("partial Listing code=%d stderr=%s", code, stderr)
+	}
+}
+
+func TestRequiredListingURLMatchesCanonicalFragmentAndLengthRules(t *testing.T) {
+	if value, err := requiredListingURL("external-url", "https://creator.example/work#section"); err != nil || !strings.HasSuffix(value, "#section") {
+		t.Fatalf("fragment URL value=%q err=%v", value, err)
+	}
+	tooLong := "https://creator.example/" + strings.Repeat("a", 2_048)
+	if _, err := requiredListingURL("external-url", tooLong); err == nil {
+		t.Fatal("URL longer than 2048 characters was accepted")
 	}
 }
 
@@ -101,7 +144,7 @@ func TestCommerceLedgerListForwardsOpaqueCursor(t *testing.T) {
 		})
 	}))
 	defer server.Close()
-	project := createCommerceProject(t, "LIVE", true)
+	project := createCommerceProject(t, "LIVE", false)
 	store := securestore.NewMemory()
 	dependencies := authenticatedDependencies(t, server, store)
 	code, stdout, stderr, _ := runCLIWithDependencies(

@@ -73,22 +73,37 @@ viceme commerce ledger list --dir . --limit 50
 
 ## Public Listing
 
-```bash
-viceme listing upsert --dir . \
-  --slug my-public-work \
-  --title "My public work" \
-  --summary "A short public summary" \
-  --description "The full public description" \
-  --external-url https://project.example \
-  --cover-url https://cdn.example/cover.webp \
-  --media-url https://cdn.example/one.webp \
-  --offer <optional-live-offer-id> \
-  --status PUBLIC
+`listing upsert` accepts a complete replacement document so an omitted flag
+cannot silently clear an existing Offer or media item. Run `listing get` first,
+then write a JSON file with the host's file-editing tool:
 
-viceme listing get --dir .
+```json
+{
+  "slug": "my-public-work",
+  "title": "My public work",
+  "summary": "A short public summary",
+  "description": "The full public description",
+  "externalUrl": "https://project.example",
+  "coverUrl": "https://cdn.example/cover.webp",
+  "mediaUrls": ["https://cdn.example/one.webp"],
+  "offerId": null,
+  "status": "PUBLIC"
+}
 ```
 
-An EXTERNAL App must have a safe HTTPS (or loopback development) `external-url` before it can become PUBLIC. `--offer`, when present, must identify the same App's ACTIVE LIVE Offer. The server-returned `publicUrl` is the share URL; do not construct it from the slug or a guessed domain. Listing comments use a dedicated public API and are not Skill product comments.
+```bash
+viceme listing get --dir .
+viceme listing upsert --dir . --input-file ./listing.json
+# Use --input-file - only when the complete JSON already arrives on stdin.
+```
+
+Every key in the example is required; nullable values use explicit JSON `null`
+and `mediaUrls` is always an array. Do not construct this document through
+shell interpolation. An EXTERNAL App must have a safe HTTPS (or loopback
+development) `externalUrl` before it can become PUBLIC. A non-null `offerId`
+must identify the same App's ACTIVE LIVE Offer. The server-returned `publicUrl`
+is the share URL; do not construct it from the slug or a guessed domain.
+Listing comments use a dedicated public API and are not Skill product comments.
 
 ## App Context shell
 

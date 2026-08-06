@@ -1,8 +1,13 @@
 package command
 
 import (
+	"bytes"
+	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"net/url"
+	"os"
 	"regexp"
 	"strings"
 	"unicode/utf16"
@@ -14,6 +19,8 @@ import (
 
 var listingSlugPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 
+const maxListingInputBytes = 64 << 10
+
 func newListingCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "listing", Short: "Manage the public Listing for a Creator App"}
 	command.AddCommand(newListingUpsertCommand(runtime))
@@ -24,15 +31,7 @@ func newListingCommand(runtime *Runtime) *cobra.Command {
 func newListingUpsertCommand(runtime *Runtime) *cobra.Command {
 	var directory string
 	var appID string
-	var slug string
-	var title string
-	var summary string
-	var description string
-	var externalURL string
-	var coverURL string
-	var mediaURLs []string
-	var offerID string
-	var status string
+	var inputFile string
 	command := &cobra.Command{
 		Use:   "upsert",
 		Short: "Create or update the linked App public Listing",
@@ -42,67 +41,14 @@ func newListingUpsertCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			slug = strings.ToLower(strings.TrimSpace(slug))
-			if len(slug) < 2 || len(slug) > 80 || !listingSlugPattern.MatchString(slug) {
-				return output.Validation("listing_slug", "--slug must contain 2-80 lowercase letters, numbers, or single hyphens")
-			}
-			title = strings.TrimSpace(title)
-			summary = strings.TrimSpace(summary)
-			description = strings.TrimSpace(description)
-			if err := validateListingText("title", title, 100); err != nil {
-				return err
-			}
-			if err := validateListingText("summary", summary, 280); err != nil {
-				return err
-			}
-			if err := validateListingText("description", description, 20_000); err != nil {
-				return err
-			}
-			external, err := optionalListingURL("external-url", externalURL)
+			input, err := readListingInput(command.InOrStdin(), inputFile)
 			if err != nil {
 				return err
 			}
-			cover, err := optionalListingURL("cover-url", coverURL)
-			if err != nil {
+			if err := validateListingInput(manifest.HostingMode, &input); err != nil {
 				return err
 			}
-			if len(mediaURLs) > 12 {
-				return output.Validation("listing_media_urls", "--media-url can be provided at most 12 times")
-			}
-			media := make([]string, 0, len(mediaURLs))
-			for _, value := range mediaURLs {
-				parsed, parseErr := requiredListingURL("media-url", value)
-				if parseErr != nil {
-					return parseErr
-				}
-				media = append(media, parsed)
-			}
-			var offer *string
-			offerID = strings.ToLower(strings.TrimSpace(offerID))
-			if offerID != "" {
-				if !commerceUUIDPattern.MatchString(offerID) {
-					return output.Validation("listing_offer_id", "--offer must be a UUID")
-				}
-				offer = &offerID
-			}
-			status = strings.ToUpper(strings.TrimSpace(status))
-			if status != "DRAFT" && status != "PUBLIC" && status != "UNLISTED" {
-				return output.Validation("listing_status", "--status must be DRAFT, PUBLIC, or UNLISTED")
-			}
-			if status == "PUBLIC" && manifest.HostingMode == "EXTERNAL" && external == nil {
-				return output.Validation("listing_external_url", "a PUBLIC EXTERNAL App requires --external-url")
-			}
-			listing, err := runtime.client().UpsertCreatorAppListing(command.Context(), manifest.AppID, api.UpsertCreatorAppListingRequest{
-				Slug:        slug,
-				Title:       title,
-				Summary:     summary,
-				Description: description,
-				ExternalURL: external,
-				CoverURL:    cover,
-				MediaURLs:   media,
-				OfferID:     offer,
-				Status:      status,
-			})
+			listing, err := runtime.client().UpsertCreatorAppListing(command.Context(), manifest.AppID, input)
 			if err != nil {
 				return err
 			}
@@ -110,15 +56,7 @@ func newListingUpsertCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	addBindingFlags(command, &directory, &appID)
-	command.Flags().StringVar(&slug, "slug", "", "public Listing slug")
-	command.Flags().StringVar(&title, "title", "", "Listing title")
-	command.Flags().StringVar(&summary, "summary", "", "Listing summary")
-	command.Flags().StringVar(&description, "description", "", "Listing description")
-	command.Flags().StringVar(&externalURL, "external-url", "", "deployed external App URL")
-	command.Flags().StringVar(&coverURL, "cover-url", "", "public HTTPS cover image URL")
-	command.Flags().StringSliceVar(&mediaURLs, "media-url", nil, "public HTTPS media URL; repeat for multiple items")
-	command.Flags().StringVar(&offerID, "offer", "", "optional LIVE Commerce Offer UUID")
-	command.Flags().StringVar(&status, "status", "DRAFT", "Listing status: DRAFT, PUBLIC, or UNLISTED")
+	command.Flags().StringVar(&inputFile, "input-file", "", "complete Listing JSON file, or - for stdin")
 	return command
 }
 
@@ -155,23 +93,11 @@ func validateListingText(name, value string, max int) error {
 	return nil
 }
 
-func optionalListingURL(name, value string) (*string, error) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return nil, nil
-	}
-	parsed, err := requiredListingURL(name, value)
-	if err != nil {
-		return nil, err
-	}
-	return &parsed, nil
-}
-
 func requiredListingURL(name, value string) (string, error) {
 	value = strings.TrimSpace(value)
 	parsed, err := url.Parse(value)
-	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.Fragment != "" {
-		return "", output.Validation("listing_"+strings.ReplaceAll(name, "-", "_"), "--"+name+" must be an absolute HTTP(S) URL without credentials or fragments")
+	if len(value) > 2_048 || err != nil || parsed.Hostname() == "" || parsed.User != nil {
+		return "", output.Validation("listing_"+strings.ReplaceAll(name, "-", "_"), name+" must be an absolute HTTP(S) URL of at most 2048 characters without credentials")
 	}
 	if parsed.Scheme != "https" {
 		ip := net.ParseIP(parsed.Hostname())
@@ -180,4 +106,115 @@ func requiredListingURL(name, value string) (string, error) {
 		}
 	}
 	return parsed.String(), nil
+}
+
+func readListingInput(stdin io.Reader, inputFile string) (api.UpsertCreatorAppListingRequest, error) {
+	inputFile = strings.TrimSpace(inputFile)
+	if inputFile == "" {
+		return api.UpsertCreatorAppListingRequest{}, output.Validation("listing_input_file", "--input-file is required")
+	}
+	var reader io.Reader = stdin
+	var closeFile func() error
+	if inputFile != "-" {
+		file, err := os.Open(inputFile)
+		if err != nil {
+			return api.UpsertCreatorAppListingRequest{}, output.Validation("listing_input_file", "could not open --input-file")
+		}
+		reader = file
+		closeFile = file.Close
+	}
+	if closeFile != nil {
+		defer func() { _ = closeFile() }()
+	}
+	data, err := io.ReadAll(io.LimitReader(reader, maxListingInputBytes+1))
+	if err != nil {
+		return api.UpsertCreatorAppListingRequest{}, output.Validation("listing_input_file", "could not read --input-file")
+	}
+	if len(data) > maxListingInputBytes {
+		return api.UpsertCreatorAppListingRequest{}, output.Validation("listing_input_file", "--input-file exceeds 64 KiB")
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return api.UpsertCreatorAppListingRequest{}, output.Validation("listing_input_json", "--input-file must contain one JSON object")
+	}
+	for _, field := range []string{"slug", "title", "summary", "description", "externalUrl", "coverUrl", "mediaUrls", "offerId", "status"} {
+		if _, ok := fields[field]; !ok {
+			return api.UpsertCreatorAppListingRequest{}, output.Validation("listing_input_json", "complete Listing JSON must include "+field)
+		}
+	}
+	var input api.UpsertCreatorAppListingRequest
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		return api.UpsertCreatorAppListingRequest{}, output.Validation("listing_input_json", "--input-file does not match the Listing contract")
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return api.UpsertCreatorAppListingRequest{}, output.Validation("listing_input_json", "--input-file must contain exactly one JSON object")
+	}
+	if input.MediaURLs == nil {
+		return api.UpsertCreatorAppListingRequest{}, output.Validation("listing_media_urls", "mediaUrls must be an array")
+	}
+	return input, nil
+}
+
+func validateListingInput(hostingMode string, input *api.UpsertCreatorAppListingRequest) error {
+	input.Slug = strings.TrimSpace(input.Slug)
+	if len(input.Slug) < 2 || len(input.Slug) > 80 || !listingSlugPattern.MatchString(input.Slug) {
+		return output.Validation("listing_slug", "slug must contain 2-80 lowercase letters, numbers, or single hyphens")
+	}
+	input.Title = strings.TrimSpace(input.Title)
+	input.Summary = strings.TrimSpace(input.Summary)
+	input.Description = strings.TrimSpace(input.Description)
+	if err := validateListingText("title", input.Title, 100); err != nil {
+		return err
+	}
+	if err := validateListingText("summary", input.Summary, 280); err != nil {
+		return err
+	}
+	if err := validateListingText("description", input.Description, 20_000); err != nil {
+		return err
+	}
+	if err := normalizeOptionalListingURL("external-url", &input.ExternalURL); err != nil {
+		return err
+	}
+	if err := normalizeOptionalListingURL("cover-url", &input.CoverURL); err != nil {
+		return err
+	}
+	if len(input.MediaURLs) > 12 {
+		return output.Validation("listing_media_urls", "mediaUrls can contain at most 12 items")
+	}
+	for index, value := range input.MediaURLs {
+		parsed, err := requiredListingURL("media-url", value)
+		if err != nil {
+			return err
+		}
+		input.MediaURLs[index] = parsed
+	}
+	if input.OfferID != nil {
+		value := strings.ToLower(strings.TrimSpace(*input.OfferID))
+		if !commerceUUIDPattern.MatchString(value) {
+			return output.Validation("listing_offer_id", "offerId must be a UUID or null")
+		}
+		input.OfferID = &value
+	}
+	input.Status = strings.ToUpper(strings.TrimSpace(input.Status))
+	if input.Status != "DRAFT" && input.Status != "PUBLIC" && input.Status != "UNLISTED" {
+		return output.Validation("listing_status", "status must be DRAFT, PUBLIC, or UNLISTED")
+	}
+	if input.Status == "PUBLIC" && hostingMode == "EXTERNAL" && input.ExternalURL == nil {
+		return output.Validation("listing_external_url", "a PUBLIC EXTERNAL App requires externalUrl")
+	}
+	return nil
+}
+
+func normalizeOptionalListingURL(name string, target **string) error {
+	if *target == nil {
+		return nil
+	}
+	parsed, err := requiredListingURL(name, **target)
+	if err != nil {
+		return err
+	}
+	*target = &parsed
+	return nil
 }

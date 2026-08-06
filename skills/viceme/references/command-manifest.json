@@ -429,57 +429,15 @@
           "usage": "assert the expected linked Creator App ID"
         },
         {
-          "name": "cover-url",
-          "type": "string",
-          "usage": "public HTTPS cover image URL"
-        },
-        {
-          "name": "description",
-          "type": "string",
-          "usage": "Listing description"
-        },
-        {
           "name": "dir",
           "type": "string",
           "default": ".",
           "usage": "project directory containing .viceme/app.json"
         },
         {
-          "name": "external-url",
+          "name": "input-file",
           "type": "string",
-          "usage": "deployed external App URL"
-        },
-        {
-          "name": "media-url",
-          "type": "stringSlice",
-          "default": "[]",
-          "usage": "public HTTPS media URL; repeat for multiple items"
-        },
-        {
-          "name": "offer",
-          "type": "string",
-          "usage": "optional LIVE Commerce Offer UUID"
-        },
-        {
-          "name": "slug",
-          "type": "string",
-          "usage": "public Listing slug"
-        },
-        {
-          "name": "status",
-          "type": "string",
-          "default": "DRAFT",
-          "usage": "Listing status: DRAFT, PUBLIC, or UNLISTED"
-        },
-        {
-          "name": "summary",
-          "type": "string",
-          "usage": "Listing summary"
-        },
-        {
-          "name": "title",
-          "type": "string",
-          "usage": "Listing title"
+          "usage": "complete Listing JSON file, or - for stdin"
         }
       ]
     },

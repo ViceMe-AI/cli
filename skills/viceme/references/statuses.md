@@ -54,6 +54,7 @@ Branch on `error.subtype`; never scrape `message`.
 - `listing_slug_taken`: choose a different stable public slug. Do not overwrite another App's Listing.
 - `listing_offer_not_owned`: remove the Offer or select the same App's LIVE Offer; never copy another App's ID.
 - `listing_not_found`: the App has no Listing, or the public slug is not currently PUBLIC.
+- `listing_input_file` / `listing_input_json`: create one complete Listing JSON document with the file-editing tool, including explicit nullable and array fields; never splice user content into a shell command.
 - `creator_ledger_cursor_invalid`: discard only the malformed pagination cursor and restart the read from the first page. Ledger entries themselves are immutable.
 
 ## Exit codes

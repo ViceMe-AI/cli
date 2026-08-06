@@ -137,7 +137,7 @@ func newCommerceLedgerListCommand(runtime *Runtime) *cobra.Command {
 		Short: "List immutable payable, refund, payout, and adjustment entries",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			_, manifest, err := loadCommerceBinding(directory, appID)
+			_, manifest, err := loadAppBinding(directory, appID)
 			if err != nil {
 				return err
 			}

@@ -81,17 +81,14 @@ Runtime, managed site generation, Preview, and managed Publish commands are not 
     ```
 
     Report each failed check exactly. Do not weaken Origin checks or edit the manifest to hide drift.
-12. If the user asks to publish an external work page, update its Listing only after the deployed external URL and media URLs are known:
+12. If the user asks to publish or change an external work page, read the current full representation first:
 
     ```bash
-    viceme listing upsert --dir <project-root> \
-      --slug <public-slug> --title <title> --summary <summary> \
-      --description <description> --external-url <https-url> \
-      --status PUBLIC
     viceme listing get --dir <project-root>
+    viceme listing upsert --dir <project-root> --input-file <listing-json>
     ```
 
-    Use the returned `publicUrl` as the authoritative share URL. An optional `--offer` must be an ACTIVE LIVE Offer owned by this App. Listing comments belong to the Listing; never reuse or rewrite Skill product comments.
+    Create `<listing-json>` with the host's file-editing tool, not by interpolating user content into a shell command. The JSON is a complete replacement document and must explicitly include `slug`, `title`, `summary`, `description`, nullable `externalUrl`, nullable `coverUrl`, `mediaUrls`, nullable `offerId`, and `status`. Preserve existing values unless the user asked to change them. Use the returned `publicUrl` as the authoritative share URL. A non-null `offerId` must be an ACTIVE LIVE Offer owned by this App. Listing comments belong to the Listing; never reuse or rewrite Skill product comments.
 13. To inspect LIVE money owed by ViceMe, use `viceme commerce ledger list --dir <project-root>`. The ledger is append-only. There is no creator payout, refund, adjustment, or deletion command in this release; those operations remain staff-controlled and manually settled.
 
 ## Safety
