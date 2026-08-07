@@ -20,7 +20,6 @@ func TestSaveAndLoadRoundTrip(t *testing.T) {
 		TemplateName:          "image-tool-starter",
 		TemplateVersion:       "1.0.0",
 		TemplateDigest:        "sha256:" + strings.Repeat("b", 64),
-		AppSDKVersion:         "0.1.0",
 		SourceDigest:          "sha256:" + strings.Repeat("c", 64),
 		BuildDigest:           "sha256:" + strings.Repeat("d", 64),
 	}

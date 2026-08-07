@@ -464,7 +464,6 @@ func TestManagedAppPreviewUploadsSourceAndArtifactViaMultipart(t *testing.T) {
 		RuntimeContractDigest: "sha256:" + strings.Repeat("a", 64),
 		TemplateName:          "image-tool-starter", TemplateVersion: "1.0.0",
 		TemplateDigest: "sha256:" + strings.Repeat("1", 64),
-		AppSDKVersion:  "0.1.0",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -522,7 +521,6 @@ func TestManagedAppPublishRequiresPreview(t *testing.T) {
 		RuntimeContractDigest: "sha256:" + strings.Repeat("a", 64),
 		TemplateName:          "image-tool-starter", TemplateVersion: "1.0.0",
 		TemplateDigest: "sha256:" + strings.Repeat("1", 64),
-		AppSDKVersion:  "0.1.0",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +566,6 @@ func TestManagedAppPublishEchoesPreviewDigests(t *testing.T) {
 		RuntimeContractDigest: contractDigest,
 		TemplateName:          "image-tool-starter", TemplateVersion: "1.0.0",
 		TemplateDigest: "sha256:" + strings.Repeat("1", 64),
-		AppSDKVersion:  "0.1.0",
 		SourceDigest:   sourceDigest, BuildDigest: buildDigest,
 	}); err != nil {
 		t.Fatal(err)

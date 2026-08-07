@@ -219,7 +219,6 @@ func runManagedAppInit(cmd *cobra.Command, runtime *Runtime) error {
 		RuntimeReleaseID: runtimeReleaseID,
 		TemplateName:     tpl.Name,
 		TemplateVersion:  tpl.Version,
-		AppSDKVersion:    tpl.SDKVersion,
 	})
 	if err != nil {
 		return err
@@ -253,7 +252,6 @@ func runManagedAppInit(cmd *cobra.Command, runtime *Runtime) error {
 		TemplateName:          tpl.Name,
 		TemplateVersion:       tpl.Version,
 		TemplateDigest:        tpl.Digest,
-		AppSDKVersion:         tpl.SDKVersion,
 	})
 	if err != nil {
 		return output.Internal("managed_release_save", "the managed App was initialized but the release state could not be saved", err)
@@ -321,7 +319,6 @@ func runManagedAppPreview(cmd *cobra.Command, runtime *Runtime) error {
 		TemplateName:          state.TemplateName,
 		TemplateVersion:       state.TemplateVersion,
 		TemplateDigest:        state.TemplateDigest,
-		AppSDKVersion:         state.AppSDKVersion,
 	}, sourceArtifact.Path)
 	if err != nil {
 		return err

@@ -42,7 +42,6 @@ type State struct {
 	TemplateName          string `json:"templateName"`
 	TemplateVersion       string `json:"templateVersion"`
 	TemplateDigest        string `json:"templateDigest"`
-	AppSDKVersion         string `json:"appSdkVersion"`
 	SourceDigest          string `json:"sourceDigest"`
 	BuildDigest           string `json:"buildDigest"`
 	PreviewRunID          string `json:"previewRunId,omitempty"`

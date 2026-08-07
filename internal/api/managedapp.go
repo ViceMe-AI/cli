@@ -31,7 +31,8 @@ type InitManagedAppRequest struct {
 	RuntimeReleaseID string `json:"runtimeReleaseId"`
 	TemplateName     string `json:"templateName"`
 	TemplateVersion  string `json:"templateVersion"`
-	AppSDKVersion    string `json:"appSdkVersion"`
+	// appSdkVersion is intentionally absent: the Shop derives it from its
+	// server-side template record (authoritative), not from the client.
 }
 
 // InitManagedAppResponse mirrors the Shop managedAppReleaseSchema. Note that
@@ -58,7 +59,7 @@ type UploadSourceRequest struct {
 	TemplateName          string `json:"templateName"`
 	TemplateVersion       string `json:"templateVersion"`
 	TemplateDigest        string `json:"templateDigest"`
-	AppSDKVersion         string `json:"appSdkVersion"`
+	// appSdkVersion is server-authoritative (template record), not client-supplied.
 }
 
 type UploadSourceResponse struct {

@@ -323,7 +323,8 @@ func (c *Client) UploadManagedAppSource(ctx context.Context, request UploadSourc
 		"templateName":          request.TemplateName,
 		"templateVersion":       request.TemplateVersion,
 		"templateDigest":        request.TemplateDigest,
-		"appSdkVersion":         request.AppSDKVersion,
+		// appSdkVersion is server-authoritative (template record), not
+		// client-supplied.
 	}
 	err := c.doMultipart(ctx, http.MethodPost, "/v1/managed-apps/releases/source", fields, "file", archivePath, &response)
 	return response, err
