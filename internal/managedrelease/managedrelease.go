@@ -28,6 +28,10 @@ var (
 // `app publish` so the confirmation can cite the exact bytes the user reviewed.
 type State struct {
 	SchemaVersion         int    `json:"schemaVersion"`
+	// Idempotency key for InitManagedApp on the Shop, persisted BEFORE the
+	// remote App is created so a retry after a local crash reuses the same key
+	// instead of leaving an orphan App (P1 fix).
+	ClientRequestID       string `json:"clientRequestId,omitempty"`
 	AppID                 string `json:"appId"`
 	ReleaseID             string `json:"releaseId"`
 	CandidateID           string `json:"candidateId"`
@@ -119,6 +123,52 @@ func Save(directory string, state State) (string, error) {
 	}
 	committed = true
 	return filename, nil
+}
+
+// SavePending persists only the InitManagedApp idempotency key before the
+// remote App is created. The state is intentionally partial — it cannot pass
+// validate() — so a crash between this write and InitManagedApp can be retried
+// with the same clientRequestId, and `app init` never leaves an orphan App on
+// the Shop.
+func SavePending(directory, clientRequestID string) error {
+	state := State{SchemaVersion: SchemaVersion, ClientRequestID: clientRequestID}
+	directory = filepath.Clean(directory)
+	stateDirectory := filepath.Join(directory, ".viceme")
+	if err := os.MkdirAll(stateDirectory, 0o755); err != nil {
+		return fmt.Errorf("create managed release directory: %w", err)
+	}
+	temporary, err := os.CreateTemp(stateDirectory, ".managed-release-*.json")
+	if err != nil {
+		return fmt.Errorf("create managed release temporary file: %w", err)
+	}
+	temporaryName := temporary.Name()
+	committed := false
+	defer func() {
+		_ = temporary.Close()
+		if !committed {
+			_ = os.Remove(temporaryName)
+		}
+	}()
+	if err := temporary.Chmod(0o644); err != nil {
+		return fmt.Errorf("set managed release permissions: %w", err)
+	}
+	encoder := json.NewEncoder(temporary)
+	encoder.SetEscapeHTML(false)
+	encoder.SetIndent("", "  ")
+	if err := encoder.Encode(state); err != nil {
+		return fmt.Errorf("encode managed release state: %w", err)
+	}
+	if err := temporary.Sync(); err != nil {
+		return fmt.Errorf("sync managed release state: %w", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return fmt.Errorf("close managed release state: %w", err)
+	}
+	if err := os.Rename(temporaryName, Path(directory)); err != nil {
+		return fmt.Errorf("persist managed release state: %w", err)
+	}
+	committed = true
+	return nil
 }
 
 func validate(state State) error {

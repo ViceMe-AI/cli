@@ -133,6 +133,11 @@ func runManagedAppInit(cmd *cobra.Command, runtime *Runtime) error {
 	if contract.RuntimeReleaseID != runtimeReleaseID {
 		return output.Validation("runtime_release_mismatch", "the runtime contract does not match the requested Runtime Release")
 	}
+	// The Shop rejects an empty name; default to the template name so a bare
+	// `viceme app init` works out of the box (P1 fix).
+	if name == "" {
+		name = tpl.Name
+	}
 
 	// Resolve and create the output directory before downloading the template.
 	projectDir, err := resolveProjectDirectoryOrCreate(outputDir)
@@ -144,6 +149,17 @@ func runManagedAppInit(cmd *cobra.Command, runtime *Runtime) error {
 	// creating the remote App. If the digest mismatches (tampered archive or a
 	// stale catalog) we abort here without ever calling InitManagedApp, so a bad
 	// template can never leave an orphan App/candidate on the server.
+	//
+	// Extraction must not silently overwrite an existing project: refuse unless
+	// the directory is empty or it only holds an interrupted init marker
+	// (P1 fix). The marker is written before InitManagedApp below.
+	existing, loadErr := managedrelease.Load(projectDir)
+	retrying := loadErr == nil && existing.ClientRequestID != ""
+	if !directoryEmptyOrRetryMarker(projectDir, retrying) {
+		return output.Validation("init_output_not_empty",
+			"the output directory is not empty; choose an empty directory or rerun the same command on the interrupted project").
+			WithDetails(map[string]any{"directory": projectDir})
+	}
 	archiveBytes, err := downloadAndVerifyDigest(ctx, runtime, tpl.DownloadURL, tpl.Digest)
 	if err != nil {
 		return err
@@ -152,10 +168,22 @@ func runManagedAppInit(cmd *cobra.Command, runtime *Runtime) error {
 		return output.Internal("template_extract", "failed to extract the template archive", err)
 	}
 
+	// Idempotency: reuse the clientRequestId persisted by an interrupted run so
+	// a retry converges on the SAME Shop App instead of creating an orphan.
+	// The key is written to disk BEFORE InitManagedApp; if the local write
+	// fails we abort before any remote side effect.
+	clientRequestID := existing.ClientRequestID
+	if clientRequestID == "" {
+		clientRequestID = generateClientRequestID()
+		if err := managedrelease.SavePending(projectDir, clientRequestID); err != nil {
+			return output.Internal("managed_release_pending", "failed to persist the init idempotency key", err)
+		}
+	}
+
 	// Initialize the App/release candidate. The Shop returns the appId,
 	// candidateId, publishableKey and environment the project will be bound to.
 	initResp, err := client.InitManagedApp(ctx, api.InitManagedAppRequest{
-		ClientRequestID:  generateClientRequestID(),
+		ClientRequestID:  clientRequestID,
 		Name:             name,
 		RuntimeReleaseID: runtimeReleaseID,
 		TemplateName:     tpl.Name,
@@ -564,7 +592,14 @@ func extractZipArchive(archiveBytes []byte, dir string) error {
 }
 
 func extractZipEntry(file *zip.File, dir string, maxFileBytes, maxRemaining int64) (int64, error) {
-	destination := filepath.Join(dir, file.Name)
+	// Validate BEFORE any filesystem side effect — directory entries included.
+	// A hostile archive can name entries "..", use an absolute path, or smuggle
+	// a Windows drive root; and a pre-existing symlink inside the output
+	// directory can redirect writes outside it (P0/P1 fixes).
+	destination, err := safeExtractPath(dir, file.Name)
+	if err != nil {
+		return 0, err
+	}
 	if file.FileInfo().IsDir() {
 		return 0, os.MkdirAll(destination, file.Mode())
 	}
@@ -573,17 +608,6 @@ func extractZipEntry(file *zip.File, dir string, maxFileBytes, maxRemaining int6
 	}
 	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
 		return 0, err
-	}
-	cleaned, err := filepath.Abs(filepath.Clean(destination))
-	if err != nil {
-		return 0, err
-	}
-	baseAbs, err := filepath.Abs(dir)
-	if err != nil {
-		return 0, err
-	}
-	if !strings.HasPrefix(cleaned, baseAbs+string(filepath.Separator)) && cleaned != baseAbs {
-		return 0, fmt.Errorf("archive entry escapes the output directory: %s", file.Name)
 	}
 	source, err := file.Open()
 	if err != nil {
@@ -609,6 +633,76 @@ func extractZipEntry(file *zip.File, dir string, maxFileBytes, maxRemaining int6
 		return 0, fmt.Errorf("archive entry %s exceeds the extraction limit", file.Name)
 	}
 	return written, nil
+}
+
+// safeExtractPath resolves an archive entry name inside dir and rejects any
+// entry that would escape it: absolute paths, ".." segments, Windows drive
+// roots, or traversal through a pre-existing symbolic link. The check runs
+// before any directory or file is created (P0 fix: directory entries were
+// previously extracted unchecked).
+func safeExtractPath(dir, name string) (string, error) {
+	cleaned := filepath.Clean(name)
+	if cleaned == "." || cleaned == "" {
+		return "", fmt.Errorf("archive entry has an empty path")
+	}
+	if filepath.IsAbs(cleaned) ||
+		cleaned == ".." ||
+		strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) ||
+		filepath.VolumeName(cleaned) != "" ||
+		strings.Contains(name, "\\") {
+		return "", fmt.Errorf("archive entry escapes the output directory: %s", name)
+	}
+	baseAbs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	destination := filepath.Join(baseAbs, cleaned)
+	cleanedAbs, err := filepath.Abs(destination)
+	if err != nil {
+		return "", err
+	}
+	sep := string(filepath.Separator)
+	if cleanedAbs != baseAbs &&
+		!strings.HasPrefix(cleanedAbs, baseAbs+sep) {
+		return "", fmt.Errorf("archive entry escapes the output directory: %s", name)
+	}
+	// Symlink guard: no existing component of the target path may be a
+	// symbolic link, or a write would follow it outside dir (P1 fix).
+	current := baseAbs
+	for _, part := range strings.Split(cleaned, "/") {
+		current = filepath.Join(current, part)
+		info, err := os.Lstat(current)
+		if err != nil {
+			break // remaining components do not exist yet
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return "", fmt.Errorf("archive entry traverses a symbolic link: %s", name)
+		}
+	}
+	return cleanedAbs, nil
+}
+
+// directoryEmptyOrRetryMarker reports whether init may extract into the
+// directory: it must be empty, or contain only the interrupted-init marker
+// (.viceme/managed-release.json with a persisted clientRequestId).
+func directoryEmptyOrRetryMarker(directory string, retrying bool) bool {
+	entries, err := os.ReadDir(directory)
+	if err != nil {
+		return false
+	}
+	if len(entries) == 0 {
+		return true
+	}
+	if !retrying {
+		return false
+	}
+	// Only the .viceme marker may be present during a retry.
+	for _, entry := range entries {
+		if entry.Name() != ".viceme" {
+			return false
+		}
+	}
+	return true
 }
 
 func resolveProjectDirectoryOrCreate(directory string) (string, error) {
