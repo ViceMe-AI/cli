@@ -397,7 +397,7 @@ func newRuntimeTicketCommand(runtime *Runtime) *cobra.Command {
 			ticketURL, _ := cmd.Flags().GetString("ticket-url")
 
 			if useBrowser {
-				code, err := readRuntimeTicketDeviceCode(cmd, ticketURL, pk, origin)
+				code, err := readRuntimeTicketDeviceCode(cmd, ticketURL, pk, origin, runtime.deps.OpenBrowser)
 				if err != nil {
 					return err
 				}
@@ -427,7 +427,13 @@ func newRuntimeTicketCommand(runtime *Runtime) *cobra.Command {
 // readRuntimeTicketDeviceCode opens the authorization page and reads the
 // one-time code the user copies back from the web UI. The URL is printed as a
 // fallback when the browser cannot be opened (headless CI, no GUI).
-func readRuntimeTicketDeviceCode(cmd *cobra.Command, ticketURL, publishableKey, origin string) (string, error) {
+func readRuntimeTicketDeviceCode(
+	cmd *cobra.Command,
+	ticketURL string,
+	publishableKey string,
+	origin string,
+	openURL func(string) error,
+) (string, error) {
 	fullURL := ticketURL
 	if idx := strings.IndexAny(ticketURL, "?"); idx >= 0 {
 		fullURL += "&publishableKey=" + publishableKey + "&origin=" + origin
@@ -437,7 +443,7 @@ func readRuntimeTicketDeviceCode(cmd *cobra.Command, ticketURL, publishableKey, 
 	writer := cmd.ErrOrStderr()
 	_, _ = fmt.Fprintln(writer, "Open this URL in your browser to authorize a Runtime Ticket:")
 	_, _ = fmt.Fprintf(writer, "\n  %s\n\n", fullURL)
-	if err := openBrowser(fullURL); err != nil {
+	if err := openURL(fullURL); err != nil {
 		// A failure to launch the browser is non-fatal: the URL has been printed.
 		_, _ = fmt.Fprintf(writer, "Could not open the browser automatically (%v); open the URL above manually.\n", err)
 	}

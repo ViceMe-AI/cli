@@ -36,6 +36,9 @@ type Dependencies struct {
 	Now         func() time.Time
 	Sleep       func(context.Context, time.Duration) error
 	NewID       func() string
+	// OpenBrowser opens an authorization URL in the user's default browser.
+	// Tests override it so command execution never launches a real GUI process.
+	OpenBrowser func(string) error
 	APIBaseURL  string
 	Region      config.Region
 	// ManagedAppBuilder builds a managed Skill App project in place (install +
@@ -246,6 +249,9 @@ func defaults(dependencies Dependencies) Dependencies {
 	}
 	if dependencies.NewID == nil {
 		dependencies.NewID = randomUUID
+	}
+	if dependencies.OpenBrowser == nil {
+		dependencies.OpenBrowser = openBrowser
 	}
 	return dependencies
 }

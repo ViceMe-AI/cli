@@ -482,6 +482,9 @@ func runCLIWithDependencies(t *testing.T, server *httptest.Server, store secures
 	if extra.Sleep == nil {
 		extra.Sleep = func(context.Context, time.Duration) error { return nil }
 	}
+	if extra.OpenBrowser == nil {
+		extra.OpenBrowser = func(string) error { return nil }
+	}
 	if extra.Environment.Home == "" {
 		extra.Environment = skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()}
 	}
