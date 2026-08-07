@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -146,21 +147,56 @@ func runManagedAppInit(cmd *cobra.Command, runtime *Runtime) error {
 		return err
 	}
 
-	// Security: download, verify the digest and extract the template BEFORE
-	// creating the remote App. If the digest mismatches (tampered archive or a
-	// stale catalog) we abort here without ever calling InitManagedApp, so a bad
-	// template can never leave an orphan App/candidate on the server.
+	// Idempotency and resumability: an interrupted init must be retryable with
+	// the SAME clientRequestId so it converges on the same Shop App instead of
+	// creating an orphan. The pending marker (.viceme/managed-release.json) is
+	// the on-disk source of truth that an init is in flight; it is written
+	// BEFORE the template is downloaded/extracted and before InitManagedApp, so
+	// every later failure point (download, extract, inject, InitManagedApp) can
+	// resume with the same key (P1 fix).
 	//
-	// Extraction must not silently overwrite an existing project: refuse unless
-	// the directory is empty or it only holds an interrupted init marker
-	// (P1 fix). The marker is written before InitManagedApp below.
+	// The marker may hold two shapes: the partial pending state (only
+	// schemaVersion + clientRequestId, written before InitManagedApp) or the
+	// full state (written after a successful init). Load() only accepts the
+	// full state; a partial state fails validate() — that failure is the
+	// "an init is in flight" signal, so it must not be treated as fatal here.
 	existing, loadErr := managedrelease.Load(projectDir)
-	retrying := loadErr == nil && existing.ClientRequestID != ""
+	var clientRequestID string
+	retrying := false
+	switch {
+	case loadErr == nil:
+		// Completed init: the directory is owned by a finished project; the
+		// guard below refuses to re-extract over it.
+		clientRequestID = existing.ClientRequestID
+	case errors.Is(loadErr, managedrelease.ErrNotFound):
+		// First run: no marker yet, nothing to resume.
+	default:
+		// Interrupted init (partial marker) or an unreadable marker. Resume
+		// only when the marker still parses and carries the idempotency key.
+		pendingID, pendingErr := managedrelease.LoadPendingID(projectDir)
+		if pendingErr != nil {
+			return output.Internal("managed_release_pending", "the init marker cannot be read; remove the .viceme directory and retry", pendingErr).
+				WithDetails(map[string]any{"directory": projectDir})
+		}
+		clientRequestID = pendingID
+		retrying = pendingID != ""
+	}
 	if !directoryEmptyOrRetryMarker(projectDir, retrying) {
 		return output.Validation("init_output_not_empty",
 			"the output directory is not empty; choose an empty directory or rerun the same command on the interrupted project").
 			WithDetails(map[string]any{"directory": projectDir})
 	}
+	if clientRequestID == "" {
+		clientRequestID = generateClientRequestID()
+		if err := managedrelease.SavePending(projectDir, clientRequestID); err != nil {
+			return output.Internal("managed_release_pending", "failed to persist the init idempotency key", err)
+		}
+	}
+
+	// Security: download, verify the digest and extract the template BEFORE
+	// creating the remote App. If the digest mismatches (tampered archive or a
+	// stale catalog) we abort here without ever calling InitManagedApp, so a bad
+	// template can never leave an orphan App/candidate on the server.
 	archiveBytes, err := downloadAndVerifyDigest(ctx, runtime, tpl.DownloadURL, tpl.Digest)
 	if err != nil {
 		return err
@@ -173,18 +209,6 @@ func runManagedAppInit(cmd *cobra.Command, runtime *Runtime) error {
 	// so a failed inject is a local-only failure.
 	if err := injectTemplateRuntimeReleaseID(projectDir, runtimeReleaseID); err != nil {
 		return output.Internal("template_release_inject", "failed to inject the Runtime Release id into the template", err)
-	}
-
-	// Idempotency: reuse the clientRequestId persisted by an interrupted run so
-	// a retry converges on the SAME Shop App instead of creating an orphan.
-	// The key is written to disk BEFORE InitManagedApp; if the local write
-	// fails we abort before any remote side effect.
-	clientRequestID := existing.ClientRequestID
-	if clientRequestID == "" {
-		clientRequestID = generateClientRequestID()
-		if err := managedrelease.SavePending(projectDir, clientRequestID); err != nil {
-			return output.Internal("managed_release_pending", "failed to persist the init idempotency key", err)
-		}
 	}
 
 	// Initialize the App/release candidate. The Shop returns the appId,
@@ -720,26 +744,21 @@ func injectTemplateRuntimeReleaseID(projectDir, runtimeReleaseID string) error {
 }
 
 // directoryEmptyOrRetryMarker reports whether init may extract into the
-// directory: it must be empty, or contain only the interrupted-init marker
-// (.viceme/managed-release.json with a persisted clientRequestId).
+// directory: it must be empty, or it must hold the interrupted-init marker
+// (.viceme/managed-release.json with a persisted clientRequestId). During a
+// retry the directory may additionally contain template files left by the
+// interrupted extraction — re-extracting the digest-verified archive over them
+// is safe (extraction overwrites, never deletes).
 func directoryEmptyOrRetryMarker(directory string, retrying bool) bool {
-	entries, err := os.ReadDir(directory)
-	if err != nil {
-		return false
-	}
-	if len(entries) == 0 {
-		return true
-	}
 	if !retrying {
-		return false
-	}
-	// Only the .viceme marker may be present during a retry.
-	for _, entry := range entries {
-		if entry.Name() != ".viceme" {
+		entries, err := os.ReadDir(directory)
+		if err != nil {
 			return false
 		}
+		return len(entries) == 0
 	}
-	return true
+	_, err := os.Stat(managedrelease.Path(directory))
+	return err == nil
 }
 
 func resolveProjectDirectoryOrCreate(directory string) (string, error) {

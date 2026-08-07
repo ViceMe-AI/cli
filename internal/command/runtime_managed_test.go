@@ -328,6 +328,101 @@ func TestManagedAppInitRejectsTamperedTemplate(t *testing.T) {
 	}
 }
 
+// TestManagedAppInitResumesInterruptedRun verifies the P1-1 fix: an init
+// interrupted between the pending-marker write and InitManagedApp leaves a
+// partial .viceme/managed-release.json (which cannot pass Load's validate())
+// plus extracted template files. Rerunning the command must (a) pass the
+// output-directory guard despite the leftovers, (b) reuse the SAME
+// clientRequestId so the Shop converges on the existing App instead of
+// creating an orphan, and (c) replace the partial marker with full state.
+func TestManagedAppInitResumesInterruptedRun(t *testing.T) {
+	archiveBytes, expectedDigest := templateArchiveFixture(t)
+	archiveServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		_, _ = writer.Write(archiveBytes)
+	}))
+	defer archiveServer.Close()
+
+	const pendingKey = "pending-init-abc"
+	var seenClientRequestID string
+	var initCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/managed-apps/templates/image-tool-starter":
+			writeCommandJSON(t, writer, map[string]any{
+				"name": "image-tool-starter", "version": "1.0.0", "digest": expectedDigest,
+				"sdkPackage": "@viceme-ai/app-sdk", "sdkVersion": "0.1.0",
+				"downloadUrl": archiveServer.URL,
+			})
+		case "/v1/managed-apps/runtime-contract/" + testRuntimeReleaseID:
+			writeCommandJSON(t, writer, map[string]any{
+				"runtimeReleaseId": testRuntimeReleaseID, "contractVersion": "1.0.0",
+				"contractDigest": "sha256:" + strings.Repeat("a", 64),
+				"inputSchema":    map[string]any{}, "outputSchema": map[string]any{},
+				"toolAllowlist": []any{map[string]any{"name": "image-gen", "version": "1.0.0"}},
+			})
+		case "/v1/managed-apps/apps/init":
+			initCalls++
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode init body: %v", err)
+			}
+			seenClientRequestID, _ = body["clientRequestId"].(string)
+			writeCommandJSON(t, writer, map[string]any{
+				"appId": testAppID, "releaseId": testReleaseID, "candidateId": testCandidateID,
+				"status": "DRAFT", "sourceDigest": "sha256:" + strings.Repeat("0", 64),
+				"templateName": "image-tool-starter", "templateVersion": "1.0.0",
+				"environment": "TEST", "publishableKey": testPublishableKey,
+			})
+		default:
+			http.Error(writer, "not found: "+request.URL.Path, http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	outDir := filepath.Join(t.TempDir(), "my-app")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate the interrupted first attempt: partial pending marker written
+	// before extraction, then the template extracted, then a crash before
+	// InitManagedApp. The partial state fails managedrelease.Load's validate().
+	if err := managedrelease.SavePending(outDir, pendingKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := extractZipArchive(archiveBytes, outDir); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(outDir, "src/app.js")); err != nil {
+		t.Fatalf("leftover template file missing: %v", err)
+	}
+
+	store := securestore.NewMemory()
+	dependencies := authenticatedDependencies(t, server, store)
+	dependencies.NewID = func() string { return testRuntimeReleaseID }
+	code, _, stderr, _ := runCLIWithDependencies(t, server, store, "", dependencies,
+		"app", "init",
+		"--template", "image-tool-starter",
+		"--runtime-release", testRuntimeReleaseID,
+		"--name", "My App",
+		"--output", outDir)
+	if code != 0 || stderr != "" {
+		t.Fatalf("app init resume code=%d stderr=%s", code, stderr)
+	}
+	if seenClientRequestID != pendingKey {
+		t.Fatalf("resumed init must reuse the pending clientRequestId, got %q", seenClientRequestID)
+	}
+	if initCalls != 1 {
+		t.Fatalf("expected exactly one init call, got %d", initCalls)
+	}
+	state, err := managedrelease.Load(outDir)
+	if err != nil {
+		t.Fatalf("managed-release.json not replaced with full state: %v", err)
+	}
+	if state.AppID != testAppID {
+		t.Fatalf("full state mismatch: %+v", state)
+	}
+}
+
 // TestManagedAppPreviewUploadsSourceAndArtifactViaMultipart verifies the P1 fix
 // for #67: preview must build locally and upload BOTH source and built artifact
 // via multipart/form-data (not JSON), and record the returned digests.

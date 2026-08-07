@@ -78,6 +78,29 @@ func Load(directory string) (State, error) {
 	return state, nil
 }
 
+// LoadPendingID reads only the persisted InitManagedApp idempotency key from
+// the release state, WITHOUT full validation. The pending state written by
+// SavePending intentionally lacks appId/candidateId etc. and therefore cannot
+// pass validate(); this accessor exists so `app init` can detect and resume an
+// interrupted initialization instead of creating an orphan App (P1 fix).
+func LoadPendingID(directory string) (string, error) {
+	file, err := os.Open(Path(directory))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", fmt.Errorf("open managed release state: %w", err)
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(io.LimitReader(file, 1<<20))
+	decoder.DisallowUnknownFields()
+	var state State
+	if err := decoder.Decode(&state); err != nil {
+		return "", fmt.Errorf("decode managed release state: %w", err)
+	}
+	return state.ClientRequestID, nil
+}
+
 func Save(directory string, state State) (string, error) {
 	if state.SchemaVersion == 0 {
 		state.SchemaVersion = SchemaVersion
