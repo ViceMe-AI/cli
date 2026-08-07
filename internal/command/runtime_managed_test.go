@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -219,6 +220,11 @@ func TestRuntimeTicketBrowserFlowExchangesDeviceCode(t *testing.T) {
 
 	store := securestore.NewMemory()
 	dependencies := authenticatedDependencies(t, server, store)
+	var openedURL string
+	dependencies.OpenBrowser = func(rawURL string) error {
+		openedURL = rawURL
+		return nil
+	}
 	code, stdout, _, _ := runCLIWithDependencies(t, server, store, "ONETIMECODE123\n", dependencies,
 		"runtime", "ticket",
 		"--publishable-key", testPublishableKey,
@@ -236,6 +242,19 @@ func TestRuntimeTicketBrowserFlowExchangesDeviceCode(t *testing.T) {
 	}
 	if exchangedCode != "ONETIMECODE123" {
 		t.Fatalf("device code not exchanged; got %q", exchangedCode)
+	}
+	parsedURL, err := url.Parse(openedURL)
+	if err != nil {
+		t.Fatalf("invalid browser authorization URL %q: %v", openedURL, err)
+	}
+	if parsedURL.Scheme != "https" || parsedURL.Host != "example.invalid" || parsedURL.Path != "/authorize" {
+		t.Fatalf("unexpected browser authorization URL: %s", openedURL)
+	}
+	if got := parsedURL.Query().Get("publishableKey"); got != testPublishableKey {
+		t.Fatalf("browser authorization publishableKey=%q", got)
+	}
+	if got := parsedURL.Query().Get("origin"); got != "http://localhost:3000" {
+		t.Fatalf("browser authorization origin=%q", got)
 	}
 }
 
