@@ -6,6 +6,7 @@ package api
 // The CLI uses these to:
 //   - Read Runtime Contract for a Release (skill inspect)
 //   - Create, query and cancel Runtime Runs (job get/wait/cancel)
+//   - Download Run Artifacts (job artifacts)
 
 type RuntimeContractResponse struct {
 	RuntimeReleaseID string `json:"runtimeReleaseId"`
@@ -20,10 +21,10 @@ type RuntimeContractResponse struct {
 }
 
 type CreateRuntimeRunRequest struct {
-	PublishableKey    string `json:"publishableKey"`
-	RuntimeReleaseID  string `json:"runtimeReleaseId"`
-	ClientRequestID   string `json:"clientRequestId"`
-	Input             any    `json:"input"`
+	PublishableKey   string `json:"publishableKey"`
+	RuntimeReleaseID string `json:"runtimeReleaseId"`
+	ClientRequestID  string `json:"clientRequestId"`
+	Input            any    `json:"input"`
 }
 
 type CreateRuntimeRunResponse struct {
@@ -31,15 +32,21 @@ type CreateRuntimeRunResponse struct {
 	Status string `json:"status"`
 }
 
+// RuntimeRunDetail mirrors the Shop runtimeRunDetailSchema. The Shop is the
+// source of truth for this contract: artifacts expose artifactId + downloadUrl,
+// never objectKey + digest (the original CLI assumption that the review found).
 type RuntimeRunDetail struct {
-	RunID       string         `json:"runId"`
-	Status      string         `json:"status"`
-	Input       any            `json:"input"`
-	Result      any            `json:"result"`
-	Error       *RuntimeError  `json:"error"`
-	Artifacts   []RuntimeArtifact `json:"artifacts"`
-	StartedAt   *string        `json:"startedAt"`
-	FinishedAt  *string        `json:"finishedAt"`
+	RunID          string            `json:"runId"`
+	Status         string            `json:"status"`
+	Environment    string            `json:"environment"`
+	Input          any               `json:"input"`
+	Result         any               `json:"result"`
+	Error          *RuntimeError     `json:"error"`
+	Artifacts      []RuntimeArtifact `json:"artifacts"`
+	StartedAt      *string           `json:"startedAt"`
+	FinishedAt     *string           `json:"finishedAt"`
+	CreatedAt      string            `json:"createdAt"`
+	UpdatedAt      string            `json:"updatedAt"`
 	RuntimeRelease struct {
 		ID              string `json:"id"`
 		ContractVersion string `json:"contractVersion"`
@@ -51,23 +58,27 @@ type RuntimeError struct {
 	Message string `json:"message"`
 }
 
+// RuntimeArtifact mirrors the Shop runtimeRunArtifactSchema. The bytes are
+// fetched separately via DownloadURL (a short-lived signed URL); the CLI never
+// receives them inline in the run detail.
 type RuntimeArtifact struct {
-	ObjectKey      string `json:"objectKey"`
-	Digest         string `json:"digest"`
-	SizeBytes      int64  `json:"sizeBytes"`
-	ContentType    string `json:"contentType"`
-	Kind           string `json:"kind"`
-	TurnNumber     int    `json:"turnNumber"`
-	ProducedByTool string `json:"producedByTool"`
+	ArtifactID  string `json:"artifactId"`
+	ContentType string `json:"contentType"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	Kind        string `json:"kind"`
+	TurnNumber  int    `json:"turnNumber"`
+	CreatedAt   string `json:"createdAt"`
+	DownloadURL string `json:"downloadUrl"`
 }
 
 type CancelRuntimeRunResponse struct {
-	Cancelled bool   `json:"cancelled"`
+	RunID     string `json:"runId"`
 	Status    string `json:"status"`
+	Cancelled bool   `json:"cancelled"`
 }
 
 type ListRuntimeRunsResponse struct {
-	Items      []struct {
+	Items []struct {
 		RunID      string  `json:"runId"`
 		Status     string  `json:"status"`
 		StartedAt  *string `json:"startedAt"`

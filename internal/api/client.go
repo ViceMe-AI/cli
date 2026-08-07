@@ -196,29 +196,43 @@ func (c *Client) CreateRuntimeRun(ctx context.Context, request CreateRuntimeRunR
 	return response, err
 }
 
-func (c *Client) GetRuntimeRun(ctx context.Context, runID, publishableKey, origin string) (RuntimeRunDetail, error) {
+// applyRuntimeTicket attaches a Runtime Ticket as a Bearer token. The Shop runs
+// surface accepts it as `Authorization: Bearer <ticket>` (or the explicit
+// `x-viceme-runtime-ticket` header); a publishable key + origin alone are
+// never a sufficient identity, so callers that omit the ticket are rejected
+// with RUNTIME_AUTH_REQUIRED.
+func applyRuntimeTicket(headers http.Header, runtimeTicket string) {
+	if runtimeTicket == "" {
+		return
+	}
+	headers.Set("Authorization", "Bearer "+runtimeTicket)
+}
+
+func (c *Client) GetRuntimeRun(ctx context.Context, runID, publishableKey, origin, runtimeTicket string) (RuntimeRunDetail, error) {
 	var response RuntimeRunDetail
 	endpoint := "/v1/runtime/runs/" + url.PathEscape(runID) + "?publishableKey=" + url.QueryEscape(publishableKey)
 	headers := http.Header{}
 	if origin != "" {
 		headers.Set("Origin", origin)
 	}
+	applyRuntimeTicket(headers, runtimeTicket)
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, false, "", headers)
 	return response, err
 }
 
-func (c *Client) CancelRuntimeRun(ctx context.Context, runID, publishableKey, origin string) (CancelRuntimeRunResponse, error) {
+func (c *Client) CancelRuntimeRun(ctx context.Context, runID, publishableKey, origin, runtimeTicket string) (CancelRuntimeRunResponse, error) {
 	var response CancelRuntimeRunResponse
 	endpoint := "/v1/runtime/runs/" + url.PathEscape(runID) + "/cancel?publishableKey=" + url.QueryEscape(publishableKey)
 	headers := http.Header{}
 	if origin != "" {
 		headers.Set("Origin", origin)
 	}
+	applyRuntimeTicket(headers, runtimeTicket)
 	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, false, "", headers)
 	return response, err
 }
 
-func (c *Client) ListRuntimeRuns(ctx context.Context, publishableKey, origin, cursor string, limit int) (ListRuntimeRunsResponse, error) {
+func (c *Client) ListRuntimeRuns(ctx context.Context, publishableKey, origin, runtimeTicket, cursor string, limit int) (ListRuntimeRunsResponse, error) {
 	var response ListRuntimeRunsResponse
 	endpoint := "/v1/runtime/runs?publishableKey=" + url.QueryEscape(publishableKey)
 	if cursor != "" {
@@ -231,8 +245,37 @@ func (c *Client) ListRuntimeRuns(ctx context.Context, publishableKey, origin, cu
 	if origin != "" {
 		headers.Set("Origin", origin)
 	}
+	applyRuntimeTicket(headers, runtimeTicket)
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, false, "", headers)
 	return response, err
+}
+
+// DownloadArtifact fetches the bytes at a Runtime Artifact's short-lived signed
+// downloadUrl. The URL is opaque to the CLI and may point at a storage host
+// outside the API base, so it is used verbatim without API base resolution.
+func (c *Client) DownloadArtifact(ctx context.Context, downloadURL string) (io.ReadCloser, error) {
+	parsed, err := url.Parse(strings.TrimSpace(downloadURL))
+	if err != nil || !parsed.IsAbs() || parsed.Host == "" {
+		return nil, output.Validation("artifact_download_url", "artifact download URL is missing or invalid")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	if err != nil {
+		return nil, output.Internal("artifact_download_request", "failed to create the artifact download request", err)
+	}
+	request.Header.Set("Accept", "*/*")
+	if c.UserAgent != "" {
+		request.Header.Set("User-Agent", c.UserAgent)
+	}
+	response, err := withoutRedirects(c.HTTPClient).Do(request)
+	if err != nil {
+		return nil, output.Network("artifact_download", "failed to download the artifact", err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		defer response.Body.Close()
+		data, _ := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+		return nil, decodeServerError(response.StatusCode, data)
+	}
+	return response.Body, nil
 }
 
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string, headers http.Header) error {

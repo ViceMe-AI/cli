@@ -36,7 +36,7 @@
     },
     {
       "path": "app get",
-      "use": "get \u003capp-id\u003e",
+      "use": "get <app-id>",
       "short": "Get one owned Creator App",
       "runnable": true,
       "side_effect": "none",
@@ -154,7 +154,7 @@
     },
     {
       "path": "capability add",
-      "use": "add \u003cname\u003e",
+      "use": "add <name>",
       "short": "Enable one capability foundation for the linked App environment",
       "runnable": true,
       "side_effect": "public",
@@ -183,7 +183,7 @@
     },
     {
       "path": "capability doctor",
-      "use": "doctor \u003cname\u003e",
+      "use": "doctor <name>",
       "short": "Check one local capability binding against the control plane",
       "runnable": true,
       "side_effect": "none",
@@ -204,7 +204,7 @@
     },
     {
       "path": "capability get",
-      "use": "get \u003cname\u003e",
+      "use": "get <name>",
       "short": "Get one capability from the linked App environment",
       "runnable": true,
       "side_effect": "none",
@@ -389,14 +389,50 @@
     {
       "path": "job",
       "use": "job",
-      "short": "Manage Runtime Runs (get, wait, cancel)",
+      "short": "Manage Runtime Runs (get, wait, cancel, artifacts)",
       "runnable": false,
       "side_effect": "none",
       "requires_confirmation": false
     },
     {
+      "path": "job artifacts",
+      "use": "artifacts <runId>",
+      "short": "List Runtime Run artifacts, or download one with --artifact-id",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "artifact-id",
+          "type": "string",
+          "usage": "Download a single artifact by ID (omit to list)"
+        },
+        {
+          "name": "origin",
+          "type": "string",
+          "usage": "Origin of the App (required for CORS)"
+        },
+        {
+          "name": "out",
+          "type": "string",
+          "default": ".",
+          "usage": "Directory to write the downloaded artifact"
+        },
+        {
+          "name": "publishable-key",
+          "type": "string",
+          "usage": "Publishable Key for the App environment (required)"
+        },
+        {
+          "name": "runtime-ticket",
+          "type": "string",
+          "usage": "Runtime Ticket (Bearer) obtained from the ViceMe web UI; required to authorize Run access"
+        }
+      ]
+    },
+    {
       "path": "job cancel",
-      "use": "cancel \u003crunId\u003e",
+      "use": "cancel <runId>",
       "short": "Request cancellation of a Runtime Run",
       "runnable": true,
       "side_effect": "public",
@@ -411,12 +447,17 @@
           "name": "publishable-key",
           "type": "string",
           "usage": "Publishable Key for the App environment (required)"
+        },
+        {
+          "name": "runtime-ticket",
+          "type": "string",
+          "usage": "Runtime Ticket (Bearer) obtained from the ViceMe web UI; required to authorize Run access"
         }
       ]
     },
     {
       "path": "job get",
-      "use": "get \u003crunId\u003e",
+      "use": "get <runId>",
       "short": "Get the status and result of a Runtime Run",
       "runnable": true,
       "side_effect": "none",
@@ -431,12 +472,17 @@
           "name": "publishable-key",
           "type": "string",
           "usage": "Publishable Key for the App environment (required)"
+        },
+        {
+          "name": "runtime-ticket",
+          "type": "string",
+          "usage": "Runtime Ticket (Bearer) obtained from the ViceMe web UI; required to authorize Run access"
         }
       ]
     },
     {
       "path": "job wait",
-      "use": "wait \u003crunId\u003e",
+      "use": "wait <runId>",
       "short": "Wait for a Runtime Run to reach a terminal state",
       "runnable": true,
       "side_effect": "none",
@@ -451,6 +497,11 @@
           "name": "publishable-key",
           "type": "string",
           "usage": "Publishable Key for the App environment (required)"
+        },
+        {
+          "name": "runtime-ticket",
+          "type": "string",
+          "usage": "Runtime Ticket (Bearer) obtained from the ViceMe web UI; required to authorize Run access"
         },
         {
           "name": "timeout",
@@ -556,7 +607,7 @@
     },
     {
       "path": "profile configure",
-      "use": "configure \u003cname\u003e",
+      "use": "configure <name>",
       "short": "Configure the API endpoint for a profile",
       "runnable": true,
       "side_effect": "local",
@@ -585,7 +636,7 @@
     },
     {
       "path": "profile remove",
-      "use": "remove \u003cname\u003e",
+      "use": "remove <name>",
       "short": "Remove a profile and its local credentials",
       "runnable": true,
       "side_effect": "local",
@@ -593,7 +644,7 @@
     },
     {
       "path": "profile rename",
-      "use": "rename \u003cold\u003e \u003cnew\u003e",
+      "use": "rename <old> <new>",
       "short": "Rename a profile",
       "runnable": true,
       "side_effect": "local",
@@ -601,7 +652,7 @@
     },
     {
       "path": "profile use",
-      "use": "use \u003cname\u003e",
+      "use": "use <name>",
       "short": "Switch to a profile (use '-' to toggle back)",
       "runnable": true,
       "side_effect": "local",
@@ -617,7 +668,7 @@
     },
     {
       "path": "runtime inspect",
-      "use": "inspect \u003cruntimeReleaseId\u003e",
+      "use": "inspect <runtimeReleaseId>",
       "short": "Read the Runtime Contract for a Runtime Release",
       "runnable": true,
       "side_effect": "none",
@@ -673,7 +724,7 @@
     },
     {
       "path": "skills read",
-      "use": "read \u003cname\u003e[/\u003cpath\u003e] [path]",
+      "use": "read <name>[/<path>] [path]",
       "short": "Print embedded Skill content without a JSON wrapper",
       "runnable": true,
       "side_effect": "none",
