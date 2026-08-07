@@ -27,7 +27,7 @@ var (
 // the source/build digests the API returned), and reads it during
 // `app publish` so the confirmation can cite the exact bytes the user reviewed.
 type State struct {
-	SchemaVersion         int    `json:"schemaVersion"`
+	SchemaVersion int `json:"schemaVersion"`
 	// Idempotency key for InitManagedApp on the Shop, persisted BEFORE the
 	// remote App is created so a retry after a local crash reuses the same key
 	// instead of leaving an orphan App (P1 fix).
