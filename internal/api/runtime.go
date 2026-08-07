@@ -1,5 +1,11 @@
 package api
 
+import (
+	"regexp"
+
+	"github.com/ViceMe-AI/cli/internal/output"
+)
+
 // Runtime API types and client methods for the Headless Runtime surface
 // (skill-app-platform.md §8 / runtime-headless-api.md).
 //
@@ -7,6 +13,19 @@ package api
 //   - Read Runtime Contract for a Release (skill inspect)
 //   - Create, query and cancel Runtime Runs (job get/wait/cancel)
 //   - Download Run Artifacts (job artifacts)
+
+// Run ids are UUIDs issued by the API; they are interpolated into the URL
+// path. url.PathEscape does NOT escape "..", and doJSON joins the endpoint
+// with path.Join, so a hostile id could fold the request into an unexpected
+// route — reject anything outside a plain path segment (#66 review P2).
+var safeRunIDSegmentRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+func validateRunID(runID string) error {
+	if !safeRunIDSegmentRe.MatchString(runID) {
+		return output.Validation("runtime_run_id", "run id must be a plain path segment")
+	}
+	return nil
+}
 
 type RuntimeContractResponse struct {
 	RuntimeReleaseID string `json:"runtimeReleaseId"`

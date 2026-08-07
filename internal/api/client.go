@@ -210,6 +210,9 @@ func applyRuntimeTicket(headers http.Header, runtimeTicket string) {
 
 func (c *Client) GetRuntimeRun(ctx context.Context, runID, publishableKey, origin, runtimeTicket string) (RuntimeRunDetail, error) {
 	var response RuntimeRunDetail
+	if err := validateRunID(runID); err != nil {
+		return response, err
+	}
 	endpoint := "/v1/runtime/runs/" + url.PathEscape(runID) + "?publishableKey=" + url.QueryEscape(publishableKey)
 	headers := http.Header{}
 	if origin != "" {
@@ -222,6 +225,9 @@ func (c *Client) GetRuntimeRun(ctx context.Context, runID, publishableKey, origi
 
 func (c *Client) CancelRuntimeRun(ctx context.Context, runID, publishableKey, origin, runtimeTicket string) (CancelRuntimeRunResponse, error) {
 	var response CancelRuntimeRunResponse
+	if err := validateRunID(runID); err != nil {
+		return response, err
+	}
 	endpoint := "/v1/runtime/runs/" + url.PathEscape(runID) + "/cancel?publishableKey=" + url.QueryEscape(publishableKey)
 	headers := http.Header{}
 	if origin != "" {
@@ -252,10 +258,13 @@ func (c *Client) ListRuntimeRuns(ctx context.Context, publishableKey, origin, ru
 
 // DownloadArtifact fetches the bytes at a Runtime Artifact's short-lived signed
 // downloadUrl. The URL is opaque to the CLI and may point at a storage host
-// outside the API base, so it is used verbatim without API base resolution.
+// outside the API base, so it is used verbatim without API base resolution —
+// but the scheme is still confined to HTTPS (or HTTP loopback), so a
+// compromised server cannot point the CLI at internal addresses (#66 review
+// P2).
 func (c *Client) DownloadArtifact(ctx context.Context, downloadURL string) (io.ReadCloser, error) {
-	parsed, err := url.Parse(strings.TrimSpace(downloadURL))
-	if err != nil || !parsed.IsAbs() || parsed.Host == "" {
+	parsed, err := ValidateDownloadURL(downloadURL)
+	if err != nil {
 		return nil, output.Validation("artifact_download_url", "artifact download URL is missing or invalid")
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
@@ -266,7 +275,7 @@ func (c *Client) DownloadArtifact(ctx context.Context, downloadURL string) (io.R
 	if c.UserAgent != "" {
 		request.Header.Set("User-Agent", c.UserAgent)
 	}
-	response, err := withoutRedirects(c.HTTPClient).Do(request)
+	response, err := WithoutRedirects(c.HTTPClient).Do(request)
 	if err != nil {
 		return nil, output.Network("artifact_download", "failed to download the artifact", err)
 	}
@@ -331,7 +340,7 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 		apply(request, token)
 	}
 
-	response, err := withoutRedirects(c.HTTPClient).Do(request)
+	response, err := WithoutRedirects(c.HTTPClient).Do(request)
 	if err != nil {
 		return output.Network("transport", "failed to reach the ViceMe API", err)
 	}
@@ -395,7 +404,10 @@ func normalizedAPIOrigin(base *url.URL) string {
 	return scheme + "://" + host
 }
 
-func withoutRedirects(client *http.Client) *http.Client {
+// WithoutRedirects returns a copy of client that never follows HTTP
+// redirects. Signed artifact/template fetches must not be redirected onto an
+// internal host by a compromised server.
+func WithoutRedirects(client *http.Client) *http.Client {
 	if client == nil {
 		client = &http.Client{Timeout: 30 * time.Second}
 	}
@@ -404,6 +416,34 @@ func withoutRedirects(client *http.Client) *http.Client {
 		return http.ErrUseLastResponse
 	}
 	return &copy
+}
+
+// ValidateDownloadURL restricts a fetch to HTTPS (HTTP allowed only for
+// loopback development), matching validateAPIBaseURL's transport policy.
+// Signed artifact and template URLs are opaque and may point at storage hosts
+// outside the API base, but a compromised server must not be able to point the
+// CLI at internal addresses such as cloud metadata endpoints (#66/#67 review
+// P2).
+func ValidateDownloadURL(raw string) (*url.URL, error) {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || !parsed.IsAbs() || parsed.Host == "" {
+		return nil, errors.New("URL is missing or invalid")
+	}
+	switch strings.ToLower(parsed.Scheme) {
+	case "https":
+		return parsed, nil
+	case "http":
+		host := parsed.Hostname()
+		if strings.EqualFold(host, "localhost") {
+			return parsed, nil
+		}
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+			return parsed, nil
+		}
+		return nil, errors.New("HTTP URL is allowed only for loopback development")
+	default:
+		return nil, errors.New("URL must use HTTPS")
+	}
 }
 
 func validateAPIBaseURL(raw string) (*url.URL, error) {
