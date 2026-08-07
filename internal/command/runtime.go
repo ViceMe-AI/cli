@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -435,10 +436,15 @@ func readRuntimeTicketDeviceCode(
 	openURL func(string) error,
 ) (string, error) {
 	fullURL := ticketURL
+	// Build the query with proper encoding so a publishableKey/origin
+	// containing "&", "#" etc. cannot break the URL structure (#68 review P2).
+	params := url.Values{}
+	params.Set("publishableKey", publishableKey)
+	params.Set("origin", origin)
 	if idx := strings.IndexAny(ticketURL, "?"); idx >= 0 {
-		fullURL += "&publishableKey=" + publishableKey + "&origin=" + origin
+		fullURL += "&" + params.Encode()
 	} else {
-		fullURL += "?publishableKey=" + publishableKey + "&origin=" + origin
+		fullURL += "?" + params.Encode()
 	}
 	writer := cmd.ErrOrStderr()
 	_, _ = fmt.Fprintln(writer, "Open this URL in your browser to authorize a Runtime Ticket:")
