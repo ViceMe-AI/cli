@@ -87,7 +87,7 @@ func manifestFlags(flags *pflag.FlagSet) []ManifestFlag {
 
 func commandPolicy(path string, runnable bool) (string, bool) {
 	switch path {
-	case "app link", "capability add", "commerce offer create", "listing upsert":
+	case "app link", "app init", "app preview", "app publish", "capability add", "commerce offer create", "listing upsert":
 		return "public", false
 	case "auth logout":
 		return "remote_and_local", false

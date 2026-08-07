@@ -43,6 +43,38 @@
       "requires_confirmation": false
     },
     {
+      "path": "app init",
+      "use": "init",
+      "short": "Initialize a managed Skill App from a template",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "name",
+          "type": "string",
+          "usage": "App name"
+        },
+        {
+          "name": "output",
+          "type": "string",
+          "default": ".",
+          "usage": "Output directory for generated site"
+        },
+        {
+          "name": "runtime-release",
+          "type": "string",
+          "usage": "Runtime Release ID (required)"
+        },
+        {
+          "name": "template",
+          "type": "string",
+          "default": "image-tool-starter",
+          "usage": "Template name"
+        }
+      ]
+    },
+    {
       "path": "app link",
       "use": "link",
       "short": "Bind the current project to a TEST or LIVE Creator App",
@@ -86,6 +118,52 @@
       "runnable": true,
       "side_effect": "none",
       "requires_confirmation": false
+    },
+    {
+      "path": "app preview",
+      "use": "preview",
+      "short": "Build, upload and create a preview of the managed Skill App",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "dir",
+          "type": "string",
+          "default": ".",
+          "usage": "Project directory containing .viceme/managed-release.json"
+        },
+        {
+          "name": "yes",
+          "shorthand": "y",
+          "type": "bool",
+          "default": "false",
+          "usage": "Skip confirmation"
+        }
+      ]
+    },
+    {
+      "path": "app publish",
+      "use": "publish",
+      "short": "Publish a managed Skill App release",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "dir",
+          "type": "string",
+          "default": ".",
+          "usage": "Project directory containing .viceme/managed-release.json"
+        },
+        {
+          "name": "yes",
+          "shorthand": "y",
+          "type": "bool",
+          "default": "false",
+          "usage": "Skip confirmation"
+        }
+      ]
     },
     {
       "path": "auth",

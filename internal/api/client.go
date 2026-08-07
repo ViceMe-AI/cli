@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -287,6 +290,74 @@ func (c *Client) DownloadArtifact(ctx context.Context, downloadURL string) (io.R
 	return response.Body, nil
 }
 
+// Managed App API methods (skill-app-platform.md §10/§11).
+
+func (c *Client) GetManagedAppTemplate(ctx context.Context, name string) (ManagedAppTemplate, error) {
+	var response ManagedAppTemplate
+	err := c.doJSON(ctx, http.MethodGet, "/v1/managed-apps/templates/"+url.PathEscape(name), nil, &response, true, "", nil)
+	return response, err
+}
+
+func (c *Client) GetManagedAppRuntimeContract(ctx context.Context, runtimeReleaseID string) (ManagedAppRuntimeContract, error) {
+	var response ManagedAppRuntimeContract
+	err := c.doJSON(ctx, http.MethodGet, "/v1/managed-apps/runtime-contract/"+url.PathEscape(runtimeReleaseID), nil, &response, true, "", nil)
+	return response, err
+}
+
+func (c *Client) InitManagedApp(ctx context.Context, request InitManagedAppRequest) (InitManagedAppResponse, error) {
+	var response InitManagedAppResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/managed-apps/apps/init", request, &response, true, "", nil)
+	return response, err
+}
+
+// UploadManagedAppSource uploads a source archive via multipart/form-data to
+// POST /v1/managed-apps/releases/source. The Shop route is FileInterceptor-based
+// and expects text fields alongside a `file` part; a JSON body is rejected.
+func (c *Client) UploadManagedAppSource(ctx context.Context, request UploadSourceRequest, archivePath string) (UploadSourceResponse, error) {
+	var response UploadSourceResponse
+	fields := map[string]string{
+		"appId":                 request.AppID,
+		"candidateId":           request.CandidateID,
+		"runtimeReleaseId":      request.RuntimeReleaseID,
+		"runtimeContractDigest": request.RuntimeContractDigest,
+		"templateName":          request.TemplateName,
+		"templateVersion":       request.TemplateVersion,
+		"templateDigest":        request.TemplateDigest,
+		// appSdkVersion is server-authoritative (template record), not
+		// client-supplied.
+	}
+	err := c.doMultipart(ctx, http.MethodPost, "/v1/managed-apps/releases/source", fields, "file", archivePath, &response)
+	return response, err
+}
+
+// UploadManagedAppBuildArtifact uploads the locally-built dist archive via
+// multipart/form-data to POST /v1/managed-apps/releases/artifact. The API never
+// executes untrusted author code: the CLI builds locally and uploads the result.
+func (c *Client) UploadManagedAppBuildArtifact(ctx context.Context, request UploadBuildArtifactRequest, archivePath string) (UploadBuildArtifactResponse, error) {
+	var response UploadBuildArtifactResponse
+	fields := map[string]string{
+		"appId":       request.AppID,
+		"candidateId": request.CandidateID,
+	}
+	err := c.doMultipart(ctx, http.MethodPost, "/v1/managed-apps/releases/artifact", fields, "file", archivePath, &response)
+	return response, err
+}
+
+func (c *Client) CreateManagedAppPreview(ctx context.Context, appID, candidateID string) (CreatePreviewResponse, error) {
+	var response CreatePreviewResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/managed-apps/releases/preview", map[string]string{
+		"appId":       appID,
+		"candidateId": candidateID,
+	}, &response, true, "", nil)
+	return response, err
+}
+
+func (c *Client) PublishManagedApp(ctx context.Context, request PublishReleaseRequest) (PublishReleaseResponse, error) {
+	var response PublishReleaseResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/managed-apps/releases/publish", request, &response, true, "", nil)
+	return response, err
+}
+
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string, headers http.Header) error {
 	base, err := validateAPIBaseURL(c.BaseURL)
 	if err != nil {
@@ -370,6 +441,107 @@ func NormalizeAPIOrigin(raw string) (string, error) {
 		return "", err
 	}
 	return normalizedAPIOrigin(base), nil
+}
+
+// doMultipart performs an authenticated multipart/form-data upload. `fileField`
+// names the part carrying the file at `filePath`; `fields` are the text fields.
+// The Shop managed-app source/artifact routes are FileInterceptor-based and
+// reject a JSON body, so this helper is required for those endpoints.
+func (c *Client) doMultipart(ctx context.Context, method, endpoint string, fields map[string]string, fileField, filePath string, responseBody any) error {
+	base, err := validateAPIBaseURL(c.BaseURL)
+	if err != nil {
+		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+	}
+	relative, err := url.Parse(endpoint)
+	if err != nil || relative.IsAbs() || relative.Host != "" {
+		return output.Internal("request_endpoint", "failed to construct the ViceMe API endpoint", err)
+	}
+	base.Path = path.Join(base.Path, relative.Path)
+	base.RawQuery = relative.RawQuery
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return output.Validation("file_open", fmt.Sprintf("cannot open upload file %q: %v", filePath, err))
+	}
+	defer file.Close()
+	fileInfo, err := file.Stat()
+	if err != nil {
+		return output.Validation("file_stat", fmt.Sprintf("cannot inspect upload file %q: %v", filePath, err))
+	}
+	if !fileInfo.Mode().IsRegular() {
+		return output.Validation("file_type", "upload file must be a regular file")
+	}
+
+	pipeReader, pipeWriter := io.Pipe()
+	writer := multipart.NewWriter(pipeWriter)
+	go func() {
+		var writeErr error
+		defer func() {
+			closeErr := writer.Close()
+			_ = pipeWriter.CloseWithError(errors.Join(writeErr, closeErr))
+		}()
+		for name, value := range fields {
+			if writeErr = writer.WriteField(name, value); writeErr != nil {
+				return
+			}
+		}
+		part, partErr := writer.CreateFormFile(fileField, filepath.Base(filePath))
+		if partErr != nil {
+			writeErr = partErr
+			return
+		}
+		if _, writeErr = io.Copy(part, file); writeErr != nil {
+			return
+		}
+	}()
+
+	request, err := http.NewRequestWithContext(ctx, method, base.String(), pipeReader)
+	if err != nil {
+		_ = pipeReader.Close()
+		return output.Internal("request_create", "failed to create the ViceMe API request", err)
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+	if c.UserAgent != "" {
+		request.Header.Set("User-Agent", c.UserAgent)
+	}
+	if c.Tokens == nil {
+		_ = pipeReader.Close()
+		return output.Authentication("not_logged_in", "not logged in to ViceMe")
+	}
+	token, err := c.Tokens.Token(ctx)
+	if err != nil {
+		_ = pipeReader.Close()
+		return err
+	}
+	apply := c.CredentialHeader
+	if apply == nil {
+		apply = ApplyAPIKeyCredential
+	}
+	apply(request, token)
+
+	response, err := WithoutRedirects(c.HTTPClient).Do(request)
+	if err != nil {
+		return output.Network("transport", "failed to reach the ViceMe API", err)
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err != nil {
+		return output.Network("response_read", "failed to read the ViceMe API response", err)
+	}
+	if len(data) > maxResponseBytes {
+		return output.Internal("response_too_large", "ViceMe API response exceeded the client limit", nil)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return decodeServerError(response.StatusCode, data)
+	}
+	if responseBody == nil || len(bytes.TrimSpace(data)) == 0 {
+		return nil
+	}
+	if err := json.Unmarshal(data, responseBody); err != nil {
+		return output.Internal("response_decode", "ViceMe API returned an invalid JSON response", err)
+	}
+	return nil
 }
 
 // NormalizeAPIBaseURL canonicalizes the credential and request namespace while
