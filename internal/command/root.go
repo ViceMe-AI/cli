@@ -38,6 +38,10 @@ type Dependencies struct {
 	NewID       func() string
 	APIBaseURL  string
 	Region      config.Region
+	// ManagedAppBuilder builds a managed Skill App project in place (install +
+	// build). Defaults to `pnpm install --ignore-scripts && pnpm build`; tests
+	// override it to avoid a real toolchain dependency.
+	ManagedAppBuilder ManagedAppBuilder
 }
 
 type options struct {

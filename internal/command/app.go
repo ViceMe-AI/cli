@@ -32,6 +32,10 @@ func newAppCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newAppGetCommand(runtime))
 	command.AddCommand(newAppListCommand(runtime))
 	command.AddCommand(newAppDoctorCommand(runtime))
+	// Managed Skill App commands (Slice E)
+	for _, cmd := range newManagedAppCommands(runtime) {
+		command.AddCommand(cmd)
+	}
 	return command
 }
 
