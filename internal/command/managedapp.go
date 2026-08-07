@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"os/exec"
@@ -166,6 +167,12 @@ func runManagedAppInit(cmd *cobra.Command, runtime *Runtime) error {
 	}
 	if err := extractZipArchive(archiveBytes, projectDir); err != nil {
 		return output.Internal("template_extract", "failed to extract the template archive", err)
+	}
+	// The template's runtime entry needs the actual Release id; swap the
+	// placeholder the template ships with. Done before any remote side effect
+	// so a failed inject is a local-only failure.
+	if err := injectTemplateRuntimeReleaseID(projectDir, runtimeReleaseID); err != nil {
+		return output.Internal("template_release_inject", "failed to inject the Runtime Release id into the template", err)
 	}
 
 	// Idempotency: reuse the clientRequestId persisted by an interrupted run so
@@ -680,6 +687,36 @@ func safeExtractPath(dir, name string) (string, error) {
 		}
 	}
 	return cleanedAbs, nil
+}
+
+// injectTemplateRuntimeReleaseID replaces the template placeholder
+// REPLACE_WITH_RUNTIME_RELEASE_ID with the actual Release id in the project's
+// JS files (the starter's app.js reads it to create runs). Conservative:
+// only regular .js files under the project directory are touched, and only
+// the exact placeholder token is replaced.
+func injectTemplateRuntimeReleaseID(projectDir, runtimeReleaseID string) error {
+	placeholder := []byte("REPLACE_WITH_RUNTIME_RELEASE_ID")
+	replacement := []byte(runtimeReleaseID)
+	err := filepath.WalkDir(projectDir, func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".js") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		if !bytes.Contains(data, placeholder) {
+			return nil
+		}
+		return os.WriteFile(path, bytes.ReplaceAll(data, placeholder, replacement), 0o644)
+	})
+	if err != nil {
+		return err
+	}
+	return nil
 }
 
 // directoryEmptyOrRetryMarker reports whether init may extract into the
