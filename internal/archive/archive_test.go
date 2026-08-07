@@ -1,8 +1,7 @@
 package archive
 
 import (
-	"archive/tar"
-	"compress/gzip"
+	"archive/zip"
 	"context"
 	"io"
 	"os"
@@ -138,29 +137,34 @@ func readArchive(t *testing.T, filename string) map[string]string {
 		t.Fatal(err)
 	}
 	defer file.Close()
-	gz, err := gzip.NewReader(file)
+	reader, err := zip.NewReader(file, mustStatSize(t, file))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer gz.Close()
-	reader := tar.NewReader(gz)
 	result := make(map[string]string)
-	for {
-		header, err := reader.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		if header.Typeflag != tar.TypeReg {
+	for _, entry := range reader.File {
+		if entry.FileInfo().IsDir() {
 			continue
 		}
-		data, err := io.ReadAll(reader)
+		stream, err := entry.Open()
 		if err != nil {
 			t.Fatal(err)
 		}
-		result[header.Name] = string(data)
+		data, err := io.ReadAll(stream)
+		stream.Close()
+		if err != nil {
+			t.Fatal(err)
+		}
+		result[entry.Name] = string(data)
 	}
 	return result
+}
+
+func mustStatSize(t *testing.T, file *os.File) int64 {
+	t.Helper()
+	info, err := file.Stat()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return info.Size()
 }

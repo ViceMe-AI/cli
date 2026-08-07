@@ -1,8 +1,7 @@
 package archive
 
 import (
-	"archive/tar"
-	"compress/gzip"
+	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -81,6 +80,13 @@ func FromFile(path string, maxBytes int64) (Artifact, error) {
 	}, nil
 }
 
+// BuildDirectory packages a directory into a deterministic ZIP archive.
+//
+// The Shop API receives source/artifact uploads as ZIP and expands them with
+// `unzip` (bounded, pre-extraction listing checks); tar.gz is never sent
+// cross-repo. Determinism: entries are written in sorted order with a fixed
+// (epoch) modification time so identical directories produce identical bytes
+// and digests.
 func BuildDirectory(ctx context.Context, root string, maxBytes int64) (Artifact, error) {
 	if maxBytes <= 0 {
 		maxBytes = DefaultMaxBytes
@@ -103,7 +109,7 @@ func BuildDirectory(ctx context.Context, root string, maxBytes int64) (Artifact,
 	if rawSize > maxBytes {
 		return Artifact{}, output.Policy("bundle_too_large", fmt.Sprintf("Skill directory exceeds the %d byte limit", maxBytes))
 	}
-	temp, err := os.CreateTemp("", "viceme-skill-*.tar.gz")
+	temp, err := os.CreateTemp("", "viceme-skill-*.zip")
 	if err != nil {
 		return Artifact{}, output.Internal("archive_temp", "failed to create a temporary archive", err)
 	}
@@ -117,26 +123,17 @@ func BuildDirectory(ctx context.Context, root string, maxBytes int64) (Artifact,
 	}()
 
 	hash := sha256.New()
-	gzipWriter, err := gzip.NewWriterLevel(io.MultiWriter(temp, hash), gzip.BestCompression)
-	if err != nil {
-		return Artifact{}, output.Internal("archive_gzip", "failed to initialize the archive", err)
-	}
-	gzipWriter.Header.ModTime = epoch
-	gzipWriter.Header.OS = 255
-	tarWriter := tar.NewWriter(gzipWriter)
+	zipWriter := zip.NewWriter(io.MultiWriter(temp, hash))
 	for _, item := range entries {
 		if err := ctx.Err(); err != nil {
 			return Artifact{}, err
 		}
-		if err := writeEntry(tarWriter, item); err != nil {
+		if err := writeEntry(zipWriter, item); err != nil {
 			return Artifact{}, err
 		}
 	}
-	if err := tarWriter.Close(); err != nil {
-		return Artifact{}, output.Internal("archive_tar_close", "failed to finalize the Skill archive", err)
-	}
-	if err := gzipWriter.Close(); err != nil {
-		return Artifact{}, output.Internal("archive_gzip_close", "failed to finalize the compressed Skill archive", err)
+	if err := zipWriter.Close(); err != nil {
+		return Artifact{}, output.Internal("archive_zip_close", "failed to finalize the Skill archive", err)
 	}
 	if err := temp.Close(); err != nil {
 		return Artifact{}, output.Internal("archive_file_close", "failed to close the Skill archive", err)
@@ -151,8 +148,8 @@ func BuildDirectory(ctx context.Context, root string, maxBytes int64) (Artifact,
 	remove = false
 	return Artifact{
 		Path:         tempPath,
-		Filename:     filepath.Base(absRoot) + ".tar.gz",
-		ContentType:  "application/gzip",
+		Filename:     filepath.Base(absRoot) + ".zip",
+		ContentType:  "application/zip",
 		Size:         info.Size(),
 		SHA256Digest: "sha256:" + hex.EncodeToString(hash.Sum(nil)),
 		remove:       true,
@@ -223,45 +220,45 @@ func ignored(rel string, isDir bool) bool {
 	}
 }
 
-func writeEntry(writer *tar.Writer, item entry) error {
-	header := &tar.Header{
-		Name:       item.relPath,
-		Mode:       normalizedMode(item.info),
-		ModTime:    epoch,
-		AccessTime: epoch,
-		ChangeTime: epoch,
-		Uid:        0,
-		Gid:        0,
-		Format:     tar.FormatPAX,
+func writeEntry(writer *zip.Writer, item entry) error {
+	name := item.relPath
+	if item.info.IsDir() {
+		// Directory entries end with "/" so unzip recreates the tree.
+		name = strings.TrimSuffix(name, "/") + "/"
 	}
+	header := &zip.FileHeader{
+		Name:     name,
+		Method:   zip.Deflate,
+		Modified: epoch,
+	}
+	header.SetMode(normalizedMode(item.info))
 	switch {
 	case item.info.IsDir():
-		header.Typeflag = tar.TypeDir
-		header.Name = strings.TrimSuffix(header.Name, "/") + "/"
+		header.SetMode(os.ModeDir | 0o755)
+		if _, err := writer.CreateHeader(header); err != nil {
+			return output.Internal("archive_header", fmt.Sprintf("failed to archive %s", item.relPath), err)
+		}
+		return nil
 	case item.info.Mode().IsRegular():
-		header.Typeflag = tar.TypeReg
-		header.Size = item.info.Size()
+		entryWriter, err := writer.CreateHeader(header)
+		if err != nil {
+			return output.Internal("archive_header", fmt.Sprintf("failed to archive %s", item.relPath), err)
+		}
+		file, err := os.Open(item.absPath)
+		if err != nil {
+			return output.Validation("archive_read", fmt.Sprintf("failed to read %s", item.relPath))
+		}
+		defer file.Close()
+		if _, err := io.Copy(entryWriter, file); err != nil {
+			return output.Internal("archive_write", fmt.Sprintf("failed to archive %s", item.relPath), err)
+		}
+		return nil
 	default:
 		return output.Policy("unsupported_file_type", fmt.Sprintf("unsupported file type: %s", item.relPath))
 	}
-	if err := writer.WriteHeader(header); err != nil {
-		return output.Internal("archive_header", fmt.Sprintf("failed to archive %s", item.relPath), err)
-	}
-	if !item.info.Mode().IsRegular() {
-		return nil
-	}
-	file, err := os.Open(item.absPath)
-	if err != nil {
-		return output.Validation("archive_read", fmt.Sprintf("failed to read %s", item.relPath))
-	}
-	defer file.Close()
-	if _, err := io.Copy(writer, file); err != nil {
-		return output.Internal("archive_write", fmt.Sprintf("failed to archive %s", item.relPath), err)
-	}
-	return nil
 }
 
-func normalizedMode(info fs.FileInfo) int64 {
+func normalizedMode(info fs.FileInfo) fs.FileMode {
 	if info.IsDir() {
 		return 0o755
 	}

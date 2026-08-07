@@ -378,7 +378,7 @@ func confirmf(cmd *cobra.Command, format string, args ...any) (bool, error) {
 	return answer == "y" || answer == "yes", nil
 }
 
-// buildProjectArtifact packages a project directory into a tar.gz archive. When
+// buildProjectArtifact packages a project directory into a zip archive. When
 // artifact is true, only the built dist directory is included; otherwise the
 // full source tree (excluding dist and build caches) is included. The returned
 // archive is temporary and must be cleaned up via Cleanup.
