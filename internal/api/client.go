@@ -178,6 +178,63 @@ func (c *Client) GetPublicAppContext(ctx context.Context, publishableKey, origin
 	return response, err
 }
 
+// Runtime API methods (skill-app-platform.md §8 / runtime-headless-api.md).
+
+func (c *Client) GetRuntimeContract(ctx context.Context, runtimeReleaseID string) (RuntimeContractResponse, error) {
+	var response RuntimeContractResponse
+	err := c.doJSON(ctx, http.MethodGet, "/v1/managed-apps/runtime-contract/"+url.PathEscape(runtimeReleaseID), nil, &response, true, "", nil)
+	return response, err
+}
+
+func (c *Client) CreateRuntimeRun(ctx context.Context, request CreateRuntimeRunRequest, origin string) (CreateRuntimeRunResponse, error) {
+	var response CreateRuntimeRunResponse
+	headers := http.Header{}
+	if origin != "" {
+		headers.Set("Origin", origin)
+	}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/runtime/runs", request, &response, false, "", headers)
+	return response, err
+}
+
+func (c *Client) GetRuntimeRun(ctx context.Context, runID, publishableKey, origin string) (RuntimeRunDetail, error) {
+	var response RuntimeRunDetail
+	endpoint := "/v1/runtime/runs/" + url.PathEscape(runID) + "?publishableKey=" + url.QueryEscape(publishableKey)
+	headers := http.Header{}
+	if origin != "" {
+		headers.Set("Origin", origin)
+	}
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, false, "", headers)
+	return response, err
+}
+
+func (c *Client) CancelRuntimeRun(ctx context.Context, runID, publishableKey, origin string) (CancelRuntimeRunResponse, error) {
+	var response CancelRuntimeRunResponse
+	endpoint := "/v1/runtime/runs/" + url.PathEscape(runID) + "/cancel?publishableKey=" + url.QueryEscape(publishableKey)
+	headers := http.Header{}
+	if origin != "" {
+		headers.Set("Origin", origin)
+	}
+	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, false, "", headers)
+	return response, err
+}
+
+func (c *Client) ListRuntimeRuns(ctx context.Context, publishableKey, origin, cursor string, limit int) (ListRuntimeRunsResponse, error) {
+	var response ListRuntimeRunsResponse
+	endpoint := "/v1/runtime/runs?publishableKey=" + url.QueryEscape(publishableKey)
+	if cursor != "" {
+		endpoint += "&cursor=" + url.QueryEscape(cursor)
+	}
+	if limit > 0 {
+		endpoint += "&limit=" + fmt.Sprintf("%d", limit)
+	}
+	headers := http.Header{}
+	if origin != "" {
+		headers.Set("Origin", origin)
+	}
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, false, "", headers)
+	return response, err
+}
+
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string, headers http.Header) error {
 	base, err := validateAPIBaseURL(c.BaseURL)
 	if err != nil {

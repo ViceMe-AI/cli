@@ -36,7 +36,7 @@
     },
     {
       "path": "app get",
-      "use": "get <app-id>",
+      "use": "get \u003capp-id\u003e",
       "short": "Get one owned Creator App",
       "runnable": true,
       "side_effect": "none",
@@ -154,7 +154,7 @@
     },
     {
       "path": "capability add",
-      "use": "add <name>",
+      "use": "add \u003cname\u003e",
       "short": "Enable one capability foundation for the linked App environment",
       "runnable": true,
       "side_effect": "public",
@@ -183,7 +183,7 @@
     },
     {
       "path": "capability doctor",
-      "use": "doctor <name>",
+      "use": "doctor \u003cname\u003e",
       "short": "Check one local capability binding against the control plane",
       "runnable": true,
       "side_effect": "none",
@@ -204,7 +204,7 @@
     },
     {
       "path": "capability get",
-      "use": "get <name>",
+      "use": "get \u003cname\u003e",
       "short": "Get one capability from the linked App environment",
       "runnable": true,
       "side_effect": "none",
@@ -387,6 +387,80 @@
       ]
     },
     {
+      "path": "job",
+      "use": "job",
+      "short": "Manage Runtime Runs (get, wait, cancel)",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "job cancel",
+      "use": "cancel \u003crunId\u003e",
+      "short": "Request cancellation of a Runtime Run",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": true,
+      "flags": [
+        {
+          "name": "origin",
+          "type": "string",
+          "usage": "Origin of the App (required for CORS)"
+        },
+        {
+          "name": "publishable-key",
+          "type": "string",
+          "usage": "Publishable Key for the App environment (required)"
+        }
+      ]
+    },
+    {
+      "path": "job get",
+      "use": "get \u003crunId\u003e",
+      "short": "Get the status and result of a Runtime Run",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "origin",
+          "type": "string",
+          "usage": "Origin of the App (required for CORS)"
+        },
+        {
+          "name": "publishable-key",
+          "type": "string",
+          "usage": "Publishable Key for the App environment (required)"
+        }
+      ]
+    },
+    {
+      "path": "job wait",
+      "use": "wait \u003crunId\u003e",
+      "short": "Wait for a Runtime Run to reach a terminal state",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "origin",
+          "type": "string",
+          "usage": "Origin of the App (required for CORS)"
+        },
+        {
+          "name": "publishable-key",
+          "type": "string",
+          "usage": "Publishable Key for the App environment (required)"
+        },
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "5m0s",
+          "usage": "Maximum time to wait for the Run to complete"
+        }
+      ]
+    },
+    {
       "path": "listing",
       "use": "listing",
       "short": "Manage the public Listing for a Creator App",
@@ -482,7 +556,7 @@
     },
     {
       "path": "profile configure",
-      "use": "configure <name>",
+      "use": "configure \u003cname\u003e",
       "short": "Configure the API endpoint for a profile",
       "runnable": true,
       "side_effect": "local",
@@ -511,7 +585,7 @@
     },
     {
       "path": "profile remove",
-      "use": "remove <name>",
+      "use": "remove \u003cname\u003e",
       "short": "Remove a profile and its local credentials",
       "runnable": true,
       "side_effect": "local",
@@ -519,7 +593,7 @@
     },
     {
       "path": "profile rename",
-      "use": "rename <old> <new>",
+      "use": "rename \u003cold\u003e \u003cnew\u003e",
       "short": "Rename a profile",
       "runnable": true,
       "side_effect": "local",
@@ -527,10 +601,26 @@
     },
     {
       "path": "profile use",
-      "use": "use <name>",
+      "use": "use \u003cname\u003e",
       "short": "Switch to a profile (use '-' to toggle back)",
       "runnable": true,
       "side_effect": "local",
+      "requires_confirmation": false
+    },
+    {
+      "path": "runtime",
+      "use": "runtime",
+      "short": "Read Runtime Contracts and manage Skill Runs",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "runtime inspect",
+      "use": "inspect \u003cruntimeReleaseId\u003e",
+      "short": "Read the Runtime Contract for a Runtime Release",
+      "runnable": true,
+      "side_effect": "none",
       "requires_confirmation": false
     },
     {
@@ -583,7 +673,7 @@
     },
     {
       "path": "skills read",
-      "use": "read <name>[/<path>] [path]",
+      "use": "read \u003cname\u003e[/\u003cpath\u003e] [path]",
       "short": "Print embedded Skill content without a JSON wrapper",
       "runnable": true,
       "side_effect": "none",
