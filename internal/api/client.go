@@ -306,9 +306,10 @@ func (c *Client) CreateRuntimeTicket(ctx context.Context, publishableKey, origin
 	if origin != "" {
 		headers.Set("Origin", origin)
 	}
+	// The Shop contract is strict ({ publishableKey } only): the App origin is
+	// sent as the Origin header, never in the body (P1 fix).
 	err := c.doJSON(ctx, http.MethodPost, "/v1/runtime/tickets", map[string]string{
 		"publishableKey": publishableKey,
-		"origin":         origin,
 	}, &response, true, "", headers)
 	return response, err
 }
