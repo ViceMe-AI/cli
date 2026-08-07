@@ -169,6 +169,8 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newCommerceCommand(runtime))
 	root.AddCommand(newListingCommand(runtime))
 	root.AddCommand(newSkillsCommand(runtime))
+	root.AddCommand(newRuntimeCommand(runtime))
+	root.AddCommand(newJobCommand(runtime))
 	return root, runtime, nil
 }
 

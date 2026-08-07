@@ -37,12 +37,13 @@ func TestRootExposesCreatorCapabilitySurfaceOnly(t *testing.T) {
 		"app link", "app get", "app list", "app doctor",
 		"capability catalog", "capability add", "capability get", "capability doctor",
 		"auth login", "auth status", "auth logout", "skills install", "skills doctor",
+		"runtime inspect", "job get", "job wait", "job cancel",
 	} {
 		if !paths[expected] {
 			t.Errorf("missing command %q", expected)
 		}
 	}
-	for _, removed := range []string{"skill", "skill publish", "job", "job wait"} {
+	for _, removed := range []string{"skill", "skill publish"} {
 		if paths[removed] {
 			t.Errorf("legacy publication command %q is still exposed", removed)
 		}

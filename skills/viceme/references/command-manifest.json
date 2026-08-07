@@ -387,6 +387,131 @@
       ]
     },
     {
+      "path": "job",
+      "use": "job",
+      "short": "Manage Runtime Runs (get, wait, cancel, artifacts)",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "job artifacts",
+      "use": "artifacts <runId>",
+      "short": "List Runtime Run artifacts, or download one with --artifact-id",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "artifact-id",
+          "type": "string",
+          "usage": "Download a single artifact by ID (omit to list)"
+        },
+        {
+          "name": "origin",
+          "type": "string",
+          "usage": "Origin of the App (required for CORS)"
+        },
+        {
+          "name": "out",
+          "type": "string",
+          "default": ".",
+          "usage": "Directory to write the downloaded artifact"
+        },
+        {
+          "name": "publishable-key",
+          "type": "string",
+          "usage": "Publishable Key for the App environment (required)"
+        },
+        {
+          "name": "runtime-ticket",
+          "type": "string",
+          "usage": "Runtime Ticket (Bearer) obtained from the ViceMe web UI; required to authorize Run access"
+        }
+      ]
+    },
+    {
+      "path": "job cancel",
+      "use": "cancel <runId>",
+      "short": "Request cancellation of a Runtime Run",
+      "runnable": true,
+      "side_effect": "public",
+      "requires_confirmation": true,
+      "flags": [
+        {
+          "name": "origin",
+          "type": "string",
+          "usage": "Origin of the App (required for CORS)"
+        },
+        {
+          "name": "publishable-key",
+          "type": "string",
+          "usage": "Publishable Key for the App environment (required)"
+        },
+        {
+          "name": "runtime-ticket",
+          "type": "string",
+          "usage": "Runtime Ticket (Bearer) obtained from the ViceMe web UI; required to authorize Run access"
+        }
+      ]
+    },
+    {
+      "path": "job get",
+      "use": "get <runId>",
+      "short": "Get the status and result of a Runtime Run",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "origin",
+          "type": "string",
+          "usage": "Origin of the App (required for CORS)"
+        },
+        {
+          "name": "publishable-key",
+          "type": "string",
+          "usage": "Publishable Key for the App environment (required)"
+        },
+        {
+          "name": "runtime-ticket",
+          "type": "string",
+          "usage": "Runtime Ticket (Bearer) obtained from the ViceMe web UI; required to authorize Run access"
+        }
+      ]
+    },
+    {
+      "path": "job wait",
+      "use": "wait <runId>",
+      "short": "Wait for a Runtime Run to reach a terminal state",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "origin",
+          "type": "string",
+          "usage": "Origin of the App (required for CORS)"
+        },
+        {
+          "name": "publishable-key",
+          "type": "string",
+          "usage": "Publishable Key for the App environment (required)"
+        },
+        {
+          "name": "runtime-ticket",
+          "type": "string",
+          "usage": "Runtime Ticket (Bearer) obtained from the ViceMe web UI; required to authorize Run access"
+        },
+        {
+          "name": "timeout",
+          "type": "duration",
+          "default": "5m0s",
+          "usage": "Maximum time to wait for the Run to complete"
+        }
+      ]
+    },
+    {
       "path": "listing",
       "use": "listing",
       "short": "Manage the public Listing for a Creator App",
@@ -531,6 +656,22 @@
       "short": "Switch to a profile (use '-' to toggle back)",
       "runnable": true,
       "side_effect": "local",
+      "requires_confirmation": false
+    },
+    {
+      "path": "runtime",
+      "use": "runtime",
+      "short": "Read Runtime Contracts and manage Skill Runs",
+      "runnable": false,
+      "side_effect": "none",
+      "requires_confirmation": false
+    },
+    {
+      "path": "runtime inspect",
+      "use": "inspect <runtimeReleaseId>",
+      "short": "Read the Runtime Contract for a Runtime Release",
+      "runnable": true,
+      "side_effect": "none",
       "requires_confirmation": false
     },
     {
