@@ -520,7 +520,7 @@ func (c *Client) doMultipart(ctx context.Context, method, endpoint string, field
 	}
 	apply(request, token)
 
-	response, err := withoutRedirects(c.HTTPClient).Do(request)
+	response, err := WithoutRedirects(c.HTTPClient).Do(request)
 	if err != nil {
 		return output.Network("transport", "failed to reach the ViceMe API", err)
 	}

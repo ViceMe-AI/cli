@@ -156,10 +156,11 @@ func runManagedAppInit(cmd *cobra.Command, runtime *Runtime) error {
 	// resume with the same key (P1 fix).
 	//
 	// The marker may hold two shapes: the partial pending state (only
-	// schemaVersion + clientRequestId, written before InitManagedApp) or the
-	// full state (written after a successful init). Load() only accepts the
-	// full state; a partial state fails validate() — that failure is the
-	// "an init is in flight" signal, so it must not be treated as fatal here.
+	// schemaVersion + clientRequestId + init parameters, written before
+	// InitManagedApp) or the full state (written after a successful init).
+	// Load() only accepts the full state; a partial state fails validate() —
+	// that failure is the "an init is in flight" signal, so it must not be
+	// treated as fatal here.
 	existing, loadErr := managedrelease.Load(projectDir)
 	var clientRequestID string
 	retrying := false
@@ -172,14 +173,31 @@ func runManagedAppInit(cmd *cobra.Command, runtime *Runtime) error {
 		// First run: no marker yet, nothing to resume.
 	default:
 		// Interrupted init (partial marker) or an unreadable marker. Resume
-		// only when the marker still parses and carries the idempotency key.
-		pendingID, pendingErr := managedrelease.LoadPendingID(projectDir)
+		// only when the marker still parses and carries the idempotency key —
+		// and only when the CURRENT command resumes the SAME init: a changed
+		// template/runtime-release would converge on the old App while the
+		// local state records the new parameters, corrupting preview/publish
+		// (P2 fix).
+		pending, pendingErr := managedrelease.LoadPending(projectDir)
 		if pendingErr != nil {
 			return output.Internal("managed_release_pending", "the init marker cannot be read; remove the .viceme directory and retry", pendingErr).
 				WithDetails(map[string]any{"directory": projectDir})
 		}
-		clientRequestID = pendingID
-		retrying = pendingID != ""
+		clientRequestID = pending.ClientRequestID
+		retrying = clientRequestID != ""
+		if retrying &&
+			(pending.TemplateName != tpl.Name ||
+				pending.TemplateVersion != tpl.Version ||
+				pending.RuntimeReleaseID != runtimeReleaseID) {
+			return output.Validation("init_retry_mismatch",
+				"the interrupted init used different template/runtime-release parameters; remove the .viceme directory and retry").
+				WithDetails(map[string]any{
+					"directory":        projectDir,
+					"pendingTemplate":  pending.TemplateName,
+					"pendingVersion":   pending.TemplateVersion,
+					"pendingReleaseID": pending.RuntimeReleaseID,
+				})
+		}
 	}
 	if !directoryEmptyOrRetryMarker(projectDir, retrying) {
 		return output.Validation("init_output_not_empty",
@@ -188,7 +206,12 @@ func runManagedAppInit(cmd *cobra.Command, runtime *Runtime) error {
 	}
 	if clientRequestID == "" {
 		clientRequestID = generateClientRequestID()
-		if err := managedrelease.SavePending(projectDir, clientRequestID); err != nil {
+		if err := managedrelease.SavePending(projectDir, managedrelease.PendingInit{
+			ClientRequestID:  clientRequestID,
+			TemplateName:     tpl.Name,
+			TemplateVersion:  tpl.Version,
+			RuntimeReleaseID: runtimeReleaseID,
+		}); err != nil {
 			return output.Internal("managed_release_pending", "failed to persist the init idempotency key", err)
 		}
 	}
@@ -555,14 +578,22 @@ func downloadAndVerifyDigest(ctx context.Context, runtime *Runtime, downloadURL,
 	if expectedDigest == "" {
 		return nil, output.Validation("template_digest_missing", "the template catalog did not return a digest to verify against")
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	// The catalog URL is server-controlled, but the transport policy still
+	// applies: HTTPS (or loopback HTTP) only, and no redirects — consistent
+	// with the artifact download client (#67 review P2). The digest check is
+	// the integrity boundary; this prevents the probe surface.
+	parsed, err := api.ValidateDownloadURL(downloadURL)
+	if err != nil {
+		return nil, output.Validation("template_download_url", "the template catalog returned an invalid download URL")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
 	if err != nil {
 		return nil, output.Internal("template_download_request", "failed to create the template download request", err)
 	}
 	if ua := runtime.client().UserAgent; ua != "" {
 		request.Header.Set("User-Agent", ua)
 	}
-	response, err := runtime.deps.HTTPClient.Do(request)
+	response, err := api.WithoutRedirects(runtime.deps.HTTPClient).Do(request)
 	if err != nil {
 		return nil, output.Network("template_download", "failed to download the template archive", err)
 	}

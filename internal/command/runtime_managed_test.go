@@ -386,7 +386,12 @@ func TestManagedAppInitResumesInterruptedRun(t *testing.T) {
 	// Simulate the interrupted first attempt: partial pending marker written
 	// before extraction, then the template extracted, then a crash before
 	// InitManagedApp. The partial state fails managedrelease.Load's validate().
-	if err := managedrelease.SavePending(outDir, pendingKey); err != nil {
+	if err := managedrelease.SavePending(outDir, managedrelease.PendingInit{
+		ClientRequestID:  pendingKey,
+		TemplateName:     "image-tool-starter",
+		TemplateVersion:  "1.0.0",
+		RuntimeReleaseID: testRuntimeReleaseID,
+	}); err != nil {
 		t.Fatal(err)
 	}
 	if err := extractZipArchive(archiveBytes, outDir); err != nil {
@@ -420,6 +425,47 @@ func TestManagedAppInitResumesInterruptedRun(t *testing.T) {
 	}
 	if state.AppID != testAppID {
 		t.Fatalf("full state mismatch: %+v", state)
+	}
+}
+
+// TestManagedAppInitRejectsRetryParameterMismatch verifies the P2 fix: a
+// retry must resume the SAME init. If the interrupted marker was written for a
+// different template/runtime-release, the command fails before any remote side
+// effect instead of converging on the old App while recording new parameters.
+func TestManagedAppInitRejectsRetryParameterMismatch(t *testing.T) {
+	outDir := filepath.Join(t.TempDir(), "my-app")
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := managedrelease.SavePending(outDir, managedrelease.PendingInit{
+		ClientRequestID:  "pending-other-init",
+		TemplateName:     "image-tool-starter",
+		TemplateVersion:  "1.0.0",
+		RuntimeReleaseID: testRuntimeReleaseID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		http.Error(writer, "unexpected request", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	store := securestore.NewMemory()
+	dependencies := authenticatedDependencies(t, server, store)
+	dependencies.NewID = func() string { return testRuntimeReleaseID }
+	// Resume with a DIFFERENT template: must be rejected before any request.
+	code, _, stderr, _ := runCLIWithDependencies(t, server, store, "", dependencies,
+		"app", "init",
+		"--template", "other-template",
+		"--runtime-release", testRuntimeReleaseID,
+		"--name", "My App",
+		"--output", outDir)
+	if code == 0 {
+		t.Fatalf("retry with different parameters must fail")
+	}
+	if !strings.Contains(stderr, "init_retry_mismatch") {
+		t.Fatalf("expected init_retry_mismatch error, got: %s", stderr)
 	}
 }
 

@@ -77,27 +77,33 @@ func Load(directory string) (State, error) {
 	return state, nil
 }
 
-// LoadPendingID reads only the persisted InitManagedApp idempotency key from
-// the release state, WITHOUT full validation. The pending state written by
-// SavePending intentionally lacks appId/candidateId etc. and therefore cannot
-// pass validate(); this accessor exists so `app init` can detect and resume an
-// interrupted initialization instead of creating an orphan App (P1 fix).
-func LoadPendingID(directory string) (string, error) {
+// LoadPending reads the persisted in-flight init parameters WITHOUT full
+// validation. The pending state written by SavePending intentionally lacks
+// appId/candidateId etc. and therefore cannot pass validate(); this accessor
+// exists so `app init` can detect and resume an interrupted initialization
+// instead of creating an orphan App (P1 fix), and so a retry can verify it is
+// resuming the SAME init parameters (P2 fix).
+func LoadPending(directory string) (PendingInit, error) {
 	file, err := os.Open(Path(directory))
 	if errors.Is(err, os.ErrNotExist) {
-		return "", ErrNotFound
+		return PendingInit{}, ErrNotFound
 	}
 	if err != nil {
-		return "", fmt.Errorf("open managed release state: %w", err)
+		return PendingInit{}, fmt.Errorf("open managed release state: %w", err)
 	}
 	defer file.Close()
 	decoder := json.NewDecoder(io.LimitReader(file, 1<<20))
 	decoder.DisallowUnknownFields()
 	var state State
 	if err := decoder.Decode(&state); err != nil {
-		return "", fmt.Errorf("decode managed release state: %w", err)
+		return PendingInit{}, fmt.Errorf("decode managed release state: %w", err)
 	}
-	return state.ClientRequestID, nil
+	return PendingInit{
+		ClientRequestID:  state.ClientRequestID,
+		TemplateName:     state.TemplateName,
+		TemplateVersion:  state.TemplateVersion,
+		RuntimeReleaseID: state.RuntimeReleaseID,
+	}, nil
 }
 
 func Save(directory string, state State) (string, error) {
@@ -147,13 +153,29 @@ func Save(directory string, state State) (string, error) {
 	return filename, nil
 }
 
-// SavePending persists only the InitManagedApp idempotency key before the
-// remote App is created. The state is intentionally partial — it cannot pass
-// validate() — so a crash between this write and InitManagedApp can be retried
-// with the same clientRequestId, and `app init` never leaves an orphan App on
-// the Shop.
-func SavePending(directory, clientRequestID string) error {
-	state := State{SchemaVersion: SchemaVersion, ClientRequestID: clientRequestID}
+// PendingInit captures the parameters of an in-flight InitManagedApp so a
+// retry can verify it is resuming the SAME init (template and runtime-release
+// must match), not a different one (P2 fix).
+type PendingInit struct {
+	ClientRequestID  string
+	TemplateName     string
+	TemplateVersion  string
+	RuntimeReleaseID string
+}
+
+// SavePending persists only the InitManagedApp idempotency key and its init
+// parameters before the remote App is created. The state is intentionally
+// partial — it cannot pass validate() — so a crash between this write and
+// InitManagedApp can be retried with the same clientRequestId, and `app init`
+// never leaves an orphan App on the Shop.
+func SavePending(directory string, pending PendingInit) error {
+	state := State{
+		SchemaVersion:    SchemaVersion,
+		ClientRequestID:  pending.ClientRequestID,
+		TemplateName:     pending.TemplateName,
+		TemplateVersion:  pending.TemplateVersion,
+		RuntimeReleaseID: pending.RuntimeReleaseID,
+	}
 	directory = filepath.Clean(directory)
 	stateDirectory := filepath.Join(directory, ".viceme")
 	if err := os.MkdirAll(stateDirectory, 0o755); err != nil {
