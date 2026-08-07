@@ -290,6 +290,46 @@ func (c *Client) DownloadArtifact(ctx context.Context, downloadURL string) (io.R
 	return response.Body, nil
 }
 
+// Runtime Ticket issuance (Slice F authorization).
+//
+// POST /v1/runtime/tickets exchanges a CLI device token for a short-lived
+// Runtime Ticket scoped to one App environment (publishable key + origin). The
+// CLI already holds a valid access token from `viceme auth login`, so the
+// initial implementation authenticates with it (authenticated=true). This
+// requires the Shop API to accept CLI device tokens for the ticket exchange — a
+// cross-repo dependency tracked alongside this change; until the Shop honours
+// it, callers should obtain a Runtime Ticket from the ViceMe web UI or via the
+// `--browser` device-code flow on `runtime ticket`.
+func (c *Client) CreateRuntimeTicket(ctx context.Context, publishableKey, origin string) (CreateRuntimeTicketResponse, error) {
+	var response CreateRuntimeTicketResponse
+	headers := http.Header{}
+	if origin != "" {
+		headers.Set("Origin", origin)
+	}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/runtime/tickets", map[string]string{
+		"publishableKey": publishableKey,
+		"origin":         origin,
+	}, &response, true, "", headers)
+	return response, err
+}
+
+// CreateRuntimeTicketWithDeviceCode completes the --browser device-code flow:
+// the user authorizes in the web UI and receives a one-time code, which the CLI
+// exchanges here for a Runtime Ticket. The code is short-lived and single-use.
+func (c *Client) CreateRuntimeTicketWithDeviceCode(ctx context.Context, publishableKey, origin, code string) (CreateRuntimeTicketResponse, error) {
+	var response CreateRuntimeTicketResponse
+	headers := http.Header{}
+	if origin != "" {
+		headers.Set("Origin", origin)
+	}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/runtime/tickets/exchange", map[string]string{
+		"publishableKey": publishableKey,
+		"origin":         origin,
+		"code":           code,
+	}, &response, true, "", headers)
+	return response, err
+}
+
 // Managed App API methods (skill-app-platform.md §10/§11).
 
 func (c *Client) GetManagedAppTemplate(ctx context.Context, name string) (ManagedAppTemplate, error) {

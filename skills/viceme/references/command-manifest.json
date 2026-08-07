@@ -753,6 +753,38 @@
       "requires_confirmation": false
     },
     {
+      "path": "runtime ticket",
+      "use": "ticket",
+      "short": "Issue a short-lived Runtime Ticket for the App environment",
+      "runnable": true,
+      "side_effect": "none",
+      "requires_confirmation": false,
+      "flags": [
+        {
+          "name": "browser",
+          "type": "bool",
+          "default": "false",
+          "usage": "Open a browser to authorize the ticket via a one-time code (use when the Shop requires a web session)"
+        },
+        {
+          "name": "origin",
+          "type": "string",
+          "usage": "App Origin (required for CORS)"
+        },
+        {
+          "name": "publishable-key",
+          "type": "string",
+          "usage": "Publishable Key for the App environment (required)"
+        },
+        {
+          "name": "ticket-url",
+          "type": "string",
+          "default": "https://viceme.com/app/runtime/ticket/authorize",
+          "usage": "Authorization URL opened with --browser (override for non-production shops)"
+        }
+      ]
+    },
+    {
       "path": "skills",
       "use": "skills",
       "short": "Read, install, and diagnose bundled Agent Skill content",
