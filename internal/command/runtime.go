@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -255,9 +256,20 @@ func downloadArtifact(ctx context.Context, runtime *Runtime, artifact api.Runtim
 			_ = os.Remove(temporaryName)
 		}
 	}()
-	written, err := io.Copy(temporary, body)
+	// Bound the download: use the size the manifest declared, with an
+	// absolute ceiling so a hostile/compromised server cannot exhaust the
+	// disk (P1 fix).
+	const absoluteArtifactCeiling = int64(1 << 30) // 1 GiB
+	limit := artifact.SizeBytes
+	if limit <= 0 || limit > absoluteArtifactCeiling {
+		limit = absoluteArtifactCeiling
+	}
+	written, err := io.Copy(temporary, io.LimitReader(body, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("write artifact: %w", err)
+	}
+	if written > limit {
+		return nil, fmt.Errorf("artifact exceeds the %d byte download ceiling", limit)
 	}
 	if err := temporary.Close(); err != nil {
 		return nil, fmt.Errorf("close artifact: %w", err)
@@ -278,8 +290,29 @@ func artifactFilename(artifact api.RuntimeArtifact, runID string) string {
 	if extension == "" {
 		extension = ".bin"
 	}
-	return fmt.Sprintf("%s-%s%s", runID, artifact.ArtifactID, extension)
+	// The artifact id and run id come from the server and are attacker-
+	// influenced only indirectly, but they are interpolated into a filesystem
+	// path: restrict them to safe characters so a hostile response can never
+	// write outside --out (path traversal, P0 fix).
+	return fmt.Sprintf("%s-%s%s",
+		requireSafePathSegment(runID, "run id"),
+		requireSafePathSegment(artifact.ArtifactID, "artifact id"),
+		extension)
 }
+
+// requireSafePathSegment rejects any value that is not a plain path segment,
+// so untrusted server fields can never escape the output directory.
+func requireSafePathSegment(value, what string) string {
+	if value == "" {
+		return "unknown"
+	}
+	if !safePathSegmentRe.MatchString(value) {
+		return "unknown"
+	}
+	return value
+}
+
+var safePathSegmentRe = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
 func extensionForKind(kind, contentType string) string {
 	switch strings.ToUpper(kind) {
