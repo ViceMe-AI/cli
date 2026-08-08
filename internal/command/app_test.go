@@ -179,7 +179,7 @@ func TestAppLinkSerializesConcurrentFirstCreation(t *testing.T) {
 func TestAppLinkExplicitSameAppPreservesEnvironmentOriginAndProtocols(t *testing.T) {
 	capability := api.CreatorAppCapability{
 		Type: "COMMERCE", Status: "DRAFT", ConfigVersion: 1,
-		ContractVersion: "1.0.0", SDKPackage: "@viceme/web-sdk", SDKVersion: "0.1.0",
+		ContractVersion: "1.0.0", SDKPackage: "@viceme-ai/web-sdk", SDKVersion: "0.1.0",
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {
@@ -228,7 +228,7 @@ func TestDoctorsPreserveStructuredRemoteErrors(t *testing.T) {
 		SchemaVersion: 1, AppID: testAppID, HostingMode: "EXTERNAL", Environment: "TEST",
 		PublishableKey: testPublishableKey, Origin: "http://localhost:3000",
 		Capabilities: map[string]appmanifest.Capability{
-			"commerce": {ContractVersion: "1.0.0", SDKPackage: "@viceme/web-sdk", SDKVersion: "0.1.0"},
+			"commerce": {ContractVersion: "1.0.0", SDKPackage: "@viceme-ai/web-sdk", SDKVersion: "0.1.0"},
 		},
 	}); err != nil {
 		t.Fatal(err)

@@ -21,6 +21,16 @@ var (
 	ErrNotFound     = errors.New("ViceMe App manifest not found")
 	uuidPattern     = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	publishKeyRegex = regexp.MustCompile(`^app_pk_(test|live)_[A-Za-z0-9_-]{32,}$`)
+	// Allowed SDK package names. The canonical @viceme-ai/* namespace is the
+	// current contract (Shop packages/contracts emits these). The legacy
+	// @viceme/* names are accepted for backward compatibility with manifests
+	// created before the rename.
+	allowedSDKPackages = map[string]bool{
+		"@viceme-ai/web-sdk": true,
+		"@viceme-ai/app-sdk": true,
+		"@viceme/web-sdk":    true, // legacy
+		"@viceme/app-sdk":    true, // legacy
+	}
 )
 
 type Capability struct {
@@ -149,7 +159,7 @@ func validate(manifest Manifest) error {
 		return errors.New("App manifest capabilities must be a JSON object")
 	}
 	for name, capability := range manifest.Capabilities {
-		if strings.TrimSpace(name) == "" || capability.SDKPackage != "@viceme/web-sdk" {
+		if strings.TrimSpace(name) == "" || !allowedSDKPackages[capability.SDKPackage] {
 			return errors.New("App manifest contains an invalid capability binding")
 		}
 		if _, err := semver.Parse(capability.ContractVersion); err != nil {

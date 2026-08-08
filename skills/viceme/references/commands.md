@@ -112,7 +112,7 @@ using the project's existing package manager. For the current
 `.viceme/app.json` binding that is:
 
 ```bash
-pnpm add @viceme/web-sdk@0.1.0
+pnpm add @viceme-ai/web-sdk@0.1.0
 ```
 
 Use the equivalent exact-version command for npm, yarn, or bun when that is the
@@ -120,7 +120,7 @@ project's existing package manager. Never install `latest`. Then mount it from
 client-side code:
 
 ```ts
-import { mountAppContextWidget } from "@viceme/web-sdk";
+import { mountAppContextWidget } from "@viceme-ai/web-sdk";
 
 mountAppContextWidget(document.querySelector("#viceme-app")!, {
   apiBaseUrl: "<api_base_url from app link>",
@@ -142,7 +142,7 @@ Static HTML:
 
 ```html
 <script
-  src="https://cdn.jsdelivr.net/npm/@viceme/web-sdk@0.1.0"
+  src="https://cdn.jsdelivr.net/npm/@viceme-ai/web-sdk@0.1.0"
   data-viceme-api-base="<api_base_url from app link>"
   data-viceme-app-key="<publishableKey from .viceme/app.json>"
   defer
@@ -161,7 +161,7 @@ before adding the component. The example version must equal
 ```tsx
 "use client";
 
-import { mountCommerceCheckoutWidget } from "@viceme/web-sdk";
+import { mountCommerceCheckoutWidget } from "@viceme-ai/web-sdk";
 import { useEffect, useRef } from "react";
 
 export function SupportButton() {
