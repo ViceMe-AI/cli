@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -161,6 +162,100 @@ func runDetailFixtureWithArtifact(status, downloadURL string) map[string]any {
 		},
 	}
 	return detail
+}
+
+// TestRuntimeTicketAuthenticatesWithDeviceToken verifies the #68 fix: in the
+// headless flow the CLI exchanges its own device access token for a Runtime
+// Ticket (authenticated=true), so the request carries the CLI credential
+// (x-api-key). This addresses the review finding that an unauthenticated call
+// to the ticket endpoint returned 401.
+func TestRuntimeTicketAuthenticatesWithDeviceToken(t *testing.T) {
+	var seenAPIKey string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/runtime/tickets" {
+			http.Error(writer, "not found", http.StatusNotFound)
+			return
+		}
+		seenAPIKey = request.Header.Get("x-api-key")
+		writeCommandJSON(t, writer, map[string]any{
+			"ticket": "rtk_test_ticket_value", "expiresAt": "2026-08-07T00:00:00Z",
+		})
+	}))
+	defer server.Close()
+
+	store := securestore.NewMemory()
+	dependencies := authenticatedDependencies(t, server, store)
+	code, _, stderr, _ := runCLIWithDependencies(t, server, store, "", dependencies,
+		"runtime", "ticket",
+		"--publishable-key", testPublishableKey,
+		"--origin", "http://localhost:3000")
+	if code != 0 || stderr != "" {
+		t.Fatalf("runtime ticket code=%d stderr=%s", code, stderr)
+	}
+	if seenAPIKey == "" {
+		t.Fatalf("runtime ticket must authenticate with the CLI device token (x-api-key); got empty header")
+	}
+}
+
+// TestRuntimeTicketBrowserFlowExchangesDeviceCode verifies the --browser
+// device-code flow: the user pastes a one-time code, and the CLI exchanges it
+// at POST /v1/runtime/tickets/exchange carrying the code.
+func TestRuntimeTicketBrowserFlowExchangesDeviceCode(t *testing.T) {
+	var exchangedCode, exchangePath string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/runtime/tickets/exchange" {
+			exchangePath = request.URL.Path
+			body, _ := io.ReadAll(request.Body)
+			var payload map[string]string
+			_ = json.Unmarshal(body, &payload)
+			exchangedCode = payload["code"]
+			writeCommandJSON(t, writer, map[string]any{
+				"ticket": "rtk_browser_ticket", "expiresAt": "2026-08-07T00:00:00Z",
+			})
+			return
+		}
+		http.Error(writer, "not found: "+request.URL.Path, http.StatusNotFound)
+	}))
+	defer server.Close()
+
+	store := securestore.NewMemory()
+	dependencies := authenticatedDependencies(t, server, store)
+	var openedURL string
+	dependencies.OpenBrowser = func(rawURL string) error {
+		openedURL = rawURL
+		return nil
+	}
+	code, stdout, _, _ := runCLIWithDependencies(t, server, store, "ONETIMECODE123\n", dependencies,
+		"runtime", "ticket",
+		"--publishable-key", testPublishableKey,
+		"--origin", "http://localhost:3000",
+		"--browser",
+		"--ticket-url", "https://example.invalid/authorize")
+	if code != 0 {
+		t.Fatalf("runtime ticket --browser code=%d", code)
+	}
+	if !strings.Contains(stdout, "rtk_browser_ticket") {
+		t.Fatalf("browser flow did not return a ticket; stdout=%s", stdout)
+	}
+	if exchangePath != "/v1/runtime/tickets/exchange" {
+		t.Fatalf("expected the device-code exchange endpoint, got %q", exchangePath)
+	}
+	if exchangedCode != "ONETIMECODE123" {
+		t.Fatalf("device code not exchanged; got %q", exchangedCode)
+	}
+	parsedURL, err := url.Parse(openedURL)
+	if err != nil {
+		t.Fatalf("invalid browser authorization URL %q: %v", openedURL, err)
+	}
+	if parsedURL.Scheme != "https" || parsedURL.Host != "example.invalid" || parsedURL.Path != "/authorize" {
+		t.Fatalf("unexpected browser authorization URL: %s", openedURL)
+	}
+	if got := parsedURL.Query().Get("publishableKey"); got != testPublishableKey {
+		t.Fatalf("browser authorization publishableKey=%q", got)
+	}
+	if got := parsedURL.Query().Get("origin"); got != "http://localhost:3000" {
+		t.Fatalf("browser authorization origin=%q", got)
+	}
 }
 
 // --- Managed App tests (Slice E) ---

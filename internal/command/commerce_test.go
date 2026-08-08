@@ -67,8 +67,8 @@ func TestCommerceOfferCreateUsesLinkedEnvironmentAndExplicitIdempotencyKey(t *te
 	}
 	if !strings.Contains(stdout, `"data-viceme-checkout"`) ||
 		!strings.Contains(stdout, testPublishableKey) ||
-		!strings.Contains(stdout, `"package_spec": "@viceme/web-sdk@0.1.0"`) ||
-		!strings.Contains(stdout, `"cdn_url": "https://cdn.jsdelivr.net/npm/@viceme/web-sdk@0.1.0"`) ||
+		!strings.Contains(stdout, `"package_spec": "@viceme-ai/web-sdk@0.1.0"`) ||
+		!strings.Contains(stdout, `"cdn_url": "https://cdn.jsdelivr.net/npm/@viceme-ai/web-sdk@0.1.0"`) ||
 		!strings.Contains(stdout, `"api_base_url": "`+server.URL+`/v1"`) {
 		t.Fatalf("output omitted Widget integration data: %s", stdout)
 	}
@@ -141,7 +141,7 @@ func TestCommerceOfferCommandsAllowLiveBindingAndStillRequireCapability(t *testi
 		case request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/environments/LIVE/capabilities"):
 			writeCommandJSON(t, writer, api.CreatorAppCapability{
 				Type: "COMMERCE", Status: "DRAFT", ConfigVersion: 1,
-				ContractVersion: "1.1.0", SDKPackage: "@viceme/web-sdk", SDKVersion: "0.1.0",
+				ContractVersion: "1.1.0", SDKPackage: "@viceme-ai/web-sdk", SDKVersion: "0.1.0",
 			})
 		case request.Method == http.MethodGet && strings.HasSuffix(request.URL.Path, "/environments/LIVE/commerce/offers"):
 			writeCommandJSON(t, writer, api.CommerceOffersResponse{Items: []api.CommerceOffer{}})
@@ -181,7 +181,7 @@ func createCommerceProject(t *testing.T, environment string, commerce bool) stri
 	if commerce {
 		capabilities["commerce"] = appmanifest.Capability{
 			ContractVersion: "1.1.0",
-			SDKPackage:      "@viceme/web-sdk",
+			SDKPackage:      "@viceme-ai/web-sdk",
 			SDKVersion:      "0.1.0",
 		}
 	}

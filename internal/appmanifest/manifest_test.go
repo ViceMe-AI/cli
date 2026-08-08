@@ -132,3 +132,43 @@ func TestOriginAcceptsCanonicalLoopbackAndRejectsPublicHTTP(t *testing.T) {
 		t.Fatal("public HTTP origin was accepted")
 	}
 }
+
+func TestValidateAcceptsCanonicalAndLegacySDKPackages(t *testing.T) {
+	base := Manifest{
+		SchemaVersion:  SchemaVersion,
+		AppID:          "550e8400-e29b-41d4-a716-446655440000",
+		HostingMode:    "VICEME_HOSTED",
+		Environment:    "TEST",
+		PublishableKey: "app_pk_test_abcdefghijklmnopqrstuvwxyz123456",
+		Capabilities:   map[string]Capability{},
+	}
+	// The canonical @viceme-ai/* namespace must be accepted for both web-sdk
+	// (EXTERNAL apps) and app-sdk (VICEME_HOSTED managed apps).
+	for _, pkg := range []string{"@viceme-ai/web-sdk", "@viceme-ai/app-sdk"} {
+		m := base
+		m.Capabilities = map[string]Capability{
+			"runtime": {ContractVersion: "1.0.0", SDKPackage: pkg, SDKVersion: "0.1.0"},
+		}
+		if _, err := Save(t.TempDir(), m); err != nil {
+			t.Fatalf("canonical SDK package %s rejected: %v", pkg, err)
+		}
+	}
+	// Legacy @viceme/* names are accepted for backward compatibility.
+	for _, pkg := range []string{"@viceme/web-sdk", "@viceme/app-sdk"} {
+		m := base
+		m.Capabilities = map[string]Capability{
+			"runtime": {ContractVersion: "1.0.0", SDKPackage: pkg, SDKVersion: "0.1.0"},
+		}
+		if _, err := Save(t.TempDir(), m); err != nil {
+			t.Fatalf("legacy SDK package %s rejected: %v", pkg, err)
+		}
+	}
+	// An unknown package name must be rejected.
+	m := base
+	m.Capabilities = map[string]Capability{
+		"runtime": {ContractVersion: "1.0.0", SDKPackage: "@evil/sdk", SDKVersion: "0.1.0"},
+	}
+	if _, err := Save(t.TempDir(), m); err == nil {
+		t.Fatal("unknown SDK package was accepted")
+	}
+}

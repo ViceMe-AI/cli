@@ -67,7 +67,7 @@ Slice A exposes the Commerce foundation as DRAFT. Checkout is delivered by the n
 The App Context shell can be mounted from the public browser SDK without exposing a credential:
 
 ```ts
-import { mountAppContextWidget } from "@viceme/web-sdk";
+import { mountAppContextWidget } from "@viceme-ai/web-sdk";
 
 mountAppContextWidget(document.querySelector("#viceme-app"), {
   apiBaseUrl: "https://api.viceme.cn/v1",

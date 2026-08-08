@@ -105,3 +105,11 @@ type ListRuntimeRunsResponse struct {
 	} `json:"items"`
 	NextCursor *string `json:"nextCursor"`
 }
+
+// CreateRuntimeTicketResponse is returned by POST /v1/runtime/tickets. A Runtime
+// Ticket is a short-lived bearer token that authorizes Run access (job get/wait/
+// cancel/artifacts) scoped to a single App environment.
+type CreateRuntimeTicketResponse struct {
+	Ticket    string `json:"ticket"`
+	ExpiresAt string `json:"expiresAt"`
+}

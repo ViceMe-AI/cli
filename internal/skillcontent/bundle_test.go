@@ -41,8 +41,8 @@ func TestEmbeddedVicemeSkillIsValid(t *testing.T) {
 	}
 	commands := string(data)
 	for _, required := range []string{
-		"pnpm add @viceme/web-sdk@0.1.0",
-		"https://cdn.jsdelivr.net/npm/@viceme/web-sdk@0.1.0",
+		"pnpm add @viceme-ai/web-sdk@0.1.0",
+		"https://cdn.jsdelivr.net/npm/@viceme-ai/web-sdk@0.1.0",
 		"mountCommerceCheckoutWidget",
 		"Next.js Client Component",
 	} {

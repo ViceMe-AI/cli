@@ -147,7 +147,7 @@ func TestAppLinkCapabilityAddAndDoctor(t *testing.T) {
 		case request.Method == http.MethodPost && strings.HasSuffix(request.URL.Path, "/capabilities"):
 			capability := map[string]any{
 				"type": "COMMERCE", "status": "DRAFT", "configVersion": 1,
-				"contractVersion": "1.0.0", "sdkPackage": "@viceme/web-sdk", "sdkVersion": "0.1.0",
+				"contractVersion": "1.0.0", "sdkPackage": "@viceme-ai/web-sdk", "sdkVersion": "0.1.0",
 				"config": map[string]any{},
 			}
 			capabilities = []map[string]any{capability}
@@ -212,7 +212,7 @@ func TestAppLinkCapabilityAddAndDoctor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Capabilities["commerce"] != (appmanifest.Capability{ContractVersion: "1.0.0", SDKPackage: "@viceme/web-sdk", SDKVersion: "0.1.0"}) {
+	if manifest.Capabilities["commerce"] != (appmanifest.Capability{ContractVersion: "1.0.0", SDKPackage: "@viceme-ai/web-sdk", SDKVersion: "0.1.0"}) {
 		t.Fatalf("capability not persisted %#v", manifest.Capabilities)
 	}
 
@@ -481,6 +481,9 @@ func runCLIWithDependencies(t *testing.T, server *httptest.Server, store secures
 	}
 	if extra.Sleep == nil {
 		extra.Sleep = func(context.Context, time.Duration) error { return nil }
+	}
+	if extra.OpenBrowser == nil {
+		extra.OpenBrowser = func(string) error { return nil }
 	}
 	if extra.Environment.Home == "" {
 		extra.Environment = skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()}

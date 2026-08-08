@@ -1,24 +1,30 @@
 package command
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
+	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/spf13/cobra"
 )
 
-// Runtime command surface for Slice D (skill-app-platform.md §8/§11).
+// Runtime command surface for Slice D/F (skill-app-platform.md §8/§11).
 //
 //   viceme runtime inspect <runtimeReleaseId>
+//   viceme runtime ticket --publishable-key <key> --origin <url> [--browser --ticket-url <url>]
 //   viceme job get <runId> --publishable-key <key> --origin <url> --runtime-ticket <ticket>
 //   viceme job wait <runId> --publishable-key <key> --origin <url> --runtime-ticket <ticket>
 //   viceme job cancel <runId> --publishable-key <key> --origin <url> --runtime-ticket <ticket>
@@ -27,6 +33,7 @@ import (
 func newRuntimeCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "runtime", Short: "Read Runtime Contracts and manage Skill Runs"}
 	command.AddCommand(newRuntimeInspectCommand(runtime))
+	command.AddCommand(newRuntimeTicketCommand(runtime))
 	return command
 }
 
@@ -358,4 +365,117 @@ func generateClientRequestID() string {
 		hex.EncodeToString(b[8:10]),
 		hex.EncodeToString(b[10:16]),
 	)
+}
+
+// defaultRuntimeTicketURL is the ViceMe web UI page where a creator authorizes a
+// Runtime Ticket. It is overridable with --ticket-url for non-production shops.
+const defaultRuntimeTicketURL = "https://viceme.com/app/runtime/ticket/authorize"
+
+// newRuntimeTicketCommand issues a short-lived Runtime Ticket. There are two
+// flows:
+//
+//   - Headless (default): the CLI exchanges its device access token
+//     (authenticated=true) for a ticket. This requires the Shop API to accept
+//     CLI device tokens for the ticket exchange — a cross-repo dependency. When
+//     the Shop still requires a web session, callers should use --browser.
+//
+//   - Browser (--browser): the CLI opens the default browser to an
+//     authorization page (--ticket-url). The user authorizes there and receives
+//     a one-time code; the CLI reads the code from stdin and exchanges it for a
+//     Runtime Ticket. This works without a CLI-side cookie jar because the user
+//     authorizes in an already-authenticated web session.
+func newRuntimeTicketCommand(runtime *Runtime) *cobra.Command {
+	command := &cobra.Command{
+		Use:   "ticket",
+		Short: "Issue a short-lived Runtime Ticket for the App environment",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			client := runtime.client()
+			pk, _ := cmd.Flags().GetString("publishable-key")
+			origin, _ := cmd.Flags().GetString("origin")
+			useBrowser, _ := cmd.Flags().GetBool("browser")
+			ticketURL, _ := cmd.Flags().GetString("ticket-url")
+
+			if useBrowser {
+				code, err := readRuntimeTicketDeviceCode(cmd, ticketURL, pk, origin, runtime.deps.OpenBrowser)
+				if err != nil {
+					return err
+				}
+				resp, err := client.CreateRuntimeTicketWithDeviceCode(ctx, pk, origin, code)
+				if err != nil {
+					return err
+				}
+				return runtime.business(map[string]any{"ticket": resp})
+			}
+
+			resp, err := client.CreateRuntimeTicket(ctx, pk, origin)
+			if err != nil {
+				return err
+			}
+			return runtime.business(map[string]any{"ticket": resp})
+		},
+	}
+	command.Flags().String("publishable-key", "", "Publishable Key for the App environment (required)")
+	command.Flags().String("origin", "", "App Origin (required for CORS)")
+	command.Flags().Bool("browser", false, "Open a browser to authorize the ticket via a one-time code (use when the Shop requires a web session)")
+	command.Flags().String("ticket-url", defaultRuntimeTicketURL, "Authorization URL opened with --browser (override for non-production shops)")
+	_ = command.MarkFlagRequired("publishable-key")
+	_ = command.MarkFlagRequired("origin")
+	return command
+}
+
+// readRuntimeTicketDeviceCode opens the authorization page and reads the
+// one-time code the user copies back from the web UI. The URL is printed as a
+// fallback when the browser cannot be opened (headless CI, no GUI).
+func readRuntimeTicketDeviceCode(
+	cmd *cobra.Command,
+	ticketURL string,
+	publishableKey string,
+	origin string,
+	openURL func(string) error,
+) (string, error) {
+	fullURL := ticketURL
+	// Build the query with proper encoding so a publishableKey/origin
+	// containing "&", "#" etc. cannot break the URL structure (#68 review P2).
+	params := url.Values{}
+	params.Set("publishableKey", publishableKey)
+	params.Set("origin", origin)
+	if idx := strings.IndexAny(ticketURL, "?"); idx >= 0 {
+		fullURL += "&" + params.Encode()
+	} else {
+		fullURL += "?" + params.Encode()
+	}
+	writer := cmd.ErrOrStderr()
+	_, _ = fmt.Fprintln(writer, "Open this URL in your browser to authorize a Runtime Ticket:")
+	_, _ = fmt.Fprintf(writer, "\n  %s\n\n", fullURL)
+	if err := openURL(fullURL); err != nil {
+		// A failure to launch the browser is non-fatal: the URL has been printed.
+		_, _ = fmt.Fprintf(writer, "Could not open the browser automatically (%v); open the URL above manually.\n", err)
+	}
+	_, _ = fmt.Fprint(writer, "Paste the one-time code shown after authorization: ")
+
+	reader := bufio.NewReader(cmd.InOrStdin())
+	line, err := reader.ReadString('\n')
+	if err != nil && err != io.EOF {
+		return "", output.Internal("ticket_code_read", "failed to read the one-time code", err)
+	}
+	code := strings.TrimSpace(line)
+	if code == "" {
+		return "", output.Validation("ticket_code_missing", "no one-time code was provided")
+	}
+	return code, nil
+}
+
+// openBrowser opens url in the user's default browser. It is best-effort: the
+// caller always prints the URL as a fallback.
+func openBrowser(url string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", url).Start()
+	case "windows":
+		return exec.Command("rundll32", "url.dll,FileProtocolHandler", url).Start()
+	default:
+		return exec.Command("xdg-open", url).Start()
+	}
 }

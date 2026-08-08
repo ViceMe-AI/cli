@@ -70,7 +70,7 @@ Slice A 只提供 DRAFT 状态的 Commerce 基座。Checkout 会在下一段实�
 外部项目可以使用公开 Web SDK 挂载 App Context Shell，全程不下发 CLI Credential：
 
 ```ts
-import { mountAppContextWidget } from "@viceme/web-sdk";
+import { mountAppContextWidget } from "@viceme-ai/web-sdk";
 
 mountAppContextWidget(document.querySelector("#viceme-app"), {
   apiBaseUrl: "https://api.viceme.cn/v1",
