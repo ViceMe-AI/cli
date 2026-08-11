@@ -15,16 +15,21 @@ import (
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
 
-type releaseManifest struct {
-	SchemaVersion         int    `json:"schema_version"`
-	NPMPackage            string `json:"npm_package"`
-	CLIVersion            string `json:"cli_version"`
+type skillRelease struct {
 	SkillVersion          string `json:"skill_version"`
 	MinimumCLIVersion     string `json:"minimum_cli_version"`
 	CLICompatibility      string `json:"cli_compatibility"`
 	FullBundleDigest      string `json:"full_skill_bundle_digest"`
 	EmbeddedContentDigest string `json:"embedded_content_digest"`
-	CommandManifestDigest string `json:"command_manifest_digest"`
+}
+
+type releaseManifest struct {
+	SchemaVersion           int                     `json:"schema_version"`
+	NPMPackage              string                  `json:"npm_package"`
+	CLIVersion              string                  `json:"cli_version"`
+	Skills                  map[string]skillRelease `json:"skills"`
+	BootstrapContractDigest string                  `json:"bootstrap_contract_digest"`
+	InstallerDigests        map[string]string       `json:"installer_digests"`
 }
 
 func main() {
@@ -32,29 +37,32 @@ func main() {
 	flag.Parse()
 
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
-	digests, err := bundle.Digests("viceme")
-	if err != nil {
-		fatal(err)
+	skills := make(map[string]skillRelease, 2)
+	for _, name := range []string{"viceme-shared", "viceme-publish"} {
+		digests, err := bundle.Digests(name)
+		if err != nil {
+			fatal(err)
+		}
+		metadata, err := bundle.Package(name)
+		if err != nil {
+			fatal(err)
+		}
+		skills[name] = skillRelease{
+			SkillVersion: metadata.SkillVersion, MinimumCLIVersion: metadata.MinimumCLIVersion,
+			CLICompatibility: metadata.CLICompatibility, FullBundleDigest: digests.Full,
+			EmbeddedContentDigest: digests.Embedded,
+		}
 	}
-	metadata, err := bundle.Package("viceme")
-	if err != nil {
-		fatal(err)
-	}
-	commandManifest, err := os.ReadFile("skills/viceme/references/command-manifest.json")
-	if err != nil {
-		fatal(err)
-	}
-	commandDigest := sha256.Sum256(commandManifest)
 	manifest := releaseManifest{
-		SchemaVersion:         1,
-		NPMPackage:            "@viceme-ai/cli",
-		CLIVersion:            buildinfo.ReleaseVersion,
-		SkillVersion:          metadata.SkillVersion,
-		MinimumCLIVersion:     metadata.MinimumCLIVersion,
-		CLICompatibility:      metadata.CLICompatibility,
-		FullBundleDigest:      digests.Full,
-		EmbeddedContentDigest: digests.Embedded,
-		CommandManifestDigest: "sha256:" + hex.EncodeToString(commandDigest[:]),
+		SchemaVersion:           2,
+		NPMPackage:              "@viceme-ai/cli",
+		CLIVersion:              buildinfo.ReleaseVersion,
+		Skills:                  skills,
+		BootstrapContractDigest: digestFile("release/bootstrap-contract.json"),
+		InstallerDigests: map[string]string{
+			"install.sh":  digestFile("installers/install.sh"),
+			"install.ps1": digestFile("installers/install.ps1"),
+		},
 	}
 	var data bytes.Buffer
 	encoder := json.NewEncoder(&data)
@@ -66,6 +74,15 @@ func main() {
 	if err := writeAtomic(*output, data.Bytes()); err != nil {
 		fatal(err)
 	}
+}
+
+func digestFile(filename string) string {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		fatal(err)
+	}
+	digest := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(digest[:])
 }
 
 func writeAtomic(filename string, data []byte) error {

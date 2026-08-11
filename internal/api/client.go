@@ -23,235 +23,190 @@ type TokenSource interface {
 	Token(context.Context) (string, error)
 }
 
-// CredentialHeaderFunc applies a stored CLI credential to an API request.
-// Device login currently issues scoped API keys, so the default transport is
-// x-api-key. Keeping this injectable prevents a future credential type from
-// requiring route-by-route client changes.
-type CredentialHeaderFunc func(*http.Request, string)
-
-func ApplyAPIKeyCredential(request *http.Request, credential string) {
-	request.Header.Set("x-api-key", credential)
-}
-
 type Client struct {
 	BaseURL          string
 	HTTPClient       *http.Client
+	UploadHTTPClient *http.Client
 	Tokens           TokenSource
 	UserAgent        string
-	CredentialHeader CredentialHeaderFunc
 }
 
 func NewClient(baseURL string, httpClient *http.Client, tokens TokenSource, userAgent string) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
+	uploadHTTPClient := *httpClient
+	uploadHTTPClient.Timeout = 10 * time.Minute
 	return &Client{
-		BaseURL:          strings.TrimRight(baseURL, "/"),
-		HTTPClient:       httpClient,
-		Tokens:           tokens,
-		UserAgent:        userAgent,
-		CredentialHeader: ApplyAPIKeyCredential,
+		BaseURL: strings.TrimRight(baseURL, "/"), HTTPClient: httpClient,
+		UploadHTTPClient: &uploadHTTPClient, Tokens: tokens, UserAgent: userAgent,
 	}
 }
 
-func (c *Client) StartDeviceAuthorization(ctx context.Context) (DeviceAuthorization, error) {
+func (c *Client) StartDeviceAuthorization(ctx context.Context, request DeviceAuthorizationRequest) (DeviceAuthorization, error) {
 	var response DeviceAuthorization
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/device", struct{}{}, &response, false, "")
-	if err == nil && response.VerificationURLComplete != "" {
-		// The complete URL carries the one-time user code and opens the exact
-		// authorization request in the browser. Keep verification_url as the
-		// canonical agent-facing field while retaining the explicit complete
-		// field for callers that understand the full server contract.
-		response.VerificationURL = response.VerificationURLComplete
-	}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/device-authorizations", request, &response, "")
 	return response, err
 }
 
 func (c *Client) ExchangeDeviceToken(ctx context.Context, deviceCode string) (DeviceToken, error) {
 	var response DeviceToken
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/token", DeviceTokenRequest{DeviceCode: deviceCode}, &response, false, "")
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/device-authorizations/token", DeviceTokenRequest{DeviceCode: deviceCode}, &response, "")
+	return response, err
+}
+
+func (c *Client) AuthStatus(ctx context.Context) (AuthStatus, error) {
+	var response AuthStatus
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/auth/status", nil, &response, "@stored")
 	return response, err
 }
 
 func (c *Client) Revoke(ctx context.Context, accessToken string) error {
-	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/revoke", struct{}{}, nil, false, accessToken)
+	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/logout", struct{}{}, nil, accessToken)
 }
 
-func (c *Client) Inspect(ctx context.Context, request InspectRequest) (InspectResponse, error) {
-	var response InspectResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/inspect", request, &response, true, "")
+// HealthReady performs an unauthenticated, redirect-free connectivity check.
+// Doctor owns the short deadline so this probe can never inherit the normal
+// command timeout or disclose the stored publication credential.
+func (c *Client) HealthReady(ctx context.Context) error {
+	return c.doJSON(ctx, http.MethodGet, "/v1/health/ready", nil, nil, "")
+}
+
+func (c *Client) CreateSkillPublication(ctx context.Context, request CreateSkillPublicationRequest) (CreateSkillPublicationResponse, error) {
+	var response CreateSkillPublicationResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/creator/skill-publications", request, &response, "@stored")
 	return response, err
 }
 
-func (c *Client) CreatePublication(ctx context.Context, request CreatePublicationRequest) (Publication, error) {
-	var response Publication
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications", request, &response, true, "")
+func (c *Client) GetSkillPublication(ctx context.Context, publicationID string) (SkillPublication, error) {
+	var response SkillPublication
+	err := c.doJSON(ctx, http.MethodGet, publicationPath(publicationID), nil, &response, "@stored")
 	return response, err
 }
 
-func (c *Client) GetPublication(ctx context.Context, id string) (Publication, error) {
-	var response Publication
-	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publications/"+url.PathEscape(id), nil, &response, true, "")
+func (c *Client) AuthorizeUpload(ctx context.Context, publicationID string, request UploadAuthorizationRequest) (UploadAuthorization, error) {
+	var response UploadAuthorization
+	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/upload-authorizations", request, &response, "@stored")
 	return response, err
 }
 
-func (c *Client) GetPublicationPreview(ctx context.Context, publicationID, actionID string) (map[string]any, error) {
-	var response map[string]any
-	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/preview"
-	if actionID != "" {
-		endpoint += "?action_id=" + url.QueryEscape(actionID)
+func (c *Client) CompleteUpload(ctx context.Context, publicationID, uploadID string) (SkillPublication, error) {
+	var response SkillPublication
+	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/complete-upload", CompleteUploadRequest{UploadID: uploadID}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) AnalyzeListing(ctx context.Context, publicationID string) (SkillPublication, error) {
+	var response SkillPublication
+	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/analyze-listing", struct{}{}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) UpdateListingDraft(ctx context.Context, publicationID string, request SkillPublicationDraft) (SkillPublication, error) {
+	var response SkillPublication
+	err := c.doJSON(ctx, http.MethodPatch, publicationPath(publicationID)+"/listing-draft", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ConfirmPublication(ctx context.Context, publicationID, reviewDigest string) (SkillPublication, error) {
+	var response SkillPublication
+	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/confirm-review", ReviewDigestRequest{ReviewDigest: reviewDigest}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) PublishSkill(ctx context.Context, publicationID, reviewDigest string) (SkillPublication, error) {
+	var response SkillPublication
+	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/publish", ReviewDigestRequest{ReviewDigest: reviewDigest}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CancelSkillPublication(ctx context.Context, publicationID string) (CancelPublicationResponse, error) {
+	var response CancelPublicationResponse
+	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/cancel", struct{}{}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) PutUpload(ctx context.Context, authorization UploadAuthorization, body io.Reader, size int64) error {
+	if err := validateUploadURL(authorization.URL); err != nil {
+		return output.Validation("UPLOAD_URL_INVALID", "upload URL must use HTTPS; loopback HTTP is allowed only for development")
 	}
-	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, true, "")
-	return response, err
-}
-
-func (c *Client) RequestPublicationEdit(ctx context.Context, publicationID string, request PublicationEditRequest) (PublicationEditReceipt, error) {
-	var response PublicationEditReceipt
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/edits", request, &response, true, "")
-	return response, err
-}
-
-func (c *Client) GetPublicationEdit(ctx context.Context, publicationID, editID string) (PublicationEditReceipt, error) {
-	var response PublicationEditReceipt
-	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/edits/"+url.PathEscape(editID), nil, &response, true, "")
-	return response, err
-}
-
-// ResolveAction answers a typed payload action (select_root). confirm_publish
-// decisions must go through ResolveConfirmation: the API owns a dedicated
-// endpoint whose OpenAPI/SDK/runtime digest contract is identical.
-func (c *Client) ResolveAction(ctx context.Context, publicationID, actionID string, request ResolveActionRequest) (Publication, error) {
-	var response Publication
-	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/actions/" + url.PathEscape(actionID) + "/resolve"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "")
-	return response, err
-}
-
-// ResolveConfirmation resolves a confirm_publish action. All three digests
-// and the decision are required — the same contract the API validates and the
-// OpenAPI/SDK documents, so a cancel resolution is never rejected for missing
-// digests.
-func (c *Client) ResolveConfirmation(ctx context.Context, publicationID, actionID string, request ResolveConfirmationRequest) (Publication, error) {
-	var response Publication
-	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/actions/" + url.PathEscape(actionID) + "/resolve-confirmation"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "")
-	return response, err
-}
-
-// RenewExpiredAction explicitly issues a new generation for an expired
-// confirm_steps or confirm_publish action. The publication and frozen candidate
-// remain unchanged; the server owns all eligibility checks.
-func (c *Client) RenewExpiredAction(ctx context.Context, publicationID, actionID string) (RenewActionReceipt, error) {
-	var response RenewActionReceipt
-	endpoint := "/v1/skill-agent-publications/" + url.PathEscape(publicationID) + "/actions/" + url.PathEscape(actionID) + "/renew"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, true, "")
-	return response, err
-}
-
-func (c *Client) GetPublicationMetadata(ctx context.Context, publicationID string) (PublicationMetadata, error) {
-	var response PublicationMetadata
-	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/metadata", nil, &response, true, "")
-	return response, err
-}
-
-func (c *Client) ResolvePublicationMetadata(ctx context.Context, publicationID string, request ResolveMetadataRequest) (Publication, error) {
-	var response Publication
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(publicationID)+"/metadata/resolve", request, &response, true, "")
-	return response, err
-}
-
-func (c *Client) CancelPublication(ctx context.Context, id string) (Publication, error) {
-	var response Publication
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(id)+"/cancel", struct{}{}, &response, true, "")
-	return response, err
-}
-
-func (c *Client) RetryPublication(ctx context.Context, id string) (Publication, error) {
-	var response Publication
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publications/"+url.PathEscape(id)+"/retry", struct{}{}, &response, true, "")
-	return response, err
-}
-
-func (c *Client) ListTargets(ctx context.Context) (TargetList, error) {
-	var response TargetList
-	err := c.doJSON(ctx, http.MethodGet, "/v1/skill-agent-publish-targets", nil, &response, true, "")
-	return response, err
-}
-
-func (c *Client) GetTarget(ctx context.Context, identifier string) (Target, error) {
-	var response Target
-	endpoint := "/v1/skill-agent-publish-targets/" + url.PathEscape(identifier)
-	if code, ok := shareCode(identifier); ok {
-		endpoint = "/v1/skill-agent-publish-targets/by-share-code/" + url.PathEscape(code)
-	}
-	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, true, "")
-	return response, err
-}
-
-func (c *Client) PrepareUpload(ctx context.Context, request UploadPrepareRequest) (UploadPrepareResponse, error) {
-	var response UploadPrepareResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skill-agent-publication-uploads", request, &response, true, "")
-	return response, err
-}
-
-func (c *Client) CompleteUpload(ctx context.Context, id string, request UploadCompleteRequest) (UploadCompleteResponse, error) {
-	var response UploadCompleteResponse
-	endpoint := "/v1/skill-agent-publication-uploads/" + url.PathEscape(id) + "/complete"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, true, "")
-	return response, err
-}
-
-func (c *Client) PutUpload(ctx context.Context, prepared UploadPrepareResponse, body io.Reader, size int64) error {
-	method := prepared.Method
-	if method == "" {
-		method = http.MethodPut
-	}
-	request, err := http.NewRequestWithContext(ctx, method, prepared.UploadURL, body)
+	request, err := http.NewRequestWithContext(ctx, authorization.Method, authorization.URL, body)
 	if err != nil {
-		return output.Internal("upload_request", "failed to create upload request", err)
+		return output.Internal("UPLOAD_REQUEST_INVALID", "failed to create upload request", err)
 	}
 	request.ContentLength = size
-	for key, value := range prepared.Headers {
+	for key, value := range authorization.Headers {
 		request.Header.Set(key, value)
 	}
-	response, err := withoutRedirects(c.HTTPClient).Do(request)
+	response, err := withoutRedirects(c.uploadClient()).Do(request)
 	if err != nil {
-		return output.Network("upload_transport", "failed to upload the Skill bundle", err)
+		return output.Network("UPLOAD_TRANSPORT_FAILED", "failed to upload publication asset", err)
 	}
 	defer response.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+	// Uploads are content-addressed and authorized with If-None-Match. A 412
+	// means the immutable object is already present, commonly after a lost
+	// response. The authenticated completion endpoint still verifies the
+	// stored size, digest, and metadata before accepting it.
+	if response.StatusCode == http.StatusPreconditionFailed {
+		return nil
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return output.Network("upload_rejected", fmt.Sprintf("upload endpoint returned HTTP %d", response.StatusCode), nil)
+		return output.Network("UPLOAD_REJECTED", fmt.Sprintf("upload endpoint returned HTTP %d", response.StatusCode), nil)
 	}
 	return nil
 }
 
-func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string) error {
-	return c.doJSONWithHeaders(ctx, method, endpoint, requestBody, responseBody, authenticated, explicitToken, nil)
+func (c *Client) uploadClient() *http.Client {
+	if c.UploadHTTPClient != nil {
+		return c.UploadHTTPClient
+	}
+	if c.HTTPClient != nil {
+		clone := *c.HTTPClient
+		clone.Timeout = 10 * time.Minute
+		return &clone
+	}
+	return &http.Client{Timeout: 10 * time.Minute}
 }
 
-func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string, requestBody, responseBody any, authenticated bool, explicitToken string, headers http.Header) error {
+func validateUploadURL(raw string) error {
+	target, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || target.Hostname() == "" || target.User != nil || target.Fragment != "" || target.Opaque != "" {
+		return errors.New("invalid upload URL")
+	}
+	if strings.EqualFold(target.Scheme, "https") {
+		return nil
+	}
+	if strings.EqualFold(target.Scheme, "http") {
+		host := target.Hostname()
+		if strings.EqualFold(host, "localhost") || (net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()) {
+			return nil
+		}
+	}
+	return errors.New("upload URL must use HTTPS or loopback HTTP")
+}
+
+func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, credential string) error {
 	base, err := validateAPIBaseURL(c.BaseURL)
 	if err != nil {
-		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+		return output.Validation("API_BASE_URL_INVALID", "ViceMe API base URL must use HTTPS; loopback HTTP is allowed only for development")
 	}
 	relative, err := url.Parse(endpoint)
 	if err != nil || relative.IsAbs() || relative.Host != "" {
-		return output.Internal("request_endpoint", "failed to construct the ViceMe API endpoint", err)
+		return output.Internal("REQUEST_ENDPOINT_INVALID", "failed to construct the ViceMe API endpoint", err)
 	}
 	base.Path = path.Join(base.Path, relative.Path)
-	base.RawQuery = relative.RawQuery
 	var body io.Reader
 	if requestBody != nil {
-		data, err := json.Marshal(requestBody)
-		if err != nil {
-			return output.Internal("request_encode", "failed to encode the API request", err)
+		encoded, encodeErr := json.Marshal(requestBody)
+		if encodeErr != nil {
+			return output.Internal("REQUEST_ENCODE_FAILED", "failed to encode the API request", encodeErr)
 		}
-		body = bytes.NewReader(data)
+		body = bytes.NewReader(encoded)
 	}
 	request, err := http.NewRequestWithContext(ctx, method, base.String(), body)
 	if err != nil {
-		return output.Internal("request_create", "failed to create the API request", err)
+		return output.Internal("REQUEST_CREATE_FAILED", "failed to create the API request", err)
 	}
 	request.Header.Set("Accept", "application/json")
 	if requestBody != nil {
@@ -260,52 +215,95 @@ func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string,
 	if c.UserAgent != "" {
 		request.Header.Set("User-Agent", c.UserAgent)
 	}
-	for key, values := range headers {
-		for _, value := range values {
-			request.Header.Add(key, value)
-		}
-	}
-	token := explicitToken
-	if authenticated && token == "" {
+	if credential == "@stored" {
 		if c.Tokens == nil {
-			return output.Authentication("not_logged_in", "not logged in to ViceMe")
+			return output.Authentication("NOT_LOGGED_IN", "not logged in to ViceMe")
 		}
-		token, err = c.Tokens.Token(ctx)
+		credential, err = c.Tokens.Token(ctx)
 		if err != nil {
 			return err
 		}
 	}
-	if token != "" {
-		applyCredential := c.CredentialHeader
-		if applyCredential == nil {
-			applyCredential = ApplyAPIKeyCredential
-		}
-		applyCredential(request, token)
+	if credential != "" {
+		request.Header.Set("Authorization", "Bearer "+credential)
 	}
 	response, err := withoutRedirects(c.HTTPClient).Do(request)
 	if err != nil {
-		return output.Network("transport", "failed to reach the ViceMe API", err)
+		return output.Network("API_UNREACHABLE", "failed to reach the ViceMe API", err)
 	}
 	defer response.Body.Close()
 	data, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
 	if err != nil {
-		return output.Network("response_read", "failed to read the ViceMe API response", err)
+		return output.Network("RESPONSE_READ_FAILED", "failed to read the ViceMe API response", err)
 	}
 	if len(data) > maxResponseBytes {
-		return output.Internal("response_too_large", "ViceMe API response exceeded the client limit", nil)
+		return output.Internal("RESPONSE_TOO_LARGE", "ViceMe API response exceeded the client limit", nil)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return decodeServerError(response.StatusCode, data)
+		return decodeServerError(response.StatusCode, data, response.Header.Get("X-Request-Id"))
 	}
 	if responseBody == nil || len(bytes.TrimSpace(data)) == 0 {
 		return nil
 	}
-	return decodeSuccess(data, responseBody)
+	if err := json.Unmarshal(data, responseBody); err != nil {
+		return output.Internal("RESPONSE_INVALID", "ViceMe API returned invalid JSON", err)
+	}
+	return nil
 }
 
-// NormalizeAPIOrigin validates an API base URL and returns the canonical
-// credential boundary. Paths do not create a separate browser/network origin;
-// scheme, lower-cased host, and non-default port do.
+func publicationPath(publicationID string) string {
+	return "/v1/creator/skill-publications/" + url.PathEscape(publicationID)
+}
+
+func decodeServerError(status int, data []byte, headerRequestID string) error {
+	var serverError APIError
+	_ = json.Unmarshal(data, &serverError)
+	message := "ViceMe API request failed"
+	switch value := serverError.Message.(type) {
+	case string:
+		if value != "" {
+			message = value
+		}
+	case []any:
+		var parts []string
+		for _, item := range value {
+			if text, ok := item.(string); ok {
+				parts = append(parts, text)
+			}
+		}
+		if len(parts) > 0 {
+			message = strings.Join(parts, "; ")
+		}
+	}
+	code := serverError.Code
+	if code == "" {
+		code = fmt.Sprintf("HTTP_%d", status)
+	}
+	exitCode, errorType := exitForStatus(status)
+	cliError := output.NewError(exitCode, errorType, code, message)
+	cliError.RequestID = serverError.RequestID
+	if cliError.RequestID == "" {
+		cliError.RequestID = headerRequestID
+	}
+	cliError.Retryable = status == http.StatusTooManyRequests || status >= 500
+	return cliError
+}
+
+func exitForStatus(status int) (int, string) {
+	switch status {
+	case http.StatusUnauthorized:
+		return output.ExitAuthentication, "authentication"
+	case http.StatusForbidden:
+		return output.ExitAuthentication, "authorization"
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return output.ExitNetwork, "network"
+	case http.StatusBadRequest, http.StatusNotFound, http.StatusConflict, http.StatusGone, http.StatusUnprocessableEntity:
+		return output.ExitValidation, "validation"
+	default:
+		return output.ExitInternal, "internal"
+	}
+}
+
 func NormalizeAPIOrigin(raw string) (string, error) {
 	base, err := validateAPIBaseURL(raw)
 	if err != nil {
@@ -326,144 +324,28 @@ func NormalizeAPIOrigin(raw string) (string, error) {
 	return scheme + "://" + host, nil
 }
 
-func withoutRedirects(client *http.Client) *http.Client {
-	if client == nil {
-		client = &http.Client{Timeout: 30 * time.Second}
-	}
-	copy := *client
-	copy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	return &copy
-}
-
 func validateAPIBaseURL(raw string) (*url.URL, error) {
 	base, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || base.Hostname() == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" || base.Opaque != "" {
 		return nil, errors.New("invalid API URL")
 	}
-	switch strings.ToLower(base.Scheme) {
-	case "https":
+	if strings.EqualFold(base.Scheme, "https") {
 		return base, nil
-	case "http":
+	}
+	if strings.EqualFold(base.Scheme, "http") {
 		host := base.Hostname()
-		if strings.EqualFold(host, "localhost") {
+		if strings.EqualFold(host, "localhost") || (net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()) {
 			return base, nil
 		}
-		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
-			return base, nil
-		}
-		return nil, errors.New("HTTP API URL is allowed only for loopback development")
-	default:
-		return nil, errors.New("API URL must use HTTPS")
 	}
+	return nil, errors.New("API URL must use HTTPS or loopback HTTP")
 }
 
-func decodeSuccess(data []byte, out any) error {
-	var possibleEnvelope struct {
-		OK   *bool           `json:"ok"`
-		Data json.RawMessage `json:"data"`
+func withoutRedirects(client *http.Client) *http.Client {
+	if client == nil {
+		client = &http.Client{Timeout: 30 * time.Second}
 	}
-	if err := json.Unmarshal(data, &possibleEnvelope); err == nil && possibleEnvelope.OK != nil && len(possibleEnvelope.Data) > 0 {
-		data = possibleEnvelope.Data
-	}
-	if err := json.Unmarshal(data, out); err != nil {
-		return output.Internal("response_decode", "ViceMe API returned an invalid JSON response", err)
-	}
-	return nil
-}
-
-func decodeServerError(status int, data []byte) error {
-	var envelope struct {
-		Error ServerError `json:"error"`
-	}
-	serverError := ServerError{}
-	if err := json.Unmarshal(data, &envelope); err == nil && envelope.Error.Message != "" {
-		serverError = envelope.Error
-	} else {
-		_ = json.Unmarshal(data, &serverError)
-	}
-	if serverError.Message == "" {
-		serverError.Message = fmt.Sprintf("ViceMe API returned HTTP %d", status)
-	}
-	if serverError.Subtype == "" {
-		serverError.Subtype = http.StatusText(status)
-	}
-	code, typ := exitForServerError(status, serverError.Type)
-	cliError := output.NewError(code, typ, serverError.Subtype, serverError.Message)
-	cliError.Retryable = serverError.Retryable
-	cliError.Hint = serverError.Hint
-	cliError.PublicationID = serverError.PublicationID
-	cliError.ConsoleURL = serverError.ConsoleURL
-	cliError.Details = serverError.Details
-	return cliError
-}
-
-func exitForServerError(status int, serverType string) (int, string) {
-	if serverType == "" {
-		return exitForStatus(status)
-	}
-	if code, known := exitForType(serverType); known {
-		return code, serverType
-	}
-	// Preserve future server taxonomy instead of pretending it is a known CLI
-	// type. HTTP status still supplies a fail-safe nonzero exit category.
-	code, _ := exitForStatus(status)
-	return code, serverType
-}
-
-func exitForType(serverType string) (int, bool) {
-	switch serverType {
-	case "authentication", "authorization":
-		return output.ExitAuthentication, true
-	case "validation", "target_conflict":
-		return output.ExitValidation, true
-	case "network", "concurrency":
-		return output.ExitNetwork, true
-	case "internal":
-		return output.ExitInternal, true
-	case "policy", "rollout_gate":
-		return output.ExitPolicy, true
-	case "confirmation":
-		return output.ExitConfirmation, true
-	default:
-		return 0, false
-	}
-}
-
-func exitForStatus(status int) (int, string) {
-	switch status {
-	case http.StatusBadRequest,
-		http.StatusNotFound,
-		http.StatusGone,
-		http.StatusConflict,
-		http.StatusUnsupportedMediaType,
-		http.StatusUnprocessableEntity:
-		return output.ExitValidation, "validation"
-	case http.StatusUnauthorized:
-		return output.ExitAuthentication, "authentication"
-	case http.StatusForbidden:
-		return output.ExitAuthentication, "authorization"
-	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
-		return output.ExitNetwork, "network"
-	default:
-		return output.ExitInternal, "internal"
-	}
-}
-
-func shareCode(identifier string) (string, bool) {
-	parsed, err := url.Parse(identifier)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", false
-	}
-	parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
-	if len(parts) >= 2 && (parts[len(parts)-2] == "v" || parts[len(parts)-2] == "share") && parts[len(parts)-1] != "" {
-		return parts[len(parts)-1], true
-	}
-	return "", false
-}
-
-func IsSubtype(err error, subtype string) bool {
-	var cliErr *output.Error
-	return errors.As(err, &cliErr) && cliErr.Subtype == subtype
+	copy := *client
+	copy.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	return &copy
 }
