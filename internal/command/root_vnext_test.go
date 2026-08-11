@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"time"
 
 	cliembed "github.com/ViceMe-AI/cli"
+	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
@@ -43,7 +45,7 @@ func (runner *commandNPMRunner) Run(context.Context, string, ...string) ([]byte,
 	return nil, err
 }
 
-func (updater *startupRecoveryUpdater) RecoverAtStartup(context.Context) error {
+func (updater *startupRecoveryUpdater) RecoverActivationWhileLocked(context.Context) error {
 	updater.called.Store(true)
 	return updater.err
 }
@@ -167,18 +169,133 @@ func TestFailedOuterActivationRecoveryBlocksBusinessCommand(t *testing.T) {
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 		Region:      config.RegionCN,
 	})
-	if exit == 0 || !updater.called.Load() || !strings.Contains(stdout.String(), "NPM_ACTIVATION_RECOVERY_FAILED") {
+	if exit == 0 || !updater.called.Load() || !strings.Contains(stdout.String(), "ACTIVATION_RECOVERY_FAILED") {
 		t.Fatalf("business command was not blocked by recovery failure: exit=%d called=%t stdout=%q", exit, updater.called.Load(), stdout.String())
 	}
 }
 
-func TestCoordinatedNPMChildSkipsOnlyItsOuterRecovery(t *testing.T) {
+func TestStandaloneEntryRecoversPendingNPMJournalThenRequiresRestart(t *testing.T) {
 	t.Parallel()
-	if !coordinatedNPMChild([]string{"install", "--agent", "codex", "--internal-skip-launcher-ensure", "--internal-activation-child"}) {
-		t.Fatal("coordinated npm child was not recognized")
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	previous, err := updatepkg.NewNPMGeneration("0.10.0")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if coordinatedNPMChild([]string{"version", "--internal-activation-child"}) || coordinatedNPMChild([]string{"install", "--internal-skip-launcher-ensure"}) {
-		t.Fatal("ordinary command could bypass npm startup recovery")
+	if err := updatepkg.CommitActiveGeneration(configDir, previous); err != nil {
+		t.Fatal(err)
+	}
+	target, err := updatepkg.NewNPMGeneration(buildinfo.CompatibilityVersion())
+	if err != nil {
+		t.Fatal(err)
+	}
+	npmRunner := &commandNPMRunner{}
+	npmRecoverer := updatepkg.NewNPMService(buildinfo.Version, buildinfo.CompatibilityVersion(), "npm")
+	npmRecoverer.ConfigDir = configDir
+	npmRecoverer.Runner = npmRunner
+	journal, err := json.Marshal(map[string]any{
+		"schemaVersion": 3,
+		"status":        "COMMITTING",
+		"nonce":         strings.Repeat("b", 64),
+		"targetVersion": target.Version,
+		"target":        target,
+		"previous":      previous,
+		"skillTarget":   "agents",
+		"refreshSkills": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "npm-activation.json"), journal, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	release := updatepkg.NewReleaseService(buildinfo.Version, buildinfo.CompatibilityVersion())
+	dependencies := Dependencies{
+		Updater: release,
+		Environment: skillcontent.Environment{
+			Home: root, ConfigDir: configDir,
+		},
+		activationNPMRecoverer: npmRecoverer,
+	}
+	if err := reconcileActivationAtStartup(context.Background(), configDir, &dependencies); !errors.Is(err, updatepkg.ErrActivationRestartNeeded) {
+		t.Fatalf("standalone entry continued after npm recovery: %v", err)
+	}
+	if npmRunner.calls != 2 {
+		t.Fatalf("standalone entry did not recover npm launcher and Skills: calls=%d", npmRunner.calls)
+	}
+	active, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil || !exists || active != target {
+		t.Fatalf("npm target was not recovered: active=%#v exists=%t err=%v", active, exists, err)
+	}
+}
+
+func TestNPMEntryCannotRunAgainstStandaloneActiveGeneration(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	active, err := updatepkg.NewStandaloneGeneration(buildinfo.CompatibilityVersion(), strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := updatepkg.CommitActiveGeneration(configDir, active); err != nil {
+		t.Fatal(err)
+	}
+	updater := updatepkg.NewNPMService(buildinfo.Version, buildinfo.CompatibilityVersion(), "npm")
+	updater.ConfigDir = configDir
+	dependencies := Dependencies{
+		Updater: updater,
+		Environment: skillcontent.Environment{
+			Home: root, ConfigDir: configDir,
+		},
+	}
+	if err := reconcileActivationAtStartup(context.Background(), configDir, &dependencies); !errors.Is(err, updatepkg.ErrActivationRestartNeeded) {
+		t.Fatalf("npm entry continued against standalone active generation: %v", err)
+	}
+}
+
+func TestBareInternalActivationFlagsCannotBypassRecovery(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	var stdout bytes.Buffer
+	exit := Execute([]string{
+		"install",
+		"--agent", "codex",
+		"--internal-skip-launcher-ensure",
+		"--internal-activation-child=" + strings.Repeat("a", 64),
+		"--internal-activation-target=" + buildinfo.CompatibilityVersion(),
+	}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(),
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:      config.RegionCN,
+	})
+	if exit == 0 || !strings.Contains(stdout.String(), "ACTIVATION_CHILD_INVALID") {
+		t.Fatalf("bare hidden flags bypassed the activation coordinator: exit=%d stdout=%q", exit, stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-publish")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("unauthorized activation child mutated Skills: %v", err)
+	}
+}
+
+func TestCoordinatedNPMChildRequiresCompleteBoundArguments(t *testing.T) {
+	t.Parallel()
+	request, err := parseNPMActivationChild([]string{
+		"install",
+		"--agent", "codex",
+		"--internal-skip-launcher-ensure",
+		"--internal-activation-child=" + strings.Repeat("a", 64),
+		"--internal-activation-target=0.10.1",
+	})
+	if err != nil || !request.Requested || !request.SkipLauncher || request.SkillTarget != "codex" || request.TargetVersion != "0.10.1" {
+		t.Fatalf("coordinated npm child was not parsed: request=%#v err=%v", request, err)
+	}
+	for _, args := range [][]string{
+		{"version", "--internal-activation-child=fake", "--internal-activation-target=0.10.1"},
+		{"install", "--internal-skip-launcher-ensure"},
+		{"install", "--internal-activation-child=fake"},
+	} {
+		if _, err := parseNPMActivationChild(args); err == nil {
+			t.Fatalf("incomplete internal flags were accepted: %#v", args)
+		}
 	}
 }
 

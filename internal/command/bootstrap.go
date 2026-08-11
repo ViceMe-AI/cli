@@ -70,22 +70,6 @@ func newBootstrapActivateCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
-func recoverBootstrapActivationAtStartup(configDir string, environment skillcontent.Environment) error {
-	if err := os.MkdirAll(configDir, 0o700); err != nil {
-		return err
-	}
-	activationLock := flock.New(filepath.Join(configDir, updatepkg.ActivationLockFilename))
-	locked, err := activationLock.TryLock()
-	if err != nil {
-		return err
-	}
-	if !locked {
-		return errors.New("another ViceMe bootstrap or update is active")
-	}
-	defer activationLock.Unlock()
-	return recoverBootstrapActivation(configDir, environment)
-}
-
 func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, agent, region string) (bootstrapActivationResult, error) {
 	absDestination, err := validBootstrapDestination(destination)
 	if err != nil {
@@ -129,6 +113,9 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 	}
 	if err := updatepkg.ValidateActivationTarget(runtime.configBase, targetGeneration); err != nil {
 		_ = os.Remove(staged)
+		if errors.Is(err, updatepkg.ErrActivationMethodChange) {
+			return bootstrapActivationResult{}, output.Policy("BOOTSTRAP_INSTALL_METHOD_CHANGE_REFUSED", "switching between standalone and npm installation is not supported in place")
+		}
 		return bootstrapActivationResult{}, output.Policy("BOOTSTRAP_DOWNGRADE_REFUSED", "the staged ViceMe release is older than or conflicts with the active generation")
 	}
 	journal := bootstrapActivationJournal{

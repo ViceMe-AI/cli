@@ -25,6 +25,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
+	"github.com/gofrs/flock"
 	"github.com/spf13/cobra"
 )
 
@@ -44,6 +45,18 @@ type Dependencies struct {
 	Region      config.Region
 
 	coordinatedActivationChild bool
+	activationChildRequest     npmActivationChildRequest
+	activationChildParseError  error
+	bootstrapActivationCommand bool
+	activationNPMRecoverer     *updatepkg.NPMService
+}
+
+type npmActivationChildRequest struct {
+	Requested     bool
+	SkipLauncher  bool
+	Nonce         string
+	TargetVersion string
+	SkillTarget   string
 }
 
 type options struct {
@@ -84,7 +97,8 @@ func (source processTokenSource) Token(context.Context) (string, error) {
 }
 
 func Execute(args []string, dependencies Dependencies) int {
-	dependencies.coordinatedActivationChild = coordinatedNPMChild(args)
+	dependencies.activationChildRequest, dependencies.activationChildParseError = parseNPMActivationChild(args)
+	dependencies.bootstrapActivationCommand = isBootstrapActivationCommand(args)
 	root, runtime, err := NewRoot(dependencies)
 	if err != nil {
 		printer := &output.Printer{Out: writerOr(dependencies.Out, os.Stdout), ErrOut: writerOr(dependencies.ErrOut, os.Stderr), CLIVersion: buildinfo.Version}
@@ -107,17 +121,20 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	}
 	dependencies = defaults(dependencies)
 	configBase := runtimeConfigBase(dependencies.Environment)
-	if !dependencies.coordinatedActivationChild {
-		if recoverer, ok := dependencies.Updater.(updatepkg.StartupRecoverer); ok {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-			err := recoverer.RecoverAtStartup(ctx)
-			cancel()
-			if err != nil {
-				return nil, nil, output.Internal("NPM_ACTIVATION_RECOVERY_FAILED", "could not reconcile an interrupted npm CLI and Skill activation", err)
-			}
+	if dependencies.activationChildParseError != nil {
+		return nil, nil, output.Validation("ACTIVATION_CHILD_INVALID", dependencies.activationChildParseError.Error())
+	}
+	if dependencies.activationChildRequest.Requested {
+		if err := authorizeNPMActivationChild(configBase, &dependencies); err != nil {
+			return nil, nil, output.Policy("ACTIVATION_CHILD_INVALID", "the internal activation child is not authorized by a committing parent journal")
 		}
-		if err := recoverBootstrapActivationAtStartup(configBase, dependencies.Environment); err != nil {
-			return nil, nil, output.Internal("BOOTSTRAP_RECOVERY_FAILED", "could not reconcile an interrupted ViceMe bootstrap", err)
+		dependencies.coordinatedActivationChild = true
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		err := reconcileActivationAtStartup(ctx, configBase, &dependencies)
+		cancel()
+		if err != nil {
+			return nil, nil, output.Internal("ACTIVATION_RECOVERY_FAILED", "could not reconcile the active ViceMe CLI and Skill generation", err)
 		}
 	}
 	if err := skillcontent.RecoverInstallTransactionAuto(dependencies.Environment); err != nil {
@@ -218,18 +235,208 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	return root, runtime, nil
 }
 
-func coordinatedNPMChild(args []string) bool {
-	install := false
-	activationChild := false
-	for _, argument := range args {
-		if argument == "install" {
-			install = true
+func parseNPMActivationChild(args []string) (npmActivationChildRequest, error) {
+	request := npmActivationChildRequest{SkillTarget: "auto"}
+	install := len(args) > 0 && args[0] == "install"
+	readValue := func(index *int, argument, name string) (string, bool, error) {
+		prefix := name + "="
+		if strings.HasPrefix(argument, prefix) {
+			value := strings.TrimPrefix(argument, prefix)
+			if value == "" {
+				return "", true, fmt.Errorf("%s requires a value", name)
+			}
+			return value, true, nil
 		}
-		if argument == "--internal-activation-child" {
-			activationChild = true
+		if argument != name {
+			return "", false, nil
+		}
+		if *index+1 >= len(args) || strings.HasPrefix(args[*index+1], "--") {
+			return "", true, fmt.Errorf("%s requires a value", name)
+		}
+		*index = *index + 1
+		return args[*index], true, nil
+	}
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		if argument == "install" {
+			continue
+		}
+		if argument == "--internal-skip-launcher-ensure" {
+			request.Requested = true
+			request.SkipLauncher = true
+			continue
+		}
+		if value, matched, err := readValue(&index, argument, "--internal-activation-child"); matched {
+			request.Requested = true
+			if err != nil {
+				return request, err
+			}
+			request.Nonce = value
+			continue
+		}
+		if value, matched, err := readValue(&index, argument, "--internal-activation-target"); matched {
+			request.Requested = true
+			if err != nil {
+				return request, err
+			}
+			request.TargetVersion = value
+			continue
+		}
+		if value, matched, err := readValue(&index, argument, "--agent"); matched {
+			if err != nil {
+				return request, err
+			}
+			request.SkillTarget = value
 		}
 	}
-	return install && activationChild
+	if !request.Requested {
+		return request, nil
+	}
+	if !install || !request.SkipLauncher || request.Nonce == "" || request.TargetVersion == "" {
+		return request, errors.New("internal activation flags require a complete coordinated install child")
+	}
+	return request, nil
+}
+
+func isBootstrapActivationCommand(args []string) bool {
+	return len(args) >= 2 && args[0] == "bootstrap" && args[1] == "activate"
+}
+
+func reconcileActivationAtStartup(ctx context.Context, configDir string, dependencies *Dependencies) error {
+	running, err := runningActivationGeneration(*dependencies)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return err
+	}
+	activationLock := flock.New(filepath.Join(configDir, updatepkg.ActivationLockFilename))
+	locked, err := activationLock.TryLock()
+	if err != nil {
+		return err
+	}
+	if !locked {
+		return errors.New("another ViceMe bootstrap or update is active")
+	}
+	defer activationLock.Unlock()
+
+	bootstrapPending, err := pathExists(filepath.Join(configDir, bootstrapActivationJournalFilename))
+	if err != nil {
+		return err
+	}
+	npmPending, err := updatepkg.NPMActivationPending(configDir)
+	if err != nil {
+		return err
+	}
+	if bootstrapPending && npmPending {
+		return errors.New("standalone and npm activation journals cannot be recovered together")
+	}
+	if err := recoverBootstrapActivation(configDir, dependencies.Environment); err != nil {
+		return err
+	}
+	recoverer, ok := dependencies.Updater.(updatepkg.LockedStartupRecoverer)
+	if !ok {
+		recoverer = npmRecoveryService(configDir, *dependencies)
+	}
+	if err := recoverer.RecoverActivationWhileLocked(ctx); err != nil {
+		return err
+	}
+	active, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil {
+		return err
+	}
+	if exists && active != running && !dependencies.bootstrapActivationCommand {
+		return updatepkg.ErrActivationRestartNeeded
+	}
+	return nil
+}
+
+func authorizeNPMActivationChild(configDir string, dependencies *Dependencies) error {
+	bootstrapPending, err := pathExists(filepath.Join(configDir, bootstrapActivationJournalFilename))
+	if err != nil {
+		return err
+	}
+	if bootstrapPending {
+		return errors.New("a standalone activation journal is pending")
+	}
+	request := dependencies.activationChildRequest
+	service := npmRecoveryService(configDir, *dependencies)
+	target, err := service.ValidateActivationChild(request.Nonce, request.TargetVersion, request.SkillTarget)
+	if err != nil {
+		return err
+	}
+	running, err := runningActivationGeneration(*dependencies)
+	if err != nil {
+		return err
+	}
+	if running != target {
+		return errors.New("activation child is not running the journal target generation")
+	}
+	return nil
+}
+
+func npmRecoveryService(configDir string, dependencies Dependencies) *updatepkg.NPMService {
+	if dependencies.activationNPMRecoverer != nil {
+		if dependencies.activationNPMRecoverer.ConfigDir == "" {
+			dependencies.activationNPMRecoverer.ConfigDir = configDir
+		}
+		return dependencies.activationNPMRecoverer
+	}
+	if service, ok := dependencies.Updater.(*updatepkg.NPMService); ok {
+		if service.ConfigDir == "" {
+			service.ConfigDir = configDir
+		}
+		return service
+	}
+	service := updatepkg.NewNPMService(
+		buildinfo.Version,
+		buildinfo.CompatibilityVersion(),
+		"npm",
+	)
+	service.ConfigDir = configDir
+	service.HTTPClient = dependencies.HTTPClient
+	return service
+}
+
+func runningActivationGeneration(dependencies Dependencies) (updatepkg.ActiveGeneration, error) {
+	version := buildinfo.CompatibilityVersion()
+	installMethod := os.Getenv("VICEME_INSTALL_METHOD")
+	switch service := dependencies.Updater.(type) {
+	case *updatepkg.NPMService:
+		if service.ComparableVersion != "" {
+			version = service.ComparableVersion
+		}
+		if service.InstallMethod == "npm" {
+			installMethod = "npm"
+		}
+	case *updatepkg.ReleaseService:
+		if service.ComparableVersion != "" {
+			version = service.ComparableVersion
+		}
+	}
+	if installMethod == "npm" {
+		return updatepkg.NewNPMGeneration(version)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return updatepkg.ActiveGeneration{}, err
+	}
+	digest, err := bootstrapFileHash(executable)
+	if err != nil {
+		return updatepkg.ActiveGeneration{}, err
+	}
+	return updatepkg.NewStandaloneGeneration(version, digest)
+}
+
+func pathExists(filename string) (bool, error) {
+	_, err := os.Stat(filename)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (r *Runtime) prepareUpdateNotice(command *cobra.Command) {

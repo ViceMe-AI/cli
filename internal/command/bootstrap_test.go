@@ -1,7 +1,9 @@
 package command
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -135,6 +137,88 @@ func TestBootstrapRejectsLateOlderGenerationInsideActivationLock(t *testing.T) {
 	current, exists, err := updatepkg.ReadActiveGeneration(configDir)
 	if err != nil || !exists || current != active {
 		t.Fatalf("fenced activation changed active generation: current=%#v exists=%t err=%v", current, exists, err)
+	}
+}
+
+func TestBootstrapRejectsNPMToStandaloneMigrationBeforeMutation(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	active, err := updatepkg.NewNPMGeneration(buildinfo.CompatibilityVersion())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := updatepkg.CommitActiveGeneration(configDir, active); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &Runtime{
+		configBase: configDir,
+		region:     config.RegionCN,
+		deps: Dependencies{
+			Store:       securestore.NewMemory(),
+			Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+		},
+	}
+	destination := filepath.Join(root, "bin", "viceme")
+	_, err = activateBootstrap(&cobra.Command{}, runtime, destination, "agents", "cn")
+	cliError := output.AsError(err)
+	if cliError.Subtype != "BOOTSTRAP_INSTALL_METHOD_CHANGE_REFUSED" {
+		t.Fatalf("cross-method bootstrap was not rejected: %#v", cliError)
+	}
+	if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected cross-method bootstrap mutated destination: %v", err)
+	}
+	current, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil || !exists || current != active {
+		t.Fatalf("rejected cross-method bootstrap changed active generation: active=%#v exists=%t err=%v", current, exists, err)
+	}
+}
+
+func TestStandaloneRecoveryRequiresOldProcessToRestartAfterRollForward(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	destination := filepath.Join(root, "bin", "viceme")
+	staged := filepath.Join(configDir, bootstrapActivationStagedFilename)
+	backup := filepath.Join(configDir, bootstrapActivationBackupFilename)
+	writeBootstrapTestFile(t, destination, "old-binary")
+	writeBootstrapTestFile(t, staged, "new-binary")
+	writeBootstrapTestFile(t, backup, "old-binary")
+	targetHash, err := bootstrapFileHash(staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	previousHash, err := bootstrapFileHash(backup)
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal := bootstrapActivationJournal{
+		SchemaVersion: 1,
+		Status:        "COMMITTING",
+		Destination:   destination,
+		Staged:        staged,
+		Backup:        backup,
+		HadExisting:   true,
+		PreviousHash:  previousHash,
+		TargetHash:    targetHash,
+		TargetVersion: buildinfo.CompatibilityVersion(),
+	}
+	if err := writeBootstrapJournal(filepath.Join(configDir, bootstrapActivationJournalFilename), journal); err != nil {
+		t.Fatal(err)
+	}
+	dependencies := Dependencies{
+		Updater: updatepkg.NewReleaseService(buildinfo.Version, buildinfo.CompatibilityVersion()),
+		Environment: skillcontent.Environment{
+			Home: root, ConfigDir: configDir,
+		},
+	}
+	if err := reconcileActivationAtStartup(context.Background(), configDir, &dependencies); !errors.Is(err, updatepkg.ErrActivationRestartNeeded) {
+		t.Fatalf("old standalone process continued after recovery: %v", err)
+	}
+	assertBootstrapTestContent(t, destination, "new-binary")
+	active, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil || !exists || active.InstallMethod != "standalone" || active.Identity != targetHash {
+		t.Fatalf("standalone target did not commit before restart fence: active=%#v exists=%t err=%v", active, exists, err)
 	}
 }
 

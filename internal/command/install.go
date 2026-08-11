@@ -34,11 +34,20 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 	var agent string
 	var region string
 	var skipLauncherEnsure bool
-	var activationChild bool
+	var activationChildNonce string
+	var activationTarget string
 	command := &cobra.Command{
 		Use: "install", Short: "Install official ViceMe Skills for supported AI coding agents", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			result, err := performInstall(command.Context(), runtime, agent, region, !skipLauncherEnsure, nil)
+			internalFlagsPresent := skipLauncherEnsure || activationChildNonce != "" || activationTarget != ""
+			if internalFlagsPresent {
+				request := runtime.deps.activationChildRequest
+				if !runtime.deps.coordinatedActivationChild || !skipLauncherEnsure ||
+					activationChildNonce != request.Nonce || activationTarget != request.TargetVersion || agent != request.SkillTarget {
+					return output.Policy("ACTIVATION_CHILD_INVALID", "internal activation flags require the exact committing parent journal")
+				}
+			}
+			result, err := performInstall(command.Context(), runtime, agent, region, !runtime.deps.coordinatedActivationChild, nil)
 			if err != nil {
 				return err
 			}
@@ -48,9 +57,11 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&agent, "agent", "auto", "agent target: auto, codex, claude, workbuddy, or agents")
 	command.Flags().StringVar(&region, "region", "", "ViceMe region: cn or global")
 	command.Flags().BoolVar(&skipLauncherEnsure, "internal-skip-launcher-ensure", false, "skip launcher persistence inside a coordinated activation")
-	command.Flags().BoolVar(&activationChild, "internal-activation-child", false, "run inside the outer activation coordinator")
+	command.Flags().StringVar(&activationChildNonce, "internal-activation-child", "", "run inside the outer activation coordinator")
+	command.Flags().StringVar(&activationTarget, "internal-activation-target", "", "bind the activation child to an exact target")
 	_ = command.Flags().MarkHidden("internal-skip-launcher-ensure")
 	_ = command.Flags().MarkHidden("internal-activation-child")
+	_ = command.Flags().MarkHidden("internal-activation-target")
 	return command
 }
 

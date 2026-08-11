@@ -25,6 +25,7 @@ const (
 
 var (
 	ErrActivationDowngrade     = errors.New("activation target is older than the active generation")
+	ErrActivationMethodChange  = errors.New("changing the CLI installation method is not supported")
 	ErrActivationRestartNeeded = errors.New("activation recovered a different CLI generation; restart the command")
 )
 
@@ -91,6 +92,14 @@ func ValidateActivationTarget(configDir string, target ActiveGeneration) error {
 	active, exists, err := ReadActiveGeneration(configDir)
 	if err != nil || !exists {
 		return err
+	}
+	if target.InstallMethod != active.InstallMethod {
+		return fmt.Errorf(
+			"%w: target %s, active %s",
+			ErrActivationMethodChange,
+			target.InstallMethod,
+			active.InstallMethod,
+		)
 	}
 	comparison, err := semver.Compare(target.Version, active.Version)
 	if err != nil {

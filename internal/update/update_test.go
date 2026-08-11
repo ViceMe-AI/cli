@@ -234,8 +234,11 @@ func TestNPMServiceChecksAndAppliesExactVersion(t *testing.T) {
 	if !reflect.DeepEqual(runner.calls[0].args, wantInstall) {
 		t.Fatalf("unsafe or inexact npm install args: %#v", runner.calls[0])
 	}
-	wantExec := []string{cacheArg, "exec", "--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org", "--yes", "--package=@viceme-ai/cli@0.1.1", "--", "viceme", "install", "--agent", "codex", "--internal-skip-launcher-ensure", "--internal-activation-child"}
-	if !reflect.DeepEqual(runner.calls[1].args, wantExec) {
+	wantExecPrefix := []string{cacheArg, "exec", "--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org", "--yes", "--package=@viceme-ai/cli@0.1.1", "--", "viceme", "install", "--agent", "codex", "--internal-skip-launcher-ensure"}
+	gotExec := runner.calls[1].args
+	if len(gotExec) != len(wantExecPrefix)+2 || !reflect.DeepEqual(gotExec[:len(wantExecPrefix)], wantExecPrefix) ||
+		!strings.HasPrefix(gotExec[len(wantExecPrefix)], "--internal-activation-child=") ||
+		gotExec[len(wantExecPrefix)+1] != "--internal-activation-target=0.1.1" {
 		t.Fatalf("unexpected Skill refresh args: %#v", runner.calls[1])
 	}
 	if _, err := os.Stat(filepath.Join(configDir, updateStateFilename)); err != nil {

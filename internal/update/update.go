@@ -6,6 +6,9 @@ package update
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +35,7 @@ const (
 	npmActivationFilename   = "npm-activation.json"
 	updateCacheTTL          = 24 * time.Hour
 	maximumRegistryResponse = 256 << 10
+	npmActivationNonceBytes = 32
 )
 
 var ErrNPMInstallRequired = errors.New("viceme update requires the npm-installed launcher")
@@ -116,10 +120,11 @@ type Service interface {
 	Apply(context.Context, CheckResult, ApplyOptions) (ApplyResult, error)
 }
 
-// StartupRecoverer reconciles an outer launcher activation before any normal
-// command is allowed to read config or execute business logic.
-type StartupRecoverer interface {
-	RecoverAtStartup(context.Context) error
+// LockedStartupRecoverer reconciles an outer launcher activation while the
+// caller holds ActivationLockFilename. Command startup uses this narrower
+// contract so npm and standalone journals share one coordinator and one lock.
+type LockedStartupRecoverer interface {
+	RecoverActivationWhileLocked(context.Context) error
 }
 
 // Notifier is an optional read-only extension implemented by npm-backed
@@ -209,7 +214,7 @@ func (service *NPMService) EnsureLauncher(ctx context.Context) (TargetResult, er
 			result.Error = err.Error()
 			return err
 		}
-		return service.finishNPMActivation(journal)
+		return service.finishNPMActivation(&journal)
 	})
 	if err != nil {
 		return result, err
@@ -280,7 +285,7 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 		if err := service.applyNPMActivation(ctx, &journal); err != nil {
 			return err
 		}
-		return service.finishNPMActivation(journal)
+		return service.finishNPMActivation(&journal)
 	})
 	if err != nil {
 		cliTarget.Status = "recovery_pending"
@@ -303,6 +308,7 @@ func (service *NPMService) installExactPackage(ctx context.Context, version stri
 type npmActivationJournal struct {
 	SchemaVersion int               `json:"schemaVersion"`
 	Status        string            `json:"status"`
+	Nonce         string            `json:"nonce"`
 	TargetVersion string            `json:"targetVersion"`
 	Target        ActiveGeneration  `json:"target"`
 	Previous      *ActiveGeneration `json:"previous,omitempty"`
@@ -330,9 +336,6 @@ func (service *NPMService) withNPMActivationLock(operation func() error) error {
 }
 
 func (service *NPMService) RecoverAtStartup(ctx context.Context) error {
-	if service.InstallMethod != "npm" {
-		return nil
-	}
 	if err := service.withNPMActivationLock(func() error {
 		return service.recoverNPMActivation(ctx)
 	}); err != nil {
@@ -342,10 +345,38 @@ func (service *NPMService) RecoverAtStartup(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	if exists && active.InstallMethod == "npm" && active.Version != service.ComparableVersion {
+	running, generationErr := NewNPMGeneration(service.ComparableVersion)
+	if generationErr != nil {
+		return generationErr
+	}
+	if exists && active != running {
 		return ErrActivationRestartNeeded
 	}
 	return nil
+}
+
+// RecoverActivationWhileLocked is used by the command-level activation
+// coordinator. It deliberately ignores the launcher's current install method:
+// every launcher must inspect an interrupted npm journal before business logic.
+func (service *NPMService) RecoverActivationWhileLocked(ctx context.Context) error {
+	if service.ConfigDir == "" {
+		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("ViceMe config directory is required for recoverable npm activation")}
+	}
+	return service.recoverNPMActivation(ctx)
+}
+
+// NPMActivationPending reports whether the durable outer npm journal exists.
+// The command coordinator uses it to reject ambiguous dual-journal recovery
+// before either installation method mutates local state.
+func NPMActivationPending(configDir string) (bool, error) {
+	_, err := os.Stat(filepath.Join(configDir, npmActivationFilename))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (service *NPMService) recoverNPMActivation(ctx context.Context) error {
@@ -353,11 +384,47 @@ func (service *NPMService) recoverNPMActivation(ctx context.Context) error {
 	if err != nil || !exists {
 		return err
 	}
+	if journal.SchemaVersion < 3 || journal.Nonce == "" {
+		journal.SchemaVersion = 3
+		journal.Nonce, err = newNPMActivationNonce()
+		if err != nil {
+			return err
+		}
+		if err := service.writeNPMActivation(journal); err != nil {
+			return err
+		}
+	}
+	active, activeExists, err := ReadActiveGeneration(service.ConfigDir)
+	if err != nil {
+		return err
+	}
+	targetWasAlreadyActive := journal.Previous != nil && *journal.Previous == journal.Target
+	if activeExists && active == journal.Target && (journal.Status == "COMMITTED" || !targetWasAlreadyActive) {
+		// The active-generation record is the semantic commit point. A crash
+		// after it was written may only retire the journal; it must never
+		// perform another network mutation or roll back the committed target.
+		return service.removeNPMActivation()
+	}
+	if journal.Status == "ROLLED_BACK" {
+		if journal.Previous == nil {
+			return errors.New("rolled-back npm activation has no previous generation")
+		}
+		if err := CommitActiveGeneration(service.ConfigDir, *journal.Previous); err != nil {
+			return err
+		}
+		return service.removeNPMActivation()
+	}
+	if journal.Status == "ROLLING_BACK" {
+		return service.rollbackNPMActivation(ctx, journal)
+	}
 	if err := ValidateActivationTarget(service.ConfigDir, journal.Target); err != nil {
 		if errors.Is(err, ErrActivationDowngrade) {
 			return service.removeNPMActivation()
 		}
 		return err
+	}
+	if journal.Status == "COMMITTED" {
+		return service.finishNPMActivation(&journal)
 	}
 	if err := service.applyNPMActivation(ctx, &journal); err != nil {
 		if rollbackErr := service.rollbackNPMActivation(ctx, journal); rollbackErr != nil {
@@ -365,12 +432,15 @@ func (service *NPMService) recoverNPMActivation(ctx context.Context) error {
 		}
 		return nil
 	}
-	return service.finishNPMActivation(journal)
+	return service.finishNPMActivation(&journal)
 }
 
 func (service *NPMService) applyNPMActivation(ctx context.Context, journal *npmActivationJournal) error {
 	if err := ValidateActivationTarget(service.ConfigDir, journal.Target); err != nil {
 		return err
+	}
+	if journal.Status == "COMMITTED" {
+		return nil
 	}
 	_, err := service.installExactPackage(ctx, journal.TargetVersion)
 	if err != nil {
@@ -385,13 +455,13 @@ func (service *NPMService) applyNPMActivation(ctx context.Context, journal *npmA
 	if !journal.RefreshSkills {
 		return nil
 	}
-	if err := service.installSkillsFromExactPackage(ctx, journal.TargetVersion, journal.SkillTarget); err != nil {
+	if err := service.installSkillsFromExactPackage(ctx, journal.TargetVersion, journal.SkillTarget, journal.Nonce); err != nil {
 		return fmt.Errorf("install and verify exact official Skills: %w", err)
 	}
 	return nil
 }
 
-func (service *NPMService) installSkillsFromExactPackage(ctx context.Context, version, target string) error {
+func (service *NPMService) installSkillsFromExactPackage(ctx context.Context, version, target, nonce string) error {
 	exactPackage := PackageName + "@" + version
 	_, err := service.runNPM(
 		ctx,
@@ -406,25 +476,49 @@ func (service *NPMService) installSkillsFromExactPackage(ctx context.Context, ve
 		"--agent",
 		target,
 		"--internal-skip-launcher-ensure",
-		"--internal-activation-child",
+		"--internal-activation-child="+nonce,
+		"--internal-activation-target="+version,
 	)
 	return err
 }
 
 func (service *NPMService) rollbackNPMActivation(ctx context.Context, journal npmActivationJournal) error {
+	active, exists, err := ReadActiveGeneration(service.ConfigDir)
+	if err != nil {
+		return err
+	}
+	if exists && active == journal.Target {
+		return errors.New("npm activation target is already committed and cannot be rolled back")
+	}
 	if journal.Previous == nil {
 		return errors.New("npm activation has no previous generation to restore")
 	}
 	if journal.Previous.InstallMethod != "npm" {
 		return errors.New("npm activation cannot restore a previous non-npm generation")
 	}
+	if exists && active != *journal.Previous {
+		return errors.New("npm activation previous generation is no longer active")
+	}
+	nonce, err := newNPMActivationNonce()
+	if err != nil {
+		return err
+	}
+	journal.Status = "ROLLING_BACK"
+	journal.Nonce = nonce
+	if err := service.writeNPMActivation(journal); err != nil {
+		return err
+	}
 	if _, err := service.installExactPackage(ctx, journal.Previous.Version); err != nil {
 		return fmt.Errorf("restore previous npm launcher %s: %w", journal.Previous.Version, err)
 	}
 	if journal.RefreshSkills {
-		if err := service.installSkillsFromExactPackage(ctx, journal.Previous.Version, journal.SkillTarget); err != nil {
+		if err := service.installSkillsFromExactPackage(ctx, journal.Previous.Version, journal.SkillTarget, journal.Nonce); err != nil {
 			return fmt.Errorf("restore previous official Skills: %w", err)
 		}
+	}
+	journal.Status = "ROLLED_BACK"
+	if err := service.writeNPMActivation(journal); err != nil {
+		return err
 	}
 	if err := CommitActiveGeneration(service.ConfigDir, *journal.Previous); err != nil {
 		return err
@@ -443,7 +537,7 @@ func (service *NPMService) readNPMActivation() (npmActivationJournal, bool, erro
 	var journal npmActivationJournal
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&journal); err != nil || (journal.SchemaVersion != 1 && journal.SchemaVersion != 2) {
+	if err := decoder.Decode(&journal); err != nil || (journal.SchemaVersion != 1 && journal.SchemaVersion != 2 && journal.SchemaVersion != 3) {
 		return npmActivationJournal{}, false, &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("npm activation journal is invalid")}
 	}
 	var trailing any
@@ -458,14 +552,14 @@ func (service *NPMService) readNPMActivation() (npmActivationJournal, bool, erro
 			return npmActivationJournal{}, false, &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("npm activation journal contains invalid targets")}
 		}
 	}
-	if err := validateNPMActivationJournal(journal); err != nil {
+	if err := validateReadableNPMActivationJournal(journal); err != nil {
 		return npmActivationJournal{}, false, &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("npm activation journal contains invalid targets")}
 	}
 	return journal, true, nil
 }
 
 func (service *NPMService) writeNPMActivation(journal npmActivationJournal) error {
-	journal.SchemaVersion = 2
+	journal.SchemaVersion = 3
 	if err := validateNPMActivationJournal(journal); err != nil {
 		return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("refuse invalid npm activation journal")}
 	}
@@ -501,7 +595,13 @@ func (service *NPMService) writeNPMActivation(journal npmActivationJournal) erro
 	return nil
 }
 
-func (service *NPMService) finishNPMActivation(journal npmActivationJournal) error {
+func (service *NPMService) finishNPMActivation(journal *npmActivationJournal) error {
+	if journal.Status != "COMMITTED" {
+		journal.Status = "COMMITTED"
+		if err := service.writeNPMActivation(*journal); err != nil {
+			return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("could not persist the committed npm generation")}
+		}
+	}
 	if err := CommitActiveGeneration(service.ConfigDir, journal.Target); err != nil {
 		return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("could not commit the active npm generation")}
 	}
@@ -521,21 +621,56 @@ func (service *NPMService) newNPMActivationJournal(target ActiveGeneration, skil
 	if err != nil {
 		return npmActivationJournal{}, err
 	}
+	nonce, err := newNPMActivationNonce()
+	if err != nil {
+		return npmActivationJournal{}, err
+	}
 	journal := npmActivationJournal{
-		SchemaVersion: 2,
+		SchemaVersion: 3,
 		Status:        "PREPARING",
+		Nonce:         nonce,
 		TargetVersion: target.Version,
 		Target:        target,
 		SkillTarget:   skillTarget,
 		RefreshSkills: refreshSkills,
 	}
 	if exists {
+		if previous.InstallMethod != "npm" {
+			return npmActivationJournal{}, ErrActivationMethodChange
+		}
 		journal.Previous = &previous
 	}
 	return journal, nil
 }
 
 func validateNPMActivationJournal(journal npmActivationJournal) error {
+	if journal.SchemaVersion != 3 || (journal.Status != "PREPARING" && journal.Status != "COMMITTING" && journal.Status != "ROLLING_BACK" && journal.Status != "ROLLED_BACK" && journal.Status != "COMMITTED") {
+		return errors.New("unsupported npm activation journal")
+	}
+	if len(journal.Nonce) != npmActivationNonceBytes*2 {
+		return errors.New("npm activation nonce is invalid")
+	}
+	if _, err := hex.DecodeString(journal.Nonce); err != nil || journal.Nonce != strings.ToLower(journal.Nonce) {
+		return errors.New("npm activation nonce is invalid")
+	}
+	if journal.TargetVersion != journal.Target.Version || !validSkillTarget(journal.SkillTarget) {
+		return errors.New("npm activation targets do not match")
+	}
+	if err := validateActiveGeneration(journal.Target); err != nil || journal.Target.InstallMethod != "npm" {
+		return errors.New("npm activation target is invalid")
+	}
+	if journal.Previous != nil {
+		if err := validateActiveGeneration(*journal.Previous); err != nil || journal.Previous.InstallMethod != "npm" {
+			return errors.New("npm activation previous generation is invalid")
+		}
+	}
+	return nil
+}
+
+func validateReadableNPMActivationJournal(journal npmActivationJournal) error {
+	if journal.SchemaVersion == 3 {
+		return validateNPMActivationJournal(journal)
+	}
 	if journal.SchemaVersion != 2 || (journal.Status != "PREPARING" && journal.Status != "COMMITTING") {
 		return errors.New("unsupported npm activation journal")
 	}
@@ -546,11 +681,44 @@ func validateNPMActivationJournal(journal npmActivationJournal) error {
 		return errors.New("npm activation target is invalid")
 	}
 	if journal.Previous != nil {
-		if err := validateActiveGeneration(*journal.Previous); err != nil {
+		if err := validateActiveGeneration(*journal.Previous); err != nil || journal.Previous.InstallMethod != "npm" {
 			return errors.New("npm activation previous generation is invalid")
 		}
 	}
 	return nil
+}
+
+func newNPMActivationNonce() (string, error) {
+	value := make([]byte, npmActivationNonceBytes)
+	if _, err := rand.Read(value); err != nil {
+		return "", &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("could not create the npm activation child nonce")}
+	}
+	return hex.EncodeToString(value), nil
+}
+
+// ValidateActivationChild binds the lock-skipping install child to the exact
+// durable journal created by its parent coordinator. Bare hidden flags cannot
+// authorize a mutation.
+func (service *NPMService) ValidateActivationChild(nonce, targetVersion, skillTarget string) (ActiveGeneration, error) {
+	journal, exists, err := service.readNPMActivation()
+	if err != nil {
+		return ActiveGeneration{}, err
+	}
+	if !exists || journal.SchemaVersion != 3 || !journal.RefreshSkills {
+		return ActiveGeneration{}, errors.New("npm activation child has no committing parent journal")
+	}
+	expected := journal.Target
+	expectedVersion := journal.TargetVersion
+	if journal.Status == "ROLLING_BACK" && journal.Previous != nil {
+		expected = *journal.Previous
+		expectedVersion = journal.Previous.Version
+	} else if journal.Status != "COMMITTING" {
+		return ActiveGeneration{}, errors.New("npm activation child has no committing parent journal")
+	}
+	if targetVersion != expectedVersion || skillTarget != journal.SkillTarget || len(nonce) != len(journal.Nonce) || subtle.ConstantTimeCompare([]byte(nonce), []byte(journal.Nonce)) != 1 {
+		return ActiveGeneration{}, errors.New("npm activation child does not match its parent journal")
+	}
+	return expected, nil
 }
 
 func validSkillTarget(target string) bool {
