@@ -174,6 +174,137 @@ func TestBootstrapRejectsNPMToStandaloneMigrationBeforeMutation(t *testing.T) {
 	}
 }
 
+func TestBootstrapRechecksCrashedNPMJournalInsideActivationLock(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	target, err := updatepkg.NewNPMGeneration(buildinfo.CompatibilityVersion())
+	if err != nil {
+		t.Fatal(err)
+	}
+	journal, err := json.Marshal(map[string]any{
+		"schemaVersion": 3,
+		"status":        "COMMITTING",
+		"nonce":         strings.Repeat("d", 64),
+		"targetVersion": target.Version,
+		"target":        target,
+		"skillTarget":   "agents",
+		"refreshSkills": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, updatepkg.NPMActivationJournalFilename), journal, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &Runtime{
+		configBase: configDir,
+		region:     config.RegionCN,
+		deps: Dependencies{
+			Store:       securestore.NewMemory(),
+			Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+		},
+	}
+	destination := filepath.Join(root, "bin", "viceme")
+
+	_, err = activateBootstrap(&cobra.Command{}, runtime, destination, "agents", "cn")
+	if cliError := output.AsError(err); cliError.Subtype != "BOOTSTRAP_NPM_RECOVERY_REQUIRED" {
+		t.Fatalf("bootstrap did not reject the late npm journal: %#v", cliError)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, bootstrapActivationJournalFilename)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("bootstrap created a second outer journal: %v", err)
+	}
+	if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("bootstrap mutated its destination after arbitration failed: %v", err)
+	}
+
+	runner := &commandNPMRunner{}
+	npm := updatepkg.NewNPMService(buildinfo.Version, buildinfo.CompatibilityVersion(), "npm")
+	npm.ConfigDir = configDir
+	npm.Runner = runner
+	dependencies := Dependencies{
+		Updater: npm,
+		Environment: skillcontent.Environment{
+			Home: root, ConfigDir: configDir,
+		},
+	}
+	if err := reconcileActivationAtStartup(context.Background(), configDir, &dependencies); err != nil {
+		t.Fatalf("ordinary startup could not recover the retained npm journal: %v", err)
+	}
+	if runner.calls != 2 {
+		t.Fatalf("npm recovery did not finish the exact launcher and Skill generation: calls=%d", runner.calls)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, updatepkg.NPMActivationJournalFilename)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("npm recovery did not retire its journal: %v", err)
+	}
+	active, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil || !exists || active != target {
+		t.Fatalf("npm recovery did not publish the retained target: active=%#v exists=%t err=%v", active, exists, err)
+	}
+}
+
+func TestNPMApplyRechecksCrashedBootstrapJournalInsideActivationLock(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	destination := filepath.Join(root, "bin", "viceme")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	journal := bootstrapActivationJournal{
+		SchemaVersion: 1,
+		Status:        "PREPARING",
+		Destination:   destination,
+		Staged:        filepath.Join(configDir, bootstrapActivationStagedFilename),
+		Backup:        filepath.Join(configDir, bootstrapActivationBackupFilename),
+		TargetHash:    strings.Repeat("a", 64),
+	}
+	if err := writeBootstrapJournal(filepath.Join(configDir, bootstrapActivationJournalFilename), journal); err != nil {
+		t.Fatal(err)
+	}
+	runner := &commandNPMRunner{}
+	npm := updatepkg.NewNPMService(buildinfo.Version, buildinfo.CompatibilityVersion(), "npm")
+	npm.ConfigDir = configDir
+	npm.Runner = runner
+
+	_, err := npm.Apply(
+		context.Background(),
+		updatepkg.CheckResult{AvailableVersion: buildinfo.CompatibilityVersion(), UpdateAvailable: false},
+		updatepkg.ApplyOptions{RefreshSkills: true, SkillTarget: "agents"},
+	)
+	if err == nil || !strings.Contains(err.Error(), "standalone bootstrap") {
+		t.Fatalf("npm mutation did not reject the late bootstrap journal: %v", err)
+	}
+	if runner.calls != 0 {
+		t.Fatalf("npm performed a network mutation before outer journal arbitration: calls=%d", runner.calls)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, updatepkg.NPMActivationJournalFilename)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("npm created a second outer journal: %v", err)
+	}
+	if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("rejected npm activation changed the bootstrap destination: %v", err)
+	}
+
+	dependencies := Dependencies{
+		Updater: npm,
+		Environment: skillcontent.Environment{
+			Home: root, ConfigDir: configDir,
+		},
+	}
+	if err := reconcileActivationAtStartup(context.Background(), configDir, &dependencies); err != nil {
+		t.Fatalf("ordinary startup could not recover the retained bootstrap journal: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, bootstrapActivationJournalFilename)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("bootstrap recovery did not retire its journal: %v", err)
+	}
+	if runner.calls != 0 {
+		t.Fatalf("bootstrap recovery unexpectedly invoked npm: calls=%d", runner.calls)
+	}
+}
+
 func TestStandaloneRecoveryRequiresOldProcessToRestartAfterRollForward(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	bootstrapActivationJournalFilename = "bootstrap-activation.json"
+	bootstrapActivationJournalFilename = updatepkg.BootstrapActivationJournalFilename
 	bootstrapActivationStagedFilename  = "bootstrap-activation-new"
 	bootstrapActivationBackupFilename  = "bootstrap-activation-old"
 )
@@ -87,6 +87,13 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 		return bootstrapActivationResult{}, output.Validation("BOOTSTRAP_ACTIVE", "another ViceMe bootstrap or update is active")
 	}
 	defer activationLock.Unlock()
+	outer, err := updatepkg.InspectOuterActivationJournals(runtime.configBase)
+	if err != nil {
+		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_JOURNAL_INSPECTION_FAILED", "could not inspect outer activation journals", err)
+	}
+	if outer.NPM {
+		return bootstrapActivationResult{}, output.Policy("BOOTSTRAP_NPM_RECOVERY_REQUIRED", "an interrupted npm activation must be recovered before standalone bootstrap")
+	}
 	memberLock := flock.New(filepath.Join(runtime.configBase, updatepkg.ActivationMemberLockFilename))
 	memberLocked, err := memberLock.TryLock()
 	if err != nil {
@@ -98,6 +105,13 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 	defer memberLock.Unlock()
 	if err := recoverBootstrapActivation(runtime.configBase, runtime.deps.Environment); err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_RECOVERY_FAILED", "could not recover the previous ViceMe activation", err)
+	}
+	outer, err = updatepkg.InspectOuterActivationJournals(runtime.configBase)
+	if err != nil {
+		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_JOURNAL_INSPECTION_FAILED", "could not inspect recovered activation journals", err)
+	}
+	if outer.Bootstrap || outer.NPM {
+		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_RECOVERY_INCOMPLETE", "outer activation recovery did not retire its journal", nil)
 	}
 
 	executable, err := os.Executable()

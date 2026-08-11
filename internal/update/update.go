@@ -32,7 +32,7 @@ const (
 	NoUpdateNotifierEnv     = "VICEME_NO_UPDATE_NOTIFIER"
 	updateStateFilename     = "update-state.json"
 	npmCacheDirectory       = "npm-cache"
-	npmActivationFilename   = "npm-activation.json"
+	npmActivationFilename   = NPMActivationJournalFilename
 	updateCacheTTL          = 24 * time.Hour
 	maximumRegistryResponse = 256 << 10
 	npmActivationNonceBytes = 32
@@ -239,9 +239,14 @@ func (service *NPMService) PrepareCoordinatedInstallWhileLocked(ctx context.Cont
 	if err != nil {
 		return result, "", err
 	}
-	if pending, err := NPMActivationPending(service.ConfigDir); err != nil {
+	outer, err := InspectOuterActivationJournals(service.ConfigDir)
+	if err != nil {
 		return result, "", err
-	} else if pending {
+	}
+	if outer.Bootstrap {
+		return result, "", errors.New("a standalone bootstrap activation journal is pending")
+	}
+	if outer.NPM {
 		return result, "", errors.New("an npm activation journal is already pending")
 	}
 	if err := ValidateActivationTarget(service.ConfigDir, target); err != nil {
@@ -383,6 +388,13 @@ func (service *NPMService) withNPMActivationLock(operation func() error) error {
 		return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("an activation child is still committing Skills and config")}
 	}
 	_ = memberLock.Unlock()
+	outer, err := InspectOuterActivationJournals(service.ConfigDir)
+	if err != nil {
+		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("could not inspect outer activation journals")}
+	}
+	if outer.Bootstrap {
+		return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("a standalone bootstrap activation journal must be recovered before npm activation")}
+	}
 	return operation()
 }
 
@@ -414,20 +426,6 @@ func (service *NPMService) RecoverActivationWhileLocked(ctx context.Context) err
 		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("ViceMe config directory is required for recoverable npm activation")}
 	}
 	return service.recoverNPMActivation(ctx)
-}
-
-// NPMActivationPending reports whether the durable outer npm journal exists.
-// The command coordinator uses it to reject ambiguous dual-journal recovery
-// before either installation method mutates local state.
-func NPMActivationPending(configDir string) (bool, error) {
-	_, err := os.Stat(filepath.Join(configDir, npmActivationFilename))
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 func (service *NPMService) recoverNPMActivation(ctx context.Context) error {

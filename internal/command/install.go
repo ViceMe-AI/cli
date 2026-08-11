@@ -134,8 +134,8 @@ func performOrdinaryInstall(ctx context.Context, runtime *Runtime, agent, region
 			return launcher, err
 		}
 		authority.BeforeCommit = func() error {
-			bootstrapPending, err := pathExists(filepath.Join(runtime.configBase, bootstrapActivationJournalFilename))
-			if err != nil || bootstrapPending {
+			outer, err := updatepkg.InspectOuterActivationJournals(runtime.configBase)
+			if err != nil || outer.Bootstrap || !outer.NPM {
 				return updatepkg.ErrActivationRestartNeeded
 			}
 			active, exists, err := updatepkg.ReadActiveGeneration(runtime.configBase)
@@ -204,15 +204,11 @@ func expectedRunningGeneration(runtime *Runtime) (updatepkg.ActiveGeneration, er
 }
 
 func validateInstallAuthority(configDir string, expected updatepkg.ActiveGeneration, initial *updatepkg.ActiveGeneration) (updatepkg.ActiveGeneration, bool, error) {
-	bootstrapPending, err := pathExists(filepath.Join(configDir, bootstrapActivationJournalFilename))
+	outer, err := updatepkg.InspectOuterActivationJournals(configDir)
 	if err != nil {
 		return updatepkg.ActiveGeneration{}, false, err
 	}
-	npmPending, err := updatepkg.NPMActivationPending(configDir)
-	if err != nil {
-		return updatepkg.ActiveGeneration{}, false, err
-	}
-	if bootstrapPending || npmPending {
+	if outer.Bootstrap || outer.NPM {
 		return updatepkg.ActiveGeneration{}, false, errors.New("an outer activation journal is pending")
 	}
 	active, exists, err := updatepkg.ReadActiveGeneration(configDir)

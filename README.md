@@ -167,7 +167,10 @@ both standalone and npm journals regardless of which launcher entered the
 process. Every ordinary command reconciles an interrupted outer journal before
 business logic; a recovered process whose version, method, or immutable identity
 changed must be restarted. The lock-internal generation fence rejects a late
-older updater. The first phase also rejects switching between standalone and npm
+older updater. Every mutation entry repeats the same two-journal arbitration
+after it owns the activation lock and before any staging or network install, so
+a process paused after startup cannot introduce a second recovery protocol. The
+first phase also rejects switching between standalone and npm
 before any mutation; reinstall explicitly after removing the previous generation
 instead of mixing recovery protocols. Every Skills/config transaction holds or
 revalidates the same generation authority immediately before commit. npm child

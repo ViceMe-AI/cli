@@ -330,15 +330,11 @@ func reconcileActivationAtStartup(ctx context.Context, configDir string, depende
 	}
 	_ = memberLock.Unlock()
 
-	bootstrapPending, err := pathExists(filepath.Join(configDir, bootstrapActivationJournalFilename))
+	outer, err := updatepkg.InspectOuterActivationJournals(configDir)
 	if err != nil {
 		return err
 	}
-	npmPending, err := updatepkg.NPMActivationPending(configDir)
-	if err != nil {
-		return err
-	}
-	if bootstrapPending && npmPending {
+	if outer.Bootstrap && outer.NPM {
 		return errors.New("standalone and npm activation journals cannot be recovered together")
 	}
 	if err := recoverBootstrapActivation(configDir, dependencies.Environment); err != nil {
@@ -363,11 +359,11 @@ func reconcileActivationAtStartup(ctx context.Context, configDir string, depende
 }
 
 func authorizeNPMActivationChild(configDir string, dependencies *Dependencies) error {
-	bootstrapPending, err := pathExists(filepath.Join(configDir, bootstrapActivationJournalFilename))
+	outer, err := updatepkg.InspectOuterActivationJournals(configDir)
 	if err != nil {
 		return err
 	}
-	if bootstrapPending {
+	if outer.Bootstrap {
 		return errors.New("a standalone activation journal is pending")
 	}
 	request := dependencies.activationChildRequest
@@ -438,17 +434,6 @@ func runningActivationGeneration(dependencies Dependencies) (updatepkg.ActiveGen
 		return updatepkg.ActiveGeneration{}, err
 	}
 	return updatepkg.NewStandaloneGeneration(version, digest)
-}
-
-func pathExists(filename string) (bool, error) {
-	_, err := os.Stat(filename)
-	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	}
-	if err != nil {
-		return false, err
-	}
-	return true, nil
 }
 
 func (r *Runtime) prepareUpdateNotice(command *cobra.Command) {

@@ -25,7 +25,13 @@ const (
 	// exact child process. Every other activation path probes or holds this lock
 	// before it mutates generation state.
 	ActivationMemberLockFilename = "activation-member.lock"
-	activeGenerationFile         = "active-generation.json"
+	// BootstrapActivationJournalFilename and NPMActivationJournalFilename are
+	// the two mutually exclusive outer recovery protocols. Every mutation entry
+	// must inspect both while holding ActivationLockFilename before it stages a
+	// launcher or creates a new journal.
+	BootstrapActivationJournalFilename = "bootstrap-activation.json"
+	NPMActivationJournalFilename       = "npm-activation.json"
+	activeGenerationFile               = "active-generation.json"
 )
 
 var (
@@ -39,6 +45,34 @@ type ActiveGeneration struct {
 	Version       string `json:"version"`
 	InstallMethod string `json:"installMethod"`
 	Identity      string `json:"identity"`
+}
+
+type OuterActivationJournals struct {
+	Bootstrap bool
+	NPM       bool
+}
+
+func InspectOuterActivationJournals(configDir string) (OuterActivationJournals, error) {
+	bootstrap, err := activationFileExists(filepath.Join(configDir, BootstrapActivationJournalFilename))
+	if err != nil {
+		return OuterActivationJournals{}, err
+	}
+	npm, err := activationFileExists(filepath.Join(configDir, NPMActivationJournalFilename))
+	if err != nil {
+		return OuterActivationJournals{}, err
+	}
+	return OuterActivationJournals{Bootstrap: bootstrap, NPM: npm}, nil
+}
+
+func activationFileExists(filename string) (bool, error) {
+	_, err := os.Stat(filename)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func NewNPMGeneration(version string) (ActiveGeneration, error) {
