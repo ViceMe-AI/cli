@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -110,7 +111,7 @@ func TestBootstrapRejectsLateOlderGenerationInsideActivationLock(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	configDir := filepath.Join(root, "config")
-	active, err := updatepkg.NewStandaloneGeneration("0.10.2", strings.Repeat("a", 64))
+	active, err := updatepkg.NewStandaloneGeneration(versionAfterCurrentRelease(t), strings.Repeat("a", 64))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,7 +127,9 @@ func TestBootstrapRejectsLateOlderGenerationInsideActivationLock(t *testing.T) {
 		},
 	}
 	destination := filepath.Join(root, "bin", "viceme")
-	_, err = activateBootstrap(&cobra.Command{}, runtime, destination, "agents", "cn")
+	command := &cobra.Command{}
+	command.SetContext(context.Background())
+	_, err = activateBootstrap(command, runtime, destination, "agents", "cn")
 	cliError := output.AsError(err)
 	if cliError.Subtype != "BOOTSTRAP_DOWNGRADE_REFUSED" {
 		t.Fatalf("late older standalone activation was not fenced: %#v", cliError)
@@ -138,6 +141,19 @@ func TestBootstrapRejectsLateOlderGenerationInsideActivationLock(t *testing.T) {
 	if err != nil || !exists || current != active {
 		t.Fatalf("fenced activation changed active generation: current=%#v exists=%t err=%v", current, exists, err)
 	}
+}
+
+func versionAfterCurrentRelease(t *testing.T) string {
+	t.Helper()
+	majorText, _, found := strings.Cut(strings.TrimPrefix(buildinfo.CompatibilityVersion(), "v"), ".")
+	if !found {
+		t.Fatalf("current compatibility version is not semantic: %q", buildinfo.CompatibilityVersion())
+	}
+	major, err := strconv.ParseUint(majorText, 10, 64)
+	if err != nil || major == ^uint64(0) {
+		t.Fatalf("current compatibility version has an invalid major component: %q", buildinfo.CompatibilityVersion())
+	}
+	return strconv.FormatUint(major+1, 10) + ".0.0"
 }
 
 func TestBootstrapRejectsNPMToStandaloneMigrationBeforeMutation(t *testing.T) {
