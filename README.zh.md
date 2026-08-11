@@ -152,9 +152,13 @@ Checksum，用新二进制修复同版本官方 Skills 后原子激活。npm 安
 
 二进制或 npm launcher、两份官方 Skills 和 Profile 配置属于同一个可恢复的本地版本。
 Standalone 与 npm 激活共用一把锁，并持久化包含语义版本、安装方式和不可变身份的
-active-generation。所有普通命令必须先恢复未完成的外层 Journal；如果恢复改变了当前进程所属
-的二进制版本，本次命令会停止并要求重新执行。锁内 generation fence 会拒绝迟到的旧版本更新，
-私有 Journal 只能完整恢复上一代或完整完成目标版本；安装提交前，`viceme doctor` 同时校验
+active-generation。唯一的启动协调器不区分当前入口，始终检查 Standalone 和 npm 两类 Journal。
+所有普通命令必须先恢复未完成的外层 Journal；如果恢复后当前进程的版本、安装方式或不可变身份
+不再等于 active generation，本次命令会停止并要求重新执行。锁内 generation fence 会拒绝迟到
+的旧版本更新。第一阶段也会在任何文件变更前拒绝 Standalone 与 npm 的原地切换，不能把两套
+恢复协议混合使用。npm 内部安装子进程必须匹配 Journal 中的一次性 nonce、目标版本和 Skill
+目标；目标一旦越过语义提交点，崩溃恢复只能完成本地清理，不能重新联网安装或回滚。私有
+Journal 因此只能完整恢复上一代或完整完成目标版本；安装提交前，`viceme doctor` 同时校验
 Skill/版本完整性和不携带凭据的 API readiness。
 
 ## 第一阶段实施状态
