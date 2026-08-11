@@ -158,6 +158,22 @@ activate the binary atomically. npm installations update through the exact npm
 package version. Updates never inherit `VICEME_ACCESS_TOKEN` into child
 processes.
 
+Binary or npm-launcher activation, both official Skills, and profile config are
+one recoverable local generation. A private durable journal plus process lock
+ensures an interruption can only restore the complete previous generation or
+finish the complete target generation. `viceme doctor` validates Skill/version
+integrity and an unauthenticated API readiness probe before installation commits.
+
+## First-phase implementation status
+
+The installation, device authorization, deterministic package upload, manual or
+suggested listing media, review confirmation, publication, cancellation, and
+terminal recovery paths are implemented. Local acceptance uses real Shop API,
+PostgreSQL, Redis, and S3-compatible storage. `make check`, npm package/cold-start
+tests, race tests, and Darwin/Linux/Windows amd64/arm64 builds pass. A real LLM
+provider sandbox remains an environment acceptance item; without credentials,
+analysis fails closed and the manual media path remains available.
+
 ## Security boundaries
 
 - Local packaging rejects path traversal, absolute paths, symlinks, special

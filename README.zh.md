@@ -150,6 +150,17 @@ Bootstrap 安装会读取当前 Profile 所在区域的官方 S3 Release 索引�
 Checksum，用新二进制修复同版本官方 Skills 后原子激活。npm 安装通过精确 npm 包版本
 更新。更新子进程不会继承 `VICEME_ACCESS_TOKEN`。
 
+二进制或 npm launcher、两份官方 Skills 和 Profile 配置属于同一个可恢复的本地版本。
+持久化私有 Journal 与进程锁保证中断后只能完整恢复上一代，或完整完成目标版本；安装提交前，
+`viceme doctor` 同时校验 Skill/版本完整性和不携带凭据的 API readiness。
+
+## 第一阶段实施状态
+
+安装、设备码授权、确定性包上传、建议或人工展示素材、Review 确认、发布、取消和终态恢复均已
+实现。本地验收使用真实 Shop API、PostgreSQL、Redis 和 S3 兼容存储；`make check`、npm
+打包与冷启动、race test，以及 Darwin/Linux/Windows 的 amd64/arm64 构建均通过。真实 LLM
+Provider sandbox 仍属于部署环境验收项；没有凭据时分析 fail closed，人工素材流程仍可完成发布。
+
 ## 安全边界
 
 - 本地打包拒绝路径穿越、绝对路径、符号链接、特殊文件、超限内容、敏感文件和常见
