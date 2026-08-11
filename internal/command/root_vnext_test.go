@@ -18,9 +18,11 @@ import (
 	cliembed "github.com/ViceMe-AI/cli"
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/config"
+	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
+	"github.com/gofrs/flock"
 )
 
 type failingEntropyReader struct{}
@@ -296,6 +298,121 @@ func TestCoordinatedNPMChildRequiresCompleteBoundArguments(t *testing.T) {
 		if _, err := parseNPMActivationChild(args); err == nil {
 			t.Fatalf("incomplete internal flags were accepted: %#v", args)
 		}
+	}
+}
+
+func TestOrdinaryInstallCannotCommitAfterItsRunningGenerationWasReplaced(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	running, err := updatepkg.NewStandaloneGeneration("1.2.3", strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := updatepkg.NewStandaloneGeneration("1.2.4", strings.Repeat("b", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := updatepkg.CommitActiveGeneration(configDir, active); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &Runtime{
+		configBase: configDir,
+		deps: Dependencies{
+			Environment:                 skillcontent.Environment{Home: root, ConfigDir: configDir},
+			runningActivationGeneration: &running,
+		},
+	}
+
+	_, err = performOrdinaryInstall(context.Background(), runtime, "agents", "cn")
+	if cliError := output.AsError(err); cliError.Subtype != "INSTALL_GENERATION_CHANGED" {
+		t.Fatalf("stale install was not fenced by its captured generation: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-publish")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale install mutated Skills after a newer generation committed: %v", err)
+	}
+	actual, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil || !exists || actual != active {
+		t.Fatalf("stale install changed the active generation: active=%#v exists=%t err=%v", actual, exists, err)
+	}
+}
+
+func TestStartupRecoveryDoesNotPassAnActivationChildStillCommitting(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	member := flock.New(filepath.Join(configDir, updatepkg.ActivationMemberLockFilename))
+	locked, err := member.TryLock()
+	if err != nil || !locked {
+		t.Fatalf("could not establish the child commit barrier: locked=%t err=%v", locked, err)
+	}
+	defer member.Unlock()
+	updater := &startupRecoveryUpdater{}
+	dependencies := Dependencies{
+		Updater: updater,
+		Environment: skillcontent.Environment{
+			Home: root, ConfigDir: configDir,
+		},
+	}
+
+	err = reconcileActivationAtStartup(context.Background(), configDir, &dependencies)
+	if err == nil || !strings.Contains(err.Error(), "activation child") {
+		t.Fatalf("startup recovery crossed an in-flight child commit: %v", err)
+	}
+	if updater.called.Load() {
+		t.Fatal("outer recovery mutated generation state while the child still held commit authority")
+	}
+}
+
+func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	stale, err := updatepkg.NewNPMGeneration("1.2.3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := updatepkg.NewNPMGeneration("1.2.4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := updatepkg.CommitActiveGeneration(configDir, active); err != nil {
+		t.Fatal(err)
+	}
+	journal, err := json.Marshal(map[string]any{
+		"schemaVersion": 3,
+		"status":        "COMMITTING",
+		"nonce":         strings.Repeat("c", 64),
+		"targetVersion": active.Version,
+		"target":        active,
+		"skillTarget":   "agents",
+		"refreshSkills": true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "npm-activation.json"), journal, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &Runtime{
+		configBase: configDir,
+		deps: Dependencies{
+			Environment:                 skillcontent.Environment{Home: root, ConfigDir: configDir},
+			coordinatedActivationChild:  true,
+			activationChildRequest:      npmActivationChildRequest{Nonce: strings.Repeat("b", 64), TargetVersion: stale.Version, SkillTarget: "agents"},
+			runningActivationGeneration: &stale,
+		},
+	}
+
+	_, err = performNPMChildInstall(context.Background(), runtime, "agents", "cn")
+	if cliError := output.AsError(err); cliError.Subtype != "ACTIVATION_CHILD_INVALID" {
+		t.Fatalf("stale child was not fenced by the replacement parent journal: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-publish")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale npm child mutated Skills: %v", err)
 	}
 }
 

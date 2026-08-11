@@ -380,4 +380,10 @@ func TestNPMActivationChildRequiresExactJournalNonceAndTarget(t *testing.T) {
 			t.Fatalf("mismatched activation child was authorized: %#v", attempt)
 		}
 	}
+	if err := service.ConfirmActivationChildCommitted(journal.Nonce, "1.2.4", "codex"); err != nil {
+		t.Fatalf("exact child commit was not recorded: %v", err)
+	}
+	if _, err := service.ValidateActivationChild(journal.Nonce, "1.2.4", "codex"); err == nil {
+		t.Fatal("a consumed activation child nonce authorized a second Skill commit")
+	}
 }

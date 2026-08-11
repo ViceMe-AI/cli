@@ -87,6 +87,15 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 		return bootstrapActivationResult{}, output.Validation("BOOTSTRAP_ACTIVE", "another ViceMe bootstrap or update is active")
 	}
 	defer activationLock.Unlock()
+	memberLock := flock.New(filepath.Join(runtime.configBase, updatepkg.ActivationMemberLockFilename))
+	memberLocked, err := memberLock.TryLock()
+	if err != nil {
+		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_LOCK_FAILED", "could not inspect the activation member lock", err)
+	}
+	if !memberLocked {
+		return bootstrapActivationResult{}, output.Validation("BOOTSTRAP_ACTIVE", "an activation child is still committing Skills and config")
+	}
+	defer memberLock.Unlock()
 	if err := recoverBootstrapActivation(runtime.configBase, runtime.deps.Environment); err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_RECOVERY_FAILED", "could not recover the previous ViceMe activation", err)
 	}
@@ -144,15 +153,18 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_JOURNAL_FAILED", "could not persist the ViceMe activation journal", err)
 	}
 
-	install, installErr := performInstall(command.Context(), runtime, agent, region, true, func() error {
-		journal.Status = "COMMITTING"
-		if err := writeBootstrapJournal(journalPath, journal); err != nil {
-			return output.Internal("BOOTSTRAP_JOURNAL_FAILED", "could not persist the ViceMe activation commit point", err)
-		}
-		if err := activateBootstrapExecutable(journal.Staged, journal.Destination, journal.TargetHash); err != nil {
-			return output.Internal("BOOTSTRAP_REPLACE_FAILED", "could not activate the ViceMe executable", err)
-		}
-		return nil
+	install, installErr := performInstall(command.Context(), runtime, agent, region, true, &installCommitAuthority{
+		OuterJournalOwnsFailure: true,
+		BeforeCommit: func() error {
+			journal.Status = "COMMITTING"
+			if err := writeBootstrapJournal(journalPath, journal); err != nil {
+				return output.Internal("BOOTSTRAP_JOURNAL_FAILED", "could not persist the ViceMe activation commit point", err)
+			}
+			if err := activateBootstrapExecutable(journal.Staged, journal.Destination, journal.TargetHash); err != nil {
+				return output.Internal("BOOTSTRAP_REPLACE_FAILED", "could not activate the ViceMe executable", err)
+			}
+			return nil
+		},
 	})
 	if installErr != nil {
 		recoveryErr := recoverBootstrapActivation(runtime.configBase, runtime.deps.Environment)

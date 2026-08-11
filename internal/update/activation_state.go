@@ -20,7 +20,12 @@ const (
 	// and compare the durable active generation while holding this lock before it
 	// changes the launcher, Skills, or config.
 	ActivationLockFilename = "activation.lock"
-	activeGenerationFile   = "active-generation.json"
+	// ActivationMemberLockFilename protects Skills/config while the outer npm
+	// coordinator temporarily delegates that part of a generation commit to an
+	// exact child process. Every other activation path probes or holds this lock
+	// before it mutates generation state.
+	ActivationMemberLockFilename = "activation-member.lock"
+	activeGenerationFile         = "active-generation.json"
 )
 
 var (

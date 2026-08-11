@@ -223,6 +223,48 @@ func (service *NPMService) EnsureLauncher(ctx context.Context) (TargetResult, er
 	return result, nil
 }
 
+// PrepareCoordinatedInstallWhileLocked persists and stages the npm member of a
+// full CLI+Skills+config generation while the command layer holds both
+// ActivationLockFilename and ActivationMemberLockFilename. The caller must
+// commit its Skill/config transaction, consume the returned nonce with
+// ConfirmActivationChildCommitted, and finish recovery before releasing the
+// locks. If the process dies, the durable journal lets startup recovery finish
+// the exact target generation through the normal bound child path.
+func (service *NPMService) PrepareCoordinatedInstallWhileLocked(ctx context.Context, skillTarget string) (TargetResult, string, error) {
+	result := TargetResult{Target: "npm_global", Status: "failed"}
+	if service.InstallMethod != "npm" {
+		return result, "", ErrNPMInstallRequired
+	}
+	target, err := NewNPMGeneration(service.ComparableVersion)
+	if err != nil {
+		return result, "", err
+	}
+	if pending, err := NPMActivationPending(service.ConfigDir); err != nil {
+		return result, "", err
+	} else if pending {
+		return result, "", errors.New("an npm activation journal is already pending")
+	}
+	if err := ValidateActivationTarget(service.ConfigDir, target); err != nil {
+		return result, "", err
+	}
+	journal, err := service.newNPMActivationJournal(target, skillTarget, true)
+	if err != nil {
+		return result, "", err
+	}
+	if err := service.writeNPMActivation(journal); err != nil {
+		return result, "", err
+	}
+	if _, err := service.installExactPackage(ctx, journal.TargetVersion); err != nil {
+		return result, journal.Nonce, err
+	}
+	journal.Status = "COMMITTING"
+	if err := service.writeNPMActivation(journal); err != nil {
+		return result, journal.Nonce, err
+	}
+	result.Status = "updated"
+	return result, journal.Nonce, nil
+}
+
 func (service *NPMService) Check(ctx context.Context) (CheckResult, error) {
 	result := CheckResult{
 		CurrentVersion: service.CurrentVersion,
@@ -332,6 +374,15 @@ func (service *NPMService) withNPMActivationLock(operation func() error) error {
 		return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("another npm CLI and Skill activation is active")}
 	}
 	defer activationLock.Unlock()
+	memberLock := flock.New(filepath.Join(service.ConfigDir, ActivationMemberLockFilename))
+	memberAvailable, err := memberLock.TryLock()
+	if err != nil {
+		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("could not inspect the activation member lock")}
+	}
+	if !memberAvailable {
+		return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("an activation child is still committing Skills and config")}
+	}
+	_ = memberLock.Unlock()
 	return operation()
 }
 
@@ -414,6 +465,9 @@ func (service *NPMService) recoverNPMActivation(ctx context.Context) error {
 		}
 		return service.removeNPMActivation()
 	}
+	if journal.Status == "CHILD_COMMITTED" {
+		return service.finishNPMActivation(&journal)
+	}
 	if journal.Status == "ROLLING_BACK" {
 		return service.rollbackNPMActivation(ctx, journal)
 	}
@@ -439,7 +493,7 @@ func (service *NPMService) applyNPMActivation(ctx context.Context, journal *npmA
 	if err := ValidateActivationTarget(service.ConfigDir, journal.Target); err != nil {
 		return err
 	}
-	if journal.Status == "COMMITTED" {
+	if journal.Status == "COMMITTED" || journal.Status == "CHILD_COMMITTED" {
 		return nil
 	}
 	_, err := service.installExactPackage(ctx, journal.TargetVersion)
@@ -458,6 +512,11 @@ func (service *NPMService) applyNPMActivation(ctx context.Context, journal *npmA
 	if err := service.installSkillsFromExactPackage(ctx, journal.TargetVersion, journal.SkillTarget, journal.Nonce); err != nil {
 		return fmt.Errorf("install and verify exact official Skills: %w", err)
 	}
+	confirmed, exists, err := service.readNPMActivation()
+	if err != nil || !exists || confirmed.Status != "CHILD_COMMITTED" || confirmed.Nonce != journal.Nonce || confirmed.Target != journal.Target {
+		return errors.New("npm activation child did not commit the exact target generation")
+	}
+	*journal = confirmed
 	return nil
 }
 
@@ -479,7 +538,10 @@ func (service *NPMService) installSkillsFromExactPackage(ctx context.Context, ve
 		"--internal-activation-child="+nonce,
 		"--internal-activation-target="+version,
 	)
-	return err
+	if err != nil {
+		return err
+	}
+	return service.ConfirmActivationChildCommitted(nonce, version, target)
 }
 
 func (service *NPMService) rollbackNPMActivation(ctx context.Context, journal npmActivationJournal) error {
@@ -515,10 +577,16 @@ func (service *NPMService) rollbackNPMActivation(ctx context.Context, journal np
 		if err := service.installSkillsFromExactPackage(ctx, journal.Previous.Version, journal.SkillTarget, journal.Nonce); err != nil {
 			return fmt.Errorf("restore previous official Skills: %w", err)
 		}
-	}
-	journal.Status = "ROLLED_BACK"
-	if err := service.writeNPMActivation(journal); err != nil {
-		return err
+		confirmed, confirmedExists, err := service.readNPMActivation()
+		if err != nil || !confirmedExists || confirmed.Status != "ROLLED_BACK" || confirmed.Nonce != journal.Nonce {
+			return errors.New("npm rollback child did not commit the exact previous generation")
+		}
+		journal = confirmed
+	} else {
+		journal.Status = "ROLLED_BACK"
+		if err := service.writeNPMActivation(journal); err != nil {
+			return err
+		}
 	}
 	if err := CommitActiveGeneration(service.ConfigDir, *journal.Previous); err != nil {
 		return err
@@ -644,7 +712,7 @@ func (service *NPMService) newNPMActivationJournal(target ActiveGeneration, skil
 }
 
 func validateNPMActivationJournal(journal npmActivationJournal) error {
-	if journal.SchemaVersion != 3 || (journal.Status != "PREPARING" && journal.Status != "COMMITTING" && journal.Status != "ROLLING_BACK" && journal.Status != "ROLLED_BACK" && journal.Status != "COMMITTED") {
+	if journal.SchemaVersion != 3 || (journal.Status != "PREPARING" && journal.Status != "COMMITTING" && journal.Status != "CHILD_COMMITTED" && journal.Status != "ROLLING_BACK" && journal.Status != "ROLLED_BACK" && journal.Status != "COMMITTED") {
 		return errors.New("unsupported npm activation journal")
 	}
 	if len(journal.Nonce) != npmActivationNonceBytes*2 {
@@ -719,6 +787,44 @@ func (service *NPMService) ValidateActivationChild(nonce, targetVersion, skillTa
 		return ActiveGeneration{}, errors.New("npm activation child does not match its parent journal")
 	}
 	return expected, nil
+}
+
+// ConfirmActivationChildCommitted consumes a validated child nonce after the
+// child has committed its Skill/config transaction while holding
+// ActivationMemberLockFilename. Reusing the same child context is rejected.
+func (service *NPMService) ConfirmActivationChildCommitted(nonce, targetVersion, skillTarget string) error {
+	journal, exists, err := service.readNPMActivation()
+	if err != nil {
+		return err
+	}
+	if !exists || journal.SchemaVersion != 3 || !journal.RefreshSkills || journal.Nonce != nonce || journal.SkillTarget != skillTarget {
+		return errors.New("npm activation child no longer owns the parent journal")
+	}
+	switch journal.Status {
+	case "COMMITTING":
+		if targetVersion != journal.TargetVersion {
+			return errors.New("npm activation child target changed before commit")
+		}
+		journal.Status = "CHILD_COMMITTED"
+	case "ROLLING_BACK":
+		if journal.Previous == nil || targetVersion != journal.Previous.Version {
+			return errors.New("npm rollback child target changed before commit")
+		}
+		journal.Status = "ROLLED_BACK"
+	case "CHILD_COMMITTED":
+		if targetVersion != journal.TargetVersion {
+			return errors.New("npm activation child target changed before commit")
+		}
+		return nil
+	case "ROLLED_BACK":
+		if journal.Previous == nil || targetVersion != journal.Previous.Version {
+			return errors.New("npm rollback child target changed before commit")
+		}
+		return nil
+	default:
+		return errors.New("npm activation child nonce was already consumed")
+	}
+	return service.writeNPMActivation(journal)
 }
 
 func validSkillTarget(target string) bool {

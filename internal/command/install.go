@@ -3,12 +3,15 @@ package command
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
+	"github.com/gofrs/flock"
 	"github.com/spf13/cobra"
 )
 
@@ -30,6 +33,13 @@ type bootstrapInstallResult struct {
 	NextStep      installNextStep              `json:"nextStep"`
 }
 
+type installCommitAuthority struct {
+	PrepareLauncher         func(context.Context) (updatepkg.TargetResult, error)
+	BeforeCommit            func() error
+	AfterCommit             func() error
+	OuterJournalOwnsFailure bool
+}
+
 func newInstallCommand(runtime *Runtime) *cobra.Command {
 	var agent string
 	var region string
@@ -47,7 +57,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 					return output.Policy("ACTIVATION_CHILD_INVALID", "internal activation flags require the exact committing parent journal")
 				}
 			}
-			result, err := performInstall(command.Context(), runtime, agent, region, !runtime.deps.coordinatedActivationChild, nil)
+			result, err := performAuthorizedInstall(command.Context(), runtime, agent, region)
 			if err != nil {
 				return err
 			}
@@ -65,7 +75,160 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
-func performInstall(ctx context.Context, runtime *Runtime, agent, region string, ensureLauncher bool, beforeCommit func() error) (bootstrapInstallResult, error) {
+func performAuthorizedInstall(ctx context.Context, runtime *Runtime, agent, region string) (bootstrapInstallResult, error) {
+	if runtime.deps.coordinatedActivationChild {
+		return performNPMChildInstall(ctx, runtime, agent, region)
+	}
+	return performOrdinaryInstall(ctx, runtime, agent, region)
+}
+
+func performOrdinaryInstall(ctx context.Context, runtime *Runtime, agent, region string) (bootstrapInstallResult, error) {
+	if err := os.MkdirAll(runtime.configBase, 0o700); err != nil {
+		return bootstrapInstallResult{}, output.Internal("INSTALL_AUTHORITY_FAILED", "could not create the activation directory", err)
+	}
+	activationLock := flock.New(filepath.Join(runtime.configBase, updatepkg.ActivationLockFilename))
+	locked, err := activationLock.TryLock()
+	if err != nil {
+		return bootstrapInstallResult{}, output.Internal("INSTALL_AUTHORITY_FAILED", "could not acquire the activation lock", err)
+	}
+	if !locked {
+		return bootstrapInstallResult{}, output.Validation("INSTALL_ACTIVE", "another ViceMe bootstrap or update is active")
+	}
+	defer activationLock.Unlock()
+	memberLock := flock.New(filepath.Join(runtime.configBase, updatepkg.ActivationMemberLockFilename))
+	memberLocked, err := memberLock.TryLock()
+	if err != nil {
+		return bootstrapInstallResult{}, output.Internal("INSTALL_AUTHORITY_FAILED", "could not inspect the activation member lock", err)
+	}
+	if !memberLocked {
+		return bootstrapInstallResult{}, output.Validation("INSTALL_ACTIVE", "an activation child is still committing Skills and config")
+	}
+	defer memberLock.Unlock()
+
+	expected, err := expectedRunningGeneration(runtime)
+	if err != nil {
+		return bootstrapInstallResult{}, output.Internal("INSTALL_AUTHORITY_FAILED", "could not identify the running CLI generation", err)
+	}
+	activeInitially, activeExists, err := validateInstallAuthority(runtime.configBase, expected, nil)
+	if err != nil {
+		return bootstrapInstallResult{}, output.Policy("INSTALL_GENERATION_CHANGED", "the active CLI generation changed; restart the command")
+	}
+	authority := &installCommitAuthority{BeforeCommit: func() error {
+		active, exists, err := validateInstallAuthority(runtime.configBase, expected, &activeInitially)
+		if err != nil || exists != activeExists || (exists && active != activeInitially) {
+			return updatepkg.ErrActivationRestartNeeded
+		}
+		if !exists {
+			return updatepkg.CommitActiveGeneration(runtime.configBase, expected)
+		}
+		return nil
+	}}
+	if service, ok := runtime.deps.Updater.(*updatepkg.NPMService); ok && service.InstallMethod == "npm" {
+		var childNonce string
+		authority.OuterJournalOwnsFailure = true
+		authority.PrepareLauncher = func(ctx context.Context) (updatepkg.TargetResult, error) {
+			launcher, nonce, err := service.PrepareCoordinatedInstallWhileLocked(ctx, agent)
+			if err == nil {
+				childNonce = nonce
+			}
+			return launcher, err
+		}
+		authority.BeforeCommit = func() error {
+			bootstrapPending, err := pathExists(filepath.Join(runtime.configBase, bootstrapActivationJournalFilename))
+			if err != nil || bootstrapPending {
+				return updatepkg.ErrActivationRestartNeeded
+			}
+			active, exists, err := updatepkg.ReadActiveGeneration(runtime.configBase)
+			if err != nil || exists != activeExists || (exists && active != activeInitially) {
+				return updatepkg.ErrActivationRestartNeeded
+			}
+			target, err := service.ValidateActivationChild(childNonce, expected.Version, agent)
+			if err != nil || target != expected {
+				return updatepkg.ErrActivationRestartNeeded
+			}
+			return nil
+		}
+		authority.AfterCommit = func() error {
+			if err := service.ConfirmActivationChildCommitted(childNonce, expected.Version, agent); err != nil {
+				return err
+			}
+			return service.RecoverActivationWhileLocked(ctx)
+		}
+	}
+	return performInstall(ctx, runtime, agent, region, true, authority)
+}
+
+func performNPMChildInstall(ctx context.Context, runtime *Runtime, agent, region string) (bootstrapInstallResult, error) {
+	memberLock := flock.New(filepath.Join(runtime.configBase, updatepkg.ActivationMemberLockFilename))
+	memberLocked, err := memberLock.TryLock()
+	if err != nil {
+		return bootstrapInstallResult{}, output.Internal("ACTIVATION_CHILD_LOCK_FAILED", "could not acquire the activation child lock", err)
+	}
+	if !memberLocked {
+		return bootstrapInstallResult{}, output.Validation("ACTIVATION_CHILD_ACTIVE", "another activation child is committing Skills and config")
+	}
+	defer memberLock.Unlock()
+	request := runtime.deps.activationChildRequest
+	service := npmRecoveryService(runtime.configBase, runtime.deps)
+	validate := func() error {
+		target, err := service.ValidateActivationChild(request.Nonce, request.TargetVersion, request.SkillTarget)
+		if err != nil {
+			return err
+		}
+		expected, err := expectedRunningGeneration(runtime)
+		if err != nil {
+			return err
+		}
+		if target != expected {
+			return updatepkg.ErrActivationRestartNeeded
+		}
+		return nil
+	}
+	if err := validate(); err != nil {
+		return bootstrapInstallResult{}, output.Policy("ACTIVATION_CHILD_INVALID", "the activation child no longer owns its parent journal")
+	}
+	authority := &installCommitAuthority{
+		BeforeCommit: validate,
+		AfterCommit: func() error {
+			return service.ConfirmActivationChildCommitted(request.Nonce, request.TargetVersion, request.SkillTarget)
+		},
+	}
+	return performInstall(ctx, runtime, agent, region, false, authority)
+}
+
+func expectedRunningGeneration(runtime *Runtime) (updatepkg.ActiveGeneration, error) {
+	if runtime.deps.runningActivationGeneration != nil {
+		return *runtime.deps.runningActivationGeneration, nil
+	}
+	return runningActivationGeneration(runtime.deps)
+}
+
+func validateInstallAuthority(configDir string, expected updatepkg.ActiveGeneration, initial *updatepkg.ActiveGeneration) (updatepkg.ActiveGeneration, bool, error) {
+	bootstrapPending, err := pathExists(filepath.Join(configDir, bootstrapActivationJournalFilename))
+	if err != nil {
+		return updatepkg.ActiveGeneration{}, false, err
+	}
+	npmPending, err := updatepkg.NPMActivationPending(configDir)
+	if err != nil {
+		return updatepkg.ActiveGeneration{}, false, err
+	}
+	if bootstrapPending || npmPending {
+		return updatepkg.ActiveGeneration{}, false, errors.New("an outer activation journal is pending")
+	}
+	active, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil {
+		return updatepkg.ActiveGeneration{}, false, err
+	}
+	if exists && active != expected {
+		return active, true, updatepkg.ErrActivationRestartNeeded
+	}
+	if initial != nil && exists && active != *initial {
+		return active, true, updatepkg.ErrActivationRestartNeeded
+	}
+	return active, exists, nil
+}
+
+func performInstall(ctx context.Context, runtime *Runtime, agent, region string, ensureLauncher bool, authority *installCommitAuthority) (bootstrapInstallResult, error) {
 	if region == "" {
 		region = string(runtime.region)
 	}
@@ -134,19 +297,31 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 	}
 	launcher := updatepkg.TargetResult{Target: "launcher", Status: "coordinated"}
 	if ensureLauncher {
-		launcher, err = runtime.deps.Updater.EnsureLauncher(installContext)
+		if authority != nil && authority.PrepareLauncher != nil {
+			launcher, err = authority.PrepareLauncher(installContext)
+		} else {
+			launcher, err = runtime.deps.Updater.EnsureLauncher(installContext)
+		}
 		if err != nil {
 			return rollback(updaterError(err, launcher))
 		}
 	}
-	if beforeCommit != nil {
-		if err := beforeCommit(); err != nil {
-			transaction.Abandon()
-			return bootstrapInstallResult{}, err
+	if authority != nil && authority.BeforeCommit != nil {
+		if err := authority.BeforeCommit(); err != nil {
+			if authority.OuterJournalOwnsFailure {
+				transaction.Abandon()
+				return bootstrapInstallResult{}, err
+			}
+			return rollback(err)
 		}
 	}
 	if err := transaction.Commit(); err != nil {
 		return bootstrapInstallResult{}, output.Internal("INSTALL_COMMIT_FAILED", "ViceMe installation was verified but could not commit its recovery journal", err)
+	}
+	if authority != nil && authority.AfterCommit != nil {
+		if err := authority.AfterCommit(); err != nil {
+			return bootstrapInstallResult{}, output.Internal("INSTALL_AUTHORITY_COMMIT_FAILED", "ViceMe installation committed but its activation authority could not be finalized", err)
+		}
 	}
 	result := bootstrapInstallResult{Launcher: launcher, Skills: reports, Config: configResult, Profile: profile.Name, Region: resolvedRegion, Authenticated: status.Authenticated}
 	if status.Authenticated {

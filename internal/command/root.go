@@ -44,11 +44,12 @@ type Dependencies struct {
 	APIBaseURL  string
 	Region      config.Region
 
-	coordinatedActivationChild bool
-	activationChildRequest     npmActivationChildRequest
-	activationChildParseError  error
-	bootstrapActivationCommand bool
-	activationNPMRecoverer     *updatepkg.NPMService
+	coordinatedActivationChild  bool
+	activationChildRequest      npmActivationChildRequest
+	activationChildParseError   error
+	bootstrapActivationCommand  bool
+	activationNPMRecoverer      *updatepkg.NPMService
+	runningActivationGeneration *updatepkg.ActiveGeneration
 }
 
 type npmActivationChildRequest struct {
@@ -319,6 +320,15 @@ func reconcileActivationAtStartup(ctx context.Context, configDir string, depende
 		return errors.New("another ViceMe bootstrap or update is active")
 	}
 	defer activationLock.Unlock()
+	memberLock := flock.New(filepath.Join(configDir, updatepkg.ActivationMemberLockFilename))
+	memberAvailable, err := memberLock.TryLock()
+	if err != nil {
+		return err
+	}
+	if !memberAvailable {
+		return errors.New("an activation child is still committing Skills and config")
+	}
+	_ = memberLock.Unlock()
 
 	bootstrapPending, err := pathExists(filepath.Join(configDir, bootstrapActivationJournalFilename))
 	if err != nil {
@@ -348,6 +358,7 @@ func reconcileActivationAtStartup(ctx context.Context, configDir string, depende
 	if exists && active != running && !dependencies.bootstrapActivationCommand {
 		return updatepkg.ErrActivationRestartNeeded
 	}
+	dependencies.runningActivationGeneration = &running
 	return nil
 }
 
@@ -372,6 +383,7 @@ func authorizeNPMActivationChild(configDir string, dependencies *Dependencies) e
 	if running != target {
 		return errors.New("activation child is not running the journal target generation")
 	}
+	dependencies.runningActivationGeneration = &running
 	return nil
 }
 

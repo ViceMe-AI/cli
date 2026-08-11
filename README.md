@@ -159,18 +159,22 @@ package version. Updates never inherit `VICEME_ACCESS_TOKEN` into child
 processes.
 
 Binary or npm-launcher activation, both official Skills, and profile config are
-one recoverable local generation. Standalone and npm activation share one lock
-and a durable active-generation record containing the semantic version,
-installation method, and immutable identity. One startup coordinator inspects
+one recoverable local generation. Standalone and npm activation share an outer
+activation lock, a delegated member-commit lock, and a durable active-generation
+record containing the semantic version, installation method, and immutable
+identity. One startup coordinator inspects
 both standalone and npm journals regardless of which launcher entered the
 process. Every ordinary command reconciles an interrupted outer journal before
 business logic; a recovered process whose version, method, or immutable identity
 changed must be restarted. The lock-internal generation fence rejects a late
 older updater. The first phase also rejects switching between standalone and npm
 before any mutation; reinstall explicitly after removing the previous generation
-instead of mixing recovery protocols. npm child activation is bound to the exact
-committing journal by a one-time nonce and target version, and a committed target
-is only cleaned up after a crash—it is never reapplied or rolled back. Private
+instead of mixing recovery protocols. Every Skills/config transaction holds or
+revalidates the same generation authority immediately before commit. npm child
+activation is bound to the exact committing journal by a one-time nonce and
+target version; its member lock prevents a parent crash from admitting a newer
+generation while the child still commits. A committed target is only cleaned up
+after a crash—it is never reapplied or rolled back. Private
 journals can therefore only restore the complete previous generation or finish
 the complete target generation. `viceme doctor`
 validates Skill/version integrity and an unauthenticated API readiness probe
