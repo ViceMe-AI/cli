@@ -2,7 +2,9 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +15,93 @@ import (
 	"testing"
 	"time"
 )
+
+func TestReleaseServiceChecksReplacesAndRefreshesMatchingSkills(t *testing.T) {
+	t.Parallel()
+	binary := []byte("new-viceme-binary")
+	digest := sha256.Sum256(binary)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/latest":
+			_, _ = writer.Write([]byte("1.2.3\n"))
+		case "/v1.2.3/viceme_1.2.3_linux_amd64":
+			_, _ = writer.Write(binary)
+		case "/v1.2.3/viceme_1.2.3_linux_amd64.sha256":
+			_, _ = fmt.Fprintf(writer, "%x  viceme_1.2.3_linux_amd64\n", digest)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	executable := filepath.Join(t.TempDir(), "viceme")
+	if err := os.WriteFile(executable, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{}
+	service := NewReleaseService("1.2.2", "1.2.2")
+	service.ReleaseBaseURL = server.URL
+	service.HTTPClient = server.Client()
+	service.ExecutablePath = executable
+	service.GOOS = "linux"
+	service.GOARCH = "amd64"
+	service.Runner = runner
+	service.SetRegion("global")
+
+	check, err := service.Check(context.Background())
+	if err != nil || !check.UpdateAvailable || check.AvailableVersion != "1.2.3" {
+		t.Fatalf("check=%#v err=%v", check, err)
+	}
+	result, err := service.Apply(context.Background(), check, ApplyOptions{RefreshSkills: true, SkillTarget: "workbuddy"})
+	if err != nil || result.CLIVersion != "1.2.3" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	installed, err := os.ReadFile(executable)
+	if err != nil || !reflect.DeepEqual(installed, binary) {
+		t.Fatalf("installed=%q err=%v", installed, err)
+	}
+	if len(runner.calls) != 1 || runner.calls[0].name == executable || !reflect.DeepEqual(runner.calls[0].args, []string{"install", "--agent", "workbuddy", "--region", "global"}) {
+		t.Fatalf("matching Skill refresh did not use the staged new binary: %#v", runner.calls)
+	}
+}
+
+func TestReleaseServiceIntegrityFailurePreservesCurrentBinary(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/latest" {
+			_, _ = writer.Write([]byte("1.2.3"))
+			return
+		}
+		if strings.HasSuffix(request.URL.Path, ".sha256") {
+			_, _ = writer.Write([]byte(strings.Repeat("0", 64)))
+			return
+		}
+		_, _ = writer.Write([]byte("corrupt"))
+	}))
+	defer server.Close()
+	executable := filepath.Join(t.TempDir(), "viceme")
+	if err := os.WriteFile(executable, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	service := NewReleaseService("1.2.2", "1.2.2")
+	service.ReleaseBaseURL = server.URL
+	service.HTTPClient = server.Client()
+	service.ExecutablePath = executable
+	service.GOOS = "linux"
+	service.GOARCH = "amd64"
+	check, err := service.Check(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.Apply(context.Background(), check, ApplyOptions{})
+	if ErrorKindOf(err) != ErrorReleaseIntegrity {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	installed, readErr := os.ReadFile(executable)
+	if readErr != nil || string(installed) != "old" {
+		t.Fatalf("current binary changed after integrity failure: %q err=%v", installed, readErr)
+	}
+}
 
 func TestUpdateChildProcessDoesNotInheritPublicationCredential(t *testing.T) {
 	environment := []string{
@@ -90,7 +179,7 @@ func TestNPMServiceChecksAndAppliesExactVersion(t *testing.T) {
 	if !reflect.DeepEqual(runner.calls[0].args, wantInstall) {
 		t.Fatalf("unsafe or inexact npm install args: %#v", runner.calls[0])
 	}
-	wantExec := []string{cacheArg, "exec", "--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org", "--yes", "--package=@viceme-ai/cli@0.1.1", "--", "viceme", "skills", "install", "--target", "codex"}
+	wantExec := []string{cacheArg, "exec", "--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org", "--yes", "--package=@viceme-ai/cli@0.1.1", "--", "viceme", "install", "--agent", "codex"}
 	if !reflect.DeepEqual(runner.calls[1].args, wantExec) {
 		t.Fatalf("unexpected Skill refresh args: %#v", runner.calls[1])
 	}

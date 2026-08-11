@@ -12,6 +12,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var officialSkillNames = []string{"viceme-shared", "viceme-publish"}
+
 type installNextStep struct {
 	Required bool   `json:"required"`
 	Command  string `json:"command"`
@@ -19,121 +21,108 @@ type installNextStep struct {
 }
 
 type bootstrapInstallResult struct {
-	CLI             updatepkg.TargetResult     `json:"cli"`
-	Skill           skillcontent.InstallReport `json:"skill"`
-	Config          config.EnsureResult        `json:"config"`
-	Profile         string                     `json:"profile"`
-	Region          config.Region              `json:"region"`
-	Authenticated   bool                       `json:"authenticated"`
-	AuthStatusKnown bool                       `json:"auth_status_known"`
-	Warnings        []string                   `json:"warnings,omitempty"`
-	NextStep        installNextStep            `json:"next_step"`
+	Launcher      updatepkg.TargetResult       `json:"launcher"`
+	Skills        []skillcontent.InstallReport `json:"skills"`
+	Config        config.EnsureResult          `json:"config"`
+	Profile       string                       `json:"profile"`
+	Region        config.Region                `json:"region"`
+	Authenticated bool                         `json:"authenticated"`
+	NextStep      installNextStep              `json:"nextStep"`
 }
 
 func newInstallCommand(runtime *Runtime) *cobra.Command {
-	var target string
+	var agent string
 	var region string
 	command := &cobra.Command{
-		Use:   "install",
-		Short: "Persist the npm CLI, install its ViceMe Skill, and initialize configuration",
-		Args:  cobra.NoArgs,
+		Use: "install", Short: "Install official ViceMe Skills for supported AI coding agents", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if region == "" {
 				region = string(runtime.region)
 			}
 			resolvedRegion, err := config.ParseRegion(region)
 			if err != nil {
-				return output.Validation("region", err.Error())
+				return output.Validation("REGION_INVALID", err.Error())
 			}
-			if err := runtime.deps.Skills.Validate("viceme"); err != nil {
-				return err
-			}
-			installContext, cancel := context.WithTimeout(command.Context(), 3*time.Minute)
+			ctx, cancel := context.WithTimeout(command.Context(), 3*time.Minute)
 			defer cancel()
-			launcher, err := runtime.deps.Updater.EnsureLauncher(installContext)
+			launcher, err := runtime.deps.Updater.EnsureLauncher(ctx)
 			if err != nil {
-				return output.Internal("bootstrap_cli_install", "could not install the persistent npm launcher", err).WithDetails(launcher)
+				return updaterError(err, launcher)
 			}
-			report := runtime.deps.Skills.Install("viceme", target, runtime.deps.Environment)
-			if !report.AllSucceeded {
-				return output.Internal("bootstrap_install_partial", "one or more Skill targets could not be installed", nil).WithDetails(report)
+			reports := make([]skillcontent.InstallReport, 0, len(officialSkillNames))
+			for _, name := range officialSkillNames {
+				if err := runtime.deps.Skills.Validate(name); err != nil {
+					return err
+				}
+				report := runtime.deps.Skills.Install(name, agent, runtime.deps.Environment)
+				reports = append(reports, report)
+				if !report.AllSucceeded {
+					return output.Internal("SKILL_INSTALL_PARTIAL", "one or more official Skill targets could not be installed", nil).WithDetails(reports)
+				}
 			}
-			activeProfile, err := runtime.config.Resolve(runtime.profile.Name)
+			profile, err := runtime.config.Resolve(runtime.profile.Name)
 			if err != nil {
-				return output.Internal("bootstrap_config", "could not resolve the active CLI profile", err)
+				return output.Internal("PROFILE_INVALID", "could not resolve the active profile", err)
 			}
-			previousRegion := activeProfile.Region
-			previousProfile := *activeProfile
-			activeProfile.Region = resolvedRegion
+			if profile.Region != resolvedRegion {
+				previous := credentialauth.Manager{Store: runtime.deps.Store, Region: string(profile.Region), ProfileID: profile.ID, ProfileName: profile.Name}
+				if err := previous.Delete(); err != nil {
+					return err
+				}
+				profile.Region = resolvedRegion
+			}
 			configResult, err := config.Save(runtime.configBase, runtime.config)
 			if err != nil {
-				return output.Internal("bootstrap_config", "could not initialize non-sensitive CLI configuration", err).WithDetails(map[string]any{
-					"skill":  report,
-					"config": configResult,
-				})
+				return output.Internal("PROFILE_SAVE_FAILED", "could not initialize CLI configuration", err)
 			}
-			var warnings []string
-			if previousRegion != resolvedRegion {
-				previousScope, scopeErr := runtime.credentialScopeForProfile(previousProfile)
-				if scopeErr != nil {
-					return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
-				}
-				currentScope, scopeErr := runtime.credentialScopeForProfile(*activeProfile)
-				if scopeErr != nil {
-					return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
-				}
-				if credentialNamespace(previousRegion, previousScope) != credentialNamespace(resolvedRegion, currentScope) {
-					previousManager := credentialauth.Manager{
-						Store:       runtime.deps.Store,
-						Region:      string(previousRegion),
-						ProfileID:   activeProfile.ID,
-						ProfileName: activeProfile.Name,
-						Scope:       previousScope,
-					}
-					if err := previousManager.Delete(); err != nil {
-						warnings = append(warnings, "profile region changed but the previous local credential could not be removed from the secure credential store")
-					}
-				}
-			}
-			if err := runtime.setRegion(resolvedRegion); err != nil {
+			if err := runtime.reloadConfig(profile.Name); err != nil {
 				return err
 			}
-			result := bootstrapInstallResult{
-				CLI:      launcher,
-				Skill:    report,
-				Config:   configResult,
-				Profile:  runtime.profile.Name,
-				Region:   resolvedRegion,
-				Warnings: warnings,
+			status, err := runtime.manager().CurrentStatus()
+			if err != nil {
+				return err
 			}
-			if token, _, _ := runtime.overrideCredential(); token != "" {
-				result.AuthStatusKnown = true
-				result.Authenticated = true
+			result := bootstrapInstallResult{Launcher: launcher, Skills: reports, Config: configResult, Profile: profile.Name, Region: resolvedRegion, Authenticated: status.Authenticated}
+			if status.Authenticated {
+				result.NextStep = installNextStep{Command: "viceme skill inspect --path <dir-or-zip>", Reason: "CLI and official Skills are ready"}
 			} else {
-				status, statusErr := runtime.manager().CurrentStatus()
-				if statusErr == nil {
-					result.AuthStatusKnown = true
-					result.Authenticated = status.Authenticated
-				} else {
-					result.Warnings = append(result.Warnings, "authentication status could not be read from the secure credential store")
-				}
-			}
-			if result.Authenticated {
-				result.NextStep = installNextStep{
-					Command: "viceme skill inspect <source> [--skill-root <path>]",
-					Reason:  "CLI, Skill, and authentication are ready",
-				}
-			} else {
-				result.NextStep = installNextStep{
-					Required: true,
-					Command:  "viceme auth login",
-					Reason:   "complete device login before publishing a Skill Agent",
-				}
+				result.NextStep = installNextStep{Required: true, Command: "viceme auth login", Reason: "sign in before publishing a Skill"}
 			}
 			return runtime.business(result)
 		},
 	}
-	command.Flags().StringVar(&target, "target", "auto", "Skill target: auto, codex, claude, or agents")
-	command.Flags().StringVar(&region, "region", "", "ViceMe region: cn or global (defaults to the selected profile region)")
+	command.Flags().StringVar(&agent, "agent", "auto", "agent target: auto, codex, claude, workbuddy, or agents")
+	command.Flags().StringVar(&region, "region", "", "ViceMe region: cn or global")
+	return command
+}
+
+type doctorSkillResult struct {
+	Name   string                    `json:"name"`
+	Report skillcontent.DoctorReport `json:"report"`
+}
+
+func newDoctorCommand(runtime *Runtime) *cobra.Command {
+	var agent string
+	command := &cobra.Command{
+		Use: "doctor", Short: "Check the CLI, profile, credentials, and official Skills", Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			results := make([]doctorSkillResult, 0, len(officialSkillNames))
+			healthy := true
+			for _, name := range officialSkillNames {
+				report := runtime.deps.Skills.Doctor(name, agent, runtime.deps.Environment)
+				results = append(results, doctorSkillResult{Name: name, Report: report})
+				healthy = healthy && report.Healthy
+			}
+			status, err := runtime.manager().CurrentStatus()
+			if err != nil {
+				return err
+			}
+			return runtime.business(map[string]any{
+				"healthy": healthy, "profile": runtime.profile.Name, "region": runtime.region,
+				"authenticated": status.Authenticated, "skills": results,
+			})
+		},
+	}
+	command.Flags().StringVar(&agent, "agent", "auto", "agent target: auto, codex, claude, workbuddy, or agents")
 	return command
 }

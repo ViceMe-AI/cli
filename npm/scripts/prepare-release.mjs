@@ -179,11 +179,14 @@ function prepareRelease() {
   packageDocument.version = version;
   writeJSON("package.json", packageDocument);
 
-  const skillPackage = JSON.parse(readFileSync("skills/viceme/skill-package.json", "utf8"));
-  skillPackage.skill_version = version;
-  skillPackage.minimum_cli_version = version;
-  skillPackage.cli_compatibility = compatibility;
-  writeJSON("skills/viceme/skill-package.json", skillPackage);
+  for (const skillName of ["viceme-shared", "viceme-publish"]) {
+    const filename = `skills/${skillName}/skill-package.json`;
+    const skillPackage = JSON.parse(readFileSync(filename, "utf8"));
+    skillPackage.skill_version = version;
+    skillPackage.minimum_cli_version = version;
+    skillPackage.cli_compatibility = compatibility;
+    writeJSON(filename, skillPackage);
+  }
 
   let buildinfo = readFileSync("internal/buildinfo/buildinfo.go", "utf8");
   buildinfo = replaceRequired(buildinfo, /ReleaseVersion = "[^"]+"/, `ReleaseVersion = "${version}"`, "ReleaseVersion");

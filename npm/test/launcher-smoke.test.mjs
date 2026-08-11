@@ -27,7 +27,7 @@ test(
     await symlink(launcher, linkedLauncher);
     const child = spawnSync(
       process.execPath,
-      [linkedLauncher, "install", "--target", "codex"],
+      [linkedLauncher, "install", "--agent", "codex"],
       {
         encoding: "utf8",
         env: {
@@ -41,10 +41,11 @@ test(
     );
     assert.equal(child.status, 0, child.stderr);
     const result = JSON.parse(child.stdout);
-    assert.equal(result.skill.all_succeeded, true);
-    assert.equal("ok" in result, false);
-    assert.equal("data" in result, false);
-    await stat(path.join(codexHome, "skills", "viceme", "SKILL.md"));
+    assert.equal(result.ok, true);
+    assert.equal(result.data.skills.length, 2);
+    assert.equal(result.data.skills.every((skill) => skill.all_succeeded), true);
+    await stat(path.join(codexHome, "skills", "viceme-shared", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-publish", "SKILL.md"));
     await stat(path.join(configHome, "config.json"));
   },
 );
@@ -129,7 +130,7 @@ process.exit(child.status ?? 1);
         "--",
         "viceme",
         "install",
-        "--target",
+        "--agent",
         "codex",
       ],
       { encoding: "utf8", env: isolatedEnvironment },
@@ -142,9 +143,9 @@ process.exit(child.status ?? 1);
     }
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}\n${debug}`);
     const install = JSON.parse(first.stdout);
-    assert.equal(install.skill.all_succeeded, true);
-    assert.equal("ok" in install, false);
-    assert.equal("data" in install, false);
+    assert.equal(install.ok, true);
+    assert.equal(install.data.skills.length, 2);
+    assert.equal(install.data.skills.every((skill) => skill.all_succeeded), true);
     assert.match(
       await readFile(marker, "utf8"),
       /install --registry=https:\/\/registry\.npmjs\.org --@viceme-ai:registry=https:\/\/registry\.npmjs\.org --global/,
@@ -191,10 +192,9 @@ process.exit(child.status ?? 1);
     });
     assert.equal(second.status, 0, `${second.stdout}\n${second.stderr}`);
     const version = JSON.parse(second.stdout);
-    assert.equal(version.version, packageVersion);
-    assert.equal("ok" in version, false);
-    assert.equal("data" in version, false);
-    assert.equal("meta" in version, false);
+    assert.equal(version.ok, true);
+    assert.equal(version.data.version, packageVersion);
+    assert.equal(version.meta.cliVersion, packageVersion);
     await stat(path.join(prefix, "bin", "viceme"));
   },
 );

@@ -1,429 +1,217 @@
 package command
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
+	"crypto/sha256"
 	"fmt"
-	"io"
 	"path/filepath"
-	"strings"
-	"time"
-	"unicode/utf8"
 
 	"github.com/ViceMe-AI/cli/internal/api"
-	archivepkg "github.com/ViceMe-AI/cli/internal/archive"
+	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/publication"
 	"github.com/spf13/cobra"
 )
 
-const maxStdinBytes = 1 << 20
+type inspectResult struct {
+	publication.Package
+	PriceConfirmed bool `json:"priceConfirmed"`
+}
 
 func newSkillCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "skill", Short: "Inspect and publish external Skills"}
+	command := &cobra.Command{Use: "skill", Short: "Inspect and publish a local Skill"}
 	command.AddCommand(newSkillInspectCommand(runtime))
 	command.AddCommand(newSkillPublishCommand(runtime))
-	command.AddCommand(newTargetCommand(runtime))
 	return command
 }
 
 func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
-	var sourceStdin bool
-	var skillRoot string
+	var source string
+	command := &cobra.Command{
+		Use: "inspect", Short: "Validate a local Skill directory or ZIP without side effects", Args: cobra.NoArgs,
+		RunE: func(_ *cobra.Command, _ []string) error {
+			result, err := publication.Build(source, 0)
+			if err != nil {
+				return err
+			}
+			return runtime.business(inspectResult{Package: result, PriceConfirmed: false})
+		},
+	}
+	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
+	_ = command.MarkFlagRequired("path")
+	return command
+}
+
+func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
+	var source string
+	var resume string
+	var priceMinor int
+	var productID string
+	var creatorDisplayName string
 	var dryRun bool
 	command := &cobra.Command{
-		Use:   "inspect [github-url]",
-		Short: "Resolve an immutable external Skill snapshot without publishing it",
-		Args: func(_ *cobra.Command, args []string) error {
-			if len(args) > 1 {
-				return output.Validation("source_count", "inspect accepts at most one source argument")
+		Use: "publish", Short: "Upload a Skill and prepare its listing for explicit review", Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if source != "" && resume != "" {
+				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--path and --resume cannot be used together")
 			}
-			return nil
-		},
-		RunE: func(command *cobra.Command, args []string) error {
-			if sourceStdin == (len(args) == 1) {
-				return output.Validation("source_required", "provide exactly one GitHub URL argument or --source-stdin")
+			if source == "" && resume == "" {
+				return output.Validation("SKILL_PATH_REQUIRED", "provide --path or --resume")
 			}
-			if dryRun {
-				mode := "github_argument"
-				if sourceStdin {
-					mode = "source_stdin"
-				}
-				return runtime.success(map[string]any{"dry_run": true, "operation": "skill.inspect", "source_mode": mode, "skill_root": strings.TrimSpace(skillRoot)})
+			if dryRun && resume != "" {
+				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--dry-run cannot be combined with --resume")
 			}
-			var source api.Source
-			if sourceStdin {
-				parsed, err := readSourceSpec(runtime.deps.In)
+			store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
+			if resume != "" {
+				pending, err := store.Load(resume)
 				if err != nil {
 					return err
 				}
-				source = parsed
-			} else {
-				if strings.TrimSpace(args[0]) == "" {
-					return output.Validation("source_empty", "GitHub URL cannot be empty")
+				pkg, err := publication.Build(pending.SourcePath, pending.PriceMinor)
+				if err != nil {
+					return err
 				}
-				source = api.Source{Kind: "github", Value: args[0]}
+				if pkg.Artifact.Digest != pending.ArtifactDigest {
+					return output.Validation("PUBLICATION_SOURCE_CHANGED", "local Skill source changed after the publication started").WithHint("restore the original source or start a new publication")
+				}
+				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil)
 			}
-			response, err := runtime.client().Inspect(command.Context(), api.InspectRequest{
-				Source:    source,
-				SkillRoot: strings.TrimSpace(skillRoot),
+			if !command.Flags().Changed("price-minor") {
+				return output.Confirmation("SKILL_PRICE_CONFIRMATION_REQUIRED", "provide the explicitly confirmed CNY price using --price-minor")
+			}
+			pkg, err := publication.Build(source, priceMinor)
+			if err != nil {
+				return err
+			}
+			if dryRun {
+				return runtime.business(inspectResult{Package: pkg, PriceConfirmed: true})
+			}
+			fingerprint := fmt.Sprintf("%x", sha256.Sum256([]byte(
+				runtime.profile.ID+"\x00"+pkg.SourcePath+"\x00"+pkg.Artifact.Digest+"\x00"+pkg.Digest+"\x00"+
+					fmt.Sprintf("%d", priceMinor)+"\x00"+productID+"\x00"+creatorDisplayName+"\x00"+buildinfo.Version,
+			)))
+			intent, err := store.LoadOrCreateIntent(fingerprint, runtime.deps.NewID)
+			if err != nil {
+				return err
+			}
+			if intent.PublicationID != "" {
+				pending := publication.Pending{
+					PublicationID: intent.PublicationID, ClientRequestID: intent.ClientRequestID,
+					SourcePath: pkg.SourcePath, PriceMinor: priceMinor, ArtifactDigest: pkg.Artifact.Digest,
+				}
+				if err := store.Save(pending); err != nil {
+					return err
+				}
+				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil)
+			}
+			created, err := runtime.client().CreateSkillPublication(command.Context(), api.CreateSkillPublicationRequest{
+				ClientRequestID: intent.ClientRequestID, ContractVersion: "2026-08-10", CLIVersion: buildinfo.Version,
+				Manifest: pkg.Manifest, ManifestDigest: pkg.Digest, Artifact: pkg.Artifact,
+				ProductID: productID, CreatorDisplayName: creatorDisplayName,
 			})
 			if err != nil {
 				return err
 			}
-			return runtime.success(response)
+			intent.PublicationID = created.PublicationID
+			if err := store.SaveIntent(intent); err != nil {
+				return err
+			}
+			pending := publication.Pending{
+				PublicationID: created.PublicationID, ClientRequestID: intent.ClientRequestID,
+				SourcePath: pkg.SourcePath, PriceMinor: priceMinor, ArtifactDigest: pkg.Artifact.Digest,
+			}
+			if err := store.Save(pending); err != nil {
+				return err
+			}
+			return continueSkillPublication(command.Context(), runtime, store, pending, pkg, created.PackageUpload)
 		},
 	}
-	command.Flags().BoolVar(&sourceStdin, "source-stdin", false, "read a typed SourceSpec JSON object from stdin")
-	command.Flags().StringVar(&skillRoot, "skill-root", "", "exact repository-relative directory containing SKILL.md; use . for the repository root")
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "validate and print the operation without calling ViceMe")
+	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
+	command.Flags().StringVar(&resume, "resume", "", "resume an interrupted publication by ID")
+	command.Flags().IntVar(&priceMinor, "price-minor", 0, "confirmed CNY price in fen")
+	command.Flags().StringVar(&productID, "product-id", "", "update an owned product instead of creating one")
+	command.Flags().StringVar(&creatorDisplayName, "creator-display-name", "", "creator display name used when the account has none")
+	command.Flags().BoolVar(&dryRun, "dry-run", false, "validate and show the deterministic plan without network writes")
 	return command
 }
 
-type publishOptions struct {
-	resolutionID          string
-	sourceStdin           bool
-	file                  string
-	directory             string
-	skillRoot             string
-	newTarget             bool
-	targetAlias           string
-	targetAliasSet        bool
-	targetID              string
-	expectedTargetVersion int64
-	expectedVersionSet    bool
-	targetLocale          string
-	yes                   bool
-	wait                  bool
-	timeout               time.Duration
-	dryRun                bool
-	clientRequestID       string
-}
-
-func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
-	var opts publishOptions
-	command := &cobra.Command{
-		Use:   "publish [github-url]",
-		Short: "Create a durable Skill Agent publication",
-		Args: func(_ *cobra.Command, args []string) error {
-			if len(args) > 1 {
-				return output.Validation("source_count", "publish accepts at most one source argument")
-			}
-			return nil
-		},
-		RunE: func(command *cobra.Command, args []string) error {
-			opts.expectedVersionSet = command.Flags().Changed("expected-target-version")
-			opts.targetAliasSet = command.Flags().Changed("target-alias")
-			if err := validatePublishOptions(args, opts); err != nil {
-				return err
-			}
-			destination := publishDestination(opts)
-			if opts.dryRun {
-				result := map[string]any{
-					"dry_run":            true,
-					"operation":          "skill.publish",
-					"source_mode":        publishSourceMode(args, opts),
-					"destination":        destination,
-					"wait":               opts.wait,
-					"confirmation_ok":    opts.yes,
-					"publish_mode":       "confirm",
-					"confirmation_scope": "publication_admission/v1",
-					"ownership_mode":     "server_resolved",
-				}
-				return runtime.success(result)
-			}
-			request := api.CreatePublicationRequest{
-				ClientRequestID: opts.clientRequestID,
-				ResolutionID:    opts.resolutionID,
-				Selector:        opts.skillRoot,
-				Destination:     destination,
-				Options: api.PublicationOptions{
-					TargetLocale:          opts.targetLocale,
-					PublishMode:           "confirm",
-					AdmissionConfirmation: true,
-				},
-			}
-			if opts.resolutionID == "" {
-				source, err := publicationSource(command, runtime, args, opts)
-				if err != nil {
-					return err
-				}
-				request.Source = &source
-			}
-			if request.ClientRequestID == "" {
-				request.ClientRequestID = runtime.deps.NewID()
-			}
-			publication, err := createPublication(command.Context(), runtime, request)
-			if err != nil {
-				return err
-			}
-			if !opts.wait {
-				return runtime.success(publication)
-			}
-			publicationID := publication.ID()
-			if publicationID == "" {
-				return output.Internal("publication_response", "ViceMe API did not return a publication_id", nil)
-			}
-			final, timedOut, err := waitPublication(command.Context(), runtime, publicationID, opts.timeout)
-			if err != nil {
-				return err
-			}
-			meta := output.Meta{}
-			if timedOut {
-				value := true
-				meta.WaitTimedOut = &value
-			}
-			return runtime.successWithMeta(final, meta)
-		},
-	}
-	flags := command.Flags()
-	flags.StringVar(&opts.resolutionID, "resolution-id", "", "publish an immutable snapshot returned by inspect")
-	flags.BoolVar(&opts.sourceStdin, "source-stdin", false, "read a typed SourceSpec JSON object from stdin")
-	flags.StringVar(&opts.file, "file", "", "upload a Skill archive")
-	flags.StringVar(&opts.directory, "dir", "", "deterministically archive and upload a Skill directory")
-	flags.StringVar(&opts.skillRoot, "skill-root", "", "select a Skill root within the immutable source")
-	flags.BoolVar(&opts.newTarget, "new-target", false, "create a new logical Agent Target")
-	flags.StringVar(&opts.targetAlias, "target-alias", "", "owner-scoped alias for a new Target")
-	flags.StringVar(&opts.targetID, "target-id", "", "publish to an existing Target")
-	flags.Int64Var(&opts.expectedTargetVersion, "expected-target-version", 0, "expected CAS version of an existing Target")
-	flags.StringVar(&opts.targetLocale, "target-locale", "", "target locale for compiled instructions")
-	flags.BoolVar(&opts.yes, "yes", false, "confirm the public publication side effect")
-	flags.BoolVar(&opts.wait, "wait", false, "wait for a bounded publication result")
-	flags.DurationVar(&opts.timeout, "timeout", 60*time.Second, "maximum wait duration")
-	flags.BoolVar(&opts.dryRun, "dry-run", false, "validate and print the operation without reading input or calling ViceMe")
-	flags.StringVar(&opts.clientRequestID, "client-request-id", "", "stable idempotency key for an exact publication request")
-	return command
-}
-
-func createPublication(ctx context.Context, runtime *Runtime, request api.CreatePublicationRequest) (api.Publication, error) {
+func continueSkillPublication(ctx context.Context, runtime *Runtime, store publication.PendingStore, pending publication.Pending, pkg publication.Package, initialUpload *api.UploadAuthorization) error {
 	client := runtime.client()
-	publication, err := client.CreatePublication(ctx, request)
-	if err == nil {
-		return publication, nil
+	current, err := client.GetSkillPublication(ctx, pending.PublicationID)
+	if err != nil {
+		return err
 	}
-	var cliError *output.Error
-	if !errors.As(err, &cliError) || cliError.Type != "network" || !cliError.Retryable {
-		return nil, err
+	if current.Status == "PUBLISHED" || current.Status == "CANCELLED" {
+		_ = store.Delete(pending.PublicationID)
+		return runtime.business(current)
 	}
-	if sleepErr := runtime.deps.Sleep(ctx, 250*time.Millisecond); sleepErr != nil {
-		return nil, err
-	}
-	// Reuse the exact request and client_request_id. The server owns the
-	// idempotency receipt, so an ambiguous transport failure cannot create a
-	// second publication.
-	return client.CreatePublication(ctx, request)
-}
-
-func validatePublishOptions(args []string, opts publishOptions) error {
-	sources := 0
-	if len(args) == 1 {
-		sources++
-	}
-	for _, present := range []bool{opts.resolutionID != "", opts.sourceStdin, opts.file != "", opts.directory != ""} {
-		if present {
-			sources++
+	if !verifiedUpload(current.Uploads, "PACKAGE", pkg.Artifact.Digest, "") {
+		authorization := initialUpload
+		if authorization == nil {
+			value, err := client.AuthorizeUpload(ctx, pending.PublicationID, api.UploadAuthorizationRequest{
+				Kind: "PACKAGE", Digest: pkg.Artifact.Digest, SizeBytes: pkg.Artifact.SizeBytes,
+				FileName: pkg.Artifact.FileName, ContentType: pkg.Artifact.ContentType, SortOrder: 0,
+			})
+			if err != nil {
+				return err
+			}
+			authorization = &value
 		}
-	}
-	if sources != 1 {
-		return output.Validation("source_required", "provide exactly one GitHub URL, --resolution-id, --source-stdin, --file, or --dir")
-	}
-	if opts.clientRequestID != "" && (strings.TrimSpace(opts.clientRequestID) != opts.clientRequestID || len(opts.clientRequestID) > 128) {
-		return output.Validation("client_request_id_invalid", "--client-request-id must be 1 to 128 non-whitespace characters")
-	}
-	if !opts.yes && !opts.dryRun {
-		return output.Confirmation("confirmation_required", "publishing creates or updates a public share link; rerun with --yes after user confirmation")
-	}
-	if opts.timeout <= 0 {
-		return output.Validation("timeout", "--timeout must be greater than zero")
-	}
-	if opts.newTarget && opts.targetID != "" {
-		return output.Validation("target_flags", "--new-target and --target-id are mutually exclusive")
-	}
-	if opts.targetAliasSet && !opts.newTarget {
-		return output.Validation("target_alias", "--target-alias requires --new-target")
-	}
-	if opts.targetAliasSet && (opts.targetAlias == "" || !utf8.ValidString(opts.targetAlias) || strings.TrimSpace(opts.targetAlias) != opts.targetAlias || utf8.RuneCountInString(opts.targetAlias) > 191) {
-		return output.Validation("target_alias", "--target-alias must be 1 to 191 Unicode characters without leading or trailing whitespace")
-	}
-	if opts.targetID == "" && opts.expectedVersionSet {
-		return output.Validation("target_version", "--expected-target-version requires --target-id")
-	}
-	if opts.targetID != "" && !opts.expectedVersionSet {
-		return output.Validation("target_version", "--target-id requires --expected-target-version")
-	}
-	if opts.expectedVersionSet && opts.expectedTargetVersion < 0 {
-		return output.Validation("target_version", "--expected-target-version must be zero or greater")
-	}
-	if (opts.file != "" || opts.directory != "") && !opts.newTarget && opts.targetID == "" {
-		return output.Validation("upload_target", "uploaded input requires --new-target or --target-id with --expected-target-version")
-	}
-	return nil
-}
-
-func publishDestination(opts publishOptions) api.Destination {
-	switch {
-	case opts.newTarget:
-		return api.Destination{Mode: "new", Alias: opts.targetAlias}
-	case opts.targetID != "":
-		version := opts.expectedTargetVersion
-		return api.Destination{Mode: "existing", TargetID: opts.targetID, ExpectedTargetVersion: &version}
-	default:
-		return api.Destination{Mode: "auto"}
-	}
-}
-
-func publishSourceMode(args []string, opts publishOptions) string {
-	switch {
-	case len(args) == 1:
-		return "github_argument"
-	case opts.resolutionID != "":
-		return "resolution"
-	case opts.sourceStdin:
-		return "source_stdin"
-	case opts.file != "":
-		return "file"
-	case opts.directory != "":
-		return "directory"
-	default:
-		return "unknown"
-	}
-}
-
-func publicationSource(command *cobra.Command, runtime *Runtime, args []string, opts publishOptions) (api.Source, error) {
-	if len(args) == 1 {
-		if strings.TrimSpace(args[0]) == "" {
-			return api.Source{}, output.Validation("source_empty", "GitHub URL cannot be empty")
+		progress(runtime, "Uploading deterministic Skill package")
+		if err := client.PutUpload(ctx, *authorization, bytes.NewReader(pkg.Bytes), int64(len(pkg.Bytes))); err != nil {
+			return err
 		}
-		return api.Source{Kind: "github", Value: args[0]}, nil
-	}
-	if opts.sourceStdin {
-		return readSourceSpec(runtime.deps.In)
-	}
-	artifact, err := publicationArtifact(command, opts)
-	if err != nil {
-		return api.Source{}, err
-	}
-	defer artifact.Cleanup()
-	uploadID, err := uploadArtifact(command, runtime, artifact)
-	if err != nil {
-		return api.Source{}, err
-	}
-	return api.Source{Kind: "upload", Value: uploadID}, nil
-}
-
-func readSourceSpec(reader io.Reader) (api.Source, error) {
-	raw, err := readLimited(reader, maxStdinBytes)
-	if err != nil {
-		return api.Source{}, err
-	}
-	if strings.TrimSpace(raw) == "" {
-		return api.Source{}, output.Validation("source_empty", "SourceSpec cannot be empty")
-	}
-
-	var source api.Source
-	decoder := json.NewDecoder(strings.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&source); err != nil {
-		return api.Source{}, output.Validation("source_spec_invalid", "stdin must contain one SourceSpec JSON object")
-	}
-	var trailing any
-	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
-		return api.Source{}, output.Validation("source_spec_invalid", "stdin must contain exactly one SourceSpec JSON object")
-	}
-	switch source.Kind {
-	case "github", "redskill", "inline":
-	default:
-		return api.Source{}, output.Validation("source_kind_invalid", "SourceSpec kind must be github, redskill, or inline")
-	}
-	if strings.TrimSpace(source.Value) == "" {
-		return api.Source{}, output.Validation("source_empty", "SourceSpec value cannot be empty")
-	}
-	return source, nil
-}
-
-func publicationArtifact(command *cobra.Command, opts publishOptions) (archivepkg.Artifact, error) {
-	if opts.file != "" {
-		artifact, err := archivepkg.FromFile(opts.file, archivepkg.DefaultMaxBytes)
+		current, err = client.CompleteUpload(ctx, pending.PublicationID, authorization.UploadID)
 		if err != nil {
-			return archivepkg.Artifact{}, err
+			return err
 		}
-		ext := strings.ToLower(filepath.Ext(opts.file))
-		if ext == ".zip" {
-			artifact.ContentType = "application/zip"
+	}
+	for index, candidate := range pkg.Candidates {
+		if verifiedUpload(current.Uploads, "MEDIA", candidate.Digest, candidate.RelativePath) {
+			continue
 		}
-		return artifact, nil
+		authorization, err := client.AuthorizeUpload(ctx, pending.PublicationID, api.UploadAuthorizationRequest{
+			Kind: "MEDIA", Digest: candidate.Digest, SizeBytes: candidate.SizeBytes,
+			FileName: candidate.FileName, ContentType: candidate.ContentType,
+			RelativePath: candidate.RelativePath, SortOrder: index,
+		})
+		if err != nil {
+			return err
+		}
+		progress(runtime, fmt.Sprintf("Uploading listing candidate %d/%d", index+1, len(pkg.Candidates)))
+		if err := client.PutUpload(ctx, authorization, bytes.NewReader(candidate.Bytes), candidate.SizeBytes); err != nil {
+			return err
+		}
+		current, err = client.CompleteUpload(ctx, pending.PublicationID, authorization.UploadID)
+		if err != nil {
+			return err
+		}
 	}
-	return archivepkg.BuildDirectory(command.Context(), opts.directory, archivepkg.DefaultMaxBytes)
+	if len(pkg.Candidates) > 0 && current.Analysis == nil && (current.Status == "DRAFT" || current.Status == "FAILED") {
+		progress(runtime, "Requesting non-authoritative cover and gallery suggestions")
+		current, err = client.AnalyzeListing(ctx, pending.PublicationID)
+		if err != nil {
+			return err
+		}
+	}
+	if current.Status == "PUBLISHED" {
+		_ = store.Delete(pending.PublicationID)
+	}
+	return runtime.business(current)
 }
 
-func uploadArtifact(command *cobra.Command, runtime *Runtime, artifact archivepkg.Artifact) (string, error) {
-	client := runtime.client()
-	prepared, err := client.PrepareUpload(command.Context(), api.UploadPrepareRequest{
-		Filename:     artifact.Filename,
-		ContentType:  artifact.ContentType,
-		Size:         artifact.Size,
-		SHA256Digest: artifact.SHA256Digest,
-	})
-	if err != nil {
-		return "", err
-	}
-	if prepared.UploadID == "" || prepared.UploadURL == "" {
-		return "", output.Internal("upload_prepare_response", "ViceMe API returned an incomplete upload slot", nil)
-	}
-	file, err := artifact.Open()
-	if err != nil {
-		return "", output.Internal("upload_open", "failed to reopen the prepared Skill archive", err)
-	}
-	defer file.Close()
-	if err := client.PutUpload(command.Context(), prepared, file, artifact.Size); err != nil {
-		return "", err
-	}
-	completed, err := client.CompleteUpload(command.Context(), prepared.UploadID, api.UploadCompleteRequest{Size: artifact.Size, SHA256Digest: artifact.SHA256Digest})
-	if err != nil {
-		return "", err
-	}
-	if completed.UploadID != "" && completed.UploadID != prepared.UploadID {
-		return "", output.Internal("upload_complete_response", "ViceMe API changed upload identity during completion", nil)
-	}
-	return prepared.UploadID, nil
-}
-
-func newTargetCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "target", Short: "Read stable Skill Agent Targets"}
-	command.AddCommand(&cobra.Command{
-		Use:   "get <target-id|share-url|alias>",
-		Short: "Get a Target owned by the authenticated user",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(command *cobra.Command, args []string) error {
-			response, err := runtime.client().GetTarget(command.Context(), args[0])
-			if err != nil {
-				return err
+func verifiedUpload(uploads []api.SkillPublicationUpload, kind, digest, relativePath string) bool {
+	for _, upload := range uploads {
+		if upload.Kind == kind && upload.Status == "VERIFIED" && upload.Digest == digest {
+			if relativePath == "" || (upload.RelativePath != nil && *upload.RelativePath == relativePath) {
+				return true
 			}
-			return runtime.success(response)
-		},
-	})
-	command.AddCommand(&cobra.Command{
-		Use:   "list",
-		Short: "List Targets owned by the authenticated user",
-		Args:  cobra.NoArgs,
-		RunE: func(command *cobra.Command, _ []string) error {
-			response, err := runtime.client().ListTargets(command.Context())
-			if err != nil {
-				return err
-			}
-			return runtime.success(response)
-		},
-	})
-	return command
+		}
+	}
+	return false
 }
 
-func readLimited(reader io.Reader, limit int64) (string, error) {
-	data, err := io.ReadAll(io.LimitReader(reader, limit+1))
-	if err != nil {
-		return "", output.Validation("stdin_read", "failed to read stdin")
-	}
-	if int64(len(data)) > limit {
-		return "", output.Policy("stdin_too_large", fmt.Sprintf("stdin exceeds the %d byte limit", limit))
-	}
-	return string(data), nil
+func progress(runtime *Runtime, message string) {
+	_, _ = fmt.Fprintln(runtime.deps.ErrOut, message+"...")
 }

@@ -20,19 +20,21 @@ import (
 const installManifestPath = ".viceme/install-manifest.json"
 
 type Environment struct {
-	Home            string
-	CodexHome       string
-	ClaudeConfigDir string
-	ConfigDir       string
+	Home               string
+	CodexHome          string
+	ClaudeConfigDir    string
+	WorkBuddyConfigDir string
+	ConfigDir          string
 }
 
 func DefaultEnvironment() Environment {
 	home, _ := os.UserHomeDir()
 	return Environment{
-		Home:            home,
-		CodexHome:       os.Getenv("CODEX_HOME"),
-		ClaudeConfigDir: os.Getenv("CLAUDE_CONFIG_DIR"),
-		ConfigDir:       defaultConfigDir(home),
+		Home:               home,
+		CodexHome:          os.Getenv("CODEX_HOME"),
+		ClaudeConfigDir:    os.Getenv("CLAUDE_CONFIG_DIR"),
+		WorkBuddyConfigDir: os.Getenv("WORKBUDDY_CONFIG_DIR"),
+		ConfigDir:          defaultConfigDir(home),
 	}
 }
 
@@ -57,6 +59,7 @@ func defaultConfigDir(home string) string {
 }
 
 type InstallResult struct {
+	Skill  string `json:"skill"`
 	Target string `json:"target"`
 	Path   string `json:"path"`
 	Status string `json:"status"`
@@ -114,13 +117,13 @@ type installManifest struct {
 }
 
 func (b *Bundle) Install(name, target string, environment Environment) InstallReport {
-	paths, err := resolveTargets(target, environment, true)
+	paths, err := resolveTargets(name, target, environment, true)
 	if err != nil {
 		return InstallReport{AllSucceeded: false, Results: []InstallResult{{Target: target, Status: "failed", Error: err.Error()}}}
 	}
 	report := InstallReport{AllSucceeded: true}
 	for _, resolved := range paths {
-		result := InstallResult{Target: resolved.name, Path: resolved.path, Status: "updated"}
+		result := InstallResult{Skill: name, Target: resolved.name, Path: resolved.path, Status: "updated"}
 		if b.installationCurrent(name, resolved.path) {
 			result.Status = "unchanged"
 			report.Results = append(report.Results, result)
@@ -137,7 +140,7 @@ func (b *Bundle) Install(name, target string, environment Environment) InstallRe
 }
 
 func (b *Bundle) Doctor(name, target string, environment Environment) DoctorReport {
-	paths, err := resolveTargets(target, environment, false)
+	paths, err := resolveTargets(name, target, environment, false)
 	if err != nil {
 		return DoctorReport{Healthy: false, Results: []DoctorResult{{Target: target, Problem: err.Error()}}}
 	}
@@ -256,7 +259,7 @@ type targetPath struct {
 	path string
 }
 
-func resolveTargets(target string, environment Environment, forInstall bool) ([]targetPath, error) {
+func resolveTargets(skillName, target string, environment Environment, forInstall bool) ([]targetPath, error) {
 	if target == "" {
 		target = "auto"
 	}
@@ -268,31 +271,43 @@ func resolveTargets(target string, environment Environment, forInstall bool) ([]
 	if claudeHome == "" {
 		claudeHome = filepath.Join(environment.Home, ".claude")
 	}
+	workBuddyHome := environment.WorkBuddyConfigDir
+	if workBuddyHome == "" {
+		workBuddyHome = filepath.Join(environment.Home, ".workbuddy")
+	}
 	known := map[string]targetPath{
-		"codex":  {name: "codex", path: filepath.Join(codexHome, "skills", "viceme")},
-		"claude": {name: "claude", path: filepath.Join(claudeHome, "skills", "viceme")},
-		"agents": {name: "agents", path: filepath.Join(environment.Home, ".agents", "skills", "viceme")},
+		"codex":     {name: "codex", path: filepath.Join(codexHome, "skills", skillName)},
+		"claude":    {name: "claude", path: filepath.Join(claudeHome, "skills", skillName)},
+		"workbuddy": {name: "workbuddy", path: filepath.Join(workBuddyHome, "skills", skillName)},
+		"agents":    {name: "agents", path: filepath.Join(environment.Home, ".agents", "skills", skillName)},
 	}
 	if target != "auto" {
 		resolved, ok := known[target]
 		if !ok {
-			return nil, fmt.Errorf("unsupported Skill target %q; use auto, codex, claude, or agents", target)
+			return nil, fmt.Errorf("unsupported Skill target %q; use auto, codex, claude, workbuddy, or agents", target)
 		}
-		return []targetPath{resolved}, nil
+		if target == "agents" {
+			return []targetPath{resolved}, nil
+		}
+		return []targetPath{resolved, known["agents"]}, nil
 	}
-	var result []targetPath
-	for _, name := range []string{"codex", "claude", "agents"} {
+	result := []targetPath{known["agents"]}
+	for _, name := range []string{"codex", "claude", "workbuddy"} {
 		resolved := known[name]
 		base := filepath.Dir(filepath.Dir(resolved.path))
 		if _, err := os.Stat(base); err == nil {
 			result = append(result, resolved)
 		}
 	}
-	if len(result) == 0 {
-		if forInstall {
-			result = append(result, known["codex"])
-		} else {
-			result = append(result, known["codex"], known["claude"], known["agents"])
+	if !forInstall {
+		seen := map[string]struct{}{known["agents"].path: {}}
+		for _, existing := range result[1:] {
+			seen[existing.path] = struct{}{}
+		}
+		for _, name := range []string{"codex", "claude", "workbuddy"} {
+			if _, ok := seen[known[name].path]; !ok {
+				result = append(result, known[name])
+			}
 		}
 	}
 	return result, nil

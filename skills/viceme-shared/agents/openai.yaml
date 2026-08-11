@@ -1,0 +1,4 @@
+interface:
+  display_name: "ViceMe"
+  short_description: "Set up and diagnose the ViceMe creator CLI"
+  default_prompt: "Use $viceme-shared to set up ViceMe and check my login."

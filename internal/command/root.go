@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	cliembed "github.com/ViceMe-AI/cli"
@@ -64,24 +65,14 @@ type Runtime struct {
 }
 
 const (
-	apiBaseURLEnvironment             = "VICEME_API_BASE_URL"
-	processAccessTokenEnvironment     = "VICEME_ACCESS_TOKEN"
-	localProcessCredentialEnvironment = "VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL"
-	devPreviewAPIBaseURL              = "https://viceme-envoy-dev.preview.tencent-zeabur.cn"
+	apiBaseURLEnvironment         = "VICEME_API_BASE_URL"
+	processAccessTokenEnvironment = "VICEME_ACCESS_TOKEN"
 )
 
-type publicationCredentialAudience string
-
-const (
-	publicationCredentialAudienceCNProd     publicationCredentialAudience = "cn-prod"
-	publicationCredentialAudienceGlobalProd publicationCredentialAudience = "global-prod"
-	publicationCredentialAudienceDevPreview publicationCredentialAudience = "dev-preview"
-	publicationCredentialAudienceLocalDev   publicationCredentialAudience = "local-dev"
-)
+var fallbackUUIDSequence atomic.Uint64
 
 type publicationCredential struct {
-	raw      string
-	audience publicationCredentialAudience
+	raw string
 }
 
 type processTokenSource string
@@ -93,7 +84,7 @@ func (source processTokenSource) Token(context.Context) (string, error) {
 func Execute(args []string, dependencies Dependencies) int {
 	root, runtime, err := NewRoot(dependencies)
 	if err != nil {
-		printer := &output.Printer{Out: writerOr(dependencies.Out, os.Stdout), ErrOut: writerOr(dependencies.ErrOut, os.Stderr)}
+		printer := &output.Printer{Out: writerOr(dependencies.Out, os.Stdout), ErrOut: writerOr(dependencies.ErrOut, os.Stderr), CLIVersion: buildinfo.Version}
 		return printer.Failure(err)
 	}
 	root.SetArgs(args)
@@ -152,8 +143,9 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		configBase:         configBase,
 		processCredential:  processCredential,
 		printer: &output.Printer{
-			Out:    dependencies.Out,
-			ErrOut: dependencies.ErrOut,
+			Out:        dependencies.Out,
+			ErrOut:     dependencies.ErrOut,
+			CLIVersion: buildinfo.Version,
 		},
 	}
 	if err := runtime.selectProfile(resolvedProfile.Name); err != nil {
@@ -161,7 +153,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	}
 	root := &cobra.Command{
 		Use:           "viceme",
-		Short:         "Publish external Skills as stable ViceMe Agents",
+		Short:         "Publish Skills and manage ViceMe creator tooling",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
@@ -190,13 +182,12 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	})
 	root.AddCommand(newVersionCommand(runtime))
 	root.AddCommand(newInstallCommand(runtime))
+	root.AddCommand(newDoctorCommand(runtime))
 	root.AddCommand(newUpdateCommand(runtime))
 	root.AddCommand(newAuthCommand(runtime))
-	root.AddCommand(newConfigCommand(runtime))
 	root.AddCommand(newProfileCommand(runtime))
 	root.AddCommand(newSkillCommand(runtime))
-	root.AddCommand(newJobCommand(runtime))
-	root.AddCommand(newSkillsCommand(runtime))
+	root.AddCommand(newPublicationCommand(runtime))
 	return root, runtime, nil
 }
 
@@ -251,14 +242,23 @@ func defaults(dependencies Dependencies) Dependencies {
 		dependencies.Store = securestore.NewDefault("viceme-cli", runtimeConfigBase(dependencies.Environment))
 	}
 	if dependencies.Updater == nil {
-		updater := updatepkg.NewNPMService(
-			buildinfo.Version,
-			buildinfo.CompatibilityVersion(),
-			os.Getenv("VICEME_INSTALL_METHOD"),
-		)
-		updater.ConfigDir = runtimeConfigBase(dependencies.Environment)
-		updater.HTTPClient = dependencies.HTTPClient
-		dependencies.Updater = updater
+		if os.Getenv("VICEME_INSTALL_METHOD") == "npm" {
+			updater := updatepkg.NewNPMService(
+				buildinfo.Version,
+				buildinfo.CompatibilityVersion(),
+				"npm",
+			)
+			updater.ConfigDir = runtimeConfigBase(dependencies.Environment)
+			updater.HTTPClient = dependencies.HTTPClient
+			dependencies.Updater = updater
+		} else {
+			updater := updatepkg.NewReleaseService(
+				buildinfo.Version,
+				buildinfo.CompatibilityVersion(),
+			)
+			updater.HTTPClient = dependencies.HTTPClient
+			dependencies.Updater = updater
+		}
 	}
 	if dependencies.Now == nil {
 		dependencies.Now = time.Now
@@ -315,17 +315,24 @@ func (r *Runtime) successWithMeta(data any, meta output.Meta) error {
 
 type versionResult struct {
 	buildinfo.Info
-	skillcontent.Digests
+	Skills map[string]skillcontent.Digests `json:"skills"`
 }
 
 func (r *Runtime) writeVersion() error {
-	digests, err := r.deps.Skills.Digests("viceme")
+	shared, err := r.deps.Skills.Digests("viceme-shared")
+	if err != nil {
+		return err
+	}
+	publish, err := r.deps.Skills.Digests("viceme-publish")
 	if err != nil {
 		return err
 	}
 	return r.business(versionResult{
-		Info:    buildinfo.Current(),
-		Digests: digests,
+		Info: buildinfo.Current(),
+		Skills: map[string]skillcontent.Digests{
+			"viceme-shared":  shared,
+			"viceme-publish": publish,
+		},
 	})
 }
 
@@ -372,19 +379,7 @@ func (r *Runtime) validateProfileOverrideAuthority(name string) error {
 func (r *Runtime) applyProfile(profile config.Profile) error {
 	apiBaseURL := r.apiBaseURLOverride
 	if apiBaseURL == "" {
-		apiBaseURL = profile.APIBaseURL
-	}
-	if apiBaseURL == "" {
 		apiBaseURL = config.APIBaseURL(profile.Region)
-	}
-	if profile.AccessToken != "" {
-		credential, err := parsePublicationCredential(profile.AccessToken)
-		if err != nil {
-			return output.Authentication("profile_credential_invalid", "the selected profile access token is not a supported audience-bound publication credential")
-		}
-		if err := validatePublicationCredentialTarget(credential, profile.APIBaseURL, true); err != nil {
-			return output.Authentication("profile_credential_origin_mismatch", err.Error())
-		}
 	}
 	if err := validatePublicationProcessCredentialTarget(r.processCredential, apiBaseURL); err != nil {
 		return err
@@ -397,17 +392,14 @@ func (r *Runtime) applyProfile(profile config.Profile) error {
 	r.region = profile.Region
 	r.apiBaseURL = apiBaseURL
 	r.credentialScope = scope
+	if regionAware, ok := r.deps.Updater.(updatepkg.RegionAware); ok {
+		regionAware.SetRegion(string(profile.Region))
+	}
 	return nil
 }
 
 func (r *Runtime) credentialScopeForProfile(profile config.Profile) (string, error) {
-	apiBaseURL := r.apiBaseURLOverride
-	if apiBaseURL == "" {
-		apiBaseURL = profile.APIBaseURL
-	}
-	if apiBaseURL == "" {
-		apiBaseURL = config.APIBaseURL(profile.Region)
-	}
+	apiBaseURL := config.APIBaseURL(profile.Region)
 	return credentialScopeForAPIBase(apiBaseURL, profile.Region)
 }
 
@@ -426,13 +418,6 @@ func (r *Runtime) credentialStorageKeys() ([]string, error) {
 		for _, region := range []config.Region{config.RegionCN, config.RegionGlobal} {
 			add(&auth.Manager{ProfileID: profile.ID, ProfileName: profile.Name, Region: string(region)})
 		}
-		if profile.APIBaseURL != "" {
-			scope, err := credentialScopeForAPIBase(profile.APIBaseURL, profile.Region)
-			if err != nil {
-				return nil, err
-			}
-			add(&auth.Manager{ProfileID: profile.ID, ProfileName: profile.Name, Region: string(profile.Region), Scope: scope})
-		}
 	}
 	add(r.manager())
 	return keys, nil
@@ -442,16 +427,7 @@ func (r *Runtime) overrideCredential() (token, source string, persistent bool) {
 	if r.processCredential != nil {
 		return r.processCredential.raw, "process", false
 	}
-	if r.profile.AccessToken != "" && sameAPIOrigin(r.profile.APIBaseURL, r.apiBaseURL) {
-		return r.profile.AccessToken, "local_profile", true
-	}
 	return "", "", false
-}
-
-func sameAPIOrigin(left, right string) bool {
-	leftOrigin, leftErr := api.NormalizeAPIOrigin(left)
-	rightOrigin, rightErr := api.NormalizeAPIOrigin(right)
-	return leftErr == nil && rightErr == nil && leftOrigin == rightOrigin
 }
 
 func parsePublicationCredential(raw string) (*publicationCredential, error) {
@@ -461,68 +437,40 @@ func parsePublicationCredential(raw string) (*publicationCredential, error) {
 	if strings.TrimSpace(raw) != raw || strings.ContainsAny(raw, "\r\n\x00") {
 		return nil, errors.New("the process publication credential is invalid")
 	}
-	parts := strings.SplitN(raw, ".", 3)
-	if len(parts) != 3 || parts[0] != "vpa1" || len(parts[2]) != 43 {
-		return nil, errors.New("the process publication credential is not a supported audience-bound credential")
+	if !strings.HasPrefix(raw, "vme_cli_") || len(raw) != len("vme_cli_")+43 {
+		return nil, errors.New("the process credential is not a ViceMe CLI token")
 	}
-	audience := publicationCredentialAudience(parts[1])
-	switch audience {
-	case publicationCredentialAudienceCNProd,
-		publicationCredentialAudienceGlobalProd,
-		publicationCredentialAudienceDevPreview,
-		publicationCredentialAudienceLocalDev:
-	default:
-		return nil, errors.New("the process publication credential audience is unsupported")
-	}
-	for _, character := range parts[2] {
+	for _, character := range strings.TrimPrefix(raw, "vme_cli_") {
 		if !((character >= 'a' && character <= 'z') ||
 			(character >= 'A' && character <= 'Z') ||
 			(character >= '0' && character <= '9') || character == '-' || character == '_') {
 			return nil, errors.New("the process publication credential is invalid")
 		}
 	}
-	return &publicationCredential{raw: raw, audience: audience}, nil
+	return &publicationCredential{raw: raw}, nil
 }
 
 func validatePublicationProcessCredentialTarget(credential *publicationCredential, apiBaseURL string) error {
 	if credential == nil {
 		return nil
 	}
-	if err := validatePublicationCredentialTarget(credential, apiBaseURL, false); err != nil {
-		message := strings.Replace(err.Error(), "the publication credential", "the process publication credential", 1)
-		return output.Authentication("process_credential_origin_mismatch", message)
+	if err := validatePublicationCredentialTarget(apiBaseURL); err != nil {
+		return output.Authentication("process_credential_origin_mismatch", err.Error())
 	}
 	return nil
 }
 
-func validatePublicationCredentialTarget(credential *publicationCredential, apiBaseURL string, allowLocalProfile bool) error {
+func validatePublicationCredentialTarget(apiBaseURL string) error {
 	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
 	if err != nil {
-		return errors.New("the publication credential target is invalid")
+		return errors.New("the process credential target is invalid")
 	}
-	var expected string
-	switch credential.audience {
-	case publicationCredentialAudienceCNProd:
-		expected, err = api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionCN))
-	case publicationCredentialAudienceGlobalProd:
-		expected, err = api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionGlobal))
-	case publicationCredentialAudienceDevPreview:
-		expected, err = api.NormalizeAPIOrigin(devPreviewAPIBaseURL)
-	case publicationCredentialAudienceLocalDev:
-		if !isLoopbackOrigin(origin) {
-			return errors.New("local-dev publication credentials require a loopback target")
-		}
-		if !allowLocalProfile && os.Getenv(localProcessCredentialEnvironment) != "1" {
-			return errors.New("local process credentials require an explicit loopback debug target")
-		}
+	cn, _ := api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionCN))
+	global, _ := api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionGlobal))
+	if origin == cn || origin == global || isLoopbackOrigin(origin) {
 		return nil
-	default:
-		return errors.New("the publication credential audience is unsupported")
 	}
-	if err != nil || origin != expected {
-		return errors.New("the publication credential audience does not match the selected ViceMe API origin")
-	}
-	return nil
+	return errors.New("VICEME_ACCESS_TOKEN may only target an official ViceMe API origin or loopback development")
 }
 
 func isLoopbackOrigin(origin string) bool {
@@ -603,9 +551,14 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 }
 
 func randomUUID() string {
+	return uuidFromEntropy(rand.Reader, time.Now(), os.Getpid(), fallbackUUIDSequence.Add(1))
+}
+
+func uuidFromEntropy(reader io.Reader, now time.Time, processID int, sequence uint64) string {
 	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return fmt.Sprintf("request-%d", time.Now().UnixNano())
+	if _, err := io.ReadFull(reader, value[:]); err != nil {
+		fallback := sha256.Sum256([]byte(fmt.Sprintf("%d:%d:%d", now.UnixNano(), processID, sequence)))
+		copy(value[:], fallback[:len(value)])
 	}
 	value[6] = (value[6] & 0x0f) | 0x40
 	value[8] = (value[8] & 0x3f) | 0x80

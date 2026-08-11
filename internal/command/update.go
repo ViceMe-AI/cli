@@ -16,7 +16,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 	var target string
 	command := &cobra.Command{
 		Use:   "update",
-		Short: "Update the npm launcher, verified Go binary, and bundled Agent Skill",
+		Short: "Update the CLI release and reinstall matching official Skills",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(command.Context(), 3*time.Minute)
@@ -43,7 +43,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().BoolVar(&checkOnly, "check", false, "check the latest npm release without changing local state")
 	command.Flags().BoolVar(&skipSkillInstall, "skip-skill-install", false, "update only the npm launcher and binary")
-	command.Flags().StringVar(&target, "target", "auto", "Agent Skill target refreshed after update: auto, codex, claude, or agents")
+	command.Flags().StringVar(&target, "agent", "auto", "Agent target refreshed after update: auto, codex, claude, workbuddy, or agents")
 	return command
 }
 
@@ -60,6 +60,16 @@ func updaterError(err error, details any) *output.Error {
 		result = output.Internal("update_npm_permission", "npm could not write the ViceMe cache or global installation directory", err).WithHint("ensure the ViceMe configuration directory and the npm global prefix are writable")
 	case updatepkg.ErrorNPMCommand:
 		result = output.Internal("update_npm_failed", "npm did not complete the CLI update", err).WithHint("run 'npm doctor' and verify the configured npm registry, proxy, and global prefix")
+	case updatepkg.ErrorReleaseNetwork:
+		result = output.Network("UPDATE_RELEASE_UNAVAILABLE", "could not reach the official ViceMe release store", err)
+	case updatepkg.ErrorReleaseResponse:
+		result = output.Internal("UPDATE_RELEASE_INVALID", "the official release response was invalid", err)
+	case updatepkg.ErrorReleaseIntegrity:
+		result = output.Policy("UPDATE_RELEASE_INTEGRITY_FAILED", "the downloaded ViceMe release failed checksum verification")
+	case updatepkg.ErrorReleaseReplace:
+		result = output.Internal("UPDATE_REPLACE_FAILED", "the ViceMe executable could not be replaced", err).WithHint("rerun the official bootstrap installer for the selected region")
+	case updatepkg.ErrorReleaseSkillRefresh:
+		result = output.Internal("UPDATE_SKILL_REFRESH_FAILED", "the CLI was updated but official Skills could not be refreshed", err).WithHint("run 'viceme install --agent auto' to repair the matching Skills")
 	default:
 		result = output.Internal("update_partial", "CLI update did not complete for every target", err)
 	}

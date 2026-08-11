@@ -116,7 +116,6 @@ jobs:
       - run: npm ci
       - name: Verify generated release files are committed
         run: |
-          make command-manifest
           make release-manifest
           git diff --exit-code
       - run: make check
@@ -237,6 +236,10 @@ jobs:
             test -f "dist/viceme_${VERSION}_${TARGET}.exe.sha256"
           done
           test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 12
+          cp installers/install.sh dist/install.sh
+          cp installers/install.ps1 dist/install.ps1
+          cp release/bootstrap-contract.json dist/bootstrap-contract.json
+          cp quality/release-manifest.json dist/release-manifest.json
       - name: Publish or verify the immutable GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -281,7 +284,7 @@ jobs:
           rm -rf verified-release
           mkdir -p verified-release
           gh release download "${TAG}" --dir verified-release
-          test "$(find verified-release -maxdepth 1 -type f | wc -l)" -eq 12
+          test "$(find verified-release -maxdepth 1 -type f | wc -l)" -eq 16
           for FILE in dist/*; do
             NAME="${FILE#dist/}"
             cmp --silent "${FILE}" "verified-release/${NAME}"
@@ -343,11 +346,102 @@ jobs:
       - name: Publish npm launcher or verify an exact prior publish
         run: node npm/scripts/publish-or-verify.mjs
 
+  s3-publication:
+    name: CN and Global S3 publication
+    needs:
+      - metadata
+      - github-release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: binaries-*
+          merge-multiple: true
+          path: dist
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - name: Assemble bootstrap release contract
+        run: |
+          cp installers/install.sh dist/install.sh
+          cp installers/install.ps1 dist/install.ps1
+          cp release/bootstrap-contract.json dist/bootstrap-contract.json
+          cp quality/release-manifest.json dist/release-manifest.json
+      - name: Publish immutable release and monotonic latest pointers
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          CN_ENDPOINT: ${{ secrets.VICEME_RELEASE_S3_ENDPOINT_CN }}
+          CN_BUCKET: ${{ secrets.VICEME_RELEASE_S3_BUCKET_CN }}
+          CN_ACCESS_KEY_ID: ${{ secrets.VICEME_RELEASE_S3_ACCESS_KEY_ID_CN }}
+          CN_SECRET_ACCESS_KEY: ${{ secrets.VICEME_RELEASE_S3_SECRET_ACCESS_KEY_CN }}
+          GLOBAL_ENDPOINT: ${{ secrets.VICEME_RELEASE_S3_ENDPOINT_GLOBAL }}
+          GLOBAL_BUCKET: ${{ secrets.VICEME_RELEASE_S3_BUCKET_GLOBAL }}
+          GLOBAL_ACCESS_KEY_ID: ${{ secrets.VICEME_RELEASE_S3_ACCESS_KEY_ID_GLOBAL }}
+          GLOBAL_SECRET_ACCESS_KEY: ${{ secrets.VICEME_RELEASE_S3_SECRET_ACCESS_KEY_GLOBAL }}
+        run: |
+          set -euo pipefail
+          publish_region() {
+            local ENDPOINT="$1" BUCKET="$2" ACCESS_KEY="$3" SECRET_KEY="$4" LABEL="$5"
+            test -n "${ENDPOINT}" && test -n "${BUCKET}" && test -n "${ACCESS_KEY}" && test -n "${SECRET_KEY}"
+            export AWS_ACCESS_KEY_ID="${ACCESS_KEY}"
+            export AWS_SECRET_ACCESS_KEY="${SECRET_KEY}"
+            export AWS_DEFAULT_REGION="us-east-1"
+            local PREFIX="cli/releases"
+            local SCRATCH
+            SCRATCH="$(mktemp -d)"
+            trap 'rm -rf "${SCRATCH}"' RETURN
+
+            put_immutable() {
+              local SOURCE="$1" KEY="$2"
+              if aws --endpoint-url "${ENDPOINT}" s3api head-object --bucket "${BUCKET}" --key "${KEY}" >/dev/null 2>&1; then
+                aws --endpoint-url "${ENDPOINT}" s3 cp "s3://${BUCKET}/${KEY}" "${SCRATCH}/existing" --only-show-errors
+                cmp --silent "${SOURCE}" "${SCRATCH}/existing"
+              else
+                aws --endpoint-url "${ENDPOINT}" s3 cp "${SOURCE}" "s3://${BUCKET}/${KEY}" \
+                  --cache-control 'public,max-age=31536000,immutable' --only-show-errors
+              fi
+            }
+
+            for FILE in dist/*; do
+              put_immutable "${FILE}" "${PREFIX}/v${VERSION}/${FILE#dist/}"
+            done
+
+            local EXISTING_LATEST=""
+            if aws --endpoint-url "${ENDPOINT}" s3 cp "s3://${BUCKET}/${PREFIX}/latest" "${SCRATCH}/latest" --only-show-errors 2>/dev/null; then
+              EXISTING_LATEST="$(tr -d '\r\n' <"${SCRATCH}/latest")"
+            fi
+            local HIGHEST
+            HIGHEST="$(printf '%s\n%s\n' "${EXISTING_LATEST:-0.0.0}" "${VERSION}" | sort -V | tail -n 1)"
+            if [[ "${HIGHEST}" == "${VERSION}" ]]; then
+              printf '%s\n' "${VERSION}" >"${SCRATCH}/new-latest"
+              aws --endpoint-url "${ENDPOINT}" s3 cp "${SCRATCH}/new-latest" "s3://${BUCKET}/${PREFIX}/latest" \
+                --content-type text/plain --cache-control 'public,max-age=60' --only-show-errors
+              for FILE in install.sh install.ps1 bootstrap-contract.json release-manifest.json; do
+                aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${PREFIX}/${FILE}" \
+                  --cache-control 'public,max-age=300' --only-show-errors
+              done
+              # The website-facing cold-start commands intentionally stay at
+              # the official S3 origin root. The scripts themselves resolve
+              # immutable artifacts below cli/releases/v{version}.
+              for FILE in install.sh install.ps1; do
+                aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${FILE}" \
+                  --cache-control 'public,max-age=300' --only-show-errors
+              done
+            fi
+            echo "Published ${LABEL} release v${VERSION}"
+          }
+
+          publish_region "${CN_ENDPOINT}" "${CN_BUCKET}" "${CN_ACCESS_KEY_ID}" "${CN_SECRET_ACCESS_KEY}" CN
+          publish_region "${GLOBAL_ENDPOINT}" "${GLOBAL_BUCKET}" "${GLOBAL_ACCESS_KEY_ID}" "${GLOBAL_SECRET_ACCESS_KEY}" GLOBAL
+
   notify:
     name: Feishu release notification
     needs:
       - metadata
       - npm-publish
+      - s3-publication
     runs-on: ubuntu-latest
     permissions:
       contents: read

@@ -37,11 +37,16 @@ var ErrNPMInstallRequired = errors.New("viceme update requires the npm-installed
 type ErrorKind string
 
 const (
-	ErrorRegistryNetwork  ErrorKind = "registry_network"
-	ErrorRegistryResponse ErrorKind = "registry_response"
-	ErrorNPMMissing       ErrorKind = "npm_missing"
-	ErrorNPMPermission    ErrorKind = "npm_permission"
-	ErrorNPMCommand       ErrorKind = "npm_command"
+	ErrorRegistryNetwork     ErrorKind = "registry_network"
+	ErrorRegistryResponse    ErrorKind = "registry_response"
+	ErrorNPMMissing          ErrorKind = "npm_missing"
+	ErrorNPMPermission       ErrorKind = "npm_permission"
+	ErrorNPMCommand          ErrorKind = "npm_command"
+	ErrorReleaseNetwork      ErrorKind = "release_network"
+	ErrorReleaseResponse     ErrorKind = "release_response"
+	ErrorReleaseIntegrity    ErrorKind = "release_integrity"
+	ErrorReleaseReplace      ErrorKind = "release_replace"
+	ErrorReleaseSkillRefresh ErrorKind = "release_skill_refresh"
 )
 
 type OperationError struct {
@@ -249,9 +254,8 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 		"--package="+exactPackage,
 		"--",
 		"viceme",
-		"skills",
 		"install",
-		"--target",
+		"--agent",
 		target,
 	)
 	if err != nil {
