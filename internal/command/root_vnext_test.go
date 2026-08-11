@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -17,9 +18,47 @@ import (
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
+	updatepkg "github.com/ViceMe-AI/cli/internal/update"
 )
 
 type failingEntropyReader struct{}
+
+type startupRecoveryUpdater struct {
+	called atomic.Bool
+	err    error
+}
+
+type commandNPMRunner struct {
+	errors []error
+	calls  int
+}
+
+func (runner *commandNPMRunner) Run(context.Context, string, ...string) ([]byte, error) {
+	runner.calls++
+	if len(runner.errors) == 0 {
+		return nil, nil
+	}
+	err := runner.errors[0]
+	runner.errors = runner.errors[1:]
+	return nil, err
+}
+
+func (updater *startupRecoveryUpdater) RecoverAtStartup(context.Context) error {
+	updater.called.Store(true)
+	return updater.err
+}
+
+func (*startupRecoveryUpdater) EnsureLauncher(context.Context) (updatepkg.TargetResult, error) {
+	return updatepkg.TargetResult{}, nil
+}
+
+func (*startupRecoveryUpdater) Check(context.Context) (updatepkg.CheckResult, error) {
+	return updatepkg.CheckResult{}, nil
+}
+
+func (*startupRecoveryUpdater) Apply(context.Context, updatepkg.CheckResult, updatepkg.ApplyOptions) (updatepkg.ApplyResult, error) {
+	return updatepkg.ApplyResult{}, nil
+}
 
 func (failingEntropyReader) Read([]byte) (int, error) {
 	return 0, errors.New("entropy unavailable")
@@ -57,6 +96,89 @@ func TestBareCommandKeepsMachineOutputAsJSON(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Usage:") {
 		t.Fatalf("human help was not isolated on stderr: %q", stderr.String())
+	}
+}
+
+func TestOrdinaryCommandRunsOuterActivationRecoveryFirst(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	updater := &startupRecoveryUpdater{}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"version"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:      config.RegionCN,
+	})
+	if exit != 0 || !updater.called.Load() {
+		t.Fatalf("ordinary command ran without startup recovery: exit=%d called=%t stdout=%q", exit, updater.called.Load(), stdout.String())
+	}
+}
+
+func TestOrdinaryCommandRecoversNPMGenerationBeforeOutput(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	previous, err := updatepkg.NewNPMGeneration("0.10.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := updatepkg.CommitActiveGeneration(configDir, previous); err != nil {
+		t.Fatal(err)
+	}
+	runner := &commandNPMRunner{errors: []error{nil, errors.New("killed before Skill child started")}}
+	oldUpdater := updatepkg.NewNPMService("0.10.0", "0.10.0", "npm")
+	oldUpdater.ConfigDir = configDir
+	oldUpdater.Runner = runner
+	if _, err := oldUpdater.Apply(
+		context.Background(),
+		updatepkg.CheckResult{AvailableVersion: "0.10.1", UpdateAvailable: true},
+		updatepkg.ApplyOptions{RefreshSkills: true, SkillTarget: "agents"},
+	); err == nil {
+		t.Fatal("interrupted npm activation unexpectedly committed")
+	}
+	updater := updatepkg.NewNPMService("0.10.1", "0.10.1", "npm")
+	updater.ConfigDir = configDir
+	updater.Runner = runner
+	var stdout bytes.Buffer
+	exit := Execute([]string{"version"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+		Region:      config.RegionCN,
+	})
+	if exit != 0 {
+		t.Fatalf("ordinary command did not recover interrupted npm generation: exit=%d stdout=%q", exit, stdout.String())
+	}
+	active, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil || !exists || active.Version != "0.10.1" || active.InstallMethod != "npm" {
+		t.Fatalf("ordinary command ran before target generation committed: active=%#v exists=%t err=%v", active, exists, err)
+	}
+	if runner.calls != 4 {
+		t.Fatalf("ordinary startup did not finish launcher and Skill recovery before output: calls=%d", runner.calls)
+	}
+}
+
+func TestFailedOuterActivationRecoveryBlocksBusinessCommand(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	updater := &startupRecoveryUpdater{err: errors.New("recovery failed")}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"version"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:      config.RegionCN,
+	})
+	if exit == 0 || !updater.called.Load() || !strings.Contains(stdout.String(), "NPM_ACTIVATION_RECOVERY_FAILED") {
+		t.Fatalf("business command was not blocked by recovery failure: exit=%d called=%t stdout=%q", exit, updater.called.Load(), stdout.String())
+	}
+}
+
+func TestCoordinatedNPMChildSkipsOnlyItsOuterRecovery(t *testing.T) {
+	t.Parallel()
+	if !coordinatedNPMChild([]string{"install", "--agent", "codex", "--internal-skip-launcher-ensure", "--internal-activation-child"}) {
+		t.Fatal("coordinated npm child was not recognized")
+	}
+	if coordinatedNPMChild([]string{"version", "--internal-activation-child"}) || coordinatedNPMChild([]string{"install", "--internal-skip-launcher-ensure"}) {
+		t.Fatal("ordinary command could bypass npm startup recovery")
 	}
 }
 

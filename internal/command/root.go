@@ -42,6 +42,8 @@ type Dependencies struct {
 	NewID       func() string
 	APIBaseURL  string
 	Region      config.Region
+
+	coordinatedActivationChild bool
 }
 
 type options struct {
@@ -82,6 +84,7 @@ func (source processTokenSource) Token(context.Context) (string, error) {
 }
 
 func Execute(args []string, dependencies Dependencies) int {
+	dependencies.coordinatedActivationChild = coordinatedNPMChild(args)
 	root, runtime, err := NewRoot(dependencies)
 	if err != nil {
 		printer := &output.Printer{Out: writerOr(dependencies.Out, os.Stdout), ErrOut: writerOr(dependencies.ErrOut, os.Stderr), CLIVersion: buildinfo.Version}
@@ -104,8 +107,18 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	}
 	dependencies = defaults(dependencies)
 	configBase := runtimeConfigBase(dependencies.Environment)
-	if err := recoverBootstrapActivationAtStartup(configBase, dependencies.Environment); err != nil {
-		return nil, nil, output.Internal("BOOTSTRAP_RECOVERY_FAILED", "could not reconcile an interrupted ViceMe bootstrap", err)
+	if !dependencies.coordinatedActivationChild {
+		if recoverer, ok := dependencies.Updater.(updatepkg.StartupRecoverer); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			err := recoverer.RecoverAtStartup(ctx)
+			cancel()
+			if err != nil {
+				return nil, nil, output.Internal("NPM_ACTIVATION_RECOVERY_FAILED", "could not reconcile an interrupted npm CLI and Skill activation", err)
+			}
+		}
+		if err := recoverBootstrapActivationAtStartup(configBase, dependencies.Environment); err != nil {
+			return nil, nil, output.Internal("BOOTSTRAP_RECOVERY_FAILED", "could not reconcile an interrupted ViceMe bootstrap", err)
+		}
 	}
 	if err := skillcontent.RecoverInstallTransactionAuto(dependencies.Environment); err != nil {
 		return nil, nil, output.Internal("INSTALL_RECOVERY_FAILED", "could not reconcile an interrupted ViceMe installation", err)
@@ -203,6 +216,20 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newSkillCommand(runtime))
 	root.AddCommand(newPublicationCommand(runtime))
 	return root, runtime, nil
+}
+
+func coordinatedNPMChild(args []string) bool {
+	install := false
+	activationChild := false
+	for _, argument := range args {
+		if argument == "install" {
+			install = true
+		}
+		if argument == "--internal-activation-child" {
+			activationChild = true
+		}
+	}
+	return install && activationChild
 }
 
 func (r *Runtime) prepareUpdateNotice(command *cobra.Command) {

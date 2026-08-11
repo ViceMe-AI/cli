@@ -159,10 +159,15 @@ package version. Updates never inherit `VICEME_ACCESS_TOKEN` into child
 processes.
 
 Binary or npm-launcher activation, both official Skills, and profile config are
-one recoverable local generation. A private durable journal plus process lock
-ensures an interruption can only restore the complete previous generation or
-finish the complete target generation. `viceme doctor` validates Skill/version
-integrity and an unauthenticated API readiness probe before installation commits.
+one recoverable local generation. Standalone and npm activation share one lock
+and a durable active-generation record containing the semantic version,
+installation method, and immutable identity. Every ordinary command reconciles
+an interrupted outer journal before business logic; a recovered process whose
+binary generation changed must be restarted. The lock-internal generation fence
+rejects a late older updater, while private journals can only restore the complete
+previous generation or finish the complete target generation. `viceme doctor`
+validates Skill/version integrity and an unauthenticated API readiness probe
+before installation commits.
 
 ## First-phase implementation status
 

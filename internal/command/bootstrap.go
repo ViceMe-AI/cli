@@ -12,8 +12,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
+	updatepkg "github.com/ViceMe-AI/cli/internal/update"
 	"github.com/gofrs/flock"
 	"github.com/spf13/cobra"
 )
@@ -33,6 +35,7 @@ type bootstrapActivationJournal struct {
 	HadExisting   bool   `json:"hadExisting"`
 	PreviousHash  string `json:"previousHash,omitempty"`
 	TargetHash    string `json:"targetHash"`
+	TargetVersion string `json:"targetVersion,omitempty"`
 }
 
 type bootstrapActivationResult struct {
@@ -71,7 +74,7 @@ func recoverBootstrapActivationAtStartup(configDir string, environment skillcont
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return err
 	}
-	activationLock := flock.New(filepath.Join(configDir, "bootstrap-activation.lock"))
+	activationLock := flock.New(filepath.Join(configDir, updatepkg.ActivationLockFilename))
 	locked, err := activationLock.TryLock()
 	if err != nil {
 		return err
@@ -91,7 +94,7 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 	if err := os.MkdirAll(runtime.configBase, 0o700); err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_CONFIG_DIR_FAILED", "could not create the bootstrap recovery directory", err)
 	}
-	activationLock := flock.New(filepath.Join(runtime.configBase, "bootstrap-activation.lock"))
+	activationLock := flock.New(filepath.Join(runtime.configBase, updatepkg.ActivationLockFilename))
 	locked, err := activationLock.TryLock()
 	if err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_LOCK_FAILED", "could not acquire the bootstrap activation lock", err)
@@ -119,6 +122,15 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 	if err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_STAGE_FAILED", "could not verify the staged ViceMe executable", err)
 	}
+	targetVersion := buildinfo.CompatibilityVersion()
+	targetGeneration, err := updatepkg.NewStandaloneGeneration(targetVersion, targetHash)
+	if err != nil {
+		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_VERSION_INVALID", "the staged ViceMe generation is invalid", err)
+	}
+	if err := updatepkg.ValidateActivationTarget(runtime.configBase, targetGeneration); err != nil {
+		_ = os.Remove(staged)
+		return bootstrapActivationResult{}, output.Policy("BOOTSTRAP_DOWNGRADE_REFUSED", "the staged ViceMe release is older than or conflicts with the active generation")
+	}
 	journal := bootstrapActivationJournal{
 		SchemaVersion: 1,
 		Status:        "PREPARING",
@@ -126,6 +138,7 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 		Staged:        staged,
 		Backup:        backup,
 		TargetHash:    targetHash,
+		TargetVersion: targetVersion,
 	}
 	if _, err := os.Lstat(absDestination); err == nil {
 		journal.HadExisting = true
@@ -194,6 +207,15 @@ func recoverBootstrapActivation(configDir string, environment skillcontent.Envir
 	if journal.Staged != filepath.Join(configDir, bootstrapActivationStagedFilename) || journal.Backup != filepath.Join(configDir, bootstrapActivationBackupFilename) || destinationErr != nil || validatedDestination != journal.Destination {
 		return errors.New("bootstrap activation journal contains unsafe paths")
 	}
+	if journal.TargetVersion != "" {
+		generation, err := updatepkg.NewStandaloneGeneration(journal.TargetVersion, journal.TargetHash)
+		if err != nil {
+			return err
+		}
+		if err := updatepkg.ValidateActivationTarget(configDir, generation); err != nil {
+			return err
+		}
+	}
 	switch journal.Status {
 	case "PREPARING":
 		if err := skillcontent.RecoverInstallTransaction(environment, false); err != nil {
@@ -216,6 +238,15 @@ func recoverBootstrapActivation(configDir string, environment skillcontent.Envir
 		}
 		if err := skillcontent.RecoverInstallTransaction(environment, true); err != nil {
 			return err
+		}
+		if journal.TargetVersion != "" {
+			generation, err := updatepkg.NewStandaloneGeneration(journal.TargetVersion, journal.TargetHash)
+			if err != nil {
+				return err
+			}
+			if err := updatepkg.CommitActiveGeneration(configDir, generation); err != nil {
+				return err
+			}
 		}
 	default:
 		return errors.New("bootstrap activation journal has an invalid status")

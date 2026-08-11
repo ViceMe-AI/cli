@@ -34,6 +34,7 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 	var agent string
 	var region string
 	var skipLauncherEnsure bool
+	var activationChild bool
 	command := &cobra.Command{
 		Use: "install", Short: "Install official ViceMe Skills for supported AI coding agents", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
@@ -47,7 +48,9 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&agent, "agent", "auto", "agent target: auto, codex, claude, workbuddy, or agents")
 	command.Flags().StringVar(&region, "region", "", "ViceMe region: cn or global")
 	command.Flags().BoolVar(&skipLauncherEnsure, "internal-skip-launcher-ensure", false, "skip launcher persistence inside a coordinated activation")
+	command.Flags().BoolVar(&activationChild, "internal-activation-child", false, "run inside the outer activation coordinator")
 	_ = command.Flags().MarkHidden("internal-skip-launcher-ensure")
+	_ = command.Flags().MarkHidden("internal-activation-child")
 	return command
 }
 

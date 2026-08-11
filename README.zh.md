@@ -151,8 +151,11 @@ Checksum，用新二进制修复同版本官方 Skills 后原子激活。npm 安
 更新。更新子进程不会继承 `VICEME_ACCESS_TOKEN`。
 
 二进制或 npm launcher、两份官方 Skills 和 Profile 配置属于同一个可恢复的本地版本。
-持久化私有 Journal 与进程锁保证中断后只能完整恢复上一代，或完整完成目标版本；安装提交前，
-`viceme doctor` 同时校验 Skill/版本完整性和不携带凭据的 API readiness。
+Standalone 与 npm 激活共用一把锁，并持久化包含语义版本、安装方式和不可变身份的
+active-generation。所有普通命令必须先恢复未完成的外层 Journal；如果恢复改变了当前进程所属
+的二进制版本，本次命令会停止并要求重新执行。锁内 generation fence 会拒绝迟到的旧版本更新，
+私有 Journal 只能完整恢复上一代或完整完成目标版本；安装提交前，`viceme doctor` 同时校验
+Skill/版本完整性和不携带凭据的 API readiness。
 
 ## 第一阶段实施状态
 

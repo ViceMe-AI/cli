@@ -4,9 +4,16 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/ViceMe-AI/cli/internal/buildinfo"
+	"github.com/ViceMe-AI/cli/internal/config"
+	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
+	updatepkg "github.com/ViceMe-AI/cli/internal/update"
+	"github.com/spf13/cobra"
 )
 
 func TestBootstrapRecoveryKeepsBinarySkillsAndConfigOnOneGeneration(t *testing.T) {
@@ -52,6 +59,7 @@ func TestBootstrapRecoveryKeepsBinarySkillsAndConfigOnOneGeneration(t *testing.T
 				HadExisting:   true,
 				PreviousHash:  previousHash,
 				TargetHash:    targetHash,
+				TargetVersion: buildinfo.CompatibilityVersion(),
 			}
 			if err := writeBootstrapJournal(filepath.Join(configDir, bootstrapActivationJournalFilename), journal); err != nil {
 				t.Fatal(err)
@@ -74,6 +82,14 @@ func TestBootstrapRecoveryKeepsBinarySkillsAndConfigOnOneGeneration(t *testing.T
 			assertBootstrapTestContent(t, destination, scenario.wantBinary)
 			assertBootstrapTestContent(t, filepath.Join(skillDestination, "state.txt"), scenario.wantSkill)
 			assertBootstrapTestContent(t, configPath, scenario.wantConfig)
+			active, exists, err := updatepkg.ReadActiveGeneration(configDir)
+			if scenario.status == "COMMITTING" {
+				if err != nil || !exists || active.Version != buildinfo.CompatibilityVersion() || active.InstallMethod != "standalone" || active.Identity != targetHash {
+					t.Fatalf("committed bootstrap did not publish its generation: active=%#v exists=%t err=%v", active, exists, err)
+				}
+			} else if err != nil || exists {
+				t.Fatalf("rolled-back bootstrap published a generation: active=%#v exists=%t err=%v", active, exists, err)
+			}
 			for _, filename := range []string{
 				filepath.Join(configDir, bootstrapActivationJournalFilename),
 				filepath.Join(configDir, "install-transaction.json"),
@@ -85,6 +101,40 @@ func TestBootstrapRecoveryKeepsBinarySkillsAndConfigOnOneGeneration(t *testing.T
 				}
 			}
 		})
+	}
+}
+
+func TestBootstrapRejectsLateOlderGenerationInsideActivationLock(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	active, err := updatepkg.NewStandaloneGeneration("0.10.2", strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := updatepkg.CommitActiveGeneration(configDir, active); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &Runtime{
+		configBase: configDir,
+		region:     config.RegionCN,
+		deps: Dependencies{
+			Store:       securestore.NewMemory(),
+			Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+		},
+	}
+	destination := filepath.Join(root, "bin", "viceme")
+	_, err = activateBootstrap(&cobra.Command{}, runtime, destination, "agents", "cn")
+	cliError := output.AsError(err)
+	if cliError.Subtype != "BOOTSTRAP_DOWNGRADE_REFUSED" {
+		t.Fatalf("late older standalone activation was not fenced: %#v", cliError)
+	}
+	if _, err := os.Stat(destination); !os.IsNotExist(err) {
+		t.Fatalf("fenced standalone activation changed destination: %v", err)
+	}
+	current, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil || !exists || current != active {
+		t.Fatalf("fenced activation changed active generation: current=%#v exists=%t err=%v", current, exists, err)
 	}
 }
 
