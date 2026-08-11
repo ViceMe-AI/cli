@@ -98,7 +98,8 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if intent.PublicationID != "" {
 				pending := publication.Pending{
 					PublicationID: intent.PublicationID, ClientRequestID: intent.ClientRequestID,
-					SourcePath: pkg.SourcePath, PriceMinor: priceMinor, ArtifactDigest: pkg.Artifact.Digest,
+					Fingerprint: fingerprint,
+					SourcePath:  pkg.SourcePath, PriceMinor: priceMinor, ArtifactDigest: pkg.Artifact.Digest,
 				}
 				if err := store.Save(pending); err != nil {
 					return err
@@ -119,7 +120,8 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			}
 			pending := publication.Pending{
 				PublicationID: created.PublicationID, ClientRequestID: intent.ClientRequestID,
-				SourcePath: pkg.SourcePath, PriceMinor: priceMinor, ArtifactDigest: pkg.Artifact.Digest,
+				Fingerprint: fingerprint,
+				SourcePath:  pkg.SourcePath, PriceMinor: priceMinor, ArtifactDigest: pkg.Artifact.Digest,
 			}
 			if err := store.Save(pending); err != nil {
 				return err
@@ -143,7 +145,7 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		return err
 	}
 	if current.Status == "PUBLISHED" || current.Status == "CANCELLED" {
-		_ = store.Delete(pending.PublicationID)
+		retirePublicationRecovery(store, pending)
 		return runtime.business(current)
 	}
 	if !verifiedUpload(current.Uploads, "PACKAGE", pkg.Artifact.Digest, "") {
@@ -196,9 +198,14 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		}
 	}
 	if current.Status == "PUBLISHED" {
-		_ = store.Delete(pending.PublicationID)
+		retirePublicationRecovery(store, pending)
 	}
 	return runtime.business(current)
+}
+
+func retirePublicationRecovery(store publication.PendingStore, pending publication.Pending) {
+	_ = store.RetireIntent(pending.Fingerprint, pending.PublicationID, pending.ClientRequestID)
+	_ = store.Delete(pending.PublicationID)
 }
 
 func verifiedUpload(uploads []api.SkillPublicationUpload, kind, digest, relativePath string) bool {

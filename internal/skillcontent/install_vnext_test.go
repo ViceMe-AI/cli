@@ -62,6 +62,68 @@ func TestAutoInstallsDetectedAgentsAndFallback(t *testing.T) {
 	if !got["agents"] || !got["codex"] || !got["claude"] || got["workbuddy"] {
 		t.Fatalf("unexpected auto target set: %#v", got)
 	}
+	doctor := bundle.Doctor("viceme-test", "auto", Environment{Home: home})
+	if !doctor.Healthy || len(doctor.Results) != 3 {
+		t.Fatalf("Doctor required an agent that was not detected: %#v", doctor)
+	}
+}
+
+func TestInstallSetActivatesAllOfficialSkillsTogether(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeTestSkill(t, root, "viceme-shared")
+	writeTestSkill(t, root, "viceme-publish")
+	home := t.TempDir()
+	environment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
+	bundle := New(os.DirFS(root))
+
+	reports := bundle.InstallSet([]string{"viceme-shared", "viceme-publish"}, "agents", environment)
+	if len(reports) != 2 || !reports[0].AllSucceeded || !reports[1].AllSucceeded {
+		t.Fatalf("transaction did not activate both Skills: %#v", reports)
+	}
+	for _, name := range []string{"viceme-shared", "viceme-publish"} {
+		if !bundle.Doctor(name, "agents", environment).Healthy {
+			t.Fatalf("installed Skill %s did not pass Doctor", name)
+		}
+	}
+}
+
+func TestIncompleteInstallJournalRollsBackBeforeNewWork(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	destination := filepath.Join(root, "skills", "viceme-test")
+	backup := destination + ".viceme-transaction-backup"
+	stageRoot := filepath.Join(root, ".viceme-stage-crash")
+	stage := filepath.Join(stageRoot, "viceme-test")
+	for filename, content := range map[string]string{
+		filepath.Join(destination, "state.txt"): "new",
+		filepath.Join(backup, "state.txt"):      "old",
+		filepath.Join(stage, "state.txt"):       "staged",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filename, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	journalPath := filepath.Join(root, installTransactionFilename)
+	journal := installTransaction{SchemaVersion: 1, Status: "PREPARING", Entries: []installJournalEntry{{
+		Destination: destination, Backup: backup, Stage: stage, HadExisting: true, Activating: true,
+	}}}
+	if err := writeInstallTransaction(journalPath, journal); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverInstallTransaction(journalPath); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(destination, "state.txt"))
+	if err != nil || string(data) != "old" {
+		t.Fatalf("rollback did not restore the previous Skill: %q err=%v", data, err)
+	}
+	if _, err := os.Stat(journalPath); !os.IsNotExist(err) {
+		t.Fatalf("recovery journal was not retired: %v", err)
+	}
 }
 
 func writeTestSkill(t *testing.T, root, name string) {

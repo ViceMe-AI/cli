@@ -25,7 +25,10 @@ func TestShellInstallerVerifiesChecksumAndPreservesWorkingVersionOnFailure(t *te
 		}
 	}
 	writeInstallerTestFile(t, filepath.Join(fixtures, "latest"), "1.2.3\n", 0o644)
-	binary := "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$VICEME_TEST_INSTALL_LOG\"\n"
+	binary := `#!/bin/sh
+printf '%s\n' "$*" >>"$VICEME_TEST_INSTALL_LOG"
+if [ "${VICEME_TEST_INSTALL_FAIL:-}" = "1" ] && [ "${1:-}" = "install" ]; then exit 9; fi
+`
 	writeInstallerTestFile(t, filepath.Join(fixtures, "viceme_1.2.3_linux_amd64"), binary, 0o755)
 	digest := sha256.Sum256([]byte(binary))
 	writeInstallerTestFile(t, filepath.Join(fixtures, "viceme_1.2.3_linux_amd64.sha256"), fmt.Sprintf("%x  viceme_1.2.3_linux_amd64\n", digest), 0o644)
@@ -81,6 +84,22 @@ cp "$VICEME_TEST_FIXTURES/${url##*/}" "$out"
 	installed, err = os.ReadFile(filepath.Join(installDir, "viceme"))
 	if err != nil || string(installed) != binary {
 		t.Fatalf("failed reinstall damaged prior version: err=%v content=%q", err, installed)
+	}
+
+	writeInstallerTestFile(t, filepath.Join(fixtures, "latest"), "1.2.4\n", 0o644)
+	brokenUpgrade := strings.Replace(binary, "#!/bin/sh", "#!/bin/sh\n# release 1.2.4", 1)
+	writeInstallerTestFile(t, filepath.Join(fixtures, "viceme_1.2.4_linux_amd64"), brokenUpgrade, 0o755)
+	upgradeDigest := sha256.Sum256([]byte(brokenUpgrade))
+	writeInstallerTestFile(t, filepath.Join(fixtures, "viceme_1.2.4_linux_amd64.sha256"), fmt.Sprintf("%x  viceme_1.2.4_linux_amd64\n", upgradeDigest), 0o644)
+	failingEnvironment := append(append([]string(nil), environment...), "VICEME_TEST_INSTALL_FAIL=1")
+	command = exec.Command("sh", "./install.sh")
+	command.Env = failingEnvironment
+	if output, err := command.CombinedOutput(); err == nil {
+		t.Fatalf("failed Skill transaction unexpectedly committed the new binary: output=%s", output)
+	}
+	installed, err = os.ReadFile(filepath.Join(installDir, "viceme"))
+	if err != nil || string(installed) != binary {
+		t.Fatalf("Skill failure did not restore the prior binary: err=%v content=%q", err, installed)
 	}
 }
 

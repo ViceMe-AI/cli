@@ -249,21 +249,22 @@ func readZip(filename string) ([]sourceEntry, error) {
 	var total int64
 	seen := make(map[string]struct{})
 	for _, file := range reader.File {
-		if file.FileInfo().IsDir() {
-			continue
-		}
 		name := strings.ReplaceAll(file.Name, "\\", "/")
-		if err := validatePath(name); err != nil {
+		validationName := strings.TrimSuffix(name, "/")
+		if err := validatePath(validationName); err != nil {
 			return nil, err
+		}
+		mode := file.Mode()
+		if mode&os.ModeSymlink != 0 || (!mode.IsRegular() && !mode.IsDir()) {
+			return nil, output.Validation("SKILL_SPECIAL_FILE_REJECTED", "Skill ZIP contains a link or special file: "+name)
+		}
+		if mode.IsDir() {
+			continue
 		}
 		if _, exists := seen[name]; exists {
 			return nil, output.Validation("SKILL_ZIP_DUPLICATE_PATH", "Skill ZIP contains a duplicate path: "+name)
 		}
 		seen[name] = struct{}{}
-		mode := file.Mode()
-		if mode&os.ModeSymlink != 0 || !mode.IsRegular() {
-			return nil, output.Validation("SKILL_SPECIAL_FILE_REJECTED", "Skill ZIP contains a link or special file: "+name)
-		}
 		if file.UncompressedSize64 > MaxFileBytes {
 			return nil, output.Validation("SKILL_FILE_TOO_LARGE", "Skill file exceeds 10 MiB: "+name)
 		}

@@ -49,15 +49,26 @@ func newInstallCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return updaterError(err, launcher)
 			}
-			reports := make([]skillcontent.InstallReport, 0, len(officialSkillNames))
 			for _, name := range officialSkillNames {
 				if err := runtime.deps.Skills.Validate(name); err != nil {
 					return err
 				}
-				report := runtime.deps.Skills.Install(name, agent, runtime.deps.Environment)
-				reports = append(reports, report)
+			}
+			reports := runtime.deps.Skills.InstallSet(officialSkillNames, agent, runtime.deps.Environment)
+			if len(reports) != len(officialSkillNames) {
+				return output.Internal("SKILL_INSTALL_TRANSACTION_INVALID", "official Skill installation returned an incomplete report", nil)
+			}
+			for _, report := range reports {
 				if !report.AllSucceeded {
-					return output.Internal("SKILL_INSTALL_PARTIAL", "one or more official Skill targets could not be installed", nil).WithDetails(reports)
+					return output.Internal("SKILL_INSTALL_PARTIAL", "official Skills were not activated", nil).WithDetails(reports)
+				}
+			}
+			doctorResults := make([]doctorSkillResult, 0, len(officialSkillNames))
+			for _, name := range officialSkillNames {
+				report := runtime.deps.Skills.Doctor(name, agent, runtime.deps.Environment)
+				doctorResults = append(doctorResults, doctorSkillResult{Name: name, Report: report})
+				if !report.Healthy {
+					return output.Validation("SKILL_INSTALL_VERIFICATION_FAILED", "installed official Skills did not pass Doctor").WithDetails(doctorResults)
 				}
 			}
 			profile, err := runtime.config.Resolve(runtime.profile.Name)
@@ -117,10 +128,14 @@ func newDoctorCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(map[string]any{
+			result := map[string]any{
 				"healthy": healthy, "profile": runtime.profile.Name, "region": runtime.region,
 				"authenticated": status.Authenticated, "skills": results,
-			})
+			}
+			if !healthy {
+				return output.Validation("DOCTOR_UNHEALTHY", "ViceMe CLI or official Skill installation is unhealthy").WithDetails(result)
+			}
+			return runtime.business(result)
 		},
 	}
 	command.Flags().StringVar(&agent, "agent", "auto", "agent target: auto, codex, claude, workbuddy, or agents")

@@ -118,21 +118,111 @@ description: Publish a deterministic Skill through the vNext contract.
 	}
 }
 
+func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []struct {
+		name                 string
+		putFailures          int
+		loseCompleteResponse bool
+	}{
+		{name: "expired upload authorization", putFailures: 1},
+		{name: "lost completion response", loseCompleteResponse: true},
+	} {
+		scenario := scenario
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+			state := &publicationAPITestState{
+				publicationID:        "22222222-2222-4222-8222-222222222222",
+				reviewDigest:         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+				status:               "DRAFT",
+				mediaPutFailures:     scenario.putFailures,
+				loseCompleteResponse: scenario.loseCompleteResponse,
+				draft:                api.SkillPublicationDraft{Title: "Publish Test", Summary: "Summary", Currency: "CNY", PriceMinor: 1, GalleryUploadIDs: []string{}},
+			}
+			server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+			defer server.Close()
+			state.baseURL = server.URL
+
+			root := t.TempDir()
+			media, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+			if err != nil {
+				t.Fatal(err)
+			}
+			mediaPath := filepath.Join(root, "manual-cover.png")
+			if err := os.WriteFile(mediaPath, media, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			store := securestore.NewMemory()
+			scope, err := credentialScopeForAPIBase(server.URL, config.RegionCN)
+			if err != nil {
+				t.Fatal(err)
+			}
+			manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+			if err := manager.Save(credentialauth.Credential{AccessToken: "vme_cli_test", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+				t.Fatal(err)
+			}
+			var stdout bytes.Buffer
+			var stderr bytes.Buffer
+			dependencies := Dependencies{
+				Out: &stdout, ErrOut: &stderr, Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
+				Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+			}
+			execute := func() (int, map[string]any) {
+				t.Helper()
+				stdout.Reset()
+				stderr.Reset()
+				exit := Execute([]string{"publication", "asset", "upload", state.publicationID, "--role", "cover", "--path", mediaPath}, dependencies)
+				var envelope map[string]any
+				if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+					t.Fatalf("command did not emit one JSON envelope: exit=%d stdout=%q stderr=%q err=%v", exit, stdout.String(), stderr.String(), err)
+				}
+				return exit, envelope
+			}
+
+			if exit, envelope := execute(); exit == 0 || envelope["ok"] != false {
+				t.Fatalf("simulated upload interruption did not fail: exit=%d envelope=%#v", exit, envelope)
+			}
+			if exit, envelope := execute(); exit != 0 || envelope["ok"] != true {
+				t.Fatalf("upload retry did not recover: exit=%d envelope=%#v", exit, envelope)
+			}
+			state.mu.Lock()
+			defer state.mu.Unlock()
+			if state.mediaSortOrder != 0 || state.uploadAuthorizationCalls > 2 {
+				t.Fatalf("recovery burned another media slot: sort=%d authorizations=%d", state.mediaSortOrder, state.uploadAuthorizationCalls)
+			}
+			if scenario.loseCompleteResponse && state.uploadAuthorizationCalls != 1 {
+				t.Fatalf("verified upload should be reused without a new authorization: %d", state.uploadAuthorizationCalls)
+			}
+			if state.draft.CoverUploadID == nil || *state.draft.CoverUploadID != "upload-media" {
+				t.Fatalf("recovered upload was not selected as cover: %#v", state.draft)
+			}
+		})
+	}
+}
+
 type publicationAPITestState struct {
-	mu               sync.Mutex
-	baseURL          string
-	publicationID    string
-	reviewDigest     string
-	status           string
-	createCalls      int
-	clientRequestIDs []string
-	manifest         api.SkillPublicationManifest
-	draft            api.SkillPublicationDraft
-	packageBytes     []byte
-	mediaBytes       []byte
-	mediaDigest      string
-	packageVerified  bool
-	mediaVerified    bool
+	mu                       sync.Mutex
+	baseURL                  string
+	publicationID            string
+	reviewDigest             string
+	status                   string
+	createCalls              int
+	clientRequestIDs         []string
+	manifest                 api.SkillPublicationManifest
+	draft                    api.SkillPublicationDraft
+	packageBytes             []byte
+	mediaBytes               []byte
+	mediaDigest              string
+	packageVerified          bool
+	mediaVerified            bool
+	mediaPending             bool
+	mediaFileName            string
+	mediaContentType         string
+	mediaSizeBytes           int64
+	mediaSortOrder           int
+	mediaPutFailures         int
+	loseCompleteResponse     bool
+	uploadAuthorizationCalls int
 }
 
 func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -165,11 +255,22 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		writer.WriteHeader(http.StatusNoContent)
 	case request.Method == http.MethodPut && request.URL.Path == "/upload/media":
 		state.mediaBytes, _ = io.ReadAll(request.Body)
+		if state.mediaPutFailures > 0 {
+			state.mediaPutFailures--
+			writer.WriteHeader(http.StatusForbidden)
+			return
+		}
 		writer.WriteHeader(http.StatusNoContent)
 	case request.Method == http.MethodPost && request.URL.Path == publicationPath+"/upload-authorizations":
 		var input api.UploadAuthorizationRequest
 		_ = json.NewDecoder(request.Body).Decode(&input)
+		state.uploadAuthorizationCalls++
 		state.mediaDigest = input.Digest
+		state.mediaFileName = input.FileName
+		state.mediaContentType = input.ContentType
+		state.mediaSizeBytes = input.SizeBytes
+		state.mediaSortOrder = input.SortOrder
+		state.mediaPending = true
 		writeJSONResponse(writer, api.UploadAuthorization{UploadID: "upload-media", Method: http.MethodPut, URL: state.baseURL + "/upload/media", Headers: map[string]string{"Content-Type": "image/png"}})
 	case request.Method == http.MethodPost && request.URL.Path == publicationPath+"/complete-upload":
 		var input api.CompleteUploadRequest
@@ -178,6 +279,13 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 			state.packageVerified = true
 		} else if input.UploadID == "upload-media" {
 			state.mediaVerified = true
+			state.mediaPending = false
+		}
+		if input.UploadID == "upload-media" && state.loseCompleteResponse {
+			state.loseCompleteResponse = false
+			writer.Header().Set("Content-Type", "application/json")
+			_, _ = io.WriteString(writer, "{")
+			return
 		}
 		writeJSONResponse(writer, state.publication())
 	case request.Method == http.MethodPatch && request.URL.Path == publicationPath+"/listing-draft":
@@ -201,7 +309,9 @@ func (state *publicationAPITestState) publication() api.SkillPublication {
 		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-package", Kind: "PACKAGE", Status: "VERIFIED", Digest: "package", SortOrder: 0})
 	}
 	if state.mediaVerified {
-		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-media", Kind: "MEDIA", Status: "VERIFIED", ContentType: "image/png", Digest: state.mediaDigest, SortOrder: 0})
+		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-media", Kind: "MEDIA", Status: "VERIFIED", FileName: state.mediaFileName, ContentType: state.mediaContentType, SizeBytes: state.mediaSizeBytes, Digest: state.mediaDigest, SortOrder: state.mediaSortOrder})
+	} else if state.mediaPending {
+		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-media", Kind: "MEDIA", Status: "PENDING", FileName: state.mediaFileName, ContentType: state.mediaContentType, SizeBytes: state.mediaSizeBytes, Digest: state.mediaDigest, SortOrder: state.mediaSortOrder})
 	}
 	result := api.SkillPublication{ID: state.publicationID, Status: state.status, Manifest: state.manifest, Draft: state.draft, ReviewRevision: 1, ReviewDigest: &state.reviewDigest, Uploads: uploads}
 	if state.status == "PUBLISHED" {

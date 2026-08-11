@@ -60,8 +60,49 @@ func TestReleaseServiceChecksReplacesAndRefreshesMatchingSkills(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(installed, binary) {
 		t.Fatalf("installed=%q err=%v", installed, err)
 	}
-	if len(runner.calls) != 1 || runner.calls[0].name == executable || !reflect.DeepEqual(runner.calls[0].args, []string{"install", "--agent", "workbuddy", "--region", "global"}) {
-		t.Fatalf("matching Skill refresh did not use the staged new binary: %#v", runner.calls)
+	if len(runner.calls) != 1 || runner.calls[0].name != executable || !reflect.DeepEqual(runner.calls[0].args, []string{"install", "--agent", "workbuddy", "--region", "global"}) {
+		t.Fatalf("matching Skill refresh did not use the activated new binary: %#v", runner.calls)
+	}
+}
+
+func TestReleaseServiceRestoresCurrentBinaryWhenSkillActivationFails(t *testing.T) {
+	t.Parallel()
+	binary := []byte("new-viceme-binary")
+	digest := sha256.Sum256(binary)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/latest":
+			_, _ = writer.Write([]byte("1.2.3"))
+		case "/v1.2.3/viceme_1.2.3_linux_amd64":
+			_, _ = writer.Write(binary)
+		case "/v1.2.3/viceme_1.2.3_linux_amd64.sha256":
+			_, _ = fmt.Fprintf(writer, "%x", digest)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	executable := filepath.Join(t.TempDir(), "viceme")
+	if err := os.WriteFile(executable, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	service := NewReleaseService("1.2.2", "1.2.2")
+	service.ReleaseBaseURL = server.URL
+	service.HTTPClient = server.Client()
+	service.ExecutablePath = executable
+	service.GOOS = "linux"
+	service.GOARCH = "amd64"
+	service.Runner = &fakeRunner{errors: []error{errors.New("doctor failed")}}
+	check, err := service.Check(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Apply(context.Background(), check, ApplyOptions{RefreshSkills: true}); ErrorKindOf(err) != ErrorReleaseSkillRefresh {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	installed, err := os.ReadFile(executable)
+	if err != nil || string(installed) != "old" {
+		t.Fatalf("previous binary was not restored: %q err=%v", installed, err)
 	}
 }
 
@@ -348,6 +389,34 @@ func TestNPMServiceReturnsPartialResultWhenSkillRefreshFails(t *testing.T) {
 	result, err := service.Apply(context.Background(), CheckResult{AvailableVersion: "0.1.0"}, ApplyOptions{RefreshSkills: true})
 	if err == nil || len(result.Targets) != 2 || result.Targets[1].Status != "failed" {
 		t.Fatalf("expected typed partial result, result=%#v err=%v", result, err)
+	}
+}
+
+func TestNPMServiceRestoresExactPreviousLauncherWhenSkillRefreshFails(t *testing.T) {
+	t.Parallel()
+	runner := &fakeRunner{errors: []error{nil, errors.New("refresh failed"), nil}}
+	service := NewNPMService("0.1.0", "0.1.0", "npm")
+	service.ConfigDir = t.TempDir()
+	service.Runner = runner
+	result, err := service.Apply(
+		context.Background(),
+		CheckResult{AvailableVersion: "0.1.1", UpdateAvailable: true},
+		ApplyOptions{RefreshSkills: true, SkillTarget: "codex"},
+	)
+	if err == nil {
+		t.Fatal("failed Skill refresh unexpectedly committed the npm update")
+	}
+	if result.CLIVersion != "0.1.0" || len(result.Targets) != 3 || result.Targets[2].Target != "npm_global_rollback" || result.Targets[2].Status != "restored" {
+		t.Fatalf("previous launcher was not reported as restored: %#v", result)
+	}
+	if len(runner.calls) != 3 {
+		t.Fatalf("unexpected npm call count: %#v", runner.calls)
+	}
+	if got := runner.calls[0].args[len(runner.calls[0].args)-1]; got != "@viceme-ai/cli@0.1.1" {
+		t.Fatalf("update did not install exact target version: %q", got)
+	}
+	if got := runner.calls[2].args[len(runner.calls[2].args)-1]; got != "@viceme-ai/cli@0.1.0" {
+		t.Fatalf("rollback did not restore exact previous version: %q", got)
 	}
 }
 

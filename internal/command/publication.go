@@ -81,11 +81,21 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			uploadedID := verifiedMediaUploadID(current.Uploads, candidate.Digest)
+			matched := matchingMediaUpload(current.Uploads, candidate)
+			uploadedID := ""
+			if matched != nil && matched.Status == "VERIFIED" {
+				uploadedID = matched.ID
+			}
 			if uploadedID == "" {
-				slot, err := firstAvailableMediaSlot(current.Uploads)
-				if err != nil {
-					return err
+				slot := 0
+				if matched != nil {
+					slot = matched.SortOrder
+				} else {
+					var slotErr error
+					slot, slotErr = firstAvailableMediaSlot(current.Uploads)
+					if slotErr != nil {
+						return slotErr
+					}
 				}
 				authorization, err := client.AuthorizeUpload(command.Context(), args[0], api.UploadAuthorizationRequest{
 					Kind: "MEDIA", Digest: candidate.Digest, SizeBytes: candidate.SizeBytes,
@@ -132,13 +142,14 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
-func verifiedMediaUploadID(uploads []api.SkillPublicationUpload, digest string) string {
+func matchingMediaUpload(uploads []api.SkillPublicationUpload, candidate publication.Candidate) *api.SkillPublicationUpload {
 	for _, upload := range uploads {
-		if upload.Kind == "MEDIA" && upload.Status == "VERIFIED" && upload.Digest == digest {
-			return upload.ID
+		if upload.Kind == "MEDIA" && upload.Digest == candidate.Digest && upload.SizeBytes == candidate.SizeBytes && upload.FileName == candidate.FileName && upload.ContentType == candidate.ContentType && upload.RelativePath == nil {
+			matched := upload
+			return &matched
 		}
 	}
-	return ""
+	return nil
 }
 
 func newPublicationUpdateCommand(runtime *Runtime) *cobra.Command {
@@ -190,7 +201,9 @@ func newPublicationPublishCommand(runtime *Runtime) *cobra.Command {
 			}
 			if result.Status == "PUBLISHED" {
 				store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
-				_ = store.Delete(args[0])
+				if pending, loadErr := store.Load(args[0]); loadErr == nil {
+					retirePublicationRecovery(store, pending)
+				}
 			}
 			return runtime.business(result)
 		},
@@ -209,7 +222,9 @@ func newPublicationCancelCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
-			_ = store.Delete(args[0])
+			if pending, loadErr := store.Load(args[0]); loadErr == nil {
+				retirePublicationRecovery(store, pending)
+			}
 			return runtime.business(result)
 		},
 	}

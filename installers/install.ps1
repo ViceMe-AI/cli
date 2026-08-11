@@ -39,15 +39,34 @@ try {
 
   $installDir = if ($env:VICEME_INSTALL_DIR) { $env:VICEME_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "ViceMe\bin" }
   New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+  $lockPath = Join-Path $installDir ".viceme-install-lock"
+  try {
+    $installLock = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+  } catch {
+    throw "Another ViceMe install is active"
+  }
   $destination = Join-Path $installDir "viceme.exe"
   $staged = Join-Path $installDir (".viceme-" + [Guid]::NewGuid().ToString("N") + ".exe")
+  $backup = Join-Path $temporary "previous-viceme.exe"
+  $hadExisting = Test-Path $destination
+  $activationPending = $false
   Copy-Item -Path $binaryPath -Destination $staged
-  if (Test-Path $destination) {
-    $backup = Join-Path $installDir ".viceme-backup.exe"
-    [System.IO.File]::Replace($staged, $destination, $backup, $true)
-    Remove-Item -Force -ErrorAction SilentlyContinue $backup
-  } else {
-    Move-Item -Path $staged -Destination $destination
+  try {
+    if ($hadExisting) { Copy-Item -Path $destination -Destination $backup }
+    $activationPending = $true
+    Move-Item -Force -Path $staged -Destination $destination
+    & $destination install --agent auto --region $region
+    if ($LASTEXITCODE -ne 0) { throw "official Skill installation failed" }
+    & $destination doctor --agent auto
+    if ($LASTEXITCODE -ne 0) { throw "ViceMe Doctor failed after installation" }
+    $activationPending = $false
+  } finally {
+    if ($activationPending) {
+      Remove-Item -Force -ErrorAction SilentlyContinue $destination
+      if ($hadExisting -and (Test-Path $backup)) { Move-Item -Force -Path $backup -Destination $destination }
+    }
+    if ($installLock) { $installLock.Dispose() }
+    Remove-Item -Force -ErrorAction SilentlyContinue $lockPath
   }
 
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
@@ -56,7 +75,6 @@ try {
     [Environment]::SetEnvironmentVariable("Path", (($parts + $installDir) -join ';'), "User")
     $env:Path = "$installDir;$env:Path"
   }
-  & $destination install --agent auto --region $region
 } finally {
   Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $temporary
 }

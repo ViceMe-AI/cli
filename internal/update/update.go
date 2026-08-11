@@ -262,7 +262,15 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 		skillTarget.Status = "failed"
 		skillTarget.Error = commandError(err, output)
 		result.Targets = append(result.Targets, skillTarget)
-		return result, fmt.Errorf("refresh Agent Skill with updated CLI: %w", err)
+		if check.UpdateAvailable {
+			rollbackOutput, rollbackErr := service.installExactPackage(ctx, service.ComparableVersion)
+			if rollbackErr != nil {
+				return result, fmt.Errorf("refresh Agent Skill with updated CLI: %w; rollback npm launcher: %s", err, commandError(rollbackErr, rollbackOutput))
+			}
+			result.CLIVersion = service.CurrentVersion
+			result.Targets = append(result.Targets, TargetResult{Target: "npm_global_rollback", Status: "restored"})
+		}
+		return result, fmt.Errorf("refresh Agent Skill with updated CLI; previous npm launcher restored: %w", err)
 	}
 	result.Targets = append(result.Targets, skillTarget)
 	return result, nil

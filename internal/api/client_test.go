@@ -7,7 +7,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/output"
 )
@@ -102,6 +104,48 @@ func TestPutUploadTreatsExistingImmutableObjectAsRecoverable(t *testing.T) {
 	); err != nil {
 		t.Fatalf("existing immutable upload was not recoverable: %v", err)
 	}
+}
+
+func TestPutUploadUsesDedicatedLongLivedClient(t *testing.T) {
+	t.Parallel()
+	var controlCalls atomic.Int32
+	var uploadCalls atomic.Int32
+	control := &http.Client{
+		Timeout: time.Nanosecond,
+		Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			controlCalls.Add(1)
+			return nil, errors.New("control client must not be used for uploads")
+		}),
+	}
+	upload := &http.Client{
+		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+			uploadCalls.Add(1)
+			return &http.Response{
+				StatusCode: http.StatusNoContent,
+				Body:       io.NopCloser(strings.NewReader("")),
+				Header:     make(http.Header),
+				Request:    request,
+			}, nil
+		}),
+	}
+	client := &Client{BaseURL: "https://api.viceme.ai", HTTPClient: control, UploadHTTPClient: upload}
+	if err := client.PutUpload(
+		context.Background(),
+		UploadAuthorization{Method: http.MethodPut, URL: "https://s3.viceme.ai/object"},
+		strings.NewReader("x"),
+		1,
+	); err != nil {
+		t.Fatalf("dedicated upload client failed: %v", err)
+	}
+	if controlCalls.Load() != 0 || uploadCalls.Load() != 1 {
+		t.Fatalf("unexpected transport selection: control=%d upload=%d", controlCalls.Load(), uploadCalls.Load())
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return function(request)
 }
 
 func TestNormalizeAPIOriginRejectsCredentialAndRemoteHTTP(t *testing.T) {

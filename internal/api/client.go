@@ -24,17 +24,23 @@ type TokenSource interface {
 }
 
 type Client struct {
-	BaseURL    string
-	HTTPClient *http.Client
-	Tokens     TokenSource
-	UserAgent  string
+	BaseURL          string
+	HTTPClient       *http.Client
+	UploadHTTPClient *http.Client
+	Tokens           TokenSource
+	UserAgent        string
 }
 
 func NewClient(baseURL string, httpClient *http.Client, tokens TokenSource, userAgent string) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{Timeout: 30 * time.Second}
 	}
-	return &Client{BaseURL: strings.TrimRight(baseURL, "/"), HTTPClient: httpClient, Tokens: tokens, UserAgent: userAgent}
+	uploadHTTPClient := *httpClient
+	uploadHTTPClient.Timeout = 10 * time.Minute
+	return &Client{
+		BaseURL: strings.TrimRight(baseURL, "/"), HTTPClient: httpClient,
+		UploadHTTPClient: &uploadHTTPClient, Tokens: tokens, UserAgent: userAgent,
+	}
 }
 
 func (c *Client) StartDeviceAuthorization(ctx context.Context, request DeviceAuthorizationRequest) (DeviceAuthorization, error) {
@@ -125,7 +131,7 @@ func (c *Client) PutUpload(ctx context.Context, authorization UploadAuthorizatio
 	for key, value := range authorization.Headers {
 		request.Header.Set(key, value)
 	}
-	response, err := withoutRedirects(c.HTTPClient).Do(request)
+	response, err := withoutRedirects(c.uploadClient()).Do(request)
 	if err != nil {
 		return output.Network("UPLOAD_TRANSPORT_FAILED", "failed to upload publication asset", err)
 	}
@@ -142,6 +148,18 @@ func (c *Client) PutUpload(ctx context.Context, authorization UploadAuthorizatio
 		return output.Network("UPLOAD_REJECTED", fmt.Sprintf("upload endpoint returned HTTP %d", response.StatusCode), nil)
 	}
 	return nil
+}
+
+func (c *Client) uploadClient() *http.Client {
+	if c.UploadHTTPClient != nil {
+		return c.UploadHTTPClient
+	}
+	if c.HTTPClient != nil {
+		clone := *c.HTTPClient
+		clone.Timeout = 10 * time.Minute
+		return &clone
+	}
+	return &http.Client{Timeout: 10 * time.Minute}
 }
 
 func validateUploadURL(raw string) error {

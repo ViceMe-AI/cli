@@ -18,6 +18,7 @@ import (
 )
 
 const installManifestPath = ".viceme/install-manifest.json"
+const installTransactionFilename = "install-transaction.json"
 
 type Environment struct {
 	Home               string
@@ -117,6 +118,317 @@ type installManifest struct {
 }
 
 func (b *Bundle) Install(name, target string, environment Environment) InstallReport {
+	reports := b.InstallSet([]string{name}, target, environment)
+	if len(reports) == 0 {
+		return InstallReport{AllSucceeded: false, Results: []InstallResult{{Skill: name, Target: target, Status: "failed", Error: "installation transaction returned no report"}}}
+	}
+	return reports[0]
+}
+
+// InstallSet activates every requested Skill and target as one recoverable
+// local transaction. A process crash leaves a private journal and backups that
+// the next invocation rolls back before starting new work.
+func (b *Bundle) InstallSet(names []string, target string, environment Environment) []InstallReport {
+	reports := make([]InstallReport, len(names))
+	for index, name := range names {
+		reports[index] = InstallReport{AllSucceeded: true}
+		if err := b.Validate(name); err != nil {
+			return failAllInstallReports(names, target, err)
+		}
+	}
+	if environment.ConfigDir == "" {
+		environment.ConfigDir = defaultConfigDir(environment.Home)
+	}
+	if err := os.MkdirAll(environment.ConfigDir, 0o700); err != nil {
+		return failAllInstallReports(names, target, fmt.Errorf("create ViceMe config directory: %w", err))
+	}
+	transactionLock := flock.New(filepath.Join(environment.ConfigDir, "install.lock"))
+	locked, err := transactionLock.TryLock()
+	if err != nil {
+		return failAllInstallReports(names, target, fmt.Errorf("acquire install transaction lock: %w", err))
+	}
+	if !locked {
+		return failAllInstallReports(names, target, errors.New("another ViceMe install transaction is active"))
+	}
+	defer transactionLock.Unlock()
+	journalPath := filepath.Join(environment.ConfigDir, installTransactionFilename)
+	if err := recoverInstallTransaction(journalPath); err != nil {
+		return failAllInstallReports(names, target, err)
+	}
+
+	operations := make([]installOperation, 0)
+	for index, name := range names {
+		paths, resolveErr := resolveTargets(name, target, environment, true)
+		if resolveErr != nil {
+			return failAllInstallReports(names, target, resolveErr)
+		}
+		for _, resolved := range paths {
+			operation := installOperation{Skill: name, Target: resolved.name, Destination: resolved.path, ReportIndex: index}
+			if b.installationCurrent(name, resolved.path) {
+				operation.Unchanged = true
+			}
+			operations = append(operations, operation)
+		}
+	}
+
+	journal := installTransaction{SchemaVersion: 1, Status: "PREPARING"}
+	for index := range operations {
+		operation := &operations[index]
+		if operation.Unchanged {
+			continue
+		}
+		staged, expected, stageErr := b.stageInstallation(operation.Skill, operation.Destination)
+		if stageErr != nil {
+			cleanupStagedOperations(operations)
+			return failAllInstallReports(names, target, stageErr)
+		}
+		operation.Stage = staged
+		operation.Expected = expected
+		operation.Backup = operation.Destination + ".viceme-transaction-backup"
+		if _, statErr := os.Lstat(operation.Destination); statErr == nil {
+			operation.HadExisting = true
+		} else if !errors.Is(statErr, fs.ErrNotExist) {
+			cleanupStagedOperations(operations)
+			return failAllInstallReports(names, target, fmt.Errorf("inspect existing Skill: %w", statErr))
+		}
+		journal.Entries = append(journal.Entries, installJournalEntry{
+			Destination: operation.Destination, Stage: operation.Stage, Backup: operation.Backup, HadExisting: operation.HadExisting,
+		})
+	}
+	if len(journal.Entries) > 0 {
+		if err := writeInstallTransaction(journalPath, journal); err != nil {
+			cleanupStagedOperations(operations)
+			return failAllInstallReports(names, target, err)
+		}
+	}
+
+	journalIndex := 0
+	for index := range operations {
+		operation := &operations[index]
+		if operation.Unchanged {
+			continue
+		}
+		entry := &journal.Entries[journalIndex]
+		entry.Activating = true
+		if err := writeInstallTransaction(journalPath, journal); err != nil {
+			_ = rollbackInstallTransaction(journalPath, journal)
+			return failAllInstallReports(names, target, err)
+		}
+		_ = os.RemoveAll(operation.Backup)
+		if operation.HadExisting {
+			if err := os.Rename(operation.Destination, operation.Backup); err != nil {
+				_ = rollbackInstallTransaction(journalPath, journal)
+				return failAllInstallReports(names, target, fmt.Errorf("stage existing Skill: %w", err))
+			}
+		}
+		if err := os.Rename(operation.Stage, operation.Destination); err != nil {
+			_ = rollbackInstallTransaction(journalPath, journal)
+			return failAllInstallReports(names, target, fmt.Errorf("activate staged Skill: %w", err))
+		}
+		actual, err := digestsInstalled(operation.Destination)
+		if err != nil || actual != operation.Expected {
+			_ = rollbackInstallTransaction(journalPath, journal)
+			if err != nil {
+				return failAllInstallReports(names, target, fmt.Errorf("verify installed Skill: %w", err))
+			}
+			return failAllInstallReports(names, target, errors.New("verify installed Skill: digest mismatch"))
+		}
+		journalIndex++
+	}
+	journal.Status = "COMMITTED"
+	if len(journal.Entries) > 0 {
+		if err := writeInstallTransaction(journalPath, journal); err != nil {
+			_ = rollbackInstallTransaction(journalPath, journal)
+			return failAllInstallReports(names, target, err)
+		}
+		if err := recoverInstallTransaction(journalPath); err != nil {
+			return failAllInstallReports(names, target, err)
+		}
+	}
+	for _, operation := range operations {
+		status := "updated"
+		if operation.Unchanged {
+			status = "unchanged"
+		}
+		report := &reports[operation.ReportIndex]
+		report.Results = append(report.Results, InstallResult{Skill: operation.Skill, Target: operation.Target, Path: operation.Destination, Status: status})
+	}
+	return reports
+}
+
+type installOperation struct {
+	Skill       string
+	Target      string
+	Destination string
+	Stage       string
+	Backup      string
+	Expected    Digests
+	ReportIndex int
+	HadExisting bool
+	Unchanged   bool
+}
+
+type installTransaction struct {
+	SchemaVersion int                   `json:"schema_version"`
+	Status        string                `json:"status"`
+	Entries       []installJournalEntry `json:"entries"`
+}
+
+type installJournalEntry struct {
+	Destination string `json:"destination"`
+	Stage       string `json:"stage"`
+	Backup      string `json:"backup"`
+	HadExisting bool   `json:"had_existing"`
+	Activating  bool   `json:"activating"`
+}
+
+func (b *Bundle) stageInstallation(name, destination string) (string, Digests, error) {
+	parent := filepath.Dir(destination)
+	if err := os.MkdirAll(parent, 0o755); err != nil {
+		return "", Digests{}, fmt.Errorf("create Skill parent: %w", err)
+	}
+	expected, err := b.Digests(name)
+	if err != nil {
+		return "", Digests{}, err
+	}
+	stageRoot, err := os.MkdirTemp(parent, ".viceme-stage-")
+	if err != nil {
+		return "", Digests{}, fmt.Errorf("create Skill staging directory: %w", err)
+	}
+	stagedSkill := filepath.Join(stageRoot, name)
+	if err := os.MkdirAll(stagedSkill, 0o755); err != nil {
+		_ = os.RemoveAll(stageRoot)
+		return "", Digests{}, err
+	}
+	if err := copyTree(b.FS, name, stagedSkill); err != nil {
+		_ = os.RemoveAll(stageRoot)
+		return "", Digests{}, err
+	}
+	manifest, err := b.installManifest(name)
+	if err != nil {
+		_ = os.RemoveAll(stageRoot)
+		return "", Digests{}, err
+	}
+	if err := writeInstallManifest(stagedSkill, manifest); err != nil {
+		_ = os.RemoveAll(stageRoot)
+		return "", Digests{}, err
+	}
+	stagedBundle := New(os.DirFS(stageRoot))
+	if err := stagedBundle.Validate(name); err != nil {
+		_ = os.RemoveAll(stageRoot)
+		return "", Digests{}, fmt.Errorf("validate staged Skill: %w", err)
+	}
+	return stagedSkill, expected, nil
+}
+
+func writeInstallTransaction(filename string, journal installTransaction) error {
+	data, err := json.MarshalIndent(journal, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode install transaction: %w", err)
+	}
+	data = append(data, '\n')
+	temporary, err := os.CreateTemp(filepath.Dir(filename), ".install-transaction-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create install transaction: %w", err)
+	}
+	name := temporary.Name()
+	defer os.Remove(name)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(name, filename); err != nil {
+		return fmt.Errorf("activate install transaction: %w", err)
+	}
+	return nil
+}
+
+func recoverInstallTransaction(filename string) error {
+	data, err := os.ReadFile(filename)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read install recovery journal: %w", err)
+	}
+	var journal installTransaction
+	if err := decodeStrictJSON(data, &journal); err != nil || journal.SchemaVersion != 1 {
+		return errors.New("install recovery journal is invalid; refusing to overwrite installed Skills")
+	}
+	if journal.Status != "COMMITTED" {
+		return rollbackInstallTransaction(filename, journal)
+	}
+	for _, entry := range journal.Entries {
+		_ = os.RemoveAll(filepath.Dir(entry.Stage))
+		_ = os.RemoveAll(entry.Backup)
+	}
+	if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("complete install recovery: %w", err)
+	}
+	return nil
+}
+
+func rollbackInstallTransaction(filename string, journal installTransaction) error {
+	var rollbackErrors []error
+	for index := len(journal.Entries) - 1; index >= 0; index-- {
+		entry := journal.Entries[index]
+		if entry.Activating {
+			if _, err := os.Lstat(entry.Backup); err == nil {
+				_ = os.RemoveAll(entry.Destination)
+				if renameErr := os.Rename(entry.Backup, entry.Destination); renameErr != nil {
+					rollbackErrors = append(rollbackErrors, renameErr)
+				}
+			} else if !entry.HadExisting {
+				if removeErr := os.RemoveAll(entry.Destination); removeErr != nil {
+					rollbackErrors = append(rollbackErrors, removeErr)
+				}
+			}
+		}
+		_ = os.RemoveAll(filepath.Dir(entry.Stage))
+	}
+	if len(rollbackErrors) == 0 {
+		if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			rollbackErrors = append(rollbackErrors, err)
+		}
+	}
+	if len(rollbackErrors) > 0 {
+		return fmt.Errorf("roll back incomplete Skill installation: %w", errors.Join(rollbackErrors...))
+	}
+	return nil
+}
+
+func cleanupStagedOperations(operations []installOperation) {
+	for _, operation := range operations {
+		if operation.Stage != "" {
+			_ = os.RemoveAll(filepath.Dir(operation.Stage))
+		}
+	}
+}
+
+func failedInstallReport(name, target string, err error) InstallReport {
+	return InstallReport{AllSucceeded: false, Results: []InstallResult{{Skill: name, Target: target, Status: "failed", Error: err.Error()}}}
+}
+
+func failAllInstallReports(names []string, target string, err error) []InstallReport {
+	reports := make([]InstallReport, len(names))
+	for index, name := range names {
+		reports[index] = failedInstallReport(name, target, err)
+	}
+	return reports
+}
+
+func (b *Bundle) installLegacy(name, target string, environment Environment) InstallReport {
 	paths, err := resolveTargets(name, target, environment, true)
 	if err != nil {
 		return InstallReport{AllSucceeded: false, Results: []InstallResult{{Target: target, Status: "failed", Error: err.Error()}}}
@@ -259,7 +571,7 @@ type targetPath struct {
 	path string
 }
 
-func resolveTargets(skillName, target string, environment Environment, forInstall bool) ([]targetPath, error) {
+func resolveTargets(skillName, target string, environment Environment, _ bool) ([]targetPath, error) {
 	if target == "" {
 		target = "auto"
 	}
@@ -297,17 +609,6 @@ func resolveTargets(skillName, target string, environment Environment, forInstal
 		base := filepath.Dir(filepath.Dir(resolved.path))
 		if _, err := os.Stat(base); err == nil {
 			result = append(result, resolved)
-		}
-	}
-	if !forInstall {
-		seen := map[string]struct{}{known["agents"].path: {}}
-		for _, existing := range result[1:] {
-			seen[existing.path] = struct{}{}
-		}
-		for _, name := range []string{"codex", "claude", "workbuddy"} {
-			if _, ok := seen[known[name].path]; !ok {
-				result = append(result, known[name])
-			}
 		}
 	}
 	return result, nil

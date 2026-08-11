@@ -140,21 +140,32 @@ func (service *ReleaseService) Apply(ctx context.Context, check CheckResult, opt
 			return result, nil
 		}
 		defer os.Remove(staged)
+		backup := executable + ".viceme-update-backup"
+		_ = os.Remove(backup)
+		if err := copyExecutable(executable, backup); err != nil {
+			return result, &OperationError{Kind: ErrorReleaseReplace, Cause: errors.New("could not preserve the previous ViceMe executable")}
+		}
+		restorePrevious := func() {
+			_ = os.Rename(backup, executable)
+		}
+		if err := os.Rename(staged, executable); err != nil {
+			restorePrevious()
+			return result, &OperationError{Kind: ErrorReleaseReplace, Cause: errors.New("could not atomically replace the ViceMe executable")}
+		}
 		if options.RefreshSkills {
 			target := options.SkillTarget
 			if target == "" {
 				target = "auto"
 			}
-			output, err := service.runner().Run(ctx, staged, "install", "--agent", target, "--region", service.Region)
+			output, err := service.runner().Run(ctx, executable, "install", "--agent", target, "--region", service.Region)
 			if err != nil {
+				restorePrevious()
 				result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "failed", Error: commandError(err, output)})
-				return result, &OperationError{Kind: ErrorReleaseSkillRefresh, Cause: errors.New("new CLI could not install its matching official Skills")}
+				return result, &OperationError{Kind: ErrorReleaseSkillRefresh, Cause: errors.New("new CLI could not install and verify its matching official Skills; the previous CLI was restored")}
 			}
 			result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "updated"})
 		}
-		if err := os.Rename(staged, executable); err != nil {
-			return result, &OperationError{Kind: ErrorReleaseReplace, Cause: errors.New("could not atomically replace the ViceMe executable")}
-		}
+		_ = os.Remove(backup)
 		result.CLIVersion = targetVersion
 		result.Targets = append(result.Targets, TargetResult{Target: "standalone_binary", Status: "updated"})
 		return result, nil
@@ -292,6 +303,38 @@ func stageExecutable(destination string, contents []byte) (string, error) {
 	return stagedName, nil
 }
 
+func copyExecutable(source, destination string) error {
+	input, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+	info, err := input.Stat()
+	if err != nil {
+		return err
+	}
+	output, err := os.OpenFile(destination, os.O_CREATE|os.O_EXCL|os.O_WRONLY, info.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	name := output.Name()
+	if _, err := io.Copy(output, input); err != nil {
+		_ = output.Close()
+		_ = os.Remove(name)
+		return err
+	}
+	if err := output.Sync(); err != nil {
+		_ = output.Close()
+		_ = os.Remove(name)
+		return err
+	}
+	if err := output.Close(); err != nil {
+		_ = os.Remove(name)
+		return err
+	}
+	return nil
+}
+
 func scheduleWindowsReplacement(staged, destination, target, region string, refreshSkills bool) error {
 	script, err := os.CreateTemp(filepath.Dir(destination), ".viceme-activate-*.ps1")
 	if err != nil {
@@ -307,13 +350,24 @@ func scheduleWindowsReplacement(staged, destination, target, region string, refr
   [string]$RefreshSkills
 )
 $ErrorActionPreference = "Stop"
+$Result = "$Destination.viceme-update-result.json"
+$Backup = "$Destination.viceme-update-backup"
 try {
   Wait-Process -Id $ParentPid -ErrorAction SilentlyContinue
+  Remove-Item -Force -ErrorAction SilentlyContinue $Backup
+  if (Test-Path $Destination) { Copy-Item -Force -Path $Destination -Destination $Backup }
   Move-Item -Force -Path $Staged -Destination $Destination
   if ($RefreshSkills -eq "true") {
     & $Destination install --agent $Target --region $Region
     if ($LASTEXITCODE -ne 0) { throw "official Skill refresh failed" }
   }
+  @{ status = "succeeded"; updatedAt = [DateTime]::UtcNow.ToString("o") } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $Result
+  Remove-Item -Force -ErrorAction SilentlyContinue $Backup
+} catch {
+  Remove-Item -Force -ErrorAction SilentlyContinue $Destination
+  if (Test-Path $Backup) { Move-Item -Force -Path $Backup -Destination $Destination }
+  @{ status = "failed"; updatedAt = [DateTime]::UtcNow.ToString("o") } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $Result
+  throw
 } finally {
   Remove-Item -Force -ErrorAction SilentlyContinue $MyInvocation.MyCommand.Path
 }

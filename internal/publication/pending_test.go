@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -25,7 +27,8 @@ func TestPendingAndIntentRoundTripUsesPrivateFiles(t *testing.T) {
 	}
 	pending := Pending{
 		PublicationID: intent.PublicationID, ClientRequestID: intent.ClientRequestID,
-		SourcePath: "/tmp/skill", PriceMinor: 1, ArtifactDigest: "b" + fingerprint[1:],
+		Fingerprint: fingerprint,
+		SourcePath:  "/tmp/skill", PriceMinor: 1, ArtifactDigest: "b" + fingerprint[1:],
 	}
 	if err := store.Save(pending); err != nil {
 		t.Fatal(err)
@@ -51,6 +54,61 @@ func TestPendingAndIntentRoundTripUsesPrivateFiles(t *testing.T) {
 	}
 	if _, err := os.Stat(store.filename(pending.PublicationID)); !os.IsNotExist(err) {
 		t.Fatalf("pending record was not deleted: %v", err)
+	}
+}
+
+func TestIntentConcurrentCreationAndTerminalRetirement(t *testing.T) {
+	directory := t.TempDir()
+	store := PendingStore{Directory: directory}
+	fingerprint := strings.Repeat("c", 64)
+	var allocated atomic.Int32
+	newID := func() string {
+		allocated.Add(1)
+		return "33333333-3333-4333-8333-333333333333"
+	}
+	const workers = 20
+	intents := make(chan Intent, workers)
+	errors := make(chan error, workers)
+	var group sync.WaitGroup
+	for range workers {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			intent, err := store.LoadOrCreateIntent(fingerprint, newID)
+			intents <- intent
+			errors <- err
+		}()
+	}
+	group.Wait()
+	close(intents)
+	close(errors)
+	for err := range errors {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	for intent := range intents {
+		if intent.ClientRequestID != "33333333-3333-4333-8333-333333333333" {
+			t.Fatalf("concurrent caller observed another intent: %#v", intent)
+		}
+	}
+	if allocated.Load() != 1 {
+		t.Fatalf("allocated %d client request IDs, want one", allocated.Load())
+	}
+
+	intent, err := store.LoadOrCreateIntent(fingerprint, newID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent.PublicationID = "44444444-4444-4444-8444-444444444444"
+	if err := store.SaveIntent(intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RetireIntent(fingerprint, intent.PublicationID, intent.ClientRequestID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(store.intentFilename(fingerprint)); !os.IsNotExist(err) {
+		t.Fatalf("terminal intent was not retired: %v", err)
 	}
 }
 

@@ -96,7 +96,7 @@ func (m *Manager) Load() (Credential, error) {
 	}
 	if err != nil {
 		return Credential{}, output.Authentication("credential_store_unavailable", "could not read credentials from the secure local credential store").
-			WithHint("on macOS, run 'viceme config keychain-downgrade' once from an interactive Terminal when this process is a Codex or Claude Code sandbox").
+			WithHint("unlock the operating-system credential manager and retry from an interactive Terminal; do not copy or export the access token into the agent sandbox").
 			WithCause(err)
 	}
 	var credential Credential
@@ -113,7 +113,7 @@ func (m *Manager) Delete() error {
 	}
 	if err != nil {
 		return output.Authentication("credential_store_unavailable", "could not remove credentials from the secure local credential store").
-			WithHint("unlock the operating-system credential manager; on macOS sandboxes, run 'viceme config keychain-downgrade' once from an interactive Terminal").
+			WithHint("unlock the operating-system credential manager and retry from an interactive Terminal").
 			WithCause(err)
 	}
 	return nil
