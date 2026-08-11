@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.11.0] - 2026-08-11
+
+### Features
+
+- 展示并确认双语 Skill 短简介 (`f063212`)
+- rebuild skill publication workflow (`64f5fd2`)
+
+### Fixes
+
+- 修复发版准备后的版本测试 (`a84d1c6`)
+- 兼容单层目录包装的 Skill ZIP (`1e63183`)
+- keep install independent of credential status (`b74f06b`)
+- arbitrate outer activation journals (`01ab265`)
+- fence installation generation commits (`5d4a3ad`)
+- unify activation recovery state (`cf882a1`)
+- fence recoverable activation generations (`7a47561`)
+- make installation recovery atomic (`755ae8e`)
+- make publication and install recovery durable (`308deab`)
+
+### Other Changes
+
+- document unified activation recovery (`cfeea2c`)
+- record first-phase completion (`46ab65e`)
+
 ## [0.10.1] - 2026-07-31
 
 ### Fixes
