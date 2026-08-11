@@ -105,6 +105,15 @@ description: Publish a deterministic Skill through the vNext contract.
 	if exit, envelope := execute("publication", "asset", "upload", state.publicationID, "--role", "gallery", "--path", mediaPath); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("verified media reuse failed: exit=%d envelope=%#v", exit, envelope)
 	}
+	if exit, envelope := execute("publication", "review", state.publicationID); exit != 0 || envelope["ok"] != true {
+		t.Fatalf("publication review failed: exit=%d envelope=%#v", exit, envelope)
+	} else {
+		data, _ := envelope["data"].(map[string]any)
+		draft, _ := data["draft"].(map[string]any)
+		if draft["summaryZhCn"] != "发布测试" || draft["summaryEnUs"] != "Publish test" {
+			t.Fatalf("review omitted bilingual summaries: %#v", envelope)
+		}
+	}
 	if exit, envelope := execute("publication", "confirm", state.publicationID, "--review-digest", state.reviewDigest); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("review confirmation failed: exit=%d envelope=%#v", exit, envelope)
 	}
@@ -140,7 +149,10 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 				status:               "DRAFT",
 				mediaPutFailures:     scenario.putFailures,
 				loseCompleteResponse: scenario.loseCompleteResponse,
-				draft:                api.SkillPublicationDraft{Title: "Publish Test", Summary: "Summary", Currency: "CNY", PriceMinor: 1, GalleryUploadIDs: []string{}},
+				draft: api.SkillPublicationDraft{
+					Title: "Publish Test", SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"),
+					Currency: "CNY", PriceMinor: 1, GalleryUploadIDs: []string{},
+				},
 			}
 			server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
 			defer server.Close()
@@ -308,7 +320,10 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		state.createCalls++
 		state.clientRequestIDs = append(state.clientRequestIDs, input.ClientRequestID)
 		state.manifest = input.Manifest
-		state.draft = api.SkillPublicationDraft{Title: input.Manifest.Metadata.Title, Summary: input.Manifest.Metadata.Summary, Currency: "CNY", PriceMinor: input.Manifest.Spec.Sale.PriceMinor, GalleryUploadIDs: []string{}}
+		state.draft = api.SkillPublicationDraft{
+			Title: input.Manifest.Metadata.Title, SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"),
+			Currency: "CNY", PriceMinor: input.Manifest.Spec.Sale.PriceMinor, GalleryUploadIDs: []string{},
+		}
 		state.status = "DRAFT"
 		if state.createCalls == 1 {
 			writer.Header().Set("Content-Type", "application/json")
@@ -391,4 +406,8 @@ func (state *publicationAPITestState) publication() api.SkillPublication {
 func writeJSONResponse(writer http.ResponseWriter, value any) {
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(value)
+}
+
+func stringPointer(value string) *string {
+	return &value
 }

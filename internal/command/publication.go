@@ -41,7 +41,7 @@ func newPublicationGetCommand(runtime *Runtime) *cobra.Command {
 
 func newPublicationReviewCommand(runtime *Runtime) *cobra.Command {
 	return &cobra.Command{
-		Use: "review <publication-id>", Short: "Show price, cover, gallery, analysis suggestions, and review digest", Args: cobra.ExactArgs(1),
+		Use: "review <publication-id>", Short: "Show bilingual summaries, price, media, analysis suggestions, and review digest", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			result, err := runtime.client().GetSkillPublication(command.Context(), args[0])
 			if err != nil {
@@ -176,7 +176,7 @@ func newPublicationUpdateCommand(runtime *Runtime) *cobra.Command {
 func newPublicationConfirmCommand(runtime *Runtime) *cobra.Command {
 	var digest string
 	command := &cobra.Command{
-		Use: "confirm <publication-id>", Short: "Explicitly confirm the current price, cover, and gallery", Args: cobra.ExactArgs(1),
+		Use: "confirm <publication-id>", Short: "Explicitly confirm both summaries, price, cover, and gallery", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			result, err := runtime.client().ConfirmPublication(command.Context(), args[0], digest)
 			if err != nil {

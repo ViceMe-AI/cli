@@ -107,7 +107,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil)
 			}
 			created, err := runtime.client().CreateSkillPublication(command.Context(), api.CreateSkillPublicationRequest{
-				ClientRequestID: intent.ClientRequestID, ContractVersion: "2026-08-10", CLIVersion: buildinfo.Version,
+				ClientRequestID: intent.ClientRequestID, ContractVersion: "2026-08-11", CLIVersion: buildinfo.Version,
 				Manifest: pkg.Manifest, ManifestDigest: pkg.Digest, Artifact: pkg.Artifact,
 				ProductID: productID, CreatorDisplayName: creatorDisplayName,
 			})
