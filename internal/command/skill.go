@@ -145,7 +145,9 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		return err
 	}
 	if current.Status == "PUBLISHED" || current.Status == "CANCELLED" {
-		retirePublicationRecovery(store, pending)
+		if err := retirePublicationRecovery(store, pending, current.Status); err != nil {
+			return err
+		}
 		return runtime.business(current)
 	}
 	if !verifiedUpload(current.Uploads, "PACKAGE", pkg.Artifact.Digest, "") {
@@ -198,14 +200,26 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		}
 	}
 	if current.Status == "PUBLISHED" {
-		retirePublicationRecovery(store, pending)
+		if err := retirePublicationRecovery(store, pending, current.Status); err != nil {
+			return err
+		}
 	}
 	return runtime.business(current)
 }
 
-func retirePublicationRecovery(store publication.PendingStore, pending publication.Pending) {
-	_ = store.RetireIntent(pending.Fingerprint, pending.PublicationID, pending.ClientRequestID)
-	_ = store.Delete(pending.PublicationID)
+func retirePublicationRecovery(store publication.PendingStore, pending publication.Pending, status string) error {
+	details := map[string]any{"publicationId": pending.PublicationID, "status": status}
+	if err := store.RetireIntent(pending.Fingerprint, pending.PublicationID, pending.ClientRequestID); err != nil {
+		return output.Internal("PUBLICATION_RECOVERY_RETIRE_FAILED", "publication reached a terminal state but its local intent could not be retired", err).
+			WithDetails(details).
+			WithHint("retry the same command after repairing access to the ViceMe publication recovery directory")
+	}
+	if err := store.Delete(pending.PublicationID); err != nil {
+		return output.Internal("PUBLICATION_RECOVERY_CLEANUP_FAILED", "publication reached a terminal state but its local recovery file could not be removed", err).
+			WithDetails(details).
+			WithHint("retry the same command after repairing access to the ViceMe publication recovery directory")
+	}
+	return nil
 }
 
 func verifiedUpload(uploads []api.SkillPublicationUpload, kind, digest, relativePath string) bool {

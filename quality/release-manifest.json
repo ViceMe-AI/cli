@@ -20,7 +20,7 @@
   },
   "bootstrap_contract_digest": "sha256:bd19c49b02979f9f34500d26fde64c0523f3056132d0a77940b684e439f567b8",
   "installer_digests": {
-    "install.ps1": "sha256:d2b0b251b5eb9f51be74d0d373a65b090d94a6a5708d495a014b2a5e0b9ae1ef",
-    "install.sh": "sha256:ed08a64fbec74f2bf665c3ba8dcf272c51b3037f944df053c227fb8b5c81299e"
+    "install.ps1": "sha256:27662208d3265a5eefce585b707d7733b273c8bcdc90afd8ddc0ea61f2da7211",
+    "install.sh": "sha256:43c4e072fae7d7834c2c9ca579a16d7510df9492297b53e45dc1c4442c5851ed"
   }
 }

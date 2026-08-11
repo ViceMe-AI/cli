@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -38,7 +39,16 @@ func TestReleaseServiceChecksReplacesAndRefreshesMatchingSkills(t *testing.T) {
 	if err := os.WriteFile(executable, []byte("old"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	runner := &fakeRunner{}
+	runner := &fakeRunner{hook: func(name string, args []string) error {
+		if len(args) < 4 || args[0] != "bootstrap" || args[1] != "activate" || args[2] != "--destination" {
+			return fmt.Errorf("unexpected bootstrap activation: %s %#v", name, args)
+		}
+		contents, err := os.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(args[3], contents, 0o755)
+	}}
 	service := NewReleaseService("1.2.2", "1.2.2")
 	service.ReleaseBaseURL = server.URL
 	service.HTTPClient = server.Client()
@@ -60,7 +70,7 @@ func TestReleaseServiceChecksReplacesAndRefreshesMatchingSkills(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(installed, binary) {
 		t.Fatalf("installed=%q err=%v", installed, err)
 	}
-	if len(runner.calls) != 1 || runner.calls[0].name != executable || !reflect.DeepEqual(runner.calls[0].args, []string{"install", "--agent", "workbuddy", "--region", "global"}) {
+	if len(runner.calls) != 1 || !reflect.DeepEqual(runner.calls[0].args, []string{"bootstrap", "activate", "--destination", executable, "--agent", "workbuddy", "--region", "global"}) {
 		t.Fatalf("matching Skill refresh did not use the activated new binary: %#v", runner.calls)
 	}
 }
@@ -169,6 +179,7 @@ type fakeRunner struct {
 	outputs [][]byte
 	errors  []error
 	calls   []runCall
+	hook    func(string, []string) error
 }
 
 func (runner *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
@@ -181,6 +192,9 @@ func (runner *fakeRunner) Run(_ context.Context, name string, args ...string) ([
 	}
 	if index < len(runner.errors) {
 		err = runner.errors[index]
+	}
+	if err == nil && runner.hook != nil {
+		err = runner.hook(name, args)
 	}
 	return output, err
 }
@@ -220,7 +234,7 @@ func TestNPMServiceChecksAndAppliesExactVersion(t *testing.T) {
 	if !reflect.DeepEqual(runner.calls[0].args, wantInstall) {
 		t.Fatalf("unsafe or inexact npm install args: %#v", runner.calls[0])
 	}
-	wantExec := []string{cacheArg, "exec", "--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org", "--yes", "--package=@viceme-ai/cli@0.1.1", "--", "viceme", "install", "--agent", "codex"}
+	wantExec := []string{cacheArg, "exec", "--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org", "--yes", "--package=@viceme-ai/cli@0.1.1", "--", "viceme", "install", "--agent", "codex", "--internal-skip-launcher-ensure"}
 	if !reflect.DeepEqual(runner.calls[1].args, wantExec) {
 		t.Fatalf("unexpected Skill refresh args: %#v", runner.calls[1])
 	}
@@ -383,18 +397,22 @@ func TestNPMServiceRefusesMutationOutsideNPMLauncher(t *testing.T) {
 
 func TestNPMServiceReturnsPartialResultWhenSkillRefreshFails(t *testing.T) {
 	t.Parallel()
-	runner := &fakeRunner{errors: []error{errors.New("refresh failed")}}
+	runner := &fakeRunner{errors: []error{nil, errors.New("refresh failed")}}
 	service := NewNPMService("0.1.0", "0.1.0", "npm")
+	service.ConfigDir = t.TempDir()
 	service.Runner = runner
 	result, err := service.Apply(context.Background(), CheckResult{AvailableVersion: "0.1.0"}, ApplyOptions{RefreshSkills: true})
-	if err == nil || len(result.Targets) != 2 || result.Targets[1].Status != "failed" {
+	if err == nil || len(result.Targets) != 2 || result.Targets[1].Status != "recovery_pending" {
 		t.Fatalf("expected typed partial result, result=%#v err=%v", result, err)
+	}
+	if _, statErr := os.Stat(filepath.Join(service.ConfigDir, npmActivationFilename)); statErr != nil {
+		t.Fatalf("failed activation did not retain a recovery journal: %v", statErr)
 	}
 }
 
-func TestNPMServiceRestoresExactPreviousLauncherWhenSkillRefreshFails(t *testing.T) {
+func TestNPMServiceRollsForwardExactTargetAfterSkillRefreshFailure(t *testing.T) {
 	t.Parallel()
-	runner := &fakeRunner{errors: []error{nil, errors.New("refresh failed"), nil}}
+	runner := &fakeRunner{errors: []error{nil, errors.New("refresh failed"), nil, nil, nil, nil}}
 	service := NewNPMService("0.1.0", "0.1.0", "npm")
 	service.ConfigDir = t.TempDir()
 	service.Runner = runner
@@ -406,17 +424,25 @@ func TestNPMServiceRestoresExactPreviousLauncherWhenSkillRefreshFails(t *testing
 	if err == nil {
 		t.Fatal("failed Skill refresh unexpectedly committed the npm update")
 	}
-	if result.CLIVersion != "0.1.0" || len(result.Targets) != 3 || result.Targets[2].Target != "npm_global_rollback" || result.Targets[2].Status != "restored" {
-		t.Fatalf("previous launcher was not reported as restored: %#v", result)
+	if result.CLIVersion != "0.1.0" || len(result.Targets) != 2 || result.Targets[0].Status != "recovery_pending" {
+		t.Fatalf("interrupted activation was not reported as recoverable: %#v", result)
 	}
-	if len(runner.calls) != 3 {
+	result, err = service.Apply(
+		context.Background(),
+		CheckResult{AvailableVersion: "0.1.1", UpdateAvailable: true},
+		ApplyOptions{RefreshSkills: true, SkillTarget: "codex"},
+	)
+	if err != nil || result.CLIVersion != "0.1.1" {
+		t.Fatalf("retry did not recover and finish the exact target: result=%#v err=%v", result, err)
+	}
+	if len(runner.calls) != 6 {
 		t.Fatalf("unexpected npm call count: %#v", runner.calls)
 	}
 	if got := runner.calls[0].args[len(runner.calls[0].args)-1]; got != "@viceme-ai/cli@0.1.1" {
 		t.Fatalf("update did not install exact target version: %q", got)
 	}
-	if got := runner.calls[2].args[len(runner.calls[2].args)-1]; got != "@viceme-ai/cli@0.1.0" {
-		t.Fatalf("rollback did not restore exact previous version: %q", got)
+	if got := runner.calls[2].args[len(runner.calls[2].args)-1]; got != "@viceme-ai/cli@0.1.1" {
+		t.Fatalf("recovery did not roll forward the exact target version: %q", got)
 	}
 }
 
@@ -424,13 +450,14 @@ func TestNPMServiceNeverDowngradesSkillWhenRegistryLatestIsOlder(t *testing.T) {
 	t.Parallel()
 	runner := &fakeRunner{}
 	service := NewNPMService("0.2.0", "0.2.0", "npm")
+	service.ConfigDir = t.TempDir()
 	service.Runner = runner
 	_, err := service.Apply(context.Background(), CheckResult{AvailableVersion: "0.1.9", UpdateAvailable: false}, ApplyOptions{RefreshSkills: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "--package=@viceme-ai/cli@0.2.0"
-	if len(runner.calls) != 1 || len(runner.calls[0].args) < 5 || runner.calls[0].args[4] != want {
+	if len(runner.calls) != 2 || !slices.Contains(runner.calls[1].args, want) {
 		t.Fatalf("update selected a downgrade package: %#v", runner.calls)
 	}
 }

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
@@ -15,10 +15,54 @@ const packageDocument = JSON.parse(
 const packageVersion = packageDocument.version;
 const packageArgumentPrefix = `${packageDocument.name}@`;
 
+async function startHealthServer() {
+  const script = fileURLToPath(new URL("./health-server.mjs", import.meta.url));
+  const child = spawn(process.execPath, [script], {
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+  const url = await new Promise((resolve, reject) => {
+    let output = "";
+    child.once("error", reject);
+    child.once("exit", (code) => reject(new Error(`health server exited with ${code}`)));
+    child.stdout.on("data", (chunk) => {
+      output += chunk.toString("utf8");
+      const newline = output.indexOf("\n");
+      if (newline >= 0) {
+        resolve(output.slice(0, newline));
+      }
+    });
+  });
+  return {
+    url,
+    stop() {
+      child.kill("SIGTERM");
+    },
+  };
+}
+
+test("launcher failure preserves the JSON stdout contract", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "viceme-launcher-failure-"));
+  const launcher = fileURLToPath(new URL("../bin/viceme.mjs", import.meta.url));
+  const child = spawnSync(process.execPath, [launcher, "version"], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      VICEME_BINARY_PATH: path.join(home, "missing-viceme"),
+    },
+  });
+  assert.notEqual(child.status, 0);
+  const result = JSON.parse(child.stdout);
+  assert.equal(result.ok, false);
+  assert.equal(result.error.code, "LAUNCHER_FAILED");
+  assert.match(child.stderr, /viceme launcher:/);
+});
+
 test(
   "packed launcher executes root install with a local Go build",
   { skip: !localBinary },
-  async () => {
+  async (context) => {
+    const health = await startHealthServer();
+    context.after(() => health.stop());
     const home = await mkdtemp(path.join(os.tmpdir(), "viceme-launcher-smoke-"));
     const codexHome = path.join(home, "codex");
     const configHome = path.join(home, "config");
@@ -36,6 +80,7 @@ test(
           CODEX_HOME: codexHome,
           VICEME_CLI_CONFIG_DIR: configHome,
           VICEME_BINARY_PATH: path.resolve(localBinary),
+          VICEME_API_BASE_URL: health.url,
         },
       },
     );
@@ -53,7 +98,9 @@ test(
 test(
   "packed cold-start persists a global launcher that works from a fresh PATH",
   { skip: !localBinary || !packageTarball || process.platform === "win32" },
-  async () => {
+  async (context) => {
+    const health = await startHealthServer();
+    context.after(() => health.stop());
     const home = await mkdtemp(path.join(os.tmpdir(), "viceme-packed-cold-start-"));
     const prefix = path.join(home, "npm-prefix");
     const fakeBin = path.join(home, "fake-bin");
@@ -112,6 +159,7 @@ process.exit(child.status ?? 1);
       npm_config_prefix: prefix,
       PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`,
       VICEME_BINARY_PATH: path.resolve(localBinary),
+      VICEME_API_BASE_URL: health.url,
       VICEME_INSTALL_METHOD: "npm",
       VICEME_REAL_NPM_CLI: npmCLI,
       VICEME_TEST_PACKAGE_TARBALL: path.resolve(packageTarball),

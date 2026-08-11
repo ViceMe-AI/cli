@@ -41,5 +41,16 @@ try {
   process.exitCode = await main();
 } catch (error) {
   process.stderr.write(`viceme launcher: ${error.message}\n`);
+  process.stdout.write(
+    `${JSON.stringify({
+      ok: false,
+      error: {
+        type: "internal",
+        code: "LAUNCHER_FAILED",
+        message: "ViceMe launcher could not start",
+        retryable: false,
+      },
+    })}\n`,
+  );
   process.exitCode = 1;
 }

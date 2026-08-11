@@ -3,7 +3,10 @@ package skillcontent
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/ViceMe-AI/cli/internal/buildinfo"
 )
 
 func TestExplicitAgentInstallAlsoWritesAgentsFallbackAndRepairsDrift(t *testing.T) {
@@ -123,6 +126,129 @@ func TestIncompleteInstallJournalRollsBackBeforeNewWork(t *testing.T) {
 	}
 	if _, err := os.Stat(journalPath); !os.IsNotExist(err) {
 		t.Fatalf("recovery journal was not retired: %v", err)
+	}
+}
+
+func TestBootstrapRecoveryDispositionOverridesMatchingInnerGeneration(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []struct {
+		name        string
+		commit      bool
+		wantContent string
+	}{
+		{name: "outer preparing forces rollback", commit: false, wantContent: "old"},
+		{name: "outer committing forces roll forward", commit: true, wantContent: "new"},
+	} {
+		scenario := scenario
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			destination := filepath.Join(root, "skills", "viceme-test", "state.txt")
+			backup := filepath.Join(root, "skills", "viceme-test.viceme-transaction-backup", "state.txt")
+			for filename, content := range map[string]string{destination: "new", backup: "old"} {
+				if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filename, []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			journalPath := filepath.Join(root, installTransactionFilename)
+			journal := installTransaction{
+				SchemaVersion: 1,
+				Status:        "COMMITTING",
+				// The inner generation deliberately matches the running CLI. The
+				// outer bootstrap commit point must still be authoritative.
+				TargetCLIVersion: buildinfo.Version,
+				Entries: []installJournalEntry{{
+					Destination: filepath.Dir(destination),
+					Backup:      filepath.Dir(backup),
+					HadExisting: true,
+					Activating:  true,
+				}},
+			}
+			if err := writeInstallTransaction(journalPath, journal); err != nil {
+				t.Fatal(err)
+			}
+			if err := RecoverInstallTransaction(Environment{Home: root, ConfigDir: root}, scenario.commit); err != nil {
+				t.Fatal(err)
+			}
+			content, err := os.ReadFile(destination)
+			if err != nil || string(content) != scenario.wantContent {
+				t.Fatalf("unexpected recovered generation: content=%q err=%v", content, err)
+			}
+			if _, err := os.Stat(journalPath); !os.IsNotExist(err) {
+				t.Fatalf("recovery journal was not retired: %v", err)
+			}
+		})
+	}
+}
+
+func TestAutomaticRecoveryUsesTargetCLIVersionAsCommitFence(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []struct {
+		name          string
+		targetVersion string
+		wantContent   string
+	}{
+		{name: "matching generation rolls forward", targetVersion: buildinfo.Version, wantContent: "new"},
+		{name: "different generation rolls back", targetVersion: "999.0.0", wantContent: "old"},
+	} {
+		scenario := scenario
+		t.Run(scenario.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			destinationDirectory := filepath.Join(root, "skills", "viceme-test")
+			backupDirectory := destinationDirectory + ".viceme-transaction-backup"
+			for filename, content := range map[string]string{
+				filepath.Join(destinationDirectory, "state.txt"): "new",
+				filepath.Join(backupDirectory, "state.txt"):      "old",
+			} {
+				if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(filename, []byte(content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			journal := installTransaction{
+				SchemaVersion:    1,
+				Status:           "COMMITTING",
+				TargetCLIVersion: scenario.targetVersion,
+				Entries: []installJournalEntry{{
+					Destination: destinationDirectory,
+					Backup:      backupDirectory,
+					HadExisting: true,
+					Activating:  true,
+				}},
+			}
+			if err := writeInstallTransaction(filepath.Join(root, installTransactionFilename), journal); err != nil {
+				t.Fatal(err)
+			}
+			if err := RecoverInstallTransactionAuto(Environment{Home: root, ConfigDir: root}); err != nil {
+				t.Fatal(err)
+			}
+			content, err := os.ReadFile(filepath.Join(destinationDirectory, "state.txt"))
+			if err != nil || strings.TrimSpace(string(content)) != scenario.wantContent {
+				t.Fatalf("unexpected automatic recovery: content=%q err=%v", content, err)
+			}
+		})
+	}
+}
+
+func TestInstallTransactionLockRejectsConcurrentMutation(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeTestSkill(t, root, "viceme-test")
+	bundle := New(os.DirFS(root))
+	environment := Environment{Home: root, ConfigDir: filepath.Join(root, ".viceme-cli")}
+	transaction, _, err := bundle.PrepareInstallSet([]string{"viceme-test"}, "agents", environment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer transaction.Rollback()
+	if _, _, err := bundle.PrepareInstallSet([]string{"viceme-test"}, "agents", environment); err == nil || !strings.Contains(err.Error(), "another ViceMe install transaction") {
+		t.Fatalf("concurrent install was not rejected: %v", err)
 	}
 }
 

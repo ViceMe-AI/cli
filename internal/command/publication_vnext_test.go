@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,8 @@ import (
 	"github.com/ViceMe-AI/cli/internal/api"
 	credentialauth "github.com/ViceMe-AI/cli/internal/auth"
 	"github.com/ViceMe-AI/cli/internal/config"
+	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/publication"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
@@ -197,6 +200,71 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 				t.Fatalf("recovered upload was not selected as cover: %#v", state.draft)
 			}
 		})
+	}
+}
+
+func TestTerminalPublicationRetirementFailureIsRecoverable(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	store := publication.PendingStore{Directory: directory, Now: time.Now}
+	fingerprint := strings.Repeat("a", 64)
+	clientRequestID := "11111111-1111-4111-8111-111111111111"
+	publicationID := "22222222-2222-4222-8222-222222222222"
+	intent, err := store.LoadOrCreateIntent(fingerprint, func() string { return clientRequestID })
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent.PublicationID = publicationID
+	if err := store.SaveIntent(intent); err != nil {
+		t.Fatal(err)
+	}
+	pending := publication.Pending{
+		PublicationID: publicationID, ClientRequestID: clientRequestID, Fingerprint: fingerprint,
+		SourcePath: "/tmp/source", PriceMinor: 1, ArtifactDigest: strings.Repeat("b", 64),
+	}
+	if err := store.Save(pending); err != nil {
+		t.Fatal(err)
+	}
+
+	intentPath := filepath.Join(directory, "intent-"+fingerprint+".json")
+	if err := os.Remove(intentPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(intentPath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	err = retirePublicationRecovery(store, pending, "PUBLISHED")
+	cliError := output.AsError(err)
+	if cliError.Subtype != "PUBLICATION_RECOVERY_RETIRE_FAILED" {
+		t.Fatalf("terminal cleanup failure was hidden: %#v", cliError)
+	}
+	if _, err := os.Stat(filepath.Join(directory, publicationID+".json")); err != nil {
+		t.Fatalf("pending recovery was not retained for retry: %v", err)
+	}
+
+	if err := os.Remove(intentPath); err != nil {
+		t.Fatal(err)
+	}
+	intent, err = store.LoadOrCreateIntent(fingerprint, func() string { return clientRequestID })
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent.PublicationID = publicationID
+	if err := store.SaveIntent(intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := retirePublicationRecovery(store, pending, "PUBLISHED"); err != nil {
+		t.Fatalf("terminal cleanup retry did not converge: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(directory, publicationID+".json")); !os.IsNotExist(err) {
+		t.Fatalf("pending recovery was not retired: %v", err)
+	}
+	next, err := store.LoadOrCreateIntent(fingerprint, func() string { return "33333333-3333-4333-8333-333333333333" })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if next.PublicationID != "" || next.ClientRequestID == clientRequestID {
+		t.Fatalf("terminal intent still trapped a future publication: %#v", next)
 	}
 }
 

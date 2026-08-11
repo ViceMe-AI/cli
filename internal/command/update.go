@@ -12,7 +12,6 @@ import (
 
 func newUpdateCommand(runtime *Runtime) *cobra.Command {
 	var checkOnly bool
-	var skipSkillInstall bool
 	var target string
 	command := &cobra.Command{
 		Use:   "update",
@@ -29,7 +28,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 				return runtime.business(check)
 			}
 			result, err := runtime.deps.Updater.Apply(ctx, check, updatepkg.ApplyOptions{
-				RefreshSkills: !skipSkillInstall,
+				RefreshSkills: true,
 				SkillTarget:   target,
 			})
 			if errors.Is(err, updatepkg.ErrNPMInstallRequired) {
@@ -42,7 +41,6 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().BoolVar(&checkOnly, "check", false, "check the latest npm release without changing local state")
-	command.Flags().BoolVar(&skipSkillInstall, "skip-skill-install", false, "update only the npm launcher and binary")
 	command.Flags().StringVar(&target, "agent", "auto", "Agent target refreshed after update: auto, codex, claude, workbuddy, or agents")
 	return command
 }

@@ -25,21 +25,9 @@ case "$machine" in
 esac
 
 temporary="$(mktemp -d "${TMPDIR:-/tmp}/viceme-install.XXXXXX")"
-activation_pending=0
-had_existing=0
-destination=""
-backup="$temporary/previous-viceme"
-lock_dir=""
 cleanup() {
   status=$?
   trap - EXIT HUP INT TERM
-  if [ "$activation_pending" -eq 1 ] && [ -n "$destination" ]; then
-    rm -f "$destination"
-    if [ "$had_existing" -eq 1 ] && [ -f "$backup" ]; then
-      mv -f "$backup" "$destination"
-    fi
-  fi
-  [ -z "$lock_dir" ] || rmdir "$lock_dir" 2>/dev/null || true
   rm -rf "$temporary"
   exit "$status"
 }
@@ -69,23 +57,9 @@ fi
 
 install_dir="${VICEME_INSTALL_DIR:-$HOME/.local/bin}"
 mkdir -p "$install_dir"
-lock_dir="$install_dir/.viceme-install-lock"
-mkdir "$lock_dir" 2>/dev/null || { echo "Another ViceMe install is active" >&2; exit 1; }
-staged_binary="$(mktemp "$install_dir/.viceme.XXXXXX")"
-cp "$temporary/viceme" "$staged_binary"
-chmod 755 "$staged_binary"
 destination="$install_dir/viceme"
-if [ -f "$destination" ]; then
-  cp "$destination" "$backup"
-  chmod 755 "$backup"
-  had_existing=1
-fi
-activation_pending=1
-mv -f "$staged_binary" "$destination"
-
-"$destination" install --agent auto --region "$region"
-"$destination" doctor --agent auto
-activation_pending=0
+chmod 755 "$temporary/viceme"
+"$temporary/viceme" bootstrap activate --destination "$destination" --agent auto --region "$region"
 
 case ":$PATH:" in
   *":$install_dir:"*) ;;

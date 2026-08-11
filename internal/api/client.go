@@ -65,6 +65,13 @@ func (c *Client) Revoke(ctx context.Context, accessToken string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/logout", struct{}{}, nil, accessToken)
 }
 
+// HealthReady performs an unauthenticated, redirect-free connectivity check.
+// Doctor owns the short deadline so this probe can never inherit the normal
+// command timeout or disclose the stored publication credential.
+func (c *Client) HealthReady(ctx context.Context) error {
+	return c.doJSON(ctx, http.MethodGet, "/v1/health/ready", nil, nil, "")
+}
+
 func (c *Client) CreateSkillPublication(ctx context.Context, request CreateSkillPublicationRequest) (CreateSkillPublicationResponse, error) {
 	var response CreateSkillPublicationResponse
 	err := c.doJSON(ctx, http.MethodPost, "/v1/creator/skill-publications", request, &response, "@stored")

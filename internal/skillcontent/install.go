@@ -129,38 +129,72 @@ func (b *Bundle) Install(name, target string, environment Environment) InstallRe
 // local transaction. A process crash leaves a private journal and backups that
 // the next invocation rolls back before starting new work.
 func (b *Bundle) InstallSet(names []string, target string, environment Environment) []InstallReport {
+	transaction, reports, err := b.PrepareInstallSet(names, target, environment)
+	if err != nil {
+		return failAllInstallReports(names, target, err)
+	}
+	if err := transaction.Commit(); err != nil {
+		return failAllInstallReports(names, target, err)
+	}
+	return reports
+}
+
+// InstallTransaction keeps every previous Skill/config path and the process
+// advisory lock alive until the caller has completed its final Doctor checks.
+// A crash releases the lock but leaves the journal, so the next invocation can
+// restore the complete previous generation before doing any new work.
+type InstallTransaction struct {
+	journalPath string
+	journal     installTransaction
+	lock        *flock.Flock
+	closed      bool
+}
+
+func (b *Bundle) PrepareInstallSet(names []string, target string, environment Environment) (*InstallTransaction, []InstallReport, error) {
 	reports := make([]InstallReport, len(names))
 	for index, name := range names {
 		reports[index] = InstallReport{AllSucceeded: true}
 		if err := b.Validate(name); err != nil {
-			return failAllInstallReports(names, target, err)
+			return nil, nil, err
 		}
 	}
 	if environment.ConfigDir == "" {
 		environment.ConfigDir = defaultConfigDir(environment.Home)
 	}
 	if err := os.MkdirAll(environment.ConfigDir, 0o700); err != nil {
-		return failAllInstallReports(names, target, fmt.Errorf("create ViceMe config directory: %w", err))
+		return nil, nil, fmt.Errorf("create ViceMe config directory: %w", err)
 	}
 	transactionLock := flock.New(filepath.Join(environment.ConfigDir, "install.lock"))
 	locked, err := transactionLock.TryLock()
 	if err != nil {
-		return failAllInstallReports(names, target, fmt.Errorf("acquire install transaction lock: %w", err))
+		return nil, nil, fmt.Errorf("acquire install transaction lock: %w", err)
 	}
 	if !locked {
-		return failAllInstallReports(names, target, errors.New("another ViceMe install transaction is active"))
+		return nil, nil, errors.New("another ViceMe install transaction is active")
 	}
-	defer transactionLock.Unlock()
 	journalPath := filepath.Join(environment.ConfigDir, installTransactionFilename)
 	if err := recoverInstallTransaction(journalPath); err != nil {
-		return failAllInstallReports(names, target, err)
+		_ = transactionLock.Unlock()
+		return nil, nil, err
+	}
+	transaction := &InstallTransaction{
+		journalPath: journalPath,
+		journal:     installTransaction{SchemaVersion: 1, Status: "PREPARING", TargetCLIVersion: buildinfo.Version},
+		lock:        transactionLock,
+	}
+	fail := func(cause error) (*InstallTransaction, []InstallReport, error) {
+		rollbackErr := transaction.Rollback()
+		if rollbackErr != nil {
+			return nil, nil, errors.Join(cause, rollbackErr)
+		}
+		return nil, nil, cause
 	}
 
 	operations := make([]installOperation, 0)
 	for index, name := range names {
 		paths, resolveErr := resolveTargets(name, target, environment, true)
 		if resolveErr != nil {
-			return failAllInstallReports(names, target, resolveErr)
+			return fail(resolveErr)
 		}
 		for _, resolved := range paths {
 			operation := installOperation{Skill: name, Target: resolved.name, Destination: resolved.path, ReportIndex: index}
@@ -171,7 +205,6 @@ func (b *Bundle) InstallSet(names []string, target string, environment Environme
 		}
 	}
 
-	journal := installTransaction{SchemaVersion: 1, Status: "PREPARING"}
 	for index := range operations {
 		operation := &operations[index]
 		if operation.Unchanged {
@@ -180,7 +213,7 @@ func (b *Bundle) InstallSet(names []string, target string, environment Environme
 		staged, expected, stageErr := b.stageInstallation(operation.Skill, operation.Destination)
 		if stageErr != nil {
 			cleanupStagedOperations(operations)
-			return failAllInstallReports(names, target, stageErr)
+			return fail(stageErr)
 		}
 		operation.Stage = staged
 		operation.Expected = expected
@@ -189,16 +222,16 @@ func (b *Bundle) InstallSet(names []string, target string, environment Environme
 			operation.HadExisting = true
 		} else if !errors.Is(statErr, fs.ErrNotExist) {
 			cleanupStagedOperations(operations)
-			return failAllInstallReports(names, target, fmt.Errorf("inspect existing Skill: %w", statErr))
+			return fail(fmt.Errorf("inspect existing Skill: %w", statErr))
 		}
-		journal.Entries = append(journal.Entries, installJournalEntry{
+		transaction.journal.Entries = append(transaction.journal.Entries, installJournalEntry{
 			Destination: operation.Destination, Stage: operation.Stage, Backup: operation.Backup, HadExisting: operation.HadExisting,
 		})
 	}
-	if len(journal.Entries) > 0 {
-		if err := writeInstallTransaction(journalPath, journal); err != nil {
+	if len(transaction.journal.Entries) > 0 {
+		if err := writeInstallTransaction(journalPath, transaction.journal); err != nil {
 			cleanupStagedOperations(operations)
-			return failAllInstallReports(names, target, err)
+			return fail(err)
 		}
 	}
 
@@ -208,42 +241,28 @@ func (b *Bundle) InstallSet(names []string, target string, environment Environme
 		if operation.Unchanged {
 			continue
 		}
-		entry := &journal.Entries[journalIndex]
+		entry := &transaction.journal.Entries[journalIndex]
 		entry.Activating = true
-		if err := writeInstallTransaction(journalPath, journal); err != nil {
-			_ = rollbackInstallTransaction(journalPath, journal)
-			return failAllInstallReports(names, target, err)
+		if err := writeInstallTransaction(journalPath, transaction.journal); err != nil {
+			return fail(err)
 		}
 		_ = os.RemoveAll(operation.Backup)
 		if operation.HadExisting {
 			if err := os.Rename(operation.Destination, operation.Backup); err != nil {
-				_ = rollbackInstallTransaction(journalPath, journal)
-				return failAllInstallReports(names, target, fmt.Errorf("stage existing Skill: %w", err))
+				return fail(fmt.Errorf("stage existing Skill: %w", err))
 			}
 		}
 		if err := os.Rename(operation.Stage, operation.Destination); err != nil {
-			_ = rollbackInstallTransaction(journalPath, journal)
-			return failAllInstallReports(names, target, fmt.Errorf("activate staged Skill: %w", err))
+			return fail(fmt.Errorf("activate staged Skill: %w", err))
 		}
 		actual, err := digestsInstalled(operation.Destination)
 		if err != nil || actual != operation.Expected {
-			_ = rollbackInstallTransaction(journalPath, journal)
 			if err != nil {
-				return failAllInstallReports(names, target, fmt.Errorf("verify installed Skill: %w", err))
+				return fail(fmt.Errorf("verify installed Skill: %w", err))
 			}
-			return failAllInstallReports(names, target, errors.New("verify installed Skill: digest mismatch"))
+			return fail(errors.New("verify installed Skill: digest mismatch"))
 		}
 		journalIndex++
-	}
-	journal.Status = "COMMITTED"
-	if len(journal.Entries) > 0 {
-		if err := writeInstallTransaction(journalPath, journal); err != nil {
-			_ = rollbackInstallTransaction(journalPath, journal)
-			return failAllInstallReports(names, target, err)
-		}
-		if err := recoverInstallTransaction(journalPath); err != nil {
-			return failAllInstallReports(names, target, err)
-		}
 	}
 	for _, operation := range operations {
 		status := "updated"
@@ -253,7 +272,160 @@ func (b *Bundle) InstallSet(names []string, target string, environment Environme
 		report := &reports[operation.ReportIndex]
 		report.Results = append(report.Results, InstallResult{Skill: operation.Skill, Target: operation.Target, Path: operation.Destination, Status: status})
 	}
-	return reports
+	return transaction, reports, nil
+}
+
+// TrackPath adds a non-Skill file (currently the CLI profile config) to the
+// same durable rollback journal before the caller replaces it.
+func (transaction *InstallTransaction) TrackPath(destination string) error {
+	if transaction == nil || transaction.closed {
+		return errors.New("install transaction is not active")
+	}
+	absDestination, err := filepath.Abs(destination)
+	if err != nil {
+		return fmt.Errorf("resolve install transaction path: %w", err)
+	}
+	for _, entry := range transaction.journal.Entries {
+		if entry.Destination == absDestination {
+			return nil
+		}
+	}
+	hadExisting := false
+	if _, err := os.Lstat(absDestination); err == nil {
+		hadExisting = true
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("inspect install transaction path: %w", err)
+	}
+	backup := absDestination + ".viceme-transaction-backup"
+	entry := installJournalEntry{Destination: absDestination, Backup: backup, HadExisting: hadExisting, Activating: true}
+	transaction.journal.Entries = append(transaction.journal.Entries, entry)
+	if err := writeInstallTransaction(transaction.journalPath, transaction.journal); err != nil {
+		transaction.journal.Entries = transaction.journal.Entries[:len(transaction.journal.Entries)-1]
+		return err
+	}
+	if err := os.RemoveAll(backup); err != nil {
+		return fmt.Errorf("remove stale install backup: %w", err)
+	}
+	if hadExisting {
+		if err := os.Rename(absDestination, backup); err != nil {
+			return fmt.Errorf("preserve install transaction path: %w", err)
+		}
+	}
+	return nil
+}
+
+func (transaction *InstallTransaction) Commit() error {
+	if transaction == nil || transaction.closed {
+		return errors.New("install transaction is not active")
+	}
+	transaction.journal.Status = "COMMITTED"
+	if len(transaction.journal.Entries) > 0 {
+		if err := writeInstallTransaction(transaction.journalPath, transaction.journal); err != nil {
+			transaction.close()
+			return err
+		}
+		if err := recoverInstallTransaction(transaction.journalPath); err != nil {
+			transaction.close()
+			return err
+		}
+	}
+	transaction.close()
+	return nil
+}
+
+func (transaction *InstallTransaction) MarkCommitting() error {
+	if transaction == nil || transaction.closed {
+		return errors.New("install transaction is not active")
+	}
+	transaction.journal.Status = "COMMITTING"
+	if len(transaction.journal.Entries) == 0 {
+		return nil
+	}
+	return writeInstallTransaction(transaction.journalPath, transaction.journal)
+}
+
+// RecoverInstallTransaction is used by the staged bootstrap coordinator after
+// a process crash. The outer bootstrap journal is authoritative: false forces
+// rollback before its commit point, while true forces roll-forward after the
+// launcher is durable. This deliberately ignores the inner target CLI version.
+func RecoverInstallTransaction(environment Environment, commit bool) error {
+	if environment.ConfigDir == "" {
+		environment.ConfigDir = defaultConfigDir(environment.Home)
+	}
+	if err := os.MkdirAll(environment.ConfigDir, 0o700); err != nil {
+		return fmt.Errorf("create ViceMe config directory: %w", err)
+	}
+	transactionLock := flock.New(filepath.Join(environment.ConfigDir, "install.lock"))
+	if err := transactionLock.Lock(); err != nil {
+		return fmt.Errorf("acquire install recovery lock: %w", err)
+	}
+	defer transactionLock.Unlock()
+	journalPath := filepath.Join(environment.ConfigDir, installTransactionFilename)
+	data, err := os.ReadFile(journalPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read install recovery journal: %w", err)
+	}
+	var journal installTransaction
+	if err := decodeStrictJSON(data, &journal); err != nil || journal.SchemaVersion != 1 {
+		return errors.New("install recovery journal is invalid; refusing to reconcile installed Skills")
+	}
+	if !commit {
+		return rollbackInstallTransaction(journalPath, journal)
+	}
+	journal.Status = "COMMITTED"
+	if err := writeInstallTransaction(journalPath, journal); err != nil {
+		return err
+	}
+	return recoverInstallTransaction(journalPath)
+}
+
+// RecoverInstallTransactionAuto reconciles a standalone install transaction
+// when no outer bootstrap journal exists. A matching COMMITTING generation is
+// safe to finish because the current CLI already is that generation; all other
+// incomplete generations roll back.
+func RecoverInstallTransactionAuto(environment Environment) error {
+	if environment.ConfigDir == "" {
+		environment.ConfigDir = defaultConfigDir(environment.Home)
+	}
+	if err := os.MkdirAll(environment.ConfigDir, 0o700); err != nil {
+		return fmt.Errorf("create ViceMe config directory: %w", err)
+	}
+	transactionLock := flock.New(filepath.Join(environment.ConfigDir, "install.lock"))
+	if err := transactionLock.Lock(); err != nil {
+		return fmt.Errorf("acquire install recovery lock: %w", err)
+	}
+	defer transactionLock.Unlock()
+	return recoverInstallTransaction(filepath.Join(environment.ConfigDir, installTransactionFilename))
+}
+
+func (transaction *InstallTransaction) Rollback() error {
+	if transaction == nil || transaction.closed {
+		return nil
+	}
+	err := rollbackInstallTransaction(transaction.journalPath, transaction.journal)
+	transaction.close()
+	return err
+}
+
+// Abandon releases only the process lock. The durable journal remains for an
+// outer bootstrap coordinator that has already persisted its own commit point.
+func (transaction *InstallTransaction) Abandon() {
+	if transaction != nil {
+		transaction.close()
+	}
+}
+
+func (transaction *InstallTransaction) close() {
+	if transaction.closed {
+		return
+	}
+	transaction.closed = true
+	if transaction.lock != nil {
+		_ = transaction.lock.Unlock()
+	}
 }
 
 type installOperation struct {
@@ -269,9 +441,10 @@ type installOperation struct {
 }
 
 type installTransaction struct {
-	SchemaVersion int                   `json:"schema_version"`
-	Status        string                `json:"status"`
-	Entries       []installJournalEntry `json:"entries"`
+	SchemaVersion    int                   `json:"schema_version"`
+	Status           string                `json:"status"`
+	TargetCLIVersion string                `json:"target_cli_version,omitempty"`
+	Entries          []installJournalEntry `json:"entries"`
 }
 
 type installJournalEntry struct {
@@ -366,12 +539,30 @@ func recoverInstallTransaction(filename string) error {
 	if err := decodeStrictJSON(data, &journal); err != nil || journal.SchemaVersion != 1 {
 		return errors.New("install recovery journal is invalid; refusing to overwrite installed Skills")
 	}
+	if journal.Status == "COMMITTING" && journal.TargetCLIVersion == buildinfo.Version {
+		journal.Status = "COMMITTED"
+		if err := writeInstallTransaction(filename, journal); err != nil {
+			return err
+		}
+	}
 	if journal.Status != "COMMITTED" {
 		return rollbackInstallTransaction(filename, journal)
 	}
+	var cleanupErrors []error
 	for _, entry := range journal.Entries {
-		_ = os.RemoveAll(filepath.Dir(entry.Stage))
-		_ = os.RemoveAll(entry.Backup)
+		if entry.Stage != "" {
+			if err := os.RemoveAll(filepath.Dir(entry.Stage)); err != nil {
+				cleanupErrors = append(cleanupErrors, err)
+			}
+		}
+		if entry.Backup != "" {
+			if err := os.RemoveAll(entry.Backup); err != nil {
+				cleanupErrors = append(cleanupErrors, err)
+			}
+		}
+	}
+	if len(cleanupErrors) > 0 {
+		return fmt.Errorf("complete committed Skill installation: %w", errors.Join(cleanupErrors...))
 	}
 	if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("complete install recovery: %w", err)
@@ -385,17 +576,24 @@ func rollbackInstallTransaction(filename string, journal installTransaction) err
 		entry := journal.Entries[index]
 		if entry.Activating {
 			if _, err := os.Lstat(entry.Backup); err == nil {
-				_ = os.RemoveAll(entry.Destination)
-				if renameErr := os.Rename(entry.Backup, entry.Destination); renameErr != nil {
+				if removeErr := os.RemoveAll(entry.Destination); removeErr != nil {
+					rollbackErrors = append(rollbackErrors, removeErr)
+				} else if renameErr := os.Rename(entry.Backup, entry.Destination); renameErr != nil {
 					rollbackErrors = append(rollbackErrors, renameErr)
 				}
 			} else if !entry.HadExisting {
 				if removeErr := os.RemoveAll(entry.Destination); removeErr != nil {
 					rollbackErrors = append(rollbackErrors, removeErr)
 				}
+			} else if _, destinationErr := os.Lstat(entry.Destination); destinationErr != nil {
+				rollbackErrors = append(rollbackErrors, errors.New("install rollback lost both the previous backup and active destination"))
 			}
 		}
-		_ = os.RemoveAll(filepath.Dir(entry.Stage))
+		if entry.Stage != "" {
+			if err := os.RemoveAll(filepath.Dir(entry.Stage)); err != nil {
+				rollbackErrors = append(rollbackErrors, err)
+			}
+		}
 	}
 	if len(rollbackErrors) == 0 {
 		if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {

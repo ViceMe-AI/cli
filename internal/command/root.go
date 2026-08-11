@@ -104,6 +104,12 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	}
 	dependencies = defaults(dependencies)
 	configBase := runtimeConfigBase(dependencies.Environment)
+	if err := recoverBootstrapActivationAtStartup(configBase, dependencies.Environment); err != nil {
+		return nil, nil, output.Internal("BOOTSTRAP_RECOVERY_FAILED", "could not reconcile an interrupted ViceMe bootstrap", err)
+	}
+	if err := skillcontent.RecoverInstallTransactionAuto(dependencies.Environment); err != nil {
+		return nil, nil, output.Internal("INSTALL_RECOVERY_FAILED", "could not reconcile an interrupted ViceMe installation", err)
+	}
 	resolvedConfig := config.Default(config.RegionCN)
 	if dependencies.Region == "" {
 		var err error
@@ -161,7 +167,14 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 			if runtime.opts.version {
 				return runtime.writeVersion()
 			}
-			return cmd.Help()
+			cmd.SetOut(runtime.deps.ErrOut)
+			if err := cmd.Help(); err != nil {
+				return output.Internal("help_render_failed", "could not render ViceMe command help", err)
+			}
+			return runtime.business(map[string]any{
+				"command": "viceme",
+				"help":    "human-readable command help was written to stderr",
+			})
 		},
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
@@ -181,6 +194,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		return output.Validation("invalid_flag", err.Error())
 	})
 	root.AddCommand(newVersionCommand(runtime))
+	root.AddCommand(newBootstrapCommand(runtime))
 	root.AddCommand(newInstallCommand(runtime))
 	root.AddCommand(newDoctorCommand(runtime))
 	root.AddCommand(newUpdateCommand(runtime))

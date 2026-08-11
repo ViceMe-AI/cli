@@ -27,7 +27,19 @@ func TestShellInstallerVerifiesChecksumAndPreservesWorkingVersionOnFailure(t *te
 	writeInstallerTestFile(t, filepath.Join(fixtures, "latest"), "1.2.3\n", 0o644)
 	binary := `#!/bin/sh
 printf '%s\n' "$*" >>"$VICEME_TEST_INSTALL_LOG"
-if [ "${VICEME_TEST_INSTALL_FAIL:-}" = "1" ] && [ "${1:-}" = "install" ]; then exit 9; fi
+if [ "${1:-}" = "bootstrap" ] && [ "${2:-}" = "activate" ]; then
+  if [ "${VICEME_TEST_INSTALL_FAIL:-}" = "1" ]; then exit 9; fi
+  shift 2
+  destination=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --destination) destination="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  cp "$0" "$destination"
+  chmod 755 "$destination"
+fi
 `
 	writeInstallerTestFile(t, filepath.Join(fixtures, "viceme_1.2.3_linux_amd64"), binary, 0o755)
 	digest := sha256.Sum256([]byte(binary))
@@ -71,7 +83,7 @@ cp "$VICEME_TEST_FIXTURES/${url##*/}" "$out"
 		t.Fatalf("unexpected installed binary: err=%v content=%q", err, installed)
 	}
 	logData, err := os.ReadFile(logFile)
-	if err != nil || !strings.Contains(string(logData), "install --agent auto --region cn") {
+	if err != nil || !strings.Contains(string(logData), "bootstrap activate --destination ") || !strings.Contains(string(logData), "--agent auto --region cn") {
 		t.Fatalf("official Skills were not installed: err=%v log=%q", err, logData)
 	}
 

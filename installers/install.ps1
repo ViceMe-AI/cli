@@ -39,35 +39,9 @@ try {
 
   $installDir = if ($env:VICEME_INSTALL_DIR) { $env:VICEME_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "ViceMe\bin" }
   New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-  $lockPath = Join-Path $installDir ".viceme-install-lock"
-  try {
-    $installLock = [System.IO.File]::Open($lockPath, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
-  } catch {
-    throw "Another ViceMe install is active"
-  }
   $destination = Join-Path $installDir "viceme.exe"
-  $staged = Join-Path $installDir (".viceme-" + [Guid]::NewGuid().ToString("N") + ".exe")
-  $backup = Join-Path $temporary "previous-viceme.exe"
-  $hadExisting = Test-Path $destination
-  $activationPending = $false
-  Copy-Item -Path $binaryPath -Destination $staged
-  try {
-    if ($hadExisting) { Copy-Item -Path $destination -Destination $backup }
-    $activationPending = $true
-    Move-Item -Force -Path $staged -Destination $destination
-    & $destination install --agent auto --region $region
-    if ($LASTEXITCODE -ne 0) { throw "official Skill installation failed" }
-    & $destination doctor --agent auto
-    if ($LASTEXITCODE -ne 0) { throw "ViceMe Doctor failed after installation" }
-    $activationPending = $false
-  } finally {
-    if ($activationPending) {
-      Remove-Item -Force -ErrorAction SilentlyContinue $destination
-      if ($hadExisting -and (Test-Path $backup)) { Move-Item -Force -Path $backup -Destination $destination }
-    }
-    if ($installLock) { $installLock.Dispose() }
-    Remove-Item -Force -ErrorAction SilentlyContinue $lockPath
-  }
+  & $binaryPath bootstrap activate --destination $destination --agent auto --region $region
+  if ($LASTEXITCODE -ne 0) { throw "ViceMe bootstrap activation failed" }
 
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
   $parts = @($userPath -split ';' | Where-Object { $_ })

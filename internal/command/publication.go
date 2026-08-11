@@ -202,7 +202,11 @@ func newPublicationPublishCommand(runtime *Runtime) *cobra.Command {
 			if result.Status == "PUBLISHED" {
 				store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
 				if pending, loadErr := store.Load(args[0]); loadErr == nil {
-					retirePublicationRecovery(store, pending)
+					if err := retirePublicationRecovery(store, pending, result.Status); err != nil {
+						return err
+					}
+				} else if output.AsError(loadErr).Subtype != "PUBLICATION_RECOVERY_NOT_FOUND" {
+					return loadErr
 				}
 			}
 			return runtime.business(result)
@@ -223,7 +227,11 @@ func newPublicationCancelCommand(runtime *Runtime) *cobra.Command {
 			}
 			store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
 			if pending, loadErr := store.Load(args[0]); loadErr == nil {
-				retirePublicationRecovery(store, pending)
+				if err := retirePublicationRecovery(store, pending, "CANCELLED"); err != nil {
+					return err
+				}
+			} else if output.AsError(loadErr).Subtype != "PUBLICATION_RECOVERY_NOT_FOUND" {
+				return loadErr
 			}
 			return runtime.business(result)
 		},

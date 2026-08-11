@@ -7,7 +7,7 @@ NPM_VERSION = $(shell node -p "require('./package.json').version")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -X github.com/ViceMe-AI/cli/internal/buildinfo.Version=$(VERSION) -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=$(COMMIT)
 
-.PHONY: build test test-race check skill-check quality-check npm-test npm-package-check release-manifest release-prepare clean update-check
+.PHONY: build test test-race check skill-check quality-check npm-test npm-package-check release-manifest release-manifest-check release-prepare clean update-check
 
 build:
 	mkdir -p bin
@@ -26,6 +26,7 @@ check: test
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) vet ./...
 	mkdir -p bin
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/viceme ./cmd/viceme
+	$(MAKE) release-manifest-check
 
 quality-check: test npm-package-check
 
@@ -36,12 +37,21 @@ npm-package-check: build
 	mkdir -p .cache/npm-pack
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) build -trimpath -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=$(NPM_VERSION) -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=$(COMMIT)" -o bin/viceme-release-smoke ./cmd/viceme
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm npm pack --pack-destination .cache/npm-pack
-	VICEME_INSTALL_METHOD=npm VICEME_NPM_PACKAGE_VERSION=$(NPM_VERSION) ./bin/viceme-release-smoke --version
+	VICEME_CLI_CONFIG_DIR=$(CURDIR)/.cache/release-smoke-config VICEME_INSTALL_METHOD=npm VICEME_NPM_PACKAGE_VERSION=$(NPM_VERSION) ./bin/viceme-release-smoke --version
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm VICEME_TEST_BINARY=$(CURDIR)/bin/viceme-release-smoke VICEME_TEST_PACKAGE_TARBALL=$(CURDIR)/.cache/npm-pack/viceme-ai-cli-$(NPM_VERSION).tgz npm test
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm npm pack --dry-run
 
 release-manifest:
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) run ./cmd/release-manifest --output quality/release-manifest.json
+
+release-manifest-check:
+	@temporary="$$(mktemp)"; \
+	trap 'rm -f "$$temporary"' EXIT; \
+	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) run ./cmd/release-manifest --output "$$temporary"; \
+	if ! cmp -s quality/release-manifest.json "$$temporary"; then \
+		diff -u quality/release-manifest.json "$$temporary"; \
+		exit 1; \
+	fi
 
 release-prepare:
 	node npm/scripts/prepare-release.mjs --fallback-ref origin/main

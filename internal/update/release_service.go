@@ -128,44 +128,26 @@ func (service *ReleaseService) Apply(ctx context.Context, check CheckResult, opt
 			if target == "" {
 				target = "auto"
 			}
-			if err := service.scheduleWindows()(staged, executable, target, service.Region, options.RefreshSkills); err != nil {
+			if err := service.scheduleWindows()(staged, executable, target, service.Region, true); err != nil {
 				os.Remove(staged)
 				return result, &OperationError{Kind: ErrorReleaseReplace, Cause: errors.New("could not schedule the Windows release activation")}
 			}
 			result.CLIVersion = targetVersion
 			result.Targets = append(result.Targets, TargetResult{Target: "standalone_binary", Status: "scheduled"})
-			if options.RefreshSkills {
-				result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "scheduled"})
-			}
+			result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "scheduled"})
 			return result, nil
 		}
 		defer os.Remove(staged)
-		backup := executable + ".viceme-update-backup"
-		_ = os.Remove(backup)
-		if err := copyExecutable(executable, backup); err != nil {
-			return result, &OperationError{Kind: ErrorReleaseReplace, Cause: errors.New("could not preserve the previous ViceMe executable")}
+		target := options.SkillTarget
+		if target == "" {
+			target = "auto"
 		}
-		restorePrevious := func() {
-			_ = os.Rename(backup, executable)
+		output, err := service.runner().Run(ctx, staged, "bootstrap", "activate", "--destination", executable, "--agent", target, "--region", service.Region)
+		if err != nil {
+			result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "failed", Error: commandError(err, output)})
+			return result, &OperationError{Kind: ErrorReleaseSkillRefresh, Cause: errors.New("new CLI could not atomically activate its executable and matching official Skills")}
 		}
-		if err := os.Rename(staged, executable); err != nil {
-			restorePrevious()
-			return result, &OperationError{Kind: ErrorReleaseReplace, Cause: errors.New("could not atomically replace the ViceMe executable")}
-		}
-		if options.RefreshSkills {
-			target := options.SkillTarget
-			if target == "" {
-				target = "auto"
-			}
-			output, err := service.runner().Run(ctx, executable, "install", "--agent", target, "--region", service.Region)
-			if err != nil {
-				restorePrevious()
-				result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "failed", Error: commandError(err, output)})
-				return result, &OperationError{Kind: ErrorReleaseSkillRefresh, Cause: errors.New("new CLI could not install and verify its matching official Skills; the previous CLI was restored")}
-			}
-			result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "updated"})
-		}
-		_ = os.Remove(backup)
+		result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "updated"})
 		result.CLIVersion = targetVersion
 		result.Targets = append(result.Targets, TargetResult{Target: "standalone_binary", Status: "updated"})
 		return result, nil
@@ -351,24 +333,16 @@ func scheduleWindowsReplacement(staged, destination, target, region string, refr
 )
 $ErrorActionPreference = "Stop"
 $Result = "$Destination.viceme-update-result.json"
-$Backup = "$Destination.viceme-update-backup"
 try {
   Wait-Process -Id $ParentPid -ErrorAction SilentlyContinue
-  Remove-Item -Force -ErrorAction SilentlyContinue $Backup
-  if (Test-Path $Destination) { Copy-Item -Force -Path $Destination -Destination $Backup }
-  Move-Item -Force -Path $Staged -Destination $Destination
-  if ($RefreshSkills -eq "true") {
-    & $Destination install --agent $Target --region $Region
-    if ($LASTEXITCODE -ne 0) { throw "official Skill refresh failed" }
-  }
+  & $Staged bootstrap activate --destination $Destination --agent $Target --region $Region
+  if ($LASTEXITCODE -ne 0) { throw "atomic CLI and Skill activation failed" }
   @{ status = "succeeded"; updatedAt = [DateTime]::UtcNow.ToString("o") } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $Result
-  Remove-Item -Force -ErrorAction SilentlyContinue $Backup
 } catch {
-  Remove-Item -Force -ErrorAction SilentlyContinue $Destination
-  if (Test-Path $Backup) { Move-Item -Force -Path $Backup -Destination $Destination }
   @{ status = "failed"; updatedAt = [DateTime]::UtcNow.ToString("o") } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $Result
   throw
 } finally {
+	Remove-Item -Force -ErrorAction SilentlyContinue $Staged
   Remove-Item -Force -ErrorAction SilentlyContinue $MyInvocation.MyCommand.Path
 }
 `

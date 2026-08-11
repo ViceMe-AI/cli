@@ -49,6 +49,42 @@ func TestPublicationClientUsesBearerAndExactContract(t *testing.T) {
 	}
 }
 
+func TestHealthReadyIsUnauthenticatedAndRedirectFree(t *testing.T) {
+	t.Parallel()
+	var targetCalled atomic.Bool
+	var redirectResponse atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		targetCalled.Store(true)
+	}))
+	defer target.Close()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/health/ready" {
+			t.Fatalf("unexpected readiness request: %s %s", request.Method, request.URL.Path)
+		}
+		if authorization := request.Header.Get("Authorization"); authorization != "" {
+			t.Fatalf("readiness probe leaked a credential: %q", authorization)
+		}
+		if redirectResponse.Load() {
+			http.Redirect(writer, request, target.URL, http.StatusTemporaryRedirect)
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), staticToken("must-not-be-read"), "viceme/test")
+	if err := client.HealthReady(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	redirectResponse.Store(true)
+	if err := client.HealthReady(context.Background()); err == nil {
+		t.Fatal("readiness probe accepted a redirect")
+	}
+	if targetCalled.Load() {
+		t.Fatal("readiness probe followed a redirect")
+	}
+}
+
 func TestClientPreservesCanonicalServerError(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
