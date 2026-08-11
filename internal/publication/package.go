@@ -299,7 +299,62 @@ func readZip(filename string) ([]sourceEntry, error) {
 			return nil, output.Validation("SKILL_PACKAGE_TOO_MANY_FILES", "Skill package exceeds 1000 files")
 		}
 	}
-	return normalizeEntries(entries)
+	normalized, err := normalizeEntries(entries)
+	if err != nil {
+		return nil, err
+	}
+	return unwrapSingleZipRoot(normalized)
+}
+
+// unwrapSingleZipRoot accepts the directory wrapper produced by common source
+// archive downloads, for example repository-main/SKILL.md. It only unwraps
+// when every file belongs to one top-level directory and SKILL.md is directly
+// inside that directory. Ambiguous or deeper layouts remain invalid.
+func unwrapSingleZipRoot(entries []sourceEntry) ([]sourceEntry, error) {
+	for _, entry := range entries {
+		if entry.name == "SKILL.md" {
+			return entries, nil
+		}
+	}
+
+	root := ""
+	for _, entry := range entries {
+		separator := strings.IndexByte(entry.name, '/')
+		if separator <= 0 {
+			return entries, nil
+		}
+		entryRoot := entry.name[:separator]
+		if root == "" {
+			root = entryRoot
+			continue
+		}
+		if entryRoot != root {
+			return entries, nil
+		}
+	}
+
+	prefix := root + "/"
+	manifestPath := prefix + "SKILL.md"
+	hasManifest := false
+	for _, entry := range entries {
+		if entry.name == manifestPath {
+			hasManifest = true
+			break
+		}
+	}
+	if !hasManifest {
+		return entries, nil
+	}
+
+	unwrapped := make([]sourceEntry, 0, len(entries))
+	for _, entry := range entries {
+		name := strings.TrimPrefix(entry.name, prefix)
+		if err := validatePath(name); err != nil {
+			return nil, err
+		}
+		unwrapped = append(unwrapped, sourceEntry{name: name, mode: entry.mode, data: entry.data})
+	}
+	return normalizeEntries(unwrapped)
 }
 
 func normalizeEntries(entries []sourceEntry) ([]sourceEntry, error) {

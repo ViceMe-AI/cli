@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -59,6 +60,79 @@ func TestBuildIsDeterministicAcrossDirectoryAndZip(t *testing.T) {
 	}
 	if fromZip.Artifact.Digest != first.Artifact.Digest || fromZip.Digest != first.Digest {
 		t.Fatalf("directory and canonical ZIP disagree: directory=%#v zip=%#v", first.Artifact, fromZip.Artifact)
+	}
+}
+
+func TestBuildUnwrapsSingleZipRootDirectory(t *testing.T) {
+	t.Parallel()
+	image, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory := t.TempDir()
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte(testSkillMarkdown), 0o644)
+	writeTestFile(t, filepath.Join(directory, "scripts", "run.sh"), []byte("#!/bin/sh\necho ok\n"), 0o644)
+	writeTestFile(t, filepath.Join(directory, "assets", "cover.png"), image, 0o644)
+
+	canonical, err := Build(directory, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	wrapperZIP := zipBytes(t, map[string][]byte{
+		"poster-skill-main/SKILL.md":         []byte(testSkillMarkdown),
+		"poster-skill-main/assets/cover.png": image,
+		"poster-skill-main/scripts/run.sh":   []byte("#!/bin/sh\necho ok\n"),
+	})
+	zipPath := filepath.Join(t.TempDir(), "github-download.zip")
+	writeTestFile(t, zipPath, wrapperZIP, 0o644)
+
+	wrapped, err := Build(zipPath, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wrapped.Artifact.Digest != canonical.Artifact.Digest || wrapped.Digest != canonical.Digest {
+		t.Fatalf("wrapped ZIP and canonical directory disagree: wrapped=%#v canonical=%#v", wrapped.Artifact, canonical.Artifact)
+	}
+	if len(wrapped.Candidates) != 1 || wrapped.Candidates[0].RelativePath != "assets/cover.png" {
+		t.Fatalf("wrapped ZIP candidate path was not normalized: %#v", wrapped.Candidates)
+	}
+
+	reader, err := zip.NewReader(bytes.NewReader(wrapped.Bytes), int64(len(wrapped.Bytes)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range reader.File {
+		if strings.HasPrefix(file.Name, "poster-skill-main/") {
+			t.Fatalf("deterministic artifact retained source archive wrapper: %s", file.Name)
+		}
+	}
+}
+
+func TestBuildDoesNotUnwrapAmbiguousOrNestedZipRoots(t *testing.T) {
+	t.Parallel()
+	tests := map[string]map[string][]byte{
+		"multiple roots": {
+			"poster-skill-main/SKILL.md": []byte(testSkillMarkdown),
+			"other-root/readme.md":       []byte("other"),
+		},
+		"root file alongside wrapper": {
+			"poster-skill-main/SKILL.md": []byte(testSkillMarkdown),
+			"readme.md":                  []byte("root"),
+		},
+		"manifest below wrapper root": {
+			"poster-skill-main/nested/SKILL.md": []byte(testSkillMarkdown),
+		},
+	}
+
+	for name, files := range tests {
+		name, files := name, files
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			zipPath := filepath.Join(t.TempDir(), "invalid.zip")
+			writeTestFile(t, zipPath, zipBytes(t, files), 0o644)
+			assertOutputCode(t, buildError(zipPath), "SKILL_MANIFEST_MISSING")
+		})
 	}
 }
 
