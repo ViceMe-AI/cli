@@ -24,13 +24,15 @@ type installNextStep struct {
 }
 
 type bootstrapInstallResult struct {
-	Launcher      updatepkg.TargetResult       `json:"launcher"`
-	Skills        []skillcontent.InstallReport `json:"skills"`
-	Config        config.EnsureResult          `json:"config"`
-	Profile       string                       `json:"profile"`
-	Region        config.Region                `json:"region"`
-	Authenticated bool                         `json:"authenticated"`
-	NextStep      installNextStep              `json:"nextStep"`
+	Launcher        updatepkg.TargetResult       `json:"launcher"`
+	Skills          []skillcontent.InstallReport `json:"skills"`
+	Config          config.EnsureResult          `json:"config"`
+	Profile         string                       `json:"profile"`
+	Region          config.Region                `json:"region"`
+	Authenticated   bool                         `json:"authenticated"`
+	AuthStatusKnown bool                         `json:"authStatusKnown"`
+	Warnings        []string                     `json:"warnings,omitempty"`
+	NextStep        installNextStep              `json:"nextStep"`
 }
 
 type installCommitAuthority struct {
@@ -284,10 +286,7 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 	if !network.Healthy {
 		return rollback(output.Network("DOCTOR_API_UNREACHABLE", "ViceMe API did not pass the installation readiness check", nil).WithDetails(network))
 	}
-	status, err := runtime.manager().CurrentStatus()
-	if err != nil {
-		return rollback(err)
-	}
+	authenticated, authStatusKnown, warnings := installAuthenticationStatus(runtime)
 	if err := transaction.MarkCommitting(); err != nil {
 		return rollback(output.Internal("INSTALL_COMMIT_PREPARE_FAILED", "could not persist the verified installation commit point", err))
 	}
@@ -319,13 +318,33 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 			return bootstrapInstallResult{}, output.Internal("INSTALL_AUTHORITY_COMMIT_FAILED", "ViceMe installation committed but its activation authority could not be finalized", err)
 		}
 	}
-	result := bootstrapInstallResult{Launcher: launcher, Skills: reports, Config: configResult, Profile: profile.Name, Region: resolvedRegion, Authenticated: status.Authenticated}
-	if status.Authenticated {
+	result := bootstrapInstallResult{
+		Launcher:        launcher,
+		Skills:          reports,
+		Config:          configResult,
+		Profile:         profile.Name,
+		Region:          resolvedRegion,
+		Authenticated:   authenticated,
+		AuthStatusKnown: authStatusKnown,
+		Warnings:        warnings,
+	}
+	if authenticated {
 		result.NextStep = installNextStep{Command: "viceme skill inspect --path <dir-or-zip>", Reason: "CLI and official Skills are ready"}
 	} else {
 		result.NextStep = installNextStep{Required: true, Command: "viceme auth login", Reason: "sign in before publishing a Skill"}
 	}
 	return result, nil
+}
+
+func installAuthenticationStatus(runtime *Runtime) (authenticated, known bool, warnings []string) {
+	if token, _, _ := runtime.overrideCredential(); token != "" {
+		return true, true, nil
+	}
+	status, err := runtime.manager().CurrentStatus()
+	if err != nil {
+		return false, false, []string{"authentication status could not be read from the secure credential store"}
+	}
+	return status.Authenticated, true, nil
 }
 
 type doctorSkillResult struct {

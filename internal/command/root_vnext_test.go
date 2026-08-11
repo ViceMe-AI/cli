@@ -27,6 +27,20 @@ import (
 
 type failingEntropyReader struct{}
 
+type unavailableCredentialStore struct{}
+
+func (unavailableCredentialStore) Get(string) (string, error) {
+	return "", errors.New("credential backend unavailable")
+}
+
+func (unavailableCredentialStore) Set(string, string) error {
+	return errors.New("credential backend unavailable")
+}
+
+func (unavailableCredentialStore) Delete(string) error {
+	return errors.New("credential backend unavailable")
+}
+
 type startupRecoveryUpdater struct {
 	called atomic.Bool
 	err    error
@@ -471,5 +485,22 @@ func TestDoctorIncludesUnauthenticatedNetworkReadiness(t *testing.T) {
 	readinessStatus.Store(http.StatusServiceUnavailable)
 	if exit, result := run(); exit == 0 || result["ok"] != false {
 		t.Fatalf("Doctor accepted an unavailable API: exit=%d result=%#v", exit, result)
+	}
+}
+
+func TestInstallTreatsCredentialStatusAsAdvisory(t *testing.T) {
+	t.Parallel()
+	runtime := &Runtime{
+		region:  config.RegionCN,
+		profile: config.Profile{ID: "profile-default", Name: "default", Region: config.RegionCN},
+		deps:    Dependencies{Store: unavailableCredentialStore{}},
+	}
+
+	authenticated, known, warnings := installAuthenticationStatus(runtime)
+	if authenticated || known {
+		t.Fatalf("unavailable credential store was reported as a known login state: authenticated=%t known=%t", authenticated, known)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "could not be read") {
+		t.Fatalf("install omitted the advisory credential warning: %#v", warnings)
 	}
 }
