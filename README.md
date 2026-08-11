@@ -1,376 +1,221 @@
 # ViceMe CLI
 
-[![npm version](https://img.shields.io/npm/v/@viceme-ai/cli.svg)](https://www.npmjs.com/package/@viceme-ai/cli)
-[![Go Version](https://img.shields.io/badge/go-%3E%3D1.23-blue.svg)](https://go.dev/)
-[![CLI PR checks](https://github.com/ViceMe-AI/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/ViceMe-AI/cli/actions/workflows/ci.yml)
+ViceMe CLI is the deterministic local companion for the official ViceMe Agent
+Skills. Codex, Claude Code, and WorkBuddy use the Skills to guide the user; the
+CLI handles installation, device authorization, validation, packaging,
+uploads, review, and publication.
 
-[中文版](./README.zh.md) | [English](./README.md)
+[中文](./README.zh.md)
 
-The official command-line client and Agent Skill for publishing external Skills as stable, shareable ViceMe Agents. It is built for AI coding tools such as Codex and Claude Code: the Agent Skill understands user intent, while the CLI provides the deterministic authentication, upload, publication, and status protocol.
+## Install
 
-[Install](#installation--quick-start) · [AI Agent Skills](#agent-skills) · [Auth](#authentication) · [Regions & profiles](#regions--profiles) · [Commands](#command-overview) · [Output contract](#json-output-contract) · [Security](#security-and-risk-controls) · [Development](#development)
+The official bootstrap installs the native CLI and both official Skills from
+one immutable release.
 
-> **Rollout status:** the Core publication transport and stable-link path are implemented. After `--yes`, a publication first parks at `meta_review` for metadata confirmation, then at `awaiting_action` for interaction-step confirmation. `confirm_publish` returns an owner-only `preview_share_url` under `/p/{code}`. The creator completes one ordinary successful run there, returns to the Agent Host, and explicitly confirms. After release, the durable receipt returns the official `/v/{code}` `share_url`; the old preview URL redirects to it. The CLI no longer exposes a separate PreviewRun surface. Preview inputs, outputs, files, sessions, and Runner history are temporary, are purged after resolution, and never enter public usage or work history.
+China, macOS or Linux:
 
-## Why ViceMe CLI?
+```bash
+curl -fsSL https://s3.viceme.cn/install.sh | sh
+```
 
-- **Agent-native** — ships together with the official ViceMe Agent Skill for Codex and Claude Code.
-- **Deterministic boundary** — the CLI performs typed protocol actions; it does not start another conversational Agent loop.
-- **Server-side compilation** — source parsing, LLM compilation, BuildRun materialization, and Release publication stay on ViceMe infrastructure.
-- **Stable publishing** — later releases of the same logical Agent keep the same share URL.
-- **Multiple source types** — accepts typed GitHub and Xiaohongshu/RedSkill sources, archives, and local Skill folders.
-- **Secure by default** — on macOS, device-login credentials use AES-256-GCM encrypted files with Keychain-backed key material; other platforms retain their native credential manager. Explicit local overrides require a private profile file, public mutations require confirmation, and downloaded binaries are checksum-verified.
-- **Human and Agent login modes** — `viceme auth login` guides a person in the terminal, while Agent split-flows use explicit JSON.
+International, macOS or Linux:
 
-## Installation & Quick Start
+```bash
+VICEME_REGION=global sh -c "$(curl -fsSL https://s3.viceme.ai/install.sh)"
+```
 
-### Requirements
+China, Windows PowerShell:
 
-- Node.js 18.20 or newer
-- macOS or Linux on `amd64`/`arm64`, or Windows on `amd64`/`arm64`
+```powershell
+irm https://s3.viceme.cn/install.ps1 | iex
+```
 
-### Quick Start (Human Users)
+International, Windows PowerShell:
 
-> **Note for AI assistants:** If you are an AI Agent helping the user install ViceMe, jump directly to [Quick Start (AI Agent)](#quick-start-ai-agent). It defines the required cross-turn device login flow.
+```powershell
+$env:VICEME_REGION="global"; irm https://s3.viceme.ai/install.ps1 | iex
+```
 
-#### Install
-
-Choose one of the following methods.
-
-**Option 1 — One-shot npm install (recommended):**
+If the bootstrap cannot be used, npm is the fallback:
 
 ```bash
 npx --yes @viceme-ai/cli@latest install
 ```
 
-**Option 2 — Install the npm launcher globally:**
+The installer always writes the compatibility fallback to
+`~/.agents/skills`. It also installs into the native user directory of every
+detected supported Agent:
 
-```bash
-npm install --global @viceme-ai/cli
-viceme install
-```
+| Agent | Native directory |
+| --- | --- |
+| Codex | `~/.codex/skills` |
+| Claude Code | `~/.claude/skills` |
+| WorkBuddy | `~/.workbuddy/skills` |
 
-Both methods persist the npm launcher, download the matching checksum-verified Go binary, and install the bundled ViceMe Agent Skill. Binary downloads try GitHub Release first, then a configured non-default npm registry's `/-/binary/viceme-cli/` mirror, and finally the public npmmirror binary mirror. The launcher uses system `curl`, so standard proxy environment variables are honored. They default to the China service. For the international service:
+Select a target explicitly with `viceme install --agent codex`, `claude`,
+`workbuddy`, or `agents`. Run `viceme doctor` after installation or repair.
 
-```bash
-npx --yes @viceme-ai/cli@latest install --region global
-```
+## Authentication and profiles
 
-#### Authenticate and verify
-
-If the installation result says authentication is required, start the guided device login:
+Each profile is bound to one official region and one device-authorized account.
 
 ```bash
 viceme auth login
-```
-
-The CLI prints the browser URL, waits for authorization, and reports success in the same terminal. Then verify the installation:
-
-```bash
 viceme auth status
-viceme skills doctor
-```
+viceme auth logout
 
-## Quick Start (AI Agent)
-
-> The following steps are for AI Agents. Browser authorization must be completed by the user in a separate turn; never wait indefinitely or ask the user for a token.
-
-**Step 1 — Install**
-
-Use the complete bootstrap command from the bundled Skill. The explicit npm registries are part of the installation trust boundary:
-
-```bash
-npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
-```
-
-Read `authenticated` and `next_step` from the formatted business result. If authentication is already valid, continue to Step 4. If login is required, do not execute the human-oriented `next_step` inside the Agent; use the JSON split-flow in Step 2.
-
-**Step 2 — Start device login when required**
-
-```bash
-viceme auth login --no-wait --json
-```
-
-Return the exact `verification_url`; the CLI normalizes it to the prefilled `verification_url_complete` browser link when available. Include `user_code` only as a fallback if the browser asks for it. Preserve `device_code` for the continuation command, then stop the current turn. Do not request, print, or place an access token in the conversation.
-
-**Step 3 — Continue the same login in a later turn**
-
-After the user confirms browser authorization:
-
-```bash
-viceme auth login --device-code <device-code> --json
-```
-
-If authorization is still pending, reuse the same device code before it expires. Do not start a second device flow unless the original one has expired.
-For a non-default profile, pass the same global `--profile <name>` when starting and continuing device login; the start result reports the effective `profile` and `region`.
-
-**Step 4 — Verify**
-
-```bash
-viceme auth status
-viceme skills doctor
-viceme skills list
-```
-
-Continue only when authentication is valid and `skills doctor` reports a healthy, compatible installation.
-
-**Step 5 — Inspect the first source**
-
-```bash
-viceme skill inspect https://github.com/acme/poster-skill --skill-root .
-```
-
-Inspection is read-only. Follow the bundled `viceme` Skill for source-specific handling, Target selection, confirmation, bounded job waiting, and result reporting. If `destination.recovery.mode=resume_existing_publication`, run `job get` with its `publication_id` and resume that nonterminal Publication instead of publishing the new inspection resolution. If a publication ends at `binding_required`, run `viceme job bind <publication-id>`, give the signed ViceMe URL to the user, and stop. Downloading or forking is only an informational alternative; the CLI never performs it automatically. After the user binds the exact GitHub/Xiaohongshu channel account, inspect again and create a fresh ordinary Publication rather than resuming the terminal one. At `meta_review`, show and resolve the metadata using the exact action ID and payload digest, then wait again. At `awaiting_action`, confirm the interaction steps, open the private `preview_share_url`, and complete one successful ordinary use on the preview page. If a `confirm_steps` or `confirm_publish` action expires, read the same Publication with `job get`, then explicitly run `viceme job renew <publication-id> --action-id <expired-action-id>` and continue with the returned `next_action`; do not create a second Publication. Return to the conversation for an explicit confirm or cancel decision. After confirm, wait until `share_published` and return the official `data.result.share_url`; do not require it to equal the private preview URL.
-
-## Regions & Profiles
-
-Each profile selects one ViceMe region:
-
-| Region | Install command | API endpoint |
-|---|---|---|
-| China | `viceme install` | `https://api.viceme.cn` |
-| International | `viceme install --region global` | `https://api.viceme.ai` |
-
-The first install creates the `default` profile. Device-login credentials are isolated by profile plus normalized API origin. On macOS they are stored as private AES-256-GCM encrypted files, while the encryption master key normally remains in the operating-system Keychain; other platforms retain their native credential manager. A profile may also contain an explicitly configured publication credential for controlled local/internal operation; any such config remains private `0600`.
-
-```bash
 viceme profile list
-viceme profile add --name work --region global --use
 viceme profile use default
-viceme --profile work auth status
-viceme profile rename work company
-viceme profile remove company
 ```
 
-`profile use` changes the persistent active profile; the global `--profile` flag overrides only one command. AI Agents must not switch or remove profiles unless the user explicitly requests it.
-
-For controlled local/internal operation, create a dedicated profile with both an explicit endpoint and its audience-bound publication credential:
+For an Agent workflow that cannot wait in one turn:
 
 ```bash
-viceme profile add --name local --region cn \
-  --api-base-url http://localhost:8090 \
-  --access-token '<vpa1.local-dev.credential>' --use
-viceme profile configure local --access-token 'YOUR_ACCESS_TOKEN'
-viceme profile configure local --clear-access-token
-viceme profile configure local --clear-api-base-url
+viceme auth login --no-wait
+viceme auth login --device-code <device-code>
 ```
 
-Normal `viceme auth login` never writes a credential into a profile. A local Profile credential is set, replaced, or cleared only by the explicit `profile add/configure` flags, is reported only as `source=local_profile`, and is never returned by list/status output. Because `--access-token` is visible in argv and may enter shell history, use it only in the controlled local/internal environment described here.
+The user completes authorization in the browser. Never copy an access token
+into the conversation. Credentials are isolated by profile and API origin.
 
-Credential priority is process (`VICEME_ACCESS_TOKEN`) → selected local Profile → device login. Every publication credential must use `vpa1.<audience>.<secret>`: `cn-prod` is accepted only for `https://api.viceme.cn`, `global-prod` only for `https://api.viceme.ai`, `dev-preview` only for `https://viceme-envoy-dev.preview.tencent-zeabur.cn`, and `local-dev` Profile credentials only for loopback endpoints. A process `local-dev` credential additionally requires `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`. Configuration defaults to `~/.viceme-cli` on macOS and Linux and `%LOCALAPPDATA%\ViceMe\Config` on Windows; an existing Windows `~/.viceme-cli/config.json` remains in use until it is explicitly migrated. `VICEME_CLI_CONFIG_DIR` can override the config root. `VICEME_API_BASE_URL` remains a one-process endpoint override and never widens a Profile credential's origin. It cannot be combined with global `--profile`; use the selected Profile's configured endpoint or the process endpoint override as one authority source, never both. API and presigned-upload redirects fail closed.
+## Publish a Skill
 
-Update checks query the npm registry directly and store only the last successful version result as `update-state.json` in the configuration directory. A result is used as a fallback for at most 24 hours when the registry is temporarily unavailable. Normal npm-managed CLI invocations read this cache synchronously and refresh it in the background at most once per 24 hours, so commands never wait for update discovery. When a newer release is known, structured success and error objects include `_notice.update` with `current`, `latest`, `message`, and the exact `viceme update` command so AI Agents can notify the user. The advisory never changes the command exit status and does not trigger an automatic update. Set `VICEME_NO_UPDATE_NOTIFIER=1` to suppress it outside CI; standard CI environments are skipped automatically. npm operations launched by `viceme install` or `viceme update` use the isolated `npm-cache` subdirectory there, so a broken user-level npm cache does not block the CLI. Both locations are non-secret and can be deleted safely; credentials never enter either cache.
+The first release accepts a local directory containing `SKILL.md` or a local
+ZIP. GitHub URLs, remote downloads, and multi-Skill bundles are not accepted.
 
-## Agent Skills
-
-The current release deliberately ships one platform-level Agent Skill:
-
-| Skill | Description | Supported hosts |
-|---|---|---|
-| `viceme` | Install, inspect, convert, publish, update, or share external Skills as stable ViceMe Agents; enforces authentication, source, Target, confirmation, job, and safety rules | Codex, Claude Code |
-
-GitHub, Xiaohongshu/RedSkill, ZIP, and folder inputs are source types handled by the same `viceme` publication workflow, not separate Agent Skills. This keeps one consistent safety and stable-link contract across providers.
-
-The CLI and `viceme` Agent Skill are released from this repository at the same version. `viceme install` installs the complete Skill bundle into detected supported hosts, while the binary embeds the agent-readable subset needed for deterministic self-inspection.
+Inspect without side effects:
 
 ```bash
-viceme skills list
-viceme skills read viceme
-viceme skills read viceme references/commands.md
-viceme skills doctor
+viceme skill inspect --path ./my-skill
 ```
 
-`skills doctor` checks the CLI version, Skill version, compatibility range, full bundle digest, and embedded-content digest independently. A modified or incompatible installation fails closed.
-
-## Authentication
-
-| Command | Purpose |
-|---|---|
-| `viceme auth status` | Show whether the current profile is authenticated |
-| `viceme auth login` | Guide a human through browser authorization and wait for completion |
-| `viceme auth login --no-wait --json` | Start an Agent split-flow and return structured device authorization |
-| `viceme auth login --device-code <code> --json` | Complete an Agent split-flow in a later turn |
-| `viceme auth logout` | Revoke and remove the current profile credential |
-
-On macOS, tokens created by device login are stored only in private encrypted credential files and their master key normally remains in the operating-system Keychain; other platforms retain their native credential manager. Normal login never backfills explicit local profile fields, and successful login output never contains the access or refresh token.
-
-Before starting or exchanging a device authorization, the CLI verifies the full local persistence path. If that preflight fails, no one-time authorization is consumed. If storage fails after a successful exchange despite the preflight, the CLI attempts to revoke the issued credential and returns `credential_persistence_failed` with an explicit instruction to start a new device flow; it never reports login success or outputs a token.
-
-### macOS sandboxes (Codex and Claude Code)
-
-When an explicit device login runs inside a sandbox that cannot access the macOS Keychain, the CLI automatically creates a private `0600` file master key and saves the newly authorized credential there. No manual preparation is required.
-
-To reuse credentials previously created from Terminal with a Keychain-backed master key without logging in again, run this once from that same interactive macOS user session:
+Show the exact deterministic package and price plan:
 
 ```bash
-viceme config keychain-downgrade
+viceme skill publish --path ./my-skill --price-minor 100 --dry-run
 ```
 
-The command copies the existing master key into `~/.viceme-cli/credentials/master.key.file` and imports configured legacy Keychain credentials into encrypted files. Existing Keychain entries are preserved as a cold backup. The command is idempotent and never prints or stores a plaintext token. Afterward, Codex and Claude Code sandboxes for the same macOS user can read the encrypted credential files without Keychain access. This migration is optional when the user is willing to log in again. The trade-off is explicit: security is then enforced by the user's filesystem permissions (`0700` directory and `0600` files) instead of the Keychain per-process access boundary.
-
-The public CLI exposes one standard authentication and publication surface. A short-lived staff authorization credential may be supplied through process environment (`source=process`) or an explicitly configured local Profile (`source=local_profile`). Both use normal inspect/publish/job commands and the standard `x-api-key` header; there are no identity-selection or staff-authorization issuance commands. Tokens are never printed or inherited by update subprocesses, and login/logout fail closed while either override is active.
-
-## Supported Sources
-
-### GitHub or trusted provider
+Start the resumable upload and listing analysis:
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill --skill-root .
-viceme skill publish --resolution-id <resolution-id> --yes
+viceme skill publish --path ./my-skill --price-minor 100
 ```
 
-For GitHub, `--skill-root` is required and names the exact repository-relative directory containing `SKILL.md`; use `.` only for a root-level Skill. The calling Agent determines this path from the user input or read-only repository tree. ViceMe does not scan the repository to guess a Skill.
-
-### Xiaohongshu or RedSkill
+Then follow the authoritative publication state:
 
 ```bash
-viceme skill inspect --source-stdin
-viceme skill publish --resolution-id <resolution-id> --yes
+viceme publication get <publication-id>
+viceme publication review <publication-id>
+viceme publication asset upload <publication-id> --role cover --path ./cover.png
+viceme publication asset upload <publication-id> --role gallery --path ./demo.png
+viceme publication update <publication-id> --input ./listing-draft.json
+viceme publication confirm <publication-id> --review-digest <digest>
+viceme publication publish <publication-id> --review-digest <digest>
 ```
 
-The AI Host interprets the user's source intent and passes one typed JSON
-`SourceSpec` through stdin, for example
-`{"kind":"redskill","value":"ai-desk-card"}`. CLI/Core do not classify copied
-natural language with keyword or regex rules. Explicit platform intent is
-authoritative; ambiguous source requests must be clarified instead of silently
-substituting a same-name source from another provider.
+The model proposes `summaryZhCn`, `summaryEnUs`, and package images, but it never
+confirms them or decides the price. Each summary has a maximum display width of
+30: ASCII counts as 1 and Chinese/non-ASCII counts as 2. The Agent must show the
+exact bilingual summaries, price, cover, and ordered gallery to the user and
+receive explicit confirmation before `confirm` and again before public
+`publish`.
 
-### Archive or local Skill folder
+Resume after a connection loss with the same publication:
 
 ```bash
-viceme skill publish --file ./poster-skill.zip --new-target --target-alias poster --yes
-viceme skill publish --dir ./poster-skill --new-target --target-alias poster --yes
+viceme skill publish --resume <publication-id>
 ```
 
-For later releases, resolve the existing Target and use optimistic concurrency. Never turn a conflict into a new share link:
+Do not create a second publication when the server response is unknown. Query
+or resume the existing ID first.
 
-```bash
-viceme skill target get target_123
-viceme skill publish --file ./poster-skill-v2.zip \
-  --target-id target_123 --expected-target-version 4 --yes
-```
+## Output contract
 
-## Command Overview
-
-| Command group | Purpose |
-|---|---|
-| `viceme install` | Install the persistent launcher, Agent Skill, and default profile |
-| `viceme auth` | Start, complete, inspect, or revoke device authentication |
-| `viceme config` | Manage the controlled macOS Keychain-to-file sandbox fallback |
-| `viceme profile` | Add, list, switch, rename, or remove local profiles |
-| `viceme skill inspect` | Freeze and inspect a source candidate without publishing |
-| `viceme skill publish` | Create or update a stable Skill Agent publication |
-| `viceme skill target` | Resolve existing logical Agent Targets and versions |
-| `viceme job` | Read or wait for a publication, review metadata and the frozen summary, edit its Candidate, show stable preview/public and signed channel-binding URLs, resume an action, explicitly retry, or cancel |
-| `viceme skills` | Read, install, and diagnose the bundled Agent Skill |
-| `viceme update` | Update the npm launcher, verified binary, and bundled Skill together |
-
-Use `viceme <command> --help` for the exact flags. The release-checked machine-readable surface is stored in [`skills/viceme/references/command-manifest.json`](skills/viceme/references/command-manifest.json).
-
-## Output Contract
-
-ViceMe selects the smallest stable representation for each command:
-
-- Local/bootstrap commands such as `version`, `install`, `update`, `auth status`, `profile *`, and `skills doctor` write their formatted business result directly to **stdout**. They do not add `ok`, `data`, or unrelated build metadata; a normal npm-managed invocation may add only the reserved `_notice.update` advisory described above.
-- `skills read` writes the requested file byte-for-byte without a JSON wrapper.
-- Interactive `viceme auth login` writes human guidance. AI Agents use `--no-wait --json`, then continue with `--device-code <code> --json`; those two commands return a formatted bare business object.
-- Publication protocol commands under `skill` and `job` keep a stable envelope because action receipts, durable status, and bounded-wait metadata form one cross-command protocol.
-
-A successful publication protocol result is written to **stdout** with exit code `0`:
-
-```json
-{
-  "ok": true,
-  "data": {}
-}
-```
-
-Only a bounded wait that actually times out adds protocol metadata:
+Business output is JSON by default. Successful output is the only content on
+stdout; progress and diagnostics use stderr.
 
 ```json
 {
   "ok": true,
   "data": {},
   "meta": {
-    "wait_timed_out": true
+    "cliVersion": "0.10.1",
+    "requestId": "optional"
   }
 }
 ```
 
-CLI execution errors are formatted and written to **stderr** with a non-zero exit code:
+Errors use a non-zero exit code and a stable `error.code`. Agent Skills branch
+on the exit code, `ok`, `error.code`, and `retryable`, never on message text.
 
-```json
-{
-  "ok": false,
-  "error": {
-    "type": "validation",
-    "subtype": "source_required",
-    "message": "provide exactly one GitHub URL argument or --source-stdin"
-  }
-}
-```
-
-Determine local/bootstrap command success from the process exit code. For publication protocol commands, use the process exit code or `ok == true`. The API's domain-specific `error.type` is preserved; the exit code is only a coarse handling class. A successfully read publication may still contain a business terminal status such as `unsupported`, `rejected`, or `failed`; inspect `data.status` instead of treating those states as CLI transport failures.
-
-| Exit code | Meaning |
-|---|---|
-| `0` | Command completed; inspect returned business status when applicable |
-| `2` | Validation failure |
-| `3` | Authentication or authorization failure |
-| `4` | Retryable transport or concurrency failure |
-| `5` | Internal or protocol failure |
-| `6` | Policy or rollout-gate rejection |
-| `10` | Explicit confirmation required |
-
-## Security and Risk Controls
-
-- **No source execution** — the CLI and compiler do not execute third-party scripts, binaries, shell fragments, marketplace commands, or copied instructions.
-- **Typed source intent** — AI Hosts interpret natural-language source requests and pass only a typed `SourceSpec` through `--source-stdin`; CLI/Core never guess a provider from user phrases. Natural-language Candidate edits use `--request-stdin`. Never interpolate untrusted text into command strings, argv, environment variables, or shell pipelines.
-- **Explicit public mutation** — publishing, compiler retry, and cancellation require `--yes`; exit code `10` means the Agent must obtain confirmation, not silently retry.
-- **Safe preview** — use `--dry-run` on inspect or publish when the user needs to review the planned request without network or publication side effects.
-- **Credential isolation** — on macOS, device-login credentials stay in AES-256-GCM encrypted files, with Keychain-backed or explicitly downgraded private key material; filenames do not expose profile/origin names. Other platforms retain their native credential manager. Explicit internal-test overrides are namespaced by profile, stored only in a private `0600` config, and never emitted by CLI output.
-- **Immutable inputs** — inspection binds publication to an immutable source snapshot rather than re-reading a floating URL later.
-- **Bounded waiting** — `job wait` has a maximum duration and returns the latest durable state without cancelling the workflow.
-- **Bounded compiler recovery** — `job retry` keeps the frozen source and publication, accepts only an explicitly retryable platform failure, and is capped by the server.
-- **Verified distribution** — the npm launcher downloads the binary for its exact package version from GitHub or a binary mirror and verifies it against the checksum manifest bundled in the npm package before activation.
-
-## Diagnose and Update
+## Update
 
 ```bash
-viceme skills doctor
 viceme update --check
 viceme update
 ```
 
-`viceme update` installs one exact npm package version, acquires its verified Go binary, and refreshes the bundled Skill from that same release. A standalone development binary is never silently replaced.
+Bootstrap installations read the selected region's official S3 release index,
+verify the exact binary checksum, refresh the matching official Skills, and
+activate the binary atomically. npm installations update through the exact npm
+package version. Updates never inherit `VICEME_ACCESS_TOKEN` into child
+processes.
+
+Binary or npm-launcher activation, both official Skills, and profile config are
+one recoverable local generation. Standalone and npm activation share an outer
+activation lock, a delegated member-commit lock, and a durable active-generation
+record containing the semantic version, installation method, and immutable
+identity. One startup coordinator inspects
+both standalone and npm journals regardless of which launcher entered the
+process. Every ordinary command reconciles an interrupted outer journal before
+business logic; a recovered process whose version, method, or immutable identity
+changed must be restarted. The lock-internal generation fence rejects a late
+older updater. Every mutation entry repeats the same two-journal arbitration
+after it owns the activation lock and before any staging or network install, so
+a process paused after startup cannot introduce a second recovery protocol. The
+first phase also rejects switching between standalone and npm
+before any mutation; reinstall explicitly after removing the previous generation
+instead of mixing recovery protocols. Every Skills/config transaction holds or
+revalidates the same generation authority immediately before commit. npm child
+activation is bound to the exact committing journal by a one-time nonce and
+target version; its member lock prevents a parent crash from admitting a newer
+generation while the child still commits. A committed target is only cleaned up
+after a crash—it is never reapplied or rolled back. Private
+journals can therefore only restore the complete previous generation or finish
+the complete target generation. `viceme doctor`
+validates Skill/version integrity and an unauthenticated API readiness probe
+before installation commits.
+
+## First-phase implementation status
+
+The installation, device authorization, deterministic package upload, manual or
+suggested listing media, review confirmation, publication, cancellation, and
+terminal recovery paths are implemented. Local acceptance uses real Shop API,
+PostgreSQL, Redis, and S3-compatible storage. `make check`, npm package/cold-start
+tests, race tests, and Darwin/Linux/Windows amd64/arm64 builds pass. A real LLM
+provider sandbox remains an environment acceptance item; without credentials,
+analysis fails closed and the manual media path remains available.
+
+## Security boundaries
+
+- Local packaging rejects path traversal, absolute paths, symlinks, special
+  files, oversized content, sensitive files, and common secret patterns.
+- The API independently validates the immutable ZIP and object metadata.
+- Presigned upload URLs are never written to the pending-operation store.
+- LLM analysis receives only filtered text, metadata, and image thumbnails.
+- A publication cannot become public until the current review digest, price,
+  cover, and ordered gallery have been confirmed.
 
 ## Development
 
-Go 1.23 or newer is required when building from source.
+Requirements: Go 1.23+ and Node.js 22+ for npm packaging checks.
 
 ```bash
-make build
-make test
 make check
-make skill-check
 make npm-package-check
-make quality-check
+make release-manifest
 ```
 
-The main checked-in quality artifacts are:
-
-- [`skills/viceme/references/command-manifest.json`](skills/viceme/references/command-manifest.json), generated from the Cobra command tree;
-- [`quality/example-dry-runs.json`](quality/example-dry-runs.json), which executes documented source paths without network access;
-- [`quality/release-manifest.json`](quality/release-manifest.json), which pins CLI/Skill compatibility and content digests.
-
-`make npm-package-check` builds the Go executable, packs the real npm tarball, and runs the launcher in isolated temporary homes. It does not require an already-published GitHub Release.
-
-## Releases
-
-Maintainers merge normal changes into `dev`; they do not manually edit versions, create tags, write changelog entries, or run `npm publish`. GitHub Actions maintains a single automated `dev -> main` Release PR. Merging that PR authorizes the reviewed version, tag, immutable GitHub Release assets, and npm trusted publication.
-
-See [`docs/releasing.md`](docs/releasing.md) for repository setup, OIDC trusted publishing, recovery, and integrity rules.
-
-## Contributing
-
-Issues and pull requests are welcome. Changes to the public command surface must update the generated command manifest, bundled Skill examples, quality fixtures, and tests in the same PR.
+The CLI and `viceme-shared` / `viceme-publish` Skills are versioned and released
+together. Release artifacts are published to GitHub, npm, `s3.viceme.cn`, and
+`s3.viceme.ai` from the same reviewed commit.

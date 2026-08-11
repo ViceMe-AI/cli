@@ -1,11 +1,26 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "npm_package": "@viceme-ai/cli",
-  "cli_version": "0.10.1",
-  "skill_version": "0.10.1",
-  "minimum_cli_version": "0.10.1",
-  "cli_compatibility": ">=0.10.1 <0.11.0",
-  "full_skill_bundle_digest": "sha256:a09a74733912edf883c0a2ab0884fffe6bd2b2b39b65c6df87a4511b2290918f",
-  "embedded_content_digest": "sha256:f5b15d0ed20818ea4e24912a518ed236221e82b6e056bbd26ffbecd4e49d72a0",
-  "command_manifest_digest": "sha256:2a91e6c2ab2eca8af5de963512f56276d30e21d0dc2ed21aa264fb2cb60c79a9"
+  "cli_version": "0.11.0",
+  "skills": {
+    "viceme-publish": {
+      "skill_version": "0.11.0",
+      "minimum_cli_version": "0.11.0",
+      "cli_compatibility": ">=0.11.0 <0.12.0",
+      "full_skill_bundle_digest": "sha256:a7e2fcf200062ad322cd9b28dfbd1bd69f5d6d4a07648c825517d732dee60e9e",
+      "embedded_content_digest": "sha256:96671ec718f139be20857cb09afe1783a7b9c96ea721bdd129e6fe737b46d663"
+    },
+    "viceme-shared": {
+      "skill_version": "0.11.0",
+      "minimum_cli_version": "0.11.0",
+      "cli_compatibility": ">=0.11.0 <0.12.0",
+      "full_skill_bundle_digest": "sha256:165979c3503d4b512e2f7c206bfbeae0b7f8d0bb5e345df5f4b87f7cd95c0218",
+      "embedded_content_digest": "sha256:25e81ce695c96b180f1d2ef2b862c57672fea1951edfc89b05cbb6d36c1e557d"
+    }
+  },
+  "bootstrap_contract_digest": "sha256:bd19c49b02979f9f34500d26fde64c0523f3056132d0a77940b684e439f567b8",
+  "installer_digests": {
+    "install.ps1": "sha256:27662208d3265a5eefce585b707d7733b273c8bcdc90afd8ddc0ea61f2da7211",
+    "install.sh": "sha256:43c4e072fae7d7834c2c9ca579a16d7510df9492297b53e45dc1c4442c5851ed"
+  }
 }

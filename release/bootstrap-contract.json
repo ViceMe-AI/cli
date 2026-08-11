@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "regions": {
+    "cn": "https://s3.viceme.cn/cli/releases",
+    "global": "https://s3.viceme.ai/cli/releases"
+  },
+  "releaseLayout": "v{version}/viceme_{version}_{os}_{arch}{extension}",
+  "checksumLayout": "{asset}.sha256",
+  "latestLayout": "latest",
+  "skills": ["viceme-shared", "viceme-publish"],
+  "fallbackPackage": "@viceme-ai/cli"
+}

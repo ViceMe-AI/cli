@@ -1,373 +1,196 @@
 # ViceMe CLI
 
-[![npm version](https://img.shields.io/npm/v/@viceme-ai/cli.svg)](https://www.npmjs.com/package/@viceme-ai/cli)
-[![Go Version](https://img.shields.io/badge/go-%3E%3D1.23-blue.svg)](https://go.dev/)
-[![CLI PR checks](https://github.com/ViceMe-AI/cli/actions/workflows/ci.yml/badge.svg)](https://github.com/ViceMe-AI/cli/actions/workflows/ci.yml)
+ViceMe CLI 是官方 ViceMe Agent Skills 的确定性本地执行器。Codex、Claude
+Code 和 WorkBuddy 通过 Skills 引导用户；CLI 负责安装、设备授权、本地检查、
+确定性打包、上传、审核和发布。
 
-[中文版](./README.zh.md) | [English](./README.md)
+[English](./README.md)
 
-ViceMe 官方命令行客户端与 Agent Skill，用于将外部 Skill 发布为稳定、可分享的 ViceMe Agent。它面向 Codex、Claude Code 等 AI 编程工具：Agent Skill 负责理解用户意图，CLI 负责确定性的认证、上传、发布和状态协议。
+## 安装
 
-[安装](#安装与快速开始) · [AI Agent Skills](#agent-skills) · [认证](#认证) · [区域与-profile](#区域与-profile) · [命令](#命令概览) · [输出契约](#json-输出契约) · [安全](#安全与风险控制) · [开发](#开发)
+官方 Bootstrap 从同一个不可变 Release 一次安装原生 CLI 和两个官方 Skills。
 
-> **开放状态：** Core 发布传输和稳定链接链路已经实现。`--yes` 后，Publication 先停在 `meta_review` 完成基本信息确认，再在 `awaiting_action` 中确认交互步骤。之后 `confirm_publish` 返回仅创作者可访问的 `/p/{code}` `preview_share_url`；创作者在该页面完成一次真实使用，回到 Agent Host 明确确认。发布完成后，持久回执返回正式 `/v/{code}` `share_url`，旧预览地址会重定向到它。CLI 不再提供独立 PreviewRun 命令。预览阶段的输入、输出、文件、会话和 Runner 历史均为临时数据，终态后会被清理，不进入公开统计或作品历史。
+中国区 macOS / Linux：
 
-## 为什么选择 ViceMe CLI？
+```bash
+curl -fsSL https://s3.viceme.cn/install.sh | sh
+```
 
-- **为 Agent 原生设计** — 与 Codex、Claude Code 可使用的官方 ViceMe Agent Skill 一起发布。
-- **确定性边界** — CLI 执行类型化协议操作，不会再启动一层对话式 Agent Loop。
-- **服务端编译** — 来源解析、LLM 编译、BuildRun 固化和 Release 发布均在 ViceMe 基础设施中完成。
-- **稳定发布** — 同一个逻辑 Agent 后续发布新版本时继续使用同一个分享链接。
-- **支持多种来源** — 支持结构化 GitHub 与小红书/RedSkill 来源、压缩包和本地 Skill 目录。
-- **默认安全** — 在 macOS 上，设备登录凭证保存在 AES-256-GCM 加密文件中，主密钥默认由系统 Keychain 保护；其他平台继续使用原生凭证管理器。显式本地覆盖要求私有 Profile 文件，公开变更需要确认，下载的二进制文件必须通过校验和验证。
-- **人类与 Agent 双登录模式** — `viceme auth login` 在终端中引导用户，Agent 跨回合流程则显式使用 JSON。
+海外 macOS / Linux：
 
-## 安装与快速开始
+```bash
+VICEME_REGION=global sh -c "$(curl -fsSL https://s3.viceme.ai/install.sh)"
+```
 
-### 环境要求
+中国区 Windows PowerShell：
 
-- Node.js 18.20 或更高版本
-- macOS 或 Linux `amd64`/`arm64`，或 Windows `amd64`/`arm64`
+```powershell
+irm https://s3.viceme.cn/install.ps1 | iex
+```
 
-### 快速开始（人类用户）
+海外 Windows PowerShell：
 
-> **AI 助手注意：** 如果你是正在帮助用户安装 ViceMe 的 AI Agent，请直接跳转到[快速开始（AI Agent）](#快速开始ai-agent)。该章节定义了必须遵循的跨回合设备登录流程。
+```powershell
+$env:VICEME_REGION="global"; irm https://s3.viceme.ai/install.ps1 | iex
+```
 
-#### 安装
-
-以下两种方式任选其一。
-
-**方式一 — 通过 npm 一次性安装（推荐）：**
+不能使用 Bootstrap 时，以 npm 作为备用入口：
 
 ```bash
 npx --yes @viceme-ai/cli@latest install
 ```
 
-**方式二 — 全局安装 npm 启动器：**
+安装器始终写入兼容 fallback `~/.agents/skills`，并为检测到的 Agent 写入
+各自的用户级目录：
 
-```bash
-npm install --global @viceme-ai/cli
-viceme install
-```
+| Agent | 原生目录 |
+| --- | --- |
+| Codex | `~/.codex/skills` |
+| Claude Code | `~/.claude/skills` |
+| WorkBuddy | `~/.workbuddy/skills` |
 
-两种方式都会持久化 npm 启动器、下载匹配且通过校验和验证的 Go 二进制文件，并安装随包发布的 ViceMe Agent Skill。二进制下载依次尝试 GitHub Release、用户配置的非默认 npm registry 的 `/-/binary/viceme-cli/` 镜像，最后回退到公共 npmmirror binary 镜像。启动器使用系统 `curl`，因此会遵循标准代理环境变量。默认使用中国区服务。使用国际区服务：
+可通过 `viceme install --agent codex`、`claude`、`workbuddy` 或 `agents`
+指定目标。安装或修复后运行 `viceme doctor`。
 
-```bash
-npx --yes @viceme-ai/cli@latest install --region global
-```
+## 登录与 Profile
 
-#### 认证并验证
-
-如果安装结果提示需要认证，启动引导式设备登录：
+每个 Profile 绑定一个官方区域和一个通过设备码授权的账户。
 
 ```bash
 viceme auth login
-```
-
-CLI 会显示浏览器登录链接、等待授权，并在同一个终端中报告成功。然后验证安装：
-
-```bash
 viceme auth status
-viceme skills doctor
-```
+viceme auth logout
 
-## 快速开始（AI Agent）
-
-> 以下步骤面向 AI Agent。浏览器授权必须由用户在另一个回合完成；不要无限等待，也不要向用户索取令牌。
-
-**第 1 步 — 安装**
-
-使用随包 Skill 中定义的完整引导命令。显式 npm registry 是安装信任边界的一部分：
-
-```bash
-npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install
-```
-
-读取格式化业务结果中的 `authenticated` 和 `next_step`。如果认证已经有效，直接进入第 4 步。如果需要登录，Agent 不要执行面向人类的 `next_step`，而应使用第 2 步的 JSON 跨回合流程。
-
-**第 2 步 — 需要时启动设备登录**
-
-```bash
-viceme auth login --no-wait --json
-```
-
-向用户返回准确的 `verification_url`；存在 `verification_url_complete` 时，CLI 会把这个已预填设备码的浏览器直达链接规范化为 `verification_url`。只有浏览器要求输入时，才把 `user_code` 作为备用信息提供。保留 `device_code` 供后续命令使用，然后结束当前回合。不要在对话中索取、打印或传递访问令牌。
-
-**第 3 步 — 在后续回合继续同一个登录流程**
-
-用户确认已在浏览器完成授权后：
-
-```bash
-viceme auth login --device-code <device-code> --json
-```
-
-如果授权仍处于等待状态，应在过期前继续使用同一个 device code。只有原流程已过期时才能重新发起设备登录。
-使用非默认 Profile 时，启动和继续设备登录必须传入同一个全局 `--profile <name>`；启动结果会返回实际的 `profile` 与 `region`。
-
-**第 4 步 — 验证**
-
-```bash
-viceme auth status
-viceme skills doctor
-viceme skills list
-```
-
-只有认证有效且 `skills doctor` 报告安装健康、版本兼容时，才能继续。
-
-**第 5 步 — 检查第一个来源**
-
-```bash
-viceme skill inspect https://github.com/acme/poster-skill --skill-root .
-```
-
-inspect 是只读操作。后续应按照随包发布的 `viceme` Skill 处理不同来源、Target 选择、用户确认、有界任务等待和结果返回。若 `destination.recovery.mode=resume_existing_publication`，必须用其中的 `publication_id` 运行 `job get` 并恢复该非终态 Publication，不能用本次 inspect resolution 再次发布。若 Publication 终结为 `binding_required`，运行 `viceme job bind <publication-id>`，把服务端签名的 ViceMe 链接交给用户后停止；下载或 Fork 仅为提示，CLI 不会自动执行。用户完成精确 GitHub/小红书渠道绑定后，必须重新 inspect 并创建新的普通 Publication，不能恢复旧任务。进入 `meta_review` 后，使用同一 action ID 与 payload digest 展示并决议信息，然后再次等待；进入 `awaiting_action` 后，确认交互步骤，打开私有 `preview_share_url` 在预览页完成一次成功使用。若 `confirm_steps` 或 `confirm_publish` action 过期，先用 `job get` 读取同一 Publication，再显式运行 `viceme job renew <publication-id> --action-id <expired-action-id>`，只使用返回的新 `next_action` 继续，不能创建第二条 Publication。最后回到对话明确确认或取消。确认后继续等待到 `share_published`，返回正式 `data.result.share_url`；不要要求它与私有预览地址相同。
-
-## 区域与 Profile
-
-每个 Profile 独立选择一个 ViceMe 区域：
-
-| 区域 | 安装命令 | API 地址 |
-|---|---|---|
-| 中国区 | `viceme install` | `https://api.viceme.cn` |
-| 国际区 | `viceme install --region global` | `https://api.viceme.ai` |
-
-首次安装会创建 `default` Profile。设备登录凭证按 Profile 与规范化 API origin 隔离；在 macOS 上，它们保存在私有的 AES-256-GCM 加密文件中，加密主密钥通常只保存在系统 Keychain；其他平台继续使用原生凭证管理器。受控本地/内部操作还可以在 Profile 中显式配置 publication credential；此类配置文件始终保持 `0600` 私有权限。
-
-```bash
 viceme profile list
-viceme profile add --name work --region global --use
 viceme profile use default
-viceme --profile work auth status
-viceme profile rename work company
-viceme profile remove company
 ```
 
-`profile use` 修改持久化的当前 Profile；全局 `--profile` 只覆盖本次命令。不要让 AI Agent 在用户没有明确要求时切换或删除 Profile。
-
-受控本地/内部操作可创建同时包含显式 endpoint 与 audience-bound publication credential 的独立 Profile：
+Agent 无法在同一个回合等待浏览器授权时使用分段流程：
 
 ```bash
-viceme profile add --name local --region cn \
-  --api-base-url http://localhost:8090 \
-  --access-token '<vpa1.local-dev.credential>' --use
-viceme profile configure local --access-token 'YOUR_ACCESS_TOKEN'
-viceme profile configure local --clear-access-token
-viceme profile configure local --clear-api-base-url
+viceme auth login --no-wait
+viceme auth login --device-code <device-code>
 ```
 
-正常 `viceme auth login` 永远不会向 Profile 写入凭证。本地 Profile credential 只能通过显式的 `profile add/configure` flag 设置、替换或清除，list/status 只报告 `source=local_profile`，不会返回 token。`--access-token` 会出现在 argv 中且可能进入 shell history，因此只能用于本文约定的受控本地/内部环境。
+用户在浏览器完成授权。不要在对话中复制 Access Token。凭据按 Profile 和 API
+Origin 隔离。
 
-凭证优先级为进程 `VICEME_ACCESS_TOKEN` → 当前本地 Profile → 设备登录。publication credential 必须使用 `vpa1.<audience>.<secret>`：`cn-prod` 只能访问 `https://api.viceme.cn`，`global-prod` 只能访问 `https://api.viceme.ai`，`dev-preview` 只能访问 `https://viceme-envoy-dev.preview.tencent-zeabur.cn`，Profile 中的 `local-dev` 只能访问 loopback endpoint；进程 `local-dev` 还要求 `VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL=1`。macOS 和 Linux 的配置默认位于 `~/.viceme-cli`，Windows 默认位于 `%LOCALAPPDATA%\ViceMe\Config`；Windows 上既有的 `~/.viceme-cli/config.json` 会继续使用，直到显式迁移。`VICEME_CLI_CONFIG_DIR` 可覆盖配置根目录。`VICEME_API_BASE_URL` 仍只是单进程 endpoint 覆盖，不能放宽 Profile credential 的 origin；它不能与全局 `--profile` 同时使用，必须在选中 Profile 的持久 endpoint 与进程 endpoint 覆盖之间只保留一个权威来源。API 与预签名上传重定向一律 fail closed。
+## 发布 Skill
 
-更新检查直接请求 npm registry，并且只把最近一次成功查询到的版本写入配置目录中的 `update-state.json`；registry 暂时不可用时，该结果最多回退使用 24 小时。npm 管理的 CLI 在普通命令中只同步读取本地缓存，并且最多每 24 小时在后台刷新一次，因此命令不会等待版本发现。当缓存确认存在新版本时，结构化成功与错误对象都会携带 `_notice.update`，其中包含 `current`、`latest`、`message` 和精确的 `viceme update` 命令，AI Agent 可以据此提醒用户。该提醒不会改变命令退出码，也不会自动执行更新。非 CI 环境可以设置 `VICEME_NO_UPDATE_NOTIFIER=1` 关闭提醒；标准 CI 环境会自动跳过。`viceme install` 和 `viceme update` 启动的 npm 操作统一使用该目录下隔离的 `npm-cache` 子目录，不会因为用户级 npm 缓存损坏而失败。这两个位置都不包含秘密信息，可以安全删除；凭证不会进入任何更新缓存。
+第一版接受包含 `SKILL.md` 的本地目录或本地 ZIP，不接受 GitHub URL、远程下载和
+多 Skill 批量包。
 
-## Agent Skills
-
-当前版本有意只提供一个平台级 Agent Skill：
-
-| Skill | 说明 | 支持的宿主 |
-|---|---|---|
-| `viceme` | 将外部 Skill 安装、检查、转换、发布、更新或分享为稳定的 ViceMe Agent；统一约束认证、来源、Target、确认、任务和安全规则 | Codex、Claude Code |
-
-GitHub、小红书/RedSkill、ZIP 和目录是同一个 `viceme` 发布流程处理的来源类型，不是相互独立的 Agent Skills。这样可以让不同来源共享一致的安全边界和稳定链接合同。
-
-CLI 与 `viceme` Agent Skill 从同一个仓库以相同版本发布。`viceme install` 会把完整 Skill Bundle 安装到检测到的受支持宿主中；二进制文件同时嵌入用于确定性自检、可供 Agent 阅读的内容子集。
+只读检查：
 
 ```bash
-viceme skills list
-viceme skills read viceme
-viceme skills read viceme references/commands.md
-viceme skills doctor
+viceme skill inspect --path ./my-skill
 ```
 
-`skills doctor` 会分别校验 CLI 版本、Skill 版本、兼容范围、完整 Bundle 摘要和嵌入内容摘要。安装内容被修改或版本不兼容时会直接失败。
-
-## 认证
-
-| 命令 | 用途 |
-|---|---|
-| `viceme auth status` | 查看当前 Profile 是否已认证 |
-| `viceme auth login` | 引导人类用户完成浏览器授权并等待结果 |
-| `viceme auth login --no-wait --json` | 启动 Agent 跨回合流程并返回结构化设备授权信息 |
-| `viceme auth login --device-code <code> --json` | 在后续回合完成 Agent 登录流程 |
-| `viceme auth logout` | 撤销并删除当前 Profile 的凭证 |
-
-在 macOS 上，设备登录生成的令牌只保存在私有加密凭证文件中，加密主密钥通常保存在系统 Keychain；其他平台继续使用原生凭证管理器。正常登录不会回填显式本地 Profile 字段，登录成功的输出也不会包含访问令牌或刷新令牌。
-
-CLI 会在创建设备授权或兑换一次性 device code 之前，对完整的本地持久化链路做预检。预检失败时不会消费任何一次性授权。如果预检后仍在兑换成功时发生存储故障，CLI 会尝试撤销刚签发的凭证，并以 `credential_persistence_failed` 明确说明必须重新发起 device flow；不会误报登录成功，也不会输出 token。
-
-### macOS 沙箱（Codex 与 Claude Code）
-
-当用户在无法访问 macOS Keychain 的沙箱中显式执行设备登录时，CLI 会自动创建私有的 `0600` 文件主密钥，并将新授权的凭证保存到本地加密文件中，无需用户预先执行额外命令。
-
-如果用户不想重新登录，希望直接复用此前在 Terminal 中使用 Keychain 主密钥创建的凭证，可以从同一 macOS 用户的交互式终端执行一次：
+查看确定性发布包和价格计划：
 
 ```bash
-viceme config keychain-downgrade
+viceme skill publish --path ./my-skill --price-minor 100 --dry-run
 ```
 
-该命令会把现有主密钥复制到 `~/.viceme-cli/credentials/master.key.file`，并将已配置 Profile 的旧 Keychain 凭证导入加密文件。原 Keychain 条目会保留为冷备份。命令可重复执行，不会打印 token，也不会将 token 明文落盘。完成后，同一 macOS 用户下的 Codex、Claude Code 沙箱无需访问 Keychain 即可读取加密凭证；如果愿意重新登录，则不需要执行该迁移命令。其明确的安全取舍是：降级后由用户文件权限（目录 `0700`、文件 `0600`）代替 Keychain 的进程级访问边界。
-
-公开 CLI 只提供一套标准认证与发布命令面。工作人员短时授权凭证可由进程环境注入（`source=process`），也可由受控本地 Profile 显式配置（`source=local_profile`）；两者都只调用标准 `inspect/publish/job` 并使用统一 `x-api-key`。CLI 不提供身份选择或 staff authorization 签发命令；永远不输出 token，任一覆盖凭证生效时 login/logout fail closed，update 子进程也不会继承该凭证。
-
-## 支持的来源
-
-### GitHub 或可信来源平台
+开始可恢复的上传与 Listing 分析：
 
 ```bash
-viceme skill inspect https://github.com/acme/poster-skill --skill-root .
-viceme skill publish --resolution-id <resolution-id> --yes
+viceme skill publish --path ./my-skill --price-minor 100
 ```
 
-GitHub 来源必须传 `--skill-root`，它是包含 `SKILL.md` 的精确仓库相对目录；只有根级 Skill 才使用 `.`。调用 Agent 根据用户输入或只读仓库文件树确定该路径，ViceMe 不扫描全仓猜测 Skill。
-
-### 小红书或 RedSkill
+之后以服务端 Publication 状态为准：
 
 ```bash
-viceme skill inspect --source-stdin
-viceme skill publish --resolution-id <resolution-id> --yes
+viceme publication get <publication-id>
+viceme publication review <publication-id>
+viceme publication asset upload <publication-id> --role cover --path ./cover.png
+viceme publication asset upload <publication-id> --role gallery --path ./demo.png
+viceme publication update <publication-id> --input ./listing-draft.json
+viceme publication confirm <publication-id> --review-digest <digest>
+viceme publication publish <publication-id> --review-digest <digest>
 ```
 
-AI Host 先理解用户的来源意图，再通过 stdin 传入唯一的结构化
-`SourceSpec`，例如 `{"kind":"redskill","value":"ai-desk-card"}`。CLI/Core
-不再用关键词或正则分类自然语言；用户明确指定的平台必须保持不变，来源存在歧义时必须先询问，不能静默替换为其他平台的同名来源。
+模型会建议 `summaryZhCn`、`summaryEnUs` 和包内图片，但不能替用户确认，也不能决定价格。
+每版短简介的最大显示宽度为 30：ASCII 计 1，中文及其他非 ASCII 计 2。Agent 必须把双语
+短简介、价格、封面和有序展示素材的完整 Draft 展示给用户，在 `confirm` 前获得明确确认，
+并在真正公开的 `publish` 前再次确认。
 
-### 压缩包或本地 Skill 目录
+网络中断后继续同一个发布操作：
 
 ```bash
-viceme skill publish --file ./poster-skill.zip --new-target --target-alias poster --yes
-viceme skill publish --dir ./poster-skill --new-target --target-alias poster --yes
+viceme skill publish --resume <publication-id>
 ```
 
-后续发布新版本时，应先解析现有 Target 并使用乐观并发控制。发生冲突时不能创建新的分享链接：
-
-```bash
-viceme skill target get target_123
-viceme skill publish --file ./poster-skill-v2.zip \
-  --target-id target_123 --expected-target-version 4 --yes
-```
-
-## 命令概览
-
-| 命令组 | 用途 |
-|---|---|
-| `viceme install` | 安装持久化启动器、Agent Skill 和默认 Profile |
-| `viceme auth` | 启动、完成、检查或撤销设备认证 |
-| `viceme config` | 管理受控的 macOS Keychain 到文件的沙箱降级 |
-| `viceme profile` | 新增、列出、切换、重命名或删除本地 Profile |
-| `viceme skill inspect` | 固化并检查来源候选，不执行发布 |
-| `viceme skill publish` | 创建或更新具有稳定链接的 Skill Agent 发布 |
-| `viceme skill target` | 解析现有逻辑 Agent Target 及其版本 |
-| `viceme job` | 读取或等待发布任务，审阅信息与冻结摘要，编辑 Candidate，展示稳定预览/正式分享链接和签名渠道绑定链接，决议 action，以及显式重试或取消 |
-| `viceme skills` | 读取、安装和诊断随包发布的 Agent Skill |
-| `viceme update` | 同时更新 npm 启动器、已校验二进制文件和随包发布的 Skill |
-
-使用 `viceme <command> --help` 查看准确参数。经过发布检查的机器可读命令面存放在 [`skills/viceme/references/command-manifest.json`](skills/viceme/references/command-manifest.json)。
+响应未知时不能创建第二个 Publication，应先查询或恢复原 ID。
 
 ## 输出契约
 
-ViceMe 根据命令语义选择最小且稳定的输出形式：
-
-- `version`、`install`、`update`、`auth status`、`profile *`、`skills doctor` 等本地/引导命令，将格式化后的业务结果直接写入 **stdout**，不附加 `ok`、`data` 或无关构建元数据；npm 管理的普通调用最多只会附加上文约定的保留字段 `_notice.update`。
-- `skills read` 按原始字节输出目标文件，不添加 JSON 包装。
-- 交互式 `viceme auth login` 输出面向人的引导；AI Agent 使用 `--no-wait --json`，并在后续回合用 `--device-code <code> --json` 继续，这两个命令返回格式化的裸业务对象。
-- `skill` 和 `job` 下的发布协议命令继续使用稳定 Envelope，因为 action receipt、持久状态与有界等待元数据共同构成跨命令协议。
-
-发布协议命令成功时写入 **stdout**，退出码为 `0`：
-
-```json
-{
-  "ok": true,
-  "data": {}
-}
-```
-
-只有有界等待真实超时时才附加协议元数据：
+业务结果默认使用 JSON。成功时 stdout 只包含最终结果；进度和诊断只写 stderr。
 
 ```json
 {
   "ok": true,
   "data": {},
   "meta": {
-    "wait_timed_out": true
+    "cliVersion": "0.10.1",
+    "requestId": "optional"
   }
 }
 ```
 
-CLI 执行错误以格式化形式写入 **stderr**，退出码非零：
+失败使用非零退出码和稳定的 `error.code`。Agent Skills 只能依据退出码、`ok`、
+`error.code` 和 `retryable` 分支，不能解析 message 文本。
 
-```json
-{
-  "ok": false,
-  "error": {
-    "type": "validation",
-    "subtype": "source_required",
-    "message": "provide exactly one GitHub URL argument or --source-stdin"
-  }
-}
-```
-
-本地/引导命令根据进程退出码判断成功；发布协议命令可以检查退出码或 `ok == true`。API 返回的领域 `error.type` 会原样保留，退出码只表示粗粒度处理类别。成功读取发布任务时，业务状态仍可能是 `unsupported`、`rejected` 或 `failed`；这时应检查 `data.status`，不能把这些状态当成 CLI 传输失败。
-
-| 退出码 | 含义 |
-|---|---|
-| `0` | 命令完成；适用时继续检查返回的业务状态 |
-| `2` | 参数校验失败 |
-| `3` | 认证或授权失败 |
-| `4` | 可重试的传输或并发失败 |
-| `5` | 内部或协议失败 |
-| `6` | 策略或开放门禁拒绝 |
-| `10` | 需要明确确认 |
-
-## 安全与风险控制
-
-- **不执行来源内容** — CLI 和编译器不会执行第三方脚本、二进制文件、shell 片段、市场命令或复制口令中的指令。
-- **结构化来源意图** — AI Host 负责理解自然语言来源，并只通过 `--source-stdin` 传递 typed `SourceSpec`；CLI/Core 不根据用户措辞猜 Provider。Candidate 的自然语言修改通过 `--request-stdin` 传递。不得把不可信文本拼入命令字符串、argv、环境变量或 shell 管道。
-- **公开变更需要明确确认** — 发布、编译重试和取消操作需要 `--yes`；退出码 `10` 表示 Agent 必须向用户取得确认，不能静默重试。
-- **安全预览** — 用户需要检查计划请求时，可以对 inspect 或 publish 使用 `--dry-run`，不会产生网络请求或发布副作用。
-- **凭证隔离** — 在 macOS 上，设备登录凭证保存在 AES-256-GCM 加密文件中，主密钥由 Keychain 或显式降级后的私有文件保护，文件名不会暴露 Profile/origin；其他平台继续使用原生凭证管理器。显式内部测试覆盖按 Profile 隔离，仅允许保存在 `0600` 配置中，并且不会出现在 CLI 输出中。
-- **不可变输入** — inspect 会把发布绑定到不可变来源快照，而不是在之后重新读取浮动 URL。
-- **有界等待** — `job wait` 有最大等待时间；超时后返回最新持久化状态，不会取消工作流。
-- **有界编译恢复** — `job retry` 复用已冻结的来源与同一发布任务，只接受明确标记为可重试的平台故障，并由服务端限制次数。
-- **可信分发** — npm 启动器从 GitHub 或 binary 镜像下载与其准确包版本匹配的二进制文件，并在启用前使用 npm 包内置的校验清单验证 SHA-256。
-
-## 诊断与更新
+## 更新
 
 ```bash
-viceme skills doctor
 viceme update --check
 viceme update
 ```
 
-`viceme update` 会安装一个准确的 npm 包版本，获取对应的已校验 Go 二进制文件，并从同一版本刷新随包发布的 Skill。独立开发版二进制文件不会被静默替换。
+Bootstrap 安装会读取当前 Profile 所在区域的官方 S3 Release 索引，校验精确二进制
+Checksum，用新二进制修复同版本官方 Skills 后原子激活。npm 安装通过精确 npm 包版本
+更新。更新子进程不会继承 `VICEME_ACCESS_TOKEN`。
+
+二进制或 npm launcher、两份官方 Skills 和 Profile 配置属于同一个可恢复的本地版本。
+Standalone 与 npm 激活共用外层激活锁、委托成员提交锁，并持久化包含语义版本、安装方式和不可变身份的
+active-generation。唯一的启动协调器不区分当前入口，始终检查 Standalone 和 npm 两类 Journal。
+所有普通命令必须先恢复未完成的外层 Journal；如果恢复后当前进程的版本、安装方式或不可变身份
+不再等于 active generation，本次命令会停止并要求重新执行。锁内 generation fence 会拒绝迟到
+的旧版本更新。每个真实写入口拿到 activation lock 后、开始暂存或联网安装前，都会再次对两类
+Journal 做相同仲裁，避免通过启动检查后暂停的旧进程引入第二套恢复协议。第一阶段也会在任何
+文件变更前拒绝 Standalone 与 npm 的原地切换，不能把两套
+恢复协议混合使用。每个 Skills/配置事务都必须持有同一代际权限，或在最终提交前重新验证。
+npm 内部安装子进程必须匹配 Journal 中的一次性 nonce、目标版本和 Skill 目标；成员提交锁会阻止
+父进程崩溃后，新一代在旧子进程尚未提交完毕时进入。目标一旦越过语义提交点，崩溃恢复只能完成本地清理，不能重新联网安装或回滚。私有
+Journal 因此只能完整恢复上一代或完整完成目标版本；安装提交前，`viceme doctor` 同时校验
+Skill/版本完整性和不携带凭据的 API readiness。
+
+## 第一阶段实施状态
+
+安装、设备码授权、确定性包上传、建议或人工展示素材、Review 确认、发布、取消和终态恢复均已
+实现。本地验收使用真实 Shop API、PostgreSQL、Redis 和 S3 兼容存储；`make check`、npm
+打包与冷启动、race test，以及 Darwin/Linux/Windows 的 amd64/arm64 构建均通过。真实 LLM
+Provider sandbox 仍属于部署环境验收项；没有凭据时分析 fail closed，人工素材流程仍可完成发布。
+
+## 安全边界
+
+- 本地打包拒绝路径穿越、绝对路径、符号链接、特殊文件、超限内容、敏感文件和常见
+  Secret 模式。
+- API 独立校验不可变 ZIP 与对象元数据，不能信任 CLI 自报结果。
+- Pending operation 不保存预签名上传 URL。
+- LLM 只接收经过筛选的文本、元数据和图片缩略图。
+- 未确认当前 Review Digest、价格、封面和有序展示素材时，Publication 不能公开。
 
 ## 开发
 
-从源码构建需要 Go 1.23 或更高版本。
+需要 Go 1.23+；npm 包检查还需要 Node.js 22+。
 
 ```bash
-make build
-make test
 make check
-make skill-check
 make npm-package-check
-make quality-check
+make release-manifest
 ```
 
-仓库中主要的质量产物包括：
-
-- [`skills/viceme/references/command-manifest.json`](skills/viceme/references/command-manifest.json)：从 Cobra 命令树生成；
-- [`quality/example-dry-runs.json`](quality/example-dry-runs.json)：在没有网络请求的情况下执行文档中的来源路径；
-- [`quality/release-manifest.json`](quality/release-manifest.json)：固定 CLI/Skill 兼容范围和内容摘要。
-
-`make npm-package-check` 会构建 Go 可执行文件、打包真实 npm tarball，并在相互隔离的临时主目录中运行启动器，不依赖已经发布的 GitHub Release。
-
-## 发布
-
-维护者将普通改动合入 `dev`；不需要手工修改版本、创建 tag、编写 changelog 或执行 `npm publish`。GitHub Actions 持续维护唯一的 `dev -> main` 自动 Release PR。合并该 PR 即授权发布经过审阅的版本、tag、不可变 GitHub Release 产物及 npm trusted publication。
-
-仓库设置、OIDC trusted publishing、恢复和完整性规则参见 [`docs/releasing.md`](docs/releasing.md)。
-
-## 贡献
-
-欢迎提交 Issue 和 Pull Request。公共命令面发生变化时，必须在同一个 PR 中更新生成的命令清单、随包发布的 Skill 示例、质量样例和测试。
+CLI、`viceme-shared` 和 `viceme-publish` 同版本发布。GitHub、npm、
+`s3.viceme.cn` 与 `s3.viceme.ai` 的产物都来自同一个已评审 Commit。

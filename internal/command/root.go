@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	cliembed "github.com/ViceMe-AI/cli"
@@ -24,6 +25,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
+	"github.com/gofrs/flock"
 	"github.com/spf13/cobra"
 )
 
@@ -41,6 +43,21 @@ type Dependencies struct {
 	NewID       func() string
 	APIBaseURL  string
 	Region      config.Region
+
+	coordinatedActivationChild  bool
+	activationChildRequest      npmActivationChildRequest
+	activationChildParseError   error
+	bootstrapActivationCommand  bool
+	activationNPMRecoverer      *updatepkg.NPMService
+	runningActivationGeneration *updatepkg.ActiveGeneration
+}
+
+type npmActivationChildRequest struct {
+	Requested     bool
+	SkipLauncher  bool
+	Nonce         string
+	TargetVersion string
+	SkillTarget   string
 }
 
 type options struct {
@@ -64,24 +81,14 @@ type Runtime struct {
 }
 
 const (
-	apiBaseURLEnvironment             = "VICEME_API_BASE_URL"
-	processAccessTokenEnvironment     = "VICEME_ACCESS_TOKEN"
-	localProcessCredentialEnvironment = "VICEME_CLI_ALLOW_LOCAL_PROCESS_CREDENTIAL"
-	devPreviewAPIBaseURL              = "https://viceme-envoy-dev.preview.tencent-zeabur.cn"
+	apiBaseURLEnvironment         = "VICEME_API_BASE_URL"
+	processAccessTokenEnvironment = "VICEME_ACCESS_TOKEN"
 )
 
-type publicationCredentialAudience string
-
-const (
-	publicationCredentialAudienceCNProd     publicationCredentialAudience = "cn-prod"
-	publicationCredentialAudienceGlobalProd publicationCredentialAudience = "global-prod"
-	publicationCredentialAudienceDevPreview publicationCredentialAudience = "dev-preview"
-	publicationCredentialAudienceLocalDev   publicationCredentialAudience = "local-dev"
-)
+var fallbackUUIDSequence atomic.Uint64
 
 type publicationCredential struct {
-	raw      string
-	audience publicationCredentialAudience
+	raw string
 }
 
 type processTokenSource string
@@ -91,9 +98,11 @@ func (source processTokenSource) Token(context.Context) (string, error) {
 }
 
 func Execute(args []string, dependencies Dependencies) int {
+	dependencies.activationChildRequest, dependencies.activationChildParseError = parseNPMActivationChild(args)
+	dependencies.bootstrapActivationCommand = isBootstrapActivationCommand(args)
 	root, runtime, err := NewRoot(dependencies)
 	if err != nil {
-		printer := &output.Printer{Out: writerOr(dependencies.Out, os.Stdout), ErrOut: writerOr(dependencies.ErrOut, os.Stderr)}
+		printer := &output.Printer{Out: writerOr(dependencies.Out, os.Stdout), ErrOut: writerOr(dependencies.ErrOut, os.Stderr), CLIVersion: buildinfo.Version}
 		return printer.Failure(err)
 	}
 	root.SetArgs(args)
@@ -113,6 +122,25 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	}
 	dependencies = defaults(dependencies)
 	configBase := runtimeConfigBase(dependencies.Environment)
+	if dependencies.activationChildParseError != nil {
+		return nil, nil, output.Validation("ACTIVATION_CHILD_INVALID", dependencies.activationChildParseError.Error())
+	}
+	if dependencies.activationChildRequest.Requested {
+		if err := authorizeNPMActivationChild(configBase, &dependencies); err != nil {
+			return nil, nil, output.Policy("ACTIVATION_CHILD_INVALID", "the internal activation child is not authorized by a committing parent journal")
+		}
+		dependencies.coordinatedActivationChild = true
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		err := reconcileActivationAtStartup(ctx, configBase, &dependencies)
+		cancel()
+		if err != nil {
+			return nil, nil, output.Internal("ACTIVATION_RECOVERY_FAILED", "could not reconcile the active ViceMe CLI and Skill generation", err)
+		}
+	}
+	if err := skillcontent.RecoverInstallTransactionAuto(dependencies.Environment); err != nil {
+		return nil, nil, output.Internal("INSTALL_RECOVERY_FAILED", "could not reconcile an interrupted ViceMe installation", err)
+	}
 	resolvedConfig := config.Default(config.RegionCN)
 	if dependencies.Region == "" {
 		var err error
@@ -152,8 +180,9 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		configBase:         configBase,
 		processCredential:  processCredential,
 		printer: &output.Printer{
-			Out:    dependencies.Out,
-			ErrOut: dependencies.ErrOut,
+			Out:        dependencies.Out,
+			ErrOut:     dependencies.ErrOut,
+			CLIVersion: buildinfo.Version,
 		},
 	}
 	if err := runtime.selectProfile(resolvedProfile.Name); err != nil {
@@ -161,7 +190,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	}
 	root := &cobra.Command{
 		Use:           "viceme",
-		Short:         "Publish external Skills as stable ViceMe Agents",
+		Short:         "Publish Skills and manage ViceMe creator tooling",
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
@@ -169,7 +198,14 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 			if runtime.opts.version {
 				return runtime.writeVersion()
 			}
-			return cmd.Help()
+			cmd.SetOut(runtime.deps.ErrOut)
+			if err := cmd.Help(); err != nil {
+				return output.Internal("help_render_failed", "could not render ViceMe command help", err)
+			}
+			return runtime.business(map[string]any{
+				"command": "viceme",
+				"help":    "human-readable command help was written to stderr",
+			})
 		},
 	}
 	root.CompletionOptions.DisableDefaultCmd = true
@@ -189,15 +225,215 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		return output.Validation("invalid_flag", err.Error())
 	})
 	root.AddCommand(newVersionCommand(runtime))
+	root.AddCommand(newBootstrapCommand(runtime))
 	root.AddCommand(newInstallCommand(runtime))
+	root.AddCommand(newDoctorCommand(runtime))
 	root.AddCommand(newUpdateCommand(runtime))
 	root.AddCommand(newAuthCommand(runtime))
-	root.AddCommand(newConfigCommand(runtime))
 	root.AddCommand(newProfileCommand(runtime))
 	root.AddCommand(newSkillCommand(runtime))
-	root.AddCommand(newJobCommand(runtime))
-	root.AddCommand(newSkillsCommand(runtime))
+	root.AddCommand(newPublicationCommand(runtime))
 	return root, runtime, nil
+}
+
+func parseNPMActivationChild(args []string) (npmActivationChildRequest, error) {
+	request := npmActivationChildRequest{SkillTarget: "auto"}
+	install := len(args) > 0 && args[0] == "install"
+	readValue := func(index *int, argument, name string) (string, bool, error) {
+		prefix := name + "="
+		if strings.HasPrefix(argument, prefix) {
+			value := strings.TrimPrefix(argument, prefix)
+			if value == "" {
+				return "", true, fmt.Errorf("%s requires a value", name)
+			}
+			return value, true, nil
+		}
+		if argument != name {
+			return "", false, nil
+		}
+		if *index+1 >= len(args) || strings.HasPrefix(args[*index+1], "--") {
+			return "", true, fmt.Errorf("%s requires a value", name)
+		}
+		*index = *index + 1
+		return args[*index], true, nil
+	}
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		if argument == "install" {
+			continue
+		}
+		if argument == "--internal-skip-launcher-ensure" {
+			request.Requested = true
+			request.SkipLauncher = true
+			continue
+		}
+		if value, matched, err := readValue(&index, argument, "--internal-activation-child"); matched {
+			request.Requested = true
+			if err != nil {
+				return request, err
+			}
+			request.Nonce = value
+			continue
+		}
+		if value, matched, err := readValue(&index, argument, "--internal-activation-target"); matched {
+			request.Requested = true
+			if err != nil {
+				return request, err
+			}
+			request.TargetVersion = value
+			continue
+		}
+		if value, matched, err := readValue(&index, argument, "--agent"); matched {
+			if err != nil {
+				return request, err
+			}
+			request.SkillTarget = value
+		}
+	}
+	if !request.Requested {
+		return request, nil
+	}
+	if !install || !request.SkipLauncher || request.Nonce == "" || request.TargetVersion == "" {
+		return request, errors.New("internal activation flags require a complete coordinated install child")
+	}
+	return request, nil
+}
+
+func isBootstrapActivationCommand(args []string) bool {
+	return len(args) >= 2 && args[0] == "bootstrap" && args[1] == "activate"
+}
+
+func reconcileActivationAtStartup(ctx context.Context, configDir string, dependencies *Dependencies) error {
+	running, err := runningActivationGeneration(*dependencies)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		return err
+	}
+	activationLock := flock.New(filepath.Join(configDir, updatepkg.ActivationLockFilename))
+	locked, err := activationLock.TryLock()
+	if err != nil {
+		return err
+	}
+	if !locked {
+		return errors.New("another ViceMe bootstrap or update is active")
+	}
+	defer activationLock.Unlock()
+	memberLock := flock.New(filepath.Join(configDir, updatepkg.ActivationMemberLockFilename))
+	memberAvailable, err := memberLock.TryLock()
+	if err != nil {
+		return err
+	}
+	if !memberAvailable {
+		return errors.New("an activation child is still committing Skills and config")
+	}
+	_ = memberLock.Unlock()
+
+	outer, err := updatepkg.InspectOuterActivationJournals(configDir)
+	if err != nil {
+		return err
+	}
+	if outer.Bootstrap && outer.NPM {
+		return errors.New("standalone and npm activation journals cannot be recovered together")
+	}
+	if err := recoverBootstrapActivation(configDir, dependencies.Environment); err != nil {
+		return err
+	}
+	recoverer, ok := dependencies.Updater.(updatepkg.LockedStartupRecoverer)
+	if !ok {
+		recoverer = npmRecoveryService(configDir, *dependencies)
+	}
+	if err := recoverer.RecoverActivationWhileLocked(ctx); err != nil {
+		return err
+	}
+	active, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil {
+		return err
+	}
+	if exists && active != running && !dependencies.bootstrapActivationCommand {
+		return updatepkg.ErrActivationRestartNeeded
+	}
+	dependencies.runningActivationGeneration = &running
+	return nil
+}
+
+func authorizeNPMActivationChild(configDir string, dependencies *Dependencies) error {
+	outer, err := updatepkg.InspectOuterActivationJournals(configDir)
+	if err != nil {
+		return err
+	}
+	if outer.Bootstrap {
+		return errors.New("a standalone activation journal is pending")
+	}
+	request := dependencies.activationChildRequest
+	service := npmRecoveryService(configDir, *dependencies)
+	target, err := service.ValidateActivationChild(request.Nonce, request.TargetVersion, request.SkillTarget)
+	if err != nil {
+		return err
+	}
+	running, err := runningActivationGeneration(*dependencies)
+	if err != nil {
+		return err
+	}
+	if running != target {
+		return errors.New("activation child is not running the journal target generation")
+	}
+	dependencies.runningActivationGeneration = &running
+	return nil
+}
+
+func npmRecoveryService(configDir string, dependencies Dependencies) *updatepkg.NPMService {
+	if dependencies.activationNPMRecoverer != nil {
+		if dependencies.activationNPMRecoverer.ConfigDir == "" {
+			dependencies.activationNPMRecoverer.ConfigDir = configDir
+		}
+		return dependencies.activationNPMRecoverer
+	}
+	if service, ok := dependencies.Updater.(*updatepkg.NPMService); ok {
+		if service.ConfigDir == "" {
+			service.ConfigDir = configDir
+		}
+		return service
+	}
+	service := updatepkg.NewNPMService(
+		buildinfo.Version,
+		buildinfo.CompatibilityVersion(),
+		"npm",
+	)
+	service.ConfigDir = configDir
+	service.HTTPClient = dependencies.HTTPClient
+	return service
+}
+
+func runningActivationGeneration(dependencies Dependencies) (updatepkg.ActiveGeneration, error) {
+	version := buildinfo.CompatibilityVersion()
+	installMethod := os.Getenv("VICEME_INSTALL_METHOD")
+	switch service := dependencies.Updater.(type) {
+	case *updatepkg.NPMService:
+		if service.ComparableVersion != "" {
+			version = service.ComparableVersion
+		}
+		if service.InstallMethod == "npm" {
+			installMethod = "npm"
+		}
+	case *updatepkg.ReleaseService:
+		if service.ComparableVersion != "" {
+			version = service.ComparableVersion
+		}
+	}
+	if installMethod == "npm" {
+		return updatepkg.NewNPMGeneration(version)
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return updatepkg.ActiveGeneration{}, err
+	}
+	digest, err := bootstrapFileHash(executable)
+	if err != nil {
+		return updatepkg.ActiveGeneration{}, err
+	}
+	return updatepkg.NewStandaloneGeneration(version, digest)
 }
 
 func (r *Runtime) prepareUpdateNotice(command *cobra.Command) {
@@ -251,14 +487,23 @@ func defaults(dependencies Dependencies) Dependencies {
 		dependencies.Store = securestore.NewDefault("viceme-cli", runtimeConfigBase(dependencies.Environment))
 	}
 	if dependencies.Updater == nil {
-		updater := updatepkg.NewNPMService(
-			buildinfo.Version,
-			buildinfo.CompatibilityVersion(),
-			os.Getenv("VICEME_INSTALL_METHOD"),
-		)
-		updater.ConfigDir = runtimeConfigBase(dependencies.Environment)
-		updater.HTTPClient = dependencies.HTTPClient
-		dependencies.Updater = updater
+		if os.Getenv("VICEME_INSTALL_METHOD") == "npm" {
+			updater := updatepkg.NewNPMService(
+				buildinfo.Version,
+				buildinfo.CompatibilityVersion(),
+				"npm",
+			)
+			updater.ConfigDir = runtimeConfigBase(dependencies.Environment)
+			updater.HTTPClient = dependencies.HTTPClient
+			dependencies.Updater = updater
+		} else {
+			updater := updatepkg.NewReleaseService(
+				buildinfo.Version,
+				buildinfo.CompatibilityVersion(),
+			)
+			updater.HTTPClient = dependencies.HTTPClient
+			dependencies.Updater = updater
+		}
 	}
 	if dependencies.Now == nil {
 		dependencies.Now = time.Now
@@ -315,17 +560,24 @@ func (r *Runtime) successWithMeta(data any, meta output.Meta) error {
 
 type versionResult struct {
 	buildinfo.Info
-	skillcontent.Digests
+	Skills map[string]skillcontent.Digests `json:"skills"`
 }
 
 func (r *Runtime) writeVersion() error {
-	digests, err := r.deps.Skills.Digests("viceme")
+	shared, err := r.deps.Skills.Digests("viceme-shared")
+	if err != nil {
+		return err
+	}
+	publish, err := r.deps.Skills.Digests("viceme-publish")
 	if err != nil {
 		return err
 	}
 	return r.business(versionResult{
-		Info:    buildinfo.Current(),
-		Digests: digests,
+		Info: buildinfo.Current(),
+		Skills: map[string]skillcontent.Digests{
+			"viceme-shared":  shared,
+			"viceme-publish": publish,
+		},
 	})
 }
 
@@ -372,19 +624,7 @@ func (r *Runtime) validateProfileOverrideAuthority(name string) error {
 func (r *Runtime) applyProfile(profile config.Profile) error {
 	apiBaseURL := r.apiBaseURLOverride
 	if apiBaseURL == "" {
-		apiBaseURL = profile.APIBaseURL
-	}
-	if apiBaseURL == "" {
 		apiBaseURL = config.APIBaseURL(profile.Region)
-	}
-	if profile.AccessToken != "" {
-		credential, err := parsePublicationCredential(profile.AccessToken)
-		if err != nil {
-			return output.Authentication("profile_credential_invalid", "the selected profile access token is not a supported audience-bound publication credential")
-		}
-		if err := validatePublicationCredentialTarget(credential, profile.APIBaseURL, true); err != nil {
-			return output.Authentication("profile_credential_origin_mismatch", err.Error())
-		}
 	}
 	if err := validatePublicationProcessCredentialTarget(r.processCredential, apiBaseURL); err != nil {
 		return err
@@ -397,17 +637,14 @@ func (r *Runtime) applyProfile(profile config.Profile) error {
 	r.region = profile.Region
 	r.apiBaseURL = apiBaseURL
 	r.credentialScope = scope
+	if regionAware, ok := r.deps.Updater.(updatepkg.RegionAware); ok {
+		regionAware.SetRegion(string(profile.Region))
+	}
 	return nil
 }
 
 func (r *Runtime) credentialScopeForProfile(profile config.Profile) (string, error) {
-	apiBaseURL := r.apiBaseURLOverride
-	if apiBaseURL == "" {
-		apiBaseURL = profile.APIBaseURL
-	}
-	if apiBaseURL == "" {
-		apiBaseURL = config.APIBaseURL(profile.Region)
-	}
+	apiBaseURL := config.APIBaseURL(profile.Region)
 	return credentialScopeForAPIBase(apiBaseURL, profile.Region)
 }
 
@@ -426,13 +663,6 @@ func (r *Runtime) credentialStorageKeys() ([]string, error) {
 		for _, region := range []config.Region{config.RegionCN, config.RegionGlobal} {
 			add(&auth.Manager{ProfileID: profile.ID, ProfileName: profile.Name, Region: string(region)})
 		}
-		if profile.APIBaseURL != "" {
-			scope, err := credentialScopeForAPIBase(profile.APIBaseURL, profile.Region)
-			if err != nil {
-				return nil, err
-			}
-			add(&auth.Manager{ProfileID: profile.ID, ProfileName: profile.Name, Region: string(profile.Region), Scope: scope})
-		}
 	}
 	add(r.manager())
 	return keys, nil
@@ -442,16 +672,7 @@ func (r *Runtime) overrideCredential() (token, source string, persistent bool) {
 	if r.processCredential != nil {
 		return r.processCredential.raw, "process", false
 	}
-	if r.profile.AccessToken != "" && sameAPIOrigin(r.profile.APIBaseURL, r.apiBaseURL) {
-		return r.profile.AccessToken, "local_profile", true
-	}
 	return "", "", false
-}
-
-func sameAPIOrigin(left, right string) bool {
-	leftOrigin, leftErr := api.NormalizeAPIOrigin(left)
-	rightOrigin, rightErr := api.NormalizeAPIOrigin(right)
-	return leftErr == nil && rightErr == nil && leftOrigin == rightOrigin
 }
 
 func parsePublicationCredential(raw string) (*publicationCredential, error) {
@@ -461,68 +682,40 @@ func parsePublicationCredential(raw string) (*publicationCredential, error) {
 	if strings.TrimSpace(raw) != raw || strings.ContainsAny(raw, "\r\n\x00") {
 		return nil, errors.New("the process publication credential is invalid")
 	}
-	parts := strings.SplitN(raw, ".", 3)
-	if len(parts) != 3 || parts[0] != "vpa1" || len(parts[2]) != 43 {
-		return nil, errors.New("the process publication credential is not a supported audience-bound credential")
+	if !strings.HasPrefix(raw, "vme_cli_") || len(raw) != len("vme_cli_")+43 {
+		return nil, errors.New("the process credential is not a ViceMe CLI token")
 	}
-	audience := publicationCredentialAudience(parts[1])
-	switch audience {
-	case publicationCredentialAudienceCNProd,
-		publicationCredentialAudienceGlobalProd,
-		publicationCredentialAudienceDevPreview,
-		publicationCredentialAudienceLocalDev:
-	default:
-		return nil, errors.New("the process publication credential audience is unsupported")
-	}
-	for _, character := range parts[2] {
+	for _, character := range strings.TrimPrefix(raw, "vme_cli_") {
 		if !((character >= 'a' && character <= 'z') ||
 			(character >= 'A' && character <= 'Z') ||
 			(character >= '0' && character <= '9') || character == '-' || character == '_') {
 			return nil, errors.New("the process publication credential is invalid")
 		}
 	}
-	return &publicationCredential{raw: raw, audience: audience}, nil
+	return &publicationCredential{raw: raw}, nil
 }
 
 func validatePublicationProcessCredentialTarget(credential *publicationCredential, apiBaseURL string) error {
 	if credential == nil {
 		return nil
 	}
-	if err := validatePublicationCredentialTarget(credential, apiBaseURL, false); err != nil {
-		message := strings.Replace(err.Error(), "the publication credential", "the process publication credential", 1)
-		return output.Authentication("process_credential_origin_mismatch", message)
+	if err := validatePublicationCredentialTarget(apiBaseURL); err != nil {
+		return output.Authentication("process_credential_origin_mismatch", err.Error())
 	}
 	return nil
 }
 
-func validatePublicationCredentialTarget(credential *publicationCredential, apiBaseURL string, allowLocalProfile bool) error {
+func validatePublicationCredentialTarget(apiBaseURL string) error {
 	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
 	if err != nil {
-		return errors.New("the publication credential target is invalid")
+		return errors.New("the process credential target is invalid")
 	}
-	var expected string
-	switch credential.audience {
-	case publicationCredentialAudienceCNProd:
-		expected, err = api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionCN))
-	case publicationCredentialAudienceGlobalProd:
-		expected, err = api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionGlobal))
-	case publicationCredentialAudienceDevPreview:
-		expected, err = api.NormalizeAPIOrigin(devPreviewAPIBaseURL)
-	case publicationCredentialAudienceLocalDev:
-		if !isLoopbackOrigin(origin) {
-			return errors.New("local-dev publication credentials require a loopback target")
-		}
-		if !allowLocalProfile && os.Getenv(localProcessCredentialEnvironment) != "1" {
-			return errors.New("local process credentials require an explicit loopback debug target")
-		}
+	cn, _ := api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionCN))
+	global, _ := api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionGlobal))
+	if origin == cn || origin == global || isLoopbackOrigin(origin) {
 		return nil
-	default:
-		return errors.New("the publication credential audience is unsupported")
 	}
-	if err != nil || origin != expected {
-		return errors.New("the publication credential audience does not match the selected ViceMe API origin")
-	}
-	return nil
+	return errors.New("VICEME_ACCESS_TOKEN may only target an official ViceMe API origin or loopback development")
 }
 
 func isLoopbackOrigin(origin string) bool {
@@ -603,9 +796,14 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 }
 
 func randomUUID() string {
+	return uuidFromEntropy(rand.Reader, time.Now(), os.Getpid(), fallbackUUIDSequence.Add(1))
+}
+
+func uuidFromEntropy(reader io.Reader, now time.Time, processID int, sequence uint64) string {
 	var value [16]byte
-	if _, err := rand.Read(value[:]); err != nil {
-		return fmt.Sprintf("request-%d", time.Now().UnixNano())
+	if _, err := io.ReadFull(reader, value[:]); err != nil {
+		fallback := sha256.Sum256([]byte(fmt.Sprintf("%d:%d:%d", now.UnixNano(), processID, sequence)))
+		copy(value[:], fallback[:len(value)])
 	}
 	value[6] = (value[6] & 0x0f) | 0x40
 	value[8] = (value[8] & 0x3f) | 0x80

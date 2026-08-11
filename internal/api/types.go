@@ -1,211 +1,190 @@
 package api
 
-import (
-	"encoding/json"
-	"fmt"
-	"time"
-)
-
-type Document map[string]any
-
-func (d Document) StringValue(key string) string {
-	value, _ := d[key].(string)
-	return value
+type DeviceAuthorizationRequest struct {
+	ClientName string   `json:"clientName"`
+	CLIVersion string   `json:"cliVersion"`
+	Scopes     []string `json:"scopes"`
 }
 
 type DeviceAuthorization struct {
-	VerificationURL         string    `json:"verification_url"`
-	VerificationURLComplete string    `json:"verification_url_complete,omitempty"`
-	DeviceCode              string    `json:"device_code"`
-	UserCode                string    `json:"user_code,omitempty"`
-	ExpiresAt               time.Time `json:"expires_at"`
-	IntervalSeconds         int       `json:"interval_seconds"`
+	DeviceCode              string `json:"deviceCode"`
+	UserCode                string `json:"userCode"`
+	VerificationURI         string `json:"verificationUri"`
+	VerificationURIComplete string `json:"verificationUriComplete"`
+	ExpiresIn               int    `json:"expiresIn"`
+	Interval                int    `json:"interval"`
 }
 
 type DeviceTokenRequest struct {
-	DeviceCode string `json:"device_code"`
+	DeviceCode string `json:"deviceCode"`
 }
 
 type DeviceToken struct {
-	AccessToken  string    `json:"access_token"`
-	RefreshToken string    `json:"refresh_token,omitempty"`
-	TokenType    string    `json:"token_type,omitempty"`
-	ExpiresAt    time.Time `json:"expires_at,omitempty"`
-	UserID       string    `json:"user_id,omitempty"`
+	Status      string   `json:"status"`
+	Interval    int      `json:"interval,omitempty"`
+	AccessToken string   `json:"accessToken,omitempty"`
+	TokenType   string   `json:"tokenType,omitempty"`
+	ExpiresAt   string   `json:"expiresAt,omitempty"`
+	Scopes      []string `json:"scopes,omitempty"`
 }
 
-type Source struct {
-	Kind  string `json:"kind"`
-	Value string `json:"value"`
+type AuthStatus struct {
+	Authenticated bool     `json:"authenticated"`
+	User          AuthUser `json:"user"`
+	Scopes        []string `json:"scopes"`
+	ExpiresAt     string   `json:"expiresAt"`
 }
 
-type InspectRequest struct {
-	Source    Source `json:"source"`
-	SkillRoot string `json:"skill_root,omitempty"`
+type AuthUser struct {
+	ID          string  `json:"id"`
+	DisplayName *string `json:"displayName"`
+	AvatarURL   *string `json:"avatarUrl"`
 }
 
-type InspectCandidate struct {
-	Selector    string   `json:"selector"`
-	Title       string   `json:"title,omitempty"`
-	Source      Document `json:"source,omitempty"`
-	Destination Document `json:"destination,omitempty"`
+type SkillPublicationManifest struct {
+	APIVersion string                   `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                   `json:"kind" yaml:"kind"`
+	Metadata   SkillPublicationMetadata `json:"metadata" yaml:"metadata"`
+	Spec       SkillPublicationSpec     `json:"spec" yaml:"spec"`
 }
 
-type InspectResponse struct {
-	ResolutionID  string             `json:"resolution_id"`
-	ExpiresAt     time.Time          `json:"expires_at,omitempty"`
-	Source        Document           `json:"source,omitempty"`
-	SourceVersion Document           `json:"source_version,omitempty"`
-	Destination   Document           `json:"destination,omitempty"`
-	Candidates    []InspectCandidate `json:"candidates"`
+type SkillPublicationMetadata struct {
+	Title   string `json:"title" yaml:"title"`
+	Summary string `json:"summary" yaml:"summary"`
 }
 
-type Destination struct {
-	Mode                  string `json:"mode"`
-	Alias                 string `json:"alias,omitempty"`
-	TargetID              string `json:"target_id,omitempty"`
-	ExpectedTargetVersion *int64 `json:"expected_target_version,omitempty"`
+type SkillPublicationSpec struct {
+	Source SkillPublicationSource `json:"source" yaml:"source"`
+	Sale   SkillPublicationSale   `json:"sale" yaml:"sale"`
 }
 
-type PublicationOptions struct {
-	TargetLocale          string `json:"target_locale,omitempty"`
-	PublishMode           string `json:"publish_mode"`
-	AdmissionConfirmation bool   `json:"admission_confirmation"`
+type SkillPublicationSource struct {
+	Entry string `json:"entry" yaml:"entry"`
 }
 
-type CreatePublicationRequest struct {
-	ClientRequestID string             `json:"client_request_id"`
-	Source          *Source            `json:"source,omitempty"`
-	ResolutionID    string             `json:"resolution_id,omitempty"`
-	Selector        string             `json:"selector,omitempty"`
-	Destination     Destination        `json:"destination"`
-	Options         PublicationOptions `json:"options"`
+type SkillPublicationSale struct {
+	Currency    string `json:"currency" yaml:"currency"`
+	PriceMinor  int    `json:"priceMinor" yaml:"priceMinor"`
+	Entitlement string `json:"entitlement" yaml:"entitlement"`
 }
 
-type Publication Document
-
-func (p Publication) Status() string {
-	return Document(p).StringValue("status")
+type SkillPublicationFile struct {
+	Digest      string `json:"digest"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	FileName    string `json:"fileName"`
+	ContentType string `json:"contentType"`
 }
 
-func (p Publication) ID() string {
-	return Document(p).StringValue("publication_id")
+type CreateSkillPublicationRequest struct {
+	ClientRequestID    string                   `json:"clientRequestId"`
+	ContractVersion    string                   `json:"contractVersion"`
+	CLIVersion         string                   `json:"cliVersion"`
+	Manifest           SkillPublicationManifest `json:"manifest"`
+	ManifestDigest     string                   `json:"manifestDigest"`
+	Artifact           SkillPublicationFile     `json:"artifact"`
+	ProductID          string                   `json:"productId,omitempty"`
+	CreatorDisplayName string                   `json:"creatorDisplayName,omitempty"`
 }
 
-func (p Publication) MarshalJSON() ([]byte, error) {
-	return json.Marshal(map[string]any(p))
+type CreateSkillPublicationResponse struct {
+	PublicationID string               `json:"publicationId"`
+	Status        string               `json:"status"`
+	PackageUpload *UploadAuthorization `json:"packageUpload"`
 }
 
-type ResolveActionRequest struct {
-	ExpectedPayloadDigest string `json:"expected_payload_digest"`
-	// Payload answers typed payload actions (select_root). confirm_publish
-	// decisions use ResolveConfirmationRequest against the dedicated endpoint.
-	Payload json.RawMessage `json:"payload,omitempty"`
+type UploadAuthorizationRequest struct {
+	Kind         string `json:"kind"`
+	Digest       string `json:"digest"`
+	SizeBytes    int64  `json:"sizeBytes"`
+	FileName     string `json:"fileName"`
+	ContentType  string `json:"contentType"`
+	RelativePath string `json:"relativePath,omitempty"`
+	SortOrder    int    `json:"sortOrder"`
 }
 
-// ResolveConfirmationRequest resolves a confirm_publish action via
-// /resolve-confirmation: every digest and the decision are required
-// (OpenAPI/SDK/runtime 同一合同).
-type ResolveConfirmationRequest struct {
-	ExpectedPayloadDigest          string `json:"expected_payload_digest"`
-	ExpectedReleaseCandidateDigest string `json:"expected_release_candidate_digest"`
-	ExpectedPublicSummaryDigest    string `json:"expected_public_summary_digest"`
-	Decision                       string `json:"decision"`
+type UploadAuthorization struct {
+	UploadID  string            `json:"uploadId"`
+	Method    string            `json:"method"`
+	URL       string            `json:"url"`
+	ExpiresAt string            `json:"expiresAt"`
+	Headers   map[string]string `json:"headers"`
 }
 
-// RenewActionReceipt is the next generation of an expired confirm_steps or
-// confirm_publish action on the same publication and frozen candidate.
-type RenewActionReceipt struct {
-	PublicationID string   `json:"publication_id"`
-	Status        string   `json:"status"`
-	NextAction    Document `json:"next_action"`
+type CompleteUploadRequest struct {
+	UploadID string `json:"uploadId"`
 }
 
-// ResolveMetadataRequest resolves the confirm_metadata checkpoint: confirm
-// (optionally editing title/description/author within the visible-char
-// limits) or cancel with zero assets.
-type ResolveMetadataRequest struct {
-	ActionID              string `json:"action_id"`
-	ExpectedPayloadDigest string `json:"expected_payload_digest"`
-	Decision              string `json:"decision"`
-	Title                 string `json:"title,omitempty"`
-	Description           string `json:"description,omitempty"`
-	Author                string `json:"author,omitempty"`
+type SkillPublicationDraft struct {
+	Title            string   `json:"title"`
+	SummaryZhCN      *string  `json:"summaryZhCn"`
+	SummaryEnUS      *string  `json:"summaryEnUs"`
+	Currency         string   `json:"currency"`
+	PriceMinor       int      `json:"priceMinor"`
+	CoverUploadID    *string  `json:"coverUploadId"`
+	GalleryUploadIDs []string `json:"galleryUploadIds"`
 }
 
-// PublicationEditRequest submits a natural-language candidate edit (Host typed action).
-type PublicationEditRequest struct {
-	EditRequest            string `json:"edit_request"`
-	CurrentCandidateDigest string `json:"current_candidate_digest"`
+type SkillPublicationUpload struct {
+	ID           string  `json:"id"`
+	Kind         string  `json:"kind"`
+	Status       string  `json:"status"`
+	RelativePath *string `json:"relativePath"`
+	FileName     string  `json:"fileName"`
+	ContentType  string  `json:"contentType"`
+	SizeBytes    int64   `json:"sizeBytes"`
+	Digest       string  `json:"digest"`
+	SortOrder    int     `json:"sortOrder"`
+	ViewURL      *string `json:"viewUrl"`
 }
 
-// PublicationEditReceipt is the durable edit receipt (pending/applied/failed).
-type PublicationEditReceipt struct {
-	EditID                string  `json:"edit_id"`
-	Status                string  `json:"status"`
-	Class                 *string `json:"class"`
-	BaseCandidateDigest   string  `json:"base_candidate_digest"`
-	ResultCandidateDigest *string `json:"result_candidate_digest"`
-	Error                 any     `json:"error"`
-	CreatedAt             string  `json:"created_at"`
-	CompletedAt           *string `json:"completed_at"`
+type ListingSuggestion struct {
+	SummaryZhCN         string   `json:"summaryZhCn"`
+	SummaryEnUS         string   `json:"summaryEnUs"`
+	CoverCandidateID    *string  `json:"coverCandidateId"`
+	GalleryCandidateIDs []string `json:"galleryCandidateIds"`
+	Reasons             []string `json:"reasons"`
+	Warnings            []string `json:"warnings"`
 }
 
-// PublicationMetadata is the metadata checkpoint read model.
-type PublicationMetadata struct {
-	PublicationID string   `json:"publication_id"`
-	Status        string   `json:"status"`
-	Title         string   `json:"title"`
-	Description   string   `json:"description"`
-	Author        string   `json:"author"`
-	Missing       []string `json:"missing"`
-	ActionID      string   `json:"action_id"`
-	ExpiresAt     string   `json:"expires_at"`
+type PublicationAnalysis struct {
+	Status      string             `json:"status"`
+	Suggestions *ListingSuggestion `json:"suggestions"`
+	ErrorCode   *string            `json:"errorCode"`
 }
 
-type UploadPrepareRequest struct {
-	Filename     string `json:"filename"`
-	ContentType  string `json:"content_type"`
-	Size         int64  `json:"size"`
-	SHA256Digest string `json:"sha256_digest"`
+type PublishedProduct struct {
+	ID        string `json:"id"`
+	Slug      string `json:"slug"`
+	DetailURL string `json:"detailUrl"`
+	ReleaseID string `json:"releaseId"`
 }
 
-type UploadPrepareResponse struct {
-	UploadID  string            `json:"upload_id"`
-	UploadURL string            `json:"upload_url"`
-	Method    string            `json:"method,omitempty"`
-	Headers   map[string]string `json:"headers,omitempty"`
-	ExpiresAt time.Time         `json:"expires_at,omitempty"`
+type SkillPublication struct {
+	ID             string                   `json:"id"`
+	Status         string                   `json:"status"`
+	Manifest       SkillPublicationManifest `json:"manifest"`
+	Draft          SkillPublicationDraft    `json:"draft"`
+	ReviewRevision int                      `json:"reviewRevision"`
+	ReviewDigest   *string                  `json:"reviewDigest"`
+	Uploads        []SkillPublicationUpload `json:"uploads"`
+	Analysis       *PublicationAnalysis     `json:"analysis"`
+	Product        *PublishedProduct        `json:"product"`
+	FailureCode    *string                  `json:"failureCode"`
+	CreatedAt      string                   `json:"createdAt"`
+	UpdatedAt      string                   `json:"updatedAt"`
 }
 
-type UploadCompleteRequest struct {
-	Size         int64  `json:"size"`
-	SHA256Digest string `json:"sha256_digest"`
+type ReviewDigestRequest struct {
+	ReviewDigest string `json:"reviewDigest"`
 }
 
-type UploadCompleteResponse struct {
-	UploadID string `json:"upload_id"`
-	Status   string `json:"status"`
+type CancelPublicationResponse struct {
+	Cancelled bool `json:"cancelled"`
 }
 
-type Target Document
-
-type TargetList Document
-
-type ServerError struct {
-	Type          string `json:"type"`
-	Subtype       string `json:"subtype"`
-	Message       string `json:"message"`
-	Retryable     bool   `json:"retryable"`
-	Hint          string `json:"hint,omitempty"`
-	PublicationID string `json:"publication_id,omitempty"`
-	ConsoleURL    string `json:"console_url,omitempty"`
-	Details       any    `json:"details,omitempty"`
-}
-
-func (e ServerError) Error() string {
-	if e.Message != "" {
-		return e.Message
-	}
-	return fmt.Sprintf("ViceMe API error (%s)", e.Subtype)
+type APIError struct {
+	StatusCode int    `json:"statusCode"`
+	Code       string `json:"code"`
+	Message    any    `json:"message"`
+	RequestID  string `json:"requestId"`
 }
