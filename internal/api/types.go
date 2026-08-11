@@ -116,7 +116,8 @@ type CompleteUploadRequest struct {
 
 type SkillPublicationDraft struct {
 	Title            string   `json:"title"`
-	Summary          string   `json:"summary"`
+	SummaryZhCN      *string  `json:"summaryZhCn"`
+	SummaryEnUS      *string  `json:"summaryEnUs"`
 	Currency         string   `json:"currency"`
 	PriceMinor       int      `json:"priceMinor"`
 	CoverUploadID    *string  `json:"coverUploadId"`
@@ -136,7 +137,9 @@ type SkillPublicationUpload struct {
 	ViewURL      *string `json:"viewUrl"`
 }
 
-type ListingMediaSuggestion struct {
+type ListingSuggestion struct {
+	SummaryZhCN         string   `json:"summaryZhCn"`
+	SummaryEnUS         string   `json:"summaryEnUs"`
 	CoverCandidateID    *string  `json:"coverCandidateId"`
 	GalleryCandidateIDs []string `json:"galleryCandidateIds"`
 	Reasons             []string `json:"reasons"`
@@ -144,9 +147,9 @@ type ListingMediaSuggestion struct {
 }
 
 type PublicationAnalysis struct {
-	Status      string                  `json:"status"`
-	Suggestions *ListingMediaSuggestion `json:"suggestions"`
-	ErrorCode   *string                 `json:"errorCode"`
+	Status      string             `json:"status"`
+	Suggestions *ListingSuggestion `json:"suggestions"`
+	ErrorCode   *string            `json:"errorCode"`
 }
 
 type PublishedProduct struct {

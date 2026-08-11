@@ -113,9 +113,12 @@ viceme publication confirm <publication-id> --review-digest <digest>
 viceme publication publish <publication-id> --review-digest <digest>
 ```
 
-The model may suggest package images, but it never decides the price, cover, or
-gallery. The Agent must show the exact draft to the user and receive explicit
-confirmation before `confirm` and again before the public `publish` action.
+The model proposes `summaryZhCn`, `summaryEnUs`, and package images, but it never
+confirms them or decides the price. Each summary has a maximum display width of
+30: ASCII counts as 1 and Chinese/non-ASCII counts as 2. The Agent must show the
+exact bilingual summaries, price, cover, and ordered gallery to the user and
+receive explicit confirmation before `confirm` and again before public
+`publish`.
 
 Resume after a connection loss with the same publication:
 
