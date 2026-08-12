@@ -8,7 +8,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
@@ -23,10 +26,11 @@ const (
 )
 
 type Profile struct {
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Region Region `json:"region"`
-	UserID string `json:"userId,omitempty"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Region     Region `json:"region"`
+	APIBaseURL string `json:"apiBaseUrl,omitempty"`
+	UserID     string `json:"userId,omitempty"`
 }
 
 type Config struct {
@@ -69,6 +73,69 @@ func APIBaseURL(region Region) string {
 		return "https://api.viceme.ai"
 	}
 	return "https://api.viceme.cn"
+}
+
+// NormalizeAPIBaseURL returns the canonical persisted endpoint for a profile.
+// Remote endpoints must use HTTPS; loopback HTTP is intentionally supported
+// for local Shop development only.
+func NormalizeAPIBaseURL(raw string) (string, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return "", fmt.Errorf("API base URL cannot be empty")
+	}
+	if len(value) > 2048 {
+		return "", fmt.Errorf("API base URL is too long")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Opaque != "" {
+		return "", fmt.Errorf("invalid API base URL")
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	hostname := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	if hostname == "" {
+		return "", fmt.Errorf("invalid API base URL")
+	}
+	switch scheme {
+	case "https":
+	case "http":
+		address := net.ParseIP(hostname)
+		if hostname != "localhost" && (address == nil || !address.IsLoopback()) {
+			return "", fmt.Errorf("API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+		}
+	default:
+		return "", fmt.Errorf("API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+	}
+	for _, segment := range strings.Split(parsed.Path, "/") {
+		if segment == "." || segment == ".." {
+			return "", fmt.Errorf("API base URL path cannot contain dot segments")
+		}
+	}
+	if strings.Contains(parsed.Path, `\`) {
+		return "", fmt.Errorf("API base URL path cannot contain backslashes")
+	}
+	port := parsed.Port()
+	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
+		port = ""
+	}
+	host := hostname
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" {
+		host += ":" + port
+	}
+	basePath := path.Clean(parsed.Path)
+	if basePath == "." || basePath == "/" {
+		basePath = ""
+	}
+	return (&url.URL{Scheme: scheme, Host: host, Path: basePath}).String(), nil
+}
+
+func (profile Profile) ResolvedAPIBaseURL() string {
+	if profile.APIBaseURL != "" {
+		return profile.APIBaseURL
+	}
+	return APIBaseURL(profile.Region)
 }
 
 func Default(region Region) Config {
@@ -150,7 +217,7 @@ func (config *Config) ProfileNames() []string {
 	return names
 }
 
-func (config *Config) AddProfile(name string, region Region) (*Profile, error) {
+func (config *Config) AddProfile(name string, region Region, apiBaseURL string) (*Profile, error) {
 	if err := ValidateProfileName(name); err != nil {
 		return nil, err
 	}
@@ -161,11 +228,20 @@ func (config *Config) AddProfile(name string, region Region) (*Profile, error) {
 	if err != nil {
 		return nil, err
 	}
+	normalizedAPIBaseURL := ""
+	if strings.TrimSpace(apiBaseURL) != "" {
+		normalizedAPIBaseURL, err = NormalizeAPIBaseURL(apiBaseURL)
+		if err != nil {
+			return nil, err
+		}
+	}
 	id, err := newProfileID()
 	if err != nil {
 		return nil, fmt.Errorf("create profile id: %w", err)
 	}
-	config.Profiles = append(config.Profiles, Profile{ID: id, Name: name, Region: parsedRegion})
+	config.Profiles = append(config.Profiles, Profile{
+		ID: id, Name: name, Region: parsedRegion, APIBaseURL: normalizedAPIBaseURL,
+	})
 	return &config.Profiles[len(config.Profiles)-1], nil
 }
 
@@ -241,6 +317,13 @@ func validate(config *Config) error {
 			return fmt.Errorf("profile %q: %w", profile.Name, err)
 		}
 		profile.Region = region
+		if profile.APIBaseURL != "" {
+			normalized, err := NormalizeAPIBaseURL(profile.APIBaseURL)
+			if err != nil {
+				return fmt.Errorf("profile %q: %w", profile.Name, err)
+			}
+			profile.APIBaseURL = normalized
+		}
 	}
 	if config.CurrentProfile == "" {
 		config.CurrentProfile = config.Profiles[0].Name

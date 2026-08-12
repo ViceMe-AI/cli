@@ -54,7 +54,8 @@ npx --yes @viceme-ai/cli@latest install
 
 ## 登录与 Profile
 
-每个 Profile 绑定一个官方区域和一个通过设备码授权的账户。
+每个 Profile 绑定一个区域、一个 API Endpoint 和一个通过设备码授权的账户。未配置
+自定义 Endpoint 的 Profile 使用对应区域的 ViceMe 官方 API。
 
 ```bash
 viceme auth login
@@ -65,6 +66,22 @@ viceme profile list
 viceme profile use default
 ```
 
+连接测试环境或私有 ViceMe 部署时，先把 Endpoint 持久化到独立 Profile，再登录：
+
+```bash
+viceme profile add \
+  --name shop-dev \
+  --region cn \
+  --api-base-url https://viceme-shop-web.preview.tencent-zeabur.cn/api \
+  --use
+viceme auth login
+```
+
+`profile list` 会显示实际生效的 Endpoint。`VICEME_API_BASE_URL` 仅保留为单进程
+CI / 调试覆盖，不会被写入 Profile。远程自定义 Endpoint 必须使用 HTTPS；只有
+localhost 和 loopback 本地开发可以使用 HTTP。要修改 Endpoint，应删除并重新创建
+Profile，不能把既有凭据静默迁移到另一个 Origin。
+
 Agent 无法在同一个回合等待浏览器授权时使用分段流程：
 
 ```bash
@@ -73,7 +90,7 @@ viceme auth login --device-code <device-code>
 ```
 
 用户在浏览器完成授权。不要在对话中复制 Access Token。凭据按 Profile 和 API
-Origin 隔离。
+Origin 隔离，因此为新 Endpoint 创建 Profile 后需要单独登录一次。
 
 ## 发布 Skill
 
@@ -110,9 +127,10 @@ viceme publication confirm <publication-id> --review-digest <digest>
 viceme publication publish <publication-id> --review-digest <digest>
 ```
 
-模型会建议 `summaryZhCn`、`summaryEnUs` 和包内图片，但不能替用户确认，也不能决定价格。
+模型会建议 `summaryZhCn`、`summaryEnUs`、根据已验证 `SKILL.md` 生成的
+`usageInstructionsZhCn`、`usageInstructionsEnUs` 和包内图片，但不能替用户确认，也不能决定价格。
 每版短简介的最大显示宽度为 30：ASCII 计 1，中文及其他非 ASCII 计 2。Agent 必须把双语
-短简介、价格、封面和有序展示素材的完整 Draft 展示给用户，在 `confirm` 前获得明确确认，
+短简介、中英文使用说明、价格、封面和有序展示素材的完整 Draft 展示给用户，在 `confirm` 前获得明确确认，
 并在真正公开的 `publish` 前再次确认。
 
 网络中断后继续同一个发布操作：

@@ -624,7 +624,7 @@ func (r *Runtime) validateProfileOverrideAuthority(name string) error {
 func (r *Runtime) applyProfile(profile config.Profile) error {
 	apiBaseURL := r.apiBaseURLOverride
 	if apiBaseURL == "" {
-		apiBaseURL = config.APIBaseURL(profile.Region)
+		apiBaseURL = profile.ResolvedAPIBaseURL()
 	}
 	if err := validatePublicationProcessCredentialTarget(r.processCredential, apiBaseURL); err != nil {
 		return err
@@ -644,7 +644,7 @@ func (r *Runtime) applyProfile(profile config.Profile) error {
 }
 
 func (r *Runtime) credentialScopeForProfile(profile config.Profile) (string, error) {
-	apiBaseURL := config.APIBaseURL(profile.Region)
+	apiBaseURL := profile.ResolvedAPIBaseURL()
 	return credentialScopeForAPIBase(apiBaseURL, profile.Region)
 }
 
@@ -663,6 +663,14 @@ func (r *Runtime) credentialStorageKeys() ([]string, error) {
 		for _, region := range []config.Region{config.RegionCN, config.RegionGlobal} {
 			add(&auth.Manager{ProfileID: profile.ID, ProfileName: profile.Name, Region: string(region)})
 		}
+		scope, err := r.credentialScopeForProfile(profile)
+		if err != nil {
+			return nil, err
+		}
+		add(&auth.Manager{
+			ProfileID: profile.ID, ProfileName: profile.Name,
+			Region: string(profile.Region), Scope: scope,
+		})
 	}
 	add(r.manager())
 	return keys, nil
