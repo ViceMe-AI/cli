@@ -14,6 +14,15 @@ All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 
 `FAILED` can return to review after correcting inputs. `CANCELLED` and `PUBLISHED` are terminal.
 
+## Local recovery permission
+
+Every non-dry-run publish and resume writes an idempotent intent under the
+ViceMe CLI configuration directory before creating or continuing a remote
+publication. A sandboxed Agent must request write access for the exact publish
+command before its first execution. Do not use an expected permission failure
+as a probe, do not delete zero-byte lock files, and do not start a replacement
+publication when the required action is to retry the same command with access.
+
 ## Media
 
 Images discovered inside the package are uploaded as candidates. The platform uses an LLM to propose a Chinese summary, an English summary, semantically equivalent Chinese and English usage instructions derived from the validated `SKILL.md`, a cover, and a gallery. Suggestions are non-authoritative. Each summary has a maximum display width of 30: ASCII counts as 1 and Chinese/non-ASCII counts as 2. The user may edit either summary or either usage instruction, or upload PNG, JPEG, GIF, WebP, or AVIF replacements before confirmation.

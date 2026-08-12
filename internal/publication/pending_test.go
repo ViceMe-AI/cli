@@ -1,6 +1,8 @@
 package publication
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -8,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ViceMe-AI/cli/internal/output"
 )
 
 func TestPendingAndIntentRoundTripUsesPrivateFiles(t *testing.T) {
@@ -121,5 +125,27 @@ func TestPendingRejectsCorruptState(t *testing.T) {
 	}
 	if _, err := store.Load(id); err == nil {
 		t.Fatal("corrupt recovery state was accepted")
+	}
+}
+
+func TestIntentReportsRecoveryDirectoryPermissionInsteadOfLockFailure(t *testing.T) {
+	directory := filepath.Join(t.TempDir(), "publications")
+	err := recoveryOperationError(directory, "PUBLICATION_INTENT_LOCK_FAILED", "could not lock publication intent", fs.ErrPermission)
+	var cliError *output.Error
+	if !errors.As(err, &cliError) {
+		t.Fatalf("expected CLI error, got %v", err)
+	}
+	if cliError.Subtype != "PUBLICATION_RECOVERY_PERMISSION_REQUIRED" || cliError.Type != "policy" {
+		t.Fatalf("unexpected error: %#v", cliError)
+	}
+	if cliError.Subtype == "PUBLICATION_INTENT_LOCK_FAILED" {
+		t.Fatal("permission denial was reported as an intent lock failure")
+	}
+	details, ok := cliError.Details.(map[string]any)
+	if !ok || details["directory"] != directory {
+		t.Fatalf("missing recovery directory details: %#v", cliError.Details)
+	}
+	if !strings.Contains(cliError.Hint, "exact same command") || !strings.Contains(cliError.Hint, "do not delete lock files") {
+		t.Fatalf("permission recovery hint is not actionable: %q", cliError.Hint)
 	}
 }
