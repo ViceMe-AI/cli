@@ -380,6 +380,12 @@ jobs:
           GLOBAL_BUCKET: ${{ secrets.VICEME_RELEASE_S3_BUCKET_GLOBAL }}
           GLOBAL_ACCESS_KEY_ID: ${{ secrets.VICEME_RELEASE_S3_ACCESS_KEY_ID_GLOBAL }}
           GLOBAL_SECRET_ACCESS_KEY: ${{ secrets.VICEME_RELEASE_S3_SECRET_ACCESS_KEY_GLOBAL }}
+          # GitHub runner images track the latest AWS CLI, which enables
+          # optional streaming checksums by default. Our S3-compatible origins
+          # do not accept that trailer protocol, so retain SigV4 integrity but
+          # calculate request/response checksums only when the API requires it.
+          AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+          AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
         run: |
           set -euo pipefail
           publish_region() {

@@ -89,6 +89,12 @@ public npmmirror binary mirror. Registering `viceme-cli` with cnpmcore enables
 the public `/-/binary/viceme-cli/` mirror; it does not create another npm
 package.
 
+The CN and Global release mirrors are S3-compatible origins rather than Amazon
+S3 itself. The publication job sets AWS CLI request and response checksum
+calculation to `WHEN_REQUIRED`: immutable artifacts are still compared
+byte-for-byte on recovery, while optional AWS streaming checksum trailers that
+the origins do not implement are not sent.
+
 `GITHUB_TOKEN` is provided by Actions and is used to maintain the Release PR
 and resolve a merged `main` commit back to its reviewed Release PR.
 `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` authenticate the narrowly scoped
