@@ -18,7 +18,12 @@ Use the CLI for every deterministic action. Read [workflow.md](references/workfl
 7. Show the final package digest, discovered image candidates, title, source description, and price. Ask permission to upload.
 8. Before the first non-dry-run `skill publish` or any `skill publish --resume`, ensure that the command process can write the ViceMe CLI configuration directory (normally `~/.viceme-cli`, or `VICEME_CLI_CONFIG_DIR` when explicitly configured). In a sandboxed Agent, request the required filesystem permission for this exact command before running it. Do not deliberately run once without access to discover a permission failure, and never delete the lock files.
 9. Run the same command without `--dry-run` using that permission. The CLI must persist its local intent before any remote publication is created.
-10. Poll with `viceme --profile <publication-profile> publication get <id>` while analysis is `PENDING`. Analysis proposes `summaryZhCn`, `summaryEnUs`, `usageInstructionsZhCn`, `usageInstructionsEnUs`, cover, and gallery; do not present any proposal as a user decision.
+10. Run `viceme --profile <publication-profile> publication wait <id>` after
+    upload. `PENDING` is background work, not a new authorization boundary:
+    keep waiting automatically and never ask the user to reply “continue”.
+    Analysis proposes `summaryZhCn`, `summaryEnUs`, `usageInstructionsZhCn`,
+    `usageInstructionsEnUs`, cover, and gallery; do not present any proposal as
+    a user decision.
 11. Run `viceme --profile <publication-profile> publication review <id>` and show both exact summaries, both exact usage instructions, the exact price, cover, ordered gallery, and `reviewDigest`. ASCII counts as width 1 and Chinese/non-ASCII counts as width 2; each summary must have total width at most 30.
 12. If the user wants different media, run `viceme --profile <publication-profile> publication asset upload <id> --role <cover|gallery> --path <image>`. For other edits, prepare a complete strict JSON draft and run `publication update` with the same Profile.
 13. Ask the user to explicitly confirm both displayed summaries, both usage instructions, price, cover, and gallery.
@@ -31,6 +36,9 @@ Never infer confirmation from an earlier general request to “publish”. A cha
 ## Recovery
 
 - After interruption, run `viceme --profile <publication-profile> skill publish --resume <publication-id>`.
+- If `publication wait` reaches its wait deadline, run the same wait command
+  again with the same publication ID. Do not re-upload and do not ask for a new
+  user confirmation merely to continue waiting.
 - If local source bytes changed, do not bypass the digest check. Restore the original source or start a new publication.
 - `PUBLISHED` is final. Never create a second publication merely because a response was lost; query the existing ID first.
 - Do not retry non-retryable errors without changing the invalid input or state.
