@@ -504,3 +504,47 @@ func TestInstallTreatsCredentialStatusAsAdvisory(t *testing.T) {
 		t.Fatalf("install omitted the advisory credential warning: %#v", warnings)
 	}
 }
+
+func TestInstallTreatsActiveProfileNetworkReadinessAsAdvisory(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/health/ready" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := Execute([]string{"install", "--agent", "agents"}, Dependencies{
+		Out: &stdout, ErrOut: &stderr,
+		Store: securestore.NewMemory(), Updater: &startupRecoveryUpdater{},
+		Skills:      skillcontent.New(cliembed.EmbeddedSkills()),
+		Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+		APIBaseURL:  server.URL, Region: config.RegionCN,
+	})
+	if exit != 0 {
+		t.Fatalf("install rolled back because the old profile API was unavailable: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+	var envelope struct {
+		OK   bool `json:"ok"`
+		Data struct {
+			Warnings []string `json:"warnings"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("install returned invalid JSON: %v stdout=%q", err, stdout.String())
+	}
+	if !envelope.OK || len(envelope.Data.Warnings) != 1 || !strings.Contains(envelope.Data.Warnings[0], "API is unreachable") {
+		t.Fatalf("install omitted the advisory API warning: %#v", envelope)
+	}
+	for _, name := range officialSkillNames {
+		if !skillcontent.New(cliembed.EmbeddedSkills()).Doctor(name, "agents", skillcontent.Environment{Home: root, ConfigDir: configDir}).Healthy {
+			t.Fatalf("install did not commit %s while the old profile API was unavailable", name)
+		}
+	}
+}
