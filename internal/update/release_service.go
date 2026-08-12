@@ -203,9 +203,9 @@ func (service *ReleaseService) baseURL() string {
 		return strings.TrimRight(service.ReleaseBaseURL, "/")
 	}
 	if service.Region == "global" {
-		return "https://s3.viceme.ai/cli/releases"
+		return "https://s3.viceme.ai/start/cli/releases"
 	}
-	return "https://s3.viceme.cn/cli/releases"
+	return "https://s3.viceme.cn/start/cli/releases"
 }
 
 func (service *ReleaseService) executable() (string, error) {
