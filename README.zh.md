@@ -110,9 +110,10 @@ viceme publication confirm <publication-id> --review-digest <digest>
 viceme publication publish <publication-id> --review-digest <digest>
 ```
 
-模型会建议 `summaryZhCn`、`summaryEnUs` 和包内图片，但不能替用户确认，也不能决定价格。
+模型会建议 `summaryZhCn`、`summaryEnUs`、根据已验证 `SKILL.md` 生成的
+`usageInstructions` 和包内图片，但不能替用户确认，也不能决定价格。
 每版短简介的最大显示宽度为 30：ASCII 计 1，中文及其他非 ASCII 计 2。Agent 必须把双语
-短简介、价格、封面和有序展示素材的完整 Draft 展示给用户，在 `confirm` 前获得明确确认，
+短简介、使用说明、价格、封面和有序展示素材的完整 Draft 展示给用户，在 `confirm` 前获得明确确认，
 并在真正公开的 `publish` 前再次确认。
 
 网络中断后继续同一个发布操作：

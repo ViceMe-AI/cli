@@ -41,7 +41,7 @@ func newPublicationGetCommand(runtime *Runtime) *cobra.Command {
 
 func newPublicationReviewCommand(runtime *Runtime) *cobra.Command {
 	return &cobra.Command{
-		Use: "review <publication-id>", Short: "Show bilingual summaries, price, media, analysis suggestions, and review digest", Args: cobra.ExactArgs(1),
+		Use: "review <publication-id>", Short: "Show bilingual summaries, usage instructions, price, media, analysis suggestions, and review digest", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			result, err := runtime.client().GetSkillPublication(command.Context(), args[0])
 			if err != nil {

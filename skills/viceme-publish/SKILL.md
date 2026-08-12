@@ -14,10 +14,10 @@ Use the CLI for every deterministic action. Read [workflow.md](references/workfl
 3. Run `viceme skill publish --path <dir-or-zip> --price-minor <fen> --dry-run`.
 4. Show the final package digest, discovered image candidates, title, source description, and price. Ask permission to upload.
 5. Run the same command without `--dry-run`.
-6. Poll with `viceme publication get <id>` while analysis is `PENDING`. Analysis proposes `summaryZhCn`, `summaryEnUs`, cover, and gallery; do not present any proposal as a user decision.
-7. Run `viceme publication review <id>` and show both exact summaries, the exact price, cover, ordered gallery, and `reviewDigest`. ASCII counts as width 1 and Chinese/non-ASCII counts as width 2; each summary must have total width at most 30.
+6. Poll with `viceme publication get <id>` while analysis is `PENDING`. Analysis proposes `summaryZhCn`, `summaryEnUs`, `usageInstructions`, cover, and gallery; do not present any proposal as a user decision.
+7. Run `viceme publication review <id>` and show both exact summaries, the exact usage instructions, the exact price, cover, ordered gallery, and `reviewDigest`. ASCII counts as width 1 and Chinese/non-ASCII counts as width 2; each summary must have total width at most 30.
 8. If the user wants different media, run `viceme publication asset upload <id> --role <cover|gallery> --path <image>`. For other edits, prepare a complete strict JSON draft and run `publication update`.
-9. Ask the user to explicitly confirm both displayed summaries, price, cover, and gallery.
+9. Ask the user to explicitly confirm both displayed summaries, usage instructions, price, cover, and gallery.
 10. Only after confirmation, run `viceme publication confirm <id> --review-digest <digest>`.
 11. Ask once more before the irreversible public publication, then run `viceme publication publish <id> --review-digest <digest>`.
 12. Return the authoritative `product.detailUrl` from the result.
