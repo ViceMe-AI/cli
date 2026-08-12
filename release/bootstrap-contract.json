@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "regions": {
-    "cn": "https://s3.viceme.cn/cli/releases",
-    "global": "https://s3.viceme.ai/cli/releases"
+    "cn": "https://s3.viceme.cn/start/cli/releases",
+    "global": "https://s3.viceme.ai/start/cli/releases"
   },
   "releaseLayout": "v{version}/viceme_{version}_{os}_{arch}{extension}",
   "checksumLayout": "{asset}.sha256",

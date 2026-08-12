@@ -3,8 +3,8 @@ set -eu
 
 region="${VICEME_REGION:-cn}"
 case "$region" in
-  cn) base_url="${VICEME_DOWNLOAD_BASE_URL:-https://s3.viceme.cn/cli/releases}" ;;
-  global) base_url="${VICEME_DOWNLOAD_BASE_URL:-https://s3.viceme.ai/cli/releases}" ;;
+  cn) base_url="${VICEME_DOWNLOAD_BASE_URL:-https://s3.viceme.cn/start/cli/releases}" ;;
+  global) base_url="${VICEME_DOWNLOAD_BASE_URL:-https://s3.viceme.ai/start/cli/releases}" ;;
   *) echo "VICEME_REGION must be cn or global" >&2; exit 2 ;;
 esac
 

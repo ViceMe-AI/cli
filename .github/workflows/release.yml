@@ -429,9 +429,8 @@ jobs:
                 aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${PREFIX}/${FILE}" \
                   --cache-control 'public,max-age=300' --only-show-errors
               done
-              # The website-facing cold-start commands intentionally stay at
-              # the official S3 origin root. The scripts themselves resolve
-              # immutable artifacts below cli/releases/v{version}.
+              # These files stay at the public start bucket root while the scripts
+              # resolve immutable artifacts below cli/releases/v{version}.
               for FILE in install.sh install.ps1; do
                 aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${FILE}" \
                   --cache-control 'public,max-age=300' --only-show-errors

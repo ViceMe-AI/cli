@@ -17,6 +17,18 @@ import (
 	"time"
 )
 
+func TestReleaseServiceDefaultBaseURLsUseStartBucket(t *testing.T) {
+	t.Parallel()
+	service := NewReleaseService("1.2.3", "1.2.3")
+	if got := service.baseURL(); got != "https://s3.viceme.cn/start/cli/releases" {
+		t.Fatalf("unexpected CN release base URL: %q", got)
+	}
+	service.SetRegion("global")
+	if got := service.baseURL(); got != "https://s3.viceme.ai/start/cli/releases" {
+		t.Fatalf("unexpected global release base URL: %q", got)
+	}
+}
+
 func TestReleaseServiceChecksReplacesAndRefreshesMatchingSkills(t *testing.T) {
 	t.Parallel()
 	binary := []byte("new-viceme-binary")

@@ -3,8 +3,8 @@ $ProgressPreference = "SilentlyContinue"
 
 $region = if ($env:VICEME_REGION) { $env:VICEME_REGION } else { "cn" }
 switch ($region) {
-  "cn" { $baseUrl = if ($env:VICEME_DOWNLOAD_BASE_URL) { $env:VICEME_DOWNLOAD_BASE_URL } else { "https://s3.viceme.cn/cli/releases" } }
-  "global" { $baseUrl = if ($env:VICEME_DOWNLOAD_BASE_URL) { $env:VICEME_DOWNLOAD_BASE_URL } else { "https://s3.viceme.ai/cli/releases" } }
+  "cn" { $baseUrl = if ($env:VICEME_DOWNLOAD_BASE_URL) { $env:VICEME_DOWNLOAD_BASE_URL } else { "https://s3.viceme.cn/start/cli/releases" } }
+  "global" { $baseUrl = if ($env:VICEME_DOWNLOAD_BASE_URL) { $env:VICEME_DOWNLOAD_BASE_URL } else { "https://s3.viceme.ai/start/cli/releases" } }
   default { throw "VICEME_REGION must be cn or global" }
 }
 
