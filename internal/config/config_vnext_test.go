@@ -9,7 +9,7 @@ import (
 func TestProfileRoundTripContainsNoCredentialFields(t *testing.T) {
 	directory := t.TempDir()
 	configured := Default(RegionCN)
-	profile, err := configured.AddProfile("global", RegionGlobal)
+	profile, err := configured.AddProfile("global", RegionGlobal, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestProfileRoundTripContainsNoCredentialFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"accessToken", "refreshToken", "credential"} {
+	for _, forbidden := range []string{"accessToken", "refreshToken", "credential", "apiBaseUrl"} {
 		if stringContains(string(data), forbidden) {
 			t.Fatalf("config contains %q: %s", forbidden, data)
 		}
@@ -41,6 +41,53 @@ func TestAPIBaseURLs(t *testing.T) {
 	}
 	if APIBaseURL(RegionGlobal) != "https://api.viceme.ai" {
 		t.Fatal("unexpected global API URL")
+	}
+}
+
+func TestCustomProfileAPIBaseURLRoundTripsCanonically(t *testing.T) {
+	directory := t.TempDir()
+	configured := Default(RegionCN)
+	profile, err := configured.AddProfile("shop-dev", RegionCN, "HTTPS://SHOP-DEV.EXAMPLE.COM:443/api/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.APIBaseURL != "https://shop-dev.example.com/api" || profile.ResolvedAPIBaseURL() != profile.APIBaseURL {
+		t.Fatalf("custom endpoint was not canonicalized: %#v", profile)
+	}
+	configured.CurrentProfile = profile.Name
+	if _, err := Save(directory, configured); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadOrDefault(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := loaded.Resolve("shop-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.APIBaseURL != "https://shop-dev.example.com/api" {
+		t.Fatalf("custom endpoint did not round-trip: %#v", resolved)
+	}
+}
+
+func TestNormalizeAPIBaseURLRejectsUnsafePersistentEndpoints(t *testing.T) {
+	t.Parallel()
+	invalid := []string{
+		"", "http://shop-dev.example.com/api", "ftp://shop-dev.example.com/api",
+		"https://user:secret@shop-dev.example.com/api", "https://shop-dev.example.com/api?token=value",
+		"https://shop-dev.example.com/api#fragment", "https://shop-dev.example.com/api/../admin",
+		`https://shop-dev.example.com/api\v1`,
+	}
+	for _, value := range invalid {
+		if _, err := NormalizeAPIBaseURL(value); err == nil {
+			t.Errorf("unsafe API base URL was accepted: %q", value)
+		}
+	}
+	for _, value := range []string{"http://localhost:3001/api/", "http://127.0.0.1:3001/api", "http://[::1]:3001/api"} {
+		if _, err := NormalizeAPIBaseURL(value); err != nil {
+			t.Errorf("loopback development endpoint was rejected: %q: %v", value, err)
+		}
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 )
 
@@ -325,20 +326,11 @@ func NormalizeAPIOrigin(raw string) (string, error) {
 }
 
 func validateAPIBaseURL(raw string) (*url.URL, error) {
-	base, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || base.Hostname() == "" || base.User != nil || base.RawQuery != "" || base.Fragment != "" || base.Opaque != "" {
-		return nil, errors.New("invalid API URL")
+	normalized, err := config.NormalizeAPIBaseURL(raw)
+	if err != nil {
+		return nil, errors.New("API URL must use HTTPS or loopback HTTP")
 	}
-	if strings.EqualFold(base.Scheme, "https") {
-		return base, nil
-	}
-	if strings.EqualFold(base.Scheme, "http") {
-		host := base.Hostname()
-		if strings.EqualFold(host, "localhost") || (net.ParseIP(host) != nil && net.ParseIP(host).IsLoopback()) {
-			return base, nil
-		}
-	}
-	return nil, errors.New("API URL must use HTTPS or loopback HTTP")
+	return url.Parse(normalized)
 }
 
 func withoutRedirects(client *http.Client) *http.Client {

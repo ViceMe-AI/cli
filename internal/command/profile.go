@@ -12,6 +12,7 @@ import (
 type profileListItem struct {
 	Name          string        `json:"name"`
 	Region        config.Region `json:"region"`
+	APIBaseURL    string        `json:"apiBaseUrl"`
 	Active        bool          `json:"active"`
 	UserID        string        `json:"userId,omitempty"`
 	Authenticated bool          `json:"authenticated"`
@@ -32,9 +33,13 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 		RunE: func(_ *cobra.Command, _ []string) error {
 			items := make([]profileListItem, 0, len(runtime.config.Profiles))
 			for _, profile := range runtime.config.Profiles {
+				scope, err := runtime.credentialScopeForProfile(profile)
+				if err != nil {
+					return output.Validation("PROFILE_API_BASE_URL_INVALID", err.Error())
+				}
 				manager := credentialauth.Manager{
 					Store: runtime.deps.Store, Region: string(profile.Region),
-					ProfileID: profile.ID, ProfileName: profile.Name,
+					ProfileID: profile.ID, ProfileName: profile.Name, Scope: scope,
 				}
 				status, err := manager.CurrentStatus()
 				if err != nil {
@@ -45,7 +50,7 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 					userID = status.UserID
 				}
 				items = append(items, profileListItem{
-					Name: profile.Name, Region: profile.Region,
+					Name: profile.Name, Region: profile.Region, APIBaseURL: profile.ResolvedAPIBaseURL(),
 					Active: profile.Name == runtime.config.CurrentProfile,
 					UserID: userID, Authenticated: status.Authenticated,
 				})
@@ -58,6 +63,7 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 	var name string
 	var region string
+	var apiBaseURL string
 	var use bool
 	command := &cobra.Command{
 		Use: "add", Short: "Add a regional ViceMe profile", Args: cobra.NoArgs,
@@ -69,7 +75,7 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return output.Validation("PROFILE_REGION_INVALID", err.Error())
 			}
-			profile, err := runtime.config.AddProfile(name, resolved)
+			profile, err := runtime.config.AddProfile(name, resolved, apiBaseURL)
 			if err != nil {
 				return output.Validation("PROFILE_INVALID", err.Error())
 			}
@@ -84,11 +90,15 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.reloadConfig(runtime.config.CurrentProfile); err != nil {
 				return err
 			}
-			return runtime.business(map[string]any{"name": profile.Name, "region": profile.Region, "active": use, "config": result})
+			return runtime.business(map[string]any{
+				"name": profile.Name, "region": profile.Region,
+				"apiBaseUrl": profile.ResolvedAPIBaseURL(), "active": use, "config": result,
+			})
 		},
 	}
 	command.Flags().StringVar(&name, "name", "", "profile name")
 	command.Flags().StringVar(&region, "region", "", "ViceMe region: cn or global")
+	command.Flags().StringVar(&apiBaseURL, "api-base-url", "", "persist a custom API base URL for this profile")
 	command.Flags().BoolVar(&use, "use", false, "switch to this profile")
 	_ = command.MarkFlagRequired("name")
 	return command
@@ -103,7 +113,10 @@ func newProfileUseCommand(runtime *Runtime) *cobra.Command {
 				return output.Validation("PROFILE_NOT_FOUND", err.Error())
 			}
 			if runtime.config.CurrentProfile == profile.Name {
-				return runtime.business(map[string]any{"name": profile.Name, "region": profile.Region, "active": true, "unchanged": true})
+				return runtime.business(map[string]any{
+					"name": profile.Name, "region": profile.Region,
+					"apiBaseUrl": profile.ResolvedAPIBaseURL(), "active": true, "unchanged": true,
+				})
 			}
 			runtime.config.PreviousProfile = runtime.config.CurrentProfile
 			runtime.config.CurrentProfile = profile.Name
@@ -113,7 +126,10 @@ func newProfileUseCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.reloadConfig(profile.Name); err != nil {
 				return err
 			}
-			return runtime.business(map[string]any{"name": profile.Name, "region": profile.Region, "active": true})
+			return runtime.business(map[string]any{
+				"name": profile.Name, "region": profile.Region,
+				"apiBaseUrl": profile.ResolvedAPIBaseURL(), "active": true,
+			})
 		},
 	}
 }
@@ -131,7 +147,14 @@ func newProfileRemoveCommand(runtime *Runtime) *cobra.Command {
 				return output.Validation("PROFILE_LAST", "cannot remove the only profile")
 			}
 			removed := runtime.config.Profiles[index]
-			manager := credentialauth.Manager{Store: runtime.deps.Store, Region: string(removed.Region), ProfileID: removed.ID, ProfileName: removed.Name}
+			scope, err := runtime.credentialScopeForProfile(removed)
+			if err != nil {
+				return output.Validation("PROFILE_API_BASE_URL_INVALID", err.Error())
+			}
+			manager := credentialauth.Manager{
+				Store: runtime.deps.Store, Region: string(removed.Region),
+				ProfileID: removed.ID, ProfileName: removed.Name, Scope: scope,
+			}
 			if err := manager.Delete(); err != nil {
 				return err
 			}
