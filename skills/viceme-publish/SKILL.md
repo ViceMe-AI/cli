@@ -16,14 +16,15 @@ Use the CLI for every deterministic action. Read [workflow.md](references/workfl
 5. Explain validation findings and ask the user for the exact CNY price in fen.
 6. Run `viceme --profile <publication-profile> skill publish --path <dir-or-zip> --price-minor <fen> --dry-run`.
 7. Show the final package digest, discovered image candidates, title, source description, and price. Ask permission to upload.
-8. Run the same command without `--dry-run`.
-9. Poll with `viceme --profile <publication-profile> publication get <id>` while analysis is `PENDING`. Analysis proposes `summaryZhCn`, `summaryEnUs`, `usageInstructionsZhCn`, `usageInstructionsEnUs`, cover, and gallery; do not present any proposal as a user decision.
-10. Run `viceme --profile <publication-profile> publication review <id>` and show both exact summaries, both exact usage instructions, the exact price, cover, ordered gallery, and `reviewDigest`. ASCII counts as width 1 and Chinese/non-ASCII counts as width 2; each summary must have total width at most 30.
-11. If the user wants different media, run `viceme --profile <publication-profile> publication asset upload <id> --role <cover|gallery> --path <image>`. For other edits, prepare a complete strict JSON draft and run `publication update` with the same Profile.
-12. Ask the user to explicitly confirm both displayed summaries, both usage instructions, price, cover, and gallery.
-13. Only after confirmation, run `viceme --profile <publication-profile> publication confirm <id> --review-digest <digest>`.
-14. Ask once more before the irreversible public publication, then run `viceme --profile <publication-profile> publication publish <id> --review-digest <digest>`.
-15. Return the authoritative `product.detailUrl` from the result.
+8. Before the first non-dry-run `skill publish` or any `skill publish --resume`, ensure that the command process can write the ViceMe CLI configuration directory (normally `~/.viceme-cli`, or `VICEME_CLI_CONFIG_DIR` when explicitly configured). In a sandboxed Agent, request the required filesystem permission for this exact command before running it. Do not deliberately run once without access to discover a permission failure, and never delete the lock files.
+9. Run the same command without `--dry-run` using that permission. The CLI must persist its local intent before any remote publication is created.
+10. Poll with `viceme --profile <publication-profile> publication get <id>` while analysis is `PENDING`. Analysis proposes `summaryZhCn`, `summaryEnUs`, `usageInstructionsZhCn`, `usageInstructionsEnUs`, cover, and gallery; do not present any proposal as a user decision.
+11. Run `viceme --profile <publication-profile> publication review <id>` and show both exact summaries, both exact usage instructions, the exact price, cover, ordered gallery, and `reviewDigest`. ASCII counts as width 1 and Chinese/non-ASCII counts as width 2; each summary must have total width at most 30.
+12. If the user wants different media, run `viceme --profile <publication-profile> publication asset upload <id> --role <cover|gallery> --path <image>`. For other edits, prepare a complete strict JSON draft and run `publication update` with the same Profile.
+13. Ask the user to explicitly confirm both displayed summaries, both usage instructions, price, cover, and gallery.
+14. Only after confirmation, run `viceme --profile <publication-profile> publication confirm <id> --review-digest <digest>`.
+15. Ask once more before the irreversible public publication, then run `viceme --profile <publication-profile> publication publish <id> --review-digest <digest>`.
+16. Return the authoritative `product.detailUrl` from the result.
 
 Never infer confirmation from an earlier general request to “publish”. A changed draft produces a new digest and requires confirmation again.
 

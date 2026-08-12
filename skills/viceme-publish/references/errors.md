@@ -8,5 +8,6 @@
 - `AUTHORIZATION_PENDING`: wait for the instructed interval and retry before the device code expires.
 - `NOT_LOGGED_IN` or `token_expired`: use the `viceme-shared` login workflow for the same pinned publication Profile. Never recover by switching to another stored Profile.
 - `PUBLICATION_SCOPE_REQUIRED`: sign in again to the same publication Profile to grant the required publication scopes.
+- `PUBLICATION_RECOVERY_PERMISSION_REQUIRED`: the command process cannot write the local ViceMe publication recovery directory. Request filesystem permission for the exact same command and retry it with the same Profile, source, and price. Do not delete lock files and do not create another publication.
 
 If `retryable` is true, retry with bounded backoff and the same publication or client request identity. Otherwise change the input or state first.
