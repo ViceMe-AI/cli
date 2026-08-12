@@ -2,11 +2,13 @@ package command
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -17,6 +19,7 @@ import (
 func newPublicationCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "publication", Short: "Review and complete an in-progress Skill publication"}
 	command.AddCommand(newPublicationGetCommand(runtime))
+	command.AddCommand(newPublicationWaitCommand(runtime))
 	command.AddCommand(newPublicationReviewCommand(runtime))
 	command.AddCommand(newPublicationAssetCommand(runtime))
 	command.AddCommand(newPublicationUpdateCommand(runtime))
@@ -24,6 +27,60 @@ func newPublicationCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newPublicationPublishCommand(runtime))
 	command.AddCommand(newPublicationCancelCommand(runtime))
 	return command
+}
+
+func newPublicationWaitCommand(runtime *Runtime) *cobra.Command {
+	var timeout time.Duration
+	var interval time.Duration
+	command := &cobra.Command{
+		Use:   "wait <publication-id>",
+		Short: "Wait for listing analysis to reach a terminal state",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if timeout <= 0 {
+				return output.Validation("PUBLICATION_WAIT_TIMEOUT_INVALID", "--timeout must be greater than zero")
+			}
+			if interval < time.Second || interval > 30*time.Second {
+				return output.Validation("PUBLICATION_WAIT_INTERVAL_INVALID", "--interval must be between 1s and 30s")
+			}
+			ctx, cancel := context.WithTimeout(command.Context(), timeout)
+			defer cancel()
+			client := runtime.client()
+			progress(runtime, "Waiting for ViceMe listing analysis to finish")
+			for {
+				result, err := client.GetSkillPublication(ctx, args[0])
+				if err != nil {
+					if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+						return publicationWaitTimeout(args[0], timeout)
+					}
+					return err
+				}
+				if result.Analysis == nil || result.Analysis.Status != "PENDING" {
+					return runtime.business(result)
+				}
+				if err := runtime.deps.Sleep(ctx, interval); err != nil {
+					if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+						return publicationWaitTimeout(args[0], timeout)
+					}
+					return err
+				}
+			}
+		},
+	}
+	command.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "maximum time to wait for listing analysis")
+	command.Flags().DurationVar(&interval, "interval", 5*time.Second, "poll interval while listing analysis is pending")
+	return command
+}
+
+func publicationWaitTimeout(publicationID string, timeout time.Duration) error {
+	return output.Network(
+		"PUBLICATION_ANALYSIS_WAIT_TIMEOUT",
+		"listing analysis is still pending after the wait deadline",
+		context.DeadlineExceeded,
+	).WithDetails(map[string]any{
+		"publicationId":  publicationID,
+		"timeoutSeconds": int64(timeout / time.Second),
+	}).WithHint("retry publication wait with the same publication ID; do not upload the package again")
 }
 
 func newPublicationGetCommand(runtime *Runtime) *cobra.Command {

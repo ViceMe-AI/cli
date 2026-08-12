@@ -136,6 +136,7 @@ viceme --profile <publication-profile> skill publish --path ./my-skill --price-m
 
 ```bash
 viceme publication get <publication-id>
+viceme publication wait <publication-id>
 viceme publication review <publication-id>
 viceme publication asset upload <publication-id> --role cover --path ./cover.png
 viceme publication asset upload <publication-id> --role gallery --path ./demo.png

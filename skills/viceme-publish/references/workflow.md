@@ -27,6 +27,13 @@ publication when the required action is to retry the same command with access.
 
 Images discovered inside the package are uploaded as candidates. The platform uses an LLM to propose a Chinese summary, an English summary, semantically equivalent Chinese and English usage instructions derived from the validated `SKILL.md`, a cover, and a gallery. Suggestions are non-authoritative. Each summary has a maximum display width of 30: ASCII counts as 1 and Chinese/non-ASCII counts as 2. The user may edit either summary or either usage instruction, or upload PNG, JPEG, GIF, WebP, or AVIF replacements before confirmation.
 
+After the upload command returns a publication ID, run
+`viceme --profile <publication-profile> publication wait <id>`. A `PENDING`
+analysis means the platform is working in the background; it does not authorize
+another write and must not interrupt the workflow with a “continue” question.
+If the CLI wait deadline is reached, repeat only the wait command with the same
+ID. Never upload the same package again to resume analysis.
+
 ## Update draft file
 
 `publication update --input` accepts a complete strict JSON object:
