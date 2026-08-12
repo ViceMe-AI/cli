@@ -95,6 +95,12 @@ calculation to `WHEN_REQUIRED`: immutable artifacts are still compared
 byte-for-byte on recovery, while optional AWS streaming checksum trailers that
 the origins do not implement are not sent.
 
+Configure the repository secret `CN_S3_HTTPS_PROXY` with the authenticated
+HTTPS forward-proxy URL used by GitHub Actions to reach the CN S3 endpoint.
+The release job applies it only inside the CN publication subshell; Global S3
+publication remains a direct connection. Keep the proxy credentials in the
+secret value and never print the URL in workflow logs.
+
 `GITHUB_TOKEN` is provided by Actions and is used to maintain the Release PR
 and resolve a merged `main` commit back to its reviewed Release PR.
 `RELEASE_APP_ID` and `RELEASE_APP_PRIVATE_KEY` authenticate the narrowly scoped
