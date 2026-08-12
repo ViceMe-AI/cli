@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.1] - 2026-08-12
+
+### Other Changes
+
+- CN S3 发布接入 HTTPS 代理 (`2202b99`)
+
 ## [0.12.0] - 2026-08-12
 
 ### Features
