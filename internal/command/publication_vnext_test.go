@@ -110,7 +110,7 @@ description: Publish a deterministic Skill through the vNext contract.
 	} else {
 		data, _ := envelope["data"].(map[string]any)
 		draft, _ := data["draft"].(map[string]any)
-		if draft["summaryZhCn"] != "发布测试" || draft["summaryEnUs"] != "Publish test" || draft["usageInstructions"] != "按 SKILL.md 中的步骤运行。" {
+		if draft["summaryZhCn"] != "发布测试" || draft["summaryEnUs"] != "Publish test" || draft["usageInstructionsZhCn"] != "按 SKILL.md 中的步骤运行。" || draft["usageInstructionsEnUs"] != "Follow the steps in SKILL.md." {
 			t.Fatalf("review omitted listing copy: %#v", envelope)
 		}
 	}
@@ -150,7 +150,7 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 				mediaPutFailures:     scenario.putFailures,
 				loseCompleteResponse: scenario.loseCompleteResponse,
 				draft: api.SkillPublicationDraft{
-					Title: "Publish Test", SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"), UsageInstructions: stringPointer("按 SKILL.md 中的步骤运行。"),
+					Title: "Publish Test", SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"), UsageInstructionsEnUS: stringPointer("Follow the steps in SKILL.md."),
 					Currency: "CNY", PriceMinor: 1, GalleryUploadIDs: []string{},
 				},
 			}
@@ -321,7 +321,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		state.clientRequestIDs = append(state.clientRequestIDs, input.ClientRequestID)
 		state.manifest = input.Manifest
 		state.draft = api.SkillPublicationDraft{
-			Title: input.Manifest.Metadata.Title, SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"), UsageInstructions: stringPointer("按 SKILL.md 中的步骤运行。"),
+			Title: input.Manifest.Metadata.Title, SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"), UsageInstructionsEnUS: stringPointer("Follow the steps in SKILL.md."),
 			Currency: "CNY", PriceMinor: input.Manifest.Spec.Sale.PriceMinor, GalleryUploadIDs: []string{},
 		}
 		state.status = "DRAFT"

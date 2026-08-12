@@ -115,14 +115,15 @@ type CompleteUploadRequest struct {
 }
 
 type SkillPublicationDraft struct {
-	Title             string   `json:"title"`
-	SummaryZhCN       *string  `json:"summaryZhCn"`
-	SummaryEnUS       *string  `json:"summaryEnUs"`
-	UsageInstructions *string  `json:"usageInstructions"`
-	Currency          string   `json:"currency"`
-	PriceMinor        int      `json:"priceMinor"`
-	CoverUploadID     *string  `json:"coverUploadId"`
-	GalleryUploadIDs  []string `json:"galleryUploadIds"`
+	Title                 string   `json:"title"`
+	SummaryZhCN           *string  `json:"summaryZhCn"`
+	SummaryEnUS           *string  `json:"summaryEnUs"`
+	UsageInstructionsZhCN *string  `json:"usageInstructionsZhCn"`
+	UsageInstructionsEnUS *string  `json:"usageInstructionsEnUs"`
+	Currency              string   `json:"currency"`
+	PriceMinor            int      `json:"priceMinor"`
+	CoverUploadID         *string  `json:"coverUploadId"`
+	GalleryUploadIDs      []string `json:"galleryUploadIds"`
 }
 
 type SkillPublicationUpload struct {
@@ -139,13 +140,14 @@ type SkillPublicationUpload struct {
 }
 
 type ListingSuggestion struct {
-	SummaryZhCN         string   `json:"summaryZhCn"`
-	SummaryEnUS         string   `json:"summaryEnUs"`
-	UsageInstructions   string   `json:"usageInstructions"`
-	CoverCandidateID    *string  `json:"coverCandidateId"`
-	GalleryCandidateIDs []string `json:"galleryCandidateIds"`
-	Reasons             []string `json:"reasons"`
-	Warnings            []string `json:"warnings"`
+	SummaryZhCN           string   `json:"summaryZhCn"`
+	SummaryEnUS           string   `json:"summaryEnUs"`
+	UsageInstructionsZhCN string   `json:"usageInstructionsZhCn"`
+	UsageInstructionsEnUS string   `json:"usageInstructionsEnUs"`
+	CoverCandidateID      *string  `json:"coverCandidateId"`
+	GalleryCandidateIDs   []string `json:"galleryCandidateIds"`
+	Reasons               []string `json:"reasons"`
+	Warnings              []string `json:"warnings"`
 }
 
 type PublicationAnalysis struct {
