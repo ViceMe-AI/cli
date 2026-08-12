@@ -1,11 +1,13 @@
 package command
 
 import (
+	"errors"
 	"strings"
 
 	credentialauth "github.com/ViceMe-AI/cli/internal/auth"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/spf13/cobra"
 )
 
@@ -135,9 +137,29 @@ func newProfileUseCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newProfileRemoveCommand(runtime *Runtime) *cobra.Command {
-	return &cobra.Command{
-		Use: "remove <name>", Short: "Remove a profile and its local credential", Args: cobra.ExactArgs(1),
+	var all bool
+	var yes bool
+	command := &cobra.Command{
+		Use: "remove [name]", Short: "Remove one profile or reset all profiles and credentials", Args: cobra.MaximumNArgs(1),
 		RunE: func(_ *cobra.Command, args []string) error {
+			if all {
+				if len(args) != 0 {
+					return output.Validation("PROFILE_REMOVE_FLAGS_CONFLICT", "a profile name cannot be combined with --all")
+				}
+				if !yes {
+					return output.Confirmation(
+						"PROFILE_REMOVE_ALL_CONFIRMATION_REQUIRED",
+						"removing all profiles also removes every locally stored ViceMe credential; pass --yes to confirm",
+					)
+				}
+				return removeAllProfiles(runtime)
+			}
+			if len(args) == 0 {
+				return output.Validation("PROFILE_NAME_REQUIRED", "provide a profile name or use --all --yes")
+			}
+			if yes {
+				return output.Validation("PROFILE_REMOVE_FLAGS_CONFLICT", "--yes is only valid with --all")
+			}
 			name := args[0]
 			index := runtime.config.FindProfileIndex(name)
 			if index < 0 {
@@ -174,4 +196,57 @@ func newProfileRemoveCommand(runtime *Runtime) *cobra.Command {
 			return runtime.business(map[string]any{"removed": name, "active": runtime.config.CurrentProfile})
 		},
 	}
+	command.Flags().BoolVar(&all, "all", false, "remove every profile and local credential, then recreate an unauthenticated default profile")
+	command.Flags().BoolVar(&yes, "yes", false, "confirm removal of every profile and local credential")
+	return command
+}
+
+func removeAllProfiles(runtime *Runtime) error {
+	if _, source, _ := runtime.overrideCredential(); source != "" {
+		return output.Policy("PROCESS_CREDENTIAL_ACTIVE", "profile cleanup is disabled while VICEME_ACCESS_TOKEN is active").
+			WithHint("start a CLI process without VICEME_ACCESS_TOKEN, then retry the same cleanup command")
+	}
+	removedProfiles := runtime.config.ProfileNames()
+	credentialKeys, err := runtime.credentialStorageKeys()
+	if err != nil {
+		return output.Validation("PROFILE_API_BASE_URL_INVALID", err.Error())
+	}
+	removedCredentials := 0
+	for _, key := range credentialKeys {
+		_, err := runtime.deps.Store.Get(key)
+		if errors.Is(err, securestore.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return output.Authentication("credential_store_unavailable", "could not inspect all credentials in the secure local credential store").
+				WithHint("unlock the operating-system credential manager and retry the same command").
+				WithCause(err)
+		}
+		if err := runtime.deps.Store.Delete(key); errors.Is(err, securestore.ErrNotFound) {
+			continue
+		} else if err != nil {
+			return output.Authentication("credential_store_unavailable", "could not remove all credentials from the secure local credential store").
+				WithHint("unlock the operating-system credential manager and retry the same command").
+				WithCause(err)
+		}
+		removedCredentials++
+	}
+
+	reset := config.Default(runtime.region)
+	result, err := config.Save(runtime.configBase, reset)
+	if err != nil {
+		return output.Internal("PROFILE_SAVE_FAILED", "credentials were removed, but the clean default profile could not be saved", err).
+			WithHint("retry 'viceme profile remove --all --yes' after repairing the ViceMe configuration directory")
+	}
+	runtime.config = reset
+	if err := runtime.reloadConfig(reset.CurrentProfile); err != nil {
+		return err
+	}
+	return runtime.business(map[string]any{
+		"removedProfiles":    removedProfiles,
+		"removedCredentials": removedCredentials,
+		"active":             reset.CurrentProfile,
+		"authenticated":      false,
+		"config":             result,
+	})
 }

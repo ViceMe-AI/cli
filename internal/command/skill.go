@@ -62,6 +62,11 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if dryRun && resume != "" {
 				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--dry-run cannot be combined with --resume")
 			}
+			if !dryRun {
+				if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+					return err
+				}
+			}
 			store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
 			if resume != "" {
 				pending, err := store.Load(resume)
@@ -136,6 +141,46 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&creatorDisplayName, "creator-display-name", "", "creator display name used when the account has none")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "validate and show the deterministic plan without network writes")
 	return command
+}
+
+func (runtime *Runtime) requireSkillPublicationAuthentication(ctx context.Context) error {
+	if _, source, _ := runtime.overrideCredential(); source == "" {
+		status, err := runtime.manager().CurrentStatus()
+		if err != nil {
+			return err
+		}
+		if !status.Authenticated {
+			return output.Authentication("NOT_LOGGED_IN", "sign in before starting a Skill publication").
+				WithHint("run 'viceme auth login' for the current profile; do not switch profiles to reuse another account").
+				WithDetails(map[string]any{"profile": runtime.profile.Name, "apiBaseUrl": runtime.apiBaseURL})
+		}
+	}
+	status, err := runtime.client().AuthStatus(ctx)
+	if err != nil {
+		return err
+	}
+	if !status.Authenticated {
+		return output.Authentication("NOT_LOGGED_IN", "sign in before starting a Skill publication").
+			WithHint("run 'viceme auth login' for the current profile; do not switch profiles to reuse another account").
+			WithDetails(map[string]any{"profile": runtime.profile.Name, "apiBaseUrl": runtime.apiBaseURL})
+	}
+	requiredScopes := []string{"skill-publication:read", "skill-publication:write"}
+	availableScopes := make(map[string]struct{}, len(status.Scopes))
+	for _, scope := range status.Scopes {
+		availableScopes[scope] = struct{}{}
+	}
+	missingScopes := make([]string, 0, len(requiredScopes))
+	for _, scope := range requiredScopes {
+		if _, ok := availableScopes[scope]; !ok {
+			missingScopes = append(missingScopes, scope)
+		}
+	}
+	if len(missingScopes) != 0 {
+		return output.Authorization("PUBLICATION_SCOPE_REQUIRED", "the current login is not authorized to publish Skills").
+			WithHint("run 'viceme auth login' again for the current profile to grant publication access").
+			WithDetails(map[string]any{"profile": runtime.profile.Name, "missingScopes": missingScopes})
+	}
+	return nil
 }
 
 func continueSkillPublication(ctx context.Context, runtime *Runtime, store publication.PendingStore, pending publication.Pending, pkg publication.Package, initialUpload *api.UploadAuthorization) error {

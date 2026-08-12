@@ -70,6 +70,16 @@ viceme profile list
 viceme profile use default
 ```
 
+To remove every legacy/test Profile and all of their local credentials before
+creating a clean test Profile:
+
+```bash
+viceme profile remove --all --yes
+```
+
+This destructive command recreates one unauthenticated `default` Profile; it
+does not leave the CLI with an invalid empty configuration.
+
 For a test or private ViceMe deployment, persist the endpoint in a dedicated
 profile before signing in:
 
@@ -104,22 +114,31 @@ sign in again after creating a profile for a different endpoint.
 The first release accepts a local directory containing `SKILL.md` or a local
 ZIP. GitHub URLs, remote downloads, and multi-Skill bundles are not accepted.
 
+Authenticate before inspecting the package, then keep every command pinned to
+the Profile returned by `auth status`. An Agent must not switch to another
+Profile merely because that Profile is already signed in.
+
+```bash
+viceme auth status
+viceme --profile <publication-profile> auth login # only when unauthenticated
+```
+
 Inspect without side effects:
 
 ```bash
-viceme skill inspect --path ./my-skill
+viceme --profile <publication-profile> skill inspect --path ./my-skill
 ```
 
 Show the exact deterministic package and price plan:
 
 ```bash
-viceme skill publish --path ./my-skill --price-minor 100 --dry-run
+viceme --profile <publication-profile> skill publish --path ./my-skill --price-minor 100 --dry-run
 ```
 
 Start the resumable upload and listing analysis:
 
 ```bash
-viceme skill publish --path ./my-skill --price-minor 100
+viceme --profile <publication-profile> skill publish --path ./my-skill --price-minor 100
 ```
 
 Then follow the authoritative publication state:
@@ -145,7 +164,7 @@ public `publish`.
 Resume after a connection loss with the same publication:
 
 ```bash
-viceme skill publish --resume <publication-id>
+viceme --profile <publication-profile> skill publish --resume <publication-id>
 ```
 
 Do not create a second publication when the server response is unknown. Query

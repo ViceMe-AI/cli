@@ -33,6 +33,8 @@ For split browser flows, use `viceme auth login --no-wait`, then continue with
 - Branch on process exit code and `error.code`, never message text.
 - Do not pass `VICEME_ACCESS_TOKEN` unless the user explicitly supplied a scoped automation credential.
 - Use `--profile` only to select an existing profile. Use `viceme profile add`, `list`, `use`, or `remove` for profile changes. Remove and recreate a profile to change its endpoint; do not silently rebind stored credentials to another origin.
+- Never switch Profiles on the user's behalf merely to reuse an existing login. A business workflow stays pinned to the Profile selected at its start; changing that Profile requires an explicit user request.
+- Use `viceme profile remove --all --yes` only when the user explicitly asks to remove every local Profile and credential. It recreates one clean, unauthenticated `default` Profile so the CLI configuration remains valid.
 - Before changing files or publishing, summarize the intended operation and obtain any confirmation required by the domain Skill.
 
 ## Maintenance
