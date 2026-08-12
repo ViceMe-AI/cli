@@ -39,7 +39,7 @@ func TestDeviceLoginSplitFlowPersistsScopedCredentialWithoutPrintingToken(t *tes
 			}
 			writeJSONResponse(writer, map[string]any{
 				"status": "authorized", "accessToken": accessToken, "tokenType": "Bearer",
-				"expiresAt": "2026-08-12T08:00:00Z",
+				"expiresAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
 				"scopes":    []string{"profile:read", "skill-publication:read", "skill-publication:write"},
 			})
 		case "/v1/cli/auth/status":
@@ -51,7 +51,7 @@ func TestDeviceLoginSplitFlowPersistsScopedCredentialWithoutPrintingToken(t *tes
 				"authenticated": true,
 				"user":          map[string]any{"id": "55555555-5555-4555-8555-555555555555", "displayName": "Creator", "avatarUrl": nil},
 				"scopes":        []string{"profile:read", "skill-publication:read", "skill-publication:write"},
-				"expiresAt":     "2026-08-12T08:00:00Z",
+				"expiresAt":     time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
 			})
 		case "/v1/cli/auth/logout":
 			revoked.Store(true)

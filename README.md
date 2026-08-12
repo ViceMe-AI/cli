@@ -9,7 +9,7 @@ uploads, review, and publication.
 
 ## Install
 
-The official bootstrap installs the native CLI and both official Skills from
+The official bootstrap installs the native CLI and all three official Skills from
 one immutable release.
 
 China, macOS or Linux:
@@ -145,6 +145,7 @@ Then follow the authoritative publication state:
 
 ```bash
 viceme publication get <publication-id>
+viceme publication wait <publication-id>
 viceme publication review <publication-id>
 viceme publication asset upload <publication-id> --role cover --path ./cover.png
 viceme publication asset upload <publication-id> --role gallery --path ./demo.png
@@ -202,7 +203,7 @@ activate the binary atomically. npm installations update through the exact npm
 package version. Updates never inherit `VICEME_ACCESS_TOKEN` into child
 processes.
 
-Binary or npm-launcher activation, both official Skills, and profile config are
+Binary or npm-launcher activation, all three official Skills, and profile config are
 one recoverable local generation. Standalone and npm activation share an outer
 activation lock, a delegated member-commit lock, and a durable active-generation
 record containing the semantic version, installation method, and immutable
@@ -258,6 +259,6 @@ make npm-package-check
 make release-manifest
 ```
 
-The CLI and `viceme-shared` / `viceme-publish` Skills are versioned and released
+The CLI and `viceme-shared` / `viceme-publish` / `viceme-danmaku` Skills are versioned and released
 together. Release artifacts are published to GitHub, npm, `s3.viceme.cn`, and
 `s3.viceme.ai` from the same reviewed commit.

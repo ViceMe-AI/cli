@@ -43,11 +43,11 @@ func (s PendingStore) LoadOrCreateIntent(fingerprint string, newID func() string
 		return Intent{}, output.Validation("PUBLICATION_INTENT_INVALID", "publication intent fingerprint is invalid")
 	}
 	if err := os.MkdirAll(s.Directory, 0o700); err != nil {
-		return Intent{}, output.Internal("PUBLICATION_INTENT_SAVE_FAILED", "could not create publication recovery directory", err)
+		return Intent{}, recoveryOperationError(s.Directory, "PUBLICATION_INTENT_SAVE_FAILED", "could not create publication recovery directory", err)
 	}
 	intentLock := flock.New(s.intentLockFilename(fingerprint))
 	if err := intentLock.Lock(); err != nil {
-		return Intent{}, output.Internal("PUBLICATION_INTENT_LOCK_FAILED", "could not lock publication intent", err)
+		return Intent{}, recoveryOperationError(s.Directory, "PUBLICATION_INTENT_LOCK_FAILED", "could not lock publication intent", err)
 	}
 	defer intentLock.Unlock()
 	filename := s.intentFilename(fingerprint)
@@ -62,7 +62,7 @@ func (s PendingStore) LoadOrCreateIntent(fingerprint string, newID func() string
 		return Intent{}, output.Validation("PUBLICATION_RECOVERY_INVALID", "local publication intent is invalid")
 	}
 	if !errors.Is(err, fs.ErrNotExist) {
-		return Intent{}, output.Internal("PUBLICATION_INTENT_READ_FAILED", "could not read publication intent", err)
+		return Intent{}, recoveryOperationError(s.Directory, "PUBLICATION_INTENT_READ_FAILED", "could not read publication intent", err)
 	}
 	intent := Intent{SchemaVersion: 1, Fingerprint: fingerprint, ClientRequestID: newID()}
 	if !safeID(intent.ClientRequestID) {
@@ -79,11 +79,11 @@ func (s PendingStore) SaveIntent(intent Intent) error {
 		return output.Validation("PUBLICATION_INTENT_INVALID", "publication intent is invalid")
 	}
 	if err := os.MkdirAll(s.Directory, 0o700); err != nil {
-		return output.Internal("PUBLICATION_INTENT_SAVE_FAILED", "could not create publication recovery directory", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_INTENT_SAVE_FAILED", "could not create publication recovery directory", err)
 	}
 	intentLock := flock.New(s.intentLockFilename(intent.Fingerprint))
 	if err := intentLock.Lock(); err != nil {
-		return output.Internal("PUBLICATION_INTENT_LOCK_FAILED", "could not lock publication intent", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_INTENT_LOCK_FAILED", "could not lock publication intent", err)
 	}
 	defer intentLock.Unlock()
 	data, err := os.ReadFile(s.intentFilename(intent.Fingerprint))
@@ -91,7 +91,7 @@ func (s PendingStore) SaveIntent(intent Intent) error {
 		if errors.Is(err, fs.ErrNotExist) {
 			return output.Validation("PUBLICATION_INTENT_RETIRED", "publication intent was already retired")
 		}
-		return output.Internal("PUBLICATION_INTENT_READ_FAILED", "could not read publication intent", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_INTENT_READ_FAILED", "could not read publication intent", err)
 	}
 	var current Intent
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
@@ -111,7 +111,7 @@ func (s PendingStore) RetireIntent(fingerprint, publicationID, clientRequestID s
 	}
 	intentLock := flock.New(s.intentLockFilename(fingerprint))
 	if err := intentLock.Lock(); err != nil {
-		return output.Internal("PUBLICATION_INTENT_LOCK_FAILED", "could not lock publication intent", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_INTENT_LOCK_FAILED", "could not lock publication intent", err)
 	}
 	defer intentLock.Unlock()
 	filename := s.intentFilename(fingerprint)
@@ -120,7 +120,7 @@ func (s PendingStore) RetireIntent(fingerprint, publicationID, clientRequestID s
 		return nil
 	}
 	if err != nil {
-		return output.Internal("PUBLICATION_INTENT_READ_FAILED", "could not read publication intent", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_INTENT_READ_FAILED", "could not read publication intent", err)
 	}
 	var current Intent
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
@@ -132,7 +132,7 @@ func (s PendingStore) RetireIntent(fingerprint, publicationID, clientRequestID s
 		return nil
 	}
 	if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return output.Internal("PUBLICATION_INTENT_RETIRE_FAILED", "could not retire publication intent", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_INTENT_RETIRE_FAILED", "could not retire publication intent", err)
 	}
 	return nil
 }
@@ -154,7 +154,7 @@ func (s PendingStore) Save(value Pending) error {
 	}
 	value.UpdatedAt = now
 	if err := os.MkdirAll(s.Directory, 0o700); err != nil {
-		return output.Internal("PUBLICATION_PENDING_SAVE_FAILED", "could not create the local publication recovery directory", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not create the local publication recovery directory", err)
 	}
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -163,27 +163,27 @@ func (s PendingStore) Save(value Pending) error {
 	data = append(data, '\n')
 	temporary, err := os.CreateTemp(s.Directory, ".pending-*.tmp")
 	if err != nil {
-		return output.Internal("PUBLICATION_PENDING_SAVE_FAILED", "could not create publication recovery state", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not create publication recovery state", err)
 	}
 	temporaryName := temporary.Name()
 	defer os.Remove(temporaryName)
 	if err := temporary.Chmod(0o600); err != nil {
 		_ = temporary.Close()
-		return output.Internal("PUBLICATION_PENDING_SAVE_FAILED", "could not secure publication recovery state", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not secure publication recovery state", err)
 	}
 	if _, err := temporary.Write(data); err != nil {
 		_ = temporary.Close()
-		return output.Internal("PUBLICATION_PENDING_SAVE_FAILED", "could not write publication recovery state", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not write publication recovery state", err)
 	}
 	if err := temporary.Sync(); err != nil {
 		_ = temporary.Close()
-		return output.Internal("PUBLICATION_PENDING_SAVE_FAILED", "could not sync publication recovery state", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not sync publication recovery state", err)
 	}
 	if err := temporary.Close(); err != nil {
-		return output.Internal("PUBLICATION_PENDING_SAVE_FAILED", "could not close publication recovery state", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not close publication recovery state", err)
 	}
 	if err := os.Rename(temporaryName, s.filename(value.PublicationID)); err != nil {
-		return output.Internal("PUBLICATION_PENDING_SAVE_FAILED", "could not activate publication recovery state", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not activate publication recovery state", err)
 	}
 	return nil
 }
@@ -197,7 +197,7 @@ func (s PendingStore) Load(publicationID string) (Pending, error) {
 		return Pending{}, output.Validation("PUBLICATION_RECOVERY_NOT_FOUND", "no local recovery state exists for this publication").WithHint("run skill publish again with --path, or use publication get to inspect server state")
 	}
 	if err != nil {
-		return Pending{}, output.Internal("PUBLICATION_PENDING_READ_FAILED", "could not read publication recovery state", err)
+		return Pending{}, recoveryOperationError(s.Directory, "PUBLICATION_PENDING_READ_FAILED", "could not read publication recovery state", err)
 	}
 	var value Pending
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
@@ -217,7 +217,7 @@ func (s PendingStore) Delete(publicationID string) error {
 		return nil
 	}
 	if err != nil {
-		return output.Internal("PUBLICATION_PENDING_DELETE_FAILED", "could not remove publication recovery state", err)
+		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_DELETE_FAILED", "could not remove publication recovery state", err)
 	}
 	return nil
 }
@@ -237,7 +237,7 @@ func (s PendingStore) intentLockFilename(fingerprint string) string {
 func writePrivateJSON(filename string, value any) error {
 	directory := filepath.Dir(filename)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return output.Internal("PUBLICATION_RECOVERY_SAVE_FAILED", "could not create publication recovery directory", err)
+		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not create publication recovery directory", err)
 	}
 	data, err := json.MarshalIndent(value, "", "  ")
 	if err != nil {
@@ -246,29 +246,42 @@ func writePrivateJSON(filename string, value any) error {
 	data = append(data, '\n')
 	temporary, err := os.CreateTemp(directory, ".recovery-*.tmp")
 	if err != nil {
-		return output.Internal("PUBLICATION_RECOVERY_SAVE_FAILED", "could not create publication recovery state", err)
+		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not create publication recovery state", err)
 	}
 	name := temporary.Name()
 	defer os.Remove(name)
 	if err := temporary.Chmod(0o600); err != nil {
 		_ = temporary.Close()
-		return output.Internal("PUBLICATION_RECOVERY_SAVE_FAILED", "could not secure publication recovery state", err)
+		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not secure publication recovery state", err)
 	}
 	if _, err := temporary.Write(data); err != nil {
 		_ = temporary.Close()
-		return output.Internal("PUBLICATION_RECOVERY_SAVE_FAILED", "could not write publication recovery state", err)
+		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not write publication recovery state", err)
 	}
 	if err := temporary.Sync(); err != nil {
 		_ = temporary.Close()
-		return output.Internal("PUBLICATION_RECOVERY_SAVE_FAILED", "could not sync publication recovery state", err)
+		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not sync publication recovery state", err)
 	}
 	if err := temporary.Close(); err != nil {
-		return output.Internal("PUBLICATION_RECOVERY_SAVE_FAILED", "could not close publication recovery state", err)
+		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not close publication recovery state", err)
 	}
 	if err := os.Rename(name, filename); err != nil {
-		return output.Internal("PUBLICATION_RECOVERY_SAVE_FAILED", "could not activate publication recovery state", err)
+		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not activate publication recovery state", err)
 	}
 	return nil
+}
+
+func recoveryOperationError(directory, fallbackCode, fallbackMessage string, err error) error {
+	if errors.Is(err, fs.ErrPermission) {
+		return output.Policy(
+			"PUBLICATION_RECOVERY_PERMISSION_REQUIRED",
+			"ViceMe cannot write the local publication recovery directory from this process",
+		).
+			WithCause(err).
+			WithDetails(map[string]any{"directory": directory}).
+			WithHint("allow this process to write the reported directory, then retry the exact same command; do not delete lock files or start a second publication")
+	}
+	return output.Internal(fallbackCode, fallbackMessage, err)
 }
 
 func isHexDigest(value string) bool {
