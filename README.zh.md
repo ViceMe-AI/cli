@@ -66,6 +66,15 @@ viceme profile list
 viceme profile use default
 ```
 
+需要清除历史/测试 Profile 及其本地凭据时，使用一次批量清理：
+
+```bash
+viceme profile remove --all --yes
+```
+
+该破坏性命令会重新创建一个未登录的 `default` Profile，不会让 CLI 留在无有效
+Profile 的状态。
+
 连接测试环境或私有 ViceMe 部署时，先把 Endpoint 持久化到独立 Profile，再登录：
 
 ```bash
@@ -97,22 +106,30 @@ Origin 隔离，因此为新 Endpoint 创建 Profile 后需要单独登录一次
 第一版接受包含 `SKILL.md` 的本地目录或本地 ZIP，不接受 GitHub URL、远程下载和
 多 Skill 批量包。
 
+解析 Skill 之前先完成登录，并把后续所有命令固定到 `auth status` 返回的 Profile。
+Agent 不得因为另一个 Profile 已经登录就擅自切换过去。
+
+```bash
+viceme auth status
+viceme --profile <publication-profile> auth login # 仅在未登录时执行
+```
+
 只读检查：
 
 ```bash
-viceme skill inspect --path ./my-skill
+viceme --profile <publication-profile> skill inspect --path ./my-skill
 ```
 
 查看确定性发布包和价格计划：
 
 ```bash
-viceme skill publish --path ./my-skill --price-minor 100 --dry-run
+viceme --profile <publication-profile> skill publish --path ./my-skill --price-minor 100 --dry-run
 ```
 
 开始可恢复的上传与 Listing 分析：
 
 ```bash
-viceme skill publish --path ./my-skill --price-minor 100
+viceme --profile <publication-profile> skill publish --path ./my-skill --price-minor 100
 ```
 
 之后以服务端 Publication 状态为准：
@@ -136,7 +153,7 @@ viceme publication publish <publication-id> --review-digest <digest>
 网络中断后继续同一个发布操作：
 
 ```bash
-viceme skill publish --resume <publication-id>
+viceme --profile <publication-profile> skill publish --resume <publication-id>
 ```
 
 响应未知时不能创建第二个 Publication，应先查询或恢复原 ID。

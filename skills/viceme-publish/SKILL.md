@@ -9,24 +9,27 @@ Use the CLI for every deterministic action. Read [workflow.md](references/workfl
 
 ## Workflow
 
-1. Run `viceme skill inspect --path <dir-or-zip>`.
-2. Explain validation findings and ask the user for the exact CNY price in fen.
-3. Run `viceme skill publish --path <dir-or-zip> --price-minor <fen> --dry-run`.
-4. Show the final package digest, discovered image candidates, title, source description, and price. Ask permission to upload.
-5. Run the same command without `--dry-run`.
-6. Poll with `viceme publication get <id>` while analysis is `PENDING`. Analysis proposes `summaryZhCn`, `summaryEnUs`, `usageInstructionsZhCn`, `usageInstructionsEnUs`, cover, and gallery; do not present any proposal as a user decision.
-7. Run `viceme publication review <id>` and show both exact summaries, both exact usage instructions, the exact price, cover, ordered gallery, and `reviewDigest`. ASCII counts as width 1 and Chinese/non-ASCII counts as width 2; each summary must have total width at most 30.
-8. If the user wants different media, run `viceme publication asset upload <id> --role <cover|gallery> --path <image>`. For other edits, prepare a complete strict JSON draft and run `publication update`.
-9. Ask the user to explicitly confirm both displayed summaries, both usage instructions, price, cover, and gallery.
-10. Only after confirmation, run `viceme publication confirm <id> --review-digest <digest>`.
-11. Ask once more before the irreversible public publication, then run `viceme publication publish <id> --review-digest <digest>`.
-12. Return the authoritative `product.detailUrl` from the result.
+1. Run `viceme auth status` before inspecting or parsing the Skill. Capture the returned active `profile` as the publication profile.
+2. If unauthenticated, run `viceme --profile <publication-profile> auth login`, show the verification URL, and wait for successful authorization before continuing. Never switch to another Profile merely because it already has credentials.
+3. Pin every remaining command in this workflow with `viceme --profile <publication-profile> ...`. If that Profile becomes invalid or logged out, stop and repair/login to the same Profile unless the user explicitly chooses a different one.
+4. Run `viceme --profile <publication-profile> skill inspect --path <dir-or-zip>`.
+5. Explain validation findings and ask the user for the exact CNY price in fen.
+6. Run `viceme --profile <publication-profile> skill publish --path <dir-or-zip> --price-minor <fen> --dry-run`.
+7. Show the final package digest, discovered image candidates, title, source description, and price. Ask permission to upload.
+8. Run the same command without `--dry-run`.
+9. Poll with `viceme --profile <publication-profile> publication get <id>` while analysis is `PENDING`. Analysis proposes `summaryZhCn`, `summaryEnUs`, `usageInstructionsZhCn`, `usageInstructionsEnUs`, cover, and gallery; do not present any proposal as a user decision.
+10. Run `viceme --profile <publication-profile> publication review <id>` and show both exact summaries, both exact usage instructions, the exact price, cover, ordered gallery, and `reviewDigest`. ASCII counts as width 1 and Chinese/non-ASCII counts as width 2; each summary must have total width at most 30.
+11. If the user wants different media, run `viceme --profile <publication-profile> publication asset upload <id> --role <cover|gallery> --path <image>`. For other edits, prepare a complete strict JSON draft and run `publication update` with the same Profile.
+12. Ask the user to explicitly confirm both displayed summaries, both usage instructions, price, cover, and gallery.
+13. Only after confirmation, run `viceme --profile <publication-profile> publication confirm <id> --review-digest <digest>`.
+14. Ask once more before the irreversible public publication, then run `viceme --profile <publication-profile> publication publish <id> --review-digest <digest>`.
+15. Return the authoritative `product.detailUrl` from the result.
 
 Never infer confirmation from an earlier general request to “publish”. A changed draft produces a new digest and requires confirmation again.
 
 ## Recovery
 
-- After interruption, run `viceme skill publish --resume <publication-id>`.
+- After interruption, run `viceme --profile <publication-profile> skill publish --resume <publication-id>`.
 - If local source bytes changed, do not bypass the digest check. Restore the original source or start a new publication.
 - `PUBLISHED` is final. Never create a second publication merely because a response was lost; query the existing ID first.
 - Do not retry non-retryable errors without changing the invalid input or state.
