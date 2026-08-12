@@ -376,6 +376,7 @@ jobs:
           CN_BUCKET: ${{ secrets.VICEME_RELEASE_S3_BUCKET_CN }}
           CN_ACCESS_KEY_ID: ${{ secrets.VICEME_RELEASE_S3_ACCESS_KEY_ID_CN }}
           CN_SECRET_ACCESS_KEY: ${{ secrets.VICEME_RELEASE_S3_SECRET_ACCESS_KEY_CN }}
+          CN_S3_HTTPS_PROXY: ${{ secrets.CN_S3_HTTPS_PROXY }}
           GLOBAL_ENDPOINT: ${{ secrets.VICEME_RELEASE_S3_ENDPOINT_GLOBAL }}
           GLOBAL_BUCKET: ${{ secrets.VICEME_RELEASE_S3_BUCKET_GLOBAL }}
           GLOBAL_ACCESS_KEY_ID: ${{ secrets.VICEME_RELEASE_S3_ACCESS_KEY_ID_GLOBAL }}
@@ -439,7 +440,12 @@ jobs:
             echo "Published ${LABEL} release v${VERSION}"
           }
 
-          publish_region "${CN_ENDPOINT}" "${CN_BUCKET}" "${CN_ACCESS_KEY_ID}" "${CN_SECRET_ACCESS_KEY}" CN
+          test -n "${CN_S3_HTTPS_PROXY}"
+          (
+            export HTTPS_PROXY="${CN_S3_HTTPS_PROXY}"
+            export https_proxy="${CN_S3_HTTPS_PROXY}"
+            publish_region "${CN_ENDPOINT}" "${CN_BUCKET}" "${CN_ACCESS_KEY_ID}" "${CN_SECRET_ACCESS_KEY}" CN
+          )
           publish_region "${GLOBAL_ENDPOINT}" "${GLOBAL_BUCKET}" "${GLOBAL_ACCESS_KEY_ID}" "${GLOBAL_SECRET_ACCESS_KEY}" GLOBAL
 
   notify:
