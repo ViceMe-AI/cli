@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "component": "ViceMeDanmaku",
+  "scope": ["bullet-stage", "interaction-bar", "composer", "reactions"],
+  "excludedScope": [
+    "iframe",
+    "page-switcher",
+    "authentication",
+    "payment",
+    "api",
+    "persistence"
+  ],
+  "breakpointsPx": {
+    "hideSecondaryQuickReactionsBelow": 440,
+    "desktopComposerAt": 744
+  },
+  "timingMs": {
+    "greetingAutoDismiss": 3500,
+    "reactionAutoCollapse": 4000,
+    "longPressDelay": 420,
+    "longPressRepeat": 220,
+    "barOpen": 350,
+    "barClose": 250,
+    "popoverOpen": 250,
+    "popoverClose": 150,
+    "emojiHoverIn": 250,
+    "emojiHoverOut": 320
+  },
+  "geometryPx": {
+    "barHeight": 56,
+    "controlSize": 32,
+    "controlRadius": 6,
+    "desktopCenterMaxWidth": 366,
+    "popoverWidth": 352,
+    "popoverHeight": 272,
+    "popoverRadius": 12,
+    "stageHeight": 160,
+    "laneCount": 5,
+    "laneTop": 8,
+    "laneHeight": 28,
+    "bulletFontSize": 20
+  },
+  "colors": {
+    "bar": "#1f1f21",
+    "surface": "#2b2b2e",
+    "popover": "#2b2c2f",
+    "popoverSearch": "#242528",
+    "foreground": "#cecfd2",
+    "muted": "#a9aaad",
+    "border": "#7e8188"
+  },
+  "quickReactions": ["❤️", "👍", "🔥", "👏", "🙌", "👀"],
+  "states": ["collapsed", "greeting", "reactions", "typing", "more"]
+}

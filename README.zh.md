@@ -8,7 +8,7 @@ Code 和 WorkBuddy 通过 Skills 引导用户；CLI 负责安装、设备授权�
 
 ## 安装
 
-官方 Bootstrap 从同一个不可变 Release 一次安装原生 CLI 和两个官方 Skills。
+官方 Bootstrap 从同一个不可变 Release 一次安装原生 CLI 和三个官方 Skills。
 
 中国区 macOS / Linux：
 
@@ -188,7 +188,7 @@ Bootstrap 安装会读取当前 Profile 所在区域的官方 S3 Release 索引�
 Checksum，用新二进制修复同版本官方 Skills 后原子激活。npm 安装通过精确 npm 包版本
 更新。更新子进程不会继承 `VICEME_ACCESS_TOKEN`。
 
-二进制或 npm launcher、两份官方 Skills 和 Profile 配置属于同一个可恢复的本地版本。
+二进制或 npm launcher、三份官方 Skills 和 Profile 配置属于同一个可恢复的本地版本。
 Standalone 与 npm 激活共用外层激活锁、委托成员提交锁，并持久化包含语义版本、安装方式和不可变身份的
 active-generation。唯一的启动协调器不区分当前入口，始终检查 Standalone 和 npm 两类 Journal。
 所有普通命令必须先恢复未完成的外层 Journal；如果恢复后当前进程的版本、安装方式或不可变身份
@@ -229,5 +229,5 @@ make npm-package-check
 make release-manifest
 ```
 
-CLI、`viceme-shared` 和 `viceme-publish` 同版本发布。GitHub、npm、
+CLI、`viceme-shared`、`viceme-publish` 和 `viceme-danmaku` 同版本发布。GitHub、npm、
 `s3.viceme.cn` 与 `s3.viceme.ai` 的产物都来自同一个已评审 Commit。

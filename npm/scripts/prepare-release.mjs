@@ -179,7 +179,7 @@ function prepareRelease() {
   packageDocument.version = version;
   writeJSON("package.json", packageDocument);
 
-  for (const skillName of ["viceme-shared", "viceme-publish"]) {
+  for (const skillName of ["viceme-shared", "viceme-publish", "viceme-danmaku"]) {
     const filename = `skills/${skillName}/skill-package.json`;
     const skillPackage = JSON.parse(readFileSync(filename, "utf8"));
     skillPackage.skill_version = version;

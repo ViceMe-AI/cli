@@ -3,6 +3,13 @@
   "npm_package": "@viceme-ai/cli",
   "cli_version": "0.12.4",
   "skills": {
+    "viceme-danmaku": {
+      "skill_version": "0.12.4",
+      "minimum_cli_version": "0.12.4",
+      "cli_compatibility": ">=0.12.4 <0.13.0",
+      "full_skill_bundle_digest": "sha256:175fe60378b372f32631526471f6895255a03d249fa874d2a12e4ded4b4e4fcf",
+      "embedded_content_digest": "sha256:e09ff506b638f089d629bf501328dc06ad1ad81d02ccfaa80bc9e162ffa42769"
+    },
     "viceme-publish": {
       "skill_version": "0.12.4",
       "minimum_cli_version": "0.12.4",
@@ -18,7 +25,7 @@
       "embedded_content_digest": "sha256:12c95215876081b4062ee419486d2bbdcd9a26dfc017c126e192dba2b900e1b9"
     }
   },
-  "bootstrap_contract_digest": "sha256:fcbfbf9869097282ca0f12319c7bf26f9f0c1be3a6a21b01c6d3ffc5610ad82e",
+  "bootstrap_contract_digest": "sha256:868eb586ed192323fc207d072bae8d939a86a7553b8df12208c9cab7e7e4193c",
   "installer_digests": {
     "install.ps1": "sha256:c322926c5f9ae0ea19b18bb0af288fa1633afcd3bfc882ec947a63e33e117c40",
     "install.sh": "sha256:f00144ff9cd35700fb2a7473c327bef60fb13c032bc34bd98e4a84f342fdcf4c"
