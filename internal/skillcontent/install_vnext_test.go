@@ -1,6 +1,7 @@
 package skillcontent
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -254,6 +255,20 @@ func TestInstallTransactionLockRejectsConcurrentMutation(t *testing.T) {
 
 func writeTestSkill(t *testing.T, root, name string) {
 	t.Helper()
+	packageMetadata, err := json.MarshalIndent(struct {
+		SchemaVersion     int    `json:"schema_version"`
+		SkillVersion      string `json:"skill_version"`
+		MinimumCLIVersion string `json:"minimum_cli_version"`
+		CLICompatibility  string `json:"cli_compatibility"`
+	}{
+		SchemaVersion:     1,
+		SkillVersion:      buildinfo.SkillVersion,
+		MinimumCLIVersion: buildinfo.MinimumCLIVersion,
+		CLICompatibility:  buildinfo.CLICompatibility,
+	}, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
 	files := map[string]string{
 		"SKILL.md": `---
 name: ` + name + `
@@ -267,13 +282,7 @@ description: Test ViceMe Skill.
   short_description: "Test installer"
   default_prompt: "Use the test Skill."
 `,
-		"skill-package.json": `{
-  "schema_version": 1,
-  "skill_version": "0.10.1",
-  "minimum_cli_version": "0.10.1",
-  "cli_compatibility": ">=0.10.1 <0.11.0"
-}
-`,
+		"skill-package.json": string(packageMetadata) + "\n",
 	}
 	for relative, content := range files {
 		filename := filepath.Join(root, name, filepath.FromSlash(relative))
