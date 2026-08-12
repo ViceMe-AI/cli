@@ -13,25 +13,25 @@ Code 和 WorkBuddy 通过 Skills 引导用户；CLI 负责安装、设备授权�
 中国区 macOS / Linux：
 
 ```bash
-curl -fsSL https://s3.viceme.cn/install.sh | sh
+curl -fsSL https://s3.viceme.cn/start/install.sh | sh
 ```
 
 海外 macOS / Linux：
 
 ```bash
-VICEME_REGION=global sh -c "$(curl -fsSL https://s3.viceme.ai/install.sh)"
+VICEME_REGION=global sh -c "$(curl -fsSL https://s3.viceme.ai/start/install.sh)"
 ```
 
 中国区 Windows PowerShell：
 
 ```powershell
-irm https://s3.viceme.cn/install.ps1 | iex
+irm https://s3.viceme.cn/start/install.ps1 | iex
 ```
 
 海外 Windows PowerShell：
 
 ```powershell
-$env:VICEME_REGION="global"; irm https://s3.viceme.ai/install.ps1 | iex
+$env:VICEME_REGION="global"; irm https://s3.viceme.ai/start/install.ps1 | iex
 ```
 
 不能使用 Bootstrap 时，以 npm 作为备用入口：

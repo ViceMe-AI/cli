@@ -11,6 +11,25 @@ import (
 	"testing"
 )
 
+func TestInstallersUsePublicStartBucketURLs(t *testing.T) {
+	t.Parallel()
+	expected := []string{
+		"https://s3.viceme.cn/start/cli/releases",
+		"https://s3.viceme.ai/start/cli/releases",
+	}
+	for _, filename := range []string{"install.sh", "install.ps1"} {
+		contents, err := os.ReadFile(filename)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, releaseURL := range expected {
+			if !strings.Contains(string(contents), releaseURL) {
+				t.Errorf("%s does not use public start bucket URL %q", filename, releaseURL)
+			}
+		}
+	}
+}
+
 func TestShellInstallerVerifiesChecksumAndPreservesWorkingVersionOnFailure(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("POSIX bootstrap test")

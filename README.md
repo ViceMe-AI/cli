@@ -15,25 +15,25 @@ one immutable release.
 China, macOS or Linux:
 
 ```bash
-curl -fsSL https://s3.viceme.cn/install.sh | sh
+curl -fsSL https://s3.viceme.cn/start/install.sh | sh
 ```
 
 International, macOS or Linux:
 
 ```bash
-VICEME_REGION=global sh -c "$(curl -fsSL https://s3.viceme.ai/install.sh)"
+VICEME_REGION=global sh -c "$(curl -fsSL https://s3.viceme.ai/start/install.sh)"
 ```
 
 China, Windows PowerShell:
 
 ```powershell
-irm https://s3.viceme.cn/install.ps1 | iex
+irm https://s3.viceme.cn/start/install.ps1 | iex
 ```
 
 International, Windows PowerShell:
 
 ```powershell
-$env:VICEME_REGION="global"; irm https://s3.viceme.ai/install.ps1 | iex
+$env:VICEME_REGION="global"; irm https://s3.viceme.ai/start/install.ps1 | iex
 ```
 
 If the bootstrap cannot be used, npm is the fallback:
