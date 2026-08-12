@@ -88,6 +88,25 @@ func TestPaymentAPIKeyIsStoredWithoutEnteringCommandOutput(t *testing.T) {
 	if err != nil || stored.APIKey != rawKey || stored.CredentialID != "credential-id" {
 		t.Fatalf("Payment API Key was not securely persisted: stored=%#v err=%v", stored, err)
 	}
+	delivery := execute("payment", "api-key", "deliver", "--dir", root)
+	deliveryData, ok := delivery["data"].(map[string]any)
+	if !ok || deliveryData["delivered"] != true {
+		t.Fatalf("Payment API Key delivery returned unexpected metadata: %#v", delivery)
+	}
+	envData, err := os.ReadFile(filepath.Join(root, ".env.local"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(envData) != "VICEME_PAYMENT_API_KEY="+rawKey+"\n" {
+		t.Fatalf("Payment API Key was not delivered to the dotenv file: %q", envData)
+	}
+	ignoreData, err := os.ReadFile(filepath.Join(root, ".gitignore"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(ignoreData) != "/.env.local\n" {
+		t.Fatalf("dotenv file was not protected by an exact ignore rule: %q", ignoreData)
+	}
 	execute("payment", "checkout", "create", "--dir", root, "--input", input, "--idempotency-key", "checkout-1")
 	if runtimeCredential != "Bearer "+rawKey || runtimeIdempotencyKey != "checkout-1" {
 		t.Fatalf("runtime request did not use the stored key safely: auth=%q idempotency=%q", runtimeCredential, runtimeIdempotencyKey)

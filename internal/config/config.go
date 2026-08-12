@@ -17,6 +17,12 @@ import (
 	"unicode/utf8"
 )
 
+// ProtectPrivateFile restricts a secret-bearing file to the current user.
+// Unix uses mode 0600; Windows applies a protected owner-only ACL.
+func ProtectPrivateFile(filename string) error {
+	return securePrivateFile(filename)
+}
+
 type Region string
 
 const (

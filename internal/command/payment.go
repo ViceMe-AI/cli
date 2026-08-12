@@ -541,6 +541,7 @@ func newPaymentControlActionCommand(runtime *Runtime, use, short, prefix, suffix
 func newPaymentAPIKeyCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "api-key", Short: "Manage the environment Payment API Key in secure storage"}
 	command.AddCommand(newPaymentAPIKeyCreateCommand(runtime))
+	command.AddCommand(newPaymentAPIKeyDeliverCommand(runtime))
 	command.AddCommand(newPaymentAPIKeyRotateCommand(runtime))
 	command.AddCommand(newPaymentAPIKeyRevokeCommand(runtime))
 	return command
@@ -622,6 +623,38 @@ func newPaymentAPIKeyRotateCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&root, "dir", ".", "project directory")
+	return command
+}
+
+func newPaymentAPIKeyDeliverCommand(runtime *Runtime) *cobra.Command {
+	var root, envFile, variable string
+	command := &cobra.Command{
+		Use: "deliver", Short: "Safely deliver the stored Payment API Key to a project dotenv file", Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			configured, _, err := loadPaymentConfig(root)
+			if err != nil {
+				return err
+			}
+			credential, err := runtime.paymentManager().LoadAPIKey(configured.EnvironmentID)
+			if err != nil {
+				return err
+			}
+			delivery, err := payment.DeliverAPIKeyToEnvFile(root, envFile, variable, credential.APIKey)
+			if err != nil {
+				return err
+			}
+			return runtime.business(map[string]any{
+				"credentialId":  credential.CredentialID,
+				"environmentId": credential.EnvironmentID,
+				"environment":   configured.Environment,
+				"delivery":      delivery,
+				"delivered":     true,
+			})
+		},
+	}
+	command.Flags().StringVar(&root, "dir", ".", "project directory")
+	command.Flags().StringVar(&envFile, "env-file", ".env.local", "project-relative dotenv file")
+	command.Flags().StringVar(&variable, "env-var", "VICEME_PAYMENT_API_KEY", "server-only environment variable name")
 	return command
 }
 

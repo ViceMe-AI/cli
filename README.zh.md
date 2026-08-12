@@ -161,7 +161,8 @@ viceme --profile <publication-profile> skill publish --resume <publication-id>
 ## 配置 Hosted Checkout
 
 Payment 工作流默认初始化相互隔离的 SANDBOX 与 LIVE 环境，并为两者保存一份 ViceMe 默认收银台模板；只有需要自定义展示时才执行 `payment template create`。也可以切换到 CN 微信 LIVE 上下文；LIVE Payment API Key 仅在管理员按 Application 授权后才能创建。项目上下文写入 `.viceme/payment.yaml`；Payment API
-Key 和 Webhook Signing Secret 只保存到安全凭据后端，永不打印。
+Key 和 Webhook Signing Secret 保存到安全凭据后端，永不打印。本地后端开发时，CLI 可以把已保存
+的 API Key 直接交付到受保护的项目 dotenv 文件，不经过 stdout 暴露明文。
 
 ```bash
 viceme payment init --dir . --slug my-app --name "My App"
@@ -170,8 +171,13 @@ viceme payment environment use live --dir . # 只切换默认管理上下文
 viceme payment product create --dir . --input product.json
 viceme payment template create --dir . --input template.json # 可选自定义
 viceme payment api-key create --dir .
+viceme payment api-key deliver --dir . --env-file .env.local
 viceme payment checkout create --dir . --input checkout.json --idempotency-key checkout-order-1
 ```
+
+`api-key deliver` 默认写入 `VICEME_PAYMENT_API_KEY`，自动向项目 `.gitignore` 加入精确目标规则，
+收紧文件权限，并拒绝已被 Git 跟踪、越界、符号链接、示例/模板文件或重复变量。远程环境仍应使用
+部署平台的 Secret Provider；轮换 API Key 后需要重新执行交付。
 
 安装并调用 `viceme-checkout` 可获得完整 Agent 工作流、严格请求示例、Webhook 规则和安全边界。
 

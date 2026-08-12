@@ -9,6 +9,18 @@ Never grant access from the browser return URL. Fulfill only after either:
 - `payment order get` returns `PAID`; or
 - a Webhook with a valid signature and a previously unseen event ID reports the paid state.
 
+## Deliver the backend credential
+
+After issuing the selected environment's Payment API Key, deliver it directly from CLI secure storage to the backend's project-local dotenv file:
+
+```bash
+viceme --profile <profile> payment api-key deliver --dir <project> --env-file .env.local
+```
+
+The default variable is `VICEME_PAYMENT_API_KEY`; use `--env-var` only when the backend already has a different server-only convention. The command never prints the value. It restricts the dotenv file to the current user, adds an exact project `.gitignore` rule, and refuses an existing Git-tracked file, path escape, symlink, `.env.example`/template file, or duplicate variable definition. Application code reads the variable only on the server and sends it as the bearer credential for `/v1/checkout/v1/*`.
+
+Rerun delivery after API Key rotation so the backend receives the successor key during the overlap window. Local dotenv delivery does not configure a remote deployment; use the deployment platform's authorized secret provider for that boundary.
+
 ## Create a checkout
 
 Request file:
