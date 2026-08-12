@@ -69,6 +69,7 @@ func newPaymentCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newPaymentEligibilityCommand(runtime))
 	command.AddCommand(newPaymentInitCommand(runtime))
 	command.AddCommand(newPaymentContextCommand(runtime))
+	command.AddCommand(newPaymentEnvironmentCommand(runtime))
 	command.AddCommand(newPaymentProductCommand(runtime))
 	command.AddCommand(newPaymentPriceCommand(runtime))
 	command.AddCommand(newPaymentPriceVersionCommand(runtime))
@@ -79,6 +80,46 @@ func newPaymentCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newPaymentAPIKeyCommand(runtime))
 	command.AddCommand(newPaymentCheckoutCommand(runtime))
 	command.AddCommand(newPaymentOrderCommand(runtime))
+	return command
+}
+
+func newPaymentEnvironmentCommand(runtime *Runtime) *cobra.Command {
+	command := &cobra.Command{Use: "environment", Short: "Select an existing Payment environment"}
+	command.AddCommand(newPaymentEnvironmentUseCommand(runtime))
+	return command
+}
+
+func newPaymentEnvironmentUseCommand(runtime *Runtime) *cobra.Command {
+	var root string
+	command := &cobra.Command{
+		Use: "use <sandbox|live>", Short: "Switch this project to an existing Payment environment", Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			mode := strings.ToLower(strings.TrimSpace(args[0]))
+			if mode != "sandbox" && mode != "live" {
+				return output.Validation("PAYMENT_ENVIRONMENT_INVALID", "Payment environment must be sandbox or live")
+			}
+			configured, _, err := loadPaymentConfig(root)
+			if err != nil {
+				return err
+			}
+			candidate := configured
+			candidate.Environment = mode
+			remote, err := fetchPaymentContext(command, runtime, candidate)
+			if err != nil {
+				return err
+			}
+			candidate.EnvironmentID = remote.Environment.ID
+			candidate.InstallationID = remote.Installation.ID
+			candidate.MarketRegion = remote.Environment.MarketRegion
+			candidate.PaymentAPIKeyID = ""
+			configPath, err := paymentconfig.Save(root, candidate)
+			if err != nil {
+				return output.Internal("PAYMENT_PROJECT_SAVE_FAILED", "the remote Payment environment exists but local context could not be updated", err)
+			}
+			return runtime.business(map[string]any{"configPath": configPath, "context": candidate, "remote": remote})
+		},
+	}
+	command.Flags().StringVar(&root, "dir", ".", "project directory")
 	return command
 }
 
@@ -508,7 +549,7 @@ func newPaymentAPIKeyCommand(runtime *Runtime) *cobra.Command {
 func newPaymentAPIKeyCreateCommand(runtime *Runtime) *cobra.Command {
 	var root, name, scopesText string
 	command := &cobra.Command{
-		Use: "create", Short: "Issue and securely store a SANDBOX Payment API Key", Args: cobra.NoArgs,
+		Use: "create", Short: "Issue and securely store a Payment API Key for the selected environment", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			configured, _, err := loadPaymentConfig(root)
 			if err != nil {
@@ -542,7 +583,7 @@ func newPaymentAPIKeyCreateCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&root, "dir", ".", "project directory")
-	command.Flags().StringVar(&name, "name", "sandbox-backend", "Payment API Key label")
+	command.Flags().StringVar(&name, "name", "payment-backend", "Payment API Key label")
 	command.Flags().StringVar(&scopesText, "scopes", "payment:products:read,payment:checkouts:create,payment:orders:read,payment:orders:close", "comma-separated runtime scopes")
 	return command
 }
@@ -623,7 +664,7 @@ func newPaymentAPIKeyRevokeCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newPaymentCheckoutCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "checkout", Short: "Use the stored Payment API Key for SANDBOX checkout"}
+	command := &cobra.Command{Use: "checkout", Short: "Use the stored Payment API Key for checkout"}
 	command.AddCommand(newPaymentCheckoutProductsCommand(runtime))
 	command.AddCommand(newPaymentCheckoutCreateCommand(runtime))
 	return command
@@ -653,7 +694,7 @@ func newPaymentCheckoutProductsCommand(runtime *Runtime) *cobra.Command {
 func newPaymentCheckoutCreateCommand(runtime *Runtime) *cobra.Command {
 	var root, input, idempotencyKey string
 	command := &cobra.Command{
-		Use: "create", Short: "Create an idempotent SANDBOX checkout session", Args: cobra.NoArgs,
+		Use: "create", Short: "Create an idempotent checkout session", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			_, _, credential, err := loadPaymentRuntime(runtime, root)
 			if err != nil {

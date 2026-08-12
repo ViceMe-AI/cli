@@ -1,4 +1,4 @@
 interface:
   display_name: "ViceMe Checkout"
-  short_description: "Configure and test secure hosted payments"
-  default_prompt: "Use $viceme-checkout to add a SANDBOX hosted checkout to this project."
+  short_description: "Configure and test secure hosted checkout flows"
+  default_prompt: "Use $viceme-checkout to add a SANDBOX or Admin-enabled WeChat LIVE hosted checkout to this project."

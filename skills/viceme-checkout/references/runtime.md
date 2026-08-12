@@ -33,6 +33,8 @@ Retry the same logical operation with the same idempotency key and identical bod
 
 For a caller-selected amount, include `amountCents` within the active Price Version bounds. Omit it for fixed prices and payer-selected input prices.
 
+For LIVE, confirm `payment context` reports `mode: LIVE`, `marketRegion: CN`, and use only an active `WECHAT_PAY` Price Version. The Hosted Checkout returns a real WeChat payment action; payment truth still comes only from an authoritative order query or verified Webhook, never from browser navigation.
+
 ## Query and close
 
 ```bash

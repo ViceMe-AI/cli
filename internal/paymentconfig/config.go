@@ -119,8 +119,8 @@ func (configured Config) Validate() error {
 			return fmt.Errorf("payment config %s is required", name)
 		}
 	}
-	if configured.Environment != "sandbox" {
-		return errors.New("only the sandbox Payment environment is currently supported")
+	if configured.Environment != "sandbox" && configured.Environment != "live" {
+		return errors.New("payment config defaultEnvironment must be sandbox or live")
 	}
 	if configured.MarketRegion != "CN" && configured.MarketRegion != "GLOBAL" {
 		return errors.New("payment config marketRegion must be CN or GLOBAL")

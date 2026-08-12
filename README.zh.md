@@ -160,12 +160,13 @@ viceme --profile <publication-profile> skill publish --resume <publication-id>
 
 ## 配置 Hosted Checkout
 
-Payment 工作流当前只支持 SANDBOX。项目上下文写入 `.viceme/payment.yaml`；Payment API
+Payment 工作流默认初始化相互隔离的 SANDBOX 与 LIVE 环境，也可以切换到 CN 微信 LIVE 上下文；LIVE Payment API Key 仅在管理员按 Application 授权后才能创建。项目上下文写入 `.viceme/payment.yaml`；Payment API
 Key 和 Webhook Signing Secret 只保存到安全凭据后端，永不打印。
 
 ```bash
 viceme payment init --dir . --slug my-app --name "My App"
 viceme payment context --dir .
+viceme payment environment use live --dir . # 只切换默认管理上下文
 viceme payment product create --dir . --input product.json
 viceme payment api-key create --dir .
 viceme payment checkout create --dir . --input checkout.json --idempotency-key checkout-order-1

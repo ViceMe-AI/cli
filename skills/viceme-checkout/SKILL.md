@@ -1,6 +1,6 @@
 ---
 name: viceme-checkout
-description: Configure, integrate, and test ViceMe Hosted Checkout for an application. Use when a user asks to add payments, create a Payment product or one-time price, build a hosted checkout flow, register return URLs or signed webhooks, issue or rotate a SANDBOX Payment API Key, test a checkout, query or close an order, or diagnose an existing .viceme/payment.yaml integration.
+description: Configure, integrate, and test ViceMe Hosted Checkout for an application. Use when a user asks to add payments, create a Payment product or one-time price, build a hosted checkout flow, register return URLs or signed webhooks, issue or rotate a Payment API Key, test a SANDBOX checkout, connect an Admin-enabled CN WeChat LIVE environment, query or close an order, or diagnose an existing .viceme/payment.yaml integration.
 ---
 
 # ViceMe Hosted Checkout
@@ -15,20 +15,20 @@ Read [control-plane.md](references/control-plane.md) before creating or changing
 2. If unauthenticated, run `viceme --profile <profile> auth login`. Complete the device flow before reading or writing Payment state.
 3. Inspect the repository for its backend framework, secret provider, existing order model, webhook endpoint, and success/cancel routes. Payment API Keys are server-only credentials; never place them in browser code.
 4. Run `viceme --profile <profile> payment context --dir <project>`. If the project is not initialized, choose a stable application slug and name, show them to the user, obtain approval for the remote write, then run `payment init`.
-5. Run `payment eligibility`. A user without a claimed Creator may configure SANDBOX resources but cannot issue or rotate a Payment API Key.
+5. Run `payment eligibility`. A user without a claimed Creator may configure resources but cannot issue or rotate a Payment API Key. SANDBOX and LIVE environments exist by default. For LIVE, run `payment environment use live`; API Key creation remains blocked until an authorized Admin enables LIVE API Key issuance for the Application.
 6. Prepare strict JSON files for Product, Price, Price Version, and Checkout Template. Show the exact Product code, Price code, amount, currency, channels, and template behavior before creating them. Activate a Price Version only after the user accepts those immutable terms.
 7. Register and verify an application origin before creating a return target. Browser return is navigation only; never grant an entitlement from a success URL.
 8. Implement the application backend integration from [runtime.md](references/runtime.md). Use a stable idempotency key, persist `externalOrderNo`, and treat API query or a verified Webhook as payment truth.
 9. If Webhooks are needed, create the receiving endpoint in application code first. Register it with `payment webhook create`; the CLI stores the one-time signing secret securely and never prints it. Do not claim deployment is complete unless the application's deployment secret provider has been configured by an authorized path.
 10. Ask before issuing a Payment API Key. Run `payment api-key create`; the CLI writes the one-time key to secure storage and returns only non-secret metadata.
-11. Run `payment checkout products`, then create a SANDBOX checkout with a new external order number and stable idempotency key. Return the authoritative `checkoutUrl`. Query the order after the SANDBOX payment action.
+11. Run `payment checkout products`, then create a checkout with a new external order number and stable idempotency key. In SANDBOX, complete the simulator action. In LIVE, require `CN`, `WECHAT_PAY`, and an Admin-authorized LIVE API Key, then let the payer complete the real channel action. Return the authoritative `checkoutUrl` and query the order afterward.
 12. Report created resource IDs, changed code, validation commands, and any unverified deployment or Webhook boundary.
 
 ## Safety boundaries
 
-- Support SANDBOX only. LIVE access is not implemented; do not simulate or claim it.
+- LIVE support is limited to CN WeChat one-time payments whose API Key issuance was enabled by an Admin. Do not create LIVE authorization, request provider credentials, enable Alipay LIVE, or claim subscriptions/refunds are supported.
 - Never request, display, copy, log, commit, or place a Payment API Key or Webhook Signing Secret in a prompt, JSON input, `.env.example`, Skill file, screenshot, or source file.
 - Keep `.viceme/payment.yaml`; it contains non-secret application and environment IDs. Do not treat it as authorization.
 - Use the Payment API Key only for `/v1/checkout/v1/*`. Use the user CLI credential only for control-plane commands.
 - Require explicit confirmation for immediate API Key/Webhook revocation and order close. Rotation normally preserves a 24-hour overlap; if secure persistence fails, the CLI aborts the rotation.
-- Do not implement refunds, subscriptions, LIVE provider credentials, or financial reconciliation under this Skill. They are outside the delivered capability.
+- Do not implement refunds, subscriptions, provider credential setup, merchant-route rotation, or financial reconciliation under this Skill. They remain operator-owned boundaries.

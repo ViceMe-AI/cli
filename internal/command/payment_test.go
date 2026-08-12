@@ -93,3 +93,54 @@ func TestPaymentAPIKeyIsStoredWithoutEnteringCommandOutput(t *testing.T) {
 		t.Fatalf("runtime request did not use the stored key safely: auth=%q idempotency=%q", runtimeCredential, runtimeIdempotencyKey)
 	}
 }
+
+func TestPaymentEnvironmentUseLiveResolvesBeforeUpdatingContext(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/capability-applications/application-id/environments/live/installations/payment" {
+			http.NotFound(writer, request)
+			return
+		}
+		if request.Header.Get("Authorization") != "Bearer vme_cli_test" {
+			t.Fatalf("control request did not use CLI login: %q", request.Header.Get("Authorization"))
+		}
+		_, _ = io.WriteString(writer, `{"environment":{"id":"live-environment-id","applicationId":"application-id","mode":"LIVE","marketRegion":"CN","status":"ACTIVE"},"installation":{"id":"live-installation-id","environmentId":"live-environment-id","capability":"payment","version":"v1","status":"ACTIVE"}}`)
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	if _, err := paymentconfig.Save(root, paymentconfig.Config{
+		SchemaVersion: 1, CapabilitySpace: "space-id", ApplicationID: "application-id", ApplicationSlug: "demo-app",
+		Environment: "sandbox", MarketRegion: "CN", EnvironmentID: "sandbox-environment-id", InstallationID: "sandbox-installation-id",
+		PaymentAPIKeyID: "sandbox-key-id",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(server.URL, config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	login := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+	if err := login.Save(credentialauth.Credential{AccessToken: "vme_cli_test", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"payment", "environment", "use", "live", "--dir", root}, Dependencies{
+		Out: &stdout, ErrOut: io.Discard, Store: store, HTTPClient: server.Client(), APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit != 0 {
+		t.Fatalf("command failed: exit=%d output=%s", exit, stdout.String())
+	}
+	configured, _, err := paymentconfig.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configured.Environment != "live" || configured.EnvironmentID != "live-environment-id" || configured.InstallationID != "live-installation-id" {
+		t.Fatalf("unexpected LIVE context: %#v", configured)
+	}
+	if configured.PaymentAPIKeyID != "" {
+		t.Fatalf("environment switch retained another environment's key metadata: %#v", configured)
+	}
+}

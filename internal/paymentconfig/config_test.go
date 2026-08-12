@@ -32,6 +32,22 @@ func TestConfigRoundTripContainsOnlyNonSecretContext(t *testing.T) {
 	}
 }
 
+func TestConfigAcceptsLiveEnvironment(t *testing.T) {
+	root := t.TempDir()
+	want := Config{
+		SchemaVersion: 1, CapabilitySpace: "space-id", ApplicationID: "app-id",
+		ApplicationSlug: "demo-app", Environment: "live", MarketRegion: "CN",
+		EnvironmentID: "live-environment-id", InstallationID: "live-installation-id",
+	}
+	if _, err := Save(root, want); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := Load(root)
+	if err != nil || got != want {
+		t.Fatalf("unexpected LIVE round trip: got=%#v err=%v", got, err)
+	}
+}
+
 func bytesContains(value, part []byte) bool {
 	for index := 0; index+len(part) <= len(value); index++ {
 		match := true

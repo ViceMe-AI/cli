@@ -13,7 +13,16 @@ viceme --profile <profile> payment eligibility
 viceme --profile <profile> payment init --dir <project> --slug <app-slug> --name <display-name>
 ```
 
-Initialization creates the user's capability space if needed, one application, a SANDBOX environment, and the Payment v1 installation. It writes only IDs and market context to `.viceme/payment.yaml`.
+Initialization creates the user's capability space if needed, one application, isolated SANDBOX and LIVE environments, and their Payment v1 installations. It selects SANDBOX locally and writes only IDs and market context to `.viceme/payment.yaml`.
+
+To select the default LIVE management context:
+
+```bash
+viceme --profile <profile> payment environment use live --dir <project>
+viceme --profile <profile> payment context --dir <project>
+```
+
+This does not grant real-money access. LIVE API Key creation remains blocked until an authorized Admin enables issuance for the Application. Switch back with `payment environment use sandbox`.
 
 ## Product and one-time fixed price
 
@@ -54,8 +63,7 @@ Fixed one-time Price Version request:
   "fixedAmountCents": 990,
   "currency": "CNY",
   "channels": [
-    {"channelCode":"WECHAT_PAY","allowedScenes":["NATIVE"]},
-    {"channelCode":"ALIPAY","allowedScenes":["PAGE"]}
+    {"channelCode":"WECHAT_PAY","allowedScenes":["NATIVE"]}
   ]
 }
 ```
@@ -90,12 +98,14 @@ viceme --profile <profile> payment return-target create --dir <project> --input 
 ## API Key
 
 ```bash
-viceme --profile <profile> payment api-key create --dir <project> --name sandbox-backend
+viceme --profile <profile> payment api-key create --dir <project> --name payment-backend
 viceme --profile <profile> payment api-key rotate --dir <project>
 viceme --profile <profile> payment api-key revoke --dir <project> --reason '<reason>' --yes
 ```
 
 Default scopes cover product reads, checkout creation, order reads, and order close. Pass `--scopes` for a smaller comma-separated set. The response never contains the raw key.
+
+The key is bound to the selected environment. A LIVE key can be issued only after `payment environment use live` selects the default LIVE environment and an Admin has enabled LIVE API Key issuance; its prefix is `vcp_live_` and it remains server-only.
 
 ## Webhook
 
