@@ -57,7 +57,9 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 
 ## Authentication and profiles
 
-Each profile is bound to one official region and one device-authorized account.
+Each profile is bound to one region, one API endpoint, and one device-authorized
+account. Profiles without a custom endpoint use the selected region's official
+ViceMe API.
 
 ```bash
 viceme auth login
@@ -68,6 +70,24 @@ viceme profile list
 viceme profile use default
 ```
 
+For a test or private ViceMe deployment, persist the endpoint in a dedicated
+profile before signing in:
+
+```bash
+viceme profile add \
+  --name shop-dev \
+  --region cn \
+  --api-base-url https://viceme-shop-web.preview.tencent-zeabur.cn/api \
+  --use
+viceme auth login
+```
+
+`profile list` reports the effective endpoint. `VICEME_API_BASE_URL` remains a
+one-process CI/debug override and is never written to profile configuration.
+Remote custom endpoints require HTTPS; only localhost and loopback development
+may use HTTP. Remove and recreate a profile to change its endpoint so an
+existing credential cannot silently move to another origin.
+
 For an Agent workflow that cannot wait in one turn:
 
 ```bash
@@ -76,7 +96,8 @@ viceme auth login --device-code <device-code>
 ```
 
 The user completes authorization in the browser. Never copy an access token
-into the conversation. Credentials are isolated by profile and API origin.
+into the conversation. Credentials are isolated by profile and API origin, so
+sign in again after creating a profile for a different endpoint.
 
 ## Publish a Skill
 
