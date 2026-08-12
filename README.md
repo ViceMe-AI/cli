@@ -172,8 +172,9 @@ or resume the existing ID first.
 
 ## Configure Hosted Checkout
 
-The Payment workflow initializes isolated SANDBOX and LIVE environments and can
-switch to the CN WeChat LIVE context. A LIVE Payment API Key can be created only
+The Payment workflow initializes isolated SANDBOX and LIVE environments with a
+persisted ViceMe default checkout template; run `payment template create` only for
+custom presentation. It can switch to the CN WeChat LIVE context. A LIVE Payment API Key can be created only
 after an Admin authorizes issuance for the Application. Project context is stored in
 `.viceme/payment.yaml`; Payment API Keys and Webhook Signing Secrets are stored
 only in the secure credential backend and never printed.
@@ -183,6 +184,7 @@ viceme payment init --dir . --slug my-app --name "My App"
 viceme payment context --dir .
 viceme payment environment use live --dir . # selects the default management context
 viceme payment product create --dir . --input product.json
+viceme payment template create --dir . --input template.json # optional customization
 viceme payment api-key create --dir .
 viceme payment checkout create --dir . --input checkout.json --idempotency-key checkout-order-1
 ```

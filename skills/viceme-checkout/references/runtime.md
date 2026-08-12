@@ -31,6 +31,8 @@ viceme --profile <profile> payment checkout create --dir <project> --input check
 
 Retry the same logical operation with the same idempotency key and identical body. Use a new external order number and key for a new purchase. Persist the returned checkout session ID and `checkoutUrl` with the application's order.
 
+`templateCode` is optional. Omit it to use the Product default when one exists, otherwise the persisted ViceMe platform default. Send `templateCode` only for an existing custom template bound to the selected Product; an explicit unknown code is an error and does not silently fall back.
+
 For a caller-selected amount, include `amountCents` within the active Price Version bounds. Omit it for fixed prices and payer-selected input prices.
 
 For LIVE, confirm `payment context` reports `mode: LIVE`, `marketRegion: CN`, and use only an active `WECHAT_PAY` Price Version. The Hosted Checkout returns a real WeChat payment action; payment truth still comes only from an authoritative order query or verified Webhook, never from browser navigation.

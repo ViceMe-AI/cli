@@ -75,15 +75,17 @@ viceme --profile <profile> payment price-version activate <price-version-id> --d
 
 For caller-selected input amounts, use `amountMode: "INPUT"`, `amountInputSource: "CALLER"`, and bounded `minAmountCents`, `maxAmountCents`, optional `suggestedAmountCents`, and `stepAmountCents`. Do not create subscription Price Versions; subscription runtime is not delivered.
 
-## Checkout template
+## Optional custom checkout template
 
-Create the exact strict configuration described by the API. Required groups are `layoutPreset`, `themeTokens`, `localizedCopy` for `zh-CN` and `en`, `fieldVisibility`, `channelDisplayPolicy`, `successContent`, and `cancelContent`.
+Skip this section unless the user needs a custom hosted checkout presentation. Every Payment installation already contains a ViceMe-managed default template based on the Shop design. If no Product default and no `templateCode` are provided, Checkout uses that platform default.
+
+For a custom template, create the exact strict configuration described by the API. Required groups are `layoutPreset`, `themeTokens`, `localizedCopy` for `zh-CN` and `en`, `fieldVisibility`, `channelDisplayPolicy`, `successContent`, and `cancelContent`.
 
 ```bash
 viceme --profile <profile> payment template create --dir <project> --input template.json
 ```
 
-Set `productId` and `isDefault: true` to bind a default template to a Product.
+Set `productId` and `isDefault: true` to make the custom template the Product default. Custom templates override the platform default only for their bound Product.
 
 ## Origins and return targets
 

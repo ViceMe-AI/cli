@@ -6,6 +6,7 @@
 - `PAYMENT_CREATOR_ELIGIBILITY_REQUIRED`: the user must claim at least one Creator before API Key create/rotate. Product configuration may continue.
 - `PAYMENT_API_KEY_NOT_STORED`: issue a key for this environment or repair the secure store. Never ask the user to paste a raw key into chat.
 - `PAYMENT_SECRET_STORE_UNAVAILABLE`: stop before retrying issuance. Fix OS keychain/private-store access; do not downgrade to a plaintext project file.
+- `CHECKOUT_TEMPLATE_NOT_FOUND`: an explicit `templateCode` is missing, inactive, or not bound to the Product. Remove `templateCode` to use the Product/ViceMe default, or create and bind the intended custom template.
 - `CAPABILITY_INSTALLATION_NOT_FOUND` after `payment environment use live`: the Application predates default LIVE installation or is inconsistent. Stop and escalate to an operator; do not edit `.viceme/payment.yaml` or the database manually.
 - `PAYMENT_LIVE_API_KEY_ISSUANCE_NOT_ENABLED`: the default LIVE environment exists, but an authorized Admin has not enabled key issuance for this Application. Continue in SANDBOX or request Admin authorization.
 - `CHANNEL_ROUTE_UNAVAILABLE` in LIVE: the CN WeChat merchant route or production credentials are unavailable. Stop and escalate to an operator; do not substitute SANDBOX or another channel.

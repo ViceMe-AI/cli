@@ -453,8 +453,8 @@ func newPaymentPriceVersionCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newPaymentTemplateCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "template", Short: "Manage hosted checkout templates"}
-	command.AddCommand(newPaymentJSONCreateCommand(runtime, "create", "Create and publish a checkout template", func(configured paymentconfig.Config, _ string) string {
+	command := &cobra.Command{Use: "template", Short: "Manage optional custom hosted checkout templates"}
+	command.AddCommand(newPaymentJSONCreateCommand(runtime, "create", "Create and publish an optional custom checkout template", func(configured paymentconfig.Config, _ string) string {
 		return "/v1/payment/installations/" + url.PathEscape(configured.InstallationID) + "/templates"
 	}))
 	return command
