@@ -145,6 +145,7 @@ Then follow the authoritative publication state:
 
 ```bash
 viceme publication get <publication-id>
+viceme publication wait <publication-id>
 viceme publication review <publication-id>
 viceme publication asset upload <publication-id> --role cover --path ./cover.png
 viceme publication asset upload <publication-id> --role gallery --path ./demo.png
