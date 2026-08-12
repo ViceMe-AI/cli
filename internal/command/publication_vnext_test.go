@@ -130,6 +130,42 @@ description: Publish a deterministic Skill through the vNext contract.
 	}
 }
 
+func TestSkillPublishRequiresLoginBeforeReadingOrCreatingLocalPublicationState(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	missingSource := filepath.Join(root, "does-not-exist")
+	var requestCount int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		requestCount++
+		writer.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := Execute([]string{"skill", "publish", "--path", missingSource, "--price-minor", "1"}, Dependencies{
+		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(), APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit != output.ExitAuthentication {
+		t.Fatalf("unauthenticated publication did not fail at login preflight: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	errorData, _ := envelope["error"].(map[string]any)
+	if errorData["code"] != "NOT_LOGGED_IN" {
+		t.Fatalf("publication failed after parsing instead of at login preflight: %#v", envelope)
+	}
+	if requestCount != 0 {
+		t.Fatalf("unauthenticated publication called the API before login: requests=%d", requestCount)
+	}
+	if _, err := os.Stat(filepath.Join(root, "config", "publications")); !os.IsNotExist(err) {
+		t.Fatalf("unauthenticated publication created recovery state before login: %v", err)
+	}
+}
+
 func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 	t.Parallel()
 	for _, scenario := range []struct {
@@ -314,6 +350,13 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 	}
 	publicationPath := "/v1/creator/skill-publications/" + state.publicationID
 	switch {
+	case request.Method == http.MethodGet && request.URL.Path == "/v1/cli/auth/status":
+		writeJSONResponse(writer, map[string]any{
+			"authenticated": true,
+			"user":          map[string]any{"id": "55555555-5555-4555-8555-555555555555", "displayName": "Creator", "avatarUrl": nil},
+			"scopes":        []string{"profile:read", "skill-publication:read", "skill-publication:write"},
+			"expiresAt":     "2027-08-12T08:00:00Z",
+		})
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-publications":
 		var input api.CreateSkillPublicationRequest
 		_ = json.NewDecoder(request.Body).Decode(&input)

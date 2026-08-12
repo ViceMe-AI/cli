@@ -6,6 +6,7 @@
 - `SKILL_PUBLICATION_REVIEW_CHANGED`: fetch and show the latest review, then obtain confirmation for its new digest.
 - `SKILL_LISTING_MEDIA_REQUIRED`: upload a cover or gallery image, then retry analysis.
 - `AUTHORIZATION_PENDING`: wait for the instructed interval and retry before the device code expires.
-- `NOT_LOGGED_IN` or `token_expired`: use the `viceme-shared` login workflow.
+- `NOT_LOGGED_IN` or `token_expired`: use the `viceme-shared` login workflow for the same pinned publication Profile. Never recover by switching to another stored Profile.
+- `PUBLICATION_SCOPE_REQUIRED`: sign in again to the same publication Profile to grant the required publication scopes.
 
 If `retryable` is true, retry with bounded backoff and the same publication or client request identity. Otherwise change the input or state first.
