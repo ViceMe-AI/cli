@@ -223,9 +223,10 @@ target version; its member lock prevents a parent crash from admitting a newer
 generation while the child still commits. A committed target is only cleaned up
 after a crash—it is never reapplied or rolled back. Private
 journals can therefore only restore the complete previous generation or finish
-the complete target generation. `viceme doctor`
-validates Skill/version integrity and an unauthenticated API readiness probe
-before installation commits.
+the complete target generation. Installation commits after local Skill/version
+integrity checks; an unavailable active-profile API is reported as a warning so
+stale profile state cannot block an upgrade. `viceme doctor` remains the
+explicit network-readiness check before business commands.
 
 ## First-phase implementation status
 

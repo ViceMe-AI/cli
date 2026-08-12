@@ -283,10 +283,10 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 		return rollback(err)
 	}
 	network := checkDoctorNetwork(ctx, runtime)
-	if !network.Healthy {
-		return rollback(output.Network("DOCTOR_API_UNREACHABLE", "ViceMe API did not pass the installation readiness check", nil).WithDetails(network))
-	}
 	authenticated, authStatusKnown, warnings := installAuthenticationStatus(runtime)
+	if !network.Healthy {
+		warnings = append(warnings, "the active profile API is unreachable; installation completed, configure the intended profile and run viceme doctor")
+	}
 	if err := transaction.MarkCommitting(); err != nil {
 		return rollback(output.Internal("INSTALL_COMMIT_PREPARE_FAILED", "could not persist the verified installation commit point", err))
 	}
