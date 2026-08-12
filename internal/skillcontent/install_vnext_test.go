@@ -77,15 +77,22 @@ func TestInstallSetActivatesAllOfficialSkillsTogether(t *testing.T) {
 	root := t.TempDir()
 	writeTestSkill(t, root, "viceme-shared")
 	writeTestSkill(t, root, "viceme-publish")
+	writeTestSkill(t, root, "viceme-danmaku")
 	home := t.TempDir()
 	environment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
 	bundle := New(os.DirFS(root))
 
-	reports := bundle.InstallSet([]string{"viceme-shared", "viceme-publish"}, "agents", environment)
-	if len(reports) != 2 || !reports[0].AllSucceeded || !reports[1].AllSucceeded {
-		t.Fatalf("transaction did not activate both Skills: %#v", reports)
+	skillNames := []string{"viceme-shared", "viceme-publish", "viceme-danmaku"}
+	reports := bundle.InstallSet(skillNames, "agents", environment)
+	if len(reports) != len(skillNames) {
+		t.Fatalf("transaction did not report every official Skill: %#v", reports)
 	}
-	for _, name := range []string{"viceme-shared", "viceme-publish"} {
+	for index, report := range reports {
+		if !report.AllSucceeded {
+			t.Fatalf("transaction did not activate %s: %#v", skillNames[index], report)
+		}
+	}
+	for _, name := range skillNames {
 		if !bundle.Doctor(name, "agents", environment).Healthy {
 			t.Fatalf("installed Skill %s did not pass Doctor", name)
 		}
