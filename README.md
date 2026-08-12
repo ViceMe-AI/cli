@@ -3,13 +3,13 @@
 ViceMe CLI is the deterministic local companion for the official ViceMe Agent
 Skills. Codex, Claude Code, and WorkBuddy use the Skills to guide the user; the
 CLI handles installation, device authorization, validation, packaging,
-uploads, review, and publication.
+uploads, review, publication, and secure Hosted Checkout configuration.
 
 [中文](./README.zh.md)
 
 ## Install
 
-The official bootstrap installs the native CLI and both official Skills from
+The official bootstrap installs the native CLI and all official Skills from
 one immutable release.
 
 China, macOS or Linux:
@@ -170,6 +170,23 @@ viceme --profile <publication-profile> skill publish --resume <publication-id>
 Do not create a second publication when the server response is unknown. Query
 or resume the existing ID first.
 
+## Configure Hosted Checkout
+
+The Payment workflow is SANDBOX-only. Project context is stored in
+`.viceme/payment.yaml`; Payment API Keys and Webhook Signing Secrets are stored
+only in the secure credential backend and never printed.
+
+```bash
+viceme payment init --dir . --slug my-app --name "My App"
+viceme payment context --dir .
+viceme payment product create --dir . --input product.json
+viceme payment api-key create --dir .
+viceme payment checkout create --dir . --input checkout.json --idempotency-key checkout-order-1
+```
+
+Install and invoke `viceme-checkout` for the complete Agent workflow, strict
+request examples, Webhook rules, and safety boundaries.
+
 ## Output contract
 
 Business output is JSON by default. Successful output is the only content on
@@ -258,6 +275,6 @@ make npm-package-check
 make release-manifest
 ```
 
-The CLI and `viceme-shared` / `viceme-publish` Skills are versioned and released
+The CLI and `viceme-shared`, `viceme-publish`, and `viceme-checkout` Skills are versioned and released
 together. Release artifacts are published to GitHub, npm, `s3.viceme.cn`, and
 `s3.viceme.ai` from the same reviewed commit.

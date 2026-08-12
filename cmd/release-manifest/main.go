@@ -37,8 +37,8 @@ func main() {
 	flag.Parse()
 
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
-	skills := make(map[string]skillRelease, 2)
-	for _, name := range []string{"viceme-shared", "viceme-publish"} {
+	skills := make(map[string]skillRelease, 3)
+	for _, name := range []string{"viceme-shared", "viceme-publish", "viceme-checkout"} {
 		digests, err := bundle.Digests(name)
 		if err != nil {
 			fatal(err)

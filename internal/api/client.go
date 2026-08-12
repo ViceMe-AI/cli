@@ -66,6 +66,23 @@ func (c *Client) Revoke(ctx context.Context, accessToken string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/logout", struct{}{}, nil, accessToken)
 }
 
+// PaymentControl invokes a Payment capability control-plane endpoint with the
+// active user's short-lived CLI credential.
+func (c *Client) PaymentControl(ctx context.Context, method, endpoint string, requestBody, responseBody any) error {
+	return c.doJSON(ctx, method, endpoint, requestBody, responseBody, "@stored")
+}
+
+// PaymentRuntime invokes a Payment capability runtime endpoint with an
+// environment-scoped Payment API Key. The key is never sourced from the user
+// login credential.
+func (c *Client) PaymentRuntime(ctx context.Context, method, endpoint string, requestBody, responseBody any, apiKey, idempotencyKey string) error {
+	headers := make(http.Header)
+	if idempotencyKey != "" {
+		headers.Set("Idempotency-Key", idempotencyKey)
+	}
+	return c.doJSONWithHeaders(ctx, method, endpoint, requestBody, responseBody, apiKey, headers)
+}
+
 // HealthReady performs an unauthenticated, redirect-free connectivity check.
 // Doctor owns the short deadline so this probe can never inherit the normal
 // command timeout or disclose the stored publication credential.
@@ -188,6 +205,10 @@ func validateUploadURL(raw string) error {
 }
 
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, credential string) error {
+	return c.doJSONWithHeaders(ctx, method, endpoint, requestBody, responseBody, credential, nil)
+}
+
+func (c *Client) doJSONWithHeaders(ctx context.Context, method, endpoint string, requestBody, responseBody any, credential string, headers http.Header) error {
 	base, err := validateAPIBaseURL(c.BaseURL)
 	if err != nil {
 		return output.Validation("API_BASE_URL_INVALID", "ViceMe API base URL must use HTTPS; loopback HTTP is allowed only for development")
@@ -210,6 +231,11 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 		return output.Internal("REQUEST_CREATE_FAILED", "failed to create the API request", err)
 	}
 	request.Header.Set("Accept", "application/json")
+	for key, values := range headers {
+		for _, value := range values {
+			request.Header.Add(key, value)
+		}
+	}
 	if requestBody != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}

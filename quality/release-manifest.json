@@ -3,6 +3,13 @@
   "npm_package": "@viceme-ai/cli",
   "cli_version": "0.12.4",
   "skills": {
+    "viceme-checkout": {
+      "skill_version": "0.12.4",
+      "minimum_cli_version": "0.12.4",
+      "cli_compatibility": ">=0.12.4 <0.13.0",
+      "full_skill_bundle_digest": "sha256:4a1403320558de4dc83a311a962398902294cfe45227f6dccc083d77ee7c66d9",
+      "embedded_content_digest": "sha256:1b458702713e1d2bc29fc76e252fde7052af9d1ff954dec25a2bb728aff5f9b8"
+    },
     "viceme-publish": {
       "skill_version": "0.12.4",
       "minimum_cli_version": "0.12.4",

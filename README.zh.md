@@ -2,13 +2,13 @@
 
 ViceMe CLI 是官方 ViceMe Agent Skills 的确定性本地执行器。Codex、Claude
 Code 和 WorkBuddy 通过 Skills 引导用户；CLI 负责安装、设备授权、本地检查、
-确定性打包、上传、审核和发布。
+确定性打包、上传、审核、发布和安全的托管收银台配置。
 
 [English](./README.md)
 
 ## 安装
 
-官方 Bootstrap 从同一个不可变 Release 一次安装原生 CLI 和两个官方 Skills。
+官方 Bootstrap 从同一个不可变 Release 一次安装原生 CLI 和全部官方 Skills。
 
 中国区 macOS / Linux：
 
@@ -158,6 +158,21 @@ viceme --profile <publication-profile> skill publish --resume <publication-id>
 
 响应未知时不能创建第二个 Publication，应先查询或恢复原 ID。
 
+## 配置 Hosted Checkout
+
+Payment 工作流当前只支持 SANDBOX。项目上下文写入 `.viceme/payment.yaml`；Payment API
+Key 和 Webhook Signing Secret 只保存到安全凭据后端，永不打印。
+
+```bash
+viceme payment init --dir . --slug my-app --name "My App"
+viceme payment context --dir .
+viceme payment product create --dir . --input product.json
+viceme payment api-key create --dir .
+viceme payment checkout create --dir . --input checkout.json --idempotency-key checkout-order-1
+```
+
+安装并调用 `viceme-checkout` 可获得完整 Agent 工作流、严格请求示例、Webhook 规则和安全边界。
+
 ## 输出契约
 
 业务结果默认使用 JSON。成功时 stdout 只包含最终结果；进度和诊断只写 stderr。
@@ -228,5 +243,5 @@ make npm-package-check
 make release-manifest
 ```
 
-CLI、`viceme-shared` 和 `viceme-publish` 同版本发布。GitHub、npm、
+CLI、`viceme-shared`、`viceme-publish` 和 `viceme-checkout` 同版本发布。GitHub、npm、
 `s3.viceme.cn` 与 `s3.viceme.ai` 的产物都来自同一个已评审 Commit。

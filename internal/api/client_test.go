@@ -85,6 +85,32 @@ func TestHealthReadyIsUnauthenticatedAndRedirectFree(t *testing.T) {
 	}
 }
 
+func TestPaymentRuntimeUsesEnvironmentCredentialAndIdempotencyHeader(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/checkout/v1/sessions" {
+			t.Fatalf("unexpected runtime request: %s %s", request.Method, request.URL.Path)
+		}
+		if got := request.Header.Get("Authorization"); got != "Bearer vcp_sandbox_secret" {
+			t.Fatalf("runtime request used the wrong credential: %q", got)
+		}
+		if got := request.Header.Get("Idempotency-Key"); got != "checkout-1" {
+			t.Fatalf("missing idempotency key: %q", got)
+		}
+		_, _ = io.WriteString(writer, `{"id":"checkout-id"}`)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), staticToken("must-not-be-used"), "")
+	var result map[string]any
+	if err := client.PaymentRuntime(context.Background(), http.MethodPost, "/v1/checkout/v1/sessions", map[string]string{"externalOrderNo": "order-1"}, &result, "vcp_sandbox_secret", "checkout-1"); err != nil {
+		t.Fatal(err)
+	}
+	if result["id"] != "checkout-id" {
+		t.Fatalf("unexpected runtime response: %#v", result)
+	}
+}
+
 func TestClientPreservesCanonicalServerError(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {

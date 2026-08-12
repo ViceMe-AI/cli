@@ -21,11 +21,27 @@ import (
 func TestDeviceLoginSplitFlowPersistsScopedCredentialWithoutPrintingToken(t *testing.T) {
 	t.Parallel()
 	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+	expiresAt := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	grantedScopes := []string{
+		"profile:read", "skill-publication:read", "skill-publication:write",
+		"payment-capability:read", "payment-capability:write",
+	}
 	var tokenPolls atomic.Int32
 	var revoked atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/v1/cli/device-authorizations":
+			var authorizationRequest struct {
+				Scopes []string `json:"scopes"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&authorizationRequest); err != nil || len(authorizationRequest.Scopes) != len(grantedScopes) {
+				t.Fatalf("device authorization omitted required scopes: request=%#v err=%v", authorizationRequest, err)
+			}
+			for index, scope := range grantedScopes {
+				if authorizationRequest.Scopes[index] != scope {
+					t.Fatalf("unexpected device authorization scopes: %#v", authorizationRequest.Scopes)
+				}
+			}
 			writeJSONResponse(writer, map[string]any{
 				"deviceCode": "device-code", "userCode": "ABCD-EFGH",
 				"verificationUri":         "https://viceme.cn/zh-CN/cli/authorize",
@@ -39,8 +55,8 @@ func TestDeviceLoginSplitFlowPersistsScopedCredentialWithoutPrintingToken(t *tes
 			}
 			writeJSONResponse(writer, map[string]any{
 				"status": "authorized", "accessToken": accessToken, "tokenType": "Bearer",
-				"expiresAt": "2026-08-12T08:00:00Z",
-				"scopes":    []string{"profile:read", "skill-publication:read", "skill-publication:write"},
+				"expiresAt": expiresAt,
+				"scopes":    grantedScopes,
 			})
 		case "/v1/cli/auth/status":
 			if request.Header.Get("Authorization") != "Bearer "+accessToken {
@@ -50,8 +66,8 @@ func TestDeviceLoginSplitFlowPersistsScopedCredentialWithoutPrintingToken(t *tes
 			writeJSONResponse(writer, map[string]any{
 				"authenticated": true,
 				"user":          map[string]any{"id": "55555555-5555-4555-8555-555555555555", "displayName": "Creator", "avatarUrl": nil},
-				"scopes":        []string{"profile:read", "skill-publication:read", "skill-publication:write"},
-				"expiresAt":     "2026-08-12T08:00:00Z",
+				"scopes":        grantedScopes,
+				"expiresAt":     expiresAt,
 			})
 		case "/v1/cli/auth/logout":
 			revoked.Store(true)

@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var officialSkillNames = []string{"viceme-shared", "viceme-publish"}
+var officialSkillNames = []string{"viceme-shared", "viceme-publish", "viceme-checkout"}
 
 type installNextStep struct {
 	Required bool   `json:"required"`
