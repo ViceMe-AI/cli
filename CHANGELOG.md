@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.12.2] - 2026-08-12
+
+### Fixes
+
+- 使用 start Bucket 分发安装资源 (`b5e8a69`)
+
 ## [0.12.1] - 2026-08-12
 
 ### Other Changes
