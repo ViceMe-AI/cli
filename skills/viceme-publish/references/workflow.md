@@ -6,7 +6,7 @@ All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 
 - Root `SKILL.md` with non-empty `name` and `description` frontmatter.
 - Explicit `priceMinor` in CNY fen before any upload.
-- Two confirmed listing summaries and two confirmed usage instructions (`zh-CN` and `en-US`), a verified package, one confirmed cover, and at least one confirmed gallery item before review confirmation.
+- Two listing summaries and two usage instructions (`zh-CN` and `en-US`), a verified package, one cover, and at least one gallery item must be displayed in the final review before the combined confirm-and-publish authorization.
 
 ## State sequence
 
@@ -39,6 +39,20 @@ Do not ask the user to approve media represented only by filenames.
 summary. Keep it internally for `publication confirm` and `publication publish`.
 The user-facing review consists of the bilingual summaries, bilingual usage
 instructions, price, inline cover, and inline ordered gallery.
+
+## Combined confirmation
+
+After displaying the complete final review, ask one question that combines
+review confirmation and immediate public publication. Clearly state that the
+publication is public and irreversible. An unambiguous affirmative answer to
+that question authorizes the Agent to run `publication confirm` followed by
+`publication publish` without another user prompt. Keep the two backend state
+transitions so failures remain recoverable, but do not expose `READY` as a
+second approval step.
+
+The initial request to publish, given before the final review exists, is not
+this authorization. Any draft change produces a new `reviewDigest`; display the
+new review and obtain a new combined authorization before either command.
 
 After the upload command returns a publication ID, run
 `viceme --profile <publication-profile> publication wait <id>`. A `PENDING`

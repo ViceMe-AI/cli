@@ -30,12 +30,11 @@ Use the CLI for every deterministic action. Read [workflow.md](references/workfl
     - If a download fails or the client cannot render local images, fall back to `![名称](viewUrl)` and include the clickable `viewUrl`; never replace the visual review with filenames alone.
     ASCII counts as width 1 and Chinese/non-ASCII counts as width 2; each summary must have total width at most 30. Capture `reviewDigest` from the JSON response for the later CLI commands, but treat it as an opaque integrity token: never label it “审核摘要” and do not show it to the user unless troubleshooting requires the exact value.
 12. If the user wants different media, run `viceme --profile <publication-profile> publication asset upload <id> --role <cover|gallery> --path <image>`. For other edits, prepare a complete strict JSON draft and run `publication update` with the same Profile.
-13. Ask the user to explicitly confirm both displayed summaries, both usage instructions, price, cover, and gallery.
-14. Only after confirmation, run `viceme --profile <publication-profile> publication confirm <id> --review-digest <captured-review-digest>`.
-15. Ask once more before the irreversible public publication, then run `viceme --profile <publication-profile> publication publish <id> --review-digest <captured-review-digest>`.
-16. Return the authoritative `product.detailUrl` from the result.
+13. Ask exactly once whether the user confirms the displayed review and wants to publish it publicly now. State that public publication is immediate and irreversible. An unambiguous affirmative response to this combined question, such as “确认并公开发布” or “发布”, authorizes both following commands; a request to change anything does not.
+14. After that combined authorization, run `viceme --profile <publication-profile> publication confirm <id> --review-digest <captured-review-digest>` and then, without asking again, run `viceme --profile <publication-profile> publication publish <id> --review-digest <captured-review-digest>`. Never run `publish` if `confirm` did not succeed.
+15. Return the authoritative `product.detailUrl` from the result.
 
-Never infer confirmation from an earlier general request to “publish”. A changed draft produces a new digest and requires confirmation again.
+Never infer this combined authorization from the user's initial request to publish before the final review was displayed. A changed draft produces a new digest and requires displaying the new review and obtaining a new combined confirmation.
 
 ## Recovery
 
@@ -44,5 +43,6 @@ Never infer confirmation from an earlier general request to “publish”. A cha
   again with the same publication ID. Do not re-upload and do not ask for a new
   user confirmation merely to continue waiting.
 - If local source bytes changed, do not bypass the digest check. Restore the original source or start a new publication.
+- If review confirmation succeeded but public publication returned a retryable or unknown result, query the same publication ID first. When it is still `READY` with the same review digest, continue the already-authorized publish operation without asking a duplicate confirmation; never re-upload.
 - `PUBLISHED` is final. Never create a second publication merely because a response was lost; query the existing ID first.
 - Do not retry non-retryable errors without changing the invalid input or state.
