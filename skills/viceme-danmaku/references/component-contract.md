@@ -36,7 +36,7 @@ Danmaku overlay (fixed, viewport-sized, pointer-events none)
 │   │   ├── quick reaction cluster
 │   │   └── text input
 │   └── more-reactions popover
-├── collapsed launcher (bottom-right)
+├── collapsed launcher (bottom-center)
 └── polite screen-reader status
 ```
 
@@ -83,6 +83,13 @@ The greeting appears only for the first mounted experience. Dismiss it permanent
 - Comment and more buttons: 32x32px, 6px radius, white 24px icon.
 - On widths below 440px, hide quick reactions 4 through 6 and retain reactions 1 through 3, comment, and more.
 
+### Collapsed launcher
+
+- Keep the 32x32px launcher horizontally centered at every viewport width.
+- Anchor it with left 50% and translateX -50%; do not move it to a corner.
+- Keep its bottom offset at `12px + env(safe-area-inset-bottom, 0)`.
+- Expanding returns to the centered reaction cluster without replaying a dismissed greeting.
+
 ### Greeting prompt
 
 - Centered pill, 36px high, width up to 366px.
@@ -125,6 +132,7 @@ The greeting appears only for the first mounted experience. Dismiss it permanent
 
 ## Engineering requirements
 
+- The golden blueprint targets Tailwind CSS v4. Do not paste its dynamic utilities into Tailwind v3 and assume they work. If the target is not on v4, either obtain approval to upgrade or translate every v4-only utility to an equivalent bracket value and add a production CSS build that proves the adaptation.
 - Normalize whitespace and enforce `maxLength` before authorization and send.
 - Prevent duplicate permission requests while one is pending.
 - Do not emit an optimistic self bullet until `onSend` returns a message.
@@ -142,10 +150,10 @@ Adapt the bundled test blueprint to prove:
 
 1. Greeting auto-dismisses at 3500ms and exposes reactions.
 2. Clicking greeting sends one wave reaction.
-3. The reaction cluster stays center-anchored and narrow layout retains all essential controls.
+3. The reaction cluster and collapsed launcher stay center-anchored, and narrow layout retains all essential controls.
 4. A quick reaction sends once on click and repeatedly only after long-press delay.
 5. Comment opens a focused input; Enter sends, but IME composition does not.
-6. Successful send clears input and emits a self bullet; denial or failure does not.
+6. Successful send clears input and emits a self bullet; denial, authorization rejection, or send failure does not. Authorization rejection enters the failure live region and a later attempt can retry.
 7. More popover opens, filters emoji, closes through toggle/outside layer, and remains mounted for close motion.
 8. Reactions auto-collapse after 4000ms and expand without replaying the greeting.
 9. Reduced-motion bullet behavior is static and all timers/animations clean up.

@@ -1,0 +1,33 @@
+{
+  "name": "@viceme-ai/danmaku-fixture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run prepare:golden && vite build --config vite.config.ts && node assert-build.mjs",
+    "check": "npm run typecheck && npm test && npm run build",
+    "prepare:golden": "node prepare-golden.mjs",
+    "test": "npm run prepare:golden && vitest run --config vitest.config.ts",
+    "typecheck": "npm run prepare:golden && tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "4.3.3",
+    "@testing-library/dom": "10.4.1",
+    "@testing-library/react": "16.3.2",
+    "@types/node": "18.19.130",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "4.7.0",
+    "jsdom": "26.1.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-icons": "5.7.0",
+    "tailwindcss": "4.3.3",
+    "typescript": "5.9.3",
+    "vite": "6.4.3",
+    "vitest": "3.2.7"
+  },
+  "engines": {
+    "node": ">=18.20.0"
+  }
+}
