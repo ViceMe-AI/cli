@@ -14,7 +14,7 @@
 - `CHECKOUT_TEMPLATE_NOT_FOUND`: an explicit `templateCode` is missing, inactive, or not bound to the Product. Remove `templateCode` to use the Product/ViceMe default, or create and bind the intended custom template.
 - `CAPABILITY_INSTALLATION_NOT_FOUND` after `payment environment use live`: the Application predates default LIVE installation or is inconsistent. Stop and escalate to an operator; do not edit `.viceme/payment.yaml` or the database manually.
 - `PAYMENT_LIVE_API_KEY_ISSUANCE_NOT_ENABLED`: the default LIVE environment exists, but an authorized Admin has not enabled key issuance for this Application. Continue in SANDBOX or request Admin authorization.
-- `CHANNEL_ROUTE_UNAVAILABLE` in LIVE: the CN WeChat merchant route or production credentials are unavailable. Stop and escalate to an operator; do not substitute SANDBOX or another channel.
+- `CHANNEL_ROUTE_UNAVAILABLE` in LIVE: the selected CN WeChat Pay or Alipay Merchant Route, its active version, or its production provider configuration is unavailable. Refresh `payment checkout products`; if the channel is still absent or a previously listed channel now fails, stop and escalate to an operator. Do not substitute SANDBOX or an unlisted channel.
 - `CREDENTIAL_ROTATION_NOT_ABORTABLE`: do not restore an old key or invent a recovery path. Inspect remote status and issue a new key through an authorized flow.
 - `IDEMPOTENCY_*` conflict: reuse the original body for the original key, or create a genuinely new external order number and idempotency key.
 - `PAYMENT_SCOPE_REQUIRED`: issue a least-privilege key containing the required runtime scope; do not reuse the user CLI token.

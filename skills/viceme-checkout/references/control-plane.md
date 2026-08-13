@@ -63,7 +63,8 @@ Fixed one-time Price Version request:
   "fixedAmountCents": 990,
   "currency": "CNY",
   "channels": [
-    {"channelCode":"WECHAT_PAY","allowedScenes":["NATIVE"]}
+    {"channelCode":"WECHAT_PAY","allowedScenes":["NATIVE"]},
+    {"channelCode":"ALIPAY","allowedScenes":["PAGE","WAP"]}
   ]
 }
 ```
@@ -108,7 +109,7 @@ viceme --profile <profile> payment api-key revoke --dir <project> --reason '<rea
 
 Default scopes cover product reads, checkout creation, order reads, and order close. Pass `--scopes` for a smaller comma-separated set. The response never contains the raw key.
 
-The key is bound to the selected environment. A LIVE key can be issued only after `payment environment use live` selects the default LIVE environment and an Admin has enabled LIVE API Key issuance; its prefix is `vcp_live_` and it remains server-only.
+The key is bound to the selected environment. A LIVE key can be issued only after `payment environment use live` selects the default LIVE environment and an Admin has enabled LIVE API Key issuance; its prefix is `vcp_live_` and it remains server-only. That Application can use every LIVE channel globally enabled by the platform; there is no Application-level channel grant to configure with this CLI.
 
 `payment api-key deliver` reads the selected environment's key from CLI secure storage and writes it directly to a protected, project-local dotenv file as `VICEME_PAYMENT_API_KEY` by default. It returns only file/variable/credential metadata. Run it again after rotation. Do not use it for `.env.example`, frontend-exposed variables, or remote deployment configuration.
 

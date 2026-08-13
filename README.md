@@ -174,8 +174,8 @@ or resume the existing ID first.
 
 The Payment workflow initializes isolated SANDBOX and LIVE environments with a
 persisted ViceMe default checkout template; run `payment template create` only for
-custom presentation. It can switch to the CN WeChat LIVE context. A LIVE Payment API Key can be created only
-after an Admin authorizes issuance for the Application. Project context is stored in
+custom presentation. It can switch to the CN WeChat Pay/Alipay LIVE context. A LIVE Payment API Key can be created only
+after an Admin authorizes issuance for the Application, then it can use every LIVE channel globally enabled by the platform. Project context is stored in
 `.viceme/payment.yaml`; Payment API Keys and Webhook Signing Secrets are stored
 in the secure credential backend and never printed. For local backend development,
 the CLI can deliver the stored API Key directly to a protected project dotenv file

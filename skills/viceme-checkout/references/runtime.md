@@ -47,7 +47,7 @@ Retry the same logical operation with the same idempotency key and identical bod
 
 For a caller-selected amount, include `amountCents` within the active Price Version bounds. Omit it for fixed prices and payer-selected input prices.
 
-For LIVE, confirm `payment context` reports `mode: LIVE`, `marketRegion: CN`, and use only an active `WECHAT_PAY` Price Version. The Hosted Checkout returns a real WeChat payment action; payment truth still comes only from an authoritative order query or verified Webhook, never from browser navigation.
+For LIVE, confirm `payment context` reports `mode: LIVE` and `marketRegion: CN`. Run `payment checkout products` immediately before integration and use only a channel returned for the selected Price: `WECHAT_PAY` can return a QR code or redirect, while `ALIPAY` returns a redirect. The list already intersects the Price allowlist with the platform's globally active Merchant Routes and production provider configuration. An Admin-authorized Application can use every channel in that result without a separate channel grant. Payment truth still comes only from an authoritative order query or verified Webhook, never from browser navigation.
 
 ## Query and close
 
