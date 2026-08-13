@@ -27,6 +27,19 @@ publication when the required action is to retry the same command with access.
 
 Images discovered inside the package are uploaded as candidates. The platform uses an LLM to propose a Chinese summary, an English summary, semantically equivalent Chinese and English usage instructions derived from the validated `SKILL.md`, a cover, and a gallery. Suggestions are non-authoritative. Each summary has a maximum display width of 30: ASCII counts as 1 and Chinese/non-ASCII counts as 2. The user may edit either summary or either usage instruction, or upload PNG, JPEG, GIF, WebP, or AVIF replacements before confirmation.
 
+For visual review, map the selected cover and gallery upload IDs to the exact
+verified uploads returned by `publication review`. In Codex, download their
+`viewUrl` values to a unique temporary directory and embed the absolute local
+paths with Markdown image syntax after verifying a successful response, an
+`image/*` content type, and a non-empty file. Preserve the server order, label
+the cover and gallery positions, and keep the original URLs only as fallbacks.
+Do not ask the user to approve media represented only by filenames.
+
+`reviewDigest` is an opaque concurrency and integrity token, not a human
+summary. Keep it internally for `publication confirm` and `publication publish`.
+The user-facing review consists of the bilingual summaries, bilingual usage
+instructions, price, inline cover, and inline ordered gallery.
+
 After the upload command returns a publication ID, run
 `viceme --profile <publication-profile> publication wait <id>`. A `PENDING`
 analysis means the platform is working in the background; it does not authorize
