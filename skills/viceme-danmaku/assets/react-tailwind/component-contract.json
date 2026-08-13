@@ -1,6 +1,7 @@
 {
   "schemaVersion": 1,
   "component": "ViceMeDanmaku",
+  "tailwindCompatibility": ">=4 <5",
   "scope": ["bullet-stage", "interaction-bar", "composer", "reactions"],
   "excludedScope": [
     "iframe",
@@ -39,6 +40,10 @@
     "laneTop": 8,
     "laneHeight": 28,
     "bulletFontSize": 20
+  },
+  "layout": {
+    "collapsedLauncher": "bottom-center",
+    "expandedControls": "bottom-center"
   },
   "colors": {
     "bar": "#1f1f21",

@@ -7,8 +7,8 @@
       "skill_version": "0.13.0",
       "minimum_cli_version": "0.13.0",
       "cli_compatibility": ">=0.13.0 <0.14.0",
-      "full_skill_bundle_digest": "sha256:3e0f048f95079eece6efcd8061701f231aefff99f17f952f44b6362e40387fc7",
-      "embedded_content_digest": "sha256:e09ff506b638f089d629bf501328dc06ad1ad81d02ccfaa80bc9e162ffa42769"
+      "full_skill_bundle_digest": "sha256:25d0d132364e40c14faaa53f02f34e4d23c69a850744aa08d579d27d21ff88c1",
+      "embedded_content_digest": "sha256:92a223018b69c0de4ab348106d065bf8771bac07bc909ea7281e3890dd0f678b"
     },
     "viceme-publish": {
       "skill_version": "0.13.0",

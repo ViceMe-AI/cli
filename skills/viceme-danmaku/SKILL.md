@@ -1,6 +1,6 @@
 ---
 name: viceme-danmaku
-description: Implement or adapt a production React and Tailwind danmaku overlay that matches the bundled ViceMe golden component. Use when a user asks Codex to build, reproduce, integrate, or repair the Loom-style danmaku component with scrolling messages, reactions, comment entry, emoji picker, collapse behavior, responsive layout, keyboard support, and reduced-motion handling.
+description: Implement or adapt a production React and Tailwind CSS v4 danmaku overlay that matches the bundled ViceMe golden component. Use when a user asks Codex to build, reproduce, integrate, or repair the Loom-style danmaku component with scrolling messages, reactions, comment entry, emoji picker, collapse behavior, responsive layout, keyboard support, and reduced-motion handling.
 ---
 
 # Build the ViceMe danmaku component
@@ -33,14 +33,15 @@ Do not create an iframe, URL switcher, demo-site picker, login flow, payment flo
 ## Implementation workflow
 
 1. Locate the component's real owner. Keep it route-local unless at least two real routes consume it.
-2. Copy the golden blueprint into the target repository, then adapt only repository boundaries: import aliases, shared Button/cn helpers, icons, i18n strings, file locations, and test APIs.
-3. Preserve the contract's DOM responsibilities, state transitions, dimensions, spacing, colors, breakpoints, timing, easing, safe-area handling, and callback semantics. Do not replace measured values with design-system approximations.
-4. Keep business authorization outside the component. Call `onRequestComposer` before the first send and cache only a successful permission result for the mounted instance.
-5. Keep local optimistic display separate from persistence. Only emit a self-authored bullet after `onSend` returns a message.
-6. Use the target repository's styling mechanism. For Tailwind repositories, keep utilities in the owning JSX and use Web Animations API for route-local motion when required by local rules.
-7. Add or adapt the blueprint tests. Test user-visible state transitions and callback behavior, not private implementation details.
-8. Run the target repository's format, lint, typecheck, focused tests, full relevant tests, and production build.
-9. Perform responsive and keyboard verification. If browser tooling is available, compare screenshots and computed dimensions against the contract without changing unrelated UI.
+2. Confirm that the target uses Tailwind CSS v4. If it uses v3, do not silently paste the blueprint: obtain approval to upgrade or translate every v4-only dynamic utility to a bracket value and prove the adapted CSS in a production build.
+3. Copy the golden blueprint into the target repository, then adapt only repository boundaries: import aliases, shared Button/cn helpers, icons, i18n strings, file locations, and test APIs.
+4. Preserve the contract's DOM responsibilities, state transitions, dimensions, spacing, colors, breakpoints, timing, easing, safe-area handling, and callback semantics. Do not replace measured values with design-system approximations.
+5. Keep business authorization outside the component. Call `onRequestComposer` before the first send and cache only a successful permission result for the mounted instance.
+6. Keep local optimistic display separate from persistence. Only emit a self-authored bullet after `onSend` returns a message.
+7. Use the target repository's styling mechanism. For Tailwind repositories, keep utilities in the owning JSX and use Web Animations API for route-local motion when required by local rules.
+8. Add or adapt the blueprint tests. Test user-visible state transitions and callback behavior, not private implementation details.
+9. Run the target repository's format, lint, typecheck, focused tests, full relevant tests, and production build.
+10. Perform responsive and keyboard verification. If browser tooling is available, compare screenshots and computed dimensions against the contract without changing unrelated UI.
 
 ## Adaptation limits
 

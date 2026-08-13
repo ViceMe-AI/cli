@@ -368,9 +368,10 @@ function DanmakuInteractionBar({
   const sendValue = useCallback(
     async (value: string) => {
       const normalized = normalizeDanmakuText(value, maxLength);
-      if (!normalized || !(await ensureAllowed())) return false;
+      if (!normalized) return false;
       setSendStatus("idle");
       try {
+        if (!(await ensureAllowed())) return false;
         const message = await onSend(normalized);
         if (!message) return false;
         onSent({ ...message, self: true });
