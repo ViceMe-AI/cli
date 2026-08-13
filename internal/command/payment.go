@@ -176,6 +176,7 @@ type webhookRotationResponse struct {
 func newPaymentWebhookCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "webhook", Short: "Manage signed Payment webhooks"}
 	command.AddCommand(newPaymentWebhookCreateCommand(runtime))
+	command.AddCommand(newPaymentWebhookDeliverCommand(runtime))
 	command.AddCommand(newPaymentControlListCommand(runtime, "list", "List Payment webhook endpoints", func(configured paymentconfig.Config) string {
 		return "/v1/capability-environments/" + url.PathEscape(configured.EnvironmentID) + "/webhooks"
 	}))
@@ -184,6 +185,39 @@ func newPaymentWebhookCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newPaymentWebhookRevokeCommand(runtime))
 	command.AddCommand(newPaymentWebhookRotateCommand(runtime))
 	command.AddCommand(newPaymentControlActionCommand(runtime, "abort-rotation <rotation-id>", "Abort an active webhook signing-secret rotation", "/v1/capability-webhook-signing-secret-rotations/", "/abort", true))
+	return command
+}
+
+func newPaymentWebhookDeliverCommand(runtime *Runtime) *cobra.Command {
+	var root, envFile, variable string
+	command := &cobra.Command{
+		Use: "deliver <webhook-endpoint-id>", Short: "Safely deliver a stored Webhook signing secret to a project dotenv file", Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			configured, _, err := loadPaymentConfig(root)
+			if err != nil {
+				return err
+			}
+			credential, err := runtime.paymentManager().LoadWebhook(args[0], configured.EnvironmentID)
+			if err != nil {
+				return err
+			}
+			delivery, err := payment.DeliverWebhookSigningSecretToEnvFile(root, envFile, variable, credential.SigningSecret)
+			if err != nil {
+				return err
+			}
+			return runtime.business(map[string]any{
+				"endpointId":    credential.EndpointID,
+				"signingKeyId":  credential.SigningKeyID,
+				"environmentId": configured.EnvironmentID,
+				"environment":   configured.Environment,
+				"delivery":      delivery,
+				"delivered":     true,
+			})
+		},
+	}
+	command.Flags().StringVar(&root, "dir", ".", "project directory")
+	command.Flags().StringVar(&envFile, "env-file", ".env.local", "project-relative dotenv file")
+	command.Flags().StringVar(&variable, "env-var", "VICEME_PAYMENT_WEBHOOK_SECRET", "server-only environment variable name")
 	return command
 }
 
@@ -209,7 +243,7 @@ func newPaymentWebhookCreateCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.client().PaymentControl(command.Context(), http.MethodPost, endpoint, body, &issued); err != nil {
 				return err
 			}
-			if err := secrets.SaveWebhook(payment.WebhookCredential{SigningSecret: issued.SigningSecret, SigningKeyID: issued.SigningKey.KeyID, EndpointID: issued.Endpoint.ID}); err != nil {
+			if err := secrets.SaveWebhook(payment.WebhookCredential{SigningSecret: issued.SigningSecret, SigningKeyID: issued.SigningKey.KeyID, EndpointID: issued.Endpoint.ID, EnvironmentID: configured.EnvironmentID}); err != nil {
 				_ = revokeWebhook(command, runtime, issued.Endpoint.ID)
 				return err
 			}
@@ -240,7 +274,7 @@ func newPaymentWebhookRotateCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.client().PaymentControl(command.Context(), http.MethodPost, endpoint, struct{}{}, &rotated); err != nil {
 				return err
 			}
-			if err := secrets.SaveWebhook(payment.WebhookCredential{SigningSecret: rotated.SigningSecret, SigningKeyID: rotated.SigningKey.KeyID, EndpointID: args[0]}); err != nil {
+			if err := secrets.SaveWebhook(payment.WebhookCredential{SigningSecret: rotated.SigningSecret, SigningKeyID: rotated.SigningKey.KeyID, EndpointID: args[0], EnvironmentID: configured.EnvironmentID}); err != nil {
 				_ = abortWebhookRotation(command, runtime, rotated.Rotation.ID)
 				return err
 			}

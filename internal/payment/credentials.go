@@ -19,6 +19,7 @@ type WebhookCredential struct {
 	SigningSecret string `json:"signing_secret"`
 	SigningKeyID  string `json:"signing_key_id"`
 	EndpointID    string `json:"endpoint_id"`
+	EnvironmentID string `json:"environment_id"`
 }
 
 type Manager struct {
@@ -67,7 +68,7 @@ func (manager Manager) SaveAPIKey(credential APIKeyCredential) error {
 
 func (manager Manager) LoadAPIKey(environmentID string) (APIKeyCredential, error) {
 	var credential APIKeyCredential
-	if err := manager.load(manager.key("api-key", environmentID), &credential); err != nil {
+	if err := manager.load(manager.key("api-key", environmentID), &credential, output.Authentication("PAYMENT_API_KEY_NOT_STORED", "no Payment API Key is stored for this project environment").WithHint("run 'viceme payment api-key create' first")); err != nil {
 		return APIKeyCredential{}, err
 	}
 	if credential.APIKey == "" || credential.CredentialID == "" || credential.EnvironmentID != environmentID {
@@ -81,10 +82,21 @@ func (manager Manager) DeleteAPIKey(environmentID string) error {
 }
 
 func (manager Manager) SaveWebhook(credential WebhookCredential) error {
-	if credential.SigningSecret == "" || credential.SigningKeyID == "" || credential.EndpointID == "" {
+	if credential.SigningSecret == "" || credential.SigningKeyID == "" || credential.EndpointID == "" || credential.EnvironmentID == "" {
 		return output.Internal("WEBHOOK_SECRET_INVALID", "ViceMe returned an incomplete Webhook signing secret", nil)
 	}
 	return manager.save(manager.key("webhook", credential.EndpointID), credential)
+}
+
+func (manager Manager) LoadWebhook(endpointID, environmentID string) (WebhookCredential, error) {
+	var credential WebhookCredential
+	if err := manager.load(manager.key("webhook", endpointID), &credential, output.Authentication("WEBHOOK_SECRET_NOT_STORED", "no Webhook signing secret is stored for this endpoint").WithHint("run 'viceme payment webhook create' first")); err != nil {
+		return WebhookCredential{}, err
+	}
+	if credential.SigningSecret == "" || credential.SigningKeyID == "" || credential.EndpointID != endpointID || credential.EnvironmentID != environmentID {
+		return WebhookCredential{}, output.Authentication("WEBHOOK_SECRET_INVALID", "the stored Webhook signing secret is invalid")
+	}
+	return credential, nil
 }
 
 func (manager Manager) DeleteWebhook(endpointID string) error {
@@ -102,10 +114,10 @@ func (manager Manager) save(key string, value any) error {
 	return nil
 }
 
-func (manager Manager) load(key string, destination any) error {
+func (manager Manager) load(key string, destination any, notFound error) error {
 	value, err := manager.Store.Get(key)
 	if errors.Is(err, securestore.ErrNotFound) {
-		return output.Authentication("PAYMENT_API_KEY_NOT_STORED", "no Payment API Key is stored for this project environment").WithHint("run 'viceme payment api-key create' first")
+		return notFound
 	}
 	if err != nil {
 		return output.Authentication("PAYMENT_SECRET_STORE_UNAVAILABLE", "could not read the Payment secret from the secure local store").WithCause(err)

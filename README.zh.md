@@ -172,6 +172,7 @@ viceme payment product create --dir . --input product.json
 viceme payment template create --dir . --input template.json # 可选自定义
 viceme payment api-key create --dir .
 viceme payment api-key deliver --dir . --env-file .env.local
+viceme payment webhook deliver <endpoint-id> --dir . --env-file .env.local
 viceme payment checkout create --dir . --input checkout.json --idempotency-key checkout-order-1
 ```
 

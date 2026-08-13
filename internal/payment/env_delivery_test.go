@@ -55,6 +55,26 @@ func TestDeliverAPIKeyToEnvFilePreservesProjectEnvAndProtectsIt(t *testing.T) {
 	}
 }
 
+func TestDeliverWebhookSigningSecretToEnvFile(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	secret := "whsec_sandbox_super_secret_value"
+	result, err := DeliverWebhookSigningSecretToEnvFile(root, ".env.local", "VICEME_PAYMENT_WEBHOOK_SECRET", secret)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Created || !result.Updated {
+		t.Fatalf("unexpected delivery result: %#v", result)
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".env.local"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "VICEME_PAYMENT_WEBHOOK_SECRET="+secret+"\n" {
+		t.Fatalf("Webhook signing secret was not safely delivered: %q", data)
+	}
+}
+
 func TestDeliverAPIKeyToEnvFileRejectsDuplicateVariable(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

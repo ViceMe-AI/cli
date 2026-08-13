@@ -17,7 +17,8 @@ import (
 const maxPaymentEnvFileBytes = 1 << 20
 
 var paymentEnvVariablePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-var paymentAPIKeyPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+var paymentSecretPattern = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+var webhookSigningSecretPattern = regexp.MustCompile(`^whsec_(sandbox|live)_[A-Za-z0-9_-]+$`)
 
 type EnvDeliveryResult struct {
 	EnvFile          string `json:"envFile"`
@@ -32,6 +33,22 @@ type EnvDeliveryResult struct {
 // dotenv file without returning the secret to the caller. The target is made
 // private and receives an exact root-relative .gitignore rule before delivery.
 func DeliverAPIKeyToEnvFile(projectRoot, envFile, variable, apiKey string) (EnvDeliveryResult, error) {
+	if !paymentSecretPattern.MatchString(apiKey) {
+		return EnvDeliveryResult{}, output.Internal("PAYMENT_API_KEY_INVALID", "the stored Payment API Key cannot be delivered", nil)
+	}
+	return deliverPaymentSecretToEnvFile(projectRoot, envFile, variable, apiKey)
+}
+
+// DeliverWebhookSigningSecretToEnvFile copies a stored Webhook signing secret
+// into a project-local dotenv file without returning it to the caller.
+func DeliverWebhookSigningSecretToEnvFile(projectRoot, envFile, variable, signingSecret string) (EnvDeliveryResult, error) {
+	if !webhookSigningSecretPattern.MatchString(signingSecret) {
+		return EnvDeliveryResult{}, output.Internal("WEBHOOK_SECRET_INVALID", "the stored Webhook signing secret cannot be delivered", nil)
+	}
+	return deliverPaymentSecretToEnvFile(projectRoot, envFile, variable, signingSecret)
+}
+
+func deliverPaymentSecretToEnvFile(projectRoot, envFile, variable, secret string) (EnvDeliveryResult, error) {
 	root, target, relative, err := resolvePaymentEnvTarget(projectRoot, envFile)
 	if err != nil {
 		return EnvDeliveryResult{}, err
@@ -42,23 +59,20 @@ func DeliverAPIKeyToEnvFile(projectRoot, envFile, variable, apiKey string) (EnvD
 	}
 	for _, prefix := range []string{"NEXT_PUBLIC_", "VITE_", "REACT_APP_", "NUXT_PUBLIC_", "EXPO_PUBLIC_", "PUBLIC_"} {
 		if strings.HasPrefix(variable, prefix) {
-			return EnvDeliveryResult{}, output.Policy("PAYMENT_ENV_VARIABLE_PUBLIC", "Payment API Keys cannot use a browser-exposed environment variable name")
+			return EnvDeliveryResult{}, output.Policy("PAYMENT_ENV_VARIABLE_PUBLIC", "Payment secrets cannot use a browser-exposed environment variable name")
 		}
-	}
-	if !paymentAPIKeyPattern.MatchString(apiKey) {
-		return EnvDeliveryResult{}, output.Internal("PAYMENT_API_KEY_INVALID", "the stored Payment API Key cannot be delivered", nil)
 	}
 	if tracked, err := gitTracksPath(root, relative); err != nil {
 		return EnvDeliveryResult{}, output.Internal("PAYMENT_ENV_GIT_CHECK_FAILED", "could not verify whether the Payment environment file is tracked", err)
 	} else if tracked {
-		return EnvDeliveryResult{}, output.Policy("PAYMENT_ENV_FILE_TRACKED", "the Payment environment file is already tracked by Git").WithHint("remove the file from Git tracking before delivering a Payment API Key")
+		return EnvDeliveryResult{}, output.Policy("PAYMENT_ENV_FILE_TRACKED", "the Payment environment file is already tracked by Git").WithHint("remove the file from Git tracking before delivering a Payment secret")
 	}
 
 	existing, created, err := readPaymentEnvFile(target)
 	if err != nil {
 		return EnvDeliveryResult{}, err
 	}
-	updated, changed, err := renderPaymentEnv(existing, variable, apiKey)
+	updated, changed, err := renderPaymentEnv(existing, variable, secret)
 	if err != nil {
 		return EnvDeliveryResult{}, err
 	}
@@ -68,7 +82,7 @@ func DeliverAPIKeyToEnvFile(projectRoot, envFile, variable, apiKey string) (EnvD
 	}
 	if changed || created {
 		if err := writePaymentFileAtomic(target, updated, 0o600, true); err != nil {
-			return EnvDeliveryResult{}, output.Internal("PAYMENT_ENV_DELIVERY_FAILED", "could not write the Payment API Key to the project environment file", err)
+			return EnvDeliveryResult{}, output.Internal("PAYMENT_ENV_DELIVERY_FAILED", "could not write the Payment secret to the project environment file", err)
 		}
 	} else if err := config.ProtectPrivateFile(target); err != nil {
 		return EnvDeliveryResult{}, output.Internal("PAYMENT_ENV_DELIVERY_FAILED", "could not protect the Payment environment file", err)
@@ -106,7 +120,7 @@ func resolvePaymentEnvTarget(projectRoot, envFile string) (string, string, strin
 	}
 	lowerBase := strings.ToLower(base)
 	if strings.Contains(lowerBase, "example") || strings.Contains(lowerBase, "sample") || strings.Contains(lowerBase, "template") {
-		return "", "", "", output.Policy("PAYMENT_ENV_FILE_UNSAFE", "Payment API Keys cannot be delivered to example or template environment files")
+		return "", "", "", output.Policy("PAYMENT_ENV_FILE_UNSAFE", "Payment secrets cannot be delivered to example or template environment files")
 	}
 	parent, err := filepath.EvalSymlinks(filepath.Join(root, filepath.Dir(relative)))
 	if err != nil {
@@ -218,7 +232,7 @@ func readPaymentEnvFile(filename string) ([]byte, bool, error) {
 	return data, false, nil
 }
 
-func renderPaymentEnv(existing []byte, variable, apiKey string) ([]byte, bool, error) {
+func renderPaymentEnv(existing []byte, variable, secret string) ([]byte, bool, error) {
 	if bytes.IndexByte(existing, 0) >= 0 {
 		return nil, false, output.Policy("PAYMENT_ENV_FILE_UNSAFE", "the Payment environment file contains binary data")
 	}
@@ -239,13 +253,13 @@ func renderPaymentEnv(existing []byte, variable, apiKey string) ([]byte, bool, e
 			continue
 		}
 		matches++
-		lines[index] = variable + "=" + apiKey
+		lines[index] = variable + "=" + secret
 	}
 	if matches > 1 {
 		return nil, false, output.Policy("PAYMENT_ENV_VARIABLE_DUPLICATE", fmt.Sprintf("the Payment environment file defines %s more than once", variable))
 	}
 	if matches == 0 {
-		lines = append(lines, variable+"="+apiKey)
+		lines = append(lines, variable+"="+secret)
 		hadFinalNewline = true
 	}
 	rendered := strings.Join(lines, newline)

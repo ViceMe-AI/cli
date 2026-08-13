@@ -113,6 +113,53 @@ func TestPaymentAPIKeyIsStoredWithoutEnteringCommandOutput(t *testing.T) {
 	}
 }
 
+func TestPaymentWebhookSecretIsDeliveredWithoutEnteringCommandOutput(t *testing.T) {
+	t.Parallel()
+	const rawSecret = "whsec_sandbox_super_secret_value"
+	root := t.TempDir()
+	if _, err := paymentconfig.Save(root, paymentconfig.Config{
+		SchemaVersion: 1, CapabilitySpace: "space-id", ApplicationID: "application-id", ApplicationSlug: "demo-app",
+		Environment: "sandbox", MarketRegion: "CN", EnvironmentID: "environment-id", InstallationID: "installation-id",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase("https://api.example.test", config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := payment.Manager{Store: store, ProfileID: "default", Scope: scope}
+	if err := manager.SaveWebhook(payment.WebhookCredential{SigningSecret: rawSecret, SigningKeyID: "key-id", EndpointID: "endpoint-id", EnvironmentID: "environment-id"}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"payment", "webhook", "deliver", "endpoint-id", "--dir", root}, Dependencies{
+		Out: &stdout, ErrOut: io.Discard, Store: store, APIBaseURL: "https://api.example.test", Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit != 0 {
+		t.Fatalf("command failed: exit=%d output=%s", exit, stdout.String())
+	}
+	if strings.Contains(stdout.String(), rawSecret) {
+		t.Fatalf("command output leaked the Webhook signing secret: %s", stdout.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	data, ok := envelope["data"].(map[string]any)
+	if !ok || data["delivered"] != true || data["endpointId"] != "endpoint-id" || data["signingKeyId"] != "key-id" {
+		t.Fatalf("unexpected Webhook delivery metadata: %#v", envelope)
+	}
+	envData, err := os.ReadFile(filepath.Join(root, ".env.local"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(envData) != "VICEME_PAYMENT_WEBHOOK_SECRET="+rawSecret+"\n" {
+		t.Fatalf("Webhook signing secret was not delivered to the dotenv file: %q", envData)
+	}
+}
+
 func TestPaymentEnvironmentUseLiveResolvesBeforeUpdatingContext(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

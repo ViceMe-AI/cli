@@ -117,9 +117,10 @@ The key is bound to the selected environment. A LIVE key can be issued only afte
 
 ```bash
 viceme --profile <profile> payment webhook create --dir <project> --input webhook.json
+viceme --profile <profile> payment webhook deliver <endpoint-id> --dir <project> --env-file .env.local
 viceme --profile <profile> payment webhook verify <endpoint-id> --dir <project>
 viceme --profile <profile> payment webhook list --dir <project>
 viceme --profile <profile> payment webhook rotate-secret <endpoint-id> --dir <project>
 ```
 
-`webhook.json` contains `url` and a unique `eventTypes` list. The CLI stores the signing secret securely and outputs only endpoint/signing-key metadata. Use `abort-rotation <rotation-id> --yes` if a new secret cannot be deployed during its overlap. Use `revoke <endpoint-id> --yes` only for immediate shutdown.
+`webhook.json` contains `url` and a unique `eventTypes` list. The CLI stores the signing secret securely and outputs only endpoint/signing-key metadata. `webhook deliver` copies it directly from secure storage into `VICEME_PAYMENT_WEBHOOK_SECRET` in a protected project-local dotenv file; the secret never enters command output. Run it again after `rotate-secret`. Use `abort-rotation <rotation-id> --yes` if a new secret cannot be deployed during its overlap. Use `revoke <endpoint-id> --yes` only for immediate shutdown.
