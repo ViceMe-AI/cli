@@ -501,6 +501,7 @@ func defaults(dependencies Dependencies) Dependencies {
 				buildinfo.Version,
 				buildinfo.CompatibilityVersion(),
 			)
+			updater.ConfigDir = runtimeConfigBase(dependencies.Environment)
 			updater.HTTPClient = dependencies.HTTPClient
 			dependencies.Updater = updater
 		}

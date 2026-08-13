@@ -46,6 +46,22 @@ type startupRecoveryUpdater struct {
 	err    error
 }
 
+type notifyingUpdater struct {
+	startupRecoveryUpdater
+	refreshCalled chan struct{}
+}
+
+func (*notifyingUpdater) CachedNotice() *updatepkg.Notice {
+	return &updatepkg.Notice{Current: "0.13.0", Latest: "0.14.0"}
+}
+
+func (updater *notifyingUpdater) RefreshNotice(context.Context) {
+	select {
+	case updater.refreshCalled <- struct{}{}:
+	default:
+	}
+}
+
 type commandNPMRunner struct {
 	errors []error
 	calls  int
@@ -114,6 +130,36 @@ func TestBareCommandKeepsMachineOutputAsJSON(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "Usage:") {
 		t.Fatalf("human help was not isolated on stderr: %q", stderr.String())
+	}
+}
+
+func TestOrdinaryCommandIncludesMachineReadableUpdateNotice(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	updater := &notifyingUpdater{refreshCalled: make(chan struct{}, 1)}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"version"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:      config.RegionCN,
+	})
+	if exit != 0 {
+		t.Fatalf("version command failed: exit=%d stdout=%q", exit, stdout.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("update notice polluted JSON output: %v stdout=%q", err, stdout.String())
+	}
+	notice, ok := result["_notice"].(map[string]any)
+	updateNotice, updateOK := notice["update"].(map[string]any)
+	if !ok || !updateOK || updateNotice["current"] != "0.13.0" || updateNotice["latest"] != "0.14.0" ||
+		updateNotice["command"] != "viceme update" {
+		t.Fatalf("missing stable update notice: %#v", result)
+	}
+	select {
+	case <-updater.refreshCalled:
+	case <-time.After(time.Second):
+		t.Fatal("background update notice refresh was not started")
 	}
 }
 
