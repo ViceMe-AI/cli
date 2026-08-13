@@ -29,6 +29,94 @@ func TestReleaseServiceDefaultBaseURLsUseStartBucket(t *testing.T) {
 	}
 }
 
+func TestReleaseServiceRefreshesRegionSpecificUpdateNotice(t *testing.T) {
+	for _, key := range []string{NoUpdateNotifierEnv, "CI", "BUILD_NUMBER", "RUN_ID"} {
+		t.Setenv(key, "")
+	}
+	now := time.Date(2026, time.August, 13, 10, 0, 0, 0, time.UTC)
+	var calls atomic.Int32
+	latest := atomic.Value{}
+	latest.Store("0.14.0")
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/latest" {
+			http.NotFound(writer, request)
+			return
+		}
+		calls.Add(1)
+		_, _ = writer.Write([]byte(latest.Load().(string)))
+	}))
+	defer server.Close()
+
+	service := NewReleaseService("0.13.0", "0.13.0")
+	service.ConfigDir = t.TempDir()
+	service.ReleaseBaseURL = server.URL
+	service.HTTPClient = server.Client()
+	service.Now = func() time.Time { return now }
+
+	if notice := service.CachedNotice(); notice != nil {
+		t.Fatalf("empty release cache returned notice: %#v", notice)
+	}
+	service.RefreshNotice(context.Background())
+	if calls.Load() != 1 {
+		t.Fatalf("initial release refresh calls=%d", calls.Load())
+	}
+	if notice := service.CachedNotice(); notice == nil || notice.Current != "0.13.0" || notice.Latest != "0.14.0" ||
+		!strings.Contains(notice.Message(), "viceme update") {
+		t.Fatalf("cached release notice=%#v", notice)
+	}
+
+	service.RefreshNotice(context.Background())
+	if calls.Load() != 1 {
+		t.Fatalf("fresh release cache unexpectedly refreshed: calls=%d", calls.Load())
+	}
+
+	service.SetRegion("global")
+	if notice := service.CachedNotice(); notice != nil {
+		t.Fatalf("CN cache leaked into global release channel: %#v", notice)
+	}
+	latest.Store("0.15.0")
+	service.RefreshNotice(context.Background())
+	if calls.Load() != 2 {
+		t.Fatalf("global release refresh calls=%d", calls.Load())
+	}
+	if notice := service.CachedNotice(); notice == nil || notice.Latest != "0.15.0" {
+		t.Fatalf("global cached release notice=%#v", notice)
+	}
+
+	service.SetRegion("cn")
+	if notice := service.CachedNotice(); notice == nil || notice.Latest != "0.14.0" {
+		t.Fatalf("CN cached release notice changed with global channel: %#v", notice)
+	}
+	now = now.Add(updateCacheTTL + time.Second)
+	latest.Store("0.14.1")
+	service.RefreshNotice(context.Background())
+	if calls.Load() != 3 {
+		t.Fatalf("stale CN release cache refresh calls=%d", calls.Load())
+	}
+	if notice := service.CachedNotice(); notice == nil || notice.Latest != "0.14.1" {
+		t.Fatalf("refreshed CN release notice=%#v", notice)
+	}
+}
+
+func TestReleaseServiceNotifierSkipsCIAndExplicitOptOut(t *testing.T) {
+	for _, key := range []string{NoUpdateNotifierEnv, "CI", "BUILD_NUMBER", "RUN_ID"} {
+		t.Setenv(key, "")
+	}
+	service := NewReleaseService("0.13.0", "0.13.0")
+	service.ConfigDir = t.TempDir()
+	service.saveUpdateState("0.14.0")
+
+	t.Setenv(NoUpdateNotifierEnv, "1")
+	if notice := service.CachedNotice(); notice != nil {
+		t.Fatalf("opted-out release notifier returned notice: %#v", notice)
+	}
+	t.Setenv(NoUpdateNotifierEnv, "")
+	t.Setenv("CI", "true")
+	if notice := service.CachedNotice(); notice != nil {
+		t.Fatalf("CI release notifier returned notice: %#v", notice)
+	}
+}
+
 func TestReleaseServiceChecksReplacesAndRefreshesMatchingSkills(t *testing.T) {
 	t.Parallel()
 	binary := []byte("new-viceme-binary")

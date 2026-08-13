@@ -33,7 +33,9 @@ type ReleaseService struct {
 	CurrentVersion    string
 	ComparableVersion string
 	Region            string
+	ConfigDir         string
 	HTTPClient        *http.Client
+	Now               func() time.Time
 	Runner            Runner
 	ExecutablePath    string
 	ReleaseBaseURL    string
@@ -48,6 +50,7 @@ func NewReleaseService(currentVersion, comparableVersion string) *ReleaseService
 		ComparableVersion: comparableVersion,
 		Region:            "cn",
 		HTTPClient:        &http.Client{Timeout: 5 * time.Minute},
+		Now:               time.Now,
 		Runner:            ExecRunner{},
 		GOOS:              runtime.GOOS,
 		GOARCH:            runtime.GOARCH,
@@ -71,13 +74,9 @@ func (service *ReleaseService) Check(ctx context.Context) (CheckResult, error) {
 		Package:        "viceme-cli",
 		Source:         "official_s3",
 	}
-	body, err := service.get(ctx, service.baseURL()+"/latest", 64)
+	latest, err := service.fetchLatestVersion(ctx)
 	if err != nil {
 		return result, err
-	}
-	latest := strings.TrimSpace(string(body))
-	if _, err := semver.Parse(latest); err != nil {
-		return result, &OperationError{Kind: ErrorReleaseResponse, Cause: errors.New("release index returned an invalid semantic version")}
 	}
 	comparison, err := semver.Compare(latest, service.ComparableVersion)
 	if err != nil {
@@ -85,7 +84,79 @@ func (service *ReleaseService) Check(ctx context.Context) (CheckResult, error) {
 	}
 	result.AvailableVersion = latest
 	result.UpdateAvailable = comparison > 0
+	service.saveUpdateState(latest)
 	return result, nil
+}
+
+// CachedNotice performs local I/O only. The release store is consulted by a
+// bounded background refresh, so update discovery never delays or fails the
+// business command that carries this notice.
+func (service *ReleaseService) CachedNotice() *Notice {
+	if notifierSuppressed(service.CurrentVersion, service.ComparableVersion) {
+		return nil
+	}
+	state, ok := service.loadUpdateState()
+	if !ok {
+		return nil
+	}
+	comparison, err := semver.Compare(state.LatestVersion, service.ComparableVersion)
+	if err != nil || comparison <= 0 {
+		return nil
+	}
+	return &Notice{Current: service.CurrentVersion, Latest: state.LatestVersion}
+}
+
+// RefreshNotice refreshes the region-specific release cache at most once per
+// 24 hours. Failures are intentionally ignored by callers.
+func (service *ReleaseService) RefreshNotice(ctx context.Context) {
+	if notifierSuppressed(service.CurrentVersion, service.ComparableVersion) {
+		return
+	}
+	if state, ok := service.loadUpdateState(); ok && service.updateStateIsFresh(state) {
+		return
+	}
+	latest, err := service.fetchLatestVersion(ctx)
+	if err == nil {
+		service.saveUpdateState(latest)
+	}
+}
+
+func (service *ReleaseService) fetchLatestVersion(ctx context.Context) (string, error) {
+	body, err := service.get(ctx, service.baseURL()+"/latest", 64)
+	if err != nil {
+		return "", err
+	}
+	latest := strings.TrimSpace(string(body))
+	if _, err := semver.Parse(latest); err != nil {
+		return "", &OperationError{Kind: ErrorReleaseResponse, Cause: errors.New("release index returned an invalid semantic version")}
+	}
+	return latest, nil
+}
+
+func (service *ReleaseService) loadUpdateState() (updateState, bool) {
+	return loadCachedUpdateState(service.updateStatePath())
+}
+
+func (service *ReleaseService) updateStateIsFresh(state updateState) bool {
+	return isCachedUpdateStateFresh(state, service.now())
+}
+
+func (service *ReleaseService) saveUpdateState(version string) {
+	saveCachedUpdateState(service.updateStatePath(), service.ConfigDir, ".release-update-state-*", version, service.now())
+}
+
+func (service *ReleaseService) updateStatePath() string {
+	if service.ConfigDir == "" {
+		return ""
+	}
+	return filepath.Join(service.ConfigDir, releaseUpdateStateStem+service.Region+".json")
+}
+
+func (service *ReleaseService) now() time.Time {
+	if service.Now == nil {
+		return time.Now()
+	}
+	return service.Now()
 }
 
 func (service *ReleaseService) Apply(ctx context.Context, check CheckResult, options ApplyOptions) (ApplyResult, error) {
