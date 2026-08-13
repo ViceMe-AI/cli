@@ -590,11 +590,17 @@ func newPaymentAPIKeyCreateCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if configured.PaymentAPIKeyID != "" {
+				return output.Policy("PAYMENT_API_KEY_ALREADY_CONFIGURED", "this project environment already references a Payment API Key").WithHint("use 'viceme payment api-key rotate' or revoke the existing key before creating another")
+			}
 			scopes, err := paymentScopes(scopesText)
 			if err != nil {
 				return err
 			}
 			secrets := runtime.paymentManager()
+			if err := secrets.EnsureAPIKeyAbsent(configured.EnvironmentID); err != nil {
+				return err
+			}
 			if err := secrets.PreflightAPIKey(configured.EnvironmentID); err != nil {
 				return err
 			}
@@ -705,12 +711,16 @@ func newPaymentAPIKeyRevokeCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			credential, err := runtime.paymentManager().LoadAPIKey(configured.EnvironmentID)
-			if err != nil {
-				return err
+			credentialID := configured.PaymentAPIKeyID
+			if credentialID == "" {
+				credential, err := runtime.paymentManager().LoadAPIKey(configured.EnvironmentID)
+				if err != nil {
+					return err
+				}
+				credentialID = credential.CredentialID
 			}
 			var result map[string]any
-			endpoint := "/v1/capability-api-keys/" + url.PathEscape(credential.CredentialID) + "/revoke"
+			endpoint := "/v1/capability-api-keys/" + url.PathEscape(credentialID) + "/revoke"
 			if err := runtime.client().PaymentControl(command.Context(), http.MethodPost, endpoint, map[string]string{"reason": reason}, &result); err != nil {
 				return err
 			}

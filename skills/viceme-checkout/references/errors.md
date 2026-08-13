@@ -5,6 +5,7 @@
 - `NOT_LOGGED_IN`, `token_expired`, or CLI scope errors: log in again with the same pinned profile. A token created before Payment scopes were added must be reissued.
 - `PAYMENT_CREATOR_ELIGIBILITY_REQUIRED`: the user must claim at least one Creator before API Key create/rotate. Product configuration may continue.
 - `PAYMENT_API_KEY_NOT_STORED`: issue a key for this environment or repair the secure store. Never ask the user to paste a raw key into chat.
+- `PAYMENT_API_KEY_ALREADY_CONFIGURED` or `PAYMENT_API_KEY_ALREADY_STORED`: do not rerun create or overwrite local state. Rotate the existing credential, or explicitly revoke it before issuing a replacement.
 - `PAYMENT_SECRET_STORE_UNAVAILABLE`: stop before retrying issuance. Fix OS keychain/private-store access; do not downgrade to a plaintext project file.
 - `PAYMENT_ENV_FILE_TRACKED`: remove the target dotenv file from Git tracking before delivery; adding an ignore rule does not untrack an existing file.
 - `PAYMENT_ENV_FILE_INVALID` or `PAYMENT_ENV_FILE_UNSAFE`: select a regular project-relative `.env*` file whose parent exists. Never bypass path, symlink, binary, example/template, or size checks.

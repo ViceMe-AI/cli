@@ -23,6 +23,24 @@ func TestAPIKeyIsNamespacedAndNeverReturnedAsMetadata(t *testing.T) {
 	}
 }
 
+func TestAPIKeyCreationPreflightRejectsAnExistingCredential(t *testing.T) {
+	store := securestore.NewMemory()
+	manager := Manager{Store: store, ProfileID: "profile-a", Scope: "https://api.example.test"}
+	if err := manager.EnsureAPIKeyAbsent("environment-id"); err != nil {
+		t.Fatalf("empty secure store was rejected: %v", err)
+	}
+	if err := manager.SaveAPIKey(APIKeyCredential{
+		APIKey:        "vcp_sandbox_secret",
+		CredentialID:  "credential-id",
+		EnvironmentID: "environment-id",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.EnsureAPIKeyAbsent("environment-id"); err == nil {
+		t.Fatal("existing Payment API Key was not rejected")
+	}
+}
+
 func TestWebhookCredentialCanBeLoadedWithoutEnteringMetadata(t *testing.T) {
 	store := securestore.NewMemory()
 	manager := Manager{Store: store, ProfileID: "profile-a", Scope: "https://api.example.test"}

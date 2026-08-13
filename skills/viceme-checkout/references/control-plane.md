@@ -107,7 +107,7 @@ viceme --profile <profile> payment api-key rotate --dir <project>
 viceme --profile <profile> payment api-key revoke --dir <project> --reason '<reason>' --yes
 ```
 
-Default scopes cover product reads, checkout creation, order reads, and order close. Pass `--scopes` for a smaller comma-separated set. The response never contains the raw key.
+Default scopes cover product reads, checkout creation, order reads, and order close. Pass `--scopes` for a smaller comma-separated set. The response never contains the raw key. `api-key create` refuses to replace an existing credential for the selected project environment; use `rotate`, or explicitly revoke the old credential before creating a replacement.
 
 The key is bound to the selected environment. A LIVE key can be issued only after `payment environment use live` selects the default LIVE environment and an Admin has enabled LIVE API Key issuance; its prefix is `vcp_live_` and it remains server-only. That Application can use every LIVE channel globally enabled by the platform; there is no Application-level channel grant to configure with this CLI.
 

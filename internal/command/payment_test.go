@@ -25,9 +25,11 @@ func TestPaymentAPIKeyIsStoredWithoutEnteringCommandOutput(t *testing.T) {
 	const rawKey = "vcp_sandbox_super_secret_value"
 	var runtimeCredential string
 	var runtimeIdempotencyKey string
+	var issuanceRequests int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/v1/capability-environments/environment-id/api-keys":
+			issuanceRequests++
 			if request.Header.Get("Authorization") != "Bearer vme_cli_test" {
 				t.Fatalf("control request did not use CLI login: %q", request.Header.Get("Authorization"))
 			}
@@ -87,6 +89,16 @@ func TestPaymentAPIKeyIsStoredWithoutEnteringCommandOutput(t *testing.T) {
 	stored, err := (payment.Manager{Store: store, ProfileID: "default", Scope: scope}).LoadAPIKey("environment-id")
 	if err != nil || stored.APIKey != rawKey || stored.CredentialID != "credential-id" {
 		t.Fatalf("Payment API Key was not securely persisted: stored=%#v err=%v", stored, err)
+	}
+	stdout.Reset()
+	if exit := Execute([]string{"payment", "api-key", "create", "--dir", root, "--scopes", "payment:checkouts:create"}, dependencies); exit == 0 {
+		t.Fatal("duplicate Payment API Key creation unexpectedly succeeded")
+	}
+	if issuanceRequests != 1 {
+		t.Fatalf("duplicate creation reached the API: requests=%d", issuanceRequests)
+	}
+	if !strings.Contains(stdout.String(), "PAYMENT_API_KEY_ALREADY_CONFIGURED") {
+		t.Fatalf("duplicate creation returned the wrong error: %s", stdout.String())
 	}
 	delivery := execute("payment", "api-key", "deliver", "--dir", root)
 	deliveryData, ok := delivery["data"].(map[string]any)

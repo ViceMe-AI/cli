@@ -44,6 +44,17 @@ func (manager Manager) PreflightAPIKey(environmentID string) error {
 	return manager.preflight(manager.key("api-key", environmentID))
 }
 
+func (manager Manager) EnsureAPIKeyAbsent(environmentID string) error {
+	_, err := manager.Store.Get(manager.key("api-key", environmentID))
+	if err == nil {
+		return output.Policy("PAYMENT_API_KEY_ALREADY_STORED", "a Payment API Key is already stored for this project environment").WithHint("use 'viceme payment api-key rotate' or revoke the existing key before creating another")
+	}
+	if errors.Is(err, securestore.ErrNotFound) {
+		return nil
+	}
+	return output.Authentication("PAYMENT_SECRET_STORE_UNAVAILABLE", "could not inspect the Payment secret store").WithCause(err)
+}
+
 func (manager Manager) PreflightWebhook(environmentID string) error {
 	return manager.preflight(manager.key("webhook-preflight", environmentID))
 }
