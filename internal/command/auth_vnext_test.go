@@ -54,9 +54,11 @@ func TestDeviceLoginSplitFlowPersistsScopedCredentialWithoutPrintingToken(t *tes
 				return
 			}
 			writeJSONResponse(writer, map[string]any{
-				"status": "authorized", "accessToken": accessToken, "tokenType": "Bearer",
-				"expiresAt": expiresAt,
-				"scopes":    grantedScopes,
+				"status":      "authorized",
+				"accessToken": accessToken,
+				"tokenType":   "Bearer",
+				"expiresAt":   expiresAt,
+				"scopes":      grantedScopes,
 			})
 		case "/v1/cli/auth/status":
 			if request.Header.Get("Authorization") != "Bearer "+accessToken {

@@ -31,6 +31,7 @@ const (
 	ScopeRegistryArg        = "--@viceme-ai:registry=" + RegistryURL
 	NoUpdateNotifierEnv     = "VICEME_NO_UPDATE_NOTIFIER"
 	updateStateFilename     = "update-state.json"
+	releaseUpdateStateStem  = "release-update-state-"
 	npmCacheDirectory       = "npm-cache"
 	npmActivationFilename   = NPMActivationJournalFilename
 	updateCacheTTL          = 24 * time.Hour
@@ -127,9 +128,9 @@ type LockedStartupRecoverer interface {
 	RecoverActivationWhileLocked(context.Context) error
 }
 
-// Notifier is an optional read-only extension implemented by npm-backed
-// services. Commands never fail when the registry or notification cache is
-// unavailable.
+// Notifier is an optional read-only extension implemented by every updater
+// that has an authoritative version source. Commands never fail when version
+// discovery or the notification cache is unavailable.
 type Notifier interface {
 	CachedNotice() *Notice
 	RefreshNotice(context.Context)
@@ -889,7 +890,14 @@ func (service *NPMService) RefreshNotice(ctx context.Context) {
 }
 
 func (service *NPMService) shouldSkipNotifier() bool {
-	if service.InstallMethod != "npm" || os.Getenv(NoUpdateNotifierEnv) != "" {
+	if service.InstallMethod != "npm" || notifierSuppressed(service.CurrentVersion, service.ComparableVersion) {
+		return true
+	}
+	return false
+}
+
+func notifierSuppressed(currentVersion, comparableVersion string) bool {
+	if os.Getenv(NoUpdateNotifierEnv) != "" {
 		return true
 	}
 	for _, key := range []string{"CI", "BUILD_NUMBER", "RUN_ID"} {
@@ -897,7 +905,10 @@ func (service *NPMService) shouldSkipNotifier() bool {
 			return true
 		}
 	}
-	_, err := semver.Parse(service.ComparableVersion)
+	if _, err := semver.Parse(currentVersion); err != nil {
+		return true
+	}
+	_, err := semver.Parse(comparableVersion)
 	return err != nil
 }
 
@@ -944,8 +955,7 @@ type updateState struct {
 	CheckedAt     int64  `json:"checked_at"`
 }
 
-func (service *NPMService) loadUpdateState() (updateState, bool) {
-	filename := service.updateStatePath()
+func loadCachedUpdateState(filename string) (updateState, bool) {
 	if filename == "" {
 		return updateState{}, false
 	}
@@ -963,32 +973,23 @@ func (service *NPMService) loadUpdateState() (updateState, bool) {
 	return state, true
 }
 
-func (service *NPMService) updateStateIsFresh(state updateState) bool {
-	age := service.now().Sub(time.Unix(state.CheckedAt, 0))
+func isCachedUpdateStateFresh(state updateState, now time.Time) bool {
+	age := now.Sub(time.Unix(state.CheckedAt, 0))
 	return age >= 0 && age <= updateCacheTTL
 }
 
-func (service *NPMService) loadFreshUpdateState() (string, bool) {
-	state, ok := service.loadUpdateState()
-	if !ok || !service.updateStateIsFresh(state) {
-		return "", false
-	}
-	return state.LatestVersion, true
-}
-
-func (service *NPMService) saveUpdateState(version string) {
-	filename := service.updateStatePath()
+func saveCachedUpdateState(filename, directory, temporaryPattern, version string, now time.Time) {
 	if filename == "" {
 		return
 	}
-	if err := os.MkdirAll(service.ConfigDir, 0o700); err != nil {
+	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return
 	}
-	data, err := json.Marshal(updateState{LatestVersion: version, CheckedAt: service.now().Unix()})
+	data, err := json.Marshal(updateState{LatestVersion: version, CheckedAt: now.Unix()})
 	if err != nil {
 		return
 	}
-	temporary, err := os.CreateTemp(service.ConfigDir, ".update-state-*")
+	temporary, err := os.CreateTemp(directory, temporaryPattern)
 	if err != nil {
 		return
 	}
@@ -1006,6 +1007,26 @@ func (service *NPMService) saveUpdateState(version string) {
 		return
 	}
 	_ = os.Rename(temporaryName, filename)
+}
+
+func (service *NPMService) loadUpdateState() (updateState, bool) {
+	return loadCachedUpdateState(service.updateStatePath())
+}
+
+func (service *NPMService) updateStateIsFresh(state updateState) bool {
+	return isCachedUpdateStateFresh(state, service.now())
+}
+
+func (service *NPMService) loadFreshUpdateState() (string, bool) {
+	state, ok := service.loadUpdateState()
+	if !ok || !service.updateStateIsFresh(state) {
+		return "", false
+	}
+	return state.LatestVersion, true
+}
+
+func (service *NPMService) saveUpdateState(version string) {
+	saveCachedUpdateState(service.updateStatePath(), service.ConfigDir, ".update-state-*", version, service.now())
 }
 
 func (service *NPMService) runNPM(ctx context.Context, args ...string) ([]byte, error) {

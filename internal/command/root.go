@@ -502,6 +502,7 @@ func defaults(dependencies Dependencies) Dependencies {
 				buildinfo.Version,
 				buildinfo.CompatibilityVersion(),
 			)
+			updater.ConfigDir = runtimeConfigBase(dependencies.Environment)
 			updater.HTTPClient = dependencies.HTTPClient
 			dependencies.Updater = updater
 		}
@@ -565,20 +566,17 @@ type versionResult struct {
 }
 
 func (r *Runtime) writeVersion() error {
-	shared, err := r.deps.Skills.Digests("viceme-shared")
-	if err != nil {
-		return err
-	}
-	publish, err := r.deps.Skills.Digests("viceme-publish")
-	if err != nil {
-		return err
+	skills := make(map[string]skillcontent.Digests, len(officialSkillNames))
+	for _, name := range officialSkillNames {
+		digests, err := r.deps.Skills.Digests(name)
+		if err != nil {
+			return err
+		}
+		skills[name] = digests
 	}
 	return r.business(versionResult{
-		Info: buildinfo.Current(),
-		Skills: map[string]skillcontent.Digests{
-			"viceme-shared":  shared,
-			"viceme-publish": publish,
-		},
+		Info:   buildinfo.Current(),
+		Skills: skills,
 	})
 }
 

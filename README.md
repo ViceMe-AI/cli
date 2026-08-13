@@ -1,36 +1,124 @@
-# ViceMe CLI
+<h1 align="center">ViceMe CLI</h1>
 
-ViceMe CLI is the deterministic local companion for the official ViceMe Agent
-Skills. Codex, Claude Code, and WorkBuddy use the Skills to guide the user; the
-CLI handles installation, device authorization, validation, packaging,
-uploads, review, publication, and secure Hosted Checkout configuration.
+<p align="center">
+  <strong>Turn local AI Agent Skills into publishable products—from the conversation you already use.</strong>
+</p>
 
-[中文](./README.zh.md)
+<p align="center">
+  Install the CLI and official Agent Skills together, then ask Codex, Claude Code, or WorkBuddy to do the rest.
+</p>
 
-## Install
+<p align="center">
+  <a href="./README.zh.md">简体中文</a> ·
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#official-agent-skills">Agent Skills</a> ·
+  <a href="#command-reference">Commands</a> ·
+  <a href="#security">Security</a>
+</p>
 
-The official bootstrap installs the native CLI and all official Skills from
-one immutable release.
+## Why ViceMe CLI?
 
-China, macOS or Linux:
+- **Agent-native** — describe what you want in natural language instead of
+  memorizing a publication command sequence.
+- **One installation** — the native CLI and matching official Skills are
+  installed together for Codex, Claude Code, WorkBuddy, and the shared
+  `~/.agents/skills` fallback.
+- **Human-controlled publishing** — the model can suggest bilingual copy and
+  media, but only the user decides the price and authorizes public publication.
+- **Deterministic and resumable** — the CLI validates and packages locally,
+  preserves publication identity across interruptions, and avoids duplicate
+  listings when a response is lost.
+- **Built for Agents and automation** — stable JSON output, error codes, dry
+  runs, and explicit state transitions make every action inspectable.
+- **Safe by default** — device authorization, origin-bound profiles, local
+  secret checks, immutable digests, and verified uploads protect the release
+  path.
+
+## What you can do
+
+| Capability | What ViceMe provides |
+| --- | --- |
+| Publish a Skill | Validate a local Skill directory or ZIP, set a CNY price, upload it, review platform suggestions, and publish a paid listing. |
+| Build a component | Ask an Agent to integrate the bundled production danmaku blueprint into a React and Tailwind CSS v4 project. |
+| Set up an Agent | Install, authenticate, update, diagnose, and repair the CLI and official Skills as one compatible release. |
+| Recover safely | Continue the same publication after a network or process interruption without uploading a duplicate product. |
+
+## Quick Start
+
+### With an AI Agent (recommended)
+
+1. Install the CLI and official Skills:
+
+   ```bash
+   curl -fsSL https://s3.viceme.cn/start/install.sh | sh
+   ```
+
+2. Start a new Codex, Claude Code, or WorkBuddy conversation so the Agent can
+   discover the installed Skills.
+3. Attach a local Skill directory or ZIP and ask naturally:
+
+   > Publish this Skill to ViceMe for CNY 1.00.
+
+The Agent checks login before reading the package, keeps the selected Profile
+fixed throughout the workflow, validates the Skill, and asks before uploading.
+After ViceMe prepares the bilingual copy and media suggestions, the Agent shows
+the complete review—including the images—and asks once whether to confirm and
+publish it publicly.
+
+```text
+Local Skill → Login → Validate → Confirm price → Upload → Platform analysis
+            → Visual review → Confirm and publish → Public product URL
+```
+
+The initial request to “publish” is not permission to make the listing public.
+Public publication happens only after the final review is displayed and the
+user explicitly confirms it.
+
+### From the terminal
+
+```bash
+# Verify the installation and current account.
+viceme doctor
+viceme auth status
+
+# Sign in only when auth status reports unauthenticated.
+viceme auth login
+
+# Inspect without uploading anything.
+viceme skill inspect --path ./my-skill
+
+# Preview the exact package and CNY 1.00 price plan.
+viceme skill publish --path ./my-skill --price-minor 100 --dry-run
+```
+
+## Installation
+
+The official bootstrap installs the native CLI and all official Agent Skills
+from one immutable release.
+
+### macOS or Linux
+
+China:
 
 ```bash
 curl -fsSL https://s3.viceme.cn/start/install.sh | sh
 ```
 
-International, macOS or Linux:
+International:
 
 ```bash
 VICEME_REGION=global sh -c "$(curl -fsSL https://s3.viceme.ai/start/install.sh)"
 ```
 
-China, Windows PowerShell:
+### Windows PowerShell
+
+China:
 
 ```powershell
 irm https://s3.viceme.cn/start/install.ps1 | iex
 ```
 
-International, Windows PowerShell:
+International:
 
 ```powershell
 $env:VICEME_REGION="global"; irm https://s3.viceme.ai/start/install.ps1 | iex
@@ -42,9 +130,8 @@ If the bootstrap cannot be used, npm is the fallback:
 npx --yes @viceme-ai/cli@latest install
 ```
 
-The installer always writes the compatibility fallback to
-`~/.agents/skills`. It also installs into the native user directory of every
-detected supported Agent:
+The installer writes the compatibility fallback to `~/.agents/skills` and the
+native user directory of every detected supported Agent:
 
 | Agent | Native directory |
 | --- | --- |
@@ -55,9 +142,47 @@ detected supported Agent:
 Select a target explicitly with `viceme install --agent codex`, `claude`,
 `workbuddy`, or `agents`. Run `viceme doctor` after installation or repair.
 
-## Authentication and profiles
+## Official Agent Skills
 
-Each profile is bound to one region, one API endpoint, and one device-authorized
+| Skill | Use it when you want to... |
+| --- | --- |
+| `viceme-shared` | install ViceMe, sign in with a device code, manage Profiles, update, diagnose, or repair the local setup. |
+| `viceme-publish` | validate, upload, review, resume, or publish a local Skill directory or ZIP as a paid ViceMe listing. |
+| `viceme-danmaku` | build or adapt the bundled production React and Tailwind CSS v4 danmaku component in an existing project. |
+
+The Agent Skills own the conversational workflow and approval rules. The CLI
+owns deterministic local work and API calls. This separation lets an Agent
+explain decisions while the same command contract remains reproducible from a
+terminal or automation.
+
+## How Skill publishing works
+
+The current publication flow accepts one local directory containing a root
+`SKILL.md`, or one local ZIP. Common GitHub ZIPs with a single wrapping
+directory are normalized automatically. Remote URLs and multi-Skill bundles
+are not accepted.
+
+| Stage | Responsibility |
+| --- | --- |
+| Login | Device authorization happens before package inspection. Every command remains pinned to the same Profile and API origin. |
+| Inspect | Local validation rejects unsafe paths, special files, excessive content, sensitive files, and common secret patterns. |
+| Price and upload | The user supplies an exact CNY price in fen and explicitly allows the deterministic package to be uploaded. |
+| Analysis | ViceMe proposes short Chinese and English summaries, bilingual usage instructions, a cover, and an ordered gallery. Suggestions are never treated as user decisions. |
+| Review | The Agent displays the exact copy, price, cover, and gallery images. A short summary has a maximum display width of 30; ASCII counts as 1 and Chinese/non-ASCII as 2. |
+| Publish | One explicit final confirmation authorizes review confirmation followed by immediate, irreversible public publication. |
+
+If the upload or response is interrupted, continue the existing publication:
+
+```bash
+viceme --profile <publication-profile> skill publish --resume <publication-id>
+```
+
+Never create a second publication merely because the previous response was
+unknown. Query or resume the existing ID first.
+
+## Authentication and Profiles
+
+Each Profile binds one region, one API endpoint, and one device-authorized
 account. Profiles without a custom endpoint use the selected region's official
 ViceMe API.
 
@@ -70,35 +195,24 @@ viceme profile list
 viceme profile use default
 ```
 
-To remove every legacy/test Profile and all of their local credentials before
-creating a clean test Profile:
-
-```bash
-viceme profile remove --all --yes
-```
-
-This destructive command recreates one unauthenticated `default` Profile; it
-does not leave the CLI with an invalid empty configuration.
-
-For a test or private ViceMe deployment, persist the endpoint in a dedicated
-profile before signing in:
+For a test or private deployment, persist a generic HTTPS endpoint in a
+dedicated Profile before signing in:
 
 ```bash
 viceme profile add \
-  --name shop-dev \
+  --name private-cn \
   --region cn \
-  --api-base-url https://viceme-shop-web.preview.tencent-zeabur.cn/api \
+  --api-base-url https://api.example.com \
   --use
 viceme auth login
 ```
 
-`profile list` reports the effective endpoint. `VICEME_API_BASE_URL` remains a
-one-process CI/debug override and is never written to profile configuration.
+`VICEME_API_BASE_URL` is a one-process CI/debug override, not Profile state.
 Remote custom endpoints require HTTPS; only localhost and loopback development
-may use HTTP. Remove and recreate a profile to change its endpoint so an
-existing credential cannot silently move to another origin.
+may use HTTP. Credentials are isolated by Profile and API origin, and an Agent
+must never switch to another Profile merely because it is already signed in.
 
-For an Agent workflow that cannot wait in one turn:
+For an Agent that cannot wait in one turn:
 
 ```bash
 viceme auth login --no-wait
@@ -106,69 +220,28 @@ viceme auth login --device-code <device-code>
 ```
 
 The user completes authorization in the browser. Never copy an access token
-into the conversation. Credentials are isolated by profile and API origin, so
-sign in again after creating a profile for a different endpoint.
+into the conversation.
 
-## Publish a Skill
+## Command reference
 
-The first release accepts a local directory containing `SKILL.md` or a local
-ZIP. GitHub URLs, remote downloads, and multi-Skill bundles are not accepted.
+| Command | Purpose |
+| --- | --- |
+| `viceme version` | Show the CLI and bundled Skill versions. |
+| `viceme doctor` | Check the CLI, active Profile, credentials, API readiness, and installed official Skills. |
+| `viceme auth status` | Show whether the active Profile is signed in. |
+| `viceme profile list` | Show Profiles and their effective API endpoints. |
+| `viceme skill inspect --path <path>` | Validate a local Skill without side effects. |
+| `viceme skill publish --path <path> --price-minor <fen> --dry-run` | Preview the exact deterministic package and price. |
+| `viceme skill publish --path <path> --price-minor <fen>` | Upload the package and start listing analysis. |
+| `viceme publication wait <id>` | Wait for background analysis without re-uploading. |
+| `viceme publication review <id>` | Read the authoritative bilingual copy, price, selected media, and review state. |
+| `viceme publication asset upload ...` | Replace or add a cover or gallery image before confirmation. |
+| `viceme publication update ...` | Replace the complete listing draft from a strict JSON file. |
+| `viceme publication confirm ...` | Confirm the exact current review digest. |
+| `viceme publication publish ...` | Make a confirmed listing public. |
+| `viceme update` | Update the CLI and matching official Skills together. |
 
-Authenticate before inspecting the package, then keep every command pinned to
-the Profile returned by `auth status`. An Agent must not switch to another
-Profile merely because that Profile is already signed in.
-
-```bash
-viceme auth status
-viceme --profile <publication-profile> auth login # only when unauthenticated
-```
-
-Inspect without side effects:
-
-```bash
-viceme --profile <publication-profile> skill inspect --path ./my-skill
-```
-
-Show the exact deterministic package and price plan:
-
-```bash
-viceme --profile <publication-profile> skill publish --path ./my-skill --price-minor 100 --dry-run
-```
-
-Start the resumable upload and listing analysis:
-
-```bash
-viceme --profile <publication-profile> skill publish --path ./my-skill --price-minor 100
-```
-
-Then follow the authoritative publication state:
-
-```bash
-viceme publication get <publication-id>
-viceme publication review <publication-id>
-viceme publication asset upload <publication-id> --role cover --path ./cover.png
-viceme publication asset upload <publication-id> --role gallery --path ./demo.png
-viceme publication update <publication-id> --input ./listing-draft.json
-viceme publication confirm <publication-id> --review-digest <digest>
-viceme publication publish <publication-id> --review-digest <digest>
-```
-
-The model proposes `summaryZhCn`, `summaryEnUs`, `usageInstructionsZhCn`,
-`usageInstructionsEnUs` derived from the validated `SKILL.md`, and package
-images, but it never confirms them or decides the price. Each summary has a maximum display width of
-30: ASCII counts as 1 and Chinese/non-ASCII counts as 2. The Agent must show the
-exact bilingual summaries, both usage instructions, price, cover, and ordered gallery
-to the user and receive explicit confirmation before `confirm` and again before
-public `publish`.
-
-Resume after a connection loss with the same publication:
-
-```bash
-viceme --profile <publication-profile> skill publish --resume <publication-id>
-```
-
-Do not create a second publication when the server response is unknown. Query
-or resume the existing ID first.
+Run `viceme <command> --help` for the full flags and JSON fields.
 
 ## Configure Hosted Checkout
 
@@ -201,83 +274,50 @@ platform secret provider for remote environments, and rerun delivery after rotat
 Install and invoke `viceme-checkout` for the complete Agent workflow, strict
 request examples, Webhook rules, and safety boundaries.
 
-## Output contract
+## Output and updates
 
 Business output is JSON by default. Successful output is the only content on
-stdout; progress and diagnostics use stderr.
+stdout; progress and diagnostics use stderr. Errors use a non-zero exit code
+and a stable `error.code`, so Agents and automation never need to parse message
+text.
 
 ```json
 {
   "ok": true,
   "data": {},
   "meta": {
-    "cliVersion": "0.10.1",
+    "cliVersion": "<version>",
     "requestId": "optional"
   }
 }
 ```
 
-Errors use a non-zero exit code and a stable `error.code`. Agent Skills branch
-on the exit code, `ok`, `error.code`, and `retryable`, never on message text.
-
-## Update
+Released installations check their authoritative release channel at most once
+every 24 hours. When a newer version is available, ordinary JSON responses
+include `_notice.update` with the current version, latest version, and
+`viceme update`. Discovery is fail-open and never changes the business
+command's exit code.
 
 ```bash
 viceme update --check
 viceme update
 ```
 
-Bootstrap installations read the selected region's official S3 release index,
-verify the exact binary checksum, refresh the matching official Skills, and
-activate the binary atomically. npm installations update through the exact npm
-package version. Updates never inherit `VICEME_ACCESS_TOKEN` into child
-processes.
+The updater verifies the exact release, refreshes the matching official Skills,
+and recovers interrupted activation as one compatible local generation.
 
-Binary or npm-launcher activation, both official Skills, and profile config are
-one recoverable local generation. Standalone and npm activation share an outer
-activation lock, a delegated member-commit lock, and a durable active-generation
-record containing the semantic version, installation method, and immutable
-identity. One startup coordinator inspects
-both standalone and npm journals regardless of which launcher entered the
-process. Every ordinary command reconciles an interrupted outer journal before
-business logic; a recovered process whose version, method, or immutable identity
-changed must be restarted. The lock-internal generation fence rejects a late
-older updater. Every mutation entry repeats the same two-journal arbitration
-after it owns the activation lock and before any staging or network install, so
-a process paused after startup cannot introduce a second recovery protocol. The
-first phase also rejects switching between standalone and npm
-before any mutation; reinstall explicitly after removing the previous generation
-instead of mixing recovery protocols. Every Skills/config transaction holds or
-revalidates the same generation authority immediately before commit. npm child
-activation is bound to the exact committing journal by a one-time nonce and
-target version; its member lock prevents a parent crash from admitting a newer
-generation while the child still commits. A committed target is only cleaned up
-after a crash—it is never reapplied or rolled back. Private
-journals can therefore only restore the complete previous generation or finish
-the complete target generation. Installation commits after local Skill/version
-integrity checks; an unavailable active-profile API is reported as a warning so
-stale profile state cannot block an upgrade. `viceme doctor` remains the
-explicit network-readiness check before business commands.
-
-## First-phase implementation status
-
-The installation, device authorization, deterministic package upload, manual or
-suggested listing media, review confirmation, publication, cancellation, and
-terminal recovery paths are implemented. Local acceptance uses real Shop API,
-PostgreSQL, Redis, and S3-compatible storage. `make check`, npm package/cold-start
-tests, race tests, and Darwin/Linux/Windows amd64/arm64 builds pass. A real LLM
-provider sandbox remains an environment acceptance item; without credentials,
-analysis fails closed and the manual media path remains available.
-
-## Security boundaries
+## Security
 
 - Local packaging rejects path traversal, absolute paths, symlinks, special
   files, oversized content, sensitive files, and common secret patterns.
-- The API independently validates the immutable ZIP and object metadata.
-- Presigned upload URLs are never written to the pending-operation store.
-- LLM analysis receives only filtered text, metadata, and image thumbnails.
-- A publication cannot become public until the current review digest, price,
-  cover, and ordered gallery have been confirmed.
+- The API independently validates the immutable ZIP, digest, and object
+  metadata instead of trusting a client-reported result.
+- Credentials remain in the CLI's secure local store and are scoped to a
+  Profile and API origin; they are never part of Agent conversation state.
+- Presigned upload URLs are not written to the local pending-operation store.
+- Model analysis receives only filtered text, metadata, and image thumbnails.
+- Public publication requires the exact reviewed copy, price, cover, and
+  ordered gallery to be displayed and explicitly authorized.
 
 ## Development
 
@@ -289,6 +329,6 @@ make npm-package-check
 make release-manifest
 ```
 
-The CLI and `viceme-shared`, `viceme-publish`, and `viceme-checkout` Skills are versioned and released
-together. Release artifacts are published to GitHub, npm, `s3.viceme.cn`, and
-`s3.viceme.ai` from the same reviewed commit.
+The CLI and official Agent Skills, including `viceme-checkout`, are versioned
+and released together. GitHub, npm, `s3.viceme.cn`, and `s3.viceme.ai`
+artifacts come from the same reviewed commit.

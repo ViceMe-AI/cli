@@ -86,9 +86,13 @@ jobs:
             package.json \
             package-lock.json \
             internal/buildinfo/buildinfo.go \
-            skills/viceme-shared/skill-package.json \
-            skills/viceme-publish/skill-package.json \
+            skills/*/skill-package.json \
             quality/release-manifest.json
+          if ! git diff --quiet; then
+            echo "Release preparation left generated files unstaged:" >&2
+            git diff --name-only >&2
+            exit 1
+          fi
           if ! git diff --cached --quiet; then
             git commit --message "chore(release): ${TAG}"
             git push origin HEAD:dev
@@ -116,7 +120,7 @@ jobs:
             echo "The release preparation workflow automatically:"
             echo
             echo "- selected the semantic version from Conventional Commits;"
-            echo "- updated npm, Go, both bundled Skills, release digests, and compatibility metadata;"
+            echo "- updated npm, Go, all bundled Skills, release digests, and compatibility metadata;"
             echo "- generated \`CHANGELOG.md\`;"
             echo "- passed \`make check\` and \`make npm-package-check\`."
             echo "- committed the generated files to protected \`dev\` as the dedicated ViceMe Release App."

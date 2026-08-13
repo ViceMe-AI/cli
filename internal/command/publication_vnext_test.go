@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"io"
@@ -163,6 +164,89 @@ func TestSkillPublishRequiresLoginBeforeReadingOrCreatingLocalPublicationState(t
 	}
 	if _, err := os.Stat(filepath.Join(root, "config", "publications")); !os.IsNotExist(err) {
 		t.Fatalf("unauthenticated publication created recovery state before login: %v", err)
+	}
+}
+
+func TestPublicationWaitKeepsPollingWithoutAnotherUserConfirmation(t *testing.T) {
+	t.Parallel()
+	state := &publicationAPITestState{
+		publicationID: "22222222-2222-4222-8222-222222222222",
+		status:        "REVIEW_REQUIRED",
+		analysisPolls: 2,
+	}
+	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	defer server.Close()
+	state.baseURL = server.URL
+	root := t.TempDir()
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(server.URL, config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "vme_cli_test", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	sleeps := 0
+	exit := Execute([]string{"publication", "wait", state.publicationID, "--timeout", "1m", "--interval", "1s"}, Dependencies{
+		Out: &stdout, ErrOut: &stderr, Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Sleep:       func(context.Context, time.Duration) error { sleeps++; return nil },
+	})
+	if exit != 0 {
+		t.Fatalf("wait failed: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	analysis, _ := data["analysis"].(map[string]any)
+	if analysis["status"] != "SUCCEEDED" || sleeps != 2 {
+		t.Fatalf("wait did not converge automatically: sleeps=%d envelope=%#v", sleeps, envelope)
+	}
+}
+
+func TestPublicationWaitTimeoutPreservesThePublicationIdentity(t *testing.T) {
+	t.Parallel()
+	state := &publicationAPITestState{
+		publicationID: "22222222-2222-4222-8222-222222222222",
+		status:        "REVIEW_REQUIRED",
+		analysisPolls: 100,
+	}
+	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	defer server.Close()
+	state.baseURL = server.URL
+	root := t.TempDir()
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(server.URL, config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "vme_cli_test", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := Execute([]string{"publication", "wait", state.publicationID, "--timeout", "1ms", "--interval", "1s"}, Dependencies{
+		Out: &stdout, ErrOut: &stderr, Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Sleep:       func(ctx context.Context, _ time.Duration) error { <-ctx.Done(); return ctx.Err() },
+	})
+	if exit != output.ExitNetwork {
+		t.Fatalf("wait timeout used the wrong exit class: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	errorData, _ := envelope["error"].(map[string]any)
+	details, _ := errorData["details"].(map[string]any)
+	if errorData["code"] != "PUBLICATION_ANALYSIS_WAIT_TIMEOUT" || errorData["retryable"] != true || details["publicationId"] != state.publicationID {
+		t.Fatalf("timeout did not preserve safe resume identity: %#v", envelope)
 	}
 }
 
@@ -339,6 +423,7 @@ type publicationAPITestState struct {
 	mediaPutFailures         int
 	loseCompleteResponse     bool
 	uploadAuthorizationCalls int
+	analysisPolls            int
 }
 
 func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -440,6 +525,12 @@ func (state *publicationAPITestState) publication() api.SkillPublication {
 		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-media", Kind: "MEDIA", Status: "PENDING", FileName: state.mediaFileName, ContentType: state.mediaContentType, SizeBytes: state.mediaSizeBytes, Digest: state.mediaDigest, SortOrder: state.mediaSortOrder})
 	}
 	result := api.SkillPublication{ID: state.publicationID, Status: state.status, Manifest: state.manifest, Draft: state.draft, ReviewRevision: 1, ReviewDigest: &state.reviewDigest, Uploads: uploads}
+	if state.analysisPolls > 0 {
+		state.analysisPolls--
+		result.Analysis = &api.PublicationAnalysis{Status: "PENDING"}
+	} else if state.status == "REVIEW_REQUIRED" {
+		result.Analysis = &api.PublicationAnalysis{Status: "SUCCEEDED"}
+	}
 	if state.status == "PUBLISHED" {
 		result.Product = &api.PublishedProduct{ID: "33333333-3333-4333-8333-333333333333", Slug: "publish-test", DetailURL: "https://viceme.cn/zh-CN/share/publish-test", ReleaseID: "44444444-4444-4444-8444-444444444444"}
 	}
