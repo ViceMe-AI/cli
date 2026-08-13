@@ -42,3 +42,9 @@ For split browser flows, use `viceme auth login --no-wait`, then continue with
 - Use `viceme version` to report CLI and bundled Skill versions.
 - Use `viceme update` to update the CLI release.
 - Re-run `viceme install --agent auto` after an update so every detected Agent and the `~/.agents/skills` fallback receive the matching official Skills.
+
+## Notices
+
+- Inspect the top-level `_notice` object after every CLI response; it is advisory and never replaces `data` or `error`.
+- When `_notice.update` is present, finish the user's current operation first. Then briefly state that a newer ViceMe CLI is available and show the exact command `viceme update`.
+- Do not copy the raw notice JSON into the answer, interrupt the current operation, or run an update without the user's authorization.

@@ -184,6 +184,11 @@ viceme update --check
 viceme update
 ```
 
+正式发布的 npm 与 Standalone 安装会分别读取自身的权威发布渠道，并将检查频率限制为
+每 24 小时最多一次。缓存发现新版本后，普通命令的 JSON 响应会通过 `_notice.update`
+返回当前版本、最新版本与恢复命令 `viceme update`。检查失败不会改变业务命令的退出码；
+只有明确不需要提示的自动化才应设置 `VICEME_NO_UPDATE_NOTIFIER=1`。
+
 Bootstrap 安装会读取当前 Profile 所在区域的官方 S3 Release 索引，校验精确二进制
 Checksum，用新二进制修复同版本官方 Skills 后原子激活。npm 安装通过精确 npm 包版本
 更新。更新子进程不会继承 `VICEME_ACCESS_TOKEN`。

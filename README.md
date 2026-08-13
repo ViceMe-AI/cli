@@ -197,6 +197,13 @@ viceme update --check
 viceme update
 ```
 
+Released npm and standalone installations check their own authoritative release
+channel at most once every 24 hours. When a newer version is cached, normal JSON
+responses include `_notice.update` with the current version, latest version, and
+the recovery command `viceme update`. Discovery is fail-open and never changes
+the business command's exit code. Set `VICEME_NO_UPDATE_NOTIFIER=1` only for
+automation that intentionally suppresses this hint.
+
 Bootstrap installations read the selected region's official S3 release index,
 verify the exact binary checksum, refresh the matching official Skills, and
 activate the binary atomically. npm installations update through the exact npm
