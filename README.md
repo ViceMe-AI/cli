@@ -87,6 +87,9 @@ viceme auth login
 # Inspect without uploading anything.
 viceme skill inspect --path ./my-skill
 
+# Create or recover the stable private owner preview before pricing
+viceme skill listing prepare --path ./my-skill
+
 # Preview the exact package and CNY 1.00 price plan.
 viceme skill publish --path ./my-skill --price-minor 100 --dry-run
 ```
@@ -231,6 +234,9 @@ into the conversation.
 | `viceme auth status` | Show whether the active Profile is signed in. |
 | `viceme profile list` | Show Profiles and their effective API endpoints. |
 | `viceme skill inspect --path <path>` | Validate a local Skill without side effects. |
+| `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |
+| `viceme skill listing get <listing-id>` | Read the authoritative private Listing state. |
+| `viceme skill listing bind <listing-id> --path <path>` | Explicitly bind a source to a selected owned Listing. |
 | `viceme skill publish --path <path> --price-minor <fen> --dry-run` | Preview the exact deterministic package and price. |
 | `viceme skill publish --path <path> --price-minor <fen>` | Upload the package and start listing analysis. |
 | `viceme publication wait <id>` | Wait for background analysis without re-uploading. |

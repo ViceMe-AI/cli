@@ -80,6 +80,9 @@ viceme auth login
 # 只读校验，不上传任何内容。
 viceme skill inspect --path ./my-skill
 
+# 定价前先创建或恢复稳定的创作者私有预览
+viceme skill listing prepare --path ./my-skill
+
 # 预览确定性发布包与人民币 1 元的价格计划。
 viceme skill publish --path ./my-skill --price-minor 100 --dry-run
 ```
@@ -213,6 +216,9 @@ viceme auth login --device-code <device-code>
 | `viceme auth status` | 显示当前 Profile 是否已登录。 |
 | `viceme profile list` | 显示 Profile 及其实际 API Endpoint。 |
 | `viceme skill inspect --path <path>` | 无副作用校验本地 Skill。 |
+| `viceme skill listing prepare --path <path>` | 创建或恢复稳定的创作者私有预览，并保存本地绑定。 |
+| `viceme skill listing get <listing-id>` | 读取权威的私有 Listing 状态。 |
+| `viceme skill listing bind <listing-id> --path <path>` | 将来源明确绑定到用户选定且拥有的 Listing。 |
 | `viceme skill publish --path <path> --price-minor <fen> --dry-run` | 预览确定性发布包与价格。 |
 | `viceme skill publish --path <path> --price-minor <fen>` | 上传发布包并启动 Listing 分析。 |
 | `viceme publication wait <id>` | 等待后台分析，不重复上传。 |

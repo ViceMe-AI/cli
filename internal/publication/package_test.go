@@ -33,6 +33,11 @@ func TestBuildIsDeterministicAcrossDirectoryAndZip(t *testing.T) {
 	}
 	writeTestFile(t, filepath.Join(directory, "assets", "cover.png"), image, 0o644)
 	writeTestFile(t, filepath.Join(directory, ".git", "ignored"), []byte("ignored"), 0o644)
+	writeTestFile(t, filepath.Join(directory, ".viceme", "skill.json"), []byte(`{"binding":"local"}`), 0o600)
+	writeTestFile(t, filepath.Join(directory, "node_modules", "pkg", "index.js"), []byte("ignored"), 0o644)
+	writeTestFile(t, filepath.Join(directory, ".env.local"), []byte("TOKEN=ignored-locally"), 0o600)
+	writeTestFile(t, filepath.Join(directory, ".vicemeignore"), []byte("generated/**\n"), 0o644)
+	writeTestFile(t, filepath.Join(directory, "generated", "cache.json"), []byte("ignored"), 0o644)
 
 	first, err := Build(directory, 1)
 	if err != nil {
@@ -50,6 +55,9 @@ func TestBuildIsDeterministicAcrossDirectoryAndZip(t *testing.T) {
 	}
 	if len(first.Candidates) != 1 || first.Candidates[0].RelativePath != "assets/cover.png" {
 		t.Fatalf("unexpected image candidates: %#v", first.Candidates)
+	}
+	if first.FileCount != 3 {
+		t.Fatalf("workspace metadata, dependencies, environment, or ignored files entered the package: %#v", first)
 	}
 
 	zipPath := filepath.Join(t.TempDir(), "skill.zip")
@@ -136,7 +144,7 @@ func TestBuildDoesNotUnwrapAmbiguousOrNestedZipRoots(t *testing.T) {
 	}
 }
 
-func TestBuildRejectsForbiddenZipPathsAndSecrets(t *testing.T) {
+func TestBuildExcludesRuntimePathsAndRejectsSecrets(t *testing.T) {
 	t.Parallel()
 	forbidden := zipBytes(t, map[string][]byte{
 		"SKILL.md":              []byte(testSkillMarkdown),
@@ -144,7 +152,13 @@ func TestBuildRejectsForbiddenZipPathsAndSecrets(t *testing.T) {
 	})
 	forbiddenPath := filepath.Join(t.TempDir(), "forbidden.zip")
 	writeTestFile(t, forbiddenPath, forbidden, 0o644)
-	assertOutputCode(t, buildError(forbiddenPath), "SKILL_FORBIDDEN_PATH")
+	result, err := Build(forbiddenPath, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FileCount != 1 {
+		t.Fatalf("runtime dependency paths entered the canonical package: %#v", result)
+	}
 
 	directory := t.TempDir()
 	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte(testSkillMarkdown), 0o644)
