@@ -101,11 +101,14 @@ Every release renders `release/agent-install.md.tmpl` with the exact stable
 version. The same bytes are published as the immutable
 `cli/releases/vX.Y.Z/agent-install.md` object in both regions. Only the highest
 stable version updates the public root `agent-install.md`, `install.sh`, and
-`install.ps1` pointers. The release Manifest contains the six platform asset
+`install.ps1` pointers. The separate `agent-release-manifest.json` contains the six platform asset
 digests, bundled Skill digests, installer digests, and Sigstore verification
-identity. Its detached `release-manifest.sigstore.json` bundle is created with
+identity. Its detached `agent-release-manifest.sigstore.json` bundle is created with
 the Release Workflow's GitHub OIDC identity and verified before publication;
-recovery reuses an existing immutable bundle byte-for-byte.
+recovery reuses an existing immutable bundle byte-for-byte. A recovery tag
+that predates this contract keeps its original `release-manifest.json`
+unchanged and uses the trusted current workflow generator only to add the new
+Agent Manifest, signature bundle, and document.
 
 The publication job verifies both public origins after upload. It compares the
 versioned document, Manifest, and signature bundle with the release artifacts,

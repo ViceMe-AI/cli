@@ -6,8 +6,8 @@ const workflow = await readFile(".github/workflows/release.yml", "utf8");
 const template = await readFile("release/agent-install.md.tmpl", "utf8");
 
 test("publishes one exact signed Agent installation contract to both regions", () => {
-  assert.match(template, /cli\/releases\/v\{\{VERSION\}\}\/release-manifest\.json/);
-  assert.match(template, /release-manifest\.sigstore\.json/);
+  assert.match(template, /cli\/releases\/v\{\{VERSION\}\}\/agent-release-manifest\.json/);
+  assert.match(template, /agent-release-manifest\.sigstore\.json/);
   assert.match(template, /upload or publish any file without the user's confirmation/);
   assert.match(workflow, /cosign sign-blob --bundle/);
   assert.match(workflow, /cosign verify-blob/);

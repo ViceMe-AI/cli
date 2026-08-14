@@ -20,15 +20,15 @@ Use the region matching the document host:
 
 This document selects exactly `v{{VERSION}}`. Fetch these immutable files from the matching official origin:
 
-- `cli/releases/v{{VERSION}}/release-manifest.json`
-- `cli/releases/v{{VERSION}}/release-manifest.sigstore.json`
+- `cli/releases/v{{VERSION}}/agent-release-manifest.json`
+- `cli/releases/v{{VERSION}}/agent-release-manifest.sigstore.json`
 - `cli/releases/v{{VERSION}}/install.sh` on macOS or Linux
 - `cli/releases/v{{VERSION}}/install.ps1` on Windows
 
 The Manifest names the CLI version, official Skill versions, platform assets, SHA-256 digests, and detached Sigstore bundle. When `cosign` is available, verify the Manifest before running an installer:
 
 ```text
-cosign verify-blob --bundle release-manifest.sigstore.json --certificate-identity https://github.com/ViceMe-AI/cli/.github/workflows/release.yml@refs/heads/main --certificate-oidc-issuer https://token.actions.githubusercontent.com release-manifest.json
+cosign verify-blob --bundle agent-release-manifest.sigstore.json --certificate-identity https://github.com/ViceMe-AI/cli/.github/workflows/release.yml@refs/heads/main --certificate-oidc-issuer https://token.actions.githubusercontent.com agent-release-manifest.json
 ```
 
 If signature verification is attempted and fails, stop. Do not switch endpoint, region, Profile, installer, or download source. The versioned installer verifies the selected platform binary SHA-256 before activation. It activates the CLI and all official Skills as one generation; an activation failure keeps the previous complete generation.

@@ -67,7 +67,7 @@ func main() {
 	version := flag.String("version", "", "stable CLI version without v prefix")
 	sourcePath := flag.String("source", "quality/release-manifest.json", "generated source manifest")
 	distDir := flag.String("dist", "dist", "directory containing release binaries and checksums")
-	outputPath := flag.String("output", "dist/release-manifest.json", "signed manifest output")
+	outputPath := flag.String("output", "dist/agent-release-manifest.json", "signed manifest output")
 	flag.Parse()
 	if !stableReleaseVersion.MatchString(*version) {
 		fatalManifest("version must be a stable semantic version")
@@ -107,7 +107,7 @@ func buildManifest(version, sourcePath, distDir string) (signedManifest, error) 
 		}
 		artifacts = append(artifacts, artifact{
 			OS: item.os, Arch: item.arch, File: name, SHA256: "sha256:" + digest,
-			Signature: "release-manifest.sigstore.json",
+			Signature: "agent-release-manifest.sigstore.json",
 		})
 	}
 	return signedManifest{
@@ -115,7 +115,7 @@ func buildManifest(version, sourcePath, distDir string) (signedManifest, error) 
 		Skills: source.Skills, BootstrapContractDigest: source.BootstrapContractDigest,
 		InstallerDigests: source.InstallerDigests, Artifacts: artifacts,
 		Signature: signatureContract{
-			Format: "sigstore-bundle-v0.3", Bundle: "release-manifest.sigstore.json",
+			Format: "sigstore-bundle-v0.3", Bundle: "agent-release-manifest.sigstore.json",
 			CertificateIdentity: "https://github.com/ViceMe-AI/cli/.github/workflows/release.yml@refs/heads/main",
 			OIDCIssuer:          "https://token.actions.githubusercontent.com",
 		},

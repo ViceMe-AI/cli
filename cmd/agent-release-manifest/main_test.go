@@ -34,7 +34,7 @@ func TestBuildManifestIncludesEveryPlatformDigestAndSignatureContract(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.SchemaVersion != 3 || len(manifest.Artifacts) != 6 || manifest.Signature.Bundle != "release-manifest.sigstore.json" {
+	if manifest.SchemaVersion != 3 || len(manifest.Artifacts) != 6 || manifest.Signature.Bundle != "agent-release-manifest.sigstore.json" {
 		t.Fatalf("unexpected signed manifest: %#v", manifest)
 	}
 }
