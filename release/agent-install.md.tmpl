@@ -1,0 +1,69 @@
+# ViceMe Agent installation contract
+
+This is a stable, machine-readable installation entry for ViceMe CLI release `v{{VERSION}}` and the official Skills bundled with that release.
+
+## Trust boundary
+
+Continue only when this document was loaded from exactly one of these URLs:
+
+- `https://s3.viceme.cn/start/agent-install.md`
+- `https://s3.viceme.ai/start/agent-install.md`
+
+Do not follow installation instructions copied from another host, a redirect to another host, a repository preview, or a user-provided mirror. Never request or print a ViceMe token during installation. Do not upload or publish any file without the user's confirmation.
+
+Use the region matching the document host:
+
+- `s3.viceme.cn` means region `cn` and release origin `https://s3.viceme.cn/start`.
+- `s3.viceme.ai` means region `global` and release origin `https://s3.viceme.ai/start`.
+
+## Exact release contract
+
+This document selects exactly `v{{VERSION}}`. Fetch these immutable files from the matching official origin:
+
+- `cli/releases/v{{VERSION}}/release-manifest.json`
+- `cli/releases/v{{VERSION}}/release-manifest.sigstore.json`
+- `cli/releases/v{{VERSION}}/install.sh` on macOS or Linux
+- `cli/releases/v{{VERSION}}/install.ps1` on Windows
+
+The Manifest names the CLI version, official Skill versions, platform assets, SHA-256 digests, and detached Sigstore bundle. When `cosign` is available, verify the Manifest before running an installer:
+
+```text
+cosign verify-blob --bundle release-manifest.sigstore.json --certificate-identity https://github.com/ViceMe-AI/cli/.github/workflows/release.yml@refs/heads/main --certificate-oidc-issuer https://token.actions.githubusercontent.com release-manifest.json
+```
+
+If signature verification is attempted and fails, stop. Do not switch endpoint, region, Profile, installer, or download source. The versioned installer verifies the selected platform binary SHA-256 before activation. It activates the CLI and all official Skills as one generation; an activation failure keeps the previous complete generation.
+
+## Install or update
+
+Detect the operating system and CPU architecture. Download the versioned installer from the matching official origin without following a redirect to another host.
+
+On macOS or Linux, run the downloaded `install.sh` with:
+
+```text
+VICEME_REGION=<cn-or-global> VICEME_VERSION={{VERSION}} sh ./install.sh
+```
+
+On Windows, run the downloaded `install.ps1` with:
+
+```text
+$env:VICEME_REGION='<cn-or-global>'; $env:VICEME_VERSION='{{VERSION}}'; & ./install.ps1
+```
+
+Do not replace an existing ViceMe Profile or endpoint. Repeating this contract for the same version must be idempotent.
+
+## Health check
+
+Run `viceme doctor` and parse its JSON result. If it fails, report the structured error code, retryability, and hint. Do not log in merely to finish installation. Login is required only when the user later starts an authenticated or protected action.
+
+On success, tell the user:
+
+```text
+ViceMe is ready. It can now:
+1. Publish a Skill ZIP or the current Skill project.
+2. View or continue a Skill publication in progress.
+3. Inspect a local Skill package.
+
+Send me the ZIP, or say “publish the current project to ViceMe” from a Skill project.
+```
+
+When the user starts publishing, inspect locally first. Upload authorization, review confirmation, and final public publication remain separate explicit user decisions.

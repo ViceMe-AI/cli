@@ -206,11 +206,70 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+  release-contract:
+    name: Signed agent installation contract
+    needs:
+      - metadata
+      - binaries
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: binaries-*
+          merge-multiple: true
+          path: dist
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+      - name: Assemble exact-version agent installation contract
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+        run: |
+          cp installers/install.sh dist/install.sh
+          cp installers/install.ps1 dist/install.ps1
+          cp release/bootstrap-contract.json dist/bootstrap-contract.json
+          go run ./cmd/agent-release-manifest --version "${VERSION}"
+          go run ./cmd/agent-install-doc --version "${VERSION}"
+      - name: Sign or recover the immutable release Manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          RECOVERY: ${{ needs.metadata.outputs.recovery }}
+          COSIGN_YES: "true"
+        run: |
+          if [[ "${RECOVERY}" == "true" ]] && \
+            gh release download "${TAG}" --pattern release-manifest.sigstore.json --dir dist; then
+            echo "Recovered the existing immutable Sigstore bundle"
+          else
+            cosign sign-blob --bundle dist/release-manifest.sigstore.json dist/release-manifest.json
+          fi
+          cosign verify-blob \
+            --bundle dist/release-manifest.sigstore.json \
+            --certificate-identity 'https://github.com/ViceMe-AI/cli/.github/workflows/release.yml@refs/heads/main' \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            dist/release-manifest.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-contract
+          path: |
+            dist/agent-install.md
+            dist/bootstrap-contract.json
+            dist/install.ps1
+            dist/install.sh
+            dist/release-manifest.json
+            dist/release-manifest.sigstore.json
+          if-no-files-found: error
+
   github-release:
     name: GitHub Release
     needs:
       - metadata
       - binaries
+      - release-contract
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -222,6 +281,10 @@ jobs:
         with:
           pattern: binaries-*
           merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-contract
           path: dist
       - name: Verify complete launcher asset contract
         env:
@@ -236,10 +299,6 @@ jobs:
             test -f "dist/viceme_${VERSION}_${TARGET}.exe.sha256"
           done
           test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 12
-          cp installers/install.sh dist/install.sh
-          cp installers/install.ps1 dist/install.ps1
-          cp release/bootstrap-contract.json dist/bootstrap-contract.json
-          cp quality/release-manifest.json dist/release-manifest.json
       - name: Publish or verify the immutable GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -284,7 +343,7 @@ jobs:
           rm -rf verified-release
           mkdir -p verified-release
           gh release download "${TAG}" --dir verified-release
-          test "$(find verified-release -maxdepth 1 -type f | wc -l)" -eq 16
+          test "$(find verified-release -maxdepth 1 -type f | wc -l)" -eq 18
           for FILE in dist/*; do
             NAME="${FILE#dist/}"
             cmp --silent "${FILE}" "verified-release/${NAME}"
@@ -351,6 +410,7 @@ jobs:
     needs:
       - metadata
       - github-release
+      - release-contract
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -363,12 +423,10 @@ jobs:
           pattern: binaries-*
           merge-multiple: true
           path: dist
-      - name: Assemble bootstrap release contract
-        run: |
-          cp installers/install.sh dist/install.sh
-          cp installers/install.ps1 dist/install.ps1
-          cp release/bootstrap-contract.json dist/bootstrap-contract.json
-          cp quality/release-manifest.json dist/release-manifest.json
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-contract
+          path: dist
       - name: Publish immutable release and monotonic latest pointers
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
@@ -390,7 +448,7 @@ jobs:
         run: |
           set -euo pipefail
           publish_region() {
-            local ENDPOINT="$1" BUCKET="$2" ACCESS_KEY="$3" SECRET_KEY="$4" LABEL="$5"
+            local ENDPOINT="$1" BUCKET="$2" ACCESS_KEY="$3" SECRET_KEY="$4" LABEL="$5" PUBLIC_ORIGIN="$6"
             test -n "${ENDPOINT}" && test -n "${BUCKET}" && test -n "${ACCESS_KEY}" && test -n "${SECRET_KEY}"
             export AWS_ACCESS_KEY_ID="${ACCESS_KEY}"
             export AWS_SECRET_ACCESS_KEY="${SECRET_KEY}"
@@ -425,16 +483,43 @@ jobs:
               printf '%s\n' "${VERSION}" >"${SCRATCH}/new-latest"
               aws --endpoint-url "${ENDPOINT}" s3 cp "${SCRATCH}/new-latest" "s3://${BUCKET}/${PREFIX}/latest" \
                 --content-type text/plain --cache-control 'public,max-age=60' --only-show-errors
-              for FILE in install.sh install.ps1 bootstrap-contract.json release-manifest.json; do
+              for FILE in install.sh install.ps1 bootstrap-contract.json release-manifest.json release-manifest.sigstore.json agent-install.md; do
                 aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${PREFIX}/${FILE}" \
                   --cache-control 'public,max-age=300' --only-show-errors
               done
               # These files stay at the public start bucket root while the scripts
               # resolve immutable artifacts below cli/releases/v{version}.
-              for FILE in install.sh install.ps1; do
+              for FILE in install.sh install.ps1 agent-install.md; do
                 aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${FILE}" \
                   --cache-control 'public,max-age=300' --only-show-errors
               done
+            fi
+
+            aws --endpoint-url "${ENDPOINT}" s3 cp "dist/agent-install.md" "s3://${BUCKET}/policy-probe/${GITHUB_RUN_ID}" \
+              --cache-control 'private,no-store' --only-show-errors
+            local PROBE_STATUS
+            PROBE_STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' \
+              "${PUBLIC_ORIGIN}/policy-probe/${GITHUB_RUN_ID}" || true)"
+            aws --endpoint-url "${ENDPOINT}" s3 rm "s3://${BUCKET}/policy-probe/${GITHUB_RUN_ID}" --only-show-errors
+            test "${PROBE_STATUS}" != "200"
+            test "$(curl --silent --output /dev/null --write-out '%{http_code}' "${PUBLIC_ORIGIN}/?list-type=2")" != "200"
+
+            curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/agent-install.md" \
+              --output "${SCRATCH}/agent-install.md"
+            cmp --silent dist/agent-install.md "${SCRATCH}/agent-install.md"
+            curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/release-manifest.json" \
+              --output "${SCRATCH}/release-manifest.json"
+            cmp --silent dist/release-manifest.json "${SCRATCH}/release-manifest.json"
+            curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/release-manifest.sigstore.json" \
+              --output "${SCRATCH}/release-manifest.sigstore.json"
+            cmp --silent dist/release-manifest.sigstore.json "${SCRATCH}/release-manifest.sigstore.json"
+            curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/agent-install.md" \
+              | grep -i '^cache-control:.*max-age=31536000.*immutable'
+            if [[ "${HIGHEST}" == "${VERSION}" ]]; then
+              curl --fail --silent --show-error "${PUBLIC_ORIGIN}/agent-install.md" --output "${SCRATCH}/root-agent-install.md"
+              cmp --silent dist/agent-install.md "${SCRATCH}/root-agent-install.md"
+              curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/agent-install.md" \
+                | grep -i '^cache-control:.*max-age=300'
             fi
             echo "Published ${LABEL} release v${VERSION}"
           }
@@ -443,9 +528,19 @@ jobs:
           (
             export HTTPS_PROXY="${CN_S3_HTTPS_PROXY}"
             export https_proxy="${CN_S3_HTTPS_PROXY}"
-            publish_region "${CN_ENDPOINT}" "${CN_BUCKET}" "${CN_ACCESS_KEY_ID}" "${CN_SECRET_ACCESS_KEY}" CN
+            publish_region "${CN_ENDPOINT}" "${CN_BUCKET}" "${CN_ACCESS_KEY_ID}" "${CN_SECRET_ACCESS_KEY}" CN 'https://s3.viceme.cn/start'
           )
-          publish_region "${GLOBAL_ENDPOINT}" "${GLOBAL_BUCKET}" "${GLOBAL_ACCESS_KEY_ID}" "${GLOBAL_SECRET_ACCESS_KEY}" GLOBAL
+          publish_region "${GLOBAL_ENDPOINT}" "${GLOBAL_BUCKET}" "${GLOBAL_ACCESS_KEY_ID}" "${GLOBAL_SECRET_ACCESS_KEY}" GLOBAL 'https://s3.viceme.ai/start'
+
+          VERIFY_DIR="$(mktemp -d)"
+          trap 'rm -rf "${VERIFY_DIR}"' EXIT
+          (
+            export HTTPS_PROXY="${CN_S3_HTTPS_PROXY}"
+            export https_proxy="${CN_S3_HTTPS_PROXY}"
+            curl --fail --silent --show-error 'https://s3.viceme.cn/start/agent-install.md' --output "${VERIFY_DIR}/cn-agent-install.md"
+          )
+          curl --fail --silent --show-error 'https://s3.viceme.ai/start/agent-install.md' --output "${VERIFY_DIR}/global-agent-install.md"
+          cmp --silent "${VERIFY_DIR}/cn-agent-install.md" "${VERIFY_DIR}/global-agent-install.md"
 
   notify:
     name: Feishu release notification
