@@ -542,20 +542,14 @@ jobs:
           }
 
           test -n "${CN_S3_HTTPS_PROXY}"
-          (
-            export HTTPS_PROXY="${CN_S3_HTTPS_PROXY}"
-            export https_proxy="${CN_S3_HTTPS_PROXY}"
+          HTTPS_PROXY="${CN_S3_HTTPS_PROXY}" https_proxy="${CN_S3_HTTPS_PROXY}" \
             publish_region "${CN_ENDPOINT}" "${CN_BUCKET}" "${CN_ACCESS_KEY_ID}" "${CN_SECRET_ACCESS_KEY}" CN 'https://s3.viceme.cn/start'
-          )
           publish_region "${GLOBAL_ENDPOINT}" "${GLOBAL_BUCKET}" "${GLOBAL_ACCESS_KEY_ID}" "${GLOBAL_SECRET_ACCESS_KEY}" GLOBAL 'https://s3.viceme.ai/start'
 
           VERIFY_DIR="$(mktemp -d)"
           trap 'rm -rf "${VERIFY_DIR}"' EXIT
-          (
-            export HTTPS_PROXY="${CN_S3_HTTPS_PROXY}"
-            export https_proxy="${CN_S3_HTTPS_PROXY}"
+          HTTPS_PROXY="${CN_S3_HTTPS_PROXY}" https_proxy="${CN_S3_HTTPS_PROXY}" \
             curl --fail --silent --show-error 'https://s3.viceme.cn/start/agent-install.md' --output "${VERIFY_DIR}/cn-agent-install.md"
-          )
           curl --fail --silent --show-error 'https://s3.viceme.ai/start/agent-install.md' --output "${VERIFY_DIR}/global-agent-install.md"
           cmp --silent "${VERIFY_DIR}/cn-agent-install.md" "${VERIFY_DIR}/global-agent-install.md"
 
