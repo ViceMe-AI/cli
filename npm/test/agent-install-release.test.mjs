@@ -19,6 +19,29 @@ test("publishes one exact signed Agent installation contract to both regions", (
   assert.match(workflow, /cmp --silent .*cn-agent-install\.md.*global-agent-install\.md/);
 });
 
+test("runs trusted recovery generators as source files outside the release module", () => {
+  assert.match(
+    workflow,
+    /go run \.\/\.release-workflow\/cmd\/agent-release-manifest\/main\.go --version/,
+  );
+  assert.match(
+    workflow,
+    /go run \.\/\.release-workflow\/cmd\/agent-install-doc\/main\.go --version/,
+  );
+  assert.doesNotMatch(
+    workflow,
+    /go run \.\/\.release-workflow\/cmd\/agent-(?:release-manifest|install-doc) --version/,
+  );
+});
+
+test("recovery can create a missing GitHub Release after an earlier job failed", () => {
+  assert.match(
+    workflow,
+    /if \[\[ "\$\{RECOVERY\}" == "true" \]\] && gh release view "\$\{TAG\}" >\/dev\/null 2>&1; then/,
+  );
+  assert.match(workflow, /gh release create "\$\{TAG\}" dist\/\* --verify-tag/);
+});
+
 test("gates S3 publication through the cdn environment", () => {
   const start = workflow.indexOf("\n  s3-publication:\n");
   const end = workflow.indexOf("\n  notify:\n", start);
