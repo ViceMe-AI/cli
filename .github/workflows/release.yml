@@ -85,7 +85,7 @@ jobs:
             echo "immutable tag ${TAG} already points to ${EXISTING_SHA}, not ${SHA}" >&2
             exit 1
           fi
-          if [[ "${RECOVERY}" == "true" ]]; then
+          if [[ "${RECOVERY}" == "true" ]] && gh release view "${TAG}" >/dev/null 2>&1; then
             test "$(gh release view "${TAG}" --json isDraft --jq .isDraft)" = "false"
           fi
 
@@ -240,8 +240,8 @@ jobs:
           cp installers/install.ps1 dist/install.ps1
           cp release/bootstrap-contract.json dist/bootstrap-contract.json
           cp quality/release-manifest.json dist/release-manifest.json
-          go run ./.release-workflow/cmd/agent-release-manifest --version "${VERSION}"
-          go run ./.release-workflow/cmd/agent-install-doc --version "${VERSION}" \
+          go run ./.release-workflow/cmd/agent-release-manifest/main.go --version "${VERSION}"
+          go run ./.release-workflow/cmd/agent-install-doc/main.go --version "${VERSION}" \
             --template .release-workflow/release/agent-install.md.tmpl
       - name: Sign or recover the immutable release Manifest
         env:

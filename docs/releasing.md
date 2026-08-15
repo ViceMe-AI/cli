@@ -157,9 +157,13 @@ must have the same registry integrity as the locally packed artifact; otherwise
 the workflow fails closed. A rerun of an older version cannot move the npm
 `latest` tag behind a newer release.
 
-If the tag and GitHub Release succeeded but npm publication did not, a
-maintainer may manually dispatch `CLI release publication` with that exact
-stable tag. Recovery refuses missing tags, version mismatches, draft or missing
-GitHub Releases, changed release assets, and npm integrity mismatches. It cannot
-create a new release identity. Normal production releases still originate only
-from merging the repository-owned `dev` Release PR into `main`.
+If a publication failed after creating the immutable tag, a maintainer may
+manually dispatch `CLI release publication` with that exact stable tag. This
+also covers failures before the GitHub Release was created: recovery may create
+the missing Release from regenerated and verified artifacts. If the Release
+already exists, it must be non-draft and every existing asset must match
+byte-for-byte before a missing asset is uploaded. Recovery still refuses
+missing tags, version mismatches, changed release assets, and npm integrity
+mismatches. It cannot create a new release identity. Normal production releases
+still originate only from merging the repository-owned `dev` Release PR into
+`main`.
