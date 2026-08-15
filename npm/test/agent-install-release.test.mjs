@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const workflow = await readFile(".github/workflows/release.yml", "utf8");
+const workflow = (await readFile(".github/workflows/release.yml", "utf8")).replaceAll(
+  "\r\n",
+  "\n",
+);
 const template = await readFile("release/agent-install.md.tmpl", "utf8");
 
 test("publishes one exact signed Agent installation contract to both regions", () => {
@@ -14,6 +17,14 @@ test("publishes one exact signed Agent installation contract to both regions", (
   assert.match(workflow, /s3\.viceme\.cn\/start\/agent-install\.md/);
   assert.match(workflow, /s3\.viceme\.ai\/start\/agent-install\.md/);
   assert.match(workflow, /cmp --silent .*cn-agent-install\.md.*global-agent-install\.md/);
+});
+
+test("gates S3 publication through the cdn environment", () => {
+  const start = workflow.indexOf("\n  s3-publication:\n");
+  const end = workflow.indexOf("\n  notify:\n", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  assert.match(workflow.slice(start, end), /^    environment: cdn$/m);
 });
 
 test("keeps the start bucket anonymous read policy narrow and cache-aware", () => {
