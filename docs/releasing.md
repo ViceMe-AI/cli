@@ -31,7 +31,9 @@ files, create tags, write changelog entries, or run npm commands locally.
    repository-owned `dev` to `main` PR, then tags the exact reviewed `dev`
    head, reruns the quality gates, builds six platform binaries and six
    checksums, creates the GitHub Release, bundles those exact checksums into
-   the npm launcher, publishes it, and then sends an
+   the npm launcher, signs the exact-version Agent installation Manifest with
+   GitHub OIDC, publishes the identical installation contract to the CN and
+   Global `start` buckets, publishes npm, and then sends an
    AI-generated release summary to the release notification group in Feishu.
 
 ## One-time repository setup
@@ -94,6 +96,28 @@ S3 itself. The publication job sets AWS CLI request and response checksum
 calculation to `WHEN_REQUIRED`: immutable artifacts are still compared
 byte-for-byte on recovery, while optional AWS streaming checksum trailers that
 the origins do not implement are not sent.
+
+Every release renders `release/agent-install.md.tmpl` with the exact stable
+version. The same bytes are published as the immutable
+`cli/releases/vX.Y.Z/agent-install.md` object in both regions. Only the highest
+stable version updates the public root `agent-install.md`, `install.sh`, and
+`install.ps1` pointers. The separate `agent-release-manifest.json` contains the six platform asset
+digests, bundled Skill digests, installer digests, and Sigstore verification
+identity. Its detached `agent-release-manifest.sigstore.json` bundle is created with
+the Release Workflow's GitHub OIDC identity and verified before publication;
+recovery reuses an existing immutable bundle byte-for-byte. A recovery tag
+that predates this contract keeps its original `release-manifest.json`
+unchanged and uses the trusted current workflow generator only to add the new
+Agent Manifest, signature bundle, and document.
+
+The publication job verifies both public origins after upload. It compares the
+versioned document, Manifest, and signature bundle with the release artifacts,
+checks immutable and root cache policies, compares the CN and Global root
+documents, and proves that an uploaded object outside the installation
+allowlist is not anonymously readable. Anonymous bucket listing must also stay
+disabled. The allowlist is limited to `agent-install.md`, the existing root
+installers, and the versioned `cli/releases` installation objects; Skill ZIPs,
+user uploads, and business media never belong in this bucket or policy.
 
 Configure the repository secret `CN_S3_HTTPS_PROXY` with the authenticated
 HTTPS forward-proxy URL used by GitHub Actions to reach the CN S3 endpoint.

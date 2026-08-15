@@ -82,12 +82,15 @@ type CreateSkillPublicationRequest struct {
 	Manifest           SkillPublicationManifest `json:"manifest"`
 	ManifestDigest     string                   `json:"manifestDigest"`
 	Artifact           SkillPublicationFile     `json:"artifact"`
+	ListingID          string                   `json:"listingId,omitempty"`
 	ProductID          string                   `json:"productId,omitempty"`
 	CreatorDisplayName string                   `json:"creatorDisplayName,omitempty"`
 }
 
 type CreateSkillPublicationResponse struct {
 	PublicationID string               `json:"publicationId"`
+	ListingID     string               `json:"listingId"`
+	DraftRevision int                  `json:"draftRevision"`
 	Status        string               `json:"status"`
 	PackageUpload *UploadAuthorization `json:"packageUpload"`
 }
@@ -165,6 +168,8 @@ type PublishedProduct struct {
 
 type SkillPublication struct {
 	ID             string                   `json:"id"`
+	ListingID      string                   `json:"listingId"`
+	DraftRevision  int                      `json:"draftRevision"`
 	Status         string                   `json:"status"`
 	Manifest       SkillPublicationManifest `json:"manifest"`
 	Draft          SkillPublicationDraft    `json:"draft"`
@@ -176,6 +181,77 @@ type SkillPublication struct {
 	FailureCode    *string                  `json:"failureCode"`
 	CreatedAt      string                   `json:"createdAt"`
 	UpdatedAt      string                   `json:"updatedAt"`
+}
+
+type PrepareSkillListingRequest struct {
+	ClientRequestID string                    `json:"clientRequestId"`
+	Market          string                    `json:"market"`
+	Source          PrepareSkillListingSource `json:"source"`
+	Resolution      *SkillListingResolution   `json:"resolution,omitempty"`
+}
+
+type PrepareSkillListingSource struct {
+	Type           string  `json:"type"`
+	ClientWorkID   string  `json:"clientWorkId"`
+	BindingReceipt *string `json:"bindingReceipt"`
+	PackageDigest  string  `json:"packageDigest"`
+	DisplayName    string  `json:"displayName"`
+}
+
+type SkillListingResolution struct {
+	Mode      string `json:"mode"`
+	ListingID string `json:"listingId,omitempty"`
+}
+
+type SkillListingPreviewViewModel struct {
+	SchemaVersion string  `json:"schemaVersion"`
+	ListingID     string  `json:"listingId"`
+	DraftRevision int     `json:"draftRevision"`
+	State         string  `json:"state"`
+	Title         *string `json:"title"`
+	ThumbnailURL  *string `json:"thumbnailUrl"`
+	FallbackURL   string  `json:"fallbackUrl"`
+}
+
+type PrepareSkillListingResponse struct {
+	ListingID       string                       `json:"listingId"`
+	Status          string                       `json:"status"`
+	DraftRevision   int                          `json:"draftRevision"`
+	OwnerPreviewURL string                       `json:"ownerPreviewUrl"`
+	BindingReceipt  string                       `json:"bindingReceipt"`
+	Resolution      string                       `json:"resolution"`
+	Preview         SkillListingPreviewViewModel `json:"preview"`
+	NextActions     []string                     `json:"nextActions"`
+}
+
+type SkillListingCandidatesRequest struct {
+	Market        string `json:"market"`
+	PackageDigest string `json:"packageDigest"`
+}
+
+type SkillListingCandidate struct {
+	ListingID       string  `json:"listingId"`
+	Title           *string `json:"title"`
+	UpdatedAt       string  `json:"updatedAt"`
+	OwnerPreviewURL string  `json:"ownerPreviewUrl"`
+}
+
+type SkillListingCandidatesResponse struct {
+	Candidates []SkillListingCandidate `json:"candidates"`
+}
+
+type SkillListingPublicationPreview struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
+type SkillListingPreview struct {
+	ListingID     string                          `json:"listingId"`
+	Status        string                          `json:"status"`
+	DraftRevision int                             `json:"draftRevision"`
+	Publication   *SkillListingPublicationPreview `json:"publication"`
+	PublicURL     *string                         `json:"publicUrl"`
+	Preview       SkillListingPreviewViewModel    `json:"preview"`
 }
 
 type ReviewDigestRequest struct {
