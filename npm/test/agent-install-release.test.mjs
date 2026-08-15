@@ -16,6 +16,14 @@ test("publishes one exact signed Agent installation contract to both regions", (
   assert.match(workflow, /cmp --silent .*cn-agent-install\.md.*global-agent-install\.md/);
 });
 
+test("gates S3 publication through the cdn environment", () => {
+  const start = workflow.indexOf("\n  s3-publication:\n");
+  const end = workflow.indexOf("\n  notify:\n", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  assert.match(workflow.slice(start, end), /^    environment: cdn$/m);
+});
+
 test("keeps the start bucket anonymous read policy narrow and cache-aware", () => {
   assert.match(workflow, /policy-probe\/\$\{GITHUB_RUN_ID\}/);
   assert.match(workflow, /test "\$\{PROBE_STATUS\}" != "200"/);
