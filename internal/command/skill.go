@@ -19,10 +19,93 @@ type inspectResult struct {
 	PriceConfirmed bool `json:"priceConfirmed"`
 }
 
+type listingPrepareResult struct {
+	api.PrepareSkillListingResponse
+	SourceType             string `json:"sourceType"`
+	SourcePath             string `json:"sourcePath"`
+	CanonicalPackageDigest string `json:"canonicalPackageDigest"`
+	RequiresPrice          bool   `json:"requiresPrice"`
+}
+
 func newSkillCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "skill", Short: "Inspect and publish a local Skill"}
 	command.AddCommand(newSkillInspectCommand(runtime))
+	command.AddCommand(newSkillListingCommand(runtime))
 	command.AddCommand(newSkillPublishCommand(runtime))
+	return command
+}
+
+func newSkillListingCommand(runtime *Runtime) *cobra.Command {
+	command := &cobra.Command{Use: "listing", Short: "Prepare and recover a stable Skill listing"}
+	command.AddCommand(newSkillListingPrepareCommand(runtime))
+	command.AddCommand(newSkillListingGetCommand(runtime))
+	command.AddCommand(newSkillListingBindCommand(runtime))
+	return command
+}
+
+func newSkillListingPrepareCommand(runtime *Runtime) *cobra.Command {
+	var source string
+	var forceNew bool
+	command := &cobra.Command{
+		Use: "prepare", Short: "Create or recover the private owner preview for a Skill source", Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			pkg, err := publication.Build(source, 0)
+			if err != nil {
+				return err
+			}
+			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+				return err
+			}
+			prepared, _, err := prepareSkillListing(command.Context(), runtime, pkg, forceNew, "")
+			if err != nil {
+				return err
+			}
+			return runtime.business(prepared)
+		},
+	}
+	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
+	command.Flags().BoolVar(&forceNew, "new-listing", false, "explicitly create a separate Listing even when content matches")
+	_ = command.MarkFlagRequired("path")
+	return command
+}
+
+func newSkillListingGetCommand(runtime *Runtime) *cobra.Command {
+	return &cobra.Command{
+		Use: "get <listing-id>", Short: "Get the authoritative private preview state", Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+				return err
+			}
+			result, err := runtime.client().GetSkillListingPreview(command.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
+		},
+	}
+}
+
+func newSkillListingBindCommand(runtime *Runtime) *cobra.Command {
+	var source string
+	command := &cobra.Command{
+		Use: "bind <listing-id>", Short: "Explicitly bind a ZIP or workspace to an owned Listing", Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			pkg, err := publication.Build(source, 0)
+			if err != nil {
+				return err
+			}
+			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+				return err
+			}
+			prepared, _, err := prepareSkillListing(command.Context(), runtime, pkg, true, args[0])
+			if err != nil {
+				return err
+			}
+			return runtime.business(prepared)
+		},
+	}
+	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
+	_ = command.MarkFlagRequired("path")
 	return command
 }
 
@@ -50,6 +133,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	var productID string
 	var creatorDisplayName string
 	var dryRun bool
+	var forceNew bool
 	command := &cobra.Command{
 		Use: "publish", Short: "Upload a Skill and prepare its listing for explicit review", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
@@ -61,11 +145,6 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			}
 			if dryRun && resume != "" {
 				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--dry-run cannot be combined with --resume")
-			}
-			if !dryRun {
-				if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
-					return err
-				}
 			}
 			store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
 			if resume != "" {
@@ -80,20 +159,32 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if pkg.Artifact.Digest != pending.ArtifactDigest {
 					return output.Validation("PUBLICATION_SOURCE_CHANGED", "local Skill source changed after the publication started").WithHint("restore the original source or start a new publication")
 				}
+				if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+					return err
+				}
 				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil)
 			}
-			if !command.Flags().Changed("price-minor") {
-				return output.Confirmation("SKILL_PRICE_CONFIRMATION_REQUIRED", "provide the explicitly confirmed CNY price using --price-minor")
-			}
+			priceConfirmed := command.Flags().Changed("price-minor")
 			pkg, err := publication.Build(source, priceMinor)
 			if err != nil {
 				return err
 			}
 			if dryRun {
-				return runtime.business(inspectResult{Package: pkg, PriceConfirmed: true})
+				return runtime.business(inspectResult{Package: pkg, PriceConfirmed: priceConfirmed})
+			}
+			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+				return err
+			}
+			prepared, _, err := prepareSkillListing(command.Context(), runtime, pkg, forceNew, "")
+			if err != nil {
+				return err
+			}
+			if !priceConfirmed {
+				prepared.RequiresPrice = true
+				return runtime.business(prepared)
 			}
 			fingerprint := fmt.Sprintf("%x", sha256.Sum256([]byte(
-				runtime.profile.ID+"\x00"+pkg.SourcePath+"\x00"+pkg.Artifact.Digest+"\x00"+pkg.Digest+"\x00"+
+				runtime.profile.ID+"\x00"+prepared.ListingID+"\x00"+pkg.Artifact.Digest+"\x00"+pkg.Digest+"\x00"+
 					fmt.Sprintf("%d", priceMinor)+"\x00"+productID+"\x00"+creatorDisplayName+"\x00"+buildinfo.Version,
 			)))
 			intent, err := store.LoadOrCreateIntent(fingerprint, runtime.deps.NewID)
@@ -113,11 +204,18 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			}
 			created, err := runtime.client().CreateSkillPublication(command.Context(), api.CreateSkillPublicationRequest{
 				ClientRequestID: intent.ClientRequestID, ContractVersion: "2026-08-11", CLIVersion: buildinfo.Version,
-				Manifest: pkg.Manifest, ManifestDigest: pkg.Digest, Artifact: pkg.Artifact,
+				Manifest: pkg.Manifest, ManifestDigest: pkg.Digest, Artifact: pkg.Artifact, ListingID: prepared.ListingID,
 				ProductID: productID, CreatorDisplayName: creatorDisplayName,
 			})
 			if err != nil {
-				return err
+				if output.AsError(err).Subtype != "SKILL_PUBLICATION_ALREADY_ACTIVE" {
+					return err
+				}
+				preview, previewErr := runtime.client().GetSkillListingPreview(command.Context(), prepared.ListingID)
+				if previewErr != nil || preview.Publication == nil {
+					return err
+				}
+				created = api.CreateSkillPublicationResponse{PublicationID: preview.Publication.ID, ListingID: prepared.ListingID, DraftRevision: preview.DraftRevision, Status: preview.Publication.Status}
 			}
 			intent.PublicationID = created.PublicationID
 			if err := store.SaveIntent(intent); err != nil {
@@ -140,7 +238,81 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&productID, "product-id", "", "update an owned product instead of creating one")
 	command.Flags().StringVar(&creatorDisplayName, "creator-display-name", "", "creator display name used when the account has none")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "validate and show the deterministic plan without network writes")
+	command.Flags().BoolVar(&forceNew, "new-listing", false, "explicitly create a separate Listing even when content matches")
 	return command
+}
+
+func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.Package, forceNew bool, targetListingID string) (listingPrepareResult, publication.ResolvedSourceIdentity, error) {
+	sourceType, sourcePath, err := publication.SourceType(pkg.SourcePath)
+	if err != nil {
+		return listingPrepareResult{}, publication.ResolvedSourceIdentity{}, err
+	}
+	origin, err := api.NormalizeAPIOrigin(runtime.apiBaseURL)
+	if err != nil {
+		return listingPrepareResult{}, publication.ResolvedSourceIdentity{}, output.Internal("SKILL_BINDING_SCOPE_INVALID", "could not normalize the current API endpoint", err)
+	}
+	market := "CN"
+	if runtime.profile.Region == "global" {
+		market = "GLOBAL"
+	}
+	store := publication.BindingStore{Directory: filepath.Join(runtime.configBase, "skill-bindings"), EndpointOrigin: origin, Market: market, Now: runtime.deps.Now}
+	resolution := ""
+	if targetListingID != "" {
+		resolution = "BIND_EXISTING:" + targetListingID
+	} else if forceNew {
+		resolution = "CREATE_NEW"
+	}
+	identity, err := store.ResolveOrCreate(sourcePath, sourceType, pkg.Artifact.Digest, resolution, runtime.deps.NewID)
+	if err != nil {
+		return listingPrepareResult{}, identity, err
+	}
+	var receipt *string
+	if identity.Binding != nil {
+		receipt = &identity.Binding.BindingReceipt
+	}
+	request := api.PrepareSkillListingRequest{
+		ClientRequestID: identity.ClientRequestID,
+		Market:          market,
+		Source: api.PrepareSkillListingSource{
+			Type: sourceType, ClientWorkID: identity.ClientWorkID, BindingReceipt: receipt,
+			PackageDigest: pkg.Artifact.Digest, DisplayName: pkg.Manifest.Metadata.Title,
+		},
+	}
+	if targetListingID != "" {
+		request.Resolution = &api.SkillListingResolution{Mode: "BIND_EXISTING", ListingID: targetListingID}
+	} else if forceNew {
+		request.Resolution = &api.SkillListingResolution{Mode: "CREATE_NEW"}
+	}
+	response, err := runtime.client().PrepareSkillListing(ctx, request)
+	if err != nil {
+		cliErr := output.AsError(err)
+		if cliErr.Subtype == "SKILL_LISTING_SOURCE_AMBIGUOUS" {
+			candidates, candidateErr := runtime.client().ListSkillListingCandidates(ctx, api.SkillListingCandidatesRequest{
+				Market: market, PackageDigest: pkg.Artifact.Digest,
+			})
+			if candidateErr == nil {
+				enriched := output.Validation(
+					"SKILL_LISTING_SOURCE_AMBIGUOUS",
+					"multiple owned Skill listings match this package; choose the intended Listing explicitly",
+				).WithDetails(map[string]any{"candidates": candidates.Candidates}).WithHint(
+					"run 'viceme skill listing bind <listing-id> --path <source>' with one candidate, or retry with --new-listing for a separate work",
+				).WithCause(err)
+				enriched.RequestID = cliErr.RequestID
+				return listingPrepareResult{}, identity, enriched
+			}
+		}
+		return listingPrepareResult{}, identity, err
+	}
+	binding := publication.SkillBinding{
+		APIVersion: publication.BindingAPIVersion, Kind: "SkillListing", ListingID: response.ListingID,
+		ClientWorkID: identity.ClientWorkID, Market: market, EndpointOrigin: origin,
+		BindingReceipt: response.BindingReceipt, LastPackageDigest: pkg.Artifact.Digest,
+	}
+	if err := store.Save(sourcePath, sourceType, binding); err != nil {
+		return listingPrepareResult{}, identity, err
+	}
+	identity.Binding = &binding
+	return listingPrepareResult{PrepareSkillListingResponse: response, SourceType: sourceType, SourcePath: sourcePath, CanonicalPackageDigest: pkg.Artifact.Digest}, identity, nil
 }
 
 func (runtime *Runtime) requireSkillPublicationAuthentication(ctx context.Context) error {

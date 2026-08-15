@@ -41,8 +41,10 @@ var (
 		"desktop.ini": {}, "id_ed25519": {}, "id_rsa": {}, "thumbs.db": {},
 	}
 	forbiddenPathSegments = map[string]struct{}{
-		".cache": {}, ".git": {}, ".hg": {}, ".next": {}, ".svn": {},
-		".turbo": {}, "__pycache__": {}, "node_modules": {},
+		".cache": {}, ".git": {}, ".hg": {}, ".idea": {}, ".mypy_cache": {},
+		".next": {}, ".pytest_cache": {}, ".ruff_cache": {}, ".svn": {},
+		".turbo": {}, ".venv": {}, ".viceme": {}, ".vscode": {},
+		"__pycache__": {}, "coverage": {}, "node_modules": {}, "venv": {},
 	}
 	secretPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`AKIA[0-9A-Z]{16}`),
@@ -178,7 +180,11 @@ func CanonicalDigest(value any) (string, error) {
 func readDirectory(root string) ([]sourceEntry, error) {
 	var entries []sourceEntry
 	var total int64
-	err := filepath.WalkDir(root, func(filename string, entry fs.DirEntry, walkErr error) error {
+	ignorePatterns, err := readViceMeIgnore(root)
+	if err != nil {
+		return nil, err
+	}
+	err = filepath.WalkDir(root, func(filename string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -190,10 +196,13 @@ func readDirectory(root string) ([]sourceEntry, error) {
 			return nil
 		}
 		rel = filepath.ToSlash(rel)
-		if entry.IsDir() {
-			if ignoredDirectory(path.Base(rel)) {
+		if shouldIgnoreWorkspacePath(rel, entry.IsDir(), ignorePatterns) {
+			if entry.IsDir() {
 				return filepath.SkipDir
 			}
+			return nil
+		}
+		if entry.IsDir() {
 			return nil
 		}
 		info, err := entry.Info()
@@ -251,6 +260,9 @@ func readZip(filename string) ([]sourceEntry, error) {
 	for _, file := range reader.File {
 		name := strings.ReplaceAll(file.Name, "\\", "/")
 		validationName := strings.TrimSuffix(name, "/")
+		if shouldIgnorePackagedPath(validationName) {
+			continue
+		}
 		if err := validatePath(validationName); err != nil {
 			return nil, err
 		}
@@ -538,12 +550,83 @@ func decodeUTF16(data []byte, littleEndian bool) ([]byte, bool) {
 }
 
 func ignoredDirectory(name string) bool {
-	switch strings.ToLower(name) {
-	case ".git", ".hg", ".svn", ".cache", ".next", ".turbo", "node_modules", "__pycache__":
+	_, ignored := forbiddenPathSegments[strings.ToLower(name)]
+	return ignored
+}
+
+func readViceMeIgnore(root string) ([]string, error) {
+	data, err := os.ReadFile(filepath.Join(root, ".vicemeignore"))
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, output.Validation("SKILL_IGNORE_READ_FAILED", "could not read .vicemeignore").WithCause(err)
+	}
+	if !utf8.Valid(data) {
+		return nil, output.Validation("SKILL_IGNORE_INVALID", ".vicemeignore must be UTF-8 text")
+	}
+	var patterns []string
+	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		if strings.HasPrefix(line, "!") {
+			return nil, output.Validation("SKILL_IGNORE_INVALID", ".vicemeignore negation patterns are not supported")
+		}
+		line = strings.TrimPrefix(filepath.ToSlash(line), "/")
+		if line == "" || strings.Contains(line, "\\") || strings.Contains(line, "..") {
+			return nil, output.Validation("SKILL_IGNORE_INVALID", ".vicemeignore contains an unsafe pattern")
+		}
+		patterns = append(patterns, line)
+	}
+	return patterns, nil
+}
+
+func shouldIgnoreWorkspacePath(name string, directory bool, patterns []string) bool {
+	if shouldIgnorePackagedPath(name) {
 		return true
-	default:
+	}
+	for _, pattern := range patterns {
+		directoryPattern := strings.HasSuffix(pattern, "/")
+		pattern = strings.TrimSuffix(pattern, "/")
+		if prefix, ok := strings.CutSuffix(pattern, "/**"); ok && (name == prefix || strings.HasPrefix(name, prefix+"/")) {
+			return true
+		}
+		if directoryPattern && !directory {
+			if name == pattern || strings.HasPrefix(name, pattern+"/") {
+				return true
+			}
+			continue
+		}
+		matched, err := path.Match(pattern, name)
+		if err == nil && matched {
+			return true
+		}
+		if !strings.Contains(pattern, "/") {
+			matched, _ = path.Match(pattern, path.Base(name))
+			if matched {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func shouldIgnorePackagedPath(name string) bool {
+	if name == "" {
 		return false
 	}
+	base := strings.ToLower(path.Base(name))
+	if base == ".vicemeignore" || base == ".env" || strings.HasPrefix(base, ".env.") {
+		return true
+	}
+	for _, segment := range strings.Split(strings.ToLower(name), "/") {
+		if ignoredDirectory(segment) {
+			return true
+		}
+	}
+	return false
 }
 
 func imageContentType(_ string, data []byte) string {

@@ -79,6 +79,24 @@ func (c *Client) CreateSkillPublication(ctx context.Context, request CreateSkill
 	return response, err
 }
 
+func (c *Client) PrepareSkillListing(ctx context.Context, request PrepareSkillListingRequest) (PrepareSkillListingResponse, error) {
+	var response PrepareSkillListingResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/creator/skill-listings/prepare", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ListSkillListingCandidates(ctx context.Context, request SkillListingCandidatesRequest) (SkillListingCandidatesResponse, error) {
+	var response SkillListingCandidatesResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/creator/skill-listings/candidates", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetSkillListingPreview(ctx context.Context, listingID string) (SkillListingPreview, error) {
+	var response SkillListingPreview
+	err := c.doJSON(ctx, http.MethodGet, "/v1/creator/skill-listings/"+url.PathEscape(listingID)+"/preview", nil, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) GetSkillPublication(ctx context.Context, publicationID string) (SkillPublication, error) {
 	var response SkillPublication
 	err := c.doJSON(ctx, http.MethodGet, publicationPath(publicationID), nil, &response, "@stored")

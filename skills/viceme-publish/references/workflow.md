@@ -8,6 +8,12 @@ All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 - Explicit `priceMinor` in CNY fen before any upload.
 - Two listing summaries and two usage instructions (`zh-CN` and `en-US`), a verified package, one cover, and at least one gallery item must be displayed in the final review before the combined confirm-and-publish authorization.
 
+## Stable local identity
+
+Run local inspect first, then create the private owner preview with `skill listing prepare --path`. Workspaces persist `.viceme/skill.json`; ZIP files persist the adjacent `<zip-name>.viceme.json`; an endpoint-scoped fallback index lives in the CLI configuration directory. These files contain no access token or upload credential. `listingId` is the durable work identity; the canonical package digest identifies only one content version. Moving or renaming a source, editing workspace files, retrying a lost response, or resuming an upload must not create another Listing.
+
+Use `--new-listing` only for an explicit separate work. When digest candidate resolution is ambiguous, display candidates and use `skill listing bind <listing-id> --path ...` only after the user chooses an owned Listing.
+
 ## State sequence
 
 `DRAFT -> REVIEW_REQUIRED -> READY -> PUBLISHED`
@@ -16,9 +22,9 @@ All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 
 ## Local recovery permission
 
-Every non-dry-run publish and resume writes an idempotent intent under the
+Every Listing prepare, non-dry-run publish, and resume writes an idempotent intent under the
 ViceMe CLI configuration directory before creating or continuing a remote
-publication. A sandboxed Agent must request write access for the exact publish
+publication. Listing prepare also writes the workspace binding or adjacent ZIP sidecar. A sandboxed Agent must request write access for the exact prepare/publish
 command before its first execution. Do not use an expected permission failure
 as a probe, do not delete zero-byte lock files, and do not start a replacement
 publication when the required action is to retry the same command with access.
