@@ -73,6 +73,11 @@ required for merging: that workflow starts only after the release PR has been
 merged and performs the tag, binary, GitHub Release, npm, and notification
 steps.
 
+Create a GitHub Actions Environment named `cdn` and restrict deployments to
+protected branches. The S3 publication job is the only release job that uses
+this Environment, matching the SDK release boundary; npm Trusted Publisher
+remains token-free and does not use a GitHub Environment restriction.
+
 Configure npm trusted publishing for:
 
 - npm package: `@viceme-ai/cli`;

@@ -429,6 +429,7 @@ jobs:
       - github-release
       - release-contract
     runs-on: ubuntu-latest
+    environment: cdn
     permissions:
       contents: read
     steps:
