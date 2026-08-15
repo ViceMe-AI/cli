@@ -41,6 +41,55 @@ type AuthUser struct {
 	AvatarURL   *string `json:"avatarUrl"`
 }
 
+type SdkWorkFeatureConfig struct {
+	FeatureKey string               `json:"featureKey"`
+	Title      string               `json:"title"`
+	Policy     SdkWorkFeaturePolicy `json:"policy"`
+	Status     string               `json:"status"`
+}
+
+type SdkWorkFeaturePolicy struct {
+	Type string `json:"type"`
+}
+
+type CreateSdkWorkRequest struct {
+	DisplayName string `json:"displayName"`
+}
+
+type ApplySdkWorkRequest struct {
+	ExpectedConfigVersion int                    `json:"expectedConfigVersion"`
+	DisplayName           string                 `json:"displayName"`
+	ProductSlug           *string                `json:"productSlug"`
+	Origins               []string               `json:"origins"`
+	Features              []SdkWorkFeatureConfig `json:"features"`
+	Status                string                 `json:"status"`
+}
+
+type SdkWorkProduct struct {
+	ID         string `json:"id"`
+	Slug       string `json:"slug"`
+	Title      string `json:"title"`
+	PriceCents int    `json:"priceCents"`
+	Status     string `json:"status"`
+}
+
+type SdkWork struct {
+	WorkKey       string                 `json:"workKey"`
+	DisplayName   string                 `json:"displayName"`
+	Status        string                 `json:"status"`
+	ConfigVersion int                    `json:"configVersion"`
+	Product       *SdkWorkProduct        `json:"product"`
+	Origins       []string               `json:"origins"`
+	Features      []SdkWorkFeatureConfig `json:"features"`
+	Capabilities  []string               `json:"capabilities"`
+	CreatedAt     string                 `json:"createdAt"`
+	UpdatedAt     string                 `json:"updatedAt"`
+}
+
+type SdkWorks struct {
+	Works []SdkWork `json:"works"`
+}
+
 type SkillPublicationManifest struct {
 	APIVersion string                   `json:"apiVersion" yaml:"apiVersion"`
 	Kind       string                   `json:"kind" yaml:"kind"`

@@ -49,6 +49,42 @@ func TestPublicationClientUsesBearerAndExactContract(t *testing.T) {
 	}
 }
 
+func TestSdkWorkClientUsesLightweightCreatorEndpoints(t *testing.T) {
+	t.Parallel()
+	requests := make(chan string, 3)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer vme_cli_test" {
+			t.Fatalf("missing bearer credential: %q", request.Header.Get("Authorization"))
+		}
+		requests <- request.Method + " " + request.URL.Path
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"workKey":"wrk_test","displayName":"Test","status":"DRAFT","configVersion":1,"product":null,"origins":[],"features":[],"capabilities":[],"createdAt":"2026-08-15T00:00:00.000Z","updatedAt":"2026-08-15T00:00:00.000Z"}`)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
+	if _, err := client.CreateSdkWork(context.Background(), CreateSdkWorkRequest{DisplayName: "Test"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GetSdkWork(context.Background(), "wrk_test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ApplySdkWork(context.Background(), "wrk_test", ApplySdkWorkRequest{ExpectedConfigVersion: 1, DisplayName: "Test", Status: "DRAFT"}); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"POST /v1/cli/sdk-works",
+		"GET /v1/cli/sdk-works/wrk_test",
+		"PUT /v1/cli/sdk-works/wrk_test",
+	}
+	for _, expected := range want {
+		if actual := <-requests; actual != expected {
+			t.Fatalf("request = %q, want %q", actual, expected)
+		}
+	}
+}
+
 func TestHealthReadyIsUnauthenticatedAndRedirectFree(t *testing.T) {
 	t.Parallel()
 	var targetCalled atomic.Bool
