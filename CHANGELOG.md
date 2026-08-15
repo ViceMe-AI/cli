@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.14.1] - 2026-08-15
+
+### Fixes
+
+- 对齐 CDN 发布环境 (`914dbc5`)
+
+### Other Changes
+
+- 兼容 Windows 工作流换行 (`1b57a43`)
+
 ## [0.14.0] - 2026-08-15
 
 ### Features
