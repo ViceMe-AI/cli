@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const workflow = await readFile(".github/workflows/release.yml", "utf8");
+const workflow = (await readFile(".github/workflows/release.yml", "utf8")).replaceAll(
+  "\r\n",
+  "\n",
+);
 const template = await readFile("release/agent-install.md.tmpl", "utf8");
 
 test("publishes one exact signed Agent installation contract to both regions", () => {
