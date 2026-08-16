@@ -232,6 +232,7 @@ into the conversation.
 | `viceme version` | Show the CLI and bundled Skill versions. |
 | `viceme doctor` | Check the CLI, active Profile, credentials, API readiness, and installed official Skills. |
 | `viceme auth status` | Show whether the active Profile is signed in. |
+| `viceme access init --name <name> [--follow key] [--product slug --purchase key]` | Create, configure, activate, and apply a creator website access integration in one command. |
 | `viceme profile list` | Show Profiles and their effective API endpoints. |
 | `viceme skill inspect --path <path>` | Validate a local Skill without side effects. |
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |

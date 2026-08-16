@@ -11,19 +11,31 @@ Implement a browser-only integration backed by a creator-owned `workKey`. Keep i
 
 1. Inspect the project framework, package manager, existing auth/payment code, and the exact UI elements to gate. Preserve existing conventions.
 2. Run `viceme auth status`. If the token lacks `sdk-work:read` or `sdk-work:write`, ask the user to run `viceme auth login` again.
-3. If `.viceme/access.yaml` does not exist, run:
+3. If `.viceme/access.yaml` does not exist, create and apply the complete
+   access config in one command. Repeat feature flags as needed; use
+   `key=title` only when the display title differs from the key:
 
    ```bash
-   viceme access init --name "<website name>" [--product "<owned product slug>"]
+   viceme access init --name "<website name>" \
+     [--follow "<feature-key>[=<title>]"] \
+     [--product "<owned product slug>" --purchase "<feature-key>[=<title>]"]
    ```
 
-4. Edit `.viceme/access.yaml`. Configure one feature per independently gated UI function. Do not use one shared unlock flag for different policies.
-5. Run `viceme access apply`, then `viceme access inspect`. Treat the returned capabilities as authoritative.
-6. Install `@viceme-ai/sdk` with the project's existing package manager. Create one client per `workKey`, await `ready()`, and destroy it when the owning application lifecycle ends.
-7. Inspect the creator page's existing React or HTML components. Prefer its Sheet, Drawer, Dialog, Button, Avatar, Alert, and loading components to implement an `AccessPresenter`; do not introduce a parallel design system.
-8. When no suitable design system exists, use the SDK's default `<viceme-access-layer>` Web Component. It renders a mobile bottom sheet and a desktop in-page layer.
-9. Use `access.checkMany()` for silent initial state. Call `access.require()` from the gated user gesture so it can show the relevant sign-in, creator-follow, or checkout interface.
-10. Test anonymous, signed-in/unfollowed, followed, unpaid, paid, cancellation, same-tab return, keyboard interaction, and reduced-motion states.
+4. Edit `.viceme/access.yaml` and run `viceme access apply` only for later
+   configuration changes. Use `viceme access inspect` for diagnosis, not as
+   a mandatory second request after a successful quick init.
+5. Install `@viceme-ai/sdk` with the project's existing package manager.
+   Create one client per `workKey`, await `ready()`, and call
+   `access.require()` from the existing gated button. This is the default
+   fast path; do not add an integration wrapper unless the framework requires it.
+6. Use the SDK's default `<viceme-access-layer>` unless the page already has
+   a directly reusable Sheet/Drawer/Dialog. The default component keeps login
+   and checkout inside a mobile bottom sheet or desktop in-page layer.
+7. If a site-owned overlay is immediately reusable, implement an
+   `AccessPresenter` with those existing components. It must render returned
+   frame actions inside the same overlay; do not navigate or open a window.
+8. Test anonymous, signed-in/unfollowed, followed, unpaid, paid, cancellation,
+   embedded completion, keyboard interaction, and reduced-motion states.
 
 Read [references/integration.md](references/integration.md) for configuration and code examples.
 
@@ -36,7 +48,9 @@ Read [references/integration.md](references/integration.md) for configuration an
 - Never unlock from checkout return parameters or browser state. Only `access.check()` can grant access.
 - Access checks must never silently sign in, follow, or pay. The SDK may show the required interface; the user must activate the action inside it.
 - Do not call `follow.follow()` from the creator site's gate handler. Following belongs to the creator-follow interface opened by `access.require()`.
-- Never use `window.open`, `confirm`, or `alert`. Interactive auth and checkout use an in-page layer followed by same-tab navigation when required.
+- Never use `window.open`, `window.location`, `confirm`, or `alert` for
+  SDK login or checkout. Their complete flows stay in the bottom sheet or
+  in-page layer and return through a validated SDK message channel.
 - Never inject global feature CSS. A site-owned presenter uses existing components; the fallback Web Component stays isolated and exposes CSS custom properties and parts.
 - Use `FOLLOW_OWNER` for following. Do not model follow as a subscription.
 - Do not configure `ACTIVE_CREATOR_SUBSCRIPTION`; it is reserved and unsupported in this version.
@@ -49,5 +63,6 @@ Read [references/integration.md](references/integration.md) for configuration an
 - Confirm follow-gated and purchase-gated functions have separate state.
 - Confirm all public SDK requests omit browser credentials and use the in-memory work session.
 - Confirm an access check cannot mutate follow state before the user activates the follow action.
-- Confirm no browser popup is opened and the default UI is a bottom sheet or in-page layer.
+- Confirm no browser popup or page navigation is used and login/checkout remain
+  inside the bottom sheet or in-page layer.
 - Report any untested WeChat or payment-provider boundary explicitly.

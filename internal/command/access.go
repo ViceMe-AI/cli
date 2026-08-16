@@ -52,6 +52,9 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	var filename string
 	var displayName string
 	var productSlug string
+	var followFeatures []string
+	var purchaseFeatures []string
+	var purchaseAnyFeatures []string
 	command := &cobra.Command{
 		Use:   "init",
 		Short: "Create a creator website workKey and local access config",
@@ -68,6 +71,17 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 			if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
 				return output.Internal("ACCESS_CONFIG_DIRECTORY_FAILED", "could not create access config directory", err)
 			}
+			features, err := buildQuickAccessFeatures(
+				followFeatures,
+				purchaseFeatures,
+				purchaseAnyFeatures,
+			)
+			if err != nil {
+				return err
+			}
+			if (len(purchaseFeatures) > 0 || len(purchaseAnyFeatures) > 0) && strings.TrimSpace(productSlug) == "" {
+				return output.Validation("WORK_PRODUCT_NOT_BOUND", "purchase features require --product")
+			}
 			work, err := runtime.client().CreateSdkWork(command.Context(), api.CreateSdkWorkRequest{DisplayName: strings.TrimSpace(displayName)})
 			if err != nil {
 				return err
@@ -77,7 +91,7 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 				WorkKey:       work.WorkKey,
 				Region:        string(runtime.region),
 				DisplayName:   work.DisplayName,
-				Features:      map[string]accessFeatureConfig{},
+				Features:      features,
 				Status:        "DRAFT",
 				ConfigVersion: work.ConfigVersion,
 			}
@@ -85,13 +99,16 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 				value := strings.TrimSpace(productSlug)
 				config.ProductSlug = &value
 			}
+			if len(features) > 0 {
+				config.Status = "ACTIVE"
+			}
 			if err := validateAccessConfig(config); err != nil {
 				return err
 			}
 			if err := writeAccessConfig(filename, config); err != nil {
 				return output.Internal("ACCESS_CONFIG_WRITE_FAILED", "workKey was created but the local access config could not be written", err).WithDetails(map[string]any{"workKey": work.WorkKey})
 			}
-			if config.ProductSlug != nil {
+			if config.ProductSlug != nil || len(config.Features) > 0 {
 				work, err = runtime.client().ApplySdkWork(command.Context(), config.WorkKey, config.applyRequest())
 				if err != nil {
 					return err
@@ -107,7 +124,51 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&filename, "config", defaultAccessConfigPath, "access config path")
 	command.Flags().StringVar(&displayName, "name", "", "creator website display name")
 	command.Flags().StringVar(&productSlug, "product", "", "optional owned SkillProduct slug")
+	command.Flags().StringArrayVar(&followFeatures, "follow", nil, "activate FOLLOW_OWNER feature as key or key=title (repeatable)")
+	command.Flags().StringArrayVar(&purchaseFeatures, "purchase", nil, "activate PURCHASE_BOUND_PRODUCT feature as key or key=title (repeatable)")
+	command.Flags().StringArrayVar(&purchaseAnyFeatures, "purchase-any", nil, "activate PURCHASE_ANY_OWNER_PRODUCT feature as key or key=title (repeatable)")
 	return command
+}
+
+func buildQuickAccessFeatures(follow, purchase, purchaseAny []string) (map[string]accessFeatureConfig, error) {
+	features := make(map[string]accessFeatureConfig, len(follow)+len(purchase)+len(purchaseAny))
+	groups := []struct {
+		values []string
+		policy string
+	}{
+		{values: follow, policy: "FOLLOW_OWNER"},
+		{values: purchase, policy: "PURCHASE_BOUND_PRODUCT"},
+		{values: purchaseAny, policy: "PURCHASE_ANY_OWNER_PRODUCT"},
+	}
+	for _, group := range groups {
+		for _, value := range group.values {
+			key, title, err := parseAccessFeatureSpec(value)
+			if err != nil {
+				return nil, err
+			}
+			if _, exists := features[key]; exists {
+				return nil, output.Validation("ACCESS_FEATURE_DUPLICATE", fmt.Sprintf("feature %q is configured more than once", key))
+			}
+			features[key] = accessFeatureConfig{
+				Title:  title,
+				Policy: accessFeaturePolicy{Type: group.policy},
+			}
+		}
+	}
+	return features, nil
+}
+
+func parseAccessFeatureSpec(raw string) (string, string, error) {
+	parts := strings.SplitN(strings.TrimSpace(raw), "=", 2)
+	key := strings.TrimSpace(parts[0])
+	title := key
+	if len(parts) == 2 {
+		title = strings.TrimSpace(parts[1])
+	}
+	if !accessFeatureKeyPattern.MatchString(key) || title == "" {
+		return "", "", output.Validation("ACCESS_FEATURE_INVALID", "feature must use key or key=title")
+	}
+	return key, title, nil
 }
 
 func newAccessInspectCommand(runtime *Runtime) *cobra.Command {

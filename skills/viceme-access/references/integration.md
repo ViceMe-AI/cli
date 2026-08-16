@@ -2,6 +2,19 @@
 
 ## Access configuration
 
+Create and apply the common configuration in one command:
+
+```bash
+viceme access init --name "Dagou Tap" \
+  --follow "dingdong=叮咚鸡" \
+  --product "dagou-tap" \
+  --purchase "emperor=帝皇"
+```
+
+The command writes the YAML below, activates it, and returns the authoritative
+work response. Manual YAML editing plus `viceme access apply` is only needed
+for later changes.
+
 ```yaml
 schemaVersion: 1
 workKey: wrk_example
@@ -77,11 +90,12 @@ corresponding user-activated button. When no presenter is supplied, the SDK
 uses `<viceme-access-layer>`: a mobile bottom sheet and desktop in-page layer
 with Shadow DOM, inherited typography/colors, CSS variables, and `::part()`.
 
-Sign-in and checkout navigate in the same tab only after the user confirms the
-action. The SDK restores the short-lived authenticated Work Session on return
-and checks access again. A `PENDING` order, a success query parameter, or a
-locally cached value never grants access; only a server-observed `PAID`
-purchase does.
+Sign-in and checkout stay inside that same bottom sheet or in-page layer. The
+SDK embeds the provider/checkout frame only after the user confirms, validates
+the API origin plus a per-action message channel, then checks access again. The
+checkout frame exchanges its one-time bootstrap code for an in-memory bearer
+session and does not depend on third-party cookies. A `PENDING` order or a
+message never grants access; only a new server `access.check()` decision does.
 
 ## Error handling
 

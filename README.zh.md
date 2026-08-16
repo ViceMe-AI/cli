@@ -214,6 +214,7 @@ viceme auth login --device-code <device-code>
 | `viceme version` | 显示 CLI 与随包 Skills 版本。 |
 | `viceme doctor` | 检查 CLI、当前 Profile、凭据、API readiness 和已安装官方 Skills。 |
 | `viceme auth status` | 显示当前 Profile 是否已登录。 |
+| `viceme access init --name <名称> [--follow key] [--product slug --purchase key]` | 单命令创建、配置、激活并应用创作者网页接入。 |
 | `viceme profile list` | 显示 Profile 及其实际 API Endpoint。 |
 | `viceme skill inspect --path <path>` | 无副作用校验本地 Skill。 |
 | `viceme skill listing prepare --path <path>` | 创建或恢复稳定的创作者私有预览，并保存本地绑定。 |
