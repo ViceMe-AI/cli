@@ -477,18 +477,26 @@ jobs:
             trap 'rm -rf "${SCRATCH}"' RETURN
 
             put_immutable() {
-              local SOURCE="$1" KEY="$2"
+              local SOURCE="$1" KEY="$2" CONTENT_TYPE="${3:-}"
+              local CONTENT_TYPE_ARGS=()
+              if [[ -n "${CONTENT_TYPE}" ]]; then
+                CONTENT_TYPE_ARGS=(--content-type "${CONTENT_TYPE}")
+              fi
               if aws --endpoint-url "${ENDPOINT}" s3api head-object --bucket "${BUCKET}" --key "${KEY}" >/dev/null 2>&1; then
                 aws --endpoint-url "${ENDPOINT}" s3 cp "s3://${BUCKET}/${KEY}" "${SCRATCH}/existing" --only-show-errors
                 cmp --silent "${SOURCE}" "${SCRATCH}/existing"
               else
                 aws --endpoint-url "${ENDPOINT}" s3 cp "${SOURCE}" "s3://${BUCKET}/${KEY}" \
-                  --cache-control 'public,max-age=31536000,immutable' --only-show-errors
+                  --cache-control 'public,max-age=31536000,immutable' "${CONTENT_TYPE_ARGS[@]}" --only-show-errors
               fi
             }
 
             for FILE in dist/*; do
-              put_immutable "${FILE}" "${PREFIX}/v${VERSION}/${FILE#dist/}"
+              if [[ "${FILE}" == 'dist/agent-install.md' ]]; then
+                put_immutable "${FILE}" "${PREFIX}/v${VERSION}/${FILE#dist/}" 'text/markdown; charset=utf-8'
+              else
+                put_immutable "${FILE}" "${PREFIX}/v${VERSION}/${FILE#dist/}"
+              fi
             done
 
             local EXISTING_LATEST=""
@@ -502,14 +510,24 @@ jobs:
               aws --endpoint-url "${ENDPOINT}" s3 cp "${SCRATCH}/new-latest" "s3://${BUCKET}/${PREFIX}/latest" \
                 --content-type text/plain --cache-control 'public,max-age=60' --only-show-errors
               for FILE in install.sh install.ps1 bootstrap-contract.json release-manifest.json agent-release-manifest.json agent-release-manifest.sigstore.json agent-install.md; do
-                aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${PREFIX}/${FILE}" \
-                  --cache-control 'public,max-age=300' --only-show-errors
+                if [[ "${FILE}" == 'agent-install.md' ]]; then
+                  aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${PREFIX}/${FILE}" \
+                    --content-type 'text/markdown; charset=utf-8' --cache-control 'public,max-age=300' --only-show-errors
+                else
+                  aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${PREFIX}/${FILE}" \
+                    --cache-control 'public,max-age=300' --only-show-errors
+                fi
               done
               # These files stay at the public start bucket root while the scripts
               # resolve immutable artifacts below cli/releases/v{version}.
               for FILE in install.sh install.ps1 agent-install.md; do
-                aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${FILE}" \
-                  --cache-control 'public,max-age=300' --only-show-errors
+                if [[ "${FILE}" == 'agent-install.md' ]]; then
+                  aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${FILE}" \
+                    --content-type 'text/markdown; charset=utf-8' --cache-control 'public,max-age=300' --only-show-errors
+                else
+                  aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${FILE}" \
+                    --cache-control 'public,max-age=300' --only-show-errors
+                fi
               done
             fi
 
@@ -538,6 +556,8 @@ jobs:
               cmp --silent dist/agent-install.md "${SCRATCH}/root-agent-install.md"
               curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/agent-install.md" \
                 | grep -i '^cache-control:.*max-age=300'
+              curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/agent-install.md" \
+                | grep -i '^content-type:[[:space:]]*text/markdown;[[:space:]]*charset=utf-8'
             fi
             echo "Published ${LABEL} release v${VERSION}"
           }

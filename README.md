@@ -149,7 +149,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 
 | Skill | Use it when you want to... |
 | --- | --- |
-| `viceme-shared` | install ViceMe, sign in with a device code, manage Profiles, update, diagnose, or repair the local setup. |
+| `viceme-shared` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
 | `viceme-publish` | validate, upload, review, resume, or publish a local Skill directory or ZIP as a paid ViceMe listing. |
 | `viceme-danmaku` | build or adapt the bundled production React and Tailwind CSS v4 danmaku component in an existing project. |
 
@@ -215,15 +215,12 @@ Remote custom endpoints require HTTPS; only localhost and loopback development
 may use HTTP. Credentials are isolated by Profile and API origin, and an Agent
 must never switch to another Profile merely because it is already signed in.
 
-For an Agent that cannot wait in one turn:
-
-```bash
-viceme auth login --no-wait
-viceme auth login --device-code <device-code>
-```
-
-The user completes authorization in the browser. Never copy an access token
-into the conversation.
+`viceme auth login` intentionally keeps running until browser authorization
+finishes or its bounded timeout expires. Keep the command active, show the
+one-time complete URL to the user, and wait for the final result. The page signs
+the user in when necessary and authorizes the CLI automatically; the user never
+types a device code. If the wait expires, start a fresh `viceme auth login`.
+Never copy an access token into the conversation.
 
 ## Command reference
 

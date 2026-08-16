@@ -1,28 +1,28 @@
 {
   "schema_version": 2,
   "npm_package": "@viceme-ai/cli",
-  "cli_version": "0.14.2",
+  "cli_version": "0.15.0",
   "skills": {
     "viceme-danmaku": {
-      "skill_version": "0.14.2",
-      "minimum_cli_version": "0.14.2",
-      "cli_compatibility": ">=0.14.2 <0.15.0",
-      "full_skill_bundle_digest": "sha256:ea8fbe94529b155f1f2eca74ee15e5f22127895725e75077fb50f81777f52dd3",
+      "skill_version": "0.15.0",
+      "minimum_cli_version": "0.15.0",
+      "cli_compatibility": ">=0.15.0 <0.16.0",
+      "full_skill_bundle_digest": "sha256:198bb965f1082683ee467df1de443ca621f6b729e8e25c5a116481879281144b",
       "embedded_content_digest": "sha256:92a223018b69c0de4ab348106d065bf8771bac07bc909ea7281e3890dd0f678b"
     },
     "viceme-publish": {
-      "skill_version": "0.14.2",
-      "minimum_cli_version": "0.14.2",
-      "cli_compatibility": ">=0.14.2 <0.15.0",
-      "full_skill_bundle_digest": "sha256:b16b749f029a3a9d73cbf6031bac89b1d5e9888f35b93b1743974d232ea5c024",
-      "embedded_content_digest": "sha256:6a576bbd41cf0d8a95bad109ee6af114315100dce283e11b5f5ff36c102084e7"
+      "skill_version": "0.15.0",
+      "minimum_cli_version": "0.15.0",
+      "cli_compatibility": ">=0.15.0 <0.16.0",
+      "full_skill_bundle_digest": "sha256:17b17933142c73bf199b27d3a3e27af251e2ed2b855dfc5a81e03314e1d40195",
+      "embedded_content_digest": "sha256:803d6cb6fbbe19774283d1cdfb4c0db424f226da62cc70bf2f79e2804271a098"
     },
     "viceme-shared": {
-      "skill_version": "0.14.2",
-      "minimum_cli_version": "0.14.2",
-      "cli_compatibility": ">=0.14.2 <0.15.0",
-      "full_skill_bundle_digest": "sha256:be1660078498eb3c666cf9f0d19f26f1ee6d66df0c05fdef78fd392b21e2e228",
-      "embedded_content_digest": "sha256:13c0c78769c55301f34b3eeb8003d8597f11263e9b98b4236f3836fee5e3f724"
+      "skill_version": "0.15.0",
+      "minimum_cli_version": "0.15.0",
+      "cli_compatibility": ">=0.15.0 <0.16.0",
+      "full_skill_bundle_digest": "sha256:55a58d6e9de8b49ff7676d203525a0a699e3cd7d657480bca1a21e8beac199c5",
+      "embedded_content_digest": "sha256:c99814f3b09a6e7f24382324718defe7f73fd2adb703127cf355e6d1d3daa9fc"
     }
   },
   "bootstrap_contract_digest": "sha256:868eb586ed192323fc207d072bae8d939a86a7553b8df12208c9cab7e7e4193c",
