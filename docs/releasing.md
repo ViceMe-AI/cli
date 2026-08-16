@@ -117,7 +117,8 @@ Agent Manifest, signature bundle, and document.
 
 The publication job verifies both public origins after upload. It compares the
 versioned document, Manifest, and signature bundle with the release artifacts,
-checks immutable and root cache policies, compares the CN and Global root
+checks immutable and root cache policies, requires the public root Agent
+document to use `text/markdown; charset=utf-8`, compares the CN and Global root
 documents, and proves that an uploaded object outside the installation
 allowlist is not anonymously readable. Anonymous bucket listing must also stay
 disabled. The allowlist is limited to `agent-install.md`, the existing root
