@@ -1,6 +1,6 @@
 ---
 name: viceme-shared
-description: Set up, authenticate, update, and diagnose the ViceMe creator CLI and official Skills. Use when a user needs to install ViceMe for Codex, Claude Code, or WorkBuddy; sign in with a device code; inspect profiles; check versions; or repair a ViceMe CLI or Skill installation.
+description: Set up, authenticate, update, and diagnose the ViceMe creator CLI and official Skills. Use when a user needs to install ViceMe for Codex, Claude Code, or WorkBuddy; sign in through the browser; inspect profiles; check versions; or repair a ViceMe CLI or Skill installation.
 ---
 
 # ViceMe shared operations
@@ -24,8 +24,11 @@ Use `viceme profile list` to verify the active profile and effective endpoint.
 Do not rely on a shell-only `VICEME_API_BASE_URL` export for normal Agent use;
 that variable is a one-process CI/debug override and is not profile state.
 
-For split browser flows, use `viceme auth login --no-wait`, then continue with
-`viceme auth login --device-code <deviceCode>` before expiry.
+`viceme auth login` is intentionally blocking. Show its one-time complete URL to
+the user and keep waiting for the command result while the page signs in when
+necessary and authorizes automatically. Never ask the user to enter a device
+code, and do not split or background the login. If the bounded wait expires,
+run a fresh `viceme auth login` for the same Profile.
 
 ## Safety
 

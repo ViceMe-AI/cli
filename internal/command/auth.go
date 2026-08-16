@@ -14,12 +14,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-type deviceLoginStartResult struct {
-	api.DeviceAuthorization
-	Profile string `json:"profile"`
-	Region  string `json:"region"`
-}
-
 type deviceLoginResult struct {
 	Authenticated bool       `json:"authenticated"`
 	Profile       string     `json:"profile"`
@@ -37,19 +31,14 @@ func newAuthCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
-	var noWait bool
-	var deviceCode string
 	var timeout time.Duration
 	command := &cobra.Command{
 		Use:   "login",
-		Short: "Start or continue the ViceMe device login flow",
+		Short: "Start the ViceMe device login flow and wait for authorization",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if _, source, _ := runtime.overrideCredential(); source != "" {
 				return output.Policy("PROCESS_CREDENTIAL_ACTIVE", "device login is disabled while VICEME_ACCESS_TOKEN is active").WithHint("start a CLI process without VICEME_ACCESS_TOKEN to manage persistent login")
-			}
-			if noWait && deviceCode != "" {
-				return output.Validation("auth_flags", "--no-wait and --device-code cannot be used together")
 			}
 			if timeout <= 0 {
 				return output.Validation("timeout", "--timeout must be greater than zero")
@@ -58,59 +47,44 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			client := runtime.client()
-			if deviceCode == "" {
-				authorization, err := client.StartDeviceAuthorization(
-					command.Context(),
-					api.DeviceAuthorizationRequest{
-						ClientName: "viceme-cli",
-						CLIVersion: buildinfo.Version,
-						Scopes: []string{
-							"profile:read",
-							"skill-publication:read",
-							"skill-publication:write",
-						},
+			authorization, err := client.StartDeviceAuthorization(
+				command.Context(),
+				api.DeviceAuthorizationRequest{
+					ClientName: "viceme-cli",
+					CLIVersion: buildinfo.Version,
+					Scopes: []string{
+						"profile:read",
+						"skill-publication:read",
+						"skill-publication:write",
 					},
-				)
-				if err != nil {
-					return err
-				}
-				if authorization.DeviceCode == "" || authorization.VerificationURIComplete == "" {
-					return output.Internal("device_authorization_response", "ViceMe API returned an incomplete device authorization", nil)
-				}
-				if noWait {
-					return runtime.business(deviceLoginStartResult{
-						DeviceAuthorization: authorization,
-						Profile:             runtime.profile.Name,
-						Region:              string(runtime.region),
-					})
-				}
-				writeHumanLoginStart(runtime.deps.ErrOut, authorization)
-				deviceCode = authorization.DeviceCode
-				interval := 2 * time.Second
-				if authorization.Interval > 0 {
-					interval = time.Duration(authorization.Interval) * time.Second
-				}
-				return finishDeviceLogin(command.Context(), runtime, client, deviceCode, timeout, interval, false)
+				},
+			)
+			if err != nil {
+				return err
 			}
-			return finishDeviceLogin(command.Context(), runtime, client, deviceCode, timeout, 2*time.Second, true)
+			if authorization.DeviceCode == "" || authorization.VerificationURIComplete == "" {
+				return output.Internal("device_authorization_response", "ViceMe API returned an incomplete device authorization", nil)
+			}
+			writeHumanLoginStart(runtime.deps.ErrOut, authorization)
+			interval := 2 * time.Second
+			if authorization.Interval > 0 {
+				interval = time.Duration(authorization.Interval) * time.Second
+			}
+			return finishDeviceLogin(command.Context(), runtime, client, authorization.DeviceCode, timeout, interval)
 		},
 	}
-	command.Flags().BoolVar(&noWait, "no-wait", false, "return device authorization immediately for an Agent split-flow")
-	command.Flags().StringVar(&deviceCode, "device-code", "", "continue a previously started Agent authorization")
 	command.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "maximum time to wait for browser authorization")
 	return command
 }
 
 func writeHumanLoginStart(writer io.Writer, authorization api.DeviceAuthorization) {
-	_, _ = fmt.Fprintln(writer, "Open this URL in your browser to sign in to ViceMe:")
+	_, _ = fmt.Fprintln(writer, "Open this one-time URL in your browser to sign in to ViceMe:")
 	_, _ = fmt.Fprintf(writer, "\n  %s\n\n", authorization.VerificationURIComplete)
-	if authorization.UserCode != "" {
-		_, _ = fmt.Fprintf(writer, "If prompted, enter code: %s\n\n", authorization.UserCode)
-	}
+	_, _ = fmt.Fprintln(writer, "ViceMe will authorize this CLI automatically after sign-in.")
 	_, _ = fmt.Fprintln(writer, "Waiting for authorization...")
 }
 
-func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client, deviceCode string, timeout, interval time.Duration, jsonOutput bool) error {
+func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client, deviceCode string, timeout, interval time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	if interval < time.Second {
@@ -124,7 +98,7 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 					interval = time.Duration(token.Interval) * time.Second
 				}
 				if sleepErr := runtime.deps.Sleep(ctx, interval); sleepErr != nil {
-					return pendingLoginError(ctx, sleepErr, jsonOutput)
+					return pendingLoginError(ctx, sleepErr)
 				}
 				continue
 			}
@@ -172,15 +146,11 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 	}
 }
 
-func pendingLoginError(ctx context.Context, err error, splitFlow bool) error {
+func pendingLoginError(ctx context.Context, err error) error {
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		pending := output.Authentication("AUTHORIZATION_PENDING", "device authorization is still pending")
 		pending.Retryable = true
-		if splitFlow {
-			pending.Hint = "run 'viceme auth login --device-code <code>' again before the device code expires"
-		} else {
-			pending.Hint = "run 'viceme auth login' again"
-		}
+		pending.Hint = "run 'viceme auth login' again to start a fresh browser authorization"
 		return pending
 	}
 	return err
