@@ -56,4 +56,20 @@ test("keeps the start bucket anonymous read policy narrow and cache-aware", () =
   assert.match(workflow, /\?list-type=2/);
   assert.match(workflow, /max-age=31536000.*immutable/);
   assert.match(workflow, /max-age=300/);
+  assert.match(
+    workflow,
+    /if \[\[ .*dist\/agent-install\.md.*\n\s+put_immutable .*'text\/markdown; charset=utf-8'/,
+  );
+  assert.match(
+    workflow,
+    /s3:\/\/\$\{BUCKET\}\/\$\{PREFIX\}\/\$\{FILE\}.*\n\s+--content-type 'text\/markdown; charset=utf-8'/,
+  );
+  assert.match(
+    workflow,
+    /s3:\/\/\$\{BUCKET\}\/\$\{FILE\}.*\n\s+--content-type 'text\/markdown; charset=utf-8'/,
+  );
+  assert.match(
+    workflow,
+    /\^content-type:\[\[:space:\]\]\*text\/markdown;\[\[:space:\]\]\*charset=utf-8/,
+  );
 });
