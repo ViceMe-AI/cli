@@ -4,6 +4,7 @@
 
 ### Fixes
 
+- 修复 Agent 安装文档 UTF-8 响应头 (`ad1f9d5`)
 - 登录流程始终等待浏览器授权 (`3738239`)
 
 ### Other Changes
