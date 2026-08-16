@@ -11,7 +11,7 @@ export default defineConfig({
   test: {
     clearMocks: true,
     environment: "jsdom",
-    include: [".generated/danmaku-blueprint.test.tsx"],
+    include: [".generated/**/*.test.ts", ".generated/**/*.test.tsx"],
     setupFiles: ["setup-tests.ts"],
   },
 });

@@ -121,7 +121,9 @@ describe("ViceMeDanmaku golden behavior", () => {
       screen.getByRole("button", { name: labels.moreReactions }),
     ).toBeTruthy();
 
-    act(() => vi.advanceTimersByTime(4000));
+    act(() => vi.advanceTimersByTime(14999));
+    expect(bar.dataset.state).toBe("reactions");
+    act(() => vi.advanceTimersByTime(1));
     expect(bar.dataset.state).toBe("collapsed");
     expect(bar.className).toContain("left-1/2");
     expect(bar.className).toContain("-translate-x-1/2");
@@ -340,16 +342,20 @@ describe("ViceMeDanmaku golden behavior", () => {
     expect(onSend.mock.calls.filter(([text]) => text === "🔥")).toHaveLength(3);
   });
 
-  it("auto-collapses reactions after 4000ms and expands without greeting", async () => {
+  it("auto-collapses reactions after 15000ms and expands without greeting", async () => {
     vi.useFakeTimers();
-    const { onSend } = renderDanmaku();
+    const { container, onSend } = renderDanmaku();
+    const bar = interactionBar(container);
     fireEvent.click(screen.getByRole("button", { name: labels.sayHi }));
     await act(async () => {
       await Promise.resolve();
       await Promise.resolve();
     });
     expect(onSend).toHaveBeenCalledWith("👋");
-    act(() => vi.advanceTimersByTime(4000));
+    act(() => vi.advanceTimersByTime(14999));
+    expect(bar.dataset.state).toBe("reactions");
+    act(() => vi.advanceTimersByTime(1));
+    expect(bar.dataset.state).toBe("collapsed");
     fireEvent.click(screen.getByRole("button", { name: labels.expandBar }));
     expect(screen.queryByRole("button", { name: labels.sayHi })).toBeNull();
     expect(screen.getByRole("button", { name: "send-❤️" })).toBeTruthy();

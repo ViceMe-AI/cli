@@ -47,7 +47,7 @@ Do not wrap, embed, navigate, or switch the host content.
 Use exactly these interaction states:
 
 ```text
-greeting --3.5s--> reactions --4s idle--> collapsed
+greeting --3.5s--> reactions --15s idle--> collapsed
 greeting --click/send--> reactions
 reactions --comment--> typing --successful send--> reactions
 reactions --more--> more --outside click/toggle--> reactions
@@ -155,5 +155,5 @@ Adapt the bundled test blueprint to prove:
 5. Comment opens a focused input; Enter sends, but IME composition does not.
 6. Successful send clears input and emits a self bullet; denial, authorization rejection, or send failure does not. Authorization rejection enters the failure live region and a later attempt can retry.
 7. More popover opens, filters emoji, closes through toggle/outside layer, and remains mounted for close motion.
-8. Reactions auto-collapse after 4000ms and expand without replaying the greeting.
+8. Reactions auto-collapse after 15000ms and expand without replaying the greeting.
 9. Reduced-motion bullet behavior is static and all timers/animations clean up.

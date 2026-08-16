@@ -72,7 +72,7 @@ type ActiveMessage = DanmakuMessage & {
 
 const MAX_VISIBLE = 40;
 const SEED_INTERVAL_MS = 2400;
-const AUTO_COLLAPSE_MS = 4000;
+const AUTO_COLLAPSE_MS = 15000;
 const GREETING_AUTO_DISMISS_MS = 3500;
 const LONG_PRESS_DELAY_MS = 420;
 const LONG_PRESS_REPEAT_MS = 220;

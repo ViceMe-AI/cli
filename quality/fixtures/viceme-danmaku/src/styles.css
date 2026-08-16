@@ -7,3 +7,21 @@ body,
   min-height: 100%;
   margin: 0;
 }
+
+html,
+body {
+  background: transparent;
+}
+
+body[data-embed-mode="stage"] [data-slot="danmaku"] > :not([aria-hidden]) {
+  display: none !important;
+}
+
+body[data-embed-mode="controls"] [data-slot="danmaku"] > [aria-hidden] {
+  display: none !important;
+}
+
+body[data-embed-mode="stage"],
+body[data-embed-mode="controls"] {
+  overflow: hidden;
+}

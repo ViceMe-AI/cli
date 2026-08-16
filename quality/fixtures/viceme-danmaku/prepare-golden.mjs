@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 
 const sourceDirectory = fileURLToPath(
   new URL(
-    "../../../skills/viceme-danmaku/assets/react-tailwind/",
+    "../../../skills/viceme-danmaku/assets/",
     import.meta.url,
   ),
 );
@@ -11,17 +11,22 @@ const targetDirectory = fileURLToPath(
   new URL("./.generated/", import.meta.url),
 );
 const goldenFiles = [
-  "danmaku-blueprint.test.tsx",
-  "danmaku-blueprint.tsx",
-  "danmaku-motion.ts",
-  "use-presence-motion.ts",
+  "cdn/viceme-danmaku-widget.js",
+  "cdn/viceme-danmaku-widget.test.ts",
+  "react-tailwind/danmaku-blueprint.test.tsx",
+  "react-tailwind/danmaku-blueprint.tsx",
+  "react-tailwind/danmaku-motion.ts",
+  "react-tailwind/use-presence-motion.ts",
 ];
 
 mkdirSync(targetDirectory, { recursive: true });
 for (const filename of goldenFiles) {
+  const targetFilename = filename.replace("react-tailwind/", "");
+  const parent = targetFilename.split("/").slice(0, -1).join("/");
+  if (parent) mkdirSync(`${targetDirectory}/${parent}`, { recursive: true });
   copyFileSync(
     `${sourceDirectory}/${filename}`,
-    `${targetDirectory}/${filename}`,
+    `${targetDirectory}/${targetFilename}`,
   );
 }
 

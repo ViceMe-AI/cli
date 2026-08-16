@@ -17,7 +17,7 @@
   },
   "timingMs": {
     "greetingAutoDismiss": 3500,
-    "reactionAutoCollapse": 4000,
+    "reactionAutoCollapse": 15000,
     "longPressDelay": 420,
     "longPressRepeat": 220,
     "barOpen": 350,

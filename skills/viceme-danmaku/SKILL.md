@@ -13,11 +13,26 @@ Before editing, inspect:
 
 1. The target repository's local instructions, frontend conventions, installed icon library, styling system, i18n mechanism, and test runner.
 2. [component-contract.md](references/component-contract.md) in full.
-3. Every file under `assets/react-tailwind/`. Treat these files as the authoritative component structure, visual tokens, state machine, motion values, and behavior tests.
+3. If the user wants the component copied into a React app, inspect every file under `assets/react-tailwind/`. Treat these files as the authoritative component structure, visual tokens, state machine, motion values, and behavior tests.
+4. If the user wants four-line/static-site/CDN integration, inspect [cdn-sdk.md](references/cdn-sdk.md) and every file under `assets/cdn/`.
 
 ## Scope
 
-Build only the reusable danmaku overlay and its direct helpers/tests:
+There are two supported integration paths.
+
+### Hosted CDN SDK
+
+Use this path when the user asks for four-line integration, static page support,
+or a ViceMe-hosted widget. Add only the script snippet described in
+`references/cdn-sdk.md`; do not copy React or Tailwind source into the host.
+The hosted widget app owns persistence, comment synchronization, login prompts,
+fan/follow prompts, and rewards.
+
+### React Tailwind component
+
+Use this path when the user asks to build the component directly inside an
+existing React and Tailwind CSS v4 project. Build only the reusable danmaku
+overlay and its direct helpers/tests:
 
 - scrolling danmaku stage and lane scheduler;
 - bottom interaction bar;
@@ -28,9 +43,31 @@ Build only the reusable danmaku overlay and its direct helpers/tests:
 - collapse/expand behavior;
 - responsive and reduced-motion behavior.
 
-Do not create an iframe, URL switcher, demo-site picker, login flow, payment flow, API, or persistence layer. The host page owns its content and passes messages and callbacks into the component.
+For the React path, do not create an iframe, URL switcher, demo-site picker,
+login flow, payment flow, API, or persistence layer. The host page owns its
+content and passes messages and callbacks into the component.
 
-## Implementation workflow
+## Hosted CDN SDK workflow
+
+Use this workflow for static pages, blogs, product pages, local black-box
+acceptance, or any request that says "four lines", "CDN", "script tag", or
+"do not modify the host app".
+
+1. Inspect [cdn-sdk.md](references/cdn-sdk.md) and `assets/cdn/`.
+2. Add only the script snippet to the host page. Do not copy React, Tailwind,
+   tests, API clients, or component source into the host page.
+3. For local acceptance, use the local script origin from `cdn-sdk.md` if the
+   user provides a local ViceMe Web server.
+4. Verify in a browser that the loader mounted one fixed root with stage,
+   controls, and modal iframes.
+5. Verify the stage iframe has `pointer-events: none`, host page controls still
+   receive clicks, the hosted widget renders the golden danmaku style, and
+   messages persist through the hosted ViceMe API.
+
+## React component workflow
+
+Use this workflow only when the user asks to build the danmaku component
+directly inside an existing React and Tailwind CSS v4 project.
 
 1. Locate the component's real owner. Keep it route-local unless at least two real routes consume it.
 2. Confirm that the target uses Tailwind CSS v4. If it uses v3, do not silently paste the blueprint: obtain approval to upgrade or translate every v4-only dynamic utility to a bracket value and prove the adapted CSS in a production build.
