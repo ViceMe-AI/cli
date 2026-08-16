@@ -74,21 +74,10 @@ The access check never performs the action by itself. In particular, creator
 sites must not call a follow mutation directly. The user follows from the
 creator-follow interface shown by `require()`.
 
-When the site already has a React/HTML design system, pass a site-owned
-presenter so the SDK can use its Sheet/Drawer and Button components:
-
-```ts
-const viceme = createViceMe({
-  workKey: "wrk_example",
-  region: "cn",
-  presenter: siteAccessPresenter,
-});
-```
-
-The presenter receives a `perform()` callback and may call it only from the
-corresponding user-activated button. When no presenter is supplied, the SDK
-uses `<viceme-access-layer>`: a mobile bottom sheet and desktop in-page layer
-with Shadow DOM, inherited typography/colors, CSS variables, and `::part()`.
+The SDK uses `<viceme-access-layer>`: a mobile bottom sheet and desktop in-page
+layer with Shadow DOM and ViceMe-owned styles. Custom presenters, creator-page
+style detection, and generated style adaptations are intentionally unavailable
+until the interaction contract is stable.
 
 Sign-in and checkout stay inside that same bottom sheet or in-page layer. The
 SDK embeds the provider/checkout frame only after the user confirms, validates

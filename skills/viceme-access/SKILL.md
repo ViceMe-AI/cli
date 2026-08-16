@@ -28,13 +28,10 @@ Implement a browser-only integration backed by a creator-owned `workKey`. Keep i
    Create one client per `workKey`, await `ready()`, and call
    `access.require()` from the existing gated button. This is the default
    fast path; do not add an integration wrapper unless the framework requires it.
-6. Use the SDK's default `<viceme-access-layer>` unless the page already has
-   a directly reusable Sheet/Drawer/Dialog. The default component keeps login
-   and checkout inside a mobile bottom sheet or desktop in-page layer.
-7. If a site-owned overlay is immediately reusable, implement an
-   `AccessPresenter` with those existing components. It must render returned
-   frame actions inside the same overlay; do not navigate or open a window.
-8. Test anonymous, signed-in/unfollowed, followed, unpaid, paid, cancellation,
+6. Use the SDK's `<viceme-access-layer>`. The ViceMe-owned component keeps login
+   and checkout inside a mobile bottom sheet or desktop in-page layer. Do not
+   infer, copy, or generate styles from the creator page in this version.
+7. Test anonymous, signed-in/unfollowed, followed, unpaid, paid, cancellation,
    embedded completion, keyboard interaction, and reduced-motion states.
 
 Read [references/integration.md](references/integration.md) for configuration and code examples.
@@ -51,7 +48,7 @@ Read [references/integration.md](references/integration.md) for configuration an
 - Never use `window.open`, `window.location`, `confirm`, or `alert` for
   SDK login or checkout. Their complete flows stay in the bottom sheet or
   in-page layer and return through a validated SDK message channel.
-- Never inject global feature CSS. A site-owned presenter uses existing components; the fallback Web Component stays isolated and exposes CSS custom properties and parts.
+- Never inject global feature CSS or alter the ViceMe layer from creator-site styles. The Web Component stays isolated and ViceMe-owned.
 - Use `FOLLOW_OWNER` for following. Do not model follow as a subscription.
 - Do not configure `ACTIVE_CREATOR_SUBSCRIPTION`; it is reserved and unsupported in this version.
 - Do not claim static assets embedded in a public bundle are protected. Gate behavior and fetch protected resources from a trusted backend when hard protection is required.
