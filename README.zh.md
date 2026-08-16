@@ -198,14 +198,10 @@ viceme auth login
 Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以使用 HTTP。
 凭据按 Profile 和 API Origin 隔离；Agent 不能因为另一个 Profile 已登录就擅自切换。
 
-Agent 无法在同一回合等待浏览器授权时使用分段流程：
-
-```bash
-viceme auth login --no-wait
-viceme auth login --device-code <device-code>
-```
-
-用户在浏览器完成授权。不要在对话中复制 Access Token。
+`viceme auth login` 会一直等待，直到浏览器授权完成或达到有界超时。Agent 必须保持
+命令运行，向用户展示一次性完整链接并等待最终结果。页面会在必要时先完成登录，随后
+自动授权 CLI；用户不需要输入设备码。等待超时后重新运行 `viceme auth login` 发起新
+流程。不要在对话中复制 Access Token。
 
 ## 命令参考
 
