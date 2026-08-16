@@ -224,6 +224,11 @@ type PrepareSkillListingResponse struct {
 	NextActions     []string                     `json:"nextActions"`
 }
 
+type CreateSkillPreviewLaunchResponse struct {
+	LaunchURL string `json:"launchUrl"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
 type SkillListingCandidatesRequest struct {
 	Market        string `json:"market"`
 	PackageDigest string `json:"packageDigest"`

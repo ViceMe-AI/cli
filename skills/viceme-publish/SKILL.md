@@ -14,7 +14,15 @@ Use the CLI for every deterministic action. Read [workflow.md](references/workfl
 3. Run `viceme --profile <publication-profile> auth status`. If unauthenticated, run `viceme --profile <publication-profile> auth login`, show the verification URL, and wait for successful authorization. Never switch Profiles merely because another already has credentials.
 4. Pin every remaining command to that Profile. If it becomes invalid or logged out, repair/login to the same Profile unless the user explicitly chooses another.
 5. Before `skill listing prepare`, ensure the process can write both the source binding location (`.viceme/skill.json` for a workspace or adjacent `<zip-name>.viceme.json` for ZIP) and the CLI config directory. Then run `viceme --profile <publication-profile> skill listing prepare --path <dir-or-zip>`.
-6. Immediately show the returned `ownerPreviewUrl`. This is the first remote business result. Do not ask for price before the preview exists.
+6. Immediately present the returned owner preview before asking for price:
+   - Always show `presentation.fallbackUrl` as the stable “Owner Preview” link. Keep showing this stable link in later preview updates even after publication.
+   - When `presentation.mode` is `ONE_TIME_LAUNCH`, use `presentation.openUrl` immediately. It is a short-lived, single-use handoff into the private preview; do not save it in files, repeat it in later messages, or treat it as the stable preview address.
+   - In Codex Desktop, call `open_in_codex` with `placement: "right"` and `target: {type: "browser", url: presentation.openUrl}`.
+   - In WorkBuddy, call `present_files` with `files: [presentation.openUrl]` so its embedded Browser/Preview panel opens the remote URL. Do not generate or download a local HTML copy.
+   - In Claude Code Desktop, do not start a local static server. Render `presentation.openUrl` once as a clickable “Open preview” link and keep `presentation.fallbackUrl` visible as the stable fallback.
+   - In another Agent host, use an embedded URL-opening tool when one exists; otherwise render the one-time link once as clickable text. Never guess the host in the CLI or generate local HTML.
+   - If `presentation.mode` is `FALLBACK_URL`, show and use the stable fallback link and explain only that automatic side-panel handoff is temporarily unavailable.
+   This is the first remote business result. Do not ask for price before the preview exists.
 7. Ask the user for the exact CNY price in fen.
 8. Run `viceme --profile <publication-profile> skill publish --path <dir-or-zip> --price-minor <fen> --dry-run`.
 9. Show the canonical package digest, discovered image candidates, title, source description, and price. Ask permission to upload.
@@ -28,13 +36,13 @@ Use the CLI for every deterministic action. Read [workflow.md](references/workfl
     a user decision.
 13. Run `viceme --profile <publication-profile> publication review <id>` and show both exact summaries, both exact usage instructions, the exact price, cover, and ordered gallery. Render every selected image inline in the conversation instead of showing only filenames or links:
     - Match `draft.coverUploadId` and each `draft.galleryUploadIds` entry to its exact `uploads[].viewUrl`.
-    - For Codex, download each selected `viewUrl` to a unique temporary file that keeps the response image extension. Verify a successful response, an `image/*` content type, and a non-empty file, then render it with Markdown image syntax using the absolute local path, for example `![封面](/private/tmp/viceme-review-<id>/cover.png)`. This avoids remote-image authentication, redirect, and host-policy failures.
-    - If a download fails or the client cannot render local images, fall back to `![名称](viewUrl)` and include the clickable `viewUrl`; never replace the visual review with filenames alone.
-    ASCII counts as width 1 and Chinese/non-ASCII counts as width 2; each summary must have total width at most 30. Capture `reviewDigest` from the JSON response for the later CLI commands, but treat it as an opaque integrity token: never label it “审核摘要” and do not show it to the user unless troubleshooting requires the exact value.
+    - For Codex, download each selected `viewUrl` to a unique temporary file that keeps the response image extension. Verify a successful response, an `image/*` content type, and a non-empty file, then render it with Markdown image syntax using the absolute local path, for example `![Cover](/private/tmp/viceme-review-<id>/cover.png)`. This avoids remote-image authentication, redirect, and host-policy failures.
+    - If a download fails or the client cannot render local images, fall back to `![Image](viewUrl)` and include the clickable `viewUrl`; never replace the visual review with filenames alone.
+    ASCII counts as width 1 and Chinese/non-ASCII counts as width 2; each summary must have total width at most 30. Capture `reviewDigest` from the JSON response for the later CLI commands, but treat it as an opaque integrity token: never label it “review digest” and do not show it to the user unless troubleshooting requires the exact value.
 14. If the user wants different media, run `viceme --profile <publication-profile> publication asset upload <id> --role <cover|gallery> --path <image>`. For other edits, prepare a complete strict JSON draft and run `publication update` with the same Profile.
-15. Ask exactly once whether the user confirms the displayed review and wants to publish it publicly now. State that public publication is immediate and irreversible. An unambiguous affirmative response to this combined question, such as “确认并公开发布” or “发布”, authorizes both following commands; a request to change anything does not.
+15. Ask exactly once whether the user confirms the displayed review and wants to publish it publicly now. State that public publication is immediate and irreversible. An unambiguous affirmative response to this combined question, such as “confirm and publish” or “publish”, authorizes both following commands; a request to change anything does not.
 16. After that combined authorization, run `viceme --profile <publication-profile> publication confirm <id> --review-digest <captured-review-digest>` and then, without asking again, run `viceme --profile <publication-profile> publication publish <id> --review-digest <captured-review-digest>`. Never run `publish` if `confirm` did not succeed.
-17. Return the authoritative `product.detailUrl` from the result.
+17. Return the authoritative `product.detailUrl` from the result as the public release URL. Also run `skill listing get <listing-id>` and present its latest Owner Preview using step 6; publication does not replace the private editing/preview entrance.
 
 Never infer this combined authorization from the user's initial request to publish before the final review was displayed. A changed draft produces a new digest and requires displaying the new review and obtaining a new combined confirmation.
 

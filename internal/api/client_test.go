@@ -85,6 +85,31 @@ func TestHealthReadyIsUnauthenticatedAndRedirectFree(t *testing.T) {
 	}
 }
 
+func TestCreateSkillPreviewLaunchUsesBearerAndExactRoute(t *testing.T) {
+	t.Parallel()
+	const listingID = "66666666-6666-4666-8666-666666666666"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/creator/skill-listings/"+listingID+"/preview-launch" {
+			t.Fatalf("unexpected preview launch request: %s %s", request.Method, request.URL.EscapedPath())
+		}
+		if request.Header.Get("Authorization") != "Bearer vme_cli_test" {
+			t.Fatalf("missing bearer credential: %q", request.Header.Get("Authorization"))
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"launchUrl":"https://shop.example/v1/creator/skill-preview-launches/code","expiresAt":"2026-08-16T12:01:00Z"}`)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
+	result, err := client.CreateSkillPreviewLaunch(context.Background(), listingID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.LaunchURL == "" || result.ExpiresAt == "" {
+		t.Fatalf("unexpected preview launch response: %#v", result)
+	}
+}
+
 func TestClientPreservesCanonicalServerError(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {

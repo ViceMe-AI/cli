@@ -21,10 +21,24 @@ type inspectResult struct {
 
 type listingPrepareResult struct {
 	api.PrepareSkillListingResponse
-	SourceType             string `json:"sourceType"`
-	SourcePath             string `json:"sourcePath"`
-	CanonicalPackageDigest string `json:"canonicalPackageDigest"`
-	RequiresPrice          bool   `json:"requiresPrice"`
+	SourceType             string              `json:"sourceType"`
+	SourcePath             string              `json:"sourcePath"`
+	CanonicalPackageDigest string              `json:"canonicalPackageDigest"`
+	RequiresPrice          bool                `json:"requiresPrice"`
+	Presentation           previewPresentation `json:"presentation"`
+}
+
+type listingGetResult struct {
+	api.SkillListingPreview
+	Presentation previewPresentation `json:"presentation"`
+}
+
+type previewPresentation struct {
+	Intent           string  `json:"intent"`
+	OpenURL          *string `json:"openUrl,omitempty"`
+	OpenURLExpiresAt *string `json:"openUrlExpiresAt,omitempty"`
+	FallbackURL      string  `json:"fallbackUrl"`
+	Mode             string  `json:"mode"`
 }
 
 func newSkillCommand(runtime *Runtime) *cobra.Command {
@@ -80,7 +94,8 @@ func newSkillListingGetCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(result)
+			presentation := createPreviewPresentation(command.Context(), runtime, result.ListingID, result.Preview.FallbackURL)
+			return runtime.business(listingGetResult{SkillListingPreview: result, Presentation: presentation})
 		},
 	}
 }
@@ -312,7 +327,24 @@ func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.
 		return listingPrepareResult{}, identity, err
 	}
 	identity.Binding = &binding
-	return listingPrepareResult{PrepareSkillListingResponse: response, SourceType: sourceType, SourcePath: sourcePath, CanonicalPackageDigest: pkg.Artifact.Digest}, identity, nil
+	presentation := createPreviewPresentation(ctx, runtime, response.ListingID, response.OwnerPreviewURL)
+	return listingPrepareResult{PrepareSkillListingResponse: response, SourceType: sourceType, SourcePath: sourcePath, CanonicalPackageDigest: pkg.Artifact.Digest, Presentation: presentation}, identity, nil
+}
+
+func createPreviewPresentation(ctx context.Context, runtime *Runtime, listingID string, fallbackURL string) previewPresentation {
+	presentation := previewPresentation{
+		Intent:      "OPEN_OWNER_PREVIEW",
+		FallbackURL: fallbackURL,
+		Mode:        "FALLBACK_URL",
+	}
+	launch, err := runtime.client().CreateSkillPreviewLaunch(ctx, listingID)
+	if err != nil {
+		return presentation
+	}
+	presentation.OpenURL = &launch.LaunchURL
+	presentation.OpenURLExpiresAt = &launch.ExpiresAt
+	presentation.Mode = "ONE_TIME_LAUNCH"
+	return presentation
 }
 
 func (runtime *Runtime) requireSkillPublicationAuthentication(ctx context.Context) error {
