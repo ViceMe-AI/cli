@@ -32,7 +32,7 @@ func TestPendingAndIntentRoundTripUsesPrivateFiles(t *testing.T) {
 	pending := Pending{
 		PublicationID: intent.PublicationID, ClientRequestID: intent.ClientRequestID,
 		Fingerprint: fingerprint,
-		SourcePath:  "/tmp/skill", PriceMinor: 1, ArtifactDigest: "b" + fingerprint[1:],
+		SourcePath:  "/tmp/skill", PriceMinor: intPointer(1), ArtifactDigest: "b" + fingerprint[1:],
 	}
 	if err := store.Save(pending); err != nil {
 		t.Fatal(err)
@@ -60,6 +60,8 @@ func TestPendingAndIntentRoundTripUsesPrivateFiles(t *testing.T) {
 		t.Fatalf("pending record was not deleted: %v", err)
 	}
 }
+
+func intPointer(value int) *int { return &value }
 
 func TestIntentConcurrentCreationAndTerminalRetirement(t *testing.T) {
 	directory := t.TempDir()

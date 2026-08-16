@@ -133,6 +133,12 @@ func (c *Client) UpdateListingDraft(ctx context.Context, publicationID string, r
 	return response, err
 }
 
+func (c *Client) UpdateListingPrice(ctx context.Context, publicationID string, priceMinor int) (SkillPublication, error) {
+	var response SkillPublication
+	err := c.doJSON(ctx, http.MethodPatch, publicationPath(publicationID)+"/listing-draft", UpdateSkillPublicationDraftRequest{PriceMinor: &priceMinor}, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) ConfirmPublication(ctx context.Context, publicationID, reviewDigest string) (SkillPublication, error) {
 	var response SkillPublication
 	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/confirm-review", ReviewDigestRequest{ReviewDigest: reviewDigest}, &response, "@stored")

@@ -59,15 +59,16 @@
 
    > Publish this Skill to ViceMe for CNY 1.00.
 
-The Agent checks login before reading the package, keeps the selected Profile
-fixed throughout the workflow, validates the Skill, and asks before uploading.
+The Agent checks login, keeps the selected Profile fixed throughout the
+workflow, validates the Skill, immediately uploads the private Draft, and opens
+its real Owner Preview before asking for a price.
 After ViceMe prepares the bilingual copy and media suggestions, the Agent shows
 the complete review—including the images—and asks once whether to confirm and
 publish it publicly.
 
 ```text
-Local Skill → Login → Validate → Confirm price → Upload → Platform analysis
-            → Visual review → Confirm and publish → Public product URL
+Local Skill → Login → Validate and private upload → Owner Preview → Set price
+            → Platform analysis → Final review → Confirm and publish → Public URL
 ```
 
 The initial request to “publish” is not permission to make the listing public.
@@ -84,14 +85,11 @@ viceme auth status
 # Sign in only when auth status reports unauthenticated.
 viceme auth login
 
-# Inspect without uploading anything.
-viceme skill inspect --path ./my-skill
+# Upload the real private draft and open its Owner Preview before pricing.
+viceme skill publish --path ./my-skill
 
-# Create or recover the stable private owner preview before pricing
-viceme skill listing prepare --path ./my-skill
-
-# Preview the exact package and CNY 1.00 price plan.
-viceme skill publish --path ./my-skill --price-minor 100 --dry-run
+# Set CNY 1.00 on the same draft, then continue media and analysis.
+viceme skill publish --resume <publication-id> --price-minor 100
 ```
 
 ## Installation
@@ -167,9 +165,10 @@ are not accepted.
 
 | Stage | Responsibility |
 | --- | --- |
-| Login | Device authorization happens before package inspection. Every command remains pinned to the same Profile and API origin. |
+| Login | Browser authorization happens before protected API work. Every command remains pinned to the same Profile and API origin. |
 | Inspect | Local validation rejects unsafe paths, special files, excessive content, sensitive files, and common secret patterns. |
-| Price and upload | The user supplies an exact CNY price in fen and explicitly allows the deterministic package to be uploaded. |
+| Private upload and preview | The initial publish request authorizes the private Draft upload. The real package is verified and its Owner Preview opens before pricing. |
+| Price | The user supplies an exact CNY price in fen on the same Publication. |
 | Analysis | ViceMe proposes short Chinese and English summaries, bilingual usage instructions, a cover, and an ordered gallery. Suggestions are never treated as user decisions. |
 | Review | The Agent displays the exact copy, price, cover, and gallery images. A short summary has a maximum display width of 30; ASCII counts as 1 and Chinese/non-ASCII as 2. |
 | Publish | One explicit final confirmation authorizes review confirmation followed by immediate, irreversible public publication. |
@@ -234,8 +233,8 @@ Never copy an access token into the conversation.
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |
 | `viceme skill listing get <listing-id>` | Read the authoritative private Listing state. |
 | `viceme skill listing bind <listing-id> --path <path>` | Explicitly bind a source to a selected owned Listing. |
-| `viceme skill publish --path <path> --price-minor <fen> --dry-run` | Preview the exact deterministic package and price. |
-| `viceme skill publish --path <path> --price-minor <fen>` | Upload the package and start listing analysis. |
+| `viceme skill publish --path <path>` | Upload the real private package and return its Owner Preview before pricing. |
+| `viceme skill publish --resume <id> --price-minor <fen>` | Price the same Draft, upload media candidates, and start analysis. |
 | `viceme publication wait <id>` | Wait for background analysis without re-uploading. |
 | `viceme publication review <id>` | Read the authoritative bilingual copy, price, selected media, and review state. |
 | `viceme publication asset upload ...` | Replace or add a cover or gallery image before confirmation. |
