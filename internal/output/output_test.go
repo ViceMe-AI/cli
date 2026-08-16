@@ -11,7 +11,7 @@ func TestPrinterUsesOneStableEnvelopeAndKeepsStdoutClean(t *testing.T) {
 	t.Parallel()
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	printer := Printer{Out: &stdout, ErrOut: &stderr, CLIVersion: "1.2.3"}
+	printer := Printer{Out: &stdout, ErrOut: &stderr, ExecutingCLIVersion: "1.2.3"}
 	if err := printer.Success(map[string]string{"status": "ready"}); err != nil {
 		t.Fatal(err)
 	}
@@ -21,6 +21,13 @@ func TestPrinterUsesOneStableEnvelopeAndKeepsStdoutClean(t *testing.T) {
 	}
 	if success["ok"] != true || stderr.Len() != 0 {
 		t.Fatalf("unexpected success envelope: %s stderr=%s", stdout.String(), stderr.String())
+	}
+	meta := success["meta"].(map[string]any)
+	if meta["executingCliVersion"] != "1.2.3" {
+		t.Fatalf("missing executing CLI version: %s", stdout.String())
+	}
+	if _, legacy := meta["cliVersion"]; legacy {
+		t.Fatalf("ambiguous legacy CLI version leaked: %s", stdout.String())
 	}
 
 	stdout.Reset()

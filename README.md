@@ -258,11 +258,16 @@ text.
   "ok": true,
   "data": {},
   "meta": {
-    "cliVersion": "<version>",
+    "executingCliVersion": "<version>",
     "requestId": "optional"
   }
 }
 ```
+
+`meta.executingCliVersion` is the version of the process that emitted the
+response. For `viceme update`, the newly installed version is reported
+separately as `data.cli_version` because the response is still emitted by the
+process that started the update.
 
 Released installations check their authoritative release channel at most once
 every 24 hours. When a newer version is available, ordinary JSON responses

@@ -237,11 +237,14 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
   "ok": true,
   "data": {},
   "meta": {
-    "cliVersion": "<version>",
+    "executingCliVersion": "<version>",
     "requestId": "optional"
   }
 }
 ```
+
+`meta.executingCliVersion` 表示输出本次响应的进程版本。对于 `viceme update`，
+新安装版本单独由 `data.cli_version` 返回，因为最终响应仍由启动更新的旧进程输出。
 
 正式安装最多每 24 小时读取一次权威发布渠道。发现新版本后，普通 JSON 响应通过
 `_notice.update` 返回当前版本、最新版本和 `viceme update`。检查失败不会改变业务
