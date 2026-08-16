@@ -74,7 +74,7 @@ Agent 会先检查登录状态，在整个流程中固定使用同一个 Profile
 viceme doctor
 viceme auth status
 
-# 仅在未登录时发起设备码登录。
+# 仅在未登录时发起浏览器登录。
 viceme auth login
 
 # 只读校验，不上传任何内容。
@@ -140,7 +140,7 @@ npx --yes @viceme-ai/cli@latest install
 
 | Skill | 适用场景 |
 | --- | --- |
-| `viceme-shared` | 安装 ViceMe、设备码登录、管理 Profile、更新、诊断或修复本地环境。 |
+| `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
 | `viceme-publish` | 把本地 Skill 目录或 ZIP 校验、上传、审核、恢复或发布为 ViceMe 付费商品。 |
 | `viceme-danmaku` | 在已有项目中构建或适配随包提供的生产级 React 与 Tailwind CSS v4 弹幕组件。 |
 
@@ -198,14 +198,10 @@ viceme auth login
 Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以使用 HTTP。
 凭据按 Profile 和 API Origin 隔离；Agent 不能因为另一个 Profile 已登录就擅自切换。
 
-Agent 无法在同一回合等待浏览器授权时使用分段流程：
-
-```bash
-viceme auth login --no-wait
-viceme auth login --device-code <device-code>
-```
-
-用户在浏览器完成授权。不要在对话中复制 Access Token。
+`viceme auth login` 会一直等待，直到浏览器授权完成或达到有界超时。Agent 必须保持
+命令运行，向用户展示一次性完整链接并等待最终结果。页面会在必要时先完成登录，随后
+自动授权 CLI；用户不需要输入设备码。等待超时后重新运行 `viceme auth login` 发起新
+流程。不要在对话中复制 Access Token。
 
 ## 命令参考
 

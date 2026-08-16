@@ -18,7 +18,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
 
-func TestDeviceLoginSplitFlowPersistsScopedCredentialWithoutPrintingToken(t *testing.T) {
+func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *testing.T) {
 	t.Parallel()
 	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
 	var tokenPolls atomic.Int32
@@ -84,11 +84,17 @@ func TestDeviceLoginSplitFlowPersistsScopedCredentialWithoutPrintingToken(t *tes
 		}
 		return exit, envelope
 	}
-	if exit, result := run("auth", "login", "--no-wait"); exit != 0 || result["ok"] != true {
-		t.Fatalf("device start failed: exit=%d result=%#v", exit, result)
+	if exit, result := run("auth", "login"); exit != 0 || result["ok"] != true {
+		t.Fatalf("device login failed: exit=%d result=%#v", exit, result)
 	}
-	if exit, result := run("auth", "login", "--device-code", "device-code"); exit != 0 || result["ok"] != true {
-		t.Fatalf("device exchange failed: exit=%d result=%#v", exit, result)
+	if tokenPolls.Load() < 2 {
+		t.Fatalf("device login returned before authorization completed: polls=%d", tokenPolls.Load())
+	}
+	if !strings.Contains(stderr.String(), "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH") {
+		t.Fatalf("complete browser authorization URL was not shown: stderr=%q", stderr.String())
+	}
+	if strings.Contains(strings.ToLower(stderr.String()), "enter code") {
+		t.Fatalf("login still asks the user to enter a device code: stderr=%q", stderr.String())
 	}
 	if exit, result := run("auth", "status"); exit != 0 || result["ok"] != true {
 		t.Fatalf("remote status failed: exit=%d result=%#v", exit, result)
@@ -99,6 +105,16 @@ func TestDeviceLoginSplitFlowPersistsScopedCredentialWithoutPrintingToken(t *tes
 	configData := []byte(readFileString(t, filepath.Join(root, "config", "config.json")))
 	if !bytes.Contains(configData, []byte("55555555-5555-4555-8555-555555555555")) {
 		t.Fatalf("profile user was not persisted: config=%s", configData)
+	}
+}
+
+func TestDeviceLoginDoesNotExposeSplitFlowFlags(t *testing.T) {
+	t.Parallel()
+	command := newAuthLoginCommand(&Runtime{})
+	for _, flag := range []string{"no-wait", "device-code"} {
+		if command.Flags().Lookup(flag) != nil {
+			t.Fatalf("auth login still exposes removed --%s flag", flag)
+		}
 	}
 }
 

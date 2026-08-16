@@ -94,6 +94,10 @@ description: Publish a deterministic Skill through the vNext contract.
 		if data["listingId"] != "66666666-6666-4666-8666-666666666666" || data["ownerPreviewUrl"] == "" || data["requiresPrice"] != true {
 			t.Fatalf("first business result was not the stable owner preview: %#v", envelope)
 		}
+		presentation, _ := data["presentation"].(map[string]any)
+		if presentation["intent"] != "OPEN_OWNER_PREVIEW" || presentation["mode"] != "ONE_TIME_LAUNCH" || presentation["openUrl"] == "" || presentation["fallbackUrl"] != data["ownerPreviewUrl"] {
+			t.Fatalf("owner preview presentation was not actionable with a stable fallback: %#v", presentation)
+		}
 	}
 	state.mu.Lock()
 	if state.createCalls != 0 {
@@ -538,6 +542,11 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 			{ListingID: "77777777-7777-4777-8777-777777777777", UpdatedAt: "2026-08-14T08:00:00Z", OwnerPreviewURL: state.baseURL + "/preview/one"},
 			{ListingID: "88888888-8888-4888-8888-888888888888", UpdatedAt: "2026-08-14T07:00:00Z", OwnerPreviewURL: state.baseURL + "/preview/two"},
 		}})
+	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-listings/"+listingID+"/preview-launch":
+		writeJSONResponse(writer, api.CreateSkillPreviewLaunchResponse{
+			LaunchURL: state.baseURL + "/v1/creator/skill-preview-launches/one-time-code",
+			ExpiresAt: "2026-08-14T08:01:00Z",
+		})
 	case request.Method == http.MethodGet && request.URL.Path == "/v1/creator/skill-listings/"+listingID+"/preview":
 		writeJSONResponse(writer, api.SkillListingPreview{ListingID: listingID, Status: "DRAFT", DraftRevision: 1, Publication: &api.SkillListingPublicationPreview{ID: state.publicationID, Status: state.status}, Preview: api.SkillListingPreviewViewModel{SchemaVersion: "preview.viceme.ai/v1", ListingID: listingID, DraftRevision: 1, State: "SHELL", FallbackURL: state.baseURL + "/preview"}})
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-publications":
