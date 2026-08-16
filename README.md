@@ -149,7 +149,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 
 | Skill | Use it when you want to... |
 | --- | --- |
-| `viceme-shared` | install ViceMe, sign in with a device code, manage Profiles, update, diagnose, or repair the local setup. |
+| `viceme-shared` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
 | `viceme-publish` | validate, upload, review, resume, or publish a local Skill directory or ZIP as a paid ViceMe listing. |
 | `viceme-danmaku` | build or adapt the bundled production React and Tailwind CSS v4 danmaku component in an existing project. |
 

@@ -74,7 +74,7 @@ Agent 会先检查登录状态，在整个流程中固定使用同一个 Profile
 viceme doctor
 viceme auth status
 
-# 仅在未登录时发起设备码登录。
+# 仅在未登录时发起浏览器登录。
 viceme auth login
 
 # 只读校验，不上传任何内容。
@@ -140,7 +140,7 @@ npx --yes @viceme-ai/cli@latest install
 
 | Skill | 适用场景 |
 | --- | --- |
-| `viceme-shared` | 安装 ViceMe、设备码登录、管理 Profile、更新、诊断或修复本地环境。 |
+| `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
 | `viceme-publish` | 把本地 Skill 目录或 ZIP 校验、上传、审核、恢复或发布为 ViceMe 付费商品。 |
 | `viceme-danmaku` | 在已有项目中构建或适配随包提供的生产级 React 与 Tailwind CSS v4 弹幕组件。 |
 
