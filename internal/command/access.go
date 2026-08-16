@@ -3,7 +3,6 @@ package command
 import (
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,7 +25,6 @@ type accessConfig struct {
 	Region        string                         `yaml:"region"`
 	DisplayName   string                         `yaml:"displayName"`
 	ProductSlug   *string                        `yaml:"productSlug"`
-	Origins       []string                       `yaml:"origins"`
 	Features      map[string]accessFeatureConfig `yaml:"features"`
 	Status        string                         `yaml:"status"`
 	ConfigVersion int                            `yaml:"configVersion"`
@@ -54,7 +52,6 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	var filename string
 	var displayName string
 	var productSlug string
-	var origin string
 	command := &cobra.Command{
 		Use:   "init",
 		Short: "Create a creator website workKey and local access config",
@@ -80,7 +77,6 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 				WorkKey:       work.WorkKey,
 				Region:        string(runtime.region),
 				DisplayName:   work.DisplayName,
-				Origins:       []string{},
 				Features:      map[string]accessFeatureConfig{},
 				Status:        "DRAFT",
 				ConfigVersion: work.ConfigVersion,
@@ -89,16 +85,13 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 				value := strings.TrimSpace(productSlug)
 				config.ProductSlug = &value
 			}
-			if strings.TrimSpace(origin) != "" {
-				config.Origins = []string{strings.TrimSpace(origin)}
-			}
 			if err := validateAccessConfig(config); err != nil {
 				return err
 			}
 			if err := writeAccessConfig(filename, config); err != nil {
 				return output.Internal("ACCESS_CONFIG_WRITE_FAILED", "workKey was created but the local access config could not be written", err).WithDetails(map[string]any{"workKey": work.WorkKey})
 			}
-			if config.ProductSlug != nil || len(config.Origins) > 0 {
+			if config.ProductSlug != nil {
 				work, err = runtime.client().ApplySdkWork(command.Context(), config.WorkKey, config.applyRequest())
 				if err != nil {
 					return err
@@ -114,7 +107,6 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&filename, "config", defaultAccessConfigPath, "access config path")
 	command.Flags().StringVar(&displayName, "name", "", "creator website display name")
 	command.Flags().StringVar(&productSlug, "product", "", "optional owned SkillProduct slug")
-	command.Flags().StringVar(&origin, "origin", "", "optional initial website origin")
 	return command
 }
 
@@ -196,7 +188,6 @@ func (config accessConfig) applyRequest() api.ApplySdkWorkRequest {
 		ExpectedConfigVersion: config.ConfigVersion,
 		DisplayName:           config.DisplayName,
 		ProductSlug:           config.ProductSlug,
-		Origins:               config.Origins,
 		Features:              features,
 		Status:                config.Status,
 	}
@@ -228,15 +219,6 @@ func validateAccessConfig(config accessConfig) error {
 	}
 	if strings.TrimSpace(config.DisplayName) == "" || (config.Status != "DRAFT" && config.Status != "ACTIVE" && config.Status != "DISABLED") {
 		return output.Validation("ACCESS_CONFIG_INVALID", "displayName or status is invalid")
-	}
-	for _, origin := range config.Origins {
-		parsed, err := url.Parse(origin)
-		if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
-			return output.Validation("ACCESS_CONFIG_INVALID", "origins must be absolute origins without paths, query, or fragment")
-		}
-		if parsed.Path != "" && parsed.Path != "/" {
-			return output.Validation("ACCESS_CONFIG_INVALID", "origins must not include a path")
-		}
 	}
 	purchasePolicy := false
 	for key, feature := range config.Features {

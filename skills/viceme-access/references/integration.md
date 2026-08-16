@@ -8,8 +8,6 @@ workKey: wrk_example
 region: cn
 displayName: Dagou Tap
 productSlug: dagou-tap
-origins:
-  - https://creator.example.com
 features:
   dingdong:
     title: 叮咚鸡
@@ -72,7 +70,6 @@ After the checkout window completes, call `access.check("emperor")` again. A `PE
 
 Branch only on `ViceMeError.code`. Common codes include:
 
-- `ORIGIN_NOT_ALLOWED`: update the work Origin configuration; do not bypass it.
 - `SESSION_EXPIRED`: ask the user to retry or sign in again.
 - `AUTH_POPUP_BLOCKED`: retry from a direct user gesture.
 - `CAPABILITY_DISABLED`: inspect the work configuration.

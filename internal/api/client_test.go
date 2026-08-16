@@ -58,7 +58,7 @@ func TestSdkWorkClientUsesLightweightCreatorEndpoints(t *testing.T) {
 		}
 		requests <- request.Method + " " + request.URL.Path
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(writer, `{"workKey":"wrk_test","displayName":"Test","status":"DRAFT","configVersion":1,"product":null,"origins":[],"features":[],"capabilities":[],"createdAt":"2026-08-15T00:00:00.000Z","updatedAt":"2026-08-15T00:00:00.000Z"}`)
+		_, _ = io.WriteString(writer, `{"workKey":"wrk_test","displayName":"Test","status":"DRAFT","configVersion":1,"product":null,"features":[],"capabilities":[],"createdAt":"2026-08-15T00:00:00.000Z","updatedAt":"2026-08-15T00:00:00.000Z"}`)
 	}))
 	defer server.Close()
 

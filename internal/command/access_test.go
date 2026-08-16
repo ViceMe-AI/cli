@@ -14,7 +14,6 @@ func validAccessConfig() accessConfig {
 		Region:        "cn",
 		DisplayName:   "Dagou Tap",
 		ProductSlug:   &product,
-		Origins:       []string{"https://creator.example.com"},
 		Features: map[string]accessFeatureConfig{
 			"dingdong": {Title: "叮咚鸡", Policy: accessFeaturePolicy{Type: "FOLLOW_OWNER"}},
 			"emperor":  {Title: "帝皇", Policy: accessFeaturePolicy{Type: "PURCHASE_BOUND_PRODUCT"}},

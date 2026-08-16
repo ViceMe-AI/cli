@@ -14,14 +14,14 @@ Implement a browser-only integration backed by a creator-owned `workKey`. Keep i
 3. If `.viceme/access.yaml` does not exist, run:
 
    ```bash
-   viceme access init --name "<website name>" --origin "<website origin>" [--product "<owned product slug>"]
+   viceme access init --name "<website name>" [--product "<owned product slug>"]
    ```
 
 4. Edit `.viceme/access.yaml`. Configure one feature per independently gated UI function. Do not use one shared unlock flag for different policies.
 5. Run `viceme access apply`, then `viceme access inspect`. Treat the returned capabilities as authoritative.
 6. Install `@viceme-ai/sdk` with the project's existing package manager. Create one client per `workKey`, await `ready()`, and destroy it when the owning application lifecycle ends.
 7. Use `access.checkMany()` to render initial states. Use `access.require()` only from a user gesture. Re-check after returning from checkout.
-8. Test anonymous, signed-in/unfollowed, followed, unpaid, paid, cancellation, popup-blocked, and disallowed-Origin states.
+8. Test anonymous, signed-in/unfollowed, followed, unpaid, paid, cancellation, and popup-blocked states.
 
 Read [references/integration.md](references/integration.md) for configuration and code examples.
 
@@ -39,7 +39,7 @@ Read [references/integration.md](references/integration.md) for configuration an
 
 ## Completion checks
 
-- Confirm `viceme access inspect` shows the expected work, product binding, Origins, features, and capabilities.
+- Confirm `viceme access inspect` shows the expected work, product binding, features, and capabilities.
 - Confirm follow-gated and purchase-gated functions have separate state.
 - Confirm all public SDK requests omit browser credentials and use the in-memory work session.
 - Report any untested WeChat or payment-provider boundary explicitly.

@@ -60,7 +60,6 @@ type ApplySdkWorkRequest struct {
 	ExpectedConfigVersion int                    `json:"expectedConfigVersion"`
 	DisplayName           string                 `json:"displayName"`
 	ProductSlug           *string                `json:"productSlug"`
-	Origins               []string               `json:"origins"`
 	Features              []SdkWorkFeatureConfig `json:"features"`
 	Status                string                 `json:"status"`
 }
@@ -79,7 +78,6 @@ type SdkWork struct {
 	Status        string                 `json:"status"`
 	ConfigVersion int                    `json:"configVersion"`
 	Product       *SdkWorkProduct        `json:"product"`
-	Origins       []string               `json:"origins"`
 	Features      []SdkWorkFeatureConfig `json:"features"`
 	Capabilities  []string               `json:"capabilities"`
 	CreatedAt     string                 `json:"createdAt"`
