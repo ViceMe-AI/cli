@@ -7,8 +7,8 @@
       "skill_version": "0.14.2",
       "minimum_cli_version": "0.14.2",
       "cli_compatibility": ">=0.14.2 <0.15.0",
-      "full_skill_bundle_digest": "sha256:28e49af74db838ef74894aec9bdbb6a6f104924a0513f9181f9f4c6ca01cd460",
-      "embedded_content_digest": "sha256:f1167be6f87c1a5e854ee3435b06a2857ce573017e850a80a6a66d1aeea527c5"
+      "full_skill_bundle_digest": "sha256:88b4be272c5aea6b9e267ccb3cbfcec42487e8c4bbac4a0727a07b6ca2962c38",
+      "embedded_content_digest": "sha256:1a420526df6593dec250f9319259e9dc4817d1e6955439b2f969da0ed277940f"
     },
     "viceme-danmaku": {
       "skill_version": "0.14.2",

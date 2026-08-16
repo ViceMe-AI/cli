@@ -48,30 +48,47 @@ setDingdongUnlocked(decisions.dingdong.allowed);
 setEmperorUnlocked(decisions.emperor.allowed);
 ```
 
-Call a gate from the user's click handler:
+Call a gate from the user's click handler. It silently returns when access is
+already granted; otherwise it opens the required in-page sign-in, creator-follow,
+or checkout interface:
 
 ```ts
 const decision = await viceme.access.require("dingdong");
 if (decision.allowed) enableDingdong();
 ```
 
-Explicit capability calls are also available:
+The access check never performs the action by itself. In particular, creator
+sites must not call a follow mutation directly. The user follows from the
+creator-follow interface shown by `require()`.
+
+When the site already has a React/HTML design system, pass a site-owned
+presenter so the SDK can use its Sheet/Drawer and Button components:
 
 ```ts
-await viceme.auth.signIn();
-await viceme.follow.follow();
-await viceme.follow.unfollow();
-await viceme.checkout.open({ returnUrl: window.location.href });
+const viceme = createViceMe({
+  workKey: "wrk_example",
+  region: "cn",
+  presenter: siteAccessPresenter,
+});
 ```
 
-After the checkout window completes, call `access.check("emperor")` again. A `PENDING` order, a success query parameter, or a locally cached value never grants access; only a server-observed `PAID` purchase does.
+The presenter receives a `perform()` callback and may call it only from the
+corresponding user-activated button. When no presenter is supplied, the SDK
+uses `<viceme-access-layer>`: a mobile bottom sheet and desktop in-page layer
+with Shadow DOM, inherited typography/colors, CSS variables, and `::part()`.
+
+Sign-in and checkout navigate in the same tab only after the user confirms the
+action. The SDK restores the short-lived authenticated Work Session on return
+and checks access again. A `PENDING` order, a success query parameter, or a
+locally cached value never grants access; only a server-observed `PAID`
+purchase does.
 
 ## Error handling
 
 Branch only on `ViceMeError.code`. Common codes include:
 
 - `SESSION_EXPIRED`: ask the user to retry or sign in again.
-- `AUTH_POPUP_BLOCKED`: retry from a direct user gesture.
+- `AUTH_CANCELLED`: the user cancelled or the same-tab continuation expired.
 - `CAPABILITY_DISABLED`: inspect the work configuration.
 - `CHECKOUT_UNAVAILABLE`: verify the bound product is active, paid, and still owned by the creator.
 
