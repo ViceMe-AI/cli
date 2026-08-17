@@ -51,6 +51,18 @@ type notifyingUpdater struct {
 	refreshCalled chan struct{}
 }
 
+type completedUpdateUpdater struct {
+	startupRecoveryUpdater
+}
+
+func (*completedUpdateUpdater) Check(context.Context) (updatepkg.CheckResult, error) {
+	return updatepkg.CheckResult{CurrentVersion: "0.14.2", AvailableVersion: "0.15.0", UpdateAvailable: true}, nil
+}
+
+func (*completedUpdateUpdater) Apply(context.Context, updatepkg.CheckResult, updatepkg.ApplyOptions) (updatepkg.ApplyResult, error) {
+	return updatepkg.ApplyResult{PreviousCLIVersion: "0.14.2", CLIVersion: "0.15.0"}, nil
+}
+
 func (*notifyingUpdater) CachedNotice() *updatepkg.Notice {
 	return &updatepkg.Notice{Current: "0.13.0", Latest: "0.14.0"}
 }
@@ -160,6 +172,35 @@ func TestOrdinaryCommandIncludesMachineReadableUpdateNotice(t *testing.T) {
 	case <-updater.refreshCalled:
 	case <-time.After(time.Second):
 		t.Fatal("background update notice refresh was not started")
+	}
+}
+
+func TestUpdateSeparatesExecutingAndInstalledCLIVersions(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	var stdout bytes.Buffer
+	exit := Execute([]string{"update"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: &completedUpdateUpdater{},
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:      config.RegionCN,
+	})
+	if exit != 0 {
+		t.Fatalf("update command failed: exit=%d stdout=%q", exit, stdout.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("update returned invalid JSON: %v stdout=%q", err, stdout.String())
+	}
+	data := result["data"].(map[string]any)
+	meta := result["meta"].(map[string]any)
+	if data["previous_cli_version"] != "0.14.2" || data["cli_version"] != "0.15.0" {
+		t.Fatalf("update result lost installed-version semantics: %#v", result)
+	}
+	if meta["executingCliVersion"] != buildinfo.Version {
+		t.Fatalf("update result lost executing-version semantics: %#v", result)
+	}
+	if _, legacy := meta["cliVersion"]; legacy {
+		t.Fatalf("ambiguous legacy CLI version leaked: %#v", result)
 	}
 }
 

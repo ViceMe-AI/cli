@@ -102,7 +102,7 @@ func Execute(args []string, dependencies Dependencies) int {
 	dependencies.bootstrapActivationCommand = isBootstrapActivationCommand(args)
 	root, runtime, err := NewRoot(dependencies)
 	if err != nil {
-		printer := &output.Printer{Out: writerOr(dependencies.Out, os.Stdout), ErrOut: writerOr(dependencies.ErrOut, os.Stderr), CLIVersion: buildinfo.Version}
+		printer := &output.Printer{Out: writerOr(dependencies.Out, os.Stdout), ErrOut: writerOr(dependencies.ErrOut, os.Stderr), ExecutingCLIVersion: buildinfo.Version}
 		return printer.Failure(err)
 	}
 	root.SetArgs(args)
@@ -180,9 +180,9 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		configBase:         configBase,
 		processCredential:  processCredential,
 		printer: &output.Printer{
-			Out:        dependencies.Out,
-			ErrOut:     dependencies.ErrOut,
-			CLIVersion: buildinfo.Version,
+			Out:                 dependencies.Out,
+			ErrOut:              dependencies.ErrOut,
+			ExecutingCLIVersion: buildinfo.Version,
 		},
 	}
 	if err := runtime.selectProfile(resolvedProfile.Name); err != nil {
