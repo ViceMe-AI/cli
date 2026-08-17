@@ -1,6 +1,6 @@
 ---
 name: viceme-danmaku
-description: Implement or adapt a production React and Tailwind CSS v4 danmaku overlay that matches the bundled ViceMe golden component. Use when a user asks Codex to build, reproduce, integrate, or repair the Loom-style danmaku component with scrolling messages, reactions, comment entry, emoji picker, collapse behavior, responsive layout, keyboard support, and reduced-motion handling.
+description: Install the ViceMe-hosted danmaku SDK into a website or adapt the bundled React and Tailwind CSS v4 golden component. Use for four-line CDN integration, workKey setup, scrolling messages, reactions, comment entry, collapse behavior, responsive layout, keyboard support, and reduced-motion handling.
 ---
 
 # Build the ViceMe danmaku component
@@ -14,7 +14,7 @@ Before editing, inspect:
 1. The target repository's local instructions, frontend conventions, installed icon library, styling system, i18n mechanism, and test runner.
 2. [component-contract.md](references/component-contract.md) in full.
 3. If the user wants the component copied into a React app, inspect every file under `assets/react-tailwind/`. Treat these files as the authoritative component structure, visual tokens, state machine, motion values, and behavior tests.
-4. If the user wants four-line/static-site/CDN integration, inspect [cdn-sdk.md](references/cdn-sdk.md) and every file under `assets/cdn/`.
+4. If the user wants four-line/static-site/CDN integration, inspect [cdn-sdk.md](references/cdn-sdk.md). The browser runtime is owned by `@viceme-ai/sdk`; it is intentionally not copied into this Skill.
 
 ## Scope
 
@@ -26,7 +26,7 @@ Use this path when the user asks for four-line integration, static page support,
 or a ViceMe-hosted widget. Add only the script snippet described in
 `references/cdn-sdk.md`; do not copy React or Tailwind source into the host.
 The hosted widget app owns persistence, comment synchronization, login prompts,
-fan/follow prompts, and rewards.
+and rendering. Tipping and rewards are outside this Skill.
 
 ### React Tailwind component
 
@@ -53,14 +53,19 @@ Use this workflow for static pages, blogs, product pages, local black-box
 acceptance, or any request that says "four lines", "CDN", "script tag", or
 "do not modify the host app".
 
-1. Inspect [cdn-sdk.md](references/cdn-sdk.md) and `assets/cdn/`.
-2. Add only the script snippet to the host page. Do not copy React, Tailwind,
-   tests, API clients, or component source into the host page.
-3. For local acceptance, use the local script origin from `cdn-sdk.md` if the
-   user provides a local ViceMe Web server.
-4. Verify in a browser that the loader mounted one fixed root with stage,
+1. Inspect [cdn-sdk.md](references/cdn-sdk.md).
+2. Run `viceme auth status`; if the user is not authenticated or lacks SDK work
+   access, run `viceme auth login` and wait for browser authorization.
+3. If `.viceme/access.yaml` is absent, run
+   `viceme access init --name "<website name>" --danmaku`. If it exists, ensure
+   it contains an active `danmaku` feature with `policy.type: PUBLIC`, set the
+   work status to `ACTIVE`, and run `viceme access apply`.
+4. Read the resulting public `workKey` from `.viceme/access.yaml` or
+   `viceme access inspect`, then add only the four-line script snippet to the
+   host page. Do not copy React, Tailwind, tests, API clients, or SDK source.
+5. Verify in a browser that the SDK mounted one fixed root with stage,
    controls, and modal iframes.
-5. Verify the stage iframe has `pointer-events: none`, host page controls still
+6. Verify the stage iframe has `pointer-events: none`, host page controls still
    receive clicks, the hosted widget renders the golden danmaku style, and
    messages persist through the hosted ViceMe API.
 

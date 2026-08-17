@@ -34,6 +34,30 @@ func TestAccessConfigSupportsFollowAndPurchase(t *testing.T) {
 	}
 }
 
+func TestAccessConfigSupportsPublicDanmaku(t *testing.T) {
+	config := validAccessConfig()
+	config.ProductSlug = nil
+	delete(config.Features, "emperor")
+	config.Features["danmaku"] = accessFeatureConfig{
+		Title:  "弹幕",
+		Policy: accessFeaturePolicy{Type: "PUBLIC"},
+	}
+	if err := validateAccessConfig(config); err != nil {
+		t.Fatalf("validateAccessConfig() error = %v", err)
+	}
+	request := config.applyRequest()
+	if len(request.Features) != 2 || request.Features[0].FeatureKey != "danmaku" || request.Features[0].Policy.Type != "PUBLIC" {
+		t.Fatalf("danmaku feature is not stable: %#v", request.Features)
+	}
+}
+
+func TestAccessInitExposesDanmakuFlag(t *testing.T) {
+	flag := newAccessInitCommand(&Runtime{}).Flags().Lookup("danmaku")
+	if flag == nil || flag.DefValue != "false" {
+		t.Fatalf("danmaku flag = %#v", flag)
+	}
+}
+
 func TestAccessConfigRejectsPurchaseWithoutProduct(t *testing.T) {
 	config := validAccessConfig()
 	config.ProductSlug = nil

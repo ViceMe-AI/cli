@@ -52,6 +52,7 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	var filename string
 	var displayName string
 	var productSlug string
+	var danmaku bool
 	var followFeatures []string
 	var purchaseFeatures []string
 	var purchaseAnyFeatures []string
@@ -78,6 +79,12 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 			)
 			if err != nil {
 				return err
+			}
+			if danmaku {
+				features["danmaku"] = accessFeatureConfig{
+					Title:  "弹幕",
+					Policy: accessFeaturePolicy{Type: "PUBLIC"},
+				}
 			}
 			if (len(purchaseFeatures) > 0 || len(purchaseAnyFeatures) > 0) && strings.TrimSpace(productSlug) == "" {
 				return output.Validation("WORK_PRODUCT_NOT_BOUND", "purchase features require --product")
@@ -124,6 +131,7 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&filename, "config", defaultAccessConfigPath, "access config path")
 	command.Flags().StringVar(&displayName, "name", "", "creator website display name")
 	command.Flags().StringVar(&productSlug, "product", "", "optional owned SkillProduct slug")
+	command.Flags().BoolVar(&danmaku, "danmaku", false, "activate the public hosted danmaku capability")
 	command.Flags().StringArrayVar(&followFeatures, "follow", nil, "activate FOLLOW_OWNER feature as key or key=title (repeatable)")
 	command.Flags().StringArrayVar(&purchaseFeatures, "purchase", nil, "activate PURCHASE_BOUND_PRODUCT feature as key or key=title (repeatable)")
 	command.Flags().StringArrayVar(&purchaseAnyFeatures, "purchase-any", nil, "activate PURCHASE_ANY_OWNER_PRODUCT feature as key or key=title (repeatable)")
@@ -287,6 +295,10 @@ func validateAccessConfig(config accessConfig) error {
 			return output.Validation("ACCESS_CONFIG_INVALID", "feature keys or titles are invalid")
 		}
 		switch feature.Policy.Type {
+		case "PUBLIC":
+			if key != "danmaku" {
+				return output.Validation("POLICY_TYPE_UNSUPPORTED", "PUBLIC is reserved for the danmaku capability")
+			}
 		case "FOLLOW_OWNER":
 		case "PURCHASE_BOUND_PRODUCT", "PURCHASE_ANY_OWNER_PRODUCT":
 			purchasePolicy = true

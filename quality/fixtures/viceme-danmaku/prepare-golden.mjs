@@ -1,24 +1,20 @@
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const sourceDirectory = fileURLToPath(
-  new URL(
-    "../../../skills/viceme-danmaku/assets/",
-    import.meta.url,
-  ),
+  new URL("../../../skills/viceme-danmaku/assets/", import.meta.url),
 );
 const targetDirectory = fileURLToPath(
   new URL("./.generated/", import.meta.url),
 );
 const goldenFiles = [
-  "cdn/viceme-danmaku-widget.js",
-  "cdn/viceme-danmaku-widget.test.ts",
   "react-tailwind/danmaku-blueprint.test.tsx",
   "react-tailwind/danmaku-blueprint.tsx",
   "react-tailwind/danmaku-motion.ts",
   "react-tailwind/use-presence-motion.ts",
 ];
 
+rmSync(targetDirectory, { recursive: true, force: true });
 mkdirSync(targetDirectory, { recursive: true });
 for (const filename of goldenFiles) {
   const targetFilename = filename.replace("react-tailwind/", "");

@@ -1,4 +1,4 @@
 interface:
-  display_name: "Build Danmaku Interaction"
-  short_description: "Build the golden React + Tailwind v4 danmaku"
-  default_prompt: "Use $viceme-danmaku to implement the golden Tailwind CSS v4 danmaku component in this project."
+  display_name: "Install ViceMe Danmaku"
+  short_description: "Install hosted danmaku or adapt the React blueprint"
+  default_prompt: "Use $viceme-danmaku to install the ViceMe-hosted danmaku SDK in this project."
