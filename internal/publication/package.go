@@ -37,7 +37,7 @@ const (
 var (
 	fixedZipTime       = time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
 	sensitiveBaseNames = map[string]struct{}{
-		".ds_store": {}, ".env": {}, ".npmrc": {}, ".pypirc": {},
+		".env": {}, ".npmrc": {}, ".pypirc": {},
 		"desktop.ini": {}, "id_ed25519": {}, "id_rsa": {}, "thumbs.db": {},
 	}
 	forbiddenPathSegments = map[string]struct{}{
@@ -51,9 +51,9 @@ var (
 		regexp.MustCompile(`(?i)sk-(?:proj-)?[A-Za-z0-9_-]{20,}`),
 		regexp.MustCompile(`gh[pousr]_[A-Za-z0-9]{30,}`),
 		regexp.MustCompile(`(?i)-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----`),
-		regexp.MustCompile(`(?i)(?:api[_-]?key|client[_-]?secret|access[_-]?token)\s*[:=]\s*["']?[A-Za-z0-9_./+=-]{16,}`),
 	}
-	textExtensions = map[string]struct{}{
+	credentialAssignmentPattern = regexp.MustCompile(`(?i)(?:api[_-]?key|client[_-]?secret|access[_-]?token)\s*[:=]\s*["']?([A-Za-z0-9_./+=-]{16,})`)
+	textExtensions              = map[string]struct{}{
 		".css": {}, ".go": {}, ".html": {}, ".ini": {}, ".js": {}, ".json": {},
 		".jsx": {}, ".md": {}, ".mjs": {}, ".py": {}, ".sh": {}, ".toml": {},
 		".ts": {}, ".tsx": {}, ".txt": {}, ".yaml": {}, ".yml": {},
@@ -516,8 +516,25 @@ func hasSecret(data []byte) bool {
 				return true
 			}
 		}
+		for _, match := range credentialAssignmentPattern.FindAllSubmatch(candidate, -1) {
+			if len(match) == 2 && !isCredentialPlaceholder(string(match[1])) {
+				return true
+			}
+		}
 	}
 	return false
+}
+
+func isCredentialPlaceholder(value string) bool {
+	value = strings.ToLower(strings.TrimSpace(value))
+	switch value {
+	case "your-api-key-here", "your-client-secret-here", "your-access-token-here",
+		"example-api-key", "example-client-secret", "example-access-token",
+		"replace-with-api-key", "replace-with-client-secret", "replace-with-access-token":
+		return true
+	default:
+		return false
+	}
 }
 
 func validText(data []byte) bool {
@@ -615,10 +632,13 @@ func shouldIgnorePackagedPath(name string) bool {
 		return false
 	}
 	base := strings.ToLower(path.Base(name))
-	if base == ".vicemeignore" || base == ".env" || strings.HasPrefix(base, ".env.") {
+	if base == ".vicemeignore" || base == ".ds_store" || strings.HasPrefix(base, "._") || base == ".env" || strings.HasPrefix(base, ".env.") {
 		return true
 	}
 	for _, segment := range strings.Split(strings.ToLower(name), "/") {
+		if segment == "__macosx" {
+			return true
+		}
 		if ignoredDirectory(segment) {
 			return true
 		}
