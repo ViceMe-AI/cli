@@ -1,11 +1,11 @@
 ---
 name: viceme-access
-description: Integrate the ViceMe browser SDK into a creator website for WeChat login, user-to-user following, feature access checks, and creator-product checkout. Use when Codex needs to add or repair ViceMe workKey setup, `.viceme/access.yaml`, follow-gated UI, purchase-gated UI, or the lightweight `viceme access` workflow in static HTML, React, Next.js, or similar browser projects.
+description: Integrate the ViceMe browser SDK into a website for WeChat login, user-to-user following, feature access checks, and creator-product checkout. Use when Codex needs to add or repair ViceMe workKey setup, `.viceme/access.yaml`, follow-gated UI, purchase-gated UI, or the lightweight `viceme access` workflow in static HTML, React, Next.js, or similar browser projects.
 ---
 
-# ViceMe Creator Access
+# ViceMe Website Access
 
-Implement a browser-only integration backed by a creator-owned `workKey`. Keep identity, follow, and purchase decisions server-authoritative.
+Implement a browser-only integration backed by a ViceMe-user-owned `workKey`. Any authenticated ViceMe user may create a workKey and configure `FOLLOW_OWNER`; binding a product or enabling purchase requires a claimed creator identity and a product owned by that creator. Keep identity, follow, and purchase decisions server-authoritative.
 
 ## Workflow
 
@@ -30,7 +30,7 @@ Implement a browser-only integration backed by a creator-owned `workKey`. Keep i
    fast path; do not add an integration wrapper unless the framework requires it.
 6. Use the SDK's `<viceme-access-layer>`. The ViceMe-owned component keeps login
    and checkout inside a mobile bottom sheet or desktop in-page layer. Do not
-   infer, copy, or generate styles from the creator page in this version.
+   infer, copy, or generate styles from the host page in this version.
 7. Test anonymous, signed-in/unfollowed, followed, unpaid, paid, cancellation,
    embedded completion, keyboard interaction, and reduced-motion states.
 
@@ -44,11 +44,11 @@ Read [references/integration.md](references/integration.md) for configuration an
 - Do not store work-session tokens or access decisions in cookies, localStorage, IndexedDB, URLs, analytics, or logs.
 - Never unlock from checkout return parameters or browser state. Only `access.check()` can grant access.
 - Access checks must never silently sign in, follow, or pay. Call `access.require()` only from an explicit user action. The default layer opens a required checkout immediately from that action, but the user must still select and confirm payment; following still requires the layer's “关注” button.
-- Do not call `follow.follow()` from the creator site's gate handler. Following belongs to the creator-follow interface opened by `access.require()`.
+- Do not call `follow.follow()` from the host site's gate handler. Following belongs to the owner-follow interface opened by `access.require()`.
 - Never use `window.open`, `window.location`, `confirm`, or `alert` for
   SDK login or checkout. Their complete flows stay in the bottom sheet or
   in-page layer and return through a validated SDK message channel.
-- Never inject global feature CSS or alter the ViceMe layer from creator-site styles. The Web Component stays isolated and ViceMe-owned.
+- Never inject global feature CSS or alter the ViceMe layer from host-site styles. The Web Component stays isolated and ViceMe-owned.
 - Use `FOLLOW_OWNER` for following. Do not model follow as a subscription.
 - Do not configure `ACTIVE_CREATOR_SUBSCRIPTION`; it is reserved and unsupported in this version.
 - Do not claim static assets embedded in a public bundle are protected. Gate behavior and fetch protected resources from a trusted backend when hard protection is required.

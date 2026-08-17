@@ -41,7 +41,7 @@ type accessFeaturePolicy struct {
 }
 
 func newAccessCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "access", Short: "Configure creator website access"}
+	command := &cobra.Command{Use: "access", Short: "Configure website access"}
 	command.AddCommand(newAccessInitCommand(runtime))
 	command.AddCommand(newAccessInspectCommand(runtime))
 	command.AddCommand(newAccessApplyCommand(runtime))
@@ -57,7 +57,7 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	var purchaseAnyFeatures []string
 	command := &cobra.Command{
 		Use:   "init",
-		Short: "Create a creator website workKey and local access config",
+		Short: "Create a website workKey and local access config",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if strings.TrimSpace(displayName) == "" {
@@ -122,7 +122,7 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&filename, "config", defaultAccessConfigPath, "access config path")
-	command.Flags().StringVar(&displayName, "name", "", "creator website display name")
+	command.Flags().StringVar(&displayName, "name", "", "website display name")
 	command.Flags().StringVar(&productSlug, "product", "", "optional owned SkillProduct slug")
 	command.Flags().StringArrayVar(&followFeatures, "follow", nil, "activate FOLLOW_OWNER feature as key or key=title (repeatable)")
 	command.Flags().StringArrayVar(&purchaseFeatures, "purchase", nil, "activate PURCHASE_BOUND_PRODUCT feature as key or key=title (repeatable)")
