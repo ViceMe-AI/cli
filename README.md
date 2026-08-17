@@ -57,14 +57,15 @@
    discover the installed Skills.
 3. Attach a local Skill directory or ZIP and ask naturally:
 
-   > Publish this Skill to ViceMe for CNY 1.00.
+   > Publish this Skill to ViceMe.
 
 The Agent checks login, keeps the selected Profile fixed throughout the
 workflow, validates the Skill, immediately uploads the private Draft, and opens
-its real Owner Preview before asking for a price.
+its real Owner Preview. It continues media analysis without asking for a price.
 After ViceMe prepares the bilingual copy and media suggestions, the Agent shows
-the complete review—including the images—and asks once whether to confirm and
-publish it publicly.
+the complete listing—including the images—and asks one combined question for
+the price and any desired changes. It then shows the final review and asks once
+whether to confirm and publish it publicly.
 
 ```text
 Local Skill → Login → Validate and private upload → Owner Preview → Platform analysis
