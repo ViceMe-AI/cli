@@ -87,11 +87,12 @@ test(
     assert.equal(child.status, 0, child.stderr);
     const result = JSON.parse(child.stdout);
     assert.equal(result.ok, true);
-    assert.equal(result.data.skills.length, 3);
+    assert.equal(result.data.skills.length, 4);
     assert.equal(result.data.skills.every((skill) => skill.all_succeeded), true);
     await stat(path.join(codexHome, "skills", "viceme-shared", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-publish", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-danmaku", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-access", "SKILL.md"));
     await stat(
       path.join(
         codexHome,
@@ -203,7 +204,7 @@ process.exit(child.status ?? 1);
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}\n${debug}`);
     const install = JSON.parse(first.stdout);
     assert.equal(install.ok, true);
-    assert.equal(install.data.skills.length, 3);
+    assert.equal(install.data.skills.length, 4);
     assert.equal(install.data.skills.every((skill) => skill.all_succeeded), true);
     assert.match(
       await readFile(marker, "utf8"),

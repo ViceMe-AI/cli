@@ -66,6 +66,24 @@ func (c *Client) Revoke(ctx context.Context, accessToken string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/logout", struct{}{}, nil, accessToken)
 }
 
+func (c *Client) CreateSdkWork(ctx context.Context, request CreateSdkWorkRequest) (SdkWork, error) {
+	var response SdkWork
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetSdkWork(ctx context.Context, workKey string) (SdkWork, error) {
+	var response SdkWork
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/sdk-works/"+url.PathEscape(workKey), nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ApplySdkWork(ctx context.Context, workKey string, request ApplySdkWorkRequest) (SdkWork, error) {
+	var response SdkWork
+	err := c.doJSON(ctx, http.MethodPut, "/v1/cli/sdk-works/"+url.PathEscape(workKey), request, &response, "@stored")
+	return response, err
+}
+
 // HealthReady performs an unauthenticated, redirect-free connectivity check.
 // Doctor owns the short deadline so this probe can never inherit the normal
 // command timeout or disclose the stored publication credential.

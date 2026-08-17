@@ -1,0 +1,4 @@
+interface:
+  display_name: "ViceMe Creator Access"
+  short_description: "Add creator login, follow, and paid access"
+  default_prompt: "Use $viceme-access to integrate ViceMe login and feature access into this creator website."
