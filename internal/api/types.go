@@ -1,5 +1,7 @@
 package api
 
+const SkillPublicationContractVersion = "2026-08-17"
+
 type DeviceAuthorizationRequest struct {
 	ClientName string   `json:"clientName"`
 	CLIVersion string   `json:"cliVersion"`
@@ -64,7 +66,7 @@ type SkillPublicationSource struct {
 
 type SkillPublicationSale struct {
 	Currency    string `json:"currency" yaml:"currency"`
-	PriceMinor  int    `json:"priceMinor" yaml:"priceMinor"`
+	PriceMinor  *int   `json:"priceMinor" yaml:"priceMinor"`
 	Entitlement string `json:"entitlement" yaml:"entitlement"`
 }
 
@@ -82,8 +84,7 @@ type CreateSkillPublicationRequest struct {
 	Manifest           SkillPublicationManifest `json:"manifest"`
 	ManifestDigest     string                   `json:"manifestDigest"`
 	Artifact           SkillPublicationFile     `json:"artifact"`
-	ListingID          string                   `json:"listingId,omitempty"`
-	ProductID          string                   `json:"productId,omitempty"`
+	ListingID          string                   `json:"listingId"`
 	CreatorDisplayName string                   `json:"creatorDisplayName,omitempty"`
 }
 
@@ -124,9 +125,13 @@ type SkillPublicationDraft struct {
 	UsageInstructionsZhCN *string  `json:"usageInstructionsZhCn"`
 	UsageInstructionsEnUS *string  `json:"usageInstructionsEnUs"`
 	Currency              string   `json:"currency"`
-	PriceMinor            int      `json:"priceMinor"`
+	PriceMinor            *int     `json:"priceMinor"`
 	CoverUploadID         *string  `json:"coverUploadId"`
 	GalleryUploadIDs      []string `json:"galleryUploadIds"`
+}
+
+type UpdateSkillPublicationDraftRequest struct {
+	PriceMinor *int `json:"priceMinor,omitempty"`
 }
 
 type SkillPublicationUpload struct {

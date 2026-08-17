@@ -55,13 +55,13 @@
 
    > 帮我把这个 Skill 以人民币 1 元发布到 ViceMe。
 
-Agent 会先检查登录状态，在整个流程中固定使用同一个 Profile，再校验 Skill，并在
-上传前询问许可。ViceMe 完成双语文案和素材建议后，Agent 会把完整审核稿和图片直接
-展示出来，最后只询问一次是否确认并立即公开发布。
+Agent 会先检查登录状态，在整个流程中固定使用同一个 Profile，校验 Skill 后立即
+上传私有草稿并打开真实创作者预览，然后再询问价格。ViceMe 完成双语文案和素材建议后，
+Agent 会把完整成品和图片直接展示出来，最后只询问一次是否确认并立即公开发布。
 
 ```text
-本地 Skill → 登录 → 校验 → 确认价格 → 上传 → 平台分析
-           → 图文审核 → 确认并发布 → 公开商品链接
+本地 Skill → 登录 → 校验并私有上传 → 创作者预览 → 定价
+           → 平台分析 → 最终成品 → 确认并发布 → 公开商品链接
 ```
 
 最初的“帮我发布”不等于授权公开上架。只有完整审核稿已经展示、用户明确确认后，
@@ -77,14 +77,11 @@ viceme auth status
 # 仅在未登录时发起浏览器登录。
 viceme auth login
 
-# 只读校验，不上传任何内容。
-viceme skill inspect --path ./my-skill
+# 定价前先上传真实私有草稿，并打开创作者预览。
+viceme skill publish --path ./my-skill
 
-# 定价前先创建或恢复稳定的创作者私有预览
-viceme skill listing prepare --path ./my-skill
-
-# 预览确定性发布包与人民币 1 元的价格计划。
-viceme skill publish --path ./my-skill --price-minor 100 --dry-run
+# 在同一草稿上设置人民币 1 元，并继续媒体上传与分析。
+viceme skill publish --resume <publication-id> --price-minor 100
 ```
 
 ## 安装
@@ -154,9 +151,10 @@ Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作
 
 | 阶段 | 责任边界 |
 | --- | --- |
-| 登录 | 解析包之前先完成设备码授权；所有后续命令固定使用同一个 Profile 与 API Origin。 |
+| 登录 | 受保护 API 操作前完成浏览器授权；所有后续命令固定使用同一个 Profile 与 API Origin。 |
 | 校验 | 本地拒绝危险路径、特殊文件、超限内容、敏感文件和常见 Secret 模式。 |
-| 定价与上传 | 用户以“分”为单位提供人民币价格，并明确允许上传确定性发布包。 |
+| 私有上传与预览 | 用户发起发布即授权上传私有草稿；真实包验证后先打开创作者预览。 |
+| 定价 | 用户随后在同一 Publication 上以“分”为单位提供人民币价格。 |
 | 平台分析 | ViceMe 建议中英文短简介、中英文使用说明、封面和有序画廊；建议不能替代用户决定。 |
 | 图文审核 | Agent 展示精确文案、价格、封面和所有画廊图片。短简介最大显示宽度为 30：ASCII 计 1，中文及其他非 ASCII 计 2。 |
 | 公开发布 | 用户只需做一次最终明确确认；随后完成审核确认并立即、不可逆地公开上架。 |
@@ -215,8 +213,8 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme skill listing prepare --path <path>` | 创建或恢复稳定的创作者私有预览，并保存本地绑定。 |
 | `viceme skill listing get <listing-id>` | 读取权威的私有 Listing 状态。 |
 | `viceme skill listing bind <listing-id> --path <path>` | 将来源明确绑定到用户选定且拥有的 Listing。 |
-| `viceme skill publish --path <path> --price-minor <fen> --dry-run` | 预览确定性发布包与价格。 |
-| `viceme skill publish --path <path> --price-minor <fen>` | 上传发布包并启动 Listing 分析。 |
+| `viceme skill publish --path <path>` | 定价前上传真实私有包并返回创作者预览。 |
+| `viceme skill publish --resume <id> --price-minor <fen>` | 为同一 Draft 定价、上传媒体候选并启动分析。 |
 | `viceme publication wait <id>` | 等待后台分析，不重复上传。 |
 | `viceme publication review <id>` | 读取权威双语文案、价格、选定素材和审核状态。 |
 | `viceme publication asset upload ...` | 确认前替换或新增封面、画廊图片。 |
@@ -237,11 +235,14 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
   "ok": true,
   "data": {},
   "meta": {
-    "cliVersion": "<version>",
+    "executingCliVersion": "<version>",
     "requestId": "optional"
   }
 }
 ```
+
+`meta.executingCliVersion` 表示输出本次响应的进程版本。对于 `viceme update`，
+新安装版本单独由 `data.cli_version` 返回，因为最终响应仍由启动更新的旧进程输出。
 
 正式安装最多每 24 小时读取一次权威发布渠道。发现新版本后，普通 JSON 响应通过
 `_notice.update` 返回当前版本、最新版本和 `viceme update`。检查失败不会改变业务
