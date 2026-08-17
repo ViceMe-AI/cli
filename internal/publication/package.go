@@ -116,10 +116,7 @@ type skillFrontmatter struct {
 	Description string `yaml:"description"`
 }
 
-func Build(sourcePath string, priceMinor int) (Package, error) {
-	if priceMinor < 0 || priceMinor > 10_000_000 {
-		return Package{}, output.Validation("SKILL_PRICE_INVALID", "priceMinor must be between 0 and 10000000")
-	}
+func Build(sourcePath string) (Package, error) {
 	abs, err := filepath.Abs(sourcePath)
 	if err != nil {
 		return Package{}, output.Validation("SKILL_PATH_INVALID", "could not resolve the Skill path").WithCause(err)
@@ -142,7 +139,7 @@ func Build(sourcePath string, priceMinor int) (Package, error) {
 	if err != nil {
 		return Package{}, err
 	}
-	manifest, err := manifestFromEntries(entries, priceMinor)
+	manifest, err := manifestFromEntries(entries)
 	if err != nil {
 		return Package{}, err
 	}
@@ -402,7 +399,7 @@ func writeDeterministicZip(entries []sourceEntry) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-func manifestFromEntries(entries []sourceEntry, priceMinor int) (api.SkillPublicationManifest, error) {
+func manifestFromEntries(entries []sourceEntry) (api.SkillPublicationManifest, error) {
 	var skill []byte
 	for _, entry := range entries {
 		if entry.name == "SKILL.md" {
@@ -422,7 +419,7 @@ func manifestFromEntries(entries []sourceEntry, priceMinor int) (api.SkillPublic
 		Metadata: api.SkillPublicationMetadata{Title: frontmatter.Name, Summary: frontmatter.Description},
 		Spec: api.SkillPublicationSpec{
 			Source: api.SkillPublicationSource{Entry: "SKILL.md"},
-			Sale:   api.SkillPublicationSale{Currency: "CNY", PriceMinor: priceMinor, Entitlement: "PERMANENT_DOWNLOAD"},
+			Sale:   api.SkillPublicationSale{Currency: "CNY", PriceMinor: nil, Entitlement: "PERMANENT_DOWNLOAD"},
 		},
 	}, nil
 }

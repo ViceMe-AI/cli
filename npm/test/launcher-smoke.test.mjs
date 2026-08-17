@@ -254,7 +254,8 @@ process.exit(child.status ?? 1);
     const version = JSON.parse(second.stdout);
     assert.equal(version.ok, true);
     assert.equal(version.data.version, packageVersion);
-    assert.equal(version.meta.cliVersion, packageVersion);
+    assert.equal(version.meta.executingCliVersion, packageVersion);
+    assert.equal("cliVersion" in version.meta, false);
     await stat(path.join(prefix, "bin", "viceme"));
   },
 );

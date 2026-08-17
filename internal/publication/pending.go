@@ -20,7 +20,7 @@ type Pending struct {
 	ClientRequestID string    `json:"clientRequestId"`
 	Fingerprint     string    `json:"fingerprint"`
 	SourcePath      string    `json:"sourcePath"`
-	PriceMinor      int       `json:"priceMinor"`
+	PriceMinor      *int      `json:"priceMinor"`
 	ArtifactDigest  string    `json:"artifactDigest"`
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`

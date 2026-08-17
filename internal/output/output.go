@@ -16,9 +16,11 @@ const (
 )
 
 type Meta struct {
-	CLIVersion   string `json:"cliVersion,omitempty"`
-	RequestID    string `json:"requestId,omitempty"`
-	WaitTimedOut *bool  `json:"waitTimedOut,omitempty"`
+	// ExecutingCLIVersion identifies the process that emitted this envelope. A
+	// self-update reports the installed target separately in its business data.
+	ExecutingCLIVersion string `json:"executingCliVersion,omitempty"`
+	RequestID           string `json:"requestId,omitempty"`
+	WaitTimedOut        *bool  `json:"waitTimedOut,omitempty"`
 }
 
 type Error struct {
@@ -116,10 +118,10 @@ type errorEnvelope struct {
 }
 
 type Printer struct {
-	Out        io.Writer
-	ErrOut     io.Writer
-	CLIVersion string
-	Notice     func() map[string]any
+	Out                 io.Writer
+	ErrOut              io.Writer
+	ExecutingCLIVersion string
+	Notice              func() map[string]any
 }
 
 func (p *Printer) Success(data any) error {
@@ -149,8 +151,8 @@ func (p *Printer) Failure(err error) int {
 }
 
 func (p *Printer) meta(requestID string, waitTimedOut *bool) *Meta {
-	meta := &Meta{CLIVersion: p.CLIVersion, RequestID: requestID, WaitTimedOut: waitTimedOut}
-	if meta.CLIVersion == "" && meta.RequestID == "" && meta.WaitTimedOut == nil {
+	meta := &Meta{ExecutingCLIVersion: p.ExecutingCLIVersion, RequestID: requestID, WaitTimedOut: waitTimedOut}
+	if meta.ExecutingCLIVersion == "" && meta.RequestID == "" && meta.WaitTimedOut == nil {
 		return nil
 	}
 	return meta

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -86,47 +87,70 @@ description: Publish a deterministic Skill through the vNext contract.
 		}
 		return exit, envelope
 	}
+	lastPreviewOpenURL := ""
+	expectFreshPreview := func(envelope map[string]any) {
+		t.Helper()
+		data, _ := envelope["data"].(map[string]any)
+		presentation, _ := data["presentation"].(map[string]any)
+		openURL, _ := presentation["openUrl"].(string)
+		if presentation["intent"] != "OPEN_OWNER_PREVIEW" || presentation["mode"] != "ONE_TIME_LAUNCH" || openURL == "" || presentation["fallbackUrl"] == "" {
+			t.Fatalf("owner preview presentation was not actionable with a stable fallback: %#v", envelope)
+		}
+		if openURL == lastPreviewOpenURL {
+			t.Fatalf("content update reused the consumed preview launch: %#v", envelope)
+		}
+		lastPreviewOpenURL = openURL
+	}
 
+	if exit, envelope := execute("skill", "publish", "--path", source); exit == 0 || envelope["ok"] != false {
+		t.Fatalf("simulated response loss did not fail safely: exit=%d envelope=%#v", exit, envelope)
+	}
+	previewStartedAt := time.Now()
 	if exit, envelope := execute("skill", "publish", "--path", source); exit != 0 || envelope["ok"] != true {
-		t.Fatalf("preview-first publish preparation failed: exit=%d envelope=%#v", exit, envelope)
+		t.Fatalf("private package upload retry did not recover: exit=%d envelope=%#v", exit, envelope)
 	} else {
 		data, _ := envelope["data"].(map[string]any)
-		if data["listingId"] != "66666666-6666-4666-8666-666666666666" || data["ownerPreviewUrl"] == "" || data["requiresPrice"] != true {
-			t.Fatalf("first business result was not the stable owner preview: %#v", envelope)
+		if data["listingId"] != "66666666-6666-4666-8666-666666666666" || data["publicationId"] != state.publicationID || data["requiresPrice"] != true {
+			t.Fatalf("first business result was not the uploaded private draft: %#v", envelope)
 		}
-		presentation, _ := data["presentation"].(map[string]any)
-		if presentation["intent"] != "OPEN_OWNER_PREVIEW" || presentation["mode"] != "ONE_TIME_LAUNCH" || presentation["openUrl"] == "" || presentation["fallbackUrl"] != data["ownerPreviewUrl"] {
-			t.Fatalf("owner preview presentation was not actionable with a stable fallback: %#v", presentation)
-		}
+		expectFreshPreview(envelope)
+	}
+	if elapsed := time.Since(previewStartedAt); elapsed >= 10*time.Second {
+		t.Fatalf("private package preview fast path took %s", elapsed)
 	}
 	state.mu.Lock()
-	if state.createCalls != 0 {
+	if state.createCalls != 2 || !state.packageVerified || state.mediaVerified || len(state.mediaBytes) != 0 || len(state.clientRequestIDs) != 2 || state.clientRequestIDs[0] != state.clientRequestIDs[1] {
 		state.mu.Unlock()
-		t.Fatal("preview-first preparation created a Publication before price and upload authorization")
+		t.Fatalf("private upload did not recover one Publication intent: %#v", state.clientRequestIDs)
 	}
 	state.mu.Unlock()
 	if _, err := os.Stat(filepath.Join(source, ".viceme", "skill.json")); err != nil {
 		t.Fatalf("workspace binding was not persisted beside the source: %v", err)
 	}
 
-	if exit, envelope := execute("skill", "publish", "--path", source, "--price-minor", "1"); exit == 0 || envelope["ok"] != false {
-		t.Fatalf("simulated response loss did not fail safely: exit=%d envelope=%#v", exit, envelope)
-	}
-	if exit, envelope := execute("skill", "publish", "--path", source, "--price-minor", "1"); exit != 0 || envelope["ok"] != true {
-		t.Fatalf("publication retry did not recover: exit=%d envelope=%#v", exit, envelope)
+	if exit, envelope := execute("skill", "publish", "--resume", state.publicationID, "--price-minor", "1"); exit != 0 || envelope["ok"] != true {
+		t.Fatalf("priced publication continuation failed: exit=%d envelope=%#v", exit, envelope)
+	} else if data, _ := envelope["data"].(map[string]any); data["requiresPrice"] != false {
+		t.Fatalf("price update was not reflected in the progressive preview: %#v", envelope)
+	} else {
+		expectFreshPreview(envelope)
 	}
 	state.mu.Lock()
-	if state.createCalls != 2 || len(state.clientRequestIDs) != 2 || state.clientRequestIDs[0] != state.clientRequestIDs[1] {
+	if state.createCalls != 2 {
 		state.mu.Unlock()
-		t.Fatalf("response-loss retry changed idempotency identity: %#v", state.clientRequestIDs)
+		t.Fatalf("resume created another Publication: calls=%d", state.createCalls)
 	}
 	state.mu.Unlock()
 
 	if exit, envelope := execute("publication", "asset", "upload", state.publicationID, "--role", "cover", "--path", mediaPath); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("manual cover upload failed: exit=%d envelope=%#v", exit, envelope)
+	} else {
+		expectFreshPreview(envelope)
 	}
 	if exit, envelope := execute("publication", "asset", "upload", state.publicationID, "--role", "gallery", "--path", mediaPath); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("verified media reuse failed: exit=%d envelope=%#v", exit, envelope)
+	} else {
+		expectFreshPreview(envelope)
 	}
 	if exit, envelope := execute("publication", "review", state.publicationID); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("publication review failed: exit=%d envelope=%#v", exit, envelope)
@@ -136,16 +160,21 @@ description: Publish a deterministic Skill through the vNext contract.
 		if draft["summaryZhCn"] != "发布测试" || draft["summaryEnUs"] != "Publish test" || draft["usageInstructionsZhCn"] != "按 SKILL.md 中的步骤运行。" || draft["usageInstructionsEnUs"] != "Follow the steps in SKILL.md." {
 			t.Fatalf("review omitted listing copy: %#v", envelope)
 		}
+		expectFreshPreview(envelope)
 	}
 	if exit, envelope := execute("publication", "confirm", state.publicationID, "--review-digest", state.reviewDigest); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("review confirmation failed: exit=%d envelope=%#v", exit, envelope)
+	} else {
+		expectFreshPreview(envelope)
 	}
 	if exit, envelope := execute("publication", "publish", state.publicationID, "--review-digest", state.reviewDigest); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("publish failed: exit=%d envelope=%#v", exit, envelope)
+	} else {
+		expectFreshPreview(envelope)
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.status != "PUBLISHED" || len(state.packageBytes) == 0 || len(state.mediaBytes) == 0 || state.draft.CoverUploadID == nil || len(state.draft.GalleryUploadIDs) != 1 {
+	if state.status != "PUBLISHED" || len(state.packageBytes) == 0 || len(state.mediaBytes) == 0 || state.draft.CoverUploadID == nil || len(state.draft.GalleryUploadIDs) != 1 || state.analysisCalls != 1 {
 		t.Fatalf("publication lifecycle did not close: %#v", state)
 	}
 	if state.listingID != "66666666-6666-4666-8666-666666666666" {
@@ -350,7 +379,7 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 				loseCompleteResponse: scenario.loseCompleteResponse,
 				draft: api.SkillPublicationDraft{
 					Title: "Publish Test", SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"), UsageInstructionsEnUS: stringPointer("Follow the steps in SKILL.md."),
-					Currency: "CNY", PriceMinor: 1, GalleryUploadIDs: []string{},
+					Currency: "CNY", PriceMinor: intPointer(1), GalleryUploadIDs: []string{},
 				},
 			}
 			server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
@@ -431,7 +460,7 @@ func TestTerminalPublicationRetirementFailureIsRecoverable(t *testing.T) {
 	}
 	pending := publication.Pending{
 		PublicationID: publicationID, ClientRequestID: clientRequestID, Fingerprint: fingerprint,
-		SourcePath: "/tmp/source", PriceMinor: 1, ArtifactDigest: strings.Repeat("b", 64),
+		SourcePath: "/tmp/source", PriceMinor: intPointer(1), ArtifactDigest: strings.Repeat("b", 64),
 	}
 	if err := store.Save(pending); err != nil {
 		t.Fatal(err)
@@ -491,6 +520,7 @@ type publicationAPITestState struct {
 	manifest                 api.SkillPublicationManifest
 	draft                    api.SkillPublicationDraft
 	packageBytes             []byte
+	packageDigest            string
 	mediaBytes               []byte
 	mediaDigest              string
 	packageVerified          bool
@@ -503,7 +533,9 @@ type publicationAPITestState struct {
 	mediaPutFailures         int
 	loseCompleteResponse     bool
 	uploadAuthorizationCalls int
+	previewLaunchCalls       int
 	analysisPolls            int
+	analysisCalls            int
 	ambiguousPrepare         bool
 }
 
@@ -543,8 +575,9 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 			{ListingID: "88888888-8888-4888-8888-888888888888", UpdatedAt: "2026-08-14T07:00:00Z", OwnerPreviewURL: state.baseURL + "/preview/two"},
 		}})
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-listings/"+listingID+"/preview-launch":
+		state.previewLaunchCalls++
 		writeJSONResponse(writer, api.CreateSkillPreviewLaunchResponse{
-			LaunchURL: state.baseURL + "/v1/creator/skill-preview-launches/one-time-code",
+			LaunchURL: state.baseURL + fmt.Sprintf("/v1/creator/skill-preview-launches/one-time-code-%d", state.previewLaunchCalls),
 			ExpiresAt: "2026-08-14T08:01:00Z",
 		})
 	case request.Method == http.MethodGet && request.URL.Path == "/v1/creator/skill-listings/"+listingID+"/preview":
@@ -552,10 +585,16 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-publications":
 		var input api.CreateSkillPublicationRequest
 		_ = json.NewDecoder(request.Body).Decode(&input)
+		if input.ContractVersion != "2026-08-17" || input.Manifest.Spec.Sale.PriceMinor != nil {
+			writer.WriteHeader(http.StatusBadRequest)
+			writeJSONResponse(writer, map[string]any{"statusCode": 400, "code": "PUBLICATION_CONTRACT_INVALID", "message": "expected an unpriced 2026-08-17 private upload"})
+			return
+		}
 		state.createCalls++
 		state.clientRequestIDs = append(state.clientRequestIDs, input.ClientRequestID)
 		state.listingID = input.ListingID
 		state.manifest = input.Manifest
+		state.packageDigest = input.Artifact.Digest
 		state.draft = api.SkillPublicationDraft{
 			Title: input.Manifest.Metadata.Title, SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"), UsageInstructionsEnUS: stringPointer("Follow the steps in SKILL.md."),
 			Currency: "CNY", PriceMinor: input.Manifest.Spec.Sale.PriceMinor, GalleryUploadIDs: []string{},
@@ -608,8 +647,20 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		}
 		writeJSONResponse(writer, state.publication())
 	case request.Method == http.MethodPatch && request.URL.Path == publicationPath+"/listing-draft":
-		_ = json.NewDecoder(request.Body).Decode(&state.draft)
+		var raw map[string]json.RawMessage
+		_ = json.NewDecoder(request.Body).Decode(&raw)
+		if len(raw) == 1 && raw["priceMinor"] != nil {
+			var price int
+			_ = json.Unmarshal(raw["priceMinor"], &price)
+			state.draft.PriceMinor = &price
+		} else {
+			encoded, _ := json.Marshal(raw)
+			_ = json.Unmarshal(encoded, &state.draft)
+		}
 		state.status = "REVIEW_REQUIRED"
+		writeJSONResponse(writer, state.publication())
+	case request.Method == http.MethodPost && request.URL.Path == publicationPath+"/analyze-listing":
+		state.analysisCalls++
 		writeJSONResponse(writer, state.publication())
 	case request.Method == http.MethodPost && request.URL.Path == publicationPath+"/confirm-review":
 		state.status = "READY"
@@ -625,7 +676,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 func (state *publicationAPITestState) publication() api.SkillPublication {
 	uploads := []api.SkillPublicationUpload{}
 	if state.packageVerified {
-		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-package", Kind: "PACKAGE", Status: "VERIFIED", Digest: "package", SortOrder: 0})
+		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-package", Kind: "PACKAGE", Status: "VERIFIED", Digest: state.packageDigest, SortOrder: 0})
 	}
 	if state.mediaVerified {
 		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-media", Kind: "MEDIA", Status: "VERIFIED", FileName: state.mediaFileName, ContentType: state.mediaContentType, SizeBytes: state.mediaSizeBytes, Digest: state.mediaDigest, SortOrder: state.mediaSortOrder})
@@ -651,5 +702,9 @@ func writeJSONResponse(writer http.ResponseWriter, value any) {
 }
 
 func stringPointer(value string) *string {
+	return &value
+}
+
+func intPointer(value int) *int {
 	return &value
 }

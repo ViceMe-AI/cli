@@ -1,4 +1,4 @@
 interface:
   display_name: "Publish to ViceMe"
-  short_description: "Prepare, review, and publish a Skill listing"
+  short_description: "Upload, preview, and publish a Skill listing"
   default_prompt: "Use $viceme-publish to publish this Skill on ViceMe."
