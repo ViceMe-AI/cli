@@ -5,12 +5,21 @@ All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 ## Required inputs
 
 - Root `SKILL.md` with non-empty `name` and `description` frontmatter.
-- Explicit `priceMinor` in CNY fen before any upload.
+- Explicit `priceMinor` in CNY fen before final public confirmation. A private
+  package upload intentionally starts with `priceMinor: null`.
 - Two listing summaries and two usage instructions (`zh-CN` and `en-US`), a verified package, one cover, and at least one gallery item must be displayed in the final review before the combined confirm-and-publish authorization.
 
 ## Stable local identity
 
-Run local inspect first, then create the private owner preview with `skill listing prepare --path`. Workspaces persist `.viceme/skill.json`; ZIP files persist the adjacent `<zip-name>.viceme.json`; an endpoint-scoped fallback index lives in the CLI configuration directory. These files contain no access token or upload credential. `listingId` is the durable work identity; the canonical package digest identifies only one content version. Moving or renaming a source, editing workspace files, retrying a lost response, or resuming an upload must not create another Listing.
+`skill publish --path` validates the local source, creates or recovers the
+Listing and Publication, uploads the private package, and returns the first
+real Owner Preview in one fast path. Workspaces persist `.viceme/skill.json`;
+ZIP files persist the adjacent `<zip-name>.viceme.json`; an endpoint-scoped
+fallback index lives in the CLI configuration directory. These files contain
+no access token or upload credential. `listingId` is the durable work identity;
+the canonical package digest identifies only one content version. Moving or
+renaming a source, editing workspace files, retrying a lost response, or
+resuming an upload must not create another Listing.
 
 Use `--new-listing` only for an explicit separate work. When digest candidate resolution is ambiguous, display candidates and use `skill listing bind <listing-id> --path ...` only after the user chooses an owned Listing.
 
@@ -22,9 +31,9 @@ Use `--new-listing` only for an explicit separate work. When digest candidate re
 
 ## Local recovery permission
 
-Every Listing prepare, non-dry-run publish, and resume writes an idempotent intent under the
+Every publish and resume writes an idempotent intent under the
 ViceMe CLI configuration directory before creating or continuing a remote
-publication. Listing prepare also writes the workspace binding or adjacent ZIP sidecar. A sandboxed Agent must request write access for the exact prepare/publish
+publication. Publish also writes the workspace binding or adjacent ZIP sidecar. A sandboxed Agent must request write access for the exact publish
 command before its first execution. Do not use an expected permission failure
 as a probe, do not delete zero-byte lock files, and do not start a replacement
 publication when the required action is to retry the same command with access.
@@ -32,6 +41,11 @@ publication when the required action is to retry the same command with access.
 ## Media
 
 Images discovered inside the package are uploaded as candidates. The platform uses an LLM to propose a Chinese summary, an English summary, semantically equivalent Chinese and English usage instructions derived from the validated `SKILL.md`, a cover, and a gallery. Suggestions are non-authoritative. Each summary has a maximum display width of 30: ASCII counts as 1 and Chinese/non-ASCII counts as 2. The user may edit either summary or either usage instruction, or upload PNG, JPEG, GIF, WebP, or AVIF replacements before confirmation.
+
+If the package has no image candidate, add a real cover and gallery after the
+first preview. `publication asset upload` queues analysis once both selections
+exist; it must not force the Agent to fabricate listing copy merely because the
+source package contained no image.
 
 For visual review, map the selected cover and gallery upload IDs to the exact
 verified uploads returned by `publication review`. In Codex, download their
@@ -60,12 +74,20 @@ The initial request to publish, given before the final review exists, is not
 this authorization. Any draft change produces a new `reviewDigest`; display the
 new review and obtain a new combined authorization before either command.
 
-After the upload command returns a publication ID, run
-`viceme --profile <publication-profile> publication wait <id>`. A `PENDING`
+The first unpriced publish uploads and verifies the package, then returns its
+Publication ID and Owner Preview. Set the price and continue with
+`skill publish --resume <id> --price-minor <fen>`; this is not a new upload
+authorization boundary. Then run `viceme --profile <publication-profile>
+publication wait <id>`. A `PENDING`
 analysis means the platform is working in the background; it does not authorize
 another write and must not interrupt the workflow with a “continue” question.
 If the CLI wait deadline is reached, repeat only the wait command with the same
 ID. Never upload the same package again to resume analysis.
+
+Every successful CLI result that changes or completes the Draft includes a
+fresh `presentation`. Present its one-time launch immediately and always keep
+the stable fallback URL visible. The stable page remains the same; Draft
+revision polling updates it while server-side analysis is running.
 
 ## Update draft file
 

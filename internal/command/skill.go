@@ -33,6 +33,13 @@ type listingGetResult struct {
 	Presentation previewPresentation `json:"presentation"`
 }
 
+type publicationPresentationResult struct {
+	api.SkillPublication
+	PublicationID string              `json:"publicationId"`
+	RequiresPrice bool                `json:"requiresPrice"`
+	Presentation  previewPresentation `json:"presentation"`
+}
+
 type previewPresentation struct {
 	Intent           string  `json:"intent"`
 	OpenURL          *string `json:"openUrl,omitempty"`
@@ -63,7 +70,7 @@ func newSkillListingPrepareCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{
 		Use: "prepare", Short: "Create or recover the private owner preview for a Skill source", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			pkg, err := publication.Build(source, 0)
+			pkg, err := publication.Build(source)
 			if err != nil {
 				return err
 			}
@@ -105,7 +112,7 @@ func newSkillListingBindCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{
 		Use: "bind <listing-id>", Short: "Explicitly bind a ZIP or workspace to an owned Listing", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			pkg, err := publication.Build(source, 0)
+			pkg, err := publication.Build(source)
 			if err != nil {
 				return err
 			}
@@ -129,7 +136,7 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{
 		Use: "inspect", Short: "Validate a local Skill directory or ZIP without side effects", Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			result, err := publication.Build(source, 0)
+			result, err := publication.Build(source)
 			if err != nil {
 				return err
 			}
@@ -145,9 +152,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	var source string
 	var resume string
 	var priceMinor int
-	var productID string
 	var creatorDisplayName string
-	var dryRun bool
 	var forceNew bool
 	command := &cobra.Command{
 		Use: "publish", Short: "Upload a Skill and prepare its listing for explicit review", Args: cobra.NoArgs,
@@ -158,8 +163,9 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if source == "" && resume == "" {
 				return output.Validation("SKILL_PATH_REQUIRED", "provide --path or --resume")
 			}
-			if dryRun && resume != "" {
-				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--dry-run cannot be combined with --resume")
+			priceConfirmed := command.Flags().Changed("price-minor")
+			if priceConfirmed && (priceMinor < 0 || priceMinor > 10_000_000) {
+				return output.Validation("SKILL_PRICE_INVALID", "priceMinor must be between 0 and 10000000")
 			}
 			store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
 			if resume != "" {
@@ -167,7 +173,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				pkg, err := publication.Build(pending.SourcePath, pending.PriceMinor)
+				pkg, err := publication.Build(pending.SourcePath)
 				if err != nil {
 					return err
 				}
@@ -177,15 +183,17 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
 					return err
 				}
-				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil)
+				if priceConfirmed {
+					pending.PriceMinor = &priceMinor
+					if err := store.Save(pending); err != nil {
+						return err
+					}
+				}
+				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, pending.PriceMinor == nil)
 			}
-			priceConfirmed := command.Flags().Changed("price-minor")
-			pkg, err := publication.Build(source, priceMinor)
+			pkg, err := publication.Build(source)
 			if err != nil {
 				return err
-			}
-			if dryRun {
-				return runtime.business(inspectResult{Package: pkg, PriceConfirmed: priceConfirmed})
 			}
 			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
 				return err
@@ -194,13 +202,9 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if !priceConfirmed {
-				prepared.RequiresPrice = true
-				return runtime.business(prepared)
-			}
 			fingerprint := fmt.Sprintf("%x", sha256.Sum256([]byte(
 				runtime.profile.ID+"\x00"+prepared.ListingID+"\x00"+pkg.Artifact.Digest+"\x00"+pkg.Digest+"\x00"+
-					fmt.Sprintf("%d", priceMinor)+"\x00"+productID+"\x00"+creatorDisplayName+"\x00"+buildinfo.Version,
+					creatorDisplayName+"\x00"+buildinfo.Version,
 			)))
 			intent, err := store.LoadOrCreateIntent(fingerprint, runtime.deps.NewID)
 			if err != nil {
@@ -210,17 +214,20 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				pending := publication.Pending{
 					PublicationID: intent.PublicationID, ClientRequestID: intent.ClientRequestID,
 					Fingerprint: fingerprint,
-					SourcePath:  pkg.SourcePath, PriceMinor: priceMinor, ArtifactDigest: pkg.Artifact.Digest,
+					SourcePath:  pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
+				}
+				if priceConfirmed {
+					pending.PriceMinor = &priceMinor
 				}
 				if err := store.Save(pending); err != nil {
 					return err
 				}
-				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil)
+				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, pending.PriceMinor == nil)
 			}
 			created, err := runtime.client().CreateSkillPublication(command.Context(), api.CreateSkillPublicationRequest{
-				ClientRequestID: intent.ClientRequestID, ContractVersion: "2026-08-11", CLIVersion: buildinfo.Version,
+				ClientRequestID: intent.ClientRequestID, ContractVersion: api.SkillPublicationContractVersion, CLIVersion: buildinfo.Version,
 				Manifest: pkg.Manifest, ManifestDigest: pkg.Digest, Artifact: pkg.Artifact, ListingID: prepared.ListingID,
-				ProductID: productID, CreatorDisplayName: creatorDisplayName,
+				CreatorDisplayName: creatorDisplayName,
 			})
 			if err != nil {
 				if output.AsError(err).Subtype != "SKILL_PUBLICATION_ALREADY_ACTIVE" {
@@ -239,20 +246,21 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			pending := publication.Pending{
 				PublicationID: created.PublicationID, ClientRequestID: intent.ClientRequestID,
 				Fingerprint: fingerprint,
-				SourcePath:  pkg.SourcePath, PriceMinor: priceMinor, ArtifactDigest: pkg.Artifact.Digest,
+				SourcePath:  pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
+			}
+			if priceConfirmed {
+				pending.PriceMinor = &priceMinor
 			}
 			if err := store.Save(pending); err != nil {
 				return err
 			}
-			return continueSkillPublication(command.Context(), runtime, store, pending, pkg, created.PackageUpload)
+			return continueSkillPublication(command.Context(), runtime, store, pending, pkg, created.PackageUpload, pending.PriceMinor == nil)
 		},
 	}
 	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
 	command.Flags().StringVar(&resume, "resume", "", "resume an interrupted publication by ID")
-	command.Flags().IntVar(&priceMinor, "price-minor", 0, "confirmed CNY price in fen")
-	command.Flags().StringVar(&productID, "product-id", "", "update an owned product instead of creating one")
+	command.Flags().IntVar(&priceMinor, "price-minor", 0, "set the CNY price in fen while continuing the private draft")
 	command.Flags().StringVar(&creatorDisplayName, "creator-display-name", "", "creator display name used when the account has none")
-	command.Flags().BoolVar(&dryRun, "dry-run", false, "validate and show the deterministic plan without network writes")
 	command.Flags().BoolVar(&forceNew, "new-listing", false, "explicitly create a separate Listing even when content matches")
 	return command
 }
@@ -387,7 +395,7 @@ func (runtime *Runtime) requireSkillPublicationAuthentication(ctx context.Contex
 	return nil
 }
 
-func continueSkillPublication(ctx context.Context, runtime *Runtime, store publication.PendingStore, pending publication.Pending, pkg publication.Package, initialUpload *api.UploadAuthorization) error {
+func continueSkillPublication(ctx context.Context, runtime *Runtime, store publication.PendingStore, pending publication.Pending, pkg publication.Package, initialUpload *api.UploadAuthorization, packageOnly bool) error {
 	client := runtime.client()
 	current, err := client.GetSkillPublication(ctx, pending.PublicationID)
 	if err != nil {
@@ -397,7 +405,13 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		if err := retirePublicationRecovery(store, pending, current.Status); err != nil {
 			return err
 		}
-		return runtime.business(current)
+		return presentPublication(ctx, runtime, current)
+	}
+	if pending.PriceMinor != nil && (current.Draft.PriceMinor == nil || *current.Draft.PriceMinor != *pending.PriceMinor) {
+		current, err = client.UpdateListingPrice(ctx, pending.PublicationID, *pending.PriceMinor)
+		if err != nil {
+			return err
+		}
 	}
 	if !verifiedUpload(current.Uploads, "PACKAGE", pkg.Artifact.Digest, "") {
 		authorization := initialUpload
@@ -419,6 +433,9 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		if err != nil {
 			return err
 		}
+	}
+	if packageOnly {
+		return presentPublication(ctx, runtime, current)
 	}
 	for index, candidate := range pkg.Candidates {
 		if verifiedUpload(current.Uploads, "MEDIA", candidate.Digest, candidate.RelativePath) {
@@ -453,7 +470,28 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 			return err
 		}
 	}
-	return runtime.business(current)
+	return presentPublication(ctx, runtime, current)
+}
+
+func presentPublication(ctx context.Context, runtime *Runtime, current api.SkillPublication) error {
+	presentation, err := previewPresentationForPublication(ctx, runtime, current)
+	if err != nil {
+		return err
+	}
+	return runtime.business(publicationPresentationResult{
+		SkillPublication: current,
+		PublicationID:    current.ID,
+		RequiresPrice:    current.Draft.PriceMinor == nil,
+		Presentation:     presentation,
+	})
+}
+
+func previewPresentationForPublication(ctx context.Context, runtime *Runtime, current api.SkillPublication) (previewPresentation, error) {
+	preview, err := runtime.client().GetSkillListingPreview(ctx, current.ListingID)
+	if err != nil {
+		return previewPresentation{}, err
+	}
+	return createPreviewPresentation(ctx, runtime, current.ListingID, preview.Preview.FallbackURL), nil
 }
 
 func retirePublicationRecovery(store publication.PendingStore, pending publication.Pending, status string) error {
