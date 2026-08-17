@@ -114,6 +114,44 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 	}
 }
 
+func TestProfileListMigratesOfficialLegacyCredential(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	store := securestore.NewMemory()
+	legacy := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default"}
+	if err := legacy.Save(credentialauth.Credential{AccessToken: "legacy-official-token"}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := Execute([]string{"profile", "list"}, Dependencies{
+		Out: &stdout, ErrOut: &stderr, Store: store,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit != 0 {
+		t.Fatalf("profile list failed: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	items, ok := envelope["data"].([]any)
+	if !ok || len(items) != 1 || items[0].(map[string]any)["authenticated"] != true {
+		t.Fatalf("profile list lost the official legacy credential: %#v", envelope)
+	}
+	scope, err := credentialScopeForAPIBase(config.APIBaseURL(config.RegionCN))
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+	if _, err := store.Get(endpoint.StorageKey()); err != nil {
+		t.Fatalf("profile list did not migrate the endpoint credential: %v", err)
+	}
+	if _, err := store.Get(legacy.StorageKey()); err != nil {
+		t.Fatalf("profile list removed the rollback credential: %v", err)
+	}
+}
+
 func TestProfileRemoveAllRequiresConfirmationAndClearsEveryCredential(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

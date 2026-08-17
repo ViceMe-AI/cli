@@ -41,6 +41,7 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 				manager := credentialauth.Manager{
 					Store: runtime.deps.Store, Region: string(runtime.config.DistributionRegion),
 					ProfileID: profile.ID, ProfileName: profile.Name, Scope: scope,
+					LegacyRegion: legacyCredentialRegionForAPIBase(profile.ResolvedAPIBaseURL()),
 				}
 				status, err := manager.CurrentStatus()
 				if err != nil {
@@ -167,6 +168,7 @@ func newProfileRemoveCommand(runtime *Runtime) *cobra.Command {
 			manager := credentialauth.Manager{
 				Store: runtime.deps.Store, Region: string(runtime.config.DistributionRegion),
 				ProfileID: removed.ID, ProfileName: removed.Name, Scope: scope,
+				LegacyRegion: legacyCredentialRegionForAPIBase(removed.ResolvedAPIBaseURL()),
 			}
 			if err := manager.Delete(); err != nil {
 				return err
