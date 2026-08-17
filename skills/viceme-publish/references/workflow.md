@@ -11,14 +11,13 @@ All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 
 ## Stable local identity
 
-Select the publication Profile before resolving local identity. The current
-request may explicitly name a Profile; otherwise the CLI's active Profile is
-authoritative. Memory, prior conversations, publication history, filenames,
-package digests, sidecars, and login state in other Profiles must not select or
-switch the Profile. Once selected, every binding lookup and publication resume
-is scoped to that Profile's normalized API endpoint, market, and authenticated user.
-A historical match in another Profile may be mentioned as context but
-must never be probed or resumed unless the user explicitly chooses it.
+The publishing workflow never selects an environment. The active CLI context
+is authoritative and already scopes every binding lookup and publication resume
+to its normalized API endpoint, market, and authenticated user. Agents must not
+inspect or modify CLI environment configuration or turn environments into
+user-facing choices. Memory, prior conversations, publication history, filenames, package
+digests, sidecars, and login state elsewhere cannot override that context. A
+historical match outside the active context must not be probed, offered, or resumed.
 
 `skill publish --path` validates the local source, creates or recovers the
 Listing and Publication, uploads the private package, and returns the first
@@ -86,8 +85,7 @@ new review and obtain a new combined authorization before either command.
 The first unpriced publish uploads and verifies the package, then returns its
 Publication ID and Owner Preview. Set the price and continue with
 `skill publish --resume <id> --price-minor <fen>`; this is not a new upload
-authorization boundary. Then run `viceme --profile <publication-profile>
-publication wait <id>`. A `PENDING`
+authorization boundary. Then run `viceme publication wait <id>`. A `PENDING`
 analysis means the platform is working in the background; it does not authorize
 another write and must not interrupt the workflow with a “continue” question.
 If the CLI wait deadline is reached, repeat only the wait command with the same
