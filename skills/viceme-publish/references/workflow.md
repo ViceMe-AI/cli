@@ -93,10 +93,17 @@ it does not authorize another write and must not interrupt the workflow with a
 “continue” question. If the CLI wait deadline is reached, repeat only the wait
 command with the same ID. Never upload the same package again to resume analysis.
 
-Ask for the CNY price only after analysis and required media are ready. Apply it
-with `skill publish --resume <id> --price-minor <fen>`, present the fresh preview,
-then fetch and display the final review. Price is required for final public
-confirmation, never for private media upload or analysis.
+After analysis and required media are ready, fetch the authoritative review and
+display the title, bilingual summaries, bilingual usage instructions, cover,
+and ordered gallery before requesting more input. In that same interaction,
+ask for the CNY price and any desired changes to the displayed listing details.
+Never ask for price by itself or defer showing copy and media until after the
+price is supplied. If the user supplies only a price, preserve all displayed
+fields and apply it with `skill publish --resume <id> --price-minor <fen>`. If
+the user also requests edits, apply the complete answer to the same Draft,
+present the fresh preview, then fetch and display the final review. Price is
+required for final public confirmation, never for private media upload or
+analysis.
 
 Every successful CLI result that changes or completes the Draft includes a
 fresh `presentation`. Present its one-time launch immediately and always keep

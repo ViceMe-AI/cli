@@ -1,6 +1,6 @@
 # Publication error handling
 
-- `SKILL_PUBLICATION_PRICE_REQUIRED`: ask for the exact CNY price in fen, then resume the same private Publication.
+- `SKILL_PUBLICATION_PRICE_REQUIRED`: fetch and display the complete current listing details, then ask for the exact CNY price in fen together with any desired title, copy, or media changes. Never ask for price as a standalone question. Resume the same private Publication.
 - `SKILL_SECRET_DETECTED` or `SKILL_SENSITIVE_FILE`: stop and remove credentials or sensitive files from the package. Never print their contents.
 - `PUBLICATION_SOURCE_CHANGED`: the recovery package differs from the started publication; restore it or start a new publication.
 - `SKILL_PUBLICATION_REVIEW_CHANGED`: fetch and show the latest review, then obtain a new combined confirm-and-publish authorization for its new digest.
