@@ -56,7 +56,7 @@ func newPublicationWaitCommand(runtime *Runtime) *cobra.Command {
 					return err
 				}
 				if result.Analysis == nil || result.Analysis.Status != "PENDING" {
-					return runtime.business(result)
+					return presentPublication(command.Context(), runtime, result)
 				}
 				if err := runtime.deps.Sleep(ctx, interval); err != nil {
 					if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -91,7 +91,7 @@ func newPublicationGetCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(result)
+			return presentPublication(command.Context(), runtime, result)
 		},
 	}
 }
@@ -104,11 +104,16 @@ func newPublicationReviewCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			presentation, err := previewPresentationForPublication(command.Context(), runtime, result)
+			if err != nil {
+				return err
+			}
 			return runtime.business(map[string]any{
 				"publicationId": result.ID, "status": result.Status, "draft": result.Draft,
 				"analysis": result.Analysis, "uploads": result.Uploads,
 				"reviewRevision": result.ReviewRevision, "reviewDigest": result.ReviewDigest,
 				"requiresExplicitConfirmation": result.Status == "REVIEW_REQUIRED",
+				"requiresPrice":                result.Draft.PriceMinor == nil, "presentation": presentation,
 			})
 		},
 	}
@@ -189,7 +194,13 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(updated)
+			if updated.Draft.CoverUploadID != nil && len(updated.Draft.GalleryUploadIDs) > 0 && (updated.Analysis == nil || updated.Analysis.Status != "PENDING") {
+				updated, err = client.AnalyzeListing(command.Context(), args[0])
+				if err != nil {
+					return err
+				}
+			}
+			return presentPublication(command.Context(), runtime, updated)
 		},
 	}
 	command.Flags().StringVar(&role, "role", "", "asset role: cover or gallery")
@@ -222,7 +233,7 @@ func newPublicationUpdateCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(result)
+			return presentPublication(command.Context(), runtime, result)
 		},
 	}
 	command.Flags().StringVar(&filename, "input", "", "strict JSON file containing the complete listing draft")
@@ -239,7 +250,7 @@ func newPublicationConfirmCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(result)
+			return presentPublication(command.Context(), runtime, result)
 		},
 	}
 	command.Flags().StringVar(&digest, "review-digest", "", "exact digest shown by publication review")
@@ -266,7 +277,7 @@ func newPublicationPublishCommand(runtime *Runtime) *cobra.Command {
 					return loadErr
 				}
 			}
-			return runtime.business(result)
+			return presentPublication(command.Context(), runtime, result)
 		},
 	}
 	command.Flags().StringVar(&digest, "review-digest", "", "exact digest confirmed by the user")
@@ -278,6 +289,14 @@ func newPublicationCancelCommand(runtime *Runtime) *cobra.Command {
 	return &cobra.Command{
 		Use: "cancel <publication-id>", Short: "Cancel an unpublished Skill publication", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			current, err := runtime.client().GetSkillPublication(command.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			presentation, err := previewPresentationForPublication(command.Context(), runtime, current)
+			if err != nil {
+				return err
+			}
 			result, err := runtime.client().CancelSkillPublication(command.Context(), args[0])
 			if err != nil {
 				return err
@@ -290,7 +309,10 @@ func newPublicationCancelCommand(runtime *Runtime) *cobra.Command {
 			} else if output.AsError(loadErr).Subtype != "PUBLICATION_RECOVERY_NOT_FOUND" {
 				return loadErr
 			}
-			return runtime.business(result)
+			return runtime.business(map[string]any{
+				"cancelled": result.Cancelled, "listingId": current.ListingID,
+				"publicationId": current.ID, "presentation": presentation,
+			})
 		},
 	}
 }
