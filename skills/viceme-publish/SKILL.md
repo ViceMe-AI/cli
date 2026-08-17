@@ -16,9 +16,9 @@ Use the CLI for every deterministic action. Read [workflow.md](references/workfl
 5. Immediately run `viceme --profile <publication-profile> skill publish --path <dir-or-zip>`. Do not run a separate `skill inspect`, `skill listing prepare`, or `--dry-run` first. The command performs deterministic local validation, creates or recovers the Listing and Publication, uploads and verifies the real private package, then returns its presentation. If validation fails, explain and correct the source; never upload invalid bytes.
 6. Present the returned Owner Preview immediately, before asking for price or any other listing detail:
    - Always show `presentation.fallbackUrl` as the stable “Owner Preview” link. Keep showing it after later updates and after publication.
-   - When `presentation.mode` is `ONE_TIME_LAUNCH`, use `presentation.openUrl` immediately. It is short-lived and single-use; do not save or repeat it.
+   - When `presentation.mode` is `ONE_TIME_LAUNCH`, use `presentation.openUrl` immediately. It is a short-lived, prefetch-safe launch document whose rendered authorization handoff is single-use; do not save or repeat it.
    - In Codex Desktop, call `open_in_codex` with `placement: "right"` and `target: {type: "browser", url: presentation.openUrl}`.
-   - In WorkBuddy, call `present_files` with `files: [presentation.openUrl]`. Do not generate or download a local HTML copy.
+   - In WorkBuddy, call `present_files` once with `files: [presentation.openUrl]`. The launch document tolerates the host's metadata prefetch before its rendered handoff. Do not pre-open the URL yourself, and do not generate or download a local HTML copy.
    - In Claude Code Desktop, do not start a local static server. Render `presentation.openUrl` once as a clickable “Open preview” link and keep the stable fallback visible.
    - In another Agent host, use an embedded URL-opening tool when one exists; otherwise render the one-time link once. Never guess the host in the CLI.
    - If `presentation.mode` is `FALLBACK_URL`, show and use the stable fallback and explain only that automatic side-panel handoff is temporarily unavailable.
