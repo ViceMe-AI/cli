@@ -83,13 +83,20 @@ this authorization. Any draft change produces a new `reviewDigest`; display the
 new review and obtain a new combined authorization before either command.
 
 The first unpriced publish uploads and verifies the package, then returns its
-Publication ID and Owner Preview. Set the price and continue with
-`skill publish --resume <id> --price-minor <fen>`; this is not a new upload
-authorization boundary. Then run `viceme publication wait <id>`. A `PENDING`
-analysis means the platform is working in the background; it does not authorize
-another write and must not interrupt the workflow with a “continue” question.
-If the CLI wait deadline is reached, repeat only the wait command with the same
-ID. Never upload the same package again to resume analysis.
+Publication ID and Owner Preview. Continue immediately with `skill publish
+--resume <id>` without a price; this is not a new upload authorization boundary.
+That continuation uploads media candidates and starts listing analysis while
+`priceMinor` remains null. `requiresPrice: true` is Draft completeness state,
+not a prompt to interrupt progressive enrichment. Then run `viceme publication
+wait <id>`. A `PENDING` analysis means the platform is working in the background;
+it does not authorize another write and must not interrupt the workflow with a
+“continue” question. If the CLI wait deadline is reached, repeat only the wait
+command with the same ID. Never upload the same package again to resume analysis.
+
+Ask for the CNY price only after analysis and required media are ready. Apply it
+with `skill publish --resume <id> --price-minor <fen>`, present the fresh preview,
+then fetch and display the final review. Price is required for final public
+confirmation, never for private media upload or analysis.
 
 Every successful CLI result that changes or completes the Draft includes a
 fresh `presentation`. Present its one-time launch immediately and always keep

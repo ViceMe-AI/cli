@@ -189,7 +189,10 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 						return err
 					}
 				}
-				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, pending.PriceMinor == nil)
+				// An explicit resume continues Draft enrichment even while the
+				// price is still unset. Price gates final confirmation, not media
+				// upload or listing analysis.
+				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, false)
 			}
 			pkg, err := publication.Build(source)
 			if err != nil {

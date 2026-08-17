@@ -185,6 +185,93 @@ description: Publish a deterministic Skill through the vNext contract.
 	}
 }
 
+func TestSkillPublishResumeWithoutPriceUploadsMediaAndStartsAnalysis(t *testing.T) {
+	t.Parallel()
+	state := &publicationAPITestState{
+		publicationID: "22222222-2222-4222-8222-222222222223",
+		reviewDigest:  "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+	}
+	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	defer server.Close()
+	state.baseURL = server.URL
+
+	root := t.TempDir()
+	source := filepath.Join(root, "skill")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte(`---
+name: Progressive Publish Test
+description: Verify unpriced media and analysis continuation.
+---
+
+# Progressive Publish Test
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	media, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "preview.png"), media, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(server.URL, config.RegionCN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "vme_cli_test", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	dependencies := Dependencies{
+		Out: &stdout, ErrOut: &stderr, Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Now:         func() time.Time { return time.Date(2026, 8, 17, 8, 0, 0, 0, time.UTC) },
+		NewID:       func() string { return "11111111-1111-4111-8111-111111111112" },
+	}
+	execute := func(arguments ...string) (int, map[string]any) {
+		t.Helper()
+		stdout.Reset()
+		stderr.Reset()
+		exit := Execute(arguments, dependencies)
+		var envelope map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("command did not emit JSON: exit=%d stdout=%q stderr=%q err=%v", exit, stdout.String(), stderr.String(), err)
+		}
+		return exit, envelope
+	}
+
+	if exit, _ := execute("skill", "publish", "--path", source); exit == 0 {
+		t.Fatal("simulated create response loss unexpectedly succeeded")
+	}
+	if exit, envelope := execute("skill", "publish", "--path", source); exit != 0 || envelope["ok"] != true {
+		t.Fatalf("private preview recovery failed: exit=%d envelope=%#v", exit, envelope)
+	}
+	state.mu.Lock()
+	if !state.packageVerified || state.mediaVerified || state.analysisCalls != 0 {
+		state.mu.Unlock()
+		t.Fatalf("first preview did not stop after the verified package: %#v", state)
+	}
+	state.mu.Unlock()
+
+	if exit, envelope := execute("skill", "publish", "--resume", state.publicationID); exit != 0 || envelope["ok"] != true {
+		t.Fatalf("unpriced continuation failed: exit=%d envelope=%#v", exit, envelope)
+	} else if data, _ := envelope["data"].(map[string]any); data["requiresPrice"] != true {
+		t.Fatalf("unpriced continuation lost its Draft completeness signal: %#v", envelope)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if !state.mediaVerified || len(state.mediaBytes) == 0 || state.analysisCalls != 1 || state.draft.PriceMinor != nil {
+		t.Fatalf("unpriced continuation did not upload media and start analysis: %#v", state)
+	}
+}
+
 func TestSkillPublishValidatesLocallyBeforeLoginWithoutCreatingRecoveryState(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
