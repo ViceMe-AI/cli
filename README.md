@@ -184,9 +184,9 @@ unknown. Query or resume the existing ID first.
 
 ## Authentication and Profiles
 
-Each Profile binds one region, one API endpoint, and one device-authorized
-account. Profiles without a custom endpoint use the selected region's official
-ViceMe API.
+Each Profile binds one explicit API endpoint and one device-authorized account.
+The separately stored distribution region selects only the CLI and bundled
+Skill download source; it never selects a publication market.
 
 ```bash
 viceme auth login

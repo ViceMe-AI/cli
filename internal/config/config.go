@@ -28,15 +28,15 @@ const (
 type Profile struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
-	Region     Region `json:"region"`
-	APIBaseURL string `json:"apiBaseUrl,omitempty"`
+	APIBaseURL string `json:"apiBaseUrl"`
 	UserID     string `json:"userId,omitempty"`
 }
 
 type Config struct {
-	CurrentProfile  string    `json:"currentProfile"`
-	PreviousProfile string    `json:"previousProfile,omitempty"`
-	Profiles        []Profile `json:"profiles"`
+	DistributionRegion Region    `json:"distributionRegion"`
+	CurrentProfile     string    `json:"currentProfile"`
+	PreviousProfile    string    `json:"previousProfile,omitempty"`
+	Profiles           []Profile `json:"profiles"`
 }
 
 type EnsureResult struct {
@@ -132,10 +132,7 @@ func NormalizeAPIBaseURL(raw string) (string, error) {
 }
 
 func (profile Profile) ResolvedAPIBaseURL() string {
-	if profile.APIBaseURL != "" {
-		return profile.APIBaseURL
-	}
-	return APIBaseURL(profile.Region)
+	return profile.APIBaseURL
 }
 
 func Default(region Region) Config {
@@ -145,11 +142,12 @@ func Default(region Region) Config {
 		region = RegionCN
 	}
 	return Config{
-		CurrentProfile: DefaultProfileName,
+		DistributionRegion: region,
+		CurrentProfile:     DefaultProfileName,
 		Profiles: []Profile{{
-			ID:     DefaultProfileName,
-			Name:   DefaultProfileName,
-			Region: region,
+			ID:         DefaultProfileName,
+			Name:       DefaultProfileName,
+			APIBaseURL: APIBaseURL(region),
 		}},
 	}
 }
@@ -217,30 +215,23 @@ func (config *Config) ProfileNames() []string {
 	return names
 }
 
-func (config *Config) AddProfile(name string, region Region, apiBaseURL string) (*Profile, error) {
+func (config *Config) AddProfile(name, apiBaseURL string) (*Profile, error) {
 	if err := ValidateProfileName(name); err != nil {
 		return nil, err
 	}
 	if config.FindProfileIndex(name) >= 0 {
 		return nil, fmt.Errorf("profile %q already exists", name)
 	}
-	parsedRegion, err := ParseRegion(string(region))
+	normalizedAPIBaseURL, err := NormalizeAPIBaseURL(apiBaseURL)
 	if err != nil {
 		return nil, err
-	}
-	normalizedAPIBaseURL := ""
-	if strings.TrimSpace(apiBaseURL) != "" {
-		normalizedAPIBaseURL, err = NormalizeAPIBaseURL(apiBaseURL)
-		if err != nil {
-			return nil, err
-		}
 	}
 	id, err := newProfileID()
 	if err != nil {
 		return nil, fmt.Errorf("create profile id: %w", err)
 	}
 	config.Profiles = append(config.Profiles, Profile{
-		ID: id, Name: name, Region: parsedRegion, APIBaseURL: normalizedAPIBaseURL,
+		ID: id, Name: name, APIBaseURL: normalizedAPIBaseURL,
 	})
 	return &config.Profiles[len(config.Profiles)-1], nil
 }
@@ -277,11 +268,42 @@ func load(filename string) (Config, error) {
 	if err := json.Unmarshal(data, &config); err != nil {
 		return Config{}, configLoadError(filename, "decode", err)
 	}
+	// Migrate the pre-endpoint-authority shape in memory. Region used to be
+	// duplicated on every Profile; it now selects only the distribution channel.
+	migrated := config.DistributionRegion == ""
+	if migrated {
+		var legacy struct {
+			Profiles []struct {
+				Name       string `json:"name"`
+				Region     Region `json:"region"`
+				APIBaseURL string `json:"apiBaseUrl"`
+			} `json:"profiles"`
+		}
+		if err := json.Unmarshal(data, &legacy); err != nil {
+			return Config{}, configLoadError(filename, "decode", err)
+		}
+		config.DistributionRegion = RegionCN
+		for _, candidate := range legacy.Profiles {
+			if candidate.Name == config.CurrentProfile && candidate.Region != "" {
+				config.DistributionRegion = candidate.Region
+			}
+			for index := range config.Profiles {
+				if config.Profiles[index].Name == candidate.Name && config.Profiles[index].APIBaseURL == "" {
+					config.Profiles[index].APIBaseURL = APIBaseURL(candidate.Region)
+				}
+			}
+		}
+	}
 	if err := validate(&config); err != nil {
 		return Config{}, configLoadError(filename, "validate", err)
 	}
 	if err := requirePrivateFile(filename); err != nil {
 		return Config{}, configLoadError(filename, "permissions", err)
+	}
+	if migrated {
+		if err := write(filename, config); err != nil {
+			return Config{}, configLoadError(filename, "migrate", err)
+		}
 	}
 	return config, nil
 }
@@ -291,6 +313,11 @@ func configLoadError(path, stage string, err error) error {
 }
 
 func validate(config *Config) error {
+	region, err := ParseRegion(string(config.DistributionRegion))
+	if err != nil {
+		return fmt.Errorf("distribution: %w", err)
+	}
+	config.DistributionRegion = region
 	if len(config.Profiles) == 0 {
 		return fmt.Errorf("config must contain at least one profile")
 	}
@@ -312,18 +339,11 @@ func validate(config *Config) error {
 			return fmt.Errorf("duplicate profile name %q", profile.Name)
 		}
 		names[profile.Name] = struct{}{}
-		region, err := ParseRegion(string(profile.Region))
+		normalized, err := NormalizeAPIBaseURL(profile.APIBaseURL)
 		if err != nil {
 			return fmt.Errorf("profile %q: %w", profile.Name, err)
 		}
-		profile.Region = region
-		if profile.APIBaseURL != "" {
-			normalized, err := NormalizeAPIBaseURL(profile.APIBaseURL)
-			if err != nil {
-				return fmt.Errorf("profile %q: %w", profile.Name, err)
-			}
-			profile.APIBaseURL = normalized
-		}
+		profile.APIBaseURL = normalized
 	}
 	if config.CurrentProfile == "" {
 		config.CurrentProfile = config.Profiles[0].Name

@@ -580,7 +580,7 @@ func TestInstallTreatsCredentialStatusAsAdvisory(t *testing.T) {
 	t.Parallel()
 	runtime := &Runtime{
 		region:  config.RegionCN,
-		profile: config.Profile{ID: "profile-default", Name: "default", Region: config.RegionCN},
+		profile: config.Profile{ID: "profile-default", Name: "default", APIBaseURL: config.APIBaseURL(config.RegionCN)},
 		deps:    Dependencies{Store: unavailableCredentialStore{}},
 	}
 
@@ -607,7 +607,7 @@ func TestInstallTreatsActiveProfileNetworkReadinessAsAdvisory(t *testing.T) {
 	defer server.Close()
 
 	store := securestore.NewMemory()
-	scope, err := credentialScopeForAPIBase(server.URL, config.RegionCN)
+	scope, err := credentialScopeForAPIBase(server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -650,5 +650,23 @@ func TestInstallTreatsActiveProfileNetworkReadinessAsAdvisory(t *testing.T) {
 		if !skillcontent.New(cliembed.EmbeddedSkills()).Doctor(name, "agents", skillcontent.Environment{Home: root, ConfigDir: configDir}).Healthy {
 			t.Fatalf("install did not commit %s while the old profile API was unavailable", name)
 		}
+	}
+}
+
+func TestCredentialScopeUsesCanonicalAPIOrigin(t *testing.T) {
+	first, err := credentialScopeForAPIBase("https://API.EXAMPLE.com:443/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	same, err := credentialScopeForAPIBase("https://api.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := credentialScopeForAPIBase("https://other.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" || first != same || first == other {
+		t.Fatalf("credential scope did not follow canonical API origin: first=%q same=%q other=%q", first, same, other)
 	}
 }

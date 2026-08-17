@@ -9,7 +9,7 @@ import (
 func TestProfileRoundTripContainsNoCredentialFields(t *testing.T) {
 	directory := t.TempDir()
 	configured := Default(RegionCN)
-	profile, err := configured.AddProfile("global", RegionGlobal, "")
+	profile, err := configured.AddProfile("global", APIBaseURL(RegionGlobal))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func TestProfileRoundTripContainsNoCredentialFields(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"accessToken", "refreshToken", "credential", "apiBaseUrl"} {
+	for _, forbidden := range []string{"accessToken", "refreshToken", "credential"} {
 		if stringContains(string(data), forbidden) {
 			t.Fatalf("config contains %q: %s", forbidden, data)
 		}
@@ -47,7 +47,7 @@ func TestAPIBaseURLs(t *testing.T) {
 func TestCustomProfileAPIBaseURLRoundTripsCanonically(t *testing.T) {
 	directory := t.TempDir()
 	configured := Default(RegionCN)
-	profile, err := configured.AddProfile("shop-dev", RegionCN, "HTTPS://SHOP-DEV.EXAMPLE.COM:443/api/")
+	profile, err := configured.AddProfile("shop-dev", "HTTPS://SHOP-DEV.EXAMPLE.COM:443/api/")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,6 +68,45 @@ func TestCustomProfileAPIBaseURLRoundTripsCanonically(t *testing.T) {
 	}
 	if resolved.APIBaseURL != "https://shop-dev.example.com/api" {
 		t.Fatalf("custom endpoint did not round-trip: %#v", resolved)
+	}
+}
+
+func TestLegacyProfileRegionMigratesToDistributionRegionAndExplicitEndpoints(t *testing.T) {
+	directory := t.TempDir()
+	filename := ConfigPath(directory)
+	if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{
+  "currentProfile": "local-dev",
+  "profiles": [
+    {"id":"default","name":"default","region":"global"},
+    {"id":"local","name":"local-dev","region":"cn","apiBaseUrl":"http://127.0.0.1:3001"}
+  ]
+}`
+	if err := os.WriteFile(filename, []byte(legacy), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadOrDefault(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.DistributionRegion != RegionCN {
+		t.Fatalf("active legacy distribution region was not preserved: %#v", loaded)
+	}
+	defaultProfile, err := loaded.Resolve("default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaultProfile.APIBaseURL != "https://api.viceme.ai" {
+		t.Fatalf("legacy profile endpoint was not materialized: %#v", defaultProfile)
+	}
+	local, err := loaded.Resolve("local-dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if local.APIBaseURL != "http://127.0.0.1:3001" {
+		t.Fatalf("explicit legacy endpoint changed during migration: %#v", local)
 	}
 }
 

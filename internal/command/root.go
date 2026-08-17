@@ -159,7 +159,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	if err != nil {
 		return nil, nil, output.Internal("config_profile", "could not resolve the active ViceMe CLI profile", err)
 	}
-	region := resolvedProfile.Region
+	region := resolvedConfig.DistributionRegion
 	apiBaseURLOverride := dependencies.APIBaseURL
 	apiBaseURLFromEnv := false
 	if apiBaseURLOverride == "" {
@@ -595,7 +595,7 @@ func writerOr(value, fallback io.Writer) io.Writer {
 }
 
 func (r *Runtime) setRegion(region config.Region) error {
-	r.profile.Region = region
+	r.config.DistributionRegion = region
 	return r.applyProfile(r.profile)
 }
 
@@ -627,23 +627,23 @@ func (r *Runtime) applyProfile(profile config.Profile) error {
 	if err := validatePublicationProcessCredentialTarget(r.processCredential, apiBaseURL); err != nil {
 		return err
 	}
-	scope, err := credentialScopeForAPIBase(apiBaseURL, profile.Region)
+	scope, err := credentialScopeForAPIBase(apiBaseURL)
 	if err != nil {
 		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
 	}
 	r.profile = profile
-	r.region = profile.Region
+	r.region = r.config.DistributionRegion
 	r.apiBaseURL = apiBaseURL
 	r.credentialScope = scope
 	if regionAware, ok := r.deps.Updater.(updatepkg.RegionAware); ok {
-		regionAware.SetRegion(string(profile.Region))
+		regionAware.SetRegion(string(r.config.DistributionRegion))
 	}
 	return nil
 }
 
 func (r *Runtime) credentialScopeForProfile(profile config.Profile) (string, error) {
 	apiBaseURL := profile.ResolvedAPIBaseURL()
-	return credentialScopeForAPIBase(apiBaseURL, profile.Region)
+	return credentialScopeForAPIBase(apiBaseURL)
 }
 
 func (r *Runtime) credentialStorageKeys() ([]string, error) {
@@ -667,7 +667,7 @@ func (r *Runtime) credentialStorageKeys() ([]string, error) {
 		}
 		add(&auth.Manager{
 			ProfileID: profile.ID, ProfileName: profile.Name,
-			Region: string(profile.Region), Scope: scope,
+			Region: string(r.config.DistributionRegion), Scope: scope,
 		})
 	}
 	add(r.manager())
@@ -826,18 +826,7 @@ func customCredentialScope(apiBaseURL string) (string, error) {
 	return fmt.Sprintf("custom:%x", digest[:]), nil
 }
 
-func credentialScopeForAPIBase(apiBaseURL string, region config.Region) (string, error) {
-	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
-	if err != nil {
-		return "", err
-	}
-	canonicalOrigin, err := api.NormalizeAPIOrigin(config.APIBaseURL(region))
-	if err != nil {
-		return "", err
-	}
-	if origin == canonicalOrigin {
-		return "", nil
-	}
+func credentialScopeForAPIBase(apiBaseURL string) (string, error) {
 	return customCredentialScope(apiBaseURL)
 }
 

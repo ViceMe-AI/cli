@@ -15,11 +15,11 @@ import (
 )
 
 type deviceLoginResult struct {
-	Authenticated bool       `json:"authenticated"`
-	Profile       string     `json:"profile"`
-	Region        string     `json:"region"`
-	UserID        string     `json:"user_id,omitempty"`
-	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	Authenticated      bool       `json:"authenticated"`
+	Profile            string     `json:"profile"`
+	DistributionRegion string     `json:"distribution_region"`
+	UserID             string     `json:"user_id,omitempty"`
+	ExpiresAt          *time.Time `json:"expires_at,omitempty"`
 }
 
 func newAuthCommand(runtime *Runtime) *cobra.Command {
@@ -139,7 +139,7 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 				_ = manager.Delete()
 				return err
 			}
-			result := deviceLoginResult{Authenticated: true, Profile: runtime.profile.Name, Region: string(runtime.region), UserID: status.User.ID, ExpiresAt: &expiresAt}
+			result := deviceLoginResult{Authenticated: true, Profile: runtime.profile.Name, DistributionRegion: string(runtime.region), UserID: status.User.ID, ExpiresAt: &expiresAt}
 			return runtime.business(result)
 		}
 		return err
@@ -168,14 +168,14 @@ func newAuthStatusCommand(runtime *Runtime) *cobra.Command {
 					return err
 				}
 				return runtime.business(map[string]any{
-					"authenticated": true,
-					"source":        source,
-					"persistent":    persistent,
-					"profile":       runtime.profile.Name,
-					"region":        runtime.region,
-					"user":          remote.User,
-					"scopes":        remote.Scopes,
-					"expiresAt":     remote.ExpiresAt,
+					"authenticated":      true,
+					"source":             source,
+					"persistent":         persistent,
+					"profile":            runtime.profile.Name,
+					"distributionRegion": runtime.region,
+					"user":               remote.User,
+					"scopes":             remote.Scopes,
+					"expiresAt":          remote.ExpiresAt,
 				})
 			}
 			status, err := runtime.manager().CurrentStatus()
@@ -190,12 +190,12 @@ func newAuthStatusCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			return runtime.business(map[string]any{
-				"authenticated": true,
-				"profile":       runtime.profile.Name,
-				"region":        runtime.region,
-				"user":          remote.User,
-				"scopes":        remote.Scopes,
-				"expiresAt":     remote.ExpiresAt,
+				"authenticated":      true,
+				"profile":            runtime.profile.Name,
+				"distributionRegion": runtime.region,
+				"user":               remote.User,
+				"scopes":             remote.Scopes,
+				"expiresAt":          remote.ExpiresAt,
 			})
 		},
 	}
@@ -215,7 +215,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				var cliError *output.Error
 				if errors.As(err, &cliError) && cliError.Subtype == "not_logged_in" {
-					return runtime.business(map[string]any{"logged_out": true, "already_logged_out": true, "profile": runtime.profile.Name, "region": runtime.region})
+					return runtime.business(map[string]any{"logged_out": true, "already_logged_out": true, "profile": runtime.profile.Name, "distributionRegion": runtime.region})
 				}
 				return err
 			}
@@ -227,7 +227,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 			if revokeErr != nil {
 				return revokeErr
 			}
-			return runtime.business(map[string]any{"logged_out": true, "profile": runtime.profile.Name, "region": runtime.region})
+			return runtime.business(map[string]any{"logged_out": true, "profile": runtime.profile.Name, "distributionRegion": runtime.region})
 		},
 	}
 }

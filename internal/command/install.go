@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -275,7 +276,12 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 	if err != nil {
 		return rollback(output.Internal("PROFILE_INVALID", "could not resolve the active profile", err))
 	}
-	profile.Region = resolvedRegion
+	if _, statErr := os.Stat(config.ConfigPath(runtime.configBase)); errors.Is(statErr, fs.ErrNotExist) {
+		profile.APIBaseURL = config.APIBaseURL(resolvedRegion)
+	} else if statErr != nil {
+		return rollback(output.Internal("PROFILE_BACKUP_FAILED", "could not inspect the CLI configuration", statErr))
+	}
+	runtime.config.DistributionRegion = resolvedRegion
 	if err := transaction.TrackPath(config.ConfigPath(runtime.configBase)); err != nil {
 		return rollback(output.Internal("PROFILE_BACKUP_FAILED", "could not preserve the previous CLI configuration", err))
 	}
@@ -391,7 +397,7 @@ func newDoctorCommand(runtime *Runtime) *cobra.Command {
 			network := checkDoctorNetwork(command.Context(), runtime)
 			healthy = healthy && network.Healthy
 			result := map[string]any{
-				"healthy": healthy, "profile": runtime.profile.Name, "region": runtime.region,
+				"healthy": healthy, "profile": runtime.profile.Name, "distributionRegion": runtime.region,
 				"authenticated": status.Authenticated, "network": network, "skills": results,
 			}
 			if !healthy {

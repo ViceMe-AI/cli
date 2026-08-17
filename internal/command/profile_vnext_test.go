@@ -64,7 +64,7 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 	}
 
 	endpoint := server.URL + "/api/"
-	if exit, envelope := run("profile", "add", "--name", "shop-dev", "--region", "cn", "--api-base-url", endpoint, "--use"); exit != 0 || envelope["ok"] != true {
+	if exit, envelope := run("profile", "add", "--name", "shop-dev", "--api-base-url", endpoint, "--use"); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("could not add custom endpoint profile: exit=%d result=%#v", exit, envelope)
 	}
 	configured, err := config.LoadOrDefault(configDir)
@@ -78,12 +78,12 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 	if profile.APIBaseURL != server.URL+"/api" || configured.CurrentProfile != profile.Name {
 		t.Fatalf("custom profile was not persisted canonically: %#v", configured)
 	}
-	scope, err := credentialScopeForAPIBase(profile.ResolvedAPIBaseURL(), profile.Region)
+	scope, err := credentialScopeForAPIBase(profile.ResolvedAPIBaseURL())
 	if err != nil {
 		t.Fatal(err)
 	}
 	manager := credentialauth.Manager{
-		Store: store, Region: string(profile.Region), ProfileID: profile.ID, ProfileName: profile.Name, Scope: scope,
+		Store: store, Region: string(configured.DistributionRegion), ProfileID: profile.ID, ProfileName: profile.Name, Scope: scope,
 	}
 	if err := manager.Save(credentialauth.Credential{
 		AccessToken: accessToken, ExpiresAt: time.Now().Add(time.Hour),
@@ -119,7 +119,7 @@ func TestProfileRemoveAllRequiresConfirmationAndClearsEveryCredential(t *testing
 	root := t.TempDir()
 	configDir := filepath.Join(root, "config")
 	configured := config.Default(config.RegionCN)
-	shopTest, err := configured.AddProfile("shop-test", config.RegionCN, "https://shop-test.example.com/api")
+	shopTest, err := configured.AddProfile("shop-test", "https://shop-test.example.com/api")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,12 +131,12 @@ func TestProfileRemoveAllRequiresConfirmationAndClearsEveryCredential(t *testing
 	store := securestore.NewMemory()
 	credentialKeys := make([]string, 0, len(configured.Profiles))
 	for _, profile := range configured.Profiles {
-		scope, err := credentialScopeForAPIBase(profile.ResolvedAPIBaseURL(), profile.Region)
+		scope, err := credentialScopeForAPIBase(profile.ResolvedAPIBaseURL())
 		if err != nil {
 			t.Fatal(err)
 		}
 		key := (&credentialauth.Manager{
-			Store: store, Region: string(profile.Region), ProfileID: profile.ID, ProfileName: profile.Name, Scope: scope,
+			Store: store, Region: string(configured.DistributionRegion), ProfileID: profile.ID, ProfileName: profile.Name, Scope: scope,
 		}).StorageKey()
 		credentialKeys = append(credentialKeys, key)
 		if err := store.Set(key, `{"access_token":"vme_cli_test"}`); err != nil {

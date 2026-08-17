@@ -62,7 +62,6 @@ type bindingIndex struct {
 type BindingStore struct {
 	Directory      string
 	EndpointOrigin string
-	Market         string
 	Now            func() time.Time
 }
 
@@ -197,7 +196,7 @@ func (s BindingStore) loadSidecar(sourcePath, sourceType string) (SkillBinding, 
 
 func (s BindingStore) validateScope() error {
 	parsed, err := url.Parse(s.EndpointOrigin)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" || (s.Market != "CN" && s.Market != "GLOBAL") {
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return output.Internal("SKILL_BINDING_SCOPE_INVALID", "Skill binding endpoint scope is invalid", err)
 	}
 	return nil
@@ -207,8 +206,8 @@ func (s BindingStore) validateBinding(binding SkillBinding) error {
 	if binding.APIVersion != BindingAPIVersion || binding.Kind != "SkillListing" || !safeID(binding.ListingID) || !safeID(binding.ClientWorkID) || !isHexDigest(binding.LastPackageDigest) || binding.BindingReceipt == "" {
 		return output.Validation("SKILL_BINDING_INVALID", "local Skill binding is invalid")
 	}
-	if binding.EndpointOrigin != s.EndpointOrigin || binding.Market != s.Market {
-		return output.Validation("SKILL_BINDING_SCOPE_MISMATCH", "local Skill binding belongs to another endpoint or market").WithHint("use --new-listing only when you explicitly want a separate work in this profile")
+	if (binding.Market != "CN" && binding.Market != "GLOBAL") || binding.EndpointOrigin != s.EndpointOrigin {
+		return output.Validation("SKILL_BINDING_SCOPE_MISMATCH", "local Skill binding belongs to another API endpoint").WithHint("select the original profile endpoint, or use --new-listing only when you explicitly want a separate work")
 	}
 	return nil
 }

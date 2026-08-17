@@ -59,7 +59,7 @@ description: Publish a deterministic Skill through the vNext contract.
 	}
 
 	store := securestore.NewMemory()
-	scope, err := credentialScopeForAPIBase(server.URL, config.RegionCN)
+	scope, err := credentialScopeForAPIBase(server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ description: Publish a deterministic Skill through the vNext contract.
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	dependencies := Dependencies{
-		Out: &stdout, ErrOut: &stderr, Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
+		Out: &stdout, ErrOut: &stderr, Store: store, APIBaseURL: server.URL, Region: config.RegionGlobal,
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 		Now:         func() time.Time { return time.Date(2026, 8, 11, 8, 0, 0, 0, time.UTC) },
 		NewID:       func() string { return "11111111-1111-4111-8111-111111111111" },
@@ -218,7 +218,7 @@ description: Verify unpriced media and analysis continuation.
 	}
 
 	store := securestore.NewMemory()
-	scope, err := credentialScopeForAPIBase(server.URL, config.RegionCN)
+	scope, err := credentialScopeForAPIBase(server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -329,7 +329,7 @@ description: Resolve an ambiguous stable Skill listing identity.
 		t.Fatal(err)
 	}
 	store := securestore.NewMemory()
-	scope, err := credentialScopeForAPIBase(server.URL, config.RegionCN)
+	scope, err := credentialScopeForAPIBase(server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -374,7 +374,7 @@ func TestPublicationWaitKeepsPollingWithoutAnotherUserConfirmation(t *testing.T)
 	state.baseURL = server.URL
 	root := t.TempDir()
 	store := securestore.NewMemory()
-	scope, err := credentialScopeForAPIBase(server.URL, config.RegionCN)
+	scope, err := credentialScopeForAPIBase(server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -416,7 +416,7 @@ func TestPublicationWaitTimeoutPreservesThePublicationIdentity(t *testing.T) {
 	state.baseURL = server.URL
 	root := t.TempDir()
 	store := securestore.NewMemory()
-	scope, err := credentialScopeForAPIBase(server.URL, config.RegionCN)
+	scope, err := credentialScopeForAPIBase(server.URL)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +483,7 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 				t.Fatal(err)
 			}
 			store := securestore.NewMemory()
-			scope, err := credentialScopeForAPIBase(server.URL, config.RegionCN)
+			scope, err := credentialScopeForAPIBase(server.URL)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -644,13 +644,23 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 			"expiresAt":     "2027-08-12T08:00:00Z",
 		})
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-listings/prepare":
+		var input map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if _, clientSelectedMarket := input["market"]; clientSelectedMarket {
+			writer.WriteHeader(http.StatusBadRequest)
+			writeJSONResponse(writer, map[string]any{"statusCode": 400, "code": "CLIENT_MARKET_FORBIDDEN", "message": "market is owned by the API endpoint"})
+			return
+		}
 		if state.ambiguousPrepare {
 			writer.WriteHeader(http.StatusConflict)
 			writeJSONResponse(writer, map[string]any{"statusCode": 409, "code": "SKILL_LISTING_SOURCE_AMBIGUOUS", "message": "Multiple listings match this package digest"})
 			return
 		}
 		writeJSONResponse(writer, api.PrepareSkillListingResponse{
-			ListingID: listingID, Status: "DRAFT", DraftRevision: 1,
+			ListingID: listingID, Market: "CN", Status: "DRAFT", DraftRevision: 1,
 			OwnerPreviewURL: state.baseURL + "/zh-CN/creator/skills/" + listingID + "/preview",
 			BindingReceipt:  "binding-receipt", Resolution: "CREATED",
 			Preview:     api.SkillListingPreviewViewModel{SchemaVersion: "preview.viceme.ai/v1", ListingID: listingID, DraftRevision: 1, State: "SHELL", FallbackURL: state.baseURL + "/preview"},

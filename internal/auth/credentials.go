@@ -20,11 +20,11 @@ type Credential struct {
 }
 
 type Status struct {
-	Authenticated bool       `json:"authenticated"`
-	Profile       string     `json:"profile"`
-	Region        string     `json:"region"`
-	UserID        string     `json:"user_id,omitempty"`
-	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	Authenticated      bool       `json:"authenticated"`
+	Profile            string     `json:"profile"`
+	DistributionRegion string     `json:"distribution_region"`
+	UserID             string     `json:"user_id,omitempty"`
+	ExpiresAt          *time.Time `json:"expires_at,omitempty"`
 }
 
 type Manager struct {
@@ -32,8 +32,8 @@ type Manager struct {
 	Region      string
 	ProfileID   string
 	ProfileName string
-	// Scope overrides the region namespace for custom API origins. It is still
-	// nested under ProfileID so credentials never cross profiles.
+	// Scope is derived from the canonical API origin and nested under ProfileID,
+	// so credentials never depend on the independently selected update region.
 	Scope string
 }
 
@@ -135,11 +135,11 @@ func (m *Manager) CurrentStatus() (Status, error) {
 	if err != nil {
 		var cliErr *output.Error
 		if errors.As(err, &cliErr) && cliErr.Subtype == "not_logged_in" {
-			return Status{Authenticated: false, Profile: m.profile(), Region: m.region()}, nil
+			return Status{Authenticated: false, Profile: m.profile(), DistributionRegion: m.region()}, nil
 		}
 		return Status{}, err
 	}
-	status := Status{Authenticated: true, Profile: m.profile(), Region: m.region(), UserID: credential.UserID}
+	status := Status{Authenticated: true, Profile: m.profile(), DistributionRegion: m.region(), UserID: credential.UserID}
 	if !credential.ExpiresAt.IsZero() {
 		expires := credential.ExpiresAt
 		status.ExpiresAt = &expires
