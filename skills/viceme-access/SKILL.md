@@ -43,7 +43,7 @@ Read [references/integration.md](references/integration.md) for configuration an
 - Let the server resolve `workKey → owner → bound SkillProduct`.
 - Do not store work-session tokens or access decisions in cookies, localStorage, IndexedDB, URLs, analytics, or logs.
 - Never unlock from checkout return parameters or browser state. Only `access.check()` can grant access.
-- Access checks must never silently sign in, follow, or pay. The SDK may show the required interface; the user must activate the action inside it.
+- Access checks must never silently sign in, follow, or pay. Call `access.require()` only from an explicit user action. The default layer opens a required checkout immediately from that action, but the user must still select and confirm payment; following still requires the layer's “关注” button.
 - Do not call `follow.follow()` from the creator site's gate handler. Following belongs to the creator-follow interface opened by `access.require()`.
 - Never use `window.open`, `window.location`, `confirm`, or `alert` for
   SDK login or checkout. Their complete flows stay in the bottom sheet or

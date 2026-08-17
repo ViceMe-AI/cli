@@ -79,9 +79,11 @@ layer with Shadow DOM and ViceMe-owned styles. Custom presenters, creator-page
 style detection, and generated style adaptations are intentionally unavailable
 until the interaction contract is stable.
 
-Sign-in and checkout stay inside that same bottom sheet or in-page layer. The
-SDK embeds the provider/checkout frame only after the user confirms, validates
-the API origin plus a per-action message channel, then checks access again. The
+Sign-in and checkout stay inside that same bottom sheet or in-page layer. From
+the original gated user click, the SDK loads the checkout frame directly without
+an intermediate “去购买” confirmation; selecting a payment method and paying still
+requires explicit confirmation. The SDK validates the API origin plus a
+per-action message channel, then checks access again. The
 checkout frame exchanges its one-time bootstrap code for an in-memory bearer
 session and does not depend on third-party cookies. A `PENDING` order or a
 message never grants access; only a new server `access.check()` decision does.
