@@ -39,18 +39,18 @@ func TestBuildIsDeterministicAcrossDirectoryAndZip(t *testing.T) {
 	writeTestFile(t, filepath.Join(directory, ".vicemeignore"), []byte("generated/**\n"), 0o644)
 	writeTestFile(t, filepath.Join(directory, "generated", "cache.json"), []byte("ignored"), 0o644)
 
-	first, err := Build(directory, 1)
+	first, err := Build(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := Build(directory, 1)
+	second, err := Build(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if first.Artifact.Digest != second.Artifact.Digest || !bytes.Equal(first.Bytes, second.Bytes) {
 		t.Fatal("identical inputs did not produce an identical deterministic ZIP")
 	}
-	if first.Manifest.Spec.Sale.PriceMinor != 1 || first.Manifest.Spec.Sale.Currency != "CNY" {
+	if first.Manifest.Spec.Sale.PriceMinor != nil || first.Manifest.Spec.Sale.Currency != "CNY" {
 		t.Fatalf("unexpected sale manifest: %#v", first.Manifest.Spec.Sale)
 	}
 	if len(first.Candidates) != 1 || first.Candidates[0].RelativePath != "assets/cover.png" {
@@ -62,7 +62,7 @@ func TestBuildIsDeterministicAcrossDirectoryAndZip(t *testing.T) {
 
 	zipPath := filepath.Join(t.TempDir(), "skill.zip")
 	writeTestFile(t, zipPath, first.Bytes, 0o644)
-	fromZip, err := Build(zipPath, 1)
+	fromZip, err := Build(zipPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestBuildUnwrapsSingleZipRootDirectory(t *testing.T) {
 	writeTestFile(t, filepath.Join(directory, "scripts", "run.sh"), []byte("#!/bin/sh\necho ok\n"), 0o644)
 	writeTestFile(t, filepath.Join(directory, "assets", "cover.png"), image, 0o644)
 
-	canonical, err := Build(directory, 1)
+	canonical, err := Build(directory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestBuildUnwrapsSingleZipRootDirectory(t *testing.T) {
 	zipPath := filepath.Join(t.TempDir(), "github-download.zip")
 	writeTestFile(t, zipPath, wrapperZIP, 0o644)
 
-	wrapped, err := Build(zipPath, 1)
+	wrapped, err := Build(zipPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestBuildExcludesRuntimePathsAndRejectsSecrets(t *testing.T) {
 	})
 	forbiddenPath := filepath.Join(t.TempDir(), "forbidden.zip")
 	writeTestFile(t, forbiddenPath, forbidden, 0o644)
-	result, err := Build(forbiddenPath, 1)
+	result, err := Build(forbiddenPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +179,7 @@ func TestBuildRejectsSymlink(t *testing.T) {
 }
 
 func buildError(source string) error {
-	_, err := Build(source, 1)
+	_, err := Build(source)
 	return err
 }
 
