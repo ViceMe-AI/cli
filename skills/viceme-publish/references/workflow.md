@@ -11,6 +11,15 @@ All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 
 ## Stable local identity
 
+Select the publication Profile before resolving local identity. The current
+request may explicitly name a Profile; otherwise the CLI's active Profile is
+authoritative. Memory, prior conversations, publication history, filenames,
+package digests, sidecars, and login state in other Profiles must not select or
+switch the Profile. Once selected, every binding lookup and publication resume
+is scoped to that Profile's normalized API endpoint, market, and authenticated user.
+A historical match in another Profile may be mentioned as context but
+must never be probed or resumed unless the user explicitly chooses it.
+
 `skill publish --path` validates the local source, creates or recovers the
 Listing and Publication, uploads the private package, and returns the first
 real Owner Preview in one fast path. Workspaces persist `.viceme/skill.json`;

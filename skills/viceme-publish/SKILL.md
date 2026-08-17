@@ -9,9 +9,9 @@ Use the CLI for every deterministic action. Read [workflow.md](references/workfl
 
 ## Workflow
 
-1. Run `viceme profile list` and capture the active Profile without switching it.
+1. Run `viceme profile list`. If the user's current request explicitly names a Profile, use that exact Profile without changing the active setting; otherwise capture the active Profile. Memory, prior conversations, old publication records, source filenames, package digests, sidecars, and credentials in another Profile are historical hints only: never use them to select or switch the publication Profile.
 2. Run `viceme --profile <publication-profile> auth status`. If unauthenticated, run `viceme --profile <publication-profile> auth login`, show the verification URL, and wait for successful authorization. Never switch Profiles merely because another already has credentials.
-3. Pin every remaining command to that Profile. If it becomes invalid or logged out, repair or log in to the same Profile unless the user explicitly chooses another.
+3. Pin every remaining command to that Profile. Resolve bindings and resume publications only within that Profile's API endpoint, market, and authenticated user. Do not probe or fall back to another Profile to recover a historical publication. If the selected Profile becomes invalid or logged out, repair or log in to the same Profile unless the user explicitly chooses another.
 4. Before the first `skill publish`, ensure the process can write both the source binding location (`.viceme/skill.json` for a workspace or adjacent `<zip-name>.viceme.json` for ZIP) and the CLI config directory. In a sandboxed Agent, request filesystem permission for this exact command before running it. This is host filesystem permission, not a separate business confirmation. Do not ask whether ViceMe may upload the private draft.
 5. Immediately run `viceme --profile <publication-profile> skill publish --path <dir-or-zip>`. Do not run a separate `skill inspect`, `skill listing prepare`, or `--dry-run` first. The command performs deterministic local validation, creates or recovers the Listing and Publication, uploads and verifies the real private package, then returns its presentation. If validation fails, explain and correct the source; never upload invalid bytes.
 6. Present the returned Owner Preview immediately, before asking for price or any other listing detail:
@@ -43,6 +43,7 @@ The initial publish request is permission to create and upload a private Draft, 
 ## Recovery
 
 - After interruption, run `skill publish --path <same-source>` when no local Publication ID is available; it recovers the stable Listing and private upload. Run `skill publish --resume <publication-id>` when a local pending Publication exists.
+- Historical publications in another Profile do not change this workflow. Mention them only when useful context is needed; continue in the selected Profile unless the user explicitly asks to resume that other environment.
 - Re-running the same ZIP, a moved ZIP with its sidecar, or a modified workspace must reuse the returned `listingId`. Never identify a work from filename or title.
 - Use `--new-listing` only after the user explicitly requests a separate work. Use `skill listing bind <listing-id> --path <source>` only after the user selects an owned candidate.
 - If `publication wait` reaches its deadline, repeat only that wait with the same Publication ID. Do not re-upload or ask for another confirmation.
