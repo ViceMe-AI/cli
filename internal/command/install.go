@@ -333,7 +333,7 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 		Warnings:        warnings,
 	}
 	if authenticated {
-		result.NextStep = installNextStep{Command: "viceme skill inspect --path <dir-or-zip>", Reason: "CLI and official Skills are ready"}
+		result.NextStep = installNextStep{Command: "viceme skill publish --path <dir-or-zip>", Reason: "upload a private Draft and open its Owner Preview"}
 	} else {
 		result.NextStep = installNextStep{Required: true, Command: "viceme auth login", Reason: "sign in before publishing a Skill"}
 	}
