@@ -34,7 +34,7 @@ status: ACTIVE
 configVersion: 1
 ```
 
-`productSlug` is only control-plane input. The CLI/API validates that the globally unique slug belongs to the current creator and stores the product ID. Multiple workKeys may bind the same product; one paid purchase then satisfies `PURCHASE_BOUND_PRODUCT` on each of them.
+Any authenticated ViceMe user may create a workKey and use login or `FOLLOW_OWNER`. `productSlug` is only control-plane input: binding it or configuring a purchase policy requires a claimed creator identity, and the CLI/API validates that the globally unique slug belongs to that creator before storing the product ID. Multiple workKeys may bind the same product; one paid purchase then satisfies `PURCHASE_BOUND_PRODUCT` on each of them.
 
 Omit `productSlug` when the website only needs login or following. Purchase policies require a bound product.
 
@@ -62,7 +62,7 @@ setEmperorUnlocked(decisions.emperor.allowed);
 ```
 
 Call a gate from the user's click handler. It silently returns when access is
-already granted; otherwise it opens the required in-page sign-in, creator-follow,
+already granted; otherwise it opens the required in-page sign-in, owner-follow,
 or checkout interface:
 
 ```ts
@@ -70,12 +70,12 @@ const decision = await viceme.access.require("dingdong");
 if (decision.allowed) enableDingdong();
 ```
 
-The access check never performs the action by itself. In particular, creator
-sites must not call a follow mutation directly. The user follows from the
-creator-follow interface shown by `require()`.
+The access check never performs the action by itself. In particular, host sites
+must not call a follow mutation directly. The user follows from the owner-follow
+interface shown by `require()`.
 
 The SDK uses `<viceme-access-layer>`: a mobile bottom sheet and desktop in-page
-layer with Shadow DOM and ViceMe-owned styles. Custom presenters, creator-page
+layer with Shadow DOM and ViceMe-owned styles. Custom presenters, host-page
 style detection, and generated style adaptations are intentionally unavailable
 until the interaction contract is stable.
 
