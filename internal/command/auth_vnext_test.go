@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +18,15 @@ import (
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
+
+type loginPersistenceFailureStore struct{}
+
+func (loginPersistenceFailureStore) Get(string) (string, error) { return "", securestore.ErrNotFound }
+func (loginPersistenceFailureStore) Set(string, string) error {
+	return errors.New("persistence failed")
+}
+func (loginPersistenceFailureStore) Delete(string) error    { return securestore.ErrNotFound }
+func (loginPersistenceFailureStore) Preflight(string) error { return nil }
 
 func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *testing.T) {
 	t.Parallel()
@@ -145,6 +155,60 @@ func TestDeviceLoginDoesNotExposeSplitFlowFlags(t *testing.T) {
 	for _, flag := range []string{"no-wait", "device-code"} {
 		if command.Flags().Lookup(flag) != nil {
 			t.Fatalf("auth login still exposes removed --%s flag", flag)
+		}
+	}
+}
+
+func TestDeviceLoginPersistenceFailureUsesCamelCasePublicDetails(t *testing.T) {
+	t.Parallel()
+	var revoked atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/cli/device-authorizations":
+			writeJSONResponse(writer, map[string]any{
+				"deviceCode": "device-code", "userCode": "ABCD-EFGH",
+				"verificationUri": "https://viceme.cn/zh-CN/cli/authorize", "verificationUriComplete": "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH",
+				"expiresIn": 600, "interval": 1,
+			})
+		case "/v1/cli/device-authorizations/token":
+			writeJSONResponse(writer, map[string]any{
+				"status": "authorized", "accessToken": "test-access-token", "tokenType": "Bearer",
+				"expiresAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+			})
+		case "/v1/cli/auth/logout":
+			revoked.Store(true)
+			writer.WriteHeader(http.StatusNoContent)
+		default:
+			writer.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	var stdout bytes.Buffer
+	exit := Execute([]string{"auth", "login"}, Dependencies{
+		Out: &stdout, ErrOut: &bytes.Buffer{}, Store: loginPersistenceFailureStore{},
+		APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit == 0 || !revoked.Load() {
+		t.Fatalf("persistence failure did not fail and revoke the issued credential: exit=%d revoked=%v", exit, revoked.Load())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("invalid failure envelope: %v stdout=%q", err, stdout.String())
+	}
+	errorData, ok := envelope["error"].(map[string]any)
+	if !ok {
+		t.Fatalf("failure envelope omitted error object: %#v", envelope)
+	}
+	details, ok := errorData["details"].(map[string]any)
+	if !ok || details["authorizationConsumed"] != true || details["issuedCredentialRevoked"] != true {
+		t.Fatalf("persistence failure omitted camelCase details: %#v", errorData)
+	}
+	for _, key := range []string{"authorization_consumed", "issued_credential_revoked"} {
+		if _, exists := details[key]; exists {
+			t.Fatalf("persistence failure exposed obsolete snake_case detail %q: %#v", key, details)
 		}
 	}
 }

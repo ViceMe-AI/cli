@@ -119,7 +119,7 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 				revoked := client.Revoke(ctx, token.AccessToken) == nil
 				return output.Authentication("credential_persistence_failed", "device authorization succeeded, but the issued credential could not be saved").
 					WithHint("the one-time device authorization was consumed; fix the local credential store and start a new 'viceme auth login' flow").
-					WithDetails(map[string]any{"authorization_consumed": true, "issued_credential_revoked": revoked}).
+					WithDetails(map[string]any{"authorizationConsumed": true, "issuedCredentialRevoked": revoked}).
 					WithCause(err)
 			}
 			status, statusErr := runtime.client().AuthStatus(ctx)
