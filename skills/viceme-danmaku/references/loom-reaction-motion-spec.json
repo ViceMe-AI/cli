@@ -1,0 +1,118 @@
+{
+  "source": {
+    "page": "https://www.loom.com/community/how-to-interact-with-a-video",
+    "embed": "https://www.loom.com/embed/9be5bf7764a94315bd44f1b0747abf37",
+    "capturedAt": "2026-08-17",
+    "method": "Chrome DevTools MCP (evaluate_script + hover on iframe a11y buttons)"
+  },
+  "reactionBar": {
+    "heightPx": 56,
+    "backgroundColor": "#1f1f21",
+    "padding": "12px 16px",
+    "zIndex": 110,
+    "transition": "0.6s cubic-bezier(0.9, 0, 0.1, 1)",
+    "overflow": "visible",
+    "textColor": "#cecfd2",
+    "fontSizePx": 14,
+    "lineHeightPx": 21.98
+  },
+  "quickReactionButton": {
+    "sizePx": 32,
+    "emojiSizePx": 24,
+    "borderRadiusPx": 6,
+    "gapPx": 8,
+    "backgroundTransition": "background-color 0.6s",
+    "hoverBackgroundTransition": "background-color 0.3s",
+    "overflow": "visible"
+  },
+  "tooltip": {
+    "behaviorOnHover": "opacity fade on wrap + animation-1yp4gtl bounce/tilt on inner host",
+    "shortcuts": {
+      "❤️": "1",
+      "👍": "2",
+      "🔥": "3",
+      "👏": "4",
+      "🙌": "5",
+      "👀": "6"
+    },
+    "wrap": {
+      "position": "absolute",
+      "zIndex": 500,
+      "transition": "opacity 150ms 50ms",
+      "positioning": {
+        "offsetAboveButtonPx": 16,
+        "note": "Use bottom calc(100% + 16px) so tooltip + shadow clears #1f1f21 bar top (~4px gap to bar edge)"
+      }
+    },
+    "box": {
+      "backgroundColor": "#292a2e",
+      "color": "#ffffff",
+      "padding": "7px 12px",
+      "borderRadiusPx": 6,
+      "fontSizePx": 12,
+      "lineHeightPx": 18,
+      "fontWeight": 653,
+      "fontFamily": "ui-sans-serif, system-ui, sans-serif",
+      "color": "#ffffff",
+      "boxShadow": "0 4px 10px rgba(0, 0, 0, 0.1)",
+      "zIndex": 1100,
+      "transformOnHover": "none",
+      "animationOnHover": "none"
+    },
+    "gapAboveButtonTopPx": "~3-4 (button top to tooltip bottom)",
+    "clearanceAboveBarTopPx": "~52",
+    "labels": {
+      "❤️": "heart",
+      "👍": "yes",
+      "🔥": "fire",
+      "👏": "clap",
+      "🙌": "yay",
+      "👀": "eyes"
+    }
+  },
+  "emojiHover": {
+    "animatedElement": "emojiBtnWrapper (parent of button, not inner emoji span)",
+    "transition": "transform 0.1s ease-in-out",
+    "translateYPx": -7.8,
+    "scaleApprox": 1.299,
+    "perEmojiHoverMatrix": {
+      "heart": "matrix(1.29921, 0.0453693, -0.0453693, 1.29921, 0, -7.8)",
+      "yes": "matrix(1.29505, 0.113302, -0.113302, 1.29505, 0, -7.8)",
+      "fire": "matrix(1.29921, -0.0453693, 0.0453693, 1.29921, 0, -7.8)",
+      "clap": "matrix(1.29822, -0.0680367, 0.0680367, 1.29822, 0, -7.8)",
+      "yay": "matrix(1.29683, 0.0906834, -0.0906834, 1.29683, 0, -7.8)",
+      "eyes": "matrix(1.29505, 0.113302, -0.113302, 1.29505, 0, -7.8)"
+    },
+    "steadyStateReachedMs": 100
+  },
+  "emojiSwitchBounce": {
+    "note": "Tooltip entrance uses WAAPI playReactionTooltipMotion — Loom animation-1yp4gtl keyframe positions with segment easings for smooth interpolation",
+    "implementation": "Web Animations API on origin-bottom host; opacity fade stays on outer wrap only",
+    "durationMs": 1200,
+    "timingFunction": "cubic-bezier(1, 0, 0, 1)",
+    "keyframes": {
+      "0%": { "transform": "translateY(0) scale(0.4) rotate(30deg)", "opacity": 0 },
+      "22.5%": { "transform": "translateY(-15px) scale(1.8) rotate(-10deg)", "opacity": 1 },
+      "45%": { "transform": "translateY(2px) rotate(15deg)" },
+      "53.8922%": { "transform": "translateY(-1px) rotate(-2deg)" },
+      "60%": { "transform": "translateY(0) scale(1)", "opacity": 1 },
+      "100%": { "opacity": 1 }
+    },
+    "finalRotationDeg": 0,
+    "noteOnTilt": "60% keyframe ends at rotate(0) scale(1) — no permanent -2deg tilt at rest for this animation"
+  },
+  "domStructure": {
+    "wrapper": ".css-utvy5 { position: relative; width: fit-content; }",
+    "tooltipWrap": ".css-1tj5x1a",
+    "tooltipBox": ".css-1se974d",
+    "emojiBtnWrapper": ".emoji-reaction-set_emojiBtnWrapper_LT2",
+    "button": ".css-1q1s5qm"
+  },
+  "overflowChain": "all ancestors from button to player use overflow: visible — no clipping on Loom",
+  "vicemeClippingFixes": {
+    "embedBodyOverflow": "change overflow-hidden to overflow-visible",
+    "controlsIframeDefaultHeightPx": 136,
+    "controlsIframeMinHeightPx": 136,
+    "tooltipClearancePx": 80
+  }
+}

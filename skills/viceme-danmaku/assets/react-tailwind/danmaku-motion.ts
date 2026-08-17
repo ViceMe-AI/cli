@@ -126,6 +126,56 @@ export function playDanmakuBullet({
   };
 }
 
+export const REACTION_TOOLTIP_MOTION_MS = 1200;
+export const REACTION_TOOLTIP_MOTION_EASING = "cubic-bezier(1, 0, 0, 1)";
+
+const REACTION_TOOLTIP_MOTION_KEYFRAMES: Keyframe[] = [
+  {
+    transform: "translate3d(0, 0, 0) scale(0.4) rotate(30deg)",
+    offset: 0,
+    easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+  },
+  {
+    transform: "translate3d(0, -15px, 0) scale(1.8) rotate(-10deg)",
+    offset: 0.225,
+    easing: "cubic-bezier(0.34, 1.56, 0.64, 1)",
+  },
+  {
+    transform: "translate3d(0, 2px, 0) scale(1.35) rotate(15deg)",
+    offset: 0.45,
+    easing: "cubic-bezier(0.45, 0, 0.55, 1)",
+  },
+  {
+    transform: "translate3d(0, -1px, 0) scale(1.05) rotate(-2deg)",
+    offset: 0.538922,
+    easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+  },
+  {
+    transform: "translate3d(0, 0, 0) scale(1) rotate(-2deg)",
+    offset: 0.6,
+  },
+  {
+    transform: "translate3d(0, 0, 0) scale(1) rotate(-2deg)",
+    offset: 1,
+  },
+];
+
+export function playReactionTooltipMotion(host: HTMLElement) {
+  if (prefersReducedMotion()) return null;
+  for (const animation of host.getAnimations()) animation.cancel();
+  host.style.transform = "";
+  return host.animate(REACTION_TOOLTIP_MOTION_KEYFRAMES, {
+    duration: REACTION_TOOLTIP_MOTION_MS,
+    easing: REACTION_TOOLTIP_MOTION_EASING,
+    fill: "forwards",
+  });
+}
+
+export function resetReactionTooltipMotion(host: HTMLElement) {
+  for (const animation of host.getAnimations()) animation.cancel();
+  host.style.transform = "";
+}
+
 export function prefersReducedMotion() {
   return (
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false

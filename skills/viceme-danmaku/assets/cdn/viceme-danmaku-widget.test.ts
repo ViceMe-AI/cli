@@ -14,6 +14,7 @@ declare global {
   interface Window {
     ViceMeDanmakuWidget?: {
       init: () => Element[];
+      refresh: () => { anchorKey: string };
       version: string;
     };
   }
@@ -41,6 +42,7 @@ function appendEmbed(attrs: Record<string, string>) {
 afterEach(() => {
   document.body.innerHTML = "";
   delete window.ViceMeDanmakuWidget;
+  window.history.replaceState(null, "", "/");
   vi.restoreAllMocks();
 });
 
@@ -67,6 +69,8 @@ describe("ViceMe hosted danmaku loader", () => {
     expect(frames[0].src).toContain("creatorId=creator_123");
     expect(frames[0].src).toContain("workId=work_456");
     expect(frames[0].src).toContain("theme=dark");
+    expect(frames[0].src).toContain("anchorKey=page%3A");
+    expect(frames[0].src).toContain("%3Ascroll%3A");
 
     expect(frames[1].title).toBe("ViceMe Danmaku controls");
     expect(frames[1].style.pointerEvents).toBe("auto");
@@ -76,6 +80,54 @@ describe("ViceMe hosted danmaku loader", () => {
     expect(frames[2].src).toBe("about:blank");
     expect(frames[2].getAttribute("data-src")).toContain("mode=modal");
     expect(frames[2].style.display).toBe("none");
+  });
+
+  it("refreshes the automatic page-position anchor from scroll state", () => {
+    Object.defineProperty(window, "innerHeight", {
+      configurable: true,
+      value: 800,
+    });
+    Object.defineProperty(document.documentElement, "scrollHeight", {
+      configurable: true,
+      value: 2000,
+    });
+    Object.defineProperty(window, "pageYOffset", {
+      configurable: true,
+      value: 0,
+      writable: true,
+    });
+    appendEmbed({
+      "data-creator-id": "creator",
+      "data-work-id": "work",
+    });
+
+    runLoader();
+
+    expect(window.ViceMeDanmakuWidget!.refresh().anchorKey).toContain(
+      ":scroll:0-10",
+    );
+
+    window.pageYOffset = 1200;
+
+    expect(window.ViceMeDanmakuWidget!.refresh().anchorKey).toContain(
+      ":scroll:90-100",
+    );
+  });
+
+  it("uses hash routes as part of the automatic page anchor", () => {
+    appendEmbed({
+      "data-creator-id": "creator",
+      "data-work-id": "work",
+    });
+
+    runLoader();
+
+    const before = window.ViceMeDanmakuWidget!.refresh().anchorKey;
+    window.history.pushState(null, "", "/#/chapter/2");
+    const after = window.ViceMeDanmakuWidget!.refresh().anchorKey;
+
+    expect(after).not.toBe(before);
+    expect(after).toContain(":scroll:");
   });
 
   it("uses the global widget origin for global CDN snippets", () => {

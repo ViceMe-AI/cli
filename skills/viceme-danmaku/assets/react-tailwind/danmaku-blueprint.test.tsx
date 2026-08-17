@@ -96,23 +96,44 @@ describe("ViceMeDanmaku golden behavior", () => {
     expect(screen.getByRole("button", { name: "send-❤️" })).toBeTruthy();
   });
 
-  it("keeps expanded controls and the collapsed launcher bottom-centered", () => {
+  it("raises a full-width Dock bar and keeps the launcher bottom-centered", () => {
     vi.useFakeTimers();
     const { container } = renderDanmaku();
     const bar = interactionBar(container);
-    expect(bar.className).toContain("left-1/2");
-    expect(bar.className).toContain("-translate-x-1/2");
+    expect(bar.className).toContain("inset-x-0");
+    expect(bar.className).toContain("w-full");
+    expect(bar.className).not.toContain("transition-[width");
+
+    const openMotion = vi
+      .mocked(Element.prototype.animate)
+      .mock.calls.find(([frames]) => {
+        const first = Array.isArray(frames) ? frames[0] : undefined;
+        return first?.transform === "translateY(calc(100% + 8px))";
+      });
+    expect(openMotion?.[0]).toEqual([
+      { transform: "translateY(calc(100% + 8px))" },
+      { transform: "translateY(0)" },
+    ]);
+    expect(openMotion?.[1]).toMatchObject({
+      duration: 350,
+      easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+    });
 
     advanceGreeting();
     const heart = screen.getByRole("button", { name: "send-❤️" });
-    const centerAnchor = heart.parentElement?.parentElement;
+    // Tooltip is a sibling of the emoji button; grab the outer container and query it.
+    const reactionButtonRoot = heart.parentElement?.parentElement;
+    const centerAnchor = reactionButtonRoot?.querySelector(
+      'span[class*="left-1/2"]',
+    ) as HTMLElement | null;
     expect(centerAnchor?.className).toContain("left-1/2");
     expect(centerAnchor?.className).toContain("-translate-x-1/2");
 
     for (const emoji of ["👏", "🙌", "👀"]) {
       const secondary = screen.getByRole("button", { name: `send-${emoji}` });
-      expect(secondary.className).toContain("hidden");
-      expect(secondary.className).toContain("min-[440px]:inline-flex");
+      const secondaryGroup = secondary.parentElement?.parentElement;
+      expect(secondaryGroup?.className).toContain("hidden");
+      expect(secondaryGroup?.className).toContain("min-[440px]:inline-flex");
     }
     expect(
       screen.getByRole("button", { name: labels.openComposer }),
@@ -125,12 +146,15 @@ describe("ViceMeDanmaku golden behavior", () => {
     expect(bar.dataset.state).toBe("reactions");
     act(() => vi.advanceTimersByTime(1));
     expect(bar.dataset.state).toBe("collapsed");
-    expect(bar.className).toContain("left-1/2");
-    expect(bar.className).toContain("-translate-x-1/2");
-    expect(bar.className).toContain(
+    expect(bar.style.transform).toBe("translateY(calc(100% + 8px))");
+    const launcher = screen.getByRole("button", {
+      name: labels.expandBar,
+    }).parentElement?.parentElement;
+    expect(launcher?.className).toContain("left-1/2");
+    expect(launcher?.className).toContain("-translate-x-1/2");
+    expect(launcher?.className).toContain(
       "bottom-[calc(12px+env(safe-area-inset-bottom,0))]",
     );
-    expect(screen.getByRole("button", { name: labels.expandBar })).toBeTruthy();
   });
 
   it("sends the greeting and reuses the successful permission", async () => {
@@ -340,6 +364,20 @@ describe("ViceMeDanmaku golden behavior", () => {
     fireEvent.click(fire);
 
     expect(onSend.mock.calls.filter(([text]) => text === "🔥")).toHaveLength(3);
+  });
+
+  it("renders Loom-style semantic tooltip markup on quick reactions", async () => {
+    vi.useFakeTimers();
+    renderDanmaku();
+    fireEvent.click(screen.getByRole("button", { name: labels.sayHi }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const heart = screen.getByRole("button", { name: "send-❤️" });
+    const tooltipRoot = heart.closest(".group")?.querySelector("[aria-hidden]");
+    expect(tooltipRoot?.textContent).toContain("heart");
+    expect(tooltipRoot?.textContent).toContain("1");
   });
 
   it("auto-collapses reactions after 15000ms and expands without greeting", async () => {

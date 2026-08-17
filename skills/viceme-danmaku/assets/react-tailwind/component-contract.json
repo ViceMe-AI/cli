@@ -43,7 +43,9 @@
   },
   "layout": {
     "collapsedLauncher": "bottom-center",
-    "expandedControls": "bottom-center"
+    "expandedControls": "bottom-center",
+    "barReveal": "dock-rise-from-below-viewport",
+    "barWidthMotion": "none"
   },
   "colors": {
     "bar": "#1f1f21",

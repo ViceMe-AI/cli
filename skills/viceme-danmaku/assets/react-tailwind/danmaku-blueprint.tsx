@@ -27,7 +27,9 @@ import {
   estimateDanmakuTextWidth,
   normalizeDanmakuText,
   playDanmakuBullet,
+  playReactionTooltipMotion,
   prefersReducedMotion,
+  resetReactionTooltipMotion,
   reserveDanmakuLane,
   truncateDanmakuText,
 } from "./danmaku-motion";
@@ -117,6 +119,48 @@ const SEARCH_TERMS: Record<(typeof MORE_REACTIONS)[number], string> = {
   "👏": "clap applause 鼓掌",
   "🐞": "bug ladybug 虫 瓢虫",
 };
+const REACTION_HOVER_MATRIX: Record<string, string> = {
+  "❤️": "matrix(1.29921, 0.0453693, -0.0453693, 1.29921, 0, -7.8)",
+  "👍": "matrix(1.29505, 0.113302, -0.113302, 1.29505, 0, -7.8)",
+  "🔥": "matrix(1.29921, -0.0453693, 0.0453693, 1.29921, 0, -7.8)",
+  "👏": "matrix(1.29822, -0.0680367, 0.0680367, 1.29822, 0, -7.8)",
+  "🙌": "matrix(1.29683, 0.0906834, -0.0906834, 1.29683, 0, -7.8)",
+  "👀": "matrix(1.29505, 0.113302, -0.113302, 1.29505, 0, -7.8)",
+};
+const REACTION_TOOLTIP_LABELS: Record<string, string> = {
+  "❤️": "heart",
+  "👍": "yes",
+  "🔥": "fire",
+  "👏": "clap",
+  "🙌": "yay",
+  "👀": "eyes",
+  "👋": "wave",
+  "💯": "100",
+  "🎉": "party",
+  "✅": "check",
+  "❌": "cross",
+  "✨": "sparkles",
+  "🚀": "rocket",
+  "➕": "plus",
+  "🙏": "thanks",
+  "😆": "laugh",
+  "🤔": "thinking",
+  "😱": "shocked",
+  "🌈": "rainbow",
+  "🐞": "bug",
+};
+
+const REACTION_TOOLTIP_SHORTCUTS: Record<string, string> = {
+  "❤️": "1",
+  "👍": "2",
+  "🔥": "3",
+  "👏": "4",
+  "🙌": "5",
+  "👀": "6",
+};
+function reactionTooltipLabel(emoji: string) {
+  return REACTION_TOOLTIP_LABELS[emoji] ?? emoji;
+}
 
 function cx(...values: Array<string | false | null | undefined>) {
   return values.filter(Boolean).join(" ");
@@ -280,6 +324,65 @@ function preventImeSubmit(event: KeyboardEvent<HTMLInputElement>) {
   }
 }
 
+function useDockBarMotion(expanded: boolean) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const launcherRef = useRef<HTMLDivElement>(null);
+  const mounted = useRef(false);
+
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    const launcher = launcherRef.current;
+    if (!bar || !launcher || prefersReducedMotion()) {
+      mounted.current = true;
+      return;
+    }
+
+    const barAnimation = bar.animate(
+      expanded
+        ? [
+            { transform: "translateY(calc(100% + 8px))" },
+            { transform: "translateY(0)" },
+          ]
+        : [
+            { transform: "translateY(0)" },
+            { transform: "translateY(calc(100% + 8px))" },
+          ],
+      {
+        duration: expanded ? 350 : 250,
+        easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+        fill: "both",
+      },
+    );
+    const launcherAnimation = mounted.current
+      ? launcher.animate(
+          expanded
+            ? [
+                { opacity: 1, transform: "translateY(0) scale(1)" },
+                { opacity: 0, transform: "translateY(10px) scale(0.92)" },
+              ]
+            : [
+                { opacity: 0, transform: "translateY(10px) scale(0.92)" },
+                { opacity: 1, transform: "translateY(0) scale(1)" },
+              ],
+          {
+            delay: expanded ? 0 : 80,
+            duration: expanded ? 150 : 220,
+            easing: "cubic-bezier(0.22, 1, 0.36, 1)",
+            fill: "both",
+          },
+        )
+      : null;
+    mounted.current = true;
+
+    return () => {
+      barAnimation.cancel();
+      launcherAnimation?.cancel();
+    };
+  }, [expanded]);
+
+  return { barRef, launcherRef };
+}
+
 function DanmakuInteractionBar({
   labels,
   maxLength,
@@ -308,6 +411,13 @@ function DanmakuInteractionBar({
   const [emojiSearch, setEmojiSearch] = useState("");
   const [text, setText] = useState("");
   const expanded = mode !== "collapsed";
+  const contentMode =
+    mode === "collapsed"
+      ? greetingDismissed
+        ? "reactions"
+        : "greeting"
+      : mode;
+  const { barRef, launcherRef } = useDockBarMotion(expanded);
   const moreOpen = mode === "more";
   const { panelRef, present: morePresent } = useMoreReactionsPresence(moreOpen);
   const interactiveLayerOpen = mode === "typing" || morePresent;
@@ -422,19 +532,161 @@ function DanmakuInteractionBar({
         />
       ) : null}
       <div
+        ref={barRef}
         className={cx(
-          "pointer-events-auto fixed left-1/2 z-1 flex -translate-x-1/2 items-start overflow-visible bg-[#1f1f21] text-sm text-[#cecfd2]",
-          expanded
-            ? "transition-[width,height,border-radius,bottom] duration-350 ease-[cubic-bezier(0.34,1.25,0.64,1)] motion-reduce:transition-none"
-            : "transition-[width,height,border-radius,bottom] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
-          expanded
-            ? "bottom-0 h-[calc(56px+env(safe-area-inset-bottom,0))] w-full rounded-none"
-            : "bottom-[calc(12px+env(safe-area-inset-bottom,0))] size-8 rounded-md",
+          "fixed inset-x-0 bottom-0 z-1 flex h-[calc(56px+env(safe-area-inset-bottom,0))] w-full items-start overflow-visible bg-[#1f1f21] text-sm text-[#cecfd2]",
+          expanded ? "pointer-events-auto" : "pointer-events-none",
         )}
+        style={{
+          transform: expanded
+            ? "translateY(0)"
+            : "translateY(calc(100% + 8px))",
+        }}
+        aria-hidden={!expanded}
+        inert={!expanded}
         data-state={mode}
+        data-open={expanded}
         onPointerMove={() => mode === "reactions" && scheduleCollapse()}
       >
-        {mode === "collapsed" ? (
+        <div className="relative h-14 w-full overflow-visible">
+          <button
+            type="button"
+            disabled={sending}
+            className="absolute top-1/2 left-4 z-1 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-white outline-none transition-[background-color] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white/12 focus-visible:bg-white/12 disabled:opacity-40 motion-reduce:transition-none"
+            aria-label={labels.collapseBar}
+            onClick={() => setMode("collapsed")}
+          >
+            <LuChevronDown size={20} aria-hidden />
+          </button>
+          <div className="absolute top-1/2 left-1/2 max-w-[calc(100%-6rem)] -translate-x-1/2 -translate-y-1/2 overflow-visible min-[744px]:max-w-91.5">
+            {contentMode === "typing" ? (
+              <form className="flex h-8 w-full min-w-0" onSubmit={submit}>
+                <label className="sr-only" htmlFor={inputId}>
+                  {labels.enterToSend}
+                </label>
+                <input
+                  ref={inputRef}
+                  id={inputId}
+                  type="text"
+                  inputMode="text"
+                  enterKeyHint="send"
+                  autoComplete="off"
+                  value={text}
+                  disabled={sending}
+                  placeholder={labels.enterToSend}
+                  aria-invalid={sendStatus === "error"}
+                  className="h-8 min-w-0 flex-1 rounded-md border-0 bg-[#2b2b2e] px-3 text-base leading-5 text-[#cecfd2] shadow-[inset_0_0_0_1px_#7e8188] outline-none placeholder:text-[#a9aaad] focus-visible:shadow-[inset_0_0_0_1px_#cecfd2] disabled:opacity-55 min-[744px]:text-sm"
+                  onChange={(event) =>
+                    setText(truncateDanmakuText(event.target.value, maxLength))
+                  }
+                  onKeyDown={preventImeSubmit}
+                />
+              </form>
+            ) : contentMode === "greeting" ? (
+              <GreetingPrompt
+                label={labels.sayHi}
+                onClick={() => sendReaction("👋")}
+              />
+            ) : (
+              <div className="flex items-center justify-center gap-2 overflow-visible min-[744px]:gap-4">
+                {QUICK_REACTIONS.map((emoji, index) => (
+                  <ReactionButton
+                    key={emoji}
+                    emoji={emoji}
+                    hiddenOnNarrow={index > 2}
+                    label={labels.sendReaction(emoji)}
+                    onSend={sendReaction}
+                  />
+                ))}
+                <IconButton
+                  label={labels.openComposer}
+                  onClick={() => setMode("typing")}
+                  largeIcon
+                >
+                  <LuMessageCircleMore aria-hidden />
+                </IconButton>
+                <IconButton
+                  label={labels.moreReactions}
+                  ariaExpanded={moreOpen}
+                  onClick={() =>
+                    setMode((current) =>
+                      current === "more" ? "reactions" : "more",
+                    )
+                  }
+                  largeIcon
+                >
+                  <LuSmilePlus aria-hidden />
+                </IconButton>
+              </div>
+            )}
+          </div>
+          {morePresent ? (
+            <div
+              ref={panelRef}
+              className="absolute right-4 bottom-[calc(100%+12px)] h-68 w-[min(352px,calc(100vw-32px))] origin-bottom-right rounded-xl border border-[rgb(227_228_242/0.12)] bg-[#2b2c2f] shadow-[0_6px_24px_rgb(0_0_0/0.1)] will-change-[transform,opacity] min-[744px]:right-auto min-[744px]:left-1/2 min-[744px]:origin-bottom min-[744px]:-translate-x-1/2"
+              role="group"
+              aria-label={labels.moreReactions}
+            >
+              <div className="flex h-15 items-start gap-2 px-4 pt-4">
+                <div className="relative h-9 min-w-0 flex-1">
+                  <LuSearch
+                    className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[#7e8188]"
+                    size={18}
+                    aria-hidden
+                  />
+                  <input
+                    type="search"
+                    value={emojiSearch}
+                    placeholder={labels.searchEmoji}
+                    aria-label={labels.searchEmoji}
+                    className="size-full rounded-lg border-0 bg-[#242528] pr-3 pl-11 text-sm text-[#cecfd2] shadow-[inset_0_0_0_1px_#7e8188] outline-none placeholder:text-[#7e8188] focus-visible:shadow-[inset_0_0_0_2px_#cecfd2]"
+                    onChange={(event) => setEmojiSearch(event.target.value)}
+                  />
+                </div>
+                <ReactionButton
+                  emoji="👋"
+                  label={labels.sendReaction("👋")}
+                  onSend={sendReaction}
+                  popover
+                />
+              </div>
+              <p className="mt-3 px-4 text-xs font-medium text-[#cecfd2]">
+                {labels.frequentlyUsed}
+              </p>
+              <div className="mt-2.5 grid grid-cols-9 gap-1 px-4 pb-4">
+                {filteredReactions.map((emoji) => (
+                  <ReactionButton
+                    key={emoji}
+                    emoji={emoji}
+                    label={labels.sendReaction(emoji)}
+                    onSend={sendReaction}
+                    popover
+                  />
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      </div>
+      <div
+        className={cx(
+          "fixed left-1/2 z-2 size-8 -translate-x-1/2",
+          "bottom-[calc(12px+env(safe-area-inset-bottom,0))]",
+          expanded ? "pointer-events-none" : "pointer-events-auto",
+        )}
+        aria-hidden={expanded}
+        inert={expanded}
+      >
+        <div
+          ref={launcherRef}
+          className="size-8 rounded-md bg-[#1f1f21] text-[#cecfd2]"
+          style={{
+            opacity: expanded ? 0 : 1,
+            transform: expanded
+              ? "translateY(10px) scale(0.92)"
+              : "translateY(0) scale(1)",
+          }}
+        >
           <IconButton
             label={labels.expandBar}
             onClick={() =>
@@ -443,129 +695,7 @@ function DanmakuInteractionBar({
           >
             <LuSmilePlus size={20} aria-hidden />
           </IconButton>
-        ) : (
-          <div className="relative h-14 w-full">
-            <button
-              type="button"
-              disabled={sending}
-              className="absolute top-1/2 left-4 z-1 inline-flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-white outline-none transition-[background-color] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white/12 focus-visible:bg-white/12 disabled:opacity-40 motion-reduce:transition-none"
-              aria-label={labels.collapseBar}
-              onClick={() => setMode("collapsed")}
-            >
-              <LuChevronDown size={20} aria-hidden />
-            </button>
-            <div className="absolute top-1/2 left-1/2 max-w-[calc(100%-6rem)] -translate-x-1/2 -translate-y-1/2 min-[744px]:max-w-91.5">
-              {mode === "typing" ? (
-                <form className="flex h-8 w-full min-w-0" onSubmit={submit}>
-                  <label className="sr-only" htmlFor={inputId}>
-                    {labels.enterToSend}
-                  </label>
-                  <input
-                    ref={inputRef}
-                    id={inputId}
-                    type="text"
-                    inputMode="text"
-                    enterKeyHint="send"
-                    autoComplete="off"
-                    value={text}
-                    disabled={sending}
-                    placeholder={labels.enterToSend}
-                    aria-invalid={sendStatus === "error"}
-                    className="h-8 min-w-0 flex-1 rounded-md border-0 bg-[#2b2b2e] px-3 text-base leading-5 text-[#cecfd2] shadow-[inset_0_0_0_1px_#7e8188] outline-none placeholder:text-[#a9aaad] focus-visible:shadow-[inset_0_0_0_1px_#cecfd2] disabled:opacity-55 min-[744px]:text-sm"
-                    onChange={(event) =>
-                      setText(
-                        truncateDanmakuText(event.target.value, maxLength),
-                      )
-                    }
-                    onKeyDown={preventImeSubmit}
-                  />
-                </form>
-              ) : mode === "greeting" ? (
-                <GreetingPrompt
-                  label={labels.sayHi}
-                  onClick={() => sendReaction("👋")}
-                />
-              ) : (
-                <div className="flex items-center justify-center gap-2 min-[744px]:gap-4">
-                  {QUICK_REACTIONS.map((emoji, index) => (
-                    <ReactionButton
-                      key={emoji}
-                      emoji={emoji}
-                      hiddenOnNarrow={index > 2}
-                      label={labels.sendReaction(emoji)}
-                      onSend={sendReaction}
-                    />
-                  ))}
-                  <IconButton
-                    label={labels.openComposer}
-                    onClick={() => setMode("typing")}
-                    largeIcon
-                  >
-                    <LuMessageCircleMore aria-hidden />
-                  </IconButton>
-                  <IconButton
-                    label={labels.moreReactions}
-                    ariaExpanded={moreOpen}
-                    onClick={() =>
-                      setMode((current) =>
-                        current === "more" ? "reactions" : "more",
-                      )
-                    }
-                    largeIcon
-                  >
-                    <LuSmilePlus aria-hidden />
-                  </IconButton>
-                </div>
-              )}
-            </div>
-            {morePresent ? (
-              <div
-                ref={panelRef}
-                className="absolute right-4 bottom-[calc(100%+12px)] h-68 w-[min(352px,calc(100vw-32px))] origin-bottom-right rounded-xl border border-[rgb(227_228_242/0.12)] bg-[#2b2c2f] shadow-[0_6px_24px_rgb(0_0_0/0.1)] will-change-[transform,opacity] min-[744px]:right-auto min-[744px]:left-1/2 min-[744px]:origin-bottom min-[744px]:-translate-x-1/2"
-                role="group"
-                aria-label={labels.moreReactions}
-              >
-                <div className="flex h-15 items-start gap-2 px-4 pt-4">
-                  <div className="relative h-9 min-w-0 flex-1">
-                    <LuSearch
-                      className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-[#7e8188]"
-                      size={18}
-                      aria-hidden
-                    />
-                    <input
-                      type="search"
-                      value={emojiSearch}
-                      placeholder={labels.searchEmoji}
-                      aria-label={labels.searchEmoji}
-                      className="size-full rounded-lg border-0 bg-[#242528] pr-3 pl-11 text-sm text-[#cecfd2] shadow-[inset_0_0_0_1px_#7e8188] outline-none placeholder:text-[#7e8188] focus-visible:shadow-[inset_0_0_0_2px_#cecfd2]"
-                      onChange={(event) => setEmojiSearch(event.target.value)}
-                    />
-                  </div>
-                  <ReactionButton
-                    emoji="👋"
-                    label={labels.sendReaction("👋")}
-                    onSend={sendReaction}
-                    popover
-                  />
-                </div>
-                <p className="mt-3 px-4 text-xs font-medium text-[#cecfd2]">
-                  {labels.frequentlyUsed}
-                </p>
-                <div className="mt-2.5 grid grid-cols-9 gap-1 px-4 pb-4">
-                  {filteredReactions.map((emoji) => (
-                    <ReactionButton
-                      key={emoji}
-                      emoji={emoji}
-                      label={labels.sendReaction(emoji)}
-                      onSend={sendReaction}
-                      popover
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </div>
-        )}
+        </div>
       </div>
       <p className="sr-only" role="status" aria-live="polite">
         {sendStatus === "success"
@@ -688,40 +818,105 @@ function ReactionButton({
     }, LONG_PRESS_DELAY_MS);
   };
 
+  if (popover) {
+    return (
+      <button
+        type="button"
+        className="inline-flex size-8 shrink-0 touch-none select-none items-center justify-center rounded-lg text-[22px] leading-none outline-none transition-[background-color] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgb(206_207_210/0.12)] focus-visible:bg-[rgb(206_207_210/0.12)] active:bg-[rgb(206_207_210/0.16)] motion-reduce:transition-none"
+        aria-label={label}
+        onClick={() => {
+          if (repeated.current) {
+            repeated.current = false;
+            return;
+          }
+          onSend(emoji);
+        }}
+        onContextMenu={(event) => event.preventDefault()}
+        onPointerDown={pointerDown}
+        onPointerUp={stopRepeat}
+        onPointerCancel={stopRepeat}
+        onLostPointerCapture={stopRepeat}
+      >
+        {emoji}
+      </button>
+    );
+  }
+
+  const hoverMatrix =
+    REACTION_HOVER_MATRIX[emoji] ??
+    "matrix(1.29921, 0.0453693, -0.0453693, 1.29921, 0, -7.8)";
+
+  const tooltipAnimRef = useRef<HTMLSpanElement>(null);
+  const playTooltipMotion = useCallback(() => {
+    if (tooltipAnimRef.current) {
+      playReactionTooltipMotion(tooltipAnimRef.current);
+    }
+  }, []);
+  const resetTooltipMotion = useCallback(() => {
+    if (tooltipAnimRef.current) {
+      resetReactionTooltipMotion(tooltipAnimRef.current);
+    }
+  }, []);
+
+  const shortcut = REACTION_TOOLTIP_SHORTCUTS[emoji];
+
   return (
-    <button
-      type="button"
+    <span
       className={cx(
-        "shrink-0 touch-none select-none items-center justify-center leading-none outline-none",
-        popover
-          ? "inline-flex size-8 rounded-lg text-[22px] transition-[background-color] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-[rgb(206_207_210/0.12)] focus-visible:bg-[rgb(206_207_210/0.12)] active:bg-[rgb(206_207_210/0.16)] motion-reduce:transition-none"
-          : "group inline-flex size-8 overflow-visible rounded-md text-2xl",
+        "group relative inline-flex w-fit overflow-visible",
         hiddenOnNarrow && "hidden min-[440px]:inline-flex",
       )}
-      aria-label={label}
-      onClick={() => {
-        if (repeated.current) {
-          repeated.current = false;
-          return;
-        }
-        onSend(emoji);
-      }}
-      onContextMenu={(event) => event.preventDefault()}
-      onPointerDown={pointerDown}
-      onPointerUp={stopRepeat}
-      onPointerCancel={stopRepeat}
-      onLostPointerCapture={stopRepeat}
+      style={{ ["--reaction-hover-matrix" as string]: hoverMatrix }}
+      onPointerEnter={playTooltipMotion}
+      onPointerLeave={resetTooltipMotion}
     >
-      {popover ? (
-        emoji
-      ) : (
+      <span
+        aria-hidden
+        className="pointer-events-none absolute bottom-[calc(100%+16px)] left-1/2 z-[500] -translate-x-1/2 whitespace-nowrap opacity-0 transition-opacity duration-150 delay-50 ease-out group-hover:opacity-100 motion-reduce:opacity-100 motion-reduce:transition-none"
+      >
         <span
-          aria-hidden
-          className="pointer-events-none block origin-bottom transition-transform duration-320 ease-[cubic-bezier(0.34,3.85,0.64,1)] group-hover:translate-y-[-7.8px] group-hover:scale-[1.3] group-hover:duration-250 group-hover:ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none motion-reduce:group-hover:transform-none"
+          ref={tooltipAnimRef}
+          className="block origin-bottom will-change-transform motion-reduce:transform-none"
         >
-          {emoji}
-        </span>
-      )}
-    </button>
+          <span className="block rounded-[6px] bg-[#292a2e] px-3 py-[7px] font-sans shadow-[0_4px_10px_rgba(0,0,0,0.1)]">
+            <span className="grid grid-flow-col items-center justify-start gap-2">
+              <span className="block pt-0.5 text-[12px] leading-[18px] font-[653] tracking-normal text-white">
+                {reactionTooltipLabel(emoji)}
+                </span>
+              {shortcut ? (
+                <span className="rounded-[3px] bg-[rgb(11_18_14/0.14)] px-1">
+                  <span className="block pt-0.5 text-[12px] leading-[18px] font-[653] tracking-normal text-[#dddee1]">
+                    {shortcut}
+                  </span>
+                </span>
+              ) : null}
+            </span>
+            </span>
+          </span>
+      </span>
+      <span className="inline-flex origin-[16px_16px] transition-transform duration-100 ease-in-out group-hover:[transform:var(--reaction-hover-matrix)] motion-reduce:transition-none motion-reduce:group-hover:transform-none">
+        <button
+          type="button"
+          className="inline-flex size-8 shrink-0 touch-none select-none items-center justify-center overflow-visible rounded-md bg-transparent text-2xl leading-none outline-none"
+          aria-label={label}
+          onClick={() => {
+            if (repeated.current) {
+              repeated.current = false;
+              return;
+            }
+            onSend(emoji);
+          }}
+          onContextMenu={(event) => event.preventDefault()}
+          onPointerDown={pointerDown}
+          onPointerUp={stopRepeat}
+          onPointerCancel={stopRepeat}
+          onLostPointerCapture={stopRepeat}
+        >
+          <span aria-hidden className="pointer-events-none block pt-0.5 leading-none">
+            {emoji}
+          </span>
+        </button>
+      </span>
+    </span>
   );
 }

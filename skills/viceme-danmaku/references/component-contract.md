@@ -123,8 +123,16 @@ The greeting appears only for the first mounted experience. Dismiss it permanent
 
 ### Collapse and hover motion
 
-- Bar expand: 350ms, `cubic-bezier(0.34, 1.25, 0.64, 1)`.
-- Bar collapse: 250ms, `cubic-bezier(0.22, 1, 0.36, 1)`.
+- Bar expand: the full-width bar rises vertically from just below the viewport
+  and decelerates directly to `translateY(0)` over 350ms with
+  `cubic-bezier(0.22, 1, 0.36, 1)`. It must never travel past the docked
+  position.
+- Bar collapse: the full-width bar sinks below the viewport over 250ms with
+  `cubic-bezier(0.22, 1, 0.36, 1)`.
+- Keep the collapsed launcher as a separate bottom-centered layer. Fade and
+  lower it while the bar rises, then restore it after the bar begins to sink.
+- Never animate the bar's width from the collapsed launcher to full viewport
+  width; the reveal must read as a Dock-style vertical entrance.
 - Surface hover: 150ms with smooth-out easing.
 - Quick emoji hover-in: 250ms, scale 1.3, translateY -7.8px.
 - Quick emoji hover-out: 320ms with `cubic-bezier(0.34, 3.85, 0.64, 1)`.

@@ -38,6 +38,22 @@ Optional attributes:
 - `data-widget-url="https://viceme.cn/embed/danmaku"` for full widget app
   overrides in development.
 
+## Page-position anchors
+
+The four-line snippet is the whole installation. The host page does not need to
+report business events or call a scene API.
+
+The loader automatically derives the active anchor from:
+
+- the current canonical page URL, including hash routes when the page uses
+  them;
+- the current scroll bucket, grouped in 10% ranges such as `0-10`, `60-70`, or
+  `90-100`.
+
+When a user sends a danmaku, the hosted widget stores it under that page-position
+anchor. Other visitors on the same work see it when they are on the same page
+and scroll into the same bucket.
+
 ## Loader responsibilities
 
 `assets/cdn/viceme-danmaku-widget.js` is the CDN loader. It is intentionally
@@ -50,8 +66,8 @@ small and framework-free. It must:
 - keep host page clicks usable by using a non-interactive stage iframe and a
   separate bottom controls iframe;
 - lazy-load modal or login surfaces only after widget messages request them;
-- pass `creatorId`, `workId`, `theme`, `locale`, `host`, and `sdk` to the
-  ViceMe-hosted widget app.
+- pass `creatorId`, `workId`, `theme`, `locale`, `host`, `sdk`, and the
+  automatically detected page-position anchor to the ViceMe-hosted widget app.
 
 ## Runtime boundary
 
