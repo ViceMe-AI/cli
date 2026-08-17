@@ -84,8 +84,27 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 		}
 		return exit, envelope
 	}
+	assertCamelAuthData := func(result map[string]any, required ...string) {
+		t.Helper()
+		data, ok := result["data"].(map[string]any)
+		if !ok {
+			t.Fatalf("auth response data is not an object: %#v", result)
+		}
+		for _, key := range required {
+			if _, exists := data[key]; !exists {
+				t.Fatalf("auth response omitted camelCase field %q: %#v", key, data)
+			}
+		}
+		for _, key := range []string{"distribution_region", "user_id", "expires_at", "logged_out", "already_logged_out"} {
+			if _, exists := data[key]; exists {
+				t.Fatalf("auth response exposed obsolete snake_case field %q: %#v", key, data)
+			}
+		}
+	}
 	if exit, result := run("auth", "login"); exit != 0 || result["ok"] != true {
 		t.Fatalf("device login failed: exit=%d result=%#v", exit, result)
+	} else {
+		assertCamelAuthData(result, "distributionRegion", "userId", "expiresAt")
 	}
 	if tokenPolls.Load() < 2 {
 		t.Fatalf("device login returned before authorization completed: polls=%d", tokenPolls.Load())
@@ -98,9 +117,21 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	}
 	if exit, result := run("auth", "status"); exit != 0 || result["ok"] != true {
 		t.Fatalf("remote status failed: exit=%d result=%#v", exit, result)
+	} else {
+		assertCamelAuthData(result, "distributionRegion", "expiresAt")
 	}
 	if exit, result := run("auth", "logout"); exit != 0 || result["ok"] != true || !revoked.Load() {
 		t.Fatalf("logout failed: exit=%d result=%#v revoked=%v", exit, result, revoked.Load())
+	} else {
+		assertCamelAuthData(result, "distributionRegion")
+	}
+	if exit, result := run("auth", "status"); exit != 0 || result["ok"] != true {
+		t.Fatalf("logged-out status failed: exit=%d result=%#v", exit, result)
+	} else {
+		assertCamelAuthData(result, "distributionRegion")
+		if data := result["data"].(map[string]any); data["authenticated"] != false {
+			t.Fatalf("logged-out status reported authenticated: %#v", data)
+		}
 	}
 	configData := []byte(readFileString(t, filepath.Join(root, "config", "config.json")))
 	if !bytes.Contains(configData, []byte("55555555-5555-4555-8555-555555555555")) {

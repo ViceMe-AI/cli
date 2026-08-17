@@ -270,8 +270,7 @@ func load(filename string) (Config, error) {
 	}
 	// Migrate the pre-endpoint-authority shape in memory. Region used to be
 	// duplicated on every Profile; it now selects only the distribution channel.
-	migrated := config.DistributionRegion == ""
-	if migrated {
+	if config.DistributionRegion == "" {
 		var legacy struct {
 			Profiles []struct {
 				Name       string `json:"name"`
@@ -299,11 +298,6 @@ func load(filename string) (Config, error) {
 	}
 	if err := requirePrivateFile(filename); err != nil {
 		return Config{}, configLoadError(filename, "permissions", err)
-	}
-	if migrated {
-		if err := write(filename, config); err != nil {
-			return Config{}, configLoadError(filename, "migrate", err)
-		}
 	}
 	return config, nil
 }

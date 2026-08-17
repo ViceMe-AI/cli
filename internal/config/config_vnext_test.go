@@ -87,6 +87,10 @@ func TestLegacyProfileRegionMigratesToDistributionRegionAndExplicitEndpoints(t *
 	if err := os.WriteFile(filename, []byte(legacy), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	legacyBytes, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
 	loaded, err := LoadOrDefault(directory)
 	if err != nil {
 		t.Fatal(err)
@@ -107,6 +111,23 @@ func TestLegacyProfileRegionMigratesToDistributionRegionAndExplicitEndpoints(t *
 	}
 	if local.APIBaseURL != "http://127.0.0.1:3001" {
 		t.Fatalf("explicit legacy endpoint changed during migration: %#v", local)
+	}
+	loadedBytes, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(loadedBytes) != string(legacyBytes) {
+		t.Fatalf("loading rewrote the legacy config before an install transaction: before=%s after=%s", legacyBytes, loadedBytes)
+	}
+	if _, err := Save(directory, loaded); err != nil {
+		t.Fatal(err)
+	}
+	canonicalBytes, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(canonicalBytes) == string(legacyBytes) || !stringContains(string(canonicalBytes), `"distributionRegion": "cn"`) {
+		t.Fatalf("explicit save did not persist the canonical config: %s", canonicalBytes)
 	}
 }
 

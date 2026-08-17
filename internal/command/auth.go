@@ -17,9 +17,9 @@ import (
 type deviceLoginResult struct {
 	Authenticated      bool       `json:"authenticated"`
 	Profile            string     `json:"profile"`
-	DistributionRegion string     `json:"distribution_region"`
-	UserID             string     `json:"user_id,omitempty"`
-	ExpiresAt          *time.Time `json:"expires_at,omitempty"`
+	DistributionRegion string     `json:"distributionRegion"`
+	UserID             string     `json:"userId,omitempty"`
+	ExpiresAt          *time.Time `json:"expiresAt,omitempty"`
 }
 
 func newAuthCommand(runtime *Runtime) *cobra.Command {
@@ -215,7 +215,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				var cliError *output.Error
 				if errors.As(err, &cliError) && cliError.Subtype == "not_logged_in" {
-					return runtime.business(map[string]any{"logged_out": true, "already_logged_out": true, "profile": runtime.profile.Name, "distributionRegion": runtime.region})
+					return runtime.business(map[string]any{"loggedOut": true, "alreadyLoggedOut": true, "profile": runtime.profile.Name, "distributionRegion": runtime.region})
 				}
 				return err
 			}
@@ -227,7 +227,7 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 			if revokeErr != nil {
 				return revokeErr
 			}
-			return runtime.business(map[string]any{"logged_out": true, "profile": runtime.profile.Name, "distributionRegion": runtime.region})
+			return runtime.business(map[string]any{"loggedOut": true, "profile": runtime.profile.Name, "distributionRegion": runtime.region})
 		},
 	}
 }

@@ -670,3 +670,18 @@ func TestCredentialScopeUsesCanonicalAPIOrigin(t *testing.T) {
 		t.Fatalf("credential scope did not follow canonical API origin: first=%q same=%q other=%q", first, same, other)
 	}
 }
+
+func TestLegacyCredentialRegionOnlyMatchesOfficialAPIOrigins(t *testing.T) {
+	t.Parallel()
+	if got := legacyCredentialRegionForAPIBase("HTTPS://API.VICEME.CN:443/"); got != "cn" {
+		t.Fatalf("CN official origin legacy region = %q", got)
+	}
+	if got := legacyCredentialRegionForAPIBase("https://api.viceme.ai"); got != "global" {
+		t.Fatalf("GLOBAL official origin legacy region = %q", got)
+	}
+	for _, endpoint := range []string{"http://127.0.0.1:3001", "https://shop-dev.example.com"} {
+		if got := legacyCredentialRegionForAPIBase(endpoint); got != "" {
+			t.Fatalf("custom endpoint %q inherited official credentials through %q", endpoint, got)
+		}
+	}
+}

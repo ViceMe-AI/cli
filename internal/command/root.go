@@ -531,11 +531,12 @@ func newVersionCommand(runtime *Runtime) *cobra.Command {
 
 func (r *Runtime) manager() *auth.Manager {
 	return &auth.Manager{
-		Store:       r.deps.Store,
-		Region:      string(r.region),
-		ProfileID:   r.profile.ID,
-		ProfileName: r.profile.Name,
-		Scope:       r.credentialScope,
+		Store:        r.deps.Store,
+		Region:       string(r.region),
+		ProfileID:    r.profile.ID,
+		ProfileName:  r.profile.Name,
+		Scope:        r.credentialScope,
+		LegacyRegion: legacyCredentialRegionForAPIBase(r.apiBaseURL),
 	}
 }
 
@@ -828,6 +829,20 @@ func customCredentialScope(apiBaseURL string) (string, error) {
 
 func credentialScopeForAPIBase(apiBaseURL string) (string, error) {
 	return customCredentialScope(apiBaseURL)
+}
+
+func legacyCredentialRegionForAPIBase(apiBaseURL string) string {
+	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	if err != nil {
+		return ""
+	}
+	for _, region := range []config.Region{config.RegionCN, config.RegionGlobal} {
+		officialOrigin, normalizeErr := api.NormalizeAPIOrigin(config.APIBaseURL(region))
+		if normalizeErr == nil && origin == officialOrigin {
+			return string(region)
+		}
+	}
+	return ""
 }
 
 // errorsAs is a small indirection so the rest of the command tree does not

@@ -22,9 +22,9 @@ type Credential struct {
 type Status struct {
 	Authenticated      bool       `json:"authenticated"`
 	Profile            string     `json:"profile"`
-	DistributionRegion string     `json:"distribution_region"`
-	UserID             string     `json:"user_id,omitempty"`
-	ExpiresAt          *time.Time `json:"expires_at,omitempty"`
+	DistributionRegion string     `json:"distributionRegion"`
+	UserID             string     `json:"userId,omitempty"`
+	ExpiresAt          *time.Time `json:"expiresAt,omitempty"`
 }
 
 type Manager struct {
@@ -35,6 +35,10 @@ type Manager struct {
 	// Scope is derived from the canonical API origin and nested under ProfileID,
 	// so credentials never depend on the independently selected update region.
 	Scope string
+	// LegacyRegion is set only for an official API endpoint. New releases keep
+	// that former region key in sync so an interrupted activation can roll back
+	// to the previous binary without losing the authenticated session.
+	LegacyRegion string
 }
 
 func (m *Manager) key() string {
@@ -57,6 +61,26 @@ func (m *Manager) key() string {
 // controlled macOS downgrade can migrate every configured profile.
 func (m *Manager) StorageKey() string { return m.key() }
 
+func (m *Manager) legacyKey() string {
+	legacyRegion := strings.ToLower(strings.TrimSpace(m.LegacyRegion))
+	if legacyRegion == "" {
+		return ""
+	}
+	legacy := (&Manager{ProfileID: m.ProfileID, Region: legacyRegion}).key()
+	if legacy == m.key() {
+		return ""
+	}
+	return legacy
+}
+
+func (m *Manager) storageKeys() []string {
+	keys := []string{m.key()}
+	if legacy := m.legacyKey(); legacy != "" {
+		keys = append(keys, legacy)
+	}
+	return keys
+}
+
 // PreflightSave verifies the complete local persistence path before a device
 // authorization is created or its one-time code is exchanged.
 func (m *Manager) PreflightSave() error {
@@ -65,10 +89,12 @@ func (m *Manager) PreflightSave() error {
 		return output.Authentication("credential_store_unavailable", "the local credential store cannot be verified before device authorization").
 			WithHint("use a supported ViceMe credential store and retry; no device authorization was consumed")
 	}
-	if err := probe.Preflight(m.key()); err != nil {
-		return output.Authentication("credential_store_unavailable", "the local credential store is not writable from this process").
-			WithHint("verify that the ViceMe configuration directory is writable, then retry; no device authorization was consumed").
-			WithCause(err)
+	for _, key := range m.storageKeys() {
+		if err := probe.Preflight(key); err != nil {
+			return output.Authentication("credential_store_unavailable", "the local credential store is not writable from this process").
+				WithHint("verify that the ViceMe configuration directory is writable, then retry; no device authorization was consumed").
+				WithCause(err)
+		}
 	}
 	return nil
 }
@@ -81,18 +107,46 @@ func (m *Manager) Save(credential Credential) error {
 	if err != nil {
 		return output.Internal("credential_encode", "failed to encode credentials", err)
 	}
-	if err := m.Store.Set(m.key(), string(data)); err != nil {
+	primaryKey := m.key()
+	previous, previousErr := m.Store.Get(primaryKey)
+	if previousErr != nil && !errors.Is(previousErr, securestore.ErrNotFound) {
+		return output.Authentication("credential_store_unavailable", "could not read credentials from the secure local credential store before saving").
+			WithHint("unlock the operating-system credential manager and retry from an interactive Terminal").
+			WithCause(previousErr)
+	}
+	if err := m.Store.Set(primaryKey, string(data)); err != nil {
 		return output.Authentication("credential_store_unavailable", "could not save credentials in the secure local credential store").
 			WithHint("verify that the ViceMe configuration directory is private and writable, then start a new login flow").
 			WithCause(err)
+	}
+	if legacyKey := m.legacyKey(); legacyKey != "" {
+		if err := m.Store.Set(legacyKey, string(data)); err != nil {
+			if errors.Is(previousErr, securestore.ErrNotFound) {
+				_ = m.Store.Delete(primaryKey)
+			} else {
+				_ = m.Store.Set(primaryKey, previous)
+			}
+			return output.Authentication("credential_store_unavailable", "could not save credentials in the secure local credential store").
+				WithHint("verify that the ViceMe configuration directory is private and writable, then start a new login flow").
+				WithCause(err)
+		}
 	}
 	return nil
 }
 
 func (m *Manager) Load() (Credential, error) {
 	value, err := m.Store.Get(m.key())
+	legacyFallback := false
 	if errors.Is(err, securestore.ErrNotFound) {
-		return Credential{}, output.Authentication("not_logged_in", "not logged in to ViceMe")
+		legacyKey := m.legacyKey()
+		if legacyKey == "" {
+			return Credential{}, output.Authentication("not_logged_in", "not logged in to ViceMe")
+		}
+		value, err = m.Store.Get(legacyKey)
+		if errors.Is(err, securestore.ErrNotFound) {
+			return Credential{}, output.Authentication("not_logged_in", "not logged in to ViceMe")
+		}
+		legacyFallback = err == nil
 	}
 	if err != nil {
 		return Credential{}, output.Authentication("credential_store_unavailable", "could not read credentials from the secure local credential store").
@@ -103,18 +157,28 @@ func (m *Manager) Load() (Credential, error) {
 	if err := json.Unmarshal([]byte(value), &credential); err != nil || credential.AccessToken == "" {
 		return Credential{}, output.Authentication("credential_invalid", "stored ViceMe credentials are invalid")
 	}
+	if legacyFallback {
+		if setErr := m.Store.Set(m.key(), value); setErr != nil {
+			return Credential{}, output.Authentication("credential_store_unavailable", "could not migrate credentials to the API endpoint namespace").
+				WithHint("unlock the operating-system credential manager and retry from an interactive Terminal").
+				WithCause(setErr)
+		}
+	}
 	return credential, nil
 }
 
 func (m *Manager) Delete() error {
-	err := m.Store.Delete(m.key())
-	if errors.Is(err, securestore.ErrNotFound) {
-		return nil
+	var deleteErrors []error
+	for _, key := range m.storageKeys() {
+		err := m.Store.Delete(key)
+		if err != nil && !errors.Is(err, securestore.ErrNotFound) {
+			deleteErrors = append(deleteErrors, err)
+		}
 	}
-	if err != nil {
+	if len(deleteErrors) > 0 {
 		return output.Authentication("credential_store_unavailable", "could not remove credentials from the secure local credential store").
 			WithHint("unlock the operating-system credential manager and retry from an interactive Terminal").
-			WithCause(err)
+			WithCause(errors.Join(deleteErrors...))
 	}
 	return nil
 }
