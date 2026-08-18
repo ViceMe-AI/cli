@@ -22,6 +22,8 @@ import {
   DANMAKU_STATIC_DURATION_MS,
   DANMAKU_STATIC_LEFT_PX,
   playDanmakuBullet,
+  randomReactionHoverTiltDeg,
+  reactionHoverTransform,
 } from "./danmaku-motion";
 
 const labels: DanmakuLabels = {
@@ -121,17 +123,13 @@ describe("ViceMeDanmaku golden behavior", () => {
 
     advanceGreeting();
     const heart = screen.getByRole("button", { name: "send-❤️" });
-    // Tooltip is a sibling of the emoji button; grab the outer container and query it.
-    const reactionButtonRoot = heart.parentElement?.parentElement;
-    const centerAnchor = reactionButtonRoot?.querySelector(
-      'span[class*="left-1/2"]',
-    ) as HTMLElement | null;
+    const centerAnchor = heart.closest(".group")?.parentElement?.parentElement;
     expect(centerAnchor?.className).toContain("left-1/2");
     expect(centerAnchor?.className).toContain("-translate-x-1/2");
 
     for (const emoji of ["👏", "🙌", "👀"]) {
       const secondary = screen.getByRole("button", { name: `send-${emoji}` });
-      const secondaryGroup = secondary.parentElement?.parentElement;
+      const secondaryGroup = secondary.closest(".group");
       expect(secondaryGroup?.className).toContain("hidden");
       expect(secondaryGroup?.className).toContain("min-[440px]:inline-flex");
     }
@@ -375,9 +373,63 @@ describe("ViceMeDanmaku golden behavior", () => {
       await Promise.resolve();
     });
     const heart = screen.getByRole("button", { name: "send-❤️" });
-    const tooltipRoot = heart.closest(".group")?.querySelector("[aria-hidden]");
-    expect(tooltipRoot?.textContent).toContain("heart");
-    expect(tooltipRoot?.textContent).toContain("1");
+    const group = heart.closest(".group");
+    expect(group).toBeTruthy();
+    const tooltipRoot = group?.querySelector("[aria-hidden]");
+    expect(tooltipRoot?.textContent).toBe("heart");
+    expect(group?.contains(heart)).toBe(true);
+    expect(tooltipRoot && group?.contains(tooltipRoot)).toBe(true);
+
+    const comment = screen.getByRole("button", { name: labels.openComposer });
+    expect(comment.closest(".group")?.querySelector("[aria-hidden]")?.textContent).toBe(
+      "comment",
+    );
+    const more = screen.getByRole("button", { name: labels.moreReactions });
+    expect(more.closest(".group")?.querySelector("[aria-hidden]")?.textContent).toBe(
+      "more reactions",
+    );
+  });
+
+  it("applies a single Loom hover transform on the wrapper that owns the tooltip", async () => {
+    vi.useFakeTimers();
+    renderDanmaku();
+    fireEvent.click(screen.getByRole("button", { name: labels.sayHi }));
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const fire = screen.getByRole("button", { name: "send-🔥" });
+    const wrap = fire.closest(".group");
+    expect(wrap).toBeTruthy();
+    fireEvent.pointerEnter(wrap as HTMLElement);
+    expect((wrap as HTMLElement).style.transform).toMatch(
+      /^scale\(1\.3\) translate\(0px, -6px\) rotate\(-?\d+deg\)$/,
+    );
+    const tilt = Number(
+      /rotate\((-?\d+)deg\)/.exec((wrap as HTMLElement).style.transform)?.[1],
+    );
+    expect(tilt).toBeGreaterThanOrEqual(-5);
+    expect(tilt).toBeLessThanOrEqual(5);
+    fireEvent.pointerLeave(wrap as HTMLElement);
+    expect((wrap as HTMLElement).style.transform).toBe("");
+
+    const commentWrap = screen
+      .getByRole("button", { name: labels.openComposer })
+      .closest(".group");
+    fireEvent.pointerEnter(commentWrap as HTMLElement);
+    expect((commentWrap as HTMLElement).style.transform).toMatch(
+      /^scale\(1\.3\) translate\(0px, -6px\) rotate\(-?\d+deg\)$/,
+    );
+    fireEvent.pointerLeave(commentWrap as HTMLElement);
+    expect((commentWrap as HTMLElement).style.transform).toBe("");
+  });
+
+  it("maps hover tilt samples onto the Loom transform string", () => {
+    expect(randomReactionHoverTiltDeg(() => 0)).toBe(-5);
+    expect(randomReactionHoverTiltDeg(() => 0.999)).toBe(5);
+    expect(reactionHoverTransform(4)).toBe(
+      "scale(1.3) translate(0px, -6px) rotate(4deg)",
+    );
   });
 
   it("auto-collapses reactions after 15000ms and expands without greeting", async () => {

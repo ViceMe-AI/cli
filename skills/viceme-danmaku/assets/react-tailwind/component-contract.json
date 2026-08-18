@@ -24,8 +24,8 @@
     "barClose": 250,
     "popoverOpen": 250,
     "popoverClose": 150,
-    "emojiHoverIn": 250,
-    "emojiHoverOut": 320
+    "emojiHoverIn": 100,
+    "emojiHoverOut": 100
   },
   "geometryPx": {
     "barHeight": 56,

@@ -80,7 +80,9 @@ The greeting appears only for the first mounted experience. Dismiss it permanent
 - Center anchor: absolute 50%/50% with -50% translation; maximum width 366px on widths >=744px; narrow maximum is viewport minus 96px.
 - Desktop reaction gap: 16px. Narrow reaction gap: 8px.
 - Quick reaction buttons: 32x32px; emoji size 24px; no background chip at rest or pointer hover.
-- Comment and more buttons: 32x32px, 6px radius, white 24px icon.
+- Hover lift is one CSS `transform` on the 32px wrapper: `scale(1.3) translate(0px, -6px) rotate(Ndeg)`, `transform-origin: 16px 16px`, `100ms ease-in-out`. `N` is a fresh integer in `-5..5` each pointer enter.
+- The black tooltip is a child of that wrapper (`display: none` until hover, `top: -38px`, horizontally centered). It has no WAAPI of its own and rides the wrapper motion. Copy is the reaction name only, such as `fire`.
+- Comment and more buttons: 32x32px, 6px radius, white 24px icon. Same hover lift and black tooltip as quick reactions. Copy is `comment` and `more reactions`.
 - On widths below 440px, hide quick reactions 4 through 6 and retain reactions 1 through 3, comment, and more.
 
 ### Collapsed launcher
