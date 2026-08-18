@@ -245,6 +245,7 @@ jobs:
         with:
           name: poc-release-contract
           path: dist
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
       - name: Publish or verify immutable GitHub prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -257,11 +258,21 @@ jobs:
             for FILE in dist/*; do
               NAME="${FILE#dist/}"
               if [ -f "existing-release/$NAME" ]; then
-                cmp --silent "$FILE" "existing-release/$NAME"
+                if [ "$NAME" != agent-release-manifest.sigstore.json ]; then
+                  cmp --silent "$FILE" "existing-release/$NAME"
+                fi
               else
                 gh release upload "$TAG" "$FILE"
               fi
             done
+            if [ -f existing-release/agent-release-manifest.sigstore.json ]; then
+              cosign verify-blob \
+                --bundle existing-release/agent-release-manifest.sigstore.json \
+                --certificate-identity 'https://github.com/ViceMe-AI/cli/.github/workflows/poc-release.yml@refs/heads/poc' \
+                --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+                dist/agent-release-manifest.json
+              cp existing-release/agent-release-manifest.sigstore.json dist/agent-release-manifest.sigstore.json
+            fi
           else
             gh release create "$TAG" dist/* --verify-tag --prerelease --title "$TAG" \
               --notes 'Isolated ViceMe POC CLI and Skill bundle.'
