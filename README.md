@@ -61,14 +61,14 @@
 
 The Agent checks login, keeps the selected Profile fixed throughout the
 workflow, validates the Skill, immediately uploads the private Draft, and opens
-its real Owner Preview. It continues media analysis without asking for a price.
-After ViceMe prepares the bilingual copy and media suggestions, the Agent shows
+its real Owner Preview. It uploads media candidates without asking for a price,
+then the user's Agent prepares the bilingual copy and media suggestions. The Agent shows
 the complete listing—including the images—and asks one combined question for
 the price and any desired changes. It then shows the final review and asks once
 whether to confirm and publish it publicly.
 
 ```text
-Local Skill → Login → Validate and private upload → Owner Preview → Platform analysis
+Local Skill → Login → Validate and private upload → Owner Preview → Agent enrichment
             → Complete listing details + price question → Final review
             → Confirm and publish → Public URL
 ```
@@ -90,10 +90,13 @@ viceme auth login
 # Upload the real private draft and open its Owner Preview before pricing.
 viceme skill publish --path ./my-skill
 
-# Continue the same unpriced draft, upload media, and start analysis.
+# Continue the same unpriced draft and upload media candidates.
 viceme skill publish --resume <publication-id>
-viceme publication wait <publication-id>
 viceme publication review <publication-id>
+
+# The Agent writes a revision-protected suggestion. Platform analysis is an explicit fallback only.
+viceme publication suggest <publication-id> --input <suggestion.json>
+# viceme publication analyze <publication-id> && viceme publication wait <publication-id>
 
 # After reviewing the complete listing details, set CNY 1.00 on that draft.
 viceme skill publish --resume <publication-id> --price-minor 100
@@ -175,8 +178,8 @@ are not accepted.
 | Login | Browser authorization happens before protected API work. Every command remains pinned to the same Profile and API origin. |
 | Inspect | Local validation rejects unsafe paths, special files, excessive content, sensitive files, and common secret patterns. |
 | Private upload and preview | The initial publish request authorizes the private Draft upload. The real package is verified and its Owner Preview opens before pricing. |
-| Analysis | ViceMe proposes short Chinese and English summaries, bilingual usage instructions, a cover, and an ordered gallery. Suggestions are never treated as user decisions. |
-| Listing details and price | After analysis, the Agent displays the exact title, bilingual copy, cover, and gallery, then asks one combined question for the CNY price in fen and any desired changes. It never asks for price by itself. |
+| Agent enrichment | The user's Agent reads the Skill as untrusted source data, prepares bilingual copy, and selects verified cover and gallery uploads. Platform analysis is an explicit fallback only. |
+| Listing details and price | After enrichment, the Agent displays the exact title, bilingual copy, cover, and gallery, then asks one combined question for the CNY price in fen and any desired changes. It never asks for price by itself. |
 | Review | The Agent displays the exact copy, price, cover, and gallery images. A short summary has a maximum display width of 30; ASCII counts as 1 and Chinese/non-ASCII as 2. |
 | Publish | One explicit final confirmation authorizes review confirmation followed by immediate, irreversible public publication. |
 
@@ -240,11 +243,13 @@ Never copy an access token into the conversation.
 | `viceme skill listing get <listing-id>` | Read the authoritative private Listing state. |
 | `viceme skill listing bind <listing-id> --path <path>` | Explicitly bind a source to a selected owned Listing. |
 | `viceme skill publish --path <path>` | Upload the real private package and return its Owner Preview before pricing. |
-| `viceme skill publish --resume <id>` | Continue the same unpriced Draft, upload media candidates, and start analysis. |
-| `viceme publication wait <id>` | Wait for background analysis without re-uploading. |
+| `viceme skill publish --resume <id>` | Continue the same unpriced Draft and upload media candidates without starting a platform model. |
 | `viceme publication review <id>` | Read the authoritative bilingual copy, price, selected media, and review state. |
+| `viceme publication suggest <id> --input ...` | Apply Agent-generated bilingual copy and media with Draft revision protection. |
+| `viceme publication analyze <id>` | Explicitly request platform-model analysis when the current Agent cannot perform enrichment. |
+| `viceme publication wait <id>` | Wait for an explicitly requested platform analysis without re-uploading. |
 | `viceme skill publish --resume <id> --price-minor <fen>` | Apply the reviewed CNY price to the same Draft without creating another Listing. |
-| `viceme publication asset upload ...` | Replace or add a cover or gallery image before confirmation. |
+| `viceme publication asset upload ...` | Replace user-selected media, or add `--candidate-only` to stage Agent-provided media for `publication suggest`. |
 | `viceme publication update ...` | Replace the complete listing draft from a strict JSON file. |
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
@@ -313,7 +318,8 @@ recovers interrupted activation as one compatible local generation.
 - Credentials remain in the CLI's secure local store and are scoped to a
   Profile and API origin; they are never part of Agent conversation state.
 - Presigned upload URLs are not written to the local pending-operation store.
-- Model analysis receives only filtered text, metadata, and image thumbnails.
+- Agent enrichment treats all package content as untrusted data and cannot bypass server-side package, media, ownership, or revision validation.
+- Explicit platform-model analysis receives only filtered text, metadata, and image thumbnails.
 - Public publication requires the exact reviewed copy, price, cover, and
   ordered gallery to be displayed and explicitly authorized.
 
