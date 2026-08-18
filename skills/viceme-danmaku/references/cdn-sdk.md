@@ -23,13 +23,14 @@ four-line form when showing or applying it:
 Create and activate the work before editing the host page:
 
 ```bash
-viceme access init --name "<website name>" --danmaku
+"$HOME/.local/bin/viceme" access init --name "<website name>" --danmaku
 ```
 
 `access init` performs work creation and activation in one operation. If it
-requires authentication, run `viceme auth login` and wait for the user. If the
-API is unavailable, stop with the reported error. Never substitute a localhost
-script, copied component, inline implementation, placeholder key, or mock API.
+requires authentication, run `"$HOME/.local/bin/viceme" auth login` and wait
+for the user. If the API is unavailable, stop with the reported error. Never
+substitute a localhost script, copied component, inline implementation,
+placeholder key, or mock API.
 
 The command writes `.viceme/access.yaml` and returns the same `workKey`. Treat
 the key as public and opaque. Never replace it with an internal creator ID,

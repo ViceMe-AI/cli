@@ -96,3 +96,15 @@ func TestSharedSkillDoesNotPreflightBusinessCommands(t *testing.T) {
 		}
 	}
 }
+
+func TestDanmakuPOCSkillPinsStandaloneExecutable(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-danmaku/SKILL.md")
+	if err != nil {
+		t.Fatalf("read embedded danmaku Skill: %v", err)
+	}
+	if !strings.Contains(string(content), `"$HOME/.local/bin/viceme" access init`) {
+		t.Fatal("embedded POC danmaku Skill can be shadowed by another viceme executable")
+	}
+}

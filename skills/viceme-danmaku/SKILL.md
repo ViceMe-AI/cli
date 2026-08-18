@@ -25,6 +25,10 @@ Target completion within about 10 seconds when the user is already signed in
 and the ViceMe API is reachable. Authentication and network waiting are outside
 that target.
 
+This POC installer owns `$HOME/.local/bin/viceme`. Use that exact executable
+for every workflow command; do not use a same-named npm or Homebrew executable
+found earlier on `PATH`.
+
 ### Hard limits
 
 - Read only [cdn-sdk.md](references/cdn-sdk.md), repository instructions, and
@@ -52,13 +56,13 @@ that target.
 2. If `.viceme/access.yaml` is absent, run:
 
    ```bash
-   viceme access init --name "<website name>" --danmaku
+   "$HOME/.local/bin/viceme" access init --name "<website name>" --danmaku
    ```
 
    The command creates and activates the work in one operation. If it reports
-   that sign-in is required, run `viceme auth login` and wait for the user; do
-   not edit the host page before authentication succeeds. For every other
-   error, report the command error and stop.
+   that sign-in is required, run `"$HOME/.local/bin/viceme" auth login` and
+   wait for the user; do not edit the host page before authentication succeeds.
+   For every other error, report the command error and stop.
 3. If `.viceme/access.yaml` exists and already has an active public `danmaku`
    feature, reuse its `workKey`. Otherwise make only the required config change
    and run `viceme access apply` once.
