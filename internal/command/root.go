@@ -109,9 +109,16 @@ func (source processTokenSource) Token(context.Context) (string, error) {
 func Execute(args []string, dependencies Dependencies) int {
 	dependencies.activationChildRequest, dependencies.activationChildParseError = parseNPMActivationChild(args)
 	dependencies.bootstrapActivationCommand = isBootstrapActivationCommand(args)
+	dependencies = defaults(dependencies)
 	root, runtime, err := NewRoot(dependencies)
 	if err != nil {
 		printer := &output.Printer{Out: writerOr(dependencies.Out, os.Stdout), ErrOut: writerOr(dependencies.ErrOut, os.Stderr), ExecutingCLIVersion: buildinfo.Version}
+		if errors.Is(err, updatepkg.ErrActivationRestartNeeded) && os.Getenv(autoUpdateReexecEnvironment) != "1" {
+			active, exists, readErr := updatepkg.ReadActiveGeneration(runtimeConfigBase(dependencies.Environment))
+			if readErr == nil && exists {
+				return reexecuteOriginalCommand(args, dependencies, printer, buildinfo.CompatibilityVersion(), active.Version)
+			}
+		}
 		return printer.Failure(err)
 	}
 	root.SetArgs(args)
@@ -129,24 +136,28 @@ func Execute(args []string, dependencies Dependencies) int {
 				failure.Hint = "rerun the same command"
 				return runtime.printer.Failure(failure)
 			}
-			environment := withEnvironmentValues(os.Environ(), map[string]string{
-				autoUpdateReexecEnvironment: "1",
-				autoUpdateFromEnvironment:   applied.From,
-				autoUpdateToEnvironment:     applied.To,
-			})
-			exitCode, reexecErr := runtime.deps.Reexecute(context.Background(), args, environment)
-			if reexecErr != nil {
-				return runtime.printer.Failure(output.Internal(
-					"AUTO_UPDATE_REEXEC_FAILED",
-					"ViceMe updated successfully but could not continue the original command with the new version",
-					reexecErr,
-				))
-			}
-			return exitCode
+			return reexecuteOriginalCommand(args, runtime.deps, runtime.printer, applied.From, applied.To)
 		}
 		return runtime.failure(err)
 	}
 	return 0
+}
+
+func reexecuteOriginalCommand(args []string, dependencies Dependencies, printer *output.Printer, from, to string) int {
+	environment := withEnvironmentValues(os.Environ(), map[string]string{
+		autoUpdateReexecEnvironment: "1",
+		autoUpdateFromEnvironment:   from,
+		autoUpdateToEnvironment:     to,
+	})
+	exitCode, err := dependencies.Reexecute(context.Background(), args, environment)
+	if err != nil {
+		return printer.Failure(output.Internal(
+			"AUTO_UPDATE_REEXEC_FAILED",
+			"ViceMe updated successfully but could not continue the original command with the new version",
+			err,
+		))
+	}
+	return exitCode
 }
 
 func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {

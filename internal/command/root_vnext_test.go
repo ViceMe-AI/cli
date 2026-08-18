@@ -305,6 +305,73 @@ func TestReexecutedCommandReportsAutomaticGenerationMetadata(t *testing.T) {
 	}
 }
 
+func TestCommandWaitingOnAnotherActivationReexecutesTheCommittedGeneration(t *testing.T) {
+	clearAutomaticUpdateReexecutionEnvironment(t)
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	activationLock := flock.New(filepath.Join(configDir, updatepkg.ActivationLockFilename))
+	if err := activationLock.Lock(); err != nil {
+		t.Fatal(err)
+	}
+	targetVersion := versionAfterCurrentRelease(t)
+	target, err := updatepkg.NewNPMGeneration(targetVersion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updater := updatepkg.NewNPMService(buildinfo.Version, buildinfo.CompatibilityVersion(), "npm")
+	updater.ConfigDir = configDir
+	type reexecution struct {
+		args        []string
+		environment []string
+	}
+	reexecuted := make(chan reexecution, 1)
+	var stdout bytes.Buffer
+	exited := make(chan int, 1)
+	go func() {
+		exited <- Execute([]string{"version"}, Dependencies{
+			Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+			Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+			Region:      config.RegionCN,
+			Reexecute: func(_ context.Context, args, environment []string) (int, error) {
+				reexecuted <- reexecution{args: append([]string(nil), args...), environment: append([]string(nil), environment...)}
+				_, _ = stdout.WriteString("{\"ok\":true,\"data\":{\"version\":\"" + targetVersion + "\"}}\n")
+				return 0, nil
+			},
+		})
+	}()
+	time.Sleep(100 * time.Millisecond)
+	if err := updatepkg.CommitActiveGeneration(configDir, target); err != nil {
+		_ = activationLock.Unlock()
+		t.Fatal(err)
+	}
+	if err := activationLock.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	if exit := <-exited; exit != 0 {
+		t.Fatalf("waiting command failed instead of re-executing: exit=%d stdout=%q", exit, stdout.String())
+	}
+	got := <-reexecuted
+	if !reflect.DeepEqual(got.args, []string{"version"}) {
+		t.Fatalf("re-executed args=%#v", got.args)
+	}
+	joined := strings.Join(got.environment, "\n")
+	for _, expected := range []string{
+		autoUpdateReexecEnvironment + "=1",
+		autoUpdateFromEnvironment + "=" + buildinfo.CompatibilityVersion(),
+		autoUpdateToEnvironment + "=" + targetVersion,
+	} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("re-execution environment missing %q", expected)
+		}
+	}
+	if strings.Count(stdout.String(), "\n") != 1 || strings.Contains(stdout.String(), "ACTIVATION_RECOVERY_FAILED") {
+		t.Fatalf("old process emitted a second or generic recovery response: %q", stdout.String())
+	}
+}
+
 func clearAutomaticUpdateReexecutionEnvironment(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{autoUpdateReexecEnvironment, autoUpdateFromEnvironment, autoUpdateToEnvironment} {
