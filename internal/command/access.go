@@ -57,7 +57,7 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	var purchaseAnyFeatures []string
 	command := &cobra.Command{
 		Use:   "init",
-		Short: "Create a website workKey and local access config",
+		Short: "Create a creator website workKey and local access config",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if strings.TrimSpace(displayName) == "" {

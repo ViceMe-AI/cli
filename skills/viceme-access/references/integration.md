@@ -34,7 +34,7 @@ status: ACTIVE
 configVersion: 1
 ```
 
-Any authenticated ViceMe user may create a workKey and use login or `FOLLOW_OWNER`. `productSlug` is only control-plane input: binding it or configuring a purchase policy requires a claimed creator identity, and the CLI/API validates that the globally unique slug belongs to that creator before storing the product ID. Multiple workKeys may bind the same product; one paid purchase then satisfies `PURCHASE_BOUND_PRODUCT` on each of them.
+A claimed ViceMe creator identity is required to create, inspect, configure, or run a workKey; ordinary users cannot own SDK integrations. `productSlug` is only control-plane input, and the CLI/API validates that the globally unique slug belongs to the same creator before storing the product ID. Multiple workKeys may bind the same product; one paid purchase then satisfies `PURCHASE_BOUND_PRODUCT` on each of them.
 
 Omit `productSlug` when the website only needs login or following. Purchase policies require a bound product.
 
