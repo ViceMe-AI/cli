@@ -30,15 +30,16 @@ const (
 )
 
 type bootstrapActivationJournal struct {
-	SchemaVersion int    `json:"schemaVersion"`
-	Status        string `json:"status"`
-	Destination   string `json:"destination"`
-	Staged        string `json:"staged"`
-	Backup        string `json:"backup"`
-	HadExisting   bool   `json:"hadExisting"`
-	PreviousHash  string `json:"previousHash,omitempty"`
-	TargetHash    string `json:"targetHash"`
-	TargetVersion string `json:"targetVersion,omitempty"`
+	SchemaVersion      int    `json:"schemaVersion"`
+	Status             string `json:"status"`
+	Destination        string `json:"destination"`
+	Staged             string `json:"staged"`
+	Backup             string `json:"backup"`
+	HadExisting        bool   `json:"hadExisting"`
+	PreviousHash       string `json:"previousHash,omitempty"`
+	TargetHash         string `json:"targetHash"`
+	TargetVersion      string `json:"targetVersion,omitempty"`
+	AllowChannelSwitch bool   `json:"allowChannelSwitch,omitempty"`
 }
 
 type bootstrapActivationResult struct {
@@ -56,10 +57,16 @@ func newBootstrapActivateCommand(runtime *Runtime) *cobra.Command {
 	var destination string
 	var agent string
 	var region string
+	var apiBaseURL string
+	var releaseChannel string
+	var releaseBaseURL string
+	var allowChannelSwitch bool
 	command := &cobra.Command{
 		Use: "activate", Hidden: true, Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			result, err := activateBootstrap(command, runtime, destination, agent, region)
+			result, err := activateBootstrap(command, runtime, destination, agent, region, installSourceOverride{
+				APIBaseURL: apiBaseURL, ReleaseChannel: releaseChannel, ReleaseBaseURL: releaseBaseURL,
+			}, allowChannelSwitch)
 			if err != nil {
 				return err
 			}
@@ -69,11 +76,51 @@ func newBootstrapActivateCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&destination, "destination", "", "final ViceMe executable path")
 	command.Flags().StringVar(&agent, "agent", "auto", "agent target")
 	command.Flags().StringVar(&region, "region", "", "ViceMe region")
+	command.Flags().StringVar(&apiBaseURL, "api-base-url", "", "active ViceMe API endpoint")
+	command.Flags().StringVar(&releaseChannel, "release-channel", "", "release channel")
+	command.Flags().StringVar(&releaseBaseURL, "release-base-url", "", "release artifact base URL")
+	command.Flags().BoolVar(&allowChannelSwitch, "allow-channel-switch", false, "authorize an explicit installer channel switch")
+	_ = command.Flags().MarkHidden("allow-channel-switch")
 	_ = command.MarkFlagRequired("destination")
 	return command
 }
 
-func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, agent, region string) (bootstrapActivationResult, error) {
+func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, agent, region string, source installSourceOverride, allowChannelSwitch bool) (bootstrapActivationResult, error) {
+	if source.ReleaseChannel == "" {
+		source.ReleaseChannel = runtime.config.ReleaseChannel
+		if source.ReleaseChannel == "" {
+			source.ReleaseChannel = config.ReleaseChannelStable
+		}
+	}
+	if source.ReleaseBaseURL == "" {
+		source.ReleaseBaseURL = runtime.config.ReleaseBaseURL
+		if source.ReleaseBaseURL == "" {
+			source.ReleaseBaseURL = config.StableReleaseBaseURL(runtime.region)
+		}
+	}
+	if source.APIBaseURL != "" {
+		normalized, err := config.NormalizeAPIBaseURL(source.APIBaseURL)
+		if err != nil {
+			return bootstrapActivationResult{}, output.Validation("API_BASE_URL_INVALID", err.Error())
+		}
+		source.APIBaseURL = normalized
+	}
+	if source.ReleaseChannel != config.ReleaseChannelStable && source.ReleaseChannel != config.ReleaseChannelPOC {
+		return bootstrapActivationResult{}, output.Validation("RELEASE_CHANNEL_INVALID", "release channel must be stable or poc")
+	}
+	normalizedReleaseBaseURL, err := config.NormalizeReleaseBaseURL(source.ReleaseBaseURL)
+	if err != nil {
+		return bootstrapActivationResult{}, output.Validation("RELEASE_BASE_URL_INVALID", err.Error())
+	}
+	source.ReleaseBaseURL = normalizedReleaseBaseURL
+	currentChannel := runtime.config.ReleaseChannel
+	if currentChannel == "" {
+		currentChannel = config.ReleaseChannelStable
+	}
+	channelSwitch := source.ReleaseChannel != currentChannel
+	if channelSwitch && !allowChannelSwitch {
+		return bootstrapActivationResult{}, output.Policy("BOOTSTRAP_CHANNEL_SWITCH_REFUSED", "changing the release channel requires an explicit installer authorization")
+	}
 	absDestination, err := validBootstrapDestination(destination)
 	if err != nil {
 		return bootstrapActivationResult{}, output.Validation("BOOTSTRAP_DESTINATION_INVALID", "bootstrap destination is invalid")
@@ -141,7 +188,11 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 	if err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_VERSION_INVALID", "the staged ViceMe generation is invalid", err)
 	}
-	if err := updatepkg.ValidateActivationTarget(runtime.configBase, targetGeneration); err != nil {
+	validateTarget := updatepkg.ValidateActivationTarget
+	if channelSwitch {
+		validateTarget = updatepkg.ValidateActivationTargetForChannelSwitch
+	}
+	if err := validateTarget(runtime.configBase, targetGeneration); err != nil {
 		_ = os.Remove(staged)
 		if errors.Is(err, updatepkg.ErrActivationMethodChange) {
 			return bootstrapActivationResult{}, output.Policy("BOOTSTRAP_INSTALL_METHOD_CHANGE_REFUSED", "switching between standalone and npm installation is not supported in place")
@@ -153,18 +204,19 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 		_ = os.Remove(staged)
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_GENERATION_READ_FAILED", "could not read the active ViceMe generation", err)
 	}
-	if activeExists && activeGeneration == targetGeneration && bootstrapGenerationIsComplete(runtime, absDestination, targetHash, agent, region) {
+	if activeExists && activeGeneration == targetGeneration && bootstrapGenerationIsComplete(runtime, absDestination, targetHash, agent, region, source) {
 		_ = os.Remove(staged)
 		return bootstrapActivationResult{Destination: absDestination}, nil
 	}
 	journal := bootstrapActivationJournal{
-		SchemaVersion: 1,
-		Status:        "PREPARING",
-		Destination:   absDestination,
-		Staged:        staged,
-		Backup:        backup,
-		TargetHash:    targetHash,
-		TargetVersion: targetVersion,
+		SchemaVersion:      1,
+		Status:             "PREPARING",
+		Destination:        absDestination,
+		Staged:             staged,
+		Backup:             backup,
+		TargetHash:         targetHash,
+		TargetVersion:      targetVersion,
+		AllowChannelSwitch: channelSwitch,
 	}
 	if _, err := os.Lstat(absDestination); err == nil {
 		journal.HadExisting = true
@@ -195,7 +247,7 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 			}
 			return nil
 		},
-	})
+	}, &source)
 	if installErr != nil {
 		recoveryErr := recoverBootstrapActivation(runtime.configBase, runtime.deps.Environment)
 		if recoveryErr != nil {
@@ -218,7 +270,7 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 // an explicit repair must still replace a corrupted executable or Skill. A
 // concurrent updater may coalesce only after the first updater committed the
 // exact binary and every requested official Skill.
-func bootstrapGenerationIsComplete(runtime *Runtime, destination, targetHash, agent, region string) bool {
+func bootstrapGenerationIsComplete(runtime *Runtime, destination, targetHash, agent, region string, source installSourceOverride) bool {
 	actualHash, err := bootstrapFileHash(destination)
 	if err != nil || actualHash != targetHash {
 		return false
@@ -234,8 +286,14 @@ func bootstrapGenerationIsComplete(runtime *Runtime, destination, targetHash, ag
 		return false
 	}
 	persistedConfig, err := config.LoadOrDefault(runtime.configBase)
-	if err != nil || persistedConfig.DistributionRegion != expectedRegion {
+	if err != nil || persistedConfig.DistributionRegion != expectedRegion || persistedConfig.ReleaseChannel != source.ReleaseChannel || persistedConfig.ReleaseBaseURL != source.ReleaseBaseURL {
 		return false
+	}
+	if source.APIBaseURL != "" {
+		profile, err := persistedConfig.Resolve(runtime.profile.Name)
+		if err != nil || profile.APIBaseURL != source.APIBaseURL {
+			return false
+		}
 	}
 	for _, name := range officialSkillNames {
 		if !runtime.deps.Skills.Doctor(name, agent, runtime.deps.Environment).Healthy {
@@ -273,7 +331,11 @@ func recoverBootstrapActivation(configDir string, environment skillcontent.Envir
 		if err != nil {
 			return err
 		}
-		if err := updatepkg.ValidateActivationTarget(configDir, generation); err != nil {
+		validateTarget := updatepkg.ValidateActivationTarget
+		if journal.AllowChannelSwitch {
+			validateTarget = updatepkg.ValidateActivationTargetForChannelSwitch
+		}
+		if err := validateTarget(configDir, generation); err != nil {
 			return err
 		}
 	}
@@ -305,7 +367,11 @@ func recoverBootstrapActivation(configDir string, environment skillcontent.Envir
 			if err != nil {
 				return err
 			}
-			if err := updatepkg.CommitActiveGeneration(configDir, generation); err != nil {
+			commitGeneration := updatepkg.CommitActiveGeneration
+			if journal.AllowChannelSwitch {
+				commitGeneration = updatepkg.CommitActiveGenerationForChannelSwitch
+			}
+			if err := commitGeneration(configDir, generation); err != nil {
 				return err
 			}
 		}

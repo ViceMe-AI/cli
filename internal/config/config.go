@@ -20,9 +20,11 @@ import (
 type Region string
 
 const (
-	RegionCN           Region = "cn"
-	RegionGlobal       Region = "global"
-	DefaultProfileName        = "default"
+	RegionCN             Region = "cn"
+	RegionGlobal         Region = "global"
+	ReleaseChannelStable        = "stable"
+	ReleaseChannelPOC           = "poc"
+	DefaultProfileName          = "default"
 )
 
 type Profile struct {
@@ -34,6 +36,8 @@ type Profile struct {
 
 type Config struct {
 	DistributionRegion Region    `json:"distributionRegion"`
+	ReleaseChannel     string    `json:"releaseChannel"`
+	ReleaseBaseURL     string    `json:"releaseBaseUrl"`
 	CurrentProfile     string    `json:"currentProfile"`
 	PreviousProfile    string    `json:"previousProfile,omitempty"`
 	Profiles           []Profile `json:"profiles"`
@@ -75,43 +79,58 @@ func APIBaseURL(region Region) string {
 	return "https://api.viceme.cn"
 }
 
+func StableReleaseBaseURL(region Region) string {
+	if region == RegionGlobal {
+		return "https://s3.viceme.ai/start/cli/releases"
+	}
+	return "https://s3.viceme.cn/start/cli/releases"
+}
+
 // NormalizeAPIBaseURL returns the canonical persisted endpoint for a profile.
 // Remote endpoints must use HTTPS; loopback HTTP is intentionally supported
 // for local Shop development only.
 func NormalizeAPIBaseURL(raw string) (string, error) {
+	return normalizeBaseURL(raw, "API base URL")
+}
+
+func NormalizeReleaseBaseURL(raw string) (string, error) {
+	return normalizeBaseURL(raw, "release base URL")
+}
+
+func normalizeBaseURL(raw, label string) (string, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
-		return "", fmt.Errorf("API base URL cannot be empty")
+		return "", fmt.Errorf("%s cannot be empty", label)
 	}
 	if len(value) > 2048 {
-		return "", fmt.Errorf("API base URL is too long")
+		return "", fmt.Errorf("%s is too long", label)
 	}
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Opaque != "" {
-		return "", fmt.Errorf("invalid API base URL")
+		return "", fmt.Errorf("invalid %s", label)
 	}
 	scheme := strings.ToLower(parsed.Scheme)
 	hostname := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
 	if hostname == "" {
-		return "", fmt.Errorf("invalid API base URL")
+		return "", fmt.Errorf("invalid %s", label)
 	}
 	switch scheme {
 	case "https":
 	case "http":
 		address := net.ParseIP(hostname)
 		if hostname != "localhost" && (address == nil || !address.IsLoopback()) {
-			return "", fmt.Errorf("API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+			return "", fmt.Errorf("%s must use HTTPS; HTTP is allowed only for localhost or loopback development", label)
 		}
 	default:
-		return "", fmt.Errorf("API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+		return "", fmt.Errorf("%s must use HTTPS; HTTP is allowed only for localhost or loopback development", label)
 	}
 	for _, segment := range strings.Split(parsed.Path, "/") {
 		if segment == "." || segment == ".." {
-			return "", fmt.Errorf("API base URL path cannot contain dot segments")
+			return "", fmt.Errorf("%s path cannot contain dot segments", label)
 		}
 	}
 	if strings.Contains(parsed.Path, `\`) {
-		return "", fmt.Errorf("API base URL path cannot contain backslashes")
+		return "", fmt.Errorf("%s path cannot contain backslashes", label)
 	}
 	port := parsed.Port()
 	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
@@ -143,6 +162,8 @@ func Default(region Region) Config {
 	}
 	return Config{
 		DistributionRegion: region,
+		ReleaseChannel:     ReleaseChannelStable,
+		ReleaseBaseURL:     StableReleaseBaseURL(region),
 		CurrentProfile:     DefaultProfileName,
 		Profiles: []Profile{{
 			ID:         DefaultProfileName,
@@ -293,6 +314,12 @@ func load(filename string) (Config, error) {
 			}
 		}
 	}
+	if config.ReleaseChannel == "" {
+		config.ReleaseChannel = ReleaseChannelStable
+	}
+	if config.ReleaseBaseURL == "" {
+		config.ReleaseBaseURL = StableReleaseBaseURL(config.DistributionRegion)
+	}
 	if err := validate(&config); err != nil {
 		return Config{}, configLoadError(filename, "validate", err)
 	}
@@ -312,6 +339,16 @@ func validate(config *Config) error {
 		return fmt.Errorf("distribution: %w", err)
 	}
 	config.DistributionRegion = region
+	switch config.ReleaseChannel {
+	case ReleaseChannelStable, ReleaseChannelPOC:
+	default:
+		return fmt.Errorf("release channel must be stable or poc")
+	}
+	normalizedReleaseBaseURL, err := NormalizeReleaseBaseURL(config.ReleaseBaseURL)
+	if err != nil {
+		return err
+	}
+	config.ReleaseBaseURL = normalizedReleaseBaseURL
 	if len(config.Profiles) == 0 {
 		return fmt.Errorf("config must contain at least one profile")
 	}

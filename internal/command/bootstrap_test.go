@@ -72,10 +72,10 @@ func TestBootstrapCoalescesAnAlreadyCompleteStandaloneGeneration(t *testing.T) {
 	}
 	command := &cobra.Command{}
 	command.SetContext(context.Background())
-	if bootstrapGenerationIsComplete(runtime, destination, targetHash, "agents", "global") {
+	if bootstrapGenerationIsComplete(runtime, destination, targetHash, "agents", "global", installSourceOverride{ReleaseChannel: runtime.config.ReleaseChannel, ReleaseBaseURL: runtime.config.ReleaseBaseURL}) {
 		t.Fatal("same-version bootstrap to another region was incorrectly coalesced")
 	}
-	result, err := activateBootstrap(command, runtime, destination, "agents", "cn")
+	result, err := activateBootstrap(command, runtime, destination, "agents", "cn", installSourceOverride{}, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestConcurrentBootstrapActivationsCommitOneStandaloneGeneration(t *testing.
 			command.SetContext(context.Background())
 			ready.Done()
 			<-start
-			result, err := activateBootstrap(command, runtime, destination, "agents", "cn")
+			result, err := activateBootstrap(command, runtime, destination, "agents", "cn", installSourceOverride{}, false)
 			outcomes <- outcome{result: result, err: err}
 		}()
 	}
@@ -287,7 +287,7 @@ func TestBootstrapRejectsLateOlderGenerationInsideActivationLock(t *testing.T) {
 	destination := filepath.Join(root, "bin", "viceme")
 	command := &cobra.Command{}
 	command.SetContext(context.Background())
-	_, err = activateBootstrap(command, runtime, destination, "agents", "cn")
+	_, err = activateBootstrap(command, runtime, destination, "agents", "cn", installSourceOverride{}, false)
 	cliError := output.AsError(err)
 	if cliError.Subtype != "BOOTSTRAP_DOWNGRADE_REFUSED" {
 		t.Fatalf("late older standalone activation was not fenced: %#v", cliError)
@@ -334,7 +334,7 @@ func TestBootstrapRejectsNPMToStandaloneMigrationBeforeMutation(t *testing.T) {
 		},
 	}
 	destination := filepath.Join(root, "bin", "viceme")
-	_, err = activateBootstrap(&cobra.Command{}, runtime, destination, "agents", "cn")
+	_, err = activateBootstrap(&cobra.Command{}, runtime, destination, "agents", "cn", installSourceOverride{}, false)
 	cliError := output.AsError(err)
 	if cliError.Subtype != "BOOTSTRAP_INSTALL_METHOD_CHANGE_REFUSED" {
 		t.Fatalf("cross-method bootstrap was not rejected: %#v", cliError)
@@ -384,7 +384,7 @@ func TestBootstrapRechecksCrashedNPMJournalInsideActivationLock(t *testing.T) {
 	}
 	destination := filepath.Join(root, "bin", "viceme")
 
-	_, err = activateBootstrap(&cobra.Command{}, runtime, destination, "agents", "cn")
+	_, err = activateBootstrap(&cobra.Command{}, runtime, destination, "agents", "cn", installSourceOverride{}, false)
 	if cliError := output.AsError(err); cliError.Subtype != "BOOTSTRAP_NPM_RECOVERY_REQUIRED" {
 		t.Fatalf("bootstrap did not reject the late npm journal: %#v", cliError)
 	}

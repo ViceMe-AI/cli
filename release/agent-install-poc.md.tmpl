@@ -1,0 +1,60 @@
+# ViceMe POC Agent installation contract
+
+This document selects the isolated ViceMe POC CLI release `v{{VERSION}}` and
+the official Skills embedded in that release. It replaces the active `viceme`
+command; it does not install a second command or use the formal update channel.
+
+## Trust boundary
+
+Continue only when this document was loaded from exactly:
+
+`https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/agent-install.md`
+
+Do not follow a copy, mirror, or cross-host redirect. Never request or print a
+ViceMe token during installation. Do not upload or publicly publish user files
+without the user's explicit confirmation.
+
+## Exact release contract
+
+Fetch the following immutable files from:
+
+`https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases/v{{VERSION}}/`
+
+- `agent-release-manifest.json`
+- `agent-release-manifest.sigstore.json`
+- `install.sh` on macOS or Linux
+- `install.ps1` on Windows
+
+When `cosign` is available, verify the Manifest before running an installer:
+
+```text
+cosign verify-blob --bundle agent-release-manifest.sigstore.json --certificate-identity https://github.com/ViceMe-AI/cli/.github/workflows/poc-release.yml@refs/heads/poc --certificate-oidc-issuer https://token.actions.githubusercontent.com agent-release-manifest.json
+```
+
+If verification fails, stop. The installer verifies the platform binary SHA-256
+and atomically activates the CLI, bundled Skills, POC API endpoint, and POC
+update channel. Existing endpoint-scoped credentials and publication bindings
+remain isolated; the installer does not copy credentials between endpoints.
+
+## Install or update
+
+On macOS or Linux:
+
+```text
+VICEME_POC_VERSION={{VERSION}} sh ./install.sh
+```
+
+On Windows:
+
+```text
+$env:VICEME_POC_VERSION='{{VERSION}}'; & ./install.ps1
+```
+
+Repeating the same release is idempotent. Automatic CLI and Skill updates stay
+inside the POC release origin selected by this installer.
+
+## Health check
+
+Run `viceme doctor` and parse its JSON result. If it fails, report the structured
+error code, retryability, and hint. Login is required only when the user starts
+an authenticated action.

@@ -158,7 +158,7 @@ func TestReleaseServiceChecksReplacesAndRefreshesMatchingSkills(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(installed, binary) {
 		t.Fatalf("installed=%q err=%v", installed, err)
 	}
-	if len(runner.calls) != 1 || !reflect.DeepEqual(runner.calls[0].args, []string{"bootstrap", "activate", "--destination", executable, "--agent", "workbuddy", "--region", "global"}) {
+	if len(runner.calls) != 1 || !reflect.DeepEqual(runner.calls[0].args, []string{"bootstrap", "activate", "--destination", executable, "--agent", "workbuddy", "--region", "global", "--release-channel", "stable", "--release-base-url", server.URL}) {
 		t.Fatalf("matching Skill refresh did not use the activated new binary: %#v", runner.calls)
 	}
 }

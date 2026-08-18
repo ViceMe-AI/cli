@@ -34,6 +34,11 @@ type releaseManifest struct {
 
 func main() {
 	output := flag.String("output", "quality/release-manifest.json", "release manifest output path")
+	cliVersion := flag.String("cli-version", buildinfo.ReleaseVersion, "CLI version recorded in the manifest")
+	npmPackage := flag.String("npm-package", "@viceme-ai/cli", "fallback npm package or standalone-only")
+	bootstrapContract := flag.String("bootstrap-contract", "release/bootstrap-contract.json", "bootstrap contract path")
+	installSH := flag.String("install-sh", "installers/install.sh", "POSIX installer path")
+	installPS1 := flag.String("install-ps1", "installers/install.ps1", "PowerShell installer path")
 	flag.Parse()
 
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
@@ -56,13 +61,13 @@ func main() {
 	}
 	manifest := releaseManifest{
 		SchemaVersion:           2,
-		NPMPackage:              "@viceme-ai/cli",
-		CLIVersion:              buildinfo.ReleaseVersion,
+		NPMPackage:              *npmPackage,
+		CLIVersion:              *cliVersion,
 		Skills:                  skills,
-		BootstrapContractDigest: digestFile("release/bootstrap-contract.json"),
+		BootstrapContractDigest: digestFile(*bootstrapContract),
 		InstallerDigests: map[string]string{
-			"install.sh":  digestFile("installers/install.sh"),
-			"install.ps1": digestFile("installers/install.ps1"),
+			"install.sh":  digestFile(*installSH),
+			"install.ps1": digestFile(*installPS1),
 		},
 	}
 	var data bytes.Buffer

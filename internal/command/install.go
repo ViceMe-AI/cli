@@ -48,6 +48,12 @@ type installCommitAuthority struct {
 	OuterJournalOwnsFailure bool
 }
 
+type installSourceOverride struct {
+	APIBaseURL     string
+	ReleaseChannel string
+	ReleaseBaseURL string
+}
+
 func newInstallCommand(runtime *Runtime) *cobra.Command {
 	var agent string
 	var region string
@@ -163,7 +169,7 @@ func performOrdinaryInstall(ctx context.Context, runtime *Runtime, agent, region
 			return service.RecoverActivationWhileLocked(ctx)
 		}
 	}
-	return performInstall(ctx, runtime, agent, region, true, authority)
+	return performInstall(ctx, runtime, agent, region, true, authority, nil)
 }
 
 func performNPMChildInstall(ctx context.Context, runtime *Runtime, agent, region string) (bootstrapInstallResult, error) {
@@ -201,7 +207,7 @@ func performNPMChildInstall(ctx context.Context, runtime *Runtime, agent, region
 			return service.ConfirmActivationChildCommitted(request.Nonce, request.TargetVersion, request.SkillTarget)
 		},
 	}
-	return performInstall(ctx, runtime, agent, region, false, authority)
+	return performInstall(ctx, runtime, agent, region, false, authority, nil)
 }
 
 func expectedRunningGeneration(runtime *Runtime) (updatepkg.ActiveGeneration, error) {
@@ -232,7 +238,7 @@ func validateInstallAuthority(configDir string, expected updatepkg.ActiveGenerat
 	return active, exists, nil
 }
 
-func performInstall(ctx context.Context, runtime *Runtime, agent, region string, ensureLauncher bool, authority *installCommitAuthority) (bootstrapInstallResult, error) {
+func performInstall(ctx context.Context, runtime *Runtime, agent, region string, ensureLauncher bool, authority *installCommitAuthority, sourceOverride *installSourceOverride) (bootstrapInstallResult, error) {
 	if region == "" {
 		region = string(runtime.region)
 	}
@@ -277,12 +283,32 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 	if err != nil {
 		return rollback(output.Internal("PROFILE_INVALID", "could not resolve the active profile", err))
 	}
-	if _, statErr := os.Stat(config.ConfigPath(runtime.configBase)); errors.Is(statErr, fs.ErrNotExist) {
+	if sourceOverride != nil {
+		if sourceOverride.APIBaseURL != "" {
+			profile.APIBaseURL, err = config.NormalizeAPIBaseURL(sourceOverride.APIBaseURL)
+			if err != nil {
+				return rollback(output.Validation("API_BASE_URL_INVALID", err.Error()))
+			}
+		}
+		switch sourceOverride.ReleaseChannel {
+		case config.ReleaseChannelStable, config.ReleaseChannelPOC:
+			runtime.config.ReleaseChannel = sourceOverride.ReleaseChannel
+		default:
+			return rollback(output.Validation("RELEASE_CHANNEL_INVALID", "release channel must be stable or poc"))
+		}
+		runtime.config.ReleaseBaseURL, err = config.NormalizeReleaseBaseURL(sourceOverride.ReleaseBaseURL)
+		if err != nil {
+			return rollback(output.Validation("RELEASE_BASE_URL_INVALID", err.Error()))
+		}
+	} else if _, statErr := os.Stat(config.ConfigPath(runtime.configBase)); errors.Is(statErr, fs.ErrNotExist) {
 		profile.APIBaseURL = config.APIBaseURL(resolvedRegion)
 	} else if statErr != nil {
 		return rollback(output.Internal("PROFILE_BACKUP_FAILED", "could not inspect the CLI configuration", statErr))
 	}
 	runtime.config.DistributionRegion = resolvedRegion
+	if sourceOverride == nil && runtime.config.ReleaseChannel == config.ReleaseChannelStable {
+		runtime.config.ReleaseBaseURL = config.StableReleaseBaseURL(resolvedRegion)
+	}
 	if err := transaction.TrackPath(config.ConfigPath(runtime.configBase)); err != nil {
 		return rollback(output.Internal("PROFILE_BACKUP_FAILED", "could not preserve the previous CLI configuration", err))
 	}

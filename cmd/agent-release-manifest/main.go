@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -12,7 +13,9 @@ import (
 )
 
 var sha256Hex = regexp.MustCompile(`^[a-f0-9]{64}$`)
-var stableReleaseVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+var exactReleaseVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-poc\.(0|[1-9][0-9]*))?$`)
+
+const formalCertificateIdentity = "https://github.com/ViceMe-AI/cli/.github/workflows/release.yml@refs/heads/main"
 
 type sourceManifest struct {
 	NPMPackage              string                     `json:"npm_package"`
@@ -64,15 +67,16 @@ var targets = []target{
 }
 
 func main() {
-	version := flag.String("version", "", "stable CLI version without v prefix")
+	version := flag.String("version", "", "exact stable or POC CLI version without v prefix")
 	sourcePath := flag.String("source", "quality/release-manifest.json", "generated source manifest")
 	distDir := flag.String("dist", "dist", "directory containing release binaries and checksums")
 	outputPath := flag.String("output", "dist/agent-release-manifest.json", "signed manifest output")
+	certificateIdentity := flag.String("certificate-identity", formalCertificateIdentity, "expected Sigstore workflow identity")
 	flag.Parse()
-	if !stableReleaseVersion.MatchString(*version) {
-		fatalManifest("version must be a stable semantic version")
+	if !exactReleaseVersion.MatchString(*version) {
+		fatalManifest("version must be a stable or x.y.z-poc.N semantic version")
 	}
-	manifest, err := buildManifest(*version, *sourcePath, *distDir)
+	manifest, err := buildManifestWithIdentity(*version, *sourcePath, *distDir, *certificateIdentity)
 	if err != nil {
 		fatalManifest(err.Error())
 	}
@@ -87,6 +91,13 @@ func main() {
 }
 
 func buildManifest(version, sourcePath, distDir string) (signedManifest, error) {
+	return buildManifestWithIdentity(version, sourcePath, distDir, formalCertificateIdentity)
+}
+
+func buildManifestWithIdentity(version, sourcePath, distDir, certificateIdentity string) (signedManifest, error) {
+	if strings.TrimSpace(certificateIdentity) == "" {
+		return signedManifest{}, errors.New("certificate identity cannot be empty")
+	}
 	data, err := os.ReadFile(sourcePath)
 	if err != nil {
 		return signedManifest{}, err
@@ -116,7 +127,7 @@ func buildManifest(version, sourcePath, distDir string) (signedManifest, error) 
 		InstallerDigests: source.InstallerDigests, Artifacts: artifacts,
 		Signature: signatureContract{
 			Format: "sigstore-bundle-v0.3", Bundle: "agent-release-manifest.sigstore.json",
-			CertificateIdentity: "https://github.com/ViceMe-AI/cli/.github/workflows/release.yml@refs/heads/main",
+			CertificateIdentity: certificateIdentity,
 			OIDCIssuer:          "https://token.actions.githubusercontent.com",
 		},
 	}, nil

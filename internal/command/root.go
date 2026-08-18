@@ -777,6 +777,9 @@ func (r *Runtime) applyProfile(profile config.Profile) error {
 	if regionAware, ok := r.deps.Updater.(updatepkg.RegionAware); ok {
 		regionAware.SetRegion(string(r.config.DistributionRegion))
 	}
+	if releaseAware, ok := r.deps.Updater.(updatepkg.ReleaseSourceAware); ok {
+		releaseAware.SetReleaseSource(r.config.ReleaseChannel, r.config.ReleaseBaseURL)
+	}
 	return nil
 }
 

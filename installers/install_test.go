@@ -164,7 +164,8 @@ if [ "${1:-}" = "bootstrap" ] && [ "${2:-}" = "activate" ]; then
 fi
 if [ "${1:-}" = "profile" ] && [ "${2:-}" = "use" ]; then exit 1; fi
 `
-	asset := "viceme_0.16.1-poc.2_linux_amd64"
+	writeInstallerTestFile(t, filepath.Join(fixtures, "latest"), "0.16.0-poc.2\n", 0o644)
+	asset := "viceme_0.16.0-poc.2_linux_amd64"
 	writeInstallerTestFile(t, filepath.Join(fixtures, asset), binary, 0o755)
 	digest := sha256.Sum256([]byte(binary))
 	writeInstallerTestFile(t, filepath.Join(fixtures, asset+".sha256"), fmt.Sprintf("%x  %s\n", digest, asset), 0o644)
@@ -211,8 +212,11 @@ cp "$VICEME_TEST_FIXTURES/${url##*/}" "$out"
 	logText := string(logData)
 	for _, expected := range []string{
 		"bootstrap activate --destination ",
-		"--agent auto --region cn",
-		"profile add --name danmaku-poc-20260818 --api-base-url https://api-poc.preview.tencent-zeabur.cn --use",
+		"--agent auto --region global",
+		"--api-base-url https://viceme-shop-web-poc.preview.tencent-zeabur.cn/api",
+		"--release-channel poc",
+		"--release-base-url https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases",
+		"--allow-channel-switch",
 	} {
 		if !strings.Contains(logText, expected) {
 			t.Fatalf("POC installer did not execute %q: log=%q", expected, logText)

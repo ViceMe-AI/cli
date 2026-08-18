@@ -1,12 +1,9 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$region = if ($env:VICEME_REGION) { $env:VICEME_REGION } else { "cn" }
-switch ($region) {
-  "cn" { $baseUrl = if ($env:VICEME_DOWNLOAD_BASE_URL) { $env:VICEME_DOWNLOAD_BASE_URL } else { "https://s3.viceme.cn/start/cli/releases" }; $apiBaseUrl = "https://api.viceme.cn" }
-  "global" { $baseUrl = if ($env:VICEME_DOWNLOAD_BASE_URL) { $env:VICEME_DOWNLOAD_BASE_URL } else { "https://s3.viceme.ai/start/cli/releases" }; $apiBaseUrl = "https://api.viceme.ai" }
-  default { throw "VICEME_REGION must be cn or global" }
-}
+$region = "global"
+$baseUrl = if ($env:VICEME_POC_DOWNLOAD_BASE_URL) { $env:VICEME_POC_DOWNLOAD_BASE_URL } else { "https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases" }
+$apiBaseUrl = if ($env:VICEME_POC_API_BASE_URL) { $env:VICEME_POC_API_BASE_URL } else { "https://viceme-shop-web-poc.preview.tencent-zeabur.cn/api" }
 
 $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 switch ($architecture) {
@@ -15,16 +12,16 @@ switch ($architecture) {
   default { throw "Unsupported CPU architecture: $architecture" }
 }
 
-$temporary = Join-Path ([System.IO.Path]::GetTempPath()) ("viceme-install-" + [Guid]::NewGuid().ToString("N"))
+$temporary = Join-Path ([System.IO.Path]::GetTempPath()) ("viceme-poc-install-" + [Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Path $temporary | Out-Null
 try {
-  $version = $env:VICEME_VERSION
+  $version = $env:VICEME_POC_VERSION
   if (-not $version) {
     $latestPath = Join-Path $temporary "latest"
     Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri "$baseUrl/latest" -OutFile $latestPath
     $version = (Get-Content -Raw $latestPath).Trim()
   }
-  if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Release index returned an invalid version" }
+  if ($version -notmatch '^\d+\.\d+\.\d+-poc\.\d+$') { throw "POC release index returned an invalid version" }
 
   $asset = "viceme_${version}_windows_${goarch}.exe"
   $releaseUrl = "$baseUrl/v$version"
@@ -33,18 +30,23 @@ try {
   Invoke-WebRequest -UseBasicParsing -TimeoutSec 300 -Uri "$releaseUrl/$asset" -OutFile $binaryPath
   Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri "$releaseUrl/$asset.sha256" -OutFile $checksumPath
   $expected = ((Get-Content -Raw $checksumPath).Trim() -split '\s+')[0].ToLowerInvariant()
-  if ($expected -notmatch '^[a-f0-9]{64}$') { throw "Release checksum is invalid" }
+  if ($expected -notmatch '^[a-f0-9]{64}$') { throw "POC release checksum is invalid" }
   $actual = (Get-FileHash -Algorithm SHA256 -Path $binaryPath).Hash.ToLowerInvariant()
-  if ($actual -ne $expected) { throw "ViceMe binary checksum verification failed" }
+  if ($actual -ne $expected) { throw "ViceMe POC binary checksum verification failed" }
 
   $installDir = if ($env:VICEME_INSTALL_DIR) { $env:VICEME_INSTALL_DIR } else { Join-Path $env:LOCALAPPDATA "ViceMe\bin" }
   New-Item -ItemType Directory -Force -Path $installDir | Out-Null
   $destination = Join-Path $installDir "viceme.exe"
+  $agent = if ($env:VICEME_AGENT_TARGET) { $env:VICEME_AGENT_TARGET } else { "auto" }
   & $binaryPath bootstrap activate `
-    --destination $destination --agent auto --region $region `
-    --api-base-url $apiBaseUrl --release-channel stable `
-    --release-base-url $baseUrl --allow-channel-switch
-  if ($LASTEXITCODE -ne 0) { throw "ViceMe bootstrap activation failed" }
+    --destination $destination `
+    --agent $agent `
+    --region $region `
+    --api-base-url $apiBaseUrl `
+    --release-channel poc `
+    --release-base-url $baseUrl `
+    --allow-channel-switch
+  if ($LASTEXITCODE -ne 0) { throw "ViceMe POC bootstrap activation failed" }
 
   $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
   $parts = @($userPath -split ';' | Where-Object { $_ })

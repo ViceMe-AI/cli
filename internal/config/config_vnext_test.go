@@ -42,6 +42,9 @@ func TestAPIBaseURLs(t *testing.T) {
 	if APIBaseURL(RegionGlobal) != "https://api.viceme.ai" {
 		t.Fatal("unexpected global API URL")
 	}
+	if StableReleaseBaseURL(RegionCN) != "https://s3.viceme.cn/start/cli/releases" || StableReleaseBaseURL(RegionGlobal) != "https://s3.viceme.ai/start/cli/releases" {
+		t.Fatal("unexpected stable release URL")
+	}
 }
 
 func TestCustomProfileAPIBaseURLRoundTripsCanonically(t *testing.T) {
@@ -98,6 +101,9 @@ func TestLegacyProfileRegionMigratesToDistributionRegionAndExplicitEndpoints(t *
 	if loaded.DistributionRegion != RegionCN {
 		t.Fatalf("active legacy distribution region was not preserved: %#v", loaded)
 	}
+	if loaded.ReleaseChannel != ReleaseChannelStable || loaded.ReleaseBaseURL != StableReleaseBaseURL(RegionCN) {
+		t.Fatalf("legacy config did not acquire the stable update channel: %#v", loaded)
+	}
 	defaultProfile, err := loaded.Resolve("default")
 	if err != nil {
 		t.Fatal(err)
@@ -148,6 +154,33 @@ func TestNormalizeAPIBaseURLRejectsUnsafePersistentEndpoints(t *testing.T) {
 		if _, err := NormalizeAPIBaseURL(value); err != nil {
 			t.Errorf("loopback development endpoint was rejected: %q: %v", value, err)
 		}
+	}
+}
+
+func TestPOCReleaseSourceRoundTripsWithoutChangingProfileIdentity(t *testing.T) {
+	directory := t.TempDir()
+	configured := Default(RegionGlobal)
+	configured.ReleaseChannel = ReleaseChannelPOC
+	configured.ReleaseBaseURL = "HTTPS://POC.EXAMPLE.COM:443/start/poc/cli/releases/"
+	profile, err := configured.Resolve("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileID := profile.ID
+	profile.APIBaseURL = "https://shop-poc.example.com/api"
+	if _, err := Save(directory, configured); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadOrDefault(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loadedProfile, err := loaded.Resolve("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.ReleaseChannel != ReleaseChannelPOC || loaded.ReleaseBaseURL != "https://poc.example.com/start/poc/cli/releases" || loadedProfile.APIBaseURL != "https://shop-poc.example.com/api" || loadedProfile.ID != profileID {
+		t.Fatalf("POC source did not round-trip canonically: %#v", loaded)
 	}
 }
 

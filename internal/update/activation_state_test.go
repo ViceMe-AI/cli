@@ -32,6 +32,58 @@ func TestActiveGenerationRejectsLateOlderTarget(t *testing.T) {
 	}
 }
 
+func TestExplicitChannelSwitchAloneMayInstallMatchingLinePOCOverStable(t *testing.T) {
+	t.Parallel()
+	configDir := t.TempDir()
+	stable, err := NewStandaloneGeneration("1.2.3", strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitActiveGeneration(configDir, stable); err != nil {
+		t.Fatal(err)
+	}
+	poc, err := NewStandaloneGeneration("1.2.3-poc.2", strings.Repeat("b", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ValidateActivationTarget(configDir, poc); !errors.Is(err, ErrActivationDowngrade) {
+		t.Fatalf("ordinary updater crossed into POC: %v", err)
+	}
+	if err := CommitActiveGenerationForChannelSwitch(configDir, poc); err != nil {
+		t.Fatalf("explicit channel switch was rejected: %v", err)
+	}
+	active, exists, err := ReadActiveGeneration(configDir)
+	if err != nil || !exists || active != poc {
+		t.Fatalf("POC generation was not committed: active=%#v exists=%t err=%v", active, exists, err)
+	}
+	if err := ValidateActivationTarget(configDir, stable); err != nil {
+		t.Fatalf("stable generation could not replace its matching-line POC: %v", err)
+	}
+}
+
+func TestExplicitChannelSwitchCannotDowngradeAcrossStableLines(t *testing.T) {
+	t.Parallel()
+	configDir := t.TempDir()
+	stable, err := NewStandaloneGeneration("1.3.0", strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitActiveGeneration(configDir, stable); err != nil {
+		t.Fatal(err)
+	}
+	oldPOC, err := NewStandaloneGeneration("1.2.9-poc.99", strings.Repeat("b", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitActiveGenerationForChannelSwitch(configDir, oldPOC); !errors.Is(err, ErrActivationDowngrade) {
+		t.Fatalf("explicit channel switch crossed stable lines: %v", err)
+	}
+	active, exists, err := ReadActiveGeneration(configDir)
+	if err != nil || !exists || active != stable {
+		t.Fatalf("active stable generation changed: active=%#v exists=%t err=%v", active, exists, err)
+	}
+}
+
 func TestNPMApplyDoesNotRunOlderTargetAfterNewerGenerationCommitted(t *testing.T) {
 	t.Parallel()
 	configDir := t.TempDir()

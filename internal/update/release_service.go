@@ -27,6 +27,12 @@ type RegionAware interface {
 	SetRegion(string)
 }
 
+// ReleaseSourceAware binds standalone update discovery to the installer-selected
+// channel. API endpoint selection remains owned by the active profile.
+type ReleaseSourceAware interface {
+	SetReleaseSource(channel, baseURL string)
+}
+
 // ReleaseService updates binaries installed by the official S3 bootstrap. npm
 // launches continue to use NPMService because the npm launcher owns its binary.
 type ReleaseService struct {
@@ -39,9 +45,10 @@ type ReleaseService struct {
 	Runner            Runner
 	ExecutablePath    string
 	ReleaseBaseURL    string
+	ReleaseChannel    string
 	GOOS              string
 	GOARCH            string
-	ScheduleWindows   func(staged, destination, target, region string, refreshSkills bool) error
+	ScheduleWindows   func(staged, destination, target, region, releaseChannel, releaseBaseURL string, refreshSkills bool) error
 }
 
 func NewReleaseService(currentVersion, comparableVersion string) *ReleaseService {
@@ -49,6 +56,7 @@ func NewReleaseService(currentVersion, comparableVersion string) *ReleaseService
 		CurrentVersion:    currentVersion,
 		ComparableVersion: comparableVersion,
 		Region:            "cn",
+		ReleaseChannel:    "stable",
 		HTTPClient:        &http.Client{Timeout: 5 * time.Minute},
 		Now:               time.Now,
 		Runner:            ExecRunner{},
@@ -63,6 +71,15 @@ func (service *ReleaseService) SetRegion(region string) {
 	}
 }
 
+func (service *ReleaseService) SetReleaseSource(channel, baseURL string) {
+	if channel == "stable" || channel == "poc" {
+		service.ReleaseChannel = channel
+	}
+	if strings.TrimSpace(baseURL) != "" {
+		service.ReleaseBaseURL = strings.TrimRight(baseURL, "/")
+	}
+}
+
 func (service *ReleaseService) EnsureLauncher(context.Context) (TargetResult, error) {
 	return TargetResult{Target: "standalone_binary", Status: "unchanged"}, nil
 }
@@ -72,7 +89,7 @@ func (service *ReleaseService) Check(ctx context.Context) (CheckResult, error) {
 		CurrentVersion: service.CurrentVersion,
 		Method:         "release_bundle",
 		Package:        "viceme-cli",
-		Source:         "official_s3",
+		Source:         service.source(),
 	}
 	latest, err := service.fetchLatestVersion(ctx)
 	if err != nil {
@@ -93,7 +110,7 @@ func (service *ReleaseService) CheckAutomatic(ctx context.Context) (CheckResult,
 		CurrentVersion: service.CurrentVersion,
 		Method:         "release_bundle",
 		Package:        "viceme-cli",
-		Source:         "official_s3",
+		Source:         service.source(),
 	}
 	if automaticUpdateSuppressed(service.CurrentVersion, service.ComparableVersion) {
 		result.Source = "disabled"
@@ -140,7 +157,8 @@ func (service *ReleaseService) updateStatePath() string {
 	if service.ConfigDir == "" {
 		return ""
 	}
-	return filepath.Join(service.ConfigDir, releaseUpdateStateStem+service.Region+".json")
+	scope := sha256.Sum256([]byte(service.ReleaseChannel + "\x00" + service.baseURL()))
+	return filepath.Join(service.ConfigDir, releaseUpdateStateStem+service.Region+"-"+hex.EncodeToString(scope[:8])+".json")
 }
 
 func (service *ReleaseService) now() time.Time {
@@ -190,7 +208,7 @@ func (service *ReleaseService) Apply(ctx context.Context, check CheckResult, opt
 			if target == "" {
 				target = "auto"
 			}
-			if err := service.scheduleWindows()(staged, executable, target, service.Region, true); err != nil {
+			if err := service.scheduleWindows()(staged, executable, target, service.Region, service.ReleaseChannel, service.baseURL(), true); err != nil {
 				os.Remove(staged)
 				return result, &OperationError{Kind: ErrorReleaseReplace, Cause: errors.New("could not schedule the Windows release activation")}
 			}
@@ -204,7 +222,7 @@ func (service *ReleaseService) Apply(ctx context.Context, check CheckResult, opt
 		if target == "" {
 			target = "auto"
 		}
-		output, err := service.runner().Run(ctx, staged, "bootstrap", "activate", "--destination", executable, "--agent", target, "--region", service.Region)
+		output, err := service.runner().Run(ctx, staged, "bootstrap", "activate", "--destination", executable, "--agent", target, "--region", service.Region, "--release-channel", service.ReleaseChannel, "--release-base-url", service.baseURL())
 		if err != nil {
 			result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "failed", Error: commandError(err, output)})
 			return result, &OperationError{Kind: ErrorReleaseSkillRefresh, Cause: errors.New("new CLI could not atomically activate its executable and matching official Skills")}
@@ -270,6 +288,13 @@ func (service *ReleaseService) baseURL() string {
 	return "https://s3.viceme.cn/start/cli/releases"
 }
 
+func (service *ReleaseService) source() string {
+	if service.ReleaseChannel == "poc" {
+		return "poc_s3"
+	}
+	return "official_s3"
+}
+
 func (service *ReleaseService) executable() (string, error) {
 	if service.ExecutablePath != "" {
 		return filepath.Abs(service.ExecutablePath)
@@ -291,7 +316,7 @@ func (service *ReleaseService) client() *http.Client {
 	return service.HTTPClient
 }
 
-func (service *ReleaseService) scheduleWindows() func(string, string, string, string, bool) error {
+func (service *ReleaseService) scheduleWindows() func(string, string, string, string, string, string, bool) error {
 	if service.ScheduleWindows != nil {
 		return service.ScheduleWindows
 	}
@@ -379,7 +404,7 @@ func copyExecutable(source, destination string) error {
 	return nil
 }
 
-func scheduleWindowsReplacement(staged, destination, target, region string, refreshSkills bool) error {
+func scheduleWindowsReplacement(staged, destination, target, region, releaseChannel, releaseBaseURL string, refreshSkills bool) error {
 	script, err := os.CreateTemp(filepath.Dir(destination), ".viceme-activate-*.ps1")
 	if err != nil {
 		return err
@@ -391,13 +416,15 @@ func scheduleWindowsReplacement(staged, destination, target, region string, refr
   [string]$Destination,
   [string]$Target,
   [string]$Region,
+	[string]$ReleaseChannel,
+	[string]$ReleaseBaseURL,
   [string]$RefreshSkills
 )
 $ErrorActionPreference = "Stop"
 $Result = "$Destination.viceme-update-result.json"
 try {
   Wait-Process -Id $ParentPid -ErrorAction SilentlyContinue
-  & $Staged bootstrap activate --destination $Destination --agent $Target --region $Region
+  & $Staged bootstrap activate --destination $Destination --agent $Target --region $Region --release-channel $ReleaseChannel --release-base-url $ReleaseBaseURL
   if ($LASTEXITCODE -ne 0) { throw "atomic CLI and Skill activation failed" }
   @{ status = "succeeded"; updatedAt = [DateTime]::UtcNow.ToString("o") } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $Result
 } catch {
@@ -435,6 +462,10 @@ try {
 		target,
 		"-Region",
 		region,
+		"-ReleaseChannel",
+		releaseChannel,
+		"-ReleaseBaseURL",
+		releaseBaseURL,
 		"-RefreshSkills",
 		strconv.FormatBool(refreshSkills),
 	)

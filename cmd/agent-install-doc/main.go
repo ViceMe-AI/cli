@@ -9,15 +9,15 @@ import (
 	"regexp"
 )
 
-var stableVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+var exactVersion = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-poc\.(0|[1-9][0-9]*))?$`)
 
 func main() {
-	version := flag.String("version", "", "stable CLI version without v prefix")
+	version := flag.String("version", "", "stable or POC CLI version without v prefix")
 	templatePath := flag.String("template", "release/agent-install.md.tmpl", "template path")
 	outputPath := flag.String("output", "dist/agent-install.md", "output path")
 	flag.Parse()
-	if !stableVersion.MatchString(*version) {
-		fatal("version must be a stable semantic version")
+	if !exactVersion.MatchString(*version) {
+		fatal("version must be a stable or x.y.z-poc.N semantic version")
 	}
 	template, err := os.ReadFile(*templatePath)
 	if err != nil {

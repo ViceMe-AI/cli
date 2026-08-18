@@ -52,3 +52,35 @@ func TestReadChecksumRequiresExactAssetName(t *testing.T) {
 		t.Fatal("checksum for another asset was accepted")
 	}
 }
+
+func TestPOCManifestUsesItsOwnSigstoreIdentity(t *testing.T) {
+	directory := t.TempDir()
+	source := sourceManifest{
+		NPMPackage: "standalone-only", CLIVersion: "1.2.3-poc.4",
+		Skills:                  map[string]json.RawMessage{},
+		BootstrapContractDigest: "sha256:" + strings.Repeat("b", 64),
+		InstallerDigests:        map[string]string{},
+	}
+	data, err := json.Marshal(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourcePath := filepath.Join(directory, "source.json")
+	if err := os.WriteFile(sourcePath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range targets {
+		name := "viceme_1.2.3-poc.4_" + item.os + "_" + item.arch + item.extension
+		if err := os.WriteFile(filepath.Join(directory, name+".sha256"), []byte(strings.Repeat("a", 64)+"  "+name+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	identity := "https://github.com/ViceMe-AI/cli/.github/workflows/poc-release.yml@refs/heads/poc"
+	manifest, err := buildManifestWithIdentity("1.2.3-poc.4", sourcePath, directory, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Signature.CertificateIdentity != identity {
+		t.Fatalf("POC identity drifted: %#v", manifest.Signature)
+	}
+}

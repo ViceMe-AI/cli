@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/semver"
@@ -38,6 +39,11 @@ var (
 	ErrActivationDowngrade     = errors.New("activation target is older than the active generation")
 	ErrActivationMethodChange  = errors.New("changing the CLI installation method is not supported")
 	ErrActivationRestartNeeded = errors.New("activation recovered a different CLI generation; restart the command")
+)
+
+var (
+	stableActivationVersionPattern = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
+	pocActivationVersionPattern    = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-poc\.(0|[1-9][0-9]*)$`)
 )
 
 type ActiveGeneration struct {
@@ -125,6 +131,18 @@ func ReadActiveGeneration(configDir string) (ActiveGeneration, bool, error) {
 // held. Equal immutable generations may be verified or repaired. Reusing a
 // semantic version for different bytes/package identity fails closed.
 func ValidateActivationTarget(configDir string, target ActiveGeneration) error {
+	return validateActivationTarget(configDir, target, false)
+}
+
+// ValidateActivationTargetForChannelSwitch permits exactly the otherwise
+// forbidden semver downgrade needed to install x.y.z-poc.N over x.y.z. Only
+// the explicit installer-selected bootstrap path may call this; automatic
+// updates always use ValidateActivationTarget.
+func ValidateActivationTargetForChannelSwitch(configDir string, target ActiveGeneration) error {
+	return validateActivationTarget(configDir, target, true)
+}
+
+func validateActivationTarget(configDir string, target ActiveGeneration, allowDowngrade bool) error {
 	if err := validateActiveGeneration(target); err != nil {
 		return err
 	}
@@ -145,7 +163,9 @@ func ValidateActivationTarget(configDir string, target ActiveGeneration) error {
 		return err
 	}
 	if comparison < 0 {
-		return fmt.Errorf("%w: target %s, active %s", ErrActivationDowngrade, target.Version, active.Version)
+		if !allowDowngrade || !matchingStableToPOCSwitch(active.Version, target.Version) {
+			return fmt.Errorf("%w: target %s, active %s", ErrActivationDowngrade, target.Version, active.Version)
+		}
 	}
 	if comparison == 0 && (target.InstallMethod != active.InstallMethod || target.Identity != active.Identity) {
 		return errors.New("activation target reuses the active version with a different immutable identity")
@@ -153,10 +173,27 @@ func ValidateActivationTarget(configDir string, target ActiveGeneration) error {
 	return nil
 }
 
+func matchingStableToPOCSwitch(activeVersion, targetVersion string) bool {
+	active := stableActivationVersionPattern.FindStringSubmatch(activeVersion)
+	target := pocActivationVersionPattern.FindStringSubmatch(targetVersion)
+	if active == nil || target == nil {
+		return false
+	}
+	return active[1] == target[1] && active[2] == target[2] && active[3] == target[3]
+}
+
 // CommitActiveGeneration writes the semantic commit point for launcher,
 // Skills, and config. The caller must still hold ActivationLockFilename.
 func CommitActiveGeneration(configDir string, target ActiveGeneration) error {
-	if err := ValidateActivationTarget(configDir, target); err != nil {
+	return commitActiveGeneration(configDir, target, false)
+}
+
+func CommitActiveGenerationForChannelSwitch(configDir string, target ActiveGeneration) error {
+	return commitActiveGeneration(configDir, target, true)
+}
+
+func commitActiveGeneration(configDir string, target ActiveGeneration, allowDowngrade bool) error {
+	if err := validateActivationTarget(configDir, target, allowDowngrade); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(configDir, 0o700); err != nil {

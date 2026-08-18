@@ -168,3 +168,45 @@ missing tags, version mismatches, changed release assets, and npm integrity
 mismatches. It cannot create a new release identity. Normal production releases
 still originate only from merging the repository-owned `dev` Release PR into
 `main`.
+
+## POC release channel
+
+The `poc` branch has an isolated manual workflow, **POC CLI manual release**
+(`poc-release.yml`). Dispatch it from the exact `poc` branch with a version such
+as `0.16.0-poc.1`. The stable base before `-poc.N` must equal the repository's
+current `package.json` version. This rule makes the formal `0.16.0` generation
+strictly newer than every `0.16.0-poc.N` generation, so the normal installer can
+replace POC again without a semantic downgrade.
+
+The POC workflow runs the full source quality gate, creates an immutable
+`cli-poc-v<version>` prerelease tag, builds and checksums all six platform
+binaries, signs the POC Agent Manifest with the `poc-release.yml@refs/heads/poc`
+OIDC identity, and publishes only to the POC RustFS `start` bucket:
+
+```text
+https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/install.sh
+https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/install.ps1
+https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/agent-install.md
+https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases/v<version>/...
+```
+
+The installed command remains `viceme`. Explicit installation atomically
+selects the POC API endpoint and POC release origin in the CLI configuration;
+automatic updates then read only `poc/cli/releases/latest`. Credentials and
+publication bindings remain scoped to their API endpoint and are not copied
+between formal and POC environments. Running the formal installer performs the
+reverse explicit channel selection.
+
+One-time repository setup:
+
+- Create GitHub environment `poc` with `VICEME_POC_S3_ENDPOINT`,
+  `VICEME_POC_S3_BUCKET` (`start`), `VICEME_POC_S3_ACCESS_KEY_ID`, and
+  `VICEME_POC_S3_SECRET_ACCESS_KEY`.
+- Scope those credentials to `start/poc/*`. Anonymous reads must allow only the
+  documented POC installers, Agent contract, exact CLI release objects, and
+  exact SDK release objects; bucket listing and `poc/private-probe/*` must stay
+  denied.
+- Do not configure npm credentials: POC CLI delivery is standalone-only.
+
+Formal `release.yml`, stable tags, npm `@viceme-ai/cli`, and formal CN/GLOBAL S3
+objects are not written by this workflow.
