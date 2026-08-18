@@ -50,6 +50,6 @@ test("POC release recovery reuses and verifies the immutable Sigstore bundle", (
   );
   assert.match(
     workflow,
-    /dist\/agent-release-manifest\.json\n\s+cp existing-release\/agent-release-manifest\.sigstore\.json dist\/agent-release-manifest\.sigstore\.json/,
+    /dist\/agent-release-manifest\.json\r?\n\s+cp existing-release\/agent-release-manifest\.sigstore\.json dist\/agent-release-manifest\.sigstore\.json/,
   );
 });
