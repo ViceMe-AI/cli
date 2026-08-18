@@ -140,12 +140,16 @@ test(
     assert.equal(child.status, 0, child.stderr);
     const result = JSON.parse(child.stdout);
     assert.equal(result.ok, true);
-    assert.equal(result.data.skills.length, 4);
+    assert.equal(result.data.skills.length, 5);
     assert.equal(result.data.skills.every((skill) => skill.all_succeeded), true);
     await stat(path.join(codexHome, "skills", "viceme-shared", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-publish", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-danmaku", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-access", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-tip", "SKILL.md"));
+    await stat(
+      path.join(codexHome, "skills", "viceme-tip", "templates", "single-html.html"),
+    );
     await stat(
       path.join(
         codexHome,
