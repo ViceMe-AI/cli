@@ -71,6 +71,46 @@ func TestCustomProfileAPIBaseURLRoundTripsCanonically(t *testing.T) {
 	}
 }
 
+func TestCustomProfileWebBaseURLRequiresExplicitConfigurationAndRoundTripsCanonically(t *testing.T) {
+	directory := t.TempDir()
+	configured := Default(RegionCN)
+	profile, err := configured.AddProfile("shop-dev", RegionCN, "https://api.shop-dev.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.ResolvedWebBaseURL() != "" {
+		t.Fatalf("custom API profile guessed a Web origin: %#v", profile)
+	}
+	if err := configured.SetProfileWebBaseURL(profile.Name, "HTTPS://WEB.SHOP-DEV.EXAMPLE.COM:443/"); err != nil {
+		t.Fatal(err)
+	}
+	if profile.WebBaseURL != "https://web.shop-dev.example.com" || profile.ResolvedWebBaseURL() != profile.WebBaseURL {
+		t.Fatalf("custom Web endpoint was not canonicalized: %#v", profile)
+	}
+	configured.CurrentProfile = profile.Name
+	if _, err := Save(directory, configured); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadOrDefault(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := loaded.Resolve(profile.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.WebBaseURL != "https://web.shop-dev.example.com" {
+		t.Fatalf("custom Web endpoint did not round-trip: %#v", resolved)
+	}
+	defaultProfile, err := loaded.Resolve(DefaultProfileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if defaultProfile.ResolvedWebBaseURL() != "https://viceme.cn" {
+		t.Fatalf("regional default profile lost its Web origin: %#v", defaultProfile)
+	}
+}
+
 func TestNormalizeAPIBaseURLRejectsUnsafePersistentEndpoints(t *testing.T) {
 	t.Parallel()
 	invalid := []string{

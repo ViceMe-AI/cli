@@ -64,7 +64,11 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 	}
 
 	endpoint := server.URL + "/api/"
-	if exit, envelope := run("profile", "add", "--name", "shop-dev", "--region", "cn", "--api-base-url", endpoint, "--use"); exit != 0 || envelope["ok"] != true {
+	webEndpoint := server.URL + "/web/"
+	if exit, envelope := run("profile", "add", "--name", "incomplete", "--region", "cn", "--api-base-url", endpoint); exit != output.ExitValidation || envelope["ok"] != false {
+		t.Fatalf("custom API profile without Web origin was accepted: exit=%d result=%#v", exit, envelope)
+	}
+	if exit, envelope := run("profile", "add", "--name", "shop-dev", "--region", "cn", "--api-base-url", endpoint, "--web-base-url", webEndpoint, "--use"); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("could not add custom endpoint profile: exit=%d result=%#v", exit, envelope)
 	}
 	configured, err := config.LoadOrDefault(configDir)
@@ -75,7 +79,7 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profile.APIBaseURL != server.URL+"/api" || configured.CurrentProfile != profile.Name {
+	if len(configured.Profiles) != 2 || profile.APIBaseURL != server.URL+"/api" || profile.WebBaseURL != server.URL+"/web" || configured.CurrentProfile != profile.Name {
 		t.Fatalf("custom profile was not persisted canonically: %#v", configured)
 	}
 	scope, err := credentialScopeForAPIBase(profile.ResolvedAPIBaseURL(), profile.Region)
@@ -102,7 +106,7 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 			t.Fatalf("profile list returned unexpected data: %#v", envelope)
 		}
 		shopDev, ok := items[1].(map[string]any)
-		if !ok || shopDev["apiBaseUrl"] != server.URL+"/api" || shopDev["authenticated"] != true {
+		if !ok || shopDev["apiBaseUrl"] != server.URL+"/api" || shopDev["webBaseUrl"] != server.URL+"/web" || shopDev["authenticated"] != true {
 			t.Fatalf("profile list hid endpoint or used the wrong credential scope: %#v", items)
 		}
 	}
@@ -111,6 +115,35 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 	}
 	if _, err := store.Get(manager.StorageKey()); !errors.Is(err, securestore.ErrNotFound) {
 		t.Fatalf("custom endpoint credential survived profile removal: %v", err)
+	}
+}
+
+func TestProfileListReportsEmptyWebBaseURLForLegacyCustomEndpoint(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	configured := config.Default(config.RegionCN)
+	if _, err := configured.AddProfile("legacy", config.RegionCN, "https://api.legacy.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Save(configDir, configured); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"profile", "list"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(),
+		Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+	})
+	if exit != 0 {
+		t.Fatalf("profile list failed: exit=%d output=%s", exit, stdout.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	items := envelope["data"].([]any)
+	legacy := items[1].(map[string]any)
+	if value, exists := legacy["webBaseUrl"]; !exists || value != "" {
+		t.Fatalf("legacy custom profile did not expose an empty webBaseUrl: %#v", legacy)
 	}
 }
 

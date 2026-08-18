@@ -17,7 +17,7 @@ Use `viceme` as the only executable. Never collect, print, or persist access tok
 For a test or private ViceMe deployment, persist its endpoint before login:
 
 ```bash
-viceme profile add --name <profile> --region <cn|global> --api-base-url <https-url> --use
+viceme profile add --name <profile> --region <cn|global> --api-base-url <api-origin> --web-base-url <web-origin> --use
 ```
 
 Use `viceme profile list` to verify the active profile and effective endpoint.

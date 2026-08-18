@@ -15,6 +15,7 @@ type profileListItem struct {
 	Name          string        `json:"name"`
 	Region        config.Region `json:"region"`
 	APIBaseURL    string        `json:"apiBaseUrl"`
+	WebBaseURL    string        `json:"webBaseUrl"`
 	Active        bool          `json:"active"`
 	UserID        string        `json:"userId,omitempty"`
 	Authenticated bool          `json:"authenticated"`
@@ -53,8 +54,9 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 				}
 				items = append(items, profileListItem{
 					Name: profile.Name, Region: profile.Region, APIBaseURL: profile.ResolvedAPIBaseURL(),
-					Active: profile.Name == runtime.config.CurrentProfile,
-					UserID: userID, Authenticated: status.Authenticated,
+					WebBaseURL: profile.ResolvedWebBaseURL(),
+					Active:     profile.Name == runtime.config.CurrentProfile,
+					UserID:     userID, Authenticated: status.Authenticated,
 				})
 			}
 			return runtime.business(items)
@@ -66,6 +68,7 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 	var name string
 	var region string
 	var apiBaseURL string
+	var webBaseURL string
 	var use bool
 	command := &cobra.Command{
 		Use: "add", Short: "Add a regional ViceMe profile", Args: cobra.NoArgs,
@@ -77,9 +80,17 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return output.Validation("PROFILE_REGION_INVALID", err.Error())
 			}
+			if strings.TrimSpace(apiBaseURL) != "" && strings.TrimSpace(webBaseURL) == "" {
+				return output.Validation("PROFILE_WEB_BASE_URL_REQUIRED", "custom API profiles require a matching --web-base-url")
+			}
 			profile, err := runtime.config.AddProfile(name, resolved, apiBaseURL)
 			if err != nil {
 				return output.Validation("PROFILE_INVALID", err.Error())
+			}
+			if strings.TrimSpace(webBaseURL) != "" {
+				if err := runtime.config.SetProfileWebBaseURL(profile.Name, webBaseURL); err != nil {
+					return output.Validation("PROFILE_INVALID", err.Error())
+				}
 			}
 			if use {
 				runtime.config.PreviousProfile = runtime.config.CurrentProfile
@@ -94,13 +105,15 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 			}
 			return runtime.business(map[string]any{
 				"name": profile.Name, "region": profile.Region,
-				"apiBaseUrl": profile.ResolvedAPIBaseURL(), "active": use, "config": result,
+				"apiBaseUrl": profile.ResolvedAPIBaseURL(), "webBaseUrl": profile.ResolvedWebBaseURL(),
+				"active": use, "config": result,
 			})
 		},
 	}
 	command.Flags().StringVar(&name, "name", "", "profile name")
 	command.Flags().StringVar(&region, "region", "", "ViceMe region: cn or global")
 	command.Flags().StringVar(&apiBaseURL, "api-base-url", "", "persist a custom API base URL for this profile")
+	command.Flags().StringVar(&webBaseURL, "web-base-url", "", "persist the matching Web base URL for this profile")
 	command.Flags().BoolVar(&use, "use", false, "switch to this profile")
 	_ = command.MarkFlagRequired("name")
 	return command
@@ -117,7 +130,8 @@ func newProfileUseCommand(runtime *Runtime) *cobra.Command {
 			if runtime.config.CurrentProfile == profile.Name {
 				return runtime.business(map[string]any{
 					"name": profile.Name, "region": profile.Region,
-					"apiBaseUrl": profile.ResolvedAPIBaseURL(), "active": true, "unchanged": true,
+					"apiBaseUrl": profile.ResolvedAPIBaseURL(), "webBaseUrl": profile.ResolvedWebBaseURL(),
+					"active": true, "unchanged": true,
 				})
 			}
 			runtime.config.PreviousProfile = runtime.config.CurrentProfile
@@ -130,7 +144,7 @@ func newProfileUseCommand(runtime *Runtime) *cobra.Command {
 			}
 			return runtime.business(map[string]any{
 				"name": profile.Name, "region": profile.Region,
-				"apiBaseUrl": profile.ResolvedAPIBaseURL(), "active": true,
+				"apiBaseUrl": profile.ResolvedAPIBaseURL(), "webBaseUrl": profile.ResolvedWebBaseURL(), "active": true,
 			})
 		},
 	}

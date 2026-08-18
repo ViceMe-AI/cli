@@ -185,9 +185,9 @@ unknown. Query or resume the existing ID first.
 
 ## Authentication and Profiles
 
-Each Profile binds one region, one API endpoint, and one device-authorized
-account. Profiles without a custom endpoint use the selected region's official
-ViceMe API.
+Each Profile binds one region, one API endpoint, one matching Web endpoint, and
+one device-authorized account. Profiles without custom endpoints use the
+selected region's official ViceMe API and Web origins.
 
 ```bash
 viceme auth login
@@ -198,14 +198,15 @@ viceme profile list
 viceme profile use default
 ```
 
-For a test or private deployment, persist a generic HTTPS endpoint in a
-dedicated Profile before signing in:
+For a test or private deployment, persist both HTTPS endpoints in a dedicated
+Profile before signing in:
 
 ```bash
 viceme profile add \
   --name private-cn \
   --region cn \
   --api-base-url https://api.example.com \
+  --web-base-url https://www.example.com \
   --use
 viceme auth login
 ```

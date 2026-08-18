@@ -170,8 +170,9 @@ viceme --profile <publication-profile> skill publish --resume <publication-id>
 
 ## 登录与 Profile
 
-每个 Profile 绑定一个区域、一个 API Endpoint 和一个通过设备码授权的账户。没有
-自定义 Endpoint 的 Profile 使用对应区域的 ViceMe 官方 API。
+每个 Profile 绑定一个区域、一个 API Endpoint、一个匹配的 Web Endpoint 和一个通过
+设备码授权的账户。没有自定义 Endpoint 的 Profile 使用对应区域的 ViceMe 官方 API
+与 Web Origin。
 
 ```bash
 viceme auth login
@@ -182,13 +183,14 @@ viceme profile list
 viceme profile use default
 ```
 
-连接测试环境或私有部署时，使用通用 HTTPS 占位地址创建独立 Profile，再登录：
+连接测试环境或私有部署时，在独立 Profile 中同时保存 API 与 Web 地址，再登录：
 
 ```bash
 viceme profile add \
   --name private-cn \
   --region cn \
   --api-base-url https://api.example.com \
+  --web-base-url https://www.example.com \
   --use
 viceme auth login
 ```

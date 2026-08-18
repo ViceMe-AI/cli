@@ -30,6 +30,7 @@ type Profile struct {
 	Name       string `json:"name"`
 	Region     Region `json:"region"`
 	APIBaseURL string `json:"apiBaseUrl,omitempty"`
+	WebBaseURL string `json:"webBaseUrl,omitempty"`
 	UserID     string `json:"userId,omitempty"`
 }
 
@@ -73,6 +74,22 @@ func APIBaseURL(region Region) string {
 		return "https://api.viceme.ai"
 	}
 	return "https://api.viceme.cn"
+}
+
+func WebBaseURL(region Region) string {
+	if region == RegionGlobal {
+		return "https://viceme.ai"
+	}
+	return "https://viceme.cn"
+}
+
+// NormalizeWebBaseURL applies the endpoint safety rules to a browser origin.
+func NormalizeWebBaseURL(raw string) (string, error) {
+	normalized, err := NormalizeAPIBaseURL(raw)
+	if err != nil {
+		return "", errors.New(strings.ReplaceAll(err.Error(), "API base URL", "Web base URL"))
+	}
+	return normalized, nil
 }
 
 // NormalizeAPIBaseURL returns the canonical persisted endpoint for a profile.
@@ -136,6 +153,16 @@ func (profile Profile) ResolvedAPIBaseURL() string {
 		return profile.APIBaseURL
 	}
 	return APIBaseURL(profile.Region)
+}
+
+func (profile Profile) ResolvedWebBaseURL() string {
+	if profile.WebBaseURL != "" {
+		return profile.WebBaseURL
+	}
+	if profile.APIBaseURL != "" {
+		return ""
+	}
+	return WebBaseURL(profile.Region)
 }
 
 func Default(region Region) Config {
@@ -245,6 +272,19 @@ func (config *Config) AddProfile(name string, region Region, apiBaseURL string) 
 	return &config.Profiles[len(config.Profiles)-1], nil
 }
 
+func (config *Config) SetProfileWebBaseURL(name, webBaseURL string) error {
+	index := config.FindProfileIndex(name)
+	if index < 0 {
+		return fmt.Errorf("profile %q not found", name)
+	}
+	normalized, err := NormalizeWebBaseURL(webBaseURL)
+	if err != nil {
+		return err
+	}
+	config.Profiles[index].WebBaseURL = normalized
+	return nil
+}
+
 func ValidateProfileName(name string) error {
 	if name == "" {
 		return fmt.Errorf("profile name cannot be empty")
@@ -323,6 +363,13 @@ func validate(config *Config) error {
 				return fmt.Errorf("profile %q: %w", profile.Name, err)
 			}
 			profile.APIBaseURL = normalized
+		}
+		if profile.WebBaseURL != "" {
+			normalized, err := NormalizeWebBaseURL(profile.WebBaseURL)
+			if err != nil {
+				return fmt.Errorf("profile %q: %w", profile.Name, err)
+			}
+			profile.WebBaseURL = normalized
 		}
 	}
 	if config.CurrentProfile == "" {
