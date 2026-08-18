@@ -21,6 +21,10 @@ Implement a browser-only integration backed by a ViceMe-user-owned `workKey`. An
      [--product "<owned product slug>" --purchase "<feature-key>[=<title>]"]
    ```
 
+   When a purchase feature omits `--product`, the CLI binds the creator's only
+   owned product automatically. If multiple products exist, rerun with the
+   `--product <slug>` choice returned in `WORK_PRODUCT_SELECTION_REQUIRED`.
+
 4. Edit `.viceme/access.yaml` and run `viceme access apply` only for later
    configuration changes. Use `viceme access inspect` for diagnosis, not as
    a mandatory second request after a successful quick init.

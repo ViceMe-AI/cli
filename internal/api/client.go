@@ -72,6 +72,12 @@ func (c *Client) CreateSdkWork(ctx context.Context, request CreateSdkWorkRequest
 	return response, err
 }
 
+func (c *Client) ListSdkWorkProducts(ctx context.Context) (SdkWorkProducts, error) {
+	var response SdkWorkProducts
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/sdk-works/products", nil, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) GetSdkWork(ctx context.Context, workKey string) (SdkWork, error) {
 	var response SdkWork
 	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/sdk-works/"+url.PathEscape(workKey), nil, &response, "@stored")

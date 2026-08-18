@@ -3,8 +3,43 @@ package command
 import (
 	"testing"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
 )
+
+func TestSelectAccessProductDefaultsSingleProduct(t *testing.T) {
+	slug, err := selectAccessProduct([]api.SdkWorkProduct{{Slug: "dagou-tap", Title: "Dagou Tap"}})
+	if err != nil {
+		t.Fatalf("selectAccessProduct() error = %v", err)
+	}
+	if slug != "dagou-tap" {
+		t.Fatalf("selectAccessProduct() = %q", slug)
+	}
+}
+
+func TestSelectAccessProductRequiresChoiceForMultipleProducts(t *testing.T) {
+	products := []api.SdkWorkProduct{
+		{Slug: "dagou-tap", Title: "Dagou Tap"},
+		{Slug: "knowledge-comic", Title: "Knowledge Comic"},
+	}
+	_, err := selectAccessProduct(products)
+	cliError, ok := err.(*output.Error)
+	if !ok || cliError.Subtype != "WORK_PRODUCT_SELECTION_REQUIRED" {
+		t.Fatalf("selectAccessProduct() error = %#v", err)
+	}
+	details, ok := cliError.Details.(map[string]any)
+	if !ok || len(details["products"].([]api.SdkWorkProduct)) != 2 {
+		t.Fatalf("selection candidates = %#v", cliError.Details)
+	}
+}
+
+func TestSelectAccessProductRejectsEmptyProducts(t *testing.T) {
+	_, err := selectAccessProduct(nil)
+	cliError, ok := err.(*output.Error)
+	if !ok || cliError.Subtype != "WORK_PRODUCT_NOT_FOUND" {
+		t.Fatalf("selectAccessProduct() error = %#v", err)
+	}
+}
 
 func validAccessConfig() accessConfig {
 	product := "dagou-tap"
