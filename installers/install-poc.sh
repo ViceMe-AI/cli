@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-version="0.16.1-poc.1"
-release_tag="danmaku-poc-20260818-v4"
+version="0.16.1-poc.2"
+release_tag="danmaku-poc-20260818-v5"
 release_url="https://github.com/ViceMe-AI/cli/releases/download/${release_tag}"
 profile_name="danmaku-poc-20260818"
 api_base_url="https://api-poc.preview.tencent-zeabur.cn"
@@ -71,7 +71,6 @@ if "$destination" profile use "$profile_name" >/dev/null 2>&1; then
 else
   "$destination" profile add \
     --name "$profile_name" \
-    --region cn \
     --api-base-url "$api_base_url" \
     --use
 fi
