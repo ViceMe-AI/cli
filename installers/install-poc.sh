@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-version="0.15.2-poc.1"
+version="0.15.3-poc.1"
 release_tag="danmaku-poc-20260818"
 release_url="https://github.com/ViceMe-AI/cli/releases/download/${release_tag}"
 profile_name="danmaku-poc-20260818"
