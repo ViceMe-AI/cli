@@ -131,7 +131,23 @@ type SkillPublicationDraft struct {
 }
 
 type UpdateSkillPublicationDraftRequest struct {
-	PriceMinor *int `json:"priceMinor,omitempty"`
+	PriceMinor       *int     `json:"priceMinor,omitempty"`
+	CoverUploadID    *string  `json:"coverUploadId,omitempty"`
+	GalleryUploadIDs []string `json:"galleryUploadIds,omitempty"`
+}
+
+type SkillPublicationAgentSuggestionPatch struct {
+	SummaryZhCN           string   `json:"summaryZhCn"`
+	SummaryEnUS           string   `json:"summaryEnUs"`
+	UsageInstructionsZhCN string   `json:"usageInstructionsZhCn"`
+	UsageInstructionsEnUS string   `json:"usageInstructionsEnUs"`
+	CoverUploadID         *string  `json:"coverUploadId"`
+	GalleryUploadIDs      []string `json:"galleryUploadIds"`
+}
+
+type SuggestSkillPublicationDraftRequest struct {
+	BaseDraftRevision int                                  `json:"baseDraftRevision"`
+	Patch             SkillPublicationAgentSuggestionPatch `json:"patch"`
 }
 
 type SkillPublicationUpload struct {

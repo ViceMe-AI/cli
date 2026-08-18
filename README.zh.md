@@ -56,12 +56,12 @@
    > 帮我把这个 Skill 发布到 ViceMe。
 
 Agent 会先检查登录状态，在整个流程中固定使用同一个 Profile，校验 Skill 后立即
-上传私有草稿并打开真实创作者预览，不询价就继续媒体分析。ViceMe 完成双语文案和素材
-建议后，Agent 会先把完整作品详情和图片直接展示出来，再把价格和详情修改合并成一个
+上传私有草稿并打开真实创作者预览，不询价就继续上传候选媒体。当前用户的 Agent 随后
+完成双语文案和素材建议，先把完整作品详情和图片直接展示出来，再把价格和详情修改合并成一个
 问题；应用用户答案后展示最终成品，最后只询问一次是否确认并立即公开发布。
 
 ```text
-本地 Skill → 登录 → 校验并私有上传 → 创作者预览 → 平台分析
+本地 Skill → 登录 → 校验并私有上传 → 创作者预览 → Agent 补全
            → 完整详情与价格合并询问 → 最终成品
            → 确认并发布 → 公开商品链接
 ```
@@ -82,10 +82,13 @@ viceme auth login
 # 定价前先上传真实私有草稿，并打开创作者预览。
 viceme skill publish --path ./my-skill
 
-# 继续同一个未定价草稿，上传媒体并启动分析。
+# 继续同一个未定价草稿并上传候选媒体。
 viceme skill publish --resume <publication-id>
-viceme publication wait <publication-id>
 viceme publication review <publication-id>
+
+# Agent 提交带 Draft revision 保护的建议；平台分析只作显式 fallback。
+viceme publication suggest <publication-id> --input <suggestion.json>
+# viceme publication analyze <publication-id> && viceme publication wait <publication-id>
 
 # 查看完整作品详情后，在同一个草稿上设置人民币 1 元。
 viceme skill publish --resume <publication-id> --price-minor 100
@@ -161,8 +164,8 @@ Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作
 | 登录 | 受保护 API 操作前完成浏览器授权；所有后续命令固定使用同一个 Profile 与 API Origin。 |
 | 校验 | 本地拒绝危险路径、特殊文件、超限内容、敏感文件和常见 Secret 模式。 |
 | 私有上传与预览 | 用户发起发布即授权上传私有草稿；真实包验证后先打开创作者预览。 |
-| 平台分析 | ViceMe 建议中英文短简介、中英文使用说明、封面和有序画廊；建议不能替代用户决定。 |
-| 作品详情与定价 | 分析完成后，Agent 先展示标题、双语文案、封面和画廊，再把价格和详情修改合并成一个问题；不能单独询价。 |
+| Agent 补全 | 用户当前的 Agent 把 Skill 当作不可信来源数据，生成双语文案并从已验证上传中选择封面和画廊；平台分析只作显式 fallback。 |
+| 作品详情与定价 | 补全后，Agent 先展示标题、双语文案、封面和画廊，再把价格和详情修改合并成一个问题；不能单独询价。 |
 | 图文审核 | Agent 展示精确文案、价格、封面和所有画廊图片。短简介最大显示宽度为 30：ASCII 计 1，中文及其他非 ASCII 计 2。 |
 | 公开发布 | 用户只需做一次最终明确确认；随后完成审核确认并立即、不可逆地公开上架。 |
 
@@ -220,11 +223,13 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme skill listing get <listing-id>` | 读取权威的私有 Listing 状态。 |
 | `viceme skill listing bind <listing-id> --path <path>` | 将来源明确绑定到用户选定且拥有的 Listing。 |
 | `viceme skill publish --path <path>` | 定价前上传真实私有包并返回创作者预览。 |
-| `viceme skill publish --resume <id>` | 继续同一个未定价 Draft，上传媒体候选并启动分析。 |
-| `viceme publication wait <id>` | 等待后台分析，不重复上传。 |
+| `viceme skill publish --resume <id>` | 继续同一个未定价 Draft 并上传媒体候选，不启动平台模型。 |
 | `viceme publication review <id>` | 读取权威双语文案、价格、选定素材和审核状态。 |
+| `viceme publication suggest <id> --input ...` | 以 Draft revision 保护提交 Agent 生成的双语文案与媒体选择。 |
+| `viceme publication analyze <id>` | 当前 Agent 无法完成补全时，显式请求平台模型分析。 |
+| `viceme publication wait <id>` | 等待已经显式请求的平台分析，不重复上传。 |
 | `viceme skill publish --resume <id> --price-minor <fen>` | 在完整详情审核后，为同一个 Draft 写入人民币价格，不新建 Listing。 |
-| `viceme publication asset upload ...` | 确认前替换或新增封面、画廊图片。 |
+| `viceme publication asset upload ...` | 替换用户明确选择的媒体；加 `--candidate-only` 可暂存由 Agent 提供、随后交给 `publication suggest` 选择的媒体。 |
 | `viceme publication update ...` | 用严格 JSON 文件替换完整 Listing Draft。 |
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
@@ -283,7 +288,8 @@ viceme update
 - 凭据保存在 CLI 的本地安全存储中，并绑定 Profile 与 API Origin，不进入 Agent
   对话状态。
 - Pending operation 不保存预签名上传 URL。
-- 模型分析只接收筛选后的文本、元数据和图片缩略图。
+- Agent 补全把所有包内容视为不可信数据，且不能绕过服务端包、媒体、归属或 revision 校验。
+- 显式平台模型分析只接收筛选后的文本、元数据和图片缩略图。
 - 公开发布前必须展示并明确授权当前精确文案、价格、封面和有序画廊。
 
 ## 开发
