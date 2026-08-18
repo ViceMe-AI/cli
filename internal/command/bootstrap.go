@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,8 +12,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
@@ -78,8 +81,12 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 	if err := os.MkdirAll(runtime.configBase, 0o700); err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_CONFIG_DIR_FAILED", "could not create the bootstrap recovery directory", err)
 	}
+	activationContext := command.Context()
+	if activationContext == nil {
+		activationContext = context.Background()
+	}
 	activationLock := flock.New(filepath.Join(runtime.configBase, updatepkg.ActivationLockFilename))
-	locked, err := activationLock.TryLock()
+	locked, err := activationLock.TryLockContext(activationContext, 50*time.Millisecond)
 	if err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_LOCK_FAILED", "could not acquire the bootstrap activation lock", err)
 	}
@@ -95,7 +102,7 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 		return bootstrapActivationResult{}, output.Policy("BOOTSTRAP_NPM_RECOVERY_REQUIRED", "an interrupted npm activation must be recovered before standalone bootstrap")
 	}
 	memberLock := flock.New(filepath.Join(runtime.configBase, updatepkg.ActivationMemberLockFilename))
-	memberLocked, err := memberLock.TryLock()
+	memberLocked, err := memberLock.TryLockContext(activationContext, 50*time.Millisecond)
 	if err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_LOCK_FAILED", "could not inspect the activation member lock", err)
 	}
@@ -140,6 +147,15 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 			return bootstrapActivationResult{}, output.Policy("BOOTSTRAP_INSTALL_METHOD_CHANGE_REFUSED", "switching between standalone and npm installation is not supported in place")
 		}
 		return bootstrapActivationResult{}, output.Policy("BOOTSTRAP_DOWNGRADE_REFUSED", "the staged ViceMe release is older than or conflicts with the active generation")
+	}
+	activeGeneration, activeExists, err := updatepkg.ReadActiveGeneration(runtime.configBase)
+	if err != nil {
+		_ = os.Remove(staged)
+		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_GENERATION_READ_FAILED", "could not read the active ViceMe generation", err)
+	}
+	if activeExists && activeGeneration == targetGeneration && bootstrapGenerationIsComplete(runtime, absDestination, targetHash, agent, region) {
+		_ = os.Remove(staged)
+		return bootstrapActivationResult{Destination: absDestination}, nil
 	}
 	journal := bootstrapActivationJournal{
 		SchemaVersion: 1,
@@ -195,6 +211,38 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_RECOVERY_FAILED", "ViceMe activated but its recovery files could not be finalized", err)
 	}
 	return bootstrapActivationResult{Destination: absDestination, Install: install}, nil
+}
+
+// bootstrapGenerationIsComplete is evaluated only while the shared activation
+// lock is held. Equality of the durable generation is not enough on its own:
+// an explicit repair must still replace a corrupted executable or Skill. A
+// concurrent updater may coalesce only after the first updater committed the
+// exact binary and every requested official Skill.
+func bootstrapGenerationIsComplete(runtime *Runtime, destination, targetHash, agent, region string) bool {
+	actualHash, err := bootstrapFileHash(destination)
+	if err != nil || actualHash != targetHash {
+		return false
+	}
+	expectedRegion := runtime.region
+	if region != "" {
+		expectedRegion, err = config.ParseRegion(region)
+		if err != nil {
+			return false
+		}
+	}
+	if _, err := os.Stat(config.ConfigPath(runtime.configBase)); err != nil {
+		return false
+	}
+	persistedConfig, err := config.LoadOrDefault(runtime.configBase)
+	if err != nil || persistedConfig.DistributionRegion != expectedRegion {
+		return false
+	}
+	for _, name := range officialSkillNames {
+		if !runtime.deps.Skills.Doctor(name, agent, runtime.deps.Environment).Healthy {
+			return false
+		}
+	}
+	return true
 }
 
 func recoverBootstrapActivation(configDir string, environment skillcontent.Environment) error {
