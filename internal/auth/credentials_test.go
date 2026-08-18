@@ -92,6 +92,46 @@ func TestCustomCredentialScopesNeverReadProductionRegionCredentials(t *testing.T
 	}
 }
 
+func TestOfficialEndpointCredentialMigratesAndKeepsRollbackKeyInSync(t *testing.T) {
+	t.Parallel()
+	store := securestore.NewMemory()
+	legacy := &Manager{Store: store, Region: "cn", ProfileID: "personal"}
+	official := &Manager{
+		Store: store, ProfileID: "personal", ProfileName: "personal",
+		Scope: "custom:official-cn-origin", LegacyRegion: "cn",
+	}
+	if err := legacy.Save(Credential{AccessToken: "legacy-token"}); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := official.Load()
+	if err != nil || loaded.AccessToken != "legacy-token" {
+		t.Fatalf("official endpoint did not load the legacy credential: %#v err=%v", loaded, err)
+	}
+	if value, err := store.Get(official.StorageKey()); err != nil || value == "" {
+		t.Fatalf("legacy credential was not migrated to the endpoint key: value=%q err=%v", value, err)
+	}
+	if value, err := store.Get(legacy.StorageKey()); err != nil || value == "" {
+		t.Fatalf("rollback credential was removed during migration: value=%q err=%v", value, err)
+	}
+	if err := official.Save(Credential{AccessToken: "updated-token"}); err != nil {
+		t.Fatal(err)
+	}
+	for name, manager := range map[string]*Manager{"endpoint": official, "rollback": legacy} {
+		credential, err := manager.Load()
+		if err != nil || credential.AccessToken != "updated-token" {
+			t.Fatalf("%s credential was not kept in sync: %#v err=%v", name, credential, err)
+		}
+	}
+	if err := official.Delete(); err != nil {
+		t.Fatal(err)
+	}
+	for name, manager := range map[string]*Manager{"endpoint": official, "rollback": legacy} {
+		if _, err := store.Get(manager.StorageKey()); !errors.Is(err, securestore.ErrNotFound) {
+			t.Fatalf("%s credential survived logout: %v", name, err)
+		}
+	}
+}
+
 func TestCredentialsAreIsolatedByProfile(t *testing.T) {
 	t.Parallel()
 	store := securestore.NewMemory()

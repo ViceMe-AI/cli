@@ -11,6 +11,14 @@ All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 
 ## Stable local identity
 
+The publishing workflow never selects an environment. The active CLI context
+is authoritative and already scopes every binding lookup and publication resume
+to its normalized API endpoint, market, and authenticated user. Agents must not
+inspect or modify CLI environment configuration or turn environments into
+user-facing choices. Memory, prior conversations, publication history, filenames, package
+digests, sidecars, and login state elsewhere cannot override that context. A
+historical match outside the active context must not be probed, offered, or resumed.
+
 `skill publish --path` validates the local source, creates or recovers the
 Listing and Publication, uploads the private package, and returns the first
 real Owner Preview in one fast path. Workspaces persist `.viceme/skill.json`;
@@ -75,14 +83,27 @@ this authorization. Any draft change produces a new `reviewDigest`; display the
 new review and obtain a new combined authorization before either command.
 
 The first unpriced publish uploads and verifies the package, then returns its
-Publication ID and Owner Preview. Set the price and continue with
-`skill publish --resume <id> --price-minor <fen>`; this is not a new upload
-authorization boundary. Then run `viceme --profile <publication-profile>
-publication wait <id>`. A `PENDING`
-analysis means the platform is working in the background; it does not authorize
-another write and must not interrupt the workflow with a “continue” question.
-If the CLI wait deadline is reached, repeat only the wait command with the same
-ID. Never upload the same package again to resume analysis.
+Publication ID and Owner Preview. Continue immediately with `skill publish
+--resume <id>` without a price; this is not a new upload authorization boundary.
+That continuation uploads media candidates and starts listing analysis while
+`priceMinor` remains null. `requiresPrice: true` is Draft completeness state,
+not a prompt to interrupt progressive enrichment. Then run `viceme publication
+wait <id>`. A `PENDING` analysis means the platform is working in the background;
+it does not authorize another write and must not interrupt the workflow with a
+“continue” question. If the CLI wait deadline is reached, repeat only the wait
+command with the same ID. Never upload the same package again to resume analysis.
+
+After analysis and required media are ready, fetch the authoritative review and
+display the title, bilingual summaries, bilingual usage instructions, cover,
+and ordered gallery before requesting more input. In that same interaction,
+ask for the CNY price and any desired changes to the displayed listing details.
+Never ask for price by itself or defer showing copy and media until after the
+price is supplied. If the user supplies only a price, preserve all displayed
+fields and apply it with `skill publish --resume <id> --price-minor <fen>`. If
+the user also requests edits, apply the complete answer to the same Draft,
+present the fresh preview, then fetch and display the final review. Price is
+required for final public confirmation, never for private media upload or
+analysis.
 
 Every successful CLI result that changes or completes the Draft includes a
 fresh `presentation`. Present its one-time launch immediately and always keep

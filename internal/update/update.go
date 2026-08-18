@@ -29,12 +29,11 @@ const (
 	RegistryURL             = "https://registry.npmjs.org"
 	RegistryPackageURL      = RegistryURL + "/@viceme-ai%2fcli/latest"
 	ScopeRegistryArg        = "--@viceme-ai:registry=" + RegistryURL
-	NoUpdateNotifierEnv     = "VICEME_NO_UPDATE_NOTIFIER"
 	updateStateFilename     = "update-state.json"
 	releaseUpdateStateStem  = "release-update-state-"
 	npmCacheDirectory       = "npm-cache"
 	npmActivationFilename   = NPMActivationJournalFilename
-	updateCacheTTL          = 24 * time.Hour
+	updateCacheTTL          = 5 * time.Minute
 	maximumRegistryResponse = 256 << 10
 	npmActivationNonceBytes = 32
 )
@@ -104,21 +103,17 @@ type ApplyResult struct {
 	Targets            []TargetResult `json:"targets"`
 }
 
-// Notice is the stable machine-readable update hint injected into CLI output.
-// It intentionally contains no registry response or local filesystem details.
-type Notice struct {
-	Current string `json:"current"`
-	Latest  string `json:"latest"`
-}
-
-func (notice Notice) Message() string {
-	return fmt.Sprintf("ViceMe CLI %s is available; current %s; run: viceme update", notice.Latest, notice.Current)
-}
-
 type Service interface {
 	EnsureLauncher(context.Context) (TargetResult, error)
 	Check(context.Context) (CheckResult, error)
 	Apply(context.Context, CheckResult, ApplyOptions) (ApplyResult, error)
+}
+
+// AutomaticChecker performs the bounded freshness gate used before ordinary
+// commands. A fresh, validated local result avoids another network request;
+// stale state is refreshed from the authoritative stable channel.
+type AutomaticChecker interface {
+	CheckAutomatic(context.Context) (CheckResult, error)
 }
 
 // LockedStartupRecoverer reconciles an outer launcher activation while the
@@ -126,14 +121,6 @@ type Service interface {
 // contract so npm and standalone journals share one coordinator and one lock.
 type LockedStartupRecoverer interface {
 	RecoverActivationWhileLocked(context.Context) error
-}
-
-// Notifier is an optional read-only extension implemented by every updater
-// that has an authoritative version source. Commands never fail when version
-// discovery or the notification cache is unavailable.
-type Notifier interface {
-	CachedNotice() *Notice
-	RefreshNotice(context.Context)
 }
 
 type Runner interface {
@@ -196,7 +183,7 @@ func (service *NPMService) EnsureLauncher(ctx context.Context) (TargetResult, er
 	if err != nil {
 		return result, err
 	}
-	err = service.withNPMActivationLock(func() error {
+	err = service.withNPMActivationLock(ctx, func() error {
 		if err := service.recoverNPMActivation(ctx); err != nil {
 			return err
 		}
@@ -291,6 +278,38 @@ func (service *NPMService) Check(ctx context.Context) (CheckResult, error) {
 	return result, nil
 }
 
+func (service *NPMService) CheckAutomatic(ctx context.Context) (CheckResult, error) {
+	result := CheckResult{
+		CurrentVersion: service.CurrentVersion,
+		Method:         "npm",
+		Package:        PackageName,
+	}
+	if service.InstallMethod != "npm" || automaticUpdateSuppressed(service.CurrentVersion, service.ComparableVersion) {
+		result.Source = "disabled"
+		return result, nil
+	}
+	if state, ok := service.loadUpdateState(); ok && service.updateStateIsFresh(state) {
+		return service.checkForAvailableVersion(state.LatestVersion, "cache")
+	}
+	return service.Check(ctx)
+}
+
+func (service *NPMService) checkForAvailableVersion(available, source string) (CheckResult, error) {
+	result := CheckResult{
+		CurrentVersion:   service.CurrentVersion,
+		AvailableVersion: available,
+		Method:           "npm",
+		Package:          PackageName,
+		Source:           source,
+	}
+	comparison, err := semver.Compare(available, service.ComparableVersion)
+	if err != nil {
+		return result, fmt.Errorf("compare npm release with current CLI: %w", err)
+	}
+	result.UpdateAvailable = comparison > 0
+	return result, nil
+}
+
 func (service *NPMService) Apply(ctx context.Context, check CheckResult, options ApplyOptions) (ApplyResult, error) {
 	result := ApplyResult{PreviousCLIVersion: service.CurrentVersion, CLIVersion: service.CurrentVersion}
 	if service.InstallMethod != "npm" {
@@ -316,12 +335,21 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 	if err != nil {
 		return result, err
 	}
-	err = service.withNPMActivationLock(func() error {
+	alreadyActive := false
+	err = service.withNPMActivationLock(ctx, func() error {
 		if err := service.recoverNPMActivation(ctx); err != nil {
 			return err
 		}
 		if err := ValidateActivationTarget(service.ConfigDir, generation); err != nil {
 			return err
+		}
+		active, exists, err := ReadActiveGeneration(service.ConfigDir)
+		if err != nil {
+			return err
+		}
+		if exists && active == generation {
+			alreadyActive = true
+			return nil
 		}
 		journal, err := service.newNPMActivationJournal(generation, target, true)
 		if err != nil {
@@ -344,6 +372,10 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 	if !check.UpdateAvailable {
 		cliTarget.Status = "unchanged"
 	}
+	if alreadyActive {
+		cliTarget.Status = "unchanged"
+		skillTarget.Status = "unchanged"
+	}
 	result.CLIVersion = targetVersion
 	result.Targets = append(result.Targets, cliTarget, skillTarget)
 	return result, nil
@@ -364,7 +396,7 @@ type npmActivationJournal struct {
 	RefreshSkills bool              `json:"refreshSkills"`
 }
 
-func (service *NPMService) withNPMActivationLock(operation func() error) error {
+func (service *NPMService) withNPMActivationLock(ctx context.Context, operation func() error) error {
 	if service.ConfigDir == "" {
 		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("ViceMe config directory is required for recoverable npm activation")}
 	}
@@ -372,12 +404,12 @@ func (service *NPMService) withNPMActivationLock(operation func() error) error {
 		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("could not create the ViceMe config directory")}
 	}
 	activationLock := flock.New(filepath.Join(service.ConfigDir, ActivationLockFilename))
-	locked, err := activationLock.TryLock()
+	locked, err := activationLock.TryLockContext(ctx, 50*time.Millisecond)
 	if err != nil {
 		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("could not acquire the npm activation lock")}
 	}
 	if !locked {
-		return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("another npm CLI and Skill activation is active")}
+		return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("timed out waiting for another npm CLI and Skill activation")}
 	}
 	defer activationLock.Unlock()
 	memberLock := flock.New(filepath.Join(service.ConfigDir, ActivationMemberLockFilename))
@@ -400,7 +432,7 @@ func (service *NPMService) withNPMActivationLock(operation func() error) error {
 }
 
 func (service *NPMService) RecoverAtStartup(ctx context.Context) error {
-	if err := service.withNPMActivationLock(func() error {
+	if err := service.withNPMActivationLock(ctx, func() error {
 		return service.recoverNPMActivation(ctx)
 	}); err != nil {
 		return err
@@ -856,54 +888,9 @@ func (service *NPMService) latestVersion(ctx context.Context) (string, string, e
 	return "", "", err
 }
 
-// CachedNotice performs local I/O only. Like lark-cli, it may use the last
-// validated cached version while a stale cache is refreshed in the background.
-func (service *NPMService) CachedNotice() *Notice {
-	if service.shouldSkipNotifier() {
-		return nil
-	}
-	state, ok := service.loadUpdateState()
-	if !ok {
-		return nil
-	}
-	comparison, err := semver.Compare(state.LatestVersion, service.ComparableVersion)
-	if err != nil || comparison <= 0 {
-		return nil
-	}
-	return &Notice{Current: service.CurrentVersion, Latest: state.LatestVersion}
-}
-
-// RefreshNotice refreshes the version cache at most once per 24 hours.
-// All failures are intentionally ignored by callers: update discovery must
-// never change command output, latency, or exit status.
-func (service *NPMService) RefreshNotice(ctx context.Context) {
-	if service.shouldSkipNotifier() {
-		return
-	}
-	if state, ok := service.loadUpdateState(); ok && service.updateStateIsFresh(state) {
-		return
-	}
-	version, err := service.fetchLatestVersion(ctx)
-	if err == nil {
-		service.saveUpdateState(version)
-	}
-}
-
-func (service *NPMService) shouldSkipNotifier() bool {
-	if service.InstallMethod != "npm" || notifierSuppressed(service.CurrentVersion, service.ComparableVersion) {
+func automaticUpdateSuppressed(currentVersion, comparableVersion string) bool {
+	if os.Getenv("CI") != "" {
 		return true
-	}
-	return false
-}
-
-func notifierSuppressed(currentVersion, comparableVersion string) bool {
-	if os.Getenv(NoUpdateNotifierEnv) != "" {
-		return true
-	}
-	for _, key := range []string{"CI", "BUILD_NUMBER", "RUN_ID"} {
-		if os.Getenv(key) != "" {
-			return true
-		}
 	}
 	if _, err := semver.Parse(currentVersion); err != nil {
 		return true
