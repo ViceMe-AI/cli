@@ -1,0 +1,354 @@
+name: POC CLI manual release
+
+# Isolated POC delivery. This workflow never publishes npm, formal tags,
+# formal installers, or the formal CN/GLOBAL buckets.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Immutable POC version matching the current stable base, e.g. 0.16.0-poc.1'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: viceme-cli-poc-release
+  cancel-in-progress: false
+
+env:
+  POC_PUBLIC_ORIGIN: 'https://viceme-shop-storage-poc.preview.tencent-zeabur.cn'
+
+jobs:
+  metadata:
+    name: Resolve exact POC source
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.metadata.outputs.version }}
+      tag: ${{ steps.metadata.outputs.tag }}
+      sha: ${{ steps.metadata.outputs.sha }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - id: metadata
+        name: Validate branch, version line, and immutable tag
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/poc" || {
+            echo "::error::POC release must be dispatched from the exact poc branch"
+            exit 1
+          }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-poc\.[0-9]+$ ]] || {
+            echo "::error::version must match x.y.z-poc.N"
+            exit 1
+          }
+          SOURCE_VERSION="$(node -p "require('./package.json').version")"
+          test "${VERSION%-poc.*}" = "$SOURCE_VERSION" || {
+            echo "::error::POC base ${VERSION%-poc.*} must equal source stable line $SOURCE_VERSION"
+            exit 1
+          }
+          TAG="cli-poc-v${VERSION}"
+          SHA="$(git rev-parse HEAD)"
+          git fetch origin --tags
+          EXISTING_SHA="$(git rev-list -n 1 "$TAG" 2>/dev/null || true)"
+          if [ -n "$EXISTING_SHA" ] && [ "$EXISTING_SHA" != "$SHA" ]; then
+            echo "::error::immutable tag $TAG already points to $EXISTING_SHA, not $SHA"
+            exit 1
+          fi
+          {
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            echo "sha=$SHA"
+          } >> "$GITHUB_OUTPUT"
+
+  quality:
+    name: POC source quality (exact SHA)
+    needs: metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: make check
+      - run: make npm-package-check
+
+  tag:
+    name: Create or verify immutable POC tag
+    needs: [metadata, quality]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+          fetch-depth: 0
+      - name: Tag exact source
+        env:
+          TAG: ${{ needs.metadata.outputs.tag }}
+          RELEASE_SHA: ${{ needs.metadata.outputs.sha }}
+        run: |
+          set -euo pipefail
+          git fetch origin --tags
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          EXISTING_SHA="$(git rev-list -n 1 "$TAG" 2>/dev/null || true)"
+          if [ -n "$EXISTING_SHA" ]; then
+            test "$EXISTING_SHA" = "$RELEASE_SHA"
+            exit 0
+          fi
+          git tag --annotate "$TAG" "$RELEASE_SHA" --message "POC CLI release $TAG"
+          git push origin "refs/tags/$TAG"
+
+  binaries:
+    name: POC binary (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: [metadata, tag]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: darwin, goarch: amd64, extension: '' }
+          - { goos: darwin, goarch: arm64, extension: '' }
+          - { goos: linux, goarch: amd64, extension: '' }
+          - { goos: linux, goarch: arm64, extension: '' }
+          - { goos: windows, goarch: amd64, extension: '.exe' }
+          - { goos: windows, goarch: arm64, extension: '.exe' }
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build exact POC binary and checksum
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          RELEASE_SHA: ${{ needs.metadata.outputs.sha }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '0'
+        run: |
+          set -euo pipefail
+          ASSET="viceme_${VERSION}_${GOOS}_${GOARCH}${{ matrix.extension }}"
+          mkdir -p dist
+          go build -trimpath \
+            -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=${VERSION} -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=${RELEASE_SHA}" \
+            -o "dist/${ASSET}" ./cmd/viceme
+          cd dist
+          sha256sum "$ASSET" > "$ASSET.sha256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: poc-binaries-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
+
+  release-contract:
+    name: Signed POC installation contract
+    needs: [metadata, binaries]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: poc-binaries-*
+          merge-multiple: true
+          path: dist
+      - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+      - name: Assemble and sign exact POC contract
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          COSIGN_YES: 'true'
+        run: |
+          set -euo pipefail
+          cp installers/install-poc.sh dist/install.sh
+          cp installers/install-poc.ps1 dist/install.ps1
+          cp release/poc-bootstrap-contract.json dist/bootstrap-contract.json
+          go run ./cmd/release-manifest \
+            --output dist/release-manifest.json \
+            --cli-version "$VERSION" \
+            --npm-package standalone-only \
+            --bootstrap-contract release/poc-bootstrap-contract.json \
+            --install-sh installers/install-poc.sh \
+            --install-ps1 installers/install-poc.ps1
+          go run ./cmd/agent-release-manifest \
+            --version "$VERSION" \
+            --source dist/release-manifest.json \
+            --certificate-identity 'https://github.com/ViceMe-AI/cli/.github/workflows/poc-release.yml@refs/heads/poc'
+          go run ./cmd/agent-install-doc \
+            --version "$VERSION" \
+            --template release/agent-install-poc.md.tmpl
+          cosign sign-blob \
+            --bundle dist/agent-release-manifest.sigstore.json \
+            dist/agent-release-manifest.json
+          cosign verify-blob \
+            --bundle dist/agent-release-manifest.sigstore.json \
+            --certificate-identity 'https://github.com/ViceMe-AI/cli/.github/workflows/poc-release.yml@refs/heads/poc' \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            dist/agent-release-manifest.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: poc-release-contract
+          path: |
+            dist/agent-install.md
+            dist/agent-release-manifest.json
+            dist/agent-release-manifest.sigstore.json
+            dist/bootstrap-contract.json
+            dist/install.ps1
+            dist/install.sh
+            dist/release-manifest.json
+          if-no-files-found: error
+
+  publish:
+    name: Publish POC GitHub and S3 assets
+    needs: [metadata, binaries, release-contract]
+    runs-on: ubuntu-latest
+    environment: poc
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.metadata.outputs.sha }}
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: poc-binaries-*
+          merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: poc-release-contract
+          path: dist
+      - name: Publish or verify immutable GitHub prerelease
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            mkdir -p existing-release
+            gh release download "$TAG" --dir existing-release
+            for FILE in dist/*; do
+              NAME="${FILE#dist/}"
+              if [ -f "existing-release/$NAME" ]; then
+                cmp --silent "$FILE" "existing-release/$NAME"
+              else
+                gh release upload "$TAG" "$FILE"
+              fi
+            done
+          else
+            gh release create "$TAG" dist/* --verify-tag --prerelease --title "$TAG" \
+              --notes 'Isolated ViceMe POC CLI and Skill bundle.'
+          fi
+      - name: Publish immutable S3 release and monotonic POC entry
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          S3_ENDPOINT: ${{ secrets.VICEME_POC_S3_ENDPOINT }}
+          S3_BUCKET: ${{ secrets.VICEME_POC_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.VICEME_POC_S3_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.VICEME_POC_S3_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+          AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
+        run: |
+          set -euo pipefail
+          test "$S3_BUCKET" = start || {
+            echo "::error::VICEME_POC_S3_BUCKET must be start"
+            exit 1
+          }
+          PREFIX='poc/cli/releases'
+          SCRATCH="$(mktemp -d)"
+          trap 'rm -rf "$SCRATCH"' EXIT
+
+          put_immutable() {
+            SOURCE="$1" KEY="$2" CONTENT_TYPE="${3:-}"
+            if aws --endpoint-url "$S3_ENDPOINT" s3api head-object --bucket "$S3_BUCKET" --key "$KEY" >/dev/null 2>&1; then
+              aws --endpoint-url "$S3_ENDPOINT" s3 cp "s3://$S3_BUCKET/$KEY" "$SCRATCH/existing" --only-show-errors
+              cmp --silent "$SOURCE" "$SCRATCH/existing"
+              return
+            fi
+            if [ -n "$CONTENT_TYPE" ]; then
+              aws --endpoint-url "$S3_ENDPOINT" s3 cp "$SOURCE" "s3://$S3_BUCKET/$KEY" \
+                --content-type "$CONTENT_TYPE" --cache-control 'public,max-age=31536000,immutable' --only-show-errors
+            else
+              aws --endpoint-url "$S3_ENDPOINT" s3 cp "$SOURCE" "s3://$S3_BUCKET/$KEY" \
+                --cache-control 'public,max-age=31536000,immutable' --only-show-errors
+            fi
+          }
+
+          aws --endpoint-url "$S3_ENDPOINT" s3api head-bucket --bucket "$S3_BUCKET"
+          for FILE in dist/*; do
+            NAME="${FILE#dist/}"
+            TYPE=''
+            case "$NAME" in
+              *.md) TYPE='text/markdown; charset=utf-8' ;;
+              *.json) TYPE='application/json; charset=utf-8' ;;
+              *.sh) TYPE='text/x-shellscript; charset=utf-8' ;;
+              *.ps1) TYPE='text/plain; charset=utf-8' ;;
+            esac
+            put_immutable "$FILE" "$PREFIX/v$VERSION/$NAME" "$TYPE"
+          done
+
+          EXISTING=''
+          if aws --endpoint-url "$S3_ENDPOINT" s3 cp "s3://$S3_BUCKET/$PREFIX/latest" "$SCRATCH/latest" --only-show-errors 2>/dev/null; then
+            EXISTING="$(tr -d '\r\n' < "$SCRATCH/latest")"
+          fi
+          HIGHEST="$(printf '%s\n%s\n' "${EXISTING:-0.0.0-poc.0}" "$VERSION" | sort -V | tail -n 1)"
+          if [ "$HIGHEST" = "$VERSION" ]; then
+            printf '%s\n' "$VERSION" > "$SCRATCH/new-latest"
+            aws --endpoint-url "$S3_ENDPOINT" s3 cp "$SCRATCH/new-latest" "s3://$S3_BUCKET/$PREFIX/latest" \
+              --content-type text/plain --cache-control 'public,max-age=60' --only-show-errors
+            for FILE in install.sh install.ps1 agent-install.md; do
+              TYPE='text/plain; charset=utf-8'
+              [ "$FILE" = agent-install.md ] && TYPE='text/markdown; charset=utf-8'
+              aws --endpoint-url "$S3_ENDPOINT" s3 cp "dist/$FILE" "s3://$S3_BUCKET/poc/$FILE" \
+                --content-type "$TYPE" --cache-control 'public,max-age=300' --only-show-errors
+            done
+          fi
+
+          PROBE_KEY="poc/private-probe/${GITHUB_RUN_ID}"
+          aws --endpoint-url "$S3_ENDPOINT" s3 cp dist/agent-install.md "s3://$S3_BUCKET/$PROBE_KEY" \
+            --cache-control 'private,no-store' --only-show-errors
+          PROBE_STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' "$POC_PUBLIC_ORIGIN/start/$PROBE_KEY" || true)"
+          aws --endpoint-url "$S3_ENDPOINT" s3 rm "s3://$S3_BUCKET/$PROBE_KEY" --only-show-errors
+          test "$PROBE_STATUS" != 200
+          test "$(curl --silent --output /dev/null --write-out '%{http_code}' "$POC_PUBLIC_ORIGIN/?list-type=2")" != 200
+
+          for FILE in agent-install.md agent-release-manifest.json agent-release-manifest.sigstore.json install.sh install.ps1; do
+            curl --fail --silent --show-error "$POC_PUBLIC_ORIGIN/start/$PREFIX/v$VERSION/$FILE" --output "$SCRATCH/$FILE"
+            cmp --silent "dist/$FILE" "$SCRATCH/$FILE"
+          done
+          curl --fail --silent --show-error --head "$POC_PUBLIC_ORIGIN/start/$PREFIX/v$VERSION/agent-install.md" \
+            | grep -i '^cache-control:.*max-age=31536000.*immutable'
+          if [ "$HIGHEST" = "$VERSION" ]; then
+            for FILE in install.sh install.ps1 agent-install.md; do
+              curl --fail --silent --show-error "$POC_PUBLIC_ORIGIN/start/poc/$FILE" --output "$SCRATCH/root-$FILE"
+              cmp --silent "dist/$FILE" "$SCRATCH/root-$FILE"
+            done
+          fi
