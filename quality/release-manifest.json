@@ -4,10 +4,10 @@
   "cli_version": "0.16.0",
   "skills": {
     "viceme-access": {
-      "skill_version": "0.15.0",
-      "minimum_cli_version": "0.15.0",
-      "cli_compatibility": ">=0.15.0 <0.16.0",
-      "full_skill_bundle_digest": "sha256:f1e8b50be7e9cade06d178b48f1134ad627829eff64bd26df6153e23a72ff20d",
+      "skill_version": "0.16.0",
+      "minimum_cli_version": "0.16.0",
+      "cli_compatibility": ">=0.16.0 <0.17.0",
+      "full_skill_bundle_digest": "sha256:9df092ffb8dcd9436ad35b82f2c6d79a1864f18f237cb4083a95563dfbb89aa1",
       "embedded_content_digest": "sha256:795a211166273dc14c99e1a97df5aa82c7775ef8221af247a8fb3e36b0ab79a5"
     },
     "viceme-danmaku": {
