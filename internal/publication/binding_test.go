@@ -174,14 +174,14 @@ func TestBindingRejectsAnotherEndpointScope(t *testing.T) {
 
 func testBindingStore(t *testing.T) BindingStore {
 	t.Helper()
-	return BindingStore{Directory: filepath.Join(t.TempDir(), "bindings"), EndpointOrigin: "https://api.viceme.cn", Market: "CN"}
+	return BindingStore{Directory: filepath.Join(t.TempDir(), "bindings"), EndpointOrigin: "https://api.viceme.cn"}
 }
 
 func testBinding(clientWorkID, packageDigest string, store BindingStore) SkillBinding {
 	return SkillBinding{
 		APIVersion: BindingAPIVersion, Kind: "SkillListing",
 		ListingID: "22222222-2222-4222-8222-222222222222", ClientWorkID: clientWorkID,
-		Market: store.Market, EndpointOrigin: store.EndpointOrigin,
+		Market: "CN", EndpointOrigin: store.EndpointOrigin,
 		BindingReceipt: "signed-receipt", LastPackageDigest: packageDigest,
 	}
 }

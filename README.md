@@ -30,7 +30,7 @@
   listings when a response is lost.
 - **Built for Agents and automation** — stable JSON output, error codes, dry
   runs, and explicit state transitions make every action inspectable.
-- **Safe by default** — device authorization, origin-bound profiles, local
+- **Safe by default** — browser authorization, origin-bound profiles, local
   secret checks, immutable digests, and verified uploads protect the release
   path.
 
@@ -57,18 +57,20 @@
    discover the installed Skills.
 3. Attach a local Skill directory or ZIP and ask naturally:
 
-   > Publish this Skill to ViceMe for CNY 1.00.
+   > Publish this Skill to ViceMe.
 
 The Agent checks login, keeps the selected Profile fixed throughout the
 workflow, validates the Skill, immediately uploads the private Draft, and opens
-its real Owner Preview before asking for a price.
+its real Owner Preview. It continues media analysis without asking for a price.
 After ViceMe prepares the bilingual copy and media suggestions, the Agent shows
-the complete review—including the images—and asks once whether to confirm and
-publish it publicly.
+the complete listing—including the images—and asks one combined question for
+the price and any desired changes. It then shows the final review and asks once
+whether to confirm and publish it publicly.
 
 ```text
-Local Skill → Login → Validate and private upload → Owner Preview → Set price
-            → Platform analysis → Final review → Confirm and publish → Public URL
+Local Skill → Login → Validate and private upload → Owner Preview → Platform analysis
+            → Complete listing details + price question → Final review
+            → Confirm and publish → Public URL
 ```
 
 The initial request to “publish” is not permission to make the listing public.
@@ -88,7 +90,12 @@ viceme auth login
 # Upload the real private draft and open its Owner Preview before pricing.
 viceme skill publish --path ./my-skill
 
-# Set CNY 1.00 on the same draft, then continue media and analysis.
+# Continue the same unpriced draft, upload media, and start analysis.
+viceme skill publish --resume <publication-id>
+viceme publication wait <publication-id>
+viceme publication review <publication-id>
+
+# After reviewing the complete listing details, set CNY 1.00 on that draft.
 viceme skill publish --resume <publication-id> --price-minor 100
 ```
 
@@ -168,15 +175,15 @@ are not accepted.
 | Login | Browser authorization happens before protected API work. Every command remains pinned to the same Profile and API origin. |
 | Inspect | Local validation rejects unsafe paths, special files, excessive content, sensitive files, and common secret patterns. |
 | Private upload and preview | The initial publish request authorizes the private Draft upload. The real package is verified and its Owner Preview opens before pricing. |
-| Price | The user supplies an exact CNY price in fen on the same Publication. |
 | Analysis | ViceMe proposes short Chinese and English summaries, bilingual usage instructions, a cover, and an ordered gallery. Suggestions are never treated as user decisions. |
+| Listing details and price | After analysis, the Agent displays the exact title, bilingual copy, cover, and gallery, then asks one combined question for the CNY price in fen and any desired changes. It never asks for price by itself. |
 | Review | The Agent displays the exact copy, price, cover, and gallery images. A short summary has a maximum display width of 30; ASCII counts as 1 and Chinese/non-ASCII as 2. |
 | Publish | One explicit final confirmation authorizes review confirmation followed by immediate, irreversible public publication. |
 
 If the upload or response is interrupted, continue the existing publication:
 
 ```bash
-viceme --profile <publication-profile> skill publish --resume <publication-id>
+viceme skill publish --resume <publication-id>
 ```
 
 Never create a second publication merely because the previous response was
@@ -184,9 +191,9 @@ unknown. Query or resume the existing ID first.
 
 ## Authentication and Profiles
 
-Each Profile binds one region, one API endpoint, and one device-authorized
-account. Profiles without a custom endpoint use the selected region's official
-ViceMe API.
+Each Profile binds one explicit API endpoint and one device-authorized account.
+The separately stored distribution region selects only the CLI and bundled
+Skill download source; it never selects a publication market.
 
 ```bash
 viceme auth login
@@ -203,7 +210,6 @@ dedicated Profile before signing in:
 ```bash
 viceme profile add \
   --name private-cn \
-  --region cn \
   --api-base-url https://api.example.com \
   --use
 viceme auth login
@@ -234,9 +240,10 @@ Never copy an access token into the conversation.
 | `viceme skill listing get <listing-id>` | Read the authoritative private Listing state. |
 | `viceme skill listing bind <listing-id> --path <path>` | Explicitly bind a source to a selected owned Listing. |
 | `viceme skill publish --path <path>` | Upload the real private package and return its Owner Preview before pricing. |
-| `viceme skill publish --resume <id> --price-minor <fen>` | Price the same Draft, upload media candidates, and start analysis. |
+| `viceme skill publish --resume <id>` | Continue the same unpriced Draft, upload media candidates, and start analysis. |
 | `viceme publication wait <id>` | Wait for background analysis without re-uploading. |
 | `viceme publication review <id>` | Read the authoritative bilingual copy, price, selected media, and review state. |
+| `viceme skill publish --resume <id> --price-minor <fen>` | Apply the reviewed CNY price to the same Draft without creating another Listing. |
 | `viceme publication asset upload ...` | Replace or add a cover or gallery image before confirmation. |
 | `viceme publication update ...` | Replace the complete listing draft from a strict JSON file. |
 | `viceme publication confirm ...` | Confirm the exact current review digest. |

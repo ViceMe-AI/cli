@@ -64,7 +64,7 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 	}
 
 	endpoint := server.URL + "/api/"
-	if exit, envelope := run("profile", "add", "--name", "shop-dev", "--region", "cn", "--api-base-url", endpoint, "--use"); exit != 0 || envelope["ok"] != true {
+	if exit, envelope := run("profile", "add", "--name", "shop-dev", "--api-base-url", endpoint, "--use"); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("could not add custom endpoint profile: exit=%d result=%#v", exit, envelope)
 	}
 	configured, err := config.LoadOrDefault(configDir)
@@ -78,12 +78,12 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 	if profile.APIBaseURL != server.URL+"/api" || configured.CurrentProfile != profile.Name {
 		t.Fatalf("custom profile was not persisted canonically: %#v", configured)
 	}
-	scope, err := credentialScopeForAPIBase(profile.ResolvedAPIBaseURL(), profile.Region)
+	scope, err := credentialScopeForAPIBase(profile.ResolvedAPIBaseURL())
 	if err != nil {
 		t.Fatal(err)
 	}
 	manager := credentialauth.Manager{
-		Store: store, Region: string(profile.Region), ProfileID: profile.ID, ProfileName: profile.Name, Scope: scope,
+		Store: store, Region: string(configured.DistributionRegion), ProfileID: profile.ID, ProfileName: profile.Name, Scope: scope,
 	}
 	if err := manager.Save(credentialauth.Credential{
 		AccessToken: accessToken, ExpiresAt: time.Now().Add(time.Hour),
@@ -114,12 +114,50 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 	}
 }
 
+func TestProfileListMigratesOfficialLegacyCredential(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	store := securestore.NewMemory()
+	legacy := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default"}
+	if err := legacy.Save(credentialauth.Credential{AccessToken: "legacy-official-token"}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := Execute([]string{"profile", "list"}, Dependencies{
+		Out: &stdout, ErrOut: &stderr, Store: store,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit != 0 {
+		t.Fatalf("profile list failed: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	items, ok := envelope["data"].([]any)
+	if !ok || len(items) != 1 || items[0].(map[string]any)["authenticated"] != true {
+		t.Fatalf("profile list lost the official legacy credential: %#v", envelope)
+	}
+	scope, err := credentialScopeForAPIBase(config.APIBaseURL(config.RegionCN))
+	if err != nil {
+		t.Fatal(err)
+	}
+	endpoint := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+	if _, err := store.Get(endpoint.StorageKey()); err != nil {
+		t.Fatalf("profile list did not migrate the endpoint credential: %v", err)
+	}
+	if _, err := store.Get(legacy.StorageKey()); err != nil {
+		t.Fatalf("profile list removed the rollback credential: %v", err)
+	}
+}
+
 func TestProfileRemoveAllRequiresConfirmationAndClearsEveryCredential(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	configDir := filepath.Join(root, "config")
 	configured := config.Default(config.RegionCN)
-	shopTest, err := configured.AddProfile("shop-test", config.RegionCN, "https://shop-test.example.com/api")
+	shopTest, err := configured.AddProfile("shop-test", "https://shop-test.example.com/api")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,12 +169,12 @@ func TestProfileRemoveAllRequiresConfirmationAndClearsEveryCredential(t *testing
 	store := securestore.NewMemory()
 	credentialKeys := make([]string, 0, len(configured.Profiles))
 	for _, profile := range configured.Profiles {
-		scope, err := credentialScopeForAPIBase(profile.ResolvedAPIBaseURL(), profile.Region)
+		scope, err := credentialScopeForAPIBase(profile.ResolvedAPIBaseURL())
 		if err != nil {
 			t.Fatal(err)
 		}
 		key := (&credentialauth.Manager{
-			Store: store, Region: string(profile.Region), ProfileID: profile.ID, ProfileName: profile.Name, Scope: scope,
+			Store: store, Region: string(configured.DistributionRegion), ProfileID: profile.ID, ProfileName: profile.Name, Scope: scope,
 		}).StorageKey()
 		credentialKeys = append(credentialKeys, key)
 		if err := store.Set(key, `{"access_token":"vme_cli_test"}`); err != nil {
