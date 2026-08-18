@@ -241,7 +241,6 @@ type SkillPublication struct {
 
 type PrepareSkillListingRequest struct {
 	ClientRequestID string                    `json:"clientRequestId"`
-	Market          string                    `json:"market"`
 	Source          PrepareSkillListingSource `json:"source"`
 	Resolution      *SkillListingResolution   `json:"resolution,omitempty"`
 }
@@ -271,6 +270,7 @@ type SkillListingPreviewViewModel struct {
 
 type PrepareSkillListingResponse struct {
 	ListingID       string                       `json:"listingId"`
+	Market          string                       `json:"market"`
 	Status          string                       `json:"status"`
 	DraftRevision   int                          `json:"draftRevision"`
 	OwnerPreviewURL string                       `json:"ownerPreviewUrl"`
@@ -286,7 +286,6 @@ type CreateSkillPreviewLaunchResponse struct {
 }
 
 type SkillListingCandidatesRequest struct {
-	Market        string `json:"market"`
 	PackageDigest string `json:"packageDigest"`
 }
 

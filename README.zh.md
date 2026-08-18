@@ -27,7 +27,7 @@
   也不会重复创建商品。
 - **同时适合 Agent 和自动化**——稳定 JSON、错误码、Dry Run 和明确状态让每个动作
   都可检查、可复现。
-- **默认安全**——设备码授权、绑定 Origin 的 Profile、本地 Secret 检查、不可变摘要
+- **默认安全**——浏览器授权、绑定 Origin 的 Profile、本地 Secret 检查、不可变摘要
   和已验证上传共同保护发布链路。
 
 ## 能做什么
@@ -53,15 +53,17 @@
    Skills。
 3. 附上本地 Skill 目录或 ZIP，然后直接说：
 
-   > 帮我把这个 Skill 以人民币 1 元发布到 ViceMe。
+   > 帮我把这个 Skill 发布到 ViceMe。
 
 Agent 会先检查登录状态，在整个流程中固定使用同一个 Profile，校验 Skill 后立即
-上传私有草稿并打开真实创作者预览，然后再询问价格。ViceMe 完成双语文案和素材建议后，
-Agent 会把完整成品和图片直接展示出来，最后只询问一次是否确认并立即公开发布。
+上传私有草稿并打开真实创作者预览，不询价就继续媒体分析。ViceMe 完成双语文案和素材
+建议后，Agent 会先把完整作品详情和图片直接展示出来，再把价格和详情修改合并成一个
+问题；应用用户答案后展示最终成品，最后只询问一次是否确认并立即公开发布。
 
 ```text
-本地 Skill → 登录 → 校验并私有上传 → 创作者预览 → 定价
-           → 平台分析 → 最终成品 → 确认并发布 → 公开商品链接
+本地 Skill → 登录 → 校验并私有上传 → 创作者预览 → 平台分析
+           → 完整详情与价格合并询问 → 最终成品
+           → 确认并发布 → 公开商品链接
 ```
 
 最初的“帮我发布”不等于授权公开上架。只有完整审核稿已经展示、用户明确确认后，
@@ -80,7 +82,12 @@ viceme auth login
 # 定价前先上传真实私有草稿，并打开创作者预览。
 viceme skill publish --path ./my-skill
 
-# 在同一草稿上设置人民币 1 元，并继续媒体上传与分析。
+# 继续同一个未定价草稿，上传媒体并启动分析。
+viceme skill publish --resume <publication-id>
+viceme publication wait <publication-id>
+viceme publication review <publication-id>
+
+# 查看完整作品详情后，在同一个草稿上设置人民币 1 元。
 viceme skill publish --resume <publication-id> --price-minor 100
 ```
 
@@ -154,23 +161,23 @@ Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作
 | 登录 | 受保护 API 操作前完成浏览器授权；所有后续命令固定使用同一个 Profile 与 API Origin。 |
 | 校验 | 本地拒绝危险路径、特殊文件、超限内容、敏感文件和常见 Secret 模式。 |
 | 私有上传与预览 | 用户发起发布即授权上传私有草稿；真实包验证后先打开创作者预览。 |
-| 定价 | 用户随后在同一 Publication 上以“分”为单位提供人民币价格。 |
 | 平台分析 | ViceMe 建议中英文短简介、中英文使用说明、封面和有序画廊；建议不能替代用户决定。 |
+| 作品详情与定价 | 分析完成后，Agent 先展示标题、双语文案、封面和画廊，再把价格和详情修改合并成一个问题；不能单独询价。 |
 | 图文审核 | Agent 展示精确文案、价格、封面和所有画廊图片。短简介最大显示宽度为 30：ASCII 计 1，中文及其他非 ASCII 计 2。 |
 | 公开发布 | 用户只需做一次最终明确确认；随后完成审核确认并立即、不可逆地公开上架。 |
 
 上传或响应中断后，继续原来的 Publication：
 
 ```bash
-viceme --profile <publication-profile> skill publish --resume <publication-id>
+viceme skill publish --resume <publication-id>
 ```
 
 不能因为上一次响应未知就创建第二个 Publication，应先查询或恢复原 ID。
 
 ## 登录与 Profile
 
-每个 Profile 绑定一个区域、一个 API Endpoint 和一个通过设备码授权的账户。没有
-自定义 Endpoint 的 Profile 使用对应区域的 ViceMe 官方 API。
+每个 Profile 绑定一个明确的 API Endpoint 和一个通过浏览器授权的账户。发布目标完全
+由当前 Profile 的 Endpoint 决定；单独的分发区域只选择 CLI 与官方 Skills 的下载来源。
 
 ```bash
 viceme auth login
@@ -186,7 +193,6 @@ viceme profile use default
 ```bash
 viceme profile add \
   --name private-cn \
-  --region cn \
   --api-base-url https://api.example.com \
   --use
 viceme auth login
@@ -215,9 +221,10 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme skill listing get <listing-id>` | 读取权威的私有 Listing 状态。 |
 | `viceme skill listing bind <listing-id> --path <path>` | 将来源明确绑定到用户选定且拥有的 Listing。 |
 | `viceme skill publish --path <path>` | 定价前上传真实私有包并返回创作者预览。 |
-| `viceme skill publish --resume <id> --price-minor <fen>` | 为同一 Draft 定价、上传媒体候选并启动分析。 |
+| `viceme skill publish --resume <id>` | 继续同一个未定价 Draft，上传媒体候选并启动分析。 |
 | `viceme publication wait <id>` | 等待后台分析，不重复上传。 |
 | `viceme publication review <id>` | 读取权威双语文案、价格、选定素材和审核状态。 |
+| `viceme skill publish --resume <id> --price-minor <fen>` | 在完整详情审核后，为同一个 Draft 写入人民币价格，不新建 Listing。 |
 | `viceme publication asset upload ...` | 确认前替换或新增封面、画廊图片。 |
 | `viceme publication update ...` | 用严格 JSON 文件替换完整 Listing Draft。 |
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |
@@ -237,6 +244,11 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
   "data": {},
   "meta": {
     "executingCliVersion": "<version>",
+    "autoUpdate": {
+      "from": "<previous-version>",
+      "to": "<executing-version>",
+      "status": "updated"
+    },
     "requestId": "optional"
   }
 }
@@ -244,18 +256,25 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 
 `meta.executingCliVersion` 表示输出本次响应的进程版本。对于 `viceme update`，
 新安装版本单独由 `data.cli_version` 返回，因为最终响应仍由启动更新的旧进程输出。
+只有当本次命令由新激活的版本自动继续执行时，响应才会包含 `meta.autoUpdate`。
 
-正式安装最多每 24 小时读取一次权威发布渠道。发现新版本后，普通 JSON 响应通过
-`_notice.update` 返回当前版本、最新版本和 `viceme update`。检查失败不会改变业务
-命令的退出码。
+正式安装在执行普通命令前都会经过有界的新鲜度检查。已经校验的结果会复用五分钟，
+避免同一工作流反复访问发布渠道。发现新的稳定版本时，CLI 与所有检测到的官方
+Skills 会作为一个可恢复的完整版本一起激活，随后由新 CLI 自动重新执行原命令。
+断网时发布发现会继续使用最后一个完整版本；如果版本激活失败，原命令会停止，避免
+旧进程在版本切换失败后继续执行写操作。
+
+npm 安装在所有支持的平台都会自动继续原命令。Windows 独立二进制在等待操作系统释放
+旧可执行文件时，可能会返回一次可重试的 `AUTO_UPDATE_RESTART_REQUIRED`；原样重试
+同一个命令后会由新版本继续执行。
 
 ```bash
 viceme update --check
 viceme update
 ```
 
-更新器会校验精确 Release、刷新匹配版本的官方 Skills，并把中断的激活过程恢复成
-一个完整、兼容的本地版本。
+`viceme update` 保留为显式修复命令。正常启动检查已经会校验精确 Release、刷新匹配
+版本的官方 Skills，并把中断的激活过程恢复成一个完整、兼容的本地版本。
 
 ## 安全边界
 

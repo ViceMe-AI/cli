@@ -2,9 +2,11 @@
 
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 import { ensureBinary } from "../lib/installer.mjs";
+import { launcherEnvironment } from "../lib/launcher-environment.mjs";
 
 export async function main(args = process.argv.slice(2), environment = process.env) {
   const packageDocument = JSON.parse(
@@ -17,13 +19,11 @@ export async function main(args = process.argv.slice(2), environment = process.e
   const child = spawnSync(binary, args, {
     stdio: "inherit",
     env: {
-      ...environment,
-      VICEME_INSTALL_METHOD:
-        environment.VICEME_INSTALL_METHOD === "npm"
-          ? "npm"
-          : environment.VICEME_BINARY_PATH
-            ? "development"
-            : "npm",
+      ...launcherEnvironment(
+        environment,
+        fileURLToPath(import.meta.url),
+        process.execPath,
+      ),
       VICEME_NPM_PACKAGE_VERSION: packageDocument.version,
     },
     windowsHide: false,
