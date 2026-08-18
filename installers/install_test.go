@@ -164,7 +164,7 @@ if [ "${1:-}" = "bootstrap" ] && [ "${2:-}" = "activate" ]; then
 fi
 if [ "${1:-}" = "profile" ] && [ "${2:-}" = "use" ]; then exit 1; fi
 `
-	asset := "viceme_0.16.0-poc.1_linux_amd64"
+	asset := "viceme_0.16.1-poc.1_linux_amd64"
 	writeInstallerTestFile(t, filepath.Join(fixtures, asset), binary, 0o755)
 	digest := sha256.Sum256([]byte(binary))
 	writeInstallerTestFile(t, filepath.Join(fixtures, asset+".sha256"), fmt.Sprintf("%x  %s\n", digest, asset), 0o644)

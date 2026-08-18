@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-version="0.16.0-poc.1"
-release_tag="danmaku-poc-20260818-v3"
+version="0.16.1-poc.1"
+release_tag="danmaku-poc-20260818-v4"
 release_url="https://github.com/ViceMe-AI/cli/releases/download/${release_tag}"
 profile_name="danmaku-poc-20260818"
 api_base_url="https://api-poc.preview.tencent-zeabur.cn"
