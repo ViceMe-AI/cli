@@ -8,6 +8,22 @@ import process from "node:process";
 import { ensureBinary } from "../lib/installer.mjs";
 import { launcherEnvironment } from "../lib/launcher-environment.mjs";
 
+// POSIX shells report a signal death as 128 + signal number; wrappers and CI
+// steps branch on those statuses, so every signal must keep its own code.
+const SIGNAL_NUMBERS = new Map([
+  ["SIGHUP", 1],
+  ["SIGINT", 2],
+  ["SIGQUIT", 3],
+  ["SIGABRT", 6],
+  ["SIGKILL", 9],
+  ["SIGALRM", 14],
+  ["SIGTERM", 15],
+]);
+
+function signalExitCode(signal) {
+  return 128 + (SIGNAL_NUMBERS.get(signal) ?? 0);
+}
+
 export async function main(args = process.argv.slice(2), environment = process.env) {
   const packageDocument = JSON.parse(
     await readFile(new URL("../../package.json", import.meta.url), "utf8"),
@@ -32,7 +48,7 @@ export async function main(args = process.argv.slice(2), environment = process.e
     throw child.error;
   }
   if (child.signal) {
-    return 128;
+    return signalExitCode(child.signal);
   }
   return child.status ?? 1;
 }

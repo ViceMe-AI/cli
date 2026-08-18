@@ -29,6 +29,26 @@ test("launcher gives the CLI exact re-execution authority", () => {
   assert.equal(environment.VICEME_NPM_LAUNCHER_PATH, launcherPath);
 });
 
+test("launcher classifies npm-managed launches instead of trusting foreign inherited state", () => {
+  const launcherPath = fileURLToPath(new URL("../bin/viceme.mjs", import.meta.url));
+  // A stale standalone marker from an earlier installation must not
+  // reclassify an npm-launched process; only an explicit npm value combined
+  // with a binary override intentionally keeps the npm classification for
+  // release smoke tests.
+  const staleInherited = launcherEnvironment(
+    { VICEME_INSTALL_METHOD: "binary" },
+    launcherPath,
+    process.execPath,
+  );
+  assert.equal(staleInherited.VICEME_INSTALL_METHOD, "npm");
+  const developmentOverride = launcherEnvironment(
+    { VICEME_BINARY_PATH: "/tmp/viceme-dev-binary" },
+    launcherPath,
+    process.execPath,
+  );
+  assert.equal(developmentOverride.VICEME_INSTALL_METHOD, "development");
+});
+
 async function startHealthServer() {
   const script = fileURLToPath(new URL("./health-server.mjs", import.meta.url));
   const child = spawn(process.execPath, [script], {
@@ -246,6 +266,21 @@ process.exit(child.status ?? 1);
     await writeFile(cachedBinary, binaryContents, { mode: 0o700 });
     await chmod(cachedBinary, 0o700);
     await writeFile(`${cachedBinary}.sha256`, `${checksum}  ${asset}\n`, { mode: 0o600 });
+    // The bundled checksum manifest is the launcher's trust root, including
+    // the warm cache path. Align the globally installed package's manifest
+    // with the locally built smoke binary exactly as a real release does,
+    // because the committed placeholder manifest only describes 0.2.0.
+    const installedPackageRoot = path.join(
+      prefix,
+      "lib",
+      "node_modules",
+      "@viceme-ai",
+      "cli",
+    );
+    await writeFile(
+      path.join(installedPackageRoot, "checksums.txt"),
+      `${checksum}  ${asset}\n`,
+    );
 
     const freshPath = [
       path.join(prefix, "bin"),

@@ -1,6 +1,25 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
+# Windows PowerShell 5.1 does not enable TLS 1.2 by default on older builds;
+# both release endpoints require it. PowerShell 7 ignores this setting.
+try {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch {}
+
+function Get-ReleaseFile {
+  param([string]$Uri, [string]$OutFile, [int]$TimeoutSec)
+  for ($attempt = 1; $attempt -le 3; $attempt++) {
+    try {
+      Invoke-WebRequest -UseBasicParsing -TimeoutSec $TimeoutSec -Uri $Uri -OutFile $OutFile
+      return
+    } catch {
+      if ($attempt -eq 3) { throw }
+      Start-Sleep -Seconds (2 * $attempt)
+    }
+  }
+}
+
 $region = if ($env:VICEME_REGION) { $env:VICEME_REGION } else { "cn" }
 switch ($region) {
   "cn" { $baseUrl = if ($env:VICEME_DOWNLOAD_BASE_URL) { $env:VICEME_DOWNLOAD_BASE_URL } else { "https://s3.viceme.cn/start/cli/releases" } }
@@ -21,7 +40,7 @@ try {
   $version = $env:VICEME_VERSION
   if (-not $version) {
     $latestPath = Join-Path $temporary "latest"
-    Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri "$baseUrl/latest" -OutFile $latestPath
+    Get-ReleaseFile -Uri "$baseUrl/latest" -OutFile $latestPath -TimeoutSec 120
     $version = (Get-Content -Raw $latestPath).Trim()
   }
   if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Release index returned an invalid version" }
@@ -30,8 +49,8 @@ try {
   $releaseUrl = "$baseUrl/v$version"
   $binaryPath = Join-Path $temporary "viceme.exe"
   $checksumPath = Join-Path $temporary "viceme.sha256"
-  Invoke-WebRequest -UseBasicParsing -TimeoutSec 300 -Uri "$releaseUrl/$asset" -OutFile $binaryPath
-  Invoke-WebRequest -UseBasicParsing -TimeoutSec 120 -Uri "$releaseUrl/$asset.sha256" -OutFile $checksumPath
+  Get-ReleaseFile -Uri "$releaseUrl/$asset" -OutFile $binaryPath -TimeoutSec 300
+  Get-ReleaseFile -Uri "$releaseUrl/$asset.sha256" -OutFile $checksumPath -TimeoutSec 120
   $expected = ((Get-Content -Raw $checksumPath).Trim() -split '\s+')[0].ToLowerInvariant()
   if ($expected -notmatch '^[a-f0-9]{64}$') { throw "Release checksum is invalid" }
   $actual = (Get-FileHash -Algorithm SHA256 -Path $binaryPath).Hash.ToLowerInvariant()
