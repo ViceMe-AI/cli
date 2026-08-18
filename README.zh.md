@@ -119,7 +119,7 @@ $env:VICEME_REGION="global"; irm https://s3.viceme.ai/start/install.ps1 | iex
 不能使用 Bootstrap 时，以 npm 作为备用入口：
 
 ```bash
-npx --yes @viceme-ai/cli@latest install
+npx --yes @myc666/viceme-cli@beta install
 ```
 
 安装器始终写入兼容目录 `~/.agents/skills`，并为检测到的 Agent 写入原生用户目录：

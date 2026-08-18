@@ -5,7 +5,7 @@ import { setTimeout as wait } from "node:timers/promises";
 const registry = "https://registry.npmjs.org";
 const registryArguments = [
   `--registry=${registry}`,
-  `--@viceme-ai:registry=${registry}`,
+  `--@myc666:registry=${registry}`,
 ];
 // npm can accept a first publish before the public metadata endpoint exposes
 // it. Eleven reads wait at most 303 seconds with the default capped backoff.

@@ -32,7 +32,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 				SkillTarget:   target,
 			})
 			if errors.Is(err, updatepkg.ErrNPMInstallRequired) {
-				return output.Policy("update_install_method", "this CLI was not started through the npm launcher").WithHint("run 'npx --yes --registry=https://registry.npmjs.org --@viceme-ai:registry=https://registry.npmjs.org --package=@viceme-ai/cli@latest -- viceme install', then use the installed 'viceme' launcher")
+				return output.Policy("update_install_method", "this CLI was not started through the npm launcher").WithHint("run 'npx --yes --registry=https://registry.npmjs.org --@myc666:registry=https://registry.npmjs.org --package=@myc666/viceme-cli@beta -- viceme install', then use the installed 'viceme' launcher")
 			}
 			if err != nil {
 				return updaterError(err, result)

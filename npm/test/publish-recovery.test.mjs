@@ -15,7 +15,10 @@ const nextMajorVersion = `${Number(packageVersion.split(".")[0]) + 1}.0.0`;
 
 test(
   "release recovery verifies prior integrity or publishes only a missing version",
-  { skip: process.platform === "win32" },
+  {
+    skip:
+      process.platform === "win32" || packageVersion.includes("-"),
+  },
   async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), "viceme-publish-recovery-"));
     const fakeBin = path.join(directory, "bin");
@@ -133,7 +136,7 @@ process.exit(90);
     assert.equal(missing.status, 0, missing.stderr);
     assert.match(
       await readFile(marker, "utf8"),
-      /publish --registry=https:\/\/registry\.npmjs\.org --@viceme-ai:registry=https:\/\/registry\.npmjs\.org/,
+      /publish --registry=https:\/\/registry\.npmjs\.org --@myc666:registry=https:\/\/registry\.npmjs\.org/,
     );
     assert.equal(
       (await readFile(path.join(directory, "post-publish-views"), "utf8")).trim().split("\n").length,

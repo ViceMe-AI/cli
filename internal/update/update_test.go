@@ -330,11 +330,11 @@ func TestNPMServiceChecksAndAppliesExactVersion(t *testing.T) {
 		t.Fatalf("version check unexpectedly invoked npm or lost its source: check=%#v calls=%#v", check, runner.calls)
 	}
 	cacheArg := "--cache=" + filepath.Join(configDir, npmCacheDirectory)
-	wantInstall := []string{cacheArg, "install", "--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org", "--global", "--ignore-scripts", "--no-audit", "--no-fund", "@viceme-ai/cli@0.1.1"}
+	wantInstall := []string{cacheArg, "install", "--registry=https://registry.npmjs.org", "--@myc666:registry=https://registry.npmjs.org", "--global", "--ignore-scripts", "--no-audit", "--no-fund", "@myc666/viceme-cli@0.1.1"}
 	if !reflect.DeepEqual(runner.calls[0].args, wantInstall) {
 		t.Fatalf("unsafe or inexact npm install args: %#v", runner.calls[0])
 	}
-	wantExecPrefix := []string{cacheArg, "exec", "--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org", "--yes", "--package=@viceme-ai/cli@0.1.1", "--", "viceme", "install", "--agent", "codex", "--internal-skip-launcher-ensure"}
+	wantExecPrefix := []string{cacheArg, "exec", "--registry=https://registry.npmjs.org", "--@myc666:registry=https://registry.npmjs.org", "--yes", "--package=@myc666/viceme-cli@0.1.1", "--", "viceme", "install", "--agent", "codex", "--internal-skip-launcher-ensure"}
 	gotExec := runner.calls[1].args
 	if len(gotExec) != len(wantExecPrefix)+2 || !reflect.DeepEqual(gotExec[:len(wantExecPrefix)], wantExecPrefix) ||
 		!strings.HasPrefix(gotExec[len(wantExecPrefix)], "--internal-activation-child=") ||
@@ -356,7 +356,7 @@ func TestNPMServiceBootstrapInstallsPersistentExactLauncher(t *testing.T) {
 	if err != nil || result.Status != "updated" {
 		t.Fatalf("result=%#v err=%v", result, err)
 	}
-	want := []string{"--cache=" + filepath.Join(service.ConfigDir, npmCacheDirectory), "install", "--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org", "--global", "--ignore-scripts", "--no-audit", "--no-fund", "@viceme-ai/cli@0.1.0"}
+	want := []string{"--cache=" + filepath.Join(service.ConfigDir, npmCacheDirectory), "install", "--registry=https://registry.npmjs.org", "--@myc666:registry=https://registry.npmjs.org", "--global", "--ignore-scripts", "--no-audit", "--no-fund", "@myc666/viceme-cli@0.1.0"}
 	if len(runner.calls) != 1 || !reflect.DeepEqual(runner.calls[0].args, want) {
 		t.Fatalf("bootstrap did not install exact persistent launcher: %#v", runner.calls)
 	}
@@ -541,10 +541,10 @@ func TestNPMServiceRollsForwardExactTargetAfterSkillRefreshFailure(t *testing.T)
 	if len(runner.calls) != 6 {
 		t.Fatalf("unexpected npm call count: %#v", runner.calls)
 	}
-	if got := runner.calls[0].args[len(runner.calls[0].args)-1]; got != "@viceme-ai/cli@0.1.1" {
+	if got := runner.calls[0].args[len(runner.calls[0].args)-1]; got != "@myc666/viceme-cli@0.1.1" {
 		t.Fatalf("update did not install exact target version: %q", got)
 	}
-	if got := runner.calls[2].args[len(runner.calls[2].args)-1]; got != "@viceme-ai/cli@0.1.1" {
+	if got := runner.calls[2].args[len(runner.calls[2].args)-1]; got != "@myc666/viceme-cli@0.1.1" {
 		t.Fatalf("recovery did not roll forward the exact target version: %q", got)
 	}
 }
@@ -559,7 +559,7 @@ func TestNPMServiceNeverDowngradesSkillWhenRegistryLatestIsOlder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "--package=@viceme-ai/cli@0.2.0"
+	want := "--package=@myc666/viceme-cli@0.2.0"
 	if len(runner.calls) != 2 || !slices.Contains(runner.calls[1].args, want) {
 		t.Fatalf("update selected a downgrade package: %#v", runner.calls)
 	}

@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.16.0-beta.0] - 2026-08-18
+
+### Features
+
+- 新增赞赏一键接入 Skill，并发布到 `@myc666/viceme-cli` beta 测试通道（`9d0d13a`）
+
 ## [0.15.1] - 2026-08-17
 
 ### Fixes

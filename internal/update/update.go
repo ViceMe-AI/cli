@@ -25,10 +25,10 @@ import (
 )
 
 const (
-	PackageName             = "@viceme-ai/cli"
+	PackageName             = "@myc666/viceme-cli"
 	RegistryURL             = "https://registry.npmjs.org"
-	RegistryPackageURL      = RegistryURL + "/@viceme-ai%2fcli/latest"
-	ScopeRegistryArg        = "--@viceme-ai:registry=" + RegistryURL
+	RegistryPackageURL      = RegistryURL + "/@myc666%2fviceme-cli/beta"
+	ScopeRegistryArg        = "--@myc666:registry=" + RegistryURL
 	NoUpdateNotifierEnv     = "VICEME_NO_UPDATE_NOTIFIER"
 	updateStateFilename     = "update-state.json"
 	releaseUpdateStateStem  = "release-update-state-"

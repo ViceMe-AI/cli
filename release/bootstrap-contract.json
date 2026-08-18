@@ -8,5 +8,5 @@
   "checksumLayout": "{asset}.sha256",
   "latestLayout": "latest",
   "skills": ["viceme-shared", "viceme-publish", "viceme-danmaku", "viceme-tip"],
-  "fallbackPackage": "@viceme-ai/cli"
+  "fallbackPackage": "@myc666/viceme-cli"
 }
