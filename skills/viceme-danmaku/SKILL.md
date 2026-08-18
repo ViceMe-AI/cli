@@ -39,6 +39,11 @@ that target.
   test suite unless the user explicitly asks for acceptance testing.
 - If authentication, the API, or work creation fails, stop and report the
   exact next command. Never fall back to a local or hand-written widget.
+- Do not invoke the `viceme-shared` setup or repair workflow during this fast
+  path. Do not run `viceme doctor`, `viceme version`, `viceme install`, search
+  the filesystem for another binary, or inspect configuration internals.
+- After any ViceMe command exits unsuccessfully, stop immediately. Do not run a
+  second diagnostic or mutation command in the same turn.
 
 ### Workflow
 
@@ -52,7 +57,8 @@ that target.
 
    The command creates and activates the work in one operation. If it reports
    that sign-in is required, run `viceme auth login` and wait for the user; do
-   not edit the host page before authentication succeeds.
+   not edit the host page before authentication succeeds. For every other
+   error, report the command error and stop.
 3. If `.viceme/access.yaml` exists and already has an active public `danmaku`
    feature, reuse its `workKey`. Otherwise make only the required config change
    and run `viceme access apply` once.

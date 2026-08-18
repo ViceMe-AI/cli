@@ -61,10 +61,8 @@ destination="$install_dir/viceme"
 chmod 755 "$temporary/viceme"
 "$temporary/viceme" bootstrap activate --destination "$destination" --agent auto --region "$region"
 
-case ":$PATH:" in
-  *":$install_dir:"*) ;;
-  *)
-    echo "ViceMe was installed to $install_dir/viceme" >&2
-    echo "Add this directory to PATH: export PATH=\"$install_dir:\$PATH\"" >&2
-    ;;
-esac
+resolved="$(command -v viceme 2>/dev/null || true)"
+if [ "$resolved" != "$destination" ]; then
+  echo "ViceMe was installed to $destination, but another command may take precedence: ${resolved:-not found}" >&2
+  echo "Put this directory first in PATH: export PATH=\"$install_dir:\$PATH\"" >&2
+fi

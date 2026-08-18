@@ -9,6 +9,12 @@ Use `viceme` as the only executable. Never collect, print, or persist access tok
 
 ## Setup
 
+Use this setup workflow only when the user explicitly asks to install,
+authenticate, update, diagnose, or repair ViceMe. Do not run setup, Doctor,
+Version, or Install as preflight for another business Skill. A business Skill
+must run only its required command and stop on its structured error unless the
+user separately asks for diagnosis.
+
 1. Run `viceme install --agent auto` after the bootstrap installer completes.
 2. Run `viceme doctor` and resolve failed checks before business commands.
 3. Run `viceme auth status`.
