@@ -23,9 +23,16 @@
       "cli_compatibility": ">=0.15.1 <0.16.0",
       "full_skill_bundle_digest": "sha256:d62e45b853f3cfde8e14f63e0db86350584c2c653b11f76568726dc590d0f264",
       "embedded_content_digest": "sha256:c99814f3b09a6e7f24382324718defe7f73fd2adb703127cf355e6d1d3daa9fc"
+    },
+    "viceme-tip": {
+      "skill_version": "0.15.1",
+      "minimum_cli_version": "0.15.1",
+      "cli_compatibility": ">=0.15.1 <0.16.0",
+      "full_skill_bundle_digest": "sha256:2afdec5dec27b17f0034a76c2783724f17b513ffcb1a245ce0f74133b3e63df8",
+      "embedded_content_digest": "sha256:19de813816bbe4e65b7019a1093178c324715ca18b3e6cade10054934001fe96"
     }
   },
-  "bootstrap_contract_digest": "sha256:868eb586ed192323fc207d072bae8d939a86a7553b8df12208c9cab7e7e4193c",
+  "bootstrap_contract_digest": "sha256:4e0887e158df1adbb794ad654276da6b13e519d3445e663550cc226ccb916e70",
   "installer_digests": {
     "install.ps1": "sha256:c322926c5f9ae0ea19b18bb0af288fa1633afcd3bfc882ec947a63e33e117c40",
     "install.sh": "sha256:f00144ff9cd35700fb2a7473c327bef60fb13c032bc34bd98e4a84f342fdcf4c"
