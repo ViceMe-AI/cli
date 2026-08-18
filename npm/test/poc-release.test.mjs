@@ -41,3 +41,15 @@ test("POC agent contract is exact-host and signed by the POC workflow", () => {
   assert.match(template, /cli\/releases\/v\{\{VERSION\}\}/);
   assert.match(template, /poc-release\.yml@refs\/heads\/poc/);
 });
+
+test("POC release recovery reuses and verifies the immutable Sigstore bundle", () => {
+  assert.match(workflow, /NAME" != agent-release-manifest\.sigstore\.json/);
+  assert.match(
+    workflow,
+    /--bundle existing-release\/agent-release-manifest\.sigstore\.json/,
+  );
+  assert.match(
+    workflow,
+    /dist\/agent-release-manifest\.json\n\s+cp existing-release\/agent-release-manifest\.sigstore\.json dist\/agent-release-manifest\.sigstore\.json/,
+  );
+});
