@@ -134,6 +134,92 @@ cp "$VICEME_TEST_FIXTURES/${url##*/}" "$out"
 	}
 }
 
+func TestPOCShellInstallerActivatesSkillsAndPreviewProfile(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX bootstrap test")
+	}
+	root := t.TempDir()
+	fixtures := filepath.Join(root, "fixtures")
+	fakeBin := filepath.Join(root, "fake-bin")
+	installDir := filepath.Join(root, "install")
+	for _, directory := range []string{fixtures, fakeBin, installDir} {
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	binary := `#!/bin/sh
+printf '%s\n' "$*" >>"$VICEME_TEST_INSTALL_LOG"
+if [ "${1:-}" = "bootstrap" ] && [ "${2:-}" = "activate" ]; then
+  shift 2
+  destination=""
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --destination) destination="$2"; shift 2 ;;
+      *) shift ;;
+    esac
+  done
+  cp "$0" "$destination"
+  chmod 755 "$destination"
+fi
+if [ "${1:-}" = "profile" ] && [ "${2:-}" = "use" ]; then exit 1; fi
+`
+	asset := "viceme_0.15.2-poc.1_linux_amd64"
+	writeInstallerTestFile(t, filepath.Join(fixtures, asset), binary, 0o755)
+	digest := sha256.Sum256([]byte(binary))
+	writeInstallerTestFile(t, filepath.Join(fixtures, asset+".sha256"), fmt.Sprintf("%x  %s\n", digest, asset), 0o644)
+	writeInstallerTestFile(t, filepath.Join(fakeBin, "uname"), `#!/bin/sh
+case "$1" in
+  -s) echo Linux ;;
+  -m) echo x86_64 ;;
+  *) exit 2 ;;
+esac
+`, 0o755)
+	writeInstallerTestFile(t, filepath.Join(fakeBin, "curl"), `#!/bin/sh
+out=""
+url=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    http*) url="$1"; shift ;;
+    *) shift ;;
+  esac
+done
+cp "$VICEME_TEST_FIXTURES/${url##*/}" "$out"
+`, 0o755)
+
+	logFile := filepath.Join(root, "install.log")
+	command := exec.Command("sh", "./install-poc.sh")
+	command.Env = append(os.Environ(),
+		"PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"HOME="+root,
+		"VICEME_INSTALL_DIR="+installDir,
+		"VICEME_TEST_FIXTURES="+fixtures,
+		"VICEME_TEST_INSTALL_LOG="+logFile,
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("POC installer failed: %v\n%s", err, output)
+	}
+	installed, err := os.ReadFile(filepath.Join(installDir, "viceme"))
+	if err != nil || string(installed) != binary {
+		t.Fatalf("unexpected installed POC binary: err=%v content=%q", err, installed)
+	}
+	logData, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	logText := string(logData)
+	for _, expected := range []string{
+		"bootstrap activate --destination ",
+		"--agent auto --region cn",
+		"profile add --name danmaku-poc-20260818 --region cn --api-base-url https://api-poc.preview.tencent-zeabur.cn --use",
+	} {
+		if !strings.Contains(logText, expected) {
+			t.Fatalf("POC installer did not execute %q: log=%q", expected, logText)
+		}
+	}
+}
+
 func writeInstallerTestFile(t *testing.T, filename, content string, mode os.FileMode) {
 	t.Helper()
 	if err := os.WriteFile(filename, []byte(content), mode); err != nil {
