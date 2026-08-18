@@ -126,10 +126,41 @@ export function playDanmakuBullet({
   };
 }
 
-export const REACTION_TOOLTIP_MOTION_MS = 1200;
-export const REACTION_TOOLTIP_MOTION_EASING = "cubic-bezier(1, 0, 0, 1)";
+/** Loom emoji hover: one CSS transform, 100ms ease-in-out. Tooltip rides this wrapper. */
+export const REACTION_HOVER_DURATION_MS = 100;
+export const REACTION_HOVER_EASING = "ease-in-out";
+export const REACTION_HOVER_SCALE = 1.3;
+export const REACTION_HOVER_TRANSLATE_Y_PX = -6;
+export const REACTION_HOVER_TILT_MAX_DEG = 5;
 
-const REACTION_TOOLTIP_MOTION_KEYFRAMES: Keyframe[] = [
+export function randomReactionHoverTiltDeg(random = Math.random) {
+  return (
+    Math.floor(random() * (REACTION_HOVER_TILT_MAX_DEG * 2 + 1)) -
+    REACTION_HOVER_TILT_MAX_DEG
+  );
+}
+
+export function reactionHoverTransform(tiltDeg: number) {
+  return `scale(${REACTION_HOVER_SCALE}) translate(0px, ${REACTION_HOVER_TRANSLATE_Y_PX}px) rotate(${tiltDeg}deg)`;
+}
+
+export function setReactionHoverTransform(host: HTMLElement) {
+  if (prefersReducedMotion()) {
+    host.style.transform = "";
+    return;
+  }
+  host.style.transform = reactionHoverTransform(randomReactionHoverTiltDeg());
+}
+
+export function clearReactionHoverTransform(host: HTMLElement) {
+  host.style.transform = "";
+}
+
+/** Loom animation-1yp4gtl — reaction emoji fly-out after send. */
+export const REACTION_EMOJI_FLY_MOTION_MS = 1200;
+export const REACTION_EMOJI_FLY_MOTION_EASING = "cubic-bezier(1, 0, 0, 1)";
+
+const REACTION_EMOJI_FLY_MOTION_KEYFRAMES: Keyframe[] = [
   {
     transform: "translate3d(0, 0, 0) scale(0.4) rotate(30deg)",
     offset: 0,
@@ -160,18 +191,18 @@ const REACTION_TOOLTIP_MOTION_KEYFRAMES: Keyframe[] = [
   },
 ];
 
-export function playReactionTooltipMotion(host: HTMLElement) {
+export function playReactionEmojiFlyMotion(host: HTMLElement) {
   if (prefersReducedMotion()) return null;
   for (const animation of host.getAnimations()) animation.cancel();
   host.style.transform = "";
-  return host.animate(REACTION_TOOLTIP_MOTION_KEYFRAMES, {
-    duration: REACTION_TOOLTIP_MOTION_MS,
-    easing: REACTION_TOOLTIP_MOTION_EASING,
+  return host.animate(REACTION_EMOJI_FLY_MOTION_KEYFRAMES, {
+    duration: REACTION_EMOJI_FLY_MOTION_MS,
+    easing: REACTION_EMOJI_FLY_MOTION_EASING,
     fill: "forwards",
   });
 }
 
-export function resetReactionTooltipMotion(host: HTMLElement) {
+export function resetReactionEmojiFlyMotion(host: HTMLElement) {
   for (const animation of host.getAnimations()) animation.cancel();
   host.style.transform = "";
 }

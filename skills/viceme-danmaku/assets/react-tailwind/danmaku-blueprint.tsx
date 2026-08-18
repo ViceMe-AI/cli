@@ -24,13 +24,13 @@ import {
   DANMAKU_LANE_COUNT,
   DANMAKU_LANE_HEIGHT,
   DANMAKU_LANE_TOP,
+  clearReactionHoverTransform,
   estimateDanmakuTextWidth,
   normalizeDanmakuText,
   playDanmakuBullet,
-  playReactionTooltipMotion,
   prefersReducedMotion,
-  resetReactionTooltipMotion,
   reserveDanmakuLane,
+  setReactionHoverTransform,
   truncateDanmakuText,
 } from "./danmaku-motion";
 import { useMoreReactionsPresence } from "./use-presence-motion";
@@ -119,14 +119,6 @@ const SEARCH_TERMS: Record<(typeof MORE_REACTIONS)[number], string> = {
   "👏": "clap applause 鼓掌",
   "🐞": "bug ladybug 虫 瓢虫",
 };
-const REACTION_HOVER_MATRIX: Record<string, string> = {
-  "❤️": "matrix(1.29921, 0.0453693, -0.0453693, 1.29921, 0, -7.8)",
-  "👍": "matrix(1.29505, 0.113302, -0.113302, 1.29505, 0, -7.8)",
-  "🔥": "matrix(1.29921, -0.0453693, 0.0453693, 1.29921, 0, -7.8)",
-  "👏": "matrix(1.29822, -0.0680367, 0.0680367, 1.29822, 0, -7.8)",
-  "🙌": "matrix(1.29683, 0.0906834, -0.0906834, 1.29683, 0, -7.8)",
-  "👀": "matrix(1.29505, 0.113302, -0.113302, 1.29505, 0, -7.8)",
-};
 const REACTION_TOOLTIP_LABELS: Record<string, string> = {
   "❤️": "heart",
   "👍": "yes",
@@ -150,16 +142,56 @@ const REACTION_TOOLTIP_LABELS: Record<string, string> = {
   "🐞": "bug",
 };
 
-const REACTION_TOOLTIP_SHORTCUTS: Record<string, string> = {
-  "❤️": "1",
-  "👍": "2",
-  "🔥": "3",
-  "👏": "4",
-  "🙌": "5",
-  "👀": "6",
-};
+const COMPOSER_TOOLTIP = "comment";
+const MORE_REACTIONS_TOOLTIP = "more reactions";
+
 function reactionTooltipLabel(emoji: string) {
   return REACTION_TOOLTIP_LABELS[emoji] ?? emoji;
+}
+
+function HoverTooltip({ text }: { text: string }) {
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute top-[-38px] left-1/2 z-[500] hidden w-max -translate-x-1/2 group-hover:block motion-reduce:block"
+    >
+      <span className="block rounded-[6px] bg-[#292A2E] px-3 py-[7px] font-['Atlassian_Sans',ui-sans-serif,system-ui,-apple-system,'Segoe_UI',Ubuntu,'Helvetica_Neue',sans-serif] text-white shadow-[0_4px_10px_rgba(0,0,0,0.1)]">
+        <span className="block h-5 pt-0.5 text-[12px] leading-[18px] font-[653] tracking-normal text-white">
+          {text}
+        </span>
+      </span>
+    </span>
+  );
+}
+
+function BarHoverHost({
+  children,
+  className,
+  tooltip,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  tooltip: string;
+}) {
+  const hoverWrapRef = useRef<HTMLSpanElement>(null);
+  return (
+    <span
+      ref={hoverWrapRef}
+      className={cx(
+        "group relative inline-flex size-8 origin-[16px_16px] overflow-visible transition-transform duration-100 ease-in-out motion-reduce:transform-none motion-reduce:transition-none",
+        className,
+      )}
+      onPointerEnter={() => {
+        if (hoverWrapRef.current) setReactionHoverTransform(hoverWrapRef.current);
+      }}
+      onPointerLeave={() => {
+        if (hoverWrapRef.current) clearReactionHoverTransform(hoverWrapRef.current);
+      }}
+    >
+      <HoverTooltip text={tooltip} />
+      {children}
+    </span>
+  );
 }
 
 function cx(...values: Array<string | false | null | undefined>) {
@@ -600,6 +632,7 @@ function DanmakuInteractionBar({
                 ))}
                 <IconButton
                   label={labels.openComposer}
+                  tooltip={COMPOSER_TOOLTIP}
                   onClick={() => setMode("typing")}
                   largeIcon
                 >
@@ -607,6 +640,7 @@ function DanmakuInteractionBar({
                 </IconButton>
                 <IconButton
                   label={labels.moreReactions}
+                  tooltip={MORE_REACTIONS_TOOLTIP}
                   ariaExpanded={moreOpen}
                   onClick={() =>
                     setMode((current) =>
@@ -714,18 +748,23 @@ function IconButton({
   label,
   largeIcon = false,
   onClick,
+  tooltip,
 }: {
   ariaExpanded?: boolean;
   children: React.ReactNode;
   label: string;
   largeIcon?: boolean;
   onClick: () => void;
+  tooltip?: string;
 }) {
-  return (
+  const button = (
     <button
       type="button"
       className={cx(
-        "inline-flex size-8 shrink-0 items-center justify-center rounded-md p-0 leading-none text-white outline-none transition-[background-color] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white/12 focus-visible:bg-white/12 active:bg-white/16 motion-reduce:transition-none",
+        "inline-flex size-8 shrink-0 items-center justify-center rounded-md p-0 leading-none text-white outline-none",
+        tooltip
+          ? "bg-transparent"
+          : "transition-[background-color] duration-150 ease-[cubic-bezier(0.22,1,0.36,1)] hover:bg-white/12 focus-visible:bg-white/12 active:bg-white/16 motion-reduce:transition-none",
         largeIcon && "[&_svg]:size-6 [&_svg]:shrink-0",
       )}
       aria-label={label}
@@ -735,6 +774,8 @@ function IconButton({
       {children}
     </button>
   );
+  if (!tooltip) return button;
+  return <BarHoverHost tooltip={tooltip}>{button}</BarHoverHost>;
 }
 
 function GreetingPrompt({
@@ -842,81 +883,32 @@ function ReactionButton({
     );
   }
 
-  const hoverMatrix =
-    REACTION_HOVER_MATRIX[emoji] ??
-    "matrix(1.29921, 0.0453693, -0.0453693, 1.29921, 0, -7.8)";
-
-  const tooltipAnimRef = useRef<HTMLSpanElement>(null);
-  const playTooltipMotion = useCallback(() => {
-    if (tooltipAnimRef.current) {
-      playReactionTooltipMotion(tooltipAnimRef.current);
-    }
-  }, []);
-  const resetTooltipMotion = useCallback(() => {
-    if (tooltipAnimRef.current) {
-      resetReactionTooltipMotion(tooltipAnimRef.current);
-    }
-  }, []);
-
-  const shortcut = REACTION_TOOLTIP_SHORTCUTS[emoji];
-
   return (
-    <span
-      className={cx(
-        "group relative inline-flex w-fit overflow-visible",
-        hiddenOnNarrow && "hidden min-[440px]:inline-flex",
-      )}
-      style={{ ["--reaction-hover-matrix" as string]: hoverMatrix }}
-      onPointerEnter={playTooltipMotion}
-      onPointerLeave={resetTooltipMotion}
+    <BarHoverHost
+      className={hiddenOnNarrow ? "hidden min-[440px]:inline-flex" : ""}
+      tooltip={reactionTooltipLabel(emoji)}
     >
-      <span
-        aria-hidden
-        className="pointer-events-none absolute bottom-[calc(100%+16px)] left-1/2 z-[500] -translate-x-1/2 whitespace-nowrap opacity-0 transition-opacity duration-150 delay-50 ease-out group-hover:opacity-100 motion-reduce:opacity-100 motion-reduce:transition-none"
+      <button
+        type="button"
+        className="inline-flex size-8 shrink-0 touch-none select-none items-center justify-center overflow-visible rounded-md bg-transparent text-2xl leading-none outline-none"
+        aria-label={label}
+        onClick={() => {
+          if (repeated.current) {
+            repeated.current = false;
+            return;
+          }
+          onSend(emoji);
+        }}
+        onContextMenu={(event) => event.preventDefault()}
+        onPointerDown={pointerDown}
+        onPointerUp={stopRepeat}
+        onPointerCancel={stopRepeat}
+        onLostPointerCapture={stopRepeat}
       >
-        <span
-          ref={tooltipAnimRef}
-          className="block origin-bottom will-change-transform motion-reduce:transform-none"
-        >
-          <span className="block rounded-[6px] bg-[#292a2e] px-3 py-[7px] font-sans shadow-[0_4px_10px_rgba(0,0,0,0.1)]">
-            <span className="grid grid-flow-col items-center justify-start gap-2">
-              <span className="block pt-0.5 text-[12px] leading-[18px] font-[653] tracking-normal text-white">
-                {reactionTooltipLabel(emoji)}
-                </span>
-              {shortcut ? (
-                <span className="rounded-[3px] bg-[rgb(11_18_14/0.14)] px-1">
-                  <span className="block pt-0.5 text-[12px] leading-[18px] font-[653] tracking-normal text-[#dddee1]">
-                    {shortcut}
-                  </span>
-                </span>
-              ) : null}
-            </span>
-            </span>
-          </span>
-      </span>
-      <span className="inline-flex origin-[16px_16px] transition-transform duration-100 ease-in-out group-hover:[transform:var(--reaction-hover-matrix)] motion-reduce:transition-none motion-reduce:group-hover:transform-none">
-        <button
-          type="button"
-          className="inline-flex size-8 shrink-0 touch-none select-none items-center justify-center overflow-visible rounded-md bg-transparent text-2xl leading-none outline-none"
-          aria-label={label}
-          onClick={() => {
-            if (repeated.current) {
-              repeated.current = false;
-              return;
-            }
-            onSend(emoji);
-          }}
-          onContextMenu={(event) => event.preventDefault()}
-          onPointerDown={pointerDown}
-          onPointerUp={stopRepeat}
-          onPointerCancel={stopRepeat}
-          onLostPointerCapture={stopRepeat}
-        >
-          <span aria-hidden className="pointer-events-none block pt-0.5 leading-none">
-            {emoji}
-          </span>
-        </button>
-      </span>
-    </span>
+        <span aria-hidden className="pointer-events-none block pt-0.5 leading-none">
+          {emoji}
+        </span>
+      </button>
+    </BarHoverHost>
   );
 }
