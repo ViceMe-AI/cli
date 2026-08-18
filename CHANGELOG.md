@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0-beta.1] - 2026-08-18
+
+### Fixes
+
+- Prevent tip integrations from falling back to a production Creator Center.
+- Persist and expose the matching Web base URL for custom CLI Profiles.
+
 ## [0.16.0-beta.0] - 2026-08-18
 
 ### Features
