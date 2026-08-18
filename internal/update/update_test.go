@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,10 +30,8 @@ func TestReleaseServiceDefaultBaseURLsUseStartBucket(t *testing.T) {
 	}
 }
 
-func TestReleaseServiceRefreshesRegionSpecificUpdateNotice(t *testing.T) {
-	for _, key := range []string{NoUpdateNotifierEnv, "CI", "BUILD_NUMBER", "RUN_ID"} {
-		t.Setenv(key, "")
-	}
+func TestReleaseServiceAutomaticCheckUsesFreshRegionSpecificState(t *testing.T) {
+	t.Setenv("CI", "")
 	now := time.Date(2026, time.August, 13, 10, 0, 0, 0, time.UTC)
 	var calls atomic.Int32
 	latest := atomic.Value{}
@@ -53,67 +52,56 @@ func TestReleaseServiceRefreshesRegionSpecificUpdateNotice(t *testing.T) {
 	service.HTTPClient = server.Client()
 	service.Now = func() time.Time { return now }
 
-	if notice := service.CachedNotice(); notice != nil {
-		t.Fatalf("empty release cache returned notice: %#v", notice)
+	first, err := service.CheckAutomatic(context.Background())
+	if err != nil || !first.UpdateAvailable || first.AvailableVersion != "0.14.0" || first.Source != "official_s3" {
+		t.Fatalf("initial automatic check=%#v err=%v", first, err)
 	}
-	service.RefreshNotice(context.Background())
 	if calls.Load() != 1 {
-		t.Fatalf("initial release refresh calls=%d", calls.Load())
+		t.Fatalf("initial automatic check calls=%d", calls.Load())
 	}
-	if notice := service.CachedNotice(); notice == nil || notice.Current != "0.13.0" || notice.Latest != "0.14.0" ||
-		!strings.Contains(notice.Message(), "viceme update") {
-		t.Fatalf("cached release notice=%#v", notice)
+	cached, err := service.CheckAutomatic(context.Background())
+	if err != nil || !cached.UpdateAvailable || cached.AvailableVersion != "0.14.0" || cached.Source != "cache" {
+		t.Fatalf("cached automatic check=%#v err=%v", cached, err)
 	}
-
-	service.RefreshNotice(context.Background())
 	if calls.Load() != 1 {
-		t.Fatalf("fresh release cache unexpectedly refreshed: calls=%d", calls.Load())
+		t.Fatalf("fresh automatic state unexpectedly refreshed: calls=%d", calls.Load())
 	}
 
 	service.SetRegion("global")
-	if notice := service.CachedNotice(); notice != nil {
-		t.Fatalf("CN cache leaked into global release channel: %#v", notice)
-	}
 	latest.Store("0.15.0")
-	service.RefreshNotice(context.Background())
-	if calls.Load() != 2 {
-		t.Fatalf("global release refresh calls=%d", calls.Load())
+	global, err := service.CheckAutomatic(context.Background())
+	if err != nil || global.AvailableVersion != "0.15.0" || global.Source != "official_s3" {
+		t.Fatalf("global automatic check=%#v err=%v", global, err)
 	}
-	if notice := service.CachedNotice(); notice == nil || notice.Latest != "0.15.0" {
-		t.Fatalf("global cached release notice=%#v", notice)
+	if calls.Load() != 2 {
+		t.Fatalf("global automatic check calls=%d", calls.Load())
 	}
 
 	service.SetRegion("cn")
-	if notice := service.CachedNotice(); notice == nil || notice.Latest != "0.14.0" {
-		t.Fatalf("CN cached release notice changed with global channel: %#v", notice)
+	cnCached, err := service.CheckAutomatic(context.Background())
+	if err != nil || cnCached.AvailableVersion != "0.14.0" || cnCached.Source != "cache" {
+		t.Fatalf("CN cached automatic check=%#v err=%v", cnCached, err)
 	}
 	now = now.Add(updateCacheTTL + time.Second)
 	latest.Store("0.14.1")
-	service.RefreshNotice(context.Background())
-	if calls.Load() != 3 {
-		t.Fatalf("stale CN release cache refresh calls=%d", calls.Load())
+	refreshed, err := service.CheckAutomatic(context.Background())
+	if err != nil || refreshed.AvailableVersion != "0.14.1" || refreshed.Source != "official_s3" {
+		t.Fatalf("refreshed CN automatic check=%#v err=%v", refreshed, err)
 	}
-	if notice := service.CachedNotice(); notice == nil || notice.Latest != "0.14.1" {
-		t.Fatalf("refreshed CN release notice=%#v", notice)
+	if calls.Load() != 3 {
+		t.Fatalf("stale CN automatic state refresh calls=%d", calls.Load())
 	}
 }
 
-func TestReleaseServiceNotifierSkipsCIAndExplicitOptOut(t *testing.T) {
-	for _, key := range []string{NoUpdateNotifierEnv, "CI", "BUILD_NUMBER", "RUN_ID"} {
-		t.Setenv(key, "")
-	}
+func TestReleaseServiceAutomaticCheckSkipsCI(t *testing.T) {
+	t.Setenv("CI", "")
 	service := NewReleaseService("0.13.0", "0.13.0")
 	service.ConfigDir = t.TempDir()
 	service.saveUpdateState("0.14.0")
 
-	t.Setenv(NoUpdateNotifierEnv, "1")
-	if notice := service.CachedNotice(); notice != nil {
-		t.Fatalf("opted-out release notifier returned notice: %#v", notice)
-	}
-	t.Setenv(NoUpdateNotifierEnv, "")
 	t.Setenv("CI", "true")
-	if notice := service.CachedNotice(); notice != nil {
-		t.Fatalf("CI release notifier returned notice: %#v", notice)
+	if result, err := service.CheckAutomatic(context.Background()); err != nil || result.Source != "disabled" || result.UpdateAvailable {
+		t.Fatalf("CI automatic check=%#v err=%v", result, err)
 	}
 }
 
@@ -282,6 +270,32 @@ type fakeRunner struct {
 	hook    func(string, []string) error
 }
 
+type blockingConcurrentRunner struct {
+	mu           sync.Mutex
+	calls        int
+	firstStarted chan struct{}
+	releaseFirst chan struct{}
+	startOnce    sync.Once
+}
+
+func (runner *blockingConcurrentRunner) Run(context.Context, string, ...string) ([]byte, error) {
+	runner.mu.Lock()
+	runner.calls++
+	call := runner.calls
+	runner.mu.Unlock()
+	if call == 1 {
+		runner.startOnce.Do(func() { close(runner.firstStarted) })
+		<-runner.releaseFirst
+	}
+	return nil, nil
+}
+
+func (runner *blockingConcurrentRunner) CallCount() int {
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
+	return runner.calls
+}
+
 func (runner *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
 	runner.calls = append(runner.calls, runCall{name: name, args: append([]string(nil), args...)})
 	index := len(runner.calls) - 1
@@ -346,6 +360,59 @@ func TestNPMServiceChecksAndAppliesExactVersion(t *testing.T) {
 	}
 }
 
+func TestConcurrentNPMAutomaticUpdatesCoalesceIntoOneGenerationActivation(t *testing.T) {
+	t.Parallel()
+	configDir := t.TempDir()
+	previous, err := NewNPMGeneration("0.15.2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitActiveGeneration(configDir, previous); err != nil {
+		t.Fatal(err)
+	}
+	runner := &blockingConcurrentRunner{
+		firstStarted: make(chan struct{}),
+		releaseFirst: make(chan struct{}),
+	}
+	newService := func() *NPMService {
+		service := NewNPMService("0.15.2", "0.15.2", "npm")
+		service.ConfigDir = configDir
+		service.Runner = runner
+		return service
+	}
+	check := CheckResult{CurrentVersion: "0.15.2", AvailableVersion: "0.16.0", UpdateAvailable: true}
+	type outcome struct {
+		result ApplyResult
+		err    error
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	firstDone := make(chan outcome, 1)
+	secondDone := make(chan outcome, 1)
+	go func() {
+		result, err := newService().Apply(ctx, check, ApplyOptions{RefreshSkills: true, SkillTarget: "auto"})
+		firstDone <- outcome{result: result, err: err}
+	}()
+	<-runner.firstStarted
+	go func() {
+		result, err := newService().Apply(ctx, check, ApplyOptions{RefreshSkills: true, SkillTarget: "auto"})
+		secondDone <- outcome{result: result, err: err}
+	}()
+	close(runner.releaseFirst)
+	first := <-firstDone
+	second := <-secondDone
+	if first.err != nil || second.err != nil || first.result.CLIVersion != "0.16.0" || second.result.CLIVersion != "0.16.0" {
+		t.Fatalf("concurrent outcomes: first=%#v second=%#v", first, second)
+	}
+	if runner.CallCount() != 2 {
+		t.Fatalf("concurrent update repeated the npm and Skill activation: calls=%d", runner.CallCount())
+	}
+	active, exists, err := ReadActiveGeneration(configDir)
+	if err != nil || !exists || active.Version != "0.16.0" {
+		t.Fatalf("concurrent update did not commit one target generation: active=%#v exists=%t err=%v", active, exists, err)
+	}
+}
+
 func TestNPMServiceBootstrapInstallsPersistentExactLauncher(t *testing.T) {
 	t.Parallel()
 	runner := &fakeRunner{}
@@ -395,10 +462,8 @@ func TestNPMServiceUsesOnlyFreshCacheWhenRegistryIsUnavailable(t *testing.T) {
 	}
 }
 
-func TestNPMServiceRefreshesNotifierCacheWithoutBlockingCommands(t *testing.T) {
-	for _, key := range []string{NoUpdateNotifierEnv, "CI", "BUILD_NUMBER", "RUN_ID"} {
-		t.Setenv(key, "")
-	}
+func TestNPMServiceAutomaticCheckUsesFreshValidatedState(t *testing.T) {
+	t.Setenv("CI", "")
 	now := time.Date(2026, time.July, 27, 12, 0, 0, 0, time.UTC)
 	var calls atomic.Int32
 	latest := atomic.Value{}
@@ -415,58 +480,45 @@ func TestNPMServiceRefreshesNotifierCacheWithoutBlockingCommands(t *testing.T) {
 	service.HTTPClient = server.Client()
 	service.Now = func() time.Time { return now }
 
-	if notice := service.CachedNotice(); notice != nil {
-		t.Fatalf("empty cache returned notice: %#v", notice)
+	first, err := service.CheckAutomatic(context.Background())
+	if err != nil || !first.UpdateAvailable || first.AvailableVersion != "0.8.3" || first.Source != "registry" {
+		t.Fatalf("initial automatic check=%#v err=%v", first, err)
 	}
-	service.RefreshNotice(context.Background())
 	if calls.Load() != 1 {
-		t.Fatalf("initial refresh calls=%d", calls.Load())
+		t.Fatalf("initial automatic check calls=%d", calls.Load())
 	}
-	notice := service.CachedNotice()
-	if notice == nil || notice.Current != "0.8.2" || notice.Latest != "0.8.3" ||
-		!strings.Contains(notice.Message(), "viceme update") {
-		t.Fatalf("cached notice=%#v", notice)
+	cached, err := service.CheckAutomatic(context.Background())
+	if err != nil || cached.AvailableVersion != "0.8.3" || cached.Source != "cache" {
+		t.Fatalf("cached automatic check=%#v err=%v", cached, err)
 	}
-
-	service.RefreshNotice(context.Background())
 	if calls.Load() != 1 {
-		t.Fatalf("fresh cache unexpectedly refreshed: calls=%d", calls.Load())
+		t.Fatalf("fresh automatic state unexpectedly refreshed: calls=%d", calls.Load())
 	}
 
 	now = now.Add(updateCacheTTL + time.Second)
-	if stale := service.CachedNotice(); stale == nil || stale.Latest != "0.8.3" {
-		t.Fatalf("stale validated cache was unavailable during background refresh: %#v", stale)
-	}
 	latest.Store("0.8.4")
-	service.RefreshNotice(context.Background())
-	if calls.Load() != 2 {
-		t.Fatalf("stale cache refresh calls=%d", calls.Load())
+	refreshed, err := service.CheckAutomatic(context.Background())
+	if err != nil || refreshed.AvailableVersion != "0.8.4" || refreshed.Source != "registry" {
+		t.Fatalf("refreshed automatic check=%#v err=%v", refreshed, err)
 	}
-	if refreshed := service.CachedNotice(); refreshed == nil || refreshed.Latest != "0.8.4" {
-		t.Fatalf("refreshed notice=%#v", refreshed)
+	if calls.Load() != 2 {
+		t.Fatalf("stale automatic state refresh calls=%d", calls.Load())
 	}
 }
 
-func TestNPMServiceNotifierSkipsNonNPMCIAndExplicitOptOut(t *testing.T) {
-	for _, key := range []string{NoUpdateNotifierEnv, "CI", "BUILD_NUMBER", "RUN_ID"} {
-		t.Setenv(key, "")
-	}
+func TestNPMServiceAutomaticCheckSkipsNonNPMAndCI(t *testing.T) {
+	t.Setenv("CI", "")
 	service := NewNPMService("0.8.2", "0.8.2", "standalone")
 	service.ConfigDir = t.TempDir()
 	service.saveUpdateState("0.8.3")
-	if notice := service.CachedNotice(); notice != nil {
-		t.Fatalf("standalone build returned update notice: %#v", notice)
+	if result, err := service.CheckAutomatic(context.Background()); err != nil || result.Source != "disabled" || result.UpdateAvailable {
+		t.Fatalf("non-npm automatic check=%#v err=%v", result, err)
 	}
 
 	service.InstallMethod = "npm"
-	t.Setenv(NoUpdateNotifierEnv, "1")
-	if notice := service.CachedNotice(); notice != nil {
-		t.Fatalf("opted-out notifier returned notice: %#v", notice)
-	}
-	t.Setenv(NoUpdateNotifierEnv, "")
 	t.Setenv("CI", "true")
-	if notice := service.CachedNotice(); notice != nil {
-		t.Fatalf("CI notifier returned notice: %#v", notice)
+	if result, err := service.CheckAutomatic(context.Background()); err != nil || result.Source != "disabled" || result.UpdateAvailable {
+		t.Fatalf("CI automatic check=%#v err=%v", result, err)
 	}
 }
 
@@ -538,7 +590,7 @@ func TestNPMServiceRollsForwardExactTargetAfterSkillRefreshFailure(t *testing.T)
 	if err != nil || result.CLIVersion != "0.1.1" {
 		t.Fatalf("retry did not recover and finish the exact target: result=%#v err=%v", result, err)
 	}
-	if len(runner.calls) != 6 {
+	if len(runner.calls) != 4 {
 		t.Fatalf("unexpected npm call count: %#v", runner.calls)
 	}
 	if got := runner.calls[0].args[len(runner.calls[0].args)-1]; got != "@viceme-ai/cli@0.1.1" {

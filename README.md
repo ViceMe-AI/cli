@@ -265,6 +265,11 @@ text.
   "data": {},
   "meta": {
     "executingCliVersion": "<version>",
+    "autoUpdate": {
+      "from": "<previous-version>",
+      "to": "<executing-version>",
+      "status": "updated"
+    },
     "requestId": "optional"
   }
 }
@@ -273,21 +278,31 @@ text.
 `meta.executingCliVersion` is the version of the process that emitted the
 response. For `viceme update`, the newly installed version is reported
 separately as `data.cli_version` because the response is still emitted by the
-process that started the update.
+process that started the update. `meta.autoUpdate` is present only when this
+command was automatically continued by a newly activated generation.
 
-Released installations check their authoritative release channel at most once
-every 24 hours. When a newer version is available, ordinary JSON responses
-include `_notice.update` with the current version, latest version, and
-`viceme update`. Discovery is fail-open and never changes the business
-command's exit code.
+Every released installation passes through a bounded freshness gate before an
+ordinary command. A validated result is reused for five minutes so a single
+workflow does not repeatedly contact the release channel. When a newer stable
+release exists, the CLI and all detected official Skills are activated as one
+recoverable generation and the original command is automatically re-executed by
+the new CLI. Release discovery is fail-open while offline; activation failure
+stops the original command so an older process cannot perform a mutation after
+a failed generation change.
+
+An npm installation continues the original command automatically on every
+supported platform. A standalone Windows binary may return the retryable code
+`AUTO_UPDATE_RESTART_REQUIRED` once while Windows releases the old executable;
+rerunning the exact command completes under the new generation.
 
 ```bash
 viceme update --check
 viceme update
 ```
 
-The updater verifies the exact release, refreshes the matching official Skills,
-and recovers interrupted activation as one compatible local generation.
+`viceme update` remains an explicit repair command. The normal startup gate
+already verifies the exact release, refreshes the matching official Skills, and
+recovers interrupted activation as one compatible local generation.
 
 ## Security
 

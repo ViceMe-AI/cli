@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync/atomic"
@@ -47,9 +48,14 @@ type startupRecoveryUpdater struct {
 	err    error
 }
 
-type notifyingUpdater struct {
+type automaticUpdater struct {
 	startupRecoveryUpdater
-	refreshCalled chan struct{}
+	check      updatepkg.CheckResult
+	checkErr   error
+	apply      updatepkg.ApplyResult
+	applyErr   error
+	checkCalls atomic.Int32
+	applyCalls atomic.Int32
 }
 
 type completedUpdateUpdater struct {
@@ -64,15 +70,18 @@ func (*completedUpdateUpdater) Apply(context.Context, updatepkg.CheckResult, upd
 	return updatepkg.ApplyResult{PreviousCLIVersion: "0.14.2", CLIVersion: "0.15.0"}, nil
 }
 
-func (*notifyingUpdater) CachedNotice() *updatepkg.Notice {
-	return &updatepkg.Notice{Current: "0.13.0", Latest: "0.14.0"}
+func (updater *automaticUpdater) CheckAutomatic(context.Context) (updatepkg.CheckResult, error) {
+	updater.checkCalls.Add(1)
+	return updater.check, updater.checkErr
 }
 
-func (updater *notifyingUpdater) RefreshNotice(context.Context) {
-	select {
-	case updater.refreshCalled <- struct{}{}:
-	default:
-	}
+func (updater *automaticUpdater) Check(context.Context) (updatepkg.CheckResult, error) {
+	return updater.check, updater.checkErr
+}
+
+func (updater *automaticUpdater) Apply(context.Context, updatepkg.CheckResult, updatepkg.ApplyOptions) (updatepkg.ApplyResult, error) {
+	updater.applyCalls.Add(1)
+	return updater.apply, updater.applyErr
 }
 
 type commandNPMRunner struct {
@@ -146,33 +155,160 @@ func TestBareCommandKeepsMachineOutputAsJSON(t *testing.T) {
 	}
 }
 
-func TestOrdinaryCommandIncludesMachineReadableUpdateNotice(t *testing.T) {
-	t.Parallel()
+func TestOrdinaryCommandAutomaticallyUpdatesAndReexecutesWithTheNewGeneration(t *testing.T) {
+	clearAutomaticUpdateReexecutionEnvironment(t)
 	root := t.TempDir()
-	updater := &notifyingUpdater{refreshCalled: make(chan struct{}, 1)}
+	updater := &automaticUpdater{
+		check: updatepkg.CheckResult{CurrentVersion: "0.15.2", AvailableVersion: "0.16.0", UpdateAvailable: true},
+		apply: updatepkg.ApplyResult{PreviousCLIVersion: "0.15.2", CLIVersion: "0.16.0", Targets: []updatepkg.TargetResult{
+			{Target: "npm_global", Status: "updated"},
+			{Target: "agent_skill:auto", Status: "updated"},
+		}},
+	}
 	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	var reexecuted atomic.Bool
+	exit := Execute([]string{"version"}, Dependencies{
+		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(), Updater: updater,
+		Environment:                skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:                     config.RegionCN,
+		allowDevelopmentAutoUpdate: true,
+		Reexecute: func(_ context.Context, args, environment []string) (int, error) {
+			reexecuted.Store(true)
+			if !reflect.DeepEqual(args, []string{"version"}) {
+				t.Fatalf("re-executed args=%#v", args)
+			}
+			joined := strings.Join(environment, "\n")
+			for _, expected := range []string{
+				autoUpdateReexecEnvironment + "=1",
+				autoUpdateFromEnvironment + "=0.15.2",
+				autoUpdateToEnvironment + "=0.16.0",
+			} {
+				if !strings.Contains(joined, expected) {
+					t.Fatalf("re-execution environment missing %q", expected)
+				}
+			}
+			_, _ = stdout.WriteString("{\"ok\":true,\"data\":{\"version\":\"0.16.0\"}}\n")
+			return 0, nil
+		},
+	})
+	if exit != 0 || !reexecuted.Load() || updater.checkCalls.Load() != 1 || updater.applyCalls.Load() != 1 {
+		t.Fatalf("automatic update did not re-execute exactly once: exit=%d reexecuted=%t checks=%d applies=%d stdout=%q stderr=%q", exit, reexecuted.Load(), updater.checkCalls.Load(), updater.applyCalls.Load(), stdout.String(), stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "0.15.2 -> 0.16.0") {
+		t.Fatalf("automatic update progress missing from stderr: %q", stderr.String())
+	}
+	if strings.Count(stdout.String(), "\n") != 1 {
+		t.Fatalf("old and new processes both emitted protocol output: %q", stdout.String())
+	}
+}
+
+func TestAutomaticUpdateDiscoveryFailureIsFailOpen(t *testing.T) {
+	clearAutomaticUpdateReexecutionEnvironment(t)
+	root := t.TempDir()
+	updater := &automaticUpdater{checkErr: errors.New("offline")}
+	var stdout bytes.Buffer
+	var reexecuted atomic.Bool
 	exit := Execute([]string{"version"}, Dependencies{
 		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+		Environment:                skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:                     config.RegionCN,
+		allowDevelopmentAutoUpdate: true,
+		Reexecute: func(context.Context, []string, []string) (int, error) {
+			reexecuted.Store(true)
+			return 0, nil
+		},
+	})
+	if exit != 0 || reexecuted.Load() || updater.checkCalls.Load() != 1 || updater.applyCalls.Load() != 0 {
+		t.Fatalf("offline freshness check changed the business command: exit=%d reexecuted=%t checks=%d applies=%d stdout=%q", exit, reexecuted.Load(), updater.checkCalls.Load(), updater.applyCalls.Load(), stdout.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || result["ok"] != true {
+		t.Fatalf("offline command lost its normal result: result=%#v err=%v", result, err)
+	}
+}
+
+func TestAutomaticUpdateApplyFailureBlocksOldBusinessCommand(t *testing.T) {
+	clearAutomaticUpdateReexecutionEnvironment(t)
+	root := t.TempDir()
+	updater := &automaticUpdater{
+		check:    updatepkg.CheckResult{CurrentVersion: "0.15.2", AvailableVersion: "0.16.0", UpdateAvailable: true},
+		applyErr: &updatepkg.OperationError{Kind: updatepkg.ErrorNPMCommand, Cause: errors.New("activation failed")},
+	}
+	var stdout bytes.Buffer
+	var reexecuted atomic.Bool
+	exit := Execute([]string{"version"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+		Environment:                skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:                     config.RegionCN,
+		allowDevelopmentAutoUpdate: true,
+		Reexecute: func(context.Context, []string, []string) (int, error) {
+			reexecuted.Store(true)
+			return 0, nil
+		},
+	})
+	if exit == 0 || reexecuted.Load() || updater.applyCalls.Load() != 1 || !strings.Contains(stdout.String(), "update_npm_failed") {
+		t.Fatalf("failed activation allowed old business logic: exit=%d reexecuted=%t applies=%d stdout=%q", exit, reexecuted.Load(), updater.applyCalls.Load(), stdout.String())
+	}
+}
+
+func TestScheduledAutomaticUpdateRequiresRetryWithoutRunningTheOldCommand(t *testing.T) {
+	clearAutomaticUpdateReexecutionEnvironment(t)
+	root := t.TempDir()
+	updater := &automaticUpdater{
+		check: updatepkg.CheckResult{CurrentVersion: "0.15.2", AvailableVersion: "0.16.0", UpdateAvailable: true},
+		apply: updatepkg.ApplyResult{PreviousCLIVersion: "0.15.2", CLIVersion: "0.16.0", Targets: []updatepkg.TargetResult{
+			{Target: "standalone_binary", Status: "scheduled"},
+			{Target: "agent_skill:auto", Status: "scheduled"},
+		}},
+	}
+	var stdout bytes.Buffer
+	var reexecuted atomic.Bool
+	exit := Execute([]string{"version"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+		Environment:                skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:                     config.RegionCN,
+		allowDevelopmentAutoUpdate: true,
+		Reexecute: func(context.Context, []string, []string) (int, error) {
+			reexecuted.Store(true)
+			return 0, nil
+		},
+	})
+	if exit == 0 || reexecuted.Load() || !strings.Contains(stdout.String(), "AUTO_UPDATE_RESTART_REQUIRED") || !strings.Contains(stdout.String(), `"retryable": true`) {
+		t.Fatalf("scheduled update ran the old command or lost retry semantics: exit=%d reexecuted=%t stdout=%q", exit, reexecuted.Load(), stdout.String())
+	}
+}
+
+func TestReexecutedCommandReportsAutomaticGenerationMetadata(t *testing.T) {
+	clearAutomaticUpdateReexecutionEnvironment(t)
+	t.Setenv(autoUpdateReexecEnvironment, "1")
+	t.Setenv(autoUpdateFromEnvironment, "0.15.2")
+	t.Setenv(autoUpdateToEnvironment, "0.16.0")
+	root := t.TempDir()
+	var stdout bytes.Buffer
+	exit := Execute([]string{"version"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: &startupRecoveryUpdater{},
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 		Region:      config.RegionCN,
 	})
 	if exit != 0 {
-		t.Fatalf("version command failed: exit=%d stdout=%q", exit, stdout.String())
+		t.Fatalf("re-executed command failed: exit=%d stdout=%q", exit, stdout.String())
 	}
 	var result map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
-		t.Fatalf("update notice polluted JSON output: %v stdout=%q", err, stdout.String())
+		t.Fatal(err)
 	}
-	notice, ok := result["_notice"].(map[string]any)
-	updateNotice, updateOK := notice["update"].(map[string]any)
-	if !ok || !updateOK || updateNotice["current"] != "0.13.0" || updateNotice["latest"] != "0.14.0" ||
-		updateNotice["command"] != "viceme update" {
-		t.Fatalf("missing stable update notice: %#v", result)
+	meta := result["meta"].(map[string]any)
+	autoUpdate := meta["autoUpdate"].(map[string]any)
+	if autoUpdate["from"] != "0.15.2" || autoUpdate["to"] != "0.16.0" || autoUpdate["status"] != "updated" {
+		t.Fatalf("automatic re-execution metadata=%#v", meta)
 	}
-	select {
-	case <-updater.refreshCalled:
-	case <-time.After(time.Second):
-		t.Fatal("background update notice refresh was not started")
+}
+
+func clearAutomaticUpdateReexecutionEnvironment(t *testing.T) {
+	t.Helper()
+	for _, name := range []string{autoUpdateReexecEnvironment, autoUpdateFromEnvironment, autoUpdateToEnvironment} {
+		t.Setenv(name, "")
 	}
 }
 
@@ -460,7 +596,9 @@ func TestStartupRecoveryDoesNotPassAnActivationChildStillCommitting(t *testing.T
 		},
 	}
 
-	err = reconcileActivationAtStartup(context.Background(), configDir, &dependencies)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	err = reconcileActivationAtStartup(ctx, configDir, &dependencies)
 	if err == nil || !strings.Contains(err.Error(), "activation child") {
 		t.Fatalf("startup recovery crossed an in-flight child commit: %v", err)
 	}

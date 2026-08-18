@@ -88,37 +88,28 @@ func (service *ReleaseService) Check(ctx context.Context) (CheckResult, error) {
 	return result, nil
 }
 
-// CachedNotice performs local I/O only. The release store is consulted by a
-// bounded background refresh, so update discovery never delays or fails the
-// business command that carries this notice.
-func (service *ReleaseService) CachedNotice() *Notice {
-	if notifierSuppressed(service.CurrentVersion, service.ComparableVersion) {
-		return nil
+func (service *ReleaseService) CheckAutomatic(ctx context.Context) (CheckResult, error) {
+	result := CheckResult{
+		CurrentVersion: service.CurrentVersion,
+		Method:         "release_bundle",
+		Package:        "viceme-cli",
+		Source:         "official_s3",
 	}
-	state, ok := service.loadUpdateState()
-	if !ok {
-		return nil
-	}
-	comparison, err := semver.Compare(state.LatestVersion, service.ComparableVersion)
-	if err != nil || comparison <= 0 {
-		return nil
-	}
-	return &Notice{Current: service.CurrentVersion, Latest: state.LatestVersion}
-}
-
-// RefreshNotice refreshes the region-specific release cache at most once per
-// 24 hours. Failures are intentionally ignored by callers.
-func (service *ReleaseService) RefreshNotice(ctx context.Context) {
-	if notifierSuppressed(service.CurrentVersion, service.ComparableVersion) {
-		return
+	if automaticUpdateSuppressed(service.CurrentVersion, service.ComparableVersion) {
+		result.Source = "disabled"
+		return result, nil
 	}
 	if state, ok := service.loadUpdateState(); ok && service.updateStateIsFresh(state) {
-		return
+		comparison, err := semver.Compare(state.LatestVersion, service.ComparableVersion)
+		if err != nil {
+			return result, &OperationError{Kind: ErrorReleaseResponse, Cause: errors.New("current CLI version is not comparable with the cached release index")}
+		}
+		result.AvailableVersion = state.LatestVersion
+		result.UpdateAvailable = comparison > 0
+		result.Source = "cache"
+		return result, nil
 	}
-	latest, err := service.fetchLatestVersion(ctx)
-	if err == nil {
-		service.saveUpdateState(latest)
-	}
+	return service.Check(ctx)
 }
 
 func (service *ReleaseService) fetchLatestVersion(ctx context.Context) (string, error) {

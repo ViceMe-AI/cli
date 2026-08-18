@@ -7,6 +7,8 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
+import { launcherEnvironment } from "../lib/launcher-environment.mjs";
+
 const localBinary = process.env.VICEME_TEST_BINARY;
 const packageTarball = process.env.VICEME_TEST_PACKAGE_TARBALL;
 const packageDocument = JSON.parse(
@@ -14,6 +16,18 @@ const packageDocument = JSON.parse(
 );
 const packageVersion = packageDocument.version;
 const packageArgumentPrefix = `${packageDocument.name}@`;
+
+test("launcher gives the CLI exact re-execution authority", () => {
+  const launcherPath = fileURLToPath(new URL("../bin/viceme.mjs", import.meta.url));
+  const environment = launcherEnvironment(
+    { VICEME_INSTALL_METHOD: "npm" },
+    launcherPath,
+    process.execPath,
+  );
+  assert.equal(environment.VICEME_INSTALL_METHOD, "npm");
+  assert.equal(environment.VICEME_NPM_LAUNCHER_RUNTIME, process.execPath);
+  assert.equal(environment.VICEME_NPM_LAUNCHER_PATH, launcherPath);
+});
 
 async function startHealthServer() {
   const script = fileURLToPath(new URL("./health-server.mjs", import.meta.url));

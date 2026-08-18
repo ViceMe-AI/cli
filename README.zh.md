@@ -243,6 +243,11 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
   "data": {},
   "meta": {
     "executingCliVersion": "<version>",
+    "autoUpdate": {
+      "from": "<previous-version>",
+      "to": "<executing-version>",
+      "status": "updated"
+    },
     "requestId": "optional"
   }
 }
@@ -250,18 +255,25 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 
 `meta.executingCliVersion` 表示输出本次响应的进程版本。对于 `viceme update`，
 新安装版本单独由 `data.cli_version` 返回，因为最终响应仍由启动更新的旧进程输出。
+只有当本次命令由新激活的版本自动继续执行时，响应才会包含 `meta.autoUpdate`。
 
-正式安装最多每 24 小时读取一次权威发布渠道。发现新版本后，普通 JSON 响应通过
-`_notice.update` 返回当前版本、最新版本和 `viceme update`。检查失败不会改变业务
-命令的退出码。
+正式安装在执行普通命令前都会经过有界的新鲜度检查。已经校验的结果会复用五分钟，
+避免同一工作流反复访问发布渠道。发现新的稳定版本时，CLI 与所有检测到的官方
+Skills 会作为一个可恢复的完整版本一起激活，随后由新 CLI 自动重新执行原命令。
+断网时发布发现会继续使用最后一个完整版本；如果版本激活失败，原命令会停止，避免
+旧进程在版本切换失败后继续执行写操作。
+
+npm 安装在所有支持的平台都会自动继续原命令。Windows 独立二进制在等待操作系统释放
+旧可执行文件时，可能会返回一次可重试的 `AUTO_UPDATE_RESTART_REQUIRED`；原样重试
+同一个命令后会由新版本继续执行。
 
 ```bash
 viceme update --check
 viceme update
 ```
 
-更新器会校验精确 Release、刷新匹配版本的官方 Skills，并把中断的激活过程恢复成
-一个完整、兼容的本地版本。
+`viceme update` 保留为显式修复命令。正常启动检查已经会校验精确 Release、刷新匹配
+版本的官方 Skills，并把中断的激活过程恢复成一个完整、兼容的本地版本。
 
 ## 安全边界
 

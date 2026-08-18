@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -78,8 +80,12 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 	if err := os.MkdirAll(runtime.configBase, 0o700); err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_CONFIG_DIR_FAILED", "could not create the bootstrap recovery directory", err)
 	}
+	activationContext := command.Context()
+	if activationContext == nil {
+		activationContext = context.Background()
+	}
 	activationLock := flock.New(filepath.Join(runtime.configBase, updatepkg.ActivationLockFilename))
-	locked, err := activationLock.TryLock()
+	locked, err := activationLock.TryLockContext(activationContext, 50*time.Millisecond)
 	if err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_LOCK_FAILED", "could not acquire the bootstrap activation lock", err)
 	}
@@ -95,7 +101,7 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 		return bootstrapActivationResult{}, output.Policy("BOOTSTRAP_NPM_RECOVERY_REQUIRED", "an interrupted npm activation must be recovered before standalone bootstrap")
 	}
 	memberLock := flock.New(filepath.Join(runtime.configBase, updatepkg.ActivationMemberLockFilename))
-	memberLocked, err := memberLock.TryLock()
+	memberLocked, err := memberLock.TryLockContext(activationContext, 50*time.Millisecond)
 	if err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_LOCK_FAILED", "could not inspect the activation member lock", err)
 	}
