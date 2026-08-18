@@ -16,6 +16,7 @@ import (
 	"time"
 
 	cliembed "github.com/ViceMe-AI/cli"
+	credentialauth "github.com/ViceMe-AI/cli/internal/auth"
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -579,7 +580,7 @@ func TestInstallTreatsCredentialStatusAsAdvisory(t *testing.T) {
 	t.Parallel()
 	runtime := &Runtime{
 		region:  config.RegionCN,
-		profile: config.Profile{ID: "profile-default", Name: "default", Region: config.RegionCN},
+		profile: config.Profile{ID: "profile-default", Name: "default", APIBaseURL: config.APIBaseURL(config.RegionCN)},
 		deps:    Dependencies{Store: unavailableCredentialStore{}},
 	}
 
@@ -605,11 +606,21 @@ func TestInstallTreatsActiveProfileNetworkReadinessAsAdvisory(t *testing.T) {
 	}))
 	defer server.Close()
 
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "vme_cli_test", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	exit := Execute([]string{"install", "--agent", "agents"}, Dependencies{
 		Out: &stdout, ErrOut: &stderr,
-		Store: securestore.NewMemory(), Updater: &startupRecoveryUpdater{},
+		Store: store, Updater: &startupRecoveryUpdater{},
 		Skills:      skillcontent.New(cliembed.EmbeddedSkills()),
 		Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
 		APIBaseURL:  server.URL, Region: config.RegionCN,
@@ -621,6 +632,9 @@ func TestInstallTreatsActiveProfileNetworkReadinessAsAdvisory(t *testing.T) {
 		OK   bool `json:"ok"`
 		Data struct {
 			Warnings []string `json:"warnings"`
+			NextStep struct {
+				Command string `json:"command"`
+			} `json:"nextStep"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
@@ -629,9 +643,45 @@ func TestInstallTreatsActiveProfileNetworkReadinessAsAdvisory(t *testing.T) {
 	if !envelope.OK || len(envelope.Data.Warnings) != 1 || !strings.Contains(envelope.Data.Warnings[0], "API is unreachable") {
 		t.Fatalf("install omitted the advisory API warning: %#v", envelope)
 	}
+	if envelope.Data.NextStep.Command != "viceme skill publish --path <dir-or-zip>" {
+		t.Fatalf("install returned the obsolete pre-preview workflow: %#v", envelope.Data.NextStep)
+	}
 	for _, name := range officialSkillNames {
 		if !skillcontent.New(cliembed.EmbeddedSkills()).Doctor(name, "agents", skillcontent.Environment{Home: root, ConfigDir: configDir}).Healthy {
 			t.Fatalf("install did not commit %s while the old profile API was unavailable", name)
+		}
+	}
+}
+
+func TestCredentialScopeUsesCanonicalAPIOrigin(t *testing.T) {
+	first, err := credentialScopeForAPIBase("https://API.EXAMPLE.com:443/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	same, err := credentialScopeForAPIBase("https://api.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, err := credentialScopeForAPIBase("https://other.example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == "" || first != same || first == other {
+		t.Fatalf("credential scope did not follow canonical API origin: first=%q same=%q other=%q", first, same, other)
+	}
+}
+
+func TestLegacyCredentialRegionOnlyMatchesOfficialAPIOrigins(t *testing.T) {
+	t.Parallel()
+	if got := legacyCredentialRegionForAPIBase("HTTPS://API.VICEME.CN:443/"); got != "cn" {
+		t.Fatalf("CN official origin legacy region = %q", got)
+	}
+	if got := legacyCredentialRegionForAPIBase("https://api.viceme.ai"); got != "global" {
+		t.Fatalf("GLOBAL official origin legacy region = %q", got)
+	}
+	for _, endpoint := range []string{"http://127.0.0.1:3001", "https://shop-dev.example.com"} {
+		if got := legacyCredentialRegionForAPIBase(endpoint); got != "" {
+			t.Fatalf("custom endpoint %q inherited official credentials through %q", endpoint, got)
 		}
 	}
 }

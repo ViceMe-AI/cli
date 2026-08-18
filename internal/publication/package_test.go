@@ -166,6 +166,42 @@ func TestBuildExcludesRuntimePathsAndRejectsSecrets(t *testing.T) {
 	assertOutputCode(t, buildError(directory), "SKILL_SECRET_DETECTED")
 }
 
+func TestBuildSanitizesMacOSMetadataAndAllowsDocumentedCredentialPlaceholders(t *testing.T) {
+	t.Parallel()
+	original := zipBytes(t, map[string][]byte{
+		"SKILL.md":            []byte(testSkillMarkdown),
+		"README.md":           []byte("API_KEY=your-api-key-here\nCLIENT_SECRET=your-client-secret-here\n"),
+		".DS_Store":           []byte("finder metadata"),
+		"__MACOSX/._SKILL.md": []byte("apple double metadata"),
+		"assets/._cover.png":  []byte("apple double metadata"),
+	})
+	zipPath := filepath.Join(t.TempDir(), "macos-skill.zip")
+	writeTestFile(t, zipPath, original, 0o644)
+
+	result, err := Build(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FileCount != 2 {
+		t.Fatalf("macOS metadata entered the canonical package: %#v", result)
+	}
+	sourceAfter, err := os.ReadFile(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(sourceAfter, original) {
+		t.Fatal("source ZIP was modified while producing the sanitized artifact")
+	}
+}
+
+func TestBuildRejectsCredentialAssignmentsThatAreNotKnownPlaceholders(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte(testSkillMarkdown), 0o644)
+	writeTestFile(t, filepath.Join(directory, "config.md"), []byte("API_KEY=real-secret-value-1234567890"), 0o644)
+	assertOutputCode(t, buildError(directory), "SKILL_SECRET_DETECTED")
+}
+
 func TestBuildRejectsSymlink(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("symlink creation is not reliably available on Windows test hosts")

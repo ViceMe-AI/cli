@@ -189,7 +189,10 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 						return err
 					}
 				}
-				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, pending.PriceMinor == nil)
+				// An explicit resume continues Draft enrichment even while the
+				// price is still unset. Price gates final confirmation, not media
+				// upload or listing analysis.
+				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, false)
 			}
 			pkg, err := publication.Build(source)
 			if err != nil {
@@ -274,11 +277,7 @@ func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.
 	if err != nil {
 		return listingPrepareResult{}, publication.ResolvedSourceIdentity{}, output.Internal("SKILL_BINDING_SCOPE_INVALID", "could not normalize the current API endpoint", err)
 	}
-	market := "CN"
-	if runtime.profile.Region == "global" {
-		market = "GLOBAL"
-	}
-	store := publication.BindingStore{Directory: filepath.Join(runtime.configBase, "skill-bindings"), EndpointOrigin: origin, Market: market, Now: runtime.deps.Now}
+	store := publication.BindingStore{Directory: filepath.Join(runtime.configBase, "skill-bindings"), EndpointOrigin: origin, Now: runtime.deps.Now}
 	resolution := ""
 	if targetListingID != "" {
 		resolution = "BIND_EXISTING:" + targetListingID
@@ -295,7 +294,6 @@ func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.
 	}
 	request := api.PrepareSkillListingRequest{
 		ClientRequestID: identity.ClientRequestID,
-		Market:          market,
 		Source: api.PrepareSkillListingSource{
 			Type: sourceType, ClientWorkID: identity.ClientWorkID, BindingReceipt: receipt,
 			PackageDigest: pkg.Artifact.Digest, DisplayName: pkg.Manifest.Metadata.Title,
@@ -311,7 +309,7 @@ func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.
 		cliErr := output.AsError(err)
 		if cliErr.Subtype == "SKILL_LISTING_SOURCE_AMBIGUOUS" {
 			candidates, candidateErr := runtime.client().ListSkillListingCandidates(ctx, api.SkillListingCandidatesRequest{
-				Market: market, PackageDigest: pkg.Artifact.Digest,
+				PackageDigest: pkg.Artifact.Digest,
 			})
 			if candidateErr == nil {
 				enriched := output.Validation(
@@ -328,7 +326,7 @@ func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.
 	}
 	binding := publication.SkillBinding{
 		APIVersion: publication.BindingAPIVersion, Kind: "SkillListing", ListingID: response.ListingID,
-		ClientWorkID: identity.ClientWorkID, Market: market, EndpointOrigin: origin,
+		ClientWorkID: identity.ClientWorkID, Market: response.Market, EndpointOrigin: origin,
 		BindingReceipt: response.BindingReceipt, LastPackageDigest: pkg.Artifact.Digest,
 	}
 	if err := store.Save(sourcePath, sourceType, binding); err != nil {
