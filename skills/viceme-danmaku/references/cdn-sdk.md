@@ -4,6 +4,10 @@ Use this when the target is a static site, blog, or product page that should
 receive ViceMe-hosted danmaku without copying React component code into the
 host repository.
 
+This is a surgical integration, not a component-building task. The normal
+result is one generated `.viceme/access.yaml` file and one four-line edit to an
+existing host entry. Do not inspect or validate unrelated application behavior.
+
 ## Embed snippet
 
 The host integration is one script tag and one public `workKey`. Preserve this
@@ -19,9 +23,13 @@ four-line form when showing or applying it:
 Create and activate the work before editing the host page:
 
 ```bash
-viceme auth status
 viceme access init --name "<website name>" --danmaku
 ```
+
+`access init` performs work creation and activation in one operation. If it
+requires authentication, run `viceme auth login` and wait for the user. If the
+API is unavailable, stop with the reported error. Never substitute a localhost
+script, copied component, inline implementation, placeholder key, or mock API.
 
 The command writes `.viceme/access.yaml` and returns the same `workKey`. Treat
 the key as public and opaque. Never replace it with an internal creator ID,
@@ -34,6 +42,18 @@ Optional attributes:
 
 Do not add endpoint, iframe URL, API base URL, creator ID, work ID, or host URL
 overrides to production snippets.
+
+## Fast completion check
+
+After inserting the snippet, perform only these checks unless the user asks for
+full acceptance testing:
+
+- the hosted script URL occurs exactly once in the edited entry;
+- `data-viceme-work` contains the generated public `workKey`;
+- `git diff --check` reports no whitespace error in the edited files.
+
+Do not start a server, navigate a browser, inspect iframes, send messages, test
+persistence, or modify host styles as part of the default installation.
 
 ## Page-position anchors
 
