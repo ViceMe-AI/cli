@@ -153,10 +153,10 @@ function HoverTooltip({ text }: { text: string }) {
   return (
     <span
       aria-hidden
-      className="pointer-events-none absolute top-[-38px] left-1/2 z-[500] hidden w-max -translate-x-1/2 group-hover:block motion-reduce:block"
+      className="pointer-events-none absolute -top-9.5 left-1/2 z-500 hidden w-max -translate-x-1/2 group-hover:block motion-reduce:block"
     >
-      <span className="block rounded-[6px] bg-[#292A2E] px-3 py-[7px] font-['Atlassian_Sans',ui-sans-serif,system-ui,-apple-system,'Segoe_UI',Ubuntu,'Helvetica_Neue',sans-serif] text-white shadow-[0_4px_10px_rgba(0,0,0,0.1)]">
-        <span className="block h-5 pt-0.5 text-[12px] leading-[18px] font-[653] tracking-normal text-white">
+      <span className="block rounded-md bg-[#292A2E] px-3 py-1.75 font-['Atlassian_Sans',ui-sans-serif,system-ui,-apple-system,'Segoe_UI',Ubuntu,'Helvetica_Neue',sans-serif] text-white shadow-[0_4px_10px_rgba(0,0,0,0.1)]">
+        <span className="block h-5 pt-0.5 text-[12px] leading-4.5 font-[653] tracking-normal text-white">
           {text}
         </span>
       </span>
