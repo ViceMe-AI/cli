@@ -62,6 +62,8 @@ func TestDanmakuSkillDefaultsToHostedFastPath(t *testing.T) {
 		"Target completion within about 10 seconds",
 		"Do not start a dev server",
 		"Never fall back to a local or hand-written widget",
+		"Do not run `viceme doctor`, `viceme version`, `viceme install`",
+		"stop immediately",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("embedded danmaku Skill does not contain fast-path guard %q", required)
@@ -74,6 +76,23 @@ func TestDanmakuSkillDefaultsToHostedFastPath(t *testing.T) {
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("embedded danmaku Skill still requires slow default work %q", forbidden)
+		}
+	}
+}
+
+func TestSharedSkillDoesNotPreflightBusinessCommands(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-shared/SKILL.md")
+	if err != nil {
+		t.Fatalf("read embedded shared Skill: %v", err)
+	}
+	for _, required := range []string{
+		"Do not run setup, Doctor",
+		"stop on its structured error",
+	} {
+		if !strings.Contains(string(content), required) {
+			t.Fatalf("embedded shared Skill does not contain business preflight guard %q", required)
 		}
 	}
 }
