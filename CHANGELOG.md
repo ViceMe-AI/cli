@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.16.0-beta.4] - 2026-08-19
+
+### Fixed
+
+- 代际自愈：绕过 `viceme update` 的外部升级（直接 `npm install -g`、重装）在版本递增时自动提交新代际，不再报 `ACTIVATION_RECOVERY_FAILED`；降级、更换安装方式、同版本身份冲突仍然拒绝，且错误附带恢复指引。
+
 ## [0.16.0-beta.3] - 2026-08-18
 
 ### Fixed
