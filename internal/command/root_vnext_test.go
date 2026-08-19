@@ -663,9 +663,44 @@ func TestStartupRecoveryDoesNotPassAnActivationChildStillCommitting(t *testing.T
 		},
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	err = reconcileActivationAtStartup(ctx, configDir, &dependencies)
+	recoveryResult := make(chan error, 1)
+	go func() {
+		recoveryResult <- reconcileActivationAtStartup(ctx, configDir, &dependencies)
+	}()
+
+	activationObserver := flock.New(filepath.Join(configDir, updatepkg.ActivationLockFilename))
+	observerDeadline := time.NewTimer(5 * time.Second)
+	defer observerDeadline.Stop()
+	for {
+		select {
+		case err = <-recoveryResult:
+			t.Fatalf("startup recovery returned before reaching the child commit barrier: %v", err)
+		case <-observerDeadline.C:
+			t.Fatal("startup recovery did not acquire the outer activation lock")
+		default:
+		}
+
+		available, observeErr := activationObserver.TryLock()
+		if observeErr != nil {
+			t.Fatalf("could not observe the outer activation lock: %v", observeErr)
+		}
+		if !available {
+			break
+		}
+		if observeErr := activationObserver.Unlock(); observeErr != nil {
+			t.Fatalf("could not release the outer activation lock probe: %v", observeErr)
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case err = <-recoveryResult:
+	case <-time.After(time.Second):
+		t.Fatal("startup recovery did not stop after its context was cancelled")
+	}
 	if err == nil || !strings.Contains(err.Error(), "activation child") {
 		t.Fatalf("startup recovery crossed an in-flight child commit: %v", err)
 	}
