@@ -126,12 +126,14 @@ VICEME_REGION=global sh -c "$(curl -fsSL https://s3.viceme.ai/start/install.sh)"
 China:
 
 ```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 irm https://s3.viceme.cn/start/install.ps1 | iex
 ```
 
 International:
 
 ```powershell
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $env:VICEME_REGION="global"; irm https://s3.viceme.ai/start/install.ps1 | iex
 ```
 
