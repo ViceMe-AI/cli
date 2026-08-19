@@ -212,7 +212,7 @@ cp "$VICEME_TEST_FIXTURES/${url##*/}" "$out"
 	logText := string(logData)
 	for _, expected := range []string{
 		"bootstrap activate --destination ",
-		"--agent auto --region global",
+		"--agent auto --region cn",
 		"--api-base-url https://viceme-shop-web-poc.preview.tencent-zeabur.cn/api",
 		"--release-channel poc",
 		"--release-base-url https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases",
