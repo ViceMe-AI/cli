@@ -202,6 +202,10 @@ One-time repository setup:
 - Create GitHub environment `poc` with `VICEME_POC_S3_ENDPOINT`,
   `VICEME_POC_S3_BUCKET` (`start`), `VICEME_POC_S3_ACCESS_KEY_ID`, and
   `VICEME_POC_S3_SECRET_ACCESS_KEY`.
+- Configure `VICEME_POC_S3_HTTPS_PROXY` in the same environment with the
+  authenticated HTTPS forward-proxy URL used by GitHub Actions for both POC
+  S3 publication and public read-back. The workflow fails closed when this
+  secret is missing instead of silently falling back to the slow direct route.
 - Scope those credentials to `start/poc/*`. Anonymous reads must allow only the
   documented POC installers, Agent contract, exact CLI release objects, and
   exact SDK release objects; bucket listing and `poc/private-probe/*` must stay

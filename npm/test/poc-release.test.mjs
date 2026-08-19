@@ -26,6 +26,18 @@ test("POC assets use only the POC start prefix and enforce anonymous-read bounda
   assert.doesNotMatch(workflow, /s3\.viceme\.(?:cn|ai)\/start\/cli\/releases/);
 });
 
+test("POC S3 publication requires its scoped HTTPS proxy", () => {
+  assert.match(
+    workflow,
+    /HTTPS_PROXY: \$\{\{ secrets\.VICEME_POC_S3_HTTPS_PROXY \}\}/,
+  );
+  assert.match(
+    workflow,
+    /https_proxy: \$\{\{ secrets\.VICEME_POC_S3_HTTPS_PROXY \}\}/,
+  );
+  assert.match(workflow, /test -n "\$HTTPS_PROXY"/);
+});
+
 test("POC installers atomically select the POC API and updater without another command name", () => {
   for (const installer of [shellInstaller, powerShellInstaller]) {
     assert.match(installer, /viceme-shop-web-poc\.preview\.tencent-zeabur\.cn\/api/);
