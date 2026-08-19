@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-region="global"
+region="cn"
 base_url="${VICEME_POC_DOWNLOAD_BASE_URL:-https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases}"
 api_base_url="${VICEME_POC_API_BASE_URL:-https://viceme-shop-web-poc.preview.tencent-zeabur.cn/api}"
 

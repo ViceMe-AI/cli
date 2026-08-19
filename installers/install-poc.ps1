@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
-$region = "global"
+$region = "cn"
 $baseUrl = if ($env:VICEME_POC_DOWNLOAD_BASE_URL) { $env:VICEME_POC_DOWNLOAD_BASE_URL } else { "https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases" }
 $apiBaseUrl = if ($env:VICEME_POC_API_BASE_URL) { $env:VICEME_POC_API_BASE_URL } else { "https://viceme-shop-web-poc.preview.tencent-zeabur.cn/api" }
 

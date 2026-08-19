@@ -38,6 +38,7 @@ test("POC S3 publication requires its scoped HTTPS proxy", () => {
 
 test("POC installers atomically select the POC API and updater without another command name", () => {
   for (const installer of [shellInstaller, powerShellInstaller]) {
+    assert.match(installer, /region(?: =|=)\s*["']cn["']/);
     assert.match(installer, /viceme-shop-web-poc\.preview\.tencent-zeabur\.cn\/api/);
     assert.match(installer, /viceme-shop-storage-poc\.preview\.tencent-zeabur\.cn\/start\/poc\/cli\/releases/);
     assert.match(installer, /release-channel poc/);
