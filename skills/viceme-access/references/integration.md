@@ -5,7 +5,7 @@
 Create and apply the common configuration in one command:
 
 ```bash
-viceme website publish --path . --name "Dagou Tap" --url "https://dagou.example.com"
+viceme website publish --path . --name "Dagou Tap"
 viceme access init --website . --name "Dagou Tap" \
   --follow "dingdong=叮咚鸡" \
   --price-minor 1000 \
@@ -35,7 +35,7 @@ status: ACTIVE
 configVersion: 1
 ```
 
-A claimed ViceMe creator identity is required to publish, inspect, configure, or run a workKey; ordinary users cannot own SDK integrations. The CLI persists a stable `clientWorkId`; a content Digest only determines whether publishing creates another website release. A paid one-time offer grants an entitlement for that CreatorWork.
+A claimed ViceMe creator identity is required to publish, inspect, configure, or run a workKey; ordinary users cannot own SDK integrations. A public domain is not required: pass `--url` only after the website has an external URL. The CLI persists a stable `clientWorkId`; a content Digest only determines whether publishing creates another website release. A paid one-time offer grants an entitlement for that CreatorWork.
 
 Omit `priceCents` when the website only needs login or following. `WORK_ENTITLEMENT` requires a positive one-time price.
 
