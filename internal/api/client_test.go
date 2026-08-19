@@ -58,19 +58,12 @@ func TestSdkWorkClientUsesLightweightCreatorEndpoints(t *testing.T) {
 		}
 		requests <- request.Method + " " + request.URL.Path
 		writer.Header().Set("Content-Type", "application/json")
-		if request.URL.Path == "/v1/cli/sdk-works/products" {
-			_, _ = io.WriteString(writer, `{"products":[]}`)
-			return
-		}
-		_, _ = io.WriteString(writer, `{"workKey":"wrk_test","displayName":"Test","status":"DRAFT","configVersion":1,"product":null,"features":[],"capabilities":[],"createdAt":"2026-08-15T00:00:00.000Z","updatedAt":"2026-08-15T00:00:00.000Z"}`)
+		_, _ = io.WriteString(writer, `{"creatorWorkId":"22222222-2222-4222-8222-222222222222","workKey":"wrk_test","displayName":"Test","status":"DRAFT","configVersion":1,"offer":null,"features":[],"capabilities":[],"createdAt":"2026-08-15T00:00:00.000Z","updatedAt":"2026-08-15T00:00:00.000Z"}`)
 	}))
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
-	if _, err := client.CreateSdkWork(context.Background(), CreateSdkWorkRequest{DisplayName: "Test"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := client.ListSdkWorkProducts(context.Background()); err != nil {
+	if _, err := client.PublishCreatorWebsite(context.Background(), PublishCreatorWebsiteRequest{ClientRequestID: "11111111-1111-4111-8111-111111111111", ClientWorkID: "22222222-2222-4222-8222-222222222222", SourceDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DisplayName: "Test", SourceURL: "https://example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.GetSdkWork(context.Background(), "wrk_test"); err != nil {
@@ -81,8 +74,7 @@ func TestSdkWorkClientUsesLightweightCreatorEndpoints(t *testing.T) {
 	}
 
 	want := []string{
-		"POST /v1/cli/sdk-works",
-		"GET /v1/cli/sdk-works/products",
+		"POST /v1/cli/sdk-works/publish",
 		"GET /v1/cli/sdk-works/wrk_test",
 		"PUT /v1/cli/sdk-works/wrk_test",
 	}

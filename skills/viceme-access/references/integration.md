@@ -5,9 +5,10 @@
 Create and apply the common configuration in one command:
 
 ```bash
-viceme access init --name "Dagou Tap" \
+viceme website publish --path . --name "Dagou Tap" --url "https://dagou.example.com"
+viceme access init --website . --name "Dagou Tap" \
   --follow "dingdong=叮咚鸡" \
-  --product "dagou-tap" \
+  --price-minor 1000 \
   --purchase "emperor=帝皇"
 ```
 
@@ -20,7 +21,7 @@ schemaVersion: 1
 workKey: wrk_example
 region: cn
 displayName: Dagou Tap
-productSlug: dagou-tap
+priceCents: 1000
 features:
   dingdong:
     title: 叮咚鸡
@@ -29,20 +30,19 @@ features:
   emperor:
     title: 帝皇
     policy:
-      type: PURCHASE_BOUND_PRODUCT
+      type: WORK_ENTITLEMENT
 status: ACTIVE
 configVersion: 1
 ```
 
-A claimed ViceMe creator identity is required to create, inspect, configure, or run a workKey; ordinary users cannot own SDK integrations. `productSlug` is only control-plane input, and the CLI/API validates that the globally unique slug belongs to the same creator before storing the product ID. Multiple workKeys may bind the same product; one paid purchase then satisfies `PURCHASE_BOUND_PRODUCT` on each of them.
+A claimed ViceMe creator identity is required to publish, inspect, configure, or run a workKey; ordinary users cannot own SDK integrations. The CLI persists a stable `clientWorkId`; a content Digest only determines whether publishing creates another website release. A paid one-time offer grants an entitlement for that CreatorWork.
 
-Omit `productSlug` when the website only needs login or following. Purchase policies require a bound product.
+Omit `priceCents` when the website only needs login or following. `WORK_ENTITLEMENT` requires a positive one-time price.
 
 Supported policies:
 
 - `FOLLOW_OWNER`: current user follows the work owner.
-- `PURCHASE_BOUND_PRODUCT`: current user has a paid purchase for the bound product.
-- `PURCHASE_ANY_OWNER_PRODUCT`: current user has a paid purchase for any product of the work owner; the bound product remains the checkout target.
+- `WORK_ENTITLEMENT`: current user has an active entitlement for this work.
 
 ## Browser SDK
 
@@ -95,6 +95,6 @@ Branch only on `ViceMeError.code`. Common codes include:
 - `SESSION_EXPIRED`: ask the user to retry or sign in again.
 - `AUTH_CANCELLED`: the user cancelled or the same-tab continuation expired.
 - `CAPABILITY_DISABLED`: inspect the work configuration.
-- `CHECKOUT_UNAVAILABLE`: verify the bound product is active, paid, and still owned by the creator.
+- `CHECKOUT_UNAVAILABLE`: verify the work's one-time offer is active and has a positive current price.
 
 Always call `destroy()` during teardown.

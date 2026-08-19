@@ -1,51 +1,57 @@
 ---
 name: viceme-access
-description: Integrate the ViceMe browser SDK into a website for WeChat login, user-to-user following, feature access checks, and creator-product checkout. Use when Codex needs to add or repair ViceMe workKey setup, `.viceme/access.yaml`, follow-gated UI, purchase-gated UI, or the lightweight `viceme access` workflow in static HTML, React, Next.js, or similar browser projects.
+description: Integrate the ViceMe browser SDK into an externally hosted website for WeChat login, following, feature access checks, and one-time work checkout. Use when Codex needs to add or repair ViceMe workKey setup, `.viceme/access.yaml`, follow-gated UI, purchase-gated UI, or the lightweight `viceme website` and `viceme access` workflows.
 ---
 
 # ViceMe Website Access
 
-Implement a browser-only integration backed by a creator-owned `workKey`. Creating, inspecting, configuring, or running a Work requires a claimed ViceMe creator identity; ordinary users may only visit integrations as end users. Binding a product additionally requires a product owned by that creator. Keep identity, follow, and purchase decisions server-authoritative.
+Implement a browser-only integration backed by a creator-owned `workKey`. Publishing registers an already deployed external URL; it does not upload or host the website. Publishing, inspecting, configuring, or running a Work requires a claimed ViceMe creator identity. Keep identity, follow, purchase, and entitlement decisions server-authoritative.
 
 ## Workflow
 
 1. Inspect the project framework, package manager, existing auth/payment code, and the exact UI elements to gate. Preserve existing conventions.
 2. Run `viceme auth status`. If the token lacks `sdk-work:read` or `sdk-work:write`, ask the user to run `viceme auth login` again.
    If the API returns `CREATOR_REQUIRED`, stop and ask the user to claim a creator identity in ViceMe before continuing.
-3. If `.viceme/access.yaml` does not exist, create and apply the complete
+3. If `.viceme/website.json` does not exist, publish the website first. The
+   binding is the stable work identity and repeat publication must reuse it:
+
+   ```bash
+   viceme website publish --path <website-dir> --name "<website name>" --url "<published URL>"
+   ```
+
+4. If `.viceme/access.yaml` does not exist, create and apply the complete
    access config in one command. Repeat feature flags as needed; use
    `key=title` only when the display title differs from the key:
 
    ```bash
-   viceme access init --name "<website name>" \
+   viceme access init --website <website-dir> --name "<website name>" \
      [--follow "<feature-key>[=<title>]"] \
-     [--product "<owned product slug>" --purchase "<feature-key>[=<title>]"]
+     [--price-minor <fen> --purchase "<feature-key>[=<title>]"]
    ```
 
-   When a purchase feature omits `--product`, the CLI binds the creator's only
-   owned product automatically. If multiple products exist, rerun with the
-   `--product <slug>` choice returned in `WORK_PRODUCT_SELECTION_REQUIRED`.
+   A purchase feature creates or updates the website work's one-time sale offer.
+   Creator subscriptions are not supported in this version.
 
-4. Edit `.viceme/access.yaml` and run `viceme access apply` only for later
+5. Edit `.viceme/access.yaml` and run `viceme access apply` only for later
    configuration changes. Use `viceme access inspect` for diagnosis, not as
    a mandatory second request after a successful quick init.
-5. Install `@viceme-ai/sdk` with the project's existing package manager.
+6. Install `@viceme-ai/sdk` with the project's existing package manager.
    Create one client per `workKey`, await `ready()`, and call
    `access.require()` from the existing gated button. This is the default
    fast path; do not add an integration wrapper unless the framework requires it.
-6. Use the SDK's `<viceme-access-layer>`. The ViceMe-owned component keeps login
+7. Use the SDK's `<viceme-access-layer>`. The ViceMe-owned component keeps login
    and checkout inside a mobile bottom sheet or desktop in-page layer. Do not
    infer, copy, or generate styles from the host page in this version.
-7. Test anonymous, signed-in/unfollowed, followed, unpaid, paid, cancellation,
+8. Test anonymous, signed-in/unfollowed, followed, unpaid, paid, cancellation,
    embedded completion, keyboard interaction, and reduced-motion states.
 
 Read [references/integration.md](references/integration.md) for configuration and code examples.
 
 ## Hard constraints
 
-- Treat `workKey` as public and opaque. Never replace it with a product slug or use it as a secret.
+- Treat `workKey` as public and opaque. Never replace it with an offer ID or use it as a secret.
 - Never add a Payment API key, webhook, amount, currency, product ID, creator ID, or price to browser code.
-- Let the server resolve `workKey → owner → bound SkillProduct`.
+- Let the server resolve `workKey → CreatorWork → SaleOffer → Entitlement`.
 - Do not store work-session tokens or access decisions in cookies, localStorage, IndexedDB, URLs, analytics, or logs.
 - Never unlock from checkout return parameters or browser state. Only `access.check()` can grant access.
 - Access checks must never silently sign in, follow, or pay. Call `access.require()` only from an explicit user action. The default layer opens a required checkout immediately from that action, but the user must still select and confirm payment; following still requires the layer's “关注” button.
@@ -61,7 +67,7 @@ Read [references/integration.md](references/integration.md) for configuration an
 
 ## Completion checks
 
-- Confirm `viceme access inspect` shows the expected work, product binding, features, and capabilities.
+- Confirm `viceme access inspect` shows the expected work, one-time offer, features, and capabilities.
 - Confirm follow-gated and purchase-gated functions have separate state.
 - Confirm all public SDK requests omit browser credentials and use the in-memory work session.
 - Confirm an access check cannot mutate follow state before the user activates the follow action.

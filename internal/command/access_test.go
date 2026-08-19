@@ -3,55 +3,20 @@ package command
 import (
 	"testing"
 
-	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
 )
 
-func TestSelectAccessProductDefaultsSingleProduct(t *testing.T) {
-	slug, err := selectAccessProduct([]api.SdkWorkProduct{{Slug: "dagou-tap", Title: "Dagou Tap"}})
-	if err != nil {
-		t.Fatalf("selectAccessProduct() error = %v", err)
-	}
-	if slug != "dagou-tap" {
-		t.Fatalf("selectAccessProduct() = %q", slug)
-	}
-}
-
-func TestSelectAccessProductRequiresChoiceForMultipleProducts(t *testing.T) {
-	products := []api.SdkWorkProduct{
-		{Slug: "dagou-tap", Title: "Dagou Tap"},
-		{Slug: "knowledge-comic", Title: "Knowledge Comic"},
-	}
-	_, err := selectAccessProduct(products)
-	cliError, ok := err.(*output.Error)
-	if !ok || cliError.Subtype != "WORK_PRODUCT_SELECTION_REQUIRED" {
-		t.Fatalf("selectAccessProduct() error = %#v", err)
-	}
-	details, ok := cliError.Details.(map[string]any)
-	if !ok || len(details["products"].([]api.SdkWorkProduct)) != 2 {
-		t.Fatalf("selection candidates = %#v", cliError.Details)
-	}
-}
-
-func TestSelectAccessProductRejectsEmptyProducts(t *testing.T) {
-	_, err := selectAccessProduct(nil)
-	cliError, ok := err.(*output.Error)
-	if !ok || cliError.Subtype != "WORK_PRODUCT_NOT_FOUND" {
-		t.Fatalf("selectAccessProduct() error = %#v", err)
-	}
-}
-
 func validAccessConfig() accessConfig {
-	product := "dagou-tap"
+	price := 1_000
 	return accessConfig{
 		SchemaVersion: 1,
 		WorkKey:       "wrk_dagou_tap",
 		Region:        "cn",
 		DisplayName:   "Dagou Tap",
-		ProductSlug:   &product,
+		PriceCents:    &price,
 		Features: map[string]accessFeatureConfig{
 			"dingdong": {Title: "叮咚鸡", Policy: accessFeaturePolicy{Type: "FOLLOW_OWNER"}},
-			"emperor":  {Title: "帝皇", Policy: accessFeaturePolicy{Type: "PURCHASE_BOUND_PRODUCT"}},
+			"emperor":  {Title: "帝皇", Policy: accessFeaturePolicy{Type: "WORK_ENTITLEMENT"}},
 		},
 		Status:        "ACTIVE",
 		ConfigVersion: 1,
@@ -71,7 +36,7 @@ func TestAccessConfigSupportsFollowAndPurchase(t *testing.T) {
 
 func TestAccessConfigSupportsPublicDanmaku(t *testing.T) {
 	config := validAccessConfig()
-	config.ProductSlug = nil
+	config.PriceCents = nil
 	delete(config.Features, "emperor")
 	config.Features["danmaku"] = accessFeatureConfig{
 		Title:  "弹幕",
@@ -93,15 +58,15 @@ func TestAccessInitExposesDanmakuFlag(t *testing.T) {
 	}
 }
 
-func TestAccessConfigRejectsPurchaseWithoutProduct(t *testing.T) {
+func TestAccessConfigRejectsPurchaseWithoutPrice(t *testing.T) {
 	config := validAccessConfig()
-	config.ProductSlug = nil
+	config.PriceCents = nil
 	err := validateAccessConfig(config)
 	if err == nil {
-		t.Fatal("validateAccessConfig() error = nil, want WORK_PRODUCT_NOT_BOUND")
+		t.Fatal("validateAccessConfig() error = nil, want WORK_PRICE_REQUIRED")
 	}
 	cliError, ok := err.(*output.Error)
-	if !ok || cliError.Subtype != "WORK_PRODUCT_NOT_BOUND" {
+	if !ok || cliError.Subtype != "WORK_PRICE_REQUIRED" {
 		t.Fatalf("validateAccessConfig() error = %#v", err)
 	}
 }
@@ -146,7 +111,6 @@ func TestBuildQuickAccessFeaturesAssignsPolicies(t *testing.T) {
 	features, err := buildQuickAccessFeatures(
 		[]string{"dingdong=叮咚鸡"},
 		[]string{"emperor=帝皇"},
-		nil,
 	)
 	if err != nil {
 		t.Fatalf("buildQuickAccessFeatures() error = %v", err)
@@ -154,7 +118,7 @@ func TestBuildQuickAccessFeaturesAssignsPolicies(t *testing.T) {
 	if features["dingdong"].Policy.Type != "FOLLOW_OWNER" {
 		t.Fatalf("dingdong policy = %q", features["dingdong"].Policy.Type)
 	}
-	if features["emperor"].Policy.Type != "PURCHASE_BOUND_PRODUCT" {
+	if features["emperor"].Policy.Type != "WORK_ENTITLEMENT" {
 		t.Fatalf("emperor policy = %q", features["emperor"].Policy.Type)
 	}
 }
@@ -163,7 +127,6 @@ func TestBuildQuickAccessFeaturesRejectsDuplicateKeys(t *testing.T) {
 	_, err := buildQuickAccessFeatures(
 		[]string{"premium"},
 		[]string{"premium"},
-		nil,
 	)
 	if err == nil {
 		t.Fatal("buildQuickAccessFeatures() error = nil, want duplicate")

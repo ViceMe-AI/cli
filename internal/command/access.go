@@ -24,7 +24,7 @@ type accessConfig struct {
 	WorkKey       string                         `yaml:"workKey"`
 	Region        string                         `yaml:"region"`
 	DisplayName   string                         `yaml:"displayName"`
-	ProductSlug   *string                        `yaml:"productSlug"`
+	PriceCents    *int                           `yaml:"priceCents"`
 	Features      map[string]accessFeatureConfig `yaml:"features"`
 	Status        string                         `yaml:"status"`
 	ConfigVersion int                            `yaml:"configVersion"`
@@ -51,18 +51,25 @@ func newAccessCommand(runtime *Runtime) *cobra.Command {
 func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	var filename string
 	var displayName string
-	var productSlug string
 	var danmaku bool
+	var websitePath string
+	var priceCents int
 	var followFeatures []string
 	var purchaseFeatures []string
-	var purchaseAnyFeatures []string
 	command := &cobra.Command{
 		Use:   "init",
-		Short: "Create a creator website workKey and local access config",
+		Short: "Configure access for an already published creator website",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			binding, _, err := requirePublishedWebsiteBinding(websitePath)
+			if err != nil {
+				return err
+			}
+			if binding.Region != string(runtime.region) {
+				return output.Validation("WEBSITE_REGION_MISMATCH", "website binding region does not match the active CLI profile")
+			}
 			if strings.TrimSpace(displayName) == "" {
-				return output.Validation("SDK_WORK_NAME_REQUIRED", "--name is required")
+				displayName = binding.DisplayName
 			}
 			if _, err := os.Stat(filename); err == nil {
 				return output.Validation("ACCESS_CONFIG_EXISTS", "access config already exists").WithHint("use 'viceme access inspect' or choose another --config path")
@@ -75,7 +82,6 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 			features, err := buildQuickAccessFeatures(
 				followFeatures,
 				purchaseFeatures,
-				purchaseAnyFeatures,
 			)
 			if err != nil {
 				return err
@@ -86,33 +92,25 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 					Policy: accessFeaturePolicy{Type: "PUBLIC"},
 				}
 			}
-			purchaseRequested := len(purchaseFeatures) > 0 || len(purchaseAnyFeatures) > 0
-			if purchaseRequested && strings.TrimSpace(productSlug) == "" {
-				products, err := runtime.client().ListSdkWorkProducts(command.Context())
-				if err != nil {
-					return err
-				}
-				productSlug, err = selectAccessProduct(products.Products)
-				if err != nil {
-					return err
-				}
+			purchaseRequested := len(purchaseFeatures) > 0
+			if purchaseRequested && priceCents <= 0 {
+				return output.Validation("WORK_PRICE_REQUIRED", "purchase features require --price-minor greater than zero")
 			}
-			work, err := runtime.client().CreateSdkWork(command.Context(), api.CreateSdkWorkRequest{DisplayName: strings.TrimSpace(displayName)})
+			work, err := runtime.client().GetSdkWork(command.Context(), binding.WorkKey)
 			if err != nil {
 				return err
 			}
 			config := accessConfig{
 				SchemaVersion: 1,
-				WorkKey:       work.WorkKey,
+				WorkKey:       binding.WorkKey,
 				Region:        string(runtime.region),
-				DisplayName:   work.DisplayName,
+				DisplayName:   strings.TrimSpace(displayName),
 				Features:      features,
 				Status:        "DRAFT",
 				ConfigVersion: work.ConfigVersion,
 			}
-			if strings.TrimSpace(productSlug) != "" {
-				value := strings.TrimSpace(productSlug)
-				config.ProductSlug = &value
+			if purchaseRequested {
+				config.PriceCents = &priceCents
 			}
 			if len(features) > 0 {
 				config.Status = "ACTIVE"
@@ -121,9 +119,9 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			if err := writeAccessConfig(filename, config); err != nil {
-				return output.Internal("ACCESS_CONFIG_WRITE_FAILED", "workKey was created but the local access config could not be written", err).WithDetails(map[string]any{"workKey": work.WorkKey})
+				return output.Internal("ACCESS_CONFIG_WRITE_FAILED", "published work was found but the local access config could not be written", err).WithDetails(map[string]any{"workKey": work.WorkKey})
 			}
-			if config.ProductSlug != nil || len(config.Features) > 0 {
+			if len(config.Features) > 0 {
 				work, err = runtime.client().ApplySdkWork(command.Context(), config.WorkKey, config.applyRequest())
 				if err != nil {
 					return err
@@ -137,35 +135,23 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&filename, "config", defaultAccessConfigPath, "access config path")
+	command.Flags().StringVar(&websitePath, "website", ".", "published website source directory")
 	command.Flags().StringVar(&displayName, "name", "", "website display name")
-	command.Flags().StringVar(&productSlug, "product", "", "optional owned SkillProduct slug")
 	command.Flags().BoolVar(&danmaku, "danmaku", false, "activate the public hosted danmaku capability")
+	command.Flags().IntVar(&priceCents, "price-minor", 0, "work price in fen when purchase access is enabled")
 	command.Flags().StringArrayVar(&followFeatures, "follow", nil, "activate FOLLOW_OWNER feature as key or key=title (repeatable)")
-	command.Flags().StringArrayVar(&purchaseFeatures, "purchase", nil, "activate PURCHASE_BOUND_PRODUCT feature as key or key=title (repeatable)")
-	command.Flags().StringArrayVar(&purchaseAnyFeatures, "purchase-any", nil, "activate PURCHASE_ANY_OWNER_PRODUCT feature as key or key=title (repeatable)")
+	command.Flags().StringArrayVar(&purchaseFeatures, "purchase", nil, "activate WORK_ENTITLEMENT feature as key or key=title (repeatable)")
 	return command
 }
 
-func selectAccessProduct(products []api.SdkWorkProduct) (string, error) {
-	switch len(products) {
-	case 0:
-		return "", output.Validation("WORK_PRODUCT_NOT_FOUND", "purchase features require an owned creator product").WithHint("publish a product first, or omit the purchase feature")
-	case 1:
-		return products[0].Slug, nil
-	default:
-		return "", output.Validation("WORK_PRODUCT_SELECTION_REQUIRED", "multiple owned products are available; choose one to bind").WithDetails(map[string]any{"products": products}).WithHint("rerun with --product <slug>")
-	}
-}
-
-func buildQuickAccessFeatures(follow, purchase, purchaseAny []string) (map[string]accessFeatureConfig, error) {
-	features := make(map[string]accessFeatureConfig, len(follow)+len(purchase)+len(purchaseAny))
+func buildQuickAccessFeatures(follow, purchase []string) (map[string]accessFeatureConfig, error) {
+	features := make(map[string]accessFeatureConfig, len(follow)+len(purchase))
 	groups := []struct {
 		values []string
 		policy string
 	}{
 		{values: follow, policy: "FOLLOW_OWNER"},
-		{values: purchase, policy: "PURCHASE_BOUND_PRODUCT"},
-		{values: purchaseAny, policy: "PURCHASE_ANY_OWNER_PRODUCT"},
+		{values: purchase, policy: "WORK_ENTITLEMENT"},
 	}
 	for _, group := range groups {
 		for _, value := range group.values {
@@ -275,7 +261,7 @@ func (config accessConfig) applyRequest() api.ApplySdkWorkRequest {
 	return api.ApplySdkWorkRequest{
 		ExpectedConfigVersion: config.ConfigVersion,
 		DisplayName:           config.DisplayName,
-		ProductSlug:           config.ProductSlug,
+		PriceCents:            config.PriceCents,
 		Features:              features,
 		Status:                config.Status,
 	}
@@ -319,7 +305,7 @@ func validateAccessConfig(config accessConfig) error {
 				return output.Validation("POLICY_TYPE_UNSUPPORTED", "PUBLIC is reserved for the danmaku capability")
 			}
 		case "FOLLOW_OWNER":
-		case "PURCHASE_BOUND_PRODUCT", "PURCHASE_ANY_OWNER_PRODUCT":
+		case "WORK_ENTITLEMENT":
 			purchasePolicy = true
 		default:
 			return output.Validation("POLICY_TYPE_UNSUPPORTED", "feature policy is not supported in this CLI version")
@@ -328,8 +314,11 @@ func validateAccessConfig(config accessConfig) error {
 			return output.Validation("ACCESS_CONFIG_INVALID", "feature status must be ACTIVE or DISABLED")
 		}
 	}
-	if purchasePolicy && (config.ProductSlug == nil || strings.TrimSpace(*config.ProductSlug) == "") {
-		return output.Validation("WORK_PRODUCT_NOT_BOUND", "purchase policies require productSlug")
+	if purchasePolicy && (config.PriceCents == nil || *config.PriceCents <= 0) {
+		return output.Validation("WORK_PRICE_REQUIRED", "purchase policies require a positive priceCents")
+	}
+	if !purchasePolicy && config.PriceCents != nil {
+		return output.Validation("ACCESS_CONFIG_INVALID", "priceCents requires a purchase policy")
 	}
 	return nil
 }
