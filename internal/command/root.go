@@ -92,6 +92,7 @@ const (
 	autoUpdateToEnvironment       = "VICEME_AUTO_UPDATE_TO"
 	npmLauncherPathEnvironment    = "VICEME_NPM_LAUNCHER_PATH"
 	npmLauncherRuntimeEnvironment = "VICEME_NPM_LAUNCHER_RUNTIME"
+	activationOperationTimeout    = 12 * time.Minute
 )
 
 var fallbackUUIDSequence atomic.Uint64
@@ -179,7 +180,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		}
 		dependencies.coordinatedActivationChild = true
 	} else {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), activationOperationTimeout)
 		err := reconcileActivationAtStartup(ctx, configBase, &dependencies)
 		cancel()
 		if err != nil {
@@ -521,7 +522,7 @@ func (r *Runtime) ensureAutomaticUpdate(command *cobra.Command) error {
 		return nil
 	}
 	_, _ = fmt.Fprintf(r.deps.ErrOut, "Updating ViceMe CLI and official Skills %s -> %s; the original command will continue automatically.\n", check.CurrentVersion, check.AvailableVersion)
-	applyContext, cancelApply := context.WithTimeout(command.Context(), 3*time.Minute)
+	applyContext, cancelApply := context.WithTimeout(command.Context(), activationOperationTimeout)
 	result, err := r.deps.Updater.Apply(applyContext, check, updatepkg.ApplyOptions{RefreshSkills: true, SkillTarget: "auto"})
 	cancelApply()
 	if err != nil {

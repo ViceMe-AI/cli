@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.1] - 2026-08-19
+
+### Fixes
+
+- 修复安装重试与启动信号传播 (`cae2f39`)
+- unbrick npm activation recovery and anchor launcher cache to the bundled checksum manifest (`acf28b2`)
+
 ## [0.16.0] - 2026-08-19
 
 ### Features
