@@ -1,22 +1,23 @@
 ---
 name: viceme-access
-description: Integrate the ViceMe browser SDK into an externally hosted website for WeChat login, following, feature access checks, and one-time work checkout. Use when Codex needs to add or repair ViceMe workKey setup, `.viceme/access.yaml`, follow-gated UI, purchase-gated UI, or the lightweight `viceme website` and `viceme access` workflows.
+description: Integrate the ViceMe browser SDK into a creator website for WeChat login, following, feature access checks, and one-time work checkout. Use when Codex needs to add or repair ViceMe workKey setup, `.viceme/access.yaml`, follow-gated UI, purchase-gated UI, or the lightweight `viceme website` and `viceme access` workflows.
 ---
 
 # ViceMe Website Access
 
-Implement a browser-only integration backed by a creator-owned `workKey`. Publishing registers the local website Digest and may optionally record an external URL; it does not upload or host the website. Publishing, inspecting, configuring, or running a Work requires a claimed ViceMe creator identity. Keep identity, follow, purchase, and entitlement decisions server-authoritative.
+Implement a browser-only integration backed by a creator-owned `workKey`. Publishing registers the local website Digest and may optionally record an external URL; it does not upload or host the website. A first successful publication creates and claims the user's ViceMe creator identity when needed. Keep identity, follow, purchase, and entitlement decisions server-authoritative.
 
 ## Workflow
 
 1. Inspect the project framework, package manager, existing auth/payment code, and the exact UI elements to gate. Preserve existing conventions.
 2. Run `viceme auth status`. If the token lacks `sdk-work:read` or `sdk-work:write`, ask the user to run `viceme auth login` again.
-   If the API returns `CREATOR_REQUIRED`, stop and ask the user to claim a creator identity in ViceMe before continuing.
+   If the first publication reports `CREATOR_DISPLAY_NAME_REQUIRED`, repeat it with `--creator-display-name "<creator name>"`.
 3. If `.viceme/website.json` does not exist, publish the website first. The
    binding is the stable work identity and repeat publication must reuse it:
 
    ```bash
-   viceme website publish --path <website-dir> --name "<website name>" [--url "<published URL>"]
+   viceme website publish --path <website-dir> --name "<website name>" \
+     [--creator-display-name "<creator name>"] [--url "<published URL>"]
    ```
 
 4. If `.viceme/access.yaml` does not exist, create and apply the complete

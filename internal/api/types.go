@@ -55,11 +55,12 @@ type SdkWorkFeaturePolicy struct {
 }
 
 type PublishCreatorWebsiteRequest struct {
-	ClientRequestID string `json:"clientRequestId"`
-	ClientWorkID    string `json:"clientWorkId"`
-	SourceDigest    string `json:"sourceDigest"`
-	DisplayName     string `json:"displayName"`
-	SourceURL       string `json:"sourceUrl,omitempty"`
+	ClientRequestID    string `json:"clientRequestId"`
+	ClientWorkID       string `json:"clientWorkId"`
+	SourceDigest       string `json:"sourceDigest"`
+	DisplayName        string `json:"displayName"`
+	CreatorDisplayName string `json:"creatorDisplayName,omitempty"`
+	SourceURL          string `json:"sourceUrl,omitempty"`
 }
 
 type ApplySdkWorkRequest struct {

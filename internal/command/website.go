@@ -44,6 +44,7 @@ func newWebsiteCommand(runtime *Runtime) *cobra.Command {
 func newWebsitePublishCommand(runtime *Runtime) *cobra.Command {
 	var sourcePath string
 	var displayName string
+	var creatorDisplayName string
 	var sourceURL string
 	command := &cobra.Command{
 		Use:   "publish",
@@ -89,7 +90,7 @@ func newWebsitePublishCommand(runtime *Runtime) *cobra.Command {
 			}
 			work, err := runtime.client().PublishCreatorWebsite(command.Context(), api.PublishCreatorWebsiteRequest{
 				ClientRequestID: randomUUID(), ClientWorkID: binding.ClientWorkID, SourceDigest: sourceDigest,
-				DisplayName: binding.DisplayName, SourceURL: binding.SourceURL,
+				DisplayName: binding.DisplayName, CreatorDisplayName: strings.TrimSpace(creatorDisplayName), SourceURL: binding.SourceURL,
 			})
 			if err != nil {
 				return err
@@ -117,6 +118,7 @@ func newWebsitePublishCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&sourcePath, "path", ".", "website source directory")
 	command.Flags().StringVar(&displayName, "name", "", "website display name")
+	command.Flags().StringVar(&creatorDisplayName, "creator-display-name", "", "creator display name used when the account has none")
 	command.Flags().StringVar(&sourceURL, "url", "", "optional published website URL")
 	return command
 }
