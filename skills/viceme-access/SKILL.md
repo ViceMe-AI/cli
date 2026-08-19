@@ -5,7 +5,7 @@ description: Integrate the ViceMe browser SDK into an externally hosted website 
 
 # ViceMe Website Access
 
-Implement a browser-only integration backed by a creator-owned `workKey`. Publishing registers an already deployed external URL; it does not upload or host the website. Publishing, inspecting, configuring, or running a Work requires a claimed ViceMe creator identity. Keep identity, follow, purchase, and entitlement decisions server-authoritative.
+Implement a browser-only integration backed by a creator-owned `workKey`. Publishing registers the local website Digest and may optionally record an external URL; it does not upload or host the website. Publishing, inspecting, configuring, or running a Work requires a claimed ViceMe creator identity. Keep identity, follow, purchase, and entitlement decisions server-authoritative.
 
 ## Workflow
 
@@ -16,7 +16,7 @@ Implement a browser-only integration backed by a creator-owned `workKey`. Publis
    binding is the stable work identity and repeat publication must reuse it:
 
    ```bash
-   viceme website publish --path <website-dir> --name "<website name>" --url "<published URL>"
+   viceme website publish --path <website-dir> --name "<website name>" [--url "<published URL>"]
    ```
 
 4. If `.viceme/access.yaml` does not exist, create and apply the complete

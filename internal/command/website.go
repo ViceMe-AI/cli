@@ -79,7 +79,9 @@ func newWebsitePublishCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			binding.DisplayName = strings.TrimSpace(displayName)
-			binding.SourceURL = strings.TrimSpace(sourceURL)
+			if normalizedSourceURL := strings.TrimSpace(sourceURL); normalizedSourceURL != "" {
+				binding.SourceURL = normalizedSourceURL
+			}
 			// Persist the source identity before the network call. If the call succeeds
 			// but the process is interrupted, the next publish still reuses this work.
 			if err := writeWebsiteBinding(bindingPath, binding); err != nil {
@@ -115,7 +117,7 @@ func newWebsitePublishCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&sourcePath, "path", ".", "website source directory")
 	command.Flags().StringVar(&displayName, "name", "", "website display name")
-	command.Flags().StringVar(&sourceURL, "url", "", "published website URL")
+	command.Flags().StringVar(&sourceURL, "url", "", "optional published website URL")
 	return command
 }
 
@@ -156,7 +158,7 @@ func requirePublishedWebsiteBinding(sourcePath string) (websiteBinding, string, 
 		return websiteBinding{}, "", err
 	}
 	if !found || binding.WorkKey == "" {
-		return websiteBinding{}, "", output.Validation("WEBSITE_PUBLICATION_REQUIRED", "publish this website before configuring access").WithHint("run 'viceme website publish --path <dir> --name <name> --url <url>'")
+		return websiteBinding{}, "", output.Validation("WEBSITE_PUBLICATION_REQUIRED", "publish this website before configuring access").WithHint("run 'viceme website publish --path <dir> --name <name>'")
 	}
 	return binding, filename, nil
 }
@@ -192,7 +194,11 @@ func writeWebsiteBinding(filename string, binding websiteBinding) error {
 }
 
 func validateWebsiteURL(raw string) error {
-	parsed, err := url.ParseRequestURI(strings.TrimSpace(raw))
+	normalized := strings.TrimSpace(raw)
+	if normalized == "" {
+		return nil
+	}
+	parsed, err := url.ParseRequestURI(normalized)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
 		return output.Validation("WEBSITE_URL_INVALID", "--url must be an absolute http(s) URL")
 	}

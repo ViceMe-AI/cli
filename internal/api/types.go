@@ -59,7 +59,7 @@ type PublishCreatorWebsiteRequest struct {
 	ClientWorkID    string `json:"clientWorkId"`
 	SourceDigest    string `json:"sourceDigest"`
 	DisplayName     string `json:"displayName"`
-	SourceURL       string `json:"sourceUrl"`
+	SourceURL       string `json:"sourceUrl,omitempty"`
 }
 
 type ApplySdkWorkRequest struct {
@@ -85,13 +85,13 @@ type SdkWork struct {
 }
 
 type SdkWorkPublication struct {
-	ClientWorkID string `json:"clientWorkId"`
-	SourceDigest string `json:"sourceDigest"`
-	SourceURL    string `json:"sourceUrl"`
-	ReleaseID    string `json:"releaseId"`
-	Version      int    `json:"version"`
-	PublishedAt  string `json:"publishedAt"`
-	Unchanged    bool   `json:"unchanged"`
+	ClientWorkID string  `json:"clientWorkId"`
+	SourceDigest string  `json:"sourceDigest"`
+	SourceURL    *string `json:"sourceUrl"`
+	ReleaseID    string  `json:"releaseId"`
+	Version      int     `json:"version"`
+	PublishedAt  string  `json:"publishedAt"`
+	Unchanged    bool    `json:"unchanged"`
 }
 
 type SdkWorkOffer struct {

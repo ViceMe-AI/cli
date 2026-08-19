@@ -46,6 +46,18 @@ func TestRequirePublishedWebsiteBindingRejectsMissingWorkKey(t *testing.T) {
 	}
 }
 
+func TestWebsiteURLIsOptionalButValidatedWhenProvided(t *testing.T) {
+	if err := validateWebsiteURL(""); err != nil {
+		t.Fatalf("validateWebsiteURL(\"\") error = %v", err)
+	}
+	if err := validateWebsiteURL("https://creator.example.com/tool"); err != nil {
+		t.Fatalf("validateWebsiteURL(valid) error = %v", err)
+	}
+	if err := validateWebsiteURL("creator.example.com/tool"); err == nil {
+		t.Fatal("validateWebsiteURL(relative) error = nil")
+	}
+}
+
 func TestWebsiteDigestChangesWithContentButIgnoresLocalBinding(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("first"), 0o644); err != nil {
