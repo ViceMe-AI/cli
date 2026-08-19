@@ -2,11 +2,9 @@
 
 ## Access configuration
 
-Create and apply the common configuration in one command:
+This workflow starts from a website binding already created by `$viceme-publish`. Create and apply the common access configuration in one command:
 
 ```bash
-viceme website publish --path . --name "Dagou Tap" \
-  --creator-display-name "Dagou Creator"
 viceme access init --website . --name "Dagou Tap" \
   --follow "dingdong=叮咚鸡" \
   --price-minor 1000 \
@@ -35,8 +33,6 @@ features:
 status: ACTIVE
 configVersion: 1
 ```
-
-The first successful publication automatically creates and claims a ViceMe creator identity. `--creator-display-name` is only required when the user profile has no display name. A public domain is not required: pass `--url` only after the website has an external URL. The CLI persists a stable `clientWorkId`; a content Digest only determines whether publishing creates another website release. A paid one-time offer grants an entitlement for that CreatorWork.
 
 Omit `priceCents` when the website only needs login or following. `WORK_ENTITLEMENT` requires a positive one-time price.
 
