@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0-beta.2] - 2026-08-18
+
+### Added
+
+- 新增 `viceme creator-app` 命令组：create / list / show / domain add / domain verify，登录后即可自助完成 Creator App 创建、域名验证与嵌入代码获取；登录授权范围增加 `creator-app:read` 与 `creator-app:write`。
+- `viceme-tip` Skill 改为全程 CLI 自助：不再要求用户手动操作 Creator Center 页面，首次创建应用时自动建立创作者身份。
+
 ## [0.16.0-beta.1] - 2026-08-18
 
 ### Fixes
