@@ -74,6 +74,10 @@ type SdkWorkProduct struct {
 	Status     string `json:"status"`
 }
 
+type SdkWorkProducts struct {
+	Products []SdkWorkProduct `json:"products"`
+}
+
 type SdkWork struct {
 	WorkKey       string                 `json:"workKey"`
 	DisplayName   string                 `json:"displayName"`

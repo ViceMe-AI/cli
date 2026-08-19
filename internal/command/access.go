@@ -58,7 +58,7 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	var purchaseAnyFeatures []string
 	command := &cobra.Command{
 		Use:   "init",
-		Short: "Create a website workKey and local access config",
+		Short: "Create a creator website workKey and local access config",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if strings.TrimSpace(displayName) == "" {
@@ -86,8 +86,16 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 					Policy: accessFeaturePolicy{Type: "PUBLIC"},
 				}
 			}
-			if (len(purchaseFeatures) > 0 || len(purchaseAnyFeatures) > 0) && strings.TrimSpace(productSlug) == "" {
-				return output.Validation("WORK_PRODUCT_NOT_BOUND", "purchase features require --product")
+			purchaseRequested := len(purchaseFeatures) > 0 || len(purchaseAnyFeatures) > 0
+			if purchaseRequested && strings.TrimSpace(productSlug) == "" {
+				products, err := runtime.client().ListSdkWorkProducts(command.Context())
+				if err != nil {
+					return err
+				}
+				productSlug, err = selectAccessProduct(products.Products)
+				if err != nil {
+					return err
+				}
 			}
 			work, err := runtime.client().CreateSdkWork(command.Context(), api.CreateSdkWorkRequest{DisplayName: strings.TrimSpace(displayName)})
 			if err != nil {
@@ -136,6 +144,17 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringArrayVar(&purchaseFeatures, "purchase", nil, "activate PURCHASE_BOUND_PRODUCT feature as key or key=title (repeatable)")
 	command.Flags().StringArrayVar(&purchaseAnyFeatures, "purchase-any", nil, "activate PURCHASE_ANY_OWNER_PRODUCT feature as key or key=title (repeatable)")
 	return command
+}
+
+func selectAccessProduct(products []api.SdkWorkProduct) (string, error) {
+	switch len(products) {
+	case 0:
+		return "", output.Validation("WORK_PRODUCT_NOT_FOUND", "purchase features require an owned creator product").WithHint("publish a product first, or omit the purchase feature")
+	case 1:
+		return products[0].Slug, nil
+	default:
+		return "", output.Validation("WORK_PRODUCT_SELECTION_REQUIRED", "multiple owned products are available; choose one to bind").WithDetails(map[string]any{"products": products}).WithHint("rerun with --product <slug>")
+	}
 }
 
 func buildQuickAccessFeatures(follow, purchase, purchaseAny []string) (map[string]accessFeatureConfig, error) {

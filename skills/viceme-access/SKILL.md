@@ -5,12 +5,13 @@ description: Integrate the ViceMe browser SDK into a website for WeChat login, u
 
 # ViceMe Website Access
 
-Implement a browser-only integration backed by a ViceMe-user-owned `workKey`. Any authenticated ViceMe user may create a workKey and configure `FOLLOW_OWNER`; binding a product or enabling purchase requires a claimed creator identity and a product owned by that creator. Keep identity, follow, and purchase decisions server-authoritative.
+Implement a browser-only integration backed by a creator-owned `workKey`. Creating, inspecting, configuring, or running a Work requires a claimed ViceMe creator identity; ordinary users may only visit integrations as end users. Binding a product additionally requires a product owned by that creator. Keep identity, follow, and purchase decisions server-authoritative.
 
 ## Workflow
 
 1. Inspect the project framework, package manager, existing auth/payment code, and the exact UI elements to gate. Preserve existing conventions.
 2. Run `viceme auth status`. If the token lacks `sdk-work:read` or `sdk-work:write`, ask the user to run `viceme auth login` again.
+   If the API returns `CREATOR_REQUIRED`, stop and ask the user to claim a creator identity in ViceMe before continuing.
 3. If `.viceme/access.yaml` does not exist, create and apply the complete
    access config in one command. Repeat feature flags as needed; use
    `key=title` only when the display title differs from the key:
@@ -20,6 +21,10 @@ Implement a browser-only integration backed by a ViceMe-user-owned `workKey`. An
      [--follow "<feature-key>[=<title>]"] \
      [--product "<owned product slug>" --purchase "<feature-key>[=<title>]"]
    ```
+
+   When a purchase feature omits `--product`, the CLI binds the creator's only
+   owned product automatically. If multiple products exist, rerun with the
+   `--product <slug>` choice returned in `WORK_PRODUCT_SELECTION_REQUIRED`.
 
 4. Edit `.viceme/access.yaml` and run `viceme access apply` only for later
    configuration changes. Use `viceme access inspect` for diagnosis, not as
