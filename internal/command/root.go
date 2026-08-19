@@ -354,12 +354,11 @@ func reconcileActivationAtStartup(ctx context.Context, configDir string, depende
 		return err
 	}
 	if exists && active != running && !dependencies.bootstrapActivationCommand {
-		// 外部升级路径（直接 npm install / 重新安装，没有 activation
-		// journal）：没有任何恢复流程会推进代际标记，直接报错会让每个
-		// 命令永远失败。ValidateActivationTarget 只允许同安装方式的
-		// 非降级升级，合法升级在此提交新代际并继续；降级或身份冲突
-		// 仍然失败关闭。
-		if commitErr := updatepkg.CommitActiveGeneration(configDir, running); commitErr != nil {
+		// 外部升级路径（直接 npm install / 重新安装 / 独立安装迁移，没有
+		// activation journal）：没有任何恢复流程会推进代际标记，直接报错
+		// 会让每个命令永远失败。AdoptExternalUpgrade 只允许版本严格递增，
+		// 降级或同版本的身份/安装方式冲突仍然失败关闭。
+		if commitErr := updatepkg.AdoptExternalUpgrade(configDir, running); commitErr != nil {
 			return updatepkg.ErrActivationRestartNeeded
 		}
 	}

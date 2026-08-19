@@ -153,12 +153,42 @@ func ValidateActivationTarget(configDir string, target ActiveGeneration) error {
 	return nil
 }
 
+// AdoptExternalUpgrade adopts the running build as the active generation for
+// out-of-band upgrades (direct `npm install -g`, reinstalls, or a migration
+// from the standalone installer) where no activation journal exists. It only
+// permits a strict version increase: rollbacks and same-version identity or
+// install-method changes still fail closed. The caller must hold
+// ActivationLockFilename.
+func AdoptExternalUpgrade(configDir string, target ActiveGeneration) error {
+	if err := validateActiveGeneration(target); err != nil {
+		return err
+	}
+	active, exists, err := ReadActiveGeneration(configDir)
+	if err != nil {
+		return err
+	}
+	if exists {
+		comparison, err := semver.Compare(target.Version, active.Version)
+		if err != nil {
+			return err
+		}
+		if comparison <= 0 {
+			return fmt.Errorf("%w: target %s, active %s", ErrActivationDowngrade, target.Version, active.Version)
+		}
+	}
+	return writeActiveGeneration(configDir, target)
+}
+
 // CommitActiveGeneration writes the semantic commit point for launcher,
 // Skills, and config. The caller must still hold ActivationLockFilename.
 func CommitActiveGeneration(configDir string, target ActiveGeneration) error {
 	if err := ValidateActivationTarget(configDir, target); err != nil {
 		return err
 	}
+	return writeActiveGeneration(configDir, target)
+}
+
+func writeActiveGeneration(configDir string, target ActiveGeneration) error {
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return err
 	}

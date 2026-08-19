@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
@@ -45,6 +46,59 @@ func TestNPMEntryAdoptsExternalUpgradeWithoutJournal(t *testing.T) {
 	}
 	if active != running {
 		t.Fatalf("active generation was not advanced to the running generation: active=%#v running=%#v", active, running)
+	}
+}
+
+// 老用户从独立二进制迁移到 npm：安装方式不同但版本严格递增时必须放行，
+// 代际记录的是“当前生效构建”，跨渠道升级不构成回滚。
+func TestStandaloneToNPMMigrationIsAdoptedWhenVersionIncreases(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	legacy, err := updatepkg.NewStandaloneGeneration("0.13.2", strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := updatepkg.CommitActiveGeneration(configDir, legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	updater := updatepkg.NewNPMService(buildinfo.Version, "0.16.0", "npm")
+	updater.ConfigDir = configDir
+	dependencies := Dependencies{
+		Updater:     updater,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+	}
+	if err := reconcileActivationAtStartup(context.Background(), configDir, &dependencies); err != nil {
+		t.Fatalf("standalone to npm migration was not adopted: %v", err)
+	}
+	active, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil || !exists || active.InstallMethod != "npm" || active.Version != "0.16.0" {
+		t.Fatalf("active generation did not migrate to the npm build: active=%#v exists=%t err=%v", active, exists, err)
+	}
+}
+
+// 同版本但安装方式不同：无法证明两次构建产物一致，继续拒绝。
+func TestSameVersionAcrossInstallMethodsIsRejected(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	legacy, err := updatepkg.NewStandaloneGeneration("0.16.0", strings.Repeat("a", 64))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := updatepkg.CommitActiveGeneration(configDir, legacy); err != nil {
+		t.Fatal(err)
+	}
+
+	updater := updatepkg.NewNPMService(buildinfo.Version, "0.16.0", "npm")
+	updater.ConfigDir = configDir
+	dependencies := Dependencies{
+		Updater:     updater,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+	}
+	if err := reconcileActivationAtStartup(context.Background(), configDir, &dependencies); !errors.Is(err, updatepkg.ErrActivationRestartNeeded) {
+		t.Fatalf("same-version method switch was not blocked: %v", err)
 	}
 }
 
