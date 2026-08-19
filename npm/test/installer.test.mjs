@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   binaryDownloadURLs,
+  downloadWithCurl,
   ensureBinary,
   releaseAssetName,
   releaseTarget,
@@ -135,6 +136,40 @@ test("falls back in order and verifies every source against the bundled checksum
     `https://second.example/v0.1.0/${asset}`,
   ]);
 });
+
+test(
+  "curl retries replace partial output instead of concatenating it",
+  { skip: process.platform === "win32" },
+  async () => {
+    let requests = 0;
+    const server = createServer((request, response) => {
+      requests += 1;
+      if (requests === 1) {
+        response.writeHead(200, { "Content-Length": "8" });
+        response.write("BAD");
+        setTimeout(() => response.destroy(), 2_000);
+        return;
+      }
+      response.end("GOODGOOD");
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    try {
+      const binary = await downloadWithCurl(`http://127.0.0.1:${address.port}`, {
+        allowInsecureURL: true,
+        maxTimeSeconds: 1,
+        retryDelaySeconds: 0,
+        timeoutMilliseconds: 5_000,
+      });
+      assert.deepEqual(binary, Buffer.from("GOODGOOD"));
+      assert.equal(requests, 2);
+    } finally {
+      server.close();
+      await once(server, "close");
+    }
+  },
+);
 
 test("rejects a release binary whose checksum does not match", async () => {
   const cacheDirectory = await mkdtemp(path.join(os.tmpdir(), "viceme-npm-test-"));

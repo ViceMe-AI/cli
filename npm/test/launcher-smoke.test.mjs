@@ -49,6 +49,25 @@ test("launcher classifies npm-managed launches instead of trusting foreign inher
   assert.equal(developmentOverride.VICEME_INSTALL_METHOD, "development");
 });
 
+test(
+  "launcher preserves every platform signal exit code",
+  { skip: process.platform === "win32" },
+  () => {
+    const launcher = fileURLToPath(new URL("../bin/viceme.mjs", import.meta.url));
+    const child = spawnSync(
+      process.execPath,
+      [launcher, "-c", 'kill -s SEGV "$$"'],
+      {
+        env: {
+          ...process.env,
+          VICEME_BINARY_PATH: "/bin/sh",
+        },
+      },
+    );
+    assert.equal(child.status, 128 + os.constants.signals.SIGSEGV);
+  },
+);
+
 async function startHealthServer() {
   const script = fileURLToPath(new URL("./health-server.mjs", import.meta.url));
   const child = spawn(process.execPath, [script], {
