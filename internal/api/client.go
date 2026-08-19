@@ -66,15 +66,9 @@ func (c *Client) Revoke(ctx context.Context, accessToken string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/logout", struct{}{}, nil, accessToken)
 }
 
-func (c *Client) CreateSdkWork(ctx context.Context, request CreateSdkWorkRequest) (SdkWork, error) {
+func (c *Client) PublishCreatorWebsite(ctx context.Context, request PublishCreatorWebsiteRequest) (SdkWork, error) {
 	var response SdkWork
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works", request, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) ListSdkWorkProducts(ctx context.Context) (SdkWorkProducts, error) {
-	var response SdkWorkProducts
-	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/sdk-works/products", nil, &response, "@stored")
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works/publish", request, &response, "@stored")
 	return response, err
 }
 

@@ -54,40 +54,52 @@ type SdkWorkFeaturePolicy struct {
 	Type string `json:"type"`
 }
 
-type CreateSdkWorkRequest struct {
-	DisplayName string `json:"displayName"`
+type PublishCreatorWebsiteRequest struct {
+	ClientRequestID string `json:"clientRequestId"`
+	ClientWorkID    string `json:"clientWorkId"`
+	SourceDigest    string `json:"sourceDigest"`
+	DisplayName     string `json:"displayName"`
+	SourceURL       string `json:"sourceUrl"`
 }
 
 type ApplySdkWorkRequest struct {
 	ExpectedConfigVersion int                    `json:"expectedConfigVersion"`
 	DisplayName           string                 `json:"displayName"`
-	ProductSlug           *string                `json:"productSlug"`
+	PriceCents            *int                   `json:"priceCents"`
 	Features              []SdkWorkFeatureConfig `json:"features"`
 	Status                string                 `json:"status"`
 }
 
-type SdkWorkProduct struct {
-	ID         string `json:"id"`
-	Slug       string `json:"slug"`
-	Title      string `json:"title"`
-	PriceCents int    `json:"priceCents"`
-	Status     string `json:"status"`
-}
-
-type SdkWorkProducts struct {
-	Products []SdkWorkProduct `json:"products"`
-}
-
 type SdkWork struct {
+	CreatorWorkID string                 `json:"creatorWorkId"`
 	WorkKey       string                 `json:"workKey"`
+	Publication   *SdkWorkPublication    `json:"publication"`
 	DisplayName   string                 `json:"displayName"`
 	Status        string                 `json:"status"`
 	ConfigVersion int                    `json:"configVersion"`
-	Product       *SdkWorkProduct        `json:"product"`
+	Offer         *SdkWorkOffer          `json:"offer"`
 	Features      []SdkWorkFeatureConfig `json:"features"`
 	Capabilities  []string               `json:"capabilities"`
 	CreatedAt     string                 `json:"createdAt"`
 	UpdatedAt     string                 `json:"updatedAt"`
+}
+
+type SdkWorkPublication struct {
+	ClientWorkID string `json:"clientWorkId"`
+	SourceDigest string `json:"sourceDigest"`
+	SourceURL    string `json:"sourceUrl"`
+	ReleaseID    string `json:"releaseId"`
+	Version      int    `json:"version"`
+	PublishedAt  string `json:"publishedAt"`
+	Unchanged    bool   `json:"unchanged"`
+}
+
+type SdkWorkOffer struct {
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	AmountCents int    `json:"amountCents"`
+	Currency    string `json:"currency"`
+	Status      string `json:"status"`
 }
 
 type SdkWorks struct {
