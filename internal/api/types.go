@@ -351,6 +351,32 @@ type CancelPublicationResponse struct {
 	Cancelled bool `json:"cancelled"`
 }
 
+type CreateCreatorAppRequest struct {
+	Name string `json:"name"`
+}
+
+type CreatorAppDomainInfo struct {
+	Domain            string  `json:"domain"`
+	Verified          bool    `json:"verified"`
+	VerificationToken *string `json:"verificationToken"`
+}
+
+type CreatorApp struct {
+	ID        string                 `json:"id"`
+	Kind      string                 `json:"kind"`
+	Name      string                 `json:"name"`
+	Domains   []CreatorAppDomainInfo `json:"domains"`
+	CreatedAt string                 `json:"createdAt"`
+}
+
+type CreatorAppsResponse struct {
+	Items []CreatorApp `json:"items"`
+}
+
+type AddCreatorAppDomainRequest struct {
+	Domain string `json:"domain"`
+}
+
 type APIError struct {
 	StatusCode int    `json:"statusCode"`
 	Code       string `json:"code"`
