@@ -157,6 +157,30 @@ func (c *Client) CancelSkillPublication(ctx context.Context, publicationID strin
 	return response, err
 }
 
+func (c *Client) CreateCreatorApp(ctx context.Context, request CreateCreatorAppRequest) (CreatorApp, error) {
+	var response CreatorApp
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/creator-apps", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ListCreatorApps(ctx context.Context) (CreatorAppsResponse, error) {
+	var response CreatorAppsResponse
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/creator-apps", nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) AddCreatorAppDomain(ctx context.Context, appID, domain string) (CreatorApp, error) {
+	var response CreatorApp
+	err := c.doJSON(ctx, http.MethodPut, "/v1/cli/creator-apps/"+url.PathEscape(appID)+"/domains", AddCreatorAppDomainRequest{Domain: domain}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) VerifyCreatorAppDomain(ctx context.Context, appID, domain string) (CreatorApp, error) {
+	var response CreatorApp
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/creator-apps/"+url.PathEscape(appID)+"/domains/"+url.PathEscape(domain)+"/verify", struct{}{}, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) PutUpload(ctx context.Context, authorization UploadAuthorization, body io.Reader, size int64) error {
 	if err := validateUploadURL(authorization.URL); err != nil {
 		return output.Validation("UPLOAD_URL_INVALID", "upload URL must use HTTPS; loopback HTTP is allowed only for development")

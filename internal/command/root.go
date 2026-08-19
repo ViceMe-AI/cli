@@ -233,6 +233,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newProfileCommand(runtime))
 	root.AddCommand(newSkillCommand(runtime))
 	root.AddCommand(newPublicationCommand(runtime))
+	root.AddCommand(newCreatorAppCommand(runtime))
 	return root, runtime, nil
 }
 
