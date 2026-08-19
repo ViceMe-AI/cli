@@ -298,6 +298,14 @@ jobs:
             echo "::error::CN_S3_HTTPS_PROXY must be configured and accessible to this repository"
             exit 1
           }
+          case "$POC_S3_HTTPS_PROXY" in
+            https://*) ;;
+            http://*) POC_S3_HTTPS_PROXY="https://${POC_S3_HTTPS_PROXY#http://}" ;;
+            *)
+              echo "::error::CN_S3_HTTPS_PROXY must be an HTTP(S) proxy URL"
+              exit 1
+              ;;
+          esac
           export HTTPS_PROXY="$POC_S3_HTTPS_PROXY"
           export https_proxy="$POC_S3_HTTPS_PROXY"
           PREFIX='poc/cli/releases'

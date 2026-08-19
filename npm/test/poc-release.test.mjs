@@ -32,6 +32,10 @@ test("POC S3 publication reuses the shared CN HTTPS proxy", () => {
     /POC_S3_HTTPS_PROXY: \$\{\{ secrets\.CN_S3_HTTPS_PROXY \}\}/,
   );
   assert.match(workflow, /test -n "\$POC_S3_HTTPS_PROXY"/);
+  assert.match(
+    workflow,
+    /http:\/\/\*\) POC_S3_HTTPS_PROXY="https:\/\/\$\{POC_S3_HTTPS_PROXY#http:\/\/\}"/,
+  );
   assert.match(workflow, /export HTTPS_PROXY="\$POC_S3_HTTPS_PROXY"/);
   assert.match(workflow, /export https_proxy="\$POC_S3_HTTPS_PROXY"/);
 });

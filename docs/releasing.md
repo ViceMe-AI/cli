@@ -206,6 +206,9 @@ One-time repository setup:
   to this repository, for authenticated HTTPS access to the POC S3 endpoint.
   Do not create a separate POC proxy secret. The workflow fails closed when
   the shared secret is unavailable instead of silently using the direct route.
+  The POC endpoint requires TLS to the proxy itself, so the workflow upgrades a
+  legacy `http://` scheme in the shared value to `https://` without changing
+  its credentials, host, or port.
 - Scope those credentials to `start/poc/*`. Anonymous reads must allow only the
   documented POC installers, Agent contract, exact CLI release objects, and
   exact SDK release objects; bucket listing and `poc/private-probe/*` must stay
