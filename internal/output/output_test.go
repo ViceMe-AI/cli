@@ -47,3 +47,28 @@ func TestPrinterUsesOneStableEnvelopeAndKeepsStdoutClean(t *testing.T) {
 		t.Fatalf("internal cause leaked: %s", stdout.String())
 	}
 }
+
+func TestPrinterReportsTheGenerationThatAutomaticallyUpdatedBeforeExecution(t *testing.T) {
+	t.Parallel()
+	var stdout bytes.Buffer
+	printer := Printer{
+		Out:                 &stdout,
+		ExecutingCLIVersion: "0.16.0",
+		AutoUpdate: &AutoUpdateMeta{
+			From: "0.15.2", To: "0.16.0", Status: "updated",
+		},
+	}
+	if err := printer.Success(map[string]string{"status": "ready"}); err != nil {
+		t.Fatal(err)
+	}
+	var result map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	meta := result["meta"].(map[string]any)
+	autoUpdate := meta["autoUpdate"].(map[string]any)
+	if meta["executingCliVersion"] != "0.16.0" || autoUpdate["from"] != "0.15.2" ||
+		autoUpdate["to"] != "0.16.0" || autoUpdate["status"] != "updated" {
+		t.Fatalf("automatic generation metadata=%#v", meta)
+	}
+}

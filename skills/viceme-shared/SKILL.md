@@ -45,11 +45,13 @@ run a fresh `viceme auth login` for the same Profile.
 ## Maintenance
 
 - Use `viceme version` to report CLI and bundled Skill versions.
-- Use `viceme update` to update the CLI release.
-- Re-run `viceme install --agent auto` after an update so every detected Agent and the `~/.agents/skills` fallback receive the matching official Skills.
+- Released installations automatically check the authoritative stable channel before ordinary commands. When a newer generation exists, the CLI and every matching official Skill are activated together, then the original command continues under the new CLI.
+- Do not ask the user to choose an update channel, interrupt the requested operation for a routine update, or run a second Skill installation after an automatic update.
+- Use `viceme update` only when the user explicitly requests a manual repair or a failed automatic activation must be retried.
 
-## Notices
+## Automatic updates
 
-- Inspect the top-level `_notice` object after every CLI response; it is advisory and never replaces `data` or `error`.
-- When `_notice.update` is present, finish the user's current operation first. Then briefly state that a newer ViceMe CLI is available and show the exact command `viceme update`.
-- Do not copy the raw notice JSON into the answer, interrupt the current operation, or run an update without the user's authorization.
+- Automatic release discovery is fail-open when the network is unavailable, so the last complete verified generation remains usable offline.
+- After an automatic update, `meta.autoUpdate` records the previous and executing versions. This is informational; continue processing the command's normal `data` or `error`.
+- A standalone Windows binary may return retryable `AUTO_UPDATE_RESTART_REQUIRED` while the operating system releases the old executable. Wait briefly and rerun the exact same command without asking the user for another decision.
+- If activation itself fails, branch on the stable error code and stop the requested mutation. Never continue with a partially activated generation.

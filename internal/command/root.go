@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -23,6 +24,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/securestore"
+	"github.com/ViceMe-AI/cli/internal/semver"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
 	"github.com/gofrs/flock"
@@ -43,6 +45,7 @@ type Dependencies struct {
 	NewID       func() string
 	APIBaseURL  string
 	Region      config.Region
+	Reexecute   func(context.Context, []string, []string) (int, error)
 
 	coordinatedActivationChild  bool
 	activationChildRequest      npmActivationChildRequest
@@ -50,6 +53,7 @@ type Dependencies struct {
 	bootstrapActivationCommand  bool
 	activationNPMRecoverer      *updatepkg.NPMService
 	runningActivationGeneration *updatepkg.ActiveGeneration
+	allowDevelopmentAutoUpdate  bool
 }
 
 type npmActivationChildRequest struct {
@@ -83,6 +87,11 @@ type Runtime struct {
 const (
 	apiBaseURLEnvironment         = "VICEME_API_BASE_URL"
 	processAccessTokenEnvironment = "VICEME_ACCESS_TOKEN"
+	autoUpdateReexecEnvironment   = "VICEME_AUTO_UPDATE_REEXEC"
+	autoUpdateFromEnvironment     = "VICEME_AUTO_UPDATE_FROM"
+	autoUpdateToEnvironment       = "VICEME_AUTO_UPDATE_TO"
+	npmLauncherPathEnvironment    = "VICEME_NPM_LAUNCHER_PATH"
+	npmLauncherRuntimeEnvironment = "VICEME_NPM_LAUNCHER_RUNTIME"
 )
 
 var fallbackUUIDSequence atomic.Uint64
@@ -100,16 +109,55 @@ func (source processTokenSource) Token(context.Context) (string, error) {
 func Execute(args []string, dependencies Dependencies) int {
 	dependencies.activationChildRequest, dependencies.activationChildParseError = parseNPMActivationChild(args)
 	dependencies.bootstrapActivationCommand = isBootstrapActivationCommand(args)
+	dependencies = defaults(dependencies)
 	root, runtime, err := NewRoot(dependencies)
 	if err != nil {
 		printer := &output.Printer{Out: writerOr(dependencies.Out, os.Stdout), ErrOut: writerOr(dependencies.ErrOut, os.Stderr), ExecutingCLIVersion: buildinfo.Version}
+		if errors.Is(err, updatepkg.ErrActivationRestartNeeded) && os.Getenv(autoUpdateReexecEnvironment) != "1" {
+			active, exists, readErr := updatepkg.ReadActiveGeneration(runtimeConfigBase(dependencies.Environment))
+			if readErr == nil && exists {
+				return reexecuteOriginalCommand(args, dependencies, printer, buildinfo.CompatibilityVersion(), active.Version)
+			}
+		}
 		return printer.Failure(err)
 	}
 	root.SetArgs(args)
 	if err := root.ExecuteContext(context.Background()); err != nil {
+		var applied *automaticUpdateApplied
+		if errors.As(err, &applied) {
+			if applied.Scheduled {
+				failure := output.NewError(
+					output.ExitInternal,
+					"internal",
+					"AUTO_UPDATE_RESTART_REQUIRED",
+					"ViceMe scheduled a complete CLI and Skill update; rerun the command after activation finishes",
+				)
+				failure.Retryable = true
+				failure.Hint = "rerun the same command"
+				return runtime.printer.Failure(failure)
+			}
+			return reexecuteOriginalCommand(args, runtime.deps, runtime.printer, applied.From, applied.To)
+		}
 		return runtime.failure(err)
 	}
 	return 0
+}
+
+func reexecuteOriginalCommand(args []string, dependencies Dependencies, printer *output.Printer, from, to string) int {
+	environment := withEnvironmentValues(os.Environ(), map[string]string{
+		autoUpdateReexecEnvironment: "1",
+		autoUpdateFromEnvironment:   from,
+		autoUpdateToEnvironment:     to,
+	})
+	exitCode, err := dependencies.Reexecute(context.Background(), args, environment)
+	if err != nil {
+		return printer.Failure(output.Internal(
+			"AUTO_UPDATE_REEXEC_FAILED",
+			"ViceMe updated successfully but could not continue the original command with the new version",
+			err,
+		))
+	}
+	return exitCode
 }
 
 func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
@@ -183,6 +231,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 			Out:                 dependencies.Out,
 			ErrOut:              dependencies.ErrOut,
 			ExecutingCLIVersion: buildinfo.Version,
+			AutoUpdate:          automaticUpdateMetaFromEnvironment(),
 		},
 	}
 	if err := runtime.selectProfile(resolvedProfile.Name); err != nil {
@@ -215,11 +264,13 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.Flags().BoolVarP(&runtime.opts.version, "version", "v", false, "print version information")
 	root.PersistentFlags().StringVar(&runtime.opts.profile, "profile", "", "use a specific profile for this command")
 	root.PersistentPreRunE = func(command *cobra.Command, _ []string) error {
-		runtime.prepareUpdateNotice(command)
 		if err := runtime.validateProfileOverrideAuthority(runtime.opts.profile); err != nil {
 			return err
 		}
-		return runtime.selectProfile(runtime.opts.profile)
+		if err := runtime.selectProfile(runtime.opts.profile); err != nil {
+			return err
+		}
+		return runtime.ensureAutomaticUpdate(command)
 	}
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return output.Validation("invalid_flag", err.Error())
@@ -312,7 +363,7 @@ func reconcileActivationAtStartup(ctx context.Context, configDir string, depende
 		return err
 	}
 	activationLock := flock.New(filepath.Join(configDir, updatepkg.ActivationLockFilename))
-	locked, err := activationLock.TryLock()
+	locked, err := activationLock.TryLockContext(ctx, 50*time.Millisecond)
 	if err != nil {
 		return err
 	}
@@ -321,9 +372,9 @@ func reconcileActivationAtStartup(ctx context.Context, configDir string, depende
 	}
 	defer activationLock.Unlock()
 	memberLock := flock.New(filepath.Join(configDir, updatepkg.ActivationMemberLockFilename))
-	memberAvailable, err := memberLock.TryLock()
+	memberAvailable, err := memberLock.TryLockContext(ctx, 50*time.Millisecond)
 	if err != nil {
-		return err
+		return fmt.Errorf("an activation child is still committing Skills and config: %w", err)
 	}
 	if !memberAvailable {
 		return errors.New("an activation child is still committing Skills and config")
@@ -436,36 +487,54 @@ func runningActivationGeneration(dependencies Dependencies) (updatepkg.ActiveGen
 	return updatepkg.NewStandaloneGeneration(version, digest)
 }
 
-func (r *Runtime) prepareUpdateNotice(command *cobra.Command) {
-	if command != nil && command.Name() == "update" {
-		// The update result already reports its exact outcome. Do not attach a
-		// stale pre-update reminder to that response.
-		r.printer.Notice = nil
-		return
+type automaticUpdateApplied struct {
+	From      string
+	To        string
+	Scheduled bool
+}
+
+func (applied *automaticUpdateApplied) Error() string {
+	return "automatic CLI and Skill update applied"
+}
+
+func (r *Runtime) ensureAutomaticUpdate(command *cobra.Command) error {
+	if command == nil || command.Name() == "update" || r.deps.coordinatedActivationChild ||
+		r.deps.bootstrapActivationCommand || os.Getenv(autoUpdateReexecEnvironment) == "1" {
+		return nil
 	}
-	notifier, ok := r.deps.Updater.(updatepkg.Notifier)
+	if _, err := semver.Parse(buildinfo.Version); err != nil && !r.deps.allowDevelopmentAutoUpdate {
+		return nil
+	}
+	checker, ok := r.deps.Updater.(updatepkg.AutomaticChecker)
 	if !ok {
-		return
+		return nil
 	}
-	r.printer.Notice = func() map[string]any {
-		notice := notifier.CachedNotice()
-		if notice == nil {
-			return nil
-		}
-		return map[string]any{
-			"update": map[string]any{
-				"current": notice.Current,
-				"latest":  notice.Latest,
-				"message": notice.Message(),
-				"command": "viceme update",
-			},
+	checkContext, cancelCheck := context.WithTimeout(command.Context(), 5*time.Second)
+	check, err := checker.CheckAutomatic(checkContext)
+	cancelCheck()
+	if err != nil {
+		// Release discovery is fail-open. The current process is already a
+		// complete verified generation and remains usable while offline.
+		return nil
+	}
+	if !check.UpdateAvailable {
+		return nil
+	}
+	_, _ = fmt.Fprintf(r.deps.ErrOut, "Updating ViceMe CLI and official Skills %s -> %s; the original command will continue automatically.\n", check.CurrentVersion, check.AvailableVersion)
+	applyContext, cancelApply := context.WithTimeout(command.Context(), 3*time.Minute)
+	result, err := r.deps.Updater.Apply(applyContext, check, updatepkg.ApplyOptions{RefreshSkills: true, SkillTarget: "auto"})
+	cancelApply()
+	if err != nil {
+		return updaterError(err, result)
+	}
+	scheduled := false
+	for _, target := range result.Targets {
+		if target.Status == "scheduled" {
+			scheduled = true
+			break
 		}
 	}
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		notifier.RefreshNotice(ctx)
-	}()
+	return &automaticUpdateApplied{From: check.CurrentVersion, To: result.CLIVersion, Scheduled: scheduled}
 }
 
 func defaults(dependencies Dependencies) Dependencies {
@@ -515,7 +584,75 @@ func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.NewID == nil {
 		dependencies.NewID = randomUUID
 	}
+	if dependencies.Reexecute == nil {
+		dependencies.Reexecute = func(ctx context.Context, args, environment []string) (int, error) {
+			name, arguments, err := reexecutionCommand(args)
+			if err != nil {
+				return 0, err
+			}
+			command := exec.CommandContext(ctx, name, arguments...)
+			command.Stdin = dependencies.In
+			command.Stdout = dependencies.Out
+			command.Stderr = dependencies.ErrOut
+			command.Env = environment
+			err = command.Run()
+			if err == nil {
+				return 0, nil
+			}
+			var exitError *exec.ExitError
+			if errors.As(err, &exitError) {
+				return exitError.ExitCode(), nil
+			}
+			return 0, err
+		}
+	}
 	return dependencies
+}
+
+func reexecutionCommand(args []string) (string, []string, error) {
+	if os.Getenv("VICEME_INSTALL_METHOD") == "npm" {
+		launcher := os.Getenv(npmLauncherPathEnvironment)
+		runtime := os.Getenv(npmLauncherRuntimeEnvironment)
+		if launcher == "" || runtime == "" {
+			return "", nil, errors.New("npm launcher did not provide its re-execution authority")
+		}
+		return runtime, append([]string{launcher}, args...), nil
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		return "", nil, err
+	}
+	return executable, append([]string(nil), args...), nil
+}
+
+func withEnvironmentValues(environment []string, values map[string]string) []string {
+	result := append([]string(nil), environment...)
+	for name, value := range values {
+		prefix := name + "="
+		filtered := result[:0]
+		for _, entry := range result {
+			if !strings.HasPrefix(entry, prefix) {
+				filtered = append(filtered, entry)
+			}
+		}
+		result = append(filtered, prefix+value)
+	}
+	return result
+}
+
+func automaticUpdateMetaFromEnvironment() *output.AutoUpdateMeta {
+	if os.Getenv(autoUpdateReexecEnvironment) != "1" {
+		return nil
+	}
+	from := os.Getenv(autoUpdateFromEnvironment)
+	to := os.Getenv(autoUpdateToEnvironment)
+	if _, err := semver.Parse(from); err != nil {
+		return nil
+	}
+	if _, err := semver.Parse(to); err != nil {
+		return nil
+	}
+	return &output.AutoUpdateMeta{From: from, To: to, Status: "updated"}
 }
 
 func newVersionCommand(runtime *Runtime) *cobra.Command {

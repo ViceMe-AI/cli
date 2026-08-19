@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
+	cliembed "github.com/ViceMe-AI/cli"
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -18,6 +22,160 @@ import (
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
 	"github.com/spf13/cobra"
 )
+
+func TestBootstrapCoalescesAnAlreadyCompleteStandaloneGeneration(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	environment := skillcontent.Environment{Home: root, ConfigDir: configDir}
+	skills := skillcontent.New(cliembed.EmbeddedSkills())
+	for _, report := range skills.InstallSet(officialSkillNames, "agents", environment) {
+		if !report.AllSucceeded {
+			t.Fatalf("prepare complete official Skill generation: %#v", report)
+		}
+	}
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(root, "bin", "viceme")
+	if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyBootstrapExecutable(executable, destination); err != nil {
+		t.Fatal(err)
+	}
+	targetHash, err := bootstrapFileHash(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := updatepkg.NewStandaloneGeneration(buildinfo.CompatibilityVersion(), targetHash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := updatepkg.CommitActiveGeneration(configDir, target); err != nil {
+		t.Fatal(err)
+	}
+	configured := config.Default(config.RegionCN)
+	if _, err := config.Save(configDir, configured); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &Runtime{
+		configBase: configDir,
+		region:     config.RegionCN,
+		config:     configured,
+		deps: Dependencies{
+			Skills:      skills,
+			Store:       securestore.NewMemory(),
+			Environment: environment,
+		},
+	}
+	command := &cobra.Command{}
+	command.SetContext(context.Background())
+	if bootstrapGenerationIsComplete(runtime, destination, targetHash, "agents", "global") {
+		t.Fatal("same-version bootstrap to another region was incorrectly coalesced")
+	}
+	result, err := activateBootstrap(command, runtime, destination, "agents", "cn")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Destination != destination || len(result.Install.Skills) != 0 {
+		t.Fatalf("already active generation was not coalesced: %#v", result)
+	}
+	persisted, err := config.LoadOrDefault(configDir)
+	if err != nil || persisted.DistributionRegion != config.RegionCN {
+		t.Fatalf("coalesced activation changed config: config=%#v err=%v", persisted, err)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, bootstrapActivationJournalFilename)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("coalesced activation created a recovery journal: %v", err)
+	}
+}
+
+func TestConcurrentBootstrapActivationsCommitOneStandaloneGeneration(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	environment := skillcontent.Environment{Home: root, ConfigDir: configDir}
+	destination := filepath.Join(root, "bin", "viceme")
+	writeBootstrapTestFile(t, destination, "previous-binary")
+	health := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write([]byte(`{"status":"ok"}`))
+	}))
+	defer health.Close()
+
+	configured := config.Default(config.RegionCN)
+	profile, err := configured.Resolve("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile.APIBaseURL = health.URL
+	if _, err := config.Save(configDir, configured); err != nil {
+		t.Fatal(err)
+	}
+	newRuntime := func() *Runtime {
+		copyOfConfig := configured
+		resolved, err := copyOfConfig.Resolve("")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &Runtime{
+			configBase: configDir,
+			region:     config.RegionCN,
+			apiBaseURL: health.URL,
+			config:     copyOfConfig,
+			profile:    *resolved,
+			deps: Dependencies{
+				HTTPClient:  health.Client(),
+				Skills:      skillcontent.New(cliembed.EmbeddedSkills()),
+				Store:       securestore.NewMemory(),
+				Updater:     updatepkg.NewReleaseService(buildinfo.Version, buildinfo.CompatibilityVersion()),
+				Environment: environment,
+			},
+		}
+	}
+	type outcome struct {
+		result bootstrapActivationResult
+		err    error
+	}
+	start := make(chan struct{})
+	outcomes := make(chan outcome, 2)
+	var ready sync.WaitGroup
+	ready.Add(2)
+	for _, runtime := range []*Runtime{newRuntime(), newRuntime()} {
+		runtime := runtime
+		go func() {
+			command := &cobra.Command{}
+			command.SetContext(context.Background())
+			ready.Done()
+			<-start
+			result, err := activateBootstrap(command, runtime, destination, "agents", "cn")
+			outcomes <- outcome{result: result, err: err}
+		}()
+	}
+	ready.Wait()
+	close(start)
+	first := <-outcomes
+	second := <-outcomes
+	if first.err != nil || second.err != nil {
+		t.Fatalf("concurrent bootstrap outcomes: first=%v second=%v", first.err, second.err)
+	}
+	fullActivations := 0
+	for _, result := range []bootstrapActivationResult{first.result, second.result} {
+		if len(result.Install.Skills) == len(officialSkillNames) {
+			fullActivations++
+		} else if len(result.Install.Skills) != 0 {
+			t.Fatalf("partial bootstrap activation result: %#v", result)
+		}
+	}
+	if fullActivations != 1 {
+		t.Fatalf("concurrent bootstrap performed %d real activations: first=%#v second=%#v", fullActivations, first.result, second.result)
+	}
+	active, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil || !exists || active.Version != buildinfo.CompatibilityVersion() || active.InstallMethod != "standalone" {
+		t.Fatalf("concurrent bootstrap did not commit the target: active=%#v exists=%t err=%v", active, exists, err)
+	}
+}
 
 func TestBootstrapRecoveryKeepsBinarySkillsAndConfigOnOneGeneration(t *testing.T) {
 	t.Parallel()

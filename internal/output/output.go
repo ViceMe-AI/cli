@@ -18,9 +18,19 @@ const (
 type Meta struct {
 	// ExecutingCLIVersion identifies the process that emitted this envelope. A
 	// self-update reports the installed target separately in its business data.
-	ExecutingCLIVersion string `json:"executingCliVersion,omitempty"`
-	RequestID           string `json:"requestId,omitempty"`
-	WaitTimedOut        *bool  `json:"waitTimedOut,omitempty"`
+	ExecutingCLIVersion string          `json:"executingCliVersion,omitempty"`
+	RequestID           string          `json:"requestId,omitempty"`
+	WaitTimedOut        *bool           `json:"waitTimedOut,omitempty"`
+	AutoUpdate          *AutoUpdateMeta `json:"autoUpdate,omitempty"`
+}
+
+// AutoUpdateMeta records the complete generation change that happened before
+// the command was re-executed. It is emitted by the new CLI process, never by
+// the process that performed the replacement.
+type AutoUpdateMeta struct {
+	From   string `json:"from"`
+	To     string `json:"to"`
+	Status string `json:"status"`
 }
 
 type Error struct {
@@ -104,32 +114,30 @@ func AsError(err error) *Error {
 }
 
 type successEnvelope struct {
-	OK     bool           `json:"ok"`
-	Data   any            `json:"data"`
-	Meta   *Meta          `json:"meta,omitempty"`
-	Notice map[string]any `json:"_notice,omitempty"`
+	OK   bool  `json:"ok"`
+	Data any   `json:"data"`
+	Meta *Meta `json:"meta,omitempty"`
 }
 
 type errorEnvelope struct {
-	OK     bool           `json:"ok"`
-	Error  *Error         `json:"error"`
-	Meta   *Meta          `json:"meta,omitempty"`
-	Notice map[string]any `json:"_notice,omitempty"`
+	OK    bool   `json:"ok"`
+	Error *Error `json:"error"`
+	Meta  *Meta  `json:"meta,omitempty"`
 }
 
 type Printer struct {
 	Out                 io.Writer
 	ErrOut              io.Writer
 	ExecutingCLIVersion string
-	Notice              func() map[string]any
+	AutoUpdate          *AutoUpdateMeta
 }
 
 func (p *Printer) Success(data any) error {
-	return writeJSON(p.Out, successEnvelope{OK: true, Data: data, Meta: p.meta("", nil), Notice: p.notice()})
+	return writeJSON(p.Out, successEnvelope{OK: true, Data: data, Meta: p.meta("", nil)})
 }
 
 func (p *Printer) SuccessWithMeta(data any, meta Meta) error {
-	return writeJSON(p.Out, successEnvelope{OK: true, Data: data, Meta: p.meta(meta.RequestID, meta.WaitTimedOut), Notice: p.notice()})
+	return writeJSON(p.Out, successEnvelope{OK: true, Data: data, Meta: p.meta(meta.RequestID, meta.WaitTimedOut)})
 }
 
 // Business is an alias retained for command call sites. Every command uses the
@@ -146,23 +154,16 @@ func (p *Printer) Failure(err error) int {
 	// stdout is the single machine protocol stream for both success and failure.
 	// Progress and human guidance belong on stderr and can never corrupt the
 	// final JSON envelope consumed by an Agent.
-	_ = writeJSON(p.Out, errorEnvelope{OK: false, Error: cliErr, Meta: p.meta(cliErr.RequestID, nil), Notice: p.notice()})
+	_ = writeJSON(p.Out, errorEnvelope{OK: false, Error: cliErr, Meta: p.meta(cliErr.RequestID, nil)})
 	return cliErr.Code
 }
 
 func (p *Printer) meta(requestID string, waitTimedOut *bool) *Meta {
-	meta := &Meta{ExecutingCLIVersion: p.ExecutingCLIVersion, RequestID: requestID, WaitTimedOut: waitTimedOut}
-	if meta.ExecutingCLIVersion == "" && meta.RequestID == "" && meta.WaitTimedOut == nil {
+	meta := &Meta{ExecutingCLIVersion: p.ExecutingCLIVersion, RequestID: requestID, WaitTimedOut: waitTimedOut, AutoUpdate: p.AutoUpdate}
+	if meta.ExecutingCLIVersion == "" && meta.RequestID == "" && meta.WaitTimedOut == nil && meta.AutoUpdate == nil {
 		return nil
 	}
 	return meta
-}
-
-func (p *Printer) notice() map[string]any {
-	if p == nil || p.Notice == nil {
-		return nil
-	}
-	return p.Notice()
 }
 
 func writeJSON(w io.Writer, value any) error {
