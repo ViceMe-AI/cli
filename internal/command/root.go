@@ -135,7 +135,8 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		err := reconcileActivationAtStartup(ctx, configBase, &dependencies)
 		cancel()
 		if err != nil {
-			return nil, nil, output.Internal("ACTIVATION_RECOVERY_FAILED", "could not reconcile the active ViceMe CLI and Skill generation", err)
+			return nil, nil, output.Internal("ACTIVATION_RECOVERY_FAILED", "could not reconcile the active ViceMe CLI and Skill generation", err).
+				WithHint("the recorded generation is newer than or conflicts with this CLI build; reinstall the version that created it, or remove the active-generation.json file in the ViceMe config directory to adopt this build")
 		}
 	}
 	if err := skillcontent.RecoverInstallTransactionAuto(dependencies.Environment); err != nil {
@@ -353,7 +354,14 @@ func reconcileActivationAtStartup(ctx context.Context, configDir string, depende
 		return err
 	}
 	if exists && active != running && !dependencies.bootstrapActivationCommand {
-		return updatepkg.ErrActivationRestartNeeded
+		// 外部升级路径（直接 npm install / 重新安装，没有 activation
+		// journal）：没有任何恢复流程会推进代际标记，直接报错会让每个
+		// 命令永远失败。ValidateActivationTarget 只允许同安装方式的
+		// 非降级升级，合法升级在此提交新代际并继续；降级或身份冲突
+		// 仍然失败关闭。
+		if commitErr := updatepkg.CommitActiveGeneration(configDir, running); commitErr != nil {
+			return updatepkg.ErrActivationRestartNeeded
+		}
 	}
 	dependencies.runningActivationGeneration = &running
 	return nil
