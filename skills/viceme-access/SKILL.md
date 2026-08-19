@@ -47,7 +47,7 @@ Read [references/integration.md](references/integration.md) for configuration an
 - Let the server resolve `workKey → CreatorWork → SaleOffer → Entitlement`.
 - Do not store work-session tokens or access decisions in cookies, localStorage, IndexedDB, URLs, analytics, or logs.
 - Never unlock from checkout return parameters or browser state. Only `access.check()` can grant access.
-- Access checks must never silently sign in, follow, or pay. Call `access.require()` only from an explicit user action. The default layer opens a required checkout immediately from that action, but the user must still select and confirm payment; following still requires the layer's “关注” button.
+- Access checks must never mutate identity, follow, or payment state. Call `access.require()` only from an explicit user action. The authorization layer shows the creator and asks the user to “接受” or “拒绝”; accepting completes WeChat authorization and follows that creator without a second prompt. Checkout still requires the user to select and confirm payment.
 - Do not call `follow.follow()` from the host site's gate handler. Following belongs to the owner-follow interface opened by `access.require()`.
 - Never use `window.open`, `window.location`, `confirm`, or `alert` for
   SDK login or checkout. Their complete flows stay in the bottom sheet or
@@ -63,7 +63,7 @@ Read [references/integration.md](references/integration.md) for configuration an
 - Confirm `viceme access inspect` shows the expected work, one-time offer, features, and capabilities.
 - Confirm follow-gated and purchase-gated functions have separate state.
 - Confirm all public SDK requests omit browser credentials and use the in-memory work session.
-- Confirm an access check cannot mutate follow state before the user activates the follow action.
+- Confirm follow state cannot change before the user accepts creator authorization or activates a standalone follow action.
 - Confirm no browser popup or page navigation is used and login/checkout remain
   inside the bottom sheet or in-page layer.
 - Report any untested WeChat or payment-provider boundary explicitly.

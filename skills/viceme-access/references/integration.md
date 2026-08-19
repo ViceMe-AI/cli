@@ -67,9 +67,12 @@ const decision = await viceme.access.require("dingdong");
 if (decision.allowed) enableDingdong();
 ```
 
-The access check never performs the action by itself. In particular, host sites
-must not call a follow mutation directly. The user follows from the owner-follow
-interface shown by `require()`.
+The access check never performs the action by itself, and host sites must not
+call a follow mutation directly. When authorization is required, the ViceMe
+layer shows the creator and asks the user to accept or reject; acceptance
+completes WeChat authorization and follows that creator without a second
+prompt. A signed-in user who reaches a standalone follow step still acts from
+the owner-follow interface shown by `require()`.
 
 The SDK uses `<viceme-access-layer>`: a mobile bottom sheet and desktop in-page
 layer with Shadow DOM and ViceMe-owned styles. Custom presenters, host-page
@@ -81,8 +84,8 @@ the original gated user click, the SDK loads the checkout frame directly without
 an intermediate “去购买” confirmation; selecting a payment method and paying still
 requires explicit confirmation. The SDK validates the API origin plus a
 per-action message channel, then checks access again. The
-checkout frame exchanges its one-time bootstrap code for an in-memory bearer
-session and does not depend on third-party cookies. A `PENDING` order or a
+checkout frame exchanges its short-lived, retryable bootstrap code for an
+in-memory bearer session and does not depend on third-party cookies. A `PENDING` order or a
 message never grants access; only a new server `access.check()` decision does.
 
 ## Error handling
