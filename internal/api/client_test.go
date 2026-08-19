@@ -56,6 +56,12 @@ func TestSdkWorkClientUsesLightweightCreatorEndpoints(t *testing.T) {
 		if request.Header.Get("Authorization") != "Bearer vme_cli_test" {
 			t.Fatalf("missing bearer credential: %q", request.Header.Get("Authorization"))
 		}
+		if request.URL.Path == "/v1/cli/sdk-works/publish" {
+			body, _ := io.ReadAll(request.Body)
+			if !strings.Contains(string(body), `"creatorDisplayName":"Test Creator"`) {
+				t.Fatalf("creator display name missing from request: %s", body)
+			}
+		}
 		requests <- request.Method + " " + request.URL.Path
 		writer.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(writer, `{"creatorWorkId":"22222222-2222-4222-8222-222222222222","workKey":"wrk_test","displayName":"Test","status":"DRAFT","configVersion":1,"offer":null,"features":[],"capabilities":[],"createdAt":"2026-08-15T00:00:00.000Z","updatedAt":"2026-08-15T00:00:00.000Z"}`)
@@ -63,7 +69,7 @@ func TestSdkWorkClientUsesLightweightCreatorEndpoints(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
-	if _, err := client.PublishCreatorWebsite(context.Background(), PublishCreatorWebsiteRequest{ClientRequestID: "11111111-1111-4111-8111-111111111111", ClientWorkID: "22222222-2222-4222-8222-222222222222", SourceDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DisplayName: "Test", SourceURL: "https://example.com"}); err != nil {
+	if _, err := client.PublishCreatorWebsite(context.Background(), PublishCreatorWebsiteRequest{ClientRequestID: "11111111-1111-4111-8111-111111111111", ClientWorkID: "22222222-2222-4222-8222-222222222222", SourceDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DisplayName: "Test", CreatorDisplayName: "Test Creator", SourceURL: "https://example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.GetSdkWork(context.Background(), "wrk_test"); err != nil {

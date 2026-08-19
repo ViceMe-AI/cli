@@ -58,6 +58,14 @@ func TestWebsiteURLIsOptionalButValidatedWhenProvided(t *testing.T) {
 	}
 }
 
+func TestWebsitePublishAcceptsFirstCreatorDisplayName(t *testing.T) {
+	command := newWebsitePublishCommand(&Runtime{})
+	flag := command.Flags().Lookup("creator-display-name")
+	if flag == nil || flag.DefValue != "" {
+		t.Fatalf("creator-display-name flag = %#v", flag)
+	}
+}
+
 func TestWebsiteDigestChangesWithContentButIgnoresLocalBinding(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("first"), 0o644); err != nil {
