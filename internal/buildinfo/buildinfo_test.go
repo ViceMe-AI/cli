@@ -24,3 +24,20 @@ func TestValidateNPMLaunchBindsPackageAndBinaryVersions(t *testing.T) {
 		}
 	}
 }
+
+func TestSkillCompatibilityVersionNormalizesOnlyNumericPOCPrereleases(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		version string
+		want    string
+	}{
+		{"0.16.0-poc.2", "0.16.0"},
+		{"0.16.0", "0.16.0"},
+		{"0.16.0-beta.1", "0.16.0-beta.1"},
+		{"invalid", "invalid"},
+	} {
+		if got := skillCompatibilityVersion(test.version); got != test.want {
+			t.Errorf("skillCompatibilityVersion(%q)=%q, want %q", test.version, got, test.want)
+		}
+	}
+}

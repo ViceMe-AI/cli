@@ -45,3 +45,29 @@ func TestSatisfies(t *testing.T) {
 		}
 	}
 }
+
+func TestVersionPOCAndCore(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		raw   string
+		isPOC bool
+		core  string
+	}{
+		{"0.16.0-poc.2", true, "0.16.0"},
+		{"0.16.0-poc.2+build.1", true, "0.16.0"},
+		{"0.16.0-beta.1", false, "0.16.0"},
+		{"0.16.0-poc.preview", false, "0.16.0"},
+		{"0.16.0", false, "0.16.0"},
+	} {
+		version, err := Parse(test.raw)
+		if err != nil {
+			t.Fatalf("Parse(%q): %v", test.raw, err)
+		}
+		if got := version.IsPOC(); got != test.isPOC {
+			t.Errorf("Parse(%q).IsPOC()=%t, want %t", test.raw, got, test.isPOC)
+		}
+		if got := version.Core(); got != test.core {
+			t.Errorf("Parse(%q).Core()=%q, want %q", test.raw, got, test.core)
+		}
+	}
+}

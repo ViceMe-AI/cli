@@ -47,6 +47,23 @@ func CompatibilityVersion() string {
 	return Version
 }
 
+// SkillCompatibilityVersion returns the version used to evaluate a bundled
+// Skill's stable compatibility contract. POC binaries share the stable API
+// and Skill line, so their numeric POC prerelease suffix is not part of this
+// comparison. The full binary version remains available through
+// CompatibilityVersion for update and diagnostic reporting.
+func SkillCompatibilityVersion() string {
+	return skillCompatibilityVersion(CompatibilityVersion())
+}
+
+func skillCompatibilityVersion(version string) string {
+	parsed, err := semver.Parse(version)
+	if err != nil || !parsed.IsPOC() {
+		return version
+	}
+	return parsed.Core()
+}
+
 func ValidateNPMLaunch(installMethod, packageVersion, binaryVersion string) error {
 	if installMethod != "npm" {
 		return nil

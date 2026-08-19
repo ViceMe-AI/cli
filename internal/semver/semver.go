@@ -16,6 +16,22 @@ type Version struct {
 	prerelease []string
 }
 
+// IsPOC reports whether the version uses the repository's numeric POC
+// prerelease form, for example 0.16.0-poc.2.
+func (version Version) IsPOC() bool {
+	if len(version.prerelease) != 2 || version.prerelease[0] != "poc" {
+		return false
+	}
+	_, err := strconv.ParseUint(version.prerelease[1], 10, 64)
+	return err == nil
+}
+
+// Core returns the stable major, minor, and patch version without prerelease
+// or build metadata.
+func (version Version) Core() string {
+	return fmt.Sprintf("%d.%d.%d", version.major, version.minor, version.patch)
+}
+
 func Parse(raw string) (Version, error) {
 	matches := versionPattern.FindStringSubmatch(strings.TrimSpace(raw))
 	if matches == nil {

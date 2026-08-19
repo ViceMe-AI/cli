@@ -44,6 +44,29 @@ func TestExplicitAgentInstallAlsoWritesAgentsFallbackAndRepairsDrift(t *testing.
 	}
 }
 
+func TestDoctorAcceptsPOCCLIForStableSkillCompatibilityContract(t *testing.T) {
+	previousVersion := buildinfo.Version
+	buildinfo.Version = "0.16.0-poc.2"
+	t.Cleanup(func() { buildinfo.Version = previousVersion })
+
+	root := t.TempDir()
+	writeTestSkill(t, root, "viceme-test")
+	home := t.TempDir()
+	environment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
+	bundle := New(os.DirFS(root))
+
+	if report := bundle.Install("viceme-test", "agents", environment); !report.AllSucceeded {
+		t.Fatalf("POC CLI could not install the stable-line Skill: %#v", report)
+	}
+	report := bundle.Doctor("viceme-test", "agents", environment)
+	if !report.Healthy {
+		t.Fatalf("Doctor rejected a POC CLI for its stable-line Skill: %#v", report)
+	}
+	if got := report.Results[0].Checks.Compatibility.Actual; got != "0.16.0-poc.2" {
+		t.Fatalf("Doctor compatibility report lost the actual CLI version: %q", got)
+	}
+}
+
 func TestAutoInstallsDetectedAgentsAndFallback(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

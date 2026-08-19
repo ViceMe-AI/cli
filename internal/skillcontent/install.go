@@ -735,8 +735,9 @@ func doctorChecks(packageMetadata PackageMetadata, expected, actual Digests, man
 		checks.EmbeddedContentDigest.Problem = "agent-readable files or recorded embedded digest differ from this CLI release"
 	}
 	checks.Compatibility.Recorded = fmt.Sprintf("minimum %s; %s", manifest.MinimumCLIVersion, manifest.CLICompatibility)
-	compatible, compatibilityErr := semver.Satisfies(buildinfo.CompatibilityVersion(), manifest.CLICompatibility)
-	minimumComparison, minimumErr := semver.Compare(buildinfo.CompatibilityVersion(), manifest.MinimumCLIVersion)
+	compatibilityVersion := buildinfo.SkillCompatibilityVersion()
+	compatible, compatibilityErr := semver.Satisfies(compatibilityVersion, manifest.CLICompatibility)
+	minimumComparison, minimumErr := semver.Compare(compatibilityVersion, manifest.MinimumCLIVersion)
 	checks.Compatibility.Healthy = manifest.SchemaVersion == 1 &&
 		manifest.MinimumCLIVersion == packageMetadata.MinimumCLIVersion &&
 		manifest.CLICompatibility == packageMetadata.CLICompatibility &&
