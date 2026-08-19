@@ -26,10 +26,10 @@ test("POC assets use only the POC start prefix and enforce anonymous-read bounda
   assert.doesNotMatch(workflow, /s3\.viceme\.(?:cn|ai)\/start\/cli\/releases/);
 });
 
-test("POC S3 publication requires its scoped HTTPS proxy", () => {
+test("POC S3 publication reuses the shared CN HTTPS proxy", () => {
   assert.match(
     workflow,
-    /POC_S3_HTTPS_PROXY: \$\{\{ secrets\.VICEME_POC_S3_HTTPS_PROXY \}\}/,
+    /POC_S3_HTTPS_PROXY: \$\{\{ secrets\.CN_S3_HTTPS_PROXY \}\}/,
   );
   assert.match(workflow, /test -n "\$POC_S3_HTTPS_PROXY"/);
   assert.match(workflow, /export HTTPS_PROXY="\$POC_S3_HTTPS_PROXY"/);
