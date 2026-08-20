@@ -19,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  POC_PUBLIC_ORIGIN: 'https://viceme-shop-storage-poc.preview.tencent-zeabur.cn'
+  POC_PUBLIC_ORIGIN: 'https://s3-poc.viceme.cn'
 
 jobs:
   metadata:

@@ -213,9 +213,9 @@ cp "$VICEME_TEST_FIXTURES/${url##*/}" "$out"
 	for _, expected := range []string{
 		"bootstrap activate --destination ",
 		"--agent auto --region cn",
-		"--api-base-url https://viceme-shop-web-poc.preview.tencent-zeabur.cn/api",
+		"--api-base-url https://poc.viceme.cn/api",
 		"--release-channel poc",
-		"--release-base-url https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases",
+		"--release-base-url https://s3-poc.viceme.cn/start/poc/cli/releases",
 		"--allow-channel-switch",
 	} {
 		if !strings.Contains(logText, expected) {

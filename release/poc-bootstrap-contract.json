@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "channel": "poc",
-  "apiBaseUrl": "https://viceme-shop-web-poc.preview.tencent-zeabur.cn/api",
-  "releaseBaseUrl": "https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases",
+  "apiBaseUrl": "https://poc.viceme.cn/api",
+  "releaseBaseUrl": "https://s3-poc.viceme.cn/start/poc/cli/releases",
   "releaseLayout": "v{version}/viceme_{version}_{os}_{arch}{extension}",
   "checksumLayout": "{asset}.sha256",
   "latestLayout": "latest",

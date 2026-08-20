@@ -15,7 +15,7 @@ four-line form when showing or applying it:
 
 ```text
 <script
-  defer src="https://web.preview.tencent-zeabur.cn/viceme-sdk/v1/viceme.min.js" data-viceme-work="WORK_KEY" data-viceme-region="cn"
+  defer src="https://poc.viceme.cn/viceme-sdk/v1/viceme.min.js" data-viceme-work="WORK_KEY" data-viceme-region="cn"
   data-viceme-features="danmaku" data-viceme-target="body"
   data-viceme-theme="auto"></script>
 ```

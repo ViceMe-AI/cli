@@ -184,10 +184,10 @@ binaries, signs the POC Agent Manifest with the `poc-release.yml@refs/heads/poc`
 OIDC identity, and publishes only to the POC RustFS `start` bucket:
 
 ```text
-https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/install.sh
-https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/install.ps1
-https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/agent-install.md
-https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases/v<version>/...
+https://s3-poc.viceme.cn/start/poc/install.sh
+https://s3-poc.viceme.cn/start/poc/install.ps1
+https://s3-poc.viceme.cn/start/poc/agent-install.md
+https://s3-poc.viceme.cn/start/poc/cli/releases/v<version>/...
 ```
 
 The installed command remains `viceme`. Explicit installation atomically

@@ -21,7 +21,7 @@ test("POC assets use only the POC start prefix and enforce anonymous-read bounda
   assert.match(workflow, /s3:\/\/\$S3_BUCKET\/poc\/\$FILE/);
   assert.match(workflow, /POC_PUBLIC_ORIGIN\/start\/\$PREFIX\/v\$VERSION/);
   assert.match(workflow, /poc\/private-probe\/\$\{GITHUB_RUN_ID\}/);
-  assert.match(workflow, /\?list-type=2/);
+  assert.match(workflow, /POC_PUBLIC_ORIGIN\/\?list-type=2/);
   assert.match(workflow, /max-age=31536000,immutable/);
   assert.doesNotMatch(workflow, /s3\.viceme\.(?:cn|ai)\/start\/cli\/releases/);
 });
@@ -43,8 +43,8 @@ test("POC S3 publication reuses the shared CN HTTPS proxy", () => {
 test("POC installers atomically select the POC API and updater without another command name", () => {
   for (const installer of [shellInstaller, powerShellInstaller]) {
     assert.match(installer, /region(?: =|=)\s*["']cn["']/);
-    assert.match(installer, /viceme-shop-web-poc\.preview\.tencent-zeabur\.cn\/api/);
-    assert.match(installer, /viceme-shop-storage-poc\.preview\.tencent-zeabur\.cn\/start\/poc\/cli\/releases/);
+    assert.match(installer, /poc\.viceme\.cn\/api/);
+    assert.match(installer, /s3-poc\.viceme\.cn\/start\/poc\/cli\/releases/);
     assert.match(installer, /release-channel poc/);
     assert.match(installer, /allow-channel-switch/);
     assert.doesNotMatch(installer, /destination[^\n]*viceme-poc(?:\.exe)?/);
@@ -52,8 +52,8 @@ test("POC installers atomically select the POC API and updater without another c
 });
 
 test("POC agent contract is exact-host and signed by the POC workflow", () => {
-  assert.match(template, /start\/poc\/agent-install\.md/);
-  assert.match(template, /cli\/releases\/v\{\{VERSION\}\}/);
+  assert.match(template, /https:\/\/s3-poc\.viceme\.cn\/start\/poc\/agent-install\.md/);
+  assert.match(template, /https:\/\/s3-poc\.viceme\.cn\/start\/poc\/cli\/releases\/v\{\{VERSION\}\}/);
   assert.match(template, /poc-release\.yml@refs\/heads\/poc/);
 });
 
