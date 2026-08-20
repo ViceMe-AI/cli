@@ -46,7 +46,7 @@ func TestExplicitAgentInstallAlsoWritesAgentsFallbackAndRepairsDrift(t *testing.
 
 func TestDoctorAcceptsPOCCLIForStableSkillCompatibilityContract(t *testing.T) {
 	previousVersion := buildinfo.Version
-	buildinfo.Version = "0.16.1-poc.11"
+	buildinfo.Version = "0.16.1-poc.12"
 	t.Cleanup(func() { buildinfo.Version = previousVersion })
 
 	root := t.TempDir()
@@ -62,7 +62,7 @@ func TestDoctorAcceptsPOCCLIForStableSkillCompatibilityContract(t *testing.T) {
 	if !report.Healthy {
 		t.Fatalf("Doctor rejected a POC CLI for its stable-line Skill: %#v", report)
 	}
-	if got := report.Results[0].Checks.Compatibility.Actual; got != "0.16.1-poc.11" {
+	if got := report.Results[0].Checks.Compatibility.Actual; got != "0.16.1-poc.12" {
 		t.Fatalf("Doctor compatibility report lost the actual CLI version: %q", got)
 	}
 }
