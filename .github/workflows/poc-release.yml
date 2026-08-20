@@ -308,6 +308,8 @@ jobs:
           esac
           export HTTPS_PROXY="$POC_S3_HTTPS_PROXY"
           export https_proxy="$POC_S3_HTTPS_PROXY"
+          export NO_PROXY='s3-poc.viceme.cn'
+          export no_proxy="$NO_PROXY"
           PREFIX='poc/cli/releases'
           SCRATCH="$(mktemp -d)"
           trap 'rm -rf "$SCRATCH"' EXIT
