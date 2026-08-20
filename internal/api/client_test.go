@@ -61,6 +61,9 @@ func TestSdkWorkClientUsesLightweightCreatorEndpoints(t *testing.T) {
 			if !strings.Contains(string(body), `"creatorDisplayName":"Test Creator"`) {
 				t.Fatalf("creator display name missing from request: %s", body)
 			}
+			if !strings.Contains(string(body), `"descriptionZhCn":"中文描述"`) || !strings.Contains(string(body), `"coverUrl":"https://example.com/cover.png"`) {
+				t.Fatalf("website metadata missing from request: %s", body)
+			}
 		}
 		requests <- request.Method + " " + request.URL.Path
 		writer.Header().Set("Content-Type", "application/json")
@@ -69,7 +72,7 @@ func TestSdkWorkClientUsesLightweightCreatorEndpoints(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
-	if _, err := client.PublishCreatorWebsite(context.Background(), PublishCreatorWebsiteRequest{ClientRequestID: "11111111-1111-4111-8111-111111111111", ClientWorkID: "22222222-2222-4222-8222-222222222222", SourceDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DisplayName: "Test", CreatorDisplayName: "Test Creator", SourceURL: "https://example.com"}); err != nil {
+	if _, err := client.PublishCreatorWebsite(context.Background(), PublishCreatorWebsiteRequest{ClientRequestID: "11111111-1111-4111-8111-111111111111", ClientWorkID: "22222222-2222-4222-8222-222222222222", SourceDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DisplayName: "Test", CreatorDisplayName: "Test Creator", SourceURL: "https://example.com", DescriptionZhCN: "中文描述", DescriptionEnUS: "English description", CoverURL: "https://example.com/cover.png"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := client.GetSdkWork(context.Background(), "wrk_test"); err != nil {
