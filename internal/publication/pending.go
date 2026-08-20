@@ -15,15 +15,17 @@ import (
 )
 
 type Pending struct {
-	SchemaVersion   int       `json:"schemaVersion"`
-	PublicationID   string    `json:"publicationId"`
-	ClientRequestID string    `json:"clientRequestId"`
-	Fingerprint     string    `json:"fingerprint"`
-	SourcePath      string    `json:"sourcePath"`
-	PriceMinor      *int      `json:"priceMinor"`
-	ArtifactDigest  string    `json:"artifactDigest"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	SchemaVersion            int       `json:"schemaVersion"`
+	PublicationID            string    `json:"publicationId"`
+	ClientRequestID          string    `json:"clientRequestId"`
+	Fingerprint              string    `json:"fingerprint"`
+	SourcePath               string    `json:"sourcePath"`
+	PriceMinor               *int      `json:"priceMinor"`
+	AccessMode               string    `json:"accessMode,omitempty"`
+	CreatorMonthlyPriceCents *int      `json:"creatorMonthlyPriceCents,omitempty"`
+	ArtifactDigest           string    `json:"artifactDigest"`
+	CreatedAt                time.Time `json:"createdAt"`
+	UpdatedAt                time.Time `json:"updatedAt"`
 }
 
 type PendingStore struct {

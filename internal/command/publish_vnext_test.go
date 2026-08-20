@@ -109,7 +109,7 @@ description: Generate deterministic educational comics.
 	} else {
 		data, _ := envelope["data"].(map[string]any)
 		presentation, _ := data["presentation"].(map[string]any)
-		if data["publicationId"] != state.publicationID || data["requiresPrice"] != true || presentation["intent"] != "OPEN_OWNER_PREVIEW" || presentation["fallbackUrl"] == "" {
+		if data["publicationId"] != state.publicationID || data["requiresCreatorMonthlyPrice"] != false || presentation["intent"] != "OPEN_OWNER_PREVIEW" || presentation["fallbackUrl"] == "" {
 			t.Fatalf("top-level publish did not return the private Draft owner preview: %#v", envelope)
 		}
 	}

@@ -23,8 +23,9 @@
 - **One installation** — the native CLI and matching official Skills are
   installed together for Codex, Claude Code, WorkBuddy, and the shared
   `~/.agents/skills` fallback.
-- **Human-controlled publishing** — the model can suggest bilingual copy and
-  media, but only the user decides the price and authorizes public publication.
+- **Human-controlled publishing** — the model can suggest bilingual copy,
+  media, and free/upgraded access, but only the creator sets their shared
+  monthly subscription price and authorizes public publication.
 - **Deterministic and resumable** — the CLI validates and packages locally,
   preserves publication identity across interruptions, and avoids duplicate
   listings when a response is lost.
@@ -38,7 +39,7 @@
 
 | Capability | What ViceMe provides |
 | --- | --- |
-| Publish a Skill | Validate a local Skill directory or ZIP, set a CNY price, upload it, review platform suggestions, and publish a paid listing. |
+| Publish a Skill | Validate a local Skill directory or ZIP, publish it free for everyone or as an upgraded Skill unlocked by the creator's shared monthly subscription, review suggestions, and release it. |
 | Build a component | Ask an Agent to integrate the bundled production danmaku blueprint into a React and Tailwind CSS v4 project. |
 | Set up an Agent | Install, authenticate, update, diagnose, and repair the CLI and official Skills as one compatible release. |
 | Recover safely | Continue the same publication after a network or process interruption without uploading a duplicate product. |
@@ -63,15 +64,16 @@
 
 The Agent checks login, keeps the selected Profile fixed throughout the
 workflow, validates the Skill, immediately uploads the private Draft, and opens
-its real Owner Preview. It uploads media candidates without asking for a price,
+its real Owner Preview. It uploads media candidates without asking for a Skill price,
 then the user's Agent prepares the bilingual copy and media suggestions. The Agent shows
-the complete listing—including the images—and asks one combined question for
-the price and any desired changes. It then shows the final review and asks once
+the complete listing—including the images—and asks for free or upgraded access.
+Only the first upgraded publication without a creator monthly price asks for
+that shared price. It then shows the final review and asks once
 whether to confirm and publish it publicly.
 
 ```text
 Local Skill → Login → Validate and private upload → Owner Preview → Agent enrichment
-            → Complete listing details + price question → Final review
+            → Free/upgraded choice + shared monthly price if required → Final review
             → Confirm and publish → Public URL
 ```
 
@@ -82,7 +84,7 @@ user explicitly confirms it.
 `viceme publish <path>` is the concise top-level entry to this same Skill
 Marketplace private Draft workflow and is equivalent to `viceme skill publish
 --path <path>`. It does not publish a general v3 work or configure
-subscriptions, trials, usage quotas, or other buyer entitlements.
+trials, usage quotas, or per-Skill one-time purchases.
 
 ### From the terminal
 
@@ -95,7 +97,7 @@ viceme auth status
 viceme auth login
 
 # Upload the real private draft and open its Owner Preview before pricing.
-viceme publish ./my-skill
+viceme publish ./my-skill --access-mode FREE
 # Equivalent explicit form: viceme skill publish --path ./my-skill
 
 # Continue the same unpriced draft and upload media candidates.
@@ -106,8 +108,8 @@ viceme publication review <publication-id>
 viceme publication suggest <publication-id> --input <suggestion.json>
 # viceme publication analyze <publication-id> && viceme publication wait <publication-id>
 
-# After reviewing the complete listing details, set CNY 1.00 on that draft.
-viceme skill publish --resume <publication-id> --price-minor 100
+# Only when the first upgraded Skill reports requiresCreatorMonthlyPrice.
+viceme skill publish --resume <publication-id> --creator-monthly-price-cents 1000
 ```
 
 ## Installation
@@ -255,14 +257,14 @@ Never copy an access token into the conversation.
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |
 | `viceme skill listing get <listing-id>` | Read the authoritative private Listing state. |
 | `viceme skill listing bind <listing-id> --path <path>` | Explicitly bind a source to a selected owned Listing. |
-| `viceme publish <path>` | Concise top-level entry for the same private Skill Marketplace Draft flow as `viceme skill publish --path <path>`; it is not a general v3 publication or subscription command. |
-| `viceme skill publish --path <path>` | Upload the real private package and return its Owner Preview before pricing. |
-| `viceme skill publish --resume <id>` | Continue the same unpriced Draft and upload media candidates without starting a platform model. |
-| `viceme publication review <id>` | Read the authoritative bilingual copy, price, selected media, and review state. |
+| `viceme publish <path> --access-mode FREE\|CREATOR_SUBSCRIPTION` | Enter the private Skill Marketplace Draft flow with free or creator-subscription access. |
+| `viceme skill publish --path <path> --access-mode ...` | Upload the real private package and return its Owner Preview. |
+| `viceme skill publish --resume <id>` | Continue the same Draft and upload media candidates without starting a platform model. |
+| `viceme publication review <id>` | Read the authoritative bilingual copy, access mode, creator monthly price state, selected media, and review state. |
 | `viceme publication suggest <id> --input ...` | Apply Agent-generated bilingual copy and media with Draft revision protection. |
 | `viceme publication analyze <id>` | Explicitly request platform-model analysis when the current Agent cannot perform enrichment. |
 | `viceme publication wait <id>` | Wait for an explicitly requested platform analysis without re-uploading. |
-| `viceme skill publish --resume <id> --price-minor <fen>` | Apply the reviewed CNY price to the same Draft without creating another Listing. |
+| `viceme skill publish --resume <id> --creator-monthly-price-cents <fen>` | Set the creator's shared monthly price only when an upgraded publication requires it. |
 | `viceme publication asset upload ...` | Replace user-selected media, or add `--candidate-only` to stage Agent-provided media for `publication suggest`. |
 | `viceme publication update ...` | Replace the complete listing draft from a strict JSON file. |
 | `viceme publication confirm ...` | Confirm the exact current review digest. |

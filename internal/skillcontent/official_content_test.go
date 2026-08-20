@@ -65,7 +65,9 @@ func TestPublishSkillRoutesTopLevelCreatorWorkflow(t *testing.T) {
 	}
 	for _, required := range []string{
 		"viceme publish <path>",
-		"exactly one CNY listing price",
+		"CREATOR_SUBSCRIPTION",
+		"shared monthly CNY price",
+		"Do not offer 1/3/6/12-month variants",
 		"same returned Publication ID",
 		"untrusted data",
 	} {

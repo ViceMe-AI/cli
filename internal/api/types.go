@@ -148,8 +148,9 @@ type SkillPublicationSource struct {
 
 type SkillPublicationSale struct {
 	Currency    string `json:"currency" yaml:"currency"`
-	PriceMinor  *int   `json:"priceMinor" yaml:"priceMinor"`
+	AccessMode  string `json:"accessMode" yaml:"accessMode"`
 	Entitlement string `json:"entitlement" yaml:"entitlement"`
+	PriceMinor  *int   `json:"-" yaml:"-"` // Read-only source compatibility; never sent by the new publication contract.
 }
 
 type SkillPublicationFile struct {
@@ -171,11 +172,15 @@ type CreateSkillPublicationRequest struct {
 }
 
 type CreateSkillPublicationResponse struct {
-	PublicationID string               `json:"publicationId"`
-	ListingID     string               `json:"listingId"`
-	DraftRevision int                  `json:"draftRevision"`
-	Status        string               `json:"status"`
-	PackageUpload *UploadAuthorization `json:"packageUpload"`
+	PublicationID               string               `json:"publicationId"`
+	ListingID                   string               `json:"listingId"`
+	DraftRevision               int                  `json:"draftRevision"`
+	Status                      string               `json:"status"`
+	PackageUpload               *UploadAuthorization `json:"packageUpload"`
+	AccessMode                  string               `json:"accessMode"`
+	CreatorAccountID            *string              `json:"creatorAccountId"`
+	RequiresCreatorMonthlyPrice bool                 `json:"requiresCreatorMonthlyPrice"`
+	CreatorMonthlyPriceCents    *int                 `json:"creatorMonthlyPriceCents"`
 }
 
 type UploadAuthorizationRequest struct {
@@ -207,13 +212,14 @@ type SkillPublicationDraft struct {
 	UsageInstructionsZhCN *string  `json:"usageInstructionsZhCn"`
 	UsageInstructionsEnUS *string  `json:"usageInstructionsEnUs"`
 	Currency              string   `json:"currency"`
-	PriceMinor            *int     `json:"priceMinor"`
+	AccessMode            string   `json:"accessMode"`
+	PriceMinor            *int     `json:"-"` // Legacy test/state compatibility; new publications use creator-level pricing.
 	CoverUploadID         *string  `json:"coverUploadId"`
 	GalleryUploadIDs      []string `json:"galleryUploadIds"`
 }
 
 type UpdateSkillPublicationDraftRequest struct {
-	PriceMinor       *int     `json:"priceMinor,omitempty"`
+	AccessMode       string   `json:"accessMode,omitempty"`
 	CoverUploadID    *string  `json:"coverUploadId,omitempty"`
 	GalleryUploadIDs []string `json:"galleryUploadIds,omitempty"`
 }
@@ -270,20 +276,36 @@ type PublishedProduct struct {
 }
 
 type SkillPublication struct {
-	ID             string                   `json:"id"`
-	ListingID      string                   `json:"listingId"`
-	DraftRevision  int                      `json:"draftRevision"`
-	Status         string                   `json:"status"`
-	Manifest       SkillPublicationManifest `json:"manifest"`
-	Draft          SkillPublicationDraft    `json:"draft"`
-	ReviewRevision int                      `json:"reviewRevision"`
-	ReviewDigest   *string                  `json:"reviewDigest"`
-	Uploads        []SkillPublicationUpload `json:"uploads"`
-	Analysis       *PublicationAnalysis     `json:"analysis"`
-	Product        *PublishedProduct        `json:"product"`
-	FailureCode    *string                  `json:"failureCode"`
-	CreatedAt      string                   `json:"createdAt"`
-	UpdatedAt      string                   `json:"updatedAt"`
+	ID                          string                   `json:"id"`
+	ListingID                   string                   `json:"listingId"`
+	DraftRevision               int                      `json:"draftRevision"`
+	Status                      string                   `json:"status"`
+	Manifest                    SkillPublicationManifest `json:"manifest"`
+	Draft                       SkillPublicationDraft    `json:"draft"`
+	AccessMode                  string                   `json:"accessMode"`
+	CreatorAccountID            *string                  `json:"creatorAccountId"`
+	RequiresCreatorMonthlyPrice bool                     `json:"requiresCreatorMonthlyPrice"`
+	CreatorMonthlyPriceCents    *int                     `json:"creatorMonthlyPriceCents"`
+	ReviewRevision              int                      `json:"reviewRevision"`
+	ReviewDigest                *string                  `json:"reviewDigest"`
+	Uploads                     []SkillPublicationUpload `json:"uploads"`
+	Analysis                    *PublicationAnalysis     `json:"analysis"`
+	Product                     *PublishedProduct        `json:"product"`
+	FailureCode                 *string                  `json:"failureCode"`
+	CreatedAt                   string                   `json:"createdAt"`
+	UpdatedAt                   string                   `json:"updatedAt"`
+}
+
+type CreateCreatorSubscriptionPlanRequest struct {
+	CreatorAccountID  string `json:"creatorAccountId"`
+	MonthlyPriceCents int    `json:"monthlyPriceCents"`
+}
+
+type CreatorSubscriptionPlan struct {
+	ID                string `json:"id"`
+	CreatorAccountID  string `json:"creatorAccountId"`
+	MonthlyPriceCents int    `json:"monthlyPriceCents"`
+	Status            string `json:"status"`
 }
 
 type PrepareSkillListingRequest struct {

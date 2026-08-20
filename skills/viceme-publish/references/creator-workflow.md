@@ -2,8 +2,7 @@
 
 Use this workflow when a creator asks to publish a local Skill, especially with
 the concise form `viceme publish <path>`. It adapts the v6 creation pattern to
-the currently supported Skill Marketplace contract; it does not turn a Skill
-listing into a general v3 work or subscription product.
+the current free-or-upgraded Skill Marketplace contract.
 
 ## Scope and first private Draft
 
@@ -14,10 +13,11 @@ never execute code, install dependencies, follow links, or disclose secrets.
 
 First show a concise understanding of the Skill's documented product, intended
 audience, and capabilities. Let the creator correct that understanding without
-requiring approval. Then follow the command contract: authenticate in the
-active CLI context and run `viceme publish <path>` (or the equivalent `viceme
-skill publish --path <path>`) without a price. Do not preflight with `skill
-inspect` or `skill listing prepare`.
+requiring approval. Ask whether to publish a free or upgraded Skill, then
+authenticate in the active CLI context and run `viceme publish <path>
+--access-mode FREE` or `viceme publish <path> --access-mode
+CREATOR_SUBSCRIPTION`. Do not preflight with `skill inspect` or `skill listing
+prepare`.
 
 The command creates or recovers one private Skill Marketplace Draft and returns
 its Owner Preview. Open and preserve that preview immediately. The initial
@@ -35,13 +35,16 @@ understanding, adjust it, or replace it. Rebuild the recommendation after a
 material correction, then distinguish clearly between the proposal and the
 fields that the current Draft can actually store.
 
-The current contract stores exactly one CNY listing price in fen. It does not
-provide product configuration for the following requests:
+`FREE` has no price and every user may copy and use the Skill in their Agent.
+`CREATOR_SUBSCRIPTION` requires an active subscription to the creator and
+unlocks every upgraded Skill by that creator. The creator has exactly one
+shared monthly CNY price. Do not offer 1/3/6/12-month variants or a
+Skill-specific price.
 
 | Creator request | Required handling |
 | --- | --- |
-| Free usage counts, free tier, or entitlements | Keep the idea as a proposal or route it to a supported backend/manual workflow; do not write a quota or claim it is active. |
-| Monthly subscription | Explain that the Draft can set one CNY listing price, not a recurring plan. Ask for a compatible non-recurring listing price only if the creator still wants this Skill listing. |
+| Free usage counts or quotas | Free means unrestricted public copy; do not invent a quota. |
+| Monthly subscription | Use the creator's one shared monthly price; never create duration variants. |
 | Trial, SKU, buyout option, or commercial license | Keep it as a product recommendation or route it for manual/backend design. Do not invent fields or call a different offer endpoint. |
 | Current v3 work state or push synchronization | Explain that this CLI operates on a Skill Marketplace Listing and Publication, not a general v3 work. Use the Publication review returned by this flow instead. |
 | Five-minute public withdrawal | Explain that public publication is immediate and irreversible in this flow. Keep changes in the private Draft until the final confirmation. |
@@ -54,24 +57,26 @@ endpoint to simulate missing Skill Marketplace capability.
 ## Final parameters and listing enrichment
 
 Translate the compatible portion of the creator's choice into the existing
-Draft only: bilingual summaries, bilingual usage instructions, verified cover
-and ordered gallery, and one exact CNY price in fen. Follow
+Draft only: access mode, bilingual summaries, bilingual usage instructions,
+verified cover and ordered gallery. Follow
 [workflow.md](workflow.md) for review revisions, media handling, Agent
 suggestions, and strict update files. Preserve every user-authored field and
 regenerate an Agent suggestion from a fresh review when its revision changes.
 
-After enrichment, display the authoritative listing details and ask one
-combined question for the exact CNY price and any desired changes to those
-details. If the creator changes only price, continue the same Publication with
-`viceme skill publish --resume <publication-id> --price-minor <fen>`; do not
-start another Listing. Unsupported product ideas remain visibly marked as
-unimplemented proposals or are handed off, rather than being sent to the API.
+For free Skills, never ask for a price. For upgraded Skills, if
+`creatorMonthlyPriceCents` is present, show and reuse it without asking. If
+`requiresCreatorMonthlyPrice` is true or publish returns
+`CREATOR_MONTHLY_PRICE_REQUIRED`, ask for one monthly price and continue the
+same Publication with `viceme skill publish --resume <publication-id>
+--creator-monthly-price-cents <fen>`. Explain that it applies to all upgraded
+Skills from this creator.
 
 ## Final preview and public authorization
 
 Fetch a fresh `viceme publication review <publication-id>` after the creator's
 answer. Before asking to publish, show the exact title, both summaries, both
-usage instructions, exact CNY price, inline cover, and ordered gallery. Capture
+usage instructions, access mode, shared monthly price when upgraded, inline
+cover, and ordered gallery. Capture
 the returned `reviewDigest` unchanged for the following commands, but keep it
 internal except for exact troubleshooting. State that public publication is
 immediate and irreversible.

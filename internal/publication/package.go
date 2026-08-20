@@ -419,7 +419,7 @@ func manifestFromEntries(entries []sourceEntry) (api.SkillPublicationManifest, e
 		Metadata: api.SkillPublicationMetadata{Title: frontmatter.Name, Summary: frontmatter.Description},
 		Spec: api.SkillPublicationSpec{
 			Source: api.SkillPublicationSource{Entry: "SKILL.md"},
-			Sale:   api.SkillPublicationSale{Currency: "CNY", PriceMinor: nil, Entitlement: "PERMANENT_DOWNLOAD"},
+			Sale:   api.SkillPublicationSale{Currency: "CNY", AccessMode: "FREE", Entitlement: "PUBLIC_COPY"},
 		},
 	}, nil
 }

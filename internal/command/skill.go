@@ -16,7 +16,6 @@ import (
 
 type inspectResult struct {
 	publication.Package
-	PriceConfirmed bool `json:"priceConfirmed"`
 }
 
 type listingPrepareResult struct {
@@ -24,7 +23,6 @@ type listingPrepareResult struct {
 	SourceType             string              `json:"sourceType"`
 	SourcePath             string              `json:"sourcePath"`
 	CanonicalPackageDigest string              `json:"canonicalPackageDigest"`
-	RequiresPrice          bool                `json:"requiresPrice"`
 	Presentation           previewPresentation `json:"presentation"`
 }
 
@@ -36,7 +34,6 @@ type listingGetResult struct {
 type publicationPresentationResult struct {
 	api.SkillPublication
 	PublicationID string              `json:"publicationId"`
-	RequiresPrice bool                `json:"requiresPrice"`
 	Presentation  previewPresentation `json:"presentation"`
 }
 
@@ -140,7 +137,7 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(inspectResult{Package: result, PriceConfirmed: false})
+			return runtime.business(inspectResult{Package: result})
 		},
 	}
 	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
@@ -151,41 +148,49 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	var source string
 	var resume string
-	var priceMinor int
+	var accessMode string
+	var creatorMonthlyPriceCents int
 	var creatorDisplayName string
 	var forceNew bool
 	command := &cobra.Command{
 		Use: "publish", Short: "Upload a Skill and prepare its listing for explicit review", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			return runSkillPublish(command.Context(), runtime, skillPublishRequest{
-				Source:             source,
-				Resume:             resume,
-				PriceMinor:         priceMinor,
-				PriceConfirmed:     command.Flags().Changed("price-minor"),
-				CreatorDisplayName: creatorDisplayName,
-				ForceNew:           forceNew,
+				Source:                   source,
+				Resume:                   resume,
+				AccessMode:               accessMode,
+				AccessModeSet:            command.Flags().Changed("access-mode"),
+				CreatorMonthlyPriceCents: creatorMonthlyPriceCents,
+				CreatorMonthlyPriceSet:   command.Flags().Changed("creator-monthly-price-cents"),
+				CreatorDisplayName:       creatorDisplayName,
+				ForceNew:                 forceNew,
 			})
 		},
 	}
 	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
 	command.Flags().StringVar(&resume, "resume", "", "resume an interrupted publication by ID")
-	command.Flags().IntVar(&priceMinor, "price-minor", 0, "set the CNY price in fen while continuing the private draft")
+	command.Flags().StringVar(&accessMode, "access-mode", "FREE", "Skill access mode: FREE or CREATOR_SUBSCRIPTION")
+	command.Flags().IntVar(&creatorMonthlyPriceCents, "creator-monthly-price-cents", 0, "set the creator's shared monthly subscription price in fen when required")
 	command.Flags().StringVar(&creatorDisplayName, "creator-display-name", "", "creator display name used when the account has none")
 	command.Flags().BoolVar(&forceNew, "new-listing", false, "explicitly create a separate Listing even when content matches")
 	return command
 }
 
 type skillPublishRequest struct {
-	Source             string
-	Resume             string
-	PriceMinor         int
-	PriceConfirmed     bool
-	CreatorDisplayName string
-	ForceNew           bool
+	Source                   string
+	Resume                   string
+	AccessMode               string
+	AccessModeSet            bool
+	CreatorMonthlyPriceCents int
+	CreatorMonthlyPriceSet   bool
+	CreatorDisplayName       string
+	ForceNew                 bool
 }
 
 func newTopLevelSkillPublishCommand(runtime *Runtime) *cobra.Command {
-	return &cobra.Command{
+	var accessMode string
+	var creatorMonthlyPriceCents int
+	command := &cobra.Command{
 		Use:   "publish <path>",
 		Short: "Upload a Skill and prepare its listing for explicit review",
 		Args: func(_ *cobra.Command, args []string) error {
@@ -199,9 +204,15 @@ func newTopLevelSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			}
 		},
 		RunE: func(command *cobra.Command, args []string) error {
-			return runSkillPublish(command.Context(), runtime, skillPublishRequest{Source: args[0]})
+			return runSkillPublish(command.Context(), runtime, skillPublishRequest{
+				Source: args[0], AccessMode: accessMode, AccessModeSet: command.Flags().Changed("access-mode"),
+				CreatorMonthlyPriceCents: creatorMonthlyPriceCents, CreatorMonthlyPriceSet: command.Flags().Changed("creator-monthly-price-cents"),
+			})
 		},
 	}
+	command.Flags().StringVar(&accessMode, "access-mode", "FREE", "Skill access mode: FREE or CREATOR_SUBSCRIPTION")
+	command.Flags().IntVar(&creatorMonthlyPriceCents, "creator-monthly-price-cents", 0, "set the creator's shared monthly subscription price in fen when required")
+	return command
 }
 
 func runSkillPublish(ctx context.Context, runtime *Runtime, request skillPublishRequest) error {
@@ -211,8 +222,17 @@ func runSkillPublish(ctx context.Context, runtime *Runtime, request skillPublish
 	if request.Source == "" && request.Resume == "" {
 		return output.Validation("SKILL_PATH_REQUIRED", "provide --path or --resume")
 	}
-	if request.PriceConfirmed && (request.PriceMinor < 0 || request.PriceMinor > 10_000_000) {
-		return output.Validation("SKILL_PRICE_INVALID", "priceMinor must be between 0 and 10000000")
+	if request.AccessMode == "" {
+		request.AccessMode = "FREE"
+	}
+	if request.AccessMode != "FREE" && request.AccessMode != "CREATOR_SUBSCRIPTION" {
+		return output.Validation("SKILL_ACCESS_MODE_INVALID", "access mode must be FREE or CREATOR_SUBSCRIPTION")
+	}
+	if request.CreatorMonthlyPriceSet && (request.CreatorMonthlyPriceCents <= 0 || request.CreatorMonthlyPriceCents > 100_000_000) {
+		return output.Validation("CREATOR_MONTHLY_PRICE_INVALID", "creatorMonthlyPriceCents must be between 1 and 100000000")
+	}
+	if request.CreatorMonthlyPriceSet && request.Resume == "" && request.AccessMode != "CREATOR_SUBSCRIPTION" {
+		return output.Validation("CREATOR_MONTHLY_PRICE_NOT_APPLICABLE", "creator monthly price is only valid for CREATOR_SUBSCRIPTION Skills")
 	}
 	store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
 	if request.Resume != "" {
@@ -230,11 +250,14 @@ func runSkillPublish(ctx context.Context, runtime *Runtime, request skillPublish
 		if err := runtime.requireSkillPublicationAuthentication(ctx); err != nil {
 			return err
 		}
-		if request.PriceConfirmed {
-			pending.PriceMinor = &request.PriceMinor
-			if err := store.Save(pending); err != nil {
-				return err
-			}
+		if pending.AccessMode == "" {
+			pending.AccessMode = request.AccessMode
+		}
+		if request.AccessModeSet && pending.AccessMode != request.AccessMode {
+			return output.Validation("PUBLICATION_ACCESS_MODE_CONFLICT", "the resumed publication access mode cannot be changed")
+		}
+		if request.CreatorMonthlyPriceSet {
+			pending.CreatorMonthlyPriceCents = &request.CreatorMonthlyPriceCents
 		}
 		// An explicit resume continues Draft enrichment even while the
 		// price is still unset. Price gates final confirmation, not media
@@ -244,6 +267,16 @@ func runSkillPublish(ctx context.Context, runtime *Runtime, request skillPublish
 	pkg, err := publication.Build(request.Source)
 	if err != nil {
 		return err
+	}
+	pkg.Manifest.Spec.Sale.AccessMode = request.AccessMode
+	if request.AccessMode == "FREE" {
+		pkg.Manifest.Spec.Sale.Entitlement = "PUBLIC_COPY"
+	} else {
+		pkg.Manifest.Spec.Sale.Entitlement = "CREATOR_SUBSCRIPTION"
+	}
+	pkg.Digest, err = publication.CanonicalDigest(pkg.Manifest)
+	if err != nil {
+		return output.Internal("MANIFEST_DIGEST_FAILED", "failed to canonicalize publication manifest", err)
 	}
 	if err := runtime.requireSkillPublicationAuthentication(ctx); err != nil {
 		return err
@@ -264,15 +297,15 @@ func runSkillPublish(ctx context.Context, runtime *Runtime, request skillPublish
 		pending := publication.Pending{
 			PublicationID: intent.PublicationID, ClientRequestID: intent.ClientRequestID,
 			Fingerprint: fingerprint,
-			SourcePath:  pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
+			SourcePath:  pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest, AccessMode: request.AccessMode,
 		}
-		if request.PriceConfirmed {
-			pending.PriceMinor = &request.PriceMinor
+		if request.CreatorMonthlyPriceSet {
+			pending.CreatorMonthlyPriceCents = &request.CreatorMonthlyPriceCents
 		}
 		if err := store.Save(pending); err != nil {
 			return err
 		}
-		return continueSkillPublication(ctx, runtime, store, pending, pkg, nil, pending.PriceMinor == nil)
+		return continueSkillPublication(ctx, runtime, store, pending, pkg, nil, true)
 	}
 	created, err := runtime.client().CreateSkillPublication(ctx, api.CreateSkillPublicationRequest{
 		ClientRequestID: intent.ClientRequestID, ContractVersion: api.SkillPublicationContractVersion, CLIVersion: buildinfo.Version,
@@ -296,15 +329,15 @@ func runSkillPublish(ctx context.Context, runtime *Runtime, request skillPublish
 	pending := publication.Pending{
 		PublicationID: created.PublicationID, ClientRequestID: intent.ClientRequestID,
 		Fingerprint: fingerprint,
-		SourcePath:  pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
+		SourcePath:  pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest, AccessMode: request.AccessMode,
 	}
-	if request.PriceConfirmed {
-		pending.PriceMinor = &request.PriceMinor
+	if request.CreatorMonthlyPriceSet {
+		pending.CreatorMonthlyPriceCents = &request.CreatorMonthlyPriceCents
 	}
 	if err := store.Save(pending); err != nil {
 		return err
 	}
-	return continueSkillPublication(ctx, runtime, store, pending, pkg, created.PackageUpload, pending.PriceMinor == nil)
+	return continueSkillPublication(ctx, runtime, store, pending, pkg, created.PackageUpload, true)
 }
 
 func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.Package, forceNew bool, targetListingID string) (listingPrepareResult, publication.ResolvedSourceIdentity, error) {
@@ -444,9 +477,27 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		}
 		return presentPublication(ctx, runtime, current)
 	}
-	if pending.PriceMinor != nil && (current.Draft.PriceMinor == nil || *current.Draft.PriceMinor != *pending.PriceMinor) {
-		current, err = client.UpdateListingPrice(ctx, pending.PublicationID, *pending.PriceMinor)
+	if pending.CreatorMonthlyPriceCents != nil {
+		if current.AccessMode != "CREATOR_SUBSCRIPTION" || current.CreatorAccountID == nil {
+			return output.Validation("CREATOR_MONTHLY_PRICE_NOT_APPLICABLE", "creator monthly price requires a creator-subscription publication with a resolved creator account")
+		}
+		if !current.RequiresCreatorMonthlyPrice || current.CreatorMonthlyPriceCents != nil {
+			details := map[string]any{"publicationId": current.ID, "creatorAccountId": current.CreatorAccountID}
+			if current.CreatorMonthlyPriceCents != nil {
+				details["creatorMonthlyPriceCents"] = *current.CreatorMonthlyPriceCents
+			}
+			return output.Validation("CREATOR_MONTHLY_PRICE_NOT_APPLICABLE", "the creator already has an authoritative monthly price").WithDetails(details)
+		}
+		_, err = client.SetCreatorMonthlyPrice(ctx, api.CreateCreatorSubscriptionPlanRequest{CreatorAccountID: *current.CreatorAccountID, MonthlyPriceCents: *pending.CreatorMonthlyPriceCents})
 		if err != nil {
+			return err
+		}
+		current, err = client.GetSkillPublication(ctx, pending.PublicationID)
+		if err != nil {
+			return err
+		}
+		pending.CreatorMonthlyPriceCents = nil
+		if err := store.Save(pending); err != nil {
 			return err
 		}
 	}
@@ -511,7 +562,6 @@ func presentPublication(ctx context.Context, runtime *Runtime, current api.Skill
 	return runtime.business(publicationPresentationResult{
 		SkillPublication: current,
 		PublicationID:    current.ID,
-		RequiresPrice:    current.Draft.PriceMinor == nil,
 		Presentation:     presentation,
 	})
 }

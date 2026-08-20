@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -110,7 +111,7 @@ description: Publish a deterministic Skill through the vNext contract.
 		t.Fatalf("private package upload retry did not recover: exit=%d envelope=%#v", exit, envelope)
 	} else {
 		data, _ := envelope["data"].(map[string]any)
-		if data["listingId"] != "66666666-6666-4666-8666-666666666666" || data["publicationId"] != state.publicationID || data["requiresPrice"] != true {
+		if data["listingId"] != "66666666-6666-4666-8666-666666666666" || data["publicationId"] != state.publicationID || data["requiresCreatorMonthlyPrice"] != false {
 			t.Fatalf("first business result was not the uploaded private draft: %#v", envelope)
 		}
 		expectFreshPreview(envelope)
@@ -128,10 +129,10 @@ description: Publish a deterministic Skill through the vNext contract.
 		t.Fatalf("workspace binding was not persisted beside the source: %v", err)
 	}
 
-	if exit, envelope := execute("skill", "publish", "--resume", state.publicationID, "--price-minor", "1"); exit != 0 || envelope["ok"] != true {
-		t.Fatalf("priced publication continuation failed: exit=%d envelope=%#v", exit, envelope)
-	} else if data, _ := envelope["data"].(map[string]any); data["requiresPrice"] != false {
-		t.Fatalf("price update was not reflected in the progressive preview: %#v", envelope)
+	if exit, envelope := execute("skill", "publish", "--resume", state.publicationID); exit != 0 || envelope["ok"] != true {
+		t.Fatalf("publication continuation failed: exit=%d envelope=%#v", exit, envelope)
+	} else if data, _ := envelope["data"].(map[string]any); data["requiresCreatorMonthlyPrice"] != false {
+		t.Fatalf("free publication unexpectedly required creator pricing: %#v", envelope)
 	} else {
 		expectFreshPreview(envelope)
 	}
@@ -213,7 +214,7 @@ description: Publish a deterministic Skill through the vNext contract.
 	}
 }
 
-func TestSkillPublishResumeWithoutPriceUploadsMediaWithoutStartingPlatformAnalysis(t *testing.T) {
+func TestUpgradedSkillPublishRequestsAndSetsSharedCreatorMonthlyPrice(t *testing.T) {
 	t.Parallel()
 	state := &publicationAPITestState{
 		publicationID: "22222222-2222-4222-8222-222222222223",
@@ -275,11 +276,13 @@ description: Verify unpriced media and analysis continuation.
 		return exit, envelope
 	}
 
-	if exit, _ := execute("skill", "publish", "--path", source); exit == 0 {
+	if exit, _ := execute("skill", "publish", "--path", source, "--access-mode", "CREATOR_SUBSCRIPTION"); exit == 0 {
 		t.Fatal("simulated create response loss unexpectedly succeeded")
 	}
-	if exit, envelope := execute("skill", "publish", "--path", source); exit != 0 || envelope["ok"] != true {
+	if exit, envelope := execute("skill", "publish", "--path", source, "--access-mode", "CREATOR_SUBSCRIPTION"); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("private preview recovery failed: exit=%d envelope=%#v", exit, envelope)
+	} else if data, _ := envelope["data"].(map[string]any); data["requiresCreatorMonthlyPrice"] != true || data["creatorMonthlyPriceCents"] != nil {
+		t.Fatalf("first upgraded Skill did not report the shared monthly price requirement: %#v", envelope)
 	}
 	state.mu.Lock()
 	if !state.packageVerified || state.mediaVerified || state.analysisCalls != 0 {
@@ -288,15 +291,24 @@ description: Verify unpriced media and analysis continuation.
 	}
 	state.mu.Unlock()
 
-	if exit, envelope := execute("skill", "publish", "--resume", state.publicationID); exit != 0 || envelope["ok"] != true {
-		t.Fatalf("unpriced continuation failed: exit=%d envelope=%#v", exit, envelope)
-	} else if data, _ := envelope["data"].(map[string]any); data["requiresPrice"] != true {
-		t.Fatalf("unpriced continuation lost its Draft completeness signal: %#v", envelope)
+	if exit, envelope := execute("skill", "publish", "--resume", state.publicationID, "--creator-monthly-price-cents", "2500"); exit != 0 || envelope["ok"] != true {
+		t.Fatalf("monthly-price continuation failed: exit=%d envelope=%#v", exit, envelope)
+	} else if data, _ := envelope["data"].(map[string]any); data["requiresCreatorMonthlyPrice"] != false || data["creatorMonthlyPriceCents"] != float64(2500) {
+		t.Fatalf("creator monthly price was not reflected in publication state: %#v", envelope)
+	}
+	if exit, envelope := execute("skill", "publish", "--resume", state.publicationID, "--creator-monthly-price-cents", "3000"); exit == 0 || envelope["ok"] != false {
+		t.Fatalf("existing creator monthly price was overwritten: exit=%d envelope=%#v", exit, envelope)
+	} else {
+		errorData, _ := envelope["error"].(map[string]any)
+		details, _ := errorData["details"].(map[string]any)
+		if errorData["code"] != "CREATOR_MONTHLY_PRICE_NOT_APPLICABLE" || details["creatorMonthlyPriceCents"] != float64(2500) {
+			t.Fatalf("existing authoritative monthly price was not reported: %#v", envelope)
+		}
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if !state.mediaVerified || len(state.mediaBytes) == 0 || state.analysisCalls != 0 || state.draft.PriceMinor != nil {
-		t.Fatalf("unpriced continuation did not stop after deterministic media upload: %#v", state)
+	if !state.mediaVerified || len(state.mediaBytes) == 0 || state.analysisCalls != 0 || state.draft.PriceMinor != nil || state.creatorMonthlyPriceCents == nil || *state.creatorMonthlyPriceCents != 2500 || state.creatorMonthlyPriceWrites != 1 {
+		t.Fatalf("upgraded continuation did not set creator pricing and upload deterministic media: %#v", state)
 	}
 }
 
@@ -347,7 +359,7 @@ func TestSkillPublishValidatesLocallyBeforeLoginWithoutCreatingRecoveryState(t *
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exit := Execute([]string{"skill", "publish", "--path", missingSource, "--price-minor", "1"}, Dependencies{
+	exit := Execute([]string{"skill", "publish", "--path", missingSource, "--access-mode", "FREE"}, Dependencies{
 		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(), APIBaseURL: server.URL, Region: config.RegionCN,
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 	})
@@ -367,6 +379,35 @@ func TestSkillPublishValidatesLocallyBeforeLoginWithoutCreatingRecoveryState(t *
 	}
 	if _, err := os.Stat(filepath.Join(root, "config", "publications")); !os.IsNotExist(err) {
 		t.Fatalf("unauthenticated publication created recovery state before login: %v", err)
+	}
+}
+
+func TestFreeSkillWithCreatorMonthlyPriceFailsBeforeNetworkOrRecoveryWrite(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	var networkCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		networkCalls.Add(1)
+	}))
+	defer server.Close()
+	var stdout bytes.Buffer
+	exit := Execute([]string{"publish", filepath.Join(root, "missing"), "--access-mode", "FREE", "--creator-monthly-price-cents", "2500"}, Dependencies{
+		Out: &stdout, ErrOut: io.Discard, Store: securestore.NewMemory(), APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	errorData, _ := envelope["error"].(map[string]any)
+	if exit == 0 || errorData["code"] != "CREATOR_MONTHLY_PRICE_NOT_APPLICABLE" {
+		t.Fatalf("FREE plus creator price was not rejected locally: exit=%d envelope=%#v", exit, envelope)
+	}
+	if networkCalls.Load() != 0 {
+		t.Fatalf("local FREE validation made %d network calls", networkCalls.Load())
+	}
+	if _, err := os.Stat(filepath.Join(root, "config", "publications")); !os.IsNotExist(err) {
+		t.Fatalf("local FREE validation wrote recovery state: %v", err)
 	}
 }
 
@@ -668,38 +709,40 @@ func TestTerminalPublicationRetirementFailureIsRecoverable(t *testing.T) {
 }
 
 type publicationAPITestState struct {
-	mu                       sync.Mutex
-	baseURL                  string
-	publicationID            string
-	reviewDigest             string
-	status                   string
-	createCalls              int
-	clientRequestIDs         []string
-	listingID                string
-	manifest                 api.SkillPublicationManifest
-	draft                    api.SkillPublicationDraft
-	packageBytes             []byte
-	packageDigest            string
-	mediaBytes               []byte
-	mediaDigest              string
-	packageVerified          bool
-	mediaVerified            bool
-	mediaPending             bool
-	mediaFileName            string
-	mediaContentType         string
-	mediaSizeBytes           int64
-	mediaSortOrder           int
-	mediaPutFailures         int
-	loseCompleteResponse     bool
-	uploadAuthorizationCalls int
-	previewLaunchCalls       int
-	analysisPolls            int
-	analysisCalls            int
-	confirmCalls             int
-	publishCalls             int
-	suggestionCalls          int
-	lastDraftPatchFields     []string
-	ambiguousPrepare         bool
+	mu                        sync.Mutex
+	baseURL                   string
+	publicationID             string
+	reviewDigest              string
+	status                    string
+	createCalls               int
+	clientRequestIDs          []string
+	listingID                 string
+	manifest                  api.SkillPublicationManifest
+	draft                     api.SkillPublicationDraft
+	packageBytes              []byte
+	packageDigest             string
+	mediaBytes                []byte
+	mediaDigest               string
+	packageVerified           bool
+	mediaVerified             bool
+	mediaPending              bool
+	mediaFileName             string
+	mediaContentType          string
+	mediaSizeBytes            int64
+	mediaSortOrder            int
+	mediaPutFailures          int
+	loseCompleteResponse      bool
+	uploadAuthorizationCalls  int
+	previewLaunchCalls        int
+	analysisPolls             int
+	analysisCalls             int
+	confirmCalls              int
+	publishCalls              int
+	suggestionCalls           int
+	lastDraftPatchFields      []string
+	ambiguousPrepare          bool
+	creatorMonthlyPriceCents  *int
+	creatorMonthlyPriceWrites int
 }
 
 func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -770,7 +813,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		state.packageDigest = input.Artifact.Digest
 		state.draft = api.SkillPublicationDraft{
 			Title: input.Manifest.Metadata.Title, SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"), UsageInstructionsEnUS: stringPointer("Follow the steps in SKILL.md."),
-			Currency: "CNY", PriceMinor: input.Manifest.Spec.Sale.PriceMinor, GalleryUploadIDs: []string{},
+			Currency: "CNY", AccessMode: input.Manifest.Spec.Sale.AccessMode, PriceMinor: input.Manifest.Spec.Sale.PriceMinor, GalleryUploadIDs: []string{},
 		}
 		state.status = "DRAFT"
 		if state.createCalls == 1 {
@@ -778,7 +821,14 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 			_, _ = io.WriteString(writer, "{")
 			return
 		}
-		writeJSONResponse(writer, api.CreateSkillPublicationResponse{PublicationID: state.publicationID, ListingID: listingID, DraftRevision: 1, Status: state.status, PackageUpload: &api.UploadAuthorization{UploadID: "upload-package", Method: http.MethodPut, URL: state.baseURL + "/upload/package", Headers: map[string]string{"Content-Type": "application/zip"}}})
+		creatorID := "99999999-9999-4999-8999-999999999999"
+		writeJSONResponse(writer, api.CreateSkillPublicationResponse{PublicationID: state.publicationID, ListingID: listingID, DraftRevision: 1, Status: state.status, PackageUpload: &api.UploadAuthorization{UploadID: "upload-package", Method: http.MethodPut, URL: state.baseURL + "/upload/package", Headers: map[string]string{"Content-Type": "application/zip"}}, AccessMode: input.Manifest.Spec.Sale.AccessMode, CreatorAccountID: &creatorID, RequiresCreatorMonthlyPrice: input.Manifest.Spec.Sale.AccessMode == "CREATOR_SUBSCRIPTION" && state.creatorMonthlyPriceCents == nil, CreatorMonthlyPriceCents: state.creatorMonthlyPriceCents})
+	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-publications/creator-monthly-price":
+		var input api.CreateCreatorSubscriptionPlanRequest
+		_ = json.NewDecoder(request.Body).Decode(&input)
+		state.creatorMonthlyPriceCents = &input.MonthlyPriceCents
+		state.creatorMonthlyPriceWrites++
+		writeJSONResponse(writer, api.CreatorSubscriptionPlan{ID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", CreatorAccountID: input.CreatorAccountID, MonthlyPriceCents: input.MonthlyPriceCents, Status: "ACTIVE"})
 	case request.Method == http.MethodGet && request.URL.Path == publicationPath:
 		writeJSONResponse(writer, state.publication())
 	case request.Method == http.MethodPut && request.URL.Path == "/upload/package":
@@ -877,7 +927,9 @@ func (state *publicationAPITestState) publication() api.SkillPublication {
 	} else if state.mediaPending {
 		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-media", Kind: "MEDIA", Status: "PENDING", FileName: state.mediaFileName, ContentType: state.mediaContentType, SizeBytes: state.mediaSizeBytes, Digest: state.mediaDigest, SortOrder: state.mediaSortOrder})
 	}
-	result := api.SkillPublication{ID: state.publicationID, ListingID: "66666666-6666-4666-8666-666666666666", DraftRevision: 1, Status: state.status, Manifest: state.manifest, Draft: state.draft, ReviewRevision: 1, ReviewDigest: &state.reviewDigest, Uploads: uploads}
+	creatorID := "99999999-9999-4999-8999-999999999999"
+	accessMode := state.manifest.Spec.Sale.AccessMode
+	result := api.SkillPublication{ID: state.publicationID, ListingID: "66666666-6666-4666-8666-666666666666", DraftRevision: 1, Status: state.status, Manifest: state.manifest, Draft: state.draft, AccessMode: accessMode, CreatorAccountID: &creatorID, RequiresCreatorMonthlyPrice: accessMode == "CREATOR_SUBSCRIPTION" && state.creatorMonthlyPriceCents == nil, CreatorMonthlyPriceCents: state.creatorMonthlyPriceCents, ReviewRevision: 1, ReviewDigest: &state.reviewDigest, Uploads: uploads}
 	if state.analysisPolls > 0 {
 		state.analysisPolls--
 		result.Analysis = &api.PublicationAnalysis{Status: "PENDING"}
