@@ -109,6 +109,9 @@ func newWebsitePublishCommand(runtime *Runtime) *cobra.Command {
 					FileName: candidate.FileName, ContentType: candidate.ContentType,
 				}
 			}
+			if err := runtime.requirePublicationAuthentication(command.Context()); err != nil {
+				return err
+			}
 			// Persist the source identity before the network call. If the call succeeds
 			// but the process is interrupted, the next publish still reuses this work.
 			if err := writeWebsiteBinding(bindingPath, binding); err != nil {

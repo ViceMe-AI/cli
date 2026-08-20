@@ -1,12 +1,22 @@
 package command
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
+	credentialauth "github.com/ViceMe-AI/cli/internal/auth"
+	"github.com/ViceMe-AI/cli/internal/config"
+	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/securestore"
+	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
 
 func TestWebsiteBindingKeepsStableSourceIdentity(t *testing.T) {
@@ -77,6 +87,67 @@ func TestWebsitePublishAcceptsFirstCreatorDisplayName(t *testing.T) {
 		if metadataFlag := command.Flags().Lookup(name); metadataFlag == nil || metadataFlag.DefValue != "" {
 			t.Fatalf("%s flag = %#v", name, metadataFlag)
 		}
+	}
+}
+
+func TestWebsitePublishRequiresSamePublicationScopesAsSkill(t *testing.T) {
+	var publishCalled bool
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path == "/v1/cli/auth/status" {
+			writeJSONResponse(writer, map[string]any{
+				"authenticated": true,
+				"user":          map[string]any{"id": "55555555-5555-4555-8555-555555555555", "displayName": "Creator", "avatarUrl": nil},
+				"scopes":        []string{"profile:read", "skill-publication:read"},
+				"expiresAt":     time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+			})
+			return
+		}
+		publishCalled = true
+		writer.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	source := filepath.Join(root, "website")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "index.html"), []byte("website"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "vme_cli_test", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := Execute([]string{"website", "publish", "--path", source, "--name", "Test Website"}, Dependencies{
+		Out: &stdout, ErrOut: &stderr, Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit != output.ExitAuthentication {
+		t.Fatalf("website publish scope failure exit = %d, stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	errorData, _ := envelope["error"].(map[string]any)
+	details, _ := errorData["details"].(map[string]any)
+	missingScopes, _ := details["missingScopes"].([]any)
+	if errorData["code"] != "PUBLICATION_SCOPE_REQUIRED" || len(missingScopes) != 1 || missingScopes[0] != "skill-publication:write" {
+		t.Fatalf("website publish did not enforce the Skill publication scopes: %#v", envelope)
+	}
+	if publishCalled {
+		t.Fatal("website publish called a mutation endpoint without the required publication scopes")
+	}
+	if _, err := os.Stat(filepath.Join(source, ".viceme", "website.json")); !os.IsNotExist(err) {
+		t.Fatalf("website binding was written before scope validation: %v", err)
 	}
 }
 

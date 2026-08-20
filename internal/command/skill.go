@@ -74,7 +74,7 @@ func newSkillListingPrepareCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+			if err := runtime.requirePublicationAuthentication(command.Context()); err != nil {
 				return err
 			}
 			prepared, _, err := prepareSkillListing(command.Context(), runtime, pkg, forceNew, "")
@@ -94,7 +94,7 @@ func newSkillListingGetCommand(runtime *Runtime) *cobra.Command {
 	return &cobra.Command{
 		Use: "get <listing-id>", Short: "Get the authoritative private preview state", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+			if err := runtime.requirePublicationAuthentication(command.Context()); err != nil {
 				return err
 			}
 			result, err := runtime.client().GetSkillListingPreview(command.Context(), args[0])
@@ -116,7 +116,7 @@ func newSkillListingBindCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+			if err := runtime.requirePublicationAuthentication(command.Context()); err != nil {
 				return err
 			}
 			prepared, _, err := prepareSkillListing(command.Context(), runtime, pkg, true, args[0])
@@ -180,7 +180,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if pkg.Artifact.Digest != pending.ArtifactDigest {
 					return output.Validation("PUBLICATION_SOURCE_CHANGED", "local Skill source changed after the publication started").WithHint("restore the original source or start a new publication")
 				}
-				if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+				if err := runtime.requirePublicationAuthentication(command.Context()); err != nil {
 					return err
 				}
 				if priceConfirmed {
@@ -198,7 +198,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+			if err := runtime.requirePublicationAuthentication(command.Context()); err != nil {
 				return err
 			}
 			prepared, _, err := prepareSkillListing(command.Context(), runtime, pkg, forceNew, "")
@@ -353,14 +353,14 @@ func createPreviewPresentation(ctx context.Context, runtime *Runtime, listingID 
 	return presentation
 }
 
-func (runtime *Runtime) requireSkillPublicationAuthentication(ctx context.Context) error {
+func (runtime *Runtime) requirePublicationAuthentication(ctx context.Context) error {
 	if _, source, _ := runtime.overrideCredential(); source == "" {
 		status, err := runtime.manager().CurrentStatus()
 		if err != nil {
 			return err
 		}
 		if !status.Authenticated {
-			return output.Authentication("NOT_LOGGED_IN", "sign in before starting a Skill publication").
+			return output.Authentication("NOT_LOGGED_IN", "sign in before starting a publication").
 				WithHint("run 'viceme auth login' for the current profile; do not switch profiles to reuse another account").
 				WithDetails(map[string]any{"profile": runtime.profile.Name, "apiBaseUrl": runtime.apiBaseURL})
 		}
@@ -370,7 +370,7 @@ func (runtime *Runtime) requireSkillPublicationAuthentication(ctx context.Contex
 		return err
 	}
 	if !status.Authenticated {
-		return output.Authentication("NOT_LOGGED_IN", "sign in before starting a Skill publication").
+		return output.Authentication("NOT_LOGGED_IN", "sign in before starting a publication").
 			WithHint("run 'viceme auth login' for the current profile; do not switch profiles to reuse another account").
 			WithDetails(map[string]any{"profile": runtime.profile.Name, "apiBaseUrl": runtime.apiBaseURL})
 	}
@@ -386,7 +386,7 @@ func (runtime *Runtime) requireSkillPublicationAuthentication(ctx context.Contex
 		}
 	}
 	if len(missingScopes) != 0 {
-		return output.Authorization("PUBLICATION_SCOPE_REQUIRED", "the current login is not authorized to publish Skills").
+		return output.Authorization("PUBLICATION_SCOPE_REQUIRED", "the current login is not authorized to publish").
 			WithHint("run 'viceme auth login' again for the current profile to grant publication access").
 			WithDetails(map[string]any{"profile": runtime.profile.Name, "missingScopes": missingScopes})
 	}
