@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "npm_package": "@viceme-ai/cli",
-  "cli_version": "0.16.0",
+  "cli_version": "0.16.1",
   "skills": {
     "viceme-access": {
       "skill_version": "0.16.0",
@@ -11,30 +11,30 @@
       "embedded_content_digest": "sha256:70dc3615230f97362b9ee7ac419d5c1c2528fbaee1a4a44ea8f805c1b226e6ff"
     },
     "viceme-danmaku": {
-      "skill_version": "0.16.0",
-      "minimum_cli_version": "0.16.0",
-      "cli_compatibility": ">=0.16.0 <0.17.0",
-      "full_skill_bundle_digest": "sha256:0f7d703da8df031f734739012c7776df0081c00ba002483b87749dd3510ae70c",
+      "skill_version": "0.16.1",
+      "minimum_cli_version": "0.16.1",
+      "cli_compatibility": ">=0.16.1 <0.17.0",
+      "full_skill_bundle_digest": "sha256:46b31aa02779533fa1cc92f7b6c8875421d222ed887d331fc0b58fde0374a237",
       "embedded_content_digest": "sha256:8d7a4976537455886dd41d0b6e911c25a2b09a699c0e41f975ad5d26760e7db4"
     },
     "viceme-publish": {
-      "skill_version": "0.16.0",
-      "minimum_cli_version": "0.16.0",
-      "cli_compatibility": ">=0.16.0 <0.17.0",
-      "full_skill_bundle_digest": "sha256:d650294917ab1f6ad346416772590ec14d4b6d43335c59366619300a60413658",
-      "embedded_content_digest": "sha256:9e3870237d7128d37ef8a5874080e964fd36e259fa2cf6130916e0b597f6c8d9"
+      "skill_version": "0.16.1",
+      "minimum_cli_version": "0.16.1",
+      "cli_compatibility": ">=0.16.1 <0.17.0",
+      "full_skill_bundle_digest": "sha256:ed084efccb55456001986fd16ffef405f6697c698d648ffe5680884e986a2037",
+      "embedded_content_digest": "sha256:5fb2b5808c5bc0b96560d5bfac645036878a3261a09ea0f98f0440041506d551"
     },
     "viceme-shared": {
-      "skill_version": "0.16.0",
-      "minimum_cli_version": "0.16.0",
-      "cli_compatibility": ">=0.16.0 <0.17.0",
-      "full_skill_bundle_digest": "sha256:566b746b899720e892fcfbc1187b8f9d52c6de619aa16cb98d301f6d7bd0eabb",
+      "skill_version": "0.16.1",
+      "minimum_cli_version": "0.16.1",
+      "cli_compatibility": ">=0.16.1 <0.17.0",
+      "full_skill_bundle_digest": "sha256:7778c642109bec695a6aec076f8a981e7ad670bff29959f631ba777b30841513",
       "embedded_content_digest": "sha256:8a70946f1f62b321f382d4d24d200f5080e0c71a8d95b56eb5272be6b545401f"
     }
   },
   "bootstrap_contract_digest": "sha256:380a81a6a2c066f291896fb768b03ea6a8f00d79259e4197b6c34dd9291b1cf0",
   "installer_digests": {
-    "install.ps1": "sha256:a2d799a179bf9cc61c13e98106a904385de9e97b838a3fe0f573ff54fa12b175",
-    "install.sh": "sha256:9da025f90a81dd054169e175026290899f622600801352e345206662e507bd96"
+    "install.ps1": "sha256:086098487a9b6dae739bdde994565fb0df5b7c91b8994b46684759d72ed6e482",
+    "install.sh": "sha256:56f22181ed9f20ed7112a6a53293bdab3e106a59a4b8337e16259826a2489018"
   }
 }

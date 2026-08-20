@@ -35,15 +35,15 @@ trap cleanup EXIT HUP INT TERM
 
 version="${VICEME_VERSION:-}"
 if [ -z "$version" ]; then
-  curl -fsSL --connect-timeout 15 --max-time 120 --proto '=https' --tlsv1.2 "$base_url/latest" -o "$temporary/latest"
+  curl -fsSL --connect-timeout 15 --max-time 120 --retry 3 --retry-delay 2 --proto '=https' --tlsv1.2 "$base_url/latest" -o "$temporary/latest"
   version="$(tr -d '\r\n' <"$temporary/latest")"
 fi
 printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "Release index returned an invalid version" >&2; exit 1; }
 
 asset="viceme_${version}_${goos}_${goarch}"
 release_url="$base_url/v${version}"
-curl -fsSL --connect-timeout 15 --max-time 300 --proto '=https' --tlsv1.2 "$release_url/$asset" -o "$temporary/viceme"
-curl -fsSL --connect-timeout 15 --max-time 120 --proto '=https' --tlsv1.2 "$release_url/$asset.sha256" -o "$temporary/viceme.sha256"
+curl -fsSL --connect-timeout 15 --max-time 300 --retry 3 --retry-delay 2 --proto '=https' --tlsv1.2 "$release_url/$asset" -o "$temporary/viceme"
+curl -fsSL --connect-timeout 15 --max-time 120 --retry 3 --retry-delay 2 --proto '=https' --tlsv1.2 "$release_url/$asset.sha256" -o "$temporary/viceme.sha256"
 
 expected="$(awk 'NR == 1 { print $1 }' "$temporary/viceme.sha256")"
 [ "${#expected}" -eq 64 ] || { echo "Release checksum is invalid" >&2; exit 1; }

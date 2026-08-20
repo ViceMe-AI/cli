@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   binaryDownloadURLs,
+  downloadWithCurl,
   ensureBinary,
   releaseAssetName,
   releaseTarget,
@@ -135,6 +136,40 @@ test("falls back in order and verifies every source against the bundled checksum
     `https://second.example/v0.1.0/${asset}`,
   ]);
 });
+
+test(
+  "curl retries replace partial output instead of concatenating it",
+  { skip: process.platform === "win32" },
+  async () => {
+    let requests = 0;
+    const server = createServer((request, response) => {
+      requests += 1;
+      if (requests === 1) {
+        response.writeHead(200, { "Content-Length": "8" });
+        response.write("BAD");
+        setTimeout(() => response.destroy(), 2_000);
+        return;
+      }
+      response.end("GOODGOOD");
+    });
+    server.listen(0, "127.0.0.1");
+    await once(server, "listening");
+    const address = server.address();
+    try {
+      const binary = await downloadWithCurl(`http://127.0.0.1:${address.port}`, {
+        allowInsecureURL: true,
+        maxTimeSeconds: 1,
+        retryDelaySeconds: 0,
+        timeoutMilliseconds: 5_000,
+      });
+      assert.deepEqual(binary, Buffer.from("GOODGOOD"));
+      assert.equal(requests, 2);
+    } finally {
+      server.close();
+      await once(server, "close");
+    }
+  },
+);
 
 test("rejects a release binary whose checksum does not match", async () => {
   const cacheDirectory = await mkdtemp(path.join(os.tmpdir(), "viceme-npm-test-"));
@@ -340,6 +375,49 @@ test("ignores crash-left staging and corrupt generations without deleting them",
   assert.equal(
     await readFile(path.join(corruptGeneration, asset), "utf8"),
     "corrupt generation\n",
+  );
+});
+
+test("rejects a cached generation that matches its sidecar but not the bundled manifest", async () => {
+  const cacheDirectory = await mkdtemp(path.join(os.tmpdir(), "viceme-npm-planted-"));
+  const asset = "viceme_0.1.0_linux_amd64";
+  const planted = Buffer.from("planted binary with a self-consistent sidecar\n");
+  const plantedDirectory = path.join(
+    cacheDirectory,
+    "cli",
+    "0.1.0",
+    "generations",
+    "generation-planted",
+  );
+  await mkdir(plantedDirectory, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(plantedDirectory, asset), planted, { mode: 0o700 });
+  await writeFile(
+    path.join(plantedDirectory, `${asset}.sha256`),
+    `${createHash("sha256").update(planted).digest("hex")}  ${asset}\n`,
+    { mode: 0o600 },
+  );
+
+  const binary = Buffer.from("manifest-verified binary\n");
+  let downloads = 0;
+  const installed = await ensureBinary({
+    packageVersion: "0.1.0",
+    platform: "linux",
+    architecture: "x64",
+    cacheDirectory,
+    sourceBaseURLs: ["http://release.test"],
+    allowInsecureURL: true,
+    downloadImplementation: async () => {
+      downloads += 1;
+      return binary;
+    },
+    checksumsDocument: checksumDocument(asset, binary),
+    environment: {},
+  });
+  assert.deepEqual(await readFile(installed), binary);
+  assert.equal(downloads, 1);
+  assert.equal(
+    await readFile(path.join(plantedDirectory, asset), "utf8"),
+    planted.toString("utf8"),
   );
 });
 

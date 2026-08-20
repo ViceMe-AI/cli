@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
@@ -19,14 +20,31 @@ import (
 func newPublicationCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "publication", Short: "Review and complete an in-progress Skill publication"}
 	command.AddCommand(newPublicationGetCommand(runtime))
+	command.AddCommand(newPublicationAnalyzeCommand(runtime))
 	command.AddCommand(newPublicationWaitCommand(runtime))
 	command.AddCommand(newPublicationReviewCommand(runtime))
 	command.AddCommand(newPublicationAssetCommand(runtime))
 	command.AddCommand(newPublicationUpdateCommand(runtime))
+	command.AddCommand(newPublicationSuggestCommand(runtime))
 	command.AddCommand(newPublicationConfirmCommand(runtime))
 	command.AddCommand(newPublicationPublishCommand(runtime))
 	command.AddCommand(newPublicationCancelCommand(runtime))
 	return command
+}
+
+func newPublicationAnalyzeCommand(runtime *Runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "analyze <publication-id>",
+		Short: "Explicitly request platform-model listing analysis as a fallback",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			result, err := runtime.client().AnalyzeListing(command.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return presentPublication(command.Context(), runtime, result)
+		},
+	}
 }
 
 func newPublicationWaitCommand(runtime *Runtime) *cobra.Command {
@@ -111,6 +129,7 @@ func newPublicationReviewCommand(runtime *Runtime) *cobra.Command {
 			return runtime.business(map[string]any{
 				"publicationId": result.ID, "status": result.Status, "draft": result.Draft,
 				"analysis": result.Analysis, "uploads": result.Uploads,
+				"draftRevision":  result.DraftRevision,
 				"reviewRevision": result.ReviewRevision, "reviewDigest": result.ReviewDigest,
 				"requiresExplicitConfirmation": result.Status == "REVIEW_REQUIRED",
 				"requiresPrice":                result.Draft.PriceMinor == nil, "presentation": presentation,
@@ -128,6 +147,7 @@ func newPublicationAssetCommand(runtime *Runtime) *cobra.Command {
 func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 	var role string
 	var filename string
+	var candidateOnly bool
 	command := &cobra.Command{
 		Use: "upload <publication-id>", Short: "Upload a replacement cover or gallery image", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -184,29 +204,58 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 			if uploadedID == "" {
 				return output.Internal("MEDIA_UPLOAD_NOT_VERIFIED", "uploaded media was not returned as verified", nil)
 			}
-			draft := current.Draft
-			if role == "cover" {
-				draft.CoverUploadID = &uploadedID
-			} else if !containsString(draft.GalleryUploadIDs, uploadedID) {
-				draft.GalleryUploadIDs = append(draft.GalleryUploadIDs, uploadedID)
+			if candidateOnly {
+				return presentPublication(command.Context(), runtime, current)
 			}
-			updated, err := client.UpdateListingDraft(command.Context(), args[0], draft)
+			patch := api.UpdateSkillPublicationDraftRequest{}
+			needsUpdate := false
+			if role == "cover" {
+				if current.Draft.CoverUploadID == nil || *current.Draft.CoverUploadID != uploadedID {
+					patch.CoverUploadID = &uploadedID
+					needsUpdate = true
+				}
+			} else if !containsString(current.Draft.GalleryUploadIDs, uploadedID) {
+				patch.GalleryUploadIDs = append(current.Draft.GalleryUploadIDs, uploadedID)
+				needsUpdate = true
+			}
+			if !needsUpdate {
+				return presentPublication(command.Context(), runtime, current)
+			}
+			updated, err := client.UpdateListingDraftPatch(command.Context(), args[0], patch)
 			if err != nil {
 				return err
-			}
-			if updated.Draft.CoverUploadID != nil && len(updated.Draft.GalleryUploadIDs) > 0 && (updated.Analysis == nil || updated.Analysis.Status != "PENDING") {
-				updated, err = client.AnalyzeListing(command.Context(), args[0])
-				if err != nil {
-					return err
-				}
 			}
 			return presentPublication(command.Context(), runtime, updated)
 		},
 	}
 	command.Flags().StringVar(&role, "role", "", "asset role: cover or gallery")
 	command.Flags().StringVar(&filename, "path", "", "image file")
+	command.Flags().BoolVar(&candidateOnly, "candidate-only", false, "upload verified media without marking a user selection")
 	_ = command.MarkFlagRequired("role")
 	_ = command.MarkFlagRequired("path")
+	return command
+}
+
+func newPublicationSuggestCommand(runtime *Runtime) *cobra.Command {
+	var filename string
+	command := &cobra.Command{
+		Use:   "suggest <publication-id>",
+		Short: "Apply Agent-generated listing copy and media with revision protection",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			request, err := readAgentSuggestionFile(filename)
+			if err != nil {
+				return err
+			}
+			result, err := runtime.client().SuggestListingDraft(command.Context(), args[0], request)
+			if err != nil {
+				return err
+			}
+			return presentPublication(command.Context(), runtime, result)
+		},
+	}
+	command.Flags().StringVar(&filename, "input", "", "strict JSON file containing the Agent suggestion and base draft revision")
+	_ = command.MarkFlagRequired("input")
 	return command
 }
 
@@ -334,6 +383,28 @@ func readDraftFile(filename string) (api.SkillPublicationDraft, error) {
 		return draft, output.Validation("PUBLICATION_DRAFT_INVALID", "publication draft contains trailing JSON")
 	}
 	return draft, nil
+}
+
+func readAgentSuggestionFile(filename string) (api.SuggestSkillPublicationDraftRequest, error) {
+	file, err := os.Open(filename)
+	if err != nil {
+		return api.SuggestSkillPublicationDraftRequest{}, output.Validation("PUBLICATION_SUGGESTION_READ_FAILED", "could not open the Agent suggestion file").WithCause(err)
+	}
+	defer file.Close()
+	decoder := json.NewDecoder(io.LimitReader(file, 1<<20))
+	decoder.DisallowUnknownFields()
+	var request api.SuggestSkillPublicationDraftRequest
+	if err := decoder.Decode(&request); err != nil {
+		return request, output.Validation("PUBLICATION_SUGGESTION_INVALID", "Agent suggestion must be strict JSON").WithCause(err)
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return request, output.Validation("PUBLICATION_SUGGESTION_INVALID", "Agent suggestion contains trailing JSON")
+	}
+	if request.BaseDraftRevision <= 0 || strings.TrimSpace(request.Patch.SummaryZhCN) == "" || strings.TrimSpace(request.Patch.SummaryEnUS) == "" || strings.TrimSpace(request.Patch.UsageInstructionsZhCN) == "" || strings.TrimSpace(request.Patch.UsageInstructionsEnUS) == "" || request.Patch.CoverUploadID == nil || len(request.Patch.GalleryUploadIDs) == 0 {
+		return request, output.Validation("PUBLICATION_SUGGESTION_INVALID", "Agent suggestion requires a positive baseDraftRevision, bilingual copy, bilingual usage instructions, one coverUploadId, and at least one galleryUploadId")
+	}
+	return request, nil
 }
 
 func firstAvailableMediaSlot(uploads []api.SkillPublicationUpload) (int, error) {

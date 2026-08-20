@@ -348,8 +348,14 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 			return err
 		}
 		if exists && active == generation {
-			alreadyActive = true
-			return nil
+			// A concurrent updater just activated this exact generation, so an
+			// update-driven apply coalesces into its completed result. An
+			// explicit repair without a newer release must still reinstall the
+			// official Skills through the exact-version child.
+			if check.UpdateAvailable || !options.RefreshSkills {
+				alreadyActive = true
+				return nil
+			}
 		}
 		journal, err := service.newNPMActivationJournal(generation, target, true)
 		if err != nil {
@@ -581,10 +587,19 @@ func (service *NPMService) rollbackNPMActivation(ctx context.Context, journal np
 		return err
 	}
 	if exists && active == journal.Target {
+		if journal.Previous != nil && *journal.Previous == journal.Target {
+			// A same-generation repair never changed the committed generation;
+			// rolling it back only retires the journal.
+			return service.removeNPMActivation()
+		}
 		return errors.New("npm activation target is already committed and cannot be rolled back")
 	}
 	if journal.Previous == nil {
-		return errors.New("npm activation has no previous generation to restore")
+		// The attempt began before any generation was committed. Rolling back
+		// restores the no-generation state by retiring the journal; there is
+		// no durable previous launcher or Skill set to reinstall. Retaining
+		// the journal instead would make every later command fail recovery.
+		return service.removeNPMActivation()
 	}
 	if journal.Previous.InstallMethod != "npm" {
 		return errors.New("npm activation cannot restore a previous non-npm generation")
