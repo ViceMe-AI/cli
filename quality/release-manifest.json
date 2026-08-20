@@ -32,9 +32,9 @@
       "embedded_content_digest": "sha256:8a70946f1f62b321f382d4d24d200f5080e0c71a8d95b56eb5272be6b545401f"
     }
   },
-  "bootstrap_contract_digest": "sha256:92ef6cd0a2d4939769c9cb1a5731ecdecefb5f140419d91e204e9db931275814",
+  "bootstrap_contract_digest": "sha256:380a81a6a2c066f291896fb768b03ea6a8f00d79259e4197b6c34dd9291b1cf0",
   "installer_digests": {
-    "install.ps1": "sha256:497c27726142397e1adcda56d4ccc78e101de05849535e7988b48e2ce7a8444c",
-    "install.sh": "sha256:95a4b81c6a63cc8cd212fdd3197347534903f8d884478fb57c72c2cf968fca4d"
+    "install.ps1": "sha256:086098487a9b6dae739bdde994565fb0df5b7c91b8994b46684759d72ed6e482",
+    "install.sh": "sha256:56f22181ed9f20ed7112a6a53293bdab3e106a59a4b8337e16259826a2489018"
   }
 }
