@@ -2,11 +2,20 @@
 
 import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { constants as osConstants } from "node:os";
 import { fileURLToPath } from "node:url";
 import process from "node:process";
 
 import { ensureBinary } from "../lib/installer.mjs";
 import { launcherEnvironment } from "../lib/launcher-environment.mjs";
+
+function signalExitCode(signal) {
+  const signalNumber = osConstants.signals[signal];
+  if (!Number.isInteger(signalNumber)) {
+    throw new Error(`unsupported child termination signal ${signal}`);
+  }
+  return 128 + signalNumber;
+}
 
 export async function main(args = process.argv.slice(2), environment = process.env) {
   const packageDocument = JSON.parse(
@@ -32,7 +41,7 @@ export async function main(args = process.argv.slice(2), environment = process.e
     throw child.error;
   }
   if (child.signal) {
-    return 128;
+    return signalExitCode(child.signal);
   }
   return child.status ?? 1;
 }

@@ -7,7 +7,9 @@
 - `SKILL_SECRET_DETECTED` or `SKILL_SENSITIVE_FILE`: stop and remove credentials or sensitive files from the package. Never print their contents.
 - `PUBLICATION_SOURCE_CHANGED`: the recovery package differs from the started publication; restore it or start a new publication.
 - `SKILL_PUBLICATION_REVIEW_CHANGED`: fetch and show the latest review, then obtain a new combined confirm-and-publish authorization for its new digest.
-- `SKILL_LISTING_MEDIA_REQUIRED`: upload a cover or gallery image, then retry analysis.
+- `SKILL_LISTING_MEDIA_REQUIRED`: upload a real cover and gallery image, fetch a fresh review, then submit a new Agent suggestion. Retry platform analysis only when that fallback was explicitly selected.
+- `SKILL_LISTING_DRAFT_CHANGED`: fetch a fresh authoritative review and regenerate the Agent suggestion from its `draftRevision`. Never replay the stale suggestion.
+- `SKILL_PUBLICATION_ANALYSIS_IN_PROGRESS`: an explicit platform fallback already owns this Draft. Wait for that same Publication to finish, then fetch a fresh review; do not submit a competing Agent suggestion.
 - `AUTHORIZATION_PENDING`: run a fresh `viceme auth login` in the active CLI context and keep that command active until browser authorization finishes.
 - `NOT_LOGGED_IN` or `token_expired`: use the `viceme-shared` login workflow in the active CLI context. Never inspect or switch to another stored environment during publishing.
 - `PUBLICATION_SCOPE_REQUIRED`: sign in again in the active CLI context to grant the required publication scopes.

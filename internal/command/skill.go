@@ -456,13 +456,6 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 			return err
 		}
 	}
-	if len(pkg.Candidates) > 0 && current.Analysis == nil && (current.Status == "DRAFT" || current.Status == "FAILED") {
-		progress(runtime, "Requesting non-authoritative cover and gallery suggestions")
-		current, err = client.AnalyzeListing(ctx, pending.PublicationID)
-		if err != nil {
-			return err
-		}
-	}
 	if current.Status == "PUBLISHED" {
 		if err := retirePublicationRecovery(store, pending, current.Status); err != nil {
 			return err

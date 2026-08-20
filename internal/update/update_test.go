@@ -616,3 +616,91 @@ func TestNPMServiceNeverDowngradesSkillWhenRegistryLatestIsOlder(t *testing.T) {
 		t.Fatalf("update selected a downgrade package: %#v", runner.calls)
 	}
 }
+
+func TestNPMServiceRepairReinstallsSkillsWhenGenerationIsAlreadyActive(t *testing.T) {
+	t.Parallel()
+	configDir := t.TempDir()
+	active, err := NewNPMGeneration("0.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitActiveGeneration(configDir, active); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{outputs: [][]byte{nil, []byte(`{"ok":true}`)}}
+	service := NewNPMService("0.2.0", "0.2.0", "npm")
+	service.ConfigDir = configDir
+	service.Runner = runner
+	result, err := service.Apply(context.Background(), CheckResult{AvailableVersion: "0.2.0", UpdateAvailable: false}, ApplyOptions{RefreshSkills: true, SkillTarget: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CLIVersion != "0.2.0" || len(result.Targets) != 2 ||
+		result.Targets[0].Status != "unchanged" || result.Targets[1].Status != "updated" {
+		t.Fatalf("repair did not reinstall official Skills: %#v", result)
+	}
+	want := "--package=@viceme-ai/cli@0.2.0"
+	if len(runner.calls) != 2 || !slices.Contains(runner.calls[1].args, want) {
+		t.Fatalf("repair did not run the exact-version Skill child: %#v", runner.calls)
+	}
+	if _, statErr := os.Stat(filepath.Join(configDir, npmActivationFilename)); statErr == nil {
+		t.Fatal("completed repair retained its activation journal")
+	}
+	current, exists, err := ReadActiveGeneration(configDir)
+	if err != nil || !exists || current != active {
+		t.Fatalf("repair changed the committed generation: current=%#v exists=%t err=%v", current, exists, err)
+	}
+}
+
+func TestNPMServiceRecoveryRetiresFirstGenerationJournalWhenNPMKeepsFailing(t *testing.T) {
+	t.Parallel()
+	runner := &fakeRunner{errors: []error{errors.New("npm offline"), errors.New("npm offline")}}
+	service := NewNPMService("0.1.0", "0.1.0", "npm")
+	service.ConfigDir = t.TempDir()
+	service.Runner = runner
+	_, err := service.Apply(context.Background(), CheckResult{AvailableVersion: "0.1.1", UpdateAvailable: true}, ApplyOptions{RefreshSkills: true})
+	if err == nil {
+		t.Fatal("failing npm activation unexpectedly succeeded")
+	}
+	if _, statErr := os.Stat(filepath.Join(service.ConfigDir, npmActivationFilename)); statErr != nil {
+		t.Fatalf("failed activation did not retain a recovery journal: %v", statErr)
+	}
+	if err := service.RecoverActivationWhileLocked(context.Background()); err != nil {
+		t.Fatalf("a first-generation journal with no previous generation must not brick recovery: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(service.ConfigDir, npmActivationFilename)); statErr == nil {
+		t.Fatal("rolled-back first-generation journal was not retired")
+	}
+	if len(runner.calls) != 2 {
+		t.Fatalf("unexpected npm call count: %#v", runner.calls)
+	}
+}
+
+func TestNPMServiceRepairRollbackRetiresJournalWhenSkillChildKeepsFailing(t *testing.T) {
+	t.Parallel()
+	configDir := t.TempDir()
+	active, err := NewNPMGeneration("0.2.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := CommitActiveGeneration(configDir, active); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{errors: []error{nil, errors.New("refresh failed"), nil, errors.New("refresh failed")}}
+	service := NewNPMService("0.2.0", "0.2.0", "npm")
+	service.ConfigDir = configDir
+	service.Runner = runner
+	if _, err := service.Apply(context.Background(), CheckResult{AvailableVersion: "0.2.0", UpdateAvailable: false}, ApplyOptions{RefreshSkills: true}); err == nil {
+		t.Fatal("failing Skill repair unexpectedly succeeded")
+	}
+	if err := service.RecoverActivationWhileLocked(context.Background()); err != nil {
+		t.Fatalf("a failed same-generation repair must not brick recovery: %v", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(configDir, npmActivationFilename)); statErr == nil {
+		t.Fatal("failed same-generation repair retained its activation journal")
+	}
+	current, exists, err := ReadActiveGeneration(configDir)
+	if err != nil || !exists || current != active {
+		t.Fatalf("failed repair changed the committed generation: current=%#v exists=%t err=%v", current, exists, err)
+	}
+}

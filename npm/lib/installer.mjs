@@ -1,6 +1,16 @@
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { access, chmod, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  writeFile,
+} from "node:fs/promises";
 import { constants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +24,7 @@ const VERSION_PATTERN = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 const GENERATIONS_DIRECTORY = "generations";
 const GENERATION_PREFIX = "generation-";
 const STAGING_PREFIX = ".staging-";
+const BINARY_DOWNLOAD_TIMEOUT_MILLISECONDS = 10 * 60 * 1_000;
 
 export function releaseTarget(platform = process.platform, architecture = process.arch) {
   const operatingSystems = {
@@ -80,6 +91,7 @@ export async function ensureBinary({
   cacheDirectory,
   checksumsDocument,
   allowInsecureURL = false,
+  downloadTimeoutMilliseconds = BINARY_DOWNLOAD_TIMEOUT_MILLISECONDS,
 }) {
   if (environment.VICEME_BINARY_PATH) {
     const overridden = path.resolve(environment.VICEME_BINARY_PATH);
@@ -93,14 +105,17 @@ export async function ensureBinary({
   const root = cacheDirectory ?? defaultCacheDirectory(environment, platform);
   const destinationDirectory = path.join(root, "cli", packageVersion);
   const generationsDirectory = path.join(destinationDirectory, GENERATIONS_DIRECTORY);
-  const cached = await findValidGeneration(generationsDirectory, asset);
+  // The bundled checksum manifest is the trust root for every code path, cached
+  // generations included. A generation is only reusable when its bytes match
+  // the bundled digest, never merely a sidecar stored next to it.
+  const checksumSource =
+    checksumsDocument ?? (await readFile(CHECKSUMS_URL, "utf8"));
+  const expectedChecksum = checksumForAsset(checksumSource, asset);
+  const cached = await findValidGeneration(generationsDirectory, asset, expectedChecksum);
   if (cached) {
     return cached;
   }
   await mkdir(generationsDirectory, { recursive: true, mode: 0o700 });
-  const checksumSource =
-    checksumsDocument ?? (await readFile(CHECKSUMS_URL, "utf8"));
-  const expectedChecksum = checksumForAsset(checksumSource, asset);
   const urls = binaryDownloadURLs({
     packageVersion,
     asset,
@@ -114,12 +129,13 @@ export async function ensureBinary({
     urls,
     downloadImplementation,
     allowInsecureURL,
+    downloadTimeoutMilliseconds,
   });
 
   // If another cold start finished while this process downloaded, reuse its
   // complete immutable generation. Duplicate downloads are harmless; shared
   // partially-written binary/checksum pairs do not exist.
-  const publishedByContender = await findValidGeneration(generationsDirectory, asset);
+  const publishedByContender = await findValidGeneration(generationsDirectory, asset, expectedChecksum);
   if (publishedByContender) {
     return publishedByContender;
   }
@@ -140,7 +156,7 @@ export async function ensureBinary({
     await writeFile(stagedBinary, binary, { mode: 0o700 });
     await chmod(stagedBinary, 0o700);
     await writeFile(stagedChecksum, `${expectedChecksum}  ${asset}\n`, { mode: 0o600 });
-    if (!(await cachedBinaryIsValid(stagedBinary, stagedChecksum))) {
+    if (!(await binaryMatchesChecksum(stagedBinary, expectedChecksum))) {
       throw new Error(`staged binary verification failed for ${asset}`);
     }
 
@@ -152,7 +168,7 @@ export async function ensureBinary({
     await rm(stagingDirectory, { recursive: true, force: true });
   }
   const installedBinary = path.join(generationDirectory, asset);
-  if (!(await cachedBinaryIsValid(installedBinary, `${installedBinary}.sha256`))) {
+  if (!(await binaryMatchesChecksum(installedBinary, expectedChecksum))) {
     throw new Error(`published binary verification failed for ${asset}`);
   }
   return installedBinary;
@@ -216,11 +232,23 @@ async function downloadVerifiedBinary({
   urls,
   downloadImplementation,
   allowInsecureURL,
+  downloadTimeoutMilliseconds,
 }) {
+  if (!Number.isFinite(downloadTimeoutMilliseconds) || downloadTimeoutMilliseconds <= 0) {
+    throw new Error("binary download timeout must be greater than zero");
+  }
+  const deadline = Date.now() + downloadTimeoutMilliseconds;
   const failures = [];
   for (const url of urls) {
+    const remainingMilliseconds = deadline - Date.now();
+    if (remainingMilliseconds <= 0) {
+      break;
+    }
     try {
-      const downloaded = await downloadImplementation(url, { allowInsecureURL });
+      const downloaded = await downloadImplementation(url, {
+        allowInsecureURL,
+        timeoutMilliseconds: remainingMilliseconds,
+      });
       const binary = Buffer.isBuffer(downloaded) ? downloaded : Buffer.from(downloaded);
       if (digest(binary) !== expectedChecksum) {
         throw new Error(`checksum mismatch for ${asset}`);
@@ -235,8 +263,18 @@ async function downloadVerifiedBinary({
   );
 }
 
-async function downloadWithCurl(url, { allowInsecureURL = false } = {}) {
+export async function downloadWithCurl(
+  url,
+  {
+    allowInsecureURL = false,
+    timeoutMilliseconds = BINARY_DOWNLOAD_TIMEOUT_MILLISECONDS,
+    maxTimeSeconds = 600,
+    retryDelaySeconds = 2,
+  } = {},
+) {
   const parsed = parseDownloadBaseURL(url, allowInsecureURL);
+  const temporaryDirectory = await mkdtemp(path.join(os.tmpdir(), "viceme-curl-"));
+  const outputPath = path.join(temporaryDirectory, "download");
   const arguments_ = [
     "--fail",
     "--location",
@@ -244,45 +282,61 @@ async function downloadWithCurl(url, { allowInsecureURL = false } = {}) {
     "--show-error",
     "--connect-timeout",
     "10",
+    // The release binary is tens of megabytes, so allow one healthy transfer
+    // to use the full download budget. curl owns transient retry
+    // classification, while the Node child timeout bounds all retries and
+    // mirrors together. Only curl 7.12+ options are used.
     "--max-time",
-    "120",
+    String(maxTimeSeconds),
+    "--retry",
+    "3",
+    "--retry-delay",
+    String(retryDelaySeconds),
     "--max-redirs",
     "5",
+    // curl can reset a regular output file before retrying. A stdout pipe
+    // retains partial bytes and would concatenate them with the next attempt.
+    "--output",
+    outputPath,
   ];
   if (!allowInsecureURL) {
     arguments_.push("--proto", "=https", "--proto-redir", "=https");
   }
   arguments_.push(parsed.href);
-  return await new Promise((resolve, reject) => {
-    const child = spawn("curl", arguments_, {
-      stdio: ["ignore", "pipe", "pipe"],
-      windowsHide: true,
+  try {
+    await new Promise((resolve, reject) => {
+      const child = spawn("curl", arguments_, {
+        stdio: ["ignore", "ignore", "pipe"],
+        timeout: Math.max(1, Math.ceil(timeoutMilliseconds)),
+        windowsHide: true,
+      });
+      let stderr = "";
+      child.stderr.on("data", (chunk) => {
+        stderr += chunk;
+      });
+      child.on("error", (error) => {
+        if (error.code === "ENOENT") {
+          reject(new Error("curl is required to download the ViceMe CLI binary"));
+          return;
+        }
+        reject(error);
+      });
+      child.on("close", (code, signal) => {
+        if (code === 0) {
+          resolve();
+          return;
+        }
+        const reason = stderr.trim() || `curl exited ${code ?? `on signal ${signal}`}`;
+        reject(new Error(reason));
+      });
     });
-    const stdout = [];
-    let stderr = "";
-    child.stdout.on("data", (chunk) => stdout.push(chunk));
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk;
-    });
-    child.on("error", (error) => {
-      if (error.code === "ENOENT") {
-        reject(new Error("curl is required to download the ViceMe CLI binary"));
-        return;
-      }
-      reject(error);
-    });
-    child.on("close", (code, signal) => {
-      if (code === 0) {
-        resolve(Buffer.concat(stdout));
-        return;
-      }
-      const reason = stderr.trim() || `curl exited ${code ?? `on signal ${signal}`}`;
-      reject(new Error(reason));
-    });
-  });
+    return await readFile(outputPath);
+  } finally {
+    await rm(temporaryDirectory, { recursive: true, force: true });
+  }
 }
 
-async function findValidGeneration(generationsDirectory, asset) {
+async function findValidGeneration(generationsDirectory, asset, expectedChecksum) {
   let entries;
   try {
     entries = await readdir(generationsDirectory, { withFileTypes: true });
@@ -296,7 +350,7 @@ async function findValidGeneration(generationsDirectory, asset) {
     .filter((candidate) => candidate.isDirectory() && candidate.name.startsWith(GENERATION_PREFIX))
     .sort((left, right) => left.name.localeCompare(right.name))) {
     const binaryPath = path.join(generationsDirectory, entry.name, asset);
-    if (await cachedBinaryIsValid(binaryPath, `${binaryPath}.sha256`)) {
+    if (await binaryMatchesChecksum(binaryPath, expectedChecksum)) {
       return binaryPath;
     }
   }
@@ -316,15 +370,13 @@ function defaultCacheDirectory(environment, platform) {
   return path.join(os.homedir(), ".cache", "viceme");
 }
 
-async function cachedBinaryIsValid(binaryPath, checksumPath) {
+async function binaryMatchesChecksum(binaryPath, expectedChecksum) {
   try {
-    const [binary, checksumDocument] = await Promise.all([
+    const [binary] = await Promise.all([
       readFile(binaryPath),
-      readFile(checksumPath, "utf8"),
       access(binaryPath, constants.X_OK),
     ]);
-    const expected = parseChecksum(checksumDocument);
-    return digest(binary) === expected;
+    return digest(binary) === expectedChecksum;
   } catch {
     return false;
   }
@@ -351,14 +403,6 @@ function checksumForAsset(document, asset) {
     throw new Error(`bundled checksum document does not contain ${asset}`);
   }
   return checksum;
-}
-
-function parseChecksum(document) {
-  const match = document.trim().match(/^([a-fA-F0-9]{64})(?:\s|$)/);
-  if (!match) {
-    throw new Error("release checksum document is invalid");
-  }
-  return match[1].toLowerCase();
 }
 
 function digest(buffer) {

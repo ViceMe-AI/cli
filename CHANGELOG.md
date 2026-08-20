@@ -1,6 +1,13 @@
 # Changelog
 
-## [0.16.0] - 2026-08-18
+## [0.16.1] - 2026-08-19
+
+### Fixes
+
+- 修复安装重试与启动信号传播 (`cae2f39`)
+- unbrick npm activation recovery and anchor launcher cache to the bundled checksum manifest (`acf28b2`)
+
+## [0.16.0] - 2026-08-19
 
 ### Features
 
@@ -9,6 +16,12 @@
 ### Fixes
 
 - 合并并发自动更新并重执行等待命令 (`f48d2f6`)
+
+### Other Changes
+
+- 稳定激活子进程并发测试 (`fa139f9`)
+- 注册 POC CLI 手动发布工作流 (`3e265fa`)
+- 默认使用 Agent 补全发布内容 (`ee5030e`)
 
 ## [0.15.2] - 2026-08-18
 

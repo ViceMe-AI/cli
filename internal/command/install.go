@@ -240,7 +240,7 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 	if err != nil {
 		return bootstrapInstallResult{}, output.Validation("REGION_INVALID", err.Error())
 	}
-	installContext, cancel := context.WithTimeout(ctx, 3*time.Minute)
+	installContext, cancel := context.WithTimeout(ctx, activationOperationTimeout)
 	defer cancel()
 	for _, name := range officialSkillNames {
 		if err := runtime.deps.Skills.Validate(name); err != nil {
