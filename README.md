@@ -160,7 +160,8 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | Skill | Use it when you want to... |
 | --- | --- |
 | `viceme-shared` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
-| `viceme-publish` | validate, upload, review, resume, or publish a local Skill directory or ZIP as a paid ViceMe listing. |
+| `viceme-publish` | publish a local Skill directory, ZIP, or creator website while preserving its stable work identity. |
+| `viceme-access` | add login, following, feature gates, and one-time purchase to an already published website. |
 | `viceme-danmaku` | build or adapt the bundled production React and Tailwind CSS v4 danmaku component in an existing project. |
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
@@ -239,6 +240,8 @@ Never copy an access token into the conversation.
 | `viceme version` | Show the CLI and bundled Skill versions. |
 | `viceme doctor` | Check the CLI, active Profile, credentials, API readiness, and installed official Skills. |
 | `viceme auth status` | Show whether the active Profile is signed in. |
+| `viceme website publish --path <dir> --name <name> [--url <url>] [--description-zh-cn ...] [--description-en-us ...] [--cover <image>]` | Publish a website work with optional Agent-reviewed descriptions and a platform-hosted cover; repeat publication reuses the identity in `.viceme/website.json`. |
+| `viceme access init --website <dir> [--follow key] [--price-minor fen --purchase key]` | Configure access and a one-time work offer for a published external website. |
 | `viceme profile list` | Show Profiles and their effective API endpoints. |
 | `viceme skill inspect --path <path>` | Validate a local Skill without side effects. |
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |

@@ -49,6 +49,60 @@ func TestPublicationClientUsesBearerAndExactContract(t *testing.T) {
 	}
 }
 
+func TestSdkWorkClientUsesLightweightCreatorEndpoints(t *testing.T) {
+	t.Parallel()
+	requests := make(chan string, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer vme_cli_test" {
+			t.Fatalf("missing bearer credential: %q", request.Header.Get("Authorization"))
+		}
+		if request.URL.Path == "/v1/cli/sdk-works/publish" {
+			body, _ := io.ReadAll(request.Body)
+			if !strings.Contains(string(body), `"creatorDisplayName":"Test Creator"`) {
+				t.Fatalf("creator display name missing from request: %s", body)
+			}
+			if !strings.Contains(string(body), `"descriptionZhCn":"中文描述"`) || !strings.Contains(string(body), `"cover":{"digest":"aaaaaaaa`) {
+				t.Fatalf("website metadata missing from request: %s", body)
+			}
+		}
+		requests <- request.Method + " " + request.URL.Path
+		writer.Header().Set("Content-Type", "application/json")
+		if request.URL.Path == "/v1/cli/sdk-works/cover-upload-authorizations" {
+			_, _ = io.WriteString(writer, `{"method":"PUT","url":"https://storage.example.com/upload","expiresAt":"2026-08-20T04:00:00.000Z","headers":{"content-type":"image/png"}}`)
+			return
+		}
+		_, _ = io.WriteString(writer, `{"creatorWorkId":"22222222-2222-4222-8222-222222222222","workKey":"wrk_test","displayName":"Test","status":"DRAFT","configVersion":1,"offer":null,"features":[],"capabilities":[],"createdAt":"2026-08-15T00:00:00.000Z","updatedAt":"2026-08-15T00:00:00.000Z"}`)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
+	cover := WebsiteCover{Digest: strings.Repeat("a", 64), SizeBytes: 128, FileName: "cover.png", ContentType: "image/png"}
+	if _, err := client.AuthorizeWebsiteCoverUpload(context.Background(), AuthorizeWebsiteCoverUploadRequest{ClientWorkID: "22222222-2222-4222-8222-222222222222", WebsiteCover: cover}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.PublishCreatorWebsite(context.Background(), PublishCreatorWebsiteRequest{ClientRequestID: "11111111-1111-4111-8111-111111111111", ClientWorkID: "22222222-2222-4222-8222-222222222222", SourceDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", DisplayName: "Test", CreatorDisplayName: "Test Creator", SourceURL: "https://example.com", DescriptionZhCN: "中文描述", DescriptionEnUS: "English description", Cover: &cover}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.GetSdkWork(context.Background(), "wrk_test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ApplySdkWork(context.Background(), "wrk_test", ApplySdkWorkRequest{ExpectedConfigVersion: 1, DisplayName: "Test", Status: "DRAFT"}); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"POST /v1/cli/sdk-works/cover-upload-authorizations",
+		"POST /v1/cli/sdk-works/publish",
+		"GET /v1/cli/sdk-works/wrk_test",
+		"PUT /v1/cli/sdk-works/wrk_test",
+	}
+	for _, expected := range want {
+		if actual := <-requests; actual != expected {
+			t.Fatalf("request = %q, want %q", actual, expected)
+		}
+	}
+}
+
 func TestHealthReadyIsUnauthenticatedAndRedirectFree(t *testing.T) {
 	t.Parallel()
 	var targetCalled atomic.Bool
