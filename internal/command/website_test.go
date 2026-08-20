@@ -3,7 +3,10 @@ package command
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/ViceMe-AI/cli/internal/api"
 )
 
 func TestWebsiteBindingKeepsStableSourceIdentity(t *testing.T) {
@@ -18,7 +21,10 @@ func TestWebsiteBindingKeepsStableSourceIdentity(t *testing.T) {
 		SourceURL:       "https://creator.example.com/dagou-tap",
 		DescriptionZhCN: "创作者网站。",
 		DescriptionEnUS: "A creator website.",
-		CoverURL:        "https://creator.example.com/cover.png",
+		Cover: &api.WebsiteCover{
+			Digest: strings.Repeat("a", 64), SizeBytes: 128,
+			FileName: "cover.png", ContentType: "image/png",
+		},
 	}
 	if err := writeWebsiteBinding(filename, want); err != nil {
 		t.Fatalf("writeWebsiteBinding() error = %v", err)
@@ -59,12 +65,6 @@ func TestWebsiteURLIsOptionalButValidatedWhenProvided(t *testing.T) {
 	if err := validateWebsiteURL("creator.example.com/tool"); err == nil {
 		t.Fatal("validateWebsiteURL(relative) error = nil")
 	}
-	if err := validateOptionalWebsiteURL("--cover-url", "https://creator.example.com/cover.png"); err != nil {
-		t.Fatalf("validateOptionalWebsiteURL(valid cover) error = %v", err)
-	}
-	if err := validateOptionalWebsiteURL("--cover-url", "/cover.png"); err == nil {
-		t.Fatal("validateOptionalWebsiteURL(relative cover) error = nil")
-	}
 }
 
 func TestWebsitePublishAcceptsFirstCreatorDisplayName(t *testing.T) {
@@ -73,7 +73,7 @@ func TestWebsitePublishAcceptsFirstCreatorDisplayName(t *testing.T) {
 	if flag == nil || flag.DefValue != "" {
 		t.Fatalf("creator-display-name flag = %#v", flag)
 	}
-	for _, name := range []string{"description-zh-cn", "description-en-us", "cover-url"} {
+	for _, name := range []string{"description-zh-cn", "description-en-us", "cover"} {
 		if metadataFlag := command.Flags().Lookup(name); metadataFlag == nil || metadataFlag.DefValue != "" {
 			t.Fatalf("%s flag = %#v", name, metadataFlag)
 		}
