@@ -152,6 +152,28 @@ description: Publish a deterministic Skill through the vNext contract.
 	} else {
 		expectFreshPreview(envelope)
 	}
+	suggestionPath := filepath.Join(root, "agent-suggestion.json")
+	suggestion := api.SuggestSkillPublicationDraftRequest{
+		BaseDraftRevision: 1,
+		Patch: api.SkillPublicationAgentSuggestionPatch{
+			SummaryZhCN: "发布测试", SummaryEnUS: "Publish test",
+			UsageInstructionsZhCN: "按 SKILL.md 中的步骤运行。",
+			UsageInstructionsEnUS: "Follow the steps in SKILL.md.",
+			CoverUploadID:         stringPointer("upload-media"), GalleryUploadIDs: []string{"upload-media"},
+		},
+	}
+	suggestionJSON, err := json.Marshal(suggestion)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(suggestionPath, suggestionJSON, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if exit, envelope := execute("publication", "suggest", state.publicationID, "--input", suggestionPath); exit != 0 || envelope["ok"] != true {
+		t.Fatalf("Agent suggestion failed: exit=%d envelope=%#v", exit, envelope)
+	} else {
+		expectFreshPreview(envelope)
+	}
 	if exit, envelope := execute("publication", "review", state.publicationID); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("publication review failed: exit=%d envelope=%#v", exit, envelope)
 	} else {
@@ -159,6 +181,9 @@ description: Publish a deterministic Skill through the vNext contract.
 		draft, _ := data["draft"].(map[string]any)
 		if draft["summaryZhCn"] != "发布测试" || draft["summaryEnUs"] != "Publish test" || draft["usageInstructionsZhCn"] != "按 SKILL.md 中的步骤运行。" || draft["usageInstructionsEnUs"] != "Follow the steps in SKILL.md." {
 			t.Fatalf("review omitted listing copy: %#v", envelope)
+		}
+		if data["draftRevision"] != float64(1) {
+			t.Fatalf("review omitted the Agent CAS revision: %#v", envelope)
 		}
 		expectFreshPreview(envelope)
 	}
@@ -174,8 +199,11 @@ description: Publish a deterministic Skill through the vNext contract.
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if state.status != "PUBLISHED" || len(state.packageBytes) == 0 || len(state.mediaBytes) == 0 || state.draft.CoverUploadID == nil || len(state.draft.GalleryUploadIDs) != 1 || state.analysisCalls != 1 {
+	if state.status != "PUBLISHED" || len(state.packageBytes) == 0 || len(state.mediaBytes) == 0 || state.draft.CoverUploadID == nil || len(state.draft.GalleryUploadIDs) != 1 || state.suggestionCalls != 1 || state.analysisCalls != 0 {
 		t.Fatalf("publication lifecycle did not close: %#v", state)
+	}
+	if len(state.lastDraftPatchFields) != 1 || state.lastDraftPatchFields[0] != "galleryUploadIds" {
+		t.Fatalf("asset upload rewrote unrelated user fields: %#v", state.lastDraftPatchFields)
 	}
 	if state.listingID != "66666666-6666-4666-8666-666666666666" {
 		t.Fatalf("Publication was not attached to the prepared Listing: %q", state.listingID)
@@ -185,7 +213,7 @@ description: Publish a deterministic Skill through the vNext contract.
 	}
 }
 
-func TestSkillPublishResumeWithoutPriceUploadsMediaAndStartsAnalysis(t *testing.T) {
+func TestSkillPublishResumeWithoutPriceUploadsMediaWithoutStartingPlatformAnalysis(t *testing.T) {
 	t.Parallel()
 	state := &publicationAPITestState{
 		publicationID: "22222222-2222-4222-8222-222222222223",
@@ -267,8 +295,42 @@ description: Verify unpriced media and analysis continuation.
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if !state.mediaVerified || len(state.mediaBytes) == 0 || state.analysisCalls != 1 || state.draft.PriceMinor != nil {
-		t.Fatalf("unpriced continuation did not upload media and start analysis: %#v", state)
+	if !state.mediaVerified || len(state.mediaBytes) == 0 || state.analysisCalls != 0 || state.draft.PriceMinor != nil {
+		t.Fatalf("unpriced continuation did not stop after deterministic media upload: %#v", state)
+	}
+}
+
+func TestPublicationAnalyzeIsAnExplicitPlatformFallback(t *testing.T) {
+	t.Parallel()
+	state := &publicationAPITestState{
+		publicationID: "22222222-2222-4222-8222-222222222224",
+		status:        "DRAFT",
+	}
+	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	defer server.Close()
+	state.baseURL = server.URL
+	root := t.TempDir()
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "vme_cli_test", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"publication", "analyze", state.publicationID}, Dependencies{
+		Out: &stdout, ErrOut: io.Discard, Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit != 0 {
+		t.Fatalf("explicit analysis fallback failed: exit=%d stdout=%s", exit, stdout.String())
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.analysisCalls != 1 {
+		t.Fatalf("explicit analysis fallback was not requested exactly once: %#v", state)
 	}
 }
 
@@ -451,9 +513,11 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 		name                 string
 		putFailures          int
 		loseCompleteResponse bool
+		candidateOnly        bool
 	}{
 		{name: "expired upload authorization", putFailures: 1},
 		{name: "lost completion response", loseCompleteResponse: true},
+		{name: "Agent candidate without user selection", putFailures: 1, candidateOnly: true},
 	} {
 		scenario := scenario
 		t.Run(scenario.name, func(t *testing.T) {
@@ -501,7 +565,11 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 				t.Helper()
 				stdout.Reset()
 				stderr.Reset()
-				exit := Execute([]string{"publication", "asset", "upload", state.publicationID, "--role", "cover", "--path", mediaPath}, dependencies)
+				arguments := []string{"publication", "asset", "upload", state.publicationID, "--role", "cover", "--path", mediaPath}
+				if scenario.candidateOnly {
+					arguments = append(arguments, "--candidate-only")
+				}
+				exit := Execute(arguments, dependencies)
 				var envelope map[string]any
 				if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 					t.Fatalf("command did not emit one JSON envelope: exit=%d stdout=%q stderr=%q err=%v", exit, stdout.String(), stderr.String(), err)
@@ -523,7 +591,11 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 			if scenario.loseCompleteResponse && state.uploadAuthorizationCalls != 1 {
 				t.Fatalf("verified upload should be reused without a new authorization: %d", state.uploadAuthorizationCalls)
 			}
-			if state.draft.CoverUploadID == nil || *state.draft.CoverUploadID != "upload-media" {
+			if scenario.candidateOnly {
+				if state.draft.CoverUploadID != nil || len(state.lastDraftPatchFields) != 0 {
+					t.Fatalf("Agent candidate was incorrectly recorded as a user selection: draft=%#v fields=%#v", state.draft, state.lastDraftPatchFields)
+				}
+			} else if state.draft.CoverUploadID == nil || *state.draft.CoverUploadID != "upload-media" {
 				t.Fatalf("recovered upload was not selected as cover: %#v", state.draft)
 			}
 		})
@@ -623,6 +695,8 @@ type publicationAPITestState struct {
 	previewLaunchCalls       int
 	analysisPolls            int
 	analysisCalls            int
+	suggestionCalls          int
+	lastDraftPatchFields     []string
 	ambiguousPrepare         bool
 }
 
@@ -746,6 +820,10 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 	case request.Method == http.MethodPatch && request.URL.Path == publicationPath+"/listing-draft":
 		var raw map[string]json.RawMessage
 		_ = json.NewDecoder(request.Body).Decode(&raw)
+		state.lastDraftPatchFields = state.lastDraftPatchFields[:0]
+		for field := range raw {
+			state.lastDraftPatchFields = append(state.lastDraftPatchFields, field)
+		}
 		if len(raw) == 1 && raw["priceMinor"] != nil {
 			var price int
 			_ = json.Unmarshal(raw["priceMinor"], &price)
@@ -754,6 +832,21 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 			encoded, _ := json.Marshal(raw)
 			_ = json.Unmarshal(encoded, &state.draft)
 		}
+		state.status = "REVIEW_REQUIRED"
+		writeJSONResponse(writer, state.publication())
+	case request.Method == http.MethodPatch && request.URL.Path == publicationPath+"/listing-suggestion":
+		var input api.SuggestSkillPublicationDraftRequest
+		if err := json.NewDecoder(request.Body).Decode(&input); err != nil || input.BaseDraftRevision != 1 {
+			writer.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		state.suggestionCalls++
+		state.draft.SummaryZhCN = &input.Patch.SummaryZhCN
+		state.draft.SummaryEnUS = &input.Patch.SummaryEnUS
+		state.draft.UsageInstructionsZhCN = &input.Patch.UsageInstructionsZhCN
+		state.draft.UsageInstructionsEnUS = &input.Patch.UsageInstructionsEnUS
+		state.draft.CoverUploadID = input.Patch.CoverUploadID
+		state.draft.GalleryUploadIDs = input.Patch.GalleryUploadIDs
 		state.status = "REVIEW_REQUIRED"
 		writeJSONResponse(writer, state.publication())
 	case request.Method == http.MethodPost && request.URL.Path == publicationPath+"/analyze-listing":

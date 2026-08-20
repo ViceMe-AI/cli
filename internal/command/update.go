@@ -3,7 +3,6 @@ package command
 import (
 	"context"
 	"errors"
-	"time"
 
 	"github.com/ViceMe-AI/cli/internal/output"
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
@@ -18,7 +17,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 		Short: "Update the CLI release and reinstall matching official Skills",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			ctx, cancel := context.WithTimeout(command.Context(), 3*time.Minute)
+			ctx, cancel := context.WithTimeout(command.Context(), activationOperationTimeout)
 			defer cancel()
 			check, err := runtime.deps.Updater.Check(ctx)
 			if err != nil {
