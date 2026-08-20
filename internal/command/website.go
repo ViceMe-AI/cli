@@ -1,6 +1,7 @@
 package command
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/publication"
 	"github.com/spf13/cobra"
 )
 
@@ -24,15 +26,18 @@ var websiteUUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{
 var websiteWorkKeyPattern = regexp.MustCompile(`^wrk_[A-Za-z0-9_-]{4,124}$`)
 
 type websiteBinding struct {
-	SchemaVersion    int    `json:"schemaVersion"`
-	ClientWorkID     string `json:"clientWorkId"`
-	WorkID           string `json:"workId,omitempty"`
-	WorkKey          string `json:"workKey,omitempty"`
-	Region           string `json:"region"`
-	DisplayName      string `json:"displayName"`
-	SourceURL        string `json:"sourceUrl"`
-	LastSourceDigest string `json:"lastSourceDigest,omitempty"`
-	ReleaseVersion   int    `json:"releaseVersion,omitempty"`
+	SchemaVersion    int               `json:"schemaVersion"`
+	ClientWorkID     string            `json:"clientWorkId"`
+	WorkID           string            `json:"workId,omitempty"`
+	WorkKey          string            `json:"workKey,omitempty"`
+	Region           string            `json:"region"`
+	DisplayName      string            `json:"displayName"`
+	SourceURL        string            `json:"sourceUrl"`
+	DescriptionZhCN  string            `json:"descriptionZhCn,omitempty"`
+	DescriptionEnUS  string            `json:"descriptionEnUs,omitempty"`
+	Cover            *api.WebsiteCover `json:"cover,omitempty"`
+	LastSourceDigest string            `json:"lastSourceDigest,omitempty"`
+	ReleaseVersion   int               `json:"releaseVersion,omitempty"`
 }
 
 func newWebsiteCommand(runtime *Runtime) *cobra.Command {
@@ -46,6 +51,9 @@ func newWebsitePublishCommand(runtime *Runtime) *cobra.Command {
 	var displayName string
 	var creatorDisplayName string
 	var sourceURL string
+	var descriptionZhCN string
+	var descriptionEnUS string
+	var coverPath string
 	command := &cobra.Command{
 		Use:   "publish",
 		Short: "Publish or update the website work in the current source directory",
@@ -83,14 +91,47 @@ func newWebsitePublishCommand(runtime *Runtime) *cobra.Command {
 			if normalizedSourceURL := strings.TrimSpace(sourceURL); normalizedSourceURL != "" {
 				binding.SourceURL = normalizedSourceURL
 			}
+			if value := strings.TrimSpace(descriptionZhCN); value != "" {
+				binding.DescriptionZhCN = value
+			}
+			if value := strings.TrimSpace(descriptionEnUS); value != "" {
+				binding.DescriptionEnUS = value
+			}
+			var coverCandidate *publication.Candidate
+			if strings.TrimSpace(coverPath) != "" {
+				candidate, err := publication.ReadCandidate(coverPath)
+				if err != nil {
+					return err
+				}
+				coverCandidate = &candidate
+				binding.Cover = &api.WebsiteCover{
+					Digest: candidate.Digest, SizeBytes: candidate.SizeBytes,
+					FileName: candidate.FileName, ContentType: candidate.ContentType,
+				}
+			}
 			// Persist the source identity before the network call. If the call succeeds
 			// but the process is interrupted, the next publish still reuses this work.
 			if err := writeWebsiteBinding(bindingPath, binding); err != nil {
 				return err
 			}
-			work, err := runtime.client().PublishCreatorWebsite(command.Context(), api.PublishCreatorWebsiteRequest{
+			client := runtime.client()
+			if coverCandidate != nil {
+				authorization, err := client.AuthorizeWebsiteCoverUpload(command.Context(), api.AuthorizeWebsiteCoverUploadRequest{
+					ClientWorkID: binding.ClientWorkID,
+					WebsiteCover: *binding.Cover,
+				})
+				if err != nil {
+					return err
+				}
+				progress(runtime, "Uploading website cover")
+				if err := client.PutUpload(command.Context(), authorization, bytes.NewReader(coverCandidate.Bytes), coverCandidate.SizeBytes); err != nil {
+					return err
+				}
+			}
+			work, err := client.PublishCreatorWebsite(command.Context(), api.PublishCreatorWebsiteRequest{
 				ClientRequestID: randomUUID(), ClientWorkID: binding.ClientWorkID, SourceDigest: sourceDigest,
 				DisplayName: binding.DisplayName, CreatorDisplayName: strings.TrimSpace(creatorDisplayName), SourceURL: binding.SourceURL,
+				DescriptionZhCN: binding.DescriptionZhCN, DescriptionEnUS: binding.DescriptionEnUS, Cover: binding.Cover,
 			})
 			if err != nil {
 				return err
@@ -120,6 +161,9 @@ func newWebsitePublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&displayName, "name", "", "website display name")
 	command.Flags().StringVar(&creatorDisplayName, "creator-display-name", "", "creator display name used when the account has none")
 	command.Flags().StringVar(&sourceURL, "url", "", "optional published website URL")
+	command.Flags().StringVar(&descriptionZhCN, "description-zh-cn", "", "optional Chinese website description")
+	command.Flags().StringVar(&descriptionEnUS, "description-en-us", "", "optional English website description")
+	command.Flags().StringVar(&coverPath, "cover", "", "optional local website cover image")
 	return command
 }
 
@@ -196,13 +240,17 @@ func writeWebsiteBinding(filename string, binding websiteBinding) error {
 }
 
 func validateWebsiteURL(raw string) error {
+	return validateOptionalWebsiteURL("--url", raw)
+}
+
+func validateOptionalWebsiteURL(flag, raw string) error {
 	normalized := strings.TrimSpace(raw)
 	if normalized == "" {
 		return nil
 	}
 	parsed, err := url.ParseRequestURI(normalized)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") {
-		return output.Validation("WEBSITE_URL_INVALID", "--url must be an absolute http(s) URL")
+		return output.Validation("WEBSITE_URL_INVALID", flag+" must be an absolute http(s) URL")
 	}
 	return nil
 }
