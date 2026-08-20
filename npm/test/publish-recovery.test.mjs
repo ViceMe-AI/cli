@@ -22,6 +22,7 @@ test(
     const fakeNPM = path.join(fakeBin, "npm");
     const marker = path.join(directory, "published");
     const distTagMarker = path.join(directory, "dist-tagged");
+    const releaseTag = packageDocument.publishConfig?.tag ?? "latest";
     await mkdir(fakeBin, { recursive: true });
     await writeFile(
       fakeNPM,
@@ -33,7 +34,7 @@ if (args[0] === "pack") {
   process.exit(0);
 }
 if (args[0] === "view") {
-  if (args.includes("dist-tags.latest")) {
+  if (args.includes("dist-tags." + process.env.RELEASE_TAG)) {
     const latest = existsSync(process.env.DIST_TAG_MARKER)
       ? process.env.LOCAL_PACKAGE_VERSION
       : process.env.REMOTE_LATEST;
@@ -79,6 +80,7 @@ process.exit(90);
       VICEME_NPM_VIEW_RETRY_INITIAL_DELAY_MS: "0",
       LOCAL_PACKAGE_ID: packageID,
       LOCAL_PACKAGE_VERSION: packageVersion,
+      RELEASE_TAG: releaseTag,
       REMOTE_LATEST: packageVersion,
     };
 
@@ -117,7 +119,7 @@ process.exit(90);
     });
     assert.equal(olderLatest.status, 0, olderLatest.stderr);
     assert.ok(
-      (await readFile(distTagMarker, "utf8")).includes(`dist-tag add ${packageID} latest`),
+      (await readFile(distTagMarker, "utf8")).includes(`dist-tag add ${packageID} ${releaseTag}`),
     );
 
     const missing = spawnSync(process.execPath, [script], {
@@ -133,7 +135,7 @@ process.exit(90);
     assert.equal(missing.status, 0, missing.stderr);
     assert.match(
       await readFile(marker, "utf8"),
-      /publish --registry=https:\/\/registry\.npmjs\.org --@viceme-ai:registry=https:\/\/registry\.npmjs\.org/,
+      /publish --registry=https:\/\/registry\.npmjs\.org --@myc666:registry=https:\/\/registry\.npmjs\.org .*--tag beta/,
     );
     assert.equal(
       (await readFile(path.join(directory, "post-publish-views"), "utf8")).trim().split("\n").length,

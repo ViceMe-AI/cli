@@ -131,7 +131,7 @@ $env:VICEME_REGION="global"; irm https://s3.viceme.ai/start/install.ps1 | iex
 不能使用 Bootstrap 时，以 npm 作为备用入口：
 
 ```bash
-npx --yes @viceme-ai/cli@latest install
+npx --yes @myc666/viceme-cli@beta install
 ```
 
 安装器始终写入兼容目录 `~/.agents/skills`，并为检测到的 Agent 写入原生用户目录：
@@ -154,6 +154,7 @@ npx --yes @viceme-ai/cli@latest install
 | `viceme-access` | 为已发布的网站接入登录、关注、功能权限与一次性购买。 |
 | `viceme-danmaku` | 在已有项目中构建或适配随包提供的生产级 React 与 Tailwind CSS v4 弹幕组件。 |
 | `viceme-tip` | 完成登录、绑定创作者作品与验证域名，并把 ViceMe 托管赞赏接入一个 HTML 页面。 |
+| `viceme-engagement` | 发布网站 Work、启用托管弹幕、绑定赞赏，并安装一个组合交互脚本。 |
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
 可以解释每一步决策，而相同的命令契约仍可在终端或自动化中复现。

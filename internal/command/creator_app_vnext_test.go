@@ -20,7 +20,7 @@ func executeCreatorAppCommand(t *testing.T, baseURL string, args ...string) (str
 	t.Helper()
 	root := t.TempDir()
 	store := securestore.NewMemory()
-	scope, err := credentialScopeForAPIBase(baseURL, config.RegionCN)
+	scope, err := credentialScopeForAPIBase(baseURL)
 	if err != nil {
 		t.Fatal(err)
 	}

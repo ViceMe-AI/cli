@@ -134,6 +134,29 @@ func ValidateActivationTarget(configDir string, target ActiveGeneration) error {
 	return validateActivationTarget(configDir, target, false)
 }
 
+// AdoptExternalUpgrade records an out-of-band install only when it strictly
+// advances the active version. Downgrades and same-version identity changes
+// remain blocked.
+func AdoptExternalUpgrade(configDir string, target ActiveGeneration) error {
+	if err := validateActiveGeneration(target); err != nil {
+		return err
+	}
+	active, exists, err := ReadActiveGeneration(configDir)
+	if err != nil {
+		return err
+	}
+	if exists {
+		comparison, err := semver.Compare(target.Version, active.Version)
+		if err != nil {
+			return err
+		}
+		if comparison <= 0 {
+			return fmt.Errorf("%w: target %s, active %s", ErrActivationDowngrade, target.Version, active.Version)
+		}
+	}
+	return writeActiveGeneration(configDir, target)
+}
+
 // ValidateActivationTargetForChannelSwitch permits exactly the otherwise
 // forbidden semver downgrade needed to install x.y.z-poc.N over x.y.z. Only
 // the explicit installer-selected bootstrap path may call this; automatic
@@ -196,6 +219,10 @@ func commitActiveGeneration(configDir string, target ActiveGeneration, allowDown
 	if err := validateActivationTarget(configDir, target, allowDowngrade); err != nil {
 		return err
 	}
+	return writeActiveGeneration(configDir, target)
+}
+
+func writeActiveGeneration(configDir string, target ActiveGeneration) error {
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return err
 	}

@@ -5,7 +5,7 @@ import { setTimeout as wait } from "node:timers/promises";
 const registry = "https://registry.npmjs.org";
 const registryArguments = [
   `--registry=${registry}`,
-  `--@viceme-ai:registry=${registry}`,
+  `--@myc666:registry=${registry}`,
 ];
 // npm can accept a first publish before the public metadata endpoint exposes
 // it. Eleven reads wait at most 303 seconds with the default capped backoff.
@@ -20,10 +20,11 @@ const registryReadRetryInitialDelayMS = readNonNegativeInteger(
 );
 const registryReadRetryMaximumDelayMS = 60_000;
 const packageDocument = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8"));
-if (!/^\d+\.\d+\.\d+$/.test(packageDocument.version)) {
-  throw new Error("the stable release workflow only publishes an exact x.y.z version");
+if (!/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(packageDocument.version)) {
+  throw new Error("the release workflow requires an exact semantic version");
 }
 const packageID = `${packageDocument.name}@${packageDocument.version}`;
+const releaseTag = packageDocument.publishConfig?.tag ?? "latest";
 
 const packed = run("npm", ["pack", "--json", "--dry-run"], false);
 const packReport = JSON.parse(packed.stdout)[0];
@@ -43,7 +44,7 @@ if (remote.status === 0) {
       `${packageID} is already published with different integrity; refusing to overwrite or treat it as recovered`,
     );
   }
-  await ensureLatestIsNotOlder();
+  await ensureReleaseTagIsNotOlder();
   process.stdout.write(`${packageID} is already published with matching integrity\n`);
   process.exit(0);
 }
@@ -55,7 +56,7 @@ if (!isNotFound(lookupFailure)) {
 
 run(
   "npm",
-  ["publish", ...registryArguments, "--access", "public", "--provenance"],
+  ["publish", ...registryArguments, "--access", "public", "--provenance", "--tag", releaseTag],
   true,
 );
 const publishedIntegrity = await readPublishedIntegrity();
@@ -64,21 +65,21 @@ if (publishedIntegrity !== packReport.integrity) {
     `${packageID} became visible after publish with different integrity; refusing to treat it as recovered`,
   );
 }
-await ensureLatestIsNotOlder();
+await ensureReleaseTagIsNotOlder();
 
-async function ensureLatestIsNotOlder() {
-  let latest = await readLatest();
-  if (compareStableVersions(latest, packageDocument.version) >= 0) {
+async function ensureReleaseTagIsNotOlder() {
+  let taggedVersion = await readReleaseTag();
+  if (compareVersions(taggedVersion, packageDocument.version) >= 0) {
     return;
   }
   run(
     "npm",
-    ["dist-tag", "add", packageID, "latest", ...registryArguments],
+    ["dist-tag", "add", packageID, releaseTag, ...registryArguments],
     true,
   );
-  latest = await readLatest();
-  if (latest !== packageDocument.version) {
-    throw new Error(`npm latest remained ${latest} after promoting ${packageID}`);
+  taggedVersion = await readReleaseTag();
+  if (taggedVersion !== packageDocument.version) {
+    throw new Error(`npm ${releaseTag} remained ${taggedVersion} after promoting ${packageID}`);
   }
 }
 
@@ -94,16 +95,16 @@ async function readPublishedIntegrity() {
   return integrity;
 }
 
-async function readLatest() {
+async function readReleaseTag() {
   const result = await runRegistryViewWithRetry(
-    ["view", packageDocument.name, "dist-tags.latest", "--json", ...registryArguments],
-    `${packageDocument.name} latest dist-tag`,
+    ["view", packageDocument.name, `dist-tags.${releaseTag}`, "--json", ...registryArguments],
+    `${packageDocument.name} ${releaseTag} dist-tag`,
   );
-  const latest = JSON.parse(result.stdout);
-  if (typeof latest !== "string" || !/^\d+\.\d+\.\d+$/.test(latest)) {
-    throw new Error(`npm returned an invalid stable latest dist-tag for ${packageDocument.name}`);
+  const taggedVersion = JSON.parse(result.stdout);
+  if (typeof taggedVersion !== "string" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(taggedVersion)) {
+    throw new Error(`npm returned an invalid ${releaseTag} dist-tag for ${packageDocument.name}`);
   }
-  return latest;
+  return taggedVersion;
 }
 
 async function runRegistryViewWithRetry(args, description) {
@@ -151,15 +152,20 @@ function readNonNegativeInteger(name, fallback, { minimum = 0 } = {}) {
   return Number(raw);
 }
 
-function compareStableVersions(left, right) {
-  const a = left.split(".").map(Number);
-  const b = right.split(".").map(Number);
+function compareVersions(left, right) {
+  const [leftCore, leftPrerelease] = left.split("-", 2);
+  const [rightCore, rightPrerelease] = right.split("-", 2);
+  const a = leftCore.split(".").map(Number);
+  const b = rightCore.split(".").map(Number);
   for (let index = 0; index < 3; index += 1) {
     if (a[index] !== b[index]) {
       return a[index] < b[index] ? -1 : 1;
     }
   }
-  return 0;
+  if (leftPrerelease === rightPrerelease) return 0;
+  if (leftPrerelease === undefined) return 1;
+  if (rightPrerelease === undefined) return -1;
+  return leftPrerelease.localeCompare(rightPrerelease, "en", { numeric: true });
 }
 
 function run(name, args, inherit) {

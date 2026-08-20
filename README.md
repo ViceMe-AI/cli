@@ -140,7 +140,7 @@ $env:VICEME_REGION="global"; irm https://s3.viceme.ai/start/install.ps1 | iex
 If the bootstrap cannot be used, npm is the fallback:
 
 ```bash
-npx --yes @viceme-ai/cli@latest install
+npx --yes @myc666/viceme-cli@beta install
 ```
 
 The installer writes the compatibility fallback to `~/.agents/skills` and the
@@ -164,6 +164,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `viceme-access` | add login, following, feature gates, and one-time purchase to an already published website. |
 | `viceme-danmaku` | build or adapt the bundled production React and Tailwind CSS v4 danmaku component in an existing project. |
 | `viceme-tip` | sign in, bind a creator work and verified domain, and add the hosted ViceMe tip checkout to one HTML page. |
+| `viceme-engagement` | publish a website Work, enable hosted danmaku, bind tips, and install one combined engagement script. |
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
 owns deterministic local work and API calls. This separation lets an Agent

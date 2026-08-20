@@ -31,6 +31,7 @@ type Profile struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
 	APIBaseURL string `json:"apiBaseUrl"`
+	WebBaseURL string `json:"webBaseUrl,omitempty"`
 	UserID     string `json:"userId,omitempty"`
 }
 
@@ -79,6 +80,13 @@ func APIBaseURL(region Region) string {
 	return "https://api.viceme.cn"
 }
 
+func WebBaseURL(region Region) string {
+	if region == RegionGlobal {
+		return "https://viceme.ai"
+	}
+	return "https://viceme.cn"
+}
+
 func StableReleaseBaseURL(region Region) string {
 	if region == RegionGlobal {
 		return "https://s3.viceme.ai/start/cli/releases"
@@ -91,6 +99,10 @@ func StableReleaseBaseURL(region Region) string {
 // for local Shop development only.
 func NormalizeAPIBaseURL(raw string) (string, error) {
 	return normalizeBaseURL(raw, "API base URL")
+}
+
+func NormalizeWebBaseURL(raw string) (string, error) {
+	return normalizeBaseURL(raw, "Web base URL")
 }
 
 func NormalizeReleaseBaseURL(raw string) (string, error) {
@@ -154,6 +166,19 @@ func (profile Profile) ResolvedAPIBaseURL() string {
 	return profile.APIBaseURL
 }
 
+func (profile Profile) ResolvedWebBaseURL() string {
+	if profile.WebBaseURL != "" {
+		return profile.WebBaseURL
+	}
+	if profile.APIBaseURL == APIBaseURL(RegionGlobal) {
+		return WebBaseURL(RegionGlobal)
+	}
+	if profile.APIBaseURL == APIBaseURL(RegionCN) {
+		return WebBaseURL(RegionCN)
+	}
+	return ""
+}
+
 func Default(region Region) Config {
 	if parsed, err := ParseRegion(string(region)); err == nil {
 		region = parsed
@@ -169,6 +194,7 @@ func Default(region Region) Config {
 			ID:         DefaultProfileName,
 			Name:       DefaultProfileName,
 			APIBaseURL: APIBaseURL(region),
+			WebBaseURL: WebBaseURL(region),
 		}},
 	}
 }
@@ -255,6 +281,19 @@ func (config *Config) AddProfile(name, apiBaseURL string) (*Profile, error) {
 		ID: id, Name: name, APIBaseURL: normalizedAPIBaseURL,
 	})
 	return &config.Profiles[len(config.Profiles)-1], nil
+}
+
+func (config *Config) SetProfileWebBaseURL(name, webBaseURL string) error {
+	index := config.FindProfileIndex(name)
+	if index < 0 {
+		return fmt.Errorf("profile %q not found", name)
+	}
+	normalized, err := NormalizeWebBaseURL(webBaseURL)
+	if err != nil {
+		return err
+	}
+	config.Profiles[index].WebBaseURL = normalized
+	return nil
 }
 
 func ValidateProfileName(name string) error {
@@ -375,6 +414,13 @@ func validate(config *Config) error {
 			return fmt.Errorf("profile %q: %w", profile.Name, err)
 		}
 		profile.APIBaseURL = normalized
+		if profile.WebBaseURL != "" {
+			normalizedWeb, err := NormalizeWebBaseURL(profile.WebBaseURL)
+			if err != nil {
+				return fmt.Errorf("profile %q: %w", profile.Name, err)
+			}
+			profile.WebBaseURL = normalizedWeb
+		}
 	}
 	if config.CurrentProfile == "" {
 		config.CurrentProfile = config.Profiles[0].Name

@@ -35,14 +35,14 @@ type releaseManifest struct {
 func main() {
 	output := flag.String("output", "quality/release-manifest.json", "release manifest output path")
 	cliVersion := flag.String("cli-version", buildinfo.ReleaseVersion, "CLI version recorded in the manifest")
-	npmPackage := flag.String("npm-package", "@viceme-ai/cli", "fallback npm package or standalone-only")
+	npmPackage := flag.String("npm-package", "@myc666/viceme-cli", "fallback npm package or standalone-only")
 	bootstrapContract := flag.String("bootstrap-contract", "release/bootstrap-contract.json", "bootstrap contract path")
 	installSH := flag.String("install-sh", "installers/install.sh", "POSIX installer path")
 	installPS1 := flag.String("install-ps1", "installers/install.ps1", "PowerShell installer path")
 	flag.Parse()
 
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
-	skillNames := []string{"viceme-shared", "viceme-publish", "viceme-danmaku", "viceme-access", "viceme-tip"}
+	skillNames := []string{"viceme-shared", "viceme-publish", "viceme-danmaku", "viceme-access", "viceme-tip", "viceme-engagement"}
 	skills := make(map[string]skillRelease, len(skillNames))
 	for _, name := range skillNames {
 		digests, err := bundle.Digests(name)
