@@ -1,0 +1,4 @@
+interface:
+  display_name: "Integrate ViceMe Tips"
+  short_description: "Bind a creator work and add hosted tips"
+  default_prompt: "Use $viceme-tip to connect this creator page to ViceMe tips."
