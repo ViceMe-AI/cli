@@ -49,6 +49,27 @@ func TestPublishSkillKeepsHistoricalContextOutOfProfileSelection(t *testing.T) {
 	}
 }
 
+func TestEngagementSkillRequiresCreatorOwnedCompleteFlow(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-engagement/SKILL.md")
+	if err != nil {
+		t.Fatalf("read embedded engagement Skill: %v", err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"website publish",
+		"access init",
+		"creator-app create",
+		"creator-app domain verify",
+		"engagement-embed.js",
+		"Do not use a shared or pre-provisioned `workKey`",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("embedded engagement Skill is missing complete-flow guard %q", required)
+		}
+	}
+}
 func TestWebsitePublicationBelongsToPublishSkill(t *testing.T) {
 	t.Parallel()
 
