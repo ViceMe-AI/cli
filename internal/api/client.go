@@ -66,6 +66,30 @@ func (c *Client) Revoke(ctx context.Context, accessToken string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/logout", struct{}{}, nil, accessToken)
 }
 
+func (c *Client) PublishCreatorWebsite(ctx context.Context, request PublishCreatorWebsiteRequest) (SdkWork, error) {
+	var response SdkWork
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works/publish", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) AuthorizeWebsiteCoverUpload(ctx context.Context, request AuthorizeWebsiteCoverUploadRequest) (UploadAuthorization, error) {
+	var response UploadAuthorization
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works/cover-upload-authorizations", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetSdkWork(ctx context.Context, workKey string) (SdkWork, error) {
+	var response SdkWork
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/sdk-works/"+url.PathEscape(workKey), nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ApplySdkWork(ctx context.Context, workKey string, request ApplySdkWorkRequest) (SdkWork, error) {
+	var response SdkWork
+	err := c.doJSON(ctx, http.MethodPut, "/v1/cli/sdk-works/"+url.PathEscape(workKey), request, &response, "@stored")
+	return response, err
+}
+
 // HealthReady performs an unauthenticated, redirect-free connectivity check.
 // Doctor owns the short deadline so this probe can never inherit the normal
 // command timeout or disclose the stored publication credential.
@@ -164,6 +188,30 @@ func (c *Client) PublishSkill(ctx context.Context, publicationID, reviewDigest s
 func (c *Client) CancelSkillPublication(ctx context.Context, publicationID string) (CancelPublicationResponse, error) {
 	var response CancelPublicationResponse
 	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/cancel", struct{}{}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreateCreatorApp(ctx context.Context, request CreateCreatorAppRequest) (CreatorApp, error) {
+	var response CreatorApp
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/creator-apps", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ListCreatorApps(ctx context.Context) (CreatorAppsResponse, error) {
+	var response CreatorAppsResponse
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/creator-apps", nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) AddCreatorAppDomain(ctx context.Context, appID, domain string) (CreatorApp, error) {
+	var response CreatorApp
+	err := c.doJSON(ctx, http.MethodPut, "/v1/cli/creator-apps/"+url.PathEscape(appID)+"/domains", AddCreatorAppDomainRequest{Domain: domain}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) VerifyCreatorAppDomain(ctx context.Context, appID, domain string) (CreatorApp, error) {
+	var response CreatorApp
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/creator-apps/"+url.PathEscape(appID)+"/domains/"+url.PathEscape(domain)+"/verify", struct{}{}, &response, "@stored")
 	return response, err
 }
 

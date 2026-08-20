@@ -285,6 +285,9 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newProfileCommand(runtime))
 	root.AddCommand(newSkillCommand(runtime))
 	root.AddCommand(newPublicationCommand(runtime))
+	root.AddCommand(newWebsiteCommand(runtime))
+	root.AddCommand(newAccessCommand(runtime))
+	root.AddCommand(newCreatorAppCommand(runtime))
 	return root, runtime, nil
 }
 
@@ -404,7 +407,9 @@ func reconcileActivationAtStartup(ctx context.Context, configDir string, depende
 		return err
 	}
 	if exists && active != running && !dependencies.bootstrapActivationCommand {
-		return updatepkg.ErrActivationRestartNeeded
+		if commitErr := updatepkg.AdoptExternalUpgrade(configDir, running); commitErr != nil {
+			return updatepkg.ErrActivationRestartNeeded
+		}
 	}
 	dependencies.runningActivationGeneration = &running
 	return nil

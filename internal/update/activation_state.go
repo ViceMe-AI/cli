@@ -125,6 +125,33 @@ func ReadActiveGeneration(configDir string) (ActiveGeneration, bool, error) {
 // held. Equal immutable generations may be verified or repaired. Reusing a
 // semantic version for different bytes/package identity fails closed.
 func ValidateActivationTarget(configDir string, target ActiveGeneration) error {
+	return validateActivationTarget(configDir, target)
+}
+
+// AdoptExternalUpgrade records an out-of-band install only when it strictly
+// advances the active version. Downgrades and same-version identity changes
+// remain blocked.
+func AdoptExternalUpgrade(configDir string, target ActiveGeneration) error {
+	if err := validateActiveGeneration(target); err != nil {
+		return err
+	}
+	active, exists, err := ReadActiveGeneration(configDir)
+	if err != nil {
+		return err
+	}
+	if exists {
+		comparison, err := semver.Compare(target.Version, active.Version)
+		if err != nil {
+			return err
+		}
+		if comparison <= 0 {
+			return fmt.Errorf("%w: target %s, active %s", ErrActivationDowngrade, target.Version, active.Version)
+		}
+	}
+	return writeActiveGeneration(configDir, target)
+}
+
+func validateActivationTarget(configDir string, target ActiveGeneration) error {
 	if err := validateActiveGeneration(target); err != nil {
 		return err
 	}
@@ -159,6 +186,10 @@ func CommitActiveGeneration(configDir string, target ActiveGeneration) error {
 	if err := ValidateActivationTarget(configDir, target); err != nil {
 		return err
 	}
+	return writeActiveGeneration(configDir, target)
+}
+
+func writeActiveGeneration(configDir string, target ActiveGeneration) error {
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
 		return err
 	}

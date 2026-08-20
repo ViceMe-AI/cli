@@ -20,6 +20,9 @@ var officialSkillNames = []string{
 	"viceme-shared",
 	"viceme-publish",
 	"viceme-danmaku",
+	"viceme-access",
+	"viceme-tip",
+	"viceme-engagement",
 }
 
 type installNextStep struct {

@@ -758,6 +758,36 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	}
 }
 
+func TestOfficialSkillBundleIncludesTip(t *testing.T) {
+	t.Parallel()
+	const tipSkill = "viceme-tip"
+	found := false
+	for _, name := range officialSkillNames {
+		if name == tipSkill {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("official Skill list omitted %s: %#v", tipSkill, officialSkillNames)
+	}
+	if _, err := skillcontent.New(cliembed.EmbeddedSkills()).Package(tipSkill); err != nil {
+		t.Fatalf("official Skill bundle omitted %s: %v", tipSkill, err)
+	}
+	bundle := skillcontent.New(cliembed.EmbeddedSkills())
+	template, _, err := bundle.Read(tipSkill, "templates/single-html.html")
+	if err != nil {
+		t.Fatalf("official Skill bundle omitted the single HTML template: %v", err)
+	}
+	resolved := strings.ReplaceAll(string(template), "REPLACE_WITH_WIDGET_SCRIPT_URL", "https://viceme.example/widget/tip-embed.js")
+	if !strings.Contains(resolved, `src="https://viceme.example/widget/tip-embed.js"`) || strings.Contains(resolved, "https://https://") {
+		t.Fatalf("single HTML template does not accept the complete generated widget URL")
+	}
+	if _, _, err := bundle.Read(tipSkill, "references/integration-contract.md"); err != nil {
+		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
+	}
+}
+
 func TestDoctorIncludesUnauthenticatedNetworkReadiness(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

@@ -133,18 +133,25 @@ test(
           CODEX_HOME: codexHome,
           VICEME_CLI_CONFIG_DIR: configHome,
           VICEME_BINARY_PATH: path.resolve(localBinary),
+          CI: "1",
           VICEME_API_BASE_URL: health.url,
         },
       },
     );
-    assert.equal(child.status, 0, child.stderr);
+    assert.equal(child.status, 0, `${child.stdout}\n${child.stderr}`);
     const result = JSON.parse(child.stdout);
     assert.equal(result.ok, true);
-    assert.equal(result.data.skills.length, 3);
+    assert.equal(result.data.skills.length, 6);
     assert.equal(result.data.skills.every((skill) => skill.all_succeeded), true);
     await stat(path.join(codexHome, "skills", "viceme-shared", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-publish", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-danmaku", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-access", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-tip", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-engagement", "SKILL.md"));
+    await stat(
+      path.join(codexHome, "skills", "viceme-tip", "templates", "single-html.html"),
+    );
     await stat(
       path.join(
         codexHome,
@@ -256,7 +263,7 @@ process.exit(child.status ?? 1);
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}\n${debug}`);
     const install = JSON.parse(first.stdout);
     assert.equal(install.ok, true);
-    assert.equal(install.data.skills.length, 3);
+    assert.equal(install.data.skills.length, 6);
     assert.equal(install.data.skills.every((skill) => skill.all_succeeded), true);
     assert.match(
       await readFile(marker, "utf8"),
@@ -293,8 +300,7 @@ process.exit(child.status ?? 1);
       prefix,
       "lib",
       "node_modules",
-      "@viceme-ai",
-      "cli",
+      ...packageDocument.name.split("/"),
     );
     await writeFile(
       path.join(installedPackageRoot, "checksums.txt"),

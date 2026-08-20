@@ -71,6 +71,39 @@ func TestCustomProfileAPIBaseURLRoundTripsCanonically(t *testing.T) {
 	}
 }
 
+func TestCustomProfileWebBaseURLRoundTripsCanonically(t *testing.T) {
+	configured := Default(RegionCN)
+	profile, err := configured.AddProfile("poc", "https://api.poc.example.com/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.ResolvedWebBaseURL() != "" {
+		t.Fatalf("custom API profile inferred an unrelated Web origin: %q", profile.ResolvedWebBaseURL())
+	}
+	if err := configured.SetProfileWebBaseURL(profile.Name, "HTTPS://WEB.POC.EXAMPLE.COM:443/"); err != nil {
+		t.Fatal(err)
+	}
+	if profile.WebBaseURL != "https://web.poc.example.com" || profile.ResolvedWebBaseURL() != profile.WebBaseURL {
+		t.Fatalf("custom Web endpoint was not canonical: %#v", profile)
+	}
+
+	root := t.TempDir()
+	if _, err := Save(root, configured); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadOrDefault(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := loaded.Resolve("poc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.WebBaseURL != "https://web.poc.example.com" {
+		t.Fatalf("custom Web endpoint did not round-trip: %#v", resolved)
+	}
+}
+
 func TestLegacyProfileRegionMigratesToDistributionRegionAndExplicitEndpoints(t *testing.T) {
 	directory := t.TempDir()
 	filename := ConfigPath(directory)
