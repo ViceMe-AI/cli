@@ -5,20 +5,35 @@ description: Publish or update a local AI Agent Skill or creator website on Vice
 
 # Publish to ViceMe
 
-Use the CLI for every deterministic action and select exactly one mode from the
-source and request.
+Use the CLI for every deterministic action. Before authentication or any write,
+resolve the source path from the user's referenced path or the current working
+directory and inspect that source. Select the publication mode from the source
+itself; never infer it only from whether the user said "website", "site", or
+"Skill".
 
 ## Route the request
 
-- For a local Skill directory or ZIP, including a request such as `viceme
-  publish canghe-comic`, read [creator-workflow.md](references/creator-workflow.md)
-  for the creator conversation, then read [workflow.md](references/workflow.md)
-  before the first write. `viceme publish <path>` is the concise entry to the
-  same Skill Marketplace private Draft flow as `viceme skill publish --path
-  <path>`.
-- For a creator website directory, read and follow
+- A ZIP is a Skill source. Verify that the archive satisfies the root
+  `SKILL.md` package contract; if it does not, stop with the validation error
+  instead of treating it as a website. Read
+  [creator-workflow.md](references/creator-workflow.md) for the creator
+  conversation, then [workflow.md](references/workflow.md) before the first
+  write. `viceme publish <path>` is the concise entry to the same Skill
+  Marketplace private Draft flow as `viceme skill publish --path <path>`.
+- A directory with a root `SKILL.md` is a Skill source. Read
+  [creator-workflow.md](references/creator-workflow.md), then
+  [workflow.md](references/workflow.md), before the first write. The same
+  private Draft, Listing, and Publication ID continue throughout this flow.
+- Any other directory is a creator website source. Read and follow
   [website-workflow.md](references/website-workflow.md). Do not run the Skill
   package or listing-review workflow.
+- If a directory has both a root `SKILL.md` and `.viceme/website.json`, it
+  carries conflicting publication identities. Stop and ask which source the
+  user intends to publish; do not choose from request wording or overwrite
+  either binding.
+- If the path is missing, unreadable, or neither a directory nor a ZIP, stop
+  with a source validation error. Do not authenticate or create remote
+  publication state.
 - Read [errors.md](references/errors.md) when a command fails.
 
 ## Invariants

@@ -3,19 +3,28 @@ package command
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/ViceMe-AI/cli/internal/api"
 )
 
 func TestWebsiteBindingKeepsStableSourceIdentity(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), ".viceme", "website.json")
 	want := websiteBinding{
-		SchemaVersion: 1,
-		ClientWorkID:  "11111111-1111-4111-8111-111111111111",
-		WorkID:        "22222222-2222-4222-8222-222222222222",
-		WorkKey:       "wrk_stable_work_01",
-		Region:        "cn",
-		DisplayName:   "Dagou Tap",
-		SourceURL:     "https://creator.example.com/dagou-tap",
+		SchemaVersion:   1,
+		ClientWorkID:    "11111111-1111-4111-8111-111111111111",
+		WorkID:          "22222222-2222-4222-8222-222222222222",
+		WorkKey:         "wrk_stable_work_01",
+		Region:          "cn",
+		DisplayName:     "Dagou Tap",
+		SourceURL:       "https://creator.example.com/dagou-tap",
+		DescriptionZhCN: "创作者网站。",
+		DescriptionEnUS: "A creator website.",
+		Cover: &api.WebsiteCover{
+			Digest: strings.Repeat("a", 64), SizeBytes: 128,
+			FileName: "cover.png", ContentType: "image/png",
+		},
 	}
 	if err := writeWebsiteBinding(filename, want); err != nil {
 		t.Fatalf("writeWebsiteBinding() error = %v", err)
@@ -63,6 +72,11 @@ func TestWebsitePublishAcceptsFirstCreatorDisplayName(t *testing.T) {
 	flag := command.Flags().Lookup("creator-display-name")
 	if flag == nil || flag.DefValue != "" {
 		t.Fatalf("creator-display-name flag = %#v", flag)
+	}
+	for _, name := range []string{"description-zh-cn", "description-en-us", "cover"} {
+		if metadataFlag := command.Flags().Lookup(name); metadataFlag == nil || metadataFlag.DefValue != "" {
+			t.Fatalf("%s flag = %#v", name, metadataFlag)
+		}
 	}
 }
 

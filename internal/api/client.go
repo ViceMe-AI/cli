@@ -72,6 +72,12 @@ func (c *Client) PublishCreatorWebsite(ctx context.Context, request PublishCreat
 	return response, err
 }
 
+func (c *Client) AuthorizeWebsiteCoverUpload(ctx context.Context, request AuthorizeWebsiteCoverUploadRequest) (UploadAuthorization, error) {
+	var response UploadAuthorization
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works/cover-upload-authorizations", request, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) GetSdkWork(ctx context.Context, workKey string) (SdkWork, error) {
 	var response SdkWork
 	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/sdk-works/"+url.PathEscape(workKey), nil, &response, "@stored")

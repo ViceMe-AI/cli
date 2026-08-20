@@ -55,12 +55,27 @@ type SdkWorkFeaturePolicy struct {
 }
 
 type PublishCreatorWebsiteRequest struct {
-	ClientRequestID    string `json:"clientRequestId"`
-	ClientWorkID       string `json:"clientWorkId"`
-	SourceDigest       string `json:"sourceDigest"`
-	DisplayName        string `json:"displayName"`
-	CreatorDisplayName string `json:"creatorDisplayName,omitempty"`
-	SourceURL          string `json:"sourceUrl,omitempty"`
+	ClientRequestID    string        `json:"clientRequestId"`
+	ClientWorkID       string        `json:"clientWorkId"`
+	SourceDigest       string        `json:"sourceDigest"`
+	DisplayName        string        `json:"displayName"`
+	CreatorDisplayName string        `json:"creatorDisplayName,omitempty"`
+	SourceURL          string        `json:"sourceUrl,omitempty"`
+	DescriptionZhCN    string        `json:"descriptionZhCn,omitempty"`
+	DescriptionEnUS    string        `json:"descriptionEnUs,omitempty"`
+	Cover              *WebsiteCover `json:"cover,omitempty"`
+}
+
+type WebsiteCover struct {
+	Digest      string `json:"digest"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	FileName    string `json:"fileName"`
+	ContentType string `json:"contentType"`
+}
+
+type AuthorizeWebsiteCoverUploadRequest struct {
+	ClientWorkID string `json:"clientWorkId"`
+	WebsiteCover
 }
 
 type ApplySdkWorkRequest struct {
@@ -86,13 +101,16 @@ type SdkWork struct {
 }
 
 type SdkWorkPublication struct {
-	ClientWorkID string  `json:"clientWorkId"`
-	SourceDigest string  `json:"sourceDigest"`
-	SourceURL    *string `json:"sourceUrl"`
-	ReleaseID    string  `json:"releaseId"`
-	Version      int     `json:"version"`
-	PublishedAt  string  `json:"publishedAt"`
-	Unchanged    bool    `json:"unchanged"`
+	ClientWorkID    string  `json:"clientWorkId"`
+	SourceDigest    string  `json:"sourceDigest"`
+	SourceURL       *string `json:"sourceUrl"`
+	DescriptionZhCN *string `json:"descriptionZhCn"`
+	DescriptionEnUS *string `json:"descriptionEnUs"`
+	CoverURL        *string `json:"coverUrl"`
+	ReleaseID       string  `json:"releaseId"`
+	Version         int     `json:"version"`
+	PublishedAt     string  `json:"publishedAt"`
+	Unchanged       bool    `json:"unchanged"`
 }
 
 type SdkWorkOffer struct {
