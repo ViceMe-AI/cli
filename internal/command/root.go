@@ -407,7 +407,9 @@ func reconcileActivationAtStartup(ctx context.Context, configDir string, depende
 		return err
 	}
 	if exists && active != running && !dependencies.bootstrapActivationCommand {
-		return updatepkg.ErrActivationRestartNeeded
+		if commitErr := updatepkg.AdoptExternalUpgrade(configDir, running); commitErr != nil {
+			return updatepkg.ErrActivationRestartNeeded
+		}
 	}
 	dependencies.runningActivationGeneration = &running
 	return nil
