@@ -695,6 +695,8 @@ type publicationAPITestState struct {
 	previewLaunchCalls       int
 	analysisPolls            int
 	analysisCalls            int
+	confirmCalls             int
+	publishCalls             int
 	suggestionCalls          int
 	lastDraftPatchFields     []string
 	ambiguousPrepare         bool
@@ -853,9 +855,11 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		state.analysisCalls++
 		writeJSONResponse(writer, state.publication())
 	case request.Method == http.MethodPost && request.URL.Path == publicationPath+"/confirm-review":
+		state.confirmCalls++
 		state.status = "READY"
 		writeJSONResponse(writer, state.publication())
 	case request.Method == http.MethodPost && request.URL.Path == publicationPath+"/publish":
+		state.publishCalls++
 		state.status = "PUBLISHED"
 		writeJSONResponse(writer, state.publication())
 	default:

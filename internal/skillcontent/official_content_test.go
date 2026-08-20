@@ -36,6 +36,7 @@ func TestPublishSkillKeepsHistoricalContextOutOfProfileSelection(t *testing.T) {
 		"viceme-publish/SKILL.md",
 		"viceme-publish/references/workflow.md",
 		"viceme-publish/references/errors.md",
+		"viceme-publish/references/creator-workflow.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -45,6 +46,31 @@ func TestPublishSkillKeepsHistoricalContextOutOfProfileSelection(t *testing.T) {
 			if strings.Contains(string(content), forbidden) {
 				t.Fatalf("embedded %s exposes environment selection through %q", relativePath, forbidden)
 			}
+		}
+	}
+}
+
+func TestPublishSkillRoutesTopLevelCreatorWorkflow(t *testing.T) {
+	publishEntrypoint, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/SKILL.md")
+	if err != nil {
+		t.Fatalf("read embedded publish Skill: %v", err)
+	}
+	if !strings.Contains(string(publishEntrypoint), "references/creator-workflow.md") {
+		t.Fatal("publish Skill does not route local Skill requests to the creator workflow")
+	}
+
+	creatorWorkflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/creator-workflow.md")
+	if err != nil {
+		t.Fatalf("read embedded creator workflow: %v", err)
+	}
+	for _, required := range []string{
+		"viceme publish <path>",
+		"exactly one CNY listing price",
+		"same returned Publication ID",
+		"untrusted data",
+	} {
+		if !strings.Contains(string(creatorWorkflow), required) {
+			t.Fatalf("embedded creator workflow is missing %q", required)
 		}
 	}
 }

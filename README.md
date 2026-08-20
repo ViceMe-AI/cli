@@ -59,6 +59,8 @@
 
    > Publish this Skill to ViceMe.
 
+   Or ask the Agent to start the same flow with `viceme publish ./my-skill`.
+
 The Agent checks login, keeps the selected Profile fixed throughout the
 workflow, validates the Skill, immediately uploads the private Draft, and opens
 its real Owner Preview. It uploads media candidates without asking for a price,
@@ -77,6 +79,11 @@ The initial request to “publish” is not permission to make the listing publi
 Public publication happens only after the final review is displayed and the
 user explicitly confirms it.
 
+`viceme publish <path>` is the concise top-level entry to this same Skill
+Marketplace private Draft workflow and is equivalent to `viceme skill publish
+--path <path>`. It does not publish a general v3 work or configure
+subscriptions, trials, usage quotas, or other buyer entitlements.
+
 ### From the terminal
 
 ```bash
@@ -88,7 +95,8 @@ viceme auth status
 viceme auth login
 
 # Upload the real private draft and open its Owner Preview before pricing.
-viceme skill publish --path ./my-skill
+viceme publish ./my-skill
+# Equivalent explicit form: viceme skill publish --path ./my-skill
 
 # Continue the same unpriced draft and upload media candidates.
 viceme skill publish --resume <publication-id>
@@ -247,6 +255,7 @@ Never copy an access token into the conversation.
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |
 | `viceme skill listing get <listing-id>` | Read the authoritative private Listing state. |
 | `viceme skill listing bind <listing-id> --path <path>` | Explicitly bind a source to a selected owned Listing. |
+| `viceme publish <path>` | Concise top-level entry for the same private Skill Marketplace Draft flow as `viceme skill publish --path <path>`; it is not a general v3 publication or subscription command. |
 | `viceme skill publish --path <path>` | Upload the real private package and return its Owner Preview before pricing. |
 | `viceme skill publish --resume <id>` | Continue the same unpriced Draft and upload media candidates without starting a platform model. |
 | `viceme publication review <id>` | Read the authoritative bilingual copy, price, selected media, and review state. |

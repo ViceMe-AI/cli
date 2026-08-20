@@ -55,6 +55,8 @@
 
    > 帮我把这个 Skill 发布到 ViceMe。
 
+   也可以让 Agent 用 `viceme publish ./my-skill` 进入同一流程。
+
 Agent 会先检查登录状态，在整个流程中固定使用同一个 Profile，校验 Skill 后立即
 上传私有草稿并打开真实创作者预览，不询价就继续上传候选媒体。当前用户的 Agent 随后
 完成双语文案和素材建议，先把完整作品详情和图片直接展示出来，再把价格和详情修改合并成一个
@@ -69,6 +71,10 @@ Agent 会先检查登录状态，在整个流程中固定使用同一个 Profile
 最初的“帮我发布”不等于授权公开上架。只有完整审核稿已经展示、用户明确确认后，
 商品才会公开。
 
+`viceme publish <path>` 是同一条 Skill Marketplace 私有 Draft 链路的简洁顶层入口，
+等价于 `viceme skill publish --path <path>`；它不发布通用 v3 作品，也不配置订阅、试用、
+使用次数或其他用户权益。
+
 ### 直接使用终端
 
 ```bash
@@ -80,7 +86,8 @@ viceme auth status
 viceme auth login
 
 # 定价前先上传真实私有草稿，并打开创作者预览。
-viceme skill publish --path ./my-skill
+viceme publish ./my-skill
+# 等价的显式形式：viceme skill publish --path ./my-skill
 
 # 继续同一个未定价草稿并上传候选媒体。
 viceme skill publish --resume <publication-id>
@@ -227,6 +234,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme skill listing prepare --path <path>` | 创建或恢复稳定的创作者私有预览，并保存本地绑定。 |
 | `viceme skill listing get <listing-id>` | 读取权威的私有 Listing 状态。 |
 | `viceme skill listing bind <listing-id> --path <path>` | 将来源明确绑定到用户选定且拥有的 Listing。 |
+| `viceme publish <path>` | 同一条私有 Skill Marketplace Draft 链路的简洁顶层入口，等价于 `viceme skill publish --path <path>`；不用于发布通用 v3 作品或配置订阅。 |
 | `viceme skill publish --path <path>` | 定价前上传真实私有包并返回创作者预览。 |
 | `viceme skill publish --resume <id>` | 继续同一个未定价 Draft 并上传媒体候选，不启动平台模型。 |
 | `viceme publication review <id>` | 读取权威双语文案、价格、选定素材和审核状态。 |

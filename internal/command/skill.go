@@ -157,107 +157,14 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{
 		Use: "publish", Short: "Upload a Skill and prepare its listing for explicit review", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if source != "" && resume != "" {
-				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--path and --resume cannot be used together")
-			}
-			if source == "" && resume == "" {
-				return output.Validation("SKILL_PATH_REQUIRED", "provide --path or --resume")
-			}
-			priceConfirmed := command.Flags().Changed("price-minor")
-			if priceConfirmed && (priceMinor < 0 || priceMinor > 10_000_000) {
-				return output.Validation("SKILL_PRICE_INVALID", "priceMinor must be between 0 and 10000000")
-			}
-			store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
-			if resume != "" {
-				pending, err := store.Load(resume)
-				if err != nil {
-					return err
-				}
-				pkg, err := publication.Build(pending.SourcePath)
-				if err != nil {
-					return err
-				}
-				if pkg.Artifact.Digest != pending.ArtifactDigest {
-					return output.Validation("PUBLICATION_SOURCE_CHANGED", "local Skill source changed after the publication started").WithHint("restore the original source or start a new publication")
-				}
-				if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
-					return err
-				}
-				if priceConfirmed {
-					pending.PriceMinor = &priceMinor
-					if err := store.Save(pending); err != nil {
-						return err
-					}
-				}
-				// An explicit resume continues Draft enrichment even while the
-				// price is still unset. Price gates final confirmation, not media
-				// upload or listing analysis.
-				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, false)
-			}
-			pkg, err := publication.Build(source)
-			if err != nil {
-				return err
-			}
-			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
-				return err
-			}
-			prepared, _, err := prepareSkillListing(command.Context(), runtime, pkg, forceNew, "")
-			if err != nil {
-				return err
-			}
-			fingerprint := fmt.Sprintf("%x", sha256.Sum256([]byte(
-				runtime.profile.ID+"\x00"+prepared.ListingID+"\x00"+pkg.Artifact.Digest+"\x00"+pkg.Digest+"\x00"+
-					creatorDisplayName+"\x00"+buildinfo.Version,
-			)))
-			intent, err := store.LoadOrCreateIntent(fingerprint, runtime.deps.NewID)
-			if err != nil {
-				return err
-			}
-			if intent.PublicationID != "" {
-				pending := publication.Pending{
-					PublicationID: intent.PublicationID, ClientRequestID: intent.ClientRequestID,
-					Fingerprint: fingerprint,
-					SourcePath:  pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
-				}
-				if priceConfirmed {
-					pending.PriceMinor = &priceMinor
-				}
-				if err := store.Save(pending); err != nil {
-					return err
-				}
-				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, pending.PriceMinor == nil)
-			}
-			created, err := runtime.client().CreateSkillPublication(command.Context(), api.CreateSkillPublicationRequest{
-				ClientRequestID: intent.ClientRequestID, ContractVersion: api.SkillPublicationContractVersion, CLIVersion: buildinfo.Version,
-				Manifest: pkg.Manifest, ManifestDigest: pkg.Digest, Artifact: pkg.Artifact, ListingID: prepared.ListingID,
+			return runSkillPublish(command.Context(), runtime, skillPublishRequest{
+				Source:             source,
+				Resume:             resume,
+				PriceMinor:         priceMinor,
+				PriceConfirmed:     command.Flags().Changed("price-minor"),
 				CreatorDisplayName: creatorDisplayName,
+				ForceNew:           forceNew,
 			})
-			if err != nil {
-				if output.AsError(err).Subtype != "SKILL_PUBLICATION_ALREADY_ACTIVE" {
-					return err
-				}
-				preview, previewErr := runtime.client().GetSkillListingPreview(command.Context(), prepared.ListingID)
-				if previewErr != nil || preview.Publication == nil {
-					return err
-				}
-				created = api.CreateSkillPublicationResponse{PublicationID: preview.Publication.ID, ListingID: prepared.ListingID, DraftRevision: preview.DraftRevision, Status: preview.Publication.Status}
-			}
-			intent.PublicationID = created.PublicationID
-			if err := store.SaveIntent(intent); err != nil {
-				return err
-			}
-			pending := publication.Pending{
-				PublicationID: created.PublicationID, ClientRequestID: intent.ClientRequestID,
-				Fingerprint: fingerprint,
-				SourcePath:  pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
-			}
-			if priceConfirmed {
-				pending.PriceMinor = &priceMinor
-			}
-			if err := store.Save(pending); err != nil {
-				return err
-			}
-			return continueSkillPublication(command.Context(), runtime, store, pending, pkg, created.PackageUpload, pending.PriceMinor == nil)
 		},
 	}
 	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
@@ -266,6 +173,138 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&creatorDisplayName, "creator-display-name", "", "creator display name used when the account has none")
 	command.Flags().BoolVar(&forceNew, "new-listing", false, "explicitly create a separate Listing even when content matches")
 	return command
+}
+
+type skillPublishRequest struct {
+	Source             string
+	Resume             string
+	PriceMinor         int
+	PriceConfirmed     bool
+	CreatorDisplayName string
+	ForceNew           bool
+}
+
+func newTopLevelSkillPublishCommand(runtime *Runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "publish <path>",
+		Short: "Upload a Skill and prepare its listing for explicit review",
+		Args: func(_ *cobra.Command, args []string) error {
+			switch len(args) {
+			case 0:
+				return output.Validation("SKILL_PATH_REQUIRED", "provide a Skill directory or ZIP path")
+			case 1:
+				return nil
+			default:
+				return output.Validation("SKILL_PATH_ARGUMENTS_INVALID", "publish accepts exactly one Skill directory or ZIP path")
+			}
+		},
+		RunE: func(command *cobra.Command, args []string) error {
+			return runSkillPublish(command.Context(), runtime, skillPublishRequest{Source: args[0]})
+		},
+	}
+}
+
+func runSkillPublish(ctx context.Context, runtime *Runtime, request skillPublishRequest) error {
+	if request.Source != "" && request.Resume != "" {
+		return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--path and --resume cannot be used together")
+	}
+	if request.Source == "" && request.Resume == "" {
+		return output.Validation("SKILL_PATH_REQUIRED", "provide --path or --resume")
+	}
+	if request.PriceConfirmed && (request.PriceMinor < 0 || request.PriceMinor > 10_000_000) {
+		return output.Validation("SKILL_PRICE_INVALID", "priceMinor must be between 0 and 10000000")
+	}
+	store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
+	if request.Resume != "" {
+		pending, err := store.Load(request.Resume)
+		if err != nil {
+			return err
+		}
+		pkg, err := publication.Build(pending.SourcePath)
+		if err != nil {
+			return err
+		}
+		if pkg.Artifact.Digest != pending.ArtifactDigest {
+			return output.Validation("PUBLICATION_SOURCE_CHANGED", "local Skill source changed after the publication started").WithHint("restore the original source or start a new publication")
+		}
+		if err := runtime.requireSkillPublicationAuthentication(ctx); err != nil {
+			return err
+		}
+		if request.PriceConfirmed {
+			pending.PriceMinor = &request.PriceMinor
+			if err := store.Save(pending); err != nil {
+				return err
+			}
+		}
+		// An explicit resume continues Draft enrichment even while the
+		// price is still unset. Price gates final confirmation, not media
+		// upload or listing analysis.
+		return continueSkillPublication(ctx, runtime, store, pending, pkg, nil, false)
+	}
+	pkg, err := publication.Build(request.Source)
+	if err != nil {
+		return err
+	}
+	if err := runtime.requireSkillPublicationAuthentication(ctx); err != nil {
+		return err
+	}
+	prepared, _, err := prepareSkillListing(ctx, runtime, pkg, request.ForceNew, "")
+	if err != nil {
+		return err
+	}
+	fingerprint := fmt.Sprintf("%x", sha256.Sum256([]byte(
+		runtime.profile.ID+"\x00"+prepared.ListingID+"\x00"+pkg.Artifact.Digest+"\x00"+pkg.Digest+"\x00"+
+			request.CreatorDisplayName+"\x00"+buildinfo.Version,
+	)))
+	intent, err := store.LoadOrCreateIntent(fingerprint, runtime.deps.NewID)
+	if err != nil {
+		return err
+	}
+	if intent.PublicationID != "" {
+		pending := publication.Pending{
+			PublicationID: intent.PublicationID, ClientRequestID: intent.ClientRequestID,
+			Fingerprint: fingerprint,
+			SourcePath:  pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
+		}
+		if request.PriceConfirmed {
+			pending.PriceMinor = &request.PriceMinor
+		}
+		if err := store.Save(pending); err != nil {
+			return err
+		}
+		return continueSkillPublication(ctx, runtime, store, pending, pkg, nil, pending.PriceMinor == nil)
+	}
+	created, err := runtime.client().CreateSkillPublication(ctx, api.CreateSkillPublicationRequest{
+		ClientRequestID: intent.ClientRequestID, ContractVersion: api.SkillPublicationContractVersion, CLIVersion: buildinfo.Version,
+		Manifest: pkg.Manifest, ManifestDigest: pkg.Digest, Artifact: pkg.Artifact, ListingID: prepared.ListingID,
+		CreatorDisplayName: request.CreatorDisplayName,
+	})
+	if err != nil {
+		if output.AsError(err).Subtype != "SKILL_PUBLICATION_ALREADY_ACTIVE" {
+			return err
+		}
+		preview, previewErr := runtime.client().GetSkillListingPreview(ctx, prepared.ListingID)
+		if previewErr != nil || preview.Publication == nil {
+			return err
+		}
+		created = api.CreateSkillPublicationResponse{PublicationID: preview.Publication.ID, ListingID: prepared.ListingID, DraftRevision: preview.DraftRevision, Status: preview.Publication.Status}
+	}
+	intent.PublicationID = created.PublicationID
+	if err := store.SaveIntent(intent); err != nil {
+		return err
+	}
+	pending := publication.Pending{
+		PublicationID: created.PublicationID, ClientRequestID: intent.ClientRequestID,
+		Fingerprint: fingerprint,
+		SourcePath:  pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
+	}
+	if request.PriceConfirmed {
+		pending.PriceMinor = &request.PriceMinor
+	}
+	if err := store.Save(pending); err != nil {
+		return err
+	}
+	return continueSkillPublication(ctx, runtime, store, pending, pkg, created.PackageUpload, pending.PriceMinor == nil)
 }
 
 func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.Package, forceNew bool, targetListingID string) (listingPrepareResult, publication.ResolvedSourceIdentity, error) {

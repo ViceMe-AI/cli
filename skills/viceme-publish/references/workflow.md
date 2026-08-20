@@ -19,15 +19,16 @@ user-facing choices. Memory, prior conversations, publication history, filenames
 digests, sidecars, and login state elsewhere cannot override that context. A
 historical match outside the active context must not be probed, offered, or resumed.
 
-`skill publish --path` validates the local source, creates or recovers the
+`viceme publish <path>` validates the local source, creates or recovers the
 Listing and Publication, uploads the private package, and returns the first
-real Owner Preview in one fast path. Workspaces persist `.viceme/skill.json`;
-ZIP files persist the adjacent `<zip-name>.viceme.json`; an endpoint-scoped
-fallback index lives in the CLI configuration directory. These files contain
-no access token or upload credential. `listingId` is the durable work identity;
-the canonical package digest identifies only one content version. Moving or
-renaming a source, editing workspace files, retrying a lost response, or
-resuming an upload must not create another Listing.
+real Owner Preview in one fast path. It is equivalent to `viceme skill publish
+--path <path>`. Workspaces persist `.viceme/skill.json`; ZIP files persist the
+adjacent `<zip-name>.viceme.json`; an endpoint-scoped fallback index lives in
+the CLI configuration directory. These files contain no access token or upload
+credential. `listingId` is the durable work identity; the canonical package
+digest identifies only one content version. Moving or renaming a source,
+editing workspace files, retrying a lost response, or resuming an upload must
+not create another Listing.
 
 Use `--new-listing` only for an explicit separate work. When digest candidate resolution is ambiguous, display candidates and use `skill listing bind <listing-id> --path ...` only after the user chooses an owned Listing.
 
