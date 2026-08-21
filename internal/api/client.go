@@ -103,6 +103,12 @@ func (c *Client) CreateSkillPublication(ctx context.Context, request CreateSkill
 	return response, err
 }
 
+func (c *Client) SetCreatorMonthlyPrice(ctx context.Context, request CreateCreatorSubscriptionPlanRequest) (CreatorSubscriptionPlan, error) {
+	var response CreatorSubscriptionPlan
+	err := c.doJSON(ctx, http.MethodPost, "/v1/creator/skill-publications/creator-monthly-price", request, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) PrepareSkillListing(ctx context.Context, request PrepareSkillListingRequest) (PrepareSkillListingResponse, error) {
 	var response PrepareSkillListingResponse
 	err := c.doJSON(ctx, http.MethodPost, "/v1/creator/skill-listings/prepare", request, &response, "@stored")
@@ -167,10 +173,6 @@ func (c *Client) SuggestListingDraft(ctx context.Context, publicationID string, 
 	var response SkillPublication
 	err := c.doJSON(ctx, http.MethodPatch, publicationPath(publicationID)+"/listing-suggestion", request, &response, "@stored")
 	return response, err
-}
-
-func (c *Client) UpdateListingPrice(ctx context.Context, publicationID string, priceMinor int) (SkillPublication, error) {
-	return c.UpdateListingDraftPatch(ctx, publicationID, UpdateSkillPublicationDraftRequest{PriceMinor: &priceMinor})
 }
 
 func (c *Client) ConfirmPublication(ctx context.Context, publicationID, reviewDigest string) (SkillPublication, error) {

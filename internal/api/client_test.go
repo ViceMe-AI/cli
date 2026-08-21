@@ -49,6 +49,33 @@ func TestPublicationClientUsesBearerAndExactContract(t *testing.T) {
 	}
 }
 
+func TestInitializeCreatorMonthlyPriceUsesDedicatedCliEndpoint(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPost || request.URL.Path != "/v1/creator/skill-publications/creator-monthly-price" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer vme_cli_test" {
+			t.Fatalf("missing bearer credential: %q", request.Header.Get("Authorization"))
+		}
+		body, _ := io.ReadAll(request.Body)
+		if string(body) != `{"creatorAccountId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","monthlyPriceCents":2500}` {
+			t.Fatalf("unexpected request body: %s", body)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","creatorAccountId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","monthlyPriceCents":2500,"status":"ACTIVE"}`)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
+	plan, err := client.SetCreatorMonthlyPrice(context.Background(), CreateCreatorSubscriptionPlanRequest{
+		CreatorAccountID: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", MonthlyPriceCents: 2500,
+	})
+	if err != nil || plan.MonthlyPriceCents != 2500 {
+		t.Fatalf("unexpected response: plan=%#v err=%v", plan, err)
+	}
+}
+
 func TestSdkWorkClientUsesLightweightCreatorEndpoints(t *testing.T) {
 	t.Parallel()
 	requests := make(chan string, 4)

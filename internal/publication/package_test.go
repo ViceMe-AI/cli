@@ -50,7 +50,7 @@ func TestBuildIsDeterministicAcrossDirectoryAndZip(t *testing.T) {
 	if first.Artifact.Digest != second.Artifact.Digest || !bytes.Equal(first.Bytes, second.Bytes) {
 		t.Fatal("identical inputs did not produce an identical deterministic ZIP")
 	}
-	if first.Manifest.Spec.Sale.PriceMinor != nil || first.Manifest.Spec.Sale.Currency != "CNY" {
+	if first.Manifest.Spec.Sale.PriceMinor != nil || first.Manifest.Spec.Sale.Currency != "CNY" || first.Manifest.Spec.Sale.AccessMode != "FREE" || first.Manifest.Spec.Sale.Entitlement != "PUBLIC_COPY" {
 		t.Fatalf("unexpected sale manifest: %#v", first.Manifest.Spec.Sale)
 	}
 	if len(first.Candidates) != 1 || first.Candidates[0].RelativePath != "assets/cover.png" {

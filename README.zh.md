@@ -21,8 +21,8 @@
 - **Agent 原生**——用自然语言描述目标，不需要记住一整套发布命令和状态流转。
 - **一次安装**——原生 CLI 与匹配版本的官方 Skills 一起安装到 Codex、Claude
   Code、WorkBuddy，并写入 `~/.agents/skills` 兼容目录。
-- **由用户控制发布**——模型可以建议双语文案和素材，但价格与最终公开发布只能由
-  用户决定。
+- **由用户控制发布**——模型可以建议双语文案、素材和免费版/升级版，但创作者统一
+  月订阅价格与最终公开发布只能由用户决定。
 - **确定且可恢复**——CLI 在本地校验和打包；中断后继续同一个发布任务，响应丢失
   也不会重复创建商品。
 - **同时适合 Agent 和自动化**——稳定 JSON、错误码、Dry Run 和明确状态让每个动作
@@ -55,10 +55,12 @@
 
    > 帮我把这个 Skill 发布到 ViceMe。
 
-Agent 会先检查登录状态，在整个流程中固定使用同一个 Profile，校验 Skill 后立即
-上传私有草稿并打开真实创作者预览，不询价就继续上传候选媒体。当前用户的 Agent 随后
-完成双语文案和素材建议，先把完整作品详情和图片直接展示出来，再把价格和详情修改合并成一个
-问题；应用用户答案后展示最终成品，最后只询问一次是否确认并立即公开发布。
+   也可以让 Agent 用 `viceme publish ./my-skill` 进入同一流程。
+
+Agent 会先检查登录状态，在整个流程中固定使用同一个 Profile，选择免费版或升级版，
+校验 Skill 后立即上传私有草稿并打开真实创作者预览。免费版不询价；升级版仅在创作者
+尚未设置统一月订阅价格时询问一次。当前用户的 Agent 随后完成双语文案和素材建议，
+展示最终成品，最后只询问一次是否确认并立即公开发布。
 
 ```text
 本地 Skill → 登录 → 校验并私有上传 → 创作者预览 → Agent 补全
@@ -68,6 +70,10 @@ Agent 会先检查登录状态，在整个流程中固定使用同一个 Profile
 
 最初的“帮我发布”不等于授权公开上架。只有完整审核稿已经展示、用户明确确认后，
 商品才会公开。
+
+`viceme publish <path>` 是同一条 Skill Marketplace 私有 Draft 链路的简洁顶层入口，
+等价于 `viceme skill publish --path <path>`；它不发布通用 v3 作品，也不配置试用、
+使用次数或单个 Skill 的一次性价格。
 
 ### 直接使用终端
 
@@ -80,7 +86,8 @@ viceme auth status
 viceme auth login
 
 # 定价前先上传真实私有草稿，并打开创作者预览。
-viceme skill publish --path ./my-skill
+viceme publish ./my-skill
+# 等价的显式形式：viceme skill publish --path ./my-skill
 
 # 继续同一个未定价草稿并上传候选媒体。
 viceme skill publish --resume <publication-id>
@@ -90,8 +97,8 @@ viceme publication review <publication-id>
 viceme publication suggest <publication-id> --input <suggestion.json>
 # viceme publication analyze <publication-id> && viceme publication wait <publication-id>
 
-# 查看完整作品详情后，在同一个草稿上设置人民币 1 元。
-viceme skill publish --resume <publication-id> --price-minor 100
+# 仅当第一个升级版返回 requiresCreatorMonthlyPrice 时设置创作者统一月价。
+viceme skill publish --resume <publication-id> --creator-monthly-price-cents 1000
 ```
 
 ## 安装
@@ -227,13 +234,14 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme skill listing prepare --path <path>` | 创建或恢复稳定的创作者私有预览，并保存本地绑定。 |
 | `viceme skill listing get <listing-id>` | 读取权威的私有 Listing 状态。 |
 | `viceme skill listing bind <listing-id> --path <path>` | 将来源明确绑定到用户选定且拥有的 Listing。 |
-| `viceme skill publish --path <path>` | 定价前上传真实私有包并返回创作者预览。 |
-| `viceme skill publish --resume <id>` | 继续同一个未定价 Draft 并上传媒体候选，不启动平台模型。 |
-| `viceme publication review <id>` | 读取权威双语文案、价格、选定素材和审核状态。 |
+| `viceme publish <path> --access-mode FREE\|CREATOR_SUBSCRIPTION` | 以免费版或创作者订阅升级版进入私有 Skill Marketplace Draft 链路。 |
+| `viceme skill publish --path <path> --access-mode ...` | 上传真实私有包并返回创作者预览。 |
+| `viceme skill publish --resume <id>` | 继续同一个 Draft 并上传媒体候选，不启动平台模型。 |
+| `viceme publication review <id>` | 读取权威双语文案、访问模式、创作者月价状态、选定素材和审核状态。 |
 | `viceme publication suggest <id> --input ...` | 以 Draft revision 保护提交 Agent 生成的双语文案与媒体选择。 |
 | `viceme publication analyze <id>` | 当前 Agent 无法完成补全时，显式请求平台模型分析。 |
 | `viceme publication wait <id>` | 等待已经显式请求的平台分析，不重复上传。 |
-| `viceme skill publish --resume <id> --price-minor <fen>` | 在完整详情审核后，为同一个 Draft 写入人民币价格，不新建 Listing。 |
+| `viceme skill publish --resume <id> --creator-monthly-price-cents <fen>` | 仅在升级版要求月价时设置该创作者所有升级版共享的月价。 |
 | `viceme publication asset upload ...` | 替换用户明确选择的媒体；加 `--candidate-only` 可暂存由 Agent 提供、随后交给 `publication suggest` 选择的媒体。 |
 | `viceme publication update ...` | 用严格 JSON 文件替换完整 Listing Draft。 |
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |

@@ -5,8 +5,8 @@ All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 ## Required inputs
 
 - Root `SKILL.md` with non-empty `name` and `description` frontmatter.
-- Explicit `priceMinor` in CNY fen before final public confirmation. A private
-  package upload intentionally starts with `priceMinor: null`.
+- Explicit access mode: `FREE` or `CREATOR_SUBSCRIPTION`. Free has no price.
+  Upgraded access uses the creator's single shared monthly subscription price.
 - Two listing summaries and two usage instructions (`zh-CN` and `en-US`), a verified package, one cover, and at least one gallery item must be displayed in the final review before the combined confirm-and-publish authorization.
 
 ## Stable local identity
@@ -19,15 +19,16 @@ user-facing choices. Memory, prior conversations, publication history, filenames
 digests, sidecars, and login state elsewhere cannot override that context. A
 historical match outside the active context must not be probed, offered, or resumed.
 
-`skill publish --path` validates the local source, creates or recovers the
+`viceme publish <path>` validates the local source, creates or recovers the
 Listing and Publication, uploads the private package, and returns the first
-real Owner Preview in one fast path. Workspaces persist `.viceme/skill.json`;
-ZIP files persist the adjacent `<zip-name>.viceme.json`; an endpoint-scoped
-fallback index lives in the CLI configuration directory. These files contain
-no access token or upload credential. `listingId` is the durable work identity;
-the canonical package digest identifies only one content version. Moving or
-renaming a source, editing workspace files, retrying a lost response, or
-resuming an upload must not create another Listing.
+real Owner Preview in one fast path. It is equivalent to `viceme skill publish
+--path <path>`. Workspaces persist `.viceme/skill.json`; ZIP files persist the
+adjacent `<zip-name>.viceme.json`; an endpoint-scoped fallback index lives in
+the CLI configuration directory. These files contain no access token or upload
+credential. `listingId` is the durable work identity; the canonical package
+digest identifies only one content version. Moving or renaming a source,
+editing workspace files, retrying a lost response, or resuming an upload must
+not create another Listing.
 
 Use `--new-listing` only for an explicit separate work. When digest candidate resolution is ambiguous, display candidates and use `skill listing bind <listing-id> --path ...` only after the user chooses an owned Listing.
 
@@ -73,7 +74,8 @@ Do not ask the user to approve media represented only by filenames.
 `reviewDigest` is an opaque concurrency and integrity token, not a human
 summary. Keep it internally for `publication confirm` and `publication publish`.
 The user-facing review consists of the bilingual summaries, bilingual usage
-instructions, price, inline cover, and inline ordered gallery.
+instructions, access mode, effective creator monthly price when applicable,
+inline cover, and inline ordered gallery.
 
 ## Combined confirmation
 
@@ -89,12 +91,11 @@ The initial request to publish, given before the final review exists, is not
 this authorization. Any draft change produces a new `reviewDigest`; display the
 new review and obtain a new combined authorization before either command.
 
-The first unpriced publish uploads and verifies the package, then returns its
+The first publish uploads and verifies the package, then returns its
 Publication ID and Owner Preview. Continue immediately with `skill publish
---resume <id>` without a price; this is not a new upload authorization boundary.
-That continuation uploads media candidates while `priceMinor` remains null and
-does not implicitly start a platform model. `requiresPrice: true` is Draft
-completeness state, not a prompt to interrupt progressive enrichment.
+--resume <id>`; this is not a new upload authorization boundary. That
+continuation uploads media candidates and does not implicitly start a platform
+model.
 
 Fetch `publication review`, generate the listing fields in the user's Agent,
 and submit one revision-protected suggestion. The strict input is:
@@ -115,7 +116,7 @@ and submit one revision-protected suggestion. The strict input is:
 
 `baseDraftRevision` must be the exact value returned by the same review. A stale
 suggestion fails with `SKILL_LISTING_DRAFT_CHANGED`; refetch and regenerate it.
-The suggestion endpoint cannot change title or price and records accepted fields
+The suggestion endpoint cannot change title, access mode, or creator price and records accepted fields
 with source `AGENT`. Explicit user changes continue through `publication update`
 and remain source `USER`.
 
@@ -125,17 +126,12 @@ wait`. This is a platform-model fallback, not the default workflow. Do not run
 both writers for the same Draft revision. If fallback wait reaches its deadline,
 repeat only the wait command with the same ID. Never upload the same package again.
 
-After analysis and required media are ready, fetch the authoritative review and
-display the title, bilingual summaries, bilingual usage instructions, cover,
-and ordered gallery before requesting more input. In that same interaction,
-ask for the CNY price and any desired changes to the displayed listing details.
-Never ask for price by itself or defer showing copy and media until after the
-price is supplied. If the user supplies only a price, preserve all displayed
-fields and apply it with `skill publish --resume <id> --price-minor <fen>`. If
-the user also requests edits, apply the complete answer to the same Draft,
-present the fresh preview, then fetch and display the final review. Price is
-required for final public confirmation, never for private media upload or
-analysis.
+For `FREE`, never ask for or send a price. For `CREATOR_SUBSCRIPTION`, inspect
+`requiresCreatorMonthlyPrice` and `creatorMonthlyPriceCents`. When an existing
+price is returned, show and reuse it without asking. When required, ask once for
+the creator's monthly CNY price and apply it to the same Publication with
+`skill publish --resume <id> --creator-monthly-price-cents <fen>`. This is a
+creator-level setting shared by all upgraded Skills, never a Skill price.
 
 Every successful CLI result that changes or completes the Draft includes a
 fresh `presentation`. Present its one-time launch immediately and always keep
@@ -155,7 +151,7 @@ explicit platform fallback completes.
   "usageInstructionsZhCn": "按 SKILL.md 准备素材，然后运行 Skill 生成网页演示文稿。",
   "usageInstructionsEnUs": "Prepare the assets described in SKILL.md, then run the Skill to generate the web presentation.",
   "currency": "CNY",
-  "priceMinor": 100,
+  "accessMode": "FREE",
   "coverUploadId": "uuid",
   "galleryUploadIds": ["uuid"]
 }
