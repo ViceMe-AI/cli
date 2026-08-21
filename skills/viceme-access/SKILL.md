@@ -19,10 +19,12 @@ Implement a browser-only integration backed by an existing creator-owned `workKe
    ```bash
    viceme access init --website <website-dir> --name "<website name>" \
      [--follow "<feature-key>[=<title>]"] \
-     [--price-minor <fen> --purchase "<feature-key>[=<title>]"]
+     [--purchase "<feature-key>[=<title>]" --price-minor <fen>]...
    ```
 
-   A purchase feature creates or updates the website work's one-time sale offer.
+   One price may be shared by all purchase features. To use different prices,
+   repeat `--price-minor` once per `--purchase` in the same order. Each purchase
+   feature creates or updates its own one-time sale offer.
    Creator subscriptions are not supported in this version.
 
 5. Edit `.viceme/access.yaml` and run `viceme access apply` only for later
@@ -47,7 +49,7 @@ Read [references/integration.md](references/integration.md) for configuration an
 - Let the server resolve `workKey → CreatorWork → SaleOffer → Entitlement`.
 - Do not store work-session tokens or access decisions in cookies, localStorage, IndexedDB, URLs, analytics, or logs.
 - Never unlock from checkout return parameters or browser state. Only `access.check()` can grant access.
-- Access checks must never mutate identity, follow, or payment state. Call `access.require()` only from an explicit user action. The authorization layer shows the creator and asks the user to “接受” or “拒绝”; accepting completes WeChat authorization and follows that creator without a second prompt. Checkout still requires the user to select and confirm payment.
+- Access checks must never mutate identity, follow, or payment state. Call `access.require()` only from an explicit user action. For a follow gate, complete sign-in first; the same layer then shows the signed-in account and creator and asks the user to “接受” or “拒绝”. Only “接受” follows the creator. Checkout still requires the user to select and confirm payment.
 - Do not call `follow.follow()` from the host site's gate handler. Following belongs to the owner-follow interface opened by `access.require()`.
 - Never use `window.open`, `window.location`, `confirm`, or `alert` for
   SDK login or checkout. Their complete flows stay in the bottom sheet or
@@ -60,7 +62,7 @@ Read [references/integration.md](references/integration.md) for configuration an
 
 ## Completion checks
 
-- Confirm `viceme access inspect` shows the expected work, one-time offer, features, and capabilities.
+- Confirm `viceme access inspect` shows the expected work, feature-specific one-time offers, features, and capabilities.
 - Confirm follow-gated and purchase-gated functions have separate state.
 - Confirm all public SDK requests omit browser credentials and use the in-memory work session.
 - Confirm follow state cannot change before the user accepts creator authorization or activates a standalone follow action.

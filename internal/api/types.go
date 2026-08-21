@@ -47,6 +47,7 @@ type SdkWorkFeatureConfig struct {
 	FeatureKey string               `json:"featureKey"`
 	Title      string               `json:"title"`
 	Policy     SdkWorkFeaturePolicy `json:"policy"`
+	PriceCents *int                 `json:"priceCents"`
 	Status     string               `json:"status"`
 }
 
@@ -81,7 +82,6 @@ type AuthorizeWebsiteCoverUploadRequest struct {
 type ApplySdkWorkRequest struct {
 	ExpectedConfigVersion int                    `json:"expectedConfigVersion"`
 	DisplayName           string                 `json:"displayName"`
-	PriceCents            *int                   `json:"priceCents"`
 	Features              []SdkWorkFeatureConfig `json:"features"`
 	Status                string                 `json:"status"`
 }
@@ -93,7 +93,7 @@ type SdkWork struct {
 	DisplayName   string                 `json:"displayName"`
 	Status        string                 `json:"status"`
 	ConfigVersion int                    `json:"configVersion"`
-	Offer         *SdkWorkOffer          `json:"offer"`
+	Offers        []SdkWorkOffer         `json:"offers"`
 	Features      []SdkWorkFeatureConfig `json:"features"`
 	Capabilities  []string               `json:"capabilities"`
 	CreatedAt     string                 `json:"createdAt"`
@@ -115,6 +115,7 @@ type SdkWorkPublication struct {
 
 type SdkWorkOffer struct {
 	ID          string `json:"id"`
+	FeatureKey  string `json:"featureKey"`
 	Type        string `json:"type"`
 	AmountCents int    `json:"amountCents"`
 	Currency    string `json:"currency"`

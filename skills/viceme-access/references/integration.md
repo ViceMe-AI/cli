@@ -7,8 +7,8 @@ This workflow starts from a website binding already created by `$viceme-publish`
 ```bash
 viceme access init --website . --name "Dagou Tap" \
   --follow "dingdong=叮咚鸡" \
-  --price-minor 1000 \
-  --purchase "emperor=帝皇"
+  --purchase "emperor=帝皇" --price-minor 1000 \
+  --purchase "emperor-pro=帝皇 Pro" --price-minor 2000
 ```
 
 The command writes the YAML below, activates it, and returns the authoritative
@@ -20,7 +20,6 @@ schemaVersion: 1
 workKey: wrk_example
 region: cn
 displayName: Dagou Tap
-priceCents: 1000
 features:
   dingdong:
     title: 叮咚鸡
@@ -28,18 +27,27 @@ features:
       type: FOLLOW_OWNER
   emperor:
     title: 帝皇
+    priceCents: 1000
+    policy:
+      type: WORK_ENTITLEMENT
+  emperor-pro:
+    title: 帝皇 Pro
+    priceCents: 2000
     policy:
       type: WORK_ENTITLEMENT
 status: ACTIVE
 configVersion: 1
 ```
 
-Omit `priceCents` when the website only needs login or following. `WORK_ENTITLEMENT` requires a positive one-time price.
+Each `WORK_ENTITLEMENT` feature requires its own positive `priceCents`. One
+website may therefore expose multiple independently priced features. A single
+`--price-minor` value is shared when several `--purchase` flags use one price;
+otherwise repeat the flag once per purchase feature.
 
 Supported policies:
 
 - `FOLLOW_OWNER`: current user follows the work owner.
-- `WORK_ENTITLEMENT`: current user has an active entitlement for this work.
+- `WORK_ENTITLEMENT`: current user has an active entitlement for this priced feature.
 
 ## Browser SDK
 
@@ -69,10 +77,9 @@ if (decision.allowed) enableDingdong();
 
 The access check never performs the action by itself, and host sites must not
 call a follow mutation directly. When authorization is required, the ViceMe
-layer shows the creator and asks the user to accept or reject; acceptance
-completes WeChat authorization and follows that creator without a second
-prompt. A signed-in user who reaches a standalone follow step still acts from
-the owner-follow interface shown by `require()`.
+layer completes sign-in first. For a follow gate it then shows the signed-in
+account and creator in the same layer; only accepting that post-login prompt
+follows the creator.
 
 The SDK uses `<viceme-access-layer>`: a mobile bottom sheet and desktop in-page
 layer with Shadow DOM and ViceMe-owned styles. Custom presenters, host-page
