@@ -152,6 +152,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	var creatorMonthlyPriceCents int
 	var creatorDisplayName string
 	var forceNew bool
+	var existingAction string
 	command := &cobra.Command{
 		Use: "publish", Short: "Upload a Skill and prepare its listing for explicit review", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
@@ -164,6 +165,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				CreatorMonthlyPriceSet:   command.Flags().Changed("creator-monthly-price-cents"),
 				CreatorDisplayName:       creatorDisplayName,
 				ForceNew:                 forceNew,
+				ExistingSkillAction:      existingAction,
 			})
 		},
 	}
@@ -173,6 +175,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().IntVar(&creatorMonthlyPriceCents, "creator-monthly-price-cents", 0, "set the creator's shared monthly subscription price in fen when required")
 	command.Flags().StringVar(&creatorDisplayName, "creator-display-name", "", "creator display name used when the account has none")
 	command.Flags().BoolVar(&forceNew, "new-listing", false, "explicitly create a separate Listing even when content matches")
+	command.Flags().StringVar(&existingAction, "existing-skill-action", "", "action for an existing Skill: UPGRADE, UPDATE_FREE, or UPDATE_UPGRADED")
 	return command
 }
 
@@ -185,11 +188,13 @@ type skillPublishRequest struct {
 	CreatorMonthlyPriceSet   bool
 	CreatorDisplayName       string
 	ForceNew                 bool
+	ExistingSkillAction      string
 }
 
 func newTopLevelSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	var accessMode string
 	var creatorMonthlyPriceCents int
+	var existingAction string
 	command := &cobra.Command{
 		Use:   "publish <path>",
 		Short: "Upload a Skill and prepare its listing for explicit review",
@@ -207,11 +212,13 @@ func newTopLevelSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			return runSkillPublish(command.Context(), runtime, skillPublishRequest{
 				Source: args[0], AccessMode: accessMode, AccessModeSet: command.Flags().Changed("access-mode"),
 				CreatorMonthlyPriceCents: creatorMonthlyPriceCents, CreatorMonthlyPriceSet: command.Flags().Changed("creator-monthly-price-cents"),
+				ExistingSkillAction: existingAction,
 			})
 		},
 	}
 	command.Flags().StringVar(&accessMode, "access-mode", "FREE", "Skill access mode: FREE or CREATOR_SUBSCRIPTION")
 	command.Flags().IntVar(&creatorMonthlyPriceCents, "creator-monthly-price-cents", 0, "set the creator's shared monthly subscription price in fen when required")
+	command.Flags().StringVar(&existingAction, "existing-skill-action", "", "action for an existing Skill: UPGRADE, UPDATE_FREE, or UPDATE_UPGRADED")
 	return command
 }
 
@@ -233,6 +240,9 @@ func runSkillPublish(ctx context.Context, runtime *Runtime, request skillPublish
 	}
 	if request.CreatorMonthlyPriceSet && request.Resume == "" && request.AccessMode != "CREATOR_SUBSCRIPTION" {
 		return output.Validation("CREATOR_MONTHLY_PRICE_NOT_APPLICABLE", "creator monthly price is only valid for CREATOR_SUBSCRIPTION Skills")
+	}
+	if request.ExistingSkillAction != "" && request.ExistingSkillAction != "UPGRADE" && request.ExistingSkillAction != "UPDATE_FREE" && request.ExistingSkillAction != "UPDATE_UPGRADED" {
+		return output.Validation("EXISTING_SKILL_ACTION_INVALID", "existing skill action must be UPGRADE, UPDATE_FREE, or UPDATE_UPGRADED")
 	}
 	store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
 	if request.Resume != "" {
@@ -268,6 +278,29 @@ func runSkillPublish(ctx context.Context, runtime *Runtime, request skillPublish
 	if err != nil {
 		return err
 	}
+	if err := runtime.requirePublicationAuthentication(ctx); err != nil {
+		return err
+	}
+	prepared, _, err := prepareSkillListing(ctx, runtime, pkg, request.ForceNew, "")
+	if err != nil {
+		return err
+	}
+	preview, previewErr := runtime.client().GetSkillListingPreview(ctx, prepared.ListingID)
+	if !request.ForceNew && previewErr == nil && preview.Publication != nil && preview.Publication.Status == "PUBLISHED" {
+		if request.ExistingSkillAction == "" {
+			return output.Validation("EXISTING_SKILL_ACTION_REQUIRED", "this source is already bound to an existing Skill; choose how to publish the new release").WithDetails(map[string]any{
+				"listingId": prepared.ListingID, "publicationId": preview.Publication.ID,
+				"currentAccessMode": preview.Publication.AccessMode,
+				"options":           []string{"UPGRADE", "UPDATE_FREE", "UPDATE_UPGRADED"},
+			}).WithHint("retry with --existing-skill-action UPGRADE, UPDATE_FREE, or UPDATE_UPGRADED")
+		}
+		switch request.ExistingSkillAction {
+		case "UPGRADE", "UPDATE_UPGRADED":
+			request.AccessMode = "CREATOR_SUBSCRIPTION"
+		case "UPDATE_FREE":
+			request.AccessMode = "FREE"
+		}
+	}
 	pkg.Manifest.Spec.Sale.AccessMode = request.AccessMode
 	if request.AccessMode == "FREE" {
 		pkg.Manifest.Spec.Sale.Entitlement = "PUBLIC_COPY"
@@ -277,13 +310,6 @@ func runSkillPublish(ctx context.Context, runtime *Runtime, request skillPublish
 	pkg.Digest, err = publication.CanonicalDigest(pkg.Manifest)
 	if err != nil {
 		return output.Internal("MANIFEST_DIGEST_FAILED", "failed to canonicalize publication manifest", err)
-	}
-	if err := runtime.requirePublicationAuthentication(ctx); err != nil {
-		return err
-	}
-	prepared, _, err := prepareSkillListing(ctx, runtime, pkg, request.ForceNew, "")
-	if err != nil {
-		return err
 	}
 	fingerprint := fmt.Sprintf("%x", sha256.Sum256([]byte(
 		runtime.profile.ID+"\x00"+prepared.ListingID+"\x00"+pkg.Artifact.Digest+"\x00"+pkg.Digest+"\x00"+
