@@ -179,5 +179,10 @@ func TestWebsitePublicationBelongsToPublishSkill(t *testing.T) {
 		if strings.Contains(string(content), "viceme website publish") {
 			t.Fatalf("embedded %s still owns website publication", relativePath)
 		}
+		for _, required := range []string{"$viceme-publish", "never publishes"} {
+			if !strings.Contains(string(content), required) {
+				t.Fatalf("embedded %s does not enforce explicit publication through %q", relativePath, required)
+			}
+		}
 	}
 }

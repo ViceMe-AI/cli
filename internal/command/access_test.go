@@ -1,14 +1,9 @@
 package command
 
 import (
-	"context"
-	"encoding/json"
 	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/ViceMe-AI/cli/internal/config"
@@ -191,60 +186,26 @@ func TestBuildQuickAccessFeaturesSupportsMultiplePrices(t *testing.T) {
 	}
 }
 
-func TestEnsurePublishedWebsiteBindingPublishesBeforeAccessSetup(t *testing.T) {
+func TestAccessInitRequiresExplicitWebsitePublication(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("website"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	published := false
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.URL.Path == "/v1/cli/auth/status" && request.Method == http.MethodGet {
-			writeJSONResponse(writer, map[string]any{
-				"authenticated": true,
-				"user":          map[string]any{"id": "55555555-5555-4555-8555-555555555555", "displayName": "Creator", "avatarUrl": nil},
-				"scopes":        []string{"profile:read", "skill-publication:read", "skill-publication:write"},
-				"expiresAt":     "2027-08-21T00:00:00Z",
-			})
-			return
-		}
-		if request.URL.Path != "/v1/cli/sdk-works/publish" || request.Method != http.MethodPost {
-			http.NotFound(writer, request)
-			return
-		}
-		if request.Header.Get("Authorization") == "" {
-			writer.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		var body map[string]any
-		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
-			t.Fatal(err)
-		}
-		published = true
-		writeJSONResponse(writer, map[string]any{
-			"creatorWorkId": "22222222-2222-4222-8222-222222222222",
-			"workKey":       "wrk_published_from_access", "displayName": "Dagou Tap",
-			"status": "DRAFT", "configVersion": 1, "offers": []any{}, "features": []any{},
-			"capabilities": []any{"auth", "follow", "access"},
-			"publication": map[string]any{
-				"clientWorkId": body["clientWorkId"], "sourceDigest": body["sourceDigest"],
-				"sourceUrl": nil, "descriptionZhCn": nil, "descriptionEnUs": nil, "coverUrl": nil,
-				"releaseId": "33333333-3333-4333-8333-333333333333", "version": 1,
-				"publishedAt": "2026-08-21T00:00:00.000Z", "unchanged": false,
-			},
-		})
-	}))
-	defer server.Close()
 	runtime := &Runtime{
-		region: config.RegionCN, apiBaseURL: server.URL,
-		deps:              Dependencies{HTTPClient: server.Client(), ErrOut: io.Discard},
-		processCredential: &publicationCredential{raw: "vme_cli_" + strings.Repeat("a", 43)},
+		region: config.RegionCN,
+		deps:   Dependencies{ErrOut: io.Discard},
 	}
-
-	binding, err := ensurePublishedWebsiteBinding(context.Background(), runtime, root, "Dagou Tap")
-	if err != nil {
-		t.Fatalf("ensurePublishedWebsiteBinding() error = %v", err)
+	command := newAccessInitCommand(runtime)
+	command.SetArgs([]string{
+		"--website", root, "--name", "Dagou Tap",
+		"--purchase", "premium", "--price-minor", "100",
+	})
+	err := command.Execute()
+	cliError, ok := err.(*output.Error)
+	if !ok || cliError.Subtype != "WEBSITE_PUBLICATION_REQUIRED" {
+		t.Fatalf("access init error = %#v, want WEBSITE_PUBLICATION_REQUIRED", err)
 	}
-	if !published || binding.WorkKey != "wrk_published_from_access" {
-		t.Fatalf("website was not published before access setup: %#v", binding)
+	if _, statErr := os.Stat(filepath.Join(root, defaultAccessConfigPath)); !os.IsNotExist(statErr) {
+		t.Fatalf("access init wrote config before explicit publication: %v", statErr)
 	}
 }

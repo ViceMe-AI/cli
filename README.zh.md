@@ -228,7 +228,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme doctor` | 检查 CLI、当前 Profile、凭据、API readiness 和已安装官方 Skills。 |
 | `viceme auth status` | 显示当前 Profile 是否已登录。 |
 | `viceme website publish --path <目录> --name <名称> [--url <网址>] [--description-zh-cn ...] [--description-en-us ...] [--cover <图片>]` | 使用可选的 Agent 审核描述和平台托管封面发布网站作品；重复发布复用 `.viceme/website.json` 中的同一作品身份。 |
-| `viceme access init --website <目录> --name <名称> [--follow key] [--purchase key --price-minor 分]...` | Website 未发布时先完成发布，再配置接入和按功能独立定价的一次性售卖方案。 |
+| `viceme access init --website <目录> [--name <名称>] [--follow key] [--purchase key --price-minor 分]...` | 仅为已显式发布的 Website 配置接入和按功能独立定价的一次性售卖方案；不存在已发布绑定时先走 Website Publish 流程。 |
 | `viceme profile list` | 显示 Profile 及其实际 API Endpoint。 |
 | `viceme skill inspect --path <path>` | 无副作用校验本地 Skill。 |
 | `viceme skill listing prepare --path <path>` | 创建或恢复稳定的创作者私有预览，并保存本地绑定。 |

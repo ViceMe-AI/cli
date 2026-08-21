@@ -2,7 +2,13 @@
 
 ## Access configuration
 
-Create and apply the common access configuration in one command. If the website has not been published yet, the command publishes it first and then continues with access setup:
+Access configuration requires an explicitly published website binding. When
+`.viceme/website.json` is missing or has no `workKey`, stop and use
+`$viceme-publish` first. Complete its website metadata review, obtain the
+user's publication confirmation, and publish the website. Return here only
+after that succeeds. `viceme access init` never publishes a website itself.
+
+Then create and apply the common access configuration in one command:
 
 ```bash
 viceme access init --website . --name "Dagou Tap" \
