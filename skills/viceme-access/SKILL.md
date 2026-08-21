@@ -57,6 +57,10 @@ Read [references/integration.md](references/integration.md) for configuration an
 - Do not store work-session tokens or access decisions in cookies, localStorage, IndexedDB, URLs, analytics, or logs.
 - Never unlock from checkout return parameters or browser state. Only `access.check()` can grant access.
 - Access checks must never mutate identity, follow, or payment state. Call `access.require()` only from an explicit user action. For a follow gate, the login consent layer must show the creator before authorization. Accepting login authorization signs in and automatically follows the creator without a second follow layer. Checkout still requires the user to select and confirm payment.
+- Keep the ViceMe-owned consent UI intact: it shows the creator avatar above the
+  display name, the published-work count, and up to two work covers. Its only
+  primary action is `授权`, which opens the WeChat QR flow directly without an
+  intermediate WeChat authorization page.
 - Do not call `follow.follow()` from the host site's gate handler. Following belongs to the owner-follow interface opened by `access.require()`.
 - Never use `window.open`, `window.location`, `confirm`, or `alert` for
   SDK login or checkout. Their complete flows stay in the bottom sheet or
@@ -75,4 +79,6 @@ Read [references/integration.md](references/integration.md) for configuration an
 - Confirm follow state cannot change before the user accepts login authorization or activates a standalone follow action.
 - Confirm no browser popup or page navigation is used and login/checkout remain
   inside the bottom sheet or in-page layer.
+- Confirm WeChat QR and one-tap authorization remain fully visible, and the
+  checkout layer keeps a stable height while its content loads.
 - Report any untested WeChat or payment-provider boundary explicitly.
