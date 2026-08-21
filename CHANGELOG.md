@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.16.0-beta.7] - 2026-08-21
+
+### Features
+
+- 由所选 Profile 生成可直接接入的托管弹幕片段，并自动复用 POC 网站 Work。
+
 ## [0.16.0-beta.6] - 2026-08-20
 
 ### Features

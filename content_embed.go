@@ -5,11 +5,11 @@ import (
 	"io/fs"
 )
 
-// embeddedSkills contains the agent-readable documents, code blueprints, and
-// install metadata. Keeping them in the binary lets doctor compare an installed
-// Skill with the exact CLI release that is invoking it.
+// embeddedSkills contains the agent-readable documents, templates, and install
+// metadata. Keeping them in the binary lets doctor compare an installed Skill
+// with the exact CLI release that is invoking it.
 //
-//go:embed skills/*/SKILL.md skills/*/skill-package.json skills/*/agents/*.yaml skills/*/references/*.md skills/*/templates/* skills/*/assets/react-tailwind/*
+//go:embed skills/*/SKILL.md skills/*/skill-package.json skills/*/agents/*.yaml skills/*/references/*.md skills/*/templates/*
 var embeddedSkills embed.FS
 
 // EmbeddedSkills returns an FS rooted at skills/.

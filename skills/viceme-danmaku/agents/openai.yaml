@@ -1,4 +1,4 @@
 interface:
   display_name: "Install ViceMe Danmaku"
-  short_description: "Install hosted danmaku or adapt the React blueprint"
+  short_description: "Install the Profile-derived hosted danmaku SDK"
   default_prompt: "Use $viceme-danmaku to install the ViceMe-hosted danmaku SDK in this project."

@@ -1,80 +1,330 @@
 package command
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
+	"github.com/ViceMe-AI/cli/internal/api"
+	credentialauth "github.com/ViceMe-AI/cli/internal/auth"
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/securestore"
+	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
 
 func validAccessConfig() accessConfig {
-	price := 1_000
 	return accessConfig{
 		SchemaVersion: 1,
 		WorkKey:       "wrk_dagou_tap",
+		ProfileID:     "default",
 		Region:        "cn",
 		DisplayName:   "Dagou Tap",
-		PriceCents:    &price,
 		Features: map[string]accessFeatureConfig{
-			"dingdong": {Title: "叮咚鸡", Policy: accessFeaturePolicy{Type: "FOLLOW_OWNER"}},
-			"emperor":  {Title: "帝皇", Policy: accessFeaturePolicy{Type: "WORK_ENTITLEMENT"}},
+			"danmaku": {Title: "弹幕", Policy: accessFeaturePolicy{Type: "PUBLIC"}},
 		},
 		Status:        "ACTIVE",
 		ConfigVersion: 1,
 	}
 }
 
-func TestAccessConfigSupportsFollowAndPurchase(t *testing.T) {
+func TestAccessConfigSupportsOnlyPublicDanmaku(t *testing.T) {
 	config := validAccessConfig()
 	if err := validateAccessConfig(config); err != nil {
 		t.Fatalf("validateAccessConfig() error = %v", err)
 	}
 	request := config.applyRequest()
-	if len(request.Features) != 2 || request.Features[0].FeatureKey != "dingdong" || request.Features[1].FeatureKey != "emperor" {
-		t.Fatalf("features are not stable and sorted: %#v", request.Features)
+	if len(request.Features) != 1 || request.Features[0].FeatureKey != "danmaku" || request.Features[0].Policy.Type != "PUBLIC" || request.PriceCents != nil {
+		t.Fatalf("danmaku feature is not stable: %#v", request)
 	}
 }
 
-func TestAccessConfigSupportsPublicDanmaku(t *testing.T) {
-	config := validAccessConfig()
-	config.PriceCents = nil
-	delete(config.Features, "emperor")
-	config.Features["danmaku"] = accessFeatureConfig{
-		Title:  "弹幕",
-		Policy: accessFeaturePolicy{Type: "PUBLIC"},
-	}
-	if err := validateAccessConfig(config); err != nil {
-		t.Fatalf("validateAccessConfig() error = %v", err)
-	}
-	request := config.applyRequest()
-	if len(request.Features) != 2 || request.Features[0].FeatureKey != "danmaku" || request.Features[0].Policy.Type != "PUBLIC" {
-		t.Fatalf("danmaku feature is not stable: %#v", request.Features)
-	}
-}
-
-func TestAccessInitExposesDanmakuFlag(t *testing.T) {
-	flag := newAccessInitCommand(&Runtime{}).Flags().Lookup("danmaku")
+func TestAccessInitExposesOnlyDanmakuCapabilityFlags(t *testing.T) {
+	command := newAccessInitCommand(&Runtime{})
+	flag := command.Flags().Lookup("danmaku")
 	if flag == nil || flag.DefValue != "false" {
 		t.Fatalf("danmaku flag = %#v", flag)
 	}
+	for _, unsupported := range []string{"follow", "product", "price-minor", "purchase", "purchase-any"} {
+		if command.Flags().Lookup(unsupported) != nil {
+			t.Fatalf("access init unexpectedly exposes --%s", unsupported)
+		}
+	}
 }
 
-func TestAccessConfigRejectsPurchaseWithoutPrice(t *testing.T) {
-	config := validAccessConfig()
-	config.PriceCents = nil
-	err := validateAccessConfig(config)
-	if err == nil {
-		t.Fatal("validateAccessConfig() error = nil, want WORK_PRICE_REQUIRED")
+func TestAccessResultUsesProfileWebBaseURLForDanmakuSnippet(t *testing.T) {
+	runtime := &Runtime{
+		profile: config.Profile{WebBaseURL: "https://poc.viceme.cn"},
+		region:  config.RegionCN,
 	}
+	work := api.SdkWork{
+		WorkKey:      "wrk_dagou_tap",
+		Status:       "ACTIVE",
+		Capabilities: []string{"danmaku"},
+	}
+
+	result, err := buildAccessResult(runtime, work, defaultAccessConfigPath, work.WorkKey)
+	if err != nil {
+		t.Fatalf("buildAccessResult() error = %v", err)
+	}
+	if result["scriptUrl"] != "https://poc.viceme.cn/viceme-sdk/v1/viceme.min.js" {
+		t.Fatalf("scriptUrl = %#v", result["scriptUrl"])
+	}
+	snippet, ok := result["embedSnippet"].(string)
+	wantSnippet := `<script
+  defer src="https://poc.viceme.cn/viceme-sdk/v1/viceme.min.js" data-viceme-work="wrk_dagou_tap" data-viceme-region="cn"
+  data-viceme-features="danmaku" data-viceme-target="body"
+  data-viceme-theme="auto"></script>`
+	if !ok || snippet != wantSnippet {
+		t.Fatalf("embedSnippet = %#v", result["embedSnippet"])
+	}
+}
+
+func TestAccessResultEscapesSnippetAttributes(t *testing.T) {
+	runtime := &Runtime{
+		profile: config.Profile{WebBaseURL: `https://poc.example/"quoted`},
+		region:  config.Region(`cn" onload="bad`),
+	}
+	work := api.SdkWork{WorkKey: "wrk_dagou_tap", Status: "ACTIVE", Capabilities: []string{"danmaku"}}
+
+	result, err := buildAccessResult(runtime, work, defaultAccessConfigPath, work.WorkKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snippet := result["embedSnippet"].(string)
+	if strings.Contains(snippet, `onload="bad`) || !strings.Contains(snippet, "&#34;") {
+		t.Fatalf("embedSnippet did not escape attributes: %s", snippet)
+	}
+}
+
+func TestAccessResultOmitsSnippetWithoutDanmakuCapability(t *testing.T) {
+	result, err := buildAccessResult(
+		&Runtime{region: config.RegionCN},
+		api.SdkWork{WorkKey: "wrk_dagou_tap", Status: "ACTIVE"},
+		defaultAccessConfigPath,
+		"wrk_dagou_tap",
+	)
+	if err != nil {
+		t.Fatalf("buildAccessResult() error = %v", err)
+	}
+	if _, exists := result["embedSnippet"]; exists {
+		t.Fatalf("embedSnippet unexpectedly present: %#v", result)
+	}
+}
+
+func TestAccessResultRejectsMismatchedWorkBinding(t *testing.T) {
+	_, err := buildAccessResult(
+		&Runtime{region: config.RegionCN},
+		api.SdkWork{WorkKey: "wrk_other_work", Status: "ACTIVE"},
+		defaultAccessConfigPath,
+		"wrk_dagou_tap",
+	)
 	cliError, ok := err.(*output.Error)
-	if !ok || cliError.Subtype != "WORK_PRICE_REQUIRED" {
-		t.Fatalf("validateAccessConfig() error = %#v", err)
+	if !ok || cliError.Subtype != "SDK_WORK_RESPONSE_INVALID" {
+		t.Fatalf("buildAccessResult() error = %#v", err)
+	}
+}
+
+func TestDanmakuScriptURLRequiresProfileWebBaseURL(t *testing.T) {
+	_, err := danmakuScriptURL(&Runtime{
+		profile: config.Profile{APIBaseURL: "https://api.poc.example"},
+		region:  config.RegionCN,
+	})
+	cliError, ok := err.(*output.Error)
+	if !ok || cliError.Subtype != "PROFILE_WEB_BASE_URL_REQUIRED" {
+		t.Fatalf("danmakuScriptURL() error = %#v", err)
+	}
+}
+
+func TestDanmakuScriptURLRejectsProcessAPIOverride(t *testing.T) {
+	_, err := danmakuScriptURL(&Runtime{
+		profile:           config.Profile{WebBaseURL: "https://poc.example"},
+		region:            config.RegionCN,
+		apiBaseURLFromEnv: true,
+	})
+	cliError, ok := err.(*output.Error)
+	if !ok || cliError.Subtype != "profile_api_base_url_conflict" {
+		t.Fatalf("danmakuScriptURL() error = %#v", err)
+	}
+}
+
+func TestAccessConfigRejectsAnotherProfileInSameRegion(t *testing.T) {
+	err := validateAccessProfile(
+		&Runtime{profile: config.Profile{ID: "profile-b"}, region: config.RegionCN},
+		validAccessConfig(),
+	)
+	cliError, ok := err.(*output.Error)
+	if !ok || cliError.Subtype != "ACCESS_PROFILE_MISMATCH" {
+		t.Fatalf("validateAccessProfile() error = %#v", err)
+	}
+}
+
+func TestAccessInitChecksWebBaseURLBeforePublishingWebsite(t *testing.T) {
+	command := newAccessInitCommand(&Runtime{
+		profile: config.Profile{APIBaseURL: "https://api.poc.example"},
+		region:  config.RegionCN,
+	})
+	command.SetArgs([]string{"--name", "POC", "--danmaku", "--website", t.TempDir(), "--config", filepath.Join(t.TempDir(), "access.yaml")})
+	err := command.Execute()
+	cliError, ok := err.(*output.Error)
+	if !ok || cliError.Subtype != "PROFILE_WEB_BASE_URL_REQUIRED" {
+		t.Fatalf("access init error = %#v", err)
+	}
+}
+
+func TestAccessInitRequiresDanmakuFlag(t *testing.T) {
+	command := newAccessInitCommand(&Runtime{})
+	command.SetArgs([]string{"--name", "POC", "--config", filepath.Join(t.TempDir(), "access.yaml")})
+	err := command.Execute()
+	cliError, ok := err.(*output.Error)
+	if !ok || cliError.Subtype != "DANMAKU_FLAG_REQUIRED" {
+		t.Fatalf("access init error = %#v", err)
+	}
+}
+
+func TestAccessInitPublishesWebsiteAndReturnsProfileDerivedSnippet(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests = append(requests, request.Method+" "+request.URL.Path)
+		if request.Header.Get("Authorization") != "Bearer vme_cli_test" {
+			t.Fatalf("missing bearer credential: %q", request.Header.Get("Authorization"))
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		switch {
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/cli/sdk-works/publish":
+			var input api.PublishCreatorWebsiteRequest
+			if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+				t.Fatal(err)
+			}
+			if input.DisplayName != "POC" || input.CreatorDisplayName != "Tester" || len(input.SourceDigest) != 64 {
+				t.Fatalf("unexpected website publication: %#v", input)
+			}
+			writeJSONResponse(writer, map[string]any{
+				"creatorWorkId": "22222222-2222-4222-8222-222222222222",
+				"workKey":       "wrk_test_danmaku", "displayName": "POC", "status": "DRAFT", "configVersion": 1,
+				"publication": map[string]any{
+					"clientWorkId": input.ClientWorkID, "sourceDigest": input.SourceDigest, "sourceUrl": nil,
+					"releaseId": "33333333-3333-4333-8333-333333333333", "version": 1,
+					"publishedAt": "2026-08-21T00:00:00Z", "unchanged": false,
+				},
+				"offer": nil, "features": []any{}, "capabilities": []any{},
+				"createdAt": "2026-08-21T00:00:00Z", "updatedAt": "2026-08-21T00:00:00Z",
+			})
+		case request.Method == http.MethodPut && request.URL.Path == "/v1/cli/sdk-works/wrk_test_danmaku":
+			body, _ := io.ReadAll(request.Body)
+			if !strings.Contains(string(body), `"featureKey":"danmaku"`) || !strings.Contains(string(body), `"type":"PUBLIC"`) || !strings.Contains(string(body), `"priceCents":null`) {
+				t.Fatalf("danmaku config missing from apply request: %s", body)
+			}
+			writeJSONResponse(writer, map[string]any{
+				"creatorWorkId": "22222222-2222-4222-8222-222222222222",
+				"workKey":       "wrk_test_danmaku", "displayName": "POC", "status": "ACTIVE", "configVersion": 2,
+				"publication": nil, "offer": nil,
+				"features":     []any{map[string]any{"featureKey": "danmaku", "title": "弹幕", "policy": map[string]any{"type": "PUBLIC"}, "status": "ACTIVE"}},
+				"capabilities": []string{"danmaku"},
+				"createdAt":    "2026-08-21T00:00:00Z", "updatedAt": "2026-08-21T00:00:00Z",
+			})
+		default:
+			writer.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("<!doctype html><body>POC</body>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	configDir := filepath.Join(root, "config")
+	configured := config.Default(config.RegionCN)
+	profile, err := configured.AddProfile("poc", server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := configured.SetProfileWebBaseURL(profile.Name, "https://poc.viceme.cn"); err != nil {
+		t.Fatal(err)
+	}
+	configured.CurrentProfile = profile.Name
+	if _, err := config.Save(configDir, configured); err != nil {
+		t.Fatal(err)
+	}
+	profile, err = configured.Resolve(profile.Name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := credentialScopeForAPIBase(profile.ResolvedAPIBaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := securestore.NewMemory()
+	manager := credentialauth.Manager{
+		Store: store, Region: string(configured.DistributionRegion), ProfileID: profile.ID, ProfileName: profile.Name, Scope: scope,
+	}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "vme_cli_test", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	accessConfigPath := filepath.Join(root, ".viceme", "access.yaml")
+	exit := Execute([]string{
+		"--profile", "poc", "access", "init", "--name", "POC", "--creator-display-name", "Tester", "--danmaku",
+		"--website", root, "--config", accessConfigPath,
+	}, Dependencies{
+		Out: &stdout, ErrOut: &stderr, HTTPClient: server.Client(), Store: store,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+	})
+	if exit != 0 {
+		t.Fatalf("access init failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	var response struct {
+		Data struct {
+			ScriptURL    string `json:"scriptUrl"`
+			EmbedSnippet string `json:"embedSnippet"`
+			WorkKey      string `json:"workKey"`
+			Work         struct {
+				WorkKey string `json:"workKey"`
+			} `json:"work"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &response); err != nil {
+		t.Fatalf("output is not JSON: %v", err)
+	}
+	if response.Data.ScriptURL != "https://poc.viceme.cn/viceme-sdk/v1/viceme.min.js" ||
+		response.Data.WorkKey != "wrk_test_danmaku" ||
+		response.Data.Work.WorkKey != "wrk_test_danmaku" ||
+		!strings.Contains(response.Data.EmbedSnippet, `src="https://poc.viceme.cn/viceme-sdk/v1/viceme.min.js"`) {
+		t.Fatalf("unexpected access result: %#v", response.Data)
+	}
+	wantRequests := []string{
+		"POST /v1/cli/sdk-works/publish",
+		"PUT /v1/cli/sdk-works/wrk_test_danmaku",
+	}
+	if strings.Join(requests, "\n") != strings.Join(wantRequests, "\n") {
+		t.Fatalf("requests = %#v, want %#v", requests, wantRequests)
+	}
+	storedConfig, err := readAccessConfig(accessConfigPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if storedConfig.ProfileID != profile.ID || storedConfig.WorkKey != "wrk_test_danmaku" {
+		t.Fatalf("access config lost its Profile binding: %#v", storedConfig)
+	}
+	binding, found, err := loadWebsiteBinding(filepath.Join(root, ".viceme", "website.json"))
+	if err != nil || !found || binding.WorkKey != "wrk_test_danmaku" {
+		t.Fatalf("website binding was not persisted: found=%t binding=%#v err=%v", found, binding, err)
 	}
 }
 
 func TestAccessConfigRejectsReservedSubscriptionPolicy(t *testing.T) {
 	config := validAccessConfig()
-	config.Features["emperor"] = accessFeatureConfig{
-		Title:  "帝皇",
+	config.Features["danmaku"] = accessFeatureConfig{
+		Title:  "弹幕",
 		Policy: accessFeaturePolicy{Type: "ACTIVE_CREATOR_SUBSCRIPTION"},
 	}
 	err := validateAccessConfig(config)
@@ -84,55 +334,5 @@ func TestAccessConfigRejectsReservedSubscriptionPolicy(t *testing.T) {
 	cliError, ok := err.(*output.Error)
 	if !ok || cliError.Subtype != "POLICY_TYPE_UNSUPPORTED" {
 		t.Fatalf("validateAccessConfig() error = %#v", err)
-	}
-}
-
-func TestParseAccessFeatureSpecUsesKeyAsDefaultTitle(t *testing.T) {
-	key, title, err := parseAccessFeatureSpec("premium")
-	if err != nil {
-		t.Fatalf("parseAccessFeatureSpec() error = %v", err)
-	}
-	if key != "premium" || title != "premium" {
-		t.Fatalf("parseAccessFeatureSpec() = %q, %q", key, title)
-	}
-}
-
-func TestParseAccessFeatureSpecAcceptsLocalizedTitle(t *testing.T) {
-	key, title, err := parseAccessFeatureSpec("premium=付费内容")
-	if err != nil {
-		t.Fatalf("parseAccessFeatureSpec() error = %v", err)
-	}
-	if key != "premium" || title != "付费内容" {
-		t.Fatalf("parseAccessFeatureSpec() = %q, %q", key, title)
-	}
-}
-
-func TestBuildQuickAccessFeaturesAssignsPolicies(t *testing.T) {
-	features, err := buildQuickAccessFeatures(
-		[]string{"dingdong=叮咚鸡"},
-		[]string{"emperor=帝皇"},
-	)
-	if err != nil {
-		t.Fatalf("buildQuickAccessFeatures() error = %v", err)
-	}
-	if features["dingdong"].Policy.Type != "FOLLOW_OWNER" {
-		t.Fatalf("dingdong policy = %q", features["dingdong"].Policy.Type)
-	}
-	if features["emperor"].Policy.Type != "WORK_ENTITLEMENT" {
-		t.Fatalf("emperor policy = %q", features["emperor"].Policy.Type)
-	}
-}
-
-func TestBuildQuickAccessFeaturesRejectsDuplicateKeys(t *testing.T) {
-	_, err := buildQuickAccessFeatures(
-		[]string{"premium"},
-		[]string{"premium"},
-	)
-	if err == nil {
-		t.Fatal("buildQuickAccessFeatures() error = nil, want duplicate")
-	}
-	cliError, ok := err.(*output.Error)
-	if !ok || cliError.Subtype != "ACCESS_FEATURE_DUPLICATE" {
-		t.Fatalf("buildQuickAccessFeatures() error = %#v", err)
 	}
 }

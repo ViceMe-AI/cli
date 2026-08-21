@@ -4,57 +4,51 @@ Use this when the target is a static site, blog, or product page that should
 receive ViceMe-hosted danmaku without copying React component code into the
 host repository.
 
-This is a surgical integration, not a component-building task. The normal
-result is one generated `.viceme/access.yaml` file and one four-line edit to an
-existing host entry. Do not inspect or validate unrelated application behavior.
-
 ## Embed snippet
 
-The host integration is one script tag and one public `workKey`. Preserve this
-four-line form when showing or applying it:
-
-```text
-<script
-  defer src="https://web.preview.tencent-zeabur.cn/viceme-sdk/v1/viceme.min.js" data-viceme-work="WORK_KEY" data-viceme-region="cn"
-  data-viceme-features="danmaku" data-viceme-target="body"
-  data-viceme-theme="auto"></script>
-```
-
-Create and activate the work before editing the host page:
+The host integration is one script tag and one public `workKey`. The selected
+CLI Profile is the sole endpoint authority:
 
 ```bash
-"$HOME/.local/bin/viceme" access init --name "<website name>" --danmaku
+viceme profile list
+viceme --profile <profile> auth status
 ```
 
-`access init` performs work creation and activation in one operation. If it
-requires authentication, run `"$HOME/.local/bin/viceme" auth login` and wait
-for the user. If the API is unavailable, stop with the reported error. Never
-substitute a localhost script, copied component, inline implementation,
-placeholder key, or mock API.
+Record that Profile's `webBaseUrl` without switching Profiles. From the website
+source directory, publish or reuse its Work and activate danmaku before editing
+the host page:
 
-The command writes `.viceme/access.yaml` and returns the same `workKey`. Treat
-the key as public and opaque. Never replace it with an internal creator ID,
-product ID, media ID, slug, API token, or payment credential.
+```bash
+viceme --profile <profile> access init --name "<website name>" --danmaku
+```
 
-Optional attributes:
+The command uses the current POC website-publication contract internally. It
+maintains `.viceme/website.json` as the stable source identity and writes
+`.viceme/access.yaml` for the same `workKey`. If the first publication requires
+a creator display name, rerun once with `--creator-display-name "<creator name>"`.
 
-- `data-viceme-theme="auto|light|dark"`.
-- `data-viceme-region="cn|global"`.
+If `.viceme/access.yaml` already exists, use:
+
+```bash
+viceme --profile <profile> access inspect
+```
+
+If the authoritative response has no `data.embedSnippet` while the local config
+is active, run `viceme --profile <profile> access apply` once. Do not hand-edit
+the file or create a replacement Work.
+
+Successful `init`, `inspect`, and `apply` responses include `data.workKey`,
+`data.scriptUrl`, and `data.embedSnippet` whenever the authoritative Work has
+an active public danmaku capability. The CLI derives the script URL from the
+selected Profile's `webBaseUrl` and emits the complete four-line tag. Insert
+`data.embedSnippet` exactly; the agent must not guess the origin, concatenate
+the SDK path, or fall back to a production origin.
+
+Treat the returned key as public and opaque. Never replace it with an internal
+creator ID, product ID, media ID, slug, API token, or payment credential.
 
 Do not add endpoint, iframe URL, API base URL, creator ID, work ID, or host URL
-overrides. This POC Skill is already pinned to the isolated preview SDK.
-
-## Fast completion check
-
-After inserting the snippet, perform only these checks unless the user asks for
-full acceptance testing:
-
-- the hosted script URL occurs exactly once in the edited entry;
-- `data-viceme-work` contains the generated public `workKey`;
-- `git diff --check` reports no whitespace error in the edited files.
-
-Do not start a server, navigate a browser, inspect iframes, send messages, test
-persistence, or modify host styles as part of the default installation.
+overrides to the generated snippet.
 
 ## Page-position anchors
 

@@ -1,94 +1,80 @@
 ---
 name: viceme-danmaku
-description: Add the ViceMe-hosted danmaku widget to a website with the official four-line CDN snippet and a public workKey. Use for ordinary requests such as "add ViceMe danmaku". Default to the hosted fast path; use the bundled React blueprint only when the user explicitly asks to own or customize the component source.
+description: Install or repair the ViceMe-hosted danmaku SDK in a website. Use for script-tag integration, workKey setup, scrolling messages, reactions, comment entry, responsive behavior, keyboard access, and reduced-motion verification.
 ---
 
-# Add ViceMe danmaku
+# Install ViceMe Danmaku
 
-For an ordinary request to add ViceMe danmaku, finish through the hosted SDK.
-ViceMe owns the widget UI, behavior, persistence, and styles. The host page owns
-only one four-line script tag.
+The hosted SDK is the default and authoritative integration. Add the CLI-generated
+script tag to the host website; the host must not copy ViceMe React, Tailwind,
+iframe, API client, or persistence code.
 
-## Choose the path
+## Required inputs
 
-- **Hosted fast path, default:** Use for any generic request to add ViceMe
-  danmaku, including static HTML, blogs, product pages, and React applications.
-- **React source path, explicit only:** Use only when the user explicitly asks
-  to copy, fork, restyle, or directly maintain the React/Tailwind component.
+Before editing, inspect:
 
-Never choose the React source path merely because the host uses React or already
-contains an old danmaku implementation.
+1. The target repository's instructions, page entry point, deployment model,
+   Content Security Policy, and browser test setup.
+2. `viceme profile list`, including the selected Profile's `webBaseUrl`.
+3. [cdn-sdk.md](references/cdn-sdk.md) in full.
 
-## Hosted fast path
+## Workflow
 
-Target completion within about 10 seconds when the user is already signed in
-and the ViceMe API is reachable. Authentication and network waiting are outside
-that target.
-
-This POC installer owns `$HOME/.local/bin/viceme`. Use that exact executable
-for every workflow command; do not use a same-named npm or Homebrew executable
-found earlier on `PATH`.
-
-### Hard limits
-
-- Read only [cdn-sdk.md](references/cdn-sdk.md), repository instructions, and
-  the narrow host entry file needed for the script tag.
-- Change only `.viceme/access.yaml` and one existing HTML or root-layout entry.
-- Add the official four-line snippet exactly once. Do not implement, copy,
-  restyle, or adapt the widget in the host repository.
-- Do not add React components, CSS, local SDK files, API clients, tests, demo
-  pages, build dependencies, or temporary server scripts.
-- Do not rewrite, reformat, or redesign host-page content.
-- Do not start a dev server, open a browser, take screenshots, or run the host
-  test suite unless the user explicitly asks for acceptance testing.
-- If authentication, the API, or work creation fails, stop and report the
-  exact next command. Never fall back to a local or hand-written widget.
-- Do not invoke the `viceme-shared` setup or repair workflow during this fast
-  path. Do not run `viceme doctor`, `viceme version`, `viceme install`, search
-  the filesystem for another binary, or inspect configuration internals.
-- After any ViceMe command exits unsuccessfully, stop immediately. Do not run a
-  second diagnostic or mutation command in the same turn.
-
-### Workflow
-
-1. Read [cdn-sdk.md](references/cdn-sdk.md) and locate the single HTML or root
-   layout entry that owns the closing body area. Do not survey the whole app.
-2. If `.viceme/access.yaml` is absent, run:
+1. Run `viceme profile list` and pin every later command to the selected Profile.
+   Do not switch Profiles merely to reuse another login.
+2. Run `viceme --profile <profile> auth status`. If unauthenticated or missing
+   `sdk-work:read` or `sdk-work:write`, run
+   `viceme --profile <profile> auth login` and wait for completion.
+3. From the website source directory, run this when `.viceme/access.yaml` is
+   absent:
 
    ```bash
-   "$HOME/.local/bin/viceme" access init --name "<website name>" --danmaku
+   viceme --profile <profile> access init --name "<website name>" --danmaku
    ```
 
-   The command creates and activates the work in one operation. If it reports
-   that sign-in is required, run `"$HOME/.local/bin/viceme" auth login` and
-   wait for the user; do not edit the host page before authentication succeeds.
-   For every other error, report the command error and stop.
-3. If `.viceme/access.yaml` exists and already has an active public `danmaku`
-   feature, reuse its `workKey`. Otherwise make only the required config change
-   and run `viceme access apply` once.
-4. Insert the four-line snippet from `cdn-sdk.md`, replacing `WORK_KEY` with the
-   public key. Preserve the exact hosted URL and attributes.
-5. Check only that the entry contains exactly one hosted ViceMe script and that
-   the edited files have no whitespace errors. Then stop.
+   The command publishes or reuses the website Work, maintains
+   `.viceme/website.json`, writes `.viceme/access.yaml`, and activates danmaku.
+   If the API returns `CREATOR_DISPLAY_NAME_REQUIRED`, rerun the same command
+   once with `--creator-display-name "<creator name>"`.
 
-### Handoff
+   If `.viceme/access.yaml` exists, run
+   `viceme --profile <profile> access inspect`. If its authoritative response
+   has no `data.embedSnippet` while the local config is active, run
+   `viceme --profile <profile> access apply` once to reconcile it. Do not
+   hand-edit the access config or create a second Work.
+4. Read `data.embedSnippet` from the successful CLI response and insert it
+   exactly once before `</body>` or through the framework's equivalent script
+   facility. The CLI derives its URL from the selected Profile's `webBaseUrl`;
+   the agent must not guess, concatenate, replace, or fall back to a production
+   origin.
+5. Preserve an existing per-response CSP nonce on the inserted script. Add only
+   the exact script and frame origins required by `data.embedSnippet`; never add
+   `*`, `'unsafe-eval'`, or a broad ViceMe subdomain wildcard.
+6. Run the target's format, lint, typecheck, tests, and production build.
+7. Verify the rendered page on desktop and mobile. Confirm one SDK root mounts,
+   host controls remain clickable, keyboard controls work, reduced motion is
+   honored, a sent message survives refresh, and no duplicate script is loaded.
 
-Respond briefly: state that ViceMe danmaku was added, name the edited entry
-file, and mention login only if it remains required. Do not narrate repository
-inspection or propose extra verification.
+Completion means the target contains one CLI-generated script integration and
+the browser checks pass against the same pinned Profile.
 
-## React source path
+## Boundaries
 
-Use this section only after the user explicitly requests a source-owned React
-component. Before editing, read [component-contract.md](references/component-contract.md)
-and every file under `assets/react-tailwind/`; those files are authoritative.
+- `workKey` is public and opaque. Never substitute a creator ID, product ID,
+  slug, token, or credential.
+- The hosted SDK owns rendering, iframe placement, sessions, API calls,
+  persistence, and cleanup.
+- The host owns only script placement and its own page content.
+- Tipping and rewards are handled by `viceme-tip`, not this Skill.
+- Self-hosting or copying the component source is outside this Skill. Do not
+  recreate the hosted runtime in the target repository.
 
-Build only the reusable overlay and direct helpers/tests. Preserve the supplied
-DOM responsibilities, state transitions, dimensions, colors, breakpoints,
-timing, easing, safe-area behavior, callbacks, keyboard behavior, and reduced
-motion behavior. Adapt only repository boundaries such as imports, icons,
-i18n, and test APIs.
+## Handoff
 
-Do not create an iframe, URL switcher, login flow, payment flow, API, or
-persistence layer for the React source path. Do not turn the component into a
-general UI framework or add speculative variants.
+Report:
+
+- files created or changed;
+- selected Profile and `workKey` without exposing credentials;
+- checks run and their results;
+- responsive, keyboard, and reduced-motion coverage;
+- any CSP, hosted runtime, or persistence boundary that remains unverified.

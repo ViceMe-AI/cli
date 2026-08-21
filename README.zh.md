@@ -151,8 +151,7 @@ npx --yes @myc666/viceme-cli@beta install
 | --- | --- |
 | `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
 | `viceme-publish` | 发布本地 Skill 目录、ZIP 或创作者网站，并维护稳定作品身份。 |
-| `viceme-access` | 为已发布的网站接入登录、关注、功能权限与一次性购买。 |
-| `viceme-danmaku` | 在已有项目中构建或适配随包提供的生产级 React 与 Tailwind CSS v4 弹幕组件。 |
+| `viceme-danmaku` | 发布或复用网站 Work，并接入由 Profile 派生的托管弹幕片段。 |
 | `viceme-tip` | 完成登录、绑定创作者作品与验证域名，并把 ViceMe 托管赞赏接入一个 HTML 页面。 |
 | `viceme-engagement` | 发布网站 Work、启用托管弹幕、绑定赞赏，并安装一个组合交互脚本。 |
 

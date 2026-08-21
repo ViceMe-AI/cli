@@ -28,7 +28,7 @@ Complete the real self-service flow. Every tester creates a creator-owned websit
      --name "<website name>" --danmaku
    ```
 
-   If the config exists, preserve unrelated features, add an active `danmaku` feature with `PUBLIC` policy, then run `access apply` once. Completion requires the response capabilities to contain `danmaku`.
+   If the config exists, run `access inspect`. When its active public danmaku config has drifted from the server, run `access apply` once. Do not hand-edit the config or add unrelated access features. Completion requires the response capabilities to contain `danmaku`.
 6. Run `creator-app list` on the same Profile. Reuse an app only when it belongs to the authenticated user and contains the exact hostname. Otherwise create one with `creator-app create --name "<website name>"`.
 7. If the hostname is not verified, run `creator-app domain add <appId> <hostname>`, serve the returned token verbatim at its `verificationPath`, deploy, fetch the public HTTPS verification URL, and run `creator-app domain verify <appId> <hostname>`. Do not print or commit the token. Completion requires `verified: true`.
 8. Replace separate ViceMe danmaku or tip scripts with exactly one entry before `</body>`, using the selected Profile's exact `webBaseUrl`, the Work created in step 4, and the Creator App from step 6:

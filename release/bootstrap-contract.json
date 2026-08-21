@@ -7,6 +7,6 @@
   "releaseLayout": "v{version}/viceme_{version}_{os}_{arch}{extension}",
   "checksumLayout": "{asset}.sha256",
   "latestLayout": "latest",
-  "skills": ["viceme-shared", "viceme-publish", "viceme-danmaku", "viceme-access", "viceme-tip", "viceme-engagement"],
+  "skills": ["viceme-shared", "viceme-publish", "viceme-danmaku", "viceme-tip", "viceme-engagement"],
   "fallbackPackage": "@myc666/viceme-cli"
 }

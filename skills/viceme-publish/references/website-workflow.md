@@ -15,7 +15,7 @@ Website publication registers a local directory as a stable ViceMe work. It does
 
    Omit `--url` before the website has a public address. If the user profile already has a display name, omit `--creator-display-name` as well.
 4. If the command returns `CREATOR_DISPLAY_NAME_REQUIRED`, repeat the same command and source path with `--creator-display-name`. Do not delete the binding or create another work. A successful first publication creates and claims the user's `VICEME` creator identity using the same fields and ownership rules as Skill Publish.
-5. Return the `workKey`, `creatorWorkId`, release version, `unchanged` state, and binding path from the authoritative command response. Use `$viceme-access` only after publication when the user also asks to add login, follow, purchase, or feature gates.
+5. Return the `workKey`, `creatorWorkId`, release version, `unchanged` state, and binding path from the authoritative command response. Use `$viceme-danmaku` only when the user also asks to add the hosted danmaku widget.
 
 ## Stable identity and repeat publication
 
@@ -28,5 +28,5 @@ Website publication registers a local directory as a stable ViceMe work. It does
 ## Boundaries
 
 - Website publication is immediate registration; it has no Skill package upload, private listing preview, media review, price review, or irreversible marketplace-confirmation step.
-- Publishing a website does not configure access or a sale offer. Use `$viceme-access` for those later steps.
+- Publishing a website does not activate danmaku. Use `$viceme-danmaku` for that later step.
 - ViceMe does not host the site in this version. Static files in a public website bundle are not protected assets.

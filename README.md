@@ -161,8 +161,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | --- | --- |
 | `viceme-shared` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
 | `viceme-publish` | publish a local Skill directory, ZIP, or creator website while preserving its stable work identity. |
-| `viceme-access` | add login, following, feature gates, and one-time purchase to an already published website. |
-| `viceme-danmaku` | build or adapt the bundled production React and Tailwind CSS v4 danmaku component in an existing project. |
+| `viceme-danmaku` | publish or reuse a website Work and install its Profile-derived hosted danmaku snippet. |
 | `viceme-tip` | sign in, bind a creator work and verified domain, and add the hosted ViceMe tip checkout to one HTML page. |
 | `viceme-engagement` | publish a website Work, enable hosted danmaku, bind tips, and install one combined engagement script. |
 

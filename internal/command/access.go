@@ -3,10 +3,10 @@ package command
 import (
 	"errors"
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/api"
@@ -17,14 +17,14 @@ import (
 
 const defaultAccessConfigPath = ".viceme/access.yaml"
 
-var accessFeatureKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
+var accessWorkKeyPattern = regexp.MustCompile(`^wrk_[A-Za-z0-9_-]{4,124}$`)
 
 type accessConfig struct {
 	SchemaVersion int                            `yaml:"schemaVersion"`
 	WorkKey       string                         `yaml:"workKey"`
+	ProfileID     string                         `yaml:"profileId"`
 	Region        string                         `yaml:"region"`
 	DisplayName   string                         `yaml:"displayName"`
-	PriceCents    *int                           `yaml:"priceCents"`
 	Features      map[string]accessFeatureConfig `yaml:"features"`
 	Status        string                         `yaml:"status"`
 	ConfigVersion int                            `yaml:"configVersion"`
@@ -41,7 +41,7 @@ type accessFeaturePolicy struct {
 }
 
 func newAccessCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "access", Short: "Configure website access"}
+	command := &cobra.Command{Use: "access", Short: "Configure hosted danmaku access"}
 	command.AddCommand(newAccessInitCommand(runtime))
 	command.AddCommand(newAccessInspectCommand(runtime))
 	command.AddCommand(newAccessApplyCommand(runtime))
@@ -53,135 +53,85 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	var displayName string
 	var danmaku bool
 	var websitePath string
-	var priceCents int
-	var followFeatures []string
-	var purchaseFeatures []string
+	var creatorDisplayName string
 	command := &cobra.Command{
 		Use:   "init",
-		Short: "Configure access for an already published creator website",
+		Short: "Publish a website and activate hosted danmaku",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			binding, _, err := requirePublishedWebsiteBinding(websitePath)
-			if err != nil {
-				return err
-			}
-			if binding.Region != string(runtime.region) {
-				return output.Validation("WEBSITE_REGION_MISMATCH", "website binding region does not match the active CLI profile")
-			}
 			if strings.TrimSpace(displayName) == "" {
-				displayName = binding.DisplayName
+				return output.Validation("SDK_WORK_NAME_REQUIRED", "--name is required")
+			}
+			if !danmaku {
+				return output.Validation("DANMAKU_FLAG_REQUIRED", "--danmaku is required")
 			}
 			if _, err := os.Stat(filename); err == nil {
 				return output.Validation("ACCESS_CONFIG_EXISTS", "access config already exists").WithHint("use 'viceme access inspect' or choose another --config path")
 			} else if !errors.Is(err, os.ErrNotExist) {
 				return output.Validation("ACCESS_CONFIG_UNAVAILABLE", "access config path is unavailable")
 			}
+			if _, err := danmakuScriptURL(runtime); err != nil {
+				return err
+			}
 			if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
 				return output.Internal("ACCESS_CONFIG_DIRECTORY_FAILED", "could not create access config directory", err)
 			}
-			features, err := buildQuickAccessFeatures(
-				followFeatures,
-				purchaseFeatures,
-			)
+			work, _, err := publishWebsite(command.Context(), runtime, publishWebsiteInput{
+				SourcePath: websitePath, DisplayName: displayName,
+				CreatorDisplayName: creatorDisplayName,
+			})
 			if err != nil {
 				return err
 			}
-			if danmaku {
-				features["danmaku"] = accessFeatureConfig{
+			if err := validateSdkWorkBinding(work, work.WorkKey); err != nil {
+				return err
+			}
+			features := map[string]accessFeatureConfig{
+				"danmaku": {
 					Title:  "弹幕",
 					Policy: accessFeaturePolicy{Type: "PUBLIC"},
-				}
-			}
-			purchaseRequested := len(purchaseFeatures) > 0
-			if purchaseRequested && priceCents <= 0 {
-				return output.Validation("WORK_PRICE_REQUIRED", "purchase features require --price-minor greater than zero")
-			}
-			work, err := runtime.client().GetSdkWork(command.Context(), binding.WorkKey)
-			if err != nil {
-				return err
+				},
 			}
 			config := accessConfig{
 				SchemaVersion: 1,
-				WorkKey:       binding.WorkKey,
+				WorkKey:       work.WorkKey,
+				ProfileID:     runtime.profile.ID,
 				Region:        string(runtime.region),
-				DisplayName:   strings.TrimSpace(displayName),
+				DisplayName:   work.DisplayName,
 				Features:      features,
-				Status:        "DRAFT",
+				Status:        "ACTIVE",
 				ConfigVersion: work.ConfigVersion,
-			}
-			if purchaseRequested {
-				config.PriceCents = &priceCents
-			}
-			if len(features) > 0 {
-				config.Status = "ACTIVE"
 			}
 			if err := validateAccessConfig(config); err != nil {
 				return err
 			}
 			if err := writeAccessConfig(filename, config); err != nil {
-				return output.Internal("ACCESS_CONFIG_WRITE_FAILED", "published work was found but the local access config could not be written", err).WithDetails(map[string]any{"workKey": work.WorkKey})
+				return output.Internal("ACCESS_CONFIG_WRITE_FAILED", "website was published but the local access config could not be written", err).WithDetails(map[string]any{"workKey": work.WorkKey})
 			}
-			if len(config.Features) > 0 {
-				work, err = runtime.client().ApplySdkWork(command.Context(), config.WorkKey, config.applyRequest())
-				if err != nil {
-					return err
-				}
-				config.ConfigVersion = work.ConfigVersion
-				if err := writeAccessConfigReplacing(filename, config); err != nil {
-					return output.Internal("ACCESS_CONFIG_WRITE_FAILED", "initial remote config was applied but configVersion could not be updated locally", err).WithDetails(map[string]any{"workKey": work.WorkKey, "configVersion": work.ConfigVersion})
-				}
+			work, err = runtime.client().ApplySdkWork(command.Context(), config.WorkKey, config.applyRequest())
+			if err != nil {
+				return err
 			}
-			return runtime.business(map[string]any{"work": work, "configPath": filename})
+			if err := validateSdkWorkBinding(work, config.WorkKey); err != nil {
+				return err
+			}
+			config.ConfigVersion = work.ConfigVersion
+			if err := writeAccessConfigReplacing(filename, config); err != nil {
+				return output.Internal("ACCESS_CONFIG_WRITE_FAILED", "initial remote config was applied but configVersion could not be updated locally", err).WithDetails(map[string]any{"workKey": work.WorkKey, "configVersion": work.ConfigVersion})
+			}
+			result, err := buildAccessResult(runtime, work, filename, config.WorkKey)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
 		},
 	}
 	command.Flags().StringVar(&filename, "config", defaultAccessConfigPath, "access config path")
-	command.Flags().StringVar(&websitePath, "website", ".", "published website source directory")
+	command.Flags().StringVar(&websitePath, "website", ".", "website source directory")
 	command.Flags().StringVar(&displayName, "name", "", "website display name")
+	command.Flags().StringVar(&creatorDisplayName, "creator-display-name", "", "creator display name used for a first website publication")
 	command.Flags().BoolVar(&danmaku, "danmaku", false, "activate the public hosted danmaku capability")
-	command.Flags().IntVar(&priceCents, "price-minor", 0, "work price in fen when purchase access is enabled")
-	command.Flags().StringArrayVar(&followFeatures, "follow", nil, "activate FOLLOW_OWNER feature as key or key=title (repeatable)")
-	command.Flags().StringArrayVar(&purchaseFeatures, "purchase", nil, "activate WORK_ENTITLEMENT feature as key or key=title (repeatable)")
 	return command
-}
-
-func buildQuickAccessFeatures(follow, purchase []string) (map[string]accessFeatureConfig, error) {
-	features := make(map[string]accessFeatureConfig, len(follow)+len(purchase))
-	groups := []struct {
-		values []string
-		policy string
-	}{
-		{values: follow, policy: "FOLLOW_OWNER"},
-		{values: purchase, policy: "WORK_ENTITLEMENT"},
-	}
-	for _, group := range groups {
-		for _, value := range group.values {
-			key, title, err := parseAccessFeatureSpec(value)
-			if err != nil {
-				return nil, err
-			}
-			if _, exists := features[key]; exists {
-				return nil, output.Validation("ACCESS_FEATURE_DUPLICATE", fmt.Sprintf("feature %q is configured more than once", key))
-			}
-			features[key] = accessFeatureConfig{
-				Title:  title,
-				Policy: accessFeaturePolicy{Type: group.policy},
-			}
-		}
-	}
-	return features, nil
-}
-
-func parseAccessFeatureSpec(raw string) (string, string, error) {
-	parts := strings.SplitN(strings.TrimSpace(raw), "=", 2)
-	key := strings.TrimSpace(parts[0])
-	title := key
-	if len(parts) == 2 {
-		title = strings.TrimSpace(parts[1])
-	}
-	if !accessFeatureKeyPattern.MatchString(key) || title == "" {
-		return "", "", output.Validation("ACCESS_FEATURE_INVALID", "feature must use key or key=title")
-	}
-	return key, title, nil
 }
 
 func newAccessInspectCommand(runtime *Runtime) *cobra.Command {
@@ -195,14 +145,23 @@ func newAccessInspectCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if config.Region != string(runtime.region) {
-				return output.Validation("ACCESS_REGION_MISMATCH", "access config region does not match the active CLI profile")
+			if err := validateAccessProfile(runtime, config); err != nil {
+				return err
+			}
+			if accessConfigHasActiveDanmaku(config) {
+				if _, err := danmakuScriptURL(runtime); err != nil {
+					return err
+				}
 			}
 			work, err := runtime.client().GetSdkWork(command.Context(), config.WorkKey)
 			if err != nil {
 				return err
 			}
-			return runtime.business(map[string]any{"work": work, "configPath": filename})
+			result, err := buildAccessResult(runtime, work, filename, config.WorkKey)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
 		},
 	}
 	command.Flags().StringVar(&filename, "config", defaultAccessConfigPath, "access config path")
@@ -220,50 +179,136 @@ func newAccessApplyCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if config.Region != string(runtime.region) {
-				return output.Validation("ACCESS_REGION_MISMATCH", "access config region does not match the active CLI profile")
+			if err := validateAccessProfile(runtime, config); err != nil {
+				return err
+			}
+			if accessConfigHasActiveDanmaku(config) {
+				if _, err := danmakuScriptURL(runtime); err != nil {
+					return err
+				}
 			}
 			work, err := runtime.client().ApplySdkWork(command.Context(), config.WorkKey, config.applyRequest())
 			if err != nil {
+				return err
+			}
+			if err := validateSdkWorkBinding(work, config.WorkKey); err != nil {
 				return err
 			}
 			config.ConfigVersion = work.ConfigVersion
 			if err := writeAccessConfigReplacing(filename, config); err != nil {
 				return output.Internal("ACCESS_CONFIG_WRITE_FAILED", "remote config was applied but the local configVersion could not be updated", err).WithDetails(map[string]any{"workKey": work.WorkKey, "configVersion": work.ConfigVersion})
 			}
-			return runtime.business(map[string]any{"work": work, "configPath": filename})
+			result, err := buildAccessResult(runtime, work, filename, config.WorkKey)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
 		},
 	}
 	command.Flags().StringVar(&filename, "config", defaultAccessConfigPath, "access config path")
 	return command
 }
 
-func (config accessConfig) applyRequest() api.ApplySdkWorkRequest {
-	keys := make([]string, 0, len(config.Features))
-	for key := range config.Features {
-		keys = append(keys, key)
+func buildAccessResult(runtime *Runtime, work api.SdkWork, configPath, expectedWorkKey string) (map[string]any, error) {
+	if err := validateSdkWorkBinding(work, expectedWorkKey); err != nil {
+		return nil, err
 	}
-	sort.Strings(keys)
-	features := make([]api.SdkWorkFeatureConfig, 0, len(keys))
-	for _, key := range keys {
-		feature := config.Features[key]
-		status := feature.Status
-		if status == "" {
-			status = "ACTIVE"
+	result := map[string]any{"work": work, "workKey": work.WorkKey, "configPath": configPath}
+	if !sdkWorkHasDanmaku(work) {
+		return result, nil
+	}
+	scriptURL, err := danmakuScriptURL(runtime)
+	if err != nil {
+		return nil, err
+	}
+	result["scriptUrl"] = scriptURL
+	result["embedSnippet"] = fmt.Sprintf(
+		"<script\n  defer src=\"%s\" data-viceme-work=\"%s\" data-viceme-region=\"%s\"\n  data-viceme-features=\"danmaku\" data-viceme-target=\"body\"\n  data-viceme-theme=\"auto\"></script>",
+		html.EscapeString(scriptURL),
+		html.EscapeString(work.WorkKey),
+		html.EscapeString(string(runtime.region)),
+	)
+	return result, nil
+}
+
+func validateSdkWorkBinding(work api.SdkWork, expectedWorkKey string) error {
+	if accessWorkKeyPattern.MatchString(work.WorkKey) && work.WorkKey == expectedWorkKey {
+		return nil
+	}
+	return output.Internal(
+		"SDK_WORK_RESPONSE_INVALID",
+		"ViceMe returned an invalid work binding",
+		fmt.Errorf("unexpected workKey in SDK Work response"),
+	)
+}
+
+func danmakuScriptURL(runtime *Runtime) (string, error) {
+	if runtime.apiBaseURLFromEnv {
+		return "", output.Validation(
+			"profile_api_base_url_conflict",
+			"hosted snippets require the selected Profile to own both API and Web addresses",
+		).WithHint("unset VICEME_API_BASE_URL and use a Profile with matching API and Web addresses")
+	}
+	webBaseURL := strings.TrimRight(runtime.profile.ResolvedWebBaseURL(), "/")
+	if webBaseURL == "" {
+		return "", output.Validation(
+			"PROFILE_WEB_BASE_URL_REQUIRED",
+			"the selected Profile has no Web address; recreate it with `viceme profile add --web-base-url`",
+		)
+	}
+	return webBaseURL + "/viceme-sdk/v1/viceme.min.js", nil
+}
+
+func sdkWorkHasDanmaku(work api.SdkWork) bool {
+	if work.Status != "ACTIVE" {
+		return false
+	}
+	for _, capability := range work.Capabilities {
+		if capability == "danmaku" {
+			return true
 		}
-		features = append(features, api.SdkWorkFeatureConfig{
-			FeatureKey: key,
-			Title:      feature.Title,
-			Policy:     api.SdkWorkFeaturePolicy{Type: feature.Policy.Type},
-			Status:     status,
-		})
+	}
+	for _, feature := range work.Features {
+		if feature.FeatureKey == "danmaku" && feature.Status == "ACTIVE" && feature.Policy.Type == "PUBLIC" {
+			return true
+		}
+	}
+	return false
+}
+
+func accessConfigHasActiveDanmaku(config accessConfig) bool {
+	feature, exists := config.Features["danmaku"]
+	return exists && config.Status == "ACTIVE" && feature.Policy.Type == "PUBLIC" &&
+		(feature.Status == "" || feature.Status == "ACTIVE")
+}
+
+func validateAccessProfile(runtime *Runtime, config accessConfig) error {
+	if config.ProfileID != runtime.profile.ID || config.Region != string(runtime.region) {
+		return output.Validation(
+			"ACCESS_PROFILE_MISMATCH",
+			"access config does not belong to the selected CLI Profile",
+		).WithHint("rerun the command with the Profile that created this access config")
+	}
+	return nil
+}
+
+func (config accessConfig) applyRequest() api.ApplySdkWorkRequest {
+	feature := config.Features["danmaku"]
+	status := feature.Status
+	if status == "" {
+		status = "ACTIVE"
 	}
 	return api.ApplySdkWorkRequest{
 		ExpectedConfigVersion: config.ConfigVersion,
 		DisplayName:           config.DisplayName,
-		PriceCents:            config.PriceCents,
-		Features:              features,
-		Status:                config.Status,
+		PriceCents:            nil,
+		Features: []api.SdkWorkFeatureConfig{{
+			FeatureKey: "danmaku",
+			Title:      feature.Title,
+			Policy:     api.SdkWorkFeaturePolicy{Type: feature.Policy.Type},
+			Status:     status,
+		}},
+		Status: config.Status,
 	}
 }
 
@@ -285,8 +330,8 @@ func readAccessConfig(filename string) (accessConfig, error) {
 }
 
 func validateAccessConfig(config accessConfig) error {
-	if config.SchemaVersion != 1 || !regexp.MustCompile(`^wrk_[A-Za-z0-9_-]{4,124}$`).MatchString(config.WorkKey) || config.ConfigVersion < 1 {
-		return output.Validation("ACCESS_CONFIG_INVALID", "schemaVersion, workKey, or configVersion is invalid")
+	if config.SchemaVersion != 1 || !accessWorkKeyPattern.MatchString(config.WorkKey) || strings.TrimSpace(config.ProfileID) == "" || config.ConfigVersion < 1 {
+		return output.Validation("ACCESS_CONFIG_INVALID", "schemaVersion, workKey, profileId, or configVersion is invalid")
 	}
 	if config.Region != "cn" && config.Region != "global" {
 		return output.Validation("ACCESS_CONFIG_INVALID", "region must be cn or global")
@@ -294,31 +339,15 @@ func validateAccessConfig(config accessConfig) error {
 	if strings.TrimSpace(config.DisplayName) == "" || (config.Status != "DRAFT" && config.Status != "ACTIVE" && config.Status != "DISABLED") {
 		return output.Validation("ACCESS_CONFIG_INVALID", "displayName or status is invalid")
 	}
-	purchasePolicy := false
-	for key, feature := range config.Features {
-		if !accessFeatureKeyPattern.MatchString(key) || strings.TrimSpace(feature.Title) == "" {
-			return output.Validation("ACCESS_CONFIG_INVALID", "feature keys or titles are invalid")
-		}
-		switch feature.Policy.Type {
-		case "PUBLIC":
-			if key != "danmaku" {
-				return output.Validation("POLICY_TYPE_UNSUPPORTED", "PUBLIC is reserved for the danmaku capability")
-			}
-		case "FOLLOW_OWNER":
-		case "WORK_ENTITLEMENT":
-			purchasePolicy = true
-		default:
-			return output.Validation("POLICY_TYPE_UNSUPPORTED", "feature policy is not supported in this CLI version")
-		}
-		if feature.Status != "" && feature.Status != "ACTIVE" && feature.Status != "DISABLED" {
-			return output.Validation("ACCESS_CONFIG_INVALID", "feature status must be ACTIVE or DISABLED")
-		}
+	feature, exists := config.Features["danmaku"]
+	if len(config.Features) != 1 || !exists || strings.TrimSpace(feature.Title) == "" {
+		return output.Validation("ACCESS_CONFIG_INVALID", "exactly one danmaku feature is required")
 	}
-	if purchasePolicy && (config.PriceCents == nil || *config.PriceCents <= 0) {
-		return output.Validation("WORK_PRICE_REQUIRED", "purchase policies require a positive priceCents")
+	if feature.Policy.Type != "PUBLIC" {
+		return output.Validation("POLICY_TYPE_UNSUPPORTED", "only the public danmaku policy is supported")
 	}
-	if !purchasePolicy && config.PriceCents != nil {
-		return output.Validation("ACCESS_CONFIG_INVALID", "priceCents requires a purchase policy")
+	if feature.Status != "" && feature.Status != "ACTIVE" && feature.Status != "DISABLED" {
+		return output.Validation("ACCESS_CONFIG_INVALID", "feature status must be ACTIVE or DISABLED")
 	}
 	return nil
 }

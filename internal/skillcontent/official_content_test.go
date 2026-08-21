@@ -2,6 +2,7 @@ package skillcontent_test
 
 import (
 	"io/fs"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -49,34 +50,32 @@ func TestPublishSkillKeepsHistoricalContextOutOfProfileSelection(t *testing.T) {
 	}
 }
 
-func TestDanmakuSkillDefaultsToHostedFastPath(t *testing.T) {
+func TestDanmakuSkillUsesProfileDerivedHostedSnippet(t *testing.T) {
 	t.Parallel()
 
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-danmaku/SKILL.md")
+	skill, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-danmaku/SKILL.md")
 	if err != nil {
 		t.Fatalf("read embedded danmaku Skill: %v", err)
 	}
-	text := string(content)
+	reference, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-danmaku/references/cdn-sdk.md")
+	if err != nil {
+		t.Fatalf("read embedded danmaku reference: %v", err)
+	}
+	text := string(skill) + "\n" + string(reference)
 	for _, required := range []string{
-		"Hosted fast path, default",
-		"Target completion within about 10 seconds",
-		"Do not start a dev server",
-		"Never fall back to a local or hand-written widget",
-		"Do not run `viceme doctor`, `viceme version`, `viceme install`",
-		"stop immediately",
+		"profile list",
+		"access init",
+		"data.workKey",
+		"data.embedSnippet",
+		"webBaseUrl",
+		"must not guess",
 	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("embedded danmaku Skill does not contain fast-path guard %q", required)
+			t.Fatalf("embedded danmaku hosted flow is missing %q", required)
 		}
 	}
-
-	for _, forbidden := range []string{
-		"Verify in a browser that the SDK mounted",
-		"Run the target repository's format, lint, typecheck",
-	} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("embedded danmaku Skill still requires slow default work %q", forbidden)
-		}
+	if hardcodedURL := regexp.MustCompile(`https?://\S+`).FindString(text); hardcodedURL != "" {
+		t.Fatalf("embedded danmaku flow hard-codes a hosted SDK URL: %q", hardcodedURL)
 	}
 }
 
@@ -94,18 +93,6 @@ func TestSharedSkillDoesNotPreflightBusinessCommands(t *testing.T) {
 		if !strings.Contains(string(content), required) {
 			t.Fatalf("embedded shared Skill does not contain business preflight guard %q", required)
 		}
-	}
-}
-
-func TestDanmakuPOCSkillPinsStandaloneExecutable(t *testing.T) {
-	t.Parallel()
-
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-danmaku/SKILL.md")
-	if err != nil {
-		t.Fatalf("read embedded danmaku Skill: %v", err)
-	}
-	if !strings.Contains(string(content), `"$HOME/.local/bin/viceme" access init`) {
-		t.Fatal("embedded POC danmaku Skill can be shadowed by another viceme executable")
 	}
 }
 
@@ -155,23 +142,10 @@ func TestWebsitePublicationBelongsToPublishSkill(t *testing.T) {
 		"viceme website publish",
 		"clientWorkId",
 		"--creator-display-name",
-		"$viceme-access",
+		"$viceme-danmaku",
 	} {
 		if !strings.Contains(string(publishWorkflow), required) {
 			t.Fatalf("website publication workflow is missing %q", required)
-		}
-	}
-
-	for _, relativePath := range []string{
-		"viceme-access/SKILL.md",
-		"viceme-access/references/integration.md",
-	} {
-		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
-		if err != nil {
-			t.Fatalf("read embedded %s: %v", relativePath, err)
-		}
-		if strings.Contains(string(content), "viceme website publish") {
-			t.Fatalf("embedded %s still owns website publication", relativePath)
 		}
 	}
 }
