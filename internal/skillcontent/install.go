@@ -117,12 +117,17 @@ type installManifest struct {
 	EmbeddedContentDigest string `json:"embedded_content_digest"`
 }
 
-// RetiredSkill identifies one previously shipped official installation that
-// may be removed only while its recorded metadata and on-disk bytes still
-// match that immutable release.
+// RetiredSkill identifies previously shipped official installations that may
+// be removed only when one immutable release identity still matches.
 type RetiredSkill struct {
-	Name              string
-	CLIVersion        string
+	Name     string
+	Releases []RetiredSkillRelease
+}
+
+// RetiredSkillRelease is an exact set of CLI versions, Skill metadata, and
+// content digests that shipped the same official Skill bytes.
+type RetiredSkillRelease struct {
+	CLIVersions       []string
 	SkillVersion      string
 	MinimumCLIVersion string
 	CLICompatibility  string
@@ -339,7 +344,6 @@ func (transaction *InstallTransaction) RetireSkill(skill RetiredSkill, target st
 	if err != nil {
 		return err
 	}
-	destinations := make([]string, 0, len(paths))
 	for _, resolved := range paths {
 		info, err := os.Lstat(resolved.path)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -351,31 +355,24 @@ func (transaction *InstallTransaction) RetireSkill(skill RetiredSkill, target st
 		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("%s does not match the retired official release", resolved.path)
 		}
-		if err := verifyRetiredSkillInstallation(resolved.path, skill); err != nil {
-			return fmt.Errorf("%s does not match the retired official release: %w", resolved.path, err)
+		destination, err := filepath.Abs(resolved.path)
+		if err != nil {
+			return fmt.Errorf("resolve retired official Skill: %w", err)
 		}
-		destinations = append(destinations, resolved.path)
-	}
-	for _, destination := range destinations {
 		if err := transaction.TrackPath(destination); err != nil {
 			return fmt.Errorf("retire official Skill: %w", err)
+		}
+		backup := destination + ".viceme-transaction-backup"
+		if err := verifyRetiredSkillInstallation(backup, skill); err != nil {
+			return fmt.Errorf("%s does not match the retired official release: %w", destination, err)
 		}
 	}
 	return nil
 }
 
 func verifyRetiredSkillInstallation(directory string, skill RetiredSkill) error {
-	expectedManifest := installManifest{
-		SchemaVersion:         1,
-		CLIVersion:            skill.CLIVersion,
-		SkillVersion:          skill.SkillVersion,
-		MinimumCLIVersion:     skill.MinimumCLIVersion,
-		CLICompatibility:      skill.CLICompatibility,
-		FullBundleDigest:      skill.Digests.Full,
-		EmbeddedContentDigest: skill.Digests.Embedded,
-	}
 	manifest, err := readInstallManifest(directory)
-	if err != nil || manifest != expectedManifest {
+	if err != nil {
 		return errors.New("install manifest differs")
 	}
 	if err := filepath.WalkDir(directory, func(_ string, entry fs.DirEntry, walkErr error) error {
@@ -397,10 +394,28 @@ func verifyRetiredSkillInstallation(directory string, skill RetiredSkill) error 
 	if err != nil {
 		return err
 	}
-	if actual != skill.Digests {
-		return errors.New("installed bytes differ")
+	for _, release := range skill.Releases {
+		cliVersionAllowed := false
+		for _, version := range release.CLIVersions {
+			if manifest.CLIVersion == version {
+				cliVersionAllowed = true
+				break
+			}
+		}
+		expectedManifest := installManifest{
+			SchemaVersion:         1,
+			CLIVersion:            manifest.CLIVersion,
+			SkillVersion:          release.SkillVersion,
+			MinimumCLIVersion:     release.MinimumCLIVersion,
+			CLICompatibility:      release.CLICompatibility,
+			FullBundleDigest:      release.Digests.Full,
+			EmbeddedContentDigest: release.Digests.Embedded,
+		}
+		if cliVersionAllowed && manifest == expectedManifest && actual == release.Digests {
+			return nil
+		}
 	}
-	return nil
+	return errors.New("install manifest or bytes differ")
 }
 
 func (transaction *InstallTransaction) Commit() error {

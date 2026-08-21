@@ -25,16 +25,64 @@ var officialSkillNames = []string{
 }
 
 var retiredOfficialSkills = []skillcontent.RetiredSkill{{
-	Name:              "viceme-access",
-	CLIVersion:        "0.16.0-beta.6",
-	SkillVersion:      "0.16.0-beta.6",
-	MinimumCLIVersion: "0.16.0-beta.6",
-	CLICompatibility:  ">=0.16.0-beta.6 <0.17.0",
-	Digests: skillcontent.Digests{
-		Full:     "sha256:a864116c3d17dffd7d430575bdaafd9e6c5908cea878d93fbd995af83bed5555",
-		Embedded: "sha256:70dc3615230f97362b9ee7ac419d5c1c2528fbaee1a4a44ea8f805c1b226e6ff",
+	Name: "viceme-access",
+	Releases: []skillcontent.RetiredSkillRelease{
+		retiredAccessRelease(
+			[]string{"0.16.0-beta.6"}, "0.16.0-beta.6",
+			"sha256:a864116c3d17dffd7d430575bdaafd9e6c5908cea878d93fbd995af83bed5555",
+			"sha256:70dc3615230f97362b9ee7ac419d5c1c2528fbaee1a4a44ea8f805c1b226e6ff",
+		),
+		retiredAccessRelease(
+			[]string{"0.16.0-poc.1"}, "0.16.0",
+			"sha256:9df092ffb8dcd9436ad35b82f2c6d79a1864f18f237cb4083a95563dfbb89aa1",
+			"sha256:795a211166273dc14c99e1a97df5aa82c7775ef8221af247a8fb3e36b0ab79a5",
+		),
+		retiredAccessRelease(
+			[]string{"0.16.0-poc.2", "0.16.0-poc.3", "0.16.0-poc.4", "0.16.0-poc.5", "0.16.0-poc.6"}, "0.16.0",
+			"sha256:4be046e810d97716a1c89eb7c72e98e07712829a4a84b8dae06fa8284951aad5",
+			"sha256:b0f3924886303f1f223e7153db056167da0eb8969ad8651b2063ca0114ed904e",
+		),
+		retiredAccessRelease(
+			[]string{"0.16.0-poc.7"}, "0.16.0",
+			"sha256:e1ed7c066cb7c3b620beb01e55791a71a134231d88a903eb46c85248f6ff854a",
+			"sha256:dc3b70e927adfd496914389e645bf3c3a8a2fcca757780e4d5b04403f3e24521",
+		),
+		retiredAccessRelease(
+			[]string{"0.16.0-poc.9"}, "0.16.0",
+			"sha256:18bb0d8524f56cb7e9d95aa9deba5da2898ee877fff8ea0a5d0c8bb0c18938f8",
+			"sha256:02daa9dbf25c0d45cd9af22dcd9cf6604911076d880a670a1f82d0159db08251",
+		),
+		retiredAccessRelease(
+			[]string{"0.16.0-poc.10"}, "0.16.0",
+			"sha256:12f92ff3193a65895482bc8baf22041fca0f900f2207062e82b7d7cd9aa3ee92",
+			"sha256:e61977251318628e02ceacbf139ac66f5279d95f48bd9506f2db02d900043abc",
+		),
+		retiredAccessRelease(
+			[]string{"0.16.0-poc.11", "0.16.0-poc.12", "0.16.1-poc.1", "0.16.1-poc.2", "0.16.1-poc.3", "0.16.1-poc.4"}, "0.16.0",
+			"sha256:634eb95dc6d793c1dd7c2824ea275d84de504627267c86cfab45fb4aabe0cf47",
+			"sha256:70dc3615230f97362b9ee7ac419d5c1c2528fbaee1a4a44ea8f805c1b226e6ff",
+		),
+		retiredAccessRelease(
+			[]string{"0.16.1-poc.5"}, "0.16.0",
+			"sha256:f62e61379ef7256a6155fbbbfe97a0225912836d90da6072ee80a78dad4b193a",
+			"sha256:ad6e09ba31e5709058c1d8b21cd16e207885eee7886d5f2337c6dea4d7e70ffc",
+		),
+		retiredAccessRelease(
+			[]string{"0.16.1-poc.6"}, "0.16.1",
+			"sha256:9d45686b3b055dc05a02c0c50a64bad12b443826f489eddfd3aefd1ed4fab046",
+			"sha256:52ded3d728a229ab49a0900ef4e002aa0e87ea94b5763b54bf683a23d1c13a2c",
+		),
 	},
 }}
+
+func retiredAccessRelease(cliVersions []string, skillVersion, fullDigest, embeddedDigest string) skillcontent.RetiredSkillRelease {
+	return skillcontent.RetiredSkillRelease{
+		CLIVersions:  cliVersions,
+		SkillVersion: skillVersion, MinimumCLIVersion: skillVersion,
+		CLICompatibility: ">=" + skillVersion + " <0.17.0",
+		Digests:          skillcontent.Digests{Full: fullDigest, Embedded: embeddedDigest},
+	}
+}
 
 type installNextStep struct {
 	Required bool   `json:"required"`

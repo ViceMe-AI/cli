@@ -163,7 +163,7 @@ func publishWebsite(ctx context.Context, runtime *Runtime, input publishWebsiteI
 
 func validateLegacyWebsiteBinding(binding websiteBinding, work api.SdkWork) error {
 	if work.WorkKey != binding.WorkKey || (binding.WorkID != "" && work.CreatorWorkID != binding.WorkID) ||
-		(work.Publication != nil && work.Publication.ClientWorkID != binding.ClientWorkID) {
+		work.Publication == nil || work.Publication.ClientWorkID != binding.ClientWorkID {
 		return output.Validation("WEBSITE_IDENTITY_CONFLICT", "the legacy website binding does not match the Work visible to the selected Profile")
 	}
 	return nil

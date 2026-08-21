@@ -307,11 +307,14 @@ func TestRetiredSkillRemovalCommitsAndRollsBackTransactionally(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			retired := RetiredSkill{
-				Name: "viceme-retired", CLIVersion: buildinfo.Version,
-				SkillVersion: buildinfo.SkillVersion, MinimumCLIVersion: buildinfo.MinimumCLIVersion,
-				CLICompatibility: buildinfo.CLICompatibility, Digests: digests,
-			}
+			retired := RetiredSkill{Name: "viceme-retired", Releases: []RetiredSkillRelease{
+				{CLIVersions: []string{"0.0.0"}},
+				{
+					CLIVersions:  []string{buildinfo.Version},
+					SkillVersion: buildinfo.SkillVersion, MinimumCLIVersion: buildinfo.MinimumCLIVersion,
+					CLICompatibility: buildinfo.CLICompatibility, Digests: digests,
+				},
+			}}
 			transaction, _, err := bundle.PrepareInstallSet([]string{"viceme-current"}, "agents", environment)
 			if err != nil {
 				t.Fatal(err)
@@ -360,17 +363,60 @@ func TestRetiredSkillRemovalRejectsModifiedInstallation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer transaction.Rollback()
-	err = transaction.RetireSkill(RetiredSkill{
-		Name: "viceme-retired", CLIVersion: buildinfo.Version,
+	err = transaction.RetireSkill(RetiredSkill{Name: "viceme-retired", Releases: []RetiredSkillRelease{{
+		CLIVersions:  []string{buildinfo.Version},
 		SkillVersion: buildinfo.SkillVersion, MinimumCLIVersion: buildinfo.MinimumCLIVersion,
 		CLICompatibility: buildinfo.CLICompatibility, Digests: digests,
-	}, "agents", environment)
+	}}}, "agents", environment)
 	if err == nil || !strings.Contains(err.Error(), "does not match the retired official release") {
 		t.Fatalf("RetireSkill() error = %v", err)
 	}
+	if err := transaction.Rollback(); err != nil {
+		t.Fatal(err)
+	}
 	if _, statErr := os.Stat(filepath.Join(retiredPath, "user-note.txt")); statErr != nil {
 		t.Fatalf("modified retired Skill was removed: %v", statErr)
+	}
+}
+
+func TestRetiredSkillRemovalPreservesReplacementCreatedAfterSnapshot(t *testing.T) {
+	root := t.TempDir()
+	writeTestSkill(t, root, "viceme-current")
+	writeTestSkill(t, root, "viceme-retired")
+	bundle := New(os.DirFS(root))
+	home := t.TempDir()
+	environment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
+	retiredPath := filepath.Join(home, ".agents", "skills", "viceme-retired")
+	if err := installRetiredTestSkill(bundle, "viceme-retired", retiredPath); err != nil {
+		t.Fatal(err)
+	}
+	digests, err := bundle.Digests("viceme-retired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transaction, _, err := bundle.PrepareInstallSet([]string{"viceme-current"}, "agents", environment)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transaction.RetireSkill(RetiredSkill{Name: "viceme-retired", Releases: []RetiredSkillRelease{{
+		CLIVersions:  []string{buildinfo.Version},
+		SkillVersion: buildinfo.SkillVersion, MinimumCLIVersion: buildinfo.MinimumCLIVersion,
+		CLICompatibility: buildinfo.CLICompatibility, Digests: digests,
+	}}}, "agents", environment); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(retiredPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	replacement := filepath.Join(retiredPath, "user-note.txt")
+	if err := os.WriteFile(replacement, []byte("new user directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := transaction.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(replacement); err != nil || string(data) != "new user directory" {
+		t.Fatalf("replacement directory was removed: data=%q err=%v", data, err)
 	}
 }
 

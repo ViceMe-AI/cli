@@ -162,6 +162,66 @@ func TestWebsitePublishMigratesVerifiedBeta6Binding(t *testing.T) {
 	}
 }
 
+func TestWebsitePublishRejectsUnverifiableBeta6BindingBeforePost(t *testing.T) {
+	var requests []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests = append(requests, request.Method+" "+request.URL.Path)
+		writeJSONResponse(writer, map[string]any{
+			"creatorWorkId": "22222222-2222-4222-8222-222222222222",
+			"workKey":       "wrk_stable_work_01", "displayName": "Dagou Tap",
+			"status": "DRAFT", "configVersion": 1, "publication": nil,
+			"offer": nil, "features": []any{}, "capabilities": []any{},
+			"createdAt": "2026-08-21T00:00:00Z", "updatedAt": "2026-08-21T00:00:00Z",
+		})
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("website"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	filename := filepath.Join(root, ".viceme", "website.json")
+	if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	legacy := `{
+  "schemaVersion": 1,
+  "clientWorkId": "11111111-1111-4111-8111-111111111111",
+  "workId": "22222222-2222-4222-8222-222222222222",
+  "workKey": "wrk_stable_work_01",
+  "region": "cn",
+  "displayName": "Dagou Tap",
+  "sourceUrl": ""
+}
+`
+	if err := os.WriteFile(filename, []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime := &Runtime{
+		deps:              Dependencies{HTTPClient: server.Client(), Store: securestore.NewMemory()},
+		profile:           config.Profile{ID: "profile-poc", Name: "poc"},
+		region:            config.RegionCN,
+		apiBaseURL:        server.URL,
+		processCredential: &publicationCredential{raw: "vme_cli_test"},
+	}
+	_, _, err = publishWebsite(context.Background(), runtime, publishWebsiteInput{SourcePath: root, DisplayName: "Dagou Tap"})
+	cliError, ok := err.(*output.Error)
+	if !ok || cliError.Subtype != "WEBSITE_IDENTITY_CONFLICT" {
+		t.Fatalf("publishWebsite() error = %#v", err)
+	}
+	if got := strings.Join(requests, "\n"); got != "GET /v1/cli/sdk-works/wrk_stable_work_01" {
+		t.Fatalf("requests = %q", got)
+	}
+	after, readErr := os.ReadFile(filename)
+	if readErr != nil || string(after) != string(before) {
+		t.Fatalf("unverifiable binding was modified: err=%v before=%q after=%q", readErr, before, after)
+	}
+}
+
 func TestWebsiteURLIsOptionalButValidatedWhenProvided(t *testing.T) {
 	if err := validateWebsiteURL(""); err != nil {
 		t.Fatalf("validateWebsiteURL(\"\") error = %v", err)

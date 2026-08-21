@@ -788,6 +788,37 @@ func TestOfficialSkillBundleIncludesTip(t *testing.T) {
 	}
 }
 
+func TestRetiredOfficialSkillsCoverPublishedAccessReleases(t *testing.T) {
+	want := []string{
+		"0.16.0-beta.6",
+		"0.16.0-poc.1", "0.16.0-poc.2", "0.16.0-poc.3", "0.16.0-poc.4", "0.16.0-poc.5", "0.16.0-poc.6", "0.16.0-poc.7",
+		"0.16.0-poc.9", "0.16.0-poc.10", "0.16.0-poc.11", "0.16.0-poc.12",
+		"0.16.1-poc.1", "0.16.1-poc.2", "0.16.1-poc.3", "0.16.1-poc.4", "0.16.1-poc.5", "0.16.1-poc.6",
+	}
+	got := make(map[string]int)
+	for _, skill := range retiredOfficialSkills {
+		if skill.Name != "viceme-access" {
+			t.Fatalf("unexpected retired official Skill: %s", skill.Name)
+		}
+		for _, release := range skill.Releases {
+			if release.Digests.Full == "" || release.Digests.Embedded == "" {
+				t.Fatalf("retired release has no immutable digest: %#v", release)
+			}
+			for _, version := range release.CLIVersions {
+				got[version]++
+			}
+		}
+	}
+	if len(got) != len(want) {
+		t.Fatalf("retired CLI versions = %#v, want %#v", got, want)
+	}
+	for _, version := range want {
+		if got[version] != 1 {
+			t.Fatalf("retired CLI version %s appears %d times", version, got[version])
+		}
+	}
+}
+
 func TestDoctorIncludesUnauthenticatedNetworkReadiness(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

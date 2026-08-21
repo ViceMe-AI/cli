@@ -3,8 +3,8 @@ set -eu
 
 region="${VICEME_REGION:-cn}"
 case "$region" in
-  cn) base_url="${VICEME_DOWNLOAD_BASE_URL:-https://s3.viceme.cn/start/cli/releases}"; api_base_url="https://api.viceme.cn" ;;
-  global) base_url="${VICEME_DOWNLOAD_BASE_URL:-https://s3.viceme.ai/start/cli/releases}"; api_base_url="https://api.viceme.ai" ;;
+  cn) base_url="${VICEME_DOWNLOAD_BASE_URL:-https://s3.viceme.cn/start/cli/releases}"; api_base_url="https://api.viceme.cn"; web_base_url="https://viceme.cn" ;;
+  global) base_url="${VICEME_DOWNLOAD_BASE_URL:-https://s3.viceme.ai/start/cli/releases}"; api_base_url="https://api.viceme.ai"; web_base_url="https://viceme.ai" ;;
   *) echo "VICEME_REGION must be cn or global" >&2; exit 2 ;;
 esac
 
@@ -61,7 +61,7 @@ destination="$install_dir/viceme"
 chmod 755 "$temporary/viceme"
 "$temporary/viceme" bootstrap activate \
   --destination "$destination" --agent auto --region "$region" \
-  --api-base-url "$api_base_url" --release-channel stable \
+  --api-base-url "$api_base_url" --web-base-url "$web_base_url" --release-channel stable \
   --release-base-url "$base_url" --allow-channel-switch
 
 resolved="$(command -v viceme 2>/dev/null || true)"

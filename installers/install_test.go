@@ -16,6 +16,8 @@ func TestInstallersUsePublicStartBucketURLs(t *testing.T) {
 	expected := []string{
 		"https://s3.viceme.cn/start/cli/releases",
 		"https://s3.viceme.ai/start/cli/releases",
+		"https://viceme.cn",
+		"https://viceme.ai",
 	}
 	for _, filename := range []string{"install.sh", "install.ps1"} {
 		contents, err := os.ReadFile(filename)
@@ -102,7 +104,8 @@ cp "$VICEME_TEST_FIXTURES/${url##*/}" "$out"
 		t.Fatalf("unexpected installed binary: err=%v content=%q", err, installed)
 	}
 	logData, err := os.ReadFile(logFile)
-	if err != nil || !strings.Contains(string(logData), "bootstrap activate --destination ") || !strings.Contains(string(logData), "--agent auto --region cn") {
+	if err != nil || !strings.Contains(string(logData), "bootstrap activate --destination ") || !strings.Contains(string(logData), "--agent auto --region cn") ||
+		!strings.Contains(string(logData), "--web-base-url https://viceme.cn") {
 		t.Fatalf("official Skills were not installed: err=%v log=%q", err, logData)
 	}
 

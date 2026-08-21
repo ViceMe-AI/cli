@@ -22,8 +22,8 @@ function Get-ReleaseFile {
 
 $region = if ($env:VICEME_REGION) { $env:VICEME_REGION } else { "cn" }
 switch ($region) {
-  "cn" { $baseUrl = if ($env:VICEME_DOWNLOAD_BASE_URL) { $env:VICEME_DOWNLOAD_BASE_URL } else { "https://s3.viceme.cn/start/cli/releases" }; $apiBaseUrl = "https://api.viceme.cn" }
-  "global" { $baseUrl = if ($env:VICEME_DOWNLOAD_BASE_URL) { $env:VICEME_DOWNLOAD_BASE_URL } else { "https://s3.viceme.ai/start/cli/releases" }; $apiBaseUrl = "https://api.viceme.ai" }
+  "cn" { $baseUrl = if ($env:VICEME_DOWNLOAD_BASE_URL) { $env:VICEME_DOWNLOAD_BASE_URL } else { "https://s3.viceme.cn/start/cli/releases" }; $apiBaseUrl = "https://api.viceme.cn"; $webBaseUrl = "https://viceme.cn" }
+  "global" { $baseUrl = if ($env:VICEME_DOWNLOAD_BASE_URL) { $env:VICEME_DOWNLOAD_BASE_URL } else { "https://s3.viceme.ai/start/cli/releases" }; $apiBaseUrl = "https://api.viceme.ai"; $webBaseUrl = "https://viceme.ai" }
   default { throw "VICEME_REGION must be cn or global" }
 }
 
@@ -61,7 +61,7 @@ try {
   $destination = Join-Path $installDir "viceme.exe"
   & $binaryPath bootstrap activate `
     --destination $destination --agent auto --region $region `
-    --api-base-url $apiBaseUrl --release-channel stable `
+    --api-base-url $apiBaseUrl --web-base-url $webBaseUrl --release-channel stable `
     --release-base-url $baseUrl --allow-channel-switch
   if ($LASTEXITCODE -ne 0) { throw "ViceMe bootstrap activation failed" }
 
