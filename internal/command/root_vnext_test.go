@@ -789,13 +789,17 @@ func TestOfficialSkillBundleIncludesTip(t *testing.T) {
 }
 
 func TestRetiredOfficialSkillsCoverPublishedAccessReleases(t *testing.T) {
-	want := []string{
-		"0.16.0-beta.6",
-		"0.16.0-poc.1", "0.16.0-poc.2", "0.16.0-poc.3", "0.16.0-poc.4", "0.16.0-poc.5", "0.16.0-poc.6", "0.16.0-poc.7",
-		"0.16.0-poc.9", "0.16.0-poc.10", "0.16.0-poc.11", "0.16.0-poc.12",
-		"0.16.1-poc.1", "0.16.1-poc.2", "0.16.1-poc.3", "0.16.1-poc.4", "0.16.1-poc.5", "0.16.1-poc.6",
+	wantVersionCounts := map[string]int{
+		"0.15.3-poc.1":  1,
+		"0.16.0-beta.6": 1,
+		"0.16.0-poc.1":  1, "0.16.0-poc.2": 1, "0.16.0-poc.3": 1, "0.16.0-poc.4": 1,
+		"0.16.0-poc.5": 1, "0.16.0-poc.6": 1, "0.16.0-poc.7": 1, "0.16.0-poc.9": 1,
+		"0.16.0-poc.10": 1, "0.16.0-poc.11": 1, "0.16.0-poc.12": 1,
+		"0.16.1-poc.1": 2, "0.16.1-poc.2": 2, "0.16.1-poc.3": 2, "0.16.1-poc.4": 2,
+		"0.16.1-poc.5": 1, "0.16.1-poc.6": 1,
 	}
-	got := make(map[string]int)
+	gotVersionCounts := make(map[string]int)
+	identities := make(map[string]struct{})
 	for _, skill := range retiredOfficialSkills {
 		if skill.Name != "viceme-access" {
 			t.Fatalf("unexpected retired official Skill: %s", skill.Name)
@@ -805,16 +809,24 @@ func TestRetiredOfficialSkillsCoverPublishedAccessReleases(t *testing.T) {
 				t.Fatalf("retired release has no immutable digest: %#v", release)
 			}
 			for _, version := range release.CLIVersions {
-				got[version]++
+				identity := strings.Join([]string{
+					version, release.SkillVersion, release.MinimumCLIVersion, release.CLICompatibility,
+					release.Digests.Full, release.Digests.Embedded,
+				}, "\x00")
+				if _, duplicate := identities[identity]; duplicate {
+					t.Fatalf("retired release identity is duplicated for %s", version)
+				}
+				identities[identity] = struct{}{}
+				gotVersionCounts[version]++
 			}
 		}
 	}
-	if len(got) != len(want) {
-		t.Fatalf("retired CLI versions = %#v, want %#v", got, want)
+	if len(gotVersionCounts) != len(wantVersionCounts) {
+		t.Fatalf("retired CLI versions = %#v, want %#v", gotVersionCounts, wantVersionCounts)
 	}
-	for _, version := range want {
-		if got[version] != 1 {
-			t.Fatalf("retired CLI version %s appears %d times", version, got[version])
+	for version, wantCount := range wantVersionCounts {
+		if gotVersionCounts[version] != wantCount {
+			t.Fatalf("retired CLI version %s appears %d times, want %d identities", version, gotVersionCounts[version], wantCount)
 		}
 	}
 }

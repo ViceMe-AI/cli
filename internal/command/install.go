@@ -27,13 +27,23 @@ var officialSkillNames = []string{
 var retiredOfficialSkills = []skillcontent.RetiredSkill{{
 	Name: "viceme-access",
 	Releases: []skillcontent.RetiredSkillRelease{
+		{
+			CLIVersions:       []string{"0.15.3-poc.1"},
+			SkillVersion:      "0.15.0",
+			MinimumCLIVersion: "0.15.0",
+			CLICompatibility:  ">=0.15.0 <0.16.0",
+			Digests: skillcontent.Digests{
+				Full:     "sha256:f1e8b50be7e9cade06d178b48f1134ad627829eff64bd26df6153e23a72ff20d",
+				Embedded: "sha256:795a211166273dc14c99e1a97df5aa82c7775ef8221af247a8fb3e36b0ab79a5",
+			},
+		},
 		retiredAccessRelease(
 			[]string{"0.16.0-beta.6"}, "0.16.0-beta.6",
 			"sha256:a864116c3d17dffd7d430575bdaafd9e6c5908cea878d93fbd995af83bed5555",
 			"sha256:70dc3615230f97362b9ee7ac419d5c1c2528fbaee1a4a44ea8f805c1b226e6ff",
 		),
 		retiredAccessRelease(
-			[]string{"0.16.0-poc.1"}, "0.16.0",
+			[]string{"0.16.0-poc.1", "0.16.1-poc.1", "0.16.1-poc.2", "0.16.1-poc.3", "0.16.1-poc.4"}, "0.16.0",
 			"sha256:9df092ffb8dcd9436ad35b82f2c6d79a1864f18f237cb4083a95563dfbb89aa1",
 			"sha256:795a211166273dc14c99e1a97df5aa82c7775ef8221af247a8fb3e36b0ab79a5",
 		),
