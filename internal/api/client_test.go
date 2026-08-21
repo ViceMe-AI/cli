@@ -71,7 +71,7 @@ func TestSdkWorkClientUsesLightweightCreatorEndpoints(t *testing.T) {
 			_, _ = io.WriteString(writer, `{"method":"PUT","url":"https://storage.example.com/upload","expiresAt":"2026-08-20T04:00:00.000Z","headers":{"content-type":"image/png"}}`)
 			return
 		}
-		_, _ = io.WriteString(writer, `{"creatorWorkId":"22222222-2222-4222-8222-222222222222","workKey":"wrk_test","displayName":"Test","status":"DRAFT","configVersion":1,"offer":null,"features":[],"capabilities":[],"createdAt":"2026-08-15T00:00:00.000Z","updatedAt":"2026-08-15T00:00:00.000Z"}`)
+		_, _ = io.WriteString(writer, `{"creatorWorkId":"22222222-2222-4222-8222-222222222222","workKey":"wrk_test","displayName":"Test","status":"DRAFT","configVersion":1,"offers":[],"features":[],"capabilities":[],"createdAt":"2026-08-15T00:00:00.000Z","updatedAt":"2026-08-15T00:00:00.000Z"}`)
 	}))
 	defer server.Close()
 

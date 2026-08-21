@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
@@ -40,6 +41,16 @@ type websiteBinding struct {
 	ReleaseVersion   int               `json:"releaseVersion,omitempty"`
 }
 
+type websitePublishOptions struct {
+	SourcePath         string
+	DisplayName        string
+	CreatorDisplayName string
+	SourceURL          string
+	DescriptionZhCN    string
+	DescriptionEnUS    string
+	CoverPath          string
+}
+
 func newWebsiteCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "website", Short: "Publish creator websites"}
 	command.AddCommand(newWebsitePublishCommand(runtime))
@@ -59,103 +70,13 @@ func newWebsitePublishCommand(runtime *Runtime) *cobra.Command {
 		Short: "Publish or update the website work in the current source directory",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			root, bindingPath, err := resolveWebsiteBindingPath(sourcePath)
-			if err != nil {
-				return err
-			}
-			binding, found, err := loadWebsiteBinding(bindingPath)
-			if err != nil {
-				return err
-			}
-			if strings.TrimSpace(displayName) == "" {
-				return output.Validation("WEBSITE_NAME_REQUIRED", "--name is required")
-			}
-			if err := validateWebsiteURL(sourceURL); err != nil {
-				return err
-			}
-			if found && binding.Region != string(runtime.region) {
-				return output.Validation("WEBSITE_REGION_MISMATCH", "website binding region does not match the active CLI profile")
-			}
-			if !found {
-				binding = websiteBinding{
-					SchemaVersion: 1,
-					ClientWorkID:  randomUUID(),
-					Region:        string(runtime.region),
-				}
-			}
-			sourceDigest, err := digestWebsiteDirectory(root)
-			if err != nil {
-				return err
-			}
-			binding.DisplayName = strings.TrimSpace(displayName)
-			if normalizedSourceURL := strings.TrimSpace(sourceURL); normalizedSourceURL != "" {
-				binding.SourceURL = normalizedSourceURL
-			}
-			if value := strings.TrimSpace(descriptionZhCN); value != "" {
-				binding.DescriptionZhCN = value
-			}
-			if value := strings.TrimSpace(descriptionEnUS); value != "" {
-				binding.DescriptionEnUS = value
-			}
-			var coverCandidate *publication.Candidate
-			if strings.TrimSpace(coverPath) != "" {
-				candidate, err := publication.ReadCandidate(coverPath)
-				if err != nil {
-					return err
-				}
-				coverCandidate = &candidate
-				binding.Cover = &api.WebsiteCover{
-					Digest: candidate.Digest, SizeBytes: candidate.SizeBytes,
-					FileName: candidate.FileName, ContentType: candidate.ContentType,
-				}
-			}
-			if err := runtime.requirePublicationAuthentication(command.Context()); err != nil {
-				return err
-			}
-			// Persist the source identity before the network call. If the call succeeds
-			// but the process is interrupted, the next publish still reuses this work.
-			if err := writeWebsiteBinding(bindingPath, binding); err != nil {
-				return err
-			}
-			client := runtime.client()
-			if coverCandidate != nil {
-				authorization, err := client.AuthorizeWebsiteCoverUpload(command.Context(), api.AuthorizeWebsiteCoverUploadRequest{
-					ClientWorkID: binding.ClientWorkID,
-					WebsiteCover: *binding.Cover,
-				})
-				if err != nil {
-					return err
-				}
-				progress(runtime, "Uploading website cover")
-				if err := client.PutUpload(command.Context(), authorization, bytes.NewReader(coverCandidate.Bytes), coverCandidate.SizeBytes); err != nil {
-					return err
-				}
-			}
-			work, err := client.PublishCreatorWebsite(command.Context(), api.PublishCreatorWebsiteRequest{
-				ClientRequestID: randomUUID(), ClientWorkID: binding.ClientWorkID, SourceDigest: sourceDigest,
-				DisplayName: binding.DisplayName, CreatorDisplayName: strings.TrimSpace(creatorDisplayName), SourceURL: binding.SourceURL,
-				DescriptionZhCN: binding.DescriptionZhCN, DescriptionEnUS: binding.DescriptionEnUS, Cover: binding.Cover,
+			work, bindingPath, err := publishWebsite(command.Context(), runtime, websitePublishOptions{
+				SourcePath: sourcePath, DisplayName: displayName, CreatorDisplayName: creatorDisplayName,
+				SourceURL: sourceURL, DescriptionZhCN: descriptionZhCN,
+				DescriptionEnUS: descriptionEnUS, CoverPath: coverPath,
 			})
 			if err != nil {
 				return err
-			}
-			if binding.WorkKey != "" && binding.WorkKey != work.WorkKey {
-				return output.Validation("WEBSITE_IDENTITY_CONFLICT", "repeat publication returned a different workKey")
-			}
-			if binding.WorkID != "" && binding.WorkID != work.CreatorWorkID {
-				return output.Validation("WEBSITE_IDENTITY_CONFLICT", "repeat publication returned a different workId")
-			}
-			if work.Publication != nil && work.Publication.ClientWorkID != binding.ClientWorkID {
-				return output.Validation("WEBSITE_IDENTITY_CONFLICT", "published work clientWorkId does not match the local binding")
-			}
-			binding.WorkID = work.CreatorWorkID
-			binding.WorkKey = work.WorkKey
-			if work.Publication != nil {
-				binding.LastSourceDigest = work.Publication.SourceDigest
-				binding.ReleaseVersion = work.Publication.Version
-			}
-			if err := writeWebsiteBinding(bindingPath, binding); err != nil {
-				return output.Internal("WEBSITE_BINDING_WRITE_FAILED", "website was published but the local work binding could not be updated", err).WithDetails(map[string]any{"workKey": work.WorkKey, "clientWorkId": binding.ClientWorkID})
 			}
 			return runtime.business(map[string]any{"work": work, "bindingPath": bindingPath})
 		},
@@ -168,6 +89,104 @@ func newWebsitePublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&descriptionEnUS, "description-en-us", "", "optional English website description")
 	command.Flags().StringVar(&coverPath, "cover", "", "optional local website cover image")
 	return command
+}
+
+func publishWebsite(ctx context.Context, runtime *Runtime, options websitePublishOptions) (api.SdkWork, string, error) {
+	root, bindingPath, err := resolveWebsiteBindingPath(options.SourcePath)
+	if err != nil {
+		return api.SdkWork{}, "", err
+	}
+	binding, found, err := loadWebsiteBinding(bindingPath)
+	if err != nil {
+		return api.SdkWork{}, "", err
+	}
+	if strings.TrimSpace(options.DisplayName) == "" {
+		return api.SdkWork{}, "", output.Validation("WEBSITE_NAME_REQUIRED", "--name is required")
+	}
+	if err := validateWebsiteURL(options.SourceURL); err != nil {
+		return api.SdkWork{}, "", err
+	}
+	if found && binding.Region != string(runtime.region) {
+		return api.SdkWork{}, "", output.Validation("WEBSITE_REGION_MISMATCH", "website binding region does not match the active CLI profile")
+	}
+	if !found {
+		binding = websiteBinding{SchemaVersion: 1, ClientWorkID: randomUUID(), Region: string(runtime.region)}
+	}
+	sourceDigest, err := digestWebsiteDirectory(root)
+	if err != nil {
+		return api.SdkWork{}, "", err
+	}
+	binding.DisplayName = strings.TrimSpace(options.DisplayName)
+	if normalizedSourceURL := strings.TrimSpace(options.SourceURL); normalizedSourceURL != "" {
+		binding.SourceURL = normalizedSourceURL
+	}
+	if value := strings.TrimSpace(options.DescriptionZhCN); value != "" {
+		binding.DescriptionZhCN = value
+	}
+	if value := strings.TrimSpace(options.DescriptionEnUS); value != "" {
+		binding.DescriptionEnUS = value
+	}
+	var coverCandidate *publication.Candidate
+	if strings.TrimSpace(options.CoverPath) != "" {
+		candidate, err := publication.ReadCandidate(options.CoverPath)
+		if err != nil {
+			return api.SdkWork{}, "", err
+		}
+		coverCandidate = &candidate
+		binding.Cover = &api.WebsiteCover{
+			Digest: candidate.Digest, SizeBytes: candidate.SizeBytes,
+			FileName: candidate.FileName, ContentType: candidate.ContentType,
+		}
+	}
+	if err := runtime.requirePublicationAuthentication(ctx); err != nil {
+		return api.SdkWork{}, "", err
+	}
+	// Persist the source identity before the network call. If the call succeeds
+	// but the process is interrupted, the next publish still reuses this work.
+	if err := writeWebsiteBinding(bindingPath, binding); err != nil {
+		return api.SdkWork{}, "", err
+	}
+	client := runtime.client()
+	if coverCandidate != nil {
+		authorization, err := client.AuthorizeWebsiteCoverUpload(ctx, api.AuthorizeWebsiteCoverUploadRequest{
+			ClientWorkID: binding.ClientWorkID,
+			WebsiteCover: *binding.Cover,
+		})
+		if err != nil {
+			return api.SdkWork{}, "", err
+		}
+		progress(runtime, "Uploading website cover")
+		if err := client.PutUpload(ctx, authorization, bytes.NewReader(coverCandidate.Bytes), coverCandidate.SizeBytes); err != nil {
+			return api.SdkWork{}, "", err
+		}
+	}
+	work, err := client.PublishCreatorWebsite(ctx, api.PublishCreatorWebsiteRequest{
+		ClientRequestID: randomUUID(), ClientWorkID: binding.ClientWorkID, SourceDigest: sourceDigest,
+		DisplayName: binding.DisplayName, CreatorDisplayName: strings.TrimSpace(options.CreatorDisplayName), SourceURL: binding.SourceURL,
+		DescriptionZhCN: binding.DescriptionZhCN, DescriptionEnUS: binding.DescriptionEnUS, Cover: binding.Cover,
+	})
+	if err != nil {
+		return api.SdkWork{}, "", err
+	}
+	if binding.WorkKey != "" && binding.WorkKey != work.WorkKey {
+		return api.SdkWork{}, "", output.Validation("WEBSITE_IDENTITY_CONFLICT", "repeat publication returned a different workKey")
+	}
+	if binding.WorkID != "" && binding.WorkID != work.CreatorWorkID {
+		return api.SdkWork{}, "", output.Validation("WEBSITE_IDENTITY_CONFLICT", "repeat publication returned a different workId")
+	}
+	if work.Publication != nil && work.Publication.ClientWorkID != binding.ClientWorkID {
+		return api.SdkWork{}, "", output.Validation("WEBSITE_IDENTITY_CONFLICT", "published work clientWorkId does not match the local binding")
+	}
+	binding.WorkID = work.CreatorWorkID
+	binding.WorkKey = work.WorkKey
+	if work.Publication != nil {
+		binding.LastSourceDigest = work.Publication.SourceDigest
+		binding.ReleaseVersion = work.Publication.Version
+	}
+	if err := writeWebsiteBinding(bindingPath, binding); err != nil {
+		return api.SdkWork{}, "", output.Internal("WEBSITE_BINDING_WRITE_FAILED", "website was published but the local work binding could not be updated", err).WithDetails(map[string]any{"workKey": work.WorkKey, "clientWorkId": binding.ClientWorkID})
+	}
+	return work, bindingPath, nil
 }
 
 func resolveWebsiteBindingPath(sourcePath string) (string, string, error) {
