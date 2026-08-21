@@ -101,6 +101,8 @@ jobs:
     needs: metadata
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      commerce_skill_trust_keys: ${{ steps.commerce-trust-ring.outputs.ring }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -120,6 +122,14 @@ jobs:
           git diff --exit-code
       - run: make check
       - run: make npm-package-check
+      - id: commerce-trust-ring
+        name: Validate and freeze Commerce Skill release trust ring
+        env:
+          COMMERCE_SKILL_TRUST_KEYS: ${{ vars.COMMERCE_SKILL_TRUST_KEYS }}
+        run: |
+          set -euo pipefail
+          go run ./cmd/validate-commerce-trust-ring
+          printf 'ring=%s\n' "${COMMERCE_SKILL_TRUST_KEYS}" >> "${GITHUB_OUTPUT}"
 
   tag:
     name: Release tag
@@ -154,6 +164,7 @@ jobs:
     name: Release binary (${{ matrix.goos }}/${{ matrix.goarch }})
     needs:
       - metadata
+      - quality
       - tag
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -187,17 +198,22 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Revalidate frozen Commerce Skill trust ring
+        env:
+          COMMERCE_SKILL_TRUST_KEYS: ${{ needs.quality.outputs.commerce_skill_trust_keys }}
+        run: go run ./cmd/validate-commerce-trust-ring
       - name: Build release binary
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
           RELEASE_SHA: ${{ needs.metadata.outputs.sha }}
+          COMMERCE_SKILL_TRUST_KEYS: ${{ needs.quality.outputs.commerce_skill_trust_keys }}
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
           ASSET="viceme_${VERSION}_${GOOS}_${GOARCH}${{ matrix.extension }}"
           mkdir -p dist
-          go build -trimpath -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=${VERSION} -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=${RELEASE_SHA}" -o "dist/${ASSET}" ./cmd/viceme
+          go build -trimpath -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=${VERSION} -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=${RELEASE_SHA} -X github.com/ViceMe-AI/cli/internal/buildinfo.CommerceSkillTrustKeys=${COMMERCE_SKILL_TRUST_KEYS}" -o "dist/${ASSET}" ./cmd/viceme
           cd dist
           sha256sum "${ASSET}" >"${ASSET}.sha256"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
