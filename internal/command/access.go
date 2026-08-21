@@ -30,6 +30,17 @@ type accessConfig struct {
 	ConfigVersion int                            `yaml:"configVersion"`
 }
 
+type legacyAccessConfig struct {
+	SchemaVersion int                            `yaml:"schemaVersion"`
+	WorkKey       string                         `yaml:"workKey"`
+	Region        string                         `yaml:"region"`
+	DisplayName   string                         `yaml:"displayName"`
+	PriceCents    *int                           `yaml:"priceCents"`
+	Features      map[string]accessFeatureConfig `yaml:"features"`
+	Status        string                         `yaml:"status"`
+	ConfigVersion int                            `yaml:"configVersion"`
+}
+
 type accessFeatureConfig struct {
 	Title  string              `yaml:"title"`
 	Policy accessFeaturePolicy `yaml:"policy"`
@@ -141,11 +152,11 @@ func newAccessInspectCommand(runtime *Runtime) *cobra.Command {
 		Short: "Show the authoritative work binding and capabilities",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			config, err := readAccessConfig(filename)
+			config, legacy, err := readAccessConfig(filename)
 			if err != nil {
 				return err
 			}
-			if err := validateAccessProfile(runtime, config); err != nil {
+			if err := validateAccessProfile(runtime, config, legacy); err != nil {
 				return err
 			}
 			if accessConfigHasActiveDanmaku(config) {
@@ -175,11 +186,11 @@ func newAccessApplyCommand(runtime *Runtime) *cobra.Command {
 		Short: "Validate and apply the local access config",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			config, err := readAccessConfig(filename)
+			config, legacy, err := readAccessConfig(filename)
 			if err != nil {
 				return err
 			}
-			if err := validateAccessProfile(runtime, config); err != nil {
+			if err := validateAccessProfile(runtime, config, legacy); err != nil {
 				return err
 			}
 			if accessConfigHasActiveDanmaku(config) {
@@ -193,6 +204,9 @@ func newAccessApplyCommand(runtime *Runtime) *cobra.Command {
 			}
 			if err := validateSdkWorkBinding(work, config.WorkKey); err != nil {
 				return err
+			}
+			if legacy {
+				config.ProfileID = runtime.profile.ID
 			}
 			config.ConfigVersion = work.ConfigVersion
 			if err := writeAccessConfigReplacing(filename, config); err != nil {
@@ -282,8 +296,8 @@ func accessConfigHasActiveDanmaku(config accessConfig) bool {
 		(feature.Status == "" || feature.Status == "ACTIVE")
 }
 
-func validateAccessProfile(runtime *Runtime, config accessConfig) error {
-	if config.ProfileID != runtime.profile.ID || config.Region != string(runtime.region) {
+func validateAccessProfile(runtime *Runtime, config accessConfig, legacy bool) error {
+	if config.Region != string(runtime.region) || (!legacy && config.ProfileID != runtime.profile.ID) {
 		return output.Validation(
 			"ACCESS_PROFILE_MISMATCH",
 			"access config does not belong to the selected CLI Profile",
@@ -312,21 +326,59 @@ func (config accessConfig) applyRequest() api.ApplySdkWorkRequest {
 	}
 }
 
-func readAccessConfig(filename string) (accessConfig, error) {
+func readAccessConfig(filename string) (accessConfig, bool, error) {
 	data, err := os.ReadFile(filename)
 	if err != nil {
-		return accessConfig{}, output.Validation("ACCESS_CONFIG_READ_FAILED", "could not read access config")
+		return accessConfig{}, false, output.Validation("ACCESS_CONFIG_READ_FAILED", "could not read access config")
 	}
 	var config accessConfig
+	decodeErr := decodeAccessConfig(data, &config)
+	var validationErr error
+	if decodeErr == nil {
+		validationErr = validateAccessConfig(config)
+		if validationErr == nil {
+			return config, false, nil
+		}
+	}
+	var legacy legacyAccessConfig
+	if legacyErr := decodeAccessConfig(data, &legacy); legacyErr == nil {
+		if err := validateLegacyAccessConfig(legacy); err != nil {
+			return accessConfig{}, false, err
+		}
+		return legacy.current(), true, nil
+	}
+	if decodeErr != nil {
+		return accessConfig{}, false, output.Validation("ACCESS_CONFIG_INVALID", fmt.Sprintf("invalid access config: %v", decodeErr))
+	}
+	return accessConfig{}, false, validationErr
+}
+
+func decodeAccessConfig(data []byte, destination any) error {
 	decoder := yaml.NewDecoder(strings.NewReader(string(data)))
 	decoder.KnownFields(true)
-	if err := decoder.Decode(&config); err != nil {
-		return accessConfig{}, output.Validation("ACCESS_CONFIG_INVALID", fmt.Sprintf("invalid access config: %v", err))
+	return decoder.Decode(destination)
+}
+
+func (config legacyAccessConfig) current() accessConfig {
+	return accessConfig{
+		SchemaVersion: config.SchemaVersion,
+		WorkKey:       config.WorkKey,
+		Region:        config.Region,
+		DisplayName:   config.DisplayName,
+		Features:      config.Features,
+		Status:        config.Status,
+		ConfigVersion: config.ConfigVersion,
 	}
-	if err := validateAccessConfig(config); err != nil {
-		return accessConfig{}, err
+}
+
+func validateLegacyAccessConfig(config legacyAccessConfig) error {
+	danmaku, hasDanmaku := config.Features["danmaku"]
+	if len(config.Features) != 1 || !hasDanmaku || danmaku.Policy.Type != "PUBLIC" || config.PriceCents != nil {
+		return output.Validation("ACCESS_CONFIG_MIGRATION_UNSUPPORTED", "this CLI release can only migrate a legacy access config containing one public danmaku feature and no price")
 	}
-	return config, nil
+	current := config.current()
+	current.ProfileID = "legacy"
+	return validateAccessConfig(current)
 }
 
 func validateAccessConfig(config accessConfig) error {

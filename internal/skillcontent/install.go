@@ -117,6 +117,18 @@ type installManifest struct {
 	EmbeddedContentDigest string `json:"embedded_content_digest"`
 }
 
+// RetiredSkill identifies one previously shipped official installation that
+// may be removed only while its recorded metadata and on-disk bytes still
+// match that immutable release.
+type RetiredSkill struct {
+	Name              string
+	CLIVersion        string
+	SkillVersion      string
+	MinimumCLIVersion string
+	CLICompatibility  string
+	Digests           Digests
+}
+
 func (b *Bundle) Install(name, target string, environment Environment) InstallReport {
 	reports := b.InstallSet([]string{name}, target, environment)
 	if len(reports) == 0 {
@@ -310,6 +322,83 @@ func (transaction *InstallTransaction) TrackPath(destination string) error {
 		if err := os.Rename(absDestination, backup); err != nil {
 			return fmt.Errorf("preserve install transaction path: %w", err)
 		}
+	}
+	return nil
+}
+
+// RetireSkill adds verified copies of a retired official Skill to the active
+// transaction. Commit removes them; rollback restores them.
+func (transaction *InstallTransaction) RetireSkill(skill RetiredSkill, target string, environment Environment) error {
+	if transaction == nil || transaction.closed {
+		return errors.New("install transaction is not active")
+	}
+	if err := validName(skill.Name); err != nil {
+		return err
+	}
+	paths, err := resolveTargets(skill.Name, target, environment, false)
+	if err != nil {
+		return err
+	}
+	destinations := make([]string, 0, len(paths))
+	for _, resolved := range paths {
+		info, err := os.Lstat(resolved.path)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("inspect retired official Skill: %w", err)
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s does not match the retired official release", resolved.path)
+		}
+		if err := verifyRetiredSkillInstallation(resolved.path, skill); err != nil {
+			return fmt.Errorf("%s does not match the retired official release: %w", resolved.path, err)
+		}
+		destinations = append(destinations, resolved.path)
+	}
+	for _, destination := range destinations {
+		if err := transaction.TrackPath(destination); err != nil {
+			return fmt.Errorf("retire official Skill: %w", err)
+		}
+	}
+	return nil
+}
+
+func verifyRetiredSkillInstallation(directory string, skill RetiredSkill) error {
+	expectedManifest := installManifest{
+		SchemaVersion:         1,
+		CLIVersion:            skill.CLIVersion,
+		SkillVersion:          skill.SkillVersion,
+		MinimumCLIVersion:     skill.MinimumCLIVersion,
+		CLICompatibility:      skill.CLICompatibility,
+		FullBundleDigest:      skill.Digests.Full,
+		EmbeddedContentDigest: skill.Digests.Embedded,
+	}
+	manifest, err := readInstallManifest(directory)
+	if err != nil || manifest != expectedManifest {
+		return errors.New("install manifest differs")
+	}
+	if err := filepath.WalkDir(directory, func(_ string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+			return errors.New("installation contains a non-regular file")
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	actual, err := digestsInstalled(directory)
+	if err != nil {
+		return err
+	}
+	if actual != skill.Digests {
+		return errors.New("installed bytes differ")
 	}
 	return nil
 }

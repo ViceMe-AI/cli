@@ -6,6 +6,7 @@ const workflow = await readFile(".github/workflows/poc-release.yml", "utf8");
 const shellInstaller = await readFile("installers/install-poc.sh", "utf8");
 const powerShellInstaller = await readFile("installers/install-poc.ps1", "utf8");
 const template = await readFile("release/agent-install-poc.md.tmpl", "utf8");
+const bootstrapContract = JSON.parse(await readFile("release/poc-bootstrap-contract.json", "utf8"));
 
 test("POC release is manual, exact-branch, prerelease-only, and standalone", () => {
   assert.match(workflow, /workflow_dispatch:/);
@@ -41,9 +42,12 @@ test("POC S3 publication reuses the shared CN HTTPS proxy", () => {
 });
 
 test("POC installers atomically select the POC API and updater without another command name", () => {
+  assert.equal(bootstrapContract.webBaseUrl, "https://poc.viceme.cn");
   for (const installer of [shellInstaller, powerShellInstaller]) {
     assert.match(installer, /region(?: =|=)\s*["']cn["']/);
     assert.match(installer, /viceme-shop-web-poc\.preview\.tencent-zeabur\.cn\/api/);
+    assert.match(installer, /poc\.viceme\.cn/);
+    assert.match(installer, /web-base-url/);
     assert.match(installer, /viceme-shop-storage-poc\.preview\.tencent-zeabur\.cn\/start\/poc\/cli\/releases/);
     assert.match(installer, /release-channel poc/);
     assert.match(installer, /allow-channel-switch/);

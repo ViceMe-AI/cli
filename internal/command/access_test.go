@@ -159,6 +159,7 @@ func TestAccessConfigRejectsAnotherProfileInSameRegion(t *testing.T) {
 	err := validateAccessProfile(
 		&Runtime{profile: config.Profile{ID: "profile-b"}, region: config.RegionCN},
 		validAccessConfig(),
+		false,
 	)
 	cliError, ok := err.(*output.Error)
 	if !ok || cliError.Subtype != "ACCESS_PROFILE_MISMATCH" {
@@ -308,16 +309,135 @@ func TestAccessInitPublishesWebsiteAndReturnsProfileDerivedSnippet(t *testing.T)
 	if strings.Join(requests, "\n") != strings.Join(wantRequests, "\n") {
 		t.Fatalf("requests = %#v, want %#v", requests, wantRequests)
 	}
-	storedConfig, err := readAccessConfig(accessConfigPath)
+	storedConfig, legacy, err := readAccessConfig(accessConfigPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if storedConfig.ProfileID != profile.ID || storedConfig.WorkKey != "wrk_test_danmaku" {
+	if legacy || storedConfig.ProfileID != profile.ID || storedConfig.WorkKey != "wrk_test_danmaku" {
 		t.Fatalf("access config lost its Profile binding: %#v", storedConfig)
 	}
 	binding, found, err := loadWebsiteBinding(filepath.Join(root, ".viceme", "website.json"))
-	if err != nil || !found || binding.WorkKey != "wrk_test_danmaku" {
+	if err != nil || !found || binding.ProfileID != profile.ID || binding.WorkKey != "wrk_test_danmaku" {
 		t.Fatalf("website binding was not persisted: found=%t binding=%#v err=%v", found, binding, err)
+	}
+}
+
+func TestReadAccessConfigAcceptsBeta6PublicDanmaku(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "access.yaml")
+	legacyDocument := `schemaVersion: 1
+workKey: wrk_dagou_tap
+region: cn
+displayName: Dagou Tap
+priceCents: null
+features:
+  danmaku:
+    title: 弹幕
+    policy:
+      type: PUBLIC
+status: ACTIVE
+configVersion: 3
+`
+	if err := os.WriteFile(filename, []byte(legacyDocument), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, legacy, err := readAccessConfig(filename)
+	if err != nil {
+		t.Fatalf("readAccessConfig() error = %v", err)
+	}
+	if !legacy || got.ProfileID != "" || got.WorkKey != "wrk_dagou_tap" || got.ConfigVersion != 3 {
+		t.Fatalf("readAccessConfig() = %#v, legacy=%t", got, legacy)
+	}
+}
+
+func TestReadAccessConfigRejectsLossyBeta6Migration(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "access.yaml")
+	legacyDocument := `schemaVersion: 1
+workKey: wrk_dagou_tap
+region: cn
+displayName: Dagou Tap
+priceCents: 100
+features:
+  premium:
+    title: Premium
+    policy:
+      type: WORK_ENTITLEMENT
+status: ACTIVE
+configVersion: 3
+`
+	if err := os.WriteFile(filename, []byte(legacyDocument), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := readAccessConfig(filename)
+	cliError, ok := err.(*output.Error)
+	if !ok || cliError.Subtype != "ACCESS_CONFIG_MIGRATION_UNSUPPORTED" {
+		t.Fatalf("readAccessConfig() error = %#v", err)
+	}
+}
+
+func TestAccessApplyMigratesBeta6PublicDanmakuAfterRemoteSuccess(t *testing.T) {
+	var request api.ApplySdkWorkRequest
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, incoming *http.Request) {
+		if incoming.Method != http.MethodPut || incoming.URL.Path != "/v1/cli/sdk-works/wrk_dagou_tap" {
+			writer.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if err := json.NewDecoder(incoming.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		writeJSONResponse(writer, map[string]any{
+			"creatorWorkId": "22222222-2222-4222-8222-222222222222",
+			"workKey":       "wrk_dagou_tap", "displayName": "Dagou Tap", "status": "ACTIVE", "configVersion": 4,
+			"publication": nil, "offer": nil,
+			"features":     []any{map[string]any{"featureKey": "danmaku", "title": "弹幕", "policy": map[string]any{"type": "PUBLIC"}, "status": "ACTIVE"}},
+			"capabilities": []string{"danmaku"},
+			"createdAt":    "2026-08-21T00:00:00Z", "updatedAt": "2026-08-21T00:00:00Z",
+		})
+	}))
+	defer server.Close()
+
+	filename := filepath.Join(t.TempDir(), "access.yaml")
+	legacyDocument := `schemaVersion: 1
+workKey: wrk_dagou_tap
+region: cn
+displayName: Dagou Tap
+priceCents: null
+features:
+  danmaku:
+    title: 弹幕
+    policy:
+      type: PUBLIC
+status: ACTIVE
+configVersion: 3
+`
+	if err := os.WriteFile(filename, []byte(legacyDocument), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	runtime := &Runtime{
+		deps:              Dependencies{HTTPClient: server.Client(), Store: securestore.NewMemory()},
+		printer:           &output.Printer{Out: &stdout, ErrOut: io.Discard},
+		profile:           config.Profile{ID: "profile-poc", Name: "poc", WebBaseURL: "https://poc.viceme.cn"},
+		region:            config.RegionCN,
+		apiBaseURL:        server.URL,
+		processCredential: &publicationCredential{raw: "vme_cli_test"},
+	}
+	command := newAccessApplyCommand(runtime)
+	command.SetArgs([]string{"--config", filename})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("access apply error = %v", err)
+	}
+	if request.ExpectedConfigVersion != 3 || len(request.Features) != 1 || request.Features[0].FeatureKey != "danmaku" || request.PriceCents != nil {
+		t.Fatalf("unexpected migration request: %#v", request)
+	}
+	stored, legacy, err := readAccessConfig(filename)
+	if err != nil || legacy || stored.ProfileID != "profile-poc" || stored.ConfigVersion != 4 {
+		t.Fatalf("migrated config = %#v, legacy=%t, err=%v", stored, legacy, err)
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil || strings.Contains(string(data), "priceCents") {
+		t.Fatalf("legacy field remained after migration: err=%v data=%s", err, data)
 	}
 }
 

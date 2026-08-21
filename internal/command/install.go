@@ -24,6 +24,18 @@ var officialSkillNames = []string{
 	"viceme-engagement",
 }
 
+var retiredOfficialSkills = []skillcontent.RetiredSkill{{
+	Name:              "viceme-access",
+	CLIVersion:        "0.16.0-beta.6",
+	SkillVersion:      "0.16.0-beta.6",
+	MinimumCLIVersion: "0.16.0-beta.6",
+	CLICompatibility:  ">=0.16.0-beta.6 <0.17.0",
+	Digests: skillcontent.Digests{
+		Full:     "sha256:a864116c3d17dffd7d430575bdaafd9e6c5908cea878d93fbd995af83bed5555",
+		Embedded: "sha256:70dc3615230f97362b9ee7ac419d5c1c2528fbaee1a4a44ea8f805c1b226e6ff",
+	},
+}}
+
 type installNextStep struct {
 	Required bool   `json:"required"`
 	Command  string `json:"command"`
@@ -51,6 +63,7 @@ type installCommitAuthority struct {
 
 type installSourceOverride struct {
 	APIBaseURL     string
+	WebBaseURL     string
 	ReleaseChannel string
 	ReleaseBaseURL string
 }
@@ -272,6 +285,11 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 			return rollback(output.Internal("SKILL_INSTALL_PARTIAL", "official Skills were not activated", nil).WithDetails(reports))
 		}
 	}
+	for _, retired := range retiredOfficialSkills {
+		if err := transaction.RetireSkill(retired, agent, runtime.deps.Environment); err != nil {
+			return rollback(output.Validation("RETIRED_SKILL_CONFLICT", "a retired official Skill was modified and could not be removed safely").WithHint("move or remove the conflicting retired Skill directory, then rerun the installation"))
+		}
+	}
 	doctorResults := make([]doctorSkillResult, 0, len(officialSkillNames))
 	for _, name := range officialSkillNames {
 		report := runtime.deps.Skills.Doctor(name, agent, runtime.deps.Environment)
@@ -289,6 +307,12 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 			profile.APIBaseURL, err = config.NormalizeAPIBaseURL(sourceOverride.APIBaseURL)
 			if err != nil {
 				return rollback(output.Validation("API_BASE_URL_INVALID", err.Error()))
+			}
+		}
+		if sourceOverride.WebBaseURL != "" {
+			profile.WebBaseURL, err = config.NormalizeWebBaseURL(sourceOverride.WebBaseURL)
+			if err != nil {
+				return rollback(output.Validation("WEB_BASE_URL_INVALID", err.Error()))
 			}
 		}
 		switch sourceOverride.ReleaseChannel {

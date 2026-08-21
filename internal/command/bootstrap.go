@@ -58,6 +58,7 @@ func newBootstrapActivateCommand(runtime *Runtime) *cobra.Command {
 	var agent string
 	var region string
 	var apiBaseURL string
+	var webBaseURL string
 	var releaseChannel string
 	var releaseBaseURL string
 	var allowChannelSwitch bool
@@ -65,7 +66,7 @@ func newBootstrapActivateCommand(runtime *Runtime) *cobra.Command {
 		Use: "activate", Hidden: true, Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			result, err := activateBootstrap(command, runtime, destination, agent, region, installSourceOverride{
-				APIBaseURL: apiBaseURL, ReleaseChannel: releaseChannel, ReleaseBaseURL: releaseBaseURL,
+				APIBaseURL: apiBaseURL, WebBaseURL: webBaseURL, ReleaseChannel: releaseChannel, ReleaseBaseURL: releaseBaseURL,
 			}, allowChannelSwitch)
 			if err != nil {
 				return err
@@ -77,6 +78,7 @@ func newBootstrapActivateCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&agent, "agent", "auto", "agent target")
 	command.Flags().StringVar(&region, "region", "", "ViceMe region")
 	command.Flags().StringVar(&apiBaseURL, "api-base-url", "", "active ViceMe API endpoint")
+	command.Flags().StringVar(&webBaseURL, "web-base-url", "", "active ViceMe Web endpoint")
 	command.Flags().StringVar(&releaseChannel, "release-channel", "", "release channel")
 	command.Flags().StringVar(&releaseBaseURL, "release-base-url", "", "release artifact base URL")
 	command.Flags().BoolVar(&allowChannelSwitch, "allow-channel-switch", false, "authorize an explicit installer channel switch")
@@ -104,6 +106,13 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 			return bootstrapActivationResult{}, output.Validation("API_BASE_URL_INVALID", err.Error())
 		}
 		source.APIBaseURL = normalized
+	}
+	if source.WebBaseURL != "" {
+		normalized, err := config.NormalizeWebBaseURL(source.WebBaseURL)
+		if err != nil {
+			return bootstrapActivationResult{}, output.Validation("WEB_BASE_URL_INVALID", err.Error())
+		}
+		source.WebBaseURL = normalized
 	}
 	if source.ReleaseChannel != config.ReleaseChannelStable && source.ReleaseChannel != config.ReleaseChannelPOC {
 		return bootstrapActivationResult{}, output.Validation("RELEASE_CHANNEL_INVALID", "release channel must be stable or poc")
@@ -289,9 +298,10 @@ func bootstrapGenerationIsComplete(runtime *Runtime, destination, targetHash, ag
 	if err != nil || persistedConfig.DistributionRegion != expectedRegion || persistedConfig.ReleaseChannel != source.ReleaseChannel || persistedConfig.ReleaseBaseURL != source.ReleaseBaseURL {
 		return false
 	}
-	if source.APIBaseURL != "" {
+	if source.APIBaseURL != "" || source.WebBaseURL != "" {
 		profile, err := persistedConfig.Resolve(runtime.profile.Name)
-		if err != nil || profile.APIBaseURL != source.APIBaseURL {
+		if err != nil || (source.APIBaseURL != "" && profile.APIBaseURL != source.APIBaseURL) ||
+			(source.WebBaseURL != "" && profile.ResolvedWebBaseURL() != source.WebBaseURL) {
 			return false
 		}
 	}

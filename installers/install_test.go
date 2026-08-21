@@ -214,6 +214,7 @@ cp "$VICEME_TEST_FIXTURES/${url##*/}" "$out"
 		"bootstrap activate --destination ",
 		"--agent auto --region cn",
 		"--api-base-url https://viceme-shop-web-poc.preview.tencent-zeabur.cn/api",
+		"--web-base-url https://poc.viceme.cn",
 		"--release-channel poc",
 		"--release-base-url https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases",
 		"--allow-channel-switch",

@@ -27,6 +27,7 @@ var websiteWorkKeyPattern = regexp.MustCompile(`^wrk_[A-Za-z0-9_-]{4,124}$`)
 type websiteBinding struct {
 	SchemaVersion    int    `json:"schemaVersion"`
 	ClientWorkID     string `json:"clientWorkId"`
+	ProfileID        string `json:"profileId,omitempty"`
 	WorkID           string `json:"workId,omitempty"`
 	WorkKey          string `json:"workKey,omitempty"`
 	Region           string `json:"region"`
@@ -91,13 +92,32 @@ func publishWebsite(ctx context.Context, runtime *Runtime, input publishWebsiteI
 	if err := validateWebsiteURL(input.SourceURL); err != nil {
 		return api.SdkWork{}, "", err
 	}
-	if found && binding.Region != string(runtime.region) {
-		return api.SdkWork{}, "", output.Validation("WEBSITE_REGION_MISMATCH", "website binding region does not match the active CLI profile")
+	if found {
+		if binding.Region != string(runtime.region) {
+			return api.SdkWork{}, "", output.Validation("WEBSITE_REGION_MISMATCH", "website binding region does not match the active CLI profile")
+		}
+		if binding.ProfileID != "" && binding.ProfileID != runtime.profile.ID {
+			return api.SdkWork{}, "", output.Validation("WEBSITE_PROFILE_MISMATCH", "website binding does not belong to the selected CLI Profile").WithHint("rerun the command with the Profile that created this website binding")
+		}
+		if binding.ProfileID == "" {
+			if binding.WorkKey == "" {
+				return api.SdkWork{}, "", output.Validation("WEBSITE_PROFILE_MIGRATION_REQUIRED", "the legacy website binding has no published Work that can prove its Profile ownership")
+			}
+			existing, err := runtime.client().GetSdkWork(ctx, binding.WorkKey)
+			if err != nil {
+				return api.SdkWork{}, "", err
+			}
+			if err := validateLegacyWebsiteBinding(binding, existing); err != nil {
+				return api.SdkWork{}, "", err
+			}
+			binding.ProfileID = runtime.profile.ID
+		}
 	}
 	if !found {
 		binding = websiteBinding{
 			SchemaVersion: 1,
 			ClientWorkID:  randomUUID(),
+			ProfileID:     runtime.profile.ID,
 			Region:        string(runtime.region),
 		}
 	}
@@ -141,6 +161,14 @@ func publishWebsite(ctx context.Context, runtime *Runtime, input publishWebsiteI
 	return work, bindingPath, nil
 }
 
+func validateLegacyWebsiteBinding(binding websiteBinding, work api.SdkWork) error {
+	if work.WorkKey != binding.WorkKey || (binding.WorkID != "" && work.CreatorWorkID != binding.WorkID) ||
+		(work.Publication != nil && work.Publication.ClientWorkID != binding.ClientWorkID) {
+		return output.Validation("WEBSITE_IDENTITY_CONFLICT", "the legacy website binding does not match the Work visible to the selected Profile")
+	}
+	return nil
+}
+
 func resolveWebsiteBindingPath(sourcePath string) (string, string, error) {
 	root, err := filepath.Abs(sourcePath)
 	if err != nil {
@@ -162,7 +190,8 @@ func loadWebsiteBinding(filename string) (websiteBinding, bool, error) {
 		return websiteBinding{}, false, output.Validation("WEBSITE_BINDING_READ_FAILED", "could not read website binding")
 	}
 	var binding websiteBinding
-	if err := json.Unmarshal(data, &binding); err != nil || binding.SchemaVersion != 1 || !websiteUUIDPattern.MatchString(binding.ClientWorkID) || (binding.WorkKey != "" && !websiteWorkKeyPattern.MatchString(binding.WorkKey)) {
+	if err := json.Unmarshal(data, &binding); err != nil || binding.SchemaVersion != 1 || !websiteUUIDPattern.MatchString(binding.ClientWorkID) ||
+		(binding.ProfileID != "" && strings.TrimSpace(binding.ProfileID) == "") || (binding.WorkKey != "" && !websiteWorkKeyPattern.MatchString(binding.WorkKey)) {
 		return websiteBinding{}, false, output.Validation("WEBSITE_BINDING_INVALID", "website binding is invalid")
 	}
 	return binding, true, nil
@@ -184,7 +213,7 @@ func requirePublishedWebsiteBinding(sourcePath string) (websiteBinding, string, 
 }
 
 func writeWebsiteBinding(filename string, binding websiteBinding) error {
-	if binding.SchemaVersion != 1 || !websiteUUIDPattern.MatchString(binding.ClientWorkID) {
+	if binding.SchemaVersion != 1 || !websiteUUIDPattern.MatchString(binding.ClientWorkID) || strings.TrimSpace(binding.ProfileID) == "" {
 		return output.Validation("WEBSITE_BINDING_INVALID", "website binding is invalid")
 	}
 	data, err := json.MarshalIndent(binding, "", "  ")

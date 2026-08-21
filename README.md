@@ -242,7 +242,7 @@ Never copy an access token into the conversation.
 | `viceme doctor` | Check the CLI, active Profile, credentials, API readiness, and installed official Skills. |
 | `viceme auth status` | Show whether the active Profile is signed in. |
 | `viceme website publish --path <dir> --name <name> --url <url>` | Publish a website work; repeat publication reuses the identity in `.viceme/website.json`. |
-| `viceme access init --website <dir> [--follow key] [--price-minor fen --purchase key]` | Configure access and a one-time work offer for a published external website. |
+| `viceme access init --website <dir> --name <name> --danmaku` | Publish a website and activate its public hosted danmaku capability. |
 | `viceme profile list` | Show Profiles and their effective API endpoints. |
 | `viceme skill inspect --path <path>` | Validate a local Skill without side effects. |
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |

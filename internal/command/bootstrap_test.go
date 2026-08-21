@@ -75,6 +75,11 @@ func TestBootstrapCoalescesAnAlreadyCompleteStandaloneGeneration(t *testing.T) {
 	if bootstrapGenerationIsComplete(runtime, destination, targetHash, "agents", "global", installSourceOverride{ReleaseChannel: runtime.config.ReleaseChannel, ReleaseBaseURL: runtime.config.ReleaseBaseURL}) {
 		t.Fatal("same-version bootstrap to another region was incorrectly coalesced")
 	}
+	if bootstrapGenerationIsComplete(runtime, destination, targetHash, "agents", "cn", installSourceOverride{
+		WebBaseURL: "https://poc.viceme.cn", ReleaseChannel: runtime.config.ReleaseChannel, ReleaseBaseURL: runtime.config.ReleaseBaseURL,
+	}) {
+		t.Fatal("same-version bootstrap with another Web endpoint was incorrectly coalesced")
+	}
 	result, err := activateBootstrap(command, runtime, destination, "agents", "cn", installSourceOverride{}, false)
 	if err != nil {
 		t.Fatal(err)
@@ -149,7 +154,7 @@ func TestConcurrentBootstrapActivationsCommitOneStandaloneGeneration(t *testing.
 			command.SetContext(context.Background())
 			ready.Done()
 			<-start
-			result, err := activateBootstrap(command, runtime, destination, "agents", "cn", installSourceOverride{}, false)
+			result, err := activateBootstrap(command, runtime, destination, "agents", "cn", installSourceOverride{WebBaseURL: "https://poc.viceme.cn"}, false)
 			outcomes <- outcome{result: result, err: err}
 		}()
 	}
@@ -174,6 +179,14 @@ func TestConcurrentBootstrapActivationsCommitOneStandaloneGeneration(t *testing.
 	active, exists, err := updatepkg.ReadActiveGeneration(configDir)
 	if err != nil || !exists || active.Version != buildinfo.CompatibilityVersion() || active.InstallMethod != "standalone" {
 		t.Fatalf("concurrent bootstrap did not commit the target: active=%#v exists=%t err=%v", active, exists, err)
+	}
+	persisted, err := config.LoadOrDefault(configDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistedProfile, err := persisted.Resolve("")
+	if err != nil || persistedProfile.ResolvedWebBaseURL() != "https://poc.viceme.cn" {
+		t.Fatalf("bootstrap did not persist the Web endpoint: profile=%#v err=%v", persistedProfile, err)
 	}
 }
 

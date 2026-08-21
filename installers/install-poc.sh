@@ -4,6 +4,7 @@ set -eu
 region="cn"
 base_url="${VICEME_POC_DOWNLOAD_BASE_URL:-https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases}"
 api_base_url="${VICEME_POC_API_BASE_URL:-https://viceme-shop-web-poc.preview.tencent-zeabur.cn/api}"
+web_base_url="${VICEME_POC_WEB_BASE_URL:-https://poc.viceme.cn}"
 
 command -v curl >/dev/null 2>&1 || { echo "curl is required to install ViceMe POC" >&2; exit 1; }
 
@@ -61,6 +62,7 @@ chmod 755 "$temporary/viceme"
   --agent "${VICEME_AGENT_TARGET:-auto}" \
   --region "$region" \
   --api-base-url "$api_base_url" \
+  --web-base-url "$web_base_url" \
   --release-channel poc \
   --release-base-url "$base_url" \
   --allow-channel-switch

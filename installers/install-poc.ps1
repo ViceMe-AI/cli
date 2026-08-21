@@ -4,6 +4,7 @@ $ProgressPreference = "SilentlyContinue"
 $region = "cn"
 $baseUrl = if ($env:VICEME_POC_DOWNLOAD_BASE_URL) { $env:VICEME_POC_DOWNLOAD_BASE_URL } else { "https://viceme-shop-storage-poc.preview.tencent-zeabur.cn/start/poc/cli/releases" }
 $apiBaseUrl = if ($env:VICEME_POC_API_BASE_URL) { $env:VICEME_POC_API_BASE_URL } else { "https://viceme-shop-web-poc.preview.tencent-zeabur.cn/api" }
+$webBaseUrl = if ($env:VICEME_POC_WEB_BASE_URL) { $env:VICEME_POC_WEB_BASE_URL } else { "https://poc.viceme.cn" }
 
 $architecture = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture.ToString().ToLowerInvariant()
 switch ($architecture) {
@@ -43,6 +44,7 @@ try {
     --agent $agent `
     --region $region `
     --api-base-url $apiBaseUrl `
+    --web-base-url $webBaseUrl `
     --release-channel poc `
     --release-base-url $baseUrl `
     --allow-channel-switch
