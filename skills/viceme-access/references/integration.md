@@ -2,7 +2,7 @@
 
 ## Access configuration
 
-This workflow starts from a website binding already created by `$viceme-publish`. Create and apply the common access configuration in one command:
+Create and apply the common access configuration in one command. If the website has not been published yet, the command publishes it first and then continues with access setup:
 
 ```bash
 viceme access init --website . --name "Dagou Tap" \
@@ -76,10 +76,10 @@ if (decision.allowed) enableDingdong();
 ```
 
 The access check never performs the action by itself, and host sites must not
-call a follow mutation directly. When authorization is required, the ViceMe
-layer completes sign-in first. For a follow gate it then shows the signed-in
-account and creator in the same layer; only accepting that post-login prompt
-follows the creator.
+call a follow mutation directly. For a follow gate, the ViceMe login consent
+layer shows the complete creator information before authorization. Accepting
+authorization signs the user in and automatically follows the creator; no
+post-login follow layer is shown.
 
 The SDK uses `<viceme-access-layer>`: a mobile bottom sheet and desktop in-page
 layer with Shadow DOM and ViceMe-owned styles. Custom presenters, host-page

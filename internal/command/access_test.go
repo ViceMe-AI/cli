@@ -1,10 +1,17 @@
 package command
 
 import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 )
 
@@ -158,5 +165,54 @@ func TestBuildQuickAccessFeaturesSupportsMultiplePrices(t *testing.T) {
 	}
 	if *features["basic"].PriceCents != 500 || *features["pro"].PriceCents != 1500 {
 		t.Fatalf("feature prices = %#v", features)
+	}
+}
+
+func TestEnsurePublishedWebsiteBindingPublishesBeforeAccessSetup(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "index.html"), []byte("website"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	published := false
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/cli/sdk-works/publish" || request.Method != http.MethodPost {
+			http.NotFound(writer, request)
+			return
+		}
+		if request.Header.Get("Authorization") == "" {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		var body map[string]any
+		if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		published = true
+		writeJSONResponse(writer, map[string]any{
+			"creatorWorkId": "22222222-2222-4222-8222-222222222222",
+			"workKey":       "wrk_published_from_access", "displayName": "Dagou Tap",
+			"status": "DRAFT", "configVersion": 1, "offers": []any{}, "features": []any{},
+			"capabilities": []any{"auth", "follow", "access"},
+			"publication": map[string]any{
+				"clientWorkId": body["clientWorkId"], "sourceDigest": body["sourceDigest"],
+				"sourceUrl": nil, "descriptionZhCn": nil, "descriptionEnUs": nil, "coverUrl": nil,
+				"releaseId": "33333333-3333-4333-8333-333333333333", "version": 1,
+				"publishedAt": "2026-08-21T00:00:00.000Z", "unchanged": false,
+			},
+		})
+	}))
+	defer server.Close()
+	runtime := &Runtime{
+		region: config.RegionCN, apiBaseURL: server.URL,
+		deps:              Dependencies{HTTPClient: server.Client(), ErrOut: io.Discard},
+		processCredential: &publicationCredential{raw: "vme_cli_" + strings.Repeat("a", 43)},
+	}
+
+	binding, err := ensurePublishedWebsiteBinding(context.Background(), runtime, root, "Dagou Tap")
+	if err != nil {
+		t.Fatalf("ensurePublishedWebsiteBinding() error = %v", err)
+	}
+	if !published || binding.WorkKey != "wrk_published_from_access" {
+		t.Fatalf("website was not published before access setup: %#v", binding)
 	}
 }

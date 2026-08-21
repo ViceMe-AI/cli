@@ -241,7 +241,7 @@ Never copy an access token into the conversation.
 | `viceme doctor` | Check the CLI, active Profile, credentials, API readiness, and installed official Skills. |
 | `viceme auth status` | Show whether the active Profile is signed in. |
 | `viceme website publish --path <dir> --name <name> [--url <url>] [--description-zh-cn ...] [--description-en-us ...] [--cover <image>]` | Publish a website work with optional Agent-reviewed descriptions and a platform-hosted cover; repeat publication reuses the identity in `.viceme/website.json`. |
-| `viceme access init --website <dir> [--follow key] [--purchase key --price-minor fen]...` | Configure access and feature-specific one-time offers for a published external website. |
+| `viceme access init --website <dir> --name <name> [--follow key] [--purchase key --price-minor fen]...` | Publish the website when needed, then configure access and feature-specific one-time offers. |
 | `viceme profile list` | Show Profiles and their effective API endpoints. |
 | `viceme skill inspect --path <path>` | Validate a local Skill without side effects. |
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |

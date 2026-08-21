@@ -1,6 +1,7 @@
 package command
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -59,10 +60,19 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	var purchaseFeatures []string
 	command := &cobra.Command{
 		Use:   "init",
-		Short: "Configure access for an already published creator website",
+		Short: "Publish the website when needed, then configure access",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			binding, _, err := requirePublishedWebsiteBinding(websitePath)
+			if _, err := os.Stat(filename); err == nil {
+				return output.Validation("ACCESS_CONFIG_EXISTS", "access config already exists").WithHint("use 'viceme access inspect' or choose another --config path")
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return output.Validation("ACCESS_CONFIG_UNAVAILABLE", "access config path is unavailable")
+			}
+			features, err := buildQuickAccessFeatures(followFeatures, purchaseFeatures, priceCents)
+			if err != nil {
+				return err
+			}
+			binding, err := ensurePublishedWebsiteBinding(command.Context(), runtime, websitePath, displayName)
 			if err != nil {
 				return err
 			}
@@ -72,21 +82,8 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 			if strings.TrimSpace(displayName) == "" {
 				displayName = binding.DisplayName
 			}
-			if _, err := os.Stat(filename); err == nil {
-				return output.Validation("ACCESS_CONFIG_EXISTS", "access config already exists").WithHint("use 'viceme access inspect' or choose another --config path")
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return output.Validation("ACCESS_CONFIG_UNAVAILABLE", "access config path is unavailable")
-			}
 			if err := os.MkdirAll(filepath.Dir(filename), 0o755); err != nil {
 				return output.Internal("ACCESS_CONFIG_DIRECTORY_FAILED", "could not create access config directory", err)
-			}
-			features, err := buildQuickAccessFeatures(
-				followFeatures,
-				purchaseFeatures,
-				priceCents,
-			)
-			if err != nil {
-				return err
 			}
 			work, err := runtime.client().GetSdkWork(command.Context(), binding.WorkKey)
 			if err != nil {
@@ -130,6 +127,36 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringArrayVar(&followFeatures, "follow", nil, "activate FOLLOW_OWNER feature as key or key=title (repeatable)")
 	command.Flags().StringArrayVar(&purchaseFeatures, "purchase", nil, "activate WORK_ENTITLEMENT feature as key or key=title (repeatable)")
 	return command
+}
+
+func ensurePublishedWebsiteBinding(ctx context.Context, runtime *Runtime, sourcePath, displayName string) (websiteBinding, error) {
+	_, bindingPath, err := resolveWebsiteBindingPath(sourcePath)
+	if err != nil {
+		return websiteBinding{}, err
+	}
+	binding, found, err := loadWebsiteBinding(bindingPath)
+	if err != nil {
+		return websiteBinding{}, err
+	}
+	if found && binding.WorkKey != "" {
+		return binding, nil
+	}
+	if strings.TrimSpace(displayName) == "" {
+		displayName = binding.DisplayName
+	}
+	if strings.TrimSpace(displayName) == "" {
+		return websiteBinding{}, output.Validation("WEBSITE_NAME_REQUIRED", "--name is required to publish the website before configuring access")
+	}
+	progress(runtime, "Website is not published; publishing it before access setup")
+	_, _, err = publishWebsite(ctx, runtime, websitePublishOptions{
+		SourcePath: sourcePath, DisplayName: displayName, SourceURL: binding.SourceURL,
+		DescriptionZhCN: binding.DescriptionZhCN, DescriptionEnUS: binding.DescriptionEnUS,
+	})
+	if err != nil {
+		return websiteBinding{}, err
+	}
+	binding, _, err = requirePublishedWebsiteBinding(sourcePath)
+	return binding, err
 }
 
 func buildQuickAccessFeatures(follow, purchase, rawPrices []string) (map[string]accessFeatureConfig, error) {
