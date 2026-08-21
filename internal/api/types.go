@@ -1,5 +1,7 @@
 package api
 
+import "encoding/json"
+
 const SkillPublicationContractVersion = "2026-08-17"
 
 type DeviceAuthorizationRequest struct {
@@ -41,6 +43,256 @@ type AuthUser struct {
 	ID          string  `json:"id"`
 	DisplayName *string `json:"displayName"`
 	AvatarURL   *string `json:"avatarUrl"`
+}
+
+type MerchantAccount struct {
+	ID                      string  `json:"id"`
+	Kind                    string  `json:"kind"`
+	CreatorChannelAccountID *string `json:"creatorChannelAccountId"`
+	DisplayName             string  `json:"displayName"`
+	Status                  string  `json:"status"`
+	StatusVersion           int     `json:"statusVersion"`
+}
+
+type MerchantAccountsResponse struct {
+	Items []MerchantAccount `json:"items"`
+}
+
+type MerchantWork struct {
+	ID        string          `json:"id"`
+	Kind      string          `json:"kind"`
+	Origin    string          `json:"origin"`
+	Slug      string          `json:"slug"`
+	Title     string          `json:"title"`
+	Status    string          `json:"status"`
+	Revision  int             `json:"revision"`
+	Owner     json.RawMessage `json:"owner"`
+	Skill     json.RawMessage `json:"skill"`
+	Website   json.RawMessage `json:"website"`
+	CreatedAt string          `json:"createdAt"`
+	UpdatedAt string          `json:"updatedAt"`
+}
+
+type MerchantWorksResponse struct {
+	Items []MerchantWork `json:"items"`
+}
+
+type CandidatePurchaseSkill struct {
+	WorkID         string `json:"workId"`
+	StableName     string `json:"stableName"`
+	SkillReleaseID string `json:"skillReleaseId"`
+	Version        int    `json:"version"`
+	ManifestDigest string `json:"manifestDigest"`
+	ArtifactDigest string `json:"artifactDigest"`
+}
+
+type ProductValidationIssue struct {
+	Code    string `json:"code"`
+	Path    string `json:"path"`
+	Message string `json:"message"`
+}
+
+type ProductValidation struct {
+	MissingFields []string                 `json:"missingFields"`
+	Errors        []ProductValidationIssue `json:"errors"`
+	Warnings      []ProductValidationIssue `json:"warnings"`
+}
+
+type MerchantProductDraftResponse struct {
+	ProductID                   string                  `json:"productId"`
+	Revision                    int                     `json:"revision"`
+	CandidateSalesSpecVersionID *string                 `json:"candidateSalesSpecVersionId"`
+	CandidateDigest             *string                 `json:"candidateDigest"`
+	CandidatePurchaseSkill      *CandidatePurchaseSkill `json:"candidatePurchaseSkill"`
+	Validation                  ProductValidation       `json:"validation"`
+}
+
+type MerchantProductSummary struct {
+	ProductID                   string             `json:"productId"`
+	SubjectWorkID               string             `json:"subjectWorkId"`
+	Slug                        string             `json:"slug"`
+	Title                       string             `json:"title"`
+	Status                      string             `json:"status"`
+	Visibility                  string             `json:"visibility"`
+	Revision                    int                `json:"revision"`
+	ActiveProduct               json.RawMessage    `json:"activeProduct"`
+	CandidateSalesSpecVersionID *string            `json:"candidateSalesSpecVersionId"`
+	CandidateDigest             *string            `json:"candidateDigest"`
+	Validation                  *ProductValidation `json:"validation"`
+	UpdatedAt                   string             `json:"updatedAt"`
+}
+
+type MerchantProductsResponse struct {
+	Items      []MerchantProductSummary `json:"items"`
+	NextCursor *string                  `json:"nextCursor"`
+}
+
+type MerchantProductLifecycleResponse struct {
+	ProductID string `json:"productId"`
+	Status    string `json:"status"`
+	Revision  int    `json:"revision"`
+}
+
+type ProductSKU struct {
+	ID              string            `json:"id"`
+	Code            string            `json:"code"`
+	Title           string            `json:"title"`
+	Currency        string            `json:"currency"`
+	PriceCents      int               `json:"priceCents"`
+	Status          string            `json:"status"`
+	InventoryPolicy string            `json:"inventoryPolicy"`
+	Attributes      map[string]any    `json:"attributes"`
+	SelectedOptions map[string]string `json:"selectedOptions"`
+	AvailableAt     *string           `json:"availableAt"`
+}
+
+type CommerceProduct struct {
+	ID                string `json:"id"`
+	Slug              string `json:"slug"`
+	Title             string `json:"title"`
+	Summary           string `json:"summary"`
+	Description       string `json:"description"`
+	UsageInstructions string `json:"usageInstructions"`
+	Status            string `json:"status"`
+	Visibility        string `json:"visibility"`
+	Revision          int    `json:"revision"`
+	SubjectWork       struct {
+		ID    string `json:"id"`
+		Kind  string `json:"kind"`
+		Slug  string `json:"slug"`
+		Title string `json:"title"`
+	} `json:"subjectWork"`
+	Merchant  json.RawMessage `json:"merchant"`
+	SalesSpec struct {
+		ID                string          `json:"id"`
+		Version           int             `json:"version"`
+		Digest            string          `json:"digest"`
+		PricingPolicyCode string          `json:"pricingPolicyCode"`
+		PaymentPolicyCode string          `json:"paymentPolicyCode"`
+		EarningPolicyCode string          `json:"earningPolicyCode"`
+		Quantity          json.RawMessage `json:"quantity"`
+		SKUs              []ProductSKU    `json:"skus"`
+		Options           json.RawMessage `json:"options"`
+		BuyerContract     json.RawMessage `json:"buyerContract"`
+		FulfillmentSteps  json.RawMessage `json:"fulfillmentSteps"`
+	} `json:"salesSpec"`
+}
+
+type MerchantProductActivationResponse struct {
+	Product                 CommerceProduct `json:"product"`
+	PurchaseSkillStableName string          `json:"purchaseSkillStableName"`
+	ProductDetailURL        string          `json:"productDetailUrl"`
+}
+
+type PurchaseSkillRelease struct {
+	SkillReleaseID        string          `json:"skillReleaseId"`
+	Version               int             `json:"version"`
+	Manifest              json.RawMessage `json:"manifest"`
+	ManifestDigest        string          `json:"manifestDigest"`
+	ArtifactDigest        string          `json:"artifactDigest"`
+	SignedEnvelope        json.RawMessage `json:"signedEnvelope"`
+	SignedEnvelopeDigest  string          `json:"signedEnvelopeDigest"`
+	SigningKeyID          string          `json:"signingKeyId"`
+	Signature             string          `json:"signature"`
+	MinimumRuntimeVersion string          `json:"minimumRuntimeVersion"`
+}
+
+type ProductPurchaseSkillDescriptor struct {
+	WorkID        string               `json:"workId"`
+	ProductID     string               `json:"productId"`
+	StableName    string               `json:"stableName"`
+	Status        string               `json:"status"`
+	Revision      int                  `json:"revision"`
+	Product       json.RawMessage      `json:"product"`
+	ActiveRelease PurchaseSkillRelease `json:"activeRelease"`
+	Distributions json.RawMessage      `json:"distributions"`
+}
+
+type ProductPurchaseSkillInstall struct {
+	StableName     string `json:"stableName"`
+	SkillReleaseID string `json:"skillReleaseId"`
+	ArtifactDigest string `json:"artifactDigest"`
+	DownloadURL    string `json:"downloadUrl"`
+	ExpiresAt      string `json:"expiresAt"`
+}
+
+type CommerceSkillTrustKey struct {
+	KeyID     string `json:"keyId"`
+	Algorithm string `json:"algorithm"`
+	PublicKey string `json:"publicKey"`
+}
+
+type CommerceSession struct {
+	SessionID     string `json:"sessionId"`
+	PrincipalID   string `json:"principalId"`
+	PrincipalKind string `json:"principalKind"`
+	Token         string `json:"token"`
+	ExpiresAt     string `json:"expiresAt"`
+	Recovered     bool   `json:"recovered"`
+}
+
+type ContractAssetUpload struct {
+	AssetID string `json:"assetId"`
+	Status  string `json:"status"`
+	Upload  struct {
+		URL       string            `json:"url"`
+		Headers   map[string]string `json:"headers"`
+		ExpiresAt string            `json:"expiresAt"`
+	} `json:"upload"`
+	ReservationExpiresAt string `json:"reservationExpiresAt"`
+}
+
+type ContractAsset struct {
+	AssetID     string `json:"assetId"`
+	Status      string `json:"status"`
+	FileName    string `json:"fileName"`
+	ContentType string `json:"contentType"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	Digest      string `json:"digest"`
+	ExpiresAt   string `json:"expiresAt"`
+}
+
+type ProductQuote struct {
+	ID                  string          `json:"id"`
+	Product             json.RawMessage `json:"product"`
+	Attribution         json.RawMessage `json:"attribution"`
+	SKU                 json.RawMessage `json:"sku"`
+	Currency            string          `json:"currency"`
+	UnitAmountCents     int             `json:"unitAmountCents"`
+	Quantity            int             `json:"quantity"`
+	SubtotalAmountCents int             `json:"subtotalAmountCents"`
+	ShippingAmountCents int             `json:"shippingAmountCents"`
+	TotalAmountCents    int             `json:"totalAmountCents"`
+	ContractSummary     json.RawMessage `json:"contractSummary"`
+	Fulfillment         json.RawMessage `json:"fulfillment"`
+	ExpiresAt           string          `json:"expiresAt"`
+}
+
+type CreateOrderResponse struct {
+	Order CommerceOrder `json:"order"`
+}
+
+type CommerceOrder struct {
+	OrderNo         string          `json:"orderNo"`
+	Kind            string          `json:"kind"`
+	Status          string          `json:"status"`
+	Region          string          `json:"region"`
+	Currency        string          `json:"currency"`
+	AmountCents     int             `json:"amountCents"`
+	PaymentProvider string          `json:"paymentProvider"`
+	PrincipalKind   string          `json:"principalKind"`
+	Item            json.RawMessage `json:"item"`
+	PaymentAction   json.RawMessage `json:"paymentAction"`
+	ExpiresAt       string          `json:"expiresAt"`
+	PaidAt          *string         `json:"paidAt"`
+	ClosedAt        *string         `json:"closedAt"`
+	CreatedAt       string          `json:"createdAt"`
+}
+
+type OrderStatusResponse struct {
+	OrderNo     string          `json:"orderNo"`
+	Payment     json.RawMessage `json:"payment"`
+	Fulfillment json.RawMessage `json:"fulfillment"`
 }
 
 type SkillPublicationManifest struct {

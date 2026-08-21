@@ -44,6 +44,11 @@ leave every other optional permission disabled. Webhooks and user authorization
 are not required. Configure:
 
 - repository variable `RELEASE_APP_ID`: the numeric App ID;
+- repository variable `COMMERCE_SKILL_TRUST_KEYS`: the versioned public
+  Commerce Skill trust ring in
+  `keyId:base64url-spki[,keyId:base64url-spki]` form. Release and POC workflows
+  parse every SPKI, require unique Ed25519 key IDs, freeze the validated ring
+  for that workflow execution, and revalidate it in every binary job;
 - repository secret `RELEASE_APP_PRIVATE_KEY`: the complete generated PEM key.
 
 Protect `dev` with an active branch ruleset that retains the normal pull request,
