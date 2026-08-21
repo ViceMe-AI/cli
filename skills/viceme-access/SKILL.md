@@ -1,6 +1,6 @@
 ---
 name: viceme-access
-description: Integrate the ViceMe browser SDK into a creator website for WeChat login, following, feature access checks, and one-time work checkout. Use for `.viceme/access.yaml`, follow-gated UI, purchase-gated UI, or the lightweight `viceme access` workflow; quick init publishes the website first when needed.
+description: Integrate the ViceMe browser SDK into an explicitly published creator website for WeChat login, following, feature access checks, and one-time work checkout. Use for `.viceme/access.yaml`, follow-gated UI, purchase-gated UI, or the lightweight `viceme access` workflow. If the website is not yet published, use $viceme-publish first, then resume access setup.
 ---
 
 # ViceMe Website Access
@@ -10,7 +10,11 @@ Implement a browser-only integration backed by an existing creator-owned `workKe
 ## Workflow
 
 1. Inspect the project framework, package manager, existing auth/payment code, and the exact UI elements to gate. Preserve existing conventions.
-2. Inspect `<website-dir>/.viceme/website.json` when present. If it has no `workKey`, continue with quick init; the CLI publishes the website before applying access configuration.
+2. Inspect `<website-dir>/.viceme/website.json`. If it is missing or has no
+   `workKey`, stop access setup and invoke `$viceme-publish` first. Follow its
+   complete website metadata review and confirmation workflow. Resume this
+   workflow only after explicit website publication succeeds. Never let an
+   access command publish the website implicitly.
 3. Run `viceme auth status`. If the token lacks `sdk-work:read` or `sdk-work:write`, ask the user to run `viceme auth login` again.
 4. If `.viceme/access.yaml` does not exist, create and apply the complete
    access config in one command. Repeat feature flags as needed; use
@@ -29,7 +33,7 @@ Implement a browser-only integration backed by an existing creator-owned `workKe
 
 5. Edit `.viceme/access.yaml` and run `viceme access apply` only for later
    configuration changes. Use `viceme access inspect` for diagnosis, not as
-   a mandatory second request after a successful quick init.
+   a mandatory second request after a successful init.
 6. Install `@viceme-ai/sdk` with the project's existing package manager.
    Create one client per `workKey`, await `ready()`, and call
    `access.require()` from the existing gated button. This is the default
@@ -45,6 +49,9 @@ Read [references/integration.md](references/integration.md) for configuration an
 ## Hard constraints
 
 - Treat `workKey` as public and opaque. Never replace it with an offer ID or use it as a secret.
+- `viceme access init` requires an explicitly published website binding and
+  never publishes a website. It must not create a website release or replace
+  the `$viceme-publish` review and confirmation workflow.
 - Never add a Payment API key, webhook, amount, currency, product ID, creator ID, or price to browser code.
 - Let the server resolve `workKey → CreatorWork → SaleOffer → Entitlement`.
 - Do not store work-session tokens or access decisions in cookies, localStorage, IndexedDB, URLs, analytics, or logs.

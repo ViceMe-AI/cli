@@ -1,7 +1,6 @@
 package command
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -60,7 +59,7 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	var purchaseFeatures []string
 	command := &cobra.Command{
 		Use:   "init",
-		Short: "Publish the website when needed, then configure access",
+		Short: "Configure access for an explicitly published website",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if _, err := os.Stat(filename); err == nil {
@@ -72,7 +71,7 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			binding, err := ensurePublishedWebsiteBinding(command.Context(), runtime, websitePath, displayName)
+			binding, _, err := requirePublishedWebsiteBinding(websitePath)
 			if err != nil {
 				return err
 			}
@@ -122,41 +121,11 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&filename, "config", defaultAccessConfigPath, "access config path")
 	command.Flags().StringVar(&websitePath, "website", ".", "published website source directory")
-	command.Flags().StringVar(&displayName, "name", "", "website display name")
+	command.Flags().StringVar(&displayName, "name", "", "optional access display name override")
 	command.Flags().StringArrayVar(&priceCents, "price-minor", nil, "feature price in fen; repeat once per --purchase or provide one shared price")
 	command.Flags().StringArrayVar(&followFeatures, "follow", nil, "activate FOLLOW_OWNER feature as key or key=title (repeatable)")
 	command.Flags().StringArrayVar(&purchaseFeatures, "purchase", nil, "activate WORK_ENTITLEMENT feature as key or key=title (repeatable)")
 	return command
-}
-
-func ensurePublishedWebsiteBinding(ctx context.Context, runtime *Runtime, sourcePath, displayName string) (websiteBinding, error) {
-	_, bindingPath, err := resolveWebsiteBindingPath(sourcePath)
-	if err != nil {
-		return websiteBinding{}, err
-	}
-	binding, found, err := loadWebsiteBinding(bindingPath)
-	if err != nil {
-		return websiteBinding{}, err
-	}
-	if found && binding.WorkKey != "" {
-		return binding, nil
-	}
-	if strings.TrimSpace(displayName) == "" {
-		displayName = binding.DisplayName
-	}
-	if strings.TrimSpace(displayName) == "" {
-		return websiteBinding{}, output.Validation("WEBSITE_NAME_REQUIRED", "--name is required to publish the website before configuring access")
-	}
-	progress(runtime, "Website is not published; publishing it before access setup")
-	_, _, err = publishWebsite(ctx, runtime, websitePublishOptions{
-		SourcePath: sourcePath, DisplayName: displayName, SourceURL: binding.SourceURL,
-		DescriptionZhCN: binding.DescriptionZhCN, DescriptionEnUS: binding.DescriptionEnUS,
-	})
-	if err != nil {
-		return websiteBinding{}, err
-	}
-	binding, _, err = requirePublishedWebsiteBinding(sourcePath)
-	return binding, err
 }
 
 func buildQuickAccessFeatures(follow, purchase, rawPrices []string) (map[string]accessFeatureConfig, error) {
