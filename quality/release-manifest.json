@@ -21,8 +21,8 @@
       "skill_version": "0.16.1",
       "minimum_cli_version": "0.16.1",
       "cli_compatibility": ">=0.16.1 <0.17.0",
-      "full_skill_bundle_digest": "sha256:9dcfeb96373f7036282b499ec682f56d80b3f2f81e956cd5856f1d1a2abf74c6",
-      "embedded_content_digest": "sha256:421abd144a64239d786fd047f5e7964dd088387a9c8d3bb93eaa83ec51176dd2"
+      "full_skill_bundle_digest": "sha256:7a51f6e040c7c54b406e023702564b76cdb16ad8517f0054ae7061a6cb1ce41b",
+      "embedded_content_digest": "sha256:ee36522274fe3dc95a77dea45361ddcc60569a7e87b610cc5515f68b9e6c4a2c"
     },
     "viceme-shared": {
       "skill_version": "0.16.1",
@@ -32,9 +32,9 @@
       "embedded_content_digest": "sha256:8a70946f1f62b321f382d4d24d200f5080e0c71a8d95b56eb5272be6b545401f"
     }
   },
-  "bootstrap_contract_digest": "sha256:380a81a6a2c066f291896fb768b03ea6a8f00d79259e4197b6c34dd9291b1cf0",
+  "bootstrap_contract_digest": "sha256:92ef6cd0a2d4939769c9cb1a5731ecdecefb5f140419d91e204e9db931275814",
   "installer_digests": {
-    "install.ps1": "sha256:086098487a9b6dae739bdde994565fb0df5b7c91b8994b46684759d72ed6e482",
-    "install.sh": "sha256:56f22181ed9f20ed7112a6a53293bdab3e106a59a4b8337e16259826a2489018"
+    "install.ps1": "sha256:497c27726142397e1adcda56d4ccc78e101de05849535e7988b48e2ce7a8444c",
+    "install.sh": "sha256:95a4b81c6a63cc8cd212fdd3197347534903f8d884478fb57c72c2cf968fca4d"
   }
 }
