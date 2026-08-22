@@ -548,8 +548,14 @@ type CancelPublicationResponse struct {
 }
 
 type APIError struct {
-	StatusCode int    `json:"statusCode"`
-	Code       string `json:"code"`
-	Message    any    `json:"message"`
-	RequestID  string `json:"requestId"`
+	StatusCode int                   `json:"statusCode"`
+	Code       string                `json:"code"`
+	Message    any                   `json:"message"`
+	RequestID  string                `json:"requestId"`
+	Recovery   *APIRecoveryReference `json:"recovery,omitempty"`
+}
+
+type APIRecoveryReference struct {
+	ResourceType string `json:"resourceType"`
+	ResourceID   string `json:"resourceId"`
 }

@@ -544,7 +544,27 @@ func decodeServerError(status int, data []byte, headerRequestID string) error {
 		cliError.RequestID = headerRequestID
 	}
 	cliError.Retryable = status == http.StatusTooManyRequests || status >= 500
+	if validAPIRecoveryReference(serverError.Recovery) {
+		cliError.Details = map[string]any{"recovery": *serverError.Recovery}
+	}
 	return cliError
+}
+
+func validAPIRecoveryReference(reference *APIRecoveryReference) bool {
+	return reference != nil && reference.ResourceType == "ORDER" && len(reference.ResourceID) >= 6 && len(reference.ResourceID) <= 40
+}
+
+func RecoveryReferenceFromError(err error) (APIRecoveryReference, bool) {
+	var cliError *output.Error
+	if !errors.As(err, &cliError) {
+		return APIRecoveryReference{}, false
+	}
+	details, ok := cliError.Details.(map[string]any)
+	if !ok {
+		return APIRecoveryReference{}, false
+	}
+	reference, ok := details["recovery"].(APIRecoveryReference)
+	return reference, ok && validAPIRecoveryReference(&reference)
 }
 
 func exitForStatus(status int) (int, string) {

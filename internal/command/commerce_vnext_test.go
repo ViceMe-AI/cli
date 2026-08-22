@@ -346,6 +346,107 @@ func TestCommerceOrderIntentSerializesResponseLossRecovery(t *testing.T) {
 	}
 }
 
+func TestCommerceOrderPersistsSameSessionRecoveryBindingBeforeReturningPaymentError(t *testing.T) {
+	const (
+		stableName     = "buy-photo-printing"
+		localContextID = "10000000-0000-4000-8000-000000000005"
+		sessionID      = "40000000-0000-4000-8000-000000000005"
+		quoteID        = "60000000-0000-4000-8000-000000000005"
+		orderNo        = "VM20260822000000abcdef123456"
+		token          = "vcs_order-payment-error-token"
+	)
+	var orderCalls, statusCalls atomic.Int32
+	var clientRequestIDs []string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+token {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch request.URL.Path {
+		case "/v1/orders":
+			orderCalls.Add(1)
+			var body map[string]any
+			_ = json.NewDecoder(request.Body).Decode(&body)
+			clientRequestID, _ := body["clientRequestId"].(string)
+			clientRequestIDs = append(clientRequestIDs, clientRequestID)
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"statusCode": http.StatusServiceUnavailable,
+				"code":       "SERVICE_UNAVAILABLE",
+				"message":    "WeChat Pay is not configured",
+				"requestId":  "request-payment-error",
+				"recovery": map[string]any{
+					"resourceType": "ORDER",
+					"resourceId":   orderNo,
+				},
+			})
+		case "/v1/orders/" + orderNo + "/status":
+			statusCalls.Add(1)
+			writeJSONResponse(writer, map[string]any{
+				"orderNo": orderNo,
+				"payment": map[string]any{"status": "PENDING", "paidAt": nil, "closedAt": nil},
+				"fulfillment": map[string]any{
+					"status": "AWAITING_PAYMENT", "currentTask": nil, "resultSummary": nil,
+				},
+			})
+		default:
+			writer.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	store := securestore.NewMemory()
+	expiresAt := time.Now().UTC().Add(time.Hour)
+	runtime := &Runtime{
+		deps: Dependencies{
+			Store: store, HTTPClient: server.Client(), Now: time.Now,
+			NewID:       func() string { return "70000000-0000-4000-8000-000000000005" },
+			Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		},
+		profile:         config.Profile{ID: "profile", Name: "default", APIBaseURL: server.URL},
+		credentialScope: "test", configBase: filepath.Join(root, "config"), apiBaseURL: server.URL,
+		commerceContextID: localContextID,
+	}
+	if err := runtime.saveCommerceSession(commerceSessionState{
+		LocalContextID: localContextID, StableName: stableName,
+		ProductID: "30000000-0000-4000-8000-000000000005", SessionID: sessionID,
+		PrincipalID: "50000000-0000-4000-8000-000000000005", PrincipalKind: "GENERATED",
+		Token: token, ExpiresAt: expiresAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.saveCommerceBinding("quote", quoteID, commerceResourceBinding{
+		LocalContextID: localContextID, StableName: stableName, SessionID: sessionID, ExpiresAt: expiresAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	inputFile := filepath.Join(root, "order-payment-error.json")
+	if err := os.WriteFile(inputFile, []byte(`{"quoteId":"`+quoteID+`","paymentProvider":"WECHAT_PAY","paymentScene":"NATIVE","locale":"zh-CN"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, firstError := createCommerceOrder(context.Background(), runtime, stableName, inputFile)
+	recovery, ok := api.RecoveryReferenceFromError(firstError)
+	if firstError == nil || !ok || recovery.ResourceID != orderNo {
+		t.Fatalf("payment error did not retain its Order recovery reference: recovery=%#v err=%v", recovery, firstError)
+	}
+	binding, err := runtime.loadCommerceBinding("order", localContextID, orderNo)
+	if err != nil || binding.SessionID != sessionID {
+		t.Fatalf("same-session Order binding was not saved before returning the error: binding=%#v err=%v", binding, err)
+	}
+	status, err := loadCommerceOrderStatus(context.Background(), runtime, stableName, orderNo)
+	if err != nil || status.OrderNo != orderNo || statusCalls.Load() != 1 {
+		t.Fatalf("persisted Order was not queryable in its original session: status=%#v calls=%d err=%v", status, statusCalls.Load(), err)
+	}
+
+	_, secondError := createCommerceOrder(context.Background(), runtime, stableName, inputFile)
+	if secondError == nil || orderCalls.Load() != 2 || len(clientRequestIDs) != 2 || clientRequestIDs[0] == "" || clientRequestIDs[0] != clientRequestIDs[1] {
+		t.Fatalf("payment-error retry did not reuse the completed idempotency intent: calls=%d ids=%v err=%v", orderCalls.Load(), clientRequestIDs, secondError)
+	}
+}
+
 func TestCommerceStateSeparatesIdenticalResourcesAcrossLocalContexts(t *testing.T) {
 	runtime := &Runtime{
 		deps:    Dependencies{Store: securestore.NewMemory()},

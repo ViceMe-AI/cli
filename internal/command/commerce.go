@@ -456,6 +456,27 @@ func createCommerceOrder(ctx context.Context, runtime *Runtime, stableName, inpu
 	request, _ := json.Marshal(fields)
 	created, err := runtime.client().CreateCommerceOrder(ctx, request, state.Token)
 	if err != nil {
+		if recovery, ok := api.RecoveryReferenceFromError(err); ok && recovery.ResourceType == "ORDER" {
+			if saveErr := runtime.saveCommerceBinding("order", recovery.ResourceID, commerceResourceBinding{
+				LocalContextID: state.LocalContextID,
+				StableName:     stableName,
+				SessionID:      state.SessionID,
+				ExpiresAt:      state.ExpiresAt,
+			}); saveErr != nil {
+				return api.CreateOrderResponse{}, output.Internal(
+					"COMMERCE_ORDER_RECOVERY_SAVE_FAILED",
+					"the order was created but its same-session recovery binding could not be saved",
+					saveErr,
+				).WithDetails(map[string]any{"orderNo": recovery.ResourceID})
+			}
+			if completeErr := runtime.completeIntent(intentKey, requestID, recovery.ResourceID, &state.ExpiresAt); completeErr != nil {
+				return api.CreateOrderResponse{}, output.Internal(
+					"COMMERCE_ORDER_RECOVERY_SAVE_FAILED",
+					"the order was created but its idempotency recovery intent could not be completed",
+					completeErr,
+				).WithDetails(map[string]any{"orderNo": recovery.ResourceID})
+			}
+		}
 		return api.CreateOrderResponse{}, err
 	}
 	if _, err := time.Parse(time.RFC3339, created.Order.ExpiresAt); err != nil {
