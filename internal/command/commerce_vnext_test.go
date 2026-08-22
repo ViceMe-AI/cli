@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"net/http"
@@ -73,13 +74,13 @@ func TestCommerceRuntimeBootstrapAcceptsOnlyThePlatformInstallContract(t *testin
 	}
 }
 
-func TestCommerceRuntimeVersionRequiresPaymentOptionsSupport(t *testing.T) {
-	for _, minimum := range []string{"1.0.0", "1.1.0"} {
+func TestCommerceRuntimeVersionRequiresLocalQRPresentationSupport(t *testing.T) {
+	for _, minimum := range []string{"1.0.0", "1.1.0", "1.2.0"} {
 		if err := validateCommerceRuntimeVersion(minimum); err != nil {
 			t.Fatalf("minimum Runtime %s was rejected: %v", minimum, err)
 		}
 	}
-	for _, minimum := range []string{"1.2.0", "not-semver"} {
+	for _, minimum := range []string{"1.3.0", "not-semver"} {
 		if err := validateCommerceRuntimeVersion(minimum); err == nil {
 			t.Fatalf("unsupported minimum Runtime %s was accepted", minimum)
 		}
@@ -261,7 +262,7 @@ func TestCommerceOrderIntentSerializesResponseLossRecovery(t *testing.T) {
 			"orderNo": orderNo, "kind": "PRODUCT_PURCHASE", "status": "PENDING", "region": "CN",
 			"currency": "CNY", "amountCents": 1500, "paymentProvider": "WECHAT_PAY",
 			"principalKind": "GENERATED", "item": map[string]any{},
-			"paymentAction": map[string]any{"type": "WECHAT_NATIVE", "codeUrl": "weixin://pay/recovered"},
+			"paymentAction": map[string]any{"type": "QR_CODE", "content": "weixin://pay/recovered"},
 			"expiresAt":     time.Now().UTC().Add(20 * time.Minute).Format(time.RFC3339),
 			"paidAt":        nil, "closedAt": nil, "createdAt": time.Now().UTC().Format(time.RFC3339),
 		}})
@@ -464,11 +465,11 @@ func TestCommerceOrderPersistsSameSessionRecoveryBindingBeforeReturningPaymentEr
 	}
 }
 
-func TestCommerceOrderUsesOnlyTheQuotePaymentOption(t *testing.T) {
-	options := []api.CommercePaymentOption{{
-		Provider: "WECHAT_PAY",
-		Scenes:   []string{"NATIVE", "H5"},
-	}}
+func TestCommerceOrderRequiresWeChatNativeOrFree(t *testing.T) {
+	options := []api.CommercePaymentOption{
+		{Provider: "WECHAT_PAY", Scenes: []string{"NATIVE", "H5"}},
+		{Provider: "ALIPAY", Scenes: []string{"PAGE", "WAP"}},
+	}
 	invalid := map[string]json.RawMessage{
 		"quoteId":         json.RawMessage(`"60000000-0000-4000-8000-000000000099"`),
 		"paymentProvider": json.RawMessage(`"WECHAT_PAY"`),
@@ -476,8 +477,8 @@ func TestCommerceOrderUsesOnlyTheQuotePaymentOption(t *testing.T) {
 		"locale":          json.RawMessage(`"zh-CN"`),
 	}
 	err := output.AsError(validateCommerceOrderPaymentSelection(invalid, options))
-	if err.Subtype != "COMMERCE_ORDER_PAYMENT_OPTION_INVALID" ||
-		!strings.Contains(err.Hint, "do not run viceme auth login") {
+	if err.Subtype != "COMMERCE_WECHAT_QR_PAYMENT_REQUIRED" ||
+		!strings.Contains(err.Hint, "do not choose Alipay") {
 		t.Fatalf("invalid Quote payment selection was not actionable: %#v", err)
 	}
 
@@ -485,6 +486,29 @@ func TestCommerceOrderUsesOnlyTheQuotePaymentOption(t *testing.T) {
 	valid["paymentScene"] = json.RawMessage(`"NATIVE"`)
 	if err := validateCommerceOrderPaymentSelection(valid, options); err != nil {
 		t.Fatalf("exact Quote payment selection was rejected: %v", err)
+	}
+
+	alipay := maps.Clone(valid)
+	alipay["paymentProvider"] = json.RawMessage(`"ALIPAY"`)
+	alipay["paymentScene"] = json.RawMessage(`"PAGE"`)
+	err = output.AsError(validateCommerceOrderPaymentSelection(alipay, options))
+	if err.Subtype != "COMMERCE_WECHAT_QR_PAYMENT_REQUIRED" ||
+		!strings.Contains(err.Hint, "do not choose Alipay") {
+		t.Fatalf("paid Agent order accepted an alternate payment channel: %#v", err)
+	}
+
+	free := maps.Clone(valid)
+	free["paymentProvider"] = json.RawMessage(`"FREE"`)
+	delete(free, "paymentScene")
+	if err := validateCommerceOrderPaymentSelection(free, []api.CommercePaymentOption{{Provider: "FREE"}}); err != nil {
+		t.Fatalf("zero-value Quote FREE selection was rejected: %v", err)
+	}
+
+	alipayOnly := maps.Clone(alipay)
+	err = output.AsError(validateCommerceOrderPaymentSelection(alipayOnly, []api.CommercePaymentOption{{Provider: "ALIPAY", Scenes: []string{"PAGE"}}}))
+	if err.Subtype != "COMMERCE_WECHAT_QR_PAYMENT_UNAVAILABLE" ||
+		!strings.Contains(err.Hint, "without choosing another payment method") {
+		t.Fatalf("Quote without WeChat NATIVE did not stop locally: %#v", err)
 	}
 }
 
@@ -617,11 +641,15 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 				writer.WriteHeader(http.StatusBadRequest)
 				return
 			}
+			orderStatus := "PENDING"
+			if statusCalls.Load() >= 2 {
+				orderStatus = "PAID"
+			}
 			writeJSONResponse(writer, map[string]any{"order": map[string]any{
-				"orderNo": orderNo, "kind": "PRODUCT_PURCHASE", "status": "PENDING", "region": "CN",
+				"orderNo": orderNo, "kind": "PRODUCT_PURCHASE", "status": orderStatus, "region": "CN",
 				"currency": "CNY", "amountCents": 1500, "paymentProvider": "WECHAT_PAY",
 				"principalKind": "GENERATED", "item": map[string]any{},
-				"paymentAction": map[string]any{"type": "WECHAT_NATIVE", "codeUrl": "weixin://pay/test"},
+				"paymentAction": map[string]any{"type": "QR_CODE", "content": "weixin://pay/test"},
 				"expiresAt":     time.Now().UTC().Add(20 * time.Minute).Format(time.RFC3339),
 				"paidAt":        nil, "closedAt": nil, "createdAt": time.Now().UTC().Format(time.RFC3339),
 			}})
@@ -686,11 +714,107 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	if err := os.WriteFile(orderInput, []byte(`{"quoteId":"`+quoteID+`","paymentProvider":"WECHAT_PAY","paymentScene":"NATIVE","locale":"zh-CN"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	run("commerce", "order", "create", "--skill", stableName, "--input", orderInput, "--session-context", localContextID)
+	created := run("commerce", "order", "create", "--skill", stableName, "--input", orderInput, "--session-context", localContextID)
+	createdOrder := created["data"].(map[string]any)["order"].(map[string]any)
+	paymentAction := createdOrder["paymentAction"].(map[string]any)
+	if paymentAction["type"] != "QR_CODE" || paymentAction["content"] != nil {
+		t.Fatalf("provider payment URI was not redacted: %#v", paymentAction)
+	}
+	presentation := createdOrder["paymentPresentation"].(map[string]any)
+	if presentation["type"] != "LOCAL_IMAGE" || presentation["purpose"] != "PAYMENT_QR_CODE" || presentation["mimeType"] != "image/png" {
+		t.Fatalf("unexpected payment presentation: %#v", presentation)
+	}
+	imagePath := presentation["imagePath"].(string)
+	image, err := os.ReadFile(imagePath)
+	if err != nil {
+		t.Fatalf("read local payment QR image: %v", err)
+	}
+	if len(image) < 8 || !bytes.Equal(image[:8], []byte("\x89PNG\r\n\x1a\n")) {
+		t.Fatalf("payment presentation is not a PNG image")
+	}
+	if private, err := commercePaymentPresentationIsPrivate(imagePath); err != nil || !private {
+		t.Fatalf("payment QR image permissions are not private: private=%v err=%v", private, err)
+	}
+	if private, err := commercePaymentDirectoryIsPrivate(filepath.Dir(imagePath)); err != nil || !private {
+		t.Fatalf("payment QR directory permissions are not private: private=%v err=%v", private, err)
+	}
+	if strings.Contains(stdout.String(), "weixin://") {
+		t.Fatalf("provider payment URI leaked to Agent output: %s", stdout.String())
+	}
+	pending := run("commerce", "order", "status", "--skill", stableName, "--order", orderNo, "--session-context", localContextID)
+	if pending["data"].(map[string]any)["payment"].(map[string]any)["status"] != "PENDING" {
+		t.Fatalf("first status read was not pending: %#v", pending)
+	}
+	if _, err := os.Stat(imagePath); err != nil {
+		t.Fatalf("pending order removed its payment QR image: %v", err)
+	}
+	paid := run("commerce", "order", "status", "--skill", stableName, "--order", orderNo, "--session-context", localContextID)
+	if paid["data"].(map[string]any)["payment"].(map[string]any)["status"] != "PAID" {
+		t.Fatalf("second status read was not paid: %#v", paid)
+	}
+	if _, err := os.Stat(imagePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("paid order status retained local payment QR image: %v", err)
+	}
 	result := run("commerce", "order", "wait", "--skill", stableName, "--order", orderNo, "--timeout", "2s", "--interval", "250ms", "--session-context", localContextID)
 	data := result["data"].(map[string]any)
 	fulfillment := data["fulfillment"].(map[string]any)
-	if fulfillment["status"] != "SUCCEEDED" || sessionCalls.Load() != 1 || statusCalls.Load() != 2 {
+	if fulfillment["status"] != "SUCCEEDED" || sessionCalls.Load() != 1 || statusCalls.Load() != 3 {
 		t.Fatalf("runtime did not retain one session through terminal fulfillment: result=%#v sessions=%d statuses=%d", data, sessionCalls.Load(), statusCalls.Load())
+	}
+	if _, err := os.Stat(imagePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("terminal order retained local payment QR image: %v", err)
+	}
+	replayed := run("commerce", "order", "create", "--skill", stableName, "--input", orderInput, "--session-context", localContextID)
+	replayedOrder := replayed["data"].(map[string]any)["order"].(map[string]any)
+	if replayedOrder["status"] != "PAID" || replayedOrder["paymentPresentation"] != nil || replayedOrder["paymentAction"] != nil {
+		t.Fatalf("terminal Order replay rebuilt or exposed a payment QR: %#v", replayedOrder)
+	}
+	if _, err := os.Stat(imagePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("terminal Order replay recreated local payment QR image: %v", err)
+	}
+}
+
+func TestCommercePaymentPresentationPrunesStagingAndStaleImages(t *testing.T) {
+	root := t.TempDir()
+	runtime := &Runtime{
+		configBase: root,
+		deps: Dependencies{Now: func() time.Time {
+			return time.Date(2026, time.August, 22, 12, 0, 0, 0, time.UTC)
+		}},
+	}
+	directory := filepath.Join(root, commercePaymentPresentationDirectory)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stale := filepath.Join(directory, "wechat-stale.png")
+	fresh := filepath.Join(directory, "wechat-fresh.png")
+	staging := filepath.Join(directory, ".payment-qr-abandoned.tmp")
+	activeStaging := filepath.Join(directory, ".payment-qr-active.tmp")
+	for _, path := range []string{stale, fresh, staging, activeStaging} {
+		if err := os.WriteFile(path, []byte("test"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := runtime.deps.Now().Add(-commercePaymentPresentationMaxAge - time.Minute)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	staleStaging := runtime.deps.Now().Add(-commercePaymentStagingMaxAge - time.Minute)
+	if err := os.Chtimes(staging, staleStaging, staleStaging); err != nil {
+		t.Fatal(err)
+	}
+	if err := pruneCommercePaymentPresentations(runtime); err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []string{stale, staging} {
+		if _, err := os.Stat(removed); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("payment presentation cleanup retained %s: %v", removed, err)
+		}
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("payment presentation cleanup removed a fresh image: %v", err)
+	}
+	if _, err := os.Stat(activeStaging); err != nil {
+		t.Fatalf("payment presentation cleanup removed an active staging file: %v", err)
 	}
 }

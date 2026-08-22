@@ -42,6 +42,15 @@ func newCommerceCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
+func commerceCommandRequested(command *cobra.Command) bool {
+	for current := command; current != nil; current = current.Parent() {
+		if current.Name() == "commerce" {
+			return true
+		}
+	}
+	return false
+}
+
 func newCommerceSkillCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "skill", Short: "Inspect or install a generated product purchase Skill"}
 	command.AddCommand(&cobra.Command{
@@ -498,6 +507,14 @@ func createCommerceOrder(ctx context.Context, runtime *Runtime, stableName, inpu
 	if err := runtime.completeIntent(intentKey, requestID, created.Order.OrderNo, &state.ExpiresAt); err != nil {
 		return api.CreateOrderResponse{}, err
 	}
+	if err := prepareCommercePaymentPresentation(runtime, &created.Order); err != nil {
+		return api.CreateOrderResponse{}, output.Internal(
+			"COMMERCE_PAYMENT_PRESENTATION_FAILED",
+			"the order was created but its local payment QR image could not be prepared",
+			err,
+		).WithDetails(map[string]any{"orderNo": created.Order.OrderNo}).
+			WithHint("rerun the same order create command in this Commerce Session; do not expose the payment URI or use an external QR service")
+	}
 	return created, nil
 }
 
@@ -526,17 +543,32 @@ func validateCommerceOrderPaymentSelection(fields map[string]json.RawMessage, op
 		}
 	}
 	for _, option := range options {
-		if option.Provider != provider {
-			continue
-		}
-		if len(option.Scenes) == 0 && !hasScene {
-			return nil
-		}
-		if hasScene && slices.Contains(option.Scenes, scene) {
+		if option.Provider == "FREE" && provider == "FREE" && len(option.Scenes) == 0 && !hasScene {
 			return nil
 		}
 	}
-	return commerceOrderPaymentOptionInvalid(options)
+	wechatNativeAvailable := false
+	for _, option := range options {
+		if option.Provider == "WECHAT_PAY" && slices.Contains(option.Scenes, "NATIVE") {
+			wechatNativeAvailable = true
+			break
+		}
+	}
+	if !wechatNativeAvailable {
+		return output.Validation(
+			"COMMERCE_WECHAT_QR_PAYMENT_UNAVAILABLE",
+			"WeChat QR payment is unavailable for the current Quote",
+		).WithDetails(map[string]any{"paymentOptions": options}).
+			WithHint("stop this purchase without choosing another payment method or running viceme auth login")
+	}
+	if provider != "WECHAT_PAY" || !hasScene || scene != "NATIVE" {
+		return output.Validation(
+			"COMMERCE_WECHAT_QR_PAYMENT_REQUIRED",
+			"paid Commerce Skill orders require WECHAT_PAY with the NATIVE scene",
+		).WithDetails(map[string]any{"paymentOptions": options}).
+			WithHint("use WECHAT_PAY and NATIVE from the current Quote; do not choose Alipay, balance, H5, or run viceme auth login")
+	}
+	return nil
 }
 
 func commerceOrderPaymentOptionInvalid(options []api.CommercePaymentOption) error {
@@ -585,7 +617,10 @@ func newCommerceOrderWaitCommand(runtime *Runtime) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if commerceOrderTerminal(status) || !runtime.deps.Now().Before(deadline) {
+				if commerceOrderTerminal(status) {
+					return runtime.business(status)
+				}
+				if !runtime.deps.Now().Before(deadline) {
 					return runtime.business(status)
 				}
 				remaining := deadline.Sub(runtime.deps.Now())
@@ -624,7 +659,30 @@ func loadCommerceOrderStatus(ctx context.Context, runtime *Runtime, stableName, 
 		return api.OrderStatusResponse{}, output.Policy("COMMERCE_SESSION_RECOVERY_UNAVAILABLE", "the original Commerce Session is no longer recoverable").
 			WithHint("cross-session order queries are intentionally unsupported")
 	}
-	return runtime.client().GetCommerceOrderStatus(ctx, orderNo, state.Token)
+	status, err := runtime.client().GetCommerceOrderStatus(ctx, orderNo, state.Token)
+	if err != nil {
+		return api.OrderStatusResponse{}, err
+	}
+	if commercePaymentTerminal(status) {
+		if err := removeCommercePaymentPresentation(runtime, orderNo); err != nil {
+			return api.OrderStatusResponse{}, output.Internal(
+				"COMMERCE_PAYMENT_PRESENTATION_CLEANUP_FAILED",
+				"the payment is terminal but its local QR image could not be removed",
+				err,
+			).WithDetails(map[string]any{"orderNo": orderNo})
+		}
+	}
+	return status, nil
+}
+
+func commercePaymentTerminal(status api.OrderStatusResponse) bool {
+	var payment struct {
+		Status string `json:"status"`
+	}
+	if json.Unmarshal(status.Payment, &payment) != nil {
+		return false
+	}
+	return payment.Status == "PAID" || payment.Status == "CLOSED"
 }
 
 func commerceOrderTerminal(status api.OrderStatusResponse) bool {

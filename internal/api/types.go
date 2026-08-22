@@ -287,20 +287,30 @@ type CreateOrderResponse struct {
 }
 
 type CommerceOrder struct {
-	OrderNo         string          `json:"orderNo"`
-	Kind            string          `json:"kind"`
-	Status          string          `json:"status"`
-	Region          string          `json:"region"`
-	Currency        string          `json:"currency"`
-	AmountCents     int             `json:"amountCents"`
-	PaymentProvider string          `json:"paymentProvider"`
-	PrincipalKind   string          `json:"principalKind"`
-	Item            json.RawMessage `json:"item"`
-	PaymentAction   json.RawMessage `json:"paymentAction"`
-	ExpiresAt       string          `json:"expiresAt"`
-	PaidAt          *string         `json:"paidAt"`
-	ClosedAt        *string         `json:"closedAt"`
-	CreatedAt       string          `json:"createdAt"`
+	OrderNo             string                       `json:"orderNo"`
+	Kind                string                       `json:"kind"`
+	Status              string                       `json:"status"`
+	Region              string                       `json:"region"`
+	Currency            string                       `json:"currency"`
+	AmountCents         int                          `json:"amountCents"`
+	PaymentProvider     string                       `json:"paymentProvider"`
+	PrincipalKind       string                       `json:"principalKind"`
+	Item                json.RawMessage              `json:"item"`
+	PaymentAction       json.RawMessage              `json:"paymentAction"`
+	PaymentPresentation *CommercePaymentPresentation `json:"paymentPresentation,omitempty"`
+	ExpiresAt           string                       `json:"expiresAt"`
+	PaidAt              *string                      `json:"paidAt"`
+	ClosedAt            *string                      `json:"closedAt"`
+	CreatedAt           string                       `json:"createdAt"`
+}
+
+type CommercePaymentPresentation struct {
+	Type      string `json:"type"`
+	Purpose   string `json:"purpose"`
+	MIMEType  string `json:"mimeType"`
+	ImagePath string `json:"imagePath"`
+	AltText   string `json:"altText"`
+	ExpiresAt string `json:"expiresAt"`
 }
 
 type OrderStatusResponse struct {

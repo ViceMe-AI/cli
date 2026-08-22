@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const commerceRuntimeVersion = "1.1.0"
+const commerceRuntimeVersion = "1.2.0"
 
 type commerceSkillInstallResult struct {
 	StableName     string                     `json:"stableName"`
