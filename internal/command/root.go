@@ -82,6 +82,7 @@ type Runtime struct {
 	profile            config.Profile
 	configBase         string
 	processCredential  *publicationCredential
+	commerceContextID  string
 }
 
 const (
@@ -285,6 +286,8 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newProfileCommand(runtime))
 	root.AddCommand(newSkillCommand(runtime))
 	root.AddCommand(newPublicationCommand(runtime))
+	root.AddCommand(newMerchantCommand(runtime))
+	root.AddCommand(newCommerceCommand(runtime))
 	return root, runtime, nil
 }
 
