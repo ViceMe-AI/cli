@@ -82,6 +82,7 @@ type Runtime struct {
 	profile            config.Profile
 	configBase         string
 	processCredential  *publicationCredential
+	commerceContextID  string
 }
 
 const (
@@ -271,7 +272,19 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		if err := runtime.selectProfile(runtime.opts.profile); err != nil {
 			return err
 		}
-		return runtime.ensureAutomaticUpdate(command)
+		if err := runtime.ensureAutomaticUpdate(command); err != nil {
+			return err
+		}
+		if commerceCommandRequested(command) {
+			if err := pruneCommercePaymentPresentations(runtime); err != nil {
+				return output.Internal(
+					"COMMERCE_PAYMENT_PRESENTATION_CLEANUP_FAILED",
+					"stale local payment QR files could not be removed",
+					err,
+				)
+			}
+		}
+		return nil
 	}
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return output.Validation("invalid_flag", err.Error())
@@ -285,6 +298,8 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newProfileCommand(runtime))
 	root.AddCommand(newSkillCommand(runtime))
 	root.AddCommand(newPublicationCommand(runtime))
+	root.AddCommand(newMerchantCommand(runtime))
+	root.AddCommand(newCommerceCommand(runtime))
 	return root, runtime, nil
 }
 

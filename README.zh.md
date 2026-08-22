@@ -150,7 +150,7 @@ npx --yes @viceme-ai/cli@latest install
 | Skill | 适用场景 |
 | --- | --- |
 | `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
-| `viceme-publish` | 把本地 Skill 目录或 ZIP 校验、上传、审核、恢复或发布为 ViceMe 付费商品。 |
+| `viceme-publish` | 发布可下载 Skill，或把当前用户拥有的商家服务/实物定义引导为公开 Product 与自动生成的购买 Skill。 |
 | `viceme-danmaku` | 在已有项目中构建或适配随包提供的生产级 React 与 Tailwind CSS v4 弹幕组件。 |
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
@@ -236,6 +236,10 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
 | `viceme update` | 同时更新 CLI 与匹配版本的官方 Skills。 |
+| `viceme merchant accounts` | 列出当前 User 通过 OWNER 成员关系经营的普通 MerchantAccount。 |
+| `viceme merchant work ...` | 创建、查看和发布通用商品所销售的 Work。 |
+| `viceme merchant product ...` | 创建、编译、激活、暂停或归档 Product 及其生成的购买 Skill。 |
+| `viceme commerce ...` | 安装并运行签名购买 Skill，完成会话、报价、支付订单与同会话状态查询。 |
 
 运行 `viceme <command> --help` 查看完整参数和 JSON 字段。
 

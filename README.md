@@ -160,7 +160,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | Skill | Use it when you want to... |
 | --- | --- |
 | `viceme-shared` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
-| `viceme-publish` | validate, upload, review, resume, or publish a local Skill directory or ZIP as a paid ViceMe listing. |
+| `viceme-publish` | publish a downloadable Skill or guide an owned Merchant from a natural-language service or physical-product definition to a public Product and generated purchase Skill. |
 | `viceme-danmaku` | build or adapt the bundled production React and Tailwind CSS v4 danmaku component in an existing project. |
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
@@ -256,6 +256,10 @@ Never copy an access token into the conversation.
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
 | `viceme update` | Update the CLI and matching official Skills together. |
+| `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
+| `viceme merchant work ...` | Create, inspect, and publish the Work sold by a generic Product. |
+| `viceme merchant product ...` | Create, compile, activate, suspend, or archive Products and their generated purchase Skills. |
+| `viceme commerce ...` | Install and run a signed purchase Skill through session, quote, payment order, and same-session status commands. |
 
 Run `viceme <command> --help` for the full flags and JSON fields.
 
