@@ -7,15 +7,15 @@
       "skill_version": "0.16.1",
       "minimum_cli_version": "0.16.1",
       "cli_compatibility": ">=0.16.1 <0.17.0",
-      "full_skill_bundle_digest": "sha256:485e3c3af22634b93400e8a9389963d248a27525675f3e1289dfc0060329aa60",
-      "embedded_content_digest": "sha256:40525190d038f2d983ded2da772f3d533ea401939d6a9d88923472da77596e91"
+      "full_skill_bundle_digest": "sha256:534846127c88648e0ff168c867fb8855af6302ed50374adf0c20836261530019",
+      "embedded_content_digest": "sha256:ca7b4dac43e079f0b9bd8728337803c0609a44cce31fa453eba5fb5ffa847e8a"
     },
     "viceme-danmaku": {
       "skill_version": "0.16.1",
       "minimum_cli_version": "0.16.1",
       "cli_compatibility": ">=0.16.1 <0.17.0",
-      "full_skill_bundle_digest": "sha256:b34806134a95b895038dc50fcf8d39239ef0386d5cc936bbc290afe1d9474085",
-      "embedded_content_digest": "sha256:2e2e85af567d2668609f652d15428b7ed954c9ecd4eeb662050346638f67a172"
+      "full_skill_bundle_digest": "sha256:4e2ddccf72062191eb3e9d24133cb4eacc68414a41f1591bd0749adc6c3e02de",
+      "embedded_content_digest": "sha256:7d0679dea04db5cfef34b0dd25e9db682244e2fbd6a26397170bb638bc1036cc"
     },
     "viceme-publish": {
       "skill_version": "0.16.1",

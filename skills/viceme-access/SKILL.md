@@ -34,7 +34,8 @@ Implement a browser-only integration backed by an existing creator-owned `workKe
 5. Edit `.viceme/access.yaml` and run `viceme access apply` only for later
    configuration changes. Use `viceme access inspect` for diagnosis, not as
    a mandatory second request after a successful init.
-6. Install `@viceme-ai/sdk` with the project's existing package manager.
+6. Install the exact POC SDK `@viceme-ai/sdk-poc@0.1.7-poc.16` with the
+   project's existing package manager.
    Create one client per `workKey`, await `ready()`, and call
    `access.require()` from the existing gated button. This is the default
    fast path; do not add an integration wrapper unless the framework requires it.

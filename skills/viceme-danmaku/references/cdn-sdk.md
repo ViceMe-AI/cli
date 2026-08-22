@@ -74,7 +74,7 @@ and scroll into the same bucket.
 
 ## SDK responsibilities
 
-The browser runtime is published by `@viceme-ai/sdk` and is not duplicated in
+The browser runtime is published by `@viceme-ai/sdk-poc` and is not duplicated in
 this Skill. It must:
 
 - validate `data-viceme-work`, region, feature, target, and theme attributes;

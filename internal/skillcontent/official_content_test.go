@@ -186,3 +186,33 @@ func TestWebsitePublicationBelongsToPublishSkill(t *testing.T) {
 		}
 	}
 }
+
+func TestPOCSkillsUseOnlyPOCSDKPackage(t *testing.T) {
+	t.Parallel()
+
+	for _, relativePath := range []string{
+		"viceme-access/SKILL.md",
+		"viceme-access/references/integration.md",
+		"viceme-danmaku/references/cdn-sdk.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", relativePath, err)
+		}
+		text := string(content)
+		if !strings.Contains(text, "@viceme-ai/sdk-poc") {
+			t.Fatalf("embedded %s does not reference the POC SDK package", relativePath)
+		}
+		if strings.Contains(strings.ReplaceAll(text, "@viceme-ai/sdk-poc", ""), "@viceme-ai/sdk") {
+			t.Fatalf("embedded %s references the formal SDK package", relativePath)
+		}
+	}
+
+	accessSkill, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-access/SKILL.md")
+	if err != nil {
+		t.Fatalf("read embedded access Skill: %v", err)
+	}
+	if !strings.Contains(string(accessSkill), "@viceme-ai/sdk-poc@0.1.7-poc.16") {
+		t.Fatal("embedded access Skill does not pin the exact POC SDK version")
+	}
+}

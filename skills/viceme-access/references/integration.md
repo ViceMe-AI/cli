@@ -58,7 +58,7 @@ Supported policies:
 ## Browser SDK
 
 ```ts
-import { createViceMe } from "@viceme-ai/sdk";
+import { createViceMe } from "@viceme-ai/sdk-poc";
 
 const viceme = createViceMe({
   workKey: "wrk_example",
