@@ -3,6 +3,7 @@
 package command
 
 import (
+	"errors"
 	"fmt"
 	"unsafe"
 
@@ -72,28 +73,54 @@ func commercePaymentWindowsPathIsPrivate(path string) (bool, error) {
 		return false, err
 	}
 	control, _, err := descriptor.Control()
-	if err != nil || control&windows.SE_DACL_PROTECTED == 0 {
+	if err != nil {
 		return false, err
+	}
+	if control&windows.SE_DACL_PROTECTED == 0 {
+		return false, fmt.Errorf("Windows payment DACL is not protected: control=%#x", control)
 	}
 	dacl, _, err := descriptor.DACL()
-	if err != nil || dacl == nil || dacl.AceCount != 1 {
+	if err != nil {
 		return false, err
 	}
-	var ace *windows.ACCESS_ALLOWED_ACE
-	if err := windows.GetAce(dacl, 0, &ace); err != nil {
-		return false, err
-	}
-	// Windows may map GENERIC_ALL to file-object-specific rights before the
-	// descriptor is read back. Privacy depends on the protected DACL containing
-	// exactly one effective allow entry for the owner, not on retaining the
-	// original generic mask bit.
-	if ace == nil || ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Mask == 0 {
-		return false, nil
+	if dacl == nil || dacl.AceCount == 0 {
+		return false, errors.New("Windows payment DACL has no access entries")
 	}
 	owner, _, err := descriptor.Owner()
 	if err != nil || owner == nil {
 		return false, err
 	}
-	aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
-	return owner.Equals(aceSID), nil
+	// Windows may map GENERIC_ALL to file-object-specific rights and may split
+	// inheritable directory permissions into multiple ACEs. Privacy depends on
+	// every effective entry granting access only to the owner, not on a specific
+	// generic mask bit or ACE count.
+	for index := uint32(0); index < uint32(dacl.AceCount); index++ {
+		var ace *windows.ACCESS_ALLOWED_ACE
+		if err := windows.GetAce(dacl, index, &ace); err != nil {
+			return false, err
+		}
+		if ace == nil {
+			return false, fmt.Errorf("Windows payment DACL ACE %d is unavailable", index)
+		}
+		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Mask == 0 {
+			return false, fmt.Errorf(
+				"Windows payment DACL ACE %d is not an effective allow entry: type=%d flags=%#x mask=%#x",
+				index,
+				ace.Header.AceType,
+				ace.Header.AceFlags,
+				ace.Mask,
+			)
+		}
+		aceSID := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
+		if !owner.Equals(aceSID) {
+			return false, fmt.Errorf(
+				"Windows payment DACL ACE %d trustee is not the owner: type=%d flags=%#x mask=%#x",
+				index,
+				ace.Header.AceType,
+				ace.Header.AceFlags,
+				ace.Mask,
+			)
+		}
+	}
+	return true, nil
 }
