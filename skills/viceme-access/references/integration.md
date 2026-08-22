@@ -83,8 +83,11 @@ if (decision.allowed) enableDingdong();
 
 The access check never performs the action by itself, and host sites must not
 call a follow mutation directly. For a follow gate, the ViceMe login consent
-layer shows the creator avatar above the display name, the published-work count,
-and up to two work covers. Its single `授权` action opens the WeChat QR flow
+layer shows the creator avatar above the display name and published-work count on
+one line, separated by `·`. The count includes both published Skills and websites;
+up to two recent covers include one of each when both kinds are available. The
+description shows its first 50 characters and exposes the full text on hover. Its
+single `授权` action opens the WeChat QR flow
 directly, without a separate WeChat authorization transition page. Accepting
 authorization signs the user in and automatically follows the creator; no
 post-login follow layer is shown.
@@ -97,9 +100,10 @@ until the interaction contract is stable.
 Sign-in and checkout stay inside that same bottom sheet or in-page layer. From
 the original gated user click, the SDK loads the checkout frame directly without
 an intermediate “去购买” confirmation; selecting a payment method and paying still
-requires explicit confirmation. The WeChat frame is tall enough to keep the QR
-code and one-tap authorization visible, while checkout keeps a stable layer
-height throughout loading. The SDK validates the API origin plus a
+requires explicit confirmation. The host page remains visually unobscured behind
+the layer. The WeChat frame inherits the consent layer's height so the QR code and
+one-tap authorization remain visible without a transition jump, while checkout
+keeps a stable layer height throughout loading. The SDK validates the API origin plus a
 per-action message channel, then checks access again. The
 checkout frame exchanges its short-lived, retryable bootstrap code for an
 in-memory bearer session and does not depend on third-party cookies. A `PENDING` order or a
