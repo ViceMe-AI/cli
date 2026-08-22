@@ -261,19 +261,25 @@ type ContractAsset struct {
 }
 
 type ProductQuote struct {
-	ID                  string          `json:"id"`
-	Product             json.RawMessage `json:"product"`
-	Attribution         json.RawMessage `json:"attribution"`
-	SKU                 json.RawMessage `json:"sku"`
-	Currency            string          `json:"currency"`
-	UnitAmountCents     int             `json:"unitAmountCents"`
-	Quantity            int             `json:"quantity"`
-	SubtotalAmountCents int             `json:"subtotalAmountCents"`
-	ShippingAmountCents int             `json:"shippingAmountCents"`
-	TotalAmountCents    int             `json:"totalAmountCents"`
-	ContractSummary     json.RawMessage `json:"contractSummary"`
-	Fulfillment         json.RawMessage `json:"fulfillment"`
-	ExpiresAt           string          `json:"expiresAt"`
+	ID                  string                  `json:"id"`
+	Product             json.RawMessage         `json:"product"`
+	Attribution         json.RawMessage         `json:"attribution"`
+	SKU                 json.RawMessage         `json:"sku"`
+	Currency            string                  `json:"currency"`
+	UnitAmountCents     int                     `json:"unitAmountCents"`
+	Quantity            int                     `json:"quantity"`
+	SubtotalAmountCents int                     `json:"subtotalAmountCents"`
+	ShippingAmountCents int                     `json:"shippingAmountCents"`
+	TotalAmountCents    int                     `json:"totalAmountCents"`
+	ContractSummary     json.RawMessage         `json:"contractSummary"`
+	Fulfillment         json.RawMessage         `json:"fulfillment"`
+	PaymentOptions      []CommercePaymentOption `json:"paymentOptions"`
+	ExpiresAt           string                  `json:"expiresAt"`
+}
+
+type CommercePaymentOption struct {
+	Provider string   `json:"provider"`
+	Scenes   []string `json:"scenes"`
 }
 
 type CreateOrderResponse struct {

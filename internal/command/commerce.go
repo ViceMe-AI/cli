@@ -10,6 +10,7 @@ import (
 	"mime"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -380,7 +381,13 @@ func createCommerceQuote(ctx context.Context, runtime *Runtime, stableName, inpu
 	if err != nil {
 		return api.ProductQuote{}, output.Internal("COMMERCE_QUOTE_RESPONSE_INVALID", "quote expiry is invalid", err)
 	}
-	if err := runtime.saveCommerceBinding("quote", quote.ID, commerceResourceBinding{LocalContextID: state.LocalContextID, StableName: stableName, SessionID: state.SessionID, ExpiresAt: expiresAt}); err != nil {
+	if err := runtime.saveCommerceBinding("quote", quote.ID, commerceResourceBinding{
+		LocalContextID: state.LocalContextID,
+		StableName:     stableName,
+		SessionID:      state.SessionID,
+		ExpiresAt:      expiresAt,
+		PaymentOptions: quote.PaymentOptions,
+	}); err != nil {
 		return api.ProductQuote{}, err
 	}
 	if err := runtime.completeIntent(intentKey, requestID, quote.ID, &expiresAt); err != nil {
@@ -442,6 +449,9 @@ func createCommerceOrder(ctx context.Context, runtime *Runtime, stableName, inpu
 	if quoteBinding.StableName != stableName || quoteBinding.SessionID != state.SessionID {
 		return api.CreateOrderResponse{}, output.Policy("COMMERCE_QUOTE_SESSION_MISMATCH", "quote belongs to a different Commerce Session")
 	}
+	if err := validateCommerceOrderPaymentSelection(fields, quoteBinding.PaymentOptions); err != nil {
+		return api.CreateOrderResponse{}, err
+	}
 	unlock, err := runtime.lockCommerceIntent(ctx, "order", state.LocalContextID, stableName, fields)
 	if err != nil {
 		return api.CreateOrderResponse{}, err
@@ -489,6 +499,52 @@ func createCommerceOrder(ctx context.Context, runtime *Runtime, stableName, inpu
 		return api.CreateOrderResponse{}, err
 	}
 	return created, nil
+}
+
+func validateCommerceOrderPaymentSelection(fields map[string]json.RawMessage, options []api.CommercePaymentOption) error {
+	allowedFields := map[string]bool{
+		"quoteId": true, "paymentProvider": true, "paymentScene": true, "locale": true,
+	}
+	for field := range fields {
+		if !allowedFields[field] {
+			return output.Validation("COMMERCE_ORDER_INPUT_INVALID", "order input contains an unsupported field").
+				WithHint("use only quoteId, paymentProvider, optional paymentScene, and locale; the CLI owns clientRequestId")
+		}
+	}
+	var provider, locale string
+	if err := json.Unmarshal(fields["paymentProvider"], &provider); err != nil || provider == "" {
+		return commerceOrderPaymentOptionInvalid(options)
+	}
+	if err := json.Unmarshal(fields["locale"], &locale); err != nil || (locale != "zh-CN" && locale != "en-US") {
+		return output.Validation("COMMERCE_LOCALE_INVALID", "locale must be zh-CN or en-US")
+	}
+	var scene string
+	rawScene, hasScene := fields["paymentScene"]
+	if hasScene {
+		if err := json.Unmarshal(rawScene, &scene); err != nil || scene == "" {
+			return commerceOrderPaymentOptionInvalid(options)
+		}
+	}
+	for _, option := range options {
+		if option.Provider != provider {
+			continue
+		}
+		if len(option.Scenes) == 0 && !hasScene {
+			return nil
+		}
+		if hasScene && slices.Contains(option.Scenes, scene) {
+			return nil
+		}
+	}
+	return commerceOrderPaymentOptionInvalid(options)
+}
+
+func commerceOrderPaymentOptionInvalid(options []api.CommercePaymentOption) error {
+	return output.Validation(
+		"COMMERCE_ORDER_PAYMENT_OPTION_INVALID",
+		"paymentProvider and paymentScene must match one option returned by the current Quote",
+	).WithDetails(map[string]any{"paymentOptions": options}).
+		WithHint("copy one exact provider/scene pair from Quote.paymentOptions; do not run viceme auth login")
 }
 
 func newCommerceOrderStatusCommand(runtime *Runtime) *cobra.Command {

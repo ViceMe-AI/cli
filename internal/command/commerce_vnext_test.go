@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,6 +19,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/config"
+	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
@@ -68,6 +70,19 @@ func TestCommerceRuntimeBootstrapAcceptsOnlyThePlatformInstallContract(t *testin
 	mismatched.Runtime.InstallCommand = "viceme commerce skill install buy-other-product --agent auto --distribution DIRECT"
 	if err := validateCommerceRuntimeBootstrap(mismatched, descriptor, "DIRECT"); err == nil {
 		t.Fatal("mismatched Product Skill install command was accepted")
+	}
+}
+
+func TestCommerceRuntimeVersionRequiresPaymentOptionsSupport(t *testing.T) {
+	for _, minimum := range []string{"1.0.0", "1.1.0"} {
+		if err := validateCommerceRuntimeVersion(minimum); err != nil {
+			t.Fatalf("minimum Runtime %s was rejected: %v", minimum, err)
+		}
+	}
+	for _, minimum := range []string{"1.2.0", "not-semver"} {
+		if err := validateCommerceRuntimeVersion(minimum); err == nil {
+			t.Fatalf("unsupported minimum Runtime %s was accepted", minimum)
+		}
 	}
 }
 
@@ -283,6 +298,7 @@ func TestCommerceOrderIntentSerializesResponseLossRecovery(t *testing.T) {
 	}
 	if err := seed.saveCommerceBinding("quote", quoteID, commerceResourceBinding{
 		LocalContextID: localContextID, StableName: stableName, SessionID: sessionID, ExpiresAt: expiresAt,
+		PaymentOptions: []api.CommercePaymentOption{{Provider: "WECHAT_PAY", Scenes: []string{"NATIVE", "H5"}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -419,6 +435,7 @@ func TestCommerceOrderPersistsSameSessionRecoveryBindingBeforeReturningPaymentEr
 	}
 	if err := runtime.saveCommerceBinding("quote", quoteID, commerceResourceBinding{
 		LocalContextID: localContextID, StableName: stableName, SessionID: sessionID, ExpiresAt: expiresAt,
+		PaymentOptions: []api.CommercePaymentOption{{Provider: "WECHAT_PAY", Scenes: []string{"NATIVE", "H5"}}},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -444,6 +461,30 @@ func TestCommerceOrderPersistsSameSessionRecoveryBindingBeforeReturningPaymentEr
 	_, secondError := createCommerceOrder(context.Background(), runtime, stableName, inputFile)
 	if secondError == nil || orderCalls.Load() != 2 || len(clientRequestIDs) != 2 || clientRequestIDs[0] == "" || clientRequestIDs[0] != clientRequestIDs[1] {
 		t.Fatalf("payment-error retry did not reuse the completed idempotency intent: calls=%d ids=%v err=%v", orderCalls.Load(), clientRequestIDs, secondError)
+	}
+}
+
+func TestCommerceOrderUsesOnlyTheQuotePaymentOption(t *testing.T) {
+	options := []api.CommercePaymentOption{{
+		Provider: "WECHAT_PAY",
+		Scenes:   []string{"NATIVE", "H5"},
+	}}
+	invalid := map[string]json.RawMessage{
+		"quoteId":         json.RawMessage(`"60000000-0000-4000-8000-000000000099"`),
+		"paymentProvider": json.RawMessage(`"WECHAT_PAY"`),
+		"paymentScene":    json.RawMessage(`"CHANNEL_DIRECT"`),
+		"locale":          json.RawMessage(`"zh-CN"`),
+	}
+	err := output.AsError(validateCommerceOrderPaymentSelection(invalid, options))
+	if err.Subtype != "COMMERCE_ORDER_PAYMENT_OPTION_INVALID" ||
+		!strings.Contains(err.Hint, "do not run viceme auth login") {
+		t.Fatalf("invalid Quote payment selection was not actionable: %#v", err)
+	}
+
+	valid := maps.Clone(invalid)
+	valid["paymentScene"] = json.RawMessage(`"NATIVE"`)
+	if err := validateCommerceOrderPaymentSelection(valid, options); err != nil {
+		t.Fatalf("exact Quote payment selection was rejected: %v", err)
 	}
 }
 
@@ -566,7 +607,8 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 				"currency": "CNY", "unitAmountCents": 1000, "quantity": 1,
 				"subtotalAmountCents": 1000, "shippingAmountCents": 500, "totalAmountCents": 1500,
 				"contractSummary": map[string]any{}, "fulfillment": map[string]any{},
-				"expiresAt": time.Now().UTC().Add(15 * time.Minute).Format(time.RFC3339),
+				"paymentOptions": []any{map[string]any{"provider": "WECHAT_PAY", "scenes": []any{"NATIVE", "H5"}}},
+				"expiresAt":      time.Now().UTC().Add(15 * time.Minute).Format(time.RFC3339),
 			})
 		case "/v1/orders":
 			var body map[string]any

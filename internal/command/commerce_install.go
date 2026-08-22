@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const commerceRuntimeVersion = "1.0.0"
+const commerceRuntimeVersion = "1.1.0"
 
 type commerceSkillInstallResult struct {
 	StableName     string                     `json:"stableName"`
@@ -84,9 +84,8 @@ func newCommerceSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			if verified.Signature.Envelope.RuntimeProtocolVersion != 1 {
 				return output.Policy("COMMERCE_RUNTIME_PROTOCOL_UNSUPPORTED", "purchase Skill requires an unsupported Commerce Runtime protocol")
 			}
-			comparison, compareErr := semver.Compare(commerceRuntimeVersion, verified.Signature.Envelope.MinimumRuntimeVersion)
-			if compareErr != nil || comparison < 0 {
-				return output.Policy("COMMERCE_RUNTIME_VERSION_UNSUPPORTED", "purchase Skill requires a newer ViceMe Commerce Runtime")
+			if err := validateCommerceRuntimeVersion(verified.Signature.Envelope.MinimumRuntimeVersion); err != nil {
+				return err
 			}
 			report, err := installVerifiedCommerceSkill(stableName, agent, verified.Files, runtime.deps.Environment)
 			if err != nil {
@@ -107,6 +106,14 @@ func newCommerceSkillInstallCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&agent, "agent", "auto", "installation target: auto, codex, claude, workbuddy, or agents")
 	command.Flags().StringVar(&distribution, "distribution", "DIRECT", "artifact distribution: DIRECT or WORKBUDDY")
 	return command
+}
+
+func validateCommerceRuntimeVersion(minimumRuntimeVersion string) error {
+	comparison, err := semver.Compare(commerceRuntimeVersion, minimumRuntimeVersion)
+	if err != nil || comparison < 0 {
+		return output.Policy("COMMERCE_RUNTIME_VERSION_UNSUPPORTED", "purchase Skill requires a newer ViceMe Commerce Runtime")
+	}
+	return nil
 }
 
 func validateCommerceRuntimeBootstrap(install api.ProductPurchaseSkillInstall, descriptor api.ProductPurchaseSkillDescriptor, distribution string) error {

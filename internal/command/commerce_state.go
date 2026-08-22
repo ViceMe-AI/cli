@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/gofrs/flock"
@@ -32,10 +33,11 @@ type commerceSessionState struct {
 }
 
 type commerceResourceBinding struct {
-	LocalContextID string    `json:"localContextId"`
-	StableName     string    `json:"stableName"`
-	SessionID      string    `json:"sessionId"`
-	ExpiresAt      time.Time `json:"expiresAt"`
+	LocalContextID string                      `json:"localContextId"`
+	StableName     string                      `json:"stableName"`
+	SessionID      string                      `json:"sessionId"`
+	ExpiresAt      time.Time                   `json:"expiresAt"`
+	PaymentOptions []api.CommercePaymentOption `json:"paymentOptions,omitempty"`
 }
 
 type commerceIntentState struct {
