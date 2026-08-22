@@ -208,11 +208,20 @@ type ProductPurchaseSkillDescriptor struct {
 }
 
 type ProductPurchaseSkillInstall struct {
-	StableName     string `json:"stableName"`
-	SkillReleaseID string `json:"skillReleaseId"`
-	ArtifactDigest string `json:"artifactDigest"`
-	DownloadURL    string `json:"downloadUrl"`
-	ExpiresAt      string `json:"expiresAt"`
+	StableName     string                               `json:"stableName"`
+	SkillReleaseID string                               `json:"skillReleaseId"`
+	ArtifactDigest string                               `json:"artifactDigest"`
+	DownloadURL    string                               `json:"downloadUrl"`
+	ExpiresAt      string                               `json:"expiresAt"`
+	Runtime        ProductPurchaseSkillRuntimeBootstrap `json:"runtime"`
+}
+
+type ProductPurchaseSkillRuntimeBootstrap struct {
+	Kind                  string `json:"kind"`
+	ProtocolVersion       int    `json:"protocolVersion"`
+	MinimumRuntimeVersion string `json:"minimumRuntimeVersion"`
+	InstallerContractURL  string `json:"installerContractUrl"`
+	InstallCommand        string `json:"installCommand"`
 }
 
 type CommerceSkillTrustKey struct {

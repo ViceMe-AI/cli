@@ -58,6 +58,9 @@ func newCommerceSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				install.ArtifactDigest != descriptor.ActiveRelease.ArtifactDigest {
 				return output.Policy("COMMERCE_SKILL_INSTALL_IDENTITY_MISMATCH", "install response does not match the authoritative purchase Skill descriptor")
 			}
+			if err := validateCommerceRuntimeBootstrap(install, descriptor, distribution); err != nil {
+				return err
+			}
 			publicKey, err := runtime.resolveCommerceTrustKey(command.Context(), descriptor.ActiveRelease.SigningKeyID)
 			if err != nil {
 				return err
@@ -104,6 +107,27 @@ func newCommerceSkillInstallCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&agent, "agent", "auto", "installation target: auto, codex, claude, workbuddy, or agents")
 	command.Flags().StringVar(&distribution, "distribution", "DIRECT", "artifact distribution: DIRECT or WORKBUDDY")
 	return command
+}
+
+func validateCommerceRuntimeBootstrap(install api.ProductPurchaseSkillInstall, descriptor api.ProductPurchaseSkillDescriptor, distribution string) error {
+	runtime := install.Runtime
+	if runtime.Kind != "VICEME_CLI" || runtime.ProtocolVersion != 1 ||
+		runtime.MinimumRuntimeVersion != descriptor.ActiveRelease.MinimumRuntimeVersion {
+		return output.Policy("COMMERCE_RUNTIME_BOOTSTRAP_INVALID", "purchase Skill installation response contains an invalid Commerce Runtime bootstrap")
+	}
+	if runtime.InstallerContractURL != "https://s3.viceme.cn/start/agent-install.md" &&
+		runtime.InstallerContractURL != "https://s3.viceme.ai/start/agent-install.md" {
+		return output.Policy("COMMERCE_RUNTIME_BOOTSTRAP_INVALID", "purchase Skill installation response contains an untrusted CLI installation contract")
+	}
+	agent := "auto"
+	if distribution == "WORKBUDDY" {
+		agent = "workbuddy"
+	}
+	expectedCommand := fmt.Sprintf("viceme commerce skill install %s --agent %s --distribution %s", descriptor.StableName, agent, distribution)
+	if runtime.InstallCommand != expectedCommand {
+		return output.Policy("COMMERCE_RUNTIME_BOOTSTRAP_INVALID", "purchase Skill installation response contains a mismatched CLI installation command")
+	}
+	return nil
 }
 
 func (runtime *Runtime) resolveCommerceTrustKey(ctx context.Context, keyID string) (string, error) {

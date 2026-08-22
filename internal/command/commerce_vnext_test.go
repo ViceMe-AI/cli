@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
@@ -34,6 +35,39 @@ func TestCommerceRuntimeUsesCompiledTrustRingForOfficialOrigin(t *testing.T) {
 	}
 	if resolved != publicKey {
 		t.Fatalf("resolved unexpected Commerce trust key: %q", resolved)
+	}
+}
+
+func TestCommerceRuntimeBootstrapAcceptsOnlyThePlatformInstallContract(t *testing.T) {
+	descriptor := api.ProductPurchaseSkillDescriptor{
+		StableName: "buy-photo-printing",
+		ActiveRelease: api.PurchaseSkillRelease{
+			MinimumRuntimeVersion: "1.0.0",
+		},
+	}
+	valid := api.ProductPurchaseSkillInstall{
+		StableName: descriptor.StableName,
+		Runtime: api.ProductPurchaseSkillRuntimeBootstrap{
+			Kind: "VICEME_CLI", ProtocolVersion: 1,
+			MinimumRuntimeVersion: "1.0.0",
+			InstallerContractURL:  "https://s3.viceme.cn/start/agent-install.md",
+			InstallCommand:        "viceme commerce skill install buy-photo-printing --agent auto --distribution DIRECT",
+		},
+	}
+	if err := validateCommerceRuntimeBootstrap(valid, descriptor, "DIRECT"); err != nil {
+		t.Fatalf("valid runtime bootstrap was rejected: %v", err)
+	}
+
+	untrusted := valid
+	untrusted.Runtime.InstallerContractURL = "https://merchant.example/install.md"
+	if err := validateCommerceRuntimeBootstrap(untrusted, descriptor, "DIRECT"); err == nil {
+		t.Fatal("merchant-controlled installer contract was accepted")
+	}
+
+	mismatched := valid
+	mismatched.Runtime.InstallCommand = "viceme commerce skill install buy-other-product --agent auto --distribution DIRECT"
+	if err := validateCommerceRuntimeBootstrap(mismatched, descriptor, "DIRECT"); err == nil {
+		t.Fatal("mismatched Product Skill install command was accepted")
 	}
 }
 

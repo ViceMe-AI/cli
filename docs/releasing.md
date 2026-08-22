@@ -51,6 +51,13 @@ are not required. Configure:
   for that workflow execution, and revalidate it in every binary job;
 - repository secret `RELEASE_APP_PRIVATE_KEY`: the complete generated PEM key.
 
+A Commerce Skill `keyId` is permanently bound to one Ed25519 public key after
+it has signed a Product Skill Release. Key rotation must allocate a new ID and
+publish both the old and new public keys in `COMMERCE_SKILL_TRUST_KEYS` before
+Shop signs with the new key. Never replace key material under an existing ID;
+remove an old public key only after every Release signed by it is no longer
+installable.
+
 Protect `dev` with an active branch ruleset that retains the normal pull request,
 one approving review, the `PR quality` check, all three `PR npm installer
 (<runner>)` checks, deletion protection, and force push protection. Add `ViceMe
@@ -129,6 +136,18 @@ allowlist is not anonymously readable. Anonymous bucket listing must also stay
 disabled. The allowlist is limited to `agent-install.md`, the existing root
 installers, and the versioned `cli/releases` installation objects; Skill ZIPs,
 user uploads, and business media never belong in this bucket or policy.
+
+The root `agent-install.md` is also the only supported bootstrap entry when a
+ViceMe Product page is pasted into an Agent that has no `viceme` executable.
+It installs or updates one complete CLI and official-Skill generation; it does
+not embed, mirror, or trust the merchant Product Skill. After `viceme doctor`
+succeeds, the original platform instruction invokes
+`viceme commerce skill install <stable-name> --agent auto --distribution DIRECT`.
+That second command retrieves a fresh Shop authorization and independently
+verifies the Product Skill identity, digest, platform signature, and Commerce
+Runtime version. Release tests must therefore keep the bootstrap document free
+of merchant-controlled URLs, API origins, stable names, shell fragments, and
+login requirements.
 
 Configure the repository secret `CN_S3_HTTPS_PROXY` with the authenticated
 HTTPS forward-proxy URL used by GitHub Actions to reach the CN S3 endpoint.
