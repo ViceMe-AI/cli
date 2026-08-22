@@ -83,7 +83,11 @@ func commercePaymentWindowsPathIsPrivate(path string) (bool, error) {
 	if err := windows.GetAce(dacl, 0, &ace); err != nil {
 		return false, err
 	}
-	if ace == nil || ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Mask&windows.GENERIC_ALL != windows.GENERIC_ALL {
+	// Windows may map GENERIC_ALL to file-object-specific rights before the
+	// descriptor is read back. Privacy depends on the protected DACL containing
+	// exactly one effective allow entry for the owner, not on retaining the
+	// original generic mask bit.
+	if ace == nil || ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Mask == 0 {
 		return false, nil
 	}
 	owner, _, err := descriptor.Owner()
