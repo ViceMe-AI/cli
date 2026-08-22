@@ -108,7 +108,7 @@ type MerchantProductDraftResponse struct {
 
 type MerchantProductSummary struct {
 	ProductID                   string             `json:"productId"`
-	SubjectWorkID               string             `json:"subjectWorkId"`
+	SubjectWorkID               *string            `json:"subjectWorkId"`
 	Slug                        string             `json:"slug"`
 	Title                       string             `json:"title"`
 	Status                      string             `json:"status"`
@@ -145,24 +145,26 @@ type ProductSKU struct {
 	AvailableAt     *string           `json:"availableAt"`
 }
 
+type CommerceProductSubjectWork struct {
+	ID    string `json:"id"`
+	Kind  string `json:"kind"`
+	Slug  string `json:"slug"`
+	Title string `json:"title"`
+}
+
 type CommerceProduct struct {
-	ID                string `json:"id"`
-	Slug              string `json:"slug"`
-	Title             string `json:"title"`
-	Summary           string `json:"summary"`
-	Description       string `json:"description"`
-	UsageInstructions string `json:"usageInstructions"`
-	Status            string `json:"status"`
-	Visibility        string `json:"visibility"`
-	Revision          int    `json:"revision"`
-	SubjectWork       struct {
-		ID    string `json:"id"`
-		Kind  string `json:"kind"`
-		Slug  string `json:"slug"`
-		Title string `json:"title"`
-	} `json:"subjectWork"`
-	Merchant  json.RawMessage `json:"merchant"`
-	SalesSpec struct {
+	ID                string                      `json:"id"`
+	Slug              string                      `json:"slug"`
+	Title             string                      `json:"title"`
+	Summary           string                      `json:"summary"`
+	Description       string                      `json:"description"`
+	UsageInstructions string                      `json:"usageInstructions"`
+	Status            string                      `json:"status"`
+	Visibility        string                      `json:"visibility"`
+	Revision          int                         `json:"revision"`
+	SubjectWork       *CommerceProductSubjectWork `json:"subjectWork"`
+	Merchant          json.RawMessage             `json:"merchant"`
+	SalesSpec         struct {
 		ID                string          `json:"id"`
 		Version           int             `json:"version"`
 		Digest            string          `json:"digest"`
@@ -196,15 +198,32 @@ type PurchaseSkillRelease struct {
 	MinimumRuntimeVersion string          `json:"minimumRuntimeVersion"`
 }
 
+type PurchaseSkillBinding struct {
+	BindingType          string  `json:"bindingType"`
+	ProductID            *string `json:"productId,omitempty"`
+	ProductBlueprintID   *string `json:"productBlueprintId,omitempty"`
+	ProductBlueprintCode *string `json:"productBlueprintCode,omitempty"`
+}
+
+type PurchaseSkillProduct struct {
+	ID                  string `json:"id"`
+	Slug                string `json:"slug"`
+	Title               string `json:"title"`
+	Summary             string `json:"summary"`
+	Status              string `json:"status"`
+	Visibility          string `json:"visibility"`
+	MerchantDisplayName string `json:"merchantDisplayName"`
+}
+
 type ProductPurchaseSkillDescriptor struct {
-	WorkID        string               `json:"workId"`
-	ProductID     string               `json:"productId"`
-	StableName    string               `json:"stableName"`
-	Status        string               `json:"status"`
-	Revision      int                  `json:"revision"`
-	Product       json.RawMessage      `json:"product"`
-	ActiveRelease PurchaseSkillRelease `json:"activeRelease"`
-	Distributions json.RawMessage      `json:"distributions"`
+	WorkID        string                 `json:"workId"`
+	Binding       PurchaseSkillBinding   `json:"binding"`
+	StableName    string                 `json:"stableName"`
+	Status        string                 `json:"status"`
+	Revision      int                    `json:"revision"`
+	Products      []PurchaseSkillProduct `json:"products"`
+	ActiveRelease PurchaseSkillRelease   `json:"activeRelease"`
+	Distributions json.RawMessage        `json:"distributions"`
 }
 
 type ProductPurchaseSkillInstall struct {
@@ -231,12 +250,13 @@ type CommerceSkillTrustKey struct {
 }
 
 type CommerceSession struct {
-	SessionID     string `json:"sessionId"`
-	PrincipalID   string `json:"principalId"`
-	PrincipalKind string `json:"principalKind"`
-	Token         string `json:"token"`
-	ExpiresAt     string `json:"expiresAt"`
-	Recovered     bool   `json:"recovered"`
+	SessionID     string  `json:"sessionId"`
+	PrincipalID   string  `json:"principalId"`
+	PrincipalKind string  `json:"principalKind"`
+	Token         string  `json:"token"`
+	ExpiresAt     string  `json:"expiresAt"`
+	Recovered     bool    `json:"recovered"`
+	ProductID     *string `json:"productId"`
 }
 
 type ContractAssetUpload struct {

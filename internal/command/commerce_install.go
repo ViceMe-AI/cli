@@ -18,11 +18,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const commerceRuntimeVersion = "1.2.0"
+const commerceRuntimeVersion = "1.3.0"
 
 type commerceSkillInstallResult struct {
 	StableName     string                     `json:"stableName"`
-	ProductID      string                     `json:"productId"`
+	Binding        api.PurchaseSkillBinding   `json:"binding"`
+	Products       []api.PurchaseSkillProduct `json:"products"`
 	SkillReleaseID string                     `json:"skillReleaseId"`
 	ArtifactDigest string                     `json:"artifactDigest"`
 	SigningKeyID   string                     `json:"signingKeyId"`
@@ -71,12 +72,15 @@ func newCommerceSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			}
 			verified, err := commerceartifact.Verify(artifact, publicKey, commerceartifact.Expected{
 				ArtifactDigest: install.ArtifactDigest, ArtifactType: "PRODUCT_PURCHASE",
-				ProductID: descriptor.ProductID, StableName: descriptor.StableName,
-				SkillReleaseID: descriptor.ActiveRelease.SkillReleaseID,
-				ReleaseVersion: descriptor.ActiveRelease.Version,
-				SigningKeyID:   descriptor.ActiveRelease.SigningKeyID,
-				EnvelopeDigest: descriptor.ActiveRelease.SignedEnvelopeDigest,
-				Signature:      descriptor.ActiveRelease.Signature,
+				BindingType:        descriptor.Binding.BindingType,
+				ProductID:          optionalString(descriptor.Binding.ProductID),
+				ProductBlueprintID: optionalString(descriptor.Binding.ProductBlueprintID),
+				StableName:         descriptor.StableName,
+				SkillReleaseID:     descriptor.ActiveRelease.SkillReleaseID,
+				ReleaseVersion:     descriptor.ActiveRelease.Version,
+				SigningKeyID:       descriptor.ActiveRelease.SigningKeyID,
+				EnvelopeDigest:     descriptor.ActiveRelease.SignedEnvelopeDigest,
+				Signature:          descriptor.ActiveRelease.Signature,
 			})
 			if err != nil {
 				return output.Policy("COMMERCE_SKILL_VERIFICATION_FAILED", err.Error())
@@ -96,7 +100,7 @@ func newCommerceSkillInstallCommand(runtime *Runtime) *cobra.Command {
 					WithDetails(map[string]any{"report": report})
 			}
 			return runtime.business(commerceSkillInstallResult{
-				StableName: stableName, ProductID: descriptor.ProductID,
+				StableName: stableName, Binding: descriptor.Binding, Products: descriptor.Products,
 				SkillReleaseID: install.SkillReleaseID, ArtifactDigest: install.ArtifactDigest,
 				SigningKeyID: descriptor.ActiveRelease.SigningKeyID,
 				Distribution: distribution, Install: report,
@@ -106,6 +110,13 @@ func newCommerceSkillInstallCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&agent, "agent", "auto", "installation target: auto, codex, claude, workbuddy, or agents")
 	command.Flags().StringVar(&distribution, "distribution", "DIRECT", "artifact distribution: DIRECT or WORKBUDDY")
 	return command
+}
+
+func optionalString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func validateCommerceRuntimeVersion(minimumRuntimeVersion string) error {

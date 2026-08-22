@@ -1,10 +1,12 @@
 # Generic merchant Product workflow
 
-Use this workflow for services and physical/custom-made goods. It produces two
-separate but linked results:
+Use this workflow for services and physical/custom-made goods. It always
+produces a sellable Product and may link it to a real creator Work:
 
-1. the creator's authored Work and sellable Product in ViceMe; and
-2. a platform-generated, signed purchase Skill bound to exactly that Product.
+1. the merchant's sellable Product in ViceMe;
+2. an optional existing or newly published creator Work when the commercial
+   promise genuinely belongs to that Work; and
+3. a platform-generated, signed purchase Skill bound to exactly that Product.
 
 The generated Skill is an entry into ViceMe quoting, payment, same-session
 order status, and fulfillment. It is not the creator's service implementation.
@@ -22,7 +24,7 @@ Only an active MerchantAccount for which the current User is the unique
 `MerchantAccountMember(role=OWNER)` can author Products. If there is no
 account, stop and explain that Staff must create or activate the Merchant and
 bind the current User as OWNER. If multiple accounts are ever returned, show
-them and ask which one owns this Work. Do not guess from display names or from
+them and ask which one owns this Product. Do not guess from display names or from
 an optional CreatorChannel profile.
 
 Verify that the returned active blueprint is `GENERIC_MERCHANT`. Merchant
@@ -35,7 +37,9 @@ with its own OWNER; there is no special platform merchant authority.
 
 Use natural language, but obtain concrete values for every required fact:
 
-- Work title and stable kebab-case slug;
+- whether the commercial promise belongs to a real existing Work/project. Do
+  not ask this for an ordinary standalone service or physical good and never
+  invent a Work merely to satisfy the Product model;
 - Product title, slug, market, bilingual summaries/instructions where useful,
   description, tags, category/type label, and `PUBLIC`, `UNLISTED`, or
   `PRIVATE` visibility;
@@ -52,15 +56,24 @@ Price is always server-owned SKU data. Shipment requires required recipient
 name, contact phone, and shipping address fields. Ask only for missing business
 facts; a merchant who already supplied them does not need to answer them again.
 
-## 3. Create one Work and one draft Product
+## 3. Resolve an optional real Work and create one draft Product
 
-Write a private strict JSON file and run:
+For a standalone service or physical/custom-made good, do not create a Work.
+Omit `subjectWorkId` from the Product request.
+
+Only when the merchant is genuinely charging for or through an existing Work,
+resolve that Work from the merchant's authoritative list and use its ID. If the
+user explicitly wants to publish a new real Work with its own identity and
+content, create that Work using the appropriate Work workflow. Never create an
+empty `SKILL` or `WEBSITE` shell just to make a Product activatable.
+
+For the optional real Work case, write a private strict JSON file and run:
 
 ```text
 viceme merchant work create --input <work.json>
 ```
 
-For a service-style purchase Skill, create a `SKILL` Work shell:
+For example, a genuine creator-authored service Skill Work may be:
 
 ```json
 {
@@ -73,8 +86,8 @@ For a service-style purchase Skill, create a `SKILL` Work shell:
 }
 ```
 
-Use the returned `id` as `subjectWorkId`. Then write the complete Product JSON
-and run:
+Use the returned `id` as `subjectWorkId` only for that genuine Work. Then write
+the complete Product JSON and run:
 
 ```text
 viceme merchant product create --input <product.json>
@@ -85,16 +98,21 @@ The outer object is:
 ```json
 {
   "merchantAccountId": "merchant-uuid",
-  "subjectWorkId": "work-uuid",
   "clientRequestId": "uuid",
   "blueprintCode": "GENERIC_MERCHANT",
   "authoringInput": {}
 }
 ```
 
+When a real Work is in scope, add exactly one top-level field:
+
+```json
+{ "subjectWorkId": "work-uuid" }
+```
+
 Delete private temporary request files after the command. Keep returned IDs and
 revisions in the active task state; do not save buyer data or access tokens in
-the Work directory.
+the source or Skill directory.
 
 ## 4. Compile and review the exact candidate
 
@@ -121,14 +139,15 @@ Compilation must return no validation errors, one
 Do not activate a stale candidate. Any Product edit increments the revision and
 requires another compile and review.
 
-## 5. Confirm once, publish the Work, and activate the candidate
+## 5. Confirm once, optionally publish the real Work, and activate the candidate
 
 Ask exactly once whether the user confirms the displayed definition and wants
 to make this Product available now. State that activation enables real orders
 and payment. A requested change is not approval.
 
-After an unambiguous confirmation, first publish the subject Work with its exact
-current revision:
+After an unambiguous confirmation, publish the subject Work with its exact
+current revision only when `subjectWorkId` is present and that Work is not
+already `PUBLISHED`:
 
 ```json
 {
@@ -142,7 +161,8 @@ current revision:
 viceme merchant work update <work-id> --input <work-update.json>
 ```
 
-Then build the activation JSON entirely from the same compile response:
+For a standalone Product, skip that Work command. Build the activation JSON
+entirely from the same compile response:
 
 ```json
 {

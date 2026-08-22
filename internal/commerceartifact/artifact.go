@@ -21,15 +21,17 @@ import (
 const signaturePath = "commerce-signature.json"
 
 type Expected struct {
-	ArtifactDigest string
-	ArtifactType   string
-	ProductID      string
-	StableName     string
-	SkillReleaseID string
-	ReleaseVersion int
-	SigningKeyID   string
-	EnvelopeDigest string
-	Signature      string
+	ArtifactDigest     string
+	ArtifactType       string
+	BindingType        string
+	ProductID          string
+	ProductBlueprintID string
+	StableName         string
+	SkillReleaseID     string
+	ReleaseVersion     int
+	SigningKeyID       string
+	EnvelopeDigest     string
+	Signature          string
 }
 
 type File struct {
@@ -42,7 +44,9 @@ type Envelope struct {
 	SchemaVersion          int     `json:"schemaVersion"`
 	ArtifactType           string  `json:"artifactType"`
 	WorkID                 string  `json:"workId"`
+	BindingType            *string `json:"bindingType"`
 	ProductID              *string `json:"productId"`
+	ProductBlueprintID     *string `json:"productBlueprintId"`
 	StableName             string  `json:"stableName"`
 	SkillReleaseID         string  `json:"skillReleaseId"`
 	ReleaseVersion         int     `json:"releaseVersion"`
@@ -227,7 +231,7 @@ func validateSignatureShape(signature SignatureFile) error {
 		return errors.New("COMMERCE_SKILL_SIGNATURE_INVALID")
 	}
 	envelope := signature.Envelope
-	if envelope.SchemaVersion != 1 || envelope.WorkID == "" || envelope.StableName == "" ||
+	if envelope.SchemaVersion != 2 || envelope.WorkID == "" || envelope.StableName == "" ||
 		envelope.SkillReleaseID == "" || envelope.ReleaseVersion < 1 || envelope.TemplateVersion < 1 ||
 		envelope.RuntimeProtocolVersion < 1 || envelope.MinimumRuntimeVersion == "" ||
 		len(envelope.Files) < 2 || len(envelope.Files) > 32 {
@@ -250,6 +254,25 @@ func validateSignatureShape(signature SignatureFile) error {
 	if !hasSkill || !hasManifest {
 		return errors.New("COMMERCE_SKILL_ENVELOPE_INVALID")
 	}
+	if envelope.ArtifactType == "PRODUCT_PURCHASE" {
+		if envelope.BindingType == nil {
+			return errors.New("COMMERCE_SKILL_ENVELOPE_INVALID")
+		}
+		switch *envelope.BindingType {
+		case "DIRECT_PRODUCT":
+			if envelope.ProductID == nil || envelope.ProductBlueprintID != nil {
+				return errors.New("COMMERCE_SKILL_ENVELOPE_INVALID")
+			}
+		case "PRODUCT_BLUEPRINT":
+			if envelope.ProductBlueprintID == nil || envelope.ProductID != nil {
+				return errors.New("COMMERCE_SKILL_ENVELOPE_INVALID")
+			}
+		default:
+			return errors.New("COMMERCE_SKILL_ENVELOPE_INVALID")
+		}
+	} else if envelope.BindingType != nil || envelope.ProductID != nil || envelope.ProductBlueprintID != nil {
+		return errors.New("COMMERCE_SKILL_ENVELOPE_INVALID")
+	}
 	return nil
 }
 
@@ -266,8 +289,22 @@ func commercePathLess(left, right string) bool {
 
 func validateIdentity(envelope Envelope, expected Expected) error {
 	if envelope.ArtifactType != expected.ArtifactType || envelope.StableName != expected.StableName ||
-		envelope.SkillReleaseID != expected.SkillReleaseID || envelope.ReleaseVersion != expected.ReleaseVersion ||
-		envelope.ProductID == nil || *envelope.ProductID != expected.ProductID {
+		envelope.SkillReleaseID != expected.SkillReleaseID || envelope.ReleaseVersion != expected.ReleaseVersion {
+		return errors.New("COMMERCE_SKILL_IDENTITY_MISMATCH")
+	}
+	if expected.BindingType == "DIRECT_PRODUCT" {
+		if envelope.BindingType == nil || *envelope.BindingType != expected.BindingType ||
+			envelope.ProductID == nil || *envelope.ProductID != expected.ProductID ||
+			envelope.ProductBlueprintID != nil {
+			return errors.New("COMMERCE_SKILL_IDENTITY_MISMATCH")
+		}
+	} else if expected.BindingType == "PRODUCT_BLUEPRINT" {
+		if envelope.BindingType == nil || *envelope.BindingType != expected.BindingType ||
+			envelope.ProductBlueprintID == nil || *envelope.ProductBlueprintID != expected.ProductBlueprintID ||
+			envelope.ProductID != nil {
+			return errors.New("COMMERCE_SKILL_IDENTITY_MISMATCH")
+		}
+	} else if envelope.BindingType != nil || envelope.ProductID != nil || envelope.ProductBlueprintID != nil {
 		return errors.New("COMMERCE_SKILL_IDENTITY_MISMATCH")
 	}
 	return nil

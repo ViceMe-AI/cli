@@ -43,7 +43,7 @@ func TestCommerceRuntimeUsesCompiledTrustRingForOfficialOrigin(t *testing.T) {
 
 func TestCommerceRuntimeBootstrapAcceptsOnlyThePlatformInstallContract(t *testing.T) {
 	descriptor := api.ProductPurchaseSkillDescriptor{
-		StableName: "buy-photo-printing",
+		StableName: "viceme-buy-photo-printing",
 		ActiveRelease: api.PurchaseSkillRelease{
 			MinimumRuntimeVersion: "1.0.0",
 		},
@@ -54,7 +54,7 @@ func TestCommerceRuntimeBootstrapAcceptsOnlyThePlatformInstallContract(t *testin
 			Kind: "VICEME_CLI", ProtocolVersion: 1,
 			MinimumRuntimeVersion: "1.0.0",
 			InstallerContractURL:  "https://s3.viceme.cn/start/agent-install.md",
-			InstallCommand:        "viceme commerce skill install buy-photo-printing --agent auto --distribution DIRECT",
+			InstallCommand:        "viceme commerce skill install viceme-buy-photo-printing --agent auto --distribution DIRECT",
 		},
 	}
 	if err := validateCommerceRuntimeBootstrap(valid, descriptor, "DIRECT"); err != nil {
@@ -68,19 +68,19 @@ func TestCommerceRuntimeBootstrapAcceptsOnlyThePlatformInstallContract(t *testin
 	}
 
 	mismatched := valid
-	mismatched.Runtime.InstallCommand = "viceme commerce skill install buy-other-product --agent auto --distribution DIRECT"
+	mismatched.Runtime.InstallCommand = "viceme commerce skill install viceme-buy-other-product --agent auto --distribution DIRECT"
 	if err := validateCommerceRuntimeBootstrap(mismatched, descriptor, "DIRECT"); err == nil {
 		t.Fatal("mismatched Product Skill install command was accepted")
 	}
 }
 
 func TestCommerceRuntimeVersionRequiresLocalQRPresentationSupport(t *testing.T) {
-	for _, minimum := range []string{"1.0.0", "1.1.0", "1.2.0"} {
+	for _, minimum := range []string{"1.0.0", "1.1.0", "1.2.0", "1.3.0"} {
 		if err := validateCommerceRuntimeVersion(minimum); err != nil {
 			t.Fatalf("minimum Runtime %s was rejected: %v", minimum, err)
 		}
 	}
-	for _, minimum := range []string{"1.3.0", "not-semver"} {
+	for _, minimum := range []string{"1.4.0", "not-semver"} {
 		if err := validateCommerceRuntimeVersion(minimum); err == nil {
 			t.Fatalf("unsupported minimum Runtime %s was accepted", minimum)
 		}
@@ -89,7 +89,7 @@ func TestCommerceRuntimeVersionRequiresLocalQRPresentationSupport(t *testing.T) 
 
 func TestCommerceSessionStartSerializesOneLocalContext(t *testing.T) {
 	const (
-		stableName     = "buy-photo-printing"
+		stableName     = "viceme-buy-photo-printing"
 		localContextID = "10000000-0000-4000-8000-000000000001"
 	)
 	var sessionCalls atomic.Int32
@@ -106,6 +106,7 @@ func TestCommerceSessionStartSerializesOneLocalContext(t *testing.T) {
 			time.Sleep(25 * time.Millisecond)
 			writeJSONResponse(writer, map[string]any{
 				"sessionId": "40000000-0000-4000-8000-000000000001", "principalId": "50000000-0000-4000-8000-000000000001",
+				"productId":     "30000000-0000-4000-8000-000000000001",
 				"principalKind": "GENERATED", "token": "vcs_serialized-token", "recovered": false,
 				"expiresAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
 			})
@@ -136,7 +137,7 @@ func TestCommerceSessionStartSerializesOneLocalContext(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			state, recovered, err := runtime.startCommerceSession(context.Background(), localContextID, stableName)
+			state, recovered, err := runtime.startCommerceSession(context.Background(), localContextID, stableName, "")
 			results <- result{state: state, recovered: recovered, err: err}
 		}()
 	}
@@ -161,7 +162,7 @@ func TestCommerceSessionStartSerializesOneLocalContext(t *testing.T) {
 
 func TestCommerceSessionStartRecoversAfterCommittedResponseIsLost(t *testing.T) {
 	const (
-		stableName     = "buy-photo-printing"
+		stableName     = "viceme-buy-photo-printing"
 		localContextID = "10000000-0000-4000-8000-000000000003"
 	)
 	var sessionCalls atomic.Int32
@@ -193,6 +194,7 @@ func TestCommerceSessionStartRecoversAfterCommittedResponseIsLost(t *testing.T) 
 			}
 			writeJSONResponse(writer, map[string]any{
 				"sessionId": "40000000-0000-4000-8000-000000000003", "principalId": "50000000-0000-4000-8000-000000000003",
+				"productId":     "30000000-0000-4000-8000-000000000003",
 				"principalKind": "GENERATED", "token": "vcs_recovered-token", "recovered": true,
 				"expiresAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
 			})
@@ -211,10 +213,10 @@ func TestCommerceSessionStartRecoversAfterCommittedResponseIsLost(t *testing.T) 
 		profile:         config.Profile{ID: "profile", Name: "default", APIBaseURL: server.URL},
 		credentialScope: "test", configBase: filepath.Join(root, "config"), apiBaseURL: server.URL,
 	}
-	if _, _, err := runtime.startCommerceSession(context.Background(), localContextID, stableName); err == nil {
+	if _, _, err := runtime.startCommerceSession(context.Background(), localContextID, stableName, ""); err == nil {
 		t.Fatal("truncated committed response unexpectedly succeeded")
 	}
-	state, recovered, err := runtime.startCommerceSession(context.Background(), localContextID, stableName)
+	state, recovered, err := runtime.startCommerceSession(context.Background(), localContextID, stableName, "")
 	if err != nil {
 		t.Fatalf("response-loss retry failed: %v", err)
 	}
@@ -225,7 +227,7 @@ func TestCommerceSessionStartRecoversAfterCommittedResponseIsLost(t *testing.T) 
 
 func TestCommerceOrderIntentSerializesResponseLossRecovery(t *testing.T) {
 	const (
-		stableName     = "buy-photo-printing"
+		stableName     = "viceme-buy-photo-printing"
 		localContextID = "10000000-0000-4000-8000-000000000004"
 		sessionID      = "40000000-0000-4000-8000-000000000004"
 		quoteID        = "60000000-0000-4000-8000-000000000004"
@@ -365,7 +367,7 @@ func TestCommerceOrderIntentSerializesResponseLossRecovery(t *testing.T) {
 
 func TestCommerceOrderPersistsSameSessionRecoveryBindingBeforeReturningPaymentError(t *testing.T) {
 	const (
-		stableName     = "buy-photo-printing"
+		stableName     = "viceme-buy-photo-printing"
 		localContextID = "10000000-0000-4000-8000-000000000005"
 		sessionID      = "40000000-0000-4000-8000-000000000005"
 		quoteID        = "60000000-0000-4000-8000-000000000005"
@@ -524,13 +526,13 @@ func TestCommerceStateSeparatesIdenticalResourcesAcrossLocalContexts(t *testing.
 		contextB: "20000000-0000-4000-8000-000000000002",
 	} {
 		if err := runtime.saveCommerceSession(commerceSessionState{
-			LocalContextID: localContextID, StableName: "buy-photo-printing", SessionID: sessionID,
+			LocalContextID: localContextID, StableName: "viceme-buy-photo-printing", SessionID: sessionID,
 			ProductID: "30000000-0000-4000-8000-000000000001", Token: "token", ExpiresAt: time.Now().Add(time.Hour),
 		}); err != nil {
 			t.Fatal(err)
 		}
 		if err := runtime.saveCommerceBinding("order", "VME-SAME", commerceResourceBinding{
-			LocalContextID: localContextID, StableName: "buy-photo-printing", SessionID: sessionID, ExpiresAt: time.Now().Add(time.Hour),
+			LocalContextID: localContextID, StableName: "viceme-buy-photo-printing", SessionID: sessionID, ExpiresAt: time.Now().Add(time.Hour),
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -550,7 +552,7 @@ func TestCommerceStateSeparatesIdenticalResourcesAcrossLocalContexts(t *testing.
 
 func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *testing.T) {
 	const (
-		stableName = "buy-photo-printing"
+		stableName = "viceme-buy-photo-printing"
 		productID  = "22222222-2222-4222-8222-222222222222"
 		quoteID    = "33333333-3333-4333-8333-333333333333"
 		orderNo    = "VME202608210001"
@@ -592,6 +594,7 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 			writeJSONResponse(writer, map[string]any{
 				"sessionId":     "55555555-5555-4555-8555-555555555555",
 				"principalId":   "66666666-6666-4666-8666-666666666666",
+				"productId":     productID,
 				"principalKind": "GENERATED", "token": token,
 				"expiresAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339), "recovered": false,
 			})
@@ -755,7 +758,7 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	if _, err := os.Stat(imagePath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("paid order status retained local payment QR image: %v", err)
 	}
-	result := run("commerce", "order", "wait", "--skill", stableName, "--order", orderNo, "--timeout", "2s", "--interval", "250ms", "--session-context", localContextID)
+	result := run("commerce", "order", "wait", "--skill", stableName, "--order", orderNo, "--until", "fulfillment", "--timeout", "2s", "--interval", "250ms", "--session-context", localContextID)
 	data := result["data"].(map[string]any)
 	fulfillment := data["fulfillment"].(map[string]any)
 	if fulfillment["status"] != "SUCCEEDED" || sessionCalls.Load() != 1 || statusCalls.Load() != 3 {
@@ -771,6 +774,35 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	}
 	if _, err := os.Stat(imagePath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("terminal Order replay recreated local payment QR image: %v", err)
+	}
+}
+
+func TestCommerceWaitTargetSeparatesPaymentFromFulfillment(t *testing.T) {
+	processing := api.OrderStatusResponse{
+		Payment:     json.RawMessage(`{"status":"PAID"}`),
+		Fulfillment: json.RawMessage(`{"status":"PROCESSING"}`),
+	}
+	if !commerceWaitTargetReached(processing, commerceWaitUntilPayment) {
+		t.Fatal("payment target did not stop after payment became PAID")
+	}
+	if commerceWaitTargetReached(processing, commerceWaitUntilFulfillment) {
+		t.Fatal("fulfillment target stopped while manual fulfillment was still processing")
+	}
+
+	succeeded := processing
+	succeeded.Fulfillment = json.RawMessage(`{"status":"SUCCEEDED"}`)
+	if !commerceWaitTargetReached(succeeded, commerceWaitUntilFulfillment) {
+		t.Fatal("fulfillment target did not stop at SUCCEEDED")
+	}
+
+	closed := api.OrderStatusResponse{
+		Payment:     json.RawMessage(`{"status":"CLOSED"}`),
+		Fulfillment: json.RawMessage(`{"status":"AWAITING_PAYMENT"}`),
+	}
+	for _, target := range []string{commerceWaitUntilPayment, commerceWaitUntilFulfillment} {
+		if !commerceWaitTargetReached(closed, target) {
+			t.Fatalf("%s target did not stop for a closed payment", target)
+		}
 	}
 }
 

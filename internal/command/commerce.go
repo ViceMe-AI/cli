@@ -54,9 +54,10 @@ func commerceCommandRequested(command *cobra.Command) bool {
 func newCommerceSkillCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "skill", Short: "Inspect or install a generated product purchase Skill"}
 	command.AddCommand(&cobra.Command{
-		Use:   "get <stable-name>",
-		Short: "Get the authoritative signed purchase Skill descriptor",
-		Args:  cobra.ExactArgs(1),
+		Use:     "get <stable-name>",
+		Aliases: []string{"show"},
+		Short:   "Get the authoritative signed purchase Skill descriptor",
+		Args:    cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			result, err := runtime.client().GetProductPurchaseSkill(command.Context(), args[0])
 			if err != nil {
@@ -76,7 +77,7 @@ func newCommerceSessionCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newCommerceSessionStartCommand(runtime *Runtime) *cobra.Command {
-	var stableName string
+	var stableName, productID string
 	command := &cobra.Command{
 		Use:   "start",
 		Short: "Create or recover the session bound to one purchase Skill",
@@ -89,7 +90,7 @@ func newCommerceSessionStartCommand(runtime *Runtime) *cobra.Command {
 			if !validCommerceContextID(localContextID) {
 				return output.Validation("COMMERCE_SESSION_CONTEXT_INVALID", "--session-context must be the opaque localContextId returned by commerce session start")
 			}
-			state, recovered, err := runtime.startCommerceSession(command.Context(), localContextID, stableName)
+			state, recovered, err := runtime.startCommerceSession(command.Context(), localContextID, stableName, productID)
 			if err != nil {
 				return err
 			}
@@ -97,11 +98,12 @@ func newCommerceSessionStartCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&stableName, "skill", "", "purchase Skill stable name")
+	command.Flags().StringVar(&productID, "product", "", "eligible Product id for a Blueprint purchase Skill")
 	_ = command.MarkFlagRequired("skill")
 	return command
 }
 
-func (runtime *Runtime) startCommerceSession(ctx context.Context, localContextID, stableName string) (commerceSessionState, bool, error) {
+func (runtime *Runtime) startCommerceSession(ctx context.Context, localContextID, stableName, productID string) (commerceSessionState, bool, error) {
 	if !validStableName(stableName) {
 		return commerceSessionState{}, false, output.Validation("COMMERCE_SKILL_NAME_INVALID", "purchase Skill stable name is invalid")
 	}
@@ -112,6 +114,9 @@ func (runtime *Runtime) startCommerceSession(ctx context.Context, localContextID
 	defer unlock()
 	state, err := runtime.loadCommerceSession(localContextID, stableName)
 	if err == nil && state.ExpiresAt.After(runtime.deps.Now().Add(5*time.Second)) {
+		if productID != "" && state.ProductID != productID {
+			return commerceSessionState{}, false, output.Validation("COMMERCE_SESSION_PRODUCT_MISMATCH", "the localContextId is already bound to another Product")
+		}
 		return state, true, nil
 	}
 	if err == nil {
@@ -124,29 +129,29 @@ func (runtime *Runtime) startCommerceSession(ctx context.Context, localContextID
 	if err != nil && !errors.Is(err, errCommerceSessionMissing) {
 		return commerceSessionState{}, false, err
 	}
-	descriptor, err := runtime.client().GetProductPurchaseSkill(ctx, stableName)
-	if err != nil {
-		return commerceSessionState{}, false, err
-	}
-	intent, err := runtime.loadOrCreateCommerceSessionStartIntent(localContextID, stableName)
+	intent, err := runtime.loadOrCreateCommerceSessionStartIntent(localContextID, stableName, productID)
 	if err != nil {
 		return commerceSessionState{}, false, err
 	}
 	created, err := runtime.client().CreateCommerceSession(
 		ctx,
 		stableName,
+		productID,
 		intent.ClientRequestID,
 		intent.ReplaySecret,
 	)
 	if err != nil {
 		return commerceSessionState{}, false, err
 	}
+	if created.ProductID == nil || *created.ProductID == "" {
+		return commerceSessionState{}, false, output.Internal("COMMERCE_SESSION_RESPONSE_INVALID", "Commerce Session Product selection is missing", nil)
+	}
 	expiresAt, err := time.Parse(time.RFC3339, created.ExpiresAt)
 	if err != nil {
 		return commerceSessionState{}, false, output.Internal("COMMERCE_SESSION_RESPONSE_INVALID", "Commerce Session expiry is invalid", err)
 	}
 	state = commerceSessionState{
-		LocalContextID: localContextID, StableName: stableName, ProductID: descriptor.ProductID, SessionID: created.SessionID,
+		LocalContextID: localContextID, StableName: stableName, ProductID: *created.ProductID, SessionID: created.SessionID,
 		PrincipalID: created.PrincipalID, PrincipalKind: created.PrincipalKind,
 		Token: created.Token, ExpiresAt: expiresAt,
 	}
@@ -208,7 +213,7 @@ func validCommerceContextID(value string) bool {
 }
 
 func validStableName(value string) bool {
-	if len(value) < 2 || len(value) > 160 {
+	if len(value) < len("viceme-a") || len(value) > 160 || !strings.HasPrefix(value, "viceme-") {
 		return false
 	}
 	for index, character := range value {
@@ -601,15 +606,21 @@ func newCommerceOrderStatusCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newCommerceOrderWaitCommand(runtime *Runtime) *cobra.Command {
-	var stableName, orderNo string
+	var stableName, orderNo, until string
 	var timeout, interval time.Duration
 	command := &cobra.Command{
 		Use:   "wait",
-		Short: "Wait for a payment/fulfillment terminal state without changing sessions",
+		Short: "Wait for an explicit payment or fulfillment target without changing sessions",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if timeout <= 0 || interval < 250*time.Millisecond {
 				return output.Validation("COMMERCE_WAIT_INVALID", "--timeout must be positive and --interval at least 250ms")
+			}
+			if until != commerceWaitUntilPayment && until != commerceWaitUntilFulfillment {
+				return output.Validation(
+					"COMMERCE_WAIT_TARGET_INVALID",
+					"--until must be payment or fulfillment",
+				).WithDetails(map[string]any{"until": until})
 			}
 			deadline := runtime.deps.Now().Add(timeout)
 			for {
@@ -617,7 +628,7 @@ func newCommerceOrderWaitCommand(runtime *Runtime) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				if commerceOrderTerminal(status) {
+				if commerceWaitTargetReached(status, until) {
 					return runtime.business(status)
 				}
 				if !runtime.deps.Now().Before(deadline) {
@@ -636,10 +647,12 @@ func newCommerceOrderWaitCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&stableName, "skill", "", "purchase Skill stable name")
 	command.Flags().StringVar(&orderNo, "order", "", "order number")
+	command.Flags().StringVar(&until, "until", "", "terminal target: payment or fulfillment")
 	command.Flags().DurationVar(&timeout, "timeout", 20*time.Minute, "maximum wait duration")
 	command.Flags().DurationVar(&interval, "interval", 1500*time.Millisecond, "poll interval")
 	_ = command.MarkFlagRequired("skill")
 	_ = command.MarkFlagRequired("order")
+	_ = command.MarkFlagRequired("until")
 	return command
 }
 
@@ -685,7 +698,12 @@ func commercePaymentTerminal(status api.OrderStatusResponse) bool {
 	return payment.Status == "PAID" || payment.Status == "CLOSED"
 }
 
-func commerceOrderTerminal(status api.OrderStatusResponse) bool {
+const (
+	commerceWaitUntilPayment     = "payment"
+	commerceWaitUntilFulfillment = "fulfillment"
+)
+
+func commerceWaitTargetReached(status api.OrderStatusResponse, until string) bool {
 	var payment struct {
 		Status string `json:"status"`
 	}
@@ -696,6 +714,12 @@ func commerceOrderTerminal(status api.OrderStatusResponse) bool {
 		return true
 	}
 	if payment.Status != "PAID" {
+		return false
+	}
+	if until == commerceWaitUntilPayment {
+		return true
+	}
+	if until != commerceWaitUntilFulfillment {
 		return false
 	}
 	if len(status.Fulfillment) == 0 || string(status.Fulfillment) == "null" {

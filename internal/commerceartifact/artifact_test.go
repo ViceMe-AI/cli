@@ -19,14 +19,15 @@ func TestVerifyChecksSignatureIdentityAndExactFileSet(t *testing.T) {
 		t.Fatal(err)
 	}
 	files := map[string][]byte{
-		"SKILL.md":               []byte("---\nname: buy-photo\ndescription: \"Buy\"\n---\n"),
-		"commerce-manifest.json": []byte("{\"schemaVersion\":1}\n"),
+		"SKILL.md":               []byte("---\nname: viceme-buy-photo\ndescription: \"Buy\"\n---\n"),
+		"commerce-manifest.json": []byte("{\"schemaVersion\":2}\n"),
 	}
+	bindingType := "DIRECT_PRODUCT"
 	envelope := Envelope{
-		SchemaVersion: 1, ArtifactType: "PRODUCT_PURCHASE",
+		SchemaVersion: 2, ArtifactType: "PRODUCT_PURCHASE", BindingType: &bindingType,
 		WorkID:     "11111111-1111-4111-8111-111111111111",
 		ProductID:  stringPointer("22222222-2222-4222-8222-222222222222"),
-		StableName: "buy-photo", SkillReleaseID: "33333333-3333-4333-8333-333333333333",
+		StableName: "viceme-buy-photo", SkillReleaseID: "33333333-3333-4333-8333-333333333333",
 		ReleaseVersion: 1, TemplateVersion: 1, RuntimeProtocolVersion: 1,
 		MinimumRuntimeVersion: "1.0.0",
 	}
@@ -55,7 +56,7 @@ func TestVerifyChecksSignatureIdentityAndExactFileSet(t *testing.T) {
 	}
 	expected := Expected{
 		ArtifactDigest: hex.EncodeToString(artifactDigest[:]), ArtifactType: "PRODUCT_PURCHASE",
-		ProductID: *envelope.ProductID, StableName: envelope.StableName,
+		BindingType: bindingType, ProductID: *envelope.ProductID, StableName: envelope.StableName,
 		SkillReleaseID: envelope.SkillReleaseID, ReleaseVersion: envelope.ReleaseVersion,
 		SigningKeyID: signatureFile.KeyID, EnvelopeDigest: signatureFile.EnvelopeDigest,
 		Signature: signatureFile.Signature,

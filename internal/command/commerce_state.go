@@ -49,6 +49,7 @@ type commerceIntentState struct {
 type commerceSessionStartIntent struct {
 	ClientRequestID string `json:"clientRequestId"`
 	ReplaySecret    string `json:"replaySecret"`
+	ProductID       string `json:"productId,omitempty"`
 }
 
 func (runtime *Runtime) commerceStateKey(kind string, values ...string) string {
@@ -239,13 +240,14 @@ func (runtime *Runtime) completeIntent(key, requestID, resourceID string, expire
 	return nil
 }
 
-func (runtime *Runtime) loadOrCreateCommerceSessionStartIntent(localContextID, stableName string) (commerceSessionStartIntent, error) {
+func (runtime *Runtime) loadOrCreateCommerceSessionStartIntent(localContextID, stableName, productID string) (commerceSessionStartIntent, error) {
 	key := runtime.commerceStateKey("session-start", localContextID, stableName)
 	var intent commerceSessionStartIntent
 	raw, err := runtime.deps.Store.Get(key)
 	if err == nil {
 		if json.Unmarshal([]byte(raw), &intent) == nil &&
 			intent.ClientRequestID == localContextID &&
+			intent.ProductID == productID &&
 			validCommerceReplaySecret(intent.ReplaySecret) {
 			return intent, nil
 		}
@@ -261,6 +263,7 @@ func (runtime *Runtime) loadOrCreateCommerceSessionStartIntent(localContextID, s
 	intent = commerceSessionStartIntent{
 		ClientRequestID: localContextID,
 		ReplaySecret:    base64.RawURLEncoding.EncodeToString(secretBytes),
+		ProductID:       productID,
 	}
 	encoded, err := json.Marshal(intent)
 	if err != nil {

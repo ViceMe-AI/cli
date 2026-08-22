@@ -205,13 +205,17 @@ func (c *Client) DownloadArtifact(ctx context.Context, rawURL string) ([]byte, e
 	return data, nil
 }
 
-func (c *Client) CreateCommerceSession(ctx context.Context, stableName, clientRequestID, replaySecret string) (CommerceSession, error) {
+func (c *Client) CreateCommerceSession(ctx context.Context, stableName, productID, clientRequestID, replaySecret string) (CommerceSession, error) {
 	var response CommerceSession
-	err := c.doJSON(ctx, http.MethodPost, "/v1/commerce-sessions", map[string]any{
+	payload := map[string]any{
 		"purchaseSkillStableName": stableName,
 		"clientRequestId":         clientRequestID,
 		"replaySecret":            replaySecret,
-	}, &response, "")
+	}
+	if productID != "" {
+		payload["purchaseSkillProductId"] = productID
+	}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/commerce-sessions", payload, &response, "")
 	return response, err
 }
 
