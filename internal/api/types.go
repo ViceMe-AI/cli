@@ -2,7 +2,7 @@ package api
 
 import "encoding/json"
 
-const SkillPublicationContractVersion = "2026-08-17"
+const SkillPublicationContractVersion = "2026-08-24"
 
 type DeviceAuthorizationRequest struct {
 	ClientName string   `json:"clientName"`
@@ -374,22 +374,23 @@ type SkillPublicationFile struct {
 }
 
 type CreateSkillPublicationRequest struct {
-	ClientRequestID    string                   `json:"clientRequestId"`
-	ContractVersion    string                   `json:"contractVersion"`
-	CLIVersion         string                   `json:"cliVersion"`
-	Manifest           SkillPublicationManifest `json:"manifest"`
-	ManifestDigest     string                   `json:"manifestDigest"`
-	Artifact           SkillPublicationFile     `json:"artifact"`
-	ListingID          string                   `json:"listingId"`
-	CreatorDisplayName string                   `json:"creatorDisplayName,omitempty"`
+	ClientRequestID   string                   `json:"clientRequestId"`
+	ContractVersion   string                   `json:"contractVersion"`
+	CLIVersion        string                   `json:"cliVersion"`
+	Manifest          SkillPublicationManifest `json:"manifest"`
+	ManifestDigest    string                   `json:"manifestDigest"`
+	Artifact          SkillPublicationFile     `json:"artifact"`
+	ListingID         string                   `json:"listingId"`
+	MerchantAccountID string                   `json:"merchantAccountId"`
 }
 
 type CreateSkillPublicationResponse struct {
-	PublicationID string               `json:"publicationId"`
-	ListingID     string               `json:"listingId"`
-	DraftRevision int                  `json:"draftRevision"`
-	Status        string               `json:"status"`
-	PackageUpload *UploadAuthorization `json:"packageUpload"`
+	PublicationID     string               `json:"publicationId"`
+	ListingID         string               `json:"listingId"`
+	MerchantAccountID string               `json:"merchantAccountId"`
+	DraftRevision     int                  `json:"draftRevision"`
+	Status            string               `json:"status"`
+	PackageUpload     *UploadAuthorization `json:"packageUpload"`
 }
 
 type UploadAuthorizationRequest struct {
@@ -484,20 +485,21 @@ type PublishedProduct struct {
 }
 
 type SkillPublication struct {
-	ID             string                   `json:"id"`
-	ListingID      string                   `json:"listingId"`
-	DraftRevision  int                      `json:"draftRevision"`
-	Status         string                   `json:"status"`
-	Manifest       SkillPublicationManifest `json:"manifest"`
-	Draft          SkillPublicationDraft    `json:"draft"`
-	ReviewRevision int                      `json:"reviewRevision"`
-	ReviewDigest   *string                  `json:"reviewDigest"`
-	Uploads        []SkillPublicationUpload `json:"uploads"`
-	Analysis       *PublicationAnalysis     `json:"analysis"`
-	Product        *PublishedProduct        `json:"product"`
-	FailureCode    *string                  `json:"failureCode"`
-	CreatedAt      string                   `json:"createdAt"`
-	UpdatedAt      string                   `json:"updatedAt"`
+	ID                string                   `json:"id"`
+	ListingID         string                   `json:"listingId"`
+	MerchantAccountID string                   `json:"merchantAccountId"`
+	DraftRevision     int                      `json:"draftRevision"`
+	Status            string                   `json:"status"`
+	Manifest          SkillPublicationManifest `json:"manifest"`
+	Draft             SkillPublicationDraft    `json:"draft"`
+	ReviewRevision    int                      `json:"reviewRevision"`
+	ReviewDigest      *string                  `json:"reviewDigest"`
+	Uploads           []SkillPublicationUpload `json:"uploads"`
+	Analysis          *PublicationAnalysis     `json:"analysis"`
+	Product           *PublishedProduct        `json:"product"`
+	FailureCode       *string                  `json:"failureCode"`
+	CreatedAt         string                   `json:"createdAt"`
+	UpdatedAt         string                   `json:"updatedAt"`
 }
 
 type PrepareSkillListingRequest struct {

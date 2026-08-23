@@ -15,15 +15,16 @@ import (
 )
 
 type Pending struct {
-	SchemaVersion   int       `json:"schemaVersion"`
-	PublicationID   string    `json:"publicationId"`
-	ClientRequestID string    `json:"clientRequestId"`
-	Fingerprint     string    `json:"fingerprint"`
-	SourcePath      string    `json:"sourcePath"`
-	PriceMinor      *int      `json:"priceMinor"`
-	ArtifactDigest  string    `json:"artifactDigest"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	SchemaVersion     int       `json:"schemaVersion"`
+	PublicationID     string    `json:"publicationId"`
+	ClientRequestID   string    `json:"clientRequestId"`
+	MerchantAccountID string    `json:"merchantAccountId"`
+	Fingerprint       string    `json:"fingerprint"`
+	SourcePath        string    `json:"sourcePath"`
+	PriceMinor        *int      `json:"priceMinor"`
+	ArtifactDigest    string    `json:"artifactDigest"`
+	CreatedAt         time.Time `json:"createdAt"`
+	UpdatedAt         time.Time `json:"updatedAt"`
 }
 
 type PendingStore struct {
@@ -141,14 +142,14 @@ func (s PendingStore) Save(value Pending) error {
 	if !safeID(value.PublicationID) {
 		return output.Validation("PUBLICATION_ID_INVALID", "publication ID is invalid")
 	}
-	if !isHexDigest(value.Fingerprint) || !safeID(value.ClientRequestID) || !isHexDigest(value.ArtifactDigest) {
+	if !isHexDigest(value.Fingerprint) || !safeID(value.ClientRequestID) || !safeID(value.MerchantAccountID) || !isHexDigest(value.ArtifactDigest) {
 		return output.Validation("PUBLICATION_RECOVERY_INVALID", "publication recovery state is invalid")
 	}
 	if s.Now == nil {
 		s.Now = time.Now
 	}
 	now := s.Now().UTC()
-	value.SchemaVersion = 1
+	value.SchemaVersion = 2
 	if value.CreatedAt.IsZero() {
 		value.CreatedAt = now
 	}
@@ -202,7 +203,7 @@ func (s PendingStore) Load(publicationID string) (Pending, error) {
 	var value Pending
 	decoder := json.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&value); err != nil || value.SchemaVersion != 1 || value.PublicationID != publicationID || !isHexDigest(value.Fingerprint) || !safeID(value.ClientRequestID) || !isHexDigest(value.ArtifactDigest) {
+	if err := decoder.Decode(&value); err != nil || value.SchemaVersion != 2 || value.PublicationID != publicationID || !isHexDigest(value.Fingerprint) || !safeID(value.ClientRequestID) || !safeID(value.MerchantAccountID) || !isHexDigest(value.ArtifactDigest) {
 		return Pending{}, output.Validation("PUBLICATION_RECOVERY_INVALID", "local publication recovery state is invalid")
 	}
 	return value, nil

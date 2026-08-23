@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
@@ -152,7 +153,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	var source string
 	var resume string
 	var priceMinor int
-	var creatorDisplayName string
+	var merchantAccountID string
 	var forceNew bool
 	command := &cobra.Command{
 		Use: "publish", Short: "Upload a Skill and prepare its listing for explicit review", Args: cobra.NoArgs,
@@ -183,6 +184,16 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
 					return err
 				}
+				requestedMerchantID := pending.MerchantAccountID
+				if merchantAccountID != "" {
+					if merchantAccountID != pending.MerchantAccountID {
+						return output.Validation("PUBLICATION_MERCHANT_CHANGED", "--merchant does not match the Merchant saved for this publication").WithHint("resume with the original Merchant account, or start a new publication")
+					}
+					requestedMerchantID = merchantAccountID
+				}
+				if _, err := resolveSkillPublicationMerchant(command.Context(), runtime, requestedMerchantID); err != nil {
+					return err
+				}
 				if priceConfirmed {
 					pending.PriceMinor = &priceMinor
 					if err := store.Save(pending); err != nil {
@@ -201,13 +212,17 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
 				return err
 			}
+			merchant, err := resolveSkillPublicationMerchant(command.Context(), runtime, merchantAccountID)
+			if err != nil {
+				return err
+			}
 			prepared, _, err := prepareSkillListing(command.Context(), runtime, pkg, forceNew, "")
 			if err != nil {
 				return err
 			}
 			fingerprint := fmt.Sprintf("%x", sha256.Sum256([]byte(
 				runtime.profile.ID+"\x00"+prepared.ListingID+"\x00"+pkg.Artifact.Digest+"\x00"+pkg.Digest+"\x00"+
-					creatorDisplayName+"\x00"+buildinfo.Version,
+					merchant.ID+"\x00"+buildinfo.Version,
 			)))
 			intent, err := store.LoadOrCreateIntent(fingerprint, runtime.deps.NewID)
 			if err != nil {
@@ -216,8 +231,9 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if intent.PublicationID != "" {
 				pending := publication.Pending{
 					PublicationID: intent.PublicationID, ClientRequestID: intent.ClientRequestID,
-					Fingerprint: fingerprint,
-					SourcePath:  pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
+					MerchantAccountID: merchant.ID,
+					Fingerprint:       fingerprint,
+					SourcePath:        pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
 				}
 				if priceConfirmed {
 					pending.PriceMinor = &priceMinor
@@ -230,7 +246,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			created, err := runtime.client().CreateSkillPublication(command.Context(), api.CreateSkillPublicationRequest{
 				ClientRequestID: intent.ClientRequestID, ContractVersion: api.SkillPublicationContractVersion, CLIVersion: buildinfo.Version,
 				Manifest: pkg.Manifest, ManifestDigest: pkg.Digest, Artifact: pkg.Artifact, ListingID: prepared.ListingID,
-				CreatorDisplayName: creatorDisplayName,
+				MerchantAccountID: merchant.ID,
 			})
 			if err != nil {
 				if output.AsError(err).Subtype != "SKILL_PUBLICATION_ALREADY_ACTIVE" {
@@ -240,7 +256,17 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if previewErr != nil || preview.Publication == nil {
 					return err
 				}
-				created = api.CreateSkillPublicationResponse{PublicationID: preview.Publication.ID, ListingID: prepared.ListingID, DraftRevision: preview.DraftRevision, Status: preview.Publication.Status}
+				current, currentErr := runtime.client().GetSkillPublication(command.Context(), preview.Publication.ID)
+				if currentErr != nil {
+					return currentErr
+				}
+				if current.MerchantAccountID != merchant.ID {
+					return output.Authorization("PUBLICATION_MERCHANT_CHANGED", "the active publication belongs to another Merchant")
+				}
+				created = api.CreateSkillPublicationResponse{PublicationID: current.ID, ListingID: current.ListingID, MerchantAccountID: current.MerchantAccountID, DraftRevision: current.DraftRevision, Status: current.Status}
+			}
+			if created.MerchantAccountID != merchant.ID {
+				return output.Authorization("PUBLICATION_MERCHANT_CHANGED", "the publication response does not match the selected Merchant")
 			}
 			intent.PublicationID = created.PublicationID
 			if err := store.SaveIntent(intent); err != nil {
@@ -248,8 +274,9 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			}
 			pending := publication.Pending{
 				PublicationID: created.PublicationID, ClientRequestID: intent.ClientRequestID,
-				Fingerprint: fingerprint,
-				SourcePath:  pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
+				MerchantAccountID: merchant.ID,
+				Fingerprint:       fingerprint,
+				SourcePath:        pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
 			}
 			if priceConfirmed {
 				pending.PriceMinor = &priceMinor
@@ -263,7 +290,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
 	command.Flags().StringVar(&resume, "resume", "", "resume an interrupted publication by ID")
 	command.Flags().IntVar(&priceMinor, "price-minor", 0, "set the CNY price in fen while continuing the private draft")
-	command.Flags().StringVar(&creatorDisplayName, "creator-display-name", "", "creator display name used when the account has none")
+	command.Flags().StringVar(&merchantAccountID, "merchant", "", "Merchant account ID; required only when multiple active accounts exist")
 	command.Flags().BoolVar(&forceNew, "new-listing", false, "explicitly create a separate Listing even when content matches")
 	return command
 }
@@ -393,11 +420,44 @@ func (runtime *Runtime) requireSkillPublicationAuthentication(ctx context.Contex
 	return nil
 }
 
+func resolveSkillPublicationMerchant(ctx context.Context, runtime *Runtime, requestedID string) (api.MerchantAccount, error) {
+	accounts, err := runtime.client().ListMerchantAccounts(ctx)
+	if err != nil {
+		return api.MerchantAccount{}, err
+	}
+	requestedID = strings.TrimSpace(requestedID)
+	active := make([]api.MerchantAccount, 0, len(accounts.Items))
+	for _, account := range accounts.Items {
+		if account.Status == "ACTIVE" {
+			active = append(active, account)
+		}
+		if requestedID != "" && account.ID == requestedID {
+			if account.Status != "ACTIVE" {
+				return api.MerchantAccount{}, output.Authorization("MERCHANT_SUSPENDED", "the selected Merchant is not active").WithDetails(map[string]any{"merchantAccountId": requestedID})
+			}
+			return account, nil
+		}
+	}
+	if requestedID != "" {
+		return api.MerchantAccount{}, output.Authorization("MERCHANT_REQUIRED", "the selected Merchant is not owned by the current login").WithDetails(map[string]any{"merchantAccountId": requestedID})
+	}
+	if len(active) == 1 {
+		return active[0], nil
+	}
+	if len(active) == 0 {
+		return api.MerchantAccount{}, output.Authorization("MERCHANT_REQUIRED", "an active Merchant owned by the current login is required before publishing").WithHint("ask a ViceMe Admin to create or activate your Merchant account")
+	}
+	return api.MerchantAccount{}, output.Validation("MERCHANT_SELECTION_REQUIRED", "multiple active Merchant accounts are available; select one explicitly").WithDetails(map[string]any{"merchants": active}).WithHint("run 'viceme merchant accounts', then retry with '--merchant <merchant-account-id>'")
+}
+
 func continueSkillPublication(ctx context.Context, runtime *Runtime, store publication.PendingStore, pending publication.Pending, pkg publication.Package, initialUpload *api.UploadAuthorization, packageOnly bool) error {
 	client := runtime.client()
 	current, err := client.GetSkillPublication(ctx, pending.PublicationID)
 	if err != nil {
 		return err
+	}
+	if current.MerchantAccountID != pending.MerchantAccountID {
+		return output.Authorization("PUBLICATION_MERCHANT_CHANGED", "the server publication no longer matches local Merchant recovery state").WithHint("inspect the publication on the current profile before continuing")
 	}
 	if current.Status == "PUBLISHED" || current.Status == "CANCELLED" {
 		if err := retirePublicationRecovery(store, pending, current.Status); err != nil {

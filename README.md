@@ -87,8 +87,13 @@ viceme auth status
 # Sign in only when auth status reports unauthenticated.
 viceme auth login
 
+# Confirm the MerchantAccountMember(OWNER) authority used for publication.
+viceme merchant accounts
+
 # Upload the real private draft and open its Owner Preview before pricing.
 viceme skill publish --path ./my-skill
+# With multiple active Merchant accounts, select the confirmed account:
+# viceme skill publish --path ./my-skill --merchant <merchant-account-id>
 
 # Continue the same unpriced draft and upload media candidates.
 viceme skill publish --resume <publication-id>
@@ -244,7 +249,7 @@ Never copy an access token into the conversation.
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |
 | `viceme skill listing get <listing-id>` | Read the authoritative private Listing state. |
 | `viceme skill listing bind <listing-id> --path <path>` | Explicitly bind a source to a selected owned Listing. |
-| `viceme skill publish --path <path>` | Upload the real private package and return its Owner Preview before pricing. |
+| `viceme skill publish --path <path> [--merchant <id>]` | Freeze the selected owned Merchant, upload the real private package, and return its Owner Preview before pricing. The flag is required only when multiple active Merchants exist. |
 | `viceme skill publish --resume <id>` | Continue the same unpriced Draft and upload media candidates without starting a platform model. |
 | `viceme publication review <id>` | Read the authoritative bilingual copy, price, selected media, and review state. |
 | `viceme publication suggest <id> --input ...` | Apply Agent-generated bilingual copy and media with Draft revision protection. |

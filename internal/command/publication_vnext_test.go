@@ -370,6 +370,58 @@ func TestSkillPublishValidatesLocallyBeforeLoginWithoutCreatingRecoveryState(t *
 	}
 }
 
+func TestSkillPublishRequiresExplicitMerchantWhenMultipleAreActive(t *testing.T) {
+	t.Parallel()
+	state := &publicationAPITestState{merchantAccounts: []api.MerchantAccount{
+		{ID: "99999999-9999-4999-8999-999999999999", DisplayName: "Merchant One", Status: "ACTIVE", StatusVersion: 1},
+		{ID: "88888888-8888-4888-8888-888888888888", DisplayName: "Merchant Two", Status: "ACTIVE", StatusVersion: 1},
+	}}
+	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	defer server.Close()
+	state.baseURL = server.URL
+	root := t.TempDir()
+	source := filepath.Join(root, "skill")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("---\nname: Merchant Select\ndescription: Require an explicit Merchant selection.\n---\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "vme_cli_test", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"skill", "publish", "--path", source}, Dependencies{
+		Out: &stdout, ErrOut: io.Discard, Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit != output.ExitValidation {
+		t.Fatalf("multiple Merchants used the wrong exit: exit=%d stdout=%s", exit, stdout.String())
+	}
+	var envelope struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Error.Code != "MERCHANT_SELECTION_REQUIRED" {
+		t.Fatalf("multiple Merchants were not surfaced for explicit selection: %#v", envelope)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.createCalls != 0 || state.listingID != "" {
+		t.Fatalf("publication started before Merchant selection: %#v", state)
+	}
+}
+
 func TestSkillPrepareReturnsOwnedCandidatesForAmbiguousDigest(t *testing.T) {
 	t.Parallel()
 	state := &publicationAPITestState{ambiguousPrepare: true}
@@ -619,7 +671,8 @@ func TestTerminalPublicationRetirementFailureIsRecoverable(t *testing.T) {
 	}
 	pending := publication.Pending{
 		PublicationID: publicationID, ClientRequestID: clientRequestID, Fingerprint: fingerprint,
-		SourcePath: "/tmp/source", PriceMinor: intPointer(1), ArtifactDigest: strings.Repeat("b", 64),
+		MerchantAccountID: "99999999-9999-4999-8999-999999999999",
+		SourcePath:        "/tmp/source", PriceMinor: intPointer(1), ArtifactDigest: strings.Repeat("b", 64),
 	}
 	if err := store.Save(pending); err != nil {
 		t.Fatal(err)
@@ -698,6 +751,7 @@ type publicationAPITestState struct {
 	suggestionCalls          int
 	lastDraftPatchFields     []string
 	ambiguousPrepare         bool
+	merchantAccounts         []api.MerchantAccount
 }
 
 func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, request *http.Request) {
@@ -709,6 +763,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 	}
 	publicationPath := "/v1/creator/skill-publications/" + state.publicationID
 	listingID := "66666666-6666-4666-8666-666666666666"
+	merchantAccountID := "99999999-9999-4999-8999-999999999999"
 	switch {
 	case request.Method == http.MethodGet && request.URL.Path == "/v1/cli/auth/status":
 		writeJSONResponse(writer, map[string]any{
@@ -717,6 +772,12 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 			"scopes":        []string{"profile:read", "skill-publication:read", "skill-publication:write"},
 			"expiresAt":     "2027-08-12T08:00:00Z",
 		})
+	case request.Method == http.MethodGet && request.URL.Path == "/v1/cli/merchant/accounts":
+		items := state.merchantAccounts
+		if items == nil {
+			items = []api.MerchantAccount{{ID: merchantAccountID, DisplayName: "Test Merchant", Status: "ACTIVE", StatusVersion: 1}}
+		}
+		writeJSONResponse(writer, api.MerchantAccountsResponse{Items: items})
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-listings/prepare":
 		var input map[string]any
 		if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
@@ -756,9 +817,9 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-publications":
 		var input api.CreateSkillPublicationRequest
 		_ = json.NewDecoder(request.Body).Decode(&input)
-		if input.ContractVersion != "2026-08-17" || input.Manifest.Spec.Sale.PriceMinor != nil {
+		if input.ContractVersion != "2026-08-24" || input.MerchantAccountID != merchantAccountID || input.Manifest.Spec.Sale.PriceMinor != nil {
 			writer.WriteHeader(http.StatusBadRequest)
-			writeJSONResponse(writer, map[string]any{"statusCode": 400, "code": "PUBLICATION_CONTRACT_INVALID", "message": "expected an unpriced 2026-08-17 private upload"})
+			writeJSONResponse(writer, map[string]any{"statusCode": 400, "code": "PUBLICATION_CONTRACT_INVALID", "message": "expected a Merchant-bound unpriced 2026-08-24 private upload"})
 			return
 		}
 		state.createCalls++
@@ -776,7 +837,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 			_, _ = io.WriteString(writer, "{")
 			return
 		}
-		writeJSONResponse(writer, api.CreateSkillPublicationResponse{PublicationID: state.publicationID, ListingID: listingID, DraftRevision: 1, Status: state.status, PackageUpload: &api.UploadAuthorization{UploadID: "upload-package", Method: http.MethodPut, URL: state.baseURL + "/upload/package", Headers: map[string]string{"Content-Type": "application/zip"}}})
+		writeJSONResponse(writer, api.CreateSkillPublicationResponse{PublicationID: state.publicationID, ListingID: listingID, MerchantAccountID: merchantAccountID, DraftRevision: 1, Status: state.status, PackageUpload: &api.UploadAuthorization{UploadID: "upload-package", Method: http.MethodPut, URL: state.baseURL + "/upload/package", Headers: map[string]string{"Content-Type": "application/zip"}}})
 	case request.Method == http.MethodGet && request.URL.Path == publicationPath:
 		writeJSONResponse(writer, state.publication())
 	case request.Method == http.MethodPut && request.URL.Path == "/upload/package":
@@ -873,7 +934,7 @@ func (state *publicationAPITestState) publication() api.SkillPublication {
 	} else if state.mediaPending {
 		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-media", Kind: "MEDIA", Status: "PENDING", FileName: state.mediaFileName, ContentType: state.mediaContentType, SizeBytes: state.mediaSizeBytes, Digest: state.mediaDigest, SortOrder: state.mediaSortOrder})
 	}
-	result := api.SkillPublication{ID: state.publicationID, ListingID: "66666666-6666-4666-8666-666666666666", DraftRevision: 1, Status: state.status, Manifest: state.manifest, Draft: state.draft, ReviewRevision: 1, ReviewDigest: &state.reviewDigest, Uploads: uploads}
+	result := api.SkillPublication{ID: state.publicationID, ListingID: "66666666-6666-4666-8666-666666666666", MerchantAccountID: "99999999-9999-4999-8999-999999999999", DraftRevision: 1, Status: state.status, Manifest: state.manifest, Draft: state.draft, ReviewRevision: 1, ReviewDigest: &state.reviewDigest, Uploads: uploads}
 	if state.analysisPolls > 0 {
 		state.analysisPolls--
 		result.Analysis = &api.PublicationAnalysis{Status: "PENDING"}
