@@ -34,6 +34,7 @@ func newCommerceCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "commerce", Short: "Run signed ViceMe product purchase Skills"}
 	command.PersistentFlags().StringVar(&runtime.commerceContextID, "session-context", "", "opaque localContextId returned by commerce session start")
 	command.AddCommand(newCommerceSkillCommand(runtime))
+	command.AddCommand(newCommerceFlowCommand(runtime))
 	command.AddCommand(newCommerceSessionCommand(runtime))
 	command.AddCommand(newCommerceProductCommand(runtime))
 	command.AddCommand(newCommerceAssetCommand(runtime))
@@ -363,11 +364,15 @@ func newCommerceQuoteCreateCommand(runtime *Runtime) *cobra.Command {
 }
 
 func createCommerceQuote(ctx context.Context, runtime *Runtime, stableName, inputFile string) (api.ProductQuote, error) {
-	state, err := runtime.requireCommerceSession(stableName)
+	input, err := readJSONObject(inputFile, "COMMERCE_QUOTE_INPUT_INVALID")
 	if err != nil {
 		return api.ProductQuote{}, err
 	}
-	input, err := readJSONObject(inputFile, "COMMERCE_QUOTE_INPUT_INVALID")
+	return createCommerceQuoteInput(ctx, runtime, stableName, input)
+}
+
+func createCommerceQuoteInput(ctx context.Context, runtime *Runtime, stableName string, input json.RawMessage) (api.ProductQuote, error) {
+	state, err := runtime.requireCommerceSession(stableName)
 	if err != nil {
 		return api.ProductQuote{}, err
 	}
@@ -395,12 +400,17 @@ func createCommerceQuote(ctx context.Context, runtime *Runtime, stableName, inpu
 	if err != nil {
 		return api.ProductQuote{}, output.Internal("COMMERCE_QUOTE_RESPONSE_INVALID", "quote expiry is invalid", err)
 	}
+	waitUntil, err := commerceQuoteWaitUntil(quote.Fulfillment)
+	if err != nil {
+		return api.ProductQuote{}, err
+	}
 	if err := runtime.saveCommerceBinding("quote", quote.ID, commerceResourceBinding{
 		LocalContextID: state.LocalContextID,
 		StableName:     stableName,
 		SessionID:      state.SessionID,
 		ExpiresAt:      expiresAt,
 		PaymentOptions: quote.PaymentOptions,
+		WaitUntil:      waitUntil,
 	}); err != nil {
 		return api.ProductQuote{}, err
 	}
@@ -440,11 +450,15 @@ func newCommerceOrderCreateCommand(runtime *Runtime) *cobra.Command {
 }
 
 func createCommerceOrder(ctx context.Context, runtime *Runtime, stableName, inputFile string) (api.CreateOrderResponse, error) {
-	state, err := runtime.requireCommerceSession(stableName)
+	input, err := readJSONObject(inputFile, "COMMERCE_ORDER_INPUT_INVALID")
 	if err != nil {
 		return api.CreateOrderResponse{}, err
 	}
-	input, err := readJSONObject(inputFile, "COMMERCE_ORDER_INPUT_INVALID")
+	return createCommerceOrderInput(ctx, runtime, stableName, input)
+}
+
+func createCommerceOrderInput(ctx context.Context, runtime *Runtime, stableName string, input json.RawMessage) (api.CreateOrderResponse, error) {
+	state, err := runtime.requireCommerceSession(stableName)
 	if err != nil {
 		return api.CreateOrderResponse{}, err
 	}
@@ -613,36 +627,11 @@ func newCommerceOrderWaitCommand(runtime *Runtime) *cobra.Command {
 		Short: "Wait for an explicit payment or fulfillment target without changing sessions",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if timeout <= 0 || interval < 250*time.Millisecond {
-				return output.Validation("COMMERCE_WAIT_INVALID", "--timeout must be positive and --interval at least 250ms")
+			status, err := waitCommerceOrder(command.Context(), runtime, stableName, orderNo, until, timeout, interval)
+			if err != nil {
+				return err
 			}
-			if until != commerceWaitUntilPayment && until != commerceWaitUntilFulfillment {
-				return output.Validation(
-					"COMMERCE_WAIT_TARGET_INVALID",
-					"--until must be payment or fulfillment",
-				).WithDetails(map[string]any{"until": until})
-			}
-			deadline := runtime.deps.Now().Add(timeout)
-			for {
-				status, err := loadCommerceOrderStatus(command.Context(), runtime, stableName, orderNo)
-				if err != nil {
-					return err
-				}
-				if commerceWaitTargetReached(status, until) {
-					return runtime.business(status)
-				}
-				if !runtime.deps.Now().Before(deadline) {
-					return runtime.business(status)
-				}
-				remaining := deadline.Sub(runtime.deps.Now())
-				delay := interval
-				if remaining < delay {
-					delay = remaining
-				}
-				if err := runtime.deps.Sleep(command.Context(), delay); err != nil {
-					return output.Network("COMMERCE_WAIT_INTERRUPTED", "order wait was interrupted", err)
-				}
-			}
+			return runtime.business(status)
 		},
 	}
 	command.Flags().StringVar(&stableName, "skill", "", "purchase Skill stable name")
@@ -654,6 +643,36 @@ func newCommerceOrderWaitCommand(runtime *Runtime) *cobra.Command {
 	_ = command.MarkFlagRequired("order")
 	_ = command.MarkFlagRequired("until")
 	return command
+}
+
+func waitCommerceOrder(ctx context.Context, runtime *Runtime, stableName, orderNo, until string, timeout, interval time.Duration) (api.OrderStatusResponse, error) {
+	if timeout <= 0 || interval < 250*time.Millisecond {
+		return api.OrderStatusResponse{}, output.Validation("COMMERCE_WAIT_INVALID", "--timeout must be positive and --interval at least 250ms")
+	}
+	if until != commerceWaitUntilPayment && until != commerceWaitUntilFulfillment {
+		return api.OrderStatusResponse{}, output.Validation(
+			"COMMERCE_WAIT_TARGET_INVALID",
+			"--until must be payment or fulfillment",
+		).WithDetails(map[string]any{"until": until})
+	}
+	deadline := runtime.deps.Now().Add(timeout)
+	for {
+		status, err := loadCommerceOrderStatus(ctx, runtime, stableName, orderNo)
+		if err != nil {
+			return api.OrderStatusResponse{}, err
+		}
+		if commerceWaitTargetReached(status, until) || !runtime.deps.Now().Before(deadline) {
+			return status, nil
+		}
+		remaining := deadline.Sub(runtime.deps.Now())
+		delay := interval
+		if remaining < delay {
+			delay = remaining
+		}
+		if err := runtime.deps.Sleep(ctx, delay); err != nil {
+			return api.OrderStatusResponse{}, output.Network("COMMERCE_WAIT_INTERRUPTED", "order wait was interrupted", err)
+		}
+	}
 }
 
 func loadCommerceOrderStatus(ctx context.Context, runtime *Runtime, stableName, orderNo string) (api.OrderStatusResponse, error) {

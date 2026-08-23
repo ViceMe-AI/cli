@@ -38,6 +38,7 @@ type commerceResourceBinding struct {
 	SessionID      string                      `json:"sessionId"`
 	ExpiresAt      time.Time                   `json:"expiresAt"`
 	PaymentOptions []api.CommercePaymentOption `json:"paymentOptions,omitempty"`
+	WaitUntil      string                      `json:"waitUntil,omitempty"`
 }
 
 type commerceIntentState struct {
@@ -101,6 +102,14 @@ func (runtime *Runtime) deleteCommerceSessionCredentials(localContextID, stableN
 		if err := runtime.deps.Store.Delete(key); err != nil && !errors.Is(err, securestore.ErrNotFound) {
 			return output.Internal("COMMERCE_SESSION_DELETE_FAILED", "could not delete expired Commerce Session credentials", err)
 		}
+	}
+	return nil
+}
+
+func (runtime *Runtime) deleteCommerceSessionStartIntent(localContextID, stableName string) error {
+	key := runtime.commerceStateKey("session-start", localContextID, stableName)
+	if err := runtime.deps.Store.Delete(key); err != nil && !errors.Is(err, securestore.ErrNotFound) {
+		return output.Internal("COMMERCE_SESSION_INTENT_DELETE_FAILED", "could not discard an unselected Commerce Session intent", err)
 	}
 	return nil
 }

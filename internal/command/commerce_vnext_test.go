@@ -75,12 +75,12 @@ func TestCommerceRuntimeBootstrapAcceptsOnlyThePlatformInstallContract(t *testin
 }
 
 func TestCommerceRuntimeVersionRequiresLocalQRPresentationSupport(t *testing.T) {
-	for _, minimum := range []string{"1.0.0", "1.1.0", "1.2.0", "1.3.0"} {
+	for _, minimum := range []string{"1.0.0", "1.1.0", "1.2.0", "1.3.0", "1.4.0"} {
 		if err := validateCommerceRuntimeVersion(minimum); err != nil {
 			t.Fatalf("minimum Runtime %s was rejected: %v", minimum, err)
 		}
 	}
-	for _, minimum := range []string{"1.4.0", "not-semver"} {
+	for _, minimum := range []string{"1.5.0", "not-semver"} {
 		if err := validateCommerceRuntimeVersion(minimum); err == nil {
 			t.Fatalf("unsupported minimum Runtime %s was accepted", minimum)
 		}
@@ -575,6 +575,10 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 				"workId": "11111111-1111-4111-8111-111111111111", "productId": productID,
 				"stableName": stableName, "status": "ACTIVE", "revision": 2,
 				"product": map[string]any{}, "distributions": []any{},
+				"products": []any{map[string]any{
+					"id": productID, "slug": "photo-printing", "title": "照片打印", "summary": "打印并发货",
+					"status": "ACTIVE", "visibility": "PUBLIC", "merchantDisplayName": "测试商家",
+				}},
 				"activeRelease": map[string]any{
 					"skillReleaseId": "44444444-4444-4444-8444-444444444444", "version": 1,
 					"manifest": map[string]any{}, "manifestDigest": strings.Repeat("a", 64),
@@ -633,9 +637,10 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 				"id": quoteID, "product": map[string]any{}, "attribution": map[string]any{}, "sku": map[string]any{},
 				"currency": "CNY", "unitAmountCents": 1000, "quantity": 1,
 				"subtotalAmountCents": 1000, "shippingAmountCents": 500, "totalAmountCents": 1500,
-				"contractSummary": map[string]any{}, "fulfillment": map[string]any{},
-				"paymentOptions": []any{map[string]any{"provider": "WECHAT_PAY", "scenes": []any{"NATIVE", "H5"}}},
-				"expiresAt":      time.Now().UTC().Add(15 * time.Minute).Format(time.RFC3339),
+				"contractSummary": map[string]any{},
+				"fulfillment":     map[string]any{"capabilities": []string{"PLATFORM_ADAPTER"}, "estimatedState": "PENDING"},
+				"paymentOptions":  []any{map[string]any{"provider": "WECHAT_PAY", "scenes": []any{"NATIVE", "H5"}}},
+				"expiresAt":       time.Now().UTC().Add(15 * time.Minute).Format(time.RFC3339),
 			})
 		case "/v1/orders":
 			var body map[string]any
@@ -774,6 +779,104 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	}
 	if _, err := os.Stat(imagePath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("terminal Order replay recreated local payment QR image: %v", err)
+	}
+
+	statusCalls.Store(0)
+	flowStart := run("commerce", "flow", "start", "--skill", stableName, "--locale", "zh-CN")
+	flowStartData := flowStart["data"].(map[string]any)
+	if flowStartData["nextAction"] != commerceFlowCollectInput {
+		t.Fatalf("flow start returned the wrong action: %#v", flowStartData)
+	}
+	flowContextID := flowStartData["session"].(map[string]any)["localContextId"].(string)
+	flowQuote := run(
+		"commerce", "flow", "quote", "--skill", stableName,
+		"--session-context", flowContextID,
+		"--sku", "88888888-8888-4888-8888-888888888888",
+		"--quantity", "1", "--contract-input-json", `{}`,
+	)
+	flowQuoteData := flowQuote["data"].(map[string]any)
+	if flowQuoteData["nextAction"] != commerceFlowConfirmPayment || flowQuoteData["quote"].(map[string]any)["id"] != quoteID {
+		t.Fatalf("flow quote returned the wrong result: %#v", flowQuoteData)
+	}
+	flowConfirmed := run(
+		"commerce", "flow", "confirm", "--skill", stableName,
+		"--session-context", flowContextID, "--quote", quoteID, "--locale", "zh-CN",
+	)
+	flowConfirmedData := flowConfirmed["data"].(map[string]any)
+	if flowConfirmedData["nextAction"] != commerceFlowPresentPaymentQR {
+		t.Fatalf("flow confirm returned the wrong action: %#v", flowConfirmedData)
+	}
+	flowOrder := flowConfirmedData["order"].(map[string]any)
+	if flowOrder["orderNo"] != orderNo || flowOrder["paymentPresentation"].(map[string]any)["type"] != "LOCAL_IMAGE" {
+		t.Fatalf("flow confirm did not return the local QR presentation: %#v", flowOrder)
+	}
+	flowWait := run(
+		"commerce", "flow", "wait", "--skill", stableName,
+		"--session-context", flowContextID, "--order", orderNo,
+		"--until", "fulfillment", "--timeout", "2s", "--interval", "250ms",
+	)
+	flowWaitData := flowWait["data"].(map[string]any)
+	if flowWaitData["nextAction"] != commerceFlowCompleted {
+		t.Fatalf("flow wait did not reach completion: %#v", flowWaitData)
+	}
+}
+
+func TestCommerceFlowUsesOnlyFreeOrWechatNativePayment(t *testing.T) {
+	provider, scene, err := commerceFlowPaymentSelection([]api.CommercePaymentOption{{Provider: "FREE"}})
+	if err != nil || provider != "FREE" || scene != "" {
+		t.Fatalf("free payment was not selected: provider=%q scene=%q err=%v", provider, scene, err)
+	}
+	provider, scene, err = commerceFlowPaymentSelection([]api.CommercePaymentOption{
+		{Provider: "ALIPAY", Scenes: []string{"NATIVE"}},
+		{Provider: "WECHAT_PAY", Scenes: []string{"NATIVE"}},
+	})
+	if err != nil || provider != "WECHAT_PAY" || scene != "NATIVE" {
+		t.Fatalf("WeChat Native was not selected: provider=%q scene=%q err=%v", provider, scene, err)
+	}
+	_, _, err = commerceFlowPaymentSelection([]api.CommercePaymentOption{{Provider: "ALIPAY", Scenes: []string{"NATIVE"}}})
+	if err == nil || output.AsError(err).Subtype != "COMMERCE_WECHAT_QR_PAYMENT_UNAVAILABLE" {
+		t.Fatalf("non-WeChat fallback was accepted: %v", err)
+	}
+}
+
+func TestCommerceFlowInlineContractInputRequiresJSONObject(t *testing.T) {
+	input, err := parseInlineJSONObject(`{"phone":"13333333333"}`, "COMMERCE_QUOTE_INPUT_INVALID")
+	if err != nil || string(input) != `{"phone":"13333333333"}` {
+		t.Fatalf("valid inline contract input was rejected: input=%s err=%v", input, err)
+	}
+	for _, value := range []string{"", `[]`, `null`, `{broken`} {
+		if _, err := parseInlineJSONObject(value, "COMMERCE_QUOTE_INPUT_INVALID"); err == nil || output.AsError(err).Subtype != "COMMERCE_QUOTE_INPUT_INVALID" {
+			t.Fatalf("invalid inline input %q returned the wrong error: %v", value, err)
+		}
+	}
+}
+
+func TestCommerceFlowMapsOrderAndStatusWithoutFailingOpen(t *testing.T) {
+	pending := api.CommerceOrder{Status: "PENDING", PaymentPresentation: &api.CommercePaymentPresentation{Type: "LOCAL_IMAGE"}}
+	action, err := commerceFlowOrderNextAction(pending, commerceWaitUntilFulfillment)
+	if err != nil || action != commerceFlowPresentPaymentQR {
+		t.Fatalf("pending QR order mapped incorrectly: action=%q err=%v", action, err)
+	}
+	for _, test := range []struct {
+		order api.CommerceOrder
+		wait  string
+		want  string
+	}{
+		{order: api.CommerceOrder{Status: "CLOSED"}, wait: commerceWaitUntilPayment, want: commerceFlowPaymentClosed},
+		{order: api.CommerceOrder{Status: "PAID", PaymentProvider: "FREE"}, wait: commerceWaitUntilPayment, want: commerceFlowCompleted},
+		{order: api.CommerceOrder{Status: "PAID"}, wait: commerceWaitUntilFulfillment, want: commerceFlowWaitFulfillment},
+	} {
+		action, err := commerceFlowOrderNextAction(test.order, test.wait)
+		if err != nil || action != test.want {
+			t.Fatalf("order mapped incorrectly: order=%#v action=%q err=%v", test.order, action, err)
+		}
+	}
+
+	if _, err := commerceFlowStatusNextAction(api.OrderStatusResponse{Payment: json.RawMessage(`{"status":"UNKNOWN"}`)}, commerceWaitUntilPayment); err == nil || output.AsError(err).Subtype != "COMMERCE_ORDER_STATUS_RESPONSE_INVALID" {
+		t.Fatalf("unknown payment status did not fail closed: %v", err)
+	}
+	if _, err := commerceFlowStatusNextAction(api.OrderStatusResponse{Payment: json.RawMessage(`{"status":"PAID"}`)}, commerceWaitUntilFulfillment); err == nil || output.AsError(err).Subtype != "COMMERCE_ORDER_STATUS_RESPONSE_INVALID" {
+		t.Fatalf("missing fulfillment did not fail closed: %v", err)
 	}
 }
 
