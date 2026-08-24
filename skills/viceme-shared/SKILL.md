@@ -10,7 +10,10 @@ When login is required, keep `viceme auth login` running and immediately handle
 the streamed `VICEME_PRESENTATION` event whose intent is `OPEN_AUTHORIZATION`
 with the host's embedded-browser capability. If the capability is unavailable,
 show its `fallbackUrl` as a clickable link. Never claim the page opened without
-a successful host action.
+a successful host action. In WorkBuddy, call
+`present_files(files=[presentation.resultPaneUrl])` immediately with that URL
+as the only item, and accept success only when the result includes it in
+`previewed`. Do not mix local files or other URLs into the same call.
 
 # ViceMe shared operations
 

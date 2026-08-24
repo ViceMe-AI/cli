@@ -181,6 +181,24 @@ result. When that capability is absent or fails, expose `fallbackUrl` as a
 clickable link. Never report that a page opened merely because the CLI returned
 a URL.
 
+### WorkBuddy result pane
+
+When WorkBuddy exposes `present_files`, handle every presentation immediately
+with exactly one URL and no local files or other artifacts in the same call:
+
+```text
+present_files(files=[presentation.resultPaneUrl])
+```
+
+The URL must be the first and only item. For `OPEN_AUTHORIZATION`,
+`resultPaneUrl` is the newly generated one-time authorization URL and must be
+presented while `viceme auth login` remains active. For
+`OPEN_OWNER_PREVIEW`, it is the stable `fallbackUrl`, not the expiring
+one-time `openUrl`. For `OPEN_PUBLISHED_SKILL`, it is `product.detailUrl`.
+Treat the page as opened only when the tool result reports success and includes
+that URL in `previewed`. Otherwise show the clickable `fallbackUrl`. Never mix
+Markdown, images, or local paths into this `present_files` call.
+
 ## Update draft file
 
 `publication update --input` accepts a complete strict JSON object:

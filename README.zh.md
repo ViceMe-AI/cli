@@ -265,6 +265,11 @@ Skill 发布相关响应还会返回版本化的 `workflow`：`phase` 表示当�
 能力不可用时展示 `fallbackUrl`。当前 Profile 已登录且具备所需 scope 时不得再次运行
 `auth login` 或打开授权页。
 
+在 WorkBuddy 中，Agent 必须调用
+`present_files(files=[presentation.resultPaneUrl])`，且一次只传这一个 URL：授权阶段
+使用新生成的一次性链接，Preview 阶段使用稳定 `fallbackUrl`，发布完成后使用
+`product.detailUrl`。只有返回结果将该 URL 列入 `previewed` 才能视为结果区打开成功。
+
 ```json
 {
   "ok": true,

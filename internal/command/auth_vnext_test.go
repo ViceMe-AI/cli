@@ -134,7 +134,8 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	var presentation map[string]any
 	if presentationLine == "" || json.Unmarshal([]byte(presentationLine), &presentation) != nil ||
 		presentation["intent"] != "OPEN_AUTHORIZATION" || presentation["mode"] != "ONE_TIME_AUTHORIZATION" ||
-		presentation["openUrl"] != "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH" {
+		presentation["openUrl"] != "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH" ||
+		presentation["resultPaneUrl"] != "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH" {
 		t.Fatalf("login did not emit an actionable browser presentation event: stderr=%q", stderr.String())
 	}
 	if strings.Contains(strings.ToLower(stderr.String()), "enter code") {
