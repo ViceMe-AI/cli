@@ -97,6 +97,9 @@ description: Publish a deterministic Skill through the vNext contract.
 		if presentation["intent"] != "OPEN_OWNER_PREVIEW" || presentation["mode"] != "ONE_TIME_LAUNCH" || openURL == "" || presentation["fallbackUrl"] == "" {
 			t.Fatalf("owner preview presentation was not actionable with a stable fallback: %#v", envelope)
 		}
+		if presentation["resultPaneUrl"] != presentation["fallbackUrl"] {
+			t.Fatalf("Owner Preview did not prefer its stable result-pane URL: %#v", envelope)
+		}
 		if openURL == lastPreviewOpenURL {
 			t.Fatalf("content update reused the consumed preview launch: %#v", envelope)
 		}
@@ -224,7 +227,7 @@ func expectPublishedPresentation(t *testing.T, envelope map[string]any, detailUR
 	t.Helper()
 	data, _ := envelope["data"].(map[string]any)
 	presentation, _ := data["presentation"].(map[string]any)
-	if presentation["intent"] != "OPEN_PUBLISHED_SKILL" || presentation["mode"] != "STABLE_URL" || presentation["openUrl"] != detailURL || presentation["fallbackUrl"] != detailURL {
+	if presentation["intent"] != "OPEN_PUBLISHED_SKILL" || presentation["mode"] != "STABLE_URL" || presentation["openUrl"] != detailURL || presentation["fallbackUrl"] != detailURL || presentation["resultPaneUrl"] != detailURL {
 		t.Fatalf("published Skill presentation did not target the public detail page: %#v", envelope)
 	}
 }

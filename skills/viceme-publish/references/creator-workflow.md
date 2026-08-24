@@ -20,7 +20,9 @@ and includes `skill-publication:read` and `skill-publication:write`, do not run
 Profile is unauthenticated, expired, or missing either scope, run `viceme auth
 login`, immediately open its `OPEN_AUTHORIZATION` presentation with the host's
 embedded-browser capability, and keep the command running until authorization
-finishes. Then run `viceme publish <path>
+finishes. In WorkBuddy, this means an immediate single-URL
+`present_files(files=[presentation.resultPaneUrl])` call and verification that
+the URL appears in `previewed`. Then run `viceme publish <path>
 --access-mode FREE` or `viceme publish <path> --access-mode
 CREATOR_SUBSCRIPTION`. Do not preflight with `skill inspect` or `skill listing
 prepare`.
@@ -29,7 +31,9 @@ The command creates or recovers one private Skill Marketplace Draft and returns
 its Owner Preview. Immediately execute every `OPEN_OWNER_PREVIEW` presentation
 with the host's embedded-browser capability and preserve `fallbackUrl`. If the
 host has no browser capability or reports failure, show the fallback as a
-clickable link instead of claiming it opened. The initial
+clickable link instead of claiming it opened. In WorkBuddy, pass only
+`presentation.resultPaneUrl` to `present_files`; never mix it with source,
+Markdown, or image files. The initial
 request authorizes this private upload only, never public publication. Continue
 media enrichment with `viceme skill publish --resume <publication-id>` and use
 that same returned Publication ID for every later review, suggestion, update,

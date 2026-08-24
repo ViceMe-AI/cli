@@ -43,6 +43,7 @@ type previewPresentation struct {
 	OpenURL          *string `json:"openUrl,omitempty"`
 	OpenURLExpiresAt *string `json:"openUrlExpiresAt,omitempty"`
 	FallbackURL      string  `json:"fallbackUrl"`
+	ResultPaneURL    string  `json:"resultPaneUrl"`
 	Mode             string  `json:"mode"`
 }
 
@@ -438,9 +439,10 @@ func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.
 
 func createPreviewPresentation(ctx context.Context, runtime *Runtime, listingID string, fallbackURL string) previewPresentation {
 	presentation := previewPresentation{
-		Intent:      "OPEN_OWNER_PREVIEW",
-		FallbackURL: fallbackURL,
-		Mode:        "FALLBACK_URL",
+		Intent:        "OPEN_OWNER_PREVIEW",
+		FallbackURL:   fallbackURL,
+		ResultPaneURL: fallbackURL,
+		Mode:          "FALLBACK_URL",
 	}
 	launch, err := runtime.client().CreateSkillPreviewLaunch(ctx, listingID)
 	if err != nil {
@@ -602,10 +604,11 @@ func previewPresentationForPublication(ctx context.Context, runtime *Runtime, cu
 	if current.Status == "PUBLISHED" && current.Product != nil && current.Product.DetailURL != "" {
 		openURL := current.Product.DetailURL
 		return previewPresentation{
-			Intent:      "OPEN_PUBLISHED_SKILL",
-			OpenURL:     &openURL,
-			FallbackURL: openURL,
-			Mode:        "STABLE_URL",
+			Intent:        "OPEN_PUBLISHED_SKILL",
+			OpenURL:       &openURL,
+			FallbackURL:   openURL,
+			ResultPaneURL: openURL,
+			Mode:          "STABLE_URL",
 		}, nil
 	}
 	preview, err := runtime.client().GetSkillListingPreview(ctx, current.ListingID)
