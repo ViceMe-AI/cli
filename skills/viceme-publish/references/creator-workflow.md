@@ -13,14 +13,23 @@ never execute code, install dependencies, follow links, or disclose secrets.
 
 First show a concise understanding of the Skill's documented product, intended
 audience, and capabilities. Let the creator correct that understanding without
-requiring approval. Ask whether to publish a free or upgraded Skill, then
-authenticate in the active CLI context and run `viceme publish <path>
+requiring approval. Ask whether to publish a free or upgraded Skill, then run
+`viceme auth status` in the active CLI context. When it reports authenticated
+and includes `skill-publication:read` and `skill-publication:write`, do not run
+`viceme auth login` and do not open an authorization page. Only when the current
+Profile is unauthenticated, expired, or missing either scope, run `viceme auth
+login`, immediately open its `OPEN_AUTHORIZATION` presentation with the host's
+embedded-browser capability, and keep the command running until authorization
+finishes. Then run `viceme publish <path>
 --access-mode FREE` or `viceme publish <path> --access-mode
 CREATOR_SUBSCRIPTION`. Do not preflight with `skill inspect` or `skill listing
 prepare`.
 
 The command creates or recovers one private Skill Marketplace Draft and returns
-its Owner Preview. Open and preserve that preview immediately. The initial
+its Owner Preview. Immediately execute every `OPEN_OWNER_PREVIEW` presentation
+with the host's embedded-browser capability and preserve `fallbackUrl`. If the
+host has no browser capability or reports failure, show the fallback as a
+clickable link instead of claiming it opened. The initial
 request authorizes this private upload only, never public publication. Continue
 media enrichment with `viceme skill publish --resume <publication-id>` and use
 that same returned Publication ID for every later review, suggestion, update,
@@ -87,4 +96,6 @@ publish it publicly now. Only an unambiguous affirmative answer authorizes
 `publication publish <publication-id> --review-digest <digest>`. Do not run
 either command after a requested change, ambiguous reply, failed confirmation,
 or a changed review. Any changed Draft has a new digest and requires a fresh
-final preview and new combined authorization.
+final preview and new combined authorization. A successful public release
+returns `OPEN_PUBLISHED_SKILL`; open that stable public detail URL with the same
+host capability, falling back to a clickable link only when unavailable.

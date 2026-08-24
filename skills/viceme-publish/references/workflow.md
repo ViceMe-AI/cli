@@ -167,6 +167,20 @@ the stable fallback URL visible. The stable page remains the same; Draft
 revision polling updates it after Agent suggestions, explicit user edits, or an
 explicit platform fallback completes.
 
+Presentation intents are imperative host actions, not descriptive metadata:
+
+- `OPEN_AUTHORIZATION` is emitted only after `viceme auth login` actually starts
+  a new authorization. Never run login or open this page when `auth status`
+  already reports the required publication scopes.
+- `OPEN_OWNER_PREVIEW` opens the newest private Draft after creation or change.
+- `OPEN_PUBLISHED_SKILL` opens the stable public product detail page after the
+  release succeeds; it must not reopen the private Owner Preview.
+
+Use the Agent host's embedded-browser capability for each intent and verify its
+result. When that capability is absent or fails, expose `fallbackUrl` as a
+clickable link. Never report that a page opened merely because the CLI returned
+a URL.
+
 ## Update draft file
 
 `publication update --input` accepts a complete strict JSON object:

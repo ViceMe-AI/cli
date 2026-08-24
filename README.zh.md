@@ -259,6 +259,12 @@ Skill 发布相关响应还会返回版本化的 `workflow`：`phase` 表示当�
 最新 Preview 并等待用户修改或确认的边界。Agent 不应从自然语言提示重新猜测路线，
 也不得自动越过 `requiresExplicitUserConfirmation` 标记的公开发布授权。
 
+页面展示使用统一的 `presentation.intent`：登录需要授权时发送
+`OPEN_AUTHORIZATION`，私有草稿创建或更新后发送 `OPEN_OWNER_PREVIEW`，正式发布
+成功后发送 `OPEN_PUBLISHED_SKILL`。Agent 应调用宿主内置浏览器能力并验证结果；
+能力不可用时展示 `fallbackUrl`。当前 Profile 已登录且具备所需 scope 时不得再次运行
+`auth login` 或打开授权页。
+
 ```json
 {
   "ok": true,

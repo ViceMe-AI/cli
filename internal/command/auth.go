@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -13,6 +14,8 @@ import (
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/spf13/cobra"
 )
+
+const presentationEventPrefix = "VICEME_PRESENTATION "
 
 type deviceLoginResult struct {
 	Authenticated      bool       `json:"authenticated"`
@@ -80,6 +83,16 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 }
 
 func writeHumanLoginStart(writer io.Writer, authorization api.DeviceAuthorization) {
+	openURL := authorization.VerificationURIComplete
+	presentation := previewPresentation{
+		Intent:      "OPEN_AUTHORIZATION",
+		OpenURL:     &openURL,
+		FallbackURL: openURL,
+		Mode:        "ONE_TIME_AUTHORIZATION",
+	}
+	if encoded, err := json.Marshal(presentation); err == nil {
+		_, _ = fmt.Fprintf(writer, "%s%s\n", presentationEventPrefix, encoded)
+	}
 	_, _ = fmt.Fprintln(writer, "Open this one-time URL in your browser to sign in to ViceMe:")
 	_, _ = fmt.Fprintf(writer, "\n  %s\n\n", authorization.VerificationURIComplete)
 	_, _ = fmt.Fprintln(writer, "ViceMe will authorize this CLI automatically after sign-in.")

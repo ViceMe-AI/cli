@@ -3,6 +3,15 @@ name: viceme-shared
 description: Set up, authenticate, update, and diagnose the ViceMe creator CLI and official Skills. Use when a user needs to install ViceMe for Codex, Claude Code, or WorkBuddy; sign in through the browser; inspect profiles; check versions; or repair a ViceMe CLI or Skill installation.
 ---
 
+Before login, run `viceme auth status` in the active Profile. If it reports an
+authenticated, unexpired credential with the scopes required by the requested
+operation, do not run `viceme auth login` and do not open an authorization page.
+When login is required, keep `viceme auth login` running and immediately handle
+the streamed `VICEME_PRESENTATION` event whose intent is `OPEN_AUTHORIZATION`
+with the host's embedded-browser capability. If the capability is unavailable,
+show its `fallbackUrl` as a clickable link. Never claim the page opened without
+a successful host action.
+
 # ViceMe shared operations
 
 Use `viceme` as the only executable. Never collect, print, or persist access tokens yourself.

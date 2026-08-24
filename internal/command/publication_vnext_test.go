@@ -201,7 +201,7 @@ description: Publish a deterministic Skill through the vNext contract.
 	if exit, envelope := execute("publication", "publish", state.publicationID, "--review-digest", state.reviewDigest); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("publish failed: exit=%d envelope=%#v", exit, envelope)
 	} else {
-		expectFreshPreview(envelope)
+		expectPublishedPresentation(t, envelope, "https://viceme.cn/zh-CN/share/publish-test")
 		expectWorkflowPhase(t, envelope, "COMPLETE", false)
 	}
 	state.mu.Lock()
@@ -217,6 +217,15 @@ description: Publish a deterministic Skill through the vNext contract.
 	}
 	if _, err := os.Stat(filepath.Join(root, "config", "publications", state.publicationID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("published recovery state was not removed: %v", err)
+	}
+}
+
+func expectPublishedPresentation(t *testing.T, envelope map[string]any, detailURL string) {
+	t.Helper()
+	data, _ := envelope["data"].(map[string]any)
+	presentation, _ := data["presentation"].(map[string]any)
+	if presentation["intent"] != "OPEN_PUBLISHED_SKILL" || presentation["mode"] != "STABLE_URL" || presentation["openUrl"] != detailURL || presentation["fallbackUrl"] != detailURL {
+		t.Fatalf("published Skill presentation did not target the public detail page: %#v", envelope)
 	}
 }
 

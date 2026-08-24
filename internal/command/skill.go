@@ -599,6 +599,15 @@ func presentPublicationWithPhase(ctx context.Context, runtime *Runtime, current 
 }
 
 func previewPresentationForPublication(ctx context.Context, runtime *Runtime, current api.SkillPublication) (previewPresentation, error) {
+	if current.Status == "PUBLISHED" && current.Product != nil && current.Product.DetailURL != "" {
+		openURL := current.Product.DetailURL
+		return previewPresentation{
+			Intent:      "OPEN_PUBLISHED_SKILL",
+			OpenURL:     &openURL,
+			FallbackURL: openURL,
+			Mode:        "STABLE_URL",
+		}, nil
+	}
 	preview, err := runtime.client().GetSkillListingPreview(ctx, current.ListingID)
 	if err != nil {
 		return previewPresentation{}, err
