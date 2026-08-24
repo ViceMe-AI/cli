@@ -85,10 +85,11 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 func writeHumanLoginStart(writer io.Writer, authorization api.DeviceAuthorization) {
 	openURL := authorization.VerificationURIComplete
 	presentation := previewPresentation{
-		Intent:      "OPEN_AUTHORIZATION",
-		OpenURL:     &openURL,
-		FallbackURL: openURL,
-		Mode:        "ONE_TIME_AUTHORIZATION",
+		Intent:        "OPEN_AUTHORIZATION",
+		OpenURL:       &openURL,
+		FallbackURL:   openURL,
+		ResultPaneURL: openURL,
+		Mode:          "ONE_TIME_AUTHORIZATION",
 	}
 	if encoded, err := json.Marshal(presentation); err == nil {
 		_, _ = fmt.Fprintf(writer, "%s%s\n", presentationEventPrefix, encoded)
