@@ -254,6 +254,10 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 
 业务结果默认使用 JSON。成功时 stdout 只包含最终结果，进度和诊断写入 stderr。
 失败使用非零退出码和稳定的 `error.code`，因此 Agent 与自动化不需要解析 message 文本。
+Skill 发布相关响应还会返回版本化的 `workflow`：`phase` 表示当前所处阶段，
+`actions` 给出合法的后续动作与命令模板，`userActionRequired` 标记必须停下来展示
+最新 Preview 并等待用户修改或确认的边界。Agent 不应从自然语言提示重新猜测路线，
+也不得自动越过 `requiresExplicitUserConfirmation` 标记的公开发布授权。
 
 ```json
 {

@@ -134,6 +134,7 @@ func newPublicationReviewCommand(runtime *Runtime) *cobra.Command {
 				"requiresExplicitConfirmation": result.Status == "REVIEW_REQUIRED",
 				"requiresCreatorMonthlyPrice":  result.RequiresCreatorMonthlyPrice,
 				"creatorMonthlyPriceCents":     result.CreatorMonthlyPriceCents, "presentation": presentation,
+				"workflow": workflowForPublication(result, ""),
 			})
 		},
 	}
@@ -362,6 +363,7 @@ func newPublicationCancelCommand(runtime *Runtime) *cobra.Command {
 			return runtime.business(map[string]any{
 				"cancelled": result.Cancelled, "listingId": current.ListingID,
 				"publicationId": current.ID, "presentation": presentation,
+				"workflow": workflowForPublication(api.SkillPublication{ID: current.ID, Status: "CANCELLED"}, ""),
 			})
 		},
 	}
