@@ -38,6 +38,34 @@ Use `--new-listing` only for an explicit separate work. When digest candidate re
 
 `FAILED` can return to review after correcting inputs. `CANCELLED` and `PUBLISHED` are terminal.
 
+## Machine-readable workflow guidance
+
+Publication-changing commands and `publication review` return a versioned
+`workflow` object. Follow its `phase` and `actions` instead of reconstructing
+the route from prose, status strings, or prior conversation state. The current
+phases are:
+
+- `CONTINUE_DRAFT`: run the supplied resume command for the same Publication.
+- `ENRICH_DRAFT`: fetch the current review and prepare one revision-protected
+  Agent suggestion.
+- `CREATOR_PRICE_REQUIRED`: ask once for the creator's shared monthly CNY
+  subscription price, then run the supplied resume command for the same
+  Publication. This is not a Skill-specific price.
+- `USER_REVIEW_REQUIRED`: display the complete current Preview. The user may
+  request any number of edits. Never run an action marked
+  `requiresExplicitUserConfirmation` until the user confirms the currently
+  displayed revision and immediate public publication.
+- `PUBLISH_AUTHORIZED`: confirmation already succeeded; finish the authorized
+  publish transition without asking a second question.
+- `COMPLETE` or `CANCELLED`: stop; there is no next publication action.
+- `RECOVERY_REQUIRED` or `STATE_INSPECTION_REQUIRED`: stop automatic writes,
+  inspect the authoritative state, and never create a replacement Publication.
+
+`userActionRequired: true` is a hard conversation boundary. After any edit,
+fetch and display the new review because its Draft revision and review digest
+replace the previously shown values. Never cache a command or digest from an
+older `workflow` response.
+
 ## Local recovery permission
 
 Every publish and resume writes an idempotent intent under the
@@ -138,6 +166,20 @@ fresh `presentation`. Present its one-time launch immediately and always keep
 the stable fallback URL visible. The stable page remains the same; Draft
 revision polling updates it after Agent suggestions, explicit user edits, or an
 explicit platform fallback completes.
+
+Presentation intents are imperative host actions, not descriptive metadata:
+
+- `OPEN_AUTHORIZATION` is emitted only after `viceme auth login` actually starts
+  a new authorization. Never run login or open this page when `auth status`
+  already reports the required publication scopes.
+- `OPEN_OWNER_PREVIEW` opens the newest private Draft after creation or change.
+- `OPEN_PUBLISHED_SKILL` opens the stable public product detail page after the
+  release succeeds; it must not reopen the private Owner Preview.
+
+Use the Agent host's embedded-browser capability for each intent and verify its
+result. When that capability is absent or fails, expose `fallbackUrl` as a
+clickable link. Never report that a page opened merely because the CLI returned
+a URL.
 
 ## Update draft file
 

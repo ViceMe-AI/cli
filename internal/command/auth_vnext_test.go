@@ -32,10 +32,12 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	t.Parallel()
 	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
 	var tokenPolls atomic.Int32
+	var authorizationStarts atomic.Int32
 	var revoked atomic.Bool
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/v1/cli/device-authorizations":
+			authorizationStarts.Add(1)
 			writeJSONResponse(writer, map[string]any{
 				"deviceCode": "device-code", "userCode": "ABCD-EFGH",
 				"verificationUri":         "https://viceme.cn/zh-CN/cli/authorize",
@@ -122,6 +124,19 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	if !strings.Contains(stderr.String(), "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH") {
 		t.Fatalf("complete browser authorization URL was not shown: stderr=%q", stderr.String())
 	}
+	presentationLine := ""
+	for _, line := range strings.Split(stderr.String(), "\n") {
+		if strings.HasPrefix(line, presentationEventPrefix) {
+			presentationLine = strings.TrimPrefix(line, presentationEventPrefix)
+			break
+		}
+	}
+	var presentation map[string]any
+	if presentationLine == "" || json.Unmarshal([]byte(presentationLine), &presentation) != nil ||
+		presentation["intent"] != "OPEN_AUTHORIZATION" || presentation["mode"] != "ONE_TIME_AUTHORIZATION" ||
+		presentation["openUrl"] != "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH" {
+		t.Fatalf("login did not emit an actionable browser presentation event: stderr=%q", stderr.String())
+	}
 	if strings.Contains(strings.ToLower(stderr.String()), "enter code") {
 		t.Fatalf("login still asks the user to enter a device code: stderr=%q", stderr.String())
 	}
@@ -129,6 +144,9 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 		t.Fatalf("remote status failed: exit=%d result=%#v", exit, result)
 	} else {
 		assertCamelAuthData(result, "distributionRegion", "expiresAt")
+	}
+	if authorizationStarts.Load() != 1 {
+		t.Fatalf("auth status started a redundant browser authorization: starts=%d", authorizationStarts.Load())
 	}
 	if exit, result := run("auth", "logout"); exit != 0 || result["ok"] != true || !revoked.Load() {
 		t.Fatalf("logout failed: exit=%d result=%#v revoked=%v", exit, result, revoked.Load())

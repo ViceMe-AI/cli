@@ -115,6 +115,7 @@ description: Publish a deterministic Skill through the vNext contract.
 			t.Fatalf("first business result was not the uploaded private draft: %#v", envelope)
 		}
 		expectFreshPreview(envelope)
+		expectWorkflowPhase(t, envelope, "CONTINUE_DRAFT", false)
 	}
 	if elapsed := time.Since(previewStartedAt); elapsed >= 10*time.Second {
 		t.Fatalf("private package preview fast path took %s", elapsed)
@@ -135,6 +136,7 @@ description: Publish a deterministic Skill through the vNext contract.
 		t.Fatalf("free publication unexpectedly required creator pricing: %#v", envelope)
 	} else {
 		expectFreshPreview(envelope)
+		expectWorkflowPhase(t, envelope, "ENRICH_DRAFT", false)
 	}
 	state.mu.Lock()
 	if state.createCalls != 2 {
@@ -174,6 +176,7 @@ description: Publish a deterministic Skill through the vNext contract.
 		t.Fatalf("Agent suggestion failed: exit=%d envelope=%#v", exit, envelope)
 	} else {
 		expectFreshPreview(envelope)
+		expectWorkflowPhase(t, envelope, "USER_REVIEW_REQUIRED", true)
 	}
 	if exit, envelope := execute("publication", "review", state.publicationID); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("publication review failed: exit=%d envelope=%#v", exit, envelope)
@@ -187,16 +190,19 @@ description: Publish a deterministic Skill through the vNext contract.
 			t.Fatalf("review omitted the Agent CAS revision: %#v", envelope)
 		}
 		expectFreshPreview(envelope)
+		expectWorkflowPhase(t, envelope, "USER_REVIEW_REQUIRED", true)
 	}
 	if exit, envelope := execute("publication", "confirm", state.publicationID, "--review-digest", state.reviewDigest); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("review confirmation failed: exit=%d envelope=%#v", exit, envelope)
 	} else {
 		expectFreshPreview(envelope)
+		expectWorkflowPhase(t, envelope, "PUBLISH_AUTHORIZED", false)
 	}
 	if exit, envelope := execute("publication", "publish", state.publicationID, "--review-digest", state.reviewDigest); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("publish failed: exit=%d envelope=%#v", exit, envelope)
 	} else {
-		expectFreshPreview(envelope)
+		expectPublishedPresentation(t, envelope, "https://viceme.cn/zh-CN/share/publish-test")
+		expectWorkflowPhase(t, envelope, "COMPLETE", false)
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -211,6 +217,24 @@ description: Publish a deterministic Skill through the vNext contract.
 	}
 	if _, err := os.Stat(filepath.Join(root, "config", "publications", state.publicationID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("published recovery state was not removed: %v", err)
+	}
+}
+
+func expectPublishedPresentation(t *testing.T, envelope map[string]any, detailURL string) {
+	t.Helper()
+	data, _ := envelope["data"].(map[string]any)
+	presentation, _ := data["presentation"].(map[string]any)
+	if presentation["intent"] != "OPEN_PUBLISHED_SKILL" || presentation["mode"] != "STABLE_URL" || presentation["openUrl"] != detailURL || presentation["fallbackUrl"] != detailURL {
+		t.Fatalf("published Skill presentation did not target the public detail page: %#v", envelope)
+	}
+}
+
+func expectWorkflowPhase(t *testing.T, envelope map[string]any, phase string, userActionRequired bool) {
+	t.Helper()
+	data, _ := envelope["data"].(map[string]any)
+	workflow, _ := data["workflow"].(map[string]any)
+	if workflow["version"] != publicationWorkflowVersion || workflow["phase"] != phase || workflow["userActionRequired"] != userActionRequired {
+		t.Fatalf("unexpected publication workflow: %#v", envelope)
 	}
 }
 

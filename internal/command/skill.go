@@ -35,6 +35,7 @@ type publicationPresentationResult struct {
 	api.SkillPublication
 	PublicationID string              `json:"publicationId"`
 	Presentation  previewPresentation `json:"presentation"`
+	Workflow      publicationWorkflow `json:"workflow"`
 }
 
 type previewPresentation struct {
@@ -549,7 +550,7 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		}
 	}
 	if packageOnly {
-		return presentPublication(ctx, runtime, current)
+		return presentPublicationWithPhase(ctx, runtime, current, workflowPhaseContinueDraft)
 	}
 	for index, candidate := range pkg.Candidates {
 		if verifiedUpload(current.Uploads, "MEDIA", candidate.Digest, candidate.RelativePath) {
@@ -577,10 +578,14 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 			return err
 		}
 	}
-	return presentPublication(ctx, runtime, current)
+	return presentPublicationWithPhase(ctx, runtime, current, workflowPhaseEnrichDraft)
 }
 
 func presentPublication(ctx context.Context, runtime *Runtime, current api.SkillPublication) error {
+	return presentPublicationWithPhase(ctx, runtime, current, "")
+}
+
+func presentPublicationWithPhase(ctx context.Context, runtime *Runtime, current api.SkillPublication, phaseOverride string) error {
 	presentation, err := previewPresentationForPublication(ctx, runtime, current)
 	if err != nil {
 		return err
@@ -589,10 +594,20 @@ func presentPublication(ctx context.Context, runtime *Runtime, current api.Skill
 		SkillPublication: current,
 		PublicationID:    current.ID,
 		Presentation:     presentation,
+		Workflow:         workflowForPublication(current, phaseOverride),
 	})
 }
 
 func previewPresentationForPublication(ctx context.Context, runtime *Runtime, current api.SkillPublication) (previewPresentation, error) {
+	if current.Status == "PUBLISHED" && current.Product != nil && current.Product.DetailURL != "" {
+		openURL := current.Product.DetailURL
+		return previewPresentation{
+			Intent:      "OPEN_PUBLISHED_SKILL",
+			OpenURL:     &openURL,
+			FallbackURL: openURL,
+			Mode:        "STABLE_URL",
+		}, nil
+	}
 	preview, err := runtime.client().GetSkillListingPreview(ctx, current.ListingID)
 	if err != nil {
 		return previewPresentation{}, err
