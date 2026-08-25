@@ -105,11 +105,9 @@ func TestConcurrentBootstrapActivationsCommitOneStandaloneGeneration(t *testing.
 	defer health.Close()
 
 	configured := config.Default(config.RegionCN)
-	profile, err := configured.Resolve("")
-	if err != nil {
+	if err := configured.SetProfileAuthority(config.DefaultProfileName, health.URL, health.URL, config.RegionCN); err != nil {
 		t.Fatal(err)
 	}
-	profile.APIBaseURL = health.URL
 	if _, err := config.Save(configDir, configured); err != nil {
 		t.Fatal(err)
 	}

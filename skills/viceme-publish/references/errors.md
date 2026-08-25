@@ -1,8 +1,5 @@
 # Publication error handling
 
-- `CREATOR_DISPLAY_NAME_REQUIRED`: repeat the same website publication with `--creator-display-name "<creator name>"`; the existing local website binding preserves the same `clientWorkId`.
-- `WEBSITE_BINDING_SCOPE_MISMATCH` or `WEBSITE_REGION_MISMATCH`: restore the intended active CLI context. Do not overwrite the binding or create another work merely to bypass the mismatch.
-- `WEBSITE_IDENTITY_CONFLICT`: stop and inspect the existing binding and authoritative work response. Never replace the local `clientWorkId`, `workId`, or `workKey` with a newly invented identity.
 - `SKILL_PUBLICATION_PRICE_REQUIRED`: fetch and display the complete current listing details, then ask for the exact CNY price in fen together with any desired title, copy, or media changes. Never ask for price as a standalone question. Resume the same private Publication.
 - `SKILL_SECRET_DETECTED` or `SKILL_SENSITIVE_FILE`: stop and remove credentials or sensitive files from the package. Never print their contents.
 - `PUBLICATION_SOURCE_CHANGED`: the recovery package differs from the started publication; restore it or start a new publication.

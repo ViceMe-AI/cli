@@ -17,10 +17,11 @@ Use `viceme` as the only executable. Never collect, print, or persist access tok
 For a test or private ViceMe deployment, persist its endpoint before login:
 
 ```bash
-viceme profile add --name <profile> --api-base-url <https-url> --use
+viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-url <https-web-url> --market-region <cn-or-global> --use
 ```
 
-Use `viceme profile list` to verify the active profile and effective endpoint.
+Use `viceme profile list` to verify the active profile and complete API, Web,
+and market authority tuple.
 The install/update distribution region never selects a publication market;
 the selected API endpoint owns that market.
 Do not rely on a shell-only `VICEME_API_BASE_URL` export for normal Agent use;

@@ -1,21 +1,13 @@
 ---
 name: viceme-publish
-description: Publish or update a local AI Agent Skill or creator website on ViceMe. Use for Skill package validation, upload, listing review, pricing, and public release, or for registering a website directory and preserving its stable work identity across releases.
+description: Validate, upload, review, and publish a local AI Agent Skill as a paid ViceMe listing. Use when a user asks to publish, list, sell, upload, or update a Skill directory or ZIP on ViceMe, including choosing a CNY price, confirming a cover and gallery, resuming an interrupted publication, or retrieving its public share link.
 ---
 
-# Publish to ViceMe
+# Publish a Skill to ViceMe
 
-Use the CLI for every deterministic action. Before authentication or any write, resolve the source path from the user's referenced path or the current working directory and inspect that source. Select the publication mode from the source itself; never infer it only from whether the user said “website”, “site”, or “Skill”.
+Use the CLI for every deterministic action. Read [workflow.md](references/workflow.md) before the first write and [errors.md](references/errors.md) when a command fails.
 
-- A ZIP is a Skill source. Verify that the archive satisfies the root `SKILL.md` package contract; if it does not, stop with the validation error instead of treating it as a website.
-- A directory with a root `SKILL.md` is a Skill source. Follow the Skill listing workflow below and read [workflow.md](references/workflow.md) before the first write.
-- Any other directory is a creator website source. Read and follow [website-workflow.md](references/website-workflow.md). Do not run the Skill package or listing-review workflow.
-- If a directory has both a root `SKILL.md` and `.viceme/website.json`, it carries conflicting publication identities. Stop and ask which source the user intends to publish; do not choose from the request wording or overwrite either binding.
-- If the path is missing, unreadable, or neither a directory nor a ZIP, stop with a source validation error. Do not authenticate or create remote publication state.
-
-Read [errors.md](references/errors.md) when a command fails.
-
-## Skill listing workflow
+## Workflow
 
 1. Run `viceme auth status`. The active CLI context is authoritative and already selects the endpoint, market, and authenticated user. Do not inspect or modify CLI environment configuration and do not offer environment choices during publishing. Memory, prior conversations, old publication records, source filenames, package digests, sidecars, and credentials elsewhere are historical hints only and never override the active CLI context.
 2. If unauthenticated, run `viceme auth login`, show the verification URL, and wait for successful authorization. Do not inspect or switch to another stored environment merely because it already has credentials.
@@ -51,7 +43,7 @@ Read [errors.md](references/errors.md) when a command fails.
 
 The initial publish request is permission to create and upload a private Draft, not permission to make it public. A changed Draft produces a new digest and requires redisplaying the final Draft and obtaining a new public-publication confirmation.
 
-## Skill recovery
+## Recovery
 
 - After interruption, run `skill publish --path <same-source>` when no local Publication ID is available; it recovers the stable Listing and private upload. Run `skill publish --resume <publication-id>` when a local pending Publication exists.
 - Historical publications outside the active CLI context do not change this workflow. Do not search for, enumerate, or offer them as environment choices.
