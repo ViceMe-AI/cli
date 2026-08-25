@@ -30,6 +30,7 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       sha: ${{ steps.release.outputs.sha }}
       recovery: ${{ steps.release.outputs.recovery }}
+      release_exists: ${{ steps.release.outputs.release_exists }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -85,8 +86,12 @@ jobs:
             echo "immutable tag ${TAG} already points to ${EXISTING_SHA}, not ${SHA}" >&2
             exit 1
           fi
-          if [[ "${RECOVERY}" == "true" ]] && gh release view "${TAG}" >/dev/null 2>&1; then
-            test "$(gh release view "${TAG}" --json isDraft --jq .isDraft)" = "false"
+          RELEASE_EXISTS=false
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            RELEASE_EXISTS=true
+            if [[ "${RECOVERY}" == "true" ]]; then
+              test "$(gh release view "${TAG}" --json isDraft --jq .isDraft)" = "false"
+            fi
           fi
 
           {
@@ -94,6 +99,7 @@ jobs:
             echo "tag=${TAG}"
             echo "sha=${SHA}"
             echo "recovery=${RECOVERY}"
+            echo "release_exists=${RELEASE_EXISTS}"
           } >>"${GITHUB_OUTPUT}"
 
   quality:
@@ -106,7 +112,12 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ needs.metadata.outputs.sha }}
+          # A normal release validates the exact reviewed release source. An
+          # old immutable recovery tag may predate today's quality and trust
+          # validators, so recovery validates the trusted workflow revision
+          # that is actually performing the repair instead of expecting those
+          # tools to exist in historical source.
+          ref: ${{ needs.metadata.outputs.recovery == 'true' && github.sha || needs.metadata.outputs.sha }}
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
@@ -194,15 +205,65 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ needs.metadata.outputs.sha }}
-      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          go-version-file: go.mod
+          # Recovery planning belongs to the trusted current workflow, not to
+          # an older immutable release tag.
+          ref: ${{ github.sha }}
+          path: .release-workflow
+      - id: recovery-assets
+        name: Plan immutable binary recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          RECOVERY: ${{ needs.metadata.outputs.recovery }}
+          RELEASE_EXISTS: ${{ needs.metadata.outputs.release_exists }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          EXTENSION: ${{ matrix.extension }}
+        run: |
+          set -euo pipefail
+          ASSET="viceme_${VERSION}_${GOOS}_${GOARCH}${EXTENSION}"
+          EXISTING_ASSETS='[]'
+          if [[ "${RECOVERY}" == "true" && "${RELEASE_EXISTS}" == "true" ]]; then
+            EXISTING_ASSETS="$(gh release view "${TAG}" --json assets --jq '[.assets[].name]')"
+          fi
+          node .release-workflow/npm/scripts/plan-release-binary-recovery.mjs \
+            "${ASSET}" "${EXISTING_ASSETS}" >>"${GITHUB_OUTPUT}"
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        if: steps.recovery-assets.outputs.needs_build == 'true'
+        with:
+          go-version-file: .release-workflow/go.mod
           cache: true
       - name: Revalidate frozen Commerce Skill trust ring
+        if: steps.recovery-assets.outputs.needs_build == 'true'
         env:
           COMMERCE_SKILL_TRUST_KEYS: ${{ needs.quality.outputs.commerce_skill_trust_keys }}
-        run: go run ./cmd/validate-commerce-trust-ring
+        run: cd .release-workflow && go run ./cmd/validate-commerce-trust-ring
+      - name: Recover existing immutable binary assets
+        if: steps.recovery-assets.outputs.binary_exists == 'true' || steps.recovery-assets.outputs.checksum_exists == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          EXTENSION: ${{ matrix.extension }}
+          BINARY_EXISTS: ${{ steps.recovery-assets.outputs.binary_exists }}
+          CHECKSUM_EXISTS: ${{ steps.recovery-assets.outputs.checksum_exists }}
+        run: |
+          set -euo pipefail
+          ASSET="viceme_${VERSION}_${GOOS}_${GOARCH}${EXTENSION}"
+          mkdir -p dist
+          if [[ "${BINARY_EXISTS}" == "true" ]]; then
+            gh release download "${TAG}" --pattern "${ASSET}" --dir dist
+          fi
+          if [[ "${CHECKSUM_EXISTS}" == "true" ]]; then
+            gh release download "${TAG}" --pattern "${ASSET}.sha256" --dir dist
+          fi
       - name: Build release binary
+        if: steps.recovery-assets.outputs.needs_build == 'true'
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
           RELEASE_SHA: ${{ needs.metadata.outputs.sha }}
@@ -214,8 +275,20 @@ jobs:
           ASSET="viceme_${VERSION}_${GOOS}_${GOARCH}${{ matrix.extension }}"
           mkdir -p dist
           go build -trimpath -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=${VERSION} -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=${RELEASE_SHA} -X github.com/ViceMe-AI/cli/internal/buildinfo.CommerceSkillTrustKeys=${COMMERCE_SKILL_TRUST_KEYS}" -o "dist/${ASSET}" ./cmd/viceme
-          cd dist
-          sha256sum "${ASSET}" >"${ASSET}.sha256"
+      - name: Complete and verify the immutable checksum pair
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          EXTENSION: ${{ matrix.extension }}
+        run: |
+          set -euo pipefail
+          ASSET="viceme_${VERSION}_${GOOS}_${GOARCH}${EXTENSION}"
+          test -f "dist/${ASSET}"
+          if [[ ! -f "dist/${ASSET}.sha256" ]]; then
+            (cd dist && sha256sum "${ASSET}" >"${ASSET}.sha256")
+          fi
+          (cd dist && sha256sum -c "${ASSET}.sha256")
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: binaries-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -248,6 +321,16 @@ jobs:
           merge-multiple: true
           path: dist
       - uses: sigstore/cosign-installer@d58896d6a1865668819e1d91763c7751a165e159 # v3.9.2
+      - name: Download immutable assets from an existing Recovery release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          RECOVERY: ${{ needs.metadata.outputs.recovery }}
+        run: |
+          mkdir -p recovered-release
+          if [[ "${RECOVERY}" == "true" ]] && gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release download "${TAG}" --dir recovered-release
+          fi
       - name: Assemble exact-version agent installation contract
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
@@ -259,6 +342,30 @@ jobs:
           go run ./.release-workflow/cmd/agent-release-manifest/main.go --version "${VERSION}"
           go run ./.release-workflow/cmd/agent-install-doc/main.go --version "${VERSION}" \
             --template .release-workflow/release/agent-install.md.tmpl
+          go run ./.release-workflow/cmd/agent-install-doc/main.go --version "${VERSION}" \
+            --template .release-workflow/release/commerce-skill-install.md.tmpl \
+            --output dist/commerce-skill-install.md
+          node ./.release-workflow/npm/scripts/restore-release-assets.mjs \
+            recovered-release dist
+      - name: Verify recovered binary and signed Manifest consistency
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          RUNNER_TEMP: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          for TARGET in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64; do
+            (cd dist && sha256sum -c "viceme_${VERSION}_${TARGET}.sha256")
+          done
+          for TARGET in windows_amd64 windows_arm64; do
+            (cd dist && sha256sum -c "viceme_${VERSION}_${TARGET}.exe.sha256")
+          done
+          if [[ -f recovered-release/agent-release-manifest.json ]]; then
+            EXPECTED_MANIFEST="${RUNNER_TEMP}/agent-release-manifest-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}.json"
+            go run ./.release-workflow/cmd/agent-release-manifest/main.go \
+              --version "${VERSION}" --output "${EXPECTED_MANIFEST}"
+            cmp --silent "${EXPECTED_MANIFEST}" dist/agent-release-manifest.json
+            rm -f "${EXPECTED_MANIFEST}"
+          fi
       - name: Sign or recover the immutable release Manifest
         env:
           GH_TOKEN: ${{ github.token }}
@@ -267,7 +374,7 @@ jobs:
           COSIGN_YES: "true"
         run: |
           if [[ "${RECOVERY}" == "true" ]] && \
-            gh release download "${TAG}" --pattern agent-release-manifest.sigstore.json --dir dist; then
+            test -f dist/agent-release-manifest.sigstore.json; then
             echo "Recovered the existing immutable Sigstore bundle"
           else
             cosign sign-blob --bundle dist/agent-release-manifest.sigstore.json dist/agent-release-manifest.json
@@ -280,21 +387,17 @@ jobs:
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-contract
-          path: |
-            dist/agent-install.md
-            dist/agent-release-manifest.json
-            dist/agent-release-manifest.sigstore.json
-            dist/bootstrap-contract.json
-            dist/install.ps1
-            dist/install.sh
-            dist/release-manifest.json
+          # The assembled candidate is authoritative for both normal release
+          # and recovery. In recovery it already contains every immutable byte
+          # downloaded from the existing GitHub Release, including binaries
+          # and checksums that a current trust ring may no longer reproduce.
+          path: dist/*
           if-no-files-found: error
 
   github-release:
     name: GitHub Release
     needs:
       - metadata
-      - binaries
       - release-contract
     runs-on: ubuntu-latest
     permissions:
@@ -303,11 +406,6 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ needs.metadata.outputs.sha }}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          pattern: binaries-*
-          merge-multiple: true
-          path: dist
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-contract
@@ -325,13 +423,14 @@ jobs:
             test -f "dist/viceme_${VERSION}_${TARGET}.exe.sha256"
           done
           test -f dist/agent-install.md
+          test -f dist/commerce-skill-install.md
           test -f dist/agent-release-manifest.json
           test -f dist/agent-release-manifest.sigstore.json
           test -f dist/bootstrap-contract.json
           test -f dist/install.sh
           test -f dist/install.ps1
           test -f dist/release-manifest.json
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 19
+          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 20
       - name: Publish or verify the immutable GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -376,7 +475,7 @@ jobs:
           rm -rf verified-release
           mkdir -p verified-release
           gh release download "${TAG}" --dir verified-release
-          test "$(find verified-release -maxdepth 1 -type f | wc -l)" -eq 19
+          test "$(find verified-release -maxdepth 1 -type f | wc -l)" -eq 20
           for FILE in dist/*; do
             NAME="${FILE#dist/}"
             cmp --silent "${FILE}" "verified-release/${NAME}"
@@ -454,11 +553,6 @@ jobs:
           ref: ${{ needs.metadata.outputs.sha }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: binaries-*
-          merge-multiple: true
-          path: dist
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
           name: release-contract
           path: dist
       - name: Publish immutable release and monotonic latest pointers
@@ -508,7 +602,7 @@ jobs:
             }
 
             for FILE in dist/*; do
-              if [[ "${FILE}" == 'dist/agent-install.md' ]]; then
+              if [[ "${FILE}" == *.md ]]; then
                 put_immutable "${FILE}" "${PREFIX}/v${VERSION}/${FILE#dist/}" 'text/markdown; charset=utf-8'
               else
                 put_immutable "${FILE}" "${PREFIX}/v${VERSION}/${FILE#dist/}"
@@ -525,8 +619,8 @@ jobs:
               printf '%s\n' "${VERSION}" >"${SCRATCH}/new-latest"
               aws --endpoint-url "${ENDPOINT}" s3 cp "${SCRATCH}/new-latest" "s3://${BUCKET}/${PREFIX}/latest" \
                 --content-type text/plain --cache-control 'public,max-age=60' --only-show-errors
-              for FILE in install.sh install.ps1 bootstrap-contract.json release-manifest.json agent-release-manifest.json agent-release-manifest.sigstore.json agent-install.md; do
-                if [[ "${FILE}" == 'agent-install.md' ]]; then
+              for FILE in install.sh install.ps1 bootstrap-contract.json release-manifest.json agent-release-manifest.json agent-release-manifest.sigstore.json agent-install.md commerce-skill-install.md; do
+                if [[ "${FILE}" == *.md ]]; then
                   aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${PREFIX}/${FILE}" \
                     --content-type 'text/markdown; charset=utf-8' --cache-control 'public,max-age=300' --only-show-errors
                 else
@@ -536,8 +630,8 @@ jobs:
               done
               # These files stay at the public start bucket root while the scripts
               # resolve immutable artifacts below cli/releases/v{version}.
-              for FILE in install.sh install.ps1 agent-install.md; do
-                if [[ "${FILE}" == 'agent-install.md' ]]; then
+              for FILE in install.sh install.ps1 agent-install.md commerce-skill-install.md; do
+                if [[ "${FILE}" == *.md ]]; then
                   aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${FILE}" \
                     --content-type 'text/markdown; charset=utf-8' --cache-control 'public,max-age=300' --only-show-errors
                 else
@@ -559,6 +653,9 @@ jobs:
             curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/agent-install.md" \
               --output "${SCRATCH}/agent-install.md"
             cmp --silent dist/agent-install.md "${SCRATCH}/agent-install.md"
+            curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/commerce-skill-install.md" \
+              --output "${SCRATCH}/commerce-skill-install.md"
+            cmp --silent dist/commerce-skill-install.md "${SCRATCH}/commerce-skill-install.md"
             curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/agent-release-manifest.json" \
               --output "${SCRATCH}/agent-release-manifest.json"
             cmp --silent dist/agent-release-manifest.json "${SCRATCH}/agent-release-manifest.json"
@@ -567,12 +664,20 @@ jobs:
             cmp --silent dist/agent-release-manifest.sigstore.json "${SCRATCH}/agent-release-manifest.sigstore.json"
             curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/agent-install.md" \
               | grep -i '^cache-control:.*max-age=31536000.*immutable'
+            curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/commerce-skill-install.md" \
+              | grep -i '^cache-control:.*max-age=31536000.*immutable'
             if [[ "${HIGHEST}" == "${VERSION}" ]]; then
               curl --fail --silent --show-error "${PUBLIC_ORIGIN}/agent-install.md" --output "${SCRATCH}/root-agent-install.md"
               cmp --silent dist/agent-install.md "${SCRATCH}/root-agent-install.md"
+              curl --fail --silent --show-error "${PUBLIC_ORIGIN}/commerce-skill-install.md" --output "${SCRATCH}/root-commerce-skill-install.md"
+              cmp --silent dist/commerce-skill-install.md "${SCRATCH}/root-commerce-skill-install.md"
               curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/agent-install.md" \
                 | grep -i '^cache-control:.*max-age=300'
               curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/agent-install.md" \
+                | grep -i '^content-type:[[:space:]]*text/markdown;[[:space:]]*charset=utf-8'
+              curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/commerce-skill-install.md" \
+                | grep -i '^cache-control:.*max-age=300'
+              curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/commerce-skill-install.md" \
                 | grep -i '^content-type:[[:space:]]*text/markdown;[[:space:]]*charset=utf-8'
             fi
             echo "Published ${LABEL} release v${VERSION}"
@@ -589,6 +694,10 @@ jobs:
             curl --fail --silent --show-error 'https://s3.viceme.cn/start/agent-install.md' --output "${VERIFY_DIR}/cn-agent-install.md"
           curl --fail --silent --show-error 'https://s3.viceme.ai/start/agent-install.md' --output "${VERIFY_DIR}/global-agent-install.md"
           cmp --silent "${VERIFY_DIR}/cn-agent-install.md" "${VERIFY_DIR}/global-agent-install.md"
+          HTTPS_PROXY="${CN_S3_HTTPS_PROXY}" https_proxy="${CN_S3_HTTPS_PROXY}" \
+            curl --fail --silent --show-error 'https://s3.viceme.cn/start/commerce-skill-install.md' --output "${VERIFY_DIR}/cn-commerce-skill-install.md"
+          curl --fail --silent --show-error 'https://s3.viceme.ai/start/commerce-skill-install.md' --output "${VERIFY_DIR}/global-commerce-skill-install.md"
+          cmp --silent "${VERIFY_DIR}/cn-commerce-skill-install.md" "${VERIFY_DIR}/global-commerce-skill-install.md"
 
   notify:
     name: Feishu release notification

@@ -50,7 +50,6 @@ type commerceIntentState struct {
 type commerceSessionStartIntent struct {
 	ClientRequestID string `json:"clientRequestId"`
 	ReplaySecret    string `json:"replaySecret"`
-	ProductID       string `json:"productId,omitempty"`
 }
 
 func (runtime *Runtime) commerceStateKey(kind string, values ...string) string {
@@ -102,14 +101,6 @@ func (runtime *Runtime) deleteCommerceSessionCredentials(localContextID, stableN
 		if err := runtime.deps.Store.Delete(key); err != nil && !errors.Is(err, securestore.ErrNotFound) {
 			return output.Internal("COMMERCE_SESSION_DELETE_FAILED", "could not delete expired Commerce Session credentials", err)
 		}
-	}
-	return nil
-}
-
-func (runtime *Runtime) deleteCommerceSessionStartIntent(localContextID, stableName string) error {
-	key := runtime.commerceStateKey("session-start", localContextID, stableName)
-	if err := runtime.deps.Store.Delete(key); err != nil && !errors.Is(err, securestore.ErrNotFound) {
-		return output.Internal("COMMERCE_SESSION_INTENT_DELETE_FAILED", "could not discard an unselected Commerce Session intent", err)
 	}
 	return nil
 }
@@ -249,14 +240,13 @@ func (runtime *Runtime) completeIntent(key, requestID, resourceID string, expire
 	return nil
 }
 
-func (runtime *Runtime) loadOrCreateCommerceSessionStartIntent(localContextID, stableName, productID string) (commerceSessionStartIntent, error) {
+func (runtime *Runtime) loadOrCreateCommerceSessionStartIntent(localContextID, stableName string) (commerceSessionStartIntent, error) {
 	key := runtime.commerceStateKey("session-start", localContextID, stableName)
 	var intent commerceSessionStartIntent
 	raw, err := runtime.deps.Store.Get(key)
 	if err == nil {
 		if json.Unmarshal([]byte(raw), &intent) == nil &&
 			intent.ClientRequestID == localContextID &&
-			intent.ProductID == productID &&
 			validCommerceReplaySecret(intent.ReplaySecret) {
 			return intent, nil
 		}
@@ -272,7 +262,6 @@ func (runtime *Runtime) loadOrCreateCommerceSessionStartIntent(localContextID, s
 	intent = commerceSessionStartIntent{
 		ClientRequestID: localContextID,
 		ReplaySecret:    base64.RawURLEncoding.EncodeToString(secretBytes),
-		ProductID:       productID,
 	}
 	encoded, err := json.Marshal(intent)
 	if err != nil {

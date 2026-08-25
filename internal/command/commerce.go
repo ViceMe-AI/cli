@@ -78,7 +78,7 @@ func newCommerceSessionCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newCommerceSessionStartCommand(runtime *Runtime) *cobra.Command {
-	var stableName, productID string
+	var stableName string
 	command := &cobra.Command{
 		Use:   "start",
 		Short: "Create or recover the session bound to one purchase Skill",
@@ -91,7 +91,7 @@ func newCommerceSessionStartCommand(runtime *Runtime) *cobra.Command {
 			if !validCommerceContextID(localContextID) {
 				return output.Validation("COMMERCE_SESSION_CONTEXT_INVALID", "--session-context must be the opaque localContextId returned by commerce session start")
 			}
-			state, recovered, err := runtime.startCommerceSession(command.Context(), localContextID, stableName, productID)
+			state, recovered, err := runtime.startCommerceSession(command.Context(), localContextID, stableName)
 			if err != nil {
 				return err
 			}
@@ -99,12 +99,11 @@ func newCommerceSessionStartCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&stableName, "skill", "", "purchase Skill stable name")
-	command.Flags().StringVar(&productID, "product", "", "eligible Product id for a Blueprint purchase Skill")
 	_ = command.MarkFlagRequired("skill")
 	return command
 }
 
-func (runtime *Runtime) startCommerceSession(ctx context.Context, localContextID, stableName, productID string) (commerceSessionState, bool, error) {
+func (runtime *Runtime) startCommerceSession(ctx context.Context, localContextID, stableName string) (commerceSessionState, bool, error) {
 	if !validStableName(stableName) {
 		return commerceSessionState{}, false, output.Validation("COMMERCE_SKILL_NAME_INVALID", "purchase Skill stable name is invalid")
 	}
@@ -115,9 +114,6 @@ func (runtime *Runtime) startCommerceSession(ctx context.Context, localContextID
 	defer unlock()
 	state, err := runtime.loadCommerceSession(localContextID, stableName)
 	if err == nil && state.ExpiresAt.After(runtime.deps.Now().Add(5*time.Second)) {
-		if productID != "" && state.ProductID != productID {
-			return commerceSessionState{}, false, output.Validation("COMMERCE_SESSION_PRODUCT_MISMATCH", "the localContextId is already bound to another Product")
-		}
 		return state, true, nil
 	}
 	if err == nil {
@@ -130,14 +126,13 @@ func (runtime *Runtime) startCommerceSession(ctx context.Context, localContextID
 	if err != nil && !errors.Is(err, errCommerceSessionMissing) {
 		return commerceSessionState{}, false, err
 	}
-	intent, err := runtime.loadOrCreateCommerceSessionStartIntent(localContextID, stableName, productID)
+	intent, err := runtime.loadOrCreateCommerceSessionStartIntent(localContextID, stableName)
 	if err != nil {
 		return commerceSessionState{}, false, err
 	}
 	created, err := runtime.client().CreateCommerceSession(
 		ctx,
 		stableName,
-		productID,
 		intent.ClientRequestID,
 		intent.ReplaySecret,
 	)

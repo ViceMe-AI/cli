@@ -100,10 +100,31 @@ func (c *Client) UpdateMerchantWork(ctx context.Context, workID string, input js
 	return response, err
 }
 
-func (c *Client) ListMerchantBlueprints(ctx context.Context, merchantAccountID string) (json.RawMessage, error) {
+func (c *Client) CreateMerchantWorkPreview(ctx context.Context, workID, merchantAccountID string, expectedRevision, expiresInSeconds int) (WorkPreviewGrant, error) {
+	var response WorkPreviewGrant
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/previews"
+	request := map[string]any{
+		"merchantAccountId":      merchantAccountID,
+		"expectedRevision":       expectedRevision,
+		"expiresInSeconds":       expiresInSeconds,
+		"allowedRepresentations": []string{"HTML", "MARKDOWN"},
+	}
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) RevokeMerchantWorkPreview(ctx context.Context, workID, grantID, merchantAccountID string) (WorkPreviewGrant, error) {
+	var response WorkPreviewGrant
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/previews/" + url.PathEscape(grantID)
+	request := map[string]any{"merchantAccountId": merchantAccountID}
+	err := c.doJSON(ctx, http.MethodDelete, endpoint, request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ListMerchantProductAuthoringTemplates(ctx context.Context, merchantAccountID string) (json.RawMessage, error) {
 	var response json.RawMessage
 	query := url.Values{"merchantAccountId": {merchantAccountID}}
-	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/product-blueprints?"+query.Encode(), nil, &response, "@stored")
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/product-authoring-templates?"+query.Encode(), nil, &response, "@stored")
 	return response, err
 }
 
@@ -205,15 +226,12 @@ func (c *Client) DownloadArtifact(ctx context.Context, rawURL string) ([]byte, e
 	return data, nil
 }
 
-func (c *Client) CreateCommerceSession(ctx context.Context, stableName, productID, clientRequestID, replaySecret string) (CommerceSession, error) {
+func (c *Client) CreateCommerceSession(ctx context.Context, stableName, clientRequestID, replaySecret string) (CommerceSession, error) {
 	var response CommerceSession
 	payload := map[string]any{
 		"purchaseSkillStableName": stableName,
 		"clientRequestId":         clientRequestID,
 		"replaySecret":            replaySecret,
-	}
-	if productID != "" {
-		payload["purchaseSkillProductId"] = productID
 	}
 	err := c.doJSON(ctx, http.MethodPost, "/v1/commerce-sessions", payload, &response, "")
 	return response, err
@@ -255,6 +273,13 @@ func (c *Client) CreateCommerceOrder(ctx context.Context, input json.RawMessage,
 func (c *Client) GetCommerceOrderStatus(ctx context.Context, orderNo, sessionToken string) (OrderStatusResponse, error) {
 	var response OrderStatusResponse
 	endpoint := "/v1/orders/" + url.PathEscape(orderNo) + "/status"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, sessionToken)
+	return response, err
+}
+
+func (c *Client) GetCommerceServiceCaseByOrder(ctx context.Context, orderNo, sessionToken string) (ServiceCase, error) {
+	var response ServiceCase
+	endpoint := "/v1/commerce/service-cases/orders/" + url.PathEscape(orderNo)
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, sessionToken)
 	return response, err
 }

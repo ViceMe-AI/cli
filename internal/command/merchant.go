@@ -43,6 +43,68 @@ func newMerchantWorkCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newMerchantWorkListCommand(runtime))
 	command.AddCommand(newMerchantWorkGetCommand(runtime))
 	command.AddCommand(newMerchantWorkUpdateCommand(runtime))
+	command.AddCommand(newMerchantWorkPreviewCommand(runtime))
+	return command
+}
+
+func newMerchantWorkPreviewCommand(runtime *Runtime) *cobra.Command {
+	command := &cobra.Command{Use: "preview", Short: "Create and revoke private HTML/Markdown Work previews"}
+	command.AddCommand(newMerchantWorkPreviewCreateCommand(runtime))
+	command.AddCommand(newMerchantWorkPreviewRevokeCommand(runtime))
+	return command
+}
+
+func newMerchantWorkPreviewCreateCommand(runtime *Runtime) *cobra.Command {
+	var merchantAccountID string
+	var expectedRevision, expiresInSeconds int
+	command := &cobra.Command{
+		Use:   "create <work-id>",
+		Short: "Create one revocable preview for the exact Work revision",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if expectedRevision < 1 {
+				return output.Validation("MERCHANT_WORK_REVISION_INVALID", "--expected-revision must be positive")
+			}
+			if expiresInSeconds < 60 || expiresInSeconds > 3600 {
+				return output.Validation("MERCHANT_WORK_PREVIEW_TTL_INVALID", "--expires-in must be between 60 and 3600 seconds")
+			}
+			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
+				return err
+			}
+			result, err := runtime.client().CreateMerchantWorkPreview(command.Context(), args[0], merchantAccountID, expectedRevision, expiresInSeconds)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
+		},
+	}
+	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID")
+	command.Flags().IntVar(&expectedRevision, "expected-revision", 0, "exact Work revision")
+	command.Flags().IntVar(&expiresInSeconds, "expires-in", 900, "preview lifetime in seconds")
+	_ = command.MarkFlagRequired("merchant")
+	_ = command.MarkFlagRequired("expected-revision")
+	return command
+}
+
+func newMerchantWorkPreviewRevokeCommand(runtime *Runtime) *cobra.Command {
+	var merchantAccountID string
+	command := &cobra.Command{
+		Use:   "revoke <work-id> <preview-id>",
+		Short: "Revoke a private Work preview",
+		Args:  cobra.ExactArgs(2),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
+				return err
+			}
+			result, err := runtime.client().RevokeMerchantWorkPreview(command.Context(), args[0], args[1], merchantAccountID)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
+		},
+	}
+	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID")
+	_ = command.MarkFlagRequired("merchant")
 	return command
 }
 
@@ -144,7 +206,7 @@ func newMerchantWorkUpdateCommand(runtime *Runtime) *cobra.Command {
 
 func newMerchantProductCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "product", Short: "Manage merchant Products and generated purchase Skills"}
-	command.AddCommand(newMerchantBlueprintsCommand(runtime))
+	command.AddCommand(newMerchantProductAuthoringTemplatesCommand(runtime))
 	command.AddCommand(newMerchantProductCreateCommand(runtime))
 	command.AddCommand(newMerchantProductUpdateCommand(runtime))
 	command.AddCommand(newMerchantProductCompileCommand(runtime))
@@ -155,17 +217,17 @@ func newMerchantProductCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
-func newMerchantBlueprintsCommand(runtime *Runtime) *cobra.Command {
+func newMerchantProductAuthoringTemplatesCommand(runtime *Runtime) *cobra.Command {
 	var merchantAccountID string
 	command := &cobra.Command{
-		Use:   "blueprints",
-		Short: "List blueprints available to one merchant",
+		Use:   "templates",
+		Short: "List Product authoring templates available to one merchant",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), false); err != nil {
 				return err
 			}
-			result, err := runtime.client().ListMerchantBlueprints(command.Context(), merchantAccountID)
+			result, err := runtime.client().ListMerchantProductAuthoringTemplates(command.Context(), merchantAccountID)
 			if err != nil {
 				return err
 			}

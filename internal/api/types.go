@@ -46,11 +46,11 @@ type AuthUser struct {
 }
 
 type MerchantAccount struct {
-	ID                      string  `json:"id"`
-	CreatorChannelAccountID *string `json:"creatorChannelAccountId"`
-	DisplayName             string  `json:"displayName"`
-	Status                  string  `json:"status"`
-	StatusVersion           int     `json:"statusVersion"`
+	ID               string  `json:"id"`
+	CreatorAccountID *string `json:"creatorAccountId"`
+	DisplayName      string  `json:"displayName"`
+	Status           string  `json:"status"`
+	StatusVersion    int     `json:"statusVersion"`
 }
 
 type MerchantAccountsResponse struct {
@@ -58,18 +58,32 @@ type MerchantAccountsResponse struct {
 }
 
 type MerchantWork struct {
-	ID        string          `json:"id"`
-	Kind      string          `json:"kind"`
-	Origin    string          `json:"origin"`
-	Slug      string          `json:"slug"`
-	Title     string          `json:"title"`
-	Status    string          `json:"status"`
-	Revision  int             `json:"revision"`
-	Owner     json.RawMessage `json:"owner"`
-	Skill     json.RawMessage `json:"skill"`
-	Website   json.RawMessage `json:"website"`
-	CreatedAt string          `json:"createdAt"`
-	UpdatedAt string          `json:"updatedAt"`
+	ID             string          `json:"id"`
+	Kind           string          `json:"kind"`
+	Origin         string          `json:"origin"`
+	Slug           string          `json:"slug"`
+	Title          string          `json:"title"`
+	Status         string          `json:"status"`
+	Revision       int             `json:"revision"`
+	Owner          json.RawMessage `json:"owner"`
+	Skill          json.RawMessage `json:"skill"`
+	Service        json.RawMessage `json:"service"`
+	Website        json.RawMessage `json:"website"`
+	ActiveRevision json.RawMessage `json:"activeRevision"`
+	DraftRevision  json.RawMessage `json:"draftRevision"`
+	CreatedAt      string          `json:"createdAt"`
+	UpdatedAt      string          `json:"updatedAt"`
+}
+
+type WorkPreviewGrant struct {
+	ID                     string   `json:"id"`
+	WorkID                 string   `json:"workId"`
+	WorkRevisionID         string   `json:"workRevisionId"`
+	AllowedRepresentations []string `json:"allowedRepresentations"`
+	HTMLURL                *string  `json:"htmlUrl"`
+	MarkdownURL            *string  `json:"markdownUrl"`
+	ExpiresAt              string   `json:"expiresAt"`
+	RevokedAt              *string  `json:"revokedAt"`
 }
 
 type MerchantWorksResponse struct {
@@ -199,10 +213,8 @@ type PurchaseSkillRelease struct {
 }
 
 type PurchaseSkillBinding struct {
-	BindingType          string  `json:"bindingType"`
-	ProductID            *string `json:"productId,omitempty"`
-	ProductBlueprintID   *string `json:"productBlueprintId,omitempty"`
-	ProductBlueprintCode *string `json:"productBlueprintCode,omitempty"`
+	BindingType string `json:"bindingType"`
+	ProductID   string `json:"productId"`
 }
 
 type PurchaseSkillProduct struct {
@@ -236,11 +248,12 @@ type ProductPurchaseSkillInstall struct {
 }
 
 type ProductPurchaseSkillRuntimeBootstrap struct {
-	Kind                  string `json:"kind"`
-	ProtocolVersion       int    `json:"protocolVersion"`
-	MinimumRuntimeVersion string `json:"minimumRuntimeVersion"`
-	InstallerContractURL  string `json:"installerContractUrl"`
-	InstallCommand        string `json:"installCommand"`
+	Kind                         string `json:"kind"`
+	ProtocolVersion              int    `json:"protocolVersion"`
+	MinimumRuntimeVersion        string `json:"minimumRuntimeVersion"`
+	InstallerContractURL         string `json:"installerContractUrl"`
+	CommerceInstallerContractURL string `json:"commerceInstallerContractUrl"`
+	InstallCommand               string `json:"installCommand"`
 }
 
 type CommerceSkillTrustKey struct {
@@ -337,6 +350,26 @@ type OrderStatusResponse struct {
 	OrderNo     string          `json:"orderNo"`
 	Payment     json.RawMessage `json:"payment"`
 	Fulfillment json.RawMessage `json:"fulfillment"`
+	ServiceCase *ServiceCase    `json:"serviceCase"`
+}
+
+type ServiceCase struct {
+	ID               string          `json:"id"`
+	CaseNo           string          `json:"caseNo"`
+	OrderNo          string          `json:"orderNo"`
+	FulfillmentID    string          `json:"fulfillmentId"`
+	Work             json.RawMessage `json:"work"`
+	Merchant         json.RawMessage `json:"merchant"`
+	Status           string          `json:"status"`
+	CurrentStageCode string          `json:"currentStageCode"`
+	Stages           json.RawMessage `json:"stages"`
+	Intake           json.RawMessage `json:"intake"`
+	PublicProgress   json.RawMessage `json:"publicProgress"`
+	LockVersion      int             `json:"lockVersion"`
+	Events           json.RawMessage `json:"events"`
+	SubmittedAt      string          `json:"submittedAt"`
+	CompletedAt      *string         `json:"completedAt"`
+	UpdatedAt        string          `json:"updatedAt"`
 }
 
 type SkillPublicationManifest struct {

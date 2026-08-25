@@ -37,8 +37,9 @@ resuming an upload must not create another Listing.
 
 The selected `merchantAccountId` is part of the idempotent publication intent
 and cannot change on resume. A resume normally needs no `--merchant`; when it
-is supplied, it must equal the saved Merchant. CreatorChannel claim or unbind
-events never select, transfer, suspend, or reactivate that Merchant.
+is supplied, it must equal the saved Merchant. CreatorAccount or
+CreatorExternalIdentity changes never select, transfer, suspend, or reactivate
+that Merchant; only the OWNER membership grants publication authority.
 
 Use `--new-listing` only for an explicit separate work. When digest candidate resolution is ambiguous, display candidates and use `skill listing bind <listing-id> --path ...` only after the user chooses an owned Listing.
 

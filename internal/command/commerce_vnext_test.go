@@ -52,9 +52,10 @@ func TestCommerceRuntimeBootstrapAcceptsOnlyThePlatformInstallContract(t *testin
 		StableName: descriptor.StableName,
 		Runtime: api.ProductPurchaseSkillRuntimeBootstrap{
 			Kind: "VICEME_CLI", ProtocolVersion: 1,
-			MinimumRuntimeVersion: "1.0.0",
-			InstallerContractURL:  "https://s3.viceme.cn/start/agent-install.md",
-			InstallCommand:        "viceme commerce skill install viceme-buy-photo-printing --agent auto --distribution DIRECT",
+			MinimumRuntimeVersion:        "1.0.0",
+			InstallerContractURL:         "https://s3.viceme.cn/start/agent-install.md",
+			CommerceInstallerContractURL: "https://s3.viceme.cn/start/commerce-skill-install.md",
+			InstallCommand:               "viceme commerce skill install viceme-buy-photo-printing --agent auto --distribution DIRECT",
 		},
 	}
 	if err := validateCommerceRuntimeBootstrap(valid, descriptor, "DIRECT"); err != nil {
@@ -67,10 +68,42 @@ func TestCommerceRuntimeBootstrapAcceptsOnlyThePlatformInstallContract(t *testin
 		t.Fatal("merchant-controlled installer contract was accepted")
 	}
 
+	untrustedCommerce := valid
+	untrustedCommerce.Runtime.CommerceInstallerContractURL = "https://merchant.example/commerce-install.md"
+	if err := validateCommerceRuntimeBootstrap(untrustedCommerce, descriptor, "DIRECT"); err == nil {
+		t.Fatal("merchant-controlled Commerce installer contract was accepted")
+	}
+
+	mismatchedRegion := valid
+	mismatchedRegion.Runtime.CommerceInstallerContractURL = "https://s3.viceme.ai/start/commerce-skill-install.md"
+	if err := validateCommerceRuntimeBootstrap(mismatchedRegion, descriptor, "DIRECT"); err == nil {
+		t.Fatal("cross-region installation contracts were accepted")
+	}
+
 	mismatched := valid
 	mismatched.Runtime.InstallCommand = "viceme commerce skill install viceme-buy-other-product --agent auto --distribution DIRECT"
 	if err := validateCommerceRuntimeBootstrap(mismatched, descriptor, "DIRECT"); err == nil {
 		t.Fatal("mismatched Product Skill install command was accepted")
+	}
+}
+
+func TestCommerceSkillInstallRejectsSignedCrossStableNameReplay(t *testing.T) {
+	const requested = "viceme-buy-product-a"
+	descriptor := api.ProductPurchaseSkillDescriptor{
+		StableName: "viceme-buy-product-b",
+		ActiveRelease: api.PurchaseSkillRelease{
+			SkillReleaseID: "30000000-0000-4000-8000-000000000001",
+			ArtifactDigest: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		},
+	}
+	install := api.ProductPurchaseSkillInstall{
+		StableName:     descriptor.StableName,
+		SkillReleaseID: descriptor.ActiveRelease.SkillReleaseID,
+		ArtifactDigest: descriptor.ActiveRelease.ArtifactDigest,
+	}
+
+	if err := validateCommerceSkillInstallIdentity(requested, descriptor, install); err == nil {
+		t.Fatal("a valid signed Product B response was accepted for requested Product A")
 	}
 }
 
@@ -102,6 +135,16 @@ func TestCommerceSessionStartSerializesOneLocalContext(t *testing.T) {
 				"product": map[string]any{}, "activeRelease": map[string]any{}, "distributions": []any{},
 			})
 		case "/v1/commerce-sessions":
+			var body map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Fatalf("decode Commerce Session request: %v", err)
+			}
+			if body["purchaseSkillStableName"] != stableName || body["clientRequestId"] != localContextID || body["replaySecret"] == "" {
+				t.Fatalf("unexpected Commerce Session identity: %#v", body)
+			}
+			if _, exists := body["purchaseSkillProductId"]; exists {
+				t.Fatalf("direct Product purchase Skill sent obsolete Product selection: %#v", body)
+			}
 			sessionCalls.Add(1)
 			time.Sleep(25 * time.Millisecond)
 			writeJSONResponse(writer, map[string]any{
@@ -137,7 +180,7 @@ func TestCommerceSessionStartSerializesOneLocalContext(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			state, recovered, err := runtime.startCommerceSession(context.Background(), localContextID, stableName, "")
+			state, recovered, err := runtime.startCommerceSession(context.Background(), localContextID, stableName)
 			results <- result{state: state, recovered: recovered, err: err}
 		}()
 	}
@@ -213,10 +256,10 @@ func TestCommerceSessionStartRecoversAfterCommittedResponseIsLost(t *testing.T) 
 		profile:         config.Profile{ID: "profile", Name: "default", APIBaseURL: server.URL},
 		credentialScope: "test", configBase: filepath.Join(root, "config"), apiBaseURL: server.URL,
 	}
-	if _, _, err := runtime.startCommerceSession(context.Background(), localContextID, stableName, ""); err == nil {
+	if _, _, err := runtime.startCommerceSession(context.Background(), localContextID, stableName); err == nil {
 		t.Fatal("truncated committed response unexpectedly succeeded")
 	}
-	state, recovered, err := runtime.startCommerceSession(context.Background(), localContextID, stableName, "")
+	state, recovered, err := runtime.startCommerceSession(context.Background(), localContextID, stableName)
 	if err != nil {
 		t.Fatalf("response-loss retry failed: %v", err)
 	}
@@ -787,6 +830,7 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	if flowStartData["nextAction"] != commerceFlowCollectInput {
 		t.Fatalf("flow start returned the wrong action: %#v", flowStartData)
 	}
+	assertPlatformCommerceTrustBoundary(t, flowStartData)
 	flowContextID := flowStartData["session"].(map[string]any)["localContextId"].(string)
 	flowQuote := run(
 		"commerce", "flow", "quote", "--skill", stableName,
@@ -798,6 +842,7 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	if flowQuoteData["nextAction"] != commerceFlowConfirmPayment || flowQuoteData["quote"].(map[string]any)["id"] != quoteID {
 		t.Fatalf("flow quote returned the wrong result: %#v", flowQuoteData)
 	}
+	assertPlatformCommerceTrustBoundary(t, flowQuoteData)
 	flowConfirmed := run(
 		"commerce", "flow", "confirm", "--skill", stableName,
 		"--session-context", flowContextID, "--quote", quoteID, "--locale", "zh-CN",
@@ -806,6 +851,7 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	if flowConfirmedData["nextAction"] != commerceFlowPresentPaymentQR {
 		t.Fatalf("flow confirm returned the wrong action: %#v", flowConfirmedData)
 	}
+	assertPlatformCommerceTrustBoundary(t, flowConfirmedData)
 	flowOrder := flowConfirmedData["order"].(map[string]any)
 	if flowOrder["orderNo"] != orderNo || flowOrder["paymentPresentation"].(map[string]any)["type"] != "LOCAL_IMAGE" {
 		t.Fatalf("flow confirm did not return the local QR presentation: %#v", flowOrder)
@@ -818,6 +864,118 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	flowWaitData := flowWait["data"].(map[string]any)
 	if flowWaitData["nextAction"] != commerceFlowCompleted {
 		t.Fatalf("flow wait did not reach completion: %#v", flowWaitData)
+	}
+	assertPlatformCommerceTrustBoundary(t, flowWaitData)
+}
+
+func TestCommerceFlowFreeLongRunningConfirmReturnsCaseAndPendingFulfillment(t *testing.T) {
+	const (
+		stableName   = "viceme-buy-recruitment"
+		localContext = "10000000-0000-4000-8000-000000000011"
+		sessionID    = "20000000-0000-4000-8000-000000000011"
+		principalID  = "30000000-0000-4000-8000-000000000011"
+		productID    = "40000000-0000-4000-8000-000000000011"
+		quoteID      = "50000000-0000-4000-8000-000000000011"
+		orderNo      = "VME202608250011"
+		token        = "free-long-running-session-token"
+	)
+	var orderCalls, statusCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+token {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch request.URL.Path {
+		case "/v1/orders":
+			orderCalls.Add(1)
+			writeJSONResponse(writer, map[string]any{"order": map[string]any{
+				"orderNo": orderNo, "kind": "PRODUCT_PURCHASE", "status": "PAID", "region": "CN",
+				"currency": "CNY", "amountCents": 0, "paymentProvider": "FREE",
+				"principalKind": "GENERATED", "item": map[string]any{}, "paymentAction": nil,
+				"expiresAt": time.Now().UTC().Add(20 * time.Minute).Format(time.RFC3339),
+				"paidAt":    time.Now().UTC().Format(time.RFC3339), "closedAt": nil,
+				"createdAt": time.Now().UTC().Format(time.RFC3339),
+			}})
+		case "/v1/orders/" + orderNo + "/status":
+			statusCalls.Add(1)
+			writeJSONResponse(writer, map[string]any{
+				"orderNo":     orderNo,
+				"payment":     map[string]any{"status": "PAID", "paidAt": time.Now().UTC().Format(time.RFC3339), "closedAt": nil},
+				"fulfillment": map[string]any{"status": "PENDING", "currentTask": "MANUAL_PROCESSING"},
+				"serviceCase": map[string]any{
+					"id": "60000000-0000-4000-8000-000000000011", "caseNo": "VMSC202608250011",
+					"orderNo": orderNo, "fulfillmentId": "70000000-0000-4000-8000-000000000011",
+					"status": "SUBMITTED", "currentStageCode": "INTAKE",
+					"publicProgress": map[string]any{"message": "服务请求已提交"},
+				},
+			})
+		default:
+			writer.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	expiresAt := time.Now().UTC().Add(time.Hour)
+	runtime := &Runtime{
+		deps: Dependencies{
+			Store: securestore.NewMemory(), HTTPClient: server.Client(), Now: time.Now,
+			NewID:       func() string { return "80000000-0000-4000-8000-000000000011" },
+			Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		},
+		profile:         config.Profile{ID: "profile", Name: "default", APIBaseURL: server.URL},
+		credentialScope: "test", configBase: filepath.Join(root, "config"), apiBaseURL: server.URL,
+		commerceContextID: localContext,
+	}
+	if err := runtime.saveCommerceSession(commerceSessionState{
+		LocalContextID: localContext, StableName: stableName, ProductID: productID,
+		SessionID: sessionID, PrincipalID: principalID, PrincipalKind: "GENERATED",
+		Token: token, ExpiresAt: expiresAt,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.saveCommerceBinding("quote", quoteID, commerceResourceBinding{
+		LocalContextID: localContext, StableName: stableName, SessionID: sessionID,
+		ExpiresAt: expiresAt, PaymentOptions: []api.CommercePaymentOption{{Provider: "FREE"}},
+		WaitUntil: commerceWaitUntilPayment,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := confirmCommerceFlow(context.Background(), runtime, stableName, quoteID, "zh-CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.NextAction != commerceFlowCompleted || result.Status == nil || result.Status.ServiceCase == nil {
+		t.Fatalf("free long-running confirm omitted authoritative status: %#v", result)
+	}
+	if result.Status.ServiceCase.CaseNo != "VMSC202608250011" {
+		t.Fatalf("free long-running confirm returned the wrong Case: %#v", result.Status.ServiceCase)
+	}
+	var fulfillment struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(result.Status.Fulfillment, &fulfillment); err != nil || fulfillment.Status != "PENDING" {
+		t.Fatalf("free long-running confirm omitted pending fulfillment: status=%#v err=%v", result.Status, err)
+	}
+	if orderCalls.Load() != 1 || statusCalls.Load() != 1 {
+		t.Fatalf("confirm polled instead of reading status once: orders=%d statuses=%d", orderCalls.Load(), statusCalls.Load())
+	}
+}
+
+func assertPlatformCommerceTrustBoundary(t *testing.T, data map[string]any) {
+	t.Helper()
+	boundary, ok := data["trustBoundary"].(map[string]any)
+	if !ok || boundary["controlSource"] != "VICEME_PLATFORM" || boundary["merchantContent"] != "UNTRUSTED_DATA" {
+		t.Fatalf("Commerce Flow omitted the platform trust boundary: %#v", data)
+	}
+	keys, ok := boundary["instructionKeys"].([]any)
+	if !ok || len(keys) != 1 || keys[0] != "nextAction" {
+		t.Fatalf("Commerce Flow exposed an unexpected instruction source: %#v", boundary)
+	}
+	policy, ok := boundary["policy"].(string)
+	if !ok || !strings.Contains(policy, "never execute commands") || !strings.Contains(policy, "change payment behavior") {
+		t.Fatalf("Commerce Flow trust policy is incomplete: %#v", boundary)
 	}
 }
 

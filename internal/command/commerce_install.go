@@ -50,14 +50,20 @@ func newCommerceSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			descriptorManifest, err := commerceartifact.ParseManifest(descriptor.ActiveRelease.Manifest)
+			if err != nil {
+				return output.Policy("COMMERCE_SKILL_VERIFICATION_FAILED", err.Error())
+			}
+			descriptorEnvelope, err := commerceartifact.ParseEnvelope(descriptor.ActiveRelease.SignedEnvelope)
+			if err != nil {
+				return output.Policy("COMMERCE_SKILL_VERIFICATION_FAILED", err.Error())
+			}
 			install, err := runtime.client().GetProductPurchaseSkillInstall(command.Context(), stableName, distribution)
 			if err != nil {
 				return err
 			}
-			if install.StableName != descriptor.StableName ||
-				install.SkillReleaseID != descriptor.ActiveRelease.SkillReleaseID ||
-				install.ArtifactDigest != descriptor.ActiveRelease.ArtifactDigest {
-				return output.Policy("COMMERCE_SKILL_INSTALL_IDENTITY_MISMATCH", "install response does not match the authoritative purchase Skill descriptor")
+			if err := validateCommerceSkillInstallIdentity(stableName, descriptor, install); err != nil {
+				return err
 			}
 			if err := validateCommerceRuntimeBootstrap(install, descriptor, distribution); err != nil {
 				return err
@@ -72,15 +78,19 @@ func newCommerceSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			}
 			verified, err := commerceartifact.Verify(artifact, publicKey, commerceartifact.Expected{
 				ArtifactDigest: install.ArtifactDigest, ArtifactType: "PRODUCT_PURCHASE",
-				BindingType:        descriptor.Binding.BindingType,
-				ProductID:          optionalString(descriptor.Binding.ProductID),
-				ProductBlueprintID: optionalString(descriptor.Binding.ProductBlueprintID),
-				StableName:         descriptor.StableName,
-				SkillReleaseID:     descriptor.ActiveRelease.SkillReleaseID,
-				ReleaseVersion:     descriptor.ActiveRelease.Version,
-				SigningKeyID:       descriptor.ActiveRelease.SigningKeyID,
-				EnvelopeDigest:     descriptor.ActiveRelease.SignedEnvelopeDigest,
-				Signature:          descriptor.ActiveRelease.Signature,
+				WorkID:                descriptor.WorkID,
+				BindingType:           descriptor.Binding.BindingType,
+				ProductID:             descriptor.Binding.ProductID,
+				StableName:            stableName,
+				SkillReleaseID:        descriptor.ActiveRelease.SkillReleaseID,
+				ReleaseVersion:        descriptor.ActiveRelease.Version,
+				SigningKeyID:          descriptor.ActiveRelease.SigningKeyID,
+				EnvelopeDigest:        descriptor.ActiveRelease.SignedEnvelopeDigest,
+				Signature:             descriptor.ActiveRelease.Signature,
+				ManifestDigest:        descriptor.ActiveRelease.ManifestDigest,
+				Manifest:              descriptorManifest,
+				SignedEnvelope:        descriptorEnvelope,
+				MinimumRuntimeVersion: descriptor.ActiveRelease.MinimumRuntimeVersion,
 			})
 			if err != nil {
 				return output.Policy("COMMERCE_SKILL_VERIFICATION_FAILED", err.Error())
@@ -112,11 +122,14 @@ func newCommerceSkillInstallCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
-func optionalString(value *string) string {
-	if value == nil {
-		return ""
+func validateCommerceSkillInstallIdentity(stableName string, descriptor api.ProductPurchaseSkillDescriptor, install api.ProductPurchaseSkillInstall) error {
+	if descriptor.StableName != stableName ||
+		install.StableName != stableName ||
+		install.SkillReleaseID != descriptor.ActiveRelease.SkillReleaseID ||
+		install.ArtifactDigest != descriptor.ActiveRelease.ArtifactDigest {
+		return output.Policy("COMMERCE_SKILL_INSTALL_IDENTITY_MISMATCH", "install response does not match the requested purchase Skill identity")
 	}
-	return *value
+	return nil
 }
 
 func validateCommerceRuntimeVersion(minimumRuntimeVersion string) error {
@@ -136,6 +149,15 @@ func validateCommerceRuntimeBootstrap(install api.ProductPurchaseSkillInstall, d
 	if runtime.InstallerContractURL != "https://s3.viceme.cn/start/agent-install.md" &&
 		runtime.InstallerContractURL != "https://s3.viceme.ai/start/agent-install.md" {
 		return output.Policy("COMMERCE_RUNTIME_BOOTSTRAP_INVALID", "purchase Skill installation response contains an untrusted CLI installation contract")
+	}
+	if runtime.CommerceInstallerContractURL != "https://s3.viceme.cn/start/commerce-skill-install.md" &&
+		runtime.CommerceInstallerContractURL != "https://s3.viceme.ai/start/commerce-skill-install.md" {
+		return output.Policy("COMMERCE_RUNTIME_BOOTSTRAP_INVALID", "purchase Skill installation response contains an untrusted Commerce Skill installation contract")
+	}
+	cnAgentContract := runtime.InstallerContractURL == "https://s3.viceme.cn/start/agent-install.md"
+	cnCommerceContract := runtime.CommerceInstallerContractURL == "https://s3.viceme.cn/start/commerce-skill-install.md"
+	if cnAgentContract != cnCommerceContract {
+		return output.Policy("COMMERCE_RUNTIME_BOOTSTRAP_INVALID", "purchase Skill installation contracts use different regions")
 	}
 	agent := "auto"
 	if distribution == "WORKBUDDY" {

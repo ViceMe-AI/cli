@@ -1,11 +1,12 @@
 # Generic merchant Product workflow
 
-Use this workflow for services and physical/custom-made goods. It always
-produces a sellable Product and may link it to a real creator Work:
+Use this workflow for services, physical/custom-made goods, and ordinary
+official ViceMe offerings. It always produces one real creator Work before a
+sellable Product:
 
-1. the merchant's sellable Product in ViceMe;
-2. an optional existing or newly published creator Work when the commercial
-   promise genuinely belongs to that Work; and
+1. a `SERVICE` Work with permanent creator/slug identity and versioned public
+   content;
+2. the merchant's Product and immutable sales specification under that Work;
 3. a platform-generated, signed purchase Skill bound to exactly that Product.
 
 The generated Skill is an entry into ViceMe quoting, payment, same-session
@@ -17,7 +18,7 @@ Run:
 
 ```text
 viceme merchant accounts
-viceme merchant product blueprints --merchant <merchant-account-id>
+viceme merchant product templates --merchant <merchant-account-id>
 ```
 
 Only an active MerchantAccount for which the current User is the unique
@@ -25,21 +26,25 @@ Only an active MerchantAccount for which the current User is the unique
 account, stop and explain that Staff must create or activate the Merchant and
 bind the current User as OWNER. If multiple accounts are ever returned, show
 them and ask which one owns this Product. Do not guess from display names or from
-an optional CreatorChannel profile.
+the CreatorAccount profile. A public Product also requires that the Merchant is
+linked to one active CreatorAccount; its stable handle owns the permanent Work
+route. CreatorAccount and verified external identities are attribution, not
+write authority.
 
-Verify that the returned active blueprint is `GENERIC_MERCHANT`. Merchant
-Products may use only `MANUAL_PROCESSING` and `SHIPMENT`; never request
-`PLATFORM_ADAPTER`, `DIGITAL_ENTITLEMENT`, or `RECHARGE_PHONE` through this
-flow. Locked automatic Products are Staff-provisioned for an ordinary Merchant
-with its own OWNER; there is no special platform merchant authority.
+Verify that the returned active authoring template is `GENERIC_MERCHANT`.
+Merchant Products may currently use only `MANUAL_PROCESSING` and `SHIPMENT`;
+never claim a provider adapter exists. ViceMe's current official mobile
+recharge offer therefore uses the same flow and `MANUAL_PROCESSING`. The
+official creator is an ordinary Creator/Merchant/OWNER relation, not a special
+platform principal.
 
 ## 2. Collect the complete sale definition
 
 Use natural language, but obtain concrete values for every required fact:
 
-- whether the commercial promise belongs to a real existing Work/project. Do
-  not ask this for an ordinary standalone service or physical good and never
-  invent a Work merely to satisfy the Product model;
+- Work title, permanent slug, public summary/body, tags, usage or service
+  instructions, and whether this is a new Work or a new revision of an owned
+  Work;
 - Product title, slug, market, bilingual summaries/instructions where useful,
   description, tags, category/type label, and `PUBLIC`, `UNLISTED`, or
   `PRIVATE` visibility;
@@ -49,45 +54,73 @@ Use natural language, but obtain concrete values for every required fact:
   default and regional shipping prices when applicable;
 - every buyer-provided field: stable key, user-facing label, type, required
   flag, sensitivity, authorized audience, retention, and semantic role;
-- fulfillment order: manual processing, shipment, or both.
+- fulfillment order: manual processing, shipment, or both;
+- service mode: use `FULFILLMENT_ONLY` for one-order work such as photo
+  printing and manual recharge; use `LONG_RUNNING` only when the buyer needs a
+  persistent staged case such as recruitment;
+- for `LONG_RUNNING`, collect the public ordered stage labels and at least one
+  terminal stage. Case lookup remains limited to the original Commerce
+  Session.
 
 Do not collect credentials, passwords, OTPs, tokens, or a buyer-supplied amount.
 Price is always server-owned SKU data. Shipment requires required recipient
 name, contact phone, and shipping address fields. Ask only for missing business
 facts; a merchant who already supplied them does not need to answer them again.
 
-## 3. Resolve an optional real Work and create one draft Product
+## 3. Create or update the real Service Work
 
-For a standalone service or physical/custom-made good, do not create a Work.
-Omit `subjectWorkId` from the Product request.
-
-Only when the merchant is genuinely charging for or through an existing Work,
-resolve that Work from the merchant's authoritative list and use its ID. If the
-user explicitly wants to publish a new real Work with its own identity and
-content, create that Work using the appropriate Work workflow. Never create an
-empty `SKILL` or `WEBSITE` shell just to make a Product activatable.
-
-For the optional real Work case, write a private strict JSON file and run:
+Every public Product requires a real Work. For an existing Work, resolve it
+from `viceme merchant work list --merchant <merchant-account-id>` and update a
+new draft revision. For a new offering, write a private strict JSON file and
+run:
 
 ```text
 viceme merchant work create --input <work.json>
 ```
 
-For example, a genuine creator-authored service Skill Work may be:
+For example, a photo-printing Work with one-order fulfillment is:
 
 ```json
 {
-  "kind": "SKILL",
+  "kind": "SERVICE",
   "merchantAccountId": "merchant-uuid",
   "clientRequestId": "uuid",
   "market": "CN",
   "slug": "photo-printing-service",
-  "title": "照片打印服务"
+  "title": "照片打印服务",
+  "content": {
+    "summary": "上传照片并选择规格，由商家打印后发货。",
+    "bodyMarkdown": "## 服务说明\n\n按所选规格打印照片并通过快递发货。",
+    "templateType": "service",
+    "tags": ["照片", "打印"],
+    "usageInstructions": "选择规格、上传照片并填写收件信息。",
+    "serviceInstructions": "付款后由商家打印并发货。",
+    "media": [],
+    "actionConfig": {}
+  },
+  "service": {
+    "intakeSchema": {},
+    "stages": [
+      { "code": "PROCESSING", "label": "处理中", "terminal": false },
+      { "code": "COMPLETED", "label": "已完成", "terminal": true }
+    ],
+    "policy": {
+      "caseMode": "FULFILLMENT_ONLY",
+      "currentSessionOnly": true
+    }
+  }
 }
 ```
 
-Use the returned `id` as `subjectWorkId` only for that genuine Work. Then write
-the complete Product JSON and run:
+For a long-running recruitment service, use public stages such as `ACCEPTED`,
+`SOURCING`, `CANDIDATES_RECOMMENDED`, `INTERVIEWING`, and terminal
+`COMPLETED`, with `policy.caseMode` set to `LONG_RUNNING`. Do not put company,
+contact, phone, address, photos, or other buyer data in Work content or
+`intakeSchema`; those belong to the Product buyer contract and encrypted order
+contract.
+
+Use the returned Work `id` as the mandatory `subjectWorkId`. Then write the
+complete Product JSON and run:
 
 ```text
 viceme merchant product create --input <product.json>
@@ -99,15 +132,10 @@ The outer object is:
 {
   "merchantAccountId": "merchant-uuid",
   "clientRequestId": "uuid",
-  "blueprintCode": "GENERIC_MERCHANT",
+  "subjectWorkId": "work-uuid",
+  "authoringTemplateCode": "GENERIC_MERCHANT",
   "authoringInput": {}
 }
-```
-
-When a real Work is in scope, add exactly one top-level field:
-
-```json
-{ "subjectWorkId": "work-uuid" }
 ```
 
 Delete private temporary request files after the command. Keep returned IDs and
@@ -126,7 +154,24 @@ viceme merchant product compile <product-id> \
 
 Compilation must return no validation errors, one
 `candidateSalesSpecVersionId`, one `candidateDigest`, and one
-`candidatePurchaseSkill`. Show the user:
+`candidatePurchaseSkill`. Only after that exact candidate exists, create a
+private preview grant for the Work revision used by the Product:
+
+```text
+viceme merchant work preview create <work-id> \
+  --merchant <merchant-account-id> \
+  --expected-revision <revision>
+```
+
+Display both returned `htmlUrl` and `markdownUrl`. Both URLs must project the
+same Work revision and the same compiled Product, price, buyer contract,
+service stages, and generated purchase Skill candidate. A preview must never
+show an install or purchase action as active before activation. Never treat a
+preview URL as the permanent public identity. Revoke an unused preview with
+`viceme merchant work preview revoke <work-id> <preview-id> --merchant
+<merchant-account-id>`.
+
+Show the user:
 
 - Product title, visibility, every SKU and exact currency/price;
 - quantity and shipping rule;
@@ -134,35 +179,20 @@ Compilation must return no validation errors, one
 - ordered fulfillment steps;
 - generated purchase Skill `stableName`, release ID, manifest digest, and
   distribution expectations;
+- the exact HTML and Markdown preview URLs for this candidate;
 - that payment success and fulfillment success are separate states.
 
-Do not activate a stale candidate. Any Product edit increments the revision and
-requires another compile and review.
+Do not activate a stale candidate. Any Work or Product edit requires another
+compile and another HTML/Markdown preview before review.
 
-## 5. Confirm once, optionally publish the real Work, and activate the candidate
+## 5. Confirm once and activate the complete candidate atomically
 
 Ask exactly once whether the user confirms the displayed definition and wants
 to make this Product available now. State that activation enables real orders
 and payment. A requested change is not approval.
 
-After an unambiguous confirmation, publish the subject Work with its exact
-current revision only when `subjectWorkId` is present and that Work is not
-already `PUBLISHED`:
-
-```json
-{
-  "merchantAccountId": "merchant-uuid",
-  "expectedRevision": 1,
-  "status": "PUBLISHED"
-}
-```
-
-```text
-viceme merchant work update <work-id> --input <work-update.json>
-```
-
-For a standalone Product, skip that Work command. Build the activation JSON
-entirely from the same compile response:
+After an unambiguous confirmation, build the activation JSON entirely from the
+same compile response:
 
 ```json
 {
@@ -181,22 +211,27 @@ Run:
 viceme merchant product activate <product-id> --input <activation.json>
 ```
 
-Return its `productDetailUrl`, `purchaseSkillStableName`, Product ID, and these
-usable commands. The detail URL must be the platform response's existing
-`/{locale}/share/{product-slug}` route; never derive a separate
-`/products/{purchase-skill-stable-name}` page in the Skill:
+Return its `productDetailUrl`, `purchaseSkillStableName`, and Product ID. The
+activation transaction publishes the current Work revision, Product sales
+specification, ServiceOffering version when present, and signed purchase Skill
+together. Never publish the Work separately immediately before Product
+activation because that can expose a page whose action is not yet executable.
 
-```text
-viceme commerce skill install <stable-name> --agent auto
-viceme commerce session start --skill <stable-name>
-viceme commerce product describe --skill <stable-name> --session-context <local-context-id>
-```
+The detail URL must be the platform response's permanent locale-free
+`/{creatorHandle}/{workSlug}` route; never derive a `/share`, locale-prefixed,
+or `/products/{purchase-skill-stable-name}` page in the Skill. Tell the merchant
+that the page's “copy to WorkBuddy / Codex” action emits the platform-owned
+`commerce-skill-install.md` contract plus the exact signed-Skill installation
+command. Do not expose a temporary ZIP URL, digest, expiry, or API origin, and
+do not start a buyer Commerce Session merely to finish publication.
 
-Keep the returned `localContextId` only in the current Agent task and pass it
-to every subsequent `commerce product`, `asset`, `quote`, and `order` command.
-Never reuse it in another conversation or create a replacement context to look
-up an existing order.
+If the merchant explicitly asks for a local buyer-side smoke test after
+activation, use only the installed purchase Skill's deterministic
+`viceme commerce flow start --skill <stable-name>` entry. Keep its returned
+`localContextId` in that one test conversation and never create a replacement
+context to look up an existing order.
 
+Every generated stable name must start with `viceme-`.
 `DIRECT=PUBLISHED` means the signed package can be installed directly.
 `WORKBUDDY=READY` means a human may submit it for WorkBuddy review; it is not a
 public WorkBuddy-store listing yet.
@@ -308,8 +343,8 @@ shipping. Preserve the user's actual names, sizes, prices, and policies:
 ## Recovery and lifecycle
 
 - If create/compile/activate returns an unknown result, list the same merchant's
-  Works or Products and recover by client request ID/Product ID. Never create a
-  replacement just to escape uncertainty.
+  Works or Products and recover by client request ID/Work ID/Product ID. Never
+  create a replacement just to escape uncertainty.
 - `viceme merchant product suspend` stops new sales while preserving existing
   session/order recovery. `archive` is terminal and may be rejected while a
   payable order or recoverable session remains.
