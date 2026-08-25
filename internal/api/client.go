@@ -100,6 +100,35 @@ func (c *Client) UpdateMerchantWork(ctx context.Context, workID string, input js
 	return response, err
 }
 
+func (c *Client) CreateInteractionDraft(ctx context.Context, workID string, input json.RawMessage) (json.RawMessage, error) {
+	var response json.RawMessage
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/interaction-drafts"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, input, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ShowInteractionDraft(ctx context.Context, workID, merchantAccountID string) (json.RawMessage, error) {
+	var response json.RawMessage
+	query := url.Values{"merchantAccountId": {merchantAccountID}}
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/interaction-drafts/current?" + query.Encode()
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreateInteractionPreview(ctx context.Context, workID, merchantAccountID string) (json.RawMessage, error) {
+	var response json.RawMessage
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/interaction-previews"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]string{"merchantAccountId": merchantAccountID}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ActivateInteractionDefinition(ctx context.Context, workID string, input json.RawMessage) (json.RawMessage, error) {
+	var response json.RawMessage
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/interaction-activate"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, input, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) CreateMerchantWorkPreview(ctx context.Context, workID, merchantAccountID string, expectedRevision, expiresInSeconds int) (WorkPreviewGrant, error) {
 	var response WorkPreviewGrant
 	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/previews"

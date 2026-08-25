@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -43,7 +44,9 @@ func newMerchantWorkCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newMerchantWorkListCommand(runtime))
 	command.AddCommand(newMerchantWorkGetCommand(runtime))
 	command.AddCommand(newMerchantWorkUpdateCommand(runtime))
+	command.AddCommand(newMerchantWorkDraftCommand(runtime))
 	command.AddCommand(newMerchantWorkPreviewCommand(runtime))
+	command.AddCommand(newMerchantWorkActivateCommand(runtime))
 	return command
 }
 
@@ -59,19 +62,25 @@ func newMerchantWorkPreviewCreateCommand(runtime *Runtime) *cobra.Command {
 	var expectedRevision, expiresInSeconds int
 	command := &cobra.Command{
 		Use:   "create <work-id>",
-		Short: "Create one revocable preview for the exact Work revision",
+		Short: "Create an Interaction preview or a revocable Work revision preview",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			if expectedRevision < 1 {
-				return output.Validation("MERCHANT_WORK_REVISION_INVALID", "--expected-revision must be positive")
+			if expectedRevision < 0 {
+				return output.Validation("MERCHANT_WORK_REVISION_INVALID", "--expected-revision cannot be negative")
 			}
-			if expiresInSeconds < 60 || expiresInSeconds > 3600 {
+			if expectedRevision > 0 && (expiresInSeconds < 60 || expiresInSeconds > 3600) {
 				return output.Validation("MERCHANT_WORK_PREVIEW_TTL_INVALID", "--expires-in must be between 60 and 3600 seconds")
 			}
 			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
 				return err
 			}
-			result, err := runtime.client().CreateMerchantWorkPreview(command.Context(), args[0], merchantAccountID, expectedRevision, expiresInSeconds)
+			var result any
+			var err error
+			if expectedRevision == 0 {
+				result, err = runtime.client().CreateInteractionPreview(command.Context(), args[0], merchantAccountID)
+			} else {
+				result, err = runtime.client().CreateMerchantWorkPreview(command.Context(), args[0], merchantAccountID, expectedRevision, expiresInSeconds)
+			}
 			if err != nil {
 				return err
 			}
@@ -82,8 +91,106 @@ func newMerchantWorkPreviewCreateCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().IntVar(&expectedRevision, "expected-revision", 0, "exact Work revision")
 	command.Flags().IntVar(&expiresInSeconds, "expires-in", 900, "preview lifetime in seconds")
 	_ = command.MarkFlagRequired("merchant")
-	_ = command.MarkFlagRequired("expected-revision")
 	return command
+}
+
+func newMerchantWorkDraftCommand(runtime *Runtime) *cobra.Command {
+	command := &cobra.Command{Use: "draft", Short: "Manage deterministic Interaction definition drafts"}
+	command.AddCommand(newMerchantWorkDraftCreateCommand(runtime))
+	command.AddCommand(newMerchantWorkDraftShowCommand(runtime))
+	return command
+}
+
+func newMerchantWorkDraftCreateCommand(runtime *Runtime) *cobra.Command {
+	var inputFile string
+	command := &cobra.Command{
+		Use: "create", Short: "Create a validated Interaction draft from compiled JSON", Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
+				return err
+			}
+			input, err := readJSONObject(inputFile, "MERCHANT_INTERACTION_DRAFT_INPUT_INVALID")
+			if err != nil {
+				return err
+			}
+			workID, request, err := splitInteractionDraftInput(input)
+			if err != nil {
+				return err
+			}
+			result, err := runtime.client().CreateInteractionDraft(command.Context(), workID, request)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
+		},
+	}
+	command.Flags().StringVar(&inputFile, "input", "", "private strict JSON containing workId, merchantAccountId, sourceType, and definition")
+	_ = command.MarkFlagRequired("input")
+	return command
+}
+
+func newMerchantWorkDraftShowCommand(runtime *Runtime) *cobra.Command {
+	var merchantAccountID string
+	command := &cobra.Command{
+		Use: "show <work-id>", Short: "Show the latest Interaction draft and exact preview digest", Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), false); err != nil {
+				return err
+			}
+			result, err := runtime.client().ShowInteractionDraft(command.Context(), args[0], merchantAccountID)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
+		},
+	}
+	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID")
+	_ = command.MarkFlagRequired("merchant")
+	return command
+}
+
+func newMerchantWorkActivateCommand(runtime *Runtime) *cobra.Command {
+	var inputFile string
+	command := &cobra.Command{
+		Use: "activate <work-id>", Short: "Atomically activate one confirmed Interaction candidate", Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
+				return err
+			}
+			input, err := readJSONObject(inputFile, "MERCHANT_INTERACTION_ACTIVATION_INPUT_INVALID")
+			if err != nil {
+				return err
+			}
+			result, err := runtime.client().ActivateInteractionDefinition(command.Context(), args[0], input)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
+		},
+	}
+	command.Flags().StringVar(&inputFile, "input", "", "strict JSON containing merchantAccountId, expectedDraftRevision, and candidateDigest")
+	_ = command.MarkFlagRequired("input")
+	return command
+}
+
+func splitInteractionDraftInput(input json.RawMessage) (string, json.RawMessage, error) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(input, &envelope); err != nil {
+		return "", nil, output.Validation("MERCHANT_INTERACTION_DRAFT_INPUT_INVALID", "interaction draft input must be a JSON object")
+	}
+	var workID string
+	if raw, ok := envelope["workId"]; ok {
+		_ = json.Unmarshal(raw, &workID)
+	}
+	if strings.TrimSpace(workID) == "" {
+		return "", nil, output.Validation("MERCHANT_INTERACTION_WORK_REQUIRED", "interaction draft input must contain workId")
+	}
+	delete(envelope, "workId")
+	request, err := json.Marshal(envelope)
+	if err != nil {
+		return "", nil, output.Internal("MERCHANT_INTERACTION_DRAFT_INPUT_INVALID", "failed to encode interaction draft", err)
+	}
+	return workID, request, nil
 }
 
 func newMerchantWorkPreviewRevokeCommand(runtime *Runtime) *cobra.Command {

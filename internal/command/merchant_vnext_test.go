@@ -105,3 +105,29 @@ func TestMerchantCommandsRequireScopedLoginBeforeAuthoring(t *testing.T) {
 		t.Fatalf("authorized Work creation failed: exit=%d result=%#v calls=%d", exit, envelope, createCalls.Load())
 	}
 }
+
+func TestSplitInteractionDraftInputKeepsStrictRequestBody(t *testing.T) {
+	workID, request, err := splitInteractionDraftInput(json.RawMessage(`{"workId":"11111111-1111-4111-8111-111111111111","merchantAccountId":"22222222-2222-4222-8222-222222222222","sourceType":"STRUCTURED","definition":{"schemaVersion":1}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workID != "11111111-1111-4111-8111-111111111111" {
+		t.Fatalf("unexpected work ID: %q", workID)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(request, &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, leaked := body["workId"]; leaked {
+		t.Fatal("workId leaked into the strict Shop request body")
+	}
+	if string(body["sourceType"]) != `"STRUCTURED"` {
+		t.Fatalf("unexpected request: %s", request)
+	}
+}
+
+func TestSplitInteractionDraftInputRequiresWorkID(t *testing.T) {
+	if _, _, err := splitInteractionDraftInput(json.RawMessage(`{"sourceType":"STRUCTURED"}`)); err == nil {
+		t.Fatal("missing workId was accepted")
+	}
+}

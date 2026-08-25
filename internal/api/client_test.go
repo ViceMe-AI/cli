@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -46,6 +47,43 @@ func TestPublicationClientUsesBearerAndExactContract(t *testing.T) {
 	}
 	if response.Status != "DRAFT" || response.PublicationID == "" {
 		t.Fatalf("unexpected response: %#v", response)
+	}
+}
+
+func TestInteractionDefinitionClientUsesExactRoutes(t *testing.T) {
+	t.Parallel()
+	const workID = "11111111-1111-4111-8111-111111111111"
+	requests := make(chan string, 4)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests <- request.Method + " " + request.URL.RequestURI()
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"ok":true}`)
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
+	ctx := context.Background()
+	if _, err := client.CreateInteractionDraft(ctx, workID, json.RawMessage(`{"merchantAccountId":"m"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ShowInteractionDraft(ctx, workID, "merchant id"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.CreateInteractionPreview(ctx, workID, "merchant-id"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ActivateInteractionDefinition(ctx, workID, json.RawMessage(`{"candidateDigest":"digest"}`)); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		http.MethodPost + " /v1/cli/merchant/works/" + workID + "/interaction-drafts",
+		http.MethodGet + " /v1/cli/merchant/works/" + workID + "/interaction-drafts/current?merchantAccountId=merchant+id",
+		http.MethodPost + " /v1/cli/merchant/works/" + workID + "/interaction-previews",
+		http.MethodPost + " /v1/cli/merchant/works/" + workID + "/interaction-activate",
+	}
+	for _, expected := range want {
+		if got := <-requests; got != expected {
+			t.Fatalf("unexpected request: got %q want %q", got, expected)
+		}
 	}
 }
 

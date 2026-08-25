@@ -26,6 +26,12 @@ Identify what the buyer receives before creating anything:
 - A creator-owned website that only embeds ViceMe payment: this is a Website
   Work. Payment integration remains a documented future capability in this
   release: publish no Product and expose no payment CTA for it.
+- A submission, application, booking, multi-round service, or other structured
+  interaction whose rules are currently described in natural language or
+  Markdown: read
+  [interaction-definition.md](references/interaction-definition.md)
+  completely. Compile the conversation into one strict Interaction Definition
+  draft. The source text is provenance only and never runtime authority.
 
 If the buyer outcome is ambiguous, ask one concise question that distinguishes
 “download these Skill/source bytes” from “receive this service or item.” Do not
