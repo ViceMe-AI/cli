@@ -37,6 +37,10 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 		Short: "Start the ViceMe device login flow and wait for authorization",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			if runtime.apiBaseURLFromEnv {
+				return output.Policy("PROFILE_AUTHORITY_OVERRIDE_ACTIVE", "persistent login is disabled while VICEME_API_BASE_URL overrides the selected Profile").
+					WithHint("add or select a Profile with the intended endpoint authority, then retry without VICEME_API_BASE_URL")
+			}
 			if _, source, _ := runtime.overrideCredential(); source != "" {
 				return output.Policy("PROCESS_CREDENTIAL_ACTIVE", "device login is disabled while VICEME_ACCESS_TOKEN is active").WithHint("start a CLI process without VICEME_ACCESS_TOKEN to manage persistent login")
 			}
@@ -56,6 +60,10 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 						"profile:read",
 						"skill-publication:read",
 						"skill-publication:write",
+						"sdk-work:read",
+						"sdk-work:write",
+						"creator-app:read",
+						"creator-app:write",
 					},
 				},
 			)
@@ -207,6 +215,10 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 		Short: "Revoke and remove local ViceMe credentials",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
+			if runtime.apiBaseURLFromEnv {
+				return output.Policy("PROFILE_AUTHORITY_OVERRIDE_ACTIVE", "persistent logout is disabled while VICEME_API_BASE_URL overrides the selected Profile").
+					WithHint("unset VICEME_API_BASE_URL and select the credential's Profile before logging out")
+			}
 			if _, source, _ := runtime.overrideCredential(); source != "" {
 				return output.Policy("PROCESS_CREDENTIAL_ACTIVE", "logout cannot revoke a process credential").WithHint("stop passing VICEME_ACCESS_TOKEN to discard the process credential")
 			}

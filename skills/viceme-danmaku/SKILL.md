@@ -1,65 +1,68 @@
 ---
 name: viceme-danmaku
-description: Implement or adapt a production React and Tailwind CSS v4 danmaku overlay that matches the bundled ViceMe golden component. Use when a user asks Codex to build, reproduce, integrate, or repair the Loom-style danmaku component with scrolling messages, reactions, comment entry, emoji picker, collapse behavior, responsive layout, keyboard support, and reduced-motion handling.
+description: Install or repair the ViceMe-hosted danmaku SDK in a website. Use for script-tag integration, workKey setup, scrolling messages, reactions, comment entry, responsive behavior, keyboard access, and reduced-motion verification.
 ---
 
-# Build the ViceMe danmaku component
+# Install ViceMe Danmaku
 
-Implement the component from the bundled golden blueprint. Do not redraw it from a prose description.
+The hosted SDK is the default and authoritative integration. Add the CLI-generated
+script tag to the host website; the host must not copy ViceMe React, Tailwind,
+iframe, API client, or persistence code.
 
 ## Required inputs
 
 Before editing, inspect:
 
-1. The target repository's local instructions, frontend conventions, installed icon library, styling system, i18n mechanism, and test runner.
-2. [component-contract.md](references/component-contract.md) in full.
-3. Every file under `assets/react-tailwind/`. Treat these files as the authoritative component structure, visual tokens, state machine, motion values, and behavior tests.
+1. The target repository's instructions, page entry point, deployment model,
+   Content Security Policy, and browser test setup.
+2. `viceme profile list`, including the selected Profile's `apiBaseUrl`,
+   `webBaseUrl`, and `marketRegion`.
+3. [cdn-sdk.md](references/cdn-sdk.md) in full.
 
-## Scope
+## Workflow
 
-Build only the reusable danmaku overlay and its direct helpers/tests:
+1. Run `viceme profile list` and pin every later command to the selected Profile.
+   Do not switch Profiles merely to reuse another login.
+2. Run `viceme --profile <profile> auth status`. If unauthenticated or missing
+   `sdk-work:read` or `sdk-work:write`, run
+   `viceme --profile <profile> auth login` and wait for completion.
+3. If `.viceme/access.yaml` is absent, run:
 
-- scrolling danmaku stage and lane scheduler;
-- bottom interaction bar;
-- first-use greeting prompt;
-- quick reactions and long-press repeat;
-- text entry and Enter-to-send behavior;
-- more-reactions popover and search;
-- collapse/expand behavior;
-- responsive and reduced-motion behavior.
+   ```bash
+   viceme --profile <profile> access init --name "<website name>" --danmaku
+   ```
 
-Do not create an iframe, URL switcher, demo-site picker, login flow, payment flow, API, or persistence layer. The host page owns its content and passes messages and callbacks into the component.
+   If the file exists, run `viceme --profile <profile> access inspect`. If its
+   authoritative response has no `data.embedSnippet` while the local config is
+   active, run `viceme --profile <profile> access apply` once to reconcile it.
+   Do not hand-edit the access config or create a second Work.
+4. Read `data.embedSnippet` from the successful CLI response and insert it
+   exactly once before `</body>` or through the framework's equivalent script
+   facility. The CLI derives its URL from the selected Profile's `webBaseUrl`;
+   do not guess, concatenate, replace, or fall back to a production origin.
+5. Preserve an existing per-response CSP nonce on the inserted script. Add only
+   the exact script and frame origins required by `data.embedSnippet`; never add
+   `*`, `'unsafe-eval'`, or a broad ViceMe subdomain wildcard.
+6. Run the target's format, lint, typecheck, tests, and production build.
+7. Verify the rendered page on desktop and mobile. Confirm one SDK root mounts,
+   host controls remain clickable, keyboard controls work, reduced motion is
+   honored, a sent message survives refresh, and no duplicate script is loaded.
 
-## Implementation workflow
+Completion means the target contains one CLI-generated script integration and
+the browser checks pass against the same pinned Profile.
 
-1. Locate the component's real owner. Keep it route-local unless at least two real routes consume it.
-2. Confirm that the target uses Tailwind CSS v4. If it uses v3, do not silently paste the blueprint: obtain approval to upgrade or translate every v4-only dynamic utility to a bracket value and prove the adapted CSS in a production build.
-3. Copy the golden blueprint into the target repository, then adapt only repository boundaries: import aliases, shared Button/cn helpers, icons, i18n strings, file locations, and test APIs.
-4. Preserve the contract's DOM responsibilities, state transitions, dimensions, spacing, colors, breakpoints, timing, easing, safe-area handling, and callback semantics. Do not replace measured values with design-system approximations.
-5. Keep business authorization outside the component. Call `onRequestComposer` before the first send and cache only a successful permission result for the mounted instance.
-6. Keep local optimistic display separate from persistence. Only emit a self-authored bullet after `onSend` returns a message.
-7. Use the target repository's styling mechanism. For Tailwind repositories, keep utilities in the owning JSX and use Web Animations API for route-local motion when required by local rules.
-8. Add or adapt the blueprint tests. Test user-visible state transitions and callback behavior, not private implementation details.
-9. Run the target repository's format, lint, typecheck, focused tests, full relevant tests, and production build.
-10. Perform responsive and keyboard verification. If browser tooling is available, compare screenshots and computed dimensions against the contract without changing unrelated UI.
+## Boundaries
 
-## Adaptation limits
-
-- Preserve the compact comment icon; do not add a visible text label beside it.
-- Preserve the centered reaction cluster independently of the left collapse control.
-- On narrow screens, hide only the last three quick reactions; keep comment and more controls reachable.
-- Do not add background chips to quick reactions. Their pointer hover uses emoji lift; popover reactions use surface hover.
-- Do not infer authentication from locale or UI text.
-- Do not persist auth tokens or messages in browser storage.
-- Do not introduce new image assets or inline SVG when the repository already has a suitable icon library.
-- Do not turn the golden component into a general UI framework or add speculative variants.
+- `workKey` is public and opaque. Never substitute a creator ID, product ID,
+  slug, token, or credential.
+- The hosted SDK owns rendering, iframe placement, public API calls,
+  persistence, and cleanup.
+- The host owns only script placement and its own page content.
+- Tipping is handled by `viceme-tip`, not this Skill.
+- Self-hosting or copying the component source is outside this Skill.
 
 ## Handoff
 
-Report:
-
-- files created or changed;
-- repository-specific adaptations made to the golden blueprint;
-- checks run and their results;
-- responsive, keyboard, and reduced-motion coverage;
-- any visual or runtime boundary that remains unverified.
+Report changed files, the selected Profile and public `workKey`, checks run,
+responsive and keyboard coverage, and any unverified CSP or hosted-runtime
+boundary. Never report credentials.

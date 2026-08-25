@@ -43,6 +43,43 @@ type AuthUser struct {
 	AvatarURL   *string `json:"avatarUrl"`
 }
 
+type SdkWorkFeatureConfig struct {
+	FeatureKey string               `json:"featureKey"`
+	Title      string               `json:"title"`
+	Policy     SdkWorkFeaturePolicy `json:"policy"`
+	Status     string               `json:"status"`
+}
+
+type SdkWorkFeaturePolicy struct {
+	Type string `json:"type"`
+}
+
+type CreateSdkWorkRequest struct {
+	DisplayName string `json:"displayName"`
+}
+
+type ApplySdkWorkRequest struct {
+	ExpectedConfigVersion int                    `json:"expectedConfigVersion"`
+	DisplayName           string                 `json:"displayName"`
+	Features              []SdkWorkFeatureConfig `json:"features"`
+	Status                string                 `json:"status"`
+}
+
+type SdkWork struct {
+	WorkKey       string                 `json:"workKey"`
+	DisplayName   string                 `json:"displayName"`
+	Status        string                 `json:"status"`
+	ConfigVersion int                    `json:"configVersion"`
+	Features      []SdkWorkFeatureConfig `json:"features"`
+	Capabilities  []string               `json:"capabilities"`
+	CreatedAt     string                 `json:"createdAt"`
+	UpdatedAt     string                 `json:"updatedAt"`
+}
+
+type SdkWorks struct {
+	Works []SdkWork `json:"works"`
+}
+
 type SkillPublicationManifest struct {
 	APIVersion string                   `json:"apiVersion" yaml:"apiVersion"`
 	Kind       string                   `json:"kind" yaml:"kind"`
@@ -285,6 +322,32 @@ type ReviewDigestRequest struct {
 
 type CancelPublicationResponse struct {
 	Cancelled bool `json:"cancelled"`
+}
+
+type CreateCreatorAppRequest struct {
+	Name string `json:"name"`
+}
+
+type CreatorAppDomainInfo struct {
+	Domain            string  `json:"domain"`
+	Verified          bool    `json:"verified"`
+	VerificationToken *string `json:"verificationToken"`
+}
+
+type CreatorApp struct {
+	ID        string                 `json:"id"`
+	Kind      string                 `json:"kind"`
+	Name      string                 `json:"name"`
+	Domains   []CreatorAppDomainInfo `json:"domains"`
+	CreatedAt string                 `json:"createdAt"`
+}
+
+type CreatorAppsResponse struct {
+	Items []CreatorApp `json:"items"`
+}
+
+type AddCreatorAppDomainRequest struct {
+	Domain string `json:"domain"`
 }
 
 type APIError struct {

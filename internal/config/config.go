@@ -26,10 +26,12 @@ const (
 )
 
 type Profile struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	APIBaseURL string `json:"apiBaseUrl"`
-	UserID     string `json:"userId,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	APIBaseURL   string `json:"apiBaseUrl"`
+	WebBaseURL   string `json:"webBaseUrl,omitempty"`
+	MarketRegion Region `json:"marketRegion,omitempty"`
+	UserID       string `json:"userId,omitempty"`
 }
 
 type Config struct {
@@ -75,43 +77,69 @@ func APIBaseURL(region Region) string {
 	return "https://api.viceme.cn"
 }
 
+func WebBaseURL(region Region) string {
+	if region == RegionGlobal {
+		return "https://viceme.ai"
+	}
+	return "https://viceme.cn"
+}
+
+func StableReleaseBaseURL(region Region) string {
+	if region == RegionGlobal {
+		return "https://s3.viceme.ai/start/cli/releases"
+	}
+	return "https://s3.viceme.cn/start/cli/releases"
+}
+
 // NormalizeAPIBaseURL returns the canonical persisted endpoint for a profile.
 // Remote endpoints must use HTTPS; loopback HTTP is intentionally supported
 // for local Shop development only.
 func NormalizeAPIBaseURL(raw string) (string, error) {
+	return normalizeBaseURL(raw, "API base URL")
+}
+
+func NormalizeWebBaseURL(raw string) (string, error) {
+	return normalizeBaseURL(raw, "Web base URL")
+}
+
+func NormalizeReleaseBaseURL(raw string) (string, error) {
+	return normalizeBaseURL(raw, "release base URL")
+}
+
+func normalizeBaseURL(raw, label string) (string, error) {
 	value := strings.TrimSpace(raw)
 	if value == "" {
-		return "", fmt.Errorf("API base URL cannot be empty")
+		return "", fmt.Errorf("%s cannot be empty", label)
 	}
 	if len(value) > 2048 {
-		return "", fmt.Errorf("API base URL is too long")
+		return "", fmt.Errorf("%s is too long", label)
 	}
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Opaque != "" {
-		return "", fmt.Errorf("invalid API base URL")
+		return "", fmt.Errorf("invalid %s", label)
 	}
 	scheme := strings.ToLower(parsed.Scheme)
 	hostname := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
 	if hostname == "" {
-		return "", fmt.Errorf("invalid API base URL")
+		return "", fmt.Errorf("invalid %s", label)
 	}
 	switch scheme {
 	case "https":
 	case "http":
 		address := net.ParseIP(hostname)
 		if hostname != "localhost" && (address == nil || !address.IsLoopback()) {
-			return "", fmt.Errorf("API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+			return "", fmt.Errorf("%s must use HTTPS; HTTP is allowed only for localhost or loopback development", label)
 		}
 	default:
-		return "", fmt.Errorf("API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+		return "", fmt.Errorf("%s must use HTTPS; HTTP is allowed only for localhost or loopback development", label)
 	}
 	for _, segment := range strings.Split(parsed.Path, "/") {
 		if segment == "." || segment == ".." {
-			return "", fmt.Errorf("API base URL path cannot contain dot segments")
+			return "", fmt.Errorf("%s path cannot contain dot segments", label)
 		}
 	}
 	if strings.Contains(parsed.Path, `\`) {
-		return "", fmt.Errorf("API base URL path cannot contain backslashes")
+		return "", fmt.Errorf("%s path cannot contain backslashes", label)
 	}
 	port := parsed.Port()
 	if (scheme == "https" && port == "443") || (scheme == "http" && port == "80") {
@@ -135,6 +163,23 @@ func (profile Profile) ResolvedAPIBaseURL() string {
 	return profile.APIBaseURL
 }
 
+func (profile Profile) ResolvedWebBaseURL() string {
+	if profile.WebBaseURL != "" {
+		return profile.WebBaseURL
+	}
+	if profile.APIBaseURL == APIBaseURL(RegionGlobal) {
+		return WebBaseURL(RegionGlobal)
+	}
+	if profile.APIBaseURL == APIBaseURL(RegionCN) {
+		return WebBaseURL(RegionCN)
+	}
+	return ""
+}
+
+func (profile Profile) ResolvedMarketRegion() (Region, error) {
+	return ParseRegion(string(profile.MarketRegion))
+}
+
 func Default(region Region) Config {
 	if parsed, err := ParseRegion(string(region)); err == nil {
 		region = parsed
@@ -145,9 +190,11 @@ func Default(region Region) Config {
 		DistributionRegion: region,
 		CurrentProfile:     DefaultProfileName,
 		Profiles: []Profile{{
-			ID:         DefaultProfileName,
-			Name:       DefaultProfileName,
-			APIBaseURL: APIBaseURL(region),
+			ID:           DefaultProfileName,
+			Name:         DefaultProfileName,
+			APIBaseURL:   APIBaseURL(region),
+			WebBaseURL:   WebBaseURL(region),
+			MarketRegion: region,
 		}},
 	}
 }
@@ -215,25 +262,138 @@ func (config *Config) ProfileNames() []string {
 	return names
 }
 
-func (config *Config) AddProfile(name, apiBaseURL string) (*Profile, error) {
+func (config *Config) AddProfile(name, apiBaseURL, webBaseURL string, marketRegion Region) (*Profile, error) {
 	if err := ValidateProfileName(name); err != nil {
 		return nil, err
 	}
 	if config.FindProfileIndex(name) >= 0 {
 		return nil, fmt.Errorf("profile %q already exists", name)
 	}
-	normalizedAPIBaseURL, err := NormalizeAPIBaseURL(apiBaseURL)
-	if err != nil {
+	profile := Profile{
+		Name:         name,
+		APIBaseURL:   apiBaseURL,
+		WebBaseURL:   webBaseURL,
+		MarketRegion: marketRegion,
+	}
+	if err := normalizeProfileAuthority(&profile, true); err != nil {
 		return nil, err
 	}
 	id, err := newProfileID()
 	if err != nil {
 		return nil, fmt.Errorf("create profile id: %w", err)
 	}
-	config.Profiles = append(config.Profiles, Profile{
-		ID: id, Name: name, APIBaseURL: normalizedAPIBaseURL,
-	})
+	profile.ID = id
+	config.Profiles = append(config.Profiles, profile)
 	return &config.Profiles[len(config.Profiles)-1], nil
+}
+
+func (config *Config) SetProfileAuthority(name, apiBaseURL, webBaseURL string, marketRegion Region) error {
+	index := config.FindProfileIndex(name)
+	if index < 0 {
+		return fmt.Errorf("profile %q not found", name)
+	}
+	candidate := config.Profiles[index]
+	candidate.APIBaseURL = apiBaseURL
+	candidate.WebBaseURL = webBaseURL
+	candidate.MarketRegion = marketRegion
+	if err := normalizeProfileAuthority(&candidate, true); err != nil {
+		return err
+	}
+	config.Profiles[index] = candidate
+	return nil
+}
+
+func ValidateProfileAuthority(profile Profile) error {
+	return normalizeProfileAuthority(&profile, true)
+}
+
+func normalizeProfileAuthority(profile *Profile, requireComplete bool) error {
+	normalizedAPIBaseURL, err := NormalizeAPIBaseURL(profile.APIBaseURL)
+	if err != nil {
+		return err
+	}
+	profile.APIBaseURL = normalizedAPIBaseURL
+
+	apiRegion := officialAPIRegion(profile.APIBaseURL)
+	if apiRegion != "" {
+		if profile.APIBaseURL != APIBaseURL(apiRegion) {
+			return fmt.Errorf(
+				"official %s API profiles must use API base URL %s",
+				strings.ToUpper(string(apiRegion)), APIBaseURL(apiRegion),
+			)
+		}
+		if strings.TrimSpace(profile.WebBaseURL) == "" {
+			profile.WebBaseURL = WebBaseURL(apiRegion)
+		}
+		if profile.MarketRegion == "" {
+			profile.MarketRegion = apiRegion
+		}
+	}
+
+	if strings.TrimSpace(profile.WebBaseURL) != "" {
+		normalizedWebBaseURL, err := NormalizeWebBaseURL(profile.WebBaseURL)
+		if err != nil {
+			return err
+		}
+		profile.WebBaseURL = normalizedWebBaseURL
+	} else {
+		profile.WebBaseURL = ""
+	}
+	if profile.MarketRegion != "" {
+		marketRegion, err := ParseRegion(string(profile.MarketRegion))
+		if err != nil {
+			return fmt.Errorf("market: %w", err)
+		}
+		profile.MarketRegion = marketRegion
+	}
+
+	if apiRegion != "" {
+		if profile.WebBaseURL != WebBaseURL(apiRegion) || profile.MarketRegion != apiRegion {
+			return fmt.Errorf(
+				"official %s API profiles must use Web base URL %s and market region %s",
+				strings.ToUpper(string(apiRegion)), WebBaseURL(apiRegion), strings.ToUpper(string(apiRegion)),
+			)
+		}
+		return nil
+	}
+	if webRegion := officialWebRegion(profile.WebBaseURL); webRegion != "" {
+		return fmt.Errorf(
+			"custom API profiles cannot use official %s Web base URL %s",
+			strings.ToUpper(string(webRegion)), WebBaseURL(webRegion),
+		)
+	}
+	if requireComplete && profile.WebBaseURL == "" {
+		return fmt.Errorf("custom API profiles require an explicit Web base URL")
+	}
+	if requireComplete && profile.MarketRegion == "" {
+		return fmt.Errorf("custom API profiles require an explicit market region")
+	}
+	if profile.WebBaseURL != "" && profile.MarketRegion == "" {
+		return fmt.Errorf("custom API profiles with a Web base URL require an explicit market region")
+	}
+	return nil
+}
+
+func officialAPIRegion(apiBaseURL string) Region {
+	return officialURLRegion(apiBaseURL, APIBaseURL)
+}
+
+func officialWebRegion(webBaseURL string) Region {
+	return officialURLRegion(webBaseURL, WebBaseURL)
+}
+
+func officialURLRegion(value string, baseURL func(Region) string) Region {
+	candidate, err := url.Parse(value)
+	if err != nil {
+		return ""
+	}
+	for _, region := range []Region{RegionCN, RegionGlobal} {
+		official, err := url.Parse(baseURL(region))
+		if err == nil && candidate.Scheme == official.Scheme && candidate.Hostname() == official.Hostname() {
+			return region
+		}
+	}
+	return ""
 }
 
 func ValidateProfileName(name string) error {
@@ -290,7 +450,25 @@ func load(filename string) (Config, error) {
 				if config.Profiles[index].Name == candidate.Name && config.Profiles[index].APIBaseURL == "" {
 					config.Profiles[index].APIBaseURL = APIBaseURL(candidate.Region)
 				}
+				if config.Profiles[index].Name == candidate.Name && config.Profiles[index].MarketRegion == "" {
+					config.Profiles[index].MarketRegion = candidate.Region
+				}
 			}
+		}
+	}
+	for index := range config.Profiles {
+		profile := &config.Profiles[index]
+		for _, region := range []Region{RegionCN, RegionGlobal} {
+			if profile.APIBaseURL != APIBaseURL(region) {
+				continue
+			}
+			if profile.WebBaseURL == "" {
+				profile.WebBaseURL = WebBaseURL(region)
+			}
+			if profile.MarketRegion == "" {
+				profile.MarketRegion = region
+			}
+			break
 		}
 	}
 	if err := validate(&config); err != nil {
@@ -333,11 +511,9 @@ func validate(config *Config) error {
 			return fmt.Errorf("duplicate profile name %q", profile.Name)
 		}
 		names[profile.Name] = struct{}{}
-		normalized, err := NormalizeAPIBaseURL(profile.APIBaseURL)
-		if err != nil {
+		if err := normalizeProfileAuthority(profile, false); err != nil {
 			return fmt.Errorf("profile %q: %w", profile.Name, err)
 		}
-		profile.APIBaseURL = normalized
 	}
 	if config.CurrentProfile == "" {
 		config.CurrentProfile = config.Profiles[0].Name
