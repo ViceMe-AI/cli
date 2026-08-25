@@ -868,7 +868,7 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	assertPlatformCommerceTrustBoundary(t, flowWaitData)
 }
 
-func TestCommerceFlowFreeLongRunningConfirmReturnsCaseAndPendingFulfillment(t *testing.T) {
+func TestCommerceFlowFreeLongRunningConfirmReturnsInteractionAndPendingFulfillment(t *testing.T) {
 	const (
 		stableName   = "viceme-buy-recruitment"
 		localContext = "10000000-0000-4000-8000-000000000011"
@@ -902,11 +902,14 @@ func TestCommerceFlowFreeLongRunningConfirmReturnsCaseAndPendingFulfillment(t *t
 				"orderNo":     orderNo,
 				"payment":     map[string]any{"status": "PAID", "paidAt": time.Now().UTC().Format(time.RFC3339), "closedAt": nil},
 				"fulfillment": map[string]any{"status": "PENDING", "currentTask": "MANUAL_PROCESSING"},
-				"serviceCase": map[string]any{
-					"id": "60000000-0000-4000-8000-000000000011", "caseNo": "VMSC202608250011",
-					"orderNo": orderNo, "fulfillmentId": "70000000-0000-4000-8000-000000000011",
-					"status": "SUBMITTED", "currentStageCode": "INTAKE",
-					"publicProgress": map[string]any{"message": "服务请求已提交"},
+				"interaction": map[string]any{
+					"schemaVersion": 1,
+					"instance": map[string]any{
+						"instanceNo": "VMI202608250011", "lifecycleStatus": "OPEN",
+						"stateCode": "REQUESTED", "version": 1,
+					},
+					"overview": map[string]any{}, "records": []any{}, "tasks": []any{},
+					"timeline": []any{}, "allowedActions": []any{},
 				},
 			})
 		default:
@@ -946,11 +949,11 @@ func TestCommerceFlowFreeLongRunningConfirmReturnsCaseAndPendingFulfillment(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.NextAction != commerceFlowCompleted || result.Status == nil || result.Status.ServiceCase == nil {
+	if result.NextAction != commerceFlowCompleted || result.Status == nil || result.Status.Interaction == nil {
 		t.Fatalf("free long-running confirm omitted authoritative status: %#v", result)
 	}
-	if result.Status.ServiceCase.CaseNo != "VMSC202608250011" {
-		t.Fatalf("free long-running confirm returned the wrong Case: %#v", result.Status.ServiceCase)
+	if result.Status.Interaction.Instance.InstanceNo != "VMI202608250011" {
+		t.Fatalf("free long-running confirm returned the wrong Interaction: %#v", result.Status.Interaction)
 	}
 	var fulfillment struct {
 		Status string `json:"status"`

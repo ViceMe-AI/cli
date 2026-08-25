@@ -21,7 +21,7 @@ const (
 	commerceFlowPaymentClosed      = "PAYMENT_CLOSED"
 	commerceFlowFulfillmentPending = "FULFILLMENT_PENDING"
 	commerceFlowCompleted          = "COMPLETED"
-	commerceFlowReportService      = "REPORT_SERVICE_PROGRESS"
+	commerceFlowReportInteraction  = "REPORT_INTERACTION_PROGRESS"
 )
 
 type commerceFlowStartResult struct {
@@ -51,10 +51,10 @@ type commerceFlowWaitResult struct {
 	Status        api.OrderStatusResponse `json:"status"`
 }
 
-type commerceFlowCaseResult struct {
+type commerceFlowInteractionResult struct {
 	NextAction    string                `json:"nextAction"`
 	TrustBoundary commerceTrustBoundary `json:"trustBoundary"`
-	ServiceCase   api.ServiceCase       `json:"serviceCase"`
+	Interaction   api.Interaction       `json:"interaction"`
 }
 
 type commerceTrustBoundary struct {
@@ -84,15 +84,15 @@ func newCommerceFlowCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newCommerceFlowQuoteCommand(runtime))
 	command.AddCommand(newCommerceFlowConfirmCommand(runtime))
 	command.AddCommand(newCommerceFlowWaitCommand(runtime))
-	command.AddCommand(newCommerceFlowCaseCommand(runtime))
+	command.AddCommand(newCommerceFlowInteractionCommand(runtime))
 	return command
 }
 
-func newCommerceFlowCaseCommand(runtime *Runtime) *cobra.Command {
+func newCommerceFlowInteractionCommand(runtime *Runtime) *cobra.Command {
 	var stableName, orderNo string
 	command := &cobra.Command{
-		Use:   "case",
-		Short: "Read long-running service progress from the original Commerce Session",
+		Use:   "interaction",
+		Short: "Read purchase Interaction progress from the original Commerce Session",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			state, err := runtime.requireCommerceSession(stableName)
@@ -110,17 +110,17 @@ func newCommerceFlowCaseCommand(runtime *Runtime) *cobra.Command {
 				return output.Policy("COMMERCE_SESSION_RECOVERY_UNAVAILABLE", "the original Commerce Session is no longer recoverable").
 					WithHint("cross-session service queries are intentionally unsupported")
 			}
-			serviceCase, err := runtime.client().GetCommerceServiceCaseByOrder(command.Context(), orderNo, state.Token)
+			status, err := runtime.client().GetCommerceOrderStatus(command.Context(), orderNo, state.Token)
 			if err != nil {
 				return err
 			}
-			if serviceCase.OrderNo != orderNo {
-				return output.Internal("COMMERCE_SERVICE_CASE_RESPONSE_INVALID", "service case belongs to a different order", nil)
+			if status.OrderNo != orderNo || status.Interaction == nil || status.Interaction.Instance.InstanceNo == "" {
+				return output.Internal("COMMERCE_INTERACTION_RESPONSE_INVALID", "order Interaction is missing or invalid", nil)
 			}
-			return runtime.business(commerceFlowCaseResult{
-				NextAction:    commerceFlowReportService,
+			return runtime.business(commerceFlowInteractionResult{
+				NextAction:    commerceFlowReportInteraction,
 				TrustBoundary: platformCommerceTrustBoundary(),
-				ServiceCase:   serviceCase,
+				Interaction:   *status.Interaction,
 			})
 		},
 	}

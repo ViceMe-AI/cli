@@ -350,26 +350,24 @@ type OrderStatusResponse struct {
 	OrderNo     string          `json:"orderNo"`
 	Payment     json.RawMessage `json:"payment"`
 	Fulfillment json.RawMessage `json:"fulfillment"`
-	ServiceCase *ServiceCase    `json:"serviceCase"`
+	Interaction *Interaction    `json:"interaction"`
 }
 
-type ServiceCase struct {
-	ID               string          `json:"id"`
-	CaseNo           string          `json:"caseNo"`
-	OrderNo          string          `json:"orderNo"`
-	FulfillmentID    string          `json:"fulfillmentId"`
-	Work             json.RawMessage `json:"work"`
-	Merchant         json.RawMessage `json:"merchant"`
-	Status           string          `json:"status"`
-	CurrentStageCode string          `json:"currentStageCode"`
-	Stages           json.RawMessage `json:"stages"`
-	Intake           json.RawMessage `json:"intake"`
-	PublicProgress   json.RawMessage `json:"publicProgress"`
-	LockVersion      int             `json:"lockVersion"`
-	Events           json.RawMessage `json:"events"`
-	SubmittedAt      string          `json:"submittedAt"`
-	CompletedAt      *string         `json:"completedAt"`
-	UpdatedAt        string          `json:"updatedAt"`
+type Interaction struct {
+	SchemaVersion  int             `json:"schemaVersion"`
+	Instance       InteractionInfo `json:"instance"`
+	Overview       json.RawMessage `json:"overview"`
+	Records        json.RawMessage `json:"records"`
+	Tasks          json.RawMessage `json:"tasks"`
+	Timeline       json.RawMessage `json:"timeline"`
+	AllowedActions json.RawMessage `json:"allowedActions"`
+}
+
+type InteractionInfo struct {
+	InstanceNo      string `json:"instanceNo"`
+	LifecycleStatus string `json:"lifecycleStatus"`
+	StateCode       string `json:"stateCode"`
+	Version         int    `json:"version"`
 }
 
 type SkillPublicationManifest struct {

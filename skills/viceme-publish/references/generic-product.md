@@ -55,12 +55,13 @@ Use natural language, but obtain concrete values for every required fact:
 - every buyer-provided field: stable key, user-facing label, type, required
   flag, sensitivity, authorized audience, retention, and semantic role;
 - fulfillment order: manual processing, shipment, or both;
-- service mode: use `FULFILLMENT_ONLY` for one-order work such as photo
-  printing and manual recharge; use `LONG_RUNNING` only when the buyer needs a
-  persistent staged case such as recruitment;
-- for `LONG_RUNNING`, collect the public ordered stage labels and at least one
-  terminal stage. Case lookup remains limited to the original Commerce
-  Session.
+- execution mode: use `FULFILLMENT_ONLY` for one-order work such as photo
+  printing and manual recharge; use `INTERACTION` when the buyer needs a
+  persistent staged workflow such as recruitment;
+- for `INTERACTION`, publish the Work/Product, then compile and activate a
+  purchase Interaction Definition before declaring the offering ready or
+  creating any Quote. Progress lookup remains limited to the original Commerce
+  Session or a claimed registered user.
 
 Do not collect credentials, passwords, OTPs, tokens, or a buyer-supplied amount.
 Price is always server-owned SKU data. Shipment requires required recipient
@@ -105,8 +106,7 @@ For example, a photo-printing Work with one-order fulfillment is:
       { "code": "COMPLETED", "label": "已完成", "terminal": true }
     ],
     "policy": {
-      "caseMode": "FULFILLMENT_ONLY",
-      "currentSessionOnly": true
+      "executionMode": "FULFILLMENT_ONLY"
     }
   }
 }
@@ -114,7 +114,9 @@ For example, a photo-printing Work with one-order fulfillment is:
 
 For a long-running recruitment service, use public stages such as `ACCEPTED`,
 `SOURCING`, `CANDIDATES_RECOMMENDED`, `INTERVIEWING`, and terminal
-`COMPLETED`, with `policy.caseMode` set to `LONG_RUNNING`. Do not put company,
+`COMPLETED`, with `policy.executionMode` set to `INTERACTION`. Publish and
+activate a `PURCHASE` Interaction definition for the same Work before creating
+quotes. Do not put company,
 contact, phone, address, photos, or other buyer data in Work content or
 `intakeSchema`; those belong to the Product buyer contract and encrypted order
 contract.

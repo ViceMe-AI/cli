@@ -306,13 +306,6 @@ func (c *Client) GetCommerceOrderStatus(ctx context.Context, orderNo, sessionTok
 	return response, err
 }
 
-func (c *Client) GetCommerceServiceCaseByOrder(ctx context.Context, orderNo, sessionToken string) (ServiceCase, error) {
-	var response ServiceCase
-	endpoint := "/v1/commerce/service-cases/orders/" + url.PathEscape(orderNo)
-	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, sessionToken)
-	return response, err
-}
-
 func (c *Client) PutPresigned(ctx context.Context, rawURL string, headers map[string]string, body io.Reader, size int64) error {
 	if err := validateUploadURL(rawURL); err != nil {
 		return output.Validation("UPLOAD_URL_INVALID", "upload URL must use HTTPS; loopback HTTP is allowed only for development")
