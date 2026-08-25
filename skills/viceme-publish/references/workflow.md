@@ -1,4 +1,4 @@
-# Skill listing publication command contract
+# Publication command contract
 
 All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 

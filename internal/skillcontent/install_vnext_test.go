@@ -1,7 +1,9 @@
 package skillcontent
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,12 +80,13 @@ func TestInstallSetActivatesAllOfficialSkillsTogether(t *testing.T) {
 	writeTestSkill(t, root, "viceme-shared")
 	writeTestSkill(t, root, "viceme-publish")
 	writeTestSkill(t, root, "viceme-danmaku")
-	writeTestSkill(t, root, "viceme-access")
+	writeTestSkill(t, root, "viceme-tip")
+	writeTestSkill(t, root, "viceme-engagement")
 	home := t.TempDir()
 	environment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
 	bundle := New(os.DirFS(root))
 
-	skillNames := []string{"viceme-shared", "viceme-publish", "viceme-danmaku", "viceme-access"}
+	skillNames := []string{"viceme-shared", "viceme-publish", "viceme-danmaku", "viceme-tip", "viceme-engagement"}
 	reports := bundle.InstallSet(skillNames, "agents", environment)
 	if len(reports) != len(skillNames) {
 		t.Fatalf("transaction did not report every official Skill: %#v", reports)
@@ -258,6 +261,91 @@ func TestInstallTransactionLockRejectsConcurrentMutation(t *testing.T) {
 	defer transaction.Rollback()
 	if _, _, err := bundle.PrepareInstallSet([]string{"viceme-test"}, "agents", environment); err == nil || !strings.Contains(err.Error(), "another ViceMe install transaction") {
 		t.Fatalf("concurrent install was not rejected: %v", err)
+	}
+}
+
+func TestInstallTransactionRetiresOnlyManagedMatchingSkill(t *testing.T) {
+	t.Parallel()
+	activeRoot := t.TempDir()
+	legacyRoot := t.TempDir()
+	writeTestSkill(t, activeRoot, "viceme-current")
+	writeTestSkill(t, legacyRoot, "viceme-access")
+	activeBundle := New(os.DirFS(activeRoot))
+	legacyBundle := New(os.DirFS(legacyRoot))
+	home := t.TempDir()
+	environment := Environment{
+		Home:      home,
+		CodexHome: filepath.Join(home, ".codex"),
+		ConfigDir: filepath.Join(home, ".viceme-cli"),
+	}
+	if report := legacyBundle.Install("viceme-access", "agents", environment); !report.AllSucceeded {
+		t.Fatalf("legacy Skill fixture did not install: %#v", report)
+	}
+	metadata, err := legacyBundle.Package("viceme-access")
+	if err != nil {
+		t.Fatal(err)
+	}
+	digests, err := legacyBundle.Digests("viceme-access")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retired := []RetiredSkillIdentity{{
+		Name:                  "viceme-access",
+		SkillVersion:          metadata.SkillVersion,
+		MinimumCLIVersion:     metadata.MinimumCLIVersion,
+		CLICompatibility:      metadata.CLICompatibility,
+		FullBundleDigest:      digests.Full,
+		EmbeddedContentDigest: digests.Embedded,
+	}}
+	managedPath := filepath.Join(home, ".agents", "skills", "viceme-access")
+	userPath := filepath.Join(home, ".codex", "skills", "viceme-access")
+	if err := os.MkdirAll(userPath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	userContent := []byte("user-owned same-name Skill\n")
+	if err := os.WriteFile(filepath.Join(userPath, "SKILL.md"), userContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	transaction, reports, err := activeBundle.PrepareInstallSetWithRetirements(
+		[]string{"viceme-current"}, retired, "codex", environment,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 || !reports[0].AllSucceeded {
+		t.Fatalf("active Skill was not prepared: %#v", reports)
+	}
+	if _, err := os.Stat(managedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("managed retired Skill was not staged for deletion: %v", err)
+	}
+	if actual, err := os.ReadFile(filepath.Join(userPath, "SKILL.md")); err != nil || !bytes.Equal(actual, userContent) {
+		t.Fatalf("user-owned same-name directory was changed: content=%q err=%v", actual, err)
+	}
+	if err := transaction.Rollback(); err != nil {
+		t.Fatal(err)
+	}
+	if !legacyBundle.Doctor("viceme-access", "agents", environment).Healthy {
+		t.Fatal("rollback did not restore the managed retired Skill")
+	}
+
+	transaction, _, err = activeBundle.PrepareInstallSetWithRetirements(
+		[]string{"viceme-current"}, retired, "codex", environment,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := transaction.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(managedPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("committed installation retained the managed retired Skill: %v", err)
+	}
+	if actual, err := os.ReadFile(filepath.Join(userPath, "SKILL.md")); err != nil || !bytes.Equal(actual, userContent) {
+		t.Fatalf("committed installation removed a user-owned same-name directory: content=%q err=%v", actual, err)
+	}
+	if !activeBundle.Doctor("viceme-current", "codex", environment).Healthy {
+		t.Fatal("active official Skill was not committed")
 	}
 }
 

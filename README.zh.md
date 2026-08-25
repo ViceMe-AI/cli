@@ -35,7 +35,7 @@
 | 能力 | ViceMe 提供的内容 |
 | --- | --- |
 | 发布 Skill | 校验本地 Skill 目录或 ZIP、设置人民币价格、上传、审核平台建议，并发布付费商品。 |
-| 构建组件 | 让 Agent 把随包提供的生产级弹幕蓝图接入 React 与 Tailwind CSS v4 项目。 |
+| 接入网站互动 | 创建创作者自有的公开弹幕 Work，绑定支持赞赏的 Creator App，并安装 CLI 生成的托管脚本。 |
 | 配置 Agent | 把 CLI 与官方 Skills 作为同一个兼容版本安装、登录、更新、诊断和修复。 |
 | 安全恢复 | 网络或进程中断后继续原发布任务，不重复上传和创建商品。 |
 
@@ -150,9 +150,10 @@ npx --yes @viceme-ai/cli@latest install
 | Skill | 适用场景 |
 | --- | --- |
 | `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
-| `viceme-publish` | 发布本地 Skill 目录、ZIP 或创作者网站，并维护稳定作品身份。 |
-| `viceme-access` | 为已发布的网站接入登录、关注、功能权限与一次性购买。 |
-| `viceme-danmaku` | 在已有项目中构建或适配随包提供的生产级 React 与 Tailwind CSS v4 弹幕组件。 |
+| `viceme-publish` | 把本地 Skill 目录或 ZIP 校验、上传、审核、恢复或发布为 ViceMe 付费商品。 |
+| `viceme-danmaku` | 创建公开弹幕 Work，并安装 CLI 生成的托管 SDK 片段。 |
+| `viceme-tip` | 完成登录、绑定创作者作品与验证域名，并把 ViceMe 托管赞赏接入一个 HTML 页面。 |
+| `viceme-engagement` | 创建托管弹幕、绑定赞赏，并安装唯一权威的组合交互脚本。 |
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
 可以解释每一步决策，而相同的命令契约仍可在终端或自动化中复现。
@@ -182,8 +183,8 @@ viceme skill publish --resume <publication-id>
 
 ## 登录与 Profile
 
-每个 Profile 绑定一个明确的 API Endpoint 和一个通过浏览器授权的账户。发布目标完全
-由当前 Profile 的 Endpoint 决定；单独的分发区域只选择 CLI 与官方 Skills 的下载来源。
+每个 Profile 把 API Base URL、Web Base URL、市场区域和浏览器授权账户绑定为一个完整
+authority；单独的分发区域只选择 CLI 与官方 Skills 的下载来源。
 
 ```bash
 viceme auth login
@@ -200,13 +201,16 @@ viceme profile use default
 viceme profile add \
   --name private-cn \
   --api-base-url https://api.example.com \
+  --web-base-url https://www.example.com \
+  --market-region cn \
   --use
 viceme auth login
 ```
 
-`VICEME_API_BASE_URL` 只是单进程 CI / 调试覆盖，不是 Profile 状态。远程自定义
+`VICEME_API_BASE_URL` 只是 API-only 的单进程 CI / 调试覆盖，不是 Profile 状态；
+设置时禁止持久化登录和生成网站嵌入片段。远程自定义
 Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以使用 HTTP。
-凭据按 Profile 和 API Origin 隔离；Agent 不能因为另一个 Profile 已登录就擅自切换。
+凭据按完整 Profile authority 隔离；Agent 不能因为另一个 Profile 已登录就擅自切换。
 
 `viceme auth login` 会一直等待，直到浏览器授权完成或达到有界超时。Agent 必须保持
 命令运行，向用户展示一次性完整链接并等待最终结果。页面会在必要时先完成登录，随后
@@ -220,9 +224,10 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme version` | 显示 CLI 与随包 Skills 版本。 |
 | `viceme doctor` | 检查 CLI、当前 Profile、凭据、API readiness 和已安装官方 Skills。 |
 | `viceme auth status` | 显示当前 Profile 是否已登录。 |
-| `viceme website publish --path <目录> --name <名称> [--url <网址>] [--description-zh-cn ...] [--description-en-us ...] [--cover <图片>]` | 使用可选的 Agent 审核描述和平台托管封面发布网站作品；重复发布复用 `.viceme/website.json` 中的同一作品身份。 |
-| `viceme access init --website <目录> [--name <名称>] [--follow key] [--purchase key --price-minor 分]...` | 仅为已显式发布的 Website 配置接入和按功能独立定价的一次性售卖方案；不存在已发布绑定时先走 Website Publish 流程。 |
-| `viceme profile list` | 显示 Profile 及其实际 API Endpoint。 |
+| `viceme access init --name <名称> --danmaku` | 创建并激活创作者自有的公开托管弹幕 Work。 |
+| `viceme access inspect` / `viceme access apply` | 检查或显式协调绑定 Profile 的弹幕配置。 |
+| `viceme creator-app show <app-id> --work-key <work-key> --locale <locale>` | 校验两个自有资源，并按页面的 `zh-CN` 或 `en-US` 语言生成权威组合交互片段。 |
+| `viceme profile list` | 显示 Profile 的 API、Web 与市场 authority。 |
 | `viceme skill inspect --path <path>` | 无副作用校验本地 Skill。 |
 | `viceme skill listing prepare --path <path>` | 创建或恢复稳定的创作者私有预览，并保存本地绑定。 |
 | `viceme skill listing get <listing-id>` | 读取权威的私有 Listing 状态。 |

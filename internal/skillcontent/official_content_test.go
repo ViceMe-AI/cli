@@ -49,53 +49,49 @@ func TestPublishSkillKeepsHistoricalContextOutOfProfileSelection(t *testing.T) {
 	}
 }
 
-func TestWebsitePublicationBelongsToPublishSkill(t *testing.T) {
+func TestDanmakuSkillUsesOnlyHostedIntegration(t *testing.T) {
 	t.Parallel()
-
-	publishEntrypoint, err := fs.ReadFile(
-		cliembed.EmbeddedSkills(),
-		"viceme-publish/SKILL.md",
-	)
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-danmaku/SKILL.md")
 	if err != nil {
-		t.Fatalf("read embedded publish Skill: %v", err)
+		t.Fatal(err)
 	}
-	if !strings.Contains(string(publishEntrypoint), "references/website-workflow.md") {
-		t.Fatal("publish Skill does not route website publication")
+	text := string(content)
+	for _, required := range []string{"access init", "--danmaku", "data.embedSnippet", "must not copy"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("hosted danmaku Skill omitted %q", required)
+		}
 	}
+	for _, forbidden := range []string{"FOLLOW_OWNER", "WORK_ENTITLEMENT", "React blueprint"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("hosted danmaku Skill retained excluded capability %q", forbidden)
+		}
+	}
+	if _, err := fs.Stat(cliembed.EmbeddedSkills(), "viceme-danmaku/references/cdn-sdk.md"); err != nil {
+		t.Fatalf("hosted SDK contract is missing: %v", err)
+	}
+}
 
-	publishWorkflow, err := fs.ReadFile(
-		cliembed.EmbeddedSkills(),
-		"viceme-publish/references/website-workflow.md",
-	)
+func TestEngagementSkillConsumesAuthoritativeCombinedSnippet(t *testing.T) {
+	t.Parallel()
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-engagement/SKILL.md")
 	if err != nil {
-		t.Fatalf("read embedded website publication workflow: %v", err)
+		t.Fatal(err)
 	}
+	text := string(content)
 	for _, required := range []string{
-		"viceme website publish",
-		"clientWorkId",
-		"--creator-display-name",
-		"$viceme-access",
+		"access init",
+		"creator-app create",
+		"creator-app domain verify",
+		"creator-app show <app-id> --work-key <work-key> --locale <zh-CN-or-en-US>",
+		"data.engagementEmbedSnippet",
 	} {
-		if !strings.Contains(string(publishWorkflow), required) {
-			t.Fatalf("website publication workflow is missing %q", required)
+		if !strings.Contains(text, required) {
+			t.Fatalf("engagement Skill omitted %q", required)
 		}
 	}
-
-	for _, relativePath := range []string{
-		"viceme-access/SKILL.md",
-		"viceme-access/references/integration.md",
-	} {
-		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
-		if err != nil {
-			t.Fatalf("read embedded %s: %v", relativePath, err)
-		}
-		if strings.Contains(string(content), "viceme website publish") {
-			t.Fatalf("embedded %s still owns website publication", relativePath)
-		}
-		for _, required := range []string{"$viceme-publish", "never publishes"} {
-			if !strings.Contains(string(content), required) {
-				t.Fatalf("embedded %s does not enforce explicit publication through %q", relativePath, required)
-			}
+	for _, forbidden := range []string{"website publish", "FOLLOW_OWNER", "WORK_ENTITLEMENT"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("engagement Skill retained excluded flow %q", forbidden)
 		}
 	}
 }

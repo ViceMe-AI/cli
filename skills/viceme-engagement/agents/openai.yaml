@@ -1,0 +1,4 @@
+interface:
+  display_name: "Integrate ViceMe Engagement"
+  short_description: "Add hosted danmaku and tips together"
+  default_prompt: "Use $viceme-engagement to add ViceMe danmaku and tips to this website through the complete CLI flow."
