@@ -150,7 +150,8 @@ npx --yes @viceme-ai/cli@latest install
 | Skill | 适用场景 |
 | --- | --- |
 | `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
-| `viceme-publish` | 把本地 Skill 目录或 ZIP 校验、上传、审核、恢复或发布为 ViceMe 付费商品。 |
+| `viceme-publish` | 发布本地 Skill 目录、ZIP 或创作者网站，并维护稳定作品身份。 |
+| `viceme-access` | 为已发布的网站接入登录、关注、功能权限与一次性购买。 |
 | `viceme-danmaku` | 在已有项目中构建或适配随包提供的生产级 React 与 Tailwind CSS v4 弹幕组件。 |
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
@@ -219,6 +220,8 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme version` | 显示 CLI 与随包 Skills 版本。 |
 | `viceme doctor` | 检查 CLI、当前 Profile、凭据、API readiness 和已安装官方 Skills。 |
 | `viceme auth status` | 显示当前 Profile 是否已登录。 |
+| `viceme website publish --path <目录> --name <名称> [--url <网址>] [--description-zh-cn ...] [--description-en-us ...] [--cover <图片>]` | 使用可选的 Agent 审核描述和平台托管封面发布网站作品；重复发布复用 `.viceme/website.json` 中的同一作品身份。 |
+| `viceme access init --website <目录> [--name <名称>] [--follow key] [--purchase key --price-minor 分]...` | 仅为已显式发布的 Website 配置接入和按功能独立定价的一次性售卖方案；不存在已发布绑定时先走 Website Publish 流程。 |
 | `viceme profile list` | 显示 Profile 及其实际 API Endpoint。 |
 | `viceme skill inspect --path <path>` | 无副作用校验本地 Skill。 |
 | `viceme skill listing prepare --path <path>` | 创建或恢复稳定的创作者私有预览，并保存本地绑定。 |
