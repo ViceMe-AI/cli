@@ -227,6 +227,27 @@ func (c *Client) GetCommerceSkillTrustKey(ctx context.Context, keyID string) (Co
 	return response, err
 }
 
+func (c *Client) GetInteractionSkill(ctx context.Context, stableName string) (InteractionSkillDescriptor, error) {
+	var response InteractionSkillDescriptor
+	endpoint := "/v1/interaction-skills/" + url.PathEscape(stableName)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "")
+	return response, err
+}
+
+func (c *Client) GetInteractionSkillInstall(ctx context.Context, stableName, agent string) (InteractionSkillInstall, error) {
+	var response InteractionSkillInstall
+	query := url.Values{"agent": {agent}}
+	endpoint := "/v1/interaction-skills/" + url.PathEscape(stableName) + "/install?" + query.Encode()
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "")
+	return response, err
+}
+
+func (c *Client) CreateInteraction(ctx context.Context, input json.RawMessage) (json.RawMessage, error) {
+	var response json.RawMessage
+	err := c.doJSON(ctx, http.MethodPost, "/v1/interactions", input, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) DownloadArtifact(ctx context.Context, rawURL string) ([]byte, error) {
 	if err := validateUploadURL(rawURL); err != nil {
 		return nil, output.Validation("ARTIFACT_URL_INVALID", "artifact URL must use HTTPS; loopback HTTP is allowed only for development")

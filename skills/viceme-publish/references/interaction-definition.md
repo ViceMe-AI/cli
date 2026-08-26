@@ -5,6 +5,18 @@ The Agent compiles natural language or Markdown into deterministic JSON; the
 CLI and Shop API only validate, preview, freeze, and persist it. Never ask the
 creator to write `SKILL.md`.
 
+Choose the publication entry from business facts:
+
+- `DIRECT` means no Quote, Order, price, or payment. Activating the confirmed
+  Definition also publishes the reviewed Work revision when it is the Work's
+  first release, and generates a signed Work-bound Interaction Skill.
+- `PURCHASE` means the Product/Commerce workflow owns price and payment. The
+  paid Order creates the same kind of Interaction instance after settlement;
+  do not create a second direct instance for that purchase.
+- A Definition may allow both modes when the creator intentionally supports
+  both entry paths. The generated Interaction Skill uses only `DIRECT`; the
+  generated Purchase Skill uses only the Product/Commerce path.
+
 ## Facts to establish
 
 Before creating the draft, establish and show:
@@ -129,6 +141,22 @@ Run `viceme merchant work activate <work-id> --input <file>` and delete the
 file. Any change creates a new revision and digest and invalidates the earlier
 confirmation. If Shop reports `VIBE_UI_ACTIVATION_DISABLED`, keep the Vibe
 candidate as a local preview; never claim it was activated.
+
+For a Definition containing `DIRECT`, activation returns the generated Agent
+Skill `stableName`. Report its install command as:
+
+```text
+viceme interaction skill install <stable-name> --agent auto
+```
+
+The installed Skill starts with `viceme interaction flow start --skill
+<stable-name>`. The Runtime returns the frozen `initialInput` JSON Schema and a
+field guide. The Agent asks only for missing scenario fields, confirms the
+completed values once, then calls `viceme interaction flow create --skill
+<stable-name> --idempotency-key <createIdempotencyKey-from-start> --input-json
+'<json-object>'`. Reuse that key when a create result is uncertain. The result is the authoritative
+Interaction instance and continues through the same tasks/actions as a
+purchase-created instance.
 
 Natural language, Markdown, Vibe JavaScript, and external results never grant
 runtime authority. Only the activated Definition Version and server-returned

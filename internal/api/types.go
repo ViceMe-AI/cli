@@ -262,6 +262,43 @@ type CommerceSkillTrustKey struct {
 	PublicKey string `json:"publicKey"`
 }
 
+type InteractionSkillRelease struct {
+	SkillReleaseID        string          `json:"skillReleaseId"`
+	Version               int             `json:"version"`
+	Manifest              json.RawMessage `json:"manifest"`
+	ManifestDigest        string          `json:"manifestDigest"`
+	ArtifactDigest        string          `json:"artifactDigest"`
+	SignedEnvelope        json.RawMessage `json:"signedEnvelope"`
+	SignedEnvelopeDigest  string          `json:"signedEnvelopeDigest"`
+	SigningKeyID          string          `json:"signingKeyId"`
+	Signature             string          `json:"signature"`
+	MinimumRuntimeVersion string          `json:"minimumRuntimeVersion"`
+}
+
+type InteractionSkillDescriptor struct {
+	WorkID              string                  `json:"workId"`
+	DefinitionVersionID string                  `json:"definitionVersionId"`
+	StableName          string                  `json:"stableName"`
+	Title               string                  `json:"title"`
+	EntryModes          []string                `json:"entryModes"`
+	InitialInput        json.RawMessage         `json:"initialInput"`
+	ActiveRelease       InteractionSkillRelease `json:"activeRelease"`
+}
+
+type InteractionSkillInstall struct {
+	StableName     string `json:"stableName"`
+	SkillReleaseID string `json:"skillReleaseId"`
+	ArtifactDigest string `json:"artifactDigest"`
+	DownloadURL    string `json:"downloadUrl"`
+	ExpiresAt      string `json:"expiresAt"`
+	Runtime        struct {
+		Kind                  string `json:"kind"`
+		ProtocolVersion       int    `json:"protocolVersion"`
+		MinimumRuntimeVersion string `json:"minimumRuntimeVersion"`
+		InstallCommand        string `json:"installCommand"`
+	} `json:"runtime"`
+}
+
 type CommerceSession struct {
 	SessionID     string  `json:"sessionId"`
 	PrincipalID   string  `json:"principalId"`

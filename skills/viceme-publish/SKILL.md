@@ -1,6 +1,6 @@
 ---
 name: viceme-publish
-description: Publish or update a creator Work and its optional ViceMe Product. Use when a creator wants to publish a local AI Skill package, service, physical or custom-made item, official ViceMe offering, or website Work; prepare the public HTML and Markdown representations; collect SKU, buyer-contract, and fulfillment facts; generate the server-bound purchase Skill; review before activation; or recover an interrupted publication.
+description: Publish or update a creator Work and its optional ViceMe Product or Interaction Skill. Use when a creator wants to publish a local AI Skill package, paid offering, direct service, application, booking, physical/custom-made item, official ViceMe offering, or website Work; compile scenario input and workflow rules; review before activation; or recover an interrupted publication.
 ---
 
 # Publish on ViceMe
@@ -16,13 +16,19 @@ Identify what the buyer receives before creating anything:
 - A local AI Skill directory or ZIP whose bytes are the sold deliverable: read
   [workflow.md](references/workflow.md) completely and use the existing
   `skill publish` / `publication` workflow.
-- A service, physical/custom-made item, booking-like deliverable, official
-  ViceMe offering, or other merchant-defined offering: read
+- A priced service, physical/custom-made item, or other offering that requires
+  Quote, Order, or payment: read
   [generic-product.md](references/generic-product.md) completely and use the
-  unified Merchant Work/Product workflow. Photo printing, the current
-  manually fulfilled official mobile-recharge offer, and long-running
-  recruitment services all belong here. A Product is never public without a
-  real Work, even though the generated purchase entrance is itself a Skill.
+  Merchant Work/Product workflow. Photo printing and the current manually
+  fulfilled official mobile-recharge offer belong here. A Product is never
+  public without a real Work, even though its generated purchase entrance is
+  itself a Skill.
+- A service with no price or payment, including free recruitment applications,
+  registration, intake, trial, and direct booking: read
+  [interaction-definition.md](references/interaction-definition.md)
+  completely and publish a `DIRECT` Interaction Definition without a Product.
+  Activation publishes the reviewed Work revision and generates its signed
+  Work-bound Interaction Skill.
 - A creator-owned website that only embeds ViceMe payment: this is a Website
   Work. Payment integration remains a documented future capability in this
   release: publish no Product and expose no payment CTA for it.
@@ -61,12 +67,12 @@ ask the user to choose internal model names.
    preparation. Public publication or Product activation requires one explicit
    confirmation after compilation and after displaying the exact candidate's
    public HTML and Markdown preview, final price, SKU, buyer fields,
-   fulfillment/service stages, visibility, and generated purchase Skill
-   identity.
+   fulfillment/service stages, visibility, and generated purchase or
+   Interaction Skill identity.
 6. Reuse returned IDs, revisions, digests, and local recovery state. A lost
    response is recovered by reading the same Work/Product/Publication; it is
    never a reason to create a duplicate.
-7. Report the returned public detail URL and purchase Skill stable name. Never
+7. Report the returned public detail URL and generated Skill stable name. Never
    claim that a WorkBuddy listing is public until its distribution status is
    actually `PUBLISHED` after external review.
 

@@ -101,7 +101,12 @@ func newCommerceSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			if err := validateCommerceRuntimeVersion(verified.Signature.Envelope.MinimumRuntimeVersion); err != nil {
 				return err
 			}
-			report, err := installVerifiedCommerceSkill(stableName, agent, verified.Files, runtime.deps.Environment)
+			report, err := installVerifiedSkill(
+				stableName, agent, verified.Files, runtime.deps.Environment,
+				"Buy with "+stableName,
+				"Purchase the server-bound ViceMe Product",
+				"Use $"+stableName+" to purchase its bound Product through ViceMe.",
+			)
 			if err != nil {
 				return err
 			}
@@ -197,7 +202,7 @@ func compiledCommerceTrustKeys() map[string]string {
 	return keys
 }
 
-func installVerifiedCommerceSkill(stableName, target string, files map[string][]byte, environment skillcontent.Environment) (skillcontent.InstallReport, error) {
+func installVerifiedSkill(stableName, target string, files map[string][]byte, environment skillcontent.Environment, displayName, shortDescription, defaultPrompt string) (skillcontent.InstallReport, error) {
 	root, err := os.MkdirTemp("", "viceme-commerce-skill-")
 	if err != nil {
 		return skillcontent.InstallReport{}, output.Internal("COMMERCE_SKILL_STAGE_FAILED", "could not create a private Skill staging directory", err)
@@ -222,9 +227,9 @@ func installVerifiedCommerceSkill(stableName, target string, files map[string][]
 		}
 	}
 	openAI := fmt.Sprintf("interface:\n  display_name: %q\n  short_description: %q\n  default_prompt: %q\n",
-		"Buy with "+stableName,
-		"Purchase the server-bound ViceMe Product",
-		"Use $"+stableName+" to purchase its bound Product through ViceMe.",
+		displayName,
+		shortDescription,
+		defaultPrompt,
 	)
 	if err := os.MkdirAll(filepath.Join(skillRoot, "agents"), 0o700); err != nil {
 		return skillcontent.InstallReport{}, output.Internal("COMMERCE_SKILL_STAGE_FAILED", "could not stage Skill metadata", err)

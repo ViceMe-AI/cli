@@ -1,8 +1,9 @@
 # Generic merchant Product workflow
 
-Use this workflow for services, physical/custom-made goods, and ordinary
-official ViceMe offerings. It always produces one real creator Work before a
-sellable Product:
+Use this workflow only when the offering needs server-owned price, Quote,
+Order, payment, or Commerce fulfillment. For a no-price direct service, use
+`interaction-definition.md` and do not create a zero-price Product or Order.
+This workflow always produces one real creator Work before a sellable Product:
 
 1. a `SERVICE` Work with permanent creator/slug identity and versioned public
    content;
