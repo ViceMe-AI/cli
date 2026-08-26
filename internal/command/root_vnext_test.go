@@ -758,21 +758,21 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	}
 }
 
-func TestOfficialSkillBundleIncludesTip(t *testing.T) {
+func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 	t.Parallel()
 	const tipSkill = "viceme-tip"
-	found := false
+	foundTip := false
+	foundAccess := false
 	for _, name := range officialSkillNames {
 		if name == "viceme-access" {
-			t.Fatalf("Doctor still treats retired viceme-access as an official Skill: %#v", officialSkillNames)
+			foundAccess = true
 		}
 		if name == tipSkill {
-			found = true
-			break
+			foundTip = true
 		}
 	}
-	if !found {
-		t.Fatalf("official Skill list omitted %s: %#v", tipSkill, officialSkillNames)
+	if !foundTip || !foundAccess {
+		t.Fatalf("official Skill list omitted access or tip: %#v", officialSkillNames)
 	}
 	if _, err := skillcontent.New(cliembed.EmbeddedSkills()).Package(tipSkill); err != nil {
 		t.Fatalf("official Skill bundle omitted %s: %v", tipSkill, err)
