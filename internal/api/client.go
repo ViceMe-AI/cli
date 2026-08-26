@@ -77,6 +77,251 @@ func (c *Client) Revoke(ctx context.Context, accessToken string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/logout", struct{}{}, nil, accessToken)
 }
 
+func (c *Client) ListMerchantAccounts(ctx context.Context) (MerchantAccountsResponse, error) {
+	var response MerchantAccountsResponse
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/accounts", nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreateMerchantWork(ctx context.Context, input json.RawMessage) (MerchantWork, error) {
+	var response MerchantWork
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/works", input, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ListMerchantWorks(ctx context.Context, merchantAccountID string) (MerchantWorksResponse, error) {
+	var response MerchantWorksResponse
+	query := url.Values{"merchantAccountId": {merchantAccountID}}
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/works?"+query.Encode(), nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetMerchantWork(ctx context.Context, workID, merchantAccountID string) (MerchantWork, error) {
+	var response MerchantWork
+	query := url.Values{"merchantAccountId": {merchantAccountID}}
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "?" + query.Encode()
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) UpdateMerchantWork(ctx context.Context, workID string, input json.RawMessage) (MerchantWork, error) {
+	var response MerchantWork
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID)
+	err := c.doJSON(ctx, http.MethodPatch, endpoint, input, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreateMerchantWorkPreview(ctx context.Context, workID, merchantAccountID string, expectedRevision, expiresInSeconds int) (WorkPreviewGrant, error) {
+	var response WorkPreviewGrant
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/previews"
+	request := map[string]any{
+		"merchantAccountId":      merchantAccountID,
+		"expectedRevision":       expectedRevision,
+		"expiresInSeconds":       expiresInSeconds,
+		"allowedRepresentations": []string{"HTML", "MARKDOWN"},
+	}
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) RevokeMerchantWorkPreview(ctx context.Context, workID, grantID, merchantAccountID string) (WorkPreviewGrant, error) {
+	var response WorkPreviewGrant
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/previews/" + url.PathEscape(grantID)
+	request := map[string]any{"merchantAccountId": merchantAccountID}
+	err := c.doJSON(ctx, http.MethodDelete, endpoint, request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ListMerchantProductAuthoringTemplates(ctx context.Context, merchantAccountID string) (json.RawMessage, error) {
+	var response json.RawMessage
+	query := url.Values{"merchantAccountId": {merchantAccountID}}
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/product-authoring-templates?"+query.Encode(), nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreateMerchantProduct(ctx context.Context, input json.RawMessage) (MerchantProductDraftResponse, error) {
+	var response MerchantProductDraftResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/products", input, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) UpdateMerchantProduct(ctx context.Context, productID string, input json.RawMessage) (MerchantProductDraftResponse, error) {
+	var response MerchantProductDraftResponse
+	endpoint := "/v1/cli/merchant/products/" + url.PathEscape(productID) + "/draft"
+	err := c.doJSON(ctx, http.MethodPatch, endpoint, input, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CompileMerchantProduct(ctx context.Context, productID, merchantAccountID string, expectedRevision int) (MerchantProductDraftResponse, error) {
+	var response MerchantProductDraftResponse
+	endpoint := "/v1/cli/merchant/products/" + url.PathEscape(productID) + "/compile"
+	request := map[string]any{"merchantAccountId": merchantAccountID, "expectedRevision": expectedRevision}
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ActivateMerchantProduct(ctx context.Context, productID string, input json.RawMessage) (MerchantProductActivationResponse, error) {
+	var response MerchantProductActivationResponse
+	endpoint := "/v1/cli/merchant/products/" + url.PathEscape(productID) + "/activate"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, input, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CommandMerchantProduct(ctx context.Context, productID, command, merchantAccountID string, expectedRevision int) (MerchantProductLifecycleResponse, error) {
+	var response MerchantProductLifecycleResponse
+	endpoint := "/v1/cli/merchant/products/" + url.PathEscape(productID) + "/" + url.PathEscape(command)
+	request := map[string]any{"merchantAccountId": merchantAccountID, "expectedRevision": expectedRevision}
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ListMerchantProducts(ctx context.Context, merchantAccountID, status, cursor string, limit int) (MerchantProductsResponse, error) {
+	var response MerchantProductsResponse
+	query := url.Values{"merchantAccountId": {merchantAccountID}, "limit": {fmt.Sprintf("%d", limit)}}
+	if status != "" {
+		query.Set("status", status)
+	}
+	if cursor != "" {
+		query.Set("cursor", cursor)
+	}
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/products?"+query.Encode(), nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetProductPurchaseSkill(ctx context.Context, stableName string) (ProductPurchaseSkillDescriptor, error) {
+	var response ProductPurchaseSkillDescriptor
+	err := c.doJSON(ctx, http.MethodGet, "/v1/product-purchase-skills/"+url.PathEscape(stableName), nil, &response, "")
+	return response, err
+}
+
+func (c *Client) GetProductPurchaseSkillInstall(ctx context.Context, stableName, target string) (ProductPurchaseSkillInstall, error) {
+	var response ProductPurchaseSkillInstall
+	query := url.Values{"target": {target}}
+	endpoint := "/v1/product-purchase-skills/" + url.PathEscape(stableName) + "/install?" + query.Encode()
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "")
+	return response, err
+}
+
+func (c *Client) GetCommerceSkillTrustKey(ctx context.Context, keyID string) (CommerceSkillTrustKey, error) {
+	var response CommerceSkillTrustKey
+	endpoint := "/v1/commerce-skill-trust-keys/" + url.PathEscape(keyID)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "")
+	return response, err
+}
+
+func (c *Client) DownloadArtifact(ctx context.Context, rawURL string) ([]byte, error) {
+	if err := validateUploadURL(rawURL); err != nil {
+		return nil, output.Validation("ARTIFACT_URL_INVALID", "artifact URL must use HTTPS; loopback HTTP is allowed only for development")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, output.Internal("ARTIFACT_REQUEST_INVALID", "failed to create artifact request", err)
+	}
+	response, err := withoutRedirects(c.uploadClient()).Do(request)
+	if err != nil {
+		return nil, output.Network("ARTIFACT_DOWNLOAD_FAILED", "failed to download the Commerce Skill artifact", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+		return nil, output.Network("ARTIFACT_DOWNLOAD_REJECTED", fmt.Sprintf("artifact endpoint returned HTTP %d", response.StatusCode), nil)
+	}
+	const maxArtifactBytes = 32 << 20
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxArtifactBytes+1))
+	if err != nil {
+		return nil, output.Network("ARTIFACT_DOWNLOAD_FAILED", "failed to read the Commerce Skill artifact", err)
+	}
+	if len(data) > maxArtifactBytes {
+		return nil, output.Validation("ARTIFACT_TOO_LARGE", "Commerce Skill artifact exceeds the 32 MiB limit")
+	}
+	return data, nil
+}
+
+func (c *Client) CreateCommerceSession(ctx context.Context, stableName, clientRequestID, replaySecret string) (CommerceSession, error) {
+	var response CommerceSession
+	payload := map[string]any{
+		"purchaseSkillStableName": stableName,
+		"clientRequestId":         clientRequestID,
+		"replaySecret":            replaySecret,
+	}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/commerce-sessions", payload, &response, "")
+	return response, err
+}
+
+func (c *Client) GetCommerceProduct(ctx context.Context, identifier, locale, sessionToken string) (CommerceProduct, error) {
+	var response CommerceProduct
+	query := url.Values{"locale": {locale}}
+	endpoint := "/v1/products/" + url.PathEscape(identifier) + "?" + query.Encode()
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, sessionToken)
+	return response, err
+}
+
+func (c *Client) CreateContractAsset(ctx context.Context, input json.RawMessage, sessionToken string) (ContractAssetUpload, error) {
+	var response ContractAssetUpload
+	err := c.doJSON(ctx, http.MethodPost, "/v1/contract-assets", input, &response, sessionToken)
+	return response, err
+}
+
+func (c *Client) CompleteContractAsset(ctx context.Context, assetID, sessionToken string) (ContractAsset, error) {
+	var response ContractAsset
+	endpoint := "/v1/contract-assets/" + url.PathEscape(assetID) + "/complete"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, sessionToken)
+	return response, err
+}
+
+func (c *Client) CreateProductQuote(ctx context.Context, input json.RawMessage, sessionToken string) (ProductQuote, error) {
+	var response ProductQuote
+	err := c.doJSON(ctx, http.MethodPost, "/v1/product-quotes", input, &response, sessionToken)
+	return response, err
+}
+
+func (c *Client) CreateCommerceOrder(ctx context.Context, input json.RawMessage, sessionToken string) (CreateOrderResponse, error) {
+	var response CreateOrderResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/orders", input, &response, sessionToken)
+	return response, err
+}
+
+func (c *Client) GetCommerceOrderStatus(ctx context.Context, orderNo, sessionToken string) (OrderStatusResponse, error) {
+	var response OrderStatusResponse
+	endpoint := "/v1/orders/" + url.PathEscape(orderNo) + "/status"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, sessionToken)
+	return response, err
+}
+
+func (c *Client) GetCommerceServiceCaseByOrder(ctx context.Context, orderNo, sessionToken string) (ServiceCase, error) {
+	var response ServiceCase
+	endpoint := "/v1/commerce/service-cases/orders/" + url.PathEscape(orderNo)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, sessionToken)
+	return response, err
+}
+
+func (c *Client) PutPresigned(ctx context.Context, rawURL string, headers map[string]string, body io.Reader, size int64) error {
+	if err := validateUploadURL(rawURL); err != nil {
+		return output.Validation("UPLOAD_URL_INVALID", "upload URL must use HTTPS; loopback HTTP is allowed only for development")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPut, rawURL, body)
+	if err != nil {
+		return output.Internal("UPLOAD_REQUEST_INVALID", "failed to create upload request", err)
+	}
+	request.ContentLength = size
+	for key, value := range headers {
+		request.Header.Set(key, value)
+	}
+	response, err := withoutRedirects(c.uploadClient()).Do(request)
+	if err != nil {
+		return output.Network("UPLOAD_TRANSPORT_FAILED", "failed to upload contract asset", err)
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+	if response.StatusCode == http.StatusPreconditionFailed {
+		return nil
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return output.Network("UPLOAD_REJECTED", fmt.Sprintf("upload endpoint returned HTTP %d", response.StatusCode), nil)
+	}
+	return nil
+}
+
 func (c *Client) CreateSdkWork(ctx context.Context, request CreateSdkWorkRequest) (SdkWork, error) {
 	var response SdkWork
 	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works", request, &response, "@stored")
@@ -341,6 +586,7 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 		return output.Internal("REQUEST_ENDPOINT_INVALID", "failed to construct the ViceMe API endpoint", err)
 	}
 	base.Path = path.Join(base.Path, relative.Path)
+	base.RawQuery = relative.RawQuery
 	var body io.Reader
 	if requestBody != nil {
 		encoded, encodeErr := json.Marshal(requestBody)
@@ -556,7 +802,27 @@ func decodeServerError(status int, data []byte, headerRequestID string) error {
 		cliError.RequestID = headerRequestID
 	}
 	cliError.Retryable = status == http.StatusTooManyRequests || status >= 500
+	if validAPIRecoveryReference(serverError.Recovery) {
+		cliError.Details = map[string]any{"recovery": *serverError.Recovery}
+	}
 	return cliError
+}
+
+func validAPIRecoveryReference(reference *APIRecoveryReference) bool {
+	return reference != nil && reference.ResourceType == "ORDER" && len(reference.ResourceID) >= 6 && len(reference.ResourceID) <= 40
+}
+
+func RecoveryReferenceFromError(err error) (APIRecoveryReference, bool) {
+	var cliError *output.Error
+	if !errors.As(err, &cliError) {
+		return APIRecoveryReference{}, false
+	}
+	details, ok := cliError.Details.(map[string]any)
+	if !ok {
+		return APIRecoveryReference{}, false
+	}
+	reference, ok := details["recovery"].(APIRecoveryReference)
+	return reference, ok && validAPIRecoveryReference(&reference)
 }
 
 func exitForStatus(status int) (int, string) {

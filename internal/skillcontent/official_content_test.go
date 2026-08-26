@@ -96,34 +96,25 @@ func TestEngagementSkillConsumesAuthoritativeCombinedSnippet(t *testing.T) {
 	}
 }
 
-func TestWebsitePublicationAndAccessHaveSeparateOwnership(t *testing.T) {
+func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
 	t.Parallel()
 
 	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(publish), "references/website-workflow.md") {
-		t.Fatal("publish Skill does not route website publication")
-	}
-	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/website-workflow.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, required := range []string{"viceme website publish", "clientWorkId", "--creator-display-name", "$viceme-access"} {
-		if !strings.Contains(string(workflow), required) {
-			t.Fatalf("website publication workflow omitted %q", required)
+	text := string(publish)
+	for _, required := range []string{
+		"A creator-owned website",
+		"Website Work",
+		"Payment integration remains a documented future capability",
+		"publish no Product",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("publish Skill omitted the current website Work boundary %q", required)
 		}
 	}
-	for _, relativePath := range []string{"viceme-access/SKILL.md", "viceme-access/references/integration.md"} {
-		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, required := range []string{"$viceme-publish", "never publishes"} {
-			if !strings.Contains(string(content), required) {
-				t.Fatalf("%s does not enforce explicit website publication through %q", relativePath, required)
-			}
-		}
+	if strings.Contains(text, "references/website-workflow.md") {
+		t.Fatal("publish Skill still routes to the superseded SdkWork website workflow")
 	}
 }

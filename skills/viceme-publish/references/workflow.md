@@ -5,6 +5,11 @@ All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 ## Required inputs
 
 - Root `SKILL.md` with non-empty `name` and `description` frontmatter.
+- One active MerchantAccount owned by the current User through
+  `MerchantAccountMember(role=OWNER)`. Run `viceme merchant accounts` before
+  starting. The CLI selects the sole active account automatically; with
+  multiple active accounts, show them and retry with `--merchant
+  <merchant-account-id>` only after the user chooses.
 - Explicit `priceMinor` in CNY fen before final public confirmation. A private
   package upload intentionally starts with `priceMinor: null`.
 - Two listing summaries and two usage instructions (`zh-CN` and `en-US`), a verified package, one cover, and at least one gallery item must be displayed in the final review before the combined confirm-and-publish authorization.
@@ -19,7 +24,8 @@ user-facing choices. Memory, prior conversations, publication history, filenames
 digests, sidecars, and login state elsewhere cannot override that context. A
 historical match outside the active context must not be probed, offered, or resumed.
 
-`skill publish --path` validates the local source, creates or recovers the
+`skill publish --path` validates the local source, resolves and freezes the
+selected Merchant, creates or recovers the
 Listing and Publication, uploads the private package, and returns the first
 real Owner Preview in one fast path. Workspaces persist `.viceme/skill.json`;
 ZIP files persist the adjacent `<zip-name>.viceme.json`; an endpoint-scoped
@@ -28,6 +34,12 @@ no access token or upload credential. `listingId` is the durable work identity;
 the canonical package digest identifies only one content version. Moving or
 renaming a source, editing workspace files, retrying a lost response, or
 resuming an upload must not create another Listing.
+
+The selected `merchantAccountId` is part of the idempotent publication intent
+and cannot change on resume. A resume normally needs no `--merchant`; when it
+is supplied, it must equal the saved Merchant. CreatorAccount or
+CreatorExternalIdentity changes never select, transfer, suspend, or reactivate
+that Merchant; only the OWNER membership grants publication authority.
 
 Use `--new-listing` only for an explicit separate work. When digest candidate resolution is ambiguous, display candidates and use `skill listing bind <listing-id> --path ...` only after the user chooses an owned Listing.
 

@@ -46,6 +46,36 @@ func TestExplicitAgentInstallAlsoWritesAgentsFallbackAndRepairsDrift(t *testing.
 	}
 }
 
+func TestExplicitAgentInstallHonorsIsolatedAgentsSkillsDirectory(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeTestSkill(t, root, "viceme-test")
+	home := t.TempDir()
+	agentsSkillsDir := filepath.Join(t.TempDir(), "shared-agent-skills")
+	environment := Environment{
+		Home:            home,
+		CodexHome:       filepath.Join(home, ".codex"),
+		AgentsSkillsDir: agentsSkillsDir,
+		ConfigDir:       filepath.Join(home, ".viceme-cli"),
+	}
+	bundle := New(os.DirFS(root))
+	report := bundle.Install("viceme-test", "codex", environment)
+	if !report.AllSucceeded {
+		t.Fatalf("install failed: %#v", report)
+	}
+	for _, directory := range []string{
+		filepath.Join(environment.CodexHome, "skills", "viceme-test"),
+		filepath.Join(agentsSkillsDir, "viceme-test"),
+	} {
+		if _, err := os.Stat(filepath.Join(directory, "SKILL.md")); err != nil {
+			t.Fatalf("missing installed Skill at %s: %v", directory, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "viceme-test")); !os.IsNotExist(err) {
+		t.Fatalf("default shared Agent directory was unexpectedly written: %v", err)
+	}
+}
+
 func TestAutoInstallsDetectedAgentsAndFallback(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

@@ -10,6 +10,9 @@ var (
 	// Version is replaced with -ldflags for release builds.
 	Version = "dev"
 	Commit  = "unknown"
+	// CommerceSkillTrustKeys is injected into official release binaries with
+	// -ldflags. Format: keyId:base64url-spki[,keyId:base64url-spki].
+	CommerceSkillTrustKeys = ""
 )
 
 const (

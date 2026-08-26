@@ -13,6 +13,10 @@
 - `AUTHORIZATION_PENDING`: run a fresh `viceme auth login` in the active CLI context and keep that command active until browser authorization finishes.
 - `NOT_LOGGED_IN` or `token_expired`: use the `viceme-shared` login workflow in the active CLI context. Never inspect or switch to another stored environment during publishing.
 - `PUBLICATION_SCOPE_REQUIRED`: sign in again in the active CLI context to grant the required publication scopes.
+- `MERCHANT_REQUIRED`: the current login does not own an active Merchant. Stop and explain that ViceMe Staff must create or activate the Merchant and bind the current User as OWNER.
+- `MERCHANT_SELECTION_REQUIRED`: display the returned active Merchant accounts, ask the user to choose one, then retry the same source with `--merchant <merchant-account-id>`.
+- `MERCHANT_SUSPENDED`: the selected Merchant cannot publish. Do not switch to another account silently; ask the user to select another owned active Merchant or have Staff reactivate it.
+- `PUBLICATION_MERCHANT_CHANGED`: local recovery state, the selected Merchant, and the server Publication disagree. Do not overwrite recovery state or create a replacement; inspect the same Publication and resolve the ownership mismatch.
 - `PUBLICATION_RECOVERY_PERMISSION_REQUIRED`: the command process cannot write the local ViceMe publication recovery directory. Request filesystem permission for the exact same command and retry it with the same source and price. Do not delete lock files and do not create another publication.
 - `SKILL_BINDING_PERMISSION_REQUIRED`: allow the exact command to write `.viceme/skill.json`, the adjacent ZIP sidecar, or the reported endpoint-scoped index directory, then retry with the same source identity.
 - `SKILL_BINDING_SCOPE_MISMATCH` or `SKILL_LISTING_BINDING_OWNER_MISMATCH`: do not inspect or switch environments and do not overwrite the original owner's Listing. Ask whether the user explicitly wants `--new-listing` for a separate work in the active CLI context.

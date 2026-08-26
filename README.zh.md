@@ -152,7 +152,7 @@ npx --yes @viceme-ai/cli@latest install
 | Skill | 适用场景 |
 | --- | --- |
 | `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
-| `viceme-publish` | 发布本地 Skill 目录、ZIP 或创作者网站，并维护稳定作品身份。 |
+| `viceme-publish` | 发布可下载 Skill、创作者网站 Work，或把当前用户拥有的商家服务与实物定义引导为可选的公开 Product 和自动生成的购买 Skill。 |
 | `viceme-access` | 在不改变原站业务动作的前提下，接入原生登录、关注和一次性购买入口。 |
 | `viceme-danmaku` | 创建公开弹幕 Work，并安装 CLI 生成的托管 SDK 片段。 |
 | `viceme-tip` | 完成登录、绑定创作者作品与验证域名，并把 ViceMe 托管赞赏接入一个 HTML 页面。 |
@@ -249,6 +249,10 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
 | `viceme update` | 同时更新 CLI 与匹配版本的官方 Skills。 |
+| `viceme merchant accounts` | 列出当前 User 通过 OWNER 成员关系经营的普通 MerchantAccount。 |
+| `viceme merchant work ...` | 创建、查看和发布通用商品所销售的 Work。 |
+| `viceme merchant product ...` | 创建、编译、激活、暂停或归档 Product 及其生成的购买 Skill。 |
+| `viceme commerce ...` | 安装并运行签名购买 Skill，完成会话、报价、支付订单与同会话状态查询。 |
 
 运行 `viceme <command> --help` 查看完整参数和 JSON 字段。
 

@@ -89,8 +89,13 @@ viceme auth status
 # Sign in only when auth status reports unauthenticated.
 viceme auth login
 
+# Confirm the MerchantAccountMember(OWNER) authority used for publication.
+viceme merchant accounts
+
 # Upload the real private draft and open its Owner Preview before pricing.
 viceme skill publish --path ./my-skill
+# With multiple active Merchant accounts, select the confirmed account:
+# viceme skill publish --path ./my-skill --merchant <merchant-account-id>
 
 # Continue the same unpriced draft and upload media candidates.
 viceme skill publish --resume <publication-id>
@@ -162,7 +167,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | Skill | Use it when you want to... |
 | --- | --- |
 | `viceme-shared` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
-| `viceme-publish` | publish a local Skill directory, ZIP, or creator website while preserving its stable work identity. |
+| `viceme-publish` | publish a downloadable Skill, creator website Work, or an owned Merchant service or physical-product definition with its optional public Product and generated purchase Skill. |
 | `viceme-access` | integrate host-native login, follow, and one-time purchase entry points without changing the website's original action. |
 | `viceme-danmaku` | create a public danmaku Work and install the CLI-generated hosted SDK snippet. |
 | `viceme-tip` | sign in, bind a creator work and verified domain, and add the hosted ViceMe tip checkout to one HTML page. |
@@ -257,7 +262,7 @@ Never copy an access token into the conversation.
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |
 | `viceme skill listing get <listing-id>` | Read the authoritative private Listing state. |
 | `viceme skill listing bind <listing-id> --path <path>` | Explicitly bind a source to a selected owned Listing. |
-| `viceme skill publish --path <path>` | Upload the real private package and return its Owner Preview before pricing. |
+| `viceme skill publish --path <path> [--merchant <id>]` | Freeze the selected owned Merchant, upload the real private package, and return its Owner Preview before pricing. The flag is required only when multiple active Merchants exist. |
 | `viceme skill publish --resume <id>` | Continue the same unpriced Draft and upload media candidates without starting a platform model. |
 | `viceme publication review <id>` | Read the authoritative bilingual copy, price, selected media, and review state. |
 | `viceme publication suggest <id> --input ...` | Apply Agent-generated bilingual copy and media with Draft revision protection. |
@@ -269,6 +274,10 @@ Never copy an access token into the conversation.
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
 | `viceme update` | Update the CLI and matching official Skills together. |
+| `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
+| `viceme merchant work ...` | Create, inspect, and publish the Work sold by a generic Product. |
+| `viceme merchant product ...` | Create, compile, activate, suspend, or archive Products and their generated purchase Skills. |
+| `viceme commerce ...` | Install and run a signed purchase Skill through session, quote, payment order, and same-session status commands. |
 
 Run `viceme <command> --help` for the full flags and JSON fields.
 

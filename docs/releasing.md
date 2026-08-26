@@ -44,7 +44,19 @@ leave every other optional permission disabled. Webhooks and user authorization
 are not required. Configure:
 
 - repository variable `RELEASE_APP_ID`: the numeric App ID;
+- repository variable `COMMERCE_SKILL_TRUST_KEYS`: the versioned public
+  Commerce Skill trust ring in
+  `keyId:base64url-spki[,keyId:base64url-spki]` form. Release and POC workflows
+  parse every SPKI, require unique Ed25519 key IDs, freeze the validated ring
+  for that workflow execution, and revalidate it in every binary job;
 - repository secret `RELEASE_APP_PRIVATE_KEY`: the complete generated PEM key.
+
+A Commerce Skill `keyId` is permanently bound to one Ed25519 public key after
+it has signed a Product Skill Release. Key rotation must allocate a new ID and
+publish both the old and new public keys in `COMMERCE_SKILL_TRUST_KEYS` before
+Shop signs with the new key. Never replace key material under an existing ID;
+remove an old public key only after every Release signed by it is no longer
+installable.
 
 Protect `dev` with an active branch ruleset that retains the normal pull request,
 one approving review, the `PR quality` check, all three `PR npm installer
@@ -102,11 +114,46 @@ calculation to `WHEN_REQUIRED`: immutable artifacts are still compared
 byte-for-byte on recovery, while optional AWS streaming checksum trailers that
 the origins do not implement are not sent.
 
-Every release renders `release/agent-install.md.tmpl` with the exact stable
-version. The same bytes are published as the immutable
-`cli/releases/vX.Y.Z/agent-install.md` object in both regions. Only the highest
-stable version updates the public root `agent-install.md`, `install.sh`, and
-`install.ps1` pointers. The separate `agent-release-manifest.json` contains the six platform asset
+Every release renders two public Agent contracts with the exact stable version:
+
+- `release/agent-install.md.tmpl` is the narrow CLI Runtime bootstrap. It
+  installs or updates one verified CLI plus official-Skill generation, runs
+  `viceme doctor`, and then returns control to its caller. It does not know a
+  Product stable name or install a merchant Product Skill.
+- `release/commerce-skill-install.md.tmpl` is the generic Product Skill
+  activation contract. It first uses an already healthy Commerce Runtime and
+  delegates to the same-region `agent-install.md` only when the Runtime is
+  missing or reports an unsupported version. It then runs the exact
+  platform-provided `viceme commerce skill install` command and returns to the
+  original service request.
+
+Recovery never rerenders an already-published asset with the current `main`
+template and then asks it to match old bytes. It downloads every existing asset
+from the immutable GitHub Release and restores those exact bytes over the
+locally assembled candidate; only genuinely missing assets, such as the first
+`commerce-skill-install.md` added to an older release, remain newly generated
+and are uploaded. The final release is downloaded again and compared with the
+complete recovered candidate before S3 publication continues.
+
+Historical tags are not required to contain validators or release generators
+introduced later. Recovery validates the trusted workflow revision that is
+performing the repair and preserves every binary or checksum already present in
+the GitHub Release. A missing binary is rebuilt from the exact immutable tag
+with the frozen current trust ring; an existing checksum must match that byte,
+while a missing checksum is derived from the existing binary. A recovered
+signed Agent Manifest must exactly match a freshly reconstructed Manifest over
+the final verified binary pairs, so a partial Release can never combine an old
+signature with different replacement bytes. Current generators are otherwise
+used only for genuinely missing contract assets. The tag, existing release
+bytes, and final recovered candidate remain immutable and are verified
+independently.
+
+The same bytes are published as immutable
+`cli/releases/vX.Y.Z/agent-install.md` and
+`cli/releases/vX.Y.Z/commerce-skill-install.md` objects in both regions. Only
+the highest stable version updates the public root `agent-install.md`,
+`commerce-skill-install.md`, `install.sh`, and `install.ps1` pointers. The
+separate `agent-release-manifest.json` contains the six platform asset
 digests, bundled Skill digests, installer digests, and Sigstore verification
 identity. Its detached `agent-release-manifest.sigstore.json` bundle is created with
 the Release Workflow's GitHub OIDC identity and verified before publication;
@@ -115,15 +162,25 @@ that predates this contract keeps its original `release-manifest.json`
 unchanged and uses the trusted current workflow generator only to add the new
 Agent Manifest, signature bundle, and document.
 
-The publication job verifies both public origins after upload. It compares the
-versioned document, Manifest, and signature bundle with the release artifacts,
-checks immutable and root cache policies, requires the public root Agent
-document to use `text/markdown; charset=utf-8`, compares the CN and Global root
-documents, and proves that an uploaded object outside the installation
+The publication job verifies both public origins after upload. It compares both
+versioned documents, the Manifest, and signature bundle with the release
+artifacts, checks immutable and root cache policies, requires both public root
+Agent documents to use `text/markdown; charset=utf-8`, compares CN and Global
+root documents, and proves that an uploaded object outside the installation
 allowlist is not anonymously readable. Anonymous bucket listing must also stay
-disabled. The allowlist is limited to `agent-install.md`, the existing root
-installers, and the versioned `cli/releases` installation objects; Skill ZIPs,
-user uploads, and business media never belong in this bucket or policy.
+disabled. The allowlist is limited to `agent-install.md`,
+`commerce-skill-install.md`, the existing root installers, and the versioned
+`cli/releases` installation objects; Skill ZIPs, user uploads, and business
+media never belong in this bucket or policy.
+
+ViceMe Product pages point Agents to the root `commerce-skill-install.md`, not
+directly to the base installer or a signed Product ZIP. The Commerce contract
+accepts only the exact platform-generated install command. The CLI retrieves a
+fresh Shop authorization and independently verifies Product Skill identity,
+digest, platform signature, and Commerce Runtime compatibility. Release tests
+must keep both contracts free of merchant-controlled URLs, API origins, shell
+fragments, and login requirements; the base `agent-install.md` must additionally
+remain free of Product stable names and Product installation commands.
 
 Configure the repository secret `CN_S3_HTTPS_PROXY` with the authenticated
 HTTPS forward-proxy URL used by GitHub Actions to reach the CN S3 endpoint.
