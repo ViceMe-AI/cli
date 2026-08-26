@@ -12,7 +12,7 @@ ifneq ($(strip $(COMMERCE_SKILL_TRUST_KEYS)),)
 LDFLAGS += -X github.com/ViceMe-AI/cli/internal/buildinfo.CommerceSkillTrustKeys=$(COMMERCE_SKILL_TRUST_KEYS)
 endif
 
-.PHONY: build test test-race check skill-check danmaku-fixture-check quality-check npm-test npm-package-check release-manifest release-manifest-check release-prepare clean update-check
+.PHONY: build test test-race check skill-check quality-check npm-test npm-package-check release-manifest release-manifest-check release-prepare clean update-check
 
 build:
 	mkdir -p bin
@@ -27,11 +27,7 @@ test-race:
 skill-check:
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test ./internal/skillcontent ./internal/command -run 'Skill|CommandExamples'
 
-danmaku-fixture-check:
-	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm npm ci --prefix quality/fixtures/viceme-danmaku --no-audit --no-fund
-	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm npm run check --prefix quality/fixtures/viceme-danmaku
-
-check: test danmaku-fixture-check
+check: test
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) vet ./...
 	mkdir -p bin
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/viceme ./cmd/viceme

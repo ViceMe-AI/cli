@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,6 +20,16 @@ import (
 )
 
 const maxResponseBytes = 8 << 20
+
+var (
+	sdkWorkKeyPattern   = regexp.MustCompile(`^wrk_[A-Za-z0-9_-]{4,124}$`)
+	uuidPattern         = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	publicDomainPattern = regexp.MustCompile(
+		`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`,
+	)
+	ipv4DomainPattern     = regexp.MustCompile(`^(?:\d{1,3}\.){3}\d{1,3}$`)
+	reservedDomainPattern = regexp.MustCompile(`(?:^|\.)(?:localhost|local|test|invalid|example)$`)
+)
 
 type TokenSource interface {
 	Token(context.Context) (string, error)
@@ -311,6 +322,66 @@ func (c *Client) PutPresigned(ctx context.Context, rawURL string, headers map[st
 	return nil
 }
 
+func (c *Client) CreateSdkWork(ctx context.Context, request CreateSdkWorkRequest) (SdkWork, error) {
+	var response SdkWork
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works", request, &response, "@stored")
+	if err == nil && (response.DisplayName != request.DisplayName || response.Status != "DRAFT" || len(response.Features) != 0 || len(response.Capabilities) != 0) {
+		err = invalidAPIResponse(errors.New("created SDK Work does not match the requested empty Draft"))
+	}
+	return response, err
+}
+
+func (c *Client) PublishCreatorWebsite(ctx context.Context, request PublishCreatorWebsiteRequest) (SdkWork, error) {
+	var response SdkWork
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works/publish", request, &response, "@stored")
+	if err == nil && (response.CreatorWorkID == nil || response.Publication == nil ||
+		response.DisplayName != request.DisplayName || response.Publication.ClientWorkID != request.ClientWorkID ||
+		response.Publication.SourceDigest != request.SourceDigest) {
+		err = invalidAPIResponse(errors.New("published creator website does not match the request"))
+	}
+	return response, err
+}
+
+func (c *Client) AuthorizeWebsiteCoverUpload(ctx context.Context, request AuthorizeWebsiteCoverUploadRequest) (UploadAuthorization, error) {
+	var response UploadAuthorization
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works/cover-upload-authorizations", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ListSdkWorks(ctx context.Context) (SdkWorks, error) {
+	var response SdkWorks
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/sdk-works", nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetSdkWork(ctx context.Context, workKey string) (SdkWork, error) {
+	var response SdkWork
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/sdk-works/"+url.PathEscape(workKey), nil, &response, "@stored")
+	if err == nil && response.WorkKey != workKey {
+		err = invalidAPIResponse(errors.New("SDK Work response does not match the requested work key"))
+	}
+	return response, err
+}
+
+func (c *Client) ApplySdkWork(ctx context.Context, workKey string, request ApplySdkWorkRequest) (SdkWork, error) {
+	var response SdkWork
+	err := c.doJSON(ctx, http.MethodPut, "/v1/cli/sdk-works/"+url.PathEscape(workKey), request, &response, "@stored")
+	if err == nil && (response.WorkKey != workKey || response.ConfigVersion <= request.ExpectedConfigVersion ||
+		response.DisplayName != request.DisplayName || response.Status != request.Status || !sdkWorkFeaturesEqual(response.Features, request.Features)) {
+		err = invalidAPIResponse(errors.New("applied SDK Work does not match the requested configuration"))
+	}
+	return response, err
+}
+
+func (c *Client) DeleteSdkWork(ctx context.Context, workKey string) (SdkWork, error) {
+	var response SdkWork
+	err := c.doJSON(ctx, http.MethodDelete, "/v1/cli/sdk-works/"+url.PathEscape(workKey), nil, &response, "@stored")
+	if err == nil && response.WorkKey != workKey {
+		err = invalidAPIResponse(errors.New("deleted SDK Work response does not match the requested work key"))
+	}
+	return response, err
+}
+
 // HealthReady performs an unauthenticated, redirect-free connectivity check.
 // Doctor owns the short deadline so this probe can never inherit the normal
 // command timeout or disclose the stored publication credential.
@@ -409,6 +480,39 @@ func (c *Client) PublishSkill(ctx context.Context, publicationID, reviewDigest s
 func (c *Client) CancelSkillPublication(ctx context.Context, publicationID string) (CancelPublicationResponse, error) {
 	var response CancelPublicationResponse
 	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/cancel", struct{}{}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreateCreatorApp(ctx context.Context, request CreateCreatorAppRequest) (CreatorApp, error) {
+	var response CreatorApp
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/creator-apps", request, &response, "@stored")
+	if err == nil && (response.Name != request.Name || response.Kind != "EXTERNAL") {
+		err = invalidAPIResponse(errors.New("created Creator App does not match the request"))
+	}
+	return response, err
+}
+
+func (c *Client) ListCreatorApps(ctx context.Context) (CreatorAppsResponse, error) {
+	var response CreatorAppsResponse
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/creator-apps", nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) AddCreatorAppDomain(ctx context.Context, appID, domain string) (CreatorApp, error) {
+	var response CreatorApp
+	err := c.doJSON(ctx, http.MethodPut, "/v1/cli/creator-apps/"+url.PathEscape(appID)+"/domains", AddCreatorAppDomainRequest{Domain: domain}, &response, "@stored")
+	if err == nil && (response.ID != appID || !creatorAppHasDomain(response, domain, false)) {
+		err = invalidAPIResponse(errors.New("Creator App domain response does not contain the requested pending domain"))
+	}
+	return response, err
+}
+
+func (c *Client) VerifyCreatorAppDomain(ctx context.Context, appID, domain string) (CreatorApp, error) {
+	var response CreatorApp
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/creator-apps/"+url.PathEscape(appID)+"/domains/"+url.PathEscape(domain)+"/verify", struct{}{}, &response, "@stored")
+	if err == nil && (response.ID != appID || !creatorAppHasDomain(response, domain, true)) {
+		err = invalidAPIResponse(errors.New("Creator App verification response does not contain the verified domain"))
+	}
 	return response, err
 }
 
@@ -529,13 +633,138 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return decodeServerError(response.StatusCode, data, response.Header.Get("X-Request-Id"))
 	}
-	if responseBody == nil || len(bytes.TrimSpace(data)) == 0 {
+	if responseBody == nil {
 		return nil
 	}
+	if len(bytes.TrimSpace(data)) == 0 {
+		return invalidAPIResponse(errors.New("response body is empty"))
+	}
 	if err := json.Unmarshal(data, responseBody); err != nil {
-		return output.Internal("RESPONSE_INVALID", "ViceMe API returned invalid JSON", err)
+		return invalidAPIResponse(err)
+	}
+	if validator, ok := responseBody.(interface{ validateAPIResponse() error }); ok {
+		if err := validator.validateAPIResponse(); err != nil {
+			return invalidAPIResponse(err)
+		}
 	}
 	return nil
+}
+
+func invalidAPIResponse(cause error) error {
+	return output.Internal("RESPONSE_INVALID", "ViceMe API returned an incomplete or invalid response", cause)
+}
+
+func (work *SdkWork) validateAPIResponse() error {
+	if work == nil || !sdkWorkKeyPattern.MatchString(work.WorkKey) || strings.TrimSpace(work.DisplayName) == "" ||
+		strings.TrimSpace(work.Status) == "" || work.ConfigVersion < 1 || work.Features == nil || work.Capabilities == nil ||
+		strings.TrimSpace(work.CreatedAt) == "" || strings.TrimSpace(work.UpdatedAt) == "" {
+		return errors.New("SDK Work response is missing required fields")
+	}
+	for _, feature := range work.Features {
+		if strings.TrimSpace(feature.FeatureKey) == "" || strings.TrimSpace(feature.Title) == "" ||
+			strings.TrimSpace(feature.Policy.Type) == "" || strings.TrimSpace(feature.Status) == "" {
+			return errors.New("SDK Work feature response is missing required fields")
+		}
+		priced := feature.PriceCents != nil && *feature.PriceCents > 0
+		if (feature.Policy.Type == "WORK_ENTITLEMENT") != priced {
+			return errors.New("SDK Work feature response contains an invalid price")
+		}
+	}
+	if work.Publication != nil && (!uuidPattern.MatchString(work.Publication.ClientWorkID) ||
+		!uuidPattern.MatchString(work.Publication.ReleaseID) || work.Publication.Version < 1 ||
+		strings.TrimSpace(work.Publication.SourceDigest) == "" || strings.TrimSpace(work.Publication.PublishedAt) == "") {
+		return errors.New("SDK Work publication response is missing required fields")
+	}
+	for _, capability := range work.Capabilities {
+		if strings.TrimSpace(capability) == "" {
+			return errors.New("SDK Work capability response contains an empty value")
+		}
+	}
+	return nil
+}
+
+func (works *SdkWorks) validateAPIResponse() error {
+	if works == nil || works.Works == nil {
+		return errors.New("SDK Work list response is missing works")
+	}
+	for index := range works.Works {
+		if err := works.Works[index].validateAPIResponse(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (app *CreatorApp) validateAPIResponse() error {
+	if app == nil || !uuidPattern.MatchString(app.ID) ||
+		(app.Kind != "EXTERNAL" && app.Kind != "VICEME_HOSTED") ||
+		strings.TrimSpace(app.Name) == "" || app.Domains == nil {
+		return errors.New("Creator App response is missing required fields")
+	}
+	if _, err := time.Parse(time.RFC3339, app.CreatedAt); err != nil {
+		return errors.New("Creator App response contains an invalid createdAt")
+	}
+	for _, domain := range app.Domains {
+		name := strings.TrimSpace(domain.Domain)
+		if name != domain.Domain || len(name) > 253 || !publicDomainPattern.MatchString(name) ||
+			ipv4DomainPattern.MatchString(name) || reservedDomainPattern.MatchString(name) ||
+			(domain.VerificationToken != nil && len(strings.TrimSpace(*domain.VerificationToken)) < 32) {
+			return errors.New("Creator App domain response is missing required fields")
+		}
+	}
+	return nil
+}
+
+func (apps *CreatorAppsResponse) validateAPIResponse() error {
+	if apps == nil || apps.Items == nil {
+		return errors.New("Creator App list response is missing items")
+	}
+	for index := range apps.Items {
+		if err := apps.Items[index].validateAPIResponse(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func sdkWorkFeaturesEqual(actual, expected []SdkWorkFeatureConfig) bool {
+	if len(actual) != len(expected) {
+		return false
+	}
+	byKey := make(map[string]SdkWorkFeatureConfig, len(actual))
+	for _, feature := range actual {
+		if _, exists := byKey[feature.FeatureKey]; exists {
+			return false
+		}
+		byKey[feature.FeatureKey] = feature
+	}
+	for _, feature := range expected {
+		candidate, exists := byKey[feature.FeatureKey]
+		if !exists || candidate.FeatureKey != feature.FeatureKey || candidate.Title != feature.Title ||
+			candidate.Policy != feature.Policy || candidate.Status != feature.Status ||
+			!nullableIntsEqual(candidate.PriceCents, feature.PriceCents) {
+			return false
+		}
+	}
+	return true
+}
+
+func nullableIntsEqual(left, right *int) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
+}
+
+func creatorAppHasDomain(app CreatorApp, domain string, verified bool) bool {
+	for _, candidate := range app.Domains {
+		if strings.EqualFold(candidate.Domain, domain) && candidate.Verified == verified {
+			if verified || (candidate.VerificationToken != nil && strings.TrimSpace(*candidate.VerificationToken) != "") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func publicationPath(publicationID string) string {

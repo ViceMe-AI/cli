@@ -1,6 +1,7 @@
 package skillcontent
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -119,6 +120,15 @@ type installManifest struct {
 	EmbeddedContentDigest string `json:"embedded_content_digest"`
 }
 
+type RetiredSkillIdentity struct {
+	Name                  string
+	SkillVersion          string
+	MinimumCLIVersion     string
+	CLICompatibility      string
+	FullBundleDigest      string
+	EmbeddedContentDigest string
+}
+
 func (b *Bundle) Install(name, target string, environment Environment) InstallReport {
 	reports := b.InstallSet([]string{name}, target, environment)
 	if len(reports) == 0 {
@@ -153,10 +163,19 @@ type InstallTransaction struct {
 }
 
 func (b *Bundle) PrepareInstallSet(names []string, target string, environment Environment) (*InstallTransaction, []InstallReport, error) {
+	return b.PrepareInstallSetWithRetirements(names, nil, target, environment)
+}
+
+func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []RetiredSkillIdentity, target string, environment Environment) (*InstallTransaction, []InstallReport, error) {
 	reports := make([]InstallReport, len(names))
 	for index, name := range names {
 		reports[index] = InstallReport{AllSucceeded: true}
 		if err := b.Validate(name); err != nil {
+			return nil, nil, err
+		}
+	}
+	for _, identity := range retired {
+		if err := validateRetiredSkillIdentity(identity); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -206,21 +225,44 @@ func (b *Bundle) PrepareInstallSet(names []string, target string, environment En
 			operations = append(operations, operation)
 		}
 	}
+	for _, identity := range retired {
+		paths, resolveErr := resolveTargets(identity.Name, target, environment, true)
+		if resolveErr != nil {
+			return fail(resolveErr)
+		}
+		for _, resolved := range paths {
+			backup := resolved.path + ".viceme-transaction-backup"
+			if !retiredSkillManaged(resolved.path, identity) || !pathDoesNotExist(backup) {
+				continue
+			}
+			identityCopy := identity
+			operations = append(operations, installOperation{
+				Skill: identity.Name, Target: resolved.name, Destination: resolved.path,
+				ReportIndex: -1, HadExisting: true, Backup: backup, Retired: &identityCopy,
+			})
+		}
+	}
 
 	for index := range operations {
 		operation := &operations[index]
 		if operation.Unchanged {
 			continue
 		}
-		staged, expected, stageErr := b.stageInstallation(operation.Skill, operation.Destination)
-		if stageErr != nil {
-			cleanupStagedOperations(operations)
-			return fail(stageErr)
+		if operation.Retired == nil {
+			staged, expected, stageErr := b.stageInstallation(operation.Skill, operation.Destination)
+			if stageErr != nil {
+				cleanupStagedOperations(operations)
+				return fail(stageErr)
+			}
+			operation.Stage = staged
+			operation.Expected = expected
 		}
-		operation.Stage = staged
-		operation.Expected = expected
-		operation.Backup = operation.Destination + ".viceme-transaction-backup"
-		if _, statErr := os.Lstat(operation.Destination); statErr == nil {
+		if operation.Backup == "" {
+			operation.Backup = operation.Destination + ".viceme-transaction-backup"
+		}
+		if operation.Retired != nil {
+			operation.HadExisting = true
+		} else if _, statErr := os.Lstat(operation.Destination); statErr == nil {
 			operation.HadExisting = true
 		} else if !errors.Is(statErr, fs.ErrNotExist) {
 			cleanupStagedOperations(operations)
@@ -244,6 +286,13 @@ func (b *Bundle) PrepareInstallSet(names []string, target string, environment En
 			continue
 		}
 		entry := &transaction.journal.Entries[journalIndex]
+		journalIndex++
+		if operation.Retired != nil && !retiredSkillManaged(operation.Destination, *operation.Retired) {
+			continue
+		}
+		if operation.Retired != nil && !pathDoesNotExist(operation.Backup) {
+			return fail(errors.New("refuse to retire a Skill while an unowned backup path exists"))
+		}
 		entry.Activating = true
 		if err := writeInstallTransaction(journalPath, transaction.journal); err != nil {
 			return fail(err)
@@ -253,6 +302,12 @@ func (b *Bundle) PrepareInstallSet(names []string, target string, environment En
 			if err := os.Rename(operation.Destination, operation.Backup); err != nil {
 				return fail(fmt.Errorf("stage existing Skill: %w", err))
 			}
+		}
+		if operation.Retired != nil {
+			if _, err := os.Lstat(operation.Destination); !errors.Is(err, fs.ErrNotExist) {
+				return fail(errors.New("verify retired Skill removal: destination still exists"))
+			}
+			continue
 		}
 		if err := os.Rename(operation.Stage, operation.Destination); err != nil {
 			return fail(fmt.Errorf("activate staged Skill: %w", err))
@@ -264,9 +319,11 @@ func (b *Bundle) PrepareInstallSet(names []string, target string, environment En
 			}
 			return fail(errors.New("verify installed Skill: digest mismatch"))
 		}
-		journalIndex++
 	}
 	for _, operation := range operations {
+		if operation.Retired != nil {
+			continue
+		}
 		status := "updated"
 		if operation.Unchanged {
 			status = "unchanged"
@@ -440,6 +497,7 @@ type installOperation struct {
 	ReportIndex int
 	HadExisting bool
 	Unchanged   bool
+	Retired     *RetiredSkillIdentity
 }
 
 type installTransaction struct {
@@ -957,6 +1015,55 @@ func (b *Bundle) installationCurrent(name, directory string) bool {
 	}
 	installed, err := readInstallManifest(directory)
 	return err == nil && installed == want
+}
+
+func validateRetiredSkillIdentity(identity RetiredSkillIdentity) error {
+	if err := validName(identity.Name); err != nil {
+		return err
+	}
+	if _, err := semver.Parse(identity.SkillVersion); err != nil {
+		return fmt.Errorf("retired Skill %s has an invalid Skill version", identity.Name)
+	}
+	if _, err := semver.Parse(identity.MinimumCLIVersion); err != nil {
+		return fmt.Errorf("retired Skill %s has an invalid minimum CLI version", identity.Name)
+	}
+	compatible, err := semver.Satisfies(identity.MinimumCLIVersion, identity.CLICompatibility)
+	if err != nil || !compatible {
+		return fmt.Errorf("retired Skill %s has an invalid CLI compatibility range", identity.Name)
+	}
+	for _, digest := range []string{identity.FullBundleDigest, identity.EmbeddedContentDigest} {
+		encoded := strings.TrimPrefix(digest, "sha256:")
+		if len(encoded) != 64 || len(encoded) == len(digest) {
+			return fmt.Errorf("retired Skill %s has an invalid digest", identity.Name)
+		}
+		if _, err := hex.DecodeString(encoded); err != nil {
+			return fmt.Errorf("retired Skill %s has an invalid digest", identity.Name)
+		}
+	}
+	return nil
+}
+
+func retiredSkillManaged(directory string, identity RetiredSkillIdentity) bool {
+	info, err := os.Lstat(directory)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	manifest, err := readInstallManifest(directory)
+	if err != nil || manifest.SchemaVersion != 1 || strings.TrimSpace(manifest.CLIVersion) == "" ||
+		manifest.SkillVersion != identity.SkillVersion ||
+		manifest.MinimumCLIVersion != identity.MinimumCLIVersion ||
+		manifest.CLICompatibility != identity.CLICompatibility ||
+		manifest.FullBundleDigest != identity.FullBundleDigest ||
+		manifest.EmbeddedContentDigest != identity.EmbeddedContentDigest {
+		return false
+	}
+	actual, err := digestsInstalled(directory)
+	return err == nil && actual.Full == identity.FullBundleDigest && actual.Embedded == identity.EmbeddedContentDigest
+}
+
+func pathDoesNotExist(filename string) bool {
+	_, err := os.Lstat(filename)
+	return errors.Is(err, fs.ErrNotExist)
 }
 
 func copyTree(source fs.FS, root, destination string) error {

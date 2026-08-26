@@ -19,8 +19,13 @@ import (
 var officialSkillNames = []string{
 	"viceme-shared",
 	"viceme-publish",
+	"viceme-access",
 	"viceme-danmaku",
+	"viceme-tip",
+	"viceme-engagement",
 }
+
+var retiredOfficialSkills []skillcontent.RetiredSkillIdentity
 
 type installNextStep struct {
 	Required bool   `json:"required"`
@@ -241,12 +246,22 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 	}
 	installContext, cancel := context.WithTimeout(ctx, activationOperationTimeout)
 	defer cancel()
-	for _, name := range officialSkillNames {
+	expectedGeneration, err := expectedRunningGeneration(runtime)
+	if err != nil {
+		return bootstrapInstallResult{}, output.Internal("SKILL_RELEASE_MANIFEST_INVALID", "could not identify the running release for official Skills", err)
+	}
+	skillNames, err := officialSkillsForRelease(runtime.deps.Skills, expectedGeneration)
+	if err != nil {
+		return bootstrapInstallResult{}, output.Internal("SKILL_RELEASE_MANIFEST_INVALID", "embedded official Skills do not match the running release manifest", err)
+	}
+	for _, name := range skillNames {
 		if err := runtime.deps.Skills.Validate(name); err != nil {
 			return bootstrapInstallResult{}, err
 		}
 	}
-	transaction, reports, err := runtime.deps.Skills.PrepareInstallSet(officialSkillNames, agent, runtime.deps.Environment)
+	transaction, reports, err := runtime.deps.Skills.PrepareInstallSetWithRetirements(
+		skillNames, retiredOfficialSkills, agent, runtime.deps.Environment,
+	)
 	if err != nil {
 		return bootstrapInstallResult{}, output.Internal("SKILL_INSTALL_PREPARE_FAILED", "official Skills could not be prepared as one transaction", err)
 	}
@@ -256,7 +271,7 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 		}
 		return bootstrapInstallResult{}, cause
 	}
-	if len(reports) != len(officialSkillNames) {
+	if len(reports) != len(skillNames) {
 		return rollback(output.Internal("SKILL_INSTALL_TRANSACTION_INVALID", "official Skill installation returned an incomplete report", nil))
 	}
 	for _, report := range reports {
@@ -264,8 +279,8 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 			return rollback(output.Internal("SKILL_INSTALL_PARTIAL", "official Skills were not activated", nil).WithDetails(reports))
 		}
 	}
-	doctorResults := make([]doctorSkillResult, 0, len(officialSkillNames))
-	for _, name := range officialSkillNames {
+	doctorResults := make([]doctorSkillResult, 0, len(skillNames))
+	for _, name := range skillNames {
 		report := runtime.deps.Skills.Doctor(name, agent, runtime.deps.Environment)
 		doctorResults = append(doctorResults, doctorSkillResult{Name: name, Report: report})
 		if !report.Healthy {
@@ -277,7 +292,14 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 		return rollback(output.Internal("PROFILE_INVALID", "could not resolve the active profile", err))
 	}
 	if _, statErr := os.Stat(config.ConfigPath(runtime.configBase)); errors.Is(statErr, fs.ErrNotExist) {
-		profile.APIBaseURL = config.APIBaseURL(resolvedRegion)
+		if err := runtime.config.SetProfileAuthority(
+			profile.Name,
+			config.APIBaseURL(resolvedRegion),
+			config.WebBaseURL(resolvedRegion),
+			resolvedRegion,
+		); err != nil {
+			return rollback(output.Internal("PROFILE_INVALID", "could not initialize the selected Profile authority", err))
+		}
 	} else if statErr != nil {
 		return rollback(output.Internal("PROFILE_BACKUP_FAILED", "could not inspect the CLI configuration", statErr))
 	}

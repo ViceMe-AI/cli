@@ -9,7 +9,7 @@ import (
 func TestProfileRoundTripContainsNoCredentialFields(t *testing.T) {
 	directory := t.TempDir()
 	configured := Default(RegionCN)
-	profile, err := configured.AddProfile("global", APIBaseURL(RegionGlobal))
+	profile, err := configured.AddProfile("global", APIBaseURL(RegionGlobal), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,12 @@ func TestAPIBaseURLs(t *testing.T) {
 func TestCustomProfileAPIBaseURLRoundTripsCanonically(t *testing.T) {
 	directory := t.TempDir()
 	configured := Default(RegionCN)
-	profile, err := configured.AddProfile("shop-dev", "HTTPS://SHOP-DEV.EXAMPLE.COM:443/api/")
+	profile, err := configured.AddProfile(
+		"shop-dev",
+		"HTTPS://SHOP-DEV.EXAMPLE.COM:443/api/",
+		"https://shop-dev.example.com/",
+		RegionCN,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,6 +73,117 @@ func TestCustomProfileAPIBaseURLRoundTripsCanonically(t *testing.T) {
 	}
 	if resolved.APIBaseURL != "https://shop-dev.example.com/api" {
 		t.Fatalf("custom endpoint did not round-trip: %#v", resolved)
+	}
+}
+
+func TestCustomProfileWebBaseURLRoundTripsCanonically(t *testing.T) {
+	configured := Default(RegionCN)
+	profile, err := configured.AddProfile(
+		"poc",
+		"https://api.poc.example.com/",
+		"HTTPS://WEB.POC.EXAMPLE.COM:443/",
+		RegionCN,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if profile.WebBaseURL != "https://web.poc.example.com" || profile.ResolvedWebBaseURL() != profile.WebBaseURL {
+		t.Fatalf("custom Web endpoint was not canonical: %#v", profile)
+	}
+
+	root := t.TempDir()
+	if _, err := Save(root, configured); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadOrDefault(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, err := loaded.Resolve("poc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.WebBaseURL != "https://web.poc.example.com" {
+		t.Fatalf("custom Web endpoint did not round-trip: %#v", resolved)
+	}
+}
+
+func TestProfileCreateRejectsOfficialAuthorityCrossMixes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name   string
+		api    string
+		web    string
+		market Region
+	}{
+		{name: "cn-api-global-web", api: APIBaseURL(RegionCN), web: WebBaseURL(RegionGlobal), market: RegionCN},
+		{name: "cn-api-global-market", api: APIBaseURL(RegionCN), web: WebBaseURL(RegionCN), market: RegionGlobal},
+		{name: "global-api-cn-web", api: APIBaseURL(RegionGlobal), web: WebBaseURL(RegionCN), market: RegionGlobal},
+		{name: "global-api-cn-market", api: APIBaseURL(RegionGlobal), web: WebBaseURL(RegionGlobal), market: RegionCN},
+		{name: "custom-api-cn-web", api: "https://api.example.com", web: WebBaseURL(RegionCN), market: RegionCN},
+		{name: "cn-api-custom-web", api: APIBaseURL(RegionCN), web: "https://www.example.com", market: RegionCN},
+		{name: "cn-api-path", api: APIBaseURL(RegionCN) + "/v1", web: WebBaseURL(RegionCN), market: RegionCN},
+		{name: "cn-api-port", api: "https://api.viceme.cn:8443", web: WebBaseURL(RegionCN), market: RegionCN},
+		{name: "global-api-path-cross-web", api: APIBaseURL(RegionGlobal) + "/v1", web: WebBaseURL(RegionCN), market: RegionGlobal},
+		{name: "custom-api-cn-web-path", api: "https://api.example.com", web: WebBaseURL(RegionCN) + "/embed", market: RegionCN},
+		{name: "custom-api-global-web-port", api: "https://api.example.com", web: "https://viceme.ai:8443", market: RegionGlobal},
+	}
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			configured := Default(RegionCN)
+			if _, err := configured.AddProfile(test.name, test.api, test.web, test.market); err == nil {
+				t.Fatal("cross-authority profile was accepted")
+			}
+			if len(configured.Profiles) != 1 {
+				t.Fatalf("failed profile creation mutated config: %#v", configured)
+			}
+		})
+	}
+}
+
+func TestProfileAuthorityUpdateIsAtomicAndAllowsCustomTuple(t *testing.T) {
+	t.Parallel()
+	configured := Default(RegionCN)
+	before := configured.Profiles[0]
+	if err := configured.SetProfileAuthority(
+		before.Name,
+		APIBaseURL(RegionGlobal),
+		WebBaseURL(RegionCN),
+		RegionGlobal,
+	); err == nil {
+		t.Fatal("cross-authority update was accepted")
+	}
+	if configured.Profiles[0] != before {
+		t.Fatalf("failed authority update partially mutated the profile: before=%#v after=%#v", before, configured.Profiles[0])
+	}
+	if err := configured.SetProfileAuthority(
+		before.Name,
+		"https://api.dev.example.com/v1",
+		"https://dev.example.com",
+		RegionGlobal,
+	); err != nil {
+		t.Fatalf("explicit custom authority was rejected: %v", err)
+	}
+	updated := configured.Profiles[0]
+	if updated.APIBaseURL != "https://api.dev.example.com/v1" || updated.WebBaseURL != "https://dev.example.com" || updated.MarketRegion != RegionGlobal {
+		t.Fatalf("custom authority was not applied atomically: %#v", updated)
+	}
+}
+
+func TestConfigValidationRejectsPersistedOfficialAuthorityCrossMix(t *testing.T) {
+	t.Parallel()
+	configured := Default(RegionCN)
+	configured.Profiles[0].WebBaseURL = WebBaseURL(RegionGlobal)
+	if _, err := Save(t.TempDir(), configured); err == nil {
+		t.Fatal("persisted cross-authority profile was accepted")
+	}
+
+	configured = Default(RegionCN)
+	configured.Profiles[0].APIBaseURL = "https://api.example.com"
+	if _, err := Save(t.TempDir(), configured); err == nil {
+		t.Fatal("custom API mixed with an official Web authority was accepted")
 	}
 }
 

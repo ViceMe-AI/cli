@@ -64,7 +64,8 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 	}
 
 	endpoint := server.URL + "/api/"
-	if exit, envelope := run("profile", "add", "--name", "shop-dev", "--api-base-url", endpoint, "--use"); exit != 0 || envelope["ok"] != true {
+	webEndpoint := server.URL + "/web/"
+	if exit, envelope := run("profile", "add", "--name", "shop-dev", "--api-base-url", endpoint, "--web-base-url", webEndpoint, "--market-region", "cn", "--use"); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("could not add custom endpoint profile: exit=%d result=%#v", exit, envelope)
 	}
 	configured, err := config.LoadOrDefault(configDir)
@@ -75,7 +76,7 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if profile.APIBaseURL != server.URL+"/api" || configured.CurrentProfile != profile.Name {
+	if profile.APIBaseURL != server.URL+"/api" || profile.WebBaseURL != server.URL+"/web" || profile.MarketRegion != config.RegionCN || configured.CurrentProfile != profile.Name {
 		t.Fatalf("custom profile was not persisted canonically: %#v", configured)
 	}
 	scope, err := credentialScopeForAPIBase(profile.ResolvedAPIBaseURL())
@@ -102,7 +103,7 @@ func TestCustomEndpointProfilePersistsRoutesAndRemovesScopedCredential(t *testin
 			t.Fatalf("profile list returned unexpected data: %#v", envelope)
 		}
 		shopDev, ok := items[1].(map[string]any)
-		if !ok || shopDev["apiBaseUrl"] != server.URL+"/api" || shopDev["authenticated"] != true {
+		if !ok || shopDev["apiBaseUrl"] != server.URL+"/api" || shopDev["webBaseUrl"] != server.URL+"/web" || shopDev["marketRegion"] != "cn" || shopDev["authenticated"] != true {
 			t.Fatalf("profile list hid endpoint or used the wrong credential scope: %#v", items)
 		}
 	}
@@ -157,7 +158,12 @@ func TestProfileRemoveAllRequiresConfirmationAndClearsEveryCredential(t *testing
 	root := t.TempDir()
 	configDir := filepath.Join(root, "config")
 	configured := config.Default(config.RegionCN)
-	shopTest, err := configured.AddProfile("shop-test", "https://shop-test.example.com/api")
+	shopTest, err := configured.AddProfile(
+		"shop-test",
+		"https://shop-test.example.com/api",
+		"https://shop-test.example.com",
+		config.RegionCN,
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

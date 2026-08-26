@@ -48,3 +48,73 @@ func TestPublishSkillKeepsHistoricalContextOutOfProfileSelection(t *testing.T) {
 		}
 	}
 }
+
+func TestDanmakuSkillUsesOnlyHostedIntegration(t *testing.T) {
+	t.Parallel()
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-danmaku/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{"access init", "--danmaku", "data.embedSnippet", "must not copy"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("hosted danmaku Skill omitted %q", required)
+		}
+	}
+	for _, forbidden := range []string{"FOLLOW_OWNER", "WORK_ENTITLEMENT", "React blueprint"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("hosted danmaku Skill retained excluded capability %q", forbidden)
+		}
+	}
+	if _, err := fs.Stat(cliembed.EmbeddedSkills(), "viceme-danmaku/references/cdn-sdk.md"); err != nil {
+		t.Fatalf("hosted SDK contract is missing: %v", err)
+	}
+}
+
+func TestEngagementSkillConsumesAuthoritativeCombinedSnippet(t *testing.T) {
+	t.Parallel()
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-engagement/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"access init",
+		"creator-app create",
+		"creator-app domain verify",
+		"creator-app show <app-id> --work-key <work-key> --locale <zh-CN-or-en-US>",
+		"data.engagementEmbedSnippet",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("engagement Skill omitted %q", required)
+		}
+	}
+	for _, forbidden := range []string{"website publish", "FOLLOW_OWNER", "WORK_ENTITLEMENT"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("engagement Skill retained excluded flow %q", forbidden)
+		}
+	}
+}
+
+func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
+	t.Parallel()
+
+	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(publish)
+	for _, required := range []string{
+		"A creator-owned website",
+		"Website Work",
+		"Payment integration remains a documented future capability",
+		"publish no Product",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("publish Skill omitted the current website Work boundary %q", required)
+		}
+	}
+	if strings.Contains(text, "references/website-workflow.md") {
+		t.Fatal("publish Skill still routes to the superseded SdkWork website workflow")
+	}
+}
