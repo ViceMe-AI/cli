@@ -53,7 +53,7 @@ func TestPublicationClientUsesBearerAndExactContract(t *testing.T) {
 func TestInteractionDefinitionClientUsesExactRoutes(t *testing.T) {
 	t.Parallel()
 	const workID = "11111111-1111-4111-8111-111111111111"
-	requests := make(chan string, 4)
+	requests := make(chan string, 7)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		requests <- request.Method + " " + request.URL.RequestURI()
 		writer.Header().Set("Content-Type", "application/json")
@@ -62,6 +62,15 @@ func TestInteractionDefinitionClientUsesExactRoutes(t *testing.T) {
 	defer server.Close()
 	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
 	ctx := context.Background()
+	if _, err := client.CreateInteractionAnalysis(ctx, workID, json.RawMessage(`{"merchantAccountId":"m"}`)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ShowInteractionAnalysis(ctx, workID, "merchant id"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ConfirmInteractionAnalysis(ctx, workID, "analysis id", json.RawMessage(`{"analysisDigest":"digest"}`)); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := client.CreateInteractionDraft(ctx, workID, json.RawMessage(`{"merchantAccountId":"m"}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -75,6 +84,9 @@ func TestInteractionDefinitionClientUsesExactRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
+		http.MethodPost + " /v1/cli/merchant/works/" + workID + "/interaction-analyses",
+		http.MethodGet + " /v1/cli/merchant/works/" + workID + "/interaction-analyses/current?merchantAccountId=merchant+id",
+		http.MethodPost + " /v1/cli/merchant/works/" + workID + "/interaction-analyses/analysis%20id/confirm",
 		http.MethodPost + " /v1/cli/merchant/works/" + workID + "/interaction-drafts",
 		http.MethodGet + " /v1/cli/merchant/works/" + workID + "/interaction-drafts/current?merchantAccountId=merchant+id",
 		http.MethodPost + " /v1/cli/merchant/works/" + workID + "/interaction-previews",

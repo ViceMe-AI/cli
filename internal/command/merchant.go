@@ -44,9 +44,94 @@ func newMerchantWorkCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newMerchantWorkListCommand(runtime))
 	command.AddCommand(newMerchantWorkGetCommand(runtime))
 	command.AddCommand(newMerchantWorkUpdateCommand(runtime))
+	command.AddCommand(newMerchantWorkAnalysisCommand(runtime))
 	command.AddCommand(newMerchantWorkDraftCommand(runtime))
 	command.AddCommand(newMerchantWorkPreviewCommand(runtime))
 	command.AddCommand(newMerchantWorkActivateCommand(runtime))
+	return command
+}
+
+func newMerchantWorkAnalysisCommand(runtime *Runtime) *cobra.Command {
+	command := &cobra.Command{Use: "analysis", Short: "Create and confirm scenario analysis before Interaction compilation"}
+	command.AddCommand(newMerchantWorkAnalysisCreateCommand(runtime))
+	command.AddCommand(newMerchantWorkAnalysisShowCommand(runtime))
+	command.AddCommand(newMerchantWorkAnalysisConfirmCommand(runtime))
+	return command
+}
+
+func newMerchantWorkAnalysisCreateCommand(runtime *Runtime) *cobra.Command {
+	var inputFile string
+	command := &cobra.Command{
+		Use: "create", Short: "Create an exact scenario analysis requiring creator confirmation", Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
+				return err
+			}
+			input, err := readJSONObject(inputFile, "MERCHANT_INTERACTION_ANALYSIS_INPUT_INVALID")
+			if err != nil {
+				return err
+			}
+			workID, request, err := splitInteractionEnvelope(input, false, "MERCHANT_INTERACTION_ANALYSIS_INPUT_INVALID")
+			if err != nil {
+				return err
+			}
+			result, err := runtime.client().CreateInteractionAnalysis(command.Context(), workID, request)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
+		},
+	}
+	command.Flags().StringVar(&inputFile, "input", "", "private strict JSON containing workId, merchantAccountId, sourceType, and analysis")
+	_ = command.MarkFlagRequired("input")
+	return command
+}
+
+func newMerchantWorkAnalysisShowCommand(runtime *Runtime) *cobra.Command {
+	var merchantAccountID string
+	command := &cobra.Command{
+		Use: "show <work-id>", Short: "Show the current scenario analysis and confirmation requirements", Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), false); err != nil {
+				return err
+			}
+			result, err := runtime.client().ShowInteractionAnalysis(command.Context(), args[0], merchantAccountID)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
+		},
+	}
+	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID")
+	_ = command.MarkFlagRequired("merchant")
+	return command
+}
+
+func newMerchantWorkAnalysisConfirmCommand(runtime *Runtime) *cobra.Command {
+	var inputFile string
+	command := &cobra.Command{
+		Use: "confirm", Short: "Record explicit creator confirmation of one exact scenario analysis", Args: cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
+				return err
+			}
+			input, err := readJSONObject(inputFile, "MERCHANT_INTERACTION_ANALYSIS_CONFIRMATION_INVALID")
+			if err != nil {
+				return err
+			}
+			workID, analysisID, request, err := splitInteractionAnalysisConfirmation(input)
+			if err != nil {
+				return err
+			}
+			result, err := runtime.client().ConfirmInteractionAnalysis(command.Context(), workID, analysisID, request)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
+		},
+	}
+	command.Flags().StringVar(&inputFile, "input", "", "strict JSON containing workId, analysisId, merchantAccountId, digest, acknowledgments, and resolutions")
+	_ = command.MarkFlagRequired("input")
 	return command
 }
 
@@ -174,21 +259,52 @@ func newMerchantWorkActivateCommand(runtime *Runtime) *cobra.Command {
 }
 
 func splitInteractionDraftInput(input json.RawMessage) (string, json.RawMessage, error) {
+	return splitInteractionEnvelope(input, true, "MERCHANT_INTERACTION_DRAFT_INPUT_INVALID")
+}
+
+func splitInteractionAnalysisConfirmation(input json.RawMessage) (string, string, json.RawMessage, error) {
+	workID, request, err := splitInteractionEnvelope(input, true, "MERCHANT_INTERACTION_ANALYSIS_CONFIRMATION_INVALID")
+	if err != nil {
+		return "", "", nil, err
+	}
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(request, &envelope); err != nil {
+		return "", "", nil, output.Validation("MERCHANT_INTERACTION_ANALYSIS_CONFIRMATION_INVALID", "interaction analysis confirmation must be a JSON object")
+	}
+	var analysisID string
+	if raw, ok := envelope["analysisId"]; ok {
+		_ = json.Unmarshal(raw, &analysisID)
+	}
+	if strings.TrimSpace(analysisID) == "" {
+		return "", "", nil, output.Validation("MERCHANT_INTERACTION_ANALYSIS_REQUIRED", "interaction analysis confirmation must contain analysisId")
+	}
+	delete(envelope, "analysisId")
+	request, err = json.Marshal(envelope)
+	if err != nil {
+		return "", "", nil, output.Internal("MERCHANT_INTERACTION_ANALYSIS_CONFIRMATION_INVALID", "failed to encode interaction analysis confirmation", err)
+	}
+	return workID, analysisID, request, nil
+}
+
+func splitInteractionEnvelope(input json.RawMessage, keepAnalysisID bool, code string) (string, json.RawMessage, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(input, &envelope); err != nil {
-		return "", nil, output.Validation("MERCHANT_INTERACTION_DRAFT_INPUT_INVALID", "interaction draft input must be a JSON object")
+		return "", nil, output.Validation(code, "interaction input must be a JSON object")
 	}
 	var workID string
 	if raw, ok := envelope["workId"]; ok {
 		_ = json.Unmarshal(raw, &workID)
 	}
 	if strings.TrimSpace(workID) == "" {
-		return "", nil, output.Validation("MERCHANT_INTERACTION_WORK_REQUIRED", "interaction draft input must contain workId")
+		return "", nil, output.Validation("MERCHANT_INTERACTION_WORK_REQUIRED", "interaction input must contain workId")
 	}
 	delete(envelope, "workId")
+	if !keepAnalysisID {
+		delete(envelope, "analysisId")
+	}
 	request, err := json.Marshal(envelope)
 	if err != nil {
-		return "", nil, output.Internal("MERCHANT_INTERACTION_DRAFT_INPUT_INVALID", "failed to encode interaction draft", err)
+		return "", nil, output.Internal(code, "failed to encode interaction input", err)
 	}
 	return workID, request, nil
 }

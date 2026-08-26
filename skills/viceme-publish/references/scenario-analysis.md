@@ -45,9 +45,35 @@ the Definition says so, and ask only for values still missing when they become
 required. Never treat a derived value as a creator decision or verified
 external result.
 
+## Persist and confirm the exact analysis
+
+After preparing the recommendation, create a private strict JSON file and run
+`viceme merchant work analysis create --input <file>`. The input contains
+`workId`, `merchantAccountId`, `sourceType`, and `analysis`. The analysis must
+include the six server-required `confirmationItems`: `OUTCOME_AND_ENTRY`,
+`ACTORS_AND_EXECUTION`, `DATA_AND_AUDIENCE`, `TRANSACTION_BOUNDARY`,
+`EXCEPTIONS_AND_RECOVERY`, and `NOTIFICATIONS_AND_STATES`. Put only genuine
+business choices in `openDecisions`; an empty decision list never removes the
+six-item confirmation gate.
+
+Display the returned analysis, digest, confirmation items, capability gaps,
+and decisions verbatim. Stop and wait for the creator. Do not create an
+Interaction Draft while `requiresUserConfirmation` is true. After explicit
+confirmation, write a private confirmation file containing `workId`,
+`analysisId`, `merchantAccountId`, `analysisDigest`, every returned review code
+in `acknowledgedCodes`, and exactly one allowed resolution for every open
+decision. Run `viceme merchant work analysis confirm --input <file>` and delete
+both private files. If the creator changes the recommendation, create a new
+analysis; the previous digest is superseded and cannot authorize compilation.
+
+The initial request to publish is not this confirmation. The later exact
+Definition/Product preview still requires its separate activation
+confirmation.
+
 ## Compile to scenario-neutral primitives
 
-Encode the confirmed recommendation in `definition.experience`:
+Only after Shop returns `status: CONFIRMED`, encode that exact confirmed
+recommendation in `definition.experience`:
 
 - `summary`: concise business outcome, not Agent instructions;
 - `assumptions`: confirmed limitations or fallbacks;

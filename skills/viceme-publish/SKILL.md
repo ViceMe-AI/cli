@@ -67,11 +67,15 @@ ask the user to choose internal model names.
    public HTML and Markdown preview, final price, SKU, buyer fields,
    fulfillment/service stages, visibility, and generated purchase or
    Interaction Skill identity.
-   Before compiling an Interaction candidate, show the structured scene
-   analysis, recommended experience plan, assumptions, capability gaps, and
-   business decisions that still require creator confirmation. Never ask the
-   creator to invent internal state-machine terms when business language is
-   sufficient.
+   Before compiling an Interaction candidate, create the server-backed scenario
+   analysis and show its complete structured analysis, recommended experience
+   plan, assumptions, capability gaps, six required review items, and open
+   business decisions. Stop and wait for the creator. Only their explicit
+   acknowledgment and resolutions authorize `merchant work analysis confirm`.
+   The original publication request is not analysis confirmation, and the
+   confirmed analysis ID and digest are mandatory inputs to Draft creation.
+   Never ask the creator to invent internal state-machine terms when business
+   language is sufficient.
 6. Reuse returned IDs, revisions, digests, and local recovery state. A lost
    response is recovered by reading the same Work/Product/Publication; it is
    never a reason to create a duplicate.

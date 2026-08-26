@@ -39,6 +39,11 @@ Creator/Merchant/OWNER relation, not a special platform principal.
 
 ## 2. Collect the complete sale definition
 
+Before selecting `FULFILLMENT_ONLY` or `INTERACTION`, perform the complete
+server-backed analysis and creator-confirmation sequence in
+`scenario-analysis.md`. Execution mode is an output of that confirmed analysis,
+not an Agent shortcut based on the offering's industry or title.
+
 Use natural language, but obtain concrete values for every required fact:
 
 - Work title, permanent slug, public summary/body, tags, usage or service

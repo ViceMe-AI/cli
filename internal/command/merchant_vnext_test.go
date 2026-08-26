@@ -107,7 +107,7 @@ func TestMerchantCommandsRequireScopedLoginBeforeAuthoring(t *testing.T) {
 }
 
 func TestSplitInteractionDraftInputKeepsStrictRequestBody(t *testing.T) {
-	workID, request, err := splitInteractionDraftInput(json.RawMessage(`{"workId":"11111111-1111-4111-8111-111111111111","merchantAccountId":"22222222-2222-4222-8222-222222222222","sourceType":"STRUCTURED","definition":{"schemaVersion":1}}`))
+	workID, request, err := splitInteractionDraftInput(json.RawMessage(`{"workId":"11111111-1111-4111-8111-111111111111","merchantAccountId":"22222222-2222-4222-8222-222222222222","analysisId":"33333333-3333-4333-8333-333333333333","analysisDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","sourceType":"STRUCTURED","definition":{"schemaVersion":1}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +123,29 @@ func TestSplitInteractionDraftInputKeepsStrictRequestBody(t *testing.T) {
 	}
 	if string(body["sourceType"]) != `"STRUCTURED"` {
 		t.Fatalf("unexpected request: %s", request)
+	}
+	if string(body["analysisId"]) != `"33333333-3333-4333-8333-333333333333"` {
+		t.Fatalf("analysis binding was removed: %s", request)
+	}
+}
+
+func TestSplitInteractionAnalysisConfirmationRemovesRouteIDs(t *testing.T) {
+	workID, analysisID, request, err := splitInteractionAnalysisConfirmation(json.RawMessage(`{"workId":"11111111-1111-4111-8111-111111111111","analysisId":"33333333-3333-4333-8333-333333333333","merchantAccountId":"22222222-2222-4222-8222-222222222222","analysisDigest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","acknowledgedCodes":[],"resolutions":[]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if workID == "" || analysisID == "" {
+		t.Fatalf("route IDs were not extracted: %q %q", workID, analysisID)
+	}
+	var body map[string]json.RawMessage
+	if err := json.Unmarshal(request, &body); err != nil {
+		t.Fatal(err)
+	}
+	if _, leaked := body["workId"]; leaked {
+		t.Fatal("workId leaked into confirmation body")
+	}
+	if _, leaked := body["analysisId"]; leaked {
+		t.Fatal("analysisId leaked into confirmation body")
 	}
 }
 

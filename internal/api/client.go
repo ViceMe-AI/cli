@@ -100,6 +100,28 @@ func (c *Client) UpdateMerchantWork(ctx context.Context, workID string, input js
 	return response, err
 }
 
+func (c *Client) CreateInteractionAnalysis(ctx context.Context, workID string, input json.RawMessage) (json.RawMessage, error) {
+	var response json.RawMessage
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/interaction-analyses"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, input, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ShowInteractionAnalysis(ctx context.Context, workID, merchantAccountID string) (json.RawMessage, error) {
+	var response json.RawMessage
+	query := url.Values{"merchantAccountId": {merchantAccountID}}
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/interaction-analyses/current?" + query.Encode()
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ConfirmInteractionAnalysis(ctx context.Context, workID, analysisID string, input json.RawMessage) (json.RawMessage, error) {
+	var response json.RawMessage
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/interaction-analyses/" + url.PathEscape(analysisID) + "/confirm"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, input, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) CreateInteractionDraft(ctx context.Context, workID string, input json.RawMessage) (json.RawMessage, error) {
 	var response json.RawMessage
 	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/interaction-drafts"

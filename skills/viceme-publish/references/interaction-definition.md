@@ -53,6 +53,8 @@ Create a private temporary JSON file with this envelope:
 {
   "workId": "uuid",
   "merchantAccountId": "uuid",
+  "analysisId": "uuid",
+  "analysisDigest": "64 lowercase hexadecimal characters",
   "sourceType": "NATURAL_LANGUAGE",
   "definition": {
     "schemaVersion": 1,
@@ -155,8 +157,11 @@ process needs no status notification. Channel selection is not part of the
 Definition: Shop applies the user's notification preference and tries WeChat
 service account, verified email, then verified phone/SMS.
 
-Run `viceme merchant work draft create --input <file>`, then delete the
-temporary file. Reuse the returned Draft ID, revision, digest, Default
+The outer draft envelope must also carry the exact confirmed `analysisId` and
+`analysisDigest` returned by the analysis workflow. Run `viceme merchant work
+draft create --input <file>`, then delete the temporary file. Shop rejects an
+unconfirmed, superseded, stale-Work, or previously consumed analysis. Reuse the
+returned Draft ID, revision, digest, Default
 Presentation views, HTML and Markdown previews, frozen Agent Skill identity,
 and optional Vibe preview. Run `viceme merchant work
 draft show <work-id> --merchant <merchant-id>` to recover a lost response.
