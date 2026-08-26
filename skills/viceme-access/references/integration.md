@@ -1,5 +1,21 @@
 # Integration reference
 
+## Choose the integration path
+
+Do not force every website through a separate design phase. When the user has
+already identified the feature, entry point, expected behavior, and price,
+verify the referenced code and implement that plan directly. Analyze only
+missing details. When no plan exists, inspect the site's main user journey,
+existing auth or payment code, rendered UI, component library, design tokens,
+responsive states, and the exact business actions before proposing candidates.
+
+A proposal should identify each feature key and title, policy, current UI entry,
+unchanged protected action, host component and variant to reuse, affected files,
+protection strength, and price still requiring the user's decision. Do not apply
+configuration or edit host code until the user chooses a proposal. If the core
+action has no safe outer call site, report that boundary instead of refactoring
+the action to manufacture one.
+
 ## Access configuration
 
 Access configuration requires an explicitly published website binding. When
@@ -67,19 +83,32 @@ const viceme = createViceMe({
 
 await viceme.ready();
 
+const features = await viceme.access.getFeatures();
+const emperor = features.find((feature) => feature.featureKey === "emperor");
+
 const decisions = await viceme.access.checkMany(["dingdong", "emperor"]);
 setDingdongUnlocked(decisions.dingdong.allowed);
 setEmperorUnlocked(decisions.emperor.allowed);
 ```
 
-Call a gate from the user's click handler. It silently returns when access is
-already granted; otherwise it opens the required in-page sign-in, owner-follow,
-or checkout interface:
+Render `emperor.title` and `emperor.price` with the host site's existing
+Button/Card components and price formatter when the entry needs those values.
+Do not hard-code them from `.viceme/access.yaml`. Preserve existing typography,
+color, radius, spacing, focus, loading, responsive, and error-feedback patterns.
+This host-owned presentation does not customize the ViceMe access layer.
+
+Call a gate from the user's click handler and keep the original action unchanged:
 
 ```ts
-const decision = await viceme.access.require("dingdong");
-if (decision.allowed) enableDingdong();
+async function handleEmperorClick() {
+  const decision = await viceme.access.require("emperor");
+  if (!decision.allowed) return;
+  await runEmperor();
+}
 ```
+
+The gate silently returns when access is already granted; otherwise it opens
+the required in-page sign-in, owner-follow, or checkout interface.
 
 The access check never performs the action by itself, and host sites must not
 call a follow mutation directly. For a follow gate, the ViceMe login consent

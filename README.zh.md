@@ -151,7 +151,7 @@ npx --yes @viceme-ai/cli@latest install
 | --- | --- |
 | `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
 | `viceme-publish` | 发布本地 Skill 目录、ZIP 或创作者网站，并维护稳定作品身份。 |
-| `viceme-access` | 为已发布的网站接入登录、关注、功能权限与一次性购买。 |
+| `viceme-access` | 有明确方案时直接接入；信息不足时分析安全且符合原站风格的登录、关注、功能权限与一次性购买入口。 |
 | `viceme-danmaku` | 在已有项目中构建或适配随包提供的生产级 React 与 Tailwind CSS v4 弹幕组件。 |
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent

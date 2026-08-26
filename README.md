@@ -161,7 +161,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | --- | --- |
 | `viceme-shared` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
 | `viceme-publish` | publish a local Skill directory, ZIP, or creator website while preserving its stable work identity. |
-| `viceme-access` | add login, following, feature gates, and one-time purchase to an already published website. |
+| `viceme-access` | follow a concrete access plan directly, or analyze safe host-native login, follow, and one-time purchase entry points when details are missing. |
 | `viceme-danmaku` | build or adapt the bundled production React and Tailwind CSS v4 danmaku component in an existing project. |
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
