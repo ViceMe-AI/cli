@@ -19,23 +19,13 @@ import (
 var officialSkillNames = []string{
 	"viceme-shared",
 	"viceme-publish",
+	"viceme-access",
 	"viceme-danmaku",
 	"viceme-tip",
 	"viceme-engagement",
 }
 
-// This tombstone is the generated identity from the last release that shipped
-// viceme-access. Cleanup also verifies the installed bytes before deletion.
-var retiredOfficialSkills = []skillcontent.RetiredSkillIdentity{
-	{
-		Name:                  "viceme-access",
-		SkillVersion:          "0.16.1",
-		MinimumCLIVersion:     "0.16.1",
-		CLICompatibility:      ">=0.16.1 <0.17.0",
-		FullBundleDigest:      "sha256:485e3c3af22634b93400e8a9389963d248a27525675f3e1289dfc0060329aa60",
-		EmbeddedContentDigest: "sha256:40525190d038f2d983ded2da772f3d533ea401939d6a9d88923472da77596e91",
-	},
-}
+var retiredOfficialSkills []skillcontent.RetiredSkillIdentity
 
 type installNextStep struct {
 	Required bool   `json:"required"`

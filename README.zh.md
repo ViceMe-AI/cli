@@ -35,6 +35,8 @@
 | 能力 | ViceMe 提供的内容 |
 | --- | --- |
 | 发布 Skill | 校验本地 Skill 目录或 ZIP、设置人民币价格、上传、审核平台建议，并发布付费商品。 |
+| 发布网站 | 使用稳定 Work 身份登记创作者网站，并可附带网址、双语描述和封面。 |
+| 接入创作者访问 | 在原站接入登录、关注门槛和按功能独立定价的一次性访问权限。 |
 | 接入网站互动 | 创建创作者自有的公开弹幕 Work，绑定支持赞赏的 Creator App，并安装 CLI 生成的托管脚本。 |
 | 配置 Agent | 把 CLI 与官方 Skills 作为同一个兼容版本安装、登录、更新、诊断和修复。 |
 | 安全恢复 | 网络或进程中断后继续原发布任务，不重复上传和创建商品。 |
@@ -150,7 +152,8 @@ npx --yes @viceme-ai/cli@latest install
 | Skill | 适用场景 |
 | --- | --- |
 | `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
-| `viceme-publish` | 把本地 Skill 目录或 ZIP 校验、上传、审核、恢复或发布为 ViceMe 付费商品。 |
+| `viceme-publish` | 发布本地 Skill 目录、ZIP 或创作者网站，并维护稳定作品身份。 |
+| `viceme-access` | 在不改变原站业务动作的前提下，接入原生登录、关注和一次性购买入口。 |
 | `viceme-danmaku` | 创建公开弹幕 Work，并安装 CLI 生成的托管 SDK 片段。 |
 | `viceme-tip` | 完成登录、绑定创作者作品与验证域名，并把 ViceMe 托管赞赏接入一个 HTML 页面。 |
 | `viceme-engagement` | 创建托管弹幕、绑定赞赏，并安装唯一权威的组合交互脚本。 |
@@ -224,8 +227,10 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme version` | 显示 CLI 与随包 Skills 版本。 |
 | `viceme doctor` | 检查 CLI、当前 Profile、凭据、API readiness 和已安装官方 Skills。 |
 | `viceme auth status` | 显示当前 Profile 是否已登录。 |
+| `viceme website publish --path <目录> --name <名称> [--url <网址>] [--description-zh-cn ...] [--description-en-us ...] [--cover <图片>]` | 发布或更新网站，并通过 `.viceme/website.json` 保持稳定作品身份。 |
+| `viceme access init --website <目录> [--name <名称>] [--follow key] [--purchase key --price-minor 分]...` | 为已显式发布的网站配置关注和按功能独立定价的访问权限。 |
 | `viceme access init --name <名称> --danmaku` | 创建并激活创作者自有的公开托管弹幕 Work。 |
-| `viceme access inspect` / `viceme access apply` | 检查或显式协调绑定 Profile 的弹幕配置。 |
+| `viceme access inspect` / `viceme access apply` | 检查或显式协调绑定 Profile 的功能配置。 |
 | `viceme creator-app show <app-id> --work-key <work-key> --locale <locale>` | 校验两个自有资源，并按页面的 `zh-CN` 或 `en-US` 语言生成权威组合交互片段。 |
 | `viceme profile list` | 显示 Profile 的 API、Web 与市场 authority。 |
 | `viceme skill inspect --path <path>` | 无副作用校验本地 Skill。 |

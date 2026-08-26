@@ -95,3 +95,35 @@ func TestEngagementSkillConsumesAuthoritativeCombinedSnippet(t *testing.T) {
 		}
 	}
 }
+
+func TestWebsitePublicationAndAccessHaveSeparateOwnership(t *testing.T) {
+	t.Parallel()
+
+	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(publish), "references/website-workflow.md") {
+		t.Fatal("publish Skill does not route website publication")
+	}
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/website-workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{"viceme website publish", "clientWorkId", "--creator-display-name", "$viceme-access"} {
+		if !strings.Contains(string(workflow), required) {
+			t.Fatalf("website publication workflow omitted %q", required)
+		}
+	}
+	for _, relativePath := range []string{"viceme-access/SKILL.md", "viceme-access/references/integration.md"} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, required := range []string{"$viceme-publish", "never publishes"} {
+			if !strings.Contains(string(content), required) {
+				t.Fatalf("%s does not enforce explicit website publication through %q", relativePath, required)
+			}
+		}
+	}
+}
