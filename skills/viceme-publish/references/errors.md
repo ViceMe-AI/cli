@@ -18,5 +18,6 @@
 - `SKILL_BINDING_PERMISSION_REQUIRED`: allow the exact command to write `.viceme/skill.json`, the adjacent ZIP sidecar, or the reported endpoint-scoped index directory, then retry with the same source identity.
 - `SKILL_BINDING_SCOPE_MISMATCH` or `SKILL_LISTING_BINDING_OWNER_MISMATCH`: do not inspect or switch environments and do not overwrite the original owner's Listing. Ask whether the user explicitly wants `--new-listing` for a separate work in the active CLI context.
 - `SKILL_LISTING_SOURCE_AMBIGUOUS`: show the candidate Listings, ask the user to choose, then use `skill listing bind`; never guess from title or filename.
+- `INTERACTION_DEFINITION_REQUIRED`: keep the compiled Product candidate, inspect the current Work draft, and create or activate a Definition for the exact reviewed Work revision whose `entryModes` includes `PURCHASE`. After the user confirms that Definition candidate, activate it first and retry the same Product activation. Recompile only if the Work or Product candidate became stale; never create a duplicate Product.
 
 If `retryable` is true, retry with bounded backoff and the same publication or client request identity. Otherwise change the input or state first.

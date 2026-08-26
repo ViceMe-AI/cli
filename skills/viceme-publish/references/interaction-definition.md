@@ -12,7 +12,9 @@ Choose the publication entry from business facts:
   first release, and generates a signed Work-bound Interaction Skill.
 - `PURCHASE` means the Product/Commerce workflow owns price and payment. The
   paid Order creates the same kind of Interaction instance after settlement;
-  do not create a second direct instance for that purchase.
+  do not create a second direct instance for that purchase. Compile and review
+  the Product candidate first, then activate this confirmed Definition for the
+  same Work revision before activating that Product candidate.
 - A Definition may allow both modes when the creator intentionally supports
   both entry paths. The generated Interaction Skill uses only `DIRECT`; the
   generated Purchase Skill uses only the Product/Commerce path.

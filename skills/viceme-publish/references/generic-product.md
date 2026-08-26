@@ -59,10 +59,12 @@ Use natural language, but obtain concrete values for every required fact:
 - execution mode: use `FULFILLMENT_ONLY` for one-order work such as photo
   printing and manual recharge; use `INTERACTION` when the buyer needs a
   persistent staged workflow such as recruitment;
-- for `INTERACTION`, publish the Work/Product, then compile and activate a
-  purchase Interaction Definition before declaring the offering ready or
-  creating any Quote. Progress lookup remains limited to the original Commerce
-  Session or a claimed registered user.
+- for `INTERACTION`, compile the Product candidate first, then create and review
+  a `PURCHASE` Interaction Definition for that same Work revision. Activate the
+  confirmed Definition before activating the already compiled Product
+  candidate. Do not declare the offering ready or create any Quote until both
+  are active. Progress lookup remains limited to the original Commerce Session
+  or a claimed registered user.
 
 Do not collect credentials, passwords, OTPs, tokens, or a buyer-supplied amount.
 Price is always server-owned SKU data. Shipment requires required recipient
@@ -188,7 +190,13 @@ Show the user:
 Do not activate a stale candidate. Any Work or Product edit requires another
 compile and another HTML/Markdown preview before review.
 
-## 5. Confirm once and activate the complete candidate atomically
+For `INTERACTION`, also create, preview, and display the exact `PURCHASE`
+Interaction Definition described in `interaction-definition.md`. It must target
+this Work and the reviewed Work revision. Obtain one confirmation covering the
+Product candidate and Interaction Definition candidate; neither candidate may
+change after that confirmation.
+
+## 5. Confirm once and activate the complete offering
 
 Ask exactly once whether the user confirms the displayed definition and wants
 to make this Product available now. State that activation enables real orders
@@ -208,7 +216,9 @@ same compile response:
 }
 ```
 
-Run:
+For `INTERACTION`, activate the confirmed Interaction Definition first. Its
+activation publishes the reviewed Work revision and freezes the runtime
+contract. Then run:
 
 ```text
 viceme merchant product activate <product-id> --input <activation.json>
@@ -217,8 +227,11 @@ viceme merchant product activate <product-id> --input <activation.json>
 Return its `productDetailUrl`, `purchaseSkillStableName`, and Product ID. The
 activation transaction publishes the current Work revision, Product sales
 specification, ServiceOffering version when present, and signed purchase Skill
-together. Never publish the Work separately immediately before Product
-activation because that can expose a page whose action is not yet executable.
+together. For `FULFILLMENT_ONLY`, never publish the Work separately immediately
+before Product activation because that can expose a page whose action is not
+yet executable. For `INTERACTION`, Definition-first activation is required;
+Product activation rejects a missing, mismatched, or non-`PURCHASE` Definition
+with `INTERACTION_DEFINITION_REQUIRED`.
 
 The detail URL must be the platform response's permanent locale-free
 `/{creatorHandle}/{workSlug}` route; never derive a `/share`, locale-prefixed,
