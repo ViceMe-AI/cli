@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -70,7 +71,10 @@ func TestFreeSkillInstallIsAnonymousAndVerifiesTheArtifact(t *testing.T) {
 	}
 	executable := filepath.Join(home, ".codex", "skills", stableName, "scripts", "run.sh")
 	info, err := os.Stat(executable)
-	if err != nil || info.Mode().Perm() != 0o755 {
+	if err != nil {
+		t.Fatalf("installed executable is missing: %v", err)
+	}
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o755 {
 		t.Fatalf("installed executable mode was not preserved: mode=%v err=%v", info, err)
 	}
 }
