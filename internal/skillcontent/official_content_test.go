@@ -107,7 +107,8 @@ func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
 	for _, required := range []string{
 		"A creator-owned website",
 		"Website Work",
-		"Payment integration remains a documented future capability",
+		"Payment integration remains",
+		"documented future",
 		"publish no Product",
 	} {
 		if !strings.Contains(text, required) {

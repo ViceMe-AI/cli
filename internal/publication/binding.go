@@ -97,7 +97,7 @@ func (s BindingStore) ResolveOrCreate(sourcePath, sourceType, packageDigest, res
 	if !isHexDigest(packageDigest) {
 		return ResolvedSourceIdentity{}, output.Validation("SKILL_BINDING_DIGEST_INVALID", "canonical package digest is invalid")
 	}
-	if resolution == "" {
+	if resolution == "" && !isLogicalRemoteSource(sourcePath) {
 		binding, found, err := s.loadSidecar(sourcePath, sourceType)
 		if err != nil {
 			return ResolvedSourceIdentity{}, err
@@ -141,8 +141,10 @@ func (s BindingStore) Save(sourcePath, sourceType string, binding SkillBinding) 
 	if err := s.validateBinding(binding); err != nil {
 		return err
 	}
-	if err := writeBindingJSON(sidecarFilename(sourcePath, sourceType), binding); err != nil {
-		return err
+	if !isLogicalRemoteSource(sourcePath) {
+		if err := writeBindingJSON(sidecarFilename(sourcePath, sourceType), binding); err != nil {
+			return err
+		}
 	}
 	if err := os.MkdirAll(s.Directory, 0o700); err != nil {
 		return bindingWriteError(s.Directory, "SKILL_BINDING_INDEX_SAVE_FAILED", "could not create the local Skill binding index", err)
@@ -257,6 +259,9 @@ func resolveIndexedBinding(entries []bindingIndexEntry, sourcePath, sourceType, 
 			return &value
 		}
 	}
+	if isLogicalRemoteSource(sourcePath) {
+		return nil
+	}
 	var match *SkillBinding
 	for _, entry := range entries {
 		if entry.SourceType == sourceType && entry.Binding.LastPackageDigest == digest {
@@ -277,6 +282,9 @@ func resolveIntent(intents []SourceIntent, sourcePath, sourceType, digest, resol
 			return &value
 		}
 	}
+	if isLogicalRemoteSource(sourcePath) {
+		return nil
+	}
 	var match *SourceIntent
 	for _, intent := range intents {
 		if intent.Resolution == resolution && intent.SourceType == sourceType && intent.PackageDigest == digest {
@@ -288,6 +296,10 @@ func resolveIntent(intents []SourceIntent, sourcePath, sourceType, digest, resol
 		}
 	}
 	return match
+}
+
+func isLogicalRemoteSource(sourcePath string) bool {
+	return strings.HasPrefix(sourcePath, "remote:")
 }
 
 func writeBindingJSON(filename string, value any) error {

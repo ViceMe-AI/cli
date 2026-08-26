@@ -1,0 +1,4 @@
+interface:
+  display_name: "Use ViceMe Skills"
+  short_description: "Install and use free or purchased Skill editions"
+  default_prompt: "Use $viceme-skill-use to select, install, purchase when approved, and continue with a ViceMe Skill edition."

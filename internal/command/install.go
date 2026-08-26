@@ -19,6 +19,7 @@ import (
 var officialSkillNames = []string{
 	"viceme-shared",
 	"viceme-publish",
+	"viceme-skill-use",
 	"viceme-access",
 	"viceme-danmaku",
 	"viceme-tip",

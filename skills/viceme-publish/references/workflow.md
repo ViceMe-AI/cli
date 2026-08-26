@@ -4,13 +4,18 @@ All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 
 ## Required inputs
 
-- Root `SKILL.md` with non-empty `name` and `description` frontmatter.
+- Exactly one source: local root `SKILL.md` directory/ZIP, personal GitHub
+  repository, or verified Xiaohongshu Skill ID. GitHub ownership must be
+  verified even for public repositories; private repositories use the stored
+  OAuth credential. Organization and collaborator-only repositories are not
+  supported.
 - One active MerchantAccount owned by the current User through
   `MerchantAccountMember(role=OWNER)`. Run `viceme merchant accounts` before
   starting. The CLI selects the sole active account automatically; with
   multiple active accounts, show them and retry with `--merchant
   <merchant-account-id>` only after the user chooses.
-- Explicit `priceMinor` in CNY fen before final public confirmation. A private
+- Explicit edition `key`, buyer-visible title, `sortOrder`, one to eight
+  highlights, and `priceMinor` in CNY fen before final public confirmation. A private
   package upload intentionally starts with `priceMinor: null`.
 - Two listing summaries and two usage instructions (`zh-CN` and `en-US`), a verified package, one cover, and at least one gallery item must be displayed in the final review before the combined confirm-and-publish authorization.
 
@@ -24,7 +29,7 @@ user-facing choices. Memory, prior conversations, publication history, filenames
 digests, sidecars, and login state elsewhere cannot override that context. A
 historical match outside the active context must not be probed, offered, or resumed.
 
-`skill publish --path` validates the local source, resolves and freezes the
+`skill publish` validates the selected source, resolves and freezes the
 selected Merchant, creates or recovers the
 Listing and Publication, uploads the private package, and returns the first
 real Owner Preview in one fast path. Workspaces persist `.viceme/skill.json`;
@@ -41,13 +46,60 @@ is supplied, it must equal the saved Merchant. CreatorAccount or
 CreatorExternalIdentity changes never select, transfer, suspend, or reactivate
 that Merchant; only the OWNER membership grants publication authority.
 
-Use `--new-listing` only for an explicit separate work. When digest candidate resolution is ambiguous, display candidates and use `skill listing bind <listing-id> --path ...` only after the user chooses an owned Listing.
+Use exactly one source form:
+
+```text
+viceme skill publish --path <dir-or-zip> ...edition flags...
+viceme skill publish --github <owner/repo-or-url> --github-ref <ref> [--github-path <directory>] ...edition flags...
+viceme skill publish --xiaohongshu-skill-id <id> ...edition flags...
+viceme skill publish --xiaohongshu-search <name-or-id> ...edition flags...
+```
+
+For GitHub or Xiaohongshu, the CLI stores the fetched immutable archive in its
+private recovery directory so `--resume` never refetches different bytes. A
+revoked GitHub credential requires `viceme merchant channel github
+<merchant-id>`; never fall back to unauthenticated public-repository fetching.
+`--github-path` selects a directory whose root contains `SKILL.md`; the server
+first resolves the requested ref to an immutable commit and the CLI packages
+only that directory. Xiaohongshu name search never guesses: when multiple
+verified artifacts match, display every returned candidate and rerun with the
+chosen `--xiaohongshu-skill-id`.
+
+An owned Merchant may verify an additional Xiaohongshu publication channel
+without entering the Merchant claim flow. Run `viceme merchant channel
+xiaohongshu <merchant-id> --subject-id ... --account-name ...`, upload the
+returned onboarding evidence, and submit it for Admin review. Channel approval
+does not create or transfer a Merchant; it only records the verified source
+identity for the existing OWNER.
+
+All source forms require `--edition-key`, `--edition-title`,
+`--edition-order`, and one or more `--edition-highlight` values when the Agent
+has collected explicit values. `standard`, the package title, order zero, and
+the package summary are only first-edition defaults, not inferred commercial
+hierarchy.
+
+For the first edition, omit `--listing`. For every additional edition or an
+update that uses a different source location, pass `--listing <listing-id>`
+from the already-published Work. This explicit binding is what keeps distinct
+packages under one Work; never rely on a package digest or title to infer the
+association. Use `--new-listing` only for an explicit separate Work. When
+digest candidate resolution is ambiguous, display candidates and use `skill
+listing bind <listing-id> --path ...` only after the user chooses an owned
+Listing.
 
 ## State sequence
 
 `DRAFT -> REVIEW_REQUIRED -> READY -> PUBLISHED`
 
 `FAILED` can return to review after correcting inputs. `CANCELLED` and `PUBLISHED` are terminal.
+
+Publishing another edition reuses the same Listing and repeats the complete
+package validation, upload, bilingual listing, media, review, confirmation,
+and publication sequence. Each edition is an independent Product and permanent
+download entitlement. A price of zero means free; a free edition is optional.
+Buying one edition never includes another. Updating the same edition key
+publishes a new release under the same Product and existing buyers receive it;
+charging again requires a new edition key/Product.
 
 ## Local recovery permission
 
@@ -154,6 +206,12 @@ fresh `presentation`. Present its one-time launch immediately and always keep
 the stable fallback URL visible. The stable page remains the same; Draft
 revision polling updates it after Agent suggestions, explicit user edits, or an
 explicit platform fallback completes.
+
+After every edition reaches `PUBLISHED`, ask once whether the creator wants to
+publish one related higher edition. If yes, collect its distinct package,
+edition metadata, and price and repeat this workflow with `--listing
+<published-listing-id>`. If no, finish without inventing a free or paid edition
+requirement.
 
 ## Update draft file
 

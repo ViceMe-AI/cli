@@ -96,13 +96,14 @@ func ReadCandidate(filename string) (Candidate, error) {
 }
 
 type Package struct {
-	SourcePath string                       `json:"sourcePath"`
-	Manifest   api.SkillPublicationManifest `json:"manifest"`
-	Artifact   api.SkillPublicationFile     `json:"artifact"`
-	Digest     string                       `json:"manifestDigest"`
-	FileCount  int                          `json:"fileCount"`
-	Candidates []Candidate                  `json:"candidates"`
-	Bytes      []byte                       `json:"-"`
+	SourcePath      string                       `json:"sourcePath"`
+	BindingIdentity string                       `json:"bindingIdentity,omitempty"`
+	Manifest        api.SkillPublicationManifest `json:"manifest"`
+	Artifact        api.SkillPublicationFile     `json:"artifact"`
+	Digest          string                       `json:"manifestDigest"`
+	FileCount       int                          `json:"fileCount"`
+	Candidates      []Candidate                  `json:"candidates"`
+	Bytes           []byte                       `json:"-"`
 }
 
 type sourceEntry struct {
@@ -117,6 +118,58 @@ type skillFrontmatter struct {
 }
 
 func Build(sourcePath string) (Package, error) {
+	return build(sourcePath, "")
+}
+
+func BuildArchiveSubpath(sourcePath, subpath string) (Package, error) {
+	return build(sourcePath, strings.TrimSpace(subpath))
+}
+
+// BuildRemoteArchive validates a server-normalized channel archive while
+// preserving its exact bytes. The API receipt binds this byte digest, so the
+// CLI must not rewrite the ZIP before publication creation.
+func BuildRemoteArchive(sourcePath string) (Package, error) {
+	abs, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return Package{}, output.Validation("SKILL_PATH_INVALID", "could not resolve the Skill path").WithCause(err)
+	}
+	info, err := os.Lstat(abs)
+	if err != nil {
+		return Package{}, output.Validation("SKILL_PATH_NOT_FOUND", "Skill path does not exist").WithCause(err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || !strings.EqualFold(filepath.Ext(abs), ".zip") {
+		return Package{}, output.Validation("SKILL_SOURCE_RECEIPT_INVALID", "remote Skill source must be a regular ZIP file")
+	}
+	raw, err := os.ReadFile(abs)
+	if err != nil {
+		return Package{}, output.Internal("SKILL_READ_FAILED", "failed to read remote Skill archive", err)
+	}
+	if len(raw) == 0 || len(raw) > MaxPackageBytes {
+		return Package{}, output.Validation("SKILL_PACKAGE_TOO_LARGE", "remote Skill ZIP must be between 1 byte and 20 MiB")
+	}
+	entries, err := readZip(abs)
+	if err != nil {
+		return Package{}, err
+	}
+	manifest, err := manifestFromEntries(entries)
+	if err != nil {
+		return Package{}, err
+	}
+	manifestDigest, err := CanonicalDigest(manifest)
+	if err != nil {
+		return Package{}, err
+	}
+	return Package{
+		SourcePath: abs,
+		Manifest:   manifest,
+		Artifact: api.SkillPublicationFile{
+			Digest: sha256Hex(raw), SizeBytes: int64(len(raw)), FileName: safePackageName(manifest.Metadata.Title), ContentType: "application/zip",
+		},
+		Digest: manifestDigest, FileCount: len(entries), Candidates: listingCandidates(entries), Bytes: raw,
+	}, nil
+}
+
+func build(sourcePath, archiveSubpath string) (Package, error) {
 	abs, err := filepath.Abs(sourcePath)
 	if err != nil {
 		return Package{}, output.Validation("SKILL_PATH_INVALID", "could not resolve the Skill path").WithCause(err)
@@ -139,9 +192,20 @@ func Build(sourcePath string) (Package, error) {
 	if err != nil {
 		return Package{}, err
 	}
+	if archiveSubpath != "" {
+		entries, err = selectArchiveSubpath(entries, archiveSubpath)
+		if err != nil {
+			return Package{}, err
+		}
+	}
 	manifest, err := manifestFromEntries(entries)
 	if err != nil {
 		return Package{}, err
+	}
+	if info.IsDir() {
+		manifest.Spec.Source.Type = "WORKSPACE"
+	} else {
+		manifest.Spec.Source.Type = "ZIP"
 	}
 	archive, err := writeDeterministicZip(entries)
 	if err != nil {
@@ -164,6 +228,67 @@ func Build(sourcePath string) (Package, error) {
 		},
 		Digest: manifestDigest, FileCount: len(entries), Candidates: candidates, Bytes: archive,
 	}, nil
+}
+
+func selectArchiveSubpath(entries []sourceEntry, subpath string) ([]sourceEntry, error) {
+	normalized := strings.Trim(strings.ReplaceAll(subpath, "\\", "/"), "/")
+	if normalized == "" || path.Clean(normalized) != normalized || strings.HasPrefix(normalized, "../") {
+		return nil, output.Validation("GITHUB_PATH_INVALID", "--github-path must be a safe repository-relative directory")
+	}
+	selectPrefix := func(prefix string) []sourceEntry {
+		selected := make([]sourceEntry, 0, len(entries))
+		for _, entry := range entries {
+			if !strings.HasPrefix(entry.name, prefix) {
+				continue
+			}
+			entry.name = strings.TrimPrefix(entry.name, prefix)
+			selected = append(selected, entry)
+		}
+		return selected
+	}
+	selected := selectPrefix(normalized + "/")
+	if len(selected) == 0 {
+		root := ""
+		for _, entry := range entries {
+			separator := strings.IndexByte(entry.name, '/')
+			if separator <= 0 {
+				root = ""
+				break
+			}
+			candidate := entry.name[:separator]
+			if root == "" {
+				root = candidate
+			} else if root != candidate {
+				root = ""
+				break
+			}
+		}
+		if root != "" {
+			selected = selectPrefix(root + "/" + normalized + "/")
+		}
+	}
+	if len(selected) == 0 {
+		return nil, output.Validation("GITHUB_PATH_NOT_FOUND", "the selected GitHub directory is empty or missing")
+	}
+	normalizedEntries, err := normalizeEntries(selected)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := manifestFromEntries(normalizedEntries); err != nil {
+		return nil, output.Validation("GITHUB_PATH_SKILL_MISSING", "the selected GitHub directory must contain SKILL.md at its root").WithCause(err)
+	}
+	return normalizedEntries, nil
+}
+
+func Customize(pkg Package, source api.SkillPublicationSource, edition api.SkillPublicationEdition) (Package, error) {
+	pkg.Manifest.Spec.Source = source
+	pkg.Manifest.Spec.Edition = edition
+	digest, err := CanonicalDigest(pkg.Manifest)
+	if err != nil {
+		return Package{}, err
+	}
+	pkg.Digest = digest
+	return pkg, nil
 }
 
 func CanonicalDigest(value any) (string, error) {
@@ -418,8 +543,12 @@ func manifestFromEntries(entries []sourceEntry) (api.SkillPublicationManifest, e
 		APIVersion: "publication.viceme.ai/v1alpha1", Kind: "Skill",
 		Metadata: api.SkillPublicationMetadata{Title: frontmatter.Name, Summary: frontmatter.Description},
 		Spec: api.SkillPublicationSpec{
-			Source: api.SkillPublicationSource{Entry: "SKILL.md"},
-			Sale:   api.SkillPublicationSale{Currency: "CNY", PriceMinor: nil, Entitlement: "PERMANENT_DOWNLOAD"},
+			PublishMode: "DOWNLOADABLE_SKILL",
+			Source:      api.SkillPublicationSource{Type: "WORKSPACE", Entry: "SKILL.md"},
+			Edition: api.SkillPublicationEdition{
+				Key: "standard", Title: frontmatter.Name, SortOrder: 0, Highlights: []string{frontmatter.Description},
+			},
+			Sale: api.SkillPublicationSale{Currency: "CNY", PriceMinor: nil, Entitlement: "PERMANENT_DOWNLOAD"},
 		},
 	}, nil
 }
