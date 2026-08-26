@@ -248,6 +248,66 @@ func (c *Client) CreateInteraction(ctx context.Context, input json.RawMessage) (
 	return response, err
 }
 
+func (c *Client) GetInteraction(ctx context.Context, instanceNo string) (json.RawMessage, error) {
+	return c.getInteraction(ctx, instanceNo, "@stored")
+}
+
+func (c *Client) GetInteractionWithToken(ctx context.Context, instanceNo, token string) (json.RawMessage, error) {
+	return c.getInteraction(ctx, instanceNo, token)
+}
+
+func (c *Client) getInteraction(ctx context.Context, instanceNo, credential string) (json.RawMessage, error) {
+	var response json.RawMessage
+	endpoint := "/v1/interactions/" + url.PathEscape(instanceNo) + "/view"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, credential)
+	return response, err
+}
+
+func (c *Client) ActInteraction(ctx context.Context, instanceNo, actionCode string, input json.RawMessage) (json.RawMessage, error) {
+	return c.actInteraction(ctx, instanceNo, actionCode, input, "@stored")
+}
+
+func (c *Client) ActInteractionWithToken(ctx context.Context, instanceNo, actionCode string, input json.RawMessage, token string) (json.RawMessage, error) {
+	return c.actInteraction(ctx, instanceNo, actionCode, input, token)
+}
+
+func (c *Client) actInteraction(ctx context.Context, instanceNo, actionCode string, input json.RawMessage, credential string) (json.RawMessage, error) {
+	var response json.RawMessage
+	endpoint := "/v1/interactions/" + url.PathEscape(instanceNo) + "/actions/" + url.PathEscape(actionCode)
+	err := c.doJSON(ctx, http.MethodPost, endpoint, input, &response, credential)
+	return response, err
+}
+
+func (c *Client) PrepareInteractionArtifact(ctx context.Context, instanceNo string, input json.RawMessage) (InteractionArtifactUpload, error) {
+	return c.prepareInteractionArtifact(ctx, instanceNo, input, "@stored")
+}
+
+func (c *Client) PrepareInteractionArtifactWithToken(ctx context.Context, instanceNo string, input json.RawMessage, token string) (InteractionArtifactUpload, error) {
+	return c.prepareInteractionArtifact(ctx, instanceNo, input, token)
+}
+
+func (c *Client) prepareInteractionArtifact(ctx context.Context, instanceNo string, input json.RawMessage, credential string) (InteractionArtifactUpload, error) {
+	var response InteractionArtifactUpload
+	endpoint := "/v1/interactions/" + url.PathEscape(instanceNo) + "/artifacts/prepare"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, input, &response, credential)
+	return response, err
+}
+
+func (c *Client) CompleteInteractionArtifact(ctx context.Context, instanceNo, artifactID string) (InteractionArtifactCompletion, error) {
+	return c.completeInteractionArtifact(ctx, instanceNo, artifactID, "@stored")
+}
+
+func (c *Client) CompleteInteractionArtifactWithToken(ctx context.Context, instanceNo, artifactID, token string) (InteractionArtifactCompletion, error) {
+	return c.completeInteractionArtifact(ctx, instanceNo, artifactID, token)
+}
+
+func (c *Client) completeInteractionArtifact(ctx context.Context, instanceNo, artifactID, credential string) (InteractionArtifactCompletion, error) {
+	var response InteractionArtifactCompletion
+	endpoint := "/v1/interactions/" + url.PathEscape(instanceNo) + "/artifacts/" + url.PathEscape(artifactID) + "/complete"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, credential)
+	return response, err
+}
+
 func (c *Client) DownloadArtifact(ctx context.Context, rawURL string) ([]byte, error) {
 	if err := validateUploadURL(rawURL); err != nil {
 		return nil, output.Validation("ARTIFACT_URL_INVALID", "artifact URL must use HTTPS; loopback HTTP is allowed only for development")

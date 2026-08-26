@@ -281,6 +281,7 @@ type InteractionSkillDescriptor struct {
 	StableName          string                  `json:"stableName"`
 	Title               string                  `json:"title"`
 	EntryModes          []string                `json:"entryModes"`
+	Experience          json.RawMessage         `json:"experience"`
 	InitialInput        json.RawMessage         `json:"initialInput"`
 	ActiveRelease       InteractionSkillRelease `json:"activeRelease"`
 }
@@ -297,6 +298,18 @@ type InteractionSkillInstall struct {
 		MinimumRuntimeVersion string `json:"minimumRuntimeVersion"`
 		InstallCommand        string `json:"installCommand"`
 	} `json:"runtime"`
+}
+
+type InteractionArtifactUpload struct {
+	ArtifactID string            `json:"artifactId"`
+	UploadURL  string            `json:"uploadUrl"`
+	ExpiresAt  string            `json:"expiresAt"`
+	Headers    map[string]string `json:"headers"`
+}
+
+type InteractionArtifactCompletion struct {
+	ArtifactID string `json:"artifactId"`
+	Status     string `json:"status"`
 }
 
 type CommerceSession struct {
@@ -392,6 +405,7 @@ type OrderStatusResponse struct {
 
 type Interaction struct {
 	SchemaVersion  int             `json:"schemaVersion"`
+	Experience     json.RawMessage `json:"experience"`
 	Instance       InteractionInfo `json:"instance"`
 	Overview       json.RawMessage `json:"overview"`
 	Records        json.RawMessage `json:"records"`

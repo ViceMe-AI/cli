@@ -2,11 +2,17 @@ package command
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/interactionartifact"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/semver"
@@ -30,11 +36,18 @@ type interactionFlowStartResult struct {
 	DefinitionVersionID  string                  `json:"definitionVersionId"`
 	CreateIdempotencyKey string                  `json:"createIdempotencyKey"`
 	Title                string                  `json:"title"`
+	ExperiencePlan       json.RawMessage         `json:"experiencePlan"`
 	InitialInputSchema   json.RawMessage         `json:"initialInputSchema"`
 	InitialInputGuide    []interactionInputField `json:"initialInputGuide"`
 }
 
 type interactionFlowCreateResult struct {
+	NextAction  string          `json:"nextAction"`
+	InstanceURL string          `json:"instanceUrl,omitempty"`
+	Interaction json.RawMessage `json:"interaction"`
+}
+
+type interactionFlowProgressResult struct {
 	NextAction  string          `json:"nextAction"`
 	InstanceURL string          `json:"instanceUrl,omitempty"`
 	Interaction json.RawMessage `json:"interaction"`
@@ -103,7 +116,7 @@ func newInteractionSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if install.StableName != stableName || install.SkillReleaseID != descriptor.ActiveRelease.SkillReleaseID || install.ArtifactDigest != descriptor.ActiveRelease.ArtifactDigest || install.Runtime.Kind != "VICEME_CLI" || install.Runtime.ProtocolVersion != 1 || install.Runtime.MinimumRuntimeVersion != descriptor.ActiveRelease.MinimumRuntimeVersion {
+			if install.StableName != stableName || install.SkillReleaseID != descriptor.ActiveRelease.SkillReleaseID || install.ArtifactDigest != descriptor.ActiveRelease.ArtifactDigest || install.Runtime.Kind != "VICEME_CLI" || install.Runtime.ProtocolVersion != 2 || install.Runtime.MinimumRuntimeVersion != descriptor.ActiveRelease.MinimumRuntimeVersion {
 				return output.Policy("INTERACTION_SKILL_INSTALL_IDENTITY_MISMATCH", "install response does not match the requested Interaction Skill")
 			}
 			if install.Runtime.InstallCommand != fmt.Sprintf("viceme interaction skill install %s --agent %s", stableName, apiAgent) {
@@ -147,7 +160,7 @@ func newInteractionSkillInstallCommand(runtime *Runtime) *cobra.Command {
 }
 
 func validateInteractionRuntimeVersion(minimumRuntimeVersion string) error {
-	comparison, err := semver.Compare("1.5.0", minimumRuntimeVersion)
+	comparison, err := semver.Compare("1.6.0", minimumRuntimeVersion)
 	if err != nil || comparison < 0 {
 		return output.Policy("INTERACTION_RUNTIME_VERSION_UNSUPPORTED", "Interaction Skill requires a newer ViceMe Interaction Runtime")
 	}
@@ -158,6 +171,8 @@ func newInteractionFlowCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "flow", Short: "Run the deterministic direct-service entry flow"}
 	command.AddCommand(newInteractionFlowStartCommand(runtime))
 	command.AddCommand(newInteractionFlowCreateCommand(runtime))
+	command.AddCommand(newInteractionFlowShowCommand(runtime))
+	command.AddCommand(newInteractionFlowActCommand(runtime))
 	return command
 }
 
@@ -172,7 +187,14 @@ func newInteractionFlowStartCommand(runtime *Runtime) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return runtime.business(interactionFlowStartResult{NextAction: "COLLECT_INPUT", StableName: descriptor.StableName, WorkID: descriptor.WorkID, DefinitionVersionID: descriptor.DefinitionVersionID, CreateIdempotencyKey: runtime.deps.NewID(), Title: descriptor.Title, InitialInputSchema: descriptor.InitialInput, InitialInputGuide: guide})
+		nextAction := "CREATE_INSTANCE"
+		for _, field := range guide {
+			if field.Required {
+				nextAction = "COLLECT_INPUT"
+				break
+			}
+		}
+		return runtime.business(interactionFlowStartResult{NextAction: nextAction, StableName: descriptor.StableName, WorkID: descriptor.WorkID, DefinitionVersionID: descriptor.DefinitionVersionID, CreateIdempotencyKey: runtime.deps.NewID(), Title: descriptor.Title, ExperiencePlan: descriptor.Experience, InitialInputSchema: descriptor.InitialInput, InitialInputGuide: guide})
 	}}
 	command.Flags().StringVar(&stableName, "skill", "", "Interaction Skill stable name")
 	_ = command.MarkFlagRequired("skill")
@@ -199,7 +221,7 @@ func newInteractionFlowCreateCommand(runtime *Runtime) *cobra.Command {
 			return err
 		}
 		instanceURL := interactionInstanceURL(projection)
-		return runtime.business(interactionFlowCreateResult{NextAction: "INSTANCE_CREATED", InstanceURL: instanceURL, Interaction: projection})
+		return runtime.business(interactionFlowCreateResult{NextAction: interactionProjectionNextAction(projection), InstanceURL: instanceURL, Interaction: projection})
 	}}
 	command.Flags().StringVar(&stableName, "skill", "", "Interaction Skill stable name")
 	command.Flags().StringVar(&inputJSON, "input-json", "", "scenario input as one JSON object")
@@ -208,6 +230,169 @@ func newInteractionFlowCreateCommand(runtime *Runtime) *cobra.Command {
 	_ = command.MarkFlagRequired("input-json")
 	_ = command.MarkFlagRequired("idempotency-key")
 	return command
+}
+
+func newInteractionFlowShowCommand(runtime *Runtime) *cobra.Command {
+	var instanceNo string
+	command := &cobra.Command{Use: "show", Args: cobra.NoArgs, RunE: func(command *cobra.Command, _ []string) error {
+		projection, err := runtime.client().GetInteraction(command.Context(), instanceNo)
+		if err != nil {
+			return err
+		}
+		return runtime.business(interactionFlowProgressResult{NextAction: interactionProjectionNextAction(projection), InstanceURL: interactionInstanceURL(projection), Interaction: projection})
+	}}
+	command.Flags().StringVar(&instanceNo, "instance", "", "Interaction instance number")
+	_ = command.MarkFlagRequired("instance")
+	return command
+}
+
+func newInteractionFlowActCommand(runtime *Runtime) *cobra.Command {
+	var instanceNo, actionCode, inputJSON, idempotencyKey, taskID string
+	var expectedVersion int
+	var assets, audiences []string
+	command := &cobra.Command{Use: "act", Args: cobra.NoArgs, RunE: func(command *cobra.Command, _ []string) error {
+		if expectedVersion < 1 {
+			return output.Validation("INTERACTION_ACTION_INPUT_INVALID", "--expected-version must be positive")
+		}
+		if strings.TrimSpace(inputJSON) == "" {
+			inputJSON = "{}"
+		}
+		payload, err := normalizeInlineJSONObject(inputJSON)
+		if err != nil {
+			return err
+		}
+		artifactIDs, err := uploadInteractionAssets(command, runtime, instanceNo, assets, audiences, "")
+		if err != nil {
+			return err
+		}
+		request := map[string]any{
+			"expectedInstanceVersion": expectedVersion,
+			"idempotencyKey":          idempotencyKey,
+			"payload":                 json.RawMessage(payload),
+			"artifacts":               artifactIDs,
+		}
+		if taskID != "" {
+			request["taskId"] = taskID
+		}
+		encoded, err := rawJSONObject(request)
+		if err != nil {
+			return output.Internal("INTERACTION_ACTION_INPUT_INVALID", "could not encode Interaction action", err)
+		}
+		projection, err := runtime.client().ActInteraction(command.Context(), instanceNo, actionCode, encoded)
+		if err != nil {
+			return err
+		}
+		return runtime.business(interactionFlowProgressResult{NextAction: interactionProjectionNextAction(projection), InstanceURL: interactionInstanceURL(projection), Interaction: projection})
+	}}
+	command.Flags().StringVar(&instanceNo, "instance", "", "Interaction instance number")
+	command.Flags().StringVar(&actionCode, "action", "", "allowed action code returned by the Interaction projection")
+	command.Flags().IntVar(&expectedVersion, "expected-version", 0, "current instance version")
+	command.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "idempotency key for this action")
+	command.Flags().StringVar(&taskID, "task", "", "optional open task id")
+	command.Flags().StringVar(&inputJSON, "input-json", "{}", "action input as one JSON object")
+	command.Flags().StringSliceVar(&assets, "asset", nil, "local artifact path; repeat for multiple files")
+	command.Flags().StringSliceVar(&audiences, "asset-audience", []string{"PARTICIPANT"}, "artifact audience: PARTICIPANT, CREATOR, or ALL_PARTICIPANTS")
+	_ = command.MarkFlagRequired("instance")
+	_ = command.MarkFlagRequired("action")
+	_ = command.MarkFlagRequired("expected-version")
+	_ = command.MarkFlagRequired("idempotency-key")
+	return command
+}
+
+func uploadInteractionAssets(command *cobra.Command, runtime *Runtime, instanceNo string, paths, audiences []string, token string) ([]string, error) {
+	if len(paths) == 0 {
+		return []string{}, nil
+	}
+	allowed := map[string]bool{"PARTICIPANT": true, "CREATOR": true, "ALL_PARTICIPANTS": true}
+	for _, audience := range audiences {
+		if !allowed[audience] {
+			return nil, output.Validation("INTERACTION_ARTIFACT_AUDIENCE_INVALID", "--asset-audience contains an unsupported audience")
+		}
+	}
+	ids := make([]string, 0, len(paths))
+	for _, localPath := range paths {
+		file, err := os.Open(localPath)
+		if err != nil {
+			return nil, output.Validation("INTERACTION_ARTIFACT_FILE_INVALID", "could not open an Interaction artifact")
+		}
+		info, statErr := file.Stat()
+		if statErr != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 100<<20 {
+			_ = file.Close()
+			return nil, output.Validation("INTERACTION_ARTIFACT_FILE_INVALID", "Interaction artifact must be a non-empty regular file up to 100 MiB")
+		}
+		hash := sha256.New()
+		if _, err = io.Copy(hash, file); err != nil {
+			_ = file.Close()
+			return nil, output.Internal("INTERACTION_ARTIFACT_READ_FAILED", "could not read an Interaction artifact", err)
+		}
+		if _, err = file.Seek(0, io.SeekStart); err != nil {
+			_ = file.Close()
+			return nil, output.Internal("INTERACTION_ARTIFACT_READ_FAILED", "could not rewind an Interaction artifact", err)
+		}
+		contentType := mime.TypeByExtension(strings.ToLower(filepath.Ext(info.Name())))
+		if contentType == "" {
+			contentType = "application/octet-stream"
+		}
+		request, err := rawJSONObject(map[string]any{"fileName": info.Name(), "contentType": contentType, "sizeBytes": info.Size(), "digest": fmt.Sprintf("%x", hash.Sum(nil)), "audience": audiences})
+		if err != nil {
+			_ = file.Close()
+			return nil, output.Internal("INTERACTION_ARTIFACT_INPUT_INVALID", "could not encode artifact metadata", err)
+		}
+		var prepared api.InteractionArtifactUpload
+		if token == "" {
+			prepared, err = runtime.client().PrepareInteractionArtifact(command.Context(), instanceNo, request)
+		} else {
+			prepared, err = runtime.client().PrepareInteractionArtifactWithToken(command.Context(), instanceNo, request, token)
+		}
+		if err == nil {
+			err = runtime.client().PutPresigned(command.Context(), prepared.UploadURL, prepared.Headers, file, info.Size())
+		}
+		_ = file.Close()
+		if err != nil {
+			return nil, err
+		}
+		var completed api.InteractionArtifactCompletion
+		if token == "" {
+			completed, err = runtime.client().CompleteInteractionArtifact(command.Context(), instanceNo, prepared.ArtifactID)
+		} else {
+			completed, err = runtime.client().CompleteInteractionArtifactWithToken(command.Context(), instanceNo, prepared.ArtifactID, token)
+		}
+		if err != nil || completed.Status != "COMPLETED" || completed.ArtifactID != prepared.ArtifactID {
+			if err != nil {
+				return nil, err
+			}
+			return nil, output.Internal("INTERACTION_ARTIFACT_COMPLETION_INVALID", "artifact completion response is invalid", nil)
+		}
+		ids = append(ids, completed.ArtifactID)
+	}
+	return ids, nil
+}
+
+func interactionProjectionNextAction(projection json.RawMessage) string {
+	var value struct {
+		Instance struct {
+			LifecycleStatus string `json:"lifecycleStatus"`
+		} `json:"instance"`
+		Tasks []struct {
+			Type string `json:"type"`
+		} `json:"tasks"`
+		AllowedActions []json.RawMessage `json:"allowedActions"`
+	}
+	if json.Unmarshal(projection, &value) != nil {
+		return "INSPECT_INTERACTION"
+	}
+	if value.Instance.LifecycleStatus != "OPEN" {
+		return "INTERACTION_CLOSED"
+	}
+	for _, task := range value.Tasks {
+		if task.Type == "OPEN" {
+			return "COMPLETE_TASK"
+		}
+	}
+	if len(value.AllowedActions) > 0 {
+		return "EXECUTE_ACTION"
+	}
+	return "WAIT_FOR_ROLE"
 }
 
 func normalizeInlineJSONObject(raw string) (json.RawMessage, error) {

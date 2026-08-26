@@ -1,6 +1,6 @@
 ---
 name: viceme-publish
-description: Publish or update a creator Work and its optional ViceMe Product or Interaction Skill. Use when a creator wants to publish a local AI Skill package, paid offering, direct service, application, booking, physical/custom-made item, official ViceMe offering, or website Work; compile scenario input and workflow rules; review before activation; or recover an interrupted publication.
+description: Publish or update a creator Work and its optional ViceMe Product or Interaction Skill. Use for downloadable packages, transaction-backed offerings, structured interactions, websites, candidate review and activation, or interrupted-publication recovery.
 ---
 
 # Publish on ViceMe
@@ -16,15 +16,13 @@ Identify what the buyer receives before creating anything:
 - A local AI Skill directory or ZIP whose bytes are the sold deliverable: read
   [workflow.md](references/workflow.md) completely and use the existing
   `skill publish` / `publication` workflow.
-- A priced service, physical/custom-made item, or other offering that requires
-  Quote, Order, or payment: read
+- An offering that requires Quote, Order, payment, or Commerce fulfillment: read
+  [scenario-analysis.md](references/scenario-analysis.md) and then
   [generic-product.md](references/generic-product.md) completely and use the
-  Merchant Work/Product workflow. Photo printing and the current manually
-  fulfilled official mobile-recharge offer belong here. A Product is never
-  public without a real Work, even though its generated purchase entrance is
-  itself a Skill.
-- A service with no price or payment, including free recruitment applications,
-  registration, intake, trial, and direct booking: read
+  Merchant Work/Product workflow. A Product is never public without a real
+  Work, even though its generated purchase entrance is itself a Skill.
+- A structured interaction without price or payment: read
+  [scenario-analysis.md](references/scenario-analysis.md) and
   [interaction-definition.md](references/interaction-definition.md)
   completely and publish a `DIRECT` Interaction Definition without a Product.
   Activation publishes the reviewed Work revision and generates its signed
@@ -32,9 +30,9 @@ Identify what the buyer receives before creating anything:
 - A creator-owned website that only embeds ViceMe payment: this is a Website
   Work. Payment integration remains a documented future capability in this
   release: publish no Product and expose no payment CTA for it.
-- A submission, application, booking, multi-round service, or other structured
-  interaction whose rules are currently described in natural language or
-  Markdown: read
+- Any multi-step interaction whose rules are currently described in natural
+  language or Markdown: read
+  [scenario-analysis.md](references/scenario-analysis.md) and
   [interaction-definition.md](references/interaction-definition.md)
   completely. Compile the conversation into one strict Interaction Definition
   draft. The source text is provenance only and never runtime authority.
@@ -69,6 +67,11 @@ ask the user to choose internal model names.
    public HTML and Markdown preview, final price, SKU, buyer fields,
    fulfillment/service stages, visibility, and generated purchase or
    Interaction Skill identity.
+   Before compiling an Interaction candidate, show the structured scene
+   analysis, recommended experience plan, assumptions, capability gaps, and
+   business decisions that still require creator confirmation. Never ask the
+   creator to invent internal state-machine terms when business language is
+   sufficient.
 6. Reuse returned IDs, revisions, digests, and local recovery state. A lost
    response is recovered by reading the same Work/Product/Publication; it is
    never a reason to create a duplicate.

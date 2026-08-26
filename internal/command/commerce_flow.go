@@ -21,7 +21,6 @@ const (
 	commerceFlowPaymentClosed      = "PAYMENT_CLOSED"
 	commerceFlowFulfillmentPending = "FULFILLMENT_PENDING"
 	commerceFlowCompleted          = "COMPLETED"
-	commerceFlowReportInteraction  = "REPORT_INTERACTION_PROGRESS"
 )
 
 type commerceFlowStartResult struct {
@@ -57,6 +56,12 @@ type commerceFlowInteractionResult struct {
 	Interaction   api.Interaction       `json:"interaction"`
 }
 
+type commerceFlowInteractionActionResult struct {
+	NextAction    string                `json:"nextAction"`
+	TrustBoundary commerceTrustBoundary `json:"trustBoundary"`
+	Interaction   json.RawMessage       `json:"interaction"`
+}
+
 type commerceTrustBoundary struct {
 	SchemaVersion   int      `json:"schemaVersion"`
 	ControlSource   string   `json:"controlSource"`
@@ -85,6 +90,7 @@ func newCommerceFlowCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newCommerceFlowConfirmCommand(runtime))
 	command.AddCommand(newCommerceFlowWaitCommand(runtime))
 	command.AddCommand(newCommerceFlowInteractionCommand(runtime))
+	command.AddCommand(newCommerceFlowInteractionActCommand(runtime))
 	return command
 }
 
@@ -118,7 +124,7 @@ func newCommerceFlowInteractionCommand(runtime *Runtime) *cobra.Command {
 				return output.Internal("COMMERCE_INTERACTION_RESPONSE_INVALID", "order Interaction is missing or invalid", nil)
 			}
 			return runtime.business(commerceFlowInteractionResult{
-				NextAction:    commerceFlowReportInteraction,
+				NextAction:    commerceInteractionNextAction(*status.Interaction),
 				TrustBoundary: platformCommerceTrustBoundary(),
 				Interaction:   *status.Interaction,
 			})
@@ -128,6 +134,91 @@ func newCommerceFlowInteractionCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&orderNo, "order", "", "order number")
 	_ = command.MarkFlagRequired("skill")
 	_ = command.MarkFlagRequired("order")
+	return command
+}
+
+func commerceInteractionNextAction(interaction api.Interaction) string {
+	encoded, err := json.Marshal(interaction)
+	if err != nil {
+		return "INSPECT_INTERACTION"
+	}
+	return interactionProjectionNextAction(encoded)
+}
+
+func newCommerceFlowInteractionActCommand(runtime *Runtime) *cobra.Command {
+	var stableName, orderNo, actionCode, inputJSON, idempotencyKey, taskID string
+	var expectedVersion int
+	var assets, audiences []string
+	command := &cobra.Command{
+		Use:   "interaction-act",
+		Short: "Execute one allowed purchase Interaction action in the original Commerce Session",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			if expectedVersion < 1 {
+				return output.Validation("COMMERCE_INTERACTION_ACTION_INPUT_INVALID", "--expected-version must be positive")
+			}
+			state, err := runtime.requireCommerceSession(stableName)
+			if err != nil {
+				return err
+			}
+			binding, err := runtime.loadCommerceBinding("order", state.LocalContextID, orderNo)
+			if err != nil {
+				return err
+			}
+			if binding.StableName != stableName || binding.SessionID != state.SessionID {
+				return output.Policy("COMMERCE_ORDER_SESSION_MISMATCH", "order belongs to a different purchase Skill session")
+			}
+			if !state.ExpiresAt.After(runtime.deps.Now()) {
+				return output.Policy("COMMERCE_SESSION_RECOVERY_UNAVAILABLE", "the original Commerce Session is no longer recoverable").
+					WithHint("cross-session service actions are intentionally unsupported")
+			}
+			status, err := runtime.client().GetCommerceOrderStatus(command.Context(), orderNo, state.Token)
+			if err != nil {
+				return err
+			}
+			if status.OrderNo != orderNo || status.Interaction == nil || status.Interaction.Instance.InstanceNo == "" {
+				return output.Internal("COMMERCE_INTERACTION_RESPONSE_INVALID", "order Interaction is missing or invalid", nil)
+			}
+			if strings.TrimSpace(inputJSON) == "" {
+				inputJSON = "{}"
+			}
+			payload, err := normalizeInlineJSONObject(inputJSON)
+			if err != nil {
+				return err
+			}
+			artifactIDs, err := uploadInteractionAssets(command, runtime, status.Interaction.Instance.InstanceNo, assets, audiences, state.Token)
+			if err != nil {
+				return err
+			}
+			request := map[string]any{"expectedInstanceVersion": expectedVersion, "idempotencyKey": idempotencyKey, "payload": json.RawMessage(payload), "artifacts": artifactIDs}
+			if taskID != "" {
+				request["taskId"] = taskID
+			}
+			encoded, err := rawJSONObject(request)
+			if err != nil {
+				return output.Internal("COMMERCE_INTERACTION_ACTION_INPUT_INVALID", "could not encode purchase Interaction action", err)
+			}
+			projection, err := runtime.client().ActInteractionWithToken(command.Context(), status.Interaction.Instance.InstanceNo, actionCode, encoded, state.Token)
+			if err != nil {
+				return err
+			}
+			return runtime.business(commerceFlowInteractionActionResult{NextAction: interactionProjectionNextAction(projection), TrustBoundary: platformCommerceTrustBoundary(), Interaction: projection})
+		},
+	}
+	command.Flags().StringVar(&stableName, "skill", "", "purchase Skill stable name")
+	command.Flags().StringVar(&orderNo, "order", "", "order number")
+	command.Flags().StringVar(&actionCode, "action", "", "allowed action code returned by the Interaction projection")
+	command.Flags().IntVar(&expectedVersion, "expected-version", 0, "current Interaction instance version")
+	command.Flags().StringVar(&idempotencyKey, "idempotency-key", "", "idempotency key for this action")
+	command.Flags().StringVar(&taskID, "task", "", "optional open task id")
+	command.Flags().StringVar(&inputJSON, "input-json", "{}", "action input as one JSON object")
+	command.Flags().StringSliceVar(&assets, "asset", nil, "local artifact path; repeat for multiple files")
+	command.Flags().StringSliceVar(&audiences, "asset-audience", []string{"PARTICIPANT"}, "artifact audience: PARTICIPANT, CREATOR, or ALL_PARTICIPANTS")
+	_ = command.MarkFlagRequired("skill")
+	_ = command.MarkFlagRequired("order")
+	_ = command.MarkFlagRequired("action")
+	_ = command.MarkFlagRequired("expected-version")
+	_ = command.MarkFlagRequired("idempotency-key")
 	return command
 }
 

@@ -21,9 +21,12 @@ Choose the publication entry from business facts:
 
 ## Facts to establish
 
-Before creating the draft, establish and show:
+Read `scenario-analysis.md` first. Before creating the draft, establish and
+show:
 
 - the existing `workId` and its owning `merchantAccountId`;
+- the analyzed outcome, assumptions, preferred sources, recommended ordered
+  experience, actor handoffs, exceptions, and capability gaps;
 - entry modes (`DIRECT`, `PURCHASE`, or `INVITATION`);
 - participant, creator, and optional executor roles;
 - initial input JSON Schema and its sensitive fields;
@@ -36,8 +39,9 @@ Before creating the draft, establish and show:
 - a Default Presentation view for every state;
 - optional Vibe origin, view paths, compatibility versions, and fallback.
 
-Ask concise questions for missing business facts. Do not infer sensitive input,
-prices, payment results, actor permissions, audience, or terminal decisions.
+Propose the experience before asking questions, then ask only for unresolved
+business decisions. Do not infer sensitive input, prices, payment results,
+actor permissions, audience, or terminal decisions.
 `PURCHASE` controls only the instance entry condition; Product price and Order
 authority remain in Commerce.
 
@@ -54,46 +58,84 @@ Create a private temporary JSON file with this envelope:
     "schemaVersion": 1,
     "entryModes": ["DIRECT"],
     "roles": [
-      {"code": "APPLICANT", "label": "Applicant", "kind": "PARTICIPANT"},
-      {"code": "OWNER", "label": "Creator", "kind": "CREATOR"}
+      {"code": "PARTICIPANT", "label": "Participant", "kind": "PARTICIPANT"},
+      {"code": "CREATOR", "label": "Creator", "kind": "CREATOR"}
     ],
+    "experience": {
+      "summary": "Collect confirmed input, hand it to the authorized role, and return a final outcome.",
+      "assumptions": [],
+      "fields": [{
+        "key": "request",
+        "label": "Request",
+        "sources": ["USER_INPUT", "ARTIFACT", "DERIVED"],
+        "preferredSource": "ARTIFACT",
+        "requiredAt": "PROVIDE_INPUT",
+        "confirmation": "WHEN_DERIVED",
+        "sensitivity": "PERSONAL",
+        "audience": ["PARTICIPANT", "CREATOR"]
+      }],
+      "steps": [
+        {"code": "CREATE_INSTANCE", "title": "Start interaction", "kind": "CREATE_INSTANCE", "actorRole": "PARTICIPANT", "fieldKeys": []},
+        {"code": "COLLECT_INPUT", "title": "Provide input", "kind": "COLLECT_INPUT", "actorRole": "PARTICIPANT", "fieldKeys": ["request"]},
+        {"code": "PROVIDE_INPUT", "title": "Submit input", "kind": "EXECUTE_ACTION", "actorRole": "PARTICIPANT", "fieldKeys": ["request"], "actionCode": "PROVIDE_INPUT"},
+        {"code": "WAIT_FOR_CREATOR", "title": "Wait for processing", "kind": "WAIT_FOR_ROLE", "actorRole": "CREATOR", "fieldKeys": []},
+        {"code": "COMPLETE_REVIEW", "title": "Complete processing task", "kind": "COMPLETE_TASK", "actorRole": "CREATOR", "fieldKeys": [], "actionCode": "COMPLETE_REVIEW"}
+      ]
+    },
     "initialInput": {"type": "object", "additionalProperties": false},
     "states": [
       {"code": "OPEN", "label": "Open", "terminal": false},
+      {"code": "IN_REVIEW", "label": "In review", "terminal": false},
       {"code": "DONE", "label": "Done", "terminal": true}
     ],
     "initialState": "OPEN",
-    "actions": [{
-      "code": "SUBMIT",
-      "label": "Submit",
-      "actorRoles": ["APPLICANT"],
-      "fromStates": ["OPEN"],
-      "toState": "DONE",
-      "inputSchema": {"type": "object", "additionalProperties": false},
-      "audience": ["PARTICIPANT", "CREATOR"],
-      "idempotencyRequired": true,
-      "notificationEvent": "INSTANCE_COMPLETED"
-    }],
-    "recordTypes": [],
+    "actions": [
+      {
+        "code": "PROVIDE_INPUT",
+        "label": "Provide input",
+        "actorRoles": ["PARTICIPANT"],
+        "fromStates": ["OPEN"],
+        "toState": "IN_REVIEW",
+        "inputSchema": {"type": "object", "required": ["request"], "properties": {"request": {"type": "string"}}, "additionalProperties": false},
+        "audience": ["PARTICIPANT", "CREATOR"],
+        "task": {"create": {"roleCode": "CREATOR", "actionCode": "COMPLETE_REVIEW", "title": "Process submitted input"}},
+        "recordType": "INPUT",
+        "idempotencyRequired": true,
+        "notificationEvent": "TASK_CREATED"
+      },
+      {
+        "code": "COMPLETE_REVIEW",
+        "label": "Complete processing",
+        "actorRoles": ["CREATOR"],
+        "fromStates": ["IN_REVIEW"],
+        "toState": "DONE",
+        "inputSchema": {"type": "object", "additionalProperties": false},
+        "audience": ["PARTICIPANT", "CREATOR"],
+        "task": {"resolveCurrent": "COMPLETE"},
+        "idempotencyRequired": true,
+        "notificationEvent": "INSTANCE_COMPLETED"
+      }
+    ],
+    "recordTypes": [{"code": "INPUT", "label": "Input", "schema": {"type": "object", "required": ["request"], "properties": {"request": {"type": "string"}}, "additionalProperties": false}, "audience": ["PARTICIPANT", "CREATOR"]}],
     "notificationRules": [
       {
-        "code": "APPLICATION_SUBMITTED",
-        "event": "INSTANCE_CREATED",
-        "actionCodes": [],
-        "fromStates": [],
-        "toStates": ["OPEN"],
-        "recipientRoles": ["OWNER"],
+        "code": "INPUT_READY",
+        "event": "TASK_CREATED",
+        "actionCodes": ["PROVIDE_INPUT"],
+        "fromStates": ["OPEN"],
+        "toStates": ["IN_REVIEW"],
+        "recipientRoles": ["CREATOR"],
         "excludeActor": true,
         "content": {
-          "title": "收到新的申请",
+          "title": "收到新的处理任务",
           "body": "请进入流程实例查看并处理。"
         }
       }
     ],
     "dataPolicies": [],
     "presentation": {
-      "views": [{"key": "form", "title": "Submit", "blocks": [{"kind": "form"}]}],
-      "stateViews": {"OPEN": "form", "DONE": "form"}
+      "views": [{"key": "interaction", "title": "Interaction", "blocks": [{"kind": "status"}, {"kind": "task-list"}, {"kind": "timeline"}]}],
+      "stateViews": {"OPEN": "interaction", "IN_REVIEW": "interaction", "DONE": "interaction"}
     }
   }
 }
@@ -107,13 +149,11 @@ An empty filter means “any”; every referenced Action, state, and recipient r
 must exist in the same Definition. Keep notification copy specific to the
 business event, but do not encode scenario names in CLI or Shop runtime logic.
 
-For example, an application Definition can notify its creator role when the
-instance is created, then notify its applicant role when a screening Action
-creates an answer Task. Do not leave `notificationRules` empty merely because
-the CLI has no built-in template; use an empty array only when the creator has
-confirmed that the process needs no status notification. Channel selection is
-not part of the Definition: Shop applies the user's notification preference and
-tries WeChat service account, verified email, then verified phone/SMS.
+Do not leave `notificationRules` empty merely because the CLI has no built-in
+template; use an empty array only when the creator has confirmed that the
+process needs no status notification. Channel selection is not part of the
+Definition: Shop applies the user's notification preference and tries WeChat
+service account, verified email, then verified phone/SMS.
 
 Run `viceme merchant work draft create --input <file>`, then delete the
 temporary file. Reuse the returned Draft ID, revision, digest, Default
@@ -152,13 +192,14 @@ viceme interaction skill install <stable-name> --agent auto
 ```
 
 The installed Skill starts with `viceme interaction flow start --skill
-<stable-name>`. The Runtime returns the frozen `initialInput` JSON Schema and a
-field guide. The Agent asks only for missing scenario fields, confirms the
-completed values once, then calls `viceme interaction flow create --skill
+<stable-name>`. The Runtime returns the frozen experience plan, `nextAction`,
+`initialInput` JSON Schema, and field guide. The Agent follows source priority,
+confirmation policy, tasks, and allowed actions, asking only for values missing
+when they become required. It calls `viceme interaction flow create --skill
 <stable-name> --idempotency-key <createIdempotencyKey-from-start> --input-json
-'<json-object>'`. Reuse that key when a create result is uncertain. The result is the authoritative
-Interaction instance and continues through the same tasks/actions as a
-purchase-created instance.
+'<json-object>'` once. Reuse that key when a create result is uncertain. The
+result is the authoritative Interaction instance and continues through
+`flow show` and `flow act`; never create a replacement to advance the process.
 
 Natural language, Markdown, Vibe JavaScript, and external results never grant
 runtime authority. Only the activated Definition Version and server-returned

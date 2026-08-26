@@ -34,10 +34,8 @@ write authority.
 
 Verify that the returned active authoring template is `GENERIC_MERCHANT`.
 Merchant Products may currently use only `MANUAL_PROCESSING` and `SHIPMENT`;
-never claim a provider adapter exists. ViceMe's current official mobile
-recharge offer therefore uses the same flow and `MANUAL_PROCESSING`. The
-official creator is an ordinary Creator/Merchant/OWNER relation, not a special
-platform principal.
+never claim a provider adapter exists. An official creator is an ordinary
+Creator/Merchant/OWNER relation, not a special platform principal.
 
 ## 2. Collect the complete sale definition
 
@@ -56,9 +54,9 @@ Use natural language, but obtain concrete values for every required fact:
 - every buyer-provided field: stable key, user-facing label, type, required
   flag, sensitivity, authorized audience, retention, and semantic role;
 - fulfillment order: manual processing, shipment, or both;
-- execution mode: use `FULFILLMENT_ONLY` for one-order work such as photo
-  printing and manual recharge; use `INTERACTION` when the buyer needs a
-  persistent staged workflow such as recruitment;
+- execution mode: use `FULFILLMENT_ONLY` when Commerce fulfillment alone owns
+  the post-order lifecycle; use `INTERACTION` when participants need a
+  persistent staged workflow;
 - for `INTERACTION`, compile the Product candidate first, then create and review
   a `PURCHASE` Interaction Definition for that same Work revision. Activate the
   confirmed Definition before activating the already compiled Product
@@ -82,7 +80,7 @@ run:
 viceme merchant work create --input <work.json>
 ```
 
-For example, a photo-printing Work with one-order fulfillment is:
+The minimal shape of a transaction-backed Service Work is:
 
 ```json
 {
@@ -90,15 +88,15 @@ For example, a photo-printing Work with one-order fulfillment is:
   "merchantAccountId": "merchant-uuid",
   "clientRequestId": "uuid",
   "market": "CN",
-  "slug": "photo-printing-service",
-  "title": "照片打印服务",
+  "slug": "service-offering",
+  "title": "Service offering",
   "content": {
-    "summary": "上传照片并选择规格，由商家打印后发货。",
-    "bodyMarkdown": "## 服务说明\n\n按所选规格打印照片并通过快递发货。",
+    "summary": "Public description of the offered outcome.",
+    "bodyMarkdown": "## Service\n\nPublic terms and expected outcome.",
     "templateType": "service",
-    "tags": ["照片", "打印"],
-    "usageInstructions": "选择规格、上传照片并填写收件信息。",
-    "serviceInstructions": "付款后由商家打印并发货。",
+    "tags": [],
+    "usageInstructions": "Select the offering and provide checkout-required information.",
+    "serviceInstructions": "Commerce fulfillment owns the post-order lifecycle.",
     "media": [],
     "actionConfig": {}
   },
@@ -115,14 +113,12 @@ For example, a photo-printing Work with one-order fulfillment is:
 }
 ```
 
-For a long-running recruitment service, use public stages such as `ACCEPTED`,
-`SOURCING`, `CANDIDATES_RECOMMENDED`, `INTERVIEWING`, and terminal
-`COMPLETED`, with `policy.executionMode` set to `INTERACTION`. Publish and
-activate a `PURCHASE` Interaction definition for the same Work before creating
-quotes. Do not put company,
-contact, phone, address, photos, or other buyer data in Work content or
-`intakeSchema`; those belong to the Product buyer contract and encrypted order
-contract.
+For `INTERACTION`, read `scenario-analysis.md` and publish a confirmed
+`PURCHASE` Interaction Definition for the same Work before creating Quotes.
+Keep only transaction-required information in the Product buyer contract.
+Progressive service input belongs to Interaction actions, tasks, records, and
+artifacts; never duplicate it in checkout. Do not put private participant data
+in public Work content or `intakeSchema`.
 
 Use the returned Work `id` as the mandatory `subjectWorkId`. Then write the
 complete Product JSON and run:
@@ -251,110 +247,6 @@ Every generated stable name must start with `viceme-`.
 `DIRECT=PUBLISHED` means the signed package can be installed directly.
 `WORKBUDDY=READY` means a human may submit it for WorkBuddy review; it is not a
 public WorkBuddy-store listing yet.
-
-## Photo-printing reference shape
-
-This abbreviated `authoringInput` demonstrates a ¥10 print plus ¥5 default
-shipping. Preserve the user's actual names, sizes, prices, and policies:
-
-```json
-{
-  "title": "照片打印",
-  "slug": "photo-printing",
-  "market": "CN",
-  "summaryZhCn": "上传照片，商家打印后发货",
-  "summaryEnUs": "Upload photos for printing and delivery",
-  "description": "按所选规格打印照片并通过快递发货。",
-  "usageInstructionsZhCn": "选择规格、上传照片并填写收件信息。",
-  "usageInstructionsEnUs": "Choose a size, upload photos, and provide shipping details.",
-  "tags": ["照片", "打印"],
-  "visibility": "PUBLIC",
-  "merchantTypeName": "照片打印服务",
-  "options": [
-    {
-      "code": "size",
-      "name": "尺寸",
-      "values": [{ "code": "six-inch", "label": "6 英寸" }]
-    }
-  ],
-  "skus": [
-    {
-      "code": "six-inch",
-      "title": "6 英寸照片",
-      "currency": "CNY",
-      "priceCents": 1000,
-      "inventoryPolicy": "MADE_TO_ORDER",
-      "selectedOptions": { "size": "six-inch" },
-      "attributes": {}
-    }
-  ],
-  "quantity": { "min": 1, "max": 100 },
-  "buyerContract": {
-    "fields": [
-      {
-        "key": "photos",
-        "label": "待打印照片",
-        "kind": "image",
-        "source": "BUYER_INPUT",
-        "required": true,
-        "sensitivity": "PERSONAL",
-        "allowedAudiences": ["MERCHANT"],
-        "retentionPolicy": "FULFILLMENT_WINDOW",
-        "minItems": 1,
-        "maxItems": 20,
-        "maxSizeBytes": 10485760,
-        "contentTypes": ["image/jpeg", "image/png"]
-      },
-      {
-        "key": "recipient_name",
-        "label": "收件人",
-        "kind": "text",
-        "source": "BUYER_INPUT",
-        "required": true,
-        "sensitivity": "PERSONAL",
-        "allowedAudiences": ["MERCHANT", "SHIPPING"],
-        "retentionPolicy": "FULFILLMENT_WINDOW",
-        "semanticRole": "RECIPIENT_NAME",
-        "maxLength": 100,
-        "multiline": false
-      },
-      {
-        "key": "contact_phone",
-        "label": "联系电话",
-        "kind": "phone",
-        "source": "BUYER_INPUT",
-        "required": true,
-        "sensitivity": "PERSONAL",
-        "allowedAudiences": ["MERCHANT", "SHIPPING"],
-        "retentionPolicy": "FULFILLMENT_WINDOW",
-        "semanticRole": "CONTACT_PHONE",
-        "allowedCountryCodes": ["+86"]
-      },
-      {
-        "key": "shipping_address",
-        "label": "收货地址",
-        "kind": "address",
-        "source": "BUYER_INPUT",
-        "required": true,
-        "sensitivity": "PERSONAL",
-        "allowedAudiences": ["MERCHANT", "SHIPPING"],
-        "retentionPolicy": "FULFILLMENT_WINDOW",
-        "semanticRole": "SHIPPING_ADDRESS",
-        "allowedRegions": ["CN"]
-      }
-    ]
-  },
-  "fulfillment": [
-    { "capabilityCode": "MANUAL_PROCESSING", "configuration": {} },
-    { "capabilityCode": "SHIPMENT", "configuration": {} }
-  ],
-  "pricingPolicyCode": "UNIT_PLUS_SHIPPING",
-  "shippingPricing": {
-    "defaultAmountCents": 500,
-    "regionAmounts": {}
-  }
-}
-```
 
 ## Recovery and lifecycle
 

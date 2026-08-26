@@ -61,6 +61,7 @@ type Manifest struct {
 	MinimumRuntimeVersion  string          `json:"minimumRuntimeVersion"`
 	GeneratedAt            string          `json:"generatedAt"`
 	EntryModes             []string        `json:"entryModes"`
+	Experience             json.RawMessage `json:"experience"`
 	InitialInput           json.RawMessage `json:"initialInput"`
 }
 
@@ -177,7 +178,7 @@ func validEnvelope(v Envelope) bool {
 }
 
 func validManifest(v Manifest) bool {
-	if v.SchemaVersion != 1 || !uuid(v.WorkID) || !uuid(v.DefinitionVersionID) || !uuid(v.SkillReleaseID) || !stableName(v.StableName) || v.ReleaseVersion < 1 || v.InteractionAPIProfile != "viceme-interaction-v1" || v.RuntimeProtocolVersion < 1 || v.MinimumRuntimeVersion == "" || len(v.EntryModes) == 0 || len(v.InitialInput) == 0 {
+	if v.SchemaVersion != 1 || !uuid(v.WorkID) || !uuid(v.DefinitionVersionID) || !uuid(v.SkillReleaseID) || !stableName(v.StableName) || v.ReleaseVersion < 1 || v.InteractionAPIProfile != "viceme-interaction-v1" || v.RuntimeProtocolVersion < 1 || v.MinimumRuntimeVersion == "" || len(v.EntryModes) == 0 || len(v.Experience) == 0 || len(v.InitialInput) == 0 {
 		return false
 	}
 	for _, mode := range v.EntryModes {
