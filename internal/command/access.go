@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,7 +26,10 @@ const (
 	danmakuFeatureKey         = "danmaku"
 )
 
-var accessWorkKeyPattern = regexp.MustCompile(`^wrk_[A-Za-z0-9_-]{4,124}$`)
+var (
+	accessWorkKeyPattern        = regexp.MustCompile(`^wrk_[A-Za-z0-9_-]{4,124}$`)
+	accessWorkFeatureKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
+)
 
 type accessConfig struct {
 	SchemaVersion int                            `yaml:"schemaVersion"`
@@ -40,9 +44,10 @@ type accessConfig struct {
 }
 
 type accessFeatureConfig struct {
-	Title  string              `yaml:"title"`
-	Policy accessFeaturePolicy `yaml:"policy"`
-	Status string              `yaml:"status,omitempty"`
+	Title      string              `yaml:"title"`
+	Policy     accessFeaturePolicy `yaml:"policy"`
+	PriceCents *int                `yaml:"priceCents,omitempty"`
+	Status     string              `yaml:"status,omitempty"`
 }
 
 type accessFeaturePolicy struct {
@@ -56,7 +61,7 @@ type profileAuthority struct {
 }
 
 func newAccessCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "access", Short: "Configure hosted website capabilities"}
+	command := &cobra.Command{Use: "access", Short: "Configure website capabilities"}
 	command.AddCommand(newAccessInitCommand(runtime))
 	command.AddCommand(newAccessListCommand(runtime))
 	command.AddCommand(newAccessDeleteCommand(runtime))
@@ -70,9 +75,13 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	var displayName string
 	var danmaku bool
 	var workKey string
+	var websitePath string
+	var priceCents []string
+	var followFeatures []string
+	var purchaseFeatures []string
 	command := &cobra.Command{
 		Use:   "init",
-		Short: "Create and activate a hosted danmaku Work",
+		Short: "Publish the website when needed, then configure capabilities",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			authority, err := runtime.resolveProfileAuthority()
@@ -80,11 +89,38 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			displayName = strings.TrimSpace(displayName)
+			features, err := buildQuickAccessFeatures(followFeatures, purchaseFeatures, priceCents)
+			if err != nil {
+				return err
+			}
+			if danmaku {
+				features[danmakuFeatureKey] = accessFeatureConfig{
+					Title: "弹幕", Policy: accessFeaturePolicy{Type: "PUBLIC"}, Status: "ACTIVE",
+				}
+			}
+			if len(features) == 0 {
+				return output.Validation("ACCESS_FEATURE_REQUIRED", "configure --danmaku, --follow, or --purchase")
+			}
+			creatorAccess := len(followFeatures)+len(purchaseFeatures) > 0
+			var publishedBinding websiteBinding
+			if creatorAccess {
+				publishedBinding, _, err = requirePublishedWebsiteBinding(websitePath)
+				if err != nil {
+					return err
+				}
+				if publishedBinding.Region != string(authority.Region) {
+					return output.Validation("WEBSITE_REGION_MISMATCH", "website binding region does not match the active CLI profile")
+				}
+				if publishedBinding.SchemaVersion == 2 &&
+					(publishedBinding.APIBaseURL != authority.APIBaseURL || publishedBinding.WebBaseURL != authority.WebBaseURL) {
+					return output.Policy("WEBSITE_PROFILE_MISMATCH", "website binding belongs to a different Profile authority")
+				}
+				if displayName == "" {
+					displayName = publishedBinding.DisplayName
+				}
+			}
 			if displayName == "" {
 				return output.Validation("ACCESS_NAME_REQUIRED", "--name is required")
-			}
-			if !danmaku {
-				return output.Validation("ACCESS_DANMAKU_REQUIRED", "--danmaku is required")
 			}
 			workKey = strings.TrimSpace(workKey)
 			if workKey != "" && !accessWorkKeyPattern.MatchString(workKey) {
@@ -112,7 +148,8 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 				if readErr != nil {
 					return readErr
 				}
-				if local.DisplayName != displayName || (workKey != "" && local.WorkKey != workKey) {
+				if local.DisplayName != displayName || (workKey != "" && local.WorkKey != workKey) ||
+					!accessFeatureConfigsEqual(local.Features, features) {
 					return output.Validation("ACCESS_CONFIG_EXISTS", "access config already exists with a different binding").
 						WithHint("use 'viceme access inspect' or choose another --config path")
 				}
@@ -140,7 +177,12 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 			}
 
 			var work api.SdkWork
-			if workKey == "" {
+			if creatorAccess {
+				if workKey != "" && workKey != publishedBinding.WorkKey {
+					return output.Validation("WEBSITE_IDENTITY_CONFLICT", "--work-key does not match the published website binding")
+				}
+				work, err = runtime.client().GetSdkWork(command.Context(), publishedBinding.WorkKey)
+			} else if workKey == "" {
 				work, err = runtime.client().CreateSdkWork(command.Context(), api.CreateSdkWorkRequest{DisplayName: displayName})
 				if err != nil {
 					return sdkWorkCreationError(err)
@@ -158,6 +200,9 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 					).WithHint("run 'viceme access list', then select only the orphan created by the interrupted init or delete it explicitly")
 				}
 			}
+			if err != nil {
+				return err
+			}
 			local := accessConfig{
 				SchemaVersion: accessConfigSchemaVersion,
 				APIBaseURL:    authority.APIBaseURL,
@@ -165,13 +210,7 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 				WorkKey:       work.WorkKey,
 				Region:        string(authority.Region),
 				DisplayName:   displayName,
-				Features: map[string]accessFeatureConfig{
-					danmakuFeatureKey: {
-						Title:  "弹幕",
-						Policy: accessFeaturePolicy{Type: "PUBLIC"},
-						Status: "ACTIVE",
-					},
-				},
+				Features:      features,
 				Status:        "ACTIVE",
 				ConfigVersion: work.ConfigVersion,
 			}
@@ -200,7 +239,84 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&displayName, "name", "", "website display name")
 	command.Flags().BoolVar(&danmaku, "danmaku", false, "activate the public hosted danmaku capability")
 	command.Flags().StringVar(&workKey, "work-key", "", "explicit owned unconfigured DRAFT Work to recover")
+	command.Flags().StringVar(&websitePath, "website", ".", "published website source directory")
+	command.Flags().StringArrayVar(&priceCents, "price-minor", nil, "feature price in fen; repeat once per --purchase or provide one shared price")
+	command.Flags().StringArrayVar(&followFeatures, "follow", nil, "activate FOLLOW_OWNER feature as key or key=title (repeatable)")
+	command.Flags().StringArrayVar(&purchaseFeatures, "purchase", nil, "activate WORK_ENTITLEMENT feature as key or key=title (repeatable)")
 	return command
+}
+
+func buildQuickAccessFeatures(follow, purchase, rawPrices []string) (map[string]accessFeatureConfig, error) {
+	prices, err := parsePurchasePrices(purchase, rawPrices)
+	if err != nil {
+		return nil, err
+	}
+	features := make(map[string]accessFeatureConfig, len(follow)+len(purchase))
+	groups := []struct {
+		values []string
+		policy string
+	}{
+		{values: follow, policy: "FOLLOW_OWNER"},
+		{values: purchase, policy: "WORK_ENTITLEMENT"},
+	}
+	for _, group := range groups {
+		for index, value := range group.values {
+			key, title, err := parseAccessFeatureSpec(value)
+			if err != nil {
+				return nil, err
+			}
+			if _, exists := features[key]; exists {
+				return nil, output.Validation("ACCESS_FEATURE_DUPLICATE", fmt.Sprintf("feature %q is configured more than once", key))
+			}
+			feature := accessFeatureConfig{
+				Title: title, Policy: accessFeaturePolicy{Type: group.policy}, Status: "ACTIVE",
+			}
+			if group.policy == "WORK_ENTITLEMENT" {
+				price := prices[index]
+				feature.PriceCents = &price
+			}
+			features[key] = feature
+		}
+	}
+	return features, nil
+}
+
+func parsePurchasePrices(purchase, rawPrices []string) ([]int, error) {
+	if len(purchase) == 0 {
+		if len(rawPrices) > 0 {
+			return nil, output.Validation("ACCESS_CONFIG_INVALID", "--price-minor requires at least one --purchase")
+		}
+		return nil, nil
+	}
+	if len(rawPrices) != 1 && len(rawPrices) != len(purchase) {
+		return nil, output.Validation("WORK_PRICE_REQUIRED", "provide one shared --price-minor or one price for each --purchase")
+	}
+	prices := make([]int, len(purchase))
+	for index := range purchase {
+		raw := rawPrices[0]
+		if len(rawPrices) > 1 {
+			raw = rawPrices[index]
+		}
+		price, err := strconv.Atoi(raw)
+		if err != nil || price <= 0 {
+			return nil, output.Validation("WORK_PRICE_REQUIRED", "purchase feature prices must be positive integers")
+		}
+		prices[index] = price
+	}
+	return prices, nil
+}
+
+func parseAccessFeatureSpec(raw string) (string, string, error) {
+	parts := strings.SplitN(strings.TrimSpace(raw), "=", 2)
+	key := strings.TrimSpace(parts[0])
+	title := key
+	if len(parts) == 2 {
+		title = strings.TrimSpace(parts[1])
+	}
+	if !accessWorkFeatureKeyPattern.MatchString(key) || title == "" {
+		return "", "", output.Validation("ACCESS_FEATURE_INVALID", "feature must use key or key=title")
+	}
+	return key, title, nil
 }
 
 func (runtime *Runtime) accessInitLockPath(filename string, authority profileAuthority) (string, error) {
@@ -329,7 +445,7 @@ func newAccessApplyCommand(runtime *Runtime) *cobra.Command {
 	var filename string
 	command := &cobra.Command{
 		Use:   "apply",
-		Short: "Apply the local hosted danmaku config",
+		Short: "Apply the local website capability config",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			local, err := readAccessConfig(filename)
@@ -453,7 +569,8 @@ func sdkWorkMatchesAccessConfig(local accessConfig, work api.SdkWork) bool {
 	}
 	for _, feature := range expected.Features {
 		remote, exists := features[feature.FeatureKey]
-		if !exists || remote.Title != feature.Title || remote.Policy.Type != feature.Policy.Type || remote.Status != feature.Status {
+		if !exists || remote.Title != feature.Title || remote.Policy.Type != feature.Policy.Type ||
+			remote.Status != feature.Status || !accessNullableIntsEqual(remote.PriceCents, feature.PriceCents) {
 			return false
 		}
 	}
@@ -477,6 +594,7 @@ func (local accessConfig) applyRequest() api.ApplySdkWorkRequest {
 			FeatureKey: key,
 			Title:      feature.Title,
 			Policy:     api.SdkWorkFeaturePolicy{Type: feature.Policy.Type},
+			PriceCents: feature.PriceCents,
 			Status:     status,
 		})
 	}
@@ -526,20 +644,61 @@ func validateAccessConfig(local accessConfig) error {
 	if strings.TrimSpace(local.DisplayName) == "" || (local.Status != "DRAFT" && local.Status != "ACTIVE" && local.Status != "DISABLED") {
 		return output.Validation("ACCESS_CONFIG_INVALID", "displayName or status is invalid")
 	}
-	if len(local.Features) != 1 {
-		return output.Validation("ACCESS_CONFIG_INVALID", "hosted danmaku config must contain exactly one feature")
+	if len(local.Features) == 0 {
+		return output.Validation("ACCESS_CONFIG_INVALID", "at least one website capability is required")
 	}
-	feature, exists := local.Features[danmakuFeatureKey]
-	if !exists || strings.TrimSpace(feature.Title) == "" {
-		return output.Validation("ACCESS_CONFIG_INVALID", "hosted danmaku config is missing the danmaku feature")
-	}
-	if feature.Policy.Type != "PUBLIC" {
-		return output.Validation("POLICY_TYPE_UNSUPPORTED", "only the PUBLIC danmaku policy is supported")
-	}
-	if feature.Status != "" && feature.Status != "ACTIVE" && feature.Status != "DISABLED" {
-		return output.Validation("ACCESS_CONFIG_INVALID", "feature status must be ACTIVE or DISABLED")
+	for key, feature := range local.Features {
+		if !accessWorkFeatureKeyPattern.MatchString(key) || strings.TrimSpace(feature.Title) == "" {
+			return output.Validation("ACCESS_CONFIG_INVALID", "feature keys or titles are invalid")
+		}
+		switch feature.Policy.Type {
+		case "PUBLIC":
+			if key != danmakuFeatureKey || feature.PriceCents != nil {
+				return output.Validation("POLICY_TYPE_UNSUPPORTED", "PUBLIC is reserved for the unpriced danmaku capability")
+			}
+		case "FOLLOW_OWNER":
+			if key == danmakuFeatureKey {
+				return output.Validation("POLICY_TYPE_UNSUPPORTED", "danmaku requires the PUBLIC policy")
+			}
+			if feature.PriceCents != nil {
+				return output.Validation("ACCESS_CONFIG_INVALID", "follow policies must not define priceCents")
+			}
+		case "WORK_ENTITLEMENT":
+			if key == danmakuFeatureKey {
+				return output.Validation("POLICY_TYPE_UNSUPPORTED", "danmaku requires the PUBLIC policy")
+			}
+			if feature.PriceCents == nil || *feature.PriceCents <= 0 {
+				return output.Validation("WORK_PRICE_REQUIRED", "purchase policies require a positive feature priceCents")
+			}
+		default:
+			return output.Validation("POLICY_TYPE_UNSUPPORTED", "feature policy is not supported in this CLI version")
+		}
+		if feature.Status != "" && feature.Status != "ACTIVE" && feature.Status != "DISABLED" {
+			return output.Validation("ACCESS_CONFIG_INVALID", "feature status must be ACTIVE or DISABLED")
+		}
 	}
 	return nil
+}
+
+func accessFeatureConfigsEqual(left, right map[string]accessFeatureConfig) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	for key, expected := range left {
+		actual, exists := right[key]
+		if !exists || actual.Title != expected.Title || actual.Policy != expected.Policy ||
+			actual.Status != expected.Status || !accessNullableIntsEqual(actual.PriceCents, expected.PriceCents) {
+			return false
+		}
+	}
+	return true
+}
+
+func accessNullableIntsEqual(left, right *int) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func writeAccessConfig(filename string, local accessConfig) error {

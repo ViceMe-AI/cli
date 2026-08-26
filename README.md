@@ -39,6 +39,8 @@
 | Capability | What ViceMe provides |
 | --- | --- |
 | Publish a Skill | Validate a local Skill directory or ZIP, set a CNY price, upload it, review platform suggestions, and publish a paid listing. |
+| Publish a website | Register a creator website with a stable Work identity, optional URL, bilingual descriptions, and cover. |
+| Add creator access | Add host-native login, follow gates, and independently priced one-time feature access. |
 | Add website engagement | Create a creator-owned public danmaku Work, bind a tip-enabled Creator App, and install the CLI-generated hosted script. |
 | Set up an Agent | Install, authenticate, update, diagnose, and repair the CLI and official Skills as one compatible release. |
 | Recover safely | Continue the same publication after a network or process interruption without uploading a duplicate product. |
@@ -160,7 +162,8 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | Skill | Use it when you want to... |
 | --- | --- |
 | `viceme-shared` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
-| `viceme-publish` | validate, upload, review, resume, or publish a local Skill directory or ZIP as a paid ViceMe listing. |
+| `viceme-publish` | publish a local Skill directory, ZIP, or creator website while preserving its stable work identity. |
+| `viceme-access` | integrate host-native login, follow, and one-time purchase entry points without changing the website's original action. |
 | `viceme-danmaku` | create a public danmaku Work and install the CLI-generated hosted SDK snippet. |
 | `viceme-tip` | sign in, bind a creator work and verified domain, and add the hosted ViceMe tip checkout to one HTML page. |
 | `viceme-engagement` | create hosted danmaku, bind tips, and install one authoritative combined engagement script. |
@@ -244,8 +247,10 @@ Never copy an access token into the conversation.
 | `viceme version` | Show the CLI and bundled Skill versions. |
 | `viceme doctor` | Check the CLI, active Profile, credentials, API readiness, and installed official Skills. |
 | `viceme auth status` | Show whether the active Profile is signed in. |
+| `viceme website publish --path <dir> --name <name> [--url <url>] [--description-zh-cn ...] [--description-en-us ...] [--cover <image>]` | Publish or update a website while preserving `.viceme/website.json` as its stable identity. |
+| `viceme access init --website <dir> [--name <name>] [--follow key] [--purchase key --price-minor fen]...` | Configure follow and independently priced access for an explicitly published website. |
 | `viceme access init --name <name> --danmaku` | Create and activate a creator-owned public hosted danmaku Work. |
-| `viceme access inspect` / `viceme access apply` | Inspect or explicitly reconcile the Profile-bound danmaku config. |
+| `viceme access inspect` / `viceme access apply` | Inspect or explicitly reconcile the Profile-bound capability config. |
 | `viceme creator-app show <app-id> --work-key <work-key> --locale <locale>` | Validate both owned resources and emit the authoritative combined engagement snippet for the selected `zh-CN` or `en-US` page locale. |
 | `viceme profile list` | Show Profiles and their API, Web, and market authorities. |
 | `viceme skill inspect --path <path>` | Validate a local Skill without side effects. |
