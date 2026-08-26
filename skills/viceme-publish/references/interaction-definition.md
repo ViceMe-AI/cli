@@ -16,7 +16,9 @@ Before creating the draft, establish and show:
 - every state, action, allowed actor role, source state, target state, and
   terminal state;
 - Task and Record schemas plus their audiences;
-- generic notification events and retention policies;
+- each notification-worthy instance event or transition, its optional Action
+  and state filters, recipient roles, actor exclusion, and scenario-specific
+  title and body;
 - a Default Presentation view for every state;
 - optional Vibe origin, view paths, compatibility versions, and fallback.
 
@@ -59,7 +61,21 @@ Create a private temporary JSON file with this envelope:
       "notificationEvent": "INSTANCE_COMPLETED"
     }],
     "recordTypes": [],
-    "notificationRules": [],
+    "notificationRules": [
+      {
+        "code": "APPLICATION_SUBMITTED",
+        "event": "INSTANCE_CREATED",
+        "actionCodes": [],
+        "fromStates": [],
+        "toStates": ["OPEN"],
+        "recipientRoles": ["OWNER"],
+        "excludeActor": true,
+        "content": {
+          "title": "收到新的申请",
+          "body": "请进入流程实例查看并处理。"
+        }
+      }
+    ],
     "dataPolicies": [],
     "presentation": {
       "views": [{"key": "form", "title": "Submit", "blocks": [{"kind": "form"}]}],
@@ -68,6 +84,22 @@ Create a private temporary JSON file with this envelope:
   }
 }
 ```
+
+`notificationRules` is the only scenario authority for sending Interaction
+status notifications. Match rules with generic events (`INSTANCE_CREATED`,
+`TASK_CREATED`, `TASK_SUBMITTED`, `STATE_CHANGED`, `MESSAGE_CREATED`, or
+`INSTANCE_COMPLETED`) plus optional `actionCodes`, `fromStates`, and `toStates`.
+An empty filter means “any”; every referenced Action, state, and recipient role
+must exist in the same Definition. Keep notification copy specific to the
+business event, but do not encode scenario names in CLI or Shop runtime logic.
+
+For example, an application Definition can notify its creator role when the
+instance is created, then notify its applicant role when a screening Action
+creates an answer Task. Do not leave `notificationRules` empty merely because
+the CLI has no built-in template; use an empty array only when the creator has
+confirmed that the process needs no status notification. Channel selection is
+not part of the Definition: Shop applies the user's notification preference and
+tries WeChat service account, verified email, then verified phone/SMS.
 
 Run `viceme merchant work draft create --input <file>`, then delete the
 temporary file. Reuse the returned Draft ID, revision, digest, Default
