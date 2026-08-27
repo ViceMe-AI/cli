@@ -1,62 +1,61 @@
 ---
 name: viceme-engagement
-description: Add ViceMe hosted danmaku and tips to one public website through the complete CLI-owned flow. Use when a user asks to integrate, test, or repair danmaku and tipping together with one engagement embed script.
+description: Add ViceMe hosted danmaku and tips to one public website through one verified Website Work, one combined SDK access resource, and one Website Widget application.
 ---
 
-# Integrate ViceMe danmaku and tips
+# Integrate ViceMe Danmaku And Tips
 
-Create creator-owned configuration through the CLI and install exactly one
-CLI-generated combined script. Never reuse a fixture, shared `workKey`, or
-another creator's app.
+Configure one resource graph and install one loader. Never create separate Works
+for danmaku and Tip.
 
 ## Workflow
 
-1. Inspect the target page, exact HTTPS hostname, deployment command, CSP, and
-   browser test setup. Preserve the host's existing layout and deployment path.
-2. Run `viceme profile list`. Pin every later command to one Profile and require
-   its `apiBaseUrl`, `webBaseUrl`, and `marketRegion`.
-3. Run `viceme --profile <profile> auth status`. If unauthenticated or missing
-   `sdk-work:read`, `sdk-work:write`, `creator-app:read`, or
-   `creator-app:write`, run `auth login` on that same Profile.
-4. If `.viceme/access.yaml` is absent, run:
+1. Inspect the exact production HTTPS Origin, target page, deployment command,
+   CSP, responsive layout, and browser tests.
+2. Keep one active CLI Profile. Require `merchant-commerce:read` and
+   `merchant-commerce:write`, then select an active Merchant from
+   `merchant accounts`.
+3. Reuse or create one Website Work for the exact Origin. Complete DNS
+   verification, then publish with the fresh Work revision returned by verify.
+4. Read SDK access. Create or update it to the full feature set
+   `danmaku,tip` using repeated flags:
 
    ```bash
-   viceme --profile <profile> access init --name "<website name>" --danmaku
+   viceme --profile <profile> merchant work sdk-access create <work-id> \
+     --merchant <merchant-id> --feature danmaku --feature tip
    ```
 
-   Otherwise run `access inspect`. Run `access apply` only when the local config
-   intentionally needs reconciliation. Record `data.workKey`; never create a
-   second Work merely because an apply failed.
-5. Run `creator-app list` on the same Profile. Reuse an app only when it belongs
-   to the authenticated creator and includes the exact hostname. Otherwise run
-   `creator-app create --name "<website name>"`.
-6. When the hostname is not verified, run `creator-app domain add`, serve its
-   token verbatim at the returned verification path, deploy, fetch that exact
-   HTTPS URL, and run `creator-app domain verify`. Do not print or commit the
-   token.
-7. Read the target page's actual locale (`zh-CN` or `en-US`) without inferring
-   it from the Profile's market, then generate the authoritative combined snippet:
+   For update, also pass the current `--expected-config-version`. Never run two
+   independent updates that overwrite each other's feature.
+5. List Commerce applications. Reuse or create one `PRODUCTION`
+   `WEBSITE_WIDGET` for the same Work and exact canonical Origin, with empty
+   return URLs and no Products, then activate its exact revision.
+6. Insert one combined loader after a stable target element:
 
-   ```bash
-   viceme --profile <profile> creator-app show <app-id> --work-key <work-key> --locale <zh-CN-or-en-US>
+   ```html
+   <div id="viceme-engagement"></div>
+   <script
+     defer
+     src="<profile-web-base-url>/viceme-sdk/v1/viceme.min.js"
+     data-viceme-work="<work-key>"
+     data-viceme-region="<cn-or-global>"
+     data-viceme-features="danmaku,tip"
+     data-viceme-target="#viceme-engagement"
+     data-viceme-theme="auto"
+   ></script>
    ```
 
-   Insert `data.engagementEmbedSnippet` exactly once before `</body>` or through
-   the framework's equivalent script facility. Do not hand-build the tag,
-   derive its origin, substitute its region, or keep standalone `tip-embed.js`
-   or `viceme.min.js` tags beside it.
-8. Preserve existing CSP directives and add only the exact generated script and
-   frame origin. Never add wildcards or `unsafe-eval`.
-9. Run repository checks, deploy, and verify the real hostname at desktop and
-   320px widths. Confirm one script loads, danmaku persists after refresh, the
-   tip dialog opens, Escape closes it, and focus returns. State real payment as
-   unverified unless a provider transaction was performed.
+7. Preserve CSP and any nonce. Run repository checks, deploy, and verify desktop
+   plus 320px width. Confirm both capabilities mount, a failure in one does not
+   remove the other, host controls remain clickable, danmaku persists, Tip is
+   keyboard reachable, and Escape closes the hosted payment surface.
 
-## Hard constraints
+## Constraints
 
-- Do not directly call Shop APIs, write the database, fabricate IDs, or read
-  credentials from browser storage.
-- Do not copy a React blueprint, add host styling for the widget, or install a
-  second runtime.
-- Keep every command pinned to the Profile selected at the start.
-- Stop on a structured CLI error. Never switch environments as a fallback.
+- Work ID is internal resource identity; `workKey` is the only public loader
+  identity.
+- Profile market region controls `cn` versus `global`; page locale does not.
+- Do not call Shop APIs outside the CLI, write database state, copy runtime
+  source, or place credentials in page attributes.
+- Report public resource IDs, checks, responsive coverage, and unverified real
+  payment boundaries without exposing secrets or DNS challenge values.

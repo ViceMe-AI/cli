@@ -1,53 +1,79 @@
 ---
 name: viceme-tip
-description: Integrate ViceMe tips into one public creator HTML page. Use when a user asks to add, install, embed, configure, or repair a ViceMe tip or appreciation button, including signing in, binding a creator work and domain, and verifying the real hosted checkout.
+description: Integrate ViceMe tips into one public website through a verified Website Work, active tip SDK access, and a production Website Widget application.
 ---
 
-# Integrate ViceMe tips
+# Integrate ViceMe Tips
 
-Build the smallest real creator integration: one host-owned HTML page plus the ViceMe embed script. Read [integration-contract.md](references/integration-contract.md) before editing.
+Build the smallest real integration: one host-owned page plus the official
+ViceMe loader. Read [integration-contract.md](references/integration-contract.md)
+before editing.
 
 ## Workflow
 
-1. Run `viceme profile list` and capture the active Profile without switching it. Pin every later CLI command to that Profile. Completion: one Profile and region are explicit.
-2. Run `viceme --profile <profile> auth status`. When unauthenticated, run `viceme --profile <profile> auth login`, show the complete verification URL once, and wait for successful authorization. Completion: the selected Profile reports `authenticated: true`.
-3. Inspect the target repository instructions and locate the one public HTML page, its deployed HTTPS origin, deployment mechanism, and any Content Security Policy. Prefer an existing page; use [single-html.html](templates/single-html.html) only when the user needs a new example. Completion: the exact HTML file and public hostname are known.
-4. Search that HTML for an existing ViceMe tip script and `data-creator-app-id`. Cross-check with `viceme --profile <profile> creator-app list`: treat the work as bound only when the Creator App ID belongs to the user and the exact public hostname is verified on that app. A script tag alone is not proof of binding.
-5. When the work is not bound, create and bind it through the CLI — never ask the user to operate the Creator Center page:
-   1. `viceme --profile <profile> creator-app create --name <work-name>`; record `data.app.id`. The first call also establishes the creator identity automatically, so a "not a creator yet" detour is never required.
-   2. `viceme --profile <profile> creator-app domain add <appId> <hostname>`; record the domain entry's `verificationToken` and `verificationPath`.
-   3. Serve that token verbatim at `<hostname><verificationPath>` over HTTPS and deploy it.
-   4. `viceme --profile <profile> creator-app domain verify <appId> <hostname>`; on failure, fetch the verification URL yourself, compare it with the recorded token, fix the hosting, and retry — do not ask the user to click anything.
-   Completion: the domain entry reports `verified: true`.
-   If the platform returns 404 for `creator-app` commands, stop and report that this exact selected environment has not deployed the binding capability; do not fabricate a work or URL, and do not fall back to a production origin.
-6. Read the target page's actual locale (`zh-CN` or `en-US`) without inferring it from the Profile's market. Build the embed snippet with `viceme --profile <profile> creator-app show <appId> --locale <zh-CN-or-en-US>`; use its `data.embedSnippet` exactly — the CLI composes it from the Profile's `webBaseUrl`, so never derive or invent the script URL or Creator App ID. Insert one idempotent script tag before `</body>`:
+1. Inspect the target instructions and find the exact deployed HTTPS Origin,
+   page entry point, deployment path, CSP, and browser tests. Do not treat
+   localhost or a preview hostname as production.
+2. Keep the active result from `viceme profile list`. Run `auth status` and
+   re-authenticate on that Profile if `merchant-commerce:read` or
+   `merchant-commerce:write` is missing.
+3. Run `merchant accounts`; select an active Merchant owned by the current
+   login. Run `merchant work list --merchant <merchant-id>` and reuse only a
+   Website Work whose canonical Origin is exact.
+4. If needed, create a Website Work with `merchant work create --input <json>`.
+   Complete DNS ownership with `merchant work website-verification create` and
+   `verify`, then publish using the fresh returned Work revision. The TXT value
+   is the returned `challenge` verbatim.
+5. Get SDK access for that Work. Create it with `--feature tip` when absent, or
+   update from its current `configVersion` with the full feature set while
+   preserving `danmaku` when present. Record the returned public `workKey`.
+6. Run `merchant commerce-application list --merchant <merchant-id>`. Reuse only
+   the application matching this Work, `kind: WEBSITE_WIDGET`, `environment:
+   PRODUCTION`, and the exact canonical Origin. Otherwise create it with:
 
-```html
-<script
-  async
-  src="<generated-widget-script-url>"
-  data-creator-app-id="<creator-app-id>"
-  data-locale="<zh-CN-or-en-US>"
-></script>
-```
+   ```json
+   {
+     "merchantAccountId": "<merchant-id>",
+     "workId": "<work-id>",
+     "kind": "WEBSITE_WIDGET",
+     "environment": "PRODUCTION",
+     "displayName": "<website name>",
+     "origins": ["https://creator.example"],
+     "returnUrls": []
+   }
+   ```
 
-   Preserve all host content and inline the host's own CSS/JavaScript when the deliverable must remain one HTML file. Completion: the page contains exactly one matching embed script.
-7. If the page has a CSP, minimally allow the exact platform origin required by `script-src` and `frame-src`; preserve every existing directive. Do not add wildcards or weaken unrelated directives. Completion: the browser loads both the embed script and checkout iframe without CSP violations.
-8. Run local syntax/static checks, then deploy through the repository's existing path. Verify the public HTTPS page, not only localhost: the script returns 200, the circular tip launcher is visible, keyboard activation opens the ViceMe checkout, Escape closes it, and browser console/network contain no widget errors. Completion: the real verified hostname opens the hosted checkout.
-9. Report the HTML file, public URL, Creator App ID, verification URL, checks run, and any unverified payment boundary. Never report login tokens, verification tokens, cookies, payment credentials, or signed URLs.
+   Use `merchant commerce-application create --input <json>`, then activate it
+   with its exact revision. A Website Widget has no Product binding.
+7. Insert exactly one official loader tag. Use the selected Profile's exact Web
+   base URL and market region; do not infer either from page language:
 
-## Boundaries
+   ```html
+   <div id="viceme-engagement"></div>
+   <script
+     defer
+     src="<web-base-url>/viceme-sdk/v1/viceme.min.js"
+     data-viceme-work="<work-key>"
+     data-viceme-region="<cn-or-global>"
+     data-viceme-features="tip"
+     data-viceme-target="#viceme-engagement"
+     data-viceme-theme="auto"
+   ></script>
+   ```
 
-- The creator signs in to configure the work; visitors do not need to sign in merely to open the tip checkout.
-- ViceMe owns checkout, payment provider calls, order state, and settlement. The host page owns only its content and embed tag.
-- `creatorAppId` identifies the payee work. Reusable templates use a placeholder; a creator's own deployed work may use that creator's real ID.
-- Domain verification is a prerequisite outside the one-HTML embed surface. The final integration can remain one HTML file even when deployment separately serves the verification response.
-- Start with the standalone launcher. Use an integrated custom dock only when the deployed embed script explicitly documents and proves that protocol.
+8. Preserve CSP and any script nonce. Add only the exact Shop Origin to the
+   directives browser evidence requires. Run repository checks, deploy, and
+   verify the real Origin: the Tip frame resizes, remains keyboard reachable,
+   opens payment, closes with Escape, and emits no CSP or widget errors.
+9. Report the public Work ID/key, application ID, canonical Origin, checks, and
+   whether a real payment was exercised. Never report login tokens, DNS
+   challenges, cookies, payment credentials, access tokens, or signed URLs.
 
 ## Recovery
 
-- Login timeout: rerun `auth login` on the same Profile.
-- Existing unverified domain: reuse it and re-deploy its current token; do not create another work.
-- Existing verified work: reuse its Creator App ID; do not create a duplicate merely because the HTML moved.
-- Wrong hostname: bind the exact production hostname. Do not treat localhost, a preview hostname, and production as interchangeable.
-- Widget missing: verify script status, Creator App ID, hostname binding, CSP, and duplicate script tags in that order.
+- Recover Work creation by replaying the same stable `clientRequestId` and
+  identical request.
+- Recover SDK access by reading it before attempting another create.
+- Recover application creation by listing and matching Work, kind, environment,
+  and Origin before another create.
+- Never guess a new config/revision after a conflict; read the resource again.

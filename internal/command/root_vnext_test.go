@@ -758,21 +758,23 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	}
 }
 
-func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
+func TestOfficialSkillBundleRetiresAccessAndIncludesTip(t *testing.T) {
 	t.Parallel()
 	const tipSkill = "viceme-tip"
 	foundTip := false
-	foundAccess := false
 	for _, name := range officialSkillNames {
 		if name == "viceme-access" {
-			foundAccess = true
+			t.Fatalf("retired access Skill remains in the official set: %#v", officialSkillNames)
 		}
 		if name == tipSkill {
 			foundTip = true
 		}
 	}
-	if !foundTip || !foundAccess {
-		t.Fatalf("official Skill list omitted access or tip: %#v", officialSkillNames)
+	if !foundTip {
+		t.Fatalf("official Skill list omitted tip: %#v", officialSkillNames)
+	}
+	if len(retiredOfficialSkills) != 1 || retiredOfficialSkills[0].Name != "viceme-access" {
+		t.Fatalf("access Skill retirement identity is missing: %#v", retiredOfficialSkills)
 	}
 	if _, err := skillcontent.New(cliembed.EmbeddedSkills()).Package(tipSkill); err != nil {
 		t.Fatalf("official Skill bundle omitted %s: %v", tipSkill, err)
@@ -782,9 +784,9 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("official Skill bundle omitted the single HTML template: %v", err)
 	}
-	resolved := strings.ReplaceAll(string(template), "REPLACE_WITH_WIDGET_SCRIPT_URL", "https://viceme.example/widget/tip-embed.js")
-	if !strings.Contains(resolved, `src="https://viceme.example/widget/tip-embed.js"`) || strings.Contains(resolved, "https://https://") {
-		t.Fatalf("single HTML template does not accept the complete generated widget URL")
+	resolved := strings.ReplaceAll(string(template), "REPLACE_WITH_SDK_SCRIPT_URL", "https://viceme.example/viceme-sdk/v1/viceme.min.js")
+	if !strings.Contains(resolved, `src="https://viceme.example/viceme-sdk/v1/viceme.min.js"`) || strings.Contains(resolved, "https://https://") {
+		t.Fatalf("single HTML template does not accept the complete SDK URL")
 	}
 	if _, _, err := bundle.Read(tipSkill, "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)

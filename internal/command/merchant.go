@@ -15,6 +15,7 @@ func newMerchantCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.AddCommand(newMerchantAccountsCommand(runtime))
 	command.AddCommand(newMerchantWorkCommand(runtime))
+	command.AddCommand(newMerchantCommerceApplicationCommand(runtime))
 	command.AddCommand(newMerchantProductCommand(runtime))
 	return command
 }
@@ -44,6 +45,8 @@ func newMerchantWorkCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newMerchantWorkGetCommand(runtime))
 	command.AddCommand(newMerchantWorkUpdateCommand(runtime))
 	command.AddCommand(newMerchantWorkPreviewCommand(runtime))
+	command.AddCommand(newMerchantWorkWebsiteVerificationCommand(runtime))
+	command.AddCommand(newMerchantWorkSdkAccessCommand(runtime))
 	return command
 }
 

@@ -1,46 +1,44 @@
-# Hosted danmaku SDK contract
+# Hosted SDK Contract
 
-Use this for a static site, blog, or product page that should receive
-ViceMe-hosted danmaku without copying component code into the host repository.
+## Loader
 
-## Embed snippet
+The selected CLI Profile is the environment authority. Its `webBaseUrl` serves
+the stable `/viceme-sdk/v1/viceme.min.js` loader and its `marketRegion` selects
+`cn` or `global`. The loader accepts only these attributes:
 
-The selected CLI Profile is the sole environment authority. It binds the API
-base URL, Web base URL, and market region. Create and activate the Work before
-editing the host page:
-
-```bash
-viceme --profile <profile> access init --name "<website name>" --danmaku
+```text
+data-viceme-work
+data-viceme-region
+data-viceme-features
+data-viceme-target
+data-viceme-theme
+data-viceme-loader
 ```
 
-If `.viceme/access.yaml` already exists, use `access inspect`; run `access apply`
-only to reconcile an intentional local config. The config records the Profile
-authority and cannot be reused under another API, Web, or market environment.
+Features may be `danmaku`, `tip`, or both exactly once as `danmaku,tip` (either
+input order is normalized). Do not pass endpoints, tokens, prices, providers,
+application IDs, or payment state through attributes.
 
-Successful `init`, `inspect`, and `apply` responses include `data.workKey`,
-`data.scriptUrl`, and `data.embedSnippet` whenever the remote Work has an active
-public danmaku capability. Insert `data.embedSnippet` exactly. Never derive the
-origin, append an SDK path, or fall back to another Profile.
+## Resource Gate
 
-`workKey` is public and opaque. Never replace it with an internal creator ID,
-product ID, media ID, slug, API token, or payment credential. Do not add API,
-iframe, creator, work-ID, or host-URL overrides to the generated snippet.
+A danmaku page is usable only when the Website Work is `PUBLISHED`, website
+ownership is `VERIFIED`, and active SDK access contains `danmaku`. The public
+`workKey` comes only from that access resource.
 
-## Page-position anchors
+## Runtime
 
-The loader derives the active anchor from the canonical page URL, including
-hash routes, and the current 10% scroll bucket. A message is stored under that
-page-position anchor and appears to visitors on the same Work and anchor.
+The external SDK initializes locally and makes no business API request. It
+mounts Shop-hosted iframes under Shadow DOM, validates bridge origin and source,
+and cleans up its nodes, listeners, and timers. Shop owns message persistence,
+rate limits, keyboard behavior, and reduced-motion behavior.
 
-## Runtime boundary
+The loader derives an opaque page-position anchor from the canonical page URL
+and current scroll bucket. The host must not derive or send its own user,
+session, or payment identity.
 
-The browser runtime validates loader attributes, resolves the public Work and
-requires an active `danmaku` capability, mounts at most once, isolates styles,
-keeps host controls clickable, lazy-loads modal surfaces, and removes all nodes,
-listeners, and timers on destroy. It calls only public danmaku endpoints; it does
-not establish a general-purpose SDK Session or expose follow, purchase, or
-entitlement APIs.
+## CSP
 
-The hosted Web app owns rendering and interaction. The Shop API owns the public
-`workKey` mapping, persistence, retention limit, and rate limits. Anonymous
-danmaku does not force login. Tipping is not part of this standalone snippet.
+Allow only the exact regional Shop Origin required by `script-src`,
+`connect-src`, and `frame-src`. Keep `object-src 'none'`. A request nonce with
+`strict-dynamic` can authorize scripts, but frame and manifest connections still
+need explicit Origins.

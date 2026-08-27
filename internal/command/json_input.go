@@ -44,6 +44,20 @@ func readJSONObject(filename, code string) (json.RawMessage, error) {
 	return canonical, nil
 }
 
+func readStrictJSONObject[T any](filename, code string) (T, error) {
+	var value T
+	input, err := readJSONObject(filename, code)
+	if err != nil {
+		return value, err
+	}
+	decoder := json.NewDecoder(bytes.NewReader(input))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&value); err != nil {
+		return value, output.Validation(code, "input must be strict JSON matching the request schema").WithCause(err)
+	}
+	return value, nil
+}
+
 func rawJSONObject(fields map[string]any) (json.RawMessage, error) {
 	data, err := json.Marshal(fields)
 	if err != nil {

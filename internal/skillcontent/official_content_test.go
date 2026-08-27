@@ -56,12 +56,23 @@ func TestDanmakuSkillUsesOnlyHostedIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(content)
-	for _, required := range []string{"access init", "--danmaku", "data.embedSnippet", "must not copy"} {
+	for _, required := range []string{
+		"merchant work website-verification create",
+		"merchant work sdk-access",
+		`data-viceme-features="danmaku"`,
+		"must not copy",
+	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("hosted danmaku Skill omitted %q", required)
 		}
 	}
-	for _, forbidden := range []string{"FOLLOW_OWNER", "WORK_ENTITLEMENT", "React blueprint"} {
+	for _, forbidden := range []string{
+		"FOLLOW_OWNER",
+		"WORK_ENTITLEMENT",
+		"React blueprint",
+		"access init",
+		"sdk-work:",
+	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("hosted danmaku Skill retained excluded capability %q", forbidden)
 		}
@@ -71,7 +82,7 @@ func TestDanmakuSkillUsesOnlyHostedIntegration(t *testing.T) {
 	}
 }
 
-func TestEngagementSkillConsumesAuthoritativeCombinedSnippet(t *testing.T) {
+func TestEngagementSkillUsesOneWorkAndCombinedAccess(t *testing.T) {
 	t.Parallel()
 	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-engagement/SKILL.md")
 	if err != nil {
@@ -79,17 +90,23 @@ func TestEngagementSkillConsumesAuthoritativeCombinedSnippet(t *testing.T) {
 	}
 	text := string(content)
 	for _, required := range []string{
-		"access init",
-		"creator-app create",
-		"creator-app domain verify",
-		"creator-app show <app-id> --work-key <work-key> --locale <zh-CN-or-en-US>",
-		"data.engagementEmbedSnippet",
+		"merchant work sdk-access create",
+		"--feature danmaku --feature tip",
+		"WEBSITE_WIDGET",
+		`data-viceme-features="danmaku,tip"`,
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("engagement Skill omitted %q", required)
 		}
 	}
-	for _, forbidden := range []string{"website publish", "FOLLOW_OWNER", "WORK_ENTITLEMENT"} {
+	for _, forbidden := range []string{
+		"website publish",
+		"FOLLOW_OWNER",
+		"WORK_ENTITLEMENT",
+		"creator-app",
+		"tip-embed.js",
+		"engagement-embed.js",
+	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("engagement Skill retained excluded flow %q", forbidden)
 		}
@@ -106,15 +123,50 @@ func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
 	text := string(publish)
 	for _, required := range []string{
 		"A creator-owned website",
-		"Website Work",
-		"Payment integration remains a documented future capability",
-		"publish no Product",
+		"website-workflow.md",
+		"verified Website Work",
+		"Publish no Product",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("publish Skill omitted the current website Work boundary %q", required)
 		}
 	}
-	if strings.Contains(text, "references/website-workflow.md") {
-		t.Fatal("publish Skill still routes to the superseded SdkWork website workflow")
+	if strings.Contains(text, "Payment integration remains a documented future capability") {
+		t.Fatal("publish Skill still describes Website Widget tips as unavailable")
+	}
+}
+
+func TestOfficialEngagementSkillsContainNoLegacyDomain(t *testing.T) {
+	t.Parallel()
+
+	for _, relativePath := range []string{
+		"viceme-danmaku/SKILL.md",
+		"viceme-danmaku/references/cdn-sdk.md",
+		"viceme-tip/SKILL.md",
+		"viceme-tip/references/integration-contract.md",
+		"viceme-engagement/SKILL.md",
+		"viceme-publish/references/website-workflow.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", relativePath, err)
+		}
+		for _, forbidden := range []string{
+			"SdkWork",
+			"CreatorApp",
+			"creator-app",
+			"sdk-work:",
+			"creator-app:",
+			"FOLLOW_OWNER",
+			"WORK_ENTITLEMENT",
+			"data-creator-app-id",
+			"tip-embed.js",
+			"engagement-embed.js",
+			".viceme/access.yaml",
+		} {
+			if strings.Contains(string(content), forbidden) {
+				t.Fatalf("embedded %s retained legacy term %q", relativePath, forbidden)
+			}
+		}
 	}
 }
