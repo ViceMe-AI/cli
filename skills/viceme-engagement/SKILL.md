@@ -15,9 +15,9 @@ another creator's app.
    browser test setup. Preserve the host's existing layout and deployment path.
 2. Run `viceme profile list`. Pin every later command to one Profile and require
    its `apiBaseUrl`, `webBaseUrl`, and `marketRegion`.
-3. Run `viceme --profile <profile> auth status`. If unauthenticated or missing
-   `sdk-work:read`, `sdk-work:write`, `creator-app:read`, or
-   `creator-app:write`, run `auth login` on that same Profile.
+3. Run `viceme --profile <profile> auth status`. If it does not report an
+   authenticated user, run `viceme --profile <profile> auth login` on that same
+   Profile and wait for completion.
 4. If `.viceme/access.yaml` is absent, run:
 
    ```bash

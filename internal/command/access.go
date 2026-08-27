@@ -81,7 +81,7 @@ func newAccessInitCommand(runtime *Runtime) *cobra.Command {
 	var purchaseFeatures []string
 	command := &cobra.Command{
 		Use:   "init",
-		Short: "Publish the website when needed, then configure capabilities",
+		Short: "Configure capabilities on an explicitly published website or create a hosted danmaku work",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			authority, err := runtime.resolveProfileAuthority()

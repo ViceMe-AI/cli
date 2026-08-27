@@ -65,6 +65,17 @@ export function selectBump(commits) {
   return "patch";
 }
 
+// The authoritative official Skill list. Every skills/<name>/ directory in the
+// repository must appear here so release preparation bumps all bundled Skills.
+export const officialSkillNames = [
+  "viceme-shared",
+  "viceme-publish",
+  "viceme-access",
+  "viceme-danmaku",
+  "viceme-tip",
+  "viceme-engagement",
+];
+
 export function renderChangelog(version, commits, previous, date) {
   const parsed = commits.map(parseConventionalCommit);
   const sections = [
@@ -179,7 +190,7 @@ function prepareRelease() {
   packageDocument.version = version;
   writeJSON("package.json", packageDocument);
 
-  for (const skillName of ["viceme-shared", "viceme-publish", "viceme-access", "viceme-danmaku", "viceme-tip", "viceme-engagement"]) {
+  for (const skillName of officialSkillNames) {
     const filename = `skills/${skillName}/skill-package.json`;
     const skillPackage = JSON.parse(readFileSync(filename, "utf8"));
     skillPackage.skill_version = version;

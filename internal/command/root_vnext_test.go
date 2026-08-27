@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -788,6 +789,24 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 	}
 	if _, _, err := bundle.Read(tipSkill, "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
+	}
+}
+
+func TestOfficialSkillNamesMatchEmbeddedBundle(t *testing.T) {
+	t.Parallel()
+	bundled, err := skillcontent.New(cliembed.EmbeddedSkills()).List()
+	if err != nil {
+		t.Fatalf("could not list the embedded Skill bundle: %v", err)
+	}
+	bundledNames := make([]string, 0, len(bundled))
+	for _, info := range bundled {
+		bundledNames = append(bundledNames, info.Name)
+	}
+	sort.Strings(bundledNames)
+	declared := append([]string(nil), officialSkillNames...)
+	sort.Strings(declared)
+	if !reflect.DeepEqual(declared, bundledNames) {
+		t.Fatalf("official Skill list drifted from the embedded bundle: declared %#v, bundled %#v", declared, bundledNames)
 	}
 }
 

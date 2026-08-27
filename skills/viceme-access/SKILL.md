@@ -31,7 +31,7 @@ Implement a browser-only integration backed by an existing creator-owned `workKe
    complete website metadata review and confirmation workflow. Resume this
    workflow only after explicit website publication succeeds. Never let an
    access command publish the website implicitly.
-4. Run `viceme auth status`. If the token lacks `sdk-work:read` or `sdk-work:write`, ask the user to run `viceme auth login` again.
+4. Run `viceme auth status`. If it does not report an authenticated user, ask the user to run `viceme auth login` again.
 5. If `.viceme/access.yaml` does not exist, create and apply the complete
    access config in one command. Repeat feature flags as needed; use
    `key=title` only when the display title differs from the key:

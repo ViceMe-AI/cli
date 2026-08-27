@@ -23,9 +23,9 @@ Before editing, inspect:
 
 1. Run `viceme profile list` and pin every later command to the selected Profile.
    Do not switch Profiles merely to reuse another login.
-2. Run `viceme --profile <profile> auth status`. If unauthenticated or missing
-   `sdk-work:read` or `sdk-work:write`, run
-   `viceme --profile <profile> auth login` and wait for completion.
+2. Run `viceme --profile <profile> auth status`. If it does not report an
+   authenticated user, run `viceme --profile <profile> auth login` and wait for
+   completion.
 3. If `.viceme/access.yaml` is absent, run:
 
    ```bash

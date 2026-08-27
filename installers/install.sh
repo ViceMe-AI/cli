@@ -50,12 +50,18 @@ expected="$(awk 'NR == 1 { print $1 }' "$temporary/viceme.sha256")"
 case "$expected" in *[!0-9a-f]*) echo "Release checksum is invalid" >&2; exit 1 ;; esac
 if command -v sha256sum >/dev/null 2>&1; then
   actual="$(sha256sum "$temporary/viceme" | awk '{print $1}')"
-else
+elif command -v shasum >/dev/null 2>&1; then
   actual="$(shasum -a 256 "$temporary/viceme" | awk '{print $1}')"
+else
+  echo "sha256sum or shasum is required to verify the ViceMe binary" >&2; exit 1
 fi
 [ "$actual" = "$expected" ] || { echo "ViceMe binary checksum verification failed" >&2; exit 1; }
 
-install_dir="${VICEME_INSTALL_DIR:-$HOME/.local/bin}"
+install_dir="${VICEME_INSTALL_DIR:-}"
+if [ -z "$install_dir" ]; then
+  [ -n "${HOME:-}" ] || { echo "HOME is not set; set VICEME_INSTALL_DIR to choose an install directory" >&2; exit 1; }
+  install_dir="$HOME/.local/bin"
+fi
 mkdir -p "$install_dir"
 destination="$install_dir/viceme"
 chmod 755 "$temporary/viceme"
