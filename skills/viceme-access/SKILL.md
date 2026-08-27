@@ -1,6 +1,6 @@
 ---
 name: viceme-access
-description: 把 ViceMe 浏览器 SDK 接入创作者网站，通过 ViceMe 权限检查和结账实现宿主原生的登录、关注和付费功能入口。适用于 .viceme/access.yaml、功能门控界面或 viceme access 流程。用户已有明确方案时直接实施；方案缺失或不完整时才分析并提出安全入口。网站尚未发布时，先使用 $viceme-publish。
+description: 把 ViceMe 浏览器 SDK 接入已有稳定 Work 绑定的创作者网站，通过 ViceMe 权限检查和结账实现宿主原生的登录、关注和付费功能入口。适用于 .viceme/access.yaml、功能门控界面或 viceme access 流程。用户已有明确方案时直接实施；方案缺失或不完整时才分析并提出安全入口。当前版本不创建新 Website Work。
 ---
 
 # ViceMe 网站访问接入
@@ -16,7 +16,7 @@ description: 把 ViceMe 浏览器 SDK 接入创作者网站，通过 ViceMe 权�
    - 只缺少部分信息时，只分析并补齐缺少部分。
    - 没有具体方案时，查看核心用户路径和真实界面，再提出安全的功能键、入口、规则、可复用宿主组件、受保护动作以及仍需用户决定的价格。用户选择前不得写入访问配置或宿主代码。
 2. 保留原业务动作。在已有用户触发入口外加最小门控，只有 `access.require()` 返回 `allowed: true` 后才调用原动作。若找不到安全的外层接缝，说明耦合并停止，不得为了接入而重构核心行为。
-3. 查看 `<website-dir>/.viceme/website.json`。文件缺失或没有 `workKey` 时，停止访问设置并先调用 `$viceme-publish`，完整完成网站资料预览和确认。只有网站明确发布成功后才回到此流程；访问命令不得隐式发布网站。
+3. 查看 `<website-dir>/.viceme/website.json`。文件缺失或没有 `workKey` 时立即停止，用白话说明当前版本还不能创建新的网站 Work；不得调用 `$viceme-publish` 或旧的 `viceme website publish` 绕过边界。已有有效绑定时才能继续；访问命令不得隐式发布网站。
 4. 运行 `viceme auth status`。若缺少 `sdk-work:read` 或 `sdk-work:write`，请用户重新运行 `viceme auth login`。
 5. `.viceme/access.yaml` 不存在时，用一条命令创建并应用完整配置。需要多个功能时重复参数；只有显示标题不同于 key 时才使用 `key=title`：
 
@@ -38,7 +38,7 @@ description: 把 ViceMe 浏览器 SDK 接入创作者网站，通过 ViceMe 权�
 ## 强制边界
 
 - `workKey` 是公开且不透明的标识，不得替换为 offer ID，也不得当作秘密。
-- `viceme access init` 要求网站已明确发布，只负责接入，不得创建网站发布版本，也不得代替 `$viceme-publish` 的预览确认流程。
+- `viceme access init` 只适用于已有有效网站绑定，只负责接入，不得创建网站发布版本；缺少绑定时按前置检查立即停止。
 - 浏览器代码中不得加入 Payment API key、webhook、product ID、creator ID，或写死金额、币种和价格。宿主显示的价格必须来自 `access.getFeatures()`。
 - 让服务端解析 `workKey → CreatorWork → SaleOffer → Entitlement`。
 - 不得把 work session token 或访问判断写入 cookie、localStorage、IndexedDB、URL、分析数据或日志。

@@ -18,6 +18,7 @@ import (
 
 var officialSkillNames = []string{
 	"viceme-shared",
+	"viceme-creator-onboarding",
 	"viceme-publish",
 	"viceme-skill-use",
 	"viceme-access",

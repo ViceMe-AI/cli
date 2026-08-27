@@ -10,14 +10,13 @@
 
 ## 1. 确定获准商家
 
-运行：
+使用 `$viceme-creator-onboarding` 已确认并由用户选定的商家，然后运行：
 
 ```text
-viceme merchant accounts
 viceme merchant product templates --merchant <merchant-account-id>
 ```
 
-只有当前用户作为唯一 `MerchantAccountMember(role=OWNER)` 拥有的有效 MerchantAccount 才能创作 Product。没有账户时停止，用白话说明需要先申请、认领或由工作人员启用商家并绑定 OWNER。返回多个时展示并询问哪个商家拥有本 Product；不得按显示名称或 CreatorAccount 资料猜测。公开 Product 还要求 Merchant 关联一个有效 CreatorAccount，其稳定 handle 决定永久 Work 路由。CreatorAccount 和已验证外部身份只用于署名，不提供写权限。
+只有当前用户作为唯一 `MerchantAccountMember(role=OWNER)` 拥有的有效 MerchantAccount 才能创作 Product。资格不存在或仍在审核时停止并交回 `$viceme-creator-onboarding`；不得在本流程创建申请或平行商家。公开 Product 还要求 Merchant 关联一个有效 CreatorAccount，其稳定 handle 决定永久 Work 路由。CreatorAccount 和已验证外部身份只用于署名，不提供写权限。
 
 确认返回的有效创作模板为 `GENERIC_MERCHANT`。当前商家 Product 只能使用 `MANUAL_PROCESSING` 和 `SHIPMENT`；不得声称存在 provider adapter。ViceMe 官方手机充值也使用相同流程和 `MANUAL_PROCESSING`。官方创作者是普通 Creator/Merchant/OWNER 关系，不是特殊平台主体。
 

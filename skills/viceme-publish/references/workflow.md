@@ -1,13 +1,13 @@
 # Skill 上架发布命令合同
 
-父级 `SKILL.md` 的共同权限和用户表达规则适用于以下全部步骤。第一条进程命令始终是 `viceme auth status`；异步人工审核结果会立即结束当前流程，不得再次查询或定时轮询。
+父级 `SKILL.md` 的共同权限和用户表达规则适用于以下全部步骤。开始以下发布命令前，`$viceme-creator-onboarding` 必须已经在当前 CLI 上下文确认当前用户拥有有效商家；申请或审核未完成会立即结束当前流程。
 
 所有命令在 stdout 输出一个 JSON envelope，进度写入 stderr。
 
 ## 必需输入
 
 - 恰好一个来源：根目录含 `SKILL.md` 的本地目录/ZIP、本人 GitHub 仓库，或已验证的小红书 Skill ID。公开 GitHub 仓库也必须验证所有权；私有仓库使用已保存的 OAuth 凭证。不支持组织仓库或只有 collaborator 权限的仓库。
-- 一个当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有的有效 MerchantAccount。开始前运行 `viceme merchant accounts`。CLI 自动选择唯一有效账户；返回多个时先展示并让用户选择，再用 `--merchant <merchant-account-id>` 重试。
+- 一个由 `$viceme-creator-onboarding` 确认、当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有的有效 MerchantAccount。返回多个时必须使用用户在资格流程中选择的商家，并用 `--merchant <merchant-account-id>` 发布。
 - 最终公开确认前必须明确版本 `key`、用户可见名称、`sortOrder`、1 到 8 条 highlights，以及以人民币分计价的 `priceMinor`。私有包初次上传时故意保持 `priceMinor: null`。
 - 最终预览必须展示中英文简介、中英文使用说明、已验证包、一个封面和至少一个图库项，然后才能取得合并的“确认并发布”授权。
 

@@ -1,0 +1,55 @@
+---
+name: viceme-creator-onboarding
+description: 申请或认领 ViceMe 创作者身份，并处理已有申请和人工审核状态。当用户直接要求成为创作者，或发布、交易、赞赏等流程需要创作者资格时使用；不负责发布作品或商品。
+---
+
+# 成为 ViceMe 创作者
+
+所有确定性读取和申请都使用 ViceMe CLI。面向用户的提问、进度、结果和可见思考摘要应跟随用户当前语言；中文交流必须使用自然白话，不展示命令、原始 JSON、大写状态或内部实现名。
+
+## 检查当前资格
+
+1. 第一条进程命令必须是 `viceme auth status`。之前不得运行 Merchant 命令、环境检查或并行命令。只有当前 Profile、地址和已登录用户组成的当前 CLI 上下文是权威依据；记忆、旧对话和其他任务不能替代本次结果。已登录时还要检查 `scopes` 同时包含 `merchant-commerce:read`、`merchant-commerce:write`、`skill-publication:read` 和 `skill-publication:write`。
+2. 未登录或缺少上述任一权限时，只启动一个等待式 `viceme auth login`。在 WorkBuddy 中，从进程首次输出读取完整登录链接，用内置 `present_files` 在当前任务浏览器打开，并继续等待同一个进程返回。不得启动第二次登录，也不得要求用户回复“已经登录”。登录成功后再运行一次 `viceme auth status`，确认还是同一用户且四项权限齐全；仍不满足就停止并用白话说明登录没有取得所需权限。
+3. 登录成功后运行一次 `viceme merchant accounts`。只有当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有的有效商家才代表已具备创作者资格，并把返回的商家交回原任务继续使用。多个有效商家必须展示名称让用户选择，不得自行猜测。
+4. 没有有效商家时运行一次 `viceme merchant onboarding status`。已有申请就按返回的下一步继续，不得创建平行申请。
+
+若账户读取返回 `MERCHANT_COMMERCE_SCOPE_REQUIRED`，或申请与认领命令返回 `PUBLICATION_SCOPE_REQUIRED`，按第 2 步只补做一次等待式登录和权限复核，然后只重试刚才失败的读取一次。普通交流不得把这些内部错误名展示给用户。
+
+## 普通申请
+
+当平台允许新申请时，只收集两项尚未明确的信息：
+
+- “你希望在 ViceMe 上公开显示什么名字？可以是品牌名或你的昵称。”
+- “再选一个用于个人主页链接的英文名称吧，只能用小写字母、数字和短横线，例如 sunny-studio。”
+
+发布、赞赏或其他原任务只说明“需要创作者资格”，不等于用户同意提交申请。先用白话说明原因并询问是否现在申请。用户直接要求申请，且已经明确给出上述两项信息时，可以直接提交，不重复确认。
+
+确认信息后只运行一次：
+
+```text
+viceme merchant onboarding apply --display-name <公开名称> --handle <主页链接名称>
+```
+
+不要收集身份证、营业执照、手机号、支付资料、验证码或其他当前接口不需要的信息。主页名称冲突时说明该名称已被使用，请用户换一个；不得自行添加数字后重试。
+
+## 认领平台预创建的创作者
+
+只有用户从平台认领入口进入或已经给出准确的商家目标时才走认领；不得按名称搜索并猜测目标。
+
+- 先运行 `viceme merchant onboarding status --merchant <merchant-account-id>`，只使用平台配置的主认领渠道。
+- GitHub 目标运行 `viceme merchant onboarding claim-github <merchant-account-id>`。返回授权链接时，在 WorkBuddy 当前任务浏览器中打开；不得改用另一个 GitHub 账号或把公开仓库可读当作所有权。浏览器结果页明确显示授权完成后，只运行一次 `viceme merchant onboarding status --merchant <merchant-account-id>`；只有响应同时给出 `nextAction=PUBLISH`，并确认该商家已归当前用户所有，才交回原任务。结果仍未完成或授权失败时停止，不轮询。
+- 小红书目标收集公开账号名称和可选主页链接，运行 `viceme merchant onboarding claim-xiaohongshu <merchant-account-id> --account-name <公开账号名称> [--profile-url <主页链接>]`，再让用户提供能证明账号归属的截图。使用返回的申请编号和 `lockVersion` 运行一次 `viceme merchant onboarding evidence <onboarding-id> --path <截图路径> --lock-version <当前版本>`；读取证据上传响应中的新 `lockVersion`，再运行一次 `viceme merchant onboarding submit <onboarding-id> --lock-version <新版本>`。
+- 渠道验证只能证明外部账号归属。只有平台确认当前用户成为该商家的 OWNER 后，才算具备创作权限。
+
+## 人工审核边界
+
+普通申请和小红书认领需要工作人员审核。申请提交或状态显示仍在审核时，立即结束本次流程；同一回合不得再次查询、sleep、轮询、启动后台进程或暗示可能自动通过。只有用户明确要求持续监控时才创建监控。GitHub 自动认领在浏览器明确完成后的单次结果确认不属于人工审核轮询。
+
+对用户说：“申请已经提交，接下来需要工作人员审核。审核不是即时完成的，这次先到这里；之后你再次让我继续时，我会先查看结果，通过后再接着处理。”
+
+审核要求补充证明时，只说明工作人员需要什么，并等待用户提供；不得替用户制造证明。审核拒绝时用白话展示可操作原因，用户明确要重新申请后才继续。
+
+## 交回原任务
+
+只有 CLI 确认当前用户拥有有效商家时，才把创作者资格视为完成，并回到调用本 Skill 的发布、交易、赞赏或其他原任务。审核未完成、需要资料或被拒绝时，原任务也必须停止。

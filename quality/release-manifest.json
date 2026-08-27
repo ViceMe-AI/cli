@@ -7,8 +7,15 @@
       "skill_version": "0.17.0",
       "minimum_cli_version": "0.17.0",
       "cli_compatibility": ">=0.17.0 <0.18.0",
-      "full_skill_bundle_digest": "sha256:29f025f4815ea29f75eebd23912bae5ce46c917fbd91c2dbd034604a007571ac",
-      "embedded_content_digest": "sha256:17c4284c2fae48825a818500d45eb2c1d2dbec5ef844eb152538e2a0dff1e672"
+      "full_skill_bundle_digest": "sha256:50a54a7b57f50bc713e8c93280dfe43cbc2e8db14b04c5c443418e0aaf7f737c",
+      "embedded_content_digest": "sha256:69564ae7ac717f527757915560f9bb7e0560582ebe3296d7b58acd7bd782b200"
+    },
+    "viceme-creator-onboarding": {
+      "skill_version": "0.17.0",
+      "minimum_cli_version": "0.17.0",
+      "cli_compatibility": ">=0.17.0 <0.18.0",
+      "full_skill_bundle_digest": "sha256:ede7a416546821d919079f0662b69e3f0e35e6866681921013690b6417877290",
+      "embedded_content_digest": "sha256:bc48f4d4816dcb664a85eb5badb31d8722d87cb708616db9f5951e514e604869"
     },
     "viceme-danmaku": {
       "skill_version": "0.17.0",
@@ -28,8 +35,8 @@
       "skill_version": "0.17.0",
       "minimum_cli_version": "0.17.0",
       "cli_compatibility": ">=0.17.0 <0.18.0",
-      "full_skill_bundle_digest": "sha256:50b05aa8ed79b0c945f07da75b25615903d406b193469fd05ef30b122d5a6a01",
-      "embedded_content_digest": "sha256:afda7689629ccdb35466fbd70c94d651d251d7762d9c0c1d1090a5a2905cdb17"
+      "full_skill_bundle_digest": "sha256:87d52f1626b590f3ba73f97d539516a695173d13a79b469b52edfdb598ed7fbd",
+      "embedded_content_digest": "sha256:cd264a56aaea9b08350f21bad90b5a1b2da5bc5c8c71351acf6f26b3c8568075"
     },
     "viceme-shared": {
       "skill_version": "0.17.0",
@@ -53,7 +60,7 @@
       "embedded_content_digest": "sha256:e7b198efe62f309681283b1845c207ff60328e629053274bdcf50d35d5bdbd6c"
     }
   },
-  "bootstrap_contract_digest": "sha256:f52e91ee9c27618a4baf0b42c5cc048800c4859b5f8b2f22a81f46b752cb9eea",
+  "bootstrap_contract_digest": "sha256:cbecf16eea9a0df7700dc91ae6bf4448c38eac55943fc0c29105cdfae4c120d0",
   "installer_digests": {
     "install.ps1": "sha256:ffdedbcacb05a783c442398084e910dbb50b2bee9015282f5c01090eb01f4313",
     "install.sh": "sha256:1fcc654fd2c5bf535f262c9e00f2fb549f89f3a41b35038fd4799d794bd682cc"

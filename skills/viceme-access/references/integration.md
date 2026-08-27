@@ -8,7 +8,7 @@
 
 ## 访问配置
 
-访问配置要求网站已有明确发布绑定。`.viceme/website.json` 缺失或没有 `workKey` 时，停止并先使用 `$viceme-publish`。完成网站资料预览、取得发布确认并发布网站，成功后再返回。 `viceme access init` 本身绝不发布网站。
+访问配置要求网站已有明确发布绑定。`.viceme/website.json` 缺失或没有 `workKey` 时立即停止，并说明当前版本还不能创建新的网站 Work；不得调用 `$viceme-publish` 或旧的 `viceme website publish` 绕过边界。`viceme access init` 本身绝不发布网站。
 
 随后用一条命令创建并应用常见访问配置：
 
