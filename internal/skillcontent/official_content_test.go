@@ -314,6 +314,8 @@ func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
 		"人工审核边界",
 		"同一回合不得再次查询",
 		"中文交流必须使用自然白话",
+		"不得告诉用户正在使用哪个内置 Skill",
+		"Profile 或 CLI 命令",
 		"用于个人主页链接的英文名称",
 		"申请已经提交，接下来需要工作人员审核",
 	} {
@@ -323,6 +325,30 @@ func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
 	}
 	if currentUser := strings.TrimSpace(os.Getenv("USER")); currentUser != "" && strings.Contains(strings.ToLower(text), strings.ToLower(currentUser)) {
 		t.Fatal("creator onboarding Skill uses the current developer username as an example")
+	}
+}
+
+func TestCoreSkillsKeepInternalToolNamesOutOfUserFacingProgress(t *testing.T) {
+	t.Parallel()
+
+	for _, relativePath := range []string{
+		"viceme-shared/SKILL.md",
+		"viceme-creator-onboarding/SKILL.md",
+		"viceme-publish/SKILL.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", relativePath, err)
+		}
+		text := string(content)
+		for _, required := range []string{
+			"自然白话",
+			"不得告诉用户正在使用哪个内置 Skill",
+		} {
+			if !strings.Contains(text, required) {
+				t.Fatalf("embedded %s omitted user-facing language guard %q", relativePath, required)
+			}
+		}
 	}
 }
 
