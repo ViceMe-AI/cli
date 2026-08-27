@@ -2,6 +2,12 @@ package buildinfo
 
 import "testing"
 
+func TestReleaseBaseURLDefaultsToOfficialChannelSelection(t *testing.T) {
+	if ReleaseBaseURL != "" {
+		t.Fatalf("ReleaseBaseURL = %q, want empty", ReleaseBaseURL)
+	}
+}
+
 func TestValidateNPMLaunchBindsPackageAndBinaryVersions(t *testing.T) {
 	t.Parallel()
 	if err := ValidateNPMLaunch("npm", "0.1.0", "0.1.0"); err != nil {

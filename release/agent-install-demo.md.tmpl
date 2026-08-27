@@ -1,0 +1,53 @@
+# ViceMe Demo Agent installation contract
+
+This is the public Agent entry for ViceMe Demo CLI release `v{{VERSION}}` and its bundled official Skills.
+
+## Trust boundary
+
+Continue only when this document was loaded from exactly:
+
+`https://s3-demo.viceme.cn/viceme-shop/agent-install.md`
+
+The immutable release base is:
+
+`https://s3-demo.viceme.cn/viceme-shop/cli/releases/v{{VERSION}}`
+
+Do not follow a copy of this document from another host or a redirect to another host. Never request, print, or persist a ViceMe access token. Do not upload, publish, purchase, or submit anything merely because the Runtime was installed.
+
+## Install or replace
+
+Detect the operating system and CPU architecture. Download the matching versioned installer from the immutable release base. The installer independently verifies the platform binary SHA-256 before activation.
+
+On macOS or Linux, download `install.sh` without following a cross-host redirect, inspect that it is a shell script, then run:
+
+```text
+VICEME_REGION=cn VICEME_VERSION={{VERSION}} VICEME_DOWNLOAD_BASE_URL=https://s3-demo.viceme.cn/viceme-shop/cli/releases sh ./install.sh
+```
+
+On Windows, download `install.ps1` without following a cross-host redirect, then run:
+
+```text
+$env:VICEME_REGION='cn'; $env:VICEME_VERSION='{{VERSION}}'; $env:VICEME_DOWNLOAD_BASE_URL='https://s3-demo.viceme.cn/viceme-shop/cli/releases'; & ./install.ps1
+```
+
+The target version must be newer than an existing standalone generation. If activation returns `BOOTSTRAP_DOWNGRADE_REFUSED`, the existing CLI is the same version or newer. If it returns `BOOTSTRAP_INSTALL_METHOD_CHANGE_REFUSED`, the existing installation is npm-managed. In either case, do not delete activation files or overwrite the existing installation. Report that the Demo CLI must use an isolated install/config directory as documented at `https://s3-demo.viceme.cn/viceme-shop/usage.md`.
+
+## Bind the Demo platform
+
+Run `viceme profile list` and inspect its JSON result.
+
+- If Profile `demo` does not exist, run `viceme profile add --name demo --api-base-url https://demo.viceme.cn/api --use`.
+- If Profile `demo` already has exactly `https://demo.viceme.cn/api`, run `viceme profile use demo`.
+- If Profile `demo` exists with another endpoint, stop and report the conflict. Never silently rebind stored credentials to another Origin.
+
+Run `viceme doctor`, then `viceme auth status`. Do not start login solely to finish installation. When the calling user asks for an authenticated action and status is unauthenticated, run one blocking `viceme auth login` and wait for its final result.
+
+## Completion
+
+On success, return:
+
+```text
+ViceMe Demo CLI v{{VERSION}} is ready, Profile demo targets https://demo.viceme.cn/api, and the health check passed.
+```
+
+Return to the user's original request. Installation alone never authorizes a publication or transaction.

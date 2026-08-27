@@ -13,6 +13,9 @@ var (
 	// CommerceSkillTrustKeys is injected into official release binaries with
 	// -ldflags. Format: keyId:base64url-spki[,keyId:base64url-spki].
 	CommerceSkillTrustKeys = ""
+	// ReleaseBaseURL optionally pins a standalone build to a separate immutable
+	// release channel. Official builds leave it empty and use the region default.
+	ReleaseBaseURL = ""
 )
 
 const (

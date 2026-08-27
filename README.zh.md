@@ -96,6 +96,9 @@ viceme skill publish --resume <publication-id> --price-minor 100
 
 ## 安装
 
+Demo 环境的 Agent 安装入口、多版本发布与已有 CLI 替换流程见
+[`docs/demo-environment.md`](docs/demo-environment.md)。
+
 官方 Bootstrap 从同一个不可变 Release 一次安装原生 CLI 和全部官方 Agent Skills。
 
 ### macOS 或 Linux
