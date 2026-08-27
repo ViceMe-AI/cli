@@ -758,6 +758,39 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	}
 }
 
+func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
+	t.Parallel()
+	const tipSkill = "viceme-tip"
+	foundTip := false
+	foundAccess := false
+	for _, name := range officialSkillNames {
+		if name == "viceme-access" {
+			foundAccess = true
+		}
+		if name == tipSkill {
+			foundTip = true
+		}
+	}
+	if !foundTip || !foundAccess {
+		t.Fatalf("official Skill list omitted access or tip: %#v", officialSkillNames)
+	}
+	if _, err := skillcontent.New(cliembed.EmbeddedSkills()).Package(tipSkill); err != nil {
+		t.Fatalf("official Skill bundle omitted %s: %v", tipSkill, err)
+	}
+	bundle := skillcontent.New(cliembed.EmbeddedSkills())
+	template, _, err := bundle.Read(tipSkill, "templates/single-html.html")
+	if err != nil {
+		t.Fatalf("official Skill bundle omitted the single HTML template: %v", err)
+	}
+	resolved := strings.ReplaceAll(string(template), "REPLACE_WITH_WIDGET_SCRIPT_URL", "https://viceme.example/widget/tip-embed.js")
+	if !strings.Contains(resolved, `src="https://viceme.example/widget/tip-embed.js"`) || strings.Contains(resolved, "https://https://") {
+		t.Fatalf("single HTML template does not accept the complete generated widget URL")
+	}
+	if _, _, err := bundle.Read(tipSkill, "references/integration-contract.md"); err != nil {
+		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
+	}
+}
+
 func TestDoctorIncludesUnauthenticatedNetworkReadiness(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -890,6 +923,50 @@ func TestInstallTreatsActiveProfileNetworkReadinessAsAdvisory(t *testing.T) {
 		if !skillcontent.New(cliembed.EmbeddedSkills()).Doctor(name, "agents", skillcontent.Environment{Home: root, ConfigDir: configDir}).Healthy {
 			t.Fatalf("install did not commit %s while the old profile API was unavailable", name)
 		}
+	}
+}
+
+func TestFreshGlobalInstallPersistsCompleteGlobalAuthority(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/health/ready" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exit := Execute([]string{"install", "--agent", "agents", "--region", "global"}, Dependencies{
+		Out: &stdout, ErrOut: &stderr,
+		Store: securestore.NewMemory(), Updater: &startupRecoveryUpdater{},
+		Skills:      skillcontent.New(cliembed.EmbeddedSkills()),
+		Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+		APIBaseURL:  server.URL, Region: config.RegionCN,
+	})
+	if exit != 0 {
+		t.Fatalf("fresh global install failed: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+	persisted, err := config.LoadOrDefault(configDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, err := persisted.Resolve(config.DefaultProfileName)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if persisted.DistributionRegion != config.RegionGlobal ||
+		profile.APIBaseURL != config.APIBaseURL(config.RegionGlobal) ||
+		profile.WebBaseURL != config.WebBaseURL(config.RegionGlobal) ||
+		profile.MarketRegion != config.RegionGlobal {
+		t.Fatalf("fresh global install persisted a split authority: %#v", persisted)
+	}
+	if !strings.Contains(stdout.String(), `"region": "global"`) {
+		t.Fatalf("fresh global install reported the wrong region: %s", stdout.String())
 	}
 }
 

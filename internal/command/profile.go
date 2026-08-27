@@ -14,6 +14,8 @@ import (
 type profileListItem struct {
 	Name          string `json:"name"`
 	APIBaseURL    string `json:"apiBaseUrl"`
+	WebBaseURL    string `json:"webBaseUrl"`
+	MarketRegion  string `json:"marketRegion"`
 	Active        bool   `json:"active"`
 	UserID        string `json:"userId,omitempty"`
 	Authenticated bool   `json:"authenticated"`
@@ -53,8 +55,10 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 				}
 				items = append(items, profileListItem{
 					Name: profile.Name, APIBaseURL: profile.ResolvedAPIBaseURL(),
-					Active: profile.Name == runtime.config.CurrentProfile,
-					UserID: userID, Authenticated: status.Authenticated,
+					WebBaseURL:   profile.ResolvedWebBaseURL(),
+					MarketRegion: string(profile.MarketRegion),
+					Active:       profile.Name == runtime.config.CurrentProfile,
+					UserID:       userID, Authenticated: status.Authenticated,
 				})
 			}
 			return runtime.business(items)
@@ -65,11 +69,13 @@ func newProfileListCommand(runtime *Runtime) *cobra.Command {
 func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 	var name string
 	var apiBaseURL string
+	var webBaseURL string
+	var marketRegion string
 	var use bool
 	command := &cobra.Command{
 		Use: "add", Short: "Add a ViceMe API profile", Args: cobra.NoArgs,
 		RunE: func(_ *cobra.Command, _ []string) error {
-			profile, err := runtime.config.AddProfile(name, apiBaseURL)
+			profile, err := runtime.config.AddProfile(name, apiBaseURL, webBaseURL, config.Region(marketRegion))
 			if err != nil {
 				return output.Validation("PROFILE_INVALID", err.Error())
 			}
@@ -86,12 +92,16 @@ func newProfileAddCommand(runtime *Runtime) *cobra.Command {
 			}
 			return runtime.business(map[string]any{
 				"name":       profile.Name,
-				"apiBaseUrl": profile.ResolvedAPIBaseURL(), "active": use, "config": result,
+				"apiBaseUrl": profile.ResolvedAPIBaseURL(), "webBaseUrl": profile.ResolvedWebBaseURL(),
+				"marketRegion": profile.MarketRegion,
+				"active":       use, "config": result,
 			})
 		},
 	}
 	command.Flags().StringVar(&name, "name", "", "profile name")
 	command.Flags().StringVar(&apiBaseURL, "api-base-url", "", "API base URL for this profile")
+	command.Flags().StringVar(&webBaseURL, "web-base-url", "", "matching Web base URL for this profile")
+	command.Flags().StringVar(&marketRegion, "market-region", "", "product market region: cn or global")
 	command.Flags().BoolVar(&use, "use", false, "switch to this profile")
 	_ = command.MarkFlagRequired("name")
 	_ = command.MarkFlagRequired("api-base-url")
@@ -109,7 +119,9 @@ func newProfileUseCommand(runtime *Runtime) *cobra.Command {
 			if runtime.config.CurrentProfile == profile.Name {
 				return runtime.business(map[string]any{
 					"name":       profile.Name,
-					"apiBaseUrl": profile.ResolvedAPIBaseURL(), "active": true, "unchanged": true,
+					"apiBaseUrl": profile.ResolvedAPIBaseURL(), "webBaseUrl": profile.ResolvedWebBaseURL(),
+					"marketRegion": profile.MarketRegion,
+					"active":       true, "unchanged": true,
 				})
 			}
 			runtime.config.PreviousProfile = runtime.config.CurrentProfile
@@ -122,7 +134,8 @@ func newProfileUseCommand(runtime *Runtime) *cobra.Command {
 			}
 			return runtime.business(map[string]any{
 				"name":       profile.Name,
-				"apiBaseUrl": profile.ResolvedAPIBaseURL(), "active": true,
+				"apiBaseUrl": profile.ResolvedAPIBaseURL(), "webBaseUrl": profile.ResolvedWebBaseURL(),
+				"marketRegion": profile.MarketRegion, "active": true,
 			})
 		},
 	}

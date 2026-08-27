@@ -300,6 +300,9 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newPublicationCommand(runtime))
 	root.AddCommand(newMerchantCommand(runtime))
 	root.AddCommand(newCommerceCommand(runtime))
+	root.AddCommand(newWebsiteCommand(runtime))
+	root.AddCommand(newAccessCommand(runtime))
+	root.AddCommand(newCreatorAppCommand(runtime))
 	root.AddCommand(newInteractionCommand(runtime))
 	return root, runtime, nil
 }
@@ -587,7 +590,6 @@ func defaults(dependencies Dependencies) Dependencies {
 				buildinfo.Version,
 				buildinfo.CompatibilityVersion(),
 			)
-			updater.ReleaseBaseURL = buildinfo.ReleaseBaseURL
 			updater.ConfigDir = runtimeConfigBase(dependencies.Environment)
 			updater.HTTPClient = dependencies.HTTPClient
 			dependencies.Updater = updater
@@ -780,12 +782,17 @@ func (r *Runtime) applyProfile(profile config.Profile) error {
 	if apiBaseURL == "" {
 		apiBaseURL = profile.ResolvedAPIBaseURL()
 	}
+	normalizedAPIBaseURL, err := config.NormalizeAPIBaseURL(apiBaseURL)
+	if err != nil {
+		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+	}
+	apiBaseURL = normalizedAPIBaseURL
 	if err := validatePublicationProcessCredentialTarget(r.processCredential, apiBaseURL); err != nil {
 		return err
 	}
 	scope, err := credentialScopeForAPIBase(apiBaseURL)
 	if err != nil {
-		return output.Validation("api_base_url", "ViceMe API base URL must use HTTPS; HTTP is allowed only for localhost or loopback development")
+		return output.Validation("api_base_url", err.Error())
 	}
 	r.profile = profile
 	r.region = r.config.DistributionRegion
@@ -798,8 +805,7 @@ func (r *Runtime) applyProfile(profile config.Profile) error {
 }
 
 func (r *Runtime) credentialScopeForProfile(profile config.Profile) (string, error) {
-	apiBaseURL := profile.ResolvedAPIBaseURL()
-	return credentialScopeForAPIBase(apiBaseURL)
+	return credentialScopeForAPIBase(profile.ResolvedAPIBaseURL())
 }
 
 func (r *Runtime) credentialStorageKeys() ([]string, error) {

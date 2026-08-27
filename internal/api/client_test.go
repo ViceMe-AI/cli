@@ -50,6 +50,66 @@ func TestPublicationClientUsesBearerAndExactContract(t *testing.T) {
 	}
 }
 
+func TestSdkWorkClientUsesLightweightCreatorEndpoints(t *testing.T) {
+	t.Parallel()
+	requests := make(chan string, 5)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer vme_cli_test" {
+			t.Fatalf("missing bearer credential: %q", request.Header.Get("Authorization"))
+		}
+		if request.URL.Path == "/v1/cli/sdk-works" && request.Method == http.MethodPost {
+			body, _ := io.ReadAll(request.Body)
+			if string(body) != `{"displayName":"Test"}` {
+				t.Fatalf("unexpected create request: %s", body)
+			}
+		}
+		requests <- request.Method + " " + request.URL.Path
+		writer.Header().Set("Content-Type", "application/json")
+		work := `{"workKey":"wrk_test","displayName":"Test","status":"DRAFT","configVersion":1,"features":[],"capabilities":[],"createdAt":"2026-08-15T00:00:00.000Z","updatedAt":"2026-08-15T00:00:00.000Z"}`
+		if request.URL.Path == "/v1/cli/sdk-works" && request.Method == http.MethodGet {
+			_, _ = io.WriteString(writer, `{"works":[`+work+`]}`)
+			return
+		}
+		if request.Method == http.MethodPut {
+			work = strings.Replace(work, `"configVersion":1`, `"configVersion":2`, 1)
+		}
+		_, _ = io.WriteString(writer, work)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
+	if _, err := client.CreateSdkWork(context.Background(), CreateSdkWorkRequest{DisplayName: "Test"}); err != nil {
+		t.Fatal(err)
+	}
+	if works, err := client.ListSdkWorks(context.Background()); err != nil {
+		t.Fatal(err)
+	} else if len(works.Works) != 1 || works.Works[0].WorkKey != "wrk_test" {
+		t.Fatalf("unexpected Work list: %#v", works)
+	}
+	if _, err := client.GetSdkWork(context.Background(), "wrk_test"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ApplySdkWork(context.Background(), "wrk_test", ApplySdkWorkRequest{ExpectedConfigVersion: 1, DisplayName: "Test", Status: "DRAFT"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.DeleteSdkWork(context.Background(), "wrk_test"); err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"POST /v1/cli/sdk-works",
+		"GET /v1/cli/sdk-works",
+		"GET /v1/cli/sdk-works/wrk_test",
+		"PUT /v1/cli/sdk-works/wrk_test",
+		"DELETE /v1/cli/sdk-works/wrk_test",
+	}
+	for _, expected := range want {
+		if actual := <-requests; actual != expected {
+			t.Fatalf("request = %q, want %q", actual, expected)
+		}
+	}
+}
+
 func TestInteractionDefinitionClientUsesExactRoutes(t *testing.T) {
 	t.Parallel()
 	const workID = "11111111-1111-4111-8111-111111111111"
@@ -131,6 +191,85 @@ func TestMerchantInputContractClientUsesExactRoutes(t *testing.T) {
 		if got := <-requests; got != expected {
 			t.Fatalf("unexpected request: got %q want %q", got, expected)
 		}
+	}
+}
+
+func TestSdkWorkMutationsRejectIncompleteSuccessfulResponses(t *testing.T) {
+	t.Parallel()
+	bodies := map[string]string{
+		"empty":            " \n",
+		"empty_object":     `{}`,
+		"invalid_work_key": `{"workKey":"invalid","displayName":"Test","status":"DRAFT","configVersion":1,"features":[],"capabilities":[],"createdAt":"2026-08-15T00:00:00.000Z","updatedAt":"2026-08-15T00:00:00.000Z"}`,
+		"missing_fields":   `{"workKey":"wrk_test","displayName":"Test","status":"DRAFT","configVersion":1}`,
+	}
+	operations := map[string]func(*Client) error{
+		"create": func(client *Client) error {
+			_, err := client.CreateSdkWork(context.Background(), CreateSdkWorkRequest{DisplayName: "Test"})
+			return err
+		},
+		"apply": func(client *Client) error {
+			_, err := client.ApplySdkWork(context.Background(), "wrk_test", ApplySdkWorkRequest{
+				ExpectedConfigVersion: 1,
+				DisplayName:           "Test",
+				Features:              []SdkWorkFeatureConfig{},
+				Status:                "DRAFT",
+			})
+			return err
+		},
+	}
+	for operation, call := range operations {
+		operation, call := operation, call
+		for name, body := range bodies {
+			name, body := name, body
+			t.Run(operation+"/"+name, func(t *testing.T) {
+				t.Parallel()
+				server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+					writer.Header().Set("Content-Type", "application/json")
+					_, _ = io.WriteString(writer, body)
+				}))
+				defer server.Close()
+				err := call(NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), ""))
+				if err == nil {
+					t.Fatal("incomplete 2xx response was accepted")
+				}
+				cliError := output.AsError(err)
+				if cliError.Subtype != "RESPONSE_INVALID" || cliError.Retryable {
+					t.Fatalf("incomplete 2xx response was accepted: err=%#v", cliError)
+				}
+			})
+		}
+	}
+}
+
+func TestCreatorAppCreateRejectsIncompleteSuccessfulResponses(t *testing.T) {
+	t.Parallel()
+	for name, body := range map[string]string{
+		"empty":          "\n",
+		"empty_object":   `{}`,
+		"html_id":        `{"id":"\" onload=alert(1)","kind":"EXTERNAL","name":"Demo","domains":[],"createdAt":"2026-08-25T00:00:00Z"}`,
+		"invalid_kind":   `{"id":"11111111-1111-4111-8111-111111111111","kind":"OTHER","name":"Demo","domains":[],"createdAt":"2026-08-25T00:00:00Z"}`,
+		"invalid_time":   `{"id":"11111111-1111-4111-8111-111111111111","kind":"EXTERNAL","name":"Demo","domains":[],"createdAt":"yesterday"}`,
+		"invalid_domain": `{"id":"11111111-1111-4111-8111-111111111111","kind":"EXTERNAL","name":"Demo","domains":[{"domain":"bad.example.com\" onload=alert(1)","verified":false,"verificationToken":null}],"createdAt":"2026-08-25T00:00:00Z"}`,
+		"missing_fields": `{"id":"app-1","kind":"EXTERNAL","name":"Demo"}`,
+	} {
+		name, body := name, body
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(writer, body)
+			}))
+			defer server.Close()
+			client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "")
+			_, err := client.CreateCreatorApp(context.Background(), CreateCreatorAppRequest{Name: "Demo"})
+			if err == nil {
+				t.Fatal("incomplete Creator App response was accepted")
+			}
+			cliError := output.AsError(err)
+			if cliError.Subtype != "RESPONSE_INVALID" || cliError.Retryable {
+				t.Fatalf("incomplete Creator App response was accepted: err=%#v", cliError)
+			}
+		})
 	}
 }
 

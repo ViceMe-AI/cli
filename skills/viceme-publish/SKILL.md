@@ -27,7 +27,7 @@ downloadable-package route without service analysis.
 - An offering that requires Quote, Order, payment, or Commerce fulfillment: read
   [scenario-analysis.md](references/scenario-analysis.md) and then
   [generic-product.md](references/generic-product.md) completely and use the
-  Merchant Work/Product workflow. A Product is never public without a real
+  unified Merchant Work/Product workflow. A Product is never public without a real
   Work, even though its generated purchase entrance is itself a Skill.
 - A structured interaction without price or payment: read
   [scenario-analysis.md](references/scenario-analysis.md) and
@@ -35,8 +35,8 @@ downloadable-package route without service analysis.
   completely and publish a `DIRECT` Interaction Definition without a Product.
   Activation publishes the reviewed Work revision and generates its signed
   Work-bound Interaction Skill.
-- A creator-owned website that only embeds ViceMe payment: this is a Website
-  Work. Payment integration remains a documented future capability in this
+- A creator-owned website that only embeds ViceMe payment: this is a Website Work.
+  Payment integration remains a documented future capability in this
   release: publish no Product and expose no payment CTA for it.
 - Any multi-step interaction whose rules are currently described in natural
   language or Markdown: read
