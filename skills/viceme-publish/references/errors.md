@@ -21,3 +21,9 @@
 - `INTERACTION_DEFINITION_REQUIRED`: keep the compiled Product candidate, inspect the current Work draft, and create or activate a Definition for the exact reviewed Work revision whose `entryModes` includes `PURCHASE`. After the user confirms that Definition candidate, activate it first and retry the same Product activation. Recompile only if the Work or Product candidate became stale; never create a duplicate Product.
 
 If `retryable` is true, retry with bounded backoff and the same publication or client request identity. Otherwise change the input or state first.
+
+For `MERCHANT_INPUT_CONTRACT_INVALID`, correct every issue returned in
+`details.issues`, then rerun `merchant contract validate` rather than the
+mutating command. Never retry an unchanged input. If one complete correction
+pass still fails, stop and report the remaining paths and messages; do not keep
+guessing request shapes.

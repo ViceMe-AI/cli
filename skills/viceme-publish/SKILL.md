@@ -13,6 +13,14 @@ activation from conversation text alone.
 
 Identify what the buyer receives before creating anything:
 
+Every `SERVICE` Work must use the server-backed scenario analysis and creator
+confirmation workflow before any Product compile, Interaction Definition draft,
+or public activation. This includes recruitment, consultation, support, review,
+manual fulfillment, and `FULFILLMENT_ONLY`, whether free or paid and whether the
+creator calls the offering a Work, Product, or Skill. Only a local AI Skill
+directory or ZIP whose bytes themselves are the buyer's deliverable uses the
+downloadable-package route without service analysis.
+
 - A local AI Skill directory or ZIP whose bytes are the sold deliverable: read
   [workflow.md](references/workflow.md) completely and use the existing
   `skill publish` / `publication` workflow.
@@ -67,19 +75,41 @@ ask the user to choose internal model names.
    public HTML and Markdown preview, final price, SKU, buyer fields,
    fulfillment/service stages, visibility, and generated purchase or
    Interaction Skill identity.
-   Before compiling an Interaction candidate, create the server-backed scenario
-   analysis and show its complete structured analysis, recommended experience
-   plan, assumptions, capability gaps, six required review items, and open
-   business decisions. Stop and wait for the creator. Only their explicit
-   acknowledgment and resolutions authorize `merchant work analysis confirm`.
-   The original publication request is not analysis confirmation, and the
-   confirmed analysis ID and digest are mandatory inputs to Draft creation.
-   Never ask the creator to invent internal state-machine terms when business
-   language is sufficient.
+   Before compiling any `SERVICE` candidate, create the server-backed scenario
+   analysis, display its complete business-language recommendation, list every
+   Skill-specific gap, ambiguity, risk, or unresolved assumption that the source
+   has not already addressed, each with its concrete conclusion, and obtain one
+   explicit, interactive confirmation covering that Work's complete analysis
+   from the creator,
+   following [scenario-analysis.md](references/scenario-analysis.md). Let the Agent choose
+   the interaction best supported by its platform, such as native controls or a
+   concise conversational prompt; do not require a particular UI pattern. The
+   Do not manufacture fixed category items for platform rules or facts already
+   settled by the source. The creator must see the concrete conclusion under each item and choose exactly
+   one of “confirm” or “change” for that item. A category label alone or an
+   unchecked checkbox is not a decision. Settle unresolved
+   business decisions before this confirmation. The Agent must never confirm
+   the analysis, acknowledge review items, choose an open decision, or
+   call `merchant work analysis confirm` on the creator's behalf. Keep analysis
+   IDs, digests, review codes, schemas, and state-machine terms internal unless
+   the creator asks for technical details. The original publication request,
+   silence, a generic earlier approval, or a later activation confirmation is
+   not analysis confirmation. After the creator confirms the exact analysis,
+   persist it and continue without asking for another analysis or compilation
+   confirmation. Never combine multiple Works into one analysis confirmation.
 6. Reuse returned IDs, revisions, digests, and local recovery state. A lost
    response is recovered by reading the same Work/Product/Publication; it is
    never a reason to create a duplicate.
-7. Report the returned public detail URL and generated Skill stable name. Never
+7. Before authoring Work, scenario-analysis, or Product JSON, run `viceme
+   merchant contract show <contract-code>` and start from its complete example.
+   Run `viceme merchant contract validate <contract-code> --input <file>` before
+   the mutating command. Never use `create`, `confirm`, or another write command
+   to discover field names, enum values, or object shapes. Correct every
+   returned validation issue together. If one corrected validation pass still
+   fails, stop and report the contract mismatch instead of guessing again. The
+   supported codes are `work-create`, `analysis-create`, `analysis-confirm`,
+   and `product-create`.
+8. Report the returned public detail URL and generated Skill stable name. Never
    claim that a WorkBuddy listing is public until its distribution status is
    actually `PUBLISHED` after external review.
 

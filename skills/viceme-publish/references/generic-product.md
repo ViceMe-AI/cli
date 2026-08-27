@@ -43,6 +43,10 @@ Before selecting `FULFILLMENT_ONLY` or `INTERACTION`, perform the complete
 server-backed analysis and creator-confirmation sequence in
 `scenario-analysis.md`. Execution mode is an output of that confirmed analysis,
 not an Agent shortcut based on the offering's industry or title.
+Shop enforces the same gate when the Product is activated: both execution modes
+require the current Work revision's latest analysis to be confirmed and to
+include the `PURCHASE` entry mode. `FULFILLMENT_ONLY` does not bypass analysis
+just because it creates no Interaction Definition.
 
 Use natural language, but obtain concrete values for every required fact:
 
@@ -78,12 +82,18 @@ facts; a merchant who already supplied them does not need to answer them again.
 
 Every public Product requires a real Work. For an existing Work, resolve it
 from `viceme merchant work list --merchant <merchant-account-id>` and update a
-new draft revision. For a new offering, write a private strict JSON file and
-run:
+new draft revision. For a new offering, first run `viceme merchant contract
+show work-create`, copy its complete example into a private strict JSON file,
+replace the business values, and run:
 
 ```text
+viceme merchant contract validate work-create --input <work.json>
 viceme merchant work create --input <work.json>
 ```
+
+Run `work create` only after validation returns `valid: true`. Never call it to
+test whether `market`, `content`, `service`, or another field has the right
+shape.
 
 The minimal shape of a transaction-backed Service Work is:
 
@@ -125,24 +135,19 @@ Progressive service input belongs to Interaction actions, tasks, records, and
 artifacts; never duplicate it in checkout. Do not put private participant data
 in public Work content or `intakeSchema`.
 
-Use the returned Work `id` as the mandatory `subjectWorkId`. Then write the
-complete Product JSON and run:
+Use the returned Work `id` as the mandatory `subjectWorkId`. Run `viceme
+merchant contract show product-create`, fill its complete example, and run:
 
 ```text
+viceme merchant contract validate product-create --input <product.json>
 viceme merchant product create --input <product.json>
 ```
 
-The outer object is:
-
-```json
-{
-  "merchantAccountId": "merchant-uuid",
-  "clientRequestId": "uuid",
-  "subjectWorkId": "work-uuid",
-  "authoringTemplateCode": "GENERIC_MERCHANT",
-  "authoringInput": {}
-}
-```
+The outer object contains `merchantAccountId`, `clientRequestId`,
+`subjectWorkId`, `authoringTemplateCode`, and the complete nested
+`authoringInput`. Do not reconstruct that nested object from this prose. The
+authoritative `contract show` example includes every required field and remains
+the source of truth.
 
 Delete private temporary request files after the command. Keep returned IDs and
 revisions in the active task state; do not save buyer data or access tokens in
@@ -177,16 +182,22 @@ preview URL as the permanent public identity. Revoke an unused preview with
 `viceme merchant work preview revoke <work-id> <preview-id> --merchant
 <merchant-account-id>`.
 
-Show the user:
+Show the user a business-facing review:
 
 - Product title, visibility, every SKU and exact currency/price;
 - quantity and shipping rule;
 - all buyer fields, marking required and sensitive fields;
 - ordered fulfillment steps;
-- generated purchase Skill `stableName`, release ID, manifest digest, and
-  distribution expectations;
+- how buyers will access the offering and its distribution expectations;
 - the exact HTML and Markdown preview URLs for this candidate;
 - that payment success and fulfillment success are separate states.
+
+Keep Product IDs, Work IDs, revisions, candidate digests, release IDs, manifest
+digests, enum names, and raw schemas private during the normal review. Reveal
+them only when the creator asks for technical details or they are necessary to
+diagnose a precise failure. Translate buyer schemas and fulfillment primitives
+into user-facing questions, information visibility, and an ordered service
+journey.
 
 Do not activate a stale candidate. Any Work or Product edit requires another
 compile and another HTML/Markdown preview before review.

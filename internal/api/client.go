@@ -72,6 +72,20 @@ func (c *Client) ListMerchantAccounts(ctx context.Context) (MerchantAccountsResp
 	return response, err
 }
 
+func (c *Client) DescribeMerchantInputContract(ctx context.Context, code string) (MerchantInputContractDescription, error) {
+	var response MerchantInputContractDescription
+	endpoint := "/v1/cli/merchant/contracts/" + url.PathEscape(code)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) ValidateMerchantInputContract(ctx context.Context, code string, input json.RawMessage) (MerchantInputContractValidation, error) {
+	var response MerchantInputContractValidation
+	endpoint := "/v1/cli/merchant/contracts/" + url.PathEscape(code) + "/validate"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]any{"input": input}, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) CreateMerchantWork(ctx context.Context, input json.RawMessage) (MerchantWork, error) {
 	var response MerchantWork
 	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/works", input, &response, "@stored")

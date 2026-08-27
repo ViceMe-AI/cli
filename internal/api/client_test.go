@@ -99,6 +99,41 @@ func TestInteractionDefinitionClientUsesExactRoutes(t *testing.T) {
 	}
 }
 
+func TestMerchantInputContractClientUsesExactRoutes(t *testing.T) {
+	t.Parallel()
+	requests := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		requests <- request.Method + " " + request.URL.RequestURI()
+		writer.Header().Set("Content-Type", "application/json")
+		if request.Method == http.MethodGet {
+			_, _ = io.WriteString(writer, `{"code":"work-create","version":1,"jsonSchema":{},"example":{}}`)
+			return
+		}
+		body, _ := io.ReadAll(request.Body)
+		if !strings.Contains(string(body), `"input":{"market":"CN"}`) {
+			t.Fatalf("unexpected validation body: %s", body)
+		}
+		_, _ = io.WriteString(writer, `{"code":"work-create","valid":true,"issues":[]}`)
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
+	ctx := context.Background()
+	if _, err := client.DescribeMerchantInputContract(ctx, "work-create"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.ValidateMerchantInputContract(ctx, "work-create", json.RawMessage(`{"market":"CN"}`)); err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		http.MethodGet + " /v1/cli/merchant/contracts/work-create",
+		http.MethodPost + " /v1/cli/merchant/contracts/work-create/validate",
+	} {
+		if got := <-requests; got != expected {
+			t.Fatalf("unexpected request: got %q want %q", got, expected)
+		}
+	}
+}
+
 func TestHealthReadyIsUnauthenticatedAndRedirectFree(t *testing.T) {
 	t.Parallel()
 	var targetCalled atomic.Bool

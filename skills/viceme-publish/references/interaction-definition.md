@@ -19,10 +19,9 @@ Choose the publication entry from business facts:
   both entry paths. The generated Interaction Skill uses only `DIRECT`; the
   generated Purchase Skill uses only the Product/Commerce path.
 
-## Facts to establish
+## Facts to establish internally
 
-Read `scenario-analysis.md` first. Before creating the draft, establish and
-show:
+Read `scenario-analysis.md` first. Before creating the draft, establish:
 
 - the existing `workId` and its owning `merchantAccountId`;
 - the analyzed outcome, assumptions, preferred sources, recommended ordered
@@ -44,6 +43,12 @@ business decisions. Do not infer sensitive input, prices, payment results,
 actor permissions, audience, or terminal decisions.
 `PURCHASE` controls only the instance entry condition; Product price and Order
 authority remain in Commerce.
+
+In the creator conversation, translate these facts into the intended outcome,
+who does what, what information is requested and who can see it, the normal
+journey, exception paths, notifications, and completion conditions. Do not show
+Work or Merchant IDs, enum values, state/action codes, JSON Schema, revisions,
+or digests unless the creator explicitly requests technical details.
 
 ## Strict draft input
 
@@ -172,9 +177,11 @@ Run `viceme merchant work preview create <work-id> --merchant <merchant-id>`
 without `--expected-revision` to preview the current Interaction candidate.
 (`--expected-revision` retains the separate legacy HTML/Markdown Work preview.)
 
-Display the public Work HTML/Markdown and every fact listed above. Activation
-requires explicit confirmation of the exact candidate digest. After
-confirmation, write a private temporary file:
+Display the public Work HTML/Markdown and a natural-language walkthrough of the
+experience for each role. Keep the exact candidate digest and other internal
+identifiers private. Activation requires the creator's explicit confirmation
+of the unchanged candidate after that review. After confirmation, write a
+private temporary file:
 
 ```json
 {
@@ -200,7 +207,15 @@ The installed Skill starts with `viceme interaction flow start --skill
 <stable-name>`. The Runtime returns the frozen experience plan, `nextAction`,
 `initialInput` JSON Schema, and field guide. The Agent follows source priority,
 confirmation policy, tasks, and allowed actions, asking only for values missing
-when they become required. It calls `viceme interaction flow create --skill
+when they become required. For each missing participant-provided value, use the
+Agent platform's best available native interactive controls: single choice for
+one option, multiple choice for arrays, and date, file, or structured form
+controls when supported. Do not require a particular visual pattern and do not
+preselect a participant decision or sensitive value. Use conversational input
+only for genuinely free-form values or when the platform has no suitable native
+control. Never ask the participant to construct JSON, type a schema, or enter an
+internal code; show natural-language labels and choices and serialize confirmed
+values privately. It calls `viceme interaction flow create --skill
 <stable-name> --idempotency-key <createIdempotencyKey-from-start> --input-json
 '<json-object>'` once. Reuse that key when a create result is uncertain. The
 result is the authoritative Interaction instance and continues through

@@ -57,6 +57,25 @@ type MerchantAccountsResponse struct {
 	Items []MerchantAccount `json:"items"`
 }
 
+type MerchantInputContractDescription struct {
+	Code       string          `json:"code"`
+	Version    int             `json:"version"`
+	JSONSchema json.RawMessage `json:"jsonSchema"`
+	Example    json.RawMessage `json:"example"`
+}
+
+type MerchantInputContractIssue struct {
+	Path    []any  `json:"path"`
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+type MerchantInputContractValidation struct {
+	Code   string                       `json:"code"`
+	Valid  bool                         `json:"valid"`
+	Issues []MerchantInputContractIssue `json:"issues"`
+}
+
 type MerchantWork struct {
 	ID             string          `json:"id"`
 	Kind           string          `json:"kind"`

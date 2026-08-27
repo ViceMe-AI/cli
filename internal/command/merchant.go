@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -15,9 +16,100 @@ func newMerchantCommand(runtime *Runtime) *cobra.Command {
 		Short: "Author and operate products for an approved ViceMe merchant",
 	}
 	command.AddCommand(newMerchantAccountsCommand(runtime))
+	command.AddCommand(newMerchantContractCommand(runtime))
 	command.AddCommand(newMerchantWorkCommand(runtime))
 	command.AddCommand(newMerchantProductCommand(runtime))
 	return command
+}
+
+var merchantInputContractCodes = map[string]struct{}{
+	"work-create":      {},
+	"analysis-create":  {},
+	"analysis-confirm": {},
+	"product-create":   {},
+}
+
+func newMerchantContractCommand(runtime *Runtime) *cobra.Command {
+	command := &cobra.Command{Use: "contract", Short: "Inspect and validate authoritative merchant input contracts"}
+	command.AddCommand(newMerchantContractShowCommand(runtime))
+	command.AddCommand(newMerchantContractValidateCommand(runtime))
+	return command
+}
+
+func newMerchantContractShowCommand(runtime *Runtime) *cobra.Command {
+	return &cobra.Command{
+		Use: "show <contract-code>", Short: "Show one authoritative JSON Schema and complete example", Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := validateMerchantInputContractCode(args[0]); err != nil {
+				return err
+			}
+			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), false); err != nil {
+				return err
+			}
+			result, err := runtime.client().DescribeMerchantInputContract(command.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
+		},
+	}
+}
+
+func newMerchantContractValidateCommand(runtime *Runtime) *cobra.Command {
+	var inputFile string
+	command := &cobra.Command{
+		Use: "validate <contract-code>", Short: "Validate strict JSON without creating or changing anything", Args: cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := validateMerchantInputContractCode(args[0]); err != nil {
+				return err
+			}
+			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), false); err != nil {
+				return err
+			}
+			input, err := readJSONObject(inputFile, "MERCHANT_INPUT_CONTRACT_INVALID")
+			if err != nil {
+				return err
+			}
+			return runtime.validateMerchantInput(command.Context(), args[0], input)
+		},
+	}
+	command.Flags().StringVar(&inputFile, "input", "", "strict JSON file to validate without side effects")
+	_ = command.MarkFlagRequired("input")
+	return command
+}
+
+func validateMerchantInputContractCode(code string) error {
+	if _, ok := merchantInputContractCodes[code]; ok {
+		return nil
+	}
+	return output.Validation("MERCHANT_INPUT_CONTRACT_UNKNOWN", fmt.Sprintf("unknown merchant input contract %q", code)).
+		WithHint("use work-create, analysis-create, analysis-confirm, or product-create")
+}
+
+func (runtime *Runtime) validateMerchantInput(ctx context.Context, code string, input json.RawMessage) error {
+	result, err := runtime.client().ValidateMerchantInputContract(ctx, code, input)
+	if err != nil {
+		return err
+	}
+	if result.Valid {
+		return runtime.business(result)
+	}
+	return output.Validation("MERCHANT_INPUT_CONTRACT_INVALID", "input does not match the authoritative merchant contract").
+		WithHint("correct every reported issue before retrying; never retry unchanged input").
+		WithDetails(result)
+}
+
+func (runtime *Runtime) requireValidMerchantInput(ctx context.Context, code string, input json.RawMessage) error {
+	result, err := runtime.client().ValidateMerchantInputContract(ctx, code, input)
+	if err != nil {
+		return err
+	}
+	if result.Valid {
+		return nil
+	}
+	return output.Validation("MERCHANT_INPUT_CONTRACT_INVALID", "input does not match the authoritative merchant contract").
+		WithHint("correct every reported issue before retrying; never retry unchanged input").
+		WithDetails(result)
 }
 
 func newMerchantAccountsCommand(runtime *Runtime) *cobra.Command {
@@ -52,7 +144,7 @@ func newMerchantWorkCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newMerchantWorkAnalysisCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "analysis", Short: "Create and confirm scenario analysis before Interaction compilation"}
+	command := &cobra.Command{Use: "analysis", Short: "Create and persist user-reviewed scenario analysis before Interaction compilation"}
 	command.AddCommand(newMerchantWorkAnalysisCreateCommand(runtime))
 	command.AddCommand(newMerchantWorkAnalysisShowCommand(runtime))
 	command.AddCommand(newMerchantWorkAnalysisConfirmCommand(runtime))
@@ -69,6 +161,9 @@ func newMerchantWorkAnalysisCreateCommand(runtime *Runtime) *cobra.Command {
 			}
 			input, err := readJSONObject(inputFile, "MERCHANT_INTERACTION_ANALYSIS_INPUT_INVALID")
 			if err != nil {
+				return err
+			}
+			if err := runtime.requireValidMerchantInput(command.Context(), "analysis-create", input); err != nil {
 				return err
 			}
 			workID, request, err := splitInteractionEnvelope(input, false, "MERCHANT_INTERACTION_ANALYSIS_INPUT_INVALID")
@@ -108,15 +203,42 @@ func newMerchantWorkAnalysisShowCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newMerchantWorkAnalysisConfirmCommand(runtime *Runtime) *cobra.Command {
-	var inputFile string
+	var inputFile, merchantAccountID, analysisID, analysisDigest string
+	var rawResolutions []string
 	command := &cobra.Command{
-		Use: "confirm", Short: "Record explicit creator confirmation of one exact scenario analysis", Args: cobra.NoArgs,
-		RunE: func(command *cobra.Command, _ []string) error {
+		Use: "confirm <work-id>", Short: "Confirm the current reviewed analysis without hand-writing internal acknowledgments",
+		Args: func(command *cobra.Command, args []string) error {
+			if inputFile != "" {
+				return cobra.NoArgs(command, args)
+			}
+			return cobra.ExactArgs(1)(command, args)
+		},
+		RunE: func(command *cobra.Command, args []string) error {
 			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
 				return err
 			}
-			input, err := readJSONObject(inputFile, "MERCHANT_INTERACTION_ANALYSIS_CONFIRMATION_INVALID")
-			if err != nil {
+			var input json.RawMessage
+			if inputFile != "" {
+				legacyInput, err := readJSONObject(inputFile, "MERCHANT_INTERACTION_ANALYSIS_CONFIRMATION_INVALID")
+				if err != nil {
+					return err
+				}
+				input = legacyInput
+			} else {
+				if strings.TrimSpace(merchantAccountID) == "" || strings.TrimSpace(analysisID) == "" || strings.TrimSpace(analysisDigest) == "" {
+					return output.Validation("MERCHANT_INTERACTION_ANALYSIS_CONFIRMATION_INVALID", "--merchant, --analysis, and --digest are required").
+						WithHint("reuse the exact analysisId and digest returned by analysis create or show")
+				}
+				generated, current, err := runtime.buildInteractionAnalysisConfirmation(command.Context(), args[0], merchantAccountID, analysisID, analysisDigest, rawResolutions)
+				if err != nil {
+					return err
+				}
+				if current != nil {
+					return runtime.business(current)
+				}
+				input = generated
+			}
+			if err := runtime.requireValidMerchantInput(command.Context(), "analysis-confirm", input); err != nil {
 				return err
 			}
 			workID, analysisID, request, err := splitInteractionAnalysisConfirmation(input)
@@ -130,9 +252,106 @@ func newMerchantWorkAnalysisConfirmCommand(runtime *Runtime) *cobra.Command {
 			return runtime.business(result)
 		},
 	}
-	command.Flags().StringVar(&inputFile, "input", "", "strict JSON containing workId, analysisId, merchantAccountId, digest, acknowledgments, and resolutions")
-	_ = command.MarkFlagRequired("input")
+	command.Flags().StringVar(&inputFile, "input", "", "legacy strict confirmation JSON file")
+	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID")
+	command.Flags().StringVar(&analysisID, "analysis", "", "exact analysis ID returned by Shop")
+	command.Flags().StringVar(&analysisDigest, "digest", "", "exact analysis digest returned by Shop")
+	command.Flags().StringArrayVar(&rawResolutions, "resolution", nil, "open decision as CODE=VALUE; repeat for multiple decisions")
 	return command
+}
+
+type currentInteractionAnalysis struct {
+	AnalysisID string `json:"analysisId"`
+	Digest     string `json:"digest"`
+	Status     string `json:"status"`
+	Analysis   struct {
+		ConfirmationItems []struct {
+			Code string `json:"code"`
+		} `json:"confirmationItems"`
+		OpenDecisions []struct {
+			Code    string   `json:"code"`
+			Options []string `json:"options"`
+		} `json:"openDecisions"`
+	} `json:"analysis"`
+}
+
+func (runtime *Runtime) buildInteractionAnalysisConfirmation(ctx context.Context, workID, merchantAccountID, analysisID, analysisDigest string, rawResolutions []string) (json.RawMessage, any, error) {
+	rawCurrent, err := runtime.client().ShowInteractionAnalysis(ctx, workID, merchantAccountID)
+	if err != nil {
+		return nil, nil, err
+	}
+	var current currentInteractionAnalysis
+	if err := json.Unmarshal(rawCurrent, &current); err != nil {
+		return nil, nil, output.Internal("MERCHANT_INTERACTION_ANALYSIS_RESPONSE_INVALID", "Shop returned an invalid scenario analysis", err)
+	}
+	if current.AnalysisID != analysisID || current.Digest != analysisDigest {
+		return nil, nil, output.Validation("MERCHANT_INTERACTION_ANALYSIS_CHANGED", "the current scenario analysis no longer matches the reviewed version").
+			WithHint("show the current analysis and obtain confirmation for that exact version")
+	}
+	if current.Status == "CONFIRMED" || current.Status == "CONSUMED" {
+		return nil, json.RawMessage(rawCurrent), nil
+	}
+	if current.Status != "REVIEW_REQUIRED" {
+		return nil, nil, output.Validation("MERCHANT_INTERACTION_ANALYSIS_NOT_CONFIRMABLE", "the current scenario analysis cannot be confirmed").
+			WithDetails(map[string]any{"status": current.Status})
+	}
+	resolutions, err := parseInteractionAnalysisResolutions(rawResolutions)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, decision := range current.Analysis.OpenDecisions {
+		value, ok := resolutions[decision.Code]
+		if !ok {
+			return nil, nil, output.Validation("MERCHANT_INTERACTION_ANALYSIS_RESOLUTION_REQUIRED", fmt.Sprintf("open decision %s requires one resolution", decision.Code)).
+				WithDetails(map[string]any{"code": decision.Code, "allowedValues": decision.Options})
+		}
+		allowed := false
+		for _, option := range decision.Options {
+			if value == option {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return nil, nil, output.Validation("MERCHANT_INTERACTION_ANALYSIS_RESOLUTION_INVALID", fmt.Sprintf("resolution for %s is not an allowed value", decision.Code)).
+				WithDetails(map[string]any{"code": decision.Code, "allowedValues": decision.Options})
+		}
+	}
+	if len(resolutions) != len(current.Analysis.OpenDecisions) {
+		return nil, nil, output.Validation("MERCHANT_INTERACTION_ANALYSIS_RESOLUTION_UNKNOWN", "a resolution was supplied for an unknown open decision")
+	}
+	acknowledgedCodes := make([]string, 0, len(current.Analysis.ConfirmationItems))
+	for _, item := range current.Analysis.ConfirmationItems {
+		acknowledgedCodes = append(acknowledgedCodes, item.Code)
+	}
+	resolutionItems := make([]map[string]string, 0, len(resolutions))
+	for _, decision := range current.Analysis.OpenDecisions {
+		resolutionItems = append(resolutionItems, map[string]string{"code": decision.Code, "value": resolutions[decision.Code]})
+	}
+	input, err := json.Marshal(map[string]any{
+		"workId": workID, "analysisId": analysisID, "merchantAccountId": merchantAccountID,
+		"analysisDigest": analysisDigest, "acknowledgedCodes": acknowledgedCodes, "resolutions": resolutionItems,
+	})
+	if err != nil {
+		return nil, nil, output.Internal("MERCHANT_INTERACTION_ANALYSIS_CONFIRMATION_INVALID", "failed to encode scenario analysis confirmation", err)
+	}
+	return input, nil, nil
+}
+
+func parseInteractionAnalysisResolutions(raw []string) (map[string]string, error) {
+	resolutions := make(map[string]string, len(raw))
+	for _, item := range raw {
+		code, value, ok := strings.Cut(item, "=")
+		code, value = strings.TrimSpace(code), strings.TrimSpace(value)
+		if !ok || code == "" || value == "" {
+			return nil, output.Validation("MERCHANT_INTERACTION_ANALYSIS_RESOLUTION_INVALID", "--resolution must use CODE=VALUE")
+		}
+		if _, exists := resolutions[code]; exists {
+			return nil, output.Validation("MERCHANT_INTERACTION_ANALYSIS_RESOLUTION_DUPLICATE", fmt.Sprintf("resolution %s was provided more than once", code))
+		}
+		resolutions[code] = value
+	}
+	return resolutions, nil
 }
 
 func newMerchantWorkPreviewCommand(runtime *Runtime) *cobra.Command {
@@ -345,6 +564,9 @@ func newMerchantWorkCreateCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if err := runtime.requireValidMerchantInput(command.Context(), "work-create", input); err != nil {
+				return err
+			}
 			result, err := runtime.client().CreateMerchantWork(command.Context(), input)
 			if err != nil {
 				return err
@@ -474,6 +696,9 @@ func newMerchantProductCreateCommand(runtime *Runtime) *cobra.Command {
 			}
 			input, err := readJSONObject(inputFile, "MERCHANT_PRODUCT_INPUT_INVALID")
 			if err != nil {
+				return err
+			}
+			if err := runtime.requireValidMerchantInput(command.Context(), "product-create", input); err != nil {
 				return err
 			}
 			result, err := runtime.client().CreateMerchantProduct(command.Context(), input)
