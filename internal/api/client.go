@@ -86,6 +86,23 @@ func (c *Client) CreateSdkWork(ctx context.Context, request CreateSdkWorkRequest
 	return response, err
 }
 
+func (c *Client) PublishCreatorWebsite(ctx context.Context, request PublishCreatorWebsiteRequest) (SdkWork, error) {
+	var response SdkWork
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works/publish", request, &response, "@stored")
+	if err == nil && (response.CreatorWorkID == nil || response.Publication == nil ||
+		response.DisplayName != request.DisplayName || response.Publication.ClientWorkID != request.ClientWorkID ||
+		response.Publication.SourceDigest != request.SourceDigest) {
+		err = invalidAPIResponse(errors.New("published creator website does not match the request"))
+	}
+	return response, err
+}
+
+func (c *Client) AuthorizeWebsiteCoverUpload(ctx context.Context, request AuthorizeWebsiteCoverUploadRequest) (UploadAuthorization, error) {
+	var response UploadAuthorization
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works/cover-upload-authorizations", request, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) ListSdkWorks(ctx context.Context) (SdkWorks, error) {
 	var response SdkWorks
 	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/sdk-works", nil, &response, "@stored")
@@ -402,6 +419,15 @@ func (work *SdkWork) validateAPIResponse() error {
 			strings.TrimSpace(feature.Policy.Type) == "" || strings.TrimSpace(feature.Status) == "" {
 			return errors.New("SDK Work feature response is missing required fields")
 		}
+		priced := feature.PriceCents != nil && *feature.PriceCents > 0
+		if (feature.Policy.Type == "WORK_ENTITLEMENT") != priced {
+			return errors.New("SDK Work feature response contains an invalid price")
+		}
+	}
+	if work.Publication != nil && (!uuidPattern.MatchString(work.Publication.ClientWorkID) ||
+		!uuidPattern.MatchString(work.Publication.ReleaseID) || work.Publication.Version < 1 ||
+		strings.TrimSpace(work.Publication.SourceDigest) == "" || strings.TrimSpace(work.Publication.PublishedAt) == "") {
+		return errors.New("SDK Work publication response is missing required fields")
 	}
 	for _, capability := range work.Capabilities {
 		if strings.TrimSpace(capability) == "" {
@@ -468,11 +494,20 @@ func sdkWorkFeaturesEqual(actual, expected []SdkWorkFeatureConfig) bool {
 	}
 	for _, feature := range expected {
 		candidate, exists := byKey[feature.FeatureKey]
-		if !exists || candidate != feature {
+		if !exists || candidate.FeatureKey != feature.FeatureKey || candidate.Title != feature.Title ||
+			candidate.Policy != feature.Policy || candidate.Status != feature.Status ||
+			!nullableIntsEqual(candidate.PriceCents, feature.PriceCents) {
 			return false
 		}
 	}
 	return true
+}
+
+func nullableIntsEqual(left, right *int) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 func creatorAppHasDomain(app CreatorApp, domain string, verified bool) bool {
