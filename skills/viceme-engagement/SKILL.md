@@ -13,7 +13,7 @@ description: 通过完整的 CLI 流程，为一个公开网站同时接入 Vice
 
 1. 查看目标页面、准确的 HTTPS 主机名、部署命令、CSP 和浏览器测试方式，保留宿主现有布局与部署路径。
 2. 运行 `viceme profile list`。后续所有命令固定使用一个 Profile，并确认其 `apiBaseUrl`、`webBaseUrl` 和 `marketRegion`。
-3. 运行 `viceme --profile <profile> auth status`。未登录或缺少 `sdk-work:read`、`sdk-work:write`、`creator-app:read`、`creator-app:write` 时，在同一 Profile 运行 `auth login`。
+3. 运行 `viceme --profile <profile> auth status`。当前没有登录时，在同一 Profile 运行 `auth login` 并等待完成；已经登录时不要因为旧版本曾显示的权限名称而重复登录。
 4. `.viceme/access.yaml` 不存在时运行：
 
    ```bash

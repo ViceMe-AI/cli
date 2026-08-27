@@ -441,4 +441,11 @@ func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 	if strings.Contains(text, "references/website-workflow.md") {
 		t.Fatal("publish Skill still routes to the superseded SdkWork website workflow")
 	}
+	metadata, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/agents/openai.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(metadata), "网站作品") {
+		t.Fatal("publish Skill metadata still advertises unavailable website publication")
+	}
 }

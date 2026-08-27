@@ -20,7 +20,7 @@ description: 在网站中安装或修复 ViceMe 托管的弹幕 SDK。适用于�
 ## 流程
 
 1. 运行 `viceme profile list`，后续所有命令固定使用所选 Profile。不得只为复用另一份登录而切换 Profile。
-2. 运行 `viceme --profile <profile> auth status`。未登录或缺少 `sdk-work:read`、`sdk-work:write` 时，运行 `viceme --profile <profile> auth login` 并等待完成。
+2. 运行 `viceme --profile <profile> auth status`。当前没有登录时，运行 `viceme --profile <profile> auth login` 并等待完成；已经登录时不要因为旧版本曾显示的权限名称而重复登录。
 3. `.viceme/access.yaml` 不存在时运行：
 
    ```bash

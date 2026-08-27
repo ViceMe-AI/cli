@@ -17,7 +17,7 @@ description: 把 ViceMe 浏览器 SDK 接入已有稳定 Work 绑定的创作者
    - 没有具体方案时，查看核心用户路径和真实界面，再提出安全的功能键、入口、规则、可复用宿主组件、受保护动作以及仍需用户决定的价格。用户选择前不得写入访问配置或宿主代码。
 2. 保留原业务动作。在已有用户触发入口外加最小门控，只有 `access.require()` 返回 `allowed: true` 后才调用原动作。若找不到安全的外层接缝，说明耦合并停止，不得为了接入而重构核心行为。
 3. 查看 `<website-dir>/.viceme/website.json`。文件缺失或没有 `workKey` 时立即停止，用白话说明当前版本还不能创建新的网站 Work；不得调用 `$viceme-publish` 或旧的 `viceme website publish` 绕过边界。已有有效绑定时才能继续；访问命令不得隐式发布网站。
-4. 运行 `viceme auth status`。若缺少 `sdk-work:read` 或 `sdk-work:write`，请用户重新运行 `viceme auth login`。
+4. 运行 `viceme auth status`。如果当前没有登录，请用户运行 `viceme auth login`；已经登录时不要因为旧版本曾显示的权限名称而重复登录。
 5. `.viceme/access.yaml` 不存在时，用一条命令创建并应用完整配置。需要多个功能时重复参数；只有显示标题不同于 key 时才使用 `key=title`：
 
    ```bash
