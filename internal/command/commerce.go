@@ -231,20 +231,16 @@ func newCommerceProductCommand(runtime *Runtime) *cobra.Command {
 
 func newCommerceProductDescribeCommand(runtime *Runtime) *cobra.Command {
 	var stableName string
-	var locale string
 	command := &cobra.Command{
 		Use:   "describe",
 		Short: "Describe price, SKU, buyer contract, and fulfillment requirements",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if locale != "zh-CN" && locale != "en-US" {
-				return output.Validation("COMMERCE_LOCALE_INVALID", "--locale must be zh-CN or en-US")
-			}
 			state, err := runtime.requireCommerceSession(stableName)
 			if err != nil {
 				return err
 			}
-			product, err := runtime.client().GetCommerceProduct(command.Context(), state.ProductID, locale, state.Token)
+			product, err := runtime.client().GetCommerceProduct(command.Context(), state.ProductID, state.Token)
 			if err != nil {
 				return err
 			}
@@ -252,7 +248,6 @@ func newCommerceProductDescribeCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&stableName, "skill", "", "purchase Skill stable name")
-	command.Flags().StringVar(&locale, "locale", "zh-CN", "localized Product presentation")
 	_ = command.MarkFlagRequired("skill")
 	return command
 }
@@ -534,20 +529,17 @@ func createCommerceOrderInput(ctx context.Context, runtime *Runtime, stableName 
 
 func validateCommerceOrderPaymentSelection(fields map[string]json.RawMessage, options []api.CommercePaymentOption) error {
 	allowedFields := map[string]bool{
-		"quoteId": true, "paymentProvider": true, "paymentScene": true, "locale": true,
+		"quoteId": true, "paymentProvider": true, "paymentScene": true,
 	}
 	for field := range fields {
 		if !allowedFields[field] {
 			return output.Validation("COMMERCE_ORDER_INPUT_INVALID", "order input contains an unsupported field").
-				WithHint("use only quoteId, paymentProvider, optional paymentScene, and locale; the CLI owns clientRequestId")
+				WithHint("use only quoteId, paymentProvider, and optional paymentScene; the CLI owns clientRequestId")
 		}
 	}
-	var provider, locale string
+	var provider string
 	if err := json.Unmarshal(fields["paymentProvider"], &provider); err != nil || provider == "" {
 		return commerceOrderPaymentOptionInvalid(options)
-	}
-	if err := json.Unmarshal(fields["locale"], &locale); err != nil || (locale != "zh-CN" && locale != "en-US") {
-		return output.Validation("COMMERCE_LOCALE_INVALID", "locale must be zh-CN or en-US")
 	}
 	var scene string
 	rawScene, hasScene := fields["paymentScene"]

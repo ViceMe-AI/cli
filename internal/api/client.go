@@ -394,10 +394,9 @@ func (c *Client) CreateCommerceSession(ctx context.Context, stableName, clientRe
 	return response, err
 }
 
-func (c *Client) GetCommerceProduct(ctx context.Context, identifier, locale, sessionToken string) (CommerceProduct, error) {
+func (c *Client) GetCommerceProduct(ctx context.Context, identifier, sessionToken string) (CommerceProduct, error) {
 	var response CommerceProduct
-	query := url.Values{"locale": {locale}}
-	endpoint := "/v1/products/" + url.PathEscape(identifier) + "?" + query.Encode()
+	endpoint := "/v1/products/" + url.PathEscape(identifier)
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, sessionToken)
 	return response, err
 }

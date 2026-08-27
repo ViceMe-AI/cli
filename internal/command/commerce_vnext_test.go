@@ -349,7 +349,7 @@ func TestCommerceOrderIntentSerializesResponseLossRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 	inputFile := filepath.Join(root, "order-recovery.json")
-	if err := os.WriteFile(inputFile, []byte(`{"quoteId":"`+quoteID+`","paymentProvider":"WECHAT_PAY","paymentScene":"NATIVE","locale":"zh-CN"}`), 0o600); err != nil {
+	if err := os.WriteFile(inputFile, []byte(`{"quoteId":"`+quoteID+`","paymentProvider":"WECHAT_PAY","paymentScene":"NATIVE"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -486,7 +486,7 @@ func TestCommerceOrderPersistsSameSessionRecoveryBindingBeforeReturningPaymentEr
 		t.Fatal(err)
 	}
 	inputFile := filepath.Join(root, "order-payment-error.json")
-	if err := os.WriteFile(inputFile, []byte(`{"quoteId":"`+quoteID+`","paymentProvider":"WECHAT_PAY","paymentScene":"NATIVE","locale":"zh-CN"}`), 0o600); err != nil {
+	if err := os.WriteFile(inputFile, []byte(`{"quoteId":"`+quoteID+`","paymentProvider":"WECHAT_PAY","paymentScene":"NATIVE"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -519,7 +519,6 @@ func TestCommerceOrderRequiresWeChatNativeOrFree(t *testing.T) {
 		"quoteId":         json.RawMessage(`"60000000-0000-4000-8000-000000000099"`),
 		"paymentProvider": json.RawMessage(`"WECHAT_PAY"`),
 		"paymentScene":    json.RawMessage(`"CHANNEL_DIRECT"`),
-		"locale":          json.RawMessage(`"zh-CN"`),
 	}
 	err := output.AsError(validateCommerceOrderPaymentSelection(invalid, options))
 	if err.Subtype != "COMMERCE_WECHAT_QR_PAYMENT_REQUIRED" ||
@@ -646,7 +645,7 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 				"expiresAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339), "recovered": false,
 			})
 		case "/v1/products/" + productID:
-			if request.URL.Query().Get("locale") != "zh-CN" {
+			if request.URL.RawQuery != "" {
 				writer.WriteHeader(http.StatusBadRequest)
 				return
 			}
@@ -762,7 +761,7 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	}
 	run("commerce", "quote", "create", "--skill", stableName, "--input", quoteInput, "--session-context", localContextID)
 	orderInput := filepath.Join(root, "order.json")
-	if err := os.WriteFile(orderInput, []byte(`{"quoteId":"`+quoteID+`","paymentProvider":"WECHAT_PAY","paymentScene":"NATIVE","locale":"zh-CN"}`), 0o600); err != nil {
+	if err := os.WriteFile(orderInput, []byte(`{"quoteId":"`+quoteID+`","paymentProvider":"WECHAT_PAY","paymentScene":"NATIVE"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	created := run("commerce", "order", "create", "--skill", stableName, "--input", orderInput, "--session-context", localContextID)
@@ -825,7 +824,7 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	}
 
 	statusCalls.Store(0)
-	flowStart := run("commerce", "flow", "start", "--skill", stableName, "--locale", "zh-CN")
+	flowStart := run("commerce", "flow", "start", "--skill", stableName)
 	flowStartData := flowStart["data"].(map[string]any)
 	if flowStartData["nextAction"] != commerceFlowCollectInput {
 		t.Fatalf("flow start returned the wrong action: %#v", flowStartData)
@@ -845,7 +844,7 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	assertPlatformCommerceTrustBoundary(t, flowQuoteData)
 	flowConfirmed := run(
 		"commerce", "flow", "confirm", "--skill", stableName,
-		"--session-context", flowContextID, "--quote", quoteID, "--locale", "zh-CN",
+		"--session-context", flowContextID, "--quote", quoteID,
 	)
 	flowConfirmedData := flowConfirmed["data"].(map[string]any)
 	if flowConfirmedData["nextAction"] != commerceFlowPresentPaymentQR {
@@ -945,7 +944,7 @@ func TestCommerceFlowFreeLongRunningConfirmReturnsInteractionAndPendingFulfillme
 		t.Fatal(err)
 	}
 
-	result, err := confirmCommerceFlow(context.Background(), runtime, stableName, quoteID, "zh-CN")
+	result, err := confirmCommerceFlow(context.Background(), runtime, stableName, quoteID)
 	if err != nil {
 		t.Fatal(err)
 	}

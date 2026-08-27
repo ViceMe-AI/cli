@@ -223,7 +223,7 @@ func newCommerceFlowInteractionActCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newCommerceFlowStartCommand(runtime *Runtime) *cobra.Command {
-	var stableName, locale string
+	var stableName string
 	command := &cobra.Command{
 		Use:   "start",
 		Short: "Discover, bind, and describe the Product in one Agent turn",
@@ -231,9 +231,6 @@ func newCommerceFlowStartCommand(runtime *Runtime) *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			if !validStableName(stableName) {
 				return output.Validation("COMMERCE_SKILL_NAME_INVALID", "purchase Skill stable name is invalid")
-			}
-			if locale != "zh-CN" && locale != "en-US" {
-				return output.Validation("COMMERCE_LOCALE_INVALID", "--locale must be zh-CN or en-US")
 			}
 			localContextID := strings.TrimSpace(runtime.commerceContextID)
 			if localContextID == "" {
@@ -246,7 +243,7 @@ func newCommerceFlowStartCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			product, err := runtime.client().GetCommerceProduct(command.Context(), state.ProductID, locale, state.Token)
+			product, err := runtime.client().GetCommerceProduct(command.Context(), state.ProductID, state.Token)
 			if err != nil {
 				return err
 			}
@@ -261,7 +258,6 @@ func newCommerceFlowStartCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&stableName, "skill", "", "purchase Skill stable name")
-	command.Flags().StringVar(&locale, "locale", "zh-CN", "localized Product presentation")
 	_ = command.MarkFlagRequired("skill")
 	return command
 }
@@ -409,13 +405,13 @@ func parseInlineJSONObject(value, code string) (json.RawMessage, error) {
 }
 
 func newCommerceFlowConfirmCommand(runtime *Runtime) *cobra.Command {
-	var stableName, quoteID, locale string
+	var stableName, quoteID string
 	command := &cobra.Command{
 		Use:   "confirm",
 		Short: "Create the confirmed Order with the fixed conversational payment policy",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			result, err := confirmCommerceFlow(command.Context(), runtime, stableName, quoteID, locale)
+			result, err := confirmCommerceFlow(command.Context(), runtime, stableName, quoteID)
 			if err != nil {
 				return err
 			}
@@ -424,16 +420,12 @@ func newCommerceFlowConfirmCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&stableName, "skill", "", "purchase Skill stable name")
 	command.Flags().StringVar(&quoteID, "quote", "", "Quote id returned by flow quote")
-	command.Flags().StringVar(&locale, "locale", "zh-CN", "localized Order presentation")
 	_ = command.MarkFlagRequired("skill")
 	_ = command.MarkFlagRequired("quote")
 	return command
 }
 
-func confirmCommerceFlow(ctx context.Context, runtime *Runtime, stableName, quoteID, locale string) (commerceFlowConfirmResult, error) {
-	if locale != "zh-CN" && locale != "en-US" {
-		return commerceFlowConfirmResult{}, output.Validation("COMMERCE_LOCALE_INVALID", "--locale must be zh-CN or en-US")
-	}
+func confirmCommerceFlow(ctx context.Context, runtime *Runtime, stableName, quoteID string) (commerceFlowConfirmResult, error) {
 	state, err := runtime.requireCommerceSession(stableName)
 	if err != nil {
 		return commerceFlowConfirmResult{}, err
@@ -446,7 +438,7 @@ func confirmCommerceFlow(ctx context.Context, runtime *Runtime, stableName, quot
 	if err != nil {
 		return commerceFlowConfirmResult{}, err
 	}
-	fields := map[string]any{"quoteId": quoteID, "paymentProvider": provider, "locale": locale}
+	fields := map[string]any{"quoteId": quoteID, "paymentProvider": provider}
 	if scene != "" {
 		fields["paymentScene"] = scene
 	}
