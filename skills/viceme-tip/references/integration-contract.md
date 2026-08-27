@@ -1,31 +1,31 @@
-# ViceMe tip integration contract
+# ViceMe 打赏接入合同
 
-## Public boundary
+## 公开边界
 
-A creator integration consists of one host-owned HTML page and one ViceMe script tag. The script renders the launcher in Shadow DOM and opens a ViceMe-hosted checkout iframe. The host must not copy checkout markup, call payment-provider APIs, or receive payment secrets.
+一个创作者接入由宿主拥有的 HTML 页面和一段 ViceMe 脚本组成。脚本在 Shadow DOM 中渲染入口，并打开 ViceMe 托管的结账 iframe。宿主不得复制结账页面、调用支付渠道 API 或接收支付秘密。
 
-## Binding definition
+## 绑定定义
 
-A work is ready only when all are true:
+只有同时满足以下条件，作品才可以使用：
 
-1. the selected CLI Profile is authenticated as the creator;
-2. an External Creator App exists for the work;
-3. the exact public hostname appears as verified on that app;
-4. the HTML uses that app's generated Creator App ID and platform origin.
+1. 所选 CLI Profile 已以创作者身份登录；
+2. 该作品存在 External Creator App；
+3. 应用中准确的公开主机名已验证；
+4. HTML 使用该应用生成的 Creator App ID 和平台来源。
 
-An HTML `data-creator-app-id`, a local demo ID, or an unverified domain is not a binding.
+仅有 HTML 中的 `data-creator-app-id`、本地演示 ID 或未验证域名，都不算完成绑定。
 
-## Domain verification
+## 域名验证
 
-Creator Center supplies the verification URL/path and token. Its generated instructions are authoritative. A deployment may, for example, require a well-known URL shaped like:
+当前固定 Profile 下，`creator-app domain add` 返回的验证 URL/路径和 token 是权威结果。部署可能要求形如以下路径的公开文件：
 
 ```text
 https://<creator-host>/.well-known/viceme-app-verification.txt
 ```
 
-Use the target stack's public-file or routing mechanism at the exact path Creator Center displays. Fetch the deployed URL and compare it with the value shown in Creator Center without printing the token into chat or persistent logs. Redirects to another origin and non-public hosts are invalid.
+使用目标技术栈的公开文件或路由机制，在 CLI 响应指定的准确路径提供内容。请求部署后的 URL，与同一次 `creator-app domain add` 返回的 token 比较，再运行 `creator-app domain verify`；不得把 token 打印到对话或持久日志。跳转到其他来源以及非公开主机均无效。
 
-## Embed contract
+## 嵌入合同
 
 ```html
 <script
@@ -36,22 +36,22 @@ Use the target stack's public-file or routing mechanism at the exact path Creato
 ></script>
 ```
 
-Keep exactly one tag per Creator App. `creatorAppId` is public configuration, not a credential. Obtain the complete script URL and ID from Creator Center rather than deriving them from API URLs.
+每个 Creator App 只保留一个标签。`creatorAppId` 是公开配置，不是凭证。完整脚本 URL、ID 和标签必须来自当前固定 Profile 下 `creator-app show` 返回的 `data.embedSnippet`，不得从 API URL 推导或手工拼接。
 
 ## CSP
 
-When a CSP exists, preserve it and add only the exact ViceMe platform origin to the directives the browser proves necessary. The embed requires the script origin and checkout iframe origin. Never add `*`, `unsafe-eval`, or a broad ViceMe subdomain wildcard as a shortcut.
+存在 CSP 时保留原规则，只向浏览器证明需要的指令添加准确的 ViceMe 平台来源。嵌入需要脚本来源和结账 iframe 来源。不得为了省事添加 `*`、`unsafe-eval` 或宽泛的 ViceMe 子域通配符。
 
-## Real verification
+## 真实验证
 
-The integration is complete only on the verified public HTTPS hostname:
+只有在已验证的公开 HTTPS 主机名满足以下条件，接入才算完成：
 
-- HTML returns 200;
-- embed script returns JavaScript with 200;
-- launcher is visible and keyboard reachable;
-- launcher opens the hosted checkout for the expected work;
-- Escape closes the dialog and returns focus;
-- no CSP, frame, script, or widget errors occur;
-- the agent states whether real order creation/payment was exercised.
+- HTML 返回 200；
+- 嵌入脚本返回 200 且内容为 JavaScript；
+- 入口可见并可用键盘访问；
+- 入口为预期作品打开托管结账页；
+- Escape 关闭弹窗并把焦点返回原处；
+- 没有 CSP、frame、script 或组件错误；
+- Agent 说明是否真正创建订单或完成支付。
 
-Opening the UI is not proof that a payment settled. Keep checkout verification and real-money payment verification distinct.
+打开界面不代表支付已经结算。必须区分结账界面验证和真实资金支付验证。

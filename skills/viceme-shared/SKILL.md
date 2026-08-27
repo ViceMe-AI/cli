@@ -1,58 +1,53 @@
 ---
 name: viceme-shared
-description: Set up, authenticate, update, and diagnose the ViceMe creator CLI and official Skills. Use when a user needs to install ViceMe for Codex, Claude Code, or WorkBuddy; sign in through the browser; inspect profiles; check versions; or repair a ViceMe CLI or Skill installation.
+description: 安装、登录、更新和诊断 ViceMe 创作者 CLI 与官方 Skills。适用于为 Codex、Claude Code 或 WorkBuddy 安装 ViceMe、通过浏览器登录、查看配置、检查版本或修复 CLI/Skill 安装。
 ---
 
-# ViceMe shared operations
+# ViceMe 通用操作
 
-Use `viceme` as the only executable. Never collect, print, or persist access tokens yourself.
+只使用 `viceme` 这个可执行文件。不得自行收集、打印或保存访问令牌。
 
-## Setup
+面向用户的提问、进度、结果和可见思考摘要应跟随用户当前使用的语言；中文交流必须使用自然白话。命令、参数、错误码和协议字段保留原文，仅用于内部判断，除非用户明确询问技术细节，否则不要直接展示。
 
-1. Run `viceme install --agent auto` after the bootstrap installer completes.
-2. Run `viceme doctor` and resolve failed checks before business commands.
-3. Run `viceme auth status`.
-4. If unauthenticated, run `viceme auth login`. Show the verification URL to the user and wait for the command result.
+## 安装
 
-For a test or private ViceMe deployment, persist its endpoint before login:
+1. 引导安装程序完成后，运行 `viceme install --agent auto`。
+2. 运行 `viceme doctor`，先解决失败项，再执行业务命令。
+3. 运行 `viceme auth status`。
+4. 未登录时运行 `viceme auth login`，向用户展示完整授权链接，并等待命令返回。
+
+测试或私有部署需要在登录前持久保存地址：
 
 ```bash
 viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-url <https-web-url> --market-region <cn-or-global> --use
 ```
 
-Use `viceme profile list` to verify the active profile and complete API, Web,
-and market authority tuple.
-The install/update distribution region never selects a publication market;
-the selected API endpoint owns that market.
-Do not rely on a shell-only `VICEME_API_BASE_URL` export for normal Agent use;
-that variable is a one-process CI/debug override and is not profile state.
+使用 `viceme profile list` 核对当前 Profile 以及完整的 API、Web 和市场组合。安装或更新所用的分发区域不决定发布市场，市场由所选 API 地址决定。日常 Agent 操作不得只依赖 shell 中的 `VICEME_API_BASE_URL`；它只是单进程 CI/调试覆盖，不是持久 Profile 状态。
 
-`viceme auth login` is intentionally blocking. Show its one-time complete URL to
-the user and keep waiting for the command result while the page signs in when
-necessary and authorizes automatically. Never ask the user to enter a device
-code, and do not split or background the login. If the bounded wait expires,
-run a fresh `viceme auth login` for the same Profile.
+`viceme auth login` 会等待授权，并在轮询前输出一次性完整链接。在 WorkBuddy 中只启动一个登录进程，从首次输出读取链接，立即调用 WorkBuddy 内置 `present_files` 工具在当前任务浏览器中打开，然后继续等待同一个进程返回，使授权完成后 Agent 自动继续。不得使用操作系统级 WorkBuddy 深链，不得在首个登录仍等待时再启动第二个登录，不得要求用户输入设备码，也不得要求用户回复“已经登录”。有界等待超时后，为同一 Profile 重新运行一次 `viceme auth login`。
 
-## Safety
+登录失效时向用户说“登录状态已过期，需要重新登录”，不要直接说 token、scope、协议状态或原始错误码。
 
-- Treat stdout as the final JSON protocol response. Send progress explanations separately.
-- Branch on process exit code and `error.code`, never message text.
-- Do not pass `VICEME_ACCESS_TOKEN` unless the user explicitly supplied a scoped automation credential.
-- Use `--profile` only to select an existing profile. Use `viceme profile add`, `list`, `use`, or `remove` for profile changes. Remove and recreate a profile to change its endpoint; do not silently rebind stored credentials to another origin.
-- Never switch Profiles on the user's behalf merely to reuse an existing login. A business workflow stays pinned to the Profile selected at its start; changing that Profile requires an explicit user request.
-- Use `viceme profile remove --all --yes` only when the user explicitly asks to remove every local Profile and credential. It recreates one clean, unauthenticated `default` Profile so the CLI configuration remains valid.
-- Before changing files or publishing, summarize the intended operation and obtain any confirmation required by the domain Skill.
+## 安全
 
-## Maintenance
+- 将 stdout 视为最终 JSON 协议响应，进度说明另行发送。
+- 根据进程退出码和 `error.code` 分支，不根据错误文案分支。
+- 除非用户明确提供了限定范围的自动化凭证，否则不得传入 `VICEME_ACCESS_TOKEN`。
+- `--profile` 只用于选择已有 Profile。新增、查看、切换或删除分别使用 `viceme profile add`、`list`、`use`、`remove`。修改地址时删除并重建 Profile，不得把已有凭证静默绑定到其他来源。
+- 不得为了复用其他登录而替用户切换 Profile。业务流程从开始到结束固定使用起始 Profile；更换必须由用户明确要求。
+- 只有用户明确要求删除全部本地 Profile 和凭证时，才能使用 `viceme profile remove --all --yes`。该命令会重建一个干净、未登录的 `default` Profile。
+- 修改文件或发布前，先概括将要执行的操作，并取得对应领域 Skill 要求的确认。
 
-- Use `viceme version` to report CLI and bundled Skill versions.
-- Released installations automatically check the authoritative stable channel before ordinary commands. When a newer generation exists, the CLI and every matching official Skill are activated together, then the original command continues under the new CLI.
-- Do not ask the user to choose an update channel, interrupt the requested operation for a routine update, or run a second Skill installation after an automatic update.
-- Use `viceme update` only when the user explicitly requests a manual repair or a failed automatic activation must be retried.
+## 维护
 
-## Automatic updates
+- 使用 `viceme version` 查看 CLI 和内置 Skill 版本。
+- 正式安装版会在普通命令前自动检查权威稳定通道。存在新代次时，CLI 和所有匹配的官方 Skill 会一起激活，然后原命令继续执行。
+- 不要要求用户选择更新通道，不要因例行更新打断当前请求，也不要在自动更新后再次安装 Skill。
+- 只有用户明确要求手动修复，或自动激活失败需要重试时，才使用 `viceme update`。
 
-- Automatic release discovery is fail-open when the network is unavailable, so the last complete verified generation remains usable offline.
-- After an automatic update, `meta.autoUpdate` records the previous and executing versions. This is informational; continue processing the command's normal `data` or `error`.
-- A standalone Windows binary may return retryable `AUTO_UPDATE_RESTART_REQUIRED` while the operating system releases the old executable. Wait briefly and rerun the exact same command without asking the user for another decision.
-- If activation itself fails, branch on the stable error code and stop the requested mutation. Never continue with a partially activated generation.
+## 自动更新
+
+- 网络不可用时，自动发现更新应当放行，继续使用最后一个完整且验证过的代次。
+- 自动更新后，`meta.autoUpdate` 记录更新前后版本；它只用于诊断，应继续处理命令正常返回的 `data` 或 `error`。
+- Windows 独立二进制在系统释放旧文件期间可能返回可重试的 `AUTO_UPDATE_RESTART_REQUIRED`。短暂等待后原样重跑同一命令，不再向用户索取决定。
+- 激活失败时根据稳定错误码停止本次写操作，不得使用只完成一部分的代次继续。

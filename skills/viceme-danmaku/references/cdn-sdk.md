@@ -1,46 +1,27 @@
-# Hosted danmaku SDK contract
+# 托管弹幕 SDK 合同
 
-Use this for a static site, blog, or product page that should receive
-ViceMe-hosted danmaku without copying component code into the host repository.
+适用于希望接入 ViceMe 托管弹幕、但不把组件源码复制到宿主仓库的静态站点、博客或产品页面。
 
-## Embed snippet
+## 嵌入片段
 
-The selected CLI Profile is the sole environment authority. It binds the API
-base URL, Web base URL, and market region. Create and activate the Work before
-editing the host page:
+所选 CLI Profile 是唯一的环境依据，绑定 API 地址、Web 地址和市场区域。修改宿主页面前先创建并启用 Work：
 
 ```bash
 viceme --profile <profile> access init --name "<website name>" --danmaku
 ```
 
-If `.viceme/access.yaml` already exists, use `access inspect`; run `access apply`
-only to reconcile an intentional local config. The config records the Profile
-authority and cannot be reused under another API, Web, or market environment.
+`.viceme/access.yaml` 已存在时使用 `access inspect`；只有为对齐有意修改的本地配置时才运行 `access apply`。配置记录 Profile 权威来源，不能复用于另一组 API、Web 或市场环境。
 
-Successful `init`, `inspect`, and `apply` responses include `data.workKey`,
-`data.scriptUrl`, and `data.embedSnippet` whenever the remote Work has an active
-public danmaku capability. Insert `data.embedSnippet` exactly. Never derive the
-origin, append an SDK path, or fall back to another Profile.
+远端 Work 已启用公开弹幕能力时，成功的 `init`、`inspect` 和 `apply` 响应都会包含 `data.workKey`、`data.scriptUrl` 和 `data.embedSnippet`。必须原样插入 `data.embedSnippet`，不得自行推导来源、追加 SDK 路径或退回其他 Profile。
 
-`workKey` is public and opaque. Never replace it with an internal creator ID,
-product ID, media ID, slug, API token, or payment credential. Do not add API,
-iframe, creator, work-ID, or host-URL overrides to the generated snippet.
+`workKey` 是公开且不透明的标识。不得替换为内部 creator ID、product ID、media ID、slug、API token 或支付凭证。不得向生成片段加入 API、iframe、creator、work ID 或宿主 URL 覆盖。
 
-## Page-position anchors
+## 页面位置锚点
 
-The loader derives the active anchor from the canonical page URL, including
-hash routes, and the current 10% scroll bucket. A message is stored under that
-page-position anchor and appears to visitors on the same Work and anchor.
+加载器根据标准页面 URL（包括 hash 路由）和当前 10% 滚动区间确定活动锚点。消息保存在对应页面位置锚点下，并展示给同一 Work、同一锚点的访问者。
 
-## Runtime boundary
+## Runtime 边界
 
-The browser runtime validates loader attributes, resolves the public Work and
-requires an active `danmaku` capability, mounts at most once, isolates styles,
-keeps host controls clickable, lazy-loads modal surfaces, and removes all nodes,
-listeners, and timers on destroy. It calls only public danmaku endpoints; it does
-not establish a general-purpose SDK Session or expose follow, purchase, or
-entitlement APIs.
+浏览器 Runtime 会校验加载器属性、解析公开 Work、确认 `danmaku` 能力已启用、最多挂载一次、隔离样式、保持宿主控件可点击、按需加载弹层，并在销毁时清除所有节点、监听器和计时器。它只调用公开弹幕接口，不建立通用 SDK Session，也不暴露关注、购买或权益接口。
 
-The hosted Web app owns rendering and interaction. The Shop API owns the public
-`workKey` mapping, persistence, retention limit, and rate limits. Anonymous
-danmaku does not force login. Tipping is not part of this standalone snippet.
+托管 Web 应用负责渲染和交互；Shop API 负责公开 `workKey` 映射、持久化、保留上限和限流。匿名弹幕不强制登录。独立弹幕片段不包含打赏。

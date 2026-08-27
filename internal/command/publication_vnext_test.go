@@ -910,7 +910,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		}
 		writeJSONResponse(writer, api.PrepareSkillListingResponse{
 			ListingID: listingID, Market: "CN", Status: "DRAFT", DraftRevision: 1,
-			OwnerPreviewURL: state.baseURL + "/zh-CN/creator/skills/" + listingID + "/preview",
+			OwnerPreviewURL: state.baseURL + "/creator/skills/" + listingID + "/preview",
 			BindingReceipt:  "binding-receipt", Resolution: "CREATED",
 			Preview:     api.SkillListingPreviewViewModel{SchemaVersion: "preview.viceme.ai/v1", ListingID: listingID, DraftRevision: 1, State: "SHELL", FallbackURL: state.baseURL + "/preview"},
 			NextActions: []string{"OPEN_PREVIEW", "SET_PRICE", "AUTHORIZE_UPLOAD"},

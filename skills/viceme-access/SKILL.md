@@ -1,40 +1,24 @@
 ---
 name: viceme-access
-description: Integrate the ViceMe browser SDK into a creator website for host-native login, follow, and paid feature entry points backed by ViceMe access checks and checkout. Use for `.viceme/access.yaml`, feature-gated UI, or the `viceme access` workflow. Follow an explicit integration plan directly; analyze and propose safe entry points only when the plan is missing or incomplete. If the website is not yet published, use $viceme-publish before applying access configuration.
+description: 把 ViceMe 浏览器 SDK 接入创作者网站，通过 ViceMe 权限检查和结账实现宿主原生的登录、关注和付费功能入口。适用于 .viceme/access.yaml、功能门控界面或 viceme access 流程。用户已有明确方案时直接实施；方案缺失或不完整时才分析并提出安全入口。网站尚未发布时，先使用 $viceme-publish。
 ---
 
-# ViceMe Website Access
+# ViceMe 网站访问接入
 
-Implement a browser-only integration backed by an existing creator-owned `workKey`. Keep identity, follow, purchase, and entitlement decisions server-authoritative. Preserve the website's core behavior and visual language; ViceMe owns the authorization and checkout layer, while the host owns its access entry points.
+在已有且属于创作者的 `workKey` 上实现纯浏览器接入。身份、关注、购买和权益判断始终以服务端为准。保留网站核心行为和视觉语言：ViceMe 负责授权和结账层，宿主负责自身功能入口。
 
-## Workflow
+面向用户的文字跟随用户当前语言；中文交流使用自然白话，不直接展示内部协议字段。
 
-1. Inspect enough of the project to locate the requested action, existing
-   auth/payment code, component system, styling tokens, and tests. Choose the
-   shortest applicable path:
-   - When the user already supplied the paid/follow feature, entry point,
-     behavior, and price, implement that plan directly. Do not require a separate
-     analysis or approval round and do not reinterpret confirmed choices.
-   - When only part of the plan is missing, analyze and resolve only the missing
-     parts.
-   - When no concrete plan exists, inspect the core user journey and rendered UI,
-     then propose safe feature keys, entry points, policies, host components to
-     reuse, protected actions, and prices that still require the user's decision.
-     Do not write access configuration or host code until the user selects a plan.
-2. Keep the original business action intact. Add the smallest host-side gate at
-   its existing user-triggered entry, then call the unchanged action only after
-   `access.require()` returns `allowed: true`. If no safe outer seam exists,
-   report the coupling and stop instead of refactoring core behavior to force an
-   integration.
-3. Inspect `<website-dir>/.viceme/website.json`. If it is missing or has no
-   `workKey`, stop access setup and invoke `$viceme-publish` first. Follow its
-   complete website metadata review and confirmation workflow. Resume this
-   workflow only after explicit website publication succeeds. Never let an
-   access command publish the website implicitly.
-4. Run `viceme auth status`. If the token lacks `sdk-work:read` or `sdk-work:write`, ask the user to run `viceme auth login` again.
-5. If `.viceme/access.yaml` does not exist, create and apply the complete
-   access config in one command. Repeat feature flags as needed; use
-   `key=title` only when the display title differs from the key:
+## 流程
+
+1. 查看足够的项目内容，定位目标动作、已有登录/支付代码、组件系统、样式变量和测试。选择最短适用路径：
+   - 用户已明确付费或关注功能、入口、行为和价格时，直接实施，不要求额外分析或确认，也不重新解释已确认选择。
+   - 只缺少部分信息时，只分析并补齐缺少部分。
+   - 没有具体方案时，查看核心用户路径和真实界面，再提出安全的功能键、入口、规则、可复用宿主组件、受保护动作以及仍需用户决定的价格。用户选择前不得写入访问配置或宿主代码。
+2. 保留原业务动作。在已有用户触发入口外加最小门控，只有 `access.require()` 返回 `allowed: true` 后才调用原动作。若找不到安全的外层接缝，说明耦合并停止，不得为了接入而重构核心行为。
+3. 查看 `<website-dir>/.viceme/website.json`。文件缺失或没有 `workKey` 时，停止访问设置并先调用 `$viceme-publish`，完整完成网站资料预览和确认。只有网站明确发布成功后才回到此流程；访问命令不得隐式发布网站。
+4. 运行 `viceme auth status`。若缺少 `sdk-work:read` 或 `sdk-work:write`，请用户重新运行 `viceme auth login`。
+5. `.viceme/access.yaml` 不存在时，用一条命令创建并应用完整配置。需要多个功能时重复参数；只有显示标题不同于 key 时才使用 `key=title`：
 
    ```bash
    viceme access init --website <website-dir> --name "<website name>" \
@@ -42,79 +26,42 @@ Implement a browser-only integration backed by an existing creator-owned `workKe
      [--purchase "<feature-key>[=<title>]" --price-minor <fen>]...
    ```
 
-   One price may be shared by all purchase features. To use different prices,
-   repeat `--price-minor` once per `--purchase` in the same order. Each purchase
-   feature creates or updates its own one-time sale offer.
-   Creator subscriptions are not supported in this version.
+   多个购买功能可以共用一个价格；不同价格时，按 `--purchase` 顺序重复 `--price-minor`。每个购买功能创建或更新自己的单次销售报价。本版本不支持创作者订阅。
+6. 后续修改才编辑 `.viceme/access.yaml` 并运行 `viceme access apply`。诊断时使用 `viceme access inspect`，成功 init 后不必强制再查询一次。
+7. 使用项目既有包管理器安装 `@viceme-ai/sdk`。每个 `workKey` 只创建一个客户端，等待 `ready()`，再从既有用户动作调用 `access.require()`。宿主原生入口需要展示当前名称或价格时使用 `access.getFeatures()`，不得在浏览器代码中复制这些值。除非框架确实需要，不要新增接入抽象层。
+8. 宿主自己的锁定状态和访问入口复用网站现有 Button、Card、Dialog、图标库、设计变量、响应式、加载状态和错误反馈。只有没有合适原语时才添加少量局部样式，不得引入全局访问 CSS 或另一套 ViceMe 视觉语言。
+9. 使用 SDK 的 `<viceme-access-layer>`。ViceMe 组件在移动端底部面板或桌面端页面内层完成登录和结账。不得改样式、穿透 Shadow DOM 或复制宿主样式。
+10. 测试匿名、已登录但未关注、已关注、未购买、已购买、取消、内嵌完成、键盘操作和减少动画状态。
 
-6. Edit `.viceme/access.yaml` and run `viceme access apply` only for later
-   configuration changes. Use `viceme access inspect` for diagnosis, not as
-   a mandatory second request after a successful init.
-7. Install `@viceme-ai/sdk` with the project's existing package manager.
-   Create one client per `workKey`, await `ready()`, and call
-   `access.require()` from the existing user action. Use `access.getFeatures()`
-   when a host-native entry displays the current title or price; never duplicate
-   those values in browser code. Do not add an integration abstraction unless
-   the framework requires it.
-8. Reuse the host site's existing Button, Card, Dialog, icon library, design
-   tokens, responsive behavior, loading state, and error feedback for host-owned
-   locked states and access entry points. Add only minimal local styling when no
-   existing primitive fits. Do not introduce global access CSS or a parallel
-   ViceMe visual language.
-9. Use the SDK's `<viceme-access-layer>`. The ViceMe-owned component keeps login
-   and checkout inside a mobile bottom sheet or desktop in-page layer. Do not
-   restyle it, pierce its Shadow DOM, or copy host styles into it.
-10. Test anonymous, signed-in/unfollowed, followed, unpaid, paid, cancellation,
-   embedded completion, keyboard interaction, and reduced-motion states.
+完整配置和代码示例见 [references/integration.md](references/integration.md)。
 
-Read [references/integration.md](references/integration.md) for configuration and code examples.
+## 强制边界
 
-## Hard constraints
+- `workKey` 是公开且不透明的标识，不得替换为 offer ID，也不得当作秘密。
+- `viceme access init` 要求网站已明确发布，只负责接入，不得创建网站发布版本，也不得代替 `$viceme-publish` 的预览确认流程。
+- 浏览器代码中不得加入 Payment API key、webhook、product ID、creator ID，或写死金额、币种和价格。宿主显示的价格必须来自 `access.getFeatures()`。
+- 让服务端解析 `workKey → CreatorWork → SaleOffer → Entitlement`。
+- 不得把 work session token 或访问判断写入 cookie、localStorage、IndexedDB、URL、分析数据或日志。
+- 不得根据结账返回参数或浏览器状态解锁；只有 `access.check()` 能授予权限。
+- 权限检查不得改变身份、关注或支付状态。只有用户明确操作时才调用 `access.require()`。关注门控的登录授权层必须先展示创作者；用户同意授权即登录并自动关注，不再出现第二层关注确认。结账仍需用户选择并确认支付。
+- 不得为接入改写、移动、重命名网站核心业务动作，也不得改变其参数、返回值、错误或副作用。门控是外层适配器，允许路径保持原样。
+- 保持 ViceMe 授权界面完整：创作者头像位于名称上方；名称和已发布作品数同一行，用 `·` 分隔。作品数包含已发布的 Skills 和网站；两类都存在时，最近封面最多两个且各取一个。描述最多显示 50 个字符，悬停展示全文。唯一主操作为“授权”，直接进入微信二维码，不增加中间微信授权页。
+- 宿主门控处理器不得调用 `follow.follow()`；关注属于 `access.require()` 打开的创作者关注界面。
+- SDK 登录或结账不得使用 `window.open`、`window.location`、`confirm` 或 `alert`。完整流程留在底部面板或页面内层，并通过验证过的 SDK 消息通道返回。
+- 不得注入全局功能 CSS，也不得用宿主样式修改 ViceMe 层。Web Component 保持隔离且归 ViceMe 所有；只有宿主入口使用网站设计系统。
+- 关注使用 `FOLLOW_OWNER`，不得把关注建模成订阅。
+- 不得配置 `ACTIVE_CREATOR_SUBSCRIPTION`；本版本保留但不支持。
+- 不得声称公开包内静态资源受到保护。需要强保护时，只门控行为，并从可信后端读取受保护资源。
+- 此接入不得使用更重的 ViceMe Hosted Checkout/Application 流程。
 
-- Treat `workKey` as public and opaque. Never replace it with an offer ID or use it as a secret.
-- `viceme access init` requires an explicitly published website binding and
-  never publishes a website. It must not create a website release or replace
-  the `$viceme-publish` review and confirmation workflow.
-- Never add a Payment API key, webhook, product ID, creator ID, or hard-coded amount, currency, or price to browser code. Host-native price presentation must come from `access.getFeatures()`.
-- Let the server resolve `workKey → CreatorWork → SaleOffer → Entitlement`.
-- Do not store work-session tokens or access decisions in cookies, localStorage, IndexedDB, URLs, analytics, or logs.
-- Never unlock from checkout return parameters or browser state. Only `access.check()` can grant access.
-- Access checks must never mutate identity, follow, or payment state. Call `access.require()` only from an explicit user action. For a follow gate, the login consent layer must show the creator before authorization. Accepting login authorization signs in and automatically follows the creator without a second follow layer. Checkout still requires the user to select and confirm payment.
-- Never rewrite, move, rename, or change the parameters, return value, errors, or
-  side effects of the website's core business action for access integration.
-  Keep the gate as an outer adapter and preserve the original allowed path.
-- Keep the ViceMe-owned consent UI intact: it shows the creator avatar above the
-  display name and published-work count on one line, separated by `·`. The work
-  count includes both published Skills and websites; up to two recent covers
-  include one of each when both kinds are available.
-  The description shows at most 50 characters and exposes the full text on
-  hover. Its only primary action is `授权`, which opens the WeChat QR flow
-  directly without an intermediate WeChat authorization page.
-- Do not call `follow.follow()` from the host site's gate handler. Following belongs to the owner-follow interface opened by `access.require()`.
-- Never use `window.open`, `window.location`, `confirm`, or `alert` for
-  SDK login or checkout. Their complete flows stay in the bottom sheet or
-  in-page layer and return through a validated SDK message channel.
-- Never inject global feature CSS or alter the ViceMe layer from host-site styles. The Web Component stays isolated and ViceMe-owned; only the host-owned entry uses the site's design system.
-- Use `FOLLOW_OWNER` for following. Do not model follow as a subscription.
-- Do not configure `ACTIVE_CREATOR_SUBSCRIPTION`; it is reserved and unsupported in this version.
-- Do not claim static assets embedded in a public bundle are protected. Gate behavior and fetch protected resources from a trusted backend when hard protection is required.
-- Do not use the heavier ViceMe Hosted Checkout/Application flow for this integration.
+## 完成检查
 
-## Completion checks
-
-- Confirm `viceme access inspect` shows the expected work, feature-specific one-time offers, features, and capabilities.
-- Confirm follow-gated and purchase-gated functions have separate state.
-- Confirm the allowed path still calls the original core action without changing
-  its arguments, result, errors, or side effects, and the denied/cancelled path
-  does not call it.
-- Confirm host-owned access entry points match the existing component variants,
-  focus behavior, breakpoints, theme, loading state, and feedback patterns.
-- Confirm all public SDK requests omit browser credentials and use the in-memory work session.
-- Confirm follow state cannot change before the user accepts login authorization or activates a standalone follow action.
-- Confirm no browser popup or page navigation is used and login/checkout remain
-  inside the bottom sheet or in-page layer.
-- Confirm WeChat QR and one-tap authorization remain fully visible, and the
-  authorization frame keeps the consent layer's height without a visual host-page
-  mask or transition jump. Confirm the checkout layer keeps a stable height while
-  its content loads.
-- Report any untested WeChat or payment-provider boundary explicitly.
+- 确认 `viceme access inspect` 展示预期 Work、各功能单次报价、功能和能力。
+- 确认关注门控与购买门控状态相互独立。
+- 确认允许路径仍以原参数调用核心动作，结果、错误和副作用不变；拒绝或取消路径不调用它。
+- 确认宿主入口匹配现有组件变体、焦点行为、断点、主题、加载状态和反馈方式。
+- 确认所有公开 SDK 请求不携带浏览器凭证，只使用内存 work session。
+- 确认用户同意登录授权或主动执行独立关注前，关注状态不会变化。
+- 确认没有浏览器弹窗或页面跳转，登录和结账始终在底部面板或页面内层。
+- 确认微信二维码和一键授权完整可见；授权 frame 保持授权层高度，不出现宿主页面遮罩或跳变；结账内容加载期间层高稳定。
+- 明确报告尚未验证的微信或支付渠道边界。

@@ -1,4 +1,4 @@
 interface:
-  display_name: "Install ViceMe Danmaku"
-  short_description: "Install the hosted danmaku SDK"
-  default_prompt: "Use $viceme-danmaku to install ViceMe-hosted danmaku in this website."
+  display_name: "安装 ViceMe 弹幕"
+  short_description: "在网站中接入 ViceMe 托管弹幕"
+  default_prompt: "使用 $viceme-danmaku 为这个网站安装 ViceMe 托管弹幕。"

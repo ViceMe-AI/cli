@@ -1,84 +1,50 @@
-# Generic merchant Product workflow
+# 通用商家 Product 流程
 
-Use this workflow for services, physical/custom-made goods, and ordinary
-official ViceMe offerings. It always produces one real creator Work before a
-sellable Product:
+服务、实物/定制商品和普通 ViceMe 官方服务都走此流程。可售 Product 前必须先有一个真实创作者 Work：
 
-1. a `SERVICE` Work with permanent creator/slug identity and versioned public
-   content;
-2. the merchant's Product and immutable sales specification under that Work;
-3. a platform-generated, signed purchase Skill bound to exactly that Product.
+1. 一个具有永久创作者/slug 身份和版本化公开内容的 `SERVICE` Work；
+2. 该 Work 下的商家 Product 和不可变销售规格；
+3. 平台生成并签名、且只绑定该 Product 的购买 Skill。
 
-The generated Skill is an entry into ViceMe quoting, payment, same-session
-order status, and fulfillment. It is not the creator's service implementation.
+生成的 Skill 是进入 ViceMe 报价、支付、同一会话订单状态和履约的入口，不是创作者的服务实现。
 
-## 1. Resolve the approved merchant
+## 1. 确定获准商家
 
-Run:
+运行：
 
 ```text
 viceme merchant accounts
 viceme merchant product templates --merchant <merchant-account-id>
 ```
 
-Only an active MerchantAccount for which the current User is the unique
-`MerchantAccountMember(role=OWNER)` can author Products. If there is no
-account, stop and explain that Staff must create or activate the Merchant and
-bind the current User as OWNER. If multiple accounts are ever returned, show
-them and ask which one owns this Product. Do not guess from display names or from
-the CreatorAccount profile. A public Product also requires that the Merchant is
-linked to one active CreatorAccount; its stable handle owns the permanent Work
-route. CreatorAccount and verified external identities are attribution, not
-write authority.
+只有当前用户作为唯一 `MerchantAccountMember(role=OWNER)` 拥有的有效 MerchantAccount 才能创作 Product。没有账户时停止，用白话说明需要先申请、认领或由工作人员启用商家并绑定 OWNER。返回多个时展示并询问哪个商家拥有本 Product；不得按显示名称或 CreatorAccount 资料猜测。公开 Product 还要求 Merchant 关联一个有效 CreatorAccount，其稳定 handle 决定永久 Work 路由。CreatorAccount 和已验证外部身份只用于署名，不提供写权限。
 
-Verify that the returned active authoring template is `GENERIC_MERCHANT`.
-Merchant Products may currently use only `MANUAL_PROCESSING` and `SHIPMENT`;
-never claim a provider adapter exists. ViceMe's current official mobile
-recharge offer therefore uses the same flow and `MANUAL_PROCESSING`. The
-official creator is an ordinary Creator/Merchant/OWNER relation, not a special
-platform principal.
+确认返回的有效创作模板为 `GENERIC_MERCHANT`。当前商家 Product 只能使用 `MANUAL_PROCESSING` 和 `SHIPMENT`；不得声称存在 provider adapter。ViceMe 官方手机充值也使用相同流程和 `MANUAL_PROCESSING`。官方创作者是普通 Creator/Merchant/OWNER 关系，不是特殊平台主体。
 
-## 2. Collect the complete sale definition
+## 2. 收集完整销售定义
 
-Use natural language, but obtain concrete values for every required fact:
+使用自然语言，只询问尚未明确的业务事实，并取得：
 
-- Work title, permanent slug, public summary/body, tags, usage or service
-  instructions, and whether this is a new Work or a new revision of an owned
-  Work;
-- Product title, slug, market, bilingual summaries/instructions where useful,
-  description, tags, category/type label, and `PUBLIC`, `UNLISTED`, or
-  `PRIVATE` visibility;
-- each option, SKU, selected option combination, currency, unit price in cents,
-  inventory policy, and allowed quantity range;
-- pricing rule: `FIXED_SKU`, `UNIT_QUANTITY`, or `UNIT_PLUS_SHIPPING`, including
-  default and regional shipping prices when applicable;
-- every buyer-provided field: stable key, user-facing label, type, required
-  flag, sensitivity, authorized audience, retention, and semantic role;
-- fulfillment order: manual processing, shipment, or both;
-- service mode: use `FULFILLMENT_ONLY` for one-order work such as photo
-  printing and manual recharge; use `LONG_RUNNING` only when the buyer needs a
-  persistent staged case such as recruitment;
-- for `LONG_RUNNING`, collect the public ordered stage labels and at least one
-  terminal stage. Case lookup remains limited to the original Commerce
-  Session.
+- Work 标题、永久 slug、公开简介/正文、标签、使用或服务说明，以及这是新 Work 还是已有 Work 的新 revision；
+- Product 标题、slug、市场、适用时的双语简介/说明、描述、标签、类别名称和 `PUBLIC`、`UNLISTED` 或 `PRIVATE` 可见性；
+- 每个选项、SKU、选项组合、币种、以分计价的单价、库存规则和数量范围；
+- 定价规则 `FIXED_SKU`、`UNIT_QUANTITY` 或 `UNIT_PLUS_SHIPPING`，以及适用的默认/地区运费；
+- 每个用户填写字段的稳定 key、显示名称、类型、是否必填、敏感级别、允许访问者、保留规则和语义角色；
+- 履约顺序：人工处理、发货或两者；
+- 服务模式：照片打印、人工充值等单订单工作使用 `FULFILLMENT_ONLY`；只有招聘等需要长期分阶段案件时使用 `LONG_RUNNING`；
+- `LONG_RUNNING` 必须提供有序公开阶段名称和至少一个终态；案件查询仍只限最初 Commerce Session。
 
-Do not collect credentials, passwords, OTPs, tokens, or a buyer-supplied amount.
-Price is always server-owned SKU data. Shipment requires required recipient
-name, contact phone, and shipping address fields. Ask only for missing business
-facts; a merchant who already supplied them does not need to answer them again.
+不得收集凭证、密码、验证码、token 或由用户填写的金额。价格始终来自服务端 SKU。发货必须要求收件人、联系电话和地址。用户已提供的内容不重复询问。
 
-## 3. Create or update the real Service Work
+## 3. 创建或更新真实 Service Work
 
-Every public Product requires a real Work. For an existing Work, resolve it
-from `viceme merchant work list --merchant <merchant-account-id>` and update a
-new draft revision. For a new offering, write a private strict JSON file and
-run:
+所有公开 Product 都需要真实 Work。已有 Work 从 `viceme merchant work list --merchant <merchant-account-id>` 解析并更新新的草稿 revision。新服务写入私有严格 JSON，再运行：
 
 ```text
 viceme merchant work create --input <work.json>
 ```
 
-For example, a photo-printing Work with one-order fulfillment is:
+照片打印的单次履约 Work 示例：
 
 ```json
 {
@@ -112,21 +78,15 @@ For example, a photo-printing Work with one-order fulfillment is:
 }
 ```
 
-For a long-running recruitment service, use public stages such as `ACCEPTED`,
-`SOURCING`, `CANDIDATES_RECOMMENDED`, `INTERVIEWING`, and terminal
-`COMPLETED`, with `policy.caseMode` set to `LONG_RUNNING`. Do not put company,
-contact, phone, address, photos, or other buyer data in Work content or
-`intakeSchema`; those belong to the Product buyer contract and encrypted order
-contract.
+长期招聘服务可使用 `ACCEPTED`、`SOURCING`、`CANDIDATES_RECOMMENDED`、`INTERVIEWING` 和终态 `COMPLETED`，并把 `policy.caseMode` 设为 `LONG_RUNNING`。不得把公司、联系人、电话、地址、照片或其他用户数据放入 Work 内容或 `intakeSchema`；这些属于 Product 用户合同和加密订单合同。
 
-Use the returned Work `id` as the mandatory `subjectWorkId`. Then write the
-complete Product JSON and run:
+使用返回的 Work `id` 作为必填 `subjectWorkId`，再写完整 Product JSON 并运行：
 
 ```text
 viceme merchant product create --input <product.json>
 ```
 
-The outer object is:
+外层对象：
 
 ```json
 {
@@ -138,13 +98,11 @@ The outer object is:
 }
 ```
 
-Delete private temporary request files after the command. Keep returned IDs and
-revisions in the active task state; do not save buyer data or access tokens in
-the source or Skill directory.
+命令后删除私有临时请求文件。返回 ID 和 revision 只保留在当前任务状态，不得把用户数据或访问 token 写入源码或 Skill 目录。
 
-## 4. Compile and review the exact candidate
+## 4. 编译并预览准确候选内容
 
-Run:
+运行：
 
 ```text
 viceme merchant product compile <product-id> \
@@ -152,10 +110,7 @@ viceme merchant product compile <product-id> \
   --expected-revision <revision>
 ```
 
-Compilation must return no validation errors, one
-`candidateSalesSpecVersionId`, one `candidateDigest`, and one
-`candidatePurchaseSkill`. Only after that exact candidate exists, create a
-private preview grant for the Work revision used by the Product:
+编译必须没有验证错误，并返回一个 `candidateSalesSpecVersionId`、一个 `candidateDigest` 和一个 `candidatePurchaseSkill`。随后为 Product 使用的 Work revision 创建私有预览：
 
 ```text
 viceme merchant work preview create <work-id> \
@@ -163,36 +118,25 @@ viceme merchant work preview create <work-id> \
   --expected-revision <revision>
 ```
 
-Display both returned `htmlUrl` and `markdownUrl`. Both URLs must project the
-same Work revision and the same compiled Product, price, buyer contract,
-service stages, and generated purchase Skill candidate. A preview must never
-show an install or purchase action as active before activation. Never treat a
-preview URL as the permanent public identity. Revoke an unused preview with
-`viceme merchant work preview revoke <work-id> <preview-id> --merchant
-<merchant-account-id>`.
+展示返回的 `htmlUrl` 和 `markdownUrl`。二者必须投影同一 Work revision、同一已编译 Product、价格、用户合同、服务阶段和购买 Skill 候选。启用前预览不得显示可用安装或购买动作，也不得把预览 URL 当作永久公开身份。不再使用的预览用 `viceme merchant work preview revoke <work-id> <preview-id> --merchant <merchant-account-id>` 撤销。
 
-Show the user:
+向用户展示：
 
-- Product title, visibility, every SKU and exact currency/price;
-- quantity and shipping rule;
-- all buyer fields, marking required and sensitive fields;
-- ordered fulfillment steps;
-- generated purchase Skill `stableName`, release ID, manifest digest, and
-  distribution expectations;
-- the exact HTML and Markdown preview URLs for this candidate;
-- that payment success and fulfillment success are separate states.
+- Product 标题、可见性、所有 SKU 和准确币种/价格；
+- 数量与运费规则；
+- 全部用户填写字段，并标明必填和敏感项；
+- 有序履约步骤；
+- 生成购买 Skill 的 `stableName`、Release ID、manifest digest 和分发预期；
+- 当前候选内容准确的 HTML 与 Markdown 预览 URL；
+- 支付成功与履约成功是两个不同状态。
 
-Do not activate a stale candidate. Any Work or Product edit requires another
-compile and another HTML/Markdown preview before review.
+不得启用过期候选。Work 或 Product 任一修改后都要重新 compile，并重新生成 HTML/Markdown 预览。
 
-## 5. Confirm once and activate the complete candidate atomically
+## 5. 一次确认并原子启用
 
-Ask exactly once whether the user confirms the displayed definition and wants
-to make this Product available now. State that activation enables real orders
-and payment. A requested change is not approval.
+只问一次：用户是否确认已展示定义并立即开放该 Product。明确说明启用后可产生真实订单和支付。修改要求不算确认。
 
-After an unambiguous confirmation, build the activation JSON entirely from the
-same compile response:
+明确确认后，完全根据同一次 compile 响应构造 activation JSON：
 
 ```json
 {
@@ -205,41 +149,23 @@ same compile response:
 }
 ```
 
-Run:
+运行：
 
 ```text
 viceme merchant product activate <product-id> --input <activation.json>
 ```
 
-Return its `productDetailUrl`, `purchaseSkillStableName`, and Product ID. The
-activation transaction publishes the current Work revision, Product sales
-specification, ServiceOffering version when present, and signed purchase Skill
-together. Never publish the Work separately immediately before Product
-activation because that can expose a page whose action is not yet executable.
+返回 `productDetailUrl`、`purchaseSkillStableName` 和 Product ID。启用事务会同时发布当前 Work revision、Product 销售规格、适用的 ServiceOffering 版本和签名购买 Skill。不得在 Product 启用前单独发布 Work，以免公开一个无法执行动作的页面。
 
-The detail URL must be the platform response's permanent locale-free
-`/{creatorHandle}/{workSlug}` route; never derive a `/share`, locale-prefixed,
-or `/products/{purchase-skill-stable-name}` page in the Skill. Tell the merchant
-that the page's “copy to WorkBuddy / Codex” action emits the platform-owned
-`commerce-skill-install.md` contract plus the exact signed-Skill installation
-command. Do not expose a temporary ZIP URL, digest, expiry, or API origin, and
-do not start a buyer Commerce Session merely to finish publication.
+详情 URL 必须使用平台响应中永久且无 locale 前缀的 `/{creatorHandle}/{workSlug}` 路由；不得自行生成 `/share`、带 locale 的路径或 `/products/{purchase-skill-stable-name}`。告诉商家页面上的“复制到 WorkBuddy / Codex”会生成平台拥有的 `commerce-skill-install.md` 合同和准确的签名 Skill 安装命令。不得暴露临时 ZIP URL、digest、过期时间或 API 来源，也不得仅为完成发布而启动用户 Commerce Session。
 
-If the merchant explicitly asks for a local buyer-side smoke test after
-activation, use only the installed purchase Skill's deterministic
-`viceme commerce flow start --skill <stable-name>` entry. Keep its returned
-`localContextId` in that one test conversation and never create a replacement
-context to look up an existing order.
+商家明确要求启用后做本地用户侧冒烟测试时，只使用已安装购买 Skill 的 `viceme commerce flow start --skill <stable-name>`。把返回 `localContextId` 保留在该测试对话中，不得创建替代 context 查询已有订单。
 
-Every generated stable name must start with `viceme-`.
-`DIRECT=PUBLISHED` means the signed package can be installed directly.
-`WORKBUDDY=READY` means a human may submit it for WorkBuddy review; it is not a
-public WorkBuddy-store listing yet.
+生成的稳定名称必须以 `viceme-` 开头。`DIRECT=PUBLISHED` 表示签名包可直接安装；`WORKBUDDY=READY` 表示可以人工提交 WorkBuddy 审核，不代表已经在 WorkBuddy 商店公开。
 
-## Photo-printing reference shape
+## 照片打印参考结构
 
-This abbreviated `authoringInput` demonstrates a ¥10 print plus ¥5 default
-shipping. Preserve the user's actual names, sizes, prices, and policies:
+以下缩略 `authoringInput` 表示 10 元打印费加 5 元默认运费；实际使用用户确认的名称、规格、价格和规则：
 
 ```json
 {
@@ -340,13 +266,8 @@ shipping. Preserve the user's actual names, sizes, prices, and policies:
 }
 ```
 
-## Recovery and lifecycle
+## 恢复和生命周期
 
-- If create/compile/activate returns an unknown result, list the same merchant's
-  Works or Products and recover by client request ID/Work ID/Product ID. Never
-  create a replacement just to escape uncertainty.
-- `viceme merchant product suspend` stops new sales while preserving existing
-  session/order recovery. `archive` is terminal and may be rejected while a
-  payable order or recoverable session remains.
-- No cross-session order lookup exists. A buyer must keep using the exact local
-  Commerce Session created for that purchase Skill.
+- create/compile/activate 返回结果不确定时，列出同一商家的 Works 或 Products，并按 client request ID、Work ID 或 Product ID 恢复。不得为了摆脱不确定性创建替代项。
+- `viceme merchant product suspend` 停止新销售，但保留已有 session/order 恢复；`archive` 是终态，在仍有可支付订单或可恢复 session 时可能被拒绝。
+- 不支持跨 session 查询订单。用户必须继续使用该购买 Skill 最初创建的准确本地 Commerce Session。
