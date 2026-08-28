@@ -43,19 +43,35 @@
     <main>
       <h1>创作者作品</h1>
       <p>这是一个独立部署的单 HTML 创作者页面。</p>
-      <div id="viceme-engagement"></div>
+      <div id="viceme-tip"></div>
     </main>
 
-    <!-- Replace the URL and Work key with the exact values returned by ViceMe CLI.
-         Shop owns Escape close; widget-close is an optional notification only. -->
-    <script
-      defer
-      src="REPLACE_WITH_SDK_SCRIPT_URL"
-      data-viceme-work="REPLACE_WITH_WORK_KEY"
-      data-viceme-region="cn"
-      data-viceme-features="tip"
-      data-viceme-target="#viceme-engagement"
-      data-viceme-theme="auto"
-    ></script>
+    <!-- Preflight both exact CDN files before enabling Tip. Keep the sandbox
+         public Work key until the user explicitly confirms SANDBOX. -->
+    <script type="module">
+      import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
+      import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js";
+
+      const target = document.querySelector("#viceme-tip");
+      if (!target) throw new Error("ViceMe Tip target is missing");
+
+      const client = createViceMe({
+        workKey: "wrk_test_REPLACE_WITH_PUBLIC_IDENTIFIER",
+        region: "cn",
+      });
+      await client.ready();
+      const mountHandle = await mountTip(client, {
+        target,
+        theme: "auto",
+      });
+
+      function destroyViceMeTip() {
+        mountHandle.destroy();
+        client.destroy();
+      }
+
+      // This static document has no in-page unmount. If adapted to an SPA,
+      // call destroyViceMeTip() from the real component or route cleanup.
+    </script>
   </body>
 </html>

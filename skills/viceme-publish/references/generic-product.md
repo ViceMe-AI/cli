@@ -12,6 +12,14 @@ sellable Product:
 The generated Skill is an entry into ViceMe quoting, payment, same-session
 order status, and fulfillment. It is not the creator's service implementation.
 
+## 0. Preflight requested Tip
+
+When the original request also includes tips, load `viceme-tip` and complete its
+exact Tip release preflight before any Work or Product create/update, compile,
+publication, SDK access, or host write. If preflight fails, stop with no new
+Work or Product state. Return here only after it succeeds, finish publishing the
+Merchant Work and Product, then resume `viceme-tip` against that published Work.
+
 ## 1. Resolve the approved merchant
 
 Run:

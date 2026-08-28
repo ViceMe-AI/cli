@@ -143,14 +143,19 @@ type UpdateWorkSdkAccessRequest struct {
 	Features              []string `json:"features"`
 }
 
+type WorkSdkAccessKeys struct {
+	Test string `json:"test"`
+	Live string `json:"live"`
+}
+
 type WorkSdkAccess struct {
-	WorkID        string   `json:"workId"`
-	WorkKey       string   `json:"workKey"`
-	Status        string   `json:"status"`
-	ConfigVersion int      `json:"configVersion"`
-	Features      []string `json:"features"`
-	CreatedAt     string   `json:"createdAt"`
-	UpdatedAt     string   `json:"updatedAt"`
+	WorkID        string            `json:"workId"`
+	Keys          WorkSdkAccessKeys `json:"keys"`
+	Status        string            `json:"status"`
+	ConfigVersion int               `json:"configVersion"`
+	Features      []string          `json:"features"`
+	CreatedAt     string            `json:"createdAt"`
+	UpdatedAt     string            `json:"updatedAt"`
 }
 
 type WorkSdkAccessesResponse struct {

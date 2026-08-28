@@ -784,9 +784,27 @@ func TestOfficialSkillBundleRetiresAccessAndIncludesTip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("official Skill bundle omitted the single HTML template: %v", err)
 	}
-	resolved := strings.ReplaceAll(string(template), "REPLACE_WITH_SDK_SCRIPT_URL", "https://viceme.example/viceme-sdk/v1/viceme.min.js")
-	if !strings.Contains(resolved, `src="https://viceme.example/viceme-sdk/v1/viceme.min.js"`) || strings.Contains(resolved, "https://https://") {
-		t.Fatalf("single HTML template does not accept the complete SDK URL")
+	templateText := string(template)
+	for _, required := range []string{
+		`import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";`,
+		`import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js";`,
+		`workKey: "wrk_test_REPLACE_WITH_PUBLIC_IDENTIFIER"`,
+		"const mountHandle = await mountTip(client, {",
+		"mountHandle.destroy();",
+		"client.destroy();",
+		"real component or route cleanup",
+	} {
+		if !strings.Contains(templateText, required) {
+			t.Fatalf("single HTML template omitted %q", required)
+		}
+	}
+	if strings.Index(templateText, "mountHandle.destroy();") > strings.Index(templateText, "client.destroy();") {
+		t.Fatal("single HTML template destroys the client before the Tip mount")
+	}
+	for _, forbidden := range []string{"REPLACE_WITH_SDK_SCRIPT_URL", "/viceme-sdk/v1", "data-viceme-", "window.ViceMe"} {
+		if strings.Contains(templateText, forbidden) {
+			t.Fatalf("single HTML template retained forbidden integration %q", forbidden)
+		}
 	}
 	if _, _, err := bundle.Read(tipSkill, "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)

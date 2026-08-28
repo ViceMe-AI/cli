@@ -6,6 +6,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const workSdkKeyUsage = "PUBLIC_IDENTIFIER_NOT_CREDENTIAL"
+
+type workSdkAccessCommandOutput struct {
+	api.WorkSdkAccess
+	KeyUsage string `json:"keyUsage"`
+}
+
+type workSdkAccessListCommandOutput struct {
+	Items    []api.WorkSdkAccess `json:"items"`
+	KeyUsage string              `json:"keyUsage"`
+}
+
 func newMerchantWorkWebsiteVerificationCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "website-verification",
@@ -137,6 +149,7 @@ func newMerchantWorkSdkAccessCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "sdk-access",
 		Short: "Manage the danmaku and tip SDK features for merchant Works",
+		Long:  "Manage Work SDK features. Live and test Work keys are permanent public identifiers, not credentials.",
 	}
 	command.AddCommand(newMerchantWorkSdkAccessCreateCommand(runtime))
 	command.AddCommand(newMerchantWorkSdkAccessGetCommand(runtime))
@@ -168,7 +181,7 @@ func newMerchantWorkSdkAccessCreateCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(result)
+			return runtime.business(publicWorkSdkAccess(result))
 		},
 	}
 	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID")
@@ -191,7 +204,7 @@ func newMerchantWorkSdkAccessGetCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(result)
+			return runtime.business(publicWorkSdkAccess(result))
 		},
 	}
 	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID")
@@ -213,7 +226,7 @@ func newMerchantWorkSdkAccessListCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(result)
+			return runtime.business(workSdkAccessListCommandOutput{Items: result.Items, KeyUsage: workSdkKeyUsage})
 		},
 	}
 	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID")
@@ -248,7 +261,7 @@ func newMerchantWorkSdkAccessUpdateCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(result)
+			return runtime.business(publicWorkSdkAccess(result))
 		},
 	}
 	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID")
@@ -273,12 +286,16 @@ func newMerchantWorkSdkAccessDisableCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(result)
+			return runtime.business(publicWorkSdkAccess(result))
 		},
 	}
 	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID")
 	_ = command.MarkFlagRequired("merchant")
 	return command
+}
+
+func publicWorkSdkAccess(access api.WorkSdkAccess) workSdkAccessCommandOutput {
+	return workSdkAccessCommandOutput{WorkSdkAccess: access, KeyUsage: workSdkKeyUsage}
 }
 
 func normalizeWorkSdkFeatures(features []string) ([]string, error) {
@@ -310,6 +327,7 @@ func newMerchantCommerceApplicationCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "commerce-application",
 		Short: "Manage merchant Commerce Applications",
+		Long:  "Manage merchant Commerce Applications. For open tips, a matching application supplies optional trusted-source attribution; it is not a tip gate and the default tip integration does not create one.",
 	}
 	command.AddCommand(newMerchantCommerceApplicationCreateCommand(runtime))
 	command.AddCommand(newMerchantCommerceApplicationListCommand(runtime))

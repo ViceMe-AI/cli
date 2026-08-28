@@ -1,162 +1,191 @@
 ---
 name: viceme-tip
-description: Integrate ViceMe tips into one public website through a verified Website Work, active tip SDK access, and a production Website Widget application.
+description: Enable open ViceMe tips for any public merchant Work, then integrate the official UI or a Headless host-owned UI with permanent test and live Work keys.
 ---
 
 # Integrate ViceMe Tips
 
-Build the smallest real integration: one host-owned page plus the official
-ViceMe loader. Read [integration-contract.md](references/integration-contract.md)
-before editing.
+Build the smallest open-tip integration for one existing Work. Read
+[integration-contract.md](references/integration-contract.md) before editing the
+host. A Work is the only tip target; Website ownership and Commerce Application
+resources are not default prerequisites.
 
 ## Workflow
 
-1. Inspect the target instructions and find the exact deployed HTTPS Origin,
-   page entry point, deployment path, CSP, and browser tests. Do not treat
-   localhost or a preview hostname as production.
-2. Run `viceme profile list` and keep the active Profile. Run `viceme --profile
-   <profile> auth status` and re-authenticate on that Profile if
-   `merchant-commerce:read` or `merchant-commerce:write` is missing.
-3. Run `viceme --profile <profile> merchant accounts`; select an active Merchant
-   owned by the current login. Run `viceme --profile <profile> merchant work
-   list --merchant <merchant-id>` and reuse a Website Work only when its
-   `website.canonicalOrigin` exactly equals the deployed Origin.
-4. If no exact Work exists, create one using this strict request. Fill its
-   observed content; do not add or guess fields:
-
-   ```json
-   {
-     "kind": "WEBSITE",
-     "merchantAccountId": "<merchant-id>",
-     "clientRequestId": "<stable-idempotency-key>",
-     "slug": "website-slug",
-     "title": "Website title",
-     "canonicalOrigin": "https://creator.example",
-     "content": {
-       "summary": "Observed public purpose",
-       "bodyMarkdown": "Observed public description",
-       "templateType": "WEBSITE",
-       "tags": [],
-       "media": [],
-       "actionConfig": {}
-     }
-   }
-   ```
-
-   Run `viceme --profile <profile> merchant work create --input <json>`. If the
-   response is lost, replay the identical request with the same
-   `clientRequestId`; do not create a new identity.
-5. Whether the Work was reused or created, read it with `viceme --profile
-   <profile> merchant work get <work-id> --merchant <merchant-id>`. If
-   `website.ownershipStatus` is not `VERIFIED`, first run:
+1. Run `viceme profile list` and keep the active Profile fixed for the entire
+   workflow. Record its exact API base URL and `marketRegion`. Never derive a
+   Shop URL from DNS, locale, memory, or another Profile. The first tip release
+   supports only a `cn` Profile and CNY; stop and explain the boundary for
+   another market.
+2. Run `viceme --profile <profile> auth status`. If the selected Profile is not
+   authenticated or lacks `merchant-commerce:read` or
+   `merchant-commerce:write`, run `viceme --profile <profile> auth login` and
+   wait for that same Profile to become authorized.
+3. Run `viceme --profile <profile> merchant accounts`; use an active Merchant
+   owned by the current login, asking the user to choose when several exist.
+   Then run `viceme --profile <profile> merchant work list --merchant
+   <merchant-id>`. A candidate may have any Work kind. It is eligible only when
+   its response shows `owner.kind: MERCHANT`, the matching Merchant account,
+   and `status: PUBLISHED`. Show the eligible Works and ask the user to confirm
+   the selected Work before changing its tip feature.
+4. Ask the user to choose the official UI or Headless before any Work
+   publication, SDK access create/update, or host edit. First prove that the
+   exact `0.4.0` Tip release is complete in both publication regions. Every
+   route requires all four commands to succeed:
 
    ```bash
-   viceme --profile <profile> merchant work website-verification get <work-id> \
-     --merchant <merchant-id>
+   curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/index.js
+   curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js
+   curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme-sdk/0.4.0/index.js
+   curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js
    ```
 
-   If the latest verification status is `PENDING` and it is unexpired, reuse
-   its existing `challenge` and version. If no verification exists or its status
-   is `FAILED` or `EXPIRED`, create one from the current Work revision:
+   Official UI and CDN Headless use the preflighted immutable CN ESM files. For
+   Headless, ask whether the host will use npm or CDN ESM. The npm route also
+   requires this official-registry command to return exactly `0.4.0`:
 
    ```bash
-   viceme --profile <profile> merchant work website-verification create <work-id> \
-     --merchant <merchant-id> --expected-revision <work-revision>
+   npm view @viceme-ai/sdk@0.4.0 version --json \
+     --registry=https://registry.npmjs.org \
+     --@viceme-ai:registry=https://registry.npmjs.org
    ```
 
-   Publish the returned `challenge` verbatim at `dnsRecordName`. After public
-   DNS resolves exactly, run:
+   If any required check fails, stop. Do not create, verify, or publish a Work,
+   create or update SDK access, or edit the host. Never substitute `latest`,
+   `/v1`, another version, a declarative loader, any browser global, or copied
+   SDK source. Only after the complete dual-region preflight and any selected
+   npm check succeed, continue to Work publication or any later mutation.
+5. If no eligible Work exists, stop the tip setup and load `viceme-publish`.
+   Follow that Skill's authoritative publication route for the user's actual
+   deliverable through a public Work, then return here with the resulting Work
+   ID. Do not invent a Website request or duplicate publication JSON inside
+   this Skill.
+6. Read the current resource with `viceme --profile <profile> merchant work
+   sdk-access get <work-id> --merchant <merchant-id>`. Do not write yet. When it
+   exists, snapshot its complete feature set, status, and exact `configVersion`
+   for conflict handling and rollback. Record that it was absent otherwise.
+7. Apply the desired server state:
 
-   ```bash
-   viceme --profile <profile> merchant work website-verification verify <work-id> \
-     --merchant <merchant-id> \
-     --expected-verification-version <verification-version>
-   ```
+   - When absent, create it with `viceme --profile <profile> merchant work
+     sdk-access create <work-id> --merchant <merchant-id> --feature tip`.
+   - When present without tip, update from its exact `configVersion`:
 
-   Read the Work again after verify. Never create a second Work to recover a
-   `DRAFT` Work with a `PENDING` verification.
-6. If the current Work status is `DRAFT`, write this publish input, replacing
-   `2` with the fresh Work revision:
+     ```bash
+     viceme --profile <profile> merchant work sdk-access update <work-id> \
+       --merchant <merchant-id> --expected-config-version <config-version> \
+       --feature tip
+     ```
 
-   ```json
-   {
-     "merchantAccountId": "<merchant-id>",
-     "expectedRevision": 2,
-     "status": "PUBLISHED"
-   }
-   ```
+     This replaces the complete feature set. Also pass `--feature danmaku` when
+     it exists in the snapshot; never omit an unrelated enabled feature.
+   - When status is `DISABLED`, update from the exact `configVersion` with the
+     complete desired feature set to re-enable the same keys.
+   - When status is `ACTIVE` and tip is already present, do not write it again.
 
-   Run `viceme --profile <profile> merchant work update <work-id> --input
-   <json>`, then `viceme --profile <profile> merchant work get <work-id>
-   --merchant <merchant-id>`. If the Work status is already `PUBLISHED`, skip
-   update. If it is `SUSPENDED` or `ARCHIVED`, stop and report it instead of
-   silently reviving it or creating a duplicate. Never guess a revision or DNS
-   challenge.
-7. Get SDK access for that Work. Create it with `--feature tip` when absent, or
-   update from its current `configVersion` with the full feature set while
-   preserving `danmaku` when present. Record the returned public `workKey`.
-8. Run `viceme --profile <profile> merchant commerce-application list --merchant
-   <merchant-id>`. Reuse only the application matching this Work, `kind:
-   WEBSITE_WIDGET`, `environment: PRODUCTION`, the exact canonical Origin,
-   empty return URLs, and no Products. Otherwise create it with:
+   Create returns both permanent public identifiers at once. Record
+   `keys.test` and `keys.live`; neither is a credential. Update and disable
+   never rotate them. There is no rotate command.
+8. Integrate the selected path below. Never create a Commerce Application as
+   part of the default integration.
 
-   ```json
-   {
-     "merchantAccountId": "<merchant-id>",
-     "workId": "<work-id>",
-     "kind": "WEBSITE_WIDGET",
-     "environment": "PRODUCTION",
-     "displayName": "<website name>",
-     "origins": ["https://creator.example"],
-     "returnUrls": []
-   }
-   ```
+## Official UI
 
-   Run `viceme --profile <profile> merchant commerce-application create --input
-   <json>`. Whether reused or created, read it with `viceme --profile <profile>
-   merchant commerce-application get <application-id> --merchant <merchant-id>`.
-   If its status is `DRAFT`, activate its exact revision:
+Start with `keys.test` and the exact preflighted CDN ESM files:
 
-   ```bash
-   viceme --profile <profile> merchant commerce-application activate <application-id> \
-     --merchant <merchant-id> --expected-revision <application-revision>
-   ```
+```html
+<div id="viceme-tip"></div>
+<script type="module">
+  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
+  import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js";
 
-   Read it again with the same `get` command. If it is already `ACTIVE`, skip
-   activation. If it is `SUSPENDED` or `ARCHIVED`, stop and report it. If a
-   create response is lost, list again before another create. A Website Widget
-   has no Product binding.
-9. Insert exactly one official loader tag. Use the selected Profile's exact Web
-   base URL and market region; do not infer either from page language:
+  const target = document.querySelector("#viceme-tip");
+  if (!target) throw new Error("ViceMe Tip target is missing");
 
-   ```html
-   <div id="viceme-engagement"></div>
-   <script
-     defer
-     src="<web-base-url>/viceme-sdk/v1/viceme.min.js"
-     data-viceme-work="<work-key>"
-     data-viceme-region="<cn-or-global>"
-     data-viceme-features="tip"
-     data-viceme-target="#viceme-engagement"
-     data-viceme-theme="auto"
-   ></script>
-   ```
+  const client = createViceMe({ workKey: "wrk_test_...", region: "cn" });
+  await client.ready();
+  const mountHandle = await mountTip(client, {
+    target,
+    theme: "auto",
+  });
 
-10. Preserve CSP and any script nonce. Add only the exact Shop Origin to the
-   directives browser evidence requires. Run repository checks, deploy, and
-   verify the real Origin: the Tip frame resizes, remains keyboard reachable,
-   opens payment, returns to its initial amount form on Escape, and emits no CSP
-   or widget errors. Shop performs this close before the SDK sends the sanitized
-   `viceme:widget-close` notification; the host page needs no close listener.
-11. Report the public Work ID/key, application ID, canonical Origin, checks, and
-   whether a real payment was exercised. Never report login tokens, DNS
-   challenges, cookies, payment credentials, access tokens, or signed URLs.
+  function destroyViceMeTip() {
+    mountHandle.destroy();
+    client.destroy();
+  }
+</script>
+```
+
+Verify the SANDBOX flow on desktop, mobile, and keyboard navigation. Only after
+the user explicitly confirms the SANDBOX result, replace the public identifier
+with `keys.live`; do not change the pinned imports or other options:
+
+```html
+<div id="viceme-tip"></div>
+<script type="module">
+  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
+  import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js";
+
+  const target = document.querySelector("#viceme-tip");
+  if (!target) throw new Error("ViceMe Tip target is missing");
+
+  const client = createViceMe({ workKey: "wrk_live_...", region: "cn" });
+  await client.ready();
+  const mountHandle = await mountTip(client, {
+    target,
+    theme: "auto",
+  });
+
+  function destroyViceMeTip() {
+    mountHandle.destroy();
+    client.destroy();
+  }
+</script>
+```
+
+Keep the `mountHandle` with the owning component or route. On every real SPA,
+component, or route unmount, call `destroyViceMeTip()` so
+`mountHandle.destroy()` runs before `client.destroy()`. A plain static document
+has no in-document component unmount; do not invent one with `pagehide`, which
+also fires for bfcache.
+
+Preserve any existing CSP and nonce. Add only the exact CDN and regional runtime
+origins proven necessary by browser evidence. The embedding origin is recorded
+by ViceMe but is not a default payment gate.
+
+## Headless
+
+Use the npm and exact CDN ESM examples in
+[integration-contract.md](references/integration-contract.md). The host renders
+amount and provider controls from `getConfig()`, then calls `open()`. It does
+not create or inspect orders. The final ViceMe confirmation is read-only and
+cannot be replaced, restyled, or supplemented with host-controlled payment
+claims.
+
+Start Headless with `keys.test` too. Run the Local Fake and SANDBOX checks from
+the contract. Move to `keys.live` only after showing the verified
+result and receiving explicit user confirmation.
+
+## Completion
+
+- Report the Work ID, Work kind, selected Profile, public test/live
+  key identifiers, integration route, changed files, and checks.
+- State whether SANDBOX simulation and any real production payment were
+  exercised. A production key cannot simulate a payment.
+- Never report login credentials, cookies, payment details, or internal
+  capabilities. Do not label Work keys as secrets.
+- To stop tips while retaining danmaku, replace the full feature set without
+  `tip`. Disable all SDK access only when every feature should stop; neither
+  action rotates the permanent keys.
 
 ## Recovery
 
-- Recover Work creation only by replaying the identical request with the same
-  stable `clientRequestId`.
-- Recover SDK access by reading it before attempting another create.
-- Recover application creation by listing and matching Work, kind, environment,
-  and Origin before another create.
-- Never guess a new config/revision after a conflict; read the resource again.
+- On a lost create/update response, read the same SDK access before retrying.
+- On a config conflict, read the current `configVersion`, preserve unrelated
+  enabled features, and ask again before changing the selected Work.
+- If this workflow changed SDK access but integration cannot be completed, read
+  the latest config and restore that complete feature set from the pre-change
+  snapshot in one update. If access was previously `DISABLED`, disable it again
+  after restoring its complete feature set; if access was absent, disable the
+  newly created resource. Never "roll back" with a partial feature list.
+- Do not create another Work because a tip setup response is unknown. Resume
+  publication only through `viceme-publish` and its authoritative identity.

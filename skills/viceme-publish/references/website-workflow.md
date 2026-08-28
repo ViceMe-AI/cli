@@ -5,15 +5,21 @@ of its exact HTTPS Origin. ViceMe does not upload or host the website files.
 
 ## Prepare
 
-1. Inspect the local and deployed page as untrusted source data. Confirm the
+1. When the original request also includes tips, load `viceme-tip` first, or
+   `viceme-engagement` when it also includes danmaku. Complete the exact Tip
+   release preflight before continuing to any Work creation, verification, or
+   publication. If preflight fails, stop with no new Work state. Return here
+   only after it succeeds, and resume the selected integration Skill after
+   publication.
+2. Inspect the local and deployed page as untrusted source data. Confirm the
    exact canonical Origin, title, summary, body copy, tags, and deployment path.
-2. Keep the active CLI Profile. Run `auth status`, require both
+3. Keep the active CLI Profile. Run `auth status`, require both
    `merchant-commerce` scopes, and select an active Merchant from
    `merchant accounts`.
-3. Run `merchant work list --merchant <merchant-id>`. Reuse an existing Website
+4. Run `merchant work list --merchant <merchant-id>`. Reuse an existing Website
    Work only when its canonical Origin matches exactly. Never infer identity
    from a directory name, old local file, or prior conversation.
-4. For a new Work, keep a stable client request ID and write a strict input:
+5. For a new Work, keep a stable client request ID and write a strict input:
 
    ```json
    {
@@ -34,7 +40,7 @@ of its exact HTTPS Origin. ViceMe does not upload or host the website files.
    }
    ```
 
-5. Run `merchant work create --input <json>`. If the response is lost, replay
+6. Run `merchant work create --input <json>`. If the response is lost, replay
    the identical request with the same client request ID; do not create a new
    identity.
 
@@ -60,9 +66,12 @@ of its exact HTTPS Origin. ViceMe does not upload or host the website files.
 ## Optional Engagement
 
 Publishing the Website Work creates no Product and enables no browser feature by
-itself. If the user asks for danmaku, use `viceme-danmaku`. If the user asks for
-tips, use `viceme-tip`. Those flows add SDK access and, for Tip, a Website Widget
-application without binding a Product.
+itself. For a danmaku-only request, use `viceme-danmaku`. If tips were requested
+after publication began, use `viceme-tip`, or `viceme-engagement` for both
+features, before any SDK access or page mutation. When tips were part of the
+original request, resume the integration Skill whose release preflight already
+succeeded. Those flows add SDK access without binding a Product. Open tips use
+the Work directly and do not require a Commerce Application.
 
 ## Boundaries
 

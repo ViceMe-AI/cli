@@ -1,22 +1,59 @@
 ---
 name: viceme-engagement
-description: Add ViceMe hosted danmaku and tips to one public website through one verified Website Work, one combined SDK access resource, and one Website Widget application.
+description: Add ViceMe hosted danmaku and open tips to one verified Website Work through one SDK access resource and either the official Tip UI or Headless Tip.
 ---
 
 # Integrate ViceMe Danmaku And Tips
 
-Configure one resource graph and install one loader. Never create separate Works
-for danmaku and Tip.
+Configure one resource graph and one selected Tip UI path. Never create separate
+Works for danmaku and Tip. The Website and DNS requirements below belong to
+danmaku's independent security contract; open tips do not add an application or
+Origin gate.
 
 ## Workflow
 
 1. Inspect the exact production HTTPS Origin, target page, deployment command,
    CSP, responsive layout, and browser tests.
-2. Run `viceme profile list` and keep the active Profile. Run `viceme --profile
-   <profile> auth status`; require `merchant-commerce:read` and
+2. Run `viceme profile list` and keep the active Profile. Record its exact
+   `marketRegion`; never infer the market from locale or hostname. Stop and
+   explain the boundary unless `marketRegion` is exactly `cn`, because the
+   first open-tip release is CN/CNY only. Run `viceme --profile <profile> auth
+   status`; require `merchant-commerce:read` and
    `merchant-commerce:write`. Then select an active Merchant from `viceme
    --profile <profile> merchant accounts`.
-3. Run `viceme --profile <profile> merchant work list --merchant <merchant-id>`.
+3. Ask the user to choose the official Tip UI or Headless Tip before any Work,
+   Website verification, SDK access, or page write. First prove that the exact
+   `0.4.0` Tip release is complete in both publication regions. Every combined
+   route requires these four objects:
+
+   ```bash
+   curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/index.js
+   curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js
+   curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme-sdk/0.4.0/index.js
+   curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js
+   ```
+
+   Official UI and CDN Headless also require the immutable CN Danmaku entry:
+
+   ```bash
+   curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js
+   ```
+
+   For Headless Tip, ask whether the host uses npm or CDN ESM. The npm route
+   instead also requires this command to return exactly `0.4.0`:
+
+   ```bash
+   npm view @viceme-ai/sdk@0.4.0 version --json \
+     --registry=https://registry.npmjs.org \
+     --@viceme-ai:registry=https://registry.npmjs.org
+   ```
+
+   If any required check fails, stop. Do not create, verify, or publish a Work,
+   create or update SDK access, or edit the page. Never substitute `latest`,
+   `/v1`, another version, a declarative loader, any browser global, or copied
+   SDK source. Only after the complete dual-region preflight and any selected
+   npm or Danmaku check succeed, continue to Work selection and later mutation.
+4. Run `viceme --profile <profile> merchant work list --merchant <merchant-id>`.
    Reuse a Website Work only when its `website.canonicalOrigin` exactly equals
    the deployed Origin. If none exists, use this strict request, filling only
    observed content:
@@ -43,7 +80,7 @@ for danmaku and Tip.
    Run `viceme --profile <profile> merchant work create --input <json>`. If the
    response is lost, replay the identical request with the same
    `clientRequestId`; do not create a new identity.
-4. Whether the Work was reused or created, read it with `viceme --profile
+5. Whether the Work was reused or created, read it with `viceme --profile
    <profile> merchant work get <work-id> --merchant <merchant-id>`. If
    `website.ownershipStatus` is not `VERIFIED`, first run:
 
@@ -72,7 +109,7 @@ for danmaku and Tip.
 
    Read the Work again after verify. Never create a second Work to recover a
    `DRAFT` Work with a `PENDING` verification.
-5. If the current Work status is `DRAFT`, write this publish input, replacing
+6. If the current Work status is `DRAFT`, write this publish input, replacing
    `2` with the fresh Work revision:
 
    ```json
@@ -89,75 +126,132 @@ for danmaku and Tip.
    update. If it is `SUSPENDED` or `ARCHIVED`, stop and report it instead of
    silently reviving it or creating a duplicate. Never guess a revision or DNS
    challenge.
-6. Read SDK access. Create or update it to the full feature set
-   `danmaku,tip` using repeated flags:
+7. After the user confirms this Work, read SDK access but do not write it yet.
+   Snapshot the previous complete feature set, status, and exact
+   `configVersion`, or record that the resource was absent. This snapshot is the
+   rollback source.
+8. Apply the complete desired feature set `danmaku,tip` with one create or
+   update. For an absent resource:
 
    ```bash
    viceme --profile <profile> merchant work sdk-access create <work-id> \
      --merchant <merchant-id> --feature danmaku --feature tip
    ```
 
-   For update, also pass the current `--expected-config-version`. Never run two
-   independent updates that overwrite each other's feature.
-7. Run `viceme --profile <profile> merchant commerce-application list --merchant
-   <merchant-id>`. Reuse only the application matching this Work, `kind:
-   WEBSITE_WIDGET`, `environment: PRODUCTION`, the exact canonical Origin,
-   empty return URLs, and no Products. Otherwise create it with:
-
-   ```json
-   {
-     "merchantAccountId": "<merchant-id>",
-     "workId": "<work-id>",
-     "kind": "WEBSITE_WIDGET",
-     "environment": "PRODUCTION",
-     "displayName": "<website name>",
-     "origins": ["https://creator.example"],
-     "returnUrls": []
-   }
-   ```
-
-   Run `viceme --profile <profile> merchant commerce-application create --input
-   <json>`. Whether reused or created, read it with `viceme --profile <profile>
-   merchant commerce-application get <application-id> --merchant <merchant-id>`.
-   If its status is `DRAFT`, activate its exact revision:
+   For an existing resource, make one replacement update from the current
+   version:
 
    ```bash
-   viceme --profile <profile> merchant commerce-application activate <application-id> \
-     --merchant <merchant-id> --expected-revision <application-revision>
+   viceme --profile <profile> merchant work sdk-access update <work-id> \
+     --merchant <merchant-id> --expected-config-version <config-version> \
+     --feature danmaku --feature tip
    ```
 
-   Read it again with the same `get` command. If it is already `ACTIVE`, skip
-   activation. If it is `SUSPENDED` or `ARCHIVED`, stop and report it. If a
-   create response is lost, list again before another create. A Website Widget
-   has no Product binding.
-8. Insert one combined loader after a stable target element:
+   Never run independent feature updates that overwrite each other. Creation
+   returns permanent public `keys.test` and `keys.live`; updates and disable do
+   not rotate either identifier.
+9. Start either route with `keys.test` so Tip can be simulated without real
+   funds. For the official UI, mount both capabilities from the exact CDN ESM
+   release after a stable target:
 
    ```html
    <div id="viceme-engagement"></div>
-   <script
-     defer
-     src="<profile-web-base-url>/viceme-sdk/v1/viceme.min.js"
-     data-viceme-work="<work-key>"
-     data-viceme-region="<cn-or-global>"
-     data-viceme-features="danmaku,tip"
-     data-viceme-target="#viceme-engagement"
-     data-viceme-theme="auto"
-   ></script>
+   <script type="module">
+     import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
+     import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js";
+     import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js";
+
+     const target = document.querySelector("#viceme-engagement");
+     if (!target) throw new Error("ViceMe engagement target is missing");
+
+     const client = createViceMe({ workKey: "wrk_test_...", region: "cn" });
+     await client.ready();
+     const mountResults = await Promise.allSettled([
+       mountDanmaku(client, { target, theme: "auto" }),
+       mountTip(client, { target, theme: "auto" }),
+     ]);
+     const mountHandles = mountResults.flatMap((result) =>
+       result.status === "fulfilled" ? [result.value] : [],
+     );
+
+     function destroyViceMeEngagement() {
+       for (const handle of mountHandles) handle.destroy();
+       client.destroy();
+     }
+   </script>
    ```
 
-9. Preserve CSP and any nonce. Run repository checks, deploy, and verify desktop
-   plus 320px width. Confirm both capabilities mount, a failure in one does not
-   remove the other, host controls remain clickable, danmaku persists, Tip is
-   keyboard reachable, and Escape returns the hosted payment surface to its
-   initial amount form. Shop owns that state transition; the SDK only sends the
-   sanitized close notification to the host.
+   For Headless Tip, load `viceme-tip` and follow its integration contract for
+   config-driven controls, result handling, and SANDBOX validation. Mount only
+   danmaku and create the host-owned Tip controller from the same exact release.
+   The example shows CDN ESM; use the equivalent exact npm subpaths only when
+   the npm preflight was selected:
+
+   ```html
+   <div id="viceme-engagement"></div>
+   <script type="module">
+     import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
+     import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js";
+     import { createTip } from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js";
+
+     const target = document.querySelector("#viceme-engagement");
+     if (!target) throw new Error("ViceMe engagement target is missing");
+
+     const client = createViceMe({ workKey: "wrk_test_...", region: "cn" });
+     await client.ready();
+     const danmakuHandle = await mountDanmaku(client, {
+       target,
+       theme: "auto",
+     });
+     const tip = createTip(client);
+     const config = await tip.getConfig();
+     renderTipControls(config, (selection) => tip.open(selection));
+
+     function destroyViceMeEngagement() {
+       tip.destroy();
+       danmakuHandle.destroy();
+       client.destroy();
+     }
+   </script>
+   ```
+
+   Keep every returned handle/controller with the owning instance. In a real
+   SPA, component, or route unmount, run `destroyViceMeEngagement()` so mounts
+   or Headless Tip are destroyed before `client.destroy()`. Do not use
+   `pagehide`, which also fires for bfcache.
+10. Preserve CSP and any nonce. Verify desktop plus 320px width. Confirm both
+   capabilities mount, a failure in one does not remove the other, host controls
+   remain clickable, danmaku persists, and Tip is keyboard reachable. Tip
+   visitors do not sign in to ViceMe. The browser source is recorded as an
+   unverified Origin unless optional trusted attribution exists; that does not
+   gate a tip.
+11. Show the SANDBOX evidence and obtain explicit user confirmation before
+   replacing every selected route's test key with `keys.live`
+   (`wrk_live_...`) in the single `createViceMe` call. Do not change imports or
+   mount the official Tip UI on the Headless route. A production key cannot
+   simulate payment.
 
 ## Constraints
 
-- Work ID is internal resource identity; `workKey` is the only public loader
-  identity.
-- Profile market region controls `cn` versus `global`; page locale does not.
-- Do not call Shop APIs outside the CLI, write database state, copy runtime
-  source, or place credentials in page attributes.
-- Report public resource IDs, checks, responsive coverage, and unverified real
-  payment boundaries without exposing secrets or DNS challenge values.
+- Work ID is internal resource identity. Both Work keys are permanent public
+  identifiers, not credentials.
+- The verified Website Origin remains mandatory for danmaku in this combined
+  flow. It is not a Tip payment gate.
+- Profile market region controls runtime selection; the first open-tip release
+  supports CN/CNY. Page locale does not select a market.
+- Do not call Shop payment APIs, inspect raw payment state, or put credentials
+  in page code.
+- Report public resource IDs and keys, checks, responsive coverage, SANDBOX
+  evidence, and unverified real-payment boundaries without exposing secrets or
+  DNS challenge values.
+
+## Recovery
+
+- On a lost create/update response, read the same SDK access before retrying.
+- On conflict, read the latest exact `configVersion`; never guess or split the
+  combined feature update.
+- If integration cannot be completed after a server write, read the latest
+  version and restore the complete pre-change feature set in one update. If the
+  resource was previously disabled, disable it again after restoring its
+  features; if it was absent, disable the newly created resource. Permanent
+  test/live keys do not rotate during rollback.

@@ -36,7 +36,7 @@
 | --- | --- |
 | 发布 Skill | 校验本地 Skill 目录或 ZIP、设置人民币价格、上传、审核平台建议，并发布付费商品。 |
 | 发布网站 | 使用稳定 Website Work 身份登记创作者网站并完成 DNS 所有权验证。 |
-| 接入网站互动 | 通过 Work SDK access、绑定 Origin 的 Website Widget 与官方 loader 接入托管弹幕和赞赏。 |
+| 接入互动 | 使用 Work 永久公开的测试/正式 key，通过官方或 Headless SDK 接入托管弹幕与开放赞赏。 |
 | 配置 Agent | 把 CLI 与官方 Skills 作为同一个兼容版本安装、登录、更新、诊断和修复。 |
 | 安全恢复 | 网络或进程中断后继续原发布任务，不重复上传和创建商品。 |
 
@@ -153,8 +153,8 @@ npx --yes @viceme-ai/cli@latest install
 | `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
 | `viceme-publish` | 发布可下载 Skill、创作者网站 Work，或把当前用户拥有的商家服务与实物定义引导为可选的公开 Product 和自动生成的购买 Skill。 |
 | `viceme-danmaku` | 验证 Website Work、启用弹幕 SDK access，并安装官方托管 loader。 |
-| `viceme-tip` | 验证 Website Work、激活绑定 Origin 的 Website Widget，并把托管赞赏接入页面。 |
-| `viceme-engagement` | 在同一个 Website Work 上启用弹幕与赞赏，并安装唯一的组合官方 loader。 |
+| `viceme-tip` | 为任意已发布 Merchant Work 启用开放赞赏，先用沙箱 key 验收，再选择官方或 Headless UI。 |
+| `viceme-engagement` | 保留弹幕的 Website 验证要求，通过精确版本 ESM mount 在同一 Work 上选择官方或 Headless 赞赏 UI。 |
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
 可以解释每一步决策，而相同的命令契约仍可在终端或自动化中复现。
@@ -245,12 +245,15 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme merchant accounts` | 列出当前 User 通过 OWNER 成员关系经营的普通 MerchantAccount。 |
 | `viceme merchant work ...` | 创建、查看、更新和发布 Merchant Work，包括 Website Work。 |
 | `viceme merchant work website-verification ...` | 创建、查看、验证或撤销一个 Website Work 的 DNS 所有权。 |
-| `viceme merchant work sdk-access ...` | 创建、查看、完整替换、列出或禁用 Work 的 `danmaku` 与 `tip` access。 |
-| `viceme merchant commerce-application ...` | 创建、查看、更新、激活或暂停绑定 Origin 的 Website Widget application。 |
+| `viceme merchant work sdk-access ...` | 创建、查看、完整替换、列出或禁用 Work 的 `danmaku` 与 `tip` access。创建会返回永久公开、并非凭据的 `keys.test` 与 `keys.live`。 |
+| `viceme merchant commerce-application ...` | 管理 Commerce Application；对于开放赞赏，匹配的应用只是可选可信来源归因，不是授权门禁。 |
 | `viceme merchant product ...` | 创建、编译、激活、暂停或归档 Product 及其生成的购买 Skill。 |
 | `viceme commerce ...` | 安装并运行签名购买 Skill，完成会话、报价、支付订单与同会话状态查询。 |
 
 运行 `viceme <command> --help` 查看完整参数和 JSON 字段。
+
+没有匹配可选可信来源归因时，ViceMe 仍会把实际浏览器来源记录为未验证 Origin，
+不会因此拒绝开放赞赏。
 
 ## 输出与更新
 

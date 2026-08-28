@@ -102,6 +102,67 @@ func TestMerchantEngagementCommandTreeReplacesLegacyRoots(t *testing.T) {
 			}
 		}
 	}
+	sdkAccess, _, findErr := root.Find(strings.Fields("merchant work sdk-access"))
+	if findErr != nil {
+		t.Fatal(findErr)
+	}
+	for _, child := range sdkAccess.Commands() {
+		if child.Name() == "rotate" {
+			t.Fatal("Work SDK access keys are permanent; rotate command must not exist")
+		}
+	}
+}
+
+func TestMerchantWorkSdkAccessOutputMarksKeysAsPublicIdentifiers(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/v1/cli/auth/status":
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"authenticated": true,
+				"user": map[string]any{
+					"id": "44444444-4444-4444-8444-444444444444", "displayName": "Merchant", "avatarUrl": nil,
+				},
+				"scopes": []string{"merchant-commerce:read"}, "expiresAt": "2027-08-21T00:00:00Z",
+			})
+		case "/v1/cli/merchant/works/" + merchantEngagementWorkID + "/sdk-access":
+			_, _ = io.WriteString(writer, `{
+  "workId": "`+merchantEngagementWorkID+`",
+  "keys": {
+    "test": "wrk_test_permanent_access",
+    "live": "wrk_live_permanent_access"
+  },
+  "status": "ACTIVE",
+  "configVersion": 1,
+  "features": ["tip"],
+  "createdAt": "2026-08-27T10:00:00Z",
+  "updatedAt": "2026-08-27T10:00:00Z"
+}`)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.String())
+		}
+	}))
+	defer server.Close()
+
+	exit, rawOutput := executeMerchantEngagementCommand(t, server, []string{
+		"merchant", "work", "sdk-access", "get", merchantEngagementWorkID,
+		"--merchant", merchantEngagementMerchantID,
+	})
+	if exit != 0 {
+		t.Fatalf("sdk-access get failed: exit=%d output=%s", exit, rawOutput)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal([]byte(rawOutput), &envelope); err != nil {
+		t.Fatalf("decode output: %v\n%s", err, rawOutput)
+	}
+	data, ok := envelope["data"].(map[string]any)
+	if !ok || data["keyUsage"] != "PUBLIC_IDENTIFIER_NOT_CREDENTIAL" {
+		t.Fatalf("SDK key classification is missing from CLI output: %#v", envelope)
+	}
+	keys, ok := data["keys"].(map[string]any)
+	if !ok || keys["test"] != "wrk_test_permanent_access" || keys["live"] != "wrk_live_permanent_access" {
+		t.Fatalf("SDK key pair is missing from CLI output: %#v", envelope)
+	}
 }
 
 func TestMerchantEngagementCommandsCheckScopesBeforeBusinessRequests(t *testing.T) {

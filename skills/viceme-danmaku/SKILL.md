@@ -24,8 +24,17 @@ API-client, or persistence code. Read [cdn-sdk.md](references/cdn-sdk.md) first.
    state.
 4. Run `viceme --profile <profile> merchant work list --merchant <merchant-id>`.
    Reuse a Website Work only when its `website.canonicalOrigin` exactly equals
-   the deployed Origin. Otherwise use this strict request, filling only
-   observed content:
+   the deployed Origin. For an exact existing Work, immediately run `viceme
+   --profile <profile> merchant work sdk-access get <work-id> --merchant
+   <merchant-id>` before any Work repair or other write. If its feature snapshot
+   contains `tip`, stop this standalone flow before any Work creation, update,
+   Website verification, publication, SDK access write, or page edit and load
+   `viceme-engagement`. That combined Skill owns the CN boundary, complete
+   dual-region Tip release preflight, Work repair, and one full-set access
+   update; never preserve or re-enable `tip` from this flow.
+
+   When no exact Work exists, use this strict request, filling only observed
+   content:
 
    ```json
    {
@@ -95,19 +104,23 @@ API-client, or persistence code. Read [cdn-sdk.md](references/cdn-sdk.md) first.
    update. If it is `SUSPENDED` or `ARCHIVED`, stop and report it instead of
    silently reviving it or creating a duplicate. Never reuse or guess a stale
    revision.
-7. Read `merchant work sdk-access get <work-id> --merchant <merchant-id>`.
-   Create it with `--feature danmaku` when absent. When it exists, update with
-   its current `configVersion` and the full desired feature set, preserving
-   `tip` if already enabled. Do not interpret update as an incremental append.
+7. For a newly created Work, read `merchant work sdk-access get <work-id>
+   --merchant <merchant-id>` now. For a reused Work, refresh the non-Tip access
+   snapshot read before repair. If either current snapshot now contains `tip`,
+   stop before the SDK access write and load `viceme-engagement`; do not replace
+   a concurrent Tip feature. Otherwise create access with `--feature danmaku`
+   when absent, or update from the current `configVersion` with only the complete
+   non-Tip desired feature set. Do not interpret update as an incremental
+   append.
 8. Insert one loader tag using the selected Profile's exact `webBaseUrl`, the
-   returned public `workKey`, and the Profile's `marketRegion` (`cn` or
-   `global`):
+   returned public `keys.live` identifier, and the Profile's
+   `marketRegion` (`cn` or `global`):
 
    ```html
    <script
      defer
      src="<web-base-url>/viceme-sdk/v1/viceme.min.js"
-     data-viceme-work="<work-key>"
+     data-viceme-work="<production-work-key>"
      data-viceme-region="<cn-or-global>"
      data-viceme-features="danmaku"
      data-viceme-target="body"
@@ -125,10 +138,12 @@ API-client, or persistence code. Read [cdn-sdk.md](references/cdn-sdk.md) first.
 
 ## Boundaries
 
-- `workKey` is public and opaque. Never replace it with a Work UUID, Merchant
-  ID, Product ID, slug, token, or credential.
+- `keys.live` and `keys.test` are permanent public identifiers, not
+  credentials. Use production for the deployed danmaku page and never replace
+  it with a Work UUID, Merchant ID, Product ID, slug, or token.
 - The Website Work owns identity and verified Origin. SDK access only enables
   hosted features; it is not a login, entitlement, or payment policy.
-- Tipping is handled by `viceme-tip`. Preserve it when updating shared access.
+- Tipping is handled by `viceme-tip` or `viceme-engagement`. Never preserve or
+  re-enable it from this standalone flow.
 - Report changed files, public Work ID/key, checks, and unverified runtime
   boundaries. Never report credentials or DNS challenge values.

@@ -23,7 +23,8 @@ application IDs, or payment state through attributes.
 
 A danmaku page is usable only when the Website Work is `PUBLISHED`, website
 ownership is `VERIFIED`, and active SDK access contains `danmaku`. The public
-`workKey` comes only from that access resource.
+production Work key comes only from `keys.live` on that access resource.
+Both environment keys are permanent public identifiers, not credentials.
 
 ## Runtime
 

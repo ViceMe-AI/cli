@@ -11,7 +11,16 @@ activation from conversation text alone.
 
 ## Route the request first
 
-Identify what the buyer receives before creating anything:
+Before selecting any publication route, inspect the original request for tips.
+If tips are requested, load `viceme-tip` and complete its exact Tip release
+preflight before any Listing, Publication, Work, Product, Website verification,
+SDK access, or host write. For a Website request that also includes danmaku,
+load `viceme-engagement` instead. Return here only after the preflight succeeds,
+finish the selected publication route, then resume that integration Skill. This
+ordering applies equally to Skill packages, generic offerings, and Websites. A
+danmaku-only request may publish first and then load `viceme-danmaku`.
+
+Then identify what the buyer receives before creating anything:
 
 - A local AI Skill directory or ZIP whose bytes are the sold deliverable: read
   [workflow.md](references/workflow.md) completely and use the existing
@@ -25,9 +34,7 @@ Identify what the buyer receives before creating anything:
   real Work, even though the generated purchase entrance is itself a Skill.
 - A creator-owned website: read
   [website-workflow.md](references/website-workflow.md) completely and create a
-  verified Website Work. Publish no Product. When the user also requests hosted
-  tips or danmaku, finish publication first and then use the corresponding
-  integration Skill.
+  verified Website Work. Publish no Product.
 
 If the buyer outcome is ambiguous, ask one concise question that distinguishes
 “download these Skill/source bytes” from “receive this service or item.” Do not

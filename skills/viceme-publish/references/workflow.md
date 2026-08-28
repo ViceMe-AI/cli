@@ -2,6 +2,14 @@
 
 All commands emit one JSON envelope on stdout. Progress belongs on stderr.
 
+## Requested Tip preflight
+
+When the original request also includes tips, load `viceme-tip` and complete its
+exact Tip release preflight before running `skill publish --path` or performing
+any Listing, Publication, Work, SDK access, or host write. If preflight fails,
+stop with no new publication state. Return here only after it succeeds, finish
+publication, then resume `viceme-tip` against the published Merchant Work.
+
 ## Required inputs
 
 - Root `SKILL.md` with non-empty `name` and `description` frontmatter.

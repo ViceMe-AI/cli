@@ -1,4 +1,4 @@
 interface:
   display_name: "Integrate ViceMe Tips"
-  short_description: "Bind a creator work and add hosted tips"
-  default_prompt: "Use $viceme-tip to connect this creator page to ViceMe tips."
+  short_description: "Enable open tips for a public creator Work"
+  default_prompt: "Use $viceme-tip to enable tips for this Work and integrate the official or Headless UI."
