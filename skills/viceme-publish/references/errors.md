@@ -3,6 +3,7 @@
 - `SKILL_PUBLICATION_PRICE_REQUIRED`：取得并展示当前完整上架信息，同时询问准确人民币分价以及希望修改的标题、文案或媒体。不得只问价格。继续同一私有 Publication。
 - `SKILL_SECRET_DETECTED` 或 `SKILL_SENSITIVE_FILE`：停止并从包中删除凭证或敏感文件，绝不打印内容。
 - `PUBLICATION_SOURCE_CHANGED`：恢复包与开始发布时不同；恢复原包或开始新的发布。
+- `OAUTH_PROVIDER_NOT_CONFIGURED`：当前部署没有接好对应的外部账号登录，确定性重试不会恢复。立即结束本次任务，不得 sleep、轮询、再次运行渠道命令，也不得继续追问是否切换来源。中文只说“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布”。用户之后主动提供本地目录或 ZIP 时，再按新的正式发布请求开始处理。
 - `SKILL_PUBLICATION_REVIEW_CHANGED`：获取并展示最新预览，针对新 digest 重新取得“确认并发布”授权。
 - `SKILL_LISTING_MEDIA_REQUIRED`：上传真实封面和图库图片，获取新预览，再提交新的 Agent 建议。只有已明确选择平台分析兜底时才重试该兜底。
 - `SKILL_LISTING_DRAFT_CHANGED`：获取最新权威预览，根据其 `draftRevision` 重新生成 Agent 建议，不得重放旧建议。

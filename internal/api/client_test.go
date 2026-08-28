@@ -268,6 +268,26 @@ func TestClientPreservesCanonicalServerError(t *testing.T) {
 	}
 }
 
+func TestClientDoesNotRetryMissingOAuthConfiguration(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(writer, `{"statusCode":503,"code":"OAUTH_PROVIDER_NOT_CONFIGURED","message":"GITHUB OAuth is not configured"}`)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "")
+	_, err := client.StartGithubChannel(context.Background(), "11111111-1111-4111-8111-111111111111")
+	var cliError *output.Error
+	if !errors.As(err, &cliError) {
+		t.Fatalf("expected typed error, got %T: %v", err, err)
+	}
+	if cliError.Subtype != "OAUTH_PROVIDER_NOT_CONFIGURED" || cliError.Retryable {
+		t.Fatalf("missing OAuth configuration was treated as retryable: %#v", cliError)
+	}
+}
+
 func TestPutUploadRejectsRedirectAndInsecureRemoteURL(t *testing.T) {
 	t.Parallel()
 	client := NewClient("https://api.viceme.ai", nil, nil, "")

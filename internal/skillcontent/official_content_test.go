@@ -352,6 +352,53 @@ func TestCoreSkillsKeepInternalToolNamesOutOfUserFacingProgress(t *testing.T) {
 	}
 }
 
+func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
+	t.Parallel()
+
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	for _, required := range []string{
+		"在读取任何仓库内容或执行发布命令前",
+		"viceme merchant channel github <merchant-id>",
+		"使用 WorkBuddy 内置 `present_files` 在当前任务浏览器打开",
+		"绝不能使用 `curl`、`gh`、`git`、WebFetch、浏览器抓取或 raw GitHub URL 代替这一步",
+		"用户未指定分支时省略 `--github-ref`",
+		"不得读取仓库后自行编造这些参数",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("publish GitHub workflow omitted guard %q", required)
+		}
+	}
+
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/errors.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	errorsText := string(errorsContent)
+	for _, required := range []string{
+		"OAUTH_PROVIDER_NOT_CONFIGURED",
+		"确定性重试不会恢复",
+		"不得 sleep、轮询、再次运行渠道命令",
+		"不得继续追问是否切换来源",
+	} {
+		if !strings.Contains(errorsText, required) {
+			t.Fatalf("publish error contract omitted OAuth configuration guard %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"可以询问是否改用本地文件",
+		"是否改用本地目录",
+		"是否改用 ZIP",
+	} {
+		if strings.Contains(errorsText, forbidden) {
+			t.Fatalf("publish error contract must end immediately instead of inviting source fallback %q", forbidden)
+		}
+	}
+}
+
 func TestPublishDelegatesCreatorQualification(t *testing.T) {
 	t.Parallel()
 	for _, relativePath := range []string{

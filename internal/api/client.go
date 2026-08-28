@@ -1052,7 +1052,7 @@ func decodeServerError(status int, data []byte, headerRequestID string) error {
 	if cliError.RequestID == "" {
 		cliError.RequestID = headerRequestID
 	}
-	cliError.Retryable = status == http.StatusTooManyRequests || status >= 500
+	cliError.Retryable = (status == http.StatusTooManyRequests || status >= 500) && code != "OAUTH_PROVIDER_NOT_CONFIGURED"
 	if validAPIRecoveryReference(serverError.Recovery) {
 		cliError.Details = map[string]any{"recovery": *serverError.Recovery}
 	}
