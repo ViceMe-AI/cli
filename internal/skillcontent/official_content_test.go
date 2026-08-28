@@ -384,12 +384,60 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		"需要重新登录，我现在为你打开登录页面。",
 		"请在右侧完成登录，完成后我会自动继续。",
 		"登录完成，我继续确认创作者资格。",
-		"允许为读取同一个等待式登录进程使用 Bash 后台执行和 `TaskOutput`",
+		"保存返回的 `task_id`",
+		"`present_files` 返回也不代表登录完成",
+		"`TaskOutput(task_id=<同一个任务>, timeout=180000)`",
+		"只要任务仍在运行，就不得结束当前回合、给出最终答复",
+		"不能把一次 `TaskOutput` 的读取超时当成登录流程完成",
 		"不得编造路径或用户名",
 	} {
 		if !strings.Contains(onboardingText, required) {
 			t.Fatalf("creator onboarding omitted guided blocking-step contract %q", required)
 		}
+	}
+	waitStages := []string{
+		"后台启动一次 `viceme auth login`",
+		"用一次短时 `TaskOutput`",
+		"立即用内置 `present_files`",
+		"页面打开后立即说",
+		"必须立刻再次调用 `TaskOutput",
+		"继续对同一个 `task_id` 调用 `TaskOutput`",
+		"只有登录命令成功返回后",
+	}
+	previousWaitStage := -1
+	for _, stage := range waitStages {
+		current := strings.Index(onboardingText, stage)
+		if current < 0 {
+			t.Fatalf("creator onboarding omitted deterministic login wait stage %q", stage)
+		}
+		if current <= previousWaitStage {
+			t.Fatalf("creator onboarding login wait stage %q is out of order", stage)
+		}
+		previousWaitStage = current
+	}
+
+	shared, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-shared/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharedText := string(shared)
+	for _, required := range []string{
+		"`TaskOutput(task_id=<同一个任务>, timeout=180000)`",
+		"发送提示不等于继续等待",
+		"只要它仍在运行，就不得结束当前回合、给出最终答复",
+		"一次 `TaskOutput` 的读取超时不是登录失败",
+	} {
+		if !strings.Contains(sharedText, required) {
+			t.Fatalf("shared skill omitted deterministic login wait contract %q", required)
+		}
+	}
+
+	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(publish), "它仍在等待登录时，本发布流程不得结束当前回合或给出最终答复") {
+		t.Fatal("publish skill may finish while creator onboarding is still waiting for login")
 	}
 
 	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/workflow.md")
