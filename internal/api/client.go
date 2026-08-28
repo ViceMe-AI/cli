@@ -119,6 +119,13 @@ func (c *Client) StartGithubChannel(ctx context.Context, merchantAccountID strin
 	return response, err
 }
 
+func (c *Client) GetGithubChannelStatus(ctx context.Context, merchantAccountID, attemptID string) (GithubAuthorizationStatus, error) {
+	var response GithubAuthorizationStatus
+	endpoint := "/v1/cli/merchant/channels/github/status?merchantAccountId=" + url.QueryEscape(merchantAccountID) + "&attemptId=" + url.QueryEscape(attemptID)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) StartXiaohongshuMerchantClaim(ctx context.Context, merchantAccountID, accountName string, profileURL *string) (MerchantOnboarding, error) {
 	var response MerchantOnboarding
 	payload := map[string]any{"merchantAccountId": merchantAccountID, "publicAccountName": accountName, "profileUrl": profileURL}

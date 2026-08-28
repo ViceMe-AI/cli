@@ -91,7 +91,12 @@ type CurrentMerchantOnboarding struct {
 type GithubAuthorizationStart struct {
 	Kind             string              `json:"kind"`
 	AuthorizationURL *string             `json:"authorizationUrl"`
+	AttemptID        *string             `json:"attemptId"`
 	Onboarding       *MerchantOnboarding `json:"onboarding,omitempty"`
+}
+
+type GithubAuthorizationStatus struct {
+	Kind string `json:"kind"`
 }
 
 type MerchantAccountsResponse struct {

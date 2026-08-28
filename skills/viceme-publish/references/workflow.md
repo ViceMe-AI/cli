@@ -41,7 +41,7 @@ viceme skill publish --xiaohongshu-skill-id <id> ...edition flags...
 viceme skill publish --xiaohongshu-search <name-or-id> ...edition flags...
 ```
 
-GitHub 来源在读取任何仓库内容或执行发布命令前，必须先运行一次 `viceme merchant channel github <merchant-id>`。返回 `kind=verified` 时直接继续；返回授权链接时，立即使用 WorkBuddy 内置 `present_files` 在当前任务浏览器打开，页面打开后、等待前马上说“请在右侧完成 GitHub 授权，完成后我会自动继续。”，然后等待用户在页面完成 GitHub 登录。不得要求用户回复“完成了”，也不得创建任务列表。页面明确完成后只重试一次同一渠道命令；第二次仍未验证就停止，不轮询、不 sleep、不启动后台任务。公开仓库可匿名读取不代表当前用户拥有它，绝不能使用 `curl`、`gh`、`git`、WebFetch、浏览器抓取或 raw GitHub URL 代替这一步，也不要运行 `skill publish --help` 猜测流程。
+GitHub 来源在读取任何仓库内容或执行发布命令前，必须只启动一次等待式 `viceme merchant channel github <merchant-id>`。在 WorkBuddy 中用 Bash 后台启动并保存 `task_id`，再用一次短时 `TaskOutput` 读取当前命令输出的完整授权链接；立即使用内置 `present_files` 在当前任务浏览器打开同一个链接。页面打开后、等待前马上说“请在右侧完成 GitHub 授权，完成后我会自动继续。如果右侧不方便，也可以在外部浏览器打开下面这个链接：”，然后另起一行原样输出当前命令实际返回的完整 `https://` 链接。提示发出后必须立刻调用 `TaskOutput(task_id=<同一个任务>, timeout=180000)`；只要命令仍在运行，就继续读取同一个 `task_id`，不得结束当前回合。不得要求用户回复“完成了”。命令成功返回 `kind=verified` 后立即继续发布；明确失败或自身有界等待超时才停止。不得再次运行渠道命令、轮询状态、`sleep` 或启动另一后台任务，也不得创建任务列表。公开仓库可匿名读取不代表当前用户拥有它，绝不能使用 `curl`、`gh`、`git`、WebFetch、浏览器抓取或 raw GitHub URL 代替这一步，也不要运行 `skill publish --help` 猜测流程。
 
 渠道命令返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时，立即结束整个任务。最终答复只能是“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布。”这一句话，不得附加资格摘要、商家名称、替代来源、以后如何继续、下载到本地、目录、ZIP、绕过办法或问题。
 

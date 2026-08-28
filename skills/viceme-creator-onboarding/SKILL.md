@@ -13,6 +13,7 @@ description: 申请或认领 ViceMe 创作者身份，并处理已有申请和�
 - 严格按“检查登录 → 必要时完成一次登录 → 检查已有创作者资格 → 必要时读取已有申请 → 申请或认领”的顺序执行。任何一步未完成都不提前展开后续步骤，不并行运行这些检查。
 - 由发布等原任务调用时，原任务已经说明“正在检查登录和创作者资格”，本 Skill 不重复开场。只在需要用户操作、等待人工审核、发生可处理阻断或返回原任务时发送一句简短提示。
 - 同一阶段只做必要的确定性读取或写入，不读取无关说明、不运行帮助命令、不重复查询。普通检查完成后立即进入下一步，不生成长篇总结。
+- 只要使用 `present_files` 在右侧浏览器打开需要用户操作的登录或授权页面，同一条用户提示里必须同时给出该次返回的完整可点击链接，作为外部浏览器备用入口。链接必须来自当前命令输出，不得重建、缩短或复用旧链接。
 
 ## 检查当前资格
 
@@ -21,7 +22,7 @@ description: 申请或认领 ViceMe 创作者身份，并处理已有申请和�
    1. 用 Bash 后台启动一次 `viceme auth login`，保存返回的 `task_id`。
    2. 用一次短时 `TaskOutput` 读取这个任务首次输出的完整登录链接。
    3. 立即用内置 `present_files` 在当前任务浏览器打开链接；`cwd` 必须使用当前任务真实工作目录，不得编造路径或用户名。
-   4. 页面打开后立即说“请在右侧完成登录，完成后我会自动继续。”
+   4. 页面打开后立即说“请在右侧完成登录，完成后我会自动继续。如果右侧不方便，也可以在外部浏览器打开下面这个链接：”，然后另起一行原样输出第 2 步当前命令实际返回的完整 `http://` 或 `https://` 链接。
    5. 提示发送后，必须立刻再次调用 `TaskOutput(task_id=<同一个任务>, timeout=180000)`。发送提示不等于继续等待，`present_files` 返回也不代表登录完成。
    6. 如果这个 `TaskOutput` 仍显示任务正在运行，就继续对同一个 `task_id` 调用 `TaskOutput`；只要任务仍在运行，就不得结束当前回合、给出最终答复或要求用户回复“已经登录”。
    7. 只有登录命令成功返回后，才说“登录完成，我继续确认创作者资格。”，再运行一次 `viceme auth status`，确认还是同一用户且四项权限齐全；仍不满足就停止并用白话说明登录没有取得所需权限。
@@ -56,7 +57,7 @@ viceme merchant onboarding apply --display-name <公开名称> --handle <主页�
 只有用户从平台认领入口进入或已经给出准确的商家目标时才走认领；不得按名称搜索并猜测目标。
 
 - 先运行 `viceme merchant onboarding status --merchant <merchant-account-id>`，只使用平台配置的主认领渠道。
-- GitHub 目标运行 `viceme merchant onboarding claim-github <merchant-account-id>`。返回授权链接时，在 WorkBuddy 当前任务浏览器中打开；不得改用另一个 GitHub 账号或把公开仓库可读当作所有权。浏览器结果页明确显示授权完成后，只运行一次 `viceme merchant onboarding status --merchant <merchant-account-id>`；只有响应同时给出 `nextAction=PUBLISH`，并确认该商家已归当前用户所有，才交回原任务。结果仍未完成或授权失败时停止，不轮询。
+- GitHub 目标运行 `viceme merchant onboarding claim-github <merchant-account-id>`。返回授权链接时，在 WorkBuddy 当前任务浏览器中打开，并在同一条提示中给出当前返回的完整可点击链接作为外部浏览器备用入口；不得改用另一个 GitHub 账号或把公开仓库可读当作所有权。浏览器结果页明确显示授权完成后，只运行一次 `viceme merchant onboarding status --merchant <merchant-account-id>`；只有响应同时给出 `nextAction=PUBLISH`，并确认该商家已归当前用户所有，才交回原任务。结果仍未完成或授权失败时停止，不轮询。
 - 小红书目标收集公开账号名称和可选主页链接，运行 `viceme merchant onboarding claim-xiaohongshu <merchant-account-id> --account-name <公开账号名称> [--profile-url <主页链接>]`，再让用户提供能证明账号归属的截图。使用返回的申请编号和 `lockVersion` 运行一次 `viceme merchant onboarding evidence <onboarding-id> --path <截图路径> --lock-version <当前版本>`；读取证据上传响应中的新 `lockVersion`，再运行一次 `viceme merchant onboarding submit <onboarding-id> --lock-version <新版本>`。
 - 渠道验证只能证明外部账号归属。只有平台确认当前用户成为该商家的 OWNER 后，才算具备创作权限。
 

@@ -1,9 +1,15 @@
 package command
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
 	"os"
 	"strings"
+	"time"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -166,9 +172,13 @@ func newMerchantOnboardingSubmitCommand(runtime *Runtime) *cobra.Command {
 
 func newMerchantChannelCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "channel", Short: "Authorize a source channel for an owned Merchant"}
-	command.AddCommand(&cobra.Command{
+	var timeout time.Duration
+	github := &cobra.Command{
 		Use: "github <merchant-id>", Short: "Authorize the Merchant's personal GitHub account", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			if timeout <= 0 {
+				return output.Validation("timeout", "--timeout must be greater than zero")
+			}
 			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
 				return err
 			}
@@ -176,11 +186,81 @@ func newMerchantChannelCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return runtime.business(result)
+			if result.Kind == "verified" {
+				return runtime.business(result)
+			}
+			if result.Kind != "authorization" || result.AuthorizationURL == nil || strings.TrimSpace(*result.AuthorizationURL) == "" || result.AttemptID == nil || strings.TrimSpace(*result.AttemptID) == "" {
+				return output.Internal("GITHUB_AUTHORIZATION_RESPONSE_INVALID", "ViceMe API returned an incomplete GitHub authorization", nil)
+			}
+			writeHumanGithubChannelStart(runtime.deps.ErrOut, *result.AuthorizationURL)
+			return finishGithubChannelAuthorization(command.Context(), runtime, runtime.client(), args[0], *result.AttemptID, timeout, 2*time.Second)
 		},
-	})
+	}
+	github.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "maximum time to wait for GitHub authorization")
+	command.AddCommand(github)
 	command.AddCommand(newMerchantXiaohongshuChannelCommand(runtime))
 	return command
+}
+
+func writeHumanGithubChannelStart(writer io.Writer, authorizationURL string) {
+	_, _ = fmt.Fprintln(writer, "Open this one-time URL in your browser to authorize GitHub:")
+	_, _ = fmt.Fprintf(writer, "\n  %s\n\n", authorizationURL)
+	_, _ = fmt.Fprintln(writer, "ViceMe will continue automatically after GitHub authorization.")
+	_, _ = fmt.Fprintln(writer, "Waiting for authorization...")
+}
+
+func finishGithubChannelAuthorization(ctx context.Context, runtime *Runtime, client *api.Client, merchantAccountID, attemptID string, timeout, interval time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	if interval < time.Second {
+		interval = time.Second
+	}
+	for {
+		status, err := client.GetGithubChannelStatus(ctx, merchantAccountID, attemptID)
+		if err != nil {
+			if contextErr := githubAuthorizationContextError(ctx); contextErr != nil {
+				return contextErr
+			}
+			return err
+		}
+		switch status.Kind {
+		case "verified":
+			return runtime.business(api.GithubAuthorizationStart{Kind: "verified", AuthorizationURL: nil})
+		case "pending":
+			if sleepErr := runtime.deps.Sleep(ctx, interval); sleepErr != nil {
+				if contextErr := githubAuthorizationContextError(ctx); contextErr != nil {
+					return contextErr
+				}
+				return sleepErr
+			}
+		case "denied":
+			return output.Authorization("GITHUB_AUTHORIZATION_DENIED", "GitHub authorization was denied")
+		case "permissions":
+			return output.Authorization("GITHUB_REPOSITORY_PERMISSION_REQUIRED", "GitHub repository access was not granted")
+		case "conflict":
+			return output.Policy("GITHUB_AUTHORIZATION_CONFLICT", "This GitHub account cannot be linked to the merchant")
+		case "expired":
+			expired := output.Authorization("GITHUB_AUTHORIZATION_EXPIRED", "GitHub authorization expired before it was completed")
+			expired.Retryable = true
+			expired.Hint = "run the same GitHub channel authorization command again to start a fresh one-time URL"
+			return expired
+		default:
+			return output.Internal("GITHUB_AUTHORIZATION_STATUS_INVALID", "ViceMe API returned an invalid GitHub authorization status", nil)
+		}
+	}
+}
+
+func githubAuthorizationContextError(ctx context.Context) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		pending := output.Authorization("GITHUB_AUTHORIZATION_PENDING", "GitHub authorization is still pending")
+		pending.Retryable = true
+		pending.Hint = "run the same GitHub channel authorization command again to start a fresh one-time URL"
+		return pending
+	}
+	if errors.Is(ctx.Err(), context.Canceled) {
+		return output.Authorization("GITHUB_AUTHORIZATION_CANCELLED", "GitHub authorization was cancelled")
+	}
+	return nil
 }
 
 func newMerchantXiaohongshuChannelCommand(runtime *Runtime) *cobra.Command {
