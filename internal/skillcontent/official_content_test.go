@@ -354,6 +354,7 @@ func TestCoreSkillsKeepInternalToolNamesOutOfUserFacingProgress(t *testing.T) {
 
 func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 	t.Parallel()
+	const terminalReply = "最终答复只能是“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布。”这一句话"
 
 	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/workflow.md")
 	if err != nil {
@@ -367,6 +368,7 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 		"绝不能使用 `curl`、`gh`、`git`、WebFetch、浏览器抓取或 raw GitHub URL 代替这一步",
 		"用户未指定分支时省略 `--github-ref`",
 		"不得读取仓库后自行编造这些参数",
+		terminalReply,
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("publish GitHub workflow omitted guard %q", required)
@@ -383,6 +385,7 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 		"确定性重试不会恢复",
 		"不得 sleep、轮询、再次运行渠道命令",
 		"不得继续追问是否切换来源",
+		terminalReply,
 	} {
 		if !strings.Contains(errorsText, required) {
 			t.Fatalf("publish error contract omitted OAuth configuration guard %q", required)
@@ -392,10 +395,19 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 		"可以询问是否改用本地文件",
 		"是否改用本地目录",
 		"是否改用 ZIP",
+		"用户之后主动提供本地目录",
 	} {
 		if strings.Contains(errorsText, forbidden) {
 			t.Fatalf("publish error contract must end immediately instead of inviting source fallback %q", forbidden)
 		}
+	}
+
+	skillContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(skillContent), terminalReply) {
+		t.Fatalf("publish entrypoint omitted terminal GitHub configuration reply contract %q", terminalReply)
 	}
 }
 

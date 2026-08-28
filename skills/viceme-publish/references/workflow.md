@@ -30,6 +30,8 @@ viceme skill publish --xiaohongshu-search <name-or-id> ...edition flags...
 
 GitHub 来源在读取任何仓库内容或执行发布命令前，必须先运行一次 `viceme merchant channel github <merchant-id>`。返回 `kind=verified` 时直接继续；返回授权链接时，使用 WorkBuddy 内置 `present_files` 在当前任务浏览器打开，等待用户在页面完成 GitHub 登录后只重试一次同一渠道命令。第二次仍未验证就停止，不轮询、不 sleep、不启动后台任务。公开仓库可匿名读取不代表当前用户拥有它，绝不能使用 `curl`、`gh`、`git`、WebFetch、浏览器抓取或 raw GitHub URL 代替这一步，也不要运行 `skill publish --help` 猜测流程。
 
+渠道命令返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时，立即结束整个任务。最终答复只能是“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布。”这一句话，不得附加资格摘要、商家名称、替代来源、以后如何继续、下载到本地、目录、ZIP、绕过办法或问题。
+
 渠道确认完成后才运行 `skill publish --github ...`，由 CLI 取得归档、验证仓库所有者并检查所选目录中的 `SKILL.md`。用户未指定分支时省略 `--github-ref`，让 CLI 用 `HEAD` 解析默认分支；未指定子目录时也省略 `--github-path`。只有 CLI 报告入口不在根目录时，才请用户给出准确子目录，不得在授权前自行扫描仓库。GitHub 凭证撤销后仍回到同一渠道确认步骤，不得退回匿名读取公开仓库。
 
 GitHub 或小红书来源会把取得的不可变归档保存到 CLI 私有恢复目录，使 `--resume` 不会重新取得不同字节。`--github-path` 选择根目录含 `SKILL.md` 的仓库子目录；服务端先把 ref 解析为不可变 commit，CLI 只打包该目录。小红书名称搜索不得猜测；多个已验证结果匹配时，展示全部候选，再用用户选择的 `--xiaohongshu-skill-id` 重跑。

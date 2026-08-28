@@ -32,11 +32,11 @@
       "embedded_content_digest": "sha256:3021392552af21bb118ad47c4c0423b169181f3d489902e78ea0537c30139250"
     },
     "viceme-publish": {
-      "skill_version": "0.18.1",
+      "skill_version": "0.18.2",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:91ef55ca3a2b6816a57c3d2c1c1d3515a6dd3f4dd3fb53d88110931bfe72ebe3",
-      "embedded_content_digest": "sha256:25bcf577d6882456bb1a07d232cd1826674a5367372cd9293670cb632d500131"
+      "full_skill_bundle_digest": "sha256:ef22625a911c94f6c46d1df170a9d71df21c4369c44bdb228a32413ec40edd29",
+      "embedded_content_digest": "sha256:c10f6fd5b23644136c93a939f03eefcd4e3a92ef09c39cc6aedcf00ce3331f9e"
     },
     "viceme-shared": {
       "skill_version": "0.18.0",
