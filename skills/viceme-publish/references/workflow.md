@@ -4,6 +4,19 @@
 
 所有命令在 stdout 输出一个 JSON envelope，进度写入 stderr。
 
+## 固定发布主线
+
+可下载 Skill 发布严格沿以下主线连续执行，不建立任务列表，也不并行推进不同阶段：
+
+1. `$viceme-creator-onboarding` 确认当前登录和创作者资格。
+2. 按来源完成且只完成必要的渠道确认；GitHub 在读取仓库前确认本人账号，小红书按已验证身份处理，本地包直接进入下一步。
+3. 使用一次 `skill publish` 创建或恢复同一私有草稿并取得真实预览。
+4. 基于预览一次性补齐缺少的价格、文案和媒体；能由当前 Agent 从包内容可靠提出的内容直接形成候选，不做平台分析等待。
+5. 展示完整最终预览，只询问一次是否确认公开发布。
+6. 用户确认后连续完成确认与公开发布，返回公开链接；随后只问一次是否还要增加关联版本。
+
+用户可见提示保持简短且与当前阶段一致：开始时说“我先检查登录和创作者资格。”；账号确认完成后、准备草稿前说“账号已经确认，我正在准备发布预览。”；需要用户登录或授权时先打开页面并立即说明应在右侧完成什么；用户确认最终预览后说“收到，我现在发布。”。同一阶段不为每条命令重复提示，任何等待前不得保持无说明的静默。
+
 ## 必需输入
 
 - 恰好一个来源：根目录含 `SKILL.md` 的本地目录/ZIP、本人 GitHub 仓库，或已验证的小红书 Skill ID。公开 GitHub 仓库也必须验证所有权；私有仓库使用已保存的 OAuth 凭证。不支持组织仓库或只有 collaborator 权限的仓库。
@@ -28,7 +41,7 @@ viceme skill publish --xiaohongshu-skill-id <id> ...edition flags...
 viceme skill publish --xiaohongshu-search <name-or-id> ...edition flags...
 ```
 
-GitHub 来源在读取任何仓库内容或执行发布命令前，必须先运行一次 `viceme merchant channel github <merchant-id>`。返回 `kind=verified` 时直接继续；返回授权链接时，使用 WorkBuddy 内置 `present_files` 在当前任务浏览器打开，等待用户在页面完成 GitHub 登录后只重试一次同一渠道命令。第二次仍未验证就停止，不轮询、不 sleep、不启动后台任务。公开仓库可匿名读取不代表当前用户拥有它，绝不能使用 `curl`、`gh`、`git`、WebFetch、浏览器抓取或 raw GitHub URL 代替这一步，也不要运行 `skill publish --help` 猜测流程。
+GitHub 来源在读取任何仓库内容或执行发布命令前，必须先运行一次 `viceme merchant channel github <merchant-id>`。返回 `kind=verified` 时直接继续；返回授权链接时，立即使用 WorkBuddy 内置 `present_files` 在当前任务浏览器打开，页面打开后、等待前马上说“请在右侧完成 GitHub 授权，完成后我会自动继续。”，然后等待用户在页面完成 GitHub 登录。不得要求用户回复“完成了”，也不得创建任务列表。页面明确完成后只重试一次同一渠道命令；第二次仍未验证就停止，不轮询、不 sleep、不启动后台任务。公开仓库可匿名读取不代表当前用户拥有它，绝不能使用 `curl`、`gh`、`git`、WebFetch、浏览器抓取或 raw GitHub URL 代替这一步，也不要运行 `skill publish --help` 猜测流程。
 
 渠道命令返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时，立即结束整个任务。最终答复只能是“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布。”这一句话，不得附加资格摘要、商家名称、替代来源、以后如何继续、下载到本地、目录、ZIP、绕过办法或问题。
 

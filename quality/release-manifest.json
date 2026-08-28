@@ -11,11 +11,11 @@
       "embedded_content_digest": "sha256:faffe8414043154631eca0773b42c38391c5e60ea71215cbefa6989c43d7f667"
     },
     "viceme-creator-onboarding": {
-      "skill_version": "0.18.1",
+      "skill_version": "0.18.2",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:49feda0a722095d999f081cf8d7709446228aba7df3ca792447c82ca4377d699",
-      "embedded_content_digest": "sha256:0d1ffa695045954dc0842c8f7046eea1e6ef2d938769b7a13409154a62b035ec"
+      "full_skill_bundle_digest": "sha256:7d31da427905debafd2d7e365235b62e2d00272373f16226a32691783338a18b",
+      "embedded_content_digest": "sha256:717c189b584fd1bb95c9c039e310731e75e276fdc1c1a5674d74a62b11ac55b3"
     },
     "viceme-danmaku": {
       "skill_version": "0.18.0",
@@ -32,18 +32,18 @@
       "embedded_content_digest": "sha256:3021392552af21bb118ad47c4c0423b169181f3d489902e78ea0537c30139250"
     },
     "viceme-publish": {
-      "skill_version": "0.18.2",
+      "skill_version": "0.18.3",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:ef22625a911c94f6c46d1df170a9d71df21c4369c44bdb228a32413ec40edd29",
-      "embedded_content_digest": "sha256:c10f6fd5b23644136c93a939f03eefcd4e3a92ef09c39cc6aedcf00ce3331f9e"
+      "full_skill_bundle_digest": "sha256:59122972236bd07d74b8abaedd1fd46e603e3c5b9f70f3dea6fd7f6f4b2f24ae",
+      "embedded_content_digest": "sha256:f7887a1323eb75c40fa5446c54c2e2dcff4692bea730fac4e3c44a9820c35301"
     },
     "viceme-shared": {
-      "skill_version": "0.18.0",
+      "skill_version": "0.18.1",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:258eb4c09f0911671e8f52c4b303d59b877b92f38d78b2587e4621f1cb2fe193",
-      "embedded_content_digest": "sha256:e90b221ff20c44c9109fd053207e0bd0005e28564bde45466c34fa2506ec4b14"
+      "full_skill_bundle_digest": "sha256:e49d9ca105513310234c5ab75de37c5144c9231df4f0fb8df40be8b8ed578c18",
+      "embedded_content_digest": "sha256:5d638617b34809abe6153f69907f706412b937594b2067a20533ab5df7f1c92e"
     },
     "viceme-skill-use": {
       "skill_version": "0.18.0",

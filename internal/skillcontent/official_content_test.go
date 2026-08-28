@@ -352,6 +352,72 @@ func TestCoreSkillsKeepInternalToolNamesOutOfUserFacingProgress(t *testing.T) {
 	}
 }
 
+func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing.T) {
+	t.Parallel()
+
+	for _, relativePath := range []string{
+		"viceme-shared/SKILL.md",
+		"viceme-creator-onboarding/SKILL.md",
+		"viceme-publish/SKILL.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", relativePath, err)
+		}
+		text := string(content)
+		for _, required := range []string{"不得调用 `TaskCreate`", "`TaskUpdate`", "`TaskList`"} {
+			if !strings.Contains(text, required) {
+				t.Fatalf("embedded %s omitted WorkBuddy task-list guard %q", relativePath, required)
+			}
+		}
+		if !regexp.MustCompile(`不得[^。\n]*计划`).MatchString(text) {
+			t.Fatalf("embedded %s omitted the no-plan-display guard", relativePath)
+		}
+	}
+
+	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-creator-onboarding/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	onboardingText := string(onboarding)
+	for _, required := range []string{
+		"需要重新登录，我现在为你打开登录页面。",
+		"请在右侧完成登录，完成后我会自动继续。",
+		"登录完成，我继续确认创作者资格。",
+		"允许为读取同一个等待式登录进程使用 Bash 后台执行和 `TaskOutput`",
+		"不得编造路径或用户名",
+	} {
+		if !strings.Contains(onboardingText, required) {
+			t.Fatalf("creator onboarding omitted guided blocking-step contract %q", required)
+		}
+	}
+
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowText := string(workflow)
+	stages := []string{
+		"确认当前登录和创作者资格",
+		"按来源完成且只完成必要的渠道确认",
+		"创建或恢复同一私有草稿",
+		"一次性补齐缺少的价格、文案和媒体",
+		"只询问一次是否确认公开发布",
+		"连续完成确认与公开发布",
+	}
+	previous := -1
+	for _, stage := range stages {
+		current := strings.Index(workflowText, stage)
+		if current < 0 {
+			t.Fatalf("publish workflow omitted fixed stage %q", stage)
+		}
+		if current <= previous {
+			t.Fatalf("publish workflow stage %q is out of order", stage)
+		}
+		previous = current
+	}
+}
+
 func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 	t.Parallel()
 	const terminalReply = "最终答复只能是“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布。”这一句话"
@@ -365,6 +431,10 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 		"在读取任何仓库内容或执行发布命令前",
 		"viceme merchant channel github <merchant-id>",
 		"使用 WorkBuddy 内置 `present_files` 在当前任务浏览器打开",
+		"页面打开后、等待前马上说“请在右侧完成 GitHub 授权，完成后我会自动继续。”",
+		"页面明确完成后只重试一次同一渠道命令",
+		"不得要求用户回复“完成了”",
+		"也不得创建任务列表",
 		"绝不能使用 `curl`、`gh`、`git`、WebFetch、浏览器抓取或 raw GitHub URL 代替这一步",
 		"用户未指定分支时省略 `--github-ref`",
 		"不得读取仓库后自行编造这些参数",

@@ -9,6 +9,8 @@ description: 安装、登录、更新和诊断 ViceMe 创作者 CLI 与官方 Sk
 
 面向用户的提问、进度、结果和可见思考摘要应跟随用户当前使用的语言；中文交流必须使用自然白话。只说“登录”“申请成为创作者”“等待工作人员审核”“发布”等用户能理解的业务动作。不得告诉用户正在使用哪个内置 Skill 或说明文件，也不得展示 Profile、CLI、命令、参数、错误码和协议字段；这些内容仅用于内部判断。只有用户明确询问技术细节时才解释必要部分。
 
+在 WorkBuddy 中处理 ViceMe 流程时，不得调用 `TaskCreate`、`TaskUpdate`、`TaskList` 或其他任务清单工具，不得展示完整计划。只在需要用户操作或进入新业务阶段时给一句简短白话提示；其余必要命令连续执行，不逐条播报。
+
 ## 安装
 
 1. 引导安装程序完成后，运行 `viceme install --agent auto`。
@@ -24,7 +26,7 @@ viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-ur
 
 使用 `viceme profile list` 核对当前 Profile 以及完整的 API、Web 和市场组合。安装或更新所用的分发区域不决定发布市场，市场由所选 API 地址决定。日常 Agent 操作不得只依赖 shell 中的 `VICEME_API_BASE_URL`；它只是单进程 CI/调试覆盖，不是持久 Profile 状态。
 
-`viceme auth login` 会等待授权，并在轮询前输出一次性完整链接。在 WorkBuddy 中只启动一个登录进程，从首次输出读取链接，立即调用 WorkBuddy 内置 `present_files` 工具在当前任务浏览器中打开，然后继续等待同一个进程返回，使授权完成后 Agent 自动继续。不得使用操作系统级 WorkBuddy 深链，不得在首个登录仍等待时再启动第二个登录，不得要求用户输入设备码，也不得要求用户回复“已经登录”。有界等待超时后，为同一 Profile 重新运行一次 `viceme auth login`。
+`viceme auth login` 会等待授权，并在轮询前输出一次性完整链接。在 WorkBuddy 中先说“需要重新登录，我现在为你打开登录页面。”，只启动一个登录进程，从首次输出读取链接，立即调用 WorkBuddy 内置 `present_files` 工具在当前任务浏览器中打开；`cwd` 使用当前任务真实工作目录，不得编造路径或用户名。页面打开后立即说“请在右侧完成登录，完成后我会自动继续。”，然后继续等待同一个进程返回，使授权完成后 Agent 自动继续。允许为取得和等待同一个登录进程的输出使用 Bash 后台执行和 `TaskOutput`，但不得创建用户可见任务清单。不得使用操作系统级 WorkBuddy 深链，不得在首个登录仍等待时再启动第二个登录，不得要求用户输入设备码，也不得要求用户回复“已经登录”。有界等待超时后，为同一 Profile 重新运行一次 `viceme auth login`。
 
 登录失效时向用户说“登录状态已过期，需要重新登录”，不要直接说 token、scope、协议状态或原始错误码。
 
