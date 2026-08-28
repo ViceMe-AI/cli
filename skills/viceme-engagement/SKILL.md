@@ -12,11 +12,66 @@ for danmaku and Tip.
 
 1. Inspect the exact production HTTPS Origin, target page, deployment command,
    CSP, responsive layout, and browser tests.
-2. Keep one active CLI Profile. Require `merchant-commerce:read` and
-   `merchant-commerce:write`, then select an active Merchant from
-   `merchant accounts`.
-3. Reuse or create one Website Work for the exact Origin. Complete DNS
-   verification, then publish with the fresh Work revision returned by verify.
+2. Run `viceme profile list` and keep the active Profile. Run `viceme --profile
+   <profile> auth status`; require `merchant-commerce:read` and
+   `merchant-commerce:write`. Then select an active Merchant from `viceme
+   --profile <profile> merchant accounts`.
+3. Run `viceme --profile <profile> merchant work list --merchant <merchant-id>`.
+   Reuse a Website Work only when its `website.canonicalOrigin` exactly equals
+   the deployed Origin. If none exists, use this strict request, filling only
+   observed content:
+
+   ```json
+   {
+     "kind": "WEBSITE",
+     "merchantAccountId": "<merchant-id>",
+     "clientRequestId": "<stable-idempotency-key>",
+     "slug": "website-slug",
+     "title": "Website title",
+     "canonicalOrigin": "https://creator.example",
+     "content": {
+       "summary": "Observed public purpose",
+       "bodyMarkdown": "Observed public description",
+       "templateType": "WEBSITE",
+       "tags": [],
+       "media": [],
+       "actionConfig": {}
+     }
+   }
+   ```
+
+   Run `viceme --profile <profile> merchant work create --input <json>`. If the
+   response is lost, replay the identical request with the same
+   `clientRequestId`; do not create a new identity. Create DNS ownership with:
+
+   ```bash
+   viceme --profile <profile> merchant work website-verification create <work-id> \
+     --merchant <merchant-id> --expected-revision <work-revision>
+   ```
+
+   Publish the returned `challenge` verbatim at `dnsRecordName`. After public
+   DNS resolves exactly, run:
+
+   ```bash
+   viceme --profile <profile> merchant work website-verification verify <work-id> \
+     --merchant <merchant-id> \
+     --expected-verification-version <verification-version>
+   ```
+
+   Then write this publish input, replacing `2` with the Work revision returned
+   by verify:
+
+   ```json
+   {
+     "merchantAccountId": "<merchant-id>",
+     "expectedRevision": 2,
+     "status": "PUBLISHED"
+   }
+   ```
+
+   Run `viceme --profile <profile> merchant work update <work-id> --input
+   <json>`, then `viceme --profile <profile> merchant work get <work-id>
+   --merchant <merchant-id>`. Never guess a revision or DNS challenge.
 4. Read SDK access. Create or update it to the full feature set
    `danmaku,tip` using repeated flags:
 
@@ -48,7 +103,9 @@ for danmaku and Tip.
 7. Preserve CSP and any nonce. Run repository checks, deploy, and verify desktop
    plus 320px width. Confirm both capabilities mount, a failure in one does not
    remove the other, host controls remain clickable, danmaku persists, Tip is
-   keyboard reachable, and Escape closes the hosted payment surface.
+   keyboard reachable, and Escape returns the hosted payment surface to its
+   initial amount form. Shop owns that state transition; the SDK only sends the
+   sanitized close notification to the host.
 
 ## Constraints
 

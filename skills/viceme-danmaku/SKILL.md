@@ -22,10 +22,33 @@ API-client, or persistence code. Read [cdn-sdk.md](references/cdn-sdk.md) first.
    Merchant owned by the current login, or ask the user to choose when several
    are available. Never infer it from a public creator identity or old local
    state.
-4. Run `merchant work list --merchant <merchant-id>`. Reuse a Website Work only
-   when its exact `website.canonicalOrigin` is the deployed Origin. Otherwise
-   create one with `merchant work create --input <json>` using `kind: WEBSITE`,
-   a stable `clientRequestId`, the selected Merchant, and the exact Origin.
+4. Run `viceme --profile <profile> merchant work list --merchant <merchant-id>`.
+   Reuse a Website Work only when its `website.canonicalOrigin` exactly equals
+   the deployed Origin. Otherwise use this strict request, filling only
+   observed content:
+
+   ```json
+   {
+     "kind": "WEBSITE",
+     "merchantAccountId": "<merchant-id>",
+     "clientRequestId": "<stable-idempotency-key>",
+     "slug": "website-slug",
+     "title": "Website title",
+     "canonicalOrigin": "https://creator.example",
+     "content": {
+       "summary": "Observed public purpose",
+       "bodyMarkdown": "Observed public description",
+       "templateType": "WEBSITE",
+       "tags": [],
+       "media": [],
+       "actionConfig": {}
+     }
+   }
+   ```
+
+   Run `viceme --profile <profile> merchant work create --input <json>`. If the
+   response is lost, replay the identical request with the same
+   `clientRequestId`; do not create a new identity.
 5. If `website.ownershipStatus` is not `VERIFIED`, run:
 
    ```bash
@@ -33,11 +56,29 @@ API-client, or persistence code. Read [cdn-sdk.md](references/cdn-sdk.md) first.
      --merchant <merchant-id> --expected-revision <work-revision>
    ```
 
-   Publish the returned `challenge` as the TXT value at `dnsRecordName`. After
-   public DNS resolves exactly, run `website-verification verify` with the
-   returned verification version. Use the Work revision returned by verify to
-   publish the Work through `merchant work update --input <json>` with
-   `status: PUBLISHED`. Never reuse a stale revision.
+   Publish the returned `challenge` verbatim at `dnsRecordName`. After public
+   DNS resolves exactly, run:
+
+   ```bash
+   viceme --profile <profile> merchant work website-verification verify <work-id> \
+     --merchant <merchant-id> \
+     --expected-verification-version <verification-version>
+   ```
+
+   Then write this publish input, replacing `2` with the Work revision returned
+   by verify:
+
+   ```json
+   {
+     "merchantAccountId": "<merchant-id>",
+     "expectedRevision": 2,
+     "status": "PUBLISHED"
+   }
+   ```
+
+   Run `viceme --profile <profile> merchant work update <work-id> --input
+   <json>`, then `viceme --profile <profile> merchant work get <work-id>
+   --merchant <merchant-id>`. Never reuse or guess a stale revision.
 6. Read `merchant work sdk-access get <work-id> --merchant <merchant-id>`.
    Create it with `--feature danmaku` when absent. When it exists, update with
    its current `configVersion` and the full desired feature set, preserving

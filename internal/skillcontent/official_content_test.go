@@ -1,7 +1,10 @@
 package skillcontent_test
 
 import (
+	"encoding/json"
 	"io/fs"
+	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -111,6 +114,106 @@ func TestEngagementSkillUsesOneWorkAndCombinedAccess(t *testing.T) {
 			t.Fatalf("engagement Skill retained excluded flow %q", forbidden)
 		}
 	}
+}
+
+func TestEngagementSkillsCanCreateWebsiteWorkFromTheirOwnInstructions(t *testing.T) {
+	t.Parallel()
+	createInput := `{
+		"kind": "WEBSITE",
+		"merchantAccountId": "<merchant-id>",
+		"clientRequestId": "<stable-idempotency-key>",
+		"slug": "website-slug",
+		"title": "Website title",
+		"canonicalOrigin": "https://creator.example",
+		"content": {
+			"summary": "Observed public purpose",
+			"bodyMarkdown": "Observed public description",
+			"templateType": "WEBSITE",
+			"tags": [],
+			"media": [],
+			"actionConfig": {}
+		}
+	}`
+	publishInput := `{
+		"merchantAccountId": "<merchant-id>",
+		"expectedRevision": 2,
+		"status": "PUBLISHED"
+	}`
+
+	for _, relativePath := range []string{
+		"viceme-danmaku/SKILL.md",
+		"viceme-tip/SKILL.md",
+		"viceme-engagement/SKILL.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", relativePath, err)
+		}
+		text := string(content)
+		normalized := strings.Join(strings.Fields(strings.ReplaceAll(text, "\\\n", " ")), " ")
+		for _, required := range []string{
+			"`merchant-commerce:read`",
+			"`merchant-commerce:write`",
+			"`website.canonicalOrigin` exactly equals the deployed Origin",
+			"Publish the returned `challenge` verbatim at `dnsRecordName`",
+			"After public DNS resolves exactly",
+		} {
+			if !strings.Contains(normalized, required) {
+				t.Fatalf("standalone %s omitted Website Work constraint %q", relativePath, required)
+			}
+		}
+		requireOrderedSteps(t, relativePath, normalized, []string{
+			"viceme profile list",
+			"viceme --profile <profile> auth status",
+			"viceme --profile <profile> merchant accounts",
+			"viceme --profile <profile> merchant work list --merchant <merchant-id>",
+			`"kind": "WEBSITE"`,
+			"viceme --profile <profile> merchant work create --input <json>",
+			"response is lost, replay the identical request with the same `clientRequestId`; do not create a new identity",
+			"viceme --profile <profile> merchant work website-verification create <work-id> --merchant <merchant-id> --expected-revision <work-revision>",
+			"Publish the returned `challenge` verbatim at `dnsRecordName`",
+			"viceme --profile <profile> merchant work website-verification verify <work-id> --merchant <merchant-id> --expected-verification-version <verification-version>",
+			`"status": "PUBLISHED"`,
+			"viceme --profile <profile> merchant work update <work-id> --input <json>",
+			"viceme --profile <profile> merchant work get <work-id> --merchant <merchant-id>",
+		})
+		requireJSONBlock(t, relativePath, text, `"kind": "WEBSITE"`, createInput)
+		requireJSONBlock(t, relativePath, text, `"status": "PUBLISHED"`, publishInput)
+	}
+}
+
+func requireOrderedSteps(t *testing.T, relativePath, text string, steps []string) {
+	t.Helper()
+	offset := 0
+	for _, step := range steps {
+		index := strings.Index(text[offset:], step)
+		if index < 0 {
+			t.Fatalf("standalone %s omitted or misordered Website Work step %q", relativePath, step)
+		}
+		offset += index + len(step)
+	}
+}
+
+func requireJSONBlock(t *testing.T, relativePath, text, marker, expected string) {
+	t.Helper()
+	blocks := regexp.MustCompile("(?s)```json\\s*(.*?)\\s*```").FindAllStringSubmatch(text, -1)
+	for _, block := range blocks {
+		if !strings.Contains(block[1], marker) {
+			continue
+		}
+		var actualValue, expectedValue any
+		if err := json.Unmarshal([]byte(block[1]), &actualValue); err != nil {
+			t.Fatalf("standalone %s contains invalid JSON for %s: %v", relativePath, marker, err)
+		}
+		if err := json.Unmarshal([]byte(expected), &expectedValue); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(actualValue, expectedValue) {
+			t.Fatalf("standalone %s contains incomplete JSON for %s\nwant: %s\n got: %s", relativePath, marker, expected, block[1])
+		}
+		return
+	}
+	t.Fatalf("standalone %s omitted JSON block containing %s", relativePath, marker)
 }
 
 func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {

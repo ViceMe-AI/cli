@@ -32,10 +32,12 @@ loader. It sends no amount, provider, application ID, access token, or payment
 state. Shop owns login, order creation, provider protocol, status, settlement,
 and signed capabilities.
 
-The frame stays non-interactive until a trusted resize handshake. The SDK
-accepts messages only from the expected Shop Origin and iframe window, binds the
-first valid Work UUID, and redispatches sanitized close and paid events. Opening
-the UI is not proof that a payment settled.
+The frame stays non-interactive until a trusted resize handshake. Shop owns the
+payment surface and resets it to the initial amount form on Escape before
+emitting close. The SDK accepts messages only from the expected Shop Origin and
+iframe window, binds the first valid Work UUID, and redispatches sanitized close
+and paid notifications. The host needs no listener for the default close
+behavior. Opening the UI is not proof that a payment settled.
 
 ## CSP
 
