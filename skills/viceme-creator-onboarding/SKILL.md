@@ -32,6 +32,8 @@ description: 申请或认领 ViceMe 创作者身份，并处理已有申请和�
 
 若账户读取返回 `MERCHANT_COMMERCE_SCOPE_REQUIRED`，或申请与认领命令返回 `PUBLICATION_SCOPE_REQUIRED`，按第 2 步只补做一次等待式登录和权限复核，然后只重试刚才失败的读取一次。普通交流不得把这些内部错误名展示给用户。
 
+若 `viceme merchant accounts` 首次返回 `error.code=INTERNAL_ERROR` 且 `retryable=true`，立即重试一次同一条读取。不得 `sleep`、轮询、启动后台进程，也不得读取发布流程的错误说明；创作者资格检查只由本 Skill 处理。第二次返回任何失败都停止本次操作，用白话说“暂时没能读取你的创作者信息，请稍后再试。”，不要继续猜测资格或进入发布流程。
+
 ## 普通申请
 
 当平台允许新申请时，只收集两项尚未明确的信息：

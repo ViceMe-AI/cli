@@ -18,4 +18,4 @@
 - `SKILL_BINDING_SCOPE_MISMATCH` 或 `SKILL_LISTING_BINDING_OWNER_MISMATCH`：不得查看或切换环境，也不得覆盖原作者 Listing。询问用户是否明确希望使用 `--new-listing` 在当前 CLI 上下文创建独立 Work。
 - `SKILL_LISTING_SOURCE_AMBIGUOUS`：展示候选 Listings，请用户选择后使用 `skill listing bind`；不得根据标题或文件名猜测。
 
-`retryable=true` 时，使用同一 Publication 或 client request identity 做有界退避重试；否则先改变输入或状态。
+发布命令（包括首次创建）的读取或写入返回 `retryable=true` 时，使用本地已持久化的同一 Publication 或 client request identity 做有界退避重试；不得因为首次响应未返回 Publication ID 就改变输入或创建另一项。否则先改变输入或状态。登录、创作者资格、商家申请和商家账户读取的错误全部交回 `$viceme-creator-onboarding`，不得套用本发布错误说明或在发布流程中自行等待、轮询和重复检查。

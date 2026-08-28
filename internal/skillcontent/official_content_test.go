@@ -318,6 +318,11 @@ func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
 		"Profile 或 CLI 命令",
 		"用于个人主页链接的英文名称",
 		"申请已经提交，接下来需要工作人员审核",
+		"`error.code=INTERNAL_ERROR` 且 `retryable=true`",
+		"立即重试一次同一条读取",
+		"不得 `sleep`、轮询、启动后台进程",
+		"不得读取发布流程的错误说明",
+		"第二次返回任何失败都停止本次操作",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("creator onboarding Skill omitted human-review guard %q", required)
@@ -325,6 +330,27 @@ func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
 	}
 	if currentUser := strings.TrimSpace(os.Getenv("USER")); currentUser != "" && strings.Contains(strings.ToLower(text), strings.ToLower(currentUser)) {
 		t.Fatal("creator onboarding Skill uses the current developer username as an example")
+	}
+}
+
+func TestPublishRetryPolicyDoesNotOwnCreatorOnboardingReads(t *testing.T) {
+	t.Parallel()
+
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/errors.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(errorsContent)
+	for _, required := range []string{
+		"发布命令（包括首次创建）的读取或写入",
+		"本地已持久化的同一 Publication 或 client request identity",
+		"不得因为首次响应未返回 Publication ID 就改变输入或创建另一项",
+		"商家账户读取的错误全部交回 `$viceme-creator-onboarding`",
+		"不得套用本发布错误说明",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("publish retry policy omitted ownership boundary %q", required)
+		}
 	}
 }
 
