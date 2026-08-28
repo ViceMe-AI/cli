@@ -7,15 +7,15 @@
       "skill_version": "0.18.0",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:f4345520f20a63527db396982a2b0d9409b94d8186b0a7879d2ecaab19f0e424",
-      "embedded_content_digest": "sha256:eed31830a45b74e6553243d2fbe1decf616e89f6de34e653b517ded4e9088089"
+      "full_skill_bundle_digest": "sha256:abd5e45d1813af288363a937dbb469ed49985f55e704341ce0599b31fefed707",
+      "embedded_content_digest": "sha256:dc04db6c7c7ef1f9b3fb0f39e97e093c189f444f444a7fd4c35ecf88c99204e3"
     },
     "viceme-engagement": {
       "skill_version": "0.18.0",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:4e170a77110510f115c2cb93b32cc879d4994472f859e8c7165c01937f07cb5e",
-      "embedded_content_digest": "sha256:090787d857feb4a5a1ed4a5e3b3a0dcad9f8f712b15d9f1920058b0c1b467dd0"
+      "full_skill_bundle_digest": "sha256:f6f314e9443c55cbef45be2caf27ee941969dc55e29ca4bacb46bbc7b90ae9bb",
+      "embedded_content_digest": "sha256:a70168f3ab91af09b766195c2246942d2c420c5c33220d802a425651d107f748"
     },
     "viceme-publish": {
       "skill_version": "0.18.0",
@@ -35,8 +35,8 @@
       "skill_version": "0.18.0",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:8b5cdc8a75f26bd2a4198e1d5b5abe3ea4f06aa4ac159b545e9f1d8d2813f38b",
-      "embedded_content_digest": "sha256:c278357cb3253252eac5fa430777c266d661890e3227cc8ed8dca306dbaff80b"
+      "full_skill_bundle_digest": "sha256:f6c3d4969319b3fe5590e1d834792f3b7fcedb21a30cfdfba0212a2a3fe19f2a",
+      "embedded_content_digest": "sha256:ae478cacc5c0f48c22ecac99e0dace44ddf2e734fedaf969d20931751d4684bb"
     }
   },
   "bootstrap_contract_digest": "sha256:9ddf869696a9dcddccb46184b4e45978b07593b9ba394459226563c03b9e3f7d",

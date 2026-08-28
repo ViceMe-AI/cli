@@ -155,6 +155,12 @@ func TestEngagementSkillsCanCreateWebsiteWorkFromTheirOwnInstructions(t *testing
 			"`merchant-commerce:read`",
 			"`merchant-commerce:write`",
 			"`website.canonicalOrigin` exactly equals the deployed Origin",
+			"Whether the Work was reused or created",
+			"latest verification status is `PENDING`",
+			"`DRAFT` Work with a `PENDING` verification",
+			"current Work status is `DRAFT`",
+			"Work status is already `PUBLISHED`",
+			"If it is `SUSPENDED` or `ARCHIVED`, stop and report it",
 			"Publish the returned `challenge` verbatim at `dnsRecordName`",
 			"After public DNS resolves exactly",
 		} {
@@ -170,15 +176,62 @@ func TestEngagementSkillsCanCreateWebsiteWorkFromTheirOwnInstructions(t *testing
 			`"kind": "WEBSITE"`,
 			"viceme --profile <profile> merchant work create --input <json>",
 			"response is lost, replay the identical request with the same `clientRequestId`; do not create a new identity",
+			"viceme --profile <profile> merchant work get <work-id> --merchant <merchant-id>",
+			"viceme --profile <profile> merchant work website-verification get <work-id> --merchant <merchant-id>",
 			"viceme --profile <profile> merchant work website-verification create <work-id> --merchant <merchant-id> --expected-revision <work-revision>",
 			"Publish the returned `challenge` verbatim at `dnsRecordName`",
 			"viceme --profile <profile> merchant work website-verification verify <work-id> --merchant <merchant-id> --expected-verification-version <verification-version>",
+			"Read the Work again after verify",
 			`"status": "PUBLISHED"`,
 			"viceme --profile <profile> merchant work update <work-id> --input <json>",
 			"viceme --profile <profile> merchant work get <work-id> --merchant <merchant-id>",
 		})
 		requireJSONBlock(t, relativePath, text, `"kind": "WEBSITE"`, createInput)
 		requireJSONBlock(t, relativePath, text, `"status": "PUBLISHED"`, publishInput)
+	}
+}
+
+func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
+	t.Parallel()
+	applicationInput := `{
+		"merchantAccountId": "<merchant-id>",
+		"workId": "<work-id>",
+		"kind": "WEBSITE_WIDGET",
+		"environment": "PRODUCTION",
+		"displayName": "<website name>",
+		"origins": ["https://creator.example"],
+		"returnUrls": []
+	}`
+
+	for _, relativePath := range []string{
+		"viceme-tip/SKILL.md",
+		"viceme-engagement/SKILL.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", relativePath, err)
+		}
+		text := string(content)
+		normalized := strings.Join(strings.Fields(strings.ReplaceAll(text, "\\\n", " ")), " ")
+		for _, required := range []string{
+			"matching this Work, `kind: WEBSITE_WIDGET`, `environment: PRODUCTION`, the exact canonical Origin, empty return URLs, and no Products",
+			"If its status is `DRAFT`, activate its exact revision",
+			"If it is already `ACTIVE`, skip activation",
+			"If it is `SUSPENDED` or `ARCHIVED`, stop and report it",
+			"If a create response is lost, list again before another create",
+		} {
+			if !strings.Contains(normalized, required) {
+				t.Fatalf("standalone %s omitted Website Widget constraint %q", relativePath, required)
+			}
+		}
+		requireOrderedSteps(t, relativePath, normalized, []string{
+			"viceme --profile <profile> merchant commerce-application list --merchant <merchant-id>",
+			`"kind": "WEBSITE_WIDGET"`,
+			"viceme --profile <profile> merchant commerce-application create --input <json>",
+			"viceme --profile <profile> merchant commerce-application get <application-id> --merchant <merchant-id>",
+			"viceme --profile <profile> merchant commerce-application activate <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
+		})
+		requireJSONBlock(t, relativePath, text, `"kind": "WEBSITE_WIDGET"`, applicationInput)
 	}
 }
 

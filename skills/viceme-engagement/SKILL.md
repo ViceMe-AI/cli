@@ -42,7 +42,19 @@ for danmaku and Tip.
 
    Run `viceme --profile <profile> merchant work create --input <json>`. If the
    response is lost, replay the identical request with the same
-   `clientRequestId`; do not create a new identity. Create DNS ownership with:
+   `clientRequestId`; do not create a new identity.
+4. Whether the Work was reused or created, read it with `viceme --profile
+   <profile> merchant work get <work-id> --merchant <merchant-id>`. If
+   `website.ownershipStatus` is not `VERIFIED`, first run:
+
+   ```bash
+   viceme --profile <profile> merchant work website-verification get <work-id> \
+     --merchant <merchant-id>
+   ```
+
+   If the latest verification status is `PENDING` and it is unexpired, reuse
+   its existing `challenge` and version. If no verification exists or its status
+   is `FAILED` or `EXPIRED`, create one from the current Work revision:
 
    ```bash
    viceme --profile <profile> merchant work website-verification create <work-id> \
@@ -58,8 +70,10 @@ for danmaku and Tip.
      --expected-verification-version <verification-version>
    ```
 
-   Then write this publish input, replacing `2` with the Work revision returned
-   by verify:
+   Read the Work again after verify. Never create a second Work to recover a
+   `DRAFT` Work with a `PENDING` verification.
+5. If the current Work status is `DRAFT`, write this publish input, replacing
+   `2` with the fresh Work revision:
 
    ```json
    {
@@ -71,8 +85,11 @@ for danmaku and Tip.
 
    Run `viceme --profile <profile> merchant work update <work-id> --input
    <json>`, then `viceme --profile <profile> merchant work get <work-id>
-   --merchant <merchant-id>`. Never guess a revision or DNS challenge.
-4. Read SDK access. Create or update it to the full feature set
+   --merchant <merchant-id>`. If the Work status is already `PUBLISHED`, skip
+   update. If it is `SUSPENDED` or `ARCHIVED`, stop and report it instead of
+   silently reviving it or creating a duplicate. Never guess a revision or DNS
+   challenge.
+6. Read SDK access. Create or update it to the full feature set
    `danmaku,tip` using repeated flags:
 
    ```bash
@@ -82,10 +99,38 @@ for danmaku and Tip.
 
    For update, also pass the current `--expected-config-version`. Never run two
    independent updates that overwrite each other's feature.
-5. List Commerce applications. Reuse or create one `PRODUCTION`
-   `WEBSITE_WIDGET` for the same Work and exact canonical Origin, with empty
-   return URLs and no Products, then activate its exact revision.
-6. Insert one combined loader after a stable target element:
+7. Run `viceme --profile <profile> merchant commerce-application list --merchant
+   <merchant-id>`. Reuse only the application matching this Work, `kind:
+   WEBSITE_WIDGET`, `environment: PRODUCTION`, the exact canonical Origin,
+   empty return URLs, and no Products. Otherwise create it with:
+
+   ```json
+   {
+     "merchantAccountId": "<merchant-id>",
+     "workId": "<work-id>",
+     "kind": "WEBSITE_WIDGET",
+     "environment": "PRODUCTION",
+     "displayName": "<website name>",
+     "origins": ["https://creator.example"],
+     "returnUrls": []
+   }
+   ```
+
+   Run `viceme --profile <profile> merchant commerce-application create --input
+   <json>`. Whether reused or created, read it with `viceme --profile <profile>
+   merchant commerce-application get <application-id> --merchant <merchant-id>`.
+   If its status is `DRAFT`, activate its exact revision:
+
+   ```bash
+   viceme --profile <profile> merchant commerce-application activate <application-id> \
+     --merchant <merchant-id> --expected-revision <application-revision>
+   ```
+
+   Read it again with the same `get` command. If it is already `ACTIVE`, skip
+   activation. If it is `SUSPENDED` or `ARCHIVED`, stop and report it. If a
+   create response is lost, list again before another create. A Website Widget
+   has no Product binding.
+8. Insert one combined loader after a stable target element:
 
    ```html
    <div id="viceme-engagement"></div>
@@ -100,7 +145,7 @@ for danmaku and Tip.
    ></script>
    ```
 
-7. Preserve CSP and any nonce. Run repository checks, deploy, and verify desktop
+9. Preserve CSP and any nonce. Run repository checks, deploy, and verify desktop
    plus 320px width. Confirm both capabilities mount, a failure in one does not
    remove the other, host controls remain clickable, danmaku persists, Tip is
    keyboard reachable, and Escape returns the hosted payment surface to its

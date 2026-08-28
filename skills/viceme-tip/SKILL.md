@@ -45,7 +45,19 @@ before editing.
 
    Run `viceme --profile <profile> merchant work create --input <json>`. If the
    response is lost, replay the identical request with the same
-   `clientRequestId`; do not create a new identity. Create DNS ownership with:
+   `clientRequestId`; do not create a new identity.
+5. Whether the Work was reused or created, read it with `viceme --profile
+   <profile> merchant work get <work-id> --merchant <merchant-id>`. If
+   `website.ownershipStatus` is not `VERIFIED`, first run:
+
+   ```bash
+   viceme --profile <profile> merchant work website-verification get <work-id> \
+     --merchant <merchant-id>
+   ```
+
+   If the latest verification status is `PENDING` and it is unexpired, reuse
+   its existing `challenge` and version. If no verification exists or its status
+   is `FAILED` or `EXPIRED`, create one from the current Work revision:
 
    ```bash
    viceme --profile <profile> merchant work website-verification create <work-id> \
@@ -61,8 +73,10 @@ before editing.
      --expected-verification-version <verification-version>
    ```
 
-   Then write this publish input, replacing `2` with the Work revision returned
-   by verify:
+   Read the Work again after verify. Never create a second Work to recover a
+   `DRAFT` Work with a `PENDING` verification.
+6. If the current Work status is `DRAFT`, write this publish input, replacing
+   `2` with the fresh Work revision:
 
    ```json
    {
@@ -74,13 +88,17 @@ before editing.
 
    Run `viceme --profile <profile> merchant work update <work-id> --input
    <json>`, then `viceme --profile <profile> merchant work get <work-id>
-   --merchant <merchant-id>`. Never guess a revision or DNS challenge.
-5. Get SDK access for that Work. Create it with `--feature tip` when absent, or
+   --merchant <merchant-id>`. If the Work status is already `PUBLISHED`, skip
+   update. If it is `SUSPENDED` or `ARCHIVED`, stop and report it instead of
+   silently reviving it or creating a duplicate. Never guess a revision or DNS
+   challenge.
+7. Get SDK access for that Work. Create it with `--feature tip` when absent, or
    update from its current `configVersion` with the full feature set while
    preserving `danmaku` when present. Record the returned public `workKey`.
-6. Run `merchant commerce-application list --merchant <merchant-id>`. Reuse only
-   the application matching this Work, `kind: WEBSITE_WIDGET`, `environment:
-   PRODUCTION`, and the exact canonical Origin. Otherwise create it with:
+8. Run `viceme --profile <profile> merchant commerce-application list --merchant
+   <merchant-id>`. Reuse only the application matching this Work, `kind:
+   WEBSITE_WIDGET`, `environment: PRODUCTION`, the exact canonical Origin,
+   empty return URLs, and no Products. Otherwise create it with:
 
    ```json
    {
@@ -94,9 +112,21 @@ before editing.
    }
    ```
 
-   Use `merchant commerce-application create --input <json>`, then activate it
-   with its exact revision. A Website Widget has no Product binding.
-7. Insert exactly one official loader tag. Use the selected Profile's exact Web
+   Run `viceme --profile <profile> merchant commerce-application create --input
+   <json>`. Whether reused or created, read it with `viceme --profile <profile>
+   merchant commerce-application get <application-id> --merchant <merchant-id>`.
+   If its status is `DRAFT`, activate its exact revision:
+
+   ```bash
+   viceme --profile <profile> merchant commerce-application activate <application-id> \
+     --merchant <merchant-id> --expected-revision <application-revision>
+   ```
+
+   Read it again with the same `get` command. If it is already `ACTIVE`, skip
+   activation. If it is `SUSPENDED` or `ARCHIVED`, stop and report it. If a
+   create response is lost, list again before another create. A Website Widget
+   has no Product binding.
+9. Insert exactly one official loader tag. Use the selected Profile's exact Web
    base URL and market region; do not infer either from page language:
 
    ```html
@@ -112,13 +142,13 @@ before editing.
    ></script>
    ```
 
-8. Preserve CSP and any script nonce. Add only the exact Shop Origin to the
+10. Preserve CSP and any script nonce. Add only the exact Shop Origin to the
    directives browser evidence requires. Run repository checks, deploy, and
    verify the real Origin: the Tip frame resizes, remains keyboard reachable,
    opens payment, returns to its initial amount form on Escape, and emits no CSP
    or widget errors. Shop performs this close before the SDK sends the sanitized
    `viceme:widget-close` notification; the host page needs no close listener.
-9. Report the public Work ID/key, application ID, canonical Origin, checks, and
+11. Report the public Work ID/key, application ID, canonical Origin, checks, and
    whether a real payment was exercised. Never report login tokens, DNS
    challenges, cookies, payment credentials, access tokens, or signed URLs.
 

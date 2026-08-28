@@ -49,7 +49,18 @@ API-client, or persistence code. Read [cdn-sdk.md](references/cdn-sdk.md) first.
    Run `viceme --profile <profile> merchant work create --input <json>`. If the
    response is lost, replay the identical request with the same
    `clientRequestId`; do not create a new identity.
-5. If `website.ownershipStatus` is not `VERIFIED`, run:
+5. Whether the Work was reused or created, read it with `viceme --profile
+   <profile> merchant work get <work-id> --merchant <merchant-id>`. If
+   `website.ownershipStatus` is not `VERIFIED`, first run:
+
+   ```bash
+   viceme --profile <profile> merchant work website-verification get <work-id> \
+     --merchant <merchant-id>
+   ```
+
+   If the latest verification status is `PENDING` and it is unexpired, reuse
+   its existing `challenge` and version. If no verification exists or its status
+   is `FAILED` or `EXPIRED`, create one from the current Work revision:
 
    ```bash
    viceme --profile <profile> merchant work website-verification create <work-id> \
@@ -65,8 +76,10 @@ API-client, or persistence code. Read [cdn-sdk.md](references/cdn-sdk.md) first.
      --expected-verification-version <verification-version>
    ```
 
-   Then write this publish input, replacing `2` with the Work revision returned
-   by verify:
+   Read the Work again after verify. Never create a second Work to recover a
+   `DRAFT` Work with a `PENDING` verification.
+6. If the current Work status is `DRAFT`, write this publish input, replacing
+   `2` with the fresh Work revision:
 
    ```json
    {
@@ -78,12 +91,15 @@ API-client, or persistence code. Read [cdn-sdk.md](references/cdn-sdk.md) first.
 
    Run `viceme --profile <profile> merchant work update <work-id> --input
    <json>`, then `viceme --profile <profile> merchant work get <work-id>
-   --merchant <merchant-id>`. Never reuse or guess a stale revision.
-6. Read `merchant work sdk-access get <work-id> --merchant <merchant-id>`.
+   --merchant <merchant-id>`. If the Work status is already `PUBLISHED`, skip
+   update. If it is `SUSPENDED` or `ARCHIVED`, stop and report it instead of
+   silently reviving it or creating a duplicate. Never reuse or guess a stale
+   revision.
+7. Read `merchant work sdk-access get <work-id> --merchant <merchant-id>`.
    Create it with `--feature danmaku` when absent. When it exists, update with
    its current `configVersion` and the full desired feature set, preserving
    `tip` if already enabled. Do not interpret update as an incremental append.
-7. Insert one loader tag using the selected Profile's exact `webBaseUrl`, the
+8. Insert one loader tag using the selected Profile's exact `webBaseUrl`, the
    returned public `workKey`, and the Profile's `marketRegion` (`cn` or
    `global`):
 
@@ -99,10 +115,10 @@ API-client, or persistence code. Read [cdn-sdk.md](references/cdn-sdk.md) first.
    ></script>
    ```
 
-8. Preserve an existing CSP nonce. Add only the exact Profile Web Origin to the
+9. Preserve an existing CSP nonce. Add only the exact Profile Web Origin to the
    directives proven necessary by the page; never add `*`, `unsafe-eval`, or a
    broad subdomain wildcard.
-9. Run repository checks and verify the real deployed page on desktop and
+10. Run repository checks and verify the real deployed page on desktop and
    mobile. Confirm one SDK root mounts, host controls remain clickable,
    keyboard controls work, reduced motion is honored, and a message survives
    refresh.
