@@ -525,7 +525,7 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 		"也不得创建任务列表",
 		"绝不能使用 `curl`、`gh`、`git`、WebFetch、浏览器抓取或 raw GitHub URL 代替这一步",
 		"用户未指定分支时省略 `--github-ref`",
-		"不得读取仓库后自行编造这些参数",
+		"全部由 Agent 自动派生，绝不向用户询问",
 		terminalReply,
 	} {
 		if !strings.Contains(text, required) {
