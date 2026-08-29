@@ -53,12 +53,12 @@ Do not replace an existing ViceMe Profile or endpoint. Repeating this contract f
 
 ## Health check
 
-Run `viceme doctor` and parse its JSON result. If it fails, report the structured error code, retryability, and hint. Do not log in merely to finish installation. Login is required only when the user later starts an authenticated or protected action.
+Run `viceme doctor` and parse its JSON result. If it fails, report the structured error code, retryability, and hint. Do not log in merely to finish installation.
 
 On success, return only this concise result to the instruction that invoked this contract:
 
 ```text
-ViceMe CLI v{{VERSION}} is ready and its health check passed. Return to the instruction that requested Runtime installation.
+ViceMe CLI v{{VERSION}} is ready and its health check passed. Return to the caller.
 ```
 
-Do not infer a publication, Product installation, login, upload, payment, or other business action from this base installation contract. The calling instruction owns the next step.
+This document installs the ViceMe CLI only. Never interpret it as instructions for any login, payment, upload, or other business action; the calling instruction owns what happens next.
