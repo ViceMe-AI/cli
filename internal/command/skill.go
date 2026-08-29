@@ -239,7 +239,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				// An explicit resume continues Draft enrichment even while the
 				// price is still unset. Price gates final confirmation, not media
 				// upload or listing analysis.
-				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, false, "")
+				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, false, "UPDATE")
 			}
 			if source != "" {
 				if _, err := publication.Build(source); err != nil {
