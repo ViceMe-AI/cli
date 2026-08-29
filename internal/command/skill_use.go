@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"io"
 	"net/url"
 	"os"
@@ -21,7 +22,6 @@ import (
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 type downloadableSkillInstallResult struct {
@@ -95,7 +95,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{
 		Use: "install <product-id-or-work-url>", Short: "Verify and atomically install one free or purchased Skill edition", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			productID, _, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
+			productID, work, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
 			if err != nil {
 				return err
 			}
@@ -152,10 +152,20 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			installedName := downloadableSkillName(productID, access.Edition.Key)
-			if err := adaptDownloadedSkillName(files, installedName); err != nil {
+			workSlug := ""
+			if work != nil {
+				workSlug = work.Work.Slug
+			}
+			manifestName, err := downloadableSkillManifestName(files)
+			if err != nil {
 				return err
 			}
+			installedName := downloadableSkillName(
+				productID,
+				manifestName,
+				access.Edition.Title,
+				workSlug,
+			)
 			report, err := installDownloadableSkill(installedName, agent, files, runtime.deps.Environment)
 			if err != nil {
 				return err
@@ -336,23 +346,60 @@ func extractDownloadableSkill(archive []byte) (map[string]downloadableSkillFile,
 	return files, nil
 }
 
-func downloadableSkillName(productID, editionKey string) string {
+// downloadableSkillName keeps the author-facing identity: the package's own
+// SKILL.md name comes first (the installer requires the directory name to
+// match it), then the edition-title slug, the work slug for non-Latin
+// titles, and finally a unique platform-scoped fallback.
+func downloadableSkillName(
+	productID, manifestName, editionTitle, workSlug string,
+) string {
+	if slug := slugifyInstallName(manifestName); slug != "" {
+		return slug
+	}
+	if slug := slugifyInstallName(editionTitle); slug != "" {
+		return slug
+	}
+	if workSlug != "" {
+		return workSlug
+	}
 	compact := strings.ReplaceAll(productID, "-", "")
 	if len(compact) > 8 {
 		compact = compact[:8]
 	}
-	return "viceme-" + compact + "-" + editionKey
+	return "viceme-" + compact
 }
 
-func adaptDownloadedSkillName(files map[string]downloadableSkillFile, stableName string) error {
+func slugifyInstallName(title string) string {
+	var builder strings.Builder
+	for _, character := range strings.ToLower(strings.TrimSpace(title)) {
+		switch {
+		case character >= 'a' && character <= 'z',
+			character >= '0' && character <= '9':
+			builder.WriteRune(character)
+		default:
+			builder.WriteRune('-')
+		}
+	}
+	slug := builder.String()
+	for strings.Contains(slug, "--") {
+		slug = strings.ReplaceAll(slug, "--", "-")
+	}
+	return strings.Trim(slug, "-")
+}
+
+// downloadableSkillManifestName reads the package's own identity without
+// rewriting it; the frontmatter is validated but left byte-for-byte intact.
+func downloadableSkillManifestName(
+	files map[string]downloadableSkillFile,
+) (string, error) {
 	manifest, exists := files["SKILL.md"]
 	if !exists {
-		return output.Policy("SKILL_MANIFEST_MISSING", "downloaded Skill package does not contain root SKILL.md")
+		return "", output.Policy("SKILL_MANIFEST_MISSING", "downloaded Skill package does not contain root SKILL.md")
 	}
 	normalized := strings.ReplaceAll(string(manifest.Data), "\r\n", "\n")
 	lines := strings.Split(normalized, "\n")
 	if len(lines) < 3 || strings.TrimSpace(lines[0]) != "---" {
-		return output.Policy("SKILL_MANIFEST_INVALID", "downloaded SKILL.md does not contain YAML frontmatter")
+		return "", output.Policy("SKILL_MANIFEST_INVALID", "downloaded SKILL.md does not contain YAML frontmatter")
 	}
 	closing := -1
 	for index := 1; index < len(lines); index++ {
@@ -362,20 +409,14 @@ func adaptDownloadedSkillName(files map[string]downloadableSkillFile, stableName
 		}
 	}
 	if closing < 0 {
-		return output.Policy("SKILL_MANIFEST_INVALID", "downloaded SKILL.md frontmatter is not closed")
+		return "", output.Policy("SKILL_MANIFEST_INVALID", "downloaded SKILL.md frontmatter is not closed")
 	}
 	metadata := map[string]any{}
 	if err := yaml.Unmarshal([]byte(strings.Join(lines[1:closing], "\n")), &metadata); err != nil {
-		return output.Policy("SKILL_MANIFEST_INVALID", "downloaded SKILL.md frontmatter is invalid").WithCause(err)
+		return "", output.Policy("SKILL_MANIFEST_INVALID", "downloaded SKILL.md frontmatter is invalid").WithCause(err)
 	}
-	metadata["name"] = stableName
-	encoded, err := yaml.Marshal(metadata)
-	if err != nil {
-		return output.Internal("SKILL_MANIFEST_REWRITE_FAILED", "could not prepare the local Skill identity", err)
-	}
-	manifest.Data = []byte("---\n" + string(encoded) + "---\n" + strings.Join(lines[closing+1:], "\n"))
-	files["SKILL.md"] = manifest
-	return nil
+	name, _ := metadata["name"].(string)
+	return strings.TrimSpace(name), nil
 }
 
 func installDownloadableSkill(stableName, target string, files map[string]downloadableSkillFile, environment skillcontent.Environment) (skillcontent.InstallReport, error) {

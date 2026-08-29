@@ -59,7 +59,7 @@ func TestFreeSkillInstallIsAnonymousAndVerifiesTheArtifact(t *testing.T) {
 	if authCalls.Load() != 0 {
 		t.Fatalf("free install unexpectedly checked login %d times", authCalls.Load())
 	}
-	stableName := "viceme-11111111-free"
+	stableName := "free-test"
 	for _, filename := range []string{
 		filepath.Join(home, ".codex", "skills", stableName, "SKILL.md"),
 		filepath.Join(home, ".agents", "skills", stableName, "SKILL.md"),
@@ -227,7 +227,7 @@ func TestOwnedPaidSkillReinstallsWithoutAnotherPurchase(t *testing.T) {
 	if exit != 0 || envelope["ok"] != true {
 		t.Fatalf("owned paid reinstall failed: exit=%d envelope=%#v", exit, envelope)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "viceme-11111111-pro", "SKILL.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "free-test", "SKILL.md")); err != nil {
 		t.Fatalf("owned paid Skill was not installed: %v", err)
 	}
 }
