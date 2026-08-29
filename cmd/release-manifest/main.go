@@ -56,7 +56,7 @@ func main() {
 	}
 	manifest := releaseManifest{
 		SchemaVersion:           2,
-		NPMPackage:              "@viceme-ai/cli",
+		NPMPackage:              "@myc666/viceme-cli",
 		CLIVersion:              buildinfo.ReleaseVersion,
 		Skills:                  skills,
 		BootstrapContractDigest: digestFile("release/bootstrap-contract.json"),

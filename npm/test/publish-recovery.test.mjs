@@ -11,6 +11,7 @@ const packageDocument = JSON.parse(
 );
 const packageVersion = packageDocument.version;
 const packageID = `${packageDocument.name}@${packageVersion}`;
+const releaseTag = packageDocument.publishConfig?.tag ?? "latest";
 const nextMajorVersion = `${Number(packageVersion.split(".")[0]) + 1}.0.0`;
 
 test(
@@ -33,11 +34,11 @@ if (args[0] === "pack") {
   process.exit(0);
 }
 if (args[0] === "view") {
-  if (args.includes("dist-tags.latest")) {
-    const latest = existsSync(process.env.DIST_TAG_MARKER)
+  if (args.includes("dist-tags." + process.env.RELEASE_TAG)) {
+    const taggedVersion = existsSync(process.env.DIST_TAG_MARKER)
       ? process.env.LOCAL_PACKAGE_VERSION
-      : process.env.REMOTE_LATEST;
-    writeSync(1, JSON.stringify(latest));
+      : process.env.REMOTE_TAGGED_VERSION;
+    writeSync(1, JSON.stringify(taggedVersion));
     process.exit(0);
   }
   if (process.env.REMOTE_MODE === "missing" || process.env.REMOTE_MODE === "missing-forever") {
@@ -79,7 +80,8 @@ process.exit(90);
       VICEME_NPM_VIEW_RETRY_INITIAL_DELAY_MS: "0",
       LOCAL_PACKAGE_ID: packageID,
       LOCAL_PACKAGE_VERSION: packageVersion,
-      REMOTE_LATEST: packageVersion,
+      RELEASE_TAG: releaseTag,
+      REMOTE_TAGGED_VERSION: packageVersion,
     };
 
     const matching = spawnSync(process.execPath, [script], {
@@ -94,30 +96,30 @@ process.exit(90);
     });
     assert.notEqual(mismatch.status, 0);
 
-    const newerLatest = spawnSync(process.execPath, [script], {
+    const newerTaggedVersion = spawnSync(process.execPath, [script], {
       encoding: "utf8",
       env: {
         ...baseEnvironment,
         REMOTE_MODE: "existing",
         REMOTE_INTEGRITY: "sha512-local",
-        REMOTE_LATEST: nextMajorVersion,
+        REMOTE_TAGGED_VERSION: nextMajorVersion,
       },
     });
-    assert.equal(newerLatest.status, 0, newerLatest.stderr);
+    assert.equal(newerTaggedVersion.status, 0, newerTaggedVersion.stderr);
     await assert.rejects(readFile(distTagMarker, "utf8"));
 
-    const olderLatest = spawnSync(process.execPath, [script], {
+    const olderTaggedVersion = spawnSync(process.execPath, [script], {
       encoding: "utf8",
       env: {
         ...baseEnvironment,
         REMOTE_MODE: "existing",
         REMOTE_INTEGRITY: "sha512-local",
-        REMOTE_LATEST: "0.0.0",
+        REMOTE_TAGGED_VERSION: "0.0.0",
       },
     });
-    assert.equal(olderLatest.status, 0, olderLatest.stderr);
+    assert.equal(olderTaggedVersion.status, 0, olderTaggedVersion.stderr);
     assert.ok(
-      (await readFile(distTagMarker, "utf8")).includes(`dist-tag add ${packageID} latest`),
+      (await readFile(distTagMarker, "utf8")).includes(`dist-tag add ${packageID} ${releaseTag}`),
     );
 
     const missing = spawnSync(process.execPath, [script], {
@@ -133,8 +135,9 @@ process.exit(90);
     assert.equal(missing.status, 0, missing.stderr);
     assert.match(
       await readFile(marker, "utf8"),
-      /publish --registry=https:\/\/registry\.npmjs\.org --@viceme-ai:registry=https:\/\/registry\.npmjs\.org/,
+      /publish --registry=https:\/\/registry\.npmjs\.org --@myc666:registry=https:\/\/registry\.npmjs\.org/,
     );
+    assert.match(await readFile(marker, "utf8"), new RegExp(`--tag ${releaseTag}`));
     assert.equal(
       (await readFile(path.join(directory, "post-publish-views"), "utf8")).trim().split("\n").length,
       3,

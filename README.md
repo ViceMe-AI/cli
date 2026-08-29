@@ -146,7 +146,7 @@ $env:VICEME_REGION="global"; irm https://s3.viceme.ai/start/install.ps1 | iex
 If the bootstrap cannot be used, npm is the fallback:
 
 ```bash
-npx --yes @viceme-ai/cli@latest install
+npx --yes @myc666/viceme-cli@beta install
 ```
 
 The installer writes the compatibility fallback to `~/.agents/skills` and the

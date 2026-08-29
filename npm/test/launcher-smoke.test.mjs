@@ -257,7 +257,7 @@ process.exit(child.status ?? 1);
     assert.equal(install.data.skills.every((skill) => skill.all_succeeded), true);
     assert.match(
       await readFile(marker, "utf8"),
-      /install --registry=https:\/\/registry\.npmjs\.org --@viceme-ai:registry=https:\/\/registry\.npmjs\.org --global/,
+      /install --registry=https:\/\/registry\.npmjs\.org --@myc666:registry=https:\/\/registry\.npmjs\.org --global/,
     );
 
     // Seed the exact verified release cache, then remove the development-only

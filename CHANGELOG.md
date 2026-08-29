@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.19.0-beta.0] - 2026-08-29
+
+### Features
+
+- 接入开放赞赏与 Headless 工作流（`8f5ba18`）
+
 ## [0.18.0] - 2026-08-27
 
 ### Features

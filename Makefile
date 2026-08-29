@@ -43,7 +43,7 @@ npm-package-check: build
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) build -trimpath -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=$(NPM_VERSION) -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=$(COMMIT) -X github.com/ViceMe-AI/cli/internal/buildinfo.CommerceSkillTrustKeys=$(RELEASE_SMOKE_COMMERCE_SKILL_TRUST_KEYS)" -o bin/viceme-release-smoke ./cmd/viceme
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm npm pack --pack-destination .cache/npm-pack
 	VICEME_CLI_CONFIG_DIR=$(CURDIR)/.cache/release-smoke-config VICEME_INSTALL_METHOD=npm VICEME_NPM_PACKAGE_VERSION=$(NPM_VERSION) ./bin/viceme-release-smoke --version
-	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm VICEME_TEST_BINARY=$(CURDIR)/bin/viceme-release-smoke VICEME_TEST_PACKAGE_TARBALL=$(CURDIR)/.cache/npm-pack/viceme-ai-cli-$(NPM_VERSION).tgz npm test
+	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm VICEME_TEST_BINARY=$(CURDIR)/bin/viceme-release-smoke VICEME_TEST_PACKAGE_TARBALL=$(CURDIR)/.cache/npm-pack/myc666-viceme-cli-$(NPM_VERSION).tgz npm test
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm npm pack --dry-run
 
 release-manifest:

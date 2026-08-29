@@ -92,7 +92,7 @@ remains token-free and does not use a GitHub Environment restriction.
 
 Configure npm trusted publishing for:
 
-- npm package: `@viceme-ai/cli`;
+- npm package: `@myc666/viceme-cli`;
 - GitHub organization/repository: `ViceMe-AI/cli`;
 - workflow filename: `release.yml`.
 
