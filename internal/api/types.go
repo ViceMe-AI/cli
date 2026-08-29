@@ -538,6 +538,27 @@ type SkillPublicationSource struct {
 	SourceReceiptID string  `json:"sourceReceiptId,omitempty" yaml:"sourceReceiptId,omitempty"`
 }
 
+// MarshalJSON keeps the repository root explicit for GitHub sources: the
+// server canonicalizes the manifest after parsing, so the digest only matches
+// when a root-level GitHub source serializes "path": null instead of omitting
+// the key. Other source kinds keep omitting the union-inapplicable fields.
+func (s SkillPublicationSource) MarshalJSON() ([]byte, error) {
+	type skillPublicationSourceAlias SkillPublicationSource
+	encoded, err := json.Marshal(skillPublicationSourceAlias(s))
+	if err != nil {
+		return nil, err
+	}
+	if s.Type != "GITHUB" || s.Path != nil {
+		return encoded, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return nil, err
+	}
+	fields["path"] = []byte("null")
+	return json.Marshal(fields)
+}
+
 type SkillPublicationEdition struct {
 	Key        string   `json:"key" yaml:"key"`
 	Title      string   `json:"title" yaml:"title"`
