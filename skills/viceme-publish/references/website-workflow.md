@@ -40,11 +40,16 @@ of its exact HTTPS Origin. ViceMe does not upload or host the website files.
 
 ## Verify And Publish
 
-1. Create a website verification using the Work's current revision. Publish the
-   returned `challenge` verbatim as a DNS TXT record at `dnsRecordName`.
-2. After public DNS resolves, verify using the returned verification version.
+1. Read the Work. Before any Website Verification write, inspect its status. If
+   it is `SUSPENDED` or `ARCHIVED`, stop without creating a challenge, changing
+   DNS, or verifying. Continue only when it is `DRAFT` or `PUBLISHED`.
+2. If ownership is not `VERIFIED`, create a website verification using the
+   Work's current revision. Publish the returned `challenge` verbatim as a DNS
+   TXT record at `dnsRecordName`.
+3. After public DNS resolves, verify using the returned verification version.
    The verification response is the authority for the next Work revision.
-3. Publish with `merchant work update <work-id> --input <json>`:
+4. If the Work is `DRAFT`, publish with `merchant work update <work-id> --input
+   <json>`:
 
    ```json
    {
@@ -54,7 +59,7 @@ of its exact HTTPS Origin. ViceMe does not upload or host the website files.
    }
    ```
 
-4. Read the Work again and report its ID, slug, revision, status, canonical
+5. Read the Work again and report its ID, slug, revision, status, canonical
    Origin, and ownership status. Do not report the DNS challenge.
 
 ## Optional Engagement

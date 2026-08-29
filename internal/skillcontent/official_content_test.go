@@ -116,7 +116,7 @@ func TestEngagementSkillUsesOneWorkAndCombinedAccess(t *testing.T) {
 	}
 }
 
-func TestEngagementSkillsCanCreateWebsiteWorkFromTheirOwnInstructions(t *testing.T) {
+func TestEngagementSkillsCanCreateOrRecoverWebsiteWorkFromTheirOwnInstructions(t *testing.T) {
 	t.Parallel()
 	createInput := `{
 		"kind": "WEBSITE",
@@ -156,6 +156,9 @@ func TestEngagementSkillsCanCreateWebsiteWorkFromTheirOwnInstructions(t *testing
 			"`merchant-commerce:write`",
 			"`website.canonicalOrigin` exactly equals the deployed Origin",
 			"Whether the Work was reused or created",
+			"Before any Website Verification write, inspect the Work status",
+			"If it is `SUSPENDED` or `ARCHIVED`, stop and report it without creating a challenge, changing DNS, or verifying",
+			"Continue only when its status is `DRAFT` or `PUBLISHED`",
 			"current execution still holds the immediate, unexpired `PENDING` response",
 			"latest verification GET omits the plaintext `challenge`",
 			"after a lost create response or when ownership is `REVOKED`",
@@ -180,6 +183,10 @@ func TestEngagementSkillsCanCreateWebsiteWorkFromTheirOwnInstructions(t *testing
 			"viceme --profile <profile> merchant work create --input <json>",
 			"response is lost, replay the identical request with the same `clientRequestId`; do not create a new identity",
 			"viceme --profile <profile> merchant work get <work-id> --merchant <merchant-id>",
+			"Before any Website Verification write, inspect the Work status",
+			"If it is `SUSPENDED` or `ARCHIVED`, stop and report it without creating a challenge, changing DNS, or verifying",
+			"Continue only when its status is `DRAFT` or `PUBLISHED`",
+			"`website.ownershipStatus` is not `VERIFIED`",
 			"viceme --profile <profile> merchant work website-verification create <work-id> --merchant <merchant-id> --expected-revision <work-revision>",
 			"Publish the returned `challenge` verbatim at `dnsRecordName`",
 			"viceme --profile <profile> merchant work website-verification verify <work-id> --merchant <merchant-id> --expected-verification-version <verification-version>",

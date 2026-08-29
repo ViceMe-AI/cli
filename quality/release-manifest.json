@@ -7,22 +7,22 @@
       "skill_version": "0.18.0",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:69284dfc4ccf3603e582277a287b71a57953d45247a734d27e029a43998c7fdb",
-      "embedded_content_digest": "sha256:891ebc4146619bb1114c18f4297e2450ef58bc18be6d1047f83cc2b82e144834"
+      "full_skill_bundle_digest": "sha256:aa66749585c3f15a3e8dff0ed374a4d70f4e55d494d7f31f205752dd3a164658",
+      "embedded_content_digest": "sha256:5d3865173a59352007386b6319339a6795eaad23af57c66343ef589346aaeb5f"
     },
     "viceme-engagement": {
       "skill_version": "0.18.0",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:37f590e75cebb0034f209037cdd8613b28971b1801f44fbdf3e3389fbd386dcd",
-      "embedded_content_digest": "sha256:4b70c3a425337bff8780f86033e947314cb567a25687717c4ccfed4acdbc2105"
+      "full_skill_bundle_digest": "sha256:596a94fe4e4b42eea52d6d284cad7256ed34fa02227a7b1e694939b3c73cec1d",
+      "embedded_content_digest": "sha256:6bbc6d18dea84eea6d84daa3e19b65313e86b590bc00e41d3eb3c03678c5a542"
     },
     "viceme-publish": {
       "skill_version": "0.18.0",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:2f2dbb8aad42f5d4cfaa121e556c70e6e9d6a8a8eb965022aa0e792f39677c77",
-      "embedded_content_digest": "sha256:3dde750b94351292d8a671d24952b587a909078121ec8673476a2caf05c6e7f6"
+      "full_skill_bundle_digest": "sha256:1b1d5d29c596bbb0d23c50f19b0175de1943083d7c0ae6157f33e2455a0093db",
+      "embedded_content_digest": "sha256:fcab13e3fc7dffe5acd8b8e30734b720bc94bf72c678437475733a7ced175489"
     },
     "viceme-shared": {
       "skill_version": "0.18.0",
@@ -35,8 +35,8 @@
       "skill_version": "0.18.0",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:51d34469b7e9e53ad07ab068dfcca668a9c380ff8b4f69be43411bc7af74eac9",
-      "embedded_content_digest": "sha256:73d6fbe5ff29370cdd135332dc76697c7f4f28533317ee8a59fa0e7f5ebcab26"
+      "full_skill_bundle_digest": "sha256:5190b7335171db806f0994f956529533d06d69c57cc207681fc7564bd026be9b",
+      "embedded_content_digest": "sha256:45142c00cefe0214dc9599c690cc27cac5335728e3f430377992b38eeb8abb03"
     }
   },
   "bootstrap_contract_digest": "sha256:9ddf869696a9dcddccb46184b4e45978b07593b9ba394459226563c03b9e3f7d",
