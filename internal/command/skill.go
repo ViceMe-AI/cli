@@ -327,7 +327,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if err := store.Save(pending); err != nil {
 				return err
 			}
-			return continueSkillPublication(command.Context(), runtime, store, pending, pkg, created.PackageUpload, pending.PriceMinor == nil, "")
+			return continueSkillPublication(command.Context(), runtime, store, pending, pkg, created.PackageUpload, pending.PriceMinor == nil, created.Resolution)
 		},
 	}
 	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
