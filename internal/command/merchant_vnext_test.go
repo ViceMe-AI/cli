@@ -56,7 +56,9 @@ func TestMerchantCommandsRequireScopedLoginBeforeAuthoring(t *testing.T) {
 			writeJSONResponse(writer, map[string]any{
 				"id": "44444444-4444-4444-8444-444444444444", "kind": "SKILL", "origin": "USER_AUTHORED",
 				"slug": "photo-printing", "title": "照片打印", "status": "DRAFT", "revision": 1,
-				"owner": map[string]any{}, "skill": map[string]any{}, "website": nil,
+				"owner": map[string]any{"kind": "MERCHANT", "merchantAccountId": merchantID},
+				"skill": map[string]any{}, "service": nil, "website": nil,
+				"activeRevision": nil, "draftRevision": nil,
 				"createdAt": "2026-08-21T00:00:00Z", "updatedAt": "2026-08-21T00:00:00Z",
 			})
 		default:

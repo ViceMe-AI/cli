@@ -23,9 +23,11 @@ Identify what the buyer receives before creating anything:
   manually fulfilled official mobile-recharge offer, and long-running
   recruitment services all belong here. A Product is never public without a
   real Work, even though the generated purchase entrance is itself a Skill.
-- A creator-owned website that only embeds ViceMe payment: this is a Website Work.
-  Payment integration remains a documented future capability in this
-  release: publish no Product and expose no payment CTA for it.
+- A creator-owned website: read
+  [website-workflow.md](references/website-workflow.md) completely and create a
+  verified Website Work. Publish no Product. When the user also requests hosted
+  tips or danmaku, finish publication first and then use the corresponding
+  integration Skill.
 
 If the buyer outcome is ambiguous, ask one concise question that distinguishes
 “download these Skill/source bytes” from “receive this service or item.” Do not

@@ -57,6 +57,21 @@ type MerchantAccountsResponse struct {
 	Items []MerchantAccount `json:"items"`
 }
 
+type WorkOwner struct {
+	Kind              string  `json:"kind"`
+	UserID            *string `json:"userId,omitempty"`
+	CreatorAccountID  *string `json:"creatorAccountId,omitempty"`
+	MerchantAccountID *string `json:"merchantAccountId,omitempty"`
+}
+
+type WebsiteWork struct {
+	CanonicalOrigin     string  `json:"canonicalOrigin"`
+	DomainASCII         string  `json:"domainAscii"`
+	OwnershipStatus     string  `json:"ownershipStatus"`
+	VerificationVersion int     `json:"verificationVersion"`
+	VerifiedAt          *string `json:"verifiedAt"`
+}
+
 type MerchantWork struct {
 	ID             string          `json:"id"`
 	Kind           string          `json:"kind"`
@@ -65,10 +80,10 @@ type MerchantWork struct {
 	Title          string          `json:"title"`
 	Status         string          `json:"status"`
 	Revision       int             `json:"revision"`
-	Owner          json.RawMessage `json:"owner"`
+	Owner          WorkOwner       `json:"owner"`
 	Skill          json.RawMessage `json:"skill"`
 	Service        json.RawMessage `json:"service"`
-	Website        json.RawMessage `json:"website"`
+	Website        *WebsiteWork    `json:"website"`
 	ActiveRevision json.RawMessage `json:"activeRevision"`
 	DraftRevision  json.RawMessage `json:"draftRevision"`
 	CreatedAt      string          `json:"createdAt"`
@@ -88,6 +103,121 @@ type WorkPreviewGrant struct {
 
 type MerchantWorksResponse struct {
 	Items []MerchantWork `json:"items"`
+}
+
+type CreateWebsiteVerificationRequest struct {
+	MerchantAccountID string `json:"merchantAccountId"`
+	ExpectedRevision  int    `json:"expectedRevision"`
+}
+
+type VerifyWebsiteRequest struct {
+	MerchantAccountID           string `json:"merchantAccountId"`
+	ExpectedVerificationVersion int    `json:"expectedVerificationVersion"`
+}
+
+type RevokeWebsiteOwnershipRequest struct {
+	MerchantAccountID string `json:"merchantAccountId"`
+	ExpectedRevision  int    `json:"expectedRevision"`
+}
+
+type WebsiteVerification struct {
+	ID            string  `json:"id"`
+	WebsiteWorkID string  `json:"websiteWorkId"`
+	Version       int     `json:"version"`
+	DNSRecordName string  `json:"dnsRecordName"`
+	Challenge     *string `json:"challenge,omitempty"`
+	Status        string  `json:"status"`
+	ExpiresAt     string  `json:"expiresAt"`
+	VerifiedAt    *string `json:"verifiedAt"`
+	FailureCode   *string `json:"failureCode"`
+}
+
+type CreateWorkSdkAccessRequest struct {
+	MerchantAccountID string   `json:"merchantAccountId"`
+	Features          []string `json:"features"`
+}
+
+type UpdateWorkSdkAccessRequest struct {
+	MerchantAccountID     string   `json:"merchantAccountId"`
+	ExpectedConfigVersion int      `json:"expectedConfigVersion"`
+	Features              []string `json:"features"`
+}
+
+type WorkSdkAccess struct {
+	WorkID        string   `json:"workId"`
+	WorkKey       string   `json:"workKey"`
+	Status        string   `json:"status"`
+	ConfigVersion int      `json:"configVersion"`
+	Features      []string `json:"features"`
+	CreatedAt     string   `json:"createdAt"`
+	UpdatedAt     string   `json:"updatedAt"`
+}
+
+type WorkSdkAccessesResponse struct {
+	Items []WorkSdkAccess `json:"items"`
+}
+
+type CreateCommerceApplicationRequest struct {
+	MerchantAccountID string   `json:"merchantAccountId"`
+	WorkID            string   `json:"workId"`
+	Kind              string   `json:"kind"`
+	Environment       string   `json:"environment"`
+	DisplayName       string   `json:"displayName"`
+	Origins           []string `json:"origins,omitempty"`
+	ReturnURLs        []string `json:"returnUrls,omitempty"`
+}
+
+type UpdateCommerceApplicationRequest struct {
+	MerchantAccountID string    `json:"merchantAccountId"`
+	ExpectedRevision  int       `json:"expectedRevision"`
+	DisplayName       *string   `json:"displayName,omitempty"`
+	Origins           *[]string `json:"origins,omitempty"`
+	ReturnURLs        *[]string `json:"returnUrls,omitempty"`
+}
+
+type CommerceApplicationCommand struct {
+	MerchantAccountID string `json:"merchantAccountId"`
+	ExpectedRevision  int    `json:"expectedRevision"`
+}
+
+type CommerceApplicationOrigin struct {
+	ID     string `json:"id"`
+	Origin string `json:"origin"`
+}
+
+type CommerceApplicationReturnURL struct {
+	ID  string `json:"id"`
+	URL string `json:"url"`
+}
+
+type CommerceApplicationProduct struct {
+	ProductID string  `json:"productId"`
+	Alias     *string `json:"alias"`
+	Title     string  `json:"title"`
+	Status    string  `json:"status"`
+}
+
+type CommerceApplication struct {
+	ID                string                         `json:"id"`
+	WorkID            string                         `json:"workId"`
+	MerchantAccountID string                         `json:"merchantAccountId"`
+	PublicClientID    string                         `json:"publicClientId"`
+	Kind              string                         `json:"kind"`
+	Environment       string                         `json:"environment"`
+	Status            string                         `json:"status"`
+	DisplayName       string                         `json:"displayName"`
+	Revision          int                            `json:"revision"`
+	Origins           []CommerceApplicationOrigin    `json:"origins"`
+	ReturnURLs        []CommerceApplicationReturnURL `json:"returnUrls"`
+	Products          []CommerceApplicationProduct   `json:"products"`
+	ActivatedAt       *string                        `json:"activatedAt"`
+	SuspendedAt       *string                        `json:"suspendedAt"`
+	CreatedAt         string                         `json:"createdAt"`
+	UpdatedAt         string                         `json:"updatedAt"`
+}
+
+type CommerceApplicationsResponse struct {
+	Items []CommerceApplication `json:"items"`
 }
 
 type CandidatePurchaseSkill struct {
@@ -372,93 +502,6 @@ type ServiceCase struct {
 	UpdatedAt        string          `json:"updatedAt"`
 }
 
-type SdkWorkFeatureConfig struct {
-	FeatureKey string               `json:"featureKey"`
-	Title      string               `json:"title"`
-	Policy     SdkWorkFeaturePolicy `json:"policy"`
-	PriceCents *int                 `json:"priceCents"`
-	Status     string               `json:"status"`
-}
-
-type SdkWorkFeaturePolicy struct {
-	Type string `json:"type"`
-}
-
-type CreateSdkWorkRequest struct {
-	DisplayName string `json:"displayName"`
-}
-
-type PublishCreatorWebsiteRequest struct {
-	ClientRequestID    string        `json:"clientRequestId"`
-	ClientWorkID       string        `json:"clientWorkId"`
-	SourceDigest       string        `json:"sourceDigest"`
-	DisplayName        string        `json:"displayName"`
-	CreatorDisplayName string        `json:"creatorDisplayName,omitempty"`
-	SourceURL          string        `json:"sourceUrl,omitempty"`
-	DescriptionZhCN    string        `json:"descriptionZhCn,omitempty"`
-	DescriptionEnUS    string        `json:"descriptionEnUs,omitempty"`
-	Cover              *WebsiteCover `json:"cover,omitempty"`
-}
-
-type WebsiteCover struct {
-	Digest      string `json:"digest"`
-	SizeBytes   int64  `json:"sizeBytes"`
-	FileName    string `json:"fileName"`
-	ContentType string `json:"contentType"`
-}
-
-type AuthorizeWebsiteCoverUploadRequest struct {
-	ClientWorkID string `json:"clientWorkId"`
-	WebsiteCover
-}
-
-type ApplySdkWorkRequest struct {
-	ExpectedConfigVersion int                    `json:"expectedConfigVersion"`
-	DisplayName           string                 `json:"displayName"`
-	Features              []SdkWorkFeatureConfig `json:"features"`
-	Status                string                 `json:"status"`
-}
-
-type SdkWork struct {
-	CreatorWorkID *string                `json:"creatorWorkId"`
-	WorkKey       string                 `json:"workKey"`
-	Publication   *SdkWorkPublication    `json:"publication"`
-	DisplayName   string                 `json:"displayName"`
-	Status        string                 `json:"status"`
-	ConfigVersion int                    `json:"configVersion"`
-	Offers        []SdkWorkOffer         `json:"offers"`
-	Features      []SdkWorkFeatureConfig `json:"features"`
-	Capabilities  []string               `json:"capabilities"`
-	CreatedAt     string                 `json:"createdAt"`
-	UpdatedAt     string                 `json:"updatedAt"`
-}
-
-type SdkWorkPublication struct {
-	ClientWorkID    string  `json:"clientWorkId"`
-	SourceDigest    string  `json:"sourceDigest"`
-	SourceURL       *string `json:"sourceUrl"`
-	DescriptionZhCN *string `json:"descriptionZhCn"`
-	DescriptionEnUS *string `json:"descriptionEnUs"`
-	CoverURL        *string `json:"coverUrl"`
-	ReleaseID       string  `json:"releaseId"`
-	Version         int     `json:"version"`
-	PublishedAt     string  `json:"publishedAt"`
-	Unchanged       bool    `json:"unchanged"`
-}
-
-type SdkWorkOffer struct {
-	ID          string `json:"id"`
-	FeatureKey  string `json:"featureKey"`
-	Type        string `json:"type"`
-	AmountCents int    `json:"amountCents"`
-	Currency    string `json:"currency"`
-	Status      string `json:"status"`
-}
-
-type SdkWorks struct {
-	Works []SdkWork `json:"works"`
-}
-
 type SkillPublicationManifest struct {
 	APIVersion string                   `json:"apiVersion" yaml:"apiVersion"`
 	Kind       string                   `json:"kind" yaml:"kind"`
@@ -703,32 +746,6 @@ type ReviewDigestRequest struct {
 
 type CancelPublicationResponse struct {
 	Cancelled bool `json:"cancelled"`
-}
-
-type CreateCreatorAppRequest struct {
-	Name string `json:"name"`
-}
-
-type CreatorAppDomainInfo struct {
-	Domain            string  `json:"domain"`
-	Verified          bool    `json:"verified"`
-	VerificationToken *string `json:"verificationToken"`
-}
-
-type CreatorApp struct {
-	ID        string                 `json:"id"`
-	Kind      string                 `json:"kind"`
-	Name      string                 `json:"name"`
-	Domains   []CreatorAppDomainInfo `json:"domains"`
-	CreatedAt string                 `json:"createdAt"`
-}
-
-type CreatorAppsResponse struct {
-	Items []CreatorApp `json:"items"`
-}
-
-type AddCreatorAppDomainRequest struct {
-	Domain string `json:"domain"`
 }
 
 type APIError struct {
