@@ -721,7 +721,7 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		if err := retirePublicationRecovery(store, pending, current.Status); err != nil {
 			return err
 		}
-		return presentPublication(ctx, runtime, current, "")
+		return presentPublication(ctx, runtime, current, "UPDATE")
 	}
 	if pending.PriceMinor != nil && (current.Draft.PriceMinor == nil || *current.Draft.PriceMinor != *pending.PriceMinor) {
 		current, err = client.UpdateListingPrice(ctx, pending.PublicationID, *pending.PriceMinor)
@@ -751,7 +751,7 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		}
 	}
 	if packageOnly {
-		return presentPublication(ctx, runtime, current, "")
+		return presentPublication(ctx, runtime, current, "UPDATE")
 	}
 	for index, candidate := range pkg.Candidates {
 		if verifiedUpload(current.Uploads, "MEDIA", candidate.Digest, candidate.RelativePath) {
