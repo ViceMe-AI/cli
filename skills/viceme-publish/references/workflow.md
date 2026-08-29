@@ -14,7 +14,7 @@
 4. 草稿就绪后立即运行 `viceme publication review <publication-id>`，并马上用内置 `present_files` 在当前任务浏览器打开返回的 `presentation.fallbackUrl` 稳定预览页面，同时按通用约定在对话里给出该链接的 Markdown 备用入口，说一句“预览页面已经打开了，我会边补资料边更新，你随时能看到变化”。预览页面必须先于任何补资料、生成图片或询问出现；后续每一步更新（封面、图库、双语文案、价格）都提交到同一份草稿，让页面内容逐步生长，而不是让用户在空白中等待。
 5. 基于预览一次性补齐缺少的价格、文案和媒体；能由当前 Agent 从包内容可靠提出的内容直接形成候选，不做平台分析等待。
 6. 展示完整最终预览，只询问一次是否确认公开发布。
-7. 用户确认后连续完成确认与公开发布，返回公开链接；随后只问一次是否还要增加关联版本。
+7. 用户确认后连续完成确认与公开发布，返回公开链接；随后只问一次：“要往这个组合里继续添加其他 skill 吗？”用 `AskUserQuestion` 给两个选项：“添加其他 skill”“完成，就这样”。用户选添加就按正常发布流程处理新来源（见组合规则）；选完成则结束。对用户只使用“组合里的 skill”这一种说法，不使用“版本”“档位”“免费版/专业版”等分层概念。
 
 同一个 Skill 再次发布时自动走更新，不会创建重复商品：本地目录和 ZIP 通过包内 `.viceme/skill.json` 识别，GitHub 仓库按仓库归属识别，小红书按 Skill ID 识别。识别为同一个 Skill 时恢复原有上架页面继续更新，此时用一句白话说明“这是你已有 Skill 的更新”；只有名称与已有 Skill 重复、又不是同一个 Skill 时才会被拒绝（见错误处理的 `SKILL_PUBLICATION_TITLE_TAKEN`）。
 
@@ -24,7 +24,7 @@
 
 - 恰好一个来源：根目录含 `SKILL.md` 的本地目录/ZIP、本人 GitHub 仓库，或已验证的小红书 Skill ID。公开 GitHub 仓库也必须验证所有权；私有仓库使用已保存的 OAuth 凭证。不支持组织仓库或只有 collaborator 权限的仓库。
 - 一个由 `$viceme-creator-onboarding` 确认、当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有的有效 MerchantAccount。返回多个时必须使用用户在资格流程中选择的商家，并用 `--merchant <merchant-account-id>` 发布。
-- 最终公开确认前必须明确版本 `key`、用户可见名称、`sortOrder`、1 到 8 条 highlights，以及以人民币分计价的 `priceMinor`。私有包初次上传时故意保持 `priceMinor: null`。
+- 最终公开确认前必须确定每个条目的内部 `key`、用户可见名称、`sortOrder`、1 到 8 条 highlights，以及以人民币分计价的 `priceMinor`；这些内部值由 Agent 按组合规则自动派生，用户只需要确认价格和内容。私有包初次上传时故意保持 `priceMinor: null`。
 - 最终预览必须展示中文简介、中英文使用说明、已验证包、一个封面和至少一个图库项，然后才能取得合并的“确认并发布”授权。
 
 ## 稳定本地身份
@@ -54,7 +54,7 @@ GitHub 或小红书来源会把取得的不可变归档保存到 CLI 私有恢�
 
 已有商家的 OWNER 可以验证额外小红书发布渠道，不进入商家认领。运行 `viceme merchant channel xiaohongshu <merchant-id> --subject-id ... --account-name ...`，上传返回的申请证据并提交 Admin 审核。渠道批准只为现有 OWNER 记录已验证来源身份，不创建或转移 Merchant。
 
-Agent 已取得用户明确给出的版本值时，使用 `--edition-key`、`--edition-title`、`--edition-order` 和 `--edition-highlight` 传递。首个版本没有明确版本资料时，不得读取仓库后自行编造这些参数；省略它们，让 CLI 只在私有草稿中使用 `standard`、包标题、顺序 0 和包简介作为候选，并在最终预览中让用户一起确认。为同一 Work 增加另一个版本时，必须取得不会与已有版本冲突的 key，并在一次提问里连同版本名称、顺序、卖点和价格一起收集；不得根据“高级版”三个字自行猜测商业层级。
+一个作品是一个 skill 组合：里面可以有很多个 skill，各自独立定价、独立购买；对用户来说不同价位的就是不同的 skill，不是同一 skill 的分层。组合内每个条目用 `--edition-key`、`--edition-title`、`--edition-order` 和 `--edition-highlight` 这组内部参数表达，全部由 Agent 自动派生，绝不向用户询问：title 用包自身标题；key 用包标题转小写加连字符（例如 “Xiaohongshu Cover Generator” → “xiaohongshu-cover-generator”）；order 用 `publication review` 返回的组合内已有条目数加一；highlights 省略让 CLI 用包简介。同一来源再次发布时派生出相同 key，即为该 skill 的内容更新，已获得它的用户自动免费拿到新内容。用户明确给出了某个内部值时才原样使用。
 
 首个版本省略 `--listing`。增加版本或使用不同来源位置更新时，传入已发布 Work 的 `--listing <listing-id>`。只有这个明确绑定能把不同包放在同一 Work 下，不能按包 digest 或标题推断。只有用户明确要求独立 Work 时才用 `--new-listing`。digest 候选不明确时展示候选，用户选择自己拥有的 Listing 后才运行 `skill listing bind <listing-id> --path ...`。
 
@@ -64,7 +64,7 @@ Agent 已取得用户明确给出的版本值时，使用 `--edition-key`、`--e
 
 `FAILED` 修正输入后可以回到预览；`CANCELLED` 和 `PUBLISHED` 为终态。
 
-发布另一个版本会复用同一 Listing，并重新走完整包校验、上传、双语资料、媒体、预览、确认和发布。每个版本是独立 Product 和永久下载权益。价格 0 表示免费，免费版并非必需。购买一个版本不包含其他版本。同一 edition key 更新会在同一 Product 下发布新 Release，已有用户自动获得；需要再次收费时必须创建新的 edition key/Product。
+往组合里添加 skill 或更新其中某个 skill 都复用同一 Listing，并重新走完整包校验、上传、中文简介与双语说明、媒体、预览、确认和发布。组合内每个 skill 是独立 Product 和永久下载权益，各自定价；价格 0 表示该 skill 免费。购买组合中的一个 skill 不包含其他 skill。同一 skill（相同派生 key）更新内容会在同一 Product 下发布新 Release，已拥有它的用户自动免费获得；不同的 skill 是不同的条目。
 
 ## 本地恢复权限
 

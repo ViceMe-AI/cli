@@ -27,7 +27,7 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时是终止性例外�
 
 所有已经开放的玩法都从发布入口开始，再进入对应内部路线：
 
-- 玩法一——可下载 Skill：用户收到的是 Skill 包本身。完整阅读 [workflow.md](references/workflow.md)，使用 `skill publish` 和 `publication`。本地目录/ZIP、本人拥有的公开或私有 GitHub 仓库、已验证的小红书 Skill ID 都属于此路线。一个 Work/Listing 下的每个版本都是独立 Product 和独立包。
+- 玩法一——可下载 Skill：用户收到的是 Skill 包本身。完整阅读 [workflow.md](references/workflow.md)，使用 `skill publish` 和 `publication`。本地目录/ZIP、本人拥有的公开或私有 GitHub 仓库、已验证的小红书 Skill ID 都属于此路线。一个作品是一个 skill 组合：组合里的每个 skill 都是独立 Product、独立包和独立定价，对用户只说“组合里的 skill”，不使用“版本”“档位”等分层概念。
 - 玩法二——交易型 Skill：服务、实物/定制商品、预约类交付、官方服务或其他由商家定义的结果。完整阅读 [generic-product.md](references/generic-product.md)，使用交易架构的 Merchant Work/Product 流程。平台生成的购买 Skill 只绑定该 Product，不是玩法一的下载包。
 - 网站发布目前尚未开放，不是当前可执行的发布路线。用户提出该目标时，用白话说明当前版本还不能发布网站；不得运行旧的 `viceme website publish`，也不得为网站创建 Product、支付入口或旧 SdkWork。
 
