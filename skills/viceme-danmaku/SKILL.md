@@ -51,16 +51,12 @@ API-client, or persistence code. Read [cdn-sdk.md](references/cdn-sdk.md) first.
    `clientRequestId`; do not create a new identity.
 5. Whether the Work was reused or created, read it with `viceme --profile
    <profile> merchant work get <work-id> --merchant <merchant-id>`. If
-   `website.ownershipStatus` is not `VERIFIED`, first run:
-
-   ```bash
-   viceme --profile <profile> merchant work website-verification get <work-id> \
-     --merchant <merchant-id>
-   ```
-
-   If the latest verification status is `PENDING` and it is unexpired, reuse
-   its existing `challenge` and version. If no verification exists or its status
-   is `FAILED` or `EXPIRED`, create one from the current Work revision:
+   `website.ownershipStatus` is not `VERIFIED`, reuse a challenge only when the
+   current execution still holds the immediate, unexpired `PENDING` response
+   from `website-verification create`. The latest verification GET omits the
+   plaintext `challenge` and cannot recover its TXT value. Otherwise, including
+   after a lost create response or when ownership is `REVOKED`, read the latest
+   Work revision and create a replacement challenge:
 
    ```bash
    viceme --profile <profile> merchant work website-verification create <work-id> \

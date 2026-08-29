@@ -45,16 +45,12 @@ for danmaku and Tip.
    `clientRequestId`; do not create a new identity.
 4. Whether the Work was reused or created, read it with `viceme --profile
    <profile> merchant work get <work-id> --merchant <merchant-id>`. If
-   `website.ownershipStatus` is not `VERIFIED`, first run:
-
-   ```bash
-   viceme --profile <profile> merchant work website-verification get <work-id> \
-     --merchant <merchant-id>
-   ```
-
-   If the latest verification status is `PENDING` and it is unexpired, reuse
-   its existing `challenge` and version. If no verification exists or its status
-   is `FAILED` or `EXPIRED`, create one from the current Work revision:
+   `website.ownershipStatus` is not `VERIFIED`, reuse a challenge only when the
+   current execution still holds the immediate, unexpired `PENDING` response
+   from `website-verification create`. The latest verification GET omits the
+   plaintext `challenge` and cannot recover its TXT value. Otherwise, including
+   after a lost create response or when ownership is `REVOKED`, read the latest
+   Work revision and create a replacement challenge:
 
    ```bash
    viceme --profile <profile> merchant work website-verification create <work-id> \
@@ -100,9 +96,9 @@ for danmaku and Tip.
    For update, also pass the current `--expected-config-version`. Never run two
    independent updates that overwrite each other's feature.
 7. Run `viceme --profile <profile> merchant commerce-application list --merchant
-   <merchant-id>`. Reuse only the application matching this Work, `kind:
-   WEBSITE_WIDGET`, `environment: PRODUCTION`, the exact canonical Origin,
-   empty return URLs, and no Products. Otherwise create it with:
+   <merchant-id>`. Locate the single application scoped to this Work, `kind:
+   WEBSITE_WIDGET`, and `environment: PRODUCTION`; `(workId, environment, kind)`
+   is unique. Only when no scoped application exists, create it with:
 
    ```json
    {
@@ -119,17 +115,43 @@ for danmaku and Tip.
    Run `viceme --profile <profile> merchant commerce-application create --input
    <json>`. Whether reused or created, read it with `viceme --profile <profile>
    merchant commerce-application get <application-id> --merchant <merchant-id>`.
-   If its status is `DRAFT`, activate its exact revision:
+   Never create a second application when the scoped application has different
+   display name, Origin, or return URLs; that would conflict with its unique
+   identity. If its status is `REVOKED`, stop and report the terminal resource.
+
+   If the existing configuration differs and its status is `ACTIVE`, suspend
+   its exact revision before editing:
+
+   ```bash
+   viceme --profile <profile> merchant commerce-application suspend <application-id> \
+     --merchant <merchant-id> --expected-revision <application-revision>
+   ```
+
+   Read the application again after suspend. For a differing `DRAFT` or
+   `SUSPENDED` application, write this update input with its fresh revision:
+
+   ```json
+   {
+     "merchantAccountId": "<merchant-id>",
+     "expectedRevision": 2,
+     "displayName": "<website name>",
+     "origins": ["https://creator.example"],
+     "returnUrls": []
+   }
+   ```
+
+   Run `viceme --profile <profile> merchant commerce-application update
+   <application-id> --input <json>`, then read it again. When the configuration
+   matches and status is `DRAFT` or `SUSPENDED`, activate its exact revision:
 
    ```bash
    viceme --profile <profile> merchant commerce-application activate <application-id> \
      --merchant <merchant-id> --expected-revision <application-revision>
    ```
 
-   Read it again with the same `get` command. If it is already `ACTIVE`, skip
-   activation. If it is `SUSPENDED` or `ARCHIVED`, stop and report it. If a
-   create response is lost, list again before another create. A Website Widget
-   has no Product binding.
+   Read it again with the same `get` command. If it is already `ACTIVE` and the
+   configuration matches, skip activation. If a create response is lost, list
+   again before another create. A Website Widget has no Product binding.
 8. Insert one combined loader after a stable target element:
 
    ```html

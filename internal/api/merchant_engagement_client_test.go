@@ -311,6 +311,27 @@ func TestMerchantEngagementClientUsesShopContracts(t *testing.T) {
 	}
 }
 
+func TestMerchantEngagementRecoveryUsesAuthoritativeResponseContracts(t *testing.T) {
+	t.Parallel()
+
+	latest := testWebsiteVerification("PENDING", false)
+	if err := latest.validateAPIResponse(); err != nil {
+		t.Fatalf("latest verification without plaintext challenge: %v", err)
+	}
+	if latest.Challenge != nil {
+		t.Fatal("latest verification unexpectedly exposes a plaintext challenge")
+	}
+
+	for _, status := range []string{"DRAFT", "ACTIVE", "SUSPENDED", "REVOKED"} {
+		if !validCommerceApplicationStatus(status) {
+			t.Fatalf("authoritative Commerce Application status %q was rejected", status)
+		}
+	}
+	if validCommerceApplicationStatus("ARCHIVED") {
+		t.Fatal("Commerce Application contract accepted Product-only ARCHIVED status")
+	}
+}
+
 func TestMerchantEngagementClientRejectsInvalidSuccessfulResponses(t *testing.T) {
 	t.Parallel()
 

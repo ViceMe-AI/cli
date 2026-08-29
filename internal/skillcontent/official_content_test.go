@@ -156,7 +156,10 @@ func TestEngagementSkillsCanCreateWebsiteWorkFromTheirOwnInstructions(t *testing
 			"`merchant-commerce:write`",
 			"`website.canonicalOrigin` exactly equals the deployed Origin",
 			"Whether the Work was reused or created",
-			"latest verification status is `PENDING`",
+			"current execution still holds the immediate, unexpired `PENDING` response",
+			"latest verification GET omits the plaintext `challenge`",
+			"after a lost create response or when ownership is `REVOKED`",
+			"create a replacement challenge",
 			"`DRAFT` Work with a `PENDING` verification",
 			"current Work status is `DRAFT`",
 			"Work status is already `PUBLISHED`",
@@ -177,7 +180,6 @@ func TestEngagementSkillsCanCreateWebsiteWorkFromTheirOwnInstructions(t *testing
 			"viceme --profile <profile> merchant work create --input <json>",
 			"response is lost, replay the identical request with the same `clientRequestId`; do not create a new identity",
 			"viceme --profile <profile> merchant work get <work-id> --merchant <merchant-id>",
-			"viceme --profile <profile> merchant work website-verification get <work-id> --merchant <merchant-id>",
 			"viceme --profile <profile> merchant work website-verification create <work-id> --merchant <merchant-id> --expected-revision <work-revision>",
 			"Publish the returned `challenge` verbatim at `dnsRecordName`",
 			"viceme --profile <profile> merchant work website-verification verify <work-id> --merchant <merchant-id> --expected-verification-version <verification-version>",
@@ -202,6 +204,13 @@ func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 		"origins": ["https://creator.example"],
 		"returnUrls": []
 	}`
+	applicationUpdateInput := `{
+		"merchantAccountId": "<merchant-id>",
+		"expectedRevision": 2,
+		"displayName": "<website name>",
+		"origins": ["https://creator.example"],
+		"returnUrls": []
+	}`
 
 	for _, relativePath := range []string{
 		"viceme-tip/SKILL.md",
@@ -214,10 +223,13 @@ func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 		text := string(content)
 		normalized := strings.Join(strings.Fields(strings.ReplaceAll(text, "\\\n", " ")), " ")
 		for _, required := range []string{
-			"matching this Work, `kind: WEBSITE_WIDGET`, `environment: PRODUCTION`, the exact canonical Origin, empty return URLs, and no Products",
-			"If its status is `DRAFT`, activate its exact revision",
-			"If it is already `ACTIVE`, skip activation",
-			"If it is `SUSPENDED` or `ARCHIVED`, stop and report it",
+			"`(workId, environment, kind)` is unique",
+			"Only when no scoped application exists, create it",
+			"Never create a second application when the scoped application has different display name, Origin, or return URLs",
+			"If its status is `REVOKED`, stop and report the terminal resource",
+			"If the existing configuration differs and its status is `ACTIVE`, suspend its exact revision before editing",
+			"For a differing `DRAFT` or `SUSPENDED` application",
+			"If it is already `ACTIVE` and the configuration matches, skip activation",
 			"If a create response is lost, list again before another create",
 		} {
 			if !strings.Contains(normalized, required) {
@@ -229,9 +241,20 @@ func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 			`"kind": "WEBSITE_WIDGET"`,
 			"viceme --profile <profile> merchant commerce-application create --input <json>",
 			"viceme --profile <profile> merchant commerce-application get <application-id> --merchant <merchant-id>",
+			"viceme --profile <profile> merchant commerce-application suspend <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
+			"write this update input",
+			"viceme --profile <profile> merchant commerce-application update <application-id> --input <json>",
 			"viceme --profile <profile> merchant commerce-application activate <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
 		})
 		requireJSONBlock(t, relativePath, text, `"kind": "WEBSITE_WIDGET"`, applicationInput)
+		requireJSONBlockWithMarkers(t, relativePath, text, []string{
+			`"expectedRevision": 2`,
+			`"displayName": "<website name>"`,
+		}, applicationUpdateInput)
+		applicationOffset := strings.Index(normalized, "merchant commerce-application list")
+		if applicationOffset < 0 || strings.Contains(normalized[applicationOffset:], "`ARCHIVED`") {
+			t.Fatalf("standalone %s uses a non-contract Website Widget status", relativePath)
+		}
 	}
 }
 
@@ -249,24 +272,33 @@ func requireOrderedSteps(t *testing.T, relativePath, text string, steps []string
 
 func requireJSONBlock(t *testing.T, relativePath, text, marker, expected string) {
 	t.Helper()
+	requireJSONBlockWithMarkers(t, relativePath, text, []string{marker}, expected)
+}
+
+func requireJSONBlockWithMarkers(t *testing.T, relativePath, text string, markers []string, expected string) {
+	t.Helper()
 	blocks := regexp.MustCompile("(?s)```json\\s*(.*?)\\s*```").FindAllStringSubmatch(text, -1)
 	for _, block := range blocks {
-		if !strings.Contains(block[1], marker) {
+		containsAll := true
+		for _, marker := range markers {
+			containsAll = containsAll && strings.Contains(block[1], marker)
+		}
+		if !containsAll {
 			continue
 		}
 		var actualValue, expectedValue any
 		if err := json.Unmarshal([]byte(block[1]), &actualValue); err != nil {
-			t.Fatalf("standalone %s contains invalid JSON for %s: %v", relativePath, marker, err)
+			t.Fatalf("standalone %s contains invalid JSON for %v: %v", relativePath, markers, err)
 		}
 		if err := json.Unmarshal([]byte(expected), &expectedValue); err != nil {
 			t.Fatal(err)
 		}
 		if !reflect.DeepEqual(actualValue, expectedValue) {
-			t.Fatalf("standalone %s contains incomplete JSON for %s\nwant: %s\n got: %s", relativePath, marker, expected, block[1])
+			t.Fatalf("standalone %s contains incomplete JSON for %v\nwant: %s\n got: %s", relativePath, markers, expected, block[1])
 		}
 		return
 	}
-	t.Fatalf("standalone %s omitted JSON block containing %s", relativePath, marker)
+	t.Fatalf("standalone %s omitted JSON block containing %v", relativePath, markers)
 }
 
 func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
