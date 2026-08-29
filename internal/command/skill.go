@@ -369,7 +369,7 @@ func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merch
 		if githubRef == "" {
 			return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("GITHUB_REF_INVALID", "--github-ref cannot be empty")
 		}
-		archive, err := runtime.client().DownloadGithubSkillSource(ctx, merchantAccountID, repository, githubRef, strings.TrimSpace(githubPath))
+		archive, err := runtime.client().DownloadGithubSkillSource(ctx, merchantAccountID, repository, githubRef, normalizeGithubPath(githubPath))
 		if err != nil {
 			return publication.Package{}, source, api.SkillPublicationEdition{}, err
 		}
@@ -457,7 +457,7 @@ func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merch
 		highlights = append(highlights, highlight)
 	}
 	if len(highlights) == 0 {
-		highlights = []string{pkg.Manifest.Metadata.Summary}
+		highlights = []string{defaultEditionHighlight(pkg.Manifest.Metadata.Summary)}
 	}
 	if len(highlights) > 8 {
 		return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("SKILL_EDITION_HIGHLIGHT_INVALID", "an edition supports at most eight highlights")
@@ -476,6 +476,35 @@ func normalizeGithubRepository(value string) string {
 		}
 	}
 	return value
+}
+
+// normalizeGithubPath treats the repository root spellings ("", ".", "./")
+// as the root directory so the download request omits the path instead of
+// sending a literal "." the server cannot resolve.
+func normalizeGithubPath(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimSuffix(value, "/")
+	if value == "." {
+		return ""
+	}
+	return value
+}
+
+// defaultEditionHighlight derives the fallback highlight from the manifest
+// summary, cutting at a sentence or word boundary so auto-derived copy never
+// exceeds the 200-character edition highlight limit.
+func defaultEditionHighlight(summary string) string {
+	runes := []rune(strings.TrimSpace(summary))
+	if len(runes) <= 200 {
+		return string(runes)
+	}
+	cut := runes[:200]
+	for index := len(cut) - 1; index >= 0; index-- {
+		if strings.ContainsRune("。！？；，、,.!?;: ", cut[index]) {
+			return strings.TrimSpace(string(cut[:index+1]))
+		}
+	}
+	return string(cut)
 }
 
 func persistPublicationSource(configBase string, archive []byte) (string, error) {
