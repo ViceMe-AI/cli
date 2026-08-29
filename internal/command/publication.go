@@ -42,7 +42,7 @@ func newPublicationAnalyzeCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return presentPublication(command.Context(), runtime, result)
+			return presentPublication(command.Context(), runtime, result, "")
 		},
 	}
 }
@@ -74,7 +74,7 @@ func newPublicationWaitCommand(runtime *Runtime) *cobra.Command {
 					return err
 				}
 				if result.Analysis == nil || result.Analysis.Status != "PENDING" {
-					return presentPublication(command.Context(), runtime, result)
+					return presentPublication(command.Context(), runtime, result, "")
 				}
 				if err := runtime.deps.Sleep(ctx, interval); err != nil {
 					if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -109,7 +109,7 @@ func newPublicationGetCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return presentPublication(command.Context(), runtime, result)
+			return presentPublication(command.Context(), runtime, result, "")
 		},
 	}
 }
@@ -205,7 +205,7 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 				return output.Internal("MEDIA_UPLOAD_NOT_VERIFIED", "uploaded media was not returned as verified", nil)
 			}
 			if candidateOnly {
-				return presentPublication(command.Context(), runtime, current)
+				return presentPublication(command.Context(), runtime, current, "")
 			}
 			patch := api.UpdateSkillPublicationDraftRequest{}
 			needsUpdate := false
@@ -219,13 +219,13 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 				needsUpdate = true
 			}
 			if !needsUpdate {
-				return presentPublication(command.Context(), runtime, current)
+				return presentPublication(command.Context(), runtime, current, "")
 			}
 			updated, err := client.UpdateListingDraftPatch(command.Context(), args[0], patch)
 			if err != nil {
 				return err
 			}
-			return presentPublication(command.Context(), runtime, updated)
+			return presentPublication(command.Context(), runtime, updated, "")
 		},
 	}
 	command.Flags().StringVar(&role, "role", "", "asset role: cover or gallery")
@@ -251,7 +251,7 @@ func newPublicationSuggestCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return presentPublication(command.Context(), runtime, result)
+			return presentPublication(command.Context(), runtime, result, "")
 		},
 	}
 	command.Flags().StringVar(&filename, "input", "", "strict JSON file containing the Agent suggestion and base draft revision")
@@ -282,7 +282,7 @@ func newPublicationUpdateCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return presentPublication(command.Context(), runtime, result)
+			return presentPublication(command.Context(), runtime, result, "")
 		},
 	}
 	command.Flags().StringVar(&filename, "input", "", "strict JSON file containing the complete listing draft")
@@ -299,7 +299,7 @@ func newPublicationConfirmCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return presentPublication(command.Context(), runtime, result)
+			return presentPublication(command.Context(), runtime, result, "")
 		},
 	}
 	command.Flags().StringVar(&digest, "review-digest", "", "exact digest shown by publication review")
@@ -326,7 +326,7 @@ func newPublicationPublishCommand(runtime *Runtime) *cobra.Command {
 					return loadErr
 				}
 			}
-			return presentPublication(command.Context(), runtime, result)
+			return presentPublication(command.Context(), runtime, result, "")
 		},
 	}
 	command.Flags().StringVar(&digest, "review-digest", "", "exact digest confirmed by the user")

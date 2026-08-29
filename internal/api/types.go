@@ -596,6 +596,7 @@ type CreateSkillPublicationResponse struct {
 	MerchantAccountID string               `json:"merchantAccountId"`
 	DraftRevision     int                  `json:"draftRevision"`
 	Status            string               `json:"status"`
+	Resolution        string               `json:"resolution"`
 	PackageUpload     *UploadAuthorization `json:"packageUpload"`
 }
 

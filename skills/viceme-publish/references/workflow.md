@@ -16,7 +16,7 @@
 6. 展示完整最终预览，只询问一次是否确认公开发布。
 7. 用户确认后连续完成确认与公开发布，返回公开链接；随后只问一次：“要往这个组合里继续添加其他 skill 吗？”用 `AskUserQuestion` 给两个选项：“添加其他 skill”“完成，就这样”。用户选添加就按正常发布流程处理新来源（见组合规则）；选完成则结束。对用户只使用“组合里的 skill”这一种说法，不使用“版本”“档位”“免费版/专业版”等分层概念。
 
-同一个 Skill 再次发布时自动走更新，不会创建重复商品：本地目录和 ZIP 通过包内 `.viceme/skill.json` 识别，GitHub 仓库按仓库归属识别，小红书按 Skill ID 识别。识别为同一个 Skill 时恢复原有上架页面继续更新，此时用一句白话说明“这是你已有 Skill 的更新”；只有名称与已有 Skill 重复、又不是同一个 Skill 时才会被拒绝（见错误处理的 `SKILL_PUBLICATION_TITLE_TAKEN`）。
+同一个 Skill 再次发布时自动走更新，不会创建重复商品：本地目录和 ZIP 通过包内 `.viceme/skill.json` 识别，GitHub 仓库按仓库归属识别，小红书按 Skill ID 识别。判断依据是 `skill publish` 输出中的 `resolution` 字段：`"UPDATE"` 表示这是已有 Skill 的更新——立刻用一句白话说“这是你已有 Skill 的更新，我会在原页面发布新版本”；`"NEW"` 才是首次发布。跨会话、换机器同样生效，不得因为本地没有记录就当作新 Skill。只有名称与已有 Skill 重复、又不是同一个 Skill 时才会被拒绝（见错误处理的 `SKILL_PUBLICATION_TITLE_TAKEN`）。
 
 用户可见提示保持简短且与当前阶段一致：开始时说“我先检查登录和创作者资格。”；资格与渠道都就绪后只说固定的一句“账号已经确认，我正在准备发布预览。”，不得再自造“现在开始处理 GitHub 仓库”之类的额外过渡语；预览页面打开时说“预览页面已经打开了，我会边补资料边更新，你随时能看到变化。”；需要用户登录或授权时先打开页面并立即说明应在右侧完成什么；用户确认最终预览后说“收到，我现在发布。”。同一阶段不为每条命令重复提示，任何等待前不得保持无说明的静默。
 
@@ -90,7 +90,7 @@ GitHub 或小红书来源会把取得的不可变归档保存到 CLI 私有恢�
 
 首次未定价发布会上传并验证包，返回 Publication ID 和 Owner Preview。立即用同一 ID 运行不带价格的 `skill publish --resume <id>`；这不是新的上传授权边界。该步骤在 `priceMinor` 仍为 null 时上传媒体候选，不会隐式启动平台模型。`requiresPrice: true` 只是草稿完整性状态，不是打断渐进补全的提示。
 
-取得 `publication review`，由用户当前 Agent 生成上架字段，再提交一个受 revision 保护的建议。严格输入：
+取得 `publication review`，由用户当前 Agent 生成上架字段，再提交一个受 revision 保护的建议。`--input` 的 `baseDraftRevision` 必须取自当前 review 返回的 `draftRevision`；patch 只包含 `summaryZhCn`、`usageInstructionsZhCn`、`usageInstructionsEnUs`、`coverUploadId`、`galleryUploadIds`——没有英文简介字段，传入会被拒绝。严格输入：
 
 ```json
 {

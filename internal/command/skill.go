@@ -38,7 +38,10 @@ type listingGetResult struct {
 
 type publicationPresentationResult struct {
 	api.SkillPublication
-	PublicationID string              `json:"publicationId"`
+	PublicationID string `json:"publicationId"`
+	// NEW is the Work's first publication; UPDATE means the same Skill was
+	// recognized and this publication continues the existing public Work.
+	Resolution    string              `json:"resolution"`
 	RequiresPrice bool                `json:"requiresPrice"`
 	Presentation  previewPresentation `json:"presentation"`
 }
@@ -236,7 +239,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				// An explicit resume continues Draft enrichment even while the
 				// price is still unset. Price gates final confirmation, not media
 				// upload or listing analysis.
-				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, false)
+				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, false, "")
 			}
 			if source != "" {
 				if _, err := publication.Build(source); err != nil {
@@ -280,7 +283,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if err := store.Save(pending); err != nil {
 					return err
 				}
-				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, pending.PriceMinor == nil)
+				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, pending.PriceMinor == nil, "UPDATE")
 			}
 			created, err := runtime.client().CreateSkillPublication(command.Context(), api.CreateSkillPublicationRequest{
 				ClientRequestID: intent.ClientRequestID, ContractVersion: api.SkillPublicationContractVersion, CLIVersion: buildinfo.Version,
@@ -302,7 +305,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if current.MerchantAccountID != merchant.ID {
 					return output.Authorization("PUBLICATION_MERCHANT_CHANGED", "the active publication belongs to another Merchant")
 				}
-				created = api.CreateSkillPublicationResponse{PublicationID: current.ID, ListingID: current.ListingID, MerchantAccountID: current.MerchantAccountID, DraftRevision: current.DraftRevision, Status: current.Status}
+				created = api.CreateSkillPublicationResponse{PublicationID: current.ID, ListingID: current.ListingID, MerchantAccountID: current.MerchantAccountID, DraftRevision: current.DraftRevision, Status: current.Status, Resolution: "UPDATE"}
 			}
 			if created.MerchantAccountID != merchant.ID {
 				return output.Authorization("PUBLICATION_MERCHANT_CHANGED", "the publication response does not match the selected Merchant")
@@ -324,7 +327,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if err := store.Save(pending); err != nil {
 				return err
 			}
-			return continueSkillPublication(command.Context(), runtime, store, pending, pkg, created.PackageUpload, pending.PriceMinor == nil)
+			return continueSkillPublication(command.Context(), runtime, store, pending, pkg, created.PackageUpload, pending.PriceMinor == nil, "")
 		},
 	}
 	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
@@ -705,7 +708,7 @@ func resolveSkillPublicationMerchant(ctx context.Context, runtime *Runtime, requ
 	return api.MerchantAccount{}, output.Validation("MERCHANT_SELECTION_REQUIRED", "multiple active Merchant accounts are available; select one explicitly").WithDetails(map[string]any{"merchants": active}).WithHint("run 'viceme merchant accounts', then retry with '--merchant <merchant-account-id>'")
 }
 
-func continueSkillPublication(ctx context.Context, runtime *Runtime, store publication.PendingStore, pending publication.Pending, pkg publication.Package, initialUpload *api.UploadAuthorization, packageOnly bool) error {
+func continueSkillPublication(ctx context.Context, runtime *Runtime, store publication.PendingStore, pending publication.Pending, pkg publication.Package, initialUpload *api.UploadAuthorization, packageOnly bool, createdResolution string) error {
 	client := runtime.client()
 	current, err := client.GetSkillPublication(ctx, pending.PublicationID)
 	if err != nil {
@@ -718,7 +721,7 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		if err := retirePublicationRecovery(store, pending, current.Status); err != nil {
 			return err
 		}
-		return presentPublication(ctx, runtime, current)
+		return presentPublication(ctx, runtime, current, "")
 	}
 	if pending.PriceMinor != nil && (current.Draft.PriceMinor == nil || *current.Draft.PriceMinor != *pending.PriceMinor) {
 		current, err = client.UpdateListingPrice(ctx, pending.PublicationID, *pending.PriceMinor)
@@ -748,7 +751,7 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		}
 	}
 	if packageOnly {
-		return presentPublication(ctx, runtime, current)
+		return presentPublication(ctx, runtime, current, "")
 	}
 	for index, candidate := range pkg.Candidates {
 		if verifiedUpload(current.Uploads, "MEDIA", candidate.Digest, candidate.RelativePath) {
@@ -776,10 +779,10 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 			return err
 		}
 	}
-	return presentPublication(ctx, runtime, current)
+	return presentPublication(ctx, runtime, current, createdResolution)
 }
 
-func presentPublication(ctx context.Context, runtime *Runtime, current api.SkillPublication) error {
+func presentPublication(ctx context.Context, runtime *Runtime, current api.SkillPublication, createdResolution string) error {
 	presentation, err := previewPresentationForPublication(ctx, runtime, current)
 	if err != nil {
 		return err
@@ -787,6 +790,7 @@ func presentPublication(ctx context.Context, runtime *Runtime, current api.Skill
 	return runtime.business(publicationPresentationResult{
 		SkillPublication: current,
 		PublicationID:    current.ID,
+		Resolution:       createdResolution,
 		RequiresPrice:    current.Draft.PriceMinor == nil,
 		Presentation:     presentation,
 	})
