@@ -796,7 +796,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		}
 		writeJSONResponse(writer, api.PrepareSkillListingResponse{
 			ListingID: listingID, Market: "CN", Status: "DRAFT", DraftRevision: 1,
-			OwnerPreviewURL: state.baseURL + "/zh-CN/creator/skills/" + listingID + "/preview",
+			OwnerPreviewURL: state.baseURL + "/creator/skills/" + listingID + "/preview",
 			BindingReceipt:  "binding-receipt", Resolution: "CREATED",
 			Preview:     api.SkillListingPreviewViewModel{SchemaVersion: "preview.viceme.ai/v1", ListingID: listingID, DraftRevision: 1, State: "SHELL", FallbackURL: state.baseURL + "/preview"},
 			NextActions: []string{"OPEN_PREVIEW", "SET_PRICE", "AUTHORIZE_UPLOAD"},
@@ -942,7 +942,7 @@ func (state *publicationAPITestState) publication() api.SkillPublication {
 		result.Analysis = &api.PublicationAnalysis{Status: "SUCCEEDED"}
 	}
 	if state.status == "PUBLISHED" {
-		result.Product = &api.PublishedProduct{ID: "33333333-3333-4333-8333-333333333333", Slug: "publish-test", DetailURL: "https://viceme.cn/zh-CN/share/publish-test", ReleaseID: "44444444-4444-4444-8444-444444444444"}
+		result.Product = &api.PublishedProduct{ID: "33333333-3333-4333-8333-333333333333", Slug: "publish-test", DetailURL: "https://viceme.cn/test-creator/publish-test", ReleaseID: "44444444-4444-4444-8444-444444444444"}
 	}
 	return result
 }
