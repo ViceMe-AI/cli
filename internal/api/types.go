@@ -629,9 +629,7 @@ type CompleteUploadRequest struct {
 type SkillPublicationDraft struct {
 	Title                 string   `json:"title"`
 	SummaryZhCN           *string  `json:"summaryZhCn"`
-	SummaryEnUS           *string  `json:"summaryEnUs"`
 	UsageInstructionsZhCN *string  `json:"usageInstructionsZhCn"`
-	UsageInstructionsEnUS *string  `json:"usageInstructionsEnUs"`
 	Currency              string   `json:"currency"`
 	PriceMinor            *int     `json:"priceMinor"`
 	CoverUploadID         *string  `json:"coverUploadId"`
@@ -646,9 +644,7 @@ type UpdateSkillPublicationDraftRequest struct {
 
 type SkillPublicationAgentSuggestionPatch struct {
 	SummaryZhCN           string   `json:"summaryZhCn"`
-	SummaryEnUS           string   `json:"summaryEnUs"`
 	UsageInstructionsZhCN string   `json:"usageInstructionsZhCn"`
-	UsageInstructionsEnUS string   `json:"usageInstructionsEnUs"`
 	CoverUploadID         *string  `json:"coverUploadId"`
 	GalleryUploadIDs      []string `json:"galleryUploadIds"`
 }
@@ -673,9 +669,7 @@ type SkillPublicationUpload struct {
 
 type ListingSuggestion struct {
 	SummaryZhCN           string   `json:"summaryZhCn"`
-	SummaryEnUS           string   `json:"summaryEnUs"`
 	UsageInstructionsZhCN string   `json:"usageInstructionsZhCn"`
-	UsageInstructionsEnUS string   `json:"usageInstructionsEnUs"`
 	CoverCandidateID      *string  `json:"coverCandidateId"`
 	GalleryCandidateIDs   []string `json:"galleryCandidateIds"`
 	Reasons               []string `json:"reasons"`

@@ -90,16 +90,14 @@ GitHub 或小红书来源会把取得的不可变归档保存到 CLI 私有恢�
 
 首次未定价发布会上传并验证包，返回 Publication ID 和 Owner Preview。立即用同一 ID 运行不带价格的 `skill publish --resume <id>`；这不是新的上传授权边界。该步骤在 `priceMinor` 仍为 null 时上传媒体候选，不会隐式启动平台模型。`requiresPrice: true` 只是草稿完整性状态，不是打断渐进补全的提示。
 
-取得 `publication review`，由用户当前 Agent 生成上架字段，再提交一个受 revision 保护的建议。`--input` 的 `baseDraftRevision` 必须取自当前 review 返回的 `draftRevision`；patch 只包含 `summaryZhCn`、`usageInstructionsZhCn`、`usageInstructionsEnUs`、`coverUploadId`、`galleryUploadIds`——没有英文简介字段，传入会被拒绝。严格输入：
+取得 `publication review`，由用户当前 Agent 生成上架字段，再提交一个受 revision 保护的建议。`--input` 的 `baseDraftRevision` 必须取自当前 review 返回的 `draftRevision`；patch 只包含 `summaryZhCn`、`usageInstructionsZhCn`、`coverUploadId`、`galleryUploadIds`——没有英文简介和英文使用说明字段，传入会被拒绝。严格输入：
 
 ```json
 {
   "baseDraftRevision": 3,
   "patch": {
     "summaryZhCn": "生成专业网页演示",
-    "summaryEnUs": "Build polished web slides",
     "usageInstructionsZhCn": "按 SKILL.md 准备素材，然后运行 Skill 生成网页演示文稿。",
-    "usageInstructionsEnUs": "Prepare the assets described in SKILL.md, then run the Skill to generate the web presentation.",
     "coverUploadId": "uuid",
     "galleryUploadIds": ["uuid"]
   }
@@ -110,7 +108,7 @@ GitHub 或小红书来源会把取得的不可变归档保存到 CLI 私有恢�
 
 只有当前 Agent 主机确实无法检查来源或已验证媒体时，才明确运行 `publication analyze`，随后运行 `publication wait`。这是平台模型兜底，不是默认流程。同一 Draft revision 不得同时运行两种写入者。兜底等待到期时，只用同一 ID 重复 wait，不得重新上传同一个包。
 
-分析和必需媒体准备好后，取得权威预览，在索取更多输入前展示标题、中文简介、双语使用说明、封面和有序图库。在同一次交互中询问人民币价格以及希望修改的上架内容。不得只问价格，也不得先收价格再展示文案和媒体。用户只给价格时保留所有已展示字段，用 `skill publish --resume <id> --price-minor <fen>` 应用。用户也要求修改时，把完整回答应用到同一 Draft，展示新预览，再取得并展示最终 review。价格只在最终公开确认前必需，私有媒体上传和分析不需要价格。
+分析和必需媒体准备好后，取得权威预览，在索取更多输入前展示标题、中文简介、中文使用说明、封面和有序图库。在同一次交互中确认价格以及希望修改的上架内容：review 返回的价格非空（含继承）时，先告知当前价格（免费要说“当前免费”）再问「保持还是调整」；价格为空才是首次定价。不得只问价格，也不得先收价格再展示文案和媒体。用户确认保持或只给价格时保留所有已展示字段，价格变化才用 `skill publish --resume <id> --price-minor <fen>` 应用；保持不变无需重发价格。用户也要求修改时，把完整回答应用到同一 Draft，展示新预览，再取得并展示最终 review。价格只在最终公开确认前必需，私有媒体上传和分析不需要价格。
 
 每个修改或完成 Draft 的成功 CLI 结果都包含新 `presentation`。立即打开一次性入口，并始终显示稳定兜底 URL。稳定页面不变；Agent 建议、用户修改或明确平台兜底完成后，页面通过 Draft revision 轮询更新。
 
@@ -126,9 +124,7 @@ GitHub 或小红书来源会把取得的不可变归档保存到 CLI 私有恢�
 {
   "title": "Skill title",
   "summaryZhCn": "生成专业网页演示",
-  "summaryEnUs": "Build polished web slides",
   "usageInstructionsZhCn": "按 SKILL.md 中的步骤运行。",
-  "usageInstructionsEnUs": "Follow the steps in SKILL.md.",
   "currency": "CNY",
   "priceMinor": 100,
   "coverUploadId": "uuid",

@@ -470,8 +470,8 @@ func readAgentSuggestionFile(filename string) (api.SuggestSkillPublicationDraftR
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return request, output.Validation("PUBLICATION_SUGGESTION_INVALID", "Agent suggestion contains trailing JSON")
 	}
-	if request.BaseDraftRevision <= 0 || strings.TrimSpace(request.Patch.SummaryZhCN) == "" || strings.TrimSpace(request.Patch.SummaryEnUS) == "" || strings.TrimSpace(request.Patch.UsageInstructionsZhCN) == "" || strings.TrimSpace(request.Patch.UsageInstructionsEnUS) == "" || request.Patch.CoverUploadID == nil || len(request.Patch.GalleryUploadIDs) == 0 {
-		return request, output.Validation("PUBLICATION_SUGGESTION_INVALID", "Agent suggestion requires a positive baseDraftRevision, bilingual copy, bilingual usage instructions, one coverUploadId, and at least one galleryUploadId")
+	if request.BaseDraftRevision <= 0 || strings.TrimSpace(request.Patch.SummaryZhCN) == "" || strings.TrimSpace(request.Patch.UsageInstructionsZhCN) == "" || request.Patch.CoverUploadID == nil || len(request.Patch.GalleryUploadIDs) == 0 {
+		return request, output.Validation("PUBLICATION_SUGGESTION_INVALID", "Agent suggestion requires a positive baseDraftRevision, Chinese copy, Chinese usage instructions, one coverUploadId, and at least one galleryUploadId")
 	}
 	return request, nil
 }

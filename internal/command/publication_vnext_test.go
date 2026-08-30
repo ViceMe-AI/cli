@@ -156,9 +156,8 @@ description: Publish a deterministic Skill through the vNext contract.
 	suggestion := api.SuggestSkillPublicationDraftRequest{
 		BaseDraftRevision: 1,
 		Patch: api.SkillPublicationAgentSuggestionPatch{
-			SummaryZhCN: "发布测试", SummaryEnUS: "Publish test",
+			SummaryZhCN: "发布测试",
 			UsageInstructionsZhCN: "按 SKILL.md 中的步骤运行。",
-			UsageInstructionsEnUS: "Follow the steps in SKILL.md.",
 			CoverUploadID:         stringPointer("upload-media"), GalleryUploadIDs: []string{"upload-media"},
 		},
 	}
@@ -179,7 +178,7 @@ description: Publish a deterministic Skill through the vNext contract.
 	} else {
 		data, _ := envelope["data"].(map[string]any)
 		draft, _ := data["draft"].(map[string]any)
-		if draft["summaryZhCn"] != "发布测试" || draft["summaryEnUs"] != "Publish test" || draft["usageInstructionsZhCn"] != "按 SKILL.md 中的步骤运行。" || draft["usageInstructionsEnUs"] != "Follow the steps in SKILL.md." {
+		if draft["summaryZhCn"] != "发布测试" || draft["usageInstructionsZhCn"] != "按 SKILL.md 中的步骤运行。" {
 			t.Fatalf("review omitted listing copy: %#v", envelope)
 		}
 		if data["draftRevision"] != float64(1) {
@@ -691,7 +690,7 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 				mediaPutFailures:     scenario.putFailures,
 				loseCompleteResponse: scenario.loseCompleteResponse,
 				draft: api.SkillPublicationDraft{
-					Title: "Publish Test", SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"), UsageInstructionsEnUS: stringPointer("Follow the steps in SKILL.md."),
+					Title: "Publish Test", SummaryZhCN: stringPointer("发布测试"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"),
 					Currency: "CNY", PriceMinor: intPointer(1), GalleryUploadIDs: []string{},
 				},
 			}
@@ -942,7 +941,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		state.manifest = input.Manifest
 		state.packageDigest = input.Artifact.Digest
 		state.draft = api.SkillPublicationDraft{
-			Title: input.Manifest.Metadata.Title, SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"), UsageInstructionsEnUS: stringPointer("Follow the steps in SKILL.md."),
+			Title: input.Manifest.Metadata.Title, SummaryZhCN: stringPointer("发布测试"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"),
 			Currency: "CNY", PriceMinor: input.Manifest.Spec.Sale.PriceMinor, GalleryUploadIDs: []string{},
 		}
 		state.status = "DRAFT"
@@ -1017,9 +1016,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		}
 		state.suggestionCalls++
 		state.draft.SummaryZhCN = &input.Patch.SummaryZhCN
-		state.draft.SummaryEnUS = &input.Patch.SummaryEnUS
 		state.draft.UsageInstructionsZhCN = &input.Patch.UsageInstructionsZhCN
-		state.draft.UsageInstructionsEnUS = &input.Patch.UsageInstructionsEnUS
 		state.draft.CoverUploadID = input.Patch.CoverUploadID
 		state.draft.GalleryUploadIDs = input.Patch.GalleryUploadIDs
 		state.status = "REVIEW_REQUIRED"
