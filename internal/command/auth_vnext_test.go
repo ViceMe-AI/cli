@@ -45,8 +45,8 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 			requestedScopes = append([]string(nil), authorizationRequest.Scopes...)
 			writeJSONResponse(writer, map[string]any{
 				"deviceCode": "device-code", "userCode": "ABCD-EFGH",
-				"verificationUri":         "https://viceme.cn/zh-CN/cli/authorize",
-				"verificationUriComplete": "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH",
+				"verificationUri":         "https://viceme.cn/cli/authorize",
+				"verificationUriComplete": "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH",
 				"expiresIn":               600, "interval": 1,
 			})
 		case "/v1/cli/device-authorizations/token":
@@ -139,7 +139,7 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	if strings.Join(requestedScopes, ",") != strings.Join(expectedScopes, ",") {
 		t.Fatalf("device login requested wrong scopes: got=%v want=%v", requestedScopes, expectedScopes)
 	}
-	if !strings.Contains(stderr.String(), "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH") {
+	if !strings.Contains(stderr.String(), "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH") {
 		t.Fatalf("complete browser authorization URL was not shown: stderr=%q", stderr.String())
 	}
 	if strings.Contains(strings.ToLower(stderr.String()), "enter code") {
@@ -187,7 +187,7 @@ func TestDeviceLoginPersistenceFailureUsesCamelCasePublicDetails(t *testing.T) {
 		case "/v1/cli/device-authorizations":
 			writeJSONResponse(writer, map[string]any{
 				"deviceCode": "device-code", "userCode": "ABCD-EFGH",
-				"verificationUri": "https://viceme.cn/zh-CN/cli/authorize", "verificationUriComplete": "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH",
+				"verificationUri": "https://viceme.cn/cli/authorize", "verificationUriComplete": "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH",
 				"expiresIn": 600, "interval": 1,
 			})
 		case "/v1/cli/device-authorizations/token":
