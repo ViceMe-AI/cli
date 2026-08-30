@@ -24,9 +24,10 @@ import (
 const maxResponseBytes = 8 << 20
 
 var (
-	workSdkKeyPattern = regexp.MustCompile(`^wrk_[A-Za-z0-9_-]{4,124}$`)
-	uuidPattern       = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	shopURLParser     = whatwgurl.NewParser(whatwgurl.WithPathPercentEncodeSet(whatwgurl.PathPercentEncodeSet.Set('^')))
+	workSdkKeyPattern           = regexp.MustCompile(`^wrk_[A-Za-z0-9_-]{4,124}$`)
+	accessWorkFeatureKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
+	uuidPattern                 = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	shopURLParser               = whatwgurl.NewParser(whatwgurl.WithPathPercentEncodeSet(whatwgurl.PathPercentEncodeSet.Set('^')))
 )
 
 type TokenSource interface {
@@ -187,7 +188,9 @@ func (c *Client) CreateWorkSdkAccess(ctx context.Context, workID string, request
 	var response WorkSdkAccess
 	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/sdk-access"
 	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
-	if err == nil && (response.WorkID != workID || response.Status != "ACTIVE" || !workSdkFeaturesEqual(response.Features, request.Features)) {
+	if err == nil && (response.WorkID != workID || response.Status != "ACTIVE" ||
+		!workSdkFeaturesEqual(response.Features, request.Features) ||
+		!workAccessFeaturesMatchRequest(response.AccessFeatures, request.AccessFeatures)) {
 		err = invalidAPIResponse(errors.New("created Work SDK access does not match the request"))
 	}
 	return response, err
@@ -216,7 +219,8 @@ func (c *Client) UpdateWorkSdkAccess(ctx context.Context, workID string, request
 	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/sdk-access"
 	err := c.doJSON(ctx, http.MethodPut, endpoint, request, &response, "@stored")
 	if err == nil && (response.WorkID != workID || response.Status != "ACTIVE" ||
-		response.ConfigVersion <= request.ExpectedConfigVersion || !workSdkFeaturesEqual(response.Features, request.Features)) {
+		response.ConfigVersion <= request.ExpectedConfigVersion || !workSdkFeaturesEqual(response.Features, request.Features) ||
+		!workAccessFeaturesMatchRequest(response.AccessFeatures, request.AccessFeatures)) {
 		err = invalidAPIResponse(errors.New("updated Work SDK access does not match the request"))
 	}
 	return response, err
@@ -798,7 +802,8 @@ func (verification *WebsiteVerification) validateAPIResponse() error {
 func (access *WorkSdkAccess) validateAPIResponse() error {
 	if access == nil || !uuidPattern.MatchString(access.WorkID) || !workSdkKeyPattern.MatchString(access.WorkKey) ||
 		(access.Status != "ACTIVE" && access.Status != "DISABLED") || access.ConfigVersion < 1 ||
-		!validWorkSdkFeatures(access.Features) || !validTimestamp(access.CreatedAt) || !validTimestamp(access.UpdatedAt) {
+		!validWorkSdkFeatures(access.Features) || !validWorkAccessFeatures(access.AccessFeatures, true) ||
+		!validTimestamp(access.CreatedAt) || !validTimestamp(access.UpdatedAt) {
 		return errors.New("Work SDK access response is missing required fields")
 	}
 	return nil
@@ -930,7 +935,7 @@ func validProductStatus(status string) bool {
 }
 
 func validWorkSdkFeatures(features []string) bool {
-	if len(features) < 1 || len(features) > 2 {
+	if features == nil || len(features) > 2 {
 		return false
 	}
 	seen := make(map[string]struct{}, len(features))
@@ -944,6 +949,64 @@ func validWorkSdkFeatures(features []string) bool {
 		seen[feature] = struct{}{}
 	}
 	return true
+}
+
+func validWorkAccessFeatures(features []WorkAccessFeature, response bool) bool {
+	if (response && features == nil) || len(features) > 100 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(features))
+	for _, feature := range features {
+		if !accessWorkFeatureKeyPattern.MatchString(feature.FeatureKey) ||
+			utf16CodeUnits(strings.TrimSpace(feature.Title)) < 1 || utf16CodeUnits(strings.TrimSpace(feature.Title)) > 120 ||
+			(feature.Status != "ACTIVE" && feature.Status != "DISABLED") {
+			return false
+		}
+		if _, exists := seen[feature.FeatureKey]; exists {
+			return false
+		}
+		seen[feature.FeatureKey] = struct{}{}
+		switch feature.PolicyType {
+		case "PUBLIC", "FOLLOW_OWNER":
+			if feature.Price != nil || feature.ProductID != nil {
+				return false
+			}
+		case "WORK_ENTITLEMENT":
+			if feature.Price == nil || feature.Price.Currency != "CNY" || feature.Price.AmountCents < 1 ||
+				(response && (feature.ProductID == nil || !uuidPattern.MatchString(*feature.ProductID))) ||
+				(!response && feature.ProductID != nil) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func workAccessFeaturesMatchRequest(actual, expected []WorkAccessFeature) bool {
+	if len(actual) != len(expected) || !validWorkAccessFeatures(actual, true) || !validWorkAccessFeatures(expected, false) {
+		return false
+	}
+	expectedByKey := make(map[string]WorkAccessFeature, len(expected))
+	for _, feature := range expected {
+		expectedByKey[feature.FeatureKey] = feature
+	}
+	for _, feature := range actual {
+		expectedFeature, exists := expectedByKey[feature.FeatureKey]
+		if !exists || feature.Title != strings.TrimSpace(expectedFeature.Title) || feature.PolicyType != expectedFeature.PolicyType ||
+			feature.Status != expectedFeature.Status || !workAccessPricesEqual(feature.Price, expectedFeature.Price) {
+			return false
+		}
+	}
+	return true
+}
+
+func workAccessPricesEqual(actual, expected *WorkAccessPrice) bool {
+	if actual == nil || expected == nil {
+		return actual == nil && expected == nil
+	}
+	return *actual == *expected
 }
 
 func workSdkFeaturesEqual(actual, expected []string) bool {

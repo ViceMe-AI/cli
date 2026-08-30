@@ -684,6 +684,30 @@ func TestMerchantEngagementClientRejectsInvalidSuccessfulResponses(t *testing.T)
 	}
 }
 
+func TestWorkAccessFeaturesMatchRequest(t *testing.T) {
+	t.Parallel()
+	price := &WorkAccessPrice{Currency: "CNY", AmountCents: 990}
+	expected := []WorkAccessFeature{
+		{FeatureKey: "followers", Title: "关注可见", PolicyType: "FOLLOW_OWNER", Status: "ACTIVE"},
+		{FeatureKey: "members", Title: "会员内容", PolicyType: "WORK_ENTITLEMENT", Price: price, Status: "ACTIVE"},
+	}
+	actual := []WorkAccessFeature{
+		{FeatureKey: "members", Title: "会员内容", PolicyType: "WORK_ENTITLEMENT", ProductID: stringPointer(testProductID), Price: price, Status: "ACTIVE"},
+		{FeatureKey: "followers", Title: "关注可见", PolicyType: "FOLLOW_OWNER", Status: "ACTIVE"},
+	}
+	if !workAccessFeaturesMatchRequest(actual, expected) {
+		t.Fatalf("authoritative access features did not match request: actual=%#v expected=%#v", actual, expected)
+	}
+	actual[0].ProductID = nil
+	if workAccessFeaturesMatchRequest(actual, expected) {
+		t.Fatal("paid access response without Product ID was accepted")
+	}
+}
+
+func stringPointer(value string) *string {
+	return &value
+}
+
 func assertRequestJSON(t *testing.T, request *http.Request, expected any) {
 	t.Helper()
 	actual, err := io.ReadAll(request.Body)
@@ -779,13 +803,14 @@ func testWebsiteMerchantWork(ownershipStatus string, revision, verificationVersi
 
 func testWorkSdkAccess(workID, status string, configVersion int, features []string) WorkSdkAccess {
 	return WorkSdkAccess{
-		WorkID:        workID,
-		WorkKey:       "wrk_test_access",
-		Status:        status,
-		ConfigVersion: configVersion,
-		Features:      features,
-		CreatedAt:     testTimestamp,
-		UpdatedAt:     testTimestamp,
+		WorkID:         workID,
+		WorkKey:        "wrk_test_access",
+		Status:         status,
+		ConfigVersion:  configVersion,
+		Features:       features,
+		AccessFeatures: []WorkAccessFeature{},
+		CreatedAt:      testTimestamp,
+		UpdatedAt:      testTimestamp,
 	}
 }
 

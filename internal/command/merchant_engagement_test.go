@@ -60,7 +60,7 @@ func (state *merchantEngagementServerState) snapshot() []capturedMerchantEngagem
 	return append([]capturedMerchantEngagementRequest(nil), state.requests...)
 }
 
-func TestMerchantEngagementCommandTreeReplacesLegacyRoots(t *testing.T) {
+func TestMerchantEngagementCommandTreeIncludesAccessOrchestration(t *testing.T) {
 	rootDirectory := t.TempDir()
 	root, _, err := NewRoot(Dependencies{
 		Store: securestore.NewMemory(),
@@ -88,6 +88,11 @@ func TestMerchantEngagementCommandTreeReplacesLegacyRoots(t *testing.T) {
 		"merchant commerce-application update",
 		"merchant commerce-application activate",
 		"merchant commerce-application suspend",
+		"access init",
+		"access inspect",
+		"access apply",
+		"access disable",
+		"access list",
 	}
 	for _, path := range paths {
 		command, remaining, findErr := root.Find(strings.Fields(path))
@@ -95,7 +100,7 @@ func TestMerchantEngagementCommandTreeReplacesLegacyRoots(t *testing.T) {
 			t.Fatalf("command path %q was not registered: command=%q remaining=%v err=%v", path, command.CommandPath(), remaining, findErr)
 		}
 	}
-	for _, retired := range []string{"website", "access", "creator-app"} {
+	for _, retired := range []string{"website", "creator-app"} {
 		for _, command := range root.Commands() {
 			if command.Name() == retired {
 				t.Fatalf("retired root command %q remains registered", retired)
