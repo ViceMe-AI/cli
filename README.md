@@ -270,7 +270,7 @@ Never copy an access token into the conversation.
 | `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
 | `viceme merchant work ...` | Create, inspect, update, and publish Merchant Works, including Website Works. |
 | `viceme merchant work website-verification ...` | Create, inspect, verify, or revoke DNS ownership for one Website Work. |
-| `viceme merchant work sdk-access ...` | Create, inspect, replace, list, or disable a Work's `danmaku` and `tip` access. |
+| `viceme merchant work sdk-access ...` | Create, inspect, update, list, or disable a Work's hosted, follow, and paid access. |
 | `viceme merchant commerce-application ...` | Create, inspect, update, activate, or suspend an Origin-bound Website Widget application. |
 | `viceme merchant product ...` | Create, compile, activate, suspend, or archive Products and their generated purchase Skills. |
 | `viceme commerce ...` | Install and run a signed purchase Skill through session, quote, payment order, and same-session status commands. |

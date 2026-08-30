@@ -245,7 +245,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme merchant accounts` | 列出当前 User 通过 OWNER 成员关系经营的普通 MerchantAccount。 |
 | `viceme merchant work ...` | 创建、查看、更新和发布 Merchant Work，包括 Website Work。 |
 | `viceme merchant work website-verification ...` | 创建、查看、验证或撤销一个 Website Work 的 DNS 所有权。 |
-| `viceme merchant work sdk-access ...` | 创建、查看、完整替换、列出或禁用 Work 的 `danmaku` 与 `tip` access。 |
+| `viceme merchant work sdk-access ...` | 创建、查看、更新、列出或禁用 Work 的托管、关注与付费 access。 |
 | `viceme merchant commerce-application ...` | 创建、查看、更新、激活或暂停绑定 Origin 的 Website Widget application。 |
 | `viceme merchant product ...` | 创建、编译、激活、暂停或归档 Product 及其生成的购买 Skill。 |
 | `viceme commerce ...` | 安装并运行签名购买 Skill，完成会话、报价、支付订单与同会话状态查询。 |

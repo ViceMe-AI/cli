@@ -60,7 +60,7 @@ func (state *merchantEngagementServerState) snapshot() []capturedMerchantEngagem
 	return append([]capturedMerchantEngagementRequest(nil), state.requests...)
 }
 
-func TestMerchantEngagementCommandTreeIncludesAccessOrchestration(t *testing.T) {
+func TestMerchantEngagementCommandTreeIncludesUnifiedSdkAccess(t *testing.T) {
 	rootDirectory := t.TempDir()
 	root, _, err := NewRoot(Dependencies{
 		Store: securestore.NewMemory(),
@@ -88,11 +88,6 @@ func TestMerchantEngagementCommandTreeIncludesAccessOrchestration(t *testing.T) 
 		"merchant commerce-application update",
 		"merchant commerce-application activate",
 		"merchant commerce-application suspend",
-		"access init",
-		"access inspect",
-		"access apply",
-		"access disable",
-		"access list",
 	}
 	for _, path := range paths {
 		command, remaining, findErr := root.Find(strings.Fields(path))
@@ -139,10 +134,14 @@ func TestMerchantEngagementFlagsMapToCanonicalAPIRequests(t *testing.T) {
 			defer server.Close()
 			_, _ = executeMerchantEngagementCommand(t, server, testCase.args)
 			requests := state.snapshot()
-			if len(requests) != 2 || requests[0].path != "/v1/cli/auth/status" {
+			expectedRequests := 2
+			if testCase.name == "sdk-access-update" {
+				expectedRequests = 3
+			}
+			if len(requests) != expectedRequests || requests[0].path != "/v1/cli/auth/status" {
 				t.Fatalf("unexpected request sequence: %#v", requests)
 			}
-			request := requests[1]
+			request := requests[len(requests)-1]
 			if request.method != testCase.method || request.path != testCase.path || request.query != testCase.query {
 				t.Fatalf("request target mismatch: got=%s %s?%s want=%s %s?%s", request.method, request.path, request.query, testCase.method, testCase.path, testCase.query)
 			}
@@ -257,8 +256,8 @@ func merchantEngagementCommandCases(t *testing.T) []merchantEngagementCommandCas
 		},
 		{
 			name: "sdk-access-create", write: true, method: http.MethodPost,
-			args: []string{"merchant", "work", "sdk-access", "create", merchantEngagementWorkID, "--merchant", merchantEngagementMerchantID, "--feature", "tip", "--feature", "danmaku", "--feature", "tip"},
-			path: workPath + "/sdk-access", bodyJSON: `{"merchantAccountId":"` + merchantEngagementMerchantID + `","features":["danmaku","tip"]}`,
+			args: []string{"merchant", "work", "sdk-access", "create", merchantEngagementWorkID, "--merchant", merchantEngagementMerchantID, "--feature", "tip", "--feature", "danmaku", "--feature", "tip", "--follow", "preview=关注后查看", "--purchase", "premium=付费内容", "--price-minor", "1000"},
+			path: workPath + "/sdk-access", bodyJSON: `{"merchantAccountId":"` + merchantEngagementMerchantID + `","features":["danmaku","tip"],"accessFeatures":[{"featureKey":"premium","title":"付费内容","policyType":"WORK_ENTITLEMENT","price":{"currency":"CNY","amountCents":1000},"status":"ACTIVE"},{"featureKey":"preview","title":"关注后查看","policyType":"FOLLOW_OWNER","price":null,"status":"ACTIVE"}]}`,
 		},
 		{
 			name: "sdk-access-get", method: http.MethodGet,
@@ -272,8 +271,8 @@ func merchantEngagementCommandCases(t *testing.T) []merchantEngagementCommandCas
 		},
 		{
 			name: "sdk-access-update", write: true, method: http.MethodPut,
-			args: []string{"merchant", "work", "sdk-access", "update", merchantEngagementWorkID, "--merchant", merchantEngagementMerchantID, "--expected-config-version", "7", "--feature", "tip", "--feature", "danmaku"},
-			path: workPath + "/sdk-access", bodyJSON: `{"merchantAccountId":"` + merchantEngagementMerchantID + `","expectedConfigVersion":7,"features":["danmaku","tip"]}`,
+			args: []string{"merchant", "work", "sdk-access", "update", merchantEngagementWorkID, "--merchant", merchantEngagementMerchantID, "--expected-config-version", "7", "--follow", "preview=关注后查看"},
+			path: workPath + "/sdk-access", bodyJSON: `{"merchantAccountId":"` + merchantEngagementMerchantID + `","expectedConfigVersion":7,"features":["danmaku","tip"],"accessFeatures":[{"featureKey":"preview","title":"关注后查看","policyType":"FOLLOW_OWNER","price":null,"status":"ACTIVE"}]}`,
 		},
 		{
 			name: "sdk-access-disable", write: true, method: http.MethodDelete,
@@ -335,6 +334,14 @@ func newMerchantEngagementServer(t *testing.T, scopes []string) (*httptest.Serve
 					"id": "44444444-4444-4444-8444-444444444444", "displayName": "Merchant", "avatarUrl": nil,
 				},
 				"scopes": scopes, "expiresAt": "2027-08-21T00:00:00Z",
+			})
+			return
+		}
+		if request.Method == http.MethodGet && request.URL.Path == "/v1/cli/merchant/works/"+merchantEngagementWorkID+"/sdk-access" {
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"workId": merchantEngagementWorkID, "workKey": "wrk_website_access", "status": "ACTIVE",
+				"configVersion": 7, "features": []string{"danmaku", "tip"}, "accessFeatures": []any{},
+				"createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:00Z",
 			})
 			return
 		}
