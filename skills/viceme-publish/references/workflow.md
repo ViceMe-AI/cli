@@ -116,6 +116,8 @@ GitHub 或小红书来源会把取得的不可变归档保存到 CLI 私有恢�
 
 每个版本到达 `PUBLISHED` 后，只问一次是否还要发布一个相关的更高版本。若要，收集不同包、版本资料和价格，使用 `--listing <published-listing-id>` 重复流程；若不要，直接结束，不得虚构必须存在免费版或付费版。
 
+发布成功且该创作者尚未设置订阅时，用一次选项卡询问是否为粉丝设置订阅：「要不要设置粉丝订阅？订阅后你的全部付费 Skill 订阅者都能免费使用」选项为「设置订阅（询问月价后执行）」与「暂不设置」。用户给出价格后运行 `viceme subscription set --price-minor <fen>`；创作者已有订阅计划（`viceme subscription show` 返回 status=ACTIVE）时不再询问，也不得改价。
+
 ## 更新草稿文件
 
 `publication update --input` 接受完整严格 JSON：

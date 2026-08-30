@@ -82,6 +82,27 @@ func (c *Client) GetGithubChannelVerified(ctx context.Context, merchantAccountID
 	return response, err
 }
 
+func (c *Client) GetCreatorSubscriptionPlan(ctx context.Context, merchantAccountID string) (CreatorSubscriptionPlan, error) {
+	var response CreatorSubscriptionPlan
+	endpoint := "/v1/cli/merchant/creator-subscription-plan?merchantAccountId=" + url.QueryEscape(merchantAccountID)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) SetCreatorSubscriptionPlan(ctx context.Context, merchantAccountID string, priceMinor int) (CreatorSubscriptionPlan, error) {
+	var response CreatorSubscriptionPlan
+	payload := map[string]any{"merchantAccountId": merchantAccountID, "priceMinor": priceMinor}
+	err := c.doJSON(ctx, http.MethodPut, "/v1/cli/merchant/creator-subscription-plan", payload, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) DisableCreatorSubscriptionPlan(ctx context.Context, merchantAccountID string) (CreatorSubscriptionPlan, error) {
+	var response CreatorSubscriptionPlan
+	endpoint := "/v1/cli/merchant/creator-subscription-plan?merchantAccountId=" + url.QueryEscape(merchantAccountID)
+	err := c.doJSON(ctx, http.MethodDelete, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) Revoke(ctx context.Context, accessToken string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/logout", struct{}{}, nil, accessToken)
 }

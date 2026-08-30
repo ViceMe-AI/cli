@@ -119,7 +119,12 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 						return output.Policy("SKILL_PURCHASE_UNAVAILABLE", "this paid Skill edition cannot be purchased yet").WithDetails(map[string]any{"productId": productID, "reason": access.UnavailableReason})
 					}
 					if wait <= 0 {
-						return output.Confirmation("SKILL_PURCHASE_REQUIRED", "purchase this edition before installation").WithDetails(map[string]any{"productId": productID, "purchaseUrl": access.PurchaseURL, "edition": access.Edition}).WithHint("open purchaseUrl, complete payment with the same WeSimi account, then retry; or use --wait while the browser purchase is in progress")
+						details := map[string]any{"productId": productID, "purchaseUrl": access.PurchaseURL, "edition": access.Edition, "subscription": access.Subscription}
+						hint := "open purchaseUrl, complete payment with the same WeSimi account, then retry; or use --wait while the browser purchase is in progress"
+						if access.Subscription.Available {
+							hint = "open purchaseUrl to buy this edition, or subscribe to the creator to unlock every paid Skill of theirs; use --wait while a browser purchase is in progress"
+						}
+						return output.Confirmation("SKILL_PURCHASE_REQUIRED", "purchase this edition before installation").WithDetails(details).WithHint(hint)
 					}
 					_, _ = fmt.Fprintf(runtime.deps.ErrOut, "Complete the purchase with the same WeSimi account:\n\n  %s\n\nWaiting for entitlement...\n", *access.PurchaseURL)
 					access, err = waitForSkillEntitlement(command.Context(), runtime, productID, wait)

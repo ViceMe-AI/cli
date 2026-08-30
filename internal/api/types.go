@@ -731,15 +731,34 @@ type SkillPublicationNextAction struct {
 	ListingID string `json:"listingId"`
 }
 
+type SkillAccessSubscription struct {
+	Available       bool    `json:"available"`
+	PriceMinor      int     `json:"priceMinor"`
+	PeriodDays      int     `json:"periodDays"`
+	SubscribedUntil *string `json:"subscribedUntil"`
+}
+
+type CreatorSubscriptionPlan struct {
+	CreatorAccountID      string `json:"creatorAccountId"`
+	CreatorHandle         string `json:"creatorHandle"`
+	DisplayName           string `json:"displayName"`
+	PriceMinor            int    `json:"priceMinor"`
+	PeriodDays            int    `json:"periodDays"`
+	Status                string `json:"status"`
+	ActiveSubscriberCount int    `json:"activeSubscriberCount"`
+	UpdatedAt             string `json:"updatedAt"`
+}
+
 type SkillAccess struct {
-	ProductID         string  `json:"productId"`
-	IsFree            bool    `json:"isFree"`
-	Owned             bool    `json:"owned"`
-	DownloadAvailable bool    `json:"downloadAvailable"`
-	InstallKind       string  `json:"installKind"`
-	PurchaseAvailable bool    `json:"purchaseAvailable"`
-	PurchaseURL       *string `json:"purchaseUrl"`
-	UnavailableReason *string `json:"unavailableReason"`
+	ProductID         string                  `json:"productId"`
+	IsFree            bool                    `json:"isFree"`
+	Owned             bool                    `json:"owned"`
+	DownloadAvailable bool                    `json:"downloadAvailable"`
+	InstallKind       string                  `json:"installKind"`
+	PurchaseAvailable bool                    `json:"purchaseAvailable"`
+	PurchaseURL       *string                 `json:"purchaseUrl"`
+	UnavailableReason *string                 `json:"unavailableReason"`
+	Subscription      SkillAccessSubscription `json:"subscription"`
 	Edition           struct {
 		Key        string   `json:"key"`
 		Title      string   `json:"title"`
