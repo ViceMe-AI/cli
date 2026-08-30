@@ -25,10 +25,16 @@ import (
 )
 
 const (
-	MaxFiles             = 1_000
+	MaxFiles = 1_000
+	// The upload gate mirrors skillhub.cn: one hard size budget for the whole
+	// package instead of separate per-file/zip budgets.
 	MaxFileBytes         = 10 * 1024 * 1024
-	MaxUncompressedBytes = 50 * 1024 * 1024
-	MaxPackageBytes      = 20 * 1024 * 1024
+	MaxUncompressedBytes = 10 * 1024 * 1024
+	MaxPackageBytes      = 10 * 1024 * 1024
+	// Reserved for batch series publishing (one package carrying many skills).
+	// A publication currently carries exactly one entry; the cap only becomes
+	// observable once multi-entry packages are supported.
+	MaxSkillEntries = 200
 	// Keep two of the server's twelve media slots free for explicit replacement
 	// uploads after the automatic package scan.
 	MaxCandidates = 10
@@ -117,6 +123,50 @@ type skillFrontmatter struct {
 	Description string `yaml:"description"`
 }
 
+// validationIssues accumulates every problem found in one package scan so the
+// author fixes them all in a single round instead of hitting fail-fast errors
+// one at a time. The first issue keeps its code as the error subtype so
+// code-keyed guidance keeps working; later issues are appended with their own
+// code prefixes in the message.
+type validationIssues struct {
+	issues []validationIssue
+}
+
+type validationIssue struct {
+	subtype string
+	message string
+}
+
+func (v *validationIssues) add(subtype, message string) {
+	v.issues = append(v.issues, validationIssue{subtype: subtype, message: message})
+}
+
+func (v *validationIssues) addError(err error) {
+	var cliErr *output.Error
+	if errors.As(err, &cliErr) {
+		v.add(cliErr.Subtype, cliErr.Message)
+	}
+}
+
+func (v *validationIssues) empty() bool {
+	return len(v.issues) == 0
+}
+
+func (v *validationIssues) err() error {
+	if len(v.issues) == 0 {
+		return nil
+	}
+	primary := v.issues[0]
+	if len(v.issues) == 1 {
+		return output.Validation(primary.subtype, primary.message)
+	}
+	message := primary.message + "\n\nAdditional problems in the same Skill package:"
+	for _, issue := range v.issues[1:] {
+		message += "\n" + issue.subtype + ": " + issue.message
+	}
+	return output.Validation(primary.subtype, message)
+}
+
 func Build(sourcePath string) (Package, error) {
 	return build(sourcePath, "")
 }
@@ -145,7 +195,7 @@ func BuildRemoteArchive(sourcePath string) (Package, error) {
 		return Package{}, output.Internal("SKILL_READ_FAILED", "failed to read remote Skill archive", err)
 	}
 	if len(raw) == 0 || len(raw) > MaxPackageBytes {
-		return Package{}, output.Validation("SKILL_PACKAGE_TOO_LARGE", "remote Skill ZIP must be between 1 byte and 20 MiB")
+		return Package{}, output.Validation("SKILL_PACKAGE_TOO_LARGE", "remote Skill ZIP must be between 1 byte and 10 MB")
 	}
 	entries, err := readZip(abs)
 	if err != nil {
@@ -212,7 +262,7 @@ func build(sourcePath, archiveSubpath string) (Package, error) {
 		return Package{}, err
 	}
 	if len(archive) > MaxPackageBytes {
-		return Package{}, output.Validation("SKILL_PACKAGE_TOO_LARGE", "deterministic Skill ZIP exceeds 20 MiB")
+		return Package{}, output.Validation("SKILL_PACKAGE_TOO_LARGE", "deterministic Skill ZIP exceeds 10 MB")
 	}
 	digest := sha256Hex(archive)
 	manifestDigest, err := CanonicalDigest(manifest)
@@ -300,12 +350,19 @@ func CanonicalDigest(value any) (string, error) {
 }
 
 func readDirectory(root string) ([]sourceEntry, error) {
-	var entries []sourceEntry
-	var total int64
 	ignorePatterns, err := readViceMeIgnore(root)
 	if err != nil {
 		return nil, err
 	}
+	type pendingFile struct {
+		relative string
+		absolute string
+		mode     fs.FileMode
+	}
+	var pending []pendingFile
+	var issues validationIssues
+	var total int64
+	reportedTotalLimit, reportedFileLimit := false, false
 	err = filepath.WalkDir(root, func(filename string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -332,31 +389,30 @@ func readDirectory(root string) ([]sourceEntry, error) {
 			return err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return output.Validation("SKILL_SYMLINK_REJECTED", "Skill package contains a symbolic link: "+rel)
+			issues.add("SKILL_SYMLINK_REJECTED", "Skill package contains a symbolic link: "+rel)
+			return nil
 		}
 		if !info.Mode().IsRegular() {
-			return output.Validation("SKILL_SPECIAL_FILE_REJECTED", "Skill package contains a non-regular file: "+rel)
+			issues.add("SKILL_SPECIAL_FILE_REJECTED", "Skill package contains a non-regular file: "+rel)
+			return nil
 		}
 		if err := validatePath(rel); err != nil {
-			return err
+			issues.addError(err)
+			return nil
 		}
 		if info.Size() > MaxFileBytes {
-			return output.Validation("SKILL_FILE_TOO_LARGE", "Skill file exceeds 10 MiB: "+rel)
+			issues.add("SKILL_FILE_TOO_LARGE", "Skill file exceeds 10 MiB: "+rel)
+			return nil
 		}
-		data, err := os.ReadFile(filename)
-		if err != nil {
-			return err
+		total += info.Size()
+		if !reportedTotalLimit && total > MaxUncompressedBytes {
+			reportedTotalLimit = true
+			issues.add("SKILL_PACKAGE_UNCOMPRESSED_TOO_LARGE", "Skill package exceeds 10 MB uncompressed")
 		}
-		if err := validateContent(rel, data); err != nil {
-			return err
-		}
-		total += int64(len(data))
-		if total > MaxUncompressedBytes {
-			return output.Validation("SKILL_PACKAGE_UNCOMPRESSED_TOO_LARGE", "Skill package exceeds 50 MiB uncompressed")
-		}
-		entries = append(entries, sourceEntry{name: rel, mode: info.Mode(), data: data})
-		if len(entries) > MaxFiles {
-			return output.Validation("SKILL_PACKAGE_TOO_MANY_FILES", "Skill package exceeds 1000 files")
+		pending = append(pending, pendingFile{relative: rel, absolute: filename, mode: info.Mode()})
+		if !reportedFileLimit && len(pending) > MaxFiles {
+			reportedFileLimit = true
+			issues.add("SKILL_PACKAGE_TOO_MANY_FILES", "Skill package exceeds 1000 files")
 		}
 		return nil
 	})
@@ -367,6 +423,24 @@ func readDirectory(root string) ([]sourceEntry, error) {
 		}
 		return nil, output.Internal("SKILL_READ_FAILED", "failed to read Skill directory", err)
 	}
+	if !issues.empty() {
+		return nil, issues.err()
+	}
+	entries := make([]sourceEntry, 0, len(pending))
+	for _, file := range pending {
+		data, err := os.ReadFile(file.absolute)
+		if err != nil {
+			return nil, output.Internal("SKILL_READ_FAILED", "failed to read Skill directory", err)
+		}
+		if err := validateContent(file.relative, data); err != nil {
+			issues.addError(err)
+			continue
+		}
+		entries = append(entries, sourceEntry{name: file.relative, mode: file.mode, data: data})
+	}
+	if !issues.empty() {
+		return nil, issues.err()
+	}
 	return normalizeEntries(entries)
 }
 
@@ -376,8 +450,14 @@ func readZip(filename string) ([]sourceEntry, error) {
 		return nil, output.Validation("SKILL_ZIP_INVALID", "Skill ZIP could not be opened").WithCause(err)
 	}
 	defer reader.Close()
-	var entries []sourceEntry
+	var issues validationIssues
 	var total int64
+	reportedTotalLimit, reportedFileLimit := false, false
+	type pendingEntry struct {
+		name string
+		file *zip.File
+	}
+	var pending []pendingEntry
 	seen := make(map[string]struct{})
 	for _, file := range reader.File {
 		name := strings.ReplaceAll(file.Name, "\\", "/")
@@ -386,58 +466,88 @@ func readZip(filename string) ([]sourceEntry, error) {
 			continue
 		}
 		if err := validatePath(validationName); err != nil {
-			return nil, err
+			issues.addError(err)
+			continue
 		}
 		mode := file.Mode()
 		if mode&os.ModeSymlink != 0 || (!mode.IsRegular() && !mode.IsDir()) {
-			return nil, output.Validation("SKILL_SPECIAL_FILE_REJECTED", "Skill ZIP contains a link or special file: "+name)
+			issues.add("SKILL_SPECIAL_FILE_REJECTED", "Skill ZIP contains a link or special file: "+name)
+			continue
 		}
 		if mode.IsDir() {
 			continue
 		}
 		if _, exists := seen[name]; exists {
-			return nil, output.Validation("SKILL_ZIP_DUPLICATE_PATH", "Skill ZIP contains a duplicate path: "+name)
+			issues.add("SKILL_ZIP_DUPLICATE_PATH", "Skill ZIP contains a duplicate path: "+name)
+			continue
 		}
 		seen[name] = struct{}{}
 		if file.UncompressedSize64 > MaxFileBytes {
-			return nil, output.Validation("SKILL_FILE_TOO_LARGE", "Skill file exceeds 10 MiB: "+name)
+			issues.add("SKILL_FILE_TOO_LARGE", "Skill file exceeds 10 MiB: "+name)
+			continue
 		}
 		if file.UncompressedSize64 > 1024*1024 &&
 			file.UncompressedSize64 > max(file.CompressedSize64, 1)*200 {
-			return nil, output.Validation("SKILL_ZIP_COMPRESSION_RATIO_EXCEEDED", "Skill ZIP entry has an unsafe compression ratio: "+name)
+			issues.add("SKILL_ZIP_COMPRESSION_RATIO_EXCEEDED", "Skill ZIP entry has an unsafe compression ratio: "+name)
+			continue
 		}
 		if file.Flags&0x1 != 0 {
-			return nil, output.Validation("SKILL_ZIP_ENCRYPTED", "Encrypted ZIP entries are not supported")
+			issues.add("SKILL_ZIP_ENCRYPTED", "Encrypted ZIP entries are not supported")
+			continue
 		}
-		stream, err := file.Open()
+		total += int64(file.UncompressedSize64)
+		if !reportedTotalLimit && total > MaxUncompressedBytes {
+			reportedTotalLimit = true
+			issues.add("SKILL_PACKAGE_UNCOMPRESSED_TOO_LARGE", "Skill package exceeds 10 MB uncompressed")
+		}
+		pending = append(pending, pendingEntry{name: name, file: file})
+		if !reportedFileLimit && len(pending) > MaxFiles {
+			reportedFileLimit = true
+			issues.add("SKILL_PACKAGE_TOO_MANY_FILES", "Skill package exceeds 1000 files")
+		}
+	}
+	if !issues.empty() {
+		return nil, issues.err()
+	}
+	entries := make([]sourceEntry, 0, len(pending))
+	for _, item := range pending {
+		data, err := readZipEntry(item.file)
 		if err != nil {
-			return nil, output.Validation("SKILL_ZIP_INVALID", "Skill ZIP entry could not be opened").WithCause(err)
-		}
-		data, readErr := io.ReadAll(io.LimitReader(stream, MaxFileBytes+1))
-		closeErr := stream.Close()
-		if readErr != nil || closeErr != nil {
-			return nil, output.Validation("SKILL_ZIP_INVALID", "Skill ZIP entry could not be read").WithCause(errors.Join(readErr, closeErr))
-		}
-		if len(data) > MaxFileBytes {
-			return nil, output.Validation("SKILL_FILE_TOO_LARGE", "Skill file exceeds 10 MiB: "+name)
-		}
-		if err := validateContent(name, data); err != nil {
 			return nil, err
 		}
-		total += int64(len(data))
-		if total > MaxUncompressedBytes {
-			return nil, output.Validation("SKILL_PACKAGE_UNCOMPRESSED_TOO_LARGE", "Skill package exceeds 50 MiB uncompressed")
+		if len(data) > MaxFileBytes {
+			issues.add("SKILL_FILE_TOO_LARGE", "Skill file exceeds 10 MiB: "+item.name)
+			continue
 		}
-		entries = append(entries, sourceEntry{name: name, mode: mode, data: data})
-		if len(entries) > MaxFiles {
-			return nil, output.Validation("SKILL_PACKAGE_TOO_MANY_FILES", "Skill package exceeds 1000 files")
+		if err := validateContent(item.name, data); err != nil {
+			issues.addError(err)
+			continue
 		}
+		entries = append(entries, sourceEntry{name: item.name, mode: item.file.Mode(), data: data})
+	}
+	if !issues.empty() {
+		return nil, issues.err()
 	}
 	normalized, err := normalizeEntries(entries)
 	if err != nil {
 		return nil, err
 	}
 	return unwrapSingleZipRoot(normalized)
+}
+
+// readZipEntry streams one entry with the package file budget as a hard cap so
+// a lying ZIP header cannot balloon memory during the content scan.
+func readZipEntry(file *zip.File) ([]byte, error) {
+	stream, err := file.Open()
+	if err != nil {
+		return nil, output.Validation("SKILL_ZIP_INVALID", "Skill ZIP entry could not be opened").WithCause(err)
+	}
+	data, readErr := io.ReadAll(io.LimitReader(stream, MaxFileBytes+1))
+	closeErr := stream.Close()
+	if readErr != nil || closeErr != nil {
+		return nil, output.Validation("SKILL_ZIP_INVALID", "Skill ZIP entry could not be read").WithCause(errors.Join(readErr, closeErr))
+	}
+	return data, nil
 }
 
 // unwrapSingleZipRoot accepts the directory wrapper produced by common source
@@ -539,14 +649,21 @@ func manifestFromEntries(entries []sourceEntry) (api.SkillPublicationManifest, e
 	if err != nil {
 		return api.SkillPublicationManifest{}, err
 	}
+	// A missing frontmatter description no longer blocks the upload: derive a
+	// deterministic fallback from the SKILL.md body so buyer-facing copy stays
+	// non-empty. The author's own description always wins when present.
+	summary := frontmatter.Description
+	if summary == "" {
+		summary = deriveSkillSummary(skill, frontmatter.Name)
+	}
 	return api.SkillPublicationManifest{
 		APIVersion: "publication.viceme.ai/v1alpha1", Kind: "Skill",
-		Metadata: api.SkillPublicationMetadata{Title: frontmatter.Name, Summary: frontmatter.Description},
+		Metadata: api.SkillPublicationMetadata{Title: frontmatter.Name, Summary: summary},
 		Spec: api.SkillPublicationSpec{
 			PublishMode: "DOWNLOADABLE_SKILL",
 			Source:      api.SkillPublicationSource{Type: "WORKSPACE", Entry: "SKILL.md"},
 			Edition: api.SkillPublicationEdition{
-				Key: "standard", Title: frontmatter.Name, SortOrder: 0, Highlights: []string{frontmatter.Description},
+				Key: "standard", Title: frontmatter.Name, SortOrder: 0, Highlights: []string{summary},
 			},
 			Sale: api.SkillPublicationSale{Currency: "CNY", PriceMinor: nil, Entitlement: "PERMANENT_DOWNLOAD"},
 		},
@@ -573,13 +690,59 @@ func parseSkillFrontmatter(data []byte) (skillFrontmatter, error) {
 	}
 	result.Name = strings.TrimSpace(result.Name)
 	result.Description = strings.TrimSpace(result.Description)
-	if result.Name == "" || len([]rune(result.Name)) > 64 {
-		return skillFrontmatter{}, output.Validation("SKILL_TITLE_INVALID", "SKILL.md frontmatter name is required and must be at most 64 characters")
+	// The name is the skill's identity for agents, install naming, and edition
+	// keys, so it stays a hard upload requirement. The description is only
+	// presentation and may be absent; manifestFromEntries derives a fallback.
+	var issues validationIssues
+	if result.Name == "" {
+		issues.add("SKILL_TITLE_INVALID", "SKILL.md frontmatter name is required: add a name field with the skill's name (at most 64 characters)")
+	} else if len([]rune(result.Name)) > 64 {
+		issues.add("SKILL_TITLE_INVALID", "SKILL.md frontmatter name must be at most 64 characters")
 	}
-	if result.Description == "" || len([]rune(result.Description)) > 500 {
-		return skillFrontmatter{}, output.Validation("SKILL_SUMMARY_INVALID", "SKILL.md frontmatter description is required and must be at most 500 characters")
+	if len([]rune(result.Description)) > 500 {
+		issues.add("SKILL_SUMMARY_INVALID", "SKILL.md frontmatter description must be at most 500 characters")
+	}
+	if err := issues.err(); err != nil {
+		return skillFrontmatter{}, err
 	}
 	return result, nil
+}
+
+// deriveSkillSummary extracts the fallback manifest summary from the SKILL.md
+// body when the frontmatter has no description: the first prose line, then the
+// first heading, then the skill name. The result is deterministic for a given
+// package so the manifest digest never wobbles.
+func deriveSkillSummary(skill []byte, fallback string) string {
+	text := strings.ReplaceAll(string(skill), "\r\n", "\n")
+	if start := strings.Index(text, "\n---\n"); start >= 0 {
+		text = text[start+len("\n---\n"):]
+	}
+	heading := ""
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "#") {
+			if heading == "" {
+				heading = strings.TrimSpace(strings.TrimLeft(line, "# "))
+			}
+			continue
+		}
+		return truncateRunes(line, 500)
+	}
+	if heading != "" {
+		return truncateRunes(heading, 500)
+	}
+	return fallback
+}
+
+func truncateRunes(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit])
 }
 
 func listingCandidates(entries []sourceEntry) []Candidate {

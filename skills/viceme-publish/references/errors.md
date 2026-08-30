@@ -1,5 +1,6 @@
 # 发布错误处理
 
+- 包校验错误一次列出多个问题时（消息里有 `Additional problems in the same Skill package:` 分节，每条前缀各自的错误码）：向用户逐条转述全部问题并一次性指导修复，全部修复后重试同一次发布；不得只修第一条。包内 `SKILL.md` 的 `name` 是硬性要求（Agent 识别与安装名来源），`description` 缺失不是问题——平台会自动从正文生成兜底简介，无需用户处理。
 - `SKILL_PUBLICATION_TITLE_TAKEN`：你已发布过另一个同名的 Skill，而这次的内容不是同一个 Skill。用一句白话问用户：“这个名字已经被你的另一个 Skill 占用了，要换一个名称吗？”用户给出新名称后，说明需要先修改 Skill 本身的名称（SKILL.md 里的 name），再从头发起一次新的发布；用户明确不换名称，或新名称仍然重复时，礼貌说明暂时无法发布并结束任务。不得自行给名称加数字后缀、编造新名称或静默重试。
 - `SKILL_PUBLICATION_PRICE_REQUIRED`：取得并展示当前完整上架信息，同时询问准确人民币分价以及希望修改的标题、文案或媒体。不得只问价格。继续同一私有 Publication。
 - `SKILL_SECRET_DETECTED` 或 `SKILL_SENSITIVE_FILE`：停止并从包中删除凭证或敏感文件，绝不打印内容。

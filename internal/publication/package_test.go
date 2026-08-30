@@ -316,3 +316,69 @@ func writeTestFile(t *testing.T, filename string, data []byte, mode os.FileMode)
 		t.Fatal(err)
 	}
 }
+
+func TestBuildDerivesSummaryWhenDescriptionIsMissing(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte("---\nname: Poster Skill\n---\n\n# Poster Skill\n\nTurns a short prompt into a printable poster.\n"), 0o644)
+	result, err := Build(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Manifest.Metadata.Summary != "Turns a short prompt into a printable poster." {
+		t.Fatalf("unexpected derived summary: %q", result.Manifest.Metadata.Summary)
+	}
+	if len(result.Manifest.Spec.Edition.Highlights) != 1 || result.Manifest.Spec.Edition.Highlights[0] != result.Manifest.Metadata.Summary {
+		t.Fatalf("edition highlights should follow the derived summary: %#v", result.Manifest.Spec.Edition.Highlights)
+	}
+}
+
+func TestBuildStillRequiresFrontmatterName(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte("---\ndescription: Create a poster from a short prompt.\n---\n\n# Poster Skill\n"), 0o644)
+	assertOutputCode(t, buildError(directory), "SKILL_TITLE_INVALID")
+}
+
+func TestBuildReportsNameAndDescriptionLengthTogether(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	longName := strings.Repeat("a", 65)
+	longDescription := strings.Repeat("d", 501)
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte("---\nname: "+longName+"\ndescription: "+longDescription+"\n---\n\nbody\n"), 0o644)
+	err := buildError(directory)
+	assertOutputCode(t, err, "SKILL_TITLE_INVALID")
+	if !strings.Contains(err.Error(), "SKILL_SUMMARY_INVALID") {
+		t.Fatalf("expected the description problem in the same report: %v", err)
+	}
+}
+
+func TestBuildRejectsPackagesOverTenMegabytesUncompressed(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte(testSkillMarkdown), 0o644)
+	writeTestFile(t, filepath.Join(directory, "assets", "one.bin"), bytes.Repeat([]byte{1}, 6*1024*1024), 0o644)
+	writeTestFile(t, filepath.Join(directory, "assets", "two.bin"), bytes.Repeat([]byte{2}, 6*1024*1024), 0o644)
+	err := buildError(directory)
+	assertOutputCode(t, err, "SKILL_PACKAGE_UNCOMPRESSED_TOO_LARGE")
+	if !strings.Contains(err.Error(), "10 MB") {
+		t.Fatalf("expected the aligned 10 MB budget in the message: %v", err)
+	}
+}
+
+func TestBuildReportsEveryStructuralProblemInOneError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is not reliably available on Windows test hosts")
+	}
+	directory := t.TempDir()
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte(testSkillMarkdown), 0o644)
+	if err := os.Symlink("SKILL.md", filepath.Join(directory, "copy.md")); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(directory, "assets", "big.bin"), bytes.Repeat([]byte{3}, MaxFileBytes+1), 0o644)
+	err := buildError(directory)
+	assertOutputCode(t, err, "SKILL_FILE_TOO_LARGE")
+	if !strings.Contains(err.Error(), "SKILL_SYMLINK_REJECTED") {
+		t.Fatalf("expected the symlink problem in the same report: %v", err)
+	}
+}
