@@ -75,6 +75,13 @@ func (c *Client) AuthStatus(ctx context.Context) (AuthStatus, error) {
 	return response, err
 }
 
+func (c *Client) GetGithubChannelVerified(ctx context.Context, merchantAccountID string) (GithubChannelVerified, error) {
+	var response GithubChannelVerified
+	endpoint := "/v1/cli/merchant/channels/github/verified?merchantAccountId=" + url.QueryEscape(merchantAccountID)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) Revoke(ctx context.Context, accessToken string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/logout", struct{}{}, nil, accessToken)
 }

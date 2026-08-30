@@ -19,6 +19,7 @@ import (
 
 func newPublicationCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "publication", Short: "Review and complete an in-progress Skill publication"}
+	command.AddCommand(newPublicationPrecheckCommand(runtime))
 	command.AddCommand(newPublicationGetCommand(runtime))
 	command.AddCommand(newPublicationAnalyzeCommand(runtime))
 	command.AddCommand(newPublicationWaitCommand(runtime))
@@ -29,6 +30,74 @@ func newPublicationCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newPublicationConfirmCommand(runtime))
 	command.AddCommand(newPublicationPublishCommand(runtime))
 	command.AddCommand(newPublicationCancelCommand(runtime))
+	return command
+}
+
+// newPublicationPrecheckCommand collapses the three publish preflight reads
+// (login + scopes, creator qualification, and for --github the channel
+// binding) into one call so agents do not pay three round trips.
+func newPublicationPrecheckCommand(runtime *Runtime) *cobra.Command {
+	var github string
+	command := &cobra.Command{
+		Use:   "precheck",
+		Short: "One-shot publish preflight: login, creator, and channel state",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			result := map[string]any{
+				"authenticated": false,
+				"ready":         false,
+			}
+			status, err := runtime.manager().CurrentStatus()
+			if err != nil {
+				return err
+			}
+			if !status.Authenticated {
+				result["next"] = "LOGIN"
+				return runtime.business(result)
+			}
+			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+				return err
+			}
+			remote, err := runtime.client().AuthStatus(command.Context())
+			if err != nil {
+				return err
+			}
+			result["authenticated"] = true
+			result["scopes"] = remote.Scopes
+			result["user"] = remote.User
+			accounts, err := runtime.client().ListMerchantAccounts(command.Context())
+			if err != nil {
+				return err
+			}
+			if len(accounts.Items) == 0 {
+				result["merchant"] = nil
+				result["next"] = "APPLY_CREATOR"
+				return runtime.business(result)
+			}
+			merchant := accounts.Items[0]
+			result["merchant"] = merchant
+			ready := true
+			if github != "" {
+				verified, err := runtime.client().GetGithubChannelVerified(command.Context(), merchant.ID)
+				if err != nil {
+					return err
+				}
+				result["githubChannel"] = map[string]any{
+					"verified": verified.Verified,
+				}
+				if !verified.Verified {
+					result["next"] = "AUTHORIZE_GITHUB"
+					ready = false
+				}
+			}
+			if ready {
+				result["next"] = "PUBLISH"
+			}
+			result["ready"] = ready
+			return runtime.business(result)
+		},
+	}
+	command.Flags().StringVar(&github, "github", "", "GitHub repository as owner/name to check the channel binding for")
 	return command
 }
 

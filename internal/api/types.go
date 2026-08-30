@@ -39,6 +39,10 @@ type AuthStatus struct {
 	ExpiresAt     string   `json:"expiresAt"`
 }
 
+type GithubChannelVerified struct {
+	Verified bool `json:"verified"`
+}
+
 type AuthUser struct {
 	ID          string  `json:"id"`
 	DisplayName *string `json:"displayName"`
