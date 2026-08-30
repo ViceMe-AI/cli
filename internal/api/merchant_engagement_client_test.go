@@ -97,6 +97,8 @@ func TestMerchantEngagementClientUsesShopContracts(t *testing.T) {
 	}
 	activateRequest := CommerceApplicationCommand{MerchantAccountID: testMerchantAccountID, ExpectedRevision: 2}
 	suspendRequest := CommerceApplicationCommand{MerchantAccountID: testMerchantAccountID, ExpectedRevision: 3}
+	websiteWidgetWithProduct := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, "Demo Widget", []string{"https://example.com"}, []string{})
+	websiteWidgetWithProduct.Products = []CommerceApplicationProduct{{ProductID: testProductID, Title: "Product", Status: "ACTIVE"}}
 
 	tests := []struct {
 		name     string
@@ -236,10 +238,10 @@ func TestMerchantEngagementClientUsesShopContracts(t *testing.T) {
 			},
 		},
 		{
-			name: "get Commerce Application", method: http.MethodGet,
+			name: "get Website Widget Commerce Application with Product", method: http.MethodGet,
 			path:     "/v1/cli/merchant/commerce-applications/" + testCommerceApplicationID,
 			query:    "merchantAccountId=" + testMerchantAccountID,
-			response: testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, "Demo Widget", []string{"https://example.com"}, []string{}),
+			response: websiteWidgetWithProduct,
 			call: func(client *Client) error {
 				_, err := client.GetCommerceApplication(context.Background(), testCommerceApplicationID, testMerchantAccountID)
 				return err
@@ -392,8 +394,6 @@ func TestMerchantEngagementClientRejectsInvalidSuccessfulResponses(t *testing.T)
 	wrongApplicationEnvironment := testCommerceApplication("WEBSITE_WIDGET", "PRODUCTION", "DRAFT", 1, "Demo Widget", []string{"https://example.com"}, []string{"https://example.com/return"})
 	wrongApplicationOrigin := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, "Demo Widget", []string{"https://other.example.com"}, []string{"https://example.com/return"})
 	wrongApplicationReturnURL := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, "Demo Widget", []string{"https://example.com"}, []string{"https://example.com/other"})
-	widgetWithProduct := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, "Demo Widget", []string{"https://example.com"}, []string{})
-	widgetWithProduct.Products = []CommerceApplicationProduct{{ProductID: testProductID, Title: "Product", Status: "ACTIVE"}}
 	nonAdvancingApplication := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, updatedName, []string{"https://example.com"}, []string{})
 	nonAdvancingCommand := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "ACTIVE", 2, "Demo Widget", []string{"https://example.com"}, []string{})
 
@@ -592,13 +592,6 @@ func TestMerchantEngagementClientRejectsInvalidSuccessfulResponses(t *testing.T)
 			name: "wrong created Application Return URL", response: wrongApplicationReturnURL,
 			call: func(client *Client) error {
 				_, err := client.CreateCommerceApplication(context.Background(), createApplicationRequest)
-				return err
-			},
-		},
-		{
-			name: "Website Widget Product", response: widgetWithProduct,
-			call: func(client *Client) error {
-				_, err := client.GetCommerceApplication(context.Background(), testCommerceApplicationID, testMerchantAccountID)
 				return err
 			},
 		},

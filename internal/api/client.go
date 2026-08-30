@@ -845,9 +845,6 @@ func (application *CommerceApplication) validateAPIResponse() error {
 			return errors.New("Commerce Application response contains an invalid Product")
 		}
 	}
-	if application.Kind == "WEBSITE_WIDGET" && len(application.Products) != 0 {
-		return errors.New("Website Widget Commerce Application contains Products")
-	}
 	if application.ActivatedAt != nil && !validTimestamp(*application.ActivatedAt) {
 		return errors.New("Commerce Application response contains an invalid activatedAt")
 	}
