@@ -132,10 +132,13 @@ func TestMerchantEngagementFlagsMapToCanonicalAPIRequests(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			server, state := newMerchantEngagementServer(t, []string{"merchant-commerce:read", "merchant-commerce:write"})
 			defer server.Close()
-			_, _ = executeMerchantEngagementCommand(t, server, testCase.args)
+			exit, output := executeMerchantEngagementCommand(t, server, testCase.args)
+			if testCase.name == "sdk-access-update-hosted-only" && exit != 0 {
+				t.Fatalf("hosted-only update failed with paid access: exit=%d output=%s", exit, output)
+			}
 			requests := state.snapshot()
 			expectedRequests := 2
-			if testCase.name == "sdk-access-update" {
+			if strings.HasPrefix(testCase.name, "sdk-access-update") {
 				expectedRequests = 3
 			}
 			if len(requests) != expectedRequests || requests[0].path != "/v1/cli/auth/status" {
@@ -275,6 +278,11 @@ func merchantEngagementCommandCases(t *testing.T) []merchantEngagementCommandCas
 			path: workPath + "/sdk-access", bodyJSON: `{"merchantAccountId":"` + merchantEngagementMerchantID + `","expectedConfigVersion":7,"features":["danmaku","tip"],"accessFeatures":[{"featureKey":"preview","title":"关注后查看","policyType":"FOLLOW_OWNER","price":null,"status":"ACTIVE"}]}`,
 		},
 		{
+			name: "sdk-access-update-hosted-only", write: true, method: http.MethodPut,
+			args: []string{"merchant", "work", "sdk-access", "update", merchantEngagementWorkID, "--merchant", merchantEngagementMerchantID, "--expected-config-version", "7", "--feature", "danmaku"},
+			path: workPath + "/sdk-access", bodyJSON: `{"merchantAccountId":"` + merchantEngagementMerchantID + `","expectedConfigVersion":7,"features":["danmaku"],"accessFeatures":[{"featureKey":"premium","title":"付费内容","policyType":"WORK_ENTITLEMENT","price":{"currency":"CNY","amountCents":1000},"status":"ACTIVE"}]}`,
+		},
+		{
 			name: "sdk-access-disable", write: true, method: http.MethodDelete,
 			args: []string{"merchant", "work", "sdk-access", "disable", merchantEngagementWorkID, "--merchant", merchantEngagementMerchantID},
 			path: workPath + "/sdk-access", query: merchantQuery,
@@ -340,8 +348,34 @@ func newMerchantEngagementServer(t *testing.T, scopes []string) (*httptest.Serve
 		if request.Method == http.MethodGet && request.URL.Path == "/v1/cli/merchant/works/"+merchantEngagementWorkID+"/sdk-access" {
 			_ = json.NewEncoder(writer).Encode(map[string]any{
 				"workId": merchantEngagementWorkID, "workKey": "wrk_website_access", "status": "ACTIVE",
-				"configVersion": 7, "features": []string{"danmaku", "tip"}, "accessFeatures": []any{},
+				"configVersion": 7, "features": []string{"danmaku", "tip"}, "accessFeatures": []any{
+					map[string]any{
+						"featureKey": "premium", "title": "付费内容", "policyType": "WORK_ENTITLEMENT",
+						"productId": "55555555-5555-4555-8555-555555555555",
+						"price":     map[string]any{"currency": "CNY", "amountCents": 1000}, "status": "ACTIVE",
+					},
+				},
 				"createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:00Z",
+			})
+			return
+		}
+		if request.Method == http.MethodPut && request.URL.Path == "/v1/cli/merchant/works/"+merchantEngagementWorkID+"/sdk-access" {
+			var payload struct {
+				Features       []string         `json:"features"`
+				AccessFeatures []map[string]any `json:"accessFeatures"`
+			}
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Errorf("decode SDK access update: %v", err)
+			}
+			for _, feature := range payload.AccessFeatures {
+				if feature["policyType"] == "WORK_ENTITLEMENT" {
+					feature["productId"] = "55555555-5555-4555-8555-555555555555"
+				}
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"workId": merchantEngagementWorkID, "workKey": "wrk_website_access", "status": "ACTIVE",
+				"configVersion": 8, "features": payload.Features, "accessFeatures": payload.AccessFeatures,
+				"createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:01:00Z",
 			})
 			return
 		}

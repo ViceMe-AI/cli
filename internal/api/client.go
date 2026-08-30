@@ -802,7 +802,7 @@ func (verification *WebsiteVerification) validateAPIResponse() error {
 func (access *WorkSdkAccess) validateAPIResponse() error {
 	if access == nil || !uuidPattern.MatchString(access.WorkID) || !workSdkKeyPattern.MatchString(access.WorkKey) ||
 		(access.Status != "ACTIVE" && access.Status != "DISABLED") || access.ConfigVersion < 1 ||
-		!validWorkSdkFeatures(access.Features) || !validWorkAccessFeatures(access.AccessFeatures, true) ||
+		!validWorkSdkFeatures(access.Features) || !validWorkAccessFeatures(access.AccessFeatures) ||
 		!validTimestamp(access.CreatedAt) || !validTimestamp(access.UpdatedAt) {
 		return errors.New("Work SDK access response is missing required fields")
 	}
@@ -948,8 +948,8 @@ func validWorkSdkFeatures(features []string) bool {
 	return true
 }
 
-func validWorkAccessFeatures(features []WorkAccessFeature, response bool) bool {
-	if (response && features == nil) || len(features) > 100 {
+func validWorkAccessFeatures(features []WorkAccessFeature) bool {
+	if features == nil || len(features) > 100 {
 		return false
 	}
 	seen := make(map[string]struct{}, len(features))
@@ -970,8 +970,7 @@ func validWorkAccessFeatures(features []WorkAccessFeature, response bool) bool {
 			}
 		case "WORK_ENTITLEMENT":
 			if feature.Price == nil || feature.Price.Currency != "CNY" || feature.Price.AmountCents < 1 ||
-				(response && (feature.ProductID == nil || !uuidPattern.MatchString(*feature.ProductID))) ||
-				(!response && feature.ProductID != nil) {
+				feature.ProductID == nil || !uuidPattern.MatchString(*feature.ProductID) {
 				return false
 			}
 		default:
@@ -981,11 +980,42 @@ func validWorkAccessFeatures(features []WorkAccessFeature, response bool) bool {
 	return true
 }
 
-func workAccessFeaturesMatchRequest(actual, expected []WorkAccessFeature) bool {
-	if len(actual) != len(expected) || !validWorkAccessFeatures(actual, true) || !validWorkAccessFeatures(expected, false) {
+func validWorkAccessFeatureInputs(features []WorkAccessFeatureInput) bool {
+	if len(features) > 100 {
 		return false
 	}
-	expectedByKey := make(map[string]WorkAccessFeature, len(expected))
+	seen := make(map[string]struct{}, len(features))
+	for _, feature := range features {
+		if !accessWorkFeatureKeyPattern.MatchString(feature.FeatureKey) ||
+			utf16CodeUnits(strings.TrimSpace(feature.Title)) < 1 || utf16CodeUnits(strings.TrimSpace(feature.Title)) > 120 ||
+			(feature.Status != "ACTIVE" && feature.Status != "DISABLED") {
+			return false
+		}
+		if _, exists := seen[feature.FeatureKey]; exists {
+			return false
+		}
+		seen[feature.FeatureKey] = struct{}{}
+		switch feature.PolicyType {
+		case "PUBLIC", "FOLLOW_OWNER":
+			if feature.Price != nil {
+				return false
+			}
+		case "WORK_ENTITLEMENT":
+			if feature.Price == nil || feature.Price.Currency != "CNY" || feature.Price.AmountCents < 1 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func workAccessFeaturesMatchRequest(actual []WorkAccessFeature, expected []WorkAccessFeatureInput) bool {
+	if len(actual) != len(expected) || !validWorkAccessFeatures(actual) || !validWorkAccessFeatureInputs(expected) {
+		return false
+	}
+	expectedByKey := make(map[string]WorkAccessFeatureInput, len(expected))
 	for _, feature := range expected {
 		expectedByKey[feature.FeatureKey] = feature
 	}

@@ -133,16 +133,16 @@ type WebsiteVerification struct {
 }
 
 type CreateWorkSdkAccessRequest struct {
-	MerchantAccountID string              `json:"merchantAccountId"`
-	Features          []string            `json:"features"`
-	AccessFeatures    []WorkAccessFeature `json:"accessFeatures,omitempty"`
+	MerchantAccountID string                   `json:"merchantAccountId"`
+	Features          []string                 `json:"features"`
+	AccessFeatures    []WorkAccessFeatureInput `json:"accessFeatures,omitempty"`
 }
 
 type UpdateWorkSdkAccessRequest struct {
-	MerchantAccountID     string              `json:"merchantAccountId"`
-	ExpectedConfigVersion int                 `json:"expectedConfigVersion"`
-	Features              []string            `json:"features"`
-	AccessFeatures        []WorkAccessFeature `json:"accessFeatures,omitempty"`
+	MerchantAccountID     string                   `json:"merchantAccountId"`
+	ExpectedConfigVersion int                      `json:"expectedConfigVersion"`
+	Features              []string                 `json:"features"`
+	AccessFeatures        []WorkAccessFeatureInput `json:"accessFeatures,omitempty"`
 }
 
 type WorkAccessPrice struct {
@@ -155,6 +155,14 @@ type WorkAccessFeature struct {
 	Title      string           `json:"title"`
 	PolicyType string           `json:"policyType"`
 	ProductID  *string          `json:"productId,omitempty"`
+	Price      *WorkAccessPrice `json:"price"`
+	Status     string           `json:"status"`
+}
+
+type WorkAccessFeatureInput struct {
+	FeatureKey string           `json:"featureKey"`
+	Title      string           `json:"title"`
+	PolicyType string           `json:"policyType"`
 	Price      *WorkAccessPrice `json:"price"`
 	Status     string           `json:"status"`
 }

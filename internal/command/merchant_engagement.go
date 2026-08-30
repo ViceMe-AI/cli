@@ -263,7 +263,7 @@ func newMerchantWorkSdkAccessUpdateCommand(runtime *Runtime) *cobra.Command {
 					return err
 				}
 			}
-			var requestedAccess []api.WorkAccessFeature
+			var requestedAccess []api.WorkAccessFeatureInput
 			if command.Flags().Changed("follow") || command.Flags().Changed("purchase") || command.Flags().Changed("price-minor") {
 				var err error
 				requestedAccess, err = buildWorkAccessFeatures(follows, purchases, prices)
@@ -287,11 +287,11 @@ func newMerchantWorkSdkAccessUpdateCommand(runtime *Runtime) *cobra.Command {
 			} else if clearHosted {
 				normalizedFeatures = []string{}
 			}
-			accessFeatures := current.AccessFeatures
+			accessFeatures := workAccessFeatureInputs(current.AccessFeatures)
 			if command.Flags().Changed("follow") || command.Flags().Changed("purchase") || command.Flags().Changed("price-minor") {
 				accessFeatures = requestedAccess
 			} else if clearAccess {
-				accessFeatures = []api.WorkAccessFeature{}
+				accessFeatures = []api.WorkAccessFeatureInput{}
 			}
 			if len(normalizedFeatures) == 0 && len(accessFeatures) == 0 {
 				return output.Validation("WORK_SDK_FEATURE_REQUIRED", "the Work SDK access must retain at least one feature")
@@ -371,12 +371,12 @@ func addWorkAccessFeatureFlags(command *cobra.Command, follows, purchases, price
 	command.Flags().StringArrayVar(prices, "price-minor", nil, "price in fen; repeat once per --purchase or provide one shared price")
 }
 
-func buildWorkAccessFeatures(follows, purchases, rawPrices []string) ([]api.WorkAccessFeature, error) {
+func buildWorkAccessFeatures(follows, purchases, rawPrices []string) ([]api.WorkAccessFeatureInput, error) {
 	prices, err := parseWorkAccessPrices(purchases, rawPrices)
 	if err != nil {
 		return nil, err
 	}
-	features := make(map[string]api.WorkAccessFeature, len(follows)+len(purchases))
+	features := make(map[string]api.WorkAccessFeatureInput, len(follows)+len(purchases))
 	groups := []struct {
 		values []string
 		policy string
@@ -393,7 +393,7 @@ func buildWorkAccessFeatures(follows, purchases, rawPrices []string) ([]api.Work
 			if _, exists := features[key]; exists {
 				return nil, output.Validation("ACCESS_FEATURE_DUPLICATE", fmt.Sprintf("feature %q is configured more than once", key))
 			}
-			feature := api.WorkAccessFeature{FeatureKey: key, Title: title, PolicyType: group.policy, Status: "ACTIVE"}
+			feature := api.WorkAccessFeatureInput{FeatureKey: key, Title: title, PolicyType: group.policy, Status: "ACTIVE"}
 			if group.policy == "WORK_ENTITLEMENT" {
 				feature.Price = &api.WorkAccessPrice{Currency: "CNY", AmountCents: prices[index]}
 			}
@@ -405,11 +405,25 @@ func buildWorkAccessFeatures(follows, purchases, rawPrices []string) ([]api.Work
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
-	result := make([]api.WorkAccessFeature, 0, len(keys))
+	result := make([]api.WorkAccessFeatureInput, 0, len(keys))
 	for _, key := range keys {
 		result = append(result, features[key])
 	}
 	return result, nil
+}
+
+func workAccessFeatureInputs(features []api.WorkAccessFeature) []api.WorkAccessFeatureInput {
+	inputs := make([]api.WorkAccessFeatureInput, len(features))
+	for index, feature := range features {
+		inputs[index] = api.WorkAccessFeatureInput{
+			FeatureKey: feature.FeatureKey,
+			Title:      feature.Title,
+			PolicyType: feature.PolicyType,
+			Price:      feature.Price,
+			Status:     feature.Status,
+		}
+	}
+	return inputs
 }
 
 func parseWorkAccessPrices(purchases, rawPrices []string) ([]int, error) {

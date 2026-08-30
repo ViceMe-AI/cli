@@ -680,7 +680,7 @@ func TestMerchantEngagementClientRejectsInvalidSuccessfulResponses(t *testing.T)
 func TestWorkAccessFeaturesMatchRequest(t *testing.T) {
 	t.Parallel()
 	price := &WorkAccessPrice{Currency: "CNY", AmountCents: 990}
-	expected := []WorkAccessFeature{
+	expected := []WorkAccessFeatureInput{
 		{FeatureKey: "followers", Title: "关注可见", PolicyType: "FOLLOW_OWNER", Status: "ACTIVE"},
 		{FeatureKey: "members", Title: "会员内容", PolicyType: "WORK_ENTITLEMENT", Price: price, Status: "ACTIVE"},
 	}
