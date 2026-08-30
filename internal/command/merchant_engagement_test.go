@@ -60,7 +60,7 @@ func (state *merchantEngagementServerState) snapshot() []capturedMerchantEngagem
 	return append([]capturedMerchantEngagementRequest(nil), state.requests...)
 }
 
-func TestMerchantEngagementCommandTreeReplacesLegacyRoots(t *testing.T) {
+func TestMerchantEngagementCommandTreeIncludesUnifiedSdkAccess(t *testing.T) {
 	rootDirectory := t.TempDir()
 	root, _, err := NewRoot(Dependencies{
 		Store: securestore.NewMemory(),
@@ -95,7 +95,7 @@ func TestMerchantEngagementCommandTreeReplacesLegacyRoots(t *testing.T) {
 			t.Fatalf("command path %q was not registered: command=%q remaining=%v err=%v", path, command.CommandPath(), remaining, findErr)
 		}
 	}
-	for _, retired := range []string{"website", "access", "creator-app"} {
+	for _, retired := range []string{"website", "creator-app"} {
 		for _, command := range root.Commands() {
 			if command.Name() == retired {
 				t.Fatalf("retired root command %q remains registered", retired)
@@ -132,12 +132,19 @@ func TestMerchantEngagementFlagsMapToCanonicalAPIRequests(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			server, state := newMerchantEngagementServer(t, []string{"merchant-commerce:read", "merchant-commerce:write"})
 			defer server.Close()
-			_, _ = executeMerchantEngagementCommand(t, server, testCase.args)
+			exit, output := executeMerchantEngagementCommand(t, server, testCase.args)
+			if testCase.name == "sdk-access-update-hosted-only" && exit != 0 {
+				t.Fatalf("hosted-only update failed with paid access: exit=%d output=%s", exit, output)
+			}
 			requests := state.snapshot()
-			if len(requests) != 2 || requests[0].path != "/v1/cli/auth/status" {
+			expectedRequests := 2
+			if strings.HasPrefix(testCase.name, "sdk-access-update") {
+				expectedRequests = 3
+			}
+			if len(requests) != expectedRequests || requests[0].path != "/v1/cli/auth/status" {
 				t.Fatalf("unexpected request sequence: %#v", requests)
 			}
-			request := requests[1]
+			request := requests[len(requests)-1]
 			if request.method != testCase.method || request.path != testCase.path || request.query != testCase.query {
 				t.Fatalf("request target mismatch: got=%s %s?%s want=%s %s?%s", request.method, request.path, request.query, testCase.method, testCase.path, testCase.query)
 			}
@@ -252,8 +259,8 @@ func merchantEngagementCommandCases(t *testing.T) []merchantEngagementCommandCas
 		},
 		{
 			name: "sdk-access-create", write: true, method: http.MethodPost,
-			args: []string{"merchant", "work", "sdk-access", "create", merchantEngagementWorkID, "--merchant", merchantEngagementMerchantID, "--feature", "tip", "--feature", "danmaku", "--feature", "tip"},
-			path: workPath + "/sdk-access", bodyJSON: `{"merchantAccountId":"` + merchantEngagementMerchantID + `","features":["danmaku","tip"]}`,
+			args: []string{"merchant", "work", "sdk-access", "create", merchantEngagementWorkID, "--merchant", merchantEngagementMerchantID, "--feature", "tip", "--feature", "danmaku", "--feature", "tip", "--follow", "preview=关注后查看", "--purchase", "premium=付费内容", "--price-minor", "1000"},
+			path: workPath + "/sdk-access", bodyJSON: `{"merchantAccountId":"` + merchantEngagementMerchantID + `","features":["danmaku","tip"],"accessFeatures":[{"featureKey":"premium","title":"付费内容","policyType":"WORK_ENTITLEMENT","price":{"currency":"CNY","amountCents":1000},"status":"ACTIVE"},{"featureKey":"preview","title":"关注后查看","policyType":"FOLLOW_OWNER","price":null,"status":"ACTIVE"}]}`,
 		},
 		{
 			name: "sdk-access-get", method: http.MethodGet,
@@ -267,8 +274,13 @@ func merchantEngagementCommandCases(t *testing.T) []merchantEngagementCommandCas
 		},
 		{
 			name: "sdk-access-update", write: true, method: http.MethodPut,
-			args: []string{"merchant", "work", "sdk-access", "update", merchantEngagementWorkID, "--merchant", merchantEngagementMerchantID, "--expected-config-version", "7", "--feature", "tip", "--feature", "danmaku"},
-			path: workPath + "/sdk-access", bodyJSON: `{"merchantAccountId":"` + merchantEngagementMerchantID + `","expectedConfigVersion":7,"features":["danmaku","tip"]}`,
+			args: []string{"merchant", "work", "sdk-access", "update", merchantEngagementWorkID, "--merchant", merchantEngagementMerchantID, "--expected-config-version", "7", "--follow", "preview=关注后查看"},
+			path: workPath + "/sdk-access", bodyJSON: `{"merchantAccountId":"` + merchantEngagementMerchantID + `","expectedConfigVersion":7,"features":["danmaku","tip"],"accessFeatures":[{"featureKey":"preview","title":"关注后查看","policyType":"FOLLOW_OWNER","price":null,"status":"ACTIVE"}]}`,
+		},
+		{
+			name: "sdk-access-update-hosted-only", write: true, method: http.MethodPut,
+			args: []string{"merchant", "work", "sdk-access", "update", merchantEngagementWorkID, "--merchant", merchantEngagementMerchantID, "--expected-config-version", "7", "--feature", "danmaku"},
+			path: workPath + "/sdk-access", bodyJSON: `{"merchantAccountId":"` + merchantEngagementMerchantID + `","expectedConfigVersion":7,"features":["danmaku"],"accessFeatures":[{"featureKey":"premium","title":"付费内容","policyType":"WORK_ENTITLEMENT","price":{"currency":"CNY","amountCents":1000},"status":"ACTIVE"}]}`,
 		},
 		{
 			name: "sdk-access-disable", write: true, method: http.MethodDelete,
@@ -330,6 +342,40 @@ func newMerchantEngagementServer(t *testing.T, scopes []string) (*httptest.Serve
 					"id": "44444444-4444-4444-8444-444444444444", "displayName": "Merchant", "avatarUrl": nil,
 				},
 				"scopes": scopes, "expiresAt": "2027-08-21T00:00:00Z",
+			})
+			return
+		}
+		if request.Method == http.MethodGet && request.URL.Path == "/v1/cli/merchant/works/"+merchantEngagementWorkID+"/sdk-access" {
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"workId": merchantEngagementWorkID, "workKey": "wrk_website_access", "status": "ACTIVE",
+				"configVersion": 7, "features": []string{"danmaku", "tip"}, "accessFeatures": []any{
+					map[string]any{
+						"featureKey": "premium", "title": "付费内容", "policyType": "WORK_ENTITLEMENT",
+						"productId": "55555555-5555-4555-8555-555555555555",
+						"price":     map[string]any{"currency": "CNY", "amountCents": 1000}, "status": "ACTIVE",
+					},
+				},
+				"createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:00:00Z",
+			})
+			return
+		}
+		if request.Method == http.MethodPut && request.URL.Path == "/v1/cli/merchant/works/"+merchantEngagementWorkID+"/sdk-access" {
+			var payload struct {
+				Features       []string         `json:"features"`
+				AccessFeatures []map[string]any `json:"accessFeatures"`
+			}
+			if err := json.Unmarshal(body, &payload); err != nil {
+				t.Errorf("decode SDK access update: %v", err)
+			}
+			for _, feature := range payload.AccessFeatures {
+				if feature["policyType"] == "WORK_ENTITLEMENT" {
+					feature["productId"] = "55555555-5555-4555-8555-555555555555"
+				}
+			}
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"workId": merchantEngagementWorkID, "workKey": "wrk_website_access", "status": "ACTIVE",
+				"configVersion": 8, "features": payload.Features, "accessFeatures": payload.AccessFeatures,
+				"createdAt": "2026-08-30T00:00:00Z", "updatedAt": "2026-08-30T00:01:00Z",
 			})
 			return
 		}

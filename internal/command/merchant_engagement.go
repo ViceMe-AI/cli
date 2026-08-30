@@ -1,6 +1,12 @@
 package command
 
 import (
+	"fmt"
+	"regexp"
+	"sort"
+	"strconv"
+	"strings"
+
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/spf13/cobra"
@@ -136,7 +142,7 @@ func newMerchantWorkWebsiteVerificationRevokeCommand(runtime *Runtime) *cobra.Co
 func newMerchantWorkSdkAccessCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "sdk-access",
-		Short: "Manage the danmaku and tip SDK features for merchant Works",
+		Short: "Manage hosted, follow, and paid SDK features for merchant Works",
 	}
 	command.AddCommand(newMerchantWorkSdkAccessCreateCommand(runtime))
 	command.AddCommand(newMerchantWorkSdkAccessGetCommand(runtime))
@@ -148,7 +154,7 @@ func newMerchantWorkSdkAccessCommand(runtime *Runtime) *cobra.Command {
 
 func newMerchantWorkSdkAccessCreateCommand(runtime *Runtime) *cobra.Command {
 	var merchantAccountID string
-	var features []string
+	var features, follows, purchases, prices []string
 	command := &cobra.Command{
 		Use:   "create <work-id>",
 		Short: "Enable selected SDK features for a merchant Work",
@@ -158,12 +164,20 @@ func newMerchantWorkSdkAccessCreateCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			accessFeatures, err := buildWorkAccessFeatures(follows, purchases, prices)
+			if err != nil {
+				return err
+			}
+			if len(normalizedFeatures) == 0 && len(accessFeatures) == 0 {
+				return output.Validation("WORK_SDK_FEATURE_REQUIRED", "configure at least one hosted, follow, or purchase feature")
+			}
 			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
 				return err
 			}
 			result, err := runtime.client().CreateWorkSdkAccess(command.Context(), args[0], api.CreateWorkSdkAccessRequest{
 				MerchantAccountID: merchantAccountID,
 				Features:          normalizedFeatures,
+				AccessFeatures:    accessFeatures,
 			})
 			if err != nil {
 				return err
@@ -173,6 +187,7 @@ func newMerchantWorkSdkAccessCreateCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID")
 	command.Flags().StringArrayVar(&features, "feature", nil, "SDK feature to enable (danmaku or tip; repeatable)")
+	addWorkAccessFeatureFlags(command, &follows, &purchases, &prices)
 	_ = command.MarkFlagRequired("merchant")
 	return command
 }
@@ -224,26 +239,68 @@ func newMerchantWorkSdkAccessListCommand(runtime *Runtime) *cobra.Command {
 func newMerchantWorkSdkAccessUpdateCommand(runtime *Runtime) *cobra.Command {
 	var merchantAccountID string
 	var expectedConfigVersion int
-	var features []string
+	var features, follows, purchases, prices []string
+	var clearHosted, clearAccess bool
 	command := &cobra.Command{
 		Use:   "update <work-id>",
 		Short: "Replace all enabled SDK features for a merchant Work",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			if clearHosted && command.Flags().Changed("feature") {
+				return output.Validation("WORK_SDK_FEATURE_FLAGS_CONFLICT", "--clear-hosted cannot be combined with --feature")
+			}
+			if clearAccess && (command.Flags().Changed("follow") || command.Flags().Changed("purchase") || command.Flags().Changed("price-minor")) {
+				return output.Validation("WORK_ACCESS_FEATURE_FLAGS_CONFLICT", "--clear-access cannot be combined with access feature flags")
+			}
 			if expectedConfigVersion < 1 {
 				return output.Validation("WORK_SDK_CONFIG_VERSION_INVALID", "--expected-config-version must be positive")
 			}
-			normalizedFeatures, err := normalizeWorkSdkFeatures(features)
-			if err != nil {
-				return err
+			var requestedHosted []string
+			if command.Flags().Changed("feature") {
+				var err error
+				requestedHosted, err = normalizeWorkSdkFeatures(features)
+				if err != nil {
+					return err
+				}
+			}
+			var requestedAccess []api.WorkAccessFeatureInput
+			if command.Flags().Changed("follow") || command.Flags().Changed("purchase") || command.Flags().Changed("price-minor") {
+				var err error
+				requestedAccess, err = buildWorkAccessFeatures(follows, purchases, prices)
+				if err != nil {
+					return err
+				}
 			}
 			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
 				return err
+			}
+			current, err := runtime.client().GetWorkSdkAccess(command.Context(), args[0], merchantAccountID)
+			if err != nil {
+				return err
+			}
+			if current.ConfigVersion != expectedConfigVersion {
+				return output.Policy("WORK_SDK_CONFIG_VERSION_CONFLICT", "Work SDK access config version changed").WithDetails(map[string]any{"expectedConfigVersion": expectedConfigVersion, "actualConfigVersion": current.ConfigVersion})
+			}
+			normalizedFeatures := current.Features
+			if command.Flags().Changed("feature") {
+				normalizedFeatures = requestedHosted
+			} else if clearHosted {
+				normalizedFeatures = []string{}
+			}
+			accessFeatures := workAccessFeatureInputs(current.AccessFeatures)
+			if command.Flags().Changed("follow") || command.Flags().Changed("purchase") || command.Flags().Changed("price-minor") {
+				accessFeatures = requestedAccess
+			} else if clearAccess {
+				accessFeatures = []api.WorkAccessFeatureInput{}
+			}
+			if len(normalizedFeatures) == 0 && len(accessFeatures) == 0 {
+				return output.Validation("WORK_SDK_FEATURE_REQUIRED", "the Work SDK access must retain at least one feature")
 			}
 			result, err := runtime.client().UpdateWorkSdkAccess(command.Context(), args[0], api.UpdateWorkSdkAccessRequest{
 				MerchantAccountID:     merchantAccountID,
 				ExpectedConfigVersion: expectedConfigVersion,
 				Features:              normalizedFeatures,
+				AccessFeatures:        accessFeatures,
 			})
 			if err != nil {
 				return err
@@ -254,6 +311,9 @@ func newMerchantWorkSdkAccessUpdateCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID")
 	command.Flags().IntVar(&expectedConfigVersion, "expected-config-version", 0, "exact Work SDK access config version")
 	command.Flags().StringArrayVar(&features, "feature", nil, "replacement SDK feature (danmaku or tip; repeatable)")
+	command.Flags().BoolVar(&clearHosted, "clear-hosted", false, "remove all danmaku and tip features")
+	command.Flags().BoolVar(&clearAccess, "clear-access", false, "remove all follow and purchase features")
+	addWorkAccessFeatureFlags(command, &follows, &purchases, &prices)
 	_ = command.MarkFlagRequired("merchant")
 	_ = command.MarkFlagRequired("expected-config-version")
 	return command
@@ -282,9 +342,6 @@ func newMerchantWorkSdkAccessDisableCommand(runtime *Runtime) *cobra.Command {
 }
 
 func normalizeWorkSdkFeatures(features []string) ([]string, error) {
-	if len(features) == 0 {
-		return nil, output.Validation("WORK_SDK_FEATURE_REQUIRED", "at least one --feature is required")
-	}
 	var danmaku, tip bool
 	for _, feature := range features {
 		switch feature {
@@ -304,6 +361,107 @@ func normalizeWorkSdkFeatures(features []string) ([]string, error) {
 		result = append(result, "tip")
 	}
 	return result, nil
+}
+
+var workAccessFeatureKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
+
+func addWorkAccessFeatureFlags(command *cobra.Command, follows, purchases, prices *[]string) {
+	command.Flags().StringArrayVar(follows, "follow", nil, "FOLLOW_OWNER feature as key or key=title (repeatable)")
+	command.Flags().StringArrayVar(purchases, "purchase", nil, "WORK_ENTITLEMENT feature as key or key=title (repeatable)")
+	command.Flags().StringArrayVar(prices, "price-minor", nil, "price in fen; repeat once per --purchase or provide one shared price")
+}
+
+func buildWorkAccessFeatures(follows, purchases, rawPrices []string) ([]api.WorkAccessFeatureInput, error) {
+	prices, err := parseWorkAccessPrices(purchases, rawPrices)
+	if err != nil {
+		return nil, err
+	}
+	features := make(map[string]api.WorkAccessFeatureInput, len(follows)+len(purchases))
+	groups := []struct {
+		values []string
+		policy string
+	}{
+		{values: follows, policy: "FOLLOW_OWNER"},
+		{values: purchases, policy: "WORK_ENTITLEMENT"},
+	}
+	for _, group := range groups {
+		for index, value := range group.values {
+			key, title, err := parseWorkAccessFeature(value)
+			if err != nil {
+				return nil, err
+			}
+			if _, exists := features[key]; exists {
+				return nil, output.Validation("ACCESS_FEATURE_DUPLICATE", fmt.Sprintf("feature %q is configured more than once", key))
+			}
+			feature := api.WorkAccessFeatureInput{FeatureKey: key, Title: title, PolicyType: group.policy, Status: "ACTIVE"}
+			if group.policy == "WORK_ENTITLEMENT" {
+				feature.Price = &api.WorkAccessPrice{Currency: "CNY", AmountCents: prices[index]}
+			}
+			features[key] = feature
+		}
+	}
+	keys := make([]string, 0, len(features))
+	for key := range features {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	result := make([]api.WorkAccessFeatureInput, 0, len(keys))
+	for _, key := range keys {
+		result = append(result, features[key])
+	}
+	return result, nil
+}
+
+func workAccessFeatureInputs(features []api.WorkAccessFeature) []api.WorkAccessFeatureInput {
+	inputs := make([]api.WorkAccessFeatureInput, len(features))
+	for index, feature := range features {
+		inputs[index] = api.WorkAccessFeatureInput{
+			FeatureKey: feature.FeatureKey,
+			Title:      feature.Title,
+			PolicyType: feature.PolicyType,
+			Price:      feature.Price,
+			Status:     feature.Status,
+		}
+	}
+	return inputs
+}
+
+func parseWorkAccessPrices(purchases, rawPrices []string) ([]int, error) {
+	if len(purchases) == 0 {
+		if len(rawPrices) > 0 {
+			return nil, output.Validation("ACCESS_CONFIG_INVALID", "--price-minor requires at least one --purchase")
+		}
+		return nil, nil
+	}
+	if len(rawPrices) != 1 && len(rawPrices) != len(purchases) {
+		return nil, output.Validation("WORK_PRICE_REQUIRED", "provide one shared --price-minor or one price for each --purchase")
+	}
+	prices := make([]int, len(purchases))
+	for index := range purchases {
+		raw := rawPrices[0]
+		if len(rawPrices) > 1 {
+			raw = rawPrices[index]
+		}
+		price, err := strconv.Atoi(raw)
+		if err != nil || price <= 0 {
+			return nil, output.Validation("WORK_PRICE_REQUIRED", "purchase feature prices must be positive integers")
+		}
+		prices[index] = price
+	}
+	return prices, nil
+}
+
+func parseWorkAccessFeature(raw string) (string, string, error) {
+	parts := strings.SplitN(strings.TrimSpace(raw), "=", 2)
+	key := strings.TrimSpace(parts[0])
+	title := key
+	if len(parts) == 2 {
+		title = strings.TrimSpace(parts[1])
+	}
+	if !workAccessFeatureKeyPattern.MatchString(key) || title == "" {
+		return "", "", output.Validation("ACCESS_FEATURE_INVALID", "feature must use key or key=title")
+	}
+	return key, title, nil
 }
 
 func newMerchantCommerceApplicationCommand(runtime *Runtime) *cobra.Command {

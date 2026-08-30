@@ -1,0 +1,4 @@
+interface:
+  display_name: "ViceMe Website Access"
+  short_description: "Add native-looking login and paid access"
+  default_prompt: "Use $viceme-access to follow my integration plan, or analyze safe native-looking access entry points when details are missing."
