@@ -16,21 +16,20 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
+	whatwgurl "github.com/nlnwa/whatwg-url/url"
 )
 
 const maxResponseBytes = 8 << 20
 
 var (
-	sdkWorkKeyPattern   = regexp.MustCompile(`^wrk_[A-Za-z0-9_-]{4,124}$`)
-	uuidPattern         = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	publicDomainPattern = regexp.MustCompile(
-		`^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`,
-	)
-	ipv4DomainPattern     = regexp.MustCompile(`^(?:\d{1,3}\.){3}\d{1,3}$`)
-	reservedDomainPattern = regexp.MustCompile(`(?:^|\.)(?:localhost|local|test|invalid|example)$`)
+	workSdkKeyPattern           = regexp.MustCompile(`^wrk_[A-Za-z0-9_-]{4,124}$`)
+	accessWorkFeatureKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
+	uuidPattern                 = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	shopURLParser               = whatwgurl.NewParser(whatwgurl.WithPathPercentEncodeSet(whatwgurl.PathPercentEncodeSet.Set('^')))
 )
 
 type TokenSource interface {
@@ -295,6 +294,178 @@ func (c *Client) RevokeMerchantWorkPreview(ctx context.Context, workID, grantID,
 	return response, err
 }
 
+func (c *Client) CreateWebsiteVerification(ctx context.Context, workID string, request CreateWebsiteVerificationRequest) (WebsiteVerification, error) {
+	var response WebsiteVerification
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/website-verifications"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
+	if err == nil && (response.WebsiteWorkID != workID || response.Status != "PENDING" || response.Challenge == nil) {
+		err = invalidAPIResponse(errors.New("created Website verification does not match the requested Work"))
+	}
+	return response, err
+}
+
+func (c *Client) GetLatestWebsiteVerification(ctx context.Context, workID, merchantAccountID string) (WebsiteVerification, error) {
+	var response WebsiteVerification
+	query := url.Values{"merchantAccountId": {merchantAccountID}}
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/website-verifications/latest?" + query.Encode()
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	if err == nil && response.WebsiteWorkID != workID {
+		err = invalidAPIResponse(errors.New("Website verification response does not match the requested Work"))
+	}
+	return response, err
+}
+
+func (c *Client) VerifyWebsite(ctx context.Context, workID string, request VerifyWebsiteRequest) (MerchantWork, error) {
+	var response MerchantWork
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/website-verifications/verify"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
+	if err == nil {
+		err = validateWebsiteWorkMutation(response, workID, request.MerchantAccountID, "VERIFIED")
+		if err == nil && (response.Website.VerificationVersion != request.ExpectedVerificationVersion || response.Website.VerifiedAt == nil) {
+			err = errors.New("verified Website response does not match the requested verification version")
+		}
+		if err != nil {
+			err = invalidAPIResponse(err)
+		}
+	}
+	return response, err
+}
+
+func (c *Client) RevokeWebsiteOwnership(ctx context.Context, workID string, request RevokeWebsiteOwnershipRequest) (MerchantWork, error) {
+	var response MerchantWork
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/website-verifications/revoke"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
+	if err == nil {
+		err = validateWebsiteWorkMutation(response, workID, request.MerchantAccountID, "REVOKED")
+		if err == nil && (response.Revision <= request.ExpectedRevision || response.Website.VerifiedAt != nil) {
+			err = errors.New("revoked Website response did not advance the Work revision")
+		}
+		if err != nil {
+			err = invalidAPIResponse(err)
+		}
+	}
+	return response, err
+}
+
+func (c *Client) CreateWorkSdkAccess(ctx context.Context, workID string, request CreateWorkSdkAccessRequest) (WorkSdkAccess, error) {
+	var response WorkSdkAccess
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/sdk-access"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
+	if err == nil && (response.WorkID != workID || response.Status != "ACTIVE" ||
+		!workSdkFeaturesEqual(response.Features, request.Features) ||
+		!workAccessFeaturesMatchRequest(response.AccessFeatures, request.AccessFeatures)) {
+		err = invalidAPIResponse(errors.New("created Work SDK access does not match the request"))
+	}
+	return response, err
+}
+
+func (c *Client) GetWorkSdkAccess(ctx context.Context, workID, merchantAccountID string) (WorkSdkAccess, error) {
+	var response WorkSdkAccess
+	query := url.Values{"merchantAccountId": {merchantAccountID}}
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/sdk-access?" + query.Encode()
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	if err == nil && response.WorkID != workID {
+		err = invalidAPIResponse(errors.New("Work SDK access response does not match the requested Work"))
+	}
+	return response, err
+}
+
+func (c *Client) ListWorkSdkAccesses(ctx context.Context, merchantAccountID string) (WorkSdkAccessesResponse, error) {
+	var response WorkSdkAccessesResponse
+	query := url.Values{"merchantAccountId": {merchantAccountID}}
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/work-sdk-accesses?"+query.Encode(), nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) UpdateWorkSdkAccess(ctx context.Context, workID string, request UpdateWorkSdkAccessRequest) (WorkSdkAccess, error) {
+	var response WorkSdkAccess
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/sdk-access"
+	err := c.doJSON(ctx, http.MethodPut, endpoint, request, &response, "@stored")
+	if err == nil && (response.WorkID != workID || response.Status != "ACTIVE" ||
+		response.ConfigVersion <= request.ExpectedConfigVersion || !workSdkFeaturesEqual(response.Features, request.Features) ||
+		!workAccessFeaturesMatchRequest(response.AccessFeatures, request.AccessFeatures)) {
+		err = invalidAPIResponse(errors.New("updated Work SDK access does not match the request"))
+	}
+	return response, err
+}
+
+func (c *Client) DisableWorkSdkAccess(ctx context.Context, workID, merchantAccountID string) (WorkSdkAccess, error) {
+	var response WorkSdkAccess
+	query := url.Values{"merchantAccountId": {merchantAccountID}}
+	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/sdk-access?" + query.Encode()
+	err := c.doJSON(ctx, http.MethodDelete, endpoint, nil, &response, "@stored")
+	if err == nil && (response.WorkID != workID || response.Status != "DISABLED") {
+		err = invalidAPIResponse(errors.New("disabled Work SDK access does not match the requested Work"))
+	}
+	return response, err
+}
+
+func (c *Client) CreateCommerceApplication(ctx context.Context, request CreateCommerceApplicationRequest) (CommerceApplication, error) {
+	var response CommerceApplication
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/commerce-applications", request, &response, "@stored")
+	if err == nil && !commerceApplicationMatchesCreateRequest(response, request) {
+		err = invalidAPIResponse(errors.New("created Commerce Application does not match the request"))
+	}
+	return response, err
+}
+
+func (c *Client) ListCommerceApplications(ctx context.Context, merchantAccountID string) (CommerceApplicationsResponse, error) {
+	var response CommerceApplicationsResponse
+	query := url.Values{"merchantAccountId": {merchantAccountID}}
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/commerce-applications?"+query.Encode(), nil, &response, "@stored")
+	if err == nil {
+		for _, application := range response.Items {
+			if application.MerchantAccountID != merchantAccountID {
+				err = invalidAPIResponse(errors.New("Commerce Application list contains another Merchant account"))
+				break
+			}
+		}
+	}
+	return response, err
+}
+
+func (c *Client) GetCommerceApplication(ctx context.Context, applicationID, merchantAccountID string) (CommerceApplication, error) {
+	var response CommerceApplication
+	query := url.Values{"merchantAccountId": {merchantAccountID}}
+	endpoint := "/v1/cli/merchant/commerce-applications/" + url.PathEscape(applicationID) + "?" + query.Encode()
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	if err == nil && (response.ID != applicationID || response.MerchantAccountID != merchantAccountID) {
+		err = invalidAPIResponse(errors.New("Commerce Application response does not match the requested resource"))
+	}
+	return response, err
+}
+
+func (c *Client) UpdateCommerceApplication(ctx context.Context, applicationID string, request UpdateCommerceApplicationRequest) (CommerceApplication, error) {
+	var response CommerceApplication
+	endpoint := "/v1/cli/merchant/commerce-applications/" + url.PathEscape(applicationID)
+	err := c.doJSON(ctx, http.MethodPatch, endpoint, request, &response, "@stored")
+	if err == nil && !commerceApplicationMatchesUpdateRequest(response, applicationID, request) {
+		err = invalidAPIResponse(errors.New("updated Commerce Application does not match the request"))
+	}
+	return response, err
+}
+
+func (c *Client) CommandCommerceApplication(ctx context.Context, applicationID, command string, request CommerceApplicationCommand) (CommerceApplication, error) {
+	expectedStatus := ""
+	switch command {
+	case "activate":
+		expectedStatus = "ACTIVE"
+	case "suspend":
+		expectedStatus = "SUSPENDED"
+	default:
+		return CommerceApplication{}, output.Validation("COMMERCE_APPLICATION_COMMAND_INVALID", "Commerce Application command must be activate or suspend")
+	}
+
+	var response CommerceApplication
+	endpoint := "/v1/cli/merchant/commerce-applications/" + url.PathEscape(applicationID) + "/" + command
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
+	if err == nil && (response.ID != applicationID || response.MerchantAccountID != request.MerchantAccountID ||
+		response.Status != expectedStatus || response.Revision <= request.ExpectedRevision) {
+		err = invalidAPIResponse(errors.New("Commerce Application command response does not match the request"))
+	}
+	return response, err
+}
+
 func (c *Client) ListMerchantProductAuthoringTemplates(ctx context.Context, merchantAccountID string) (json.RawMessage, error) {
 	var response json.RawMessage
 	query := url.Values{"merchantAccountId": {merchantAccountID}}
@@ -519,66 +690,6 @@ func (c *Client) PutPresigned(ctx context.Context, rawURL string, headers map[st
 	return nil
 }
 
-func (c *Client) CreateSdkWork(ctx context.Context, request CreateSdkWorkRequest) (SdkWork, error) {
-	var response SdkWork
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works", request, &response, "@stored")
-	if err == nil && (response.DisplayName != request.DisplayName || response.Status != "DRAFT" || len(response.Features) != 0 || len(response.Capabilities) != 0) {
-		err = invalidAPIResponse(errors.New("created SDK Work does not match the requested empty Draft"))
-	}
-	return response, err
-}
-
-func (c *Client) PublishCreatorWebsite(ctx context.Context, request PublishCreatorWebsiteRequest) (SdkWork, error) {
-	var response SdkWork
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works/publish", request, &response, "@stored")
-	if err == nil && (response.CreatorWorkID == nil || response.Publication == nil ||
-		response.DisplayName != request.DisplayName || response.Publication.ClientWorkID != request.ClientWorkID ||
-		response.Publication.SourceDigest != request.SourceDigest) {
-		err = invalidAPIResponse(errors.New("published creator website does not match the request"))
-	}
-	return response, err
-}
-
-func (c *Client) AuthorizeWebsiteCoverUpload(ctx context.Context, request AuthorizeWebsiteCoverUploadRequest) (UploadAuthorization, error) {
-	var response UploadAuthorization
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/sdk-works/cover-upload-authorizations", request, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) ListSdkWorks(ctx context.Context) (SdkWorks, error) {
-	var response SdkWorks
-	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/sdk-works", nil, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) GetSdkWork(ctx context.Context, workKey string) (SdkWork, error) {
-	var response SdkWork
-	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/sdk-works/"+url.PathEscape(workKey), nil, &response, "@stored")
-	if err == nil && response.WorkKey != workKey {
-		err = invalidAPIResponse(errors.New("SDK Work response does not match the requested work key"))
-	}
-	return response, err
-}
-
-func (c *Client) ApplySdkWork(ctx context.Context, workKey string, request ApplySdkWorkRequest) (SdkWork, error) {
-	var response SdkWork
-	err := c.doJSON(ctx, http.MethodPut, "/v1/cli/sdk-works/"+url.PathEscape(workKey), request, &response, "@stored")
-	if err == nil && (response.WorkKey != workKey || response.ConfigVersion <= request.ExpectedConfigVersion ||
-		response.DisplayName != request.DisplayName || response.Status != request.Status || !sdkWorkFeaturesEqual(response.Features, request.Features)) {
-		err = invalidAPIResponse(errors.New("applied SDK Work does not match the requested configuration"))
-	}
-	return response, err
-}
-
-func (c *Client) DeleteSdkWork(ctx context.Context, workKey string) (SdkWork, error) {
-	var response SdkWork
-	err := c.doJSON(ctx, http.MethodDelete, "/v1/cli/sdk-works/"+url.PathEscape(workKey), nil, &response, "@stored")
-	if err == nil && response.WorkKey != workKey {
-		err = invalidAPIResponse(errors.New("deleted SDK Work response does not match the requested work key"))
-	}
-	return response, err
-}
-
 // HealthReady performs an unauthenticated, redirect-free connectivity check.
 // Doctor owns the short deadline so this probe can never inherit the normal
 // command timeout or disclose the stored publication credential.
@@ -677,39 +788,6 @@ func (c *Client) PublishSkill(ctx context.Context, publicationID, reviewDigest s
 func (c *Client) CancelSkillPublication(ctx context.Context, publicationID string) (CancelPublicationResponse, error) {
 	var response CancelPublicationResponse
 	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/cancel", struct{}{}, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) CreateCreatorApp(ctx context.Context, request CreateCreatorAppRequest) (CreatorApp, error) {
-	var response CreatorApp
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/creator-apps", request, &response, "@stored")
-	if err == nil && (response.Name != request.Name || response.Kind != "EXTERNAL") {
-		err = invalidAPIResponse(errors.New("created Creator App does not match the request"))
-	}
-	return response, err
-}
-
-func (c *Client) ListCreatorApps(ctx context.Context) (CreatorAppsResponse, error) {
-	var response CreatorAppsResponse
-	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/creator-apps", nil, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) AddCreatorAppDomain(ctx context.Context, appID, domain string) (CreatorApp, error) {
-	var response CreatorApp
-	err := c.doJSON(ctx, http.MethodPut, "/v1/cli/creator-apps/"+url.PathEscape(appID)+"/domains", AddCreatorAppDomainRequest{Domain: domain}, &response, "@stored")
-	if err == nil && (response.ID != appID || !creatorAppHasDomain(response, domain, false)) {
-		err = invalidAPIResponse(errors.New("Creator App domain response does not contain the requested pending domain"))
-	}
-	return response, err
-}
-
-func (c *Client) VerifyCreatorAppDomain(ctx context.Context, appID, domain string) (CreatorApp, error) {
-	var response CreatorApp
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/creator-apps/"+url.PathEscape(appID)+"/domains/"+url.PathEscape(domain)+"/verify", struct{}{}, &response, "@stored")
-	if err == nil && (response.ID != appID || !creatorAppHasDomain(response, domain, true)) {
-		err = invalidAPIResponse(errors.New("Creator App verification response does not contain the verified domain"))
-	}
 	return response, err
 }
 
@@ -940,117 +1018,435 @@ func invalidAPIResponse(cause error) error {
 	return output.Internal("RESPONSE_INVALID", "ViceMe API returned an incomplete or invalid response", cause)
 }
 
-func (work *SdkWork) validateAPIResponse() error {
-	if work == nil || !sdkWorkKeyPattern.MatchString(work.WorkKey) || strings.TrimSpace(work.DisplayName) == "" ||
-		strings.TrimSpace(work.Status) == "" || work.ConfigVersion < 1 || work.Features == nil || work.Capabilities == nil ||
-		strings.TrimSpace(work.CreatedAt) == "" || strings.TrimSpace(work.UpdatedAt) == "" {
-		return errors.New("SDK Work response is missing required fields")
+func (work *MerchantWork) validateAPIResponse() error {
+	if work == nil || !uuidPattern.MatchString(work.ID) || strings.TrimSpace(work.Slug) == "" ||
+		strings.TrimSpace(work.Title) == "" || work.Revision < 1 || work.ActiveRevision == nil || work.DraftRevision == nil ||
+		!validWorkKind(work.Kind) || !validWorkOrigin(work.Origin) || !validWorkStatus(work.Status) ||
+		validateWorkOwner(work.Owner) != nil || !validTimestamp(work.CreatedAt) || !validTimestamp(work.UpdatedAt) {
+		return errors.New("Work response is missing required fields")
 	}
-	for _, feature := range work.Features {
-		if strings.TrimSpace(feature.FeatureKey) == "" || strings.TrimSpace(feature.Title) == "" ||
-			strings.TrimSpace(feature.Policy.Type) == "" || strings.TrimSpace(feature.Status) == "" {
-			return errors.New("SDK Work feature response is missing required fields")
+
+	switch work.Kind {
+	case "SKILL":
+		if rawJSONIsNull(work.Skill) || !rawJSONIsNull(work.Service) || work.Website != nil {
+			return errors.New("Work typed child does not match SKILL kind")
 		}
-		priced := feature.PriceCents != nil && *feature.PriceCents > 0
-		if (feature.Policy.Type == "WORK_ENTITLEMENT") != priced {
-			return errors.New("SDK Work feature response contains an invalid price")
+	case "SERVICE":
+		if rawJSONIsNull(work.Service) || !rawJSONIsNull(work.Skill) || work.Website != nil {
+			return errors.New("Work typed child does not match SERVICE kind")
 		}
-	}
-	if work.Publication != nil && (!uuidPattern.MatchString(work.Publication.ClientWorkID) ||
-		!uuidPattern.MatchString(work.Publication.ReleaseID) || work.Publication.Version < 1 ||
-		strings.TrimSpace(work.Publication.SourceDigest) == "" || strings.TrimSpace(work.Publication.PublishedAt) == "") {
-		return errors.New("SDK Work publication response is missing required fields")
-	}
-	for _, capability := range work.Capabilities {
-		if strings.TrimSpace(capability) == "" {
-			return errors.New("SDK Work capability response contains an empty value")
+	case "WEBSITE":
+		if !rawJSONIsNull(work.Skill) || !rawJSONIsNull(work.Service) || work.Website == nil || work.Website.validateAPIResponse() != nil {
+			return errors.New("Work typed child does not match WEBSITE kind")
 		}
 	}
 	return nil
 }
 
-func (works *SdkWorks) validateAPIResponse() error {
-	if works == nil || works.Works == nil {
-		return errors.New("SDK Work list response is missing works")
+func (website *WebsiteWork) validateAPIResponse() error {
+	if website == nil || len(website.DomainASCII) < 1 || len(website.DomainASCII) > 253 ||
+		website.VerificationVersion < 1 || !validWebsiteOwnershipStatus(website.OwnershipStatus) {
+		return errors.New("Website Work response is missing required fields")
 	}
-	for index := range works.Works {
-		if err := works.Works[index].validateAPIResponse(); err != nil {
+	normalizedOrigin, ok := normalizeCommerceApplicationOrigin(website.CanonicalOrigin)
+	if !ok || website.CanonicalOrigin != normalizedOrigin {
+		return errors.New("Website Work response contains an invalid canonical origin")
+	}
+	if website.VerifiedAt != nil && !validTimestamp(*website.VerifiedAt) {
+		return errors.New("Website Work response contains an invalid verifiedAt")
+	}
+	return nil
+}
+
+func (works *MerchantWorksResponse) validateAPIResponse() error {
+	if works == nil || works.Items == nil {
+		return errors.New("Work list response is missing items")
+	}
+	for index := range works.Items {
+		if err := works.Items[index].validateAPIResponse(); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func (app *CreatorApp) validateAPIResponse() error {
-	if app == nil || !uuidPattern.MatchString(app.ID) ||
-		(app.Kind != "EXTERNAL" && app.Kind != "VICEME_HOSTED") ||
-		strings.TrimSpace(app.Name) == "" || app.Domains == nil {
-		return errors.New("Creator App response is missing required fields")
+func (verification *WebsiteVerification) validateAPIResponse() error {
+	if verification == nil || !uuidPattern.MatchString(verification.ID) || !uuidPattern.MatchString(verification.WebsiteWorkID) ||
+		verification.Version < 1 || len(verification.DNSRecordName) < 1 || len(verification.DNSRecordName) > 253 ||
+		!validWebsiteVerificationStatus(verification.Status) || !validTimestamp(verification.ExpiresAt) {
+		return errors.New("Website verification response is missing required fields")
 	}
-	if _, err := time.Parse(time.RFC3339, app.CreatedAt); err != nil {
-		return errors.New("Creator App response contains an invalid createdAt")
+	if verification.Challenge != nil && (len(*verification.Challenge) < 32 || len(*verification.Challenge) > 255) {
+		return errors.New("Website verification response contains an invalid challenge")
 	}
-	for _, domain := range app.Domains {
-		name := strings.TrimSpace(domain.Domain)
-		if name != domain.Domain || len(name) > 253 || !publicDomainPattern.MatchString(name) ||
-			ipv4DomainPattern.MatchString(name) || reservedDomainPattern.MatchString(name) ||
-			(domain.VerificationToken != nil && len(strings.TrimSpace(*domain.VerificationToken)) < 32) {
-			return errors.New("Creator App domain response is missing required fields")
-		}
+	if verification.VerifiedAt != nil && !validTimestamp(*verification.VerifiedAt) {
+		return errors.New("Website verification response contains an invalid verifiedAt")
 	}
 	return nil
 }
 
-func (apps *CreatorAppsResponse) validateAPIResponse() error {
-	if apps == nil || apps.Items == nil {
-		return errors.New("Creator App list response is missing items")
+func (access *WorkSdkAccess) validateAPIResponse() error {
+	if access == nil || !uuidPattern.MatchString(access.WorkID) || !workSdkKeyPattern.MatchString(access.WorkKey) ||
+		(access.Status != "ACTIVE" && access.Status != "DISABLED") || access.ConfigVersion < 1 ||
+		!validWorkSdkFeatures(access.Features) || !validWorkAccessFeatures(access.AccessFeatures) ||
+		!validTimestamp(access.CreatedAt) || !validTimestamp(access.UpdatedAt) {
+		return errors.New("Work SDK access response is missing required fields")
 	}
-	for index := range apps.Items {
-		if err := apps.Items[index].validateAPIResponse(); err != nil {
+	return nil
+}
+
+func (accesses *WorkSdkAccessesResponse) validateAPIResponse() error {
+	if accesses == nil || accesses.Items == nil {
+		return errors.New("Work SDK access list response is missing items")
+	}
+	for index := range accesses.Items {
+		if err := accesses.Items[index].validateAPIResponse(); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-func sdkWorkFeaturesEqual(actual, expected []SdkWorkFeatureConfig) bool {
-	if len(actual) != len(expected) {
+func (application *CommerceApplication) validateAPIResponse() error {
+	if application == nil || !uuidPattern.MatchString(application.ID) || !uuidPattern.MatchString(application.WorkID) ||
+		!uuidPattern.MatchString(application.MerchantAccountID) || len(application.PublicClientID) < 16 || len(application.PublicClientID) > 96 ||
+		!validCommerceApplicationKind(application.Kind) || !validCommerceApplicationEnvironment(application.Environment) ||
+		!validCommerceApplicationStatus(application.Status) || utf16CodeUnits(application.DisplayName) < 1 || utf16CodeUnits(application.DisplayName) > 120 ||
+		application.Revision < 1 || application.Origins == nil || application.ReturnURLs == nil || application.Products == nil ||
+		!validTimestamp(application.CreatedAt) || !validTimestamp(application.UpdatedAt) {
+		return errors.New("Commerce Application response is missing required fields")
+	}
+	for _, origin := range application.Origins {
+		if !uuidPattern.MatchString(origin.ID) || !validCommerceApplicationOrigin(origin.Origin) {
+			return errors.New("Commerce Application response contains an invalid Origin")
+		}
+	}
+	for _, returnURL := range application.ReturnURLs {
+		if !uuidPattern.MatchString(returnURL.ID) || !validCommerceApplicationReturnURL(returnURL.URL) {
+			return errors.New("Commerce Application response contains an invalid Return URL")
+		}
+	}
+	for _, product := range application.Products {
+		if !uuidPattern.MatchString(product.ProductID) || strings.TrimSpace(product.Title) == "" || !validProductStatus(product.Status) {
+			return errors.New("Commerce Application response contains an invalid Product")
+		}
+	}
+	if application.ActivatedAt != nil && !validTimestamp(*application.ActivatedAt) {
+		return errors.New("Commerce Application response contains an invalid activatedAt")
+	}
+	if application.SuspendedAt != nil && !validTimestamp(*application.SuspendedAt) {
+		return errors.New("Commerce Application response contains an invalid suspendedAt")
+	}
+	return nil
+}
+
+func (applications *CommerceApplicationsResponse) validateAPIResponse() error {
+	if applications == nil || applications.Items == nil {
+		return errors.New("Commerce Application list response is missing items")
+	}
+	for index := range applications.Items {
+		if err := applications.Items[index].validateAPIResponse(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func validateWebsiteWorkMutation(work MerchantWork, workID, merchantAccountID, ownershipStatus string) error {
+	if work.ID != workID || work.Kind != "WEBSITE" || work.Origin != "USER_AUTHORED" || work.Website == nil ||
+		work.Website.OwnershipStatus != ownershipStatus || work.Owner.Kind != "MERCHANT" || work.Owner.MerchantAccountID == nil ||
+		*work.Owner.MerchantAccountID != merchantAccountID {
+		return errors.New("Website Work response does not match the requested mutation")
+	}
+	return nil
+}
+
+func validateWorkOwner(owner WorkOwner) error {
+	switch owner.Kind {
+	case "USER":
+		if owner.UserID == nil || !uuidPattern.MatchString(*owner.UserID) || owner.CreatorAccountID != nil || owner.MerchantAccountID != nil {
+			return errors.New("invalid User Work owner")
+		}
+	case "CREATOR":
+		if owner.CreatorAccountID == nil || !uuidPattern.MatchString(*owner.CreatorAccountID) || owner.UserID != nil || owner.MerchantAccountID != nil {
+			return errors.New("invalid Creator Work owner")
+		}
+	case "MERCHANT":
+		if owner.MerchantAccountID == nil || !uuidPattern.MatchString(*owner.MerchantAccountID) || owner.UserID != nil || owner.CreatorAccountID != nil {
+			return errors.New("invalid Merchant Work owner")
+		}
+	default:
+		return errors.New("invalid Work owner kind")
+	}
+	return nil
+}
+
+func validWorkKind(kind string) bool {
+	return kind == "SKILL" || kind == "SERVICE" || kind == "WEBSITE"
+}
+
+func validWorkOrigin(origin string) bool {
+	return origin == "USER_AUTHORED" || origin == "PLATFORM_AUTHORED" || origin == "PLATFORM_GENERATED"
+}
+
+func validWorkStatus(status string) bool {
+	return status == "DRAFT" || status == "PUBLISHED" || status == "SUSPENDED" || status == "ARCHIVED"
+}
+
+func validWebsiteOwnershipStatus(status string) bool {
+	return status == "UNVERIFIED" || status == "VERIFIED" || status == "REVOKED"
+}
+
+func validWebsiteVerificationStatus(status string) bool {
+	return status == "PENDING" || status == "VERIFIED" || status == "FAILED" || status == "EXPIRED"
+}
+
+func validCommerceApplicationKind(kind string) bool {
+	return kind == "HOSTED_CHECKOUT" || kind == "SKILL_RUNTIME" || kind == "WEBSITE_WIDGET"
+}
+
+func validCommerceApplicationEnvironment(environment string) bool {
+	return environment == "SANDBOX" || environment == "PRODUCTION"
+}
+
+func validCommerceApplicationStatus(status string) bool {
+	return status == "DRAFT" || status == "ACTIVE" || status == "SUSPENDED" || status == "REVOKED"
+}
+
+func validProductStatus(status string) bool {
+	return status == "DRAFT" || status == "ACTIVE" || status == "SUSPENDED" || status == "ARCHIVED"
+}
+
+func validWorkSdkFeatures(features []string) bool {
+	if features == nil || len(features) > 2 {
 		return false
 	}
-	byKey := make(map[string]SdkWorkFeatureConfig, len(actual))
-	for _, feature := range actual {
-		if _, exists := byKey[feature.FeatureKey]; exists {
+	seen := make(map[string]struct{}, len(features))
+	for _, feature := range features {
+		if feature != "danmaku" && feature != "tip" {
 			return false
 		}
-		byKey[feature.FeatureKey] = feature
+		if _, exists := seen[feature]; exists {
+			return false
+		}
+		seen[feature] = struct{}{}
 	}
-	for _, feature := range expected {
-		candidate, exists := byKey[feature.FeatureKey]
-		if !exists || candidate.FeatureKey != feature.FeatureKey || candidate.Title != feature.Title ||
-			candidate.Policy != feature.Policy || candidate.Status != feature.Status ||
-			!nullableIntsEqual(candidate.PriceCents, feature.PriceCents) {
+	return true
+}
+
+func validWorkAccessFeatures(features []WorkAccessFeature) bool {
+	if features == nil || len(features) > 100 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(features))
+	for _, feature := range features {
+		if !accessWorkFeatureKeyPattern.MatchString(feature.FeatureKey) ||
+			utf16CodeUnits(strings.TrimSpace(feature.Title)) < 1 || utf16CodeUnits(strings.TrimSpace(feature.Title)) > 120 ||
+			(feature.Status != "ACTIVE" && feature.Status != "DISABLED") {
+			return false
+		}
+		if _, exists := seen[feature.FeatureKey]; exists {
+			return false
+		}
+		seen[feature.FeatureKey] = struct{}{}
+		switch feature.PolicyType {
+		case "PUBLIC", "FOLLOW_OWNER":
+			if feature.Price != nil || feature.ProductID != nil {
+				return false
+			}
+		case "WORK_ENTITLEMENT":
+			if feature.Price == nil || feature.Price.Currency != "CNY" || feature.Price.AmountCents < 1 ||
+				feature.ProductID == nil || !uuidPattern.MatchString(*feature.ProductID) {
+				return false
+			}
+		default:
 			return false
 		}
 	}
 	return true
 }
 
-func nullableIntsEqual(left, right *int) bool {
-	if left == nil || right == nil {
-		return left == nil && right == nil
+func validWorkAccessFeatureInputs(features []WorkAccessFeatureInput) bool {
+	if len(features) > 100 {
+		return false
 	}
-	return *left == *right
-}
-
-func creatorAppHasDomain(app CreatorApp, domain string, verified bool) bool {
-	for _, candidate := range app.Domains {
-		if strings.EqualFold(candidate.Domain, domain) && candidate.Verified == verified {
-			if verified || (candidate.VerificationToken != nil && strings.TrimSpace(*candidate.VerificationToken) != "") {
-				return true
+	seen := make(map[string]struct{}, len(features))
+	for _, feature := range features {
+		if !accessWorkFeatureKeyPattern.MatchString(feature.FeatureKey) ||
+			utf16CodeUnits(strings.TrimSpace(feature.Title)) < 1 || utf16CodeUnits(strings.TrimSpace(feature.Title)) > 120 ||
+			(feature.Status != "ACTIVE" && feature.Status != "DISABLED") {
+			return false
+		}
+		if _, exists := seen[feature.FeatureKey]; exists {
+			return false
+		}
+		seen[feature.FeatureKey] = struct{}{}
+		switch feature.PolicyType {
+		case "PUBLIC", "FOLLOW_OWNER":
+			if feature.Price != nil {
+				return false
 			}
+		case "WORK_ENTITLEMENT":
+			if feature.Price == nil || feature.Price.Currency != "CNY" || feature.Price.AmountCents < 1 {
+				return false
+			}
+		default:
+			return false
 		}
 	}
-	return false
+	return true
+}
+
+func workAccessFeaturesMatchRequest(actual []WorkAccessFeature, expected []WorkAccessFeatureInput) bool {
+	if len(actual) != len(expected) || !validWorkAccessFeatures(actual) || !validWorkAccessFeatureInputs(expected) {
+		return false
+	}
+	expectedByKey := make(map[string]WorkAccessFeatureInput, len(expected))
+	for _, feature := range expected {
+		expectedByKey[feature.FeatureKey] = feature
+	}
+	for _, feature := range actual {
+		expectedFeature, exists := expectedByKey[feature.FeatureKey]
+		if !exists || feature.Title != strings.TrimSpace(expectedFeature.Title) || feature.PolicyType != expectedFeature.PolicyType ||
+			feature.Status != expectedFeature.Status || !workAccessPricesEqual(feature.Price, expectedFeature.Price) {
+			return false
+		}
+	}
+	return true
+}
+
+func workAccessPricesEqual(actual, expected *WorkAccessPrice) bool {
+	if actual == nil || expected == nil {
+		return actual == nil && expected == nil
+	}
+	return *actual == *expected
+}
+
+func workSdkFeaturesEqual(actual, expected []string) bool {
+	if len(actual) != len(expected) || !validWorkSdkFeatures(actual) {
+		return false
+	}
+	expectedSet := make(map[string]struct{}, len(expected))
+	for _, feature := range expected {
+		if feature != "danmaku" && feature != "tip" {
+			return false
+		}
+		if _, exists := expectedSet[feature]; exists {
+			return false
+		}
+		expectedSet[feature] = struct{}{}
+	}
+	for _, feature := range actual {
+		if _, exists := expectedSet[feature]; !exists {
+			return false
+		}
+	}
+	return true
+}
+
+func commerceApplicationMatchesCreateRequest(application CommerceApplication, request CreateCommerceApplicationRequest) bool {
+	return application.MerchantAccountID == request.MerchantAccountID && application.WorkID == request.WorkID &&
+		application.Kind == request.Kind && application.Environment == request.Environment && application.DisplayName == strings.TrimSpace(request.DisplayName) &&
+		application.Status == "DRAFT" && commerceOriginsEqual(application.Origins, request.Origins) &&
+		commerceReturnURLsEqual(application.ReturnURLs, request.ReturnURLs)
+}
+
+func commerceApplicationMatchesUpdateRequest(application CommerceApplication, applicationID string, request UpdateCommerceApplicationRequest) bool {
+	if application.ID != applicationID || application.MerchantAccountID != request.MerchantAccountID || application.Revision <= request.ExpectedRevision {
+		return false
+	}
+	if request.DisplayName != nil && application.DisplayName != strings.TrimSpace(*request.DisplayName) {
+		return false
+	}
+	if request.Origins != nil && !commerceOriginsEqual(application.Origins, *request.Origins) {
+		return false
+	}
+	return request.ReturnURLs == nil || commerceReturnURLsEqual(application.ReturnURLs, *request.ReturnURLs)
+}
+
+func commerceOriginsEqual(actual []CommerceApplicationOrigin, expected []string) bool {
+	values := make([]string, len(actual))
+	for index, origin := range actual {
+		values[index] = origin.Origin
+	}
+	return normalizedStringSetEqual(values, expected, normalizeCommerceApplicationOrigin)
+}
+
+func commerceReturnURLsEqual(actual []CommerceApplicationReturnURL, expected []string) bool {
+	values := make([]string, len(actual))
+	for index, returnURL := range actual {
+		values[index] = returnURL.URL
+	}
+	return normalizedStringSetEqual(values, expected, normalizeCommerceApplicationReturnURL)
+}
+
+func normalizedStringSetEqual(actual, expected []string, normalize func(string) (string, bool)) bool {
+	expectedSet := make(map[string]struct{}, len(expected))
+	for _, value := range expected {
+		normalized, ok := normalize(value)
+		if !ok {
+			return false
+		}
+		expectedSet[normalized] = struct{}{}
+	}
+	if len(actual) != len(expectedSet) {
+		return false
+	}
+	seen := make(map[string]struct{}, len(actual))
+	for _, value := range actual {
+		normalized, ok := normalize(value)
+		if !ok {
+			return false
+		}
+		if _, exists := seen[normalized]; exists {
+			return false
+		}
+		if _, exists := expectedSet[normalized]; !exists {
+			return false
+		}
+		seen[normalized] = struct{}{}
+	}
+	return true
+}
+
+func validCommerceApplicationOrigin(value string) bool {
+	normalized, ok := normalizeCommerceApplicationOrigin(value)
+	return ok && value == normalized
+}
+
+func normalizeCommerceApplicationOrigin(value string) (string, bool) {
+	target, err := shopURLParser.Parse(value)
+	if err != nil || target.Scheme() != "https" || target.Hostname() == "" || target.Username() != "" ||
+		target.Password() != "" || target.Pathname() != "/" || target.Search() != "" || target.Hash() != "" {
+		return "", false
+	}
+	return "https://" + target.Host(), true
+}
+
+func validCommerceApplicationReturnURL(value string) bool {
+	normalized, ok := normalizeCommerceApplicationReturnURL(value)
+	return ok && value == normalized
+}
+
+func normalizeCommerceApplicationReturnURL(value string) (string, bool) {
+	target, err := shopURLParser.Parse(value)
+	if err != nil || target.Scheme() != "https" || target.Hostname() == "" || target.Username() != "" || target.Password() != "" || target.Hash() != "" {
+		return "", false
+	}
+	return target.Href(false), true
+}
+
+func utf16CodeUnits(value string) int {
+	return len(utf16.Encode([]rune(value)))
+}
+
+func validTimestamp(value string) bool {
+	_, err := time.Parse(time.RFC3339, value)
+	return err == nil
+}
+
+func rawJSONIsNull(value json.RawMessage) bool {
+	return bytes.Equal(bytes.TrimSpace(value), []byte("null"))
 }
 
 func publicationPath(publicationID string) string {

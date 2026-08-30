@@ -1,57 +1,33 @@
-# ViceMe 打赏接入合同
+# ViceMe 打赏接入契约
 
-## 公开边界
+## 必需资源图
 
-一个创作者接入由宿主拥有的 HTML 页面和一段 ViceMe 脚本组成。脚本在 Shadow DOM 中渲染入口，并打开 ViceMe 托管的结账 iframe。宿主不得复制结账页面、调用支付渠道 API 或接收支付秘密。
-
-## 绑定定义
-
-只有同时满足以下条件，作品才可以使用：
-
-1. 所选 CLI Profile 已以创作者身份登录；
-2. 该作品存在 External Creator App；
-3. 应用中准确的公开主机名已验证；
-4. HTML 使用该应用生成的 Creator App ID 和平台来源。
-
-仅有 HTML 中的 `data-creator-app-id`、本地演示 ID 或未验证域名，都不算完成绑定。
-
-## 域名验证
-
-当前固定 Profile 下，`creator-app domain add` 返回的验证 URL/路径和 token 是权威结果。部署可能要求形如以下路径的公开文件：
+一次打赏接入恰好包含这些权威资源：
 
 ```text
-https://<creator-host>/.well-known/viceme-app-verification.txt
+PUBLISHED + VERIFIED Website Work
+├── ACTIVE SDK 访问（features 含 tip）
+└── ACTIVE PRODUCTION Website Widget 应用
+    ├── workId = Website Work ID
+    ├── origins = [Website canonical Origin]
+    ├── returnUrls = []
+    └── products = []
 ```
 
-使用目标技术栈的公开文件或路由机制，在 CLI 响应指定的准确路径提供内容。请求部署后的 URL，与同一次 `creator-app domain add` 返回的 token 比较，再运行 `creator-app domain verify`；不得把 token 打印到对话或持久日志。跳转到其他来源以及非公开主机均无效。
+Work 是身份。公开 `workKey` 定位托管运行时访问。Website Widget 应用授权支付入口与精确父 Origin；它不替代 Work，也不作为页面身份嵌入。
 
-## 嵌入合同
+## Origin
 
-```html
-<script
-  async
-  src="<generated-widget-script-url>"
-  data-creator-app-id="<creator-app-id>"
-  data-locale="<zh-CN-or-en-US>"
-></script>
-```
+规范 Origin 必须是小写规范 HTTPS，不含凭证、路径、查询、片段或尾部斜杠。Tip iframe 发送 `strict-origin` Referer，商店只在该精确 Origin 已注册时签发嵌入上下文。预览域名与生产域名是不同 Origin。
 
-每个 Creator App 只保留一个标签。`creatorAppId` 是公开配置，不是凭证。完整脚本 URL、ID 和标签必须来自当前固定 Profile 下 `creator-app show` 返回的 `data.embedSnippet`，不得从 API URL 推导或手工拼接。
+## 运行时边界
+
+宿主只通过加载器传递 Work key、区域、特性集、目标容器和主题。不传金额、支付渠道、应用 ID、访问令牌或支付状态。商店拥有登录、下单、渠道协议、状态、结算与签名能力。
+
+框架在可信 resize 握手完成前不可交互。商店拥有支付面板，Escape 时先重置为初始金额表单再发出关闭。SDK 只接受预期商店 Origin 与 iframe 窗口的消息，绑定首个有效 Work UUID，并转发脱敏的关闭与支付通知。宿主无需为默认关闭行为添加监听器。界面能打开不代表支付已成交。
+
+宿主不得复制结账页面、调用支付渠道 API 或接收支付秘密；脚本在 Shadow DOM 中渲染入口并打开 ViceMe 托管的结账 iframe。
 
 ## CSP
 
-存在 CSP 时保留原规则，只向浏览器证明需要的指令添加准确的 ViceMe 平台来源。嵌入需要脚本来源和结账 iframe 来源。不得为了省事添加 `*`、`unsafe-eval` 或宽泛的 ViceMe 子域通配符。
-
-## 真实验证
-
-只有在已验证的公开 HTTPS 主机名满足以下条件，接入才算完成：
-
-- HTML 返回 200；
-- 嵌入脚本返回 200 且内容为 JavaScript；
-- 入口可见并可用键盘访问；
-- 入口为预期作品打开托管结账页；
-- Escape 关闭弹窗并把焦点返回原处；
-- 没有 CSP、frame、script 或组件错误；
-- Agent 说明是否真正创建订单或完成支付。
-
-打开界面不代表支付已经结算。必须区分结账界面验证和真实资金支付验证。
+保留现有指令。只把精确 Profile Web Origin 加入确实需要的 script、connection 和 frame 指令。绝不使用通配符、宽泛 ViceMe 子域、`unsafe-eval` 或宿主自提供的支付脚本。

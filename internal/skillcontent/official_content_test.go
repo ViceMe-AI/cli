@@ -1,10 +1,11 @@
 package skillcontent_test
 
 import (
-	"errors"
+	"encoding/json"
 	"io/fs"
 	"os"
 	"path"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -128,28 +129,28 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		},
 		{
 			name:    "viceme-danmaku",
-			machine: []string{"data.embedSnippet", "--danmaku", "workKey", "'unsafe-eval'"},
+			machine: []string{"--feature danmaku", "workKey", "'unsafe-eval'"},
 			semantics: []string{
-				"不得手改配置，也不得创建第二个 Work", "只挂载一个 SDK 根节点",
+				"不得创建第二个 Work", "只挂载一个 SDK 根节点",
 			},
 		},
 		{
 			name: "viceme-engagement",
 			machine: []string{
-				"data.engagementEmbedSnippet", "creator-app domain verify", "--locale <zh-CN-or-en-US>", "unsafe-eval",
+				"data-viceme-features", "website-verification verify", "sdk-access create", "unsafe-eval",
 			},
 			semantics: []string{
-				"不得因为 apply 失败就创建第二个 Work", "真实支付尚未验证",
+				"绝不为了找回带 `PENDING` 验证的 `DRAFT` Work 而创建第二个 Work", "不暴露秘密或 DNS 挑战值",
 			},
 		},
 		{
 			name: "viceme-tip",
 			machine: []string{
-				"creator-app domain add", "creator-app domain verify", "creator-app show", "data.embedSnippet",
-				"data-creator-app-id", "verified: true",
+				"website-verification create", "website-verification verify", "commerce-application activate", "sdk-access",
+				"data-viceme-features", "workKey",
 			},
 			semantics: []string{
-				"不得仅因 HTML 移动就创建重复项", "打开界面不代表支付已经结算",
+				"不得仅因 HTML 移动就创建重复项", "界面能打开不代表支付已成交",
 			},
 		},
 	}
@@ -591,8 +592,8 @@ func TestPublishDelegatesCreatorQualification(t *testing.T) {
 			}
 		}
 	}
-	if _, err := fs.Stat(cliembed.EmbeddedSkills(), "viceme-publish/references/website-workflow.md"); !errors.Is(err, fs.ErrNotExist) {
-		t.Fatalf("superseded website workflow is still embedded: %v", err)
+	if _, err := fs.Stat(cliembed.EmbeddedSkills(), "viceme-publish/references/website-workflow.md"); err != nil {
+		t.Fatalf("website workflow reference is missing: %v", err)
 	}
 	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/errors.md")
 	if err != nil {
@@ -624,7 +625,7 @@ func TestDanmakuSkillUsesOnlyHostedIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(content)
-	for _, required := range []string{"access init", "--danmaku", "data.embedSnippet", "不得复制"} {
+	for _, required := range []string{"merchant work sdk-access", "--feature danmaku", "data-viceme-features=\"danmaku\"", "不得复制"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("hosted danmaku Skill omitted %q", required)
 		}
@@ -647,11 +648,10 @@ func TestEngagementSkillConsumesAuthoritativeCombinedSnippet(t *testing.T) {
 	}
 	text := string(content)
 	for _, required := range []string{
-		"access init",
-		"creator-app create",
-		"creator-app domain verify",
-		"creator-app show <app-id> --work-key <work-key> --locale <zh-CN-or-en-US>",
-		"data.engagementEmbedSnippet",
+		"merchant work sdk-access create",
+		"merchant commerce-application create",
+		"website-verification verify",
+		"data-viceme-features=\"danmaku,tip\"",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("engagement Skill omitted %q", required)
@@ -672,17 +672,13 @@ func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(publish)
-	for _, required := range []string{
-		"网站发布目前尚未开放",
-		"不是当前可执行的发布路线",
-		"不得运行旧的 `viceme website publish`",
-	} {
-		if !strings.Contains(text, required) {
-			t.Fatalf("publish Skill omitted the current website publication boundary %q", required)
-		}
+	if !strings.Contains(text, "references/website-workflow.md") {
+		t.Fatal("publish Skill does not route website publication to the verified Website Work workflow")
 	}
-	if strings.Contains(text, "references/website-workflow.md") {
-		t.Fatal("publish Skill still routes to the superseded SdkWork website workflow")
+	for _, forbidden := range []string{"网站发布目前尚未开放", "不得运行旧的 `viceme website publish`"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("publish Skill still carries the closed-website boundary %q", forbidden)
+		}
 	}
 	metadata, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/agents/openai.yaml")
 	if err != nil {
@@ -691,4 +687,282 @@ func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 	if strings.Contains(string(metadata), "网站作品") {
 		t.Fatal("publish Skill metadata still advertises unavailable website publication")
 	}
+}
+
+func TestEngagementSkillUsesOneWorkAndCombinedAccess(t *testing.T) {
+	t.Parallel()
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-engagement/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"merchant work sdk-access create",
+		"--feature danmaku --feature tip",
+		"WEBSITE_WIDGET",
+		`data-viceme-features="danmaku,tip"`,
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("engagement Skill omitted %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"website publish",
+		"FOLLOW_OWNER",
+		"WORK_ENTITLEMENT",
+		"creator-app",
+		"tip-embed.js",
+		"engagement-embed.js",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("engagement Skill retained excluded flow %q", forbidden)
+		}
+	}
+}
+
+func TestEngagementSkillsCanCreateOrRecoverWebsiteWorkFromTheirOwnInstructions(t *testing.T) {
+	t.Parallel()
+	createInput := `{
+		"kind": "WEBSITE",
+		"merchantAccountId": "<merchant-id>",
+		"clientRequestId": "<stable-idempotency-key>",
+		"slug": "website-slug",
+		"title": "Website title",
+		"canonicalOrigin": "https://creator.example",
+		"content": {
+			"summary": "Observed public purpose",
+			"bodyMarkdown": "Observed public description",
+			"templateType": "WEBSITE",
+			"tags": [],
+			"media": [],
+			"actionConfig": {}
+		}
+	}`
+	publishInput := `{
+		"merchantAccountId": "<merchant-id>",
+		"expectedRevision": 2,
+		"status": "PUBLISHED"
+	}`
+
+	for _, relativePath := range []string{
+		"viceme-danmaku/SKILL.md",
+		"viceme-tip/SKILL.md",
+		"viceme-engagement/SKILL.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", relativePath, err)
+		}
+		text := string(content)
+		normalized := strings.Join(strings.Fields(strings.ReplaceAll(text, "\\\n", " ")), " ")
+		for _, required := range []string{
+			"`merchant-commerce:read` 与 `merchant-commerce:write`",
+			"`merchant-commerce:write`",
+			"`website.canonicalOrigin` 与部署 Origin 完全一致",
+			"无论复用还是新建，都用 `viceme --profile <profile> merchant work get <work-id> --merchant <merchant-id>` 读取",
+			"任何网站验证写入前先看状态",
+			"`SUSPENDED` 或 `ARCHIVED` 停止并报告；`DRAFT` 或 `PUBLISHED` 才继续",
+			"仍持有 `website-verification create` 刚返回、未过期的 `PENDING` 响应",
+			"最新验证 GET 不含明文 `challenge`",
+			"否则读取最新 Work revision 创建替代挑战",
+			"创建替代挑战",
+			"带 `PENDING` 验证的 `DRAFT` Work",
+			"Work 状态为 `DRAFT` 时",
+			"已 `PUBLISHED` 跳过更新",
+			"`SUSPENDED` 或 `ARCHIVED` 停止并报告",
+			"把 `challenge` 原样发布到 `dnsRecordName`",
+			"公共 DNS 精确解析后",
+		} {
+			if !strings.Contains(normalized, required) {
+				t.Fatalf("standalone %s omitted Website Work constraint %q", relativePath, required)
+			}
+		}
+		requireOrderedSteps(t, relativePath, normalized, []string{
+			"viceme profile list",
+			"viceme --profile <profile> auth status",
+			"viceme --profile <profile> merchant accounts",
+			"viceme --profile <profile> merchant work list --merchant <merchant-id>",
+			`"kind": "WEBSITE"`,
+			"viceme --profile <profile> merchant work create --input <json>",
+			"响应丢失时用同一 `clientRequestId` 原样重放；不得创建新身份",
+			"merchant work get",
+			"任何网站验证写入前先看状态",
+			"`SUSPENDED` 或 `ARCHIVED` 停止并报告；`DRAFT` 或 `PUBLISHED` 才继续",
+			"`website.ownershipStatus` 不是 `VERIFIED`",
+			"viceme --profile <profile> merchant work website-verification create <work-id> --merchant <merchant-id> --expected-revision <work-revision>",
+			"把 `challenge` 原样发布到 `dnsRecordName`",
+			"viceme --profile <profile> merchant work website-verification verify <work-id> --merchant <merchant-id> --expected-verification-version <verification-version>",
+			"验证后再次读取 Work",
+			`"status": "PUBLISHED"`,
+			"viceme --profile <profile> merchant work update <work-id> --input <json>",
+			"merchant work get",
+		})
+		requireJSONBlock(t, relativePath, text, `"kind": "WEBSITE"`, createInput)
+		requireJSONBlock(t, relativePath, text, `"status": "PUBLISHED"`, publishInput)
+	}
+}
+
+func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
+	t.Parallel()
+	applicationInput := `{
+		"merchantAccountId": "<merchant-id>",
+		"workId": "<work-id>",
+		"kind": "WEBSITE_WIDGET",
+		"environment": "PRODUCTION",
+		"displayName": "<website name>",
+		"origins": ["https://creator.example"],
+		"returnUrls": []
+	}`
+	applicationUpdateInput := `{
+		"merchantAccountId": "<merchant-id>",
+		"expectedRevision": 2,
+		"displayName": "<website name>",
+		"origins": ["https://creator.example"],
+		"returnUrls": []
+	}`
+
+	for _, relativePath := range []string{
+		"viceme-tip/SKILL.md",
+		"viceme-engagement/SKILL.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", relativePath, err)
+		}
+		text := string(content)
+		normalized := strings.Join(strings.Fields(strings.ReplaceAll(text, "\\\n", " ")), " ")
+		for _, required := range []string{
+			"（`(workId, environment, kind)` 唯一）",
+			"不存在时创建",
+			"绝不因现有应用显示名、Origin 或 return URL 不同就创建第二个",
+			"`REVOKED` 时停止并报告该终态资源",
+			"配置不同且状态 `ACTIVE` 时，先按其精确 revision 挂起",
+			"commerce-application update <application-id> --input <json>",
+			"已 `ACTIVE` 且一致则跳过",
+			"create 响应丢失时先 list 再决定",
+		} {
+			if !strings.Contains(normalized, required) {
+				t.Fatalf("standalone %s omitted Website Widget constraint %q", relativePath, required)
+			}
+		}
+		requireOrderedSteps(t, relativePath, normalized, []string{
+			"viceme --profile <profile> merchant commerce-application list --merchant <merchant-id>",
+			`"kind": "WEBSITE_WIDGET"`,
+			"viceme --profile <profile> merchant commerce-application create --input <json>",
+			"viceme --profile <profile> merchant commerce-application get <application-id> --merchant <merchant-id>",
+			"viceme --profile <profile> merchant commerce-application suspend <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
+			"viceme --profile <profile> merchant commerce-application update <application-id> --input <json>",
+			"viceme --profile <profile> merchant commerce-application activate <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
+		})
+		requireJSONBlock(t, relativePath, text, `"kind": "WEBSITE_WIDGET"`, applicationInput)
+		requireJSONBlockWithMarkers(t, relativePath, text, []string{
+			`"expectedRevision": 2`,
+			`"displayName": "<website name>"`,
+		}, applicationUpdateInput)
+		applicationOffset := strings.Index(normalized, "merchant commerce-application list")
+		if applicationOffset < 0 || strings.Contains(normalized[applicationOffset:], "`ARCHIVED`") {
+			t.Fatalf("standalone %s uses a non-contract Website Widget status", relativePath)
+		}
+	}
+}
+
+func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
+	t.Parallel()
+
+	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(publish)
+	for _, required := range []string{
+		"网站——创作者自有网站",
+		"website-workflow.md",
+		"已验证的 Website Work",
+		"不为网站发布 Product",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("publish Skill omitted the current website Work boundary %q", required)
+		}
+	}
+	if strings.Contains(text, "Payment integration remains a documented future capability") {
+		t.Fatal("publish Skill still describes Website Widget tips as unavailable")
+	}
+}
+
+func TestOfficialEngagementSkillsContainNoLegacyDomain(t *testing.T) {
+	t.Parallel()
+
+	for _, relativePath := range []string{
+		"viceme-danmaku/SKILL.md",
+		"viceme-danmaku/references/cdn-sdk.md",
+		"viceme-tip/SKILL.md",
+		"viceme-tip/references/integration-contract.md",
+		"viceme-engagement/SKILL.md",
+		"viceme-publish/references/website-workflow.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", relativePath, err)
+		}
+		for _, forbidden := range []string{
+			"SdkWork",
+			"CreatorApp",
+			"creator-app",
+			"sdk-work:",
+			"creator-app:",
+			"FOLLOW_OWNER",
+			"WORK_ENTITLEMENT",
+			"data-creator-app-id",
+			"tip-embed.js",
+			"engagement-embed.js",
+			".viceme/access.yaml",
+		} {
+			if strings.Contains(string(content), forbidden) {
+				t.Fatalf("embedded %s retained legacy term %q", relativePath, forbidden)
+			}
+		}
+	}
+}
+
+func requireOrderedSteps(t *testing.T, relativePath, text string, steps []string) {
+	t.Helper()
+	offset := 0
+	for _, step := range steps {
+		index := strings.Index(text[offset:], step)
+		if index < 0 {
+			t.Fatalf("standalone %s omitted or misordered Website Work step %q", relativePath, step)
+		}
+		offset += index + len(step)
+	}
+}
+
+func requireJSONBlock(t *testing.T, relativePath, text, marker, expected string) {
+	t.Helper()
+	requireJSONBlockWithMarkers(t, relativePath, text, []string{marker}, expected)
+}
+
+func requireJSONBlockWithMarkers(t *testing.T, relativePath, text string, markers []string, expected string) {
+	t.Helper()
+	blocks := regexp.MustCompile("(?s)```json\\s*(.*?)\\s*```").FindAllStringSubmatch(text, -1)
+	for _, block := range blocks {
+		containsAll := true
+		for _, marker := range markers {
+			containsAll = containsAll && strings.Contains(block[1], marker)
+		}
+		if !containsAll {
+			continue
+		}
+		var actualValue, expectedValue any
+		if err := json.Unmarshal([]byte(block[1]), &actualValue); err != nil {
+			t.Fatalf("standalone %s contains invalid JSON for %v: %v", relativePath, markers, err)
+		}
+		if err := json.Unmarshal([]byte(expected), &expectedValue); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(actualValue, expectedValue) {
+			t.Fatalf("standalone %s contains incomplete JSON for %v\nwant: %s\n got: %s", relativePath, markers, expected, block[1])
+		}
+		return
+	}
+	t.Fatalf("standalone %s omitted JSON block containing %v", relativePath, markers)
 }

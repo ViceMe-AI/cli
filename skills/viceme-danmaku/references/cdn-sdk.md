@@ -7,10 +7,11 @@
 所选 CLI Profile 是唯一的环境依据，绑定 API 地址、Web 地址和市场区域。修改宿主页面前先创建并启用 Work：
 
 ```bash
-viceme --profile <profile> access init --name "<website name>" --danmaku
+viceme --profile <profile> merchant work sdk-access create <work-id> \
+  --merchant <merchant-id> --feature danmaku
 ```
 
-`.viceme/access.yaml` 已存在时使用 `access inspect`；只有为对齐有意修改的本地配置时才运行 `access apply`。配置记录 Profile 权威来源，不能复用于另一组 API、Web 或市场环境。
+SDK 访问资源由 `merchant work sdk-access` 命令族管理；Work 身份与已验证 Origin 归 Website Work 所有。所选 Profile 是唯一权威来源，不能复用于另一组 API、Web 或市场环境。
 
 远端 Work 已启用公开弹幕能力时，成功的 `init`、`inspect` 和 `apply` 响应都会包含 `data.workKey`、`data.scriptUrl` 和 `data.embedSnippet`。必须原样插入 `data.embedSnippet`，不得自行推导来源、追加 SDK 路径或退回其他 Profile。
 
