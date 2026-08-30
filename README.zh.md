@@ -36,6 +36,7 @@
 | --- | --- |
 | 发布 Skill | 校验本地 Skill 目录或 ZIP、设置人民币价格、上传、审核平台建议，并发布付费商品。 |
 | 发布网站 | 使用稳定 Website Work 身份登记创作者网站并完成 DNS 所有权验证。 |
+| 接入网站访问 | 基于已发布 Website Work 的 SDK access 资源，接入原生登录、关注门槛和按功能独立定价的一次性访问。 |
 | 接入网站互动 | 通过 Work SDK access、绑定 Origin 的 Website Widget 与官方 loader 接入托管弹幕和赞赏。 |
 | 配置 Agent | 把 CLI 与官方 Skills 作为同一个兼容版本安装、登录、更新、诊断和修复。 |
 | 安全恢复 | 网络或进程中断后继续原发布任务，不重复上传和创建商品。 |
@@ -152,6 +153,7 @@ npx --yes @viceme-ai/cli@latest install
 | --- | --- |
 | `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
 | `viceme-publish` | 发布可下载 Skill、创作者网站 Work，或把当前用户拥有的商家服务与实物定义引导为可选的公开 Product 和自动生成的购买 Skill。 |
+| `viceme-access` | 在已发布的 Website Work 上接入原生登录、关注与一次性购买入口，不改变原站业务动作。 |
 | `viceme-danmaku` | 验证 Website Work、启用弹幕 SDK access，并安装官方托管 loader。 |
 | `viceme-tip` | 验证 Website Work、激活绑定 Origin 的 Website Widget，并把托管赞赏接入页面。 |
 | `viceme-engagement` | 在同一个 Website Work 上启用弹幕与赞赏，并安装唯一的组合官方 loader。 |

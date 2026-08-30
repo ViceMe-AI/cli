@@ -40,6 +40,7 @@
 | --- | --- |
 | Publish a Skill | Validate a local Skill directory or ZIP, set a CNY price, upload it, review platform suggestions, and publish a paid listing. |
 | Publish a website | Register and DNS-verify a creator website with a stable Website Work identity. |
+| Add website access | Add host-native login, follow gates, and independently priced one-time feature access through the published Website Work's SDK access resource. |
 | Add website engagement | Enable hosted danmaku and tips with Work SDK access, an Origin-bound Website Widget, and the official loader. |
 | Set up an Agent | Install, authenticate, update, diagnose, and repair the CLI and official Skills as one compatible release. |
 | Recover safely | Continue the same publication after a network or process interruption without uploading a duplicate product. |
@@ -167,6 +168,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | --- | --- |
 | `viceme-shared` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
 | `viceme-publish` | publish a downloadable Skill, creator website Work, or an owned Merchant service or physical-product definition with its optional public Product and generated purchase Skill. |
+| `viceme-access` | integrate host-native login, follow, and one-time purchase entry points on a published Website Work without changing the website's original action. |
 | `viceme-danmaku` | verify a Website Work, enable danmaku SDK access, and install the official hosted loader. |
 | `viceme-tip` | verify a Website Work, activate an Origin-bound Website Widget, and add hosted tips to one page. |
 | `viceme-engagement` | enable danmaku and tips on one Website Work and install one combined official loader. |

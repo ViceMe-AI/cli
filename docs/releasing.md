@@ -17,7 +17,7 @@ files, create tags, write changelog entries, or run npm commands locally.
    - `feat:` selects minor;
    - every other releasable change selects patch.
 5. The workflow synchronizes `package.json`, `package-lock.json`, Go build
-   metadata, bundled Skill metadata, command manifest, release digests, and
+   metadata, bundled Skill metadata, release manifest digests, and
    `CHANGELOG.md`.
 6. It runs `make check` and `make npm-package-check`, creates a short-lived
    installation token for the repository-scoped ViceMe Release GitHub App, and
