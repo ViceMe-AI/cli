@@ -25,17 +25,17 @@ PUBLISHED + VERIFIED Website Work
     └── features 包含本页面请求的特性
 ```
 
-包含赞赏的分支额外需要：
+包含赞赏的分支额外复用：
 
 ```text
-ACTIVE PRODUCTION Website Widget application
+ACTIVE PRODUCTION Website Widget application（Work 级共享）
 ├── workId = Website Work ID
-├── origins = [Website canonical Origin]
-├── returnUrls = []
-└── products = []
+├── origins 包含 Website canonical Origin
+├── returnUrls = Shop/SDK access 管理的现有值，可为空
+└── products = Shop 管理的现有绑定，可为空
 ```
 
-Work 是身份，公开 `workKey` 只来自 SDK access。Website Widget 授权赞赏入口与精确父 Origin，不替代 Work，也不绑定 Product。
+Work 是身份，公开 `workKey` 只来自 SDK access。Website Widget 授权赞赏入口与精确父 Origin，不替代 Work。Engagement 不管理 Product 绑定或 return URL；平台管理的共享配置可能非空。
 
 ## Origin 与运行时
 

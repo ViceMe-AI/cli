@@ -232,6 +232,120 @@ func TestOwnedPaidSkillReinstallsWithoutAnotherPurchase(t *testing.T) {
 	}
 }
 
+func TestMarketplaceInstallPersistsProductProvenance(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	archive := downloadableSkillArchive(t)
+	digest := fmt.Sprintf("%x", sha256.Sum256(archive))
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/skills/" + downloadableProductID + "/access":
+			writeJSONResponse(writer, skillAccessFixture(true, false, digest, ""))
+		case "/v1/downloads/free/" + downloadableProductID:
+			writeJSONResponse(writer, map[string]any{
+				"url": server.URL + "/artifact", "fileName": "free.zip", "releaseId": downloadableReleaseID, "artifactDigest": digest, "expiresAt": "2027-08-27T00:00:00Z",
+			})
+		case "/artifact":
+			writer.Header().Set("Content-Type", "application/zip")
+			_, _ = writer.Write(archive)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	home := t.TempDir()
+	exit, envelope := executeSkillUseCommand(t, server, home,
+		"skill", "install", downloadableProductID, "--agent", "codex",
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("free install failed: exit=%d envelope=%#v", exit, envelope)
+	}
+	manifestPath := filepath.Join(home, ".codex", "skills", "free-test", ".viceme", "install-manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		t.Fatalf("installed Skill has no install manifest: %v", err)
+	}
+	var manifest struct {
+		ProductID string `json:"product_id"`
+		ReleaseID string `json:"release_id"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("install manifest is invalid: %v", err)
+	}
+	if manifest.ProductID != downloadableProductID || manifest.ReleaseID != downloadableReleaseID {
+		t.Fatalf("install manifest lost Product provenance: %#v", manifest)
+	}
+}
+
+func TestMarketplaceSkillNameCollisionWithAnotherProductFailsClosed(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	const otherProductID = "99999999-9999-4999-8999-999999999999"
+	const otherReleaseID = "88888888-8888-4888-8888-888888888888"
+	archive := downloadableSkillArchiveNamed(t, "shared-skill", "Shared Skill")
+	foreignArchive := downloadableSkillArchiveNamed(t, "shared-skill", "Foreign Shared Skill")
+	digest := fmt.Sprintf("%x", sha256.Sum256(archive))
+	foreignDigest := fmt.Sprintf("%x", sha256.Sum256(foreignArchive))
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/skills/" + downloadableProductID + "/access":
+			writeJSONResponse(writer, skillAccessFixture(true, false, digest, ""))
+		case "/v1/downloads/free/" + downloadableProductID:
+			writeJSONResponse(writer, map[string]any{
+				"url": server.URL + "/artifact", "fileName": "free.zip", "releaseId": downloadableReleaseID, "artifactDigest": digest, "expiresAt": "2027-08-27T00:00:00Z",
+			})
+		case "/v1/skills/" + otherProductID + "/access":
+			fixture := skillAccessFixture(true, false, foreignDigest, "")
+			fixture["productId"] = otherProductID
+			fixture["release"] = map[string]any{"id": otherReleaseID, "artifactDigest": foreignDigest, "fileName": "foreign.zip"}
+			writeJSONResponse(writer, fixture)
+		case "/v1/downloads/free/" + otherProductID:
+			writeJSONResponse(writer, map[string]any{
+				"url": server.URL + "/foreign-artifact", "fileName": "foreign.zip", "releaseId": otherReleaseID, "artifactDigest": foreignDigest, "expiresAt": "2027-08-27T00:00:00Z",
+			})
+		case "/artifact":
+			writer.Header().Set("Content-Type", "application/zip")
+			_, _ = writer.Write(archive)
+		case "/foreign-artifact":
+			writer.Header().Set("Content-Type", "application/zip")
+			_, _ = writer.Write(foreignArchive)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	home := t.TempDir()
+	exit, envelope := executeSkillUseCommand(t, server, home,
+		"skill", "install", downloadableProductID, "--agent", "codex",
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("first product install failed: exit=%d envelope=%#v", exit, envelope)
+	}
+
+	exit, envelope = executeSkillUseCommand(t, server, home,
+		"skill", "install", otherProductID, "--agent", "codex",
+	)
+	if exit == 0 || envelope["ok"] != false {
+		t.Fatalf("foreign same-name install unexpectedly succeeded: exit=%d envelope=%#v", exit, envelope)
+	}
+	errorBody, _ := envelope["error"].(map[string]any)
+	if errorBody["code"] != "SKILL_INSTALL_FAILED" {
+		t.Fatalf("foreign same-name install returned %#v", errorBody)
+	}
+	details, _ := errorBody["details"].(map[string]any)
+	report, _ := details["report"].(map[string]any)
+	reportJSON, _ := json.Marshal(report)
+	if !strings.Contains(string(reportJSON), "different Product") {
+		t.Fatalf("refusal did not name the foreign Product: %s", reportJSON)
+	}
+	installed, err := os.ReadFile(filepath.Join(home, ".codex", "skills", "shared-skill", "SKILL.md"))
+	if err != nil || !strings.Contains(string(installed), "Shared Skill") || strings.Contains(string(installed), "Foreign") {
+		t.Fatalf("first product content was overwritten: %q, %v", installed, err)
+	}
+}
+
 func executeSkillUseCommand(t *testing.T, server *httptest.Server, home string, arguments ...string) (int, map[string]any) {
 	t.Helper()
 	var stdout, stderr bytes.Buffer
@@ -304,13 +418,18 @@ func TestUnclaimedMerchantPaidSkillFailsBeforeLoginOrWait(t *testing.T) {
 
 func downloadableSkillArchive(t *testing.T) []byte {
 	t.Helper()
+	return downloadableSkillArchiveNamed(t, "free-test", "Free Test Skill")
+}
+
+func downloadableSkillArchiveNamed(t *testing.T, name, heading string) []byte {
+	t.Helper()
 	var body bytes.Buffer
 	writer := zip.NewWriter(&body)
 	entry, err := writer.Create("SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := entry.Write([]byte("---\nname: free-test\ndescription: Free Test Skill\n---\n\n# Free Test Skill\n")); err != nil {
+	if _, err := entry.Write([]byte("---\nname: " + name + "\ndescription: " + heading + "\n---\n\n# " + heading + "\n")); err != nil {
 		t.Fatal(err)
 	}
 	header := &zip.FileHeader{Name: "scripts/run.sh", Method: zip.Deflate}

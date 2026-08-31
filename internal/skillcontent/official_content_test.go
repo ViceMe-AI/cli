@@ -101,7 +101,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			machine: []string{
 				"$viceme-creator-onboarding",
 				"MerchantAccountMember(role=OWNER)", "publication confirm", "publication publish", "reviewDigest",
-				"SKILL_LISTING_DRAFT_CHANGED", "priceMinor", "--new-listing",
+				"SKILL_LISTING_DRAFT_CHANGED", "priceMinor", "--new-listing", "merchant work sdk-access",
 			},
 			semantics: []string{
 				"公开且不可逆", "响应丢失时读取同一资源恢复", "支付成功与履约成功是两个不同状态",
@@ -119,10 +119,10 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "viceme-access",
 			machine: []string{
 				"access.require()", "access.getFeatures()", "<viceme-access-layer>", "FOLLOW_OWNER", "WORK_ENTITLEMENT",
-				"ACTIVE_CREATOR_SUBSCRIPTION", "window.open", "access.check()",
+				"Hosted Checkout", "DigitalEntitlement", "window.open", "access.check()", "$viceme-publish",
 			},
 			semantics: []string{
-				"只有 `access.check()` 能授予权限", "不得改变其参数、返回值、错误或副作用",
+				"登录不等于关注", "不得改变其参数、返回值、错误或副作用",
 			},
 		},
 		{
@@ -206,7 +206,8 @@ func TestEngagementReplacesStandaloneDanmakuAndTipSkills(t *testing.T) {
 		"不得在确认归属前写入任何 Work、SDK access 或 Website Widget", "按公开 `workKey` 精确定位 SDK access",
 		"现有 SDK hosted features 减去明确移除项，再并入页面目标特性集合", "--clear-hosted", "sdk-access disable",
 		"只有页面目标特性集合包含 `tip` 时执行本步",
-		"按 Work、kind、environment 定位唯一应用", "即使 Origin 不同也复用并按流程更新",
+		"按 Work、kind、environment 定位唯一应用", "已有非空 Origin 集合缺少 canonical Origin 时按共享配置冲突停止",
+		"Engagement 不管理 Product 绑定或 return URL",
 		`data-viceme-features="danmaku"`, `data-viceme-features="tip"`, `data-viceme-features="danmaku,tip"`,
 	} {
 		if !strings.Contains(bundle, required) {
@@ -662,15 +663,12 @@ func TestEngagementTipBranchIncludesRecoverableWebsiteWidgetWorkflow(t *testing.
 		"kind": "WEBSITE_WIDGET",
 		"environment": "PRODUCTION",
 		"displayName": "<website name>",
-		"origins": ["https://creator.example"],
-		"returnUrls": []
+		"origins": ["https://creator.example"]
 	}`
 	applicationUpdateInput := `{
 		"merchantAccountId": "<merchant-id>",
 		"expectedRevision": 2,
-		"displayName": "<website name>",
-		"origins": ["https://creator.example"],
-		"returnUrls": []
+		"origins": ["https://creator.example"]
 	}`
 
 	for _, relativePath := range []string{
@@ -683,14 +681,20 @@ func TestEngagementTipBranchIncludesRecoverableWebsiteWidgetWorkflow(t *testing.
 		text := string(content)
 		normalized := strings.Join(strings.Fields(strings.ReplaceAll(text, "\\\n", " ")), " ")
 		for _, required := range []string{
-			"（`(workId, environment, kind)` 唯一）",
+			"`(workId, PRODUCTION, WEBSITE_WIDGET)` 唯一",
 			"不存在时创建",
-			"绝不因现有应用显示名、Origin 或 return URL 不同就创建第二个",
+			"绝不因现有应用显示名、Origin、return URL 或 Product 不同就创建第二个",
 			"`REVOKED` 时停止并报告该终态资源",
-			"配置不同且状态 `ACTIVE` 时，先按其精确 revision 挂起",
+			"非空但缺少 canonical Origin 时停止并报告共享配置冲突",
+			"只有 `origins` 为空时才补写 canonical Origin",
+			"先按精确 revision 挂起",
+			"省略 `returnUrls` 才会保留现有值",
+			"`\"returnUrls\": []` 会退役全部现有 URL",
+			"`products` 不是更新字段",
 			"commerce-application update <application-id> --input <json>",
-			"已 `ACTIVE` 且一致则跳过",
+			"已 `ACTIVE` 且包含 canonical Origin 时跳过激活",
 			"create 响应丢失时先 list 再决定",
+			"Engagement 不管理 Product 绑定",
 		} {
 			if !strings.Contains(normalized, required) {
 				t.Fatalf("standalone %s omitted Website Widget constraint %q", relativePath, required)
@@ -708,7 +712,7 @@ func TestEngagementTipBranchIncludesRecoverableWebsiteWidgetWorkflow(t *testing.
 		requireJSONBlock(t, relativePath, text, `"kind": "WEBSITE_WIDGET"`, applicationInput)
 		requireJSONBlockWithMarkers(t, relativePath, text, []string{
 			`"expectedRevision": 2`,
-			`"displayName": "<website name>"`,
+			`"origins": ["https://creator.example"]`,
 		}, applicationUpdateInput)
 		applicationOffset := strings.Index(normalized, "merchant commerce-application list")
 		if applicationOffset < 0 || strings.Contains(normalized[applicationOffset:], "`ARCHIVED`") {
@@ -729,7 +733,8 @@ func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
 		"网站——创作者自有网站",
 		"website-workflow.md",
 		"已验证的 Website Work",
-		"不为网站发布 Product",
+		"网站本身不创建 Product",
+		"同一发布流程中配置关注与付费解锁",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("publish Skill omitted the current website Work boundary %q", required)
@@ -737,6 +742,91 @@ func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
 	}
 	if strings.Contains(text, "Payment integration remains a documented future capability") {
 		t.Fatal("publish Skill still describes Website Widget tips as unavailable")
+	}
+}
+
+func TestWebsiteWorkSelectionDisambiguatesDuplicateOrigins(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		path     string
+		required []string
+	}{
+		{
+			path: "viceme-engagement/SKILL.md",
+			required: []string{
+				"页面没有任何当前或历史 loader 时",
+				"0 个候选时才创建新 Work",
+				"恰好 1 个候选时复用",
+				"多个候选时，在任何 Work、Website Verification、DNS、SDK access、Website Widget 或页面写入前停止",
+				"请用户按 Work ID 选择",
+				"不得默认选择第一项、最新项、`PUBLISHED` 项或 `VERIFIED` 项",
+			},
+		},
+		{
+			path: "viceme-publish/references/website-workflow.md",
+			required: []string{
+				"If there are no matches,",
+				"If there is exactly one match, reuse it",
+				"If there are multiple matches, stop before any Work, Website Verification, DNS, SDK",
+				"ask the user to select the Work by ID",
+				"Never select the first, newest, `PUBLISHED`, or `VERIFIED`",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), test.path)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", test.path, err)
+		}
+		text := strings.Join(strings.Fields(string(content)), " ")
+		for _, required := range test.required {
+			if !strings.Contains(text, required) {
+				t.Fatalf("%s omitted duplicate-Origin disambiguation contract %q", test.path, required)
+			}
+		}
+	}
+}
+
+func TestWebsiteAccessConfigurationBelongsToPublish(t *testing.T) {
+	t.Parallel()
+
+	publish := readOfficialSkillBundle(t, "viceme-publish")
+	for _, required := range []string{
+		"merchant work sdk-access get",
+		"merchant work sdk-access create",
+		"merchant work sdk-access update",
+		"--expected-config-version",
+		"--clear-access",
+		"Login never implies following",
+	} {
+		if !strings.Contains(publish, required) {
+			t.Fatalf("publish Skill omitted Website access publication contract %q", required)
+		}
+	}
+
+	access := readOfficialSkillBundle(t, "viceme-access")
+	for _, forbidden := range []string{
+		"viceme access",
+		".viceme/access.yaml",
+		"merchant work sdk-access",
+		"coverUrls",
+		"profile-covers",
+	} {
+		if strings.Contains(access, forbidden) {
+			t.Fatalf("access Skill still owns removed publication or cover contract %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"只修改创作者网站的宿主代码",
+		"缺少发布结果或平台配置时立即交回 `$viceme-publish`",
+		"登录不等于关注",
+		"不展示最近作品封面",
+	} {
+		if !strings.Contains(access, required) {
+			t.Fatalf("access Skill omitted host-integration boundary %q", required)
+		}
 	}
 }
 

@@ -171,7 +171,10 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				access.Edition.Title,
 				workSlug,
 			)
-			report, err := installDownloadableSkill(installedName, agent, files, runtime.deps.Environment)
+			report, err := installDownloadableSkill(installedName, agent, files, runtime.deps.Environment, skillcontent.SkillProvenance{
+				ProductID: productID,
+				ReleaseID: access.Release.ID,
+			})
 			if err != nil {
 				return err
 			}
@@ -424,7 +427,7 @@ func downloadableSkillManifestName(
 	return strings.TrimSpace(name), nil
 }
 
-func installDownloadableSkill(stableName, target string, files map[string]downloadableSkillFile, environment skillcontent.Environment) (skillcontent.InstallReport, error) {
+func installDownloadableSkill(stableName, target string, files map[string]downloadableSkillFile, environment skillcontent.Environment, provenance skillcontent.SkillProvenance) (skillcontent.InstallReport, error) {
 	root, err := os.MkdirTemp("", "viceme-downloadable-skill-")
 	if err != nil {
 		return skillcontent.InstallReport{}, output.Internal("SKILL_STAGE_FAILED", "could not create a private Skill staging directory", err)
@@ -459,5 +462,5 @@ func installDownloadableSkill(stableName, target string, files map[string]downlo
 		return skillcontent.InstallReport{}, err
 	}
 	bundle := skillcontent.New(os.DirFS(root))
-	return bundle.Install(stableName, target, environment), nil
+	return bundle.InstallWithProvenance(stableName, target, environment, provenance), nil
 }

@@ -1,53 +1,110 @@
 package command
 
-import "testing"
+import (
+	"crypto/sha256"
+	"fmt"
+	"reflect"
+	"sort"
+	"strings"
+	"testing"
 
-func TestRetiredEngagementSkillCatalogCoversCommittedManifestIdentities(t *testing.T) {
+	"github.com/ViceMe-AI/cli/internal/skillcontent"
+)
+
+func TestLegacyRetiredSkillMigrationsMatchAuditedHistory(t *testing.T) {
 	t.Parallel()
 
-	requiredVersions := map[string]map[string]bool{
-		"viceme-danmaku": {"0.12.4": false, "0.14.3": false, "0.19.0-beta.0": false},
-		"viceme-tip":     {"0.15.1": false, "0.16.1": false, "0.19.0-beta.0": false, "0.19.0": false},
+	expectedCounts := map[string]int{
+		"viceme-danmaku": 51,
+		"viceme-tip":     23,
 	}
-	requiredPOCDigests := map[string]bool{
-		"sha256:4535c3bca44af35e0790fc0540679474c62b187aa2f7588db9bd0f4b9956a79f": false,
-		"sha256:0f7d703da8df031f734739012c7776df0081c00ba002483b87749dd3510ae70c": false,
-		"sha256:22ed6dc74c886ca35968df635aa8044311d2f6f2bf448a20ad21851bcf3ee154": false,
-		"sha256:46b31aa02779533fa1cc92f7b6c8875421d222ed887d331fc0b58fde0374a237": false,
-		"sha256:4e2ddccf72062191eb3e9d24133cb4eacc68414a41f1591bd0749adc6c3e02de": false,
-		"sha256:b34806134a95b895038dc50fcf8d39239ef0386d5cc936bbc290afe1d9474085": false,
-	}
-	identities := make(map[string]bool, len(retiredOfficialSkills))
-	for _, identity := range retiredOfficialSkills {
-		versions, knownName := requiredVersions[identity.Name]
-		if !knownName {
+	counts := make(map[string]int)
+	catalog := make(map[string]bool, len(legacyRetiredOfficialSkillMigrations))
+	canonical := make([]string, 0, len(legacyRetiredOfficialSkillMigrations))
+	tagCount := 0
+	commitCount := 0
+	for _, identity := range legacyRetiredOfficialSkillMigrations {
+		if err := skillcontent.ValidateLegacyRetiredSkillIdentity(identity); err != nil {
+			t.Fatalf("invalid legacy migration identity: %v", err)
+		}
+		if _, known := expectedCounts[identity.Name]; !known {
 			t.Fatalf("unexpected retired official Skill: %s", identity.Name)
 		}
-		if _, required := versions[identity.SkillVersion]; required {
-			versions[identity.SkillVersion] = true
+		counts[identity.Name]++
+		key := legacyMigrationKey(identity)
+		if catalog[key] {
+			t.Fatalf("duplicate legacy migration identity: %#v", identity)
 		}
-		if _, required := requiredPOCDigests[identity.FullBundleDigest]; required {
-			requiredPOCDigests[identity.FullBundleDigest] = true
+		catalog[key] = true
+		canonical = append(canonical, key)
+		switch {
+		case strings.HasPrefix(identity.Provenance, "tag:"):
+			tagCount++
+			if strings.HasPrefix(identity.Provenance, "tag:v") && strings.TrimPrefix(identity.Provenance, "tag:v") != identity.SkillVersion {
+				t.Fatalf("release tag provenance does not match Skill version: %#v", identity)
+			}
+		case strings.HasPrefix(identity.Provenance, "commit:"):
+			commitCount++
+		default:
+			t.Fatalf("unexpected legacy migration provenance: %q", identity.Provenance)
 		}
-		key := identity.Name + "\x00" + identity.SkillVersion + "\x00" + identity.FullBundleDigest
-		if identities[key] {
-			t.Fatalf("duplicate retired Skill identity: %#v", identity)
-		}
-		identities[key] = true
 	}
-	if len(retiredOfficialSkills) != 74 {
-		t.Fatalf("retired Skill catalog does not cover every committed manifest identity: %d", len(retiredOfficialSkills))
+	if len(legacyRetiredOfficialSkillMigrations) != 74 {
+		t.Fatalf("legacy migration catalog does not cover all 74 audited identities: %d", len(legacyRetiredOfficialSkillMigrations))
 	}
-	for name, versions := range requiredVersions {
-		for version, included := range versions {
-			if !included {
-				t.Fatalf("retired Skill catalog omitted %s %s", name, version)
+	if !reflect.DeepEqual(counts, expectedCounts) {
+		t.Fatalf("legacy migration catalog has unexpected per-Skill counts: %#v", counts)
+	}
+	if tagCount != 33 || commitCount != 41 {
+		t.Fatalf("legacy migration provenance must remain the audited 33 tags and 41 commits: tags=%d commits=%d", tagCount, commitCount)
+	}
+
+	aggregated := make(map[string]bool, len(catalog))
+	retiredNames := make(map[string]bool, len(retiredOfficialSkills))
+	for _, retired := range retiredOfficialSkills {
+		if retiredNames[retired.Name] {
+			t.Fatalf("retired official Skill is duplicated: %s", retired.Name)
+		}
+		retiredNames[retired.Name] = true
+		for _, active := range officialSkillNames {
+			if retired.Name == active {
+				t.Fatalf("active official Skill %s must not be retired", active)
 			}
 		}
-	}
-	for digest, included := range requiredPOCDigests {
-		if !included {
-			t.Fatalf("retired Skill catalog omitted public POC identity %s", digest)
+		for _, identity := range retired.LegacyMigrations {
+			key := legacyMigrationKey(identity)
+			if !catalog[key] {
+				t.Fatalf("retirement wiring contains an unaudited legacy identity: %#v", identity)
+			}
+			if aggregated[key] {
+				t.Fatalf("retirement wiring repeats a legacy identity: %#v", identity)
+			}
+			aggregated[key] = true
 		}
 	}
+	if !reflect.DeepEqual(aggregated, catalog) {
+		t.Fatal("retirement wiring does not include every audited legacy identity exactly once")
+	}
+	if len(retiredNames) != len(expectedCounts) {
+		t.Fatalf("retirement wiring contains unexpected Skills: %#v", retiredNames)
+	}
+
+	sort.Strings(canonical)
+	digest := sha256.Sum256([]byte(strings.Join(canonical, "\n")))
+	const auditedCatalogDigest = "c1c60def12ccdfe1321969a4fc4188a696b5a8d48607ff8688a729a46cd07ce2"
+	if actual := fmt.Sprintf("%x", digest); actual != auditedCatalogDigest {
+		t.Fatalf("legacy migration catalog differs from the audited manifest history: %s", actual)
+	}
+}
+
+func legacyMigrationKey(identity skillcontent.LegacyRetiredSkillIdentity) string {
+	return strings.Join([]string{
+		identity.Name,
+		identity.SkillVersion,
+		identity.MinimumCLIVersion,
+		identity.CLICompatibility,
+		identity.FullBundleDigest,
+		identity.EmbeddedContentDigest,
+		identity.Provenance,
+	}, "\x00")
 }

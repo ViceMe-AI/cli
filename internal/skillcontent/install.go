@@ -1,6 +1,7 @@
 package skillcontent
 
 import (
+	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,9 @@ import (
 
 const installManifestPath = ".viceme/install-manifest.json"
 const installTransactionFilename = "install-transaction.json"
+const installTransactionSchemaVersion = 2
+const managedSkillRegistryFilename = "managed-skills.json"
+const legacyRetiredSkillMigrationVersion = 1
 
 type Environment struct {
 	Home               string
@@ -60,6 +64,22 @@ func defaultConfigDir(home string) string {
 		}
 	}
 	return filepath.Join(home, ".viceme-cli")
+}
+
+func resolveConfigDirectory(environment Environment) (string, error) {
+	directory := environment.ConfigDir
+	if directory == "" {
+		directory = defaultConfigDir(environment.Home)
+	}
+	absolute, err := filepath.Abs(filepath.Clean(directory))
+	if err != nil {
+		return "", fmt.Errorf("normalize ViceMe config directory: %w", err)
+	}
+	resolved, err := resolveExistingPathPrefix(absolute)
+	if err != nil {
+		return "", fmt.Errorf("normalize ViceMe config directory: %w", err)
+	}
+	return resolved, nil
 }
 
 type InstallResult struct {
@@ -108,29 +128,89 @@ type DoctorChecks struct {
 	FullBundleDigest      DoctorCheck `json:"full_bundle_digest"`
 	EmbeddedContentDigest DoctorCheck `json:"embedded_content_digest"`
 	Compatibility         DoctorCheck `json:"compatibility"`
+	ManagedOwnership      DoctorCheck `json:"managed_ownership"`
 }
 
 type installManifest struct {
 	SchemaVersion         int    `json:"schema_version"`
+	InstallID             string `json:"install_id,omitempty"`
 	CLIVersion            string `json:"cli_version"`
 	SkillVersion          string `json:"skill_version"`
 	MinimumCLIVersion     string `json:"minimum_cli_version"`
 	CLICompatibility      string `json:"cli_compatibility"`
 	FullBundleDigest      string `json:"full_skill_bundle_digest"`
 	EmbeddedContentDigest string `json:"embedded_content_digest"`
+	ProductID             string `json:"product_id,omitempty"`
+	ReleaseID             string `json:"release_id,omitempty"`
 }
 
-type RetiredSkillIdentity struct {
+// SkillProvenance binds a marketplace Skill installation to the Product and
+// Release it was downloaded from. It is persisted in the install manifest so a
+// later install can tell a same-Product upgrade apart from an attempt to
+// overwrite a foreign, official, or user-owned Skill directory.
+type SkillProvenance struct {
+	ProductID string
+	ReleaseID string
+}
+
+func validateSkillProvenance(provenance SkillProvenance) error {
+	if strings.TrimSpace(provenance.ProductID) == "" {
+		return errors.New("marketplace Skill provenance requires a Product ID")
+	}
+	if strings.TrimSpace(provenance.ReleaseID) == "" {
+		return errors.New("marketplace Skill provenance requires a Release ID")
+	}
+	return nil
+}
+
+type LegacyRetiredSkillIdentity struct {
 	Name                  string
 	SkillVersion          string
 	MinimumCLIVersion     string
 	CLICompatibility      string
 	FullBundleDigest      string
 	EmbeddedContentDigest string
+	Provenance            string
+}
+
+type RetiredSkill struct {
+	Name             string
+	LegacyMigrations []LegacyRetiredSkillIdentity
+}
+
+type managedSkillRecord struct {
+	SkillName string `json:"skill_name"`
+	InstallID string `json:"install_id"`
+	Target    string `json:"target"`
+	Digest    string `json:"digest"`
+}
+
+type managedSkillRegistry struct {
+	SchemaVersion          int                           `json:"schema_version"`
+	LegacyMigrationVersion int                           `json:"legacy_migration_version,omitempty"`
+	Installs               map[string]managedSkillRecord `json:"installs"`
 }
 
 func (b *Bundle) Install(name, target string, environment Environment) InstallReport {
 	reports := b.InstallSet([]string{name}, target, environment)
+	if len(reports) == 0 {
+		return InstallReport{AllSucceeded: false, Results: []InstallResult{{Skill: name, Target: target, Status: "failed", Error: "installation transaction returned no report"}}}
+	}
+	return reports[0]
+}
+
+// InstallWithProvenance installs one marketplace Skill while refusing to
+// replace any existing directory that is not already managed as the same
+// Product: foreign, official, or user-owned directories fail closed, and only
+// a same-Product upgrade or reinstall may replace managed content.
+func (b *Bundle) InstallWithProvenance(name, target string, environment Environment, provenance SkillProvenance) InstallReport {
+	transaction, reports, err := b.PrepareInstallSetWithProvenance([]string{name}, target, environment, provenance)
+	if err != nil {
+		return failAllInstallReports([]string{name}, target, err)[0]
+	}
+	if err := transaction.Commit(); err != nil {
+		return failAllInstallReports([]string{name}, target, err)[0]
+	}
 	if len(reports) == 0 {
 		return InstallReport{AllSucceeded: false, Results: []InstallResult{{Skill: name, Target: target, Status: "failed", Error: "installation transaction returned no report"}}}
 	}
@@ -159,14 +239,36 @@ type InstallTransaction struct {
 	journalPath string
 	journal     installTransaction
 	lock        *flock.Flock
+	retirements []InstallResult
 	closed      bool
+}
+
+func (transaction *InstallTransaction) RetirementResults() []InstallResult {
+	if transaction == nil {
+		return nil
+	}
+	return append([]InstallResult(nil), transaction.retirements...)
 }
 
 func (b *Bundle) PrepareInstallSet(names []string, target string, environment Environment) (*InstallTransaction, []InstallReport, error) {
 	return b.PrepareInstallSetWithRetirements(names, nil, target, environment)
 }
 
-func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []RetiredSkillIdentity, target string, environment Environment) (*InstallTransaction, []InstallReport, error) {
+func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []RetiredSkill, target string, environment Environment) (*InstallTransaction, []InstallReport, error) {
+	return b.prepareInstallSet(names, retired, nil, target, environment)
+}
+
+// PrepareInstallSetWithProvenance prepares a marketplace Skill installation
+// whose destinations are provenance-guarded: only a fresh destination or an
+// existing same-Product installation may be replaced.
+func (b *Bundle) PrepareInstallSetWithProvenance(names []string, target string, environment Environment, provenance SkillProvenance) (*InstallTransaction, []InstallReport, error) {
+	if err := validateSkillProvenance(provenance); err != nil {
+		return nil, nil, err
+	}
+	return b.prepareInstallSet(names, nil, &provenance, target, environment)
+}
+
+func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, provenance *SkillProvenance, target string, environment Environment) (*InstallTransaction, []InstallReport, error) {
 	reports := make([]InstallReport, len(names))
 	for index, name := range names {
 		reports[index] = InstallReport{AllSucceeded: true}
@@ -174,14 +276,16 @@ func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []Reti
 			return nil, nil, err
 		}
 	}
-	for _, identity := range retired {
-		if err := validateRetiredSkillIdentity(identity); err != nil {
+	for _, skill := range retired {
+		if err := validateRetiredSkill(skill); err != nil {
 			return nil, nil, err
 		}
 	}
-	if environment.ConfigDir == "" {
-		environment.ConfigDir = defaultConfigDir(environment.Home)
+	configDirectory, err := resolveConfigDirectory(environment)
+	if err != nil {
+		return nil, nil, err
 	}
+	environment.ConfigDir = configDirectory
 	if err := os.MkdirAll(environment.ConfigDir, 0o700); err != nil {
 		return nil, nil, fmt.Errorf("create ViceMe config directory: %w", err)
 	}
@@ -198,9 +302,15 @@ func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []Reti
 		_ = transactionLock.Unlock()
 		return nil, nil, err
 	}
+	registryPath := filepath.Join(environment.ConfigDir, managedSkillRegistryFilename)
+	registry, err := readManagedSkillRegistry(registryPath)
+	if err != nil {
+		_ = transactionLock.Unlock()
+		return nil, nil, err
+	}
 	transaction := &InstallTransaction{
 		journalPath: journalPath,
-		journal:     installTransaction{SchemaVersion: 1, Status: "PREPARING", TargetCLIVersion: buildinfo.Version},
+		journal:     installTransaction{SchemaVersion: installTransactionSchemaVersion, Status: "PREPARING", TargetCLIVersion: buildinfo.Version},
 		lock:        transactionLock,
 	}
 	fail := func(cause error) (*InstallTransaction, []InstallReport, error) {
@@ -212,35 +322,108 @@ func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []Reti
 	}
 
 	operations := make([]installOperation, 0)
+	resolvedDestinations := make(map[string]string)
+	registryDirty := false
 	for index, name := range names {
-		paths, resolveErr := resolveTargets(name, target, environment, true)
+		paths, resolveErr := resolveTargets(name, target, environment)
 		if resolveErr != nil {
 			return fail(resolveErr)
 		}
 		for _, resolved := range paths {
-			operation := installOperation{Skill: name, Target: resolved.name, Destination: resolved.path, ReportIndex: index}
-			if b.installationCurrent(name, resolved.path) {
+			managedPath := resolved.path
+			if existing, duplicate := resolvedDestinations[managedPath]; duplicate {
+				return fail(fmt.Errorf("Skill targets %s and %s resolve to the same managed path", existing, resolved.name))
+			}
+			resolvedDestinations[managedPath] = resolved.name
+			operation := installOperation{
+				Skill: name, Target: resolved.name, Destination: managedPath,
+				ManagedPath: managedPath, ReportIndex: index,
+			}
+			var record *managedSkillRecord
+			current, registered := registry.Installs[managedPath]
+			if provenance == nil {
+				if registered {
+					if current.SkillName != name || current.Target != resolved.name {
+						return fail(fmt.Errorf("managed Skill registry path %s belongs to %s for target %s", managedPath, current.SkillName, current.Target))
+					}
+					record = &current
+					operation.InstallID = current.InstallID
+				} else {
+					operation.InstallID, err = newInstallID()
+					if err != nil {
+						return fail(err)
+					}
+				}
+			} else if registered {
+				return fail(fmt.Errorf("refuse to install marketplace Skill at %s: path is reserved by an official or legacy managed Skill %s for target %s", managedPath, current.SkillName, current.Target))
+			}
+			if b.installationCurrent(name, managedPath, resolved.name, record, provenance) {
 				operation.Unchanged = true
+			}
+			if !operation.Unchanged {
+				if provenance != nil {
+					if guardErr := guardMarketplaceSkillDestination(managedPath, *provenance); guardErr != nil {
+						return fail(guardErr)
+					}
+				} else if record == nil {
+					if guardErr := guardOfficialSkillDestination(managedPath); guardErr != nil {
+						return fail(guardErr)
+					}
+				} else if guardErr := guardRegisteredOfficialSkillDestination(managedPath, *record); guardErr != nil {
+					return fail(guardErr)
+				}
 			}
 			operations = append(operations, operation)
 		}
 	}
-	for _, identity := range retired {
-		paths, resolveErr := resolveTargets(identity.Name, target, environment, true)
+	legacyMigrationPending := provenance == nil && len(retired) > 0 && registry.LegacyMigrationVersion < legacyRetiredSkillMigrationVersion
+	for _, skill := range retired {
+		paths, resolveErr := resolveRetirementTargets(skill.Name, target, environment, registry, legacyMigrationPending)
 		if resolveErr != nil {
 			return fail(resolveErr)
 		}
 		for _, resolved := range paths {
-			backup := resolved.path + ".viceme-transaction-backup"
-			if !retiredSkillManaged(resolved.path, identity) || !pathDoesNotExist(backup) {
+			managedPath := resolved.path
+			if activeTarget, active := resolvedDestinations[managedPath]; active {
+				return fail(fmt.Errorf("active target %s and retired Skill %s resolve to the same managed path", activeTarget, skill.Name))
+			}
+			if !resolved.trusted {
+				transaction.retirements = append(transaction.retirements, InstallResult{
+					Skill: skill.Name, Target: resolved.name, Path: managedPath, Status: "preserved_unmanaged",
+				})
 				continue
 			}
-			identityCopy := identity
+			status, ownership := inspectRetiredSkill(managedPath, managedPath, resolved.name, skill, registry, legacyMigrationPending)
+			if status == "absent" {
+				if record, exists := registry.Installs[managedPath]; exists && record.SkillName == skill.Name && record.Target == resolved.name {
+					delete(registry.Installs, managedPath)
+					registryDirty = true
+				}
+				continue
+			}
+			resultIndex := len(transaction.retirements)
+			transaction.retirements = append(transaction.retirements, InstallResult{
+				Skill: skill.Name, Target: resolved.name, Path: managedPath, Status: status,
+			})
+			if status != "retired" {
+				continue
+			}
+			backup := managedPath + ".viceme-transaction-backup"
+			if !pathDoesNotExist(backup) {
+				transaction.retirements[resultIndex].Status = "preserved_unmanaged"
+				continue
+			}
+			skillCopy := skill
 			operations = append(operations, installOperation{
-				Skill: identity.Name, Target: resolved.name, Destination: resolved.path,
-				ReportIndex: -1, HadExisting: true, Backup: backup, Retired: &identityCopy,
+				Skill: skill.Name, Target: resolved.name, Destination: managedPath,
+				ManagedPath: managedPath, ReportIndex: -1, HadExisting: true, Backup: backup,
+				Retired: &skillCopy, Retirement: ownership, RetirementResultIndex: resultIndex,
 			})
 		}
+	}
+	if legacyMigrationPending {
+		registry.LegacyMigrationVersion = legacyRetiredSkillMigrationVersion
+		registryDirty = true
 	}
 
 	for index := range operations {
@@ -249,7 +432,7 @@ func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []Reti
 			continue
 		}
 		if operation.Retired == nil {
-			staged, expected, stageErr := b.stageInstallation(operation.Skill, operation.Destination)
+			staged, expected, stageErr := b.stageInstallation(operation.Skill, operation.Destination, provenance, operation.InstallID)
 			if stageErr != nil {
 				cleanupStagedOperations(operations)
 				return fail(stageErr)
@@ -259,6 +442,10 @@ func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []Reti
 		}
 		if operation.Backup == "" {
 			operation.Backup = operation.Destination + ".viceme-transaction-backup"
+		}
+		if operation.Retired == nil && !pathDoesNotExist(operation.Backup) {
+			cleanupStagedOperations(operations)
+			return fail(errors.New("refuse to install while an unowned transaction backup exists"))
 		}
 		if operation.Retired != nil {
 			operation.HadExisting = true
@@ -287,17 +474,28 @@ func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []Reti
 		}
 		entry := &transaction.journal.Entries[journalIndex]
 		journalIndex++
-		if operation.Retired != nil && !retiredSkillManaged(operation.Destination, *operation.Retired) {
-			continue
+		if operation.Retired == nil && !pathDoesNotExist(operation.Backup) {
+			return fail(errors.New("refuse to install while an unowned transaction backup exists"))
 		}
-		if operation.Retired != nil && !pathDoesNotExist(operation.Backup) {
-			return fail(errors.New("refuse to retire a Skill while an unowned backup path exists"))
+		if operation.Retired != nil {
+			status := verifyRetiredSkillOwnership(operation.Destination, operation.Target, *operation.Retired, operation.Retirement)
+			if status != "retired" || !pathDoesNotExist(operation.Backup) {
+				if status == "retired" {
+					status = "preserved_unmanaged"
+				}
+				transaction.retirements[operation.RetirementResultIndex].Status = status
+				entry.Backup = ""
+				entry.HadExisting = false
+				if err := writeInstallTransaction(journalPath, transaction.journal); err != nil {
+					return fail(err)
+				}
+				continue
+			}
 		}
 		entry.Activating = true
 		if err := writeInstallTransaction(journalPath, transaction.journal); err != nil {
 			return fail(err)
 		}
-		_ = os.RemoveAll(operation.Backup)
 		if operation.HadExisting {
 			if err := os.Rename(operation.Destination, operation.Backup); err != nil {
 				return fail(fmt.Errorf("stage existing Skill: %w", err))
@@ -306,6 +504,24 @@ func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []Reti
 		if operation.Retired != nil {
 			if _, err := os.Lstat(operation.Destination); !errors.Is(err, fs.ErrNotExist) {
 				return fail(errors.New("verify retired Skill removal: destination still exists"))
+			}
+			status := verifyRetiredSkillOwnership(operation.Backup, operation.Target, *operation.Retired, operation.Retirement)
+			if status != "retired" {
+				if err := os.Rename(operation.Backup, operation.Destination); err != nil {
+					return fail(fmt.Errorf("restore preserved retired Skill: %w", err))
+				}
+				transaction.retirements[operation.RetirementResultIndex].Status = status
+				entry.Activating = false
+				entry.Backup = ""
+				entry.HadExisting = false
+				if err := writeInstallTransaction(journalPath, transaction.journal); err != nil {
+					return fail(err)
+				}
+				continue
+			}
+			if operation.Retirement.Registry != nil {
+				delete(registry.Installs, operation.ManagedPath)
+				registryDirty = true
 			}
 			continue
 		}
@@ -318,6 +534,24 @@ func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []Reti
 				return fail(fmt.Errorf("verify installed Skill: %w", err))
 			}
 			return fail(errors.New("verify installed Skill: digest mismatch"))
+		}
+		if provenance == nil {
+			record := managedSkillRecord{
+				SkillName: operation.Skill, InstallID: operation.InstallID,
+				Target: operation.Target, Digest: operation.Expected.Full,
+			}
+			if previous, exists := registry.Installs[operation.ManagedPath]; !exists || previous != record {
+				registry.Installs[operation.ManagedPath] = record
+				registryDirty = true
+			}
+		}
+	}
+	if provenance == nil && registryDirty {
+		if err := transaction.TrackPath(registryPath); err != nil {
+			return fail(err)
+		}
+		if err := writeManagedSkillRegistry(registryPath, registry); err != nil {
+			return fail(err)
 		}
 	}
 	for _, operation := range operations {
@@ -340,7 +574,7 @@ func (transaction *InstallTransaction) TrackPath(destination string) error {
 	if transaction == nil || transaction.closed {
 		return errors.New("install transaction is not active")
 	}
-	absDestination, err := filepath.Abs(destination)
+	absDestination, err := normalizeTransactionPath(destination)
 	if err != nil {
 		return fmt.Errorf("resolve install transaction path: %w", err)
 	}
@@ -356,14 +590,14 @@ func (transaction *InstallTransaction) TrackPath(destination string) error {
 		return fmt.Errorf("inspect install transaction path: %w", err)
 	}
 	backup := absDestination + ".viceme-transaction-backup"
+	if !pathDoesNotExist(backup) {
+		return errors.New("refuse to track a path while an unowned transaction backup exists")
+	}
 	entry := installJournalEntry{Destination: absDestination, Backup: backup, HadExisting: hadExisting, Activating: true}
 	transaction.journal.Entries = append(transaction.journal.Entries, entry)
 	if err := writeInstallTransaction(transaction.journalPath, transaction.journal); err != nil {
 		transaction.journal.Entries = transaction.journal.Entries[:len(transaction.journal.Entries)-1]
 		return err
-	}
-	if err := os.RemoveAll(backup); err != nil {
-		return fmt.Errorf("remove stale install backup: %w", err)
 	}
 	if hadExisting {
 		if err := os.Rename(absDestination, backup); err != nil {
@@ -408,9 +642,11 @@ func (transaction *InstallTransaction) MarkCommitting() error {
 // rollback before its commit point, while true forces roll-forward after the
 // launcher is durable. This deliberately ignores the inner target CLI version.
 func RecoverInstallTransaction(environment Environment, commit bool) error {
-	if environment.ConfigDir == "" {
-		environment.ConfigDir = defaultConfigDir(environment.Home)
+	configDirectory, err := resolveConfigDirectory(environment)
+	if err != nil {
+		return err
 	}
+	environment.ConfigDir = configDirectory
 	if err := os.MkdirAll(environment.ConfigDir, 0o700); err != nil {
 		return fmt.Errorf("create ViceMe config directory: %w", err)
 	}
@@ -428,7 +664,7 @@ func RecoverInstallTransaction(environment Environment, commit bool) error {
 		return fmt.Errorf("read install recovery journal: %w", err)
 	}
 	var journal installTransaction
-	if err := decodeStrictJSON(data, &journal); err != nil || journal.SchemaVersion != 1 {
+	if err := decodeStrictJSON(data, &journal); err != nil || validateInstallTransaction(journal) != nil {
 		return errors.New("install recovery journal is invalid; refusing to reconcile installed Skills")
 	}
 	if !commit {
@@ -446,9 +682,11 @@ func RecoverInstallTransaction(environment Environment, commit bool) error {
 // safe to finish because the current CLI already is that generation; all other
 // incomplete generations roll back.
 func RecoverInstallTransactionAuto(environment Environment) error {
-	if environment.ConfigDir == "" {
-		environment.ConfigDir = defaultConfigDir(environment.Home)
+	configDirectory, err := resolveConfigDirectory(environment)
+	if err != nil {
+		return err
 	}
+	environment.ConfigDir = configDirectory
 	if err := os.MkdirAll(environment.ConfigDir, 0o700); err != nil {
 		return fmt.Errorf("create ViceMe config directory: %w", err)
 	}
@@ -488,16 +726,25 @@ func (transaction *InstallTransaction) close() {
 }
 
 type installOperation struct {
-	Skill       string
-	Target      string
-	Destination string
-	Stage       string
-	Backup      string
-	Expected    Digests
-	ReportIndex int
-	HadExisting bool
-	Unchanged   bool
-	Retired     *RetiredSkillIdentity
+	Skill                 string
+	Target                string
+	Destination           string
+	ManagedPath           string
+	InstallID             string
+	Stage                 string
+	Backup                string
+	Expected              Digests
+	ReportIndex           int
+	RetirementResultIndex int
+	HadExisting           bool
+	Unchanged             bool
+	Retired               *RetiredSkill
+	Retirement            retiredSkillOwnership
+}
+
+type retiredSkillOwnership struct {
+	Registry *managedSkillRecord
+	Legacy   *LegacyRetiredSkillIdentity
 }
 
 type installTransaction struct {
@@ -515,7 +762,7 @@ type installJournalEntry struct {
 	Activating  bool   `json:"activating"`
 }
 
-func (b *Bundle) stageInstallation(name, destination string) (string, Digests, error) {
+func (b *Bundle) stageInstallation(name, destination string, provenance *SkillProvenance, installID string) (string, Digests, error) {
 	parent := filepath.Dir(destination)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", Digests{}, fmt.Errorf("create Skill parent: %w", err)
@@ -542,6 +789,17 @@ func (b *Bundle) stageInstallation(name, destination string) (string, Digests, e
 		_ = os.RemoveAll(stageRoot)
 		return "", Digests{}, err
 	}
+	if provenance != nil {
+		manifest.ProductID = provenance.ProductID
+		manifest.ReleaseID = provenance.ReleaseID
+	} else {
+		if !validInstallID(installID) {
+			_ = os.RemoveAll(stageRoot)
+			return "", Digests{}, errors.New("managed Skill installation requires a valid install ID")
+		}
+		manifest.SchemaVersion = 2
+		manifest.InstallID = installID
+	}
 	if err := writeInstallManifest(stagedSkill, manifest); err != nil {
 		_ = os.RemoveAll(stageRoot)
 		return "", Digests{}, err
@@ -555,6 +813,9 @@ func (b *Bundle) stageInstallation(name, destination string) (string, Digests, e
 }
 
 func writeInstallTransaction(filename string, journal installTransaction) error {
+	if err := validateInstallTransaction(journal); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(journal, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode install transaction: %w", err)
@@ -596,7 +857,7 @@ func recoverInstallTransaction(filename string) error {
 		return fmt.Errorf("read install recovery journal: %w", err)
 	}
 	var journal installTransaction
-	if err := decodeStrictJSON(data, &journal); err != nil || journal.SchemaVersion != 1 {
+	if err := decodeStrictJSON(data, &journal); err != nil || validateInstallTransaction(journal) != nil {
 		return errors.New("install recovery journal is invalid; refusing to overwrite installed Skills")
 	}
 	if journal.Status == "COMMITTING" && journal.TargetCLIVersion == buildinfo.Version {
@@ -628,6 +889,34 @@ func recoverInstallTransaction(filename string) error {
 		return fmt.Errorf("complete install recovery: %w", err)
 	}
 	return nil
+}
+
+func validateInstallTransaction(journal installTransaction) error {
+	if journal.SchemaVersion != 1 && journal.SchemaVersion != installTransactionSchemaVersion {
+		return errors.New("install transaction has an unsupported schema version")
+	}
+	switch journal.Status {
+	case "PREPARING", "COMMITTING", "COMMITTED":
+	default:
+		return errors.New("install transaction has an invalid status")
+	}
+	seen := make(map[string]bool, len(journal.Entries))
+	for _, entry := range journal.Entries {
+		if journal.SchemaVersion >= installTransactionSchemaVersion && (!validAbsoluteTransactionPath(entry.Destination) ||
+			(entry.Stage != "" && !validAbsoluteTransactionPath(entry.Stage)) ||
+			(entry.Backup != "" && !validAbsoluteTransactionPath(entry.Backup))) {
+			return errors.New("install transaction contains an invalid path")
+		}
+		if seen[entry.Destination] {
+			return errors.New("install transaction contains duplicate destinations")
+		}
+		seen[entry.Destination] = true
+	}
+	return nil
+}
+
+func validAbsoluteTransactionPath(filename string) bool {
+	return filepath.IsAbs(filename) && filepath.Clean(filename) == filename
 }
 
 func rollbackInstallTransaction(filename string, journal installTransaction) error {
@@ -686,31 +975,8 @@ func failAllInstallReports(names []string, target string, err error) []InstallRe
 	return reports
 }
 
-func (b *Bundle) installLegacy(name, target string, environment Environment) InstallReport {
-	paths, err := resolveTargets(name, target, environment, true)
-	if err != nil {
-		return InstallReport{AllSucceeded: false, Results: []InstallResult{{Target: target, Status: "failed", Error: err.Error()}}}
-	}
-	report := InstallReport{AllSucceeded: true}
-	for _, resolved := range paths {
-		result := InstallResult{Skill: name, Target: resolved.name, Path: resolved.path, Status: "updated"}
-		if b.installationCurrent(name, resolved.path) {
-			result.Status = "unchanged"
-			report.Results = append(report.Results, result)
-			continue
-		}
-		if err := b.installOne(name, resolved.path); err != nil {
-			result.Status = "failed"
-			result.Error = err.Error()
-			report.AllSucceeded = false
-		}
-		report.Results = append(report.Results, result)
-	}
-	return report
-}
-
 func (b *Bundle) Doctor(name, target string, environment Environment) DoctorReport {
-	paths, err := resolveTargets(name, target, environment, false)
+	paths, err := resolveTargets(name, target, environment)
 	if err != nil {
 		return DoctorReport{Healthy: false, Results: []DoctorResult{{Target: target, Problem: err.Error()}}}
 	}
@@ -722,6 +988,12 @@ func (b *Bundle) Doctor(name, target string, environment Environment) DoctorRepo
 	if err != nil {
 		return DoctorReport{Healthy: false, Results: []DoctorResult{{Target: target, Problem: err.Error()}}}
 	}
+	configDirectory, err := resolveConfigDirectory(environment)
+	if err != nil {
+		return DoctorReport{Healthy: false, Results: []DoctorResult{{Target: target, Problem: err.Error()}}}
+	}
+	environment.ConfigDir = configDirectory
+	registry, registryErr := readManagedSkillRegistry(filepath.Join(environment.ConfigDir, managedSkillRegistryFilename))
 	report := DoctorReport{Healthy: true}
 	for _, resolved := range paths {
 		result := DoctorResult{
@@ -743,7 +1015,17 @@ func (b *Bundle) Doctor(name, target string, environment Environment) DoctorRepo
 			result.ActualDigest = actual.Full
 			result.ActualEmbeddedDigest = actual.Embedded
 			manifest, manifestErr := readInstallManifest(resolved.path)
-			result.Checks = doctorChecks(packageMetadata, expected, actual, manifest, manifestErr)
+			var record *managedSkillRecord
+			managedPath := resolved.path
+			ownershipErr := registryErr
+			if ownershipErr == nil {
+				if current, exists := registry.Installs[managedPath]; exists {
+					record = &current
+				} else {
+					ownershipErr = errors.New("managed Skill registry entry is missing")
+				}
+			}
+			result.Checks = doctorChecks(packageMetadata, expected, actual, manifest, manifestErr, name, resolved.name, record, ownershipErr)
 			result.Healthy, result.Problem = summarizeChecks(result.Checks)
 			if !result.Healthy {
 				report.Healthy = false
@@ -754,7 +1036,7 @@ func (b *Bundle) Doctor(name, target string, environment Environment) DoctorRepo
 	return report
 }
 
-func doctorChecks(packageMetadata PackageMetadata, expected, actual Digests, manifest installManifest, manifestErr error) DoctorChecks {
+func doctorChecks(packageMetadata PackageMetadata, expected, actual Digests, manifest installManifest, manifestErr error, name, target string, record *managedSkillRecord, ownershipErr error) DoctorChecks {
 	checks := DoctorChecks{
 		CLIVersion:            DoctorCheck{Expected: buildinfo.Version},
 		SkillVersion:          DoctorCheck{Expected: packageMetadata.SkillVersion},
@@ -764,6 +1046,7 @@ func doctorChecks(packageMetadata PackageMetadata, expected, actual Digests, man
 			Expected: fmt.Sprintf("minimum %s; %s", packageMetadata.MinimumCLIVersion, packageMetadata.CLICompatibility),
 			Actual:   buildinfo.CompatibilityVersion(),
 		},
+		ManagedOwnership: DoctorCheck{Expected: "matching managed registry and manifest v2 install ID"},
 	}
 	if manifestErr != nil {
 		problem := "install manifest is missing or invalid: " + manifestErr.Error()
@@ -772,6 +1055,7 @@ func doctorChecks(packageMetadata PackageMetadata, expected, actual Digests, man
 		checks.FullBundleDigest.Problem = problem
 		checks.EmbeddedContentDigest.Problem = problem
 		checks.Compatibility.Problem = problem
+		checks.ManagedOwnership.Problem = problem
 		return checks
 	}
 	checks.CLIVersion.Actual = manifest.CLIVersion
@@ -797,12 +1081,27 @@ func doctorChecks(packageMetadata PackageMetadata, expected, actual Digests, man
 	checks.Compatibility.Recorded = fmt.Sprintf("minimum %s; %s", manifest.MinimumCLIVersion, manifest.CLICompatibility)
 	compatible, compatibilityErr := semver.Satisfies(buildinfo.CompatibilityVersion(), manifest.CLICompatibility)
 	minimumComparison, minimumErr := semver.Compare(buildinfo.CompatibilityVersion(), manifest.MinimumCLIVersion)
-	checks.Compatibility.Healthy = manifest.SchemaVersion == 1 &&
+	checks.Compatibility.Healthy = manifest.SchemaVersion == 2 &&
 		manifest.MinimumCLIVersion == packageMetadata.MinimumCLIVersion &&
 		manifest.CLICompatibility == packageMetadata.CLICompatibility &&
 		compatibilityErr == nil && minimumErr == nil && compatible && minimumComparison >= 0
 	if !checks.Compatibility.Healthy {
 		checks.Compatibility.Problem = "current CLI does not satisfy the installed Skill compatibility contract"
+	}
+	checks.ManagedOwnership.Actual = manifest.InstallID
+	if record != nil {
+		checks.ManagedOwnership.Recorded = record.InstallID
+	}
+	checks.ManagedOwnership.Healthy = ownershipErr == nil && record != nil &&
+		record.SkillName == name && record.Target == target && record.Digest == expected.Full &&
+		manifest.InstallID == record.InstallID && validInstallID(record.InstallID) &&
+		manifest.ProductID == "" && manifest.ReleaseID == "" && actual.Full == record.Digest
+	if !checks.ManagedOwnership.Healthy {
+		if ownershipErr != nil {
+			checks.ManagedOwnership.Problem = ownershipErr.Error()
+		} else {
+			checks.ManagedOwnership.Problem = "registry, manifest, target, or installed digest does not identify the same managed Skill"
+		}
 	}
 	return checks
 }
@@ -815,6 +1114,7 @@ func summarizeChecks(checks DoctorChecks) (bool, string) {
 		"full_bundle_digest":      checks.FullBundleDigest,
 		"embedded_content_digest": checks.EmbeddedContentDigest,
 		"compatibility":           checks.Compatibility,
+		"managed_ownership":       checks.ManagedOwnership,
 	} {
 		if !check.Healthy {
 			problems = append(problems, name+": "+check.Problem)
@@ -829,31 +1129,18 @@ type targetPath struct {
 	path string
 }
 
-func resolveTargets(skillName, target string, environment Environment, _ bool) ([]targetPath, error) {
+type retirementTarget struct {
+	targetPath
+	trusted bool
+}
+
+func resolveTargets(skillName, target string, environment Environment) ([]targetPath, error) {
 	if target == "" {
 		target = "auto"
 	}
-	codexHome := environment.CodexHome
-	if codexHome == "" {
-		codexHome = filepath.Join(environment.Home, ".codex")
-	}
-	claudeHome := environment.ClaudeConfigDir
-	if claudeHome == "" {
-		claudeHome = filepath.Join(environment.Home, ".claude")
-	}
-	workBuddyHome := environment.WorkBuddyConfigDir
-	if workBuddyHome == "" {
-		workBuddyHome = filepath.Join(environment.Home, ".workbuddy")
-	}
-	agentsSkillsDir := environment.AgentsSkillsDir
-	if agentsSkillsDir == "" {
-		agentsSkillsDir = filepath.Join(environment.Home, ".agents", "skills")
-	}
-	known := map[string]targetPath{
-		"codex":     {name: "codex", path: filepath.Join(codexHome, "skills", skillName)},
-		"claude":    {name: "claude", path: filepath.Join(claudeHome, "skills", skillName)},
-		"workbuddy": {name: "workbuddy", path: filepath.Join(workBuddyHome, "skills", skillName)},
-		"agents":    {name: "agents", path: filepath.Join(agentsSkillsDir, skillName)},
+	known, err := resolveKnownTargets(skillName, environment)
+	if err != nil {
+		return nil, err
 	}
 	if target != "auto" {
 		resolved, ok := known[target]
@@ -876,80 +1163,84 @@ func resolveTargets(skillName, target string, environment Environment, _ bool) (
 	return result, nil
 }
 
-func (b *Bundle) installOne(name, destination string) error {
-	parent := filepath.Dir(destination)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return fmt.Errorf("create Skill parent: %w", err)
+func resolveKnownTargets(skillName string, environment Environment) (map[string]targetPath, error) {
+	codexHome := environment.CodexHome
+	if codexHome == "" {
+		codexHome = filepath.Join(environment.Home, ".codex")
 	}
-	lockPath := destination + ".viceme-install-lock"
-	installLock := flock.New(lockPath)
-	locked, err := installLock.TryLock()
-	if err != nil {
-		return fmt.Errorf("acquire Skill install lock: %w", err)
+	claudeHome := environment.ClaudeConfigDir
+	if claudeHome == "" {
+		claudeHome = filepath.Join(environment.Home, ".claude")
 	}
-	if !locked {
-		return fmt.Errorf("another Skill install is already updating %s", destination)
+	workBuddyHome := environment.WorkBuddyConfigDir
+	if workBuddyHome == "" {
+		workBuddyHome = filepath.Join(environment.Home, ".workbuddy")
 	}
-	defer installLock.Unlock()
-	expected, err := b.Digests(name)
-	if err != nil {
-		return err
+	agentsSkillsDir := environment.AgentsSkillsDir
+	if agentsSkillsDir == "" {
+		agentsSkillsDir = filepath.Join(environment.Home, ".agents", "skills")
 	}
-	stage, err := os.MkdirTemp(parent, ".viceme-stage-")
-	if err != nil {
-		return fmt.Errorf("create Skill staging directory: %w", err)
+	raw := map[string]targetPath{
+		"codex":     {name: "codex", path: filepath.Join(codexHome, "skills", skillName)},
+		"claude":    {name: "claude", path: filepath.Join(claudeHome, "skills", skillName)},
+		"workbuddy": {name: "workbuddy", path: filepath.Join(workBuddyHome, "skills", skillName)},
+		"agents":    {name: "agents", path: filepath.Join(agentsSkillsDir, skillName)},
 	}
-	defer os.RemoveAll(stage)
-	stagedSkill := filepath.Join(stage, name)
-	if err := os.MkdirAll(stagedSkill, 0o755); err != nil {
-		return fmt.Errorf("create staged Skill directory: %w", err)
-	}
-	if err := copyTree(b.FS, name, stagedSkill); err != nil {
-		return err
-	}
-	manifest, err := b.installManifest(name)
-	if err != nil {
-		return err
-	}
-	if err := writeInstallManifest(stagedSkill, manifest); err != nil {
-		return err
-	}
-	stagedBundle := New(os.DirFS(stage))
-	if err := stagedBundle.Validate(name); err != nil {
-		return fmt.Errorf("validate staged Skill: %w", err)
-	}
-	backup := destination + ".viceme-backup"
-	_ = os.RemoveAll(backup)
-	hadExisting := false
-	if _, err := os.Lstat(destination); err == nil {
-		hadExisting = true
-		if err := os.Rename(destination, backup); err != nil {
-			return fmt.Errorf("stage existing Skill: %w", err)
-		}
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return fmt.Errorf("inspect existing Skill: %w", err)
-	}
-	if err := os.Rename(stagedSkill, destination); err != nil {
-		if hadExisting {
-			_ = os.Rename(backup, destination)
-		}
-		return fmt.Errorf("activate staged Skill: %w", err)
-	}
-	actualDigests, err := digestsInstalled(destination)
-	if err != nil || actualDigests != expected {
-		_ = os.RemoveAll(destination)
-		if hadExisting {
-			_ = os.Rename(backup, destination)
-		}
+	known := make(map[string]targetPath, len(raw))
+	for name, resolved := range raw {
+		normalized, err := normalizeManagedSkillPath(resolved.path)
 		if err != nil {
-			return fmt.Errorf("verify installed Skill: %w", err)
+			return nil, err
 		}
-		return fmt.Errorf("verify installed Skill: digest mismatch")
+		resolved.path = normalized
+		known[name] = resolved
 	}
-	if hadExisting {
-		_ = os.RemoveAll(backup)
+	return known, nil
+}
+
+func resolveRetirementTargets(skillName, target string, environment Environment, registry managedSkillRegistry, includeLegacy bool) ([]retirementTarget, error) {
+	selected, err := resolveTargets(skillName, target, environment)
+	if err != nil {
+		return nil, err
 	}
-	return nil
+	known, err := resolveKnownTargets(skillName, environment)
+	if err != nil {
+		return nil, err
+	}
+	candidates := make(map[string]retirementTarget)
+	for _, resolved := range selected {
+		candidates[resolved.path] = retirementTarget{targetPath: resolved, trusted: true}
+	}
+	if includeLegacy {
+		for _, name := range []string{"agents", "codex", "claude", "workbuddy"} {
+			resolved := known[name]
+			if _, exists := candidates[resolved.path]; !exists {
+				candidates[resolved.path] = retirementTarget{targetPath: resolved, trusted: true}
+			}
+		}
+	}
+	for managedPath, record := range registry.Installs {
+		if record.SkillName != skillName {
+			continue
+		}
+		expected, knownTarget := known[record.Target]
+		trusted := knownTarget && expected.path == managedPath
+		candidates[managedPath] = retirementTarget{
+			targetPath: targetPath{name: record.Target, path: managedPath},
+			trusted:    trusted,
+		}
+	}
+	result := make([]retirementTarget, 0, len(candidates))
+	for _, candidate := range candidates {
+		result = append(result, candidate)
+	}
+	sort.Slice(result, func(left, right int) bool {
+		if result[left].path == result[right].path {
+			return result[left].name < result[right].name
+		}
+		return result[left].path < result[right].path
+	})
+	return result, nil
 }
 
 func (b *Bundle) installManifest(name string) (installManifest, error) {
@@ -1000,7 +1291,7 @@ func readInstallManifest(directory string) (installManifest, error) {
 	return manifest, nil
 }
 
-func (b *Bundle) installationCurrent(name, directory string) bool {
+func (b *Bundle) installationCurrent(name, directory, target string, record *managedSkillRecord, provenance *SkillProvenance) bool {
 	expected, err := b.Digests(name)
 	if err != nil {
 		return false
@@ -1013,11 +1304,48 @@ func (b *Bundle) installationCurrent(name, directory string) bool {
 	if err != nil {
 		return false
 	}
+	if provenance != nil {
+		want.ProductID = provenance.ProductID
+		want.ReleaseID = provenance.ReleaseID
+	} else {
+		if record == nil || record.SkillName != name || record.Target != target || record.Digest != expected.Full || !validInstallID(record.InstallID) {
+			return false
+		}
+		want.SchemaVersion = 2
+		want.InstallID = record.InstallID
+	}
 	installed, err := readInstallManifest(directory)
 	return err == nil && installed == want
 }
 
-func validateRetiredSkillIdentity(identity RetiredSkillIdentity) error {
+// ValidateLegacyRetiredSkillIdentity reports whether a one-time v1 migration
+// identity pins a complete published bundle and its reproducible source.
+func ValidateLegacyRetiredSkillIdentity(identity LegacyRetiredSkillIdentity) error {
+	return validateLegacyRetiredSkillIdentity(identity)
+}
+
+func validateRetiredSkill(skill RetiredSkill) error {
+	if err := validName(skill.Name); err != nil {
+		return err
+	}
+	seen := make(map[string]bool)
+	for _, identity := range skill.LegacyMigrations {
+		if identity.Name != skill.Name {
+			return fmt.Errorf("legacy migration for %s names a different retired Skill %s", skill.Name, identity.Name)
+		}
+		if err := validateLegacyRetiredSkillIdentity(identity); err != nil {
+			return err
+		}
+		key := identity.SkillVersion + "\x00" + identity.FullBundleDigest
+		if seen[key] {
+			return fmt.Errorf("retired Skill %s has a duplicate legacy migration identity", skill.Name)
+		}
+		seen[key] = true
+	}
+	return nil
+}
+
+func validateLegacyRetiredSkillIdentity(identity LegacyRetiredSkillIdentity) error {
 	if err := validName(identity.Name); err != nil {
 		return err
 	}
@@ -1032,33 +1360,339 @@ func validateRetiredSkillIdentity(identity RetiredSkillIdentity) error {
 		return fmt.Errorf("retired Skill %s has an invalid CLI compatibility range", identity.Name)
 	}
 	for _, digest := range []string{identity.FullBundleDigest, identity.EmbeddedContentDigest} {
-		encoded := strings.TrimPrefix(digest, "sha256:")
-		if len(encoded) != 64 || len(encoded) == len(digest) {
+		if !validSHA256Digest(digest) {
 			return fmt.Errorf("retired Skill %s has an invalid digest", identity.Name)
 		}
-		if _, err := hex.DecodeString(encoded); err != nil {
-			return fmt.Errorf("retired Skill %s has an invalid digest", identity.Name)
+	}
+	provenance := strings.TrimSpace(identity.Provenance)
+	if provenance != identity.Provenance || strings.ContainsAny(provenance, "\r\n") {
+		return fmt.Errorf("retired Skill %s has invalid legacy provenance", identity.Name)
+	}
+	if strings.HasPrefix(provenance, "tag:") {
+		if strings.TrimPrefix(provenance, "tag:") == "" {
+			return fmt.Errorf("retired Skill %s has invalid legacy provenance", identity.Name)
 		}
+	} else if strings.HasPrefix(provenance, "commit:") {
+		commit := strings.TrimPrefix(provenance, "commit:")
+		if len(commit) != 40 {
+			return fmt.Errorf("retired Skill %s has invalid legacy provenance", identity.Name)
+		}
+		if _, err := hex.DecodeString(commit); err != nil {
+			return fmt.Errorf("retired Skill %s has invalid legacy provenance", identity.Name)
+		}
+	} else {
+		return fmt.Errorf("retired Skill %s has invalid legacy provenance", identity.Name)
 	}
 	return nil
 }
 
-func retiredSkillManaged(directory string, identity RetiredSkillIdentity) bool {
+func guardOfficialSkillDestination(directory string) error {
 	info, err := os.Lstat(directory)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return false
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect existing Skill: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refuse to overwrite %s: existing path is not a managed official Skill directory", directory)
 	}
 	manifest, err := readInstallManifest(directory)
-	if err != nil || manifest.SchemaVersion != 1 || strings.TrimSpace(manifest.CLIVersion) == "" ||
-		manifest.SkillVersion != identity.SkillVersion ||
-		manifest.MinimumCLIVersion != identity.MinimumCLIVersion ||
-		manifest.CLICompatibility != identity.CLICompatibility ||
-		manifest.FullBundleDigest != identity.FullBundleDigest ||
-		manifest.EmbeddedContentDigest != identity.EmbeddedContentDigest {
-		return false
+	if err != nil {
+		return fmt.Errorf("refuse to overwrite %s: existing Skill has no managed ownership record", directory)
+	}
+	if manifest.ProductID != "" || manifest.ReleaseID != "" {
+		return fmt.Errorf("refuse to overwrite %s: existing Skill is a marketplace installation", directory)
+	}
+	if manifest.SchemaVersion != 1 || manifest.InstallID != "" {
+		return fmt.Errorf("refuse to overwrite %s: existing official manifest is not backed by the managed Skill registry", directory)
+	}
+	return nil
+}
+
+func guardRegisteredOfficialSkillDestination(directory string, record managedSkillRecord) error {
+	info, err := os.Lstat(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect registered official Skill: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refuse to overwrite %s: registered official path no longer contains its managed directory", directory)
+	}
+	manifest, err := readInstallManifest(directory)
+	if err != nil {
+		return fmt.Errorf("refuse to overwrite %s: registered official path has no matching manifest v2", directory)
+	}
+	if manifest.ProductID != "" || manifest.ReleaseID != "" {
+		return fmt.Errorf("refuse to overwrite %s: registered official path now contains a marketplace installation", directory)
+	}
+	if manifest.SchemaVersion != 2 || manifest.InstallID != record.InstallID {
+		return fmt.Errorf("refuse to overwrite %s: registered official path has a different install ID", directory)
+	}
+	return nil
+}
+
+// guardMarketplaceSkillDestination fails closed when an existing destination
+// cannot be proven to belong to the same Product: foreign or user-owned
+// directories, directories managed as official or legacy Skills (no Product
+// provenance), and directories owned by another Product are all refused.
+func guardMarketplaceSkillDestination(directory string, provenance SkillProvenance) error {
+	info, err := os.Lstat(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect existing Skill: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refuse to overwrite %s: existing path is not a ViceMe-managed Skill directory", directory)
+	}
+	manifest, err := readInstallManifest(directory)
+	if err != nil {
+		return fmt.Errorf("refuse to overwrite %s: existing Skill is not managed by a ViceMe installation", directory)
+	}
+	if manifest.ProductID == "" || manifest.ReleaseID == "" {
+		return fmt.Errorf("refuse to overwrite %s: existing Skill is an official or legacy ViceMe Skill, not a marketplace installation", directory)
+	}
+	if manifest.ProductID != provenance.ProductID {
+		return fmt.Errorf("refuse to overwrite %s: existing Skill belongs to a different Product (%s)", directory, manifest.ProductID)
+	}
+	return nil
+}
+
+func inspectRetiredSkill(directory, managedPath, target string, skill RetiredSkill, registry managedSkillRegistry, allowLegacy bool) (string, retiredSkillOwnership) {
+	info, err := os.Lstat(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "absent", retiredSkillOwnership{}
+	}
+	record, registered := registry.Installs[managedPath]
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		if registered && record.SkillName == skill.Name && record.Target == target {
+			return "preserved_modified", retiredSkillOwnership{Registry: &record}
+		}
+		return "preserved_unmanaged", retiredSkillOwnership{}
+	}
+	if registered {
+		if record.SkillName != skill.Name || record.Target != target {
+			return "preserved_unmanaged", retiredSkillOwnership{}
+		}
+		ownership := retiredSkillOwnership{Registry: &record}
+		return verifyRetiredSkillOwnership(directory, target, skill, ownership), ownership
+	}
+	if !allowLegacy {
+		return "preserved_unmanaged", retiredSkillOwnership{}
+	}
+	manifest, err := readInstallManifest(directory)
+	if err != nil {
+		return "preserved_unmanaged", retiredSkillOwnership{}
+	}
+	for _, identity := range skill.LegacyMigrations {
+		if !legacyManifestMatches(manifest, identity) {
+			continue
+		}
+		identityCopy := identity
+		ownership := retiredSkillOwnership{Legacy: &identityCopy}
+		return verifyRetiredSkillOwnership(directory, target, skill, ownership), ownership
+	}
+	return "preserved_unmanaged", retiredSkillOwnership{}
+}
+
+func verifyRetiredSkillOwnership(directory, target string, skill RetiredSkill, ownership retiredSkillOwnership) string {
+	info, err := os.Lstat(directory)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		if ownership.Registry != nil || ownership.Legacy != nil {
+			return "preserved_modified"
+		}
+		return "preserved_unmanaged"
+	}
+	manifest, err := readInstallManifest(directory)
+	if err != nil {
+		return "preserved_modified"
 	}
 	actual, err := digestsInstalled(directory)
-	return err == nil && actual.Full == identity.FullBundleDigest && actual.Embedded == identity.EmbeddedContentDigest
+	if err != nil {
+		return "preserved_modified"
+	}
+	if ownership.Registry != nil {
+		record := *ownership.Registry
+		if record.SkillName != skill.Name || record.Target != target || !validInstallID(record.InstallID) ||
+			manifest.SchemaVersion != 2 || manifest.InstallID != record.InstallID ||
+			manifest.ProductID != "" || manifest.ReleaseID != "" ||
+			manifest.FullBundleDigest != record.Digest || actual.Full != record.Digest ||
+			actual.Embedded != manifest.EmbeddedContentDigest {
+			return "preserved_modified"
+		}
+		return "retired"
+	}
+	if ownership.Legacy != nil {
+		identity := *ownership.Legacy
+		if !legacyManifestMatches(manifest, identity) ||
+			actual.Full != identity.FullBundleDigest || actual.Embedded != identity.EmbeddedContentDigest {
+			return "preserved_modified"
+		}
+		return "retired"
+	}
+	return "preserved_unmanaged"
+}
+
+func legacyManifestMatches(manifest installManifest, identity LegacyRetiredSkillIdentity) bool {
+	return manifest.SchemaVersion == 1 && manifest.InstallID == "" &&
+		manifest.ProductID == "" && manifest.ReleaseID == "" &&
+		strings.TrimSpace(manifest.CLIVersion) != "" &&
+		manifest.SkillVersion == identity.SkillVersion &&
+		manifest.MinimumCLIVersion == identity.MinimumCLIVersion &&
+		manifest.CLICompatibility == identity.CLICompatibility &&
+		manifest.FullBundleDigest == identity.FullBundleDigest &&
+		manifest.EmbeddedContentDigest == identity.EmbeddedContentDigest
+}
+
+func normalizeManagedSkillPath(directory string) (string, error) {
+	normalized, err := normalizeTransactionPath(directory)
+	if err != nil {
+		return "", fmt.Errorf("normalize managed Skill path: %w", err)
+	}
+	if runtime.GOOS == "windows" {
+		normalized = strings.ToLower(normalized)
+	}
+	return normalized, nil
+}
+
+func normalizeTransactionPath(filename string) (string, error) {
+	normalized, err := filepath.Abs(filepath.Clean(filename))
+	if err != nil {
+		return "", err
+	}
+	parent, err := resolveExistingPathPrefix(filepath.Dir(normalized))
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(parent, filepath.Base(normalized)), nil
+}
+
+func resolveExistingPathPrefix(filename string) (string, error) {
+	current := filepath.Clean(filename)
+	var suffix []string
+	for {
+		resolved, err := filepath.EvalSymlinks(current)
+		if err == nil {
+			for index := len(suffix) - 1; index >= 0; index-- {
+				resolved = filepath.Join(resolved, suffix[index])
+			}
+			return filepath.Clean(resolved), nil
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return "", err
+		}
+		suffix = append(suffix, filepath.Base(current))
+		current = parent
+	}
+}
+
+func newInstallID() (string, error) {
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", fmt.Errorf("generate managed Skill install ID: %w", err)
+	}
+	value[6] = (value[6] & 0x0f) | 0x40
+	value[8] = (value[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", value[0:4], value[4:6], value[6:8], value[8:10], value[10:16]), nil
+}
+
+func validInstallID(value string) bool {
+	if len(value) != 36 || value[8] != '-' || value[13] != '-' || value[18] != '-' || value[23] != '-' {
+		return false
+	}
+	decoded, err := hex.DecodeString(strings.ReplaceAll(value, "-", ""))
+	return err == nil && len(decoded) == 16
+}
+
+func validSHA256Digest(value string) bool {
+	encoded := strings.TrimPrefix(value, "sha256:")
+	if len(encoded) != 64 || len(encoded) == len(value) {
+		return false
+	}
+	decoded, err := hex.DecodeString(encoded)
+	return err == nil && len(decoded) == 32
+}
+
+func validManagedTarget(target string) bool {
+	switch target {
+	case "agents", "codex", "claude", "workbuddy":
+		return true
+	default:
+		return false
+	}
+}
+
+func readManagedSkillRegistry(filename string) (managedSkillRegistry, error) {
+	registry := managedSkillRegistry{SchemaVersion: 1, Installs: make(map[string]managedSkillRecord)}
+	data, err := os.ReadFile(filename)
+	if errors.Is(err, fs.ErrNotExist) {
+		return registry, nil
+	}
+	if err != nil {
+		return managedSkillRegistry{}, fmt.Errorf("read managed Skill registry: %w", err)
+	}
+	if err := decodeStrictJSON(data, &registry); err != nil || registry.SchemaVersion != 1 ||
+		registry.LegacyMigrationVersion < 0 || registry.LegacyMigrationVersion > legacyRetiredSkillMigrationVersion || registry.Installs == nil {
+		return managedSkillRegistry{}, errors.New("managed Skill registry is invalid; refusing to reconcile installed Skills")
+	}
+	seen := make(map[string]string, len(registry.Installs))
+	for managedPath, record := range registry.Installs {
+		normalized, err := normalizeManagedSkillPath(managedPath)
+		if err != nil || normalized != managedPath || validName(record.SkillName) != nil ||
+			!validInstallID(record.InstallID) || !validManagedTarget(record.Target) || !validSHA256Digest(record.Digest) {
+			return managedSkillRegistry{}, errors.New("managed Skill registry contains an invalid install record")
+		}
+		identity := normalized
+		if runtime.GOOS == "windows" {
+			identity = strings.ToLower(identity)
+		}
+		if previous, duplicate := seen[identity]; duplicate && previous != managedPath {
+			return managedSkillRegistry{}, errors.New("managed Skill registry contains duplicate normalized paths")
+		}
+		seen[identity] = managedPath
+	}
+	return registry, nil
+}
+
+func writeManagedSkillRegistry(filename string, registry managedSkillRegistry) error {
+	data, err := json.MarshalIndent(registry, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode managed Skill registry: %w", err)
+	}
+	data = append(data, '\n')
+	temporary, err := os.CreateTemp(filepath.Dir(filename), ".managed-skills-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create managed Skill registry: %w", err)
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.Write(data); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryName, filename); err != nil {
+		return fmt.Errorf("activate managed Skill registry: %w", err)
+	}
+	return nil
 }
 
 func pathDoesNotExist(filename string) bool {

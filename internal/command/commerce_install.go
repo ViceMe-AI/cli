@@ -101,7 +101,10 @@ func newCommerceSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			if err := validateCommerceRuntimeVersion(verified.Signature.Envelope.MinimumRuntimeVersion); err != nil {
 				return err
 			}
-			report, err := installVerifiedCommerceSkill(stableName, agent, verified.Files, runtime.deps.Environment)
+			report, err := installVerifiedCommerceSkill(stableName, agent, verified.Files, runtime.deps.Environment, skillcontent.SkillProvenance{
+				ProductID: descriptor.Binding.ProductID,
+				ReleaseID: descriptor.ActiveRelease.SkillReleaseID,
+			})
 			if err != nil {
 				return err
 			}
@@ -197,7 +200,7 @@ func compiledCommerceTrustKeys() map[string]string {
 	return keys
 }
 
-func installVerifiedCommerceSkill(stableName, target string, files map[string][]byte, environment skillcontent.Environment) (skillcontent.InstallReport, error) {
+func installVerifiedCommerceSkill(stableName, target string, files map[string][]byte, environment skillcontent.Environment, provenance skillcontent.SkillProvenance) (skillcontent.InstallReport, error) {
 	root, err := os.MkdirTemp("", "viceme-commerce-skill-")
 	if err != nil {
 		return skillcontent.InstallReport{}, output.Internal("COMMERCE_SKILL_STAGE_FAILED", "could not create a private Skill staging directory", err)
@@ -243,6 +246,6 @@ func installVerifiedCommerceSkill(stableName, target string, files map[string][]
 		return skillcontent.InstallReport{}, output.Internal("COMMERCE_SKILL_STAGE_FAILED", "could not stage Skill package metadata", err)
 	}
 	bundle := skillcontent.New(os.DirFS(root))
-	report := bundle.Install(stableName, target, environment)
+	report := bundle.InstallWithProvenance(stableName, target, environment, provenance)
 	return report, nil
 }
