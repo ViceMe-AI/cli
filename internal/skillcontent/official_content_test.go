@@ -689,7 +689,9 @@ func TestEngagementTipBranchIncludesRecoverableWebsiteWidgetWorkflow(t *testing.
 			"`REVOKED` 时停止并报告该终态资源",
 			"非空但缺少 canonical Origin 时停止并报告共享配置冲突",
 			"只有 `origins` 为空时才补写 canonical Origin",
-			"先按精确 revision 挂起",
+			"`ACTIVE` 且 `origins` 为空时停止并报告共享配置冲突",
+			"不得挂起正在服务付费访问的共享应用",
+			"更新请求省略 `displayName` 与 `returnUrls`",
 			"省略 `returnUrls` 才会保留现有值",
 			"`\"returnUrls\": []` 会退役全部现有 URL",
 			"`products` 不是更新字段",
@@ -707,7 +709,6 @@ func TestEngagementTipBranchIncludesRecoverableWebsiteWidgetWorkflow(t *testing.
 			`"kind": "WEBSITE_WIDGET"`,
 			"viceme --profile <profile> merchant commerce-application create --input <json>",
 			"viceme --profile <profile> merchant commerce-application get <application-id> --merchant <merchant-id>",
-			"viceme --profile <profile> merchant commerce-application suspend <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
 			"viceme --profile <profile> merchant commerce-application update <application-id> --input <json>",
 			"viceme --profile <profile> merchant commerce-application activate <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
 		})
@@ -719,6 +720,9 @@ func TestEngagementTipBranchIncludesRecoverableWebsiteWidgetWorkflow(t *testing.
 		applicationOffset := strings.Index(normalized, "merchant commerce-application list")
 		if applicationOffset < 0 || strings.Contains(normalized[applicationOffset:], "`ARCHIVED`") {
 			t.Fatalf("standalone %s uses a non-contract Website Widget status", relativePath)
+		}
+		if strings.Contains(normalized[applicationOffset:], "commerce-application suspend") {
+			t.Fatalf("standalone %s suspends a shared Website Widget", relativePath)
 		}
 	}
 }

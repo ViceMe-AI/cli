@@ -120,14 +120,7 @@ description: 为公开的创作者网站接入或修复 ViceMe 托管互动。�
 
    运行 `viceme --profile <profile> merchant commerce-application create --input <json>`。复用或新建后都运行 `viceme --profile <profile> merchant commerce-application get <application-id> --merchant <merchant-id>` 复核。绝不因现有应用显示名、Origin、return URL 或 Product 不同就创建第二个。`REVOKED` 时停止并报告该终态资源。
 
-   已有应用的 `origins` 包含 canonical Origin 时不更新配置；非空但缺少 canonical Origin 时停止并报告共享配置冲突，不得替换现有 Origin 集合。只有 `origins` 为空时才补写 canonical Origin；若此时状态为 `ACTIVE`，先按精确 revision 挂起：
-
-   ```bash
-   viceme --profile <profile> merchant commerce-application suspend <application-id> \
-     --merchant <merchant-id> --expected-revision <application-revision>
-   ```
-
-   挂起后复核。对 `origins` 为空的 `DRAFT` 或 `SUSPENDED` 应用，按最新 revision 写更新输入：
+   已有应用的 `origins` 包含 canonical Origin 时不更新配置；非空但缺少 canonical Origin 时停止并报告共享配置冲突，不得替换现有 Origin 集合。只有 `origins` 为空时才补写 canonical Origin。`ACTIVE` 且 `origins` 为空时停止并报告共享配置冲突，不得挂起正在服务付费访问的共享应用。对 `origins` 为空的 `DRAFT` 或 `SUSPENDED` 应用，按最新 revision 写更新输入：
 
    ```json
    {
@@ -137,7 +130,7 @@ description: 为公开的创作者网站接入或修复 ViceMe 托管互动。�
    }
    ```
 
-   更新请求省略 `returnUrls` 才会保留现有值；`"returnUrls": []` 会退役全部现有 URL，严禁在本流程中使用。`products` 不是更新字段。运行 `viceme --profile <profile> merchant commerce-application update <application-id> --input <json>`，Origin 合同满足后，状态为 `DRAFT` 或 `SUSPENDED` 时按精确 revision 运行：
+   更新请求省略 `displayName` 与 `returnUrls`，其中省略 `returnUrls` 才会保留现有值；`"returnUrls": []` 会退役全部现有 URL，严禁在本流程中使用。`products` 不是更新字段。运行 `viceme --profile <profile> merchant commerce-application update <application-id> --input <json>`，Origin 合同满足后，状态为 `DRAFT` 或 `SUSPENDED` 时按精确 revision 运行：
 
    ```bash
    viceme --profile <profile> merchant commerce-application activate <application-id> \
