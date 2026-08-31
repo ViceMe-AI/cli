@@ -43,14 +43,18 @@
     <main>
       <h1>创作者作品</h1>
       <p>这是一个独立部署的单 HTML 创作者页面。</p>
+      <div id="viceme-engagement"></div>
     </main>
 
-    <!-- 只能使用当前固定 Profile 下 creator-app show 返回的 data.embedSnippet 替换下面占位符；不要手工推导脚本地址或应用 ID。 -->
+    <!-- 使用当前固定 Profile 与 SDK access 返回的精确值替换全部占位符；不得手工推导地址、区域或特性。 -->
     <script
-      async
+      defer
       src="REPLACE_WITH_SDK_SCRIPT_URL"
       data-viceme-work="REPLACE_WITH_WORK_KEY"
-      data-locale="zh-CN"
+      data-viceme-region="REPLACE_WITH_REGION"
+      data-viceme-features="REPLACE_WITH_FEATURES"
+      data-viceme-target="#viceme-engagement"
+      data-viceme-theme="auto"
     ></script>
   </body>
 </html>

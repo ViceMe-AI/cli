@@ -20,7 +20,7 @@ var officialSkillNames = []string{
 	"viceme-publish",
 	"viceme-shared",
 	"viceme-skill-use",
-	"viceme-tip",
+	"viceme-engagement",
 }
 
 func readOfficialSkillBundle(t *testing.T, skillName string) string {
@@ -126,13 +126,13 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 		},
 		{
-			name: "viceme-tip",
+			name: "viceme-engagement",
 			machine: []string{
 				"website-verification create", "website-verification verify", "commerce-application activate", "sdk-access",
-				"data-viceme-features", "workKey",
+				"--feature danmaku", "--feature tip", `data-viceme-features="danmaku,tip"`, "workKey",
 			},
 			semantics: []string{
-				"不得仅因 HTML 移动就创建重复项", "界面能打开不代表支付已成交",
+				"仅弹幕", "仅赞赏", "弹幕和赞赏", "不得仅因 HTML 移动就创建重复项", "界面能打开不代表支付已成交",
 			},
 		},
 	}
@@ -173,21 +173,51 @@ func TestOfficialSkillEntryMetadataIsChinese(t *testing.T) {
 	}
 }
 
-func TestTipTemplateUsesCLIResponseAsItsOnlyEmbedSource(t *testing.T) {
+func TestEngagementTemplateRequiresExactBranchValues(t *testing.T) {
 	t.Parallel()
 
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-tip/templates/single-html.html")
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-engagement/templates/single-html.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(content)
-	for _, required := range []string{"当前固定 Profile", "creator-app show", "data.embedSnippet", "不要手工推导"} {
+	for _, required := range []string{
+		"当前固定 Profile", "REPLACE_WITH_SDK_SCRIPT_URL", "REPLACE_WITH_WORK_KEY",
+		"REPLACE_WITH_REGION", "REPLACE_WITH_FEATURES", "不得手工推导",
+	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("tip template omitted authoritative CLI source guard %q", required)
+			t.Fatalf("engagement template omitted authoritative branch value %q", required)
 		}
 	}
-	if strings.Contains(text, "Creator Center") {
-		t.Fatal("tip template still treats Creator Center as the embed value source")
+	if strings.Contains(text, `data-viceme-features="tip"`) {
+		t.Fatal("engagement template hard-codes the tip-only branch")
+	}
+}
+
+func TestEngagementReplacesStandaloneDanmakuAndTipSkills(t *testing.T) {
+	t.Parallel()
+
+	bundle := readOfficialSkillBundle(t, "viceme-engagement")
+	for _, required := range []string{
+		"仅弹幕", "仅赞赏", "弹幕和赞赏", "完整特性集合", "保留已经启用但用户没有要求移除的特性",
+		"页面目标特性集合是现有加载器特性与用户新增特性的并集", "复用并更新该标签，不得追加第二个",
+		"widget/engagement-embed.js", "tip-embed.js", "历史标签只作为迁移输入，不能继续运行", "data-creator-app-id",
+		"缺少这两种可验证身份时停止", "从 `workId` 读取 Work",
+		"不得在确认归属前写入任何 Work、SDK access 或 Website Widget", "按公开 `workKey` 精确定位 SDK access",
+		"现有 SDK hosted features 减去明确移除项，再并入页面目标特性集合", "--clear-hosted", "sdk-access disable",
+		"只有页面目标特性集合包含 `tip` 时执行本步",
+		"按 Work、kind、environment 定位唯一应用", "已有非空 Origin 集合缺少 canonical Origin 时按共享配置冲突停止",
+		"Engagement 不管理 Product 绑定或 return URL",
+		`data-viceme-features="danmaku"`, `data-viceme-features="tip"`, `data-viceme-features="danmaku,tip"`,
+	} {
+		if !strings.Contains(bundle, required) {
+			t.Fatalf("unified engagement Skill omitted branch contract %q", required)
+		}
+	}
+	for _, retired := range []string{"viceme-danmaku/SKILL.md", "viceme-tip/SKILL.md"} {
+		if _, err := fs.Stat(cliembed.EmbeddedSkills(), retired); err == nil {
+			t.Fatalf("standalone engagement Skill remains embedded: %s", retired)
+		}
 	}
 }
 
@@ -627,7 +657,7 @@ func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 	}
 }
 
-func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
+func TestEngagementTipBranchIncludesRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 	t.Parallel()
 	applicationInput := `{
 		"merchantAccountId": "<merchant-id>",
@@ -635,19 +665,16 @@ func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 		"kind": "WEBSITE_WIDGET",
 		"environment": "PRODUCTION",
 		"displayName": "<website name>",
-		"origins": ["https://creator.example"],
-		"returnUrls": []
+		"origins": ["https://creator.example"]
 	}`
 	applicationUpdateInput := `{
 		"merchantAccountId": "<merchant-id>",
 		"expectedRevision": 2,
-		"displayName": "<website name>",
-		"origins": ["https://creator.example"],
-		"returnUrls": []
+		"origins": ["https://creator.example"]
 	}`
 
 	for _, relativePath := range []string{
-		"viceme-tip/SKILL.md",
+		"viceme-engagement/SKILL.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -656,14 +683,22 @@ func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 		text := string(content)
 		normalized := strings.Join(strings.Fields(strings.ReplaceAll(text, "\\\n", " ")), " ")
 		for _, required := range []string{
-			"（`(workId, environment, kind)` 唯一）",
+			"`(workId, PRODUCTION, WEBSITE_WIDGET)` 唯一",
 			"不存在时创建",
-			"绝不因现有应用显示名、Origin 或 return URL 不同就创建第二个",
+			"绝不因现有应用显示名、Origin、return URL 或 Product 不同就创建第二个",
 			"`REVOKED` 时停止并报告该终态资源",
-			"配置不同且状态 `ACTIVE` 时，先按其精确 revision 挂起",
+			"非空但缺少 canonical Origin 时停止并报告共享配置冲突",
+			"只有 `origins` 为空时才补写 canonical Origin",
+			"`ACTIVE` 且 `origins` 为空时停止并报告共享配置冲突",
+			"不得挂起正在服务付费访问的共享应用",
+			"更新请求省略 `displayName` 与 `returnUrls`",
+			"省略 `returnUrls` 才会保留现有值",
+			"`\"returnUrls\": []` 会退役全部现有 URL",
+			"`products` 不是更新字段",
 			"commerce-application update <application-id> --input <json>",
-			"已 `ACTIVE` 且一致则跳过",
+			"已 `ACTIVE` 且包含 canonical Origin 时跳过激活",
 			"create 响应丢失时先 list 再决定",
+			"Engagement 不管理 Product 绑定",
 		} {
 			if !strings.Contains(normalized, required) {
 				t.Fatalf("standalone %s omitted Website Widget constraint %q", relativePath, required)
@@ -674,18 +709,20 @@ func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 			`"kind": "WEBSITE_WIDGET"`,
 			"viceme --profile <profile> merchant commerce-application create --input <json>",
 			"viceme --profile <profile> merchant commerce-application get <application-id> --merchant <merchant-id>",
-			"viceme --profile <profile> merchant commerce-application suspend <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
 			"viceme --profile <profile> merchant commerce-application update <application-id> --input <json>",
 			"viceme --profile <profile> merchant commerce-application activate <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
 		})
 		requireJSONBlock(t, relativePath, text, `"kind": "WEBSITE_WIDGET"`, applicationInput)
 		requireJSONBlockWithMarkers(t, relativePath, text, []string{
 			`"expectedRevision": 2`,
-			`"displayName": "<website name>"`,
+			`"origins": ["https://creator.example"]`,
 		}, applicationUpdateInput)
 		applicationOffset := strings.Index(normalized, "merchant commerce-application list")
 		if applicationOffset < 0 || strings.Contains(normalized[applicationOffset:], "`ARCHIVED`") {
 			t.Fatalf("standalone %s uses a non-contract Website Widget status", relativePath)
+		}
+		if strings.Contains(normalized[applicationOffset:], "commerce-application suspend") {
+			t.Fatalf("standalone %s suspends a shared Website Widget", relativePath)
 		}
 	}
 }
@@ -711,6 +748,50 @@ func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
 	}
 	if strings.Contains(text, "Payment integration remains a documented future capability") {
 		t.Fatal("publish Skill still describes Website Widget tips as unavailable")
+	}
+}
+
+func TestWebsiteWorkSelectionDisambiguatesDuplicateOrigins(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		path     string
+		required []string
+	}{
+		{
+			path: "viceme-engagement/SKILL.md",
+			required: []string{
+				"页面没有任何当前或历史 loader 时",
+				"0 个候选时才创建新 Work",
+				"恰好 1 个候选时复用",
+				"多个候选时，在任何 Work、Website Verification、DNS、SDK access、Website Widget 或页面写入前停止",
+				"请用户按 Work ID 选择",
+				"不得默认选择第一项、最新项、`PUBLISHED` 项或 `VERIFIED` 项",
+			},
+		},
+		{
+			path: "viceme-publish/references/website-workflow.md",
+			required: []string{
+				"If there are no matches,",
+				"If there is exactly one match, reuse it",
+				"If there are multiple matches, stop before any Work, Website Verification, DNS, SDK",
+				"ask the user to select the Work by ID",
+				"Never select the first, newest, `PUBLISHED`, or `VERIFIED`",
+			},
+		},
+	}
+
+	for _, test := range tests {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), test.path)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", test.path, err)
+		}
+		text := strings.Join(strings.Fields(string(content)), " ")
+		for _, required := range test.required {
+			if !strings.Contains(text, required) {
+				t.Fatalf("%s omitted duplicate-Origin disambiguation contract %q", test.path, required)
+			}
+		}
 	}
 }
 

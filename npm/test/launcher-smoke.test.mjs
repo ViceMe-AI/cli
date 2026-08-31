@@ -148,9 +148,9 @@ test(
     await stat(path.join(codexHome, "skills", "viceme-publish", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-skill-use", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-access", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "viceme-tip", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-engagement", "SKILL.md"));
     await stat(
-      path.join(codexHome, "skills", "viceme-tip", "templates", "single-html.html"),
+      path.join(codexHome, "skills", "viceme-engagement", "templates", "single-html.html"),
     );
     await stat(path.join(configHome, "config.json"));
   },

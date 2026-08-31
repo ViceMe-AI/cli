@@ -17,12 +17,19 @@
       "full_skill_bundle_digest": "sha256:605f7896ccadaf4c4f5dc5e9808c527bd04744b10b87466f714bd3139d1ea1d1",
       "embedded_content_digest": "sha256:00fa77e42e1452287ea3e55f5062118b1431a43d99b2993e4cc7d38e5c9d1d47"
     },
+    "viceme-engagement": {
+      "skill_version": "0.20.0",
+      "minimum_cli_version": "0.20.0",
+      "cli_compatibility": ">=0.20.0 <0.21.0",
+      "full_skill_bundle_digest": "sha256:199a91fe366a370977d11961a1550578bdbcf07aa5aa13e3cc7591c2a9f52d19",
+      "embedded_content_digest": "sha256:2299f4f98dfe0eff0e9098f682a3a46f653a33968257341d53f3a1a9ff16d743"
+    },
     "viceme-publish": {
       "skill_version": "0.20.0",
       "minimum_cli_version": "0.20.0",
       "cli_compatibility": ">=0.20.0 <0.21.0",
-      "full_skill_bundle_digest": "sha256:b9fb4e235ccad7c574191973e61ca05f8706a6a9d0edc6db6ba7330ea71ca74f",
-      "embedded_content_digest": "sha256:eb1c418e14ecadf6922cbb27e703cda4e2e72c3dbb445c287e916d8a44c775c9"
+      "full_skill_bundle_digest": "sha256:3e08fcd0c36bdf8eac800978d37667dea7b99bf5971914a827099fe66433b085",
+      "embedded_content_digest": "sha256:c1d32f51726ff4c12f9efe16b5d1f2ffdfb8992d7aa7566e7f05045799a34f61"
     },
     "viceme-shared": {
       "skill_version": "0.20.0",
@@ -37,16 +44,9 @@
       "cli_compatibility": ">=0.20.0 <0.21.0",
       "full_skill_bundle_digest": "sha256:12bbd7f073ae55b37ee4d707551f2a4a543c2f2b85a99fc83068cc0fe578cc4e",
       "embedded_content_digest": "sha256:e222a67a4198e950cc0c0831751fd1f77c9ff9d218066cd80905ff60548d0082"
-    },
-    "viceme-tip": {
-      "skill_version": "0.20.0",
-      "minimum_cli_version": "0.20.0",
-      "cli_compatibility": ">=0.20.0 <0.21.0",
-      "full_skill_bundle_digest": "sha256:11097ff93b3e2abc73d34b7427ab52f9e1162d0455125162ded317c009093e94",
-      "embedded_content_digest": "sha256:866ce685822f2437cc4433fef05ad6bb3c59a83ed1e42154f10fc18d1fbc2e53"
     }
   },
-  "bootstrap_contract_digest": "sha256:56cf5859d06fa037b9eaed6f5c2ab2f3fcb5e7ba266dd1dcec2be557306641e7",
+  "bootstrap_contract_digest": "sha256:360ff908be2c5f0d0ea6aab896d166c4699603f0ae2d3b89fd27124f3834e709",
   "installer_digests": {
     "install.ps1": "sha256:ffdedbcacb05a783c442398084e910dbb50b2bee9015282f5c01090eb01f4313",
     "install.sh": "sha256:27c4b4448b0ad28fcdebfbe9dcdf3df1ec9d179df6df6dc59907b4a7f286e374"

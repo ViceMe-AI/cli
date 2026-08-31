@@ -759,10 +759,13 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	}
 }
 
-func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
+func TestOfficialSkillBundleIncludesAccessAndUnifiedEngagement(t *testing.T) {
 	t.Parallel()
-	found := map[string]bool{"viceme-access": false, "viceme-tip": false}
+	found := map[string]bool{"viceme-access": false, "viceme-engagement": false}
 	for _, name := range officialSkillNames {
+		if name == "viceme-danmaku" || name == "viceme-tip" {
+			t.Fatalf("official Skill list retained standalone engagement variant %s", name)
+		}
 		if _, tracked := found[name]; tracked {
 			found[name] = true
 		}
@@ -778,7 +781,7 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 		}
 	}
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
-	template, _, err := bundle.Read("viceme-tip", "templates/single-html.html")
+	template, _, err := bundle.Read("viceme-engagement", "templates/single-html.html")
 	if err != nil {
 		t.Fatalf("official Skill bundle omitted the single HTML template: %v", err)
 	}
@@ -786,65 +789,8 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 	if !strings.Contains(resolved, `src="https://viceme.example/viceme-sdk/v1/viceme.min.js"`) || strings.Contains(resolved, "https://https://") {
 		t.Fatalf("single HTML template does not accept the complete SDK URL")
 	}
-	if _, _, err := bundle.Read("viceme-tip", "references/integration-contract.md"); err != nil {
+	if _, _, err := bundle.Read("viceme-engagement", "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
-	}
-}
-
-func TestRetiredOfficialSkillsPinEveryPublishedIdentity(t *testing.T) {
-	t.Parallel()
-	expected := map[string][]string{
-		"viceme-danmaku": {
-			"0.16.0-beta.0",
-			// v0.16.0-beta.1 through v0.16.0-beta.5 share this exact
-			// release-manifest identity.
-			"0.16.0-beta.1",
-			"0.16.0-beta.6",
-			"0.16.0-beta.7",
-			"0.16.0",
-			"0.16.1",
-			"0.17.0",
-			"0.18.0",
-			"0.19.0-beta.0",
-		},
-		"viceme-engagement": {
-			"0.16.0-beta.6",
-			"0.16.0-beta.7",
-			"0.17.0",
-			"0.18.0",
-			"0.19.0-beta.0",
-		},
-	}
-	seen := map[string]map[string]bool{}
-	for _, identity := range retiredOfficialSkills {
-		if err := skillcontent.ValidateRetiredSkillIdentity(identity); err != nil {
-			t.Fatalf("retired official Skill identity is invalid: %v", err)
-		}
-		for _, active := range officialSkillNames {
-			if identity.Name == active {
-				t.Fatalf("active official Skill %s must not be retired", active)
-			}
-		}
-		if seen[identity.Name] == nil {
-			seen[identity.Name] = map[string]bool{}
-		}
-		if seen[identity.Name][identity.SkillVersion] {
-			t.Fatalf("retired official Skill identity is duplicated: %s %s", identity.Name, identity.SkillVersion)
-		}
-		seen[identity.Name][identity.SkillVersion] = true
-	}
-	for name, versions := range expected {
-		for _, version := range versions {
-			if !seen[name][version] {
-				t.Fatalf("published %s %s is missing from the retirement table", name, version)
-			}
-		}
-		if len(seen[name]) != len(versions) {
-			t.Fatalf("retirement table contains an unexpected identity for %s: %#v", name, seen[name])
-		}
-	}
-	if len(seen) != len(expected) {
-		t.Fatalf("retirement table contains an unexpected Skill: %#v", seen)
 	}
 }
 

@@ -9,8 +9,15 @@ of its exact HTTPS Origin. ViceMe does not upload or host the website files.
    exact canonical Origin, title, summary, body copy, tags, and deployment path.
 2. Reuse the active Merchant returned by `$viceme-creator-onboarding`. Do not
    repeat login, scope, or Merchant discovery inside this workflow.
-3. Run `merchant work list --merchant <merchant-id>`. Reuse an existing Website
-   Work only when its canonical Origin matches exactly. Never infer identity
+3. Run `merchant work list --merchant <merchant-id>` and keep only Website
+   Works whose canonical Origin matches exactly. If there are no matches,
+   create a new Work. If there is exactly one match, reuse it. If there are
+   multiple matches, stop before any Work, Website Verification, DNS, SDK
+   access, Commerce Application, or website write. Show each candidate's `id`,
+   `title`, `status`, and `website.ownershipStatus`, and ask the user to select
+   the Work by ID. Never select the first, newest, `PUBLISHED`, or `VERIFIED`
+   candidate automatically. Re-read the selected Work and reconfirm its
+   Merchant, kind, and canonical Origin before continuing. Never infer identity
    from a directory name, old local file, or prior conversation.
 4. For a new Work, keep a stable client request ID and write a strict input:
 
@@ -119,8 +126,11 @@ not create, update, disable, or publish platform resources.
    Skill changes the creator website only.
 
 Publishing a Website Work alone creates no Product and enables no browser
-feature. If the user asks for hosted tips, finish Website Work publication first
-and use `viceme-tip`; it must preserve the follow and paid access set above.
+feature. If the user asks for hosted danmaku, hosted tips, or both, finish
+Website Work publication and any requested follow or paid access configuration
+first, then use `viceme-engagement`. It must preserve the follow and paid access
+set above. Hosted tips reuse the Work-level Website Widget and must not replace
+its Shop-managed Product bindings or return URLs.
 
 ## Boundaries
 
