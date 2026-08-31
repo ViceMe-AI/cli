@@ -118,6 +118,27 @@ type installManifest struct {
 	CLICompatibility      string `json:"cli_compatibility"`
 	FullBundleDigest      string `json:"full_skill_bundle_digest"`
 	EmbeddedContentDigest string `json:"embedded_content_digest"`
+	ProductID             string `json:"product_id,omitempty"`
+	ReleaseID             string `json:"release_id,omitempty"`
+}
+
+// SkillProvenance binds a marketplace Skill installation to the Product and
+// Release it was downloaded from. It is persisted in the install manifest so a
+// later install can tell a same-Product upgrade apart from an attempt to
+// overwrite a foreign, official, or user-owned Skill directory.
+type SkillProvenance struct {
+	ProductID string
+	ReleaseID string
+}
+
+func validateSkillProvenance(provenance SkillProvenance) error {
+	if strings.TrimSpace(provenance.ProductID) == "" {
+		return errors.New("marketplace Skill provenance requires a Product ID")
+	}
+	if strings.TrimSpace(provenance.ReleaseID) == "" {
+		return errors.New("marketplace Skill provenance requires a Release ID")
+	}
+	return nil
 }
 
 type RetiredSkillIdentity struct {
@@ -131,6 +152,24 @@ type RetiredSkillIdentity struct {
 
 func (b *Bundle) Install(name, target string, environment Environment) InstallReport {
 	reports := b.InstallSet([]string{name}, target, environment)
+	if len(reports) == 0 {
+		return InstallReport{AllSucceeded: false, Results: []InstallResult{{Skill: name, Target: target, Status: "failed", Error: "installation transaction returned no report"}}}
+	}
+	return reports[0]
+}
+
+// InstallWithProvenance installs one marketplace Skill while refusing to
+// replace any existing directory that is not already managed as the same
+// Product: foreign, official, or user-owned directories fail closed, and only
+// a same-Product upgrade or reinstall may replace managed content.
+func (b *Bundle) InstallWithProvenance(name, target string, environment Environment, provenance SkillProvenance) InstallReport {
+	transaction, reports, err := b.PrepareInstallSetWithProvenance([]string{name}, target, environment, provenance)
+	if err != nil {
+		return failAllInstallReports([]string{name}, target, err)[0]
+	}
+	if err := transaction.Commit(); err != nil {
+		return failAllInstallReports([]string{name}, target, err)[0]
+	}
 	if len(reports) == 0 {
 		return InstallReport{AllSucceeded: false, Results: []InstallResult{{Skill: name, Target: target, Status: "failed", Error: "installation transaction returned no report"}}}
 	}
@@ -167,6 +206,20 @@ func (b *Bundle) PrepareInstallSet(names []string, target string, environment En
 }
 
 func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []RetiredSkillIdentity, target string, environment Environment) (*InstallTransaction, []InstallReport, error) {
+	return b.prepareInstallSet(names, retired, nil, target, environment)
+}
+
+// PrepareInstallSetWithProvenance prepares a marketplace Skill installation
+// whose destinations are provenance-guarded: only a fresh destination or an
+// existing same-Product installation may be replaced.
+func (b *Bundle) PrepareInstallSetWithProvenance(names []string, target string, environment Environment, provenance SkillProvenance) (*InstallTransaction, []InstallReport, error) {
+	if err := validateSkillProvenance(provenance); err != nil {
+		return nil, nil, err
+	}
+	return b.prepareInstallSet(names, nil, &provenance, target, environment)
+}
+
+func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkillIdentity, provenance *SkillProvenance, target string, environment Environment) (*InstallTransaction, []InstallReport, error) {
 	reports := make([]InstallReport, len(names))
 	for index, name := range names {
 		reports[index] = InstallReport{AllSucceeded: true}
@@ -219,8 +272,13 @@ func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []Reti
 		}
 		for _, resolved := range paths {
 			operation := installOperation{Skill: name, Target: resolved.name, Destination: resolved.path, ReportIndex: index}
-			if b.installationCurrent(name, resolved.path) {
+			if b.installationCurrent(name, resolved.path, provenance) {
 				operation.Unchanged = true
+			}
+			if !operation.Unchanged && provenance != nil {
+				if guardErr := guardMarketplaceSkillDestination(resolved.path, *provenance); guardErr != nil {
+					return fail(guardErr)
+				}
 			}
 			operations = append(operations, operation)
 		}
@@ -249,7 +307,7 @@ func (b *Bundle) PrepareInstallSetWithRetirements(names []string, retired []Reti
 			continue
 		}
 		if operation.Retired == nil {
-			staged, expected, stageErr := b.stageInstallation(operation.Skill, operation.Destination)
+			staged, expected, stageErr := b.stageInstallation(operation.Skill, operation.Destination, provenance)
 			if stageErr != nil {
 				cleanupStagedOperations(operations)
 				return fail(stageErr)
@@ -515,7 +573,7 @@ type installJournalEntry struct {
 	Activating  bool   `json:"activating"`
 }
 
-func (b *Bundle) stageInstallation(name, destination string) (string, Digests, error) {
+func (b *Bundle) stageInstallation(name, destination string, provenance *SkillProvenance) (string, Digests, error) {
 	parent := filepath.Dir(destination)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", Digests{}, fmt.Errorf("create Skill parent: %w", err)
@@ -541,6 +599,10 @@ func (b *Bundle) stageInstallation(name, destination string) (string, Digests, e
 	if err != nil {
 		_ = os.RemoveAll(stageRoot)
 		return "", Digests{}, err
+	}
+	if provenance != nil {
+		manifest.ProductID = provenance.ProductID
+		manifest.ReleaseID = provenance.ReleaseID
 	}
 	if err := writeInstallManifest(stagedSkill, manifest); err != nil {
 		_ = os.RemoveAll(stageRoot)
@@ -694,7 +756,7 @@ func (b *Bundle) installLegacy(name, target string, environment Environment) Ins
 	report := InstallReport{AllSucceeded: true}
 	for _, resolved := range paths {
 		result := InstallResult{Skill: name, Target: resolved.name, Path: resolved.path, Status: "updated"}
-		if b.installationCurrent(name, resolved.path) {
+		if b.installationCurrent(name, resolved.path, nil) {
 			result.Status = "unchanged"
 			report.Results = append(report.Results, result)
 			continue
@@ -1000,7 +1062,7 @@ func readInstallManifest(directory string) (installManifest, error) {
 	return manifest, nil
 }
 
-func (b *Bundle) installationCurrent(name, directory string) bool {
+func (b *Bundle) installationCurrent(name, directory string, provenance *SkillProvenance) bool {
 	expected, err := b.Digests(name)
 	if err != nil {
 		return false
@@ -1013,8 +1075,18 @@ func (b *Bundle) installationCurrent(name, directory string) bool {
 	if err != nil {
 		return false
 	}
+	if provenance != nil {
+		want.ProductID = provenance.ProductID
+		want.ReleaseID = provenance.ReleaseID
+	}
 	installed, err := readInstallManifest(directory)
 	return err == nil && installed == want
+}
+
+// ValidateRetiredSkillIdentity reports whether a retired Skill identity pins a
+// complete, self-consistent published bundle.
+func ValidateRetiredSkillIdentity(identity RetiredSkillIdentity) error {
+	return validateRetiredSkillIdentity(identity)
 }
 
 func validateRetiredSkillIdentity(identity RetiredSkillIdentity) error {
@@ -1039,6 +1111,34 @@ func validateRetiredSkillIdentity(identity RetiredSkillIdentity) error {
 		if _, err := hex.DecodeString(encoded); err != nil {
 			return fmt.Errorf("retired Skill %s has an invalid digest", identity.Name)
 		}
+	}
+	return nil
+}
+
+// guardMarketplaceSkillDestination fails closed when an existing destination
+// cannot be proven to belong to the same Product: foreign or user-owned
+// directories, directories managed as official or legacy Skills (no Product
+// provenance), and directories owned by another Product are all refused.
+func guardMarketplaceSkillDestination(directory string, provenance SkillProvenance) error {
+	info, err := os.Lstat(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("inspect existing Skill: %w", err)
+	}
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("refuse to overwrite %s: existing path is not a ViceMe-managed Skill directory", directory)
+	}
+	manifest, err := readInstallManifest(directory)
+	if err != nil {
+		return fmt.Errorf("refuse to overwrite %s: existing Skill is not managed by a ViceMe installation", directory)
+	}
+	if manifest.ProductID == "" {
+		return fmt.Errorf("refuse to overwrite %s: existing Skill is an official or legacy ViceMe Skill, not a marketplace installation", directory)
+	}
+	if manifest.ProductID != provenance.ProductID {
+		return fmt.Errorf("refuse to overwrite %s: existing Skill belongs to a different Product (%s)", directory, manifest.ProductID)
 	}
 	return nil
 }
