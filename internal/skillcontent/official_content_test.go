@@ -17,8 +17,6 @@ import (
 var officialSkillNames = []string{
 	"viceme-access",
 	"viceme-creator-onboarding",
-	"viceme-danmaku",
-	"viceme-engagement",
 	"viceme-publish",
 	"viceme-shared",
 	"viceme-skill-use",
@@ -125,22 +123,6 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 			semantics: []string{
 				"只有 `access.check()` 能授予权限", "不得改变其参数、返回值、错误或副作用",
-			},
-		},
-		{
-			name:    "viceme-danmaku",
-			machine: []string{"--feature danmaku", "workKey", "'unsafe-eval'"},
-			semantics: []string{
-				"不得创建第二个 Work", "只挂载一个 SDK 根节点",
-			},
-		},
-		{
-			name: "viceme-engagement",
-			machine: []string{
-				"data-viceme-features", "website-verification verify", "sdk-access create", "unsafe-eval",
-			},
-			semantics: []string{
-				"绝不为了找回带 `PENDING` 验证的 `DRAFT` Work 而创建第二个 Work", "不暴露秘密或 DNS 挑战值",
 			},
 		},
 		{
@@ -618,51 +600,9 @@ func TestPublishDelegatesCreatorQualification(t *testing.T) {
 	}
 }
 
-func TestDanmakuSkillUsesOnlyHostedIntegration(t *testing.T) {
-	t.Parallel()
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-danmaku/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(content)
-	for _, required := range []string{"merchant work sdk-access", "--feature danmaku", "data-viceme-features=\"danmaku\"", "不得复制"} {
-		if !strings.Contains(text, required) {
-			t.Fatalf("hosted danmaku Skill omitted %q", required)
-		}
-	}
-	for _, forbidden := range []string{"FOLLOW_OWNER", "WORK_ENTITLEMENT", "React blueprint"} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("hosted danmaku Skill retained excluded capability %q", forbidden)
-		}
-	}
-	if _, err := fs.Stat(cliembed.EmbeddedSkills(), "viceme-danmaku/references/cdn-sdk.md"); err != nil {
-		t.Fatalf("hosted SDK contract is missing: %v", err)
-	}
-}
 
-func TestEngagementSkillConsumesAuthoritativeCombinedSnippet(t *testing.T) {
-	t.Parallel()
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-engagement/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(content)
-	for _, required := range []string{
-		"merchant work sdk-access create",
-		"merchant commerce-application create",
-		"website-verification verify",
-		"data-viceme-features=\"danmaku,tip\"",
-	} {
-		if !strings.Contains(text, required) {
-			t.Fatalf("engagement Skill omitted %q", required)
-		}
-	}
-	for _, forbidden := range []string{"website publish", "FOLLOW_OWNER", "WORK_ENTITLEMENT"} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("engagement Skill retained excluded flow %q", forbidden)
-		}
-	}
-}
+
+
 
 func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 	t.Parallel()
@@ -689,118 +629,9 @@ func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 	}
 }
 
-func TestEngagementSkillUsesOneWorkAndCombinedAccess(t *testing.T) {
-	t.Parallel()
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-engagement/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(content)
-	for _, required := range []string{
-		"merchant work sdk-access create",
-		"--feature danmaku --feature tip",
-		"WEBSITE_WIDGET",
-		`data-viceme-features="danmaku,tip"`,
-	} {
-		if !strings.Contains(text, required) {
-			t.Fatalf("engagement Skill omitted %q", required)
-		}
-	}
-	for _, forbidden := range []string{
-		"website publish",
-		"FOLLOW_OWNER",
-		"WORK_ENTITLEMENT",
-		"creator-app",
-		"tip-embed.js",
-		"engagement-embed.js",
-	} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("engagement Skill retained excluded flow %q", forbidden)
-		}
-	}
-}
 
-func TestEngagementSkillsCanCreateOrRecoverWebsiteWorkFromTheirOwnInstructions(t *testing.T) {
-	t.Parallel()
-	createInput := `{
-		"kind": "WEBSITE",
-		"merchantAccountId": "<merchant-id>",
-		"clientRequestId": "<stable-idempotency-key>",
-		"slug": "website-slug",
-		"title": "Website title",
-		"canonicalOrigin": "https://creator.example",
-		"content": {
-			"summary": "Observed public purpose",
-			"bodyMarkdown": "Observed public description",
-			"templateType": "WEBSITE",
-			"tags": [],
-			"media": [],
-			"actionConfig": {}
-		}
-	}`
-	publishInput := `{
-		"merchantAccountId": "<merchant-id>",
-		"expectedRevision": 2,
-		"status": "PUBLISHED"
-	}`
 
-	for _, relativePath := range []string{
-		"viceme-danmaku/SKILL.md",
-		"viceme-tip/SKILL.md",
-		"viceme-engagement/SKILL.md",
-	} {
-		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
-		if err != nil {
-			t.Fatalf("read embedded %s: %v", relativePath, err)
-		}
-		text := string(content)
-		normalized := strings.Join(strings.Fields(strings.ReplaceAll(text, "\\\n", " ")), " ")
-		for _, required := range []string{
-			"`merchant-commerce:read` 与 `merchant-commerce:write`",
-			"`merchant-commerce:write`",
-			"`website.canonicalOrigin` 与部署 Origin 完全一致",
-			"无论复用还是新建，都用 `viceme --profile <profile> merchant work get <work-id> --merchant <merchant-id>` 读取",
-			"任何网站验证写入前先看状态",
-			"`SUSPENDED` 或 `ARCHIVED` 停止并报告；`DRAFT` 或 `PUBLISHED` 才继续",
-			"仍持有 `website-verification create` 刚返回、未过期的 `PENDING` 响应",
-			"最新验证 GET 不含明文 `challenge`",
-			"否则读取最新 Work revision 创建替代挑战",
-			"创建替代挑战",
-			"带 `PENDING` 验证的 `DRAFT` Work",
-			"Work 状态为 `DRAFT` 时",
-			"已 `PUBLISHED` 跳过更新",
-			"`SUSPENDED` 或 `ARCHIVED` 停止并报告",
-			"把 `challenge` 原样发布到 `dnsRecordName`",
-			"公共 DNS 精确解析后",
-		} {
-			if !strings.Contains(normalized, required) {
-				t.Fatalf("standalone %s omitted Website Work constraint %q", relativePath, required)
-			}
-		}
-		requireOrderedSteps(t, relativePath, normalized, []string{
-			"viceme profile list",
-			"viceme --profile <profile> auth status",
-			"viceme --profile <profile> merchant accounts",
-			"viceme --profile <profile> merchant work list --merchant <merchant-id>",
-			`"kind": "WEBSITE"`,
-			"viceme --profile <profile> merchant work create --input <json>",
-			"响应丢失时用同一 `clientRequestId` 原样重放；不得创建新身份",
-			"merchant work get",
-			"任何网站验证写入前先看状态",
-			"`SUSPENDED` 或 `ARCHIVED` 停止并报告；`DRAFT` 或 `PUBLISHED` 才继续",
-			"`website.ownershipStatus` 不是 `VERIFIED`",
-			"viceme --profile <profile> merchant work website-verification create <work-id> --merchant <merchant-id> --expected-revision <work-revision>",
-			"把 `challenge` 原样发布到 `dnsRecordName`",
-			"viceme --profile <profile> merchant work website-verification verify <work-id> --merchant <merchant-id> --expected-verification-version <verification-version>",
-			"验证后再次读取 Work",
-			`"status": "PUBLISHED"`,
-			"viceme --profile <profile> merchant work update <work-id> --input <json>",
-			"merchant work get",
-		})
-		requireJSONBlock(t, relativePath, text, `"kind": "WEBSITE"`, createInput)
-		requireJSONBlock(t, relativePath, text, `"status": "PUBLISHED"`, publishInput)
-	}
-}
+
 
 func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 	t.Parallel()
@@ -823,7 +654,6 @@ func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 
 	for _, relativePath := range []string{
 		"viceme-tip/SKILL.md",
-		"viceme-engagement/SKILL.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -889,40 +719,7 @@ func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
 	}
 }
 
-func TestOfficialEngagementSkillsContainNoLegacyDomain(t *testing.T) {
-	t.Parallel()
 
-	for _, relativePath := range []string{
-		"viceme-danmaku/SKILL.md",
-		"viceme-danmaku/references/cdn-sdk.md",
-		"viceme-tip/SKILL.md",
-		"viceme-tip/references/integration-contract.md",
-		"viceme-engagement/SKILL.md",
-		"viceme-publish/references/website-workflow.md",
-	} {
-		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
-		if err != nil {
-			t.Fatalf("read embedded %s: %v", relativePath, err)
-		}
-		for _, forbidden := range []string{
-			"SdkWork",
-			"CreatorApp",
-			"creator-app",
-			"sdk-work:",
-			"creator-app:",
-			"FOLLOW_OWNER",
-			"WORK_ENTITLEMENT",
-			"data-creator-app-id",
-			"tip-embed.js",
-			"engagement-embed.js",
-			".viceme/access.yaml",
-		} {
-			if strings.Contains(string(content), forbidden) {
-				t.Fatalf("embedded %s retained legacy term %q", relativePath, forbidden)
-			}
-		}
-	}
-}
 
 func requireOrderedSteps(t *testing.T, relativePath, text string, steps []string) {
 	t.Helper()

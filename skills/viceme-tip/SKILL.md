@@ -64,7 +64,7 @@ description: 为一个公开的创作者 HTML 页面接入 ViceMe 打赏。适�
    ```
 
    运行 `viceme --profile <profile> merchant work update <work-id> --input <json>`，随后 `merchant work get` 复核；已 `PUBLISHED` 跳过更新。绝不猜测过期 revision。
-8. 读取该 Work 的 SDK 访问（`sdk-access`）。缺失时用 `--feature tip` 创建；已存在时按当前 `configVersion` 与完整特性集更新——已启用 `danmaku` 要保留。记录返回的公开 `workKey`。
+8. 读取该 Work 的 SDK 访问（`sdk-access`）。缺失时用 `--feature tip` 创建；已存在时按当前 `configVersion` 更新为 `tip` 特性。记录返回的公开 `workKey`。
 9. 运行 `viceme --profile <profile> merchant commerce-application list --merchant <merchant-id>`。定位作用域限定到本 Work、`kind: WEBSITE_WIDGET`、`environment: PRODUCTION` 的唯一应用（`(workId, environment, kind)` 唯一）。不存在时创建：
 
    ```json
@@ -109,14 +109,14 @@ description: 为一个公开的创作者 HTML 页面接入 ViceMe 打赏。适�
 10. 只插入一个官方加载器标签，使用所选 Profile 的精确 Web 地址和市场区域，不从页面语言推断：
 
    ```html
-   <div id="viceme-engagement"></div>
+   <div id="viceme-tip"></div>
    <script
      defer
      src="<web-base-url>/viceme-sdk/v1/viceme.min.js"
      data-viceme-work="<work-key>"
      data-viceme-region="<cn-or-global>"
      data-viceme-features="tip"
-     data-viceme-target="#viceme-engagement"
+     data-viceme-target="#viceme-tip"
      data-viceme-theme="auto"
    ></script>
    ```
@@ -131,7 +131,7 @@ description: 为一个公开的创作者 HTML 页面接入 ViceMe 打赏。适�
 - ViceMe 负责结账、支付渠道调用、订单状态和结算；宿主页面只负责自身内容和嵌入标签。
 - `workKey` 标识收款作品，公开且不透明。可复用模板使用占位符；创作者自己的线上作品可以使用真实值。
 - 域名验证位于单 HTML 嵌入表面之外，但属于前置条件。最终接入仍可保持单 HTML 文件，即使部署还需单独提供验证响应。
-- 默认使用独立加载器。需要弹幕+打赏组合时使用 `viceme-engagement`。
+- 使用独立加载器。
 
 ## 恢复
 

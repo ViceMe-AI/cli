@@ -17,26 +17,12 @@
       "full_skill_bundle_digest": "sha256:93fbaf23aee42107d43ab4d1359419a1aa6c332303c947c2fc37b63b92fa5866",
       "embedded_content_digest": "sha256:1f2d59e49b716433f8a39886f50b13a0e10d775b54b7b3913f10965b01ccafff"
     },
-    "viceme-danmaku": {
-      "skill_version": "0.18.0",
-      "minimum_cli_version": "0.18.0",
-      "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:ee37e589eeaca226e8e8ed3a2a51862a1f76c7b83ac7ab08465b39edcb473296",
-      "embedded_content_digest": "sha256:4322a22cf7bcedd1da76dba368be64fda83b9af4406d30fc53e18a1ceeb1e27d"
-    },
-    "viceme-engagement": {
-      "skill_version": "0.18.0",
-      "minimum_cli_version": "0.18.0",
-      "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:29652896ec9e0e8fa08ae0fbd9aa25f0c06cc03c6c4366a28e3a1a4ef05dc774",
-      "embedded_content_digest": "sha256:ed21049a076365b4dd2466d70a3acc989965414f589729e048f0ce53d2f9b2fa"
-    },
     "viceme-publish": {
       "skill_version": "0.21.0",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:c50abbc64097c871fb32032e9620af25ebf359836613f0dba7a31576b9f34a65",
-      "embedded_content_digest": "sha256:b2e1ba6ca88f4f02267a4be334d4500cbed51e62f77fae9523722d7b4fe8b0c2"
+      "full_skill_bundle_digest": "sha256:5c3d8de6d2e5af51bd5b6d5e6e68abd3d0905569e74cd0e87f1ee1ac1b233f5d",
+      "embedded_content_digest": "sha256:b45f0c622ba2ba4beb2f8c262ddad0cd77e6e5ea3c09daf150ca111917ab1406"
     },
     "viceme-shared": {
       "skill_version": "0.18.4",
@@ -56,8 +42,8 @@
       "skill_version": "0.18.0",
       "minimum_cli_version": "0.18.0",
       "cli_compatibility": ">=0.18.0 <0.19.0",
-      "full_skill_bundle_digest": "sha256:64084b468d1aa427b7708855affac32a038236176844e0242c038f7e1c6d6456",
-      "embedded_content_digest": "sha256:9df83a2964bdd493b46571c01a6cbcfed42c3753d0a73dd6edbedd90ab3780a1"
+      "full_skill_bundle_digest": "sha256:83bdf5286970834994604928afc7d7fe69229ca6e9841a12b20e9a6549cf3d91",
+      "embedded_content_digest": "sha256:866ce685822f2437cc4433fef05ad6bb3c59a83ed1e42154f10fc18d1fbc2e53"
     }
   },
   "bootstrap_contract_digest": "sha256:cbecf16eea9a0df7700dc91ae6bf4448c38eac55943fc0c29105cdfae4c120d0",
