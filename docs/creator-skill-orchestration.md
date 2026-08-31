@@ -43,8 +43,9 @@ signed-in user and the stable DRAFT CreatorAccount. The Agent asks for a handle 
 returns `MERCHANT_APPLICATION_HANDLE_REQUIRED`; a supplied display name or handle remains an optional
 override.
 
-After application, the command returns `creatorIdentity`, including the stable `markdownPath`. The
-Skill reports that route as “申请中” and stops until a later run observes an approved OWNER Merchant.
+After application, the Skill reads `merchant onboarding status` once as a write readback. That
+response returns `creatorIdentity`, including the stable `markdownPath`. The Skill reports that route
+as “申请中” and stops until a later run observes an approved OWNER Merchant.
 
 ## Login purpose
 
