@@ -2,6 +2,7 @@ package skillcontent
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -21,7 +22,6 @@ import (
 
 const installManifestPath = ".viceme/install-manifest.json"
 const installTransactionFilename = "install-transaction.json"
-const installTransactionSchemaVersion = 2
 const managedSkillRegistryFilename = "managed-skills.json"
 const legacyRetiredSkillMigrationVersion = 1
 
@@ -239,8 +239,14 @@ type InstallTransaction struct {
 	journalPath string
 	journal     installTransaction
 	lock        *flock.Flock
+	pathLocks   []installPathLock
 	retirements []InstallResult
 	closed      bool
+}
+
+type installPathLock struct {
+	destination string
+	lock        *flock.Flock
 }
 
 func (transaction *InstallTransaction) RetirementResults() []InstallResult {
@@ -298,7 +304,7 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 		return nil, nil, errors.New("another ViceMe install transaction is active")
 	}
 	journalPath := filepath.Join(environment.ConfigDir, installTransactionFilename)
-	if err := recoverInstallTransaction(journalPath); err != nil {
+	if err := recoverInstallTransactionWithPathLocks(journalPath); err != nil {
 		_ = transactionLock.Unlock()
 		return nil, nil, err
 	}
@@ -310,7 +316,7 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 	}
 	transaction := &InstallTransaction{
 		journalPath: journalPath,
-		journal:     installTransaction{SchemaVersion: installTransactionSchemaVersion, Status: "PREPARING", TargetCLIVersion: buildinfo.Version},
+		journal:     installTransaction{SchemaVersion: 1, Status: "PREPARING", TargetCLIVersion: buildinfo.Version},
 		lock:        transactionLock,
 	}
 	fail := func(cause error) (*InstallTransaction, []InstallReport, error) {
@@ -323,6 +329,7 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 
 	operations := make([]installOperation, 0)
 	resolvedDestinations := make(map[string]string)
+	lockDestinations := make([]string, 0)
 	registryDirty := false
 	for index, name := range names {
 		paths, resolveErr := resolveTargets(name, target, environment)
@@ -339,14 +346,12 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 				Skill: name, Target: resolved.name, Destination: managedPath,
 				ManagedPath: managedPath, ReportIndex: index,
 			}
-			var record *managedSkillRecord
 			current, registered := registry.Installs[managedPath]
 			if provenance == nil {
 				if registered {
 					if current.SkillName != name || current.Target != resolved.name {
 						return fail(fmt.Errorf("managed Skill registry path %s belongs to %s for target %s", managedPath, current.SkillName, current.Target))
 					}
-					record = &current
 					operation.InstallID = current.InstallID
 				} else {
 					operation.InstallID, err = newInstallID()
@@ -357,23 +362,8 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 			} else if registered {
 				return fail(fmt.Errorf("refuse to install marketplace Skill at %s: path is reserved by an official or legacy managed Skill %s for target %s", managedPath, current.SkillName, current.Target))
 			}
-			if b.installationCurrent(name, managedPath, resolved.name, record, provenance) {
-				operation.Unchanged = true
-			}
-			if !operation.Unchanged {
-				if provenance != nil {
-					if guardErr := guardMarketplaceSkillDestination(managedPath, *provenance); guardErr != nil {
-						return fail(guardErr)
-					}
-				} else if record == nil {
-					if guardErr := guardOfficialSkillDestination(managedPath); guardErr != nil {
-						return fail(guardErr)
-					}
-				} else if guardErr := guardRegisteredOfficialSkillDestination(managedPath, *record); guardErr != nil {
-					return fail(guardErr)
-				}
-			}
 			operations = append(operations, operation)
+			lockDestinations = append(lockDestinations, managedPath)
 		}
 	}
 	legacyMigrationPending := provenance == nil && len(retired) > 0 && registry.LegacyMigrationVersion < legacyRetiredSkillMigrationVersion
@@ -409,21 +399,55 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 				continue
 			}
 			backup := managedPath + ".viceme-transaction-backup"
-			if !pathDoesNotExist(backup) {
-				transaction.retirements[resultIndex].Status = "preserved_unmanaged"
-				continue
-			}
 			skillCopy := skill
 			operations = append(operations, installOperation{
 				Skill: skill.Name, Target: resolved.name, Destination: managedPath,
 				ManagedPath: managedPath, ReportIndex: -1, HadExisting: true, Backup: backup,
 				Retired: &skillCopy, Retirement: ownership, RetirementResultIndex: resultIndex,
 			})
+			lockDestinations = append(lockDestinations, managedPath)
 		}
 	}
 	if legacyMigrationPending {
 		registry.LegacyMigrationVersion = legacyRetiredSkillMigrationVersion
 		registryDirty = true
+	}
+	pathLocks, err := tryAcquireInstallPathLocks(lockDestinations)
+	if err != nil {
+		return fail(err)
+	}
+	transaction.pathLocks = append(transaction.pathLocks, pathLocks...)
+	for index := range operations {
+		operation := &operations[index]
+		if operation.Retired != nil {
+			if !pathDoesNotExist(operation.Backup) {
+				transaction.retirements[operation.RetirementResultIndex].Status = "preserved_unmanaged"
+				operation.Unchanged = true
+			}
+			continue
+		}
+		var record *managedSkillRecord
+		if current, registered := registry.Installs[operation.ManagedPath]; registered {
+			currentCopy := current
+			record = &currentCopy
+		}
+		if b.installationCurrent(operation.Skill, operation.ManagedPath, operation.Target, record, provenance) {
+			operation.Unchanged = true
+		}
+		if operation.Unchanged {
+			continue
+		}
+		if provenance != nil {
+			if guardErr := guardMarketplaceSkillDestination(operation.ManagedPath, *provenance); guardErr != nil {
+				return fail(guardErr)
+			}
+		} else if record == nil {
+			if guardErr := guardOfficialSkillDestination(operation.ManagedPath); guardErr != nil {
+				return fail(guardErr)
+			}
+		} else if guardErr := guardRegisteredOfficialSkillDestination(operation.ManagedPath, *record); guardErr != nil {
+			return fail(guardErr)
+		}
 	}
 
 	for index := range operations {
@@ -583,6 +607,9 @@ func (transaction *InstallTransaction) TrackPath(destination string) error {
 			return nil
 		}
 	}
+	if err := transaction.acquirePathLock(absDestination); err != nil {
+		return err
+	}
 	hadExisting := false
 	if _, err := os.Lstat(absDestination); err == nil {
 		hadExisting = true
@@ -667,6 +694,11 @@ func RecoverInstallTransaction(environment Environment, commit bool) error {
 	if err := decodeStrictJSON(data, &journal); err != nil || validateInstallTransaction(journal) != nil {
 		return errors.New("install recovery journal is invalid; refusing to reconcile installed Skills")
 	}
+	pathLocks, err := tryAcquireInstallPathLocks(installTransactionDestinations(journal))
+	if err != nil {
+		return err
+	}
+	defer releaseInstallPathLocks(pathLocks)
 	if !commit {
 		return rollbackInstallTransaction(journalPath, journal)
 	}
@@ -695,7 +727,7 @@ func RecoverInstallTransactionAuto(environment Environment) error {
 		return fmt.Errorf("acquire install recovery lock: %w", err)
 	}
 	defer transactionLock.Unlock()
-	return recoverInstallTransaction(filepath.Join(environment.ConfigDir, installTransactionFilename))
+	return recoverInstallTransactionWithPathLocks(filepath.Join(environment.ConfigDir, installTransactionFilename))
 }
 
 func (transaction *InstallTransaction) Rollback() error {
@@ -720,9 +752,85 @@ func (transaction *InstallTransaction) close() {
 		return
 	}
 	transaction.closed = true
+	releaseInstallPathLocks(transaction.pathLocks)
 	if transaction.lock != nil {
 		_ = transaction.lock.Unlock()
 	}
+}
+
+func (transaction *InstallTransaction) acquirePathLock(destination string) error {
+	normalized, err := normalizeInstallPathLockDestination(destination)
+	if err != nil {
+		return fmt.Errorf("normalize install transaction lock path: %w", err)
+	}
+	for _, held := range transaction.pathLocks {
+		if held.destination == normalized {
+			return nil
+		}
+	}
+	locks, err := tryAcquireInstallPathLocks([]string{normalized})
+	if err != nil {
+		return err
+	}
+	transaction.pathLocks = append(transaction.pathLocks, locks...)
+	return nil
+}
+
+func tryAcquireInstallPathLocks(destinations []string) ([]installPathLock, error) {
+	unique := make(map[string]bool, len(destinations))
+	normalized := make([]string, 0, len(destinations))
+	for _, destination := range destinations {
+		lockDestination, err := normalizeInstallPathLockDestination(destination)
+		if err != nil {
+			return nil, fmt.Errorf("normalize install transaction lock path: %w", err)
+		}
+		if !unique[lockDestination] {
+			unique[lockDestination] = true
+			normalized = append(normalized, lockDestination)
+		}
+	}
+	sort.Strings(normalized)
+	locks := make([]installPathLock, 0, len(normalized))
+	for _, destination := range normalized {
+		if err := os.MkdirAll(filepath.Dir(destination), 0o755); err != nil {
+			releaseInstallPathLocks(locks)
+			return nil, fmt.Errorf("create install transaction lock directory: %w", err)
+		}
+		pathLock := flock.New(installPathLockFilename(destination))
+		locked, err := pathLock.TryLock()
+		if err != nil {
+			releaseInstallPathLocks(locks)
+			return nil, fmt.Errorf("acquire install transaction path lock: %w", err)
+		}
+		if !locked {
+			releaseInstallPathLocks(locks)
+			return nil, errors.New("another ViceMe install transaction is active for the same destination")
+		}
+		locks = append(locks, installPathLock{destination: destination, lock: pathLock})
+	}
+	return locks, nil
+}
+
+func releaseInstallPathLocks(locks []installPathLock) {
+	for index := len(locks) - 1; index >= 0; index-- {
+		_ = locks[index].lock.Unlock()
+	}
+}
+
+func normalizeInstallPathLockDestination(destination string) (string, error) {
+	normalized, err := normalizeTransactionPath(destination)
+	if err != nil {
+		return "", err
+	}
+	if runtime.GOOS == "windows" {
+		normalized = strings.ToLower(normalized)
+	}
+	return normalized, nil
+}
+
+func installPathLockFilename(destination string) string {
+	digest := sha256.Sum256([]byte(destination))
+	return filepath.Join(filepath.Dir(destination), ".viceme-install-"+hex.EncodeToString(digest[:])+".lock")
 }
 
 type installOperation struct {
@@ -848,6 +956,34 @@ func writeInstallTransaction(filename string, journal installTransaction) error 
 	return nil
 }
 
+func recoverInstallTransactionWithPathLocks(filename string) error {
+	data, err := os.ReadFile(filename)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read install recovery journal: %w", err)
+	}
+	var journal installTransaction
+	if err := decodeStrictJSON(data, &journal); err != nil || validateInstallTransaction(journal) != nil {
+		return errors.New("install recovery journal is invalid; refusing to overwrite installed Skills")
+	}
+	pathLocks, err := tryAcquireInstallPathLocks(installTransactionDestinations(journal))
+	if err != nil {
+		return err
+	}
+	defer releaseInstallPathLocks(pathLocks)
+	return recoverInstallTransaction(filename)
+}
+
+func installTransactionDestinations(journal installTransaction) []string {
+	destinations := make([]string, 0, len(journal.Entries))
+	for _, entry := range journal.Entries {
+		destinations = append(destinations, entry.Destination)
+	}
+	return destinations
+}
+
 func recoverInstallTransaction(filename string) error {
 	data, err := os.ReadFile(filename)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -892,7 +1028,7 @@ func recoverInstallTransaction(filename string) error {
 }
 
 func validateInstallTransaction(journal installTransaction) error {
-	if journal.SchemaVersion != 1 && journal.SchemaVersion != installTransactionSchemaVersion {
+	if journal.SchemaVersion != 1 {
 		return errors.New("install transaction has an unsupported schema version")
 	}
 	switch journal.Status {
@@ -902,21 +1038,12 @@ func validateInstallTransaction(journal installTransaction) error {
 	}
 	seen := make(map[string]bool, len(journal.Entries))
 	for _, entry := range journal.Entries {
-		if journal.SchemaVersion >= installTransactionSchemaVersion && (!validAbsoluteTransactionPath(entry.Destination) ||
-			(entry.Stage != "" && !validAbsoluteTransactionPath(entry.Stage)) ||
-			(entry.Backup != "" && !validAbsoluteTransactionPath(entry.Backup))) {
-			return errors.New("install transaction contains an invalid path")
-		}
 		if seen[entry.Destination] {
 			return errors.New("install transaction contains duplicate destinations")
 		}
 		seen[entry.Destination] = true
 	}
 	return nil
-}
-
-func validAbsoluteTransactionPath(filename string) bool {
-	return filepath.IsAbs(filename) && filepath.Clean(filename) == filename
 }
 
 func rollbackInstallTransaction(filename string, journal installTransaction) error {

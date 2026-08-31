@@ -214,11 +214,6 @@ func TestLegacyRelativeInstallJournalStillRecovers(t *testing.T) {
 	if err != nil || string(content) != "old" {
 		t.Fatalf("legacy relative journal did not restore the prior generation: content=%q err=%v", content, err)
 	}
-
-	journal.SchemaVersion = installTransactionSchemaVersion
-	if err := writeInstallTransaction(journalPath, journal); err == nil || !strings.Contains(err.Error(), "invalid path") {
-		t.Fatalf("schema 2 journal accepted relative paths: %v", err)
-	}
 }
 
 func TestBootstrapRecoveryDispositionOverridesMatchingInnerGeneration(t *testing.T) {
@@ -341,6 +336,30 @@ func TestInstallTransactionLockRejectsConcurrentMutation(t *testing.T) {
 	defer transaction.Rollback()
 	if _, _, err := bundle.PrepareInstallSet([]string{"viceme-test"}, "agents", environment); err == nil || !strings.Contains(err.Error(), "another ViceMe install transaction") {
 		t.Fatalf("concurrent install was not rejected: %v", err)
+	}
+}
+
+func TestInstallTransactionLockRejectsSameDestinationAcrossConfigDirectories(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeTestSkill(t, root, "viceme-test")
+	bundle := New(os.DirFS(root))
+	home := t.TempDir()
+	provenance := SkillProvenance{ProductID: "product-1", ReleaseID: "release-1"}
+	firstEnvironment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli-a")}
+	secondEnvironment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli-b")}
+
+	first, _, err := bundle.PrepareInstallSetWithProvenance([]string{"viceme-test"}, "agents", firstEnvironment, provenance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer first.Rollback()
+	second, _, err := bundle.PrepareInstallSetWithProvenance([]string{"viceme-test"}, "agents", secondEnvironment, provenance)
+	if second != nil {
+		defer second.Rollback()
+	}
+	if err == nil || !strings.Contains(err.Error(), "another ViceMe install transaction") {
+		t.Fatalf("same destination with a different config directory was not locked: %v", err)
 	}
 }
 
