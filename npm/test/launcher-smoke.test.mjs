@@ -141,17 +141,19 @@ test(
     assert.equal(child.status, 0, `${child.stdout}\n${child.stderr}`);
     const result = JSON.parse(child.stdout);
     assert.equal(result.ok, true);
-    assert.equal(result.data.skills.length, 5);
+    assert.equal(result.data.skills.length, 8);
     assert.equal(result.data.skills.every((skill) => skill.all_succeeded), true);
     await stat(path.join(codexHome, "skills", "viceme-shared", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-creator-onboarding", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-publish", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-skill-use", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-access", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-danmaku", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-tip", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-engagement", "SKILL.md"));
     await stat(
       path.join(codexHome, "skills", "viceme-tip", "templates", "single-html.html"),
     );
-    await stat(path.join(codexHome, "skills", "viceme-danmaku", "references", "cdn-sdk.md"));
     await stat(path.join(configHome, "config.json"));
   },
 );
@@ -253,7 +255,7 @@ process.exit(child.status ?? 1);
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}\n${debug}`);
     const install = JSON.parse(first.stdout);
     assert.equal(install.ok, true);
-    assert.equal(install.data.skills.length, 5);
+    assert.equal(install.data.skills.length, 8);
     assert.equal(install.data.skills.every((skill) => skill.all_succeeded), true);
     assert.match(
       await readFile(marker, "utf8"),

@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net"
 	"net/http"
 	"net/url"
 	"path"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -24,10 +26,11 @@ import (
 const maxResponseBytes = 8 << 20
 
 var (
-	liveWorkSdkKeyPattern = regexp.MustCompile(`^wrk_live_[A-Za-z0-9_-]{4,119}$`)
-	testWorkSdkKeyPattern = regexp.MustCompile(`^wrk_test_[A-Za-z0-9_-]{4,119}$`)
-	uuidPattern           = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	shopURLParser         = whatwgurl.NewParser(whatwgurl.WithPathPercentEncodeSet(whatwgurl.PathPercentEncodeSet.Set('^')))
+	liveWorkSdkKeyPattern       = regexp.MustCompile(`^wrk_live_[A-Za-z0-9_-]{4,119}$`)
+	testWorkSdkKeyPattern       = regexp.MustCompile(`^wrk_test_[A-Za-z0-9_-]{4,119}$`)
+	accessWorkFeatureKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
+	uuidPattern                 = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	shopURLParser               = whatwgurl.NewParser(whatwgurl.WithPathPercentEncodeSet(whatwgurl.PathPercentEncodeSet.Set('^')))
 )
 
 type TokenSource interface {
@@ -72,6 +75,34 @@ func (c *Client) AuthStatus(ctx context.Context) (AuthStatus, error) {
 	return response, err
 }
 
+func (c *Client) GetGithubChannelVerified(ctx context.Context, merchantAccountID string) (GithubChannelVerified, error) {
+	var response GithubChannelVerified
+	endpoint := "/v1/cli/merchant/channels/github/verified?merchantAccountId=" + url.QueryEscape(merchantAccountID)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetCreatorSubscriptionPlan(ctx context.Context, merchantAccountID string) (CreatorSubscriptionPlan, error) {
+	var response CreatorSubscriptionPlan
+	endpoint := "/v1/cli/merchant/creator-subscription-plan?merchantAccountId=" + url.QueryEscape(merchantAccountID)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) SetCreatorSubscriptionPlan(ctx context.Context, merchantAccountID string, priceMinor int) (CreatorSubscriptionPlan, error) {
+	var response CreatorSubscriptionPlan
+	payload := map[string]any{"merchantAccountId": merchantAccountID, "priceMinor": priceMinor}
+	err := c.doJSON(ctx, http.MethodPut, "/v1/cli/merchant/creator-subscription-plan", payload, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) DisableCreatorSubscriptionPlan(ctx context.Context, merchantAccountID string) (CreatorSubscriptionPlan, error) {
+	var response CreatorSubscriptionPlan
+	endpoint := "/v1/cli/merchant/creator-subscription-plan?merchantAccountId=" + url.QueryEscape(merchantAccountID)
+	err := c.doJSON(ctx, http.MethodDelete, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) Revoke(ctx context.Context, accessToken string) error {
 	return c.doJSON(ctx, http.MethodPost, "/v1/cli/auth/logout", struct{}{}, nil, accessToken)
 }
@@ -79,6 +110,139 @@ func (c *Client) Revoke(ctx context.Context, accessToken string) error {
 func (c *Client) ListMerchantAccounts(ctx context.Context) (MerchantAccountsResponse, error) {
 	var response MerchantAccountsResponse
 	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/accounts", nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetMerchantOnboarding(ctx context.Context) (CurrentMerchantOnboarding, error) {
+	var response CurrentMerchantOnboarding
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/onboarding/current", nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreateMerchantApplication(ctx context.Context, clientRequestID, displayName, handle string) (MerchantOnboarding, error) {
+	var response MerchantOnboarding
+	payload := map[string]any{"clientRequestId": clientRequestID, "displayName": displayName, "handle": handle}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/onboarding/applications", payload, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetMerchantTargetOnboarding(ctx context.Context, merchantAccountID string) (CurrentMerchantOnboarding, error) {
+	var response CurrentMerchantOnboarding
+	endpoint := "/v1/cli/merchant/onboarding/targets/" + url.PathEscape(merchantAccountID) + "/current"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) StartGithubMerchantClaim(ctx context.Context, merchantAccountID string) (GithubAuthorizationStart, error) {
+	var response GithubAuthorizationStart
+	endpoint := "/v1/cli/merchant/onboarding/github/" + url.PathEscape(merchantAccountID) + "/start"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]any{"returnTo": "/cli/github-result"}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) StartGithubChannel(ctx context.Context, merchantAccountID string) (GithubAuthorizationStart, error) {
+	var response GithubAuthorizationStart
+	payload := map[string]any{"merchantAccountId": merchantAccountID, "returnTo": "/cli/github-result"}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/channels/github/start", payload, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetGithubChannelStatus(ctx context.Context, merchantAccountID, attemptID string) (GithubAuthorizationStatus, error) {
+	var response GithubAuthorizationStatus
+	endpoint := "/v1/cli/merchant/channels/github/status?merchantAccountId=" + url.QueryEscape(merchantAccountID) + "&attemptId=" + url.QueryEscape(attemptID)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) StartXiaohongshuMerchantClaim(ctx context.Context, merchantAccountID, accountName string, profileURL *string) (MerchantOnboarding, error) {
+	var response MerchantOnboarding
+	payload := map[string]any{"merchantAccountId": merchantAccountID, "publicAccountName": accountName, "profileUrl": profileURL}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/onboarding/xiaohongshu", payload, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) UploadMerchantOnboardingEvidence(ctx context.Context, onboardingID string, lockVersion int, filename string, image []byte) (MerchantOnboarding, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("lockVersion", fmt.Sprintf("%d", lockVersion))
+	part, err := writer.CreateFormFile("image", filepath.Base(filename))
+	if err != nil {
+		return MerchantOnboarding{}, output.Internal("ONBOARDING_EVIDENCE_ENCODE_FAILED", "could not encode evidence upload", err)
+	}
+	if _, err := part.Write(image); err != nil {
+		return MerchantOnboarding{}, output.Internal("ONBOARDING_EVIDENCE_ENCODE_FAILED", "could not encode evidence upload", err)
+	}
+	if err := writer.Close(); err != nil {
+		return MerchantOnboarding{}, output.Internal("ONBOARDING_EVIDENCE_ENCODE_FAILED", "could not finish evidence upload", err)
+	}
+	var response MerchantOnboarding
+	endpoint := "/v1/cli/merchant/onboarding/" + url.PathEscape(onboardingID) + "/evidence"
+	err = c.doBody(ctx, http.MethodPost, endpoint, &body, writer.FormDataContentType(), &response, "@stored", maxResponseBytes)
+	return response, err
+}
+
+func (c *Client) SubmitMerchantOnboarding(ctx context.Context, onboardingID string, lockVersion int) (MerchantOnboarding, error) {
+	var response MerchantOnboarding
+	endpoint := "/v1/cli/merchant/onboarding/" + url.PathEscape(onboardingID) + "/submit"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]any{"lockVersion": lockVersion}, &response, "@stored")
+	return response, err
+}
+
+type SkillSourceArchive struct {
+	Bytes           []byte
+	Private         bool
+	ResolvedCommit  string
+	OwnerSubjectID  string
+	Repository      string
+	Path            string
+	SkillID         string
+	ArtifactVersion string
+	ArtifactDigest  string
+	SourceReceiptID string
+	PackageDigest   string
+}
+
+func (c *Client) DownloadGithubSkillSource(ctx context.Context, merchantAccountID, repository, ref, repositoryPath string) (SkillSourceArchive, error) {
+	var selectedPath any
+	if strings.TrimSpace(repositoryPath) != "" {
+		selectedPath = repositoryPath
+	}
+	payload := map[string]any{"merchantAccountId": merchantAccountID, "repository": repository, "ref": ref, "path": selectedPath}
+	data, headers, err := c.postJSONBytes(ctx, "/v1/cli/merchant/channels/github/archive", payload, "@stored", 20<<20)
+	decodedRepository, _ := url.QueryUnescape(headers.Get("X-ViceMe-Github-Repository"))
+	decodedPath, _ := url.QueryUnescape(headers.Get("X-ViceMe-Github-Path"))
+	return SkillSourceArchive{
+		Bytes: data, Private: strings.EqualFold(headers.Get("X-ViceMe-Github-Private"), "true"),
+		ResolvedCommit: headers.Get("X-ViceMe-Github-Commit"), OwnerSubjectID: headers.Get("X-ViceMe-Github-Owner-Subject"),
+		Repository: decodedRepository, Path: decodedPath, SourceReceiptID: headers.Get("X-ViceMe-Source-Receipt"), PackageDigest: headers.Get("X-ViceMe-Package-Digest"),
+	}, err
+}
+
+func (c *Client) DownloadXiaohongshuSkillSource(ctx context.Context, merchantAccountID, skillID string) (SkillSourceArchive, error) {
+	payload := map[string]any{"merchantAccountId": merchantAccountID, "skillId": skillID}
+	data, headers, err := c.postJSONBytes(ctx, "/v1/cli/merchant/channels/xiaohongshu/archive", payload, "@stored", 20<<20)
+	version, _ := url.QueryUnescape(headers.Get("X-ViceMe-Xiaohongshu-Artifact-Version"))
+	return SkillSourceArchive{Bytes: data, SkillID: headers.Get("X-ViceMe-Xiaohongshu-Skill-Id"), ArtifactVersion: version, ArtifactDigest: headers.Get("X-ViceMe-Xiaohongshu-Artifact-Digest"), SourceReceiptID: headers.Get("X-ViceMe-Source-Receipt"), PackageDigest: headers.Get("X-ViceMe-Package-Digest")}, err
+}
+
+func (c *Client) SearchXiaohongshuSkills(ctx context.Context, merchantAccountID, query string) (XiaohongshuSkillSearch, error) {
+	var response XiaohongshuSkillSearch
+	payload := map[string]any{"merchantAccountId": merchantAccountID, "query": query}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/channels/xiaohongshu/search", payload, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) StartXiaohongshuChannelVerification(ctx context.Context, merchantAccountID, subjectID, accountName string, externalHandle, profileURL *string) (MerchantOnboarding, error) {
+	var response MerchantOnboarding
+	payload := map[string]any{"merchantAccountId": merchantAccountID, "externalSubjectId": subjectID, "externalHandle": externalHandle, "publicAccountName": accountName, "profileUrl": profileURL}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/channels/xiaohongshu/verification", payload, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetPublicWork(ctx context.Context, creatorHandle, workSlug string) (PublicWorkProjection, error) {
+	var response PublicWorkProjection
+	endpoint := "/v1/public/creators/" + url.PathEscape(creatorHandle) + "/works/" + url.PathEscape(workSlug)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "")
 	return response, err
 }
 
@@ -188,7 +352,9 @@ func (c *Client) CreateWorkSdkAccess(ctx context.Context, workID string, request
 	var response WorkSdkAccess
 	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/sdk-access"
 	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
-	if err == nil && (response.WorkID != workID || response.Status != "ACTIVE" || !workSdkFeaturesEqual(response.Features, request.Features)) {
+	if err == nil && (response.WorkID != workID || response.Status != "ACTIVE" ||
+		!workSdkFeaturesEqual(response.Features, request.Features) ||
+		!workAccessFeaturesMatchRequest(response.AccessFeatures, request.AccessFeatures)) {
 		err = invalidAPIResponse(errors.New("created Work SDK access does not match the request"))
 	}
 	return response, err
@@ -217,7 +383,8 @@ func (c *Client) UpdateWorkSdkAccess(ctx context.Context, workID string, request
 	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/sdk-access"
 	err := c.doJSON(ctx, http.MethodPut, endpoint, request, &response, "@stored")
 	if err == nil && (response.WorkID != workID || response.Status != "ACTIVE" ||
-		response.ConfigVersion <= request.ExpectedConfigVersion || !workSdkFeaturesEqual(response.Features, request.Features)) {
+		response.ConfigVersion <= request.ExpectedConfigVersion || !workSdkFeaturesEqual(response.Features, request.Features) ||
+		!workAccessFeaturesMatchRequest(response.AccessFeatures, request.AccessFeatures)) {
 		err = invalidAPIResponse(errors.New("updated Work SDK access does not match the request"))
 	}
 	return response, err
@@ -403,6 +570,40 @@ func (c *Client) DownloadArtifact(ctx context.Context, rawURL string) ([]byte, e
 		return nil, output.Validation("ARTIFACT_TOO_LARGE", "Commerce Skill artifact exceeds the 32 MiB limit")
 	}
 	return data, nil
+}
+
+func (c *Client) GetPublicSkillAccess(ctx context.Context, productID string) (SkillAccess, error) {
+	var response SkillAccess
+	endpoint := "/v1/skills/" + url.PathEscape(productID) + "/access"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "")
+	return response, err
+}
+
+func (c *Client) GetSkillAccess(ctx context.Context, productID string) (SkillAccess, error) {
+	var response SkillAccess
+	endpoint := "/v1/cli/skills/" + url.PathEscape(productID) + "/access"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetFreeSkillDownload(ctx context.Context, productID string) (DownloadURL, error) {
+	var response DownloadURL
+	endpoint := "/v1/downloads/free/" + url.PathEscape(productID)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "")
+	return response, err
+}
+
+func (c *Client) GetOwnedSkillDownload(ctx context.Context, productID string) (DownloadURL, error) {
+	var response DownloadURL
+	endpoint := "/v1/cli/skills/" + url.PathEscape(productID) + "/download"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetSkillDetail(ctx context.Context, productID string) (json.RawMessage, error) {
+	var response json.RawMessage
+	err := c.doJSON(ctx, http.MethodGet, "/v1/skills/"+url.PathEscape(productID), nil, &response, "")
+	return response, err
 }
 
 func (c *Client) CreateCommerceSession(ctx context.Context, stableName, clientRequestID, replaySecret string) (CommerceSession, error) {
@@ -651,6 +852,95 @@ func validateUploadURL(raw string) error {
 	return errors.New("upload URL must use HTTPS or loopback HTTP")
 }
 
+func (c *Client) postJSONBytes(ctx context.Context, endpoint string, requestBody any, credential string, limit int64) ([]byte, http.Header, error) {
+	encoded, err := json.Marshal(requestBody)
+	if err != nil {
+		return nil, nil, output.Internal("REQUEST_ENCODE_FAILED", "failed to encode the API request", err)
+	}
+	response, err := c.sendBody(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded), "application/json", credential)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer response.Body.Close()
+	data, readErr := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if readErr != nil {
+		return nil, response.Header, output.Network("RESPONSE_READ_FAILED", "failed to read the ViceMe API response", readErr)
+	}
+	if int64(len(data)) > limit {
+		return nil, response.Header, output.Validation("SKILL_PACKAGE_TOO_LARGE", "Skill package exceeds the download limit")
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, response.Header, decodeServerError(response.StatusCode, data, response.Header.Get("X-Request-Id"))
+	}
+	return data, response.Header, nil
+}
+
+func (c *Client) doBody(ctx context.Context, method, endpoint string, body io.Reader, contentType string, responseBody any, credential string, limit int64) error {
+	response, err := c.sendBody(ctx, method, endpoint, body, contentType, credential)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	data, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if err != nil {
+		return output.Network("RESPONSE_READ_FAILED", "failed to read the ViceMe API response", err)
+	}
+	if int64(len(data)) > limit {
+		return output.Internal("RESPONSE_TOO_LARGE", "ViceMe API response exceeded the client limit", nil)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return decodeServerError(response.StatusCode, data, response.Header.Get("X-Request-Id"))
+	}
+	if responseBody == nil {
+		return nil
+	}
+	if err := json.Unmarshal(data, responseBody); err != nil {
+		return invalidAPIResponse(err)
+	}
+	return nil
+}
+
+func (c *Client) sendBody(ctx context.Context, method, endpoint string, body io.Reader, contentType, credential string) (*http.Response, error) {
+	base, err := validateAPIBaseURL(c.BaseURL)
+	if err != nil {
+		return nil, output.Validation("API_BASE_URL_INVALID", "ViceMe API base URL must use HTTPS; loopback HTTP is allowed only for development")
+	}
+	relative, err := url.Parse(endpoint)
+	if err != nil || relative.IsAbs() || relative.Host != "" {
+		return nil, output.Internal("REQUEST_ENDPOINT_INVALID", "failed to construct the ViceMe API endpoint", err)
+	}
+	base.Path = path.Join(base.Path, relative.Path)
+	base.RawQuery = relative.RawQuery
+	request, err := http.NewRequestWithContext(ctx, method, base.String(), body)
+	if err != nil {
+		return nil, output.Internal("REQUEST_CREATE_FAILED", "failed to create the ViceMe API request", err)
+	}
+	request.Header.Set("Accept", "application/json, application/zip")
+	if contentType != "" {
+		request.Header.Set("Content-Type", contentType)
+	}
+	if c.UserAgent != "" {
+		request.Header.Set("User-Agent", c.UserAgent)
+	}
+	if credential == "@stored" {
+		if c.Tokens == nil {
+			return nil, output.Authentication("NOT_LOGGED_IN", "not logged in to ViceMe")
+		}
+		credential, err = c.Tokens.Token(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if credential != "" {
+		request.Header.Set("Authorization", "Bearer "+credential)
+	}
+	response, err := withoutRedirects(c.HTTPClient).Do(request)
+	if err != nil {
+		return nil, output.Network("API_UNREACHABLE", "failed to reach the ViceMe API", err)
+	}
+	return response, nil
+}
+
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, credential string) error {
 	base, err := validateAPIBaseURL(c.BaseURL)
 	if err != nil {
@@ -801,7 +1091,8 @@ func (access *WorkSdkAccess) validateAPIResponse() error {
 		!liveWorkSdkKeyPattern.MatchString(access.Keys.Live) ||
 		!testWorkSdkKeyPattern.MatchString(access.Keys.Test) ||
 		(access.Status != "ACTIVE" && access.Status != "DISABLED") || access.ConfigVersion < 1 ||
-		!validWorkSdkFeatures(access.Features) || !validTimestamp(access.CreatedAt) || !validTimestamp(access.UpdatedAt) {
+		!validWorkSdkFeatures(access.Features) || !validWorkAccessFeatures(access.AccessFeatures) ||
+		!validTimestamp(access.CreatedAt) || !validTimestamp(access.UpdatedAt) {
 		return errors.New("Work SDK access response is missing required fields")
 	}
 	return nil
@@ -842,9 +1133,6 @@ func (application *CommerceApplication) validateAPIResponse() error {
 		if !uuidPattern.MatchString(product.ProductID) || strings.TrimSpace(product.Title) == "" || !validProductStatus(product.Status) {
 			return errors.New("Commerce Application response contains an invalid Product")
 		}
-	}
-	if application.Kind == "WEBSITE_WIDGET" && len(application.Products) != 0 {
-		return errors.New("Website Widget Commerce Application contains Products")
 	}
 	if application.ActivatedAt != nil && !validTimestamp(*application.ActivatedAt) {
 		return errors.New("Commerce Application response contains an invalid activatedAt")
@@ -933,7 +1221,7 @@ func validProductStatus(status string) bool {
 }
 
 func validWorkSdkFeatures(features []string) bool {
-	if len(features) < 1 || len(features) > 2 {
+	if features == nil || len(features) > 2 {
 		return false
 	}
 	seen := make(map[string]struct{}, len(features))
@@ -947,6 +1235,94 @@ func validWorkSdkFeatures(features []string) bool {
 		seen[feature] = struct{}{}
 	}
 	return true
+}
+
+func validWorkAccessFeatures(features []WorkAccessFeature) bool {
+	if features == nil || len(features) > 100 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(features))
+	for _, feature := range features {
+		if !accessWorkFeatureKeyPattern.MatchString(feature.FeatureKey) ||
+			utf16CodeUnits(strings.TrimSpace(feature.Title)) < 1 || utf16CodeUnits(strings.TrimSpace(feature.Title)) > 120 ||
+			(feature.Status != "ACTIVE" && feature.Status != "DISABLED") {
+			return false
+		}
+		if _, exists := seen[feature.FeatureKey]; exists {
+			return false
+		}
+		seen[feature.FeatureKey] = struct{}{}
+		switch feature.PolicyType {
+		case "PUBLIC", "FOLLOW_OWNER":
+			if feature.Price != nil || feature.ProductID != nil {
+				return false
+			}
+		case "WORK_ENTITLEMENT":
+			if feature.Price == nil || feature.Price.Currency != "CNY" || feature.Price.AmountCents < 1 ||
+				feature.ProductID == nil || !uuidPattern.MatchString(*feature.ProductID) {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func validWorkAccessFeatureInputs(features []WorkAccessFeatureInput) bool {
+	if len(features) > 100 {
+		return false
+	}
+	seen := make(map[string]struct{}, len(features))
+	for _, feature := range features {
+		if !accessWorkFeatureKeyPattern.MatchString(feature.FeatureKey) ||
+			utf16CodeUnits(strings.TrimSpace(feature.Title)) < 1 || utf16CodeUnits(strings.TrimSpace(feature.Title)) > 120 ||
+			(feature.Status != "ACTIVE" && feature.Status != "DISABLED") {
+			return false
+		}
+		if _, exists := seen[feature.FeatureKey]; exists {
+			return false
+		}
+		seen[feature.FeatureKey] = struct{}{}
+		switch feature.PolicyType {
+		case "PUBLIC", "FOLLOW_OWNER":
+			if feature.Price != nil {
+				return false
+			}
+		case "WORK_ENTITLEMENT":
+			if feature.Price == nil || feature.Price.Currency != "CNY" || feature.Price.AmountCents < 1 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func workAccessFeaturesMatchRequest(actual []WorkAccessFeature, expected []WorkAccessFeatureInput) bool {
+	if len(actual) != len(expected) || !validWorkAccessFeatures(actual) || !validWorkAccessFeatureInputs(expected) {
+		return false
+	}
+	expectedByKey := make(map[string]WorkAccessFeatureInput, len(expected))
+	for _, feature := range expected {
+		expectedByKey[feature.FeatureKey] = feature
+	}
+	for _, feature := range actual {
+		expectedFeature, exists := expectedByKey[feature.FeatureKey]
+		if !exists || feature.Title != strings.TrimSpace(expectedFeature.Title) || feature.PolicyType != expectedFeature.PolicyType ||
+			feature.Status != expectedFeature.Status || !workAccessPricesEqual(feature.Price, expectedFeature.Price) {
+			return false
+		}
+	}
+	return true
+}
+
+func workAccessPricesEqual(actual, expected *WorkAccessPrice) bool {
+	if actual == nil || expected == nil {
+		return actual == nil && expected == nil
+	}
+	return *actual == *expected
 }
 
 func workSdkFeaturesEqual(actual, expected []string) bool {
@@ -1110,7 +1486,7 @@ func decodeServerError(status int, data []byte, headerRequestID string) error {
 	if cliError.RequestID == "" {
 		cliError.RequestID = headerRequestID
 	}
-	cliError.Retryable = status == http.StatusTooManyRequests || status >= 500
+	cliError.Retryable = (status == http.StatusTooManyRequests || status >= 500) && code != "OAUTH_PROVIDER_NOT_CONFIGURED"
 	if validAPIRecoveryReference(serverError.Recovery) {
 		cliError.Details = map[string]any{"recovery": *serverError.Recovery}
 	}

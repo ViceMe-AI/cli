@@ -1,45 +1,27 @@
-# ViceMe Open Tip Integration Contract
+# ViceMe 开放赞赏接入契约
 
-## Resource Boundary
+## 资源边界
 
-One open tip integration targets one public Merchant-owned Work of any kind:
+一次开放赞赏接入只面向一个由 Merchant 拥有、符合公开可见性且已经发布的 Work，Work kind 不受宿主页类型限制：
 
 ```text
 PUBLISHED Merchant Work
-└── ACTIVE SDK access whose features contain tip
+└── ACTIVE SDK access（hosted features 包含 tip）
     ├── keys.test = wrk_test_...
     └── keys.live = wrk_live_...
 ```
 
-The embedding page and selected Work are independent resources. Hosting Tip UI
-does not turn that page into a Website Work, and standalone Tip does not verify
-or claim ownership of the host. Select the target only from authoritative Work
-records. Website ownership verification remains a separate publication rule
-when the user independently chooses a website itself as the Work.
+宿主页与被赞赏 Work 是独立资源。宿主展示 Tip UI 不会把页面变成 Website Work，Standalone Tip 不验证或声明宿主页所有权。只有用户独立选择“网站本身”作为 Work 时，Website 发布才要求 DNS 所有权验证。
 
-The two Work keys are permanent public identifiers, not credentials. Creation
-issues both at once. Configuration updates and disable operations do not rotate
-them. Remove the `tip` feature from the Work's complete feature set to stop tips
-while retaining danmaku; disable SDK access only to stop every feature.
+两个 Work key 是永久公开标识，不是凭据。create 一次签发 `keys.test` 与 `keys.live`；update、disable、重新启用和回滚都不得轮换。更新时必须从精确 `configVersion` 出发，完整保留 hosted features 与 `accessFeatures`。只停 Tip 时从完整 hosted feature set 移除 `tip`；只有所有 hosted 和 access 能力都应停止时才 disable。
 
-An optional Commerce Application supplies trusted-source attribution. It is not
-a tip gate and the default flow does not create one. ViceMe records only the
-browser-observed normalized Origin as source attribution, never the full URL,
-path, query, fragment, or campaign metadata. Without matching optional
-attribution it is an unverified Origin rather than a rejected Origin.
+可选 Commerce Application 只提供可信来源归因，不是 Tip 门禁，默认流程不创建它。ViceMe 只记录浏览器观察到的规范 Origin，不记录完整 URL、路径、查询、片段或 campaign 数据。没有匹配归因时只是未验证 Origin，不会拒绝公开赞赏。
 
-## Release Selection Before Mutation
+## 写入前选择发布物
 
-The first public Tip SDK release is exactly `@viceme-ai/sdk@0.4.0`. Ask the user
-to choose the official UI or Headless, then verify the exact distribution for
-that path before creating, verifying, or publishing a Work, changing SDK
-access, or editing the host. This ordering is a server-state invariant: if the
-selected release is unavailable, the workflow leaves no new Work or feature
-state behind.
+首个公开 Tip SDK 版本精确为 `@viceme-ai/sdk@0.4.0`。先请用户选择官方 UI 或 Headless，再验证所选发布物；这些检查必须早于 Work 创建/验证/发布、SDK access 变更和宿主页编辑。发布物不可用时，流程不应留下新的 Work 或 feature 状态。
 
-Every route first requires the immutable Tip entries in both publication
-regions. This proves the exact release is complete rather than accepting a
-partially published regional artifact set:
+每条路线都先检查两个发布区域的四个不可变 Tip 入口，避免接受只发布一部分的区域产物：
 
 ```bash
 curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/index.js
@@ -48,9 +30,7 @@ curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme
 curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js
 ```
 
-Official UI and CDN Headless use the preflighted CN files. Headless may instead
-use the exact npm package. For npm, additionally require the following
-official-registry command to return exactly `0.4.0`:
+官方 UI 与 CDN Headless 使用已检查的 CN ESM。Headless 也可以使用精确 npm 包；npm 路线还要求以下官方注册表命令精确返回 `0.4.0`：
 
 ```bash
 npm view @viceme-ai/sdk@0.4.0 version --json \
@@ -58,48 +38,51 @@ npm view @viceme-ai/sdk@0.4.0 version --json \
   --@viceme-ai:registry=https://registry.npmjs.org
 ```
 
-Do not fall back to `latest`, `/v1`, another mutable alias, a declarative
-loader, any browser global, a Git dependency, or copied SDK source. Snapshot the
-complete pre-change feature set before the one create/update. A rollback
-restores that complete feature set; it never sends only the feature being
-removed.
+版本不可用时立即停止。任一对象不可用时同样停止，不得改用 `latest`、可变版本别名、声明式 loader、浏览器全局对象、Git 依赖、项目私有镜像中的同名包或复制的 SDK 源码。服务端变更前保存完整旧配置；回滚必须恢复完整 hosted features 和 `accessFeatures`，不能只发送要移除的 feature。
 
-## Public Runtime
+## 公开配置与运行时
 
-The first release supports CN and CNY. A visitor does not sign in to ViceMe to
-tip. The visitor is anonymous to the creator, but not anonymous to ViceMe or the
-payment provider where payment processing, risk controls, or law require data.
+本版支持 CN 与 CNY。访客不需要登录 ViceMe 才能赞赏；对创作者保持匿名，但在支付处理、风控或法律要求下，不对 ViceMe 或支付渠道匿名。
 
-`getConfig()` is authoritative for the current currency, available providers,
-and amount bounds. The first release permits 100..20000 fen. The host must not
-hard-code a broader range. A provider is optional in `open()`; scene is
-platform-selected and is never supplied by the host.
+SDK 以无 Cookie、无 Authorization 的 credentialless 请求读取公开配置：
 
-Anonymous production tips do not use WeChat JSAPI because that legacy scene
-requires a ViceMe User-linked OpenID. On ordinary mobile browsers the platform
-may select H5, and on desktop it may select NATIVE. In the WeChat webview the
-platform must return to creator controls with guidance to use an external
-browser or another available provider; it must not create an order through the
-old registered-user path.
+```text
+GET /v1/work-sdk/:workKey/tip-config
+```
 
-The host may draw amount and provider controls. `open()` always ends at the
-ViceMe read-only confirmation layer, which the host cannot customize. The host
-must not call order REST endpoints or receive an order number, payment action,
-or capability. It must not add arbitrary context fields to the request.
+`getConfig()` 是当前币种、可用渠道和金额边界的权威来源。首版金额为 100..20000 fen，步长 1 分；宿主不得写死更宽范围。`open()` 中 provider is optional，scene is platform-selected，宿主不得传 scene 或任意上下文字段。
 
-`open()` resolves only `PAID`, `CANCELLED`, or `UNKNOWN`. UNKNOWN is not a
-failure: it means the SDK could not conclusively confirm the final state. The
-host must not claim failure, retry a charge automatically, or implement
-cross-refresh order recovery. Refresh starts a new host interaction.
+匿名生产赞赏 do not use WeChat JSAPI，因为旧场景要求绑定 ViceMe User 的 OpenID。普通移动浏览器可由平台选择 H5，桌面可选择 NATIVE；微信 WebView 必须回到宿主控制并提示使用外部浏览器或其他可用渠道，不得退回旧注册用户支付链路。
 
-Only `PAID` carries data: trusted `work.id` and `work.title`, `amountCents`, and
-`currency: "CNY"`. `CANCELLED` and `UNKNOWN` carry only their status. No result
-contains a provider receipt, order number, capability, or payment action.
+宿主可以绘制金额与 provider 控件，但 `open()` 最终总会进入 ViceMe 的 read-only confirmation layer，宿主不能替换、重绘或补充支付结论。宿主不得调用订单 REST API，也不得接收订单号、支付动作或 capability。
 
-## Official UI With Exact CDN ESM
+`open()` 只解析为 `PAID`、`CANCELLED` 或 `UNKNOWN`：
 
-The official UI uses `createViceMe` and `mountTip`; it does not use a global or
-declarative loader. Start with the public SANDBOX Work key:
+- `PAID` 是唯一携带业务数据的结果：可信 `work.id`、`work.title`、`amountCents` 与 `currency: "CNY"`。
+- 只有用户在官方确认阶段、尚未尝试建单前明确取消，才返回只含 status 的 `CANCELLED`。
+- 已建单、可能已建单、订单关闭、窗口被拦截、异常关闭或协议无法确认时返回只含 status 的 `UNKNOWN`。UNKNOWN is not a failure；不得声称扣款失败、自动重试收费或实现 cross-refresh order recovery。同一 channel 后续确认权威支付成功时仍可收到 `PAID`。
+
+公开结果不包含 provider receipt、`orderNo`、capability、handoff token、结果 token 或 `PaymentAction`。
+
+## `sourceOrigin` 与安全 handoff
+
+`sourceOrigin` 只能由官方 Web 服务端从浏览器 Referer 解析并规范化，不能来自宿主、SDK 或 URL query。规范值是小写 HTTP/HTTPS Origin，不含凭证、路径、查询、片段、尾部斜杠或显式默认端口。ViceMe 记录来源用于审计与可选归因，不用它要求宿主页必须与 Work 同域。
+
+宿主若发送 `Referrer-Policy: no-referrer`，或浏览器没有提供有效 Referer，官方页面必须 fail closed 并显示 handoff 不可用；绝不读取 query、locale、Commerce Application 或调用方消息作为来源 fallback。宿主应保留浏览器能够向官方 Origin 发送来源 Origin 的 referrer policy，不得为了“修复”接入伪造 `sourceOrigin`。
+
+Headless SDK 在每次用户手势触发的 `open()` 中创建高熵随机 channel，并直接打开官方 `window`。SDK 只接受：
+
+- 所选 Profile 的精确官方 Web Origin；
+- 该次调用自己打开的 Window；
+- 匹配本次随机 channel 与 workKey 的严格消息 schema。
+
+官方页面只接受服务端 Referer 得到的 `sourceOrigin`、直接 `opener`/`parent`、匹配 channel/workKey 的严格 init schema。双方收发消息都必须同时验证 `event.origin`、`event.source`、channel、workKey 与消息形状，`postMessage` 必须使用精确目标 Origin，不能用 `*`。
+
+外部宿主不直接接收签名 handoff 或订单 capability；创建、状态和取消都只由官方页面发起。生产建单的短期签名上下文绑定 Work key 环境与 `sourceOrigin`，过期时只能由官方同源页面在固定续期窗口内更新；API 始终拒绝过期或环境不匹配的上下文。
+
+## 官方 UI：精确 CDN ESM
+
+官方 UI 使用 `createViceMe` 与 `mountTip`，不使用全局对象或声明式 loader。先使用公开 SANDBOX key：
 
 ```js
 import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
@@ -121,33 +104,13 @@ function destroyViceMeTip() {
 }
 ```
 
-Retain `mountHandle` for the lifetime of the owning instance. Invoke
-`destroyViceMeTip()` from every real SPA, component, or route unmount so the
-mount is destroyed before the client. Do not bind cleanup to `pagehide`, because
-that event also fires when a document enters bfcache. A static document has no
-in-document route unmount and needs no synthetic lifecycle hook.
+在所属实例的整个生命周期保留 `mountHandle`。每次 SPA、组件或路由真实卸载都调用 `destroyViceMeTip()`，确保 mount 先于 client 销毁。不要把清理绑定到 `pagehide`，因为文档进入 bfcache 时也会触发；静态文档没有页面内卸载，不需要虚构生命周期。
 
-## Headless With npm
+## Headless：npm
 
-Use the host project's existing package manager to install exact
-`@viceme-ai/sdk@0.4.0`, then keep rendering in host code. First require this
-official-registry preflight to return exactly `0.4.0`:
+用宿主项目既有包管理器精确安装 `@viceme-ai/sdk@0.4.0`。先要求官方注册表检查返回精确版本；不可用时停止。为 `@viceme-ai` scope 固定 `https://registry.npmjs.org`，并核对 lockfile 的来源与 integrity。
 
-```bash
-npm view @viceme-ai/sdk@0.4.0 version --json \
-  --registry=https://registry.npmjs.org \
-  --@viceme-ai:registry=https://registry.npmjs.org
-```
-
-If the version is unavailable, stop. Do not fall back to `latest`, a Git
-dependency, copied source, or a package from a project-specific registry. Bind
-the selected package manager's install to `https://registry.npmjs.org` for the
-`@viceme-ai` scope and verify the lockfile's resolved package integrity against
-the official registry response. The `renderTipControls` function below
-represents the host's own UI and must use the returned config rather than
-independent amount or provider constants. It must invoke the callback directly
-from the button click or keyboard activation stack; do not await or schedule
-other work before `tip.open()` creates the secure handoff.
+`renderTipControls` 代表宿主自己的 UI，必须完全使用返回配置，不能维护独立金额或 provider 常量。控件必须直接在按钮点击或键盘激活的调用栈中调用回调；在 `tip.open()` 创建安全 handoff 前不得 await、排队或调度其他工作。
 
 ```js
 import { createViceMe } from "@viceme-ai/sdk";
@@ -171,6 +134,8 @@ renderTipControls(
     const resultPromise = tip.open({
       amountCents,
       ...(provider ? { provider } : {}),
+      locale: "zh-CN",
+      appearance: "light",
     });
     const result = await resultPromise;
 
@@ -194,21 +159,11 @@ function destroyViceMeTip() {
 }
 ```
 
-Call `destroyViceMeTip()` from the owning component or route's real unmount
-lifecycle. Do not bind cleanup to `pagehide`; that event also fires when a page
-enters the back/forward cache.
+从组件或路由的真实卸载生命周期调用 `destroyViceMeTip()`。不要绑定 `pagehide`。
 
-## Headless With Exact CDN ESM
+## Headless：精确 CDN ESM
 
-Use both immutable files from the same reviewed SDK release. Do not replace the
-version with `/v1`, `latest`, or another mutable alias. The first Headless
-release is `0.4.0` and the first open-tip market is CN.
-
-Before editing the host, complete the four-object CN/GLOBAL preflight in
-"Release Selection Before Mutation" above. The host then imports the verified
-CN pair below. If any object is unavailable, stop. Do not substitute the mutable
-`/v1` alias or copy SDK source into the host. As with npm, the host control must
-call `tip.open()` directly from its click or keyboard activation stack.
+同一审查版本的两个不可变文件必须配对使用。编辑宿主前完成上面的四对象 CN/GLOBAL 预检；If any object is unavailable, stop。宿主控制也必须从点击或键盘激活调用栈直接调用 `tip.open()`。
 
 ```js
 import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
@@ -232,6 +187,8 @@ renderTipControls(
     const resultPromise = tip.open({
       amountCents,
       ...(provider ? { provider } : {}),
+      locale: "zh-CN",
+      appearance: "light",
     });
     const result = await resultPromise;
 
@@ -255,14 +212,11 @@ function destroyViceMeTip() {
 }
 ```
 
-Call `destroyViceMeTip()` only from the owning component or route's real
-unmount lifecycle, not `pagehide`.
+只在 owning component 或 route 的真实 unmount 中调用 `destroyViceMeTip()`，不要使用 `pagehide`。
 
-## Validation Ladder
+## 验证阶梯
 
-1. Local Fake: use the official side-effect-free test adapter in component tests
-   and Storybook. Exercise each public outcome; do not fake ViceMe internals or
-   add a production-only testing switch.
+1. Local Fake：组件测试与 Storybook 使用官方无副作用测试适配器，覆盖所有公开结果；不得伪造 ViceMe 内部协议或增加生产专用测试开关。
 
    ```js
    import { createTestTip } from "@viceme-ai/sdk/tip/testing";
@@ -284,12 +238,12 @@ unmount lifecycle, not `pagehide`.
    );
    ```
 
-2. SANDBOX key: run the real SDK for the selected CN Profile, then verify
-   config-driven amounts/providers, the ViceMe-controlled handoff, responsive
-   layout, keyboard access, and platform sandbox payment outcomes. No real
-   funds move.
-3. Production promotion: show the SANDBOX evidence and obtain explicit user
-   confirmation before replacing `wrk_test_...` with `wrk_live_...`.
-4. Production boundary: a PRODUCTION key cannot simulate payment. Treat an
-   exercised real payment as a separate, explicit user decision and report when
-   it was not tested.
+2. SANDBOX key：使用所选 CN Profile 的真实 SDK，验证配置驱动的金额/provider、ViceMe-controlled handoff、Referer 来源、响应式、键盘与平台模拟结果；不移动真实资金。
+3. Production promotion：展示 SANDBOX 证据并取得用户明确确认后，才把 `wrk_test_...` 换为 `wrk_live_...`。
+4. Production boundary：PRODUCTION key cannot simulate payment。真实支付是独立且明确的用户决定；未执行时必须报告。
+
+## CSP 与线上验收
+
+保留现有 CSP 和 nonce，只加入浏览器证明确实需要的精确 SDK CDN 与官方 Web Origin。不得加入 `*`、宽泛 ViceMe 子域、`unsafe-eval` 或宿主自提供的支付脚本。referrer policy 必须允许官方页面收到来源 Origin；`no-referrer` 会按安全契约关闭 handoff，不能通过放宽消息校验补救。
+
+最终在公开 HTTPS 页面验证：SDK 文件返回 200，控件可见且键盘可达，来源缺失时正确 fail closed，正常来源能打开预期 Work 的官方确认，Escape/关闭路径符合公开结果语义，无 CSP、frame、script 或 handoff 错误。打开 UI 不代表支付已结算，必须分别报告 SANDBOX、生产建单和真实到账的验证边界。

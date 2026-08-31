@@ -19,6 +19,7 @@ import (
 
 func newPublicationCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "publication", Short: "Review and complete an in-progress Skill publication"}
+	command.AddCommand(newPublicationPrecheckCommand(runtime))
 	command.AddCommand(newPublicationGetCommand(runtime))
 	command.AddCommand(newPublicationAnalyzeCommand(runtime))
 	command.AddCommand(newPublicationWaitCommand(runtime))
@@ -32,6 +33,74 @@ func newPublicationCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
+// newPublicationPrecheckCommand collapses the three publish preflight reads
+// (login + scopes, creator qualification, and for --github the channel
+// binding) into one call so agents do not pay three round trips.
+func newPublicationPrecheckCommand(runtime *Runtime) *cobra.Command {
+	var github string
+	command := &cobra.Command{
+		Use:   "precheck",
+		Short: "One-shot publish preflight: login, creator, and channel state",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			result := map[string]any{
+				"authenticated": false,
+				"ready":         false,
+			}
+			status, err := runtime.manager().CurrentStatus()
+			if err != nil {
+				return err
+			}
+			if !status.Authenticated {
+				result["next"] = "LOGIN"
+				return runtime.business(result)
+			}
+			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+				return err
+			}
+			remote, err := runtime.client().AuthStatus(command.Context())
+			if err != nil {
+				return err
+			}
+			result["authenticated"] = true
+			result["scopes"] = remote.Scopes
+			result["user"] = remote.User
+			accounts, err := runtime.client().ListMerchantAccounts(command.Context())
+			if err != nil {
+				return err
+			}
+			if len(accounts.Items) == 0 {
+				result["merchant"] = nil
+				result["next"] = "APPLY_CREATOR"
+				return runtime.business(result)
+			}
+			merchant := accounts.Items[0]
+			result["merchant"] = merchant
+			ready := true
+			if github != "" {
+				verified, err := runtime.client().GetGithubChannelVerified(command.Context(), merchant.ID)
+				if err != nil {
+					return err
+				}
+				result["githubChannel"] = map[string]any{
+					"verified": verified.Verified,
+				}
+				if !verified.Verified {
+					result["next"] = "AUTHORIZE_GITHUB"
+					ready = false
+				}
+			}
+			if ready {
+				result["next"] = "PUBLISH"
+			}
+			result["ready"] = ready
+			return runtime.business(result)
+		},
+	}
+	command.Flags().StringVar(&github, "github", "", "GitHub repository as owner/name to check the channel binding for")
+	return command
+}
+
 func newPublicationAnalyzeCommand(runtime *Runtime) *cobra.Command {
 	return &cobra.Command{
 		Use:   "analyze <publication-id>",
@@ -42,7 +111,7 @@ func newPublicationAnalyzeCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return presentPublication(command.Context(), runtime, result)
+			return presentPublication(command.Context(), runtime, result, "")
 		},
 	}
 }
@@ -74,7 +143,7 @@ func newPublicationWaitCommand(runtime *Runtime) *cobra.Command {
 					return err
 				}
 				if result.Analysis == nil || result.Analysis.Status != "PENDING" {
-					return presentPublication(command.Context(), runtime, result)
+					return presentPublication(command.Context(), runtime, result, "")
 				}
 				if err := runtime.deps.Sleep(ctx, interval); err != nil {
 					if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -109,7 +178,7 @@ func newPublicationGetCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return presentPublication(command.Context(), runtime, result)
+			return presentPublication(command.Context(), runtime, result, "")
 		},
 	}
 }
@@ -205,7 +274,7 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 				return output.Internal("MEDIA_UPLOAD_NOT_VERIFIED", "uploaded media was not returned as verified", nil)
 			}
 			if candidateOnly {
-				return presentPublication(command.Context(), runtime, current)
+				return presentPublication(command.Context(), runtime, current, "")
 			}
 			patch := api.UpdateSkillPublicationDraftRequest{}
 			needsUpdate := false
@@ -219,13 +288,13 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 				needsUpdate = true
 			}
 			if !needsUpdate {
-				return presentPublication(command.Context(), runtime, current)
+				return presentPublication(command.Context(), runtime, current, "")
 			}
 			updated, err := client.UpdateListingDraftPatch(command.Context(), args[0], patch)
 			if err != nil {
 				return err
 			}
-			return presentPublication(command.Context(), runtime, updated)
+			return presentPublication(command.Context(), runtime, updated, "")
 		},
 	}
 	command.Flags().StringVar(&role, "role", "", "asset role: cover or gallery")
@@ -251,7 +320,7 @@ func newPublicationSuggestCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return presentPublication(command.Context(), runtime, result)
+			return presentPublication(command.Context(), runtime, result, "")
 		},
 	}
 	command.Flags().StringVar(&filename, "input", "", "strict JSON file containing the Agent suggestion and base draft revision")
@@ -282,7 +351,7 @@ func newPublicationUpdateCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return presentPublication(command.Context(), runtime, result)
+			return presentPublication(command.Context(), runtime, result, "")
 		},
 	}
 	command.Flags().StringVar(&filename, "input", "", "strict JSON file containing the complete listing draft")
@@ -299,7 +368,7 @@ func newPublicationConfirmCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			return presentPublication(command.Context(), runtime, result)
+			return presentPublication(command.Context(), runtime, result, "")
 		},
 	}
 	command.Flags().StringVar(&digest, "review-digest", "", "exact digest shown by publication review")
@@ -326,7 +395,7 @@ func newPublicationPublishCommand(runtime *Runtime) *cobra.Command {
 					return loadErr
 				}
 			}
-			return presentPublication(command.Context(), runtime, result)
+			return presentPublication(command.Context(), runtime, result, "")
 		},
 	}
 	command.Flags().StringVar(&digest, "review-digest", "", "exact digest confirmed by the user")
@@ -401,8 +470,8 @@ func readAgentSuggestionFile(filename string) (api.SuggestSkillPublicationDraftR
 	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
 		return request, output.Validation("PUBLICATION_SUGGESTION_INVALID", "Agent suggestion contains trailing JSON")
 	}
-	if request.BaseDraftRevision <= 0 || strings.TrimSpace(request.Patch.SummaryZhCN) == "" || strings.TrimSpace(request.Patch.SummaryEnUS) == "" || strings.TrimSpace(request.Patch.UsageInstructionsZhCN) == "" || strings.TrimSpace(request.Patch.UsageInstructionsEnUS) == "" || request.Patch.CoverUploadID == nil || len(request.Patch.GalleryUploadIDs) == 0 {
-		return request, output.Validation("PUBLICATION_SUGGESTION_INVALID", "Agent suggestion requires a positive baseDraftRevision, bilingual copy, bilingual usage instructions, one coverUploadId, and at least one galleryUploadId")
+	if request.BaseDraftRevision <= 0 || strings.TrimSpace(request.Patch.SummaryZhCN) == "" || strings.TrimSpace(request.Patch.UsageInstructionsZhCN) == "" || request.Patch.CoverUploadID == nil || len(request.Patch.GalleryUploadIDs) == 0 {
+		return request, output.Validation("PUBLICATION_SUGGESTION_INVALID", "Agent suggestion requires a positive baseDraftRevision, Chinese copy, Chinese usage instructions, one coverUploadId, and at least one galleryUploadId")
 	}
 	return request, nil
 }

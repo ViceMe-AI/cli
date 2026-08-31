@@ -99,6 +99,8 @@ func TestMerchantEngagementClientUsesShopContracts(t *testing.T) {
 	}
 	activateRequest := CommerceApplicationCommand{MerchantAccountID: testMerchantAccountID, ExpectedRevision: 2}
 	suspendRequest := CommerceApplicationCommand{MerchantAccountID: testMerchantAccountID, ExpectedRevision: 3}
+	websiteWidgetWithProduct := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, "Demo Widget", []string{"https://example.com"}, []string{})
+	websiteWidgetWithProduct.Products = []CommerceApplicationProduct{{ProductID: testProductID, Title: "Product", Status: "ACTIVE"}}
 
 	tests := []struct {
 		name     string
@@ -238,10 +240,10 @@ func TestMerchantEngagementClientUsesShopContracts(t *testing.T) {
 			},
 		},
 		{
-			name: "get Commerce Application", method: http.MethodGet,
+			name: "get Website Widget Commerce Application with Product", method: http.MethodGet,
 			path:     "/v1/cli/merchant/commerce-applications/" + testCommerceApplicationID,
 			query:    "merchantAccountId=" + testMerchantAccountID,
-			response: testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, "Demo Widget", []string{"https://example.com"}, []string{}),
+			response: websiteWidgetWithProduct,
 			call: func(client *Client) error {
 				_, err := client.GetCommerceApplication(context.Background(), testCommerceApplicationID, testMerchantAccountID)
 				return err
@@ -330,6 +332,7 @@ func TestWorkSdkAccessDecodesBothPermanentPublicKeys(t *testing.T) {
   "status": "ACTIVE",
   "configVersion": 1,
   "features": ["tip"],
+  "accessFeatures": [],
   "createdAt": "`+testTimestamp+`",
   "updatedAt": "`+testTimestamp+`"
 }`)
@@ -343,6 +346,42 @@ func TestWorkSdkAccessDecodesBothPermanentPublicKeys(t *testing.T) {
 	}
 	if access.Keys.Test != testTestWorkKey || access.Keys.Live != testLiveWorkKey {
 		t.Fatalf("Work SDK access keys were not decoded: %#v", access.Keys)
+	}
+}
+
+func TestWorkSdkAccessAllowsAccessOnlyConfiguration(t *testing.T) {
+	t.Parallel()
+
+	access := testWorkSdkAccess(testWebsiteWorkID, "ACTIVE", 1, []string{})
+	access.AccessFeatures = []WorkAccessFeature{{
+		FeatureKey: "followers",
+		Title:      "Followers",
+		PolicyType: "FOLLOW_OWNER",
+		Status:     "ACTIVE",
+	}}
+	if err := access.validateAPIResponse(); err != nil {
+		t.Fatalf("access-only Work SDK configuration was rejected: %v", err)
+	}
+}
+
+func TestMerchantEngagementRecoveryUsesAuthoritativeResponseContracts(t *testing.T) {
+	t.Parallel()
+
+	latest := testWebsiteVerification("PENDING", false)
+	if err := latest.validateAPIResponse(); err != nil {
+		t.Fatalf("latest verification without plaintext challenge: %v", err)
+	}
+	if latest.Challenge != nil {
+		t.Fatal("latest verification unexpectedly exposes a plaintext challenge")
+	}
+
+	for _, status := range []string{"DRAFT", "ACTIVE", "SUSPENDED", "REVOKED"} {
+		if !validCommerceApplicationStatus(status) {
+			t.Fatalf("authoritative Commerce Application status %q was rejected", status)
+		}
+	}
+	if validCommerceApplicationStatus("ARCHIVED") {
+		t.Fatal("Commerce Application contract accepted Product-only ARCHIVED status")
 	}
 }
 
@@ -410,8 +449,6 @@ func TestMerchantEngagementClientRejectsInvalidSuccessfulResponses(t *testing.T)
 	wrongApplicationEnvironment := testCommerceApplication("WEBSITE_WIDGET", "PRODUCTION", "DRAFT", 1, "Demo Widget", []string{"https://example.com"}, []string{"https://example.com/return"})
 	wrongApplicationOrigin := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, "Demo Widget", []string{"https://other.example.com"}, []string{"https://example.com/return"})
 	wrongApplicationReturnURL := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, "Demo Widget", []string{"https://example.com"}, []string{"https://example.com/other"})
-	widgetWithProduct := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, "Demo Widget", []string{"https://example.com"}, []string{})
-	widgetWithProduct.Products = []CommerceApplicationProduct{{ProductID: testProductID, Title: "Product", Status: "ACTIVE"}}
 	nonAdvancingApplication := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, updatedName, []string{"https://example.com"}, []string{})
 	nonAdvancingCommand := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "ACTIVE", 2, "Demo Widget", []string{"https://example.com"}, []string{})
 
@@ -628,13 +665,6 @@ func TestMerchantEngagementClientRejectsInvalidSuccessfulResponses(t *testing.T)
 			},
 		},
 		{
-			name: "Website Widget Product", response: widgetWithProduct,
-			call: func(client *Client) error {
-				_, err := client.GetCommerceApplication(context.Background(), testCommerceApplicationID, testMerchantAccountID)
-				return err
-			},
-		},
-		{
 			name: "non-advancing Application revision", response: nonAdvancingApplication,
 			call: func(client *Client) error {
 				_, err := client.UpdateCommerceApplication(context.Background(), testCommerceApplicationID, UpdateCommerceApplicationRequest{
@@ -714,6 +744,30 @@ func TestMerchantEngagementClientRejectsInvalidSuccessfulResponses(t *testing.T)
 			}
 		})
 	}
+}
+
+func TestWorkAccessFeaturesMatchRequest(t *testing.T) {
+	t.Parallel()
+	price := &WorkAccessPrice{Currency: "CNY", AmountCents: 990}
+	expected := []WorkAccessFeatureInput{
+		{FeatureKey: "followers", Title: "关注可见", PolicyType: "FOLLOW_OWNER", Status: "ACTIVE"},
+		{FeatureKey: "members", Title: "会员内容", PolicyType: "WORK_ENTITLEMENT", Price: price, Status: "ACTIVE"},
+	}
+	actual := []WorkAccessFeature{
+		{FeatureKey: "members", Title: "会员内容", PolicyType: "WORK_ENTITLEMENT", ProductID: stringPointer(testProductID), Price: price, Status: "ACTIVE"},
+		{FeatureKey: "followers", Title: "关注可见", PolicyType: "FOLLOW_OWNER", Status: "ACTIVE"},
+	}
+	if !workAccessFeaturesMatchRequest(actual, expected) {
+		t.Fatalf("authoritative access features did not match request: actual=%#v expected=%#v", actual, expected)
+	}
+	actual[0].ProductID = nil
+	if workAccessFeaturesMatchRequest(actual, expected) {
+		t.Fatal("paid access response without Product ID was accepted")
+	}
+}
+
+func stringPointer(value string) *string {
+	return &value
 }
 
 func assertRequestJSON(t *testing.T, request *http.Request, expected any) {
@@ -816,11 +870,12 @@ func testWorkSdkAccess(workID, status string, configVersion int, features []stri
 			Test: testTestWorkKey,
 			Live: testLiveWorkKey,
 		},
-		Status:        status,
-		ConfigVersion: configVersion,
-		Features:      features,
-		CreatedAt:     testTimestamp,
-		UpdatedAt:     testTimestamp,
+		Status:         status,
+		ConfigVersion:  configVersion,
+		Features:       features,
+		AccessFeatures: []WorkAccessFeature{},
+		CreatedAt:      testTimestamp,
+		UpdatedAt:      testTimestamp,
 	}
 }
 

@@ -36,7 +36,9 @@
 | --- | --- |
 | 发布 Skill | 校验本地 Skill 目录或 ZIP、设置人民币价格、上传、审核平台建议，并发布付费商品。 |
 | 发布网站 | 使用稳定 Website Work 身份登记创作者网站并完成 DNS 所有权验证。 |
-| 接入互动 | 使用 Work 永久公开的测试/正式 key，通过官方或 Headless SDK 接入托管弹幕与开放赞赏。 |
+| 接入创作者访问 | 在原站接入登录、关注门槛和按功能独立定价的一次性访问权限。 |
+| 接入弹幕 | 为已经发布且完成 DNS 验证的 Website Work 启用托管弹幕。 |
+| 接入开放赞赏 | 为任意合格且已发布的 Merchant Work 启用永久公开的测试/正式 key，并选择官方或 Headless SDK。 |
 | 配置 Agent | 把 CLI 与官方 Skills 作为同一个兼容版本安装、登录、更新、诊断和修复。 |
 | 安全恢复 | 网络或进程中断后继续原发布任务，不重复上传和创建商品。 |
 
@@ -151,10 +153,13 @@ npx --yes @viceme-ai/cli@latest install
 | Skill | 适用场景 |
 | --- | --- |
 | `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
+| `viceme-creator-onboarding` | 建立或恢复创作者资格，并把用户拥有且选定的商家交回原流程。 |
 | `viceme-publish` | 发布可下载 Skill、创作者网站 Work，或把当前用户拥有的商家服务与实物定义引导为可选的公开 Product 和自动生成的购买 Skill。 |
 | `viceme-danmaku` | 验证 Website Work、启用弹幕 SDK access，并安装官方托管 loader。 |
 | `viceme-tip` | 为任意已发布 Merchant Work 启用开放赞赏，先用沙箱 key 验收，再选择官方或 Headless UI。 |
 | `viceme-engagement` | 保留弹幕的 Website 验证要求，通过精确版本 ESM mount 在同一 Work 上选择官方或 Headless 赞赏 UI。 |
+| `viceme-access` | 在不改变原站业务动作的前提下，接入原生登录、关注和一次性购买入口。 |
+| `viceme-skill-use` | 解析免费、已购买或待购买的访问状态，安装所选 Skill，并继续原任务。 |
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
 可以解释每一步决策，而相同的命令契约仍可在终端或自动化中复现。
@@ -245,7 +250,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme merchant accounts` | 列出当前 User 通过 OWNER 成员关系经营的普通 MerchantAccount。 |
 | `viceme merchant work ...` | 创建、查看、更新和发布 Merchant Work，包括 Website Work。 |
 | `viceme merchant work website-verification ...` | 创建、查看、验证或撤销一个 Website Work 的 DNS 所有权。 |
-| `viceme merchant work sdk-access ...` | 创建、查看、完整替换、列出或禁用 Work 的 `danmaku` 与 `tip` access。创建会返回永久公开、并非凭据的 `keys.test` 与 `keys.live`。 |
+| `viceme merchant work sdk-access ...` | 在同一 Work 上管理托管 `danmaku`/`tip` 与关注/付费 access；两类配置相互保留，创建会返回永久公开、并非凭据的 `keys.test` 与 `keys.live`。 |
 | `viceme merchant commerce-application ...` | 管理 Commerce Application；对于开放赞赏，匹配的应用只是可选可信来源归因，不是授权门禁。 |
 | `viceme merchant product ...` | 创建、编译、激活、暂停或归档 Product 及其生成的购买 Skill。 |
 | `viceme commerce ...` | 安装并运行签名购买 Skill，完成会话、报价、支付订单与同会话状态查询。 |

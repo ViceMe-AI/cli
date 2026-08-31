@@ -40,7 +40,9 @@
 | --- | --- |
 | Publish a Skill | Validate a local Skill directory or ZIP, set a CNY price, upload it, review platform suggestions, and publish a paid listing. |
 | Publish a website | Register and DNS-verify a creator website with a stable Website Work identity. |
-| Add engagement | Enable hosted danmaku or open tips on a Work with permanent public test/live keys and the official or Headless SDK. |
+| Add creator access | Add host-native login, follow gates, and independently priced one-time feature access. |
+| Add danmaku | Enable hosted danmaku on a published, DNS-verified Website Work. |
+| Add open tips | Enable tips for any eligible published Merchant Work with permanent public test/live keys and the official or Headless SDK. |
 | Set up an Agent | Install, authenticate, update, diagnose, and repair the CLI and official Skills as one compatible release. |
 | Recover safely | Continue the same publication after a network or process interruption without uploading a duplicate product. |
 
@@ -166,10 +168,13 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | Skill | Use it when you want to... |
 | --- | --- |
 | `viceme-shared` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
+| `viceme-creator-onboarding` | establish or recover creator eligibility and return the selected owned Merchant to the calling workflow. |
 | `viceme-publish` | publish a downloadable Skill, creator website Work, or an owned Merchant service or physical-product definition with its optional public Product and generated purchase Skill. |
 | `viceme-danmaku` | verify a Website Work, enable danmaku SDK access, and install the official hosted loader. |
 | `viceme-tip` | enable open tips for any published Merchant Work, validate with its sandbox key, then integrate the official or Headless UI. |
 | `viceme-engagement` | preserve danmaku's Website verification while enabling open tips on the same Work with exact-version ESM mounts and either the official or Headless Tip UI. |
+| `viceme-access` | integrate host-native login, follow, and one-time purchase entry points without changing the website's original action. |
+| `viceme-skill-use` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
 owns deterministic local work and API calls. This separation lets an Agent
@@ -270,7 +275,7 @@ Never copy an access token into the conversation.
 | `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
 | `viceme merchant work ...` | Create, inspect, update, and publish Merchant Works, including Website Works. |
 | `viceme merchant work website-verification ...` | Create, inspect, verify, or revoke DNS ownership for one Website Work. |
-| `viceme merchant work sdk-access ...` | Create, inspect, replace, list, or disable a Work's `danmaku` and `tip` access. Create returns permanent public `keys.test` and `keys.live` identifiers, not credentials. |
+| `viceme merchant work sdk-access ...` | Manage hosted `danmaku`/`tip` and follow/paid access on one Work. Hosted and access domains preserve each other; creation returns permanent public `keys.test` and `keys.live` identifiers, not credentials. |
 | `viceme merchant commerce-application ...` | Manage Commerce Applications. For open tips, a matching application is optional trusted-source attribution rather than an authorization gate. |
 | `viceme merchant product ...` | Create, compile, activate, suspend, or archive Products and their generated purchase Skills. |
 | `viceme commerce ...` | Install and run a signed purchase Skill through session, quote, payment order, and same-session status commands. |

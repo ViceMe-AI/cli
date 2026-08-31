@@ -172,6 +172,29 @@ func TestBindingRejectsAnotherEndpointScope(t *testing.T) {
 	}
 }
 
+func TestRemoteBindingUsesLogicalIdentityAcrossArtifactUpdates(t *testing.T) {
+	store := testBindingStore(t)
+	logicalSource := "remote:github:12345/owner/repository/packages/poster"
+	ids := idSequence()
+	first, err := store.ResolveOrCreate(logicalSource, "ZIP", digest("1"), "", ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Save(logicalSource, "ZIP", testBinding(first.ClientWorkID, digest("1"), store)); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.ResolveOrCreate(logicalSource, "ZIP", digest("2"), "", ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ClientWorkID != first.ClientWorkID || updated.Binding == nil {
+		t.Fatalf("remote artifact update lost its logical Work identity: first=%#v updated=%#v", first, updated)
+	}
+	if _, err := os.Stat(logicalSource + ".viceme.json"); !os.IsNotExist(err) {
+		t.Fatalf("logical remote source created a local sidecar: %v", err)
+	}
+}
+
 func testBindingStore(t *testing.T) BindingStore {
 	t.Helper()
 	return BindingStore{Directory: filepath.Join(t.TempDir(), "bindings"), EndpointOrigin: "https://api.viceme.cn"}

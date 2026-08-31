@@ -1,30 +1,19 @@
 ---
 name: viceme-engagement
-description: Add ViceMe hosted danmaku and open tips to one verified Website Work through one SDK access resource and either the official Tip UI or Headless Tip.
+description: 在同一个已验证 Website Work 上接入 ViceMe 托管弹幕与开放赞赏，通过一个 Work SDK access 同时保留 hosted 和 access features，并选择官方或 Headless Tip UI。
 ---
 
-# Integrate ViceMe Danmaku And Tips
+# 同时接入 ViceMe 弹幕与开放赞赏
 
-Configure one resource graph and one selected Tip UI path. Never create separate
-Works for danmaku and Tip. The Website and DNS requirements below belong to
-danmaku's independent security contract; open tips do not add an application or
-Origin gate.
+配置一个权威资源图和一条用户选定的 Tip UI 路线。弹幕与赞赏不得创建两个 Work。Website 与 DNS 要求来自 Danmaku 的独立安全契约；开放赞赏本身不增加宿主页所有权或应用门禁。
 
-## Workflow
+面向用户的文字跟随用户当前语言；中文交流使用自然白话，不直接展示挑战值、handoff 上下文或敏感字段。
 
-1. Inspect the exact production HTTPS Origin, target page, deployment command,
-   CSP, responsive layout, and browser tests.
-2. Run `viceme profile list` and keep the active Profile. Record its exact
-   `marketRegion`; never infer the market from locale or hostname. Stop and
-   explain the boundary unless `marketRegion` is exactly `cn`, because the
-   first open-tip release is CN/CNY only. Run `viceme --profile <profile> auth
-   status`; require `merchant-commerce:read` and
-   `merchant-commerce:write`. Then select an active Merchant from `viceme
-   --profile <profile> merchant accounts`.
-3. Ask the user to choose the official Tip UI or Headless Tip before any Work,
-   Website verification, SDK access, or page write. First prove that the exact
-   `0.4.0` Tip release is complete in both publication regions. Every combined
-   route requires these four objects:
+## 流程
+
+1. 查看精确生产 HTTPS Origin、目标页面、部署命令、CSP、响应式布局和浏览器测试。
+2. 先交给 `$viceme-creator-onboarding` 在当前 CLI 上下文完成登录、创作者资格检查和 Merchant 选择。只有它确认当前用户以 OWNER 身份拥有有效 Merchant 后才继续；本 Skill 不自行运行登录、申请或商家账户选择命令。随后运行 `viceme profile list`，只记录并固定当前 Profile 与精确 `marketRegion`，不得从页面 locale、hostname 或其他 Profile 推导市场。本版开放赞赏只支持 `marketRegion: cn` 与 CNY；否则停止并说明边界。
+3. 在任何 Work 创建/更新、Website verification、SDK access 或页面写入前，请用户选择官方 Tip UI 或 Headless。首先证明精确 `0.4.0` Tip 发布物在两个区域完整可用，每条组合路线都要求：
 
    ```bash
    curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/index.js
@@ -33,14 +22,13 @@ Origin gate.
    curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js
    ```
 
-   Official UI and CDN Headless also require the immutable CN Danmaku entry:
+   官方 UI 与 CDN Headless 还要求不可变 CN Danmaku 入口：
 
    ```bash
    curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js
    ```
 
-   For Headless Tip, ask whether the host uses npm or CDN ESM. The npm route
-   instead also requires this command to return exactly `0.4.0`:
+   Headless 需要选择 npm 或 CDN ESM。npm 路线还要求官方注册表精确返回 `0.4.0`：
 
    ```bash
    npm view @viceme-ai/sdk@0.4.0 version --json \
@@ -48,15 +36,8 @@ Origin gate.
      --@viceme-ai:registry=https://registry.npmjs.org
    ```
 
-   If any required check fails, stop. Do not create, verify, or publish a Work,
-   create or update SDK access, or edit the page. Never substitute `latest`,
-   `/v1`, another version, a declarative loader, any browser global, or copied
-   SDK source. Only after the complete dual-region preflight and any selected
-   npm or Danmaku check succeed, continue to Work selection and later mutation.
-4. Run `viceme --profile <profile> merchant work list --merchant <merchant-id>`.
-   Reuse a Website Work only when its `website.canonicalOrigin` exactly equals
-   the deployed Origin. If none exists, use this strict request, filling only
-   observed content:
+   任一必需检查失败就停止，不创建、验证或发布 Work，不写 SDK access，也不编辑页面。不得替换为 `latest`、可变版本别名、声明式 loader、浏览器全局对象、Git 依赖或复制源码。完整双区域预检和所选 npm/Danmaku 检查成功后才能继续。
+4. 运行 `viceme --profile <profile> merchant work list --merchant <merchant-id>`。只有 `website.canonicalOrigin` 与实际部署 Origin 完全一致时才复用 Website Work。不存在时，用稳定 `clientRequestId` 和只含观察事实的严格请求创建：
 
    ```json
    {
@@ -77,29 +58,24 @@ Origin gate.
    }
    ```
 
-   Run `viceme --profile <profile> merchant work create --input <json>`. If the
-   response is lost, replay the identical request with the same
-   `clientRequestId`; do not create a new identity.
-5. Whether the Work was reused or created, read it with `viceme --profile
-   <profile> merchant work get <work-id> --merchant <merchant-id>`. If
-   `website.ownershipStatus` is not `VERIFIED`, first run:
+   运行 `viceme --profile <profile> merchant work create --input <json>`。响应丢失时，用同一个 `clientRequestId` 原样重放，不得创建新的 Work 身份。
+5. 无论 Work 是复用还是新建，都运行 `viceme --profile <profile> merchant work get <work-id> --merchant <merchant-id>`。如果状态是 `SUSPENDED` 或 `ARCHIVED`，立即停止并报告，不创建挑战、不改 DNS，也不另建 Work。
+
+   `website.ownershipStatus` 不是 `VERIFIED` 时先运行：
 
    ```bash
    viceme --profile <profile> merchant work website-verification get <work-id> \
      --merchant <merchant-id>
    ```
 
-   If the latest verification status is `PENDING` and it is unexpired, reuse
-   its existing `challenge` and version. If no verification exists or its status
-   is `FAILED` or `EXPIRED`, create one from the current Work revision:
+   最新 verification 状态是 `PENDING` 时，只有当前执行仍持有 create 刚返回且未过期的明文 challenge 才能继续使用；GET 不找回 challenge。否则读取最新 Work revision 创建替代挑战：
 
    ```bash
    viceme --profile <profile> merchant work website-verification create <work-id> \
      --merchant <merchant-id> --expected-revision <work-revision>
    ```
 
-   Publish the returned `challenge` verbatim at `dnsRecordName`. After public
-   DNS resolves exactly, run:
+   把返回的 `challenge` 原样发布到 `dnsRecordName` 指定的记录。公共 DNS 精确解析后运行：
 
    ```bash
    viceme --profile <profile> merchant work website-verification verify <work-id> \
@@ -107,10 +83,8 @@ Origin gate.
      --expected-verification-version <verification-version>
    ```
 
-   Read the Work again after verify. Never create a second Work to recover a
-   `DRAFT` Work with a `PENDING` verification.
-6. If the current Work status is `DRAFT`, write this publish input, replacing
-   `2` with the fresh Work revision:
+   验证后重新读取 Work。不得为了恢复带 `PENDING` verification 的 `DRAFT` Work 创建第二个 Work，也不得猜测 challenge、verification version 或 revision。
+6. 当前 Work 状态是 `DRAFT` 时，从最新 revision 发布：
 
    ```json
    {
@@ -120,26 +94,16 @@ Origin gate.
    }
    ```
 
-   Run `viceme --profile <profile> merchant work update <work-id> --input
-   <json>`, then `viceme --profile <profile> merchant work get <work-id>
-   --merchant <merchant-id>`. If the Work status is already `PUBLISHED`, skip
-   update. If it is `SUSPENDED` or `ARCHIVED`, stop and report it instead of
-   silently reviving it or creating a duplicate. Never guess a revision or DNS
-   challenge.
-7. After the user confirms this Work, read SDK access but do not write it yet.
-   Snapshot the previous complete feature set, status, and exact
-   `configVersion`, or record that the resource was absent. This snapshot is the
-   rollback source.
-8. Apply the complete desired feature set `danmaku,tip` with one create or
-   update. For an absent resource:
+   运行 `viceme --profile <profile> merchant work update <work-id> --input <json>`，然后再次运行 `viceme --profile <profile> merchant work get <work-id> --merchant <merchant-id>`。Work 已经是 `PUBLISHED` 时跳过更新；变为 `SUSPENDED` 或 `ARCHIVED` 时停止并报告。
+7. 用户确认这个 Work 后，先读取 SDK access，不写入。记录原有 `keys.test`、`keys.live`、完整 hosted `features`、完整 `accessFeatures`、状态和精确 `configVersion`；不存在时明确记录。该快照是冲突处理与回滚来源。
+8. 用一次 create 或 update 应用完整 hosted feature set `danmaku,tip`。资源不存在时：
 
    ```bash
    viceme --profile <profile> merchant work sdk-access create <work-id> \
      --merchant <merchant-id> --feature danmaku --feature tip
    ```
 
-   For an existing resource, make one replacement update from the current
-   version:
+   已存在时从精确版本做一次 hosted replacement update，不传 follow/purchase/clear-access flags，从而保留完整 `accessFeatures`：
 
    ```bash
    viceme --profile <profile> merchant work sdk-access update <work-id> \
@@ -147,12 +111,10 @@ Origin gate.
      --feature danmaku --feature tip
    ```
 
-   Never run independent feature updates that overwrite each other. Creation
-   returns permanent public `keys.test` and `keys.live`; updates and disable do
-   not rotate either identifier.
-9. Start either route with `keys.test` so Tip can be simulated without real
-   funds. For the official UI, mount both capabilities from the exact CDN ESM
-   release after a stable target:
+   不得分开更新两个 feature，否则会相互覆盖。create 一次返回永久公开的 `keys.test` 与 `keys.live`；update、disable 和重新启用都不轮换。写入后重读并确认两个 key 未变、两个 hosted features 都存在、全部 `accessFeatures` 未变、状态为 `ACTIVE` 且 `configVersion` 单调增加。
+9. 两条路线都从 `keys.test` 开始，避免 Tip 验收移动真实资金。
+
+   官方 UI 在稳定 target 上从同一个精确 CDN ESM release 挂载两个能力：
 
    ```html
    <div id="viceme-engagement"></div>
@@ -181,11 +143,7 @@ Origin gate.
    </script>
    ```
 
-   For Headless Tip, load `viceme-tip` and follow its integration contract for
-   config-driven controls, result handling, and SANDBOX validation. Mount only
-   danmaku and create the host-owned Tip controller from the same exact release.
-   The example shows CDN ESM; use the equivalent exact npm subpaths only when
-   the npm preflight was selected:
+   Headless Tip 路线完整遵循 `viceme-tip` 的 [接入契约](../viceme-tip/references/integration-contract.md)，金额/provider 来自配置，公开结果只走其脱敏联合类型。只挂载 Danmaku，并从同一个精确 release 创建宿主 Tip controller；下面是 CDN ESM，只有选择且通过 npm 预检时才改用等价精确 npm subpath：
 
    ```html
    <div id="viceme-engagement"></div>
@@ -215,43 +173,21 @@ Origin gate.
    </script>
    ```
 
-   Keep every returned handle/controller with the owning instance. In a real
-   SPA, component, or route unmount, run `destroyViceMeEngagement()` so mounts
-   or Headless Tip are destroyed before `client.destroy()`. Do not use
-   `pagehide`, which also fires for bfcache.
-10. Preserve CSP and any nonce. Verify desktop plus 320px width. Confirm both
-   capabilities mount, a failure in one does not remove the other, host controls
-   remain clickable, danmaku persists, and Tip is keyboard reachable. Tip
-   visitors do not sign in to ViceMe. The browser source is recorded as an
-   unverified Origin unless optional trusted attribution exists; that does not
-   gate a tip.
-11. Show the SANDBOX evidence and obtain explicit user confirmation before
-   replacing every selected route's test key with `keys.live`
-   (`wrk_live_...`) in the single `createViceMe` call. Do not change imports or
-   mount the official Tip UI on the Headless route. A production key cannot
-   simulate payment.
+   所有 handle/controller 都跟随所属实例。在 SPA、组件或路由真实卸载时运行销毁函数，确保 mounts 与 Headless Tip 都在 `client.destroy()` 前销毁。不要使用会在 bfcache 时触发的 `pagehide`。
+10. 保留 CSP 与 nonce。`sourceOrigin` 只能由官方服务端从浏览器 Referer 规范化，不能从 query 或消息 fallback；宿主页使用 `Referrer-Policy: no-referrer` 时 Tip handoff 必须 fail closed。Headless 双方只信任官方 Origin、直接窗口、每次随机 channel、匹配 workKey 与严格 schema；同时校验 message origin 与 source。Danmaku 的 verified Website Origin 仍是必需条件，但不是 Tip 支付门禁。
+11. 验证桌面与 320px 宽度：两个能力都挂载，单个挂载失败不移除另一个，宿主控件可点击，弹幕可持久化，Tip 键盘可达且 SANDBOX 结果正确。访客仅赞赏时不要求登录 ViceMe。
+12. 展示 SANDBOX 证据并取得用户明确确认后，才把所选路线单个 `createViceMe` 调用中的 `keys.test` 换为 `keys.live`。不要改变 imports，也不要在 Headless 路线额外挂载官方 Tip UI。production key 不能模拟支付。
 
-## Constraints
+## 约束
 
-- Work ID is internal resource identity. Both Work keys are permanent public
-  identifiers, not credentials.
-- The verified Website Origin remains mandatory for danmaku in this combined
-  flow. It is not a Tip payment gate.
-- Profile market region controls runtime selection; the first open-tip release
-  supports CN/CNY. Page locale does not select a market.
-- Do not call Shop payment APIs, inspect raw payment state, or put credentials
-  in page code.
-- Report public resource IDs and keys, checks, responsive coverage, SANDBOX
-  evidence, and unverified real-payment boundaries without exposing secrets or
-  DNS challenge values.
+- Work ID 是内部资源身份；两个 Work key 是永久公开标识，不是凭据。
+- 组合流程中的 verified Website Origin 与 DNS 验证由 Danmaku 要求；开放赞赏不验证宿主页，也不要求 Commerce Application。
+- Profile market region 控制运行时；首版开放赞赏只支持 CN/CNY，页面 locale 不选择市场。
+- 宿主不调用 Shop 支付 API、不检查原始支付状态，也不在页面放入凭据或 handoff token。
+- 报告公开资源 ID/key、检查、响应式覆盖、SANDBOX 证据和未验证真实支付边界，不暴露秘密或 DNS challenge。
 
-## Recovery
+## 恢复
 
-- On a lost create/update response, read the same SDK access before retrying.
-- On conflict, read the latest exact `configVersion`; never guess or split the
-  combined feature update.
-- If integration cannot be completed after a server write, read the latest
-  version and restore the complete pre-change feature set in one update. If the
-  resource was previously disabled, disable it again after restoring its
-  features; if it was absent, disable the newly created resource. Permanent
-  test/live keys do not rotate during rollback.
+- create/update 响应丢失时，先读取同一 SDK access 再重试。
+- 冲突时读取最新精确 `configVersion`、完整 hosted features 与 `accessFeatures`；不得猜版本或拆分组合更新。
+- 服务端写入后无法完成接入时，读取最新版本，并用一次 update 恢复写入前的完整 hosted 与 access 配置。原资源为 `DISABLED` 时恢复后再次 disable；原资源不存在时 disable 新资源。永久 test/live key 在回滚中不轮换。

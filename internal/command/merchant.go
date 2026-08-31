@@ -14,6 +14,8 @@ func newMerchantCommand(runtime *Runtime) *cobra.Command {
 		Short: "Author and operate products for an approved ViceMe merchant",
 	}
 	command.AddCommand(newMerchantAccountsCommand(runtime))
+	command.AddCommand(newMerchantOnboardingCommand(runtime))
+	command.AddCommand(newMerchantChannelCommand(runtime))
 	command.AddCommand(newMerchantWorkCommand(runtime))
 	command.AddCommand(newMerchantCommerceApplicationCommand(runtime))
 	command.AddCommand(newMerchantProductCommand(runtime))

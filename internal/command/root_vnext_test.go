@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -758,29 +759,41 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	}
 }
 
-func TestOfficialSkillBundleRetiresAccessAndIncludesTip(t *testing.T) {
+func TestOfficialSkillBundleIncludesAllActiveSkills(t *testing.T) {
 	t.Parallel()
-	const tipSkill = "viceme-tip"
-	foundTip := false
+	found := map[string]bool{
+		"viceme-shared":             false,
+		"viceme-creator-onboarding": false,
+		"viceme-publish":            false,
+		"viceme-skill-use":          false,
+		"viceme-access":             false,
+		"viceme-danmaku":            false,
+		"viceme-tip":                false,
+		"viceme-engagement":         false,
+	}
 	for _, name := range officialSkillNames {
-		if name == "viceme-access" {
-			t.Fatalf("retired access Skill remains in the official set: %#v", officialSkillNames)
-		}
-		if name == tipSkill {
-			foundTip = true
+		if _, tracked := found[name]; tracked {
+			found[name] = true
 		}
 	}
-	if !foundTip {
-		t.Fatalf("official Skill list omitted tip: %#v", officialSkillNames)
+	if len(officialSkillNames) != len(found) {
+		t.Fatalf("official Skill list must contain exactly eight active Skills: %#v", officialSkillNames)
 	}
-	if len(retiredOfficialSkills) != 1 || retiredOfficialSkills[0].Name != "viceme-access" {
-		t.Fatalf("access Skill retirement identity is missing: %#v", retiredOfficialSkills)
+	for name, included := range found {
+		if !included {
+			t.Fatalf("official Skill list omitted %s: %#v", name, officialSkillNames)
+		}
 	}
-	if _, err := skillcontent.New(cliembed.EmbeddedSkills()).Package(tipSkill); err != nil {
-		t.Fatalf("official Skill bundle omitted %s: %v", tipSkill, err)
+	if len(retiredOfficialSkills) != 0 {
+		t.Fatalf("active official Skills must not remain retired: %#v", retiredOfficialSkills)
+	}
+	for name := range found {
+		if _, err := skillcontent.New(cliembed.EmbeddedSkills()).Package(name); err != nil {
+			t.Fatalf("official Skill bundle omitted %s: %v", name, err)
+		}
 	}
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
-	template, _, err := bundle.Read(tipSkill, "templates/single-html.html")
+	template, _, err := bundle.Read("viceme-tip", "templates/single-html.html")
 	if err != nil {
 		t.Fatalf("official Skill bundle omitted the single HTML template: %v", err)
 	}
@@ -806,8 +819,26 @@ func TestOfficialSkillBundleRetiresAccessAndIncludesTip(t *testing.T) {
 			t.Fatalf("single HTML template retained forbidden integration %q", forbidden)
 		}
 	}
-	if _, _, err := bundle.Read(tipSkill, "references/integration-contract.md"); err != nil {
+	if _, _, err := bundle.Read("viceme-tip", "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
+	}
+}
+
+func TestOfficialSkillNamesMatchEmbeddedBundle(t *testing.T) {
+	t.Parallel()
+	bundled, err := skillcontent.New(cliembed.EmbeddedSkills()).List()
+	if err != nil {
+		t.Fatalf("could not list the embedded Skill bundle: %v", err)
+	}
+	bundledNames := make([]string, 0, len(bundled))
+	for _, info := range bundled {
+		bundledNames = append(bundledNames, info.Name)
+	}
+	sort.Strings(bundledNames)
+	declared := append([]string(nil), officialSkillNames...)
+	sort.Strings(declared)
+	if !reflect.DeepEqual(declared, bundledNames) {
+		t.Fatalf("official Skill list drifted from the embedded bundle: declared %#v, bundled %#v", declared, bundledNames)
 	}
 }
 

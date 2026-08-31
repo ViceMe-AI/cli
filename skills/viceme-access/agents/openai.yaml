@@ -1,0 +1,4 @@
+interface:
+  display_name: "ViceMe 网站访问接入"
+  short_description: "接入原生风格的登录、关注和付费功能"
+  default_prompt: "使用 $viceme-access 按现有方案接入；缺少细节时先分析安全且符合网站风格的功能入口。"

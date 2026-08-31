@@ -5,7 +5,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/api"
@@ -36,7 +38,10 @@ type listingGetResult struct {
 
 type publicationPresentationResult struct {
 	api.SkillPublication
-	PublicationID string              `json:"publicationId"`
+	PublicationID string `json:"publicationId"`
+	// NEW is the Work's first publication; UPDATE means the same Skill was
+	// recognized and this publication continues the existing public Work.
+	Resolution    string              `json:"resolution"`
 	RequiresPrice bool                `json:"requiresPrice"`
 	Presentation  previewPresentation `json:"presentation"`
 }
@@ -54,6 +59,9 @@ func newSkillCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newSkillInspectCommand(runtime))
 	command.AddCommand(newSkillListingCommand(runtime))
 	command.AddCommand(newSkillPublishCommand(runtime))
+	command.AddCommand(newSkillDetailCommand(runtime))
+	command.AddCommand(newSkillAccessCommand(runtime))
+	command.AddCommand(newSkillInstallCommand(runtime))
 	return command
 }
 
@@ -151,18 +159,37 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 
 func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	var source string
+	var githubRepository string
+	var githubRef string
+	var githubPath string
+	var xiaohongshuSkillID string
+	var xiaohongshuSearch string
 	var resume string
 	var priceMinor int
 	var merchantAccountID string
+	var editionKey string
+	var editionTitle string
+	var editionOrder int
+	var editionHighlights []string
 	var forceNew bool
+	var listingID string
 	command := &cobra.Command{
 		Use: "publish", Short: "Upload a Skill and prepare its listing for explicit review", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			if source != "" && resume != "" {
-				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--path and --resume cannot be used together")
+			sourceCount := 0
+			for _, candidate := range []string{source, githubRepository, xiaohongshuSkillID, xiaohongshuSearch} {
+				if strings.TrimSpace(candidate) != "" {
+					sourceCount++
+				}
 			}
-			if source == "" && resume == "" {
-				return output.Validation("SKILL_PATH_REQUIRED", "provide --path or --resume")
+			if resume != "" && (sourceCount != 0 || strings.TrimSpace(listingID) != "") {
+				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--resume cannot be combined with a source or --listing")
+			}
+			if resume == "" && sourceCount != 1 {
+				return output.Validation("SKILL_SOURCE_REQUIRED", "provide exactly one of --path, --github, or --xiaohongshu-skill-id")
+			}
+			if forceNew && strings.TrimSpace(listingID) != "" {
+				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--new-listing cannot be combined with --listing")
 			}
 			priceConfirmed := command.Flags().Changed("price-minor")
 			if priceConfirmed && (priceMinor < 0 || priceMinor > 10_000_000) {
@@ -174,7 +201,16 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				pkg, err := publication.Build(pending.SourcePath)
+				var pkg publication.Package
+				if pending.Source.Type == "GITHUB" || pending.Source.Type == "XIAOHONGSHU" {
+					pkg, err = publication.BuildRemoteArchive(pending.SourcePath)
+				} else {
+					pkg, err = publication.Build(pending.SourcePath)
+				}
+				if err != nil {
+					return err
+				}
+				pkg, err = publication.Customize(pkg, pending.Source, pending.Edition)
 				if err != nil {
 					return err
 				}
@@ -203,11 +239,12 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				// An explicit resume continues Draft enrichment even while the
 				// price is still unset. Price gates final confirmation, not media
 				// upload or listing analysis.
-				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, false)
+				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, false, "UPDATE")
 			}
-			pkg, err := publication.Build(source)
-			if err != nil {
-				return err
+			if source != "" {
+				if _, err := publication.Build(source); err != nil {
+					return err
+				}
 			}
 			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
 				return err
@@ -216,7 +253,11 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			prepared, _, err := prepareSkillListing(command.Context(), runtime, pkg, forceNew, "")
+			pkg, manifestSource, edition, err := resolveSkillPublicationPackage(command.Context(), runtime, merchant.ID, source, githubRepository, githubRef, githubPath, xiaohongshuSkillID, xiaohongshuSearch, editionKey, editionTitle, editionOrder, editionHighlights)
+			if err != nil {
+				return err
+			}
+			prepared, _, err := prepareSkillListing(command.Context(), runtime, pkg, forceNew, strings.TrimSpace(listingID))
 			if err != nil {
 				return err
 			}
@@ -234,6 +275,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 					MerchantAccountID: merchant.ID,
 					Fingerprint:       fingerprint,
 					SourcePath:        pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
+					Source: manifestSource, Edition: edition,
 				}
 				if priceConfirmed {
 					pending.PriceMinor = &priceMinor
@@ -241,7 +283,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if err := store.Save(pending); err != nil {
 					return err
 				}
-				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, pending.PriceMinor == nil)
+				return continueSkillPublication(command.Context(), runtime, store, pending, pkg, nil, pending.PriceMinor == nil, "UPDATE")
 			}
 			created, err := runtime.client().CreateSkillPublication(command.Context(), api.CreateSkillPublicationRequest{
 				ClientRequestID: intent.ClientRequestID, ContractVersion: api.SkillPublicationContractVersion, CLIVersion: buildinfo.Version,
@@ -263,7 +305,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if current.MerchantAccountID != merchant.ID {
 					return output.Authorization("PUBLICATION_MERCHANT_CHANGED", "the active publication belongs to another Merchant")
 				}
-				created = api.CreateSkillPublicationResponse{PublicationID: current.ID, ListingID: current.ListingID, MerchantAccountID: current.MerchantAccountID, DraftRevision: current.DraftRevision, Status: current.Status}
+				created = api.CreateSkillPublicationResponse{PublicationID: current.ID, ListingID: current.ListingID, MerchantAccountID: current.MerchantAccountID, DraftRevision: current.DraftRevision, Status: current.Status, Resolution: "UPDATE"}
 			}
 			if created.MerchantAccountID != merchant.ID {
 				return output.Authorization("PUBLICATION_MERCHANT_CHANGED", "the publication response does not match the selected Merchant")
@@ -277,6 +319,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				MerchantAccountID: merchant.ID,
 				Fingerprint:       fingerprint,
 				SourcePath:        pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
+				Source: manifestSource, Edition: edition,
 			}
 			if priceConfirmed {
 				pending.PriceMinor = &priceMinor
@@ -284,21 +327,236 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if err := store.Save(pending); err != nil {
 				return err
 			}
-			return continueSkillPublication(command.Context(), runtime, store, pending, pkg, created.PackageUpload, pending.PriceMinor == nil)
+			return continueSkillPublication(command.Context(), runtime, store, pending, pkg, created.PackageUpload, pending.PriceMinor == nil, created.Resolution)
 		},
 	}
 	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
+	command.Flags().StringVar(&githubRepository, "github", "", "personal GitHub repository as owner/name")
+	command.Flags().StringVar(&githubRef, "github-ref", "HEAD", "Git ref to publish")
+	command.Flags().StringVar(&githubPath, "github-path", "", "repository-relative directory containing SKILL.md")
+	command.Flags().StringVar(&xiaohongshuSkillID, "xiaohongshu-skill-id", "", "Skill ID from the verified Xiaohongshu channel")
+	command.Flags().StringVar(&xiaohongshuSearch, "xiaohongshu-search", "", "search verified Xiaohongshu Skills by ID or name")
 	command.Flags().StringVar(&resume, "resume", "", "resume an interrupted publication by ID")
 	command.Flags().IntVar(&priceMinor, "price-minor", 0, "set the CNY price in fen while continuing the private draft")
 	command.Flags().StringVar(&merchantAccountID, "merchant", "", "Merchant account ID; required only when multiple active accounts exist")
+	command.Flags().StringVar(&editionKey, "edition-key", "standard", "stable lowercase edition key")
+	command.Flags().StringVar(&editionTitle, "edition-title", "", "buyer-visible edition title; defaults to the Skill title")
+	command.Flags().IntVar(&editionOrder, "edition-order", 0, "explicit edition display order")
+	command.Flags().StringSliceVar(&editionHighlights, "edition-highlight", nil, "buyer-visible edition highlight; repeat or comma-separate")
+	command.Flags().StringVar(&listingID, "listing", "", "existing Skill Listing ID for another edition of the same Work")
 	command.Flags().BoolVar(&forceNew, "new-listing", false, "explicitly create a separate Listing even when content matches")
 	return command
+}
+
+var publicationEditionKeyPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+var githubRepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
+
+func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merchantAccountID, localPath, githubRepository, githubRef, githubPath, xiaohongshuSkillID, xiaohongshuSearch, editionKey, editionTitle string, editionOrder int, editionHighlights []string) (publication.Package, api.SkillPublicationSource, api.SkillPublicationEdition, error) {
+	editionKey = strings.TrimSpace(editionKey)
+	if !publicationEditionKeyPattern.MatchString(editionKey) || len(editionKey) > 64 {
+		return publication.Package{}, api.SkillPublicationSource{}, api.SkillPublicationEdition{}, output.Validation("SKILL_EDITION_KEY_INVALID", "--edition-key must be a lowercase kebab-case key up to 64 characters")
+	}
+	if editionOrder < 0 || editionOrder > 10_000 {
+		return publication.Package{}, api.SkillPublicationSource{}, api.SkillPublicationEdition{}, output.Validation("SKILL_EDITION_ORDER_INVALID", "--edition-order must be between 0 and 10000")
+	}
+
+	source := api.SkillPublicationSource{}
+	pathToBuild := localPath
+	remotePackageDigest := ""
+	if githubRepository != "" {
+		repository := normalizeGithubRepository(githubRepository)
+		if !githubRepositoryPattern.MatchString(repository) {
+			return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("GITHUB_REPOSITORY_INVALID", "--github must be owner/name or a github.com/owner/name URL")
+		}
+		githubRef = strings.TrimSpace(githubRef)
+		if githubRef == "" {
+			return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("GITHUB_REF_INVALID", "--github-ref cannot be empty")
+		}
+		archive, err := runtime.client().DownloadGithubSkillSource(ctx, merchantAccountID, repository, githubRef, normalizeGithubPath(githubPath))
+		if err != nil {
+			return publication.Package{}, source, api.SkillPublicationEdition{}, err
+		}
+		pathToBuild, err = persistPublicationSource(runtime.configBase, archive.Bytes)
+		if err != nil {
+			return publication.Package{}, source, api.SkillPublicationEdition{}, err
+		}
+		if archive.ResolvedCommit == "" || archive.OwnerSubjectID == "" || archive.Repository == "" || archive.SourceReceiptID == "" || archive.PackageDigest == "" {
+			return publication.Package{}, source, api.SkillPublicationEdition{}, output.Internal("GITHUB_SOURCE_RECEIPT_INVALID", "GitHub source response did not contain an immutable repository receipt", nil)
+		}
+		private := archive.Private
+		remotePackageDigest = archive.PackageDigest
+		var selectedPath *string
+		if archive.Path != "" {
+			selectedPath = &archive.Path
+		}
+		source = api.SkillPublicationSource{Type: "GITHUB", Entry: "SKILL.md", Repository: archive.Repository, Ref: archive.ResolvedCommit, Private: &private, OwnerSubjectID: archive.OwnerSubjectID, Path: selectedPath, SourceReceiptID: archive.SourceReceiptID}
+	} else if xiaohongshuSkillID != "" || xiaohongshuSearch != "" {
+		skillID := strings.TrimSpace(xiaohongshuSkillID)
+		if skillID == "" {
+			matches, err := runtime.client().SearchXiaohongshuSkills(ctx, merchantAccountID, strings.TrimSpace(xiaohongshuSearch))
+			if err != nil {
+				return publication.Package{}, source, api.SkillPublicationEdition{}, err
+			}
+			if len(matches.Items) == 0 {
+				return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("XIAOHONGSHU_SKILL_NOT_FOUND", "no verified Xiaohongshu Skill matches the search")
+			}
+			if len(matches.Items) > 1 {
+				return publication.Package{}, source, api.SkillPublicationEdition{}, output.Confirmation("XIAOHONGSHU_SKILL_SELECTION_REQUIRED", "multiple Xiaohongshu Skills match; rerun with --xiaohongshu-skill-id").WithDetails(map[string]any{"candidates": matches.Items})
+			}
+			skillID = matches.Items[0].SkillID
+		}
+		archive, err := runtime.client().DownloadXiaohongshuSkillSource(ctx, merchantAccountID, skillID)
+		if err != nil {
+			return publication.Package{}, source, api.SkillPublicationEdition{}, err
+		}
+		pathToBuild, err = persistPublicationSource(runtime.configBase, archive.Bytes)
+		if err != nil {
+			return publication.Package{}, source, api.SkillPublicationEdition{}, err
+		}
+		if archive.SkillID != skillID || archive.ArtifactVersion == "" || archive.ArtifactDigest == "" || archive.SourceReceiptID == "" || archive.PackageDigest == "" {
+			return publication.Package{}, source, api.SkillPublicationEdition{}, output.Internal("XIAOHONGSHU_SOURCE_RECEIPT_INVALID", "Xiaohongshu source response did not contain an immutable artifact receipt", nil)
+		}
+		source = api.SkillPublicationSource{Type: "XIAOHONGSHU", Entry: "SKILL.md", SkillID: skillID, ArtifactVersion: archive.ArtifactVersion, ArtifactDigest: archive.ArtifactDigest, SourceReceiptID: archive.SourceReceiptID}
+		remotePackageDigest = archive.PackageDigest
+	}
+	var pkg publication.Package
+	var err error
+	if githubRepository != "" || xiaohongshuSkillID != "" || xiaohongshuSearch != "" {
+		pkg, err = publication.BuildRemoteArchive(pathToBuild)
+	} else {
+		pkg, err = publication.Build(pathToBuild)
+	}
+	if err != nil {
+		return publication.Package{}, source, api.SkillPublicationEdition{}, err
+	}
+	if remotePackageDigest != "" && pkg.Artifact.Digest != remotePackageDigest {
+		return publication.Package{}, source, api.SkillPublicationEdition{}, output.Internal("SKILL_SOURCE_RECEIPT_INVALID", "remote Skill package digest does not match the API receipt", nil)
+	}
+	if localPath != "" {
+		source = pkg.Manifest.Spec.Source
+	} else if source.Type == "GITHUB" {
+		selected := ""
+		if source.Path != nil {
+			selected = *source.Path
+		}
+		pkg.BindingIdentity = "remote:github:" + source.OwnerSubjectID + "/" + source.Repository + "/" + selected
+	} else if source.Type == "XIAOHONGSHU" {
+		pkg.BindingIdentity = "remote:xiaohongshu:" + source.SkillID
+	}
+
+	editionTitle = strings.TrimSpace(editionTitle)
+	if editionTitle == "" {
+		editionTitle = pkg.Manifest.Metadata.Title
+	}
+	if len([]rune(editionTitle)) > 64 {
+		return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("SKILL_EDITION_TITLE_INVALID", "edition title must be at most 64 characters")
+	}
+	highlights := make([]string, 0, len(editionHighlights))
+	for _, highlight := range editionHighlights {
+		highlight = strings.TrimSpace(highlight)
+		if highlight == "" || len([]rune(highlight)) > 200 {
+			return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("SKILL_EDITION_HIGHLIGHT_INVALID", "each edition highlight must be 1 to 200 characters")
+		}
+		highlights = append(highlights, highlight)
+	}
+	if len(highlights) == 0 {
+		highlights = []string{defaultEditionHighlight(pkg.Manifest.Metadata.Summary)}
+	}
+	if len(highlights) > 8 {
+		return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("SKILL_EDITION_HIGHLIGHT_INVALID", "an edition supports at most eight highlights")
+	}
+	edition := api.SkillPublicationEdition{Key: editionKey, Title: editionTitle, SortOrder: editionOrder, Highlights: highlights}
+	pkg, err = publication.Customize(pkg, source, edition)
+	return pkg, source, edition, err
+}
+
+func normalizeGithubRepository(value string) string {
+	value = strings.TrimSpace(strings.TrimSuffix(value, "/"))
+	value = strings.TrimSuffix(value, ".git")
+	for _, prefix := range []string{"https://github.com/", "http://github.com/", "git@github.com:"} {
+		if strings.HasPrefix(value, prefix) {
+			return strings.TrimPrefix(value, prefix)
+		}
+	}
+	return value
+}
+
+// normalizeGithubPath treats the repository root spellings ("", ".", "./")
+// as the root directory so the download request omits the path instead of
+// sending a literal "." the server cannot resolve.
+func normalizeGithubPath(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.TrimSuffix(value, "/")
+	if value == "." {
+		return ""
+	}
+	return value
+}
+
+// defaultEditionHighlight derives the fallback highlight from the manifest
+// summary, cutting at a sentence or word boundary so auto-derived copy never
+// exceeds the 200-character edition highlight limit.
+func defaultEditionHighlight(summary string) string {
+	runes := []rune(strings.TrimSpace(summary))
+	if len(runes) <= 200 {
+		return string(runes)
+	}
+	cut := runes[:200]
+	for index := len(cut) - 1; index >= 0; index-- {
+		if strings.ContainsRune("。！？；，、,.!?;: ", cut[index]) {
+			return strings.TrimSpace(string(cut[:index+1]))
+		}
+	}
+	return string(cut)
+}
+
+func persistPublicationSource(configBase string, archive []byte) (string, error) {
+	if len(archive) == 0 || len(archive) > publication.MaxPackageBytes {
+		return "", output.Validation("SKILL_PACKAGE_SIZE_INVALID", "remote Skill archive has an invalid size")
+	}
+	directory := filepath.Join(configBase, "publication-sources")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", output.Internal("PUBLICATION_SOURCE_SAVE_FAILED", "could not create the private remote-source cache", err)
+	}
+	digest := fmt.Sprintf("%x", sha256.Sum256(archive))
+	filename := filepath.Join(directory, digest+".zip")
+	if existing, err := os.ReadFile(filename); err == nil {
+		if fmt.Sprintf("%x", sha256.Sum256(existing)) == digest {
+			return filename, nil
+		}
+		return "", output.Policy("PUBLICATION_SOURCE_CACHE_CONFLICT", "remote-source cache content does not match its digest")
+	}
+	temporary, err := os.CreateTemp(directory, ".source-*.zip")
+	if err != nil {
+		return "", output.Internal("PUBLICATION_SOURCE_SAVE_FAILED", "could not stage the remote Skill source", err)
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return "", output.Internal("PUBLICATION_SOURCE_SAVE_FAILED", "could not secure the remote Skill source", err)
+	}
+	if _, err := temporary.Write(archive); err != nil {
+		_ = temporary.Close()
+		return "", output.Internal("PUBLICATION_SOURCE_SAVE_FAILED", "could not write the remote Skill source", err)
+	}
+	if err := temporary.Close(); err != nil {
+		return "", output.Internal("PUBLICATION_SOURCE_SAVE_FAILED", "could not close the remote Skill source", err)
+	}
+	if err := os.Rename(temporaryName, filename); err != nil {
+		return "", output.Internal("PUBLICATION_SOURCE_SAVE_FAILED", "could not activate the remote Skill source", err)
+	}
+	return filename, nil
 }
 
 func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.Package, forceNew bool, targetListingID string) (listingPrepareResult, publication.ResolvedSourceIdentity, error) {
 	sourceType, sourcePath, err := publication.SourceType(pkg.SourcePath)
 	if err != nil {
 		return listingPrepareResult{}, publication.ResolvedSourceIdentity{}, err
+	}
+	bindingSourcePath := sourcePath
+	if pkg.BindingIdentity != "" {
+		bindingSourcePath = pkg.BindingIdentity
 	}
 	origin, err := api.NormalizeAPIOrigin(runtime.apiBaseURL)
 	if err != nil {
@@ -311,7 +569,7 @@ func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.
 	} else if forceNew {
 		resolution = "CREATE_NEW"
 	}
-	identity, err := store.ResolveOrCreate(sourcePath, sourceType, pkg.Artifact.Digest, resolution, runtime.deps.NewID)
+	identity, err := store.ResolveOrCreate(bindingSourcePath, sourceType, pkg.Artifact.Digest, resolution, runtime.deps.NewID)
 	if err != nil {
 		return listingPrepareResult{}, identity, err
 	}
@@ -356,12 +614,12 @@ func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.
 		ClientWorkID: identity.ClientWorkID, Market: response.Market, EndpointOrigin: origin,
 		BindingReceipt: response.BindingReceipt, LastPackageDigest: pkg.Artifact.Digest,
 	}
-	if err := store.Save(sourcePath, sourceType, binding); err != nil {
+	if err := store.Save(bindingSourcePath, sourceType, binding); err != nil {
 		return listingPrepareResult{}, identity, err
 	}
 	identity.Binding = &binding
 	presentation := createPreviewPresentation(ctx, runtime, response.ListingID, response.OwnerPreviewURL)
-	return listingPrepareResult{PrepareSkillListingResponse: response, SourceType: sourceType, SourcePath: sourcePath, CanonicalPackageDigest: pkg.Artifact.Digest, Presentation: presentation}, identity, nil
+	return listingPrepareResult{PrepareSkillListingResponse: response, SourceType: sourceType, SourcePath: bindingSourcePath, CanonicalPackageDigest: pkg.Artifact.Digest, Presentation: presentation}, identity, nil
 }
 
 func createPreviewPresentation(ctx context.Context, runtime *Runtime, listingID string, fallbackURL string) previewPresentation {
@@ -450,7 +708,7 @@ func resolveSkillPublicationMerchant(ctx context.Context, runtime *Runtime, requ
 	return api.MerchantAccount{}, output.Validation("MERCHANT_SELECTION_REQUIRED", "multiple active Merchant accounts are available; select one explicitly").WithDetails(map[string]any{"merchants": active}).WithHint("run 'viceme merchant accounts', then retry with '--merchant <merchant-account-id>'")
 }
 
-func continueSkillPublication(ctx context.Context, runtime *Runtime, store publication.PendingStore, pending publication.Pending, pkg publication.Package, initialUpload *api.UploadAuthorization, packageOnly bool) error {
+func continueSkillPublication(ctx context.Context, runtime *Runtime, store publication.PendingStore, pending publication.Pending, pkg publication.Package, initialUpload *api.UploadAuthorization, packageOnly bool, createdResolution string) error {
 	client := runtime.client()
 	current, err := client.GetSkillPublication(ctx, pending.PublicationID)
 	if err != nil {
@@ -463,7 +721,7 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		if err := retirePublicationRecovery(store, pending, current.Status); err != nil {
 			return err
 		}
-		return presentPublication(ctx, runtime, current)
+		return presentPublication(ctx, runtime, current, "UPDATE")
 	}
 	if pending.PriceMinor != nil && (current.Draft.PriceMinor == nil || *current.Draft.PriceMinor != *pending.PriceMinor) {
 		current, err = client.UpdateListingPrice(ctx, pending.PublicationID, *pending.PriceMinor)
@@ -493,7 +751,7 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		}
 	}
 	if packageOnly {
-		return presentPublication(ctx, runtime, current)
+		return presentPublication(ctx, runtime, current, "UPDATE")
 	}
 	for index, candidate := range pkg.Candidates {
 		if verifiedUpload(current.Uploads, "MEDIA", candidate.Digest, candidate.RelativePath) {
@@ -521,10 +779,10 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 			return err
 		}
 	}
-	return presentPublication(ctx, runtime, current)
+	return presentPublication(ctx, runtime, current, createdResolution)
 }
 
-func presentPublication(ctx context.Context, runtime *Runtime, current api.SkillPublication) error {
+func presentPublication(ctx context.Context, runtime *Runtime, current api.SkillPublication, createdResolution string) error {
 	presentation, err := previewPresentationForPublication(ctx, runtime, current)
 	if err != nil {
 		return err
@@ -532,6 +790,7 @@ func presentPublication(ctx context.Context, runtime *Runtime, current api.Skill
 	return runtime.business(publicationPresentationResult{
 		SkillPublication: current,
 		PublicationID:    current.ID,
+		Resolution:       createdResolution,
 		RequiresPrice:    current.Draft.PriceMinor == nil,
 		Presentation:     presentation,
 	})

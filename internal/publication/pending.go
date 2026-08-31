@@ -10,21 +10,24 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/gofrs/flock"
 )
 
 type Pending struct {
-	SchemaVersion     int       `json:"schemaVersion"`
-	PublicationID     string    `json:"publicationId"`
-	ClientRequestID   string    `json:"clientRequestId"`
-	MerchantAccountID string    `json:"merchantAccountId"`
-	Fingerprint       string    `json:"fingerprint"`
-	SourcePath        string    `json:"sourcePath"`
-	PriceMinor        *int      `json:"priceMinor"`
-	ArtifactDigest    string    `json:"artifactDigest"`
-	CreatedAt         time.Time `json:"createdAt"`
-	UpdatedAt         time.Time `json:"updatedAt"`
+	SchemaVersion     int                         `json:"schemaVersion"`
+	PublicationID     string                      `json:"publicationId"`
+	ClientRequestID   string                      `json:"clientRequestId"`
+	MerchantAccountID string                      `json:"merchantAccountId"`
+	Fingerprint       string                      `json:"fingerprint"`
+	SourcePath        string                      `json:"sourcePath"`
+	PriceMinor        *int                        `json:"priceMinor"`
+	ArtifactDigest    string                      `json:"artifactDigest"`
+	Source            api.SkillPublicationSource  `json:"source"`
+	Edition           api.SkillPublicationEdition `json:"edition"`
+	CreatedAt         time.Time                   `json:"createdAt"`
+	UpdatedAt         time.Time                   `json:"updatedAt"`
 }
 
 type PendingStore struct {

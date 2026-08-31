@@ -18,20 +18,16 @@ import (
 
 var officialSkillNames = []string{
 	"viceme-shared",
+	"viceme-creator-onboarding",
 	"viceme-publish",
+	"viceme-skill-use",
+	"viceme-access",
 	"viceme-danmaku",
 	"viceme-tip",
 	"viceme-engagement",
 }
 
-var retiredOfficialSkills = []skillcontent.RetiredSkillIdentity{{
-	Name:                  "viceme-access",
-	SkillVersion:          "0.18.0",
-	MinimumCLIVersion:     "0.18.0",
-	CLICompatibility:      ">=0.18.0 <0.19.0",
-	FullBundleDigest:      "sha256:19bde0fd4dfc0b19833a37c6b690102a9f17f2021f76ac86f286be60279aab75",
-	EmbeddedContentDigest: "sha256:fe9b9ef7a7261fbe1a894a68a44f7495d1cece3d7434146507e71e81d4d6cdd1",
-}}
+var retiredOfficialSkills = []skillcontent.RetiredSkillIdentity{}
 
 type installNextStep struct {
 	Required bool   `json:"required"`
