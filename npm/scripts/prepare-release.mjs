@@ -65,6 +65,41 @@ export function selectBump(commits) {
   return "patch";
 }
 
+export function requestedVersionFromTitle(title) {
+  const normalized = title.trim();
+  const match = /^(?:release:|chore\(release\):) v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(
+    normalized,
+  );
+  if (match) {
+    return `${match[1]}.${match[2]}.${match[3]}`;
+  }
+  if (/^(?:release:|chore\(release\):)/.test(normalized)) {
+    throw new Error("release PR title must be exactly release: vX.Y.Z or chore(release): vX.Y.Z");
+  }
+  return "";
+}
+
+export function selectReleaseVersion(previousVersion, commits, requestedVersion = "") {
+  const automaticBump = selectBump(commits);
+  if (requestedVersion === "") {
+    return {
+      version: incrementVersion(previousVersion, automaticBump),
+      bump: automaticBump,
+      source: "conventional_commits",
+    };
+  }
+
+  parseVersion(requestedVersion);
+  for (const bump of ["patch", "minor", "major"]) {
+    if (incrementVersion(previousVersion, bump) === requestedVersion) {
+      return { version: requestedVersion, bump, source: "pull_request_title" };
+    }
+  }
+  throw new Error(
+    `requested release version ${requestedVersion} must be the next patch, minor, or major after ${previousVersion}`,
+  );
+}
+
 // The authoritative official Skill list. Every skills/<name>/ directory in the
 // repository must appear here so release preparation bumps all bundled Skills.
 export const officialSkillNames = [
@@ -182,8 +217,11 @@ function prepareRelease() {
     previousVersion = releaseTag.slice(1);
   }
   const parsedCommits = commits.map(parseConventionalCommit);
-  const bump = previousVersion === "" ? "initial" : selectBump(parsedCommits);
-  const version = previousVersion === "" ? packageDocument.version : incrementVersion(previousVersion, bump);
+  const requestedVersion = requestedVersionFromTitle(process.env.RELEASE_PR_TITLE ?? "");
+  const selection = previousVersion === ""
+    ? { version: packageDocument.version, bump: "initial", source: "package" }
+    : selectReleaseVersion(previousVersion, parsedCommits, requestedVersion);
+  const { version, bump, source } = selection;
   parseVersion(version);
   const compatibility = compatibilityRange(version);
 
@@ -210,7 +248,7 @@ function prepareRelease() {
   const date = new Date().toISOString().slice(0, 10);
   writeFileSync("CHANGELOG.md", renderChangelog(version, commits, previousChangelog, date));
 
-  process.stdout.write(`${JSON.stringify({ version, bump, base_ref: baseRef, commit_count: commits.length })}\n`);
+  process.stdout.write(`${JSON.stringify({ version, bump, source, base_ref: baseRef, commit_count: commits.length })}\n`);
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

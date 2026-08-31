@@ -64,6 +64,8 @@ jobs:
       - name: Validate GitHub Actions workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Compute version, CHANGELOG, and generated release contracts
+        env:
+          RELEASE_PR_TITLE: ${{ github.event.pull_request.title || '' }}
         run: make release-prepare
       - name: Verify prepared release
         run: |
@@ -119,7 +121,7 @@ jobs:
             echo
             echo "The release preparation workflow automatically:"
             echo
-            echo "- selected the semantic version from Conventional Commits;"
+            echo "- selected the semantic version from Conventional Commits or the explicit promotion PR title;"
             echo "- updated npm, Go, all bundled Skills, release digests, and compatibility metadata;"
             echo "- generated \`CHANGELOG.md\`;"
             echo "- passed \`make check\` and \`make npm-package-check\`."

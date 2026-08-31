@@ -8,7 +8,9 @@ import {
   officialSkillNames,
   parseConventionalCommit,
   renderChangelog,
+  requestedVersionFromTitle,
   selectBump,
+  selectReleaseVersion,
 } from "../scripts/prepare-release.mjs";
 
 const commit = (subject, body = "", sha = "1234567890abcdef") => ({ subject, body, sha });
@@ -34,6 +36,27 @@ test("increments stable versions and computes conservative compatibility", () =>
   assert.equal(incrementVersion("0.9.0", "major"), "1.0.0");
   assert.equal(compatibilityRange("0.2.3"), ">=0.2.3 <0.3.0");
   assert.equal(compatibilityRange("1.4.0"), ">=1.4.0 <2.0.0");
+});
+
+test("accepts an exact next release version from the promotion PR title", () => {
+  const commits = [parseConventionalCommit(commit("feat(cli): add inspect"))];
+
+  assert.equal(requestedVersionFromTitle("release: v0.19.1"), "0.19.1");
+  assert.equal(requestedVersionFromTitle("chore(release): v0.19.1"), "0.19.1");
+  assert.equal(requestedVersionFromTitle("feat(cli): ordinary change"), "");
+  assert.throws(
+    () => requestedVersionFromTitle("release: next"),
+    /release PR title must be exactly/,
+  );
+  assert.deepEqual(selectReleaseVersion("0.19.0", commits, "0.19.1"), {
+    version: "0.19.1",
+    bump: "patch",
+    source: "pull_request_title",
+  });
+  assert.throws(
+    () => selectReleaseVersion("0.19.0", commits, "0.19.2"),
+    /must be the next patch, minor, or major/,
+  );
 });
 
 test("renders a deterministic changelog section and preserves history", () => {

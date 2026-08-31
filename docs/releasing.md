@@ -16,6 +16,11 @@ files, create tags, write changelog entries, or run npm commands locally.
    - a `BREAKING CHANGE` footer or `type!:` selects major;
    - `feat:` selects minor;
    - every other releasable change selects patch.
+   A maintainer may explicitly request the next patch, minor, or major by
+   opening the promotion PR with the exact title `release: vX.Y.Z`. Release
+   preparation validates that the requested version is one of those three
+   immediate successors, then rewrites the title to
+   `chore(release): vX.Y.Z`. Arbitrary skips and downgrades are rejected.
 5. The workflow synchronizes `package.json`, `package-lock.json`, Go build
    metadata, bundled Skill metadata, release manifest digests, and
    `CHANGELOG.md`.
