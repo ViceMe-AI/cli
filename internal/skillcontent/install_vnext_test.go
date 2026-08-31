@@ -178,7 +178,7 @@ func TestLegacyRelativeInstallJournalStillRecovers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := t.TempDir()
+	root := tempDirOnWorkingVolume(t)
 	destination := filepath.Join(root, "skills", "viceme-test")
 	backup := destination + ".viceme-transaction-backup"
 	for filename, content := range map[string]string{
@@ -910,7 +910,7 @@ func TestInstallJournalUsesCanonicalAbsolutePaths(t *testing.T) {
 	root := t.TempDir()
 	writeTestSkill(t, root, "viceme-test")
 	bundle := New(os.DirFS(root))
-	home := t.TempDir()
+	home := tempDirOnWorkingVolume(t)
 	actualAgents := filepath.Join(home, "actual-agents")
 	if err := os.MkdirAll(actualAgents, 0o755); err != nil {
 		t.Fatal(err)
@@ -970,7 +970,7 @@ func TestInstallNormalizesRelativeConfigDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	absoluteConfig := filepath.Join(t.TempDir(), "config")
+	absoluteConfig := filepath.Join(tempDirOnWorkingVolume(t), "config")
 	relativeConfig, err := filepath.Rel(workingDirectory, absoluteConfig)
 	if err != nil {
 		t.Fatal(err)
@@ -1015,6 +1015,24 @@ func installLegacyV1Fixture(t *testing.T, bundle *Bundle, name, destination stri
 		EmbeddedContentDigest: manifest.EmbeddedContentDigest,
 		Provenance:            "commit:0000000000000000000000000000000000000000",
 	}
+}
+
+func tempDirOnWorkingVolume(t *testing.T) string {
+	t.Helper()
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, err := os.MkdirTemp(workingDirectory, ".viceme-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(directory); err != nil {
+			t.Errorf("remove same-volume test directory: %v", err)
+		}
+	})
+	return directory
 }
 
 func writeTestSkill(t *testing.T, root, name string) {
