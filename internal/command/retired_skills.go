@@ -81,6 +81,7 @@ var legacyRetiredOfficialSkillMigrations = []skillcontent.LegacyRetiredSkillIden
 	retiredSkill("viceme-tip", "0.18.0", "0.19.0", "d67667191b6914b7ac4f2389152ede64f2b2ed99805aff8df3c4d4a35ae0af52", "e7b198efe62f309681283b1845c207ff60328e629053274bdcf50d35d5bdbd6c", "commit:0241b06fe4c227964ee5347e45266623a144e1b3"),
 	retiredSkill("viceme-tip", "0.18.0", "0.19.0", "f6c3d4969319b3fe5590e1d834792f3b7fcedb21a30cfdfba0212a2a3fe19f2a", "ae478cacc5c0f48c22ecac99e0dace44ddf2e734fedaf969d20931751d4684bb", "commit:8e2258dd14c43663ff28e9513db7ffa6921d3899"),
 	retiredSkill("viceme-tip", "0.19.0", "0.20.0", "40e7ea01359ada2ca7e113efcc2f1c805aff28e70a07dbf67fd7f5c57a193f4f", "866ce685822f2437cc4433fef05ad6bb3c59a83ed1e42154f10fc18d1fbc2e53", "tag:v0.19.0"),
+	retiredSkill("viceme-tip", "0.20.0", "0.21.0", "11097ff93b3e2abc73d34b7427ab52f9e1162d0455125162ded317c009093e94", "866ce685822f2437cc4433fef05ad6bb3c59a83ed1e42154f10fc18d1fbc2e53", "tag:v0.20.0"),
 }
 
 var retiredOfficialSkills = []skillcontent.RetiredSkill{

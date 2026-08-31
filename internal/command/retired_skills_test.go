@@ -16,7 +16,7 @@ func TestLegacyRetiredSkillMigrationsMatchAuditedHistory(t *testing.T) {
 
 	expectedCounts := map[string]int{
 		"viceme-danmaku": 51,
-		"viceme-tip":     23,
+		"viceme-tip":     24,
 	}
 	counts := make(map[string]int)
 	catalog := make(map[string]bool, len(legacyRetiredOfficialSkillMigrations))
@@ -49,14 +49,14 @@ func TestLegacyRetiredSkillMigrationsMatchAuditedHistory(t *testing.T) {
 			t.Fatalf("unexpected legacy migration provenance: %q", identity.Provenance)
 		}
 	}
-	if len(legacyRetiredOfficialSkillMigrations) != 74 {
-		t.Fatalf("legacy migration catalog does not cover all 74 audited identities: %d", len(legacyRetiredOfficialSkillMigrations))
+	if len(legacyRetiredOfficialSkillMigrations) != 75 {
+		t.Fatalf("legacy migration catalog does not cover all 75 audited identities: %d", len(legacyRetiredOfficialSkillMigrations))
 	}
 	if !reflect.DeepEqual(counts, expectedCounts) {
 		t.Fatalf("legacy migration catalog has unexpected per-Skill counts: %#v", counts)
 	}
-	if tagCount != 33 || commitCount != 41 {
-		t.Fatalf("legacy migration provenance must remain the audited 33 tags and 41 commits: tags=%d commits=%d", tagCount, commitCount)
+	if tagCount != 34 || commitCount != 41 {
+		t.Fatalf("legacy migration provenance must remain the audited 34 tags and 41 commits: tags=%d commits=%d", tagCount, commitCount)
 	}
 
 	aggregated := make(map[string]bool, len(catalog))
@@ -91,7 +91,7 @@ func TestLegacyRetiredSkillMigrationsMatchAuditedHistory(t *testing.T) {
 
 	sort.Strings(canonical)
 	digest := sha256.Sum256([]byte(strings.Join(canonical, "\n")))
-	const auditedCatalogDigest = "c1c60def12ccdfe1321969a4fc4188a696b5a8d48607ff8688a729a46cd07ce2"
+	const auditedCatalogDigest = "ef43eea6bb6a8994b2d57b5ebdf041e835191658f263e03328c719c3836c66be"
 	if actual := fmt.Sprintf("%x", digest); actual != auditedCatalogDigest {
 		t.Fatalf("legacy migration catalog differs from the audited manifest history: %s", actual)
 	}
