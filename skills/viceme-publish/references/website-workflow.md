@@ -65,7 +65,8 @@ of its exact HTTPS Origin. ViceMe does not upload or host the website files.
 ## Optional Engagement
 
 Publishing the Website Work creates no Product and enables no browser feature by
-tips, use `viceme-tip`. Those flows add SDK access and, for Tip, a Website Widget
+itself. If the user asks for danmaku, tips, or both, use `viceme-engagement`.
+That flow adds SDK access and, when Tip is requested, a Website Widget
 application without binding a Product.
 
 ## Boundaries

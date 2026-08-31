@@ -13,7 +13,7 @@
     "viceme-publish",
     "viceme-skill-use",
     "viceme-access",
-    "viceme-tip"
+    "viceme-engagement"
   ],
   "fallbackPackage": "@viceme-ai/cli"
 }

@@ -20,7 +20,7 @@ var officialSkillNames = []string{
 	"viceme-publish",
 	"viceme-shared",
 	"viceme-skill-use",
-	"viceme-tip",
+	"viceme-engagement",
 }
 
 func readOfficialSkillBundle(t *testing.T, skillName string) string {
@@ -126,13 +126,13 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 		},
 		{
-			name: "viceme-tip",
+			name: "viceme-engagement",
 			machine: []string{
 				"website-verification create", "website-verification verify", "commerce-application activate", "sdk-access",
-				"data-viceme-features", "workKey",
+				"--feature danmaku", "--feature tip", `data-viceme-features="danmaku,tip"`, "workKey",
 			},
 			semantics: []string{
-				"不得仅因 HTML 移动就创建重复项", "界面能打开不代表支付已成交",
+				"仅弹幕", "仅赞赏", "弹幕和赞赏", "不得仅因 HTML 移动就创建重复项", "界面能打开不代表支付已成交",
 			},
 		},
 	}
@@ -173,21 +173,50 @@ func TestOfficialSkillEntryMetadataIsChinese(t *testing.T) {
 	}
 }
 
-func TestTipTemplateUsesCLIResponseAsItsOnlyEmbedSource(t *testing.T) {
+func TestEngagementTemplateRequiresExactBranchValues(t *testing.T) {
 	t.Parallel()
 
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-tip/templates/single-html.html")
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-engagement/templates/single-html.html")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(content)
-	for _, required := range []string{"当前固定 Profile", "creator-app show", "data.embedSnippet", "不要手工推导"} {
+	for _, required := range []string{
+		"当前固定 Profile", "REPLACE_WITH_SDK_SCRIPT_URL", "REPLACE_WITH_WORK_KEY",
+		"REPLACE_WITH_REGION", "REPLACE_WITH_FEATURES", "不得手工推导",
+	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("tip template omitted authoritative CLI source guard %q", required)
+			t.Fatalf("engagement template omitted authoritative branch value %q", required)
 		}
 	}
-	if strings.Contains(text, "Creator Center") {
-		t.Fatal("tip template still treats Creator Center as the embed value source")
+	if strings.Contains(text, `data-viceme-features="tip"`) {
+		t.Fatal("engagement template hard-codes the tip-only branch")
+	}
+}
+
+func TestEngagementReplacesStandaloneDanmakuAndTipSkills(t *testing.T) {
+	t.Parallel()
+
+	bundle := readOfficialSkillBundle(t, "viceme-engagement")
+	for _, required := range []string{
+		"仅弹幕", "仅赞赏", "弹幕和赞赏", "完整特性集合", "保留已经启用但用户没有要求移除的特性",
+		"页面目标特性集合是现有加载器特性与用户新增特性的并集", "复用并更新该标签，不得追加第二个",
+		"widget/engagement-embed.js", "tip-embed.js", "历史标签只作为迁移输入，不能继续运行", "data-creator-app-id",
+		"缺少这两种可验证身份时停止", "从 `workId` 读取 Work",
+		"不得在确认归属前写入任何 Work、SDK access 或 Website Widget", "按公开 `workKey` 精确定位 SDK access",
+		"现有 SDK hosted features 减去明确移除项，再并入页面目标特性集合", "--clear-hosted", "sdk-access disable",
+		"只有页面目标特性集合包含 `tip` 时执行本步",
+		"按 Work、kind、environment 定位唯一应用", "即使 Origin 不同也复用并按流程更新",
+		`data-viceme-features="danmaku"`, `data-viceme-features="tip"`, `data-viceme-features="danmaku,tip"`,
+	} {
+		if !strings.Contains(bundle, required) {
+			t.Fatalf("unified engagement Skill omitted branch contract %q", required)
+		}
+	}
+	for _, retired := range []string{"viceme-danmaku/SKILL.md", "viceme-tip/SKILL.md"} {
+		if _, err := fs.Stat(cliembed.EmbeddedSkills(), retired); err == nil {
+			t.Fatalf("standalone engagement Skill remains embedded: %s", retired)
+		}
 	}
 }
 
@@ -600,10 +629,6 @@ func TestPublishDelegatesCreatorQualification(t *testing.T) {
 	}
 }
 
-
-
-
-
 func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 	t.Parallel()
 
@@ -629,11 +654,7 @@ func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 	}
 }
 
-
-
-
-
-func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
+func TestEngagementTipBranchIncludesRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 	t.Parallel()
 	applicationInput := `{
 		"merchantAccountId": "<merchant-id>",
@@ -653,7 +674,7 @@ func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 	}`
 
 	for _, relativePath := range []string{
-		"viceme-tip/SKILL.md",
+		"viceme-engagement/SKILL.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -718,8 +739,6 @@ func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
 		t.Fatal("publish Skill still describes Website Widget tips as unavailable")
 	}
 }
-
-
 
 func requireOrderedSteps(t *testing.T, relativePath, text string, steps []string) {
 	t.Helper()

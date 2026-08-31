@@ -759,10 +759,13 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	}
 }
 
-func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
+func TestOfficialSkillBundleIncludesAccessAndUnifiedEngagement(t *testing.T) {
 	t.Parallel()
-	found := map[string]bool{"viceme-access": false, "viceme-tip": false}
+	found := map[string]bool{"viceme-access": false, "viceme-engagement": false}
 	for _, name := range officialSkillNames {
+		if name == "viceme-danmaku" || name == "viceme-tip" {
+			t.Fatalf("official Skill list retained standalone engagement variant %s", name)
+		}
 		if _, tracked := found[name]; tracked {
 			found[name] = true
 		}
@@ -772,16 +775,13 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 			t.Fatalf("official Skill list omitted %s: %#v", name, officialSkillNames)
 		}
 	}
-	if len(retiredOfficialSkills) != 0 {
-		t.Fatalf("active official Skills must not remain retired: %#v", retiredOfficialSkills)
-	}
 	for name := range found {
 		if _, err := skillcontent.New(cliembed.EmbeddedSkills()).Package(name); err != nil {
 			t.Fatalf("official Skill bundle omitted %s: %v", name, err)
 		}
 	}
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
-	template, _, err := bundle.Read("viceme-tip", "templates/single-html.html")
+	template, _, err := bundle.Read("viceme-engagement", "templates/single-html.html")
 	if err != nil {
 		t.Fatalf("official Skill bundle omitted the single HTML template: %v", err)
 	}
@@ -789,7 +789,7 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 	if !strings.Contains(resolved, `src="https://viceme.example/viceme-sdk/v1/viceme.min.js"`) || strings.Contains(resolved, "https://https://") {
 		t.Fatalf("single HTML template does not accept the complete SDK URL")
 	}
-	if _, _, err := bundle.Read("viceme-tip", "references/integration-contract.md"); err != nil {
+	if _, _, err := bundle.Read("viceme-engagement", "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
 	}
 }

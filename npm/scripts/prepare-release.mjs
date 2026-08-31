@@ -73,7 +73,7 @@ export const officialSkillNames = [
   "viceme-publish",
   "viceme-skill-use",
   "viceme-access",
-  "viceme-tip",
+  "viceme-engagement",
 ];
 
 export function renderChangelog(version, commits, previous, date) {

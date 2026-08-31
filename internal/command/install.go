@@ -22,10 +22,8 @@ var officialSkillNames = []string{
 	"viceme-publish",
 	"viceme-skill-use",
 	"viceme-access",
-	"viceme-tip",
+	"viceme-engagement",
 }
-
-var retiredOfficialSkills []skillcontent.RetiredSkillIdentity
 
 type installNextStep struct {
 	Required bool   `json:"required"`
