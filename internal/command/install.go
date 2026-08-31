@@ -21,6 +21,7 @@ var officialSkillNames = []string{
 	"viceme-creator-onboarding",
 	"viceme-publish",
 	"viceme-skill-use",
+	"viceme-danmaku",
 	"viceme-access",
 	"viceme-tip",
 }

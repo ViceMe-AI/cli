@@ -45,12 +45,15 @@
       <p>这是一个独立部署的单 HTML 创作者页面。</p>
     </main>
 
-    <!-- 只能使用当前固定 Profile 下 creator-app show 返回的 data.embedSnippet 替换下面占位符；不要手工推导脚本地址或应用 ID。 -->
+    <!-- 只使用 viceme-publish 返回的 Web base URL、workKey、区域和完整 hosted feature set。 -->
     <script
-      async
-      src="REPLACE_WITH_SDK_SCRIPT_URL"
+      defer
+      src="REPLACE_WITH_WEB_BASE_URL/viceme-sdk/v1/viceme.min.js"
       data-viceme-work="REPLACE_WITH_WORK_KEY"
-      data-locale="zh-CN"
+      data-viceme-region="REPLACE_WITH_REGION"
+      data-viceme-features="tip"
+      data-viceme-target="body"
+      data-viceme-theme="auto"
     ></script>
   </body>
 </html>

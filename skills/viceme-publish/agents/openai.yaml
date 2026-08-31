@@ -1,4 +1,4 @@
 interface:
   display_name: "在 ViceMe 发布"
-  short_description: "发布 Skill、商品或带关注和付费解锁的创作者网站"
-  default_prompt: "使用 $viceme-publish 判断我要发布的内容，并完成发布、创作者资格与网站关注或付费解锁配置。"
+  short_description: "发布 Skill、商品或带互动与解锁能力的创作者网站"
+  default_prompt: "使用 $viceme-publish 判断我要发布的内容，并完成发布、创作者资格与网站弹幕、打赏、关注或付费解锁配置。"

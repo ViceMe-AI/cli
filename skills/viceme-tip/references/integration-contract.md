@@ -1,33 +1,37 @@
-# ViceMe 打赏接入契约
+# ViceMe 打赏宿主接入契约
 
-## 必需资源图
+## Publish 交接
 
-一次打赏接入恰好包含这些权威资源：
+`$viceme-publish` 必须先确认以下平台资源已经可用：
 
 ```text
 PUBLISHED + VERIFIED Website Work
-├── ACTIVE SDK 访问（features 含 tip）
-└── ACTIVE PRODUCTION Website Widget 应用
-    ├── workId = Website Work ID
-    ├── origins = [Website canonical Origin]
-    ├── returnUrls = []
+├── ACTIVE SDK access（hosted features 含 tip）
+└── ACTIVE PRODUCTION Website Widget application
+    ├── canonical Origin
     └── products = []
 ```
 
-Work 是身份。公开 `workKey` 定位托管运行时访问。Website Widget 应用授权支付入口与精确父 Origin；它不替代 Work，也不作为页面身份嵌入。
+本 Skill 只消费 publish 返回的公开 `workKey`、Web base URL、区域、canonical Origin 和完整 hosted feature set，不读取或修改上面的资源。
 
-## Origin
+## Loader
 
-规范 Origin 必须是小写规范 HTTPS，不含凭证、路径、查询、片段或尾部斜杠。Tip iframe 发送 `strict-origin` Referer，商店只在该精确 Origin 已注册时签发嵌入上下文。预览域名与生产域名是不同 Origin。
+一个页面、一个 `workKey` 只保留一个 loader：
+
+```text
+data-viceme-work
+data-viceme-region
+data-viceme-features
+data-viceme-target
+data-viceme-theme
+```
+
+features 只能是 `tip` 或规范顺序的 `danmaku,tip`。不要传 endpoint、token、金额、渠道、application ID 或支付状态。已有 loader 时更新属性，不插入第二条脚本。
 
 ## 运行时边界
 
-宿主只通过加载器传递 Work key、区域、特性集、目标容器和主题。不传金额、支付渠道、应用 ID、访问令牌或支付状态。商店拥有登录、下单、渠道协议、状态、结算与签名能力。
-
-框架在可信 resize 握手完成前不可交互。商店拥有支付面板，Escape 时先重置为初始金额表单再发出关闭。SDK 只接受预期商店 Origin 与 iframe 窗口的消息，绑定首个有效 Work UUID，并转发脱敏的关闭与支付通知。宿主无需为默认关闭行为添加监听器。界面能打开不代表支付已成交。
-
-宿主不得复制结账页面、调用支付渠道 API 或接收支付秘密；脚本在 Shadow DOM 中渲染入口并打开 ViceMe 托管的结账 iframe。
+Tip iframe 使用规范 Origin 建立可信嵌入上下文。Shop 拥有登录、金额选择、下单、支付渠道、状态和结算；SDK 校验消息来源并只转发脱敏事件。宿主不得复制结账页面、调用支付渠道 API 或接收支付秘密。界面能打开不代表支付已成交。
 
 ## CSP
 
-保留现有指令。只把精确 Profile Web Origin 加入确实需要的 script、connection 和 frame 指令。绝不使用通配符、宽泛 ViceMe 子域、`unsafe-eval` 或宿主自提供的支付脚本。
+保留现有指令。只把 publish 返回的精确 Shop Origin 加入确实需要的 script、connection 和 frame 指令。绝不使用通配符、宽泛子域或 `unsafe-eval`。
