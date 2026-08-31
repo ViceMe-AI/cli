@@ -61,16 +61,14 @@ of its exact HTTPS Origin. ViceMe does not upload or host the website files.
 5. Read the Work again and report its ID, slug, revision, status, canonical
    Origin, and ownership status. Do not report the DNS challenge.
 
-## Configure Website Capabilities
+## Configure Follow And Paid Access
 
-Hosted danmaku, hosted tips, follow unlocks, and paid unlocks belong to this
-publish workflow. `$viceme-danmaku`, `$viceme-tip`, and `$viceme-access` only
-integrate the returned configuration into creator host code and must not create,
-update, disable, or publish platform resources.
+Website follow and paid unlocks belong to this publish workflow. `$viceme-access`
+only integrates the returned configuration into the creator's host code and must
+not create, update, disable, or publish platform resources.
 
-1. Skip this section only when the user requested no Website capability.
-   Otherwise confirm the complete desired hosted set (`danmaku`, `tip`) and
-   every access feature key, public title, policy, and paid price. Use
+1. Skip this section only when the user did not request follow or paid unlocks.
+   Otherwise confirm each feature key, public title, policy, and paid price. Use
    `FOLLOW_OWNER` for an explicit creator follow and `WORK_ENTITLEMENT` for a
    one-time paid unlock. Do not configure creator subscriptions.
 2. Read the Website Work's single authoritative SDK access resource:
@@ -82,109 +80,47 @@ update, disable, or publish platform resources.
    Reuse it when it exists. Do not create a parallel resource or treat legacy
    local access files and retired standalone access commands as authoritative
    state.
-3. Before activation, show the complete hosted and access set and each final
-   paid price, then obtain the explicit publication confirmation required by the
-   parent Skill.
-4. If no SDK access resource exists, create it with the complete desired hosted
-   and access set:
+3. Before activating a paid feature, show the complete desired active access
+   set and each final price, then obtain the explicit publication confirmation
+   required by the parent Skill.
+4. If no SDK access resource exists, create it with the complete desired access
+   set:
 
    ```bash
    viceme merchant work sdk-access create <work-id> --merchant <merchant-id> \
-     [--feature danmaku] [--feature tip] \
      [--follow "<key>[=<title>]"]... \
      [--purchase "<key>[=<title>]" --price-minor <fen>]...
    ```
 
-5. If it exists, update only the domains the user changed and use the exact
-   returned `configVersion`. `--feature` replaces the complete hosted set;
-   follow and purchase flags replace the complete active access set. Omit a
-   domain's flags to preserve that domain unchanged:
+5. If it exists, preserve its hosted `danmaku` and `tip` features by omitting
+   `--feature`. Supply the complete desired active follow and purchase set and
+   the exact returned `configVersion`:
 
    ```bash
    viceme merchant work sdk-access update <work-id> --merchant <merchant-id> \
      --expected-config-version <version> \
-     [--feature danmaku] [--feature tip] \
      [--follow "<key>[=<title>]"]... \
      [--purchase "<key>[=<title>]" --price-minor <fen>]...
    ```
 
-   When changing a domain, preserve every active feature the user did not ask
-   to remove. One price may be shared by all purchase features; otherwise repeat
-   `--price-minor` in `--purchase` order. Use `--clear-hosted` or
-   `--clear-access` only when the user explicitly removes the corresponding
-   complete set. Never disable the whole SDK access resource while any hosted
-   or access feature must remain active.
+   Omitted active access features are disabled. Preserve every existing active
+   feature the user did not ask to remove. One price may be shared by all
+   purchase features; otherwise repeat `--price-minor` in `--purchase` order.
+   Use `--clear-access` only when the user explicitly removes all follow and
+   purchase unlocks. Never disable the whole SDK access resource while hosted
+   features must remain active.
 6. Read the resource after the mutation. Report its public `workKey`,
    `configVersion`, active feature titles, policies, and paid prices. The
-   platform provisions each paid feature's unlisted Product, Hosted Checkout,
-   fulfillment, and Digital Entitlement; do not expose their internal IDs to
-   host code.
-7. When `tip` is active, ensure the Work's unique production Website Widget
-   application exists with the canonical Origin. List applications and select
-   only `(workId, environment=PRODUCTION, kind=WEBSITE_WIDGET)`. If none exists,
-   create it with no Product binding:
+   platform provisions each paid feature's unlisted Product, Website Widget
+   application, Hosted Checkout, fulfillment, and Digital Entitlement; do not
+   expose their internal IDs to host code.
+7. Invoke `$viceme-access` only after publication and access configuration are
+   complete, passing the returned `workKey` and confirmed feature keys. That
+   Skill changes the creator website only.
 
-   ```bash
-   viceme merchant commerce-application list --merchant <merchant-id>
-   ```
-
-   ```json
-   {
-     "merchantAccountId": "<merchant-id>",
-     "workId": "<work-id>",
-     "kind": "WEBSITE_WIDGET",
-     "environment": "PRODUCTION",
-     "displayName": "<website name>",
-     "origins": ["https://creator.example"],
-     "returnUrls": []
-   }
-   ```
-
-   ```bash
-   viceme merchant commerce-application create --input <json>
-   viceme merchant commerce-application get <application-id> --merchant <merchant-id>
-   ```
-
-   Reuse or create, then read it again. Never create a second application when
-   its display name, Origin, or return URL differs. If it is `REVOKED`, stop. If
-   an active application differs, suspend it with its exact revision, read it,
-   update the draft or suspended application with the canonical values, read it
-   again, and activate it with the exact revision. If it is already active and
-   identical, skip mutation. A lost create response is recovered by listing the
-   same unique application before deciding whether to create.
-
-   ```bash
-   viceme merchant commerce-application suspend <application-id> \
-     --merchant <merchant-id> --expected-revision <application-revision>
-   ```
-
-   ```json
-   {
-     "merchantAccountId": "<merchant-id>",
-     "expectedRevision": 2,
-     "displayName": "<website name>",
-     "origins": ["https://creator.example"],
-     "returnUrls": []
-   }
-   ```
-
-   ```bash
-   viceme merchant commerce-application update <application-id> --input <json>
-   viceme merchant commerce-application activate <application-id> \
-     --merchant <merchant-id> --expected-revision <application-revision>
-   ```
-8. Invoke host integration only after all platform resources are active:
-   - If `tip` is enabled, invoke `$viceme-tip` with the returned `workKey`, exact
-     Web base URL, region, canonical Origin, and complete hosted set. It also
-     preserves or adds `danmaku` in the one shared loader, so do not invoke a
-     second hosted integration Skill.
-   - If only `danmaku` is enabled, invoke `$viceme-danmaku` with the same publish
-     result.
-   - If follow or paid access is enabled, invoke `$viceme-access` with the
-     returned `workKey` and confirmed access feature keys.
-
-Publishing a Website Work alone creates no Product, Website Widget application,
-or browser capability. Platform configuration always precedes host integration.
+Publishing a Website Work alone creates no Product and enables no browser
+feature. If the user asks for hosted tips, finish Website Work publication first
+and use `viceme-tip`; it must preserve the follow and paid access set above.
 
 ## Boundaries
 

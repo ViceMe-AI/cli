@@ -17,7 +17,6 @@ import (
 var officialSkillNames = []string{
 	"viceme-access",
 	"viceme-creator-onboarding",
-	"viceme-danmaku",
 	"viceme-publish",
 	"viceme-shared",
 	"viceme-skill-use",
@@ -127,21 +126,13 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 		},
 		{
-			name: "viceme-danmaku",
-			machine: []string{
-				"$viceme-publish", "data-viceme-features", "danmaku,tip", "workKey",
-			},
-			semantics: []string{
-				"一个页面只保留一个官方 loader", "不得重复挂载",
-			},
-		},
-		{
 			name: "viceme-tip",
 			machine: []string{
-				"$viceme-publish", "data-viceme-features", "danmaku,tip", "workKey",
+				"website-verification create", "website-verification verify", "commerce-application activate", "sdk-access",
+				"data-viceme-features", "workKey",
 			},
 			semantics: []string{
-				"一个页面只保留一个官方 loader", "界面能打开不代表支付已成交",
+				"不得仅因 HTML 移动就创建重复项", "界面能打开不代表支付已成交",
 			},
 		},
 	}
@@ -182,7 +173,7 @@ func TestOfficialSkillEntryMetadataIsChinese(t *testing.T) {
 	}
 }
 
-func TestTipTemplateUsesPublishResultAsItsOnlyEmbedSource(t *testing.T) {
+func TestTipTemplateUsesCLIResponseAsItsOnlyEmbedSource(t *testing.T) {
 	t.Parallel()
 
 	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-tip/templates/single-html.html")
@@ -190,17 +181,13 @@ func TestTipTemplateUsesPublishResultAsItsOnlyEmbedSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(content)
-	for _, required := range []string{
-		"viceme-publish", "REPLACE_WITH_WEB_BASE_URL", "REPLACE_WITH_WORK_KEY", "REPLACE_WITH_REGION", "data-viceme-features",
-	} {
+	for _, required := range []string{"当前固定 Profile", "creator-app show", "data.embedSnippet", "不要手工推导"} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("tip template omitted authoritative publish result %q", required)
+			t.Fatalf("tip template omitted authoritative CLI source guard %q", required)
 		}
 	}
-	for _, forbidden := range []string{"creator-app show", "data.embedSnippet", "Creator Center"} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("tip template still uses retired embed source %q", forbidden)
-		}
+	if strings.Contains(text, "Creator Center") {
+		t.Fatal("tip template still treats Creator Center as the embed value source")
 	}
 }
 
@@ -638,7 +625,7 @@ func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 	}
 }
 
-func TestPublishIncludesRecoverableWebsiteWidgetWorkflow(t *testing.T) {
+func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 	t.Parallel()
 	applicationInput := `{
 		"merchantAccountId": "<merchant-id>",
@@ -658,7 +645,7 @@ func TestPublishIncludesRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 	}`
 
 	for _, relativePath := range []string{
-		"viceme-publish/references/website-workflow.md",
+		"viceme-tip/SKILL.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -667,27 +654,27 @@ func TestPublishIncludesRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 		text := string(content)
 		normalized := strings.Join(strings.Fields(strings.ReplaceAll(text, "\\\n", " ")), " ")
 		for _, required := range []string{
-			"`(workId, environment=PRODUCTION, kind=WEBSITE_WIDGET)`",
-			"If none exists, create it with no Product binding",
-			"Never create a second application when its display name, Origin, or return URL differs",
-			"If it is `REVOKED`, stop",
-			"If an active application differs, suspend it with its exact revision",
+			"（`(workId, environment, kind)` 唯一）",
+			"不存在时创建",
+			"绝不因现有应用显示名、Origin 或 return URL 不同就创建第二个",
+			"`REVOKED` 时停止并报告该终态资源",
+			"配置不同且状态 `ACTIVE` 时，先按其精确 revision 挂起",
 			"commerce-application update <application-id> --input <json>",
-			"If it is already active and identical, skip mutation",
-			"A lost create response is recovered by listing",
+			"已 `ACTIVE` 且一致则跳过",
+			"create 响应丢失时先 list 再决定",
 		} {
 			if !strings.Contains(normalized, required) {
 				t.Fatalf("standalone %s omitted Website Widget constraint %q", relativePath, required)
 			}
 		}
 		requireOrderedSteps(t, relativePath, normalized, []string{
-			"viceme merchant commerce-application list --merchant <merchant-id>",
+			"viceme --profile <profile> merchant commerce-application list --merchant <merchant-id>",
 			`"kind": "WEBSITE_WIDGET"`,
-			"viceme merchant commerce-application create --input <json>",
-			"viceme merchant commerce-application get <application-id> --merchant <merchant-id>",
-			"viceme merchant commerce-application suspend <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
-			"viceme merchant commerce-application update <application-id> --input <json>",
-			"viceme merchant commerce-application activate <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
+			"viceme --profile <profile> merchant commerce-application create --input <json>",
+			"viceme --profile <profile> merchant commerce-application get <application-id> --merchant <merchant-id>",
+			"viceme --profile <profile> merchant commerce-application suspend <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
+			"viceme --profile <profile> merchant commerce-application update <application-id> --input <json>",
+			"viceme --profile <profile> merchant commerce-application activate <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
 		})
 		requireJSONBlock(t, relativePath, text, `"kind": "WEBSITE_WIDGET"`, applicationInput)
 		requireJSONBlockWithMarkers(t, relativePath, text, []string{
@@ -714,7 +701,7 @@ func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
 		"website-workflow.md",
 		"已验证的 Website Work",
 		"网站本身不创建 Product",
-		"同一发布流程中配置弹幕、打赏、关注和付费解锁",
+		"同一发布流程中配置关注与付费解锁",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("publish Skill omitted the current website Work boundary %q", required)
@@ -733,14 +720,9 @@ func TestWebsiteAccessConfigurationBelongsToPublish(t *testing.T) {
 		"merchant work sdk-access get",
 		"merchant work sdk-access create",
 		"merchant work sdk-access update",
-		"--feature danmaku",
-		"--feature tip",
-		"merchant commerce-application create",
 		"--expected-config-version",
 		"--clear-access",
 		"Login never implies following",
-		"$viceme-danmaku",
-		"$viceme-tip",
 	} {
 		if !strings.Contains(publish, required) {
 			t.Fatalf("publish Skill omitted Website access publication contract %q", required)
@@ -767,29 +749,6 @@ func TestWebsiteAccessConfigurationBelongsToPublish(t *testing.T) {
 	} {
 		if !strings.Contains(access, required) {
 			t.Fatalf("access Skill omitted host-integration boundary %q", required)
-		}
-	}
-
-	for _, skillName := range []string{"viceme-danmaku", "viceme-tip"} {
-		hostSkill := readOfficialSkillBundle(t, skillName)
-		for _, forbidden := range []string{
-			"merchant work sdk-access create",
-			"merchant work sdk-access update",
-			"merchant website-verification create",
-			"merchant commerce-application create",
-		} {
-			if strings.Contains(hostSkill, forbidden) {
-				t.Fatalf("%s still owns platform publication command %q", skillName, forbidden)
-			}
-		}
-		for _, required := range []string{
-			"只修改创作者网站的宿主代码",
-			"交回 publish",
-			"data-viceme-features=\"danmaku,tip\"",
-		} {
-			if !strings.Contains(hostSkill, required) {
-				t.Fatalf("%s omitted host-integration boundary %q", skillName, required)
-			}
 		}
 	}
 }

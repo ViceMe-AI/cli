@@ -37,7 +37,7 @@ func main() {
 	flag.Parse()
 
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
-	skillNames := []string{"viceme-shared", "viceme-creator-onboarding", "viceme-publish", "viceme-skill-use", "viceme-danmaku", "viceme-access", "viceme-tip"}
+	skillNames := []string{"viceme-shared", "viceme-creator-onboarding", "viceme-publish", "viceme-skill-use", "viceme-access", "viceme-tip"}
 	skills := make(map[string]skillRelease, len(skillNames))
 	for _, name := range skillNames {
 		digests, err := bundle.Digests(name)

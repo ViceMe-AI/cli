@@ -1,4 +1,0 @@
-interface:
-  display_name: "接入 ViceMe 弹幕"
-  short_description: "把 publish 已启用的弹幕接入创作者网站"
-  default_prompt: "使用 $viceme-danmaku 将 publish 已启用的弹幕接入现有页面；不要创建或修改平台发布配置。"

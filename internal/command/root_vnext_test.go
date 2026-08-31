@@ -759,9 +759,9 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	}
 }
 
-func TestOfficialSkillBundleIncludesWebsiteIntegrationSkills(t *testing.T) {
+func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 	t.Parallel()
-	found := map[string]bool{"viceme-access": false, "viceme-danmaku": false, "viceme-tip": false}
+	found := map[string]bool{"viceme-access": false, "viceme-tip": false}
 	for _, name := range officialSkillNames {
 		if _, tracked := found[name]; tracked {
 			found[name] = true
@@ -785,15 +785,12 @@ func TestOfficialSkillBundleIncludesWebsiteIntegrationSkills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("official Skill bundle omitted the single HTML template: %v", err)
 	}
-	resolved := strings.ReplaceAll(string(template), "REPLACE_WITH_WEB_BASE_URL", "https://viceme.example")
+	resolved := strings.ReplaceAll(string(template), "REPLACE_WITH_SDK_SCRIPT_URL", "https://viceme.example/viceme-sdk/v1/viceme.min.js")
 	if !strings.Contains(resolved, `src="https://viceme.example/viceme-sdk/v1/viceme.min.js"`) || strings.Contains(resolved, "https://https://") {
 		t.Fatalf("single HTML template does not accept the complete SDK URL")
 	}
 	if _, _, err := bundle.Read("viceme-tip", "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
-	}
-	if _, _, err := bundle.Read("viceme-danmaku", "references/integration.md"); err != nil {
-		t.Fatalf("official Skill bundle omitted its danmaku integration contract: %v", err)
 	}
 }
 
