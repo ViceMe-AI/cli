@@ -68,12 +68,12 @@ export function selectBump(commits) {
 // The authoritative official Skill list. Every skills/<name>/ directory in the
 // repository must appear here so release preparation bumps all bundled Skills.
 export const officialSkillNames = [
-  "viceme-shared",
-  "viceme-creator-onboarding",
-  "viceme-publish",
+  "creator-tools",
+  "become-a-creator",
+  "sell-a-skill",
   "viceme-skill-use",
-  "viceme-access",
-  "viceme-tip",
+  "charge-for-your-work",
+  "let-people-interact",
 ];
 
 export function renderChangelog(version, commits, previous, date) {

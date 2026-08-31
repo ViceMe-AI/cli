@@ -1,0 +1,4 @@
+interface:
+  display_name: "给网站加弹幕和赞赏"
+  short_description: "同时接入托管弹幕和赞赏"
+  default_prompt: "使用 $let-people-interact 为这个创作者网站同时接入或修复 ViceMe 弹幕和赞赏。"

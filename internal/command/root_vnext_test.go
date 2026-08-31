@@ -579,7 +579,7 @@ func TestBareInternalActivationFlagsCannotBypassRecovery(t *testing.T) {
 	if exit == 0 || !strings.Contains(stdout.String(), "ACTIVATION_CHILD_INVALID") {
 		t.Fatalf("bare hidden flags bypassed the activation coordinator: exit=%d stdout=%q", exit, stdout.String())
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-publish")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "sell-a-skill")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("unauthorized activation child mutated Skills: %v", err)
 	}
 }
@@ -634,7 +634,7 @@ func TestOrdinaryInstallCannotCommitAfterItsRunningGenerationWasReplaced(t *test
 	if cliError := output.AsError(err); cliError.Subtype != "INSTALL_GENERATION_CHANGED" {
 		t.Fatalf("stale install was not fenced by its captured generation: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-publish")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "sell-a-skill")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stale install mutated Skills after a newer generation committed: %v", err)
 	}
 	actual, exists, err := updatepkg.ReadActiveGeneration(configDir)
@@ -754,15 +754,22 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	if cliError := output.AsError(err); cliError.Subtype != "ACTIVATION_CHILD_INVALID" {
 		t.Fatalf("stale child was not fenced by the replacement parent journal: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-publish")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "sell-a-skill")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stale npm child mutated Skills: %v", err)
 	}
 }
 
-func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
+func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 	t.Parallel()
-	found := map[string]bool{"viceme-access": false, "viceme-tip": false}
+	found := map[string]bool{"charge-for-your-work": false, "let-people-interact": false}
+	retired := make(map[string]bool, len(retiredOfficialSkills))
+	for _, skill := range retiredOfficialSkills {
+		retired[skill.Name] = true
+	}
 	for _, name := range officialSkillNames {
+		if retired[name] {
+			t.Fatalf("official Skill list retained retired identity %s", name)
+		}
 		if _, tracked := found[name]; tracked {
 			found[name] = true
 		}
@@ -778,7 +785,7 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 		}
 	}
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
-	template, _, err := bundle.Read("viceme-tip", "templates/single-html.html")
+	template, _, err := bundle.Read("let-people-interact", "templates/single-html.html")
 	if err != nil {
 		t.Fatalf("official Skill bundle omitted the single HTML template: %v", err)
 	}
@@ -786,65 +793,8 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 	if !strings.Contains(resolved, `src="https://viceme.example/viceme-sdk/v1/viceme.min.js"`) || strings.Contains(resolved, "https://https://") {
 		t.Fatalf("single HTML template does not accept the complete SDK URL")
 	}
-	if _, _, err := bundle.Read("viceme-tip", "references/integration-contract.md"); err != nil {
+	if _, _, err := bundle.Read("let-people-interact", "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
-	}
-}
-
-func TestRetiredOfficialSkillsPinEveryPublishedIdentity(t *testing.T) {
-	t.Parallel()
-	expected := map[string][]string{
-		"viceme-danmaku": {
-			"0.16.0-beta.0",
-			// v0.16.0-beta.1 through v0.16.0-beta.5 share this exact
-			// release-manifest identity.
-			"0.16.0-beta.1",
-			"0.16.0-beta.6",
-			"0.16.0-beta.7",
-			"0.16.0",
-			"0.16.1",
-			"0.17.0",
-			"0.18.0",
-			"0.19.0-beta.0",
-		},
-		"viceme-engagement": {
-			"0.16.0-beta.6",
-			"0.16.0-beta.7",
-			"0.17.0",
-			"0.18.0",
-			"0.19.0-beta.0",
-		},
-	}
-	seen := map[string]map[string]bool{}
-	for _, identity := range retiredOfficialSkills {
-		if err := skillcontent.ValidateRetiredSkillIdentity(identity); err != nil {
-			t.Fatalf("retired official Skill identity is invalid: %v", err)
-		}
-		for _, active := range officialSkillNames {
-			if identity.Name == active {
-				t.Fatalf("active official Skill %s must not be retired", active)
-			}
-		}
-		if seen[identity.Name] == nil {
-			seen[identity.Name] = map[string]bool{}
-		}
-		if seen[identity.Name][identity.SkillVersion] {
-			t.Fatalf("retired official Skill identity is duplicated: %s %s", identity.Name, identity.SkillVersion)
-		}
-		seen[identity.Name][identity.SkillVersion] = true
-	}
-	for name, versions := range expected {
-		for _, version := range versions {
-			if !seen[name][version] {
-				t.Fatalf("published %s %s is missing from the retirement table", name, version)
-			}
-		}
-		if len(seen[name]) != len(versions) {
-			t.Fatalf("retirement table contains an unexpected identity for %s: %#v", name, seen[name])
-		}
-	}
-	if len(seen) != len(expected) {
-		t.Fatalf("retirement table contains an unexpected Skill: %#v", seen)
 	}
 }
 

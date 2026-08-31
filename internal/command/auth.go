@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
@@ -32,6 +33,7 @@ func newAuthCommand(runtime *Runtime) *cobra.Command {
 
 func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 	var timeout time.Duration
+	var purpose string
 	command := &cobra.Command{
 		Use:   "login",
 		Short: "Start the ViceMe device login flow and wait for authorization",
@@ -47,6 +49,14 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 			if timeout <= 0 {
 				return output.Validation("timeout", "--timeout must be greater than zero")
 			}
+			devicePurpose := ""
+			switch strings.TrimSpace(purpose) {
+			case "", "default":
+			case "creator-onboarding":
+				devicePurpose = "CREATOR_ONBOARDING"
+			default:
+				return output.Validation("AUTH_LOGIN_PURPOSE_INVALID", "--purpose must be default or creator-onboarding")
+			}
 			if err := runtime.manager().PreflightSave(); err != nil {
 				return err
 			}
@@ -56,6 +66,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 				api.DeviceAuthorizationRequest{
 					ClientName: "viceme-cli",
 					CLIVersion: buildinfo.Version,
+					Purpose:    devicePurpose,
 					Scopes: []string{
 						"profile:read",
 						"skill-publication:read",
@@ -81,6 +92,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "maximum time to wait for browser authorization")
+	command.Flags().StringVar(&purpose, "purpose", "default", "login purpose: default or creator-onboarding")
 	return command
 }
 

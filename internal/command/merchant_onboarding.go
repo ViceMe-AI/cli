@@ -59,17 +59,23 @@ func newMerchantApplicationCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
 				return err
 			}
-			result, err := runtime.client().CreateMerchantApplication(command.Context(), runtime.deps.NewID(), displayName, handle)
+			var optionalDisplayName, optionalHandle *string
+			if value := strings.TrimSpace(displayName); value != "" {
+				optionalDisplayName = &value
+			}
+			if value := strings.TrimSpace(handle); value != "" {
+				optionalHandle = &value
+			}
+			result, err := runtime.client().CreateMerchantApplication(command.Context(), runtime.deps.NewID(), optionalDisplayName, optionalHandle)
 			if err != nil {
 				return err
 			}
 			return runtime.business(result)
 		},
 	}
-	command.Flags().StringVar(&displayName, "display-name", "", "Merchant display name")
-	command.Flags().StringVar(&handle, "handle", "", "public creator handle to reserve")
-	_ = command.MarkFlagRequired("display-name")
-	_ = command.MarkFlagRequired("handle")
+	// 两个参数均可选：服务端按用户资料派生；仅显式覆盖时发送。
+	command.Flags().StringVar(&displayName, "display-name", "", "optional Merchant display name override")
+	command.Flags().StringVar(&handle, "handle", "", "optional public creator handle override")
 	return command
 }
 

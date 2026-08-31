@@ -54,6 +54,46 @@ func TestMerchantApplicationUsesTheUnifiedOnboardingRoute(t *testing.T) {
 	}
 }
 
+func TestMerchantApplicationOmitsDerivedFieldsWhenFlagsAreAbsent(t *testing.T) {
+	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+	t.Setenv(processAccessTokenEnvironment, accessToken)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+accessToken {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch request.URL.Path {
+		case "/v1/cli/auth/status":
+			writeMerchantOnboardingAuth(writer)
+		case "/v1/cli/merchant/onboarding/applications":
+			var input map[string]any
+			if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
+				t.Fatal(err)
+			}
+			if _, exists := input["displayName"]; exists {
+				t.Fatalf("derived displayName must not be sent: %#v", input)
+			}
+			if _, exists := input["handle"]; exists {
+				t.Fatalf("derived handle must not be sent: %#v", input)
+			}
+			if input["clientRequestId"] == "" {
+				t.Fatalf("clientRequestId missing: %#v", input)
+			}
+			writeJSONResponse(writer, merchantOnboardingFixture("APPLICATION", "SUBMITTED", nil))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	exit, envelope := executeMerchantOnboardingCommand(t, server,
+		"merchant", "onboarding", "apply",
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("minimal application failed: exit=%d envelope=%#v", exit, envelope)
+	}
+}
+
 func TestGithubMerchantClaimReturnsOnlyTheConfiguredOAuthRoute(t *testing.T) {
 	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
 	const merchantID = "44444444-4444-4444-8444-444444444444"
