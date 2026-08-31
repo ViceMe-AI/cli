@@ -13,15 +13,15 @@ description: 在同一个已验证 Website Work 上接入 ViceMe 托管弹幕与
 
 1. 查看精确生产 HTTPS Origin、目标页面、部署命令、CSP、响应式布局和浏览器测试。
 2. 先交给 `$viceme-creator-onboarding` 在当前 CLI 上下文完成登录、创作者资格检查和 Merchant 选择。只有它确认当前用户以 OWNER 身份拥有有效 Merchant 后才继续；本 Skill 不自行运行登录、申请或商家账户选择命令。随后运行 `viceme profile list`，只记录并固定当前 Profile 与精确 `marketRegion`，不得从页面 locale、hostname 或其他 Profile 推导市场。本版开放赞赏只支持 `marketRegion: cn` 与 CNY；否则停止并说明边界。
-3. 在任何 Work 创建/更新、Website verification、SDK access 或页面写入前，请用户选择官方 Tip UI 或 Headless。首先证明精确 `0.4.0` Tip 发布物在两个区域完整可用，每条组合路线都要求：
+3. 在任何 Work 创建/更新、Website verification、SDK access 或页面写入前，请用户选择官方 Tip UI 或 Headless。首先证明精确 `0.5.0` Tip 发布物在两个区域完整可用，每条组合路线都要求：
 
    ```bash
    for asset_url in \
-     https://s3.viceme.cn/viceme-sdk/0.4.0/index.js \
-     https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js \
-     https://s3.viceme.ai/viceme-sdk/0.4.0/index.js \
-     https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js \
-     https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js
+     https://s3.viceme.cn/viceme-sdk/0.5.0/index.js \
+     https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js \
+     https://s3.viceme.ai/viceme-sdk/0.5.0/index.js \
+     https://s3.viceme.ai/viceme-sdk/0.5.0/tip.js \
+     https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js
    do
      http_code="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' "$asset_url")" || exit 1
      test "$http_code" = "200" || exit 1
@@ -30,10 +30,10 @@ description: 在同一个已验证 Website Work 上接入 ViceMe 托管弹幕与
 
    最后一项是官方 UI 与 CDN Headless 额外要求的不可变 CN Danmaku 入口。
 
-   Headless 需要选择 npm 或 CDN ESM。npm 路线还要求官方注册表精确返回 `0.4.0`：
+   Headless 需要选择 npm 或 CDN ESM。npm 路线还要求官方注册表精确返回 `0.5.0`：
 
    ```bash
-   npm view @viceme-ai/sdk@0.4.0 version --json \
+   npm view @viceme-ai/sdk@0.5.0 version --json \
      --fetch-timeout=15000 --fetch-retries=0 \
      --registry=https://registry.npmjs.org \
      --@viceme-ai:registry=https://registry.npmjs.org
@@ -122,9 +122,9 @@ description: 在同一个已验证 Website Work 上接入 ViceMe 托管弹幕与
    ```html
    <div id="viceme-engagement"></div>
    <script type="module">
-     import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
-     import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js";
-     import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js";
+     import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";
+     import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js";
+     import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";
 
      const target = document.querySelector("#viceme-engagement");
      if (!target) throw new Error("ViceMe engagement target is missing");
@@ -151,9 +151,9 @@ description: 在同一个已验证 Website Work 上接入 ViceMe 托管弹幕与
    ```html
    <div id="viceme-engagement"></div>
    <script type="module">
-     import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
-     import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js";
-     import { createTip } from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js";
+     import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";
+     import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js";
+     import { createTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";
 
      const target = document.querySelector("#viceme-engagement");
      if (!target) throw new Error("ViceMe engagement target is missing");

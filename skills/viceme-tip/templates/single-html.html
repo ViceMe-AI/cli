@@ -49,8 +49,8 @@
     <!-- 启用 Tip 前先检查精确 CDN 发布物；用户确认 SANDBOX 前保留公开测试 key。
          不要设置 no-referrer，也不要通过 query 伪造 sourceOrigin。 -->
     <script type="module">
-      import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
-      import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js";
+      import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";
+      import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";
 
       const target = document.querySelector("#viceme-tip");
       if (!target) throw new Error("ViceMe Tip target is missing");

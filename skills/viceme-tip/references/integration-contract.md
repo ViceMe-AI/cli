@@ -19,26 +19,26 @@ PUBLISHED Merchant Work
 
 ## 写入前选择发布物
 
-首个公开 Tip SDK 版本精确为 `@viceme-ai/sdk@0.4.0`。先请用户选择官方 UI 或 Headless，再验证所选发布物；这些检查必须早于 Work 创建/验证/发布、SDK access 变更和宿主页编辑。发布物不可用时，流程不应留下新的 Work 或 feature 状态。
+`@viceme-ai/sdk@0.5.0` 是首个包含完整 Headless Tip 公共面的发布目标。本流程统一使用该精确版本。先请用户选择官方 UI 或 Headless，再验证所选发布物；这些检查必须早于 Work 创建/验证/发布、SDK access 变更和宿主页编辑。发布物不可用时，流程不应留下新的 Work 或 feature 状态。
 
 每条路线都先检查两个发布区域的四个不可变 Tip 入口，避免接受只发布一部分的区域产物：
 
 ```bash
 for asset_url in \
-  https://s3.viceme.cn/viceme-sdk/0.4.0/index.js \
-  https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js \
-  https://s3.viceme.ai/viceme-sdk/0.4.0/index.js \
-  https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js
+  https://s3.viceme.cn/viceme-sdk/0.5.0/index.js \
+  https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js \
+  https://s3.viceme.ai/viceme-sdk/0.5.0/index.js \
+  https://s3.viceme.ai/viceme-sdk/0.5.0/tip.js
 do
   http_code="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' "$asset_url")" || exit 1
   test "$http_code" = "200" || exit 1
 done
 ```
 
-每个 CDN 请求都必须在 15 秒内直接返回精确 `200`，不得跟随或接受重定向。官方 UI 与 CDN Headless 使用已检查的 CN ESM。Headless 也可以使用精确 npm 包；npm 路线还要求以下官方注册表命令精确返回 `0.4.0`：
+每个 CDN 请求都必须在 15 秒内直接返回精确 `200`，不得跟随或接受重定向。官方 UI 与 CDN Headless 使用已检查的 CN ESM。Headless 也可以使用精确 npm 包；npm 路线还要求以下官方注册表命令精确返回 `0.5.0`：
 
 ```bash
-npm view @viceme-ai/sdk@0.4.0 version --json \
+npm view @viceme-ai/sdk@0.5.0 version --json \
   --fetch-timeout=15000 --fetch-retries=0 \
   --registry=https://registry.npmjs.org \
   --@viceme-ai:registry=https://registry.npmjs.org
@@ -93,8 +93,8 @@ Headless SDK 在每次用户手势触发的 `open()` 中创建高熵随机 chann
 官方 UI 使用 `createViceMe` 与 `mountTip`，不使用全局对象或声明式 loader。先使用公开 SANDBOX key：
 
 ```js
-import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
-import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js";
+import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";
+import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";
 
 const target = document.querySelector("#viceme-tip");
 if (!target) throw new Error("ViceMe Tip target is missing");
@@ -116,7 +116,7 @@ function destroyViceMeTip() {
 
 ## Headless：npm
 
-用宿主项目既有包管理器精确安装 `@viceme-ai/sdk@0.4.0`。先要求官方注册表检查返回精确版本；不可用时停止。为 `@viceme-ai` scope 固定 `https://registry.npmjs.org`，并核对 lockfile 的来源与 integrity。
+用宿主项目既有包管理器精确安装 `@viceme-ai/sdk@0.5.0`。先要求官方注册表检查返回精确版本；不可用时停止。为 `@viceme-ai` scope 固定 `https://registry.npmjs.org`，并核对 lockfile 的来源与 integrity。
 
 `renderTipControls` 代表宿主自己的 UI，必须完全使用返回配置，不能维护独立金额或 provider 常量。控件必须直接在按钮点击或键盘激活的调用栈中调用回调；在 `tip.open()` 创建安全 handoff 前不得 await、排队或调度其他工作。
 
@@ -174,8 +174,8 @@ function destroyViceMeTip() {
 同一审查版本的两个不可变文件必须配对使用。编辑宿主前完成上面的四对象 CN/GLOBAL 预检；任一对象不可用就停止。宿主控制也必须从点击或键盘激活调用栈直接调用 `tip.open()`。
 
 ```js
-import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
-import { createTip } from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js";
+import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";
+import { createTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";
 
 const client = createViceMe({ workKey: "wrk_test_...", region: "cn" });
 await client.ready();

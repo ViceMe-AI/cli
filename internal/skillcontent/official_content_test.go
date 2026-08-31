@@ -108,7 +108,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "viceme-engagement",
 			machine: []string{
-				"--feature danmaku", "--feature tip", "keys.test", "keys.live", "0.4.0",
+				"--feature danmaku", "--feature tip", "keys.test", "keys.live", "0.5.0",
 				"mountDanmaku", "mountTip", "createTip",
 			},
 			semantics: []string{"SANDBOX", "Headless"},
@@ -146,7 +146,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "viceme-tip",
 			machine: []string{
 				"owner.kind", "MERCHANT", "PUBLISHED", "sdk-access", "--feature tip", "keys.test", "keys.live",
-				"0.4.0", "createTip", "sourceOrigin", "no-referrer",
+				"0.5.0", "createTip", "sourceOrigin", "no-referrer",
 			},
 			semantics: []string{"宿主页", "独立", "SANDBOX", "Headless"},
 		},
@@ -296,7 +296,9 @@ func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
 		"中文交流必须使用自然白话",
 		"不得告诉用户正在使用哪个内置 Skill",
 		"Profile 或 CLI 命令",
-		"用于个人主页链接的英文名称",
+		"creatorIdentity.suggestedHandle",
+		"viceme merchant onboarding apply --handle",
+		"只能用小写字母、数字和短横线",
 		"申请已经提交，接下来需要工作人员审核",
 		"`error.code=INTERNAL_ERROR` 且 `retryable=true`",
 		"立即重试一次同一条读取",
@@ -759,10 +761,10 @@ func TestTipBearingSkillsPinExactReleaseBeforeSDKMutation(t *testing.T) {
 		}
 		text := string(content)
 		for _, required := range []string{
-			"https://s3.viceme.cn/viceme-sdk/0.4.0/index.js",
-			"https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js",
-			"https://s3.viceme.ai/viceme-sdk/0.4.0/index.js",
-			"https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js",
+			"https://s3.viceme.cn/viceme-sdk/0.5.0/index.js",
+			"https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js",
+			"https://s3.viceme.ai/viceme-sdk/0.5.0/index.js",
+			"https://s3.viceme.ai/viceme-sdk/0.5.0/tip.js",
 			"--connect-timeout 5",
 			"--max-time 15",
 			"--write-out '%{http_code}'",
@@ -771,24 +773,24 @@ func TestTipBearingSkillsPinExactReleaseBeforeSDKMutation(t *testing.T) {
 			`test "$http_code" = "200" || exit 1`,
 			`= "200"`,
 			"不得跟随或接受重定向",
-			"npm view @viceme-ai/sdk@0.4.0 version --json",
+			"npm view @viceme-ai/sdk@0.5.0 version --json",
 			"--fetch-timeout=15000 --fetch-retries=0",
 			"--registry=https://registry.npmjs.org",
 			"--@viceme-ai:registry=https://registry.npmjs.org",
 		} {
 			if !strings.Contains(text, required) {
-				t.Fatalf("%s 缺少精确 0.4.0 发布检查 %q", relativePath, required)
+				t.Fatalf("%s 缺少精确 0.5.0 发布检查 %q", relativePath, required)
 			}
 		}
 		for _, match := range regexp.MustCompile(`(?:viceme-sdk/|@viceme-ai/sdk@)(\d+\.\d+\.\d+)`).FindAllStringSubmatch(text, -1) {
-			if match[1] != "0.4.0" {
+			if match[1] != "0.5.0" {
 				t.Fatalf("%s 引用了非目标 SDK 版本 %q", relativePath, match[1])
 			}
 		}
-		preflight := strings.Index(text, "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js")
+		preflight := strings.Index(text, "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js")
 		mutation := strings.Index(text, "merchant work sdk-access create")
 		if preflight < 0 || mutation < 0 || preflight >= mutation {
-			t.Fatalf("%s 未在 SDK access 写入前完成 0.4.0 预检", relativePath)
+			t.Fatalf("%s 未在 SDK access 写入前完成 0.5.0 预检", relativePath)
 		}
 	}
 }
@@ -831,8 +833,8 @@ func TestTipHeadlessExamplesExposeOnlyThePublicFacade(t *testing.T) {
 	}
 	for _, required := range []string{
 		"@viceme-ai/sdk",
-		`from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js"`,
-		`from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js"`,
 		"window",
 		"origin",
 		"channel",
@@ -903,8 +905,8 @@ func TestTipReferenceOfficialUIUsesExactESMAndOwnedLifecycle(t *testing.T) {
 	}
 	text := string(content)
 	for _, required := range []string{
-		"https://s3.viceme.cn/viceme-sdk/0.4.0/index.js",
-		"https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js",
+		"https://s3.viceme.cn/viceme-sdk/0.5.0/index.js",
+		"https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js",
 		"mountTip",
 		"destroy",
 		"client.destroy",
@@ -925,7 +927,7 @@ func TestCombinedEngagementChoosesExactlyOneTipUIAndRejectsGlobal(t *testing.T) 
 	for _, required := range []string{
 		"marketRegion",
 		"cn",
-		"0.4.0",
+		"0.5.0",
 		"merchant work website-verification create",
 		"merchant work website-verification verify",
 		"merchant work sdk-access create",
@@ -964,10 +966,10 @@ func TestTipBearingFlowsRequireCompleteOfficialReleaseBeforeMutation(t *testing.
 		}
 		text := string(content)
 		for _, required := range []string{
-			"https://s3.viceme.cn/viceme-sdk/0.4.0/index.js",
-			"https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js",
-			"https://s3.viceme.ai/viceme-sdk/0.4.0/index.js",
-			"https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js",
+			"https://s3.viceme.cn/viceme-sdk/0.5.0/index.js",
+			"https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js",
+			"https://s3.viceme.ai/viceme-sdk/0.5.0/index.js",
+			"https://s3.viceme.ai/viceme-sdk/0.5.0/tip.js",
 			"--max-time 15",
 			"--write-out '%{http_code}'",
 			"for asset_url in",
@@ -1006,9 +1008,9 @@ func TestCombinedEngagementUsesOwnedESMLifecycles(t *testing.T) {
 		t.Fatalf("combined engagement ESM examples are incomplete: official=%t headless=%t", officialExample != "", headlessExample != "")
 	}
 	for _, required := range []string{
-		`from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js"`,
-		`from "https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js"`,
-		`from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js"`,
 		"mountDanmaku(", "mountTip(", "destroy", "client.destroy",
 	} {
 		if !strings.Contains(officialExample, required) {
@@ -1016,9 +1018,9 @@ func TestCombinedEngagementUsesOwnedESMLifecycles(t *testing.T) {
 		}
 	}
 	for _, required := range []string{
-		`from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js"`,
-		`from "https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js"`,
-		`from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js"`,
 		"mountDanmaku(", "createTip(", "getConfig", ".open(", "destroy", "client.destroy",
 	} {
 		if !strings.Contains(headlessExample, required) {

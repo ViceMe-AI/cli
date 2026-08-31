@@ -799,8 +799,8 @@ func TestOfficialSkillBundleIncludesAllActiveSkills(t *testing.T) {
 	}
 	templateText := string(template)
 	for _, required := range []string{
-		`import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";`,
-		`import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js";`,
+		`import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";`,
+		`import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";`,
 		`workKey: "wrk_test_REPLACE_WITH_PUBLIC_IDENTIFIER"`,
 		"const mountHandle = await mountTip(client, {",
 		"mountHandle.destroy();",
