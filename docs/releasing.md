@@ -36,6 +36,12 @@ files, create tags, write changelog entries, or run npm commands locally.
    Global `start` buckets, publishes npm, and then sends an
    AI-generated release summary to the release notification group in Feishu.
 
+After a production promotion, merge the new `main` history back into `dev`
+before opening the next Release PR. When the released tree already matches
+`dev`, keep the `dev` tree and record only the ancestry merge; this prevents the
+next `dev` to `main` promotion from reopening conflicts in already-released
+files.
+
 ## One-time repository setup
 
 Register a private organization-owned GitHub App named `ViceMe CLI Release Bot`.
