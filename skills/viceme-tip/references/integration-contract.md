@@ -24,16 +24,17 @@ PUBLISHED Merchant Work
 每条路线都先检查两个发布区域的四个不可变 Tip 入口，避免接受只发布一部分的区域产物：
 
 ```bash
-curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/index.js
-curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js
-curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme-sdk/0.4.0/index.js
-curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js
+test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/index.js)" = "200"
+test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js)" = "200"
+test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.ai/viceme-sdk/0.4.0/index.js)" = "200"
+test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js)" = "200"
 ```
 
-官方 UI 与 CDN Headless 使用已检查的 CN ESM。Headless 也可以使用精确 npm 包；npm 路线还要求以下官方注册表命令精确返回 `0.4.0`：
+每个 CDN 请求都必须在 15 秒内直接返回精确 `200`，不得跟随或接受重定向。官方 UI 与 CDN Headless 使用已检查的 CN ESM。Headless 也可以使用精确 npm 包；npm 路线还要求以下官方注册表命令精确返回 `0.4.0`：
 
 ```bash
 npm view @viceme-ai/sdk@0.4.0 version --json \
+  --fetch-timeout=15000 --fetch-retries=0 \
   --registry=https://registry.npmjs.org \
   --@viceme-ai:registry=https://registry.npmjs.org
 ```
@@ -50,9 +51,11 @@ SDK 以无 Cookie、无 Authorization 的 credentialless 请求读取公开配�
 GET /v1/work-sdk/:workKey/tip-config
 ```
 
-`getConfig()` 是当前币种、可用渠道和金额边界的权威来源。首版金额为 100..20000 fen，步长 1 分；宿主不得写死更宽范围。`open()` 中 provider is optional，scene is platform-selected，宿主不得传 scene 或任意上下文字段。
+该请求必须使用 `credentials: "omit"`、`redirect: "error"`、`Accept: application/json` 和可取消的 `AbortSignal`。SDK 只接受 8 秒内由配置的官方 Origin 直接返回的精确 `200` 与 `application/json`，响应体最多 16 KiB；重定向、跨 Origin 最终 URL、超时、销毁、超限、非 JSON、未知字段和不严格 schema 都必须取消读取并拒绝。宿主销毁 controller 时必须中止未完成请求。API 收到 Cookie 或 Authorization 时返回 `TIP_CONFIG_CREDENTIALS_NOT_ALLOWED`，不得忽略凭据后继续返回配置。
 
-匿名生产赞赏 do not use WeChat JSAPI，因为旧场景要求绑定 ViceMe User 的 OpenID。普通移动浏览器可由平台选择 H5，桌面可选择 NATIVE；微信 WebView 必须回到宿主控制并提示使用外部浏览器或其他可用渠道，不得退回旧注册用户支付链路。
+`getConfig()` 是当前币种、可用渠道和金额边界的权威来源。首版金额为 100..20000 fen，步长 1 分；宿主不得写死更宽范围。`open()` 中 provider 可省略，scene 由平台选择，宿主不得传 scene 或任意上下文字段。
+
+匿名生产赞赏不使用 WeChat JSAPI，因为旧场景要求绑定 ViceMe User 的 OpenID。普通移动浏览器可由平台选择 H5，桌面可选择 NATIVE；微信 WebView 必须回到宿主控制并提示使用外部浏览器或其他可用渠道，不得退回旧注册用户支付链路。
 
 宿主可以绘制金额与 provider 控件，但 `open()` 最终总会进入 ViceMe 的 read-only confirmation layer，宿主不能替换、重绘或补充支付结论。宿主不得调用订单 REST API，也不得接收订单号、支付动作或 capability。
 
@@ -60,7 +63,7 @@ GET /v1/work-sdk/:workKey/tip-config
 
 - `PAID` 是唯一携带业务数据的结果：可信 `work.id`、`work.title`、`amountCents` 与 `currency: "CNY"`。
 - 只有用户在官方确认阶段、尚未尝试建单前明确取消，才返回只含 status 的 `CANCELLED`。
-- 已建单、可能已建单、订单关闭、窗口被拦截、异常关闭或协议无法确认时返回只含 status 的 `UNKNOWN`。UNKNOWN is not a failure；不得声称扣款失败、自动重试收费或实现 cross-refresh order recovery。同一 channel 后续确认权威支付成功时仍可收到 `PAID`。
+- 已建单、可能已建单、订单关闭、窗口被拦截、异常关闭或协议无法确认时返回只含 status 的 `UNKNOWN`。`UNKNOWN` 不代表失败；不得声称扣款失败、自动重试收费或实现跨刷新订单恢复。同一 channel 后续确认权威支付成功时仍可收到 `PAID`。
 
 公开结果不包含 provider receipt、`orderNo`、capability、handoff token、结果 token 或 `PaymentAction`。
 
@@ -70,10 +73,10 @@ GET /v1/work-sdk/:workKey/tip-config
 
 宿主若发送 `Referrer-Policy: no-referrer`，或浏览器没有提供有效 Referer，官方页面必须 fail closed 并显示 handoff 不可用；绝不读取 query、locale、Commerce Application 或调用方消息作为来源 fallback。宿主应保留浏览器能够向官方 Origin 发送来源 Origin 的 referrer policy，不得为了“修复”接入伪造 `sourceOrigin`。
 
-Headless SDK 在每次用户手势触发的 `open()` 中创建高熵随机 channel，并直接打开官方 `window`。SDK 只接受：
+Headless SDK 在每次用户手势触发的 `open()` 中创建高熵随机 channel，并直接挂载官方 `/widget/tip/:workKey?mode=headless` 窗口。`mode=headless` 与该次随机 channel 必须由 SDK 写入官方 URL，宿主不得自建或改写。协议事件名固定为 `viceme:tip-headless-ready`、`viceme:tip-headless-init` 和 `viceme:tip-headless-result`，不得改名或增加宿主私有结果事件。SDK 只接受：
 
 - 所选 Profile 的精确官方 Web Origin；
-- 该次调用自己打开的 Window；
+- 该次调用自己打开的 `window`；
 - 匹配本次随机 channel 与 workKey 的严格消息 schema。
 
 官方页面只接受服务端 Referer 得到的 `sourceOrigin`、直接 `opener`/`parent`、匹配 channel/workKey 的严格 init schema。双方收发消息都必须同时验证 `event.origin`、`event.source`、channel、workKey 与消息形状，`postMessage` 必须使用精确目标 Origin，不能用 `*`。
@@ -163,7 +166,7 @@ function destroyViceMeTip() {
 
 ## Headless：精确 CDN ESM
 
-同一审查版本的两个不可变文件必须配对使用。编辑宿主前完成上面的四对象 CN/GLOBAL 预检；If any object is unavailable, stop。宿主控制也必须从点击或键盘激活调用栈直接调用 `tip.open()`。
+同一审查版本的两个不可变文件必须配对使用。编辑宿主前完成上面的四对象 CN/GLOBAL 预检；任一对象不可用就停止。宿主控制也必须从点击或键盘激活调用栈直接调用 `tip.open()`。
 
 ```js
 import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.4.0/index.js";
@@ -212,7 +215,7 @@ function destroyViceMeTip() {
 }
 ```
 
-只在 owning component 或 route 的真实 unmount 中调用 `destroyViceMeTip()`，不要使用 `pagehide`。
+只在所属组件或路由真实卸载时调用 `destroyViceMeTip()`，不要使用 `pagehide`。
 
 ## 验证阶梯
 
@@ -240,7 +243,7 @@ function destroyViceMeTip() {
 
 2. SANDBOX key：使用所选 CN Profile 的真实 SDK，验证配置驱动的金额/provider、ViceMe-controlled handoff、Referer 来源、响应式、键盘与平台模拟结果；不移动真实资金。
 3. Production promotion：展示 SANDBOX 证据并取得用户明确确认后，才把 `wrk_test_...` 换为 `wrk_live_...`。
-4. Production boundary：PRODUCTION key cannot simulate payment。真实支付是独立且明确的用户决定；未执行时必须报告。
+4. 生产边界：PRODUCTION key 不能模拟支付。真实支付是独立且明确的用户决定；未执行时必须报告。
 
 ## CSP 与线上验收
 

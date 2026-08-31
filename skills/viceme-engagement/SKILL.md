@@ -16,27 +16,28 @@ description: 在同一个已验证 Website Work 上接入 ViceMe 托管弹幕与
 3. 在任何 Work 创建/更新、Website verification、SDK access 或页面写入前，请用户选择官方 Tip UI 或 Headless。首先证明精确 `0.4.0` Tip 发布物在两个区域完整可用，每条组合路线都要求：
 
    ```bash
-   curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/index.js
-   curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js
-   curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme-sdk/0.4.0/index.js
-   curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js
+   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/index.js)" = "200"
+   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js)" = "200"
+   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.ai/viceme-sdk/0.4.0/index.js)" = "200"
+   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js)" = "200"
    ```
 
    官方 UI 与 CDN Headless 还要求不可变 CN Danmaku 入口：
 
    ```bash
-   curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js
+   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js)" = "200"
    ```
 
    Headless 需要选择 npm 或 CDN ESM。npm 路线还要求官方注册表精确返回 `0.4.0`：
 
    ```bash
    npm view @viceme-ai/sdk@0.4.0 version --json \
+     --fetch-timeout=15000 --fetch-retries=0 \
      --registry=https://registry.npmjs.org \
      --@viceme-ai:registry=https://registry.npmjs.org
    ```
 
-   任一必需检查失败就停止，不创建、验证或发布 Work，不写 SDK access，也不编辑页面。不得替换为 `latest`、可变版本别名、声明式 loader、浏览器全局对象、Git 依赖或复制源码。完整双区域预检和所选 npm/Danmaku 检查成功后才能继续。
+   每个 CDN 请求都必须在 15 秒内直接返回精确 `200`，不得跟随或接受重定向。任一必需检查失败就停止，不创建、验证或发布 Work，不写 SDK access，也不编辑页面。不得替换为 `latest`、可变版本别名、声明式 loader、浏览器全局对象、Git 依赖或复制源码。完整双区域预检和所选 npm/Danmaku 检查成功后才能继续。
 4. 运行 `viceme --profile <profile> merchant work list --merchant <merchant-id>`。只有 `website.canonicalOrigin` 与实际部署 Origin 完全一致时才复用 Website Work。不存在时，用稳定 `clientRequestId` 和只含观察事实的严格请求创建：
 
    ```json

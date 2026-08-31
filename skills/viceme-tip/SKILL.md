@@ -23,21 +23,22 @@ description: 为任意合格且已发布的 Merchant Work 启用开放赞赏，�
 4. 在任何 Work 创建/发布、Website verification、SDK access 写入或宿主页编辑前，请用户选择官方 UI 或 Headless。先证明精确 `0.4.0` Tip 发布物在两个发布区域都完整可用；每条路线都必须成功执行以下四个检查：
 
    ```bash
-   curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/index.js
-   curl --fail --silent --show-error --output /dev/null https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js
-   curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme-sdk/0.4.0/index.js
-   curl --fail --silent --show-error --output /dev/null https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js
+   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/index.js)" = "200"
+   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js)" = "200"
+   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.ai/viceme-sdk/0.4.0/index.js)" = "200"
+   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js)" = "200"
    ```
 
    官方 UI 与 CDN Headless 使用已检查的 CN ESM。选择 Headless 时再询问 npm 或 CDN ESM；npm 路线还要求官方注册表精确返回 `0.4.0`：
 
    ```bash
    npm view @viceme-ai/sdk@0.4.0 version --json \
+     --fetch-timeout=15000 --fetch-retries=0 \
      --registry=https://registry.npmjs.org \
      --@viceme-ai:registry=https://registry.npmjs.org
    ```
 
-   任一必需检查失败就停止。Do not create, verify, or publish a Work，也不得创建/更新 SDK access 或编辑宿主页。不得替换为 `latest`、可变版本别名、声明式 loader、浏览器全局对象、Git 依赖或复制的 SDK 源码。Only after the complete dual-region preflight 和所选 npm 检查成功，才能继续任何业务写入。
+   每个 CDN 请求都必须在 15 秒内直接返回精确 `200`，不得跟随或接受重定向。任一必需检查失败就停止，不得创建、验证或发布 Work，不得创建或更新 SDK access，也不得编辑宿主页。只有完整双区域预检和所选 npm 检查成功后，才能继续任何业务写入。不得替换为 `latest`、可变版本别名、声明式 loader、浏览器全局对象、Git 依赖或复制的 SDK 源码。
 5. 没有合格 Work 时，询问哪项真实 Skill、服务、商品或网站作品会收到赞赏，然后停止当前设置并加载 `$viceme-publish`。沿该 Skill 的权威路线发布真实作品，完成后带着 Work ID 返回本流程。只承载 Tip UI 的页面不是待发布作品，不得为了启用 Tip 创建 Website Work。用户独立选择网站本身作为 Work 时，DNS 所有权验证属于网站发布，不属于 Standalone Tip。
 6. 对确认的 Work 先只读：
 
@@ -46,7 +47,7 @@ description: 为任意合格且已发布的 Merchant Work 启用开放赞赏，�
      --merchant <merchant-id>
    ```
 
-   资源存在时，snapshot its complete feature set：记录完整 hosted `features`、完整 `accessFeatures`、`status`、`keys.test`、`keys.live` 与精确 `configVersion`，作为冲突处理和回滚来源；不存在时明确记录。两个 key 都是永久公开标识，不是凭据。
+   资源存在时保存完整 feature set 快照：记录完整 hosted `features`、完整 `accessFeatures`、`status`、`keys.test`、`keys.live` 与精确 `configVersion`，作为冲突处理和回滚来源；不存在时明确记录。两个 key 都是永久公开标识，不是凭据。
 7. 应用服务端状态：
 
    - 资源不存在时创建：
@@ -123,5 +124,5 @@ Headless 同样从 `keys.test` 开始，先完成 Local Fake 与 SANDBOX 检查�
 
 - create/update 响应丢失时，先读取同一 SDK access 再决定是否重试。
 - 发生配置冲突时，读取最新 `configVersion`、完整 hosted features 与 `accessFeatures`，向用户重新确认后再写；不得猜版本或发送部分 feature list。
-- 本流程写入 SDK access 后却无法完成接入时，读取最新状态，并用一次更新 restore that complete feature set，同时保护 `accessFeatures` 和永久 key。原状态是 `DISABLED` 时恢复完整配置后再次 disable；原资源不存在时 disable 新建资源。不得用部分 feature list 伪造回滚。
+- 本流程写入 SDK access 后却无法完成接入时，读取最新状态，并用一次更新恢复完整 feature set，同时保护 `accessFeatures` 和永久 key。原状态是 `DISABLED` 时恢复完整配置后再次 disable；原资源不存在时 disable 新建资源。不得用部分 feature list 伪造回滚。
 - 不得因为 Tip 设置结果未知而创建另一个 Work；作品发布只能通过 `viceme-publish` 的权威身份恢复。
