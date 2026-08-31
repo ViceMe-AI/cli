@@ -1,4 +1,0 @@
-interface:
-  display_name: "Install ViceMe Danmaku"
-  short_description: "Install the hosted danmaku SDK"
-  default_prompt: "Use $viceme-danmaku to install ViceMe-hosted danmaku in this website."

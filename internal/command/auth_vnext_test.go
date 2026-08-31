@@ -134,7 +134,7 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	}
 	expectedScopes := []string{
 		"profile:read", "skill-publication:read", "skill-publication:write",
-		"merchant-commerce:read", "merchant-commerce:write",
+		"merchant-commerce:read", "merchant-commerce:write", "skill-use:read",
 	}
 	if strings.Join(requestedScopes, ",") != strings.Join(expectedScopes, ",") {
 		t.Fatalf("device login requested wrong scopes: got=%v want=%v", requestedScopes, expectedScopes)

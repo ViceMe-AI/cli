@@ -62,6 +62,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 						"skill-publication:write",
 						"merchant-commerce:read",
 						"merchant-commerce:write",
+						"skill-use:read",
 					},
 				},
 			)

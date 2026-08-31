@@ -7,6 +7,13 @@
   "releaseLayout": "v{version}/viceme_{version}_{os}_{arch}{extension}",
   "checksumLayout": "{asset}.sha256",
   "latestLayout": "latest",
-  "skills": ["viceme-shared", "viceme-publish", "viceme-access", "viceme-danmaku", "viceme-tip", "viceme-engagement"],
+  "skills": [
+    "viceme-shared",
+    "viceme-creator-onboarding",
+    "viceme-publish",
+    "viceme-skill-use",
+    "viceme-access",
+    "viceme-tip"
+  ],
   "fallbackPackage": "@viceme-ai/cli"
 }

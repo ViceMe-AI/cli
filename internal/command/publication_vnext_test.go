@@ -156,9 +156,8 @@ description: Publish a deterministic Skill through the vNext contract.
 	suggestion := api.SuggestSkillPublicationDraftRequest{
 		BaseDraftRevision: 1,
 		Patch: api.SkillPublicationAgentSuggestionPatch{
-			SummaryZhCN: "发布测试", SummaryEnUS: "Publish test",
+			SummaryZhCN: "发布测试",
 			UsageInstructionsZhCN: "按 SKILL.md 中的步骤运行。",
-			UsageInstructionsEnUS: "Follow the steps in SKILL.md.",
 			CoverUploadID:         stringPointer("upload-media"), GalleryUploadIDs: []string{"upload-media"},
 		},
 	}
@@ -179,7 +178,7 @@ description: Publish a deterministic Skill through the vNext contract.
 	} else {
 		data, _ := envelope["data"].(map[string]any)
 		draft, _ := data["draft"].(map[string]any)
-		if draft["summaryZhCn"] != "发布测试" || draft["summaryEnUs"] != "Publish test" || draft["usageInstructionsZhCn"] != "按 SKILL.md 中的步骤运行。" || draft["usageInstructionsEnUs"] != "Follow the steps in SKILL.md." {
+		if draft["summaryZhCn"] != "发布测试" || draft["usageInstructionsZhCn"] != "按 SKILL.md 中的步骤运行。" {
 			t.Fatalf("review omitted listing copy: %#v", envelope)
 		}
 		if data["draftRevision"] != float64(1) {
@@ -210,6 +209,116 @@ description: Publish a deterministic Skill through the vNext contract.
 	}
 	if _, err := os.Stat(filepath.Join(root, "config", "publications", state.publicationID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("published recovery state was not removed: %v", err)
+	}
+}
+
+func TestSkillPublishBindsAdditionalEditionToExplicitListing(t *testing.T) {
+	t.Parallel()
+	state := &publicationAPITestState{
+		publicationID: "22222222-2222-4222-8222-222222222226",
+		reviewDigest:  strings.Repeat("f", 64),
+	}
+	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	defer server.Close()
+	state.baseURL = server.URL
+
+	root := t.TempDir()
+	source := filepath.Join(root, "pro-skill")
+	if err := os.MkdirAll(source, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte(`---
+name: Pro Edition
+description: A separate package for the same Work.
+---
+
+# Pro Edition
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "vme_cli_test", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	listingID := "66666666-6666-4666-8666-666666666666"
+	exit := Execute([]string{
+		"skill", "publish", "--path", source,
+		"--listing", listingID,
+		"--edition-key", "pro",
+		"--edition-title", "Pro",
+		"--edition-order", "1",
+		"--edition-highlight", "Advanced workflow",
+	}, Dependencies{
+		Out: &stdout, ErrOut: io.Discard, Store: store, APIBaseURL: server.URL, Region: config.RegionGlobal,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Now:         func() time.Time { return time.Date(2026, 8, 27, 8, 0, 0, 0, time.UTC) },
+		NewID:       func() string { return "11111111-1111-4111-8111-111111111111" },
+	})
+	if exit == 0 {
+		t.Fatalf("the response-loss fixture unexpectedly completed: %s", stdout.String())
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.prepareResolution == nil || state.prepareResolution["mode"] != "BIND_EXISTING" || state.prepareResolution["listingId"] != listingID {
+		t.Fatalf("additional edition did not bind the requested Listing: %#v", state.prepareResolution)
+	}
+}
+
+func TestXiaohongshuSearchRequiresExplicitSelectionForMultipleMatches(t *testing.T) {
+	const merchantID = "99999999-9999-4999-8999-999999999999"
+	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+	t.Setenv(processAccessTokenEnvironment, accessToken)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+accessToken {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch request.URL.Path {
+		case "/v1/cli/auth/status":
+			writeJSONResponse(writer, map[string]any{
+				"authenticated": true,
+				"user":          map[string]any{"id": "55555555-5555-4555-8555-555555555555", "displayName": "Creator", "avatarUrl": nil},
+				"scopes":        []string{"profile:read", "skill-publication:read", "skill-publication:write"},
+				"expiresAt":     "2027-08-27T00:00:00Z",
+			})
+		case "/v1/cli/merchant/accounts":
+			writeJSONResponse(writer, api.MerchantAccountsResponse{Items: []api.MerchantAccount{{ID: merchantID, DisplayName: "Creator", Status: "ACTIVE", StatusVersion: 1}}})
+		case "/v1/cli/merchant/channels/xiaohongshu/search":
+			writeJSONResponse(writer, map[string]any{"items": []any{
+				map[string]any{"skillId": "xhs-a", "skillName": "Poster A", "authorDisplayName": "Creator", "artifactVersion": "v1", "artifactDigest": strings.Repeat("a", 64), "artifactSizeBytes": 100, "observedAt": "2026-08-27T00:00:00Z"},
+				map[string]any{"skillId": "xhs-b", "skillName": "Poster B", "authorDisplayName": "Creator", "artifactVersion": "v1", "artifactDigest": strings.Repeat("b", 64), "artifactSizeBytes": 200, "observedAt": "2026-08-27T00:00:00Z"},
+			}})
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	var stdout bytes.Buffer
+	exit := Execute([]string{"skill", "publish", "--xiaohongshu-search", "Poster", "--merchant", merchantID}, Dependencies{
+		Out: &stdout, ErrOut: io.Discard, APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()},
+	})
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if exit == 0 || envelope["ok"] != false {
+		t.Fatalf("ambiguous Xiaohongshu search unexpectedly continued: exit=%d envelope=%#v", exit, envelope)
+	}
+	errorBody, _ := envelope["error"].(map[string]any)
+	details, _ := errorBody["details"].(map[string]any)
+	candidates, _ := details["candidates"].([]any)
+	if errorBody["type"] != "confirmation" || errorBody["code"] != "XIAOHONGSHU_SKILL_SELECTION_REQUIRED" || len(candidates) != 2 {
+		t.Fatalf("ambiguous Xiaohongshu search did not expose candidates: %#v", envelope)
 	}
 }
 
@@ -581,7 +690,7 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 				mediaPutFailures:     scenario.putFailures,
 				loseCompleteResponse: scenario.loseCompleteResponse,
 				draft: api.SkillPublicationDraft{
-					Title: "Publish Test", SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"), UsageInstructionsEnUS: stringPointer("Follow the steps in SKILL.md."),
+					Title: "Publish Test", SummaryZhCN: stringPointer("发布测试"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"),
 					Currency: "CNY", PriceMinor: intPointer(1), GalleryUploadIDs: []string{},
 				},
 			}
@@ -751,6 +860,7 @@ type publicationAPITestState struct {
 	suggestionCalls          int
 	lastDraftPatchFields     []string
 	ambiguousPrepare         bool
+	prepareResolution        map[string]any
 	merchantAccounts         []api.MerchantAccount
 }
 
@@ -789,6 +899,9 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 			writeJSONResponse(writer, map[string]any{"statusCode": 400, "code": "CLIENT_MARKET_FORBIDDEN", "message": "market is owned by the API endpoint"})
 			return
 		}
+		if resolution, ok := input["resolution"].(map[string]any); ok {
+			state.prepareResolution = resolution
+		}
 		if state.ambiguousPrepare {
 			writer.WriteHeader(http.StatusConflict)
 			writeJSONResponse(writer, map[string]any{"statusCode": 409, "code": "SKILL_LISTING_SOURCE_AMBIGUOUS", "message": "Multiple listings match this package digest"})
@@ -796,7 +909,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		}
 		writeJSONResponse(writer, api.PrepareSkillListingResponse{
 			ListingID: listingID, Market: "CN", Status: "DRAFT", DraftRevision: 1,
-			OwnerPreviewURL: state.baseURL + "/zh-CN/creator/skills/" + listingID + "/preview",
+			OwnerPreviewURL: state.baseURL + "/creator/skills/" + listingID + "/preview",
 			BindingReceipt:  "binding-receipt", Resolution: "CREATED",
 			Preview:     api.SkillListingPreviewViewModel{SchemaVersion: "preview.viceme.ai/v1", ListingID: listingID, DraftRevision: 1, State: "SHELL", FallbackURL: state.baseURL + "/preview"},
 			NextActions: []string{"OPEN_PREVIEW", "SET_PRICE", "AUTHORIZE_UPLOAD"},
@@ -817,9 +930,9 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-publications":
 		var input api.CreateSkillPublicationRequest
 		_ = json.NewDecoder(request.Body).Decode(&input)
-		if input.ContractVersion != "2026-08-24" || input.MerchantAccountID != merchantAccountID || input.Manifest.Spec.Sale.PriceMinor != nil {
+		if input.ContractVersion != "2026-08-27" || input.MerchantAccountID != merchantAccountID || input.Manifest.Spec.Sale.PriceMinor != nil || input.Manifest.Spec.PublishMode != "DOWNLOADABLE_SKILL" || input.Manifest.Spec.Edition.Key == "" {
 			writer.WriteHeader(http.StatusBadRequest)
-			writeJSONResponse(writer, map[string]any{"statusCode": 400, "code": "PUBLICATION_CONTRACT_INVALID", "message": "expected a Merchant-bound unpriced 2026-08-24 private upload"})
+			writeJSONResponse(writer, map[string]any{"statusCode": 400, "code": "PUBLICATION_CONTRACT_INVALID", "message": "expected a Merchant-bound unpriced downloadable edition"})
 			return
 		}
 		state.createCalls++
@@ -828,7 +941,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		state.manifest = input.Manifest
 		state.packageDigest = input.Artifact.Digest
 		state.draft = api.SkillPublicationDraft{
-			Title: input.Manifest.Metadata.Title, SummaryZhCN: stringPointer("发布测试"), SummaryEnUS: stringPointer("Publish test"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"), UsageInstructionsEnUS: stringPointer("Follow the steps in SKILL.md."),
+			Title: input.Manifest.Metadata.Title, SummaryZhCN: stringPointer("发布测试"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"),
 			Currency: "CNY", PriceMinor: input.Manifest.Spec.Sale.PriceMinor, GalleryUploadIDs: []string{},
 		}
 		state.status = "DRAFT"
@@ -903,9 +1016,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		}
 		state.suggestionCalls++
 		state.draft.SummaryZhCN = &input.Patch.SummaryZhCN
-		state.draft.SummaryEnUS = &input.Patch.SummaryEnUS
 		state.draft.UsageInstructionsZhCN = &input.Patch.UsageInstructionsZhCN
-		state.draft.UsageInstructionsEnUS = &input.Patch.UsageInstructionsEnUS
 		state.draft.CoverUploadID = input.Patch.CoverUploadID
 		state.draft.GalleryUploadIDs = input.Patch.GalleryUploadIDs
 		state.status = "REVIEW_REQUIRED"

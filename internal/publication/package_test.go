@@ -66,8 +66,11 @@ func TestBuildIsDeterministicAcrossDirectoryAndZip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fromZip.Artifact.Digest != first.Artifact.Digest || fromZip.Digest != first.Digest {
+	if fromZip.Artifact.Digest != first.Artifact.Digest {
 		t.Fatalf("directory and canonical ZIP disagree: directory=%#v zip=%#v", first.Artifact, fromZip.Artifact)
+	}
+	if first.Manifest.Spec.Source.Type != "WORKSPACE" || fromZip.Manifest.Spec.Source.Type != "ZIP" || first.Digest == fromZip.Digest {
+		t.Fatalf("source provenance was not represented in the manifest: directory=%#v zip=%#v", first.Manifest.Spec.Source, fromZip.Manifest.Spec.Source)
 	}
 }
 
@@ -99,7 +102,7 @@ func TestBuildUnwrapsSingleZipRootDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if wrapped.Artifact.Digest != canonical.Artifact.Digest || wrapped.Digest != canonical.Digest {
+	if wrapped.Artifact.Digest != canonical.Artifact.Digest {
 		t.Fatalf("wrapped ZIP and canonical directory disagree: wrapped=%#v canonical=%#v", wrapped.Artifact, canonical.Artifact)
 	}
 	if len(wrapped.Candidates) != 1 || wrapped.Candidates[0].RelativePath != "assets/cover.png" {
@@ -141,6 +144,59 @@ func TestBuildDoesNotUnwrapAmbiguousOrNestedZipRoots(t *testing.T) {
 			writeTestFile(t, zipPath, zipBytes(t, files), 0o644)
 			assertOutputCode(t, buildError(zipPath), "SKILL_MANIFEST_MISSING")
 		})
+	}
+}
+
+func TestBuildArchiveSubpathSelectsSkillInsideGithubWrapper(t *testing.T) {
+	t.Parallel()
+	archive := zipBytes(t, map[string][]byte{
+		"repository-main/README.md":                      []byte("repository"),
+		"repository-main/packages/poster/SKILL.md":       []byte(testSkillMarkdown),
+		"repository-main/packages/poster/scripts/run.sh": []byte("#!/bin/sh\necho poster\n"),
+		"repository-main/packages/other/notes.md":        []byte("not selected"),
+	})
+	archivePath := filepath.Join(t.TempDir(), "github.zip")
+	writeTestFile(t, archivePath, archive, 0o644)
+
+	result, err := BuildArchiveSubpath(archivePath, "packages/poster")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.FileCount != 2 {
+		t.Fatalf("GitHub subpath included repository siblings: %#v", result)
+	}
+	reader, err := zip.NewReader(bytes.NewReader(result.Bytes), int64(len(result.Bytes)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(reader.File))
+	for _, file := range reader.File {
+		names = append(names, file.Name)
+	}
+	if strings.Join(names, ",") != "SKILL.md,scripts/run.sh" {
+		t.Fatalf("unexpected selected archive paths: %v", names)
+	}
+	assertOutputCode(t, buildArchiveSubpathError(archivePath, "../poster"), "GITHUB_PATH_INVALID")
+}
+
+func TestBuildRemoteArchivePreservesReceiptBoundBytes(t *testing.T) {
+	t.Parallel()
+	archive := zipBytes(t, map[string][]byte{
+		"SKILL.md":       []byte(testSkillMarkdown),
+		"scripts/run.sh": []byte("#!/bin/sh\necho remote\n"),
+	})
+	archivePath := filepath.Join(t.TempDir(), "remote.zip")
+	writeTestFile(t, archivePath, archive, 0o644)
+
+	result, err := BuildRemoteArchive(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(result.Bytes, archive) {
+		t.Fatal("remote archive bytes were rewritten after receipt issuance")
+	}
+	if result.Artifact.Digest != sha256Hex(archive) {
+		t.Fatalf("unexpected remote digest: %s", result.Artifact.Digest)
 	}
 }
 
@@ -219,6 +275,11 @@ func buildError(source string) error {
 	return err
 }
 
+func buildArchiveSubpathError(source, subpath string) error {
+	_, err := BuildArchiveSubpath(source, subpath)
+	return err
+}
+
 func assertOutputCode(t *testing.T, err error, expected string) {
 	t.Helper()
 	var cliError *output.Error
@@ -253,5 +314,71 @@ func writeTestFile(t *testing.T, filename string, data []byte, mode os.FileMode)
 	}
 	if err := os.WriteFile(filename, data, mode); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestBuildDerivesSummaryWhenDescriptionIsMissing(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte("---\nname: Poster Skill\n---\n\n# Poster Skill\n\nTurns a short prompt into a printable poster.\n"), 0o644)
+	result, err := Build(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Manifest.Metadata.Summary != "Turns a short prompt into a printable poster." {
+		t.Fatalf("unexpected derived summary: %q", result.Manifest.Metadata.Summary)
+	}
+	if len(result.Manifest.Spec.Edition.Highlights) != 1 || result.Manifest.Spec.Edition.Highlights[0] != result.Manifest.Metadata.Summary {
+		t.Fatalf("edition highlights should follow the derived summary: %#v", result.Manifest.Spec.Edition.Highlights)
+	}
+}
+
+func TestBuildStillRequiresFrontmatterName(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte("---\ndescription: Create a poster from a short prompt.\n---\n\n# Poster Skill\n"), 0o644)
+	assertOutputCode(t, buildError(directory), "SKILL_TITLE_INVALID")
+}
+
+func TestBuildReportsNameAndDescriptionLengthTogether(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	longName := strings.Repeat("a", 65)
+	longDescription := strings.Repeat("d", 501)
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte("---\nname: "+longName+"\ndescription: "+longDescription+"\n---\n\nbody\n"), 0o644)
+	err := buildError(directory)
+	assertOutputCode(t, err, "SKILL_TITLE_INVALID")
+	if !strings.Contains(err.Error(), "SKILL_SUMMARY_INVALID") {
+		t.Fatalf("expected the description problem in the same report: %v", err)
+	}
+}
+
+func TestBuildRejectsPackagesOverTenMegabytesUncompressed(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte(testSkillMarkdown), 0o644)
+	writeTestFile(t, filepath.Join(directory, "assets", "one.bin"), bytes.Repeat([]byte{1}, 6*1024*1024), 0o644)
+	writeTestFile(t, filepath.Join(directory, "assets", "two.bin"), bytes.Repeat([]byte{2}, 6*1024*1024), 0o644)
+	err := buildError(directory)
+	assertOutputCode(t, err, "SKILL_PACKAGE_UNCOMPRESSED_TOO_LARGE")
+	if !strings.Contains(err.Error(), "10 MB") {
+		t.Fatalf("expected the aligned 10 MB budget in the message: %v", err)
+	}
+}
+
+func TestBuildReportsEveryStructuralProblemInOneError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("symlink creation is not reliably available on Windows test hosts")
+	}
+	directory := t.TempDir()
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte(testSkillMarkdown), 0o644)
+	if err := os.Symlink("SKILL.md", filepath.Join(directory, "copy.md")); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(directory, "assets", "big.bin"), bytes.Repeat([]byte{3}, MaxFileBytes+1), 0o644)
+	err := buildError(directory)
+	assertOutputCode(t, err, "SKILL_FILE_TOO_LARGE")
+	if !strings.Contains(err.Error(), "SKILL_SYMLINK_REJECTED") {
+		t.Fatalf("expected the symlink problem in the same report: %v", err)
 	}
 }

@@ -1,15 +1,25 @@
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
 import test from "node:test";
 
 import {
   compatibilityRange,
   incrementVersion,
+  officialSkillNames,
   parseConventionalCommit,
   renderChangelog,
   selectBump,
 } from "../scripts/prepare-release.mjs";
 
 const commit = (subject, body = "", sha = "1234567890abcdef") => ({ subject, body, sha });
+
+test("official skill list matches the bundled skills directory", () => {
+  const bundled = readdirSync(new URL("../../skills/", import.meta.url), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+  assert.deepEqual([...officialSkillNames].sort(), bundled);
+});
 
 test("selects semantic version bumps from conventional commits", () => {
   assert.equal(selectBump([parseConventionalCommit(commit("fix: repair login"))]), "patch");

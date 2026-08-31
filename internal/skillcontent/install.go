@@ -1079,11 +1079,22 @@ func copyTree(source fs.FS, root, destination string) error {
 		if entry.IsDir() {
 			return os.MkdirAll(outPath, 0o755)
 		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("copy Skill contains a link or special file: %s", name)
+		}
 		data, err := fs.ReadFile(source, name)
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(outPath, data, 0o644)
+		mode := os.FileMode(0o644)
+		if info.Mode().Perm()&0o111 != 0 {
+			mode = 0o755
+		}
+		return os.WriteFile(outPath, data, mode)
 	})
 }
 

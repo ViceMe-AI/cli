@@ -18,11 +18,11 @@ import (
 
 var officialSkillNames = []string{
 	"viceme-shared",
+	"viceme-creator-onboarding",
 	"viceme-publish",
+	"viceme-skill-use",
 	"viceme-access",
-	"viceme-danmaku",
 	"viceme-tip",
-	"viceme-engagement",
 }
 
 var retiredOfficialSkills []skillcontent.RetiredSkillIdentity

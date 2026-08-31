@@ -2,7 +2,7 @@ package api
 
 import "encoding/json"
 
-const SkillPublicationContractVersion = "2026-08-24"
+const SkillPublicationContractVersion = "2026-08-27"
 
 type DeviceAuthorizationRequest struct {
 	ClientName string   `json:"clientName"`
@@ -39,6 +39,10 @@ type AuthStatus struct {
 	ExpiresAt     string   `json:"expiresAt"`
 }
 
+type GithubChannelVerified struct {
+	Verified bool `json:"verified"`
+}
+
 type AuthUser struct {
 	ID          string  `json:"id"`
 	DisplayName *string `json:"displayName"`
@@ -50,7 +54,53 @@ type MerchantAccount struct {
 	CreatorAccountID *string `json:"creatorAccountId"`
 	DisplayName      string  `json:"displayName"`
 	Status           string  `json:"status"`
+	OwnershipStatus  string  `json:"ownershipStatus"`
+	ClaimProvider    *string `json:"claimProvider"`
 	StatusVersion    int     `json:"statusVersion"`
+}
+
+type MerchantOnboardingEvidence struct {
+	ID          string `json:"id"`
+	FileName    string `json:"fileName"`
+	ContentType string `json:"contentType"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	CreatedAt   string `json:"createdAt"`
+}
+
+type MerchantOnboarding struct {
+	ID                   string                       `json:"id"`
+	Kind                 string                       `json:"kind"`
+	MerchantAccountID    *string                      `json:"merchantAccountId"`
+	Provider             *string                      `json:"provider"`
+	RequestedHandle      *string                      `json:"requestedHandle"`
+	DisplayName          string                       `json:"displayName"`
+	Status               string                       `json:"status"`
+	LockVersion          int                          `json:"lockVersion"`
+	PublicAccountName    *string                      `json:"publicAccountName"`
+	ProfileURL           *string                      `json:"profileUrl"`
+	ReservationExpiresAt *string                      `json:"reservationExpiresAt"`
+	ReasonCode           *string                      `json:"reasonCode"`
+	ReviewNote           *string                      `json:"reviewNote"`
+	SubmittedAt          *string                      `json:"submittedAt"`
+	ReviewedAt           *string                      `json:"reviewedAt"`
+	Evidence             []MerchantOnboardingEvidence `json:"evidence"`
+}
+
+type CurrentMerchantOnboarding struct {
+	Onboarding *MerchantOnboarding `json:"onboarding"`
+	Merchant   *MerchantAccount    `json:"merchant"`
+	NextAction string              `json:"nextAction"`
+}
+
+type GithubAuthorizationStart struct {
+	Kind             string              `json:"kind"`
+	AuthorizationURL *string             `json:"authorizationUrl"`
+	AttemptID        *string             `json:"attemptId"`
+	Onboarding       *MerchantOnboarding `json:"onboarding,omitempty"`
+}
+
+type GithubAuthorizationStatus struct {
+	Kind string `json:"kind"`
 }
 
 type MerchantAccountsResponse struct {
@@ -540,12 +590,52 @@ type SkillPublicationMetadata struct {
 }
 
 type SkillPublicationSpec struct {
-	Source SkillPublicationSource `json:"source" yaml:"source"`
-	Sale   SkillPublicationSale   `json:"sale" yaml:"sale"`
+	PublishMode string                  `json:"publishMode" yaml:"publishMode"`
+	Source      SkillPublicationSource  `json:"source" yaml:"source"`
+	Edition     SkillPublicationEdition `json:"edition" yaml:"edition"`
+	Sale        SkillPublicationSale    `json:"sale" yaml:"sale"`
 }
 
 type SkillPublicationSource struct {
-	Entry string `json:"entry" yaml:"entry"`
+	Type            string  `json:"type" yaml:"type"`
+	Entry           string  `json:"entry" yaml:"entry"`
+	Repository      string  `json:"repository,omitempty" yaml:"repository,omitempty"`
+	Ref             string  `json:"ref,omitempty" yaml:"ref,omitempty"`
+	Private         *bool   `json:"private,omitempty" yaml:"private,omitempty"`
+	OwnerSubjectID  string  `json:"ownerSubjectId,omitempty" yaml:"ownerSubjectId,omitempty"`
+	Path            *string `json:"path,omitempty" yaml:"path,omitempty"`
+	SkillID         string  `json:"skillId,omitempty" yaml:"skillId,omitempty"`
+	ArtifactVersion string  `json:"artifactVersion,omitempty" yaml:"artifactVersion,omitempty"`
+	ArtifactDigest  string  `json:"artifactDigest,omitempty" yaml:"artifactDigest,omitempty"`
+	SourceReceiptID string  `json:"sourceReceiptId,omitempty" yaml:"sourceReceiptId,omitempty"`
+}
+
+// MarshalJSON keeps the repository root explicit for GitHub sources: the
+// server canonicalizes the manifest after parsing, so the digest only matches
+// when a root-level GitHub source serializes "path": null instead of omitting
+// the key. Other source kinds keep omitting the union-inapplicable fields.
+func (s SkillPublicationSource) MarshalJSON() ([]byte, error) {
+	type skillPublicationSourceAlias SkillPublicationSource
+	encoded, err := json.Marshal(skillPublicationSourceAlias(s))
+	if err != nil {
+		return nil, err
+	}
+	if s.Type != "GITHUB" || s.Path != nil {
+		return encoded, nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(encoded, &fields); err != nil {
+		return nil, err
+	}
+	fields["path"] = []byte("null")
+	return json.Marshal(fields)
+}
+
+type SkillPublicationEdition struct {
+	Key        string   `json:"key" yaml:"key"`
+	Title      string   `json:"title" yaml:"title"`
+	SortOrder  int      `json:"sortOrder" yaml:"sortOrder"`
+	Highlights []string `json:"highlights" yaml:"highlights"`
 }
 
 type SkillPublicationSale struct {
@@ -578,6 +668,7 @@ type CreateSkillPublicationResponse struct {
 	MerchantAccountID string               `json:"merchantAccountId"`
 	DraftRevision     int                  `json:"draftRevision"`
 	Status            string               `json:"status"`
+	Resolution        string               `json:"resolution"`
 	PackageUpload     *UploadAuthorization `json:"packageUpload"`
 }
 
@@ -606,9 +697,7 @@ type CompleteUploadRequest struct {
 type SkillPublicationDraft struct {
 	Title                 string   `json:"title"`
 	SummaryZhCN           *string  `json:"summaryZhCn"`
-	SummaryEnUS           *string  `json:"summaryEnUs"`
 	UsageInstructionsZhCN *string  `json:"usageInstructionsZhCn"`
-	UsageInstructionsEnUS *string  `json:"usageInstructionsEnUs"`
 	Currency              string   `json:"currency"`
 	PriceMinor            *int     `json:"priceMinor"`
 	CoverUploadID         *string  `json:"coverUploadId"`
@@ -623,9 +712,7 @@ type UpdateSkillPublicationDraftRequest struct {
 
 type SkillPublicationAgentSuggestionPatch struct {
 	SummaryZhCN           string   `json:"summaryZhCn"`
-	SummaryEnUS           string   `json:"summaryEnUs"`
 	UsageInstructionsZhCN string   `json:"usageInstructionsZhCn"`
-	UsageInstructionsEnUS string   `json:"usageInstructionsEnUs"`
 	CoverUploadID         *string  `json:"coverUploadId"`
 	GalleryUploadIDs      []string `json:"galleryUploadIds"`
 }
@@ -650,9 +737,7 @@ type SkillPublicationUpload struct {
 
 type ListingSuggestion struct {
 	SummaryZhCN           string   `json:"summaryZhCn"`
-	SummaryEnUS           string   `json:"summaryEnUs"`
 	UsageInstructionsZhCN string   `json:"usageInstructionsZhCn"`
-	UsageInstructionsEnUS string   `json:"usageInstructionsEnUs"`
 	CoverCandidateID      *string  `json:"coverCandidateId"`
 	GalleryCandidateIDs   []string `json:"galleryCandidateIds"`
 	Reasons               []string `json:"reasons"`
@@ -673,21 +758,195 @@ type PublishedProduct struct {
 }
 
 type SkillPublication struct {
-	ID                string                   `json:"id"`
-	ListingID         string                   `json:"listingId"`
-	MerchantAccountID string                   `json:"merchantAccountId"`
-	DraftRevision     int                      `json:"draftRevision"`
-	Status            string                   `json:"status"`
-	Manifest          SkillPublicationManifest `json:"manifest"`
-	Draft             SkillPublicationDraft    `json:"draft"`
-	ReviewRevision    int                      `json:"reviewRevision"`
-	ReviewDigest      *string                  `json:"reviewDigest"`
-	Uploads           []SkillPublicationUpload `json:"uploads"`
-	Analysis          *PublicationAnalysis     `json:"analysis"`
-	Product           *PublishedProduct        `json:"product"`
-	FailureCode       *string                  `json:"failureCode"`
-	CreatedAt         string                   `json:"createdAt"`
-	UpdatedAt         string                   `json:"updatedAt"`
+	ID                string                      `json:"id"`
+	ListingID         string                      `json:"listingId"`
+	MerchantAccountID string                      `json:"merchantAccountId"`
+	DraftRevision     int                         `json:"draftRevision"`
+	Status            string                      `json:"status"`
+	Manifest          SkillPublicationManifest    `json:"manifest"`
+	Draft             SkillPublicationDraft       `json:"draft"`
+	ReviewRevision    int                         `json:"reviewRevision"`
+	ReviewDigest      *string                     `json:"reviewDigest"`
+	Uploads           []SkillPublicationUpload    `json:"uploads"`
+	Analysis          *PublicationAnalysis        `json:"analysis"`
+	Product           *PublishedProduct           `json:"product"`
+	Editions          []PublishedSkillEdition     `json:"editions"`
+	NextAction        *SkillPublicationNextAction `json:"nextAction"`
+	FailureCode       *string                     `json:"failureCode"`
+	CreatedAt         string                      `json:"createdAt"`
+	UpdatedAt         string                      `json:"updatedAt"`
+}
+
+type PublishedSkillEdition struct {
+	ProductID  string   `json:"productId"`
+	ReleaseID  string   `json:"releaseId"`
+	Key        string   `json:"key"`
+	Title      string   `json:"title"`
+	SortOrder  int      `json:"sortOrder"`
+	Highlights []string `json:"highlights"`
+	Currency   string   `json:"currency"`
+	PriceMinor int      `json:"priceMinor"`
+}
+
+type SkillPublicationNextAction struct {
+	Kind      string `json:"kind"`
+	ListingID string `json:"listingId"`
+}
+
+type SkillAccessSubscription struct {
+	Available       bool    `json:"available"`
+	PriceMinor      int     `json:"priceMinor"`
+	PeriodDays      int     `json:"periodDays"`
+	SubscribedUntil *string `json:"subscribedUntil"`
+}
+
+type CreatorSubscriptionPlan struct {
+	CreatorAccountID      string `json:"creatorAccountId"`
+	CreatorHandle         string `json:"creatorHandle"`
+	DisplayName           string `json:"displayName"`
+	PriceMinor            int    `json:"priceMinor"`
+	PeriodDays            int    `json:"periodDays"`
+	Status                string `json:"status"`
+	ActiveSubscriberCount int    `json:"activeSubscriberCount"`
+	UpdatedAt             string `json:"updatedAt"`
+}
+
+type SkillAccess struct {
+	ProductID         string                  `json:"productId"`
+	IsFree            bool                    `json:"isFree"`
+	Owned             bool                    `json:"owned"`
+	DownloadAvailable bool                    `json:"downloadAvailable"`
+	InstallKind       string                  `json:"installKind"`
+	PurchaseAvailable bool                    `json:"purchaseAvailable"`
+	PurchaseURL       *string                 `json:"purchaseUrl"`
+	UnavailableReason *string                 `json:"unavailableReason"`
+	Subscription      SkillAccessSubscription `json:"subscription"`
+	Edition           struct {
+		Key        string   `json:"key"`
+		Title      string   `json:"title"`
+		SortOrder  int      `json:"sortOrder"`
+		Highlights []string `json:"highlights"`
+	} `json:"edition"`
+	Release struct {
+		ID             string `json:"id"`
+		ArtifactDigest string `json:"artifactDigest"`
+		FileName       string `json:"fileName"`
+	} `json:"release"`
+}
+
+type DownloadURL struct {
+	URL            string `json:"url"`
+	FileName       string `json:"fileName"`
+	ReleaseID      string `json:"releaseId"`
+	ArtifactDigest string `json:"artifactDigest"`
+	ExpiresAt      string `json:"expiresAt"`
+}
+
+type XiaohongshuSkillCandidate struct {
+	SkillID           string  `json:"skillId"`
+	SkillName         *string `json:"skillName"`
+	AuthorDisplayName *string `json:"authorDisplayName"`
+	ArtifactVersion   string  `json:"artifactVersion"`
+	ArtifactDigest    string  `json:"artifactDigest"`
+	ArtifactSizeBytes int64   `json:"artifactSizeBytes"`
+	ObservedAt        string  `json:"observedAt"`
+}
+
+type XiaohongshuSkillSearch struct {
+	Items []XiaohongshuSkillCandidate `json:"items"`
+}
+
+type PublicWorkEdition struct {
+	Key        string   `json:"key"`
+	Title      string   `json:"title"`
+	SortOrder  int      `json:"sortOrder"`
+	Highlights []string `json:"highlights"`
+}
+
+type PublicWorkActiveRelease struct {
+	ID             string `json:"id"`
+	ArtifactDigest string `json:"artifactDigest"`
+	FileName       string `json:"fileName"`
+}
+
+type PublicWorkProduct struct {
+	ID                        string                   `json:"id"`
+	Slug                      string                   `json:"slug"`
+	Title                     string                   `json:"title"`
+	Summary                   string                   `json:"summary"`
+	Status                    string                   `json:"status"`
+	Visibility                string                   `json:"visibility"`
+	Currency                  string                   `json:"currency"`
+	MinimumPriceCents         int                      `json:"minimumPriceCents"`
+	MaximumPriceCents         int                      `json:"maximumPriceCents"`
+	IsFree                    bool                     `json:"isFree"`
+	InstallKind               *string                  `json:"installKind"`
+	PurchaseAvailable         bool                     `json:"purchaseAvailable"`
+	PurchaseUnavailableReason *string                  `json:"purchaseUnavailableReason"`
+	ActiveRelease             *PublicWorkActiveRelease `json:"activeRelease"`
+	Edition                   *PublicWorkEdition       `json:"edition"`
+	PriceAsOf                 string                   `json:"priceAsOf"`
+	BuyerFields               []struct {
+		Key         string `json:"key"`
+		Label       string `json:"label"`
+		Kind        string `json:"kind"`
+		Required    bool   `json:"required"`
+		Sensitivity string `json:"sensitivity"`
+	} `json:"buyerFields"`
+	Fulfillment []struct {
+		Sequence       int    `json:"sequence"`
+		CapabilityCode string `json:"capabilityCode"`
+	} `json:"fulfillment"`
+	PurchaseSkill *struct {
+		StableName    string `json:"stableName"`
+		InstallPrompt string `json:"installPrompt"`
+	} `json:"purchaseSkill"`
+}
+
+type PublicWorkProjection struct {
+	Creator struct {
+		ID                 string  `json:"id"`
+		Handle             string  `json:"handle"`
+		DisplayName        string  `json:"displayName"`
+		AvatarURL          *string `json:"avatarUrl"`
+		Occupation         *string `json:"occupation"`
+		Bio                *string `json:"bio"`
+		ExternalIdentities []struct {
+			Provider       string  `json:"provider"`
+			ExternalHandle *string `json:"externalHandle"`
+		} `json:"externalIdentities"`
+		IsOfficial bool `json:"isOfficial"`
+	} `json:"creator"`
+	Work struct {
+		ID            string `json:"id"`
+		Kind          string `json:"kind"`
+		Slug          string `json:"slug"`
+		Status        string `json:"status"`
+		CanonicalPath string `json:"canonicalPath"`
+		MarkdownPath  string `json:"markdownPath"`
+		Revision      struct {
+			Version             int              `json:"version"`
+			Digest              string           `json:"digest"`
+			Title               string           `json:"title"`
+			Summary             string           `json:"summary"`
+			BodyMarkdown        string           `json:"bodyMarkdown"`
+			TemplateType        string           `json:"templateType"`
+			Tags                []string         `json:"tags"`
+			UsageInstructions   *string          `json:"usageInstructions"`
+			ServiceInstructions *string          `json:"serviceInstructions"`
+			Media               []map[string]any `json:"media"`
+			ActivatedAt         *string          `json:"activatedAt"`
+		} `json:"revision"`
+		Products      []PublicWorkProduct `json:"products"`
+		Service       any                 `json:"service"`
+		WebsiteAction any                 `json:"websiteAction"`
+		Metrics       struct {
+			LikeCount    int `json:"likeCount"`
+			CommentCount int `json:"commentCount"`
+		} `json:"metrics"`
+		CreatedAt string `json:"createdAt"`
+		UpdatedAt string `json:"updatedAt"`
+	} `json:"work"`
 }
 
 type PrepareSkillListingRequest struct {
