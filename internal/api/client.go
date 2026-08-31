@@ -26,7 +26,8 @@ import (
 const maxResponseBytes = 8 << 20
 
 var (
-	workSdkKeyPattern           = regexp.MustCompile(`^wrk_[A-Za-z0-9_-]{4,124}$`)
+	liveWorkSdkKeyPattern       = regexp.MustCompile(`^wrk_live_[A-Za-z0-9_-]{4,119}$`)
+	testWorkSdkKeyPattern       = regexp.MustCompile(`^wrk_test_[A-Za-z0-9_-]{4,119}$`)
 	accessWorkFeatureKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
 	uuidPattern                 = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	shopURLParser               = whatwgurl.NewParser(whatwgurl.WithPathPercentEncodeSet(whatwgurl.PathPercentEncodeSet.Set('^')))
@@ -1093,7 +1094,9 @@ func (verification *WebsiteVerification) validateAPIResponse() error {
 }
 
 func (access *WorkSdkAccess) validateAPIResponse() error {
-	if access == nil || !uuidPattern.MatchString(access.WorkID) || !workSdkKeyPattern.MatchString(access.WorkKey) ||
+	if access == nil || !uuidPattern.MatchString(access.WorkID) ||
+		!liveWorkSdkKeyPattern.MatchString(access.Keys.Live) ||
+		!testWorkSdkKeyPattern.MatchString(access.Keys.Test) ||
 		(access.Status != "ACTIVE" && access.Status != "DISABLED") || access.ConfigVersion < 1 ||
 		!validWorkSdkFeatures(access.Features) || !validWorkAccessFeatures(access.AccessFeatures) ||
 		!validTimestamp(access.CreatedAt) || !validTimestamp(access.UpdatedAt) {

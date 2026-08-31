@@ -1,31 +1,90 @@
 ---
 name: let-people-interact
-description: 为公开的创作者网站同时接入或修复 ViceMe 托管弹幕和赞赏。先复用 $become-a-creator 完成登录与创作者资格守卫，再处理 Website Work、域名验证、SDK access、Website Widget、官方加载器和真实页面验证。
+description: 为创作者作品接入或修复 ViceMe 托管互动。先复用 $become-a-creator 完成资格守卫，再区分仅弹幕、仅赞赏或弹幕加赞赏，并按对应的 Work、市场、验证与官方 Mounted/Headless SDK 边界完成接入。
 ---
 
-# 接入 ViceMe 网站互动
+# 接入 ViceMe 互动
 
-使用一个 Website Work、一份 SDK access 和一个官方加载器同时完成弹幕与赞赏。两项能力不创建第二个 Work，也不得创建平行 Work。修改前完整阅读 [integration-contract.md](references/integration-contract.md)。
+先判断用户要的是仅弹幕、仅赞赏，还是弹幕加赞赏；不得把三种请求统一绑定到 Website Work。修改前完整阅读 [integration-contract.md](references/integration-contract.md)。
 
-面向用户的文字跟随用户当前语言；中文交流使用自然白话，不直接展示内部协议字段或敏感值。
+面向用户的文字跟随用户当前语言；中文交流使用自然白话，不直接展示挑战值、登录凭据、支付详情或内部 handoff 字段。
 
-本 Skill 的目标特性集合固定为 `danmaku,tip`。底层 CLI 可以独立配置 hosted feature，但单独弹幕或单独赞赏不属于本玩法；不得在流程中要求用户二选一。
+## 先分支
 
-## 流程
+| 分支 | 合格 Work | 市场 | 宿主 UI |
+| --- | --- | --- | --- |
+| 仅弹幕 | 与部署 Origin 精确匹配的 `PUBLISHED + VERIFIED Website Work` | 保留所选 Profile 既有 `cn` 或 `global` 支持 | `createViceMe(...)` + `mountDanmaku(...)` |
+| 仅赞赏 | 当前 OWNER Merchant 拥有、公开且 `PUBLISHED` 的任意 kind Work | 仅 `marketRegion: cn` 与 CNY | 先选官方 Mounted 或 Headless |
+| 弹幕加赞赏 | 因 Danmaku 要求而使用同一个 `PUBLISHED + VERIFIED Website Work` | 仅 `marketRegion: cn` 与 CNY | Danmaku Mounted；Tip 先选官方 Mounted 或 Headless |
 
-1. 运行 `viceme profile list`，记录当前 Profile，不要切换。后续所有 CLI 命令固定使用它。完成标准：Profile、Web 地址和市场区域明确。
-2. 第一项业务动作以资格守卫模式调用 `$become-a-creator`。它统一完成登录、资格检查、必要时的一次申请确认和商家选择；只有返回当前用户的有效 Merchant 后才继续。不得在本 Skill 内自行重复登录、申请或选择商家。
-3. 查看目标仓库说明，找到公开页面、精确部署 HTTPS Origin、部署方式、CSP 和浏览器测试。Origin 只包含 scheme 与 host，不含路径、查询、片段、凭证或尾部斜杠。优先复用已有页面；只有用户需要新示例时才使用 [single-html.html](templates/single-html.html)。不得仅因 HTML 移动就创建重复项。此时只读检查当前 `/viceme-sdk/v1/viceme.min.js`，以及历史受管 `widget/engagement-embed.js`、`tip-embed.js` 标签；历史标签只作为迁移输入，不能继续运行。存在多个时先停止并请用户确认；存在一个时记录其 `data-viceme-work` 或 `data-creator-app-id` 及特性。缺少这两种可验证身份时停止，不得在确认归属前写入任何 Work、SDK access 或 Website Widget。
-4. 复用 `$become-a-creator` 返回的 Merchant，不再运行独立商家选择逻辑，也不得从公开创作者身份或旧本地状态推断。
-5. 页面已有当前 loader，或历史 loader 带 `data-viceme-work` 时，先运行 `viceme merchant work sdk-access list --merchant <merchant-id>`，按公开 `workKey` 精确定位 SDK access，再读取对应 Work。历史 `tip-embed.js` 只有 `data-creator-app-id` 时，先运行 `viceme merchant commerce-application get <application-id> --merchant <merchant-id>`，确认它是当前商家的 Website Widget 并从 `workId` 读取 Work。两条路径都只有在 `website.canonicalOrigin` 与部署 Origin 完全一致时才继续，否则在任何资源写入前停止。
+Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要求 Website kind、仓库、HTTPS Origin、DNS、域名、Website verification 或 Commerce Application。组合分支的 Website 与 DNS 门禁只来自 Danmaku；Tip 本身不增加 Origin 或 Application 门禁。
 
-   页面没有任何当前或历史 loader 时，运行 `viceme merchant work list --merchant <merchant-id>`，只保留 `kind: WEBSITE` 且 `website.canonicalOrigin` 与部署 Origin 完全一致的候选：
+## 共同起点与写入前预检
+
+1. 第一项业务动作以资格守卫模式调用 `$become-a-creator`。只有它确认当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有并选定有效 Merchant 后才继续；本 Skill 不自行运行登录、申请或商家选择命令。
+2. 运行 `viceme profile list`，只记录并固定当前 Profile、API/Web base URL 和精确 `marketRegion`。页面 locale 不选择市场；不得切换 Profile，也不得从 hostname、记忆或其他 Profile 推导市场。仅弹幕不受 CN/CNY 限制，保留当前 Profile 既有 `cn` 或 `global` 支持。
+3. 仅弹幕分支记录精确部署 HTTPS Origin、目标页面、部署命令、CSP 和浏览器测试，然后按 [Website Work 与安全迁移](#website-work-与安全迁移) 继续。不得因为页面语言是中文就改成 CN，也不得因为页面语言是英文就改成 GLOBAL。
+4. 任意包含 Tip 的分支，在任何 Work 创建、更新或发布、Website verification、SDK access 或宿主页写入前，先确认 `marketRegion: cn`；GLOBAL 必须立即停止，且不得留下业务写入。随后请用户选择官方 Mounted UI 或 Headless。Headless 还必须选择 npm 或 CDN ESM。
+5. 选定 Tip UI 后，先证明精确 `0.5.0` 的 CN/GLOBAL `index.js` 与 `tip.js` 全部直接可用：
+
+   ```bash
+   for asset_url in \
+     https://s3.viceme.cn/viceme-sdk/0.5.0/index.js \
+     https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js \
+     https://s3.viceme.ai/viceme-sdk/0.5.0/index.js \
+     https://s3.viceme.ai/viceme-sdk/0.5.0/tip.js
+   do
+     http_code="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' "$asset_url")" || exit 1
+     test "$http_code" = "200" || exit 1
+   done
+   ```
+
+   `curl` 不使用 `--location`；每个请求必须在 15 秒内直接返回精确 `200`，不得跟随或接受重定向。组合分支还要用完全相同的超时、无重定向和精确 `200` 规则检查：
+
+   ```bash
+   asset_url="https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js"
+   http_code="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' "$asset_url")" || exit 1
+   test "$http_code" = "200" || exit 1
+   ```
+
+   Headless npm 路线还必须从官方 registry 精确确认该版本：
+
+   ```bash
+   npm view @viceme-ai/sdk@0.5.0 version --json \
+     --fetch-timeout=15000 --fetch-retries=0 \
+     --registry=https://registry.npmjs.org \
+     --@viceme-ai:registry=https://registry.npmjs.org
+   ```
+
+   结果必须精确为 `0.5.0`。任一必需检查失败就停止，不创建、验证或发布 Work，不写 SDK access，也不编辑宿主页。不得改用 `latest`、alias、声明式或全局 loader、Git 依赖、私有镜像同名包或复制 SDK 源码。
+
+## 仅赞赏的 Work 选择
+
+1. 使用资格守卫返回的 Merchant 运行：
+
+   ```bash
+   viceme merchant work list --merchant <merchant-id>
+   ```
+
+2. 只保留权威响应证明 `owner.kind: MERCHANT`、`owner.merchantAccountId` 等于所选 Merchant、公开且 `status: PUBLISHED` 的 Work。Work kind 不受限制。逐项展示合格 Work 的 ID、kind 和标题，让用户选择；不得从宿主页、仓库、标题、域名或旧 loader 推断收款目标。
+3. 没有合格 Work 时，询问哪项真实 Skill、服务、商品或网站作品会收到赞赏，并要求用户先通过适用于该作品的最终创作者发布流程发布真实作品，再带着同一 Work ID 恢复本流程。只有真实作品是可下载 Skill 时才转交 `$sell-a-skill`；服务、商品或网站不得转给该 Skill。只承载 Tip UI 的宿主页不是作品证据，不能据此创建或推断 Website Work。
+4. 用户选定后重新读取该 Work，并复核 Merchant 归属与 `PUBLISHED` 状态。仅赞赏不读取页面 loader 来确认 Work 身份，不执行 Website ownership verification，也不创建、更新、暂停或激活 Commerce Application。已有可选 Commerce Application 只能提供来源归因，不是 Tip 门禁。
+5. 进入 [SDK access 完整更新](#sdk-access-完整更新)，请求 hosted feature 为 `tip`。
+
+## Website Work 与安全迁移
+
+本节只适用于仅弹幕和组合分支。
+
+1. 规范 Origin 必须是精确小写 HTTPS `scheme + host`，不含凭据、路径、查询、片段或尾部斜杠。预览域名与生产域名是不同 Origin。
+2. 写入前只读检查页面。当前或历史 `/viceme-sdk/v1/viceme.min.js`、`widget/engagement-embed.js`、`tip-embed.js` 和 `data-viceme-*` 标签只能作为迁移输入，不能作为新接入方案继续运行。页面有多个候选 loader 时停止并让用户确认唯一迁移目标。
+3. 历史 loader 有公开 `data-viceme-work` 时，运行 `viceme merchant work sdk-access list --merchant <merchant-id>`，按 `keys.test` 或 `keys.live` 精确定位 Work，再读取 Work 并确认属于当前 Merchant。只有 `data-creator-app-id` 时，可以只读运行 `viceme merchant commerce-application get <application-id> --merchant <merchant-id>`，从其 `workId` 找到 Work 并确认归属；Commerce Application 不因此成为互动门禁，也不得被本 Skill 修改。缺少可验证 Work 身份时，在任何 Work、Website verification、SDK access 或页面写入前停止。
+4. 页面没有可验证的当前或历史 loader 时，运行 `viceme merchant work list --merchant <merchant-id>`，只保留 `kind: WEBSITE` 且 `website.canonicalOrigin` 与部署 Origin 完全一致的候选：
 
    - 0 个候选时才创建新 Work。
    - 恰好 1 个候选时复用。
-   - 多个候选时，在任何 Work、Website Verification、DNS、SDK access、Website Widget 或页面写入前停止，逐项向用户展示 `id`、`title`、`status` 和 `website.ownershipStatus`，并请用户按 Work ID 选择。不得默认选择第一项、最新项、`PUBLISHED` 项或 `VERIFIED` 项。
+   - 多个候选时，在任何 Work、Website Verification、DNS、SDK access 或页面写入前停止，展示每项 `id`、`title`、`status` 与 `website.ownershipStatus`，请用户按 Work ID 选择。不得默认选择第一项、最新项、`PUBLISHED` 项或 `VERIFIED` 项。
 
-   用户选择后重新读取该 Work，再次确认商家、kind 和 canonical Origin，之后才继续。确实不存在时才用严格输入创建，只填实际观察到的内容：
+5. 用户选择后重新读取 Work，复核 Merchant、Website kind 与 canonical Origin。确实不存在时才用稳定 `clientRequestId` 创建：
 
    ```json
    {
@@ -46,15 +105,15 @@ description: 为公开的创作者网站同时接入或修复 ViceMe 托管弹�
    }
    ```
 
-   运行 `viceme merchant work create --input <json>`。响应丢失时用同一 `clientRequestId` 原样重放；不得创建新身份。
-6. 无论复用还是新建，都运行 `viceme merchant work get <work-id> --merchant <merchant-id>`。任何网站验证写入前先看状态：`SUSPENDED` 或 `ARCHIVED` 停止并报告；`DRAFT` 或 `PUBLISHED` 才继续。`website.ownershipStatus` 不是 `VERIFIED` 时，仅当当前执行仍持有 `website-verification create` 刚返回、未过期的 `PENDING` 响应才复用挑战；最新验证 GET 不含明文 `challenge`。否则读取最新 Work revision 并创建替代挑战：
+   运行 `viceme merchant work create --input <json>`。响应丢失时用同一个 `clientRequestId` 原样重放，不创建平行身份。
+6. 运行 `viceme merchant work get <work-id> --merchant <merchant-id>`。`SUSPENDED` 或 `ARCHIVED` 时停止；只有 `DRAFT` 或 `PUBLISHED` 继续。ownership 不是 `VERIFIED` 时先读取最新 verification。`PENDING` 挑战只有当前执行仍持有 create 刚返回且未过期的明文 `challenge` 才能复用；GET 不能找回 challenge。否则从最新 Work revision 创建替代挑战：
 
    ```bash
    viceme merchant work website-verification create <work-id> \
      --merchant <merchant-id> --expected-revision <work-revision>
    ```
 
-   把 `challenge` 原样发布到 `dnsRecordName`，公共 DNS 精确解析后运行：
+   把 `challenge` 原样发布到 `dnsRecordName`。公共 DNS 精确解析后运行：
 
    ```bash
    viceme merchant work website-verification verify <work-id> \
@@ -62,102 +121,61 @@ description: 为公开的创作者网站同时接入或修复 ViceMe 托管弹�
      --expected-verification-version <verification-version>
    ```
 
-   验证后再次读取 Work。绝不为了找回带 `PENDING` 验证的 `DRAFT` Work 而创建第二个 Work。
-7. Work 状态为 `DRAFT` 时按最新 revision 写发布输入：
+   验证后重新读取 Work；不得为了恢复 `PENDING` verification 创建第二个 Work。
+7. `DRAFT` Work 按最新 revision 更新为 `PUBLISHED`，随后重读；已经 `PUBLISHED` 时不重复更新。只有最终同时满足 `status: PUBLISHED`、`website.ownershipStatus: VERIFIED` 与精确 canonical Origin 才继续。
+8. 仅弹幕进入 SDK access，加入 `danmaku`；组合加入 `danmaku` 与 `tip`。组合中的 Tip 不触发任何 `WEBSITE_WIDGET` 创建、更新、暂停或激活。
 
-   ```json
-   {
-     "merchantAccountId": "<merchant-id>",
-     "expectedRevision": 2,
-     "status": "PUBLISHED"
-   }
-   ```
+## SDK access 完整更新
 
-   运行 `viceme merchant work update <work-id> --input <json>`，随后再次读取 Work；已 `PUBLISHED` 时跳过更新。绝不猜测过期 revision。
-8. 读取该 Work 唯一的 SDK access：
+1. 对已确认 Work 先只读完整快照：
 
    ```bash
    viceme merchant work sdk-access get <work-id> \
      --merchant <merchant-id>
    ```
 
-   缺失时同时创建 `danmaku` 和 `tip`；已存在时使用当前 `configVersion`，保留其他 access feature，并确保 hosted feature 同时包含 `danmaku` 和 `tip`：
+   资源存在时记录完整 hosted `features`、完整 `accessFeatures`、`status`、永久公开的 `keys.test` 与 `keys.live`，以及精确 `configVersion`；不存在时明确记录。仅赞赏不要求宿主页已有 loader 身份。
+2. 页面目标 hosted feature set 是现有 `features` 与本次分支请求的并集；只有用户明确要求移除某项时才从完整集合减去。组合分支一次写入 `danmaku,tip`，不得拆成两次更新。资源不存在时创建：
 
    ```bash
    viceme merchant work sdk-access create <work-id> \
-     --merchant <merchant-id> --feature danmaku --feature tip
-
-   viceme merchant work sdk-access update <work-id> \
-     --merchant <merchant-id> --expected-config-version <config-version> \
-     --feature danmaku --feature tip
+     --merchant <merchant-id> [--feature danmaku] [--feature tip]
    ```
 
-   更新命令必须一次提交完整 hosted feature 集合，不得执行两次独立更新互相覆盖。记录 access 返回的公开 `workKey`，并确认与页面已有值一致。
-9. Website Widget 按 `(workId, environment, kind)` 唯一；本流程使用 `(workId, PRODUCTION, WEBSITE_WIDGET)` 这一份 Work 级共享资源。付费访问可能在其中保存 Shop 管理的 Product 绑定和 canonical Origin return URL；本 Skill 不把不同的 `displayName`、非空 `returnUrls` 或非空 `products` 视为赞赏配置不一致，不绑定或解绑 Product，也不修改现有 return URL。
-
-   运行 `viceme merchant commerce-application list --merchant <merchant-id>`，定位作用域限定到本 Work、`kind: WEBSITE_WIDGET`、`environment: PRODUCTION` 的唯一应用。不存在时创建：
-
-   ```json
-   {
-     "merchantAccountId": "<merchant-id>",
-     "workId": "<work-id>",
-     "kind": "WEBSITE_WIDGET",
-     "environment": "PRODUCTION",
-     "displayName": "<website name>",
-     "origins": ["https://creator.example"]
-   }
-   ```
-
-   运行 `viceme merchant commerce-application create --input <json>`。复用或新建后都运行 `viceme merchant commerce-application get <application-id> --merchant <merchant-id>` 复核。绝不因现有应用显示名、Origin、return URL 或 Product 不同就创建第二个。`REVOKED` 时停止并报告该终态资源。
-
-   已有应用的 `origins` 包含 canonical Origin 时不更新配置；非空但缺少 canonical Origin 时停止并报告共享配置冲突，不得替换现有 Origin 集合。只有 `origins` 为空时才补写 canonical Origin。`ACTIVE` 且 `origins` 为空时停止并报告共享配置冲突，不得挂起正在服务付费访问的共享应用。对 `origins` 为空的 `DRAFT` 或 `SUSPENDED` 应用，按最新 revision 写更新输入：
-
-   ```json
-   {
-     "merchantAccountId": "<merchant-id>",
-     "expectedRevision": 2,
-     "origins": ["https://creator.example"]
-   }
-   ```
-
-   更新请求省略 `displayName` 与 `returnUrls`，其中省略 `returnUrls` 才会保留现有值；`"returnUrls": []` 会退役全部现有 URL，严禁在本流程中使用。`products` 不是更新字段。运行 `viceme merchant commerce-application update <application-id> --input <json>`，Origin 合同满足后，状态为 `DRAFT` 或 `SUSPENDED` 时按精确 revision 运行：
+3. 已存在时从刚读取的精确 `configVersion` 做一次完整 hosted replacement；不传 `--follow`、`--purchase` 或 `--clear-access`，让 CLI 把快照中的完整 `accessFeatures` 原样写回：
 
    ```bash
-   viceme merchant commerce-application activate <application-id> \
-     --merchant <merchant-id> --expected-revision <application-revision>
+   viceme merchant work sdk-access update <work-id> \
+     --merchant <merchant-id> --expected-config-version <config-version> \
+     [--feature danmaku] [--feature tip]
    ```
 
-   已 `ACTIVE` 且包含 canonical Origin 时跳过激活。create 响应丢失时先 list 再决定。Engagement 不管理 Product 绑定；平台管理的绑定和 return URL 可以非空。
-10. 页面只能保留一个官方加载器。页面目标特性集合非空时，当前 loader 复用并更新该标签，不得追加第二个；历史受管 loader 则替换为下面的唯一标签；新页面才插入标签。最终集合为空时删除受管 loader，不留下空标签。使用当前固定 Profile 的精确 `webBaseUrl`、`marketRegion` 和 SDK access 返回的 `workKey`，不得从页面语言推断或手工拼接其他地址：
+   `DISABLED` 资源也通过同一次完整 update 恢复，不删除 Website paid/follow access。最终 hosted 集合为空但 `accessFeatures` 非空时使用 `--clear-hosted`；只有 hosted 与 access 都明确应停止时才运行 `sdk-access disable`。
+4. create 一次返回 `keys.test` 与 `keys.live`；update、disable、重新启用和恢复不得轮换。写后重读并确认：两个 key 未变、hosted feature set 完整、`accessFeatures` 与写前逐项一致、状态正确，且 `configVersion` 单调增加。
+5. 写入冲突时重新读取完整快照，合并本次请求后请用户确认，再用新精确版本重试。响应丢失时先读取同一资源，不创建第二份 access。
 
-    ```html
-    <div id="viceme-interaction"></div>
-    <script
-      defer
-      src="<web-base-url>/viceme-sdk/v1/viceme.min.js"
-      data-viceme-work="<work-key>"
-      data-viceme-region="<cn-or-global>"
-      data-viceme-features="danmaku,tip"
-      data-viceme-target="#viceme-interaction"
-      data-viceme-theme="auto"
-    ></script>
-    ```
+## 宿主页接入
 
-    `data-viceme-features` 必须严格为 `danmaku,tip`。宿主不得复制 ViceMe 组件、iframe、API client、持久化或支付代码。
-11. 页面有 CSP 时，只为浏览器实际需要的指令加入精确 Shop Origin，保留 nonce 与其他规则，不使用 `*`、宽泛子域或 `unsafe-eval`。完成本地检查后部署真实页面，并在桌面和 320px 宽度验证：只挂载一个 SDK root、宿主控件可点击、键盘可达且减少动画生效；弹幕消息刷新后仍存在；赞赏支付可打开且 Escape 恢复初始金额表单；一个特性失败不会移除另一个。界面能打开不代表支付成交。
-12. 报告公开 Work ID/key、应用 ID、规范 Origin、已执行检查和是否实际执行支付。不得报告登录 token、DNS 挑战、cookie、支付凭证、访问令牌或签名 URL。
+新接入只使用精确 `0.5.0` ESM 公共面：`createViceMe(...)`、`mountDanmaku(...)`、`mountTip(...)`，或 Headless 的 `createTip(client).getConfig()/.open()/.destroy()`。完整 Mounted、Headless、仅弹幕与组合示例都在 [integration-contract.md](references/integration-contract.md)；单 HTML Mounted Tip 起点见 [single-html.html](templates/single-html.html)。
 
-## 边界
+- 仅弹幕根据当前 Profile 选择 CN 或 GLOBAL 精确 CDN，不收窄既有 market 支持。写 SDK access 或页面前，对所选区域的 `index.js` 与 `danmaku.js` 执行相同的 5 秒连接、15 秒总时限、无 redirect、精确 `200` 预检。
+- 任意 Tip 路线使用已预检的 CN ESM 或已精确安装的 npm 包，并从 `keys.test` 开始。Headless 的金额和 provider 只来自 `getConfig()`，`open()` 结果只按 `PAID | CANCELLED | UNKNOWN` 处理。
+- 组合只创建一个 client。官方路线可以分别 `mountDanmaku` 与 `mountTip`；Headless 路线只 `mountDanmaku`，Tip 使用 `createTip`，不得同时挂载两种 Tip UI。一个 mount 失败不得销毁另一个成功能力。
+- SPA、组件或路由真实卸载时先销毁全部 mount/controller，再调用 `client.destroy()`；不要使用会在 bfcache 时触发的 `pagehide`。
+- 页面只能保留一个选定的新 ESM 接入。替换历史 loader 前再次确认其 Work 归属；迁移完成后删除旧 loader，不让新旧接入并行运行。
 
-- `workKey` 是公开且不透明的加载器身份，不得替换为 Work UUID、商家 ID、Product ID、slug、token 或凭证。
-- SDK access 只启用托管特性，不是登录、权益或支付策略；静态公开文件不能因此受到保护。
-- ViceMe 负责弹幕持久化、限流、结账、支付渠道、订单状态和结算；宿主只负责自身内容和一个加载器标签。
-- 访客打开弹幕或赞赏不要求创作者配置登录；登录只用于当前创作者配置资源。
+## Tip 安全与验证
 
-## 恢复
+1. Headless 配置读取必须保持 credentialless、无重定向、精确官方 Origin/状态/JSON、8 秒、16 KiB、可取消和凭据错误合同；不得由宿主自行 `fetch` 内部订单或支付 API。
+2. `sourceOrigin` 只能由官方服务端从浏览器 Referer 规范化。宿主页使用 `Referrer-Policy: no-referrer` 或 Referer 缺失时必须 fail closed；不得从 query、init 或消息 fallback。
+3. Headless 双方只接受精确官方 Origin、直接 window、每次随机 channel、匹配 workKey 与严格 schema。事件名固定为 `viceme:tip-headless-ready`、`viceme:tip-headless-init`、`viceme:tip-headless-result`。外部宿主不接收 token、订单号、订单 capability 或支付 action。
+4. 先运行 Local Fake，覆盖 `PAID`、`CANCELLED`、`UNKNOWN` 与配置失败；再用 `keys.test` 完成真实 SANDBOX、桌面、320px、键盘、减少动画、弹窗阻止和 Referer fail-closed 验证。组合还验证一个能力失败不移除另一个。
+5. 展示 SANDBOX 证据并取得用户明确确认后，才把所选路线唯一 `createViceMe` 中的 `keys.test` 替换为 `keys.live`。不改变 imports、UI 路线或 Work。production key 不能模拟支付；真实支付必须另行明确确认。
 
-- 登录超时：在同一 Profile 重跑 `auth login`。
-- Work create 响应丢失：用同一 `clientRequestId` 原样重放。
-- SDK access 写入冲突：重新读取当前 `configVersion`，按完整目标集合重试，不创建第二份 access。
-- Website Widget create 响应丢失：先 list 并按 Work、kind、environment 定位唯一应用；不创建第二个。已有非空 Origin 集合缺少 canonical Origin 时按共享配置冲突停止。
-- 任何 revision 冲突：重新读取权威资源，不猜测下一个版本。
+## 完成与恢复
+
+- 报告所选分支、Work ID/kind、公开 `keys.test`/`keys.live`、Profile market、接入路线、变更文件、检查结果，以及是否执行 SANDBOX 或真实支付。不要把 Work key 称为 secret。
+- 不报告登录 token、cookie、DNS challenge、支付详情、handoff token、订单 capability 或签名 URL。
+- SDK access 写入后无法完成宿主接入时，从最新版本用一次 update 恢复写前完整 hosted features 与 `accessFeatures`；原资源为 `DISABLED` 时恢复后再次 disable，原资源不存在时 disable 新资源。永久 key 不轮换。
+- Website Work 或 verification 冲突时重新读取权威 revision/version，不猜测下一个值，也不创建替代 Work。
+- Standalone Tip 不因来源归因缺失而补建 Commerce Application。Website 的 follow/paid `WEBSITE_WIDGET` 与 `HOSTED_CHECKOUT` 始终由拥有平台资源的发布流程和 Shop 管理，本 Skill 只原样保留对应 `accessFeatures`。
