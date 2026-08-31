@@ -1,6 +1,6 @@
 ---
 name: viceme-publish
-description: 路由并完成当前可用的 ViceMe 创作者端发布。适用于从本地包、个人 GitHub 仓库或已验证的小红书 Skill 发布或更新可下载版本，或发布交易型服务与商品；创作者资格由 $viceme-creator-onboarding 负责。
+description: 路由并完成当前可用的 ViceMe 创作者端发布。适用于发布可下载 Skill、交易型服务与商品、创作者网站，以及为网站配置关注或付费解锁；创作者资格由 $viceme-creator-onboarding 负责。
 ---
 
 # 在 ViceMe 发布
@@ -29,7 +29,7 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时是终止性例外�
 
 - 玩法一——可下载 Skill：用户收到的是 Skill 包本身。完整阅读 [workflow.md](references/workflow.md)，使用 `skill publish` 和 `publication`。本地目录/ZIP、本人拥有的公开或私有 GitHub 仓库、已验证的小红书 Skill ID 都属于此路线。一个作品是一个 skill 组合：组合里的每个 skill 都是独立 Product、独立包和独立定价，对用户只说“组合里的 skill”，不使用“版本”“档位”等分层概念。
 - 玩法二——交易型 Skill：服务、实物/定制商品、预约类交付、官方服务或其他由商家定义的结果。完整阅读 [generic-product.md](references/generic-product.md)，使用交易架构的 Merchant Work/Product 流程。平台生成的购买 Skill 只绑定该 Product，不是玩法一的下载包。
-- 网站——创作者自有网站：完整阅读 [website-workflow.md](references/website-workflow.md)，创建已验证的 Website Work；不为网站发布 Product。用户同时要求托管打赏或弹幕时，先完成网站发布，再使用对应的接入 Skill。
+- 网站——创作者自有网站：完整阅读 [website-workflow.md](references/website-workflow.md)，创建或复用已验证的 Website Work，并在同一发布流程中配置关注与付费解锁。网站本身不创建 Product；每个付费解锁功能由平台自动创建独立的非公开 Product。宿主代码接入交给 `$viceme-access`，它不得反向创建或修改发布配置。用户同时要求托管打赏时，先完成网站发布，再使用对应的接入 Skill。
 
 用户最终得到什么不明确时，只询问“用户收到可下载的 Skill/源码文件，还是一项服务或商品”。不得要求用户选择内部模型名。
 
