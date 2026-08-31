@@ -417,6 +417,9 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 		return fail(err)
 	}
 	transaction.pathLocks = append(transaction.pathLocks, pathLocks...)
+	if err := claimInstallPathLocks(transaction.pathLocks, journalPath); err != nil {
+		return fail(err)
+	}
 	for index := range operations {
 		operation := &operations[index]
 		if operation.Retired != nil {
@@ -649,6 +652,10 @@ func (transaction *InstallTransaction) Commit() error {
 			return err
 		}
 	}
+	if err := clearInstallPathOwners(transaction.pathLocks, transaction.journalPath); err != nil {
+		transaction.close()
+		return err
+	}
 	transaction.close()
 	return nil
 }
@@ -699,14 +706,23 @@ func RecoverInstallTransaction(environment Environment, commit bool) error {
 		return err
 	}
 	defer releaseInstallPathLocks(pathLocks)
+	if err := checkInstallPathOwners(pathLocks, journalPath); err != nil {
+		return err
+	}
 	if !commit {
-		return rollbackInstallTransaction(journalPath, journal)
+		if err := rollbackInstallTransaction(journalPath, journal); err != nil {
+			return err
+		}
+		return clearInstallPathOwners(pathLocks, journalPath)
 	}
 	journal.Status = "COMMITTED"
 	if err := writeInstallTransaction(journalPath, journal); err != nil {
 		return err
 	}
-	return recoverInstallTransaction(journalPath)
+	if err := recoverInstallTransaction(journalPath); err != nil {
+		return err
+	}
+	return clearInstallPathOwners(pathLocks, journalPath)
 }
 
 // RecoverInstallTransactionAuto reconciles a standalone install transaction
@@ -734,9 +750,13 @@ func (transaction *InstallTransaction) Rollback() error {
 	if transaction == nil || transaction.closed {
 		return nil
 	}
-	err := rollbackInstallTransaction(transaction.journalPath, transaction.journal)
+	rollbackErr := rollbackInstallTransaction(transaction.journalPath, transaction.journal)
+	var ownerErr error
+	if rollbackErr == nil {
+		ownerErr = clearInstallPathOwners(transaction.pathLocks, transaction.journalPath)
+	}
 	transaction.close()
-	return err
+	return errors.Join(rollbackErr, ownerErr)
 }
 
 // Abandon releases only the process lock. The durable journal remains for an
@@ -771,6 +791,11 @@ func (transaction *InstallTransaction) acquirePathLock(destination string) error
 	locks, err := tryAcquireInstallPathLocks([]string{normalized})
 	if err != nil {
 		return err
+	}
+	if err := claimInstallPathLocks(locks, transaction.journalPath); err != nil {
+		cleanupErr := clearInstallPathOwners(locks, transaction.journalPath)
+		releaseInstallPathLocks(locks)
+		return errors.Join(err, cleanupErr)
 	}
 	transaction.pathLocks = append(transaction.pathLocks, locks...)
 	return nil
@@ -831,6 +856,120 @@ func normalizeInstallPathLockDestination(destination string) (string, error) {
 func installPathLockFilename(destination string) string {
 	digest := sha256.Sum256([]byte(destination))
 	return filepath.Join(filepath.Dir(destination), ".viceme-install-"+hex.EncodeToString(digest[:])+".lock")
+}
+
+func installPathOwnerFilename(destination string) string {
+	return installPathLockFilename(destination) + ".owner"
+}
+
+// Owner sidecars survive a crashed process lock so another ConfigDir cannot
+// adopt a destination that an older journal may still roll back.
+func claimInstallPathLocks(locks []installPathLock, journalPath string) error {
+	if err := checkInstallPathOwners(locks, journalPath); err != nil {
+		return err
+	}
+	normalizedJournal, err := normalizeTransactionPath(journalPath)
+	if err != nil {
+		return fmt.Errorf("normalize install transaction owner: %w", err)
+	}
+	for _, held := range locks {
+		if err := writeInstallPathOwner(installPathOwnerFilename(held.destination), normalizedJournal); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func checkInstallPathOwners(locks []installPathLock, journalPath string) error {
+	normalizedJournal, err := normalizeTransactionPath(journalPath)
+	if err != nil {
+		return fmt.Errorf("normalize install transaction owner: %w", err)
+	}
+	for _, held := range locks {
+		owner, exists, err := readInstallPathOwner(installPathOwnerFilename(held.destination))
+		if err != nil {
+			return err
+		}
+		if !exists || owner == normalizedJournal {
+			continue
+		}
+		if _, err := os.Lstat(owner); err == nil {
+			return fmt.Errorf("incomplete ViceMe install transaction at %s still owns destination %s", owner, held.destination)
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return fmt.Errorf("inspect install transaction owner: %w", err)
+		}
+	}
+	return nil
+}
+
+func clearInstallPathOwners(locks []installPathLock, journalPath string) error {
+	normalizedJournal, err := normalizeTransactionPath(journalPath)
+	if err != nil {
+		return fmt.Errorf("normalize install transaction owner: %w", err)
+	}
+	var cleanupErrors []error
+	for _, held := range locks {
+		filename := installPathOwnerFilename(held.destination)
+		owner, exists, err := readInstallPathOwner(filename)
+		if err != nil {
+			cleanupErrors = append(cleanupErrors, err)
+			continue
+		}
+		if !exists || owner != normalizedJournal {
+			continue
+		}
+		if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			cleanupErrors = append(cleanupErrors, err)
+		}
+	}
+	if len(cleanupErrors) > 0 {
+		return fmt.Errorf("clear install transaction owners: %w", errors.Join(cleanupErrors...))
+	}
+	return nil
+}
+
+func readInstallPathOwner(filename string) (string, bool, error) {
+	data, err := os.ReadFile(filename)
+	if errors.Is(err, fs.ErrNotExist) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read install transaction owner: %w", err)
+	}
+	owner := strings.TrimSuffix(string(data), "\n")
+	normalized, normalizeErr := normalizeTransactionPath(owner)
+	if owner == "" || strings.ContainsAny(owner, "\r\n") || normalizeErr != nil || normalized != owner {
+		return "", false, errors.New("install transaction owner is invalid; refusing to overwrite installed Skills")
+	}
+	return owner, true, nil
+}
+
+func writeInstallPathOwner(filename, journalPath string) error {
+	temporary, err := os.CreateTemp(filepath.Dir(filename), ".viceme-install-owner-*.tmp")
+	if err != nil {
+		return fmt.Errorf("create install transaction owner: %w", err)
+	}
+	temporaryName := temporary.Name()
+	defer os.Remove(temporaryName)
+	if err := temporary.Chmod(0o600); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if _, err := temporary.WriteString(journalPath + "\n"); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return err
+	}
+	if err := temporary.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(temporaryName, filename); err != nil {
+		return fmt.Errorf("activate install transaction owner: %w", err)
+	}
+	return nil
 }
 
 type installOperation struct {
@@ -973,7 +1112,13 @@ func recoverInstallTransactionWithPathLocks(filename string) error {
 		return err
 	}
 	defer releaseInstallPathLocks(pathLocks)
-	return recoverInstallTransaction(filename)
+	if err := checkInstallPathOwners(pathLocks, filename); err != nil {
+		return err
+	}
+	if err := recoverInstallTransaction(filename); err != nil {
+		return err
+	}
+	return clearInstallPathOwners(pathLocks, filename)
 }
 
 func installTransactionDestinations(journal installTransaction) []string {

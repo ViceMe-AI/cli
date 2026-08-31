@@ -364,6 +364,45 @@ func TestInstallTransactionLockRejectsSameDestinationAcrossConfigDirectories(t *
 	}
 }
 
+func TestIncompleteInstallBlocksSameDestinationAcrossConfigDirectories(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeTestSkill(t, root, "viceme-test")
+	bundle := New(os.DirFS(root))
+	home := t.TempDir()
+	provenance := SkillProvenance{ProductID: "product-1", ReleaseID: "release-1"}
+	firstEnvironment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli-a")}
+	secondEnvironment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli-b")}
+
+	first, _, err := bundle.PrepareInstallSetWithProvenance([]string{"viceme-test"}, "agents", firstEnvironment, provenance)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first.Abandon()
+	t.Cleanup(func() {
+		_ = RecoverInstallTransactionAuto(firstEnvironment)
+		_ = RecoverInstallTransactionAuto(secondEnvironment)
+	})
+
+	second, _, err := bundle.PrepareInstallSetWithProvenance([]string{"viceme-test"}, "agents", secondEnvironment, provenance)
+	if second != nil {
+		_ = second.Rollback()
+	}
+	if err == nil || !strings.Contains(err.Error(), "incomplete ViceMe install transaction") {
+		t.Fatalf("incomplete transaction did not retain destination ownership across config directories: %v", err)
+	}
+	if err := RecoverInstallTransactionAuto(firstEnvironment); err != nil {
+		t.Fatal(err)
+	}
+	third, _, err := bundle.PrepareInstallSetWithProvenance([]string{"viceme-test"}, "agents", secondEnvironment, provenance)
+	if err != nil {
+		t.Fatalf("recovered destination remained blocked: %v", err)
+	}
+	if err := third.Commit(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestInstallPreservesUnownedTransactionBackup(t *testing.T) {
 	t.Parallel()
 	firstRoot := t.TempDir()
