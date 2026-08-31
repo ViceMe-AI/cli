@@ -66,10 +66,9 @@ func newMerchantApplicationCommand(runtime *Runtime) *cobra.Command {
 			return runtime.business(result)
 		},
 	}
-	command.Flags().StringVar(&displayName, "display-name", "", "Merchant display name")
-	command.Flags().StringVar(&handle, "handle", "", "public creator handle to reserve")
-	_ = command.MarkFlagRequired("display-name")
-	_ = command.MarkFlagRequired("handle")
+	// 两个参数均可选：服务端按用户资料派生；handle 只在派生不合规或用户要改时才给。
+	command.Flags().StringVar(&displayName, "display-name", "", "Merchant display name (optional; derived when omitted)")
+	command.Flags().StringVar(&handle, "handle", "", "public creator handle (optional; derived when omitted)")
 	return command
 }
 

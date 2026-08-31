@@ -87,9 +87,21 @@ type MerchantOnboarding struct {
 }
 
 type CurrentMerchantOnboarding struct {
-	Onboarding *MerchantOnboarding `json:"onboarding"`
-	Merchant   *MerchantAccount    `json:"merchant"`
-	NextAction string              `json:"nextAction"`
+	Onboarding      *MerchantOnboarding `json:"onboarding"`
+	Merchant        *MerchantAccount    `json:"merchant"`
+	CreatorIdentity *CreatorIdentity    `json:"creatorIdentity"`
+	NextAction      string              `json:"nextAction"`
+}
+
+// CreatorIdentity 是登录即预生成的创作者身份路由；SuggestedHandle 是申请前的
+// handle 派生预览（机器占位且有合规派生时给出，已确认或派生不出为 null）。
+type CreatorIdentity struct {
+	Handle          string  `json:"handle"`
+	DisplayName     string  `json:"displayName"`
+	Status          string  `json:"status"`
+	ProfilePath     string  `json:"profilePath"`
+	MarkdownPath    string  `json:"markdownPath"`
+	SuggestedHandle *string `json:"suggestedHandle"`
 }
 
 type GithubAuthorizationStart struct {
