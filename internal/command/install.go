@@ -25,7 +25,44 @@ var officialSkillNames = []string{
 	"viceme-tip",
 }
 
-var retiredOfficialSkills []skillcontent.RetiredSkillIdentity
+// Retired official Skills were published in stable releases but are no longer
+// carried. Each identity pins the exact published bundle (per the release
+// manifest) so an upgrade removes only CLI-managed installs; user-modified or
+// user-owned same-name directories never match and are preserved.
+var retiredOfficialSkills = []skillcontent.RetiredSkillIdentity{
+	{
+		Name:                  "viceme-danmaku",
+		SkillVersion:          "0.18.0",
+		MinimumCLIVersion:     "0.18.0",
+		CLICompatibility:      ">=0.18.0 <0.19.0",
+		FullBundleDigest:      "sha256:33a41f123cf0c20920e8b343887bd65fb535c9882b4244133e0243e2ce59e91a",
+		EmbeddedContentDigest: "sha256:57fd7d60e6664a4fb55c9e1e4aeb76b8b3bd8e48cfd642f96e4ba9dbf638defa",
+	},
+	{
+		Name:                  "viceme-danmaku",
+		SkillVersion:          "0.19.0-beta.0",
+		MinimumCLIVersion:     "0.19.0-beta.0",
+		CLICompatibility:      ">=0.19.0-beta.0 <0.20.0",
+		FullBundleDigest:      "sha256:1f77f655f71b23ead44e287694aebdd090d27cac4dc4b71802c72df79e3c05c9",
+		EmbeddedContentDigest: "sha256:646882bc6c1bef7d6d8a863a1aa753c1797ffb5f2074c50ca5f1638bcc6402ca",
+	},
+	{
+		Name:                  "viceme-engagement",
+		SkillVersion:          "0.18.0",
+		MinimumCLIVersion:     "0.18.0",
+		CLICompatibility:      ">=0.18.0 <0.19.0",
+		FullBundleDigest:      "sha256:dc0ce94cd154d1af285bc5ab3c97c23fb80ed70d7b2d58dbe8ce5c2ecd4d142b",
+		EmbeddedContentDigest: "sha256:baf7ae9b09b43baa21e00eefe6f136aa484efd307fd30294c73aa4921807650e",
+	},
+	{
+		Name:                  "viceme-engagement",
+		SkillVersion:          "0.19.0-beta.0",
+		MinimumCLIVersion:     "0.19.0-beta.0",
+		CLICompatibility:      ">=0.19.0-beta.0 <0.20.0",
+		FullBundleDigest:      "sha256:5abe12818c001577f5e13d3cbda9350bc617c96094168fe99ff74eabce6b7cce",
+		EmbeddedContentDigest: "sha256:25c3cd955939c410093e7ab05882ce776df1f7e08f2e2cb1e8599eda4f976b9f",
+	},
+}
 
 type installNextStep struct {
 	Required bool   `json:"required"`

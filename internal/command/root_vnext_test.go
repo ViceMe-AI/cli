@@ -772,9 +772,6 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 			t.Fatalf("official Skill list omitted %s: %#v", name, officialSkillNames)
 		}
 	}
-	if len(retiredOfficialSkills) != 0 {
-		t.Fatalf("active official Skills must not remain retired: %#v", retiredOfficialSkills)
-	}
 	for name := range found {
 		if _, err := skillcontent.New(cliembed.EmbeddedSkills()).Package(name); err != nil {
 			t.Fatalf("official Skill bundle omitted %s: %v", name, err)
@@ -791,6 +788,37 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 	}
 	if _, _, err := bundle.Read("viceme-tip", "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
+	}
+}
+
+func TestRetiredOfficialSkillsPinEveryPublishedIdentity(t *testing.T) {
+	t.Parallel()
+	if len(retiredOfficialSkills) == 0 {
+		t.Fatal("published but removed official Skills must stay on the retirement table")
+	}
+	seen := map[string]map[string]bool{}
+	for _, identity := range retiredOfficialSkills {
+		if err := skillcontent.ValidateRetiredSkillIdentity(identity); err != nil {
+			t.Fatalf("retired official Skill identity is invalid: %v", err)
+		}
+		for _, active := range officialSkillNames {
+			if identity.Name == active {
+				t.Fatalf("active official Skill %s must not be retired", active)
+			}
+		}
+		if seen[identity.Name] == nil {
+			seen[identity.Name] = map[string]bool{}
+		}
+		seen[identity.Name][identity.SkillVersion] = true
+	}
+	// viceme-danmaku and viceme-engagement shipped in stable v0.18.0 and in
+	// v0.19.0-beta.0; both upgrade paths must retire their managed installs.
+	for _, name := range []string{"viceme-danmaku", "viceme-engagement"} {
+		for _, version := range []string{"0.18.0", "0.19.0-beta.0"} {
+			if !seen[name][version] {
+				t.Fatalf("published %s %s is missing from the retirement table", name, version)
+			}
+		}
 	}
 }
 
