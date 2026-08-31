@@ -1,4 +1,4 @@
 interface:
   display_name: "ViceMe 网站访问接入"
   short_description: "把已发布的关注与付费解锁接入创作者网站"
-  default_prompt: "使用 $viceme-access 将 publish 已配置的关注或付费解锁接入现有网站；不要创建或修改平台发布配置。"
+  default_prompt: "使用 $viceme-access 将已配置的关注或付费解锁接入现有网站，并复用统一的创作者资格检查。"

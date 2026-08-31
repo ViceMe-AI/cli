@@ -224,7 +224,7 @@ func TestBootstrapRecoveryKeepsBinarySkillsAndConfigOnOneGeneration(t *testing.T
 				t.Fatal(err)
 			}
 
-			skillDestination := filepath.Join(root, ".agents", "skills", "viceme-publish")
+			skillDestination := filepath.Join(root, ".agents", "skills", "viceme-paid-skill")
 			skillBackup := skillDestination + ".viceme-transaction-backup"
 			configPath := filepath.Join(configDir, "config.json")
 			configBackup := configPath + ".viceme-transaction-backup"

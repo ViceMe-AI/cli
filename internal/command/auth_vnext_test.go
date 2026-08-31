@@ -35,6 +35,7 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	var tokenPolls atomic.Int32
 	var revoked atomic.Bool
 	var requestedScopes []string
+	var requestedPurpose string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/v1/cli/device-authorizations":
@@ -43,6 +44,7 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 				t.Fatalf("decode device authorization request: %v", err)
 			}
 			requestedScopes = append([]string(nil), authorizationRequest.Scopes...)
+			requestedPurpose = authorizationRequest.Purpose
 			writeJSONResponse(writer, map[string]any{
 				"deviceCode": "device-code", "userCode": "ABCD-EFGH",
 				"verificationUri":         "https://viceme.cn/cli/authorize",
@@ -139,6 +141,9 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	if strings.Join(requestedScopes, ",") != strings.Join(expectedScopes, ",") {
 		t.Fatalf("device login requested wrong scopes: got=%v want=%v", requestedScopes, expectedScopes)
 	}
+	if requestedPurpose != "" {
+		t.Fatalf("ordinary login should omit purpose for compatibility, got %q", requestedPurpose)
+	}
 	if !strings.Contains(stderr.String(), "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH") {
 		t.Fatalf("complete browser authorization URL was not shown: stderr=%q", stderr.String())
 	}
@@ -166,6 +171,30 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	configData := []byte(readFileString(t, filepath.Join(root, "config", "config.json")))
 	if !bytes.Contains(configData, []byte("55555555-5555-4555-8555-555555555555")) {
 		t.Fatalf("profile user was not persisted: config=%s", configData)
+	}
+}
+
+func TestDeviceLoginSendsCreatorOnboardingPurpose(t *testing.T) {
+	t.Parallel()
+	var requestedPurpose string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		var authorizationRequest api.DeviceAuthorizationRequest
+		if err := json.NewDecoder(request.Body).Decode(&authorizationRequest); err != nil {
+			t.Fatal(err)
+		}
+		requestedPurpose = authorizationRequest.Purpose
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	_ = Execute([]string{"auth", "login", "--purpose", "creator-onboarding"}, Dependencies{
+		Out: &bytes.Buffer{}, ErrOut: &bytes.Buffer{}, Store: securestore.NewMemory(),
+		APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if requestedPurpose != "CREATOR_ONBOARDING" {
+		t.Fatalf("creator onboarding login sent the wrong purpose: %q", requestedPurpose)
 	}
 }
 

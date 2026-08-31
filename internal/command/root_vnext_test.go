@@ -579,7 +579,7 @@ func TestBareInternalActivationFlagsCannotBypassRecovery(t *testing.T) {
 	if exit == 0 || !strings.Contains(stdout.String(), "ACTIVATION_CHILD_INVALID") {
 		t.Fatalf("bare hidden flags bypassed the activation coordinator: exit=%d stdout=%q", exit, stdout.String())
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-publish")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-paid-skill")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("unauthorized activation child mutated Skills: %v", err)
 	}
 }
@@ -634,7 +634,7 @@ func TestOrdinaryInstallCannotCommitAfterItsRunningGenerationWasReplaced(t *test
 	if cliError := output.AsError(err); cliError.Subtype != "INSTALL_GENERATION_CHANGED" {
 		t.Fatalf("stale install was not fenced by its captured generation: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-publish")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-paid-skill")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stale install mutated Skills after a newer generation committed: %v", err)
 	}
 	actual, exists, err := updatepkg.ReadActiveGeneration(configDir)
@@ -754,7 +754,7 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	if cliError := output.AsError(err); cliError.Subtype != "ACTIVATION_CHILD_INVALID" {
 		t.Fatalf("stale child was not fenced by the replacement parent journal: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-publish")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-paid-skill")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stale npm child mutated Skills: %v", err)
 	}
 }
@@ -813,6 +813,25 @@ func TestRetiredOfficialSkillsPinEveryPublishedIdentity(t *testing.T) {
 			"0.17.0",
 			"0.18.0",
 			"0.19.0-beta.0",
+		},
+		"viceme-publish": {
+			"0.13.0",
+			"0.13.1",
+			"0.13.2",
+			"0.13.3",
+			"0.14.0",
+			"0.14.1",
+			"0.14.2",
+			"0.14.3",
+			"0.15.0",
+			"0.15.1",
+			"0.15.2",
+			"0.16.0",
+			"0.16.1",
+			"0.17.0",
+			"0.18.0",
+			"0.19.0",
+			"0.20.0",
 		},
 	}
 	seen := map[string]map[string]bool{}

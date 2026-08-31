@@ -145,7 +145,7 @@ test(
     assert.equal(result.data.skills.every((skill) => skill.all_succeeded), true);
     await stat(path.join(codexHome, "skills", "viceme-shared", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-creator-onboarding", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "viceme-publish", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-paid-skill", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-skill-use", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-access", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-tip", "SKILL.md"));

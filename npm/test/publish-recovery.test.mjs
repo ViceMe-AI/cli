@@ -17,7 +17,7 @@ test(
   "release recovery verifies prior integrity or publishes only a missing version",
   { skip: process.platform === "win32" },
   async () => {
-    const directory = await mkdtemp(path.join(os.tmpdir(), "viceme-publish-recovery-"));
+    const directory = await mkdtemp(path.join(os.tmpdir(), "viceme-paid-skill-recovery-"));
     const fakeBin = path.join(directory, "bin");
     const fakeNPM = path.join(fakeBin, "npm");
     const marker = path.join(directory, "published");

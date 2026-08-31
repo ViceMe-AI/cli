@@ -2,6 +2,7 @@ package skillcontent_test
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"os"
 	"path"
@@ -17,7 +18,7 @@ import (
 var officialSkillNames = []string{
 	"viceme-access",
 	"viceme-creator-onboarding",
-	"viceme-publish",
+	"viceme-paid-skill",
 	"viceme-shared",
 	"viceme-skill-use",
 	"viceme-tip",
@@ -92,19 +93,19 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"claim-xiaohongshu", "MerchantAccountMember(role=OWNER)",
 			},
 			semantics: []string{
-				"不得创建平行申请", "不等于用户同意提交申请", "同一回合不得再次查询",
-				"申请已经提交，接下来需要工作人员审核", "回到调用本 Skill 的发布",
+				"不创建平行申请", "直接申请模式不再确认", "玩法守卫模式",
+				"申请中", "交回调用玩法",
 			},
 		},
 		{
-			name: "viceme-publish",
+			name: "viceme-paid-skill",
 			machine: []string{
 				"$viceme-creator-onboarding",
 				"MerchantAccountMember(role=OWNER)", "publication confirm", "publication publish", "reviewDigest",
-				"SKILL_LISTING_DRAFT_CHANGED", "priceMinor", "--new-listing", "merchant work sdk-access",
+				"SKILL_LISTING_DRAFT_CHANGED", "priceMinor", "--new-listing",
 			},
 			semantics: []string{
-				"公开且不可逆", "响应丢失时读取同一资源恢复", "支付成功与履约成功是两个不同状态",
+				"公开且不可逆", "响应丢失时读取同一资源恢复", "只支持以下来源",
 			},
 		},
 		{
@@ -119,7 +120,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "viceme-access",
 			machine: []string{
 				"access.require()", "access.getFeatures()", "<viceme-access-layer>", "FOLLOW_OWNER", "WORK_ENTITLEMENT",
-				"Hosted Checkout", "DigitalEntitlement", "window.open", "access.check()", "$viceme-publish",
+				"Hosted Checkout", "Product ID", "access.check()", "$viceme-creator-onboarding",
 			},
 			semantics: []string{
 				"登录不等于关注", "不得改变其参数、返回值、错误或副作用",
@@ -132,7 +133,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"data-viceme-features", "workKey",
 			},
 			semantics: []string{
-				"不得仅因 HTML 移动就创建重复项", "界面能打开不代表支付已成交",
+				"不创建第二个 Work", "界面能打开不代表支付成交",
 			},
 		},
 	}
@@ -142,7 +143,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()
 			bundle := readOfficialSkillBundle(t, test.name)
-			if !strings.Contains(bundle, "跟随用户当前") {
+			if !strings.Contains(bundle, "跟随") {
 				t.Fatal("missing the single-source language rule")
 			}
 			for _, required := range append(test.machine, test.semantics...) {
@@ -181,7 +182,7 @@ func TestTipTemplateUsesCLIResponseAsItsOnlyEmbedSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(content)
-	for _, required := range []string{"当前固定 Profile", "creator-app show", "data.embedSnippet", "不要手工推导"} {
+	for _, required := range []string{"当前 CLI 上下文", "已发布 Website Work", "workKey", "占位符"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("tip template omitted authoritative CLI source guard %q", required)
 		}
@@ -230,19 +231,14 @@ func TestPublishSkillKeepsHistoricalContextOutOfProfileSelection(t *testing.T) {
 
 	for _, relativePath := range []string{
 		"viceme-creator-onboarding/SKILL.md",
-		"viceme-publish/references/workflow.md",
+		"viceme-paid-skill/references/workflow.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
 			t.Fatalf("read embedded %s: %v", relativePath, err)
 		}
 		text := string(content)
-		for _, required := range []string{
-			"记忆",
-			"旧对话",
-			"当前 CLI 上下文",
-			"已登录用户",
-		} {
+		for _, required := range []string{"当前 CLI 上下文", "旧对话"} {
 			if !strings.Contains(text, required) {
 				t.Fatalf("embedded %s does not contain profile precedence guard %q", relativePath, required)
 			}
@@ -251,9 +247,9 @@ func TestPublishSkillKeepsHistoricalContextOutOfProfileSelection(t *testing.T) {
 
 	for _, relativePath := range []string{
 		"viceme-creator-onboarding/SKILL.md",
-		"viceme-publish/SKILL.md",
-		"viceme-publish/references/workflow.md",
-		"viceme-publish/references/errors.md",
+		"viceme-paid-skill/SKILL.md",
+		"viceme-paid-skill/references/workflow.md",
+		"viceme-paid-skill/references/errors.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -280,34 +276,19 @@ func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
 	}
 	text := string(onboarding)
 	for _, required := range []string{
-		"第一条进程命令必须是 `viceme auth status`",
-		"不等于用户同意提交申请",
-		"先用白话说明原因并询问是否现在申请",
-		"可以直接提交，不重复确认",
+		"第一条进程命令运行 `viceme auth status`",
+		"直接申请模式不再确认",
+		"玩法守卫模式",
+		"现在帮你申请成为创作者吗？",
+		"viceme auth login --purpose creator-onboarding",
 		"没有有效商家时运行一次 `viceme merchant onboarding status`",
-		"把返回的商家交回原任务继续使用",
 		"merchant-commerce:read",
 		"merchant-commerce:write",
-		"MERCHANT_COMMERCE_SCOPE_REQUIRED",
-		"PUBLICATION_SCOPE_REQUIRED",
-		"浏览器结果页明确显示授权完成后",
-		"只运行一次 `viceme merchant onboarding status --merchant <merchant-account-id>`",
-		"evidence <onboarding-id> --path <截图路径> --lock-version <当前版本>",
-		"submit <onboarding-id> --lock-version <新版本>",
+		"creatorIdentity.markdownPath",
+		"MERCHANT_APPLICATION_HANDLE_REQUIRED",
 		"人工审核边界",
 		"同一回合不得再次查询",
-		"中文交流必须使用自然白话",
-		"不得告诉用户正在使用哪个内置 Skill",
-		"Profile 或 CLI 命令",
-		"creatorIdentity.suggestedHandle",
-		"viceme merchant onboarding apply --handle",
-		"只能用小写字母、数字和短横线",
-		"申请已经提交，接下来需要工作人员审核",
-		"`error.code=INTERNAL_ERROR` 且 `retryable=true`",
-		"立即重试一次同一条读取",
-		"不得 `sleep`、轮询、启动后台进程",
-		"不得读取发布流程的错误说明",
-		"第二次返回任何失败都停止本次操作",
+		"不把 DRAFT 创作者身份误当成资格",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("creator onboarding Skill omitted human-review guard %q", required)
@@ -321,7 +302,7 @@ func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
 func TestPublishRetryPolicyDoesNotOwnCreatorOnboardingReads(t *testing.T) {
 	t.Parallel()
 
-	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/errors.md")
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/references/errors.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +326,7 @@ func TestCoreSkillsKeepInternalToolNamesOutOfUserFacingProgress(t *testing.T) {
 	for _, relativePath := range []string{
 		"viceme-shared/SKILL.md",
 		"viceme-creator-onboarding/SKILL.md",
-		"viceme-publish/SKILL.md",
+		"viceme-paid-skill/SKILL.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -369,7 +350,7 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	for _, relativePath := range []string{
 		"viceme-shared/SKILL.md",
 		"viceme-creator-onboarding/SKILL.md",
-		"viceme-publish/SKILL.md",
+		"viceme-paid-skill/SKILL.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -449,7 +430,7 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		}
 	}
 
-	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/SKILL.md")
+	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,7 +438,7 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		t.Fatal("publish skill may finish while creator onboarding is still waiting for login")
 	}
 
-	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/workflow.md")
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/references/workflow.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -487,7 +468,7 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 	t.Parallel()
 	const terminalReply = "最终答复只能是“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布。”这一句话"
 
-	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/workflow.md")
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/references/workflow.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +499,7 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 		}
 	}
 
-	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/errors.md")
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/references/errors.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -545,7 +526,7 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 		}
 	}
 
-	skillContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/SKILL.md")
+	skillContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -557,10 +538,9 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 func TestPublishDelegatesCreatorQualification(t *testing.T) {
 	t.Parallel()
 	for _, relativePath := range []string{
-		"viceme-publish/SKILL.md",
-		"viceme-publish/references/workflow.md",
-		"viceme-publish/references/generic-product.md",
-		"viceme-publish/references/errors.md",
+		"viceme-paid-skill/SKILL.md",
+		"viceme-paid-skill/references/workflow.md",
+		"viceme-paid-skill/references/errors.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -576,10 +556,15 @@ func TestPublishDelegatesCreatorQualification(t *testing.T) {
 			}
 		}
 	}
-	if _, err := fs.Stat(cliembed.EmbeddedSkills(), "viceme-publish/references/website-workflow.md"); err != nil {
-		t.Fatalf("website workflow reference is missing: %v", err)
+	for _, removed := range []string{
+		"viceme-paid-skill/references/generic-product.md",
+		"viceme-paid-skill/references/website-workflow.md",
+	} {
+		if _, err := fs.Stat(cliembed.EmbeddedSkills(), removed); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("removed publish route is still bundled: %s", removed)
+		}
 	}
-	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/references/errors.md")
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/references/errors.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -605,152 +590,77 @@ func TestPublishDelegatesCreatorQualification(t *testing.T) {
 func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 	t.Parallel()
 
-	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/SKILL.md")
+	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(publish)
-	if !strings.Contains(text, "references/website-workflow.md") {
-		t.Fatal("publish Skill does not route website publication to the verified Website Work workflow")
-	}
-	for _, forbidden := range []string{"网站发布目前尚未开放", "不得运行旧的 `viceme website publish`"} {
+	for _, forbidden := range []string{"website-workflow.md", "generic-product.md", "merchant work create", "sdk-access create"} {
 		if strings.Contains(text, forbidden) {
-			t.Fatalf("publish Skill still carries the closed-website boundary %q", forbidden)
+			t.Fatalf("paid Skill still owns a non-downloadable publish route %q", forbidden)
 		}
 	}
-	metadata, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/agents/openai.yaml")
+	metadata, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/agents/openai.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(metadata), "网站作品") {
-		t.Fatal("publish Skill metadata still advertises unavailable website publication")
+	for _, forbidden := range []string{"网站作品", "商品或", "服务与"} {
+		if strings.Contains(string(metadata), forbidden) {
+			t.Fatalf("paid Skill metadata advertises a removed route %q", forbidden)
+		}
 	}
 }
 
 func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 	t.Parallel()
-	applicationInput := `{
-		"merchantAccountId": "<merchant-id>",
-		"workId": "<work-id>",
-		"kind": "WEBSITE_WIDGET",
-		"environment": "PRODUCTION",
-		"displayName": "<website name>",
-		"origins": ["https://creator.example"],
-		"returnUrls": []
-	}`
-	applicationUpdateInput := `{
-		"merchantAccountId": "<merchant-id>",
-		"expectedRevision": 2,
-		"displayName": "<website name>",
-		"origins": ["https://creator.example"],
-		"returnUrls": []
-	}`
-
-	for _, relativePath := range []string{
-		"viceme-tip/SKILL.md",
+	text := readOfficialSkillBundle(t, "viceme-tip")
+	for _, required := range []string{
+		"$viceme-creator-onboarding",
+		"Merchant",
+		"website-verification create",
+		"WEBSITE_WIDGET",
+		"(workId, environment, kind)",
+		"create 响应丢失时先 list",
+		"REVOKED",
+		"data-viceme-features",
 	} {
-		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
-		if err != nil {
-			t.Fatalf("read embedded %s: %v", relativePath, err)
+		if !strings.Contains(text, required) {
+			t.Fatalf("tip Skill omitted recoverable Website Widget contract %q", required)
 		}
-		text := string(content)
-		normalized := strings.Join(strings.Fields(strings.ReplaceAll(text, "\\\n", " ")), " ")
-		for _, required := range []string{
-			"（`(workId, environment, kind)` 唯一）",
-			"不存在时创建",
-			"绝不因现有应用显示名、Origin 或 return URL 不同就创建第二个",
-			"`REVOKED` 时停止并报告该终态资源",
-			"配置不同且状态 `ACTIVE` 时，先按其精确 revision 挂起",
-			"commerce-application update <application-id> --input <json>",
-			"已 `ACTIVE` 且一致则跳过",
-			"create 响应丢失时先 list 再决定",
-		} {
-			if !strings.Contains(normalized, required) {
-				t.Fatalf("standalone %s omitted Website Widget constraint %q", relativePath, required)
-			}
-		}
-		requireOrderedSteps(t, relativePath, normalized, []string{
-			"viceme --profile <profile> merchant commerce-application list --merchant <merchant-id>",
-			`"kind": "WEBSITE_WIDGET"`,
-			"viceme --profile <profile> merchant commerce-application create --input <json>",
-			"viceme --profile <profile> merchant commerce-application get <application-id> --merchant <merchant-id>",
-			"viceme --profile <profile> merchant commerce-application suspend <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
-			"viceme --profile <profile> merchant commerce-application update <application-id> --input <json>",
-			"viceme --profile <profile> merchant commerce-application activate <application-id> --merchant <merchant-id> --expected-revision <application-revision>",
-		})
-		requireJSONBlock(t, relativePath, text, `"kind": "WEBSITE_WIDGET"`, applicationInput)
-		requireJSONBlockWithMarkers(t, relativePath, text, []string{
-			`"expectedRevision": 2`,
-			`"displayName": "<website name>"`,
-		}, applicationUpdateInput)
-		applicationOffset := strings.Index(normalized, "merchant commerce-application list")
-		if applicationOffset < 0 || strings.Contains(normalized[applicationOffset:], "`ARCHIVED`") {
-			t.Fatalf("standalone %s uses a non-contract Website Widget status", relativePath)
+	}
+	for _, forbidden := range []string{"viceme auth login", "merchant accounts", "--profile"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("tip Skill duplicates creator onboarding command %q", forbidden)
 		}
 	}
 }
 
-func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
+func TestPaidSkillExcludesWebsiteAndGenericProductPublication(t *testing.T) {
 	t.Parallel()
 
-	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-publish/SKILL.md")
+	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(publish)
-	for _, required := range []string{
-		"网站——创作者自有网站",
-		"website-workflow.md",
-		"已验证的 Website Work",
-		"网站本身不创建 Product",
-		"同一发布流程中配置关注与付费解锁",
-	} {
-		if !strings.Contains(text, required) {
-			t.Fatalf("publish Skill omitted the current website Work boundary %q", required)
+	for _, forbidden := range []string{"website-workflow.md", "generic-product.md", "merchant work", "commerce-application"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("paid Skill still contains removed publication route %q", forbidden)
 		}
-	}
-	if strings.Contains(text, "Payment integration remains a documented future capability") {
-		t.Fatal("publish Skill still describes Website Widget tips as unavailable")
 	}
 }
 
-func TestWebsiteAccessConfigurationBelongsToPublish(t *testing.T) {
+func TestGameplaySkillsDelegateCreatorQualification(t *testing.T) {
 	t.Parallel()
-
-	publish := readOfficialSkillBundle(t, "viceme-publish")
-	for _, required := range []string{
-		"merchant work sdk-access get",
-		"merchant work sdk-access create",
-		"merchant work sdk-access update",
-		"--expected-config-version",
-		"--clear-access",
-		"Login never implies following",
-	} {
-		if !strings.Contains(publish, required) {
-			t.Fatalf("publish Skill omitted Website access publication contract %q", required)
+	for _, skillName := range []string{"viceme-paid-skill", "viceme-access", "viceme-tip"} {
+		text := readOfficialSkillBundle(t, skillName)
+		if !strings.Contains(text, "$viceme-creator-onboarding") {
+			t.Fatalf("%s does not delegate creator qualification", skillName)
 		}
-	}
-
-	access := readOfficialSkillBundle(t, "viceme-access")
-	for _, forbidden := range []string{
-		"viceme access",
-		".viceme/access.yaml",
-		"merchant work sdk-access",
-		"coverUrls",
-		"profile-covers",
-	} {
-		if strings.Contains(access, forbidden) {
-			t.Fatalf("access Skill still owns removed publication or cover contract %q", forbidden)
-		}
-	}
-	for _, required := range []string{
-		"只修改创作者网站的宿主代码",
-		"缺少发布结果或平台配置时立即交回 `$viceme-publish`",
-		"登录不等于关注",
-		"不展示最近作品封面",
-	} {
-		if !strings.Contains(access, required) {
-			t.Fatalf("access Skill omitted host-integration boundary %q", required)
+		for _, forbidden := range []string{"viceme auth login", "viceme merchant accounts", "viceme merchant onboarding apply"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s duplicates onboarding command %q", skillName, forbidden)
+			}
 		}
 	}
 }

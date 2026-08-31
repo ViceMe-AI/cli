@@ -7,7 +7,7 @@ description: 安装和使用可下载的 ViceMe Skill 版本。适用于查看�
 
 这是用户端流程。面向用户的文字跟随用户当前语言；中文交流使用自然白话，不直接展示内部状态名、字段名或命令细节。
 
-不得把此流程转到 `viceme-publish`、商家创作命令、平台生成的交易型购买 Skill 或云端 Runtime。一个可下载版本就是一个本地 Skill 包和一个独立 Product；用户只拥有自己购买的 Product。
+不得把此流程转到 `viceme-paid-skill`、商家创作命令、平台生成的交易型购买 Skill 或云端 Runtime。一个可下载版本就是一个本地 Skill 包和一个独立 Product；用户只拥有自己购买的 Product。
 
 1. 接受 Product ID 或 ViceMe 作品标准链接。运行 `viceme skill detail <product-id-or-work-url>`，按明确的 `sortOrder` 展示所有版本。作品链接默认选择第一个免费版；没有免费版时选择排序最前的付费版。用户选择其他版本时使用精确的 `?product=<product-id>`。不得按价格猜测版本层级，也不得声称购买一个版本会包含另一个版本。
 2. 运行 `viceme skill access <selected-product-id-or-work-url>`。

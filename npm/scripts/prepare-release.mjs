@@ -70,7 +70,7 @@ export function selectBump(commits) {
 export const officialSkillNames = [
   "viceme-shared",
   "viceme-creator-onboarding",
-  "viceme-publish",
+  "viceme-paid-skill",
   "viceme-skill-use",
   "viceme-access",
   "viceme-tip",

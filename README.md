@@ -166,7 +166,8 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | Skill | Use it when you want to... |
 | --- | --- |
 | `viceme-shared` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
-| `viceme-publish` | publish a downloadable Skill, creator website Work, or an owned Merchant service or physical-product definition with its optional public Product and generated purchase Skill. |
+| `viceme-paid-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
+| `viceme-access` | integrate an existing website access configuration into host code after the shared creator qualification check. |
 | `viceme-tip` | verify a Website Work, activate an Origin-bound Website Widget, and add hosted tips to one page. |
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
