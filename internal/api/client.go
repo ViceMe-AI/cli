@@ -118,15 +118,15 @@ func (c *Client) GetMerchantOnboarding(ctx context.Context) (CurrentMerchantOnbo
 	return response, err
 }
 
-func (c *Client) CreateMerchantApplication(ctx context.Context, clientRequestID, displayName, handle string) (MerchantOnboarding, error) {
+func (c *Client) CreateMerchantApplication(ctx context.Context, clientRequestID string, displayName, handle *string) (MerchantOnboarding, error) {
 	var response MerchantOnboarding
 	payload := map[string]any{"clientRequestId": clientRequestID}
 	// displayName/handle 均可由服务端派生；空值不发送（最少提问申请链路）。
-	if trimmed := strings.TrimSpace(displayName); trimmed != "" {
-		payload["displayName"] = trimmed
+	if displayName != nil {
+		payload["displayName"] = *displayName
 	}
-	if trimmed := strings.TrimSpace(handle); trimmed != "" {
-		payload["handle"] = trimmed
+	if handle != nil {
+		payload["handle"] = *handle
 	}
 	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/onboarding/applications", payload, &response, "@stored")
 	return response, err

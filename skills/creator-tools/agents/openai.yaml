@@ -1,0 +1,4 @@
+interface:
+  display_name: "创作者工具"
+  short_description: "安装、登录并诊断 ViceMe 创作者 CLI"
+  default_prompt: "使用 $creator-tools 安装 ViceMe 并检查我的登录状态。"

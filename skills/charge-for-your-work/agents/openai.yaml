@@ -1,0 +1,4 @@
+interface:
+  display_name: "让网站开始收费"
+  short_description: "把已发布的付费解锁接入创作者网站"
+  default_prompt: "使用 $charge-for-your-work 将已配置的关注或付费解锁接入现有网站，并复用统一的创作者资格检查。"

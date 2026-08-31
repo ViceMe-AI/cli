@@ -1,4 +1,0 @@
-interface:
-  display_name: "申请成为 ViceMe 创作者"
-  short_description: "收集必要资料，申请或认领创作者身份并处理审核状态"
-  default_prompt: "使用 $viceme-creator-onboarding 帮我申请或认领 ViceMe 创作者身份。"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "申请创作者资格"
+  short_description: "直接申请创作者，或为其他玩法统一检查创作者资格"
+  default_prompt: "使用 $become-a-creator 帮我申请成为 ViceMe 创作者。"

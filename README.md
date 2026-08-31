@@ -165,12 +165,15 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 
 | Skill | Use it when you want to... |
 | --- | --- |
-| `viceme-shared` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
-| `viceme-creator-onboarding` | confirm creator eligibility, apply for a Merchant account, or claim a supported creator channel. |
-| `viceme-publish` | publish a downloadable Skill, creator website Work, or an owned Merchant service or physical-product definition with its optional public Product and generated purchase Skill. |
-| `viceme-skill-use` | choose, purchase, install, and continue with a published Skill version. |
-| `viceme-access` | add host-native login, follow, and paid feature entry points to an existing creator website Work. |
-| `viceme-engagement` | verify a Website Work and add hosted danmaku, tips, or both through one SDK access resource and official loader. |
+| `creator-tools` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
+| `become-a-creator` | apply for, claim, or check creator qualification for every creator workflow. |
+| `sell-a-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
+| `charge-for-your-work` | integrate an existing website access configuration into host code after the shared creator qualification check. |
+| `let-people-interact` | verify a Website Work, activate an Origin-bound Website Widget, and add hosted danmaku and tips to one page. |
+
+`let-others-make-a-copy` is the reserved public name for remix delivery, but no official Skill is
+available until that product workflow is implemented. Buyer-side `viceme-skill-use` keeps its
+existing name because it is not a creator workflow.
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
 owns deterministic local work and API calls. This separation lets an Agent

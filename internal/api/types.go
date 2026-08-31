@@ -8,6 +8,7 @@ type DeviceAuthorizationRequest struct {
 	ClientName string   `json:"clientName"`
 	CLIVersion string   `json:"cliVersion"`
 	Scopes     []string `json:"scopes"`
+	Purpose    string   `json:"purpose,omitempty"`
 }
 
 type DeviceAuthorization struct {

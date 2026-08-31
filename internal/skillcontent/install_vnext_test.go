@@ -108,17 +108,17 @@ func TestAutoInstallsDetectedAgentsAndFallback(t *testing.T) {
 func TestInstallSetActivatesAllOfficialSkillsTogether(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	writeTestSkill(t, root, "viceme-shared")
-	writeTestSkill(t, root, "viceme-creator-onboarding")
-	writeTestSkill(t, root, "viceme-publish")
+	writeTestSkill(t, root, "creator-tools")
+	writeTestSkill(t, root, "become-a-creator")
+	writeTestSkill(t, root, "sell-a-skill")
 	writeTestSkill(t, root, "viceme-skill-use")
-	writeTestSkill(t, root, "viceme-access")
-	writeTestSkill(t, root, "viceme-engagement")
+	writeTestSkill(t, root, "charge-for-your-work")
+	writeTestSkill(t, root, "let-people-interact")
 	home := t.TempDir()
 	environment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
 	bundle := New(os.DirFS(root))
 
-	skillNames := []string{"viceme-shared", "viceme-creator-onboarding", "viceme-publish", "viceme-skill-use", "viceme-access", "viceme-engagement"}
+	skillNames := []string{"creator-tools", "become-a-creator", "sell-a-skill", "viceme-skill-use", "charge-for-your-work", "let-people-interact"}
 	reports := bundle.InstallSet(skillNames, "agents", environment)
 	if len(reports) != len(skillNames) {
 		t.Fatalf("transaction did not report every official Skill: %#v", reports)

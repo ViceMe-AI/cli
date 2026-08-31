@@ -59,8 +59,42 @@ func TestLegacyRetiredSkillMigrationsMatchAuditedHistory(t *testing.T) {
 		t.Fatalf("legacy migration provenance must remain the audited 34 tags and 41 commits: tags=%d commits=%d", tagCount, commitCount)
 	}
 
-	aggregated := make(map[string]bool, len(catalog))
+	publishedExpectedCounts := map[string]int{
+		"viceme-access":             4,
+		"viceme-creator-onboarding": 2,
+		"viceme-danmaku":            19,
+		"viceme-engagement":         5,
+		"viceme-publish":            28,
+		"viceme-shared":             28,
+		"viceme-tip":                10,
+	}
+	publishedCounts := make(map[string]int)
+	for _, identity := range publishedTagRetiredSkillMigrations {
+		publishedCounts[identity.Name]++
+		if identity.Provenance != "" {
+			t.Fatalf("generated published-tag identity unexpectedly embeds provenance: %#v", identity)
+		}
+		identity.Provenance = "tag:v" + identity.SkillVersion
+		if err := skillcontent.ValidateLegacyRetiredSkillIdentity(identity); err != nil {
+			t.Fatalf("invalid published-tag migration identity: %v", err)
+		}
+	}
+	if len(publishedTagRetiredSkillMigrations) != 96 || !reflect.DeepEqual(publishedCounts, publishedExpectedCounts) {
+		t.Fatalf("published-tag migration catalog drifted: total=%d counts=%#v", len(publishedTagRetiredSkillMigrations), publishedCounts)
+	}
+
+	expectedRetiredNames := map[string]bool{
+		"viceme-shared":             true,
+		"viceme-creator-onboarding": true,
+		"viceme-publish":            true,
+		"viceme-paid-skill":         true,
+		"viceme-access":             true,
+		"viceme-engagement":         true,
+		"viceme-danmaku":            true,
+		"viceme-tip":                true,
+	}
 	retiredNames := make(map[string]bool, len(retiredOfficialSkills))
+	aggregated := make(map[string]bool)
 	for _, retired := range retiredOfficialSkills {
 		if retiredNames[retired.Name] {
 			t.Fatalf("retired official Skill is duplicated: %s", retired.Name)
@@ -72,21 +106,23 @@ func TestLegacyRetiredSkillMigrationsMatchAuditedHistory(t *testing.T) {
 			}
 		}
 		for _, identity := range retired.LegacyMigrations {
-			key := legacyMigrationKey(identity)
-			if !catalog[key] {
-				t.Fatalf("retirement wiring contains an unaudited legacy identity: %#v", identity)
+			if err := skillcontent.ValidateLegacyRetiredSkillIdentity(identity); err != nil {
+				t.Fatalf("invalid wired retirement identity: %v", err)
 			}
+			key := legacyMigrationKey(identity)
 			if aggregated[key] {
 				t.Fatalf("retirement wiring repeats a legacy identity: %#v", identity)
 			}
 			aggregated[key] = true
 		}
 	}
-	if !reflect.DeepEqual(aggregated, catalog) {
-		t.Fatal("retirement wiring does not include every audited legacy identity exactly once")
+	for key := range catalog {
+		if !aggregated[key] {
+			t.Fatalf("retirement wiring omitted audited origin/dev identity: %q", key)
+		}
 	}
-	if len(retiredNames) != len(expectedCounts) {
-		t.Fatalf("retirement wiring contains unexpected Skills: %#v", retiredNames)
+	if !reflect.DeepEqual(retiredNames, expectedRetiredNames) {
+		t.Fatalf("retirement wiring contains unexpected Skill names: %#v", retiredNames)
 	}
 
 	sort.Strings(canonical)

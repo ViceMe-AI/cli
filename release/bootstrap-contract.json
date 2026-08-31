@@ -8,12 +8,12 @@
   "checksumLayout": "{asset}.sha256",
   "latestLayout": "latest",
   "skills": [
-    "viceme-shared",
-    "viceme-creator-onboarding",
-    "viceme-publish",
+    "creator-tools",
+    "become-a-creator",
+    "sell-a-skill",
     "viceme-skill-use",
-    "viceme-access",
-    "viceme-engagement"
+    "charge-for-your-work",
+    "let-people-interact"
   ],
   "fallbackPackage": "@viceme-ai/cli"
 }

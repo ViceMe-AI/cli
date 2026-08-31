@@ -43,17 +43,17 @@
     <main>
       <h1>创作者作品</h1>
       <p>这是一个独立部署的单 HTML 创作者页面。</p>
-      <div id="viceme-engagement"></div>
+      <div id="viceme-interaction"></div>
     </main>
 
-    <!-- 使用当前固定 Profile 与 SDK access 返回的精确值替换全部占位符；不得手工推导地址、区域或特性。 -->
+    <!-- 只使用当前 CLI 上下文、已发布 Website Work 与 SDK access 返回的精确 workKey 替换全部占位符；不得手工推导地址或区域。 -->
     <script
       defer
       src="REPLACE_WITH_SDK_SCRIPT_URL"
       data-viceme-work="REPLACE_WITH_WORK_KEY"
-      data-viceme-region="REPLACE_WITH_REGION"
-      data-viceme-features="REPLACE_WITH_FEATURES"
-      data-viceme-target="#viceme-engagement"
+      data-viceme-region="REPLACE_WITH_MARKET_REGION"
+      data-viceme-features="danmaku,tip"
+      data-viceme-target="#viceme-interaction"
       data-viceme-theme="auto"
     ></script>
   </body>

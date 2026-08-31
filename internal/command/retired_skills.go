@@ -85,6 +85,12 @@ var legacyRetiredOfficialSkillMigrations = []skillcontent.LegacyRetiredSkillIden
 }
 
 var retiredOfficialSkills = []skillcontent.RetiredSkill{
+	{Name: "viceme-shared", LegacyMigrations: legacyMigrationsFor("viceme-shared")},
+	{Name: "viceme-creator-onboarding", LegacyMigrations: legacyMigrationsFor("viceme-creator-onboarding")},
+	{Name: "viceme-publish", LegacyMigrations: legacyMigrationsFor("viceme-publish")},
+	{Name: "viceme-paid-skill"},
+	{Name: "viceme-access", LegacyMigrations: legacyMigrationsFor("viceme-access")},
+	{Name: "viceme-engagement", LegacyMigrations: legacyMigrationsFor("viceme-engagement")},
 	{Name: "viceme-danmaku", LegacyMigrations: legacyMigrationsFor("viceme-danmaku")},
 	{Name: "viceme-tip", LegacyMigrations: legacyMigrationsFor("viceme-tip")},
 }
@@ -95,6 +101,15 @@ func legacyMigrationsFor(name string) []skillcontent.LegacyRetiredSkillIdentity 
 		if identity.Name == name {
 			result = append(result, identity)
 		}
+	}
+	for _, identity := range publishedTagRetiredSkillMigrations {
+		if identity.Name != name || name == "viceme-danmaku" || name == "viceme-tip" {
+			continue
+		}
+		if identity.Provenance == "" {
+			identity.Provenance = "tag:v" + identity.SkillVersion
+		}
+		result = append(result, identity)
 	}
 	return result
 }

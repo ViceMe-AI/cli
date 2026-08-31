@@ -17,12 +17,12 @@ import (
 )
 
 var officialSkillNames = []string{
-	"viceme-shared",
-	"viceme-creator-onboarding",
-	"viceme-publish",
+	"creator-tools",
+	"become-a-creator",
+	"sell-a-skill",
 	"viceme-skill-use",
-	"viceme-access",
-	"viceme-engagement",
+	"charge-for-your-work",
+	"let-people-interact",
 }
 
 type installNextStep struct {
