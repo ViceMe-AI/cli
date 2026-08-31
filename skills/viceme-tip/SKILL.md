@@ -1,14 +1,14 @@
 ---
 name: viceme-tip
-description: Enable open ViceMe tips for any public merchant Work, then integrate the official UI or a Headless host-owned UI with permanent test and live Work keys.
+description: Enable open ViceMe tips for any public merchant Work without making the host page a Website Work, then integrate the official UI or a Headless host-owned UI with permanent test and live Work keys.
 ---
 
 # Integrate ViceMe Tips
 
 Build the smallest open-tip integration for one existing Work. Read
 [integration-contract.md](references/integration-contract.md) before editing the
-host. A Work is the only tip target; Website ownership and Commerce Application
-resources are not default prerequisites.
+host. A Work is the only tip target. Standalone Tip performs no host ownership
+verification and requires no Commerce Application.
 
 ## Workflow
 
@@ -27,7 +27,9 @@ resources are not default prerequisites.
    <merchant-id>`. A candidate may have any Work kind. It is eligible only when
    its response shows `owner.kind: MERCHANT`, the matching Merchant account,
    and `status: PUBLISHED`. Show the eligible Works and ask the user to confirm
-   the selected Work before changing its tip feature.
+   the selected Work before changing its tip feature. Treat the embedding page
+   and selected Work as separate resources. Do not infer the Work kind from the
+   embedding page, its repository, or its domain.
 4. Ask the user to choose the official UI or Headless before any Work
    publication, SDK access create/update, or host edit. First prove that the
    exact `0.4.0` Tip release is complete in both publication regions. Every
@@ -55,11 +57,14 @@ resources are not default prerequisites.
    `/v1`, another version, a declarative loader, any browser global, or copied
    SDK source. Only after the complete dual-region preflight and any selected
    npm check succeed, continue to Work publication or any later mutation.
-5. If no eligible Work exists, stop the tip setup and load `viceme-publish`.
-   Follow that Skill's authoritative publication route for the user's actual
-   deliverable through a public Work, then return here with the resulting Work
-   ID. Do not invent a Website request or duplicate publication JSON inside
-   this Skill.
+5. If no eligible Work exists, ask which actual creation or offering will
+   receive tips, stop the tip setup, and load `viceme-publish`. Follow that
+   Skill's authoritative publication route for the selected deliverable through
+   a public Work, then return here with the resulting Work ID. A page whose only
+   role is hosting Tip UI is not the deliverable. Do not create a Website Work
+   merely to unlock Tip or duplicate publication JSON inside this Skill. If the
+   user independently chooses the website itself as the Work, explain that its
+   ownership verification belongs to Website publication rather than Tip.
 6. Read the current resource with `viceme --profile <profile> merchant work
    sdk-access get <work-id> --merchant <merchant-id>`. Do not write yet. When it
    exists, snapshot its complete feature set, status, and exact `configVersion`
@@ -85,8 +90,8 @@ resources are not default prerequisites.
    Create returns both permanent public identifiers at once. Record
    `keys.test` and `keys.live`; neither is a credential. Update and disable
    never rotate them. There is no rotate command.
-8. Integrate the selected path below. Never create a Commerce Application as
-   part of the default integration.
+8. Integrate the selected path below. Standalone Tip creates neither Website
+   ownership verification nor a Commerce Application.
 
 ## Official UI
 

@@ -11,6 +11,12 @@ PUBLISHED Merchant Work
     └── keys.live = wrk_live_...
 ```
 
+The embedding page and selected Work are independent resources. Hosting Tip UI
+does not turn that page into a Website Work, and standalone Tip does not verify
+or claim ownership of the host. Select the target only from authoritative Work
+records. Website ownership verification remains a separate publication rule
+when the user independently chooses a website itself as the Work.
+
 The two Work keys are permanent public identifiers, not credentials. Creation
 issues both at once. Configuration updates and disable operations do not rotate
 them. Remove the `tip` feature from the Work's complete feature set to stop tips

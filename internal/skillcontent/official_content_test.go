@@ -219,6 +219,8 @@ func TestTipSkillTargetsAnyPublishedMerchantWorkWithoutOriginGate(t *testing.T) 
 		"owner.kind: MERCHANT",
 		"status: PUBLISHED",
 		"confirm the selected Work",
+		"embedding page and selected Work as separate resources",
+		"Do not infer the Work kind from the embedding page",
 		"choose the official UI or Headless",
 		"Only after the complete dual-region preflight",
 		"merchant work sdk-access get",
@@ -647,6 +649,8 @@ func TestTipIntegrationContractDefinesOpenValidationBoundary(t *testing.T) {
 		"permanent public identifiers",
 		"unverified Origin",
 		"optional Commerce Application",
+		"embedding page and selected Work are independent",
+		"does not verify or claim ownership of the host",
 		"never the full URL",
 		"do not use WeChat JSAPI",
 		"external browser or another available provider",
@@ -735,9 +739,11 @@ func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(publish)
+	text := strings.Join(strings.Fields(string(publish)), " ")
 	for _, required := range []string{
 		"A creator-owned website",
+		"A page used only to host Tip UI is integration context",
+		"only when the user explicitly wants that website represented as a ViceMe Work",
 		"website-workflow.md",
 		"verified Website Work",
 		"Publish no Product",

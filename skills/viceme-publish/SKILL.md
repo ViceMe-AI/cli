@@ -20,6 +20,11 @@ finish the selected publication route, then resume that integration Skill. This
 ordering applies equally to Skill packages, generic offerings, and Websites. A
 danmaku-only request may publish first and then load `viceme-danmaku`.
 
+A page used only to host Tip UI is integration context, not a website
+publication request. Enter the Website route only when the user explicitly
+wants that website represented as a ViceMe Work. Never infer Website publication
+from the presence of an HTML page, public Origin, or Tip embed request.
+
 Then identify what the buyer receives before creating anything:
 
 - A local AI Skill directory or ZIP whose bytes are the sold deliverable: read

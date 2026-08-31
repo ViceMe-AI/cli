@@ -277,6 +277,11 @@ Never copy an access token into the conversation.
 
 Run `viceme <command> --help` for the full flags and JSON fields.
 
+The page hosting Tip UI and the selected Work are separate resources. A Tip-only
+integration does not register the host as a Website Work or require host-domain
+verification. DNS ownership verification still applies when the user separately
+publishes the website itself as a Website Work or enables danmaku.
+
 Without matching optional trusted-source attribution, ViceMe still records the
 actual browser source as an unverified Origin; it does not reject an open tip.
 

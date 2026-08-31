@@ -252,6 +252,10 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 
 运行 `viceme <command> --help` 查看完整参数和 JSON 字段。
 
+承载赞赏 UI 的页面与被赞赏 Work 是两个独立资源。仅接入赞赏不会把宿主页登记为
+Website Work，也不要求验证宿主域名。只有用户另行把网站本身发布为 Website Work
+或启用弹幕时，才继续执行 DNS 所有权验证。
+
 没有匹配可选可信来源归因时，ViceMe 仍会把实际浏览器来源记录为未验证 Origin，
 不会因此拒绝开放赞赏。
 
