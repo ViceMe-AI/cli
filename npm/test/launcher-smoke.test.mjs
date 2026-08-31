@@ -144,14 +144,14 @@ test(
     assert.equal(result.data.skills.length, 6);
     assert.equal(result.data.skills.every((skill) => skill.all_succeeded), true);
     await stat(path.join(codexHome, "skills", "viceme-shared", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-creator-onboarding", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-publish", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "viceme-danmaku", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-skill-use", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "viceme-access", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "viceme-tip", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "viceme-engagement", "SKILL.md"));
     await stat(
       path.join(codexHome, "skills", "viceme-tip", "templates", "single-html.html"),
     );
-    await stat(path.join(codexHome, "skills", "viceme-danmaku", "references", "cdn-sdk.md"));
     await stat(path.join(configHome, "config.json"));
   },
 );

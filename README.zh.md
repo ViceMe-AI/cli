@@ -35,9 +35,8 @@
 | 能力 | ViceMe 提供的内容 |
 | --- | --- |
 | 发布 Skill | 校验本地 Skill 目录或 ZIP、设置人民币价格、上传、审核平台建议，并发布付费商品。 |
-| 发布网站 | 使用稳定 Work 身份登记创作者网站，并可附带网址、双语描述和封面。 |
-| 接入创作者访问 | 在原站接入登录、关注门槛和按功能独立定价的一次性访问权限。 |
-| 接入网站互动 | 创建创作者自有的公开弹幕 Work，绑定支持赞赏的 Creator App，并安装 CLI 生成的托管脚本。 |
+| 发布网站 | 使用稳定 Website Work 身份登记创作者网站并完成 DNS 所有权验证。 |
+| 接入网站互动 | 通过 Work SDK access、绑定 Origin 的 Website Widget 与官方 loader 接入托管弹幕和赞赏。 |
 | 配置 Agent | 把 CLI 与官方 Skills 作为同一个兼容版本安装、登录、更新、诊断和修复。 |
 | 安全恢复 | 网络或进程中断后继续原发布任务，不重复上传和创建商品。 |
 
@@ -152,11 +151,8 @@ npx --yes @viceme-ai/cli@latest install
 | Skill | 适用场景 |
 | --- | --- |
 | `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
-| `viceme-publish` | 发布本地 Skill 目录、ZIP 或创作者网站，并维护稳定作品身份。 |
-| `viceme-access` | 在不改变原站业务动作的前提下，接入原生登录、关注和一次性购买入口。 |
-| `viceme-danmaku` | 创建公开弹幕 Work，并安装 CLI 生成的托管 SDK 片段。 |
-| `viceme-tip` | 完成登录、绑定创作者作品与验证域名，并把 ViceMe 托管赞赏接入一个 HTML 页面。 |
-| `viceme-engagement` | 创建托管弹幕、绑定赞赏，并安装唯一权威的组合交互脚本。 |
+| `viceme-publish` | 发布可下载 Skill、创作者网站 Work，或把当前用户拥有的商家服务与实物定义引导为可选的公开 Product 和自动生成的购买 Skill。 |
+| `viceme-tip` | 验证 Website Work、激活绑定 Origin 的 Website Widget，并把托管赞赏接入页面。 |
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
 可以解释每一步决策，而相同的命令契约仍可在终端或自动化中复现。
@@ -211,7 +207,7 @@ viceme auth login
 ```
 
 `VICEME_API_BASE_URL` 只是 API-only 的单进程 CI / 调试覆盖，不是 Profile 状态；
-设置时禁止持久化登录和生成网站嵌入片段。远程自定义
+设置时禁止持久化登录。远程自定义
 Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以使用 HTTP。
 凭据按完整 Profile authority 隔离；Agent 不能因为另一个 Profile 已登录就擅自切换。
 
@@ -227,11 +223,6 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme version` | 显示 CLI 与随包 Skills 版本。 |
 | `viceme doctor` | 检查 CLI、当前 Profile、凭据、API readiness 和已安装官方 Skills。 |
 | `viceme auth status` | 显示当前 Profile 是否已登录。 |
-| `viceme website publish --path <目录> --name <名称> [--url <网址>] [--description-zh-cn ...] [--description-en-us ...] [--cover <图片>]` | 发布或更新网站，并通过 `.viceme/website.json` 保持稳定作品身份。 |
-| `viceme access init --website <目录> [--name <名称>] [--follow key] [--purchase key --price-minor 分]...` | 为已显式发布的网站配置关注和按功能独立定价的访问权限。 |
-| `viceme access init --name <名称> --danmaku` | 创建并激活创作者自有的公开托管弹幕 Work。 |
-| `viceme access inspect` / `viceme access apply` | 检查或显式协调绑定 Profile 的功能配置。 |
-| `viceme creator-app show <app-id> --work-key <work-key> --locale <locale>` | 校验两个自有资源，并按页面的 `zh-CN` 或 `en-US` 语言生成权威组合交互片段。 |
 | `viceme profile list` | 显示 Profile 的 API、Web 与市场 authority。 |
 | `viceme skill inspect --path <path>` | 无副作用校验本地 Skill。 |
 | `viceme skill listing prepare --path <path>` | 创建或恢复稳定的创作者私有预览，并保存本地绑定。 |
@@ -249,6 +240,13 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
 | `viceme update` | 同时更新 CLI 与匹配版本的官方 Skills。 |
+| `viceme merchant accounts` | 列出当前 User 通过 OWNER 成员关系经营的普通 MerchantAccount。 |
+| `viceme merchant work ...` | 创建、查看、更新和发布 Merchant Work，包括 Website Work。 |
+| `viceme merchant work website-verification ...` | 创建、查看、验证或撤销一个 Website Work 的 DNS 所有权。 |
+| `viceme merchant work sdk-access ...` | 创建、查看、更新、列出或禁用 Work 的托管、关注与付费 access。 |
+| `viceme merchant commerce-application ...` | 创建、查看、更新、激活或暂停绑定 Origin 的 Website Widget application。 |
+| `viceme merchant product ...` | 创建、编译、激活、暂停或归档 Product 及其生成的购买 Skill。 |
+| `viceme commerce ...` | 安装并运行签名购买 Skill，完成会话、报价、支付订单与同会话状态查询。 |
 
 运行 `viceme <command> --help` 查看完整参数和 JSON 字段。
 

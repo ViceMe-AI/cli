@@ -10,18 +10,21 @@ var (
 	// Version is replaced with -ldflags for release builds.
 	Version = "dev"
 	Commit  = "unknown"
+	// CommerceSkillTrustKeys is injected into official release binaries with
+	// -ldflags. Format: keyId:base64url-spki[,keyId:base64url-spki].
+	CommerceSkillTrustKeys = ""
 )
 
 const (
 	// ReleaseVersion is the source-tree and npm package version. Development
 	// builds still report Version=dev, but use ReleaseVersion for compatibility
 	// evaluation.
-	ReleaseVersion = "0.18.0"
+	ReleaseVersion = "0.19.0"
 	// SkillVersion is versioned independently so compatibility drift can be
 	// diagnosed even when the binary and Skill happen to ship together.
-	SkillVersion      = "0.18.0"
-	MinimumCLIVersion = "0.18.0"
-	CLICompatibility  = ">=0.18.0 <0.19.0"
+	SkillVersion      = "0.19.0"
+	MinimumCLIVersion = "0.19.0"
+	CLICompatibility  = ">=0.19.0 <0.20.0"
 )
 
 type Info struct {

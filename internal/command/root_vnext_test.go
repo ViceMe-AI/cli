@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -760,34 +761,54 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 
 func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 	t.Parallel()
-	const tipSkill = "viceme-tip"
-	foundTip := false
-	foundAccess := false
+	found := map[string]bool{"viceme-access": false, "viceme-tip": false}
 	for _, name := range officialSkillNames {
-		if name == "viceme-access" {
-			foundAccess = true
-		}
-		if name == tipSkill {
-			foundTip = true
+		if _, tracked := found[name]; tracked {
+			found[name] = true
 		}
 	}
-	if !foundTip || !foundAccess {
-		t.Fatalf("official Skill list omitted access or tip: %#v", officialSkillNames)
+	for name, included := range found {
+		if !included {
+			t.Fatalf("official Skill list omitted %s: %#v", name, officialSkillNames)
+		}
 	}
-	if _, err := skillcontent.New(cliembed.EmbeddedSkills()).Package(tipSkill); err != nil {
-		t.Fatalf("official Skill bundle omitted %s: %v", tipSkill, err)
+	if len(retiredOfficialSkills) != 0 {
+		t.Fatalf("active official Skills must not remain retired: %#v", retiredOfficialSkills)
+	}
+	for name := range found {
+		if _, err := skillcontent.New(cliembed.EmbeddedSkills()).Package(name); err != nil {
+			t.Fatalf("official Skill bundle omitted %s: %v", name, err)
+		}
 	}
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
-	template, _, err := bundle.Read(tipSkill, "templates/single-html.html")
+	template, _, err := bundle.Read("viceme-tip", "templates/single-html.html")
 	if err != nil {
 		t.Fatalf("official Skill bundle omitted the single HTML template: %v", err)
 	}
-	resolved := strings.ReplaceAll(string(template), "REPLACE_WITH_WIDGET_SCRIPT_URL", "https://viceme.example/widget/tip-embed.js")
-	if !strings.Contains(resolved, `src="https://viceme.example/widget/tip-embed.js"`) || strings.Contains(resolved, "https://https://") {
-		t.Fatalf("single HTML template does not accept the complete generated widget URL")
+	resolved := strings.ReplaceAll(string(template), "REPLACE_WITH_SDK_SCRIPT_URL", "https://viceme.example/viceme-sdk/v1/viceme.min.js")
+	if !strings.Contains(resolved, `src="https://viceme.example/viceme-sdk/v1/viceme.min.js"`) || strings.Contains(resolved, "https://https://") {
+		t.Fatalf("single HTML template does not accept the complete SDK URL")
 	}
-	if _, _, err := bundle.Read(tipSkill, "references/integration-contract.md"); err != nil {
+	if _, _, err := bundle.Read("viceme-tip", "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
+	}
+}
+
+func TestOfficialSkillNamesMatchEmbeddedBundle(t *testing.T) {
+	t.Parallel()
+	bundled, err := skillcontent.New(cliembed.EmbeddedSkills()).List()
+	if err != nil {
+		t.Fatalf("could not list the embedded Skill bundle: %v", err)
+	}
+	bundledNames := make([]string, 0, len(bundled))
+	for _, info := range bundled {
+		bundledNames = append(bundledNames, info.Name)
+	}
+	sort.Strings(bundledNames)
+	declared := append([]string(nil), officialSkillNames...)
+	sort.Strings(declared)
+	if !reflect.DeepEqual(declared, bundledNames) {
+		t.Fatalf("official Skill list drifted from the embedded bundle: declared %#v, bundled %#v", declared, bundledNames)
 	}
 }
 

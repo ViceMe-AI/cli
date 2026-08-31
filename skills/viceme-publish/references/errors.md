@@ -1,21 +1,24 @@
-# Publication error handling
+# 发布错误处理
 
-- `CREATOR_DISPLAY_NAME_REQUIRED`: repeat the same website publication with `--creator-display-name "<creator name>"`; the existing local website binding preserves the same `clientWorkId`.
-- `WEBSITE_PROFILE_MISMATCH`, `WEBSITE_BINDING_SCOPE_MISMATCH`, or `WEBSITE_REGION_MISMATCH`: restore the intended active CLI context. Do not overwrite the binding or create another work merely to bypass the mismatch.
-- `WEBSITE_IDENTITY_CONFLICT`: stop and inspect the existing binding and authoritative work response. Never replace the local `clientWorkId`, `workId`, or `workKey` with a newly invented identity.
-- `SKILL_PUBLICATION_PRICE_REQUIRED`: fetch and display the complete current listing details, then ask for the exact CNY price in fen together with any desired title, copy, or media changes. Never ask for price as a standalone question. Resume the same private Publication.
-- `SKILL_SECRET_DETECTED` or `SKILL_SENSITIVE_FILE`: stop and remove credentials or sensitive files from the package. Never print their contents.
-- `PUBLICATION_SOURCE_CHANGED`: the recovery package differs from the started publication; restore it or start a new publication.
-- `SKILL_PUBLICATION_REVIEW_CHANGED`: fetch and show the latest review, then obtain a new combined confirm-and-publish authorization for its new digest.
-- `SKILL_LISTING_MEDIA_REQUIRED`: upload a real cover and gallery image, fetch a fresh review, then submit a new Agent suggestion. Retry platform analysis only when that fallback was explicitly selected.
-- `SKILL_LISTING_DRAFT_CHANGED`: fetch a fresh authoritative review and regenerate the Agent suggestion from its `draftRevision`. Never replay the stale suggestion.
-- `SKILL_PUBLICATION_ANALYSIS_IN_PROGRESS`: an explicit platform fallback already owns this Draft. Wait for that same Publication to finish, then fetch a fresh review; do not submit a competing Agent suggestion.
-- `AUTHORIZATION_PENDING`: run a fresh `viceme auth login` in the active CLI context and keep that command active until browser authorization finishes.
-- `NOT_LOGGED_IN` or `token_expired`: use the `viceme-shared` login workflow in the active CLI context. Never inspect or switch to another stored environment during publishing.
-- `PUBLICATION_SCOPE_REQUIRED`: sign in again in the active CLI context to grant the required publication scopes.
-- `PUBLICATION_RECOVERY_PERMISSION_REQUIRED`: the command process cannot write the local ViceMe publication recovery directory. Request filesystem permission for the exact same command and retry it with the same source and price. Do not delete lock files and do not create another publication.
-- `SKILL_BINDING_PERMISSION_REQUIRED`: allow the exact command to write `.viceme/skill.json`, the adjacent ZIP sidecar, or the reported endpoint-scoped index directory, then retry with the same source identity.
-- `SKILL_BINDING_SCOPE_MISMATCH` or `SKILL_LISTING_BINDING_OWNER_MISMATCH`: do not inspect or switch environments and do not overwrite the original owner's Listing. Ask whether the user explicitly wants `--new-listing` for a separate work in the active CLI context.
-- `SKILL_LISTING_SOURCE_AMBIGUOUS`: show the candidate Listings, ask the user to choose, then use `skill listing bind`; never guess from title or filename.
+- 包校验错误一次列出多个问题时（消息里有 `Additional problems in the same Skill package:` 分节，每条前缀各自的错误码）：向用户逐条转述全部问题并一次性指导修复，全部修复后重试同一次发布；不得只修第一条。包内 `SKILL.md` 的 `name` 是硬性要求（Agent 识别与安装名来源），`description` 缺失不是问题——平台会自动从正文生成兜底简介，无需用户处理。
+- `SKILL_PUBLICATION_TITLE_TAKEN`：你已发布过另一个同名的 Skill，而这次的内容不是同一个 Skill。用一句白话问用户：“这个名字已经被你的另一个 Skill 占用了，要换一个名称吗？”用户给出新名称后，说明需要先修改 Skill 本身的名称（SKILL.md 里的 name），再从头发起一次新的发布；用户明确不换名称，或新名称仍然重复时，礼貌说明暂时无法发布并结束任务。不得自行给名称加数字后缀、编造新名称或静默重试。
+- `SKILL_PUBLICATION_PRICE_REQUIRED`：取得并展示当前完整上架信息，同时询问准确人民币分价以及希望修改的标题、文案或媒体。不得只问价格。继续同一私有 Publication。
+- `SKILL_SECRET_DETECTED` 或 `SKILL_SENSITIVE_FILE`：停止并从包中删除凭证或敏感文件，绝不打印内容。
+- `CHANNEL_ARCHIVE_RATE_LIMITED`：渠道归档下载触发平台限流（每用户 10 分钟 5 次）。这是重试风暴的信号，不是新问题。立即停止重试，用一句白话告知用户「刚才重试次数太多触发了平台限流，大约 10 分钟后自动恢复」，然后结束当前发布流程；恢复后由用户重新发起，幂等会接续未完成的发布。不得自行 sleep 等待后再试。
+- `PUBLICATION_SOURCE_CHANGED`：恢复包与开始发布时不同；恢复原包或开始新的发布。
+- `OAUTH_PROVIDER_NOT_CONFIGURED`：当前部署没有接好对应的外部账号登录，确定性重试不会恢复。立即结束整个任务，不得 sleep、轮询、再次运行渠道命令，也不得继续追问是否切换来源。最终答复只能是“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布。”这一句话；不得附加资格摘要、商家名称、替代来源、以后如何继续、下载到本地、目录、ZIP、绕过办法或问题。
+- `SKILL_PUBLICATION_REVIEW_CHANGED`：获取并展示最新预览，针对新 digest 重新取得“确认并发布”授权。
+- `SKILL_LISTING_MEDIA_REQUIRED`：上传真实封面和图库图片，获取新预览，再提交新的 Agent 建议。只有已明确选择平台分析兜底时才重试该兜底。
+- `SKILL_LISTING_DRAFT_CHANGED`：获取最新权威预览，根据其 `draftRevision` 重新生成 Agent 建议，不得重放旧建议。
+- `SKILL_PUBLICATION_ANALYSIS_IN_PROGRESS`：已明确选择的平台兜底正在处理该 Draft。等待同一 Publication 完成后获取新预览，不得并行提交 Agent 建议。
+- `AUTHORIZATION_PENDING`、`NOT_LOGGED_IN`、`token_expired`、`MERCHANT_COMMERCE_SCOPE_REQUIRED` 或 `PUBLICATION_SCOPE_REQUIRED`：停止当前发布并在同一 CLI 上下文重新调用 `$viceme-creator-onboarding`。由它完成一次等待式登录并重新确认商家；确认后才重试刚才的同一发布操作。不得在本发布流程自行启动第二套登录。
+- `MERCHANT_REQUIRED`：当前用户不拥有有效商家。停止当前发布并交回 `$viceme-creator-onboarding`；由它用白话说明并处理申请、认领或人工审核。本发布流程不得自行重复登录、查询申请或提交申请。
+- `MERCHANT_SELECTION_REQUIRED`：这个错误发生在创建发布记录之前。停止当前发布并交回 `$viceme-creator-onboarding`，由它展示可用名称并让用户选择。取得它返回的商家后，用相同来源和 `--merchant <merchant-account-id>` 重新发起刚才的发布命令；不得声称存在可恢复的原 Publication，本发布流程也不得自行查询或选择账户。
+- `MERCHANT_SUSPENDED`：先区分是否已经创建发布记录。新发布尚未创建记录时，交回 `$viceme-creator-onboarding` 选择其他有效商家，再用相同来源和所选 `--merchant <merchant-account-id>` 重新发起。恢复已有 Publication 时，原商家不可更换；停止并用白话说明需要等待工作人员恢复该商家。用户明确希望另起一次独立发布时，才可以确认后使用 `--new-listing` 开始新的发布；不得在同一 Publication 上静默切换商家。
+- `PUBLICATION_MERCHANT_CHANGED`：本地恢复状态、所选商家与服务端 Publication 不一致。不得覆盖恢复状态或创建替代项；检查同一 Publication 并解决所有权不一致。
+- `PUBLICATION_RECOVERY_PERMISSION_REQUIRED`：进程不能写本地发布恢复目录。为原命令申请准确的文件权限，并用同一来源和价格重试。不得删除锁文件或创建另一发布。
+- `SKILL_BINDING_PERMISSION_REQUIRED`：允许原命令写入 `.viceme/skill.json`、相邻 ZIP sidecar 或报告的端点范围索引目录，再用同一来源身份重试。
+- `SKILL_BINDING_SCOPE_MISMATCH` 或 `SKILL_LISTING_BINDING_OWNER_MISMATCH`：不得查看或切换环境，也不得覆盖原作者 Listing。询问用户是否明确希望使用 `--new-listing` 在当前 CLI 上下文创建独立 Work。
+- `SKILL_LISTING_SOURCE_AMBIGUOUS`：展示候选 Listings，请用户选择后使用 `skill listing bind`；不得根据标题或文件名猜测。
 
-If `retryable` is true, retry with bounded backoff and the same publication or client request identity. Otherwise change the input or state first.
+发布命令（包括首次创建）的读取或写入返回 `retryable=true` 时，使用本地已持久化的同一 Publication 或 client request identity 做有界退避重试；不得因为首次响应未返回 Publication ID 就改变输入或创建另一项。否则先改变输入或状态。登录、创作者资格、商家申请和商家账户读取的错误全部交回 `$viceme-creator-onboarding`，不得套用本发布错误说明或在发布流程中自行等待、轮询和重复检查。

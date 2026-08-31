@@ -1,4 +1,4 @@
 interface:
-  display_name: "Publish to ViceMe"
-  short_description: "Publish a Skill listing or creator website"
-  default_prompt: "Use $viceme-publish to publish this local work on ViceMe."
+  display_name: "在 ViceMe 发布"
+  short_description: "发布可下载 Skill、服务或其他一次性交付商品"
+  default_prompt: "使用 $viceme-publish 判断我要发布的内容，并完成正确的 ViceMe 发布流程。"

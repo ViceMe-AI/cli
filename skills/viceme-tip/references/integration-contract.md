@@ -1,57 +1,33 @@
-# ViceMe tip integration contract
+# ViceMe 打赏接入契约
 
-## Public boundary
+## 必需资源图
 
-A creator integration consists of one host-owned HTML page and one ViceMe script tag. The script renders the launcher in Shadow DOM and opens a ViceMe-hosted checkout iframe. The host must not copy checkout markup, call payment-provider APIs, or receive payment secrets.
-
-## Binding definition
-
-A work is ready only when all are true:
-
-1. the selected CLI Profile is authenticated as the creator;
-2. an External Creator App exists for the work;
-3. the exact public hostname appears as verified on that app;
-4. the HTML uses that app's generated Creator App ID and platform origin.
-
-An HTML `data-creator-app-id`, a local demo ID, or an unverified domain is not a binding.
-
-## Domain verification
-
-Creator Center supplies the verification URL/path and token. Its generated instructions are authoritative. A deployment may, for example, require a well-known URL shaped like:
+一次打赏接入恰好包含这些权威资源：
 
 ```text
-https://<creator-host>/.well-known/viceme-app-verification.txt
+PUBLISHED + VERIFIED Website Work
+├── ACTIVE SDK 访问（features 含 tip）
+└── ACTIVE PRODUCTION Website Widget 应用
+    ├── workId = Website Work ID
+    ├── origins = [Website canonical Origin]
+    ├── returnUrls = []
+    └── products = []
 ```
 
-Use the target stack's public-file or routing mechanism at the exact path Creator Center displays. Fetch the deployed URL and compare it with the value shown in Creator Center without printing the token into chat or persistent logs. Redirects to another origin and non-public hosts are invalid.
+Work 是身份。公开 `workKey` 定位托管运行时访问。Website Widget 应用授权支付入口与精确父 Origin；它不替代 Work，也不作为页面身份嵌入。
 
-## Embed contract
+## Origin
 
-```html
-<script
-  async
-  src="<generated-widget-script-url>"
-  data-creator-app-id="<creator-app-id>"
-  data-locale="<zh-CN-or-en-US>"
-></script>
-```
+规范 Origin 必须是小写规范 HTTPS，不含凭证、路径、查询、片段或尾部斜杠。Tip iframe 发送 `strict-origin` Referer，商店只在该精确 Origin 已注册时签发嵌入上下文。预览域名与生产域名是不同 Origin。
 
-Keep exactly one tag per Creator App. `creatorAppId` is public configuration, not a credential. Obtain the complete script URL and ID from Creator Center rather than deriving them from API URLs.
+## 运行时边界
+
+宿主只通过加载器传递 Work key、区域、特性集、目标容器和主题。不传金额、支付渠道、应用 ID、访问令牌或支付状态。商店拥有登录、下单、渠道协议、状态、结算与签名能力。
+
+框架在可信 resize 握手完成前不可交互。商店拥有支付面板，Escape 时先重置为初始金额表单再发出关闭。SDK 只接受预期商店 Origin 与 iframe 窗口的消息，绑定首个有效 Work UUID，并转发脱敏的关闭与支付通知。宿主无需为默认关闭行为添加监听器。界面能打开不代表支付已成交。
+
+宿主不得复制结账页面、调用支付渠道 API 或接收支付秘密；脚本在 Shadow DOM 中渲染入口并打开 ViceMe 托管的结账 iframe。
 
 ## CSP
 
-When a CSP exists, preserve it and add only the exact ViceMe platform origin to the directives the browser proves necessary. The embed requires the script origin and checkout iframe origin. Never add `*`, `unsafe-eval`, or a broad ViceMe subdomain wildcard as a shortcut.
-
-## Real verification
-
-The integration is complete only on the verified public HTTPS hostname:
-
-- HTML returns 200;
-- embed script returns JavaScript with 200;
-- launcher is visible and keyboard reachable;
-- launcher opens the hosted checkout for the expected work;
-- Escape closes the dialog and returns focus;
-- no CSP, frame, script, or widget errors occur;
-- the agent states whether real order creation/payment was exercised.
-
-Opening the UI is not proof that a payment settled. Keep checkout verification and real-money payment verification distinct.
+保留现有指令。只把精确 Profile Web Origin 加入确实需要的 script、connection 和 frame 指令。绝不使用通配符、宽泛 ViceMe 子域、`unsafe-eval` 或宿主自提供的支付脚本。

@@ -5,3 +5,4 @@ coverage.out
 /node_modules/
 /dist/
 /*.tgz
+.DS_Store

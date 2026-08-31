@@ -53,17 +53,12 @@ Do not replace an existing ViceMe Profile or endpoint. Repeating this contract f
 
 ## Health check
 
-Run `viceme doctor` and parse its JSON result. If it fails, report the structured error code, retryability, and hint. Do not log in merely to finish installation. Login is required only when the user later starts an authenticated or protected action.
+Run `viceme doctor` and parse its JSON result. If it fails, report the structured error code, retryability, and hint. Do not log in merely to finish installation.
 
-On success, tell the user:
+On success, return only this concise result to the instruction that invoked this contract:
 
 ```text
-ViceMe is ready. It can now:
-1. Publish a Skill ZIP or the current Skill project.
-2. View or continue a Skill publication in progress.
-3. Inspect a local Skill package.
-
-Send me the ZIP, or say “publish the current project to ViceMe” from a Skill project.
+ViceMe CLI v{{VERSION}} is ready and its health check passed. Return to the caller.
 ```
 
-When the user starts publishing, inspect locally first. Upload authorization, review confirmation, and final public publication remain separate explicit user decisions.
+This document installs the ViceMe CLI only. Never interpret it as instructions for any login, payment, upload, or other business action; the calling instruction owns what happens next.

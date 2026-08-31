@@ -26,6 +26,7 @@ type Environment struct {
 	CodexHome          string
 	ClaudeConfigDir    string
 	WorkBuddyConfigDir string
+	AgentsSkillsDir    string
 	ConfigDir          string
 }
 
@@ -36,6 +37,7 @@ func DefaultEnvironment() Environment {
 		CodexHome:          os.Getenv("CODEX_HOME"),
 		ClaudeConfigDir:    os.Getenv("CLAUDE_CONFIG_DIR"),
 		WorkBuddyConfigDir: os.Getenv("WORKBUDDY_CONFIG_DIR"),
+		AgentsSkillsDir:    os.Getenv("VICEME_AGENTS_SKILLS_DIR"),
 		ConfigDir:          defaultConfigDir(home),
 	}
 }
@@ -843,11 +845,15 @@ func resolveTargets(skillName, target string, environment Environment, _ bool) (
 	if workBuddyHome == "" {
 		workBuddyHome = filepath.Join(environment.Home, ".workbuddy")
 	}
+	agentsSkillsDir := environment.AgentsSkillsDir
+	if agentsSkillsDir == "" {
+		agentsSkillsDir = filepath.Join(environment.Home, ".agents", "skills")
+	}
 	known := map[string]targetPath{
 		"codex":     {name: "codex", path: filepath.Join(codexHome, "skills", skillName)},
 		"claude":    {name: "claude", path: filepath.Join(claudeHome, "skills", skillName)},
 		"workbuddy": {name: "workbuddy", path: filepath.Join(workBuddyHome, "skills", skillName)},
-		"agents":    {name: "agents", path: filepath.Join(environment.Home, ".agents", "skills", skillName)},
+		"agents":    {name: "agents", path: filepath.Join(agentsSkillsDir, skillName)},
 	}
 	if target != "auto" {
 		resolved, ok := known[target]
@@ -1073,11 +1079,22 @@ func copyTree(source fs.FS, root, destination string) error {
 		if entry.IsDir() {
 			return os.MkdirAll(outPath, 0o755)
 		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("copy Skill contains a link or special file: %s", name)
+		}
 		data, err := fs.ReadFile(source, name)
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(outPath, data, 0o644)
+		mode := os.FileMode(0o644)
+		if info.Mode().Perm()&0o111 != 0 {
+			mode = 0o755
+		}
+		return os.WriteFile(outPath, data, mode)
 	})
 }
 

@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
@@ -33,13 +34,19 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
 	var tokenPolls atomic.Int32
 	var revoked atomic.Bool
+	var requestedScopes []string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
 		case "/v1/cli/device-authorizations":
+			var authorizationRequest api.DeviceAuthorizationRequest
+			if err := json.NewDecoder(request.Body).Decode(&authorizationRequest); err != nil {
+				t.Fatalf("decode device authorization request: %v", err)
+			}
+			requestedScopes = append([]string(nil), authorizationRequest.Scopes...)
 			writeJSONResponse(writer, map[string]any{
 				"deviceCode": "device-code", "userCode": "ABCD-EFGH",
-				"verificationUri":         "https://viceme.cn/zh-CN/cli/authorize",
-				"verificationUriComplete": "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH",
+				"verificationUri":         "https://viceme.cn/cli/authorize",
+				"verificationUriComplete": "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH",
 				"expiresIn":               600, "interval": 1,
 			})
 		case "/v1/cli/device-authorizations/token":
@@ -50,7 +57,10 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 			writeJSONResponse(writer, map[string]any{
 				"status": "authorized", "accessToken": accessToken, "tokenType": "Bearer",
 				"expiresAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
-				"scopes":    []string{"profile:read", "skill-publication:read", "skill-publication:write"},
+				"scopes": []string{
+					"profile:read", "skill-publication:read", "skill-publication:write",
+					"merchant-commerce:read", "merchant-commerce:write",
+				},
 			})
 		case "/v1/cli/auth/status":
 			if request.Header.Get("Authorization") != "Bearer "+accessToken {
@@ -60,8 +70,11 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 			writeJSONResponse(writer, map[string]any{
 				"authenticated": true,
 				"user":          map[string]any{"id": "55555555-5555-4555-8555-555555555555", "displayName": "Creator", "avatarUrl": nil},
-				"scopes":        []string{"profile:read", "skill-publication:read", "skill-publication:write"},
-				"expiresAt":     time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+				"scopes": []string{
+					"profile:read", "skill-publication:read", "skill-publication:write",
+					"merchant-commerce:read", "merchant-commerce:write",
+				},
+				"expiresAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
 			})
 		case "/v1/cli/auth/logout":
 			revoked.Store(true)
@@ -119,7 +132,14 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	if tokenPolls.Load() < 2 {
 		t.Fatalf("device login returned before authorization completed: polls=%d", tokenPolls.Load())
 	}
-	if !strings.Contains(stderr.String(), "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH") {
+	expectedScopes := []string{
+		"profile:read", "skill-publication:read", "skill-publication:write",
+		"merchant-commerce:read", "merchant-commerce:write", "skill-use:read",
+	}
+	if strings.Join(requestedScopes, ",") != strings.Join(expectedScopes, ",") {
+		t.Fatalf("device login requested wrong scopes: got=%v want=%v", requestedScopes, expectedScopes)
+	}
+	if !strings.Contains(stderr.String(), "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH") {
 		t.Fatalf("complete browser authorization URL was not shown: stderr=%q", stderr.String())
 	}
 	if strings.Contains(strings.ToLower(stderr.String()), "enter code") {
@@ -167,7 +187,7 @@ func TestDeviceLoginPersistenceFailureUsesCamelCasePublicDetails(t *testing.T) {
 		case "/v1/cli/device-authorizations":
 			writeJSONResponse(writer, map[string]any{
 				"deviceCode": "device-code", "userCode": "ABCD-EFGH",
-				"verificationUri": "https://viceme.cn/zh-CN/cli/authorize", "verificationUriComplete": "https://viceme.cn/zh-CN/cli/authorize?user_code=ABCD-EFGH",
+				"verificationUri": "https://viceme.cn/cli/authorize", "verificationUriComplete": "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH",
 				"expiresIn": 600, "interval": 1,
 			})
 		case "/v1/cli/device-authorizations/token":

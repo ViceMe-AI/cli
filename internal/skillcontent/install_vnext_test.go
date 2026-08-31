@@ -46,6 +46,36 @@ func TestExplicitAgentInstallAlsoWritesAgentsFallbackAndRepairsDrift(t *testing.
 	}
 }
 
+func TestExplicitAgentInstallHonorsIsolatedAgentsSkillsDirectory(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeTestSkill(t, root, "viceme-test")
+	home := t.TempDir()
+	agentsSkillsDir := filepath.Join(t.TempDir(), "shared-agent-skills")
+	environment := Environment{
+		Home:            home,
+		CodexHome:       filepath.Join(home, ".codex"),
+		AgentsSkillsDir: agentsSkillsDir,
+		ConfigDir:       filepath.Join(home, ".viceme-cli"),
+	}
+	bundle := New(os.DirFS(root))
+	report := bundle.Install("viceme-test", "codex", environment)
+	if !report.AllSucceeded {
+		t.Fatalf("install failed: %#v", report)
+	}
+	for _, directory := range []string{
+		filepath.Join(environment.CodexHome, "skills", "viceme-test"),
+		filepath.Join(agentsSkillsDir, "viceme-test"),
+	} {
+		if _, err := os.Stat(filepath.Join(directory, "SKILL.md")); err != nil {
+			t.Fatalf("missing installed Skill at %s: %v", directory, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "viceme-test")); !os.IsNotExist(err) {
+		t.Fatalf("default shared Agent directory was unexpectedly written: %v", err)
+	}
+}
+
 func TestAutoInstallsDetectedAgentsAndFallback(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
@@ -79,14 +109,13 @@ func TestInstallSetActivatesAllOfficialSkillsTogether(t *testing.T) {
 	root := t.TempDir()
 	writeTestSkill(t, root, "viceme-shared")
 	writeTestSkill(t, root, "viceme-publish")
-	writeTestSkill(t, root, "viceme-danmaku")
+	writeTestSkill(t, root, "viceme-access")
 	writeTestSkill(t, root, "viceme-tip")
-	writeTestSkill(t, root, "viceme-engagement")
 	home := t.TempDir()
 	environment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
 	bundle := New(os.DirFS(root))
 
-	skillNames := []string{"viceme-shared", "viceme-publish", "viceme-danmaku", "viceme-tip", "viceme-engagement"}
+	skillNames := []string{"viceme-shared", "viceme-publish", "viceme-access", "viceme-tip"}
 	reports := bundle.InstallSet(skillNames, "agents", environment)
 	if len(reports) != len(skillNames) {
 		t.Fatalf("transaction did not report every official Skill: %#v", reports)

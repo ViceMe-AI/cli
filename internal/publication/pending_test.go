@@ -31,8 +31,9 @@ func TestPendingAndIntentRoundTripUsesPrivateFiles(t *testing.T) {
 	}
 	pending := Pending{
 		PublicationID: intent.PublicationID, ClientRequestID: intent.ClientRequestID,
-		Fingerprint: fingerprint,
-		SourcePath:  "/tmp/skill", PriceMinor: intPointer(1), ArtifactDigest: "b" + fingerprint[1:],
+		MerchantAccountID: "99999999-9999-4999-8999-999999999999",
+		Fingerprint:       fingerprint,
+		SourcePath:        "/tmp/skill", PriceMinor: intPointer(1), ArtifactDigest: "b" + fingerprint[1:],
 	}
 	if err := store.Save(pending); err != nil {
 		t.Fatal(err)
