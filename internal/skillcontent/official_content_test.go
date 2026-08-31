@@ -118,7 +118,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			machine: []string{
 				"$viceme-creator-onboarding",
 				"MerchantAccountMember(role=OWNER)", "publication confirm", "publication publish", "reviewDigest",
-				"SKILL_LISTING_DRAFT_CHANGED", "priceMinor", "--new-listing",
+				"SKILL_LISTING_DRAFT_CHANGED", "priceMinor", "--new-listing", "merchant work sdk-access",
 			},
 			semantics: []string{
 				"公开且不可逆", "响应丢失时读取同一资源恢复", "支付成功与履约成功是两个不同状态",
@@ -136,10 +136,10 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "viceme-access",
 			machine: []string{
 				"access.require()", "access.getFeatures()", "<viceme-access-layer>", "FOLLOW_OWNER", "WORK_ENTITLEMENT",
-				"ACTIVE_CREATOR_SUBSCRIPTION", "window.open", "access.check()",
+				"Hosted Checkout", "DigitalEntitlement", "window.open", "access.check()", "$viceme-publish",
 			},
 			semantics: []string{
-				"只有 `access.check()` 能授予权限", "不得改变其参数、返回值、错误或副作用",
+				"登录不等于关注", "不得改变其参数、返回值、错误或副作用",
 			},
 		},
 		{
@@ -601,7 +601,6 @@ func TestInteractionSkillsDelegateCreatorQualification(t *testing.T) {
 	t.Parallel()
 
 	for _, relativePath := range []string{
-		"viceme-access/SKILL.md",
 		"viceme-danmaku/SKILL.md",
 		"viceme-engagement/SKILL.md",
 		"viceme-tip/SKILL.md",
@@ -1116,7 +1115,8 @@ func TestWebsitePublicationUsesCurrentWorkBoundary(t *testing.T) {
 		"网站——创作者自有网站",
 		"website-workflow.md",
 		"已验证的 Website Work",
-		"不为网站发布 Product",
+		"网站本身不创建 Product",
+		"同一发布流程中配置关注与付费解锁",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("publish Skill omitted the current website Work boundary %q", required)
@@ -1146,7 +1146,6 @@ func TestOfficialEngagementSkillsContainNoLegacyDomain(t *testing.T) {
 			"SdkWork",
 			"CreatorApp",
 			"creator-app",
-			"WEBSITE_WIDGET",
 			"commerce-application create",
 			"sdk-work:",
 			"creator-app:",
@@ -1159,6 +1158,61 @@ func TestOfficialEngagementSkillsContainNoLegacyDomain(t *testing.T) {
 			if strings.Contains(string(content), forbidden) {
 				t.Fatalf("embedded %s retained legacy term %q", relativePath, forbidden)
 			}
+		}
+	}
+	for _, relativePath := range []string{
+		"viceme-danmaku/SKILL.md",
+		"viceme-tip/SKILL.md",
+		"viceme-tip/references/integration-contract.md",
+		"viceme-engagement/SKILL.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatalf("read embedded %s: %v", relativePath, err)
+		}
+		if strings.Contains(string(content), "WEBSITE_WIDGET") {
+			t.Fatalf("embedded %s incorrectly uses Website paid-access infrastructure for hosted engagement", relativePath)
+		}
+	}
+}
+
+func TestWebsiteAccessConfigurationBelongsToPublish(t *testing.T) {
+	t.Parallel()
+
+	publish := readOfficialSkillBundle(t, "viceme-publish")
+	for _, required := range []string{
+		"merchant work sdk-access get",
+		"merchant work sdk-access create",
+		"merchant work sdk-access update",
+		"--expected-config-version",
+		"--clear-access",
+		"登录不等于关注",
+	} {
+		if !strings.Contains(publish, required) {
+			t.Fatalf("publish Skill omitted Website access publication contract %q", required)
+		}
+	}
+
+	access := readOfficialSkillBundle(t, "viceme-access")
+	for _, forbidden := range []string{
+		"viceme access",
+		".viceme/access.yaml",
+		"merchant work sdk-access",
+		"coverUrls",
+		"profile-covers",
+	} {
+		if strings.Contains(access, forbidden) {
+			t.Fatalf("access Skill still owns removed publication or cover contract %q", forbidden)
+		}
+	}
+	for _, required := range []string{
+		"只修改创作者网站的宿主代码",
+		"缺少发布结果或平台配置时立即交回 `$viceme-publish`",
+		"登录不等于关注",
+		"不展示最近作品封面",
+	} {
+		if !strings.Contains(access, required) {
+			t.Fatalf("access Skill omitted host-integration boundary %q", required)
 		}
 	}
 }

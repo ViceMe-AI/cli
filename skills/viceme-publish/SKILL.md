@@ -1,6 +1,6 @@
 ---
 name: viceme-publish
-description: 路由并完成当前可用的 ViceMe 创作者端发布。适用于从本地包、个人 GitHub 仓库或已验证的小红书 Skill 发布或更新可下载版本，发布交易型服务与商品，或发布创作者自有网站；创作者资格由 $viceme-creator-onboarding 负责。
+description: 路由并完成当前可用的 ViceMe 创作者端发布。适用于发布可下载 Skill、交易型服务与商品、创作者网站，以及为网站配置关注或付费解锁；创作者资格由 $viceme-creator-onboarding 负责。
 ---
 
 # 在 ViceMe 发布
@@ -26,11 +26,11 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时是终止性例外�
 
 所有已经开放的玩法都从发布入口开始，再进入对应内部路线：
 
-先检查原始请求是否同时包含赞赏。包含赞赏且当前流程尚未完成精确 SDK 发布预检时，必须先加载 `viceme-tip`；网站还同时包含弹幕时改由 `viceme-engagement` 完成预检。预检必须早于任何 Listing、Publication、Work、Product、Website verification、SDK access 或宿主页写入；失败就停止，不留下新的业务资源。若接入 Skill 已因缺少合格 Work 完成预检后回到这里，不得重复预检；完成真实作品发布后返回原接入 Skill。只承载赞赏 UI 的页面是接入上下文，不是网站发布请求；只有用户明确希望把网站本身作为 ViceMe Work 时才进入网站路线。弹幕但不含赞赏时可以先发布网站，再进入 `viceme-danmaku`。
+先检查原始请求是否包含赞赏。包含赞赏且当前流程尚未完成精确 `0.4.0` SDK 发布物预检时，必须先加载 `viceme-tip`；网站还同时包含弹幕时改由 `viceme-engagement` 完成预检。预检必须早于首次 Listing、Publication、Work、Product、Website verification、SDK access 或宿主页业务写入；失败就停止，不留下新的业务资源。若接入 Skill 已完成预检并因缺少合格 Work 回到这里，不得重复预检；完成真实作品发布后返回原接入 Skill。只承载 Tip UI 的宿主页是接入上下文，不能据此推断为 Website Work；只有用户明确希望把网站本身作为 ViceMe Work 时才进入网站路线。弹幕但不含赞赏时可以先发布网站，再进入 `viceme-danmaku`。
 
 - 玩法一——可下载 Skill：用户收到的是 Skill 包本身。完整阅读 [workflow.md](references/workflow.md)，使用 `skill publish` 和 `publication`。本地目录/ZIP、本人拥有的公开或私有 GitHub 仓库、已验证的小红书 Skill ID 都属于此路线。一个作品是一个 skill 组合：组合里的每个 skill 都是独立 Product、独立包和独立定价，对用户只说“组合里的 skill”，不使用“版本”“档位”等分层概念。
 - 玩法二——交易型 Skill：服务、实物/定制商品、预约类交付、官方服务或其他由商家定义的结果。完整阅读 [generic-product.md](references/generic-product.md)，使用交易架构的 Merchant Work/Product 流程。平台生成的购买 Skill 只绑定该 Product，不是玩法一的下载包。
-- 网站——创作者自有网站：完整阅读 [website-workflow.md](references/website-workflow.md)，创建已验证的 Website Work；不为网站发布 Product。赞赏或赞赏加弹幕已在写入前完成预检时，网站发布后回到原接入 Skill；仅弹幕则发布后进入 `viceme-danmaku`。
+- 网站——创作者自有网站：完整阅读 [website-workflow.md](references/website-workflow.md)，创建或复用已验证的 Website Work，并在同一发布流程中配置关注与付费解锁。网站本身不创建 Product；每个付费解锁功能由平台自动创建独立的非公开 Product。宿主代码接入交给 `$viceme-access`，它不得反向创建或修改发布配置。原请求只有赞赏时，真实网站发布后返回 `viceme-tip`；赞赏与弹幕同时存在时返回 `viceme-engagement`；只有弹幕时进入 `viceme-danmaku`。
 
 用户最终得到什么不明确时，只询问“用户收到可下载的 Skill/源码文件，还是一项服务或商品”。不得要求用户选择内部模型名。
 
