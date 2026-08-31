@@ -24,10 +24,15 @@ PUBLISHED Merchant Work
 每条路线都先检查两个发布区域的四个不可变 Tip 入口，避免接受只发布一部分的区域产物：
 
 ```bash
-test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/index.js)" = "200"
-test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js)" = "200"
-test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.ai/viceme-sdk/0.4.0/index.js)" = "200"
-test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js)" = "200"
+for asset_url in \
+  https://s3.viceme.cn/viceme-sdk/0.4.0/index.js \
+  https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js \
+  https://s3.viceme.ai/viceme-sdk/0.4.0/index.js \
+  https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js
+do
+  http_code="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' "$asset_url")" || exit 1
+  test "$http_code" = "200" || exit 1
+done
 ```
 
 每个 CDN 请求都必须在 15 秒内直接返回精确 `200`，不得跟随或接受重定向。官方 UI 与 CDN Headless 使用已检查的 CN ESM。Headless 也可以使用精确 npm 包；npm 路线还要求以下官方注册表命令精确返回 `0.4.0`：

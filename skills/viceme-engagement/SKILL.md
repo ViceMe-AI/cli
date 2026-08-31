@@ -16,17 +16,19 @@ description: 在同一个已验证 Website Work 上接入 ViceMe 托管弹幕与
 3. 在任何 Work 创建/更新、Website verification、SDK access 或页面写入前，请用户选择官方 Tip UI 或 Headless。首先证明精确 `0.4.0` Tip 发布物在两个区域完整可用，每条组合路线都要求：
 
    ```bash
-   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/index.js)" = "200"
-   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js)" = "200"
-   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.ai/viceme-sdk/0.4.0/index.js)" = "200"
-   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js)" = "200"
+   for asset_url in \
+     https://s3.viceme.cn/viceme-sdk/0.4.0/index.js \
+     https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js \
+     https://s3.viceme.ai/viceme-sdk/0.4.0/index.js \
+     https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js \
+     https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js
+   do
+     http_code="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' "$asset_url")" || exit 1
+     test "$http_code" = "200" || exit 1
+   done
    ```
 
-   官方 UI 与 CDN Headless 还要求不可变 CN Danmaku 入口：
-
-   ```bash
-   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/danmaku.js)" = "200"
-   ```
+   最后一项是官方 UI 与 CDN Headless 额外要求的不可变 CN Danmaku 入口。
 
    Headless 需要选择 npm 或 CDN ESM。npm 路线还要求官方注册表精确返回 `0.4.0`：
 

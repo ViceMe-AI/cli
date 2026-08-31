@@ -767,6 +767,9 @@ func TestTipBearingSkillsPinExactReleaseBeforeSDKMutation(t *testing.T) {
 			"--connect-timeout 5",
 			"--max-time 15",
 			"--write-out '%{http_code}'",
+			"for asset_url in",
+			`"$asset_url")" || exit 1`,
+			`test "$http_code" = "200" || exit 1`,
 			`= "200"`,
 			"不得跟随或接受重定向",
 			"npm view @viceme-ai/sdk@0.4.0 version --json",
@@ -878,6 +881,9 @@ func TestTipHostExamplesHidePaymentInternals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if !strings.Contains(string(template), "静态文档没有页面内卸载") || strings.Contains(string(template), "This static document") {
+		t.Fatal("单 HTML 模板没有保持中文单一来源")
+	}
 	examples = append(examples, string(template))
 
 	for index, example := range examples {
@@ -965,6 +971,9 @@ func TestTipBearingFlowsRequireCompleteOfficialReleaseBeforeMutation(t *testing.
 			"https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js",
 			"--max-time 15",
 			"--write-out '%{http_code}'",
+			"for asset_url in",
+			`"$asset_url")" || exit 1`,
+			`test "$http_code" = "200" || exit 1`,
 			`= "200"`,
 			"不得跟随或接受重定向",
 			"--fetch-timeout=15000 --fetch-retries=0",

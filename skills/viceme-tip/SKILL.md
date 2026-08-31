@@ -23,10 +23,15 @@ description: 为任意合格且已发布的 Merchant Work 启用开放赞赏，�
 4. 在任何 Work 创建/发布、Website verification、SDK access 写入或宿主页编辑前，请用户选择官方 UI 或 Headless。先证明精确 `0.4.0` Tip 发布物在两个发布区域都完整可用；每条路线都必须成功执行以下四个检查：
 
    ```bash
-   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/index.js)" = "200"
-   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js)" = "200"
-   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.ai/viceme-sdk/0.4.0/index.js)" = "200"
-   test "$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js)" = "200"
+   for asset_url in \
+     https://s3.viceme.cn/viceme-sdk/0.4.0/index.js \
+     https://s3.viceme.cn/viceme-sdk/0.4.0/tip.js \
+     https://s3.viceme.ai/viceme-sdk/0.4.0/index.js \
+     https://s3.viceme.ai/viceme-sdk/0.4.0/tip.js
+   do
+     http_code="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' "$asset_url")" || exit 1
+     test "$http_code" = "200" || exit 1
+   done
    ```
 
    官方 UI 与 CDN Headless 使用已检查的 CN ESM。选择 Headless 时再询问 npm 或 CDN ESM；npm 路线还要求官方注册表精确返回 `0.4.0`：

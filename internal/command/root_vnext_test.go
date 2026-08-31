@@ -805,7 +805,7 @@ func TestOfficialSkillBundleIncludesAllActiveSkills(t *testing.T) {
 		"const mountHandle = await mountTip(client, {",
 		"mountHandle.destroy();",
 		"client.destroy();",
-		"real component or route cleanup",
+		"组件或路由真实卸载",
 	} {
 		if !strings.Contains(templateText, required) {
 			t.Fatalf("single HTML template omitted %q", required)
