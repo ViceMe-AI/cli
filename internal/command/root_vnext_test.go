@@ -759,10 +759,17 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	}
 }
 
-func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
+func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 	t.Parallel()
 	found := map[string]bool{"charge-for-your-work": false, "let-people-interact": false}
+	retired := make(map[string]bool, len(retiredOfficialSkills))
+	for _, skill := range retiredOfficialSkills {
+		retired[skill.Name] = true
+	}
 	for _, name := range officialSkillNames {
+		if retired[name] {
+			t.Fatalf("official Skill list retained retired identity %s", name)
+		}
 		if _, tracked := found[name]; tracked {
 			found[name] = true
 		}
@@ -788,62 +795,6 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 	}
 	if _, _, err := bundle.Read("let-people-interact", "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
-	}
-}
-
-func TestRetiredOfficialSkillsPinEveryPublishedIdentity(t *testing.T) {
-	t.Parallel()
-	expectedCounts := map[string]int{
-		"viceme-access":             4,
-		"viceme-creator-onboarding": 2,
-		"viceme-danmaku":            19,
-		"viceme-engagement":         5,
-		"viceme-publish":            28,
-		"viceme-shared":             28,
-		"viceme-tip":                10,
-	}
-	latestRenamedDigests := map[string]string{
-		"viceme-access":             "sha256:61c8d709eb2eb6f9633743b6f61d255d5e633cd70e39021b5afbeef773116eb0",
-		"viceme-creator-onboarding": "sha256:91946936615d172268101242e7a5f09907703982621a90fc5e014b4b37e4c537",
-		"viceme-shared":             "sha256:e8b8a346a89bba8aedbb6ce48c861741a739a320e1e5eb27d3518bab86091ec2",
-		"viceme-tip":                "sha256:11097ff93b3e2abc73d34b7427ab52f9e1162d0455125162ded317c009093e94",
-	}
-	seenIdentities := map[string]bool{}
-	seenCounts := map[string]int{}
-	seenLatest := map[string]bool{}
-	for _, identity := range retiredOfficialSkills {
-		if err := skillcontent.ValidateRetiredSkillIdentity(identity); err != nil {
-			t.Fatalf("retired official Skill identity is invalid: %v", err)
-		}
-		for _, active := range officialSkillNames {
-			if identity.Name == active {
-				t.Fatalf("active official Skill %s must not be retired", active)
-			}
-		}
-		key := strings.Join([]string{
-			identity.Name,
-			identity.SkillVersion,
-			identity.MinimumCLIVersion,
-			identity.CLICompatibility,
-			identity.FullBundleDigest,
-			identity.EmbeddedContentDigest,
-		}, "\x00")
-		if seenIdentities[key] {
-			t.Fatalf("retired official Skill identity is duplicated: %s %s %s", identity.Name, identity.SkillVersion, identity.FullBundleDigest)
-		}
-		seenIdentities[key] = true
-		seenCounts[identity.Name]++
-		if latestRenamedDigests[identity.Name] == identity.FullBundleDigest && identity.SkillVersion == "0.20.0" {
-			seenLatest[identity.Name] = true
-		}
-	}
-	if !reflect.DeepEqual(seenCounts, expectedCounts) {
-		t.Fatalf("retirement table does not match published identity counts: got=%#v want=%#v", seenCounts, expectedCounts)
-	}
-	for name := range latestRenamedDigests {
-		if !seenLatest[name] {
-			t.Fatalf("latest published identity for renamed Skill %s is missing", name)
-		}
 	}
 }
 

@@ -70,11 +70,83 @@ func TestMarketplaceInstallPersistsProductProvenance(t *testing.T) {
 	if manifest.ProductID != "product-1" || manifest.ReleaseID != "release-1" {
 		t.Fatalf("install manifest lost provenance: %#v", manifest)
 	}
+	if _, err := os.Stat(filepath.Join(environment.ConfigDir, managedSkillRegistryFilename)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("marketplace installation wrote the official managed Skill registry: %v", err)
+	}
 
 	unchanged := bundle.InstallWithProvenance(provenanceTestSkill, "agents", environment, provenance)
 	if !unchanged.AllSucceeded || unchanged.Results[0].Status != "unchanged" {
 		t.Fatalf("same Product reinstall was not idempotent: %#v", unchanged)
 	}
+}
+
+func TestOfficialAndMarketplaceOwnershipGuardsAreSymmetric(t *testing.T) {
+	t.Parallel()
+
+	t.Run("official install preserves marketplace ownership", func(t *testing.T) {
+		t.Parallel()
+		environment := provenanceTestEnvironment(t)
+		bundle := provenanceTestBundle(t, "")
+		provenance := SkillProvenance{ProductID: "product-1", ReleaseID: "release-1"}
+		if report := bundle.InstallWithProvenance(provenanceTestSkill, "agents", environment, provenance); !report.AllSucceeded {
+			t.Fatalf("marketplace install fixture failed: %#v", report)
+		}
+		blocked := bundle.Install(provenanceTestSkill, "agents", environment)
+		if blocked.AllSucceeded || !strings.Contains(blocked.Results[0].Error, "marketplace installation") {
+			t.Fatalf("official install overwrote marketplace ownership: %#v", blocked)
+		}
+		manifest := readTestManifest(t, filepath.Join(environment.Home, ".agents", "skills", provenanceTestSkill))
+		if manifest.ProductID != provenance.ProductID || manifest.ReleaseID != provenance.ReleaseID {
+			t.Fatalf("blocked official install changed marketplace provenance: %#v", manifest)
+		}
+	})
+
+	t.Run("stale official registry still reserves a deleted path", func(t *testing.T) {
+		t.Parallel()
+		environment := provenanceTestEnvironment(t)
+		bundle := provenanceTestBundle(t, "")
+		if report := bundle.Install(provenanceTestSkill, "agents", environment); !report.AllSucceeded {
+			t.Fatalf("official install fixture failed: %#v", report)
+		}
+		destination := filepath.Join(environment.Home, ".agents", "skills", provenanceTestSkill)
+		if err := os.RemoveAll(destination); err != nil {
+			t.Fatal(err)
+		}
+		blocked := bundle.InstallWithProvenance(provenanceTestSkill, "agents", environment, SkillProvenance{ProductID: "product-1", ReleaseID: "release-1"})
+		if blocked.AllSucceeded || !strings.Contains(blocked.Results[0].Error, "official or legacy") {
+			t.Fatalf("marketplace install ignored stale official ownership: %#v", blocked)
+		}
+		if _, err := os.Stat(destination); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("blocked marketplace install recreated a reserved path: %v", err)
+		}
+	})
+
+	t.Run("stale official registry does not overwrite another config marketplace install", func(t *testing.T) {
+		t.Parallel()
+		environment := provenanceTestEnvironment(t)
+		bundle := provenanceTestBundle(t, "")
+		if report := bundle.Install(provenanceTestSkill, "agents", environment); !report.AllSucceeded {
+			t.Fatalf("official install fixture failed: %#v", report)
+		}
+		destination := filepath.Join(environment.Home, ".agents", "skills", provenanceTestSkill)
+		if err := os.RemoveAll(destination); err != nil {
+			t.Fatal(err)
+		}
+		marketplaceEnvironment := environment
+		marketplaceEnvironment.ConfigDir = filepath.Join(environment.Home, ".other-viceme-cli")
+		provenance := SkillProvenance{ProductID: "product-1", ReleaseID: "release-1"}
+		if report := bundle.InstallWithProvenance(provenanceTestSkill, "agents", marketplaceEnvironment, provenance); !report.AllSucceeded {
+			t.Fatalf("second config marketplace install fixture failed: %#v", report)
+		}
+		blocked := bundle.Install(provenanceTestSkill, "agents", environment)
+		if blocked.AllSucceeded || !strings.Contains(blocked.Results[0].Error, "marketplace installation") {
+			t.Fatalf("stale official registry overwrote another config marketplace install: %#v", blocked)
+		}
+		manifest := readTestManifest(t, destination)
+		if manifest.ProductID != provenance.ProductID || manifest.ReleaseID != provenance.ReleaseID {
+			t.Fatalf("blocked official repair changed marketplace provenance: %#v", manifest)
+		}
+	})
 }
 
 func TestMarketplaceInstallAllowsSameProductUpgrade(t *testing.T) {
@@ -205,5 +277,3 @@ func TestMarketplaceReinstallAfterRetirementCleanupIsFresh(t *testing.T) {
 		t.Fatalf("fresh reinstall after removal failed: %#v", report)
 	}
 }
-
-var _ = errors.Is // keep errors import if unused after edits

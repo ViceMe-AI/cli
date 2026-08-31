@@ -25,11 +25,6 @@ var officialSkillNames = []string{
 	"let-people-interact",
 }
 
-// Retired official Skills were published in releases but are no longer
-// carried. Each identity pins the exact published bundle (per the release
-// manifest) so an upgrade removes only CLI-managed installs; user-modified or
-// user-owned same-name directories never match and are preserved.
-
 type installNextStep struct {
 	Required bool   `json:"required"`
 	Command  string `json:"command"`
@@ -39,6 +34,7 @@ type installNextStep struct {
 type bootstrapInstallResult struct {
 	Launcher        updatepkg.TargetResult       `json:"launcher"`
 	Skills          []skillcontent.InstallReport `json:"skills"`
+	Retirements     []skillcontent.InstallResult `json:"retirements,omitempty"`
 	Config          config.EnsureResult          `json:"config"`
 	Profile         string                       `json:"profile"`
 	Region          config.Region                `json:"region"`
@@ -268,6 +264,7 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 	if err != nil {
 		return bootstrapInstallResult{}, output.Internal("SKILL_INSTALL_PREPARE_FAILED", "official Skills could not be prepared as one transaction", err)
 	}
+	retirements := transaction.RetirementResults()
 	rollback := func(cause error) (bootstrapInstallResult, error) {
 		if rollbackErr := transaction.Rollback(); rollbackErr != nil {
 			return bootstrapInstallResult{}, output.Internal("INSTALL_ROLLBACK_FAILED", "ViceMe installation failed and the previous generation could not be fully restored", errors.Join(cause, rollbackErr))
@@ -356,6 +353,7 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 	result := bootstrapInstallResult{
 		Launcher:        launcher,
 		Skills:          reports,
+		Retirements:     retirements,
 		Config:          configResult,
 		Profile:         profile.Name,
 		Region:          resolvedRegion,

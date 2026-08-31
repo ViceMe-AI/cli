@@ -2,10 +2,10 @@ package command
 
 import "github.com/ViceMe-AI/cli/internal/skillcontent"
 
-// retiredOfficialSkills is generated from every published tag's release manifest.
+// publishedTagRetiredSkillMigrations is generated from every published tag's release manifest.
 // A directory is retired only when its install manifest and current bytes both
 // match one of these immutable identities.
-var retiredOfficialSkills = []skillcontent.RetiredSkillIdentity{
+var publishedTagRetiredSkillMigrations = []skillcontent.LegacyRetiredSkillIdentity{
 	{
 		Name:                  "viceme-access",
 		SkillVersion:          "0.16.0-beta.6",

@@ -1,32 +1,49 @@
-# ViceMe 弹幕和赞赏接入契约
+# ViceMe 网站互动接入契约
 
-## 必需资源图
+## 官方加载器
 
-一次互动接入恰好包含这些权威资源：
+当前固定 CLI Profile 是环境权威。其 `webBaseUrl` 提供稳定的 `/viceme-sdk/v1/viceme.min.js` 加载器，`marketRegion` 只取 `cn` 或 `global`。加载器只接受以下属性：
+
+```text
+data-viceme-work
+data-viceme-region
+data-viceme-features
+data-viceme-target
+data-viceme-theme
+data-viceme-loader
+```
+
+特性只能是 `danmaku`、`tip`，或去重并规范化后的 `danmaku,tip`。不得通过属性传递 endpoint、token、金额、渠道、application ID 或支付状态。
+
+## 权威资源图
+
+所有分支共用：
 
 ```text
 PUBLISHED + VERIFIED Website Work
-├── ACTIVE SDK 访问（features 同时含 danmaku、tip）
-└── ACTIVE PRODUCTION Website Widget 应用
-    ├── workId = Website Work ID
-    ├── origins = [Website canonical Origin]
-    ├── returnUrls = []
-    └── products = []
+└── ACTIVE SDK access
+    └── features 包含本页面请求的特性
 ```
 
-Work 是身份。公开 `workKey` 定位托管运行时访问。Website Widget 应用授权弹幕、支付入口与精确父 Origin；它不替代 Work，也不作为页面身份嵌入。
+包含赞赏的分支额外复用：
 
-## Origin
+```text
+ACTIVE PRODUCTION Website Widget application（Work 级共享）
+├── workId = Website Work ID
+├── origins 包含 Website canonical Origin
+├── returnUrls = Shop/SDK access 管理的现有值，可为空
+└── products = Shop 管理的现有绑定，可为空
+```
 
-规范 Origin 必须是小写规范 HTTPS，不含凭证、路径、查询、片段或尾部斜杠。Tip iframe 发送 `strict-origin` Referer，商店只在该精确 Origin 已注册时签发嵌入上下文。预览域名与生产域名是不同 Origin。
+Work 是身份，公开 `workKey` 只来自 SDK access。Website Widget 授权赞赏入口与精确父 Origin，不替代 Work。Engagement 不管理 Product 绑定或 return URL；平台管理的共享配置可能非空。
 
-## 运行时边界
+## Origin 与运行时
 
-宿主只通过加载器传递 Work key、区域、特性集、目标容器和主题。不传弹幕写入凭据、金额、支付渠道、应用 ID、访问令牌或支付状态。商店拥有弹幕持久化、登录、下单、渠道协议、状态、结算与签名能力。
+规范 Origin 必须是小写 HTTPS，不含凭证、路径、查询、片段或尾部斜杠。预览域名与生产域名是不同 Origin。
 
-框架在可信 resize 握手完成前不可交互。商店拥有支付面板，Escape 时先重置为初始金额表单再发出关闭。SDK 只接受预期商店 Origin 与 iframe 窗口的消息，绑定首个有效 Work UUID，并转发脱敏的关闭与支付通知。宿主无需为默认关闭行为添加监听器。界面能打开不代表支付已成交。
+SDK 在本地初始化，通过 Shadow DOM 挂载 Shop 托管 iframe，校验消息的 Origin 与窗口，并负责清理节点、监听器和计时器。Shop 拥有弹幕持久化、限流、键盘与减少动画行为，也拥有登录、下单、渠道协议、支付状态、结算和签名能力。
 
-宿主不得自行保存弹幕、复制结账页面、调用支付渠道 API 或接收支付秘密；脚本在 Shadow DOM 中渲染互动入口并打开 ViceMe 托管的界面。
+宿主只传 Work key、区域、特性集、目标容器和主题，不传用户、session、金额、渠道、application ID、访问令牌或支付状态。界面打开不是消息持久化或支付结算的证明。
 
 ## CSP
 
