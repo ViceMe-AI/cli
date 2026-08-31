@@ -107,15 +107,15 @@ func TestAutoInstallsDetectedAgentsAndFallback(t *testing.T) {
 func TestInstallSetActivatesAllOfficialSkillsTogether(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
-	writeTestSkill(t, root, "viceme-shared")
-	writeTestSkill(t, root, "viceme-paid-skill")
-	writeTestSkill(t, root, "viceme-access")
-	writeTestSkill(t, root, "viceme-tip")
+	writeTestSkill(t, root, "creator-tools")
+	writeTestSkill(t, root, "sell-a-skill")
+	writeTestSkill(t, root, "charge-for-your-work")
+	writeTestSkill(t, root, "let-people-interact")
 	home := t.TempDir()
 	environment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
 	bundle := New(os.DirFS(root))
 
-	skillNames := []string{"viceme-shared", "viceme-paid-skill", "viceme-access", "viceme-tip"}
+	skillNames := []string{"creator-tools", "sell-a-skill", "charge-for-your-work", "let-people-interact"}
 	reports := bundle.InstallSet(skillNames, "agents", environment)
 	if len(reports) != len(skillNames) {
 		t.Fatalf("transaction did not report every official Skill: %#v", reports)
@@ -298,7 +298,7 @@ func TestInstallTransactionRetiresOnlyManagedMatchingSkill(t *testing.T) {
 	activeRoot := t.TempDir()
 	legacyRoot := t.TempDir()
 	writeTestSkill(t, activeRoot, "viceme-current")
-	writeTestSkill(t, legacyRoot, "viceme-access")
+	writeTestSkill(t, legacyRoot, "charge-for-your-work")
 	activeBundle := New(os.DirFS(activeRoot))
 	legacyBundle := New(os.DirFS(legacyRoot))
 	home := t.TempDir()
@@ -307,27 +307,27 @@ func TestInstallTransactionRetiresOnlyManagedMatchingSkill(t *testing.T) {
 		CodexHome: filepath.Join(home, ".codex"),
 		ConfigDir: filepath.Join(home, ".viceme-cli"),
 	}
-	if report := legacyBundle.Install("viceme-access", "agents", environment); !report.AllSucceeded {
+	if report := legacyBundle.Install("charge-for-your-work", "agents", environment); !report.AllSucceeded {
 		t.Fatalf("legacy Skill fixture did not install: %#v", report)
 	}
-	metadata, err := legacyBundle.Package("viceme-access")
+	metadata, err := legacyBundle.Package("charge-for-your-work")
 	if err != nil {
 		t.Fatal(err)
 	}
-	digests, err := legacyBundle.Digests("viceme-access")
+	digests, err := legacyBundle.Digests("charge-for-your-work")
 	if err != nil {
 		t.Fatal(err)
 	}
 	retired := []RetiredSkillIdentity{{
-		Name:                  "viceme-access",
+		Name:                  "charge-for-your-work",
 		SkillVersion:          metadata.SkillVersion,
 		MinimumCLIVersion:     metadata.MinimumCLIVersion,
 		CLICompatibility:      metadata.CLICompatibility,
 		FullBundleDigest:      digests.Full,
 		EmbeddedContentDigest: digests.Embedded,
 	}}
-	managedPath := filepath.Join(home, ".agents", "skills", "viceme-access")
-	userPath := filepath.Join(home, ".codex", "skills", "viceme-access")
+	managedPath := filepath.Join(home, ".agents", "skills", "charge-for-your-work")
+	userPath := filepath.Join(home, ".codex", "skills", "charge-for-your-work")
 	if err := os.MkdirAll(userPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestInstallTransactionRetiresOnlyManagedMatchingSkill(t *testing.T) {
 	if err := transaction.Rollback(); err != nil {
 		t.Fatal(err)
 	}
-	if !legacyBundle.Doctor("viceme-access", "agents", environment).Healthy {
+	if !legacyBundle.Doctor("charge-for-your-work", "agents", environment).Healthy {
 		t.Fatal("rollback did not restore the managed retired Skill")
 	}
 
@@ -375,6 +375,64 @@ func TestInstallTransactionRetiresOnlyManagedMatchingSkill(t *testing.T) {
 	}
 	if !activeBundle.Doctor("viceme-current", "codex", environment).Healthy {
 		t.Fatal("active official Skill was not committed")
+	}
+}
+
+func TestInstallTransactionPreservesModifiedManagedRetiredSkill(t *testing.T) {
+	t.Parallel()
+	activeRoot := t.TempDir()
+	legacyRoot := t.TempDir()
+	writeTestSkill(t, activeRoot, "viceme-current")
+	writeTestSkill(t, legacyRoot, "viceme-retired")
+	activeBundle := New(os.DirFS(activeRoot))
+	legacyBundle := New(os.DirFS(legacyRoot))
+	home := t.TempDir()
+	environment := Environment{
+		Home:      home,
+		CodexHome: filepath.Join(home, ".codex"),
+		ConfigDir: filepath.Join(home, ".viceme-cli"),
+	}
+	if report := legacyBundle.Install("viceme-retired", "agents", environment); !report.AllSucceeded {
+		t.Fatalf("legacy Skill fixture did not install: %#v", report)
+	}
+	metadata, err := legacyBundle.Package("viceme-retired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	digests, err := legacyBundle.Digests("viceme-retired")
+	if err != nil {
+		t.Fatal(err)
+	}
+	retired := []RetiredSkillIdentity{{
+		Name:                  "viceme-retired",
+		SkillVersion:          metadata.SkillVersion,
+		MinimumCLIVersion:     metadata.MinimumCLIVersion,
+		CLICompatibility:      metadata.CLICompatibility,
+		FullBundleDigest:      digests.Full,
+		EmbeddedContentDigest: digests.Embedded,
+	}}
+	managedPath := filepath.Join(home, ".agents", "skills", "viceme-retired")
+	skillPath := filepath.Join(managedPath, "SKILL.md")
+	modifiedContent := []byte("user modified the previously managed Skill\n")
+	if err := os.WriteFile(skillPath, modifiedContent, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	transaction, reports, err := activeBundle.PrepareInstallSetWithRetirements(
+		[]string{"viceme-current"}, retired, "codex", environment,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(reports) != 1 || !reports[0].AllSucceeded {
+		t.Fatalf("active Skill was not prepared: %#v", reports)
+	}
+	if err := transaction.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := os.ReadFile(skillPath)
+	if err != nil || !bytes.Equal(actual, modifiedContent) {
+		t.Fatalf("modified managed retired Skill was changed: content=%q err=%v", actual, err)
 	}
 }
 

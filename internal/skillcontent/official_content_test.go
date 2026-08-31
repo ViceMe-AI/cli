@@ -16,12 +16,12 @@ import (
 )
 
 var officialSkillNames = []string{
-	"viceme-access",
-	"viceme-creator-onboarding",
-	"viceme-paid-skill",
-	"viceme-shared",
+	"charge-for-your-work",
+	"become-a-creator",
+	"sell-a-skill",
+	"creator-tools",
 	"viceme-skill-use",
-	"viceme-tip",
+	"let-people-interact",
 }
 
 func readOfficialSkillBundle(t *testing.T, skillName string) string {
@@ -75,7 +75,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		semantics []string
 	}{
 		{
-			name: "viceme-shared",
+			name: "creator-tools",
 			machine: []string{
 				"viceme auth status", "viceme auth login", "present_files", "VICEME_ACCESS_TOKEN",
 				"AUTO_UPDATE_RESTART_REQUIRED", "error.code",
@@ -86,7 +86,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 		},
 		{
-			name: "viceme-creator-onboarding",
+			name: "become-a-creator",
 			machine: []string{
 				"viceme auth status", "viceme auth login", "present_files", "viceme merchant accounts",
 				"viceme merchant onboarding status", "viceme merchant onboarding apply", "claim-github",
@@ -98,9 +98,9 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 		},
 		{
-			name: "viceme-paid-skill",
+			name: "sell-a-skill",
 			machine: []string{
-				"$viceme-creator-onboarding",
+				"$become-a-creator",
 				"MerchantAccountMember(role=OWNER)", "publication confirm", "publication publish", "reviewDigest",
 				"SKILL_LISTING_DRAFT_CHANGED", "priceMinor", "--new-listing",
 			},
@@ -117,20 +117,20 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			semantics: []string{"不得要求再次购买", "不得停在“安装成功”"},
 		},
 		{
-			name: "viceme-access",
+			name: "charge-for-your-work",
 			machine: []string{
 				"access.require()", "access.getFeatures()", "<viceme-access-layer>", "FOLLOW_OWNER", "WORK_ENTITLEMENT",
-				"Hosted Checkout", "Product ID", "access.check()", "$viceme-creator-onboarding",
+				"Hosted Checkout", "Product ID", "access.check()", "$become-a-creator",
 			},
 			semantics: []string{
 				"登录不等于关注", "不得改变其参数、返回值、错误或副作用",
 			},
 		},
 		{
-			name: "viceme-tip",
+			name: "let-people-interact",
 			machine: []string{
 				"website-verification create", "website-verification verify", "commerce-application activate", "sdk-access",
-				"data-viceme-features", "workKey",
+				"data-viceme-features", "danmaku,tip", "workKey",
 			},
 			semantics: []string{
 				"不创建第二个 Work", "界面能打开不代表支付成交",
@@ -174,10 +174,10 @@ func TestOfficialSkillEntryMetadataIsChinese(t *testing.T) {
 	}
 }
 
-func TestTipTemplateUsesCLIResponseAsItsOnlyEmbedSource(t *testing.T) {
+func TestInteractionTemplateUsesCLIResponseAsItsOnlyEmbedSource(t *testing.T) {
 	t.Parallel()
 
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-tip/templates/single-html.html")
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/templates/single-html.html")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -230,8 +230,8 @@ func TestPublishSkillKeepsHistoricalContextOutOfProfileSelection(t *testing.T) {
 	t.Parallel()
 
 	for _, relativePath := range []string{
-		"viceme-creator-onboarding/SKILL.md",
-		"viceme-paid-skill/references/workflow.md",
+		"become-a-creator/SKILL.md",
+		"sell-a-skill/references/workflow.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -246,10 +246,10 @@ func TestPublishSkillKeepsHistoricalContextOutOfProfileSelection(t *testing.T) {
 	}
 
 	for _, relativePath := range []string{
-		"viceme-creator-onboarding/SKILL.md",
-		"viceme-paid-skill/SKILL.md",
-		"viceme-paid-skill/references/workflow.md",
-		"viceme-paid-skill/references/errors.md",
+		"become-a-creator/SKILL.md",
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+		"sell-a-skill/references/errors.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -270,7 +270,7 @@ func TestPublishSkillKeepsHistoricalContextOutOfProfileSelection(t *testing.T) {
 func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
 	t.Parallel()
 
-	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-creator-onboarding/SKILL.md")
+	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "become-a-creator/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -302,7 +302,7 @@ func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
 func TestPublishRetryPolicyDoesNotOwnCreatorOnboardingReads(t *testing.T) {
 	t.Parallel()
 
-	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/references/errors.md")
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/errors.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -311,7 +311,7 @@ func TestPublishRetryPolicyDoesNotOwnCreatorOnboardingReads(t *testing.T) {
 		"发布命令（包括首次创建）的读取或写入",
 		"本地已持久化的同一 Publication 或 client request identity",
 		"不得因为首次响应未返回 Publication ID 就改变输入或创建另一项",
-		"商家账户读取的错误全部交回 `$viceme-creator-onboarding`",
+		"商家账户读取的错误全部交回 `$become-a-creator`",
 		"不得套用本发布错误说明",
 	} {
 		if !strings.Contains(text, required) {
@@ -324,9 +324,9 @@ func TestCoreSkillsKeepInternalToolNamesOutOfUserFacingProgress(t *testing.T) {
 	t.Parallel()
 
 	for _, relativePath := range []string{
-		"viceme-shared/SKILL.md",
-		"viceme-creator-onboarding/SKILL.md",
-		"viceme-paid-skill/SKILL.md",
+		"creator-tools/SKILL.md",
+		"become-a-creator/SKILL.md",
+		"sell-a-skill/SKILL.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -348,9 +348,9 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	t.Parallel()
 
 	for _, relativePath := range []string{
-		"viceme-shared/SKILL.md",
-		"viceme-creator-onboarding/SKILL.md",
-		"viceme-paid-skill/SKILL.md",
+		"creator-tools/SKILL.md",
+		"become-a-creator/SKILL.md",
+		"sell-a-skill/SKILL.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
@@ -367,7 +367,7 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		}
 	}
 
-	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-creator-onboarding/SKILL.md")
+	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "become-a-creator/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -411,7 +411,7 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		previousWaitStage = current
 	}
 
-	shared, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-shared/SKILL.md")
+	shared, err := fs.ReadFile(cliembed.EmbeddedSkills(), "creator-tools/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -430,7 +430,7 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		}
 	}
 
-	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/SKILL.md")
+	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,7 +438,7 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		t.Fatal("publish skill may finish while creator onboarding is still waiting for login")
 	}
 
-	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/references/workflow.md")
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -468,7 +468,7 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 	t.Parallel()
 	const terminalReply = "最终答复只能是“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布。”这一句话"
 
-	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/references/workflow.md")
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -499,7 +499,7 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 		}
 	}
 
-	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/references/errors.md")
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/errors.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -526,7 +526,7 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 		}
 	}
 
-	skillContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/SKILL.md")
+	skillContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,16 +538,16 @@ func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
 func TestPublishDelegatesCreatorQualification(t *testing.T) {
 	t.Parallel()
 	for _, relativePath := range []string{
-		"viceme-paid-skill/SKILL.md",
-		"viceme-paid-skill/references/workflow.md",
-		"viceme-paid-skill/references/errors.md",
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+		"sell-a-skill/references/errors.md",
 	} {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
 		if err != nil {
 			t.Fatal(err)
 		}
 		text := string(content)
-		if !strings.Contains(text, "$viceme-creator-onboarding") {
+		if !strings.Contains(text, "$become-a-creator") {
 			t.Fatalf("%s does not delegate creator qualification", relativePath)
 		}
 		for _, forbidden := range []string{"viceme auth login", "merchant onboarding apply", "claim-github", "claim-xiaohongshu"} {
@@ -557,14 +557,14 @@ func TestPublishDelegatesCreatorQualification(t *testing.T) {
 		}
 	}
 	for _, removed := range []string{
-		"viceme-paid-skill/references/generic-product.md",
-		"viceme-paid-skill/references/website-workflow.md",
+		"sell-a-skill/references/generic-product.md",
+		"sell-a-skill/references/website-workflow.md",
 	} {
 		if _, err := fs.Stat(cliembed.EmbeddedSkills(), removed); !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("removed publish route is still bundled: %s", removed)
 		}
 	}
-	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/references/errors.md")
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/errors.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -590,7 +590,7 @@ func TestPublishDelegatesCreatorQualification(t *testing.T) {
 func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 	t.Parallel()
 
-	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/SKILL.md")
+	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -600,7 +600,7 @@ func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 			t.Fatalf("paid Skill still owns a non-downloadable publish route %q", forbidden)
 		}
 	}
-	metadata, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/agents/openai.yaml")
+	metadata, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/agents/openai.yaml")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -611,11 +611,11 @@ func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 	}
 }
 
-func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
+func TestInteractionSkillIncludesRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 	t.Parallel()
-	text := readOfficialSkillBundle(t, "viceme-tip")
+	text := readOfficialSkillBundle(t, "let-people-interact")
 	for _, required := range []string{
-		"$viceme-creator-onboarding",
+		"$become-a-creator",
 		"Merchant",
 		"website-verification create",
 		"WEBSITE_WIDGET",
@@ -623,6 +623,7 @@ func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 		"create 响应丢失时先 list",
 		"REVOKED",
 		"data-viceme-features",
+		"danmaku,tip",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("tip Skill omitted recoverable Website Widget contract %q", required)
@@ -638,7 +639,7 @@ func TestTipSkillsIncludeRecoverableWebsiteWidgetWorkflow(t *testing.T) {
 func TestPaidSkillExcludesWebsiteAndGenericProductPublication(t *testing.T) {
 	t.Parallel()
 
-	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "viceme-paid-skill/SKILL.md")
+	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -652,9 +653,9 @@ func TestPaidSkillExcludesWebsiteAndGenericProductPublication(t *testing.T) {
 
 func TestGameplaySkillsDelegateCreatorQualification(t *testing.T) {
 	t.Parallel()
-	for _, skillName := range []string{"viceme-paid-skill", "viceme-access", "viceme-tip"} {
+	for _, skillName := range []string{"sell-a-skill", "charge-for-your-work", "let-people-interact"} {
 		text := readOfficialSkillBundle(t, skillName)
-		if !strings.Contains(text, "$viceme-creator-onboarding") {
+		if !strings.Contains(text, "$become-a-creator") {
 			t.Fatalf("%s does not delegate creator qualification", skillName)
 		}
 		for _, forbidden := range []string{"viceme auth login", "viceme merchant accounts", "viceme merchant onboarding apply"} {

@@ -3,50 +3,50 @@
   "npm_package": "@viceme-ai/cli",
   "cli_version": "0.20.0",
   "skills": {
-    "viceme-access": {
+    "become-a-creator": {
       "skill_version": "0.20.0",
       "minimum_cli_version": "0.20.0",
       "cli_compatibility": ">=0.20.0 <0.21.0",
-      "full_skill_bundle_digest": "sha256:4f1509756e6e49b15aeb441d9563061b20f1cdc87af19ad5bdc0827d0280f082",
-      "embedded_content_digest": "sha256:44fad49d1e6ebeeea8a42b89d5b1193d747106ed5f231261000663d84ffb88ad"
+      "full_skill_bundle_digest": "sha256:e02743bdeab69ea8e80a4d2f846812bf1d672f894a6ad0885bf146a61fb85fdd",
+      "embedded_content_digest": "sha256:64925ce0c6d0cbbb32849bd235664300fffbaf8bb6dd0f0e74874b1137656867"
     },
-    "viceme-creator-onboarding": {
+    "charge-for-your-work": {
       "skill_version": "0.20.0",
       "minimum_cli_version": "0.20.0",
       "cli_compatibility": ">=0.20.0 <0.21.0",
-      "full_skill_bundle_digest": "sha256:aaa7d37ae102357adb6ec0c8e08198f4b9db62bedb2da953259cfaf65a35c90b",
-      "embedded_content_digest": "sha256:cc4d8d5d1ae4be1dfe45985e6a7a83f82cf78f32e5d90463e91733d52fe43186"
+      "full_skill_bundle_digest": "sha256:0a5569f235eb2611150cb164c09e7ae8ce1bc3dc7c7a1b9e223ad321fd29d5d6",
+      "embedded_content_digest": "sha256:e5355372a8f8e7309b8ca3a6502a1ead15b0c8bb67406d3e20c5ca1b36ddd9a6"
     },
-    "viceme-paid-skill": {
+    "creator-tools": {
       "skill_version": "0.20.0",
       "minimum_cli_version": "0.20.0",
       "cli_compatibility": ">=0.20.0 <0.21.0",
-      "full_skill_bundle_digest": "sha256:d033d52170c022e262d72f87ee90c69feb55c01163022bdae1dbc431fb02dac3",
-      "embedded_content_digest": "sha256:867941fcadc3088a1721ba52cfee9a0d1384880f06bad0b059dcde3bfb05c048"
+      "full_skill_bundle_digest": "sha256:7fb428ae3a273ecf89325b8f7582d633c368ca8822c3ddc24a20868fb89b51c7",
+      "embedded_content_digest": "sha256:458d595afa098f22ccfe3c5bbc7724d415cf066913a4a36b7c6bac4ee534d74d"
     },
-    "viceme-shared": {
+    "let-people-interact": {
       "skill_version": "0.20.0",
       "minimum_cli_version": "0.20.0",
       "cli_compatibility": ">=0.20.0 <0.21.0",
-      "full_skill_bundle_digest": "sha256:e8b8a346a89bba8aedbb6ce48c861741a739a320e1e5eb27d3518bab86091ec2",
-      "embedded_content_digest": "sha256:b9bca0cdcffca6980464ba70be49f1a8040f869d61abd86427399c9a2c4c7aa0"
+      "full_skill_bundle_digest": "sha256:18ed2879214ba530e5de3b45807fbb40ae9285a74bf65bb8e671d51e0f293e90",
+      "embedded_content_digest": "sha256:894d194dad43a4e98461c4cd0c43be07a0ea589f4ca3f943f1cbf55a85f7b96b"
+    },
+    "sell-a-skill": {
+      "skill_version": "0.20.0",
+      "minimum_cli_version": "0.20.0",
+      "cli_compatibility": ">=0.20.0 <0.21.0",
+      "full_skill_bundle_digest": "sha256:3ab99879b820077cc96a3ee13138d0d9cea60b3ca40d24fe78a8e4d3c660ad1d",
+      "embedded_content_digest": "sha256:39a90a2f97dc509f156e53f92f6d0ff3cf06367971996bbe976c89f9b2108385"
     },
     "viceme-skill-use": {
       "skill_version": "0.20.0",
       "minimum_cli_version": "0.20.0",
       "cli_compatibility": ">=0.20.0 <0.21.0",
-      "full_skill_bundle_digest": "sha256:2615bbfd1ac467a2fdb74127c54009fe57d2be45cfce69de62ad073e2b656422",
-      "embedded_content_digest": "sha256:84410f2f17b30efee00c5febc6eeadd3c9104f25a8d8ec3ce163f9af8741d5f8"
-    },
-    "viceme-tip": {
-      "skill_version": "0.20.0",
-      "minimum_cli_version": "0.20.0",
-      "cli_compatibility": ">=0.20.0 <0.21.0",
-      "full_skill_bundle_digest": "sha256:b9ed653f6ade9a21d7a4301cc05548196928fc81f7054906637326a3c4174e5e",
-      "embedded_content_digest": "sha256:a5240259555261289776ffd8a8ba2ce87101ab26bdd61d416248958b343d1df7"
+      "full_skill_bundle_digest": "sha256:8555aabd9daf1a715b8769b36284089ae54a9d7e9912847c8fa26bc452ea12f7",
+      "embedded_content_digest": "sha256:c1b5e974cc79042799fca10651f503e13de7f7231430eb1088e4a04202738106"
     }
   },
-  "bootstrap_contract_digest": "sha256:5d77e3b9d96b88a4055bba4d99c00f752a5bc97442877ba29a7722902bcc29ea",
+  "bootstrap_contract_digest": "sha256:d9289bc5a7d64777052bb332aa8d51777ab456c3adad27e5130900b2c33b0aa2",
   "installer_digests": {
     "install.ps1": "sha256:ffdedbcacb05a783c442398084e910dbb50b2bee9015282f5c01090eb01f4313",
     "install.sh": "sha256:27c4b4448b0ad28fcdebfbe9dcdf3df1ec9d179df6df6dc59907b4a7f286e374"

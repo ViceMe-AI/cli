@@ -1,5 +1,5 @@
 ---
-name: viceme-shared
+name: creator-tools
 description: 安装、登录、更新和诊断 ViceMe 创作者 CLI 与官方 Skills。适用于为 Codex、Claude Code 或 WorkBuddy 安装 ViceMe、通过浏览器登录、查看配置、检查版本或修复 CLI/Skill 安装。
 ---
 

@@ -1,6 +1,6 @@
 ---
-name: viceme-paid-skill
-description: 发布或更新可下载的 ViceMe 付费或免费 Skill。适用于本地目录、ZIP、本人 GitHub 仓库或已验证的小红书 Skill；不发布网站、服务或普通商品，创作者资格统一交给 $viceme-creator-onboarding。
+name: sell-a-skill
+description: 发布或更新可下载的 ViceMe 付费或免费 Skill。适用于本地目录、ZIP、本人 GitHub 仓库或已验证的小红书 Skill；不发布网站、服务或普通商品，创作者资格统一交给 $become-a-creator。
 ---
 
 # 发布可下载的 ViceMe Skill
@@ -17,7 +17,7 @@ description: 发布或更新可下载的 ViceMe 付费或免费 Skill。适用�
 - 在 WorkBuddy 中不得调用 `TaskCreate`、`TaskUpdate`、`TaskList` 或其他任务清单工具，
   也不得展示完整执行计划。发布是一条连续流程。
 - 收到明确发布请求后，第一条用户可见回复只能是“我先检查登录和创作者资格。”，
-  随后立即以资格守卫模式调用 `$viceme-creator-onboarding`。不得自行运行登录、申请、
+  随后立即以资格守卫模式调用 `$become-a-creator`。不得自行运行登录、申请、
   认领或商家选择命令。它仍在等待登录时，本发布流程不得结束当前回合或给出最终答复。
 - 只有 onboarding 返回当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有的有效商家
   后才继续，并在后续命令中复用该商家。申请中、需要资料、拒绝或用户未同意申请时，
@@ -46,7 +46,7 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
 
 ## 权限和发布不变量
 
-1. 创作者资格、登录和商家选择只由 `$viceme-creator-onboarding` 负责。
+1. 创作者资格、登录和商家选择只由 `$become-a-creator` 负责。
 2. 同一来源再次发布自动更新原作品；使用 CLI 返回的 resolution 和恢复身份，不从标题、
    文件名或旧对话猜测。
 3. 创建草稿和预览可恢复。响应丢失时读取同一资源恢复，继续使用同一 Publication，不创建重复项。

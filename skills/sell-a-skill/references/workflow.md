@@ -1,6 +1,6 @@
 # Skill 上架发布命令合同
 
-父级 `SKILL.md` 的权限和用户表达规则适用于以下全部步骤。开始以下发布命令前，`$viceme-creator-onboarding` 必须已经在当前 CLI 上下文确认当前用户拥有有效商家；申请或审核未完成会立即结束当前流程。
+父级 `SKILL.md` 的权限和用户表达规则适用于以下全部步骤。开始以下发布命令前，`$become-a-creator` 必须已经在当前 CLI 上下文确认当前用户拥有有效商家；申请或审核未完成会立即结束当前流程。
 
 所有命令在 stdout 输出一个 JSON envelope，进度写入 stderr。
 
@@ -8,7 +8,7 @@
 
 可下载 Skill 发布严格沿以下主线连续执行，不建立任务列表，也不并行推进不同阶段：
 
-1. `$viceme-creator-onboarding` 确认当前登录和创作者资格。
+1. `$become-a-creator` 确认当前登录和创作者资格。
 2. 按来源完成且只完成必要的渠道确认；GitHub 在读取仓库前确认本人账号（已验证时静默通过），小红书按已验证身份处理，本地包直接进入下一步。
 3. 使用一次 `skill publish` 创建或恢复同一私有草稿并取得真实预览。
 4. 草稿就绪后立即运行 `viceme publication review <publication-id>`，并马上用内置 `present_files` 在当前任务浏览器打开返回的 `presentation.fallbackUrl` 稳定预览页面，同时按通用约定在对话里给出该链接的 Markdown 备用入口，说一句“预览页面已经打开了，我会边补资料边更新，你随时能看到变化”。预览页面必须先于任何补资料、生成图片或询问出现；后续每一步更新（封面、图库、双语文案、价格）都提交到同一份草稿，让页面内容逐步生长，而不是让用户在空白中等待。
@@ -23,7 +23,7 @@
 ## 必需输入
 
 - 恰好一个来源：根目录含 `SKILL.md` 的本地目录/ZIP、本人 GitHub 仓库，或已验证的小红书 Skill ID。公开 GitHub 仓库也必须验证所有权；私有仓库使用已保存的 OAuth 凭证。不支持组织仓库或只有 collaborator 权限的仓库。
-- 一个由 `$viceme-creator-onboarding` 确认、当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有的有效 MerchantAccount。返回多个时必须使用用户在资格流程中选择的商家，并用 `--merchant <merchant-account-id>` 发布。
+- 一个由 `$become-a-creator` 确认、当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有的有效 MerchantAccount。返回多个时必须使用用户在资格流程中选择的商家，并用 `--merchant <merchant-account-id>` 发布。
 - 最终公开确认前必须确定每个条目的内部 `key`、用户可见名称、`sortOrder`、1 到 8 条 highlights，以及以人民币分计价的 `priceMinor`；这些内部值由 Agent 按组合规则自动派生，用户只需要确认价格和内容。私有包初次上传时故意保持 `priceMinor: null`。
 - 最终预览必须展示中文简介、中英文使用说明、已验证包、一个封面和至少一个图库项，然后才能取得合并的“确认并发布”授权。
 

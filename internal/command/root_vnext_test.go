@@ -579,7 +579,7 @@ func TestBareInternalActivationFlagsCannotBypassRecovery(t *testing.T) {
 	if exit == 0 || !strings.Contains(stdout.String(), "ACTIVATION_CHILD_INVALID") {
 		t.Fatalf("bare hidden flags bypassed the activation coordinator: exit=%d stdout=%q", exit, stdout.String())
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-paid-skill")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "sell-a-skill")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("unauthorized activation child mutated Skills: %v", err)
 	}
 }
@@ -634,7 +634,7 @@ func TestOrdinaryInstallCannotCommitAfterItsRunningGenerationWasReplaced(t *test
 	if cliError := output.AsError(err); cliError.Subtype != "INSTALL_GENERATION_CHANGED" {
 		t.Fatalf("stale install was not fenced by its captured generation: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-paid-skill")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "sell-a-skill")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stale install mutated Skills after a newer generation committed: %v", err)
 	}
 	actual, exists, err := updatepkg.ReadActiveGeneration(configDir)
@@ -754,14 +754,14 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	if cliError := output.AsError(err); cliError.Subtype != "ACTIVATION_CHILD_INVALID" {
 		t.Fatalf("stale child was not fenced by the replacement parent journal: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "viceme-paid-skill")); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills", "sell-a-skill")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("stale npm child mutated Skills: %v", err)
 	}
 }
 
 func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 	t.Parallel()
-	found := map[string]bool{"viceme-access": false, "viceme-tip": false}
+	found := map[string]bool{"charge-for-your-work": false, "let-people-interact": false}
 	for _, name := range officialSkillNames {
 		if _, tracked := found[name]; tracked {
 			found[name] = true
@@ -778,7 +778,7 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 		}
 	}
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
-	template, _, err := bundle.Read("viceme-tip", "templates/single-html.html")
+	template, _, err := bundle.Read("let-people-interact", "templates/single-html.html")
 	if err != nil {
 		t.Fatalf("official Skill bundle omitted the single HTML template: %v", err)
 	}
@@ -786,55 +786,31 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 	if !strings.Contains(resolved, `src="https://viceme.example/viceme-sdk/v1/viceme.min.js"`) || strings.Contains(resolved, "https://https://") {
 		t.Fatalf("single HTML template does not accept the complete SDK URL")
 	}
-	if _, _, err := bundle.Read("viceme-tip", "references/integration-contract.md"); err != nil {
+	if _, _, err := bundle.Read("let-people-interact", "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
 	}
 }
 
 func TestRetiredOfficialSkillsPinEveryPublishedIdentity(t *testing.T) {
 	t.Parallel()
-	expected := map[string][]string{
-		"viceme-danmaku": {
-			"0.16.0-beta.0",
-			// v0.16.0-beta.1 through v0.16.0-beta.5 share this exact
-			// release-manifest identity.
-			"0.16.0-beta.1",
-			"0.16.0-beta.6",
-			"0.16.0-beta.7",
-			"0.16.0",
-			"0.16.1",
-			"0.17.0",
-			"0.18.0",
-			"0.19.0-beta.0",
-		},
-		"viceme-engagement": {
-			"0.16.0-beta.6",
-			"0.16.0-beta.7",
-			"0.17.0",
-			"0.18.0",
-			"0.19.0-beta.0",
-		},
-		"viceme-publish": {
-			"0.13.0",
-			"0.13.1",
-			"0.13.2",
-			"0.13.3",
-			"0.14.0",
-			"0.14.1",
-			"0.14.2",
-			"0.14.3",
-			"0.15.0",
-			"0.15.1",
-			"0.15.2",
-			"0.16.0",
-			"0.16.1",
-			"0.17.0",
-			"0.18.0",
-			"0.19.0",
-			"0.20.0",
-		},
+	expectedCounts := map[string]int{
+		"viceme-access":             4,
+		"viceme-creator-onboarding": 2,
+		"viceme-danmaku":            19,
+		"viceme-engagement":         5,
+		"viceme-publish":            28,
+		"viceme-shared":             28,
+		"viceme-tip":                10,
 	}
-	seen := map[string]map[string]bool{}
+	latestRenamedDigests := map[string]string{
+		"viceme-access":             "sha256:61c8d709eb2eb6f9633743b6f61d255d5e633cd70e39021b5afbeef773116eb0",
+		"viceme-creator-onboarding": "sha256:91946936615d172268101242e7a5f09907703982621a90fc5e014b4b37e4c537",
+		"viceme-shared":             "sha256:e8b8a346a89bba8aedbb6ce48c861741a739a320e1e5eb27d3518bab86091ec2",
+		"viceme-tip":                "sha256:11097ff93b3e2abc73d34b7427ab52f9e1162d0455125162ded317c009093e94",
+	}
+	seenIdentities := map[string]bool{}
+	seenCounts := map[string]int{}
+	seenLatest := map[string]bool{}
 	for _, identity := range retiredOfficialSkills {
 		if err := skillcontent.ValidateRetiredSkillIdentity(identity); err != nil {
 			t.Fatalf("retired official Skill identity is invalid: %v", err)
@@ -844,26 +820,30 @@ func TestRetiredOfficialSkillsPinEveryPublishedIdentity(t *testing.T) {
 				t.Fatalf("active official Skill %s must not be retired", active)
 			}
 		}
-		if seen[identity.Name] == nil {
-			seen[identity.Name] = map[string]bool{}
+		key := strings.Join([]string{
+			identity.Name,
+			identity.SkillVersion,
+			identity.MinimumCLIVersion,
+			identity.CLICompatibility,
+			identity.FullBundleDigest,
+			identity.EmbeddedContentDigest,
+		}, "\x00")
+		if seenIdentities[key] {
+			t.Fatalf("retired official Skill identity is duplicated: %s %s %s", identity.Name, identity.SkillVersion, identity.FullBundleDigest)
 		}
-		if seen[identity.Name][identity.SkillVersion] {
-			t.Fatalf("retired official Skill identity is duplicated: %s %s", identity.Name, identity.SkillVersion)
+		seenIdentities[key] = true
+		seenCounts[identity.Name]++
+		if latestRenamedDigests[identity.Name] == identity.FullBundleDigest && identity.SkillVersion == "0.20.0" {
+			seenLatest[identity.Name] = true
 		}
-		seen[identity.Name][identity.SkillVersion] = true
 	}
-	for name, versions := range expected {
-		for _, version := range versions {
-			if !seen[name][version] {
-				t.Fatalf("published %s %s is missing from the retirement table", name, version)
-			}
-		}
-		if len(seen[name]) != len(versions) {
-			t.Fatalf("retirement table contains an unexpected identity for %s: %#v", name, seen[name])
-		}
+	if !reflect.DeepEqual(seenCounts, expectedCounts) {
+		t.Fatalf("retirement table does not match published identity counts: got=%#v want=%#v", seenCounts, expectedCounts)
 	}
-	if len(seen) != len(expected) {
-		t.Fatalf("retirement table contains an unexpected Skill: %#v", seen)
+	for name := range latestRenamedDigests {
+		if !seenLatest[name] {
+			t.Fatalf("latest published identity for renamed Skill %s is missing", name)
+		}
 	}
 }
 

@@ -1,12 +1,12 @@
-# ViceMe 打赏接入契约
+# ViceMe 弹幕和赞赏接入契约
 
 ## 必需资源图
 
-一次打赏接入恰好包含这些权威资源：
+一次互动接入恰好包含这些权威资源：
 
 ```text
 PUBLISHED + VERIFIED Website Work
-├── ACTIVE SDK 访问（features 含 tip）
+├── ACTIVE SDK 访问（features 同时含 danmaku、tip）
 └── ACTIVE PRODUCTION Website Widget 应用
     ├── workId = Website Work ID
     ├── origins = [Website canonical Origin]
@@ -14,7 +14,7 @@ PUBLISHED + VERIFIED Website Work
     └── products = []
 ```
 
-Work 是身份。公开 `workKey` 定位托管运行时访问。Website Widget 应用授权支付入口与精确父 Origin；它不替代 Work，也不作为页面身份嵌入。
+Work 是身份。公开 `workKey` 定位托管运行时访问。Website Widget 应用授权弹幕、支付入口与精确父 Origin；它不替代 Work，也不作为页面身份嵌入。
 
 ## Origin
 
@@ -22,11 +22,11 @@ Work 是身份。公开 `workKey` 定位托管运行时访问。Website Widget �
 
 ## 运行时边界
 
-宿主只通过加载器传递 Work key、区域、特性集、目标容器和主题。不传金额、支付渠道、应用 ID、访问令牌或支付状态。商店拥有登录、下单、渠道协议、状态、结算与签名能力。
+宿主只通过加载器传递 Work key、区域、特性集、目标容器和主题。不传弹幕写入凭据、金额、支付渠道、应用 ID、访问令牌或支付状态。商店拥有弹幕持久化、登录、下单、渠道协议、状态、结算与签名能力。
 
 框架在可信 resize 握手完成前不可交互。商店拥有支付面板，Escape 时先重置为初始金额表单再发出关闭。SDK 只接受预期商店 Origin 与 iframe 窗口的消息，绑定首个有效 Work UUID，并转发脱敏的关闭与支付通知。宿主无需为默认关闭行为添加监听器。界面能打开不代表支付已成交。
 
-宿主不得复制结账页面、调用支付渠道 API 或接收支付秘密；脚本在 Shadow DOM 中渲染入口并打开 ViceMe 托管的结账 iframe。
+宿主不得自行保存弹幕、复制结账页面、调用支付渠道 API 或接收支付秘密；脚本在 Shadow DOM 中渲染互动入口并打开 ViceMe 托管的界面。
 
 ## CSP
 

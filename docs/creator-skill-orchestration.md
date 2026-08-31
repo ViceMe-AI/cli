@@ -1,16 +1,31 @@
 # Creator Skill orchestration
 
+## Public names and routes
+
+| User goal | Official Skill ID | Public AI route | Status |
+| --- | --- | --- | --- |
+| 申请创作者资格 | `become-a-creator` | `https://viceme.cn/viceme/become-a-creator` | Available |
+| 发布付费 Skill | `sell-a-skill` | `https://viceme.cn/viceme/sell-a-skill` | Available |
+| 让网站开始收费 | `charge-for-your-work` | `https://viceme.cn/viceme/charge-for-your-work` | Available |
+| 给网站加弹幕和赞赏 | `let-people-interact` | `https://viceme.cn/viceme/let-people-interact` | Available |
+| 让别人做你的网站同款 | `let-others-make-a-copy` | `https://viceme.cn/viceme/let-others-make-a-copy` | Not available |
+| 基础设施 | `creator-tools` | `https://viceme.cn/viceme/creator-tools` | Available |
+
+This is a breaking rename. The old `viceme-*` creator Skill IDs and old Markdown routes are not
+aliases. `let-others-make-a-copy` reserves a public name and fail-closed status route only; it is not
+bundled as a Skill until a real workflow exists.
+
 ## Ownership
 
 The official creator Skills expose one user goal each:
 
 | Skill | Owns | Does not own |
 | --- | --- | --- |
-| `viceme-creator-onboarding` | Login for creator onboarding, qualification checks, application/claim state, Merchant selection | Publishing Works, Products, or website integrations |
-| `viceme-paid-skill` | Downloadable Skill packaging, preview, confirmation, publication, and updates | Websites, services, physical/custom goods, appointments, generic Products |
-| `viceme-access` | Host-code integration for an already published and configured Website Work | Login, creator application, Website Work publication, access configuration |
-| `viceme-tip` | Website Work publication plus hosted tip configuration and embed integration | Creator qualification or downloadable Skill publication |
-| `viceme-shared` | CLI installation, ordinary login, updates, and diagnostics | Any creator gameplay |
+| `become-a-creator` | Login for creator onboarding, qualification checks, application/claim state, Merchant selection | Publishing Works, Products, or website integrations |
+| `sell-a-skill` | Downloadable Skill packaging, preview, confirmation, publication, and updates | Websites, services, physical/custom goods, appointments, generic Products |
+| `charge-for-your-work` | Host-code integration for an already published and configured Website Work | Login, creator application, Website Work publication, access configuration |
+| `let-people-interact` | Website Work publication plus hosted danmaku, tip configuration, and embed integration | Creator qualification or downloadable Skill publication |
+| `creator-tools` | CLI installation, ordinary login, updates, and diagnostics | Any creator gameplay |
 
 Buyer-side `viceme-skill-use` does not use creator qualification.
 
@@ -19,7 +34,7 @@ official Skill advertises or invokes them in this delivery.
 
 ## Reusable qualification contract
 
-Every creator gameplay invokes `$viceme-creator-onboarding` before its first platform write and
+Every creator gameplay invokes `$become-a-creator` before its first platform write and
 reuses the Merchant selected by that Skill. A gameplay must not repeat `auth status`, `auth login`,
 `merchant accounts`, or Merchant Onboarding commands.
 
@@ -68,7 +83,7 @@ Commands remain grouped by use case under `internal/command`:
 
 Reusable transport and types stay in `internal/api`; credential storage stays in `internal/auth`;
 publication package identity and recovery stay in `internal/publication`. There is no generic
-`viceme publish` command and no publish logic in `viceme-shared`.
+`viceme publish` command and no publish logic in `creator-tools`.
 
 ## Skill call graph
 
@@ -76,25 +91,26 @@ publication package identity and recovery stay in `internal/publication`. There 
 website direct-application prompt
           |
           v
-viceme-creator-onboarding
+become-a-creator
           ^
           | qualification guard
           |
-          +-- viceme-paid-skill
-          +-- viceme-access
-          `-- viceme-tip
+          +-- sell-a-skill
+          +-- charge-for-your-work
+          `-- let-people-interact
 ```
 
-`viceme-access` may be invoked after `viceme-tip` or another website publication flow has returned a
+`charge-for-your-work` may be invoked after `let-people-interact` or another website publication flow has returned a
 published Work configuration, but it still performs the qualification guard before changing creator
 host code. It does not mutate Shop publication resources itself.
 
-## Migration
+## Breaking migration
 
-- Retire `viceme-publish` from the official installed set.
-- Move only its downloadable Skill workflow and publication error contract to
-  `viceme-paid-skill`.
-- Remove the generic-product and website workflow references from that bundle.
-- Route Website Work publication needed by tips inside `viceme-tip` while delegating qualification.
+- Replace `viceme-shared`, `viceme-creator-onboarding`, `viceme-paid-skill`, `viceme-access`, and
+  `viceme-tip` with the new official IDs in one release; do not install aliases.
+- Precisely retire only managed installs whose manifest and current bytes match an identity from a published release manifest;
+  preserve user-modified same-name directories.
+- Keep only the downloadable workflow and publication error contract in `sell-a-skill`.
+- Route Website Work publication plus danmaku and tips through `let-people-interact` while delegating qualification.
 - Update all official-Skill installation, manifest, metadata, and behavioral tests atomically so an
-  update never installs both the retired and replacement publish Skills.
+  update never treats an old creator Skill ID as active.

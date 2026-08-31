@@ -1,4 +1,0 @@
-interface:
-  display_name: "接入 ViceMe 打赏"
-  short_description: "绑定创作者作品并接入托管打赏"
-  default_prompt: "使用 $viceme-tip 把这个创作者页面接入 ViceMe 打赏。"

@@ -1,11 +1,11 @@
 ---
-name: viceme-access
-description: 把 ViceMe 浏览器 SDK 接入已有发布配置的创作者网站，为宿主原生入口提供登录、明确关注和付费解锁引导；先复用 $viceme-creator-onboarding 检查资格，不创建或修改平台发布配置。
+name: charge-for-your-work
+description: 把 ViceMe 浏览器 SDK 接入已有发布配置的创作者网站，为宿主原生入口提供登录、明确关注和付费解锁引导；先复用 $become-a-creator 检查资格，不创建或修改平台发布配置。
 ---
 
 # ViceMe 网站访问接入
 
-只修改创作者网站的宿主代码。创作者资格统一由 `$viceme-creator-onboarding` 负责；
+只修改创作者网站的宿主代码。创作者资格统一由 `$become-a-creator` 负责；
 Website Work、关注规则、付费价格和平台资源必须已经由拥有这些资源的发布流程建立。本 Skill
 只使用返回的 `workKey` 和功能键接入 SDK 门控。
 
@@ -13,7 +13,7 @@ Website Work、关注规则、付费价格和平台资源必须已经由拥有�
 
 ## 流程
 
-1. 第一项业务动作以资格守卫模式调用 `$viceme-creator-onboarding`。只有它返回当前用户的
+1. 第一项业务动作以资格守卫模式调用 `$become-a-creator`。只有它返回当前用户的
    有效商家后才继续；申请或审核未完成时停止。不得自行复制登录、申请或商家选择步骤。
 2. 查看足够的项目内容，定位目标动作、已有登录或支付代码、组件系统、样式变量和测试。
    用户已明确功能、入口和行为时直接实施；只补问无法从发布结果或代码确认的信息。

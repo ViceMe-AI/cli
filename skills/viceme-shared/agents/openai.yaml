@@ -1,4 +1,0 @@
-interface:
-  display_name: "ViceMe"
-  short_description: "安装、登录并诊断 ViceMe 创作者 CLI"
-  default_prompt: "使用 $viceme-shared 安装 ViceMe 并检查我的登录状态。"

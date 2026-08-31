@@ -150,10 +150,14 @@ npx --yes @viceme-ai/cli@latest install
 
 | Skill | 适用场景 |
 | --- | --- |
-| `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
-| `viceme-paid-skill` | 发布或更新可下载的付费或免费 Skill；网站、服务与普通商品不属于此 Skill。 |
-| `viceme-access` | 把已有网站关注或付费访问配置接入宿主代码，并复用统一的创作者资格检查。 |
-| `viceme-tip` | 验证 Website Work、激活绑定 Origin 的 Website Widget，并把托管赞赏接入页面。 |
+| `creator-tools` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
+| `become-a-creator` | 为所有创作者玩法申请、认领或检查创作者资格。 |
+| `sell-a-skill` | 发布或更新可下载的付费或免费 Skill；网站、服务与普通商品不属于此 Skill。 |
+| `charge-for-your-work` | 把已有网站关注或付费访问配置接入宿主代码，并复用统一的创作者资格检查。 |
+| `let-people-interact` | 验证 Website Work、激活绑定 Origin 的 Website Widget，并把托管弹幕和赞赏接入页面。 |
+
+`let-others-make-a-copy` 是“做同款”交付的保留公开名；对应产品流程实现前不提供官方 Skill。
+买家侧 `viceme-skill-use` 不属于创作者玩法，因此保持现有名称。
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
 可以解释每一步决策，而相同的命令契约仍可在终端或自动化中复现。

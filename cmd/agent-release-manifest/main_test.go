@@ -12,7 +12,7 @@ func TestBuildManifestIncludesEveryPlatformDigestAndSignatureContract(t *testing
 	directory := t.TempDir()
 	source := sourceManifest{
 		NPMPackage: "@viceme-ai/cli", CLIVersion: "1.2.3",
-		Skills:                  map[string]json.RawMessage{"viceme-paid-skill": json.RawMessage(`{"skill_version":"1.2.3"}`)},
+		Skills:                  map[string]json.RawMessage{"sell-a-skill": json.RawMessage(`{"skill_version":"1.2.3"}`)},
 		BootstrapContractDigest: "sha256:" + strings.Repeat("b", 64),
 		InstallerDigests:        map[string]string{"install.sh": "sha256:" + strings.Repeat("c", 64)},
 	}

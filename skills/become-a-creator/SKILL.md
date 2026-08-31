@@ -1,5 +1,5 @@
 ---
-name: viceme-creator-onboarding
+name: become-a-creator
 description: 申请、认领或检查 ViceMe 创作者资格，并把有效商家返回给付费 Skill、网站访问和赞赏等玩法。用户直接要求成为创作者时自动申请；被玩法调用时只在用户同意后申请。
 ---
 

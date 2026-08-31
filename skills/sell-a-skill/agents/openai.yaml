@@ -1,4 +1,4 @@
 interface:
   display_name: "发布付费 Skill"
   short_description: "发布或更新可下载的 ViceMe 付费或免费 Skill"
-  default_prompt: "使用 $viceme-paid-skill 发布或更新这个可下载 Skill。"
+  default_prompt: "使用 $sell-a-skill 发布或更新这个可下载 Skill。"
