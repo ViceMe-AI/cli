@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -942,6 +943,9 @@ func TestInstallJournalUsesCanonicalAbsolutePaths(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantDestination := filepath.Join(canonicalAgents, "viceme-test")
+	if runtime.GOOS == "windows" {
+		wantDestination = strings.ToLower(wantDestination)
+	}
 	foundSkill := false
 	for _, entry := range transaction.journal.Entries {
 		for _, filename := range []string{entry.Destination, entry.Backup, entry.Stage} {
