@@ -152,9 +152,7 @@ npx --yes @viceme-ai/cli@latest install
 | --- | --- |
 | `viceme-shared` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
 | `viceme-publish` | 发布可下载 Skill、创作者网站 Work，或把当前用户拥有的商家服务与实物定义引导为可选的公开 Product 和自动生成的购买 Skill。 |
-| `viceme-danmaku` | 验证 Website Work、启用弹幕 SDK access，并安装官方托管 loader。 |
 | `viceme-tip` | 验证 Website Work、激活绑定 Origin 的 Website Widget，并把托管赞赏接入页面。 |
-| `viceme-engagement` | 在同一个 Website Work 上启用弹幕与赞赏，并安装唯一的组合官方 loader。 |
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
 可以解释每一步决策，而相同的命令契约仍可在终端或自动化中复现。
