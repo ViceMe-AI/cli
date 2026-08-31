@@ -793,8 +793,27 @@ func TestOfficialSkillBundleIncludesAccessAndTip(t *testing.T) {
 
 func TestRetiredOfficialSkillsPinEveryPublishedIdentity(t *testing.T) {
 	t.Parallel()
-	if len(retiredOfficialSkills) == 0 {
-		t.Fatal("published but removed official Skills must stay on the retirement table")
+	expected := map[string][]string{
+		"viceme-danmaku": {
+			"0.16.0-beta.0",
+			// v0.16.0-beta.1 through v0.16.0-beta.5 share this exact
+			// release-manifest identity.
+			"0.16.0-beta.1",
+			"0.16.0-beta.6",
+			"0.16.0-beta.7",
+			"0.16.0",
+			"0.16.1",
+			"0.17.0",
+			"0.18.0",
+			"0.19.0-beta.0",
+		},
+		"viceme-engagement": {
+			"0.16.0-beta.6",
+			"0.16.0-beta.7",
+			"0.17.0",
+			"0.18.0",
+			"0.19.0-beta.0",
+		},
 	}
 	seen := map[string]map[string]bool{}
 	for _, identity := range retiredOfficialSkills {
@@ -809,16 +828,23 @@ func TestRetiredOfficialSkillsPinEveryPublishedIdentity(t *testing.T) {
 		if seen[identity.Name] == nil {
 			seen[identity.Name] = map[string]bool{}
 		}
+		if seen[identity.Name][identity.SkillVersion] {
+			t.Fatalf("retired official Skill identity is duplicated: %s %s", identity.Name, identity.SkillVersion)
+		}
 		seen[identity.Name][identity.SkillVersion] = true
 	}
-	// viceme-danmaku and viceme-engagement shipped in stable v0.18.0 and in
-	// v0.19.0-beta.0; both upgrade paths must retire their managed installs.
-	for _, name := range []string{"viceme-danmaku", "viceme-engagement"} {
-		for _, version := range []string{"0.18.0", "0.19.0-beta.0"} {
+	for name, versions := range expected {
+		for _, version := range versions {
 			if !seen[name][version] {
 				t.Fatalf("published %s %s is missing from the retirement table", name, version)
 			}
 		}
+		if len(seen[name]) != len(versions) {
+			t.Fatalf("retirement table contains an unexpected identity for %s: %#v", name, seen[name])
+		}
+	}
+	if len(seen) != len(expected) {
+		t.Fatalf("retirement table contains an unexpected Skill: %#v", seen)
 	}
 }
 
