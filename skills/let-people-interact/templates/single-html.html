@@ -47,11 +47,12 @@
     </main>
 
     <!-- 仅在统一流程已确认 CN Profile、选定公开 PUBLISHED Work，并完成
-         CN/GLOBAL 四个精确 0.5.0 入口预检后使用。宿主页不因此成为 Website Work。
+         CN/GLOBAL 同一个 sdk_version 的四个精确入口预检后使用。写入前替换全部
+         REPLACE_WITH_RESOLVED_SDK_VERSION；仍有占位符就停止。宿主页不因此成为 Website Work。
          保留浏览器 Referer；不要设置 no-referrer，也不要伪造 sourceOrigin。 -->
     <script type="module">
-      import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";
-      import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";
+      import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";
+      import { mountTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";
 
       const target = document.querySelector("#viceme-tip");
       if (!target) throw new Error("ViceMe Tip target is missing");
