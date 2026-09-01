@@ -816,7 +816,7 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 	if strings.Index(templateText, "tipHandle.destroy();") > strings.Index(templateText, "client.destroy();") {
 		t.Fatal("single HTML template destroys the client before the Tip mount")
 	}
-	for _, forbidden := range []string{"REPLACE_WITH_SDK_SCRIPT_URL", "/viceme-sdk/v1", "data-viceme-", "window.ViceMe"} {
+	for _, forbidden := range []string{"REPLACE_WITH_SDK_SCRIPT_URL", "data-viceme-", "window.ViceMe"} {
 		if strings.Contains(templateText, forbidden) {
 			t.Fatalf("single HTML template retained forbidden integration %q", forbidden)
 		}

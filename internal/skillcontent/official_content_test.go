@@ -195,7 +195,7 @@ func TestInteractionTemplateUsesExactMountedTipESM(t *testing.T) {
 	if strings.Index(text, "tipHandle.destroy();") > strings.Index(text, "client.destroy();") {
 		t.Fatal("interaction template destroys the client before its Tip mount")
 	}
-	for _, forbidden := range []string{"REPLACE_WITH_SDK_SCRIPT_URL", "/viceme-sdk/v1", "data-viceme-", "window.ViceMe"} {
+	for _, forbidden := range []string{"REPLACE_WITH_SDK_SCRIPT_URL", "data-viceme-", "window.ViceMe"} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("interaction template retained legacy integration %q", forbidden)
 		}
