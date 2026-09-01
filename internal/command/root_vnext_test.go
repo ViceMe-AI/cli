@@ -801,8 +801,8 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 	}
 	templateText := string(template)
 	for _, required := range []string{
-		`import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";`,
-		`import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";`,
+		`import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";`,
+		`import { mountTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";`,
 		`workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY"`,
 		"const tipHandle = await mountTip(client, {",
 		"tipHandle.destroy();",
@@ -820,6 +820,9 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 		if strings.Contains(templateText, forbidden) {
 			t.Fatalf("single HTML template retained forbidden integration %q", forbidden)
 		}
+	}
+	if pinned := regexp.MustCompile(`/viceme-sdk/\d+\.\d+\.\d+/`).FindString(templateText); pinned != "" {
+		t.Fatalf("single HTML template pinned an SDK version %q", pinned)
 	}
 	if _, _, err := bundle.Read("let-people-interact", "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)

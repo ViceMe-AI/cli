@@ -25,14 +25,40 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
 2. 运行 `viceme profile list`，只记录并固定当前 Profile、API/Web base URL 和精确 `marketRegion`。页面 locale 不选择市场；不得切换 Profile，也不得从 hostname、记忆或其他 Profile 推导市场。仅弹幕不受 CN/CNY 限制，保留当前 Profile 既有 `cn` 或 `global` 支持。
 3. 仅弹幕分支记录精确部署 HTTPS Origin、目标页面、部署命令、CSP 和浏览器测试，然后按 [Website Work 与安全接入](#website-work-与安全接入) 继续。不得因为页面语言是中文就改成 CN，也不得因为页面语言是英文就改成 GLOBAL。
 4. 任意包含 Tip 的分支，在任何 Work 创建、更新或发布、Website verification、SDK access 或宿主页写入前，先确认 `marketRegion: cn`；GLOBAL 必须立即停止，且不得留下业务写入。随后请用户选择官方 Mounted UI 或 Headless。Headless 还必须选择 npm 或 CDN ESM。
-5. 选定 Tip UI 后，先证明精确 `0.5.0` 的 CN/GLOBAL `index.js` 与 `tip.js` 全部直接可用：
+5. 任意分支在业务写入前，只解析一次官方 npm 元数据中的当前稳定 SDK，并把结果固定为本次接入唯一的 `sdk_version`。只运行本 Skill 随附的 [validate-sdk-release.mjs](scripts/validate-sdk-release.mjs)，不得运行项目内同名文件；把命令中的 `<skill-dir>` 替换为承载当前 `SKILL.md` 的可信安装目录。解析结果必须是纯 `major.minor.patch`，并且发布包必须暴露本合同要求的 Danmaku、Mounted Tip 与 Headless Tip 公共入口；否则立即停止，不能回退到旧版：
+
+   ```bash
+   sdk_validator="<skill-dir>/scripts/validate-sdk-release.mjs"
+   test -f "$sdk_validator" || exit 1
+
+   sdk_metadata="$(
+     npm view @viceme-ai/sdk@latest version exports --json \
+       --fetch-timeout=15000 --fetch-retries=0 \
+       --registry=https://registry.npmjs.org \
+       --@viceme-ai:registry=https://registry.npmjs.org
+   )" || exit 1
+   sdk_version="$(printf '%s' "$sdk_metadata" | node "$sdk_validator" package)" || exit 1
+   test -n "$sdk_version" || exit 1
+   printf 'sdk_version=%s\n' "$sdk_version"
+   ```
+
+   任意包含 Tip 的分支随后验证两区 manifest 都与 npm 版本一致、保持受支持的 SDK `apiMajor` 并包含完整公共面，再证明同一个精确 `sdk_version` 的 CN/GLOBAL `index.js` 与 `tip.js` 全部直接可用：
+
+   ```bash
+   for sdk_origin in https://s3.viceme.cn https://s3.viceme.ai
+   do
+     manifest_url="${sdk_origin}/viceme-sdk/${sdk_version}/manifest.json"
+     sdk_manifest_response="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --write-out '\n%{http_code}' "$manifest_url")" || exit 1
+     printf '%s' "$sdk_manifest_response" | node "$sdk_validator" manifest-response "$sdk_version" || exit 1
+   done
+   ```
 
    ```bash
    for asset_url in \
-     https://s3.viceme.cn/viceme-sdk/0.5.0/index.js \
-     https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js \
-     https://s3.viceme.ai/viceme-sdk/0.5.0/index.js \
-     https://s3.viceme.ai/viceme-sdk/0.5.0/tip.js
+     https://s3.viceme.cn/viceme-sdk/${sdk_version}/index.js \
+     https://s3.viceme.cn/viceme-sdk/${sdk_version}/tip.js \
+     https://s3.viceme.ai/viceme-sdk/${sdk_version}/index.js \
+     https://s3.viceme.ai/viceme-sdk/${sdk_version}/tip.js
    do
      http_code="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' "$asset_url")" || exit 1
      test "$http_code" = "200" || exit 1
@@ -42,21 +68,24 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
    `curl` 不使用 `--location`；每个请求必须在 15 秒内直接返回精确 `200`，不得跟随或接受重定向。组合分支还要用完全相同的超时、无重定向和精确 `200` 规则检查：
 
    ```bash
-   asset_url="https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js"
+   asset_url="https://s3.viceme.cn/viceme-sdk/${sdk_version}/danmaku.js"
    http_code="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' "$asset_url")" || exit 1
    test "$http_code" = "200" || exit 1
    ```
 
-   Headless npm 路线还必须从官方 registry 精确确认该版本：
+   Headless npm 路线还必须从官方 registry 精确确认并安装这个已经固定的版本：
 
    ```bash
-   npm view @viceme-ai/sdk@0.5.0 version --json \
-     --fetch-timeout=15000 --fetch-retries=0 \
-     --registry=https://registry.npmjs.org \
-     --@viceme-ai:registry=https://registry.npmjs.org
+   published_version="$(
+     npm view "@viceme-ai/sdk@${sdk_version}" version \
+       --fetch-timeout=15000 --fetch-retries=0 \
+       --registry=https://registry.npmjs.org \
+       --@viceme-ai:registry=https://registry.npmjs.org
+   )" || exit 1
+   test "$published_version" = "$sdk_version" || exit 1
    ```
 
-   结果必须精确为 `0.5.0`。任一必需检查失败就停止，不创建、验证或发布 Work，不写 SDK access，也不编辑宿主页。不得改用 `latest`、alias、声明式或全局 loader、Git 依赖、私有镜像同名包或复制 SDK 源码。
+   `latest` 只允许用于上述一次官方元数据解析；不得把 `latest` 写入 npm 安装规格、CDN URL 或宿主页，也不得在同一次接入中重新解析版本。任一必需检查失败就停止，不创建、验证或发布 Work，不写 SDK access，也不编辑宿主页。不得改用其他 alias、声明式或全局 loader、Git 依赖、私有镜像同名包或复制 SDK 源码。
 
 ## 仅赞赏的 Work 选择
 
@@ -76,8 +105,8 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
 本节只适用于仅弹幕和组合分支。
 
 1. 规范 Origin 必须是精确小写 HTTPS `scheme + host`，不含凭据、路径、查询、片段或尾部斜杠。预览域名与生产域名是不同 Origin。
-2. 写入前只读检查页面。只接受本 Skill 定义的精确 `0.5.0` ESM imports；发现声明式或全局 loader、旧 embed 标签、`data-viceme-*`、非精确版本或多套 ViceMe 运行时时立即停止，要求用户先移除，不把它们作为 Work 身份或迁移输入。
-3. 页面已有唯一的精确 `0.5.0` ESM 接入时，只接受其中公开的 `wrk_test_...` 或 `wrk_live_...`。运行 `viceme merchant work sdk-access list --merchant <merchant-id>`，按 `keys.test` 或 `keys.live` 精确定位 Work，再读取 Work 并确认属于当前 Merchant；缺少可验证 Work 身份时，在任何 Work、Website verification、SDK access 或页面写入前停止。
+2. 写入前只读检查页面。只接受本次已固定 `sdk_version` 的精确 ESM imports；发现声明式或全局 loader、旧 embed 标签、`data-viceme-*`、其他版本或多套 ViceMe 运行时时立即停止，要求用户先移除，不把它们作为 Work 身份或迁移输入。
+3. 页面已有唯一的同版本精确 ESM 接入时，只接受其中公开的 `wrk_test_...` 或 `wrk_live_...`。运行 `viceme merchant work sdk-access list --merchant <merchant-id>`，按 `keys.test` 或 `keys.live` 精确定位 Work，再读取 Work 并确认属于当前 Merchant；缺少可验证 Work 身份时，在任何 Work、Website verification、SDK access 或页面写入前停止。
 4. 页面没有当前精确 ESM 接入时，运行 `viceme merchant work list --merchant <merchant-id>`，只保留 `kind: WEBSITE` 且 `website.canonicalOrigin` 与部署 Origin 完全一致的候选：
 
    - 0 个候选时才创建新 Work。
@@ -156,13 +185,14 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
 
 ## 宿主页接入
 
-新接入只使用精确 `0.5.0` ESM 公共面：`createViceMe(...)`、`mountDanmaku(...)`、`mountTip(...)`，或 Headless 的 `createTip(client).getConfig()/.open()/.destroy()`。完整 Mounted、Headless、仅弹幕与组合示例都在 [integration-contract.md](references/integration-contract.md)；单 HTML Mounted Tip 起点见 [single-html.html](templates/single-html.html)。
+新接入只使用本次固定 `sdk_version` 的精确 ESM 公共面：`createViceMe(...)`、`mountDanmaku(...)`、`mountTip(...)`，或 Headless 的 `createTip(client).getConfig()/.open()/.destroy()`。完整 Mounted、Headless、仅弹幕与组合示例都在 [integration-contract.md](references/integration-contract.md)；单 HTML Mounted Tip 起点见 [single-html.html](templates/single-html.html)。
 
-- 仅弹幕根据当前 Profile 选择 CN 或 GLOBAL 精确 CDN，不收窄既有 market 支持。写 SDK access 或页面前，对所选区域的 `index.js` 与 `danmaku.js` 执行相同的 5 秒连接、15 秒总时限、无 redirect、精确 `200` 预检。
+- 仅弹幕根据当前 Profile 选择 CN 或 GLOBAL 精确 CDN，不收窄既有 market 支持。写 SDK access 或页面前，先用同一个校验器验证所选区域的精确 manifest，再对 `index.js` 与 `danmaku.js` 执行相同的 5 秒连接、15 秒总时限、无 redirect、精确 `200` 预检。
 - 任意 Tip 路线使用已预检的 CN ESM 或已精确安装的 npm 包，并从 `keys.test` 开始。Headless 的金额和 provider 只来自 `getConfig()`，`open()` 结果只按 `PAID | CANCELLED | UNKNOWN` 处理。
 - 组合只创建一个 client。官方路线可以分别 `mountDanmaku` 与 `mountTip`；Headless 路线只 `mountDanmaku`，Tip 使用 `createTip`，不得同时挂载两种 Tip UI。一个 mount 失败不得销毁另一个成功能力。
 - SPA、组件或路由真实卸载时先销毁全部 mount/controller，再调用 `client.destroy()`；不要使用会在 bfcache 时触发的 `pagehide`。
-- 页面只能保留一个选定的精确 `0.5.0` ESM 接入；不得生成或保留第二套运行时。
+- 使用模板或示例时，写入前把其中全部 `REPLACE_WITH_RESOLVED_SDK_VERSION` 替换为本次固定的 `sdk_version`；仍有占位符就停止，不得发布。
+- 页面只能保留一个选定的同版本精确 ESM 接入；不得生成或保留第二套运行时。
 
 ## Tip 安全与验证
 
