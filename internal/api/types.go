@@ -61,11 +61,13 @@ type MerchantAccount struct {
 }
 
 type MerchantOnboardingEvidence struct {
-	ID          string `json:"id"`
-	FileName    string `json:"fileName"`
-	ContentType string `json:"contentType"`
-	SizeBytes   int64  `json:"sizeBytes"`
-	CreatedAt   string `json:"createdAt"`
+	ID          string  `json:"id"`
+	Kind        string  `json:"kind"`
+	FileName    string  `json:"fileName"`
+	ContentType string  `json:"contentType"`
+	SizeBytes   int64   `json:"sizeBytes"`
+	Content     *string `json:"content"`
+	CreatedAt   string  `json:"createdAt"`
 }
 
 type MerchantOnboarding struct {
