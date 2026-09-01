@@ -230,9 +230,14 @@ type WorkAccessFeatureInput struct {
 	Status     string           `json:"status"`
 }
 
+type WorkSdkAccessKeys struct {
+	Test string `json:"test"`
+	Live string `json:"live"`
+}
+
 type WorkSdkAccess struct {
 	WorkID         string              `json:"workId"`
-	WorkKey        string              `json:"workKey"`
+	Keys           WorkSdkAccessKeys   `json:"keys"`
 	Status         string              `json:"status"`
 	ConfigVersion  int                 `json:"configVersion"`
 	Features       []string            `json:"features"`

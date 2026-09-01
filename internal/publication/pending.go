@@ -12,6 +12,7 @@ import (
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/gofrs/flock"
 )
 
@@ -165,29 +166,8 @@ func (s PendingStore) Save(value Pending) error {
 		return output.Internal("PUBLICATION_PENDING_SAVE_FAILED", "could not encode publication recovery state", err)
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(s.Directory, ".pending-*.tmp")
-	if err != nil {
-		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not create publication recovery state", err)
-	}
-	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not secure publication recovery state", err)
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
+	if err := privatefile.Write(s.filename(value.PublicationID), data, ".pending-*.tmp"); err != nil {
 		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not write publication recovery state", err)
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not sync publication recovery state", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not close publication recovery state", err)
-	}
-	if err := os.Rename(temporaryName, s.filename(value.PublicationID)); err != nil {
-		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not activate publication recovery state", err)
 	}
 	return nil
 }
@@ -248,29 +228,8 @@ func writePrivateJSON(filename string, value any) error {
 		return output.Internal("PUBLICATION_RECOVERY_SAVE_FAILED", "could not encode publication recovery state", err)
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(directory, ".recovery-*.tmp")
-	if err != nil {
-		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not create publication recovery state", err)
-	}
-	name := temporary.Name()
-	defer os.Remove(name)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not secure publication recovery state", err)
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
+	if err := privatefile.Write(filename, data, ".recovery-*.tmp"); err != nil {
 		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not write publication recovery state", err)
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not sync publication recovery state", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not close publication recovery state", err)
-	}
-	if err := os.Rename(name, filename); err != nil {
-		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not activate publication recovery state", err)
 	}
 	return nil
 }

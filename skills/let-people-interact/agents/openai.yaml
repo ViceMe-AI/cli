@@ -1,4 +1,4 @@
 interface:
-  display_name: "给网站加弹幕和赞赏"
-  short_description: "同时接入托管弹幕和赞赏"
-  default_prompt: "使用 $let-people-interact 为这个创作者网站同时接入或修复 ViceMe 弹幕和赞赏。"
+  display_name: "接入 ViceMe 互动"
+  short_description: "分支接入弹幕、开放赞赏或两者"
+  default_prompt: "使用 $let-people-interact 先判断仅弹幕、仅赞赏或弹幕加赞赏，再按对应的 Work、市场、验证与官方 Mounted/Headless SDK 边界完成接入。"

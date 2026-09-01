@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/semver"
 	"github.com/gofrs/flock"
 )
@@ -682,29 +683,8 @@ func (service *NPMService) writeNPMActivation(journal npmActivationJournal) erro
 		return err
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(service.ConfigDir, ".npm-activation-*.tmp")
-	if err != nil {
-		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("could not create the npm activation journal")}
-	}
-	name := temporary.Name()
-	defer os.Remove(name)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(name, filepath.Join(service.ConfigDir, npmActivationFilename)); err != nil {
-		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("could not activate the npm recovery journal")}
+	if err := privatefile.Write(filepath.Join(service.ConfigDir, npmActivationFilename), data, ".npm-activation-*.tmp"); err != nil {
+		return &OperationError{Kind: ErrorNPMPermission, Cause: fmt.Errorf("could not write the npm recovery journal: %w", err)}
 	}
 	return nil
 }
@@ -991,24 +971,10 @@ func saveCachedUpdateState(filename, directory, temporaryPattern, version string
 	if err != nil {
 		return
 	}
-	temporary, err := os.CreateTemp(directory, temporaryPattern)
-	if err != nil {
-		return
-	}
-	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
-	if temporary.Chmod(0o600) != nil {
-		temporary.Close()
-		return
-	}
-	if _, err := temporary.Write(data); err != nil {
-		temporary.Close()
-		return
-	}
-	if temporary.Close() != nil {
-		return
-	}
-	_ = os.Rename(temporaryName, filename)
+	// The update cache is best effort: a sandbox that denies the activating
+	// rename previously leaked one staging file per check, so route it through
+	// the shared degraded write and ignore failures.
+	_ = privatefile.Write(filename, data, temporaryPattern)
 }
 
 func (service *NPMService) loadUpdateState() (updateState, bool) {

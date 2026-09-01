@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/gofrs/flock"
 )
 
@@ -311,29 +312,8 @@ func writeBindingJSON(filename string, value any) error {
 		return output.Internal("SKILL_BINDING_SAVE_FAILED", "could not encode the Skill binding", err)
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(filepath.Dir(filename), ".binding-*.tmp")
-	if err != nil {
-		return bindingWriteError(filepath.Dir(filename), "SKILL_BINDING_SAVE_FAILED", "could not create the Skill binding", err)
-	}
-	name := temporary.Name()
-	defer os.Remove(name)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return bindingWriteError(filepath.Dir(filename), "SKILL_BINDING_SAVE_FAILED", "could not secure the Skill binding", err)
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
+	if err := privatefile.Write(filename, data, ".binding-*.tmp"); err != nil {
 		return bindingWriteError(filepath.Dir(filename), "SKILL_BINDING_SAVE_FAILED", "could not write the Skill binding", err)
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return bindingWriteError(filepath.Dir(filename), "SKILL_BINDING_SAVE_FAILED", "could not sync the Skill binding", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return bindingWriteError(filepath.Dir(filename), "SKILL_BINDING_SAVE_FAILED", "could not close the Skill binding", err)
-	}
-	if err := os.Rename(name, filename); err != nil {
-		return bindingWriteError(filepath.Dir(filename), "SKILL_BINDING_SAVE_FAILED", "could not activate the Skill binding", err)
 	}
 	return nil
 }

@@ -761,7 +761,14 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 
 func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 	t.Parallel()
-	found := map[string]bool{"charge-for-your-work": false, "let-people-interact": false}
+	found := map[string]bool{
+		"creator-tools":         false,
+		"become-a-creator":      false,
+		"sell-a-skill":          false,
+		"viceme-skill-use":      false,
+		"charge-for-your-work":  false,
+		"let-people-interact":   false,
+	}
 	retired := make(map[string]bool, len(retiredOfficialSkills))
 	for _, skill := range retiredOfficialSkills {
 		retired[skill.Name] = true
@@ -773,6 +780,9 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 		if _, tracked := found[name]; tracked {
 			found[name] = true
 		}
+	}
+	if len(officialSkillNames) != len(found) {
+		t.Fatalf("official Skill list must contain exactly six active Skills: %#v", officialSkillNames)
 	}
 	for name, included := range found {
 		if !included {
@@ -789,12 +799,41 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("official Skill bundle omitted the single HTML template: %v", err)
 	}
-	resolved := strings.ReplaceAll(string(template), "REPLACE_WITH_SDK_SCRIPT_URL", "https://viceme.example/viceme-sdk/v1/viceme.min.js")
-	if !strings.Contains(resolved, `src="https://viceme.example/viceme-sdk/v1/viceme.min.js"`) || strings.Contains(resolved, "https://https://") {
-		t.Fatalf("single HTML template does not accept the complete SDK URL")
+	templateText := string(template)
+	for _, required := range []string{
+		`import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";`,
+		`import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";`,
+		`workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY"`,
+		"const tipHandle = await mountTip(client, {",
+		"tipHandle.destroy();",
+		"client.destroy();",
+		"组件或路由真实卸载",
+	} {
+		if !strings.Contains(templateText, required) {
+			t.Fatalf("single HTML template omitted %q", required)
+		}
+	}
+	if strings.Index(templateText, "tipHandle.destroy();") > strings.Index(templateText, "client.destroy();") {
+		t.Fatal("single HTML template destroys the client before the Tip mount")
+	}
+	for _, forbidden := range []string{"REPLACE_WITH_SDK_SCRIPT_URL", "/viceme-sdk/v1", "data-viceme-", "window.ViceMe"} {
+		if strings.Contains(templateText, forbidden) {
+			t.Fatalf("single HTML template retained forbidden integration %q", forbidden)
+		}
 	}
 	if _, _, err := bundle.Read("let-people-interact", "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
+	}
+	legacyInteraction := map[string]bool{"viceme-danmaku": false, "viceme-tip": false}
+	for _, skill := range retiredOfficialSkills {
+		if _, expected := legacyInteraction[skill.Name]; expected {
+			legacyInteraction[skill.Name] = true
+		}
+	}
+	for name, included := range legacyInteraction {
+		if !included {
+			t.Fatalf("retired official Skill catalog omitted %s", name)
+		}
 	}
 }
 

@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 )
 
 const (
@@ -145,33 +147,33 @@ func (s *EncryptedFileStore) Preflight(key string) error {
 	if err := s.ensureDirectory(); err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(s.directory(), ".preflight-*")
+	// Exercise the exact save path: stage a temporary file, activate it with a
+	// rename or the sandbox direct-write fallback, and read it back. Deletion
+	// is intentionally not verified: login needs a durable save and read-back,
+	// and a sandbox that denies unlink must not block a login that can actually
+	// complete. Stale probe files are swept by later writes.
+	probePath, err := preflightProbePath(s.directory())
 	if err != nil {
 		return err
 	}
-	name := file.Name()
-	defer os.Remove(name)
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
+	if err := privatefile.Write(probePath, probe, ".preflight-*"); err != nil {
 		return err
 	}
-	if _, err := file.Write(probe); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	readBack, err := os.ReadFile(name)
+	defer os.Remove(probePath)
+	readBack, err := os.ReadFile(probePath)
 	if err != nil {
 		return err
 	}
 	_, err = decryptCredential(readBack, masterKey, s.associatedData(key+":preflight"))
 	return err
+}
+
+func preflightProbePath(directory string) (string, error) {
+	var random [8]byte
+	if _, err := rand.Read(random[:]); err != nil {
+		return "", err
+	}
+	return filepath.Join(directory, fmt.Sprintf(".preflight-final-%x", random[:])), nil
 }
 
 func (s *EncryptedFileStore) DowngradeKeychain(keys []string) (KeychainDowngradeResult, error) {
@@ -349,28 +351,7 @@ func (s *EncryptedFileStore) writeCredential(key string, data []byte) error {
 	if err := s.ensureDirectory(); err != nil {
 		return err
 	}
-	file, err := os.CreateTemp(s.directory(), ".credential-*")
-	if err != nil {
-		return err
-	}
-	temporary := file.Name()
-	defer os.Remove(temporary)
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(temporary, s.credentialPath(key))
+	return privatefile.Write(s.credentialPath(key), data, ".credential-*")
 }
 
 func (s *EncryptedFileStore) ensureDirectory() error {

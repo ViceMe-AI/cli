@@ -24,7 +24,7 @@ jobs:
           cache: npm
       - run: npm ci
       - name: Validate GitHub Actions workflows
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       - run: make check
       - run: make npm-package-check
 
