@@ -26,6 +26,15 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 			if checkOnly {
 				return runtime.business(check)
 			}
+			if check.UpdateAvailable {
+				if err := updatepkg.ProbeRenameCapability(runtime.configBase); err != nil {
+					if errors.Is(err, updatepkg.ErrRenameDenied) {
+						return output.Policy("UPDATE_ACTIVATION_SANDBOX_BLOCKED", "this environment denies the file renames needed to activate a new ViceMe CLI generation").
+							WithHint("run 'viceme update' from a regular terminal outside the agent sandbox; the installed generation remains fully usable")
+					}
+					return output.Internal("UPDATE_ACTIVATION_PROBE_FAILED", "could not verify whether this environment can activate a new ViceMe CLI generation", err)
+				}
+			}
 			result, err := runtime.deps.Updater.Apply(ctx, check, updatepkg.ApplyOptions{
 				RefreshSkills: true,
 				SkillTarget:   target,
