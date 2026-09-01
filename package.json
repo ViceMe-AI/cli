@@ -1,6 +1,6 @@
 {
   "name": "@viceme-ai/cli",
-  "version": "0.22.1",
+  "version": "0.22.2",
   "description": "Install the ViceMe creator CLI and official Agent Skills",
   "type": "module",
   "bin": {

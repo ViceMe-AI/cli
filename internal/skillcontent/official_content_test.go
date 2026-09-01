@@ -36,7 +36,7 @@ func readOfficialSkillBundle(t *testing.T, skillName string) string {
 			return nil
 		}
 		switch path.Ext(filePath) {
-		case ".html", ".json", ".md", ".yaml", ".yml":
+		case ".html", ".json", ".md", ".mjs", ".yaml", ".yml":
 		default:
 			return nil
 		}
@@ -130,7 +130,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "let-people-interact",
 			machine: []string{
 				"website-verification create", "website-verification verify", "sdk-access", "keys.test", "keys.live",
-				"--feature danmaku", "--feature tip", "0.5.0", "createViceMe", "mountDanmaku", "mountTip", "createTip",
+				"--feature danmaku", "--feature tip", "sdk_version", "REPLACE_WITH_RESOLVED_SDK_VERSION", "createViceMe", "mountDanmaku", "mountTip", "createTip",
 			},
 			semantics: []string{
 				"仅弹幕", "仅赞赏", "弹幕加赞赏", "SANDBOX", "Headless", "宿主页与被赞赏 Work 是独立资源",
@@ -183,10 +183,10 @@ func TestInteractionTemplateUsesExactMountedTipESM(t *testing.T) {
 	}
 	text := string(content)
 	for _, required := range []string{
-		`import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";`,
-		`import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";`,
+		`import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";`,
+		`import { mountTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";`,
 		`workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY"`, "tipHandle.destroy();", "client.destroy();",
-		"公开 PUBLISHED Work", "宿主页不因此成为 Website Work", "静态文档没有页面内卸载",
+		"公开 PUBLISHED Work", "宿主页不因此成为 Website Work", "静态文档没有页面内卸载", "写入前替换",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("interaction template omitted exact Mounted Tip contract %q", required)
@@ -199,6 +199,9 @@ func TestInteractionTemplateUsesExactMountedTipESM(t *testing.T) {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("interaction template retained legacy integration %q", forbidden)
 		}
+	}
+	if pinned := regexp.MustCompile(`/viceme-sdk/\d+\.\d+\.\d+/`).FindString(text); pinned != "" {
+		t.Fatalf("interaction template pinned an SDK version %q", pinned)
 	}
 }
 
@@ -684,25 +687,52 @@ func TestTipBearingInteractionPreflightsExactReleaseBeforeMutation(t *testing.T)
 	}
 	text := string(content)
 	for _, required := range []string{
-		"https://s3.viceme.cn/viceme-sdk/0.5.0/index.js",
-		"https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js",
-		"https://s3.viceme.ai/viceme-sdk/0.5.0/index.js",
-		"https://s3.viceme.ai/viceme-sdk/0.5.0/tip.js",
-		"https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js",
+		"npm view @viceme-ai/sdk@latest version exports --json",
+		`node "$sdk_validator" package`, `node "$sdk_validator" manifest-response "$sdk_version"`,
+		`sdk_manifest_response="$(curl`, `--write-out '\n%{http_code}'`,
+		"manifest.json", "apiMajor", "完整公共面",
+		"https://s3.viceme.cn/viceme-sdk/${sdk_version}/index.js",
+		"https://s3.viceme.cn/viceme-sdk/${sdk_version}/tip.js",
+		"https://s3.viceme.ai/viceme-sdk/${sdk_version}/index.js",
+		"https://s3.viceme.ai/viceme-sdk/${sdk_version}/tip.js",
+		"https://s3.viceme.cn/viceme-sdk/${sdk_version}/danmaku.js",
 		"--connect-timeout 5", "--max-time 15", "--write-out '%{http_code}'",
 		`"$asset_url")" || exit 1`, `test "$http_code" = "200" || exit 1`,
-		"不得跟随或接受重定向", "npm view @viceme-ai/sdk@0.5.0 version --json",
-		"--fetch-timeout=15000 --fetch-retries=0", "--registry=https://registry.npmjs.org",
-		"--@viceme-ai:registry=https://registry.npmjs.org", "latest", "声明式或全局 loader",
+		"不得跟随或接受重定向", `npm view "@viceme-ai/sdk@${sdk_version}" version`,
+		`test "$published_version" = "$sdk_version" || exit 1`, "--fetch-timeout=15000 --fetch-retries=0",
+		"--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org",
+		"只解析一次", "不得把 `latest` 写入", "REPLACE_WITH_RESOLVED_SDK_VERSION", "声明式或全局 loader",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Tip preflight omitted exact release guard %q", required)
 		}
 	}
-	preflight := strings.Index(text, "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js")
+	preflight := strings.Index(text, "npm view @viceme-ai/sdk@latest version exports --json")
 	mutation := strings.Index(text, "merchant work sdk-access create")
 	if preflight < 0 || mutation < 0 || preflight >= mutation {
 		t.Fatal("Tip release preflight does not precede SDK access mutation")
+	}
+	bundle := readOfficialSkillBundle(t, "let-people-interact")
+	if pinned := regexp.MustCompile(`(?:@viceme-ai/sdk@|/viceme-sdk/)\d+\.\d+\.\d+`).FindString(bundle); pinned != "" {
+		t.Fatalf("interaction Skill pinned an SDK version %q", pinned)
+	}
+	if strings.Contains(text, `sdk_manifest="$(curl`) {
+		t.Fatal("SDK manifest body is fetched separately from its validated HTTP status")
+	}
+	validator, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/scripts/validate-sdk-release.mjs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		`const exactSemver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/`,
+		`"./tip/testing": "./dist/tip/testing.js"`,
+		"manifest.apiMajor !== 1", `manifest.version !== expectedVersion`,
+		`const requiredManifestFiles = ["index.js", "danmaku.js", "tip.js", "tip/testing.js"]`,
+		`const statusSeparator = response.lastIndexOf("\n")`, `status !== "200"`,
+	} {
+		if !strings.Contains(string(validator), required) {
+			t.Fatalf("SDK release validator omitted fail-closed guard %q", required)
+		}
 	}
 }
 
@@ -768,11 +798,12 @@ func TestInteractionExactESMExamplesOwnTheirLifecycles(t *testing.T) {
 	}
 	text := string(content)
 	for _, required := range []string{
-		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js"`,
-		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js"`,
-		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js"`,
 		"mountDanmaku(", "mountTip(", "createTip(", "Promise.allSettled", "tip.destroy();",
 		"danmakuHandle.destroy();", "client.destroy();", "Local Fake", "SANDBOX", "keys.test", "keys.live",
+		"npm install --save-exact", "pnpm add --save-exact", "yarn add --exact",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("ESM lifecycle contract omitted %q", required)
@@ -787,7 +818,9 @@ func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
 	for _, required := range []string{
 		"keys.test", "keys.live", "没有顶层单一 `workKey` 字段", "生产宿主把 `keys.live`",
 		"完整 hosted `danmaku`/`tip` features", "完整 `accessFeatures`", "精确 `configVersion`", "没有发生轮换",
-		"$become-a-creator", "拥有平台资源的发布流程",
+		"$become-a-creator", "拥有平台资源的发布流程", "安装 `@viceme-ai/sdk`",
+		"桌面结账保留在 SDK Access Layer", "移动 H5/WAP", "新的服务端访问决定解锁",
+		"支付窗口失败反馈由", "宿主不解锁",
 	} {
 		if !strings.Contains(bundle, required) {
 			t.Fatalf("charge-for-your-work omitted dual-key boundary %q", required)
@@ -797,6 +830,31 @@ func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
 		if strings.Contains(bundle, forbidden) {
 			t.Fatalf("charge-for-your-work references retired Skill %q", forbidden)
 		}
+	}
+	if strings.Contains(bundle, "打开平台支付窗口") {
+		t.Fatal("charge-for-your-work retained the legacy popup checkout flow")
+	}
+	if strings.Contains(bundle, "@viceme-ai/sdk@") {
+		t.Fatal("charge-for-your-work pinned a continuously updated SDK version")
+	}
+}
+
+func TestChargeForYourWorkUsesPlatformAwareInteractiveGuidance(t *testing.T) {
+	t.Parallel()
+
+	bundle := readOfficialSkillBundle(t, "charge-for-your-work")
+	for _, required := range []string{
+		"先确认当前 Agent 平台", "当前平台明确为 WorkBuddy", "AskUserQuestion",
+		"其他平台使用", "原生的等效交互工具", "没有交互式提问工具时才退回编号短选项", "回复编号",
+		"多个已发布功能", "多个可门控的宿主入口", "不要求用户手打内部键值",
+		"真正开放且无法列出候选的信息", "服务端已有的标题、价格、两个 SDK key 和功能键不向用户重复索取",
+	} {
+		if !strings.Contains(bundle, required) {
+			t.Fatalf("charge-for-your-work omitted interactive guidance %q", required)
+		}
+	}
+	if strings.Contains(bundle, "优先使用 WorkBuddy") {
+		t.Fatal("charge-for-your-work assumes WorkBuddy without identifying the current platform")
 	}
 }
 
@@ -886,7 +944,7 @@ func sectionBetween(text, start, end string) string {
 }
 
 func fencedBlocks(text, language string) []string {
-	matches := regexp.MustCompile("(?s)```" + regexp.QuoteMeta(language) + "\\s*(.*?)\\s*```").FindAllStringSubmatch(text, -1)
+	matches := regexp.MustCompile("(?s)```"+regexp.QuoteMeta(language)+"\\s*(.*?)\\s*```").FindAllStringSubmatch(text, -1)
 	blocks := make([]string, 0, len(matches))
 	for _, match := range matches {
 		blocks = append(blocks, match[1])

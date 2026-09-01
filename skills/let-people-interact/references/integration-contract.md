@@ -35,16 +35,43 @@ PUBLISHED + VERIFIED Website Work（Website 门禁只由 Danmaku 要求）
 
 ## 发布物预检
 
-`@viceme-ai/sdk@0.5.0` 是本合同的精确 SDK 目标。任意 Tip 路线先选官方 Mounted 或 Headless；Headless 再选 npm 或 CDN ESM。选择必须早于 Work、Website verification、SDK access 或宿主页写入。
+任意路线先从官方 npm 的稳定 `latest` 元数据只解析一次 SDK 版本，将纯 `major.minor.patch` 结果固定为本次接入唯一的 `sdk_version`。`latest` 只负责发现版本，不能进入安装规格、CDN URL 或宿主页。任意 Tip 路线先选官方 Mounted 或 Headless；Headless 再选 npm 或 CDN ESM。选择与版本解析必须早于 Work、Website verification、SDK access 或宿主页写入。
 
-每条 Tip 路线都先检查两个发布区域的四个不可变入口：
+解析时只运行本 Skill 随附的 [`validate-sdk-release.mjs`](../scripts/validate-sdk-release.mjs)，同时验证当前包仍暴露本合同使用的全部公共入口，避免在目标版本尚未发布时回退到旧包。`<skill-dir>` 是承载本 Skill 的可信安装目录，不是用户项目目录：
+
+```bash
+sdk_validator="<skill-dir>/scripts/validate-sdk-release.mjs"
+test -f "$sdk_validator" || exit 1
+
+sdk_metadata="$(
+  npm view @viceme-ai/sdk@latest version exports --json \
+    --fetch-timeout=15000 --fetch-retries=0 \
+    --registry=https://registry.npmjs.org \
+    --@viceme-ai:registry=https://registry.npmjs.org
+)" || exit 1
+sdk_version="$(printf '%s' "$sdk_metadata" | node "$sdk_validator" package)" || exit 1
+test -n "$sdk_version" || exit 1
+```
+
+每条 Tip 路线先读取两个发布区域的精确 manifest，要求它们与 npm 版本一致、`apiMajor` 受支持，并声明完整 Danmaku、Mounted Tip 与 Headless Tip 公共面：
+
+```bash
+for sdk_origin in https://s3.viceme.cn https://s3.viceme.ai
+do
+  manifest_url="${sdk_origin}/viceme-sdk/${sdk_version}/manifest.json"
+  sdk_manifest_response="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --write-out '\n%{http_code}' "$manifest_url")" || exit 1
+  printf '%s' "$sdk_manifest_response" | node "$sdk_validator" manifest-response "$sdk_version" || exit 1
+done
+```
+
+随后检查两个发布区域的四个不可变入口：
 
 ```bash
 for asset_url in \
-  https://s3.viceme.cn/viceme-sdk/0.5.0/index.js \
-  https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js \
-  https://s3.viceme.ai/viceme-sdk/0.5.0/index.js \
-  https://s3.viceme.ai/viceme-sdk/0.5.0/tip.js
+  https://s3.viceme.cn/viceme-sdk/${sdk_version}/index.js \
+  https://s3.viceme.cn/viceme-sdk/${sdk_version}/tip.js \
+  https://s3.viceme.ai/viceme-sdk/${sdk_version}/index.js \
+  https://s3.viceme.ai/viceme-sdk/${sdk_version}/tip.js
 do
   http_code="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' "$asset_url")" || exit 1
   test "$http_code" = "200" || exit 1
@@ -54,23 +81,26 @@ done
 组合路线还检查精确 CN Danmaku 入口：
 
 ```bash
-asset_url="https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js"
+asset_url="https://s3.viceme.cn/viceme-sdk/${sdk_version}/danmaku.js"
 http_code="$(curl --silent --show-error --connect-timeout 5 --max-time 15 --output /dev/null --write-out '%{http_code}' "$asset_url")" || exit 1
 test "$http_code" = "200" || exit 1
 ```
 
-每个 CDN 请求必须直接返回精确 `200`；命令不使用 `--location`，不得跟随或接受重定向。Headless npm 路线还要求官方 registry 精确返回 `0.5.0`：
+每个 CDN 请求必须直接返回精确 `200`；命令不使用 `--location`，不得跟随或接受重定向。Headless npm 路线还要求官方 registry 精确返回已经固定的版本：
 
 ```bash
-npm view @viceme-ai/sdk@0.5.0 version --json \
-  --fetch-timeout=15000 --fetch-retries=0 \
-  --registry=https://registry.npmjs.org \
-  --@viceme-ai:registry=https://registry.npmjs.org
+published_version="$(
+  npm view "@viceme-ai/sdk@${sdk_version}" version \
+    --fetch-timeout=15000 --fetch-retries=0 \
+    --registry=https://registry.npmjs.org \
+    --@viceme-ai:registry=https://registry.npmjs.org
+)" || exit 1
+test "$published_version" = "$sdk_version" || exit 1
 ```
 
-任一必需对象不可用时立即停止。不得改用 `latest`、alias、浏览器全局对象、Git 依赖、私有镜像同名包或复制源码。
+任一必需对象不可用时立即停止。不得再次解析版本，也不得改用 alias、浏览器全局对象、Git 依赖、私有镜像同名包或复制源码。
 
-仅弹幕不受 CN/CNY 限制。根据当前 Profile 选择 `https://s3.viceme.cn` 或 `https://s3.viceme.ai`，并在 SDK access 或页面写入前对所选区域的精确 `0.5.0/index.js` 与 `0.5.0/danmaku.js` 执行相同的 5 秒连接、15 秒总时限、无 redirect、精确 `200` 检查。
+仅弹幕不受 CN/CNY 限制。根据当前 Profile 选择 `https://s3.viceme.cn` 或 `https://s3.viceme.ai`，并在 SDK access 或页面写入前先按上述规则验证所选区域的精确 manifest，再对 `${sdk_version}/index.js` 与 `${sdk_version}/danmaku.js` 执行相同的 5 秒连接、15 秒总时限、无 redirect、精确 `200` 检查。
 
 ## Tip 公开配置
 
@@ -110,13 +140,13 @@ Headless SDK 每次 `open()` 都生成高熵随机 channel，并直接打开官�
 
 ## 仅弹幕：精确 ESM
 
-下面以 CN 为例；GLOBAL Profile 必须把两个 import host 一起替换为 `https://s3.viceme.ai`，并把 `region` 改为 `global`。不能混用两个区域或不同版本。
+下面所有 CDN import 都是待实例化模板。写入宿主页前，必须把全部 `REPLACE_WITH_RESOLVED_SDK_VERSION` 替换为本次固定的 `sdk_version`，并确认页面中不再残留占位符。下面以 CN 为例；GLOBAL Profile 必须把两个 import host 一起替换为 `https://s3.viceme.ai`，并把 `region` 改为 `global`。不能混用两个区域或不同版本。
 
 ```html
 <div id="viceme-danmaku"></div>
 <script type="module">
-  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";
-  import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js";
+  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";
+  import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js";
 
   const target = document.querySelector("#viceme-danmaku");
   if (!target) throw new Error("ViceMe Danmaku target is missing");
@@ -144,8 +174,8 @@ Headless SDK 每次 `open()` 都生成高熵随机 channel，并直接打开官�
 ```html
 <div id="viceme-tip"></div>
 <script type="module">
-  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";
-  import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";
+  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";
+  import { mountTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";
 
   const target = document.querySelector("#viceme-tip");
   if (!target) throw new Error("ViceMe Tip target is missing");
@@ -174,9 +204,9 @@ Headless SDK 每次 `open()` 都生成高熵随机 channel，并直接打开官�
 <div id="viceme-danmaku"></div>
 <div id="viceme-tip"></div>
 <script type="module">
-  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";
-  import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js";
-  import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";
+  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";
+  import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js";
+  import { mountTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";
 
   const danmakuTarget = document.querySelector("#viceme-danmaku");
   const tipTarget = document.querySelector("#viceme-tip");
@@ -205,7 +235,7 @@ Headless SDK 每次 `open()` 都生成高熵随机 channel，并直接打开官�
 
 ## 仅赞赏：Headless npm
 
-用项目既有包管理器精确安装 `@viceme-ai/sdk@0.5.0`，固定 `@viceme-ai` scope 到官方 registry，并核对 lockfile 的来源与 integrity。`renderTipControls` 代表宿主 UI，必须完全使用服务端配置；点击或键盘激活的调用栈必须直接调用 `tip.open()`，在创建窗口前不能 await、排队或调度其他工作。
+用项目既有包管理器的 exact-save 模式安装 `@viceme-ai/sdk@${sdk_version}`；npm 使用 `npm install --save-exact "@viceme-ai/sdk@${sdk_version}"`，pnpm 使用 `pnpm add --save-exact "@viceme-ai/sdk@${sdk_version}"`，Yarn 使用 `yarn add --exact "@viceme-ai/sdk@${sdk_version}"`。固定 `@viceme-ai` scope 到官方 registry，并核对依赖清单与 lockfile 都保存精确版本且来源与 integrity 正确；不得留下 `^`、`~`、tag、alias 或 shell 变量文本。`renderTipControls` 代表宿主 UI，必须完全使用服务端配置；点击或键盘激活的调用栈必须直接调用 `tip.open()`，在创建窗口前不能 await、排队或调度其他工作。
 
 ```js
 import { createViceMe } from "@viceme-ai/sdk";
@@ -259,8 +289,8 @@ function destroyViceMeTip() {
 同一审查版本的 `index.js` 与 `tip.js` 必须配对使用：
 
 ```js
-import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";
-import { createTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";
+import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";
+import { createTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";
 
 const client = createViceMe({ workKey: "wrk_test_...", region: "cn" });
 await client.ready();
@@ -298,9 +328,9 @@ function destroyViceMeTip() {
 <div id="viceme-danmaku"></div>
 <div id="host-tip-controls"></div>
 <script type="module">
-  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";
-  import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js";
-  import { createTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";
+  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";
+  import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js";
+  import { createTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";
 
   const danmakuTarget = document.querySelector("#viceme-danmaku");
   if (!danmakuTarget) throw new Error("ViceMe Danmaku target is missing");
