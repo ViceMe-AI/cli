@@ -1,7 +1,9 @@
 # 发布错误处理
 
 - 包校验错误一次列出多个问题时（消息里有 `Additional problems in the same Skill package:` 分节，每条前缀各自的错误码）：向用户逐条转述全部问题并一次性指导修复，全部修复后重试同一次发布；不得只修第一条。包内 `SKILL.md` 的 `name` 是硬性要求（Agent 识别与安装名来源），`description` 缺失不是问题——平台会自动从正文生成兜底简介，无需用户处理。
+- `SKILL_PACKAGE_NAME_INVALID`：包内 `SKILL.md` 的 `name` 是安装标识符，只允许小写字母、数字和单个连字符（例如 `canghe-comic`）。用户想改的是展示标题时，不要改包 name，改用 `publication update` 的 title 字段（见 workflow.md「改展示名称」）；确实要换安装名时，先把 SKILL.md 的 name 改成合法 slug 再重试同一次发布。
 - `SKILL_PUBLICATION_TITLE_TAKEN`：你已发布过另一个同名的 Skill，而这次的内容不是同一个 Skill。用一句白话问用户：“这个名字已经被你的另一个 Skill 占用了，要换一个名称吗？”用户给出新名称后，说明需要先修改 Skill 本身的名称（SKILL.md 里的 name），再从头发起一次新的发布；用户明确不换名称，或新名称仍然重复时，礼貌说明暂时无法发布并结束任务。不得自行给名称加数字后缀、编造新名称或静默重试。
+- `SKILL_PUBLICATION_ALREADY_ACTIVE`：同一份内容已经属于一个已发布过版本的 Listing（常见于 `--new-listing` 或「往组合里再添加」时给了已有来源）。这不是等待中的发布冲突：更新该 Skill 走常规发布（不带 `--new-listing`，按 UPDATE 语义接续），要发布独立的新作品必须提供内容不同的包。向用户如实说明后按其选择继续；不得换参数静默重试。
 - `SKILL_PUBLICATION_PRICE_REQUIRED`：取得并展示当前完整上架信息，同时询问准确人民币分价以及希望修改的标题、文案或媒体。不得只问价格。继续同一私有 Publication。
 - `SKILL_SECRET_DETECTED` 或 `SKILL_SENSITIVE_FILE`：停止并从包中删除凭证或敏感文件，绝不打印内容。
 - `CHANNEL_ARCHIVE_RATE_LIMITED`：渠道归档下载触发平台限流（每用户 10 分钟 5 次）。这是重试风暴的信号，不是新问题。立即停止重试，用一句白话告知用户「刚才重试次数太多触发了平台限流，大约 10 分钟后自动恢复」，然后结束当前发布流程；恢复后由用户重新发起，幂等会接续未完成的发布。不得自行 sleep 等待后再试。
@@ -9,6 +11,7 @@
 - `OAUTH_PROVIDER_NOT_CONFIGURED`：当前部署没有接好对应的外部账号登录，确定性重试不会恢复。立即结束整个任务，不得 sleep、轮询、再次运行渠道命令，也不得继续追问是否切换来源。最终答复只能是“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布。”这一句话；不得附加资格摘要、商家名称、替代来源、以后如何继续、下载到本地、目录、ZIP、绕过办法或问题。
 - `SKILL_PUBLICATION_REVIEW_CHANGED`：获取并展示最新预览，针对新 digest 重新取得“确认并发布”授权。
 - `SKILL_LISTING_MEDIA_REQUIRED`：上传真实封面和图库图片，获取新预览，再提交新的 Agent 建议。只有已明确选择平台分析兜底时才重试该兜底。
+- `PUBLICATION_SUGGESTION_INVALID`（消息要求 baseDraftRevision、中文简介、中文使用说明、一个封面和一个以上图库）：`publication suggest` 必须四类字段一次齐上，不得提交纯文案建议。媒体未就绪时先完成「需要为这个 Skill 准备封面和图库图片，你想怎么做？」问答与 `asset upload --candidate-only` 上传，再按当前 review 的 `draftRevision` 一次性提交全部字段。
 - `SKILL_LISTING_DRAFT_CHANGED`：获取最新权威预览，根据其 `draftRevision` 重新生成 Agent 建议，不得重放旧建议。
 - `SKILL_PUBLICATION_ANALYSIS_IN_PROGRESS`：已明确选择的平台兜底正在处理该 Draft。等待同一 Publication 完成后获取新预览，不得并行提交 Agent 建议。
 - `AUTHORIZATION_PENDING`、`NOT_LOGGED_IN`、`token_expired`、`MERCHANT_COMMERCE_SCOPE_REQUIRED` 或 `PUBLICATION_SCOPE_REQUIRED`：停止当前发布并在同一 CLI 上下文重新调用 `$become-a-creator`。由它完成一次等待式登录并重新确认商家；确认后才重试刚才的同一发布操作。不得在本发布流程自行启动第二套登录。
@@ -17,6 +20,7 @@
 - `MERCHANT_SUSPENDED`：先区分是否已经创建发布记录。新发布尚未创建记录时，交回 `$become-a-creator` 选择其他有效商家，再用相同来源和所选 `--merchant <merchant-account-id>` 重新发起。恢复已有 Publication 时，原商家不可更换；停止并用白话说明需要等待工作人员恢复该商家。用户明确希望另起一次独立发布时，才可以确认后使用 `--new-listing` 开始新的发布；不得在同一 Publication 上静默切换商家。
 - `PUBLICATION_MERCHANT_CHANGED`：本地恢复状态、所选商家与服务端 Publication 不一致。不得覆盖恢复状态或创建替代项；检查同一 Publication 并解决所有权不一致。
 - `PUBLICATION_RECOVERY_PERMISSION_REQUIRED`：进程不能写本地发布恢复目录。为原命令申请准确的文件权限，并用同一来源和价格重试。不得删除锁文件或创建另一发布。
+- 发布或取消命令的 `ok: true` 结果里出现 `warnings`（如 `PUBLICATION_RECOVERY_RETIRE_FAILED` 或 `PUBLICATION_RECOVERY_CLEANUP_FAILED`）：服务端已达到终态，发布或取消本身已经成功，命令结果不是失败。照常收尾（取公开链接、汇报完成），同时用一句白话向用户转述警告（本地发布恢复记录清理失败，不影响结果；之后任意一次发布或恢复命令会自动重试清理）。不得把 warning 当错误重试发布，也不得向用户报告发布失败。
 - `SKILL_BINDING_PERMISSION_REQUIRED`：允许原命令写入 `.viceme/skill.json`、相邻 ZIP sidecar 或报告的端点范围索引目录，再用同一来源身份重试。
 - `SKILL_BINDING_SCOPE_MISMATCH` 或 `SKILL_LISTING_BINDING_OWNER_MISMATCH`：不得查看或切换环境，也不得覆盖原作者 Listing。询问用户是否明确希望使用 `--new-listing` 在当前 CLI 上下文创建独立 Work。
 - `SKILL_LISTING_SOURCE_AMBIGUOUS`：展示候选 Listings，请用户选择后使用 `skill listing bind`；不得根据标题或文件名猜测。
