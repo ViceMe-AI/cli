@@ -813,6 +813,22 @@ func (c *Client) CompleteUpload(ctx context.Context, publicationID, uploadID str
 	return response, err
 }
 
+func (c *Client) CreateWebsiteReplicaUpload(ctx context.Context, request CreateWebsiteReplicaUploadRequest) (CreateWebsiteReplicaUploadResponse, error) {
+	var response CreateWebsiteReplicaUploadResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/uploads", request, &response, "@stored")
+	if err == nil && (!uuidPattern.MatchString(response.ReplicaID) || !uuidPattern.MatchString(response.UploadID) || response.Upload.Method != http.MethodPut || response.Upload.URL == "") {
+		err = invalidAPIResponse(errors.New("Website Replica upload response is missing required fields"))
+	}
+	return response, err
+}
+
+func (c *Client) CompleteWebsiteReplicaUpload(ctx context.Context, replicaID, uploadID string) (CompleteWebsiteReplicaUploadResponse, error) {
+	var response CompleteWebsiteReplicaUploadResponse
+	endpoint := "/v1/website-replicas/" + url.PathEscape(replicaID) + "/uploads/" + url.PathEscape(uploadID) + "/complete"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) AnalyzeListing(ctx context.Context, publicationID string) (SkillPublication, error) {
 	var response SkillPublication
 	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/analyze-listing", struct{}{}, &response, "@stored")

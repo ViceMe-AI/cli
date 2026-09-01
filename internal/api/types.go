@@ -738,6 +738,28 @@ type UploadAuthorization struct {
 	Headers   map[string]string `json:"headers"`
 }
 
+type CreateWebsiteReplicaUploadRequest struct {
+	ClientRequestID string `json:"clientRequestId"`
+	WorkID          string `json:"workId"`
+	Title           string `json:"title"`
+	Summary         string `json:"summary"`
+	FileName        string `json:"fileName"`
+	SizeBytes       int64  `json:"sizeBytes"`
+	Digest          string `json:"digest"`
+	PriceCents      int    `json:"priceCents"`
+}
+
+type CreateWebsiteReplicaUploadResponse struct {
+	ReplicaID string              `json:"replicaId"`
+	UploadID  string              `json:"uploadId"`
+	Upload    UploadAuthorization `json:"upload"`
+}
+
+type CompleteWebsiteReplicaUploadResponse struct {
+	ReplicaID string `json:"replicaId"`
+	ShortCode string `json:"shortCode"`
+}
+
 type CompleteUploadRequest struct {
 	UploadID string `json:"uploadId"`
 }
