@@ -807,18 +807,22 @@ func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
 	}
 }
 
-func TestChargeForYourWorkUsesInteractiveGuidance(t *testing.T) {
+func TestChargeForYourWorkUsesPlatformAwareInteractiveGuidance(t *testing.T) {
 	t.Parallel()
 
 	bundle := readOfficialSkillBundle(t, "charge-for-your-work")
 	for _, required := range []string{
-		"AskUserQuestion", "可点击的单选卡片", "编号短选项", "回复编号",
+		"先确认当前 Agent 平台", "当前平台明确为 WorkBuddy", "AskUserQuestion",
+		"其他平台使用", "原生的等效交互工具", "没有交互式提问工具时才退回编号短选项", "回复编号",
 		"多个已发布功能", "多个可门控的宿主入口", "不要求用户手打内部键值",
 		"真正开放且无法列出候选的信息", "服务端已有的标题、价格、两个 SDK key 和功能键不向用户重复索取",
 	} {
 		if !strings.Contains(bundle, required) {
 			t.Fatalf("charge-for-your-work omitted interactive guidance %q", required)
 		}
+	}
+	if strings.Contains(bundle, "优先使用 WorkBuddy") {
+		t.Fatal("charge-for-your-work assumes WorkBuddy without identifying the current platform")
 	}
 }
 
