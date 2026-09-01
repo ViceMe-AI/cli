@@ -537,6 +537,16 @@ func (r *Runtime) ensureAutomaticUpdate(command *cobra.Command) error {
 	if !check.UpdateAvailable {
 		return nil
 	}
+	if err := updatepkg.ProbeRenameCapability(r.configBase); err != nil {
+		// Activation is fail-open, like release discovery: the current process
+		// is already a complete verified generation. An agent sandbox that
+		// denies renames cannot replace the executable, and failing here would
+		// break every business command instead of just the update.
+		if errors.Is(err, updatepkg.ErrRenameDenied) {
+			_, _ = fmt.Fprintln(r.deps.ErrOut, "Automatic CLI update skipped: this environment cannot activate a new ViceMe generation; run 'viceme update' from an unsandboxed terminal.")
+		}
+		return nil
+	}
 	_, _ = fmt.Fprintf(r.deps.ErrOut, "Updating ViceMe CLI and official Skills %s -> %s; the original command will continue automatically.\n", check.CurrentVersion, check.AvailableVersion)
 	applyContext, cancelApply := context.WithTimeout(command.Context(), activationOperationTimeout)
 	result, err := r.deps.Updater.Apply(applyContext, check, updatepkg.ApplyOptions{RefreshSkills: true, SkillTarget: "auto"})
