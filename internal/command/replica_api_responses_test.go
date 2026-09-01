@@ -32,7 +32,7 @@ func replicaQuoteResponse(quoteID string) map[string]any {
 			"subjectWorkId": replicaTestWorkID, "entryWorkId": nil, "commerceApplicationId": nil,
 		},
 		"sku": map[string]any{
-			"id": replicaTestSKUID, "code": "default", "title": "Replica", "selectedOptions": map[string]string{},
+			"id": replicaTestSKUID, "code": "default", "title": "\u6c38\u4e45\u6e90\u7801\u4e0b\u8f7d", "selectedOptions": map[string]string{},
 		},
 		"currency":            "CNY",
 		"unitAmountCents":     990,

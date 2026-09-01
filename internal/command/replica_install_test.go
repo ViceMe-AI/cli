@@ -139,7 +139,7 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	if exit != 0 {
 		t.Fatalf("replica install failed: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
 	}
-	if openedURL != paymentURL || !strings.Contains(stderr.String(), paymentURL) || statusCalls.Load() < 2 || objectDownloads.Load() != 1 {
+	if openedURL != paymentURL || strings.Contains(stderr.String(), paymentURL) || strings.Contains(stderr.String(), "payment-capability") || statusCalls.Load() < 2 || objectDownloads.Load() != 1 {
 		t.Fatalf("purchase interaction was incomplete: opened=%q statusCalls=%d downloads=%d stderr=%q", openedURL, statusCalls.Load(), objectDownloads.Load(), stderr.String())
 	}
 	if content, err := os.ReadFile(filepath.Join(target, "index.html")); err != nil || string(content) != "<h1>Purchased replica</h1>" {
@@ -195,6 +195,45 @@ func TestReplicaInstallRejectsQuoteForAnotherResolvedProductOrSKU(t *testing.T) 
 			name: "SKU",
 			mutate: func(response map[string]any) {
 				response["sku"].(map[string]any)["id"] = "55555555-5555-4555-8555-555555555555"
+			},
+		},
+		{
+			name: "product title",
+			mutate: func(response map[string]any) {
+				response["product"].(map[string]any)["title"] = "Other Replica"
+			},
+		},
+		{
+			name: "currency",
+			mutate: func(response map[string]any) {
+				response["currency"] = "USD"
+			},
+		},
+		{
+			name: "price",
+			mutate: func(response map[string]any) {
+				response["unitAmountCents"] = 1200
+				response["subtotalAmountCents"] = 1200
+				response["totalAmountCents"] = 1200
+			},
+		},
+		{
+			name: "shipping",
+			mutate: func(response map[string]any) {
+				response["shippingAmountCents"] = 100
+				response["totalAmountCents"] = 1090
+			},
+		},
+		{
+			name: "physical fulfillment",
+			mutate: func(response map[string]any) {
+				response["fulfillment"].(map[string]any)["capabilities"] = []string{"SHIPMENT"}
+			},
+		},
+		{
+			name: "non-WeChat payment",
+			mutate: func(response map[string]any) {
+				response["paymentOptions"] = []map[string]any{{"provider": "ALIPAY", "scenes": []string{"PAGE"}}}
 			},
 		},
 	} {
@@ -271,6 +310,7 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 	defer objectServer.Close()
 	var quoteCalls atomic.Int32
 	var orderCalls atomic.Int32
+	var resolveCalls atomic.Int32
 	var paid atomic.Bool
 	controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer "+accessToken {
@@ -280,6 +320,11 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 		case "/v1/cli/auth/status":
 			writeReplicaAuthStatus(writer)
 		case "/v1/website-replicas/resolve":
+			if resolveCalls.Add(1) != 1 {
+				t.Error("resumed purchase unexpectedly depended on mutable resolution")
+				writer.WriteHeader(http.StatusServiceUnavailable)
+				return
+			}
 			writeJSONResponse(writer, replicaResolutionResponse(replicaID, shortCode))
 		case "/v1/website-replicas/quotes":
 			quoteCalls.Add(1)
@@ -362,8 +407,8 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 	if exit := Execute([]string{"replica", "install", fullCode, "--target", target}, base); exit != 0 {
 		t.Fatalf("resumed purchase failed with exit %d", exit)
 	}
-	if quoteCalls.Load() != 1 || orderCalls.Load() != 1 {
-		t.Fatalf("resume created a duplicate quote or order: quotes=%d orders=%d", quoteCalls.Load(), orderCalls.Load())
+	if resolveCalls.Load() != 1 || quoteCalls.Load() != 1 || orderCalls.Load() != 1 {
+		t.Fatalf("resume changed the original purchase: resolves=%d quotes=%d orders=%d", resolveCalls.Load(), quoteCalls.Load(), orderCalls.Load())
 	}
 	if content, err := os.ReadFile(filepath.Join(target, "index.html")); err != nil || string(content) != "resumed" {
 		t.Fatalf("resumed source was not installed: content=%q err=%v", content, err)
@@ -371,6 +416,32 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 	recoveryFiles, err = filepath.Glob(filepath.Join(root, "config", "replica-purchases", "*.json"))
 	if err != nil || len(recoveryFiles) != 0 {
 		t.Fatalf("completed purchase recovery remains: files=%v err=%v", recoveryFiles, err)
+	}
+}
+
+func TestReplicaPurchaseStateAcceptsEveryAPIValidatedDatetimePrecision(t *testing.T) {
+	for _, value := range []string{
+		"2026-09-01T12:34Z",
+		"2026-09-01T12:34:56Z",
+		"2026-09-01T12:34:56.123456789Z",
+		"2026-09-01T12:34:56.1234567890Z",
+	} {
+		if !validReplicaStateDatetime(value) {
+			t.Errorf("valid API datetime was rejected from recovery state: %s", value)
+		}
+	}
+}
+
+func TestReplicaDownloadFilenameIsPortableAcrossClientPlatforms(t *testing.T) {
+	for _, value := range []string{"source.zip", "SOURCE.ZIP"} {
+		if !validReplicaDownloadFileName(value) {
+			t.Errorf("valid download filename was rejected: %q", value)
+		}
+	}
+	for _, value := range []string{"", ".zip", "dir/source.zip", `dir\source.zip`, "source.zip\x00hidden"} {
+		if validReplicaDownloadFileName(value) {
+			t.Errorf("unsafe download filename was accepted: %q", value)
+		}
 	}
 }
 

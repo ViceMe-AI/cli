@@ -131,34 +131,35 @@ func installReplicaLocked(
 		return replicaInstallResult{}, err
 	}
 	client := runtime.client()
-	resolved, err := client.ResolveWebsiteReplica(ctx, code)
-	if err != nil {
-		return replicaInstallResult{}, err
-	}
-	if resolved.ShortCode != shortCode {
-		return replicaInstallResult{}, output.Policy("REPLICA_RESOLUTION_MISMATCH", "Website Replica resolution does not match the supplied code")
-	}
-	if state.ReplicaID == "" {
-		state.ReplicaID = resolved.ReplicaID
-		if err := store.save(&state); err != nil {
+	if state.QuoteID == "" {
+		resolved, err := client.ResolveWebsiteReplica(ctx, code)
+		if err != nil {
 			return replicaInstallResult{}, err
 		}
-	} else if state.ReplicaID != resolved.ReplicaID {
-		return replicaInstallResult{}, replicaPurchaseConflict(state, "the Website Replica identity changed while recovering this purchase")
-	}
-	if state.QuoteID == "" {
+		if resolved.ShortCode != shortCode || resolved.Title != resolved.Product.Title {
+			return replicaInstallResult{}, invalidReplicaResponse("Website Replica resolution does not match the supplied code")
+		}
+		if state.ReplicaID == "" {
+			state.ReplicaID = resolved.ReplicaID
+			state.ProductID = resolved.Product.ID
+			state.SKUID = resolved.Product.SKUID
+			state.ProductTitle = resolved.Product.Title
+			state.Currency = resolved.Product.Currency
+			state.PriceCents = resolved.Product.PriceCents
+			if err := store.save(&state); err != nil {
+				return replicaInstallResult{}, err
+			}
+		} else if !replicaResolutionMatchesState(resolved, state) {
+			return replicaInstallResult{}, replicaPurchaseConflict(state, "the Website Replica identity changed while recovering this purchase")
+		}
 		quote, err := client.CreateWebsiteReplicaQuote(ctx, api.CreateWebsiteReplicaQuoteRequest{
 			Instruction: code, ClientRequestID: state.QuoteRequestID,
 		})
 		if err != nil {
 			return replicaInstallResult{}, err
 		}
-		if quote.Product.ID != resolved.Product.ID || quote.SKU.ID != resolved.Product.SKUID {
-			return replicaInstallResult{}, output.Internal(
-				"RESPONSE_INVALID",
-				"ViceMe API returned an incomplete or invalid response",
-				errors.New("Website Replica quote does not match the resolved product"),
-			)
+		if !replicaQuoteMatchesState(quote, state) {
+			return replicaInstallResult{}, invalidReplicaResponse("Website Replica quote does not match the resolved product")
 		}
 		state.QuoteID = quote.ID
 		if err := store.save(&state); err != nil {
@@ -170,6 +171,7 @@ func installReplicaLocked(
 		if err != nil {
 			return replicaInstallResult{}, err
 		}
+		state.Locale = locale
 		if err := store.save(&state); err != nil {
 			return replicaInstallResult{}, err
 		}
@@ -195,7 +197,7 @@ func installReplicaLocked(
 			return replicaInstallResult{}, replicaPurchaseConflict(state, "the Website Replica target appeared before payment completed").WithCause(err)
 		}
 		order, err = client.CreateWebsiteReplicaOrder(ctx, api.CreateWebsiteReplicaOrderRequest{
-			QuoteID: state.QuoteID, ClientRequestID: state.OrderRequestID, Locale: locale,
+			QuoteID: state.QuoteID, ClientRequestID: state.OrderRequestID, Locale: state.Locale,
 		})
 		if err != nil {
 			if output.AsError(err).Subtype == "QUOTE_EXPIRED" {
@@ -205,6 +207,11 @@ func installReplicaLocked(
 		}
 		if state.OrderNo != "" && state.OrderNo != order.OrderNo {
 			return replicaInstallResult{}, replicaPurchaseConflict(state, "the idempotent Website Replica order identity changed")
+		}
+		if order.Status == "PENDING" {
+			if err := validateReplicaPaymentAction(order.PaymentAction); err != nil {
+				return replicaInstallResult{}, err
+			}
 		}
 		state.OrderNo = order.OrderNo
 		state.OrderExpiresAt = order.ExpiresAt
@@ -227,8 +234,8 @@ func installReplicaLocked(
 	if err != nil {
 		return replicaInstallResult{}, err
 	}
-	if download.ReplicaID != resolved.ReplicaID {
-		return replicaInstallResult{}, output.Policy("REPLICA_DOWNLOAD_MISMATCH", "download authorization does not match the purchased Replica")
+	if err := validateReplicaDownloadBinding(download, state.ReplicaID); err != nil {
+		return replicaInstallResult{}, err
 	}
 	if err := verifyReplicaLicense(ctx, runtime, download, order.OrderNo); err != nil {
 		return replicaInstallResult{}, err
@@ -246,6 +253,41 @@ func installReplicaLocked(
 		return replicaInstallResult{}, err
 	}
 	return result, nil
+}
+
+func replicaResolutionMatchesState(resolved api.WebsiteReplicaResolution, state replicaPurchaseState) bool {
+	return resolved.ReplicaID == state.ReplicaID && resolved.Product.ID == state.ProductID &&
+		resolved.Product.SKUID == state.SKUID && resolved.Product.Title == state.ProductTitle &&
+		resolved.Product.Currency == state.Currency && resolved.Product.PriceCents == state.PriceCents
+}
+
+func replicaQuoteMatchesState(quote api.WebsiteReplicaQuote, state replicaPurchaseState) bool {
+	return quote.Product.ID == state.ProductID && quote.Product.Title == state.ProductTitle &&
+		quote.SKU.ID == state.SKUID && quote.SKU.Code == "default" &&
+		len(quote.SKU.SelectedOptions) == 0 && quote.Currency == state.Currency &&
+		quote.UnitAmountCents == state.PriceCents
+}
+
+func validateReplicaDownloadBinding(download api.WebsiteReplicaDownload, replicaID string) error {
+	if download.ReplicaID != replicaID || download.SizeBytes < 1 || download.SizeBytes > replicacontent.MaxArchiveBytes ||
+		!validReplicaDownloadFileName(download.FileName) {
+		return invalidReplicaResponse("Website Replica download does not match the purchased artifact")
+	}
+	return nil
+}
+
+func validReplicaDownloadFileName(value string) bool {
+	extension := filepath.Ext(value)
+	return value != "" && value != "." && value != ".." && len(value) > len(extension) &&
+		!strings.ContainsAny(value, "/\\\x00") && strings.EqualFold(extension, ".zip")
+}
+
+func invalidReplicaResponse(reason string) error {
+	return output.Internal(
+		"RESPONSE_INVALID",
+		"ViceMe API returned an incomplete or invalid response",
+		errors.New(reason),
+	)
 }
 
 func verifyReplicaLicense(ctx context.Context, runtime *Runtime, download api.WebsiteReplicaDownload, orderNo string) error {
@@ -321,21 +363,15 @@ func (runtime *Runtime) newReplicaRequestID() (string, error) {
 
 func presentReplicaPayment(ctx context.Context, runtime *Runtime, order api.WebsiteReplicaOrder) error {
 	action := order.PaymentAction
-	if action == nil {
-		return output.Internal("REPLICA_PAYMENT_ACTION_INVALID", "Website Replica order did not return a valid REDIRECT payment action", nil)
+	if err := validateReplicaPaymentAction(action); err != nil {
+		return err
 	}
 	var target string
 	switch action.Type {
 	case "REDIRECT":
-		if !validReplicaPaymentURL(action.URL) || action.Content != "" {
-			return output.Internal("REPLICA_PAYMENT_ACTION_INVALID", "Website Replica order did not return a valid REDIRECT payment action", nil)
-		}
 		target = action.URL
-		_, _ = fmt.Fprintf(runtime.deps.ErrOut, "Open this temporary URL to complete payment:\n\n  %s\n\nWaiting for payment...\n", target)
+		_, _ = fmt.Fprintln(runtime.deps.ErrOut, "Opening the temporary payment page. Waiting for payment...")
 	case "QR_CODE":
-		if action.URL != "" {
-			return output.Internal("REPLICA_PAYMENT_ACTION_INVALID", "Website Replica order returned an invalid QR_CODE payment action", nil)
-		}
 		imagePath, err := createCommercePaymentQRImage(runtime, order.OrderNo, action.Content)
 		if err != nil {
 			return output.Internal("REPLICA_PAYMENT_ACTION_INVALID", "Website Replica order returned an invalid QR_CODE payment action", err)
@@ -343,10 +379,34 @@ func presentReplicaPayment(ctx context.Context, runtime *Runtime, order api.Webs
 		target = imagePath
 		_, _ = fmt.Fprintf(runtime.deps.ErrOut, "Open this private local QR image to complete payment:\n\n  %s\n\nWaiting for payment...\n", target)
 	default:
-		return output.Policy("REPLICA_PAYMENT_ACTION_UNSUPPORTED", "Website Replica checkout returned a payment action this CLI cannot present")
+		return invalidReplicaResponse("Website Replica order returned an unsupported payment action")
 	}
 	if err := runtime.deps.OpenURL(ctx, target); err != nil {
+		if action.Type == "REDIRECT" {
+			return output.Internal("REPLICA_PAYMENT_PRESENTATION_FAILED", "the temporary payment page could not be opened safely", nil).
+				WithHint("rerun the same install command to reopen the original order")
+		}
 		_, _ = fmt.Fprintln(runtime.deps.ErrOut, "The payment presentation could not be opened automatically; use the temporary location shown above.")
+	}
+	return nil
+}
+
+func validateReplicaPaymentAction(action *api.WebsiteReplicaPaymentAction) error {
+	if action == nil {
+		return invalidReplicaResponse("Website Replica order is missing its payment action")
+	}
+	switch action.Type {
+	case "REDIRECT":
+		if !validReplicaPaymentURL(action.URL) || action.Content != "" {
+			return invalidReplicaResponse("Website Replica order returned an invalid REDIRECT payment action")
+		}
+	case "QR_CODE":
+		parsed, err := url.Parse(action.Content)
+		if action.URL != "" || len(action.Content) == 0 || len(action.Content) > 4096 || err != nil || !strings.EqualFold(parsed.Scheme, "weixin") {
+			return invalidReplicaResponse("Website Replica order returned an invalid QR_CODE payment action")
+		}
+	default:
+		return invalidReplicaResponse("Website Replica order returned an unsupported payment action")
 	}
 	return nil
 }
@@ -402,7 +462,7 @@ func waitForReplicaPayment(ctx context.Context, runtime *Runtime, client *api.Cl
 }
 
 func downloadAndInstallReplica(ctx context.Context, client *api.Client, download api.WebsiteReplicaDownload, target string) (replicacontent.InstallResult, error) {
-	if download.SizeBytes < 1 || download.SizeBytes > replicacontent.MaxArchiveBytes || !strings.EqualFold(filepath.Ext(download.FileName), ".zip") || filepath.Base(download.FileName) != download.FileName {
+	if download.SizeBytes < 1 || download.SizeBytes > replicacontent.MaxArchiveBytes || !validReplicaDownloadFileName(download.FileName) {
 		return replicacontent.InstallResult{}, output.Internal("REPLICA_DOWNLOAD_RESPONSE_INVALID", "Website Replica download metadata is invalid", nil)
 	}
 	parent := filepath.Dir(target)

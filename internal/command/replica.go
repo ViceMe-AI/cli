@@ -121,13 +121,15 @@ func publishReplica(ctx context.Context, runtime *Runtime, source, workID, title
 	if err != nil {
 		return replicaPublishResult{}, err
 	}
-	if completed.ReplicaID != created.ReplicaID {
-		return replicaPublishResult{}, output.Internal("REPLICA_COMPLETE_RESPONSE_INVALID", "Website Replica completion returned a different Replica", nil)
-	}
-	if !replicaShortCodePattern.MatchString(completed.ShortCode) {
-		return replicaPublishResult{}, output.Internal("REPLICA_COMPLETE_RESPONSE_INVALID", "Website Replica completion returned an invalid sharing code", nil)
+	if !replicaPublicationMatchesRequest(completed, created.ReplicaID, title, priceCents) {
+		return replicaPublishResult{}, invalidReplicaResponse("Website Replica completion does not match the publication request")
 	}
 	return replicaPublishResult{ReplicaID: created.ReplicaID, ReplicaCode: "VICEME-REPLICA:" + completed.ShortCode}, nil
+}
+
+func replicaPublicationMatchesRequest(completed api.CompleteWebsiteReplicaUploadResponse, replicaID, title string, priceCents int) bool {
+	return completed.ReplicaID == replicaID && replicaShortCodePattern.MatchString(completed.ShortCode) &&
+		completed.Product.Title == title && completed.Product.Currency == "CNY" && completed.Product.PriceCents == priceCents
 }
 
 func openReplicaArchive(filename string) (*os.File, fs.FileInfo, error) {

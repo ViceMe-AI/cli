@@ -194,16 +194,14 @@ func TestWebsiteReplicaClientRejectsCrossResourceMismatches(t *testing.T) {
 	}
 }
 
-func TestWebsiteReplicaClientAcceptsCompleteJSAPIAction(t *testing.T) {
+func TestWebsiteReplicaClientRejectsJSAPIActionForNativeReplicaQuote(t *testing.T) {
 	t.Parallel()
 	response := replicaOrderResponse()
 	response["paymentAction"] = map[string]any{
 		"type": "JSAPI", "appId": "wx-app", "timeStamp": "1234567890",
 		"nonceStr": "nonce", "package": "prepay_id=example", "signType": "RSA", "paySign": "signature",
 	}
-	if err := callWebsiteReplicaResponse(t, response, canonicalWebsiteReplicaResponseCases()[4].call); err != nil {
-		t.Fatalf("valid JSAPI response was rejected: %v", err)
-	}
+	assertInvalidWebsiteReplicaResponse(t, callWebsiteReplicaResponse(t, response, canonicalWebsiteReplicaResponseCases()[4].call))
 }
 
 func TestWebsiteReplicaClientAcceptsQRCodeAction(t *testing.T) {
@@ -379,7 +377,7 @@ func replicaQuoteResponse() map[string]any {
 			"subjectWorkId": testWorkID, "entryWorkId": nil, "commerceApplicationId": nil,
 		},
 		"sku": map[string]any{
-			"id": testSKUID, "code": "default", "title": "Replica", "selectedOptions": map[string]string{},
+			"id": testSKUID, "code": "default", "title": "\u6c38\u4e45\u6e90\u7801\u4e0b\u8f7d", "selectedOptions": map[string]string{},
 		},
 		"currency": "CNY", "unitAmountCents": 990, "quantity": 1,
 		"subtotalAmountCents": 990, "shippingAmountCents": 0, "totalAmountCents": 990,

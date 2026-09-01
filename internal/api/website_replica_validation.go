@@ -228,7 +228,7 @@ func (response *WebsiteReplicaQuote) validateAPIResponse() error {
 		!validNonnegativeSafeInteger(response.TotalAmountCents) || response.ContractSummary.PublicFields == nil ||
 		response.ContractSummary.SensitiveFieldKeys == nil || !validNonnegativeSafeInteger(response.ContractSummary.AssetCount) ||
 		response.Fulfillment.Capabilities == nil || response.PaymentOptions == nil || len(response.PaymentOptions) == 0 ||
-		!validZodDatetime(response.ExpiresAt) {
+		!validZodDatetime(response.ExpiresAt) || !validWebsiteReplicaQuoteSemantics(response) {
 		return errors.New("Website Replica quote response is invalid")
 	}
 	for _, option := range response.PaymentOptions {
@@ -237,6 +237,23 @@ func (response *WebsiteReplicaQuote) validateAPIResponse() error {
 		}
 	}
 	return nil
+}
+
+func validWebsiteReplicaQuoteSemantics(response *WebsiteReplicaQuote) bool {
+	return response.Quantity == 1 &&
+		response.SubtotalAmountCents == response.UnitAmountCents &&
+		response.ShippingAmountCents == 0 &&
+		response.TotalAmountCents == response.SubtotalAmountCents &&
+		len(response.ContractSummary.PublicFields) == 0 &&
+		len(response.ContractSummary.SensitiveFieldKeys) == 0 &&
+		response.ContractSummary.AssetCount == 0 &&
+		len(response.Fulfillment.Capabilities) == 1 &&
+		response.Fulfillment.Capabilities[0] == "DIGITAL_ENTITLEMENT" &&
+		response.Fulfillment.EstimatedState == "AWAITING_PAYMENT" &&
+		len(response.PaymentOptions) == 1 &&
+		response.PaymentOptions[0].Provider == "WECHAT_PAY" &&
+		len(response.PaymentOptions[0].Scenes) == 1 &&
+		response.PaymentOptions[0].Scenes[0] == "NATIVE"
 }
 
 func (response *WebsiteReplicaOrder) validateAPIResponse() error {
@@ -370,9 +387,6 @@ func validWebsiteReplicaPaymentAction(action *WebsiteReplicaPaymentAction) bool 
 		return action.Content != ""
 	case "REDIRECT":
 		return validAbsoluteURL(action.URL)
-	case "JSAPI":
-		return action.AppID != "" && action.TimeStamp != "" && action.NonceStr != "" && action.Package != "" &&
-			action.SignType == "RSA" && action.PaySign != ""
 	default:
 		return false
 	}

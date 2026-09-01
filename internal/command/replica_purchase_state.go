@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
@@ -25,9 +26,15 @@ type replicaPurchaseState struct {
 	ShortCode      string    `json:"shortCode"`
 	Target         string    `json:"target"`
 	ReplicaID      string    `json:"replicaId,omitempty"`
+	ProductID      string    `json:"productId,omitempty"`
+	SKUID          string    `json:"skuId,omitempty"`
+	ProductTitle   string    `json:"productTitle,omitempty"`
+	Currency       string    `json:"currency,omitempty"`
+	PriceCents     int       `json:"priceCents,omitempty"`
 	QuoteRequestID string    `json:"quoteRequestId"`
 	QuoteID        string    `json:"quoteId,omitempty"`
 	OrderRequestID string    `json:"orderRequestId,omitempty"`
+	Locale         string    `json:"locale,omitempty"`
 	OrderNo        string    `json:"orderNo,omitempty"`
 	OrderExpiresAt string    `json:"orderExpiresAt,omitempty"`
 	CreatedAt      time.Time `json:"createdAt"`
@@ -94,7 +101,7 @@ func (store replicaPurchaseStore) load() (replicaPurchaseState, bool, error) {
 func (store replicaPurchaseStore) create(quoteRequestID string) replicaPurchaseState {
 	now := store.now().UTC()
 	return replicaPurchaseState{
-		SchemaVersion: 1, APIOrigin: store.origin, ShortCode: store.shortCode,
+		SchemaVersion: 2, APIOrigin: store.origin, ShortCode: store.shortCode,
 		Target: store.target, QuoteRequestID: quoteRequestID,
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -151,32 +158,62 @@ func (store replicaPurchaseStore) retire() error {
 }
 
 func (store replicaPurchaseStore) valid(state replicaPurchaseState) bool {
-	if state.SchemaVersion != 1 || state.APIOrigin != store.origin || state.ShortCode != store.shortCode ||
+	if state.SchemaVersion != 2 || state.APIOrigin != store.origin || state.ShortCode != store.shortCode ||
 		!filepath.IsAbs(state.Target) || filepath.Clean(state.Target) != state.Target ||
 		!replicaUUIDPattern.MatchString(state.QuoteRequestID) ||
 		state.CreatedAt.IsZero() || state.UpdatedAt.IsZero() {
 		return false
 	}
-	if state.ReplicaID != "" && !replicaUUIDPattern.MatchString(state.ReplicaID) {
+	hasBinding := state.ReplicaID != "" || state.ProductID != "" || state.SKUID != "" || state.ProductTitle != "" || state.Currency != "" || state.PriceCents != 0
+	if hasBinding && (!replicaUUIDPattern.MatchString(state.ReplicaID) || !replicaUUIDPattern.MatchString(state.ProductID) ||
+		!replicaUUIDPattern.MatchString(state.SKUID) || state.ProductTitle == "" ||
+		(state.Currency != "CNY" && state.Currency != "USD") || state.PriceCents < 1 || state.PriceCents > 10_000_000) {
 		return false
 	}
-	if state.QuoteID != "" && !replicaUUIDPattern.MatchString(state.QuoteID) {
+	if state.QuoteID != "" && (!hasBinding || !replicaUUIDPattern.MatchString(state.QuoteID)) {
 		return false
 	}
-	if state.OrderRequestID != "" && (state.QuoteID == "" || !replicaUUIDPattern.MatchString(state.OrderRequestID)) {
+	if state.OrderRequestID != "" && (state.QuoteID == "" || !replicaUUIDPattern.MatchString(state.OrderRequestID) ||
+		(state.Locale != "zh-CN" && state.Locale != "en-US")) {
+		return false
+	} else if state.OrderRequestID == "" && state.Locale != "" {
 		return false
 	}
 	if state.OrderNo != "" {
 		if state.OrderRequestID == "" || state.OrderExpiresAt == "" || len(state.OrderNo) < 6 || len(state.OrderNo) > 40 {
 			return false
 		}
-		if _, err := time.Parse(time.RFC3339Nano, state.OrderExpiresAt); err != nil {
+		if !validReplicaStateDatetime(state.OrderExpiresAt) {
 			return false
 		}
 	} else if state.OrderExpiresAt != "" {
 		return false
 	}
 	return true
+}
+
+func validReplicaStateDatetime(value string) bool {
+	if _, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return true
+	}
+	if _, err := time.Parse("2006-01-02T15:04Z", value); err == nil {
+		return true
+	}
+	dot := strings.LastIndexByte(value, '.')
+	if dot < 0 || !strings.HasSuffix(value, "Z") {
+		return false
+	}
+	fraction := value[dot+1 : len(value)-1]
+	if len(fraction) <= 9 {
+		return false
+	}
+	for _, digit := range fraction {
+		if digit < '0' || digit > '9' {
+			return false
+		}
+	}
+	_, err := time.Parse(time.RFC3339Nano, value[:dot+1]+fraction[:9]+"Z")
+	return err == nil
 }
 
 func (state replicaPurchaseState) describe() map[string]any {

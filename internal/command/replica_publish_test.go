@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
@@ -83,11 +84,13 @@ func TestReplicaPublishUsesAuthenticatedControlAPIAndCredentialFreePresignedUplo
 				},
 			})
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replicas/"+replicaID+"/uploads/"+uploadID+"/complete":
-			writeJSONResponse(writer, replicaPublicationResponse(
+			response := replicaPublicationResponse(
 				replicaID,
 				"99999999-9999-4999-8999-999999999999",
 				shortCode,
-			))
+			)
+			response["product"].(map[string]any)["title"] = "Replica title"
+			writeJSONResponse(writer, response)
 		default:
 			t.Fatalf("unexpected control request: %s %s", request.Method, request.URL.Path)
 		}
@@ -136,6 +139,35 @@ func TestReplicaPublishUsesAuthenticatedControlAPIAndCredentialFreePresignedUplo
 		}
 	}
 	assertReplicaSecretsAbsentFromFiles(t, root, accessToken, objectServer.URL, "upload-capability")
+}
+
+func TestReplicaPublicationResponseMustMatchRequestedMetadata(t *testing.T) {
+	valid := api.CompleteWebsiteReplicaUploadResponse{
+		ReplicaID: "11111111-1111-4111-8111-111111111111",
+		ShortCode: "VMR-ABCDEFGHIJKLMNOPQRST",
+		Product: api.WebsiteReplicaProduct{
+			Title: "Requested title", Currency: "CNY", PriceCents: 990,
+		},
+	}
+	if !replicaPublicationMatchesRequest(valid, valid.ReplicaID, "Requested title", 990) {
+		t.Fatal("matching publication response was rejected")
+	}
+	for _, test := range []struct {
+		name   string
+		mutate func(*api.CompleteWebsiteReplicaUploadResponse)
+	}{
+		{name: "title", mutate: func(response *api.CompleteWebsiteReplicaUploadResponse) { response.Product.Title = "Other title" }},
+		{name: "currency", mutate: func(response *api.CompleteWebsiteReplicaUploadResponse) { response.Product.Currency = "USD" }},
+		{name: "price", mutate: func(response *api.CompleteWebsiteReplicaUploadResponse) { response.Product.PriceCents = 1 }},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := valid
+			test.mutate(&response)
+			if replicaPublicationMatchesRequest(response, valid.ReplicaID, "Requested title", 990) {
+				t.Fatal("mismatched publication response was accepted")
+			}
+		})
+	}
 }
 
 func replicaTestZIP(t *testing.T, files map[string]string) []byte {
