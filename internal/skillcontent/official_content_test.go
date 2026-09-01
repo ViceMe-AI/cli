@@ -807,6 +807,21 @@ func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
 	}
 }
 
+func TestChargeForYourWorkUsesInteractiveGuidance(t *testing.T) {
+	t.Parallel()
+
+	bundle := readOfficialSkillBundle(t, "charge-for-your-work")
+	for _, required := range []string{
+		"AskUserQuestion", "可点击的单选卡片", "编号短选项", "回复编号",
+		"多个已发布功能", "多个可门控的宿主入口", "不要求用户手打内部键值",
+		"真正开放且无法列出候选的信息", "服务端已有的标题、价格、两个 SDK key 和功能键不向用户重复索取",
+	} {
+		if !strings.Contains(bundle, required) {
+			t.Fatalf("charge-for-your-work omitted interactive guidance %q", required)
+		}
+	}
+}
+
 func TestPaidSkillExcludesWebsiteAndGenericProductPublication(t *testing.T) {
 	t.Parallel()
 
