@@ -787,7 +787,9 @@ func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
 	for _, required := range []string{
 		"keys.test", "keys.live", "没有顶层单一 `workKey` 字段", "生产宿主把 `keys.live`",
 		"完整 hosted `danmaku`/`tip` features", "完整 `accessFeatures`", "精确 `configVersion`", "没有发生轮换",
-		"$become-a-creator", "拥有平台资源的发布流程",
+		"$become-a-creator", "拥有平台资源的发布流程", "安装 `@viceme-ai/sdk`",
+		"桌面结账保留在 SDK Access Layer", "移动 H5/WAP", "新的服务端访问决定解锁",
+		"支付窗口失败反馈由", "宿主不解锁",
 	} {
 		if !strings.Contains(bundle, required) {
 			t.Fatalf("charge-for-your-work omitted dual-key boundary %q", required)
@@ -797,6 +799,31 @@ func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
 		if strings.Contains(bundle, forbidden) {
 			t.Fatalf("charge-for-your-work references retired Skill %q", forbidden)
 		}
+	}
+	if strings.Contains(bundle, "打开平台支付窗口") {
+		t.Fatal("charge-for-your-work retained the legacy popup checkout flow")
+	}
+	if strings.Contains(bundle, "@viceme-ai/sdk@") {
+		t.Fatal("charge-for-your-work pinned a continuously updated SDK version")
+	}
+}
+
+func TestChargeForYourWorkUsesPlatformAwareInteractiveGuidance(t *testing.T) {
+	t.Parallel()
+
+	bundle := readOfficialSkillBundle(t, "charge-for-your-work")
+	for _, required := range []string{
+		"先确认当前 Agent 平台", "当前平台明确为 WorkBuddy", "AskUserQuestion",
+		"其他平台使用", "原生的等效交互工具", "没有交互式提问工具时才退回编号短选项", "回复编号",
+		"多个已发布功能", "多个可门控的宿主入口", "不要求用户手打内部键值",
+		"真正开放且无法列出候选的信息", "服务端已有的标题、价格、两个 SDK key 和功能键不向用户重复索取",
+	} {
+		if !strings.Contains(bundle, required) {
+			t.Fatalf("charge-for-your-work omitted interactive guidance %q", required)
+		}
+	}
+	if strings.Contains(bundle, "优先使用 WorkBuddy") {
+		t.Fatal("charge-for-your-work assumes WorkBuddy without identifying the current platform")
 	}
 }
 
@@ -886,7 +913,7 @@ func sectionBetween(text, start, end string) string {
 }
 
 func fencedBlocks(text, language string) []string {
-	matches := regexp.MustCompile("(?s)```" + regexp.QuoteMeta(language) + "\\s*(.*?)\\s*```").FindAllStringSubmatch(text, -1)
+	matches := regexp.MustCompile("(?s)```"+regexp.QuoteMeta(language)+"\\s*(.*?)\\s*```").FindAllStringSubmatch(text, -1)
 	blocks := make([]string, 0, len(matches))
 	for _, match := range matches {
 		blocks = append(blocks, match[1])
