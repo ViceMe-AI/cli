@@ -14,8 +14,8 @@
       "skill_version": "0.21.0",
       "minimum_cli_version": "0.21.0",
       "cli_compatibility": ">=0.21.0 <0.22.0",
-      "full_skill_bundle_digest": "sha256:e22df035645ca8ec1430c033bd8babdc716af944ad366ddbc1c15ef5600ed5ff",
-      "embedded_content_digest": "sha256:e5355372a8f8e7309b8ca3a6502a1ead15b0c8bb67406d3e20c5ca1b36ddd9a6"
+      "full_skill_bundle_digest": "sha256:0b2a0ba2d8c3eadd82c7e74d0339d3a94cb9200d0d751fc5ec616be07af0ee53",
+      "embedded_content_digest": "sha256:fedaaa16e7d34349e328af2fbe7cc2c1e6fc5475b4bccfb8a4521ba233e360ee"
     },
     "creator-tools": {
       "skill_version": "0.21.0",
@@ -28,8 +28,8 @@
       "skill_version": "0.21.0",
       "minimum_cli_version": "0.21.0",
       "cli_compatibility": ">=0.21.0 <0.22.0",
-      "full_skill_bundle_digest": "sha256:c0cc093f5ccec7453c78c31591d2ca3d50210c22921c144ea580c92780b8a7b3",
-      "embedded_content_digest": "sha256:88f444028a136537613988543c9c024de8c74c47dfecc637d2630da73840b4d3"
+      "full_skill_bundle_digest": "sha256:1c9e240fc527c57852f93b9f7f6ef590c30c3212c38ba0f06933bfa20a4ce465",
+      "embedded_content_digest": "sha256:90cd921edd549ef48065995c98203d87b685dbe4b7a9e29bbf8c78abf147fe69"
     },
     "sell-a-skill": {
       "skill_version": "0.21.0",

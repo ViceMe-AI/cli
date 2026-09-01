@@ -129,11 +129,11 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "let-people-interact",
 			machine: []string{
-				"website-verification create", "website-verification verify", "commerce-application activate", "sdk-access",
-				"data-viceme-features", "danmaku,tip", "workKey",
+				"website-verification create", "website-verification verify", "sdk-access", "keys.test", "keys.live",
+				"--feature danmaku", "--feature tip", "0.5.0", "createViceMe", "mountDanmaku", "mountTip", "createTip",
 			},
 			semantics: []string{
-				"不创建第二个 Work", "界面能打开不代表支付成交",
+				"仅弹幕", "仅赞赏", "弹幕加赞赏", "SANDBOX", "Headless", "宿主页与被赞赏 Work 是独立资源",
 			},
 		},
 	}
@@ -174,7 +174,7 @@ func TestOfficialSkillEntryMetadataIsChinese(t *testing.T) {
 	}
 }
 
-func TestInteractionTemplateUsesCLIResponseAsItsOnlyEmbedSource(t *testing.T) {
+func TestInteractionTemplateUsesExactMountedTipESM(t *testing.T) {
 	t.Parallel()
 
 	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/templates/single-html.html")
@@ -182,13 +182,23 @@ func TestInteractionTemplateUsesCLIResponseAsItsOnlyEmbedSource(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(content)
-	for _, required := range []string{"当前 CLI 上下文", "已发布 Website Work", "workKey", "占位符"} {
+	for _, required := range []string{
+		`import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";`,
+		`import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";`,
+		`workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY"`, "tipHandle.destroy();", "client.destroy();",
+		"公开 PUBLISHED Work", "宿主页不因此成为 Website Work", "静态文档没有页面内卸载",
+	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("tip template omitted authoritative CLI source guard %q", required)
+			t.Fatalf("interaction template omitted exact Mounted Tip contract %q", required)
 		}
 	}
-	if strings.Contains(text, "Creator Center") {
-		t.Fatal("tip template still treats Creator Center as the embed value source")
+	if strings.Index(text, "tipHandle.destroy();") > strings.Index(text, "client.destroy();") {
+		t.Fatal("interaction template destroys the client before its Tip mount")
+	}
+	for _, forbidden := range []string{"REPLACE_WITH_SDK_SCRIPT_URL", "/viceme-sdk/v1", "data-viceme-", "window.ViceMe"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("interaction template retained legacy integration %q", forbidden)
+		}
 	}
 }
 
@@ -611,27 +621,179 @@ func TestPublishDoesNotAdvertiseLegacyWebsitePublication(t *testing.T) {
 	}
 }
 
-func TestInteractionSkillIncludesRecoverableWebsiteWidgetWorkflow(t *testing.T) {
+func TestInteractionSkillKeepsThreeBranchBoundaries(t *testing.T) {
 	t.Parallel()
-	text := readOfficialSkillBundle(t, "let-people-interact")
+	bundle := readOfficialSkillBundle(t, "let-people-interact")
 	for _, required := range []string{
-		"$become-a-creator",
-		"Merchant",
-		"website-verification create",
-		"WEBSITE_WIDGET",
-		"(workId, environment, kind)",
-		"create 响应丢失时先 list",
-		"REVOKED",
-		"data-viceme-features",
-		"danmaku,tip",
+		"仅弹幕", "仅赞赏", "弹幕加赞赏", "$become-a-creator", "MerchantAccountMember(role=OWNER)",
+		"任意 kind Work", "PUBLISHED + VERIFIED Website Work", "marketRegion: cn", "页面 locale 不选择市场",
+		"仅弹幕不受 CN/CNY 限制", "GLOBAL 必须立即停止", "Tip 本身不增加 Origin 或 Application 门禁",
+		"只承载 Tip UI 的宿主页不是作品证据", "只有真实作品是可下载 Skill 时才转交 `$sell-a-skill`",
 	} {
-		if !strings.Contains(text, required) {
-			t.Fatalf("tip Skill omitted recoverable Website Widget contract %q", required)
+		if !strings.Contains(bundle, required) {
+			t.Fatalf("interaction Skill omitted branch contract %q", required)
 		}
 	}
-	for _, forbidden := range []string{"viceme auth login", "merchant accounts", "--profile"} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("tip Skill duplicates creator onboarding command %q", forbidden)
+	for _, forbidden := range []string{
+		"$viceme-creator-onboarding", "$viceme-publish", "目标特性集合固定",
+		"merchant commerce-application create", "merchant commerce-application update",
+		"merchant commerce-application suspend", "merchant commerce-application activate",
+	} {
+		if strings.Contains(bundle, forbidden) {
+			t.Fatalf("interaction Skill retained retired or over-broad contract %q", forbidden)
+		}
+	}
+}
+
+func TestInteractionTipOnlyUsesAnyPublishedMerchantWorkWithoutOriginGate(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := sectionBetween(string(content), "## 仅赞赏的 Work 选择", "## Website Work 与安全迁移")
+	for _, required := range []string{
+		"merchant work list", "owner.kind: MERCHANT", "owner.merchantAccountId", "status: PUBLISHED",
+		"Work kind 不受限制", "最终创作者发布流程", "$sell-a-skill", "宿主页不是作品证据",
+		"不执行 Website ownership verification", "已有可选 Commerce Application 只能提供来源归因，不是 Tip 门禁",
+	} {
+		if !strings.Contains(section, required) {
+			t.Fatalf("tip-only branch omitted Work boundary %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		`"kind": "WEBSITE"`, "canonicalOrigin", "website-verification create",
+		"merchant commerce-application create", "merchant commerce-application update",
+		"merchant commerce-application suspend", "merchant commerce-application activate",
+	} {
+		if strings.Contains(section, forbidden) {
+			t.Fatalf("tip-only branch retained host gate %q", forbidden)
+		}
+	}
+}
+
+func TestTipBearingInteractionPreflightsExactReleaseBeforeMutation(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"https://s3.viceme.cn/viceme-sdk/0.5.0/index.js",
+		"https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js",
+		"https://s3.viceme.ai/viceme-sdk/0.5.0/index.js",
+		"https://s3.viceme.ai/viceme-sdk/0.5.0/tip.js",
+		"https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js",
+		"--connect-timeout 5", "--max-time 15", "--write-out '%{http_code}'",
+		`"$asset_url")" || exit 1`, `test "$http_code" = "200" || exit 1`,
+		"不得跟随或接受重定向", "npm view @viceme-ai/sdk@0.5.0 version --json",
+		"--fetch-timeout=15000 --fetch-retries=0", "--registry=https://registry.npmjs.org",
+		"--@viceme-ai:registry=https://registry.npmjs.org", "latest", "声明式或全局 loader",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Tip preflight omitted exact release guard %q", required)
+		}
+	}
+	preflight := strings.Index(text, "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js")
+	mutation := strings.Index(text, "merchant work sdk-access create")
+	if preflight < 0 || mutation < 0 || preflight >= mutation {
+		t.Fatal("Tip release preflight does not precede SDK access mutation")
+	}
+}
+
+func TestInteractionPreservesCompleteSDKAccessSnapshotAndPermanentKeys(t *testing.T) {
+	t.Parallel()
+
+	bundle := readOfficialSkillBundle(t, "let-people-interact")
+	for _, required := range []string{
+		"完整 hosted `features`", "完整 `accessFeatures`", "精确 `configVersion`",
+		"现有 `features` 与本次分支请求的并集", "--feature danmaku", "--feature tip",
+		"不传 `--follow`、`--purchase` 或 `--clear-access`", "原样写回",
+		"create 一次返回 `keys.test` 与 `keys.live`", "不得轮换", "configVersion` 单调增加",
+		"--clear-hosted", "sdk-access disable",
+	} {
+		if !strings.Contains(bundle, required) {
+			t.Fatalf("interaction omitted complete SDK access contract %q", required)
+		}
+	}
+}
+
+func TestInteractionHeadlessContractExposesOnlyPublicFacade(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/references/integration-contract.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"GET /v1/work-sdk/:workKey/tip-config", `credentials: "omit"`, `redirect: "error"`, "AbortSignal",
+		"8 秒", "16 KiB", "TIP_CONFIG_CREDENTIALS_NOT_ALLOWED", "sourceOrigin", "no-referrer", "fail closed",
+		"viceme:tip-headless-ready", "viceme:tip-headless-init", "viceme:tip-headless-result",
+		"event.origin", "event.source", "channel", "mode=headless", "PAID", "CANCELLED", "UNKNOWN",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Headless contract omitted public boundary %q", required)
+		}
+	}
+
+	foundHeadless := false
+	for _, example := range fencedBlocks(text, "js") {
+		if !strings.Contains(example, "createTip(") || !strings.Contains(example, ".open(") {
+			continue
+		}
+		foundHeadless = true
+		for _, required := range []string{"createViceMe", "createTip", "getConfig", ".open(", "PAID", "CANCELLED", "UNKNOWN", "destroy"} {
+			if !strings.Contains(example, required) {
+				t.Fatalf("Headless example omitted facade token %q", required)
+			}
+		}
+	}
+	if !foundHeadless {
+		t.Fatal("interaction reference contains no Headless Tip example")
+	}
+}
+
+func TestInteractionExactESMExamplesOwnTheirLifecycles(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/references/integration-contract.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/danmaku.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js"`,
+		"mountDanmaku(", "mountTip(", "createTip(", "Promise.allSettled", "tip.destroy();",
+		"danmakuHandle.destroy();", "client.destroy();", "Local Fake", "SANDBOX", "keys.test", "keys.live",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("ESM lifecycle contract omitted %q", required)
+		}
+	}
+}
+
+func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
+	t.Parallel()
+
+	bundle := readOfficialSkillBundle(t, "charge-for-your-work")
+	for _, required := range []string{
+		"keys.test", "keys.live", "没有顶层单一 `workKey` 字段", "生产宿主把 `keys.live`",
+		"完整 hosted `danmaku`/`tip` features", "完整 `accessFeatures`", "精确 `configVersion`", "没有发生轮换",
+		"$become-a-creator", "拥有平台资源的发布流程",
+	} {
+		if !strings.Contains(bundle, required) {
+			t.Fatalf("charge-for-your-work omitted dual-key boundary %q", required)
+		}
+	}
+	for _, forbidden := range []string{"$viceme-publish", "$viceme-access"} {
+		if strings.Contains(bundle, forbidden) {
+			t.Fatalf("charge-for-your-work references retired Skill %q", forbidden)
 		}
 	}
 }
@@ -707,4 +869,25 @@ func requireJSONBlockWithMarkers(t *testing.T, relativePath, text string, marker
 		return
 	}
 	t.Fatalf("standalone %s omitted JSON block containing %v", relativePath, markers)
+}
+
+func sectionBetween(text, start, end string) string {
+	startOffset := strings.Index(text, start)
+	if startOffset < 0 {
+		return ""
+	}
+	section := text[startOffset:]
+	if endOffset := strings.Index(section, end); endOffset >= 0 {
+		section = section[:endOffset]
+	}
+	return section
+}
+
+func fencedBlocks(text, language string) []string {
+	matches := regexp.MustCompile("(?s)```" + regexp.QuoteMeta(language) + "\\s*(.*?)\\s*```").FindAllStringSubmatch(text, -1)
+	blocks := make([]string, 0, len(matches))
+	for _, match := range matches {
+		blocks = append(blocks, match[1])
+	}
+	return blocks
 }

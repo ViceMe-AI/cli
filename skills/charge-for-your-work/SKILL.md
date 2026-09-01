@@ -7,7 +7,8 @@ description: 把 ViceMe 浏览器 SDK 接入已有发布配置的创作者网站
 
 只修改创作者网站的宿主代码。创作者资格统一由 `$become-a-creator` 负责；
 Website Work、关注规则、付费价格和平台资源必须已经由拥有这些资源的发布流程建立。本 Skill
-只使用返回的 `workKey` 和功能键接入 SDK 门控。
+只使用返回的 `keys.live` 作为生产 SDK 的 `workKey`，并使用已确认的功能键接入门控；
+`keys.test` 只用于隔离测试。
 
 面向用户的文字跟随当前语言；中文使用自然白话，不展示内部协议字段。
 
@@ -17,12 +18,12 @@ Website Work、关注规则、付费价格和平台资源必须已经由拥有�
    有效商家后才继续；申请或审核未完成时停止。不得自行复制登录、申请或商家选择步骤。
 2. 查看足够的项目内容，定位目标动作、已有登录或支付代码、组件系统、样式变量和测试。
    用户已明确功能、入口和行为时直接实施；只补问无法从发布结果或代码确认的信息。
-3. 确认已经取得与该商家已发布网站匹配的 `workKey`、关注或付费功能键、标题和服务端价格。
+3. 确认已经取得与该商家已发布网站匹配的 `keys.test`、`keys.live`、关注或付费功能键、标题和服务端价格。生产宿主只把 `keys.live` 作为 `workKey`，`keys.test` 留给隔离测试。
    缺少发布结果或平台配置时停止并说明需要先完成网站发布配置；不得在这里发布网站或运行
    平台配置写命令。
 4. 保留原业务动作。在已有用户入口外加最小门控，只有 `access.require()` 返回
    `allowed: true` 后才调用原动作。找不到安全外层接缝时说明耦合并停止，不重构核心行为。
-5. 使用项目既有包管理器安装 `@viceme-ai/sdk`。每个 `workKey` 只创建一个客户端。宿主需要
+5. 使用项目既有包管理器安装 `@viceme-ai/sdk`。每个生产 `keys.live` 只创建一个客户端。宿主需要
    显示名称或价格时调用 `access.getFeatures()`，不得写死发布阶段的值。
 6. 从原点击处理器调用 `access.require(featureKey)`。它按服务端决定引导登录、明确关注或
    Hosted Checkout；宿主不得直接写关注、创建结账或根据浏览器回跳自行解锁。
@@ -35,8 +36,9 @@ Website Work、关注规则、付费价格和平台资源必须已经由拥有�
 
 ## 强制边界
 
-- 本 Skill 不拥有平台配置，不创建或读取本地访问配置，也不运行平台访问配置写命令。
-- `workKey` 是公开且不透明的标识，不替换为 Product ID，也不当作秘密。
+- 本 Skill 不拥有平台配置，不创建或读取本地访问配置，也不运行平台访问配置写命令；平台功能需要变更时交回拥有这些资源的发布流程。
+- SDK access API 返回 `keys.test` 与 `keys.live`，没有顶层单一 `workKey` 字段。两个 key 都是永久公开且不透明的标识，不是凭据；生产宿主把 `keys.live` 传给 SDK 的 `workKey`，不得替换为 Work UUID、Product ID 或 token。
+- 拥有平台资源的发布流程必须在写后读取中确认两个 key 均存在且未轮换、完整 hosted `danmaku`/`tip` features 与完整 `accessFeatures` 均被保留，并记录精确 `configVersion`；本 Skill 不代做这些操作。
 - 浏览器代码不得包含支付密钥、webhook、Product ID、creator ID、写死金额或权益判断。
 - work session 和 user token 只保存在 SDK 内存中，不写入 cookie、浏览器存储、URL 或日志。
 - `access.check()` 只读；只有用户触发 `access.require()` 才能进入交互流程。
@@ -48,7 +50,8 @@ Website Work、关注规则、付费价格和平台资源必须已经由拥有�
 
 ## 完成检查
 
-- `workKey` 与功能键被原样使用，access 没有创建或修改平台资源。
+- `keys.live` 被原样用作生产 `workKey`，功能键被原样使用，access 没有创建或修改平台资源。
+- `keys.test` 与 `keys.live` 没有被合并成旧式单 key，也没有发生轮换。
 - 关注与付费门控相互独立；登录后不会自动关注。
 - 名称和价格来自 `access.getFeatures()`，解锁只来自新的服务端检查。
 - 允许路径仍以原参数调用核心动作，拒绝、取消或支付未完成路径不调用它。

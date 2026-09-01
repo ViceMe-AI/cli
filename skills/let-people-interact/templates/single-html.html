@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>创作者作品</title>
+    <title>创作者作品赞赏</title>
     <style>
       :root {
         color-scheme: light;
@@ -41,20 +41,38 @@
   </head>
   <body>
     <main>
-      <h1>创作者作品</h1>
-      <p>这是一个独立部署的单 HTML 创作者页面。</p>
-      <div id="viceme-interaction"></div>
+      <h1>支持这个作品</h1>
+      <p>这是仅赞赏分支的官方 Mounted UI 单 HTML 起点。</p>
+      <div id="viceme-tip"></div>
     </main>
 
-    <!-- 只使用当前 CLI 上下文、已发布 Website Work 与 SDK access 返回的精确 workKey 替换全部占位符；不得手工推导地址或区域。 -->
-    <script
-      defer
-      src="REPLACE_WITH_SDK_SCRIPT_URL"
-      data-viceme-work="REPLACE_WITH_WORK_KEY"
-      data-viceme-region="REPLACE_WITH_MARKET_REGION"
-      data-viceme-features="danmaku,tip"
-      data-viceme-target="#viceme-interaction"
-      data-viceme-theme="auto"
-    ></script>
+    <!-- 仅在统一流程已确认 CN Profile、选定公开 PUBLISHED Work，并完成
+         CN/GLOBAL 四个精确 0.5.0 入口预检后使用。宿主页不因此成为 Website Work。
+         保留浏览器 Referer；不要设置 no-referrer，也不要伪造 sourceOrigin。 -->
+    <script type="module">
+      import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/0.5.0/index.js";
+      import { mountTip } from "https://s3.viceme.cn/viceme-sdk/0.5.0/tip.js";
+
+      const target = document.querySelector("#viceme-tip");
+      if (!target) throw new Error("ViceMe Tip target is missing");
+
+      const client = createViceMe({
+        workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY",
+        region: "cn",
+      });
+      await client.ready();
+      const tipHandle = await mountTip(client, {
+        target,
+        theme: "auto",
+      });
+
+      function destroyViceMeTip() {
+        tipHandle.destroy();
+        client.destroy();
+      }
+
+      // 静态文档没有页面内卸载。改成 SPA 后，只在组件或路由真实卸载时
+      // 调用 destroyViceMeTip()；不要绑定会在 bfcache 时触发的 pagehide。
+    </script>
   </body>
 </html>

@@ -24,6 +24,8 @@ const (
 	testOtherID               = "77777777-7777-4777-8777-777777777777"
 	testProductID             = "88888888-8888-4888-8888-888888888888"
 	testTimestamp             = "2026-08-27T10:00:00Z"
+	testLiveWorkKey           = "wrk_live_permanent_access"
+	testTestWorkKey           = "wrk_test_permanent_access"
 )
 
 func TestMerchantEngagementClientUsesShopContracts(t *testing.T) {
@@ -313,6 +315,55 @@ func TestMerchantEngagementClientUsesShopContracts(t *testing.T) {
 	}
 }
 
+func TestWorkSdkAccessDecodesBothPermanentPublicKeys(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodGet || request.URL.Path != "/v1/cli/merchant/works/"+testWebsiteWorkID+"/sdk-access" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.String())
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{
+  "workId": "`+testWebsiteWorkID+`",
+  "keys": {
+    "test": "`+testTestWorkKey+`",
+    "live": "`+testLiveWorkKey+`"
+  },
+  "status": "ACTIVE",
+  "configVersion": 1,
+  "features": ["tip"],
+  "accessFeatures": [],
+  "createdAt": "`+testTimestamp+`",
+  "updatedAt": "`+testTimestamp+`"
+}`)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
+	access, err := client.GetWorkSdkAccess(context.Background(), testWebsiteWorkID, testMerchantAccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if access.Keys.Test != testTestWorkKey || access.Keys.Live != testLiveWorkKey {
+		t.Fatalf("Work SDK access keys were not decoded: %#v", access.Keys)
+	}
+}
+
+func TestWorkSdkAccessAllowsAccessOnlyConfiguration(t *testing.T) {
+	t.Parallel()
+
+	access := testWorkSdkAccess(testWebsiteWorkID, "ACTIVE", 1, []string{})
+	access.AccessFeatures = []WorkAccessFeature{{
+		FeatureKey: "followers",
+		Title:      "Followers",
+		PolicyType: "FOLLOW_OWNER",
+		Status:     "ACTIVE",
+	}}
+	if err := access.validateAPIResponse(); err != nil {
+		t.Fatalf("access-only Work SDK configuration was rejected: %v", err)
+	}
+}
+
 func TestMerchantEngagementRecoveryUsesAuthoritativeResponseContracts(t *testing.T) {
 	t.Parallel()
 
@@ -362,6 +413,10 @@ func TestMerchantEngagementClientRejectsInvalidSuccessfulResponses(t *testing.T)
 	wrongVerificationWork.WebsiteWorkID = testOtherID
 	wrongAccessWork := testWorkSdkAccess(testOtherID, "ACTIVE", 1, []string{"tip"})
 	zeroAccessVersion := testWorkSdkAccess(testWebsiteWorkID, "ACTIVE", 0, []string{"tip"})
+	missingAccessKeys := testWorkSdkAccess(testWebsiteWorkID, "ACTIVE", 1, []string{"tip"})
+	missingAccessKeys.Keys = WorkSdkAccessKeys{}
+	swappedAccessKeys := testWorkSdkAccess(testWebsiteWorkID, "ACTIVE", 1, []string{"tip"})
+	swappedAccessKeys.Keys = WorkSdkAccessKeys{Test: testLiveWorkKey, Live: testTestWorkKey}
 	nonAdvancingAccessVersion := testWorkSdkAccess(testWebsiteWorkID, "ACTIVE", 1, []string{"tip"})
 	invalidAccessFeature := testWorkSdkAccess(testWebsiteWorkID, "ACTIVE", 1, []string{"other"})
 	duplicateAccessFeature := testWorkSdkAccess(testWebsiteWorkID, "ACTIVE", 1, []string{"tip", "tip"})
@@ -439,6 +494,20 @@ func TestMerchantEngagementClientRejectsInvalidSuccessfulResponses(t *testing.T)
 		},
 		{
 			name: "zero access version", response: zeroAccessVersion,
+			call: func(client *Client) error {
+				_, err := client.GetWorkSdkAccess(context.Background(), testWebsiteWorkID, testMerchantAccountID)
+				return err
+			},
+		},
+		{
+			name: "missing access key pair", response: missingAccessKeys,
+			call: func(client *Client) error {
+				_, err := client.GetWorkSdkAccess(context.Background(), testWebsiteWorkID, testMerchantAccountID)
+				return err
+			},
+		},
+		{
+			name: "swapped access key environments", response: swappedAccessKeys,
 			call: func(client *Client) error {
 				_, err := client.GetWorkSdkAccess(context.Background(), testWebsiteWorkID, testMerchantAccountID)
 				return err
@@ -796,8 +865,11 @@ func testWebsiteMerchantWork(ownershipStatus string, revision, verificationVersi
 
 func testWorkSdkAccess(workID, status string, configVersion int, features []string) WorkSdkAccess {
 	return WorkSdkAccess{
-		WorkID:         workID,
-		WorkKey:        "wrk_test_access",
+		WorkID: workID,
+		Keys: WorkSdkAccessKeys{
+			Test: testTestWorkKey,
+			Live: testLiveWorkKey,
+		},
 		Status:         status,
 		ConfigVersion:  configVersion,
 		Features:       features,
