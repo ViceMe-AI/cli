@@ -19,14 +19,20 @@ files, create tags, write changelog entries, or run npm commands locally.
 5. The workflow synchronizes `package.json`, `package-lock.json`, Go build
    metadata, bundled Skill metadata, release manifest digests, and
    `CHANGELOG.md`.
-6. It runs `make check` and `make npm-package-check`, creates a short-lived
+6. While this preparation is running, the initial unprepared `dev` to `main`
+   head runs only the cheap pull-request target gate. It does not start the Go,
+   npm, macOS, or Windows validation matrix.
+7. The preparation workflow runs `make check` and `make npm-package-check`, creates a short-lived
    installation token for the repository-scoped ViceMe Release GitHub App, and
-   commits only the generated files directly to protected `dev`.
-7. The existing `dev` to `main` PR synchronizes, runs its required quality
+   commits only the generated files directly to protected `dev`. The commit is
+   marked with trusted preparation and evidence trailers.
+8. The existing `dev` to `main` PR synchronizes, runs its required quality
    checks, and is updated to `chore(release): vX.Y.Z` with exact run and commit
-   evidence. No internal preparation PR is created.
-8. A maintainer reviews and merges that same Release PR.
-9. Merging the Release PR pushes its merge commit to `main`.
+   evidence. The synchronized release-preparation run validates the marked bot
+   commit and reuses the original evidence without reinstalling dependencies or
+   repeating the preparation checks. No internal preparation PR is created.
+9. A maintainer reviews and merges that same Release PR.
+10. Merging the Release PR pushes its merge commit to `main`.
    `CLI release publication` resolves that commit back to exactly one merged,
    repository-owned `dev` to `main` PR, then tags the exact reviewed `dev`
    head, reruns the quality gates, builds six platform binaries and six
@@ -89,11 +95,15 @@ when the job finishes. The workflow still stages an explicit allowlist of
 generated files and validates the complete release before pushing. No
 maintainer PAT or Deploy Key is used.
 
-The general `CLI PR checks` workflow runs for pull requests, not branch pushes. A
-Release App push synchronizes the already-open `dev` to `main` PR, producing one
-set of required checks for the exact prepared commit without duplicate generic
-push and pull-request runs. The synchronize event may run release preparation a
-second time; that run is intentionally idempotent and produces no new commit.
+The general `CLI PR checks` workflow runs for pull requests, not branch pushes.
+For a repository-owned `dev` to `main` promotion, it classifies the exact head:
+an unprepared head runs only target validation, while the marked Release Bot
+commit runs the complete required matrix. A Release App push synchronizes the
+already-open PR and cancels any older generic run for the same PR. The resulting
+full checks therefore cover the exact prepared commit once. The synchronize
+event runs release preparation again only as a fast metadata verification and
+PR update; it does not install dependencies, regenerate files, or repeat the
+preparation checks.
 
 The checks from `CLI release publication` are deliberately not required for
 merging: that workflow starts only after the release PR has been merged and
