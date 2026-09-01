@@ -13,7 +13,7 @@
 
 ## 浏览器 SDK
 
-精确安装 `@viceme-ai/sdk@0.5.0`，部署页面使用发布流程返回的 `keys.live`。不要把
+安装 `@viceme-ai/sdk`，部署页面使用发布流程返回的 `keys.live`。不要把
 `keys.test`、Work UUID 或 Product ID 放进生产客户端：
 
 ```ts

@@ -23,7 +23,7 @@ Website Work、关注规则、付费价格和平台资源必须已经由拥有�
    平台配置写命令。
 4. 保留原业务动作。在已有用户入口外加最小门控，只有 `access.require()` 返回
    `allowed: true` 后才调用原动作。找不到安全外层接缝时说明耦合并停止，不重构核心行为。
-5. 使用项目既有包管理器精确安装 `@viceme-ai/sdk@0.5.0`。每个生产 `keys.live` 只创建一个客户端。宿主需要
+5. 使用项目既有包管理器安装 `@viceme-ai/sdk`。每个生产 `keys.live` 只创建一个客户端。宿主需要
    显示名称或价格时调用 `access.getFeatures()`，不得写死发布阶段的值。
 6. 从原点击处理器调用 `access.require(featureKey)`。它按服务端决定引导登录、明确关注或
    Hosted Checkout；宿主不得直接写关注、创建结账或根据浏览器回跳自行解锁。
