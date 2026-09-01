@@ -17,6 +17,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
 	"github.com/gofrs/flock"
@@ -191,6 +192,10 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 				return output.Internal("BOOTSTRAP_JOURNAL_FAILED", "could not persist the ViceMe activation commit point", err)
 			}
 			if err := activateBootstrapExecutable(journal.Staged, journal.Destination, journal.TargetHash); err != nil {
+				if errors.Is(err, errBootstrapReplaceDenied) {
+					return output.Policy("BOOTSTRAP_REPLACE_SANDBOX_DENIED", "this environment denies replacing the ViceMe executable").
+						WithHint("agent sandboxes that deny file renames cannot activate a new CLI binary; run the update from an unsandboxed terminal")
+				}
 				return output.Internal("BOOTSTRAP_REPLACE_FAILED", "could not activate the ViceMe executable", err)
 			}
 			return nil
@@ -348,29 +353,13 @@ func writeBootstrapJournal(filename string, journal bootstrapActivationJournal) 
 		return err
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(filepath.Dir(filename), ".bootstrap-activation-*.tmp")
-	if err != nil {
-		return err
-	}
-	name := temporary.Name()
-	defer os.Remove(name)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, filename)
+	return privatefile.Write(filename, data, ".bootstrap-activation-*.tmp")
 }
+
+// errBootstrapReplaceDenied marks an executable replacement that the running
+// environment refused through its sandbox policy; the caller turns it into an
+// actionable policy error instead of a generic internal failure.
+var errBootstrapReplaceDenied = errors.New("environment denies replacing the ViceMe executable")
 
 func activateBootstrapExecutable(source, destination, expectedHash string) error {
 	if expectedHash == "" {
@@ -395,6 +384,11 @@ func activateBootstrapExecutable(source, destination, expectedHash string) error
 	}
 	if err := os.Rename(name, destination); err == nil {
 		return nil
+	} else if privatefile.IsPermissionDenial(err) {
+		// A sandbox can allow this plain write but deny the activating rename,
+		// and the running executable cannot be replaced in place.
+		_ = os.Remove(name)
+		return fmt.Errorf("%w: %v", errBootstrapReplaceDenied, err)
 	}
 	if err := os.Remove(destination); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		_ = os.Remove(name)
