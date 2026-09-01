@@ -153,6 +153,9 @@ func installReplicaLocked(
 		if err != nil {
 			return replicaInstallResult{}, err
 		}
+		if quote.Product.ID != resolved.Product.ID || quote.SKU.ID != resolved.Product.SKUID {
+			return replicaInstallResult{}, output.Policy("REPLICA_QUOTE_MISMATCH", "Website Replica quote does not match the resolved product")
+		}
 		state.QuoteID = quote.ID
 		if err := store.save(&state); err != nil {
 			return replicaInstallResult{}, err
@@ -257,9 +260,6 @@ func verifyReplicaLicense(ctx context.Context, runtime *Runtime, download api.We
 		!replicaUUIDPattern.MatchString(claims.EntitlementID) || claims.ReplicaID != download.ReplicaID ||
 		claims.VersionID != download.VersionID || claims.OrderNo != orderNo || claims.ArtifactDigest != download.ArtifactDigest {
 		return output.Policy("REPLICA_LICENSE_IDENTITY_MISMATCH", "Website Replica license does not match the purchased artifact")
-	}
-	if _, err := time.Parse(time.RFC3339Nano, claims.IssuedAt); err != nil {
-		return output.Policy("REPLICA_LICENSE_INVALID", "Website Replica license issue time is invalid")
 	}
 	trustedPublicKey, err := runtime.resolveCommerceTrustKey(ctx, license.SigningKeyID)
 	if err != nil {

@@ -851,9 +851,6 @@ func (c *Client) CompleteUpload(ctx context.Context, publicationID, uploadID str
 func (c *Client) CreateWebsiteReplicaUpload(ctx context.Context, request CreateWebsiteReplicaUploadRequest) (CreateWebsiteReplicaUploadResponse, error) {
 	var response CreateWebsiteReplicaUploadResponse
 	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/uploads", request, &response, "@stored")
-	if err == nil && (!uuidPattern.MatchString(response.ReplicaID) || !uuidPattern.MatchString(response.UploadID) || response.Upload.Method != http.MethodPut || response.Upload.URL == "") {
-		err = invalidAPIResponse(errors.New("Website Replica upload response is missing required fields"))
-	}
 	return response, err
 }
 
@@ -861,14 +858,17 @@ func (c *Client) CompleteWebsiteReplicaUpload(ctx context.Context, replicaID, up
 	var response CompleteWebsiteReplicaUploadResponse
 	endpoint := "/v1/website-replicas/" + url.PathEscape(replicaID) + "/uploads/" + url.PathEscape(uploadID) + "/complete"
 	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, "@stored")
+	if err == nil && response.ReplicaID != replicaID {
+		err = invalidAPIResponse(errors.New("Website Replica publication response does not match the requested Replica"))
+	}
 	return response, err
 }
 
 func (c *Client) ResolveWebsiteReplica(ctx context.Context, code string) (WebsiteReplicaResolution, error) {
 	var response WebsiteReplicaResolution
 	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/resolve", ResolveWebsiteReplicaRequest{Instruction: code}, &response, "@stored")
-	if err == nil && (!uuidPattern.MatchString(response.ReplicaID) || !websiteReplicaCodePattern.MatchString(response.ShortCode)) {
-		err = invalidAPIResponse(errors.New("Website Replica resolution is missing required fields"))
+	if err == nil && code != "VICEME-REPLICA:"+response.ShortCode {
+		err = invalidAPIResponse(errors.New("Website Replica resolution does not match the requested code"))
 	}
 	return response, err
 }
@@ -876,43 +876,20 @@ func (c *Client) ResolveWebsiteReplica(ctx context.Context, code string) (Websit
 func (c *Client) CreateWebsiteReplicaQuote(ctx context.Context, request CreateWebsiteReplicaQuoteRequest) (WebsiteReplicaQuote, error) {
 	var response WebsiteReplicaQuote
 	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/quotes", request, &response, "@stored")
-	if err == nil && !uuidPattern.MatchString(response.ID) {
-		err = invalidAPIResponse(errors.New("Website Replica quote is missing required fields"))
-	}
 	return response, err
 }
 
 func (c *Client) CreateWebsiteReplicaOrder(ctx context.Context, request CreateWebsiteReplicaOrderRequest) (WebsiteReplicaOrder, error) {
 	var response WebsiteReplicaOrder
 	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/orders", request, &response, "@stored")
-	if err == nil && (strings.TrimSpace(response.OrderNo) == "" ||
-		(response.Status == "PENDING" && !validWebsiteReplicaPaymentAction(response.PaymentAction)) ||
-		((response.Status == "PAID" || response.Status == "CLOSED") && response.PaymentAction != nil) ||
-		(response.Status != "PENDING" && response.Status != "PAID" && response.Status != "CLOSED")) {
-		err = invalidAPIResponse(errors.New("Website Replica order is missing required fields"))
-	}
 	return response, err
-}
-
-func validWebsiteReplicaPaymentAction(action *WebsiteReplicaPaymentAction) bool {
-	if action == nil {
-		return false
-	}
-	switch action.Type {
-	case "REDIRECT":
-		return action.URL != "" && action.Content == ""
-	case "QR_CODE":
-		return action.Content != "" && action.URL == ""
-	default:
-		return false
-	}
 }
 
 func (c *Client) GetWebsiteReplicaOrderStatus(ctx context.Context, orderNo string) (WebsiteReplicaOrderStatus, error) {
 	var response WebsiteReplicaOrderStatus
 	endpoint := "/v1/website-replicas/orders/" + url.PathEscape(orderNo) + "/status"
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
-	if err == nil && (response.OrderNo != orderNo || !validWebsiteReplicaOrderStatus(response.Payment.Status)) {
+	if err == nil && response.OrderNo != orderNo {
 		err = invalidAPIResponse(errors.New("Website Replica order status is invalid"))
 	}
 	return response, err
@@ -922,11 +899,6 @@ func (c *Client) GetWebsiteReplicaDownload(ctx context.Context, shortCode string
 	var response WebsiteReplicaDownload
 	endpoint := "/v1/website-replicas/" + url.PathEscape(shortCode) + "/download"
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
-	if err == nil && (!uuidPattern.MatchString(response.ReplicaID) || !uuidPattern.MatchString(response.VersionID) || response.Version < 1 ||
-		strings.TrimSpace(response.FileName) == "" || response.SizeBytes < 1 || !sha256HexPattern.MatchString(response.ArtifactDigest) ||
-		response.DownloadURL == "" || len(bytes.TrimSpace(response.License)) == 0 || !json.Valid(response.License)) {
-		err = invalidAPIResponse(errors.New("Website Replica download authorization is missing required fields"))
-	}
 	return response, err
 }
 
@@ -1197,8 +1169,14 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 	if len(bytes.TrimSpace(data)) == 0 {
 		return invalidAPIResponse(errors.New("response body is empty"))
 	}
-	if err := json.Unmarshal(data, responseBody); err != nil {
-		return invalidAPIResponse(err)
+	var decodeErr error
+	if _, strict := responseBody.(strictAPIResponse); strict {
+		decodeErr = decodeStrictAPIResponse(data, responseBody)
+	} else {
+		decodeErr = json.Unmarshal(data, responseBody)
+	}
+	if decodeErr != nil {
+		return invalidAPIResponse(decodeErr)
 	}
 	if validator, ok := responseBody.(interface{ validateAPIResponse() error }); ok {
 		if err := validator.validateAPIResponse(); err != nil {

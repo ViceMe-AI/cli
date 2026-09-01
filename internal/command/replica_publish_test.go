@@ -83,7 +83,11 @@ func TestReplicaPublishUsesAuthenticatedControlAPIAndCredentialFreePresignedUplo
 				},
 			})
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replicas/"+replicaID+"/uploads/"+uploadID+"/complete":
-			writeJSONResponse(writer, map[string]any{"replicaId": replicaID, "shortCode": shortCode})
+			writeJSONResponse(writer, replicaPublicationResponse(
+				replicaID,
+				"99999999-9999-4999-8999-999999999999",
+				shortCode,
+			))
 		default:
 			t.Fatalf("unexpected control request: %s %s", request.Method, request.URL.Path)
 		}

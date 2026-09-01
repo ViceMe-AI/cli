@@ -81,10 +81,10 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 			writeReplicaAuthStatus(writer)
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replicas/resolve":
 			assertJSONFields(t, request, map[string]any{"instruction": fullCode})
-			writeJSONResponse(writer, map[string]any{"replicaId": replicaID, "shortCode": shortCode, "title": "Replica"})
+			writeJSONResponse(writer, replicaResolutionResponse(replicaID, shortCode))
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replicas/quotes":
 			assertJSONFields(t, request, map[string]any{"instruction": fullCode, "clientRequestId": quoteReqID})
-			writeJSONResponse(writer, map[string]any{"id": quoteID, "expiresAt": time.Now().UTC().Add(time.Minute).Format(time.RFC3339)})
+			writeJSONResponse(writer, replicaQuoteResponse(quoteID))
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replicas/orders":
 			assertJSONFields(t, request, map[string]any{"quoteId": quoteID, "clientRequestId": orderReqID, "locale": "zh-CN"})
 			writeJSONResponse(writer, map[string]any{
@@ -171,6 +171,77 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	assertReplicaSecretsAbsentFromFiles(t, root, accessToken, paymentURL, "payment-capability", downloadURL, "download-capability")
 }
 
+func TestReplicaInstallRejectsQuoteForAnotherResolvedProductOrSKU(t *testing.T) {
+	const (
+		accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+		fullCode    = "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST"
+		shortCode   = "VMR-ABCDEFGHIJKLMNOPQRST"
+		replicaID   = "11111111-1111-4111-8111-111111111111"
+		quoteID     = "22222222-2222-4222-8222-222222222222"
+		quoteReqID  = "33333333-3333-4333-8333-333333333333"
+	)
+	t.Setenv(processAccessTokenEnvironment, accessToken)
+	for _, test := range []struct {
+		name   string
+		mutate func(map[string]any)
+	}{
+		{
+			name: "product",
+			mutate: func(response map[string]any) {
+				response["product"].(map[string]any)["id"] = "44444444-4444-4444-8444-444444444444"
+			},
+		},
+		{
+			name: "SKU",
+			mutate: func(response map[string]any) {
+				response["sku"].(map[string]any)["id"] = "55555555-5555-4555-8555-555555555555"
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var orderCalls atomic.Int32
+			controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				switch request.URL.Path {
+				case "/v1/cli/auth/status":
+					writeReplicaAuthStatus(writer)
+				case "/v1/website-replicas/resolve":
+					writeJSONResponse(writer, replicaResolutionResponse(replicaID, shortCode))
+				case "/v1/website-replicas/quotes":
+					response := replicaQuoteResponse(quoteID)
+					test.mutate(response)
+					writeJSONResponse(writer, response)
+				case "/v1/website-replicas/orders":
+					orderCalls.Add(1)
+					writer.WriteHeader(http.StatusInternalServerError)
+				default:
+					t.Errorf("unexpected control request: %s %s", request.Method, request.URL.Path)
+					writer.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer controlServer.Close()
+
+			root := t.TempDir()
+			target := filepath.Join(root, "site")
+			var stdout bytes.Buffer
+			exit := Execute([]string{"replica", "install", fullCode, "--target", target}, Dependencies{
+				Out: &stdout, ErrOut: io.Discard, HTTPClient: controlServer.Client(), Store: securestore.NewMemory(),
+				APIBaseURL: controlServer.URL, Region: config.RegionCN,
+				Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+				NewID:       func() string { return quoteReqID },
+			})
+			if exit == 0 || !strings.Contains(stdout.String(), "REPLICA_QUOTE_MISMATCH") {
+				t.Fatalf("mismatched quote was not rejected: exit=%d stdout=%s", exit, stdout.String())
+			}
+			if orderCalls.Load() != 0 {
+				t.Fatalf("mismatched quote created %d orders", orderCalls.Load())
+			}
+			if _, err := os.Lstat(target); !os.IsNotExist(err) {
+				t.Fatalf("mismatched quote created the install target: %v", err)
+			}
+		})
+	}
+}
+
 func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 	const (
 		accessToken = "vme_cli_1234567890123456789012345678901234567890123"
@@ -209,11 +280,11 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 		case "/v1/cli/auth/status":
 			writeReplicaAuthStatus(writer)
 		case "/v1/website-replicas/resolve":
-			writeJSONResponse(writer, map[string]any{"replicaId": replicaID, "shortCode": shortCode})
+			writeJSONResponse(writer, replicaResolutionResponse(replicaID, shortCode))
 		case "/v1/website-replicas/quotes":
 			quoteCalls.Add(1)
 			assertJSONFields(t, request, map[string]any{"instruction": fullCode, "clientRequestId": quoteReqID})
-			writeJSONResponse(writer, map[string]any{"id": quoteID})
+			writeJSONResponse(writer, replicaQuoteResponse(quoteID))
 		case "/v1/website-replicas/orders":
 			orderCalls.Add(1)
 			assertJSONFields(t, request, map[string]any{"quoteId": quoteID, "clientRequestId": orderReqID, "locale": "zh-CN"})
@@ -486,9 +557,9 @@ func replicaPaidControlServer(t *testing.T, downloadURL string, size int, digest
 		case "/v1/cli/auth/status":
 			writeReplicaAuthStatus(writer)
 		case "/v1/website-replicas/resolve":
-			writeJSONResponse(writer, map[string]any{"replicaId": replicaID, "shortCode": shortCode})
+			writeJSONResponse(writer, replicaResolutionResponse(replicaID, shortCode))
 		case "/v1/website-replicas/quotes":
-			writeJSONResponse(writer, map[string]any{"id": quoteID})
+			writeJSONResponse(writer, replicaQuoteResponse(quoteID))
 		case "/v1/website-replicas/orders":
 			writeJSONResponse(writer, map[string]any{"orderNo": orderNo, "status": "PENDING", "paymentAction": map[string]any{"type": "REDIRECT", "url": server.URL + "/payment#temporary-capability"}, "expiresAt": time.Now().UTC().Add(time.Minute).Format(time.RFC3339)})
 		case "/v1/website-replicas/orders/" + orderNo + "/status":

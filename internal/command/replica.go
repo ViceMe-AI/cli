@@ -111,14 +111,17 @@ func publishReplica(ctx context.Context, runtime *Runtime, source, workID, title
 		return replicaPublishResult{}, err
 	}
 	progress(runtime, "Uploading Website Replica source package")
-	if err := runtime.client().PutUpload(ctx, created.Upload, file, info.Size()); err != nil {
+	if err := runtime.client().PutUpload(ctx, api.UploadAuthorization{
+		Method: created.Upload.Method, URL: created.Upload.URL,
+		ExpiresAt: created.Upload.ExpiresAt, Headers: created.Upload.Headers,
+	}, file, info.Size()); err != nil {
 		return replicaPublishResult{}, err
 	}
 	completed, err := runtime.client().CompleteWebsiteReplicaUpload(ctx, created.ReplicaID, created.UploadID)
 	if err != nil {
 		return replicaPublishResult{}, err
 	}
-	if completed.ReplicaID != "" && completed.ReplicaID != created.ReplicaID {
+	if completed.ReplicaID != created.ReplicaID {
 		return replicaPublishResult{}, output.Internal("REPLICA_COMPLETE_RESPONSE_INVALID", "Website Replica completion returned a different Replica", nil)
 	}
 	if !replicaShortCodePattern.MatchString(completed.ShortCode) {
