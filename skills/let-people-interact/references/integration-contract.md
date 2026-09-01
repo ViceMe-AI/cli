@@ -372,17 +372,17 @@ function destroyViceMeTip() {
 3. Production promotion：向用户展示 SANDBOX 证据并取得明确确认后，才把唯一 `createViceMe` 的 `wrk_test_...` 替换为同一 SDK access 返回的 `wrk_live_...`。imports、版本、UI 路线与 Work 不变。
 4. 生产边界：`keys.live` 不能模拟支付。真实支付是独立且明确的用户决定；未执行时必须报告。
 
-## CSP、生命周期与迁移
+## CSP 与生命周期
 
 保留现有 CSP 与 nonce，只加入浏览器证明确实需要的精确 SDK CDN 和官方 Web Origin。不得加入 `*`、宽泛 ViceMe 子域、`unsafe-eval` 或宿主支付脚本。referrer policy 必须允许官方页面收到来源 Origin；`no-referrer` 会按安全合同关闭 handoff，不能通过放宽消息校验补救。
 
 所有 mount/controller 都属于创建它们的 client。SPA、组件或路由真实卸载时先销毁 mount/controller，再销毁 client。不要绑定 `pagehide`，因为进入 bfcache 也会触发。静态文档没有页面内卸载，不需要虚构卸载事件。
 
-旧声明式 loader、旧 embed 标签与 `data-viceme-*` 只能用于确认待迁移 Work 身份。新接入使用上面的精确 ESM。迁移必须先确认 Work 属于当前 OWNER Merchant；替换完成后删除旧标签，不能让两套运行时并行。
+只接受上面的精确 ESM。发现声明式或全局 loader、旧 embed 标签、`data-viceme-*`、非精确版本或多套 ViceMe 运行时时停止，要求用户先移除；不得从这些内容推断 Work 身份或生成兼容接入。
 
 ## 线上验收
 
 - 仅弹幕：精确 Website Origin、DNS verified 状态、消息持久化、桌面/320px、键盘与减少动画。
 - 仅赞赏：不执行 Website verification 或 Commerce Application mutation；验证目标 Work、Local Fake、SANDBOX、来源缺失 fail closed、三种公开结果和销毁顺序。
 - 组合：同一 verified Website Work、同一 client、完整 `danmaku,tip` hosted set、完整 `accessFeatures` 未变，以及一个能力失败不移除另一个。
-- 所有路线：SDK 文件直接 200、没有新旧 loader 并存、无 CSP/frame/script/handoff 错误。打开 UI 不代表消息持久化或支付结算成功。
+- 所有路线：SDK 文件直接 200、页面只有一套精确 ESM、无 CSP/frame/script/handoff 错误。打开 UI 不代表消息持久化或支付结算成功。
