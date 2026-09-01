@@ -32,6 +32,7 @@ type replicaPublishResult struct {
 func newReplicaCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "replica", Short: "Publish and install Website Replica source packages"}
 	command.AddCommand(newReplicaPublishCommand(runtime))
+	command.AddCommand(newReplicaInstallCommand(runtime))
 	return command
 }
 
@@ -58,7 +59,7 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 	_ = command.MarkFlagRequired("path")
 	_ = command.MarkFlagRequired("work-id")
 	_ = command.MarkFlagRequired("title")
-	_ = command.MarkFlagRequired("summary")
+	_ = command.MarkFlagRequired("price-cents")
 	return command
 }
 
@@ -69,11 +70,11 @@ func publishReplica(ctx context.Context, runtime *Runtime, source, workID, title
 	if !replicaUUIDPattern.MatchString(workID) {
 		return replicaPublishResult{}, output.Validation("REPLICA_WORK_ID_INVALID", "--work-id must be a UUID")
 	}
-	if title == "" || summary == "" {
-		return replicaPublishResult{}, output.Validation("REPLICA_METADATA_INVALID", "--title and --summary cannot be empty")
+	if title == "" {
+		return replicaPublishResult{}, output.Validation("REPLICA_METADATA_INVALID", "--title cannot be empty")
 	}
-	if priceCents < 0 || priceCents > 10_000_000 {
-		return replicaPublishResult{}, output.Validation("REPLICA_PRICE_INVALID", "--price-cents must be between 0 and 10000000")
+	if priceCents < 1 || priceCents > 10_000_000 {
+		return replicaPublishResult{}, output.Validation("REPLICA_PRICE_INVALID", "--price-cents must be between 1 and 10000000")
 	}
 	file, info, err := openReplicaArchive(source)
 	if err != nil {

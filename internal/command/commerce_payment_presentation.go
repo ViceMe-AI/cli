@@ -48,34 +48,9 @@ func prepareCommercePaymentPresentation(runtime *Runtime, order *api.CommerceOrd
 	if action.Type != "QR_CODE" || strings.TrimSpace(action.Content) == "" {
 		return errors.New("paid WeChat NATIVE order did not return a QR_CODE action")
 	}
-	if len(action.Content) > 4096 {
-		return errors.New("payment QR content is too large")
-	}
-	parsed, err := url.Parse(action.Content)
-	if err != nil || !strings.EqualFold(parsed.Scheme, "weixin") {
-		return errors.New("payment QR content is not a WeChat payment URI")
-	}
-	png, err := qrcode.Encode(action.Content, qrcode.Medium, 512)
+	absolutePath, err := createCommercePaymentQRImage(runtime, order.OrderNo, action.Content)
 	if err != nil {
-		return fmt.Errorf("encode payment QR image: %w", err)
-	}
-	directory := filepath.Join(runtime.configBase, commercePaymentPresentationDirectory)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return fmt.Errorf("create payment presentation directory: %w", err)
-	}
-	if err := secureCommercePaymentDirectory(directory); err != nil {
-		return fmt.Errorf("secure payment presentation directory: %w", err)
-	}
-	if err := pruneCommercePaymentPresentations(runtime); err != nil {
-		return fmt.Errorf("prune payment presentations: %w", err)
-	}
-	imagePath := filepath.Join(directory, commercePaymentPresentationFilename(order.OrderNo))
-	if err := writeCommercePaymentPresentation(imagePath, png); err != nil {
 		return err
-	}
-	absolutePath, err := filepath.Abs(imagePath)
-	if err != nil {
-		return fmt.Errorf("resolve payment presentation path: %w", err)
 	}
 	order.PaymentPresentation = &api.CommercePaymentPresentation{
 		Type:      "LOCAL_IMAGE",
@@ -89,6 +64,39 @@ func prepareCommercePaymentPresentation(runtime *Runtime, order *api.CommerceOrd
 	// of stdout prevents accidental plaintext display or third-party QR upload.
 	order.PaymentAction = json.RawMessage(`{"type":"QR_CODE"}`)
 	return nil
+}
+
+func createCommercePaymentQRImage(runtime *Runtime, orderNo, content string) (string, error) {
+	if len(content) > 4096 {
+		return "", errors.New("payment QR content is too large")
+	}
+	parsed, err := url.Parse(content)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "weixin") {
+		return "", errors.New("payment QR content is not a WeChat payment URI")
+	}
+	png, err := qrcode.Encode(content, qrcode.Medium, 512)
+	if err != nil {
+		return "", fmt.Errorf("encode payment QR image: %w", err)
+	}
+	directory := filepath.Join(runtime.configBase, commercePaymentPresentationDirectory)
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", fmt.Errorf("create payment presentation directory: %w", err)
+	}
+	if err := secureCommercePaymentDirectory(directory); err != nil {
+		return "", fmt.Errorf("secure payment presentation directory: %w", err)
+	}
+	if err := pruneCommercePaymentPresentations(runtime); err != nil {
+		return "", fmt.Errorf("prune payment presentations: %w", err)
+	}
+	imagePath := filepath.Join(directory, commercePaymentPresentationFilename(orderNo))
+	if err := writeCommercePaymentPresentation(imagePath, png); err != nil {
+		return "", err
+	}
+	absolutePath, err := filepath.Abs(imagePath)
+	if err != nil {
+		return "", fmt.Errorf("resolve payment presentation path: %w", err)
+	}
+	return absolutePath, nil
 }
 
 func writeCommercePaymentPresentation(filename string, data []byte) error {

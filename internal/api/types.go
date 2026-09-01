@@ -760,6 +760,86 @@ type CompleteWebsiteReplicaUploadResponse struct {
 	ShortCode string `json:"shortCode"`
 }
 
+type ResolveWebsiteReplicaRequest struct {
+	Instruction string `json:"instruction"`
+}
+
+type WebsiteReplicaResolution struct {
+	ReplicaID string `json:"replicaId"`
+	ShortCode string `json:"shortCode"`
+	Title     string `json:"title"`
+	Summary   string `json:"summary"`
+}
+
+type CreateWebsiteReplicaQuoteRequest struct {
+	Instruction     string `json:"instruction"`
+	ClientRequestID string `json:"clientRequestId"`
+}
+
+type WebsiteReplicaQuote struct {
+	ID        string `json:"id"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
+type CreateWebsiteReplicaOrderRequest struct {
+	QuoteID         string `json:"quoteId"`
+	ClientRequestID string `json:"clientRequestId"`
+	Locale          string `json:"locale"`
+}
+
+type WebsiteReplicaPaymentAction struct {
+	Type    string `json:"type"`
+	URL     string `json:"url,omitempty"`
+	Content string `json:"content,omitempty"`
+}
+
+type WebsiteReplicaOrder struct {
+	OrderNo       string                       `json:"orderNo"`
+	Status        string                       `json:"status"`
+	PaymentAction *WebsiteReplicaPaymentAction `json:"paymentAction,omitempty"`
+	ExpiresAt     string                       `json:"expiresAt"`
+}
+
+type WebsiteReplicaOrderStatus struct {
+	OrderNo string `json:"orderNo"`
+	Payment struct {
+		Status   string  `json:"status"`
+		PaidAt   *string `json:"paidAt"`
+		ClosedAt *string `json:"closedAt"`
+	} `json:"payment"`
+}
+
+type WebsiteReplicaLicenseClaims struct {
+	SchemaVersion       string `json:"schemaVersion"`
+	EntitlementID       string `json:"entitlementId"`
+	ReplicaID           string `json:"replicaId"`
+	VersionID           string `json:"versionId"`
+	OrderNo             string `json:"orderNo"`
+	ArtifactDigest      string `json:"artifactDigest"`
+	LicenseTermsVersion string `json:"licenseTermsVersion"`
+	IssuedAt            string `json:"issuedAt"`
+}
+
+type WebsiteReplicaLicense struct {
+	Claims           WebsiteReplicaLicenseClaims `json:"claims"`
+	Algorithm        string                      `json:"algorithm"`
+	SigningKeyID     string                      `json:"signingKeyId"`
+	SigningPublicKey string                      `json:"signingPublicKey"`
+	Signature        string                      `json:"signature"`
+}
+
+type WebsiteReplicaDownload struct {
+	ReplicaID      string          `json:"replicaId"`
+	VersionID      string          `json:"versionId"`
+	Version        int             `json:"version"`
+	FileName       string          `json:"fileName"`
+	SizeBytes      int64           `json:"sizeBytes"`
+	ArtifactDigest string          `json:"artifactDigest"`
+	DownloadURL    string          `json:"downloadUrl"`
+	ExpiresAt      string          `json:"expiresAt"`
+	License        json.RawMessage `json:"license"`
+}
+
 type CompleteUploadRequest struct {
 	UploadID string `json:"uploadId"`
 }

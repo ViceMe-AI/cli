@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -43,6 +44,7 @@ type Dependencies struct {
 	Now         func() time.Time
 	Sleep       func(context.Context, time.Duration) error
 	NewID       func() string
+	OpenURL     func(context.Context, string) error
 	APIBaseURL  string
 	Region      config.Region
 	Reexecute   func(context.Context, []string, []string) (int, error)
@@ -612,6 +614,9 @@ func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.NewID == nil {
 		dependencies.NewID = randomUUID
 	}
+	if dependencies.OpenURL == nil {
+		dependencies.OpenURL = openBrowserURL
+	}
 	if dependencies.Reexecute == nil {
 		dependencies.Reexecute = func(ctx context.Context, args, environment []string) (int, error) {
 			name, arguments, err := reexecutionCommand(args)
@@ -969,6 +974,20 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func openBrowserURL(ctx context.Context, target string) error {
+	var name string
+	var arguments []string
+	switch runtime.GOOS {
+	case "darwin":
+		name, arguments = "open", []string{target}
+	case "windows":
+		name, arguments = "rundll32", []string{"url.dll,FileProtocolHandler", target}
+	default:
+		name, arguments = "xdg-open", []string{target}
+	}
+	return exec.CommandContext(ctx, name, arguments...).Run()
 }
 
 func randomUUID() string {
