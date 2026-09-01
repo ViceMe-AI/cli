@@ -794,10 +794,10 @@ func TestTerminalPublicationRetirementFailureIsRecoverable(t *testing.T) {
 	if err := os.Mkdir(intentPath, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	err = retirePublicationRecovery(store, pending, "PUBLISHED")
-	cliError := output.AsError(err)
-	if cliError.Subtype != "PUBLICATION_RECOVERY_RETIRE_FAILED" {
-		t.Fatalf("terminal cleanup failure was hidden: %#v", cliError)
+	runtime := &Runtime{deps: Dependencies{Out: io.Discard, ErrOut: &bytes.Buffer{}}}
+	warnings := retirePublicationRecovery(runtime, store, pending, "PUBLISHED")
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "PUBLICATION_RECOVERY_RETIRE_FAILED") {
+		t.Fatalf("terminal cleanup failure was hidden: %#v", warnings)
 	}
 	if _, err := os.Stat(filepath.Join(directory, publicationID+".json")); err != nil {
 		t.Fatalf("pending recovery was not retained for retry: %v", err)
@@ -814,8 +814,8 @@ func TestTerminalPublicationRetirementFailureIsRecoverable(t *testing.T) {
 	if err := store.SaveIntent(intent); err != nil {
 		t.Fatal(err)
 	}
-	if err := retirePublicationRecovery(store, pending, "PUBLISHED"); err != nil {
-		t.Fatalf("terminal cleanup retry did not converge: %v", err)
+	if warnings := retirePublicationRecovery(runtime, store, pending, "PUBLISHED"); len(warnings) != 0 {
+		t.Fatalf("terminal cleanup retry did not converge: %#v", warnings)
 	}
 	if _, err := os.Stat(filepath.Join(directory, publicationID+".json")); !os.IsNotExist(err) {
 		t.Fatalf("pending recovery was not retired: %v", err)

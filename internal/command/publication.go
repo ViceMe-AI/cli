@@ -385,17 +385,16 @@ func newPublicationPublishCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			var warnings []string
 			if result.Status == "PUBLISHED" {
 				store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
 				if pending, loadErr := store.Load(args[0]); loadErr == nil {
-					if err := retirePublicationRecovery(store, pending, result.Status); err != nil {
-						return err
-					}
+					warnings = retirePublicationRecovery(runtime, store, pending, result.Status)
 				} else if output.AsError(loadErr).Subtype != "PUBLICATION_RECOVERY_NOT_FOUND" {
 					return loadErr
 				}
 			}
-			return presentPublication(command.Context(), runtime, result, "")
+			return presentPublicationWithWarnings(command.Context(), runtime, result, "", warnings)
 		},
 	}
 	command.Flags().StringVar(&digest, "review-digest", "", "exact digest confirmed by the user")
@@ -420,17 +419,20 @@ func newPublicationCancelCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
+			var warnings []string
 			if pending, loadErr := store.Load(args[0]); loadErr == nil {
-				if err := retirePublicationRecovery(store, pending, "CANCELLED"); err != nil {
-					return err
-				}
+				warnings = retirePublicationRecovery(runtime, store, pending, "CANCELLED")
 			} else if output.AsError(loadErr).Subtype != "PUBLICATION_RECOVERY_NOT_FOUND" {
 				return loadErr
 			}
-			return runtime.business(map[string]any{
+			cancelled := map[string]any{
 				"cancelled": result.Cancelled, "listingId": current.ListingID,
 				"publicationId": current.ID, "presentation": presentation,
-			})
+			}
+			if len(warnings) > 0 {
+				cancelled["warnings"] = warnings
+			}
+			return runtime.business(cancelled)
 		},
 	}
 }
