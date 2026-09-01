@@ -789,6 +789,7 @@ func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
 		"完整 hosted `danmaku`/`tip` features", "完整 `accessFeatures`", "精确 `configVersion`", "没有发生轮换",
 		"$become-a-creator", "拥有平台资源的发布流程", "安装 `@viceme-ai/sdk`",
 		"桌面结账保留在 SDK Access Layer", "移动 H5/WAP", "新的服务端访问决定解锁",
+		"支付窗口失败反馈由", "宿主不解锁",
 	} {
 		if !strings.Contains(bundle, required) {
 			t.Fatalf("charge-for-your-work omitted dual-key boundary %q", required)
@@ -912,7 +913,7 @@ func sectionBetween(text, start, end string) string {
 }
 
 func fencedBlocks(text, language string) []string {
-	matches := regexp.MustCompile("(?s)```" + regexp.QuoteMeta(language) + "\\s*(.*?)\\s*```").FindAllStringSubmatch(text, -1)
+	matches := regexp.MustCompile("(?s)```"+regexp.QuoteMeta(language)+"\\s*(.*?)\\s*```").FindAllStringSubmatch(text, -1)
 	blocks := make([]string, 0, len(matches))
 	for _, match := range matches {
 		blocks = append(blocks, match[1])
