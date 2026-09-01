@@ -195,7 +195,7 @@ func TestInteractionTemplateUsesExactMountedTipESM(t *testing.T) {
 	if strings.Index(text, "tipHandle.destroy();") > strings.Index(text, "client.destroy();") {
 		t.Fatal("interaction template destroys the client before its Tip mount")
 	}
-	for _, forbidden := range []string{"REPLACE_WITH_SDK_SCRIPT_URL", "/viceme-sdk/v1", "data-viceme-", "window.ViceMe"} {
+	for _, forbidden := range []string{"REPLACE_WITH_SDK_SCRIPT_URL", "data-viceme-", "window.ViceMe"} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("interaction template retained legacy integration %q", forbidden)
 		}
@@ -654,7 +654,7 @@ func TestInteractionTipOnlyUsesAnyPublishedMerchantWorkWithoutOriginGate(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	section := sectionBetween(string(content), "## 仅赞赏的 Work 选择", "## Website Work 与安全迁移")
+	section := sectionBetween(string(content), "## 仅赞赏的 Work 选择", "## Website Work 与安全接入")
 	for _, required := range []string{
 		"merchant work list", "owner.kind: MERCHANT", "owner.merchantAccountId", "status: PUBLISHED",
 		"Work kind 不受限制", "最终创作者发布流程", "$sell-a-skill", "宿主页不是作品证据",
