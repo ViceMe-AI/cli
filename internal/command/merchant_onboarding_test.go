@@ -94,6 +94,70 @@ func TestMerchantApplicationOmitsDerivedFieldsWhenFlagsAreAbsent(t *testing.T) {
 	}
 }
 
+func TestMerchantOnboardingEvidenceTextUploadsMultipartText(t *testing.T) {
+	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+	t.Setenv(processAccessTokenEnvironment, accessToken)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+accessToken {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch request.URL.Path {
+		case "/v1/cli/auth/status":
+			writeMerchantOnboardingAuth(writer)
+		case "/v1/cli/merchant/onboarding/66666666-6666-4666-8666-666666666666/evidence":
+			if err := request.ParseMultipartForm(1 << 20); err != nil {
+				t.Fatalf("parse multipart: %v", err)
+			}
+			if got := request.FormValue("text"); got != "主页链接：https://example.com/creator" {
+				t.Fatalf("unexpected text field: %q", got)
+			}
+			if got := request.FormValue("lockVersion"); got != "3" {
+				t.Fatalf("unexpected lockVersion: %q", got)
+			}
+			if _, _, err := request.FormFile("image"); err == nil {
+				t.Fatal("text upload must not carry an image part")
+			}
+			writeJSONResponse(writer, merchantOnboardingFixture("APPLICATION", "NEEDS_MORE_EVIDENCE", nil))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	exit, envelope := executeMerchantOnboardingCommand(t, server,
+		"merchant", "onboarding", "evidence", "66666666-6666-4666-8666-666666666666",
+		"--text", " 主页链接：https://example.com/creator ", "--lock-version", "3",
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("evidence text upload failed: exit=%d envelope=%#v", exit, envelope)
+	}
+}
+
+func TestMerchantOnboardingEvidenceRejectsConflictingOrMissingInputs(t *testing.T) {
+	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+	t.Setenv(processAccessTokenEnvironment, accessToken)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writeMerchantOnboardingAuth(writer)
+	}))
+	defer server.Close()
+
+	exit, _ := executeMerchantOnboardingCommand(t, server,
+		"merchant", "onboarding", "evidence", "66666666-6666-4666-8666-666666666666",
+		"--path", "proof.png", "--text", "both given", "--lock-version", "1",
+	)
+	if exit == 0 {
+		t.Fatal("expected validation failure when both --path and --text are given")
+	}
+	exit, _ = executeMerchantOnboardingCommand(t, server,
+		"merchant", "onboarding", "evidence", "66666666-6666-4666-8666-666666666666",
+		"--lock-version", "1",
+	)
+	if exit == 0 {
+		t.Fatal("expected validation failure when neither --path nor --text is given")
+	}
+}
+
 func TestGithubMerchantClaimReturnsOnlyTheConfiguredOAuthRoute(t *testing.T) {
 	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
 	const merchantID = "44444444-4444-4444-8444-444444444444"
