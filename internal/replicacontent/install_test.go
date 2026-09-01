@@ -4,8 +4,10 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -238,6 +240,88 @@ func TestInstallArchiveRecoveryRejectsTamperedOrExtraTargetContent(t *testing.T)
 			test.tamper(t, target)
 			if _, err := InstallArchive(archive, target, testLicenseRecord()); err == nil {
 				t.Fatal("tampered committed target was accepted as an idempotent recovery")
+			}
+		})
+	}
+}
+
+func TestInstallArchiveRecoversEveryDurabilityBoundary(t *testing.T) {
+	const (
+		helperEnvironment  = "VICEME_REPLICA_INSTALL_CRASH_HELPER"
+		pointEnvironment   = "VICEME_REPLICA_INSTALL_CRASH_POINT"
+		archiveEnvironment = "VICEME_REPLICA_INSTALL_CRASH_ARCHIVE"
+		targetEnvironment  = "VICEME_REPLICA_INSTALL_CRASH_TARGET"
+		crashExitCode      = 86
+	)
+	if os.Getenv(helperEnvironment) == "1" {
+		point := os.Getenv(pointEnvironment)
+		installTestCrashHook = func(current string) {
+			if current == point {
+				os.Exit(crashExitCode)
+			}
+		}
+		if _, err := InstallArchive(
+			os.Getenv(archiveEnvironment),
+			os.Getenv(targetEnvironment),
+			testLicenseRecord(),
+		); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(87)
+		}
+		os.Exit(88)
+	}
+
+	points := []string{
+		"preparing-journal-file-synced",
+		"preparing-journal-renamed",
+		"preparing-journal-directory-synced",
+		"source-file-synced",
+		"license-file-synced",
+		"stage-directory-synced",
+		"activating-journal-file-synced",
+		"activating-journal-renamed",
+		"activating-journal-directory-synced",
+		"target-activated",
+		"target-directory-synced",
+		"journal-removed",
+		"completion-directory-synced",
+	}
+	for _, point := range points {
+		t.Run(point, func(t *testing.T) {
+			root := t.TempDir()
+			archive := filepath.Join(root, "source.zip")
+			writeArchive(t, archive, []archiveEntry{
+				{name: "index.html", content: []byte("source")},
+				{name: "assets/app.js", content: []byte("script")},
+			})
+			target := filepath.Join(root, "installed")
+			command := exec.Command(os.Args[0], "-test.run=^TestInstallArchiveRecoversEveryDurabilityBoundary$")
+			command.Env = append(os.Environ(),
+				helperEnvironment+"=1",
+				pointEnvironment+"="+point,
+				archiveEnvironment+"="+archive,
+				targetEnvironment+"="+target,
+			)
+			output, err := command.CombinedOutput()
+			var exitError *exec.ExitError
+			if !errors.As(err, &exitError) || exitError.ExitCode() != crashExitCode {
+				t.Fatalf("crash helper did not stop at %s: err=%v output=%s", point, err, output)
+			}
+
+			if _, err := InstallArchive(archive, target, testLicenseRecord()); err != nil {
+				t.Fatalf("installation did not recover after %s: %v", point, err)
+			}
+			if content, err := os.ReadFile(filepath.Join(target, "index.html")); err != nil || string(content) != "source" {
+				t.Fatalf("recovered source is invalid after %s: content=%q err=%v", point, content, err)
+			}
+			for _, artifact := range []string{
+				target + installStageSuffix,
+				target + installJournalSuffix,
+				target + installJournalSuffix + installJournalTempSuffix,
+			} {
+				if _, err := os.Lstat(artifact); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("recovery after %s left %s: %v", point, artifact, err)
+				}
 			}
 		})
 	}

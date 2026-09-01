@@ -24,15 +24,17 @@ import (
 )
 
 const (
-	LicenseFilePath      = ".viceme/replica-license.json"
-	installJournalSuffix = ".viceme-replica-install.json"
-	installStageSuffix   = ".viceme-replica-stage"
-	installLockSuffix    = ".viceme-replica-install.lock"
+	LicenseFilePath          = ".viceme/replica-license.json"
+	installJournalSuffix     = ".viceme-replica-install.json"
+	installJournalTempSuffix = ".tmp"
+	installStageSuffix       = ".viceme-replica-stage"
+	installLockSuffix        = ".viceme-replica-install.lock"
 )
 
 var (
 	digestPattern            = regexp.MustCompile(`^[a-f0-9]{64}$`)
 	errInstalledTreeMismatch = errors.New("installed Website Replica tree does not match the archive")
+	installTestCrashHook     func(string)
 )
 
 type LicenseRecord struct {
@@ -176,16 +178,20 @@ func InstallArchive(archivePath, target string, license LicenseRecord) (InstallR
 	if err := activateNoReplace(stage, absTarget); err != nil {
 		return InstallResult{}, fmt.Errorf("activate Website Replica installation without overwrite: %w", err)
 	}
+	runInstallTestCrashHook("target-activated")
 	stageActive = false
 	if err := atomicfile.SyncDirectory(parent); err != nil {
 		return InstallResult{}, fmt.Errorf("sync Website Replica target activation: %w", err)
 	}
+	runInstallTestCrashHook("target-directory-synced")
 	if err := os.Remove(journalPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return InstallResult{}, fmt.Errorf("complete Website Replica install journal: %w", err)
 	}
+	runInstallTestCrashHook("journal-removed")
 	if err := atomicfile.SyncDirectory(parent); err != nil {
 		return InstallResult{}, fmt.Errorf("sync Website Replica install completion: %w", err)
 	}
+	runInstallTestCrashHook("completion-directory-synced")
 	journalActive = false
 	return InstallResult{
 		Target: absTarget, LicensePath: filepath.Join(absTarget, filepath.FromSlash(LicenseFilePath)),
@@ -571,6 +577,9 @@ func extractArchive(plan archivePlan, stage string) error {
 		}
 		written, copyErr := io.Copy(output, io.LimitReader(input, int64(file.entry.UncompressedSize64)+1))
 		syncOutputErr := output.Sync()
+		if syncOutputErr == nil {
+			runInstallTestCrashHook("source-file-synced")
+		}
 		closeOutputErr := output.Close()
 		closeInputErr := input.Close()
 		if copyErr != nil || syncOutputErr != nil || closeOutputErr != nil || closeInputErr != nil {
@@ -607,6 +616,7 @@ func writeLicense(filename string, record LicenseRecord) error {
 		_ = output.Close()
 		return fmt.Errorf("sync Website Replica license: %w", err)
 	}
+	runInstallTestCrashHook("license-file-synced")
 	if err := output.Close(); err != nil {
 		return fmt.Errorf("close Website Replica license: %w", err)
 	}
@@ -633,23 +643,31 @@ func syncStagedDirectories(stage string) error {
 		if err := atomicfile.SyncDirectory(directory); err != nil {
 			return fmt.Errorf("sync staged Website Replica directory: %w", err)
 		}
+		runInstallTestCrashHook("stage-directory-synced")
 	}
 	return nil
 }
 
 func recoverInstall(journalPath, target, stage string) error {
+	temporaryPath := journalPath + installJournalTempSuffix
+	removedTemporary, err := removeInterruptedJournalTemporary(temporaryPath, target, stage)
+	if err != nil {
+		return err
+	}
 	data, err := os.ReadFile(journalPath)
 	if errors.Is(err, fs.ErrNotExist) {
+		if removedTemporary {
+			if err := atomicfile.SyncDirectory(filepath.Dir(target)); err != nil {
+				return fmt.Errorf("sync interrupted Website Replica journal cleanup: %w", err)
+			}
+		}
 		return nil
 	}
 	if err != nil {
 		return fmt.Errorf("read Website Replica install journal: %w", err)
 	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	var journal installJournal
-	if decoder.Decode(&journal) != nil || decoder.Decode(&struct{}{}) != io.EOF || journal.SchemaVersion != 1 ||
-		journal.Target != target || journal.Stage != stage || (journal.Status != "PREPARING" && journal.Status != "ACTIVATING") {
+	_, err = decodeInstallJournal(data, target, stage)
+	if err != nil {
 		return errors.New("Website Replica install journal is invalid; refusing recovery")
 	}
 	if err := os.RemoveAll(stage); err != nil {
@@ -664,22 +682,53 @@ func recoverInstall(journalPath, target, stage string) error {
 	return nil
 }
 
+func removeInterruptedJournalTemporary(filename, target, stage string) (bool, error) {
+	info, err := os.Lstat(filename)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("inspect interrupted Website Replica journal: %w", err)
+	}
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Size() > 4096 {
+		return false, errors.New("interrupted Website Replica journal temporary is invalid; refusing recovery")
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return false, fmt.Errorf("read interrupted Website Replica journal: %w", err)
+	}
+	if _, err := decodeInstallJournal(data, target, stage); err != nil {
+		return false, errors.New("interrupted Website Replica journal temporary is invalid; refusing recovery")
+	}
+	if err := os.Remove(filename); err != nil {
+		return false, fmt.Errorf("remove interrupted Website Replica journal: %w", err)
+	}
+	return true, nil
+}
+
+func decodeInstallJournal(data []byte, target, stage string) (installJournal, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var journal installJournal
+	if decoder.Decode(&journal) != nil || decoder.Decode(&struct{}{}) != io.EOF || journal.SchemaVersion != 1 ||
+		journal.Target != target || journal.Stage != stage || (journal.Status != "PREPARING" && journal.Status != "ACTIVATING") {
+		return installJournal{}, errors.New("invalid Website Replica install journal")
+	}
+	return journal, nil
+}
+
 func writeJournal(filename string, journal installJournal) error {
 	data, err := json.MarshalIndent(journal, "", "  ")
 	if err != nil {
 		return err
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(filepath.Dir(filename), ".viceme-replica-journal-*.tmp")
+	temporaryName := filename + installJournalTempSuffix
+	temporary, err := os.OpenFile(temporaryName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("create Website Replica install journal: %w", err)
 	}
-	temporaryName := temporary.Name()
 	defer os.Remove(temporaryName)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
 	if _, err := temporary.Write(data); err != nil {
 		_ = temporary.Close()
 		return err
@@ -688,16 +737,26 @@ func writeJournal(filename string, journal installJournal) error {
 		_ = temporary.Close()
 		return err
 	}
+	journalPointPrefix := strings.ToLower(journal.Status) + "-journal-"
+	runInstallTestCrashHook(journalPointPrefix + "file-synced")
 	if err := temporary.Close(); err != nil {
 		return err
 	}
 	if err := atomicfile.Replace(temporaryName, filename); err != nil {
 		return fmt.Errorf("activate Website Replica install journal: %w", err)
 	}
+	runInstallTestCrashHook(journalPointPrefix + "renamed")
 	if err := atomicfile.SyncDirectory(filepath.Dir(filename)); err != nil {
 		return fmt.Errorf("sync Website Replica install journal: %w", err)
 	}
+	runInstallTestCrashHook(journalPointPrefix + "directory-synced")
 	return nil
+}
+
+func runInstallTestCrashHook(point string) {
+	if installTestCrashHook != nil {
+		installTestCrashHook(point)
+	}
 }
 
 func requireMissingPath(filename, reason string) error {
