@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.23.0] - 2026-09-01
+
+### Features
+
+- 买家侧交易闭环：install 未购版直接下单扫码支付并新增 subscribe (`0efec34`)
+
+### Fixes
+
+- 发布终态后本地恢复清理失败降级为警告 (`513d7b7`)
+
+### Other Changes
+
+- 约束 main 拉取请求来源 (`bf8e79f`)
+- viceme-skill-use 购买引导改为扫码支付闭环 (`2c6cf5c`)
+- 钉死 sell-a-skill 预览、改名与来源判定合同 (`374cb95`)
+
 ## [0.22.2] - 2026-09-01
 
 ### Fixes
