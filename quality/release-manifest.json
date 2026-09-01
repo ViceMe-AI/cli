@@ -28,8 +28,8 @@
       "skill_version": "0.21.1",
       "minimum_cli_version": "0.21.1",
       "cli_compatibility": ">=0.21.1 <0.22.0",
-      "full_skill_bundle_digest": "sha256:726a8114efc95a02996ac7f1c29d1578b612e21f3c16ed3aebe6f83c950938b9",
-      "embedded_content_digest": "sha256:90cd921edd549ef48065995c98203d87b685dbe4b7a9e29bbf8c78abf147fe69"
+      "full_skill_bundle_digest": "sha256:3cabd18a1bc9e380d696cb4fbf687b9d0e8d34a6478e767de56be1a07735153b",
+      "embedded_content_digest": "sha256:e03445f81cc285e17eb18cce50fdde51b0c3c97e3dc0ab4ec8d6309d2339889e"
     },
     "sell-a-skill": {
       "skill_version": "0.21.1",

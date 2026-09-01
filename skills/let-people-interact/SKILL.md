@@ -23,7 +23,7 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
 
 1. 第一项业务动作以资格守卫模式调用 `$become-a-creator`。只有它确认当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有并选定有效 Merchant 后才继续；本 Skill 不自行运行登录、申请或商家选择命令。
 2. 运行 `viceme profile list`，只记录并固定当前 Profile、API/Web base URL 和精确 `marketRegion`。页面 locale 不选择市场；不得切换 Profile，也不得从 hostname、记忆或其他 Profile 推导市场。仅弹幕不受 CN/CNY 限制，保留当前 Profile 既有 `cn` 或 `global` 支持。
-3. 仅弹幕分支记录精确部署 HTTPS Origin、目标页面、部署命令、CSP 和浏览器测试，然后按 [Website Work 与安全迁移](#website-work-与安全迁移) 继续。不得因为页面语言是中文就改成 CN，也不得因为页面语言是英文就改成 GLOBAL。
+3. 仅弹幕分支记录精确部署 HTTPS Origin、目标页面、部署命令、CSP 和浏览器测试，然后按 [Website Work 与安全接入](#website-work-与安全接入) 继续。不得因为页面语言是中文就改成 CN，也不得因为页面语言是英文就改成 GLOBAL。
 4. 任意包含 Tip 的分支，在任何 Work 创建、更新或发布、Website verification、SDK access 或宿主页写入前，先确认 `marketRegion: cn`；GLOBAL 必须立即停止，且不得留下业务写入。随后请用户选择官方 Mounted UI 或 Headless。Headless 还必须选择 npm 或 CDN ESM。
 5. 选定 Tip UI 后，先证明精确 `0.5.0` 的 CN/GLOBAL `index.js` 与 `tip.js` 全部直接可用：
 

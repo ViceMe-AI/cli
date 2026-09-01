@@ -652,7 +652,7 @@ func TestInteractionTipOnlyUsesAnyPublishedMerchantWorkWithoutOriginGate(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	section := sectionBetween(string(content), "## 仅赞赏的 Work 选择", "## Website Work 与安全迁移")
+	section := sectionBetween(string(content), "## 仅赞赏的 Work 选择", "## Website Work 与安全接入")
 	for _, required := range []string{
 		"merchant work list", "owner.kind: MERCHANT", "owner.merchantAccountId", "status: PUBLISHED",
 		"Work kind 不受限制", "最终创作者发布流程", "$sell-a-skill", "宿主页不是作品证据",
