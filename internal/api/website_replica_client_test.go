@@ -171,6 +171,13 @@ func TestWebsiteReplicaClientRejectsCrossResourceMismatches(t *testing.T) {
 			call: canonicalWebsiteReplicaResponseCases()[5].call,
 		},
 		{
+			name: "service case without fulfillment",
+			response: mutateReplicaResponse(t, replicaOrderStatusResponse(), func(response map[string]any) {
+				response["fulfillment"] = nil
+			}),
+			call: canonicalWebsiteReplicaResponseCases()[5].call,
+		},
+		{
 			name: "download license",
 			response: mutateReplicaResponse(t, replicaDownloadResponse(), func(response map[string]any) {
 				response["license"].(map[string]any)["claims"].(map[string]any)["versionId"] = testUploadID
@@ -196,6 +203,17 @@ func TestWebsiteReplicaClientAcceptsCompleteJSAPIAction(t *testing.T) {
 	}
 	if err := callWebsiteReplicaResponse(t, response, canonicalWebsiteReplicaResponseCases()[4].call); err != nil {
 		t.Fatalf("valid JSAPI response was rejected: %v", err)
+	}
+}
+
+func TestWebsiteReplicaClientAcceptsQRCodeAction(t *testing.T) {
+	t.Parallel()
+	response := replicaOrderResponse()
+	response["paymentAction"] = map[string]any{
+		"type": "QR_CODE", "content": "weixin://wxpay/bizpayurl?pr=replica-test",
+	}
+	if err := callWebsiteReplicaResponse(t, response, canonicalWebsiteReplicaResponseCases()[4].call); err != nil {
+		t.Fatalf("valid QR_CODE response was rejected: %v", err)
 	}
 }
 

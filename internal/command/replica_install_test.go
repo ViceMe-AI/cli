@@ -229,7 +229,7 @@ func TestReplicaInstallRejectsQuoteForAnotherResolvedProductOrSKU(t *testing.T) 
 				Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 				NewID:       func() string { return quoteReqID },
 			})
-			if exit == 0 || !strings.Contains(stdout.String(), "REPLICA_QUOTE_MISMATCH") {
+			if exit == 0 || !strings.Contains(stdout.String(), "RESPONSE_INVALID") {
 				t.Fatalf("mismatched quote was not rejected: exit=%d stdout=%s", exit, stdout.String())
 			}
 			if orderCalls.Load() != 0 {

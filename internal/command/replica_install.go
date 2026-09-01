@@ -154,7 +154,11 @@ func installReplicaLocked(
 			return replicaInstallResult{}, err
 		}
 		if quote.Product.ID != resolved.Product.ID || quote.SKU.ID != resolved.Product.SKUID {
-			return replicaInstallResult{}, output.Policy("REPLICA_QUOTE_MISMATCH", "Website Replica quote does not match the resolved product")
+			return replicaInstallResult{}, output.Internal(
+				"RESPONSE_INVALID",
+				"ViceMe API returned an incomplete or invalid response",
+				errors.New("Website Replica quote does not match the resolved product"),
+			)
 		}
 		state.QuoteID = quote.ID
 		if err := store.save(&state); err != nil {

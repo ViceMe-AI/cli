@@ -16,10 +16,10 @@ import (
 const maxJSONSafeInteger = int64(1<<53 - 1)
 
 var (
-	zodDatetimePattern  = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2})(?:\.(\d+))?)?Z$`)
-	zodUUIDPattern      = regexp.MustCompile(`(?i)^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$`)
-	jsonRawMessageType  = reflect.TypeOf(json.RawMessage{})
-	jsonUnmarshalerType = reflect.TypeOf((*json.Unmarshaler)(nil)).Elem()
+	zodDatetimePattern = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2})(?:\.(\d+))?)?Z$`)
+	zodUUIDPattern     = regexp.MustCompile(`(?i)^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$`)
+	jsonRawMessageType = reflect.TypeOf(json.RawMessage{})
+	replicaActionType  = reflect.TypeOf((*WebsiteReplicaPaymentAction)(nil))
 )
 
 type strictAPIResponse interface {
@@ -60,7 +60,7 @@ func requireJSONFields(targetType reflect.Type, raw any, path string) error {
 	if targetType == jsonRawMessageType {
 		return nil
 	}
-	if targetType.Implements(jsonUnmarshalerType) || reflect.PointerTo(targetType).Implements(jsonUnmarshalerType) {
+	if targetType == replicaActionType {
 		return nil
 	}
 	if targetType.Kind() == reflect.Pointer {
@@ -93,12 +93,8 @@ func requireJSONFields(targetType reflect.Type, raw any, path string) error {
 				name = field.Name
 			}
 			allowedFields[name] = struct{}{}
-			optional := len(tag) > 1 && slicesContain(tag[1:], "omitempty")
 			value, found := object[name]
 			if !found {
-				if optional {
-					continue
-				}
 				return fmt.Errorf("%s.%s is required", path, name)
 			}
 			if err := requireJSONFields(field.Type, value, path+"."+name); err != nil {
@@ -134,15 +130,6 @@ func requireJSONFields(targetType reflect.Type, raw any, path string) error {
 		}
 	}
 	return nil
-}
-
-func slicesContain(values []string, wanted string) bool {
-	for _, value := range values {
-		if value == wanted {
-			return true
-		}
-	}
-	return false
 }
 
 func (action *WebsiteReplicaPaymentAction) UnmarshalJSON(data []byte) error {
@@ -277,10 +264,10 @@ func (response *WebsiteReplicaOrderStatus) validateAPIResponse() error {
 		return errors.New("Website Replica fulfillment response is invalid")
 	}
 	if response.ServiceCase != nil {
-		if validateReplicaServiceCase(response.ServiceCase) != nil || response.ServiceCase.OrderNo != response.OrderNo {
+		if response.Fulfillment == nil || validateReplicaServiceCase(response.ServiceCase) != nil || response.ServiceCase.OrderNo != response.OrderNo {
 			return errors.New("Website Replica service case response is invalid")
 		}
-		if response.Fulfillment != nil && response.ServiceCase.FulfillmentID != response.Fulfillment.ID {
+		if response.ServiceCase.FulfillmentID != response.Fulfillment.ID {
 			return errors.New("Website Replica service case does not match fulfillment")
 		}
 	}
