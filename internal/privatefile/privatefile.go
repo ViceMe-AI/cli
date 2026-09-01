@@ -61,7 +61,7 @@ func Write(filename string, data []byte, tempPattern string) error {
 	if activateErr == nil {
 		return nil
 	}
-	if !isPermissionDenial(activateErr) {
+	if !IsPermissionDenial(activateErr) {
 		return fmt.Errorf("activate %s: %w", filename, activateErr)
 	}
 	// The sandbox denied the directory-entry mutation but still permits plain
@@ -101,7 +101,10 @@ func writeDirect(filename string, data []byte) error {
 	return nil
 }
 
-func isPermissionDenial(err error) bool {
+// IsPermissionDenial reports whether err wraps a sandbox-style permission
+// denial (EPERM or EACCES) at any depth of its chain. Callers use it to
+// classify a failed rename or remove and degrade to plain writes.
+func IsPermissionDenial(err error) bool {
 	var errno syscall.Errno
 	if !errors.As(err, &errno) {
 		return false

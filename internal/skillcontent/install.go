@@ -14,8 +14,10 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/semver"
 	"github.com/gofrs/flock"
 )
@@ -420,10 +422,20 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 	if err := claimInstallPathLocks(transaction.pathLocks, journalPath); err != nil {
 		return fail(err)
 	}
+	sweepParents := make([]string, 0, len(operations))
+	seenParents := make(map[string]struct{}, len(operations))
+	for _, operation := range operations {
+		parent := filepath.Dir(operation.Destination)
+		if _, ok := seenParents[parent]; !ok {
+			seenParents[parent] = struct{}{}
+			sweepParents = append(sweepParents, parent)
+		}
+	}
+	sweepStaleInstallDebris(sweepParents...)
 	for index := range operations {
 		operation := &operations[index]
 		if operation.Retired != nil {
-			if !pathDoesNotExist(operation.Backup) {
+			if blockingBackupExists(operation.Backup) {
 				transaction.retirements[operation.RetirementResultIndex].Status = "preserved_unmanaged"
 				operation.Unchanged = true
 			}
@@ -470,7 +482,7 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 		if operation.Backup == "" {
 			operation.Backup = operation.Destination + ".viceme-transaction-backup"
 		}
-		if operation.Retired == nil && !pathDoesNotExist(operation.Backup) {
+		if operation.Retired == nil && blockingBackupExists(operation.Backup) {
 			cleanupStagedOperations(operations)
 			return fail(errors.New("refuse to install while an unowned transaction backup exists"))
 		}
@@ -501,12 +513,12 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 		}
 		entry := &transaction.journal.Entries[journalIndex]
 		journalIndex++
-		if operation.Retired == nil && !pathDoesNotExist(operation.Backup) {
+		if operation.Retired == nil && blockingBackupExists(operation.Backup) {
 			return fail(errors.New("refuse to install while an unowned transaction backup exists"))
 		}
 		if operation.Retired != nil {
 			status := verifyRetiredSkillOwnership(operation.Destination, operation.Target, *operation.Retired, operation.Retirement)
-			if status != "retired" || !pathDoesNotExist(operation.Backup) {
+			if status != "retired" || blockingBackupExists(operation.Backup) {
 				if status == "retired" {
 					status = "preserved_unmanaged"
 				}
@@ -524,17 +536,17 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 			return fail(err)
 		}
 		if operation.HadExisting {
-			if err := os.Rename(operation.Destination, operation.Backup); err != nil {
+			if err := preserveExistingSkill(operation.Destination, operation.Backup); err != nil {
 				return fail(fmt.Errorf("stage existing Skill: %w", err))
 			}
 		}
 		if operation.Retired != nil {
 			if _, err := os.Lstat(operation.Destination); !errors.Is(err, fs.ErrNotExist) {
-				return fail(errors.New("verify retired Skill removal: destination still exists"))
+				return fail(errors.New("verify retired Skill removal: destination still exists; an environment that cannot remove the retired Skill directory requires an unsandboxed reinstall"))
 			}
 			status := verifyRetiredSkillOwnership(operation.Backup, operation.Target, *operation.Retired, operation.Retirement)
 			if status != "retired" {
-				if err := os.Rename(operation.Backup, operation.Destination); err != nil {
+				if err := restoreBackupSkill(operation.Backup, operation.Destination); err != nil {
 					return fail(fmt.Errorf("restore preserved retired Skill: %w", err))
 				}
 				transaction.retirements[operation.RetirementResultIndex].Status = status
@@ -552,13 +564,17 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 			}
 			continue
 		}
-		if err := os.Rename(operation.Stage, operation.Destination); err != nil {
-			return fail(fmt.Errorf("activate staged Skill: %w", err))
+		degraded, activateErr := activateStagedSkill(operation.Stage, operation.Destination)
+		if activateErr != nil {
+			return fail(fmt.Errorf("activate staged Skill: %w", activateErr))
 		}
 		actual, err := digestsInstalled(operation.Destination)
 		if err != nil || actual != operation.Expected {
 			if err != nil {
 				return fail(fmt.Errorf("verify installed Skill: %w", err))
+			}
+			if degraded {
+				return fail(errors.New("verify installed Skill: digest mismatch after degraded sandbox write; the destination retains files of the previous Skill version that this environment cannot remove — rerun the install from an unsandboxed terminal"))
 			}
 			return fail(errors.New("verify installed Skill: digest mismatch"))
 		}
@@ -620,7 +636,7 @@ func (transaction *InstallTransaction) TrackPath(destination string) error {
 		return fmt.Errorf("inspect install transaction path: %w", err)
 	}
 	backup := absDestination + ".viceme-transaction-backup"
-	if !pathDoesNotExist(backup) {
+	if blockingBackupExists(backup) {
 		return errors.New("refuse to track a path while an unowned transaction backup exists")
 	}
 	entry := installJournalEntry{Destination: absDestination, Backup: backup, HadExisting: hadExisting, Activating: true}
@@ -630,7 +646,7 @@ func (transaction *InstallTransaction) TrackPath(destination string) error {
 		return err
 	}
 	if hadExisting {
-		if err := os.Rename(absDestination, backup); err != nil {
+		if err := preserveExistingSkill(absDestination, backup); err != nil {
 			return fmt.Errorf("preserve install transaction path: %w", err)
 		}
 	}
@@ -945,29 +961,9 @@ func readInstallPathOwner(filename string) (string, bool, error) {
 }
 
 func writeInstallPathOwner(filename, journalPath string) error {
-	temporary, err := os.CreateTemp(filepath.Dir(filename), ".viceme-install-owner-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create install transaction owner: %w", err)
-	}
-	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if _, err := temporary.WriteString(journalPath + "\n"); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(temporaryName, filename); err != nil {
-		return fmt.Errorf("activate install transaction owner: %w", err)
+	data := []byte(journalPath + "\n")
+	if err := privatefile.Write(filename, data, ".viceme-install-owner-*.tmp"); err != nil {
+		return fmt.Errorf("write install transaction owner: %w", err)
 	}
 	return nil
 }
@@ -1059,6 +1055,170 @@ func (b *Bundle) stageInstallation(name, destination string, provenance *SkillPr
 	return stagedSkill, expected, nil
 }
 
+// renamePath and removeAllPath are the directory-entry mutations used by
+// install transactions; tests replace them to simulate agent sandboxes that
+// allow plain file writes but deny rename and unlink.
+var (
+	renamePath    = os.Rename
+	removeAllPath = os.RemoveAll
+)
+
+// copyTreeOnDisk mirrors source (a file or directory tree) into destination
+// using only plain file and directory writes, which the observed agent
+// sandboxes permit even where they deny renames. Symlinks are refused so a
+// degraded copy never silently changes file identity.
+func copyTreeOnDisk(source, destination string) error {
+	info, err := os.Lstat(source)
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return copyFilePlain(source, destination, info.Mode().Perm())
+	}
+	return filepath.WalkDir(source, func(current string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, relErr := filepath.Rel(source, current)
+		if relErr != nil {
+			return relErr
+		}
+		target := filepath.Join(destination, relative)
+		entryInfo, infoErr := entry.Info()
+		if infoErr != nil {
+			return infoErr
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(target, entryInfo.Mode().Perm())
+		}
+		if entry.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("refuse degraded copy of symlink %s", current)
+		}
+		return copyFilePlain(current, target, entryInfo.Mode().Perm())
+	})
+}
+
+func copyFilePlain(source, destination string, perm fs.FileMode) error {
+	data, err := os.ReadFile(source)
+	if err != nil {
+		return err
+	}
+	file, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return err
+	}
+	return file.Close()
+}
+
+// degradedBackupMarkerSuffix names the sibling marker of a transaction backup
+// that was materialized with plain writes because the environment denied
+// renames. Later installs recognize their own stale degraded backups through
+// it instead of refusing to proceed.
+const degradedBackupMarkerSuffix = ".viceme-degraded"
+
+func degradedBackupMarker(backup string) string { return backup + degradedBackupMarkerSuffix }
+
+func writeDegradedBackupMarker(backup string) {
+	_ = os.WriteFile(degradedBackupMarker(backup), []byte("viceme sandbox-degraded transaction backup\n"), 0o600)
+}
+
+func backupIsDegradedDebris(backup string) bool {
+	_, err := os.Stat(degradedBackupMarker(backup))
+	return err == nil
+}
+
+// blockingBackupExists reports whether an existing backup path must abort the
+// install. A degraded backup from an earlier ViceMe install carries the
+// marker and is reclaimable debris, not an unowned backup.
+func blockingBackupExists(backup string) bool {
+	if pathDoesNotExist(backup) {
+		return false
+	}
+	return !backupIsDegradedDebris(backup)
+}
+
+// preserveExistingSkill moves destination to backup for the transaction. In a
+// sandbox that denies renames the original stays in place and the backup is
+// materialized with plain writes, marked as degraded debris, so rollback can
+// still restore it.
+func preserveExistingSkill(destination, backup string) error {
+	if err := renamePath(destination, backup); err == nil {
+		return nil
+	} else if !privatefile.IsPermissionDenial(err) {
+		return err
+	}
+	if _, statErr := os.Lstat(destination); statErr != nil {
+		return statErr
+	}
+	if err := copyTreeOnDisk(destination, backup); err != nil {
+		return err
+	}
+	writeDegradedBackupMarker(backup)
+	return nil
+}
+
+// activateStagedSkill replaces destination with the staged tree. The degraded
+// sandbox path overwrites destination in place with plain writes and reports
+// degraded=true so the caller can explain digest mismatches caused by stale
+// files of the previous Skill version, which the sandbox cannot remove.
+func activateStagedSkill(stage, destination string) (degraded bool, err error) {
+	if err := renamePath(stage, destination); err == nil {
+		return false, nil
+	} else if !privatefile.IsPermissionDenial(err) {
+		return false, err
+	}
+	return true, copyTreeOnDisk(stage, destination)
+}
+
+// restoreBackupSkill puts a preserved backup back over destination during
+// rollback, degrading to plain writes in a sandbox that denies the
+// remove-and-rename sequence.
+func restoreBackupSkill(backup, destination string) error {
+	if removeErr := removeAllPath(destination); removeErr != nil && !privatefile.IsPermissionDenial(removeErr) {
+		return removeErr
+	}
+	if err := renamePath(backup, destination); err == nil {
+		return nil
+	} else if !privatefile.IsPermissionDenial(err) {
+		return err
+	}
+	return copyTreeOnDisk(backup, destination)
+}
+
+const staleInstallDebrisAge = time.Hour
+
+// sweepStaleInstallDebris removes staging directories, degraded markers, and
+// transaction backups abandoned by earlier installs. The age gate protects
+// in-flight writes from concurrent processes; sandboxes that deny removals
+// keep the debris until a later unsandboxed install sweeps it.
+func sweepStaleInstallDebris(parents ...string) {
+	cutoff := time.Now().Add(-staleInstallDebrisAge)
+	for _, parent := range parents {
+		entries, err := os.ReadDir(parent)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			debris := strings.HasPrefix(name, ".viceme-stage-") ||
+				strings.HasSuffix(name, ".viceme-transaction-backup") ||
+				strings.HasSuffix(name, degradedBackupMarkerSuffix)
+			if !debris {
+				continue
+			}
+			info, infoErr := entry.Info()
+			if infoErr != nil || !info.ModTime().Before(cutoff) {
+				continue
+			}
+			_ = removeAllPath(filepath.Join(parent, name))
+		}
+	}
+}
+
 func writeInstallTransaction(filename string, journal installTransaction) error {
 	if err := validateInstallTransaction(journal); err != nil {
 		return err
@@ -1068,29 +1228,8 @@ func writeInstallTransaction(filename string, journal installTransaction) error 
 		return fmt.Errorf("encode install transaction: %w", err)
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(filepath.Dir(filename), ".install-transaction-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create install transaction: %w", err)
-	}
-	name := temporary.Name()
-	defer os.Remove(name)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(name, filename); err != nil {
-		return fmt.Errorf("activate install transaction: %w", err)
+	if err := privatefile.Write(filename, data, ".install-transaction-*.tmp"); err != nil {
+		return fmt.Errorf("write install transaction: %w", err)
 	}
 	return nil
 }
@@ -1153,12 +1292,12 @@ func recoverInstallTransaction(filename string) error {
 	var cleanupErrors []error
 	for _, entry := range journal.Entries {
 		if entry.Stage != "" {
-			if err := os.RemoveAll(filepath.Dir(entry.Stage)); err != nil {
+			if err := removeAllPath(filepath.Dir(entry.Stage)); err != nil && !privatefile.IsPermissionDenial(err) {
 				cleanupErrors = append(cleanupErrors, err)
 			}
 		}
 		if entry.Backup != "" {
-			if err := os.RemoveAll(entry.Backup); err != nil {
+			if err := removeAllPath(entry.Backup); err != nil && !privatefile.IsPermissionDenial(err) {
 				cleanupErrors = append(cleanupErrors, err)
 			}
 		}
@@ -1166,7 +1305,7 @@ func recoverInstallTransaction(filename string) error {
 	if len(cleanupErrors) > 0 {
 		return fmt.Errorf("complete committed Skill installation: %w", errors.Join(cleanupErrors...))
 	}
-	if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {
+	if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) && !privatefile.IsPermissionDenial(err) {
 		return fmt.Errorf("complete install recovery: %w", err)
 	}
 	return nil
@@ -1197,27 +1336,29 @@ func rollbackInstallTransaction(filename string, journal installTransaction) err
 		entry := journal.Entries[index]
 		if entry.Activating {
 			if _, err := os.Lstat(entry.Backup); err == nil {
-				if removeErr := os.RemoveAll(entry.Destination); removeErr != nil {
-					rollbackErrors = append(rollbackErrors, removeErr)
-				} else if renameErr := os.Rename(entry.Backup, entry.Destination); renameErr != nil {
-					rollbackErrors = append(rollbackErrors, renameErr)
+				if restoreErr := restoreBackupSkill(entry.Backup, entry.Destination); restoreErr != nil {
+					rollbackErrors = append(rollbackErrors, restoreErr)
 				}
 			} else if !entry.HadExisting {
-				if removeErr := os.RemoveAll(entry.Destination); removeErr != nil {
-					rollbackErrors = append(rollbackErrors, removeErr)
+				if removeErr := removeAllPath(entry.Destination); removeErr != nil {
+					if privatefile.IsPermissionDenial(removeErr) {
+						rollbackErrors = append(rollbackErrors, fmt.Errorf("remove partial Skill %s: this environment cannot remove it — rerun the install from an unsandboxed terminal: %w", entry.Destination, removeErr))
+					} else {
+						rollbackErrors = append(rollbackErrors, removeErr)
+					}
 				}
 			} else if _, destinationErr := os.Lstat(entry.Destination); destinationErr != nil {
 				rollbackErrors = append(rollbackErrors, errors.New("install rollback lost both the previous backup and active destination"))
 			}
 		}
 		if entry.Stage != "" {
-			if err := os.RemoveAll(filepath.Dir(entry.Stage)); err != nil {
+			if err := removeAllPath(filepath.Dir(entry.Stage)); err != nil && !privatefile.IsPermissionDenial(err) {
 				rollbackErrors = append(rollbackErrors, err)
 			}
 		}
 	}
 	if len(rollbackErrors) == 0 {
-		if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) && !privatefile.IsPermissionDenial(err) {
 			rollbackErrors = append(rollbackErrors, err)
 		}
 	}
@@ -1940,29 +2081,8 @@ func writeManagedSkillRegistry(filename string, registry managedSkillRegistry) e
 		return fmt.Errorf("encode managed Skill registry: %w", err)
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(filepath.Dir(filename), ".managed-skills-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create managed Skill registry: %w", err)
-	}
-	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(temporaryName, filename); err != nil {
-		return fmt.Errorf("activate managed Skill registry: %w", err)
+	if err := privatefile.Write(filename, data, ".managed-skills-*.tmp"); err != nil {
+		return fmt.Errorf("write managed Skill registry: %w", err)
 	}
 	return nil
 }
