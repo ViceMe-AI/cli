@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -31,6 +32,10 @@ func TestInstallArchiveRejectsUnsafeEntries(t *testing.T) {
 		{name: "Windows drive", entries: []archiveEntry{{name: "C:/windows.html", content: []byte("x")}}},
 		{name: "dot segment", entries: []archiveEntry{{name: "site/./index.html", content: []byte("x")}}},
 		{name: "dot dot segment", entries: []archiveEntry{{name: "site/../index.html", content: []byte("x")}}},
+		{name: "Windows parent alias", entries: []archiveEntry{{name: ".. /outside.html", content: []byte("x")}}},
+		{name: "Windows trailing dot", entries: []archiveEntry{{name: "index.html.", content: []byte("x")}}},
+		{name: "Windows device", entries: []archiveEntry{{name: "assets/NUL.txt", content: []byte("x")}}},
+		{name: "Windows numbered device", entries: []archiveEntry{{name: "COM1.js", content: []byte("x")}}},
 		{name: "empty segment", entries: []archiveEntry{{name: "site//index.html", content: []byte("x")}}},
 		{name: "backslash", entries: []archiveEntry{{name: `site\index.html`, content: []byte("x")}}},
 		{name: "alternate data stream", entries: []archiveEntry{{name: "index.html:stream", content: []byte("x")}}},
@@ -41,6 +46,8 @@ func TestInstallArchiveRejectsUnsafeEntries(t *testing.T) {
 		{name: "special file", entries: []archiveEntry{{name: "pipe", mode: os.ModeNamedPipe | 0o600}}},
 		{name: "reserved license", entries: []archiveEntry{{name: LicenseFilePath, content: []byte("forged")}}},
 		{name: "compression ratio", entries: []archiveEntry{{name: "bomb.txt", content: largeCompressible, method: zip.Deflate}}},
+		{name: "path depth", entries: []archiveEntry{{name: strings.Repeat("directory/", MaxArchivePathDepth) + "index.html", content: []byte("x")}}},
+		{name: "segment length", entries: []archiveEntry{{name: strings.Repeat("a", MaxArchiveSegmentBytes+1), content: []byte("x")}}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -57,6 +64,27 @@ func TestInstallArchiveRejectsUnsafeEntries(t *testing.T) {
 			}
 			assertNoInstallStaging(t, target)
 		})
+	}
+}
+
+func TestInstallArchiveRejectsEntryStormBeforeExtraction(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	archive := filepath.Join(root, "source.zip")
+	entries := make([]archiveEntry, 0, MaxArchiveEntries+1)
+	for index := 0; index <= MaxArchiveEntries; index++ {
+		entries = append(entries, archiveEntry{
+			name: fmt.Sprintf("directory-%05d/", index),
+			mode: os.ModeDir | 0o755,
+		})
+	}
+	writeArchive(t, archive, entries)
+	target := filepath.Join(root, "installed")
+	if _, err := InstallArchive(archive, target, testLicenseRecord()); err == nil {
+		t.Fatal("entry storm was installed")
+	}
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Fatalf("entry storm left a target: %v", err)
 	}
 }
 
@@ -150,7 +178,69 @@ func TestInstallArchiveAtomicallyWritesSourceAndSignedLicense(t *testing.T) {
 	if license.SchemaVersion != 1 || license.ReplicaID != testLicenseRecord().ReplicaID || license.VersionID != testLicenseRecord().VersionID || license.Version != 7 || license.ArtifactDigest != strings.Repeat("a", 64) || gotLicenseErr != nil || wantLicenseErr != nil || !reflect.DeepEqual(gotLicense, wantLicense) {
 		t.Fatalf("license metadata changed: %s", licenseData)
 	}
+	recovered, err := InstallArchive(archive, target, testLicenseRecord())
+	if err != nil || recovered != result {
+		t.Fatalf("committed installation was not idempotently recovered: result=%#v err=%v", recovered, err)
+	}
+	journalPath := target + installJournalSuffix
+	if err := writeJournal(journalPath, installJournal{
+		SchemaVersion: 1,
+		Status:        "ACTIVATING",
+		Target:        target,
+		Stage:         target + installStageSuffix,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	recovered, err = InstallArchive(archive, target, testLicenseRecord())
+	if err != nil || recovered != result {
+		t.Fatalf("post-rename crash was not recovered: result=%#v err=%v", recovered, err)
+	}
+	if _, err := os.Lstat(journalPath); !os.IsNotExist(err) {
+		t.Fatalf("recovered install journal remains: %v", err)
+	}
 	assertNoInstallStaging(t, target)
+}
+
+func TestInstallArchiveRecoveryRejectsTamperedOrExtraTargetContent(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		tamper func(t *testing.T, target string)
+	}{
+		{
+			name: "changed source",
+			tamper: func(t *testing.T, target string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(target, "index.html"), []byte("tampered"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+		{
+			name: "extra source",
+			tamper: func(t *testing.T, target string) {
+				t.Helper()
+				if err := os.WriteFile(filepath.Join(target, "extra.txt"), []byte("extra"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			root := t.TempDir()
+			archive := filepath.Join(root, "source.zip")
+			writeArchive(t, archive, []archiveEntry{{name: "index.html", content: []byte("original")}})
+			target := filepath.Join(root, "installed")
+			if _, err := InstallArchive(archive, target, testLicenseRecord()); err != nil {
+				t.Fatal(err)
+			}
+			test.tamper(t, target)
+			if _, err := InstallArchive(archive, target, testLicenseRecord()); err == nil {
+				t.Fatal("tampered committed target was accepted as an idempotent recovery")
+			}
+		})
+	}
 }
 
 func testLicenseRecord() LicenseRecord {

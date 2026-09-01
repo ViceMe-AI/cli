@@ -1,18 +1,9 @@
-//go:build !darwin && !linux
+//go:build !darwin && !linux && !windows
 
 package replicacontent
 
-import (
-	"errors"
-	"io/fs"
-	"os"
-)
+import "errors"
 
-func activateNoReplace(source, target string) error {
-	if _, err := os.Lstat(target); err == nil {
-		return errors.New("target already exists")
-	} else if !errors.Is(err, fs.ErrNotExist) {
-		return err
-	}
-	return os.Rename(source, target)
+func activateNoReplace(_, _ string) error {
+	return errors.New("atomic no-replace directory activation is unsupported on this platform")
 }
