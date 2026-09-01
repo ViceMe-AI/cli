@@ -23,7 +23,7 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
 
 1. 第一项业务动作以资格守卫模式调用 `$become-a-creator`。只有它确认当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有并选定有效 Merchant 后才继续；本 Skill 不自行运行登录、申请或商家选择命令。
 2. 运行 `viceme profile list`，只记录并固定当前 Profile、API/Web base URL 和精确 `marketRegion`。页面 locale 不选择市场；不得切换 Profile，也不得从 hostname、记忆或其他 Profile 推导市场。仅弹幕不受 CN/CNY 限制，保留当前 Profile 既有 `cn` 或 `global` 支持。
-3. 仅弹幕分支记录精确部署 HTTPS Origin、目标页面、部署命令、CSP 和浏览器测试，然后按 [Website Work 与安全迁移](#website-work-与安全迁移) 继续。不得因为页面语言是中文就改成 CN，也不得因为页面语言是英文就改成 GLOBAL。
+3. 仅弹幕分支记录精确部署 HTTPS Origin、目标页面、部署命令、CSP 和浏览器测试，然后按 [Website Work 与安全接入](#website-work-与安全接入) 继续。不得因为页面语言是中文就改成 CN，也不得因为页面语言是英文就改成 GLOBAL。
 4. 任意包含 Tip 的分支，在任何 Work 创建、更新或发布、Website verification、SDK access 或宿主页写入前，先确认 `marketRegion: cn`；GLOBAL 必须立即停止，且不得留下业务写入。随后请用户选择官方 Mounted UI 或 Headless。Headless 还必须选择 npm 或 CDN ESM。
 5. 选定 Tip UI 后，先证明精确 `0.5.0` 的 CN/GLOBAL `index.js` 与 `tip.js` 全部直接可用：
 
@@ -71,14 +71,14 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
 4. 用户选定后重新读取该 Work，并复核 Merchant 归属与 `PUBLISHED` 状态。仅赞赏不读取页面 loader 来确认 Work 身份，不执行 Website ownership verification，也不创建、更新、暂停或激活 Commerce Application。已有可选 Commerce Application 只能提供来源归因，不是 Tip 门禁。
 5. 进入 [SDK access 完整更新](#sdk-access-完整更新)，请求 hosted feature 为 `tip`。
 
-## Website Work 与安全迁移
+## Website Work 与安全接入
 
 本节只适用于仅弹幕和组合分支。
 
 1. 规范 Origin 必须是精确小写 HTTPS `scheme + host`，不含凭据、路径、查询、片段或尾部斜杠。预览域名与生产域名是不同 Origin。
-2. 写入前只读检查页面。当前或历史 `/viceme-sdk/v1/viceme.min.js`、`widget/engagement-embed.js`、`tip-embed.js` 和 `data-viceme-*` 标签只能作为迁移输入，不能作为新接入方案继续运行。页面有多个候选 loader 时停止并让用户确认唯一迁移目标。
-3. 历史 loader 有公开 `data-viceme-work` 时，运行 `viceme merchant work sdk-access list --merchant <merchant-id>`，按 `keys.test` 或 `keys.live` 精确定位 Work，再读取 Work 并确认属于当前 Merchant。只有 `data-creator-app-id` 时，可以只读运行 `viceme merchant commerce-application get <application-id> --merchant <merchant-id>`，从其 `workId` 找到 Work 并确认归属；Commerce Application 不因此成为互动门禁，也不得被本 Skill 修改。缺少可验证 Work 身份时，在任何 Work、Website verification、SDK access 或页面写入前停止。
-4. 页面没有可验证的当前或历史 loader 时，运行 `viceme merchant work list --merchant <merchant-id>`，只保留 `kind: WEBSITE` 且 `website.canonicalOrigin` 与部署 Origin 完全一致的候选：
+2. 写入前只读检查页面。只接受本 Skill 定义的精确 `0.5.0` ESM imports；发现声明式或全局 loader、旧 embed 标签、`data-viceme-*`、非精确版本或多套 ViceMe 运行时时立即停止，要求用户先移除，不把它们作为 Work 身份或迁移输入。
+3. 页面已有唯一的精确 `0.5.0` ESM 接入时，只接受其中公开的 `wrk_test_...` 或 `wrk_live_...`。运行 `viceme merchant work sdk-access list --merchant <merchant-id>`，按 `keys.test` 或 `keys.live` 精确定位 Work，再读取 Work 并确认属于当前 Merchant；缺少可验证 Work 身份时，在任何 Work、Website verification、SDK access 或页面写入前停止。
+4. 页面没有当前精确 ESM 接入时，运行 `viceme merchant work list --merchant <merchant-id>`，只保留 `kind: WEBSITE` 且 `website.canonicalOrigin` 与部署 Origin 完全一致的候选：
 
    - 0 个候选时才创建新 Work。
    - 恰好 1 个候选时复用。
@@ -162,7 +162,7 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
 - 任意 Tip 路线使用已预检的 CN ESM 或已精确安装的 npm 包，并从 `keys.test` 开始。Headless 的金额和 provider 只来自 `getConfig()`，`open()` 结果只按 `PAID | CANCELLED | UNKNOWN` 处理。
 - 组合只创建一个 client。官方路线可以分别 `mountDanmaku` 与 `mountTip`；Headless 路线只 `mountDanmaku`，Tip 使用 `createTip`，不得同时挂载两种 Tip UI。一个 mount 失败不得销毁另一个成功能力。
 - SPA、组件或路由真实卸载时先销毁全部 mount/controller，再调用 `client.destroy()`；不要使用会在 bfcache 时触发的 `pagehide`。
-- 页面只能保留一个选定的新 ESM 接入。替换历史 loader 前再次确认其 Work 归属；迁移完成后删除旧 loader，不让新旧接入并行运行。
+- 页面只能保留一个选定的精确 `0.5.0` ESM 接入；不得生成或保留第二套运行时。
 
 ## Tip 安全与验证
 
