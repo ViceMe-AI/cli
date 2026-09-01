@@ -57,9 +57,10 @@ jobs:
           PR_HEAD_REF: ${{ github.head_ref }}
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || '' }}
         run: |
-          export PR_HEAD_SUBJECT="$(git log -1 --format=%s)"
-          export PR_HEAD_BODY="$(git log -1 --format=%B)"
-          export PR_HEAD_AUTHOR_EMAIL="$(git log -1 --format=%ae)"
+          PR_HEAD_SUBJECT="$(git log -1 --format=%s)"
+          PR_HEAD_BODY="$(git log -1 --format=%B)"
+          PR_HEAD_AUTHOR_EMAIL="$(git log -1 --format=%ae)"
+          export PR_HEAD_SUBJECT PR_HEAD_BODY PR_HEAD_AUTHOR_EMAIL
           echo "prepared=$(bash scripts/ci/validate-pr-target.sh --is-prepared-release-commit)" >>"${GITHUB_OUTPUT}"
       - name: Fetch stable branch and release tags
         if: steps.release-head.outputs.prepared != 'true'
