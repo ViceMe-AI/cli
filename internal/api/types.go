@@ -578,6 +578,34 @@ type OrderStatusResponse struct {
 	ServiceCase *ServiceCase    `json:"serviceCase"`
 }
 
+type MyOrdersResponse struct {
+	Items      []CommerceOrder `json:"items"`
+	NextCursor *string         `json:"nextCursor"`
+}
+
+// PaymentOrder is the order projection shared by the channel payment
+// endpoints (creator subscription orders and payment status).
+type PaymentOrder struct {
+	OrderNo     string  `json:"orderNo"`
+	Status      string  `json:"status"`
+	ProductID   *string `json:"productId"`
+	Provider    string  `json:"provider"`
+	Currency    string  `json:"currency"`
+	AmountCents int     `json:"amountCents"`
+	ExpiresAt   string  `json:"expiresAt"`
+}
+
+type CreatePaymentResponse struct {
+	Order  PaymentOrder    `json:"order"`
+	Action json.RawMessage `json:"action"`
+}
+
+type PaymentStatusResponse struct {
+	Order  PaymentOrder    `json:"order"`
+	PaidAt *string         `json:"paidAt"`
+	Action json.RawMessage `json:"action"`
+}
+
 type ServiceCase struct {
 	ID               string          `json:"id"`
 	CaseNo           string          `json:"caseNo"`

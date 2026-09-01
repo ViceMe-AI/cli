@@ -11,18 +11,21 @@
 1. `$become-a-creator` 确认当前登录和创作者资格。
 2. 按来源完成且只完成必要的渠道确认；GitHub 在读取仓库前确认本人账号（已验证时静默通过），小红书按已验证身份处理，本地包直接进入下一步。
 3. 使用一次 `skill publish` 创建或恢复同一私有草稿并取得真实预览。
-4. 草稿就绪后立即运行 `viceme publication review <publication-id>`，并马上用内置 `present_files` 在当前任务浏览器打开返回的 `presentation.fallbackUrl` 稳定预览页面，同时按通用约定在对话里给出该链接的 Markdown 备用入口，说一句“预览页面已经打开了，我会边补资料边更新，你随时能看到变化”。预览页面必须先于任何补资料、生成图片或询问出现；后续每一步更新（封面、图库、双语文案、价格）都提交到同一份草稿，让页面内容逐步生长，而不是让用户在空白中等待。
+4. 草稿就绪后立即运行 `viceme publication review <publication-id>`，并马上用内置 `present_files` 在当前任务浏览器打开返回的 `presentation.fallbackUrl` 稳定预览页面，同时按通用约定在对话里给出该链接的 Markdown 备用入口，说一句“预览页面已经打开了，我会边补资料边更新，你随时能看到变化”。预览页面必须先于任何补资料、生成图片或询问出现；后续每一步更新（封面、图库、双语文案、价格）都提交到同一份草稿，让页面内容逐步生长，而不是让用户在空白中等待。预览永远指这个稳定作品页：不得用 `present_files` 把本地图片或媒体文件当作“预览”打开、抢占或顶掉浏览器里的作品页；本地图片只能作为对话内的 Markdown 内嵌展示（Codex 环境按下文媒体核验流程处理），作品页本身保持打开，让用户靠它看到每一步更新。
 5. 基于预览一次性补齐缺少的价格、文案和媒体；能由当前 Agent 从包内容可靠提出的内容直接形成候选，不做平台分析等待。
 6. 展示完整最终预览，只询问一次是否确认公开发布。
 7. 用户确认后连续完成确认与公开发布，返回公开链接；随后只问一次：“要往这个组合里继续添加其他 skill 吗？”用 `AskUserQuestion` 给两个选项：“添加其他 skill”“完成，就这样”。用户选添加就按正常发布流程处理新来源（见组合规则）；选完成则结束。对用户只使用“组合里的 skill”这一种说法，不使用“版本”“档位”“免费版/专业版”等分层概念。
 
 同一个 Skill 再次发布时自动走更新，不会创建重复作品：本地目录和 ZIP 通过包内 `.viceme/skill.json` 识别，GitHub 仓库按仓库归属识别，小红书按 Skill ID 识别。判断依据是 `skill publish` 输出中的 `resolution` 字段：`"UPDATE"` 表示这是已有 Skill 的更新——立刻用一句白话说“这是你已有 Skill 的更新，我会在原页面发布新版本”；`"NEW"` 才是首次发布。跨会话、换机器同样生效，不得因为本地没有记录就当作新 Skill。只有名称与已有 Skill 重复、又不是同一个 Skill 时才会被拒绝（见错误处理的 `SKILL_PUBLICATION_TITLE_TAKEN`）。
 
+用户要「往组合里添加 skill」或「再发布一个」时，收到来源后先做前置判断，再决定是否运行发布命令：把来源（同一 GitHub 仓库同一子目录、同一本地目录或 ZIP、同一个小红书 Skill ID）与本会话已发布过的来源、以及 `publication review` 返回的组合内已有条目比对；来源就是组合里已有的某个 skill 时，不运行 `skill publish`，直接说明「这个来源就是组合里已有的 <名称>，再发布只会变成它的更新；要新增请提供一个内容不同的 skill」。用户的回答不是给出的选项（例如「发布成另一个 skill」）时，先用一句白话澄清上述约束并确认来源，再执行命令；不得先创建 Publication 再靠报错或取消收场。
+
 用户可见提示保持简短且与当前阶段一致：开始时说“我先检查登录和创作者资格。”；资格与渠道都就绪后只说固定的一句“账号已经确认，我正在准备发布预览。”，不得再自造“现在开始处理 GitHub 仓库”之类的额外过渡语；预览页面打开时说“预览页面已经打开了，我会边补资料边更新，你随时能看到变化。”；需要用户登录或授权时先打开页面并立即说明应在右侧完成什么；用户确认最终预览后说“收到，我现在发布。”。同一阶段不为每条命令重复提示，任何等待前不得保持无说明的静默。
 
 ## 必需输入
 
 - 恰好一个来源：根目录含 `SKILL.md` 的本地目录/ZIP、本人 GitHub 仓库，或已验证的小红书 Skill ID。公开 GitHub 仓库也必须验证所有权；私有仓库使用已保存的 OAuth 凭证。不支持组织仓库或只有 collaborator 权限的仓库。
+- 收集来源地址、本地路径或新名称这类单一输入时，一次问答直接取得值（`AskUserQuestion` 的自定义输入或其他单问形式）；不得先问「我来输入」这类占位选项、再问第二问拿值。
 - 一个由 `$become-a-creator` 确认、当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有的有效 MerchantAccount。返回多个时必须使用用户在资格流程中选择的商家，并用 `--merchant <merchant-account-id>` 发布。
 - 最终公开确认前必须确定每个条目的内部 `key`、用户可见名称、`sortOrder`、1 到 8 条 highlights，以及以人民币分计价的 `priceMinor`；这些内部值由 Agent 按组合规则自动派生，用户只需要确认价格和内容。私有包初次上传时故意保持 `priceMinor: null`。
 - 最终预览必须展示中文简介、中英文使用说明、已验证包、一个封面和至少一个图库项，然后才能取得合并的“确认并发布”授权。
@@ -64,7 +67,7 @@ GitHub 或小红书来源会把取得的不可变归档保存到 CLI 私有恢�
 
 `FAILED` 修正输入后可以回到预览；`CANCELLED` 和 `PUBLISHED` 为终态。
 
-往组合里添加 skill 或更新其中某个 skill 都复用同一 Listing，并重新走完整包校验、上传、中文简介与双语说明、媒体、预览、确认和发布。组合内每个 skill 是独立 Product 和永久下载权益，各自定价；价格 0 表示该 skill 免费。购买组合中的一个 skill 不包含其他 skill。同一 skill（相同派生 key）更新内容会在同一 Product 下发布新 Release，已拥有它的用户自动免费获得；不同的 skill 是不同的条目。
+往组合里添加 skill 或更新其中某个 skill 都复用同一 Listing，并重新走完整包校验、上传、中文简介与双语说明、媒体、预览、确认和发布。组合内每个 skill 是独立 Product 和永久下载权益，各自定价；价格 0 表示该 skill 免费。购买组合中的一个 skill 不包含其他 skill。同一 skill（相同派生 key）更新内容会在同一 Product 下发布新 Release，已拥有它的用户自动免费获得；不同的 skill 是不同的条目。更新发布的草稿会继承上一版的媒体选择：`publication review` 返回的 `coverUploadId` 和 `galleryUploadIds` 仍然有效时直接在建议里复用这些 ID，不得为保险重新上传同一批图片或重新取得媒体；只有确实要换图时才上传新图并让用户明确选择。发布或取消命令返回 `ok: true` 且带 `warnings`（如本地恢复记录清理失败）时，发布本身已成功：照常收尾并向用户如实转述一句警告，不得当作失败重试发布。
 
 ## 本地恢复权限
 
@@ -80,17 +83,17 @@ GitHub 或小红书来源会把取得的不可变归档保存到 CLI 私有恢�
 
 视觉预览时，把所选封面和图库 upload ID 对应到 `publication review` 返回的准确上传项。在 Codex 中，把 `viewUrl` 下载到唯一临时目录；确认响应成功、内容类型为 `image/*` 且文件非空后，使用绝对本地路径的 Markdown 图片展示。保持服务端顺序，标明封面和图库位置，原 URL 仅作兜底。不得让用户仅凭文件名批准媒体。
 
-`reviewDigest` 是不透明的并发和完整性 token，不是用户摘要。仅在内部用于 `publication confirm` 和 `publication publish`。用户看到的预览应包括中文简介、双语使用说明、价格、内嵌封面和有序图库。
+`reviewDigest` 是不透明的并发和完整性 token，不是用户摘要。仅在内部用于 `publication confirm` 和 `publication publish`。用户看到的预览应包括中文简介、双语使用说明、价格、内嵌封面和有序图库，以及公开链接 slug 与安装名（包内 `SKILL.md` 的 `name`）。更新或改名场景必须明示「公开链接保持 <slug> 不变」，确认信息里不得遗漏这两项，否则用户确认后才会发现链接或安装名与预期不符。
 
 ## 合并确认
 
-展示完整最终预览后，只问一个问题，同时确认内容并立即公开发布；在 WorkBuddy 中用 `AskUserQuestion` 呈现（例如选项“确认并公开发布”“暂不发布，我要再改改”）。明确说明发布是公开且不可逆的。用户清楚同意后，可连续运行 `publication confirm` 和 `publication publish`，不得再次提问。后端仍保留两个状态转换以便恢复，但不要把 `READY` 暴露为第二次确认。
+展示完整最终预览后，只问一个问题，同时确认内容并立即公开发布；在 WorkBuddy 中用 `AskUserQuestion` 呈现（例如选项“确认并公开发布”“暂不发布，我要再改改”）。明确说明发布是公开且不可逆的。最终确认时的“完整预览”指稳定作品预览页：再次给出该页链接（或确认其仍打开）并口头汇总标题、简介、价格、封面与图库，不得改用本地图片文件充当最终预览。用户清楚同意后，可连续运行 `publication confirm` 和 `publication publish`，不得再次提问。后端仍保留两个状态转换以便恢复，但不要把 `READY` 暴露为第二次确认。
 
 最终预览尚未形成前的初始“我要发布”请求不构成此授权。任何草稿修改都会产生新 `reviewDigest`；必须展示新预览并重新确认后才能执行任一命令。
 
 首次未定价发布会上传并验证包，返回 Publication ID 和 Owner Preview。立即用同一 ID 运行不带价格的 `skill publish --resume <id>`；这不是新的上传授权边界。该步骤在 `priceMinor` 仍为 null 时上传媒体候选，不会隐式启动平台模型。`requiresPrice: true` 只是草稿完整性状态，不是打断渐进补全的提示。
 
-取得 `publication review`，由用户当前 Agent 生成上架字段，再提交一个受 revision 保护的建议。`--input` 的 `baseDraftRevision` 必须取自当前 review 返回的 `draftRevision`；patch 只包含 `summaryZhCn`、`usageInstructionsZhCn`、`coverUploadId`、`galleryUploadIds`——没有英文简介和英文使用说明字段，传入会被拒绝。严格输入：
+取得 `publication review`，由用户当前 Agent 生成上架字段，再提交一个受 revision 保护的建议。`--input` 的 `baseDraftRevision` 必须取自当前 review 返回的 `draftRevision`；patch 只包含 `summaryZhCn`、`usageInstructionsZhCn`、`coverUploadId`、`galleryUploadIds`——没有英文简介和英文使用说明字段，传入会被拒绝。四类字段必须一次齐上：不得提交不含 `coverUploadId` 和 `galleryUploadIds` 的纯文案建议；媒体未就绪时先完成上文「封面和图库图片」问答与 `--candidate-only` 上传，再一次性提交全部字段。严格输入：
 
 ```json
 {
@@ -133,3 +136,7 @@ GitHub 或小红书来源会把取得的不可变归档保存到 CLI 私有恢�
 ```
 
 只使用 `publication review` 返回的 ID，不得编造 upload ID。
+
+## 改展示名称
+
+用户说「改个名称」「换个标题」时，指的是作品页和购买卡片上的展示标题。展示标题是 Listing 字段，不是包标识：不得修改包内 `SKILL.md` 的 `name`（`name` 是安装标识符，只允许小写字母、数字和单个连字符；改名重传整包既不必要，也会把安装名一起改掉）。正确做法是在当前 Publication 上运行 `publication update --input` 提交完整严格 JSON（含新 `title`，以及保持不变的 `summaryZhCn`、`usageInstructionsZhCn`、`currency`、`priceMinor`、`coverUploadId`、`galleryUploadIds`——媒体 ID 直接复用 review 返回的当前值），然后照常走预览、确认和发布。同时用一句白话说明两点：公开链接的 slug 保持不变；买家安装的 skill 名称（包 name）也保持不变。

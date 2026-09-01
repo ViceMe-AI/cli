@@ -64,14 +64,24 @@ Shop signs with the new key. Never replace key material under an existing ID;
 remove an old public key only after every Release signed by it is no longer
 installable.
 
-Protect `dev` with an active branch ruleset that retains the normal pull request,
-one approving review, the `PR quality` check, all three `PR npm installer
-(<runner>)` checks, deletion protection, and force push protection. Add `ViceMe
-CLI Release Bot` and the organization-admin role to
-the bypass list with `Always allow`; the latter preserves the legacy rule's
-existing `enforce_admins: false` behavior. Do not leave the legacy
-branch-protection rule active beside the ruleset because it cannot recognize the
-ruleset's App bypass.
+Keep `main` as the repository default branch, but target normal feature and fix
+pull requests explicitly at `dev`. Repository settings allow merge commits only;
+squash and rebase merging are disabled so an administrator bypass cannot detach
+a reviewed `dev` head from `main` history.
+
+Protect `dev` with its own active branch ruleset that retains the normal pull
+request, one approving review, the `PR quality` check, all three `PR npm
+installer (<runner>)` checks, strict required-status synchronization, deletion
+protection, and force push protection. Protect `main` with a separate ruleset
+that requires the same checks plus `Release candidate preparation`, but does
+not require `dev` to contain the previous release merge commit. Both rulesets
+allow merge commits only. The required `PR quality` job rejects `main` pull
+requests unless they come from the same repository's `dev` or `hotfix/*`.
+
+Add `ViceMe CLI Release Bot` and the organization-admin role to both bypass
+lists with `Always allow`; the latter preserves the legacy rule's existing
+`enforce_admins: false` behavior. Do not leave a legacy branch-protection rule
+active beside the rulesets because it cannot recognize the ruleset's App bypass.
 
 The App installation token is scoped to the current repository and
 `Contents: write`, expires after at most one hour, and is revoked automatically
@@ -85,11 +95,9 @@ set of required checks for the exact prepared commit without duplicate generic
 push and pull-request runs. The synchronize event may run release preparation a
 second time; that run is intentionally idempotent and produces no new commit.
 
-Protect `main` with the same four PR checks plus `Release candidate
-preparation`. The checks from `CLI release publication` are deliberately not
-required for merging: that workflow starts only after the release PR has been
-merged and performs the tag, binary, GitHub Release, npm, and notification
-steps.
+The checks from `CLI release publication` are deliberately not required for
+merging: that workflow starts only after the release PR has been merged and
+performs the tag, binary, GitHub Release, npm, and notification steps.
 
 Create a GitHub Actions Environment named `cdn` and restrict deployments to
 protected branches. The S3 publication job is the only release job that uses
