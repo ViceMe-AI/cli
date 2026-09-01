@@ -188,6 +188,22 @@ func (c *Client) UploadMerchantOnboardingEvidence(ctx context.Context, onboardin
 	return response, err
 }
 
+// UploadMerchantOnboardingEvidenceText 提交一轮材料中的文字说明（与截图互斥，
+// 服务端限制每轮一条）。走同一 evidence 端点的 multipart text 字段。
+func (c *Client) UploadMerchantOnboardingEvidenceText(ctx context.Context, onboardingID string, lockVersion int, text string) (MerchantOnboarding, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("lockVersion", fmt.Sprintf("%d", lockVersion))
+	_ = writer.WriteField("text", text)
+	if err := writer.Close(); err != nil {
+		return MerchantOnboarding{}, output.Internal("ONBOARDING_EVIDENCE_ENCODE_FAILED", "could not encode evidence upload", err)
+	}
+	var response MerchantOnboarding
+	endpoint := "/v1/cli/merchant/onboarding/" + url.PathEscape(onboardingID) + "/evidence"
+	err := c.doBody(ctx, http.MethodPost, endpoint, &body, writer.FormDataContentType(), &response, "@stored", maxResponseBytes)
+	return response, err
+}
+
 func (c *Client) SubmitMerchantOnboarding(ctx context.Context, onboardingID string, lockVersion int) (MerchantOnboarding, error) {
 	var response MerchantOnboarding
 	endpoint := "/v1/cli/merchant/onboarding/" + url.PathEscape(onboardingID) + "/submit"

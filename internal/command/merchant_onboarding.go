@@ -14,6 +14,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// 与 API 契约 MERCHANT_ONBOARDING_EVIDENCE_TEXT_MAX 保持一致。
+const onboardingEvidenceTextMaxRunes = 2000
+
 func newMerchantOnboardingCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "onboarding", Short: "Apply for or claim Merchant ownership"}
 	command.AddCommand(newMerchantOnboardingStatusCommand(runtime))
@@ -122,15 +125,34 @@ func newMerchantXiaohongshuClaimCommand(runtime *Runtime) *cobra.Command {
 
 func newMerchantOnboardingEvidenceCommand(runtime *Runtime) *cobra.Command {
 	var filename string
+	var statement string
 	var lockVersion int
 	command := &cobra.Command{
-		Use: "evidence <onboarding-id>", Short: "Upload one Xiaohongshu account screenshot", Args: cobra.ExactArgs(1),
+		Use: "evidence <onboarding-id>", Short: "Add one screenshot or text statement to a claim", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			if lockVersion < 0 {
 				return output.Validation("ONBOARDING_LOCK_VERSION_INVALID", "--lock-version must be non-negative")
 			}
+			// 截图与文字说明二选一；与 API 端点的互斥校验一致。
+			if (filename == "") == (statement == "") {
+				return output.Validation("ONBOARDING_EVIDENCE_INPUT_INVALID", "provide exactly one of --path or --text")
+			}
 			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
 				return err
+			}
+			if statement != "" {
+				text := strings.TrimSpace(statement)
+				if text == "" {
+					return output.Validation("ONBOARDING_EVIDENCE_TEXT_REQUIRED", "--text must not be blank")
+				}
+				if len([]rune(text)) > onboardingEvidenceTextMaxRunes {
+					return output.Validation("ONBOARDING_EVIDENCE_TEXT_TOO_LONG", "--text must be at most 2000 characters")
+				}
+				result, err := runtime.client().UploadMerchantOnboardingEvidenceText(command.Context(), args[0], lockVersion, text)
+				if err != nil {
+					return err
+				}
+				return runtime.business(result)
 			}
 			image, err := os.ReadFile(filename)
 			if err != nil {
@@ -147,8 +169,8 @@ func newMerchantOnboardingEvidenceCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&filename, "path", "", "PNG, JPEG, or WebP account screenshot")
+	command.Flags().StringVar(&statement, "text", "", "text statement for this review round (at most one per round)")
 	command.Flags().IntVar(&lockVersion, "lock-version", -1, "current onboarding lock version")
-	_ = command.MarkFlagRequired("path")
 	_ = command.MarkFlagRequired("lock-version")
 	return command
 }
