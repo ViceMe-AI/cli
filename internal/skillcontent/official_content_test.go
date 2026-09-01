@@ -787,7 +787,8 @@ func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
 	for _, required := range []string{
 		"keys.test", "keys.live", "没有顶层单一 `workKey` 字段", "生产宿主把 `keys.live`",
 		"完整 hosted `danmaku`/`tip` features", "完整 `accessFeatures`", "精确 `configVersion`", "没有发生轮换",
-		"$become-a-creator", "拥有平台资源的发布流程",
+		"$become-a-creator", "拥有平台资源的发布流程", "@viceme-ai/sdk@0.5.0",
+		"桌面结账保留在 SDK Access Layer", "移动 H5/WAP", "新的服务端访问决定解锁",
 	} {
 		if !strings.Contains(bundle, required) {
 			t.Fatalf("charge-for-your-work omitted dual-key boundary %q", required)
@@ -797,6 +798,9 @@ func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
 		if strings.Contains(bundle, forbidden) {
 			t.Fatalf("charge-for-your-work references retired Skill %q", forbidden)
 		}
+	}
+	if strings.Contains(bundle, "打开平台支付窗口") {
+		t.Fatal("charge-for-your-work retained the legacy popup checkout flow")
 	}
 }
 

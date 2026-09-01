@@ -13,7 +13,8 @@
 
 ## 浏览器 SDK
 
-部署页面使用发布流程返回的 `keys.live`。不要把 `keys.test`、Work UUID 或 Product ID 放进生产客户端：
+精确安装 `@viceme-ai/sdk@0.5.0`，部署页面使用发布流程返回的 `keys.live`。不要把
+`keys.test`、Work UUID 或 Product ID 放进生产客户端：
 
 ```ts
 import { createViceMe } from "@viceme-ai/sdk";
@@ -70,7 +71,7 @@ async function handleMemberContentClick() {
 匿名访问 → 登录 → 重新检查 → Hosted Checkout → 支付与履约 → 重新检查 → 解锁
 ```
 
-SDK 在用户明确点击后打开平台支付窗口，并持续读取新的服务端访问决定。宿主不得预开支付窗口、拼接结账 URL、监听支付提供商消息，或根据 return URL、订单状态文案和本地状态授予权限。只有 `access.require()` 最终返回 `allowed: true` 才执行受保护动作。
+SDK 在用户明确点击后把 Hosted Checkout 打开在 Access Layer 内，并持续读取新的服务端访问决定。桌面二维码支付与微信 JSAPI 保留在该层；移动 H5/WAP 可以由结账页打开支付渠道新页面或 App。支付完成后关闭或返回该页面，原宿主页继续轮询。宿主不得预开支付页面、拼接结账 URL、监听支付提供商消息，或根据 return URL、订单状态文案和本地状态授予权限。只有 `access.require()` 最终返回 `allowed: true` 才执行受保护动作。
 
 ## 宿主界面
 
@@ -80,7 +81,8 @@ SDK 在用户明确点击后打开平台支付窗口，并持续读取新的服�
 
 - 匿名、已登录未关注、已关注；
 - 未购买、支付取消、支付完成、已拥有；
-- 支付窗口被阻止或被关闭；
+- 桌面结账在 SDK Access Layer 内打开且关闭后恢复焦点；
+- 移动支付新页面被阻止、提前关闭或支付完成后返回；
 - 键盘关闭、焦点恢复和减少动画；
 - 拒绝路径不执行原业务动作。
 
