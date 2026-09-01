@@ -13,6 +13,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/publication"
 	"github.com/spf13/cobra"
 )
@@ -526,25 +527,8 @@ func persistPublicationSource(configBase string, archive []byte) (string, error)
 		}
 		return "", output.Policy("PUBLICATION_SOURCE_CACHE_CONFLICT", "remote-source cache content does not match its digest")
 	}
-	temporary, err := os.CreateTemp(directory, ".source-*.zip")
-	if err != nil {
-		return "", output.Internal("PUBLICATION_SOURCE_SAVE_FAILED", "could not stage the remote Skill source", err)
-	}
-	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return "", output.Internal("PUBLICATION_SOURCE_SAVE_FAILED", "could not secure the remote Skill source", err)
-	}
-	if _, err := temporary.Write(archive); err != nil {
-		_ = temporary.Close()
+	if err := privatefile.Write(filename, archive, ".source-*.zip"); err != nil {
 		return "", output.Internal("PUBLICATION_SOURCE_SAVE_FAILED", "could not write the remote Skill source", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return "", output.Internal("PUBLICATION_SOURCE_SAVE_FAILED", "could not close the remote Skill source", err)
-	}
-	if err := os.Rename(temporaryName, filename); err != nil {
-		return "", output.Internal("PUBLICATION_SOURCE_SAVE_FAILED", "could not activate the remote Skill source", err)
 	}
 	return filename, nil
 }

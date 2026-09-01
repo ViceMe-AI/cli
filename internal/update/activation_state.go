@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/semver"
 )
 
@@ -167,28 +168,7 @@ func CommitActiveGeneration(configDir string, target ActiveGeneration) error {
 		return err
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(configDir, ".active-generation-*.tmp")
-	if err != nil {
-		return err
-	}
-	name := temporary.Name()
-	defer os.Remove(name)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return err
-	}
-	if err := temporary.Close(); err != nil {
-		return err
-	}
-	return os.Rename(name, filepath.Join(configDir, activeGenerationFile))
+	return privatefile.Write(filepath.Join(configDir, activeGenerationFile), data, ".active-generation-*.tmp")
 }
 
 func validateActiveGeneration(generation ActiveGeneration) error {

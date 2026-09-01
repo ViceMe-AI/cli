@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 )
 
 type Region string
@@ -555,25 +557,13 @@ func write(filename string, config Config) error {
 		return fmt.Errorf("encode config: %w", err)
 	}
 	data = append(data, '\n')
-	temporary, err := os.CreateTemp(directory, ".config-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create config staging file: %w", err)
+	if err := privatefile.Write(filename, data, ".config-*.tmp"); err != nil {
+		return fmt.Errorf("write config: %w", err)
 	}
-	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
-	if err := securePrivateFile(temporaryName); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("secure config staging file: %w", err)
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("write config staging file: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close config staging file: %w", err)
-	}
-	if err := os.Rename(temporaryName, filename); err != nil {
-		return fmt.Errorf("activate config: %w", err)
+	// securePrivateFile applies the Windows ACL hardening to the final file;
+	// the staged rename path already carries Unix 0600 permissions.
+	if err := securePrivateFile(filename); err != nil {
+		return fmt.Errorf("secure config: %w", err)
 	}
 	return nil
 }

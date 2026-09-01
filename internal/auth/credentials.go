@@ -92,7 +92,7 @@ func (m *Manager) PreflightSave() error {
 	for _, key := range m.storageKeys() {
 		if err := probe.Preflight(key); err != nil {
 			return output.Authentication("credential_store_unavailable", "the local credential store is not writable from this process").
-				WithHint("verify that the ViceMe configuration directory is writable, then retry; no device authorization was consumed").
+				WithHint("verify that the ViceMe configuration directory is writable and private, then retry; if this command runs inside an agent sandbox, allow writes to the ViceMe configuration directory or run the login from an unsandboxed terminal; no device authorization was consumed").
 				WithCause(err)
 		}
 	}
