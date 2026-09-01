@@ -31,7 +31,7 @@ func TestReplicaPublishUsesAuthenticatedControlAPIAndCredentialFreePresignedUplo
 	)
 	archive := replicaTestZIP(t, map[string]string{"index.html": "<h1>Replica</h1>"})
 	digest := sha256.Sum256(archive)
-	expectedDigest := "sha256:" + hex.EncodeToString(digest[:])
+	expectedDigest := hex.EncodeToString(digest[:])
 
 	var uploaded []byte
 	objectServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

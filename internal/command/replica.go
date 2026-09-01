@@ -95,7 +95,7 @@ func publishReplica(ctx context.Context, runtime *Runtime, source, workID, title
 	if !replicaUUIDPattern.MatchString(clientRequestID) {
 		return replicaPublishResult{}, output.Internal("REPLICA_CLIENT_REQUEST_ID_INVALID", "could not create a valid Replica request identity", nil)
 	}
-	digest := "sha256:" + hex.EncodeToString(hash.Sum(nil))
+	digest := hex.EncodeToString(hash.Sum(nil))
 	created, err := runtime.client().CreateWebsiteReplicaUpload(ctx, api.CreateWebsiteReplicaUploadRequest{
 		ClientRequestID: clientRequestID,
 		WorkID:          workID,
