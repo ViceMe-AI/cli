@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	qrcode "github.com/skip2/go-qrcode"
 )
 
@@ -97,36 +98,11 @@ func writeCommercePaymentPresentation(filename string, data []byte) error {
 		}
 		return nil
 	}
-	temporary, err := os.CreateTemp(filepath.Dir(filename), ".payment-qr-*.tmp")
-	if err != nil {
-		return fmt.Errorf("create payment QR staging file: %w", err)
-	}
-	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
-	if err := secureCommercePaymentFile(temporaryName); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("secure payment QR staging file: %w", err)
-	}
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("write payment QR staging file: %w", err)
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return fmt.Errorf("sync payment QR staging file: %w", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return fmt.Errorf("close payment QR staging file: %w", err)
-	}
-	if err := os.Rename(temporaryName, filename); err != nil {
-		// Windows cannot atomically replace an existing file. The only target is
-		// the deterministic image owned by this order; remove it and retry once.
-		if removeErr := os.Remove(filename); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-			return fmt.Errorf("replace payment QR image: %w", err)
-		}
-		if retryErr := os.Rename(temporaryName, filename); retryErr != nil {
-			return fmt.Errorf("activate payment QR image: %w", retryErr)
-		}
+	// The shared degraded write replaces the previous Windows remove-and-retry:
+	// the direct-write fallback also covers a sandbox or filesystem that cannot
+	// replace the target through a rename.
+	if err := privatefile.Write(filename, data, ".payment-qr-*.tmp"); err != nil {
+		return fmt.Errorf("write payment QR image: %w", err)
 	}
 	if err := secureCommercePaymentFile(filename); err != nil {
 		return fmt.Errorf("secure active payment QR image: %w", err)

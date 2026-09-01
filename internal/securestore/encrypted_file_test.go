@@ -2,11 +2,17 @@ package securestore
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
+	"time"
+
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 )
 
 type fakeKeyring struct {
@@ -236,6 +242,119 @@ func TestEncryptedFileStoreKeepsProfileAndOriginKeysIsolated(t *testing.T) {
 	for _, entry := range entries {
 		if strings.Contains(entry.Name(), "personal") || strings.Contains(entry.Name(), "origin") {
 			t.Fatalf("credential filename leaked scope metadata: %s", entry.Name())
+		}
+	}
+}
+
+func TestPreflightAndSaveSurviveSandboxRenameDenial(t *testing.T) {
+	keyring := newFakeKeyring()
+	store := NewEncryptedFile(t.TempDir(), "viceme-cli-test", keyring)
+	original := privatefile.RenameFile
+	privatefile.RenameFile = func(oldName, _ string) error {
+		return fmt.Errorf("rename %s: %w", oldName, syscall.EPERM)
+	}
+	t.Cleanup(func() { privatefile.RenameFile = original })
+
+	const storageKey = "credential:default:cn"
+	// The preflight must pass through the same degraded save path the real
+	// credential write will use, so a one-time device authorization is never
+	// consumed in an environment that cannot persist it.
+	if err := store.Preflight(storageKey); err != nil {
+		t.Fatalf("Preflight() under sandbox rename denial error = %v", err)
+	}
+	const secret = "sandbox-login-token"
+	if err := store.Set(storageKey, secret); err != nil {
+		t.Fatalf("Set() under sandbox rename denial error = %v", err)
+	}
+	got, err := store.Get(storageKey)
+	if err != nil || got != secret {
+		t.Fatalf("Get() = %q, %v; want %q", got, err, secret)
+	}
+	if info, statErr := os.Stat(store.credentialPath(storageKey)); statErr != nil {
+		t.Fatalf("credential file missing after direct-write fallback: %v", statErr)
+	} else if info.Mode().Perm() != 0o600 {
+		t.Fatalf("credential file mode = %o, want 600", info.Mode().Perm())
+	}
+}
+
+func TestPreflightFailsFastWhenDirectoryIsUnwritable(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix directory permission semantics")
+	}
+	keyring := newFakeKeyring()
+	store := NewEncryptedFile(t.TempDir(), "viceme-cli-test", keyring)
+	if err := store.Set("credential:default:cn", "warmup"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(store.directory(), 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(store.directory(), 0o700) })
+	if err := store.Preflight("credential:default:cn"); err == nil {
+		t.Fatal("Preflight() unexpectedly passed with an unwritable credential directory")
+	}
+}
+
+func TestPreflightCleansUpProbeFilesOnHealthyFilesystem(t *testing.T) {
+	keyring := newFakeKeyring()
+	store := NewEncryptedFile(t.TempDir(), "viceme-cli-test", keyring)
+	if err := store.Preflight("credential:default:cn"); err != nil {
+		t.Fatalf("Preflight() error = %v", err)
+	}
+	entries, err := os.ReadDir(store.directory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".preflight") {
+			t.Fatalf("probe debris left behind: %s", entry.Name())
+		}
+	}
+}
+
+func TestPreflightSweepsStaleProbeFiles(t *testing.T) {
+	keyring := newFakeKeyring()
+	store := NewEncryptedFile(t.TempDir(), "viceme-cli-test", keyring)
+	if err := store.Set("credential:default:cn", "warmup"); err != nil {
+		t.Fatal(err)
+	}
+	stale := []string{
+		filepath.Join(store.directory(), ".preflight-1535403355"),
+		filepath.Join(store.directory(), ".preflight-final-0123456789abcdef"),
+		filepath.Join(store.directory(), ".credential-2500780334"),
+	}
+	for _, name := range stale {
+		if err := os.WriteFile(name, []byte("orphan"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		staleTime := time.Now().Add(-2 * time.Hour)
+		if err := os.Chtimes(name, staleTime, staleTime); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := store.Preflight("credential:default:cn"); err != nil {
+		t.Fatalf("Preflight() error = %v", err)
+	}
+	entries, err := os.ReadDir(store.directory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".preflight") {
+			t.Fatalf("stale probe debris survived the sweep: %s", entry.Name())
+		}
+	}
+	// Credential staging files are swept by the save path that creates them.
+	if err := store.Set("credential:default:cn", "login"); err != nil {
+		t.Fatalf("Set() error = %v", err)
+	}
+	entries, err = os.ReadDir(store.directory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".credential-") {
+			t.Fatalf("stale credential debris survived the sweep: %s", entry.Name())
 		}
 	}
 }
