@@ -115,21 +115,49 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 					return err
 				}
 				if !access.Owned {
-					if !access.PurchaseAvailable || access.PurchaseURL == nil {
+					if !access.PurchaseAvailable {
 						return output.Policy("SKILL_PURCHASE_UNAVAILABLE", "this paid Skill edition cannot be purchased yet").WithDetails(map[string]any{"productId": productID, "reason": access.UnavailableReason})
 					}
+					// The CLI closes the purchase loop itself: open (or recover)
+					// a WeChat NATIVE order, render the payment QR locally, wait
+					// for the payment to land, and continue installing.
+					order, err := recoverPendingSkillPurchaseOrder(command.Context(), runtime, productID)
+					if err != nil {
+						return err
+					}
+					if order == nil {
+						orderValue, err := createSkillPurchaseOrder(command.Context(), runtime, productID)
+						if err != nil {
+							return err
+						}
+						order = &orderValue
+					}
+					presentation, err := presentSkillPaymentQR(runtime, order)
+					if err != nil {
+						return err
+					}
 					if wait <= 0 {
-						details := map[string]any{"productId": productID, "purchaseUrl": access.PurchaseURL, "edition": access.Edition, "subscription": access.Subscription}
-						hint := "open purchaseUrl, complete payment with the same WeSimi account, then retry; or use --wait while the browser purchase is in progress"
+						details := map[string]any{
+							"productId": productID, "orderNo": order.OrderNo,
+							"amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
+							"paymentPresentation": presentation,
+							"edition":             access.Edition, "subscription": access.Subscription,
+						}
+						hint := "present the payment QR to the user, then rerun the same install command with --wait while the payment is in progress"
 						if access.Subscription.Available {
-							hint = "open purchaseUrl to buy this edition, or subscribe to the creator to unlock every paid Skill of theirs; use --wait while a browser purchase is in progress"
+							hint = "present the payment QR to the user, or subscribe to the creator with `viceme subscription subscribe <creator-handle>` to unlock every paid Skill of theirs; rerun with --wait while the payment is in progress"
 						}
 						return output.Confirmation("SKILL_PURCHASE_REQUIRED", "purchase this edition before installation").WithDetails(details).WithHint(hint)
 					}
-					_, _ = fmt.Fprintf(runtime.deps.ErrOut, "Complete the purchase with the same WeSimi account:\n\n  %s\n\nWaiting for entitlement...\n", *access.PurchaseURL)
-					access, err = waitForSkillEntitlement(command.Context(), runtime, productID, wait)
+					if err := waitForSkillOrderPayment(command.Context(), runtime, productID, order.OrderNo, wait); err != nil {
+						return err
+					}
+					access, err = runtime.client().GetSkillAccess(command.Context(), productID)
 					if err != nil {
 						return err
+					}
+					if !access.Owned {
+						return output.Authentication("SKILL_PURCHASE_PENDING", "payment was not observed before the wait deadline").WithDetails(map[string]any{"productId": productID, "orderNo": order.OrderNo}).WithHint("after the user finishes the scan payment, rerun the same install command; the pending order is recovered instead of duplicated")
 					}
 				}
 			}
@@ -185,7 +213,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&agent, "agent", "auto", "installation target: auto, codex, claude, workbuddy, or agents")
-	command.Flags().DurationVar(&wait, "wait", 0, "wait up to this duration for a browser purchase entitlement")
+	command.Flags().DurationVar(&wait, "wait", 5*time.Minute, "wait up to this duration for the WeChat QR payment of a paid edition; 0 presents the QR without waiting")
 	return command
 }
 
@@ -291,23 +319,6 @@ func (runtime *Runtime) requireSkillUseAuthentication(ctx context.Context) error
 		}
 	}
 	return output.Authorization("SKILL_USE_SCOPE_REQUIRED", "the current login cannot access purchased Skills").WithHint("run 'viceme auth login' again to grant Skill-use access")
-}
-
-func waitForSkillEntitlement(ctx context.Context, runtime *Runtime, productID string, timeout time.Duration) (api.SkillAccess, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	for {
-		access, err := runtime.client().GetSkillAccess(ctx, productID)
-		if err == nil && access.Owned {
-			return access, nil
-		}
-		if err != nil && output.AsError(err).Retryable == false {
-			return api.SkillAccess{}, err
-		}
-		if sleepErr := runtime.deps.Sleep(ctx, 2*time.Second); sleepErr != nil {
-			return api.SkillAccess{}, output.Authentication("SKILL_PURCHASE_PENDING", "purchase entitlement was not observed before the wait deadline").WithDetails(map[string]any{"productId": productID}).WithHint("after payment completes, rerun the same install command")
-		}
-	}
 }
 
 func extractDownloadableSkill(archive []byte) (map[string]downloadableSkillFile, error) {

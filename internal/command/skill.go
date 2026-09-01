@@ -45,6 +45,9 @@ type publicationPresentationResult struct {
 	Resolution    string              `json:"resolution"`
 	RequiresPrice bool                `json:"requiresPrice"`
 	Presentation  previewPresentation `json:"presentation"`
+	// Warnings carry non-fatal outcomes such as a local recovery cleanup that
+	// failed after the server already reached a terminal state.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 type previewPresentation struct {
@@ -702,10 +705,8 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		return output.Authorization("PUBLICATION_MERCHANT_CHANGED", "the server publication no longer matches local Merchant recovery state").WithHint("inspect the publication on the current profile before continuing")
 	}
 	if current.Status == "PUBLISHED" || current.Status == "CANCELLED" {
-		if err := retirePublicationRecovery(store, pending, current.Status); err != nil {
-			return err
-		}
-		return presentPublication(ctx, runtime, current, "UPDATE")
+		warnings := retirePublicationRecovery(runtime, store, pending, current.Status)
+		return presentPublicationWithWarnings(ctx, runtime, current, "UPDATE", warnings)
 	}
 	if pending.PriceMinor != nil && (current.Draft.PriceMinor == nil || *current.Draft.PriceMinor != *pending.PriceMinor) {
 		current, err = client.UpdateListingPrice(ctx, pending.PublicationID, *pending.PriceMinor)
@@ -759,14 +760,17 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 		}
 	}
 	if current.Status == "PUBLISHED" {
-		if err := retirePublicationRecovery(store, pending, current.Status); err != nil {
-			return err
-		}
+		warnings := retirePublicationRecovery(runtime, store, pending, current.Status)
+		return presentPublicationWithWarnings(ctx, runtime, current, createdResolution, warnings)
 	}
 	return presentPublication(ctx, runtime, current, createdResolution)
 }
 
 func presentPublication(ctx context.Context, runtime *Runtime, current api.SkillPublication, createdResolution string) error {
+	return presentPublicationWithWarnings(ctx, runtime, current, createdResolution, nil)
+}
+
+func presentPublicationWithWarnings(ctx context.Context, runtime *Runtime, current api.SkillPublication, createdResolution string, warnings []string) error {
 	presentation, err := previewPresentationForPublication(ctx, runtime, current)
 	if err != nil {
 		return err
@@ -777,6 +781,7 @@ func presentPublication(ctx context.Context, runtime *Runtime, current api.Skill
 		Resolution:       createdResolution,
 		RequiresPrice:    current.Draft.PriceMinor == nil,
 		Presentation:     presentation,
+		Warnings:         warnings,
 	})
 }
 
@@ -788,19 +793,34 @@ func previewPresentationForPublication(ctx context.Context, runtime *Runtime, cu
 	return createPreviewPresentation(ctx, runtime, current.ListingID, preview.Preview.FallbackURL), nil
 }
 
-func retirePublicationRecovery(store publication.PendingStore, pending publication.Pending, status string) error {
-	details := map[string]any{"publicationId": pending.PublicationID, "status": status}
+// retirePublicationRecovery discards the local recovery intent after the
+// server reached a terminal state. The publication outcome is already
+// authoritative at that point, so a cleanup failure must not flip a
+// successful publish into a command error: the failure is surfaced as a
+// warning on stderr and in the command result, and the retained recovery
+// state makes the next publish or resume retry the same idempotent cleanup.
+func retirePublicationRecovery(runtime *Runtime, store publication.PendingStore, pending publication.Pending, status string) []string {
+	var warnings []string
 	if err := store.RetireIntent(pending.Fingerprint, pending.PublicationID, pending.ClientRequestID); err != nil {
-		return output.Internal("PUBLICATION_RECOVERY_RETIRE_FAILED", "publication reached a terminal state but its local intent could not be retired", err).
-			WithDetails(details).
-			WithHint("retry the same command after repairing access to the ViceMe publication recovery directory")
+		return append(warnings, publicationRecoveryWarning(runtime,
+			"PUBLICATION_RECOVERY_RETIRE_FAILED",
+			"publication reached a terminal state but its local intent could not be retired",
+			err, pending.PublicationID, status))
 	}
 	if err := store.Delete(pending.PublicationID); err != nil {
-		return output.Internal("PUBLICATION_RECOVERY_CLEANUP_FAILED", "publication reached a terminal state but its local recovery file could not be removed", err).
-			WithDetails(details).
-			WithHint("retry the same command after repairing access to the ViceMe publication recovery directory")
+		warnings = append(warnings, publicationRecoveryWarning(runtime,
+			"PUBLICATION_RECOVERY_CLEANUP_FAILED",
+			"publication reached a terminal state but its local recovery file could not be removed",
+			err, pending.PublicationID, status))
 	}
-	return nil
+	return warnings
+}
+
+func publicationRecoveryWarning(runtime *Runtime, code, message string, err error, publicationID, status string) string {
+	warning := fmt.Sprintf("%s: %s: %v (publicationId %s, status %s); retry the same command after repairing access to the ViceMe publication recovery directory",
+		code, message, err, publicationID, status)
+	_, _ = fmt.Fprintln(runtime.deps.ErrOut, "warning: "+warning)
+	return warning
 }
 
 func verifiedUpload(uploads []api.SkillPublicationUpload, kind, digest, relativePath string) bool {

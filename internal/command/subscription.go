@@ -1,20 +1,138 @@
 package command
 
 import (
+	"context"
+	"encoding/json"
+	"time"
+
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/spf13/cobra"
 )
 
 const creatorSubscriptionPriceMinorMax = 10_000_000
 
-// newSubscriptionCommand 暴露创作者订阅计划管理：发布完成后由 Agent 询问创作者
-// 是否设置粉丝订阅，价格即单一月付档；show/off 供查看与下架。
+// newSubscriptionCommand 暴露订阅两侧：创作者侧管理粉丝订阅计划（show/set/off），
+// 买家侧 subscribe 打开一笔微信 Native 订阅订单并等待扫码支付完成。
 func newSubscriptionCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "subscription", Short: "Manage the creator fan subscription plan"}
+	command := &cobra.Command{Use: "subscription", Short: "Manage fan subscriptions and subscribe to a creator"}
 	command.AddCommand(newSubscriptionShowCommand(runtime))
 	command.AddCommand(newSubscriptionSetCommand(runtime))
 	command.AddCommand(newSubscriptionOffCommand(runtime))
+	command.AddCommand(newSubscriptionSubscribeCommand(runtime))
 	return command
+}
+
+func newSubscriptionSubscribeCommand(runtime *Runtime) *cobra.Command {
+	var wait time.Duration
+	command := &cobra.Command{
+		Use:   "subscribe <creator-handle>",
+		Short: "Subscribe to a creator with a WeChat QR payment and unlock every paid Skill of theirs",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if err := runtime.requireSkillUseAuthentication(command.Context()); err != nil {
+				return err
+			}
+			creatorHandle := args[0]
+			order, presentation, err := openCreatorSubscriptionOrder(command.Context(), runtime, creatorHandle)
+			if err != nil {
+				return err
+			}
+			if wait <= 0 {
+				return output.Confirmation("CREATOR_SUBSCRIPTION_PURCHASE_REQUIRED", "complete the subscription payment before it expires").
+					WithDetails(map[string]any{
+						"creatorHandle": creatorHandle, "orderNo": order.OrderNo,
+						"amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
+						"paymentPresentation": presentation,
+					}).
+					WithHint("present the payment QR to the user, then rerun the same subscribe command with --wait while the payment is in progress")
+			}
+			if err := waitForCreatorSubscriptionPayment(command.Context(), runtime, order.OrderNo, wait); err != nil {
+				return err
+			}
+			return runtime.business(map[string]any{
+				"subscribed": true, "creatorHandle": creatorHandle,
+				"orderNo": order.OrderNo, "amountCents": order.AmountCents,
+				"nextAction": "EVERY_PAID_SKILL_OF_THIS_CREATOR_IS_NOW_UNLOCKED",
+			})
+		},
+	}
+	command.Flags().DurationVar(&wait, "wait", 5*time.Minute, "wait up to this duration for the WeChat QR payment; 0 presents the QR without waiting")
+	return command
+}
+
+// openCreatorSubscriptionOrder opens a WeChat NATIVE subscription order and
+// renders its payment QR as a local image; the provider URI never reaches
+// stdout.
+func openCreatorSubscriptionOrder(ctx context.Context, runtime *Runtime, creatorHandle string) (api.PaymentOrder, *api.CommercePaymentPresentation, error) {
+	request, _ := json.Marshal(map[string]any{
+		"creatorHandle":   creatorHandle,
+		"clientRequestId": runtime.deps.NewID(),
+		"paymentProvider": "WECHAT_PAY",
+		"paymentScene":    "NATIVE",
+		"locale":          localeForRuntimeMarket(runtime),
+	})
+	created, err := runtime.client().CreateCreatorSubscriptionOrder(ctx, request)
+	if err != nil {
+		return api.PaymentOrder{}, nil, err
+	}
+	order := api.CommerceOrder{
+		OrderNo:         created.Order.OrderNo,
+		Status:          created.Order.Status,
+		AmountCents:     created.Order.AmountCents,
+		PaymentProvider: created.Order.Provider,
+		PaymentAction:   created.Action,
+		ExpiresAt:       created.Order.ExpiresAt,
+	}
+	if err := prepareCommercePaymentPresentation(runtime, &order); err != nil {
+		return created.Order, nil, err
+	}
+	if order.PaymentPresentation != nil {
+		amount := formatCentsAsYuan(created.Order.AmountCents)
+		progress(runtime, "微信支付二维码已生成（订阅订单 "+created.Order.OrderNo+"，"+amount+"，"+created.Order.ExpiresAt+" 前有效）："+order.PaymentPresentation.ImagePath)
+		progress(runtime, "请扫码完成支付；支付到账后订阅生效，该创作者全部付费 Skill 解锁")
+	}
+	return created.Order, order.PaymentPresentation, nil
+}
+
+func waitForCreatorSubscriptionPayment(ctx context.Context, runtime *Runtime, orderNo string, timeout time.Duration) error {
+	if timeout <= 0 {
+		return output.Validation("CREATOR_SUBSCRIPTION_WAIT_INVALID", "--wait must be positive to wait for the QR payment")
+	}
+	deadline := runtime.deps.Now().Add(timeout)
+	for {
+		status, err := runtime.client().GetCreatorSubscriptionOrderStatus(ctx, orderNo)
+		if err != nil {
+			return err
+		}
+		switch status.Order.Status {
+		case "PAID":
+			if err := removeCommercePaymentPresentation(runtime, orderNo); err != nil {
+				return output.Internal("COMMERCE_PAYMENT_PRESENTATION_CLEANUP_FAILED", "the payment is terminal but its local QR image could not be removed", err)
+			}
+			return nil
+		case "CLOSED", "CANCELLED":
+			if err := removeCommercePaymentPresentation(runtime, orderNo); err != nil {
+				return output.Internal("COMMERCE_PAYMENT_PRESENTATION_CLEANUP_FAILED", "the payment is terminal but its local QR image could not be removed", err)
+			}
+			return output.Policy("CREATOR_SUBSCRIPTION_ORDER_CLOSED", "the pending subscription order expired or was closed before payment").
+				WithDetails(map[string]any{"orderNo": orderNo}).
+				WithHint("rerun the same subscribe command to open a fresh order")
+		}
+		if !runtime.deps.Now().Before(deadline) {
+			return output.Confirmation("CREATOR_SUBSCRIPTION_PURCHASE_PENDING", "payment was not observed before the wait deadline").
+				WithDetails(map[string]any{"orderNo": orderNo}).
+				WithHint("after the user finishes the scan payment, rerun the same subscribe command")
+		}
+		remaining := deadline.Sub(runtime.deps.Now())
+		delay := 2 * time.Second
+		if remaining < delay {
+			delay = remaining
+		}
+		if err := runtime.deps.Sleep(ctx, delay); err != nil {
+			return output.Network("CREATOR_SUBSCRIPTION_WAIT_INTERRUPTED", "the subscription payment wait was interrupted", err)
+		}
+	}
 }
 
 func newSubscriptionShowCommand(runtime *Runtime) *cobra.Command {

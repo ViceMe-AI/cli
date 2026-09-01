@@ -35,15 +35,15 @@
       "skill_version": "0.22.2",
       "minimum_cli_version": "0.22.2",
       "cli_compatibility": ">=0.22.2 <0.23.0",
-      "full_skill_bundle_digest": "sha256:eb031815c9676e0b320251b276ad8a3ec7af62051ef3fe9db9ef4dee6ebd6af1",
-      "embedded_content_digest": "sha256:39a90a2f97dc509f156e53f92f6d0ff3cf06367971996bbe976c89f9b2108385"
+      "full_skill_bundle_digest": "sha256:4f9d348dd385b173310be66c4a9ea06adfbed13bba06b084da89fdeea7e54113",
+      "embedded_content_digest": "sha256:7fa0cc04276c0ab9777fbc76973f565c23c02cfd24ead304b951d8ca10b9dcde"
     },
     "viceme-skill-use": {
       "skill_version": "0.22.2",
       "minimum_cli_version": "0.22.2",
       "cli_compatibility": ">=0.22.2 <0.23.0",
-      "full_skill_bundle_digest": "sha256:91c19a8ed7b8e4ae0cff8c394e380cc85dfecb58456e48f9ec485f70115c4b1e",
-      "embedded_content_digest": "sha256:c1b5e974cc79042799fca10651f503e13de7f7231430eb1088e4a04202738106"
+      "full_skill_bundle_digest": "sha256:52dabebe1d30763c3f42de2e994758fdf105be630216c0ab33f2da4ed644f119",
+      "embedded_content_digest": "sha256:b0dea8ea6fa25ec9e5131dc5d23927d7f812ee3e842b71c3a330df01eda4efb4"
     }
   },
   "bootstrap_contract_digest": "sha256:d9289bc5a7d64777052bb332aa8d51777ab456c3adad27e5130900b2c33b0aa2",
