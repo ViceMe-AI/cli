@@ -194,10 +194,16 @@ func (response *CompleteWebsiteReplicaUploadResponse) validateAPIResponse() erro
 	if response == nil || !zodUUIDPattern.MatchString(response.ReplicaID) || !zodUUIDPattern.MatchString(response.VersionID) ||
 		!validPositiveSafeInteger(response.Version) || !websiteReplicaCodePattern.MatchString(response.ShortCode) ||
 		response.Instruction != "VICEME-REPLICA:"+response.ShortCode || validateWebsiteReplicaProduct(response.Product) != nil ||
+		!validWebsiteReplicaBuyerEntry(response.BuyerEntry, response.Instruction) ||
 		!validZodDatetime(response.PublishedAt) {
 		return errors.New("Website Replica publication response is invalid")
 	}
 	return nil
+}
+
+func validWebsiteReplicaBuyerEntry(entry WebsiteReplicaBuyerEntry, instruction string) bool {
+	return entry.Instruction == instruction && utf16CodeUnits(entry.Prompts.ZH) >= 1 && utf16CodeUnits(entry.Prompts.ZH) <= 2000 &&
+		utf16CodeUnits(entry.Prompts.EN) >= 1 && utf16CodeUnits(entry.Prompts.EN) <= 2000 && validAbsoluteURL(entry.ViceMeWorkURL)
 }
 
 func (response *WebsiteReplicaResolution) validateAPIResponse() error {

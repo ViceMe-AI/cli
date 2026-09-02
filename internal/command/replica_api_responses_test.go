@@ -48,13 +48,22 @@ func replicaQuoteResponse(quoteID string) map[string]any {
 }
 
 func replicaPublicationResponse(replicaID, versionID, shortCode string) map[string]any {
+	instruction := "VICEME-REPLICA:" + shortCode
 	return map[string]any{
 		"replicaId":   replicaID,
 		"versionId":   versionID,
 		"version":     1,
 		"shortCode":   shortCode,
-		"instruction": "VICEME-REPLICA:" + shortCode,
+		"instruction": instruction,
 		"product":     replicaProductResponse(),
+		"buyerEntry": map[string]any{
+			"instruction": instruction,
+			"prompts": map[string]any{
+				"zh-CN": "先展示真实 Quote，明确确认后再追加 --confirm。",
+				"en-US": "Show the authoritative quote, then append --confirm only after explicit confirmation.",
+			},
+			"viceMeWorkUrl": "https://viceme.example/replica-maker/replica-source",
+		},
 		"publishedAt": time.Now().UTC().Format(time.RFC3339),
 	}
 }

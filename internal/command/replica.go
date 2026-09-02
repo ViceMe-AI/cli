@@ -1,10 +1,10 @@
 package command
 
 import (
-	"archive/zip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/privatepath"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
 	"github.com/spf13/cobra"
 )
@@ -25,8 +26,9 @@ var (
 )
 
 type replicaPublishResult struct {
-	ReplicaID   string `json:"replicaId"`
-	ReplicaCode string `json:"replicaCode"`
+	ReplicaID   string                       `json:"replicaId"`
+	ReplicaCode string                       `json:"replicaCode"`
+	BuyerEntry  api.WebsiteReplicaBuyerEntry `json:"buyerEntry"`
 }
 
 func newReplicaCommand(runtime *Runtime) *cobra.Command {
@@ -80,7 +82,11 @@ func publishReplica(ctx context.Context, runtime *Runtime, source, workID, title
 	if err != nil {
 		return replicaPublishResult{}, err
 	}
-	defer file.Close()
+	snapshotPath := file.Name()
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(snapshotPath)
+	}()
 
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
@@ -124,7 +130,10 @@ func publishReplica(ctx context.Context, runtime *Runtime, source, workID, title
 	if !replicaPublicationMatchesRequest(completed, created.ReplicaID, title, priceCents) {
 		return replicaPublishResult{}, invalidReplicaResponse("Website Replica completion does not match the publication request")
 	}
-	return replicaPublishResult{ReplicaID: created.ReplicaID, ReplicaCode: "VICEME-REPLICA:" + completed.ShortCode}, nil
+	return replicaPublishResult{
+		ReplicaID: created.ReplicaID, ReplicaCode: "VICEME-REPLICA:" + completed.ShortCode,
+		BuyerEntry: completed.BuyerEntry,
+	}, nil
 }
 
 func replicaPublicationMatchesRequest(completed api.CompleteWebsiteReplicaUploadResponse, replicaID, title string, priceCents int) bool {
@@ -143,26 +152,57 @@ func openReplicaArchive(filename string) (*os.File, fs.FileInfo, error) {
 	if !pathInfo.Mode().IsRegular() || pathInfo.Mode()&os.ModeSymlink != 0 {
 		return nil, nil, output.Validation("REPLICA_ARCHIVE_INVALID", "Website Replica source must be a regular ZIP file")
 	}
-	file, err := os.Open(filename)
+	source, err := os.Open(filename)
 	if err != nil {
 		return nil, nil, output.Validation("REPLICA_ARCHIVE_READ_FAILED", "could not open the Website Replica ZIP").WithCause(err)
 	}
-	fail := func(err error) (*os.File, fs.FileInfo, error) {
-		_ = file.Close()
-		return nil, nil, err
-	}
-	info, err := file.Stat()
+	defer source.Close()
+
+	info, err := source.Stat()
 	if err != nil {
-		return fail(output.Validation("REPLICA_ARCHIVE_READ_FAILED", "could not inspect the opened Website Replica ZIP").WithCause(err))
+		return nil, nil, output.Validation("REPLICA_ARCHIVE_READ_FAILED", "could not inspect the opened Website Replica ZIP").WithCause(err)
 	}
 	if !info.Mode().IsRegular() || !os.SameFile(pathInfo, info) {
-		return fail(output.Validation("REPLICA_ARCHIVE_INVALID", "Website Replica source changed while it was opened"))
+		return nil, nil, output.Validation("REPLICA_ARCHIVE_INVALID", "Website Replica source changed while it was opened")
 	}
 	if info.Size() <= 0 || info.Size() > replicacontent.MaxArchiveBytes {
-		return fail(output.Validation("REPLICA_ARCHIVE_SIZE_INVALID", fmt.Sprintf("Website Replica ZIP must be between 1 byte and %d bytes", replicacontent.MaxArchiveBytes)))
+		return nil, nil, output.Validation("REPLICA_ARCHIVE_INVALID", fmt.Sprintf("Website Replica ZIP must be between 1 byte and %d bytes", replicacontent.MaxArchiveBytes))
 	}
-	if _, err := zip.NewReader(file, info.Size()); err != nil {
-		return fail(output.Validation("REPLICA_ARCHIVE_INVALID", "Website Replica source is not a valid ZIP archive").WithCause(err))
+
+	file, err := privatepath.CreateTempFile(os.TempDir(), ".viceme-replica-publish-*.zip")
+	if err != nil {
+		return nil, nil, output.Internal("REPLICA_ARCHIVE_SNAPSHOT_FAILED", "could not create a private Website Replica ZIP snapshot", err)
+	}
+	snapshotPath := file.Name()
+	fail := func(err error) (*os.File, fs.FileInfo, error) {
+		_ = file.Close()
+		_ = os.Remove(snapshotPath)
+		return nil, nil, err
+	}
+	if _, err := io.Copy(file, io.LimitReader(source, replicacontent.MaxArchiveBytes+1)); err != nil {
+		return fail(output.Validation("REPLICA_ARCHIVE_READ_FAILED", "could not snapshot the Website Replica ZIP").WithCause(err))
+	}
+	info, err = file.Stat()
+	if err != nil {
+		return fail(output.Internal("REPLICA_ARCHIVE_SNAPSHOT_FAILED", "could not inspect the Website Replica ZIP snapshot", err))
+	}
+	if info.Size() <= 0 || info.Size() > replicacontent.MaxArchiveBytes {
+		return fail(output.Validation("REPLICA_ARCHIVE_INVALID", fmt.Sprintf("Website Replica ZIP must be between 1 byte and %d bytes", replicacontent.MaxArchiveBytes)))
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return fail(output.Internal("REPLICA_ARCHIVE_REWIND_FAILED", "could not rewind the Website Replica ZIP snapshot", err))
+	}
+	if err := replicacontent.ValidatePublishArchive(file, info.Size()); err != nil {
+		if errors.Is(err, replicacontent.ErrDeploymentGuide) {
+			return fail(output.Validation(
+				"REPLICA_DEPLOYMENT_GUIDE_INVALID",
+				fmt.Sprintf("Website Replica ZIP must contain a non-empty UTF-8 root %s no larger than %d bytes", replicacontent.DeploymentGuideFile, replicacontent.MaxDeploymentGuideBytes),
+			).WithCause(err))
+		}
+		return fail(output.Validation("REPLICA_ARCHIVE_INVALID", "Website Replica source is not a safe readable ZIP archive").WithCause(err))
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return fail(output.Internal("REPLICA_ARCHIVE_REWIND_FAILED", "could not rewind the Website Replica ZIP snapshot", err))
 	}
 	return file, info, nil
 }

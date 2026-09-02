@@ -163,7 +163,16 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 			return nil
 		},
 	}
-	exit := Execute(arguments, dependencies)
+	if previewExit := Execute(arguments, dependencies); previewExit != output.ExitConfirmation {
+		t.Fatalf("replica quote was not presented before purchase: exit=%d stdout=%q", previewExit, stdout.String())
+	}
+	if orderCalls.Load() != 0 || statusCalls.Load() != 0 || objectDownloads.Load() != 0 {
+		t.Fatalf("quote presentation started the purchase: orders=%d statuses=%d downloads=%d", orderCalls.Load(), statusCalls.Load(), objectDownloads.Load())
+	}
+	stdout.Reset()
+	stderr.Reset()
+	confirmedArguments := append(append([]string{}, arguments...), "--confirm")
+	exit := Execute(confirmedArguments, dependencies)
 	if exit != 0 {
 		t.Fatalf("replica install failed: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
 	}
@@ -218,7 +227,12 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	dependencies.Out = &ownedOutput
 	dependencies.NewID = nextRequestID
 	ownedArguments := []string{"replica", "install", fullCode, "--target", secondTarget, "--locale", "zh-CN"}
-	if ownedExit := Execute(ownedArguments, dependencies); ownedExit != 0 {
+	if ownedPreviewExit := Execute(ownedArguments, dependencies); ownedPreviewExit != output.ExitConfirmation {
+		t.Fatalf("owned Website Replica quote was not presented: exit=%d output=%q", ownedPreviewExit, ownedOutput.String())
+	}
+	ownedOutput.Reset()
+	ownedConfirmedArguments := append(append([]string{}, ownedArguments...), "--confirm")
+	if ownedExit := Execute(ownedConfirmedArguments, dependencies); ownedExit != 0 {
 		t.Fatalf("owned Website Replica was not installed to a new target: exit=%d output=%q", ownedExit, ownedOutput.String())
 	}
 	if content, err := os.ReadFile(filepath.Join(secondTarget, "index.html")); err != nil || string(content) != "<h1>Purchased replica</h1>" {
@@ -443,7 +457,13 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 		OpenURL: func(context.Context, string) error { return nil },
 		Sleep:   func(context.Context, time.Duration) error { return context.Canceled },
 	}
-	if exit := Execute([]string{"replica", "install", fullCode, "--target", target}, base); exit == 0 {
+	if exit := Execute([]string{"replica", "install", fullCode, "--target", target}, base); exit != output.ExitConfirmation {
+		t.Fatalf("purchase quote was not presented before order creation: exit=%d", exit)
+	}
+	if quoteCalls.Load() != 1 || orderCalls.Load() != 0 {
+		t.Fatalf("quote presentation created an order: quotes=%d orders=%d", quoteCalls.Load(), orderCalls.Load())
+	}
+	if exit := Execute([]string{"replica", "install", fullCode, "--target", target, "--confirm"}, base); exit == 0 {
 		t.Fatal("interrupted purchase unexpectedly succeeded")
 	}
 	recoveryFiles, err := filepath.Glob(filepath.Join(root, "config", "replica-purchases", "*.json"))

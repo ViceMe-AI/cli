@@ -355,10 +355,19 @@ func replicaUploadResponse() map[string]any {
 }
 
 func replicaPublicationResponse() map[string]any {
+	instruction := "VICEME-REPLICA:" + testShortCode
 	return map[string]any{
 		"replicaId": testReplicaID, "versionId": testVersionID, "version": 1,
-		"shortCode": testShortCode, "instruction": "VICEME-REPLICA:" + testShortCode,
+		"shortCode": testShortCode, "instruction": instruction,
 		"product": replicaProductResponse(), "publishedAt": testReplicaTimestamp,
+		"buyerEntry": map[string]any{
+			"instruction": instruction,
+			"prompts": map[string]any{
+				"zh-CN": "展示真实 Quote，确认后再创建订单。",
+				"en-US": "Show the real quote and create an order only after confirmation.",
+			},
+			"viceMeWorkUrl": "https://viceme.example/replica-maker/replica-source",
+		},
 	}
 }
 

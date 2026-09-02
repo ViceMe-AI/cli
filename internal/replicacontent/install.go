@@ -45,6 +45,7 @@ var (
 	pathUpperCaser           = cases.Upper(language.Und)
 	errInstalledTreeMismatch = errors.New("installed Website Replica tree does not match the archive")
 	installTestCrashHook     func(string)
+	ErrDeploymentGuide       = errors.New("Website Replica deployment guide is invalid")
 )
 
 type LicenseRecord struct {
@@ -81,6 +82,66 @@ type pathNode struct {
 }
 
 func AtomicInstallSupported() bool { return atomicInstallSupported() }
+
+// ValidatePublishArchive performs the full bounded ZIP validation before a
+// creator uploads source bytes. It uses ReaderAt operations and leaves the
+// caller's file cursor unchanged.
+func ValidatePublishArchive(file *os.File, size int64) error {
+	entries, err := validateArchiveStructure(file, size)
+	if err != nil {
+		return err
+	}
+	reader, err := zip.NewReader(file, size)
+	if err != nil {
+		return fmt.Errorf("open Website Replica ZIP directory: %w", err)
+	}
+	if err := validateZIPReader(reader, entries); err != nil {
+		return err
+	}
+	plan, err := inspectArchive(reader)
+	if err != nil {
+		return err
+	}
+	foundGuide := false
+	foundSource := false
+	for _, file := range plan.files {
+		input, err := file.entry.Open()
+		if err != nil {
+			return fmt.Errorf("open Website Replica ZIP entry: %w", err)
+		}
+		checksum := crc32.NewIEEE()
+		var destination io.Writer = checksum
+		var guide bytes.Buffer
+		if file.name == DeploymentGuideFile {
+			foundGuide = true
+			if file.entry.UncompressedSize64 == 0 || file.entry.UncompressedSize64 > MaxDeploymentGuideBytes {
+				_ = input.Close()
+				return ErrDeploymentGuide
+			}
+			destination = io.MultiWriter(checksum, &guide)
+		} else {
+			foundSource = true
+		}
+		written, copyErr := io.Copy(destination, io.LimitReader(input, int64(file.entry.UncompressedSize64)+1))
+		closeErr := input.Close()
+		if copyErr != nil || closeErr != nil {
+			return fmt.Errorf("read Website Replica ZIP entry: %w", errors.Join(copyErr, closeErr))
+		}
+		if uint64(written) != file.entry.UncompressedSize64 || checksum.Sum32() != file.entry.CRC32 {
+			return errors.New("Website Replica ZIP entry payload does not match its metadata")
+		}
+		if file.name == DeploymentGuideFile && (!utf8.Valid(guide.Bytes()) || len(bytes.TrimSpace(guide.Bytes())) == 0) {
+			return ErrDeploymentGuide
+		}
+	}
+	if !foundGuide {
+		return ErrDeploymentGuide
+	}
+	if !foundSource {
+		return errors.New("Website Replica ZIP does not contain source files")
+	}
+	return nil
+}
 
 type installJournal struct {
 	SchemaVersion int    `json:"schemaVersion"`

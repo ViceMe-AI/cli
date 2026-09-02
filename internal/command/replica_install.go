@@ -43,12 +43,13 @@ type replicaInstallResult struct {
 func newReplicaInstallCommand(runtime *Runtime) *cobra.Command {
 	var target, locale string
 	var timeout, interval time.Duration
+	var confirm bool
 	command := &cobra.Command{
 		Use:   "install <replica-code>",
 		Short: "Purchase and atomically install one Website Replica source package",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			result, err := installReplica(command.Context(), runtime, args[0], target, locale, timeout, interval)
+			result, err := installReplica(command.Context(), runtime, args[0], target, locale, timeout, interval, confirm)
 			if err != nil {
 				return err
 			}
@@ -59,11 +60,12 @@ func newReplicaInstallCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&locale, "locale", "zh-CN", "localized checkout presentation: zh-CN or en-US")
 	command.Flags().DurationVar(&timeout, "timeout", 20*time.Minute, "maximum time to wait for payment")
 	command.Flags().DurationVar(&interval, "interval", 1500*time.Millisecond, "payment status poll interval")
+	command.Flags().BoolVar(&confirm, "confirm", false, "create the order for the previously presented quote")
 	_ = command.MarkFlagRequired("target")
 	return command
 }
 
-func installReplica(ctx context.Context, runtime *Runtime, code, target, locale string, timeout, interval time.Duration) (replicaInstallResult, error) {
+func installReplica(ctx context.Context, runtime *Runtime, code, target, locale string, timeout, interval time.Duration, confirm bool) (replicaInstallResult, error) {
 	shortCode, err := parseReplicaCode(code)
 	if err != nil {
 		return replicaInstallResult{}, err
@@ -88,7 +90,7 @@ func installReplica(ctx context.Context, runtime *Runtime, code, target, locale 
 	var result replicaInstallResult
 	err = store.withLock(func() error {
 		var installErr error
-		result, installErr = installReplicaLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval)
+		result, installErr = installReplicaLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, confirm)
 		return installErr
 	})
 	return result, err
@@ -104,6 +106,7 @@ func installReplicaLocked(
 	locale string,
 	timeout time.Duration,
 	interval time.Duration,
+	confirm bool,
 ) (replicaInstallResult, error) {
 	if err := runtime.requireWebsiteReplicaAuthentication(ctx, "website-replica:read", "website-replica:purchase"); err != nil {
 		return replicaInstallResult{}, err
@@ -136,6 +139,7 @@ func installReplicaLocked(
 	if err != nil {
 		return replicaInstallResult{}, err
 	}
+	quotePresentedBeforeInvocation := exists && state.QuoteID != ""
 	if exists && state.Target != absTarget {
 		return replicaInstallResult{}, replicaPurchaseConflict(
 			state,
@@ -195,11 +199,18 @@ func installReplicaLocked(
 			return replicaInstallResult{}, invalidReplicaResponse("Website Replica quote does not match the resolved product")
 		}
 		state.QuoteID = quote.ID
+		state.QuoteExpiresAt = quote.ExpiresAt
 		if err := store.save(&state); err != nil {
 			return replicaInstallResult{}, err
 		}
 	}
 	if state.OrderRequestID == "" {
+		if expiresAt, valid := parseReplicaStateDatetime(state.QuoteExpiresAt); valid && !runtime.deps.Now().Before(expiresAt) {
+			return refreshReplicaQuote(ctx, runtime, store, state, code, shortCode, absTarget, locale, timeout, interval, confirm)
+		}
+		if !confirm || !quotePresentedBeforeInvocation {
+			return replicaInstallResult{}, replicaQuoteConfirmation(state)
+		}
 		state.OrderRequestID, err = runtime.newReplicaRequestID()
 		if err != nil {
 			return replicaInstallResult{}, err
@@ -240,7 +251,7 @@ func installReplicaLocked(
 				return installOwnedReplica(ctx, runtime, store, state, client, shortCode, absTarget)
 			}
 			if output.AsError(err).Subtype == "QUOTE_EXPIRED" {
-				_ = store.retire(state)
+				return refreshReplicaQuote(ctx, runtime, store, state, code, shortCode, absTarget, locale, timeout, interval, confirm)
 			}
 			return replicaInstallResult{}, err
 		}
@@ -270,6 +281,42 @@ func installReplicaLocked(
 		return replicaInstallResult{}, err
 	}
 	return installReplicaDownload(ctx, runtime, store, state, client, shortCode, order.OrderNo, absTarget)
+}
+
+func refreshReplicaQuote(
+	ctx context.Context,
+	runtime *Runtime,
+	store replicaPurchaseStore,
+	state replicaPurchaseState,
+	code string,
+	shortCode string,
+	target string,
+	locale string,
+	timeout time.Duration,
+	interval time.Duration,
+	confirm bool,
+) (replicaInstallResult, error) {
+	if err := store.retire(state); err != nil {
+		return replicaInstallResult{}, err
+	}
+	return installReplicaLocked(ctx, runtime, store, code, shortCode, target, locale, timeout, interval, confirm)
+}
+
+func replicaQuoteConfirmation(state replicaPurchaseState) error {
+	return output.Confirmation(
+		"REPLICA_PURCHASE_CONFIRMATION_REQUIRED",
+		"confirm the Website Replica quote before creating an order",
+	).WithDetails(map[string]any{
+		"replicaId":        state.ReplicaID,
+		"replicaCode":      "VICEME-REPLICA:" + state.ShortCode,
+		"productId":        state.ProductID,
+		"title":            state.ProductTitle,
+		"currency":         state.Currency,
+		"totalAmountCents": state.PriceCents,
+		"quoteId":          state.QuoteID,
+		"expiresAt":        state.QuoteExpiresAt,
+		"target":           state.Target,
+	}).WithHint("show the exact product, price, and quote expiry to the user; only after explicit confirmation rerun the same install command with --confirm")
 }
 
 func installOwnedReplica(

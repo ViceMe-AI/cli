@@ -17,6 +17,7 @@ import (
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/config"
+	"github.com/ViceMe-AI/cli/internal/replicacontent"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
@@ -125,12 +126,22 @@ func TestReplicaPublishUsesAuthenticatedControlAPIAndCredentialFreePresignedUplo
 		Data struct {
 			ReplicaID   string `json:"replicaId"`
 			ReplicaCode string `json:"replicaCode"`
+			BuyerEntry  struct {
+				Instruction string `json:"instruction"`
+				Prompts     struct {
+					ZH string `json:"zh-CN"`
+					EN string `json:"en-US"`
+				} `json:"prompts"`
+				ViceMeWorkURL string `json:"viceMeWorkUrl"`
+			} `json:"buyerEntry"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("invalid command output: %v: %s", err, stdout.String())
 	}
-	if !envelope.OK || envelope.Data.ReplicaID != replicaID || envelope.Data.ReplicaCode != "VICEME-REPLICA:"+shortCode {
+	if !envelope.OK || envelope.Data.ReplicaID != replicaID || envelope.Data.ReplicaCode != "VICEME-REPLICA:"+shortCode ||
+		envelope.Data.BuyerEntry.Instruction != envelope.Data.ReplicaCode || envelope.Data.BuyerEntry.Prompts.ZH == "" ||
+		envelope.Data.BuyerEntry.Prompts.EN == "" || envelope.Data.BuyerEntry.ViceMeWorkURL == "" {
 		t.Fatalf("unexpected publication output: %#v", envelope)
 	}
 	for _, output := range []string{stdout.String(), stderr.String()} {
@@ -170,12 +181,132 @@ func TestReplicaPublicationResponseMustMatchRequestedMetadata(t *testing.T) {
 	}
 }
 
+func TestOpenReplicaArchiveSnapshotsValidatedBytes(t *testing.T) {
+	original := replicaTestZIP(t, map[string]string{"index.html": "original"})
+	changed := replicaTestZIP(t, map[string]string{"index.html": "modified"})
+	archivePath := filepath.Join(t.TempDir(), "source.zip")
+	if err := os.WriteFile(archivePath, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	file, info, err := openReplicaArchive(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshotPath := file.Name()
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(snapshotPath)
+	}()
+	if err := os.WriteFile(archivePath, changed, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	uploaded, err := io.ReadAll(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Size() != int64(len(original)) || !bytes.Equal(uploaded, original) {
+		t.Fatal("archive snapshot changed after the source path was rewritten")
+	}
+}
+
+func TestReplicaPublishRejectsInvalidArchiveBeforeAuthentication(t *testing.T) {
+	const workID = "22222222-2222-4222-8222-222222222222"
+	tests := []struct {
+		name         string
+		archive      func(*testing.T) []byte
+		expectedCode string
+	}{
+		{
+			name:         "empty archive",
+			archive:      func(*testing.T) []byte { return nil },
+			expectedCode: "REPLICA_ARCHIVE_INVALID",
+		},
+		{
+			name: "deployment guide without source",
+			archive: func(t *testing.T) []byte {
+				return rawReplicaTestZIP(t, map[string]string{
+					replicacontent.DeploymentGuideFile: "# Deployment\n",
+				})
+			},
+			expectedCode: "REPLICA_ARCHIVE_INVALID",
+		},
+		{
+			name: "oversized deployment guide",
+			archive: func(t *testing.T) []byte {
+				return rawReplicaTestZIP(t, map[string]string{
+					replicacontent.DeploymentGuideFile: strings.Repeat("a", int(replicacontent.MaxDeploymentGuideBytes)+1),
+					"index.html":                       "source",
+				})
+			},
+			expectedCode: "REPLICA_DEPLOYMENT_GUIDE_INVALID",
+		},
+		{
+			name: "missing deployment guide",
+			archive: func(t *testing.T) []byte {
+				return rawReplicaTestZIP(t, map[string]string{"index.html": "source"})
+			},
+			expectedCode: "REPLICA_DEPLOYMENT_GUIDE_INVALID",
+		},
+		{
+			name: "corrupt payload",
+			archive: func(t *testing.T) []byte {
+				archive := replicaTestZIP(t, map[string]string{"index.html": "UNIQUE-SOURCE-PAYLOAD"})
+				index := bytes.Index(archive, []byte("UNIQUE-SOURCE-PAYLOAD"))
+				if index < 0 {
+					t.Fatal("test ZIP payload was not stored")
+				}
+				archive[index] ^= 0xff
+				return archive
+			},
+			expectedCode: "REPLICA_ARCHIVE_INVALID",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			archivePath := filepath.Join(root, "source.zip")
+			if err := os.WriteFile(archivePath, test.archive(t), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			var stdout bytes.Buffer
+			exit := Execute([]string{
+				"replica", "publish", "--path", archivePath, "--work-id", workID,
+				"--title", "Replica", "--price-cents", "990",
+			}, Dependencies{
+				Out: &stdout, ErrOut: io.Discard, Store: securestore.NewMemory(),
+				Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+				Region:      config.RegionCN, APIBaseURL: "http://127.0.0.1:1",
+				NewID: func() string {
+					t.Fatal("invalid archive reached request identity creation")
+					return ""
+				},
+			})
+			if exit == 0 || !strings.Contains(stdout.String(), test.expectedCode) {
+				t.Fatalf("invalid archive was not rejected locally: exit=%d output=%q", exit, stdout.String())
+			}
+		})
+	}
+}
+
 func replicaTestZIP(t *testing.T, files map[string]string) []byte {
+	t.Helper()
+	copy := make(map[string]string, len(files)+1)
+	for name, content := range files {
+		copy[name] = content
+	}
+	if _, exists := copy[replicacontent.DeploymentGuideFile]; !exists {
+		copy[replicacontent.DeploymentGuideFile] = "# Deployment\n\nRun the verified project deployment commands.\n"
+	}
+	return rawReplicaTestZIP(t, copy)
+}
+
+func rawReplicaTestZIP(t *testing.T, files map[string]string) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
 	writer := zip.NewWriter(&buffer)
 	for name, content := range files {
-		entry, err := writer.Create(name)
+		entry, err := writer.CreateHeader(&zip.FileHeader{Name: name, Method: zip.Store})
 		if err != nil {
 			t.Fatal(err)
 		}

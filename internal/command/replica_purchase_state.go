@@ -42,6 +42,7 @@ type replicaPurchaseState struct {
 	Reservation    string    `json:"reservation"`
 	QuoteRequestID string    `json:"quoteRequestId"`
 	QuoteID        string    `json:"quoteId,omitempty"`
+	QuoteExpiresAt string    `json:"quoteExpiresAt,omitempty"`
 	OrderRequestID string    `json:"orderRequestId,omitempty"`
 	Locale         string    `json:"locale,omitempty"`
 	OrderNo        string    `json:"orderNo,omitempty"`
@@ -194,7 +195,7 @@ func readReplicaBoundedFile(filename string, maxBytes int64) ([]byte, error) {
 func (store replicaPurchaseStore) create(quoteRequestID string) replicaPurchaseState {
 	now := store.now().UTC()
 	return replicaPurchaseState{
-		SchemaVersion: 3, APIOrigin: store.origin, ShortCode: store.shortCode,
+		SchemaVersion: 4, APIOrigin: store.origin, ShortCode: store.shortCode,
 		Target: store.target, TargetParentID: store.targetParentID, QuoteRequestID: quoteRequestID,
 		CreatedAt: now, UpdatedAt: now,
 	}
@@ -391,7 +392,7 @@ func (store replicaPurchaseStore) retire(state replicaPurchaseState) error {
 }
 
 func (store replicaPurchaseStore) valid(state replicaPurchaseState) bool {
-	if state.SchemaVersion != 3 || state.APIOrigin != store.origin || state.ShortCode != store.shortCode ||
+	if state.SchemaVersion != 4 || state.APIOrigin != store.origin || state.ShortCode != store.shortCode ||
 		!filepath.IsAbs(state.Target) || filepath.Clean(state.Target) != state.Target ||
 		state.TargetParentID != store.targetParentID ||
 		!validReplicaReservation(state.Reservation) ||
@@ -405,7 +406,11 @@ func (store replicaPurchaseStore) valid(state replicaPurchaseState) bool {
 		(state.Currency != "CNY" && state.Currency != "USD") || state.PriceCents < 1 || state.PriceCents > 10_000_000) {
 		return false
 	}
-	if state.QuoteID != "" && (!hasBinding || !replicaUUIDPattern.MatchString(state.QuoteID)) {
+	if state.QuoteID != "" {
+		if !hasBinding || !replicaUUIDPattern.MatchString(state.QuoteID) || !validReplicaStateDatetime(state.QuoteExpiresAt) {
+			return false
+		}
+	} else if state.QuoteExpiresAt != "" {
 		return false
 	}
 	if state.OrderRequestID != "" && (state.QuoteID == "" || !replicaUUIDPattern.MatchString(state.OrderRequestID) ||
@@ -458,27 +463,32 @@ func validReplicaReservation(value string) bool {
 }
 
 func validReplicaStateDatetime(value string) bool {
-	if _, err := time.Parse(time.RFC3339Nano, value); err == nil {
-		return true
+	_, valid := parseReplicaStateDatetime(value)
+	return valid
+}
+
+func parseReplicaStateDatetime(value string) (time.Time, bool) {
+	if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+		return parsed, true
 	}
-	if _, err := time.Parse("2006-01-02T15:04Z", value); err == nil {
-		return true
+	if parsed, err := time.Parse("2006-01-02T15:04Z", value); err == nil {
+		return parsed, true
 	}
 	dot := strings.LastIndexByte(value, '.')
 	if dot < 0 || !strings.HasSuffix(value, "Z") {
-		return false
+		return time.Time{}, false
 	}
 	fraction := value[dot+1 : len(value)-1]
 	if len(fraction) <= 9 {
-		return false
+		return time.Time{}, false
 	}
 	for _, digit := range fraction {
 		if digit < '0' || digit > '9' {
-			return false
+			return time.Time{}, false
 		}
 	}
-	_, err := time.Parse(time.RFC3339Nano, value[:dot+1]+fraction[:9]+"Z")
-	return err == nil
+	parsed, err := time.Parse(time.RFC3339Nano, value[:dot+1]+fraction[:9]+"Z")
+	return parsed, err == nil
 }
 
 func (state replicaPurchaseState) describe() map[string]any {

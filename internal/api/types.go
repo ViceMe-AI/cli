@@ -771,13 +771,25 @@ type WebsiteReplicaProduct struct {
 }
 
 type CompleteWebsiteReplicaUploadResponse struct {
-	ReplicaID   string                `json:"replicaId"`
-	VersionID   string                `json:"versionId"`
-	Version     int                   `json:"version"`
-	ShortCode   string                `json:"shortCode"`
-	Instruction string                `json:"instruction"`
-	Product     WebsiteReplicaProduct `json:"product"`
-	PublishedAt string                `json:"publishedAt"`
+	ReplicaID   string                   `json:"replicaId"`
+	VersionID   string                   `json:"versionId"`
+	Version     int                      `json:"version"`
+	ShortCode   string                   `json:"shortCode"`
+	Instruction string                   `json:"instruction"`
+	Product     WebsiteReplicaProduct    `json:"product"`
+	BuyerEntry  WebsiteReplicaBuyerEntry `json:"buyerEntry"`
+	PublishedAt string                   `json:"publishedAt"`
+}
+
+type WebsiteReplicaBuyerEntry struct {
+	Instruction   string                     `json:"instruction"`
+	Prompts       WebsiteReplicaBuyerPrompts `json:"prompts"`
+	ViceMeWorkURL string                     `json:"viceMeWorkUrl"`
+}
+
+type WebsiteReplicaBuyerPrompts struct {
+	ZH string `json:"zh-CN"`
+	EN string `json:"en-US"`
 }
 
 type ResolveWebsiteReplicaRequest struct {
