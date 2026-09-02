@@ -1,5 +1,5 @@
 ---
-name: viceme-skill-use
+name: use-a-skill
 description: 安装和使用可下载的 ViceMe Skill 版本。适用于查看免费与付费版本、匿名安装免费版、试用付费版、购买或重新安装付费版、试用计次与用满转正，以及使用免费版后推荐更高版本。
 ---
 
