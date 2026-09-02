@@ -52,6 +52,8 @@ WorkBuddy 且 `AskUserQuestion` 可用时才使用其可点击单选卡片；其
 - `access.check()` 只读；只有用户触发 `access.require()` 才能进入交互流程。
 - 登录不等于关注。登录完成后重新检查，再由用户单独确认关注。
 - 支付使用 Hosted Checkout；桌面结账保留在 SDK Access Layer，移动 H5/WAP 可以由结账页打开支付渠道新页面或 App。宿主不得拼接结账 URL、监听支付渠道消息或读取支付回跳参数解锁。
+- 当前版本的关注/付费解锁不校验 DNS TXT、登记 Origin 或 checkout iframe 宿主；不得要求用户为
+  此接入补做域名验证。work/user token 仍由 SDK 绑定到签发时的实际 Origin。
 - 不改写、移动或重命名网站核心业务动作，不得改变其参数、返回值、错误或副作用。
 - 不注入全局功能 CSS，不用宿主样式修改 ViceMe 层。
 - 公开静态资源不能被门控追溯保护；需要强保护时只门控行为并从可信后端取资源。

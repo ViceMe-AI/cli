@@ -261,12 +261,14 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 
 承载赞赏 UI 的页面与被赞赏 Work 是两个独立资源。三个互动分支均不要求 Website
 ownership 或 DNS 验证。仅接入赞赏不会把宿主页登记为 Website Work；仅弹幕和组合
-仍使用 canonical Origin 与部署 Origin 精确匹配的已发布 Website Work。
+仍使用 canonical Origin 与部署 Origin 精确匹配的已发布 Website Work。当前版本的网站关注/付费
+解锁同样不要求 DNS TXT 或登记嵌入 Origin。
 
 组合路线只因弹幕要求而共用一个已发布 Website Work。Tip 本身不增加域名或
 Commerce Application 门禁，互动流程也不创建或修改 Website Widget。网站关注/付费
-访问及其 `WEBSITE_WIDGET`、`HOSTED_CHECKOUT` 资源仍保留所有权验证规则，并由发布
-流程和 Shop 平台负责。
+访问及其平台托管 `WEBSITE_WIDGET` 资源仍由发布流程和 Shop 平台负责，但暂不执行 Origin/DNS 或
+checkout iframe 宿主门禁。另行配置的域名绑定 `HOSTED_CHECKOUT` 与签名 Webhook 仍保留所有权
+验证规则。
 
 没有匹配可选可信来源归因时，ViceMe 仍会把实际浏览器来源记录为未验证 Origin，
 不会因此拒绝开放赞赏。

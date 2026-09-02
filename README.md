@@ -288,14 +288,17 @@ The page hosting Tip UI and the selected Work are separate resources. No
 engagement route requires Website ownership or DNS verification. A Tip-only
 integration does not register the host as a Website Work. Danmaku-only and
 combined routes still use a published Website Work whose canonical Origin
-exactly matches the deployment Origin.
+exactly matches the deployment Origin. The current release likewise does not
+require DNS TXT verification or a registered embedding Origin for Website
+follow/paid access.
 
 The combined route uses one published Website Work because danmaku requires
 that identity. Tip itself adds no domain or Commerce Application gate, and
 engagement does not create or mutate Website Widget applications. Website
-follow/paid access and its `WEBSITE_WIDGET`/`HOSTED_CHECKOUT` resources retain
-their ownership-verification rules and remain owned by publishing and the Shop
-platform.
+its platform-managed `WEBSITE_WIDGET` resources remain owned by publishing and
+the Shop platform, but currently have no Origin/DNS or checkout-parent gate.
+Separately configured domain-bound `HOSTED_CHECKOUT` applications and signed
+webhooks retain their ownership-verification rules.
 
 Without matching optional trusted-source attribution, ViceMe still records the
 actual browser source as an unverified Origin; it does not reject an open tip.

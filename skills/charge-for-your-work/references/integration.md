@@ -84,6 +84,10 @@ async function handleMemberContentClick() {
 
 ## 付费解锁
 
+当前版本不把 DNS TXT、已登记 Origin 或 checkout iframe 宿主白名单作为关注/付费解锁的前置条件。
+不要为此流程创建或验证 Website Domain。SDK 仍把短期 work/user token 绑定到实际请求 Origin，宿主
+仍只能加载官方 Shop checkout URL，支付结果仍以服务端权益为准。
+
 真实状态顺序是：
 
 ```text
