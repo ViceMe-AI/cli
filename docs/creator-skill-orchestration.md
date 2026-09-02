@@ -24,7 +24,7 @@ The official creator Skills expose one user goal each:
 | `become-a-creator` | Login for creator onboarding, qualification checks, application/claim state, Merchant selection | Publishing Works, Products, or website integrations |
 | `sell-a-skill` | Downloadable Skill packaging, preview, confirmation, publication, and updates | Websites, services, physical/custom goods, appointments, generic Products |
 | `charge-for-your-work` | Host-code integration for an already published and configured Website Work | Login, creator application, Website Work publication, access configuration |
-| `let-people-interact` | Three-way danmaku/tip routing, hosted SDK access, and Mounted/Headless integration; only danmaku-bearing routes own Website Work verification | Creator qualification, downloadable Skill publication, or Website Widget mutation for Tip |
+| `let-people-interact` | Three-way danmaku/tip routing, hosted SDK access, Mounted/Headless integration, and Website Work selection/publication with an exact canonical Origin for danmaku-bearing routes | Creator qualification, downloadable Skill publication, Website ownership verification, or Website Widget mutation for Tip |
 | `creator-tools` | CLI installation, ordinary login, updates, and diagnostics | Any creator gameplay |
 
 Buyer-side `viceme-skill-use` does not use creator qualification.
@@ -111,6 +111,6 @@ host code. It does not mutate Shop publication resources itself.
 - Precisely retire only managed installs whose manifest and current bytes match an identity from a published release manifest;
   preserve user-modified same-name directories.
 - Keep only the downloadable workflow and publication error contract in `sell-a-skill`.
-- Route danmaku-only, open-Tip-only, and combined requests through `let-people-interact` while delegating qualification; only the danmaku-bearing routes require a published, verified Website Work.
+- Route danmaku-only, open-Tip-only, and combined requests through `let-people-interact` while delegating qualification; danmaku-bearing routes require a published Website Work with an exact canonical Origin, and no engagement route requires Website ownership verification.
 - Update all official-Skill installation, manifest, metadata, and behavioral tests atomically so an
   update never treats an old creator Skill ID as active.
