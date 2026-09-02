@@ -298,8 +298,8 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 					NextAction: "CONTINUE_TASK",
 				})
 			}
-			// 试用耗尽:购买需要登录,然后走既有扫码购买闭环。
-			if err := runtime.requireSkillUseAuthentication(command.Context()); err != nil {
+			// 试用耗尽:购买需要买家登录授权,然后走既有扫码购买闭环。
+			if err := runtime.requireBuyerAuthentication(command.Context()); err != nil {
 				return err
 			}
 			order, err := openSkillPurchaseOrder(command.Context(), runtime, productID)

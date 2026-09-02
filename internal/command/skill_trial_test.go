@@ -97,7 +97,7 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 		writeJSONResponse(writer, map[string]any{
 			"authenticated": true,
 			"user":          map[string]any{"id": "33333333-3333-4333-8333-333333333333", "displayName": "Buyer", "avatarUrl": nil},
-			"scopes":        []string{"profile:read", "skill-use:read"}, "expiresAt": "2027-08-27T00:00:00Z",
+			"scopes":        []string{"profile:read", "skill-use:read", "buyer-commerce:read", "buyer-commerce:write"}, "expiresAt": "2027-08-27T00:00:00Z",
 		})
 	case request.URL.Path == "/v1/cli/skills/"+downloadableProductID+"/access":
 		s.mu.Lock()
