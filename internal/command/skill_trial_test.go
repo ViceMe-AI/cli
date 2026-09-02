@@ -217,6 +217,10 @@ func TestPaidTrialSkillInstallsAnonymouslyWithGate(t *testing.T) {
 		if err != nil || !bytes.Contains(content, []byte(skillTrialGateMarker)) || !bytes.Contains(content, []byte("viceme skill use "+downloadableProductID)) {
 			t.Fatalf("installed Skill %s is missing the trial gate: err=%v", path, err)
 		}
+		// 门禁段必须位于正文顶部(先于创作者标题),保证每次加载技能第一眼读到规则。
+		if strings.Index(string(content), skillTrialGateMarker) > strings.Index(string(content), "# Free Test Skill") {
+			t.Fatalf("trial gate is not at the top of %s", path)
+		}
 	}
 	state.mu.Lock()
 	uses := state.grantUses
