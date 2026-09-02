@@ -170,7 +170,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `become-a-creator` | apply for or check creator qualification for every creator workflow. |
 | `sell-a-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
 | `viceme-skill-use` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
-| `charge-for-your-work` | integrate an existing website access configuration into host code after the shared creator qualification check. |
+| `charge-for-your-work` | configure follow or paid unlock for an existing website and integrate it into host code after the shared creator qualification check; platform resources stay internal. |
 | `let-people-interact` | branch between danmaku, open tips, or both; danmaku-bearing routes require a published Website Work with an exact canonical Origin, while Tip can use any eligible published Merchant Work and either Mounted or Headless UI; none requires DNS ownership verification. |
 | `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site. |
 
@@ -288,14 +288,18 @@ The page hosting Tip UI and the selected Work are separate resources. No
 engagement route requires Website ownership or DNS verification. A Tip-only
 integration does not register the host as a Website Work. Danmaku-only and
 combined routes still use a published Website Work whose canonical Origin
-exactly matches the deployment Origin.
+exactly matches the deployment Origin. The current release likewise does not
+require DNS TXT verification or a registered embedding Origin for Website
+follow/paid access.
 
 The combined route uses one published Website Work because danmaku requires
 that identity. Tip itself adds no domain or Commerce Application gate, and
 engagement does not create or mutate Website Widget applications. Website
-follow/paid access and its `WEBSITE_WIDGET`/`HOSTED_CHECKOUT` resources retain
-their ownership-verification rules and remain owned by publishing and the Shop
-platform.
+follow/paid access and its platform-managed `WEBSITE_WIDGET` resources are
+provisioned internally by the charging flow and Shop, with no Origin/DNS or
+checkout-parent gate.
+Separately configured domain-bound `HOSTED_CHECKOUT` applications and signed
+webhooks retain their ownership-verification rules.
 
 Without matching optional trusted-source attribution, ViceMe still records the
 actual browser source as an unverified Origin; it does not reject an open tip.

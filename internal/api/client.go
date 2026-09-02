@@ -687,6 +687,25 @@ func (c *Client) CreateCommerceOrder(ctx context.Context, input json.RawMessage,
 	return response, err
 }
 
+// Buyer endpoints authenticate the CLI credential and reuse the Shop commerce domains.
+func (c *Client) CreateBuyerQuote(ctx context.Context, input json.RawMessage) (ProductQuote, error) {
+	var response ProductQuote
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/product-quotes", input, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreateBuyerOrder(ctx context.Context, input json.RawMessage) (CreateOrderResponse, error) {
+	var response CreateOrderResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/orders", input, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetBuyerOrderStatus(ctx context.Context, orderNo string) (OrderStatusResponse, error) {
+	var response OrderStatusResponse
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/orders/"+url.PathEscape(orderNo)+"/status", nil, &response, "@stored")
+	return response, err
+}
+
 // GetProduct loads the buyer-facing product projection (including the active
 // sales-spec SKUs) used to build a purchase quote. The endpoint accepts
 // anonymous reads, but the purchase flow always runs authenticated.
@@ -702,15 +721,15 @@ func (c *Client) GetOrder(ctx context.Context, orderNo string) (CommerceOrder, e
 	var response struct {
 		Order CommerceOrder `json:"order"`
 	}
-	err := c.doJSON(ctx, http.MethodGet, "/v1/orders/"+url.PathEscape(orderNo), nil, &response, "@stored")
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/orders/"+url.PathEscape(orderNo), nil, &response, "@stored")
 	return response.Order, err
 }
 
 // ListOrdersByStatus lists the current user's orders filtered by status.
 func (c *Client) ListOrdersByStatus(ctx context.Context, status string) (MyOrdersResponse, error) {
 	var response MyOrdersResponse
-	endpoint := "/v1/orders?status=" + url.QueryEscape(status)
-	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "")
+	endpoint := "/v1/cli/orders?status=" + url.QueryEscape(status)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
 	return response, err
 }
 
@@ -718,7 +737,7 @@ func (c *Client) ListOrdersByStatus(ctx context.Context, status string) (MyOrder
 // current user with an explicit payment channel action.
 func (c *Client) CreateCreatorSubscriptionOrder(ctx context.Context, input json.RawMessage) (CreatePaymentResponse, error) {
 	var response CreatePaymentResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/creator-subscription-orders", input, &response, "@stored")
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/creator-subscription-orders", input, &response, "@stored")
 	return response, err
 }
 
@@ -726,7 +745,7 @@ func (c *Client) CreateCreatorSubscriptionOrder(ctx context.Context, input json.
 // payment status for the current user.
 func (c *Client) GetCreatorSubscriptionOrderStatus(ctx context.Context, orderNo string) (PaymentStatusResponse, error) {
 	var response PaymentStatusResponse
-	endpoint := "/v1/creator-subscription-orders/" + url.PathEscape(orderNo)
+	endpoint := "/v1/cli/creator-subscription-orders/" + url.PathEscape(orderNo)
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
 	return response, err
 }

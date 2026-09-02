@@ -121,10 +121,11 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "charge-for-your-work",
 			machine: []string{
 				"access.require()", "access.getFeatures()", "<viceme-access-layer>", "FOLLOW_OWNER", "WORK_ENTITLEMENT",
-				"Hosted Checkout", "Product ID", "access.check()", "$become-a-creator",
+				"Hosted Checkout", "Product ID", "access.check()", "$become-a-creator", "merchant work create",
+				"sdk-access create", "sdk-access update", "canonicalOrigin", "status: PUBLISHED",
 			},
 			semantics: []string{
-				"登录不等于关注", "不得改变其参数、返回值、错误或副作用",
+				"登录不等于关注", "不得改变其参数、返回值、错误或副作用", "内部实现", "不向用户展示",
 			},
 		},
 		{
@@ -859,7 +860,7 @@ func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
 	for _, required := range []string{
 		"keys.test", "keys.live", "没有顶层单一 `workKey` 字段", "生产宿主把 `keys.live`",
 		"完整 hosted `danmaku`/`tip` features", "完整 `accessFeatures`", "精确 `configVersion`", "没有发生轮换",
-		"$become-a-creator", "拥有平台资源的发布流程", "安装 `@viceme-ai/sdk`",
+		"$become-a-creator", "网站身份内部配置", "Access 内部配置", "安装 `@viceme-ai/sdk`",
 		"桌面结账保留在 SDK Access Layer", "移动 H5/WAP", "新的服务端访问决定解锁",
 		"支付窗口失败反馈由", "宿主不解锁",
 	} {
@@ -887,8 +888,9 @@ func TestChargeForYourWorkUsesPlatformAwareInteractiveGuidance(t *testing.T) {
 	for _, required := range []string{
 		"先确认当前 Agent 平台", "当前平台明确为 WorkBuddy", "AskUserQuestion",
 		"其他平台使用", "原生的等效交互工具", "没有交互式提问工具时才退回编号短选项", "回复编号",
-		"多个已发布功能", "多个可门控的宿主入口", "不要求用户手打内部键值",
-		"真正开放且无法列出候选的信息", "服务端已有的标题、价格、两个 SDK key 和功能键不向用户重复索取",
+		"默认当前项目就是目标网站", "没有项目上下文时", "一次交互工具调用", "正式部署域名", "要保护的按钮或功能",
+		"关注解锁还是付费解锁", "付费功能名称", "人民币价格", "不要求用户手打内部键值",
+		"真正开放且无法列出候选的信息", "两个 SDK key", "功能键和其他内部值", "都不询问用户",
 	} {
 		if !strings.Contains(bundle, required) {
 			t.Fatalf("charge-for-your-work omitted interactive guidance %q", required)
@@ -896,6 +898,30 @@ func TestChargeForYourWorkUsesPlatformAwareInteractiveGuidance(t *testing.T) {
 	}
 	if strings.Contains(bundle, "优先使用 WorkBuddy") {
 		t.Fatal("charge-for-your-work assumes WorkBuddy without identifying the current platform")
+	}
+}
+
+func TestChargeForYourWorkKeepsProvisioningInternal(t *testing.T) {
+	t.Parallel()
+
+	bundle := readOfficialSkillBundle(t, "charge-for-your-work")
+	for _, required := range []string{
+		"平台资源不存在时进入下面的内部配置流程", "merchant work list", "merchant work create",
+		"status: PUBLISHED", "sdk-access create", "sdk-access update", "写后重读",
+		"不得向用户展示、解释、索取", "不得报告 Website Work", "不把缺失状态变成用户任务",
+	} {
+		if !strings.Contains(bundle, required) {
+			t.Fatalf("charge-for-your-work omitted internal provisioning boundary %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"缺少发布结果或平台配置时停止并说明需要先完成网站发布配置",
+		"请先在 ViceMe 发布网站",
+		"keys 信息",
+	} {
+		if strings.Contains(bundle, forbidden) {
+			t.Fatalf("charge-for-your-work exposes internal prerequisite %q", forbidden)
+		}
 	}
 }
 

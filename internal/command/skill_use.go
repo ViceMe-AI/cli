@@ -118,25 +118,19 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 					if !access.PurchaseAvailable {
 						return output.Policy("SKILL_ACCESS_UNAVAILABLE", "this paid Skill edition is not available for purchase").WithDetails(map[string]any{"productId": productID})
 					}
-					// The CLI closes the purchase loop itself: open (or recover)
-					// a WeChat NATIVE order, render the payment QR locally, wait
-					// for the payment to land, and continue installing.
-					order, err := recoverPendingSkillPurchaseOrder(command.Context(), runtime, productID)
+					if err := runtime.requireBuyerAuthentication(command.Context()); err != nil {
+						return err
+					}
+					orderValue, err := openSkillPurchaseOrder(command.Context(), runtime, productID)
 					if err != nil {
 						return err
 					}
-					if order == nil {
-						orderValue, err := createSkillPurchaseOrder(command.Context(), runtime, productID)
-						if err != nil {
-							return err
-						}
-						order = &orderValue
-					}
+					order := &orderValue
 					presentation, err := presentSkillPaymentQR(runtime, order)
 					if err != nil {
 						return err
 					}
-					if wait <= 0 {
+					if wait <= 0 && order.Status != "PAID" {
 						details := map[string]any{
 							"productId": productID, "orderNo": order.OrderNo,
 							"amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
@@ -149,7 +143,11 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 						}
 						return output.Confirmation("SKILL_PURCHASE_REQUIRED", "purchase this edition before installation").WithDetails(details).WithHint(hint)
 					}
-					if err := waitForSkillOrderPayment(command.Context(), runtime, productID, order.OrderNo, wait); err != nil {
+					paymentWait := wait
+					if paymentWait <= 0 {
+						paymentWait = time.Second
+					}
+					if err := waitForSkillOrderPayment(command.Context(), runtime, productID, order.OrderNo, paymentWait); err != nil {
 						return err
 					}
 					access, err = runtime.client().GetSkillAccess(command.Context(), productID)
