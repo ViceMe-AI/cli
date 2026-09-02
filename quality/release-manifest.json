@@ -7,8 +7,8 @@
       "skill_version": "0.23.1",
       "minimum_cli_version": "0.23.1",
       "cli_compatibility": ">=0.23.1 <0.24.0",
-      "full_skill_bundle_digest": "sha256:c456fc83c60704b631d8a269cd8b45476c6c72f429c64e50c2379be24fcde29c",
-      "embedded_content_digest": "sha256:ae417fcd376c285cc5c2f8bc629d6545d842fd0cf776917819d1a4e7de7df06a"
+      "full_skill_bundle_digest": "sha256:6f0233b942d0ee2a4ba5c82f35f4cb22bbcbcecdaa58cb3c397fa89c7b86daae",
+      "embedded_content_digest": "sha256:ed184d0cf38165783931f9f8de9932558156224754dde9d4f93d8f34107fabfa"
     },
     "charge-for-your-work": {
       "skill_version": "0.23.1",
@@ -42,8 +42,8 @@
       "skill_version": "0.23.1",
       "minimum_cli_version": "0.23.1",
       "cli_compatibility": ">=0.23.1 <0.24.0",
-      "full_skill_bundle_digest": "sha256:aead993aab1a684ccaf07b5140124a70586ac7950ca1bc3552f492408fddf51b",
-      "embedded_content_digest": "sha256:6615eefc27e224e1a0451673beefe599a7a6874ef062b7375c71deae16e53354"
+      "full_skill_bundle_digest": "sha256:a6566410d18ab821f458f159447c1c9a0b098a848b4df1e8443a4d30f016b01b",
+      "embedded_content_digest": "sha256:605e44e165505e8da134843b42eafdf44a7c7e4d1acbc3bd653552485e9e518e"
     },
     "viceme-skill-use": {
       "skill_version": "0.23.1",

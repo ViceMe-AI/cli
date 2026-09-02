@@ -158,43 +158,6 @@ func TestMerchantOnboardingEvidenceRejectsConflictingOrMissingInputs(t *testing.
 	}
 }
 
-func TestGithubMerchantClaimReturnsOnlyTheConfiguredOAuthRoute(t *testing.T) {
-	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
-	const merchantID = "44444444-4444-4444-8444-444444444444"
-	t.Setenv(processAccessTokenEnvironment, accessToken)
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Header.Get("Authorization") != "Bearer "+accessToken {
-			writer.WriteHeader(http.StatusUnauthorized)
-			return
-		}
-		switch request.URL.Path {
-		case "/v1/cli/auth/status":
-			writeMerchantOnboardingAuth(writer)
-		case "/v1/cli/merchant/onboarding/github/" + merchantID + "/start":
-			var input map[string]any
-			if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
-				t.Fatal(err)
-			}
-			if input["returnTo"] != "/cli/github-result" {
-				t.Fatalf("unexpected GitHub return route: %#v", input)
-			}
-			writeJSONResponse(writer, map[string]any{
-				"kind": "authorization", "authorizationUrl": "https://github.com/login/oauth/authorize?state=test", "onboarding": nil,
-			})
-		default:
-			http.NotFound(writer, request)
-		}
-	}))
-	defer server.Close()
-
-	exit, envelope := executeMerchantOnboardingCommand(t, server,
-		"merchant", "onboarding", "claim-github", merchantID,
-	)
-	if exit != 0 || envelope["ok"] != true {
-		t.Fatalf("GitHub Merchant claim failed: exit=%d envelope=%#v", exit, envelope)
-	}
-}
-
 func TestGithubMerchantChannelPrintsOneFallbackURLAndWaitsForVerification(t *testing.T) {
 	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
 	const merchantID = "44444444-4444-4444-8444-444444444444"

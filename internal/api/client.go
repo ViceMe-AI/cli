@@ -135,20 +135,6 @@ func (c *Client) CreateMerchantApplication(ctx context.Context, clientRequestID 
 	return response, err
 }
 
-func (c *Client) GetMerchantTargetOnboarding(ctx context.Context, merchantAccountID string) (CurrentMerchantOnboarding, error) {
-	var response CurrentMerchantOnboarding
-	endpoint := "/v1/cli/merchant/onboarding/targets/" + url.PathEscape(merchantAccountID) + "/current"
-	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) StartGithubMerchantClaim(ctx context.Context, merchantAccountID string) (GithubAuthorizationStart, error) {
-	var response GithubAuthorizationStart
-	endpoint := "/v1/cli/merchant/onboarding/github/" + url.PathEscape(merchantAccountID) + "/start"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]any{"returnTo": "/cli/github-result"}, &response, "@stored")
-	return response, err
-}
-
 func (c *Client) StartGithubChannel(ctx context.Context, merchantAccountID string) (GithubAuthorizationStart, error) {
 	var response GithubAuthorizationStart
 	payload := map[string]any{"merchantAccountId": merchantAccountID, "returnTo": "/cli/github-result"}
@@ -160,13 +146,6 @@ func (c *Client) GetGithubChannelStatus(ctx context.Context, merchantAccountID, 
 	var response GithubAuthorizationStatus
 	endpoint := "/v1/cli/merchant/channels/github/status?merchantAccountId=" + url.QueryEscape(merchantAccountID) + "&attemptId=" + url.QueryEscape(attemptID)
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) StartXiaohongshuMerchantClaim(ctx context.Context, merchantAccountID, accountName string, profileURL *string) (MerchantOnboarding, error) {
-	var response MerchantOnboarding
-	payload := map[string]any{"merchantAccountId": merchantAccountID, "publicAccountName": accountName, "profileUrl": profileURL}
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/onboarding/xiaohongshu", payload, &response, "@stored")
 	return response, err
 }
 

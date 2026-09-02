@@ -167,7 +167,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | Skill | Use it when you want to... |
 | --- | --- |
 | `creator-tools` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
-| `become-a-creator` | apply for, claim, or check creator qualification for every creator workflow. |
+| `become-a-creator` | apply for or check creator qualification for every creator workflow. |
 | `sell-a-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
 | `viceme-skill-use` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | integrate an existing website access configuration into host code after the shared creator qualification check. |
