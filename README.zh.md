@@ -82,7 +82,7 @@ viceme auth status
 viceme auth login
 
 # 定价前先上传真实私有草稿，并打开创作者预览。
-viceme skill publish --path ./my-skill
+viceme skill publish --path ./my-skill --edition-key my-skill --edition-order 0
 
 # 继续同一个未定价草稿并上传候选媒体。
 viceme skill publish --resume <publication-id>
@@ -235,7 +235,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme skill listing prepare --path <path>` | 创建或恢复稳定的创作者私有预览，并保存本地绑定。 |
 | `viceme skill listing get <listing-id>` | 读取权威的私有 Listing 状态。 |
 | `viceme skill listing bind <listing-id> --path <path>` | 将来源明确绑定到用户选定且拥有的 Listing。 |
-| `viceme skill publish --path <path>` | 定价前上传真实私有包并返回创作者预览。 |
+| `viceme skill publish --path <path> --edition-key <key> --edition-order <order>` | 明确新增或更新的 Skill 条目，定价前上传真实私有包并返回创作者预览。 |
 | `viceme skill publish --resume <id>` | 继续同一个未定价 Draft 并上传媒体候选，不启动平台模型。 |
 | `viceme publication review <id>` | 读取权威双语文案、价格、选定素材和审核状态。 |
 | `viceme publication suggest <id> --input ...` | 以 Draft revision 保护提交 Agent 生成的双语文案与媒体选择。 |

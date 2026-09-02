@@ -102,11 +102,11 @@ description: Publish a deterministic Skill through the vNext contract.
 		lastPreviewOpenURL = openURL
 	}
 
-	if exit, envelope := execute("skill", "publish", "--path", source); exit == 0 || envelope["ok"] != false {
+	if exit, envelope := execute("skill", "publish", "--path", source, "--edition-key", "standard", "--edition-order", "0"); exit == 0 || envelope["ok"] != false {
 		t.Fatalf("simulated response loss did not fail safely: exit=%d envelope=%#v", exit, envelope)
 	}
 	previewStartedAt := time.Now()
-	if exit, envelope := execute("skill", "publish", "--path", source); exit != 0 || envelope["ok"] != true {
+	if exit, envelope := execute("skill", "publish", "--path", source, "--edition-key", "standard", "--edition-order", "0"); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("private package upload retry did not recover: exit=%d envelope=%#v", exit, envelope)
 	} else {
 		data, _ := envelope["data"].(map[string]any)
@@ -156,7 +156,7 @@ description: Publish a deterministic Skill through the vNext contract.
 	suggestion := api.SuggestSkillPublicationDraftRequest{
 		BaseDraftRevision: 1,
 		Patch: api.SkillPublicationAgentSuggestionPatch{
-			SummaryZhCN: "发布测试",
+			SummaryZhCN:           "发布测试",
 			UsageInstructionsZhCN: "按 SKILL.md 中的步骤运行。",
 			CoverUploadID:         stringPointer("upload-media"), GalleryUploadIDs: []string{"upload-media"},
 		},
@@ -303,7 +303,7 @@ func TestXiaohongshuSearchRequiresExplicitSelectionForMultipleMatches(t *testing
 	defer server.Close()
 
 	var stdout bytes.Buffer
-	exit := Execute([]string{"skill", "publish", "--xiaohongshu-search", "Poster", "--merchant", merchantID}, Dependencies{
+	exit := Execute([]string{"skill", "publish", "--xiaohongshu-search", "Poster", "--merchant", merchantID, "--edition-key", "standard", "--edition-order", "0"}, Dependencies{
 		Out: &stdout, ErrOut: io.Discard, APIBaseURL: server.URL, Region: config.RegionCN,
 		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()},
 	})
@@ -384,10 +384,10 @@ description: Verify unpriced media and analysis continuation.
 		return exit, envelope
 	}
 
-	if exit, _ := execute("skill", "publish", "--path", source); exit == 0 {
+	if exit, _ := execute("skill", "publish", "--path", source, "--edition-key", "standard", "--edition-order", "0"); exit == 0 {
 		t.Fatal("simulated create response loss unexpectedly succeeded")
 	}
-	if exit, envelope := execute("skill", "publish", "--path", source); exit != 0 || envelope["ok"] != true {
+	if exit, envelope := execute("skill", "publish", "--path", source, "--edition-key", "standard", "--edition-order", "0"); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("private preview recovery failed: exit=%d envelope=%#v", exit, envelope)
 	}
 	state.mu.Lock()
@@ -456,7 +456,7 @@ func TestSkillPublishValidatesLocallyBeforeLoginWithoutCreatingRecoveryState(t *
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exit := Execute([]string{"skill", "publish", "--path", missingSource, "--price-minor", "1"}, Dependencies{
+	exit := Execute([]string{"skill", "publish", "--path", missingSource, "--edition-key", "standard", "--edition-order", "0", "--price-minor", "1"}, Dependencies{
 		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(), APIBaseURL: server.URL, Region: config.RegionCN,
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 	})
@@ -506,7 +506,7 @@ func TestSkillPublishRequiresExplicitMerchantWhenMultipleAreActive(t *testing.T)
 		t.Fatal(err)
 	}
 	var stdout bytes.Buffer
-	exit := Execute([]string{"skill", "publish", "--path", source}, Dependencies{
+	exit := Execute([]string{"skill", "publish", "--path", source, "--edition-key", "standard", "--edition-order", "0"}, Dependencies{
 		Out: &stdout, ErrOut: io.Discard, Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 	})
