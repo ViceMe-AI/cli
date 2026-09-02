@@ -5,7 +5,7 @@
 仅弹幕：
 
 ```text
-PUBLISHED + VERIFIED Website Work（canonical Origin 精确匹配部署 Origin）
+PUBLISHED Website Work（canonical Origin 精确匹配部署 Origin）
 └── ACTIVE SDK access
     ├── keys.test / keys.live
     └── hosted features 包含 danmaku
@@ -23,19 +23,19 @@ PUBLISHED + VERIFIED Website Work（canonical Origin 精确匹配部署 Origin�
 弹幕加赞赏：
 
 ```text
-PUBLISHED + VERIFIED Website Work（Website 门禁只由 Danmaku 要求）
+PUBLISHED Website Work（canonical Origin 精确匹配部署 Origin）
 └── ACTIVE SDK access
     ├── keys.test / keys.live
     └── hosted features 包含 danmaku,tip
 ```
 
-宿主页与被赞赏 Work 是独立资源。Standalone Tip 不声明或验证宿主页所有权，不要求 Work 是 Website，不要求同域，也不要求 Commerce Application。可选 Commerce Application 只提供来源归因；没有匹配归因时，来源是 unverified Origin，而不是被拒绝的 Origin。组合中的 Tip 同样不创建、更新、暂停或激活 `WEBSITE_WIDGET`；Website follow/paid access 的应用与 `HOSTED_CHECKOUT` 由拥有平台资源的发布流程和 Shop 管理。
+三个互动分支都不创建、读取、验证或撤销 Website ownership verification，也不要求 DNS 或域名所有权验证。宿主页与被赞赏 Work 是独立资源。Standalone Tip 不要求 Work 是 Website，不要求同域，也不要求 Commerce Application。可选 Commerce Application 只提供来源归因；没有匹配归因时，来源是 unverified Origin，而不是被拒绝的 Origin。组合中的 Tip 同样不创建、更新、暂停或激活 `WEBSITE_WIDGET`；Website follow/paid access 的应用与 `HOSTED_CHECKOUT` 由拥有平台资源的发布流程和 Shop 管理。
 
 两个 Work key 是永久公开标识，不是凭据。create 一次签发 `keys.test` 与 `keys.live`；update、disable、重新启用和恢复不得轮换。更新 hosted features 时必须使用精确 `configVersion`，发送完整 hosted feature set，并原样保留完整 `accessFeatures`。
 
 ## 发布物预检
 
-任意路线先从官方 npm 的稳定 `latest` 元数据只解析一次 SDK 版本，将纯 `major.minor.patch` 结果固定为本次接入唯一的 `sdk_version`。`latest` 只负责发现版本，不能进入安装规格、CDN URL 或宿主页。任意 Tip 路线先选官方 Mounted 或 Headless；Headless 再选 npm 或 CDN ESM。选择与版本解析必须早于 Work、Website verification、SDK access 或宿主页写入。
+任意路线先从官方 npm 的稳定 `latest` 元数据只解析一次 SDK 版本，将纯 `major.minor.patch` 结果固定为本次接入唯一的 `sdk_version`。`latest` 只负责发现版本，不能进入安装规格、CDN URL 或宿主页。任意 Tip 路线先选官方 Mounted 或 Headless；Headless 再选 npm 或 CDN ESM。选择与版本解析必须早于 Work、SDK access 或宿主页写入。
 
 解析时只运行本 Skill 随附的 [`validate-sdk-release.mjs`](../scripts/validate-sdk-release.mjs)，同时验证当前包仍暴露本合同使用的全部公共入口，避免在目标版本尚未发布时回退到旧包。`<skill-dir>` 是承载本 Skill 的可信安装目录，不是用户项目目录：
 
@@ -165,7 +165,7 @@ Headless SDK 每次 `open()` 都生成高熵随机 channel，并直接打开官�
 </script>
 ```
 
-只在 SPA、组件或路由真实卸载时调用销毁函数，不要绑定 `pagehide`。Danmaku 的 Work 必须持续满足 `PUBLISHED + VERIFIED Website Work` 和精确 canonical Origin。
+只在 SPA、组件或路由真实卸载时调用销毁函数，不要绑定 `pagehide`。Danmaku 的 Work 必须持续满足 `PUBLISHED Website Work` 和精确 canonical Origin；ownership 状态不参与门禁。
 
 ## 仅赞赏：官方 Mounted UI
 
@@ -412,7 +412,8 @@ function destroyViceMeTip() {
 
 ## 线上验收
 
-- 仅弹幕：精确 Website Origin、DNS verified 状态、消息持久化、桌面/320px、键盘与减少动画。
-- 仅赞赏：不执行 Website verification 或 Commerce Application mutation；验证目标 Work、Local Fake、SANDBOX、来源缺失 fail closed、三种公开结果和销毁顺序。
-- 组合：同一 verified Website Work、同一 client、完整 `danmaku,tip` hosted set、完整 `accessFeatures` 未变，以及一个能力失败不移除另一个。
+- 仅弹幕：Website kind、`PUBLISHED` 状态、精确 canonical Origin、消息持久化、桌面/320px、键盘与减少动画。
+- 仅赞赏：验证目标 Work、Local Fake、SANDBOX、来源缺失 fail closed、三种公开结果和销毁顺序。
+- 组合：同一 `PUBLISHED Website Work`、精确 canonical Origin、同一 client、完整 `danmaku,tip` hosted set、完整 `accessFeatures` 未变，以及一个能力失败不移除另一个。
+- 三个分支：均不执行 Website ownership verification 或 DNS mutation。
 - 所有路线：SDK 文件直接 200、页面只有一套精确 ESM、无 CSP/frame/script/handoff 错误。打开 UI 不代表消息持久化或支付结算成功。

@@ -1,6 +1,6 @@
 ---
 name: let-people-interact
-description: 为创作者作品接入或修复 ViceMe 托管互动。先复用 $become-a-creator 完成资格守卫，再区分仅弹幕、仅赞赏或弹幕加赞赏，并按对应的 Work、市场、验证与官方 Mounted/Headless SDK 边界完成接入。
+description: 为创作者作品接入或修复 ViceMe 托管互动。先复用 $become-a-creator 完成资格守卫，再区分仅弹幕、仅赞赏或弹幕加赞赏，并按对应的 Work、市场、Origin 与官方 Mounted/Headless SDK 边界完成接入。
 ---
 
 # 接入 ViceMe 互动
@@ -13,18 +13,18 @@ description: 为创作者作品接入或修复 ViceMe 托管互动。先复用 $
 
 | 分支 | 合格 Work | 市场 | 宿主 UI |
 | --- | --- | --- | --- |
-| 仅弹幕 | 与部署 Origin 精确匹配的 `PUBLISHED + VERIFIED Website Work` | 保留所选 Profile 既有 `cn` 或 `global` 支持 | `createViceMe(...)` + `mountDanmaku(...)` |
+| 仅弹幕 | 与部署 Origin 精确匹配的 `PUBLISHED Website Work` | 保留所选 Profile 既有 `cn` 或 `global` 支持 | `createViceMe(...)` + `mountDanmaku(...)` |
 | 仅赞赏 | 当前 OWNER Merchant 拥有、公开且 `PUBLISHED` 的任意 kind Work | 仅 `marketRegion: cn` 与 CNY | 先选官方 Mounted 或 Headless |
-| 弹幕加赞赏 | 因 Danmaku 要求而使用同一个 `PUBLISHED + VERIFIED Website Work` | 仅 `marketRegion: cn` 与 CNY | Danmaku Mounted；Tip 先选官方 Mounted 或 Headless |
+| 弹幕加赞赏 | 因 Danmaku 要求而使用同一个 `PUBLISHED Website Work`，且与部署 Origin 精确匹配 | 仅 `marketRegion: cn` 与 CNY | Danmaku Mounted；Tip 先选官方 Mounted 或 Headless |
 
-Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要求 Website kind、仓库、HTTPS Origin、DNS、域名、Website verification 或 Commerce Application。组合分支的 Website 与 DNS 门禁只来自 Danmaku；Tip 本身不增加 Origin 或 Application 门禁。
+三个分支均不创建、读取、验证或撤销 Website ownership verification，也不要求 DNS 或域名所有权验证。Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立；仅赞赏不要求 Website kind、仓库、HTTPS Origin 或 Commerce Application。仅弹幕和组合仍要求 Website kind、`PUBLISHED` 状态与精确 canonical Origin；Tip 本身不增加 Origin 或 Application 门禁。
 
 ## 共同起点与写入前预检
 
 1. 第一项业务动作以资格守卫模式调用 `$become-a-creator`。只有它确认当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有并选定有效 Merchant 后才继续；本 Skill 不自行运行登录、申请或商家选择命令。
 2. 运行 `viceme profile list`，只记录并固定当前 Profile、API/Web base URL 和精确 `marketRegion`。页面 locale 不选择市场；不得切换 Profile，也不得从 hostname、记忆或其他 Profile 推导市场。仅弹幕不受 CN/CNY 限制，保留当前 Profile 既有 `cn` 或 `global` 支持。
 3. 仅弹幕分支记录精确部署 HTTPS Origin、目标页面、部署命令、CSP 和浏览器测试，然后按 [Website Work 与安全接入](#website-work-与安全接入) 继续。不得因为页面语言是中文就改成 CN，也不得因为页面语言是英文就改成 GLOBAL。
-4. 任意包含 Tip 的分支，在任何 Work 创建、更新或发布、Website verification、SDK access 或宿主页写入前，先确认 `marketRegion: cn`；GLOBAL 必须立即停止，且不得留下业务写入。随后请用户选择官方 Mounted UI 或 Headless。Headless 还必须选择 npm 或 CDN ESM。
+4. 任意包含 Tip 的分支，在任何 Work 创建、更新或发布、SDK access 或宿主页写入前，先确认 `marketRegion: cn`；GLOBAL 必须立即停止，且不得留下业务写入。随后请用户选择官方 Mounted UI 或 Headless。Headless 还必须选择 npm 或 CDN ESM。
 5. 任意分支在业务写入前，只解析一次官方 npm 元数据中的当前稳定 SDK，并把结果固定为本次接入唯一的 `sdk_version`。只运行本 Skill 随附的 [validate-sdk-release.mjs](scripts/validate-sdk-release.mjs)，不得运行项目内同名文件；把命令中的 `<skill-dir>` 替换为承载当前 `SKILL.md` 的可信安装目录。解析结果必须是纯 `major.minor.patch`，并且发布包必须暴露本合同要求的 Danmaku、Mounted Tip 与 Headless Tip 公共入口；否则立即停止，不能回退到旧版：
 
    ```bash
@@ -85,7 +85,7 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
    test "$published_version" = "$sdk_version" || exit 1
    ```
 
-   `latest` 只允许用于上述一次官方元数据解析；不得把 `latest` 写入 npm 安装规格、CDN URL 或宿主页，也不得在同一次接入中重新解析版本。任一必需检查失败就停止，不创建、验证或发布 Work，不写 SDK access，也不编辑宿主页。不得改用其他 alias、声明式或全局 loader、Git 依赖、私有镜像同名包或复制 SDK 源码。
+   `latest` 只允许用于上述一次官方元数据解析；不得把 `latest` 写入 npm 安装规格、CDN URL 或宿主页，也不得在同一次接入中重新解析版本。任一必需检查失败就停止，不创建、更新或发布 Work，不写 SDK access，也不编辑宿主页。不得改用其他 alias、声明式或全局 loader、Git 依赖、私有镜像同名包或复制 SDK 源码。
 
 ## 仅赞赏的 Work 选择
 
@@ -97,7 +97,7 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
 
 2. 只保留权威响应证明 `owner.kind: MERCHANT`、`owner.merchantAccountId` 等于所选 Merchant、公开且 `status: PUBLISHED` 的 Work。Work kind 不受限制。逐项展示合格 Work 的 ID、kind 和标题，让用户选择；不得从宿主页、仓库、标题、域名或旧 loader 推断收款目标。
 3. 没有合格 Work 时，询问哪项真实 Skill、服务、商品或网站作品会收到赞赏，并要求用户先通过适用于该作品的最终创作者发布流程发布真实作品，再带着同一 Work ID 恢复本流程。只有真实作品是可下载 Skill 时才转交 `$sell-a-skill`；服务、商品或网站不得转给该 Skill。只承载 Tip UI 的宿主页不是作品证据，不能据此创建或推断 Website Work。
-4. 用户选定后重新读取该 Work，并复核 Merchant 归属与 `PUBLISHED` 状态。仅赞赏不读取页面 loader 来确认 Work 身份，不执行 Website ownership verification，也不创建、更新、暂停或激活 Commerce Application。已有可选 Commerce Application 只能提供来源归因，不是 Tip 门禁。
+4. 用户选定后重新读取该 Work，并复核 Merchant 归属与 `PUBLISHED` 状态。仅赞赏不读取页面 loader 来确认 Work 身份，也不创建、更新、暂停或激活 Commerce Application。与另外两个分支一样，它不执行 Website ownership verification。已有可选 Commerce Application 只能提供来源归因，不是 Tip 门禁。
 5. 进入 [SDK access 完整更新](#sdk-access-完整更新)，请求 hosted feature 为 `tip`。
 
 ## Website Work 与安全接入
@@ -106,12 +106,12 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
 
 1. 规范 Origin 必须是精确小写 HTTPS `scheme + host`，不含凭据、路径、查询、片段或尾部斜杠。预览域名与生产域名是不同 Origin。
 2. 写入前只读检查页面。只接受本次已固定 `sdk_version` 的精确 ESM imports；发现声明式或全局 loader、旧 embed 标签、`data-viceme-*`、其他版本或多套 ViceMe 运行时时立即停止，要求用户先移除，不把它们作为 Work 身份或迁移输入。
-3. 页面已有唯一的同版本精确 ESM 接入时，只接受其中公开的 `wrk_test_...` 或 `wrk_live_...`。运行 `viceme merchant work sdk-access list --merchant <merchant-id>`，按 `keys.test` 或 `keys.live` 精确定位 Work，再读取 Work 并确认属于当前 Merchant；缺少可验证 Work 身份时，在任何 Work、Website verification、SDK access 或页面写入前停止。
+3. 页面已有唯一的同版本精确 ESM 接入时，只接受其中公开的 `wrk_test_...` 或 `wrk_live_...`。运行 `viceme merchant work sdk-access list --merchant <merchant-id>`，按 `keys.test` 或 `keys.live` 精确定位 Work，再读取 Work 并确认属于当前 Merchant；缺少可验证 Work 身份时，在任何 Work、SDK access 或页面写入前停止。
 4. 页面没有当前精确 ESM 接入时，运行 `viceme merchant work list --merchant <merchant-id>`，只保留 `kind: WEBSITE` 且 `website.canonicalOrigin` 与部署 Origin 完全一致的候选：
 
    - 0 个候选时才创建新 Work。
    - 恰好 1 个候选时复用。
-   - 多个候选时，在任何 Work、Website Verification、DNS、SDK access 或页面写入前停止，展示每项 `id`、`title`、`status` 与 `website.ownershipStatus`，请用户按 Work ID 选择。不得默认选择第一项、最新项、`PUBLISHED` 项或 `VERIFIED` 项。
+   - 多个候选时，在任何 Work、SDK access 或页面写入前停止，展示每项 `id`、`title` 与 `status`，请用户按 Work ID 选择。不得默认选择第一项、最新项或 `PUBLISHED` 项。
 
 5. 用户选择后重新读取 Work，复核 Merchant、Website kind 与 canonical Origin。确实不存在时才用稳定 `clientRequestId` 创建：
 
@@ -135,24 +135,8 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
    ```
 
    运行 `viceme merchant work create --input <json>`。响应丢失时用同一个 `clientRequestId` 原样重放，不创建平行身份。
-6. 运行 `viceme merchant work get <work-id> --merchant <merchant-id>`。`SUSPENDED` 或 `ARCHIVED` 时停止；只有 `DRAFT` 或 `PUBLISHED` 继续。ownership 不是 `VERIFIED` 时先读取最新 verification。`PENDING` 挑战只有当前执行仍持有 create 刚返回且未过期的明文 `challenge` 才能复用；GET 不能找回 challenge。否则从最新 Work revision 创建替代挑战：
-
-   ```bash
-   viceme merchant work website-verification create <work-id> \
-     --merchant <merchant-id> --expected-revision <work-revision>
-   ```
-
-   把 `challenge` 原样发布到 `dnsRecordName`。公共 DNS 精确解析后运行：
-
-   ```bash
-   viceme merchant work website-verification verify <work-id> \
-     --merchant <merchant-id> \
-     --expected-verification-version <verification-version>
-   ```
-
-   验证后重新读取 Work；不得为了恢复 `PENDING` verification 创建第二个 Work。
-7. `DRAFT` Work 按最新 revision 更新为 `PUBLISHED`，随后重读；已经 `PUBLISHED` 时不重复更新。只有最终同时满足 `status: PUBLISHED`、`website.ownershipStatus: VERIFIED` 与精确 canonical Origin 才继续。
-8. 仅弹幕进入 SDK access，加入 `danmaku`；组合加入 `danmaku` 与 `tip`。组合中的 Tip 不触发任何 `WEBSITE_WIDGET` 创建、更新、暂停或激活。
+6. 运行 `viceme merchant work get <work-id> --merchant <merchant-id>`。`SUSPENDED` 或 `ARCHIVED` 时停止；只有 `DRAFT` 或 `PUBLISHED` 继续。`DRAFT` Work 按最新 revision 更新为 `PUBLISHED`，随后重读；已经 `PUBLISHED` 时不重复更新。只有最终仍属于当前 Merchant、`kind: WEBSITE`、`status: PUBLISHED` 且 canonical Origin 与部署 Origin 精确匹配才继续；`website.ownershipStatus` 不参与门禁。
+7. 仅弹幕进入 SDK access，加入 `danmaku`；组合加入 `danmaku` 与 `tip`。组合中的 Tip 不触发任何 `WEBSITE_WIDGET` 创建、更新、暂停或激活。
 
 ## SDK access 完整更新
 
@@ -205,7 +189,7 @@ Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立。仅赞赏不要�
 ## 完成与恢复
 
 - 报告所选分支、Work ID/kind、公开 `keys.test`/`keys.live`、Profile market、接入路线、变更文件、检查结果，以及是否执行 SANDBOX 或真实支付。不要把 Work key 称为 secret。
-- 不报告登录 token、cookie、DNS challenge、支付详情、handoff token、订单 capability 或签名 URL。
+- 不报告登录 token、cookie、支付详情、handoff token、订单 capability 或签名 URL。
 - SDK access 写入后无法完成宿主接入时，从最新版本用一次 update 恢复写前完整 hosted features 与 `accessFeatures`；原资源为 `DISABLED` 时恢复后再次 disable，原资源不存在时 disable 新资源。永久 key 不轮换。
-- Website Work 或 verification 冲突时重新读取权威 revision/version，不猜测下一个值，也不创建替代 Work。
+- Website Work revision 冲突时重新读取权威 revision，不猜测下一个值，也不创建替代 Work。
 - Standalone Tip 不因来源归因缺失而补建 Commerce Application。Website 的 follow/paid `WEBSITE_WIDGET` 与 `HOSTED_CHECKOUT` 始终由拥有平台资源的发布流程和 Shop 管理，本 Skill 只原样保留对应 `accessFeatures`。
