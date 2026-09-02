@@ -39,9 +39,9 @@
 | Capability | What ViceMe provides |
 | --- | --- |
 | Publish a Skill | Validate a local Skill directory or ZIP, set a CNY price, upload it, review platform suggestions, and publish a paid listing. |
-| Publish a website | Register and DNS-verify a creator website with a stable Website Work identity. |
+| Publish a website | Register and publish a creator website with a stable Website Work identity; verify ownership separately only for commerce, follow, or paid-access features that require it. |
 | Add creator access | Add host-native login, follow gates, and independently priced one-time feature access. |
-| Add hosted engagement | Branch between danmaku on a published, DNS-verified Website Work; open tips on any eligible published Merchant Work; or both on one verified Website Work because danmaku requires it. |
+| Add hosted engagement | Branch between danmaku on a published Website Work with an exact canonical Origin, open tips on any eligible published Merchant Work, or both; no engagement route requires DNS ownership verification. |
 | Set up an Agent | Install, authenticate, update, diagnose, and repair the CLI and official Skills as one compatible release. |
 | Recover safely | Continue the same publication after a network or process interruption without uploading a duplicate product. |
 
@@ -171,7 +171,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `sell-a-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
 | `viceme-skill-use` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | integrate an existing website access configuration into host code after the shared creator qualification check. |
-| `let-people-interact` | branch between danmaku, open tips, or both; only danmaku-bearing routes require a published, verified Website Work, while Tip can use any eligible published Merchant Work and either Mounted or Headless UI. |
+| `let-people-interact` | branch between danmaku, open tips, or both; danmaku-bearing routes require a published Website Work with an exact canonical Origin, while Tip can use any eligible published Merchant Work and either Mounted or Headless UI; none requires DNS ownership verification. |
 
 `let-others-make-a-copy` is the reserved public name for remix delivery, but no official Skill is
 available until that product workflow is implemented. Buyer-side `viceme-skill-use` keeps its
@@ -283,16 +283,18 @@ Never copy an access token into the conversation.
 
 Run `viceme <command> --help` for the full flags and JSON fields.
 
-The page hosting Tip UI and the selected Work are separate resources. A Tip-only
-integration does not register the host as a Website Work or require host-domain
-verification. DNS ownership verification still applies when the user separately
-publishes the website itself as a Website Work or enables danmaku.
+The page hosting Tip UI and the selected Work are separate resources. No
+engagement route requires Website ownership or DNS verification. A Tip-only
+integration does not register the host as a Website Work. Danmaku-only and
+combined routes still use a published Website Work whose canonical Origin
+exactly matches the deployment Origin.
 
-The combined route uses one verified Website Work only because danmaku requires
-it. Tip itself adds no domain or Commerce Application gate, and engagement does
-not create or mutate Website Widget applications. Website follow/paid access and
-its `WEBSITE_WIDGET`/`HOSTED_CHECKOUT` resources remain owned by publishing and
-the Shop platform.
+The combined route uses one published Website Work because danmaku requires
+that identity. Tip itself adds no domain or Commerce Application gate, and
+engagement does not create or mutate Website Widget applications. Website
+follow/paid access and its `WEBSITE_WIDGET`/`HOSTED_CHECKOUT` resources retain
+their ownership-verification rules and remain owned by publishing and the Shop
+platform.
 
 Without matching optional trusted-source attribution, ViceMe still records the
 actual browser source as an unverified Origin; it does not reject an open tip.

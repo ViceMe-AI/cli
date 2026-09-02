@@ -129,7 +129,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "let-people-interact",
 			machine: []string{
-				"website-verification create", "website-verification verify", "sdk-access", "keys.test", "keys.live",
+				"canonicalOrigin", "status: PUBLISHED", "sdk-access", "keys.test", "keys.live",
 				"--feature danmaku", "--feature tip", "sdk_version", "REPLACE_WITH_RESOLVED_SDK_VERSION", "createViceMe", "mountDanmaku", "mountTip", "createTip",
 			},
 			semantics: []string{
@@ -631,8 +631,9 @@ func TestInteractionSkillKeepsThreeBranchBoundaries(t *testing.T) {
 	bundle := readOfficialSkillBundle(t, "let-people-interact")
 	for _, required := range []string{
 		"仅弹幕", "仅赞赏", "弹幕加赞赏", "$become-a-creator", "MerchantAccountMember(role=OWNER)",
-		"任意 kind Work", "PUBLISHED + VERIFIED Website Work", "marketRegion: cn", "页面 locale 不选择市场",
+		"任意 kind Work", "PUBLISHED Website Work", "canonical Origin", "marketRegion: cn", "页面 locale 不选择市场",
 		"仅弹幕不受 CN/CNY 限制", "GLOBAL 必须立即停止", "Tip 本身不增加 Origin 或 Application 门禁",
+		"三个分支均不创建、读取、验证或撤销 Website ownership verification", "不要求 DNS 或域名所有权验证",
 		"只承载 Tip UI 的宿主页不是作品证据", "只有真实作品是可下载 Skill 时才转交 `$sell-a-skill`",
 	} {
 		if !strings.Contains(bundle, required) {
@@ -641,6 +642,7 @@ func TestInteractionSkillKeepsThreeBranchBoundaries(t *testing.T) {
 	}
 	for _, forbidden := range []string{
 		"$viceme-creator-onboarding", "$viceme-publish", "目标特性集合固定",
+		"PUBLISHED + VERIFIED Website Work", "DNS verified 状态", "同一 verified Website Work",
 		"merchant commerce-application create", "merchant commerce-application update",
 		"merchant commerce-application suspend", "merchant commerce-application activate",
 	} {
@@ -650,7 +652,7 @@ func TestInteractionSkillKeepsThreeBranchBoundaries(t *testing.T) {
 	}
 }
 
-func TestInteractionTipOnlyUsesAnyPublishedMerchantWorkWithoutOriginGate(t *testing.T) {
+func TestInteractionTipOnlyUsesAnyPublishedMerchantWorkWithoutWebsiteOwnershipGate(t *testing.T) {
 	t.Parallel()
 
 	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/SKILL.md")
@@ -674,6 +676,34 @@ func TestInteractionTipOnlyUsesAnyPublishedMerchantWorkWithoutOriginGate(t *test
 	} {
 		if strings.Contains(section, forbidden) {
 			t.Fatalf("tip-only branch retained host gate %q", forbidden)
+		}
+	}
+}
+
+func TestInteractionDanmakuUsesPublishedWebsiteWithoutDNSVerification(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := sectionBetween(string(content), "## Website Work 与安全接入", "## SDK access 完整更新")
+	for _, required := range []string{
+		"kind: WEBSITE", "canonicalOrigin", "status: PUBLISHED", "部署 Origin 精确匹配",
+		"website.ownershipStatus` 不参与门禁",
+	} {
+		if !strings.Contains(section, required) {
+			t.Fatalf("danmaku branch omitted Website boundary %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"website-verification create <work-id>", "website-verification get <work-id>",
+		"website-verification verify <work-id>", "website-verification revoke <work-id>",
+		"dnsRecordName", "--expected-verification-version", "PUBLISHED + VERIFIED Website Work",
+		"website.ownershipStatus: VERIFIED",
+	} {
+		if strings.Contains(section, forbidden) {
+			t.Fatalf("danmaku branch retained DNS verification gate %q", forbidden)
 		}
 	}
 }
