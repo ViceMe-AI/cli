@@ -139,6 +139,7 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	expectedScopes := []string{
 		"profile:read", "skill-publication:read", "skill-publication:write",
 		"merchant-commerce:read", "merchant-commerce:write", "skill-use:read",
+		"buyer-commerce:read", "buyer-commerce:write",
 		"website-replica:read", "website-replica:write", "website-replica:purchase",
 	}
 	if strings.Join(requestedScopes, ",") != strings.Join(expectedScopes, ",") {

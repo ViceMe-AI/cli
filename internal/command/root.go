@@ -79,6 +79,8 @@ type Runtime struct {
 	apiBaseURL         string
 	apiBaseURLOverride string
 	apiBaseURLFromEnv  bool
+	buyerUserID        string
+	buyerClient        *api.Client
 	credentialScope    string
 	config             config.Config
 	profile            config.Profile
@@ -711,6 +713,9 @@ func (r *Runtime) manager() *auth.Manager {
 }
 
 func (r *Runtime) client() *api.Client {
+	if r.buyerClient != nil {
+		return r.buyerClient
+	}
 	var tokens api.TokenSource = r.manager()
 	if token, _, _ := r.overrideCredential(); token != "" {
 		tokens = processTokenSource(token)
