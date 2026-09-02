@@ -35,9 +35,9 @@
 | 能力 | ViceMe 提供的内容 |
 | --- | --- |
 | 发布 Skill | 校验本地 Skill 目录或 ZIP、设置人民币价格、上传、审核平台建议，并发布付费商品。 |
-| 发布网站 | 使用稳定 Website Work 身份登记创作者网站并完成 DNS 所有权验证。 |
+| 发布网站 | 使用稳定 Website Work 身份登记并发布创作者网站；只有商务、关注或付费访问能力需要时才另行验证所有权。 |
 | 接入创作者访问 | 在原站接入登录、关注门槛和按功能独立定价的一次性访问权限。 |
-| 接入托管互动 | 先分支：弹幕使用已发布且完成 DNS 验证的 Website Work；开放赞赏可使用任意合格且已发布的 Merchant Work；组合仅因弹幕要求而共用一个已验证 Website Work。 |
+| 接入托管互动 | 先分支：弹幕使用已发布且 canonical Origin 精确匹配的 Website Work；开放赞赏可使用任意合格且已发布的 Merchant Work；组合共用同一个 Website Work；三个分支均不要求 DNS 所有权验证。 |
 | 配置 Agent | 把 CLI 与官方 Skills 作为同一个兼容版本安装、登录、更新、诊断和修复。 |
 | 安全恢复 | 网络或进程中断后继续原发布任务，不重复上传和创建商品。 |
 
@@ -156,7 +156,7 @@ npx --yes @viceme-ai/cli@latest install
 | `sell-a-skill` | 发布或更新可下载的付费或免费 Skill；网站、服务与普通商品不属于此 Skill。 |
 | `viceme-skill-use` | 解析免费、已购买或待购买的访问状态，安装所选 Skill，并继续原任务。 |
 | `charge-for-your-work` | 把已有网站关注或付费访问配置接入宿主代码，并复用统一的创作者资格检查。 |
-| `let-people-interact` | 分支处理仅弹幕、开放赞赏或两者；只有包含弹幕的路线要求已发布且完成验证的 Website Work，Tip 可使用任意合格且已发布的 Merchant Work，并选择 Mounted 或 Headless UI。 |
+| `let-people-interact` | 分支处理仅弹幕、开放赞赏或两者；包含弹幕的路线要求已发布且 canonical Origin 精确匹配的 Website Work，Tip 可使用任意合格且已发布的 Merchant Work，并选择 Mounted 或 Headless UI；三个分支均不要求 DNS 所有权验证。 |
 
 `let-others-make-a-copy` 是“做同款”交付的保留公开名；对应产品流程实现前不提供官方 Skill。
 买家侧 `viceme-skill-use` 不属于创作者玩法，因此保持现有名称。
@@ -257,13 +257,14 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 
 运行 `viceme <command> --help` 查看完整参数和 JSON 字段。
 
-承载赞赏 UI 的页面与被赞赏 Work 是两个独立资源。仅接入赞赏不会把宿主页登记为
-Website Work，也不要求验证宿主域名。只有用户另行把网站本身发布为 Website Work
-或启用弹幕时，才继续执行 DNS 所有权验证。
+承载赞赏 UI 的页面与被赞赏 Work 是两个独立资源。三个互动分支均不要求 Website
+ownership 或 DNS 验证。仅接入赞赏不会把宿主页登记为 Website Work；仅弹幕和组合
+仍使用 canonical Origin 与部署 Origin 精确匹配的已发布 Website Work。
 
-组合路线只因弹幕要求而共用一个已验证 Website Work。Tip 本身不增加域名或
+组合路线只因弹幕要求而共用一个已发布 Website Work。Tip 本身不增加域名或
 Commerce Application 门禁，互动流程也不创建或修改 Website Widget。网站关注/付费
-访问及其 `WEBSITE_WIDGET`、`HOSTED_CHECKOUT` 资源仍由发布流程和 Shop 平台负责。
+访问及其 `WEBSITE_WIDGET`、`HOSTED_CHECKOUT` 资源仍保留所有权验证规则，并由发布
+流程和 Shop 平台负责。
 
 没有匹配可选可信来源归因时，ViceMe 仍会把实际浏览器来源记录为未验证 Origin，
 不会因此拒绝开放赞赏。

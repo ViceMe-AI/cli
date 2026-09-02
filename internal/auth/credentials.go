@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -168,19 +169,69 @@ func (m *Manager) Load() (Credential, error) {
 }
 
 func (m *Manager) Delete() error {
-	var deleteErrors []error
-	for _, key := range m.storageKeys() {
-		err := m.Store.Delete(key)
-		if err != nil && !errors.Is(err, securestore.ErrNotFound) {
-			deleteErrors = append(deleteErrors, err)
+	_, err := DeleteStorageKeys(m.Store, m.storageKeys())
+	return err
+}
+
+// DeleteStorageKeys removes a set of credential entries as one recoverable
+// local operation. Every existing value is read before the first mutation, and
+// a partial delete restores the complete snapshot so callers can safely retry.
+func DeleteStorageKeys(store securestore.Store, keys []string) (int, error) {
+	unique := make([]string, 0, len(keys))
+	seen := make(map[string]struct{}, len(keys))
+	values := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if _, exists := seen[key]; exists {
+			continue
 		}
+		seen[key] = struct{}{}
+		value, err := store.Get(key)
+		if errors.Is(err, securestore.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return 0, credentialDeleteError("could not inspect credentials in the secure local credential store", err)
+		}
+		unique = append(unique, key)
+		values[key] = value
 	}
-	if len(deleteErrors) > 0 {
-		return output.Authentication("credential_store_unavailable", "could not remove credentials from the secure local credential store").
-			WithHint("unlock the operating-system credential manager and retry from an interactive Terminal").
-			WithCause(errors.Join(deleteErrors...))
+
+	removed := 0
+	for index, key := range unique {
+		err := store.Delete(key)
+		if err == nil {
+			removed++
+			continue
+		}
+		if errors.Is(err, securestore.ErrNotFound) {
+			continue
+		}
+		rollbackErrors := []error{err}
+		// Keys after the failing delete were never touched. Restore only the
+		// attempted prefix so a concurrent writer to a later key is not replaced
+		// by this operation's older snapshot.
+		for _, restoreKey := range unique[:index+1] {
+			value := values[restoreKey]
+			if restoreErr := store.Set(restoreKey, value); restoreErr != nil {
+				rollbackErrors = append(rollbackErrors, fmt.Errorf("restore credential %q: %w", restoreKey, restoreErr))
+			}
+		}
+		message := "could not remove credentials from the secure local credential store; the previous credential set was restored"
+		if len(rollbackErrors) > 1 {
+			message = "could not remove credentials from the secure local credential store; the previous credential set could not be fully restored"
+		}
+		return 0, credentialDeleteError(
+			message,
+			errors.Join(rollbackErrors...),
+		)
 	}
-	return nil
+	return removed, nil
+}
+
+func credentialDeleteError(message string, cause error) *output.Error {
+	return output.Authentication("credential_store_unavailable", message).
+		WithHint("unlock the operating-system credential manager and retry from an interactive Terminal").
+		WithCause(cause)
 }
 
 func (m *Manager) Token(_ context.Context) (string, error) {

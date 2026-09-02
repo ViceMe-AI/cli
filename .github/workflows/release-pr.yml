@@ -50,35 +50,56 @@ jobs:
           token: ${{ steps.release-app-token.outputs.token }}
           ref: dev
           fetch-depth: 0
+      - id: release-head
+        name: Detect an already prepared Release Bot head
+        env:
+          PR_BASE_REF: ${{ github.base_ref }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || '' }}
+        run: |
+          PR_HEAD_SUBJECT="$(git log -1 --format=%s)"
+          PR_HEAD_BODY="$(git log -1 --format=%B)"
+          PR_HEAD_AUTHOR_EMAIL="$(git log -1 --format=%ae)"
+          export PR_HEAD_SUBJECT PR_HEAD_BODY PR_HEAD_AUTHOR_EMAIL
+          echo "prepared=$(bash scripts/ci/validate-pr-target.sh --is-prepared-release-commit)" >>"${GITHUB_OUTPUT}"
       - name: Fetch stable branch and release tags
+        if: steps.release-head.outputs.prepared != 'true'
         run: git fetch origin main --tags
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        if: steps.release-head.outputs.prepared != 'true'
         with:
           go-version-file: go.mod
           cache: true
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: steps.release-head.outputs.prepared != 'true'
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - if: steps.release-head.outputs.prepared != 'true'
+        run: npm ci
       - name: Validate GitHub Actions workflows
+        if: steps.release-head.outputs.prepared != 'true'
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       - name: Compute version, CHANGELOG, and generated release contracts
+        if: steps.release-head.outputs.prepared != 'true'
         run: make release-prepare
       - name: Verify prepared release
+        if: steps.release-head.outputs.prepared != 'true'
         run: |
           make check
           make npm-package-check
           git diff --check
       - id: release
         name: Commit prepared release to protected dev
+        if: steps.release-head.outputs.prepared != 'true'
         env:
           APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}
           APP_USER_ID: ${{ steps.release-app-user.outputs.user-id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           TAG="v${VERSION}"
-          PUSHED=false
+          RELEASE_TRAILERS="$(printf 'ViceMe-Release-Prepared: true\nViceMe-Release-Run: %s' "${RUN_URL}")"
           git config user.name "${APP_SLUG}[bot]"
           git config user.email "${APP_USER_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
           git add \
@@ -93,23 +114,47 @@ jobs:
             git diff --name-only >&2
             exit 1
           fi
-          if ! git diff --cached --quiet; then
-            git commit --message "chore(release): ${TAG}"
-            git push origin HEAD:dev
-            PUSHED=true
+          git commit \
+            --allow-empty \
+            --message "chore(release): ${TAG}" \
+            --message "${RELEASE_TRAILERS}"
+          git push origin HEAD:dev
+          {
+            echo "version=${VERSION}"
+            echo "tag=${TAG}"
+            echo "sha=$(git rev-parse HEAD)"
+            echo "pushed=true"
+            echo "run_url=${RUN_URL}"
+          } >>"${GITHUB_OUTPUT}"
+      - id: prepared-release
+        name: Verify prepared release metadata
+        if: steps.release-head.outputs.prepared == 'true'
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          TAG="v${VERSION}"
+          SUBJECT="$(git log -1 --format=%s)"
+          RUN_URL="$(git log -1 --format=%B | git interpret-trailers --parse | sed -n 's/^ViceMe-Release-Run: //p')"
+          if [[ "${SUBJECT}" != "chore(release): ${TAG}" ]]; then
+            echo "Prepared release subject ${SUBJECT} does not match package version ${TAG}" >&2
+            exit 1
+          fi
+          if [[ ! "${RUN_URL}" =~ ^https://github\.com/${GITHUB_REPOSITORY}/actions/runs/[0-9]+$ ]]; then
+            echo "Prepared release commit has an invalid ViceMe-Release-Run trailer" >&2
+            exit 1
           fi
           {
             echo "version=${VERSION}"
             echo "tag=${TAG}"
             echo "sha=$(git rev-parse HEAD)"
-            echo "pushed=${PUSHED}"
+            echo "pushed=false"
+            echo "run_url=${RUN_URL}"
           } >>"${GITHUB_OUTPUT}"
       - name: Create or update dev to main Release PR
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ steps.release.outputs.tag }}
-          RELEASE_SHA: ${{ steps.release.outputs.sha }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TAG: ${{ steps.release.outputs.tag || steps.prepared-release.outputs.tag }}
+          RELEASE_SHA: ${{ steps.release.outputs.sha || steps.prepared-release.outputs.sha }}
+          RUN_URL: ${{ steps.release.outputs.run_url || steps.prepared-release.outputs.run_url }}
         run: |
           BODY_FILE="${RUNNER_TEMP}/release-pr.md"
           {

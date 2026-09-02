@@ -7,9 +7,39 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: cli-pr-checks-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
+  classify:
+    name: Classify PR head
+    runs-on: ubuntu-latest
+    outputs:
+      run-full: ${{ steps.classify.outputs.run-full }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 1
+      - id: classify
+        name: Decide whether the promotion head is final
+        env:
+          PR_BASE_REF: ${{ github.base_ref }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || '' }}
+        run: |
+          PR_HEAD_SUBJECT="$(git log -1 --format=%s)"
+          PR_HEAD_BODY="$(git log -1 --format=%B)"
+          PR_HEAD_AUTHOR_EMAIL="$(git log -1 --format=%ae)"
+          export PR_HEAD_SUBJECT PR_HEAD_BODY PR_HEAD_AUTHOR_EMAIL
+          echo "run-full=$(bash scripts/ci/validate-pr-target.sh --should-run-full-checks)" >>"${GITHUB_OUTPUT}"
+      - name: Test pull request target contract
+        run: bash scripts/ci/validate-pr-target.sh --self-test
+
   quality:
     name: PR quality
+    needs: classify
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -23,21 +53,29 @@ jobs:
       - name: Test pull request target contract
         run: bash scripts/ci/validate-pr-target.sh --self-test
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        if: needs.classify.outputs.run-full == 'true'
         with:
           go-version-file: go.mod
           cache: true
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        if: needs.classify.outputs.run-full == 'true'
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
+      - if: needs.classify.outputs.run-full == 'true'
+        run: npm ci
       - name: Validate GitHub Actions workflows
+        if: needs.classify.outputs.run-full == 'true'
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
-      - run: make check
-      - run: make npm-package-check
+      - if: needs.classify.outputs.run-full == 'true'
+        run: make check
+      - if: needs.classify.outputs.run-full == 'true'
+        run: make npm-package-check
 
   npm-platform-smoke:
     name: PR npm installer (${{ matrix.os }})
+    needs: classify
+    if: needs.classify.outputs.run-full == 'true'
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     strategy:
@@ -55,6 +93,8 @@ jobs:
 
   windows-config:
     name: PR Windows config
+    needs: classify
+    if: needs.classify.outputs.run-full == 'true'
     runs-on: windows-latest
     timeout-minutes: 10
     steps:
