@@ -118,7 +118,7 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 				}},
 			},
 		})
-	case request.URL.Path == "/v1/product-quotes" && request.Method == http.MethodPost:
+	case request.URL.Path == "/v1/cli/product-quotes" && request.Method == http.MethodPost:
 		writeJSONResponse(writer, map[string]any{
 			"id":          skillPurchaseQuoteID,
 			"product":     map[string]any{"id": downloadableProductID, "slug": "paid-skill", "title": "Paid Skill"},
@@ -131,7 +131,7 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 			"paymentOptions":  []map[string]any{{"provider": "WECHAT_PAY", "scenes": []string{"NATIVE"}}},
 			"expiresAt":       "2027-08-27T00:00:00Z",
 		})
-	case request.URL.Path == "/v1/orders" && request.Method == http.MethodPost:
+	case request.URL.Path == "/v1/cli/orders" && request.Method == http.MethodPost:
 		writeJSONResponse(writer, map[string]any{"order": map[string]any{
 			"orderNo": skillPurchaseOrderNo, "kind": "PRODUCT_PURCHASE", "status": "PENDING",
 			"region": "CN", "currency": "CNY", "amountCents": 990, "paymentProvider": "WECHAT_PAY",
@@ -147,7 +147,18 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 			"paymentAction": map[string]any{"type": "QR_CODE", "content": "weixin://wxpay/bizpayurl?pr=skill"},
 			"expiresAt":     "2027-08-27T00:00:00Z", "createdAt": "2026-09-01T08:00:00Z",
 		}})
-	case request.URL.Path == "/v1/orders/"+skillPurchaseOrderNo+"/status":
+	case request.URL.Path == "/v1/cli/orders/"+skillPurchaseOrderNo && request.Method == http.MethodGet:
+		s.mu.Lock()
+		pending := s.paymentStatus != "PAID"
+		s.mu.Unlock()
+		status := "PAID"
+		if pending {
+			status = "PENDING"
+		}
+		writeJSONResponse(writer, map[string]any{"order": map[string]any{
+			"orderNo": skillPurchaseOrderNo, "status": status, "amountCents": 990,
+		}})
+case request.URL.Path == "/v1/cli/orders/"+skillPurchaseOrderNo+"/status":
 		s.mu.Lock()
 		s.paymentStatus = "PAID"
 		s.mu.Unlock()

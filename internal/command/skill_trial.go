@@ -302,18 +302,19 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.requireSkillUseAuthentication(command.Context()); err != nil {
 				return err
 			}
-			order, err := recoverPendingSkillPurchaseOrder(command.Context(), runtime, productID)
+			order, err := openSkillPurchaseOrder(command.Context(), runtime, productID)
 			if err != nil {
 				return err
 			}
-			if order == nil {
-				orderValue, err := createSkillPurchaseOrder(command.Context(), runtime, productID)
-				if err != nil {
-					return err
-				}
-				order = &orderValue
+			if order.Status == "PAID" {
+				// 恢复出已支付订单:直接转正,不再弹码。
+				removed := removeSkillTrialGates(runtime, productID)
+				return runtime.business(skillTrialUseResult{
+					ProductID: productID, Allowed: true, Owned: true, RemovedGates: removed, OrderNo: order.OrderNo,
+					NextAction: "CONTINUE_TASK",
+				})
 			}
-			presentation, err := presentSkillPaymentQR(runtime, order)
+			presentation, err := presentSkillPaymentQR(runtime, &order)
 			if err != nil {
 				return err
 			}
