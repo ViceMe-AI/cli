@@ -8,12 +8,14 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	credentialauth "github.com/ViceMe-AI/cli/internal/auth"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
@@ -239,5 +241,123 @@ func TestProfileRemoveAllRequiresConfirmationAndClearsEveryCredential(t *testing
 		t.Fatalf("clean default auth status failed: exit=%d result=%#v", exit, envelope)
 	} else if data, ok := envelope["data"].(map[string]any); !ok || data["authenticated"] != false || data["profile"] != "default" {
 		t.Fatalf("clean default unexpectedly remained authenticated: %#v", envelope)
+	}
+}
+
+type deleteFailureStore struct {
+	store   *securestore.MemoryStore
+	failKey string
+	failed  bool
+}
+
+func (store *deleteFailureStore) Get(key string) (string, error) {
+	return store.store.Get(key)
+}
+
+func (store *deleteFailureStore) Set(key, value string) error {
+	return store.store.Set(key, value)
+}
+
+func (store *deleteFailureStore) Delete(key string) error {
+	if key == store.failKey && !store.failed {
+		store.failed = true
+		return errors.New("injected credential delete failure")
+	}
+	return store.store.Delete(key)
+}
+
+func TestProfileRemoveKeepsCredentialWhenConfigCommitFails(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	configured := config.Default(config.RegionCN)
+	profile, err := configured.AddProfile(
+		"shop-test", "https://shop-test.example.com/api", "https://shop-test.example.com", config.RegionCN,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Save(configDir, configured); err != nil {
+		t.Fatal(err)
+	}
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(profile.ResolvedAPIBaseURL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{
+		Store: store, Region: "cn", ProfileID: profile.ID, ProfileName: profile.Name, Scope: scope,
+	}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "credential-to-preserve"}); err != nil {
+		t.Fatal(err)
+	}
+
+	originalRename := privatefile.RenameFile
+	privatefile.RenameFile = func(string, string) error { return syscall.EIO }
+	t.Cleanup(func() { privatefile.RenameFile = originalRename })
+	var stdout bytes.Buffer
+	exit := Execute([]string{"profile", "remove", profile.Name}, Dependencies{
+		Out: &stdout, ErrOut: &bytes.Buffer{}, Store: store,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+	})
+	if exit != output.ExitInternal {
+		t.Fatalf("config commit failure returned exit %d: %s", exit, stdout.String())
+	}
+	persisted, err := config.LoadOrDefault(configDir)
+	if err != nil || persisted.FindProfileIndex(profile.Name) < 0 {
+		t.Fatalf("failed removal changed the persisted Profile: config=%#v err=%v", persisted, err)
+	}
+	if _, err := manager.Load(); err != nil {
+		t.Fatalf("failed Profile commit discarded its credential: %v", err)
+	}
+}
+
+func TestProfileRemoveAllRollsBackConfigAndCredentialsOnDeleteFailure(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	configured := config.Default(config.RegionCN)
+	profile, err := configured.AddProfile(
+		"shop-test", "https://shop-test.example.com/api", "https://shop-test.example.com", config.RegionCN,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured.CurrentProfile = profile.Name
+	if _, err := config.Save(configDir, configured); err != nil {
+		t.Fatal(err)
+	}
+
+	memory := securestore.NewMemory()
+	keys := make([]string, 0, len(configured.Profiles))
+	for _, candidate := range configured.Profiles {
+		scope, err := credentialScopeForAPIBase(candidate.ResolvedAPIBaseURL())
+		if err != nil {
+			t.Fatal(err)
+		}
+		key := (&credentialauth.Manager{
+			Store: memory, Region: "cn", ProfileID: candidate.ID, ProfileName: candidate.Name, Scope: scope,
+		}).StorageKey()
+		keys = append(keys, key)
+		if err := memory.Set(key, "credential-for-"+candidate.Name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	store := &deleteFailureStore{store: memory, failKey: keys[len(keys)-1]}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"profile", "remove", "--all", "--yes"}, Dependencies{
+		Out: &stdout, ErrOut: &bytes.Buffer{}, Store: store,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+	})
+	if exit != output.ExitAuthentication {
+		t.Fatalf("credential delete failure returned exit %d: %s", exit, stdout.String())
+	}
+	persisted, err := config.LoadOrDefault(configDir)
+	if err != nil || len(persisted.Profiles) != len(configured.Profiles) || persisted.CurrentProfile != configured.CurrentProfile {
+		t.Fatalf("failed bulk cleanup did not restore Profiles: config=%#v err=%v", persisted, err)
+	}
+	for index, key := range keys {
+		value, err := memory.Get(key)
+		if err != nil || value != "credential-for-"+configured.Profiles[index].Name {
+			t.Fatalf("failed bulk cleanup did not restore credential %q: value=%q err=%v", key, value, err)
+		}
 	}
 }

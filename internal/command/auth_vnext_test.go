@@ -15,7 +15,9 @@ import (
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
+	credentialauth "github.com/ViceMe-AI/cli/internal/auth"
 	"github.com/ViceMe-AI/cli/internal/config"
+	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
@@ -196,6 +198,127 @@ func TestDeviceLoginSendsCreatorOnboardingPurpose(t *testing.T) {
 	})
 	if requestedPurpose != "CREATOR_ONBOARDING" {
 		t.Fatalf("creator onboarding login sent the wrong purpose: %q", requestedPurpose)
+	}
+}
+
+func TestAuthLogoutRetainsCredentialUntilRemoteRevocationSucceeds(t *testing.T) {
+	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/cli/auth/logout" || request.Header.Get("Authorization") != "Bearer "+accessToken {
+			writer.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if attempts.Add(1) == 1 {
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{
+		Store: store, Region: "cn", ProfileID: config.DefaultProfileName,
+		ProfileName: config.DefaultProfileName, Scope: scope,
+	}
+	if err := manager.Save(credentialauth.Credential{AccessToken: accessToken, ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	dependencies := Dependencies{
+		Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	}
+	run := func() (int, map[string]any) {
+		t.Helper()
+		var stdout bytes.Buffer
+		dependencies.Out = &stdout
+		dependencies.ErrOut = &bytes.Buffer{}
+		exit := Execute([]string{"auth", "logout"}, dependencies)
+		var envelope map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("invalid logout response: exit=%d stdout=%q err=%v", exit, stdout.String(), err)
+		}
+		return exit, envelope
+	}
+
+	if exit, envelope := run(); exit != output.ExitNetwork || envelope["ok"] != false {
+		t.Fatalf("failed revocation returned the wrong result: exit=%d envelope=%#v", exit, envelope)
+	}
+	if _, err := manager.Load(); err != nil {
+		t.Fatalf("failed remote revocation discarded the retry credential: %v", err)
+	}
+	if exit, envelope := run(); exit != 0 || envelope["ok"] != true {
+		t.Fatalf("retry logout failed: exit=%d envelope=%#v", exit, envelope)
+	}
+	if _, err := manager.Load(); err == nil {
+		t.Fatal("successful remote revocation retained the local credential")
+	}
+}
+
+func TestAuthLogoutRetryRemovesCredentialAfterRemoteRevocationCommitted(t *testing.T) {
+	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/cli/auth/logout" || request.Header.Get("Authorization") != "Bearer "+accessToken {
+			writer.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if attempts.Add(1) == 1 {
+			writer.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writer.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	memory := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{
+		Store: memory, Region: "cn", ProfileID: config.DefaultProfileName,
+		ProfileName: config.DefaultProfileName, Scope: scope,
+	}
+	if err := manager.Save(credentialauth.Credential{AccessToken: accessToken, ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	store := &deleteFailureStore{store: memory, failKey: manager.StorageKey()}
+	dependencies := Dependencies{
+		Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	}
+	run := func() (int, map[string]any) {
+		t.Helper()
+		var stdout bytes.Buffer
+		dependencies.Out = &stdout
+		dependencies.ErrOut = &bytes.Buffer{}
+		exit := Execute([]string{"auth", "logout"}, dependencies)
+		var envelope map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("invalid logout response: exit=%d stdout=%q err=%v", exit, stdout.String(), err)
+		}
+		return exit, envelope
+	}
+
+	if exit, envelope := run(); exit != output.ExitAuthentication || envelope["ok"] != false {
+		t.Fatalf("local delete failure returned the wrong result: exit=%d envelope=%#v", exit, envelope)
+	}
+	if _, err := manager.Load(); err != nil {
+		t.Fatalf("local delete failure did not restore the credential for cleanup retry: %v", err)
+	}
+	if exit, envelope := run(); exit != 0 || envelope["ok"] != true {
+		t.Fatalf("retry did not accept the already-revoked credential: exit=%d envelope=%#v", exit, envelope)
+	}
+	if _, err := manager.Load(); err == nil {
+		t.Fatal("logout retry retained an already-revoked local credential")
 	}
 }
 

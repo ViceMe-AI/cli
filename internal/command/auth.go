@@ -246,14 +246,18 @@ func newAuthLogoutCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			revokeErr := runtime.client().Revoke(command.Context(), credential.AccessToken)
-			deleteErr := manager.Delete()
-			if deleteErr != nil {
-				return deleteErr
-			}
-			if revokeErr != nil {
+			if revokeErr != nil && !credentialAlreadyRevoked(revokeErr) {
 				return revokeErr
+			}
+			if err := manager.Delete(); err != nil {
+				return err
 			}
 			return runtime.business(map[string]any{"loggedOut": true, "profile": runtime.profile.Name, "distributionRegion": runtime.region})
 		},
 	}
+}
+
+func credentialAlreadyRevoked(err error) bool {
+	var cliError *output.Error
+	return errors.As(err, &cliError) && cliError.Code == output.ExitAuthentication && cliError.Type == "authentication"
 }

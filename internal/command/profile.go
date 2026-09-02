@@ -2,12 +2,12 @@ package command
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 
 	credentialauth "github.com/ViceMe-AI/cli/internal/auth"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
-	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/spf13/cobra"
 )
 
@@ -183,19 +183,22 @@ func newProfileRemoveCommand(runtime *Runtime) *cobra.Command {
 				ProfileID: removed.ID, ProfileName: removed.Name, Scope: scope,
 				LegacyRegion: legacyCredentialRegionForAPIBase(removed.ResolvedAPIBaseURL()),
 			}
-			if err := manager.Delete(); err != nil {
-				return err
+			previous := cloneConfig(runtime.config)
+			candidate := cloneConfig(runtime.config)
+			candidate.Profiles = append(candidate.Profiles[:index], candidate.Profiles[index+1:]...)
+			if candidate.CurrentProfile == removed.Name {
+				candidate.CurrentProfile = candidate.Profiles[0].Name
 			}
-			runtime.config.Profiles = append(runtime.config.Profiles[:index], runtime.config.Profiles[index+1:]...)
-			if runtime.config.CurrentProfile == removed.Name {
-				runtime.config.CurrentProfile = runtime.config.Profiles[0].Name
+			if candidate.PreviousProfile == removed.Name {
+				candidate.PreviousProfile = ""
 			}
-			if runtime.config.PreviousProfile == removed.Name {
-				runtime.config.PreviousProfile = ""
-			}
-			if _, err := config.Save(runtime.configBase, runtime.config); err != nil {
+			if _, err := config.Save(runtime.configBase, candidate); err != nil {
 				return output.Internal("PROFILE_SAVE_FAILED", "could not remove the profile", err)
 			}
+			if err := manager.Delete(); err != nil {
+				return rollbackProfileConfig(runtime.configBase, previous, err)
+			}
+			runtime.config = candidate
 			if err := runtime.reloadConfig(runtime.config.CurrentProfile); err != nil {
 				return err
 			}
@@ -217,32 +220,16 @@ func removeAllProfiles(runtime *Runtime) error {
 	if err != nil {
 		return output.Validation("PROFILE_API_BASE_URL_INVALID", err.Error())
 	}
-	removedCredentials := 0
-	for _, key := range credentialKeys {
-		_, err := runtime.deps.Store.Get(key)
-		if errors.Is(err, securestore.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			return output.Authentication("credential_store_unavailable", "could not inspect all credentials in the secure local credential store").
-				WithHint("unlock the operating-system credential manager and retry the same command").
-				WithCause(err)
-		}
-		if err := runtime.deps.Store.Delete(key); errors.Is(err, securestore.ErrNotFound) {
-			continue
-		} else if err != nil {
-			return output.Authentication("credential_store_unavailable", "could not remove all credentials from the secure local credential store").
-				WithHint("unlock the operating-system credential manager and retry the same command").
-				WithCause(err)
-		}
-		removedCredentials++
-	}
-
+	previous := cloneConfig(runtime.config)
 	reset := config.Default(runtime.region)
 	result, err := config.Save(runtime.configBase, reset)
 	if err != nil {
-		return output.Internal("PROFILE_SAVE_FAILED", "credentials were removed, but the clean default profile could not be saved", err).
-			WithHint("retry 'viceme profile remove --all --yes' after repairing the ViceMe configuration directory")
+		return output.Internal("PROFILE_SAVE_FAILED", "could not save the clean default profile; no credentials were removed", err).
+			WithHint("repair the ViceMe configuration directory, then retry 'viceme profile remove --all --yes'")
+	}
+	removedCredentials, err := credentialauth.DeleteStorageKeys(runtime.deps.Store, credentialKeys)
+	if err != nil {
+		return rollbackProfileConfig(runtime.configBase, previous, err)
 	}
 	runtime.config = reset
 	if err := runtime.reloadConfig(reset.CurrentProfile); err != nil {
@@ -255,4 +242,21 @@ func removeAllProfiles(runtime *Runtime) error {
 		"authenticated":      false,
 		"config":             result,
 	})
+}
+
+func cloneConfig(source config.Config) config.Config {
+	cloned := source
+	cloned.Profiles = append([]config.Profile(nil), source.Profiles...)
+	return cloned
+}
+
+func rollbackProfileConfig(configBase string, previous config.Config, cause error) error {
+	if _, rollbackErr := config.Save(configBase, previous); rollbackErr != nil {
+		return output.Internal(
+			"PROFILE_REMOVE_ROLLBACK_FAILED",
+			"profile cleanup failed and the previous Profile configuration could not be restored",
+			errors.Join(cause, fmt.Errorf("restore profile configuration: %w", rollbackErr)),
+		).WithHint("repair the ViceMe configuration directory before retrying; locally stored credentials may require reconciliation")
+	}
+	return cause
 }
