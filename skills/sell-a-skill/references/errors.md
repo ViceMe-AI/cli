@@ -2,7 +2,9 @@
 
 - 包校验错误一次列出多个问题时（消息里有 `Additional problems in the same Skill package:` 分节，每条前缀各自的错误码）：向用户逐条转述全部问题并一次性指导修复，全部修复后重试同一次发布；不得只修第一条。包内 `SKILL.md` 的 `name` 是硬性要求（Agent 识别与安装名来源），`description` 缺失不是问题——平台会自动从正文生成兜底简介，无需用户处理。
 - `SKILL_PACKAGE_NAME_INVALID`：包内 `SKILL.md` 的 `name` 是安装标识符，只允许小写字母、数字和单个连字符（例如 `canghe-comic`）。用户想改的是展示标题时，不要改包 name，改用 `publication update` 的 title 字段（见 workflow.md「改展示名称」）；确实要换安装名时，先把 SKILL.md 的 name 改成合法 slug 再重试同一次发布。
-- `SKILL_PUBLICATION_TITLE_TAKEN`：你已发布过另一个同名的 Skill，而这次的内容不是同一个 Skill。用一句白话问用户：“这个名字已经被你的另一个 Skill 占用了，要换一个名称吗？”用户给出新名称后，说明需要先修改 Skill 本身的名称（SKILL.md 里的 name），再从头发起一次新的发布；用户明确不换名称，或新名称仍然重复时，礼貌说明暂时无法发布并结束任务。不得自行给名称加数字后缀、编造新名称或静默重试。
+- `SKILL_PUBLICATION_TITLE_TAKEN`：当前来源未明确绑定到已有同名作品，不能据此判断用户要覆盖原 Skill。按 workflow.md「发布意图与条目选择」先确认更新原条目还是保留原条目新增，再读取当前拥有的作品及条目，显式选择 Listing 和 edition。确实要独立新作品时才询问不同名称；不得为了绕过冲突自行改包 name、加数字后缀或推荐覆盖。
+- `SKILL_EDITION_SELECTION_REQUIRED`：非 `--resume` 发布缺少明确的 `--edition-key` 或 `--edition-order`，命令尚未创建发布记录。读取当前作品的 publication review 并确认新增/更新后补齐选择；更新复用原 key/order，新增使用未占用的 key/order。不得直接补默认 `standard`，也不得用 `resolution=UPDATE` 猜测条目。
+- `PUBLICATION_FLAGS_CONFLICT`：恢复同一 Publication 时不能改变来源、Listing 或 edition 身份。移除与原意图冲突的参数后才恢复；用户实际要求换目标时先澄清并重新走目标选择，不得把 edition 参数附到 `--resume` 上假装改成功。
 - `SKILL_PUBLICATION_ALREADY_ACTIVE`：同一份内容已经属于一个已发布过版本的 Listing（常见于 `--new-listing` 或「往组合里再添加」时给了已有来源）。这不是等待中的发布冲突：更新该 Skill 走常规发布（不带 `--new-listing`，按 UPDATE 语义接续），要发布独立的新作品必须提供内容不同的包。向用户如实说明后按其选择继续；不得换参数静默重试。
 - `SKILL_PUBLICATION_PRICE_REQUIRED`：取得并展示当前完整上架信息，同时询问准确人民币分价以及希望修改的标题、文案或媒体。不得只问价格。继续同一私有 Publication。
 - `SKILL_SECRET_DETECTED` 或 `SKILL_SENSITIVE_FILE`：停止并从包中删除凭证或敏感文件，绝不打印内容。

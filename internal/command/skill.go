@@ -40,8 +40,8 @@ type listingGetResult struct {
 type publicationPresentationResult struct {
 	api.SkillPublication
 	PublicationID string `json:"publicationId"`
-	// NEW is the Work's first publication; UPDATE means the same Skill was
-	// recognized and this publication continues the existing public Work.
+	// Resolution identifies the Work, not whether an edition is added or updated.
+	// The manifest edition key and published editions identify that operation.
 	Resolution    string              `json:"resolution"`
 	RequiresPrice bool                `json:"requiresPrice"`
 	Presentation  previewPresentation `json:"presentation"`
@@ -195,6 +195,12 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if forceNew && strings.TrimSpace(listingID) != "" {
 				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--new-listing cannot be combined with --listing")
 			}
+			if resume == "" && (!command.Flags().Changed("edition-key") || !command.Flags().Changed("edition-order")) {
+				return output.Validation("SKILL_EDITION_SELECTION_REQUIRED", "publishing requires explicit --edition-key and --edition-order; reuse the selected Skill's key/order to update it, or use an unused key/order to add a separate Skill").WithHint("read the existing publication's editions and confirm whether the original free Skill must remain before publishing")
+			}
+			if resume != "" && (forceNew || command.Flags().Changed("edition-key") || command.Flags().Changed("edition-title") || command.Flags().Changed("edition-order") || command.Flags().Changed("edition-highlight")) {
+				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--resume continues the same Skill; it cannot change the edition or create a new Listing")
+			}
 			priceConfirmed := command.Flags().Changed("price-minor")
 			if priceConfirmed && (priceMinor < 0 || priceMinor > 10_000_000) {
 				return output.Validation("SKILL_PRICE_INVALID", "priceMinor must be between 0 and 10000000")
@@ -343,7 +349,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&resume, "resume", "", "resume an interrupted publication by ID")
 	command.Flags().IntVar(&priceMinor, "price-minor", 0, "set the CNY price in fen while continuing the private draft")
 	command.Flags().StringVar(&merchantAccountID, "merchant", "", "Merchant account ID; required only when multiple active accounts exist")
-	command.Flags().StringVar(&editionKey, "edition-key", "standard", "stable lowercase edition key")
+	command.Flags().StringVar(&editionKey, "edition-key", "", "required stable lowercase edition key (except --resume)")
 	command.Flags().StringVar(&editionTitle, "edition-title", "", "buyer-visible edition title; defaults to the Skill title")
 	command.Flags().IntVar(&editionOrder, "edition-order", 0, "explicit edition display order")
 	command.Flags().StringSliceVar(&editionHighlights, "edition-highlight", nil, "buyer-visible edition highlight; repeat or comma-separate")

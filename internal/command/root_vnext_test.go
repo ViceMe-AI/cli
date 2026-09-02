@@ -984,7 +984,7 @@ func TestInstallTreatsActiveProfileNetworkReadinessAsAdvisory(t *testing.T) {
 	if !envelope.OK || len(envelope.Data.Warnings) != 1 || !strings.Contains(envelope.Data.Warnings[0], "API is unreachable") {
 		t.Fatalf("install omitted the advisory API warning: %#v", envelope)
 	}
-	if envelope.Data.NextStep.Command != "viceme skill publish --path <dir-or-zip>" {
+	if envelope.Data.NextStep.Command != "viceme skill publish --path <dir-or-zip> --edition-key <selected-key> --edition-order <selected-order>" {
 		t.Fatalf("install returned the obsolete pre-preview workflow: %#v", envelope.Data.NextStep)
 	}
 	for _, name := range officialSkillNames {
