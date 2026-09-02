@@ -312,3 +312,127 @@ func TestSkillUseWithoutGrantPointsToInstall(t *testing.T) {
 		t.Fatalf("unexpected error without a grant: %#v", errorBody)
 	}
 }
+
+func gateFiles(content string) map[string]downloadableSkillFile {
+	return map[string]downloadableSkillFile{
+		"SKILL.md": {Data: []byte(content), Mode: 0o644},
+	}
+}
+
+func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
+	const productID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	const frontmatter = "---\nname: demo\ndescription: Demo.\n---\n"
+	const body = "\n# Demo Skill\n\n作者正文第一段。\n"
+
+	t.Run("inserts after frontmatter and keeps the author body", func(t *testing.T) {
+		files := gateFiles(frontmatter + body)
+		injectSkillTrialGate(files, productID)
+		content := string(files["SKILL.md"].Data)
+		marker := strings.Index(content, skillTrialGateMarker)
+		heading := strings.Index(content, "# Demo Skill")
+		if marker < 0 || heading < 0 || marker > heading {
+			t.Fatalf("gate must sit between frontmatter and author body:\n%s", content)
+		}
+		if !strings.HasPrefix(content, frontmatter) {
+			t.Fatalf("frontmatter must stay untouched:\n%s", content)
+		}
+		if !strings.HasSuffix(strings.TrimSpace(content), "作者正文第一段。") {
+			t.Fatalf("author body must stay at the end:\n%s", content)
+		}
+	})
+
+	t.Run("prepends when the file has no frontmatter", func(t *testing.T) {
+		files := gateFiles("# Demo Skill\n")
+		injectSkillTrialGate(files, productID)
+		content := string(files["SKILL.md"].Data)
+		if !strings.HasPrefix(content, skillTrialGateMarker) {
+			t.Fatalf("gate must be prepended without frontmatter:\n%s", content)
+		}
+	})
+
+	t.Run("is idempotent on reinstall", func(t *testing.T) {
+		files := gateFiles(frontmatter + body)
+		injectSkillTrialGate(files, productID)
+		once := files["SKILL.md"].Data
+		injectSkillTrialGate(files, productID)
+		if !bytes.Equal(once, files["SKILL.md"].Data) {
+			t.Fatalf("second injection changed the file")
+		}
+		if strings.Count(string(once), skillTrialGateMarker) != 1 {
+			t.Fatalf("marker injected more than once")
+		}
+	})
+
+	t.Run("normalizes CRLF before injecting", func(t *testing.T) {
+		files := gateFiles(strings.ReplaceAll(frontmatter+body, "\n", "\r\n"))
+		injectSkillTrialGate(files, productID)
+		content := string(files["SKILL.md"].Data)
+		if strings.Contains(content, "\r") {
+			t.Fatalf("CRLF must be normalized")
+		}
+		if marker := strings.Index(content, skillTrialGateMarker); marker < 0 || marker > strings.Index(content, "# Demo Skill") {
+			t.Fatalf("gate must sit above the author body:\n%s", content)
+		}
+	})
+
+	t.Run("keeps the file mode", func(t *testing.T) {
+		files := map[string]downloadableSkillFile{
+			"SKILL.md": {Data: []byte(frontmatter + body), Mode: 0o755},
+		}
+		injectSkillTrialGate(files, productID)
+		if files["SKILL.md"].Mode != 0o755 {
+			t.Fatalf("file mode was not preserved")
+		}
+	})
+}
+
+func TestStripTrialGateSectionEdgeCases(t *testing.T) {
+	const productID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+	write := func(t *testing.T, content string) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "SKILL.md")
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatalf("write fixture: %v", err)
+		}
+		return path
+	}
+
+	t.Run("removes the injected section and restores the author body", func(t *testing.T) {
+		files := gateFiles("---\nname: demo\ndescription: Demo.\n---\n\n# Demo Skill\n\n作者正文。\n")
+		injectSkillTrialGate(files, productID)
+		path := write(t, string(files["SKILL.md"].Data))
+		if !stripTrialGateSection(path) {
+			t.Fatalf("strip reported no change")
+		}
+		after, _ := os.ReadFile(path)
+		content := string(after)
+		if strings.Contains(content, skillTrialGateMarker) {
+			t.Fatalf("marker survived the strip")
+		}
+		if !strings.Contains(content, "作者正文。") || !strings.Contains(content, "# Demo Skill") {
+			t.Fatalf("author body was corrupted:\n%s", content)
+		}
+	})
+
+	t.Run("truncates at the marker when the tail anchor is missing", func(t *testing.T) {
+		path := write(t, "---\nname: demo\n---\n\n# Demo Skill\n\n作者正文。\n\n"+skillTrialGateMarker+" product=x -->\n残缺段落没有尾锚\n")
+		if !stripTrialGateSection(path) {
+			t.Fatalf("strip reported no change")
+		}
+		after, _ := os.ReadFile(path)
+		if strings.Contains(string(after), skillTrialGateMarker) || strings.Contains(string(after), "残缺段落") {
+			t.Fatalf("legacy truncation did not clean the gate:\n%s", after)
+		}
+		if !strings.Contains(string(after), "作者正文。") {
+			t.Fatalf("legacy truncation ate the author body:\n%s", after)
+		}
+	})
+
+	t.Run("leaves files without a marker untouched", func(t *testing.T) {
+		path := write(t, "# Demo Skill\n\n作者正文。\n")
+		if stripTrialGateSection(path) {
+			t.Fatalf("strip falsely reported a change")
+		}
+	})
+}
