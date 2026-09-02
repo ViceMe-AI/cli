@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
@@ -13,23 +12,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/output"
 )
 
-// skillPurchaseIntentDirectory stores one purchase intent per downloadable
-// Skill edition so an interrupted --wait recovers the same pending order
-// instead of opening a duplicate one.
-const skillPurchaseIntentDirectory = "skill-purchases"
-
-type skillPurchaseIntent struct {
-	ProductID      string    `json:"productId"`
-	OrderNo        string    `json:"orderNo"`
-	QuoteRequestID string    `json:"quoteClientRequestId"`
-	OrderRequestID string    `json:"orderClientRequestId"`
-	ExpiresAt      time.Time `json:"expiresAt"`
-}
-
-func formatCentsAsYuan(cents int) string {
-	return fmt.Sprintf("¥%.2f", float64(cents)/100)
-}
-
+func formatCentsAsYuan(cents int) string { return fmt.Sprintf("¥%.2f", float64(cents)/100) }
 func localeForRuntimeMarket(runtime *Runtime) string {
 	if runtime.region == config.RegionGlobal {
 		return "en-US"
@@ -37,133 +20,72 @@ func localeForRuntimeMarket(runtime *Runtime) string {
 	return "zh-CN"
 }
 
-func skillPurchaseIntentPath(runtime *Runtime, productID string) string {
-	return filepath.Join(runtime.configBase, skillPurchaseIntentDirectory, productID+".json")
-}
-
-func loadSkillPurchaseIntent(runtime *Runtime, productID string) (*skillPurchaseIntent, error) {
-	raw, err := os.ReadFile(skillPurchaseIntentPath(runtime, productID))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, output.Internal("SKILL_PURCHASE_INTENT_READ_FAILED", "could not read the local Skill purchase intent", err)
-	}
-	var intent skillPurchaseIntent
-	if err := json.Unmarshal(raw, &intent); err != nil {
-		return nil, output.Internal("SKILL_PURCHASE_INTENT_INVALID", "the local Skill purchase intent is invalid", err)
-	}
-	return &intent, nil
-}
-
-func saveSkillPurchaseIntent(runtime *Runtime, intent skillPurchaseIntent) error {
-	directory := filepath.Join(runtime.configBase, skillPurchaseIntentDirectory)
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return output.Internal("SKILL_PURCHASE_INTENT_WRITE_FAILED", "could not create the local Skill purchase intent directory", err)
-	}
-	encoded, err := json.Marshal(intent)
-	if err != nil {
-		return output.Internal("SKILL_PURCHASE_INTENT_WRITE_FAILED", "could not encode the local Skill purchase intent", err)
-	}
-	temporary, err := os.CreateTemp(directory, ".intent-*.tmp")
-	if err != nil {
-		return output.Internal("SKILL_PURCHASE_INTENT_WRITE_FAILED", "could not stage the local Skill purchase intent", err)
-	}
-	name := temporary.Name()
-	defer os.Remove(name)
-	if _, err := temporary.Write(encoded); err != nil {
-		temporary.Close()
-		return output.Internal("SKILL_PURCHASE_INTENT_WRITE_FAILED", "could not write the local Skill purchase intent", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return output.Internal("SKILL_PURCHASE_INTENT_WRITE_FAILED", "could not close the local Skill purchase intent", err)
-	}
-	if err := os.Chmod(name, 0o600); err != nil {
-		return output.Internal("SKILL_PURCHASE_INTENT_WRITE_FAILED", "could not secure the local Skill purchase intent", err)
-	}
-	if err := os.Rename(name, skillPurchaseIntentPath(runtime, intent.ProductID)); err != nil {
-		return output.Internal("SKILL_PURCHASE_INTENT_WRITE_FAILED", "could not activate the local Skill purchase intent", err)
-	}
-	return nil
-}
-
-func clearSkillPurchaseIntent(runtime *Runtime, productID string) {
-	_ = os.Remove(skillPurchaseIntentPath(runtime, productID))
-}
-
-// recoverPendingSkillPurchaseOrder returns the still-pending order recorded
-// by an earlier attempt so the same QR and order number are reused. Terminal,
-// expired, or unreadable intents are discarded; a nil order means a fresh
-// order is due.
-func recoverPendingSkillPurchaseOrder(ctx context.Context, runtime *Runtime, productID string) (*api.CommerceOrder, error) {
-	intent, err := loadSkillPurchaseIntent(runtime, productID)
-	if err != nil || intent == nil {
-		return nil, err
-	}
-	order, err := runtime.client().GetOrder(ctx, intent.OrderNo)
-	if err != nil {
-		// A stale intent must never block a fresh purchase; order creation
-		// surfaces any real connectivity problem on its own.
-		clearSkillPurchaseIntent(runtime, productID)
-		return nil, nil
-	}
-	if order.Status == "PENDING" && runtime.deps.Now().Before(parseCommercePaymentExpiry(order.ExpiresAt)) {
-		return &order, nil
-	}
-	clearSkillPurchaseIntent(runtime, productID)
-	return nil, nil
-}
-
-// createSkillPurchaseOrder opens a WeChat NATIVE order for one downloadable
-// Skill edition from its active sales-spec SKU and records the local intent.
-func createSkillPurchaseOrder(ctx context.Context, runtime *Runtime, productID string) (api.CommerceOrder, error) {
-	product, err := runtime.client().GetProduct(ctx, productID)
+func openSkillPurchaseOrder(ctx context.Context, runtime *Runtime, productID string) (api.CommerceOrder, error) {
+	unlock, err := lockBuyerPurchase(ctx, runtime, "skill", productID)
 	if err != nil {
 		return api.CommerceOrder{}, err
 	}
-	var skuID string
-	for _, sku := range product.SalesSpec.SKUs {
-		if sku.Status == "ACTIVE" {
-			skuID = sku.ID
-			break
+	defer unlock()
+	intent, err := loadBuyerPurchaseIntent(runtime, "skill", productID)
+	if err != nil {
+		return api.CommerceOrder{}, err
+	}
+	if intent != nil && intent.OrderNo != "" {
+		order, err := runtime.client().GetOrder(ctx, intent.OrderNo)
+		if err != nil {
+			return api.CommerceOrder{}, err
+		} // Preserve state on authentication/network failures.
+		if order.Status == "PENDING" || order.Status == "PAID" {
+			return order, nil
+		}
+		if err := os.Remove(buyerPurchaseIntentPath(runtime, "skill", productID)); err != nil {
+			return api.CommerceOrder{}, err
+		}
+		intent = nil
+	}
+	if intent == nil {
+		product, err := runtime.client().GetProduct(ctx, productID)
+		if err != nil {
+			return api.CommerceOrder{}, err
+		}
+		var skuID string
+		for _, sku := range product.SalesSpec.SKUs {
+			if sku.Status == "ACTIVE" {
+				skuID = sku.ID
+				break
+			}
+		}
+		if skuID == "" {
+			return api.CommerceOrder{}, output.Policy("SKILL_PURCHASE_SKU_UNAVAILABLE", "this Skill edition has no purchasable SKU right now")
+		}
+		quoteRequest, _ := json.Marshal(map[string]any{"clientRequestId": runtime.deps.NewID(), "skuId": skuID, "quantity": 1, "contractInput": map[string]any{}})
+		intent = &buyerPurchaseIntent{QuoteRequest: quoteRequest}
+		if err := saveBuyerPurchaseIntent(runtime, "skill", productID, *intent); err != nil {
+			return api.CommerceOrder{}, err
 		}
 	}
-	if skuID == "" {
-		return api.CommerceOrder{}, output.Policy(
-			"SKILL_PURCHASE_SKU_UNAVAILABLE",
-			"this Skill edition has no purchasable SKU right now",
-		).WithDetails(map[string]any{"productId": productID})
+	if len(intent.OrderRequest) == 0 {
+		quote, err := runtime.client().CreateBuyerQuote(ctx, intent.QuoteRequest)
+		if err != nil {
+			return api.CommerceOrder{}, err
+		}
+		intent.OrderRequest, _ = json.Marshal(map[string]any{"quoteId": quote.ID, "clientRequestId": runtime.deps.NewID(), "paymentProvider": "WECHAT_PAY", "paymentScene": "NATIVE", "locale": localeForRuntimeMarket(runtime)})
+		if err := saveBuyerPurchaseIntent(runtime, "skill", productID, *intent); err != nil {
+			return api.CommerceOrder{}, err
+		}
 	}
-	quoteRequestID := runtime.deps.NewID()
-	quoteRequest, _ := json.Marshal(map[string]any{
-		"clientRequestId": quoteRequestID,
-		"skuId":           skuID,
-		"quantity":        1,
-		"contractInput":   map[string]any{},
-	})
-	quote, err := runtime.client().CreateProductQuote(ctx, quoteRequest, "@stored")
+	created, err := runtime.client().CreateBuyerOrder(ctx, intent.OrderRequest)
 	if err != nil {
+		// This definitive rejection is returned only when no order exists for the saved request.
+		if output.AsError(err).Subtype == "QUOTE_EXPIRED" {
+			if removeErr := os.Remove(buyerPurchaseIntentPath(runtime, "skill", productID)); removeErr != nil {
+				return api.CommerceOrder{}, removeErr
+			}
+		}
 		return api.CommerceOrder{}, err
 	}
-	orderRequestID := runtime.deps.NewID()
-	orderRequest, _ := json.Marshal(map[string]any{
-		"quoteId":         quote.ID,
-		"clientRequestId": orderRequestID,
-		"paymentProvider": "WECHAT_PAY",
-		"paymentScene":    "NATIVE",
-		"locale":          localeForRuntimeMarket(runtime),
-	})
-	created, err := runtime.client().CreateCommerceOrder(ctx, orderRequest, "@stored")
-	if err != nil {
-		return api.CommerceOrder{}, err
-	}
-	if err := saveSkillPurchaseIntent(runtime, skillPurchaseIntent{
-		ProductID:      productID,
-		OrderNo:        created.Order.OrderNo,
-		QuoteRequestID: quoteRequestID,
-		OrderRequestID: orderRequestID,
-		ExpiresAt:      parseCommercePaymentExpiry(created.Order.ExpiresAt),
-	}); err != nil {
+	intent.OrderNo = created.Order.OrderNo
+	if err := saveBuyerPurchaseIntent(runtime, "skill", productID, *intent); err != nil {
 		return api.CommerceOrder{}, err
 	}
 	return created.Order, nil
@@ -172,6 +94,9 @@ func createSkillPurchaseOrder(ctx context.Context, runtime *Runtime, productID s
 // presentSkillPaymentQR renders the order's WeChat NATIVE QR code as a local
 // image and tells the user to scan it. The provider URI never reaches stdout.
 func presentSkillPaymentQR(runtime *Runtime, order *api.CommerceOrder) (*api.CommercePaymentPresentation, error) {
+	if order.Status != "PENDING" {
+		return nil, nil
+	}
 	if err := prepareCommercePaymentPresentation(runtime, order); err != nil {
 		return nil, err
 	}
@@ -194,7 +119,7 @@ func waitForSkillOrderPayment(ctx context.Context, runtime *Runtime, productID, 
 	}
 	deadline := runtime.deps.Now().Add(timeout)
 	for {
-		status, err := runtime.client().GetCommerceOrderStatus(ctx, orderNo, "@stored")
+		status, err := runtime.client().GetBuyerOrderStatus(ctx, orderNo)
 		if err != nil {
 			return err
 		}
@@ -206,13 +131,17 @@ func waitForSkillOrderPayment(ctx context.Context, runtime *Runtime, productID, 
 		}
 		switch payment.Status {
 		case "PAID":
-			clearSkillPurchaseIntent(runtime, productID)
+			if err := completeBuyerPurchase(ctx, runtime, "skill", productID, orderNo); err != nil {
+				return err
+			}
 			if err := removeCommercePaymentPresentation(runtime, orderNo); err != nil {
 				return output.Internal("COMMERCE_PAYMENT_PRESENTATION_CLEANUP_FAILED", "the payment is terminal but its local QR image could not be removed", err)
 			}
 			return nil
 		case "CLOSED":
-			clearSkillPurchaseIntent(runtime, productID)
+			if err := completeBuyerPurchase(ctx, runtime, "skill", productID, orderNo); err != nil {
+				return err
+			}
 			if err := removeCommercePaymentPresentation(runtime, orderNo); err != nil {
 				return output.Internal("COMMERCE_PAYMENT_PRESENTATION_CLEANUP_FAILED", "the payment is terminal but its local QR image could not be removed", err)
 			}
