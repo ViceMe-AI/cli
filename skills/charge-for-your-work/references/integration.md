@@ -1,10 +1,16 @@
 # 接入参考
 
-## 发布流程交接
+## 用户输入与内部边界
 
-本 Skill 只接受拥有平台资源的发布流程已确认的结果：公开 `keys.test`、`keys.live`、关注或付费功能键，以及对应标题和服务端价格。SDK access API 不返回顶层单一 `workKey`；生产宿主把 `keys.live` 作为 SDK 的 `workKey`，`keys.test` 只用于隔离测试。创作者资格由父级流程调用 `$become-a-creator` 确认。
+当前以项目方式打开时默认当前项目就是目标网站，不询问路径；没有项目上下文时才在同一轮询问网站
+项目路径。首次询问使用一次交互工具调用，同时收齐尚未明确的精确 HTTPS Origin、要保护的按钮或
+功能、关注或付费解锁，以及付费时的功能名称和人民币价格。价格只接受用户确认的人民币金额，内部
+换算为分，不让用户输入内部字段。
 
-该发布流程必须已经在写后读取中确认两个 key 均存在且未轮换、hosted `danmaku`/`tip` features 完整保留、`accessFeatures` 符合用户确认值，并记录最新 `configVersion`。缺少任一平台配置时停止并说明需要先完成网站发布配置；不要创建本地访问配置，也不要运行登录、Merchant、创作者入驻或平台配置命令。
+Website Work、Work ID、平台发布状态、SDK access、功能键、Product、`keys.test`、`keys.live`、
+`configVersion`、命令和错误码均为内部实现。不得向用户展示、解释、索取或把其中任何一项作为用户
+前置任务。生产宿主在代码中仍把内部取得的 `keys.live` 作为 SDK 的 `workKey`，`keys.test` 只用于
+隔离测试。创作者资格由父级流程调用 `$become-a-creator` 确认。
 
 关注和付费规则由 Shop 服务端持有：
 
@@ -23,16 +29,55 @@
   `header` 不超过 12 个字符。
 - 每张卡片使用用户看得懂的名称，并用 `description` 说明入口位置或行为差异；内部功能键只在
   选择结果与代码之间映射。
-- 一次只确认当前实施所需的决定。真正开放且无法列出候选的信息才用普通对话直接询问。
+- 首次接入把项目路径（仅没有项目上下文时）、正式 Origin、保护目标、解锁方式和条件付费信息
+  放在同一次交互中；后续异常处理一次只确认当前所需决定。真正开放且无法列出候选的信息才用
+  普通对话直接询问。
 - 当前平台没有交互式提问工具时，改为编号短选项并提示用户回复编号，不要求输入完整名称或
   长句。
 
-服务端已有的标题、价格、两个 SDK key 和功能键不向用户重复索取。发布配置缺失时按边界停止，
-不得用交互问题引导用户在本 Skill 内创建或修改平台资源。
+用户在当前请求已经提供的名称和价格不重复索取。两个 SDK key、功能键和其他内部值在任何情况下
+都不询问用户。平台资源不存在时进入下面的内部配置流程，不把缺失状态变成用户任务。
+
+## 网站身份内部配置
+
+1. 将用户给出的域名规范为精确小写 HTTPS `scheme + host`，不含凭据、路径、查询、片段或尾部
+   斜杠。正式域名用于网站身份；本地开发地址只用于测试，不能替代正式域名。
+2. 运行 `viceme merchant work list --merchant <merchant-id>`，内部筛选属于当前 Merchant、
+   `kind: WEBSITE` 且 `website.canonicalOrigin` 与正式 Origin 完全一致的项：
+
+   - 没有时，基于项目名称、页面标题、公开用途和域名生成 title、slug、summary 与稳定
+     `clientRequestId`，用 `viceme merchant work create --input <json>` 幂等创建；响应丢失时使用同一
+     输入重放。
+   - 恰好一个时复用。
+   - 多个时停止写入并用自然语言说明当前网站配置存在冲突，不能安全继续；不得向用户展示 Work、
+     ID、key 或要求用户从内部候选中选择。
+
+3. 用 `viceme merchant work get <work-id> --merchant <merchant-id>` 内部复核归属、kind 与 Origin。
+   `DRAFT` 时用当前精确 revision 和完整既有内容执行一次 `merchant work update --input <json>`，将
+   状态更新为 `PUBLISHED` 后重读；已经 `PUBLISHED` 时不重复写。`SUSPENDED`、`ARCHIVED` 或内容冲突
+   时停止，不创建平行身份。最终只接受 `status: PUBLISHED`；`website.ownershipStatus` 不参与关注或
+   付费解锁门禁，也不执行 DNS 验证。
+
+## Access 内部配置
+
+1. 从保护目标和用户可见名称派生稳定、可读的功能键，不让用户命名内部 key。关注使用
+   `FOLLOW_OWNER`；付费使用 `WORK_ENTITLEMENT`，并把已确认人民币价格精确换算为分。
+2. 先运行 `viceme merchant work sdk-access get <work-id> --merchant <merchant-id>` 读取完整快照；
+   不存在时明确记录为空。资源存在时保存完整 hosted `features`、完整 `accessFeatures`、状态、
+   `keys.test`、`keys.live` 和精确 `configVersion`。
+3. 不存在时用 `sdk-access create` 一次创建本次关注或付费功能。存在时合并本次目标与全部既有
+   hosted/access 功能，用刚读取的精确 `configVersion` 执行一次完整 `sdk-access update`；不得覆盖
+   其他入口，也不得把关注策略原地改成付费策略或反向修改。付费参数内部使用 `--purchase` 与
+   `--price-minor`，关注参数内部使用 `--follow`。
+4. 写后重读并确认目标规则、名称和价格正确，原有 hosted/access 功能完整保留，两个 key 存在且
+   未轮换，状态可用，`configVersion` 单调增加。冲突时重新读取并重新合并；响应丢失时先读同一
+   资源，不创建第二份配置。
+5. 只有完成上述读回后才修改宿主代码。若后续代码接入失败，从最新版本恢复写前完整 access
+   快照；新创建的资源无法完成接入时将其 disable。恢复过程同样不向用户暴露内部对象。
 
 ## 浏览器 SDK
 
-安装 `@viceme-ai/sdk`，部署页面使用发布流程返回的 `keys.live`。不要把
+安装 `@viceme-ai/sdk`，部署页面使用内部配置读回的 `keys.live`。不要把
 `keys.test`、Work UUID 或 Product ID 放进生产客户端：
 
 ```ts
@@ -118,7 +163,13 @@ SDK 在用户明确点击后把 Hosted Checkout 打开在 Access Layer 内，并
 
 - `SESSION_EXPIRED`：提示重试或重新登录。
 - `AUTH_CANCELLED`：保持原动作未执行。
-- `CAPABILITY_DISABLED`：交回拥有平台资源的发布流程核对功能是否仍启用。
-- `CHECKOUT_UNAVAILABLE`：交回拥有平台资源的发布流程核对付费功能与价格，不在宿主端修补。
+- `CAPABILITY_DISABLED`：内部重读并核对目标功能，仍不一致时用自然语言说明暂时无法启用。
+- `CHECKOUT_UNAVAILABLE`：内部重读付费功能与价格，不在宿主端修补，也不展示内部错误码。
 
 销毁时始终调用 `destroy()`。
+
+## 完成报告
+
+只向用户报告已经接入的关注或付费行为、付费名称与价格、修改文件、测试结果和真实支付等未验证
+边界。不得报告 Website Work、平台发布动作、Work/Product ID、功能键、keys、配置版本、CLI 命令、
+内部错误码或写后读回过程。

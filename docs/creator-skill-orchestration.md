@@ -22,7 +22,7 @@ The official creator Skills expose one user goal each:
 | --- | --- | --- |
 | `become-a-creator` | Login for creator onboarding, qualification checks, application/claim state, Merchant selection | Publishing Works, Products, or website integrations |
 | `sell-a-skill` | Downloadable Skill packaging, preview, confirmation, publication, and updates | Websites, services, physical/custom goods, appointments, generic Products |
-| `charge-for-your-work` | Host-code integration for an already published and configured Website Work | Login, creator application, Website Work publication, access configuration |
+| `charge-for-your-work` | One-pass website input collection, internal Website Work/access provisioning, and host-code integration for follow or paid unlock | Login and creator application |
 | `let-people-interact` | Three-way danmaku/tip routing, hosted SDK access, Mounted/Headless integration, and Website Work selection/publication with an exact canonical Origin for danmaku-bearing routes | Creator qualification, downloadable Skill publication, Website ownership verification, or Website Widget mutation for Tip |
 | `let-others-make-a-copy` | Complete website source packaging, root deployment guide, immutable Replica publication, and creator-site copy entry | Generic browser runtime, direct browser checkout, or buyer confirmation on the creator's behalf |
 | `creator-tools` | CLI installation, ordinary login, updates, and diagnostics | Any creator gameplay |
@@ -102,9 +102,10 @@ become-a-creator
           `-- let-others-make-a-copy
 ```
 
-`charge-for-your-work` may be invoked after `let-people-interact` or another website publication flow has returned a
-published Work configuration, but it still performs the qualification guard before changing creator
-host code. It does not mutate Shop publication resources itself.
+`charge-for-your-work` performs the qualification guard, then internally reuses or provisions the Website Work and
+complete access configuration required by the requested follow or paid unlock before changing creator host code.
+Website Work identity, publication state, access keys, configuration commands, and readback are never user-facing
+inputs or output.
 
 ## Breaking migration
 
