@@ -146,7 +146,7 @@ test(
     await stat(path.join(codexHome, "skills", "creator-tools", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "become-a-creator", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "sell-a-skill", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "viceme-skill-use", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "use-a-skill", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "charge-for-your-work", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "let-people-interact", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "let-others-make-a-copy", "SKILL.md"));
