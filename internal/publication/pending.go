@@ -24,6 +24,7 @@ type Pending struct {
 	Fingerprint       string                      `json:"fingerprint"`
 	SourcePath        string                      `json:"sourcePath"`
 	PriceMinor        *int                        `json:"priceMinor"`
+	TrialUseLimit     *int                        `json:"trialUseLimit"`
 	ArtifactDigest    string                      `json:"artifactDigest"`
 	Source            api.SkillPublicationSource  `json:"source"`
 	Edition           api.SkillPublicationEdition `json:"edition"`
