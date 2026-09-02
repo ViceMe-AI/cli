@@ -74,6 +74,7 @@ export const officialSkillNames = [
   "viceme-skill-use",
   "charge-for-your-work",
   "let-people-interact",
+  "let-others-make-a-copy",
 ];
 
 export function renderChangelog(version, commits, previous, date) {

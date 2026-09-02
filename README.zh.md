@@ -82,7 +82,7 @@ viceme auth status
 viceme auth login
 
 # 定价前先上传真实私有草稿，并打开创作者预览。
-viceme skill publish --path ./my-skill
+viceme skill publish --path ./my-skill --edition-key my-skill --edition-order 0
 
 # 继续同一个未定价草稿并上传候选媒体。
 viceme skill publish --resume <publication-id>
@@ -157,8 +157,8 @@ npx --yes @viceme-ai/cli@latest install
 | `viceme-skill-use` | 解析免费、已购买或待购买的访问状态，安装所选 Skill，并继续原任务。 |
 | `charge-for-your-work` | 把已有网站关注或付费访问配置接入宿主代码，并复用统一的创作者资格检查。 |
 | `let-people-interact` | 分支处理仅弹幕、开放赞赏或两者；包含弹幕的路线要求已发布且 canonical Origin 精确匹配的 Website Work，Tip 可使用任意合格且已发布的 Merchant Work，并选择 Mounted 或 Headless UI；三个分支均不要求 DNS 所有权验证。 |
+| `let-others-make-a-copy` | 发布包含根级 `VICEME-REPLICA.md` 的完整网站源码 ZIP，并把平台返回的“做同款”提示词接入创作者原站。 |
 
-`let-others-make-a-copy` 是“做同款”交付的保留公开名；对应产品流程实现前不提供官方 Skill。
 买家侧 `viceme-skill-use` 不属于创作者玩法，因此保持现有名称。
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
@@ -235,7 +235,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme skill listing prepare --path <path>` | 创建或恢复稳定的创作者私有预览，并保存本地绑定。 |
 | `viceme skill listing get <listing-id>` | 读取权威的私有 Listing 状态。 |
 | `viceme skill listing bind <listing-id> --path <path>` | 将来源明确绑定到用户选定且拥有的 Listing。 |
-| `viceme skill publish --path <path>` | 定价前上传真实私有包并返回创作者预览。 |
+| `viceme skill publish --path <path> --edition-key <key> --edition-order <order>` | 明确新增或更新的 Skill 条目，定价前上传真实私有包并返回创作者预览。 |
 | `viceme skill publish --resume <id>` | 继续同一个未定价 Draft 并上传媒体候选，不启动平台模型。 |
 | `viceme publication review <id>` | 读取权威双语文案、价格、选定素材和审核状态。 |
 | `viceme publication suggest <id> --input ...` | 以 Draft revision 保护提交 Agent 生成的双语文案与媒体选择。 |
@@ -246,6 +246,8 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme publication update ...` | 用严格 JSON 文件替换完整 Listing Draft。 |
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
+| `viceme replica publish ...` | 校验含根级 `VICEME-REPLICA.md` 的完整源码 ZIP，发布不可变版本并返回稳定口令与自站提示词。 |
+| `viceme replica install <口令> --target <新目录>` | 创建并展示真实 Quote，不创建订单；买家明确确认后原样追加 `--confirm` 才购买并原子安装。 |
 | `viceme update` | 同时更新 CLI 与匹配版本的官方 Skills。 |
 | `viceme merchant accounts` | 列出当前 User 通过 OWNER 成员关系经营的普通 MerchantAccount。 |
 | `viceme merchant work ...` | 创建、查看、更新和发布 Merchant Work，包括 Website Work。 |

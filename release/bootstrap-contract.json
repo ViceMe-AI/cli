@@ -13,7 +13,8 @@
     "sell-a-skill",
     "viceme-skill-use",
     "charge-for-your-work",
-    "let-people-interact"
+    "let-people-interact",
+    "let-others-make-a-copy"
   ],
   "fallbackPackage": "@viceme-ai/cli"
 }

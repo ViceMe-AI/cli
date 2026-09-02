@@ -30,6 +30,8 @@ var (
 	testWorkSdkKeyPattern       = regexp.MustCompile(`^wrk_test_[A-Za-z0-9_-]{4,119}$`)
 	accessWorkFeatureKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
 	uuidPattern                 = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	websiteReplicaCodePattern   = regexp.MustCompile(`^VMR-[A-Z0-9]{20}$`)
+	sha256HexPattern            = regexp.MustCompile(`^[a-f0-9]{64}$`)
 	shopURLParser               = whatwgurl.NewParser(whatwgurl.WithPathPercentEncodeSet(whatwgurl.PathPercentEncodeSet.Set('^')))
 )
 
@@ -595,6 +597,39 @@ func (c *Client) DownloadArtifact(ctx context.Context, rawURL string) ([]byte, e
 	return data, nil
 }
 
+func (c *Client) DownloadPresigned(ctx context.Context, rawURL string, destination io.Writer, maxBytes int64) (int64, error) {
+	if maxBytes < 1 {
+		return 0, output.Validation("REPLICA_DOWNLOAD_LIMIT_INVALID", "Website Replica download limit is invalid")
+	}
+	if err := validateUploadURL(rawURL); err != nil {
+		return 0, output.Validation("REPLICA_DOWNLOAD_URL_INVALID", "Website Replica download URL must use HTTPS; loopback HTTP is allowed only for development")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return 0, output.Internal("REPLICA_DOWNLOAD_REQUEST_INVALID", "failed to create Website Replica download request", err)
+	}
+	response, err := withoutRedirects(c.uploadClient()).Do(request)
+	if err != nil {
+		return 0, output.Network("REPLICA_DOWNLOAD_FAILED", "failed to download the Website Replica source package", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+		return 0, output.Network("REPLICA_DOWNLOAD_REJECTED", fmt.Sprintf("Website Replica download endpoint returned HTTP %d", response.StatusCode), nil)
+	}
+	if response.ContentLength > maxBytes {
+		return 0, output.Validation("REPLICA_DOWNLOAD_TOO_LARGE", "Website Replica download exceeds the authorized size")
+	}
+	written, err := io.Copy(destination, io.LimitReader(response.Body, maxBytes+1))
+	if err != nil {
+		return written, output.Network("REPLICA_DOWNLOAD_FAILED", "failed while streaming the Website Replica source package", err)
+	}
+	if written > maxBytes {
+		return written, output.Validation("REPLICA_DOWNLOAD_TOO_LARGE", "Website Replica download exceeds the authorized size")
+	}
+	return written, nil
+}
+
 func (c *Client) GetPublicSkillAccess(ctx context.Context, productID string) (SkillAccess, error) {
 	var response SkillAccess
 	endpoint := "/v1/skills/" + url.PathEscape(productID) + "/access"
@@ -811,6 +846,69 @@ func (c *Client) CompleteUpload(ctx context.Context, publicationID, uploadID str
 	var response SkillPublication
 	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/complete-upload", CompleteUploadRequest{UploadID: uploadID}, &response, "@stored")
 	return response, err
+}
+
+func (c *Client) CreateWebsiteReplicaUpload(ctx context.Context, request CreateWebsiteReplicaUploadRequest) (CreateWebsiteReplicaUploadResponse, error) {
+	var response CreateWebsiteReplicaUploadResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/uploads", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CompleteWebsiteReplicaUpload(ctx context.Context, replicaID, uploadID string) (CompleteWebsiteReplicaUploadResponse, error) {
+	var response CompleteWebsiteReplicaUploadResponse
+	endpoint := "/v1/website-replicas/" + url.PathEscape(replicaID) + "/uploads/" + url.PathEscape(uploadID) + "/complete"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, "@stored")
+	if err == nil && response.ReplicaID != replicaID {
+		err = invalidAPIResponse(errors.New("Website Replica publication response does not match the requested Replica"))
+	}
+	return response, err
+}
+
+func (c *Client) ResolveWebsiteReplica(ctx context.Context, code string) (WebsiteReplicaResolution, error) {
+	var response WebsiteReplicaResolution
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/resolve", ResolveWebsiteReplicaRequest{Instruction: code}, &response, "@stored")
+	if err == nil && code != "VICEME-REPLICA:"+response.ShortCode {
+		err = invalidAPIResponse(errors.New("Website Replica resolution does not match the requested code"))
+	}
+	return response, err
+}
+
+func (c *Client) CreateWebsiteReplicaQuote(ctx context.Context, request CreateWebsiteReplicaQuoteRequest) (WebsiteReplicaQuote, error) {
+	var response WebsiteReplicaQuote
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/quotes", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreateWebsiteReplicaOrder(ctx context.Context, request CreateWebsiteReplicaOrderRequest) (WebsiteReplicaOrder, error) {
+	var response WebsiteReplicaOrder
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/orders", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetWebsiteReplicaOrderStatus(ctx context.Context, orderNo string) (WebsiteReplicaOrderStatus, error) {
+	var response WebsiteReplicaOrderStatus
+	endpoint := "/v1/website-replicas/orders/" + url.PathEscape(orderNo) + "/status"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	if err == nil && response.OrderNo != orderNo {
+		err = invalidAPIResponse(errors.New("Website Replica order status is invalid"))
+	}
+	return response, err
+}
+
+func (c *Client) GetWebsiteReplicaDownload(ctx context.Context, shortCode string) (WebsiteReplicaDownload, error) {
+	var response WebsiteReplicaDownload
+	endpoint := "/v1/website-replicas/" + url.PathEscape(shortCode) + "/download"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func validWebsiteReplicaOrderStatus(status string) bool {
+	switch status {
+	case "PENDING", "PAID", "CLOSED":
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *Client) AnalyzeListing(ctx context.Context, publicationID string) (SkillPublication, error) {
@@ -1071,8 +1169,14 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 	if len(bytes.TrimSpace(data)) == 0 {
 		return invalidAPIResponse(errors.New("response body is empty"))
 	}
-	if err := json.Unmarshal(data, responseBody); err != nil {
-		return invalidAPIResponse(err)
+	var decodeErr error
+	if _, strict := responseBody.(strictAPIResponse); strict {
+		decodeErr = decodeStrictAPIResponse(data, responseBody)
+	} else {
+		decodeErr = json.Unmarshal(data, responseBody)
+	}
+	if decodeErr != nil {
+		return invalidAPIResponse(decodeErr)
 	}
 	if validator, ok := responseBody.(interface{ validateAPIResponse() error }); ok {
 		if err := validator.validateAPIResponse(); err != nil {
