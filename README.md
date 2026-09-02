@@ -172,10 +172,9 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `viceme-skill-use` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | integrate an existing website access configuration into host code after the shared creator qualification check. |
 | `let-people-interact` | branch between danmaku, open tips, or both; danmaku-bearing routes require a published Website Work with an exact canonical Origin, while Tip can use any eligible published Merchant Work and either Mounted or Headless UI; none requires DNS ownership verification. |
+| `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site. |
 
-`let-others-make-a-copy` is the reserved public name for remix delivery, but no official Skill is
-available until that product workflow is implemented. Buyer-side `viceme-skill-use` keeps its
-existing name because it is not a creator workflow.
+Buyer-side `viceme-skill-use` keeps its existing name because it is not a creator workflow.
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
 owns deterministic local work and API calls. This separation lets an Agent
@@ -272,6 +271,8 @@ Never copy an access token into the conversation.
 | `viceme publication update ...` | Replace the complete listing draft from a strict JSON file. |
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
+| `viceme replica publish ...` | Validate a complete source ZIP with a root `VICEME-REPLICA.md`, publish an immutable version, and return the stable code and creator-site prompts. |
+| `viceme replica install <code> --target <new-directory>` | Create and display the authoritative Quote without an order; rerun with `--confirm` only after the buyer explicitly approves it. |
 | `viceme update` | Update the CLI and matching official Skills together. |
 | `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
 | `viceme merchant work ...` | Create, inspect, update, and publish Merchant Works, including Website Works. |

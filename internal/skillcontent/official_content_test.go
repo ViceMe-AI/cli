@@ -22,6 +22,7 @@ var officialSkillNames = []string{
 	"creator-tools",
 	"viceme-skill-use",
 	"let-people-interact",
+	"let-others-make-a-copy",
 }
 
 func readOfficialSkillBundle(t *testing.T, skillName string) string {
@@ -134,6 +135,16 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 			semantics: []string{
 				"仅弹幕", "仅赞赏", "弹幕加赞赏", "SANDBOX", "Headless", "宿主页与被赞赏 Work 是独立资源",
+			},
+		},
+		{
+			name: "let-others-make-a-copy",
+			machine: []string{
+				"$become-a-creator", "MerchantAccountMember(role=OWNER)", "VICEME-REPLICA.md",
+				"viceme replica publish", "buyerEntry.prompts", "viceme replica install", "--confirm",
+			},
+			semantics: []string{
+				"完整源码", "创作者自己的站点", "不得写死价格", "发布成功后", "不得覆盖已有目录", "Quote",
 			},
 		},
 	}

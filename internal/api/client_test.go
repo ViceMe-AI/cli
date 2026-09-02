@@ -223,6 +223,37 @@ func TestPutUploadUsesDedicatedLongLivedClient(t *testing.T) {
 	}
 }
 
+func TestDownloadPresignedIsCredentialFreeRedirectFreeAndNetworkBounded(t *testing.T) {
+	t.Parallel()
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		authorization = request.Header.Get("Authorization")
+		writer.(http.Flusher).Flush()
+		_, _ = io.WriteString(writer, "0123456789")
+	}))
+	defer server.Close()
+	client := NewClient("https://api.viceme.ai", server.Client(), staticToken("must-not-be-read"), "viceme/test")
+	var destination strings.Builder
+	written, err := client.DownloadPresigned(context.Background(), server.URL, &destination, 4)
+	if err == nil || written != 5 || destination.String() != "01234" {
+		t.Fatalf("download was not bounded to limit+1: written=%d data=%q err=%v", written, destination.String(), err)
+	}
+	if authorization != "" {
+		t.Fatalf("presigned download leaked API authorization: %q", authorization)
+	}
+
+	var redirected atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { redirected.Store(true) }))
+	defer target.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+	if _, err := client.DownloadPresigned(context.Background(), redirect.URL, io.Discard, 10); err == nil || redirected.Load() {
+		t.Fatalf("presigned download followed a redirect: redirected=%t err=%v", redirected.Load(), err)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
