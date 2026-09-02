@@ -20,6 +20,8 @@ import (
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/commerceartifact"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/pathidentity"
+	"github.com/ViceMe-AI/cli/internal/privatepath"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
 	"github.com/spf13/cobra"
 )
@@ -76,6 +78,9 @@ func installReplica(ctx context.Context, runtime *Runtime, code, target, locale 
 	if timeout <= 0 || interval < 250*time.Millisecond {
 		return replicaInstallResult{}, output.Validation("REPLICA_WAIT_INVALID", "--timeout must be positive and --interval at least 250ms")
 	}
+	if !replicacontent.AtomicInstallSupported() {
+		return replicaInstallResult{}, output.Policy("REPLICA_PLATFORM_UNSUPPORTED", "Website Replica installation requires atomic no-replace directory activation on this platform")
+	}
 	store, err := newReplicaPurchaseStore(runtime, shortCode, absTarget)
 	if err != nil {
 		return replicaInstallResult{}, err
@@ -100,6 +105,33 @@ func installReplicaLocked(
 	timeout time.Duration,
 	interval time.Duration,
 ) (replicaInstallResult, error) {
+	if err := runtime.requireWebsiteReplicaAuthentication(ctx, "website-replica:read", "website-replica:purchase"); err != nil {
+		return replicaInstallResult{}, err
+	}
+	completion, completed, err := store.loadCompletion()
+	if err != nil {
+		return replicaInstallResult{}, err
+	}
+	if completed {
+		if err := validateReplicaCompletion(ctx, runtime, completion); err != nil {
+			return replicaInstallResult{}, err
+		}
+		state, active, err := store.load()
+		if err != nil {
+			return replicaInstallResult{}, err
+		}
+		if active {
+			if state.Target != completion.Result.Target || state.ReplicaID != completion.Result.ReplicaID || state.OrderNo != completion.Result.OrderNo {
+				return replicaInstallResult{}, output.Policy("REPLICA_COMPLETION_STATE_INVALID", "Website Replica completion receipt does not match its active purchase")
+			}
+			if err := store.retire(state); err != nil {
+				return replicaInstallResult{}, err
+			}
+		} else if err := store.removeOwnedOrphanReservation(replicaTargetReservationPath(completion.Result.Target)); err != nil {
+			return replicaInstallResult{}, err
+		}
+		return completion.Result, nil
+	}
 	state, exists, err := store.load()
 	if err != nil {
 		return replicaInstallResult{}, err
@@ -119,16 +151,17 @@ func installReplicaLocked(
 			return replicaInstallResult{}, err
 		}
 		state = store.create(quoteRequestID)
+		if err := store.reserve(&state); err != nil {
+			return replicaInstallResult{}, err
+		}
 		if err := store.save(&state); err != nil {
+			_ = store.retire(state)
 			return replicaInstallResult{}, err
 		}
 	} else if state.OrderNo == "" {
 		if err := requireMissingReplicaTarget(absTarget); err != nil {
 			return replicaInstallResult{}, replicaPurchaseConflict(state, "the Website Replica target appeared before payment was created").WithCause(err)
 		}
-	}
-	if err := runtime.requireWebsiteReplicaAuthentication(ctx, "website-replica:read", "website-replica:purchase"); err != nil {
-		return replicaInstallResult{}, err
 	}
 	client := runtime.client()
 	if state.QuoteID == "" {
@@ -186,13 +219,16 @@ func installReplicaLocked(
 		}
 		order.Status = status.Payment.Status
 		if order.Status == "CLOSED" {
-			if err := store.retire(); err != nil {
+			if err := store.retire(state); err != nil {
 				return replicaInstallResult{}, err
 			}
 			return replicaInstallResult{}, output.Policy("REPLICA_PAYMENT_TERMINAL", "Website Replica payment did not complete")
 		}
 	}
 	if state.OrderNo == "" || order.Status == "PENDING" {
+		if err := store.verifyReservation(state); err != nil {
+			return replicaInstallResult{}, err
+		}
 		if err := requireMissingReplicaTarget(absTarget); err != nil {
 			return replicaInstallResult{}, replicaPurchaseConflict(state, "the Website Replica target appeared before payment completed").WithCause(err)
 		}
@@ -200,8 +236,11 @@ func installReplicaLocked(
 			QuoteID: state.QuoteID, ClientRequestID: state.OrderRequestID, Locale: state.Locale,
 		})
 		if err != nil {
+			if output.AsError(err).Subtype == "PRODUCT_ALREADY_OWNED" {
+				return installOwnedReplica(ctx, runtime, store, state, client, shortCode, absTarget)
+			}
 			if output.AsError(err).Subtype == "QUOTE_EXPIRED" {
-				_ = store.retire()
+				_ = store.retire(state)
 			}
 			return replicaInstallResult{}, err
 		}
@@ -226,8 +265,36 @@ func installReplicaLocked(
 	}
 	if err := waitForReplicaPayment(ctx, runtime, client, order, timeout, interval); err != nil {
 		if output.AsError(err).Subtype == "REPLICA_PAYMENT_TERMINAL" {
-			_ = store.retire()
+			_ = store.retire(state)
 		}
+		return replicaInstallResult{}, err
+	}
+	return installReplicaDownload(ctx, runtime, store, state, client, shortCode, order.OrderNo, absTarget)
+}
+
+func installOwnedReplica(
+	ctx context.Context,
+	runtime *Runtime,
+	store replicaPurchaseStore,
+	state replicaPurchaseState,
+	client *api.Client,
+	shortCode string,
+	target string,
+) (replicaInstallResult, error) {
+	return installReplicaDownload(ctx, runtime, store, state, client, shortCode, "", target)
+}
+
+func installReplicaDownload(
+	ctx context.Context,
+	runtime *Runtime,
+	store replicaPurchaseStore,
+	state replicaPurchaseState,
+	client *api.Client,
+	shortCode string,
+	expectedOrderNo string,
+	target string,
+) (replicaInstallResult, error) {
+	if err := store.verifyReservation(state); err != nil {
 		return replicaInstallResult{}, err
 	}
 	download, err := client.GetWebsiteReplicaDownload(ctx, shortCode)
@@ -237,22 +304,49 @@ func installReplicaLocked(
 	if err := validateReplicaDownloadBinding(download, state.ReplicaID); err != nil {
 		return replicaInstallResult{}, err
 	}
-	if err := verifyReplicaLicense(ctx, runtime, download, order.OrderNo); err != nil {
+	claims, err := verifiedReplicaLicenseClaims(ctx, runtime, download, expectedOrderNo)
+	if err != nil {
 		return replicaInstallResult{}, err
 	}
-	installed, err := downloadAndInstallReplica(ctx, client, download, absTarget)
+	installed, err := downloadAndInstallReplica(ctx, client, download, target, state.TargetParentID)
 	if err != nil {
 		return replicaInstallResult{}, err
 	}
 	result := replicaInstallResult{
 		ReplicaID: download.ReplicaID, VersionID: download.VersionID, Version: download.Version,
-		OrderNo: state.OrderNo, Target: installed.Target, ArtifactDigest: download.ArtifactDigest,
+		OrderNo: claims.OrderNo, Target: installed.Target, ArtifactDigest: download.ArtifactDigest,
 		LicensePath: installed.LicensePath, FileCount: installed.FileCount, ExpandedBytes: installed.ExpandedBytes,
 	}
-	if err := store.retire(); err != nil {
+	if err := store.saveCompletion(result); err != nil {
+		return replicaInstallResult{}, err
+	}
+	if err := store.retire(state); err != nil {
 		return replicaInstallResult{}, err
 	}
 	return result, nil
+}
+
+func validateReplicaCompletion(ctx context.Context, runtime *Runtime, completion replicaCompletionState) error {
+	result := completion.Result
+	tree, err := replicacontent.InspectInstalledTree(result.Target)
+	if err != nil || tree.FileCount != result.FileCount || tree.ExpandedBytes != result.ExpandedBytes || tree.Digest != completion.TreeDigest {
+		return output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt").WithCause(err)
+	}
+	record, err := replicacontent.ReadInstalledLicenseRecord(result.Target)
+	if err != nil {
+		return output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt").WithCause(err)
+	}
+	if record.ReplicaID != result.ReplicaID || record.VersionID != result.VersionID || record.Version != result.Version ||
+		record.ArtifactDigest != result.ArtifactDigest {
+		return output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt")
+	}
+	return verifyReplicaLicense(ctx, runtime, api.WebsiteReplicaDownload{
+		ReplicaID:      result.ReplicaID,
+		VersionID:      result.VersionID,
+		Version:        result.Version,
+		ArtifactDigest: result.ArtifactDigest,
+		License:        record.License,
+	}, result.OrderNo)
 }
 
 func replicaResolutionMatchesState(resolved api.WebsiteReplicaResolution, state replicaPurchaseState) bool {
@@ -291,33 +385,39 @@ func invalidReplicaResponse(reason string) error {
 }
 
 func verifyReplicaLicense(ctx context.Context, runtime *Runtime, download api.WebsiteReplicaDownload, orderNo string) error {
+	_, err := verifiedReplicaLicenseClaims(ctx, runtime, download, orderNo)
+	return err
+}
+
+func verifiedReplicaLicenseClaims(ctx context.Context, runtime *Runtime, download api.WebsiteReplicaDownload, orderNo string) (api.WebsiteReplicaLicenseClaims, error) {
 	if len(download.License) == 0 || len(download.License) > 64<<10 {
-		return output.Policy("REPLICA_LICENSE_INVALID", "Website Replica license is missing or too large")
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_INVALID", "Website Replica license is missing or too large")
 	}
 	decoder := json.NewDecoder(bytes.NewReader(download.License))
 	decoder.DisallowUnknownFields()
 	var license api.WebsiteReplicaLicense
 	if err := decoder.Decode(&license); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
-		return output.Policy("REPLICA_LICENSE_INVALID", "Website Replica license has an invalid schema")
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_INVALID", "Website Replica license has an invalid schema")
 	}
 	claims := license.Claims
 	if license.Algorithm != "Ed25519" || license.SigningKeyID == "" || license.SigningPublicKey == "" || license.Signature == "" ||
 		claims.SchemaVersion != replicaLicenseTermsVersion || claims.LicenseTermsVersion != replicaLicenseTermsVersion ||
 		!replicaUUIDPattern.MatchString(claims.EntitlementID) || claims.ReplicaID != download.ReplicaID ||
-		claims.VersionID != download.VersionID || claims.OrderNo != orderNo || claims.ArtifactDigest != download.ArtifactDigest {
-		return output.Policy("REPLICA_LICENSE_IDENTITY_MISMATCH", "Website Replica license does not match the purchased artifact")
+		claims.VersionID != download.VersionID || claims.Version != download.Version || (orderNo != "" && claims.OrderNo != orderNo) ||
+		claims.ArtifactDigest != download.ArtifactDigest {
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_IDENTITY_MISMATCH", "Website Replica license does not match the purchased artifact")
 	}
 	trustedPublicKey, err := runtime.resolveCommerceTrustKey(ctx, license.SigningKeyID)
 	if err != nil {
-		return err
+		return api.WebsiteReplicaLicenseClaims{}, err
 	}
 	if trustedPublicKey != license.SigningPublicKey {
-		return output.Policy("REPLICA_LICENSE_SIGNING_KEY_UNTRUSTED", "Website Replica license embedded an untrusted signing key")
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_SIGNING_KEY_UNTRUSTED", "Website Replica license embedded an untrusted signing key")
 	}
 	if err := commerceartifact.VerifyDocument(claims, trustedPublicKey, license.Signature); err != nil {
-		return output.Policy("REPLICA_LICENSE_SIGNATURE_INVALID", "Website Replica license signature is invalid").WithCause(err)
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_SIGNATURE_INVALID", "Website Replica license signature is invalid").WithCause(err)
 	}
-	return nil
+	return claims, nil
 }
 
 func parseReplicaCode(code string) (string, error) {
@@ -341,7 +441,20 @@ func validateReplicaTarget(target string) (string, error) {
 		return "", output.Validation("REPLICA_TARGET_INVALID", "could not resolve --target").WithCause(err)
 	}
 	absTarget = filepath.Clean(absTarget)
-	return absTarget, nil
+	parent, err := filepath.EvalSymlinks(filepath.Dir(absTarget))
+	if err != nil {
+		return "", output.Validation("REPLICA_TARGET_PARENT_INVALID", "--target parent must already exist").WithCause(err)
+	}
+	parent, err = filepath.Abs(parent)
+	if err != nil {
+		return "", output.Validation("REPLICA_TARGET_PARENT_INVALID", "could not resolve --target parent").WithCause(err)
+	}
+	parent = filepath.Clean(parent)
+	info, err := os.Lstat(parent)
+	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return "", output.Validation("REPLICA_TARGET_PARENT_INVALID", "--target parent must be a real existing directory").WithCause(err)
+	}
+	return filepath.Join(parent, filepath.Base(absTarget)), nil
 }
 
 func requireMissingReplicaTarget(absTarget string) error {
@@ -461,24 +574,24 @@ func waitForReplicaPayment(ctx context.Context, runtime *Runtime, client *api.Cl
 	}
 }
 
-func downloadAndInstallReplica(ctx context.Context, client *api.Client, download api.WebsiteReplicaDownload, target string) (replicacontent.InstallResult, error) {
+func downloadAndInstallReplica(ctx context.Context, client *api.Client, download api.WebsiteReplicaDownload, target, targetParentID string) (replicacontent.InstallResult, error) {
 	if download.SizeBytes < 1 || download.SizeBytes > replicacontent.MaxArchiveBytes || !validReplicaDownloadFileName(download.FileName) {
 		return replicacontent.InstallResult{}, output.Internal("REPLICA_DOWNLOAD_RESPONSE_INVALID", "Website Replica download metadata is invalid", nil)
 	}
 	parent := filepath.Dir(target)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return replicacontent.InstallResult{}, output.Internal("REPLICA_DOWNLOAD_STAGE_FAILED", "could not create the Replica target parent", err)
+	parentInfo, err := os.Lstat(parent)
+	if err != nil || !parentInfo.IsDir() || parentInfo.Mode()&os.ModeSymlink != 0 {
+		return replicacontent.InstallResult{}, output.Internal("REPLICA_DOWNLOAD_STAGE_FAILED", "the Replica target parent changed before download", err)
 	}
-	temporary, err := os.CreateTemp(parent, ".viceme-replica-download-*.zip")
+	if err := requireReplicaTargetParentIdentity(parent, targetParentID); err != nil {
+		return replicacontent.InstallResult{}, err
+	}
+	temporary, err := privatepath.CreateTempFile(parent, ".viceme-replica-download-*.zip")
 	if err != nil {
 		return replicacontent.InstallResult{}, output.Internal("REPLICA_DOWNLOAD_STAGE_FAILED", "could not create a private Replica download file", err)
 	}
 	temporaryName := temporary.Name()
 	defer os.Remove(temporaryName)
-	if err := temporary.Chmod(0o600); err != nil {
-		_ = temporary.Close()
-		return replicacontent.InstallResult{}, output.Internal("REPLICA_DOWNLOAD_STAGE_FAILED", "could not secure the Replica download file", err)
-	}
 	hash := sha256.New()
 	written, downloadErr := client.DownloadPresigned(ctx, download.DownloadURL, io.MultiWriter(temporary, hash), download.SizeBytes)
 	closeErr := temporary.Close()
@@ -496,12 +609,26 @@ func downloadAndInstallReplica(ctx context.Context, client *api.Client, download
 	if err != nil || len(expectedDigest) != sha256.Size || subtle.ConstantTimeCompare(actualDigest, expectedDigest) != 1 {
 		return replicacontent.InstallResult{}, output.Policy("REPLICA_DOWNLOAD_DIGEST_MISMATCH", "downloaded Website Replica digest does not match its authorization")
 	}
-	result, err := replicacontent.InstallArchive(temporaryName, target, replicacontent.LicenseRecord{
+	if err := requireReplicaTargetParentIdentity(parent, targetParentID); err != nil {
+		return replicacontent.InstallResult{}, err
+	}
+	result, err := replicacontent.InstallArchiveAnchored(temporaryName, target, targetParentID, replicacontent.LicenseRecord{
 		ReplicaID: download.ReplicaID, VersionID: download.VersionID, Version: download.Version,
 		ArtifactDigest: download.ArtifactDigest, License: download.License,
 	})
 	if err != nil {
 		return replicacontent.InstallResult{}, output.Policy("REPLICA_ARCHIVE_UNSAFE", "downloaded Website Replica could not be installed safely").WithCause(err)
 	}
+	if err := requireReplicaTargetParentIdentity(parent, targetParentID); err != nil {
+		return replicacontent.InstallResult{}, err
+	}
 	return result, nil
+}
+
+func requireReplicaTargetParentIdentity(parent, expected string) error {
+	current, err := pathidentity.Directory(parent)
+	if err != nil || current != expected {
+		return output.Policy("REPLICA_TARGET_PARENT_CHANGED", "the Website Replica target parent changed after it was reserved").WithCause(err)
+	}
+	return nil
 }

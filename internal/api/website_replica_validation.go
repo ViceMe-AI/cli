@@ -358,7 +358,7 @@ func (response *WebsiteReplicaDownload) validateAPIResponse() error {
 	if err := decodeStrictAPIResponse(response.License, &license); err != nil || validateReplicaLicense(license) != nil {
 		return errors.New("Website Replica license response is invalid")
 	}
-	if license.Claims.ReplicaID != response.ReplicaID || license.Claims.VersionID != response.VersionID ||
+	if license.Claims.ReplicaID != response.ReplicaID || license.Claims.VersionID != response.VersionID || license.Claims.Version != response.Version ||
 		license.Claims.ArtifactDigest != response.ArtifactDigest {
 		return errors.New("Website Replica license does not match its download")
 	}
@@ -371,6 +371,7 @@ func validateReplicaLicense(license WebsiteReplicaLicense) error {
 		utf16CodeUnits(license.SigningPublicKey) < 32 || utf16CodeUnits(license.Signature) < 32 ||
 		claims.SchemaVersion != "website-replica-license/v1" || !zodUUIDPattern.MatchString(claims.EntitlementID) ||
 		!zodUUIDPattern.MatchString(claims.ReplicaID) || !zodUUIDPattern.MatchString(claims.VersionID) ||
+		!validPositiveSafeInteger(claims.Version) ||
 		utf16CodeUnits(claims.OrderNo) < 6 || utf16CodeUnits(claims.OrderNo) > 40 || !sha256HexPattern.MatchString(claims.ArtifactDigest) ||
 		utf16CodeUnits(claims.LicenseTermsVersion) < 1 || utf16CodeUnits(claims.LicenseTermsVersion) > 64 || !validZodDatetime(claims.IssuedAt) {
 		return errors.New("invalid Website Replica license")

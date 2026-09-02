@@ -967,6 +967,7 @@ type WebsiteReplicaLicenseClaims struct {
 	EntitlementID       string `json:"entitlementId"`
 	ReplicaID           string `json:"replicaId"`
 	VersionID           string `json:"versionId"`
+	Version             int    `json:"version"`
 	OrderNo             string `json:"orderNo"`
 	ArtifactDigest      string `json:"artifactDigest"`
 	LicenseTermsVersion string `json:"licenseTermsVersion"`

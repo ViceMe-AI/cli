@@ -2,8 +2,4 @@
 
 package replicacontent
 
-import "errors"
-
-func activateNoReplace(_, _ string) error {
-	return errors.New("atomic no-replace directory activation is unsupported on this platform")
-}
+func atomicInstallSupported() bool { return false }

@@ -184,6 +184,13 @@ func TestWebsiteReplicaClientRejectsCrossResourceMismatches(t *testing.T) {
 			}),
 			call: canonicalWebsiteReplicaResponseCases()[6].call,
 		},
+		{
+			name: "download license version",
+			response: mutateReplicaResponse(t, replicaDownloadResponse(), func(response map[string]any) {
+				response["license"].(map[string]any)["claims"].(map[string]any)["version"] = 2
+			}),
+			call: canonicalWebsiteReplicaResponseCases()[6].call,
+		},
 	}
 	for _, test := range tests {
 		test := test
@@ -434,7 +441,7 @@ func replicaDownloadResponse() map[string]any {
 		"license": map[string]any{
 			"claims": map[string]any{
 				"schemaVersion": "website-replica-license/v1", "entitlementId": testEntitlementID,
-				"replicaId": testReplicaID, "versionId": testVersionID, "orderNo": testOrderNo,
+				"replicaId": testReplicaID, "versionId": testVersionID, "version": 1, "orderNo": testOrderNo,
 				"artifactDigest": strings.Repeat("a", 64), "licenseTermsVersion": "website-replica-license/v1", "issuedAt": testReplicaTimestamp,
 			},
 			"algorithm": "Ed25519", "signingKeyId": "replica-signing-v1",
