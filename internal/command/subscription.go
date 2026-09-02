@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
@@ -30,7 +31,7 @@ func newSubscriptionSubscribeCommand(runtime *Runtime) *cobra.Command {
 		Short: "Subscribe to a creator with a WeChat QR payment and unlock every paid Skill of theirs",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			if err := runtime.requireSkillUseAuthentication(command.Context()); err != nil {
+			if err := runtime.requireBuyerAuthentication(command.Context()); err != nil {
 				return err
 			}
 			creatorHandle := args[0]
@@ -38,7 +39,7 @@ func newSubscriptionSubscribeCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if wait <= 0 {
+			if wait <= 0 && order.Status != "PAID" {
 				return output.Confirmation("CREATOR_SUBSCRIPTION_PURCHASE_REQUIRED", "complete the subscription payment before it expires").
 					WithDetails(map[string]any{
 						"creatorHandle": creatorHandle, "orderNo": order.OrderNo,
@@ -47,7 +48,10 @@ func newSubscriptionSubscribeCommand(runtime *Runtime) *cobra.Command {
 					}).
 					WithHint("present the payment QR to the user, then rerun the same subscribe command with --wait while the payment is in progress")
 			}
-			if err := waitForCreatorSubscriptionPayment(command.Context(), runtime, order.OrderNo, wait); err != nil {
+			if wait <= 0 {
+				wait = time.Second
+			}
+			if err := waitForCreatorSubscriptionPayment(command.Context(), runtime, creatorHandle, order.OrderNo, wait); err != nil {
 				return err
 			}
 			return runtime.business(map[string]any{
@@ -65,15 +69,43 @@ func newSubscriptionSubscribeCommand(runtime *Runtime) *cobra.Command {
 // renders its payment QR as a local image; the provider URI never reaches
 // stdout.
 func openCreatorSubscriptionOrder(ctx context.Context, runtime *Runtime, creatorHandle string) (api.PaymentOrder, *api.CommercePaymentPresentation, error) {
-	request, _ := json.Marshal(map[string]any{
-		"creatorHandle":   creatorHandle,
-		"clientRequestId": runtime.deps.NewID(),
-		"paymentProvider": "WECHAT_PAY",
-		"paymentScene":    "NATIVE",
-		"locale":          localeForRuntimeMarket(runtime),
-	})
-	created, err := runtime.client().CreateCreatorSubscriptionOrder(ctx, request)
+	unlock, err := lockBuyerPurchase(ctx, runtime, "subscription", creatorHandle)
 	if err != nil {
+		return api.PaymentOrder{}, nil, err
+	}
+	defer unlock()
+	intent, err := loadBuyerPurchaseIntent(runtime, "subscription", creatorHandle)
+	if err != nil {
+		return api.PaymentOrder{}, nil, err
+	}
+	if intent != nil && intent.OrderNo != "" {
+		current, err := runtime.client().GetCreatorSubscriptionOrderStatus(ctx, intent.OrderNo)
+		if err != nil {
+			return api.PaymentOrder{}, nil, err
+		}
+		if current.Order.Status == "PAID" {
+			return current.Order, nil, nil
+		}
+		if current.Order.Status == "CLOSED" || current.Order.Status == "CANCELLED" {
+			if err := os.Remove(buyerPurchaseIntentPath(runtime, "subscription", creatorHandle)); err != nil {
+				return api.PaymentOrder{}, nil, err
+			}
+			intent = nil
+		}
+	}
+	if intent == nil {
+		request, _ := json.Marshal(map[string]any{"creatorHandle": creatorHandle, "clientRequestId": runtime.deps.NewID(), "paymentProvider": "WECHAT_PAY", "paymentScene": "NATIVE", "locale": localeForRuntimeMarket(runtime)})
+		intent = &buyerPurchaseIntent{OrderRequest: request}
+		if err := saveBuyerPurchaseIntent(runtime, "subscription", creatorHandle, *intent); err != nil {
+			return api.PaymentOrder{}, nil, err
+		}
+	}
+	created, err := runtime.client().CreateCreatorSubscriptionOrder(ctx, intent.OrderRequest)
+	if err != nil {
+		return api.PaymentOrder{}, nil, err
+	}
+	intent.OrderNo = created.Order.OrderNo
+	if err := saveBuyerPurchaseIntent(runtime, "subscription", creatorHandle, *intent); err != nil {
 		return api.PaymentOrder{}, nil, err
 	}
 	order := api.CommerceOrder{
@@ -95,7 +127,7 @@ func openCreatorSubscriptionOrder(ctx context.Context, runtime *Runtime, creator
 	return created.Order, order.PaymentPresentation, nil
 }
 
-func waitForCreatorSubscriptionPayment(ctx context.Context, runtime *Runtime, orderNo string, timeout time.Duration) error {
+func waitForCreatorSubscriptionPayment(ctx context.Context, runtime *Runtime, creatorHandle, orderNo string, timeout time.Duration) error {
 	if timeout <= 0 {
 		return output.Validation("CREATOR_SUBSCRIPTION_WAIT_INVALID", "--wait must be positive to wait for the QR payment")
 	}
@@ -107,11 +139,17 @@ func waitForCreatorSubscriptionPayment(ctx context.Context, runtime *Runtime, or
 		}
 		switch status.Order.Status {
 		case "PAID":
+			if err := completeBuyerPurchase(ctx, runtime, "subscription", creatorHandle, orderNo); err != nil {
+				return err
+			}
 			if err := removeCommercePaymentPresentation(runtime, orderNo); err != nil {
 				return output.Internal("COMMERCE_PAYMENT_PRESENTATION_CLEANUP_FAILED", "the payment is terminal but its local QR image could not be removed", err)
 			}
 			return nil
 		case "CLOSED", "CANCELLED":
+			if err := completeBuyerPurchase(ctx, runtime, "subscription", creatorHandle, orderNo); err != nil {
+				return err
+			}
 			if err := removeCommercePaymentPresentation(runtime, orderNo); err != nil {
 				return output.Internal("COMMERCE_PAYMENT_PRESENTATION_CLEANUP_FAILED", "the payment is terminal but its local QR image could not be removed", err)
 			}
