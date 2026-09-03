@@ -169,12 +169,12 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `creator-tools` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
 | `become-a-creator` | apply for, claim, or check creator qualification for every creator workflow. |
 | `sell-a-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
-| `viceme-skill-use` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
+| `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | configure follow or paid unlock for an existing website and integrate it into host code after the shared creator qualification check; platform resources stay internal. |
 | `let-people-interact` | branch between danmaku, open tips, or both; danmaku-bearing routes require a published Website Work with an exact canonical Origin, while Tip can use any eligible published Merchant Work and either Mounted or Headless UI; none requires DNS ownership verification. |
 | `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site. |
 
-Buyer-side `viceme-skill-use` keeps its existing name because it is not a creator workflow.
+Buyer-side `use-a-skill` keeps its existing name because it is not a creator workflow.
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
 owns deterministic local work and API calls. This separation lets an Agent
@@ -343,7 +343,9 @@ stops the original command so an older process cannot perform a mutation after
 a failed generation change.
 
 An npm installation continues the original command automatically on every
-supported platform. A standalone Windows binary may return the retryable code
+supported platform, including commands started from an older `npx` cache. The
+continuation uses the activated global package after checking its exact version.
+A standalone Windows binary may return the retryable code
 `AUTO_UPDATE_RESTART_REQUIRED` once while Windows releases the old executable;
 rerunning the exact command completes under the new generation.
 

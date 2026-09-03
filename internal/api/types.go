@@ -1016,12 +1016,14 @@ type SkillPublicationDraft struct {
 	UsageInstructionsZhCN *string  `json:"usageInstructionsZhCn"`
 	Currency              string   `json:"currency"`
 	PriceMinor            *int     `json:"priceMinor"`
+	TrialUseLimit         *int     `json:"trialUseLimit"`
 	CoverUploadID         *string  `json:"coverUploadId"`
 	GalleryUploadIDs      []string `json:"galleryUploadIds"`
 }
 
 type UpdateSkillPublicationDraftRequest struct {
 	PriceMinor       *int     `json:"priceMinor,omitempty"`
+	TrialUseLimit    *int     `json:"trialUseLimit,omitempty"`
 	CoverUploadID    *string  `json:"coverUploadId,omitempty"`
 	GalleryUploadIDs []string `json:"galleryUploadIds,omitempty"`
 }
@@ -1094,14 +1096,15 @@ type SkillPublication struct {
 }
 
 type PublishedSkillEdition struct {
-	ProductID  string   `json:"productId"`
-	ReleaseID  string   `json:"releaseId"`
-	Key        string   `json:"key"`
-	Title      string   `json:"title"`
-	SortOrder  int      `json:"sortOrder"`
-	Highlights []string `json:"highlights"`
-	Currency   string   `json:"currency"`
-	PriceMinor int      `json:"priceMinor"`
+	ProductID     string   `json:"productId"`
+	ReleaseID     string   `json:"releaseId"`
+	Key           string   `json:"key"`
+	Title         string   `json:"title"`
+	SortOrder     int      `json:"sortOrder"`
+	Highlights    []string `json:"highlights"`
+	Currency      string   `json:"currency"`
+	PriceMinor    int      `json:"priceMinor"`
+	TrialUseLimit *int     `json:"trialUseLimit"`
 }
 
 type SkillPublicationNextAction struct {
@@ -1137,6 +1140,7 @@ type SkillAccess struct {
 	PurchaseURL       *string                 `json:"purchaseUrl"`
 	UnavailableReason *string                 `json:"unavailableReason"`
 	Subscription      SkillAccessSubscription `json:"subscription"`
+	Trial             *SkillAccessTrial       `json:"trial"`
 	Edition           struct {
 		Key        string   `json:"key"`
 		Title      string   `json:"title"`
@@ -1156,6 +1160,37 @@ type DownloadURL struct {
 	ReleaseID      string `json:"releaseId"`
 	ArtifactDigest string `json:"artifactDigest"`
 	ExpiresAt      string `json:"expiresAt"`
+}
+
+/** 付费 Skill 的试用块:available=该款配置了试用次数。 */
+type SkillAccessTrial struct {
+	Available  bool `json:"available"`
+	LimitUses  int  `json:"limitUses"`
+}
+
+type skillTrialGrantRequest struct {
+	InstallID string `json:"installId"`
+}
+
+type SkillTrialGrant struct {
+	InstallID     string  `json:"installId"`
+	LimitUses     int     `json:"limitUses"`
+	RemainingUses int     `json:"remainingUses"`
+	// Secret 仅在首次发放时非空;服务端只存哈希,丢失后只能换新的 installId。
+	Secret *string `json:"secret"`
+}
+
+type skillTrialUseRequest struct {
+	InstallID string `json:"installId"`
+	Secret    string `json:"secret"`
+}
+
+type SkillTrialUse struct {
+	Allowed       bool    `json:"allowed"`
+	RemainingUses *int    `json:"remainingUses"`
+	LimitUses     *int    `json:"limitUses"`
+	Reason        *string `json:"reason"`
+	PurchaseURL   *string `json:"purchaseUrl"`
 }
 
 type XiaohongshuSkillCandidate struct {

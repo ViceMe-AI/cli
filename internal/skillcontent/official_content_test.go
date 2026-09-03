@@ -20,7 +20,7 @@ var officialSkillNames = []string{
 	"become-a-creator",
 	"sell-a-skill",
 	"creator-tools",
-	"viceme-skill-use",
+	"use-a-skill",
 	"let-people-interact",
 	"let-others-make-a-copy",
 }
@@ -110,7 +110,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 		},
 		{
-			name: "viceme-skill-use",
+			name: "use-a-skill",
 			machine: []string{
 				"owned=true", "nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", "--wait 10m", "--agent auto",
 				"?product=<product-id>",

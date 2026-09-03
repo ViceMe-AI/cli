@@ -658,6 +658,33 @@ func (c *Client) GetOwnedSkillDownload(ctx context.Context, productID string) (D
 	return response, err
 }
 
+// Skill trial endpoints stay anonymous: the install device holds its own
+// grant (installId + one-time secret); no login is required to trial.
+func (c *Client) CreateSkillTrialGrant(ctx context.Context, productID, installID string) (SkillTrialGrant, error) {
+	var response SkillTrialGrant
+	endpoint := "/v1/skills/" + url.PathEscape(productID) + "/trial-grants"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, skillTrialGrantRequest{InstallID: installID}, &response, "")
+	return response, err
+}
+
+func (c *Client) ConsumeSkillTrialUse(ctx context.Context, productID, installID, secret string) (SkillTrialUse, error) {
+	var response SkillTrialUse
+	endpoint := "/v1/skills/" + url.PathEscape(productID) + "/trial-use"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, skillTrialUseRequest{InstallID: installID, Secret: secret}, &response, "")
+	return response, err
+}
+
+func (c *Client) GetTrialSkillDownload(ctx context.Context, productID, installID string) (DownloadURL, error) {
+	var response DownloadURL
+	endpoint := "/v1/downloads/trial/" + url.PathEscape(productID) + "?installId=" + url.QueryEscape(installID)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "")
+	return response, err
+}
+
+func (c *Client) UpdateListingTrialUseLimit(ctx context.Context, publicationID string, trialUseLimit *int) (SkillPublication, error) {
+	return c.UpdateListingDraftPatch(ctx, publicationID, UpdateSkillPublicationDraftRequest{TrialUseLimit: trialUseLimit})
+}
+
 func (c *Client) GetSkillDetail(ctx context.Context, productID string) (json.RawMessage, error) {
 	var response json.RawMessage
 	err := c.doJSON(ctx, http.MethodGet, "/v1/skills/"+url.PathEscape(productID), nil, &response, "")
