@@ -343,7 +343,9 @@ stops the original command so an older process cannot perform a mutation after
 a failed generation change.
 
 An npm installation continues the original command automatically on every
-supported platform. A standalone Windows binary may return the retryable code
+supported platform, including commands started from an older `npx` cache. The
+continuation uses the activated global package after checking its exact version.
+A standalone Windows binary may return the retryable code
 `AUTO_UPDATE_RESTART_REQUIRED` once while Windows releases the old executable;
 rerunning the exact command completes under the new generation.
 
