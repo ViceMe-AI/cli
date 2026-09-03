@@ -167,7 +167,8 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | Skill | Use it when you want to... |
 | --- | --- |
 | `creator-tools` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
-| `become-a-creator` | apply for, claim, or check creator qualification for every creator workflow. |
+| `become-a-creator` | apply for or check creator qualification for every creator workflow. |
+| `customize-your-page` | use AI to create, preview, publish, update, or roll back one creator or Work page against its target-specific platform capabilities. |
 | `sell-a-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
 | `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | configure follow or paid unlock for an existing website and integrate it into host code after the shared creator qualification check; platform resources stay internal. |
@@ -272,10 +273,11 @@ Never copy an access token into the conversation.
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
 | `viceme replica publish ...` | Validate a complete source ZIP with a root `VICEME-REPLICA.md`, publish an immutable version, and return the stable code and creator-site prompts. |
-| `viceme replica install <code> --target <new-directory>` | Create and display the authoritative Quote without an order; rerun with `--confirm` only after the buyer explicitly approves it. |
+| `viceme replica install <code> --target <new-directory>` | Create and display the authoritative Quote without an order; after explicit confirmation, return a private local WeChat QR image for Agent rendering, then resume the same order until paid before atomic installation. |
 | `viceme update` | Update the CLI and matching official Skills together. |
 | `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
 | `viceme merchant work ...` | Create, inspect, update, and publish Merchant Works, including Website Works. |
+| `viceme merchant page ...` | Validate, preview, publish, inspect, and roll back immutable custom Creator/Work page bundles. |
 | `viceme merchant work website-verification ...` | Create, inspect, verify, or revoke DNS ownership for one Website Work. |
 | `viceme merchant work sdk-access ...` | Manage hosted `danmaku`/`tip` and follow/paid access on one Work. Hosted and access domains preserve each other; creation returns permanent public `keys.test` and `keys.live` identifiers, not credentials. |
 | `viceme merchant commerce-application ...` | Manage Commerce Applications. For open tips, a matching application is optional trusted-source attribution rather than an authorization gate. |

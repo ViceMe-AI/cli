@@ -75,8 +75,8 @@ func publishReplica(ctx context.Context, runtime *Runtime, source, workID, title
 	if title == "" {
 		return replicaPublishResult{}, output.Validation("REPLICA_METADATA_INVALID", "--title cannot be empty")
 	}
-	if priceCents < 1 || priceCents > 10_000_000 {
-		return replicaPublishResult{}, output.Validation("REPLICA_PRICE_INVALID", "--price-cents must be between 1 and 10000000")
+	if priceCents < 0 || priceCents > 10_000_000 {
+		return replicaPublishResult{}, output.Validation("REPLICA_PRICE_INVALID", "--price-cents must be between 0 and 10000000")
 	}
 	file, info, err := openReplicaArchive(source)
 	if err != nil {

@@ -18,6 +18,7 @@ import (
 var officialSkillNames = []string{
 	"charge-for-your-work",
 	"become-a-creator",
+	"customize-your-page",
 	"sell-a-skill",
 	"creator-tools",
 	"use-a-skill",
@@ -90,12 +91,22 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "become-a-creator",
 			machine: []string{
 				"viceme auth status", "viceme auth login", "present_files", "viceme merchant accounts",
-				"viceme merchant onboarding status", "viceme merchant onboarding apply", "claim-github",
-				"claim-xiaohongshu", "MerchantAccountMember(role=OWNER)",
+				"viceme merchant onboarding status", "viceme merchant onboarding apply",
+				"MerchantAccountMember(role=OWNER)",
 			},
 			semantics: []string{
 				"不创建平行申请", "直接申请模式不再确认", "玩法守卫模式",
 				"申请中", "交回调用玩法",
+			},
+		},
+		{
+			name: "customize-your-page",
+			machine: []string{
+				"$become-a-creator", "viceme merchant page describe", "viceme merchant page inspect",
+				"viceme merchant page preview", "viceme merchant page publish", "viceme-page.json", "window.viceme",
+			},
+			semantics: []string{
+				"作者页和作品页共用", "不做源码安全审计", "预览不等于公开发布",
 			},
 		},
 		{
@@ -716,6 +727,34 @@ func TestInteractionDanmakuUsesPublishedWebsiteWithoutDNSVerification(t *testing
 	} {
 		if strings.Contains(section, forbidden) {
 			t.Fatalf("danmaku branch retained DNS verification gate %q", forbidden)
+		}
+	}
+}
+
+func TestWebsiteReplicaUsesPublishedWebsiteWithoutDNSVerification(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-others-make-a-copy/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"kind 为 `WEBSITE`", "canonicalOrigin", "`PUBLISHED`", "Origin 精确匹配",
+		"`website.ownershipStatus` 不参与门禁", "不创建、读取、验证或撤销 Website ownership verification",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Website Replica Skill omitted Website boundary %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"website-verification create <work-id>", "website-verification get <work-id>",
+		"website-verification verify <work-id>", "website-verification revoke <work-id>",
+		"dnsRecordName", "--expected-verification-version", "PUBLISHED + VERIFIED Website Work",
+		"website.ownershipStatus: VERIFIED", "DNS 挑战",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("Website Replica Skill retained DNS verification gate %q", forbidden)
 		}
 	}
 }

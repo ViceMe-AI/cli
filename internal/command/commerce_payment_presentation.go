@@ -48,22 +48,30 @@ func prepareCommercePaymentPresentation(runtime *Runtime, order *api.CommerceOrd
 	if action.Type != "QR_CODE" || strings.TrimSpace(action.Content) == "" {
 		return errors.New("paid WeChat NATIVE order did not return a QR_CODE action")
 	}
-	absolutePath, err := createCommercePaymentQRImage(runtime, order.OrderNo, action.Content)
+	presentation, err := newCommercePaymentPresentation(runtime, order.OrderNo, order.ExpiresAt, action.Content)
 	if err != nil {
 		return err
 	}
-	order.PaymentPresentation = &api.CommercePaymentPresentation{
+	order.PaymentPresentation = presentation
+	// The Agent only receives a local image path. Keeping the provider URI out
+	// of stdout prevents accidental plaintext display or third-party QR upload.
+	order.PaymentAction = json.RawMessage(`{"type":"QR_CODE"}`)
+	return nil
+}
+
+func newCommercePaymentPresentation(runtime *Runtime, orderNo, expiresAt, content string) (*api.CommercePaymentPresentation, error) {
+	absolutePath, err := createCommercePaymentQRImage(runtime, orderNo, content)
+	if err != nil {
+		return nil, err
+	}
+	return &api.CommercePaymentPresentation{
 		Type:      "LOCAL_IMAGE",
 		Purpose:   "PAYMENT_QR_CODE",
 		MIMEType:  "image/png",
 		ImagePath: absolutePath,
 		AltText:   "微信支付二维码",
-		ExpiresAt: order.ExpiresAt,
-	}
-	// The Agent only receives a local image path. Keeping the provider URI out
-	// of stdout prevents accidental plaintext display or third-party QR upload.
-	order.PaymentAction = json.RawMessage(`{"type":"QR_CODE"}`)
-	return nil
+		ExpiresAt: expiresAt,
+	}, nil
 }
 
 func createCommercePaymentQRImage(runtime *Runtime, orderNo, content string) (string, error) {

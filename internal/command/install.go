@@ -19,6 +19,7 @@ import (
 var officialSkillNames = []string{
 	"creator-tools",
 	"become-a-creator",
+	"customize-your-page",
 	"sell-a-skill",
 	"use-a-skill",
 	"charge-for-your-work",

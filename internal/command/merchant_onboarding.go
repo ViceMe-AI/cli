@@ -18,30 +18,20 @@ import (
 const onboardingEvidenceTextMaxRunes = 2000
 
 func newMerchantOnboardingCommand(runtime *Runtime) *cobra.Command {
-	command := &cobra.Command{Use: "onboarding", Short: "Apply for or claim Merchant ownership"}
+	command := &cobra.Command{Use: "onboarding", Short: "Apply for Merchant access"}
 	command.AddCommand(newMerchantOnboardingStatusCommand(runtime))
 	command.AddCommand(newMerchantApplicationCommand(runtime))
-	command.AddCommand(newMerchantGithubClaimCommand(runtime))
-	command.AddCommand(newMerchantXiaohongshuClaimCommand(runtime))
 	command.AddCommand(newMerchantOnboardingEvidenceCommand(runtime))
 	command.AddCommand(newMerchantOnboardingSubmitCommand(runtime))
 	return command
 }
 
 func newMerchantOnboardingStatusCommand(runtime *Runtime) *cobra.Command {
-	var merchantAccountID string
 	command := &cobra.Command{
-		Use: "status", Short: "Show the current Merchant application or claim", Args: cobra.NoArgs,
+		Use: "status", Short: "Show the current Merchant application", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
 				return err
-			}
-			if strings.TrimSpace(merchantAccountID) != "" {
-				result, err := runtime.client().GetMerchantTargetOnboarding(command.Context(), merchantAccountID)
-				if err != nil {
-					return err
-				}
-				return runtime.business(result)
 			}
 			result, err := runtime.client().GetMerchantOnboarding(command.Context())
 			if err != nil {
@@ -50,7 +40,6 @@ func newMerchantOnboardingStatusCommand(runtime *Runtime) *cobra.Command {
 			return runtime.business(result)
 		},
 	}
-	command.Flags().StringVar(&merchantAccountID, "merchant", "", "optional pre-created Merchant account ID")
 	return command
 }
 
@@ -82,53 +71,12 @@ func newMerchantApplicationCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
-func newMerchantGithubClaimCommand(runtime *Runtime) *cobra.Command {
-	return &cobra.Command{
-		Use: "claim-github <merchant-id>", Short: "Claim a pre-created Merchant through its configured GitHub identity", Args: cobra.ExactArgs(1),
-		RunE: func(command *cobra.Command, args []string) error {
-			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
-				return err
-			}
-			result, err := runtime.client().StartGithubMerchantClaim(command.Context(), args[0])
-			if err != nil {
-				return err
-			}
-			return runtime.business(result)
-		},
-	}
-}
-
-func newMerchantXiaohongshuClaimCommand(runtime *Runtime) *cobra.Command {
-	var accountName, profileURL string
-	command := &cobra.Command{
-		Use: "claim-xiaohongshu <merchant-id>", Short: "Start an evidence-reviewed Xiaohongshu Merchant claim", Args: cobra.ExactArgs(1),
-		RunE: func(command *cobra.Command, args []string) error {
-			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
-				return err
-			}
-			var optionalURL *string
-			if strings.TrimSpace(profileURL) != "" {
-				optionalURL = &profileURL
-			}
-			result, err := runtime.client().StartXiaohongshuMerchantClaim(command.Context(), args[0], accountName, optionalURL)
-			if err != nil {
-				return err
-			}
-			return runtime.business(result)
-		},
-	}
-	command.Flags().StringVar(&accountName, "account-name", "", "Xiaohongshu public account name")
-	command.Flags().StringVar(&profileURL, "profile-url", "", "optional Xiaohongshu profile URL")
-	_ = command.MarkFlagRequired("account-name")
-	return command
-}
-
 func newMerchantOnboardingEvidenceCommand(runtime *Runtime) *cobra.Command {
 	var filename string
 	var statement string
 	var lockVersion int
 	command := &cobra.Command{
-		Use: "evidence <onboarding-id>", Short: "Add one screenshot or text statement to a claim", Args: cobra.ExactArgs(1),
+		Use: "evidence <onboarding-id>", Short: "Add one screenshot or text statement to an application", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			if lockVersion < 0 {
 				return output.Validation("ONBOARDING_LOCK_VERSION_INVALID", "--lock-version must be non-negative")
@@ -178,7 +126,7 @@ func newMerchantOnboardingEvidenceCommand(runtime *Runtime) *cobra.Command {
 func newMerchantOnboardingSubmitCommand(runtime *Runtime) *cobra.Command {
 	var lockVersion int
 	command := &cobra.Command{
-		Use: "submit <onboarding-id>", Short: "Submit an evidence-complete Xiaohongshu claim for review", Args: cobra.ExactArgs(1),
+		Use: "submit <onboarding-id>", Short: "Submit a Xiaohongshu channel verification for review", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			if lockVersion < 0 {
 				return output.Validation("ONBOARDING_LOCK_VERSION_INVALID", "--lock-version must be non-negative")

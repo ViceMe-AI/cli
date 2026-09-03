@@ -152,7 +152,8 @@ npx --yes @viceme-ai/cli@latest install
 | Skill | 适用场景 |
 | --- | --- |
 | `creator-tools` | 安装 ViceMe、通过浏览器登录、管理 Profile、更新、诊断或修复本地环境。 |
-| `become-a-creator` | 为所有创作者玩法申请、认领或检查创作者资格。 |
+| `become-a-creator` | 为所有创作者玩法申请或检查创作者资格。 |
+| `customize-your-page` | 用 AI 创建、预览、发布、更新或回滚作者页和作品页，并按目标调用平台接口。 |
 | `sell-a-skill` | 发布或更新可下载的付费或免费 Skill；网站、服务与普通商品不属于此 Skill。 |
 | `use-a-skill` | 解析免费、已购买或待购买的访问状态，安装所选 Skill，并继续原任务。 |
 | `charge-for-your-work` | 为现有网站配置关注或付费解锁并接入宿主代码；复用统一创作者资格检查，平台资源保持为内部实现。 |
@@ -251,6 +252,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme update` | 同时更新 CLI 与匹配版本的官方 Skills。 |
 | `viceme merchant accounts` | 列出当前 User 通过 OWNER 成员关系经营的普通 MerchantAccount。 |
 | `viceme merchant work ...` | 创建、查看、更新和发布 Merchant Work，包括 Website Work。 |
+| `viceme merchant page ...` | 校验、预览、发布、查看和回滚不可变的作者页/作品页自定义页面包。 |
 | `viceme merchant work website-verification ...` | 创建、查看、验证或撤销一个 Website Work 的 DNS 所有权。 |
 | `viceme merchant work sdk-access ...` | 在同一 Work 上管理托管 `danmaku`/`tip` 与关注/付费 access；两类配置相互保留，创建会返回永久公开、并非凭据的 `keys.test` 与 `keys.live`。 |
 | `viceme merchant commerce-application ...` | 管理 Commerce Application；对于开放赞赏，匹配的应用只是可选可信来源归因，不是授权门禁。 |

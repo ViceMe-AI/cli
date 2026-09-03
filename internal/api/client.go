@@ -135,20 +135,6 @@ func (c *Client) CreateMerchantApplication(ctx context.Context, clientRequestID 
 	return response, err
 }
 
-func (c *Client) GetMerchantTargetOnboarding(ctx context.Context, merchantAccountID string) (CurrentMerchantOnboarding, error) {
-	var response CurrentMerchantOnboarding
-	endpoint := "/v1/cli/merchant/onboarding/targets/" + url.PathEscape(merchantAccountID) + "/current"
-	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) StartGithubMerchantClaim(ctx context.Context, merchantAccountID string) (GithubAuthorizationStart, error) {
-	var response GithubAuthorizationStart
-	endpoint := "/v1/cli/merchant/onboarding/github/" + url.PathEscape(merchantAccountID) + "/start"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]any{"returnTo": "/cli/github-result"}, &response, "@stored")
-	return response, err
-}
-
 func (c *Client) StartGithubChannel(ctx context.Context, merchantAccountID string) (GithubAuthorizationStart, error) {
 	var response GithubAuthorizationStart
 	payload := map[string]any{"merchantAccountId": merchantAccountID, "returnTo": "/cli/github-result"}
@@ -160,13 +146,6 @@ func (c *Client) GetGithubChannelStatus(ctx context.Context, merchantAccountID, 
 	var response GithubAuthorizationStatus
 	endpoint := "/v1/cli/merchant/channels/github/status?merchantAccountId=" + url.QueryEscape(merchantAccountID) + "&attemptId=" + url.QueryEscape(attemptID)
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) StartXiaohongshuMerchantClaim(ctx context.Context, merchantAccountID, accountName string, profileURL *string) (MerchantOnboarding, error) {
-	var response MerchantOnboarding
-	payload := map[string]any{"merchantAccountId": merchantAccountID, "publicAccountName": accountName, "profileUrl": profileURL}
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/onboarding/xiaohongshu", payload, &response, "@stored")
 	return response, err
 }
 
@@ -289,6 +268,68 @@ func (c *Client) GetMerchantWork(ctx context.Context, workID, merchantAccountID 
 	query := url.Values{"merchantAccountId": {merchantAccountID}}
 	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "?" + query.Encode()
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetPageCustomizationState(ctx context.Context, merchantAccountID string, target PageCustomizationTarget) (PageCustomizationState, error) {
+	var response PageCustomizationState
+	query := pageCustomizationTargetQuery(merchantAccountID, target)
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/page-customizations?"+query.Encode(), nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) DescribePageCustomizationTarget(ctx context.Context, merchantAccountID string, target PageCustomizationTarget) (PageCustomizationTargetDescription, error) {
+	var response PageCustomizationTargetDescription
+	query := pageCustomizationTargetQuery(merchantAccountID, target)
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/page-customizations/describe?"+query.Encode(), nil, &response, "@stored")
+	return response, err
+}
+
+func pageCustomizationTargetQuery(merchantAccountID string, target PageCustomizationTarget) url.Values {
+	query := url.Values{
+		"merchantAccountId": {merchantAccountID},
+		"targetType":        {target.Type},
+		"creatorHandle":     {target.CreatorHandle},
+	}
+	if target.WorkSlug != "" {
+		query.Set("workSlug", target.WorkSlug)
+	}
+	return query
+}
+
+func (c *Client) CreatePageCustomizationDraft(ctx context.Context, request CreatePageCustomizationDraftRequest) (CreatePageCustomizationDraftResponse, error) {
+	var response CreatePageCustomizationDraftResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/page-customizations/drafts", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) AuthorizePageCustomizationUpload(ctx context.Context, releaseID, merchantAccountID string) (PageCustomizationUploadAuthorization, error) {
+	var response PageCustomizationUploadAuthorization
+	endpoint := "/v1/cli/merchant/page-customizations/releases/" + url.PathEscape(releaseID) + "/upload-authorizations"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]any{"merchantAccountId": merchantAccountID}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CompletePageCustomizationUpload(ctx context.Context, releaseID, merchantAccountID string) (PageCustomizationRelease, error) {
+	var response PageCustomizationRelease
+	endpoint := "/v1/cli/merchant/page-customizations/releases/" + url.PathEscape(releaseID) + "/complete-upload"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]any{"merchantAccountId": merchantAccountID}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreatePageCustomizationPreview(ctx context.Context, releaseID, merchantAccountID string, expiresInSeconds int) (PageCustomizationPreview, error) {
+	var response PageCustomizationPreview
+	endpoint := "/v1/cli/merchant/page-customizations/releases/" + url.PathEscape(releaseID) + "/previews"
+	payload := map[string]any{"merchantAccountId": merchantAccountID, "expiresInSeconds": expiresInSeconds}
+	err := c.doJSON(ctx, http.MethodPost, endpoint, payload, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) PublishPageCustomization(ctx context.Context, releaseID, merchantAccountID string, expectedActiveReleaseID *string, action string) (PageCustomizationRelease, error) {
+	var response PageCustomizationRelease
+	endpoint := "/v1/cli/merchant/page-customizations/releases/" + url.PathEscape(releaseID) + "/" + action
+	payload := map[string]any{"merchantAccountId": merchantAccountID, "expectedActiveReleaseId": expectedActiveReleaseID}
+	err := c.doJSON(ctx, http.MethodPost, endpoint, payload, &response, "@stored")
 	return response, err
 }
 

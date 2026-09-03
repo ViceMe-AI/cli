@@ -764,8 +764,9 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 	found := map[string]bool{
 		"creator-tools":          false,
 		"become-a-creator":       false,
+		"customize-your-page":    false,
 		"sell-a-skill":           false,
-		"use-a-skill":       false,
+		"use-a-skill":            false,
 		"charge-for-your-work":   false,
 		"let-people-interact":    false,
 		"let-others-make-a-copy": false,
@@ -783,7 +784,7 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 		}
 	}
 	if len(officialSkillNames) != len(found) {
-		t.Fatalf("official Skill list must contain exactly seven active Skills: %#v", officialSkillNames)
+		t.Fatalf("official Skill list must contain exactly eight active Skills: %#v", officialSkillNames)
 	}
 	for name, included := range found {
 		if !included {
