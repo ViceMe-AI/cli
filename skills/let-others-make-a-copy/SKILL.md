@@ -25,6 +25,7 @@ description: 为创作者网站开通“做同款”源码交付。复用 $becom
 4. 读取所选 Work。只有最终为 `PUBLISHED` 且 Origin 精确匹配时才能发布 Replica；`website.ownershipStatus` 不参与门禁，本流程不创建、读取、验证或撤销 Website ownership verification。
 5. 按 [package-contract.md](references/package-contract.md) 在项目根生成 `VICEME-REPLICA.md`，并准备根目录就是项目根的完整源码 ZIP。部署文档和 ZIP 都不能含 secret。
 6. 向用户展示 Website Work、标题、摘要、人民币分价格、部署文档、归档范围和排除项。明确说明发布会立即形成新的不可变收费源码版本，只询问一次；没有明确确认就不运行发布命令。
+   本地端到端调试仍走真实微信支付；若用户明确是在测试，可建议把本次测试版本设为 `--price-cents 1`，不得启用或寻找本地支付模拟开关。
 7. 确认后运行：
 
    ```bash
@@ -49,8 +50,10 @@ description: 为创作者网站开通“做同款”源码交付。复用 $becom
 1. 询问一个尚不存在的新目标目录，运行 `viceme replica install <replica-code> --target <directory>`。
 2. CLI 只创建并返回真实 Quote；Agent 展示商品、币种、总价和有效期，然后停止，不创建订单。
 3. 只有买家明确确认该 Quote 后，原样重跑命令并追加 `--confirm`。Quote 变化或过期必须重新展示、重新确认。
-4. 支付并安全安装后，读取新目录根级 `VICEME-REPLICA.md`，按其中步骤部署并继续买家原任务，不得停在“下载成功”。
-5. 始终不得覆盖已有目录。
+4. 确认命令返回 `nextAction=PRESENT_PAYMENT_QR` 后，校验 `paymentPresentation.type=LOCAL_IMAGE` 与 `purpose=PAYMENT_QR_CODE`，只把它的本机绝对 `imagePath` 用 Markdown 图片语法展示在当前回复中，替代文本使用“微信支付二维码”，同时展示订单号。不得打印、转换或上传支付 URI，不得打开浏览器，也不得从扫码、用户陈述或本地状态推断支付成功。
+5. 展示二维码后在同一轮原样重跑确认命令并追加 `--timeout 8s`。支付仍为处理中只表示本次有界等待结束；告诉买家二维码仍有效，后续消息继续重跑同一命令查询原订单，不得重复建单。
+6. 只有 CLI 返回权威支付成功并完成安全安装后，才读取新目录根级 `VICEME-REPLICA.md`，按其中步骤部署并继续买家原任务，不得停在“下载成功”。
+7. 始终不得覆盖已有目录。
 
 ## 完成报告
 

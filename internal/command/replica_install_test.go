@@ -56,11 +56,7 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	signer := newReplicaTestSigner(t, "replica-test-v1")
 	trustReplicaTestSigner(t, signer)
 	license := signedReplicaTestLicense(t, signer, replicaID, versionID, 7, orderNo, digest)
-	paymentServer := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		t.Fatal("CLI must open, not fetch, the payment page")
-	}))
-	defer paymentServer.Close()
-	paymentURL := paymentServer.URL + "/demo-checkout#payment-capability"
+	const paymentURI = "weixin://pay/temporary-native-capability"
 
 	var objectDownloads atomic.Int32
 	objectServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -99,7 +95,7 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 			writeJSONResponse(writer, replicaQuoteResponse(quoteID))
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replicas/orders":
 			requestID := orderReqID
-			if orderCalls.Add(1) > 1 {
+			if orderCalls.Add(1) > 2 {
 				requestID = ownedOrderReqID
 			}
 			assertJSONFields(t, request, map[string]any{"quoteId": quoteID, "clientRequestId": requestID, "locale": "zh-CN"})
@@ -113,7 +109,7 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 			}
 			writeJSONResponse(writer, map[string]any{
 				"orderNo": orderNo, "status": "PENDING",
-				"paymentAction": map[string]any{"type": "REDIRECT", "url": paymentURL},
+				"paymentAction": map[string]any{"type": "QR_CODE", "content": paymentURI},
 				"expiresAt":     time.Now().UTC().Add(time.Minute).Format(time.RFC3339),
 			})
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/website-replicas/orders/"+orderNo+"/status":
@@ -148,7 +144,6 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 		requestIDs = requestIDs[1:]
 		return result
 	}
-	var openedURL string
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	arguments := []string{"replica", "install", fullCode, "--target", target, "--locale", "zh-CN"}
@@ -158,10 +153,6 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 		Region:      config.RegionCN, APIBaseURL: controlServer.URL,
 		NewID: nextRequestID,
 		Sleep: func(context.Context, time.Duration) error { return nil },
-		OpenURL: func(_ context.Context, value string) error {
-			openedURL = value
-			return nil
-		},
 	}
 	if previewExit := Execute(arguments, dependencies); previewExit != output.ExitConfirmation {
 		t.Fatalf("replica quote was not presented before purchase: exit=%d stdout=%q", previewExit, stdout.String())
@@ -172,12 +163,37 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	stdout.Reset()
 	stderr.Reset()
 	confirmedArguments := append(append([]string{}, arguments...), "--confirm")
-	exit := Execute(confirmedArguments, dependencies)
-	if exit != 0 {
-		t.Fatalf("replica install failed: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	if exit := Execute(confirmedArguments, dependencies); exit != output.ExitConfirmation {
+		t.Fatalf("replica payment QR was not presented: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
 	}
-	if openedURL != paymentURL || strings.Contains(stderr.String(), paymentURL) || strings.Contains(stderr.String(), "payment-capability") || statusCalls.Load() < 2 || objectDownloads.Load() != 1 {
-		t.Fatalf("purchase interaction was incomplete: opened=%q statusCalls=%d downloads=%d stderr=%q", openedURL, statusCalls.Load(), objectDownloads.Load(), stderr.String())
+	var paymentEnvelope struct {
+		Error struct {
+			Details struct {
+				NextAction          string                           `json:"nextAction"`
+				OrderNo             string                           `json:"orderNo"`
+				PaymentPresentation *api.CommercePaymentPresentation `json:"paymentPresentation"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &paymentEnvelope); err != nil || paymentEnvelope.Error.Details.NextAction != "PRESENT_PAYMENT_QR" || paymentEnvelope.Error.Details.OrderNo != orderNo || paymentEnvelope.Error.Details.PaymentPresentation == nil {
+		t.Fatalf("unexpected payment presentation: envelope=%#v err=%v output=%q", paymentEnvelope, err, stdout.String())
+	}
+	imagePath := paymentEnvelope.Error.Details.PaymentPresentation.ImagePath
+	if private, err := commercePaymentPresentationIsPrivate(imagePath); err != nil || !private {
+		t.Fatalf("payment QR image is not private: path=%q private=%t err=%v", imagePath, private, err)
+	}
+	if strings.Contains(stdout.String(), paymentURI) || statusCalls.Load() != 0 || objectDownloads.Load() != 0 {
+		t.Fatalf("payment presentation crossed its boundary: statusCalls=%d downloads=%d output=%q", statusCalls.Load(), objectDownloads.Load(), stdout.String())
+	}
+	stdout.Reset()
+	if exit := Execute(confirmedArguments, dependencies); exit != 0 {
+		t.Fatalf("replica install failed after payment presentation: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
+	if statusCalls.Load() < 2 || objectDownloads.Load() != 1 {
+		t.Fatalf("purchase interaction was incomplete: statusCalls=%d downloads=%d stderr=%q", statusCalls.Load(), objectDownloads.Load(), stderr.String())
+	}
+	if _, err := os.Stat(imagePath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("paid order retained its payment QR image: %v", err)
 	}
 	if content, err := os.ReadFile(filepath.Join(target, "index.html")); err != nil || string(content) != "<h1>Purchased replica</h1>" {
 		t.Fatalf("installed source mismatch: content=%q err=%v", content, err)
@@ -202,7 +218,7 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK || envelope.Data.ReplicaID != replicaID || envelope.Data.VersionID != versionID || envelope.Data.Version != 7 || envelope.Data.OrderNo != orderNo || envelope.Data.Target != expectedTarget || envelope.Data.ArtifactDigest != digest || envelope.Data.LicensePath != licensePath {
 		t.Fatalf("unexpected install output: envelope=%#v err=%v stdout=%q", envelope, err, stdout.String())
 	}
-	if strings.Contains(stdout.String(), paymentURL) || strings.Contains(stdout.String(), "payment-capability") || strings.Contains(stdout.String(), downloadURL) || strings.Contains(stdout.String(), accessToken) {
+	if strings.Contains(stdout.String(), paymentURI) || strings.Contains(stdout.String(), downloadURL) || strings.Contains(stdout.String(), accessToken) {
 		t.Fatalf("final protocol output leaked a transient capability: %q", stdout.String())
 	}
 	var replayOutput bytes.Buffer
@@ -211,10 +227,6 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	dependencies.NewID = func() string {
 		t.Fatal("completed installation unexpectedly created another purchase identity")
 		return ""
-	}
-	dependencies.OpenURL = func(context.Context, string) error {
-		t.Fatal("completed installation unexpectedly reopened payment")
-		return nil
 	}
 	if replayExit := Execute(arguments, dependencies); replayExit != 0 {
 		t.Fatalf("completed installation was not replayable: exit=%d output=%q", replayExit, replayOutput.String())
@@ -238,8 +250,8 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	if content, err := os.ReadFile(filepath.Join(secondTarget, "index.html")); err != nil || string(content) != "<h1>Purchased replica</h1>" {
 		t.Fatalf("owned source was not reinstalled: content=%q err=%v", content, err)
 	}
-	if objectDownloads.Load() != 2 || orderCalls.Load() != 2 || openedURL != paymentURL {
-		t.Fatalf("owned reinstall did not reuse its entitlement: downloads=%d orders=%d opened=%q", objectDownloads.Load(), orderCalls.Load(), openedURL)
+	if objectDownloads.Load() != 2 || orderCalls.Load() != 3 {
+		t.Fatalf("owned reinstall did not reuse its entitlement: downloads=%d orders=%d", objectDownloads.Load(), orderCalls.Load())
 	}
 	dependencies.NewID = func() string {
 		t.Fatal("completion replay unexpectedly created another purchase identity")
@@ -253,7 +265,7 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	if tamperedExit := Execute(arguments, dependencies); tamperedExit == 0 {
 		t.Fatalf("tampered completion target was replayed: output=%q", tamperedOutput.String())
 	}
-	assertReplicaSecretsAbsentFromFiles(t, root, accessToken, paymentURL, "payment-capability", downloadURL, "download-capability")
+	assertReplicaSecretsAbsentFromFiles(t, root, accessToken, paymentURI, downloadURL, "download-capability")
 }
 
 func TestReplicaInstallRejectsQuoteForAnotherResolvedProductOrSKU(t *testing.T) {
@@ -384,7 +396,7 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 	signer := newReplicaTestSigner(t, "replica-test-v1")
 	trustReplicaTestSigner(t, signer)
 	license := signedReplicaTestLicense(t, signer, replicaID, versionID, 1, orderNo, digest)
-	paymentURL := "http://127.0.0.1/payment#temporary-payment-capability"
+	const paymentURI = "weixin://pay/temporary-native-capability"
 
 	objectServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "" {
@@ -420,7 +432,7 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 			assertJSONFields(t, request, map[string]any{"quoteId": quoteID, "clientRequestId": orderReqID, "locale": "zh-CN"})
 			writeJSONResponse(writer, map[string]any{
 				"orderNo": orderNo, "status": "PENDING",
-				"paymentAction": map[string]any{"type": "REDIRECT", "url": paymentURL},
+				"paymentAction": map[string]any{"type": "QR_CODE", "content": paymentURI},
 				"expiresAt":     time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
 			})
 		case "/v1/website-replicas/orders/" + orderNo + "/status":
@@ -454,8 +466,7 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 			ids = ids[1:]
 			return value
 		},
-		OpenURL: func(context.Context, string) error { return nil },
-		Sleep:   func(context.Context, time.Duration) error { return context.Canceled },
+		Sleep: func(context.Context, time.Duration) error { return context.Canceled },
 	}
 	if exit := Execute([]string{"replica", "install", fullCode, "--target", target}, base); exit != output.ExitConfirmation {
 		t.Fatalf("purchase quote was not presented before order creation: exit=%d", exit)
@@ -474,7 +485,7 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, secret := range []string{accessToken, paymentURL, "temporary-payment-capability", objectServer.URL} {
+	for _, secret := range []string{accessToken, paymentURI, objectServer.URL} {
 		if bytes.Contains(recovery, []byte(secret)) {
 			t.Fatalf("purchase recovery persisted transient secret %q: %s", secret, recovery)
 		}
@@ -755,23 +766,17 @@ func TestReplicaInstallRejectsMalformedCodeBeforeAnyNetworkRequest(t *testing.T)
 
 func TestPresentReplicaPaymentRendersQRCodeWithoutExposingProviderContent(t *testing.T) {
 	root := t.TempDir()
-	var stderr bytes.Buffer
-	var opened string
 	runtime := &Runtime{
 		configBase: root,
 		deps: Dependencies{
-			ErrOut: &stderr,
-			Now:    func() time.Time { return time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC) },
-			OpenURL: func(_ context.Context, target string) error {
-				opened = target
-				return nil
-			},
+			Now: func() time.Time { return time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC) },
 		},
 	}
 	const providerContent = "weixin://pay/temporary-native-capability"
-	err := presentReplicaPayment(context.Background(), runtime, api.WebsiteReplicaOrder{
-		OrderNo: "VMO-QR-TEST",
-		Status:  "PENDING",
+	presentation, err := prepareReplicaPaymentPresentation(runtime, api.WebsiteReplicaOrder{
+		OrderNo:   "VMO-QR-TEST",
+		Status:    "PENDING",
+		ExpiresAt: "2026-09-01T00:20:00Z",
 		PaymentAction: &api.WebsiteReplicaPaymentAction{
 			Type: "QR_CODE", Content: providerContent,
 		},
@@ -779,14 +784,14 @@ func TestPresentReplicaPaymentRendersQRCodeWithoutExposingProviderContent(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if opened == "" || !filepath.IsAbs(opened) {
-		t.Fatalf("QR image was not opened from a local absolute path: %q", opened)
+	if presentation == nil || !filepath.IsAbs(presentation.ImagePath) || presentation.Type != "LOCAL_IMAGE" || presentation.Purpose != "PAYMENT_QR_CODE" {
+		t.Fatalf("unexpected QR presentation: %#v", presentation)
 	}
-	if private, err := commercePaymentPresentationIsPrivate(opened); err != nil || !private {
+	if private, err := commercePaymentPresentationIsPrivate(presentation.ImagePath); err != nil || !private {
 		t.Fatalf("QR image is not private: private=%t err=%v", private, err)
 	}
-	if strings.Contains(stderr.String(), providerContent) || strings.Contains(opened, providerContent) {
-		t.Fatalf("provider QR content leaked: stderr=%q opened=%q", stderr.String(), opened)
+	if strings.Contains(presentation.ImagePath, providerContent) {
+		t.Fatalf("provider QR content leaked through presentation: %#v", presentation)
 	}
 }
 

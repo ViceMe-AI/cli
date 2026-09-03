@@ -873,15 +873,8 @@ type CreateWebsiteReplicaOrderRequest struct {
 }
 
 type WebsiteReplicaPaymentAction struct {
-	Type      string `json:"-"`
-	URL       string `json:"-"`
-	Content   string `json:"-"`
-	AppID     string `json:"-"`
-	TimeStamp string `json:"-"`
-	NonceStr  string `json:"-"`
-	Package   string `json:"-"`
-	SignType  string `json:"-"`
-	PaySign   string `json:"-"`
+	Type    string `json:"-"`
+	Content string `json:"-"`
 }
 
 type WebsiteReplicaOrder struct {
@@ -1162,8 +1155,8 @@ type DownloadURL struct {
 
 /** 付费 Skill 的试用块:available=该款配置了试用次数。 */
 type SkillAccessTrial struct {
-	Available  bool `json:"available"`
-	LimitUses  int  `json:"limitUses"`
+	Available bool `json:"available"`
+	LimitUses int  `json:"limitUses"`
 }
 
 type skillTrialGrantRequest struct {
@@ -1171,9 +1164,9 @@ type skillTrialGrantRequest struct {
 }
 
 type SkillTrialGrant struct {
-	InstallID     string  `json:"installId"`
-	LimitUses     int     `json:"limitUses"`
-	RemainingUses int     `json:"remainingUses"`
+	InstallID     string `json:"installId"`
+	LimitUses     int    `json:"limitUses"`
+	RemainingUses int    `json:"remainingUses"`
 	// Secret 仅在首次发放时非空;服务端只存哈希,丢失后只能换新的 installId。
 	Secret *string `json:"secret"`
 }

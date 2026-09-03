@@ -28,27 +28,28 @@ import (
 )
 
 type replicaPurchaseState struct {
-	SchemaVersion  int       `json:"schemaVersion"`
-	APIOrigin      string    `json:"apiOrigin"`
-	ShortCode      string    `json:"shortCode"`
-	Target         string    `json:"target"`
-	TargetParentID string    `json:"targetParentId"`
-	ReplicaID      string    `json:"replicaId,omitempty"`
-	ProductID      string    `json:"productId,omitempty"`
-	SKUID          string    `json:"skuId,omitempty"`
-	ProductTitle   string    `json:"productTitle,omitempty"`
-	Currency       string    `json:"currency,omitempty"`
-	PriceCents     int       `json:"priceCents,omitempty"`
-	Reservation    string    `json:"reservation"`
-	QuoteRequestID string    `json:"quoteRequestId"`
-	QuoteID        string    `json:"quoteId,omitempty"`
-	QuoteExpiresAt string    `json:"quoteExpiresAt,omitempty"`
-	OrderRequestID string    `json:"orderRequestId,omitempty"`
-	Locale         string    `json:"locale,omitempty"`
-	OrderNo        string    `json:"orderNo,omitempty"`
-	OrderExpiresAt string    `json:"orderExpiresAt,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
-	UpdatedAt      time.Time `json:"updatedAt"`
+	SchemaVersion      int       `json:"schemaVersion"`
+	APIOrigin          string    `json:"apiOrigin"`
+	ShortCode          string    `json:"shortCode"`
+	Target             string    `json:"target"`
+	TargetParentID     string    `json:"targetParentId"`
+	ReplicaID          string    `json:"replicaId,omitempty"`
+	ProductID          string    `json:"productId,omitempty"`
+	SKUID              string    `json:"skuId,omitempty"`
+	ProductTitle       string    `json:"productTitle,omitempty"`
+	Currency           string    `json:"currency,omitempty"`
+	PriceCents         int       `json:"priceCents,omitempty"`
+	Reservation        string    `json:"reservation"`
+	QuoteRequestID     string    `json:"quoteRequestId"`
+	QuoteID            string    `json:"quoteId,omitempty"`
+	QuoteExpiresAt     string    `json:"quoteExpiresAt,omitempty"`
+	OrderRequestID     string    `json:"orderRequestId,omitempty"`
+	Locale             string    `json:"locale,omitempty"`
+	OrderNo            string    `json:"orderNo,omitempty"`
+	OrderExpiresAt     string    `json:"orderExpiresAt,omitempty"`
+	PaymentPresentedAt string    `json:"paymentPresentedAt,omitempty"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
 }
 
 type replicaPurchaseStore struct {
@@ -427,6 +428,9 @@ func (store replicaPurchaseStore) valid(state replicaPurchaseState) bool {
 			return false
 		}
 	} else if state.OrderExpiresAt != "" {
+		return false
+	}
+	if state.PaymentPresentedAt != "" && (state.OrderNo == "" || !validReplicaStateDatetime(state.PaymentPresentedAt)) {
 		return false
 	}
 	return true
