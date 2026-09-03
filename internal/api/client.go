@@ -1041,7 +1041,13 @@ func (c *Client) ConfirmPublication(ctx context.Context, publicationID, reviewDi
 
 func (c *Client) PublishSkill(ctx context.Context, publicationID, reviewDigest string) (SkillPublication, error) {
 	var response SkillPublication
-	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/publish", ReviewDigestRequest{ReviewDigest: reviewDigest}, &response, "@stored")
+	// The server treats the digest as an optional re-acknowledgment and falls
+	// back to the stored review digest, so an empty flag simply omits it.
+	body := any(struct{}{})
+	if reviewDigest != "" {
+		body = ReviewDigestRequest{ReviewDigest: reviewDigest}
+	}
+	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/publish", body, &response, "@stored")
 	return response, err
 }
 

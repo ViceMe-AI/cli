@@ -246,6 +246,25 @@ func (s BindingStore) lockFilename() string {
 	return filepath.Join(s.Directory, endpointKey(s.EndpointOrigin)+".lock")
 }
 
+// BoundListingID reports the listing bound to a local source through its
+// sidecar, without loading the full binding index. Used on error paths that
+// only need to point the caller at the right listing.
+func BoundListingID(sourcePath string) (string, bool) {
+	sourceType, _, err := SourceType(sourcePath)
+	if err != nil {
+		return "", false
+	}
+	data, err := os.ReadFile(sidecarFilename(sourcePath, sourceType))
+	if err != nil {
+		return "", false
+	}
+	var binding SkillBinding
+	if err := json.Unmarshal(data, &binding); err != nil || binding.ListingID == "" {
+		return "", false
+	}
+	return binding.ListingID, true
+}
+
 func sidecarFilename(sourcePath, sourceType string) string {
 	if sourceType == "WORKSPACE" {
 		return filepath.Join(sourcePath, ".viceme", "skill.json")

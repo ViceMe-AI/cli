@@ -1187,6 +1187,7 @@ type SkillPublication struct {
 	Editions          []PublishedSkillEdition     `json:"editions"`
 	NextAction        *SkillPublicationNextAction `json:"nextAction"`
 	FailureCode       *string                     `json:"failureCode"`
+	FailureMessage    *string                     `json:"failureMessage"`
 	CreatedAt         string                      `json:"createdAt"`
 	UpdatedAt         string                      `json:"updatedAt"`
 }

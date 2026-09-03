@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/spf13/cobra"
 )
@@ -14,6 +15,7 @@ func newMerchantCommand(runtime *Runtime) *cobra.Command {
 		Short: "Author and operate products for an approved ViceMe merchant",
 	}
 	command.AddCommand(newMerchantAccountsCommand(runtime))
+	command.AddCommand(newMerchantQualificationCommand(runtime))
 	command.AddCommand(newMerchantOnboardingCommand(runtime))
 	command.AddCommand(newMerchantChannelCommand(runtime))
 	command.AddCommand(newMerchantWorkCommand(runtime))
@@ -21,6 +23,68 @@ func newMerchantCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newMerchantCommerceApplicationCommand(runtime))
 	command.AddCommand(newMerchantProductCommand(runtime))
 	return command
+}
+
+// newMerchantQualificationCommand collapses the creator guard's preflight
+// reads (login + scopes + the full owned merchant list) into one call so the
+// guard skills pay a single round trip; `next` drives their dispatch and the
+// full merchant list keeps the "multiple merchants must be chosen by the
+// user" contract intact.
+func newMerchantQualificationCommand(runtime *Runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "qualification",
+		Short: "One-shot creator qualification check: login, scopes, and owned merchants",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			result := map[string]any{"authenticated": false, "ready": false}
+			status, err := runtime.manager().CurrentStatus()
+			if err != nil {
+				return err
+			}
+			if !status.Authenticated {
+				result["next"] = "LOGIN"
+				return runtime.business(result)
+			}
+			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
+				return err
+			}
+			remote, err := runtime.client().AuthStatus(command.Context())
+			if err != nil {
+				return err
+			}
+			result["authenticated"] = true
+			result["scopes"] = remote.Scopes
+			result["user"] = remote.User
+			// Mirror the guard contract: an internal failure on the merchant
+			// read is retried once verbatim; a second failure stops.
+			accounts, err := runtime.client().ListMerchantAccounts(command.Context())
+			if err != nil && output.AsError(err).Retryable {
+				accounts, err = runtime.client().ListMerchantAccounts(command.Context())
+			}
+			if err != nil {
+				return err
+			}
+			active := make([]api.MerchantAccount, 0, len(accounts.Items))
+			for _, account := range accounts.Items {
+				if account.Status == "ACTIVE" {
+					active = append(active, account)
+				}
+			}
+			result["merchants"] = active
+			switch {
+			case len(active) == 0:
+				result["merchant"] = nil
+				result["next"] = "APPLY_CREATOR"
+			case len(active) == 1:
+				result["merchant"] = active[0]
+				result["next"] = "OK"
+				result["ready"] = true
+			default:
+				result["next"] = "SELECT_MERCHANT"
+			}
+			return runtime.business(result)
+		},
+	}
 }
 
 func newMerchantAccountsCommand(runtime *Runtime) *cobra.Command {

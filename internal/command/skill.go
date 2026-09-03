@@ -162,6 +162,40 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
+// editionSelectionError explains the missing --edition-key/--edition-order
+// with the editions that already exist, so the caller can re-run the exact
+// command instead of archaeology. Extra reads happen only on this error path
+// and degrade to a precise command hint when they are unavailable.
+func editionSelectionError(ctx context.Context, runtime *Runtime, listingIDFlag, sourcePath string) error {
+	base := output.Validation("SKILL_EDITION_SELECTION_REQUIRED", "publishing requires explicit --edition-key and --edition-order; reuse the selected Skill's key/order to update it, or use an unused key/order to add a separate Skill")
+	listingID := strings.TrimSpace(listingIDFlag)
+	if listingID == "" {
+		if bound, ok := publication.BoundListingID(sourcePath); ok {
+			listingID = bound
+		}
+	}
+	if listingID == "" {
+		return base.WithHint("no local listing binding was found; run `viceme skill listing prepare --path <source>` first, or pass --listing explicitly")
+	}
+	if err := runtime.requireSkillPublicationAuthentication(ctx); err != nil {
+		return base.WithHint("read the existing editions with `viceme skill listing get " + listingID + "`, then re-run with those exact --edition-key/--edition-order values")
+	}
+	preview, err := runtime.client().GetSkillListingPreview(ctx, listingID)
+	if err != nil || preview.Publication == nil {
+		return base.WithHint("read the existing editions with `viceme skill listing get " + listingID + "`, then re-run with those exact --edition-key/--edition-order values")
+	}
+	current, err := runtime.client().GetSkillPublication(ctx, preview.Publication.ID)
+	if err != nil || len(current.Editions) == 0 {
+		return base.WithHint("read the existing editions with `viceme publication review " + preview.Publication.ID + "`, then re-run with those exact --edition-key/--edition-order values")
+	}
+	parts := make([]string, 0, len(current.Editions))
+	for _, edition := range current.Editions {
+		parts = append(parts, fmt.Sprintf("%s (order %d)", edition.Key, edition.SortOrder))
+	}
+	return base.WithHint(fmt.Sprintf("listing %s already publishes edition(s) %s; re-run with `--edition-key <key> --edition-order <order>` using one of them to update that Skill, or pick an unused key/order to add a separate Skill (details: `viceme publication review %s`)",
+		listingID, strings.Join(parts, ", "), preview.Publication.ID))
+}
+
 func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	var source string
 	var githubRepository string
@@ -198,7 +232,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--new-listing cannot be combined with --listing")
 			}
 			if resume == "" && (!command.Flags().Changed("edition-key") || !command.Flags().Changed("edition-order")) {
-				return output.Validation("SKILL_EDITION_SELECTION_REQUIRED", "publishing requires explicit --edition-key and --edition-order; reuse the selected Skill's key/order to update it, or use an unused key/order to add a separate Skill").WithHint("read the existing publication's editions and confirm whether the original free Skill must remain before publishing")
+				return editionSelectionError(command.Context(), runtime, listingID, source)
 			}
 			if resume != "" && (forceNew || command.Flags().Changed("edition-key") || command.Flags().Changed("edition-title") || command.Flags().Changed("edition-order") || command.Flags().Changed("edition-highlight")) {
 				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--resume continues the same Skill; it cannot change the edition or create a new Listing")
@@ -303,6 +337,21 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			intent, err := store.LoadOrCreateIntent(fingerprint, runtime.deps.NewID)
 			if err != nil {
 				return err
+			}
+			if intent.PublicationID != "" {
+				// A surviving intent whose publication already reached a
+				// terminal state must not resurrect it (a failed local retire
+				// can leave such intents behind, e.g. in agent sandboxes);
+				// drop it and start a fresh publication instead.
+				if current, getErr := runtime.client().GetSkillPublication(command.Context(), intent.PublicationID); getErr == nil &&
+					(current.Status == "PUBLISHED" || current.Status == "CANCELLED") {
+					_ = store.Delete(intent.PublicationID)
+					intent.PublicationID = ""
+					intent.ClientRequestID = runtime.deps.NewID()
+					if err := store.SaveIntent(intent); err != nil {
+						return err
+					}
+				}
 			}
 			if intent.PublicationID != "" {
 				pending := publication.Pending{
@@ -816,6 +865,9 @@ func presentPublication(ctx context.Context, runtime *Runtime, current api.Skill
 }
 
 func presentPublicationWithWarnings(ctx context.Context, runtime *Runtime, current api.SkillPublication, createdResolution string, warnings []string) error {
+	if failure := publicationFailureError(current); failure != nil {
+		return failure
+	}
 	presentation, err := previewPresentationForPublication(ctx, runtime, current)
 	if err != nil {
 		return err
@@ -850,20 +902,20 @@ func retirePublicationRecovery(runtime *Runtime, store publication.PendingStore,
 		return append(warnings, publicationRecoveryWarning(runtime,
 			"PUBLICATION_RECOVERY_RETIRE_FAILED",
 			"publication reached a terminal state but its local intent could not be retired",
-			err, pending.PublicationID, status))
+			err, pending.PublicationID, status, store.Directory))
 	}
 	if err := store.Delete(pending.PublicationID); err != nil {
 		warnings = append(warnings, publicationRecoveryWarning(runtime,
 			"PUBLICATION_RECOVERY_CLEANUP_FAILED",
 			"publication reached a terminal state but its local recovery file could not be removed",
-			err, pending.PublicationID, status))
+			err, pending.PublicationID, status, store.Directory))
 	}
 	return warnings
 }
 
-func publicationRecoveryWarning(runtime *Runtime, code, message string, err error, publicationID, status string) string {
-	warning := fmt.Sprintf("%s: %s: %v (publicationId %s, status %s); retry the same command after repairing access to the ViceMe publication recovery directory",
-		code, message, err, publicationID, status)
+func publicationRecoveryWarning(runtime *Runtime, code, message string, err error, publicationID, status, directory string) string {
+	warning := fmt.Sprintf("%s: %s: %v (publicationId %s, status %s). Non-fatal: the publish outcome is authoritative and the next viceme command retries this cleanup automatically; no manual action is required and the recovery directory must not be inspected or repaired. Recovery directory: %s",
+		code, message, err, publicationID, status, directory)
 	_, _ = fmt.Fprintln(runtime.deps.ErrOut, "warning: "+warning)
 	return warning
 }

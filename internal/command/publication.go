@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,7 +20,6 @@ import (
 
 func newPublicationCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "publication", Short: "Review and complete an in-progress Skill publication"}
-	command.AddCommand(newPublicationPrecheckCommand(runtime))
 	command.AddCommand(newPublicationGetCommand(runtime))
 	command.AddCommand(newPublicationAnalyzeCommand(runtime))
 	command.AddCommand(newPublicationWaitCommand(runtime))
@@ -30,74 +30,6 @@ func newPublicationCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newPublicationConfirmCommand(runtime))
 	command.AddCommand(newPublicationPublishCommand(runtime))
 	command.AddCommand(newPublicationCancelCommand(runtime))
-	return command
-}
-
-// newPublicationPrecheckCommand collapses the three publish preflight reads
-// (login + scopes, creator qualification, and for --github the channel
-// binding) into one call so agents do not pay three round trips.
-func newPublicationPrecheckCommand(runtime *Runtime) *cobra.Command {
-	var github string
-	command := &cobra.Command{
-		Use:   "precheck",
-		Short: "One-shot publish preflight: login, creator, and channel state",
-		Args:  cobra.NoArgs,
-		RunE: func(command *cobra.Command, _ []string) error {
-			result := map[string]any{
-				"authenticated": false,
-				"ready":         false,
-			}
-			status, err := runtime.manager().CurrentStatus()
-			if err != nil {
-				return err
-			}
-			if !status.Authenticated {
-				result["next"] = "LOGIN"
-				return runtime.business(result)
-			}
-			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
-				return err
-			}
-			remote, err := runtime.client().AuthStatus(command.Context())
-			if err != nil {
-				return err
-			}
-			result["authenticated"] = true
-			result["scopes"] = remote.Scopes
-			result["user"] = remote.User
-			accounts, err := runtime.client().ListMerchantAccounts(command.Context())
-			if err != nil {
-				return err
-			}
-			if len(accounts.Items) == 0 {
-				result["merchant"] = nil
-				result["next"] = "APPLY_CREATOR"
-				return runtime.business(result)
-			}
-			merchant := accounts.Items[0]
-			result["merchant"] = merchant
-			ready := true
-			if github != "" {
-				verified, err := runtime.client().GetGithubChannelVerified(command.Context(), merchant.ID)
-				if err != nil {
-					return err
-				}
-				result["githubChannel"] = map[string]any{
-					"verified": verified.Verified,
-				}
-				if !verified.Verified {
-					result["next"] = "AUTHORIZE_GITHUB"
-					ready = false
-				}
-			}
-			if ready {
-				result["next"] = "PUBLISH"
-			}
-			result["ready"] = ready
-			return runtime.business(result)
-		},
-	}
-	command.Flags().StringVar(&github, "github", "", "GitHub repository as owner/name to check the channel binding for")
 	return command
 }
 
@@ -398,9 +330,12 @@ func newPublicationPublishCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{
 		Use: "publish <publication-id>", Short: "Publish a previously confirmed Skill listing", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			result, err := runtime.client().PublishSkill(command.Context(), args[0], digest)
+			result, err := publishSkillWithRetry(command.Context(), runtime, args[0], digest)
 			if err != nil {
 				return err
+			}
+			if failure := publicationFailureError(result); failure != nil {
+				return failure
 			}
 			var warnings []string
 			if result.Status == "PUBLISHED" {
@@ -414,9 +349,53 @@ func newPublicationPublishCommand(runtime *Runtime) *cobra.Command {
 			return presentPublicationWithWarnings(command.Context(), runtime, result, "", warnings)
 		},
 	}
-	command.Flags().StringVar(&digest, "review-digest", "", "exact digest confirmed by the user")
-	_ = command.MarkFlagRequired("review-digest")
+	command.Flags().StringVar(&digest, "review-digest", "", "exact digest confirmed by the user; defaults to the digest confirmed at review time")
 	return command
+}
+
+// publishSkillWithRetry retries an idempotent publish against transient
+// server failures, bounded to three attempts with exponential backoff. When
+// the attempts are exhausted the hint explains that the publication keeps its
+// READY state and the same command can simply be re-run later.
+func publishSkillWithRetry(ctx context.Context, runtime *Runtime, publicationID, digest string) (api.SkillPublication, error) {
+	delays := []time.Duration{time.Second, 3 * time.Second, 9 * time.Second}
+	var result api.SkillPublication
+	var err error
+	for attempt := 0; ; attempt++ {
+		result, err = runtime.client().PublishSkill(ctx, publicationID, digest)
+		if err == nil {
+			return result, nil
+		}
+		if attempt >= len(delays) || !output.AsError(err).Retryable {
+			break
+		}
+		fmt.Fprintf(runtime.deps.ErrOut, "warning: publish hit a retryable server error (%s); retrying in %s (attempt %d of %d)\n",
+			output.AsError(err).Subtype, delays[attempt], attempt+1, len(delays))
+		select {
+		case <-time.After(delays[attempt]):
+		case <-ctx.Done():
+			return result, err
+		}
+	}
+	if err != nil && output.AsError(err).Retryable {
+		return result, output.AsError(err).WithHint(
+			"the publish did not complete but nothing was lost: the publication keeps its READY state; re-run the same command later and do not create a new publication")
+	}
+	return result, err
+}
+
+// publicationFailureError turns a server-side FAILED publication into a
+// proper error envelope so agents branch on the failure code instead of
+// digging a FAILED status out of a successful-looking result.
+func publicationFailureError(result api.SkillPublication) error {
+	if result.Status != "FAILED" || result.FailureCode == nil {
+		return nil
+	}
+	message := "the publication failed server-side validation; fix the reported problem and publish again"
+	if result.FailureMessage != nil && *result.FailureMessage != "" {
+		message = *result.FailureMessage
+	}
+	return output.Validation(*result.FailureCode, message)
 }
 
 func newPublicationCancelCommand(runtime *Runtime) *cobra.Command {

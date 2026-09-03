@@ -44,6 +44,30 @@ type Intent struct {
 	PublicationID   string `json:"publicationId,omitempty"`
 }
 
+// sweepStaleIntents removes intent files older than maxAge. Retire failures
+// in restricted environments leave terminal intents behind; the mtime bound
+// keeps the sweep local and cheap with no server round trips.
+func (s PendingStore) sweepStaleIntents(maxAge time.Duration) {
+	now := time.Now()
+	if s.Now != nil {
+		now = s.Now()
+	}
+	entries, err := os.ReadDir(s.Directory)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || now.Sub(info.ModTime()) < maxAge {
+			continue
+		}
+		_ = os.Remove(filepath.Join(s.Directory, entry.Name()))
+	}
+}
+
 func (s PendingStore) LoadOrCreateIntent(fingerprint string, newID func() string) (Intent, error) {
 	if !isHexDigest(fingerprint) {
 		return Intent{}, output.Validation("PUBLICATION_INTENT_INVALID", "publication intent fingerprint is invalid")
@@ -51,6 +75,10 @@ func (s PendingStore) LoadOrCreateIntent(fingerprint string, newID func() string
 	if err := os.MkdirAll(s.Directory, 0o700); err != nil {
 		return Intent{}, recoveryOperationError(s.Directory, "PUBLICATION_INTENT_SAVE_FAILED", "could not create publication recovery directory", err)
 	}
+	// Opportunistic sweep: intents whose retire failed (agent sandboxes deny
+	// the write) would otherwise accumulate forever. Best effort only —
+	// failures never block the publish flow.
+	s.sweepStaleIntents(30 * 24 * time.Hour)
 	intentLock := flock.New(s.intentLockFilename(fingerprint))
 	if err := intentLock.Lock(); err != nil {
 		return Intent{}, recoveryOperationError(s.Directory, "PUBLICATION_INTENT_LOCK_FAILED", "could not lock publication intent", err)

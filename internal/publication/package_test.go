@@ -15,7 +15,7 @@ import (
 )
 
 const testSkillMarkdown = `---
-name: Poster Skill
+name: poster-skill
 description: Create a poster from a short prompt.
 ---
 
@@ -320,7 +320,7 @@ func writeTestFile(t *testing.T, filename string, data []byte, mode os.FileMode)
 func TestBuildDerivesSummaryWhenDescriptionIsMissing(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
-	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte("---\nname: Poster Skill\n---\n\n# Poster Skill\n\nTurns a short prompt into a printable poster.\n"), 0o644)
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte("---\nname: poster-skill\n---\n\n# Poster Skill\n\nTurns a short prompt into a printable poster.\n"), 0o644)
 	result, err := Build(directory)
 	if err != nil {
 		t.Fatal(err)
@@ -380,5 +380,52 @@ func TestBuildReportsEveryStructuralProblemInOneError(t *testing.T) {
 	assertOutputCode(t, err, "SKILL_FILE_TOO_LARGE")
 	if !strings.Contains(err.Error(), "SKILL_SYMLINK_REJECTED") {
 		t.Fatalf("expected the symlink problem in the same report: %v", err)
+	}
+}
+
+func TestBuildRejectsInvalidSkillNameWithSuggestion(t *testing.T) {
+	t.Parallel()
+	directory := filepath.Join(t.TempDir(), "canghe-comic")
+	if err := os.Mkdir(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"),
+		[]byte("---\nname: 知识漫画生成器\ndescription: Create comics.\n---\n\nbody\n"), 0o644)
+	_, err := Build(directory)
+	if err == nil {
+		t.Fatal("expected the invalid install identifier to be rejected")
+	}
+	validation, ok := err.(*output.Error)
+	if !ok || validation.Subtype != "SKILL_PACKAGE_NAME_INVALID" {
+		t.Fatalf("expected SKILL_PACKAGE_NAME_INVALID, got %v", err)
+	}
+	if !strings.Contains(err.Error(), `"canghe-comic"`) {
+		t.Fatalf("expected the error to suggest a name from the source, got: %v", err)
+	}
+}
+
+func TestBuildRejectsOverlongFrontmatterFields(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"),
+		[]byte("---\nname: "+strings.Repeat("a", 65)+"\ndescription: short\n---\n\nbody\n"), 0o644)
+	if _, err := Build(directory); err == nil {
+		t.Fatal("expected an overlong name to be rejected")
+	}
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"),
+		[]byte("---\nname: valid-name\ndescription: "+strings.Repeat("d", 501)+"\n---\n\nbody\n"), 0o644)
+	if _, err := Build(directory); err == nil {
+		t.Fatal("expected an overlong description to be rejected")
+	}
+}
+
+func TestBuildRejectsOversizedUncompressedEntries(t *testing.T) {
+	t.Parallel()
+	directory := t.TempDir()
+	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte(testSkillMarkdown), 0o644)
+	oversized := bytes.Repeat([]byte{0}, 10*1024*1024+1)
+	writeTestFile(t, filepath.Join(directory, "blob.bin"), oversized, 0o644)
+	if _, err := Build(directory); err == nil {
+		t.Fatal("expected a single oversized file to be rejected before packaging")
 	}
 }
