@@ -155,17 +155,6 @@ type MerchantWork struct {
 	UpdatedAt      string          `json:"updatedAt"`
 }
 
-type WorkPreviewGrant struct {
-	ID                     string   `json:"id"`
-	WorkID                 string   `json:"workId"`
-	WorkRevisionID         string   `json:"workRevisionId"`
-	AllowedRepresentations []string `json:"allowedRepresentations"`
-	HTMLURL                *string  `json:"htmlUrl"`
-	MarkdownURL            *string  `json:"markdownUrl"`
-	ExpiresAt              string   `json:"expiresAt"`
-	RevokedAt              *string  `json:"revokedAt"`
-}
-
 type MerchantWorksResponse struct {
 	Items []MerchantWork `json:"items"`
 }
