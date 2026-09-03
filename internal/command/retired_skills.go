@@ -85,6 +85,7 @@ var legacyRetiredOfficialSkillMigrations = []skillcontent.LegacyRetiredSkillIden
 }
 
 var retiredOfficialSkills = []skillcontent.RetiredSkill{
+	{Name: "viceme-skill-use"},
 	{Name: "viceme-shared", LegacyMigrations: legacyMigrationsFor("viceme-shared")},
 	{Name: "viceme-creator-onboarding", LegacyMigrations: legacyMigrationsFor("viceme-creator-onboarding")},
 	{Name: "viceme-publish", LegacyMigrations: legacyMigrationsFor("viceme-publish")},
