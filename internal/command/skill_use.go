@@ -141,7 +141,9 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 					}
 					presentation, err := presentSkillPaymentQR(runtime, order)
 					if err != nil {
-						return err
+						return output.Policy("SKILL_PAYMENT_QR_UNAVAILABLE", "the order exists but its payment QR could not be presented").
+							WithDetails(map[string]any{"orderNo": order.OrderNo, "paymentUrl": paymentURL}).
+							WithHint("present the order paymentUrl to the user to continue payment with the same account; preserve the purchase state and retry the same install command after payment")
 					}
 					if wait <= 0 && order.Status != "PAID" {
 						details := map[string]any{
