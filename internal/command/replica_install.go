@@ -176,6 +176,10 @@ func installReplicaAnonymousLocked(
 		if err != nil {
 			return replicaInstallResult{}, err
 		}
+		state.DownloadRecoverySecret, err = newReplicaSessionSecret()
+		if err != nil {
+			return replicaInstallResult{}, err
+		}
 		if err := store.reserve(&state); err != nil {
 			return replicaInstallResult{}, err
 		}
@@ -239,6 +243,12 @@ func installReplicaAnonymousLocked(
 			"currency": state.Currency, "totalAmountCents": state.PriceCents,
 		})
 	}
+	if state.OrderNo != "" {
+		result, recovered, err := tryInstallRecoveredReplica(ctx, runtime, store, state, client, absTarget)
+		if err != nil || recovered {
+			return result, err
+		}
+	}
 	if state.OrderNo == "" {
 		if state.CheckoutQuoteRequestID == "" {
 			state.CheckoutQuoteRequestID, err = runtime.newReplicaRequestID()
@@ -256,7 +266,7 @@ func installReplicaAnonymousLocked(
 		}
 		checkout, err := client.CheckoutWebsiteReplica(ctx, state.SessionID, state.SessionToken, api.CheckoutWebsiteReplicaRequest{
 			AcceptedPriceCents: acceptedPriceCents, QuoteClientRequestID: state.CheckoutQuoteRequestID,
-			OrderClientRequestID: state.OrderRequestID, Locale: state.Locale,
+			OrderClientRequestID: state.OrderRequestID, DownloadRecoverySecret: state.DownloadRecoverySecret, Locale: state.Locale,
 		})
 		if err != nil {
 			return replicaInstallResult{}, err
@@ -269,7 +279,7 @@ func installReplicaAnonymousLocked(
 			if err := store.save(&state); err != nil {
 				return replicaInstallResult{}, err
 			}
-			return installReplicaSessionDownload(ctx, runtime, store, state, client, checkout.OrderNo, absTarget)
+			return installReplicaRecoveredDownload(ctx, runtime, store, state, client, checkout.OrderNo, absTarget)
 		}
 		if checkout.Status != "PENDING" {
 			return replicaInstallResult{}, invalidReplicaResponse("Website Replica checkout returned an invalid payment state")
@@ -300,7 +310,7 @@ func installReplicaAnonymousLocked(
 		}
 		return replicaInstallResult{}, err
 	}
-	return installReplicaSessionDownload(ctx, runtime, store, state, client, state.OrderNo, absTarget)
+	return installReplicaRecoveredDownload(ctx, runtime, store, state, client, state.OrderNo, absTarget)
 }
 
 func newReplicaSessionSecret() (string, error) {
@@ -596,7 +606,22 @@ func installReplicaDownload(
 	return installReplicaDownloaded(ctx, runtime, store, state, client, download, expectedOrderNo, target)
 }
 
-func installReplicaSessionDownload(
+func tryInstallRecoveredReplica(
+	ctx context.Context,
+	runtime *Runtime,
+	store replicaPurchaseStore,
+	state replicaPurchaseState,
+	client *api.Client,
+	target string,
+) (replicaInstallResult, bool, error) {
+	result, err := installReplicaRecoveredDownload(ctx, runtime, store, state, client, state.OrderNo, target)
+	if err != nil && output.AsError(err).Subtype == "WEBSITE_REPLICA_NOT_FOUND" {
+		return replicaInstallResult{}, false, nil
+	}
+	return result, err == nil, err
+}
+
+func installReplicaRecoveredDownload(
 	ctx context.Context,
 	runtime *Runtime,
 	store replicaPurchaseStore,
@@ -608,7 +633,9 @@ func installReplicaSessionDownload(
 	if err := store.verifyReservation(state); err != nil {
 		return replicaInstallResult{}, err
 	}
-	download, err := client.GetWebsiteReplicaSessionDownload(ctx, state.SessionID, state.SessionToken)
+	download, err := client.RecoverWebsiteReplicaDownload(ctx, api.RecoverWebsiteReplicaDownloadRequest{
+		OrderNo: expectedOrderNo, RecoverySecret: state.DownloadRecoverySecret,
+	})
 	if err != nil {
 		return replicaInstallResult{}, err
 	}

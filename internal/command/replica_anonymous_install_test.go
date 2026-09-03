@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/securestore"
@@ -44,7 +45,7 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	}))
 	defer objectServer.Close()
 
-	var sessionRequestID, quoteRequestID, orderRequestID string
+	var sessionRequestID, quoteRequestID, orderRequestID, recoverySecret string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		resolution := replicaResolutionResponse(replicaID, shortCode)
 		switch request.URL.Path {
@@ -69,23 +70,26 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 				t.Fatalf("checkout did not use the anonymous session token")
 			}
 			var body struct {
-				AcceptedPriceCents   int    `json:"acceptedPriceCents"`
-				QuoteClientRequestID string `json:"quoteClientRequestId"`
-				OrderClientRequestID string `json:"orderClientRequestId"`
+				AcceptedPriceCents     int    `json:"acceptedPriceCents"`
+				QuoteClientRequestID   string `json:"quoteClientRequestId"`
+				OrderClientRequestID   string `json:"orderClientRequestId"`
+				DownloadRecoverySecret string `json:"downloadRecoverySecret"`
 			}
 			_ = json.NewDecoder(request.Body).Decode(&body)
 			if body.AcceptedPriceCents != 990 {
 				t.Fatalf("accepted price = %d", body.AcceptedPriceCents)
 			}
-			quoteRequestID, orderRequestID = body.QuoteClientRequestID, body.OrderClientRequestID
+			quoteRequestID, orderRequestID, recoverySecret = body.QuoteClientRequestID, body.OrderClientRequestID, body.DownloadRecoverySecret
 			writeJSONResponse(writer, map[string]any{
 				"orderNo": orderNo, "status": "PAID", "paymentAction": nil,
 				"expiresAt":   time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
 				"checkoutUrl": serverURL(request) + "/replica-checkout/" + sessionID + "#token=hidden",
 			})
-		case "/v1/website-replica-sessions/" + sessionID + "/download":
-			if request.Header.Get("Authorization") != "Bearer "+sessionToken {
-				t.Fatalf("download did not use the anonymous session token")
+		case "/v1/website-replica-sessions/recover-download":
+			var body api.RecoverWebsiteReplicaDownloadRequest
+			_ = json.NewDecoder(request.Body).Decode(&body)
+			if request.Header.Get("Authorization") != "" || body.OrderNo != orderNo || body.RecoverySecret != recoverySecret {
+				t.Fatalf("download recovery was not bound to the anonymous order")
 			}
 			writeJSONResponse(writer, map[string]any{
 				"replicaId": replicaID, "versionId": versionID, "version": 1, "fileName": "source.zip",
@@ -181,6 +185,7 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 		paymentURI   = "weixin://pay/not-for-command-output"
 	)
 	var sessionCalls, checkoutCalls, statusCalls int
+	var downloadRecoverySecret string
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		resolution := replicaResolutionResponse(replicaID, "VMR-ABCDEFGHIJKLMNOPQRST")
 		switch request.URL.Path {
@@ -194,6 +199,14 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 			})
 		case "/v1/website-replica-sessions/" + sessionID + "/checkout":
 			checkoutCalls++
+			var body api.CheckoutWebsiteReplicaRequest
+			_ = json.NewDecoder(request.Body).Decode(&body)
+			if checkoutCalls == 1 {
+				downloadRecoverySecret = body.DownloadRecoverySecret
+			}
+			if len(body.DownloadRecoverySecret) != 43 {
+				t.Fatalf("checkout recovery credential length = %d", len(body.DownloadRecoverySecret))
+			}
 			writeJSONResponse(writer, map[string]any{
 				"orderNo": orderNo, "status": "PENDING",
 				"paymentAction": map[string]any{"type": "QR_CODE", "content": paymentURI},
@@ -206,6 +219,16 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 				"orderNo":     orderNo,
 				"payment":     map[string]any{"status": "PENDING", "paidAt": nil, "closedAt": nil},
 				"fulfillment": nil, "serviceCase": nil,
+			})
+		case "/v1/website-replica-sessions/recover-download":
+			var body api.RecoverWebsiteReplicaDownloadRequest
+			_ = json.NewDecoder(request.Body).Decode(&body)
+			if body.OrderNo != orderNo || body.RecoverySecret != downloadRecoverySecret {
+				t.Fatalf("download recovery did not preserve the original order credential")
+			}
+			writer.WriteHeader(http.StatusNotFound)
+			writeJSONResponse(writer, map[string]any{
+				"statusCode": 404, "code": "WEBSITE_REPLICA_NOT_FOUND", "message": "Website replica not found", "requestId": "test-request",
 			})
 		default:
 			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)

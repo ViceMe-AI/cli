@@ -51,6 +51,7 @@ type replicaPurchaseState struct {
 	OrderExpiresAt         string    `json:"orderExpiresAt,omitempty"`
 	PaymentPresentedAt     string    `json:"paymentPresentedAt,omitempty"`
 	SessionReplaySecret    string    `json:"sessionReplaySecret,omitempty"`
+	DownloadRecoverySecret string    `json:"downloadRecoverySecret,omitempty"`
 	SessionID              string    `json:"sessionId,omitempty"`
 	SessionToken           string    `json:"sessionToken,omitempty"`
 	SessionExpiresAt       string    `json:"sessionExpiresAt,omitempty"`
@@ -529,6 +530,9 @@ func (store replicaPurchaseStore) valid(state replicaPurchaseState) bool {
 	if state.SessionReplaySecret != "" && (!validReplicaSessionSecret(state.SessionReplaySecret)) {
 		return false
 	}
+	if state.DownloadRecoverySecret != "" && !validReplicaSessionSecret(state.DownloadRecoverySecret) {
+		return false
+	}
 	if state.SessionID != "" {
 		if !replicaUUIDPattern.MatchString(state.SessionID) || !hasBinding ||
 			!validReplicaSessionSecret(state.SessionReplaySecret) || len(state.SessionToken) < 43 || len(state.SessionToken) > 256 ||
@@ -542,6 +546,9 @@ func (store replicaPurchaseStore) valid(state replicaPurchaseState) bool {
 		return false
 	}
 	if state.CheckoutQuoteRequestID != "" && (!replicaUUIDPattern.MatchString(state.CheckoutQuoteRequestID) || state.SessionID == "") {
+		return false
+	}
+	if state.CheckoutQuoteRequestID != "" && !validReplicaSessionSecret(state.DownloadRecoverySecret) {
 		return false
 	}
 	return true

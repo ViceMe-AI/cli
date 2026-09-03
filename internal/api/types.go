@@ -924,10 +924,16 @@ type WebsiteReplicaSession struct {
 }
 
 type CheckoutWebsiteReplicaRequest struct {
-	AcceptedPriceCents   int    `json:"acceptedPriceCents"`
-	QuoteClientRequestID string `json:"quoteClientRequestId"`
-	OrderClientRequestID string `json:"orderClientRequestId"`
-	Locale               string `json:"locale"`
+	AcceptedPriceCents     int    `json:"acceptedPriceCents"`
+	QuoteClientRequestID   string `json:"quoteClientRequestId"`
+	OrderClientRequestID   string `json:"orderClientRequestId"`
+	DownloadRecoverySecret string `json:"downloadRecoverySecret"`
+	Locale                 string `json:"locale"`
+}
+
+type RecoverWebsiteReplicaDownloadRequest struct {
+	OrderNo        string `json:"orderNo"`
+	RecoverySecret string `json:"recoverySecret"`
 }
 
 type CheckoutWebsiteReplicaResponse struct {

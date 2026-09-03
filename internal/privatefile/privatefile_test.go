@@ -9,6 +9,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/ViceMe-AI/cli/internal/privatepath"
 )
 
 func denyRename(t *testing.T, errno syscall.Errno) {
@@ -22,6 +24,9 @@ func denyRename(t *testing.T, errno syscall.Errno) {
 
 func requirePrivateMode(t *testing.T, filename string) {
 	t.Helper()
+	if err := privatepath.RequirePrivateFile(filename); err != nil {
+		t.Fatalf("%s is not private: %v", filename, err)
+	}
 	if runtime.GOOS == "windows" {
 		return
 	}

@@ -1005,6 +1005,12 @@ func (c *Client) GetWebsiteReplicaSessionDownload(ctx context.Context, sessionID
 	return response, err
 }
 
+func (c *Client) RecoverWebsiteReplicaDownload(ctx context.Context, request RecoverWebsiteReplicaDownloadRequest) (WebsiteReplicaDownload, error) {
+	var response WebsiteReplicaDownload
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replica-sessions/recover-download", request, &response, "")
+	return response, err
+}
+
 func (c *Client) CreateWebsiteReplicaQuote(ctx context.Context, request CreateWebsiteReplicaQuoteRequest) (WebsiteReplicaQuote, error) {
 	var response WebsiteReplicaQuote
 	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/quotes", request, &response, "@stored")
