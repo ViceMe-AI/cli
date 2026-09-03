@@ -47,6 +47,9 @@ func openSkillPurchaseOrder(ctx context.Context, runtime *Runtime, productID str
 		if err != nil {
 			return api.CommerceOrder{}, err
 		} // Preserve state on authentication/network failures.
+		if err := validateSkillPurchaseOrder(order, intent.OrderNo, productID); err != nil {
+			return api.CommerceOrder{}, err
+		}
 		if order.Status == "PENDING" || order.Status == "PAID" {
 			return order, nil
 		}
@@ -88,6 +91,29 @@ func openSkillPurchaseOrder(ctx context.Context, runtime *Runtime, productID str
 	}
 	created, err := runtime.client().CreateBuyerOrder(ctx, intent.OrderRequest)
 	if err != nil {
+		// Another request (or device) may already have reserved this product.
+		// The authenticated read checks ownership; validate the exact product
+		// before binding that order to this local purchase intent.
+		if reference, ok := api.RecoveryReferenceFromError(err); ok &&
+			output.AsError(err).Subtype == "PRODUCT_PURCHASE_IN_PROGRESS" && reference.ResourceType == "ORDER" {
+			order, readErr := runtime.client().GetOrder(ctx, reference.ResourceID)
+			if readErr != nil {
+				return api.CommerceOrder{}, readErr
+			}
+			if err := validateSkillPurchaseOrder(order, reference.ResourceID, productID); err != nil {
+				return api.CommerceOrder{}, err
+			}
+			intent.OrderNo = order.OrderNo
+			if err := saveBuyerPurchaseIntent(runtime, "skill", productID, *intent); err != nil {
+				return api.CommerceOrder{}, err
+			}
+			if order.Status != "PENDING" && order.Status != "PAID" {
+				return api.CommerceOrder{}, output.Policy("SKILL_PURCHASE_ORDER_CLOSED", "the recovered order is no longer payable").
+					WithDetails(map[string]any{"orderNo": order.OrderNo}).
+					WithHint("rerun the same install command to check the terminal order and open a fresh purchase")
+			}
+			return order, nil
+		}
 		// This definitive rejection is returned only when no order exists for the saved request.
 		if output.AsError(err).Subtype == "QUOTE_EXPIRED" {
 			if removeErr := os.Remove(buyerPurchaseIntentPath(runtime, "skill", productID)); removeErr != nil {
@@ -101,6 +127,17 @@ func openSkillPurchaseOrder(ctx context.Context, runtime *Runtime, productID str
 		return api.CommerceOrder{}, err
 	}
 	return created.Order, nil
+}
+
+func validateSkillPurchaseOrder(order api.CommerceOrder, orderNo, productID string) error {
+	var item struct {
+		ProductID string `json:"productId"`
+	}
+	if order.OrderNo != orderNo || order.Kind != "PRODUCT_PURCHASE" ||
+		json.Unmarshal(order.Item, &item) != nil || item.ProductID != productID {
+		return output.Policy("SKILL_PURCHASE_ORDER_MISMATCH", "the recovered order does not match this Skill purchase")
+	}
+	return nil
 }
 
 // presentSkillPaymentQR renders the order's WeChat NATIVE QR code as a local

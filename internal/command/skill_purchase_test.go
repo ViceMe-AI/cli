@@ -29,22 +29,25 @@ type skillPurchaseTestServer struct {
 	mu sync.Mutex
 	// paymentStatus is the payment state returned by the order status
 	// endpoint; tests flip it to PAID to complete the QR payment loop.
-	scopes               []string
-	userID               string
-	orderRequests        map[string]bool
-	orderFailures        int
-	recoveryFailures     int
-	subscriptionRequests map[string]bool
-	subscriptionCreates  int
-	paymentStatus        string
-	subscriptionState    string
-	orderCreates         int
-	orderStatusCalls     int
-	getOrderCalls        []string
-	paidAfterStatusCalls int
-	server               *httptest.Server
-	archiveDigest        string
-	archive              []byte
+	scopes                []string
+	userID                string
+	orderRequests         map[string]bool
+	orderFailures         int
+	orderAttempts         int
+	orderConflictRecovery any
+	recoveredOrder        map[string]any
+	recoveryFailures      int
+	subscriptionRequests  map[string]bool
+	subscriptionCreates   int
+	paymentStatus         string
+	subscriptionState     string
+	orderCreates          int
+	orderStatusCalls      int
+	getOrderCalls         []string
+	paidAfterStatusCalls  int
+	server                *httptest.Server
+	archiveDigest         string
+	archive               []byte
 }
 
 func newSkillPurchaseTestServer(t *testing.T) *skillPurchaseTestServer {
@@ -142,6 +145,14 @@ func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request 
 		})
 	case request.URL.Path == "/v1/cli/orders" && request.Method == http.MethodPost:
 		s.mu.Lock()
+		s.orderAttempts++
+		if s.orderConflictRecovery != nil {
+			recovery := s.orderConflictRecovery
+			s.mu.Unlock()
+			writer.WriteHeader(http.StatusConflict)
+			writeJSONResponse(writer, map[string]any{"code": "PRODUCT_PURCHASE_IN_PROGRESS", "message": "This digital product already has a pending purchase", "recovery": recovery})
+			return
+		}
 		var input struct {
 			ClientRequestID string `json:"clientRequestId"`
 		}
@@ -169,8 +180,12 @@ func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request 
 			writeJSONResponse(writer, map[string]any{"code": "CLI_TOKEN_INVALID", "message": "Login expired"})
 			return
 		}
+		order := s.recoveredOrder
 		s.mu.Unlock()
-		writeJSONResponse(writer, map[string]any{"order": s.orderFixture("PENDING")})
+		if order == nil {
+			order = s.orderFixture("PENDING")
+		}
+		writeJSONResponse(writer, map[string]any{"order": order})
 	case request.URL.Path == "/v1/cli/orders/"+skillPurchaseOrderNo+"/status":
 		s.mu.Lock()
 		s.orderStatusCalls++
