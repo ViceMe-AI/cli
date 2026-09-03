@@ -8,10 +8,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -269,10 +267,16 @@ func installReplicaLocked(
 			return replicaInstallResult{}, err
 		}
 	}
-	if order.Status == "PENDING" {
-		if err := presentReplicaPayment(ctx, runtime, order); err != nil {
+	if order.Status == "PENDING" && state.PaymentPresentedAt == "" {
+		presentation, err := prepareReplicaPaymentPresentation(runtime, order)
+		if err != nil {
 			return replicaInstallResult{}, err
 		}
+		state.PaymentPresentedAt = runtime.deps.Now().UTC().Format(time.RFC3339Nano)
+		if err := store.save(&state); err != nil {
+			return replicaInstallResult{}, err
+		}
+		return replicaInstallResult{}, replicaPaymentConfirmation(state, presentation)
 	}
 	if err := waitForReplicaPayment(ctx, runtime, client, order, timeout, interval); err != nil {
 		if output.AsError(err).Subtype == "REPLICA_PAYMENT_TERMINAL" {
@@ -317,6 +321,20 @@ func replicaQuoteConfirmation(state replicaPurchaseState) error {
 		"expiresAt":        state.QuoteExpiresAt,
 		"target":           state.Target,
 	}).WithHint("show the exact product, price, and quote expiry to the user; only after explicit confirmation rerun the same install command with --confirm")
+}
+
+func replicaPaymentConfirmation(state replicaPurchaseState, presentation *api.CommercePaymentPresentation) error {
+	return output.Confirmation(
+		"REPLICA_PAYMENT_REQUIRED",
+		"render the Website Replica payment QR before waiting for payment",
+	).WithDetails(map[string]any{
+		"nextAction":          "PRESENT_PAYMENT_QR",
+		"orderNo":             state.OrderNo,
+		"currency":            state.Currency,
+		"totalAmountCents":    state.PriceCents,
+		"expiresAt":           state.OrderExpiresAt,
+		"paymentPresentation": presentation,
+	}).WithHint("render only paymentPresentation.imagePath as a Markdown image, show the order number, then rerun the same confirmed install command with a bounded --timeout")
 }
 
 func installOwnedReplica(
@@ -521,63 +539,26 @@ func (runtime *Runtime) newReplicaRequestID() (string, error) {
 	return requestID, nil
 }
 
-func presentReplicaPayment(ctx context.Context, runtime *Runtime, order api.WebsiteReplicaOrder) error {
+func prepareReplicaPaymentPresentation(runtime *Runtime, order api.WebsiteReplicaOrder) (*api.CommercePaymentPresentation, error) {
 	action := order.PaymentAction
 	if err := validateReplicaPaymentAction(action); err != nil {
-		return err
+		return nil, err
 	}
-	var target string
-	switch action.Type {
-	case "REDIRECT":
-		target = action.URL
-		_, _ = fmt.Fprintln(runtime.deps.ErrOut, "Opening the temporary payment page. Waiting for payment...")
-	case "QR_CODE":
-		imagePath, err := createCommercePaymentQRImage(runtime, order.OrderNo, action.Content)
-		if err != nil {
-			return output.Internal("REPLICA_PAYMENT_ACTION_INVALID", "Website Replica order returned an invalid QR_CODE payment action", err)
-		}
-		target = imagePath
-		_, _ = fmt.Fprintf(runtime.deps.ErrOut, "Open this private local QR image to complete payment:\n\n  %s\n\nWaiting for payment...\n", target)
-	default:
-		return invalidReplicaResponse("Website Replica order returned an unsupported payment action")
+	presentation, err := newCommercePaymentPresentation(runtime, order.OrderNo, order.ExpiresAt, action.Content)
+	if err != nil {
+		return nil, output.Internal("REPLICA_PAYMENT_PRESENTATION_FAILED", "Website Replica payment QR image could not be prepared", err)
 	}
-	if err := runtime.deps.OpenURL(ctx, target); err != nil {
-		if action.Type == "REDIRECT" {
-			return output.Internal("REPLICA_PAYMENT_PRESENTATION_FAILED", "the temporary payment page could not be opened safely", nil).
-				WithHint("rerun the same install command to reopen the original order")
-		}
-		_, _ = fmt.Fprintln(runtime.deps.ErrOut, "The payment presentation could not be opened automatically; use the temporary location shown above.")
-	}
-	return nil
+	return presentation, nil
 }
 
 func validateReplicaPaymentAction(action *api.WebsiteReplicaPaymentAction) error {
 	if action == nil {
 		return invalidReplicaResponse("Website Replica order is missing its payment action")
 	}
-	switch action.Type {
-	case "REDIRECT":
-		if !validReplicaPaymentURL(action.URL) || action.Content != "" {
-			return invalidReplicaResponse("Website Replica order returned an invalid REDIRECT payment action")
-		}
-	case "QR_CODE":
-		parsed, err := url.Parse(action.Content)
-		if action.URL != "" || len(action.Content) == 0 || len(action.Content) > 4096 || err != nil || !strings.EqualFold(parsed.Scheme, "weixin") {
-			return invalidReplicaResponse("Website Replica order returned an invalid QR_CODE payment action")
-		}
-	default:
-		return invalidReplicaResponse("Website Replica order returned an unsupported payment action")
+	if action.Type != "QR_CODE" || strings.TrimSpace(action.Content) == "" {
+		return invalidReplicaResponse("Website Replica order did not return a WeChat QR_CODE payment action")
 	}
 	return nil
-}
-
-func validReplicaPaymentURL(value string) bool {
-	if value == "" || len(value) > 8192 {
-		return false
-	}
-	parsed, err := url.Parse(value)
-	return err == nil && parsed.IsAbs() && parsed.Hostname() != "" && parsed.User == nil &&
-		(strings.EqualFold(parsed.Scheme, "https") || (strings.EqualFold(parsed.Scheme, "http") && isLoopbackOrigin(parsed.Scheme+"://"+parsed.Host)))
 }
 
 func waitForReplicaPayment(ctx context.Context, runtime *Runtime, client *api.Client, order api.WebsiteReplicaOrder, timeout, interval time.Duration) error {
@@ -608,7 +589,11 @@ func waitForReplicaPayment(ctx context.Context, runtime *Runtime, client *api.Cl
 		}
 		if !runtime.deps.Now().Before(deadline) {
 			pending := output.Network("REPLICA_PAYMENT_TIMEOUT", "Website Replica payment was not observed before the wait deadline", context.DeadlineExceeded)
-			pending.WithDetails(map[string]any{"orderNo": order.OrderNo})
+			pending.WithDetails(map[string]any{
+				"nextAction": "PAYMENT_PENDING",
+				"orderNo":    order.OrderNo,
+				"expiresAt":  order.ExpiresAt,
+			})
 			return pending
 		}
 		delay := interval
