@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -34,6 +35,10 @@ type skillPurchaseTestServer struct {
 	orderRequests         map[string]bool
 	orderFailures         int
 	orderAttempts         int
+	quoteRequestIDs       []string
+	orderInputs           []map[string]string
+	orderQuoteErrors      []string
+	paymentResumes        int
 	orderConflictRecovery any
 	recoveredOrder        map[string]any
 	recoveryFailures      int
@@ -131,8 +136,12 @@ func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request 
 			writer.WriteHeader(http.StatusBadRequest)
 			return
 		}
+		s.mu.Lock()
+		s.quoteRequestIDs = append(s.quoteRequestIDs, body.ClientRequestID)
+		quoteID := fmt.Sprintf("55555555-5555-4555-8555-%012d", len(s.quoteRequestIDs))
+		s.mu.Unlock()
 		writeJSONResponse(writer, map[string]any{
-			"id":          skillPurchaseQuoteID,
+			"id":          quoteID,
 			"product":     map[string]any{"id": downloadableProductID, "slug": "paid-skill", "title": "Paid Skill"},
 			"attribution": map[string]any{"subjectWorkId": "77777777-7777-4777-8777-777777777777", "entryWorkId": nil, "commerceApplicationId": nil},
 			"sku":         map[string]any{"id": skillPurchaseSkuID, "code": "standard", "title": "Standard", "selectedOptions": map[string]string{}},
@@ -146,6 +155,21 @@ func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request 
 	case request.URL.Path == "/v1/cli/orders" && request.Method == http.MethodPost:
 		s.mu.Lock()
 		s.orderAttempts++
+		var input map[string]string
+		_ = json.NewDecoder(request.Body).Decode(&input)
+		s.orderInputs = append(s.orderInputs, input)
+		if len(s.orderQuoteErrors) > 0 {
+			code := s.orderQuoteErrors[0]
+			s.orderQuoteErrors = s.orderQuoteErrors[1:]
+			s.mu.Unlock()
+			status := http.StatusBadRequest
+			if code == "SERVICE_UNAVAILABLE" {
+				status = http.StatusServiceUnavailable
+			}
+			writer.WriteHeader(status)
+			writeJSONResponse(writer, map[string]any{"code": code, "message": code})
+			return
+		}
 		if s.orderConflictRecovery != nil {
 			recovery := s.orderConflictRecovery
 			s.mu.Unlock()
@@ -153,13 +177,9 @@ func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request 
 			writeJSONResponse(writer, map[string]any{"code": "PRODUCT_PURCHASE_IN_PROGRESS", "message": "This digital product already has a pending purchase", "recovery": recovery})
 			return
 		}
-		var input struct {
-			ClientRequestID string `json:"clientRequestId"`
-		}
-		_ = json.NewDecoder(request.Body).Decode(&input)
-		if !s.orderRequests[input.ClientRequestID] {
+		if !s.orderRequests[input["clientRequestId"]] {
 			s.orderCreates++
-			s.orderRequests[input.ClientRequestID] = true
+			s.orderRequests[input["clientRequestId"]] = true
 		}
 		if s.orderFailures > 0 {
 			s.orderFailures--
@@ -170,8 +190,12 @@ func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request 
 		}
 		s.mu.Unlock()
 		writeJSONResponse(writer, map[string]any{"order": s.orderFixture("PENDING")})
-	case request.URL.Path == "/v1/cli/orders/"+skillPurchaseOrderNo && request.Method == http.MethodGet:
+	case (request.URL.Path == "/v1/cli/orders/"+skillPurchaseOrderNo && request.Method == http.MethodGet) ||
+		(request.URL.Path == "/v1/cli/orders/"+skillPurchaseOrderNo+"/skill-payment" && request.Method == http.MethodPost):
 		s.mu.Lock()
+		if request.Method == http.MethodPost {
+			s.paymentResumes++
+		}
 		s.getOrderCalls = append(s.getOrderCalls, skillPurchaseOrderNo)
 		if s.recoveryFailures > 0 {
 			s.recoveryFailures--
@@ -185,7 +209,7 @@ func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request 
 		if order == nil {
 			order = s.orderFixture("PENDING")
 		}
-		writeJSONResponse(writer, map[string]any{"order": order})
+		writeJSONResponse(writer, order)
 	case request.URL.Path == "/v1/cli/orders/"+skillPurchaseOrderNo+"/status":
 		s.mu.Lock()
 		s.orderStatusCalls++

@@ -38,6 +38,11 @@ func openSkillPurchaseOrder(ctx context.Context, runtime *Runtime, productID str
 		return api.CommerceOrder{}, err
 	}
 	defer unlock()
+	return openSkillPurchaseOrderAttempt(ctx, runtime, productID, true)
+}
+
+// The caller holds the buyer purchase lock across the bounded quote refresh.
+func openSkillPurchaseOrderAttempt(ctx context.Context, runtime *Runtime, productID string, allowQuoteRefresh bool) (api.CommerceOrder, error) {
 	intent, err := loadBuyerPurchaseIntent(runtime, "skill", productID)
 	if err != nil {
 		return api.CommerceOrder{}, err
@@ -45,13 +50,13 @@ func openSkillPurchaseOrder(ctx context.Context, runtime *Runtime, productID str
 	if intent != nil && intent.OrderNo != "" {
 		order, err := runtime.client().GetOrder(ctx, intent.OrderNo)
 		if err != nil {
-			return api.CommerceOrder{}, err
+			return api.CommerceOrder{}, skillOrderRecoveryError(runtime, err, intent.OrderNo)
 		} // Preserve state on authentication/network failures.
 		if err := validateSkillPurchaseOrder(order, intent.OrderNo, productID); err != nil {
 			return api.CommerceOrder{}, err
 		}
 		if order.Status == "PENDING" || order.Status == "PAID" {
-			return order, nil
+			return resumeSkillPayment(ctx, runtime, productID, order)
 		}
 		if err := os.Remove(buyerPurchaseIntentPath(runtime, "skill", productID)); err != nil {
 			return api.CommerceOrder{}, err
@@ -94,8 +99,7 @@ func openSkillPurchaseOrder(ctx context.Context, runtime *Runtime, productID str
 		// Another request (or device) may already have reserved this product.
 		// The authenticated read checks ownership; validate the exact product
 		// before binding that order to this local purchase intent.
-		if reference, ok := api.RecoveryReferenceFromError(err); ok &&
-			output.AsError(err).Subtype == "PRODUCT_PURCHASE_IN_PROGRESS" && reference.ResourceType == "ORDER" {
+		if reference, ok := api.RecoveryReferenceFromError(err); ok && reference.ResourceType == "ORDER" {
 			order, readErr := runtime.client().GetOrder(ctx, reference.ResourceID)
 			if readErr != nil {
 				return api.CommerceOrder{}, readErr
@@ -105,26 +109,35 @@ func openSkillPurchaseOrder(ctx context.Context, runtime *Runtime, productID str
 			}
 			intent.OrderNo = order.OrderNo
 			if err := saveBuyerPurchaseIntent(runtime, "skill", productID, *intent); err != nil {
-				return api.CommerceOrder{}, err
+				return api.CommerceOrder{}, skillOrderRecoveryError(runtime, err, order.OrderNo)
 			}
 			if order.Status != "PENDING" && order.Status != "PAID" {
 				return api.CommerceOrder{}, output.Policy("SKILL_PURCHASE_ORDER_CLOSED", "the recovered order is no longer payable").
 					WithDetails(map[string]any{"orderNo": order.OrderNo}).
 					WithHint("rerun the same install command to check the terminal order and open a fresh purchase")
 			}
-			return order, nil
+			return resumeSkillPayment(ctx, runtime, productID, order)
 		}
-		// This definitive rejection is returned only when no order exists for the saved request.
-		if output.AsError(err).Subtype == "QUOTE_EXPIRED" {
+		// Orders checks the saved idempotency key before looking up the quote.
+		// These definitive rejections mean this request created no order. An
+		// unused expired quote may already have been deleted by Shop cleanup.
+		code := output.AsError(err).Subtype
+		if code == "QUOTE_EXPIRED" || code == "QUOTE_NOT_FOUND" {
 			if removeErr := os.Remove(buyerPurchaseIntentPath(runtime, "skill", productID)); removeErr != nil {
 				return api.CommerceOrder{}, removeErr
+			}
+			if allowQuoteRefresh {
+				return openSkillPurchaseOrderAttempt(ctx, runtime, productID, false)
 			}
 		}
 		return api.CommerceOrder{}, err
 	}
+	if err := validateSkillPurchaseOrder(created.Order, created.Order.OrderNo, productID); err != nil {
+		return api.CommerceOrder{}, err
+	}
 	intent.OrderNo = created.Order.OrderNo
 	if err := saveBuyerPurchaseIntent(runtime, "skill", productID, *intent); err != nil {
-		return api.CommerceOrder{}, err
+		return api.CommerceOrder{}, skillOrderRecoveryError(runtime, err, created.Order.OrderNo)
 	}
 	return created.Order, nil
 }
@@ -133,11 +146,48 @@ func validateSkillPurchaseOrder(order api.CommerceOrder, orderNo, productID stri
 	var item struct {
 		ProductID string `json:"productId"`
 	}
-	if order.OrderNo != orderNo || order.Kind != "PRODUCT_PURCHASE" ||
+	if orderNo == "" || order.OrderNo != orderNo || order.Kind != "PRODUCT_PURCHASE" ||
 		json.Unmarshal(order.Item, &item) != nil || item.ProductID != productID {
 		return output.Policy("SKILL_PURCHASE_ORDER_MISMATCH", "the recovered order does not match this Skill purchase")
 	}
 	return nil
+}
+
+func resumeSkillPayment(ctx context.Context, runtime *Runtime, productID string, order api.CommerceOrder) (api.CommerceOrder, error) {
+	if order.Status != "PENDING" {
+		return order, nil
+	}
+	if expires, err := time.Parse(time.RFC3339, order.ExpiresAt); err != nil || !runtime.deps.Now().Before(expires) {
+		return api.CommerceOrder{}, output.Policy("SKILL_PAYMENT_ORDER_EXPIRED", "the saved payment order expired; its final payment state must be reconciled").
+			WithDetails(map[string]any{"orderNo": order.OrderNo, "paymentUrl": skillOrderPaymentURL(runtime, order.OrderNo)}).
+			WithHint("present paymentUrl to check the order; preserve purchase state and retry after the order is paid or closed")
+	}
+	var action commerceQRPaymentAction
+	if json.Unmarshal(order.PaymentAction, &action) == nil && action.Type == "QR_CODE" && strings.TrimSpace(action.Content) != "" {
+		return order, nil
+	}
+	resumed, err := runtime.client().ResumeSkillOrderPayment(ctx, order.OrderNo, localeForRuntimeMarket(runtime))
+	if err != nil {
+		return api.CommerceOrder{}, skillOrderRecoveryError(runtime, err, order.OrderNo)
+	}
+	if err := validateSkillPurchaseOrder(resumed, order.OrderNo, productID); err != nil {
+		return api.CommerceOrder{}, err
+	}
+	if resumed.Status == "CLOSED" {
+		return api.CommerceOrder{}, output.Policy("SKILL_PURCHASE_ORDER_CLOSED", "the recovered payment order was closed").WithDetails(map[string]any{"orderNo": order.OrderNo}).WithHint("rerun the same install command to start a fresh purchase")
+	}
+	return resumed, nil
+}
+
+func skillOrderRecoveryError(runtime *Runtime, err error, orderNo string) error {
+	cliErr := output.AsError(err)
+	details, ok := cliErr.Details.(map[string]any)
+	if !ok {
+		details = map[string]any{}
+	}
+	details["orderNo"] = orderNo
+	details["paymentUrl"] = skillOrderPaymentURL(runtime, orderNo)
+	return cliErr.WithDetails(details).WithHint("present paymentUrl and report the original error; preserve purchase state and retry the same install command without creating a different purchase")
 }
 
 // presentSkillPaymentQR renders the order's WeChat NATIVE QR code as a local
@@ -170,7 +220,7 @@ func waitForSkillOrderPayment(ctx context.Context, runtime *Runtime, productID, 
 	for {
 		status, err := runtime.client().GetBuyerOrderStatus(ctx, orderNo)
 		if err != nil {
-			return err
+			return skillOrderRecoveryError(runtime, err, orderNo)
 		}
 		var payment struct {
 			Status string `json:"status"`
