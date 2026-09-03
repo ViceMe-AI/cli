@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -322,14 +321,12 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			}
 			use, err := runtime.client().ConsumeSkillTrialUse(command.Context(), productID, credential.InstallID, credential.Secret, requestID)
 			if err != nil {
-				// 只有响应未送达(网络层失败)才保留 pending 供重试复用同一
-				// 幂等键;拿到明确失败响应时本次键的生命周期已结束。
-				var cliErr *output.Error
-				if !(errors.As(err, &cliErr) && cliErr.Type == "network") {
-					confirmTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID)
-				}
+				// 一切错误都保留 pending:服务端可能已经扣次只是响应没回来
+				// (网络错误、5xx、无效响应),重试必须复用同一幂等键由服务端
+				// 回放;换新键会对同一使用二次扣。残留由 TTL 兜底。
 				return err
 			}
+			// 只有权威业务结果才结束本次键的生命周期。
 			confirmTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID)
 			if use.Allowed {
 				lastUse := use.RemainingUses != nil && *use.RemainingUses == 0

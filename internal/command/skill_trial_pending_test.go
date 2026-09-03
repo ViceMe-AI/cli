@@ -2,9 +2,12 @@ package command
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -83,6 +86,38 @@ func TestTrialUsePendingLifecycle(t *testing.T) {
 		}
 	})
 
+	t.Run("concurrent begins converge to a single request id", func(t *testing.T) {
+		// 评审复现:读-判-写临界区没有互斥时,并发的重复调用会读到半成品
+		// pending 并分叉出不同键,到服务端各扣一次。锁协议必须让它们收敛。
+		for iteration := 0; iteration < 100; iteration++ {
+			iterBase := filepath.Join(base, fmt.Sprintf("iter-%d", iteration))
+			if err := os.MkdirAll(iterBase, 0o700); err != nil {
+				t.Fatalf("mkdir iter base: %v", err)
+			}
+			ids := make([]string, 8)
+			errs := make([]error, 8)
+			var wg sync.WaitGroup
+			for worker := 0; worker < len(ids); worker++ {
+				wg.Add(1)
+				go func(slot int) {
+					defer wg.Done()
+					ids[slot], errs[slot] = beginTrialUsePending(iterBase, apiBaseURL, productID, time.Now())
+				}(worker)
+			}
+			wg.Wait()
+			for slot, err := range errs {
+				if err != nil {
+					t.Fatalf("iteration %d worker %d: %v", iteration, slot, err)
+				}
+			}
+			for slot := 1; slot < len(ids); slot++ {
+				if ids[slot] != ids[0] {
+					t.Fatalf("iteration %d forked request ids: %q vs %q", iteration, ids[0], ids[slot])
+				}
+			}
+		}
+	})
+
 	t.Run("isolates pending files per product and endpoint", func(t *testing.T) {
 		id, err := beginTrialUsePending(base, apiBaseURL, productID, now)
 		if err != nil {
@@ -121,6 +156,11 @@ func TestTrialUsePendingLifecycle(t *testing.T) {
 }
 
 func TestTrialUsePendingFileModes(t *testing.T) {
+	// POSIX 权限位在 Windows 上不具语义(Go 会把所有文件报成 0777);
+	// Windows 的等价保证属于用户级 ACL,不在本测试范围。
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX mode assertions do not apply on Windows")
+	}
 	base := t.TempDir()
 	const productID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
 	if _, err := beginTrialUsePending(base, "https://api.viceme.cn", productID, time.Now()); err != nil {
