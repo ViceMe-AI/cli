@@ -313,6 +313,9 @@ viceme update --check
 viceme update
 ```
 
+从旧版 `npx` 缓存启动的命令也会在更新后自动继续：CLI 校验已激活全局包的精确版本，
+再通过该包的启动器续跑原命令。
+
 `viceme update` 保留为显式修复命令。正常启动检查已经会校验精确 Release、刷新匹配
 版本的官方 Skills，并把中断的激活过程恢复成一个完整、兼容的本地版本。
 

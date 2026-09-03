@@ -95,7 +95,6 @@ const (
 	autoUpdateReexecEnvironment   = "VICEME_AUTO_UPDATE_REEXEC"
 	autoUpdateFromEnvironment     = "VICEME_AUTO_UPDATE_FROM"
 	autoUpdateToEnvironment       = "VICEME_AUTO_UPDATE_TO"
-	npmLauncherPathEnvironment    = "VICEME_NPM_LAUNCHER_PATH"
 	npmLauncherRuntimeEnvironment = "VICEME_NPM_LAUNCHER_RUNTIME"
 	activationOperationTimeout    = 12 * time.Minute
 )
@@ -621,7 +620,7 @@ func defaults(dependencies Dependencies) Dependencies {
 	}
 	if dependencies.Reexecute == nil {
 		dependencies.Reexecute = func(ctx context.Context, args, environment []string) (int, error) {
-			name, arguments, err := reexecutionCommand(args)
+			name, arguments, err := reexecutionCommand(ctx, args, environment, dependencies.Updater)
 			if err != nil {
 				return 0, err
 			}
@@ -644,12 +643,27 @@ func defaults(dependencies Dependencies) Dependencies {
 	return dependencies
 }
 
-func reexecutionCommand(args []string) (string, []string, error) {
+func reexecutionCommand(ctx context.Context, args, environment []string, updater updatepkg.Service) (string, []string, error) {
 	if os.Getenv("VICEME_INSTALL_METHOD") == "npm" {
-		launcher := os.Getenv(npmLauncherPathEnvironment)
 		runtime := os.Getenv(npmLauncherRuntimeEnvironment)
-		if launcher == "" || runtime == "" {
+		if runtime == "" {
 			return "", nil, errors.New("npm launcher did not provide its re-execution authority")
+		}
+		service, ok := updater.(*updatepkg.NPMService)
+		if !ok {
+			return "", nil, errors.New("npm re-execution requires the npm update service")
+		}
+		var targetVersion string
+		for _, entry := range environment {
+			if value, ok := strings.CutPrefix(entry, autoUpdateToEnvironment+"="); ok {
+				targetVersion = value
+			}
+		}
+		resolveContext, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		launcher, err := service.ReexecutionLauncher(resolveContext, targetVersion)
+		if err != nil {
+			return "", nil, err
 		}
 		return runtime, append([]string{launcher}, args...), nil
 	}
