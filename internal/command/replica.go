@@ -31,11 +31,38 @@ type replicaPublishResult struct {
 	BuyerEntry  api.WebsiteReplicaBuyerEntry `json:"buyerEntry"`
 }
 
+type replicaInspectResult struct {
+	NextAction string                       `json:"nextAction"`
+	WorkURL    string                       `json:"workUrl"`
+	Replica    api.WebsiteReplicaResolution `json:"replica"`
+}
+
 func newReplicaCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "replica", Short: "Publish and install Website Replica source packages"}
 	command.AddCommand(newReplicaPublishCommand(runtime))
+	command.AddCommand(newReplicaInspectCommand(runtime))
 	command.AddCommand(newReplicaInstallCommand(runtime))
 	return command
+}
+
+func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "inspect <replica-code>",
+		Short: "Inspect a Website Replica and return its public Work preview",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if _, err := parseReplicaCode(args[0]); err != nil {
+				return err
+			}
+			resolved, err := runtime.client().ResolveWebsiteReplicaPublic(command.Context(), args[0])
+			if err != nil {
+				return err
+			}
+			return runtime.business(replicaInspectResult{
+				NextAction: "OPEN_WORK_PREVIEW", WorkURL: resolved.ViceMeWorkURL, Replica: resolved,
+			})
+		},
+	}
 }
 
 func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {

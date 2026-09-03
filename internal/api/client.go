@@ -959,11 +959,49 @@ func (c *Client) CompleteWebsiteReplicaUpload(ctx context.Context, replicaID, up
 }
 
 func (c *Client) ResolveWebsiteReplica(ctx context.Context, code string) (WebsiteReplicaResolution, error) {
+	return c.resolveWebsiteReplica(ctx, code, "@stored")
+}
+
+func (c *Client) ResolveWebsiteReplicaPublic(ctx context.Context, code string) (WebsiteReplicaResolution, error) {
+	return c.resolveWebsiteReplica(ctx, code, "")
+}
+
+func (c *Client) resolveWebsiteReplica(ctx context.Context, code, credential string) (WebsiteReplicaResolution, error) {
 	var response WebsiteReplicaResolution
-	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/resolve", ResolveWebsiteReplicaRequest{Instruction: code}, &response, "@stored")
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/resolve", ResolveWebsiteReplicaRequest{Instruction: code}, &response, credential)
 	if err == nil && code != "VICEME-REPLICA:"+response.ShortCode {
 		err = invalidAPIResponse(errors.New("Website Replica resolution does not match the requested code"))
 	}
+	return response, err
+}
+
+func (c *Client) CreateWebsiteReplicaSession(ctx context.Context, request CreateWebsiteReplicaSessionRequest) (WebsiteReplicaSession, error) {
+	var response WebsiteReplicaSession
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replica-sessions", request, &response, "")
+	return response, err
+}
+
+func (c *Client) CheckoutWebsiteReplica(ctx context.Context, sessionID, token string, request CheckoutWebsiteReplicaRequest) (CheckoutWebsiteReplicaResponse, error) {
+	var response CheckoutWebsiteReplicaResponse
+	endpoint := "/v1/website-replica-sessions/" + url.PathEscape(sessionID) + "/checkout"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, token)
+	return response, err
+}
+
+func (c *Client) GetWebsiteReplicaSessionOrderStatus(ctx context.Context, sessionID, token, orderNo string) (WebsiteReplicaOrderStatus, error) {
+	var response WebsiteReplicaOrderStatus
+	endpoint := "/v1/website-replica-sessions/" + url.PathEscape(sessionID) + "/orders/" + url.PathEscape(orderNo) + "/status"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, token)
+	if err == nil && response.OrderNo != orderNo {
+		err = invalidAPIResponse(errors.New("Website Replica order status is invalid"))
+	}
+	return response, err
+}
+
+func (c *Client) GetWebsiteReplicaSessionDownload(ctx context.Context, sessionID, token string) (WebsiteReplicaDownload, error) {
+	var response WebsiteReplicaDownload
+	endpoint := "/v1/website-replica-sessions/" + url.PathEscape(sessionID) + "/download"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, token)
 	return response, err
 }
 

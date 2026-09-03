@@ -3,8 +3,10 @@ package command
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -42,12 +44,13 @@ func newReplicaInstallCommand(runtime *Runtime) *cobra.Command {
 	var target, locale string
 	var timeout, interval time.Duration
 	var confirm bool
+	var acceptedPriceCents int
 	command := &cobra.Command{
 		Use:   "install <replica-code>",
 		Short: "Purchase and atomically install one Website Replica source package",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			result, err := installReplica(command.Context(), runtime, args[0], target, locale, timeout, interval, confirm)
+			result, err := installReplica(command.Context(), runtime, args[0], target, locale, timeout, interval, confirm, acceptedPriceCents)
 			if err != nil {
 				return err
 			}
@@ -59,11 +62,18 @@ func newReplicaInstallCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().DurationVar(&timeout, "timeout", 20*time.Minute, "maximum time to wait for payment")
 	command.Flags().DurationVar(&interval, "interval", 1500*time.Millisecond, "payment status poll interval")
 	command.Flags().BoolVar(&confirm, "confirm", false, "create the order for the previously presented quote")
+	command.Flags().IntVar(&acceptedPriceCents, "accept-price-cents", -1, "price shown when the user chose to continue; creates the order without another confirmation")
 	_ = command.MarkFlagRequired("target")
 	return command
 }
 
-func installReplica(ctx context.Context, runtime *Runtime, code, target, locale string, timeout, interval time.Duration, confirm bool) (replicaInstallResult, error) {
+func installReplica(ctx context.Context, runtime *Runtime, code, target, locale string, timeout, interval time.Duration, confirm bool, acceptedPriceCents int) (replicaInstallResult, error) {
+	if acceptedPriceCents > 10_000_000 {
+		return replicaInstallResult{}, output.Validation("REPLICA_PRICE_INVALID", "--accept-price-cents must be between 0 and 10000000")
+	}
+	if acceptedPriceCents >= 0 && confirm {
+		return replicaInstallResult{}, output.Validation("REPLICA_CONFIRMATION_CONFLICT", "--accept-price-cents creates or resumes the order without --confirm")
+	}
 	shortCode, err := parseReplicaCode(code)
 	if err != nil {
 		return replicaInstallResult{}, err
@@ -88,10 +98,188 @@ func installReplica(ctx context.Context, runtime *Runtime, code, target, locale 
 	var result replicaInstallResult
 	err = store.withLock(func() error {
 		var installErr error
-		result, installErr = installReplicaLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, confirm)
+		if acceptedPriceCents >= 0 {
+			result, installErr = installReplicaAnonymousLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, acceptedPriceCents)
+		} else {
+			result, installErr = installReplicaLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, confirm)
+		}
 		return installErr
 	})
 	return result, err
+}
+
+func installReplicaAnonymousLocked(
+	ctx context.Context,
+	runtime *Runtime,
+	store replicaPurchaseStore,
+	code string,
+	shortCode string,
+	absTarget string,
+	locale string,
+	timeout time.Duration,
+	interval time.Duration,
+	acceptedPriceCents int,
+) (replicaInstallResult, error) {
+	completion, completed, err := store.loadCompletion()
+	if err != nil {
+		return replicaInstallResult{}, err
+	}
+	if completed {
+		if err := validateReplicaCompletion(ctx, runtime, completion); err != nil {
+			return replicaInstallResult{}, err
+		}
+		return completion.Result, nil
+	}
+	state, exists, err := store.load()
+	if err != nil {
+		return replicaInstallResult{}, err
+	}
+	if exists && state.SessionID == "" && state.QuoteID != "" {
+		return replicaInstallResult{}, replicaPurchaseConflict(state, "finish or retire the legacy Website Replica purchase before anonymous checkout")
+	}
+	if exists && state.Target != absTarget {
+		return replicaInstallResult{}, replicaPurchaseConflict(state, "this Website Replica already has an unfinished purchase for another target")
+	}
+	if !exists {
+		if err := requireMissingReplicaTarget(absTarget); err != nil {
+			return replicaInstallResult{}, err
+		}
+		requestID, err := runtime.newReplicaRequestID()
+		if err != nil {
+			return replicaInstallResult{}, err
+		}
+		state = store.create(requestID)
+		state.SessionReplaySecret, err = newReplicaSessionSecret()
+		if err != nil {
+			return replicaInstallResult{}, err
+		}
+		if err := store.reserve(&state); err != nil {
+			return replicaInstallResult{}, err
+		}
+		if err := store.save(&state); err != nil {
+			_ = store.retire(state)
+			return replicaInstallResult{}, err
+		}
+	}
+	if err := store.verifyReservation(state); err != nil {
+		return replicaInstallResult{}, err
+	}
+	if err := requireMissingReplicaTarget(absTarget); err != nil {
+		return replicaInstallResult{}, replicaPurchaseConflict(state, "the Website Replica target appeared before installation completed").WithCause(err)
+	}
+
+	client := runtime.client()
+	if state.SessionID == "" {
+		resolved, err := client.ResolveWebsiteReplicaPublic(ctx, code)
+		if err != nil {
+			return replicaInstallResult{}, err
+		}
+		if resolved.ShortCode != shortCode || resolved.Title != resolved.Product.Title {
+			return replicaInstallResult{}, invalidReplicaResponse("Website Replica resolution does not match the supplied code")
+		}
+		if resolved.Product.PriceCents != acceptedPriceCents {
+			return replicaInstallResult{}, output.Confirmation(
+				"REPLICA_PRICE_CHANGED",
+				"the Website Replica price changed after the user chose to continue",
+			).WithDetails(map[string]any{
+				"nextAction": "OPEN_WORK_PREVIEW", "workUrl": resolved.ViceMeWorkURL,
+				"currency": resolved.Product.Currency, "totalAmountCents": resolved.Product.PriceCents,
+			}).WithHint("open the Work preview and ask the user to continue again at the new price")
+		}
+		state.ReplicaID = resolved.ReplicaID
+		state.ProductID = resolved.Product.ID
+		state.SKUID = resolved.Product.SKUID
+		state.ProductTitle = resolved.Product.Title
+		state.Currency = resolved.Product.Currency
+		state.PriceCents = resolved.Product.PriceCents
+		if err := store.save(&state); err != nil {
+			return replicaInstallResult{}, err
+		}
+		session, err := client.CreateWebsiteReplicaSession(ctx, api.CreateWebsiteReplicaSessionRequest{
+			Instruction: code, ClientRequestID: state.QuoteRequestID, ReplaySecret: state.SessionReplaySecret,
+		})
+		if err != nil {
+			return replicaInstallResult{}, err
+		}
+		if !replicaResolutionMatchesState(session.Replica, state) {
+			return replicaInstallResult{}, invalidReplicaResponse("Website Replica session does not match the accepted product")
+		}
+		state.SessionID = session.SessionID
+		state.SessionToken = session.Token
+		state.SessionExpiresAt = session.ExpiresAt
+		if err := store.save(&state); err != nil {
+			return replicaInstallResult{}, err
+		}
+	}
+	if state.PriceCents != acceptedPriceCents {
+		return replicaInstallResult{}, output.Confirmation("REPLICA_PRICE_CHANGED", "the accepted Website Replica price does not match the recoverable purchase").WithDetails(map[string]any{
+			"currency": state.Currency, "totalAmountCents": state.PriceCents,
+		})
+	}
+	if state.OrderNo == "" {
+		if state.CheckoutQuoteRequestID == "" {
+			state.CheckoutQuoteRequestID, err = runtime.newReplicaRequestID()
+			if err != nil {
+				return replicaInstallResult{}, err
+			}
+			state.OrderRequestID, err = runtime.newReplicaRequestID()
+			if err != nil {
+				return replicaInstallResult{}, err
+			}
+			state.Locale = locale
+			if err := store.save(&state); err != nil {
+				return replicaInstallResult{}, err
+			}
+		}
+		checkout, err := client.CheckoutWebsiteReplica(ctx, state.SessionID, state.SessionToken, api.CheckoutWebsiteReplicaRequest{
+			AcceptedPriceCents: acceptedPriceCents, QuoteClientRequestID: state.CheckoutQuoteRequestID,
+			OrderClientRequestID: state.OrderRequestID, Locale: state.Locale,
+		})
+		if err != nil {
+			return replicaInstallResult{}, err
+		}
+		state.OrderNo = checkout.OrderNo
+		state.OrderExpiresAt = checkout.ExpiresAt
+		state.CheckoutURL = checkout.CheckoutURL
+		if err := store.save(&state); err != nil {
+			return replicaInstallResult{}, err
+		}
+		if checkout.Status == "PAID" {
+			return installReplicaSessionDownload(ctx, runtime, store, state, client, checkout.OrderNo, absTarget)
+		}
+		if checkout.Status != "PENDING" || checkout.PaymentAction == nil {
+			return replicaInstallResult{}, invalidReplicaResponse("Website Replica checkout returned an invalid payment state")
+		}
+	}
+	if state.PaymentPresentedAt == "" {
+		state.PaymentPresentedAt = runtime.deps.Now().UTC().Format(time.RFC3339Nano)
+		if err := store.save(&state); err != nil {
+			return replicaInstallResult{}, err
+		}
+		return replicaInstallResult{}, replicaPaymentWidgetConfirmation(state)
+	}
+	if err := waitForReplicaSessionPayment(ctx, runtime, client, state, timeout, interval); err != nil {
+		if output.AsError(err).Subtype == "REPLICA_PAYMENT_TERMINAL" {
+			_ = store.retire(state)
+		}
+		return replicaInstallResult{}, err
+	}
+	return installReplicaSessionDownload(ctx, runtime, store, state, client, state.OrderNo, absTarget)
+}
+
+func newReplicaSessionSecret() (string, error) {
+	secret := make([]byte, 32)
+	if _, err := rand.Read(secret); err != nil {
+		return "", output.Internal("REPLICA_SESSION_SECRET_FAILED", "could not create Website Replica session recovery secret", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(secret), nil
+}
+
+func replicaPaymentWidgetConfirmation(state replicaPurchaseState) error {
+	return output.Confirmation("REPLICA_PAYMENT_REQUIRED", "open the ViceMe Website Replica checkout").WithDetails(map[string]any{
+		"nextAction": "OPEN_PAYMENT_WIDGET", "checkoutUrl": state.CheckoutURL, "orderNo": state.OrderNo,
+		"currency": state.Currency, "totalAmountCents": state.PriceCents, "expiresAt": state.OrderExpiresAt,
+	}).WithHint("open checkoutUrl with the available URL presentation tool, then rerun the same command with a bounded --timeout; do not ask for another confirmation")
 }
 
 func installReplicaLocked(
@@ -366,6 +554,38 @@ func installReplicaDownload(
 	if err != nil {
 		return replicaInstallResult{}, err
 	}
+	return installReplicaDownloaded(ctx, runtime, store, state, client, download, expectedOrderNo, target)
+}
+
+func installReplicaSessionDownload(
+	ctx context.Context,
+	runtime *Runtime,
+	store replicaPurchaseStore,
+	state replicaPurchaseState,
+	client *api.Client,
+	expectedOrderNo string,
+	target string,
+) (replicaInstallResult, error) {
+	if err := store.verifyReservation(state); err != nil {
+		return replicaInstallResult{}, err
+	}
+	download, err := client.GetWebsiteReplicaSessionDownload(ctx, state.SessionID, state.SessionToken)
+	if err != nil {
+		return replicaInstallResult{}, err
+	}
+	return installReplicaDownloaded(ctx, runtime, store, state, client, download, expectedOrderNo, target)
+}
+
+func installReplicaDownloaded(
+	ctx context.Context,
+	runtime *Runtime,
+	store replicaPurchaseStore,
+	state replicaPurchaseState,
+	client *api.Client,
+	download api.WebsiteReplicaDownload,
+	expectedOrderNo string,
+	target string,
+) (replicaInstallResult, error) {
 	if err := validateReplicaDownloadBinding(download, state.ReplicaID); err != nil {
 		return replicaInstallResult{}, err
 	}
@@ -595,6 +815,37 @@ func waitForReplicaPayment(ctx context.Context, runtime *Runtime, client *api.Cl
 				"expiresAt":  order.ExpiresAt,
 			})
 			return pending
+		}
+		delay := interval
+		if remaining := deadline.Sub(runtime.deps.Now()); remaining < delay {
+			delay = remaining
+		}
+		if err := runtime.deps.Sleep(ctx, delay); err != nil {
+			return output.Network("REPLICA_PAYMENT_INTERRUPTED", "Website Replica payment wait was interrupted", err)
+		}
+	}
+}
+
+func waitForReplicaSessionPayment(ctx context.Context, runtime *Runtime, client *api.Client, state replicaPurchaseState, timeout, interval time.Duration) error {
+	deadline := runtime.deps.Now().Add(timeout)
+	for {
+		status, err := client.GetWebsiteReplicaSessionOrderStatus(ctx, state.SessionID, state.SessionToken, state.OrderNo)
+		if err != nil {
+			return err
+		}
+		switch status.Payment.Status {
+		case "PAID":
+			return nil
+		case "PENDING":
+		case "CLOSED", "FAILED", "CANCELLED":
+			return output.Policy("REPLICA_PAYMENT_TERMINAL", "Website Replica payment did not complete").WithDetails(map[string]any{"orderNo": state.OrderNo, "status": status.Payment.Status})
+		default:
+			return invalidReplicaResponse("Website Replica order status is invalid")
+		}
+		if !runtime.deps.Now().Before(deadline) {
+			return output.Network("REPLICA_PAYMENT_TIMEOUT", "Website Replica payment was not observed before the wait deadline", context.DeadlineExceeded).WithDetails(map[string]any{
+				"nextAction": "PAYMENT_PENDING", "checkoutUrl": state.CheckoutURL, "orderNo": state.OrderNo, "expiresAt": state.OrderExpiresAt,
+			})
 		}
 		delay := interval
 		if remaining := deadline.Sub(runtime.deps.Now()); remaining < delay {

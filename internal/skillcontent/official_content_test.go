@@ -153,11 +153,11 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "let-others-make-a-copy",
 			machine: []string{
 				"$become-a-creator", "MerchantAccountMember(role=OWNER)", "VICEME-REPLICA.md",
-				"viceme replica publish", "buyerEntry.prompts", "viceme replica install", "--confirm", "AskUserQuestion",
+				"viceme replica publish", "buyerEntry.prompts", "viceme replica inspect", "viceme replica install", "--accept-price-cents", "AskUserQuestion",
 			},
 			semantics: []string{
 				"完整源码", "创作者自己的站点", "不得写死价格", "发布成功后", "不得覆盖已有目录", "Quote",
-				"免费做同款", "付费做同款", "不得每次问一个字段并循环追问", "最终不可变发布确认",
+				"免费做同款", "付费做同款", "不得每次问一个字段并循环追问", "最终不可变发布确认", "匿名完成", "OPEN_PAYMENT_WIDGET",
 			},
 		},
 	}
@@ -932,8 +932,8 @@ func TestWebsiteReplicaKeepsInvitationShortAndBuyerStepsInSkill(t *testing.T) {
 		"接受一起创作邀请",
 		"`{创作者用户名} 邀请我一起创作「{作品名称}」，参考 {作品详情页.md地址} 立刻开始吧～`",
 		"该地址就是本次网站 ID", "具体步骤只由本 Skill 维护", "$creator-tools",
-		"webBaseUrl` 与详情地址 Origin 精确一致", "平台控制区", "viceme replica install",
-		"PRESENT_PAYMENT_QR", "VICEME-REPLICA.md", "不得覆盖已有目录",
+		"webBaseUrl` 与详情地址 Origin 精确一致", "平台控制区", "viceme replica inspect", "viceme replica install",
+		"OPEN_WORK_PREVIEW", "OPEN_PAYMENT_WIDGET", "present_files", "继续做同款", "VICEME-REPLICA.md", "不得覆盖已有目录",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Website Replica Skill omitted short-invitation buyer contract %q", required)

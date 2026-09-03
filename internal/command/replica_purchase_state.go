@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -28,28 +29,34 @@ import (
 )
 
 type replicaPurchaseState struct {
-	SchemaVersion      int       `json:"schemaVersion"`
-	APIOrigin          string    `json:"apiOrigin"`
-	ShortCode          string    `json:"shortCode"`
-	Target             string    `json:"target"`
-	TargetParentID     string    `json:"targetParentId"`
-	ReplicaID          string    `json:"replicaId,omitempty"`
-	ProductID          string    `json:"productId,omitempty"`
-	SKUID              string    `json:"skuId,omitempty"`
-	ProductTitle       string    `json:"productTitle,omitempty"`
-	Currency           string    `json:"currency,omitempty"`
-	PriceCents         int       `json:"priceCents,omitempty"`
-	Reservation        string    `json:"reservation"`
-	QuoteRequestID     string    `json:"quoteRequestId"`
-	QuoteID            string    `json:"quoteId,omitempty"`
-	QuoteExpiresAt     string    `json:"quoteExpiresAt,omitempty"`
-	OrderRequestID     string    `json:"orderRequestId,omitempty"`
-	Locale             string    `json:"locale,omitempty"`
-	OrderNo            string    `json:"orderNo,omitempty"`
-	OrderExpiresAt     string    `json:"orderExpiresAt,omitempty"`
-	PaymentPresentedAt string    `json:"paymentPresentedAt,omitempty"`
-	CreatedAt          time.Time `json:"createdAt"`
-	UpdatedAt          time.Time `json:"updatedAt"`
+	SchemaVersion          int       `json:"schemaVersion"`
+	APIOrigin              string    `json:"apiOrigin"`
+	ShortCode              string    `json:"shortCode"`
+	Target                 string    `json:"target"`
+	TargetParentID         string    `json:"targetParentId"`
+	ReplicaID              string    `json:"replicaId,omitempty"`
+	ProductID              string    `json:"productId,omitempty"`
+	SKUID                  string    `json:"skuId,omitempty"`
+	ProductTitle           string    `json:"productTitle,omitempty"`
+	Currency               string    `json:"currency,omitempty"`
+	PriceCents             int       `json:"priceCents,omitempty"`
+	Reservation            string    `json:"reservation"`
+	QuoteRequestID         string    `json:"quoteRequestId"`
+	QuoteID                string    `json:"quoteId,omitempty"`
+	QuoteExpiresAt         string    `json:"quoteExpiresAt,omitempty"`
+	OrderRequestID         string    `json:"orderRequestId,omitempty"`
+	Locale                 string    `json:"locale,omitempty"`
+	OrderNo                string    `json:"orderNo,omitempty"`
+	OrderExpiresAt         string    `json:"orderExpiresAt,omitempty"`
+	PaymentPresentedAt     string    `json:"paymentPresentedAt,omitempty"`
+	SessionReplaySecret    string    `json:"sessionReplaySecret,omitempty"`
+	SessionID              string    `json:"sessionId,omitempty"`
+	SessionToken           string    `json:"sessionToken,omitempty"`
+	SessionExpiresAt       string    `json:"sessionExpiresAt,omitempty"`
+	CheckoutURL            string    `json:"checkoutUrl,omitempty"`
+	CheckoutQuoteRequestID string    `json:"checkoutQuoteRequestId,omitempty"`
+	CreatedAt              time.Time `json:"createdAt"`
+	UpdatedAt              time.Time `json:"updatedAt"`
 }
 
 type replicaPurchaseStore struct {
@@ -414,7 +421,7 @@ func (store replicaPurchaseStore) valid(state replicaPurchaseState) bool {
 	} else if state.QuoteExpiresAt != "" {
 		return false
 	}
-	if state.OrderRequestID != "" && (state.QuoteID == "" || !replicaUUIDPattern.MatchString(state.OrderRequestID) ||
+	if state.OrderRequestID != "" && ((state.QuoteID == "" && state.CheckoutQuoteRequestID == "") || !replicaUUIDPattern.MatchString(state.OrderRequestID) ||
 		(state.Locale != "zh-CN" && state.Locale != "en-US")) {
 		return false
 	} else if state.OrderRequestID == "" && state.Locale != "" {
@@ -431,6 +438,24 @@ func (store replicaPurchaseStore) valid(state replicaPurchaseState) bool {
 		return false
 	}
 	if state.PaymentPresentedAt != "" && (state.OrderNo == "" || !validReplicaStateDatetime(state.PaymentPresentedAt)) {
+		return false
+	}
+	if state.SessionReplaySecret != "" && (!validReplicaSessionSecret(state.SessionReplaySecret)) {
+		return false
+	}
+	if state.SessionID != "" {
+		if !replicaUUIDPattern.MatchString(state.SessionID) || !hasBinding ||
+			!validReplicaSessionSecret(state.SessionReplaySecret) || len(state.SessionToken) < 43 || len(state.SessionToken) > 256 ||
+			!validReplicaStateDatetime(state.SessionExpiresAt) {
+			return false
+		}
+	} else if state.SessionToken != "" || state.SessionExpiresAt != "" || state.CheckoutURL != "" {
+		return false
+	}
+	if state.CheckoutURL != "" && state.OrderNo == "" {
+		return false
+	}
+	if state.CheckoutQuoteRequestID != "" && (!replicaUUIDPattern.MatchString(state.CheckoutQuoteRequestID) || state.SessionID == "") {
 		return false
 	}
 	return true
@@ -464,6 +489,11 @@ func validReplicaDigest(value string) bool {
 func validReplicaReservation(value string) bool {
 	decoded, err := hex.DecodeString(value)
 	return err == nil && len(decoded) == 32 && value == strings.ToLower(value)
+}
+
+func validReplicaSessionSecret(value string) bool {
+	decoded, err := base64.RawURLEncoding.DecodeString(value)
+	return err == nil && len(decoded) == 32 && base64.RawURLEncoding.EncodeToString(decoded) == value
 }
 
 func validReplicaStateDatetime(value string) bool {

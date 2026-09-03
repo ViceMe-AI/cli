@@ -374,8 +374,9 @@ func replicaPublicationResponse() map[string]any {
 func replicaResolutionResponse() map[string]any {
 	return map[string]any{
 		"replicaId": testReplicaID, "shortCode": testShortCode, "title": "Replica", "summary": "Source",
-		"creator": map[string]any{"handle": "replica-maker", "displayName": "Replica Maker"},
-		"product": replicaProductResponse(),
+		"creator":       map[string]any{"handle": "replica-maker", "displayName": "Replica Maker"},
+		"viceMeWorkUrl": "https://viceme.example/replica-maker/replica-source",
+		"product":       replicaProductResponse(),
 	}
 }
 
