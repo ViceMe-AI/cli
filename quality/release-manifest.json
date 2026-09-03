@@ -42,18 +42,18 @@
       "skill_version": "0.24.1",
       "minimum_cli_version": "0.24.1",
       "cli_compatibility": ">=0.24.1 <0.25.0",
-      "full_skill_bundle_digest": "sha256:25cc440bcb8d467aa04a74917e1ba63fe7de217863ca515752e54db1b6104af1",
-      "embedded_content_digest": "sha256:6615eefc27e224e1a0451673beefe599a7a6874ef062b7375c71deae16e53354"
+      "full_skill_bundle_digest": "sha256:b1edee0dc32156326229cd4bdb532f5e233eb24c1aa29ab436f6c32aa3a488dc",
+      "embedded_content_digest": "sha256:e20841611cbe4d09969b1d8eb64104be6101a2610eaa5eb44a287e69c253d843"
     },
-    "viceme-skill-use": {
+    "use-a-skill": {
       "skill_version": "0.24.1",
       "minimum_cli_version": "0.24.1",
       "cli_compatibility": ">=0.24.1 <0.25.0",
-      "full_skill_bundle_digest": "sha256:c0d4a9fd1ed89487cb6fe30151009ee33727ba9d1dd8c023f366c90bebf71c34",
-      "embedded_content_digest": "sha256:58b4fef35bc423ba9e7096e9183c629dce3d421784e3f24fca9163de45292e7d"
+      "full_skill_bundle_digest": "sha256:7b17c326daa275f9b6d4dd84ceacc53154b2a35d276d393c47f113a4a488e57b",
+      "embedded_content_digest": "sha256:37d59513cc4ac670151c162b4f0c3e08bf4f2f76060e44ac0b17df3a5843111f"
     }
   },
-  "bootstrap_contract_digest": "sha256:b9f07924f59b60bb35ad9f1000522b974d2ab6d56f97b5119563bd7135848777",
+  "bootstrap_contract_digest": "sha256:7c01c9c969158bab1e92df211f980aed7d4c01f7d8a6574ec4592b82935172c4",
   "installer_digests": {
     "install.ps1": "sha256:ffdedbcacb05a783c442398084e910dbb50b2bee9015282f5c01090eb01f4313",
     "install.sh": "sha256:27c4b4448b0ad28fcdebfbe9dcdf3df1ec9d179df6df6dc59907b4a7f286e374"

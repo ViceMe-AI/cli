@@ -66,6 +66,7 @@ func newSkillCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newSkillDetailCommand(runtime))
 	command.AddCommand(newSkillAccessCommand(runtime))
 	command.AddCommand(newSkillInstallCommand(runtime))
+	command.AddCommand(newSkillUsePrecheckCommand(runtime))
 	return command
 }
 
@@ -170,6 +171,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	var xiaohongshuSearch string
 	var resume string
 	var priceMinor int
+	var trialUseLimit int
 	var merchantAccountID string
 	var editionKey string
 	var editionTitle string
@@ -204,6 +206,21 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			priceConfirmed := command.Flags().Changed("price-minor")
 			if priceConfirmed && (priceMinor < 0 || priceMinor > 10_000_000) {
 				return output.Validation("SKILL_PRICE_INVALID", "priceMinor must be between 0 and 10000000")
+			}
+			// 试用次数:0=关闭,1~100 有效;免费款不允许开试用(确认层兜底)。
+			trialConfirmed := command.Flags().Changed("trial-use-limit")
+			if trialConfirmed && (trialUseLimit < 0 || trialUseLimit > 100) {
+				return output.Validation("SKILL_TRIAL_USE_LIMIT_INVALID", "trialUseLimit must be between 0 (off) and 100")
+			}
+			if trialConfirmed && trialUseLimit > 0 && priceConfirmed && priceMinor <= 0 {
+				return output.Validation("SKILL_TRIAL_USE_LIMIT_REQUIRES_PRICE", "a trial use limit requires a positive --price-minor").WithHint("pass a positive --price-minor together with --trial-use-limit")
+			}
+			trialLimit := (*int)(nil)
+			if trialConfirmed {
+				if trialUseLimit > 0 {
+					value := trialUseLimit
+					trialLimit = &value
+				}
 			}
 			store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
 			if resume != "" {
@@ -242,6 +259,14 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				}
 				if priceConfirmed {
 					pending.PriceMinor = &priceMinor
+					if trialConfirmed {
+						pending.TrialUseLimit = trialLimit
+					}
+					if err := store.Save(pending); err != nil {
+						return err
+					}
+				} else if trialConfirmed {
+					pending.TrialUseLimit = trialLimit
 					if err := store.Save(pending); err != nil {
 						return err
 					}
@@ -290,6 +315,9 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if priceConfirmed {
 					pending.PriceMinor = &priceMinor
 				}
+				if trialConfirmed {
+					pending.TrialUseLimit = trialLimit
+				}
 				if err := store.Save(pending); err != nil {
 					return err
 				}
@@ -334,6 +362,9 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if priceConfirmed {
 				pending.PriceMinor = &priceMinor
 			}
+			if trialConfirmed {
+				pending.TrialUseLimit = trialLimit
+			}
 			if err := store.Save(pending); err != nil {
 				return err
 			}
@@ -348,6 +379,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&xiaohongshuSearch, "xiaohongshu-search", "", "search verified Xiaohongshu Skills by ID or name")
 	command.Flags().StringVar(&resume, "resume", "", "resume an interrupted publication by ID")
 	command.Flags().IntVar(&priceMinor, "price-minor", 0, "set the CNY price in fen while continuing the private draft")
+	command.Flags().IntVar(&trialUseLimit, "trial-use-limit", 0, "free trial uses before payment (1-100); 0 disables the trial")
 	command.Flags().StringVar(&merchantAccountID, "merchant", "", "Merchant account ID; required only when multiple active accounts exist")
 	command.Flags().StringVar(&editionKey, "edition-key", "", "required stable lowercase edition key (except --resume)")
 	command.Flags().StringVar(&editionTitle, "edition-title", "", "buyer-visible edition title; defaults to the Skill title")
@@ -716,6 +748,13 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 	}
 	if pending.PriceMinor != nil && (current.Draft.PriceMinor == nil || *current.Draft.PriceMinor != *pending.PriceMinor) {
 		current, err = client.UpdateListingPrice(ctx, pending.PublicationID, *pending.PriceMinor)
+		if err != nil {
+			return err
+		}
+	}
+	// 试用次数与价格同一条售卖条款链:本地恢复态有值且服务端草稿不一致时补丁。
+	if pending.TrialUseLimit != nil && (current.Draft.TrialUseLimit == nil || *current.Draft.TrialUseLimit != *pending.TrialUseLimit) {
+		current, err = client.UpdateListingTrialUseLimit(ctx, pending.PublicationID, pending.TrialUseLimit)
 		if err != nil {
 			return err
 		}

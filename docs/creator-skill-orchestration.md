@@ -27,7 +27,7 @@ The official creator Skills expose one user goal each:
 | `let-others-make-a-copy` | Complete website source packaging, root deployment guide, immutable Replica publication, and creator-site copy entry | Generic browser runtime, direct browser checkout, or buyer confirmation on the creator's behalf |
 | `creator-tools` | CLI installation, ordinary login, updates, and diagnostics | Any creator gameplay |
 
-Buyer-side `viceme-skill-use` does not use creator qualification.
+Buyer-side `use-a-skill` does not use creator qualification.
 
 Service and generic-product CLI/API commands remain available for future product work, but no
 official Skill advertises or invokes them in this delivery.

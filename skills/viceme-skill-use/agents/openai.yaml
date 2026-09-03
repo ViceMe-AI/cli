@@ -1,4 +1,0 @@
-interface:
-  display_name: "使用 ViceMe Skills"
-  short_description: "选择、安装和使用免费或已购买版本"
-  default_prompt: "使用 $viceme-skill-use 选择并安装合适的 ViceMe Skill，必要时经我确认后购买并继续原任务。"

@@ -765,7 +765,7 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 		"creator-tools":          false,
 		"become-a-creator":       false,
 		"sell-a-skill":           false,
-		"viceme-skill-use":       false,
+		"use-a-skill":       false,
 		"charge-for-your-work":   false,
 		"let-people-interact":    false,
 		"let-others-make-a-copy": false,
