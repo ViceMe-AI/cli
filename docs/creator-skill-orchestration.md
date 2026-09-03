@@ -21,7 +21,7 @@ The official creator Skills expose one user goal each:
 
 | Skill | Owns | Does not own |
 | --- | --- | --- |
-| `become-a-creator` | Login for creator onboarding, qualification checks, application/claim state, Merchant selection | Publishing Works, Products, or website integrations |
+| `become-a-creator` | Login for creator onboarding, qualification checks, application state, Merchant selection | Publishing Works, Products, or website integrations |
 | `customize-your-page` | Target ownership, capability discovery, flexible page packaging, preview, explicit publication, updates, and rollback for creator and Work pages | Creator qualification or source-code security review |
 | `sell-a-skill` | Downloadable Skill packaging, preview, confirmation, publication, and updates | Websites, services, physical/custom goods, appointments, generic Products |
 | `charge-for-your-work` | One-pass website input collection, internal Website Work/access provisioning, and host-code integration for follow or paid unlock | Login and creator application |

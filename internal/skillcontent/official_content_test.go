@@ -91,8 +91,8 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "become-a-creator",
 			machine: []string{
 				"viceme auth status", "viceme auth login", "present_files", "viceme merchant accounts",
-				"viceme merchant onboarding status", "viceme merchant onboarding apply", "claim-github",
-				"claim-xiaohongshu", "MerchantAccountMember(role=OWNER)",
+				"viceme merchant onboarding status", "viceme merchant onboarding apply",
+				"MerchantAccountMember(role=OWNER)",
 			},
 			semantics: []string{
 				"不创建平行申请", "直接申请模式不再确认", "玩法守卫模式",
