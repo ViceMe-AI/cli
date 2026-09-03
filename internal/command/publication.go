@@ -379,7 +379,7 @@ func publishSkillWithRetry(ctx context.Context, runtime *Runtime, publicationID,
 	}
 	if err != nil && output.AsError(err).Retryable {
 		return result, output.AsError(err).WithHint(
-			"the publish did not complete but nothing was lost: the publication keeps its READY state; re-run the same command later and do not create a new publication")
+			"the publish outcome is unknown: the server may have persisted READY→PUBLISHING before the error, or may have already published. Keep the same publication — re-run this exact command later (it is idempotent and resumes PUBLISHING) or check `viceme publication get <publication-id>`; do not create a new publication")
 	}
 	return result, err
 }

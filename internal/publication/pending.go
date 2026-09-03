@@ -17,19 +17,23 @@ import (
 )
 
 type Pending struct {
-	SchemaVersion     int                         `json:"schemaVersion"`
-	PublicationID     string                      `json:"publicationId"`
-	ClientRequestID   string                      `json:"clientRequestId"`
-	MerchantAccountID string                      `json:"merchantAccountId"`
-	Fingerprint       string                      `json:"fingerprint"`
-	SourcePath        string                      `json:"sourcePath"`
-	PriceMinor        *int                        `json:"priceMinor"`
-	TrialUseLimit     *int                        `json:"trialUseLimit"`
-	ArtifactDigest    string                      `json:"artifactDigest"`
-	Source            api.SkillPublicationSource  `json:"source"`
-	Edition           api.SkillPublicationEdition `json:"edition"`
-	CreatedAt         time.Time                   `json:"createdAt"`
-	UpdatedAt         time.Time                   `json:"updatedAt"`
+	SchemaVersion     int    `json:"schemaVersion"`
+	PublicationID     string `json:"publicationId"`
+	ClientRequestID   string `json:"clientRequestId"`
+	MerchantAccountID string `json:"merchantAccountId"`
+	Fingerprint       string `json:"fingerprint"`
+	SourcePath        string `json:"sourcePath"`
+	PriceMinor        *int   `json:"priceMinor"`
+	TrialUseLimit     *int   `json:"trialUseLimit"`
+	// TrialDisabled records an explicit --trial-use-limit 0: it must reach the
+	// server as an explicit null ("disable"), never as an omitted field
+	// ("keep"), so an inherited live trial can actually be turned off.
+	TrialDisabled  bool                        `json:"trialDisabled,omitempty"`
+	ArtifactDigest string                      `json:"artifactDigest"`
+	Source         api.SkillPublicationSource  `json:"source"`
+	Edition        api.SkillPublicationEdition `json:"edition"`
+	CreatedAt      time.Time                   `json:"createdAt"`
+	UpdatedAt      time.Time                   `json:"updatedAt"`
 }
 
 type PendingStore struct {
@@ -44,9 +48,11 @@ type Intent struct {
 	PublicationID   string `json:"publicationId,omitempty"`
 }
 
-// sweepStaleIntents removes intent files older than maxAge. Retire failures
-// in restricted environments leave terminal intents behind; the mtime bound
-// keeps the sweep local and cheap with no server round trips.
+// sweepStaleIntents removes INTENT files (never the publicationId-keyed
+// recovery snapshots that share this directory) that are older than maxAge
+// AND never progressed to a publication — those are pure orphans from
+// abandoned creates. An intent that carries a publicationId may still back a
+// legitimate --resume, so it is left to the use-time terminal-state check.
 func (s PendingStore) sweepStaleIntents(maxAge time.Duration) {
 	now := time.Now()
 	if s.Now != nil {
@@ -57,11 +63,19 @@ func (s PendingStore) sweepStaleIntents(maxAge time.Duration) {
 		return
 	}
 	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "intent-") || filepath.Ext(entry.Name()) != ".json" {
 			continue
 		}
 		info, err := entry.Info()
 		if err != nil || now.Sub(info.ModTime()) < maxAge {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.Directory, entry.Name()))
+		if err != nil {
+			continue
+		}
+		var intent Intent
+		if json.Unmarshal(data, &intent) != nil || intent.PublicationID != "" {
 			continue
 		}
 		_ = os.Remove(filepath.Join(s.Directory, entry.Name()))

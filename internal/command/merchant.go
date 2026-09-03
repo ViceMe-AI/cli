@@ -45,9 +45,6 @@ func newMerchantQualificationCommand(runtime *Runtime) *cobra.Command {
 				result["next"] = "LOGIN"
 				return runtime.business(result)
 			}
-			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
-				return err
-			}
 			remote, err := runtime.client().AuthStatus(command.Context())
 			if err != nil {
 				return err
@@ -55,6 +52,29 @@ func newMerchantQualificationCommand(runtime *Runtime) *cobra.Command {
 			result["authenticated"] = true
 			result["scopes"] = remote.Scopes
 			result["user"] = remote.User
+			// One authoritative read must cover every scope the guarded
+			// playbooks need; a missing write scope would otherwise surface
+			// as a confusing failure on the first write command.
+			granted := make(map[string]bool, len(remote.Scopes))
+			for _, scope := range remote.Scopes {
+				granted[scope] = true
+			}
+			var missingScopes []string
+			for _, scope := range []string{
+				"merchant-commerce:read",
+				"merchant-commerce:write",
+				"skill-publication:read",
+				"skill-publication:write",
+			} {
+				if !granted[scope] {
+					missingScopes = append(missingScopes, scope)
+				}
+			}
+			if len(missingScopes) > 0 {
+				result["next"] = "LOGIN"
+				result["missingScopes"] = missingScopes
+				return runtime.business(result)
+			}
 			// Mirror the guard contract: an internal failure on the merchant
 			// read is retried once verbatim; a second failure stops.
 			accounts, err := runtime.client().ListMerchantAccounts(command.Context())

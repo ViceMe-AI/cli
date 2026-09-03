@@ -726,6 +726,18 @@ func (c *Client) UpdateListingTrialUseLimit(ctx context.Context, publicationID s
 	return c.UpdateListingDraftPatch(ctx, publicationID, UpdateSkillPublicationDraftRequest{TrialUseLimit: trialUseLimit})
 }
 
+// DisableListingTrialUseLimit sends an explicit JSON null: an omitted field
+// would keep the current value, so the pointer-based method above cannot
+// express "turn the trial off".
+func (c *Client) DisableListingTrialUseLimit(ctx context.Context, publicationID string) (SkillPublication, error) {
+	var response SkillPublication
+	body := struct {
+		TrialUseLimit any `json:"trialUseLimit"`
+	}{nil}
+	err := c.doJSON(ctx, http.MethodPatch, publicationPath(publicationID)+"/listing-draft", body, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) GetSkillDetail(ctx context.Context, productID string) (json.RawMessage, error) {
 	var response json.RawMessage
 	err := c.doJSON(ctx, http.MethodGet, "/v1/skills/"+url.PathEscape(productID), nil, &response, "")

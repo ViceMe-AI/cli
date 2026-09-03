@@ -250,10 +250,16 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				return output.Validation("SKILL_TRIAL_USE_LIMIT_REQUIRES_PRICE", "a trial use limit requires a positive --price-minor").WithHint("pass a positive --price-minor together with --trial-use-limit")
 			}
 			trialLimit := (*int)(nil)
+			trialDisabled := false
 			if trialConfirmed {
 				if trialUseLimit > 0 {
 					value := trialUseLimit
 					trialLimit = &value
+				} else {
+					// Explicit 0 disables the trial; it must not collapse
+					// into "not specified", which would inherit the live
+					// value on an update publication.
+					trialDisabled = true
 				}
 			}
 			store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
@@ -295,12 +301,17 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 					pending.PriceMinor = &priceMinor
 					if trialConfirmed {
 						pending.TrialUseLimit = trialLimit
+						pending.TrialDisabled = trialDisabled
+						pending.TrialDisabled = trialDisabled
+						pending.TrialDisabled = trialDisabled
 					}
 					if err := store.Save(pending); err != nil {
 						return err
 					}
 				} else if trialConfirmed {
 					pending.TrialUseLimit = trialLimit
+					pending.TrialDisabled = trialDisabled
+					pending.TrialDisabled = trialDisabled
 					if err := store.Save(pending); err != nil {
 						return err
 					}
@@ -366,6 +377,8 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				}
 				if trialConfirmed {
 					pending.TrialUseLimit = trialLimit
+					pending.TrialDisabled = trialDisabled
+					pending.TrialDisabled = trialDisabled
 				}
 				if err := store.Save(pending); err != nil {
 					return err
@@ -413,6 +426,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			}
 			if trialConfirmed {
 				pending.TrialUseLimit = trialLimit
+				pending.TrialDisabled = trialDisabled
 			}
 			if err := store.Save(pending); err != nil {
 				return err
@@ -801,8 +815,15 @@ func continueSkillPublication(ctx context.Context, runtime *Runtime, store publi
 			return err
 		}
 	}
-	// 试用次数与价格同一条售卖条款链:本地恢复态有值且服务端草稿不一致时补丁。
-	if pending.TrialUseLimit != nil && (current.Draft.TrialUseLimit == nil || *current.Draft.TrialUseLimit != *pending.TrialUseLimit) {
+	// 试用次数与价格同一条售卖条款链：本地恢复态有值且服务端草稿不一致时补丁。
+	// 三态：显式 0 以 JSON null 关闭；未指定则不动（更新路径继承在售值）。
+	switch {
+	case pending.TrialDisabled && current.Draft.TrialUseLimit != nil:
+		current, err = client.DisableListingTrialUseLimit(ctx, pending.PublicationID)
+		if err != nil {
+			return err
+		}
+	case pending.TrialUseLimit != nil && (current.Draft.TrialUseLimit == nil || *current.Draft.TrialUseLimit != *pending.TrialUseLimit):
 		current, err = client.UpdateListingTrialUseLimit(ctx, pending.PublicationID, pending.TrialUseLimit)
 		if err != nil {
 			return err
