@@ -340,27 +340,6 @@ func (c *Client) UpdateMerchantWork(ctx context.Context, workID string, input js
 	return response, err
 }
 
-func (c *Client) CreateMerchantWorkPreview(ctx context.Context, workID, merchantAccountID string, expectedRevision, expiresInSeconds int) (WorkPreviewGrant, error) {
-	var response WorkPreviewGrant
-	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/previews"
-	request := map[string]any{
-		"merchantAccountId":      merchantAccountID,
-		"expectedRevision":       expectedRevision,
-		"expiresInSeconds":       expiresInSeconds,
-		"allowedRepresentations": []string{"HTML", "MARKDOWN"},
-	}
-	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) RevokeMerchantWorkPreview(ctx context.Context, workID, grantID, merchantAccountID string) (WorkPreviewGrant, error) {
-	var response WorkPreviewGrant
-	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/previews/" + url.PathEscape(grantID)
-	request := map[string]any{"merchantAccountId": merchantAccountID}
-	err := c.doJSON(ctx, http.MethodDelete, endpoint, request, &response, "@stored")
-	return response, err
-}
-
 func (c *Client) CreateWebsiteVerification(ctx context.Context, workID string, request CreateWebsiteVerificationRequest) (WebsiteVerification, error) {
 	var response WebsiteVerification
 	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/website-verifications"
