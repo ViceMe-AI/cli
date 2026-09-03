@@ -93,6 +93,16 @@ func StableReleaseBaseURL(region Region) string {
 	return "https://s3.viceme.cn/start/cli/releases"
 }
 
+// AgentInstallDocURL is the agent-facing CLI installation contract injected
+// into trial gates. It mirrors the INSTALL_DOC_URL the Shop markdown
+// passphrase template already hands to agents.
+func AgentInstallDocURL(region Region) string {
+	if region == RegionGlobal {
+		return "https://s3.viceme.ai/start/agent-install.md"
+	}
+	return "https://s3.viceme.cn/start/agent-install.md"
+}
+
 // NormalizeAPIBaseURL returns the canonical persisted endpoint for a profile.
 // Remote endpoints must use HTTPS; loopback HTTP is intentionally supported
 // for local Shop development only.
