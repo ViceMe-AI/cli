@@ -55,8 +55,6 @@ type MerchantAccount struct {
 	CreatorAccountID *string `json:"creatorAccountId"`
 	DisplayName      string  `json:"displayName"`
 	Status           string  `json:"status"`
-	OwnershipStatus  string  `json:"ownershipStatus"`
-	ClaimProvider    *string `json:"claimProvider"`
 	StatusVersion    int     `json:"statusVersion"`
 }
 
@@ -105,13 +103,14 @@ type CreatorIdentity struct {
 	ProfilePath     string  `json:"profilePath"`
 	MarkdownPath    string  `json:"markdownPath"`
 	SuggestedHandle *string `json:"suggestedHandle"`
+	ProfileURL      string  `json:"profileUrl"`
+	MarkdownURL     string  `json:"markdownUrl"`
 }
 
 type GithubAuthorizationStart struct {
-	Kind             string              `json:"kind"`
-	AuthorizationURL *string             `json:"authorizationUrl"`
-	AttemptID        *string             `json:"attemptId"`
-	Onboarding       *MerchantOnboarding `json:"onboarding,omitempty"`
+	Kind             string  `json:"kind"`
+	AuthorizationURL *string `json:"authorizationUrl"`
+	AttemptID        *string `json:"attemptId"`
 }
 
 type GithubAuthorizationStatus struct {
@@ -1138,7 +1137,6 @@ type SkillAccess struct {
 	InstallKind       string                  `json:"installKind"`
 	PurchaseAvailable bool                    `json:"purchaseAvailable"`
 	PurchaseURL       *string                 `json:"purchaseUrl"`
-	UnavailableReason *string                 `json:"unavailableReason"`
 	Subscription      SkillAccessSubscription `json:"subscription"`
 	Trial             *SkillAccessTrial       `json:"trial"`
 	Edition           struct {
@@ -1221,23 +1219,22 @@ type PublicWorkActiveRelease struct {
 }
 
 type PublicWorkProduct struct {
-	ID                        string                   `json:"id"`
-	Slug                      string                   `json:"slug"`
-	Title                     string                   `json:"title"`
-	Summary                   string                   `json:"summary"`
-	Status                    string                   `json:"status"`
-	Visibility                string                   `json:"visibility"`
-	Currency                  string                   `json:"currency"`
-	MinimumPriceCents         int                      `json:"minimumPriceCents"`
-	MaximumPriceCents         int                      `json:"maximumPriceCents"`
-	IsFree                    bool                     `json:"isFree"`
-	InstallKind               *string                  `json:"installKind"`
-	PurchaseAvailable         bool                     `json:"purchaseAvailable"`
-	PurchaseUnavailableReason *string                  `json:"purchaseUnavailableReason"`
-	ActiveRelease             *PublicWorkActiveRelease `json:"activeRelease"`
-	Edition                   *PublicWorkEdition       `json:"edition"`
-	PriceAsOf                 string                   `json:"priceAsOf"`
-	BuyerFields               []struct {
+	ID                string                   `json:"id"`
+	Slug              string                   `json:"slug"`
+	Title             string                   `json:"title"`
+	Summary           string                   `json:"summary"`
+	Status            string                   `json:"status"`
+	Visibility        string                   `json:"visibility"`
+	Currency          string                   `json:"currency"`
+	MinimumPriceCents int                      `json:"minimumPriceCents"`
+	MaximumPriceCents int                      `json:"maximumPriceCents"`
+	IsFree            bool                     `json:"isFree"`
+	InstallKind       *string                  `json:"installKind"`
+	PurchaseAvailable bool                     `json:"purchaseAvailable"`
+	ActiveRelease     *PublicWorkActiveRelease `json:"activeRelease"`
+	Edition           *PublicWorkEdition       `json:"edition"`
+	PriceAsOf         string                   `json:"priceAsOf"`
+	BuyerFields       []struct {
 		Key         string `json:"key"`
 		Label       string `json:"label"`
 		Kind        string `json:"kind"`

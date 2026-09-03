@@ -67,7 +67,7 @@ GitHub 来源在读取任何仓库内容或执行发布命令前，必须只启�
 
 GitHub 或小红书来源会把取得的不可变归档保存到 CLI 私有恢复目录，使 `--resume` 不会重新取得不同字节。`--github-path` 选择根目录含 `SKILL.md` 的仓库子目录；服务端先把 ref 解析为不可变 commit，CLI 只打包该目录。小红书名称搜索不得猜测；多个已验证结果匹配时，展示全部候选，再用用户选择的 `--xiaohongshu-skill-id` 重跑。
 
-已有商家的 OWNER 可以验证额外小红书发布渠道，不进入商家认领。运行 `viceme merchant channel xiaohongshu <merchant-id> --subject-id ... --account-name ...`，上传返回的申请证据并提交 Admin 审核。渠道批准只为现有 OWNER 记录已验证来源身份，不创建或转移 Merchant。
+已有商家的 OWNER 可以验证额外小红书发布渠道。运行 `viceme merchant channel xiaohongshu <merchant-id> --subject-id ... --account-name ...`，上传返回的申请证据并提交 Admin 审核。渠道批准只为现有 OWNER 记录已验证来源身份，不创建或转移 Merchant。
 
 一个作品是一个 skill 组合：里面可以有很多个 skill，各自独立定价、独立购买。组合内每个条目用 `--edition-key`、`--edition-title`、`--edition-order` 和 `--edition-highlight` 这组内部参数表达，全部由 Agent 自动派生，绝不向用户询问。这里“派生”包括按上述规则原样复用已选条目的 key/order；仅新条目才从标题生成未占用的 key（例如 “Xiaohongshu Cover Generator” → “xiaohongshu-cover-generator”）。highlights 可省略让 CLI 用包简介；用户明确指定内部值时也必须校验其与已确认操作一致。
 
