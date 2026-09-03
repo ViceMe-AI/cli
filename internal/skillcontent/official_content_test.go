@@ -919,6 +919,47 @@ func TestWebsiteReplicaUsesPublishedWebsiteWithoutDNSVerification(t *testing.T) 
 	}
 }
 
+func TestWebsiteReplicaKeepsInvitationShortAndBuyerStepsInSkill(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-others-make-a-copy/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"接受一起创作邀请",
+		"`{创作者用户名} 邀请我一起创作「{作品名称}」，参考 {作品详情页.md地址} 立刻开始吧～`",
+		"该地址就是本次网站 ID", "具体步骤只由本 Skill 维护", "$creator-tools",
+		"webBaseUrl` 与详情地址 Origin 精确一致", "平台控制区", "viceme replica install",
+		"PRESENT_PAYMENT_QR", "VICEME-REPLICA.md", "不得覆盖已有目录",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Website Replica Skill omitted short-invitation buyer contract %q", required)
+		}
+	}
+}
+
+func TestWebsiteReplicaCreatorEntryStaysCompactAndUsesApprovedCopy(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-others-make-a-copy/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"右下角紧凑浮动入口", "`✨ 喜欢这个网站？作者已授权你一键复刻`", "不占据文档流",
+		"安全区", "不遮挡核心操作", "至少 44×44 px", "入口上方短暂显示",
+		"`口令已复制！`", "`粘贴到你的 Agent，即可生成同款，并继续修改成你的版本。`",
+		"不添加卡片、横幅、整宽 CTA 或额外营销说明",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Website Replica Skill omitted compact creator entry contract %q", required)
+		}
+	}
+}
+
 func TestInteractionPreflightsSelectedExactReleaseBeforeMutation(t *testing.T) {
 	t.Parallel()
 
