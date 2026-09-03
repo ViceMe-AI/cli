@@ -807,11 +807,18 @@ func (c *Client) GetProduct(ctx context.Context, productID string) (CommerceProd
 // GetOrder reads one of the current user's orders by order number, including
 // its payment action, so a pending purchase can be recovered and re-presented.
 func (c *Client) GetOrder(ctx context.Context, orderNo string) (CommerceOrder, error) {
-	var response struct {
-		Order CommerceOrder `json:"order"`
-	}
+	var response CommerceOrder
 	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/orders/"+url.PathEscape(orderNo), nil, &response, "@stored")
-	return response.Order, err
+	return response, err
+}
+
+// ResumeSkillOrderPayment reuses the existing order and Shop's fenced payment
+// creation. It never creates a new purchase or changes the order amount.
+func (c *Client) ResumeSkillOrderPayment(ctx context.Context, orderNo, locale string) (CommerceOrder, error) {
+	var response CommerceOrder
+	input, _ := json.Marshal(map[string]string{"locale": locale})
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/orders/"+url.PathEscape(orderNo)+"/skill-payment", json.RawMessage(input), &response, "@stored")
+	return response, err
 }
 
 // ListOrdersByStatus lists the current user's orders filtered by status.
