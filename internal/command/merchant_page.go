@@ -39,11 +39,43 @@ type pagePreviewResult struct {
 
 func newMerchantPageCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "page", Short: "Preview, publish, and roll back custom creator and Work pages"}
+	command.AddCommand(newMerchantPageDescribeCommand(runtime))
 	command.AddCommand(newMerchantPageInspectCommand(runtime))
 	command.AddCommand(newMerchantPagePreviewCommand(runtime))
 	command.AddCommand(newMerchantPageStatusCommand(runtime))
 	command.AddCommand(newMerchantPageReleaseCommand(runtime, "publish"))
 	command.AddCommand(newMerchantPageReleaseCommand(runtime, "activate"))
+	return command
+}
+
+func newMerchantPageDescribeCommand(runtime *Runtime) *cobra.Command {
+	var targetURL, merchantAccountID string
+	command := &cobra.Command{
+		Use:   "describe",
+		Short: "Describe the platform data and actions available to one page target",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			target, err := parsePageTargetURL(targetURL)
+			if err != nil {
+				return err
+			}
+			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), false); err != nil {
+				return err
+			}
+			merchant, err := resolveSkillPublicationMerchant(command.Context(), runtime, merchantAccountID)
+			if err != nil {
+				return err
+			}
+			result, err := runtime.client().DescribePageCustomizationTarget(command.Context(), merchant.ID, target)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
+		},
+	}
+	command.Flags().StringVar(&targetURL, "target", "", "exact ViceMe creator or Work URL")
+	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID; optional when exactly one active account exists")
+	_ = command.MarkFlagRequired("target")
 	return command
 }
 

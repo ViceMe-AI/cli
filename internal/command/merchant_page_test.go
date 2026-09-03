@@ -47,7 +47,7 @@ func TestMerchantPagePreviewUsesScopedAuthAndPresignedUpload(t *testing.T) {
 			}}})
 		case "/v1/cli/merchant/page-customizations/drafts":
 			body, _ := io.ReadAll(request.Body)
-			if !strings.Contains(string(body), `"contractVersion":"2026-09-05"`) || !strings.Contains(string(body), `"creatorHandle":"alice-maker"`) {
+			if !strings.Contains(string(body), `"contractVersion":"2026-09-06"`) || !strings.Contains(string(body), `"creatorHandle":"alice-maker"`) {
 				t.Fatalf("unexpected draft body: %s", body)
 			}
 			writeJSONResponse(writer, map[string]any{"release": pageTestRelease("UPLOADING")})
@@ -111,6 +111,55 @@ func TestMerchantPagePreviewUsesScopedAuthAndPresignedUpload(t *testing.T) {
 	}
 	if strings.Join(requests, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("request sequence mismatch:\n%v\nwant:\n%v", requests, want)
+	}
+}
+
+func TestMerchantPageDescribeReturnsTargetSpecificCapabilities(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/cli/auth/status":
+			writeJSONResponse(writer, map[string]any{
+				"authenticated": true,
+				"user":          map[string]any{"id": "33333333-3333-4333-8333-333333333333", "displayName": "Creator", "avatarUrl": nil},
+				"scopes":        []string{"merchant-commerce:read"}, "expiresAt": "2027-08-21T00:00:00Z",
+			})
+		case "/v1/cli/merchant/accounts":
+			writeJSONResponse(writer, map[string]any{"items": []any{map[string]any{
+				"id": pageTestMerchantID, "creatorAccountId": "44444444-4444-4444-8444-444444444444",
+				"displayName": "Creator", "status": "ACTIVE", "ownershipStatus": "OWNED", "statusVersion": 1,
+			}}})
+		case "/v1/cli/merchant/page-customizations/describe":
+			if request.URL.Query().Get("targetType") != "WORK" || request.URL.Query().Get("creatorHandle") != "alice-maker" || request.URL.Query().Get("workSlug") != "writing-skill" {
+				t.Fatalf("unexpected target query: %s", request.URL.RawQuery)
+			}
+			writeJSONResponse(writer, map[string]any{
+				"target":       map[string]any{"type": "WORK", "creatorHandle": "alice-maker", "workSlug": "writing-skill"},
+				"manifestKind": "WorkPage", "sdkVersion": "1", "contextSchema": "viceme.work-page-context/v1",
+				"capabilityGroups": []any{map[string]any{
+					"category": "SOCIAL",
+					"capabilities": []any{map[string]any{
+						"capability": "work.like", "targets": []string{"WORK"},
+						"methods": []any{map[string]any{"method": "work.like.set", "call": "work.setLiked", "access": "USER", "effect": "WRITE"}},
+					}},
+				}},
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.String())
+		}
+	}))
+	defer server.Close()
+	t.Setenv(processAccessTokenEnvironment, pageTestToken)
+
+	root := t.TempDir()
+	var stdout bytes.Buffer
+	exit := Execute([]string{
+		"merchant", "page", "describe", "--target", "https://viceme.cn/alice-maker/writing-skill", "--merchant", pageTestMerchantID,
+	}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), HTTPClient: server.Client(), APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit != 0 || !strings.Contains(stdout.String(), `"work.like"`) {
+		t.Fatalf("describe failed: exit=%d output=%s", exit, stdout.String())
 	}
 }
 

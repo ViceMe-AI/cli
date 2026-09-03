@@ -18,6 +18,7 @@ import (
 var officialSkillNames = []string{
 	"charge-for-your-work",
 	"become-a-creator",
+	"customize-your-page",
 	"sell-a-skill",
 	"creator-tools",
 	"use-a-skill",
@@ -96,6 +97,16 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			semantics: []string{
 				"不创建平行申请", "直接申请模式不再确认", "玩法守卫模式",
 				"申请中", "交回调用玩法",
+			},
+		},
+		{
+			name: "customize-your-page",
+			machine: []string{
+				"$become-a-creator", "viceme merchant page describe", "viceme merchant page inspect",
+				"viceme merchant page preview", "viceme merchant page publish", "viceme-page.json", "window.viceme",
+			},
+			semantics: []string{
+				"作者页和作品页共用", "不做源码安全审计", "预览不等于公开发布",
 			},
 		},
 		{

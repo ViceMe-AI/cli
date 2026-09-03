@@ -35,14 +35,6 @@ func TestInspectRejectsUnsafePagePackages(t *testing.T) {
 		code    string
 	}{
 		{
-			name: "network access",
-			entries: map[string]string{
-				"viceme-page.json": validManifest("CreatorPage"),
-				"dist/index.html":  "<script>fetch('https://evil.example')</script>",
-			},
-			code: "PAGE_ENTRY_UNSUPPORTED_FEATURE",
-		},
-		{
 			name: "traversal",
 			entries: map[string]string{
 				"viceme-page.json": validManifest("CreatorPage"),
@@ -67,24 +59,6 @@ func TestInspectRejectsUnsafePagePackages(t *testing.T) {
 			},
 			code: "PAGE_MANIFEST_INVALID",
 		},
-		{
-			name: "network access in script asset",
-			entries: map[string]string{
-				"viceme-page.json": validManifest("CreatorPage"),
-				"dist/index.html":  `<script src="./app.js"></script>`,
-				"dist/app.js":      `fetch("https://evil.example")`,
-			},
-			code: "PAGE_ENTRY_UNSUPPORTED_FEATURE",
-		},
-		{
-			name: "secret in script asset",
-			entries: map[string]string{
-				"viceme-page.json": validManifest("CreatorPage"),
-				"dist/index.html":  `<script src="./app.js"></script>`,
-				"dist/app.js":      `const access_token = "abcdefghijklmnopqrstuvwxyz123456"`,
-			},
-			code: "PAGE_PACKAGE_SECRET_DETECTED",
-		},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -93,6 +67,26 @@ func TestInspectRejectsUnsafePagePackages(t *testing.T) {
 				t.Fatalf("got error %v, want %s", err, testCase.code)
 			}
 		})
+	}
+}
+
+func TestInspectAllowsOrdinaryBrowserFeaturesAndFlexibleLayouts(t *testing.T) {
+	manifest := strings.Replace(validManifest("CreatorPage"), `dist/index.html`, `首页.html`, 1)
+	archive := writePageZIP(t, map[string]string{
+		"viceme-page.json":   manifest,
+		"首页.html":            `<iframe src="https://example.com"></iframe><script src="https://cdn.example.com/app.js"></script>`,
+		"legal/privacy.html": "<h1>Privacy</h1>",
+		"assets/app.js":      `const access_token = "demo-value"; fetch("https://api.example.com/data")`,
+		"assets/model.bin":   "binary-like-content",
+		".env.example":       "PUBLIC_API_BASE=https://api.example.com",
+	})
+
+	pkg, err := Inspect(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pkg.Manifest.Spec.Entry != "首页.html" || pkg.FileCount != 6 {
+		t.Fatalf("flexible package was not preserved: %#v", pkg)
 	}
 }
 

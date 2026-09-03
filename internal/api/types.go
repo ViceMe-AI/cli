@@ -3,7 +3,7 @@ package api
 import "encoding/json"
 
 const SkillPublicationContractVersion = "2026-08-27"
-const PageCustomizationContractVersion = "2026-09-05"
+const PageCustomizationContractVersion = "2026-09-06"
 
 type DeviceAuthorizationRequest struct {
 	ClientName string   `json:"clientName"`
@@ -175,6 +175,32 @@ type PageCustomizationTarget struct {
 	Type          string `json:"type"`
 	CreatorHandle string `json:"creatorHandle"`
 	WorkSlug      string `json:"workSlug,omitempty"`
+}
+
+type PageCustomizationMethodDescriptor struct {
+	Method string `json:"method"`
+	Call   string `json:"call"`
+	Access string `json:"access"`
+	Effect string `json:"effect"`
+}
+
+type PageCustomizationCapabilityDescriptor struct {
+	Capability string                              `json:"capability"`
+	Targets    []string                            `json:"targets"`
+	Methods    []PageCustomizationMethodDescriptor `json:"methods"`
+}
+
+type PageCustomizationCapabilityGroup struct {
+	Category     string                                  `json:"category"`
+	Capabilities []PageCustomizationCapabilityDescriptor `json:"capabilities"`
+}
+
+type PageCustomizationTargetDescription struct {
+	Target           PageCustomizationTarget            `json:"target"`
+	ManifestKind     string                             `json:"manifestKind"`
+	SDKVersion       string                             `json:"sdkVersion"`
+	ContextSchema    string                             `json:"contextSchema"`
+	CapabilityGroups []PageCustomizationCapabilityGroup `json:"capabilityGroups"`
 }
 
 type PageCustomizationManifestMetadata struct {
@@ -1242,8 +1268,8 @@ type DownloadURL struct {
 
 /** 付费 Skill 的试用块:available=该款配置了试用次数。 */
 type SkillAccessTrial struct {
-	Available  bool `json:"available"`
-	LimitUses  int  `json:"limitUses"`
+	Available bool `json:"available"`
+	LimitUses int  `json:"limitUses"`
 }
 
 type skillTrialGrantRequest struct {
@@ -1251,9 +1277,9 @@ type skillTrialGrantRequest struct {
 }
 
 type SkillTrialGrant struct {
-	InstallID     string  `json:"installId"`
-	LimitUses     int     `json:"limitUses"`
-	RemainingUses int     `json:"remainingUses"`
+	InstallID     string `json:"installId"`
+	LimitUses     int    `json:"limitUses"`
+	RemainingUses int    `json:"remainingUses"`
 	// Secret 仅在首次发放时非空;服务端只存哈希,丢失后只能换新的 installId。
 	Secret *string `json:"secret"`
 }

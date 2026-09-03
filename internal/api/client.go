@@ -294,6 +294,19 @@ func (c *Client) GetMerchantWork(ctx context.Context, workID, merchantAccountID 
 
 func (c *Client) GetPageCustomizationState(ctx context.Context, merchantAccountID string, target PageCustomizationTarget) (PageCustomizationState, error) {
 	var response PageCustomizationState
+	query := pageCustomizationTargetQuery(merchantAccountID, target)
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/page-customizations?"+query.Encode(), nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) DescribePageCustomizationTarget(ctx context.Context, merchantAccountID string, target PageCustomizationTarget) (PageCustomizationTargetDescription, error) {
+	var response PageCustomizationTargetDescription
+	query := pageCustomizationTargetQuery(merchantAccountID, target)
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/page-customizations/describe?"+query.Encode(), nil, &response, "@stored")
+	return response, err
+}
+
+func pageCustomizationTargetQuery(merchantAccountID string, target PageCustomizationTarget) url.Values {
 	query := url.Values{
 		"merchantAccountId": {merchantAccountID},
 		"targetType":        {target.Type},
@@ -302,8 +315,7 @@ func (c *Client) GetPageCustomizationState(ctx context.Context, merchantAccountI
 	if target.WorkSlug != "" {
 		query.Set("workSlug", target.WorkSlug)
 	}
-	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/page-customizations?"+query.Encode(), nil, &response, "@stored")
-	return response, err
+	return query
 }
 
 func (c *Client) CreatePageCustomizationDraft(ctx context.Context, request CreatePageCustomizationDraftRequest) (CreatePageCustomizationDraftResponse, error) {
