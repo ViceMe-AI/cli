@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -315,10 +316,21 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			if !hasCredential {
 				return output.Policy("SKILL_TRIAL_GRANT_MISSING", "this machine has no active trial grant for the Skill edition").WithDetails(map[string]any{"productId": productID}).WithHint("run 'viceme skill install <product-id-or-work-url>' first; a paid edition with a trial offer installs the trial without login")
 			}
-			use, err := runtime.client().ConsumeSkillTrialUse(command.Context(), productID, credential.InstallID, credential.Secret)
+			requestID, err := beginTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID, time.Now())
 			if err != nil {
 				return err
 			}
+			use, err := runtime.client().ConsumeSkillTrialUse(command.Context(), productID, credential.InstallID, credential.Secret, requestID)
+			if err != nil {
+				// 只有响应未送达(网络层失败)才保留 pending 供重试复用同一
+				// 幂等键;拿到明确失败响应时本次键的生命周期已结束。
+				var cliErr *output.Error
+				if !(errors.As(err, &cliErr) && cliErr.Type == "network") {
+					confirmTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID)
+				}
+				return err
+			}
+			confirmTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID)
 			if use.Allowed {
 				lastUse := use.RemainingUses != nil && *use.RemainingUses == 0
 				return runtime.business(skillTrialUseResult{
