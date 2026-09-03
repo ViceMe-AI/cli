@@ -1,4 +1,4 @@
 interface:
   display_name: "接入 ViceMe 互动"
   short_description: "分支接入弹幕、开放赞赏或两者"
-  default_prompt: "使用 $let-people-interact 先判断仅弹幕、仅赞赏或弹幕加赞赏，再按对应的 Work、市场、Origin 与官方 Mounted/Headless SDK 边界完成接入。"
+  default_prompt: "使用 $let-people-interact 先判断仅弹幕、仅赞赏或弹幕加赞赏，默认采用官方 Mounted UI；仅在我明确要求自定义 Tip UI 时进入 Headless，并按需读取对应合同完成有界接入。"
