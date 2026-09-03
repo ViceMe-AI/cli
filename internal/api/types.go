@@ -977,15 +977,8 @@ type CreateWebsiteReplicaOrderRequest struct {
 }
 
 type WebsiteReplicaPaymentAction struct {
-	Type      string `json:"-"`
-	URL       string `json:"-"`
-	Content   string `json:"-"`
-	AppID     string `json:"-"`
-	TimeStamp string `json:"-"`
-	NonceStr  string `json:"-"`
-	Package   string `json:"-"`
-	SignType  string `json:"-"`
-	PaySign   string `json:"-"`
+	Type    string `json:"-"`
+	Content string `json:"-"`
 }
 
 type WebsiteReplicaOrder struct {

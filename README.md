@@ -273,7 +273,7 @@ Never copy an access token into the conversation.
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
 | `viceme replica publish ...` | Validate a complete source ZIP with a root `VICEME-REPLICA.md`, publish an immutable version, and return the stable code and creator-site prompts. |
-| `viceme replica install <code> --target <new-directory>` | Create and display the authoritative Quote without an order; rerun with `--confirm` only after the buyer explicitly approves it. |
+| `viceme replica install <code> --target <new-directory>` | Create and display the authoritative Quote without an order; after explicit confirmation, return a private local WeChat QR image for Agent rendering, then resume the same order until paid before atomic installation. |
 | `viceme update` | Update the CLI and matching official Skills together. |
 | `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
 | `viceme merchant work ...` | Create, inspect, update, and publish Merchant Works, including Website Works. |
