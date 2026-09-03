@@ -93,9 +93,9 @@ viceme auth login
 viceme merchant accounts
 
 # Upload the real private draft and open its Owner Preview before pricing.
-viceme skill publish --path ./my-skill
+viceme skill publish --path ./my-skill --edition-key my-skill --edition-order 0
 # With multiple active Merchant accounts, select the confirmed account:
-# viceme skill publish --path ./my-skill --merchant <merchant-account-id>
+# viceme skill publish --path ./my-skill --edition-key my-skill --edition-order 0 --merchant <merchant-account-id>
 
 # Continue the same unpriced draft and upload media candidates.
 viceme skill publish --resume <publication-id>
@@ -169,13 +169,12 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `creator-tools` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
 | `become-a-creator` | apply for, claim, or check creator qualification for every creator workflow. |
 | `sell-a-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
-| `viceme-skill-use` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
-| `charge-for-your-work` | integrate an existing website access configuration into host code after the shared creator qualification check. |
+| `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
+| `charge-for-your-work` | configure follow or paid unlock for an existing website and integrate it into host code after the shared creator qualification check; platform resources stay internal. |
 | `let-people-interact` | branch between danmaku, open tips, or both; danmaku-bearing routes require a published Website Work with an exact canonical Origin, while Tip can use any eligible published Merchant Work and either Mounted or Headless UI; none requires DNS ownership verification. |
+| `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site. |
 
-`let-others-make-a-copy` is the reserved public name for remix delivery, but no official Skill is
-available until that product workflow is implemented. Buyer-side `viceme-skill-use` keeps its
-existing name because it is not a creator workflow.
+Buyer-side `use-a-skill` keeps its existing name because it is not a creator workflow.
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
 owns deterministic local work and API calls. This separation lets an Agent
@@ -261,7 +260,7 @@ Never copy an access token into the conversation.
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |
 | `viceme skill listing get <listing-id>` | Read the authoritative private Listing state. |
 | `viceme skill listing bind <listing-id> --path <path>` | Explicitly bind a source to a selected owned Listing. |
-| `viceme skill publish --path <path> [--merchant <id>]` | Freeze the selected owned Merchant, upload the real private package, and return its Owner Preview before pricing. The flag is required only when multiple active Merchants exist. |
+| `viceme skill publish --path <path> --edition-key <key> --edition-order <order> [--merchant <id>]` | Freeze the selected owned Merchant, upload the real private package, and return its Owner Preview before pricing. Edition selection is always explicit; --merchant is required only when multiple active Merchants exist. |
 | `viceme skill publish --resume <id>` | Continue the same unpriced Draft and upload media candidates without starting a platform model. |
 | `viceme publication review <id>` | Read the authoritative bilingual copy, price, selected media, and review state. |
 | `viceme publication suggest <id> --input ...` | Apply Agent-generated bilingual copy and media with Draft revision protection. |
@@ -272,6 +271,8 @@ Never copy an access token into the conversation.
 | `viceme publication update ...` | Replace the complete listing draft from a strict JSON file. |
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
+| `viceme replica publish ...` | Validate a complete source ZIP with a root `VICEME-REPLICA.md`, publish an immutable version, and return the stable code and creator-site prompts. |
+| `viceme replica install <code> --target <new-directory>` | Create and display the authoritative Quote without an order; rerun with `--confirm` only after the buyer explicitly approves it. |
 | `viceme update` | Update the CLI and matching official Skills together. |
 | `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
 | `viceme merchant work ...` | Create, inspect, update, and publish Merchant Works, including Website Works. |
@@ -288,14 +289,18 @@ The page hosting Tip UI and the selected Work are separate resources. No
 engagement route requires Website ownership or DNS verification. A Tip-only
 integration does not register the host as a Website Work. Danmaku-only and
 combined routes still use a published Website Work whose canonical Origin
-exactly matches the deployment Origin.
+exactly matches the deployment Origin. The current release likewise does not
+require DNS TXT verification or a registered embedding Origin for Website
+follow/paid access.
 
 The combined route uses one published Website Work because danmaku requires
 that identity. Tip itself adds no domain or Commerce Application gate, and
 engagement does not create or mutate Website Widget applications. Website
-follow/paid access and its `WEBSITE_WIDGET`/`HOSTED_CHECKOUT` resources retain
-their ownership-verification rules and remain owned by publishing and the Shop
-platform.
+follow/paid access and its platform-managed `WEBSITE_WIDGET` resources are
+provisioned internally by the charging flow and Shop, with no Origin/DNS or
+checkout-parent gate.
+Separately configured domain-bound `HOSTED_CHECKOUT` applications and signed
+webhooks retain their ownership-verification rules.
 
 Without matching optional trusted-source attribution, ViceMe still records the
 actual browser source as an unverified Origin; it does not reject an open tip.
@@ -339,7 +344,9 @@ stops the original command so an older process cannot perform a mutation after
 a failed generation change.
 
 An npm installation continues the original command automatically on every
-supported platform. A standalone Windows binary may return the retryable code
+supported platform, including commands started from an older `npx` cache. The
+continuation uses the activated global package after checking its exact version.
+A standalone Windows binary may return the retryable code
 `AUTO_UPDATE_RESTART_REQUIRED` once while Windows releases the old executable;
 rerunning the exact command completes under the new generation.
 

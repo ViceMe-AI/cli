@@ -30,6 +30,8 @@ var (
 	testWorkSdkKeyPattern       = regexp.MustCompile(`^wrk_test_[A-Za-z0-9_-]{4,119}$`)
 	accessWorkFeatureKeyPattern = regexp.MustCompile(`^[a-z][a-z0-9_-]{1,63}$`)
 	uuidPattern                 = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	websiteReplicaCodePattern   = regexp.MustCompile(`^VMR-[A-Z0-9]{20}$`)
+	sha256HexPattern            = regexp.MustCompile(`^[a-f0-9]{64}$`)
 	shopURLParser               = whatwgurl.NewParser(whatwgurl.WithPathPercentEncodeSet(whatwgurl.PathPercentEncodeSet.Set('^')))
 )
 
@@ -645,6 +647,39 @@ func (c *Client) DownloadArtifact(ctx context.Context, rawURL string) ([]byte, e
 	return data, nil
 }
 
+func (c *Client) DownloadPresigned(ctx context.Context, rawURL string, destination io.Writer, maxBytes int64) (int64, error) {
+	if maxBytes < 1 {
+		return 0, output.Validation("REPLICA_DOWNLOAD_LIMIT_INVALID", "Website Replica download limit is invalid")
+	}
+	if err := validateUploadURL(rawURL); err != nil {
+		return 0, output.Validation("REPLICA_DOWNLOAD_URL_INVALID", "Website Replica download URL must use HTTPS; loopback HTTP is allowed only for development")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return 0, output.Internal("REPLICA_DOWNLOAD_REQUEST_INVALID", "failed to create Website Replica download request", err)
+	}
+	response, err := withoutRedirects(c.uploadClient()).Do(request)
+	if err != nil {
+		return 0, output.Network("REPLICA_DOWNLOAD_FAILED", "failed to download the Website Replica source package", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+		return 0, output.Network("REPLICA_DOWNLOAD_REJECTED", fmt.Sprintf("Website Replica download endpoint returned HTTP %d", response.StatusCode), nil)
+	}
+	if response.ContentLength > maxBytes {
+		return 0, output.Validation("REPLICA_DOWNLOAD_TOO_LARGE", "Website Replica download exceeds the authorized size")
+	}
+	written, err := io.Copy(destination, io.LimitReader(response.Body, maxBytes+1))
+	if err != nil {
+		return written, output.Network("REPLICA_DOWNLOAD_FAILED", "failed while streaming the Website Replica source package", err)
+	}
+	if written > maxBytes {
+		return written, output.Validation("REPLICA_DOWNLOAD_TOO_LARGE", "Website Replica download exceeds the authorized size")
+	}
+	return written, nil
+}
+
 func (c *Client) GetPublicSkillAccess(ctx context.Context, productID string) (SkillAccess, error) {
 	var response SkillAccess
 	endpoint := "/v1/skills/" + url.PathEscape(productID) + "/access"
@@ -671,6 +706,33 @@ func (c *Client) GetOwnedSkillDownload(ctx context.Context, productID string) (D
 	endpoint := "/v1/cli/skills/" + url.PathEscape(productID) + "/download"
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
 	return response, err
+}
+
+// Skill trial endpoints stay anonymous: the install device holds its own
+// grant (installId + one-time secret); no login is required to trial.
+func (c *Client) CreateSkillTrialGrant(ctx context.Context, productID, installID string) (SkillTrialGrant, error) {
+	var response SkillTrialGrant
+	endpoint := "/v1/skills/" + url.PathEscape(productID) + "/trial-grants"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, skillTrialGrantRequest{InstallID: installID}, &response, "")
+	return response, err
+}
+
+func (c *Client) ConsumeSkillTrialUse(ctx context.Context, productID, installID, secret string) (SkillTrialUse, error) {
+	var response SkillTrialUse
+	endpoint := "/v1/skills/" + url.PathEscape(productID) + "/trial-use"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, skillTrialUseRequest{InstallID: installID, Secret: secret}, &response, "")
+	return response, err
+}
+
+func (c *Client) GetTrialSkillDownload(ctx context.Context, productID, installID string) (DownloadURL, error) {
+	var response DownloadURL
+	endpoint := "/v1/downloads/trial/" + url.PathEscape(productID) + "?installId=" + url.QueryEscape(installID)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "")
+	return response, err
+}
+
+func (c *Client) UpdateListingTrialUseLimit(ctx context.Context, publicationID string, trialUseLimit *int) (SkillPublication, error) {
+	return c.UpdateListingDraftPatch(ctx, publicationID, UpdateSkillPublicationDraftRequest{TrialUseLimit: trialUseLimit})
 }
 
 func (c *Client) GetSkillDetail(ctx context.Context, productID string) (json.RawMessage, error) {
@@ -723,6 +785,25 @@ func (c *Client) CreateCommerceOrder(ctx context.Context, input json.RawMessage,
 	return response, err
 }
 
+// Buyer endpoints authenticate the CLI credential and reuse the Shop commerce domains.
+func (c *Client) CreateBuyerQuote(ctx context.Context, input json.RawMessage) (ProductQuote, error) {
+	var response ProductQuote
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/product-quotes", input, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreateBuyerOrder(ctx context.Context, input json.RawMessage) (CreateOrderResponse, error) {
+	var response CreateOrderResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/orders", input, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetBuyerOrderStatus(ctx context.Context, orderNo string) (OrderStatusResponse, error) {
+	var response OrderStatusResponse
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/orders/"+url.PathEscape(orderNo)+"/status", nil, &response, "@stored")
+	return response, err
+}
+
 // GetProduct loads the buyer-facing product projection (including the active
 // sales-spec SKUs) used to build a purchase quote. The endpoint accepts
 // anonymous reads, but the purchase flow always runs authenticated.
@@ -738,15 +819,15 @@ func (c *Client) GetOrder(ctx context.Context, orderNo string) (CommerceOrder, e
 	var response struct {
 		Order CommerceOrder `json:"order"`
 	}
-	err := c.doJSON(ctx, http.MethodGet, "/v1/orders/"+url.PathEscape(orderNo), nil, &response, "@stored")
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/orders/"+url.PathEscape(orderNo), nil, &response, "@stored")
 	return response.Order, err
 }
 
 // ListOrdersByStatus lists the current user's orders filtered by status.
 func (c *Client) ListOrdersByStatus(ctx context.Context, status string) (MyOrdersResponse, error) {
 	var response MyOrdersResponse
-	endpoint := "/v1/orders?status=" + url.QueryEscape(status)
-	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "")
+	endpoint := "/v1/cli/orders?status=" + url.QueryEscape(status)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
 	return response, err
 }
 
@@ -754,7 +835,7 @@ func (c *Client) ListOrdersByStatus(ctx context.Context, status string) (MyOrder
 // current user with an explicit payment channel action.
 func (c *Client) CreateCreatorSubscriptionOrder(ctx context.Context, input json.RawMessage) (CreatePaymentResponse, error) {
 	var response CreatePaymentResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/creator-subscription-orders", input, &response, "@stored")
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/creator-subscription-orders", input, &response, "@stored")
 	return response, err
 }
 
@@ -762,7 +843,7 @@ func (c *Client) CreateCreatorSubscriptionOrder(ctx context.Context, input json.
 // payment status for the current user.
 func (c *Client) GetCreatorSubscriptionOrderStatus(ctx context.Context, orderNo string) (PaymentStatusResponse, error) {
 	var response PaymentStatusResponse
-	endpoint := "/v1/creator-subscription-orders/" + url.PathEscape(orderNo)
+	endpoint := "/v1/cli/creator-subscription-orders/" + url.PathEscape(orderNo)
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
 	return response, err
 }
@@ -861,6 +942,69 @@ func (c *Client) CompleteUpload(ctx context.Context, publicationID, uploadID str
 	var response SkillPublication
 	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/complete-upload", CompleteUploadRequest{UploadID: uploadID}, &response, "@stored")
 	return response, err
+}
+
+func (c *Client) CreateWebsiteReplicaUpload(ctx context.Context, request CreateWebsiteReplicaUploadRequest) (CreateWebsiteReplicaUploadResponse, error) {
+	var response CreateWebsiteReplicaUploadResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/uploads", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CompleteWebsiteReplicaUpload(ctx context.Context, replicaID, uploadID string) (CompleteWebsiteReplicaUploadResponse, error) {
+	var response CompleteWebsiteReplicaUploadResponse
+	endpoint := "/v1/website-replicas/" + url.PathEscape(replicaID) + "/uploads/" + url.PathEscape(uploadID) + "/complete"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, "@stored")
+	if err == nil && response.ReplicaID != replicaID {
+		err = invalidAPIResponse(errors.New("Website Replica publication response does not match the requested Replica"))
+	}
+	return response, err
+}
+
+func (c *Client) ResolveWebsiteReplica(ctx context.Context, code string) (WebsiteReplicaResolution, error) {
+	var response WebsiteReplicaResolution
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/resolve", ResolveWebsiteReplicaRequest{Instruction: code}, &response, "@stored")
+	if err == nil && code != "VICEME-REPLICA:"+response.ShortCode {
+		err = invalidAPIResponse(errors.New("Website Replica resolution does not match the requested code"))
+	}
+	return response, err
+}
+
+func (c *Client) CreateWebsiteReplicaQuote(ctx context.Context, request CreateWebsiteReplicaQuoteRequest) (WebsiteReplicaQuote, error) {
+	var response WebsiteReplicaQuote
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/quotes", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreateWebsiteReplicaOrder(ctx context.Context, request CreateWebsiteReplicaOrderRequest) (WebsiteReplicaOrder, error) {
+	var response WebsiteReplicaOrder
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/orders", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetWebsiteReplicaOrderStatus(ctx context.Context, orderNo string) (WebsiteReplicaOrderStatus, error) {
+	var response WebsiteReplicaOrderStatus
+	endpoint := "/v1/website-replicas/orders/" + url.PathEscape(orderNo) + "/status"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	if err == nil && response.OrderNo != orderNo {
+		err = invalidAPIResponse(errors.New("Website Replica order status is invalid"))
+	}
+	return response, err
+}
+
+func (c *Client) GetWebsiteReplicaDownload(ctx context.Context, shortCode string) (WebsiteReplicaDownload, error) {
+	var response WebsiteReplicaDownload
+	endpoint := "/v1/website-replicas/" + url.PathEscape(shortCode) + "/download"
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	return response, err
+}
+
+func validWebsiteReplicaOrderStatus(status string) bool {
+	switch status {
+	case "PENDING", "PAID", "CLOSED":
+		return true
+	default:
+		return false
+	}
 }
 
 func (c *Client) AnalyzeListing(ctx context.Context, publicationID string) (SkillPublication, error) {
@@ -1121,8 +1265,14 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 	if len(bytes.TrimSpace(data)) == 0 {
 		return invalidAPIResponse(errors.New("response body is empty"))
 	}
-	if err := json.Unmarshal(data, responseBody); err != nil {
-		return invalidAPIResponse(err)
+	var decodeErr error
+	if _, strict := responseBody.(strictAPIResponse); strict {
+		decodeErr = decodeStrictAPIResponse(data, responseBody)
+	} else {
+		decodeErr = json.Unmarshal(data, responseBody)
+	}
+	if decodeErr != nil {
+		return invalidAPIResponse(decodeErr)
 	}
 	if validator, ok := responseBody.(interface{ validateAPIResponse() error }); ok {
 		if err := validator.validateAPIResponse(); err != nil {

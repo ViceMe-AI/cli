@@ -219,6 +219,47 @@ func TestParseTrustRingRequiresUniqueEd25519SPKIKeys(t *testing.T) {
 	}
 }
 
+func TestVerifyDocumentUsesOnlyTheCallerTrustedKey(t *testing.T) {
+	trustedPublic, trustedPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attackerPublic, attackerPrivate, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	claims := map[string]any{
+		"artifactDigest": strings.Repeat("a", 64),
+		"replicaId":      "11111111-1111-4111-8111-111111111111",
+	}
+	canonical, err := canonicalJSON(claims)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedDER, err := x509.MarshalPKIXPublicKey(trustedPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attackerDER, err := x509.MarshalPKIXPublicKey(attackerPublic)
+	if err != nil {
+		t.Fatal(err)
+	}
+	trustedKey := base64.RawURLEncoding.EncodeToString(trustedDER)
+	attackerKey := base64.RawURLEncoding.EncodeToString(attackerDER)
+	trustedSignature := base64.RawURLEncoding.EncodeToString(ed25519.Sign(trustedPrivate, canonical))
+	attackerSignature := base64.RawURLEncoding.EncodeToString(ed25519.Sign(attackerPrivate, canonical))
+
+	if err := VerifyDocument(claims, trustedKey, trustedSignature); err != nil {
+		t.Fatalf("trusted document was rejected: %v", err)
+	}
+	if err := VerifyDocument(claims, trustedKey, attackerSignature); err == nil {
+		t.Fatal("attacker signature was accepted with the trusted key")
+	}
+	if err := VerifyDocument(claims, attackerKey, trustedSignature); err == nil {
+		t.Fatal("trusted signature was accepted with the attacker key")
+	}
+}
+
 func buildTestArtifact(t *testing.T, files map[string][]byte, signature SignatureFile, extra map[string][]byte) []byte {
 	t.Helper()
 	var buffer bytes.Buffer

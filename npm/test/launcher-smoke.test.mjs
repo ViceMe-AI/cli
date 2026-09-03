@@ -111,6 +111,60 @@ test("launcher failure preserves the JSON stdout contract", async () => {
 });
 
 test(
+  "cached launcher resumes the committed generation through the configured npm prefix",
+  { skip: !localBinary },
+  async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "viceme-npx-resume-"));
+    const prefix = path.join(home, "npm prefix with spaces");
+    const configHome = path.join(home, "config");
+    const packageRoot = path.join(
+      prefix,
+      ...(process.platform === "win32" ? [] : ["lib"]),
+      "node_modules", "@viceme-ai", "cli",
+    );
+    const targetVersion = `${Number(packageVersion.split(".")[0]) + 1}.0.0`;
+    await mkdir(path.join(packageRoot, "npm", "bin"), { recursive: true });
+    await mkdir(configHome, { recursive: true });
+    await writeFile(path.join(packageRoot, "package.json"), JSON.stringify({
+      name: packageDocument.name, version: targetVersion,
+    }));
+    await writeFile(path.join(packageRoot, "npm", "bin", "viceme.mjs"), `
+import fs from "node:fs";
+console.log(JSON.stringify({
+  args: process.argv.slice(2), input: fs.readFileSync(0, "utf8"),
+  target: process.env.VICEME_AUTO_UPDATE_TO,
+}));
+process.exitCode = 7;
+`);
+    await writeFile(path.join(configHome, "active-generation.json"), JSON.stringify({
+      schemaVersion: 1, version: targetVersion, installMethod: "npm",
+      identity: createHash("sha256").update(`npm\0${packageArgumentPrefix}${targetVersion}`).digest("hex"),
+    }));
+    const launcher = fileURLToPath(new URL("../bin/viceme.mjs", import.meta.url));
+    const args = ["version", "--profile", "profile with spaces"];
+    const child = spawnSync(process.execPath, [launcher, ...args], {
+      encoding: "utf8", input: "original stdin",
+      env: {
+        ...process.env,
+        VICEME_CLI_CONFIG_DIR: configHome,
+        VICEME_BINARY_PATH: path.resolve(localBinary),
+        VICEME_INSTALL_METHOD: "npm",
+        VICEME_AUTO_UPDATE_REEXEC: "",
+        NPM_CONFIG_PREFIX: prefix, npm_config_prefix: prefix,
+        NPM_CONFIG_CACHE: path.join(home, "npm-cache"),
+        npm_config_cache: path.join(home, "npm-cache"),
+        CI: "1",
+      },
+    });
+    assert.equal(child.status, 7, `${child.stdout}\n${child.stderr}`);
+    assert.deepEqual(JSON.parse(child.stdout), {
+      args, input: "original stdin", target: targetVersion,
+    });
+    assert.equal(child.stderr, "");
+  },
+);
+
+test(
   "packed launcher executes root install with a local Go build",
   { skip: !localBinary },
   async (context) => {
@@ -141,14 +195,15 @@ test(
     assert.equal(child.status, 0, `${child.stdout}\n${child.stderr}`);
     const result = JSON.parse(child.stdout);
     assert.equal(result.ok, true);
-    assert.equal(result.data.skills.length, 6);
+    assert.equal(result.data.skills.length, 7);
     assert.equal(result.data.skills.every((skill) => skill.all_succeeded), true);
     await stat(path.join(codexHome, "skills", "creator-tools", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "become-a-creator", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "sell-a-skill", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "viceme-skill-use", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "use-a-skill", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "charge-for-your-work", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "let-people-interact", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "let-others-make-a-copy", "SKILL.md"));
     await stat(
       path.join(codexHome, "skills", "let-people-interact", "templates", "single-html.html"),
     );
@@ -253,7 +308,7 @@ process.exit(child.status ?? 1);
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}\n${debug}`);
     const install = JSON.parse(first.stdout);
     assert.equal(install.ok, true);
-    assert.equal(install.data.skills.length, 6);
+    assert.equal(install.data.skills.length, 7);
     assert.equal(install.data.skills.every((skill) => skill.all_succeeded), true);
     assert.match(
       await readFile(marker, "utf8"),

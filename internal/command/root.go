@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -43,6 +44,7 @@ type Dependencies struct {
 	Now         func() time.Time
 	Sleep       func(context.Context, time.Duration) error
 	NewID       func() string
+	OpenURL     func(context.Context, string) error
 	APIBaseURL  string
 	Region      config.Region
 	Reexecute   func(context.Context, []string, []string) (int, error)
@@ -77,6 +79,8 @@ type Runtime struct {
 	apiBaseURL         string
 	apiBaseURLOverride string
 	apiBaseURLFromEnv  bool
+	buyerUserID        string
+	buyerClient        *api.Client
 	credentialScope    string
 	config             config.Config
 	profile            config.Profile
@@ -91,7 +95,6 @@ const (
 	autoUpdateReexecEnvironment   = "VICEME_AUTO_UPDATE_REEXEC"
 	autoUpdateFromEnvironment     = "VICEME_AUTO_UPDATE_FROM"
 	autoUpdateToEnvironment       = "VICEME_AUTO_UPDATE_TO"
-	npmLauncherPathEnvironment    = "VICEME_NPM_LAUNCHER_PATH"
 	npmLauncherRuntimeEnvironment = "VICEME_NPM_LAUNCHER_RUNTIME"
 	activationOperationTimeout    = 12 * time.Minute
 )
@@ -301,6 +304,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newSubscriptionCommand(runtime))
 	root.AddCommand(newMerchantCommand(runtime))
 	root.AddCommand(newCommerceCommand(runtime))
+	root.AddCommand(newReplicaCommand(runtime))
 	return root, runtime, nil
 }
 
@@ -611,9 +615,12 @@ func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.NewID == nil {
 		dependencies.NewID = randomUUID
 	}
+	if dependencies.OpenURL == nil {
+		dependencies.OpenURL = openBrowserURL
+	}
 	if dependencies.Reexecute == nil {
 		dependencies.Reexecute = func(ctx context.Context, args, environment []string) (int, error) {
-			name, arguments, err := reexecutionCommand(args)
+			name, arguments, err := reexecutionCommand(ctx, args, environment, dependencies.Updater)
 			if err != nil {
 				return 0, err
 			}
@@ -636,12 +643,27 @@ func defaults(dependencies Dependencies) Dependencies {
 	return dependencies
 }
 
-func reexecutionCommand(args []string) (string, []string, error) {
+func reexecutionCommand(ctx context.Context, args, environment []string, updater updatepkg.Service) (string, []string, error) {
 	if os.Getenv("VICEME_INSTALL_METHOD") == "npm" {
-		launcher := os.Getenv(npmLauncherPathEnvironment)
 		runtime := os.Getenv(npmLauncherRuntimeEnvironment)
-		if launcher == "" || runtime == "" {
+		if runtime == "" {
 			return "", nil, errors.New("npm launcher did not provide its re-execution authority")
+		}
+		service, ok := updater.(*updatepkg.NPMService)
+		if !ok {
+			return "", nil, errors.New("npm re-execution requires the npm update service")
+		}
+		var targetVersion string
+		for _, entry := range environment {
+			if value, ok := strings.CutPrefix(entry, autoUpdateToEnvironment+"="); ok {
+				targetVersion = value
+			}
+		}
+		resolveContext, cancel := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel()
+		launcher, err := service.ReexecutionLauncher(resolveContext, targetVersion)
+		if err != nil {
+			return "", nil, err
 		}
 		return runtime, append([]string{launcher}, args...), nil
 	}
@@ -705,6 +727,9 @@ func (r *Runtime) manager() *auth.Manager {
 }
 
 func (r *Runtime) client() *api.Client {
+	if r.buyerClient != nil {
+		return r.buyerClient
+	}
 	var tokens api.TokenSource = r.manager()
 	if token, _, _ := r.overrideCredential(); token != "" {
 		tokens = processTokenSource(token)
@@ -968,6 +993,20 @@ func sleepContext(ctx context.Context, duration time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+func openBrowserURL(ctx context.Context, target string) error {
+	var name string
+	var arguments []string
+	switch runtime.GOOS {
+	case "darwin":
+		name, arguments = "open", []string{target}
+	case "windows":
+		name, arguments = "rundll32", []string{"url.dll,FileProtocolHandler", target}
+	default:
+		name, arguments = "xdg-open", []string{target}
+	}
+	return exec.CommandContext(ctx, name, arguments...).Run()
 }
 
 func randomUUID() string {

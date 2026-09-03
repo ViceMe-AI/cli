@@ -111,14 +111,15 @@ func TestInstallSetActivatesAllOfficialSkillsTogether(t *testing.T) {
 	writeTestSkill(t, root, "creator-tools")
 	writeTestSkill(t, root, "become-a-creator")
 	writeTestSkill(t, root, "sell-a-skill")
-	writeTestSkill(t, root, "viceme-skill-use")
+	writeTestSkill(t, root, "use-a-skill")
 	writeTestSkill(t, root, "charge-for-your-work")
 	writeTestSkill(t, root, "let-people-interact")
+	writeTestSkill(t, root, "let-others-make-a-copy")
 	home := t.TempDir()
 	environment := Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}
 	bundle := New(os.DirFS(root))
 
-	skillNames := []string{"creator-tools", "become-a-creator", "sell-a-skill", "viceme-skill-use", "charge-for-your-work", "let-people-interact"}
+	skillNames := []string{"creator-tools", "become-a-creator", "sell-a-skill", "use-a-skill", "charge-for-your-work", "let-people-interact", "let-others-make-a-copy"}
 	reports := bundle.InstallSet(skillNames, "agents", environment)
 	if len(reports) != len(skillNames) {
 		t.Fatalf("transaction did not report every official Skill: %#v", reports)

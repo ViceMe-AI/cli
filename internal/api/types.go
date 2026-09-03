@@ -816,6 +816,274 @@ type UploadAuthorization struct {
 	Headers   map[string]string `json:"headers"`
 }
 
+type CreateWebsiteReplicaUploadRequest struct {
+	ClientRequestID string `json:"clientRequestId"`
+	WorkID          string `json:"workId"`
+	Title           string `json:"title"`
+	Summary         string `json:"summary"`
+	FileName        string `json:"fileName"`
+	SizeBytes       int64  `json:"sizeBytes"`
+	Digest          string `json:"digest"`
+	PriceCents      int    `json:"priceCents"`
+}
+
+type CreateWebsiteReplicaUploadResponse struct {
+	ReplicaID string                            `json:"replicaId"`
+	UploadID  string                            `json:"uploadId"`
+	Upload    WebsiteReplicaUploadAuthorization `json:"upload"`
+}
+
+type WebsiteReplicaUploadAuthorization struct {
+	Method    string            `json:"method"`
+	URL       string            `json:"url"`
+	Headers   map[string]string `json:"headers"`
+	ExpiresAt string            `json:"expiresAt"`
+}
+
+type WebsiteReplicaProduct struct {
+	ID         string `json:"id"`
+	SKUID      string `json:"skuId"`
+	Title      string `json:"title"`
+	Currency   string `json:"currency"`
+	PriceCents int    `json:"priceCents"`
+}
+
+type CompleteWebsiteReplicaUploadResponse struct {
+	ReplicaID   string                   `json:"replicaId"`
+	VersionID   string                   `json:"versionId"`
+	Version     int                      `json:"version"`
+	ShortCode   string                   `json:"shortCode"`
+	Instruction string                   `json:"instruction"`
+	Product     WebsiteReplicaProduct    `json:"product"`
+	BuyerEntry  WebsiteReplicaBuyerEntry `json:"buyerEntry"`
+	PublishedAt string                   `json:"publishedAt"`
+}
+
+type WebsiteReplicaBuyerEntry struct {
+	Instruction   string                     `json:"instruction"`
+	Prompts       WebsiteReplicaBuyerPrompts `json:"prompts"`
+	ViceMeWorkURL string                     `json:"viceMeWorkUrl"`
+}
+
+type WebsiteReplicaBuyerPrompts struct {
+	ZH string `json:"zh-CN"`
+	EN string `json:"en-US"`
+}
+
+type ResolveWebsiteReplicaRequest struct {
+	Instruction string `json:"instruction"`
+}
+
+type WebsiteReplicaResolution struct {
+	ReplicaID string                `json:"replicaId"`
+	ShortCode string                `json:"shortCode"`
+	Title     string                `json:"title"`
+	Summary   string                `json:"summary"`
+	Creator   WebsiteReplicaCreator `json:"creator"`
+	Product   WebsiteReplicaProduct `json:"product"`
+}
+
+type WebsiteReplicaCreator struct {
+	Handle      string `json:"handle"`
+	DisplayName string `json:"displayName"`
+}
+
+type CreateWebsiteReplicaQuoteRequest struct {
+	Instruction     string `json:"instruction"`
+	ClientRequestID string `json:"clientRequestId"`
+}
+
+type WebsiteReplicaQuote struct {
+	ID                  string                         `json:"id"`
+	Product             WebsiteReplicaQuoteProduct     `json:"product"`
+	Attribution         WebsiteReplicaAttribution      `json:"attribution"`
+	SKU                 WebsiteReplicaQuoteSKU         `json:"sku"`
+	Currency            string                         `json:"currency"`
+	UnitAmountCents     int                            `json:"unitAmountCents"`
+	Quantity            int                            `json:"quantity"`
+	SubtotalAmountCents int                            `json:"subtotalAmountCents"`
+	ShippingAmountCents int                            `json:"shippingAmountCents"`
+	TotalAmountCents    int                            `json:"totalAmountCents"`
+	ContractSummary     WebsiteReplicaContractSummary  `json:"contractSummary"`
+	Fulfillment         WebsiteReplicaQuoteFulfillment `json:"fulfillment"`
+	PaymentOptions      []WebsiteReplicaPaymentOption  `json:"paymentOptions"`
+	ExpiresAt           string                         `json:"expiresAt"`
+}
+
+type WebsiteReplicaQuoteProduct struct {
+	ID    string `json:"id"`
+	Slug  string `json:"slug"`
+	Title string `json:"title"`
+}
+
+type WebsiteReplicaAttribution struct {
+	SubjectWorkID         string  `json:"subjectWorkId"`
+	EntryWorkID           *string `json:"entryWorkId"`
+	CommerceApplicationID *string `json:"commerceApplicationId"`
+}
+
+type WebsiteReplicaQuoteSKU struct {
+	ID              string            `json:"id"`
+	Code            string            `json:"code"`
+	Title           string            `json:"title"`
+	SelectedOptions map[string]string `json:"selectedOptions"`
+}
+
+type WebsiteReplicaContractSummary struct {
+	PublicFields       map[string]any `json:"publicFields"`
+	SensitiveFieldKeys []string       `json:"sensitiveFieldKeys"`
+	AssetCount         int            `json:"assetCount"`
+}
+
+type WebsiteReplicaQuoteFulfillment struct {
+	Capabilities   []string `json:"capabilities"`
+	EstimatedState string   `json:"estimatedState"`
+}
+
+type WebsiteReplicaPaymentOption struct {
+	Provider string   `json:"provider"`
+	Scenes   []string `json:"scenes"`
+}
+
+type CreateWebsiteReplicaOrderRequest struct {
+	QuoteID         string `json:"quoteId"`
+	ClientRequestID string `json:"clientRequestId"`
+	Locale          string `json:"locale"`
+}
+
+type WebsiteReplicaPaymentAction struct {
+	Type      string `json:"-"`
+	URL       string `json:"-"`
+	Content   string `json:"-"`
+	AppID     string `json:"-"`
+	TimeStamp string `json:"-"`
+	NonceStr  string `json:"-"`
+	Package   string `json:"-"`
+	SignType  string `json:"-"`
+	PaySign   string `json:"-"`
+}
+
+type WebsiteReplicaOrder struct {
+	OrderNo       string                       `json:"orderNo"`
+	Status        string                       `json:"status"`
+	PaymentAction *WebsiteReplicaPaymentAction `json:"paymentAction"`
+	ExpiresAt     string                       `json:"expiresAt"`
+}
+
+type WebsiteReplicaOrderStatus struct {
+	OrderNo     string                     `json:"orderNo"`
+	Payment     WebsiteReplicaPaymentState `json:"payment"`
+	Fulfillment *WebsiteReplicaFulfillment `json:"fulfillment"`
+	ServiceCase *WebsiteReplicaServiceCase `json:"serviceCase"`
+}
+
+type WebsiteReplicaPaymentState struct {
+	Status   string  `json:"status"`
+	PaidAt   *string `json:"paidAt"`
+	ClosedAt *string `json:"closedAt"`
+}
+
+type WebsiteReplicaFulfillment struct {
+	ID            string                          `json:"id"`
+	Status        string                          `json:"status"`
+	Version       int                             `json:"version"`
+	CurrentTask   *WebsiteReplicaFulfillmentTask  `json:"currentTask"`
+	Tasks         []WebsiteReplicaFulfillmentTask `json:"tasks"`
+	FailureCode   *string                         `json:"failureCode"`
+	ResultSummary *string                         `json:"resultSummary"`
+}
+
+type WebsiteReplicaFulfillmentTask struct {
+	ID             string  `json:"id"`
+	Sequence       int     `json:"sequence"`
+	CapabilityCode string  `json:"capabilityCode"`
+	Status         string  `json:"status"`
+	Version        int     `json:"version"`
+	FailureCode    *string `json:"failureCode"`
+	ResultSummary  *string `json:"resultSummary"`
+	StartedAt      *string `json:"startedAt"`
+	CompletedAt    *string `json:"completedAt"`
+}
+
+type WebsiteReplicaServiceCase struct {
+	ID               string                     `json:"id"`
+	CaseNo           string                     `json:"caseNo"`
+	OrderNo          string                     `json:"orderNo"`
+	FulfillmentID    string                     `json:"fulfillmentId"`
+	Work             WebsiteReplicaCaseWork     `json:"work"`
+	Merchant         WebsiteReplicaCaseMerchant `json:"merchant"`
+	Status           string                     `json:"status"`
+	CurrentStageCode string                     `json:"currentStageCode"`
+	Stages           []WebsiteReplicaCaseStage  `json:"stages"`
+	Intake           map[string]any             `json:"intake"`
+	PublicProgress   map[string]any             `json:"publicProgress"`
+	LockVersion      int                        `json:"lockVersion"`
+	Events           []WebsiteReplicaCaseEvent  `json:"events"`
+	SubmittedAt      string                     `json:"submittedAt"`
+	CompletedAt      *string                    `json:"completedAt"`
+	UpdatedAt        string                     `json:"updatedAt"`
+}
+
+type WebsiteReplicaCaseWork struct {
+	CreatorHandle string `json:"creatorHandle"`
+	Slug          string `json:"slug"`
+	Title         string `json:"title"`
+}
+
+type WebsiteReplicaCaseMerchant struct {
+	ID          string `json:"id"`
+	DisplayName string `json:"displayName"`
+}
+
+type WebsiteReplicaCaseStage struct {
+	Code     string `json:"code"`
+	Label    string `json:"label"`
+	Terminal bool   `json:"terminal"`
+}
+
+type WebsiteReplicaCaseEvent struct {
+	Sequence      int     `json:"sequence"`
+	FromStatus    *string `json:"fromStatus"`
+	ToStatus      string  `json:"toStatus"`
+	StageCode     string  `json:"stageCode"`
+	ActorType     string  `json:"actorType"`
+	Note          *string `json:"note"`
+	PublicMessage *string `json:"publicMessage"`
+	CreatedAt     string  `json:"createdAt"`
+}
+
+type WebsiteReplicaLicenseClaims struct {
+	SchemaVersion       string `json:"schemaVersion"`
+	EntitlementID       string `json:"entitlementId"`
+	ReplicaID           string `json:"replicaId"`
+	VersionID           string `json:"versionId"`
+	Version             int    `json:"version"`
+	OrderNo             string `json:"orderNo"`
+	ArtifactDigest      string `json:"artifactDigest"`
+	LicenseTermsVersion string `json:"licenseTermsVersion"`
+	IssuedAt            string `json:"issuedAt"`
+}
+
+type WebsiteReplicaLicense struct {
+	Claims           WebsiteReplicaLicenseClaims `json:"claims"`
+	Algorithm        string                      `json:"algorithm"`
+	SigningKeyID     string                      `json:"signingKeyId"`
+	SigningPublicKey string                      `json:"signingPublicKey"`
+	Signature        string                      `json:"signature"`
+}
+
+type WebsiteReplicaDownload struct {
+	ReplicaID      string          `json:"replicaId"`
+	VersionID      string          `json:"versionId"`
+	Version        int             `json:"version"`
+	FileName       string          `json:"fileName"`
+	SizeBytes      int64           `json:"sizeBytes"`
+	ArtifactDigest string          `json:"artifactDigest"`
+	DownloadURL    string          `json:"downloadUrl"`
+	ExpiresAt      string          `json:"expiresAt"`
+	License        json.RawMessage `json:"license"`
+}
+
 type CompleteUploadRequest struct {
 	UploadID string `json:"uploadId"`
 }
@@ -826,12 +1094,14 @@ type SkillPublicationDraft struct {
 	UsageInstructionsZhCN *string  `json:"usageInstructionsZhCn"`
 	Currency              string   `json:"currency"`
 	PriceMinor            *int     `json:"priceMinor"`
+	TrialUseLimit         *int     `json:"trialUseLimit"`
 	CoverUploadID         *string  `json:"coverUploadId"`
 	GalleryUploadIDs      []string `json:"galleryUploadIds"`
 }
 
 type UpdateSkillPublicationDraftRequest struct {
 	PriceMinor       *int     `json:"priceMinor,omitempty"`
+	TrialUseLimit    *int     `json:"trialUseLimit,omitempty"`
 	CoverUploadID    *string  `json:"coverUploadId,omitempty"`
 	GalleryUploadIDs []string `json:"galleryUploadIds,omitempty"`
 }
@@ -904,14 +1174,15 @@ type SkillPublication struct {
 }
 
 type PublishedSkillEdition struct {
-	ProductID  string   `json:"productId"`
-	ReleaseID  string   `json:"releaseId"`
-	Key        string   `json:"key"`
-	Title      string   `json:"title"`
-	SortOrder  int      `json:"sortOrder"`
-	Highlights []string `json:"highlights"`
-	Currency   string   `json:"currency"`
-	PriceMinor int      `json:"priceMinor"`
+	ProductID     string   `json:"productId"`
+	ReleaseID     string   `json:"releaseId"`
+	Key           string   `json:"key"`
+	Title         string   `json:"title"`
+	SortOrder     int      `json:"sortOrder"`
+	Highlights    []string `json:"highlights"`
+	Currency      string   `json:"currency"`
+	PriceMinor    int      `json:"priceMinor"`
+	TrialUseLimit *int     `json:"trialUseLimit"`
 }
 
 type SkillPublicationNextAction struct {
@@ -947,6 +1218,7 @@ type SkillAccess struct {
 	PurchaseURL       *string                 `json:"purchaseUrl"`
 	UnavailableReason *string                 `json:"unavailableReason"`
 	Subscription      SkillAccessSubscription `json:"subscription"`
+	Trial             *SkillAccessTrial       `json:"trial"`
 	Edition           struct {
 		Key        string   `json:"key"`
 		Title      string   `json:"title"`
@@ -966,6 +1238,37 @@ type DownloadURL struct {
 	ReleaseID      string `json:"releaseId"`
 	ArtifactDigest string `json:"artifactDigest"`
 	ExpiresAt      string `json:"expiresAt"`
+}
+
+/** 付费 Skill 的试用块:available=该款配置了试用次数。 */
+type SkillAccessTrial struct {
+	Available  bool `json:"available"`
+	LimitUses  int  `json:"limitUses"`
+}
+
+type skillTrialGrantRequest struct {
+	InstallID string `json:"installId"`
+}
+
+type SkillTrialGrant struct {
+	InstallID     string  `json:"installId"`
+	LimitUses     int     `json:"limitUses"`
+	RemainingUses int     `json:"remainingUses"`
+	// Secret 仅在首次发放时非空;服务端只存哈希,丢失后只能换新的 installId。
+	Secret *string `json:"secret"`
+}
+
+type skillTrialUseRequest struct {
+	InstallID string `json:"installId"`
+	Secret    string `json:"secret"`
+}
+
+type SkillTrialUse struct {
+	Allowed       bool    `json:"allowed"`
+	RemainingUses *int    `json:"remainingUses"`
+	LimitUses     *int    `json:"limitUses"`
+	Reason        *string `json:"reason"`
+	PurchaseURL   *string `json:"purchaseUrl"`
 }
 
 type XiaohongshuSkillCandidate struct {

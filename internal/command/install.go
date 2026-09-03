@@ -20,9 +20,10 @@ var officialSkillNames = []string{
 	"creator-tools",
 	"become-a-creator",
 	"sell-a-skill",
-	"viceme-skill-use",
+	"use-a-skill",
 	"charge-for-your-work",
 	"let-people-interact",
+	"let-others-make-a-copy",
 }
 
 type installNextStep struct {
@@ -362,7 +363,7 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 		Warnings:        warnings,
 	}
 	if authenticated {
-		result.NextStep = installNextStep{Command: "viceme skill publish --path <dir-or-zip>", Reason: "upload a private Draft and open its Owner Preview"}
+		result.NextStep = installNextStep{Command: "viceme skill publish --path <dir-or-zip> --edition-key <selected-key> --edition-order <selected-order>", Reason: "select the Skill to add or update, then upload a private Draft and open its Owner Preview"}
 	} else {
 		result.NextStep = installNextStep{Required: true, Command: "viceme auth login", Reason: "sign in before publishing a Skill"}
 	}

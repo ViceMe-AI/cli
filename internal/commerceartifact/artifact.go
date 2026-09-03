@@ -270,6 +270,26 @@ func ParseTrustRing(encoded string) (map[string]string, error) {
 	return keys, nil
 }
 
+// VerifyDocument verifies canonical JSON with a public key supplied by the
+// caller's trust policy. The signed document must never choose its own key.
+func VerifyDocument(value any, trustedPublicKey, encodedSignature string) error {
+	publicKey, err := parseEd25519PublicKey(trustedPublicKey)
+	if err != nil {
+		return errors.New("COMMERCE_DOCUMENT_TRUSTED_KEY_INVALID")
+	}
+	canonical, err := canonicalJSON(value)
+	if err != nil {
+		return errors.New("COMMERCE_DOCUMENT_INVALID")
+	}
+	signature, err := base64.RawURLEncoding.DecodeString(encodedSignature)
+	if err != nil || len(signature) != ed25519.SignatureSize ||
+		base64.RawURLEncoding.EncodeToString(signature) != encodedSignature ||
+		!ed25519.Verify(publicKey, canonical, signature) {
+		return errors.New("COMMERCE_DOCUMENT_SIGNATURE_INVALID")
+	}
+	return nil
+}
+
 func parseEd25519PublicKey(encoded string) (ed25519.PublicKey, error) {
 	publicDER, err := base64.RawURLEncoding.DecodeString(encoded)
 	if err != nil || base64.RawURLEncoding.EncodeToString(publicDER) != encoded {

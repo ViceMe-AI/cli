@@ -28,6 +28,13 @@ type skillPurchaseTestServer struct {
 	mu sync.Mutex
 	// paymentStatus is the payment state returned by the order status
 	// endpoint; tests flip it to PAID to complete the QR payment loop.
+	scopes               []string
+	userID               string
+	orderRequests        map[string]bool
+	orderFailures        int
+	recoveryFailures     int
+	subscriptionRequests map[string]bool
+	subscriptionCreates  int
 	paymentStatus        string
 	subscriptionState    string
 	orderCreates         int
@@ -42,6 +49,10 @@ type skillPurchaseTestServer struct {
 func newSkillPurchaseTestServer(t *testing.T) *skillPurchaseTestServer {
 	t.Helper()
 	state := &skillPurchaseTestServer{
+		scopes:               []string{"profile:read", "skill-use:read", "buyer-commerce:read", "buyer-commerce:write"},
+		userID:               "33333333-3333-4333-8333-333333333333",
+		orderRequests:        map[string]bool{},
+		subscriptionRequests: map[string]bool{},
 		paymentStatus:        "PENDING",
 		subscriptionState:    "PENDING",
 		paidAfterStatusCalls: 2,
@@ -60,10 +71,17 @@ func sha256Sum256ForTest(data []byte) []byte {
 }
 
 func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request *http.Request) {
+	// Browser endpoints must reject CLI credentials, matching the Shop guard.
+	if request.URL.Path == "/v1/product-quotes" || strings.HasPrefix(request.URL.Path, "/v1/orders") || strings.HasPrefix(request.URL.Path, "/v1/creator-subscription-orders") {
+		writer.WriteHeader(http.StatusUnauthorized)
+		writeJSONResponse(writer, map[string]any{"code": "UNAUTHORIZED", "message": "Authentication required"})
+		return
+	}
+
 	if strings.HasPrefix(request.URL.Path, "/v1/products/") ||
-		strings.HasPrefix(request.URL.Path, "/v1/product-quotes") ||
-		strings.HasPrefix(request.URL.Path, "/v1/orders") ||
-		strings.HasPrefix(request.URL.Path, "/v1/creator-subscription-orders") ||
+		strings.HasPrefix(request.URL.Path, "/v1/cli/product-quotes") ||
+		strings.HasPrefix(request.URL.Path, "/v1/cli/orders") ||
+		strings.HasPrefix(request.URL.Path, "/v1/cli/creator-subscription-orders") ||
 		strings.HasPrefix(request.URL.Path, "/v1/cli/skills/") {
 		if request.Header.Get("Authorization") != "Bearer "+skillPurchaseAccessToken {
 			writer.WriteHeader(http.StatusUnauthorized)
@@ -76,8 +94,8 @@ func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request 
 	case request.URL.Path == "/v1/cli/auth/status":
 		writeJSONResponse(writer, map[string]any{
 			"authenticated": true,
-			"user":          map[string]any{"id": "33333333-3333-4333-8333-333333333333", "displayName": "Buyer", "avatarUrl": nil},
-			"scopes":        []string{"profile:read", "skill-use:read"}, "expiresAt": "2027-08-27T00:00:00Z",
+			"user":          map[string]any{"id": s.userID, "displayName": "Buyer", "avatarUrl": nil},
+			"scopes":        s.scopes, "expiresAt": "2027-08-27T00:00:00Z",
 		})
 	case request.URL.Path == "/v1/cli/skills/"+downloadableProductID+"/access":
 		s.mu.Lock()
@@ -98,7 +116,7 @@ func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request 
 				}},
 			},
 		})
-	case request.URL.Path == "/v1/product-quotes" && request.Method == http.MethodPost:
+	case request.URL.Path == "/v1/cli/product-quotes" && request.Method == http.MethodPost:
 		var body struct {
 			ClientRequestID string `json:"clientRequestId"`
 			SkuID           string `json:"skuId"`
@@ -121,17 +139,38 @@ func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request 
 			"paymentOptions":  []map[string]any{{"provider": "WECHAT_PAY", "scenes": []string{"NATIVE"}}},
 			"expiresAt":       "2027-08-27T00:00:00Z",
 		})
-	case request.URL.Path == "/v1/orders" && request.Method == http.MethodPost:
+	case request.URL.Path == "/v1/cli/orders" && request.Method == http.MethodPost:
 		s.mu.Lock()
-		s.orderCreates++
+		var input struct {
+			ClientRequestID string `json:"clientRequestId"`
+		}
+		_ = json.NewDecoder(request.Body).Decode(&input)
+		if !s.orderRequests[input.ClientRequestID] {
+			s.orderCreates++
+			s.orderRequests[input.ClientRequestID] = true
+		}
+		if s.orderFailures > 0 {
+			s.orderFailures--
+			s.mu.Unlock()
+			writer.WriteHeader(http.StatusServiceUnavailable)
+			writeJSONResponse(writer, map[string]any{"code": "SERVICE_UNAVAILABLE", "message": "Response lost after order creation"})
+			return
+		}
 		s.mu.Unlock()
 		writeJSONResponse(writer, map[string]any{"order": s.orderFixture("PENDING")})
-	case request.URL.Path == "/v1/orders/"+skillPurchaseOrderNo && request.Method == http.MethodGet:
+	case request.URL.Path == "/v1/cli/orders/"+skillPurchaseOrderNo && request.Method == http.MethodGet:
 		s.mu.Lock()
 		s.getOrderCalls = append(s.getOrderCalls, skillPurchaseOrderNo)
+		if s.recoveryFailures > 0 {
+			s.recoveryFailures--
+			s.mu.Unlock()
+			writer.WriteHeader(http.StatusUnauthorized)
+			writeJSONResponse(writer, map[string]any{"code": "CLI_TOKEN_INVALID", "message": "Login expired"})
+			return
+		}
 		s.mu.Unlock()
 		writeJSONResponse(writer, map[string]any{"order": s.orderFixture("PENDING")})
-	case request.URL.Path == "/v1/orders/"+skillPurchaseOrderNo+"/status":
+	case request.URL.Path == "/v1/cli/orders/"+skillPurchaseOrderNo+"/status":
 		s.mu.Lock()
 		s.orderStatusCalls++
 		// The scan payment lands once the configured poll count is reached.
@@ -152,12 +191,22 @@ func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request 
 	case request.URL.Path == "/artifact":
 		writer.Header().Set("Content-Type", "application/zip")
 		_, _ = writer.Write(s.archive)
-	case request.URL.Path == "/v1/creator-subscription-orders" && request.Method == http.MethodPost:
+	case request.URL.Path == "/v1/cli/creator-subscription-orders" && request.Method == http.MethodPost:
+		var input struct {
+			ClientRequestID string `json:"clientRequestId"`
+		}
+		_ = json.NewDecoder(request.Body).Decode(&input)
+		s.mu.Lock()
+		if !s.subscriptionRequests[input.ClientRequestID] {
+			s.subscriptionCreates++
+			s.subscriptionRequests[input.ClientRequestID] = true
+		}
+		s.mu.Unlock()
 		writeJSONResponse(writer, map[string]any{
 			"order":  map[string]any{"orderNo": skillSubscriptionOrderNo, "status": "PENDING", "productId": nil, "provider": "WECHAT_PAY", "currency": "CNY", "amountCents": 2990, "expiresAt": "2027-08-27T00:00:00Z"},
 			"action": map[string]any{"type": "QR_CODE", "content": "weixin://wxpay/bizpayurl?pr=sub"},
 		})
-	case request.URL.Path == "/v1/creator-subscription-orders/"+skillSubscriptionOrderNo:
+	case request.URL.Path == "/v1/cli/creator-subscription-orders/"+skillSubscriptionOrderNo:
 		s.mu.Lock()
 		state := s.subscriptionState
 		s.mu.Unlock()
@@ -254,8 +303,8 @@ func TestPaidSkillInstallOpensWeChatQROrderAndInstallsAfterPayment(t *testing.T)
 	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "free-test", "SKILL.md")); err != nil {
 		t.Fatalf("paid Skill was not installed after payment: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".viceme-cli", "skill-purchases", downloadableProductID+".json")); !os.IsNotExist(err) {
-		t.Fatalf("purchase intent survived a completed payment: %v", err)
+	if files, _ := filepath.Glob(filepath.Join(home, ".viceme-cli", "buyer-purchases", "*.json")); len(files) != 0 {
+		t.Fatalf("purchase intent survived payment: %v", files)
 	}
 	matches, _ := filepath.Glob(filepath.Join(home, ".viceme-cli", "payment-presentations", "wechat-*.png"))
 	if len(matches) != 0 {
@@ -280,8 +329,8 @@ func TestPaidSkillInstallWaitTimeoutKeepsPendingOrderForRecovery(t *testing.T) {
 	if errorBody["code"] != "SKILL_PURCHASE_PENDING" {
 		t.Fatalf("unexpected timeout error: %#v", envelope)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".viceme-cli", "skill-purchases", downloadableProductID+".json")); err != nil {
-		t.Fatalf("pending purchase intent was not retained for recovery: %v", err)
+	if files, _ := filepath.Glob(filepath.Join(home, ".viceme-cli", "buyer-purchases", "*.json")); len(files) != 1 {
+		t.Fatalf("pending purchase intent missing: %v", files)
 	}
 
 	// The user is still scanning; rerunning the same command must recover the
@@ -315,7 +364,7 @@ func TestSubscriptionSubscribePaysWithWeChatQR(t *testing.T) {
 	defer state.server.Close()
 
 	home := t.TempDir()
-	exit, envelope, _ := executeSkillPurchaseCommand(t, state.server, home,
+	exit, envelope, initialStderr := executeSkillPurchaseCommand(t, state.server, home,
 		"subscription", "subscribe", "dogtiti", "--wait", "0",
 	)
 	if exit == 0 || envelope["ok"] != false {
@@ -337,11 +386,130 @@ func TestSubscriptionSubscribePaysWithWeChatQR(t *testing.T) {
 	if data["subscribed"] != true || data["creatorHandle"] != "dogtiti" {
 		t.Fatalf("subscription result was not reported: %#v", envelope)
 	}
-	if !strings.Contains(stderr, "微信支付二维码") {
-		t.Fatalf("the subscription QR was not announced to the user: %q", stderr)
+	if !strings.Contains(initialStderr, "微信支付二维码") {
+		t.Fatalf("subscription QR missing: %q", initialStderr)
+	}
+	if state.subscriptionCreates != 1 {
+		t.Fatalf("duplicate subscription orders: %d", state.subscriptionCreates)
 	}
 	matches, _ := filepath.Glob(filepath.Join(home, ".viceme-cli", "payment-presentations", "wechat-*.png"))
 	if len(matches) != 0 {
 		t.Fatalf("subscription QR image survived a completed payment: %v", matches)
+	}
+}
+
+func TestPaidSkillPurchaseRequiresExplicitPurchaseScopes(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
+	state := newSkillPurchaseTestServer(t)
+	defer state.server.Close()
+	state.scopes = []string{"profile:read", "skill-use:read"}
+	exit, envelope, _ := executeSkillPurchaseCommand(t, state.server, t.TempDir(), "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	if exit == 0 || envelope["error"].(map[string]any)["code"] != "BUYER_PURCHASE_SCOPE_REQUIRED" || state.orderCreates != 0 {
+		t.Fatalf("read-only login purchased: %#v", envelope)
+	}
+}
+
+func TestPaidSkillPurchaseReplaysRequestAfterLostOrderResponse(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
+	state := newSkillPurchaseTestServer(t)
+	defer state.server.Close()
+	state.orderFailures = 1
+	state.setPaidAfterStatusCalls(1000)
+	home := t.TempDir()
+	_, first, _ := executeSkillPurchaseCommand(t, state.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	if first["error"].(map[string]any)["code"] != "SERVICE_UNAVAILABLE" {
+		t.Fatalf("missing injected error: %#v", first)
+	}
+	_, second, _ := executeSkillPurchaseCommand(t, state.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	if second["error"].(map[string]any)["code"] != "SKILL_PURCHASE_REQUIRED" || state.orderCreates != 1 {
+		t.Fatalf("lost response caused duplicate: %#v creates=%d", second, state.orderCreates)
+	}
+}
+
+func TestPaidSkillRecoveryRetainsIntentAfterAuthenticationFailure(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
+	state := newSkillPurchaseTestServer(t)
+	defer state.server.Close()
+	home := t.TempDir()
+	executeSkillPurchaseCommand(t, state.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	state.recoveryFailures = 1
+	_, failed, _ := executeSkillPurchaseCommand(t, state.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	if failed["error"].(map[string]any)["code"] != "CLI_TOKEN_INVALID" {
+		t.Fatalf("wrong recovery error: %#v", failed)
+	}
+	executeSkillPurchaseCommand(t, state.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	if state.orderCreates != 1 || len(state.getOrderCalls) != 2 {
+		t.Fatalf("recovery lost intent: creates=%d reads=%d", state.orderCreates, len(state.getOrderCalls))
+	}
+}
+
+func TestPaidSkillPurchaseIntentIsBoundToVerifiedAccount(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
+	state := newSkillPurchaseTestServer(t)
+	defer state.server.Close()
+	home := t.TempDir()
+	executeSkillPurchaseCommand(t, state.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	state.userID = "44444444-4444-4444-8444-444444444444"
+	executeSkillPurchaseCommand(t, state.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	if state.orderCreates != 2 || len(state.getOrderCalls) != 0 {
+		t.Fatalf("another account reused purchase: creates=%d reads=%d", state.orderCreates, len(state.getOrderCalls))
+	}
+	state.userID = "33333333-3333-4333-8333-333333333333"
+	executeSkillPurchaseCommand(t, state.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	if state.orderCreates != 2 || len(state.getOrderCalls) != 1 {
+		t.Fatal("original account lost its purchase")
+	}
+}
+
+func TestPaidSkillConcurrentPurchaseReusesOneOrder(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
+	state := newSkillPurchaseTestServer(t)
+	defer state.server.Close()
+	home := t.TempDir()
+	var group sync.WaitGroup
+	results := make(chan map[string]any, 2)
+	for i := 0; i < 2; i++ {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			_, result, _ := executeSkillPurchaseCommand(t, state.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+			results <- result
+		}()
+	}
+	group.Wait()
+	close(results)
+	for result := range results {
+		if result["error"].(map[string]any)["code"] != "SKILL_PURCHASE_REQUIRED" {
+			t.Fatalf("unexpected concurrent result: %#v", result)
+		}
+	}
+	if state.orderCreates != 1 {
+		t.Fatalf("concurrent runs created %d orders", state.orderCreates)
+	}
+}
+
+func TestPaidSkillPurchaseIntentIsIsolatedAcrossAPIOrigins(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
+	first := newSkillPurchaseTestServer(t)
+	defer first.server.Close()
+	second := newSkillPurchaseTestServer(t)
+	defer second.server.Close()
+	home := t.TempDir()
+	executeSkillPurchaseCommand(t, first.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	executeSkillPurchaseCommand(t, second.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	if first.orderCreates != 1 || second.orderCreates != 1 || len(second.getOrderCalls) != 0 {
+		t.Fatal("another API origin reused the pending order")
+	}
+}
+
+func TestOwnedPaidSkillStillInstallsWithoutPurchaseScopes(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
+	state := newSkillPurchaseTestServer(t)
+	defer state.server.Close()
+	state.scopes = []string{"profile:read", "skill-use:read"}
+	state.paymentStatus = "PAID"
+	exit, envelope, _ := executeSkillPurchaseCommand(t, state.server, t.TempDir(), "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	if exit != 0 || envelope["ok"] != true || state.orderCreates != 0 {
+		t.Fatalf("owned download required new purchase scopes: %#v", envelope)
 	}
 }

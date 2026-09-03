@@ -8,12 +8,11 @@
 | 发布付费 Skill | `sell-a-skill` | `https://viceme.cn/viceme/sell-a-skill` | Available |
 | 让网站开始收费 | `charge-for-your-work` | `https://viceme.cn/viceme/charge-for-your-work` | Available |
 | 接入弹幕、开放赞赏或两者 | `let-people-interact` | `https://viceme.cn/viceme/let-people-interact` | Available |
-| 让别人做你的网站同款 | `let-others-make-a-copy` | `https://viceme.cn/viceme/let-others-make-a-copy` | Not available |
+| 让别人做你的网站同款 | `let-others-make-a-copy` | `https://viceme.cn/viceme/let-others-make-a-copy` | Available |
 | 基础设施 | `creator-tools` | `https://viceme.cn/viceme/creator-tools` | Available |
 
 This is a breaking rename. The old `viceme-*` creator Skill IDs and old Markdown routes are not
-aliases. `let-others-make-a-copy` reserves a public name and fail-closed status route only; it is not
-bundled as a Skill until a real workflow exists.
+aliases.
 
 ## Ownership
 
@@ -23,11 +22,12 @@ The official creator Skills expose one user goal each:
 | --- | --- | --- |
 | `become-a-creator` | Login for creator onboarding, qualification checks, application/claim state, Merchant selection | Publishing Works, Products, or website integrations |
 | `sell-a-skill` | Downloadable Skill packaging, preview, confirmation, publication, and updates | Websites, services, physical/custom goods, appointments, generic Products |
-| `charge-for-your-work` | Host-code integration for an already published and configured Website Work | Login, creator application, Website Work publication, access configuration |
+| `charge-for-your-work` | One-pass website input collection, internal Website Work/access provisioning, and host-code integration for follow or paid unlock | Login and creator application |
 | `let-people-interact` | Three-way danmaku/tip routing, hosted SDK access, Mounted/Headless integration, and Website Work selection/publication with an exact canonical Origin for danmaku-bearing routes | Creator qualification, downloadable Skill publication, Website ownership verification, or Website Widget mutation for Tip |
+| `let-others-make-a-copy` | Complete website source packaging, root deployment guide, immutable Replica publication, and creator-site copy entry | Generic browser runtime, direct browser checkout, or buyer confirmation on the creator's behalf |
 | `creator-tools` | CLI installation, ordinary login, updates, and diagnostics | Any creator gameplay |
 
-Buyer-side `viceme-skill-use` does not use creator qualification.
+Buyer-side `use-a-skill` does not use creator qualification.
 
 Service and generic-product CLI/API commands remain available for future product work, but no
 official Skill advertises or invokes them in this delivery.
@@ -78,6 +78,7 @@ Commands remain grouped by use case under `internal/command`:
 - `auth`: device login and credential lifecycle;
 - `merchant onboarding` and `merchant accounts`: creator qualification and application;
 - `skill publish` and `publication`: downloadable Skill publication;
+- `replica publish` and `replica install`: Website Replica publication, quote confirmation, purchase recovery, and atomic source installation;
 - `merchant work`, `sdk-access`, and commerce application commands: website and commercial
   primitives.
 
@@ -97,12 +98,14 @@ become-a-creator
           |
           +-- sell-a-skill
           +-- charge-for-your-work
-          `-- let-people-interact
+          +-- let-people-interact
+          `-- let-others-make-a-copy
 ```
 
-`charge-for-your-work` may be invoked after `let-people-interact` or another website publication flow has returned a
-published Work configuration, but it still performs the qualification guard before changing creator
-host code. It does not mutate Shop publication resources itself.
+`charge-for-your-work` performs the qualification guard, then internally reuses or provisions the Website Work and
+complete access configuration required by the requested follow or paid unlock before changing creator host code.
+Website Work identity, publication state, access keys, configuration commands, and readback are never user-facing
+inputs or output.
 
 ## Breaking migration
 
@@ -112,5 +115,6 @@ host code. It does not mutate Shop publication resources itself.
   preserve user-modified same-name directories.
 - Keep only the downloadable workflow and publication error contract in `sell-a-skill`.
 - Route danmaku-only, open-Tip-only, and combined requests through `let-people-interact` while delegating qualification; danmaku-bearing routes require a published Website Work with an exact canonical Origin, and no engagement route requires Website ownership verification.
+- Route complete website source publication and creator-site copy entry through `let-others-make-a-copy`; the buyer-facing prompt must present an authoritative Quote and wait for explicit confirmation before order creation.
 - Update all official-Skill installation, manifest, metadata, and behavioral tests atomically so an
   update never treats an old creator Skill ID as active.

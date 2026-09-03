@@ -31,6 +31,7 @@ type downloadableSkillInstallResult struct {
 	ArtifactDigest string                     `json:"artifactDigest"`
 	InstalledName  string                     `json:"installedName"`
 	Install        skillcontent.InstallReport `json:"install"`
+	Trial          *trialInstallSummary       `json:"trial,omitempty"`
 	NextAction     string                     `json:"nextAction"`
 	Invocation     string                     `json:"invocation"`
 }
@@ -107,6 +108,14 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				if access.InstallKind == "PURCHASE_UNAVAILABLE" || (!access.Owned && !access.PurchaseAvailable) {
 					return output.Policy("SKILL_PURCHASE_UNAVAILABLE", "this paid Skill edition cannot be purchased yet").WithDetails(map[string]any{"productId": productID, "reason": access.UnavailableReason}).WithHint("the merchant must complete ownership verification before paid editions can be sold")
 				}
+				// 试用优先:付费款开放试用时,匿名装试用版,用满再走购买。
+				workSlugForTrial := ""
+				if work != nil {
+					workSlugForTrial = work.Work.Slug
+				}
+				if !access.Owned && access.Trial != nil && access.Trial.Available {
+					return installTrialSkill(command.Context(), runtime, productID, workSlugForTrial, agent, access)
+				}
 				if err := runtime.requireSkillUseAuthentication(command.Context()); err != nil {
 					return err
 				}
@@ -118,25 +127,19 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 					if !access.PurchaseAvailable {
 						return output.Policy("SKILL_PURCHASE_UNAVAILABLE", "this paid Skill edition cannot be purchased yet").WithDetails(map[string]any{"productId": productID, "reason": access.UnavailableReason})
 					}
-					// The CLI closes the purchase loop itself: open (or recover)
-					// a WeChat NATIVE order, render the payment QR locally, wait
-					// for the payment to land, and continue installing.
-					order, err := recoverPendingSkillPurchaseOrder(command.Context(), runtime, productID)
+					if err := runtime.requireBuyerAuthentication(command.Context()); err != nil {
+						return err
+					}
+					orderValue, err := openSkillPurchaseOrder(command.Context(), runtime, productID)
 					if err != nil {
 						return err
 					}
-					if order == nil {
-						orderValue, err := createSkillPurchaseOrder(command.Context(), runtime, productID)
-						if err != nil {
-							return err
-						}
-						order = &orderValue
-					}
+					order := &orderValue
 					presentation, err := presentSkillPaymentQR(runtime, order)
 					if err != nil {
 						return err
 					}
-					if wait <= 0 {
+					if wait <= 0 && order.Status != "PAID" {
 						details := map[string]any{
 							"productId": productID, "orderNo": order.OrderNo,
 							"amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
@@ -149,7 +152,11 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 						}
 						return output.Confirmation("SKILL_PURCHASE_REQUIRED", "purchase this edition before installation").WithDetails(details).WithHint(hint)
 					}
-					if err := waitForSkillOrderPayment(command.Context(), runtime, productID, order.OrderNo, wait); err != nil {
+					paymentWait := wait
+					if paymentWait <= 0 {
+						paymentWait = time.Second
+					}
+					if err := waitForSkillOrderPayment(command.Context(), runtime, productID, order.OrderNo, paymentWait); err != nil {
 						return err
 					}
 					access, err = runtime.client().GetSkillAccess(command.Context(), productID)
