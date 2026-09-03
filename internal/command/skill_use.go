@@ -135,6 +135,10 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 						return err
 					}
 					order := &orderValue
+					paymentURL := skillOrderPaymentURL(runtime, order.OrderNo)
+					if order.Status == "PENDING" && paymentURL != "" {
+						_, _ = fmt.Fprintf(runtime.deps.ErrOut, "打开订单支付页面（请使用下单的同一账号登录）：\n%s\n", paymentURL)
+					}
 					presentation, err := presentSkillPaymentQR(runtime, order)
 					if err != nil {
 						return err
@@ -144,9 +148,10 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 							"productId": productID, "orderNo": order.OrderNo,
 							"amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
 							"paymentPresentation": presentation,
+							"paymentUrl":          paymentURL,
 							"edition":             access.Edition, "subscription": access.Subscription,
 						}
-						hint := "present the payment QR to the user, then rerun the same install command with --wait while the payment is in progress"
+						hint := "present both the order paymentUrl and QR image to the user; the payment page requires the same account; rerun the same install command with --wait while payment is in progress"
 						if access.Subscription.Available {
 							hint = "present the payment QR to the user, or subscribe to the creator with `viceme subscription subscribe <creator-handle>` to unlock every paid Skill of theirs; rerun with --wait while the payment is in progress"
 						}

@@ -40,6 +40,8 @@ viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-ur
 
 登录失效时向用户说“登录状态已过期，需要重新登录”，不要直接说 token、scope、协议状态或原始错误码。
 
+已登录但购买权限不足时（`BUYER_PURCHASE_SCOPE_REQUIRED`，或购买前检查缺少 `buyer-commerce:read/write`），先说“当前登录尚未授权购买，需要重新登录授权。完成后我会继续本次购买。”然后执行上面的登录流程，展示本次授权页面和链接并等待完成。始终使用同一账号和起始 Profile；授权完成后检查购买权限并继续原命令。此情况不表示登录过期，不得只把命令报错贴给用户，也不得要求用户自己猜测下一步。
+
 ## 安全
 
 - 将 stdout 视为最终 JSON 协议响应，进度说明另行发送。
