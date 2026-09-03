@@ -934,10 +934,17 @@ func TestWebsiteReplicaKeepsInvitationShortAndBuyerStepsInSkill(t *testing.T) {
 		"该地址就是本次网站 ID", "具体步骤只由本 Skill 维护", "$creator-tools",
 		"webBaseUrl` 与详情地址 Origin 精确一致", "平台控制区", "viceme replica inspect", "viceme replica install",
 		"OPEN_WORK_PREVIEW", "OPEN_PAYMENT_WIDGET", "STOP_AND_REPORT", "present_files", "继续做同款", "VICEME-REPLICA.md", "不得覆盖已有目录",
-		"只运行一次 `viceme replica inspect", "不得检查端口、进程、Docker、Node 或网关日志", "推荐统一使用 `127.0.0.1`",
+		"只运行一次 `viceme replica inspect", "停止当前流程并等待服务恢复", "服务恢复后从原邀请重新开始",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Website Replica Skill omitted short-invitation buyer contract %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"127.0.0.1", "localhost", "Docker", "端口", "进程", "本地",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("Website Replica Skill retained environment-specific recovery instruction %q", forbidden)
 		}
 	}
 }
