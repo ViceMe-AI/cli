@@ -195,10 +195,11 @@ test(
     assert.equal(child.status, 0, `${child.stdout}\n${child.stderr}`);
     const result = JSON.parse(child.stdout);
     assert.equal(result.ok, true);
-    assert.equal(result.data.skills.length, 7);
+    assert.equal(result.data.skills.length, 8);
     assert.equal(result.data.skills.every((skill) => skill.all_succeeded), true);
     await stat(path.join(codexHome, "skills", "creator-tools", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "become-a-creator", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "customize-your-page", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "sell-a-skill", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "use-a-skill", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "charge-for-your-work", "SKILL.md"));
@@ -206,6 +207,24 @@ test(
     await stat(path.join(codexHome, "skills", "let-others-make-a-copy", "SKILL.md"));
     await stat(
       path.join(codexHome, "skills", "let-people-interact", "templates", "single-html.html"),
+    );
+    await stat(
+      path.join(
+        codexHome,
+        "skills",
+        "let-people-interact",
+        "templates",
+        "mounted-combination.html",
+      ),
+    );
+    await stat(
+      path.join(
+        codexHome,
+        "skills",
+        "let-people-interact",
+        "scripts",
+        "preflight-sdk-release.mjs",
+      ),
     );
     await stat(path.join(configHome, "config.json"));
   },
@@ -308,7 +327,7 @@ process.exit(child.status ?? 1);
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}\n${debug}`);
     const install = JSON.parse(first.stdout);
     assert.equal(install.ok, true);
-    assert.equal(install.data.skills.length, 7);
+    assert.equal(install.data.skills.length, 8);
     assert.equal(install.data.skills.every((skill) => skill.all_succeeded), true);
     assert.match(
       await readFile(marker, "utf8"),

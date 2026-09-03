@@ -38,7 +38,8 @@ func (runtime *Runtime) requireBuyerAuthentication(ctx context.Context) error {
 		granted[scope] = true
 	}
 	if !granted["buyer-commerce:read"] || !granted["buyer-commerce:write"] {
-		return output.Authorization("BUYER_PURCHASE_SCOPE_REQUIRED", "the current login has not authorized purchases").WithHint("run 'viceme auth login' once to authorize purchases, then retry the same command")
+		progress(runtime, "当前登录尚未授权购买，请使用同一账号重新登录授权，完成后继续本次购买。")
+		return output.Authorization("BUYER_PURCHASE_SCOPE_REQUIRED", "sign in again with the same account to authorize purchases").WithHint("run 'viceme auth login' with the same account, then retry the original purchase command after authorization succeeds")
 	}
 	if status.User.ID == "" {
 		return output.Authentication("BUYER_IDENTITY_REQUIRED", "the authenticated buyer identity is missing")

@@ -72,7 +72,7 @@ func TestReplicaPublishUsesAuthenticatedControlAPIAndCredentialFreePresignedUplo
 			if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
 				t.Fatal(err)
 			}
-			if input["clientRequestId"] != requestID || input["workId"] != workID || input["title"] != "Replica title" || input["summary"] != "Replica summary" || input["fileName"] != "source.zip" || input["digest"] != expectedDigest || input["sizeBytes"] != float64(len(archive)) || input["priceCents"] != float64(990) {
+			if input["clientRequestId"] != requestID || input["workId"] != workID || input["title"] != "Replica title" || input["summary"] != "Replica summary" || input["fileName"] != "source.zip" || input["digest"] != expectedDigest || input["sizeBytes"] != float64(len(archive)) || input["priceCents"] != float64(0) {
 				t.Fatalf("unexpected publication request: %#v", input)
 			}
 			writeJSONResponse(writer, map[string]any{
@@ -91,6 +91,7 @@ func TestReplicaPublishUsesAuthenticatedControlAPIAndCredentialFreePresignedUplo
 				shortCode,
 			)
 			response["product"].(map[string]any)["title"] = "Replica title"
+			response["product"].(map[string]any)["priceCents"] = 0
 			writeJSONResponse(writer, response)
 		default:
 			t.Fatalf("unexpected control request: %s %s", request.Method, request.URL.Path)
@@ -109,7 +110,7 @@ func TestReplicaPublishUsesAuthenticatedControlAPIAndCredentialFreePresignedUplo
 	var stderr bytes.Buffer
 	exit := Execute([]string{
 		"replica", "publish", "--path", archivePath, "--work-id", workID,
-		"--title", "Replica title", "--summary", "Replica summary", "--price-cents", "990",
+		"--title", "Replica title", "--summary", "Replica summary", "--price-cents", "0",
 	}, Dependencies{
 		Out: &stdout, ErrOut: &stderr, HTTPClient: controlServer.Client(), Store: store,
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},

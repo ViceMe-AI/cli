@@ -3,6 +3,7 @@ package api
 import "encoding/json"
 
 const SkillPublicationContractVersion = "2026-08-27"
+const PageCustomizationContractVersion = "2026-09-06"
 
 type DeviceAuthorizationRequest struct {
 	ClientName string   `json:"clientName"`
@@ -55,8 +56,6 @@ type MerchantAccount struct {
 	CreatorAccountID *string `json:"creatorAccountId"`
 	DisplayName      string  `json:"displayName"`
 	Status           string  `json:"status"`
-	OwnershipStatus  string  `json:"ownershipStatus"`
-	ClaimProvider    *string `json:"claimProvider"`
 	StatusVersion    int     `json:"statusVersion"`
 }
 
@@ -105,13 +104,14 @@ type CreatorIdentity struct {
 	ProfilePath     string  `json:"profilePath"`
 	MarkdownPath    string  `json:"markdownPath"`
 	SuggestedHandle *string `json:"suggestedHandle"`
+	ProfileURL      string  `json:"profileUrl"`
+	MarkdownURL     string  `json:"markdownUrl"`
 }
 
 type GithubAuthorizationStart struct {
-	Kind             string              `json:"kind"`
-	AuthorizationURL *string             `json:"authorizationUrl"`
-	AttemptID        *string             `json:"attemptId"`
-	Onboarding       *MerchantOnboarding `json:"onboarding,omitempty"`
+	Kind             string  `json:"kind"`
+	AuthorizationURL *string `json:"authorizationUrl"`
+	AttemptID        *string `json:"attemptId"`
 }
 
 type GithubAuthorizationStatus struct {
@@ -168,6 +168,109 @@ type WorkPreviewGrant struct {
 
 type MerchantWorksResponse struct {
 	Items []MerchantWork `json:"items"`
+}
+
+type PageCustomizationTarget struct {
+	Type          string `json:"type"`
+	CreatorHandle string `json:"creatorHandle"`
+	WorkSlug      string `json:"workSlug,omitempty"`
+}
+
+type PageCustomizationMethodDescriptor struct {
+	Method string `json:"method"`
+	Call   string `json:"call"`
+	Access string `json:"access"`
+	Effect string `json:"effect"`
+}
+
+type PageCustomizationCapabilityDescriptor struct {
+	Capability string                              `json:"capability"`
+	Targets    []string                            `json:"targets"`
+	Methods    []PageCustomizationMethodDescriptor `json:"methods"`
+}
+
+type PageCustomizationCapabilityGroup struct {
+	Category     string                                  `json:"category"`
+	Capabilities []PageCustomizationCapabilityDescriptor `json:"capabilities"`
+}
+
+type PageCustomizationTargetDescription struct {
+	Target           PageCustomizationTarget            `json:"target"`
+	ManifestKind     string                             `json:"manifestKind"`
+	SDKVersion       string                             `json:"sdkVersion"`
+	ContextSchema    string                             `json:"contextSchema"`
+	CapabilityGroups []PageCustomizationCapabilityGroup `json:"capabilityGroups"`
+}
+
+type PageCustomizationManifestMetadata struct {
+	Name string `json:"name"`
+}
+
+type PageCustomizationManifestSpec struct {
+	Entry        string   `json:"entry"`
+	SDKVersion   string   `json:"sdkVersion"`
+	Capabilities []string `json:"capabilities"`
+}
+
+type PageCustomizationManifest struct {
+	APIVersion string                            `json:"apiVersion"`
+	Kind       string                            `json:"kind"`
+	Metadata   PageCustomizationManifestMetadata `json:"metadata"`
+	Spec       PageCustomizationManifestSpec     `json:"spec"`
+}
+
+type PageCustomizationArtifact struct {
+	Digest      string `json:"digest"`
+	SizeBytes   int64  `json:"sizeBytes"`
+	FileName    string `json:"fileName"`
+	ContentType string `json:"contentType"`
+}
+
+type CreatePageCustomizationDraftRequest struct {
+	ClientRequestID   string                    `json:"clientRequestId"`
+	ContractVersion   string                    `json:"contractVersion"`
+	CLIVersion        string                    `json:"cliVersion"`
+	MerchantAccountID string                    `json:"merchantAccountId"`
+	Target            PageCustomizationTarget   `json:"target"`
+	Artifact          PageCustomizationArtifact `json:"artifact"`
+}
+
+type PageCustomizationRelease struct {
+	ID               string                     `json:"id"`
+	CustomizationID  string                     `json:"customizationId"`
+	Version          int                        `json:"version"`
+	Status           string                     `json:"status"`
+	Target           PageCustomizationTarget    `json:"target"`
+	Artifact         PageCustomizationArtifact  `json:"artifact"`
+	Manifest         *PageCustomizationManifest `json:"manifest"`
+	ValidationIssues []string                   `json:"validationIssues"`
+	CreatedAt        string                     `json:"createdAt"`
+	UploadedAt       *string                    `json:"uploadedAt"`
+	ValidatedAt      *string                    `json:"validatedAt"`
+	PublishedAt      *string                    `json:"publishedAt"`
+}
+
+type CreatePageCustomizationDraftResponse struct {
+	Release PageCustomizationRelease `json:"release"`
+}
+
+type PageCustomizationUploadAuthorization struct {
+	UploadURL string            `json:"uploadUrl"`
+	ExpiresAt string            `json:"expiresAt"`
+	Headers   map[string]string `json:"headers"`
+}
+
+type PageCustomizationPreview struct {
+	ReleaseID string `json:"releaseId"`
+	URL       string `json:"url"`
+	ExpiresAt string `json:"expiresAt"`
+}
+
+type PageCustomizationState struct {
+	Target          PageCustomizationTarget    `json:"target"`
+	ActiveReleaseID *string                    `json:"activeReleaseId"`
+	Revision        int                        `json:"revision"`
+	Releases        []PageCustomizationRelease `json:"releases"`
 }
 
 type CreateWebsiteVerificationRequest struct {
@@ -874,15 +977,8 @@ type CreateWebsiteReplicaOrderRequest struct {
 }
 
 type WebsiteReplicaPaymentAction struct {
-	Type      string `json:"-"`
-	URL       string `json:"-"`
-	Content   string `json:"-"`
-	AppID     string `json:"-"`
-	TimeStamp string `json:"-"`
-	NonceStr  string `json:"-"`
-	Package   string `json:"-"`
-	SignType  string `json:"-"`
-	PaySign   string `json:"-"`
+	Type    string `json:"-"`
+	Content string `json:"-"`
 }
 
 type WebsiteReplicaOrder struct {
@@ -1138,7 +1234,6 @@ type SkillAccess struct {
 	InstallKind       string                  `json:"installKind"`
 	PurchaseAvailable bool                    `json:"purchaseAvailable"`
 	PurchaseURL       *string                 `json:"purchaseUrl"`
-	UnavailableReason *string                 `json:"unavailableReason"`
 	Subscription      SkillAccessSubscription `json:"subscription"`
 	Trial             *SkillAccessTrial       `json:"trial"`
 	Edition           struct {
@@ -1164,8 +1259,8 @@ type DownloadURL struct {
 
 /** 付费 Skill 的试用块:available=该款配置了试用次数。 */
 type SkillAccessTrial struct {
-	Available  bool `json:"available"`
-	LimitUses  int  `json:"limitUses"`
+	Available bool `json:"available"`
+	LimitUses int  `json:"limitUses"`
 }
 
 type skillTrialGrantRequest struct {
@@ -1173,9 +1268,9 @@ type skillTrialGrantRequest struct {
 }
 
 type SkillTrialGrant struct {
-	InstallID     string  `json:"installId"`
-	LimitUses     int     `json:"limitUses"`
-	RemainingUses int     `json:"remainingUses"`
+	InstallID     string `json:"installId"`
+	LimitUses     int    `json:"limitUses"`
+	RemainingUses int    `json:"remainingUses"`
 	// Secret 仅在首次发放时非空;服务端只存哈希,丢失后只能换新的 installId。
 	Secret *string `json:"secret"`
 }
@@ -1221,23 +1316,22 @@ type PublicWorkActiveRelease struct {
 }
 
 type PublicWorkProduct struct {
-	ID                        string                   `json:"id"`
-	Slug                      string                   `json:"slug"`
-	Title                     string                   `json:"title"`
-	Summary                   string                   `json:"summary"`
-	Status                    string                   `json:"status"`
-	Visibility                string                   `json:"visibility"`
-	Currency                  string                   `json:"currency"`
-	MinimumPriceCents         int                      `json:"minimumPriceCents"`
-	MaximumPriceCents         int                      `json:"maximumPriceCents"`
-	IsFree                    bool                     `json:"isFree"`
-	InstallKind               *string                  `json:"installKind"`
-	PurchaseAvailable         bool                     `json:"purchaseAvailable"`
-	PurchaseUnavailableReason *string                  `json:"purchaseUnavailableReason"`
-	ActiveRelease             *PublicWorkActiveRelease `json:"activeRelease"`
-	Edition                   *PublicWorkEdition       `json:"edition"`
-	PriceAsOf                 string                   `json:"priceAsOf"`
-	BuyerFields               []struct {
+	ID                string                   `json:"id"`
+	Slug              string                   `json:"slug"`
+	Title             string                   `json:"title"`
+	Summary           string                   `json:"summary"`
+	Status            string                   `json:"status"`
+	Visibility        string                   `json:"visibility"`
+	Currency          string                   `json:"currency"`
+	MinimumPriceCents int                      `json:"minimumPriceCents"`
+	MaximumPriceCents int                      `json:"maximumPriceCents"`
+	IsFree            bool                     `json:"isFree"`
+	InstallKind       *string                  `json:"installKind"`
+	PurchaseAvailable bool                     `json:"purchaseAvailable"`
+	ActiveRelease     *PublicWorkActiveRelease `json:"activeRelease"`
+	Edition           *PublicWorkEdition       `json:"edition"`
+	PriceAsOf         string                   `json:"priceAsOf"`
+	BuyerFields       []struct {
 		Key         string `json:"key"`
 		Label       string `json:"label"`
 		Kind        string `json:"kind"`

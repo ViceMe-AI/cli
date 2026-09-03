@@ -105,8 +105,8 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			if !access.IsFree {
-				if access.InstallKind == "PURCHASE_UNAVAILABLE" || (!access.Owned && !access.PurchaseAvailable) {
-					return output.Policy("SKILL_PURCHASE_UNAVAILABLE", "this paid Skill edition cannot be purchased yet").WithDetails(map[string]any{"productId": productID, "reason": access.UnavailableReason}).WithHint("the merchant must complete ownership verification before paid editions can be sold")
+				if !access.Owned && !access.PurchaseAvailable {
+					return output.Policy("SKILL_ACCESS_UNAVAILABLE", "this paid Skill edition is not available for purchase").WithDetails(map[string]any{"productId": productID})
 				}
 				// 试用优先:付费款开放试用时,匿名装试用版,用满再走购买。
 				workSlugForTrial := ""
@@ -125,7 +125,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				}
 				if !access.Owned {
 					if !access.PurchaseAvailable {
-						return output.Policy("SKILL_PURCHASE_UNAVAILABLE", "this paid Skill edition cannot be purchased yet").WithDetails(map[string]any{"productId": productID, "reason": access.UnavailableReason})
+						return output.Policy("SKILL_ACCESS_UNAVAILABLE", "this paid Skill edition is not available for purchase").WithDetails(map[string]any{"productId": productID})
 					}
 					if err := runtime.requireBuyerAuthentication(command.Context()); err != nil {
 						return err
@@ -135,6 +135,10 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 						return err
 					}
 					order := &orderValue
+					paymentURL := skillOrderPaymentURL(runtime, order.OrderNo)
+					if order.Status == "PENDING" && paymentURL != "" {
+						_, _ = fmt.Fprintf(runtime.deps.ErrOut, "打开订单支付页面（请使用下单的同一账号登录）：\n%s\n", paymentURL)
+					}
 					presentation, err := presentSkillPaymentQR(runtime, order)
 					if err != nil {
 						return err
@@ -144,9 +148,10 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 							"productId": productID, "orderNo": order.OrderNo,
 							"amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
 							"paymentPresentation": presentation,
+							"paymentUrl":          paymentURL,
 							"edition":             access.Edition, "subscription": access.Subscription,
 						}
-						hint := "present the payment QR to the user, then rerun the same install command with --wait while the payment is in progress"
+						hint := "present both the order paymentUrl and QR image to the user; the payment page requires the same account; rerun the same install command with --wait while payment is in progress"
 						if access.Subscription.Available {
 							hint = "present the payment QR to the user, or subscribe to the creator with `viceme subscription subscribe <creator-handle>` to unlock every paid Skill of theirs; rerun with --wait while the payment is in progress"
 						}
@@ -297,7 +302,7 @@ func isDownloadableWorkProduct(product api.PublicWorkProduct) bool {
 		return false
 	}
 	switch *product.InstallKind {
-	case "PUBLIC_FREE", "OWNED_PAID", "PURCHASE_REQUIRED", "PURCHASE_UNAVAILABLE":
+	case "PUBLIC_FREE", "OWNED_PAID", "PURCHASE_REQUIRED":
 		return true
 	default:
 		return false

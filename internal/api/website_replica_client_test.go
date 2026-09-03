@@ -409,7 +409,7 @@ func replicaQuoteResponse() map[string]any {
 func replicaOrderResponse() map[string]any {
 	return map[string]any{
 		"orderNo": testOrderNo, "status": "PENDING",
-		"paymentAction": map[string]any{"type": "REDIRECT", "url": "https://pay.example/checkout"},
+		"paymentAction": map[string]any{"type": "QR_CODE", "content": "weixin://wxpay/bizpayurl?pr=test"},
 		"expiresAt":     testReplicaTimestamp,
 	}
 }

@@ -388,7 +388,7 @@ func skillAccessFixture(free, owned bool, digest, purchaseURL string) map[string
 	}
 }
 
-func TestUnclaimedMerchantPaidSkillFailsBeforeLoginOrWait(t *testing.T) {
+func TestInconsistentPaidSkillAccessFailsBeforeLoginOrWait(t *testing.T) {
 	t.Setenv(processAccessTokenEnvironment, "")
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/v1/skills/"+downloadableProductID+"/access" {
@@ -396,10 +396,9 @@ func TestUnclaimedMerchantPaidSkillFailsBeforeLoginOrWait(t *testing.T) {
 			return
 		}
 		response := skillAccessFixture(false, false, "a1", "")
-		response["installKind"] = "PURCHASE_UNAVAILABLE"
+		response["installKind"] = "PURCHASE_REQUIRED"
 		response["purchaseAvailable"] = false
 		response["purchaseUrl"] = nil
-		response["unavailableReason"] = "MERCHANT_NOT_CLAIMED"
 		writeJSONResponse(writer, response)
 	}))
 	defer server.Close()
@@ -408,11 +407,11 @@ func TestUnclaimedMerchantPaidSkillFailsBeforeLoginOrWait(t *testing.T) {
 		"skill", "install", downloadableProductID, "--wait", "10s",
 	)
 	if exit == 0 || envelope["ok"] != false {
-		t.Fatalf("unclaimed paid edition unexpectedly entered purchase flow: %#v", envelope)
+		t.Fatalf("unavailable paid edition unexpectedly entered purchase flow: %#v", envelope)
 	}
 	errorBody, _ := envelope["error"].(map[string]any)
-	if errorBody["code"] != "SKILL_PURCHASE_UNAVAILABLE" {
-		t.Fatalf("unclaimed paid edition returned %#v", errorBody)
+	if errorBody["code"] != "SKILL_ACCESS_UNAVAILABLE" {
+		t.Fatalf("unavailable paid edition returned %#v", errorBody)
 	}
 }
 
