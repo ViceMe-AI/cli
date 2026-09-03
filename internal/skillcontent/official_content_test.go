@@ -933,7 +933,8 @@ func TestWebsiteReplicaKeepsInvitationShortAndBuyerStepsInSkill(t *testing.T) {
 		"`{创作者用户名} 邀请我一起创作「{作品名称}」，参考 {作品详情页.md地址} 立刻开始吧～`",
 		"该地址就是本次网站 ID", "具体步骤只由本 Skill 维护", "$creator-tools",
 		"webBaseUrl` 与详情地址 Origin 精确一致", "平台控制区", "viceme replica inspect", "viceme replica install",
-		"OPEN_WORK_PREVIEW", "OPEN_PAYMENT_WIDGET", "present_files", "继续做同款", "VICEME-REPLICA.md", "不得覆盖已有目录",
+		"OPEN_WORK_PREVIEW", "OPEN_PAYMENT_WIDGET", "STOP_AND_REPORT", "present_files", "继续做同款", "VICEME-REPLICA.md", "不得覆盖已有目录",
+		"只运行一次 `viceme replica inspect", "不得检查端口、进程、Docker、Node 或网关日志", "推荐统一使用 `127.0.0.1`",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Website Replica Skill omitted short-invitation buyer contract %q", required)

@@ -130,6 +130,39 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	}
 }
 
+func TestReplicaInspectFailureStopsInsteadOfLaunchingDiagnostics(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusNotImplemented)
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	var stdout bytes.Buffer
+	exit := Execute([]string{"replica", "inspect", "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST"}, Dependencies{
+		Out: &stdout, ErrOut: &bytes.Buffer{}, HTTPClient: server.Client(), Store: securestore.NewMemory(),
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:      config.RegionCN, APIBaseURL: server.URL,
+	})
+	if exit != output.ExitInternal {
+		t.Fatalf("inspect failure exit = %d, output=%q", exit, stdout.String())
+	}
+	var envelope struct {
+		Error struct {
+			Code      string         `json:"code"`
+			Retryable bool           `json:"retryable"`
+			Details   map[string]any `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Error.Code != "HTTP_501" || envelope.Error.Retryable ||
+		envelope.Error.Details["nextAction"] != "STOP_AND_REPORT" ||
+		envelope.Error.Details["stage"] != "INSPECT_REPLICA" {
+		t.Fatalf("inspect failure did not stop deterministically: %#v", envelope.Error)
+	}
+}
+
 func TestAnonymousPaidReplicaOpensHostedPaymentWidgetWithoutSecondConfirmation(t *testing.T) {
 	const (
 		fullCode     = "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST"

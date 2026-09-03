@@ -56,13 +56,24 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 			}
 			resolved, err := runtime.client().ResolveWebsiteReplicaPublic(command.Context(), args[0])
 			if err != nil {
-				return err
+				return replicaInspectFailure(err)
 			}
 			return runtime.business(replicaInspectResult{
 				NextAction: "OPEN_WORK_PREVIEW", WorkURL: resolved.ViceMeWorkURL, Replica: resolved,
 			})
 		},
 	}
+}
+
+func replicaInspectFailure(err error) error {
+	failure := *output.AsError(err)
+	failure.Retryable = false
+	failure.Details = map[string]any{
+		"nextAction": "STOP_AND_REPORT",
+		"stage":      "INSPECT_REPLICA",
+	}
+	failure.Hint = "report that the selected ViceMe service could not inspect the Work; do not retry or diagnose local services"
+	return &failure
 }
 
 func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
