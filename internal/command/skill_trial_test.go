@@ -321,12 +321,13 @@ func gateFiles(content string) map[string]downloadableSkillFile {
 
 func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 	const productID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	const installDoc = "https://s3.viceme.cn/start/agent-install.md"
 	const frontmatter = "---\nname: demo\ndescription: Demo.\n---\n"
 	const body = "\n# Demo Skill\n\n作者正文第一段。\n"
 
 	t.Run("inserts after frontmatter and keeps the author body", func(t *testing.T) {
 		files := gateFiles(frontmatter + body)
-		injectSkillTrialGate(files, productID)
+		injectSkillTrialGate(files, productID, installDoc)
 		content := string(files["SKILL.md"].Data)
 		marker := strings.Index(content, skillTrialGateMarker)
 		heading := strings.Index(content, "# Demo Skill")
@@ -341,9 +342,32 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 		}
 	})
 
+	t.Run("funnels machines without the CLI into the install contract", func(t *testing.T) {
+		files := gateFiles(frontmatter + body)
+		injectSkillTrialGate(files, productID, installDoc)
+		content := string(files["SKILL.md"].Data)
+		marker := strings.Index(content, skillTrialGateMarker)
+		for _, needle := range []string{
+			installDoc,
+			"不得跳过检查直接使用本技能",
+			"`viceme doctor`",
+			"停止使用本技能",
+			"viceme skill use " + productID,
+		} {
+			if !strings.Contains(content, needle) {
+				t.Fatalf("gate is missing %q:\n%s", needle, content)
+			}
+		}
+		tail := strings.Index(content, skillTrialGateTail)
+		bodyStart := strings.Index(content, "# Demo Skill")
+		if tail < 0 || tail < marker || tail > bodyStart {
+			t.Fatalf("tail anchor must stay inside the gate, before the author body:\n%s", content)
+		}
+	})
+
 	t.Run("prepends when the file has no frontmatter", func(t *testing.T) {
 		files := gateFiles("# Demo Skill\n")
-		injectSkillTrialGate(files, productID)
+		injectSkillTrialGate(files, productID, installDoc)
 		content := string(files["SKILL.md"].Data)
 		if !strings.HasPrefix(content, skillTrialGateMarker) {
 			t.Fatalf("gate must be prepended without frontmatter:\n%s", content)
@@ -352,9 +376,9 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 
 	t.Run("is idempotent on reinstall", func(t *testing.T) {
 		files := gateFiles(frontmatter + body)
-		injectSkillTrialGate(files, productID)
+		injectSkillTrialGate(files, productID, installDoc)
 		once := files["SKILL.md"].Data
-		injectSkillTrialGate(files, productID)
+		injectSkillTrialGate(files, productID, installDoc)
 		if !bytes.Equal(once, files["SKILL.md"].Data) {
 			t.Fatalf("second injection changed the file")
 		}
@@ -365,7 +389,7 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 
 	t.Run("normalizes CRLF before injecting", func(t *testing.T) {
 		files := gateFiles(strings.ReplaceAll(frontmatter+body, "\n", "\r\n"))
-		injectSkillTrialGate(files, productID)
+		injectSkillTrialGate(files, productID, installDoc)
 		content := string(files["SKILL.md"].Data)
 		if strings.Contains(content, "\r") {
 			t.Fatalf("CRLF must be normalized")
@@ -379,7 +403,7 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 		files := map[string]downloadableSkillFile{
 			"SKILL.md": {Data: []byte(frontmatter + body), Mode: 0o755},
 		}
-		injectSkillTrialGate(files, productID)
+		injectSkillTrialGate(files, productID, installDoc)
 		if files["SKILL.md"].Mode != 0o755 {
 			t.Fatalf("file mode was not preserved")
 		}
@@ -388,6 +412,7 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 
 func TestStripTrialGateSectionEdgeCases(t *testing.T) {
 	const productID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+	const installDoc = "https://s3.viceme.cn/start/agent-install.md"
 
 	write := func(t *testing.T, content string) string {
 		t.Helper()
@@ -400,7 +425,7 @@ func TestStripTrialGateSectionEdgeCases(t *testing.T) {
 
 	t.Run("removes the injected section and restores the author body", func(t *testing.T) {
 		files := gateFiles("---\nname: demo\ndescription: Demo.\n---\n\n# Demo Skill\n\n作者正文。\n")
-		injectSkillTrialGate(files, productID)
+		injectSkillTrialGate(files, productID, installDoc)
 		path := write(t, string(files["SKILL.md"].Data))
 		if !stripTrialGateSection(path) {
 			t.Fatalf("strip reported no change")
