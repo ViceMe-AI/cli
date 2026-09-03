@@ -71,7 +71,7 @@ export const officialSkillNames = [
   "creator-tools",
   "become-a-creator",
   "sell-a-skill",
-  "viceme-skill-use",
+  "use-a-skill",
   "charge-for-your-work",
   "let-people-interact",
   "let-others-make-a-copy",

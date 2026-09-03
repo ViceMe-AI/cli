@@ -31,6 +31,7 @@ type downloadableSkillInstallResult struct {
 	ArtifactDigest string                     `json:"artifactDigest"`
 	InstalledName  string                     `json:"installedName"`
 	Install        skillcontent.InstallReport `json:"install"`
+	Trial          *trialInstallSummary       `json:"trial,omitempty"`
 	NextAction     string                     `json:"nextAction"`
 	Invocation     string                     `json:"invocation"`
 }
@@ -106,6 +107,14 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			if !access.IsFree {
 				if !access.Owned && !access.PurchaseAvailable {
 					return output.Policy("SKILL_ACCESS_UNAVAILABLE", "this paid Skill edition is not available for purchase").WithDetails(map[string]any{"productId": productID})
+				}
+				// 试用优先:付费款开放试用时,匿名装试用版,用满再走购买。
+				workSlugForTrial := ""
+				if work != nil {
+					workSlugForTrial = work.Work.Slug
+				}
+				if !access.Owned && access.Trial != nil && access.Trial.Available {
+					return installTrialSkill(command.Context(), runtime, productID, workSlugForTrial, agent, access)
 				}
 				if err := runtime.requireSkillUseAuthentication(command.Context()); err != nil {
 					return err

@@ -20,7 +20,7 @@ var officialSkillNames = []string{
 	"become-a-creator",
 	"sell-a-skill",
 	"creator-tools",
-	"viceme-skill-use",
+	"use-a-skill",
 	"let-people-interact",
 	"let-others-make-a-copy",
 }
@@ -110,7 +110,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 		},
 		{
-			name: "viceme-skill-use",
+			name: "use-a-skill",
 			machine: []string{
 				"owned=true", "nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", "--wait 10m", "--agent auto",
 				"?product=<product-id>",
@@ -716,6 +716,34 @@ func TestInteractionDanmakuUsesPublishedWebsiteWithoutDNSVerification(t *testing
 	} {
 		if strings.Contains(section, forbidden) {
 			t.Fatalf("danmaku branch retained DNS verification gate %q", forbidden)
+		}
+	}
+}
+
+func TestWebsiteReplicaUsesPublishedWebsiteWithoutDNSVerification(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-others-make-a-copy/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"kind 为 `WEBSITE`", "canonicalOrigin", "`PUBLISHED`", "Origin 精确匹配",
+		"`website.ownershipStatus` 不参与门禁", "不创建、读取、验证或撤销 Website ownership verification",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Website Replica Skill omitted Website boundary %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"website-verification create <work-id>", "website-verification get <work-id>",
+		"website-verification verify <work-id>", "website-verification revoke <work-id>",
+		"dnsRecordName", "--expected-verification-version", "PUBLISHED + VERIFIED Website Work",
+		"website.ownershipStatus: VERIFIED", "DNS 挑战",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("Website Replica Skill retained DNS verification gate %q", forbidden)
 		}
 	}
 }
