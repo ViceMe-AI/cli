@@ -1,0 +1,62 @@
+<!-- ViceMe 弹幕 + 赞赏 Mounted 片段。
+     Danmaku 会在 target 内创建 fixed 全屏浮层；不要给 target 再设置 fixed 或全屏样式。
+     Tip target 参与宿主正常文档流，应放在页面的支持区域。
+     theme 可取 "auto"、"light" 或 "dark"。 -->
+<div id="viceme-danmaku"></div>
+<p id="viceme-danmaku-status" role="status" hidden></p>
+
+<section aria-label="支持这个作品">
+  <div id="viceme-tip"></div>
+  <p id="viceme-tip-status" role="status" hidden></p>
+</section>
+
+<script type="module">
+  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";
+  import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js";
+  import { mountTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";
+
+  const danmakuTarget = document.querySelector("#viceme-danmaku");
+  const danmakuStatus = document.querySelector("#viceme-danmaku-status");
+  const tipTarget = document.querySelector("#viceme-tip");
+  const tipStatus = document.querySelector("#viceme-tip-status");
+  if (!danmakuTarget || !danmakuStatus || !tipTarget || !tipStatus) {
+    throw new Error("ViceMe engagement target is missing");
+  }
+
+  const client = createViceMe({
+    workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY",
+    region: "cn",
+  });
+  let mountHandles = [];
+  try {
+    await client.ready();
+    const mountResults = await Promise.allSettled([
+      mountDanmaku(client, { target: danmakuTarget, theme: "auto" }),
+      mountTip(client, { target: tipTarget, theme: "auto" }),
+    ]);
+    const [danmakuResult, tipResult] = mountResults;
+    if (danmakuResult.status === "rejected") {
+      danmakuStatus.hidden = false;
+      danmakuStatus.textContent = "弹幕暂时不可用，请稍后重试。";
+    }
+    if (tipResult.status === "rejected") {
+      tipStatus.hidden = false;
+      tipStatus.textContent = "赞赏暂时不可用，请稍后重试。";
+    }
+    mountHandles = mountResults.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
+    );
+  } catch {
+    danmakuStatus.hidden = false;
+    danmakuStatus.textContent = "弹幕暂时不可用，请稍后重试。";
+    tipStatus.hidden = false;
+    tipStatus.textContent = "赞赏暂时不可用，请稍后重试。";
+  }
+
+  function destroyViceMeEngagement() {
+    for (const handle of mountHandles) handle.destroy();
+    client.destroy();
+  }
+
+  // 静态文档没有页面内卸载。SPA 只在组件或路由真实卸载时调用。
+</script>

@@ -208,6 +208,24 @@ test(
     await stat(
       path.join(codexHome, "skills", "let-people-interact", "templates", "single-html.html"),
     );
+    await stat(
+      path.join(
+        codexHome,
+        "skills",
+        "let-people-interact",
+        "templates",
+        "mounted-combination.html",
+      ),
+    );
+    await stat(
+      path.join(
+        codexHome,
+        "skills",
+        "let-people-interact",
+        "scripts",
+        "preflight-sdk-release.mjs",
+      ),
+    );
     await stat(path.join(configHome, "config.json"));
   },
 );
