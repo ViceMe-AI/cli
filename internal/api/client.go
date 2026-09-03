@@ -512,40 +512,10 @@ func (c *Client) CommandCommerceApplication(ctx context.Context, applicationID, 
 	return response, err
 }
 
-func (c *Client) ListMerchantProductAuthoringTemplates(ctx context.Context, merchantAccountID string) (json.RawMessage, error) {
-	var response json.RawMessage
-	query := url.Values{"merchantAccountId": {merchantAccountID}}
-	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/product-authoring-templates?"+query.Encode(), nil, &response, "@stored")
-	return response, err
-}
 
-func (c *Client) CreateMerchantProduct(ctx context.Context, input json.RawMessage) (MerchantProductDraftResponse, error) {
-	var response MerchantProductDraftResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/products", input, &response, "@stored")
-	return response, err
-}
 
-func (c *Client) UpdateMerchantProduct(ctx context.Context, productID string, input json.RawMessage) (MerchantProductDraftResponse, error) {
-	var response MerchantProductDraftResponse
-	endpoint := "/v1/cli/merchant/products/" + url.PathEscape(productID) + "/draft"
-	err := c.doJSON(ctx, http.MethodPatch, endpoint, input, &response, "@stored")
-	return response, err
-}
 
-func (c *Client) CompileMerchantProduct(ctx context.Context, productID, merchantAccountID string, expectedRevision int) (MerchantProductDraftResponse, error) {
-	var response MerchantProductDraftResponse
-	endpoint := "/v1/cli/merchant/products/" + url.PathEscape(productID) + "/compile"
-	request := map[string]any{"merchantAccountId": merchantAccountID, "expectedRevision": expectedRevision}
-	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
-	return response, err
-}
 
-func (c *Client) ActivateMerchantProduct(ctx context.Context, productID string, input json.RawMessage) (MerchantProductActivationResponse, error) {
-	var response MerchantProductActivationResponse
-	endpoint := "/v1/cli/merchant/products/" + url.PathEscape(productID) + "/activate"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, input, &response, "@stored")
-	return response, err
-}
 
 func (c *Client) CommandMerchantProduct(ctx context.Context, productID, command, merchantAccountID string, expectedRevision int) (MerchantProductLifecycleResponse, error) {
 	var response MerchantProductLifecycleResponse
