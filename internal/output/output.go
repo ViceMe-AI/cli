@@ -24,13 +24,15 @@ type Meta struct {
 	AutoUpdate          *AutoUpdateMeta `json:"autoUpdate,omitempty"`
 }
 
-// AutoUpdateMeta records the complete generation change that happened before
-// the command was re-executed. It is emitted by the new CLI process, never by
-// the process that performed the replacement.
+// AutoUpdateMeta records a completed generation change, or a permission notice
+// when preflight blocked the update before any generation mutation. A completed
+// change is emitted only by the re-executed process.
 type AutoUpdateMeta struct {
 	From   string `json:"from"`
 	To     string `json:"to"`
 	Status string `json:"status"`
+	Code   string `json:"code,omitempty"`
+	Hint   string `json:"hint,omitempty"`
 }
 
 type Error struct {

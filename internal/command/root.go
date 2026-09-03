@@ -188,6 +188,9 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		err := reconcileActivationAtStartup(ctx, configBase, &dependencies)
 		cancel()
 		if err != nil {
+			if updatepkg.IsPermissionDenied(err) {
+				return nil, nil, updatePermissionRequired(err).WithDetails(map[string]any{"recovery_required": true})
+			}
 			return nil, nil, output.Internal("ACTIVATION_RECOVERY_FAILED", "could not reconcile the active ViceMe CLI and Skill generation", err)
 		}
 	}
@@ -546,8 +549,8 @@ func (r *Runtime) ensureAutomaticUpdate(command *cobra.Command) error {
 		// is already a complete verified generation. An agent sandbox that
 		// denies renames cannot replace the executable, and failing here would
 		// break every business command instead of just the update.
-		if errors.Is(err, updatepkg.ErrRenameDenied) {
-			_, _ = fmt.Fprintln(r.deps.ErrOut, "Automatic CLI update skipped: this environment cannot activate a new ViceMe generation; run 'viceme update' from an unsandboxed terminal.")
+		if updatepkg.IsPermissionDenied(err) {
+			r.reportUpdatePermissionRequired(check)
 		}
 		return nil
 	}
@@ -556,6 +559,10 @@ func (r *Runtime) ensureAutomaticUpdate(command *cobra.Command) error {
 	result, err := r.deps.Updater.Apply(applyContext, check, updatepkg.ApplyOptions{RefreshSkills: true, SkillTarget: "auto"})
 	cancelApply()
 	if err != nil {
+		if updatepkg.IsPermissionDenied(err) && activationWasBlocked(result) {
+			r.reportUpdatePermissionRequired(check)
+			return nil
+		}
 		return updaterError(err, result)
 	}
 	scheduled := false
@@ -566,6 +573,26 @@ func (r *Runtime) ensureAutomaticUpdate(command *cobra.Command) error {
 		}
 	}
 	return &automaticUpdateApplied{From: check.CurrentVersion, To: result.CLIVersion, Scheduled: scheduled}
+}
+
+func activationWasBlocked(result updatepkg.ApplyResult) bool {
+	if len(result.Targets) == 0 {
+		return false
+	}
+	for _, target := range result.Targets {
+		if target.Status != "blocked" {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *Runtime) reportUpdatePermissionRequired(check updatepkg.CheckResult) {
+	r.printer.AutoUpdate = &output.AutoUpdateMeta{
+		From: check.CurrentVersion, To: check.AvailableVersion, Status: "permission_required",
+		Code: "UPDATE_PERMISSION_REQUIRED", Hint: updatePermissionHint,
+	}
+	_, _ = fmt.Fprintln(r.deps.ErrOut, "Automatic CLI update skipped: permission is required; continuing the unchanged installed generation. "+updatePermissionHint)
 }
 
 func defaults(dependencies Dependencies) Dependencies {

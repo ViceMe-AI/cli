@@ -251,6 +251,15 @@ test(
 const { appendFileSync, writeFileSync } = require("node:fs");
 const { spawnSync } = require("node:child_process");
 const args = process.argv.slice(2);
+if (args[0] === process.env.VICEME_TEST_NPM_CACHE_ARG &&
+    ["root", "prefix"].includes(args[1]) && args.includes("--global")) {
+  const query = spawnSync(process.execPath, [process.env.VICEME_REAL_NPM_CLI, ...args], {
+    encoding: "utf8", env: process.env,
+  });
+  process.stdout.write(query.stdout || "");
+  process.stderr.write(query.stderr || "");
+  process.exit(query.status ?? 1);
+}
 const packageIndex = args.findIndex((arg) =>
   arg.startsWith(process.env.VICEME_TEST_PACKAGE_PREFIX),
 );

@@ -90,7 +90,13 @@ type commandNPMRunner struct {
 	calls  int
 }
 
-func (runner *commandNPMRunner) Run(context.Context, string, ...string) ([]byte, error) {
+func (runner *commandNPMRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	if name == "node" {
+		return nil, nil
+	}
+	if len(args) > 1 && (args[1] == "root" || args[1] == "prefix") {
+		return []byte(os.TempDir()), nil
+	}
 	runner.calls++
 	if len(runner.errors) == 0 {
 		return nil, nil

@@ -191,6 +191,9 @@ func (service *NPMService) EnsureLauncher(ctx context.Context) (TargetResult, er
 		if err := ValidateActivationTarget(service.ConfigDir, target); err != nil {
 			return err
 		}
+		if err := service.probeNPMActivation(ctx); err != nil {
+			return err
+		}
 		journal, err := service.newNPMActivationJournal(target, "auto", false)
 		if err != nil {
 			return err
@@ -239,6 +242,9 @@ func (service *NPMService) PrepareCoordinatedInstallWhileLocked(ctx context.Cont
 		return result, "", errors.New("an npm activation journal is already pending")
 	}
 	if err := ValidateActivationTarget(service.ConfigDir, target); err != nil {
+		return result, "", err
+	}
+	if err := service.probeNPMActivation(ctx); err != nil {
 		return result, "", err
 	}
 	journal, err := service.newNPMActivationJournal(target, skillTarget, true)
@@ -337,7 +343,12 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 		return result, err
 	}
 	alreadyActive := false
+	preflightBlocked := false
 	err = service.withNPMActivationLock(ctx, func() error {
+		_, pending, inspectErr := service.readNPMActivation()
+		if inspectErr != nil {
+			return inspectErr
+		}
 		if err := service.recoverNPMActivation(ctx); err != nil {
 			return err
 		}
@@ -358,6 +369,14 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 				return nil
 			}
 		}
+		if err := service.probeNPMActivation(ctx); err != nil {
+			// Only this pre-mutation refusal can keep the current command
+			// running. Never infer safety from a missing journal after releasing
+			// the lock: another process may have recovered a changed generation.
+			running, generationErr := NewNPMGeneration(service.ComparableVersion)
+			preflightBlocked = IsPermissionDenied(err) && !pending && generationErr == nil && exists && active == running
+			return err
+		}
 		journal, err := service.newNPMActivationJournal(generation, target, true)
 		if err != nil {
 			return err
@@ -371,10 +390,14 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 		return service.finishNPMActivation(&journal)
 	})
 	if err != nil {
-		cliTarget.Status = "recovery_pending"
-		skillTarget.Status = "recovery_pending"
+		status := "recovery_pending"
+		if preflightBlocked {
+			status = "blocked"
+		}
+		cliTarget.Status = status
+		skillTarget.Status = status
 		result.Targets = append(result.Targets, cliTarget, skillTarget)
-		return result, fmt.Errorf("npm CLI and Skill activation did not complete; the durable recovery journal was retained: %w", err)
+		return result, fmt.Errorf("npm CLI and Skill activation did not complete: %w", err)
 	}
 	if !check.UpdateAvailable {
 		cliTarget.Status = "unchanged"
@@ -518,7 +541,13 @@ func (service *NPMService) recoverNPMActivation(ctx context.Context) error {
 	if journal.Status == "COMMITTED" {
 		return service.finishNPMActivation(&journal)
 	}
+	if err := service.probeNPMActivation(ctx); err != nil {
+		return err
+	}
 	if err := service.applyNPMActivation(ctx, &journal); err != nil {
+		if IsPermissionDenied(err) {
+			return err
+		}
 		if rollbackErr := service.rollbackNPMActivation(ctx, journal); rollbackErr != nil {
 			return fmt.Errorf("recover interrupted npm CLI and Skill activation: %w", errors.Join(err, rollbackErr))
 		}
@@ -607,6 +636,9 @@ func (service *NPMService) rollbackNPMActivation(ctx context.Context, journal np
 	}
 	if exists && active != *journal.Previous {
 		return errors.New("npm activation previous generation is no longer active")
+	}
+	if err := service.probeNPMActivation(ctx); err != nil {
+		return err
 	}
 	nonce, err := newNPMActivationNonce()
 	if err != nil {
@@ -1017,7 +1049,7 @@ func classifyNPMError(err error, output []byte) error {
 		return &OperationError{Kind: ErrorNPMMissing, Cause: errors.New("npm is not available in PATH")}
 	}
 	normalized := strings.ToUpper(string(output))
-	if errors.Is(err, os.ErrPermission) || strings.Contains(normalized, "EPERM") || strings.Contains(normalized, "EACCES") {
+	if errors.Is(err, os.ErrPermission) || strings.Contains(normalized, "EPERM") || strings.Contains(normalized, "EACCES") || strings.Contains(normalized, "EROFS") || strings.Contains(normalized, "CODEBUDDY_BROKER_DENY") {
 		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("npm could not write its cache or global installation directory")}
 	}
 	return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("npm command failed")}

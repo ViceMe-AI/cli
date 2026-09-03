@@ -334,8 +334,11 @@ text.
 `meta.executingCliVersion` is the version of the process that emitted the
 response. For `viceme update`, the newly installed version is reported
 separately as `data.cli_version` because the response is still emitted by the
-process that started the update. `meta.autoUpdate` is present only when this
-command was automatically continued by a newly activated generation.
+process that started the update. `meta.autoUpdate.status == "updated"` means
+the command continued under a newly activated generation. A status of
+`"permission_required"` instead means preflight stopped the automatic update
+before changing the installed generation; `code` and `hint` describe the host
+approval needed, while `data` remains the original command's result.
 
 Every released installation passes through a bounded freshness gate before an
 ordinary command. A validated result is reused for five minutes so a single
@@ -361,6 +364,25 @@ viceme update
 `viceme update` remains an explicit repair command. The normal startup gate
 already verifies the exact release, refreshes the matching official Skills, and
 recovers interrupted activation as one compatible local generation.
+
+For npm installations, permission preflight checks the configured npm cache,
+the actual scoped global package directory and launcher directory through Node,
+preserving the host's filesystem broker. It runs before creating an activation
+journal. A denied preflight leaves the existing generation available; it does
+not report an update as successful. Permission can still change after preflight,
+so any failure after an install attempt retains the recovery journal and blocks
+business operations until recovery completes.
+
+An explicit update or pending recovery that lacks filesystem access returns
+`UPDATE_PERMISSION_REQUIRED` (exit 6, not automatically retryable). The Agent
+must request access through its host's official approval mechanism and retry
+`viceme update` only after access is granted. A chat message granting consent
+does not itself change OS or host permissions. If approval is refused,
+unavailable, or still insufficient, stop updating. Never delete recovery
+journals, uninstall the CLI, or bypass host restrictions to force an update.
+Pending recovery is identified by `error.details.recovery_required` or
+`recovery_pending` target statuses; it must not be treated as an intact old
+installation. Neither raw npm output nor credentials are included in errors.
 
 ## Security
 

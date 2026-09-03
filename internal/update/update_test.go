@@ -278,7 +278,10 @@ type blockingConcurrentRunner struct {
 	startOnce    sync.Once
 }
 
-func (runner *blockingConcurrentRunner) Run(context.Context, string, ...string) ([]byte, error) {
+func (runner *blockingConcurrentRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	if output, ok := fakePermissionProbe(name, args); ok {
+		return output, nil
+	}
 	runner.mu.Lock()
 	runner.calls++
 	call := runner.calls
@@ -297,6 +300,9 @@ func (runner *blockingConcurrentRunner) CallCount() int {
 }
 
 func (runner *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	if output, ok := fakePermissionProbe(name, args); ok {
+		return output, nil
+	}
 	runner.calls = append(runner.calls, runCall{name: name, args: append([]string(nil), args...)})
 	index := len(runner.calls) - 1
 	var output []byte
@@ -703,4 +709,16 @@ func TestNPMServiceRepairRollbackRetiresJournalWhenSkillChildKeepsFailing(t *tes
 	if err != nil || !exists || current != active {
 		t.Fatalf("failed repair changed the committed generation: current=%#v exists=%t err=%v", current, exists, err)
 	}
+}
+
+// Existing activation tests fake the permission boundary separately from install
+// failures. npm_permissions_test exercises the real Node probe and denied paths.
+func fakePermissionProbe(name string, args []string) ([]byte, bool) {
+	if name == "node" && len(args) > 1 && args[1] == npmPermissionProbe {
+		return nil, true
+	}
+	if name == "npm" && len(args) > 1 && strings.HasPrefix(args[0], "--cache=") && (args[1] == "prefix" || args[1] == "root") {
+		return []byte(os.TempDir()), true
+	}
+	return nil, false
 }
