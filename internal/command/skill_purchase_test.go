@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -403,9 +404,43 @@ func TestPaidSkillPurchaseRequiresExplicitPurchaseScopes(t *testing.T) {
 	state := newSkillPurchaseTestServer(t)
 	defer state.server.Close()
 	state.scopes = []string{"profile:read", "skill-use:read"}
-	exit, envelope, _ := executeSkillPurchaseCommand(t, state.server, t.TempDir(), "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	home := t.TempDir()
+	exit, envelope, stderr := executeSkillPurchaseCommand(t, state.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
 	if exit == 0 || envelope["error"].(map[string]any)["code"] != "BUYER_PURCHASE_SCOPE_REQUIRED" || state.orderCreates != 0 {
 		t.Fatalf("read-only login purchased: %#v", envelope)
+	}
+	if !strings.Contains(stderr, "重新登录授权") {
+		t.Fatalf("missing user-facing reauthorization prompt: %q", stderr)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(home, ".viceme-cli", "payment-presentations", "wechat-*.png")); len(matches) != 0 {
+		t.Fatalf("QR was generated before purchase authorization: %v", matches)
+	}
+	// Once the same account grants purchase scopes, the original command can proceed.
+	state.mu.Lock()
+	state.scopes = []string{"profile:read", "skill-use:read", "buyer-commerce:read", "buyer-commerce:write"}
+	state.mu.Unlock()
+	_, resumed, resumedProgress := executeSkillPurchaseCommand(t, state.server, home, "skill", "install", downloadableProductID, "--agent", "agents", "--wait", "0")
+	if resumed["error"].(map[string]any)["code"] != "SKILL_PURCHASE_REQUIRED" || state.orderCreates != 1 {
+		t.Fatalf("reauthorized purchase did not produce one payable order: %#v", resumed)
+	}
+	if matches, _ := filepath.Glob(filepath.Join(home, ".viceme-cli", "payment-presentations", "wechat-*.png")); len(matches) != 1 {
+		t.Fatalf("reauthorized purchase did not generate its QR: %v", matches)
+	}
+	details := resumed["error"].(map[string]any)["details"].(map[string]any)
+	paymentURL, err := url.Parse(details["paymentUrl"].(string))
+	if err != nil || paymentURL.Path != "/checkout" || paymentURL.Query().Get("orderNo") != details["orderNo"] || !strings.Contains(resumedProgress, "\n"+paymentURL.String()+"\n") {
+		t.Fatalf("payment link did not target the same order in JSON and progress: %#v %v", details, err)
+	}
+}
+
+func TestSkillOrderPaymentURLUsesConfiguredStorefront(t *testing.T) {
+	runtime := &Runtime{profile: config.Profile{WebBaseURL: "https://shop.example.test/store"}}
+	link, err := url.Parse(skillOrderPaymentURL(runtime, "order /?&"))
+	if err != nil || link.Host != "shop.example.test" || link.Path != "/store/checkout" || link.Query().Get("orderNo") != "order /?&" {
+		t.Fatalf("payment link lost the configured storefront or order identity: %v %v", link, err)
+	}
+	if value := skillOrderPaymentURL(&Runtime{}, "order"); value != "" {
+		t.Fatalf("payment link guessed an unconfigured storefront: %q", value)
 	}
 }
 

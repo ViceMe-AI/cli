@@ -157,7 +157,7 @@ npx --yes @viceme-ai/cli@latest install
 | `sell-a-skill` | 发布或更新可下载的付费或免费 Skill；网站、服务与普通商品不属于此 Skill。 |
 | `use-a-skill` | 解析免费、已购买或待购买的访问状态，安装所选 Skill，并继续原任务。 |
 | `charge-for-your-work` | 为现有网站配置关注或付费解锁并接入宿主代码；复用统一创作者资格检查，平台资源保持为内部实现。 |
-| `let-people-interact` | 分支处理仅弹幕、开放赞赏或两者；包含弹幕的路线要求已发布且 canonical Origin 精确匹配的 Website Work，Tip 可使用任意合格且已发布的 Merchant Work，并选择 Mounted 或 Headless UI；三个分支均不要求 DNS 所有权验证。 |
+| `let-people-interact` | 分支处理仅弹幕、开放赞赏或两者；包含弹幕的路线要求已发布且 canonical Origin 精确匹配的 Website Work，Tip 可使用任意合格且已发布的 Merchant Work。默认使用 Mounted UI，仅在用户明确要求自定义 UI 时进入 Headless；三个分支均不要求 DNS 所有权验证。 |
 | `let-others-make-a-copy` | 发布包含根级 `VICEME-REPLICA.md` 的完整网站源码 ZIP，并把平台返回的“做同款”提示词接入创作者原站。 |
 
 买家侧 `use-a-skill` 不属于创作者玩法，因此保持现有名称。
@@ -266,7 +266,8 @@ ownership 或 DNS 验证。仅接入赞赏不会把宿主页登记为 Website Wo
 仍使用 canonical Origin 与部署 Origin 精确匹配的已发布 Website Work。当前版本的网站关注/付费
 解锁同样不要求 DNS TXT 或登记嵌入 Origin。
 
-组合路线只因弹幕要求而共用一个已发布 Website Work。Tip 本身不增加域名或
+组合路线只因弹幕要求而共用一个已发布 Website Work，并在同一 target 内只显示一个含赞赏入口的
+底部互动栏，不再生成正文 Tip 卡片或 Headless Tip 控件。Tip 本身不增加域名或
 Commerce Application 门禁，互动流程也不创建或修改 Website Widget。网站关注/付费
 访问及其平台托管 `WEBSITE_WIDGET` 资源由收费接入流程和 Shop 在内部完成，但暂不执行 Origin/DNS
 或 checkout iframe 宿主门禁。另行配置的域名绑定 `HOSTED_CHECKOUT` 与签名 Webhook 仍保留所有权

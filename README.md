@@ -172,7 +172,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `sell-a-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
 | `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | configure follow or paid unlock for an existing website and integrate it into host code after the shared creator qualification check; platform resources stay internal. |
-| `let-people-interact` | branch between danmaku, open tips, or both; danmaku-bearing routes require a published Website Work with an exact canonical Origin, while Tip can use any eligible published Merchant Work and either Mounted or Headless UI; none requires DNS ownership verification. |
+| `let-people-interact` | branch between danmaku, open tips, or both; danmaku-bearing routes require a published Website Work with an exact canonical Origin, while Tip can use any eligible published Merchant Work. It defaults to Mounted UI and uses Headless only for an explicit custom-UI request; none requires DNS ownership verification. |
 | `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site. |
 
 Buyer-side `use-a-skill` keeps its existing name because it is not a creator workflow.
@@ -295,7 +295,9 @@ require DNS TXT verification or a registered embedding Origin for Website
 follow/paid access.
 
 The combined route uses one published Website Work because danmaku requires
-that identity. Tip itself adds no domain or Commerce Application gate, and
+that identity. It renders one bottom interaction bar on one target, with Tip
+opened from that bar instead of a body card or host-rendered Headless control.
+Tip itself adds no domain or Commerce Application gate, and
 engagement does not create or mutate Website Widget applications. Website
 follow/paid access and its platform-managed `WEBSITE_WIDGET` resources are
 provisioned internally by the charging flow and Shop, with no Origin/DNS or

@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
@@ -13,6 +15,16 @@ import (
 )
 
 func formatCentsAsYuan(cents int) string { return fmt.Sprintf("¥%.2f", float64(cents)/100) }
+
+// The storefront's checkout recovery route resumes this exact buyer order.
+func skillOrderPaymentURL(runtime *Runtime, orderNo string) string {
+	base := runtime.profile.ResolvedWebBaseURL()
+	if base == "" {
+		return ""
+	}
+	return strings.TrimRight(base, "/") + "/checkout?" + url.Values{"orderNo": {orderNo}}.Encode()
+}
+
 func localeForRuntimeMarket(runtime *Runtime) string {
 	if runtime.region == config.RegionGlobal {
 		return "en-US"
@@ -151,7 +163,7 @@ func waitForSkillOrderPayment(ctx context.Context, runtime *Runtime, productID, 
 		}
 		if !runtime.deps.Now().Before(deadline) {
 			return output.Confirmation("SKILL_PURCHASE_PENDING", "payment was not observed before the wait deadline").
-				WithDetails(map[string]any{"orderNo": orderNo}).
+				WithDetails(map[string]any{"orderNo": orderNo, "paymentUrl": skillOrderPaymentURL(runtime, orderNo)}).
 				WithHint("after the user finishes the scan payment, rerun the same install command; the pending order is recovered instead of duplicated")
 		}
 		remaining := deadline.Sub(runtime.deps.Now())

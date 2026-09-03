@@ -44,31 +44,40 @@
       <h1>支持这个作品</h1>
       <p>这是仅赞赏分支的官方 Mounted UI 单 HTML 起点。</p>
       <div id="viceme-tip"></div>
+      <p id="viceme-tip-status" role="status" hidden></p>
     </main>
 
     <!-- 仅在统一流程已确认 CN Profile、选定公开 PUBLISHED Work，并完成
-         CN/GLOBAL 同一个 sdk_version 的四个精确入口预检后使用。写入前替换全部
+         当前区域统一发布物预检后使用。写入前替换全部
          REPLACE_WITH_RESOLVED_SDK_VERSION；仍有占位符就停止。宿主页不因此成为 Website Work。
-         保留浏览器 Referer；不要设置 no-referrer，也不要伪造 sourceOrigin。 -->
+         保留浏览器 Referer；不要设置 no-referrer，也不要伪造 sourceOrigin。
+         theme 可取 "auto"、"light" 或 "dark"。 -->
     <script type="module">
       import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";
       import { mountTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";
 
       const target = document.querySelector("#viceme-tip");
-      if (!target) throw new Error("ViceMe Tip target is missing");
+      const status = document.querySelector("#viceme-tip-status");
+      if (!target || !status) throw new Error("ViceMe Tip target is missing");
 
       const client = createViceMe({
         workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY",
         region: "cn",
       });
-      await client.ready();
-      const tipHandle = await mountTip(client, {
-        target,
-        theme: "auto",
-      });
+      let tipHandle;
+      try {
+        await client.ready();
+        tipHandle = await mountTip(client, {
+          target,
+          theme: "auto",
+        });
+      } catch {
+        status.hidden = false;
+        status.textContent = "赞赏暂时不可用，请稍后重试。";
+      }
 
       function destroyViceMeTip() {
-        tipHandle.destroy();
+        tipHandle?.destroy();
         client.destroy();
       }
 

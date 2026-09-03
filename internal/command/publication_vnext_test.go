@@ -854,6 +854,10 @@ type publicationAPITestState struct {
 	mediaPutFailures         int
 	loseCompleteResponse     bool
 	uploadAuthorizationCalls int
+	authorizedSortOrders     []int
+	slotConflictOnFirst      bool
+	rivalVisible             bool
+	occupiedMediaSlot        int
 	previewLaunchCalls       int
 	analysisPolls            int
 	analysisCalls            int
@@ -968,6 +972,13 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		var input api.UploadAuthorizationRequest
 		_ = json.NewDecoder(request.Body).Decode(&input)
 		state.uploadAuthorizationCalls++
+		state.authorizedSortOrders = append(state.authorizedSortOrders, input.SortOrder)
+		if state.slotConflictOnFirst && !state.rivalVisible && input.SortOrder == state.occupiedMediaSlot {
+			state.rivalVisible = true
+			writer.WriteHeader(http.StatusConflict)
+			_, _ = writer.Write([]byte(`{"statusCode":409,"code":"SKILL_PUBLICATION_UPLOAD_SLOT_CONFLICT","message":"The requested media upload slot already contains another file"}`))
+			return
+		}
 		state.mediaDigest = input.Digest
 		state.mediaFileName = input.FileName
 		state.mediaContentType = input.ContentType
@@ -1040,6 +1051,10 @@ func (state *publicationAPITestState) publication() api.SkillPublication {
 	if state.packageVerified {
 		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-package", Kind: "PACKAGE", Status: "VERIFIED", Digest: state.packageDigest, SortOrder: 0})
 	}
+	if state.rivalVisible {
+		// 模拟并发对手的媒体写入:首次 GET 时尚不可见,撞槽后的重读才出现。
+		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-rival", Kind: "MEDIA", Status: "VERIFIED", FileName: "rival.png", ContentType: "image/png", SizeBytes: 1, Digest: strings.Repeat("c", 64), SortOrder: state.occupiedMediaSlot})
+	}
 	if state.mediaVerified {
 		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-media", Kind: "MEDIA", Status: "VERIFIED", FileName: state.mediaFileName, ContentType: state.mediaContentType, SizeBytes: state.mediaSizeBytes, Digest: state.mediaDigest, SortOrder: state.mediaSortOrder})
 	} else if state.mediaPending {
@@ -1069,4 +1084,59 @@ func stringPointer(value string) *string {
 
 func intPointer(value int) *int {
 	return &value
+}
+
+func TestPublicationAssetUploadRetriesSlotConflictWithFreshSlot(t *testing.T) {
+	t.Parallel()
+	state := &publicationAPITestState{
+		publicationID:        "22222222-2222-4222-8222-222222222222",
+		reviewDigest:         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		status:               "DRAFT",
+		slotConflictOnFirst:  true,
+		occupiedMediaSlot:    0,
+	}
+	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	defer server.Close()
+	state.baseURL = server.URL
+
+	root := t.TempDir()
+	media, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	mediaPath := filepath.Join(root, "cover.png")
+	if err := os.WriteFile(mediaPath, media, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := securestore.NewMemory()
+	scope, err := credentialScopeForAPIBase(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager := credentialauth.Manager{Store: store, Region: "cn", ProfileID: "default", ProfileName: "default", Scope: scope}
+	if err := manager.Save(credentialauth.Credential{AccessToken: "vme_cli_test", ExpiresAt: time.Now().Add(time.Hour)}); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"publication", "asset", "upload", state.publicationID, "--role", "cover", "--path", mediaPath, "--candidate-only"}, Dependencies{
+		Out: &stdout, ErrOut: &bytes.Buffer{}, Store: store, APIBaseURL: server.URL, Region: config.RegionGlobal,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit != 0 {
+		t.Fatalf("slot-conflict retry did not succeed: %s", stdout.String())
+	}
+	var envelope struct {
+		OK bool `json:"ok"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || !envelope.OK {
+		t.Fatalf("unexpected envelope: %s err=%v", stdout.String(), err)
+	}
+	if state.uploadAuthorizationCalls != 2 {
+		t.Fatalf("expected authorize to run twice (conflict then fresh slot), got %d", state.uploadAuthorizationCalls)
+	}
+	// 重试必须换到未被并发对手占用的槽位
+	if state.authorizedSortOrders[0] == state.authorizedSortOrders[1] {
+		t.Fatalf("retry reused the conflicted slot %d", state.authorizedSortOrders[1])
+	}
 }

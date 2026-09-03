@@ -208,14 +208,15 @@ func TestInteractionTemplateUsesExactMountedTipESM(t *testing.T) {
 	for _, required := range []string{
 		`import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";`,
 		`import { mountTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";`,
-		`workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY"`, "tipHandle.destroy();", "client.destroy();",
+		`workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY"`, "tipHandle?.destroy();", "client.destroy();",
 		"公开 PUBLISHED Work", "宿主页不因此成为 Website Work", "静态文档没有页面内卸载", "写入前替换",
+		`role="status"`, "赞赏暂时不可用，请稍后重试。",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("interaction template omitted exact Mounted Tip contract %q", required)
 		}
 	}
-	if strings.Index(text, "tipHandle.destroy();") > strings.Index(text, "client.destroy();") {
+	if strings.Index(text, "tipHandle?.destroy();") > strings.Index(text, "client.destroy();") {
 		t.Fatal("interaction template destroys the client before its Tip mount")
 	}
 	for _, forbidden := range []string{"REPLACE_WITH_SDK_SCRIPT_URL", "data-viceme-", "window.ViceMe"} {
@@ -656,6 +657,7 @@ func TestInteractionSkillKeepsThreeBranchBoundaries(t *testing.T) {
 		"仅弹幕", "仅赞赏", "弹幕加赞赏", "$become-a-creator", "MerchantAccountMember(role=OWNER)",
 		"任意 kind Work", "PUBLISHED Website Work", "canonical Origin", "marketRegion: cn", "页面 locale 不选择市场",
 		"仅弹幕不受 CN/CNY 限制", "GLOBAL 必须立即停止", "Tip 本身不增加 Origin 或 Application 门禁",
+		"仅赞赏不要求 Website kind、仓库、HTTPS Origin 或 Commerce Application",
 		"三个分支均不创建、读取、验证或撤销 Website ownership verification", "不要求 DNS 或域名所有权验证",
 		"只承载 Tip UI 的宿主页不是作品证据", "只有真实作品是可下载 Skill 时才转交 `$sell-a-skill`",
 	} {
@@ -673,12 +675,170 @@ func TestInteractionSkillKeepsThreeBranchBoundaries(t *testing.T) {
 			t.Fatalf("interaction Skill retained retired or over-broad contract %q", forbidden)
 		}
 	}
+
+	entrypoint, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	profileGate := strings.Index(string(entrypoint), "1. 先运行一次无需业务写入的 `viceme profile list`")
+	qualificationGuard := strings.Index(string(entrypoint), "2. 通过市场门禁后，第一项业务动作")
+	if profileGate < 0 || qualificationGuard < 0 || profileGate >= qualificationGuard {
+		t.Fatal("interaction Skill must reject unsupported markets before creator qualification can write")
+	}
+}
+
+func TestInteractionRoutinePathUsesProgressiveDisclosure(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	if len(content) > 10_000 {
+		t.Fatalf("interaction Skill entrypoint is too large for the routine path: %d bytes", len(content))
+	}
+	for _, required := range []string{
+		"references/release-preflight.md",
+		"references/work-and-access.md",
+		"references/mounted.md",
+		"references/headless.md",
+		"不得递归扫描工作区之外的目录",
+		"不得下载、读取或反向分析 SDK 构建产物",
+		"不创建任务清单",
+		"不得自动安装浏览器或其他全局工具",
+		"合并为一次并行工具调用",
+		"不超过 25 次工具调用、15 次模型回复",
+		"30 次工具调用、25 次模型回复",
+		"不触发上下文压缩",
+		"默认使用官方 Mounted UI",
+		"只有用户明确要求自定义 Tip UI 时才进入 Headless",
+		"组合固定使用官方 integrated Mounted UI",
+		"组合不得生成 Headless Tip 控件",
+		"不得为默认选择增加一轮提问",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("interaction Skill entrypoint omitted bounded-flow rule %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"修改前完整阅读 [integration-contract.md]",
+		"npm view @viceme-ai/sdk@latest version exports --json",
+		"GET /v1/work-sdk/:workKey/tip-config",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("interaction Skill entrypoint retained eagerly loaded detail %q", forbidden)
+		}
+	}
+}
+
+func TestInteractionWorkReferenceIncludesMinimalDraftPublication(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/references/work-and-access.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"viceme merchant work update <work-id> --input <publish-json>",
+		"发布成功后立即重读同一个 Work",
+		"不得把业务命令管道到 `head`、`grep` 或其他会掩盖退出码的命令",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("interaction Work reference omitted deterministic publication rule %q", required)
+		}
+	}
+	requireJSONBlock(t, "let-people-interact/references/work-and-access.md", text, `"status": "PUBLISHED"`, `{
+  "merchantAccountId": "00000000-0000-4000-8000-000000000001",
+  "expectedRevision": 1,
+  "status": "PUBLISHED"
+}`)
+}
+
+func TestInteractionCombinationMountedTemplateIsAuthoritative(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/templates/mounted-combination.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		`from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js"`,
+		`workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY"`,
+		"Promise.allSettled",
+		"只使用一个空 target",
+		`<div id="viceme-engagement"></div>`,
+		`const target = document.querySelector("#viceme-engagement")`,
+		`mountDanmaku(client, { target, theme: "auto" })`,
+		`presentation: "integrated"`,
+		"底部互动栏",
+		"正文不创建 Tip 卡片",
+		`theme 可取 "auto"、"light" 或 "dark"`,
+		"弹幕暂时不可用，请稍后重试。",
+		"赞赏暂时不可用，请稍后重试。",
+		"for (const handle of mountHandles) handle.destroy();",
+		"client.destroy();",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("combination Mounted template omitted %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"window.ViceMe", "data-viceme-", `id="viceme-danmaku"`, `id="viceme-tip"`,
+		"tipTarget", "createTip(",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("combination Mounted template retained forbidden integration %q", forbidden)
+		}
+	}
+	if pinned := regexp.MustCompile(`/viceme-sdk/\d+\.\d+\.\d+/`).FindString(text); pinned != "" {
+		t.Fatalf("combination Mounted template pinned an SDK version %q", pinned)
+	}
+	if strings.Count(text, "createViceMe({") != 1 || strings.Count(text, "mountDanmaku(client") != 1 || strings.Count(text, "mountTip(client") != 1 {
+		t.Fatal("combination Mounted template must create one client and mount each capability once")
+	}
+	tryBlock := strings.Index(text, "try {")
+	clientReady := strings.Index(text, "await client.ready();")
+	if tryBlock < 0 || clientReady < 0 || tryBlock > clientReady {
+		t.Fatal("combination Mounted template does not expose client initialization failure")
+	}
+	if strings.Index(text, "for (const handle of mountHandles) handle.destroy();") > strings.Index(text, "client.destroy();") {
+		t.Fatal("combination Mounted template destroys the client before its successful mounts")
+	}
+}
+
+func TestInteractionDanmakuMountedTemplateSupportsBothRegions(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/templates/mounted-danmaku.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"GLOBAL Profile 同时替换两个 CDN host 和 region",
+		`from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js"`,
+		`from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js"`,
+		`workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY"`, `role="status"`,
+		"弹幕暂时不可用，请稍后重试。", "danmakuHandle?.destroy();", "client.destroy();",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("Danmaku Mounted template omitted %q", required)
+		}
+	}
+	if pinned := regexp.MustCompile(`/viceme-sdk/\d+\.\d+\.\d+/`).FindString(text); pinned != "" {
+		t.Fatalf("Danmaku Mounted template pinned an SDK version %q", pinned)
+	}
 }
 
 func TestInteractionTipOnlyUsesAnyPublishedMerchantWorkWithoutWebsiteOwnershipGate(t *testing.T) {
 	t.Parallel()
 
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/SKILL.md")
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/references/work-and-access.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -706,7 +866,7 @@ func TestInteractionTipOnlyUsesAnyPublishedMerchantWorkWithoutWebsiteOwnershipGa
 func TestInteractionDanmakuUsesPublishedWebsiteWithoutDNSVerification(t *testing.T) {
 	t.Parallel()
 
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/SKILL.md")
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/references/work-and-access.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -759,61 +919,47 @@ func TestWebsiteReplicaUsesPublishedWebsiteWithoutDNSVerification(t *testing.T) 
 	}
 }
 
-func TestTipBearingInteractionPreflightsExactReleaseBeforeMutation(t *testing.T) {
+func TestInteractionPreflightsSelectedExactReleaseBeforeMutation(t *testing.T) {
 	t.Parallel()
 
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/SKILL.md")
+	entrypoint, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(content)
+	entrypointText := string(entrypoint)
 	for _, required := range []string{
-		"npm view @viceme-ai/sdk@latest version exports --json",
-		`node "$sdk_validator" package`, `node "$sdk_validator" manifest-response "$sdk_version"`,
-		`sdk_manifest_response="$(curl`, `--write-out '\n%{http_code}'`,
-		"manifest.json", "apiMajor", "完整公共面",
-		"https://s3.viceme.cn/viceme-sdk/${sdk_version}/index.js",
-		"https://s3.viceme.cn/viceme-sdk/${sdk_version}/tip.js",
-		"https://s3.viceme.ai/viceme-sdk/${sdk_version}/index.js",
-		"https://s3.viceme.ai/viceme-sdk/${sdk_version}/tip.js",
-		"https://s3.viceme.cn/viceme-sdk/${sdk_version}/danmaku.js",
-		"--connect-timeout 5", "--max-time 15", "--write-out '%{http_code}'",
-		`"$asset_url")" || exit 1`, `test "$http_code" = "200" || exit 1`,
-		"不得跟随或接受重定向", `npm view "@viceme-ai/sdk@${sdk_version}" version`,
-		`test "$published_version" = "$sdk_version" || exit 1`, "--fetch-timeout=15000 --fetch-retries=0",
-		"--registry=https://registry.npmjs.org", "--@viceme-ai:registry=https://registry.npmjs.org",
-		"只解析一次", "不得把 `latest` 写入", "REPLACE_WITH_RESOLVED_SDK_VERSION", "声明式或全局 loader",
+		"scripts/preflight-sdk-release.mjs", "--route <danmaku|tip|combined>", "--region <cn|global>",
+		"只运行一次", "该命令失败就停止", "不得再次解析版本",
 	} {
-		if !strings.Contains(text, required) {
-			t.Fatalf("Tip preflight omitted exact release guard %q", required)
+		if !strings.Contains(entrypointText, required) {
+			t.Fatalf("interaction entrypoint omitted bounded preflight rule %q", required)
 		}
 	}
-	preflight := strings.Index(text, "npm view @viceme-ai/sdk@latest version exports --json")
-	mutation := strings.Index(text, "merchant work sdk-access create")
+	preflight := strings.Index(entrypointText, "scripts/preflight-sdk-release.mjs")
+	mutation := strings.Index(entrypointText, "## 3. Work 与 SDK access")
 	if preflight < 0 || mutation < 0 || preflight >= mutation {
-		t.Fatal("Tip release preflight does not precede SDK access mutation")
+		t.Fatal("release preflight does not precede SDK access mutation")
+	}
+
+	reference, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/references/release-preflight.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	referenceText := string(reference)
+	for _, required := range []string{
+		"只运行一次", "纯 `major.minor.patch`", "当前 Profile 实际使用区域",
+		"跨区域发布完整性由 SDK 发布流程负责", "单个站点不重复探测未使用区域",
+		"15 秒上限", "拒绝 redirect", "精确 `200`", "npm 请求不重试",
+		`integrations.engagement: "danmaku-tip-v1"`, "fail closed",
+		"不得再次解析版本", "不得把 `latest` 写入", "REPLACE_WITH_RESOLVED_SDK_VERSION",
+	} {
+		if !strings.Contains(referenceText, required) {
+			t.Fatalf("Tip preflight omitted exact release guard %q", required)
+		}
 	}
 	bundle := readOfficialSkillBundle(t, "let-people-interact")
 	if pinned := regexp.MustCompile(`(?:@viceme-ai/sdk@|/viceme-sdk/)\d+\.\d+\.\d+`).FindString(bundle); pinned != "" {
 		t.Fatalf("interaction Skill pinned an SDK version %q", pinned)
-	}
-	if strings.Contains(text, `sdk_manifest="$(curl`) {
-		t.Fatal("SDK manifest body is fetched separately from its validated HTTP status")
-	}
-	validator, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/scripts/validate-sdk-release.mjs")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, required := range []string{
-		`const exactSemver = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/`,
-		`"./tip/testing": "./dist/tip/testing.js"`,
-		"manifest.apiMajor !== 1", `manifest.version !== expectedVersion`,
-		`const requiredManifestFiles = ["index.js", "danmaku.js", "tip.js", "tip/testing.js"]`,
-		`const statusSeparator = response.lastIndexOf("\n")`, `status !== "200"`,
-	} {
-		if !strings.Contains(string(validator), required) {
-			t.Fatalf("SDK release validator omitted fail-closed guard %q", required)
-		}
 	}
 }
 
@@ -837,7 +983,7 @@ func TestInteractionPreservesCompleteSDKAccessSnapshotAndPermanentKeys(t *testin
 func TestInteractionHeadlessContractExposesOnlyPublicFacade(t *testing.T) {
 	t.Parallel()
 
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/references/integration-contract.md")
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/references/headless.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -846,7 +992,7 @@ func TestInteractionHeadlessContractExposesOnlyPublicFacade(t *testing.T) {
 		"GET /v1/work-sdk/:workKey/tip-config", `credentials: "omit"`, `redirect: "error"`, "AbortSignal",
 		"8 秒", "16 KiB", "TIP_CONFIG_CREDENTIALS_NOT_ALLOWED", "sourceOrigin", "no-referrer", "fail closed",
 		"viceme:tip-headless-ready", "viceme:tip-headless-init", "viceme:tip-headless-result",
-		"event.origin", "event.source", "channel", "mode=headless", "PAID", "CANCELLED", "UNKNOWN",
+		"event.origin", "event.source", "channel", "mode=headless", "PAID", "CANCELLED", "UNKNOWN", "getConfig",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Headless contract omitted public boundary %q", required)
@@ -873,21 +1019,45 @@ func TestInteractionHeadlessContractExposesOnlyPublicFacade(t *testing.T) {
 func TestInteractionExactESMExamplesOwnTheirLifecycles(t *testing.T) {
 	t.Parallel()
 
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/references/integration-contract.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	text := string(content)
+	text := readOfficialSkillBundle(t, "let-people-interact")
 	for _, required := range []string{
 		`from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js"`,
 		`from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js"`,
 		`from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js"`,
 		"mountDanmaku(", "mountTip(", "createTip(", "Promise.allSettled", "tip.destroy();",
-		"danmakuHandle.destroy();", "client.destroy();", "Local Fake", "SANDBOX", "keys.test", "keys.live",
+		"danmakuHandle?.destroy();", "client.destroy();", "Local Fake", "SANDBOX", "keys.test", "keys.live",
 		"npm install --save-exact", "pnpm add --save-exact", "yarn add --exact",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("ESM lifecycle contract omitted %q", required)
+		}
+	}
+}
+
+func TestInteractionReferencesStayRouteScoped(t *testing.T) {
+	t.Parallel()
+
+	mounted, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/references/mounted.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{
+		"GET /v1/work-sdk/:workKey/tip-config", "viceme:tip-headless-ready", "createTestTip", "TIP_CONFIG_CREDENTIALS_NOT_ALLOWED",
+	} {
+		if strings.Contains(string(mounted), forbidden) {
+			t.Fatalf("Mounted route eagerly loads Headless detail %q", forbidden)
+		}
+	}
+
+	headless, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/references/headless.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{
+		"mountTip(client", "mountDanmaku(client", "templates/single-html.html", "组合实现", "#viceme-danmaku",
+	} {
+		if strings.Contains(string(headless), forbidden) {
+			t.Fatalf("Headless route retained Mounted implementation %q", forbidden)
 		}
 	}
 }

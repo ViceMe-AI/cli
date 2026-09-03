@@ -84,6 +84,7 @@ func TestLegacyRetiredSkillMigrationsMatchAuditedHistory(t *testing.T) {
 	}
 
 	expectedRetiredNames := map[string]bool{
+		"viceme-skill-use":          true,
 		"viceme-shared":             true,
 		"viceme-creator-onboarding": true,
 		"viceme-publish":            true,
