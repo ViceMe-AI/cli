@@ -268,6 +268,103 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	assertReplicaSecretsAbsentFromFiles(t, root, accessToken, paymentURI, downloadURL, "download-capability")
 }
 
+func TestReplicaInstallClaimsFreeReplicaAfterQuoteConfirmationWithoutPayment(t *testing.T) {
+	const (
+		accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+		fullCode    = "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST"
+		shortCode   = "VMR-ABCDEFGHIJKLMNOPQRST"
+		replicaID   = "11111111-1111-4111-8111-111111111111"
+		quoteID     = "22222222-2222-4222-8222-222222222222"
+		versionID   = "33333333-3333-4333-8333-333333333333"
+		quoteReqID  = "44444444-4444-4444-8444-444444444444"
+		orderReqID  = "55555555-5555-4555-8555-555555555555"
+		orderNo     = "VMO-20260901-FREE01"
+	)
+	archive := replicaTestZIP(t, map[string]string{"index.html": "<h1>Free replica</h1>"})
+	digestBytes := sha256.Sum256(archive)
+	digest := hex.EncodeToString(digestBytes[:])
+	signer := newReplicaTestSigner(t, "replica-free-test-v1")
+	trustReplicaTestSigner(t, signer)
+	license := signedReplicaTestLicense(t, signer, replicaID, versionID, 1, orderNo, digest)
+
+	objectServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Length", strconv.Itoa(len(archive)))
+		_, _ = writer.Write(archive)
+	}))
+	defer objectServer.Close()
+
+	var orderCalls atomic.Int32
+	var statusCalls atomic.Int32
+	controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/cli/auth/status":
+			writeReplicaAuthStatus(writer)
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replicas/resolve":
+			response := replicaResolutionResponse(replicaID, shortCode)
+			response["product"].(map[string]any)["priceCents"] = 0
+			writeJSONResponse(writer, response)
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replicas/quotes":
+			response := replicaQuoteResponse(quoteID)
+			response["unitAmountCents"] = 0
+			response["subtotalAmountCents"] = 0
+			response["totalAmountCents"] = 0
+			response["paymentOptions"] = []map[string]any{{"provider": "FREE", "scenes": []string{}}}
+			writeJSONResponse(writer, response)
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replicas/orders":
+			orderCalls.Add(1)
+			assertJSONFields(t, request, map[string]any{"quoteId": quoteID, "clientRequestId": orderReqID, "locale": "zh-CN"})
+			writeJSONResponse(writer, map[string]any{
+				"orderNo": orderNo, "status": "PAID", "paymentAction": nil,
+				"expiresAt": time.Now().UTC().Add(time.Minute).Format(time.RFC3339),
+			})
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/website-replicas/orders/"+orderNo+"/status":
+			statusCalls.Add(1)
+			t.Fatal("free installation unexpectedly polled payment status")
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/website-replicas/"+shortCode+"/download":
+			writeJSONResponse(writer, map[string]any{
+				"replicaId": replicaID, "versionId": versionID, "version": 1, "fileName": "source.zip",
+				"sizeBytes": len(archive), "artifactDigest": digest, "downloadUrl": objectServer.URL,
+				"expiresAt": time.Now().UTC().Add(time.Minute).Format(time.RFC3339), "license": license,
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer controlServer.Close()
+
+	t.Setenv(processAccessTokenEnvironment, accessToken)
+	root := t.TempDir()
+	target := filepath.Join(root, "free-site")
+	requestIDs := []string{quoteReqID, orderReqID}
+	dependencies := Dependencies{
+		Out: io.Discard, ErrOut: io.Discard, HTTPClient: controlServer.Client(), Store: securestore.NewMemory(),
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:      config.RegionCN, APIBaseURL: controlServer.URL,
+		NewID: func() string { id := requestIDs[0]; requestIDs = requestIDs[1:]; return id },
+	}
+	arguments := []string{"replica", "install", fullCode, "--target", target, "--locale", "zh-CN"}
+	if exit := Execute(arguments, dependencies); exit != output.ExitConfirmation {
+		t.Fatalf("free quote was not presented before confirmation: exit=%d", exit)
+	}
+	if orderCalls.Load() != 0 {
+		t.Fatal("free order was created before confirmation")
+	}
+	var stdout bytes.Buffer
+	dependencies.Out = &stdout
+	if exit := Execute(append(arguments, "--confirm"), dependencies); exit != 0 {
+		t.Fatalf("free replica install failed: exit=%d output=%q", exit, stdout.String())
+	}
+	if orderCalls.Load() != 1 || statusCalls.Load() != 0 {
+		t.Fatalf("unexpected free order interaction: orders=%d statuses=%d", orderCalls.Load(), statusCalls.Load())
+	}
+	if content, err := os.ReadFile(filepath.Join(target, "index.html")); err != nil || string(content) != "<h1>Free replica</h1>" {
+		t.Fatalf("free replica was not installed: content=%q err=%v", content, err)
+	}
+	if strings.Contains(stdout.String(), "PRESENT_PAYMENT_QR") {
+		t.Fatalf("free installation exposed payment presentation: %q", stdout.String())
+	}
+}
+
 func TestReplicaInstallRejectsQuoteForAnotherResolvedProductOrSKU(t *testing.T) {
 	const (
 		accessToken = "vme_cli_1234567890123456789012345678901234567890123"

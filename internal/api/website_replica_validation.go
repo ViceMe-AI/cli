@@ -192,7 +192,7 @@ func (response *WebsiteReplicaResolution) validateAPIResponse() error {
 
 func validateWebsiteReplicaProduct(product WebsiteReplicaProduct) error {
 	if !zodUUIDPattern.MatchString(product.ID) || !zodUUIDPattern.MatchString(product.SKUID) || utf16CodeUnits(product.Title) < 1 ||
-		utf16CodeUnits(product.Title) > 200 || !validReplicaCurrency(product.Currency) || !validPositiveSafeInteger(product.PriceCents) {
+		utf16CodeUnits(product.Title) > 200 || !validReplicaCurrency(product.Currency) || !validNonnegativeSafeInteger(product.PriceCents) {
 		return errors.New("Website Replica product is invalid")
 	}
 	return nil
@@ -231,9 +231,8 @@ func validWebsiteReplicaQuoteSemantics(response *WebsiteReplicaQuote) bool {
 		response.Fulfillment.Capabilities[0] == "DIGITAL_ENTITLEMENT" &&
 		response.Fulfillment.EstimatedState == "AWAITING_PAYMENT" &&
 		len(response.PaymentOptions) == 1 &&
-		response.PaymentOptions[0].Provider == "WECHAT_PAY" &&
-		len(response.PaymentOptions[0].Scenes) == 1 &&
-		response.PaymentOptions[0].Scenes[0] == "NATIVE"
+		((response.TotalAmountCents == 0 && response.PaymentOptions[0].Provider == "FREE" && len(response.PaymentOptions[0].Scenes) == 0) ||
+			(response.TotalAmountCents > 0 && response.PaymentOptions[0].Provider == "WECHAT_PAY" && len(response.PaymentOptions[0].Scenes) == 1 && response.PaymentOptions[0].Scenes[0] == "NATIVE"))
 }
 
 func (response *WebsiteReplicaOrder) validateAPIResponse() error {

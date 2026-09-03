@@ -404,7 +404,7 @@ func (store replicaPurchaseStore) valid(state replicaPurchaseState) bool {
 	hasBinding := state.ReplicaID != "" || state.ProductID != "" || state.SKUID != "" || state.ProductTitle != "" || state.Currency != "" || state.PriceCents != 0
 	if hasBinding && (!replicaUUIDPattern.MatchString(state.ReplicaID) || !replicaUUIDPattern.MatchString(state.ProductID) ||
 		!replicaUUIDPattern.MatchString(state.SKUID) || state.ProductTitle == "" ||
-		(state.Currency != "CNY" && state.Currency != "USD") || state.PriceCents < 1 || state.PriceCents > 10_000_000) {
+		(state.Currency != "CNY" && state.Currency != "USD") || state.PriceCents < 0 || state.PriceCents > 10_000_000) {
 		return false
 	}
 	if state.QuoteID != "" {
