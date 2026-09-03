@@ -20,6 +20,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/atomicfile"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/pathidentity"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/privatepath"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
 	"github.com/gofrs/flock"
@@ -60,16 +61,20 @@ type replicaPurchaseState struct {
 }
 
 type replicaPurchaseStore struct {
-	directory          string
-	filename           string
-	completionFilename string
-	lockFilename       string
-	lock               *flock.Flock
-	origin             string
-	shortCode          string
-	target             string
-	targetParentID     string
-	now                func() time.Time
+	directory           string
+	filename            string
+	completionFilename  string
+	paidFilename        string
+	paidArchiveFilename string
+	paidLockFilename    string
+	lockFilename        string
+	lock                *flock.Flock
+	paidLock            *flock.Flock
+	origin              string
+	shortCode           string
+	target              string
+	targetParentID      string
+	now                 func() time.Time
 }
 
 type replicaCompletionState struct {
@@ -82,6 +87,20 @@ type replicaCompletionState struct {
 	CompletedAt    time.Time            `json:"completedAt"`
 }
 
+type replicaPaidState struct {
+	SchemaVersion  int             `json:"schemaVersion"`
+	APIOrigin      string          `json:"apiOrigin"`
+	ShortCode      string          `json:"shortCode"`
+	ReplicaID      string          `json:"replicaId"`
+	VersionID      string          `json:"versionId"`
+	Version        int             `json:"version"`
+	OrderNo        string          `json:"orderNo"`
+	ArtifactDigest string          `json:"artifactDigest"`
+	SizeBytes      int64           `json:"sizeBytes"`
+	License        json.RawMessage `json:"license"`
+	PaidAt         time.Time       `json:"paidAt"`
+}
+
 func newReplicaPurchaseStore(runtime *Runtime, shortCode, target string) (replicaPurchaseStore, error) {
 	origin, err := api.NormalizeAPIOrigin(runtime.apiBaseURL)
 	if err != nil {
@@ -92,20 +111,25 @@ func newReplicaPurchaseStore(runtime *Runtime, shortCode, target string) (replic
 		return replicaPurchaseStore{}, output.Validation("REPLICA_TARGET_PARENT_INVALID", "could not bind Website Replica target parent identity").WithCause(err)
 	}
 	directory := filepath.Join(runtime.configBase, "replica-purchases")
-	fingerprint := sha256.Sum256([]byte(origin + "\n" + shortCode))
-	completionFingerprint := sha256.Sum256([]byte(origin + "\n" + shortCode + "\n" + target))
+	fingerprint := sha256.Sum256([]byte(origin + "\n" + shortCode + "\n" + target))
+	paidFingerprint := sha256.Sum256([]byte(origin + "\n" + shortCode))
 	name := hex.EncodeToString(fingerprint[:])
+	paidName := hex.EncodeToString(paidFingerprint[:])
 	return replicaPurchaseStore{
-		directory:          directory,
-		filename:           filepath.Join(directory, name+".json"),
-		completionFilename: filepath.Join(directory, "completed-"+hex.EncodeToString(completionFingerprint[:])+".json"),
-		lockFilename:       filepath.Join(directory, name+".lock"),
-		lock:               flock.New(filepath.Join(directory, name+".lock")),
-		origin:             origin,
-		shortCode:          shortCode,
-		target:             target,
-		targetParentID:     targetParentID,
-		now:                runtime.deps.Now,
+		directory:           directory,
+		filename:            filepath.Join(directory, name+".json"),
+		completionFilename:  filepath.Join(directory, "completed-"+name+".json"),
+		paidFilename:        filepath.Join(directory, "paid-"+paidName+".json"),
+		paidArchiveFilename: filepath.Join(directory, "paid-"+paidName+".zip"),
+		paidLockFilename:    filepath.Join(directory, "paid-"+paidName+".lock"),
+		lockFilename:        filepath.Join(directory, name+".lock"),
+		lock:                flock.New(filepath.Join(directory, name+".lock")),
+		paidLock:            flock.New(filepath.Join(directory, "paid-"+paidName+".lock")),
+		origin:              origin,
+		shortCode:           shortCode,
+		target:              target,
+		targetParentID:      targetParentID,
+		now:                 runtime.deps.Now,
 	}, nil
 }
 
@@ -132,6 +156,23 @@ func (store replicaPurchaseStore) withLock(run func() error) error {
 		return output.Internal("REPLICA_PURCHASE_LOCK_FAILED", "could not lock Website Replica purchase recovery", err)
 	}
 	defer store.lock.Unlock()
+	return run()
+}
+
+func (store replicaPurchaseStore) withPaidLock(run func() error) error {
+	created, err := privatepath.EnsureFile(store.paidLockFilename)
+	if err != nil {
+		return output.Internal("REPLICA_PAID_LOCK_FAILED", "could not create private Website Replica paid receipt lock", err)
+	}
+	if created {
+		if err := atomicfile.SyncDirectory(store.directory); err != nil {
+			return output.Internal("REPLICA_PAID_LOCK_FAILED", "could not sync Website Replica paid receipt lock creation", err)
+		}
+	}
+	if err := store.paidLock.Lock(); err != nil {
+		return output.Internal("REPLICA_PAID_LOCK_FAILED", "could not lock Website Replica paid receipt", err)
+	}
+	defer store.paidLock.Unlock()
 	return run()
 }
 
@@ -170,6 +211,23 @@ func (store replicaPurchaseStore) loadCompletion() (replicaCompletionState, bool
 		return replicaCompletionState{}, false, output.Policy("REPLICA_COMPLETION_STATE_INVALID", "Website Replica completion receipt is invalid")
 	}
 	return completion, true, nil
+}
+
+func (store replicaPurchaseStore) loadPaidLocked() (replicaPaidState, bool, error) {
+	data, err := readReplicaBoundedFile(store.paidFilename, 64<<10)
+	if errors.Is(err, fs.ErrNotExist) {
+		return replicaPaidState{}, false, nil
+	}
+	if err != nil {
+		return replicaPaidState{}, false, output.Internal("REPLICA_PAID_STATE_FAILED", "could not read Website Replica paid receipt", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var paid replicaPaidState
+	if err := decoder.Decode(&paid); err != nil || decoder.Decode(&struct{}{}) != io.EOF || !store.validPaid(paid) {
+		return replicaPaidState{}, false, output.Policy("REPLICA_PAID_STATE_INVALID", "Website Replica paid receipt is invalid")
+	}
+	return paid, true, nil
 }
 
 func readReplicaPurchaseState(filename string) ([]byte, error) {
@@ -265,7 +323,7 @@ func (store replicaPurchaseStore) removeOwnedOrphanReservation(filename string) 
 }
 
 func (store replicaPurchaseStore) verifyReservation(state replicaPurchaseState) error {
-	if err := store.verifyTargetParent(); err != nil {
+	if err := verifyReplicaTargetParent(state.Target, state.TargetParentID); err != nil {
 		return err
 	}
 	filename := replicaTargetReservationPath(state.Target)
@@ -299,25 +357,8 @@ func (store replicaPurchaseStore) save(state *replicaPurchaseState) error {
 		return output.Internal("REPLICA_PURCHASE_STATE_FAILED", "could not encode Website Replica purchase recovery", err)
 	}
 	data = append(data, '\n')
-	temporary, err := privatepath.CreateTempFile(store.directory, ".replica-purchase-*.tmp")
-	if err != nil {
-		return output.Internal("REPLICA_PURCHASE_STATE_FAILED", "could not create Website Replica purchase recovery", err)
-	}
-	temporaryName := temporary.Name()
-	defer os.Remove(temporaryName)
-	if _, err := temporary.Write(data); err != nil {
-		_ = temporary.Close()
-		return output.Internal("REPLICA_PURCHASE_STATE_FAILED", "could not write Website Replica purchase recovery", err)
-	}
-	if err := temporary.Sync(); err != nil {
-		_ = temporary.Close()
-		return output.Internal("REPLICA_PURCHASE_STATE_FAILED", "could not sync Website Replica purchase recovery", err)
-	}
-	if err := temporary.Close(); err != nil {
-		return output.Internal("REPLICA_PURCHASE_STATE_FAILED", "could not close Website Replica purchase recovery", err)
-	}
-	if err := atomicfile.Replace(temporaryName, store.filename); err != nil {
-		return output.Internal("REPLICA_PURCHASE_STATE_FAILED", "could not activate Website Replica purchase recovery", err)
+	if err := privatefile.Write(store.filename, data, ".replica-purchase-*.tmp"); err != nil {
+		return output.Internal("REPLICA_PURCHASE_STATE_FAILED", "could not persist Website Replica purchase recovery", err)
 	}
 	if err := atomicfile.SyncDirectory(store.directory); err != nil {
 		return output.Internal("REPLICA_PURCHASE_STATE_FAILED", "could not sync Website Replica purchase recovery", err)
@@ -379,6 +420,52 @@ func (store replicaPurchaseStore) saveCompletion(result replicaInstallResult) er
 	return nil
 }
 
+func (store replicaPurchaseStore) savePaid(archivePath string, download api.WebsiteReplicaDownload, orderNo string) error {
+	paid := replicaPaidState{
+		SchemaVersion: 1, APIOrigin: store.origin, ShortCode: store.shortCode,
+		ReplicaID: download.ReplicaID, VersionID: download.VersionID, Version: download.Version,
+		OrderNo: orderNo, ArtifactDigest: download.ArtifactDigest, SizeBytes: download.SizeBytes,
+		License: append(json.RawMessage(nil), download.License...), PaidAt: store.now().UTC(),
+	}
+	if !store.validPaid(paid) {
+		return output.Internal("REPLICA_PAID_STATE_INVALID", "refusing to save invalid Website Replica paid receipt", nil)
+	}
+	source, err := os.Open(archivePath)
+	if err != nil {
+		return output.Internal("REPLICA_PAID_STATE_FAILED", "could not open paid Website Replica source", err)
+	}
+	staged, err := privatepath.CreateTempFile(store.directory, ".replica-paid-*.zip")
+	if err != nil {
+		_ = source.Close()
+		return output.Internal("REPLICA_PAID_STATE_FAILED", "could not stage paid Website Replica source", err)
+	}
+	stagedName := staged.Name()
+	defer os.Remove(stagedName)
+	written, copyErr := io.Copy(staged, io.LimitReader(source, download.SizeBytes+1))
+	sourceCloseErr := source.Close()
+	syncErr := staged.Sync()
+	stagedCloseErr := staged.Close()
+	if copyErr != nil || sourceCloseErr != nil || syncErr != nil || stagedCloseErr != nil || written != download.SizeBytes {
+		return output.Internal("REPLICA_PAID_STATE_FAILED", "could not stage paid Website Replica source", errors.Join(copyErr, sourceCloseErr, syncErr, stagedCloseErr))
+	}
+	data, err := json.MarshalIndent(paid, "", "  ")
+	if err != nil {
+		return output.Internal("REPLICA_PAID_STATE_FAILED", "could not encode Website Replica paid receipt", err)
+	}
+	return store.withPaidLock(func() error {
+		if err := atomicfile.Replace(stagedName, store.paidArchiveFilename); err != nil {
+			return output.Internal("REPLICA_PAID_STATE_FAILED", "could not preserve paid Website Replica source", err)
+		}
+		if err := atomicfile.SyncDirectory(store.directory); err != nil {
+			return output.Internal("REPLICA_PAID_STATE_FAILED", "could not sync paid Website Replica source", err)
+		}
+		if err := privatefile.Write(store.paidFilename, append(data, '\n'), ".replica-paid-*.tmp"); err != nil {
+			return output.Internal("REPLICA_PAID_STATE_FAILED", "could not persist Website Replica paid receipt", err)
+		}
+		return nil
+	})
+}
+
 func (store replicaPurchaseStore) retire(state replicaPurchaseState) error {
 	if err := store.verifyReservation(state); err != nil {
 		return err
@@ -402,7 +489,6 @@ func (store replicaPurchaseStore) retire(state replicaPurchaseState) error {
 func (store replicaPurchaseStore) valid(state replicaPurchaseState) bool {
 	if state.SchemaVersion != 4 || state.APIOrigin != store.origin || state.ShortCode != store.shortCode ||
 		!filepath.IsAbs(state.Target) || filepath.Clean(state.Target) != state.Target ||
-		state.TargetParentID != store.targetParentID ||
 		!validReplicaReservation(state.Reservation) ||
 		!replicaUUIDPattern.MatchString(state.QuoteRequestID) ||
 		state.CreatedAt.IsZero() || state.UpdatedAt.IsZero() {
@@ -473,9 +559,21 @@ func (store replicaPurchaseStore) validCompletion(completion replicaCompletionSt
 		result.FileCount > 0 && result.FileCount <= replicacontent.MaxFileCount && result.ExpandedBytes <= replicacontent.MaxExpandedBytes
 }
 
+func (store replicaPurchaseStore) validPaid(paid replicaPaidState) bool {
+	return paid.SchemaVersion == 1 && paid.APIOrigin == store.origin && paid.ShortCode == store.shortCode &&
+		replicaUUIDPattern.MatchString(paid.ReplicaID) && replicaUUIDPattern.MatchString(paid.VersionID) && paid.Version > 0 &&
+		len(paid.OrderNo) >= 6 && len(paid.OrderNo) <= 40 && validReplicaDigest(paid.ArtifactDigest) &&
+		paid.SizeBytes > 0 && paid.SizeBytes <= replicacontent.MaxArchiveBytes &&
+		len(paid.License) > 0 && len(paid.License) <= 64<<10 && !paid.PaidAt.IsZero()
+}
+
 func (store replicaPurchaseStore) verifyTargetParent() error {
-	current, err := pathidentity.Directory(filepath.Dir(store.target))
-	if err != nil || current != store.targetParentID {
+	return verifyReplicaTargetParent(store.target, store.targetParentID)
+}
+
+func verifyReplicaTargetParent(target, targetParentID string) error {
+	current, err := pathidentity.Directory(filepath.Dir(target))
+	if err != nil || current != targetParentID {
 		return output.Policy("REPLICA_TARGET_PARENT_CHANGED", "the Website Replica target parent changed after it was reserved").WithCause(err)
 	}
 	return nil
