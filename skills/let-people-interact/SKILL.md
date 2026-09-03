@@ -15,7 +15,7 @@ description: 为创作者作品接入或修复 ViceMe 托管互动。先复用 $
 | --- | --- | --- | --- |
 | 仅弹幕 | 与部署 Origin 精确匹配的 `PUBLISHED Website Work` | 保留所选 Profile 既有 `cn` 或 `global` 支持 | `createViceMe(...)` + `mountDanmaku(...)` |
 | 仅赞赏 | 当前 OWNER Merchant 拥有、公开且 `PUBLISHED` 的任意 kind Work | 仅 `marketRegion: cn` 与 CNY | 先选官方 Mounted 或 Headless |
-| 弹幕加赞赏 | 因 Danmaku 要求而使用同一个 `PUBLISHED Website Work`，且与部署 Origin 精确匹配 | 仅 `marketRegion: cn` 与 CNY | Danmaku Mounted；Tip 先选官方 Mounted 或 Headless |
+| 弹幕加赞赏 | 因 Danmaku 要求而使用同一个 `PUBLISHED Website Work`，且与部署 Origin 精确匹配 | 仅 `marketRegion: cn` 与 CNY | 同一 target 上挂载 Danmaku 与 integrated Tip，只显示一个底部互动栏 |
 
 三个分支均不创建、读取、验证或撤销 Website ownership verification，也不要求 DNS 或域名所有权验证。Standalone Tip 的 Work 与承载 UI 的宿主页彼此独立；仅赞赏不要求 Website kind、仓库、HTTPS Origin 或 Commerce Application。仅弹幕和组合仍要求 Website kind、`PUBLISHED` 状态与精确 canonical Origin；Tip 本身不增加 Origin 或 Application 门禁。
 
@@ -24,7 +24,7 @@ description: 为创作者作品接入或修复 ViceMe 托管互动。先复用 $
 1. 第一项业务动作以资格守卫模式调用 `$become-a-creator`。只有它确认当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有并选定有效 Merchant 后才继续；本 Skill 不自行运行登录、申请或商家选择命令。
 2. 运行 `viceme profile list`，只记录并固定当前 Profile、API/Web base URL 和精确 `marketRegion`。页面 locale 不选择市场；不得切换 Profile，也不得从 hostname、记忆或其他 Profile 推导市场。仅弹幕不受 CN/CNY 限制，保留当前 Profile 既有 `cn` 或 `global` 支持。
 3. 仅弹幕分支记录精确部署 HTTPS Origin、目标页面、部署命令、CSP 和浏览器测试，然后按 [Website Work 与安全接入](#website-work-与安全接入) 继续。不得因为页面语言是中文就改成 CN，也不得因为页面语言是英文就改成 GLOBAL。
-4. 任意包含 Tip 的分支，在任何 Work 创建、更新或发布、SDK access 或宿主页写入前，先确认 `marketRegion: cn`；GLOBAL 必须立即停止，且不得留下业务写入。随后请用户选择官方 Mounted UI 或 Headless。Headless 还必须选择 npm 或 CDN ESM。
+4. 任意包含 Tip 的分支，在任何 Work 创建、更新或发布、SDK access 或宿主页写入前，先确认 `marketRegion: cn`；GLOBAL 必须立即停止，且不得留下业务写入。仅赞赏随后请用户选择官方 Mounted UI 或 Headless，Headless 还必须选择 npm 或 CDN ESM；组合固定使用官方 integrated Mounted UI，不生成宿主 Headless Tip 控件。
 5. 任意分支在业务写入前，只解析一次官方 npm 元数据中的当前稳定 SDK，并把结果固定为本次接入唯一的 `sdk_version`。只运行本 Skill 随附的 [validate-sdk-release.mjs](scripts/validate-sdk-release.mjs)，不得运行项目内同名文件；把命令中的 `<skill-dir>` 替换为承载当前 `SKILL.md` 的可信安装目录。解析结果必须是纯 `major.minor.patch`，并且发布包必须暴露本合同要求的 Danmaku、Mounted Tip 与 Headless Tip 公共入口；否则立即停止，不能回退到旧版：
 
    ```bash
@@ -42,7 +42,7 @@ description: 为创作者作品接入或修复 ViceMe 托管互动。先复用 $
    printf 'sdk_version=%s\n' "$sdk_version"
    ```
 
-   任意包含 Tip 的分支随后验证两区 manifest 都与 npm 版本一致、保持受支持的 SDK `apiMajor` 并包含完整公共面，再证明同一个精确 `sdk_version` 的 CN/GLOBAL `index.js` 与 `tip.js` 全部直接可用：
+   任意包含 Tip 的分支随后验证两区 manifest 都与 npm 版本一致、保持受支持的 SDK `apiMajor`、包含完整公共面，并声明 `integrations.engagement: "danmaku-tip-v1"`；缺少该标记必须停止，不能回退到不具备该能力的旧版本。随后再证明同一个精确 `sdk_version` 的 CN/GLOBAL `index.js` 与 `tip.js` 全部直接可用：
 
    ```bash
    for sdk_origin in https://s3.viceme.cn https://s3.viceme.ai
@@ -173,7 +173,7 @@ description: 为创作者作品接入或修复 ViceMe 托管互动。先复用 $
 
 - 仅弹幕根据当前 Profile 选择 CN 或 GLOBAL 精确 CDN，不收窄既有 market 支持。写 SDK access 或页面前，先用同一个校验器验证所选区域的精确 manifest，再对 `index.js` 与 `danmaku.js` 执行相同的 5 秒连接、15 秒总时限、无 redirect、精确 `200` 预检。
 - 任意 Tip 路线使用已预检的 CN ESM 或已精确安装的 npm 包，并从 `keys.test` 开始。Headless 的金额和 provider 只来自 `getConfig()`，`open()` 结果只按 `PAID | CANCELLED | UNKNOWN` 处理。
-- 组合只创建一个 client。官方路线可以分别 `mountDanmaku` 与 `mountTip`；Headless 路线只 `mountDanmaku`，Tip 使用 `createTip`，不得同时挂载两种 Tip UI。一个 mount 失败不得销毁另一个成功能力。
+- 组合只创建一个 client 和一个 target，并分别调用 `mountDanmaku(...)` 与 `mountTip(..., { presentation: "integrated" })`。正文中不得创建 `#viceme-tip` 或任何独立 Tip 卡片，也不得为组合生成 Headless Tip 控件。一个 mount 失败不得销毁另一个成功能力。
 - SPA、组件或路由真实卸载时先销毁全部 mount/controller，再调用 `client.destroy()`；不要使用会在 bfcache 时触发的 `pagehide`。
 - 使用模板或示例时，写入前把其中全部 `REPLACE_WITH_RESOLVED_SDK_VERSION` 替换为本次固定的 `sdk_version`；仍有占位符就停止，不得发布。
 - 页面只能保留一个选定的同版本精确 ESM 接入；不得生成或保留第二套运行时。

@@ -881,6 +881,35 @@ func TestInteractionExactESMExamplesOwnTheirLifecycles(t *testing.T) {
 	}
 }
 
+func TestInteractionCombinedRouteUsesOneIntegratedBar(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-people-interact/references/integration-contract.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := sectionBetween(string(content), "## 组合：官方 Mounted UI", "## 仅赞赏：Headless npm")
+	for _, required := range []string{
+		`<div id="viceme-engagement"></div>`,
+		`const target = document.querySelector("#viceme-engagement")`,
+		`mountDanmaku(client, { target, theme: "auto" })`,
+		`mountTip(client, {`,
+		`presentation: "integrated"`,
+		"一个底部互动栏",
+	} {
+		if !strings.Contains(section, required) {
+			t.Fatalf("combined interaction omitted integrated contract %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		`id="viceme-danmaku"`, `id="viceme-tip"`, "tipTarget", "Danmaku Mounted + Tip Headless",
+	} {
+		if strings.Contains(section, forbidden) {
+			t.Fatalf("combined interaction retained split UI %q", forbidden)
+		}
+	}
+}
+
 func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
 	t.Parallel()
 

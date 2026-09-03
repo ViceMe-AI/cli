@@ -293,7 +293,9 @@ require DNS TXT verification or a registered embedding Origin for Website
 follow/paid access.
 
 The combined route uses one published Website Work because danmaku requires
-that identity. Tip itself adds no domain or Commerce Application gate, and
+that identity. It renders one bottom interaction bar on one target, with Tip
+opened from that bar instead of a body card or host-rendered Headless control.
+Tip itself adds no domain or Commerce Application gate, and
 engagement does not create or mutate Website Widget applications. Website
 follow/paid access and its platform-managed `WEBSITE_WIDGET` resources are
 provisioned internally by the charging flow and Shop, with no Origin/DNS or

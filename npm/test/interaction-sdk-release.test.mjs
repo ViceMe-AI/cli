@@ -24,6 +24,7 @@ function compatibleManifest(version = "12.34.56") {
     version,
     apiMajor: 1,
     features: { danmaku: "danmaku.js", tip: "tip.js" },
+    integrations: { engagement: "danmaku-tip-v1" },
     files: {
       "index.js": {},
       "danmaku.js": {},
@@ -63,6 +64,13 @@ test("rejects incompatible or incomplete release manifests", () => {
   assert.throws(
     () => validateSdkManifest(missingHeadless, "12.34.56"),
     /tip\/testing\.js/,
+  );
+
+  const separateEngagement = compatibleManifest();
+  delete separateEngagement.integrations.engagement;
+  assert.throws(
+    () => validateSdkManifest(separateEngagement, "12.34.56"),
+    /integrated engagement/,
   );
 
   assert.throws(

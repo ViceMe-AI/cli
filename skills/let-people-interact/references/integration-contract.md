@@ -35,7 +35,7 @@ PUBLISHED Website Work（canonical Origin 精确匹配部署 Origin）
 
 ## 发布物预检
 
-任意路线先从官方 npm 的稳定 `latest` 元数据只解析一次 SDK 版本，将纯 `major.minor.patch` 结果固定为本次接入唯一的 `sdk_version`。`latest` 只负责发现版本，不能进入安装规格、CDN URL 或宿主页。任意 Tip 路线先选官方 Mounted 或 Headless；Headless 再选 npm 或 CDN ESM。选择与版本解析必须早于 Work、SDK access 或宿主页写入。
+任意路线先从官方 npm 的稳定 `latest` 元数据只解析一次 SDK 版本，将纯 `major.minor.patch` 结果固定为本次接入唯一的 `sdk_version`。`latest` 只负责发现版本，不能进入安装规格、CDN URL 或宿主页。仅赞赏先选官方 Mounted 或 Headless，Headless 再选 npm 或 CDN ESM；组合固定使用 integrated Mounted UI。选择与版本解析必须早于 Work、SDK access 或宿主页写入。
 
 解析时只运行本 Skill 随附的 [`validate-sdk-release.mjs`](../scripts/validate-sdk-release.mjs)，同时验证当前包仍暴露本合同使用的全部公共入口，避免在目标版本尚未发布时回退到旧包。`<skill-dir>` 是承载本 Skill 的可信安装目录，不是用户项目目录：
 
@@ -53,7 +53,7 @@ sdk_version="$(printf '%s' "$sdk_metadata" | node "$sdk_validator" package)" || 
 test -n "$sdk_version" || exit 1
 ```
 
-每条 Tip 路线先读取两个发布区域的精确 manifest，要求它们与 npm 版本一致、`apiMajor` 受支持，并声明完整 Danmaku、Mounted Tip 与 Headless Tip 公共面：
+每条 Tip 路线先读取两个发布区域的精确 manifest，要求它们与 npm 版本一致、`apiMajor` 受支持、声明完整 Danmaku、Mounted Tip 与 Headless Tip 公共面，并包含 `integrations.engagement: "danmaku-tip-v1"`。该标记证明同版本支持单栏组合；缺少时必须停止，不能回退到不具备该能力的旧版本：
 
 ```bash
 for sdk_origin in https://s3.viceme.cn https://s3.viceme.ai
@@ -198,27 +198,27 @@ Headless SDK 每次 `open()` 都生成高熵随机 channel，并直接打开官�
 
 ## 组合：官方 Mounted UI
 
-组合只创建一个 client。两个 mount 独立结算，一个失败不能删除另一个已成功能力：
+组合只创建一个 client 和一个 target，只显示一个底部互动栏。Danmaku 提供该互动栏，`presentation: "integrated"` 让 Tip 保持隐藏，直到栏内赞赏入口打开官方全屏弹层。不得创建正文 `#viceme-tip` 卡片，也不得生成 Headless Tip 控件。两个 mount 独立结算，一个失败不能删除另一个已成功能力：
 
 ```html
-<div id="viceme-danmaku"></div>
-<div id="viceme-tip"></div>
+<div id="viceme-engagement"></div>
 <script type="module">
   import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";
   import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js";
   import { mountTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";
 
-  const danmakuTarget = document.querySelector("#viceme-danmaku");
-  const tipTarget = document.querySelector("#viceme-tip");
-  if (!danmakuTarget || !tipTarget) {
-    throw new Error("ViceMe engagement target is missing");
-  }
+  const target = document.querySelector("#viceme-engagement");
+  if (!target) throw new Error("ViceMe engagement target is missing");
 
   const client = createViceMe({ workKey: "wrk_test_...", region: "cn" });
   await client.ready();
   const mountResults = await Promise.allSettled([
-    mountDanmaku(client, { target: danmakuTarget, theme: "auto" }),
-    mountTip(client, { target: tipTarget, theme: "auto" }),
+    mountDanmaku(client, { target, theme: "auto" }),
+    mountTip(client, {
+      target,
+      theme: "auto",
+      presentation: "integrated",
+    }),
   ]);
   const mountHandles = mountResults.flatMap((result) =>
     result.status === "fulfilled" ? [result.value] : [],
@@ -231,7 +231,7 @@ Headless SDK 每次 `open()` 都生成高熵随机 channel，并直接打开官�
 </script>
 ```
 
-生产实现应分别呈现 mount 失败状态，同时保留成功能力。不要因为 Tip 不可用而销毁 Danmaku，也不要因为 Danmaku 不可用而销毁 Tip。
+生产实现应分别记录 mount 失败状态，同时保留成功能力。不要因为 Tip 不可用而销毁 Danmaku，也不要因为 Danmaku 不可用而销毁 Tip。Tip 就绪前栏内不显示赞赏入口；关闭官方弹层后焦点回到栏内入口。
 
 ## 仅赞赏：Headless npm
 
@@ -320,60 +320,6 @@ function destroyViceMeTip() {
 }
 ```
 
-## 组合：Danmaku Mounted + Tip Headless
-
-组合 Headless 路线仍只创建一个 client，只挂载 Danmaku，不再调用 `mountTip`：
-
-```html
-<div id="viceme-danmaku"></div>
-<div id="host-tip-controls"></div>
-<script type="module">
-  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";
-  import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js";
-  import { createTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";
-
-  const danmakuTarget = document.querySelector("#viceme-danmaku");
-  if (!danmakuTarget) throw new Error("ViceMe Danmaku target is missing");
-
-  const client = createViceMe({ workKey: "wrk_test_...", region: "cn" });
-  await client.ready();
-  const danmakuHandle = await mountDanmaku(client, {
-    target: danmakuTarget,
-    theme: "auto",
-  });
-
-  const tip = createTip(client);
-  const config = await tip.getConfig();
-  renderTipControls(config, async ({ amountCents, provider }) => {
-    const resultPromise = tip.open({
-      amountCents,
-      ...(provider ? { provider } : {}),
-    });
-    const result = await resultPromise;
-
-    switch (result.status) {
-      case "PAID":
-        showPaid(result.work, result.amountCents, result.currency);
-        break;
-      case "CANCELLED":
-        showCancelled();
-        break;
-      case "UNKNOWN":
-        showUnknownWithoutClaimingFailure();
-        break;
-    }
-  });
-
-  function destroyViceMeEngagement() {
-    tip.destroy();
-    danmakuHandle.destroy();
-    client.destroy();
-  }
-</script>
-```
-
-如果 `getConfig()` 或 Tip handoff 失败，Danmaku handle 仍由自身生命周期管理；只有所属组件真实卸载时才一起销毁。
-
 ## Local Fake、SANDBOX 与生产切换
 
 1. Local Fake：组件测试和 Storybook 使用官方无副作用适配器覆盖全部公开结果，不伪造内部消息协议，也不增加生产测试开关。
@@ -414,6 +360,6 @@ function destroyViceMeTip() {
 
 - 仅弹幕：Website kind、`PUBLISHED` 状态、精确 canonical Origin、消息持久化、桌面/320px、键盘与减少动画。
 - 仅赞赏：验证目标 Work、Local Fake、SANDBOX、来源缺失 fail closed、三种公开结果和销毁顺序。
-- 组合：同一 `PUBLISHED Website Work`、精确 canonical Origin、同一 client、完整 `danmaku,tip` hosted set、完整 `accessFeatures` 未变，以及一个能力失败不移除另一个。
+- 组合：同一 `PUBLISHED Website Work`、精确 canonical Origin、同一 client 与 target、唯一底部互动栏、完整 `danmaku,tip` hosted set、完整 `accessFeatures` 未变，以及一个能力失败不移除另一个。
 - 三个分支：均不执行 Website ownership verification 或 DNS mutation。
 - 所有路线：SDK 文件直接 200、页面只有一套精确 ESM、无 CSP/frame/script/handoff 错误。打开 UI 不代表消息持久化或支付结算成功。
