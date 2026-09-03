@@ -238,25 +238,42 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 				uploadedID = matched.ID
 			}
 			if uploadedID == "" {
-				slot := 0
-				if matched != nil {
-					slot = matched.SortOrder
-				} else {
-					var slotErr error
-					slot, slotErr = firstAvailableMediaSlot(current.Uploads)
-					if slotErr != nil {
-						return slotErr
+				// 并行上传时多个进程可能基于同一快照选中同一空闲槽,服务端
+				// 先到先得;撞槽时重读最新 uploads 换一个空闲槽重试,把竞态
+				// 吸收在命令内部而不是让 agent 靠盲重试碰运气。
+				var authorization *api.UploadAuthorization
+				for attempt := 0; ; attempt++ {
+					slot := 0
+					if matched != nil {
+						slot = matched.SortOrder
+					} else {
+						var slotErr error
+						slot, slotErr = firstAvailableMediaSlot(current.Uploads)
+						if slotErr != nil {
+							return slotErr
+						}
 					}
-				}
-				authorization, err := client.AuthorizeUpload(command.Context(), args[0], api.UploadAuthorizationRequest{
-					Kind: "MEDIA", Digest: candidate.Digest, SizeBytes: candidate.SizeBytes,
-					FileName: candidate.FileName, ContentType: candidate.ContentType, SortOrder: slot,
-				})
-				if err != nil {
-					return err
+					authorized, err := client.AuthorizeUpload(command.Context(), args[0], api.UploadAuthorizationRequest{
+						Kind: "MEDIA", Digest: candidate.Digest, SizeBytes: candidate.SizeBytes,
+						FileName: candidate.FileName, ContentType: candidate.ContentType, SortOrder: slot,
+					})
+					if err != nil {
+						var cliErr *output.Error
+						if attempt < 2 && matched == nil && errors.As(err, &cliErr) &&
+							cliErr.Subtype == "SKILL_PUBLICATION_UPLOAD_SLOT_CONFLICT" {
+							refreshed, refreshErr := client.GetSkillPublication(command.Context(), args[0])
+							if refreshErr == nil {
+								current = refreshed
+								continue
+							}
+						}
+						return err
+					}
+					authorization = &authorized
+					break
 				}
 				progress(runtime, "Uploading replacement listing media")
-				if err := client.PutUpload(command.Context(), authorization, bytes.NewReader(candidate.Bytes), candidate.SizeBytes); err != nil {
+				if err := client.PutUpload(command.Context(), *authorization, bytes.NewReader(candidate.Bytes), candidate.SizeBytes); err != nil {
 					return err
 				}
 				current, err = client.CompleteUpload(command.Context(), args[0], authorization.UploadID)
