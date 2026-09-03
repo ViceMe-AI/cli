@@ -266,7 +266,8 @@ ownership 或 DNS 验证。仅接入赞赏不会把宿主页登记为 Website Wo
 仍使用 canonical Origin 与部署 Origin 精确匹配的已发布 Website Work。当前版本的网站关注/付费
 解锁同样不要求 DNS TXT 或登记嵌入 Origin。
 
-组合路线只因弹幕要求而共用一个已发布 Website Work。Tip 本身不增加域名或
+组合路线只因弹幕要求而共用一个已发布 Website Work，并在同一 target 内只显示一个含赞赏入口的
+底部互动栏，不再生成正文 Tip 卡片或 Headless Tip 控件。Tip 本身不增加域名或
 Commerce Application 门禁，互动流程也不创建或修改 Website Widget。网站关注/付费
 访问及其平台托管 `WEBSITE_WIDGET` 资源由收费接入流程和 Shop 在内部完成，但暂不执行 Origin/DNS
 或 checkout iframe 宿主门禁。另行配置的域名绑定 `HOSTED_CHECKOUT` 与签名 Webhook 仍保留所有权

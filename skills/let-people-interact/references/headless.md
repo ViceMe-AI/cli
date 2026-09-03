@@ -1,6 +1,6 @@
 # Headless Tip 接入
 
-本参考只在用户明确选择自定义 Tip UI 后读取。Danmaku 没有 Headless 路线；组合仍挂载 Danmaku，并在同一个 client 上创建 Headless Tip controller。
+本参考只在仅赞赏且用户明确选择自定义 Tip UI 后读取。Danmaku 和组合都没有 Headless 路线。
 
 宿主只使用 `createViceMe` 与 `createTip(client).getConfig()/.open()/.destroy()` 公共 facade。不得下载或反向分析 SDK，不得自己调用订单、支付或内部 handoff API，也不得复刻官方确认层。
 
@@ -115,59 +115,6 @@ function destroyViceMeTip() {
 }
 ```
 
-## 组合实现
-
-组合只创建一个 client。Danmaku Mounted 与 Tip 初始化独立结算；一方失败时显示对应状态，但保留另一方的成功 handle/controller。只挂载 Danmaku，不再调用 `mountTip`：
-
-- npm 路线另加 `import { mountDanmaku } from "@viceme-ai/sdk/danmaku";`；
-- CDN ESM 路线另加与前两个 import 同源同版本的 `import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js";`。
-
-```js
-const client = createViceMe({
-  workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY",
-  region: "cn",
-});
-await client.ready();
-
-const danmakuTarget = document.querySelector("#viceme-danmaku");
-const tip = createTip(client);
-const danmakuMount = Promise.resolve().then(() => {
-  if (!danmakuTarget) throw new Error("ViceMe Danmaku target is missing");
-  return mountDanmaku(client, { target: danmakuTarget, theme: "auto" });
-});
-const [danmakuResult, tipConfigResult] = await Promise.allSettled([
-  danmakuMount,
-  tip.getConfig(),
-]);
-
-const danmakuHandle =
-  danmakuResult.status === "fulfilled" ? danmakuResult.value : undefined;
-if (tipConfigResult.status === "fulfilled") {
-  renderTipControls(tipConfigResult.value, async ({ amountCents, provider }) => {
-    const result = await tip.open({
-      amountCents,
-      ...(provider ? { provider } : {}),
-    });
-    if (result.status === "PAID") {
-      showPaid(result.work, result.amountCents, result.currency);
-    } else if (result.status === "CANCELLED") {
-      showCancelled();
-    } else if (result.status === "UNKNOWN") {
-      showUnknownWithoutClaimingFailure();
-    }
-  });
-} else {
-  showTipUnavailable();
-}
-if (!danmakuHandle) showDanmakuUnavailable();
-
-function destroyViceMeEngagement() {
-  tip.destroy();
-  danmakuHandle?.destroy();
-  client.destroy();
-}
-```
-
 ## Local Fake 与 SANDBOX
 
 组件测试和 Storybook 使用官方无副作用适配器，不伪造内部消息协议，也不增加生产测试开关：
@@ -190,6 +137,6 @@ const fakeTip = createTestTip({
 renderTipControls(await fakeTip.getConfig(), (selection) => fakeTip.open(selection));
 ```
 
-Local Fake 覆盖配置失败以及 `PAID`、`CANCELLED`、`UNKNOWN`，但不当作线上协议证据。随后用真实 `keys.test` 在一个浏览器会话中批量验证：配置驱动的金额/provider、官方确认层、桌面、320px、键盘与焦点、弹窗阻止、Referer 缺失 fail closed、三种公开结果和销毁顺序。组合同时验证一个能力失败不移除另一个。
+Local Fake 覆盖配置失败以及 `PAID`、`CANCELLED`、`UNKNOWN`，但不当作线上协议证据。随后用真实 `keys.test` 在一个浏览器会话中批量验证：配置驱动的金额/provider、官方确认层、桌面、320px、键盘与焦点、弹窗阻止、Referer 缺失 fail closed、三种公开结果和销毁顺序。
 
-SPA、组件或路由真实卸载时先销毁 Tip controller 和 Danmaku handle，再调用 `client.destroy()`；静态页面不虚构卸载，也不绑定会在 bfcache 时触发的 `pagehide`。
+SPA、组件或路由真实卸载时先销毁 Tip controller，再调用 `client.destroy()`；静态页面不虚构卸载，也不绑定会在 bfcache 时触发的 `pagehide`。

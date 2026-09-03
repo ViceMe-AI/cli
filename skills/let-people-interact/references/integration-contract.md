@@ -43,12 +43,13 @@ PUBLISHED Website Work（canonical Origin 精确匹配部署 Origin）
 - hosted features 更新使用精确 `configVersion`，发送完整 hosted feature set，并原样保留完整 `accessFeatures`。
 - SANDBOX 只使用 `keys.test`；展示证据并取得用户明确确认后才切换同一资源的 `keys.live`。
 - production key 不能模拟支付；真实支付是独立且明确的用户决定。
+- 组合只创建一个 client 和一个 target；同一 target 分别挂载 Danmaku 与 `presentation: "integrated"` 的 Tip，只显示一个底部互动栏。不得创建正文 `#viceme-tip` 卡片或宿主 Headless Tip 控件。
 
 ## 按需参考
 
 - SDK 版本和不可变资源：[发布物预检](release-preflight.md)
 - Work 选择、发布、SDK access 与恢复：[Work 与 SDK access](work-and-access.md)
 - 仅弹幕、仅赞赏或组合的官方组件：[Mounted 接入](mounted.md)
-- 仅赞赏或组合的自定义 Tip UI：[Headless Tip 接入](headless.md)
+- 仅赞赏的自定义 Tip UI：[Headless Tip 接入](headless.md)
 
 路线实现只能使用这些参考中的公开 SDK surface。公共参考没有定义的行为不是宿主需要反向推断的合同。

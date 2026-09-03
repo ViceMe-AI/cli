@@ -59,6 +59,9 @@ export function validateSdkManifest(manifest, expectedVersion) {
   ) {
     throw new Error("SDK manifest does not expose the required hosted features");
   }
+  if (manifest.integrations?.engagement !== "danmaku-tip-v1") {
+    throw new Error("SDK manifest does not expose integrated engagement capability");
+  }
   for (const file of requiredManifestFiles) {
     if (!manifest.files?.[file] || typeof manifest.files[file] !== "object") {
       throw new Error(`SDK manifest is missing the required ${file} artifact`);

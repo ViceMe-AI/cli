@@ -24,10 +24,10 @@ description: 为创作者作品接入或修复 ViceMe 托管互动。先复用 $
 | --- | --- | --- | --- |
 | 仅弹幕 | canonical Origin 与部署 Origin 精确匹配的 `PUBLISHED Website Work` | 当前 Profile 的 `cn` 或 `global` | `createViceMe` + `mountDanmaku` |
 | 仅赞赏 | 当前 OWNER Merchant 拥有的公开 `PUBLISHED` 任意 kind Work | 仅 `marketRegion: cn` / CNY | `createViceMe` + `mountTip`，或 `createTip` Headless |
-| 弹幕加赞赏 | canonical Origin 与部署 Origin 精确匹配的同一个 `PUBLISHED Website Work` | 仅 `marketRegion: cn` / CNY | Danmaku Mounted；Tip Mounted 或 Headless |
+| 弹幕加赞赏 | canonical Origin 与部署 Origin 精确匹配的同一个 `PUBLISHED Website Work` | 仅 `marketRegion: cn` / CNY | 同一 target 挂载 Danmaku 与 integrated Tip，只显示一个底部互动栏 |
 
 1. 用户已经明确分支时直接固定；确实含糊时才提问。把分支、源码和部署 Origin 等尚未确定且确实需要用户回答的输入合并为一次提问。
-2. 任意包含 Tip 的分支默认使用官方 Mounted UI；只有用户明确要求自定义 Tip UI 时才进入 Headless，并在需要时一并确认 npm 或 CDN ESM。不得为默认选择增加一轮提问，也不得在后续自行换路线。
+2. 仅赞赏默认使用官方 Mounted UI；只有用户明确要求自定义 Tip UI 时才进入 Headless，并在需要时一并确认 npm 或 CDN ESM。组合固定使用官方 integrated Mounted UI，不提供 Headless。不得为默认选择增加一轮提问，也不得在后续自行换路线。
 3. 固定目标源码和部署方式。包含 Danmaku 时再固定精确小写 HTTPS 部署 Origin；仅赞赏只记录浏览器验收实际使用的宿主 URL，不把它变成 Work 或同域门禁。源码未定位前不运行平台写入。
 
 三个分支均不创建、读取、验证或撤销 Website ownership verification，也不要求 DNS 或域名所有权验证。仅弹幕和组合要求 Website Work；仅赞赏不要求 Website kind、仓库、HTTPS Origin 或 Commerce Application，Tip 本身不增加 Origin 或 Commerce Application 门禁。
@@ -59,9 +59,9 @@ description: 为创作者作品接入或修复 ViceMe 托管互动。先复用 $
 先一次性检查目标文件中现有 ViceMe runtime、CSP、Referrer Policy 与真实卸载边界，然后只读取所选 UI 路线：
 
 - Mounted：读取 [Mounted 接入](references/mounted.md)。仅赞赏单 HTML 可从 [single-html.html](templates/single-html.html) 取片段；仅弹幕使用 [mounted-danmaku.html](templates/mounted-danmaku.html)；组合使用 [mounted-combination.html](templates/mounted-combination.html)。
-- Headless：只读取 [Headless Tip 接入](references/headless.md)；组合仍由 Mounted Danmaku 与同一个 client 的 `createTip` 组成，不再 `mountTip`。
+- Headless：只适用于仅赞赏，并读取 [Headless Tip 接入](references/headless.md)；组合不得生成 Headless Tip 控件。
 
-所有路线先写入 `keys.test`，只使用本次固定的 `sdk_version` 和 `sdk_origin`。修改尽量一次完成；随后一次静态检查确认无占位符、无第二套 runtime、无不兼容 CSP/Referrer Policy，且一个能力失败不会移除另一个成功能力。
+所有路线先写入 `keys.test`，只使用本次固定的 `sdk_version` 和 `sdk_origin`。修改尽量一次完成；随后一次静态检查确认无占位符、无第二套 runtime、无不兼容 CSP/Referrer Policy，且一个能力失败不会移除另一个成功能力。组合还必须确认只有一个 target、没有正文 Tip 卡片或宿主 Headless 控件。
 
 ## 5. SANDBOX 与 LIVE
 

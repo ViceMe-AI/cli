@@ -15,13 +15,14 @@
 ## Target 与主题
 
 - Danmaku 会在 target 内创建 fixed 全屏浮层；target 自身保持空容器，不要再设置 fixed、全屏尺寸或高 z-index。
-- Tip target 参与宿主正常文档流，应放在创作者选择的支持区域；只调整宿主外层布局，不修改 SDK 内部 DOM。
+- 仅赞赏的 Tip target 参与宿主正常文档流，应放在创作者选择的支持区域；只调整宿主外层布局，不修改 SDK 内部 DOM。
+- 组合只使用一个空 target。Danmaku 在其中创建底部互动栏，`presentation: "integrated"` 的 Tip 初始隐藏，并由栏内赞赏入口打开官方全屏弹层；正文不创建 Tip target 或卡片。
 - `theme` 可取 `"auto"`、`"light"` 或 `"dark"`。默认 `auto`；已有明确单色主题时可以选择对应值，不需要检查 SDK 源码。
 - 页面 locale 由 SDK/浏览器处理，不用它推导 CN/GLOBAL market。
 
 ## 生命周期与失败隔离
 
-- 组合只创建一个 `createViceMe` client，并用 `Promise.allSettled` 独立调用 `mountDanmaku` 与 `mountTip`。
+- 组合只创建一个 `createViceMe` client 和一个 target，并用 `Promise.allSettled` 独立调用 `mountDanmaku` 与 `mountTip(..., { presentation: "integrated" })`。
 - 一个 mount 失败时呈现该能力的简短用户可见状态，同时保留另一个成功 handle；不要销毁成功能力。
 - SPA、组件或路由真实卸载时先销毁全部成功 handle，再调用 `client.destroy()`。
 - 静态文档没有页面内卸载，不绑定 `pagehide`；它会在 bfcache 时触发。
@@ -38,6 +39,7 @@
 | --- | --- | --- | --- |
 | 页面只有一套精确版本 ESM | 必须 | 必须 | 必须 |
 | target 成功挂载、请求只到所选官方 Origin | 必须 | 必须 | 两者都必须 |
+| 页面只有一个底部互动栏且没有正文 Tip 卡片 | 不适用 | 不适用 | 必须 |
 | 控制台无 CSP/frame/script 错误 | 必须 | 必须 | 必须 |
 | 桌面、320px、键盘可达 | 控件 | 金额与确认入口 | 两者 |
 | 一个能力失败不移除另一能力 | 不适用 | 不适用 | 由 `Promise.allSettled` 静态结构和可见错误状态证明 |

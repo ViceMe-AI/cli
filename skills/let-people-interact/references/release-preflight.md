@@ -29,7 +29,7 @@ node "<skill-dir>/scripts/preflight-sdk-release.mjs" \
 1. 从官方 npm registry 的稳定 `latest` 元数据解析一次版本，并验证包仍暴露 `createViceMe`、Danmaku、Mounted Tip、Headless Tip 与测试适配器所在的公共入口；
 2. 只验证当前 Profile 实际使用区域的 manifest 与入口：仅弹幕检查 `index.js`、`danmaku.js`，仅赞赏检查 `index.js`、`tip.js`，组合检查三者；
 3. 跨区域发布完整性由 SDK 发布流程负责，单个站点不重复探测未使用区域；
-4. 要求 manifest 版本一致、`apiMajor` 受支持且公共文件完整；
+4. 要求 manifest 版本一致、`apiMajor` 受支持、公共文件完整，并声明 `integrations.engagement: "danmaku-tip-v1"`；该标记缺失时 fail closed，不回退到不支持单栏组合的旧版本；
 5. 每个 HTTP 请求使用 15 秒上限、拒绝 redirect，并要求直接返回精确 `200`；npm 请求不重试且固定官方 registry。
 
 任何一步失败都以非零状态结束。此时不得创建、更新或发布 Work，不得写 SDK access，也不得编辑宿主页。Agent 不再手工重放其中的 npm/curl，不得再次解析版本，不下载构建产物，也不改用旧版或其他发布源。

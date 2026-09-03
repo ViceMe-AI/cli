@@ -1,25 +1,20 @@
-<!-- ViceMe 弹幕 + 赞赏 Mounted 片段。
-     Danmaku 会在 target 内创建 fixed 全屏浮层；不要给 target 再设置 fixed 或全屏样式。
-     Tip target 参与宿主正常文档流，应放在页面的支持区域。
-     theme 可取 "auto"、"light" 或 "dark"。 -->
-<div id="viceme-danmaku"></div>
+<!-- ViceMe 弹幕 + 赞赏一体化 Mounted 片段。
+     只使用一个空 target；Danmaku 会在其中创建 fixed 全屏浮层和底部互动栏。
+     integrated Tip 初始隐藏，由栏内赞赏入口打开官方弹层；正文不创建 Tip 卡片。
+     不要给 target 再设置 fixed 或全屏样式。theme 可取 "auto"、"light" 或 "dark"。 -->
+<div id="viceme-engagement"></div>
 <p id="viceme-danmaku-status" role="status" hidden></p>
-
-<section aria-label="支持这个作品">
-  <div id="viceme-tip"></div>
-  <p id="viceme-tip-status" role="status" hidden></p>
-</section>
+<p id="viceme-tip-status" role="status" hidden></p>
 
 <script type="module">
   import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";
   import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js";
   import { mountTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";
 
-  const danmakuTarget = document.querySelector("#viceme-danmaku");
+  const target = document.querySelector("#viceme-engagement");
   const danmakuStatus = document.querySelector("#viceme-danmaku-status");
-  const tipTarget = document.querySelector("#viceme-tip");
   const tipStatus = document.querySelector("#viceme-tip-status");
-  if (!danmakuTarget || !danmakuStatus || !tipTarget || !tipStatus) {
+  if (!target || !danmakuStatus || !tipStatus) {
     throw new Error("ViceMe engagement target is missing");
   }
 
@@ -31,8 +26,12 @@
   try {
     await client.ready();
     const mountResults = await Promise.allSettled([
-      mountDanmaku(client, { target: danmakuTarget, theme: "auto" }),
-      mountTip(client, { target: tipTarget, theme: "auto" }),
+      mountDanmaku(client, { target, theme: "auto" }),
+      mountTip(client, {
+        target,
+        theme: "auto",
+        presentation: "integrated",
+      }),
     ]);
     const [danmakuResult, tipResult] = mountResults;
     if (danmakuResult.status === "rejected") {

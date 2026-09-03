@@ -713,6 +713,8 @@ func TestInteractionRoutinePathUsesProgressiveDisclosure(t *testing.T) {
 		"不触发上下文压缩",
 		"默认使用官方 Mounted UI",
 		"只有用户明确要求自定义 Tip UI 时才进入 Headless",
+		"组合固定使用官方 integrated Mounted UI",
+		"组合不得生成 Headless Tip 控件",
 		"不得为默认选择增加一轮提问",
 	} {
 		if !strings.Contains(text, required) {
@@ -768,8 +770,13 @@ func TestInteractionCombinationMountedTemplateIsAuthoritative(t *testing.T) {
 		`from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js"`,
 		`workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY"`,
 		"Promise.allSettled",
-		"Danmaku 会在 target 内创建 fixed 全屏浮层",
-		"Tip target 参与宿主正常文档流",
+		"只使用一个空 target",
+		`<div id="viceme-engagement"></div>`,
+		`const target = document.querySelector("#viceme-engagement")`,
+		`mountDanmaku(client, { target, theme: "auto" })`,
+		`presentation: "integrated"`,
+		"底部互动栏",
+		"正文不创建 Tip 卡片",
 		`theme 可取 "auto"、"light" 或 "dark"`,
 		"弹幕暂时不可用，请稍后重试。",
 		"赞赏暂时不可用，请稍后重试。",
@@ -780,7 +787,10 @@ func TestInteractionCombinationMountedTemplateIsAuthoritative(t *testing.T) {
 			t.Fatalf("combination Mounted template omitted %q", required)
 		}
 	}
-	for _, forbidden := range []string{"window.ViceMe", "data-viceme-"} {
+	for _, forbidden := range []string{
+		"window.ViceMe", "data-viceme-", `id="viceme-danmaku"`, `id="viceme-tip"`,
+		"tipTarget", "createTip(",
+	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("combination Mounted template retained forbidden integration %q", forbidden)
 		}
@@ -940,6 +950,7 @@ func TestInteractionPreflightsSelectedExactReleaseBeforeMutation(t *testing.T) {
 		"只运行一次", "纯 `major.minor.patch`", "当前 Profile 实际使用区域",
 		"跨区域发布完整性由 SDK 发布流程负责", "单个站点不重复探测未使用区域",
 		"15 秒上限", "拒绝 redirect", "精确 `200`", "npm 请求不重试",
+		`integrations.engagement: "danmaku-tip-v1"`, "fail closed",
 		"不得再次解析版本", "不得把 `latest` 写入", "REPLACE_WITH_RESOLVED_SDK_VERSION",
 	} {
 		if !strings.Contains(referenceText, required) {
@@ -981,8 +992,7 @@ func TestInteractionHeadlessContractExposesOnlyPublicFacade(t *testing.T) {
 		"GET /v1/work-sdk/:workKey/tip-config", `credentials: "omit"`, `redirect: "error"`, "AbortSignal",
 		"8 秒", "16 KiB", "TIP_CONFIG_CREDENTIALS_NOT_ALLOWED", "sourceOrigin", "no-referrer", "fail closed",
 		"viceme:tip-headless-ready", "viceme:tip-headless-init", "viceme:tip-headless-result",
-		"event.origin", "event.source", "channel", "mode=headless", "PAID", "CANCELLED", "UNKNOWN",
-		`const danmakuTarget = document.querySelector("#viceme-danmaku")`, "const danmakuMount = Promise.resolve().then",
+		"event.origin", "event.source", "channel", "mode=headless", "PAID", "CANCELLED", "UNKNOWN", "getConfig",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Headless contract omitted public boundary %q", required)
@@ -1043,7 +1053,9 @@ func TestInteractionReferencesStayRouteScoped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, forbidden := range []string{"mountTip(client", "templates/single-html.html"} {
+	for _, forbidden := range []string{
+		"mountTip(client", "mountDanmaku(client", "templates/single-html.html", "组合实现", "#viceme-danmaku",
+	} {
 		if strings.Contains(string(headless), forbidden) {
 			t.Fatalf("Headless route retained Mounted implementation %q", forbidden)
 		}
