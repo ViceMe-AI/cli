@@ -764,8 +764,9 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 	found := map[string]bool{
 		"creator-tools":          false,
 		"become-a-creator":       false,
+		"customize-your-page":    false,
 		"sell-a-skill":           false,
-		"use-a-skill":       false,
+		"use-a-skill":            false,
 		"charge-for-your-work":   false,
 		"let-people-interact":    false,
 		"let-others-make-a-copy": false,
@@ -783,7 +784,7 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 		}
 	}
 	if len(officialSkillNames) != len(found) {
-		t.Fatalf("official Skill list must contain exactly seven active Skills: %#v", officialSkillNames)
+		t.Fatalf("official Skill list must contain exactly eight active Skills: %#v", officialSkillNames)
 	}
 	for name, included := range found {
 		if !included {
@@ -805,8 +806,8 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 		`import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";`,
 		`import { mountTip } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/tip.js";`,
 		`workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY"`,
-		"const tipHandle = await mountTip(client, {",
-		"tipHandle.destroy();",
+		"tipHandle = await mountTip(client, {",
+		"tipHandle?.destroy();",
 		"client.destroy();",
 		"组件或路由真实卸载",
 	} {
@@ -814,7 +815,7 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 			t.Fatalf("single HTML template omitted %q", required)
 		}
 	}
-	if strings.Index(templateText, "tipHandle.destroy();") > strings.Index(templateText, "client.destroy();") {
+	if strings.Index(templateText, "tipHandle?.destroy();") > strings.Index(templateText, "client.destroy();") {
 		t.Fatal("single HTML template destroys the client before the Tip mount")
 	}
 	for _, forbidden := range []string{"REPLACE_WITH_SDK_SCRIPT_URL", "data-viceme-", "window.ViceMe"} {
@@ -827,6 +828,19 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 	}
 	if _, _, err := bundle.Read("let-people-interact", "references/integration-contract.md"); err != nil {
 		t.Fatalf("official Skill bundle omitted its integration contract: %v", err)
+	}
+	for _, requiredPath := range []string{
+		"references/release-preflight.md",
+		"references/work-and-access.md",
+		"references/mounted.md",
+		"references/headless.md",
+		"scripts/preflight-sdk-release.mjs",
+		"templates/mounted-danmaku.html",
+		"templates/mounted-combination.html",
+	} {
+		if _, _, err := bundle.Read("let-people-interact", requiredPath); err != nil {
+			t.Fatalf("official Skill bundle omitted %s: %v", requiredPath, err)
+		}
 	}
 	legacyInteraction := map[string]bool{"viceme-danmaku": false, "viceme-tip": false}
 	for _, skill := range retiredOfficialSkills {

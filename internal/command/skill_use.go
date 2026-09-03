@@ -105,8 +105,8 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			if !access.IsFree {
-				if access.InstallKind == "PURCHASE_UNAVAILABLE" || (!access.Owned && !access.PurchaseAvailable) {
-					return output.Policy("SKILL_PURCHASE_UNAVAILABLE", "this paid Skill edition cannot be purchased yet").WithDetails(map[string]any{"productId": productID, "reason": access.UnavailableReason}).WithHint("the merchant must complete ownership verification before paid editions can be sold")
+				if !access.Owned && !access.PurchaseAvailable {
+					return output.Policy("SKILL_ACCESS_UNAVAILABLE", "this paid Skill edition is not available for purchase").WithDetails(map[string]any{"productId": productID})
 				}
 				// 试用优先:付费款开放试用时,匿名装试用版,用满再走购买。
 				workSlugForTrial := ""
@@ -125,7 +125,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				}
 				if !access.Owned {
 					if !access.PurchaseAvailable {
-						return output.Policy("SKILL_PURCHASE_UNAVAILABLE", "this paid Skill edition cannot be purchased yet").WithDetails(map[string]any{"productId": productID, "reason": access.UnavailableReason})
+						return output.Policy("SKILL_ACCESS_UNAVAILABLE", "this paid Skill edition is not available for purchase").WithDetails(map[string]any{"productId": productID})
 					}
 					if err := runtime.requireBuyerAuthentication(command.Context()); err != nil {
 						return err
@@ -302,7 +302,7 @@ func isDownloadableWorkProduct(product api.PublicWorkProduct) bool {
 		return false
 	}
 	switch *product.InstallKind {
-	case "PUBLIC_FREE", "OWNED_PAID", "PURCHASE_REQUIRED", "PURCHASE_UNAVAILABLE":
+	case "PUBLIC_FREE", "OWNED_PAID", "PURCHASE_REQUIRED":
 		return true
 	default:
 		return false

@@ -149,32 +149,6 @@ func (action *WebsiteReplicaPaymentAction) UnmarshalJSON(data []byte) error {
 			return err
 		}
 		*action = WebsiteReplicaPaymentAction{Type: value.Type, Content: value.Content}
-	case "REDIRECT":
-		var value struct {
-			Type string `json:"type"`
-			URL  string `json:"url"`
-		}
-		if err := decodeStrictAPIResponse(data, &value); err != nil {
-			return err
-		}
-		*action = WebsiteReplicaPaymentAction{Type: value.Type, URL: value.URL}
-	case "JSAPI":
-		var value struct {
-			Type      string `json:"type"`
-			AppID     string `json:"appId"`
-			TimeStamp string `json:"timeStamp"`
-			NonceStr  string `json:"nonceStr"`
-			Package   string `json:"package"`
-			SignType  string `json:"signType"`
-			PaySign   string `json:"paySign"`
-		}
-		if err := decodeStrictAPIResponse(data, &value); err != nil {
-			return err
-		}
-		*action = WebsiteReplicaPaymentAction{
-			Type: value.Type, AppID: value.AppID, TimeStamp: value.TimeStamp,
-			NonceStr: value.NonceStr, Package: value.Package, SignType: value.SignType, PaySign: value.PaySign,
-		}
 	default:
 		return errors.New("Website Replica payment action type is invalid")
 	}
@@ -218,7 +192,7 @@ func (response *WebsiteReplicaResolution) validateAPIResponse() error {
 
 func validateWebsiteReplicaProduct(product WebsiteReplicaProduct) error {
 	if !zodUUIDPattern.MatchString(product.ID) || !zodUUIDPattern.MatchString(product.SKUID) || utf16CodeUnits(product.Title) < 1 ||
-		utf16CodeUnits(product.Title) > 200 || !validReplicaCurrency(product.Currency) || !validPositiveSafeInteger(product.PriceCents) {
+		utf16CodeUnits(product.Title) > 200 || !validReplicaCurrency(product.Currency) || !validNonnegativeSafeInteger(product.PriceCents) {
 		return errors.New("Website Replica product is invalid")
 	}
 	return nil
@@ -257,9 +231,8 @@ func validWebsiteReplicaQuoteSemantics(response *WebsiteReplicaQuote) bool {
 		response.Fulfillment.Capabilities[0] == "DIGITAL_ENTITLEMENT" &&
 		response.Fulfillment.EstimatedState == "AWAITING_PAYMENT" &&
 		len(response.PaymentOptions) == 1 &&
-		response.PaymentOptions[0].Provider == "WECHAT_PAY" &&
-		len(response.PaymentOptions[0].Scenes) == 1 &&
-		response.PaymentOptions[0].Scenes[0] == "NATIVE"
+		((response.TotalAmountCents == 0 && response.PaymentOptions[0].Provider == "FREE" && len(response.PaymentOptions[0].Scenes) == 0) ||
+			(response.TotalAmountCents > 0 && response.PaymentOptions[0].Provider == "WECHAT_PAY" && len(response.PaymentOptions[0].Scenes) == 1 && response.PaymentOptions[0].Scenes[0] == "NATIVE"))
 }
 
 func (response *WebsiteReplicaOrder) validateAPIResponse() error {
@@ -386,17 +359,7 @@ func validateReplicaLicense(license WebsiteReplicaLicense) error {
 }
 
 func validWebsiteReplicaPaymentAction(action *WebsiteReplicaPaymentAction) bool {
-	if action == nil {
-		return false
-	}
-	switch action.Type {
-	case "QR_CODE":
-		return action.Content != ""
-	case "REDIRECT":
-		return validAbsoluteURL(action.URL)
-	default:
-		return false
-	}
+	return action != nil && action.Type == "QR_CODE" && action.Content != ""
 }
 
 func validReplicaPaymentOption(option WebsiteReplicaPaymentOption) bool {

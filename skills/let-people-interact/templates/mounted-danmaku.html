@@ -1,0 +1,35 @@
+<!-- ViceMe 仅弹幕 Mounted 片段。
+     Danmaku 会在 target 内创建 fixed 全屏浮层；不要给 target 再设置 fixed 或全屏样式。
+     theme 可取 "auto"、"light" 或 "dark"。GLOBAL Profile 同时替换两个 CDN host 和 region。 -->
+<div id="viceme-danmaku"></div>
+<p id="viceme-danmaku-status" role="status" hidden></p>
+
+<script type="module">
+  import { createViceMe } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/index.js";
+  import { mountDanmaku } from "https://s3.viceme.cn/viceme-sdk/REPLACE_WITH_RESOLVED_SDK_VERSION/danmaku.js";
+
+  const target = document.querySelector("#viceme-danmaku");
+  const status = document.querySelector("#viceme-danmaku-status");
+  if (!target || !status) throw new Error("ViceMe Danmaku target is missing");
+
+  const client = createViceMe({
+    workKey: "wrk_test_REPLACE_WITH_PUBLIC_TEST_KEY",
+    region: "cn",
+  });
+
+  let danmakuHandle;
+  try {
+    await client.ready();
+    danmakuHandle = await mountDanmaku(client, { target, theme: "auto" });
+  } catch {
+    status.hidden = false;
+    status.textContent = "弹幕暂时不可用，请稍后重试。";
+  }
+
+  function destroyViceMeDanmaku() {
+    danmakuHandle?.destroy();
+    client.destroy();
+  }
+
+  // 静态文档没有页面内卸载。SPA 只在组件或路由真实卸载时调用。
+</script>
