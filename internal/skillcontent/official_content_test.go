@@ -153,10 +153,11 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "let-others-make-a-copy",
 			machine: []string{
 				"$become-a-creator", "MerchantAccountMember(role=OWNER)", "VICEME-REPLICA.md",
-				"viceme replica publish", "buyerEntry.prompts", "viceme replica install", "--confirm",
+				"viceme replica publish", "buyerEntry.prompts", "viceme replica install", "--confirm", "AskUserQuestion",
 			},
 			semantics: []string{
 				"完整源码", "创作者自己的站点", "不得写死价格", "发布成功后", "不得覆盖已有目录", "Quote",
+				"免费做同款", "付费做同款", "不得每次问一个字段并循环追问", "最终不可变发布确认",
 			},
 		},
 	}
