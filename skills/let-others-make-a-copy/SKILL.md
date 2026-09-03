@@ -22,7 +22,7 @@ description: 为创作者网站开通“做同款”源码交付。复用 $becom
 1. 调用 `$become-a-creator` 取得本次固定的 Merchant，然后读取当前 Profile 并保持 API、Web 与市场 authority 不变。
 2. 确认当前仓库就是用户有权发布的真实网站源码，读取框架、锁文件、构建命令、测试、部署配置和公开 HTTPS Origin。无法证明源码归属或部署目标时停止。
 3. 运行 `viceme merchant work list --merchant <merchant-id>`，只保留属于该 Merchant、kind 为 `WEBSITE` 且 `canonicalOrigin` 与真实部署 Origin 精确一致的 Work。零个时创建；多个时展示候选并让用户按 Work ID 选择，绝不猜测。
-4. 读取所选 Work。只有最终为 `PUBLISHED`、`website.ownershipStatus: VERIFIED` 且 Origin 精确匹配时才能发布 Replica；需要验证时按 API 返回的 DNS 挑战完成验证，不保存或展示已消费挑战。
+4. 读取所选 Work。只有最终为 `PUBLISHED` 且 Origin 精确匹配时才能发布 Replica；`website.ownershipStatus` 不参与门禁，本流程不创建、读取、验证或撤销 Website ownership verification。
 5. 按 [package-contract.md](references/package-contract.md) 在项目根生成 `VICEME-REPLICA.md`，并准备根目录就是项目根的完整源码 ZIP。部署文档和 ZIP 都不能含 secret。
 6. 向用户展示 Website Work、标题、摘要、人民币分价格、部署文档、归档范围和排除项。明确说明发布会立即形成新的不可变收费源码版本，只询问一次；没有明确确认就不运行发布命令。
 7. 确认后运行：
