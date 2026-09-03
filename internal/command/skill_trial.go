@@ -298,9 +298,16 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			// 已购短路:entitlement 生效后移除本地门禁,不再消耗试用次数。
-			if runtimeHasAuthentication(runtime) {
-				access, accessErr := runtime.client().GetSkillAccess(command.Context(), productID)
-				if accessErr == nil && access.Owned {
+			authenticated, err := runtimeHasAuthentication(runtime)
+			if err != nil {
+				return err
+			}
+			if authenticated {
+				access, accessErr := authenticatedSkillUseAccess(command.Context(), runtime, productID)
+				if accessErr != nil {
+					return accessErr
+				}
+				if access.Owned {
 					removed := removeSkillTrialGates(runtime, productID)
 					return runtime.business(skillTrialUseResult{
 						ProductID: productID, Allowed: true, Owned: true, RemovedGates: removed,

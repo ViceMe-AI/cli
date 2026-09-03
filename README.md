@@ -286,6 +286,12 @@ Never copy an access token into the conversation.
 
 Run `viceme <command> --help` for the full flags and JSON fields.
 
+Paid Skill installation resolves the current account's durable entitlement or
+creator subscription before selecting a trial. Use
+`viceme skill install <product-id> --purchase --wait 0` when the user chooses to
+buy an unowned edition that also offers a trial; retries with `--purchase` reuse
+the same order.
+
 The page hosting Tip UI and the selected Work are separate resources. No
 engagement route requires Website ownership or DNS verification. A Tip-only
 integration does not register the host as a Website Work. Danmaku-only and

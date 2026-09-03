@@ -17,7 +17,7 @@ description: 安装和使用可下载的 ViceMe Skill 版本。适用于查看�
    - access 响应携带 `trial` 块（`available=true` 且有 `limitUses`）时，该版本支持免费试用：直接运行 `viceme skill install <product-id> --agent auto` 即可匿名安装试用版，不需要登录或付费。试用规则：
      - 安装完成后，每次开始使用该 Skill 前，必须先运行 `viceme skill use <product-id>`，按输出继续；输出带剩余次数时，先用一句话告知用户「本次是第 X / N 次试用」，再继续任务。
      - 输出提示试用已用完并出现二维码时，停止使用，引导用户扫码付费；等待支付或支付完成后按同一命令的输出转正，再继续任务。试用不要求提前告知付费规则之外的信息，正常一句话说明「试用 N 次，用完付费」即可。
-   - 用户选择直接购买（或该版本无试用）时：确认同一 WeSimi 账号具有购买权限，先运行 `viceme skill install <product-id> --agent auto --wait 0` 创建或恢复订单。返回 `SKILL_PURCHASE_REQUIRED` 是待支付结果，不是下单失败：立即展示本地二维码图片，同时用 Markdown 链接展示 `paymentUrl`（“打开支付页面”），不要先启动长时间等待而让用户看不到二维码。浏览器未登录时提示用下单的同一账号登录。展示完成后，后台运行同一安装命令并改为 `--wait 10m` 等待付款，支付到账后自动继续安装；等待超时返回 `SKILL_PURCHASE_PENDING` 时保留原订单，用户完成支付后重跑原命令。只有确认 `owned=true` 且安装成功才能说购买安装完成。不得用商品详情页代替支付页面，也不得把支付 URI 直接贴到对话里。
+   - 用户选择直接购买（或该版本无试用）时：确认同一 WeSimi 账号具有购买权限，先运行 `viceme skill install <product-id> --agent auto --purchase --wait 0` 创建或恢复订单。`--purchase` 只跳过尚未拥有版本的试用分支，已购用户仍直接下载。返回 `SKILL_PURCHASE_REQUIRED` 是待支付结果，不是下单失败：立即展示本地二维码图片，同时用 Markdown 链接展示 `paymentUrl`（“打开支付页面”），不要先启动长时间等待而让用户看不到二维码。浏览器未登录时提示用下单的同一账号登录。展示完成后，后台运行同一安装命令并改为 `--purchase --wait 10m` 等待付款，支付到账后自动继续安装；等待超时返回 `SKILL_PURCHASE_PENDING` 时保留原订单，用户完成支付后重跑原命令。只有确认 `owned=true` 且安装成功才能说购买安装完成。不得用商品详情页代替支付页面，也不得把支付 URI 直接贴到对话里。
    - access 响应携带 `subscription` 块：`available=true` 表示该创作者开通了粉丝订阅。引导购买时必须同时告知订阅选项：订阅价 ¥X/30 天，订阅后该创作者全部付费 Skill 都能免费使用；用户选择订阅时，先运行 `viceme subscription subscribe <creator-handle> --wait 0` 并展示二维码，再后台运行同一命令并改为 `--wait 10m` 等待支付；支付到账即订阅生效，随后重跑安装命令。`subscribedUntil` 非空表示当前处于订阅期，直接安装即可，不得再要求购买。
 6. 安装返回 `nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL` 时，立即调用返回的 `invocation` 并继续用户原来的任务。不得停在“安装成功”，也不得要求用户重复描述任务。
 

@@ -45,7 +45,7 @@ func (runtime *Runtime) requireBuyerAuthentication(ctx context.Context) error {
 		return output.Authentication("BUYER_IDENTITY_REQUIRED", "the authenticated buyer identity is missing")
 	}
 	runtime.buyerUserID = status.User.ID
-	runtime.buyerClient = client
+	runtime.credentialClient = client
 	return nil
 }
 

@@ -123,7 +123,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "use-a-skill",
 			machine: []string{
-				"owned=true", "nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", "--wait 10m", "--agent auto",
+				"owned=true", "nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", "--purchase --wait 10m", "--agent auto",
 				"?product=<product-id>",
 			},
 			semantics: []string{"不得要求再次购买", "不得停在“安装成功”"},

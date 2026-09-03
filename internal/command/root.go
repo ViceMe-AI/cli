@@ -80,7 +80,7 @@ type Runtime struct {
 	apiBaseURLOverride string
 	apiBaseURLFromEnv  bool
 	buyerUserID        string
-	buyerClient        *api.Client
+	credentialClient   *api.Client
 	credentialScope    string
 	config             config.Config
 	profile            config.Profile
@@ -727,8 +727,8 @@ func (r *Runtime) manager() *auth.Manager {
 }
 
 func (r *Runtime) client() *api.Client {
-	if r.buyerClient != nil {
-		return r.buyerClient
+	if r.credentialClient != nil {
+		return r.credentialClient
 	}
 	var tokens api.TokenSource = r.manager()
 	if token, _, _ := r.overrideCredential(); token != "" {

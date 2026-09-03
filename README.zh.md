@@ -261,6 +261,11 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 
 运行 `viceme <command> --help` 查看完整参数和 JSON 字段。
 
+付费 Skill 安装会先查询当前账号的长期权益或有效创作者订阅，再决定是否进入试用。
+用户选择直接购买一个同时提供试用的未拥有版本时，使用
+`viceme skill install <product-id> --purchase --wait 0`；后续携带 `--purchase`
+重试会继续同一订单。
+
 承载赞赏 UI 的页面与被赞赏 Work 是两个独立资源。三个互动分支均不要求 Website
 ownership 或 DNS 验证。仅接入赞赏不会把宿主页登记为 Website Work；仅弹幕和组合
 仍使用 canonical Origin 与部署 Origin 精确匹配的已发布 Website Work。当前版本的网站关注/付费

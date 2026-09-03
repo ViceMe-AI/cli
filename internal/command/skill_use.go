@@ -71,21 +71,11 @@ func newSkillAccessCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			public, err := runtime.client().GetPublicSkillAccess(command.Context(), productID)
+			access, err := resolveSkillUseAccess(command.Context(), runtime, productID)
 			if err != nil {
 				return err
 			}
-			if public.IsFree {
-				return runtime.business(public)
-			}
-			if !runtimeHasAuthentication(runtime) {
-				return runtime.business(public)
-			}
-			owned, err := runtime.client().GetSkillAccess(command.Context(), productID)
-			if err != nil {
-				return err
-			}
-			return runtime.business(owned)
+			return runtime.business(access)
 		},
 	}
 }
@@ -93,6 +83,7 @@ func newSkillAccessCommand(runtime *Runtime) *cobra.Command {
 func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 	var agent string
 	var wait time.Duration
+	var purchase bool
 	command := &cobra.Command{
 		Use: "install <product-id-or-work-url>", Short: "Verify and atomically install one free or purchased Skill edition", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -100,7 +91,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			access, err := runtime.client().GetPublicSkillAccess(command.Context(), productID)
+			access, err := resolveSkillUseAccess(command.Context(), runtime, productID)
 			if err != nil {
 				return err
 			}
@@ -108,24 +99,18 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				if !access.Owned && !access.PurchaseAvailable {
 					return output.Policy("SKILL_ACCESS_UNAVAILABLE", "this paid Skill edition is not available for purchase").WithDetails(map[string]any{"productId": productID})
 				}
-				// 试用优先:付费款开放试用时,匿名装试用版,用满再走购买。
+				// Trial is the default only after resolving existing ownership.
+				// An explicit purchase must use the same recoverable order flow.
 				workSlugForTrial := ""
 				if work != nil {
 					workSlugForTrial = work.Work.Slug
 				}
-				if !access.Owned && access.Trial != nil && access.Trial.Available {
+				if !access.Owned && !purchase && access.Trial != nil && access.Trial.Available {
 					return installTrialSkill(command.Context(), runtime, productID, workSlugForTrial, agent, access)
 				}
-				if err := runtime.requireSkillUseAuthentication(command.Context()); err != nil {
-					return err
-				}
-				access, err = runtime.client().GetSkillAccess(command.Context(), productID)
-				if err != nil {
-					return err
-				}
 				if !access.Owned {
-					if !access.PurchaseAvailable {
-						return output.Policy("SKILL_ACCESS_UNAVAILABLE", "this paid Skill edition is not available for purchase").WithDetails(map[string]any{"productId": productID})
+					if runtime.credentialClient == nil {
+						return output.Authentication("NOT_LOGGED_IN", "sign in before purchasing or reinstalling a paid Skill").WithHint("run 'viceme auth login' for the current profile")
 					}
 					if err := runtime.requireBuyerAuthentication(command.Context()); err != nil {
 						return err
@@ -227,8 +212,34 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&agent, "agent", "auto", "installation target: auto, codex, claude, workbuddy, or agents")
+	command.Flags().BoolVar(&purchase, "purchase", false, "purchase an unowned paid edition instead of installing its trial; reuse existing ownership and orders")
 	command.Flags().DurationVar(&wait, "wait", 5*time.Minute, "wait up to this duration for the WeChat QR payment of a paid edition; 0 presents the QR without waiting")
 	return command
+}
+
+// Public access keeps free installations anonymous. Paid rights must be
+// resolved before selecting a trial or purchase, including when a storefront
+// no longer exposes the Product. Lookup failures never mean "not owned".
+func resolveSkillUseAccess(ctx context.Context, runtime *Runtime, productID string) (api.SkillAccess, error) {
+	public, publicErr := runtime.client().GetPublicSkillAccess(ctx, productID)
+	if publicErr == nil && public.IsFree {
+		return public, nil
+	}
+	authenticated, err := runtimeHasAuthentication(runtime)
+	if err != nil {
+		return api.SkillAccess{}, err
+	}
+	if !authenticated {
+		return public, publicErr
+	}
+	return authenticatedSkillUseAccess(ctx, runtime, productID)
+}
+
+func authenticatedSkillUseAccess(ctx context.Context, runtime *Runtime, productID string) (api.SkillAccess, error) {
+	if err := runtime.requireSkillUseAuthentication(ctx); err != nil {
+		return api.SkillAccess{}, err
+	}
+	return runtime.client().GetSkillAccess(ctx, productID)
 }
 
 func resolveSkillUseTarget(ctx context.Context, runtime *Runtime, target string) (string, *api.PublicWorkProjection, error) {
@@ -311,24 +322,40 @@ func isDownloadableWorkProduct(product api.PublicWorkProduct) bool {
 	}
 }
 
-func runtimeHasAuthentication(runtime *Runtime) bool {
+func runtimeHasAuthentication(runtime *Runtime) (bool, error) {
+	if runtime.credentialClient != nil {
+		return true, nil
+	}
 	if _, source, _ := runtime.overrideCredential(); source != "" {
-		return true
+		return true, nil
 	}
 	status, err := runtime.manager().CurrentStatus()
-	return err == nil && status.Authenticated
+	return status.Authenticated, err
 }
 
 func (runtime *Runtime) requireSkillUseAuthentication(ctx context.Context) error {
-	if !runtimeHasAuthentication(runtime) {
+	authenticated, err := runtimeHasAuthentication(runtime)
+	if err != nil {
+		return err
+	}
+	if !authenticated {
 		return output.Authentication("NOT_LOGGED_IN", "sign in before purchasing or reinstalling a paid Skill").WithHint("run 'viceme auth login' for the current profile")
 	}
-	status, err := runtime.client().AuthStatus(ctx)
+	client := runtime.client()
+	token, err := client.Tokens.Token(ctx)
+	if err != nil {
+		return err
+	}
+	client.Tokens = processTokenSource(token)
+	status, err := client.AuthStatus(ctx)
 	if err != nil {
 		return err
 	}
 	for _, scope := range status.Scopes {
 		if scope == "skill-use:read" {
+			// Access, purchase and download keep the credential verified here,
+			// even if another process changes the Profile's stored login.
+			runtime.credentialClient = client
 			return nil
 		}
 	}
