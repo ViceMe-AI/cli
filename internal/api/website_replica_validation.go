@@ -41,6 +41,7 @@ func (*WebsiteReplicaOrder) strictAPIResponse()                                 
 func (*WebsiteReplicaOrderStatus) strictAPIResponse()                              {}
 func (*WebsiteReplicaDownload) strictAPIResponse()                                 {}
 func (*WebsiteReplicaInstallationReceipt) strictAPIResponse()                      {}
+func (*WebsiteReplicaRollback) strictAPIResponse()                                 {}
 
 func decodeStrictAPIResponse(data []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -479,6 +480,46 @@ func validateWebsiteReplicaProduct(product WebsiteReplicaProduct) error {
 	if !zodUUIDPattern.MatchString(product.ID) || !zodUUIDPattern.MatchString(product.SKUID) || utf16CodeUnits(product.Title) < 1 ||
 		utf16CodeUnits(product.Title) > 200 || !validReplicaCurrency(product.Currency) || !validNonnegativeSafeInteger(product.PriceCents) {
 		return errors.New("Website Replica product is invalid")
+	}
+	return nil
+}
+
+func (response *WebsiteReplicaPublicationRollbackState) validateAPIResponse() error {
+	if response == nil || !zodUUIDPattern.MatchString(response.ID) ||
+		(response.Status != "PUBLISHED" && response.Status != "PUBLISHED_DEGRADED") ||
+		response.Rollback.ActivePair == nil || response.Rollback.AvailablePairs == nil ||
+		validateWebsiteReplicaVersionPair(*response.Rollback.ActivePair) != nil {
+		return errors.New("Website Replica rollback state is invalid")
+	}
+	seen := map[string]bool{response.Rollback.ActivePair.ID: true}
+	for _, pair := range response.Rollback.AvailablePairs {
+		if validateWebsiteReplicaVersionPair(pair) != nil || seen[pair.ID] {
+			return errors.New("Website Replica rollback targets are invalid")
+		}
+		seen[pair.ID] = true
+	}
+	return nil
+}
+
+func (response *WebsiteReplicaRollback) validateAPIResponse() error {
+	if response == nil || !zodUUIDPattern.MatchString(response.ID) ||
+		!zodUUIDPattern.MatchString(response.PublicationID) || !zodUUIDPattern.MatchString(response.ClientRequestID) ||
+		validateWebsiteReplicaVersionPair(response.PreviousPair) != nil || validateWebsiteReplicaVersionPair(response.ActivePair) != nil ||
+		response.PreviousPair.ID == response.ActivePair.ID || validateWebsiteReplicaProduct(response.Product) != nil ||
+		!response.PriceUnchanged || !validZodDatetime(response.RolledBackAt) {
+		return errors.New("Website Replica rollback response is invalid")
+	}
+	return nil
+}
+
+func validateWebsiteReplicaVersionPair(pair WebsiteReplicaVersionPair) error {
+	if !zodUUIDPattern.MatchString(pair.ID) || !zodUUIDPattern.MatchString(pair.ReplicaVersion.ID) ||
+		!validPositiveSafeInteger(pair.ReplicaVersion.Version) || !zodUUIDPattern.MatchString(pair.WorkRevisionID) ||
+		!validZodDatetime(pair.CreatedAt) {
+		return errors.New("Website Replica version pair is invalid")
+	}
+	if pair.PageRelease != nil && (!zodUUIDPattern.MatchString(pair.PageRelease.ID) || !validPositiveSafeInteger(pair.PageRelease.Version)) {
+		return errors.New("Website Replica page release is invalid")
 	}
 	return nil
 }
