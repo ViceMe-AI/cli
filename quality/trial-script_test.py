@@ -18,6 +18,7 @@ import os
 import stat
 import sys
 import tempfile
+import time
 import unittest
 import urllib.parse
 import zipfile
@@ -97,6 +98,105 @@ class TrialScriptTestCase(unittest.TestCase):
             trial.extract_skill_package(empty.getvalue())
         self.assertEqual(caught.exception.code, "MANIFEST_MISSING")
 
+    def test_install_preserves_unconfirmed_pending(self):
+        # 三轮评审 F1:use 结果未知留下的 pendingRequestId 必须在重新
+        # install 后原样保留,否则下一次 use 换新键、同一次使用被扣两次。
+        self._write_state(pendingRequestId="req-survives")
+        grant_calls = []
+
+        def grant_api(market, method, path, body=None):
+            if path.endswith("/trial-grants"):
+                grant_calls.append(body["installId"])
+                return {"installId": body["installId"], "limitUses": 5, "remainingUses": 5}
+            raise AssertionError("unexpected %s %s" % (method, path))
+
+        with mock.patch.object(trial, "api_request", side_effect=grant_api):
+            trial.ensure_trial_grant("cn", PRODUCT_ID)
+        self.assertEqual(grant_calls, ["install-1"])
+        state = trial.load_trial_state(PRODUCT_ID)
+        self.assertEqual(state["pendingRequestId"], "req-survives")
+
+        # 换新凭证(installId 变化)时旧键无法在新 grant 上回放,允许丢弃。
+        with mock.patch.object(trial, "api_request", side_effect=lambda market, method, path, body=None:
+                               {"installId": "install-2", "limitUses": 5, "remainingUses": 5, "secret": "s2"}):
+            os.remove(trial.trial_state_path(PRODUCT_ID))
+            self._write_state(install_id="install-old", pendingRequestId="req-old")
+            trial.ensure_trial_grant("cn", PRODUCT_ID)
+        self.assertNotIn("pendingRequestId", trial.load_trial_state(PRODUCT_ID))
+
+    def test_save_trial_state_never_exposes_torn_writes(self):
+        # 三轮评审 F2:Python 与 Go 共改同一 JSON,写入必须原子替换——
+        # 并发读者要么看到旧文件要么看到新文件,永远不会读到半份 JSON。
+        import threading
+
+        self._write_state()
+        stop = threading.Event()
+        errors = []
+
+        def writer():
+            flip = False
+            while not stop.is_set():
+                flip = not flip
+                state = {"installId": "install-1", "secret": "secret-1", "productId": PRODUCT_ID, "market": "cn"}
+                if flip:
+                    state["pendingRequestId"] = "req-%d" % threading.get_ident()
+                try:
+                    trial.save_trial_state(PRODUCT_ID, state)
+                except Exception as error:  # noqa: BLE001
+                    errors.append(error)
+                    return
+
+        reader_stop = threading.Event()
+
+        def reader():
+            while not reader_stop.is_set():
+                state = trial.load_trial_state(PRODUCT_ID)
+                # None 仅允许出现在"尚未写入"窗口;一旦存在必须是完整合法状态。
+                if state is None and os.path.exists(trial.trial_state_path(PRODUCT_ID)):
+                    errors.append(AssertionError("torn or missing state observed"))
+                    return
+
+        threads = [threading.Thread(target=writer), threading.Thread(target=reader)]
+        for thread in threads:
+            thread.start()
+        time.sleep(0.5)
+        stop.set()
+        reader_stop.set()
+        for thread in threads:
+            thread.join()
+        self.assertFalse(errors, str(errors))
+
+    def test_state_dir_permission_failure_is_structured(self):
+        # 三轮评审 F3:状态目录不可写必须输出结构化 Failure,
+        # 不得打印 Python 堆栈。
+        def denied_makedirs(path, mode=None, exist_ok=False):
+            raise PermissionError("denied")
+
+        with mock.patch.object(trial.os, "makedirs", side_effect=denied_makedirs):
+            with self.assertRaises(trial.Failure) as caught:
+                with trial.ProductLock(PRODUCT_ID):
+                    pass
+        self.assertEqual(caught.exception.code, "STATE_DIR_PERMISSION_DENIED")
+
+    def test_unexpected_exception_still_emits_single_line_json(self):
+        # 脚本契约:任何异常都以单行 JSON 收场。
+        captured = []
+
+        def exploding_api(market, method, path, body=None):
+            raise RuntimeError("boom")
+
+        self._write_state()
+        with mock.patch.object(trial, "api_request", side_effect=exploding_api):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exit_code = trial.run(["use", "--product", PRODUCT_ID, "--market", "cn"])
+        self.assertEqual(exit_code, 1)
+        lines = [line for line in output.getvalue().splitlines() if line.strip()]
+        self.assertEqual(len(lines), 1)
+        result = json.loads(lines[0])
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["code"], "UNEXPECTED_ERROR")
+
     def test_state_file_permissions_and_roundtrip(self):
         trial.save_trial_state(PRODUCT_ID, {"installId": "i", "secret": "s"})
         self.assertEqual(trial.load_trial_state(PRODUCT_ID)["secret"], "s")
@@ -107,8 +207,8 @@ class TrialScriptTestCase(unittest.TestCase):
     # F3 回归:锁内重读 + 未确认幂等键重放
     # ------------------------------------------------------------------
 
-    def _write_state(self, **extra):
-        state = {"installId": "install-1", "secret": "secret-1", "productId": PRODUCT_ID, "market": "cn"}
+    def _write_state(self, install_id="install-1", **extra):
+        state = {"installId": install_id, "secret": "secret-1", "productId": PRODUCT_ID, "market": "cn"}
         state.update(extra)
         trial.save_trial_state(PRODUCT_ID, state)
 

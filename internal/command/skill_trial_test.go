@@ -3,7 +3,9 @@ package command
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
@@ -461,6 +464,90 @@ func TestSkillUseKeepsScriptPendingWhenResponseLost(t *testing.T) {
 	}
 	if pending := readScriptPendingRequestID(t, home); pending != "" {
 		t.Fatalf("script pending copy must be cleared after the retry succeeds, got %q", pending)
+	}
+}
+
+// Go 的接管/清理必须与脚本共用同一把 O_EXCL 状态锁:脚本进程持锁期间
+// 有界等待并失败,而不是读到撕裂 JSON 生成新键;陈旧锁会被抢占。
+func TestAdoptScriptTrialPendingRespectsScriptLock(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+
+	home := t.TempDir()
+	writeScriptTrialFile(t, home, "44444444-4444-4444-8444-444444444444", "script-req-1")
+	lockPath := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json.lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, []byte("script-pid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	originalWait := scriptTrialLockWait
+	scriptTrialLockWait = 300 * time.Millisecond
+	defer func() { scriptTrialLockWait = originalWait }()
+
+	started := time.Now()
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, securestore.NewMemory(),
+		"skill", "use", downloadableProductID,
+	)
+	if exit == 0 {
+		t.Fatal("use must fail while the script route holds the state lock")
+	}
+	failure, _ := envelope["error"].(map[string]any)
+	if time.Since(started) > 5*time.Second || failure["code"] != "SKILL_TRIAL_PENDING_ADOPT_FAILED" {
+		t.Fatalf("use must give up on the contended script lock promptly: %v %#v", time.Since(started), envelope)
+	}
+	if ids := recordedUseRequestIDs(state); len(ids) != 0 {
+		t.Fatalf("no trial use may be sent while the state lock is held, got %v", ids)
+	}
+
+	// 释放锁后接管恢复正常:同一键回放。
+	if err := os.Remove(lockPath); err != nil {
+		t.Fatal(err)
+	}
+	exit, envelope, _ = executeSkillTrialCommand(t, state.server, home, securestore.NewMemory(),
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("use must succeed after the script lock is released: exit=%d envelope=%#v", exit, envelope)
+	}
+	if ids := recordedUseRequestIDs(state); len(ids) != 1 || ids[0] != "script-req-1" {
+		t.Fatalf("use must replay the script's pending key after lock release, got %v", ids)
+	}
+}
+
+func TestAdoptScriptTrialPendingStealsStaleScriptLock(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+
+	home := t.TempDir()
+	writeScriptTrialFile(t, home, "44444444-4444-4444-8444-444444444444", "script-req-1")
+	lockPath := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json.lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, []byte("dead-pid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().Add(-scriptTrialLockStale - time.Minute)
+	if err := os.Chtimes(lockPath, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, securestore.NewMemory(),
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("use must steal the stale script lock and proceed: exit=%d envelope=%#v", exit, envelope)
+	}
+	if ids := recordedUseRequestIDs(state); len(ids) != 1 || ids[0] != "script-req-1" {
+		t.Fatalf("use must replay the pending key after stealing the stale lock, got %v", ids)
+	}
+	if _, err := os.Stat(lockPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the stale lock must be cleaned up, stat err=%v", err)
 	}
 }
 

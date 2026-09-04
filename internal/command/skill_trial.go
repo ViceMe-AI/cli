@@ -54,6 +54,59 @@ func saveSkillTrialCredential(runtime *Runtime, productID string, credential ski
 	return runtime.deps.Store.Set(skillTrialStoreKey(productID), string(encoded))
 }
 
+// The script route guards its state file with an O_EXCL lockfile protocol
+// (skills/use-a-skill/scripts/trial.py ProductLock). The Go takeover below
+// must speak the SAME protocol: both tools read-modify-write one JSON file,
+// and skipping the lock lets one side read a torn write or clobber a newer
+// pending key. Staleness mirrors the script constant (5 minutes).
+const (
+	scriptTrialLockStale = 5 * time.Minute
+)
+
+// scriptTrialLockWait bounds how long the CLI waits for the script's lock.
+var scriptTrialLockWait = 10 * time.Second
+
+func acquireScriptTrialLock(lockPath string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(scriptTrialLockWait)
+	for {
+		handle, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			return handle, nil
+		}
+		if !errors.Is(err, fs.ErrExist) && !errors.Is(err, fs.ErrPermission) {
+			return nil, err
+		}
+		// Windows 共享冲突与无权创建同名:锁文件不存在即为无权创建,
+		// 立即报错而不是等满截止时间。
+		if _, statErr := os.Stat(lockPath); errors.Is(statErr, fs.ErrNotExist) {
+			return nil, fmt.Errorf("cannot create the script trial lock (permission denied): %s", lockPath)
+		}
+		if info, statErr := os.Stat(lockPath); statErr == nil && time.Since(info.ModTime()) > scriptTrialLockStale {
+			_ = os.Remove(lockPath)
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("script trial lock busy: %s", lockPath)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func withScriptTrialLock(runtime *Runtime, productID string, action func() error) error {
+	lockPath := scriptTrialCredentialPath(runtime, productID) + ".lock"
+	handle, err := acquireScriptTrialLock(lockPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = handle.Close()
+		_ = os.Remove(lockPath)
+	}()
+	return action()
+}
+
 // scriptTrialCredentialPath is where the no-CLI install script
 // (skills/use-a-skill/scripts/trial.py) keeps its plaintext credential.
 // The credential is immutable per installId and the counter is
@@ -127,52 +180,64 @@ func adoptScriptTrialPending(runtime *Runtime, productID string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	lock, err := lockTrialUsePending(path)
-	if err != nil {
+	// 与脚本共用同一把 O_EXCL 状态锁:并发脚本进程正在改写状态文件时,
+	// 不带锁读到撕裂 JSON 会误判为无 pending 而生成新键。
+	if err := withScriptTrialLock(runtime, productID, func() error {
+		state, ok := readScriptTrialState(runtime, productID)
+		if !ok || state.PendingRequestID == "" {
+			return nil
+		}
+		lock, err := lockTrialUsePending(path)
+		if err != nil {
+			return err
+		}
+		defer lock.Unlock()
+		if readReusableTrialUsePending(path, productID) != "" {
+			return nil
+		}
+		payload, err := json.Marshal(trialUsePending{
+			ProductID: productID, RequestID: state.PendingRequestID, CreatedAt: time.Now().UnixMilli(),
+		})
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(path, payload, 0o600)
+	}); err != nil {
 		return err
 	}
-	defer lock.Unlock()
-	if readReusableTrialUsePending(path, productID) != "" {
-		return nil
-	}
-	payload, err := json.Marshal(trialUsePending{
-		ProductID: productID, RequestID: state.PendingRequestID, CreatedAt: time.Now().UnixMilli(),
-	})
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(path, payload, 0o600)
+	return nil
 }
 
 // clearScriptTrialPendingID removes the script file's copy of an idempotency
 // key once the CLI received its authoritative result. It only deletes the key
-// it owns: while an unconfirmed key exists, a concurrent script process can
-// only replay that same key (never create a new one), so there is no window
-// where an old and a new key coexist in the file — a lock-free read-modify-
-// write cannot lose a newer key.
+// it owns. The read-modify-write runs under the SAME O_EXCL lock the script
+// uses, so it can neither read a torn write nor clobber a pending key the
+// script just wrote.
 func clearScriptTrialPendingID(runtime *Runtime, productID, requestID string) error {
-	path := scriptTrialCredentialPath(runtime, productID)
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
+	return withScriptTrialLock(runtime, productID, func() error {
+		path := scriptTrialCredentialPath(runtime, productID)
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		var state scriptTrialState
+		if json.Unmarshal(raw, &state) != nil || state.PendingRequestID != requestID {
 			return nil
 		}
-		return err
-	}
-	var state scriptTrialState
-	if json.Unmarshal(raw, &state) != nil || state.PendingRequestID != requestID {
-		return nil
-	}
-	state.PendingRequestID = ""
-	payload, err := json.Marshal(state)
-	if err != nil {
-		return err
-	}
-	temporary := path + ".cli-clear.tmp"
-	if err := os.WriteFile(temporary, payload, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(temporary, path)
+		state.PendingRequestID = ""
+		payload, err := json.Marshal(state)
+		if err != nil {
+			return err
+		}
+		temporary := path + ".cli-clear.tmp"
+		if err := os.WriteFile(temporary, payload, 0o600); err != nil {
+			return err
+		}
+		return os.Rename(temporary, path)
+	})
 }
 
 // ensureSkillTrialGrant returns a usable (grant, credential) pair for this

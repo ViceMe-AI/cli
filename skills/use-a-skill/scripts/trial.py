@@ -175,12 +175,21 @@ def load_trial_state(product_id):
 
 def save_trial_state(product_id, state):
     path = trial_state_path(product_id)
-    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    try:
+        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    except OSError as error:
+        raise Failure("STATE_DIR_PERMISSION_DENIED", "无法创建试用状态目录(权限不足): %s" % os.path.dirname(path)) from error
     previous = os.stat(path).st_mode & 0o777 if os.path.exists(path) else 0o600
-    with open(path, "w", encoding="utf-8") as handle:
+    # 原子替换:并发读者(Go 侧接管/清理)要么看到旧文件要么看到新文件,
+    # 永远不会读到写了一半的 JSON。
+    temporary = path + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
         json.dump(state, handle, ensure_ascii=False, indent=2, sort_keys=True)
         handle.write("\n")
-    os.chmod(path, previous if previous else 0o600)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.chmod(temporary, previous if previous else 0o600)
+    os.replace(temporary, path)
 
 
 class ProductLock:
@@ -191,7 +200,10 @@ class ProductLock:
         self.handle = None
 
     def __enter__(self):
-        os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
+        try:
+            os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
+        except OSError as error:
+            raise Failure("STATE_DIR_PERMISSION_DENIED", "无法创建试用状态目录(权限不足): %s" % os.path.dirname(self.path)) from error
         deadline = time.time() + LOCK_WAIT_SECONDS
         while True:
             try:
@@ -320,8 +332,19 @@ def ensure_trial_grant(market, product_id):
             if not secret:
                 raise Failure("TRIAL_GRANT_INVALID", "试用凭证发放异常(未携带 secret),请重试")
             install_id = grant.get("installId") or install_id
-        state = {"installId": install_id, "secret": secret, "productId": product_id, "market": market}
-        save_trial_state(product_id, state)
+        # 未确认的幂等键属于 (installId, requestId):同凭证重装必须原样保留,
+        # 否则响应未知的那次使用会在下一次 use 换新键、被服务端再扣一次;
+        # 换了新凭证(installId 变化)时旧键无法在新 grant 上回放,丢弃。
+        previous = state or {}
+        merged = {
+            "installId": install_id,
+            "secret": secret,
+            "productId": product_id,
+            "market": market,
+        }
+        if previous.get("installId") == install_id and previous.get("pendingRequestId"):
+            merged["pendingRequestId"] = previous["pendingRequestId"]
+        save_trial_state(product_id, merged)
         return {
             "installId": install_id,
             "secret": secret,
@@ -634,10 +657,17 @@ def main(argv):
     return command_use(args.market, args.product)
 
 
-if __name__ == "__main__":
+def run(argv):
+    """入口包装:任何失败(含未预期异常)都以单行 JSON 收场。"""
     try:
-        sys.exit(main(sys.argv[1:]))
+        return main(argv)
     except Failure as failure:
-        sys.exit(emit_failure(failure))
+        return emit_failure(failure)
     except KeyboardInterrupt:
-        sys.exit(130)
+        return 130
+    except Exception as error:  # noqa: BLE001 - 脚本契约:任何失败都输出单行 JSON
+        return emit_failure(Failure("UNEXPECTED_ERROR", "脚本异常退出: %s" % error))
+
+
+if __name__ == "__main__":
+    sys.exit(run(sys.argv[1:]))
