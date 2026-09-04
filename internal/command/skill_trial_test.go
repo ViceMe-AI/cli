@@ -25,12 +25,15 @@ var skillTrialSecret = strings.Repeat("a", 64)
 type skillTrialTestServer struct {
 	mu sync.Mutex
 	// grantUses counts accepted trial-use calls; the trial limit is 2 in tests.
-	grantUses     int
-	trialLimit    int
-	paymentStatus string
-	server        *httptest.Server
-	archiveDigest string
-	archive       []byte
+	grantUses          int
+	trialLimit         int
+	paymentStatus      string
+	server             *httptest.Server
+	archiveDigest      string
+	archive            []byte
+	ownedArchiveDigest string
+	ownedArchive       []byte
+	ownedDownloadCalls int
 	// grantRequests records the installId of every trial-grants request in
 	// order, and grantedInstallIDs remembers which ones already received a
 	// secret so replays stay idempotent (mirrors the real API contract).
@@ -47,6 +50,8 @@ func newSkillTrialTestServer(t *testing.T) *skillTrialTestServer {
 	state := &skillTrialTestServer{trialLimit: 2, paymentStatus: "PENDING", grantedInstallIDs: map[string]bool{}}
 	state.archive = downloadableSkillArchive(t)
 	state.archiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.archive))
+	state.ownedArchive = downloadableSkillArchiveNamed(t, "free-test", "Owned Current Skill")
+	state.ownedArchiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.ownedArchive))
 	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
 	state.server = server
 	return state
@@ -138,8 +143,25 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 	case request.URL.Path == "/v1/cli/skills/"+downloadableProductID+"/access":
 		s.mu.Lock()
 		paid := s.paymentStatus == "PAID"
+		digest := s.archiveDigest
+		if paid {
+			digest = s.ownedArchiveDigest
+		}
 		s.mu.Unlock()
-		writeJSONResponse(writer, skillAccessFixture(false, paid, s.archiveDigest, s.server.URL+"/purchase"))
+		access := skillAccessFixture(false, paid, digest, s.server.URL+"/purchase")
+		if !paid {
+			access["trial"] = map[string]any{"available": true, "limitUses": s.trialLimit}
+		}
+		writeJSONResponse(writer, access)
+	case request.URL.Path == "/v1/cli/skills/"+downloadableProductID+"/download":
+		s.mu.Lock()
+		s.ownedDownloadCalls++
+		digest := s.ownedArchiveDigest
+		s.mu.Unlock()
+		writeJSONResponse(writer, map[string]any{
+			"url": s.server.URL + "/owned-artifact", "fileName": "owned.zip",
+			"releaseId": downloadableReleaseID, "artifactDigest": digest, "expiresAt": "2027-08-27T00:00:00Z",
+		})
 	case request.URL.Path == "/v1/products/"+downloadableProductID:
 		writeJSONResponse(writer, map[string]any{
 			"id": downloadableProductID, "slug": "paid-skill", "title": "Paid Skill",
@@ -205,6 +227,9 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 	case request.URL.Path == "/artifact":
 		writer.Header().Set("Content-Type", "application/zip")
 		_, _ = writer.Write(s.archive)
+	case request.URL.Path == "/owned-artifact":
+		writer.Header().Set("Content-Type", "application/zip")
+		_, _ = writer.Write(s.ownedArchive)
 	default:
 		http.NotFound(writer, request)
 	}
@@ -551,7 +576,7 @@ func TestAdoptScriptTrialPendingStealsStaleScriptLock(t *testing.T) {
 	}
 }
 
-func TestSkillUseConsumesTrialThenClosesPurchaseAndRemovesGate(t *testing.T) {
+func TestSkillUseConsumesTrialThenClosesPurchaseAndReinstallsCanonicalPackage(t *testing.T) {
 	t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
 	state := newSkillTrialTestServer(t)
 	defer state.server.Close()
@@ -600,6 +625,15 @@ func TestSkillUseConsumesTrialThenClosesPurchaseAndRemovesGate(t *testing.T) {
 	if data["owned"] != true || data["allowed"] != true {
 		t.Fatalf("paid trial use was not reported as owned: %#v", data)
 	}
+	if data["install"] == nil {
+		t.Fatalf("paid trial use did not report the canonical reinstall: %#v", data)
+	}
+	state.mu.Lock()
+	ownedDownloadCalls := state.ownedDownloadCalls
+	state.mu.Unlock()
+	if ownedDownloadCalls != 1 {
+		t.Fatalf("trial conversion must download the canonical owned package once, got %d", ownedDownloadCalls)
+	}
 	for _, path := range []string{
 		filepath.Join(home, ".codex", "skills", "free-test", "SKILL.md"),
 		filepath.Join(home, ".agents", "skills", "free-test", "SKILL.md"),
@@ -611,8 +645,8 @@ func TestSkillUseConsumesTrialThenClosesPurchaseAndRemovesGate(t *testing.T) {
 		if bytes.Contains(content, []byte(skillTrialGateMarker)) {
 			t.Fatalf("trial gate survived the purchase in %s", path)
 		}
-		if !bytes.Contains(content, []byte("Free Test Skill")) {
-			t.Fatalf("gate removal corrupted the Skill content in %s", path)
+		if !bytes.Contains(content, []byte("Owned Current Skill")) || bytes.Contains(content, []byte("Free Test Skill")) {
+			t.Fatalf("the canonical owned package did not replace the trial package in %s: %q", path, content)
 		}
 	}
 }

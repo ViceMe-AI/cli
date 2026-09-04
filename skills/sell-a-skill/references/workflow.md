@@ -127,7 +127,7 @@ GitHub 或小红书来源会把取得的不可变归档保存到 CLI 私有恢�
 
 每个修改或完成 Draft 的成功 CLI 结果都包含新 `presentation`。始终保留 `presentation.fallbackUrl` 的稳定 HTML 作品预览页，不切换为 Markdown 或一次性入口。浏览器未登录时先在页面登录，再回到同一个 `/preview`；CLI 已登录不代表浏览器已登录。打开链接的工具返回成功只证明入口已打开，未观察到页面内容时不能声称预览已正常显示。草稿更新通过 revision 轮询呈现。发布后的追加询问只遵循主线第 7 步的升级版提议，只问一次，不再重复追问。
 
-发布成功且该创作者尚未设置订阅时，用一次选项卡询问是否为粉丝设置订阅：「要不要设置粉丝订阅？订阅后你的全部付费 Skill 订阅者都能免费使用」选项为「设置订阅（询问月价后执行）」与「暂不设置」。用户给出价格后运行 `viceme subscription set --price-minor <fen>`；创作者已有订阅计划（`viceme subscription show` 返回 status=ACTIVE）时不再询问，也不得改价。
+发布成功且该创作者尚未设置订阅时，用一次选项卡询问是否为粉丝设置订阅：「要不要设置粉丝订阅？订阅有效期内，订阅者可以安装和更新你的全部付费 Skill；到期后不能重装或更新，但本地已安装内容不会删除」选项为「设置订阅（询问月价后执行）」与「暂不设置」。用户给出价格后运行 `viceme subscription set --price-minor <fen>`；创作者已有订阅计划（`viceme subscription show` 返回 status=ACTIVE）时不再询问，也不得改价。
 
 ## 更新草稿文件
 

@@ -9,6 +9,8 @@ description: 安装和使用可下载的 ViceMe Skill 版本。适用于查看�
 
 不得把此流程转到 `sell-a-skill`、商家创作命令、平台生成的交易型购买 Skill 或云端 Runtime。一个可下载版本就是一个本地 Skill 包和一个独立 Product；用户只拥有自己购买的 Product。
 
+链接精确带有 `?product=<product-id>&install=owned` 时走严格已解锁安装：保留完整 URL，先确保安装或更新到最新版 CLI，再把 URL 作为单个引用参数运行 `viceme skill install '<完整 URL>'`。`install=owned` 只是意图，不是权限；CLI 必须校验当前账号。未登录、账号不对、订阅已到期或无该 Product 权益时立即停止，不得查询公开试用、不得创建订单、不得删除参数回退普通入口。这个分支不先运行下面的 `detail` 或公开 `access` 步骤，因此作品下架后永久购买者仍可由 Product 权益重装保留版本。
+
 1. 接受 Product ID 或 ViceMe 作品标准链接。运行 `viceme skill detail <product-id-or-work-url>`，按明确的 `sortOrder` 展示所有版本。作品链接默认选择第一个免费版；没有免费版时选择排序最前的付费版。用户选择其他版本时使用精确的 `?product=<product-id>`。不得按价格猜测版本层级，也不得声称购买一个版本会包含另一个版本。
 2. 运行 `viceme skill access <selected-product-id-or-work-url>`。
 3. 免费版运行 `viceme skill install <product-id> --agent auto`。安装和使用免费版不得要求登录 ViceMe。
@@ -18,7 +20,7 @@ description: 安装和使用可下载的 ViceMe Skill 版本。适用于查看�
      - 安装完成后，每次开始使用该 Skill 前，必须先运行 `viceme skill use <product-id>`，按输出继续；输出带剩余次数时，先用一句话告知用户「本次是第 X / N 次试用」，再继续任务。
      - 输出提示试用已用完并出现二维码时，停止使用，引导用户扫码付费；等待支付或支付完成后按同一命令的输出转正，再继续任务。试用不要求提前告知付费规则之外的信息，正常一句话说明「试用 N 次，用完付费」即可。
    - 用户选择直接购买（或该版本无试用）时：确认同一 WeSimi 账号具有购买权限，先运行 `viceme skill install <product-id> --agent auto --wait 0` 创建或恢复订单。返回 `SKILL_PURCHASE_REQUIRED` 是待支付结果，不是下单失败：立即展示本地二维码图片，同时用 Markdown 链接展示 `paymentUrl`（“打开支付页面”），不要先启动长时间等待而让用户看不到二维码。浏览器未登录时提示用下单的同一账号登录。展示完成后，后台运行同一安装命令并改为 `--wait 10m` 等待付款，支付到账后自动继续安装；等待超时返回 `SKILL_PURCHASE_PENDING` 时保留原订单，用户完成支付后重跑原命令。只有确认 `owned=true` 且安装成功才能说购买安装完成。不得用商品详情页代替支付页面，也不得把支付 URI 直接贴到对话里。
-   - access 响应携带 `subscription` 块：`available=true` 表示该创作者开通了粉丝订阅。引导购买时必须同时告知订阅选项：订阅价 ¥X/30 天，订阅后该创作者全部付费 Skill 都能免费使用；用户选择订阅时，先运行 `viceme subscription subscribe <creator-handle> --wait 0` 并展示二维码，再后台运行同一命令并改为 `--wait 10m` 等待支付；支付到账即订阅生效，随后重跑安装命令。`subscribedUntil` 非空表示当前处于订阅期，直接安装即可，不得再要求购买。
+   - access 响应携带 `subscription` 块：`available=true` 表示该创作者开通了粉丝订阅。引导购买时必须同时告知订阅选项：订阅价 ¥X/30 天；有效期内可安装和更新该创作者全部付费 Skill，到期后不能重装或更新，但本地已经安装的内容不会删除。用户选择订阅时，先运行 `viceme subscription subscribe <creator-handle> --wait 0` 并展示二维码，再后台运行同一命令并改为 `--wait 10m` 等待支付；支付到账即订阅生效，随后重跑安装命令。`subscribedUntil` 非空表示当前处于订阅期，直接安装即可，不得再要求购买。
 6. 安装返回 `nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL` 时，立即调用返回的 `invocation` 并继续用户原来的任务。不得停在“安装成功”，也不得要求用户重复描述任务。
 
 作品链接和 access 返回的 `purchaseUrl` 是商品详情入口，不是已创建订单的支付链接，不得把它们作为“请在这里完成支付”的入口。支付入口必须来自成功创建的订单：当前微信 Native 流程同时展示命令生成的二维码图片和订单 `paymentUrl`。没有订单或二维码时先处理授权/下单错误，不得用详情页链接代替，也不得自行拼接支付链接。
@@ -33,4 +35,4 @@ description: 安装和使用可下载的 ViceMe Skill 版本。适用于查看�
 
 只有免费版或试用版真实产生结果后，当前任务最多推荐一次相关付费版。使用服务端返回的名称和功能亮点，结合刚才结果说明具体提升。不得在执行前推荐。用户拒绝或忽略后，在当前对话中记录这个选择，不再重复推荐；新任务可以重新推荐。
 
-所有包都在本地运行。试用按创作者设置的次数计，用完付费转正；本流程没有云端执行、跨版本自动升级、购物车或自动退款；创作者粉丝订阅按月买断，到期自然失效，不自动续费。
+所有包都在本地运行。试用按创作者设置的次数计，用完付费转正；本流程没有云端执行、跨版本自动升级、购物车或自动退款；创作者粉丝订阅按期购买且不自动续费，有效期内允许安装和更新，到期后保留本地副本但不能重装或更新。
