@@ -165,7 +165,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "let-me-make-a-copy",
 			machine: []string{
-				"standaloneRecoveryAvailable=true", "viceme auth status", "viceme replica install",
+				"start --work-url", "standaloneRecoveryAvailable=true", "viceme auth status", "viceme replica install",
 				"--accept-price-cents", "REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "PRODUCT_ALREADY_OWNED",
 				"s3.viceme.cn/skills/let-me-make-a-copy/scripts/make_copy.py",
 				"s3.viceme.ai/skills/let-me-make-a-copy/scripts/make_copy.py", "command -v viceme",

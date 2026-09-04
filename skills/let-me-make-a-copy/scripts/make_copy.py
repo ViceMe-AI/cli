@@ -1328,8 +1328,8 @@ def install(
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
-    inspect_parser = subparsers.add_parser("inspect")
-    inspect_parser.add_argument("--work-url", required=True)
+    start_parser = subparsers.add_parser("start")
+    start_parser.add_argument("--work-url", required=True)
     install_parser = subparsers.add_parser("install")
     install_parser.add_argument("--work-url", required=True)
     install_parser.add_argument("--target")
@@ -1349,7 +1349,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "Python 3.9 or newer is required",
             )
         args = parse_args(argv)
-        if args.command == "inspect":
+        if args.command == "start":
             data = inspect(args.work_url)
         else:
             data = install(

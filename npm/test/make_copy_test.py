@@ -95,6 +95,20 @@ def sign_with_rfc8032_seed(message):
 
 
 class MakeCopyTest(unittest.TestCase):
+    def test_start_is_the_single_public_preview_entrypoint(self):
+        work_url = "https://viceme.cn/alice/site.md"
+        args = make_copy.parse_args(["start", "--work-url", work_url])
+        self.assertEqual(args.command, "start")
+        self.assertEqual(args.work_url, work_url)
+
+        preview = {"nextAction": "OPEN_WORK_PREVIEW", "workUrl": work_url}
+        with mock.patch.object(
+            make_copy, "inspect", return_value=preview
+        ) as inspect, mock.patch.object(make_copy, "result") as result:
+            self.assertEqual(make_copy.main(["start", "--work-url", work_url]), 0)
+        inspect.assert_called_once_with(work_url)
+        result.assert_called_once_with(preview)
+
     def test_accepts_only_official_work_markdown_authorities(self):
         authority = make_copy.authority_for_work_url(
             "https://viceme.cn/alice/site.md"
