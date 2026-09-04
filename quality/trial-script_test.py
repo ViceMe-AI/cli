@@ -36,10 +36,27 @@ spec.loader.exec_module(trial)
 PRODUCT_ID = "33709ab2-2246-4033-a41e-7b21d96bccb7"
 
 
+AGENT_MARKER_KEYS = [
+    "CODEBUDDY_SESSION_ID",
+    "CODEBUDDY_SANDBOX_BROKER_SESSION_ID",
+    "WORKBUDDY_SESSION_ID",
+    "CODEX_SESSION_ID",
+    "CODEX_THREAD_ID",
+    "CODEX_SANDBOX",
+    "CLAUDECODE",
+    "CLAUDE_AGENT_SDK_VERSION",
+    "AI_AGENT",
+]
+
+
 class TrialScriptTestCase(unittest.TestCase):
     def setUp(self):
         self.home = tempfile.mkdtemp(prefix="viceme-trial-test-")
-        self._home_patcher = mock.patch.dict(os.environ, {"HOME": self.home})
+        # 清掉宿主环境的 agent 标记:在 Claude Code/WorkBuddy 里跑测试时
+        # 根目录断言也必须确定。
+        self._home_patcher = mock.patch.dict(
+            os.environ, {"HOME": self.home, **{key: "" for key in AGENT_MARKER_KEYS}}
+        )
         self._home_patcher.start()
         self.addCleanup(self._home_patcher.stop)
 
@@ -67,6 +84,12 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, content)
         self.assertIn(trial.GATE_TAIL, content)
         self.assertIn("python3 - use --product %s --market cn" % PRODUCT_ID, content)
+        # Windows 形态:先落盘再用 py 执行(避开 PS5.1 管道编码),命令同样钉死产品与市场。
+        self.assertIn(
+            "curl.exe -fsSL https://s3.viceme.cn/skills/use-a-skill/scripts/trial.py "
+            "-o $env:TEMP\\viceme-trial.py; py $env:TEMP\\viceme-trial.py use --product %s --market cn" % PRODUCT_ID,
+            content,
+        )
         # 门禁必须位于 frontmatter 之后、正文之前。
         self.assertLess(content.index("---\n", 4), content.index(trial.GATE_MARKER))
         once = files["SKILL.md"][0]
@@ -293,6 +316,22 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertEqual(result["code"], "UNEXPECTED_ERROR")
         self.assertNotIn("boom", result["message"])
 
+    def test_agent_env_markers_scope_the_install_target(self):
+        home = self.home
+        with mock.patch.dict(os.environ, {"CODEBUDDY_SESSION_ID": "s"}):
+            self.assertEqual(trial.target_roots(), [os.path.join(home, ".workbuddy", "skills")])
+        with mock.patch.dict(os.environ, {"CODEX_SESSION_ID": "s", "CODEX_SANDBOX": "seatbelt"}):
+            self.assertEqual(trial.target_roots(), [os.path.join(home, ".codex", "skills")])
+        with mock.patch.dict(os.environ, {"CLAUDECODE": "1"}):
+            self.assertEqual(trial.target_roots(), [os.path.join(home, ".claude", "skills")])
+        # Claude Desktop agent 模式不带 CLAUDECODE,认 AI_AGENT 前缀。
+        with mock.patch.dict(os.environ, {"AI_AGENT": "claude-code_2-1-229_agent"}):
+            self.assertEqual(trial.target_roots(), [os.path.join(home, ".claude", "skills")])
+        # 识别不到:退回全量 auto(agents 恒装)。
+        self.assertEqual(trial.target_roots()[0], os.path.join(home, ".agents", "skills"))
+        # 显式参数覆盖探测。
+        self.assertEqual(trial.target_roots("codex"), [os.path.join(home, ".codex", "skills")])
+
     def test_state_file_permissions_and_roundtrip(self):
         trial.save_trial_state(PRODUCT_ID, {"installId": "i", "secret": "s"})
         self.assertEqual(trial.load_trial_state(PRODUCT_ID)["secret"], "s")
@@ -440,7 +479,9 @@ class InstallFlowTestCase(unittest.TestCase):
 
     def setUp(self):
         self.home = tempfile.mkdtemp(prefix="viceme-trial-install-")
-        self._home_patcher = mock.patch.dict(os.environ, {"HOME": self.home})
+        self._home_patcher = mock.patch.dict(
+            os.environ, {"HOME": self.home, **{key: "" for key in AGENT_MARKER_KEYS}}
+        )
         self._home_patcher.start()
         self.addCleanup(self._home_patcher.stop)
         self.archive = io.BytesIO()
@@ -485,6 +526,72 @@ class InstallFlowTestCase(unittest.TestCase):
                 "expiresAt": "2027-01-01T00:00:00Z",
             }
         raise AssertionError("unexpected API call %s %s" % (method, path))
+
+    def test_reinstall_overwrites_in_place_without_deletions(self):
+        # 同款重装不得产生"删除"操作:WorkBuddy 沙箱按删除计数护栏
+        # (阈值 50),整目录换建会被拦;原地覆写重装同版本删除数=0。
+        removals = []
+
+        def counting_remove(path):
+            removals.append(path)
+            return real_remove(path)
+
+        real_remove, real_rmdir = trial.os.remove, trial.os.rmdir
+
+        def counting_rmdir(path):
+            removals.append(path)
+            return real_rmdir(path)
+
+        with mock.patch.object(trial, "api_request", side_effect=self._api), \
+                mock.patch.object(trial, "http_download", return_value=self.archive_bytes):
+            for _ in range(2):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    exit_code = trial.run(["install", "--product", PRODUCT_ID, "--market", "cn"])
+                self.assertEqual(exit_code, 0)
+
+        skill_dir = os.path.join(self.home, ".agents", "skills", "my-skill")
+        with mock.patch.object(trial.os, "remove", side_effect=counting_remove), \
+                mock.patch.object(trial.os, "rmdir", side_effect=counting_rmdir):
+            with mock.patch.object(trial, "api_request", side_effect=self._api), \
+                    mock.patch.object(trial, "http_download", return_value=self.archive_bytes):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    exit_code = trial.run(["install", "--product", PRODUCT_ID, "--market", "cn"])
+        self.assertEqual(exit_code, 0)
+        skill_removals = [path for path in removals if os.sep + ".viceme" + os.sep + "trial" + os.sep not in path]
+        self.assertEqual(skill_removals, [], "same-version reinstall must not delete anything")
+        # 内容确实被刷新(manifest 可解析且指向该款)。
+        with open(os.path.join(skill_dir, ".viceme", "install-manifest.json"), encoding="utf-8") as handle:
+            self.assertEqual(json.load(handle)["product_id"], PRODUCT_ID)
+
+    def test_reinstall_prunes_only_stale_files(self):
+        with mock.patch.object(trial, "api_request", side_effect=self._api), \
+                mock.patch.object(trial, "http_download", return_value=self.archive_bytes):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(trial.run(["install", "--product", PRODUCT_ID, "--market", "cn"]), 0)
+        skill_dir = os.path.join(self.home, ".agents", "skills", "my-skill")
+        stale = os.path.join(skill_dir, "legacy", "old-file.txt")
+        os.makedirs(os.path.dirname(stale), exist_ok=True)
+        with open(stale, "w", encoding="utf-8") as handle:
+            handle.write("stale")
+        removals = []
+        real_remove = trial.os.remove
+
+        def counting_remove(path):
+            removals.append(path)
+            return real_remove(path)
+
+        with mock.patch.object(trial.os, "remove", side_effect=counting_remove):
+            with mock.patch.object(trial, "api_request", side_effect=self._api), \
+                    mock.patch.object(trial, "http_download", return_value=self.archive_bytes):
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    self.assertEqual(trial.run(["install", "--product", PRODUCT_ID, "--market", "cn"]), 0)
+        skill_removals = [path for path in removals if os.sep + ".viceme" + os.sep + "trial" + os.sep not in path]
+        self.assertEqual(skill_removals, [stale], "only the stale file may be deleted")
+        self.assertFalse(os.path.exists(os.path.dirname(stale)), " emptied stale dirs are pruned")
 
     def test_install_success_writes_gate_manifest_and_credential(self):
         with mock.patch.object(trial, "api_request", side_effect=self._api), \
