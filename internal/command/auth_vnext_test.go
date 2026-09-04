@@ -182,24 +182,74 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 func TestDeviceLoginSendsCreatorOnboardingPurpose(t *testing.T) {
 	t.Parallel()
 	var requestedPurpose string
+	const accessToken = "vme_cli_creator_onboarding_123456789012345678901234567890"
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		var authorizationRequest api.DeviceAuthorizationRequest
-		if err := json.NewDecoder(request.Body).Decode(&authorizationRequest); err != nil {
-			t.Fatal(err)
+		switch request.URL.Path {
+		case "/v1/cli/device-authorizations":
+			var authorizationRequest api.DeviceAuthorizationRequest
+			if err := json.NewDecoder(request.Body).Decode(&authorizationRequest); err != nil {
+				t.Fatal(err)
+			}
+			requestedPurpose = authorizationRequest.Purpose
+			writeJSONResponse(writer, map[string]any{
+				"deviceCode": "device-code", "userCode": "ABCD-EFGH",
+				"verificationUri":         "https://viceme.cn/cli/authorize",
+				"verificationUriComplete": "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH&purpose=creator-onboarding",
+				"expiresIn":               600, "interval": 1,
+			})
+		case "/v1/cli/device-authorizations/token":
+			writeJSONResponse(writer, map[string]any{
+				"status": "authorized", "accessToken": accessToken, "tokenType": "Bearer",
+				"expiresAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+				"scopes":    []string{"profile:read"},
+				"creatorOnboardingSelection": map[string]any{
+					"mode":  "BONJOUR",
+					"works": []map[string]any{{"title": "Selected work"}},
+					"contacts": []map[string]any{{
+						"platform": "GITHUB", "value": "https://github.com/example",
+					}},
+				},
+			})
+		case "/v1/cli/auth/status":
+			writeJSONResponse(writer, map[string]any{
+				"authenticated": true,
+				"user": map[string]any{
+					"id": "55555555-5555-4555-8555-555555555555", "displayName": "Creator", "avatarUrl": nil,
+				},
+				"scopes":    []string{"profile:read"},
+				"expiresAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
+			})
+		default:
+			writer.WriteHeader(http.StatusNotFound)
 		}
-		requestedPurpose = authorizationRequest.Purpose
-		writer.WriteHeader(http.StatusServiceUnavailable)
 	}))
 	defer server.Close()
 
 	root := t.TempDir()
-	_ = Execute([]string{"auth", "login", "--purpose", "creator-onboarding"}, Dependencies{
-		Out: &bytes.Buffer{}, ErrOut: &bytes.Buffer{}, Store: securestore.NewMemory(),
+	var stdout bytes.Buffer
+	exit := Execute([]string{"auth", "login", "--purpose", "creator-onboarding"}, Dependencies{
+		Out: &stdout, ErrOut: &bytes.Buffer{}, Store: securestore.NewMemory(),
 		APIBaseURL: server.URL, Region: config.RegionCN,
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 	})
+	if exit != 0 {
+		t.Fatalf("creator onboarding login failed: exit=%d stdout=%s", exit, stdout.String())
+	}
 	if requestedPurpose != "CREATOR_ONBOARDING" {
 		t.Fatalf("creator onboarding login sent the wrong purpose: %q", requestedPurpose)
+	}
+	var envelope map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("decode login response: %v", err)
+	}
+	data := envelope["data"].(map[string]any)
+	selection := data["creatorOnboardingSelection"].(map[string]any)
+	if selection["mode"] != "BONJOUR" {
+		t.Fatalf("creator onboarding selection was not returned: %#v", selection)
+	}
+	contacts := selection["contacts"].([]any)
+	if contacts[0].(map[string]any)["value"] != "https://github.com/example" {
+		t.Fatalf("creator onboarding contact was not returned: %#v", contacts)
 	}
 }
 
