@@ -81,7 +81,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "creator-tools",
 			machine: []string{
 				"viceme auth status", "viceme auth login", "present_files", "VICEME_ACCESS_TOKEN",
-				"AUTO_UPDATE_RESTART_REQUIRED", "error.code",
+				"viceme update", "viceme install --agent auto", "error.code",
 			},
 			semantics: []string{
 				"不得为了复用其他登录而替用户切换 Profile",

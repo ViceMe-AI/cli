@@ -261,6 +261,12 @@ func performInstall(ctx context.Context, runtime *Runtime, agent, region string,
 			return bootstrapInstallResult{}, err
 		}
 	}
+	if err := skillcontent.ProbeInstallPermissions(agent, runtime.deps.Environment); err != nil {
+		if updatepkg.IsPermissionDenied(err) {
+			return bootstrapInstallResult{}, updatePermissionRequired(err)
+		}
+		return bootstrapInstallResult{}, output.Internal("SKILL_INSTALL_PREFLIGHT_FAILED", "official Skill destinations could not be checked before installation", err)
+	}
 	transaction, reports, err := runtime.deps.Skills.PrepareInstallSetWithRetirements(
 		skillNames, retiredOfficialSkills, agent, runtime.deps.Environment,
 	)
