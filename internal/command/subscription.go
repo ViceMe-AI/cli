@@ -28,7 +28,7 @@ func newSubscriptionSubscribeCommand(runtime *Runtime) *cobra.Command {
 	var wait time.Duration
 	command := &cobra.Command{
 		Use:   "subscribe <creator-handle>",
-		Short: "Subscribe to a creator with a WeChat QR payment and unlock every paid Skill of theirs",
+		Short: "Subscribe to install and update a creator's paid Skills while the subscription is active",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			if err := runtime.requireBuyerAuthentication(command.Context()); err != nil {
@@ -57,7 +57,7 @@ func newSubscriptionSubscribeCommand(runtime *Runtime) *cobra.Command {
 			return runtime.business(map[string]any{
 				"subscribed": true, "creatorHandle": creatorHandle,
 				"orderNo": order.OrderNo, "amountCents": order.AmountCents,
-				"nextAction": "EVERY_PAID_SKILL_OF_THIS_CREATOR_IS_NOW_UNLOCKED",
+				"nextAction": "INSTALL_OR_UPDATE_CREATOR_PAID_SKILLS_WHILE_SUBSCRIPTION_ACTIVE",
 			})
 		},
 	}
@@ -122,7 +122,7 @@ func openCreatorSubscriptionOrder(ctx context.Context, runtime *Runtime, creator
 	if order.PaymentPresentation != nil {
 		amount := formatCentsAsYuan(created.Order.AmountCents)
 		progress(runtime, "微信支付二维码已生成（订阅订单 "+created.Order.OrderNo+"，"+amount+"，"+created.Order.ExpiresAt+" 前有效）："+order.PaymentPresentation.ImagePath)
-		progress(runtime, "请扫码完成支付；支付到账后订阅生效，该创作者全部付费 Skill 解锁")
+		progress(runtime, "请扫码完成支付；支付到账后，订阅有效期内可安装和更新该创作者的全部付费 Skill；到期后本地内容保留，但不能重装或更新")
 	}
 	return created.Order, order.PaymentPresentation, nil
 }

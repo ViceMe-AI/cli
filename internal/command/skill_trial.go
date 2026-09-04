@@ -472,16 +472,34 @@ func installTrialSkill(ctx context.Context, runtime *Runtime, productID string, 
 }
 
 type skillTrialUseResult struct {
-	ProductID     string   `json:"productId"`
-	Allowed       bool     `json:"allowed"`
-	Owned         bool     `json:"owned"`
-	RemainingUses *int     `json:"remainingUses,omitempty"`
-	LimitUses     *int     `json:"limitUses,omitempty"`
-	LastUse       bool     `json:"lastUse"`
-	RemovedGates  []string `json:"removedGates,omitempty"`
-	OrderNo       string   `json:"orderNo,omitempty"`
-	NextAction    string   `json:"nextAction"`
-	Invocation    string   `json:"invocation,omitempty"`
+	ProductID     string                          `json:"productId"`
+	Allowed       bool                            `json:"allowed"`
+	Owned         bool                            `json:"owned"`
+	RemainingUses *int                            `json:"remainingUses,omitempty"`
+	LimitUses     *int                            `json:"limitUses,omitempty"`
+	LastUse       bool                            `json:"lastUse"`
+	RemovedGates  []string                        `json:"removedGates,omitempty"`
+	OrderNo       string                          `json:"orderNo,omitempty"`
+	NextAction    string                          `json:"nextAction"`
+	Invocation    string                          `json:"invocation,omitempty"`
+	Install       *downloadableSkillInstallResult `json:"install,omitempty"`
+}
+
+func reinstallOwnedSkill(ctx context.Context, runtime *Runtime, productID string) (*downloadableSkillInstallResult, error) {
+	access, err := runtime.client().GetSkillAccess(ctx, productID)
+	if err != nil {
+		return nil, err
+	}
+	if !access.Owned {
+		return nil, output.Authorization("SKILL_NOT_OWNED", "the current account does not have active access to this paid Skill edition").
+			WithDetails(map[string]any{"productId": productID}).
+			WithHint("sign in with the account that purchased this Product, or renew the creator subscription")
+	}
+	installed, err := installAuthorizedSkill(ctx, runtime, productID, "", "auto", access)
+	if err != nil {
+		return nil, err
+	}
+	return &installed, nil
 }
 
 // newSkillUsePrecheckCommand is the per-use gate: it consumes one trial use on
@@ -497,14 +515,20 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// 已购短路:entitlement 生效后移除本地门禁,不再消耗试用次数。
+			// 已购短路:重新下载服务端当前正式包并原子覆盖试用包，不能只删门禁。
 			if runtimeHasAuthentication(runtime) {
 				access, accessErr := runtime.client().GetSkillAccess(command.Context(), productID)
-				if accessErr == nil && access.Owned {
-					removed := removeSkillTrialGates(runtime, productID)
+				if accessErr != nil {
+					return accessErr
+				}
+				if access.Owned {
+					installed, installErr := installAuthorizedSkill(command.Context(), runtime, productID, "", "auto", access)
+					if installErr != nil {
+						return installErr
+					}
 					return runtime.business(skillTrialUseResult{
-						ProductID: productID, Allowed: true, Owned: true, RemovedGates: removed,
-						NextAction: "CONTINUE_TASK",
+						ProductID: productID, Allowed: true, Owned: true, Install: &installed,
+						NextAction: "CONTINUE_TASK", Invocation: installed.Invocation,
 					})
 				}
 			}
@@ -566,11 +590,14 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			if order.Status == "PAID" {
-				// 恢复出已支付订单:直接转正,不再弹码。
-				removed := removeSkillTrialGates(runtime, productID)
+				// 恢复出已支付订单:重新安装权威正式包，不再弹码。
+				installed, installErr := reinstallOwnedSkill(command.Context(), runtime, productID)
+				if installErr != nil {
+					return installErr
+				}
 				return runtime.business(skillTrialUseResult{
-					ProductID: productID, Allowed: true, Owned: true, RemovedGates: removed, OrderNo: order.OrderNo,
-					NextAction: "CONTINUE_TASK",
+					ProductID: productID, Allowed: true, Owned: true, Install: installed, OrderNo: order.OrderNo,
+					NextAction: "CONTINUE_TASK", Invocation: installed.Invocation,
 				})
 			}
 			presentation, err := presentSkillPaymentQR(runtime, &order)
@@ -586,10 +613,13 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			if err := waitForSkillOrderPayment(command.Context(), runtime, productID, order.OrderNo, wait); err != nil {
 				return err
 			}
-			removed := removeSkillTrialGates(runtime, productID)
+			installed, installErr := reinstallOwnedSkill(command.Context(), runtime, productID)
+			if installErr != nil {
+				return installErr
+			}
 			return runtime.business(skillTrialUseResult{
-				ProductID: productID, Allowed: true, Owned: true, RemovedGates: removed, OrderNo: order.OrderNo,
-				NextAction: "CONTINUE_TASK",
+				ProductID: productID, Allowed: true, Owned: true, Install: installed, OrderNo: order.OrderNo,
+				NextAction: "CONTINUE_TASK", Invocation: installed.Invocation,
 			})
 		},
 	}
