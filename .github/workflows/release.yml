@@ -340,6 +340,7 @@ jobs:
           cp release/bootstrap-contract.json dist/bootstrap-contract.json
           cp quality/release-manifest.json dist/release-manifest.json
           go run ./.release-workflow/cmd/agent-release-manifest/main.go --version "${VERSION}"
+          go run ./.release-workflow/cmd/skills-archive/main.go --version "${VERSION}"
           go run ./.release-workflow/cmd/agent-install-doc/main.go --version "${VERSION}" \
             --template .release-workflow/release/agent-install.md.tmpl
           go run ./.release-workflow/cmd/agent-install-doc/main.go --version "${VERSION}" \
@@ -602,10 +603,27 @@ jobs:
             }
 
             for FILE in dist/*; do
+              # dist/skills is published as its own tree below; directories are
+              # never objects of the flat contract loop.
+              [[ -f "${FILE}" ]] || continue
               if [[ "${FILE}" == *.md ]]; then
                 put_immutable "${FILE}" "${PREFIX}/v${VERSION}/${FILE#dist/}" 'text/markdown; charset=utf-8'
               else
                 put_immutable "${FILE}" "${PREFIX}/v${VERSION}/${FILE#dist/}"
+              fi
+            done
+
+            # Hosted official Skills: deterministic zips plus the machine-
+            # readable hosting manifest. Byte-immutability holds because the
+            # archive builder pins timestamps, permissions and ordering.
+            for FILE in dist/skills/*; do
+              [[ -f "${FILE}" ]] || continue
+              if [[ "${FILE}" == *.zip ]]; then
+                put_immutable "${FILE}" "${PREFIX}/v${VERSION}/skills/${FILE#dist/skills/}" 'application/zip'
+              elif [[ "${FILE}" == *.json ]]; then
+                put_immutable "${FILE}" "${PREFIX}/v${VERSION}/skills/${FILE#dist/skills/}" 'application/json; charset=utf-8'
+              else
+                put_immutable "${FILE}" "${PREFIX}/v${VERSION}/skills/${FILE#dist/skills/}"
               fi
             done
 
@@ -639,6 +657,21 @@ jobs:
                     --cache-control 'public,max-age=300' --only-show-errors
                 fi
               done
+              # Hosted official Skills keep a stable public tree at the bucket
+              # root so non-CLI installers never need to know the version.
+              for FILE in dist/skills/*; do
+                [[ -f "${FILE}" ]] || continue
+                if [[ "${FILE}" == *.zip ]]; then
+                  aws --endpoint-url "${ENDPOINT}" s3 cp "${FILE}" "s3://${BUCKET}/skills/${FILE#dist/skills/}" \
+                    --content-type 'application/zip' --cache-control 'public,max-age=300' --only-show-errors
+                elif [[ "${FILE}" == *.json ]]; then
+                  aws --endpoint-url "${ENDPOINT}" s3 cp "${FILE}" "s3://${BUCKET}/skills/${FILE#dist/skills/}" \
+                    --content-type 'application/json; charset=utf-8' --cache-control 'public,max-age=300' --only-show-errors
+                else
+                  aws --endpoint-url "${ENDPOINT}" s3 cp "${FILE}" "s3://${BUCKET}/skills/${FILE#dist/skills/}" \
+                    --cache-control 'public,max-age=300' --only-show-errors
+                fi
+              done
             fi
 
             aws --endpoint-url "${ENDPOINT}" s3 cp "dist/agent-install.md" "s3://${BUCKET}/policy-probe/${GITHUB_RUN_ID}" \
@@ -653,6 +686,11 @@ jobs:
             curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/agent-install.md" \
               --output "${SCRATCH}/agent-install.md"
             cmp --silent dist/agent-install.md "${SCRATCH}/agent-install.md"
+            if [[ "${HIGHEST}" == "${VERSION}" ]]; then
+              curl --fail --silent --show-error "${PUBLIC_ORIGIN}/skills/manifest.json" \
+                --output "${SCRATCH}/hosted-manifest.json"
+              cmp --silent dist/skills/manifest.json "${SCRATCH}/hosted-manifest.json"
+            fi
             curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/commerce-skill-install.md" \
               --output "${SCRATCH}/commerce-skill-install.md"
             cmp --silent dist/commerce-skill-install.md "${SCRATCH}/commerce-skill-install.md"
