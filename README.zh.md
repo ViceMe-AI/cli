@@ -256,7 +256,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme merchant work website-verification ...` | 创建、查看、验证或撤销一个 Website Work 的 DNS 所有权。 |
 | `viceme merchant work sdk-access ...` | 在同一 Work 上管理托管 `danmaku`/`tip` 与关注/付费 access；两类配置相互保留，创建会返回永久公开、并非凭据的 `keys.test` 与 `keys.live`。 |
 | `viceme merchant commerce-application ...` | 管理 Commerce Application；对于开放赞赏，匹配的应用只是可选可信来源归因，不是授权门禁。 |
-| `viceme merchant product ...` | 创建、编译、激活、暂停或归档 Product 及其生成的购买 Skill。 |
+| `viceme merchant product ...` | 列出、暂停或归档 Product（可下载 Skill 版本与网站访问权益）。 |
 | `viceme commerce ...` | 安装并运行签名购买 Skill，完成会话、报价、支付订单与同会话状态查询。 |
 
 运行 `viceme <command> --help` 查看完整参数和 JSON 字段。
