@@ -173,9 +173,10 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | configure follow or paid unlock for an existing website and integrate it into host code after the shared creator qualification check; platform resources stay internal. |
 | `let-people-interact` | branch between danmaku, open tips, or both; danmaku-bearing routes require a published Website Work with an exact canonical Origin, while Tip can use any eligible published Merchant Work. It defaults to Mounted UI and uses Headless only for an explicit custom-UI request; none requires DNS ownership verification. |
-| `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site; buyer installation is owned by the independent Shop-hosted `make-a-copy` Skill. |
+| `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site; it does not perform buyer checkout or installation. |
+| `make-a-copy` | accept a website copy invitation; reuse account-bound or anonymous CLI purchasing when available, preserve an existing standalone recovery, and fall back to the versioned no-CLI script. |
 
-Buyer-side `use-a-skill` keeps its existing name because it is not a creator workflow.
+Buyer-side `use-a-skill` and `make-a-copy` keep independent names because they are not creator workflows.
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
 owns deterministic local work and API calls. This separation lets an Agent

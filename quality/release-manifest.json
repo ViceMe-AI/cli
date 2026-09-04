@@ -45,6 +45,13 @@
       "full_skill_bundle_digest": "sha256:6138f9619fd2503ab6682ae9e897e025dad8ec6051d0bda4645f10cdb70eeb72",
       "embedded_content_digest": "sha256:c866a68af1aa335df421aa76a5cc745fc5b4b1de9ddf8e5b000f44c919720df3"
     },
+    "make-a-copy": {
+      "skill_version": "0.27.0",
+      "minimum_cli_version": "0.27.0",
+      "cli_compatibility": ">=0.27.0 <0.28.0",
+      "full_skill_bundle_digest": "sha256:055d158b61f4be7130b37b78de67ef52622d30f89cd24af37f54459d491dd25f",
+      "embedded_content_digest": "sha256:2078359aa717e67dd2072589b1540225c29dfcf289ea6f132de99f39cc880b76"
+    },
     "sell-a-skill": {
       "skill_version": "0.27.0",
       "minimum_cli_version": "0.27.0",
@@ -60,7 +67,7 @@
       "embedded_content_digest": "sha256:2649a937d7cb64c916839d741becfe60bbdeaee92c5a0a0392b482283806270f"
     }
   },
-  "bootstrap_contract_digest": "sha256:7c01c9c969158bab1e92df211f980aed7d4c01f7d8a6574ec4592b82935172c4",
+  "bootstrap_contract_digest": "sha256:abf1099585020d193f8447192ae61add60151dc17874517941a58190aadafd26",
   "installer_digests": {
     "install.ps1": "sha256:ffdedbcacb05a783c442398084e910dbb50b2bee9015282f5c01090eb01f4313",
     "install.sh": "sha256:27c4b4448b0ad28fcdebfbe9dcdf3df1ec9d179df6df6dc59907b4a7f286e374"

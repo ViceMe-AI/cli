@@ -24,6 +24,7 @@ var officialSkillNames = []string{
 	"use-a-skill",
 	"let-people-interact",
 	"let-others-make-a-copy",
+	"make-a-copy",
 }
 
 func readOfficialSkillBundle(t *testing.T, skillName string) string {
@@ -159,6 +160,17 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"完整源码", "创作者自己的站点", "不得写死价格", "发布成功后", "Quote",
 				"免费做同款", "付费做同款", "不得每次问一个字段并循环追问", "最终不可变发布确认",
 				"不处理买家购买和安装",
+			},
+		},
+		{
+			name: "make-a-copy",
+			machine: []string{
+				"standaloneRecoveryAvailable=true", "viceme auth status", "viceme replica install",
+				"--accept-price-cents", "REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "PRODUCT_ALREADY_OWNED",
+			},
+			semantics: []string{
+				"不得把远程 Skill 写入", "后来安装 CLI 不得触发新订单", "订单一旦创建不得切换",
+				"不得静默降级", "账号路径", "CLI 匿名路径", "无 CLI 或既有 standalone 路径",
 			},
 		},
 	}
