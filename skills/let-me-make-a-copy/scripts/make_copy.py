@@ -754,8 +754,8 @@ def wait_for_payment(
     request_fn: RequestFn = http_request,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> None:
-    for _ in range(3):
-        sleep_fn(60)
+    for _ in range(6):
+        sleep_fn(30)
         status = api_request(
             authority,
             "/website-replica-sessions/"
@@ -1260,7 +1260,7 @@ def inspect(
         )
         recovery_available = status["payment"]["status"] == "PAID"
     return {
-        "nextAction": "OPEN_WORK_PREVIEW",
+        "nextAction": "CONFIRM_INLINE_PREVIEW",
         "workUrl": replica["viceMeWorkUrl"],
         "instruction": instruction,
         "standaloneRecoveryAvailable": recovery_available,
@@ -1284,7 +1284,7 @@ def install(
             "REPLICA_PRICE_CHANGED",
             "Replica price changed; show the Work again and ask for confirmation",
             {
-                "nextAction": "OPEN_WORK_PREVIEW",
+                "nextAction": "CONFIRM_INLINE_PREVIEW",
                 "workUrl": replica["viceMeWorkUrl"],
                 "priceCents": replica["product"]["priceCents"],
             },

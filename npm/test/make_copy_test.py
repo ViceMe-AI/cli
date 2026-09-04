@@ -101,7 +101,7 @@ class MakeCopyTest(unittest.TestCase):
         self.assertEqual(args.command, "start")
         self.assertEqual(args.work_url, work_url)
 
-        preview = {"nextAction": "OPEN_WORK_PREVIEW", "workUrl": work_url}
+        preview = {"nextAction": "CONFIRM_INLINE_PREVIEW", "workUrl": work_url}
         with mock.patch.object(
             make_copy, "inspect", return_value=preview
         ) as inspect, mock.patch.object(make_copy, "result") as result:
@@ -323,8 +323,8 @@ class MakeCopyTest(unittest.TestCase):
                 sleeps.append,
             )
         self.assertEqual(raised.exception.code, "REPLICA_PAYMENT_TIMEOUT")
-        self.assertEqual(sleeps, [60, 60, 60])
-        self.assertEqual(len(requests), 3)
+        self.assertEqual(sleeps, [30, 30, 30, 30, 30, 30])
+        self.assertEqual(len(requests), 6)
 
     @unittest.skipIf(os.name == "nt", "Unix process liveness fixture")
     def test_recovers_lock_left_by_terminated_process(self):

@@ -55,7 +55,7 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 				return replicaInspectFailure(err)
 			}
 			return runtime.business(replicaInspectResult{
-				NextAction: "OPEN_WORK_PREVIEW", WorkURL: resolved.ViceMeWorkURL,
+				NextAction: "CONFIRM_INLINE_PREVIEW", WorkURL: resolved.ViceMeWorkURL,
 				StandaloneRecoveryAvailable: recoveryAvailable, Replica: resolved,
 			})
 		},
