@@ -247,6 +247,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme publication update ...` | 用严格 JSON 文件替换完整 Listing Draft。 |
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
+| `viceme replica preview [--path <项目> \| --url <回环地址>]` | 登录或上传前，在匿名 ViceMe 预览壳中打开本地网页；CLI 启动的 dev server 仅存活到命令退出，视觉验证以打开的浏览器为准。 |
 | `viceme replica publish ...` | 校验含根级 `VICEME-REPLICA.md` 的完整源码 ZIP，发布不可变版本并返回稳定口令与自站提示词。 |
 | `viceme replica install <口令> --target <新目录>` | 创建并展示真实 Quote，不创建订单；买家明确确认后原样追加 `--confirm` 才购买并原子安装。 |
 | `viceme update` | 同时更新 CLI 与匹配版本的官方 Skills。 |
