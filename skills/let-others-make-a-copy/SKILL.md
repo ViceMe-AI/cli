@@ -5,7 +5,7 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
 
 # 让别人做你的网站同款
 
-把当前网站的完整源码和可执行部署说明发布为不可变 Website Replica，并加入精简的做同款入口。所有确定性平台读写使用 ViceMe CLI；打包前完整阅读 [package-contract.md](references/package-contract.md)。买家邀请由作品 Markdown 平台控制区链接的独立 `make-a-copy` Skill 处理，本 Skill 不执行买家预览、购买、支付、下载或安装。
+把当前网站的完整源码和可执行部署说明发布为不可变 Website Replica，并加入精简的做同款入口。所有确定性平台读写使用 ViceMe CLI；打包前完整阅读 [package-contract.md](references/package-contract.md)。买家邀请由作品 Markdown 平台控制区链接的独立 `let-me-make-a-copy` Skill 处理，本 Skill 不执行买家预览、购买、支付、下载或安装。
 
 面向用户的说明跟随用户当前语言。不得展示登录凭据、上传地址、对象 Key、支付能力、签名 URL 或内部恢复文件。不得告诉用户正在使用哪个内置 Skill。
 

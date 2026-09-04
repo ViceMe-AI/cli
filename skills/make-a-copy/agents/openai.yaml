@@ -1,4 +1,0 @@
-interface:
-  display_name: "做一个网站同款"
-  short_description: "复用 CLI 或无 CLI 匿名安装网站完整源码"
-  default_prompt: "使用 $make-a-copy 接受这个网站做同款邀请，选择可恢复的执行方式完成预览、购买、安装并继续修改。"

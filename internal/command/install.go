@@ -25,7 +25,7 @@ var officialSkillNames = []string{
 	"charge-for-your-work",
 	"let-people-interact",
 	"let-others-make-a-copy",
-	"make-a-copy",
+	"let-me-make-a-copy",
 }
 
 type installNextStep struct {

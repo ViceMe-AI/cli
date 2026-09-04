@@ -205,7 +205,7 @@ test(
     await stat(path.join(codexHome, "skills", "charge-for-your-work", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "let-people-interact", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "let-others-make-a-copy", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "make-a-copy", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "let-me-make-a-copy", "SKILL.md"));
     await stat(
       path.join(codexHome, "skills", "let-people-interact", "templates", "single-html.html"),
     );

@@ -770,7 +770,7 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 		"charge-for-your-work":   false,
 		"let-people-interact":    false,
 		"let-others-make-a-copy": false,
-		"make-a-copy":            false,
+		"let-me-make-a-copy":     false,
 	}
 	retired := make(map[string]bool, len(retiredOfficialSkills))
 	for _, skill := range retiredOfficialSkills {

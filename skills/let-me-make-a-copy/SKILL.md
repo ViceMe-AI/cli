@@ -1,5 +1,5 @@
 ---
-name: make-a-copy
+name: let-me-make-a-copy
 description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；有 CLI 时复用账号或匿名能力，无 CLI 时用版本化脚本购买、恢复、安装并继续修改完整源码。
 ---
 
@@ -20,7 +20,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
    node <skill-directory>/scripts/make-copy.cjs inspect --work-url <work.md URL>
    ```
 
-   当前 Skill 目录没有脚本但 Node.js 20 可用时，从作品 Origin 下载 `/viceme/make-a-copy/v1/make-copy.cjs` 到新建临时目录，先按本文件给出的 SHA-256 校验，再运行同一命令。摘要必须为 `ef78a109801b3ce72961998c3d1b44406db2222836b5f6211891f36da235d87b`。不得运行 `npm install`。这样后来安装 CLI 的用户仍会先发现并续用既有 standalone 恢复。
+   当前 Skill 目录没有脚本但 Node.js 20 可用时，从作品 Origin 下载 `/viceme/let-me-make-a-copy/v1/make-copy.cjs` 到新建临时目录，先按本文件给出的 SHA-256 校验，再运行同一命令。摘要必须为 `03c7e7e14d1341cd1898c3db67cf4625b670a79771d5fc525fddd7f284c590cb`。不得运行 `npm install`。这样后来安装 CLI 的用户仍会先发现并续用既有 standalone 恢复。
 
 3. 脚本不可用但 `viceme` 可用时，运行一次 `viceme replica inspect "<完整口令>"`。两种结果都必须返回 `nextAction=OPEN_WORK_PREVIEW`；立即打开 `workUrl`，展示创作者、作品、币种和当前价格，然后只询问“继续做同款 / 暂不继续”。
 

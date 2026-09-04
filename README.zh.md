@@ -159,9 +159,9 @@ npx --yes @viceme-ai/cli@latest install
 | `charge-for-your-work` | 为现有网站配置关注或付费解锁并接入宿主代码；复用统一创作者资格检查，平台资源保持为内部实现。 |
 | `let-people-interact` | 分支处理仅弹幕、开放赞赏或两者；包含弹幕的路线要求已发布且 canonical Origin 精确匹配的 Website Work，Tip 可使用任意合格且已发布的 Merchant Work。默认使用 Mounted UI，仅在用户明确要求自定义 UI 时进入 Headless；三个分支均不要求 DNS 所有权验证。 |
 | `let-others-make-a-copy` | 发布包含根级 `VICEME-REPLICA.md` 的完整网站源码 ZIP，并把平台返回的“做同款”提示词接入创作者原站；不处理买家结算与安装。 |
-| `make-a-copy` | 接受网站做同款邀请；有 CLI 时复用账号或匿名购买，保留既有 standalone 恢复，无 CLI 时使用版本化脚本。 |
+| `let-me-make-a-copy` | 接受网站做同款邀请；有 CLI 时复用账号或匿名购买，保留既有 standalone 恢复，无 CLI 时使用版本化脚本。 |
 
-买家侧 `use-a-skill` 与 `make-a-copy` 不属于创作者玩法，因此保持独立名称。
+买家侧 `use-a-skill` 与 `let-me-make-a-copy` 不属于创作者玩法，因此保持独立名称。
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
 可以解释每一步决策，而相同的命令契约仍可在终端或自动化中复现。

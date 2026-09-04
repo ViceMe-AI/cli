@@ -24,7 +24,7 @@ var officialSkillNames = []string{
 	"use-a-skill",
 	"let-people-interact",
 	"let-others-make-a-copy",
-	"make-a-copy",
+	"let-me-make-a-copy",
 }
 
 func readOfficialSkillBundle(t *testing.T, skillName string) string {
@@ -154,7 +154,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "let-others-make-a-copy",
 			machine: []string{
 				"$become-a-creator", "MerchantAccountMember(role=OWNER)", "VICEME-REPLICA.md",
-				"viceme replica publish", "buyerEntry.prompts", "make-a-copy",
+				"viceme replica publish", "buyerEntry.prompts", "let-me-make-a-copy",
 			},
 			semantics: []string{
 				"完整源码", "创作者自己的站点", "不得写死价格", "发布成功后", "Quote",
@@ -163,7 +163,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 		},
 		{
-			name: "make-a-copy",
+			name: "let-me-make-a-copy",
 			machine: []string{
 				"standaloneRecoveryAvailable=true", "viceme auth status", "viceme replica install",
 				"--accept-price-cents", "REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "PRODUCT_ALREADY_OWNED",
@@ -943,7 +943,7 @@ func TestWebsiteReplicaDelegatesBuyerStepsToIndependentSkill(t *testing.T) {
 	}
 	text := string(content)
 	for _, required := range []string{
-		"独立 `make-a-copy` Skill", "不执行买家预览、购买、支付、下载或安装", "作品 Markdown 平台控制区",
+		"独立 `let-me-make-a-copy` Skill", "不执行买家预览、购买、支付、下载或安装", "作品 Markdown 平台控制区",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Website Replica creator Skill omitted buyer delegation %q", required)
