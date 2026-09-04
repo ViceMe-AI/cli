@@ -13,7 +13,8 @@ import (
 // IsPermissionDenied deliberately examines typed errors and known provider
 // codes only. Raw npm output can contain credentials and is never returned.
 func IsPermissionDenied(err error) bool {
-	return ErrorKindOf(err) == ErrorNPMPermission || errors.Is(err, ErrRenameDenied) || privatefile.IsPermissionDenial(err)
+	kind := ErrorKindOf(err)
+	return kind == ErrorPermission || kind == ErrorNPMPermission || errors.Is(err, ErrRenameDenied) || privatefile.IsPermissionDenial(err)
 }
 
 // probeNPMActivation runs through Node as npm does, preserving the host's

@@ -21,7 +21,7 @@ import (
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
 )
 
-func TestAutomaticUpdateSkipsWhenActivationIsSandboxDenied(t *testing.T) {
+func TestAutomaticUpdateStopsForHostApprovalWhenActivationIsSandboxDenied(t *testing.T) {
 	clearAutomaticUpdateReexecutionEnvironment(t)
 	root := t.TempDir()
 	updater := &automaticUpdater{
@@ -47,21 +47,18 @@ func TestAutomaticUpdateSkipsWhenActivationIsSandboxDenied(t *testing.T) {
 			return 0, nil
 		},
 	})
-	if exit != 0 || reexecuted.Load() || updater.checkCalls.Load() != 1 || updater.applyCalls.Load() != 0 {
-		t.Fatalf("sandbox denial changed the business command: exit=%d reexecuted=%t checks=%d applies=%d", exit, reexecuted.Load(), updater.checkCalls.Load(), updater.applyCalls.Load())
+	if exit != output.ExitPolicy || reexecuted.Load() || updater.checkCalls.Load() != 1 || updater.applyCalls.Load() != 0 {
+		t.Fatalf("sandbox denial did not stop for approval: exit=%d reexecuted=%t checks=%d applies=%d", exit, reexecuted.Load(), updater.checkCalls.Load(), updater.applyCalls.Load())
 	}
-	if !strings.Contains(stderr.String(), "Automatic CLI update skipped") {
-		t.Fatalf("stderr did not explain the skipped update: %q", stderr.String())
-	}
-	if !strings.Contains(stdout.String(), `"ok": true`) {
-		t.Fatalf("business command did not succeed: %q", stdout.String())
+	if !strings.Contains(stdout.String(), "UPDATE_PERMISSION_REQUIRED") || strings.Contains(stdout.String(), `"ok": true`) || stderr.Len() != 0 {
+		t.Fatalf("permission refusal did not produce one stable failure: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 	if _, err := os.Stat(filepath.Join(root, "config", ".viceme-activation-probe")); err != nil {
 		t.Fatalf("sandboxed probe left no reusable staged file: %v", err)
 	}
 }
 
-func TestAutomaticNPMPermissionRefusalOnlyContinuesUntouchedGeneration(t *testing.T) {
+func TestAutomaticNPMPermissionRefusalBlocksOldGeneration(t *testing.T) {
 	for _, state := range []string{"blocked", "recovery_pending"} {
 		t.Run(state, func(t *testing.T) {
 			clearAutomaticUpdateReexecutionEnvironment(t)
@@ -89,12 +86,8 @@ func TestAutomaticNPMPermissionRefusalOnlyContinuesUntouchedGeneration(t *testin
 			if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 				t.Fatal(err)
 			}
-			if state == "blocked" {
-				if exit != 0 || !envelope.OK || envelope.Meta.AutoUpdate == nil || envelope.Meta.AutoUpdate.Status != "permission_required" || envelope.Meta.AutoUpdate.Code != "UPDATE_PERMISSION_REQUIRED" {
-					t.Fatalf("unchanged generation lost business output or permission notice: %s", stdout.String())
-				}
-			} else if exit != output.ExitPolicy || envelope.OK || envelope.Error == nil || envelope.Error.Subtype != "UPDATE_PERMISSION_REQUIRED" || envelope.Error.Retryable {
-				t.Fatalf("partial installation was allowed to continue: exit=%d %s", exit, stdout.String())
+			if exit != output.ExitPolicy || envelope.OK || envelope.Error == nil || envelope.Error.Subtype != "UPDATE_PERMISSION_REQUIRED" || envelope.Error.Retryable || envelope.Meta.AutoUpdate != nil {
+				t.Fatalf("permission refusal allowed the old generation to continue: exit=%d %s", exit, stdout.String())
 			}
 			if updater.applyCalls.Load() != 1 || strings.Contains(stdout.String()+stderr.String(), "private npm output") {
 				t.Fatal("permission refusal retried or leaked private diagnostics")

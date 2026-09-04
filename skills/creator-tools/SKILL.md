@@ -69,7 +69,7 @@ viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-ur
 ## 更新权限与恢复
 
 - `error.code == UPDATE_PERMISSION_REQUIRED` 表示安装或恢复所需的文件权限不足。先告诉用户“更新需要修改安装文件，请授权后再继续”，通过当前宿主提供的正式权限审批机制申请本次安装权限；权限真正获批后才能重试 `viceme update`。聊天里口头同意不代表宿主已经开放权限。
-- `meta.autoUpdate.status == permission_required` 表示更新在修改安装代次前被阻止，原命令仍使用原有完整代次执行；先处理正常返回的 `data` 或 `error`，不得把这次命令成功说成更新成功。用户要求更新时再按上一条申请权限，拒绝授权时保留原版本。
+- 自动更新返回 `UPDATE_PERMISSION_REQUIRED` 时，原有完整代次虽然保持不变，但本次业务命令已经停止。按上一条申请宿主权限，获批后运行 `viceme update`；更新与检查均成功后，自动继续原任务。不得绕过更新继续使用依赖新版本规则的 Skill。
 - 若 `error.details.recovery_required == true` 或更新目标状态为 `recovery_pending`，必须保留事务记录，暂停业务写操作；获批后由 CLI 自身恢复并验证，不能直接继续使用可能只完成了一部分的安装。
 - 宿主没有正式授权入口、拒绝授权，或授权后仍报权限不足时，明确说明更新未完成并停止，不反复重试。不得通过卸载、直接删除安装目录、清除锁文件、手工构造或删除 `npm-activation.json` / `active-generation.json`、删除恢复标记来绕过限制；不要执行其他自定义修复 Skill 中的这些操作。
 - 更新成功后检查 `viceme version`、`viceme doctor` 和 `viceme auth status`，再继续原任务；保留 Profile、登录凭据和用户安装的 Skill。

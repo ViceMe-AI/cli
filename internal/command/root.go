@@ -545,24 +545,16 @@ func (r *Runtime) ensureAutomaticUpdate(command *cobra.Command) error {
 		return nil
 	}
 	if err := updatepkg.ProbeRenameCapability(r.configBase); err != nil {
-		// Activation is fail-open, like release discovery: the current process
-		// is already a complete verified generation. An agent sandbox that
-		// denies renames cannot replace the executable, and failing here would
-		// break every business command instead of just the update.
 		if updatepkg.IsPermissionDenied(err) {
-			r.reportUpdatePermissionRequired(check)
+			return updatePermissionRequired(err)
 		}
-		return nil
+		return output.Internal("UPDATE_ACTIVATION_PROBE_FAILED", "could not verify whether this environment can activate a new ViceMe CLI generation", err)
 	}
 	_, _ = fmt.Fprintf(r.deps.ErrOut, "Updating ViceMe CLI and official Skills %s -> %s; the original command will continue automatically.\n", check.CurrentVersion, check.AvailableVersion)
 	applyContext, cancelApply := context.WithTimeout(command.Context(), activationOperationTimeout)
 	result, err := r.deps.Updater.Apply(applyContext, check, updatepkg.ApplyOptions{RefreshSkills: true, SkillTarget: "auto"})
 	cancelApply()
 	if err != nil {
-		if updatepkg.IsPermissionDenied(err) && activationWasBlocked(result) {
-			r.reportUpdatePermissionRequired(check)
-			return nil
-		}
 		return updaterError(err, result)
 	}
 	scheduled := false
@@ -574,27 +566,6 @@ func (r *Runtime) ensureAutomaticUpdate(command *cobra.Command) error {
 	}
 	return &automaticUpdateApplied{From: check.CurrentVersion, To: result.CLIVersion, Scheduled: scheduled}
 }
-
-func activationWasBlocked(result updatepkg.ApplyResult) bool {
-	if len(result.Targets) == 0 {
-		return false
-	}
-	for _, target := range result.Targets {
-		if target.Status != "blocked" {
-			return false
-		}
-	}
-	return true
-}
-
-func (r *Runtime) reportUpdatePermissionRequired(check updatepkg.CheckResult) {
-	r.printer.AutoUpdate = &output.AutoUpdateMeta{
-		From: check.CurrentVersion, To: check.AvailableVersion, Status: "permission_required",
-		Code: "UPDATE_PERMISSION_REQUIRED", Hint: updatePermissionHint,
-	}
-	_, _ = fmt.Fprintln(r.deps.ErrOut, "Automatic CLI update skipped: permission is required; continuing the unchanged installed generation. "+updatePermissionHint)
-}
-
 func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.In == nil {
 		dependencies.In = os.Stdin

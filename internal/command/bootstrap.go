@@ -121,6 +121,18 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 	if outer.Bootstrap || outer.NPM {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_RECOVERY_INCOMPLETE", "outer activation recovery did not retire its journal", nil)
 	}
+	if err := updatepkg.ProbeRenameCapability(filepath.Dir(absDestination)); err != nil {
+		if updatepkg.IsPermissionDenied(err) {
+			return bootstrapActivationResult{}, updatePermissionRequired(err)
+		}
+		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_DESTINATION_PREFLIGHT_FAILED", "the ViceMe executable destination could not be checked before activation", err)
+	}
+	if err := skillcontent.ProbeInstallPermissions(agent, runtime.deps.Environment); err != nil {
+		if updatepkg.IsPermissionDenied(err) {
+			return bootstrapActivationResult{}, updatePermissionRequired(err)
+		}
+		return bootstrapActivationResult{}, output.Internal("SKILL_INSTALL_PREFLIGHT_FAILED", "official Skill destinations could not be checked before activation", err)
+	}
 
 	executable, err := os.Executable()
 	if err != nil {

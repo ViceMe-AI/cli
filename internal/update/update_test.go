@@ -14,8 +14,11 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 )
 
 func TestReleaseServiceDefaultBaseURLsUseStartBucket(t *testing.T) {
@@ -201,6 +204,42 @@ func TestReleaseServiceRestoresCurrentBinaryWhenSkillActivationFails(t *testing.
 	installed, err := os.ReadFile(executable)
 	if err != nil || string(installed) != "old" {
 		t.Fatalf("previous binary was not restored: %q err=%v", installed, err)
+	}
+}
+
+func TestReleaseServicePermissionPreflightBlocksBeforeDownload(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "viceme")
+	if err := os.WriteFile(executable, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	originalRename := privatefile.RenameFile
+	privatefile.RenameFile = func(oldName, _ string) error {
+		return &os.PathError{Op: "rename", Path: oldName, Err: syscall.EPERM}
+	}
+	t.Cleanup(func() { privatefile.RenameFile = originalRename })
+
+	service := NewReleaseService("1.2.2", "1.2.2")
+	service.ExecutablePath = executable
+	result, err := service.Apply(context.Background(), CheckResult{AvailableVersion: "1.2.3", UpdateAvailable: true}, ApplyOptions{RefreshSkills: true, SkillTarget: "workbuddy"})
+	if !IsPermissionDenied(err) || len(result.Targets) != 2 || result.Targets[0].Status != "blocked" || result.Targets[1].Status != "blocked" {
+		t.Fatalf("permission preflight result=%#v err=%v", result, err)
+	}
+	installed, readErr := os.ReadFile(executable)
+	if readErr != nil || string(installed) != "old" {
+		t.Fatalf("preflight changed executable: %q err=%v", installed, readErr)
+	}
+}
+
+func TestReleaseChildErrorPromotesOnlyStablePermissionEnvelope(t *testing.T) {
+	output := []byte(`{"ok":false,"error":{"type":"policy","code":"UPDATE_PERMISSION_REQUIRED","message":"approval required","details":{"private":"must not propagate"}}}`)
+	stable, err := releaseChildError(errors.New("exit status 6"), output)
+	if stable != "UPDATE_PERMISSION_REQUIRED" || !IsPermissionDenied(err) || strings.Contains(err.Error(), "private") {
+		t.Fatalf("release child failure stable=%q err=%v", stable, err)
+	}
+
+	stable, err = releaseChildError(errors.New("exit status 5"), []byte(`{"ok":false,"error":{"type":"internal","code":"SKILL_INSTALL_PREPARE_FAILED","message":"private detail"}}`))
+	if stable != "SKILL_INSTALL_PREPARE_FAILED" || err != nil {
+		t.Fatalf("non-permission child failure stable=%q err=%v", stable, err)
 	}
 }
 
@@ -543,6 +582,14 @@ func TestNPMServiceClassifiesPermissionFailureWithoutLeakingOutput(t *testing.T)
 	}
 	if strings.Contains(err.Error(), "top-secret") {
 		t.Fatal("npm output leaked through the stable error")
+	}
+}
+
+func TestNPMServiceClassifiesSkillChildPermissionFailure(t *testing.T) {
+	t.Parallel()
+	err := classifyNPMError(errors.New("exit status 6"), []byte(`{"ok":false,"error":{"code":"UPDATE_PERMISSION_REQUIRED"}}`))
+	if ErrorKindOf(err) != ErrorNPMPermission {
+		t.Fatalf("Skill child permission failure kind=%q err=%v", ErrorKindOf(err), err)
 	}
 }
 

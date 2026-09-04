@@ -102,14 +102,14 @@ func writeDirect(filename string, data []byte) error {
 }
 
 // IsPermissionDenial reports whether err wraps a sandbox-style permission
-// denial (EPERM or EACCES) at any depth of its chain. Callers use it to
+// denial (EPERM, EACCES, or a read-only filesystem) at any depth of its chain. Callers use it to
 // classify a failed rename or remove and degrade to plain writes.
 func IsPermissionDenial(err error) bool {
 	var errno syscall.Errno
 	if !errors.As(err, &errno) {
 		return false
 	}
-	return errno == syscall.EPERM || errno == syscall.EACCES
+	return errno == syscall.EPERM || errno == syscall.EACCES || errno == syscall.EROFS
 }
 
 func sweepStaleStagingFiles(directory, tempPattern string) {

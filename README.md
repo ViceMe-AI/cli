@@ -335,10 +335,9 @@ text.
 response. For `viceme update`, the newly installed version is reported
 separately as `data.cli_version` because the response is still emitted by the
 process that started the update. `meta.autoUpdate.status == "updated"` means
-the command continued under a newly activated generation. A status of
-`"permission_required"` instead means preflight stopped the automatic update
-before changing the installed generation; `code` and `hint` describe the host
-approval needed, while `data` remains the original command's result.
+the command continued under a newly activated generation. If update preflight
+needs host permission, the command returns `UPDATE_PERMISSION_REQUIRED` and the
+old business command does not run.
 
 Every released installation passes through a bounded freshness gate before an
 ordinary command. A validated result is reused for five minutes so a single
@@ -365,12 +364,15 @@ viceme update
 already verifies the exact release, refreshes the matching official Skills, and
 recovers interrupted activation as one compatible local generation.
 
-For npm installations, permission preflight checks the configured npm cache,
-the actual scoped global package directory and launcher directory through Node,
-preserving the host's filesystem broker. It runs before creating an activation
-journal. A denied preflight leaves the existing generation available; it does
-not report an update as successful. Permission can still change after preflight,
-so any failure after an install attempt retains the recovery journal and blocks
+Permission preflight checks every path that the selected installation method
+will mutate before creating an activation journal. For npm this includes the
+configured cache, actual scoped global package, and launcher directories through
+Node so the host filesystem broker is preserved. For standalone installations
+it includes the executable directory and every detected official Skill target,
+including the shared Agents and WorkBuddy directories. A denied preflight keeps
+the previous generation intact and blocks the old business command while host
+approval is requested. Permission can still change after preflight, so any
+failure after an install attempt retains the recovery journal and blocks
 business operations until recovery completes.
 
 An explicit update or pending recovery that lacks filesystem access returns

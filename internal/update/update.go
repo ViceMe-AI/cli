@@ -48,6 +48,7 @@ const (
 	ErrorRegistryResponse    ErrorKind = "registry_response"
 	ErrorNPMMissing          ErrorKind = "npm_missing"
 	ErrorNPMPermission       ErrorKind = "npm_permission"
+	ErrorPermission          ErrorKind = "permission"
 	ErrorNPMCommand          ErrorKind = "npm_command"
 	ErrorReleaseNetwork      ErrorKind = "release_network"
 	ErrorReleaseResponse     ErrorKind = "release_response"
@@ -1049,7 +1050,7 @@ func classifyNPMError(err error, output []byte) error {
 		return &OperationError{Kind: ErrorNPMMissing, Cause: errors.New("npm is not available in PATH")}
 	}
 	normalized := strings.ToUpper(string(output))
-	if errors.Is(err, os.ErrPermission) || strings.Contains(normalized, "EPERM") || strings.Contains(normalized, "EACCES") || strings.Contains(normalized, "EROFS") || strings.Contains(normalized, "CODEBUDDY_BROKER_DENY") {
+	if errors.Is(err, os.ErrPermission) || strings.Contains(normalized, "EPERM") || strings.Contains(normalized, "EACCES") || strings.Contains(normalized, "EROFS") || strings.Contains(normalized, "CODEBUDDY_BROKER_DENY") || strings.Contains(normalized, "UPDATE_PERMISSION_REQUIRED") {
 		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("npm could not write its cache or global installation directory")}
 	}
 	return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("npm command failed")}
