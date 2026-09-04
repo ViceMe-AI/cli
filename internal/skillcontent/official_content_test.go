@@ -153,13 +153,12 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "let-others-make-a-copy",
 			machine: []string{
 				"$become-a-creator", "MerchantAccountMember(role=OWNER)", "VICEME-REPLICA.md",
-				"viceme replica publish", "buyerEntry.prompts", "viceme replica inspect", "viceme replica install", "--accept-price-cents", "AskUserQuestion",
+				"viceme replica publish", "buyerEntry.prompts", "make-a-copy",
 			},
 			semantics: []string{
-				"完整源码", "创作者自己的站点", "不得写死价格", "发布成功后", "不得覆盖已有目录", "Quote",
-				"免费做同款", "付费做同款", "不得每次问一个字段并循环追问", "最终不可变发布确认", "匿名完成", "OPEN_PAYMENT_PAGE",
-				"error.code=REPLICA_PAYMENT_REQUIRED", "退出码 `10`", "禁止调用 `$creator-tools`", "--payment-presented",
-				"present_files", "checkoutUrl", "右侧网页区域", "--timeout 3m --interval 1m", "第三分钟完成第三次查询",
+				"完整源码", "创作者自己的站点", "不得写死价格", "发布成功后", "Quote",
+				"免费做同款", "付费做同款", "不得每次问一个字段并循环追问", "最终不可变发布确认",
+				"不处理买家购买和安装",
 			},
 		},
 	}
@@ -922,7 +921,7 @@ func TestWebsiteReplicaUsesPublishedWebsiteWithoutDNSVerification(t *testing.T) 
 	}
 }
 
-func TestWebsiteReplicaKeepsInvitationShortAndBuyerStepsInSkill(t *testing.T) {
+func TestWebsiteReplicaDelegatesBuyerStepsToIndependentSkill(t *testing.T) {
 	t.Parallel()
 
 	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-others-make-a-copy/SKILL.md")
@@ -931,27 +930,17 @@ func TestWebsiteReplicaKeepsInvitationShortAndBuyerStepsInSkill(t *testing.T) {
 	}
 	text := string(content)
 	for _, required := range []string{
-		"接受一起创作邀请",
-		"`{创作者用户名} 邀请我一起创作「{作品名称}」，参考 {作品详情页.md地址} 立刻开始吧～`",
-		"该地址就是本次网站 ID", "具体步骤只由本 Skill 维护", "$creator-tools",
-		"webBaseUrl` 与详情地址 Origin 精确一致", "平台控制区", "viceme replica inspect", "viceme replica install",
-		"OPEN_WORK_PREVIEW", "OPEN_PAYMENT_PAGE", "STOP_AND_REPORT", "present_files", "继续做同款", "VICEME-REPLICA.md", "不得覆盖已有目录",
-		"包含 `VICEME-REPLICA:` 前缀", "只执行一次", "不得删除前缀", "右侧网页区域打开",
-		"先直接执行目标动作", "不在动作前探测工具", "直接在当前工作区运行", "只有命令明确返回目标目录冲突时",
-		"换工作区则允许创建新会话和新订单", "只有已验证的付费许可与对应源码可作为跨工作区复用的持久凭据", "停止并等待服务恢复",
-		"--payment-presented --timeout 3m --interval 1m", "TaskOutput(task_id=<同一个任务>, timeout=190000)", "第三分钟完成第三次查询", "checkoutUrl",
-		"期间不得执行任何其他工具或动作", "返回任何其他错误或非零结果时", "立即原样报告稳定错误码和消息并停止",
+		"独立 `make-a-copy` Skill", "不执行买家预览、购买、支付、下载或安装", "作品 Markdown 平台控制区",
 	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("Website Replica Skill omitted short-invitation buyer contract %q", required)
+			t.Fatalf("Website Replica creator Skill omitted buyer delegation %q", required)
 		}
 	}
 	for _, forbidden := range []string{
-		"127.0.0.1", "localhost", "Docker", "端口", "进程", "本地",
-		"CREATE_OR_RESUME_ORDER", "至少包含一个尚不存在的新目标目录",
+		"viceme replica inspect", "viceme replica install", "REPLICA_PAYMENT_REQUIRED", "--payment-presented",
 	} {
 		if strings.Contains(text, forbidden) {
-			t.Fatalf("Website Replica Skill retained environment-specific recovery instruction %q", forbidden)
+			t.Fatalf("Website Replica creator Skill retained buyer implementation %q", forbidden)
 		}
 	}
 }
