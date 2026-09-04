@@ -157,6 +157,39 @@ func installReplicaAnonymousLocked(
 	if err != nil {
 		return replicaInstallResult{}, err
 	}
+	client := runtime.client()
+	if exists && state.OrderNo != "" && !paymentPresented {
+		status, err := client.RecoverWebsiteReplicaOrderStatus(ctx, api.RecoverWebsiteReplicaDownloadRequest{
+			OrderNo: state.OrderNo, RecoverySecret: state.DownloadRecoverySecret,
+		})
+		if err != nil {
+			return replicaInstallResult{}, err
+		}
+		switch status.Payment.Status {
+		case "PAID":
+		case "PENDING":
+			closed, err := client.CancelWebsiteReplicaOrderAttempt(ctx, api.RecoverWebsiteReplicaDownloadRequest{
+				OrderNo: state.OrderNo, RecoverySecret: state.DownloadRecoverySecret,
+			})
+			if err != nil {
+				return replicaInstallResult{}, err
+			}
+			if closed.Payment.Status != "CLOSED" {
+				return replicaInstallResult{}, invalidReplicaResponse("Website Replica cancellation was not definitive")
+			}
+			if err := store.retire(state); err != nil {
+				return replicaInstallResult{}, err
+			}
+			return installReplicaAnonymousLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, paymentPresented, acceptedPriceCents)
+		case "CLOSED":
+			if err := store.retire(state); err != nil {
+				return replicaInstallResult{}, err
+			}
+			return installReplicaAnonymousLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, paymentPresented, acceptedPriceCents)
+		default:
+			return replicaInstallResult{}, invalidReplicaResponse("Website Replica recovery status is invalid")
+		}
+	}
 	if exists && state.SessionID == "" && state.QuoteID != "" {
 		return replicaInstallResult{}, replicaPurchaseConflict(state, "finish or retire the legacy Website Replica purchase before anonymous checkout")
 	}
@@ -195,7 +228,6 @@ func installReplicaAnonymousLocked(
 		return replicaInstallResult{}, replicaPurchaseConflict(state, "the Website Replica target appeared before installation completed").WithCause(err)
 	}
 
-	client := runtime.client()
 	if state.SessionID == "" {
 		resolved, err := client.ResolveWebsiteReplicaPublic(ctx, code)
 		if err != nil {
@@ -212,6 +244,11 @@ func installReplicaAnonymousLocked(
 				"nextAction": "OPEN_WORK_PREVIEW", "workUrl": resolved.ViceMeWorkURL,
 				"currency": resolved.Product.Currency, "totalAmountCents": resolved.Product.PriceCents,
 			}).WithHint("open the Work preview and ask the user to continue again at the new price")
+		}
+		if standaloneReplicaAttemptMayExist(runtime, shortCode) {
+			if err := retireStandaloneUnpaidAttempt(ctx, runtime, resolved); err != nil {
+				return replicaInstallResult{}, err
+			}
 		}
 		state.ReplicaID = resolved.ReplicaID
 		state.ProductID = resolved.Product.ID
@@ -374,6 +411,35 @@ func installReplicaLocked(
 	if err != nil {
 		return replicaInstallResult{}, err
 	}
+	client := runtime.client()
+	if exists && state.OrderNo != "" && !confirm {
+		status, err := client.GetWebsiteReplicaOrderStatus(ctx, state.OrderNo)
+		if err != nil {
+			return replicaInstallResult{}, err
+		}
+		switch status.Payment.Status {
+		case "PAID":
+		case "PENDING":
+			closed, err := client.CancelWebsiteReplicaOrder(ctx, state.OrderNo)
+			if err != nil {
+				return replicaInstallResult{}, err
+			}
+			if closed.Payment.Status != "CLOSED" {
+				return replicaInstallResult{}, invalidReplicaResponse("Website Replica cancellation was not definitive")
+			}
+			if err := store.retire(state); err != nil {
+				return replicaInstallResult{}, err
+			}
+			return installReplicaLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, confirm)
+		case "CLOSED":
+			if err := store.retire(state); err != nil {
+				return replicaInstallResult{}, err
+			}
+			return installReplicaLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, confirm)
+		default:
+			return replicaInstallResult{}, invalidReplicaResponse("Website Replica order status is invalid")
+		}
+	}
 	quotePresentedBeforeInvocation := exists && state.QuoteID != ""
 	if exists && state.Target != absTarget {
 		return replicaInstallResult{}, replicaPurchaseConflict(
@@ -402,7 +468,6 @@ func installReplicaLocked(
 			return replicaInstallResult{}, replicaPurchaseConflict(state, "the Website Replica target appeared before payment was created").WithCause(err)
 		}
 	}
-	client := runtime.client()
 	if state.QuoteID == "" {
 		resolved, err := client.ResolveWebsiteReplica(ctx, code)
 		if err != nil {
@@ -445,6 +510,15 @@ func installReplicaLocked(
 		}
 		if !confirm || !quotePresentedBeforeInvocation {
 			return replicaInstallResult{}, replicaQuoteConfirmation(state)
+		}
+		if standaloneReplicaAttemptMayExist(runtime, shortCode) {
+			resolved, err := client.ResolveWebsiteReplicaPublic(ctx, code)
+			if err != nil {
+				return replicaInstallResult{}, err
+			}
+			if err := retireStandaloneUnpaidAttempt(ctx, runtime, resolved); err != nil {
+				return replicaInstallResult{}, err
+			}
 		}
 		state.OrderRequestID, err = runtime.newReplicaRequestID()
 		if err != nil {

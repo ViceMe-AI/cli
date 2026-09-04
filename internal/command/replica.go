@@ -28,9 +28,10 @@ type replicaPublishResult struct {
 }
 
 type replicaInspectResult struct {
-	NextAction string                       `json:"nextAction"`
-	WorkURL    string                       `json:"workUrl"`
-	Replica    api.WebsiteReplicaResolution `json:"replica"`
+	NextAction                  string                       `json:"nextAction"`
+	WorkURL                     string                       `json:"workUrl"`
+	StandaloneRecoveryAvailable bool                         `json:"standaloneRecoveryAvailable"`
+	Replica                     api.WebsiteReplicaResolution `json:"replica"`
 }
 
 func newReplicaCommand(runtime *Runtime) *cobra.Command {
@@ -55,8 +56,13 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return replicaInspectFailure(err)
 			}
+			recoveryAvailable, err := standaloneReplicaRecoveryAvailable(command.Context(), runtime, resolved)
+			if err != nil {
+				return replicaInspectFailure(err)
+			}
 			return runtime.business(replicaInspectResult{
-				NextAction: "OPEN_WORK_PREVIEW", WorkURL: resolved.ViceMeWorkURL, Replica: resolved,
+				NextAction: "OPEN_WORK_PREVIEW", WorkURL: resolved.ViceMeWorkURL,
+				StandaloneRecoveryAvailable: recoveryAvailable, Replica: resolved,
 			})
 		},
 	}

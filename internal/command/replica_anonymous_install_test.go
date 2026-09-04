@@ -175,56 +175,147 @@ func TestReplicaInspectFailureStopsInsteadOfLaunchingDiagnostics(t *testing.T) {
 	}
 }
 
+func TestReplicaInspectFindsPaidStandaloneRecoveryWithoutExposingCredential(t *testing.T) {
+	const (
+		fullCode  = "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST"
+		shortCode = "VMR-ABCDEFGHIJKLMNOPQRST"
+		replicaID = "11111111-1111-4111-8111-111111111111"
+		orderNo   = "VMO-20260903-000001"
+		secret    = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	)
+	var recoveryBody api.RecoverWebsiteReplicaDownloadRequest
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/website-replicas/resolve":
+			writeJSONResponse(writer, replicaResolutionResponse(replicaID, shortCode))
+		case "/v1/website-replica-sessions/recover-status":
+			_ = json.NewDecoder(request.Body).Decode(&recoveryBody)
+			writeJSONResponse(writer, map[string]any{
+				"orderNo":     orderNo,
+				"payment":     map[string]any{"status": "PAID", "paidAt": time.Now().UTC().Format(time.RFC3339), "closedAt": nil},
+				"fulfillment": nil, "serviceCase": nil,
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	root := t.TempDir()
+	directory := filepath.Join(root, "config", "replica-purchases")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fingerprint := sha256.Sum256([]byte("https://viceme.example/api/v1\n" + shortCode))
+	filename := filepath.Join(directory, "standalone-"+hex.EncodeToString(fingerprint[:])+".json")
+	receipt, err := json.Marshal(map[string]any{
+		"schemaVersion": 1, "replicaId": replicaID, "orderNo": orderNo, "recoverySecret": secret,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filename, append(receipt, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	var stdout bytes.Buffer
+	exit := Execute([]string{"replica", "inspect", fullCode}, Dependencies{
+		Out: &stdout, ErrOut: &bytes.Buffer{}, HTTPClient: server.Client(), Store: securestore.NewMemory(),
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:      config.RegionCN, APIBaseURL: server.URL,
+	})
+	if exit != 0 {
+		t.Fatalf("inspect failed: exit=%d output=%q", exit, stdout.String())
+	}
+	if recoveryBody.OrderNo != orderNo || recoveryBody.RecoverySecret != secret {
+		t.Fatalf("inspect did not use the private standalone credential")
+	}
+	if !bytes.Contains(stdout.Bytes(), []byte(`"standaloneRecoveryAvailable": true`)) || bytes.Contains(stdout.Bytes(), []byte(secret)) {
+		t.Fatalf("inspect did not safely report standalone recovery: %q", stdout.String())
+	}
+}
+
 func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *testing.T) {
 	const (
 		fullCode     = "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST"
 		replicaID    = "11111111-1111-4111-8111-111111111111"
-		sessionID    = "44444444-4444-4444-8444-444444444444"
 		sessionToken = "vcs_1234567890123456789012345678901234567890123"
-		orderNo      = "VMO-20260903-000002"
 		paymentURI   = "weixin://pay/not-for-command-output"
 	)
-	var sessionCalls, checkoutCalls, statusCalls int
-	var downloadRecoverySecret string
+	sessionIDs := []string{
+		"44444444-4444-4444-8444-444444444444",
+		"55555555-5555-4555-8555-555555555555",
+		"66666666-6666-4666-8666-666666666666",
+	}
+	orderNos := []string{"VMO-20260903-000002", "VMO-20260903-000003", "VMO-20260903-000004"}
+	var sessionCalls, checkoutCalls, recoveryStatusCalls, cancellationCalls, statusCalls int
+	recoverySecrets := make(map[string]string)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		resolution := replicaResolutionResponse(replicaID, "VMR-ABCDEFGHIJKLMNOPQRST")
 		switch request.URL.Path {
 		case "/v1/website-replicas/resolve":
 			writeJSONResponse(writer, resolution)
 		case "/v1/website-replica-sessions":
+			sessionID := sessionIDs[sessionCalls]
 			sessionCalls++
 			writeJSONResponse(writer, map[string]any{
 				"sessionId": sessionID, "token": sessionToken,
 				"expiresAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339), "recovered": false, "replica": resolution,
 			})
-		case "/v1/website-replica-sessions/" + sessionID + "/checkout":
+		case "/v1/website-replica-sessions/" + sessionIDs[0] + "/checkout",
+			"/v1/website-replica-sessions/" + sessionIDs[1] + "/checkout",
+			"/v1/website-replica-sessions/" + sessionIDs[2] + "/checkout":
 			checkoutCalls++
 			var body api.CheckoutWebsiteReplicaRequest
 			_ = json.NewDecoder(request.Body).Decode(&body)
-			if checkoutCalls == 1 {
-				downloadRecoverySecret = body.DownloadRecoverySecret
-			}
 			if len(body.DownloadRecoverySecret) != 43 {
 				t.Fatalf("checkout recovery credential length = %d", len(body.DownloadRecoverySecret))
 			}
+			orderNo := orderNos[checkoutCalls-1]
+			sessionID := sessionIDs[checkoutCalls-1]
+			recoverySecrets[orderNo] = body.DownloadRecoverySecret
 			writeJSONResponse(writer, map[string]any{
 				"orderNo": orderNo, "status": "PENDING",
 				"paymentAction": map[string]any{"type": "QR_CODE", "content": paymentURI},
 				"expiresAt":     time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
 				"checkoutUrl":   serverURL(request) + "/replica-checkout/" + sessionID + "#token=hosted-capability&orderNo=" + orderNo,
 			})
-		case "/v1/website-replica-sessions/" + sessionID + "/orders/" + orderNo + "/status":
+		case "/v1/website-replica-sessions/recover-status":
+			recoveryStatusCalls++
+			var body api.RecoverWebsiteReplicaDownloadRequest
+			_ = json.NewDecoder(request.Body).Decode(&body)
+			if body.OrderNo != orderNos[0] || body.RecoverySecret != recoverySecrets[orderNos[0]] {
+				t.Fatalf("status recovery did not preserve the original order credential")
+			}
+			writeJSONResponse(writer, map[string]any{
+				"orderNo":     body.OrderNo,
+				"payment":     map[string]any{"status": "PENDING", "paidAt": nil, "closedAt": nil},
+				"fulfillment": nil, "serviceCase": nil,
+			})
+		case "/v1/website-replica-sessions/cancel-order":
+			cancellationCalls++
+			var body api.RecoverWebsiteReplicaDownloadRequest
+			_ = json.NewDecoder(request.Body).Decode(&body)
+			if body.OrderNo != orderNos[0] || body.RecoverySecret != recoverySecrets[orderNos[0]] {
+				t.Fatalf("order cancellation did not preserve the original order credential")
+			}
+			writeJSONResponse(writer, map[string]any{
+				"orderNo":     body.OrderNo,
+				"payment":     map[string]any{"status": "CLOSED", "paidAt": nil, "closedAt": time.Now().UTC().Format(time.RFC3339)},
+				"fulfillment": nil, "serviceCase": nil,
+			})
+		case "/v1/website-replica-sessions/" + sessionIDs[1] + "/orders/" + orderNos[1] + "/status":
 			statusCalls++
 			writeJSONResponse(writer, map[string]any{
-				"orderNo":     orderNo,
+				"orderNo":     orderNos[1],
 				"payment":     map[string]any{"status": "PENDING", "paidAt": nil, "closedAt": nil},
 				"fulfillment": nil, "serviceCase": nil,
 			})
 		case "/v1/website-replica-sessions/recover-download":
 			var body api.RecoverWebsiteReplicaDownloadRequest
 			_ = json.NewDecoder(request.Body).Decode(&body)
-			if body.OrderNo != orderNo || body.RecoverySecret != downloadRecoverySecret {
-				t.Fatalf("download recovery did not preserve the original order credential")
+			if recoverySecrets[body.OrderNo] == "" || body.RecoverySecret != recoverySecrets[body.OrderNo] {
+				t.Fatalf("download recovery did not preserve the order credential for %q", body.OrderNo)
 			}
 			writer.WriteHeader(http.StatusNotFound)
 			writeJSONResponse(writer, map[string]any{
@@ -244,6 +335,9 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 		"dddddddd-dddd-4ddd-8ddd-dddddddddddd",
 		"eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
 		"ffffffff-ffff-4fff-8fff-ffffffffffff",
+		"11111111-2222-4222-8222-111111111111",
+		"22222222-3333-4333-8333-222222222222",
+		"33333333-4444-4444-8444-333333333333",
 	}
 	var stdout bytes.Buffer
 	now := time.Date(2026, 9, 3, 12, 0, 0, 0, time.UTC)
@@ -283,22 +377,22 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 	if err := json.Unmarshal(stdout.Bytes(), &paymentEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	checkoutURL := paymentEnvelope.Error.Details.CheckoutURL
-	if !strings.Contains(checkoutURL, "/replica-checkout/"+sessionID) || !strings.Contains(checkoutURL, "#token=hosted-capability") {
-		t.Fatalf("payment response did not include the hosted checkout page: %q", checkoutURL)
+	firstCheckoutURL := paymentEnvelope.Error.Details.CheckoutURL
+	if !strings.Contains(firstCheckoutURL, "/replica-checkout/"+sessionIDs[0]) || !strings.Contains(firstCheckoutURL, "#token=hosted-capability") {
+		t.Fatalf("payment response did not include the hosted checkout page: %q", firstCheckoutURL)
 	}
 
 	stdout.Reset()
 	if exit := Execute([]string{
 		"replica", "install", fullCode, "--target", filepath.Join(root, "copy"), "--accept-price-cents", "990",
 	}, deps); exit != output.ExitConfirmation {
-		t.Fatalf("unacknowledged payment page was not presented again: exit=%d output=%q", exit, stdout.String())
+		t.Fatalf("fresh attempt did not replace the unpaid checkout: exit=%d output=%q", exit, stdout.String())
 	}
-	if !bytes.Contains(stdout.Bytes(), []byte(`"nextAction": "OPEN_PAYMENT_PAGE"`)) || sessionCalls != 1 || checkoutCalls != 1 {
-		t.Fatalf("payment page replay created another checkout: sessions=%d checkouts=%d output=%q", sessionCalls, checkoutCalls, stdout.String())
+	if !bytes.Contains(stdout.Bytes(), []byte(`"nextAction": "OPEN_PAYMENT_PAGE"`)) || sessionCalls != 2 || checkoutCalls != 2 || recoveryStatusCalls != 1 || cancellationCalls != 1 {
+		t.Fatalf("fresh attempt did not close and replace the old checkout: sessions=%d checkouts=%d statuses=%d cancellations=%d output=%q", sessionCalls, checkoutCalls, recoveryStatusCalls, cancellationCalls, stdout.String())
 	}
-	if !bytes.Contains(stdout.Bytes(), []byte(checkoutURL)) {
-		t.Fatalf("payment page replay did not reuse the hosted checkout: %q", stdout.String())
+	if bytes.Contains(stdout.Bytes(), []byte(firstCheckoutURL)) || !bytes.Contains(stdout.Bytes(), []byte("/replica-checkout/"+sessionIDs[1])) {
+		t.Fatalf("fresh attempt did not return the replacement checkout: %q", stdout.String())
 	}
 
 	stdout.Reset()
@@ -325,7 +419,7 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 	}, deps); exit != output.ExitConfirmation {
 		t.Fatalf("another target did not create its own checkout: exit=%d output=%q", exit, stdout.String())
 	}
-	if sessionCalls != 2 || checkoutCalls != 2 {
+	if sessionCalls != 3 || checkoutCalls != 3 {
 		t.Fatalf("another target recovered historical checkout: sessions=%d checkouts=%d", sessionCalls, checkoutCalls)
 	}
 }

@@ -145,7 +145,7 @@ class MakeCopyTest(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            receipt = make_copy.paid_receipt_path(authority, SHORT_CODE, root)
+            receipt = make_copy.standalone_receipt_path(authority, SHORT_CODE, root)
             receipt.write_text(
                 json.dumps(
                     {
@@ -168,6 +168,19 @@ class MakeCopyTest(unittest.TestCase):
                             f"Instruction: VICEME-REPLICA:{SHORT_CODE}"
                         ).encode(),
                     )
+                if url.endswith("/recover-status"):
+                    return response(
+                        200,
+                        {
+                            "orderNo": ORDER_NO,
+                            "payment": {
+                                "status": "PAID",
+                                "paidAt": "2026-09-04T00:00:00.000Z",
+                                "closedAt": None,
+                            },
+                            "fulfillment": None,
+                        },
+                    )
                 return response(200, replica())
 
             inspected = make_copy.inspect(
@@ -175,6 +188,32 @@ class MakeCopyTest(unittest.TestCase):
             )
             self.assertTrue(inspected["standaloneRecoveryAvailable"])
             self.assertNotIn("recoverySecret", json.dumps(inspected))
+
+    def test_order_number_alone_does_not_authorize_attempt_cancellation(self):
+        authority = make_copy.authority_for_work_url(
+            "https://viceme.cn/alice/site.md"
+        )
+
+        def request(method, url, **kwargs):
+            self.assertTrue(url.endswith("/cancel-order"))
+            self.assertEqual(
+                json.loads(kwargs["body"]),
+                {"orderNo": ORDER_NO, "recoverySecret": SECRET},
+            )
+            return response(
+                200,
+                {
+                    "orderNo": ORDER_NO,
+                    "payment": {
+                        "status": "CLOSED",
+                        "paidAt": None,
+                        "closedAt": "2026-09-04T00:01:00.000Z",
+                    },
+                    "fulfillment": None,
+                },
+            )
+
+        make_copy.cancel_order_attempt(authority, ORDER_NO, SECRET, request)
 
     def test_installs_bounded_archive_and_records_license(self):
         with tempfile.TemporaryDirectory() as temporary:

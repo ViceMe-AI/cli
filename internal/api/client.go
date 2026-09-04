@@ -967,6 +967,34 @@ func (c *Client) RecoverWebsiteReplicaDownload(ctx context.Context, request Reco
 	return response, err
 }
 
+func (c *Client) RecoverWebsiteReplicaOrderStatus(ctx context.Context, request RecoverWebsiteReplicaDownloadRequest) (WebsiteReplicaOrderStatus, error) {
+	var response WebsiteReplicaOrderStatus
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replica-sessions/recover-status", request, &response, "")
+	if err == nil && response.OrderNo != request.OrderNo {
+		err = invalidAPIResponse(errors.New("Website Replica recovery status does not match the requested order"))
+	}
+	return response, err
+}
+
+func (c *Client) CancelWebsiteReplicaOrderAttempt(ctx context.Context, request RecoverWebsiteReplicaDownloadRequest) (WebsiteReplicaOrderStatus, error) {
+	var response WebsiteReplicaOrderStatus
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replica-sessions/cancel-order", request, &response, "")
+	if err == nil && response.OrderNo != request.OrderNo {
+		err = invalidAPIResponse(errors.New("Website Replica cancellation does not match the requested order"))
+	}
+	return response, err
+}
+
+func (c *Client) CancelWebsiteReplicaOrder(ctx context.Context, orderNo string) (WebsiteReplicaOrderStatus, error) {
+	var response WebsiteReplicaOrderStatus
+	endpoint := "/v1/cli/orders/" + url.PathEscape(orderNo) + "/cancel"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]any{"expectedStatus": "PENDING", "force": true}, &response, "@stored")
+	if err == nil && response.OrderNo != orderNo {
+		err = invalidAPIResponse(errors.New("Website Replica cancellation does not match the requested order"))
+	}
+	return response, err
+}
+
 func (c *Client) CreateWebsiteReplicaQuote(ctx context.Context, request CreateWebsiteReplicaQuoteRequest) (WebsiteReplicaQuote, error) {
 	var response WebsiteReplicaQuote
 	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/quotes", request, &response, "@stored")

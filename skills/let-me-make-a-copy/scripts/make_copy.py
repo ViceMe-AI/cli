@@ -333,21 +333,7 @@ def resolve_target(raw_target: Optional[str], title: str) -> Path:
 
 
 def state_root() -> Path:
-    if os.name == "nt":
-        base = os.environ.get("LOCALAPPDATA")
-        if not base:
-            raise WorkflowError(
-                "MAKE_COPY_PRIVATE_STATE_UNAVAILABLE",
-                "LOCALAPPDATA is required for private recovery state",
-            )
-        return Path(base) / "ViceMe" / "make-copy"
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / "ViceMe" / "make-copy"
-    return (
-        Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local" / "state"))
-        / "viceme"
-        / "make-copy"
-    )
+    return Path.home() / ".viceme-cli" / "replica-purchases"
 
 
 def current_windows_sid() -> str:
@@ -433,12 +419,12 @@ def state_identity(authority: Authority, short_code: str, target: Path) -> str:
     return hashlib.sha256(value).hexdigest()
 
 
-def paid_receipt_path(
+def standalone_receipt_path(
     authority: Authority, short_code: str, root: Optional[Path] = None
 ) -> Path:
     root = root or state_root()
     value = f"{authority.api_base_url}\n{short_code}".encode("utf-8")
-    return root / ("paid-" + hashlib.sha256(value).hexdigest() + ".json")
+    return root / ("standalone-" + hashlib.sha256(value).hexdigest() + ".json")
 
 
 def read_state(filename: Path) -> Optional[Dict[str, Any]]:
@@ -465,7 +451,9 @@ def read_state(filename: Path) -> Optional[Dict[str, Any]]:
 def recoverable_paid_receipt(
     authority: Authority, replica: Dict[str, Any], root: Optional[Path] = None
 ) -> Optional[Dict[str, Any]]:
-    receipt = read_state(paid_receipt_path(authority, replica["shortCode"], root))
+    receipt = read_state(
+        standalone_receipt_path(authority, replica["shortCode"], root)
+    )
     if receipt is None:
         return None
     if (
@@ -485,7 +473,7 @@ def state_store(authority: Authority, short_code: str, target: Path) -> Dict[str
     root = state_root()
     ensure_private_directory(root)
     identity = state_identity(authority, short_code, target)
-    receipt = paid_receipt_path(authority, short_code, root)
+    receipt = standalone_receipt_path(authority, short_code, root)
     return {
         "filename": root / (identity + ".json"),
         "completionFilename": root / ("completed-" + identity + ".json"),
@@ -711,6 +699,53 @@ def try_recover_download(
         ) == 404:
             return None
         raise
+
+
+def recover_order_status(
+    authority: Authority,
+    order_no: str,
+    recovery_secret: str,
+    request_fn: RequestFn = http_request,
+) -> Dict[str, Any]:
+    status = api_request(
+        authority,
+        "/website-replica-sessions/recover-status",
+        method="POST",
+        body={"orderNo": order_no, "recoverySecret": recovery_secret},
+        request_fn=request_fn,
+    )
+    payment = status.get("payment", {}) if isinstance(status, dict) else {}
+    if not isinstance(status, dict) or status.get("orderNo") != order_no or payment.get("status") not in {
+        "PENDING",
+        "PAID",
+        "CLOSED",
+    }:
+        raise WorkflowError(
+            "MAKE_COPY_RESPONSE_INVALID", "ViceMe returned an invalid order status"
+        )
+    return status
+
+
+def cancel_order_attempt(
+    authority: Authority,
+    order_no: str,
+    recovery_secret: str,
+    request_fn: RequestFn = http_request,
+) -> Dict[str, Any]:
+    status = api_request(
+        authority,
+        "/website-replica-sessions/cancel-order",
+        method="POST",
+        body={"orderNo": order_no, "recoverySecret": recovery_secret},
+        request_fn=request_fn,
+    )
+    payment = status.get("payment", {}) if isinstance(status, dict) else {}
+    if not isinstance(status, dict) or status.get("orderNo") != order_no or payment.get("status") != "CLOSED":
+        raise WorkflowError(
+            "MAKE_COPY_RESPONSE_INVALID",
+            "ViceMe did not definitively close the previous payment attempt",
+        )
+    return status
 
 
 def wait_for_payment(
@@ -1214,13 +1249,21 @@ def inspect(
 ) -> Dict[str, Any]:
     authority = authority_for_work_url(work_url)
     instruction, replica = resolve_work(authority, request_fn)
+    receipt = recoverable_paid_receipt(authority, replica, recovery_root)
+    recovery_available = False
+    if receipt:
+        status = recover_order_status(
+            authority,
+            receipt["orderNo"],
+            receipt["recoverySecret"],
+            request_fn,
+        )
+        recovery_available = status["payment"]["status"] == "PAID"
     return {
         "nextAction": "OPEN_WORK_PREVIEW",
         "workUrl": replica["viceMeWorkUrl"],
         "instruction": instruction,
-        "standaloneRecoveryAvailable": bool(
-            recoverable_paid_receipt(authority, replica, recovery_root)
-        ),
+        "standaloneRecoveryAvailable": recovery_available,
         "replica": replica,
     }
 
@@ -1263,6 +1306,40 @@ def install(
         state = read_state(store["filename"])
         if state is not None:
             state = validate_state(state, authority, replica, target)
+            if state.get("orderNo"):
+                status = recover_order_status(
+                    authority,
+                    state["orderNo"],
+                    state["downloadRecoverySecret"],
+                    request_fn,
+                )
+                if status["payment"]["status"] == "PAID":
+                    download = try_recover_download(authority, state, request_fn)
+                    if not download:
+                        raise WorkflowError(
+                            "REPLICA_DOWNLOAD_PENDING",
+                            "Paid Replica download is not available yet",
+                        )
+                    return {
+                        **complete_install(
+                            authority, state, store, download, request_fn
+                        ),
+                        "nextAction": "DEPLOY",
+                    }
+                if not payment_presented:
+                    if status["payment"]["status"] == "PENDING":
+                        cancel_order_attempt(
+                            authority,
+                            state["orderNo"],
+                            state["downloadRecoverySecret"],
+                            request_fn,
+                        )
+                    store["filename"].unlink(missing_ok=True)
+                    receipt = read_state(store["paidReceiptFilename"])
+                    if receipt and receipt.get("orderNo") == state["orderNo"]:
+                        store["paidReceiptFilename"].unlink(missing_ok=True)
+                    state = initial_state(authority, instruction, replica, target)
+                    persist_state(store, state)
         else:
             if target.exists() or target.is_symlink():
                 raise WorkflowError(
