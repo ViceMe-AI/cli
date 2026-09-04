@@ -29,7 +29,7 @@ import (
 const (
 	replicaLicenseTermsVersion = "website-replica-license/v1"
 	replicaPaymentWaitTimeout  = 3 * time.Minute
-	replicaPaymentPollInterval = time.Minute
+	replicaPaymentPollInterval = 30 * time.Second
 	replicaPaymentImagePrefix  = ".viceme-replica-payment-"
 )
 
@@ -362,7 +362,7 @@ func replicaPaymentPageConfirmation(state replicaPurchaseState) error {
 	return output.Confirmation("REPLICA_PAYMENT_REQUIRED", "open the ViceMe Website Replica checkout page").WithDetails(map[string]any{
 		"nextAction": "OPEN_PAYMENT_PAGE", "checkoutUrl": state.CheckoutURL, "orderNo": state.OrderNo,
 		"currency": state.Currency, "totalAmountCents": state.PriceCents, "expiresAt": state.OrderExpiresAt,
-	}).WithHint("open checkoutUrl with the available URL presentation tool, then rerun the same command with --payment-presented --timeout 3m --interval 1m; do not ask for another confirmation")
+	}).WithHint("open checkoutUrl with the available URL presentation tool, then rerun the same command with --payment-presented --timeout 3m --interval 30s; do not ask for another confirmation")
 }
 
 func installReplicaLocked(

@@ -754,8 +754,8 @@ def wait_for_payment(
     request_fn: RequestFn = http_request,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> None:
-    for _ in range(3):
-        sleep_fn(60)
+    for _ in range(6):
+        sleep_fn(30)
         status = api_request(
             authority,
             "/website-replica-sessions/"

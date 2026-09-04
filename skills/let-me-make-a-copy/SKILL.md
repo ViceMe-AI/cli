@@ -52,7 +52,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
    ```
 
 2. `REPLICA_PRICE_CHANGED` 时重新预览并确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=OPEN_PAYMENT_PAGE` 时立即打开 `checkoutUrl`。
-3. 页面成功打开后，原样重跑命令并追加 `--payment-presented --timeout 3m --interval 1m`；这次调用只等待刚展示的订单。以后不带 `--payment-presented` 重新发起时，会先安全关闭旧未支付尝试，再创建新订单。
+3. 页面成功打开后，原样重跑命令并追加 `--payment-presented --timeout 3m --interval 30s`；这次调用只等待刚展示的订单。以后不带 `--payment-presented` 重新发起时，会先安全关闭旧未支付尝试，再创建新订单。
 
 ## 无 CLI 或既有 standalone 路径
 
@@ -64,7 +64,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
 2. `REPLICA_TARGET_EXISTS` 时一次询问新目录并追加 `--target`；绝不覆盖已有目录。
 3. `REPLICA_PRICE_CHANGED` 时重新预览并确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=OPEN_PAYMENT_PAGE` 时立即打开 `checkoutUrl`，不得输出该地址。
-4. 页面成功打开后，原样重跑并追加 `--payment-presented`。这次调用只等待刚展示的订单；以后不带该参数重新发起时，会先安全关闭旧未支付尝试，再创建新订单。脚本每分钟查询一次、最多三次。
+4. 页面成功打开后，原样重跑并追加 `--payment-presented`。这次调用只等待刚展示的订单；以后不带该参数重新发起时，会先安全关闭旧未支付尝试，再创建新订单。脚本每 30 秒查询一次、总计最多等待 3 分钟。
 
 ## 完成
 
