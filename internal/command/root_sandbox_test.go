@@ -15,6 +15,7 @@ import (
 )
 
 func TestAutomaticUpdateLaunchPermissionDenialDoesNotChangeForegroundCommand(t *testing.T) {
+	enableAutomaticUpdateTest(t)
 	clearAutomaticUpdateReexecutionEnvironment(t)
 	root := t.TempDir()
 	updater := &automaticUpdater{}

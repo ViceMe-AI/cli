@@ -167,6 +167,7 @@ func TestBareCommandKeepsMachineOutputAsJSON(t *testing.T) {
 }
 
 func TestOrdinaryCommandSchedulesBackgroundUpdateAfterReturningItsOwnResult(t *testing.T) {
+	enableAutomaticUpdateTest(t)
 	clearAutomaticUpdateReexecutionEnvironment(t)
 	root := t.TempDir()
 	updater := &automaticUpdater{}
@@ -205,6 +206,7 @@ func TestOrdinaryCommandSchedulesBackgroundUpdateAfterReturningItsOwnResult(t *t
 }
 
 func TestBackgroundUpdateLaunchFailureIsFailOpen(t *testing.T) {
+	enableAutomaticUpdateTest(t)
 	clearAutomaticUpdateReexecutionEnvironment(t)
 	root := t.TempDir()
 	var stdout bytes.Buffer
@@ -227,6 +229,7 @@ func TestBackgroundUpdateLaunchFailureIsFailOpen(t *testing.T) {
 }
 
 func TestOrdinaryCommandDoesNotSpawnWorkerDuringFreshCheckInterval(t *testing.T) {
+	enableAutomaticUpdateTest(t)
 	root := t.TempDir()
 	configDir := filepath.Join(root, "config")
 	if err := os.MkdirAll(configDir, 0o700); err != nil {
@@ -270,6 +273,7 @@ func TestBackgroundUpdateProcessDoesNotInheritPublicationCredential(t *testing.T
 }
 
 func TestAutomaticUpdateWorkerRecordsFailureWithoutRefreshingSkills(t *testing.T) {
+	enableAutomaticUpdateTest(t)
 	root := t.TempDir()
 	updater := &automaticUpdater{
 		check:    updatepkg.CheckResult{CurrentVersion: "0.15.2", AvailableVersion: "0.16.0", UpdateAvailable: true},
@@ -292,6 +296,7 @@ func TestAutomaticUpdateWorkerRecordsFailureWithoutRefreshingSkills(t *testing.T
 }
 
 func TestAutomaticUpdateWorkerCommitsCLIOnlyForTheNextInvocation(t *testing.T) {
+	enableAutomaticUpdateTest(t)
 	root := t.TempDir()
 	updater := &automaticUpdater{
 		check: updatepkg.CheckResult{CurrentVersion: "0.15.2", AvailableVersion: "0.16.0", UpdateAvailable: true},
@@ -318,6 +323,7 @@ func TestAutomaticUpdateWorkerCommitsCLIOnlyForTheNextInvocation(t *testing.T) {
 }
 
 func TestAutomaticUpdateWorkerCoalescesRecentChecks(t *testing.T) {
+	enableAutomaticUpdateTest(t)
 	root := t.TempDir()
 	updater := &automaticUpdater{
 		check: updatepkg.CheckResult{CurrentVersion: "0.15.2", AvailableVersion: "0.15.2", UpdateAvailable: false},
@@ -433,6 +439,11 @@ func clearAutomaticUpdateReexecutionEnvironment(t *testing.T) {
 	for _, name := range []string{autoUpdateReexecEnvironment, autoUpdateFromEnvironment, autoUpdateToEnvironment} {
 		t.Setenv(name, "")
 	}
+}
+
+func enableAutomaticUpdateTest(t *testing.T) {
+	t.Helper()
+	t.Setenv("CI", "")
 }
 
 func TestUpdateSeparatesExecutingAndInstalledCLIVersions(t *testing.T) {
