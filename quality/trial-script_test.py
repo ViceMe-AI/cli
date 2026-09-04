@@ -67,6 +67,12 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, content)
         self.assertIn(trial.GATE_TAIL, content)
         self.assertIn("python3 - use --product %s --market cn" % PRODUCT_ID, content)
+        # Windows 形态:先落盘再用 py 执行(避开 PS5.1 管道编码),命令同样钉死产品与市场。
+        self.assertIn(
+            "curl.exe -fsSL https://s3.viceme.cn/skills/use-a-skill/scripts/trial.py "
+            "-o $env:TEMP\\viceme-trial.py; py $env:TEMP\\viceme-trial.py use --product %s --market cn" % PRODUCT_ID,
+            content,
+        )
         # 门禁必须位于 frontmatter 之后、正文之前。
         self.assertLess(content.index("---\n", 4), content.index(trial.GATE_MARKER))
         once = files["SKILL.md"][0]
