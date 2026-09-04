@@ -26,7 +26,9 @@ ViceMe CLI 只负责确认目标、返回平台接口、校验 ZIP 结构、上�
 1. 使用调用方给出的准确 `profileUrl` 和 Merchant，不让用户重选目标。先运行
    `viceme merchant page describe --target <profileUrl> --merchant <商家ID>`；CLI 会再次校验
    当前登录者、审核中的普通申请、DRAFT 作者身份和 handle 完全一致。
-2. 让用户二选一：“Bonjour 风格模板”或“导入/自定义已有页面”。选择 Bonjour 后，必须把
+2. 调用方带有网页选择时直接执行，不得再次让用户选择风格：`mode=BONJOUR` 使用 Bonjour，
+   `mode=IMPORT_EXISTING` 进入导入/自定义已有页面。只有兼容旧版调用且没有网页选择时，才让
+   用户二选一：“Bonjour 风格模板”或“导入/自定义已有页面”。选择 Bonjour 后，必须把
    [bonjour-card](templates/bonjour-card/) 整个项目复制到用户工作目录作为实现起点，并先完整
    阅读其中 `README.md` 和 `DESIGN.md`；禁止从空白页面重新生成，禁止切换技术栈，也禁止
    把它当作可以自由发挥的灵感。该目录直接保留汪奕辰提供的 Profile Blocks 原型布局与交互，
@@ -37,7 +39,8 @@ ViceMe CLI 只负责确认目标、返回平台接口、校验 ZIP 结构、上�
    模板已经通过现有 `context.read` 读取作者资料、作品摘要和作品封面，并通过
    `navigation.open` 打开站内作品；不得为它另建模板专用后端或上传流程。
 3. 名称和头像使用 `qualification.user` 及平台 `context.read` 自动填写，简介有现值就复用，
-   缺失才问用户。只收集两类可选内容：
+   缺失才问用户。网页选择中的 `works` 和 `contacts` 是用户已经提供的资料，直接用于页面，
+   不得重复询问；仍缺失时再按需收集。只收集两类可选内容：
    - 作品：标题、简介、链接、**一张作品卡片封面图**；这里的封面不是页面首屏大图。
    - 媒体：用户主动公开的联系方式，支持飞书链接、X / Twitter 链接、邮箱和 GitHub 主页链接。
    本期不支持视频；不添加文字、图片墙、App、公众号、高光、教育、工作经历、获奖等 Block。

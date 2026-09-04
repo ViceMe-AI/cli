@@ -26,12 +26,32 @@ type DeviceTokenRequest struct {
 }
 
 type DeviceToken struct {
-	Status      string   `json:"status"`
-	Interval    int      `json:"interval,omitempty"`
-	AccessToken string   `json:"accessToken,omitempty"`
-	TokenType   string   `json:"tokenType,omitempty"`
-	ExpiresAt   string   `json:"expiresAt,omitempty"`
-	Scopes      []string `json:"scopes,omitempty"`
+	Status                     string                      `json:"status"`
+	Interval                   int                         `json:"interval,omitempty"`
+	AccessToken                string                      `json:"accessToken,omitempty"`
+	TokenType                  string                      `json:"tokenType,omitempty"`
+	ExpiresAt                  string                      `json:"expiresAt,omitempty"`
+	Scopes                     []string                    `json:"scopes,omitempty"`
+	CreatorOnboardingSelection *CreatorOnboardingSelection `json:"creatorOnboardingSelection,omitempty"`
+}
+
+type CreatorOnboardingSelection struct {
+	Mode     string                     `json:"mode"`
+	Works    []CreatorOnboardingWork    `json:"works,omitempty"`
+	Contacts []CreatorOnboardingContact `json:"contacts,omitempty"`
+}
+
+type CreatorOnboardingWork struct {
+	Title         string `json:"title,omitempty"`
+	Summary       string `json:"summary,omitempty"`
+	URL           string `json:"url,omitempty"`
+	CoverImageURL string `json:"coverImageUrl,omitempty"`
+}
+
+type CreatorOnboardingContact struct {
+	Platform string `json:"platform"`
+	Label    string `json:"label,omitempty"`
+	Value    string `json:"value,omitempty"`
 }
 
 type AuthStatus struct {
@@ -851,6 +871,7 @@ type WebsiteReplicaPublication struct {
 	AllowedActions    []string                          `json:"allowedActions"`
 	Retry             WebsiteReplicaPublicationRetry    `json:"retry"`
 	Source            WebsiteReplicaPublicationSource   `json:"source"`
+	Page              *WebsiteReplicaPublicationSource  `json:"page"`
 	Failure           *WebsiteReplicaPublicationFailure `json:"failure"`
 	Result            *WebsiteReplicaPublicationResult  `json:"result"`
 	SubmittedAt       *string                           `json:"submittedAt"`
@@ -882,13 +903,19 @@ type WebsiteReplicaPublicationFailure struct {
 }
 
 type WebsiteReplicaPublicationResult struct {
-	WorkURL     string                `json:"workUrl"`
-	VersionID   string                `json:"versionId"`
-	Version     int                   `json:"version"`
-	ShortCode   string                `json:"shortCode"`
-	Instruction string                `json:"instruction"`
-	Product     WebsiteReplicaProduct `json:"product"`
-	PublishedAt string                `json:"publishedAt"`
+	WorkURL     string                                `json:"workUrl"`
+	VersionID   string                                `json:"versionId"`
+	Version     int                                   `json:"version"`
+	ShortCode   string                                `json:"shortCode"`
+	Instruction string                                `json:"instruction"`
+	Product     WebsiteReplicaProduct                 `json:"product"`
+	PageRelease *WebsiteReplicaPublicationPageRelease `json:"pageRelease"`
+	PublishedAt string                                `json:"publishedAt"`
+}
+
+type WebsiteReplicaPublicationPageRelease struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
 }
 
 type WebsiteReplicaProduct struct {
@@ -897,6 +924,52 @@ type WebsiteReplicaProduct struct {
 	Title      string `json:"title"`
 	Currency   string `json:"currency"`
 	PriceCents int    `json:"priceCents"`
+}
+
+type WebsiteReplicaVersionReference struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
+}
+
+type WebsiteReplicaPageReleaseReference struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
+}
+
+type WebsiteReplicaVersionPair struct {
+	ID             string                              `json:"id"`
+	ReplicaVersion WebsiteReplicaVersionReference      `json:"replicaVersion"`
+	WorkRevisionID string                              `json:"workRevisionId"`
+	PageRelease    *WebsiteReplicaPageReleaseReference `json:"pageRelease"`
+	CreatedAt      string                              `json:"createdAt"`
+}
+
+type WebsiteReplicaRollbackProjection struct {
+	ActivePair     *WebsiteReplicaVersionPair  `json:"activePair"`
+	AvailablePairs []WebsiteReplicaVersionPair `json:"availablePairs"`
+}
+
+type WebsiteReplicaPublicationRollbackState struct {
+	ID       string                           `json:"id"`
+	Status   string                           `json:"status"`
+	Rollback WebsiteReplicaRollbackProjection `json:"rollback"`
+}
+
+type WebsiteReplicaRollbackRequest struct {
+	ClientRequestID      string `json:"clientRequestId"`
+	TargetPairID         string `json:"targetPairId"`
+	ExpectedActivePairID string `json:"expectedActivePairId"`
+}
+
+type WebsiteReplicaRollback struct {
+	ID              string                    `json:"id"`
+	PublicationID   string                    `json:"publicationId"`
+	ClientRequestID string                    `json:"clientRequestId"`
+	PreviousPair    WebsiteReplicaVersionPair `json:"previousPair"`
+	ActivePair      WebsiteReplicaVersionPair `json:"activePair"`
+	Product         WebsiteReplicaProduct     `json:"product"`
+	PriceUnchanged  bool                      `json:"priceUnchanged"`
+	RolledBackAt    string                    `json:"rolledBackAt"`
 }
 
 type CompleteWebsiteReplicaUploadResponse struct {
@@ -1460,10 +1533,13 @@ type PublicWorkProjection struct {
 			Media               []map[string]any `json:"media"`
 			ActivatedAt         *string          `json:"activatedAt"`
 		} `json:"revision"`
-		Products      []PublicWorkProduct `json:"products"`
-		Service       any                 `json:"service"`
-		WebsiteAction any                 `json:"websiteAction"`
-		Metrics       struct {
+		Products             []PublicWorkProduct `json:"products"`
+		Service              any                 `json:"service"`
+		WebsiteAction        any                 `json:"websiteAction"`
+		WebsiteReplicaAction *struct {
+			Instruction string `json:"instruction"`
+		} `json:"websiteReplicaAction"`
+		Metrics struct {
 			LikeCount    int `json:"likeCount"`
 			CommentCount int `json:"commentCount"`
 		} `json:"metrics"`

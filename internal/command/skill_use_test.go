@@ -232,6 +232,171 @@ func TestOwnedPaidSkillReinstallsWithoutAnotherPurchase(t *testing.T) {
 	}
 }
 
+func TestAuthenticatedOwnerTakesPrecedenceOverPublicTrial(t *testing.T) {
+	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+	t.Setenv(processAccessTokenEnvironment, accessToken)
+	archive := downloadableSkillArchive(t)
+	digest := fmt.Sprintf("%x", sha256.Sum256(archive))
+	var trialGrantCalls atomic.Int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/skills/" + downloadableProductID + "/access":
+			fixture := skillAccessFixture(false, false, digest, server.URL+"/purchase")
+			fixture["trial"] = map[string]any{"available": true, "limitUses": 5}
+			writeJSONResponse(writer, fixture)
+		case "/v1/cli/auth/status":
+			writeJSONResponse(writer, map[string]any{
+				"authenticated": true, "user": map[string]any{"id": "33333333-3333-4333-8333-333333333333", "displayName": "Buyer", "avatarUrl": nil},
+				"scopes": []string{"profile:read", "skill-use:read"}, "expiresAt": "2027-08-27T00:00:00Z",
+			})
+		case "/v1/cli/skills/" + downloadableProductID + "/access":
+			writeJSONResponse(writer, skillAccessFixture(false, true, digest, server.URL+"/purchase"))
+		case "/v1/cli/skills/" + downloadableProductID + "/download":
+			writeJSONResponse(writer, map[string]any{
+				"url": server.URL + "/artifact", "fileName": "paid.zip", "releaseId": downloadableReleaseID, "artifactDigest": digest, "expiresAt": "2027-08-27T00:00:00Z",
+			})
+		case "/v1/skills/" + downloadableProductID + "/trial-grants":
+			trialGrantCalls.Add(1)
+			writer.WriteHeader(http.StatusInternalServerError)
+		case "/artifact":
+			writer.Header().Set("Content-Type", "application/zip")
+			_, _ = writer.Write(archive)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(),
+		"skill", "install", downloadableProductID, "--agent", "agents",
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("authenticated owner did not bypass the public trial: exit=%d envelope=%#v", exit, envelope)
+	}
+	if trialGrantCalls.Load() != 0 {
+		t.Fatalf("owned install unexpectedly created %d trial grants", trialGrantCalls.Load())
+	}
+}
+
+func TestStrictOwnedURLSkipsPublicWorkAndPublicTrial(t *testing.T) {
+	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+	t.Setenv(processAccessTokenEnvironment, accessToken)
+	archive := downloadableSkillArchive(t)
+	digest := fmt.Sprintf("%x", sha256.Sum256(archive))
+	var publicCalls atomic.Int32
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/public/creators/creator/works/delisted-skill", "/v1/skills/" + downloadableProductID + "/access", "/v1/skills/" + downloadableProductID + "/trial-grants":
+			publicCalls.Add(1)
+			http.NotFound(writer, request)
+		case "/v1/cli/auth/status":
+			writeJSONResponse(writer, map[string]any{
+				"authenticated": true, "user": map[string]any{"id": "33333333-3333-4333-8333-333333333333", "displayName": "Buyer", "avatarUrl": nil},
+				"scopes": []string{"skill-use:read"}, "expiresAt": "2027-08-27T00:00:00Z",
+			})
+		case "/v1/cli/skills/" + downloadableProductID + "/access":
+			writeJSONResponse(writer, skillAccessFixture(false, true, digest, ""))
+		case "/v1/cli/skills/" + downloadableProductID + "/download":
+			writeJSONResponse(writer, map[string]any{
+				"url": server.URL + "/artifact", "fileName": "paid.zip", "releaseId": downloadableReleaseID, "artifactDigest": digest, "expiresAt": "2027-08-27T00:00:00Z",
+			})
+		case "/artifact":
+			_, _ = writer.Write(archive)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	target := server.URL + "/creator/delisted-skill.md?product=" + downloadableProductID + "&install=owned"
+	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", target, "--agent", "agents")
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("strict owned reinstall failed: exit=%d envelope=%#v", exit, envelope)
+	}
+	if publicCalls.Load() != 0 {
+		t.Fatalf("strict owned URL touched public Work/trial endpoints %d times", publicCalls.Load())
+	}
+}
+
+func TestStrictOwnedURLNeverFallsBackForTheWrongAccount(t *testing.T) {
+	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+	t.Setenv(processAccessTokenEnvironment, accessToken)
+	var forbiddenFallbackCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/cli/auth/status":
+			writeJSONResponse(writer, map[string]any{
+				"authenticated": true, "user": map[string]any{"id": "33333333-3333-4333-8333-333333333333", "displayName": "Other buyer", "avatarUrl": nil},
+				"scopes": []string{"skill-use:read"}, "expiresAt": "2027-08-27T00:00:00Z",
+			})
+		case "/v1/cli/skills/" + downloadableProductID + "/access":
+			fixture := skillAccessFixture(false, false, strings.Repeat("a", 64), "https://shop.example/purchase")
+			fixture["trial"] = map[string]any{"available": true, "limitUses": 5}
+			writeJSONResponse(writer, fixture)
+		default:
+			forbiddenFallbackCalls.Add(1)
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	target := server.URL + "/creator/skill.md?product=" + downloadableProductID + "&install=owned"
+	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", target)
+	if exit == 0 || envelope["ok"] != false {
+		t.Fatalf("wrong account unexpectedly installed through strict owned intent: %#v", envelope)
+	}
+	errorBody := envelope["error"].(map[string]any)
+	if errorBody["code"] != "SKILL_NOT_OWNED" || forbiddenFallbackCalls.Load() != 0 {
+		t.Fatalf("strict owned flow fell back instead of stopping: error=%#v fallbackCalls=%d", errorBody, forbiddenFallbackCalls.Load())
+	}
+}
+
+func TestStrictOwnedURLRequiresLoginWithoutTouchingPublicEndpoints(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	var serverCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		serverCalls.Add(1)
+		http.NotFound(writer, request)
+	}))
+	defer server.Close()
+
+	target := server.URL + "/creator/skill.md?product=" + downloadableProductID + "&install=owned"
+	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", target)
+	if exit == 0 || envelope["ok"] != false {
+		t.Fatalf("anonymous strict owned install unexpectedly succeeded: %#v", envelope)
+	}
+	errorBody := envelope["error"].(map[string]any)
+	if errorBody["code"] != "NOT_LOGGED_IN" || serverCalls.Load() != 0 {
+		t.Fatalf("anonymous strict owned flow did not stop locally: error=%#v calls=%d", errorBody, serverCalls.Load())
+	}
+}
+
+func TestStrictOwnedURLValidatesIntentAndProductExactly(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	server := httptest.NewServer(http.NotFoundHandler())
+	defer server.Close()
+	queries := []string{
+		"?product=" + downloadableProductID + "&install=",
+		"?product=" + downloadableProductID + "&install=trial",
+		"?product=" + downloadableProductID + "&install=owned&install=owned",
+		"?install=owned",
+		"?product=not-a-product&install=owned",
+		"?product=" + downloadableProductID + "&product=" + downloadableProductID + "&install=owned",
+	}
+	for _, query := range queries {
+		exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", server.URL+"/creator/skill.md"+query)
+		if exit == 0 || envelope["ok"] != false {
+			t.Fatalf("invalid owned URL unexpectedly succeeded: query=%s envelope=%#v", query, envelope)
+		}
+		code := envelope["error"].(map[string]any)["code"]
+		if code != "SKILL_INSTALL_INTENT_INVALID" && code != "SKILL_OWNED_PRODUCT_REQUIRED" {
+			t.Fatalf("invalid owned URL returned query=%s envelope=%#v", query, envelope)
+		}
+	}
+}
+
 func TestMarketplaceInstallPersistsProductProvenance(t *testing.T) {
 	t.Setenv(processAccessTokenEnvironment, "")
 	archive := downloadableSkillArchive(t)
