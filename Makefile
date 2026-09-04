@@ -12,7 +12,7 @@ ifneq ($(strip $(COMMERCE_SKILL_TRUST_KEYS)),)
 LDFLAGS += -X github.com/ViceMe-AI/cli/internal/buildinfo.CommerceSkillTrustKeys=$(COMMERCE_SKILL_TRUST_KEYS)
 endif
 
-.PHONY: build test test-race check skill-check quality-check npm-test npm-package-check release-manifest release-manifest-check skills-archive release-prepare clean update-check
+.PHONY: build test test-race check skill-check quality-check trial-script-test npm-test npm-package-check release-manifest release-manifest-check skills-archive release-prepare clean update-check
 
 build:
 	mkdir -p bin
@@ -32,6 +32,10 @@ check: test
 	mkdir -p bin
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/viceme ./cmd/viceme
 	$(MAKE) release-manifest-check
+	$(MAKE) trial-script-test
+
+trial-script-test:
+	python3 quality/trial-script_test.py
 
 quality-check: test npm-package-check
 

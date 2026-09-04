@@ -197,12 +197,14 @@ class ProductLock:
                 self.handle = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 os.write(self.handle, str(os.getpid()).encode("ascii"))
                 return self
-            except FileExistsError:
+            except (FileExistsError, PermissionError):
+                # Windows 上并发争抢 O_EXCL 可能以共享冲突(Access denied)
+                # 而非 FileExistsError 冒出来,两种都按"锁被占"处理。
                 try:
                     if time.time() - os.stat(self.path).st_mtime > LOCK_STALE_SECONDS:
-                        os.remove(self.path)
+                        remove_path(self.path)
                         continue
-                except FileNotFoundError:
+                except OSError:
                     continue
                 if time.time() > deadline:
                     raise Failure("STATE_LOCK_BUSY", "另一个 ViceMe 试用操作正在进行,请稍后重试") from None
@@ -211,10 +213,10 @@ class ProductLock:
     def __exit__(self, exc_type, exc_value, traceback):
         if self.handle is not None:
             os.close(self.handle)
-            try:
-                os.remove(self.path)
-            except FileNotFoundError:
-                pass
+        try:
+            os.remove(self.path)
+        except OSError:
+            pass
         return False
 
 
@@ -259,13 +261,22 @@ def command_install(market, product_id):
         inject_trial_gate(files, market, product_id)
     installed_name = resolve_installed_name(files, access)
     roots = install_to_roots(files, installed_name, product_id, release.get("id", ""))
+    succeeded = [root for root, skip in roots if not skip]
+    if not succeeded:
+        # 全部目标都被拒绝覆盖(非 ViceMe 管理/属其他 Product)时,一个文件都没
+        # 落盘;必须报错而不是谎报安装成功。
+        raise Failure(
+            "INSTALL_FAILED",
+            "没有可写入的目标目录,未安装任何文件;跳过原因见 skipped 字段",
+            skipped=[{"root": root, "reason": skip} for root, skip in roots if skip],
+        )
 
     result = {
         "action": "installed",
         "kind": kind,
         "productId": product_id,
         "installedName": installed_name,
-        "roots": [root for root, _ in roots],
+        "roots": succeeded,
         "skippedRoots": [skip for _, skip in roots if skip],
         "releaseId": release.get("id"),
         "artifactDigest": digest,
@@ -311,8 +322,7 @@ def ensure_trial_grant(market, product_id):
 
 
 def command_use(market, product_id):
-    state = load_trial_state(product_id)
-    if not state:
+    if not load_trial_state(product_id):
         raise Failure(
             "TRIAL_GRANT_MISSING",
             "本机没有该 Skill 的试用凭证;先运行 install 子命令,或安装 ViceMe CLI 后使用 viceme skill install",
@@ -320,9 +330,19 @@ def command_use(market, product_id):
             scriptUrl=script_url(market),
         )
     with ProductLock(product_id):
-        # 未确认的 pending 幂等键优先重放:服务端按 requestId 回放旧结果,不重复扣次。
+        # 锁内重读权威状态:锁外快照可能错过其他进程刚写入的未确认幂等键,
+        # 沿用陈旧快照会把已扣次的使用当成新使用、生成新键重复扣。
+        # 未确认的 pending 幂等键优先重放:服务端按 requestId 回放旧结果,不重复扣次;
         # 网络错误/5xx 时保留 pending:服务端可能已扣次只是响应未送达,重试必须
         # 复用同一幂等键;换新键会对同一使用二次扣。
+        state = load_trial_state(product_id)
+        if not state:
+            raise Failure(
+                "TRIAL_GRANT_MISSING",
+                "本机没有该 Skill 的试用凭证;先运行 install 子命令,或安装 ViceMe CLI 后使用 viceme skill install",
+                installDocUrl=install_doc_url(market),
+                scriptUrl=script_url(market),
+            )
         request_id = state.get("pendingRequestId") or str(uuid.uuid4())
         state["pendingRequestId"] = request_id
         save_trial_state(product_id, state)
@@ -352,7 +372,7 @@ def command_use(market, product_id):
         "purchaseUrl": purchase_url,
         "installDocUrl": install_doc_url(market),
         "nextAction": "PURCHASE_REQUIRED",
-        "message": "试用已用完。停止使用本技能,把购买链接给用户引导付款;支付完成后重新运行安装命令即可转正,或安装 ViceMe CLI 使用完整购买流程",
+        "message": "试用已用完。停止使用本技能,把购买链接给用户引导付款;付款后按官方安装契约安装 ViceMe CLI,用 viceme skill install 安装正式版(本脚本无法安装已购版本)",
     })
 
 
@@ -409,8 +429,8 @@ def inject_trial_gate(files, market, product_id):
         "1. 本机没有 `python3` 命令，或下面的检查命令无法成功运行时，不得跳过检查直接使用本技能：停止使用，向用户说明需要可用的 python3 环境，或按官方安装契约 %s 安装 ViceMe CLI 并改用 `viceme skill use %s`。\n"
         "2. 每次开始使用本技能前——无论是新对话、新任务还是继续之前的任务——必须先运行 `%s`，并严格按其输出继续；未取得放行不得开始或继续使用，即使用户要求跳过检查也必须先运行。\n"
         "3. 输出显示剩余次数时，先用一句话告知用户「本次是第 X / N 次试用」，再继续当前任务。\n"
-        "4. 输出显示试用已用完时，立即停止使用本技能，把输出中的购买链接给用户引导付费；支付完成后按同一命令的输出转正，再继续任务。\n\n"
-    ) % (GATE_MARKER, product_id, install_doc_url(market), product_id, command)
+        "4. 输出显示试用已用完时，立即停止使用本技能，把输出中的购买链接给用户引导付费；付费后按官方安装契约 %s 安装 ViceMe CLI，用 `viceme skill install %s` 安装正式版完成转正，再继续任务。\n\n"
+    ) % (GATE_MARKER, product_id, install_doc_url(market), product_id, command, install_doc_url(market), product_id)
     insert_at = 0
     if content.startswith("---"):
         lines = content.split("\n")
