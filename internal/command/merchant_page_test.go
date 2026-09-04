@@ -114,6 +114,97 @@ func TestMerchantPagePreviewUsesScopedAuthAndPresignedUpload(t *testing.T) {
 	}
 }
 
+func TestMerchantPageUploadUsesPendingCreatorTenantWithoutOnlinePreview(t *testing.T) {
+	var mu sync.Mutex
+	var requests []string
+	var uploaded []byte
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		mu.Lock()
+		requests = append(requests, request.Method+" "+request.URL.Path)
+		mu.Unlock()
+		switch request.URL.Path {
+		case "/v1/cli/auth/status":
+			writeJSONResponse(writer, map[string]any{
+				"authenticated": true,
+				"user":          map[string]any{"id": "33333333-3333-4333-8333-333333333333", "displayName": "Creator", "avatarUrl": nil},
+				"scopes":        []string{"merchant-commerce:read", "merchant-commerce:write"}, "expiresAt": "2027-08-21T00:00:00Z",
+			})
+		case "/v1/cli/merchant/accounts":
+			writeJSONResponse(writer, map[string]any{"items": []any{map[string]any{
+				"id": pageTestMerchantID, "creatorAccountId": "44444444-4444-4444-8444-444444444444",
+				"displayName": "Creator", "status": "SUSPENDED", "ownershipStatus": "OWNED", "statusVersion": 1,
+			}}})
+		case "/v1/cli/merchant/onboarding/current":
+			writeJSONResponse(writer, map[string]any{
+				"onboarding": map[string]any{
+					"id": "77777777-7777-4777-8777-777777777777", "kind": "APPLICATION",
+					"merchantAccountId": pageTestMerchantID, "provider": nil, "requestedHandle": "alice-maker",
+					"displayName": "Creator", "status": "SUBMITTED", "lockVersion": 0,
+					"publicAccountName": nil, "profileUrl": nil, "reservationExpiresAt": nil,
+					"reasonCode": nil, "reviewNote": nil, "submittedAt": "2027-08-21T00:00:00Z", "reviewedAt": nil,
+					"evidence": []any{},
+				},
+				"merchant": map[string]any{
+					"id": pageTestMerchantID, "creatorAccountId": "44444444-4444-4444-8444-444444444444",
+					"displayName": "Creator", "status": "SUSPENDED", "ownershipStatus": "OWNED", "statusVersion": 1,
+				},
+				"creatorIdentity": map[string]any{
+					"handle": "alice-maker", "displayName": "Creator", "status": "DRAFT",
+					"profilePath": "/alice-maker", "markdownPath": "/alice-maker.md",
+					"suggestedHandle": nil, "profileUrl": "https://viceme.cn/alice-maker", "markdownUrl": "https://viceme.cn/alice-maker.md",
+				},
+				"nextAction": "WAIT_FOR_REVIEW",
+			})
+		case "/v1/cli/merchant/page-customizations/drafts":
+			writeJSONResponse(writer, map[string]any{"release": pageTestRelease("UPLOADING")})
+		case "/v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/upload-authorizations":
+			writeJSONResponse(writer, map[string]any{
+				"uploadUrl": server.URL + "/upload/page.zip", "expiresAt": "2027-08-21T00:15:00Z",
+				"headers": map[string]string{"content-type": "application/zip", "if-none-match": "*"},
+			})
+		case "/upload/page.zip":
+			uploaded, _ = io.ReadAll(request.Body)
+			writer.WriteHeader(http.StatusNoContent)
+		case "/v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/complete-upload":
+			writeJSONResponse(writer, pageTestRelease("VALIDATED"))
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.String())
+		}
+	}))
+	defer server.Close()
+	t.Setenv(processAccessTokenEnvironment, pageTestToken)
+
+	root := t.TempDir()
+	pageZIP := writeCommandPageZIP(t, root)
+	var stdout, stderr bytes.Buffer
+	exit := Execute([]string{
+		"merchant", "page", "upload", "--path", pageZIP,
+		"--target", "https://viceme.cn/alice-maker", "--merchant", pageTestMerchantID,
+	}, Dependencies{
+		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(), HTTPClient: server.Client(),
+		APIBaseURL: server.URL, Region: config.RegionCN, NewID: func() string { return "55555555-5555-4555-8555-555555555555" },
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit != 0 || len(uploaded) == 0 || !strings.Contains(stdout.String(), `"status": "VALIDATED"`) {
+		t.Fatalf("pending upload failed: exit=%d uploaded=%d stdout=%s stderr=%s", exit, len(uploaded), stdout.String(), stderr.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	want := []string{
+		"GET /v1/cli/auth/status",
+		"GET /v1/cli/merchant/accounts",
+		"GET /v1/cli/merchant/onboarding/current",
+		"POST /v1/cli/merchant/page-customizations/drafts",
+		"POST /v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/upload-authorizations",
+		"PUT /upload/page.zip",
+		"POST /v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/complete-upload",
+	}
+	if strings.Join(requests, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("request sequence mismatch:\n%v\nwant:\n%v", requests, want)
+	}
+}
+
 func TestMerchantPageDescribeReturnsTargetSpecificCapabilities(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {

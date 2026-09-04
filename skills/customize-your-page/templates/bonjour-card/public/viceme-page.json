@@ -1,0 +1,12 @@
+{
+  "apiVersion": "page.viceme.ai/v1alpha1",
+  "kind": "CreatorPage",
+  "metadata": {
+    "name": "Profile Blocks personal card"
+  },
+  "spec": {
+    "entry": "index.html",
+    "sdkVersion": "1",
+    "capabilities": ["context.read", "navigation.open"]
+  }
+}
