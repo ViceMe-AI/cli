@@ -111,10 +111,16 @@ def api_request(market, method, path, body=None):
         with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
             raw = response.read()
     except urllib.error.HTTPError as error:
+        # 错误体只回放标准 JSON 契约里的 message/code;非 JSON 响应
+        # (网关/代理错误页)可能携带内部主机名、路径甚至凭证,不回显。
         detail = _error_detail(error)
-        raise Failure("API_ERROR", "ViceMe API 返回错误(%s %s): %s" % (error.code, path, detail), status=error.code, detail=detail) from None
+        message = "ViceMe API 返回错误(%s %s)" % (error.code, path)
+        if detail:
+            message += ": %s" % detail
+        raise Failure("API_ERROR", message, status=error.code, detail=detail) from None
     except urllib.error.URLError as error:
-        raise Failure("NETWORK_ERROR", "无法连接 ViceMe API(%s): %s" % (path, error.reason)) from None
+        # reason 可能携带代理地址/凭证/本机路径,只保留异常类型名。
+        raise Failure("NETWORK_ERROR", "无法连接 ViceMe API(%s): %s" % (path, type(error.reason).__name__)) from None
     if not raw:
         return {}
     try:
@@ -124,15 +130,18 @@ def api_request(market, method, path, body=None):
 
 
 def _error_detail(error):
+    """提取标准错误契约的 message/code;非 JSON 错误体一律不回显。"""
     try:
         raw = error.read()
     except Exception:  # noqa: BLE001 - 错误体读取失败时退回状态码
-        return str(error.code)
+        return ""
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
     try:
-        parsed = json.loads(raw.decode("utf-8"))
-        return str(parsed.get("message") or parsed.get("code") or raw.decode("utf-8", "replace"))
-    except Exception:  # noqa: BLE001 - 非 JSON 错误体
-        return raw.decode("utf-8", "replace")[:200]
+        parsed = json.loads(raw)
+    except Exception:  # noqa: BLE001 - 非 JSON 错误体(网关/代理错误页)
+        return ""
+    return str(parsed.get("message") or parsed.get("code") or "")
 
 
 def http_download(url):

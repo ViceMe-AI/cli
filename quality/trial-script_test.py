@@ -178,6 +178,47 @@ class TrialScriptTestCase(unittest.TestCase):
                     pass
         self.assertEqual(caught.exception.code, "STATE_DIR_PERMISSION_DENIED")
 
+    def test_api_network_errors_never_leak_reason(self):
+        # 五轮评审 P1:api_request 的 URLError 分支与下载分支同规——
+        # reason 可能携带代理地址/凭证/本机路径,只保留异常类型名。
+        import urllib.error
+
+        denial = urllib.error.URLError(OSError("proxy corp.local:3128 /Users/private/.viceme"))
+        with mock.patch.object(trial.urllib.request, "urlopen", side_effect=denial):
+            with self.assertRaises(trial.Failure) as caught:
+                trial.api_request("cn", "GET", "/v1/skills/%s/access" % PRODUCT_ID)
+        self.assertEqual(caught.exception.code, "NETWORK_ERROR")
+        emitted = caught.exception.message + json.dumps(caught.exception.fields, default=str)
+        self.assertNotIn("corp.local", emitted)
+        self.assertNotIn("Users", emitted)
+
+    def test_api_http_error_omits_non_json_bodies(self):
+        # 网关/代理错误页(非 JSON)可能携带内部主机名,不得原样回显。
+        import urllib.error
+
+        body = io.StringIO("<html>gateway internalhost.corp /Users/private</html>")
+        error = urllib.error.HTTPError("https://api.invalid/x", 502, "Bad Gateway", {}, body)  # type: ignore[arg-type]
+        with mock.patch.object(trial.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(trial.Failure) as caught:
+                trial.api_request("cn", "GET", "/v1/skills/%s/access" % PRODUCT_ID)
+        self.assertEqual(caught.exception.code, "API_ERROR")
+        emitted = caught.exception.message + json.dumps(caught.exception.fields, default=str)
+        self.assertNotIn("internalhost", emitted)
+        self.assertNotIn("<html>", emitted)
+        self.assertNotIn("Users", emitted)
+
+    def test_api_http_error_keeps_canonical_json_messages(self):
+        # 标准错误契约的 message 面向客户端,应当保留。
+        import urllib.error
+
+        body = io.StringIO('{"statusCode":403,"code":"FORBIDDEN","message":"该款不可购买"}')
+        error = urllib.error.HTTPError("https://api.invalid/x", 403, "Forbidden", {}, body)  # type: ignore[arg-type]
+        with mock.patch.object(trial.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(trial.Failure) as caught:
+                trial.api_request("cn", "GET", "/v1/skills/%s/access" % PRODUCT_ID)
+        self.assertEqual(caught.exception.code, "API_ERROR")
+        self.assertIn("该款不可购买", caught.exception.message)
+
     def test_download_errors_never_leak_the_signed_url(self):
         # 四轮评审 P1:下载地址是短期签名凭证(X-Amz-Signature 等),
         # 错误输出不得携带 URL——那会进 AI 对话与日志。
