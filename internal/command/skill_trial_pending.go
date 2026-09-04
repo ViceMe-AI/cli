@@ -1,16 +1,17 @@
 package command
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 // Skill 试用消耗的请求级幂等键:每次使用一个 requestId,服务端对同一键
@@ -23,16 +24,11 @@ type trialUsePending struct {
 	CreatedAt int64  `json:"createdAtMs"`
 }
 
-// 崩溃残留兜底:超过 TTL 的 pending 视为历史残留并换新键。复用未确认的
-// 旧键最坏漏扣一次,换新键可能对服务端已扣过的使用再扣一次,所以 TTL
-// 取一个远超单次命令生命周期的值,把换键概率压到实际为零。
-const trialUsePendingTTL = 24 * time.Hour
-
-// 跨进程锁参数:等待持锁者的上限远大于临界区(读写一个小 JSON);锁文件
-// 自身的崩溃残留按 staleness 清理,超过该年龄的锁视为已死。
+// 未确认的 pending 无 TTL、持续复用:复用旧键最坏漏扣一次,而按计时器
+// 换新键可能对服务端已扣过的使用二次扣——结果未知不能由计时器变成结果
+// 已知。锁等待上限远大于临界区(读写一个小 JSON)。
 const (
 	trialUseLockTimeout = 5 * time.Second
-	trialUseLockStale   = 10 * time.Second
 	trialUseLockRetry   = 5 * time.Millisecond
 )
 
@@ -68,13 +64,19 @@ func beginTrialUsePending(
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
-	unlock, err := lockTrialUsePending(path, now)
-	if err != nil {
-		return "", err
+	// gofrs/flock 的锁由 OS 持有,进程退出即释放,无残留清理问题。
+	lock := flock.New(path + ".lock")
+	lockContext, cancelLock := context.WithTimeout(
+		context.Background(),
+		trialUseLockTimeout,
+	)
+	defer cancelLock()
+	if _, err := lock.TryLockContext(lockContext, trialUseLockRetry); err != nil {
+		return "", fmt.Errorf("trial use pending lock failed: %w", err)
 	}
-	defer unlock()
+	defer lock.Unlock()
 
-	if reusable := readReusableTrialUsePending(path, productID, now); reusable != "" {
+	if reusable := readReusableTrialUsePending(path, productID); reusable != "" {
 		return reusable, nil
 	}
 	pending := trialUsePending{
@@ -101,40 +103,7 @@ func confirmTrialUsePending(configBase, apiBaseURL, productID string) {
 	_ = os.Remove(trialUsePendingPath(configBase, apiBaseURL, productID))
 }
 
-// lockTrialUsePending 以 O_EXCL 锁文件实现跨进程互斥,覆盖 pending 文件
-// 的读取、判定与替换。返回解锁函数;等锁超时返回错误。内部使用真实
-// 时钟:等待循环必须随墙钟推进,不能用调用方传入的业务时刻。
-func lockTrialUsePending(pendingPath string, now time.Time) (func(), error) {
-	lockPath := pendingPath + ".lock"
-	deadline := time.Now().Add(trialUseLockTimeout)
-	for {
-		file, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-		if err == nil {
-			file.Close()
-			return func() { _ = os.Remove(lockPath) }, nil
-		}
-		if !errors.Is(err, fs.ErrExist) {
-			return nil, err
-		}
-		if info, statErr := os.Stat(lockPath); statErr == nil {
-			// 崩溃残留的锁:持有者早已死亡,清理后重试竞争。
-			if time.Since(info.ModTime()) > trialUseLockStale {
-				_ = os.Remove(lockPath)
-				continue
-			}
-		}
-		if time.Now().After(deadline) {
-			return nil, fmt.Errorf(
-				"trial use pending lock timed out after %s: %s",
-				trialUseLockTimeout,
-				lockPath,
-			)
-		}
-		time.Sleep(trialUseLockRetry)
-	}
-}
-
-func readReusableTrialUsePending(path, productID string, now time.Time) string {
+func readReusableTrialUsePending(path, productID string) string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return ""
@@ -143,8 +112,8 @@ func readReusableTrialUsePending(path, productID string, now time.Time) string {
 	if json.Unmarshal(data, &pending) != nil || pending.ProductID != productID {
 		return ""
 	}
-	if pending.RequestID == "" ||
-		now.UnixMilli()-pending.CreatedAt >= trialUsePendingTTL.Milliseconds() {
+	// 未确认的 pending 不设时效:只要还是同一款目就一直复用。
+	if pending.RequestID == "" {
 		return ""
 	}
 	return pending.RequestID

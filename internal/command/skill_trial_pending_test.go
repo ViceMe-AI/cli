@@ -72,17 +72,19 @@ func TestTrialUsePendingLifecycle(t *testing.T) {
 		}
 	})
 
-	t.Run("expires a stale pending instead of reusing it forever", func(t *testing.T) {
+	t.Run("keeps reusing an unconfirmed pending regardless of age", func(t *testing.T) {
+		// 结果未知的重试不能靠计时器变成结果已知:换新键会对服务端
+		// 已扣过的使用二次扣,未确认的 pending 无时效、持续复用。
 		first, err := beginTrialUsePending(base, apiBaseURL, productID, now)
 		if err != nil {
 			t.Fatalf("begin: %v", err)
 		}
-		stale, err := beginTrialUsePending(base, apiBaseURL, productID, now.Add(trialUsePendingTTL+time.Minute))
+		daysLater, err := beginTrialUsePending(base, apiBaseURL, productID, now.Add(72*time.Hour))
 		if err != nil {
-			t.Fatalf("stale begin: %v", err)
+			t.Fatalf("aged begin: %v", err)
 		}
-		if first == stale {
-			t.Fatalf("a pending older than the TTL must not be reused")
+		if first != daysLater {
+			t.Fatalf("an unconfirmed pending must stay reusable: %q vs %q", first, daysLater)
 		}
 	})
 
