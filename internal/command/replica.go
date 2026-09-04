@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"path/filepath"
 	"regexp"
-	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -19,13 +17,6 @@ var (
 	replicaUUIDPattern      = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	replicaShortCodePattern = regexp.MustCompile(`^VMR-[A-Z0-9]{20}$`)
 )
-
-type replicaPublishResult struct {
-	ReplicaID     string                              `json:"replicaId"`
-	ReplicaCode   string                              `json:"replicaCode"`
-	BuyerEntry    api.WebsiteReplicaBuyerEntry        `json:"buyerEntry"`
-	SourceArchive replicacontent.SourceArchiveSummary `json:"sourceArchive"`
-}
 
 type replicaInspectResult struct {
 	NextAction                  string                       `json:"nextAction"`
@@ -39,6 +30,9 @@ func newReplicaCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newReplicaPreviewCommand(runtime))
 	command.AddCommand(newReplicaPublishCommand(runtime))
 	command.AddCommand(newReplicaInspectCommand(runtime))
+	command.AddCommand(newReplicaStatusCommand(runtime))
+	command.AddCommand(newReplicaResumeCommand(runtime))
+	command.AddCommand(newReplicaCancelCommand(runtime))
 	command.AddCommand(newReplicaInstallCommand(runtime))
 	return command
 }
@@ -77,101 +71,6 @@ func replicaInspectFailure(err error) error {
 	}
 	failure.Hint = "report that the selected ViceMe service could not inspect the Work; do not retry or diagnose local services"
 	return &failure
-}
-
-func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
-	var source, workID, title, summary string
-	var priceCents int
-	command := &cobra.Command{
-		Use:   "publish",
-		Short: "Freeze and upload Website Replica source, then return its stable sharing code",
-		Args:  cobra.NoArgs,
-		RunE: func(command *cobra.Command, _ []string) error {
-			result, err := publishReplica(command.Context(), runtime, source, workID, title, summary, priceCents)
-			if err != nil {
-				return err
-			}
-			return runtime.business(result)
-		},
-	}
-	command.Flags().StringVar(&source, "path", "", "Website Replica project directory or existing ZIP path")
-	command.Flags().StringVar(&workID, "work-id", "", "Website Work UUID")
-	command.Flags().StringVar(&title, "title", "", "buyer-visible Replica title")
-	command.Flags().StringVar(&summary, "summary", "", "buyer-visible Replica summary")
-	command.Flags().IntVar(&priceCents, "price-cents", 0, "price in the market currency's minor unit")
-	_ = command.MarkFlagRequired("path")
-	_ = command.MarkFlagRequired("work-id")
-	_ = command.MarkFlagRequired("title")
-	_ = command.MarkFlagRequired("price-cents")
-	return command
-}
-
-func publishReplica(ctx context.Context, runtime *Runtime, source, workID, title, summary string, priceCents int) (replicaPublishResult, error) {
-	workID = strings.TrimSpace(workID)
-	title = strings.TrimSpace(title)
-	summary = strings.TrimSpace(summary)
-	if !replicaUUIDPattern.MatchString(workID) {
-		return replicaPublishResult{}, output.Validation("REPLICA_WORK_ID_INVALID", "--work-id must be a UUID")
-	}
-	if title == "" {
-		return replicaPublishResult{}, output.Validation("REPLICA_METADATA_INVALID", "--title cannot be empty")
-	}
-	if priceCents < 0 || priceCents > 10_000_000 {
-		return replicaPublishResult{}, output.Validation("REPLICA_PRICE_INVALID", "--price-cents must be between 0 and 10000000")
-	}
-	frozen, err := replicacontent.FreezeSourceArchive(source, replicacontent.FreezeSourceOptions{Purpose: summary})
-	if err != nil {
-		return replicaPublishResult{}, replicaSourceArchiveError(err)
-	}
-	defer frozen.Cleanup()
-	if err := runtime.requireWebsiteReplicaAuthentication(ctx, "website-replica:read", "website-replica:write"); err != nil {
-		return replicaPublishResult{}, err
-	}
-	clientRequestID := runtime.deps.NewID()
-	if !replicaUUIDPattern.MatchString(clientRequestID) {
-		return replicaPublishResult{}, output.Internal("REPLICA_CLIENT_REQUEST_ID_INVALID", "could not create a valid Replica request identity", nil)
-	}
-	created, err := runtime.client().CreateWebsiteReplicaUpload(ctx, api.CreateWebsiteReplicaUploadRequest{
-		ClientRequestID: clientRequestID,
-		WorkID:          workID,
-		Title:           title,
-		Summary:         summary,
-		FileName:        filepath.Base(frozen.Path()),
-		SizeBytes:       frozen.Summary.SizeBytes,
-		Digest:          frozen.Summary.Digest,
-		PriceCents:      priceCents,
-	})
-	if err != nil {
-		return replicaPublishResult{}, err
-	}
-	file, info, err := frozen.Open()
-	if err != nil {
-		return replicaPublishResult{}, output.Internal("REPLICA_ARCHIVE_SNAPSHOT_INVALID", "the frozen Website Replica ZIP is no longer available", err)
-	}
-	defer file.Close()
-	progress(runtime, "Uploading Website Replica source package")
-	if err := runtime.client().PutUpload(ctx, api.UploadAuthorization{
-		Method: created.Upload.Method, URL: created.Upload.URL,
-		ExpiresAt: created.Upload.ExpiresAt, Headers: created.Upload.Headers,
-	}, file, info.Size()); err != nil {
-		return replicaPublishResult{}, err
-	}
-	completed, err := runtime.client().CompleteWebsiteReplicaUpload(ctx, created.ReplicaID, created.UploadID)
-	if err != nil {
-		return replicaPublishResult{}, err
-	}
-	if !replicaPublicationMatchesRequest(completed, created.ReplicaID, title, priceCents) {
-		return replicaPublishResult{}, invalidReplicaResponse("Website Replica completion does not match the publication request")
-	}
-	return replicaPublishResult{
-		ReplicaID: created.ReplicaID, ReplicaCode: "VICEME-REPLICA:" + completed.ShortCode,
-		BuyerEntry: completed.BuyerEntry, SourceArchive: frozen.Summary,
-	}, nil
-}
-
-func replicaPublicationMatchesRequest(completed api.CompleteWebsiteReplicaUploadResponse, replicaID, title string, priceCents int) bool {
-	return completed.ReplicaID == replicaID && replicaShortCodePattern.MatchString(completed.ShortCode) &&
-		completed.Product.Title == title && completed.Product.Currency == "CNY" && completed.Product.PriceCents == priceCents
 }
 
 func replicaSourceArchiveError(err error) error {

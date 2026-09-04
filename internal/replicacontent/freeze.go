@@ -63,6 +63,92 @@ type frozenSourceFile struct {
 	data           []byte
 }
 
+// ValidateSourceWorktree performs the fail-closed source inspection before a
+// preview is opened. The later freeze repeats the inspection while copying the
+// exact bytes that the final confirmation binds.
+func ValidateSourceWorktree(sourcePath string) (returnErr error) {
+	if strings.TrimSpace(sourcePath) == "" {
+		return errors.New("Website Replica source path is invalid")
+	}
+	source, err := filepath.Abs(sourcePath)
+	if err != nil {
+		return errors.New("Website Replica source path is invalid")
+	}
+	info, err := os.Lstat(source)
+	if err != nil {
+		return fmt.Errorf("inspect Website Replica source path: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 || (!info.IsDir() && !info.Mode().IsRegular()) {
+		return errors.New("Website Replica source must be a real project directory or regular ZIP file")
+	}
+	if info.Mode().IsRegular() {
+		if !strings.EqualFold(filepath.Ext(source), ".zip") {
+			return errors.New("Website Replica source file must be a ZIP archive")
+		}
+		if info.Size() <= 0 || info.Size() > MaxArchiveBytes {
+			return errors.New("Website Replica ZIP is outside the archive size limit")
+		}
+		file, err := os.Open(source)
+		if err != nil {
+			return fmt.Errorf("open Website Replica ZIP: %w", err)
+		}
+		defer func() { returnErr = errors.Join(returnErr, file.Close()) }()
+		return ValidatePublishArchive(file, info.Size())
+	}
+	directory, err := privatepath.CreateTempDirectory(os.TempDir(), ".viceme-replica-check-*")
+	if err != nil {
+		return fmt.Errorf("create private Website Replica inspection directory: %w", err)
+	}
+	defer func() { returnErr = errors.Join(returnErr, os.RemoveAll(directory)) }()
+	files, _, _, err := snapshotWorktree(source, directory)
+	if err != nil {
+		return err
+	}
+	if len(files) == 0 {
+		return errors.New("Website Replica source must contain at least one publishable file")
+	}
+	return nil
+}
+
+// PrepareSourcePreview returns a directory suitable for the local preview
+// runtime. Existing ZIP inputs are validated and extracted into an owner-only
+// temporary directory; callers must invoke the returned cleanup function.
+func PrepareSourcePreview(sourcePath string) (_ string, cleanup func() error, returnErr error) {
+	source, err := filepath.Abs(sourcePath)
+	if err != nil || strings.TrimSpace(sourcePath) == "" {
+		return "", nil, errors.New("Website Replica source path is invalid")
+	}
+	info, err := os.Lstat(source)
+	if err != nil {
+		return "", nil, fmt.Errorf("inspect Website Replica source path: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return "", nil, errors.New("Website Replica source must not be a symbolic link")
+	}
+	if info.IsDir() {
+		return source, func() error { return nil }, nil
+	}
+	if !info.Mode().IsRegular() || !strings.EqualFold(filepath.Ext(source), ".zip") || info.Size() <= 0 || info.Size() > MaxArchiveBytes {
+		return "", nil, errors.New("Website Replica source must be a real project directory or regular ZIP file")
+	}
+	file, err := os.Open(source)
+	if err != nil {
+		return "", nil, fmt.Errorf("open Website Replica ZIP: %w", err)
+	}
+	plan, validationErr := validatePublishArchive(file, info.Size())
+	if validationErr != nil {
+		return "", nil, errors.Join(validationErr, file.Close())
+	}
+	directory, err := privatepath.CreateTempDirectory(os.TempDir(), ".viceme-replica-preview-*")
+	if err != nil {
+		return "", nil, errors.Join(fmt.Errorf("create private Website Replica preview directory: %w", err), file.Close())
+	}
+	if err := errors.Join(extractArchive(plan, directory), file.Close()); err != nil {
+		return "", nil, errors.Join(err, os.RemoveAll(directory))
+	}
+	return directory, func() error { return os.RemoveAll(directory) }, nil
+}
+
 func FreezeSourceArchive(sourcePath string, options FreezeSourceOptions) (*FrozenSourceArchive, error) {
 	if strings.TrimSpace(sourcePath) == "" {
 		return nil, errors.New("Website Replica source path is invalid")
