@@ -26,12 +26,32 @@ type DeviceTokenRequest struct {
 }
 
 type DeviceToken struct {
-	Status      string   `json:"status"`
-	Interval    int      `json:"interval,omitempty"`
-	AccessToken string   `json:"accessToken,omitempty"`
-	TokenType   string   `json:"tokenType,omitempty"`
-	ExpiresAt   string   `json:"expiresAt,omitempty"`
-	Scopes      []string `json:"scopes,omitempty"`
+	Status                     string                      `json:"status"`
+	Interval                   int                         `json:"interval,omitempty"`
+	AccessToken                string                      `json:"accessToken,omitempty"`
+	TokenType                  string                      `json:"tokenType,omitempty"`
+	ExpiresAt                  string                      `json:"expiresAt,omitempty"`
+	Scopes                     []string                    `json:"scopes,omitempty"`
+	CreatorOnboardingSelection *CreatorOnboardingSelection `json:"creatorOnboardingSelection,omitempty"`
+}
+
+type CreatorOnboardingSelection struct {
+	Mode     string                     `json:"mode"`
+	Works    []CreatorOnboardingWork    `json:"works,omitempty"`
+	Contacts []CreatorOnboardingContact `json:"contacts,omitempty"`
+}
+
+type CreatorOnboardingWork struct {
+	Title         string `json:"title,omitempty"`
+	Summary       string `json:"summary,omitempty"`
+	URL           string `json:"url,omitempty"`
+	CoverImageURL string `json:"coverImageUrl,omitempty"`
+}
+
+type CreatorOnboardingContact struct {
+	Platform string `json:"platform"`
+	Label    string `json:"label,omitempty"`
+	Value    string `json:"value,omitempty"`
 }
 
 type AuthStatus struct {
