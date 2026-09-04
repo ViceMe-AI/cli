@@ -249,7 +249,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
 | `viceme replica preview [--path <项目> \| --url <回环地址>]` | 登录或上传前，在匿名 ViceMe 预览壳中打开本地网页；CLI 启动的 dev server 仅存活到命令退出，视觉验证以打开的浏览器为准。 |
-| `viceme replica publish ...` | 校验含根级 `VICEME-REPLICA.md` 的完整源码 ZIP，发布不可变版本并返回稳定口令与自站提示词。 |
+| `viceme replica publish ...` | 冻结项目工作树（或校验已有 ZIP）、生成根级 `VICEME-REPLICA.md`，发布不可变版本并返回源码摘要、稳定口令与自站提示词。 |
 | `viceme replica install <口令> --accept-price-cents <分> [--payment-presented] [--target <新目录>]` | 在当前工作区发起匿名 checkout 并返回托管支付页；右侧页面打开后用 `--payment-presented` 等待，每分钟查询一次且最多三分钟，随后原子安装源码。 |
 | `viceme update` | 同时更新 CLI 与匹配版本的官方 Skills。 |
 | `viceme merchant accounts` | 列出当前 User 通过 OWNER 成员关系经营的普通 MerchantAccount。 |

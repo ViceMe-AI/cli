@@ -45,7 +45,8 @@ var (
 	pathUpperCaser           = cases.Upper(language.Und)
 	errInstalledTreeMismatch = errors.New("installed Website Replica tree does not match the archive")
 	installTestCrashHook     func(string)
-	ErrDeploymentGuide       = errors.New("Website Replica deployment guide is invalid")
+	// ErrDeploymentGuide keeps the pre-handoff error name compatible for callers.
+	ErrDeploymentGuide = ErrProjectHandoff
 )
 
 type LicenseRecord struct {
@@ -87,60 +88,83 @@ func AtomicInstallSupported() bool { return atomicInstallSupported() }
 // creator uploads source bytes. It uses ReaderAt operations and leaves the
 // caller's file cursor unchanged.
 func ValidatePublishArchive(file *os.File, size int64) error {
+	_, err := validatePublishArchive(file, size)
+	return err
+}
+
+func validatePublishArchive(file *os.File, size int64) (archivePlan, error) {
 	entries, err := validateArchiveStructure(file, size)
 	if err != nil {
-		return err
+		return archivePlan{}, err
 	}
 	reader, err := zip.NewReader(file, size)
 	if err != nil {
-		return fmt.Errorf("open Website Replica ZIP directory: %w", err)
+		return archivePlan{}, fmt.Errorf("open Website Replica ZIP directory: %w", err)
 	}
 	if err := validateZIPReader(reader, entries); err != nil {
-		return err
+		return archivePlan{}, err
 	}
 	plan, err := inspectArchive(reader)
 	if err != nil {
-		return err
+		return archivePlan{}, err
 	}
-	foundGuide := false
+	for _, directory := range plan.directories {
+		if err := validateSensitivePath(directory); err != nil {
+			return archivePlan{}, err
+		}
+	}
+	foundHandoff := false
 	foundSource := false
 	for _, file := range plan.files {
+		if err := validateSensitivePath(file.name); err != nil {
+			return archivePlan{}, err
+		}
 		input, err := file.entry.Open()
 		if err != nil {
-			return fmt.Errorf("open Website Replica ZIP entry: %w", err)
+			return archivePlan{}, fmt.Errorf("open Website Replica ZIP entry: %w", err)
 		}
 		checksum := crc32.NewIEEE()
-		var destination io.Writer = checksum
-		var guide bytes.Buffer
-		if file.name == DeploymentGuideFile {
-			foundGuide = true
-			if file.entry.UncompressedSize64 == 0 || file.entry.UncompressedSize64 > MaxDeploymentGuideBytes {
+		var content bytes.Buffer
+		if file.entry.UncompressedSize64 <= uint64(^uint(0)>>1) {
+			content.Grow(int(file.entry.UncompressedSize64))
+		}
+		if file.name == ProjectHandoffFile {
+			foundHandoff = true
+			if file.entry.UncompressedSize64 == 0 || file.entry.UncompressedSize64 > MaxProjectHandoffBytes {
 				_ = input.Close()
-				return ErrDeploymentGuide
+				return archivePlan{}, ErrProjectHandoff
 			}
-			destination = io.MultiWriter(checksum, &guide)
 		} else {
 			foundSource = true
 		}
+		destination := io.MultiWriter(checksum, &content)
 		written, copyErr := io.Copy(destination, io.LimitReader(input, int64(file.entry.UncompressedSize64)+1))
 		closeErr := input.Close()
 		if copyErr != nil || closeErr != nil {
-			return fmt.Errorf("read Website Replica ZIP entry: %w", errors.Join(copyErr, closeErr))
+			return archivePlan{}, fmt.Errorf("read Website Replica ZIP entry: %w", errors.Join(copyErr, closeErr))
 		}
 		if uint64(written) != file.entry.UncompressedSize64 || checksum.Sum32() != file.entry.CRC32 {
-			return errors.New("Website Replica ZIP entry payload does not match its metadata")
+			return archivePlan{}, errors.New("Website Replica ZIP entry payload does not match its metadata")
 		}
-		if file.name == DeploymentGuideFile && (!utf8.Valid(guide.Bytes()) || len(bytes.TrimSpace(guide.Bytes())) == 0) {
-			return ErrDeploymentGuide
+		if err := validateSensitiveContent(file.name, content.Bytes()); err != nil {
+			return archivePlan{}, err
+		}
+		if err := validateForbiddenReplicaContent(file.name, content.Bytes()); err != nil {
+			return archivePlan{}, err
+		}
+		if file.name == ProjectHandoffFile {
+			if err := validateProjectHandoff(content.Bytes()); err != nil {
+				return archivePlan{}, err
+			}
 		}
 	}
-	if !foundGuide {
-		return ErrDeploymentGuide
+	if !foundHandoff {
+		return archivePlan{}, ErrProjectHandoff
 	}
 	if !foundSource {
-		return errors.New("Website Replica ZIP does not contain source files")
+		return archivePlan{}, errors.New("Website Replica ZIP does not contain source files")
 	}
-	return nil
+	return plan, nil
 }
 
 type installJournal struct {
