@@ -34,27 +34,29 @@ import (
 )
 
 type Dependencies struct {
-	In                  io.Reader
-	Out                 io.Writer
-	ErrOut              io.Writer
-	HTTPClient          *http.Client
-	Store               securestore.Store
-	Skills              *skillcontent.Bundle
-	Updater             updatepkg.Service
-	Environment         skillcontent.Environment
-	Now                 func() time.Time
-	Sleep               func(context.Context, time.Duration) error
-	NewID               func() string
-	OpenURL             func(context.Context, string) error
-	StartReplicaPreview func(context.Context, replicapreview.Options) (replicapreview.Running, error)
-	APIBaseURL          string
-	Region              config.Region
-	Reexecute           func(context.Context, []string, []string) (int, error)
+	In                    io.Reader
+	Out                   io.Writer
+	ErrOut                io.Writer
+	HTTPClient            *http.Client
+	Store                 securestore.Store
+	Skills                *skillcontent.Bundle
+	Updater               updatepkg.Service
+	Environment           skillcontent.Environment
+	Now                   func() time.Time
+	Sleep                 func(context.Context, time.Duration) error
+	NewID                 func() string
+	OpenURL               func(context.Context, string) error
+	StartReplicaPreview   func(context.Context, replicapreview.Options) (replicapreview.Running, error)
+	APIBaseURL            string
+	Region                config.Region
+	Reexecute             func(context.Context, []string, []string) (int, error)
+	StartBackgroundUpdate func() error
 
 	coordinatedActivationChild  bool
 	activationChildRequest      npmActivationChildRequest
 	activationChildParseError   error
 	bootstrapActivationCommand  bool
+	activationMutationCommand   bool
 	activationNPMRecoverer      *updatepkg.NPMService
 	runningActivationGeneration *updatepkg.ActiveGeneration
 	allowDevelopmentAutoUpdate  bool
@@ -89,16 +91,19 @@ type Runtime struct {
 	configBase         string
 	processCredential  *publicationCredential
 	commerceContextID  string
+	executedCommand    *cobra.Command
 }
 
 const (
-	apiBaseURLEnvironment         = "VICEME_API_BASE_URL"
-	processAccessTokenEnvironment = "VICEME_ACCESS_TOKEN"
-	autoUpdateReexecEnvironment   = "VICEME_AUTO_UPDATE_REEXEC"
-	autoUpdateFromEnvironment     = "VICEME_AUTO_UPDATE_FROM"
-	autoUpdateToEnvironment       = "VICEME_AUTO_UPDATE_TO"
-	npmLauncherRuntimeEnvironment = "VICEME_NPM_LAUNCHER_RUNTIME"
-	activationOperationTimeout    = 12 * time.Minute
+	apiBaseURLEnvironment            = "VICEME_API_BASE_URL"
+	processAccessTokenEnvironment    = "VICEME_ACCESS_TOKEN"
+	autoUpdateReexecEnvironment      = "VICEME_AUTO_UPDATE_REEXEC"
+	autoUpdateFromEnvironment        = "VICEME_AUTO_UPDATE_FROM"
+	autoUpdateToEnvironment          = "VICEME_AUTO_UPDATE_TO"
+	npmLauncherRuntimeEnvironment    = "VICEME_NPM_LAUNCHER_RUNTIME"
+	automaticUpdateWorkerArgument    = "__automatic-update"
+	automaticUpdateWorkerEnvironment = "VICEME_AUTO_UPDATE_WORKER"
+	activationOperationTimeout       = 12 * time.Minute
 )
 
 var fallbackUUIDSequence atomic.Uint64
@@ -114,8 +119,14 @@ func (source processTokenSource) Token(context.Context) (string, error) {
 }
 
 func Execute(args []string, dependencies Dependencies) int {
+	if isAutomaticUpdateWorkerCommand(args) {
+		dependencies = defaults(dependencies)
+		runAutomaticUpdateWorker(&dependencies)
+		return 0
+	}
 	dependencies.activationChildRequest, dependencies.activationChildParseError = parseNPMActivationChild(args)
 	dependencies.bootstrapActivationCommand = isBootstrapActivationCommand(args)
+	dependencies.activationMutationCommand = isActivationMutationCommand(args)
 	dependencies = defaults(dependencies)
 	root, runtime, err := NewRoot(dependencies)
 	if err != nil {
@@ -130,23 +141,11 @@ func Execute(args []string, dependencies Dependencies) int {
 	}
 	root.SetArgs(args)
 	if err := root.ExecuteContext(context.Background()); err != nil {
-		var applied *automaticUpdateApplied
-		if errors.As(err, &applied) {
-			if applied.Scheduled {
-				failure := output.NewError(
-					output.ExitInternal,
-					"internal",
-					"AUTO_UPDATE_RESTART_REQUIRED",
-					"ViceMe scheduled a complete CLI and Skill update; rerun the command after activation finishes",
-				)
-				failure.Retryable = true
-				failure.Hint = "rerun the same command"
-				return runtime.printer.Failure(failure)
-			}
-			return reexecuteOriginalCommand(args, runtime.deps, runtime.printer, applied.From, applied.To)
-		}
-		return runtime.failure(err)
+		exitCode := runtime.failure(err)
+		runtime.scheduleAutomaticUpdate(runtime.executedCommand)
+		return exitCode
 	}
+	runtime.scheduleAutomaticUpdate(runtime.executedCommand)
 	return 0
 }
 
@@ -190,6 +189,9 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		err := reconcileActivationAtStartup(ctx, configBase, &dependencies)
 		cancel()
 		if err != nil {
+			if updatepkg.IsPermissionDenied(err) {
+				return nil, nil, updatePermissionRequired(err).WithDetails(map[string]any{"recovery_required": true})
+			}
 			return nil, nil, output.Internal("ACTIVATION_RECOVERY_FAILED", "could not reconcile the active ViceMe CLI and Skill generation", err)
 		}
 	}
@@ -266,6 +268,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.Flags().BoolVarP(&runtime.opts.version, "version", "v", false, "print version information")
 	root.PersistentFlags().StringVar(&runtime.opts.profile, "profile", "", "use a specific profile for this command")
 	root.PersistentPreRunE = func(command *cobra.Command, _ []string) error {
+		runtime.executedCommand = command
 		runtime.processCredential = nil
 		if command.CommandPath() != "viceme replica preview" {
 			processCredential, err := parsePublicationCredential(os.Getenv(processAccessTokenEnvironment))
@@ -278,9 +281,6 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 			return err
 		}
 		if err := runtime.selectProfile(runtime.opts.profile); err != nil {
-			return err
-		}
-		if err := runtime.ensureAutomaticUpdate(command); err != nil {
 			return err
 		}
 		if commerceCommandRequested(command) {
@@ -378,6 +378,14 @@ func parseNPMActivationChild(args []string) (npmActivationChildRequest, error) {
 
 func isBootstrapActivationCommand(args []string) bool {
 	return len(args) >= 2 && args[0] == "bootstrap" && args[1] == "activate"
+}
+
+func isAutomaticUpdateWorkerCommand(args []string) bool {
+	return len(args) == 1 && args[0] == automaticUpdateWorkerArgument && os.Getenv(automaticUpdateWorkerEnvironment) == "1"
+}
+
+func isActivationMutationCommand(args []string) bool {
+	return len(args) > 0 && (args[0] == "update" || args[0] == "install" || args[0] == "bootstrap")
 }
 
 func reconcileActivationAtStartup(ctx context.Context, configDir string, dependencies *Dependencies) error {
@@ -513,66 +521,24 @@ func runningActivationGeneration(dependencies Dependencies) (updatepkg.ActiveGen
 	return updatepkg.NewStandaloneGeneration(version, digest)
 }
 
-type automaticUpdateApplied struct {
-	From      string
-	To        string
-	Scheduled bool
-}
-
-func (applied *automaticUpdateApplied) Error() string {
-	return "automatic CLI and Skill update applied"
-}
-
-func (r *Runtime) ensureAutomaticUpdate(command *cobra.Command) error {
+func (r *Runtime) scheduleAutomaticUpdate(command *cobra.Command) {
 	if command == nil || command.Name() == "update" || r.deps.coordinatedActivationChild ||
-		r.deps.bootstrapActivationCommand || os.Getenv(autoUpdateReexecEnvironment) == "1" {
-		return nil
+		r.deps.activationMutationCommand || r.deps.bootstrapActivationCommand ||
+		os.Getenv(autoUpdateReexecEnvironment) == "1" || os.Getenv("CI") != "" {
+		return
 	}
 	if _, err := semver.Parse(buildinfo.Version); err != nil && !r.deps.allowDevelopmentAutoUpdate {
-		return nil
+		return
 	}
-	checker, ok := r.deps.Updater.(updatepkg.AutomaticChecker)
-	if !ok {
-		return nil
+	if state, ok := readAutomaticUpdateState(r.configBase); ok &&
+		!automaticUpdateStateIsDue(state, buildinfo.CompatibilityVersion(), r.deps.Now()) {
+		return
 	}
-	checkContext, cancelCheck := context.WithTimeout(command.Context(), 5*time.Second)
-	check, err := checker.CheckAutomatic(checkContext)
-	cancelCheck()
-	if err != nil {
-		// Release discovery is fail-open. The current process is already a
-		// complete verified generation and remains usable while offline.
-		return nil
-	}
-	if !check.UpdateAvailable {
-		return nil
-	}
-	if err := updatepkg.ProbeRenameCapability(r.configBase); err != nil {
-		// Activation is fail-open, like release discovery: the current process
-		// is already a complete verified generation. An agent sandbox that
-		// denies renames cannot replace the executable, and failing here would
-		// break every business command instead of just the update.
-		if errors.Is(err, updatepkg.ErrRenameDenied) {
-			_, _ = fmt.Fprintln(r.deps.ErrOut, "Automatic CLI update skipped: this environment cannot activate a new ViceMe generation; run 'viceme update' from an unsandboxed terminal.")
-		}
-		return nil
-	}
-	_, _ = fmt.Fprintf(r.deps.ErrOut, "Updating ViceMe CLI and official Skills %s -> %s; the original command will continue automatically.\n", check.CurrentVersion, check.AvailableVersion)
-	applyContext, cancelApply := context.WithTimeout(command.Context(), activationOperationTimeout)
-	result, err := r.deps.Updater.Apply(applyContext, check, updatepkg.ApplyOptions{RefreshSkills: true, SkillTarget: "auto"})
-	cancelApply()
-	if err != nil {
-		return updaterError(err, result)
-	}
-	scheduled := false
-	for _, target := range result.Targets {
-		if target.Status == "scheduled" {
-			scheduled = true
-			break
-		}
-	}
-	return &automaticUpdateApplied{From: check.CurrentVersion, To: result.CLIVersion, Scheduled: scheduled}
+	// Starting the worker is intentionally best effort. It owns network checks,
+	// permission preflight, installation, and failure recording in another
+	// process; none of those can delay or replace the current command response.
+	_ = r.deps.StartBackgroundUpdate()
 }
-
 func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.In == nil {
 		dependencies.In = os.Stdin
@@ -648,7 +614,41 @@ func defaults(dependencies Dependencies) Dependencies {
 			return 0, err
 		}
 	}
+	if dependencies.StartBackgroundUpdate == nil {
+		dependencies.StartBackgroundUpdate = func() error {
+			executable, err := os.Executable()
+			if err != nil {
+				return err
+			}
+			environment := withEnvironmentValues(
+				withoutEnvironmentVariables(os.Environ(), processAccessTokenEnvironment),
+				map[string]string{automaticUpdateWorkerEnvironment: "1"},
+			)
+			return startDetachedProcess(executable, []string{automaticUpdateWorkerArgument}, environment)
+		}
+	}
 	return dependencies
+}
+
+func withoutEnvironmentVariables(environment []string, names ...string) []string {
+	blocked := make(map[string]struct{}, len(names))
+	for _, name := range names {
+		blocked[name+"="] = struct{}{}
+	}
+	filtered := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		keep := true
+		for prefix := range blocked {
+			if strings.HasPrefix(entry, prefix) {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			filtered = append(filtered, entry)
+		}
+	}
+	return filtered
 }
 
 func reexecutionCommand(ctx context.Context, args, environment []string, updater updatepkg.Service) (string, []string, error) {

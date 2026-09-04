@@ -14,8 +14,11 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
+
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 )
 
 func TestReleaseServiceDefaultBaseURLsUseStartBucket(t *testing.T) {
@@ -163,6 +166,100 @@ func TestReleaseServiceChecksReplacesAndRefreshesMatchingSkills(t *testing.T) {
 	}
 }
 
+func TestReleaseServiceCLIOnlyUpdateDoesNotRequestSkillActivation(t *testing.T) {
+	t.Parallel()
+	binary := []byte("new-viceme-binary")
+	digest := sha256.Sum256(binary)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1.2.3/viceme_1.2.3_linux_amd64":
+			_, _ = writer.Write(binary)
+		case "/v1.2.3/viceme_1.2.3_linux_amd64.sha256":
+			_, _ = fmt.Fprintf(writer, "%x", digest)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	executable := filepath.Join(t.TempDir(), "viceme")
+	if err := os.WriteFile(executable, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{hook: func(name string, args []string) error {
+		if !reflect.DeepEqual(args, []string{"bootstrap", "activate", "--destination", executable, "--region", "cn", "--skip-skills"}) {
+			return fmt.Errorf("unexpected CLI-only activation: %s %#v", name, args)
+		}
+		contents, err := os.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(executable, contents, 0o755)
+	}}
+	service := NewReleaseService("1.2.2", "1.2.2")
+	service.ReleaseBaseURL = server.URL
+	service.HTTPClient = server.Client()
+	service.ExecutablePath = executable
+	service.GOOS = "linux"
+	service.GOARCH = "amd64"
+	service.Runner = runner
+
+	result, err := service.Apply(
+		context.Background(),
+		CheckResult{CurrentVersion: "1.2.2", AvailableVersion: "1.2.3", UpdateAvailable: true},
+		ApplyOptions{RefreshSkills: false},
+	)
+	if err != nil || result.CLIVersion != "1.2.3" || len(result.Targets) != 1 || result.Targets[0].Target != "standalone_binary" {
+		t.Fatalf("CLI-only release result=%#v err=%v", result, err)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("CLI-only release invoked unexpected children: %#v", runner.calls)
+	}
+}
+
+func TestReleaseServiceWindowsCLIOnlyUpdateSchedulesNoSkillRefresh(t *testing.T) {
+	t.Parallel()
+	binary := []byte("new-windows-viceme-binary")
+	digest := sha256.Sum256(binary)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1.2.3/viceme_1.2.3_windows_amd64.exe":
+			_, _ = writer.Write(binary)
+		case "/v1.2.3/viceme_1.2.3_windows_amd64.exe.sha256":
+			_, _ = fmt.Fprintf(writer, "%x", digest)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	executable := filepath.Join(t.TempDir(), "viceme.exe")
+	if err := os.WriteFile(executable, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var scheduled bool
+	service := NewReleaseService("1.2.2", "1.2.2")
+	service.ReleaseBaseURL = server.URL
+	service.HTTPClient = server.Client()
+	service.ExecutablePath = executable
+	service.GOOS = "windows"
+	service.GOARCH = "amd64"
+	service.ScheduleWindows = func(staged, destination, target, region string, refreshSkills bool) error {
+		scheduled = true
+		if staged == "" || destination != executable || target != "auto" || region != "cn" || refreshSkills {
+			return fmt.Errorf("unexpected Windows activation: staged=%q destination=%q target=%q region=%q refreshSkills=%t", staged, destination, target, region, refreshSkills)
+		}
+		return nil
+	}
+	result, err := service.Apply(
+		context.Background(),
+		CheckResult{CurrentVersion: "1.2.2", AvailableVersion: "1.2.3", UpdateAvailable: true},
+		ApplyOptions{RefreshSkills: false},
+	)
+	if err != nil || !scheduled || len(result.Targets) != 1 || result.Targets[0].Status != "scheduled" {
+		t.Fatalf("Windows CLI-only result=%#v scheduled=%t err=%v", result, scheduled, err)
+	}
+}
+
 func TestReleaseServiceRestoresCurrentBinaryWhenSkillActivationFails(t *testing.T) {
 	t.Parallel()
 	binary := []byte("new-viceme-binary")
@@ -201,6 +298,42 @@ func TestReleaseServiceRestoresCurrentBinaryWhenSkillActivationFails(t *testing.
 	installed, err := os.ReadFile(executable)
 	if err != nil || string(installed) != "old" {
 		t.Fatalf("previous binary was not restored: %q err=%v", installed, err)
+	}
+}
+
+func TestReleaseServicePermissionPreflightBlocksBeforeDownload(t *testing.T) {
+	executable := filepath.Join(t.TempDir(), "viceme")
+	if err := os.WriteFile(executable, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	originalRename := privatefile.RenameFile
+	privatefile.RenameFile = func(oldName, _ string) error {
+		return &os.PathError{Op: "rename", Path: oldName, Err: syscall.EPERM}
+	}
+	t.Cleanup(func() { privatefile.RenameFile = originalRename })
+
+	service := NewReleaseService("1.2.2", "1.2.2")
+	service.ExecutablePath = executable
+	result, err := service.Apply(context.Background(), CheckResult{AvailableVersion: "1.2.3", UpdateAvailable: true}, ApplyOptions{RefreshSkills: true, SkillTarget: "workbuddy"})
+	if !IsPermissionDenied(err) || len(result.Targets) != 2 || result.Targets[0].Status != "blocked" || result.Targets[1].Status != "blocked" {
+		t.Fatalf("permission preflight result=%#v err=%v", result, err)
+	}
+	installed, readErr := os.ReadFile(executable)
+	if readErr != nil || string(installed) != "old" {
+		t.Fatalf("preflight changed executable: %q err=%v", installed, readErr)
+	}
+}
+
+func TestReleaseChildErrorPromotesOnlyStablePermissionEnvelope(t *testing.T) {
+	output := []byte(`{"ok":false,"error":{"type":"policy","code":"UPDATE_PERMISSION_REQUIRED","message":"approval required","details":{"private":"must not propagate"}}}`)
+	stable, err := releaseChildError(errors.New("exit status 6"), output)
+	if stable != "UPDATE_PERMISSION_REQUIRED" || !IsPermissionDenied(err) || strings.Contains(err.Error(), "private") {
+		t.Fatalf("release child failure stable=%q err=%v", stable, err)
+	}
+
+	stable, err = releaseChildError(errors.New("exit status 5"), []byte(`{"ok":false,"error":{"type":"internal","code":"SKILL_INSTALL_PREPARE_FAILED","message":"private detail"}}`))
+	if stable != "SKILL_INSTALL_PREPARE_FAILED" || err != nil {
+		t.Fatalf("non-permission child failure stable=%q err=%v", stable, err)
 	}
 }
 
@@ -278,7 +411,10 @@ type blockingConcurrentRunner struct {
 	startOnce    sync.Once
 }
 
-func (runner *blockingConcurrentRunner) Run(context.Context, string, ...string) ([]byte, error) {
+func (runner *blockingConcurrentRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	if output, ok := fakePermissionProbe(name, args); ok {
+		return output, nil
+	}
 	runner.mu.Lock()
 	runner.calls++
 	call := runner.calls
@@ -297,6 +433,9 @@ func (runner *blockingConcurrentRunner) CallCount() int {
 }
 
 func (runner *fakeRunner) Run(_ context.Context, name string, args ...string) ([]byte, error) {
+	if output, ok := fakePermissionProbe(name, args); ok {
+		return output, nil
+	}
 	runner.calls = append(runner.calls, runCall{name: name, args: append([]string(nil), args...)})
 	index := len(runner.calls) - 1
 	var output []byte
@@ -357,6 +496,29 @@ func TestNPMServiceChecksAndAppliesExactVersion(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(configDir, updateStateFilename)); err != nil {
 		t.Fatalf("version check did not persist update state: %v", err)
+	}
+}
+
+func TestNPMServiceCLIOnlyUpdateDoesNotRunSkillChild(t *testing.T) {
+	t.Parallel()
+	configDir := t.TempDir()
+	runner := &fakeRunner{}
+	service := NewNPMService("0.1.0", "0.1.0", "npm")
+	service.ConfigDir = configDir
+	service.Runner = runner
+	result, err := service.Apply(
+		context.Background(),
+		CheckResult{CurrentVersion: "0.1.0", AvailableVersion: "0.1.1", UpdateAvailable: true},
+		ApplyOptions{RefreshSkills: false},
+	)
+	if err != nil || result.CLIVersion != "0.1.1" || len(result.Targets) != 1 || result.Targets[0].Target != "npm_global" {
+		t.Fatalf("CLI-only npm result=%#v err=%v", result, err)
+	}
+	if len(runner.calls) != 1 || !slices.Contains(runner.calls[0].args, "@viceme-ai/cli@0.1.1") {
+		t.Fatalf("CLI-only npm update invoked unexpected commands: %#v", runner.calls)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, npmActivationFilename)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("CLI-only npm update retained its recovery journal: %v", err)
 	}
 }
 
@@ -540,6 +702,14 @@ func TestNPMServiceClassifiesPermissionFailureWithoutLeakingOutput(t *testing.T)
 	}
 }
 
+func TestNPMServiceClassifiesSkillChildPermissionFailure(t *testing.T) {
+	t.Parallel()
+	err := classifyNPMError(errors.New("exit status 6"), []byte(`{"ok":false,"error":{"code":"UPDATE_PERMISSION_REQUIRED"}}`))
+	if ErrorKindOf(err) != ErrorNPMPermission {
+		t.Fatalf("Skill child permission failure kind=%q err=%v", ErrorKindOf(err), err)
+	}
+}
+
 func TestNPMServiceRefusesMutationOutsideNPMLauncher(t *testing.T) {
 	t.Parallel()
 	service := NewNPMService("0.1.0", "0.1.0", "standalone")
@@ -703,4 +873,16 @@ func TestNPMServiceRepairRollbackRetiresJournalWhenSkillChildKeepsFailing(t *tes
 	if err != nil || !exists || current != active {
 		t.Fatalf("failed repair changed the committed generation: current=%#v exists=%t err=%v", current, exists, err)
 	}
+}
+
+// Existing activation tests fake the permission boundary separately from install
+// failures. npm_permissions_test exercises the real Node probe and denied paths.
+func fakePermissionProbe(name string, args []string) ([]byte, bool) {
+	if name == "node" && len(args) > 1 && args[1] == npmPermissionProbe {
+		return nil, true
+	}
+	if name == "npm" && len(args) > 1 && strings.HasPrefix(args[0], "--cache=") && (args[1] == "prefix" || args[1] == "root") {
+		return []byte(os.TempDir()), true
+	}
+	return nil, false
 }
