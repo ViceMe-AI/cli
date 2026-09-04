@@ -134,6 +134,71 @@ func driveReplicaPublication(ctx context.Context, runtime *Runtime, store replic
 		if err := store.Save(&pending); err != nil {
 			return replicaPublicationPresentation{}, err
 		}
+		if publication.Page != nil {
+			switch publication.Page.Status {
+			case "WAITING_UPLOAD":
+				if !runtime.deps.Now().Before(pending.ArtifactExpiresAt) {
+					cleanupErr := store.DeleteArtifact(pending)
+					return replicaPublicationPresentation{}, output.Validation(
+						"REPLICA_PUBLICATION_ARTIFACT_EXPIRED",
+						"the recoverable upload window expired and the frozen artifacts were removed",
+					).WithDetails(replicaRecoveryDetails(publication)).WithHint(
+						"cancel this draft, then run replica publish again to preview, freeze, and confirm a new Publication",
+					).WithCause(cleanupErr)
+				}
+				if !hasReplicaPublicationAction(publication, "AUTHORIZE_PAGE_UPLOAD") {
+					return presentReplicaPublication(publication), nil
+				}
+				authorization, err := runtime.client().AuthorizeWebsiteReplicaPublicationPageUpload(ctx, publication.ID)
+				if err != nil {
+					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+				}
+				file, err := store.OpenPageArtifact(pending)
+				if err != nil {
+					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+				}
+				progress(runtime, "Uploading frozen Website Replica page")
+				uploadErr := runtime.client().PutUpload(ctx, api.UploadAuthorization{
+					Method: authorization.Upload.Method, URL: authorization.Upload.URL,
+					ExpiresAt: authorization.Upload.ExpiresAt, Headers: authorization.Upload.Headers,
+				}, file, pending.Request.Page.SizeBytes)
+				closeErr := file.Close()
+				if errors.Is(closeErr, fs.ErrClosed) {
+					closeErr = nil
+				}
+				if uploadErr != nil || closeErr != nil {
+					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(errors.Join(uploadErr, closeErr), publication)
+				}
+				progress(runtime, "Verifying uploaded Website Replica page")
+				completed, err := runtime.client().CompleteWebsiteReplicaPublicationPageUpload(ctx, publication.ID)
+				if err != nil {
+					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+				}
+				publication = completed
+				if publication.Page == nil || (publication.Page.Status != "VERIFIED" && publication.Page.Status != "FAILED") {
+					return synchronizeReplicaPublication(runtime, store, pending, publication)
+				}
+			case "UPLOADED", "VALIDATING":
+				if !hasReplicaPublicationAction(publication, "COMPLETE_PAGE_UPLOAD") {
+					return presentReplicaPublication(publication), nil
+				}
+				progress(runtime, "Resuming Website Replica page verification")
+				completed, err := runtime.client().CompleteWebsiteReplicaPublicationPageUpload(ctx, publication.ID)
+				if err != nil {
+					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+				}
+				publication = completed
+				if publication.Page == nil || (publication.Page.Status != "VERIFIED" && publication.Page.Status != "FAILED") {
+					return synchronizeReplicaPublication(runtime, store, pending, publication)
+				}
+			case "VERIFIED":
+			case "ACTIVATED":
+				return replicaPublicationPresentation{}, invalidReplicaResponse("draft Website Replica Publication exposed an activated page")
+			case "FAILED":
+			default:
+				return replicaPublicationPresentation{}, invalidReplicaResponse("Website Replica Publication exposed an unknown page state")
+			}
+		}
 		switch publication.Source.Status {
 		case "WAITING_UPLOAD":
 			if !runtime.deps.Now().Before(pending.ArtifactExpiresAt) {
@@ -198,7 +263,8 @@ func driveReplicaPublication(ctx context.Context, runtime *Runtime, store replic
 		default:
 			return replicaPublicationPresentation{}, invalidReplicaResponse("Website Replica Publication exposed an unknown source state")
 		}
-		if publication.Status == "DRAFT" && publication.Source.Status == "VERIFIED" {
+		if publication.Status == "DRAFT" && publication.Source.Status == "VERIFIED" &&
+			(publication.Page == nil || publication.Page.Status == "VERIFIED" || publication.Page.Status == "FAILED") {
 			if !hasReplicaPublicationAction(publication, "SUBMIT") {
 				return presentReplicaPublication(publication), nil
 			}
@@ -278,6 +344,10 @@ func validateReplicaPublicationRecovery(pending replicapublication.Pending, publ
 		publication.Market != pending.Market || publication.Source.Digest != pending.SourceArchive.Digest ||
 		publication.Source.SizeBytes != pending.SourceArchive.SizeBytes {
 		return invalidReplicaResponse("Website Replica Publication recovery does not match the frozen local request")
+	}
+	if (pending.Request.Page == nil) != (publication.Page == nil) ||
+		(pending.Request.Page != nil && (publication.Page.Digest != pending.Request.Page.Digest || publication.Page.SizeBytes != pending.Request.Page.SizeBytes)) {
+		return invalidReplicaResponse("Website Replica Publication recovery does not match the frozen local page")
 	}
 	if pending.Confirmation != nil {
 		review := pending.Confirmation.Review

@@ -851,6 +851,7 @@ type WebsiteReplicaPublication struct {
 	AllowedActions    []string                          `json:"allowedActions"`
 	Retry             WebsiteReplicaPublicationRetry    `json:"retry"`
 	Source            WebsiteReplicaPublicationSource   `json:"source"`
+	Page              *WebsiteReplicaPublicationSource  `json:"page"`
 	Failure           *WebsiteReplicaPublicationFailure `json:"failure"`
 	Result            *WebsiteReplicaPublicationResult  `json:"result"`
 	SubmittedAt       *string                           `json:"submittedAt"`
@@ -882,13 +883,19 @@ type WebsiteReplicaPublicationFailure struct {
 }
 
 type WebsiteReplicaPublicationResult struct {
-	WorkURL     string                `json:"workUrl"`
-	VersionID   string                `json:"versionId"`
-	Version     int                   `json:"version"`
-	ShortCode   string                `json:"shortCode"`
-	Instruction string                `json:"instruction"`
-	Product     WebsiteReplicaProduct `json:"product"`
-	PublishedAt string                `json:"publishedAt"`
+	WorkURL     string                                `json:"workUrl"`
+	VersionID   string                                `json:"versionId"`
+	Version     int                                   `json:"version"`
+	ShortCode   string                                `json:"shortCode"`
+	Instruction string                                `json:"instruction"`
+	Product     WebsiteReplicaProduct                 `json:"product"`
+	PageRelease *WebsiteReplicaPublicationPageRelease `json:"pageRelease"`
+	PublishedAt string                                `json:"publishedAt"`
+}
+
+type WebsiteReplicaPublicationPageRelease struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
 }
 
 type WebsiteReplicaProduct struct {

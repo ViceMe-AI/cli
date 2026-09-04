@@ -17,6 +17,7 @@ type replicaPublicationPresentation struct {
 	Message        string                                `json:"message"`
 	StatusURL      string                                `json:"statusUrl"`
 	Source         api.WebsiteReplicaPublicationSource   `json:"source"`
+	Page           *api.WebsiteReplicaPublicationSource  `json:"page"`
 	Failure        *api.WebsiteReplicaPublicationFailure `json:"failure"`
 	Result         *api.WebsiteReplicaPublicationResult  `json:"result"`
 	AllowedActions []string                              `json:"allowedActions"`
@@ -83,6 +84,7 @@ func presentReplicaPublication(publication api.WebsiteReplicaPublication) replic
 		Message:        message,
 		StatusURL:      publication.StatusURL,
 		Source:         publication.Source,
+		Page:           publication.Page,
 		Failure:        publication.Failure,
 		Result:         publication.Result,
 		AllowedActions: publication.AllowedActions,

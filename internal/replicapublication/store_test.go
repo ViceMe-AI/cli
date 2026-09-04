@@ -350,6 +350,33 @@ func TestBindingIsAtomicPrivateAndCompletedOnlyAtPublishedState(t *testing.T) {
 	}
 }
 
+func TestBindingRecordsHostedPageReleaseOnlyAtPublishedTerminal(t *testing.T) {
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	project := newPublicationProject(t)
+	summary := replicacontent.SourceArchiveSummary{Digest: strings.Repeat("a", 64), SizeBytes: 1024}
+	_, pending := publicationStoreFixture(t, project, summary, now)
+	pending.Request.Page = &api.WebsiteReplicaPublicationSourceArtifact{
+		FileName: "page.zip", ContentType: "application/zip", SizeBytes: 512, Digest: strings.Repeat("d", 64),
+	}
+	pending.Hosting = "HOSTED"
+	publication := publicationFixture(now, "PUBLISHED", "ACTIVATED")
+	verifiedAt := now.Format(time.RFC3339)
+	publication.Page = &api.WebsiteReplicaPublicationSource{
+		FileName: "page.zip", ContentType: "application/zip", SizeBytes: 512, Digest: strings.Repeat("d", 64),
+		Status: "ACTIVATED", VerifiedAt: &verifiedAt,
+	}
+	publication.Result.PageRelease = &api.WebsiteReplicaPublicationPageRelease{ID: testPublicationID, Version: 2}
+	pending.Publication = &PublicationReference{ID: publication.ID, Status: publication.Status, StatusURL: publication.StatusURL}
+	store := BindingStore{EndpointOrigin: pending.EndpointOrigin, Market: pending.Market, Now: func() time.Time { return now }}
+	if err := store.Save(pending.ProjectPath, pending, publication); err != nil {
+		t.Fatal(err)
+	}
+	binding, found, err := store.Load(pending.ProjectPath)
+	if err != nil || !found || binding.PageRelease == nil || binding.PageRelease.ID != testPublicationID || binding.PageRelease.Version != 2 {
+		t.Fatalf("hosted Page Release was not bound atomically: binding=%#v found=%v err=%v", binding, found, err)
+	}
+}
+
 func TestBindingForZIPSourceUsesAdjacentProjectStateDirectory(t *testing.T) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	directory := t.TempDir()
