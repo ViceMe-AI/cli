@@ -37,13 +37,20 @@ func newMerchantQualificationCommand(runtime *Runtime) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			result := map[string]any{"authenticated": false, "ready": false}
-			status, err := runtime.manager().CurrentStatus()
-			if err != nil {
-				return err
-			}
-			if !status.Authenticated {
-				result["next"] = "LOGIN"
-				return runtime.business(result)
+			// A process-level credential (VICEME_ACCESS_TOKEN) has no local
+			// login to check and the login command refuses to run while it
+			// is set, so skip the local gate and let the client's token
+			// source drive the authoritative remote read — same rule as
+			// `auth status`.
+			if _, source, _ := runtime.overrideCredential(); source == "" {
+				status, err := runtime.manager().CurrentStatus()
+				if err != nil {
+					return err
+				}
+				if !status.Authenticated {
+					result["next"] = "LOGIN"
+					return runtime.business(result)
+				}
 			}
 			remote, err := runtime.client().AuthStatus(command.Context())
 			if err != nil {
