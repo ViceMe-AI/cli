@@ -14,7 +14,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 	var target string
 	command := &cobra.Command{
 		Use:   "update",
-		Short: "Update the CLI release and reinstall matching official Skills",
+		Short: "Update the CLI release",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(command.Context(), activationOperationTimeout)
@@ -28,15 +28,14 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 			}
 			if check.UpdateAvailable {
 				if err := updatepkg.ProbeRenameCapability(runtime.configBase); err != nil {
-					if errors.Is(err, updatepkg.ErrRenameDenied) {
-						return output.Policy("UPDATE_ACTIVATION_SANDBOX_BLOCKED", "this environment denies the file renames needed to activate a new ViceMe CLI generation").
-							WithHint("run 'viceme update' from a regular terminal outside the agent sandbox; the installed generation remains fully usable")
+					if updatepkg.IsPermissionDenied(err) {
+						return updatePermissionRequired(err)
 					}
 					return output.Internal("UPDATE_ACTIVATION_PROBE_FAILED", "could not verify whether this environment can activate a new ViceMe CLI generation", err)
 				}
 			}
 			result, err := runtime.deps.Updater.Apply(ctx, check, updatepkg.ApplyOptions{
-				RefreshSkills: true,
+				RefreshSkills: command.Flags().Changed("agent"),
 				SkillTarget:   target,
 			})
 			if errors.Is(err, updatepkg.ErrNPMInstallRequired) {
@@ -49,11 +48,18 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().BoolVar(&checkOnly, "check", false, "check the latest npm release without changing local state")
-	command.Flags().StringVar(&target, "agent", "auto", "Agent target refreshed after update: auto, codex, claude, workbuddy, or agents")
+	command.Flags().StringVar(&target, "agent", "auto", "also refresh this Agent's official Skills (prefer a separate 'viceme install --agent ...')")
 	return command
 }
 
 func updaterError(err error, details any) *output.Error {
+	if updatepkg.IsPermissionDenied(err) {
+		result := updatePermissionRequired(err)
+		if details != nil {
+			result.WithDetails(details)
+		}
+		return result
+	}
 	var result *output.Error
 	switch updatepkg.ErrorKindOf(err) {
 	case updatepkg.ErrorRegistryNetwork:
@@ -62,8 +68,6 @@ func updaterError(err error, details any) *output.Error {
 		result = output.Internal("update_registry_response", "npm registry returned an invalid release response", err)
 	case updatepkg.ErrorNPMMissing:
 		result = output.Policy("update_npm_missing", "npm is required to update this installation").WithHint("install npm and ensure it is available in PATH")
-	case updatepkg.ErrorNPMPermission:
-		result = output.Internal("update_npm_permission", "npm could not write the ViceMe cache or global installation directory", err).WithHint("ensure the ViceMe configuration directory and the npm global prefix are writable")
 	case updatepkg.ErrorNPMCommand:
 		result = output.Internal("update_npm_failed", "npm did not complete the CLI update", err).WithHint("run 'npm doctor' and verify the configured npm registry, proxy, and global prefix")
 	case updatepkg.ErrorReleaseNetwork:
@@ -83,4 +87,10 @@ func updaterError(err error, details any) *output.Error {
 		result.WithDetails(details)
 	}
 	return result
+}
+
+const updatePermissionHint = "Request permission through the host agent's official approval mechanism, then retry 'viceme update' only after access is granted. If access is denied or unavailable, stop updating; do not delete activation journals, uninstall the CLI, or bypass host restrictions."
+
+func updatePermissionRequired(err error) *output.Error {
+	return output.Policy("UPDATE_PERMISSION_REQUIRED", "CLI installation or recovery requires filesystem permission from the host").WithCause(err).WithHint(updatePermissionHint)
 }

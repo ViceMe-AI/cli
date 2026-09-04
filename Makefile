@@ -1,4 +1,5 @@
 GO ?= go
+PYTHON ?= python3
 GOPATH ?= $(CURDIR)/.cache/go
 GOCACHE ?= $(CURDIR)/.cache/go-build
 GOMODCACHE ?= $(GOPATH)/pkg/mod
@@ -12,7 +13,7 @@ ifneq ($(strip $(COMMERCE_SKILL_TRUST_KEYS)),)
 LDFLAGS += -X github.com/ViceMe-AI/cli/internal/buildinfo.CommerceSkillTrustKeys=$(COMMERCE_SKILL_TRUST_KEYS)
 endif
 
-.PHONY: build test test-race check skill-check quality-check npm-test npm-package-check release-manifest release-manifest-check release-prepare clean update-check
+.PHONY: build test test-race check skill-check quality-check npm-test npm-package-check release-manifest release-manifest-check skills-archive release-prepare clean update-check
 
 build:
 	mkdir -p bin
@@ -20,6 +21,7 @@ build:
 
 test:
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test ./...
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest npm/test/make_copy_test.py
 
 test-race:
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test -race ./...
@@ -48,6 +50,9 @@ npm-package-check: build
 
 release-manifest:
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) run ./cmd/release-manifest --output quality/release-manifest.json
+
+skills-archive:
+	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) run ./cmd/skills-archive --output dist/skills
 
 release-manifest-check:
 	@temporary="$$(mktemp)"; \

@@ -874,12 +874,48 @@ type ResolveWebsiteReplicaRequest struct {
 }
 
 type WebsiteReplicaResolution struct {
-	ReplicaID string                `json:"replicaId"`
-	ShortCode string                `json:"shortCode"`
-	Title     string                `json:"title"`
-	Summary   string                `json:"summary"`
-	Creator   WebsiteReplicaCreator `json:"creator"`
-	Product   WebsiteReplicaProduct `json:"product"`
+	ReplicaID     string                `json:"replicaId"`
+	ShortCode     string                `json:"shortCode"`
+	Title         string                `json:"title"`
+	Summary       string                `json:"summary"`
+	Creator       WebsiteReplicaCreator `json:"creator"`
+	ViceMeWorkURL string                `json:"viceMeWorkUrl"`
+	Product       WebsiteReplicaProduct `json:"product"`
+}
+
+type CreateWebsiteReplicaSessionRequest struct {
+	Instruction     string `json:"instruction"`
+	ClientRequestID string `json:"clientRequestId"`
+	ReplaySecret    string `json:"replaySecret"`
+}
+
+type WebsiteReplicaSession struct {
+	SessionID string                   `json:"sessionId"`
+	Token     string                   `json:"token"`
+	ExpiresAt string                   `json:"expiresAt"`
+	Recovered bool                     `json:"recovered"`
+	Replica   WebsiteReplicaResolution `json:"replica"`
+}
+
+type CheckoutWebsiteReplicaRequest struct {
+	AcceptedPriceCents     int    `json:"acceptedPriceCents"`
+	QuoteClientRequestID   string `json:"quoteClientRequestId"`
+	OrderClientRequestID   string `json:"orderClientRequestId"`
+	DownloadRecoverySecret string `json:"downloadRecoverySecret"`
+	Locale                 string `json:"locale"`
+}
+
+type RecoverWebsiteReplicaDownloadRequest struct {
+	OrderNo        string `json:"orderNo"`
+	RecoverySecret string `json:"recoverySecret"`
+}
+
+type CheckoutWebsiteReplicaResponse struct {
+	OrderNo       string                       `json:"orderNo"`
+	Status        string                       `json:"status"`
+	PaymentAction *WebsiteReplicaPaymentAction `json:"paymentAction"`
+	ExpiresAt     string                       `json:"expiresAt"`
+	CheckoutURL   string                       `json:"checkoutUrl"`
 }
 
 type WebsiteReplicaCreator struct {
@@ -1074,6 +1110,18 @@ type WebsiteReplicaDownload struct {
 	DownloadURL    string          `json:"downloadUrl"`
 	ExpiresAt      string          `json:"expiresAt"`
 	License        json.RawMessage `json:"license"`
+}
+
+type CompleteWebsiteReplicaInstallationRequest struct {
+	EntitlementID string `json:"entitlementId"`
+	VersionID     string `json:"versionId"`
+}
+
+type WebsiteReplicaInstallationReceipt struct {
+	ReplicaID   string `json:"replicaId"`
+	VersionID   string `json:"versionId"`
+	Version     int    `json:"version"`
+	InstalledAt string `json:"installedAt"`
 }
 
 type CompleteUploadRequest struct {

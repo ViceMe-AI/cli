@@ -57,10 +57,11 @@ func newBootstrapActivateCommand(runtime *Runtime) *cobra.Command {
 	var destination string
 	var agent string
 	var region string
+	var skipSkills bool
 	command := &cobra.Command{
 		Use: "activate", Hidden: true, Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
-			result, err := activateBootstrap(command, runtime, destination, agent, region)
+			result, err := activateBootstrap(command, runtime, destination, agent, region, skipSkills)
 			if err != nil {
 				return err
 			}
@@ -70,11 +71,13 @@ func newBootstrapActivateCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&destination, "destination", "", "final ViceMe executable path")
 	command.Flags().StringVar(&agent, "agent", "auto", "agent target")
 	command.Flags().StringVar(&region, "region", "", "ViceMe region")
+	command.Flags().BoolVar(&skipSkills, "skip-skills", false, "activate only the CLI executable")
+	_ = command.Flags().MarkHidden("skip-skills")
 	_ = command.MarkFlagRequired("destination")
 	return command
 }
 
-func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, agent, region string) (bootstrapActivationResult, error) {
+func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, agent, region string, skipSkills bool) (bootstrapActivationResult, error) {
 	absDestination, err := validBootstrapDestination(destination)
 	if err != nil {
 		return bootstrapActivationResult{}, output.Validation("BOOTSTRAP_DESTINATION_INVALID", "bootstrap destination is invalid")
@@ -121,6 +124,20 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 	if outer.Bootstrap || outer.NPM {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_RECOVERY_INCOMPLETE", "outer activation recovery did not retire its journal", nil)
 	}
+	if err := updatepkg.ProbeRenameCapability(filepath.Dir(absDestination)); err != nil {
+		if updatepkg.IsPermissionDenied(err) {
+			return bootstrapActivationResult{}, updatePermissionRequired(err)
+		}
+		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_DESTINATION_PREFLIGHT_FAILED", "the ViceMe executable destination could not be checked before activation", err)
+	}
+	if !skipSkills {
+		if err := skillcontent.ProbeInstallPermissions(agent, runtime.deps.Environment); err != nil {
+			if updatepkg.IsPermissionDenied(err) {
+				return bootstrapActivationResult{}, updatePermissionRequired(err)
+			}
+			return bootstrapActivationResult{}, output.Internal("SKILL_INSTALL_PREFLIGHT_FAILED", "official Skill destinations could not be checked before activation", err)
+		}
+	}
 
 	executable, err := os.Executable()
 	if err != nil {
@@ -154,7 +171,7 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 		_ = os.Remove(staged)
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_GENERATION_READ_FAILED", "could not read the active ViceMe generation", err)
 	}
-	if activeExists && activeGeneration == targetGeneration && bootstrapGenerationIsComplete(runtime, absDestination, targetHash, agent, region) {
+	if activeExists && activeGeneration == targetGeneration && bootstrapGenerationIsComplete(runtime, absDestination, targetHash, agent, region, !skipSkills) {
 		_ = os.Remove(staged)
 		return bootstrapActivationResult{Destination: absDestination}, nil
 	}
@@ -183,23 +200,41 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 	if err := writeBootstrapJournal(journalPath, journal); err != nil {
 		return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_JOURNAL_FAILED", "could not persist the ViceMe activation journal", err)
 	}
+	activateExecutable := func() error {
+		journal.Status = "COMMITTING"
+		if err := writeBootstrapJournal(journalPath, journal); err != nil {
+			return output.Internal("BOOTSTRAP_JOURNAL_FAILED", "could not persist the ViceMe activation commit point", err)
+		}
+		if err := activateBootstrapExecutable(journal.Staged, journal.Destination, journal.TargetHash); err != nil {
+			if errors.Is(err, errBootstrapReplaceDenied) {
+				return output.Policy("BOOTSTRAP_REPLACE_SANDBOX_DENIED", "this environment denies replacing the ViceMe executable").
+					WithHint("agent sandboxes that deny file renames cannot activate a new CLI binary; run the update from an unsandboxed terminal")
+			}
+			return output.Internal("BOOTSTRAP_REPLACE_FAILED", "could not activate the ViceMe executable", err)
+		}
+		return nil
+	}
+	if skipSkills {
+		if err := activateExecutable(); err != nil {
+			recoveryErr := recoverBootstrapActivation(runtime.configBase, runtime.deps.Environment)
+			if recoveryErr != nil {
+				return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_RECOVERY_FAILED", "ViceMe activation failed and automatic recovery did not complete", errors.Join(err, recoveryErr))
+			}
+			return bootstrapActivationResult{}, err
+		}
+		journal.Status = "COMMITTED"
+		if err := writeBootstrapJournal(journalPath, journal); err != nil {
+			return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_JOURNAL_FAILED", "ViceMe activated but its recovery journal could not be committed", err)
+		}
+		if err := recoverBootstrapActivation(runtime.configBase, runtime.deps.Environment); err != nil {
+			return bootstrapActivationResult{}, output.Internal("BOOTSTRAP_RECOVERY_FAILED", "ViceMe activated but its recovery files could not be finalized", err)
+		}
+		return bootstrapActivationResult{Destination: absDestination}, nil
+	}
 
 	install, installErr := performInstall(command.Context(), runtime, agent, region, true, &installCommitAuthority{
 		OuterJournalOwnsFailure: true,
-		BeforeCommit: func() error {
-			journal.Status = "COMMITTING"
-			if err := writeBootstrapJournal(journalPath, journal); err != nil {
-				return output.Internal("BOOTSTRAP_JOURNAL_FAILED", "could not persist the ViceMe activation commit point", err)
-			}
-			if err := activateBootstrapExecutable(journal.Staged, journal.Destination, journal.TargetHash); err != nil {
-				if errors.Is(err, errBootstrapReplaceDenied) {
-					return output.Policy("BOOTSTRAP_REPLACE_SANDBOX_DENIED", "this environment denies replacing the ViceMe executable").
-						WithHint("agent sandboxes that deny file renames cannot activate a new CLI binary; run the update from an unsandboxed terminal")
-				}
-				return output.Internal("BOOTSTRAP_REPLACE_FAILED", "could not activate the ViceMe executable", err)
-			}
-			return nil
-		},
+		BeforeCommit:            activateExecutable,
 	})
 	if installErr != nil {
 		recoveryErr := recoverBootstrapActivation(runtime.configBase, runtime.deps.Environment)
@@ -223,10 +258,13 @@ func activateBootstrap(command *cobra.Command, runtime *Runtime, destination, ag
 // an explicit repair must still replace a corrupted executable or Skill. A
 // concurrent updater may coalesce only after the first updater committed the
 // exact binary and every requested official Skill.
-func bootstrapGenerationIsComplete(runtime *Runtime, destination, targetHash, agent, region string) bool {
+func bootstrapGenerationIsComplete(runtime *Runtime, destination, targetHash, agent, region string, refreshSkills bool) bool {
 	actualHash, err := bootstrapFileHash(destination)
 	if err != nil || actualHash != targetHash {
 		return false
+	}
+	if !refreshSkills {
+		return true
 	}
 	expectedRegion := runtime.region
 	if region != "" {

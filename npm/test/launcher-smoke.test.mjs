@@ -195,7 +195,7 @@ test(
     assert.equal(child.status, 0, `${child.stdout}\n${child.stderr}`);
     const result = JSON.parse(child.stdout);
     assert.equal(result.ok, true);
-    assert.equal(result.data.skills.length, 8);
+    assert.equal(result.data.skills.length, 9);
     assert.equal(result.data.skills.every((skill) => skill.all_succeeded), true);
     await stat(path.join(codexHome, "skills", "creator-tools", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "become-a-creator", "SKILL.md"));
@@ -205,6 +205,7 @@ test(
     await stat(path.join(codexHome, "skills", "charge-for-your-work", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "let-people-interact", "SKILL.md"));
     await stat(path.join(codexHome, "skills", "let-others-make-a-copy", "SKILL.md"));
+    await stat(path.join(codexHome, "skills", "let-me-make-a-copy", "SKILL.md"));
     await stat(
       path.join(codexHome, "skills", "let-people-interact", "templates", "single-html.html"),
     );
@@ -251,6 +252,15 @@ test(
 const { appendFileSync, writeFileSync } = require("node:fs");
 const { spawnSync } = require("node:child_process");
 const args = process.argv.slice(2);
+if (args[0] === process.env.VICEME_TEST_NPM_CACHE_ARG &&
+    ["root", "prefix"].includes(args[1]) && args.includes("--global")) {
+  const query = spawnSync(process.execPath, [process.env.VICEME_REAL_NPM_CLI, ...args], {
+    encoding: "utf8", env: process.env,
+  });
+  process.stdout.write(query.stdout || "");
+  process.stderr.write(query.stderr || "");
+  process.exit(query.status ?? 1);
+}
 const packageIndex = args.findIndex((arg) =>
   arg.startsWith(process.env.VICEME_TEST_PACKAGE_PREFIX),
 );
@@ -327,7 +337,7 @@ process.exit(child.status ?? 1);
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}\n${debug}`);
     const install = JSON.parse(first.stdout);
     assert.equal(install.ok, true);
-    assert.equal(install.data.skills.length, 8);
+    assert.equal(install.data.skills.length, 9);
     assert.equal(install.data.skills.every((skill) => skill.all_succeeded), true);
     assert.match(
       await readFile(marker, "utf8"),

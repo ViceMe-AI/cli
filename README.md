@@ -173,9 +173,10 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | configure follow or paid unlock for an existing website and integrate it into host code after the shared creator qualification check; platform resources stay internal. |
 | `let-people-interact` | branch between danmaku, open tips, or both; danmaku-bearing routes require a published Website Work with an exact canonical Origin, while Tip can use any eligible published Merchant Work. It defaults to Mounted UI and uses Headless only for an explicit custom-UI request; none requires DNS ownership verification. |
-| `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site. |
+| `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site; it does not perform buyer checkout or installation. |
+| `let-me-make-a-copy` | accept a website copy invitation; install from the regional S3-hosted official Skill ZIP, reuse account-bound or anonymous CLI purchasing when available, preserve an existing standalone recovery, and fall back to the bundled no-CLI script. |
 
-Buyer-side `use-a-skill` keeps its existing name because it is not a creator workflow.
+Buyer-side `use-a-skill` and `let-me-make-a-copy` keep independent names because they are not creator workflows.
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
 owns deterministic local work and API calls. This separation lets an Agent
@@ -272,9 +273,10 @@ Never copy an access token into the conversation.
 | `viceme publication update ...` | Replace the complete listing draft from a strict JSON file. |
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
-| `viceme replica publish ...` | Validate a complete source ZIP with a root `VICEME-REPLICA.md`, publish an immutable version, and return the stable code and creator-site prompts. |
-| `viceme replica install <code> --target <new-directory>` | Create and display the authoritative Quote without an order; after explicit confirmation, return a private local WeChat QR image for Agent rendering, then resume the same order until paid before atomic installation. |
-| `viceme update` | Update the CLI and matching official Skills together. |
+| `viceme replica preview [--path <project> \| --url <loopback-url>]` | Open the anonymous ViceMe preview shell around a local website before sign-in or upload; a CLI-owned dev server runs only until the command exits, and the opened browser remains the authority for visual verification. |
+| `viceme replica publish ...` | Freeze a project worktree (or validate an existing ZIP), generate the root `VICEME-REPLICA.md`, publish an immutable version, and return its source summary, stable code, and creator-site prompts. |
+| `viceme replica install <code> [--target <new-directory>]` | With an authenticated Profile, display the authoritative Quote before `--confirm`; add `--accept-price-cents <fen>` for anonymous checkout and `--payment-presented` only after its hosted payment page opens. Both paths atomically install the paid source. |
+| `viceme update` | Explicitly update the CLI. Refresh official Skills separately with `viceme install --agent auto`. |
 | `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
 | `viceme merchant work ...` | Create, inspect, update, and publish Merchant Works, including Website Works. |
 | `viceme merchant page ...` | Validate, preview, publish, inspect, and roll back immutable custom Creator/Work page bundles. |
@@ -334,33 +336,55 @@ text.
 `meta.executingCliVersion` is the version of the process that emitted the
 response. For `viceme update`, the newly installed version is reported
 separately as `data.cli_version` because the response is still emitted by the
-process that started the update. `meta.autoUpdate` is present only when this
-command was automatically continued by a newly activated generation.
+process that started the update. `meta.autoUpdate` may appear when startup
+recovery had to hand an already-started command to a newly committed CLI.
 
-Every released installation passes through a bounded freshness gate before an
-ordinary command. A validated result is reused for five minutes so a single
-workflow does not repeatedly contact the release channel. When a newer stable
-release exists, the CLI and all detected official Skills are activated as one
-recoverable generation and the original command is automatically re-executed by
-the new CLI. Release discovery is fail-open while offline; activation failure
-stops the original command so an older process cannot perform a mutation after
-a failed generation change.
+After an ordinary command has emitted its response, a detached worker checks
+the stable release channel and updates only the CLI. The foreground command never waits
+for release discovery or activation, and background launch, network,
+permission, or installation failures never replace its JSON response. A
+successful replacement is used by the next `viceme` process; it does not
+require restarting the surrounding Codex, Claude Code, or WorkBuddy app.
+Checks are coalesced for 24 hours, while failed checks or updates become
+eligible for another background attempt after one hour.
 
-An npm installation continues the original command automatically on every
-supported platform, including commands started from an older `npx` cache. The
-continuation uses the activated global package after checking its exact version.
-A standalone Windows binary may return the retryable code
-`AUTO_UPDATE_RESTART_REQUIRED` once while Windows releases the old executable;
-rerunning the exact command completes under the new generation.
+Official Skills are a separate lifecycle because an Agent usually loads them
+when a task starts. CLI auto-update therefore never rewrites Skill directories.
+Refresh them intentionally with `viceme install --agent auto`, then start a new
+Agent task when the host needs to rediscover the files.
 
 ```bash
 viceme update --check
 viceme update
+viceme install --agent auto
 ```
 
-`viceme update` remains an explicit repair command. The normal startup gate
-already verifies the exact release, refreshes the matching official Skills, and
-recovers interrupted activation as one compatible local generation.
+`viceme update` remains the explicit CLI repair command and keeps the same
+permission preflight and durable recovery rules. For compatibility,
+`viceme update --agent <target>` still requests a combined CLI and Skill
+repair, but new automation should keep the two commands separate.
+
+Permission preflight checks every path that the selected installation method
+will mutate before creating an activation journal. For npm this includes the
+configured cache, actual scoped global package, and launcher directories through
+Node so the host filesystem broker is preserved. For standalone CLI-only
+updates it checks the executable directory; a separate Skill install checks
+every selected Agent destination. A denied explicit-update preflight keeps the
+previous generation intact and requests host approval. A denied background
+attempt is recorded locally and does not affect the foreground command.
+Permission can still change after preflight, so any failure after an install
+attempt retains the recovery journal until startup recovery completes.
+
+An explicit update or pending recovery that lacks filesystem access returns
+`UPDATE_PERMISSION_REQUIRED` (exit 6, not automatically retryable). The Agent
+must request access through its host's official approval mechanism and retry
+`viceme update` only after access is granted. A chat message granting consent
+does not itself change OS or host permissions. If approval is refused,
+unavailable, or still insufficient, stop updating. Never delete recovery
+journals, uninstall the CLI, or bypass host restrictions to force an update.
+Pending recovery is identified by `error.details.recovery_required` or
+`recovery_pending` target statuses; it must not be treated as an intact old
+installation. Neither raw npm output nor credentials are included in errors.
 
 ## Security
 
@@ -378,7 +402,7 @@ recovers interrupted activation as one compatible local generation.
 
 ## Development
 
-Requirements: Go 1.23+ and Node.js 22+ for npm packaging checks.
+Requirements: Go 1.23+ and Python 3.9+; Node.js 22+ is required for npm packaging checks.
 
 ```bash
 make check

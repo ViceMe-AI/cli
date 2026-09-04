@@ -2,20 +2,15 @@ package command
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
-	"github.com/ViceMe-AI/cli/internal/privatepath"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
 	"github.com/spf13/cobra"
 )
@@ -26,16 +21,62 @@ var (
 )
 
 type replicaPublishResult struct {
-	ReplicaID   string                       `json:"replicaId"`
-	ReplicaCode string                       `json:"replicaCode"`
-	BuyerEntry  api.WebsiteReplicaBuyerEntry `json:"buyerEntry"`
+	ReplicaID     string                              `json:"replicaId"`
+	ReplicaCode   string                              `json:"replicaCode"`
+	BuyerEntry    api.WebsiteReplicaBuyerEntry        `json:"buyerEntry"`
+	SourceArchive replicacontent.SourceArchiveSummary `json:"sourceArchive"`
+}
+
+type replicaInspectResult struct {
+	NextAction                  string                       `json:"nextAction"`
+	WorkURL                     string                       `json:"workUrl"`
+	StandaloneRecoveryAvailable bool                         `json:"standaloneRecoveryAvailable"`
+	Replica                     api.WebsiteReplicaResolution `json:"replica"`
 }
 
 func newReplicaCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "replica", Short: "Publish and install Website Replica source packages"}
+	command.AddCommand(newReplicaPreviewCommand(runtime))
 	command.AddCommand(newReplicaPublishCommand(runtime))
+	command.AddCommand(newReplicaInspectCommand(runtime))
 	command.AddCommand(newReplicaInstallCommand(runtime))
 	return command
+}
+
+func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "inspect <replica-code>",
+		Short: "Inspect a Website Replica and return its public Work preview",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if _, err := parseReplicaCode(args[0]); err != nil {
+				return err
+			}
+			resolved, err := runtime.client().ResolveWebsiteReplicaPublic(command.Context(), args[0])
+			if err != nil {
+				return replicaInspectFailure(err)
+			}
+			recoveryAvailable, err := standaloneReplicaRecoveryAvailable(command.Context(), runtime, resolved)
+			if err != nil {
+				return replicaInspectFailure(err)
+			}
+			return runtime.business(replicaInspectResult{
+				NextAction: "OPEN_WORK_PREVIEW", WorkURL: resolved.ViceMeWorkURL,
+				StandaloneRecoveryAvailable: recoveryAvailable, Replica: resolved,
+			})
+		},
+	}
+}
+
+func replicaInspectFailure(err error) error {
+	failure := *output.AsError(err)
+	failure.Retryable = false
+	failure.Details = map[string]any{
+		"nextAction": "STOP_AND_REPORT",
+		"stage":      "INSPECT_REPLICA",
+	}
+	failure.Hint = "report that the selected ViceMe service could not inspect the Work; do not retry or diagnose local services"
+	return &failure
 }
 
 func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
@@ -43,7 +84,7 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 	var priceCents int
 	command := &cobra.Command{
 		Use:   "publish",
-		Short: "Upload a Website Replica ZIP and return its stable sharing code",
+		Short: "Freeze and upload Website Replica source, then return its stable sharing code",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			result, err := publishReplica(command.Context(), runtime, source, workID, title, summary, priceCents)
@@ -53,7 +94,7 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 			return runtime.business(result)
 		},
 	}
-	command.Flags().StringVar(&source, "path", "", "Website Replica ZIP path")
+	command.Flags().StringVar(&source, "path", "", "Website Replica project directory or existing ZIP path")
 	command.Flags().StringVar(&workID, "work-id", "", "Website Work UUID")
 	command.Flags().StringVar(&title, "title", "", "buyer-visible Replica title")
 	command.Flags().StringVar(&summary, "summary", "", "buyer-visible Replica summary")
@@ -78,23 +119,11 @@ func publishReplica(ctx context.Context, runtime *Runtime, source, workID, title
 	if priceCents < 0 || priceCents > 10_000_000 {
 		return replicaPublishResult{}, output.Validation("REPLICA_PRICE_INVALID", "--price-cents must be between 0 and 10000000")
 	}
-	file, info, err := openReplicaArchive(source)
+	frozen, err := replicacontent.FreezeSourceArchive(source, replicacontent.FreezeSourceOptions{Purpose: summary})
 	if err != nil {
-		return replicaPublishResult{}, err
+		return replicaPublishResult{}, replicaSourceArchiveError(err)
 	}
-	snapshotPath := file.Name()
-	defer func() {
-		_ = file.Close()
-		_ = os.Remove(snapshotPath)
-	}()
-
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return replicaPublishResult{}, output.Validation("REPLICA_ARCHIVE_READ_FAILED", "could not read the Website Replica ZIP").WithCause(err)
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return replicaPublishResult{}, output.Internal("REPLICA_ARCHIVE_REWIND_FAILED", "could not rewind the Website Replica ZIP", err)
-	}
+	defer frozen.Cleanup()
 	if err := runtime.requireWebsiteReplicaAuthentication(ctx, "website-replica:read", "website-replica:write"); err != nil {
 		return replicaPublishResult{}, err
 	}
@@ -102,20 +131,24 @@ func publishReplica(ctx context.Context, runtime *Runtime, source, workID, title
 	if !replicaUUIDPattern.MatchString(clientRequestID) {
 		return replicaPublishResult{}, output.Internal("REPLICA_CLIENT_REQUEST_ID_INVALID", "could not create a valid Replica request identity", nil)
 	}
-	digest := hex.EncodeToString(hash.Sum(nil))
 	created, err := runtime.client().CreateWebsiteReplicaUpload(ctx, api.CreateWebsiteReplicaUploadRequest{
 		ClientRequestID: clientRequestID,
 		WorkID:          workID,
 		Title:           title,
 		Summary:         summary,
-		FileName:        filepath.Base(source),
-		SizeBytes:       info.Size(),
-		Digest:          digest,
+		FileName:        filepath.Base(frozen.Path()),
+		SizeBytes:       frozen.Summary.SizeBytes,
+		Digest:          frozen.Summary.Digest,
 		PriceCents:      priceCents,
 	})
 	if err != nil {
 		return replicaPublishResult{}, err
 	}
+	file, info, err := frozen.Open()
+	if err != nil {
+		return replicaPublishResult{}, output.Internal("REPLICA_ARCHIVE_SNAPSHOT_INVALID", "the frozen Website Replica ZIP is no longer available", err)
+	}
+	defer file.Close()
 	progress(runtime, "Uploading Website Replica source package")
 	if err := runtime.client().PutUpload(ctx, api.UploadAuthorization{
 		Method: created.Upload.Method, URL: created.Upload.URL,
@@ -132,7 +165,7 @@ func publishReplica(ctx context.Context, runtime *Runtime, source, workID, title
 	}
 	return replicaPublishResult{
 		ReplicaID: created.ReplicaID, ReplicaCode: "VICEME-REPLICA:" + completed.ShortCode,
-		BuyerEntry: completed.BuyerEntry,
+		BuyerEntry: completed.BuyerEntry, SourceArchive: frozen.Summary,
 	}, nil
 }
 
@@ -141,70 +174,22 @@ func replicaPublicationMatchesRequest(completed api.CompleteWebsiteReplicaUpload
 		completed.Product.Title == title && completed.Product.Currency == "CNY" && completed.Product.PriceCents == priceCents
 }
 
-func openReplicaArchive(filename string) (*os.File, fs.FileInfo, error) {
-	if !strings.EqualFold(filepath.Ext(filename), ".zip") {
-		return nil, nil, output.Validation("REPLICA_ARCHIVE_INVALID", "--path must identify a ZIP file")
+func replicaSourceArchiveError(err error) error {
+	switch {
+	case errors.Is(err, replicacontent.ErrSensitiveContent):
+		return output.Validation("REPLICA_SENSITIVE_CONTENT", "Website Replica source contains suspected credentials or user data").WithCause(err)
+	case errors.Is(err, replicacontent.ErrForbiddenReplicaContent):
+		return output.Validation("REPLICA_FORBIDDEN_CONTENT", "Website Replica source contains platform-controlled Replica content").WithCause(err)
+	case errors.Is(err, replicacontent.ErrProjectHandoff):
+		return output.Validation(
+			"REPLICA_DEPLOYMENT_GUIDE_INVALID",
+			fmt.Sprintf("Website Replica ZIP must contain a valid UTF-8 root %s no larger than %d bytes", replicacontent.ProjectHandoffFile, replicacontent.MaxProjectHandoffBytes),
+		).WithCause(err)
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, fs.ErrPermission):
+		return output.Validation("REPLICA_ARCHIVE_READ_FAILED", "could not read the Website Replica source").WithCause(err)
+	default:
+		return output.Validation("REPLICA_ARCHIVE_INVALID", "Website Replica source is not a safe readable project directory or ZIP archive").WithCause(err)
 	}
-	pathInfo, err := os.Lstat(filename)
-	if err != nil {
-		return nil, nil, output.Validation("REPLICA_ARCHIVE_READ_FAILED", "could not inspect the Website Replica ZIP").WithCause(err)
-	}
-	if !pathInfo.Mode().IsRegular() || pathInfo.Mode()&os.ModeSymlink != 0 {
-		return nil, nil, output.Validation("REPLICA_ARCHIVE_INVALID", "Website Replica source must be a regular ZIP file")
-	}
-	source, err := os.Open(filename)
-	if err != nil {
-		return nil, nil, output.Validation("REPLICA_ARCHIVE_READ_FAILED", "could not open the Website Replica ZIP").WithCause(err)
-	}
-	defer source.Close()
-
-	info, err := source.Stat()
-	if err != nil {
-		return nil, nil, output.Validation("REPLICA_ARCHIVE_READ_FAILED", "could not inspect the opened Website Replica ZIP").WithCause(err)
-	}
-	if !info.Mode().IsRegular() || !os.SameFile(pathInfo, info) {
-		return nil, nil, output.Validation("REPLICA_ARCHIVE_INVALID", "Website Replica source changed while it was opened")
-	}
-	if info.Size() <= 0 || info.Size() > replicacontent.MaxArchiveBytes {
-		return nil, nil, output.Validation("REPLICA_ARCHIVE_INVALID", fmt.Sprintf("Website Replica ZIP must be between 1 byte and %d bytes", replicacontent.MaxArchiveBytes))
-	}
-
-	file, err := privatepath.CreateTempFile(os.TempDir(), ".viceme-replica-publish-*.zip")
-	if err != nil {
-		return nil, nil, output.Internal("REPLICA_ARCHIVE_SNAPSHOT_FAILED", "could not create a private Website Replica ZIP snapshot", err)
-	}
-	snapshotPath := file.Name()
-	fail := func(err error) (*os.File, fs.FileInfo, error) {
-		_ = file.Close()
-		_ = os.Remove(snapshotPath)
-		return nil, nil, err
-	}
-	if _, err := io.Copy(file, io.LimitReader(source, replicacontent.MaxArchiveBytes+1)); err != nil {
-		return fail(output.Validation("REPLICA_ARCHIVE_READ_FAILED", "could not snapshot the Website Replica ZIP").WithCause(err))
-	}
-	info, err = file.Stat()
-	if err != nil {
-		return fail(output.Internal("REPLICA_ARCHIVE_SNAPSHOT_FAILED", "could not inspect the Website Replica ZIP snapshot", err))
-	}
-	if info.Size() <= 0 || info.Size() > replicacontent.MaxArchiveBytes {
-		return fail(output.Validation("REPLICA_ARCHIVE_INVALID", fmt.Sprintf("Website Replica ZIP must be between 1 byte and %d bytes", replicacontent.MaxArchiveBytes)))
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return fail(output.Internal("REPLICA_ARCHIVE_REWIND_FAILED", "could not rewind the Website Replica ZIP snapshot", err))
-	}
-	if err := replicacontent.ValidatePublishArchive(file, info.Size()); err != nil {
-		if errors.Is(err, replicacontent.ErrDeploymentGuide) {
-			return fail(output.Validation(
-				"REPLICA_DEPLOYMENT_GUIDE_INVALID",
-				fmt.Sprintf("Website Replica ZIP must contain a non-empty UTF-8 root %s no larger than %d bytes", replicacontent.DeploymentGuideFile, replicacontent.MaxDeploymentGuideBytes),
-			).WithCause(err))
-		}
-		return fail(output.Validation("REPLICA_ARCHIVE_INVALID", "Website Replica source is not a safe readable ZIP archive").WithCause(err))
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return fail(output.Internal("REPLICA_ARCHIVE_REWIND_FAILED", "could not rewind the Website Replica ZIP snapshot", err))
-	}
-	return file, info, nil
 }
 
 func (runtime *Runtime) requireWebsiteReplicaAuthentication(ctx context.Context, required ...string) error {

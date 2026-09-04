@@ -64,6 +64,10 @@ func newCommercePaymentPresentation(runtime *Runtime, orderNo, expiresAt, conten
 	if err != nil {
 		return nil, err
 	}
+	return commercePaymentPresentation(absolutePath, expiresAt), nil
+}
+
+func commercePaymentPresentation(absolutePath, expiresAt string) *api.CommercePaymentPresentation {
 	return &api.CommercePaymentPresentation{
 		Type:      "LOCAL_IMAGE",
 		Purpose:   "PAYMENT_QR_CODE",
@@ -71,20 +75,13 @@ func newCommercePaymentPresentation(runtime *Runtime, orderNo, expiresAt, conten
 		ImagePath: absolutePath,
 		AltText:   "微信支付二维码",
 		ExpiresAt: expiresAt,
-	}, nil
+	}
 }
 
 func createCommercePaymentQRImage(runtime *Runtime, orderNo, content string) (string, error) {
-	if len(content) > 4096 {
-		return "", errors.New("payment QR content is too large")
-	}
-	parsed, err := url.Parse(content)
-	if err != nil || !strings.EqualFold(parsed.Scheme, "weixin") {
-		return "", errors.New("payment QR content is not a WeChat payment URI")
-	}
-	png, err := qrcode.Encode(content, qrcode.Medium, 512)
+	png, err := encodeCommercePaymentQR(content)
 	if err != nil {
-		return "", fmt.Errorf("encode payment QR image: %w", err)
+		return "", err
 	}
 	directory := filepath.Join(runtime.configBase, commercePaymentPresentationDirectory)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
@@ -105,6 +102,21 @@ func createCommercePaymentQRImage(runtime *Runtime, orderNo, content string) (st
 		return "", fmt.Errorf("resolve payment presentation path: %w", err)
 	}
 	return absolutePath, nil
+}
+
+func encodeCommercePaymentQR(content string) ([]byte, error) {
+	if len(content) > 4096 {
+		return nil, errors.New("payment QR content is too large")
+	}
+	parsed, err := url.Parse(content)
+	if err != nil || !strings.EqualFold(parsed.Scheme, "weixin") {
+		return nil, errors.New("payment QR content is not a WeChat payment URI")
+	}
+	png, err := qrcode.Encode(content, qrcode.Medium, 512)
+	if err != nil {
+		return nil, fmt.Errorf("encode payment QR image: %w", err)
+	}
+	return png, nil
 }
 
 func writeCommercePaymentPresentation(filename string, data []byte) error {

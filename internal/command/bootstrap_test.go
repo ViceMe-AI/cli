@@ -72,10 +72,10 @@ func TestBootstrapCoalescesAnAlreadyCompleteStandaloneGeneration(t *testing.T) {
 	}
 	command := &cobra.Command{}
 	command.SetContext(context.Background())
-	if bootstrapGenerationIsComplete(runtime, destination, targetHash, "agents", "global") {
+	if bootstrapGenerationIsComplete(runtime, destination, targetHash, "agents", "global", true) {
 		t.Fatal("same-version bootstrap to another region was incorrectly coalesced")
 	}
-	result, err := activateBootstrap(command, runtime, destination, "agents", "cn")
+	result, err := activateBootstrap(command, runtime, destination, "agents", "cn", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,6 +88,44 @@ func TestBootstrapCoalescesAnAlreadyCompleteStandaloneGeneration(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(configDir, bootstrapActivationJournalFilename)); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("coalesced activation created a recovery journal: %v", err)
+	}
+}
+
+func TestBootstrapCLIOnlyActivationDoesNotWriteSkillsOrConfig(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	environment := skillcontent.Environment{Home: root, ConfigDir: configDir}
+	destination := filepath.Join(root, "bin", "viceme")
+	writeBootstrapTestFile(t, destination, "previous-binary")
+	runtime := &Runtime{
+		configBase: configDir,
+		region:     config.RegionCN,
+		config:     config.Default(config.RegionCN),
+		deps: Dependencies{
+			Skills:      skillcontent.New(cliembed.EmbeddedSkills()),
+			Store:       securestore.NewMemory(),
+			Environment: environment,
+		},
+	}
+	command := &cobra.Command{}
+	command.SetContext(context.Background())
+	result, err := activateBootstrap(command, runtime, destination, "agents", "cn", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Destination != destination || len(result.Install.Skills) != 0 {
+		t.Fatalf("CLI-only bootstrap result=%#v", result)
+	}
+	if _, err := os.Stat(config.ConfigPath(configDir)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("CLI-only bootstrap wrote profile config: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".agents", "skills")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("CLI-only bootstrap wrote official Skills: %v", err)
+	}
+	active, exists, err := updatepkg.ReadActiveGeneration(configDir)
+	if err != nil || !exists || active.InstallMethod != "standalone" {
+		t.Fatalf("CLI-only bootstrap did not commit the executable generation: active=%#v exists=%t err=%v", active, exists, err)
 	}
 }
 
@@ -147,7 +185,7 @@ func TestConcurrentBootstrapActivationsCommitOneStandaloneGeneration(t *testing.
 			command.SetContext(context.Background())
 			ready.Done()
 			<-start
-			result, err := activateBootstrap(command, runtime, destination, "agents", "cn")
+			result, err := activateBootstrap(command, runtime, destination, "agents", "cn", false)
 			outcomes <- outcome{result: result, err: err}
 		}()
 	}
@@ -285,7 +323,7 @@ func TestBootstrapRejectsLateOlderGenerationInsideActivationLock(t *testing.T) {
 	destination := filepath.Join(root, "bin", "viceme")
 	command := &cobra.Command{}
 	command.SetContext(context.Background())
-	_, err = activateBootstrap(command, runtime, destination, "agents", "cn")
+	_, err = activateBootstrap(command, runtime, destination, "agents", "cn", false)
 	cliError := output.AsError(err)
 	if cliError.Subtype != "BOOTSTRAP_DOWNGRADE_REFUSED" {
 		t.Fatalf("late older standalone activation was not fenced: %#v", cliError)
@@ -332,7 +370,7 @@ func TestBootstrapRejectsNPMToStandaloneMigrationBeforeMutation(t *testing.T) {
 		},
 	}
 	destination := filepath.Join(root, "bin", "viceme")
-	_, err = activateBootstrap(&cobra.Command{}, runtime, destination, "agents", "cn")
+	_, err = activateBootstrap(&cobra.Command{}, runtime, destination, "agents", "cn", false)
 	cliError := output.AsError(err)
 	if cliError.Subtype != "BOOTSTRAP_INSTALL_METHOD_CHANGE_REFUSED" {
 		t.Fatalf("cross-method bootstrap was not rejected: %#v", cliError)
@@ -382,7 +420,7 @@ func TestBootstrapRechecksCrashedNPMJournalInsideActivationLock(t *testing.T) {
 	}
 	destination := filepath.Join(root, "bin", "viceme")
 
-	_, err = activateBootstrap(&cobra.Command{}, runtime, destination, "agents", "cn")
+	_, err = activateBootstrap(&cobra.Command{}, runtime, destination, "agents", "cn", false)
 	if cliError := output.AsError(err); cliError.Subtype != "BOOTSTRAP_NPM_RECOVERY_REQUIRED" {
 		t.Fatalf("bootstrap did not reject the late npm journal: %#v", cliError)
 	}

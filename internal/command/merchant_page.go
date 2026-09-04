@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"context"
 	"net"
 	"net/url"
 	"regexp"
@@ -37,10 +38,17 @@ type pagePreviewResult struct {
 	FileCount  int                          `json:"fileCount"`
 }
 
+type pageUploadResult struct {
+	Release    api.PageCustomizationRelease `json:"release"`
+	SourcePath string                       `json:"sourcePath"`
+	FileCount  int                          `json:"fileCount"`
+}
+
 func newMerchantPageCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "page", Short: "Preview, publish, and roll back custom creator and Work pages"}
 	command.AddCommand(newMerchantPageDescribeCommand(runtime))
 	command.AddCommand(newMerchantPageInspectCommand(runtime))
+	command.AddCommand(newMerchantPageUploadCommand(runtime))
 	command.AddCommand(newMerchantPagePreviewCommand(runtime))
 	command.AddCommand(newMerchantPageStatusCommand(runtime))
 	command.AddCommand(newMerchantPageReleaseCommand(runtime, "publish"))
@@ -62,7 +70,7 @@ func newMerchantPageDescribeCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), false); err != nil {
 				return err
 			}
-			merchant, err := resolveSkillPublicationMerchant(command.Context(), runtime, merchantAccountID)
+			merchant, err := resolvePageCustomizationMerchant(command.Context(), runtime, merchantAccountID, &target)
 			if err != nil {
 				return err
 			}
@@ -75,6 +83,43 @@ func newMerchantPageDescribeCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&targetURL, "target", "", "exact ViceMe creator or Work URL")
 	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID; optional when exactly one active account exists")
+	_ = command.MarkFlagRequired("target")
+	return command
+}
+
+func newMerchantPageUploadCommand(runtime *Runtime) *cobra.Command {
+	var source, targetURL, merchantAccountID string
+	command := &cobra.Command{
+		Use:   "upload",
+		Short: "Upload and validate a page without creating an online preview",
+		Args:  cobra.NoArgs,
+		RunE: func(command *cobra.Command, _ []string) error {
+			target, err := parsePageTargetURL(targetURL)
+			if err != nil {
+				return err
+			}
+			pkg, err := inspectPagePackageForTarget(source, target)
+			if err != nil {
+				return err
+			}
+			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
+				return err
+			}
+			merchant, err := resolvePageCustomizationMerchant(command.Context(), runtime, merchantAccountID, &target)
+			if err != nil {
+				return err
+			}
+			release, err := uploadPageCustomization(command.Context(), runtime, pkg, merchant.ID, target)
+			if err != nil {
+				return err
+			}
+			return runtime.business(pageUploadResult{Release: release, SourcePath: pkg.SourcePath, FileCount: pkg.FileCount})
+		},
+	}
+	command.Flags().StringVar(&source, "path", "", "custom page ZIP")
+	command.Flags().StringVar(&targetURL, "target", "", "exact ViceMe creator or Work URL")
+	command.Flags().StringVar(&merchantAccountID, "merchant", "", "merchant account ID; optional when exactly one eligible page tenant exists")
+	_ = command.MarkFlagRequired("path")
 	_ = command.MarkFlagRequired("target")
 	return command
 }
@@ -113,23 +158,9 @@ func newMerchantPagePreviewCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			pkg, err := pagepackage.Inspect(source)
+			pkg, err := inspectPagePackageForTarget(source, target)
 			if err != nil {
 				return err
-			}
-			expectedKind := "CreatorPage"
-			if target.Type == "WORK" {
-				expectedKind = "WorkPage"
-			}
-			if pkg.Manifest.Kind != expectedKind {
-				return output.Validation("PAGE_MANIFEST_TARGET_MISMATCH", "the page manifest kind does not match --target")
-			}
-			if target.Type == "CREATOR" {
-				for _, capability := range pkg.Manifest.Spec.Capabilities {
-					if capability == "work.like" || capability == "comments.read" || capability == "comments.write" || capability == "checkout.open" {
-						return output.Validation("PAGE_MANIFEST_CAPABILITY_MISMATCH", "creator pages cannot request Work-only capabilities")
-					}
-				}
 			}
 			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
 				return err
@@ -138,26 +169,11 @@ func newMerchantPagePreviewCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			client := runtime.client()
-			created, err := client.CreatePageCustomizationDraft(command.Context(), api.CreatePageCustomizationDraftRequest{
-				ClientRequestID: runtime.deps.NewID(), ContractVersion: api.PageCustomizationContractVersion,
-				CLIVersion: buildinfo.Version, MerchantAccountID: merchant.ID, Target: target, Artifact: pkg.Artifact,
-			})
+			release, err := uploadPageCustomization(command.Context(), runtime, pkg, merchant.ID, target)
 			if err != nil {
 				return err
 			}
-			authorization, err := client.AuthorizePageCustomizationUpload(command.Context(), created.Release.ID, merchant.ID)
-			if err != nil {
-				return err
-			}
-			if err := client.PutPresigned(command.Context(), authorization.UploadURL, authorization.Headers, bytes.NewReader(pkg.Bytes), int64(len(pkg.Bytes))); err != nil {
-				return err
-			}
-			release, err := client.CompletePageCustomizationUpload(command.Context(), created.Release.ID, merchant.ID)
-			if err != nil {
-				return err
-			}
-			preview, err := client.CreatePageCustomizationPreview(command.Context(), release.ID, merchant.ID, expiresInSeconds)
+			preview, err := runtime.client().CreatePageCustomizationPreview(command.Context(), release.ID, merchant.ID, expiresInSeconds)
 			if err != nil {
 				return err
 			}
@@ -187,7 +203,7 @@ func newMerchantPageStatusCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), false); err != nil {
 				return err
 			}
-			merchant, err := resolveSkillPublicationMerchant(command.Context(), runtime, merchantAccountID)
+			merchant, err := resolvePageCustomizationMerchant(command.Context(), runtime, merchantAccountID, &target)
 			if err != nil {
 				return err
 			}
@@ -225,7 +241,7 @@ func newMerchantPageReleaseCommand(runtime *Runtime, action string) *cobra.Comma
 			if err := runtime.requireMerchantCommerceAuthentication(command.Context(), true); err != nil {
 				return err
 			}
-			merchant, err := resolveSkillPublicationMerchant(command.Context(), runtime, merchantAccountID)
+			merchant, err := resolvePageCustomizationMerchant(command.Context(), runtime, merchantAccountID, nil)
 			if err != nil {
 				return err
 			}
@@ -240,6 +256,100 @@ func newMerchantPageReleaseCommand(runtime *Runtime, action string) *cobra.Comma
 	command.Flags().StringVar(&expectedActive, "expected-active", "", "currently active release UUID, or 'none'")
 	_ = command.MarkFlagRequired("expected-active")
 	return command
+}
+
+func inspectPagePackageForTarget(source string, target api.PageCustomizationTarget) (pagepackage.Package, error) {
+	pkg, err := pagepackage.Inspect(source)
+	if err != nil {
+		return pagepackage.Package{}, err
+	}
+	expectedKind := "CreatorPage"
+	if target.Type == "WORK" {
+		expectedKind = "WorkPage"
+	}
+	if pkg.Manifest.Kind != expectedKind {
+		return pagepackage.Package{}, output.Validation("PAGE_MANIFEST_TARGET_MISMATCH", "the page manifest kind does not match --target")
+	}
+	if target.Type == "CREATOR" {
+		for _, capability := range pkg.Manifest.Spec.Capabilities {
+			if capability == "work.like" || capability == "comments.read" || capability == "comments.write" || capability == "checkout.open" {
+				return pagepackage.Package{}, output.Validation("PAGE_MANIFEST_CAPABILITY_MISMATCH", "creator pages cannot request Work-only capabilities")
+			}
+		}
+	}
+	return pkg, nil
+}
+
+func uploadPageCustomization(ctx context.Context, runtime *Runtime, pkg pagepackage.Package, merchantAccountID string, target api.PageCustomizationTarget) (api.PageCustomizationRelease, error) {
+	client := runtime.client()
+	created, err := client.CreatePageCustomizationDraft(ctx, api.CreatePageCustomizationDraftRequest{
+		ClientRequestID: runtime.deps.NewID(), ContractVersion: api.PageCustomizationContractVersion,
+		CLIVersion: buildinfo.Version, MerchantAccountID: merchantAccountID, Target: target, Artifact: pkg.Artifact,
+	})
+	if err != nil {
+		return api.PageCustomizationRelease{}, err
+	}
+	authorization, err := client.AuthorizePageCustomizationUpload(ctx, created.Release.ID, merchantAccountID)
+	if err != nil {
+		return api.PageCustomizationRelease{}, err
+	}
+	if err := client.PutPresigned(ctx, authorization.UploadURL, authorization.Headers, bytes.NewReader(pkg.Bytes), int64(len(pkg.Bytes))); err != nil {
+		return api.PageCustomizationRelease{}, err
+	}
+	return client.CompletePageCustomizationUpload(ctx, created.Release.ID, merchantAccountID)
+}
+
+func resolvePageCustomizationMerchant(ctx context.Context, runtime *Runtime, requestedID string, target *api.PageCustomizationTarget) (api.MerchantAccount, error) {
+	accounts, err := runtime.client().ListMerchantAccounts(ctx)
+	if err != nil {
+		return api.MerchantAccount{}, err
+	}
+	requestedID = strings.TrimSpace(requestedID)
+	active := make([]api.MerchantAccount, 0, len(accounts.Items))
+	var selected *api.MerchantAccount
+	for index := range accounts.Items {
+		account := &accounts.Items[index]
+		if account.Status == "ACTIVE" {
+			active = append(active, *account)
+		}
+		if requestedID != "" && account.ID == requestedID {
+			selected = account
+		}
+	}
+	if selected != nil && selected.Status == "ACTIVE" {
+		return *selected, nil
+	}
+	if requestedID == "" && len(active) == 1 {
+		return active[0], nil
+	}
+	if requestedID != "" && selected == nil {
+		return api.MerchantAccount{}, output.Authorization("MERCHANT_REQUIRED", "the selected page tenant is not owned by the current login").WithDetails(map[string]any{"merchantAccountId": requestedID})
+	}
+
+	current, err := runtime.client().GetMerchantOnboarding(ctx)
+	if err != nil {
+		return api.MerchantAccount{}, err
+	}
+	pending := current.Merchant
+	validPending := pending != nil && pending.Status == "SUSPENDED" &&
+		current.Onboarding != nil && current.Onboarding.Kind == "APPLICATION" &&
+		current.Onboarding.MerchantAccountID != nil && *current.Onboarding.MerchantAccountID == pending.ID &&
+		(current.Onboarding.Status == "SUBMITTED" || current.Onboarding.Status == "UNDER_REVIEW" || current.Onboarding.Status == "NEEDS_MORE_EVIDENCE") &&
+		current.CreatorIdentity != nil && current.CreatorIdentity.Status == "DRAFT" && pending.CreatorAccountID != nil &&
+		current.NextAction == "WAIT_FOR_REVIEW"
+	if validPending && target != nil {
+		validPending = target.Type == "CREATOR" && target.CreatorHandle == current.CreatorIdentity.Handle
+	}
+	if validPending && (requestedID == "" || pending.ID == requestedID) {
+		return *pending, nil
+	}
+	if requestedID != "" {
+		return api.MerchantAccount{}, output.Authorization("PAGE_CUSTOMIZATION_MERCHANT_REQUIRED", "the selected Merchant cannot customize this page while inactive").WithDetails(map[string]any{"merchantAccountId": requestedID})
+	}
+	if len(active) > 1 {
+		return api.MerchantAccount{}, output.Validation("MERCHANT_SELECTION_REQUIRED", "multiple active Merchant accounts are available; select one explicitly").WithDetails(map[string]any{"merchants": active})
+	}
+	return api.MerchantAccount{}, output.Authorization("PAGE_CUSTOMIZATION_MERCHANT_REQUIRED", "an active Merchant or pending creator page tenant is required")
 }
 
 func parsePageTargetURL(value string) (api.PageCustomizationTarget, error) {

@@ -1063,6 +1063,106 @@ var (
 	removeAllPath = os.RemoveAll
 )
 
+const installPermissionProbeDirectory = ".viceme-install-permission-probe"
+
+// InstallPermissionError identifies the exact Agent target whose filesystem
+// boundary cannot support an atomic Skill generation replacement. The probe
+// touches only a fixed disposable directory beside the managed Skills; it
+// never renames, removes, or rewrites an installed Skill.
+type InstallPermissionError struct {
+	Target string
+	Cause  error
+}
+
+func (err *InstallPermissionError) Error() string {
+	return fmt.Sprintf("Skill target %s cannot activate an atomic update: %v", err.Target, err.Cause)
+}
+
+func (err *InstallPermissionError) Unwrap() error { return err.Cause }
+
+// ProbeInstallPermissions validates every directory-entry mutation required
+// by the selected Agent targets before the install transaction writes its
+// journal or stages an official Skill. A failed probe leaves at most one fixed
+// disposable directory for a later authorized retry to clean up.
+func ProbeInstallPermissions(target string, environment Environment) error {
+	configDirectory, err := resolveConfigDirectory(environment)
+	if err != nil {
+		return err
+	}
+	environment.ConfigDir = configDirectory
+	resolved, err := resolveTargets("viceme-permission-probe", target, environment)
+	if err != nil {
+		return err
+	}
+	type probeTarget struct {
+		name      string
+		directory string
+		mode      os.FileMode
+	}
+	targets := []probeTarget{{name: "config", directory: configDirectory, mode: 0o700}}
+	for _, candidate := range resolved {
+		targets = append(targets, probeTarget{name: candidate.name, directory: filepath.Dir(candidate.path), mode: 0o755})
+	}
+	seen := make(map[string]bool, len(targets))
+	for _, candidate := range targets {
+		if seen[candidate.directory] {
+			continue
+		}
+		seen[candidate.directory] = true
+		if err := probeInstallDirectory(candidate.directory, candidate.mode); err != nil {
+			return &InstallPermissionError{Target: candidate.name, Cause: err}
+		}
+	}
+	return nil
+}
+
+func probeInstallDirectory(directory string, mode os.FileMode) error {
+	if err := os.MkdirAll(directory, mode); err != nil {
+		return err
+	}
+	root := filepath.Join(directory, installPermissionProbeDirectory)
+	if err := removeAllPath(root); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if err := os.Mkdir(root, 0o700); err != nil {
+		return err
+	}
+	cleanup := func() error {
+		if err := removeAllPath(root); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	fail := func(cause error) error {
+		if cleanupErr := cleanup(); cleanupErr != nil {
+			return errors.Join(cause, cleanupErr)
+		}
+		return cause
+	}
+
+	active := filepath.Join(root, "active")
+	staged := filepath.Join(root, "staged")
+	backup := filepath.Join(root, "backup")
+	for _, path := range []string{active, staged} {
+		if err := os.Mkdir(path, 0o700); err != nil {
+			return fail(err)
+		}
+		if err := os.WriteFile(filepath.Join(path, "entry"), []byte("viceme permission probe\n"), 0o600); err != nil {
+			return fail(err)
+		}
+	}
+	if err := renamePath(active, backup); err != nil {
+		return fail(err)
+	}
+	if err := renamePath(staged, active); err != nil {
+		return fail(err)
+	}
+	if err := removeAllPath(backup); err != nil {
+		return fail(err)
+	}
+	return cleanup()
+}
+
 // copyTreeOnDisk mirrors source (a file or directory tree) into destination
 // using only plain file and directory writes, which the observed agent
 // sandboxes permit even where they deny renames. Symlinks are refused so a

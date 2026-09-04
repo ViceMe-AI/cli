@@ -16,6 +16,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/ViceMe-AI/cli/internal/privatepath"
 )
 
 // PrivateMode is the on-disk permission of staged and target files on Unix.
@@ -36,7 +38,7 @@ var RenameFile = os.Rename
 func Write(filename string, data []byte, tempPattern string) error {
 	directory := filepath.Dir(filename)
 	sweepStaleStagingFiles(directory, tempPattern)
-	file, err := os.CreateTemp(directory, tempPattern)
+	file, err := privatepath.CreateTempFile(directory, tempPattern)
 	if err != nil {
 		return fmt.Errorf("create staging file: %w", err)
 	}
@@ -74,7 +76,14 @@ func Write(filename string, data []byte, tempPattern string) error {
 }
 
 func writeDirect(filename string, data []byte) error {
-	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, PrivateMode)
+	file, err := privatepath.CreateExclusiveFile(filename)
+	if err != nil {
+		createErr := err
+		if err := privatepath.RequirePrivateFile(filename); err != nil {
+			return errors.Join(fmt.Errorf("create target file: %w", createErr), fmt.Errorf("validate target file: %w", err))
+		}
+		file, err = os.OpenFile(filename, os.O_WRONLY|os.O_TRUNC, PrivateMode)
+	}
 	if err != nil {
 		return fmt.Errorf("create target file: %w", err)
 	}
@@ -102,14 +111,14 @@ func writeDirect(filename string, data []byte) error {
 }
 
 // IsPermissionDenial reports whether err wraps a sandbox-style permission
-// denial (EPERM or EACCES) at any depth of its chain. Callers use it to
+// denial (EPERM, EACCES, or a read-only filesystem) at any depth of its chain. Callers use it to
 // classify a failed rename or remove and degrade to plain writes.
 func IsPermissionDenial(err error) bool {
 	var errno syscall.Errno
 	if !errors.As(err, &errno) {
 		return false
 	}
-	return errno == syscall.EPERM || errno == syscall.EACCES
+	return errno == syscall.EPERM || errno == syscall.EACCES || errno == syscall.EROFS
 }
 
 func sweepStaleStagingFiles(directory, tempPattern string) {

@@ -340,6 +340,7 @@ jobs:
           cp release/bootstrap-contract.json dist/bootstrap-contract.json
           cp quality/release-manifest.json dist/release-manifest.json
           go run ./.release-workflow/cmd/agent-release-manifest/main.go --version "${VERSION}"
+          go run ./.release-workflow/cmd/skills-archive/main.go --version "${VERSION}"
           go run ./.release-workflow/cmd/agent-install-doc/main.go --version "${VERSION}" \
             --template .release-workflow/release/agent-install.md.tmpl
           go run ./.release-workflow/cmd/agent-install-doc/main.go --version "${VERSION}" \
@@ -602,12 +603,43 @@ jobs:
             }
 
             for FILE in dist/*; do
+              # dist/skills is published as its own tree below; directories are
+              # never objects of the flat contract loop.
+              [[ -f "${FILE}" ]] || continue
               if [[ "${FILE}" == *.md ]]; then
                 put_immutable "${FILE}" "${PREFIX}/v${VERSION}/${FILE#dist/}" 'text/markdown; charset=utf-8'
               else
                 put_immutable "${FILE}" "${PREFIX}/v${VERSION}/${FILE#dist/}"
               fi
             done
+
+            # Hosted official Skills: deterministic zips, the machine-readable
+            # hosting manifest, and a flat per-file tree for direct single-file
+            # URLs (skills/<skill>/SKILL.md, scripts/...). Flat files are raw
+            # source bytes, so byte-immutability holds by construction.
+            # 按扩展映射托管物的 Content-Type;未知扩展留空,由对象存储
+            # 按默认 application/octet-stream 处理——对未来的二进制资源
+            # (图片等)是安全默认,不会把二进制标成文本。
+            hosted_content_type() {
+              case "${1}" in
+                *.zip) echo 'application/zip' ;;
+                *.json) echo 'application/json; charset=utf-8' ;;
+                *.md|*.markdown) echo 'text/markdown; charset=utf-8' ;;
+                *.txt) echo 'text/plain; charset=utf-8' ;;
+                *.py) echo 'text/x-python; charset=utf-8' ;;
+                *.sh) echo 'text/x-shellscript; charset=utf-8' ;;
+                *.yaml|*.yml) echo 'text/yaml; charset=utf-8' ;;
+                *.toml) echo 'application/toml; charset=utf-8' ;;
+                *.html|*.htm) echo 'text/html; charset=utf-8' ;;
+                *.js|*.mjs) echo 'text/javascript; charset=utf-8' ;;
+                *.css) echo 'text/css; charset=utf-8' ;;
+                *.svg) echo 'image/svg+xml' ;;
+                *) echo '' ;;
+              esac
+            }
+            while IFS= read -r FILE; do
+              put_immutable "${FILE}" "${PREFIX}/v${VERSION}/skills/${FILE#dist/skills/}" "$(hosted_content_type "${FILE}")"
+            done < <(find dist/skills -type f | sort)
 
             local EXISTING_LATEST=""
             if aws --endpoint-url "${ENDPOINT}" s3 cp "s3://${BUCKET}/${PREFIX}/latest" "${SCRATCH}/latest" --only-show-errors 2>/dev/null; then
@@ -639,6 +671,22 @@ jobs:
                     --cache-control 'public,max-age=300' --only-show-errors
                 fi
               done
+              # Hosted official Skills live in their own public bucket so the
+              # stable URL is https://s3.viceme.<cn|ai>/skills/<file> with no
+              # path prefix; versioned copies stay under the start bucket's
+              # immutable cli/releases tree. Same RustFS credentials cover it.
+              # The whole tree ships: zips, manifest and the flat per-file
+              # copies for direct single-file access.
+              while IFS= read -r FILE; do
+                local HOSTED_TYPE
+                HOSTED_TYPE="$(hosted_content_type "${FILE}")"
+                local HOSTED_TYPE_ARGS=()
+                if [[ -n "${HOSTED_TYPE}" ]]; then
+                  HOSTED_TYPE_ARGS=(--content-type "${HOSTED_TYPE}")
+                fi
+                aws --endpoint-url "${ENDPOINT}" s3 cp "${FILE}" "s3://skills/${FILE#dist/skills/}" \
+                  "${HOSTED_TYPE_ARGS[@]}" --cache-control 'public,max-age=300' --only-show-errors
+              done < <(find dist/skills -type f | sort)
             fi
 
             aws --endpoint-url "${ENDPOINT}" s3 cp "dist/agent-install.md" "s3://${BUCKET}/policy-probe/${GITHUB_RUN_ID}" \
@@ -653,6 +701,12 @@ jobs:
             curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/agent-install.md" \
               --output "${SCRATCH}/agent-install.md"
             cmp --silent dist/agent-install.md "${SCRATCH}/agent-install.md"
+            if [[ "${HIGHEST}" == "${VERSION}" ]]; then
+              local SKILLS_ORIGIN="${PUBLIC_ORIGIN%/start}"
+              curl --fail --silent --show-error "${SKILLS_ORIGIN}/skills/manifest.json" \
+                --output "${SCRATCH}/hosted-manifest.json"
+              cmp --silent dist/skills/manifest.json "${SCRATCH}/hosted-manifest.json"
+            fi
             curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/commerce-skill-install.md" \
               --output "${SCRATCH}/commerce-skill-install.md"
             cmp --silent dist/commerce-skill-install.md "${SCRATCH}/commerce-skill-install.md"

@@ -1,4 +1,4 @@
 interface:
   display_name: "让别人做网站同款"
-  short_description: "发布完整源码并把做同款提示接入原网站"
+  short_description: "发布完整源码并把做同款邀请接入创作者网站"
   default_prompt: "使用 $let-others-make-a-copy 检查创作者资格，为网站生成完整源码 ZIP 和根级部署文档，通过 ViceMe 发布稳定做同款口令，并把平台返回的复制提示词接入创作者原站。"
