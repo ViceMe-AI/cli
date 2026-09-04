@@ -4,6 +4,11 @@
 目标页面能用的 capability 分组；作者页不会返回作品专属接口。页面入口加载时，平台会注入
 `window.viceme`。manifest 只声明页面实际调用的 capability。
 
+创作者入驻模式是唯一例外：审核中的普通申请会返回一个 `SUSPENDED` 页面租户，只有该
+申请人自己的 `CreatorPage` 可调用 describe、upload、status 和 publish。该模式先在本地
+预览，使用 `viceme merchant page upload` 上传，不调用线上 preview；暂停租户不能调用作品页
+或任何经营接口。发布后的资产继续私有，直到创作者申请批准后由同一公开路由读取。
+
 ## 页面包
 
 ZIP 根目录必须包含 `viceme-page.json`，其余目录自由组织。HTML 入口可以位于任意安全的
@@ -36,7 +41,9 @@ const context = await window.viceme.context.get();
 
 - 作者页返回 `{ type: "CREATOR", creator, works }`。
 - 作品页返回 `{ type: "WORK", creator, work }`。
-- `creator` 包含公开的作者资料；作者页 `works` 是公开作品摘要列表。
+- `creator` 包含公开的作者资料；已验证的外部身份同时提供可选 `profileUrl`。
+- 作者页 `works` 是公开作品摘要列表，每项包含标题、简介、站内路径和可选 `coverUrl`，足够
+  渲染汪奕辰模板中的作品 Block。
 - 作品页 `work` 包含当前 revision、products、service、websiteAction、metrics 和公开时间字段。
 
 ## NAVIGATION
