@@ -272,6 +272,7 @@ Never copy an access token into the conversation.
 | `viceme publication update ...` | Replace the complete listing draft from a strict JSON file. |
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
+| `viceme replica preview [--path <project> \| --url <loopback-url>]` | Open the anonymous ViceMe preview shell around a local website before sign-in or upload; a CLI-owned dev server runs only until the command exits, and the opened browser remains the authority for visual verification. |
 | `viceme replica publish ...` | Validate a complete source ZIP with a root `VICEME-REPLICA.md`, publish an immutable version, and return the stable code and creator-site prompts. |
 | `viceme replica install <code> --target <new-directory>` | Create and display the authoritative Quote without an order; after explicit confirmation, return a private local WeChat QR image for Agent rendering, then resume the same order until paid before atomic installation. |
 | `viceme update` | Update the CLI and matching official Skills together. |

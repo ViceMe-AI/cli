@@ -33,6 +33,7 @@ type replicaPublishResult struct {
 
 func newReplicaCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "replica", Short: "Publish and install Website Replica source packages"}
+	command.AddCommand(newReplicaPreviewCommand(runtime))
 	command.AddCommand(newReplicaPublishCommand(runtime))
 	command.AddCommand(newReplicaInstallCommand(runtime))
 	return command
