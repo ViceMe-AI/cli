@@ -173,9 +173,10 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | configure follow or paid unlock for an existing website and integrate it into host code after the shared creator qualification check; platform resources stay internal. |
 | `let-people-interact` | branch between danmaku, open tips, or both; danmaku-bearing routes require a published Website Work with an exact canonical Origin, while Tip can use any eligible published Merchant Work. It defaults to Mounted UI and uses Headless only for an explicit custom-UI request; none requires DNS ownership verification. |
-| `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site. |
+| `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site; it does not perform buyer checkout or installation. |
+| `let-me-make-a-copy` | accept a website copy invitation; install from the regional S3-hosted official Skill ZIP, reuse account-bound or anonymous CLI purchasing when available, preserve an existing standalone recovery, and fall back to the bundled no-CLI script. |
 
-Buyer-side `use-a-skill` keeps its existing name because it is not a creator workflow.
+Buyer-side `use-a-skill` and `let-me-make-a-copy` keep independent names because they are not creator workflows.
 
 The Agent Skills own the conversational workflow and approval rules. The CLI
 owns deterministic local work and API calls. This separation lets an Agent
@@ -272,9 +273,9 @@ Never copy an access token into the conversation.
 | `viceme publication update ...` | Replace the complete listing draft from a strict JSON file. |
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
-| `viceme replica preview [--path <project> | --url <loopback-url>]` | Open the anonymous ViceMe preview shell around a local website before sign-in or upload; a CLI-owned dev server runs only until the command exits, and the opened browser remains the authority for visual verification. |
+| `viceme replica preview [--path <project> \| --url <loopback-url>]` | Open the anonymous ViceMe preview shell around a local website before sign-in or upload; a CLI-owned dev server runs only until the command exits, and the opened browser remains the authority for visual verification. |
 | `viceme replica publish ...` | Freeze a project worktree (or validate an existing ZIP), generate the root `VICEME-REPLICA.md`, publish an immutable version, and return its source summary, stable code, and creator-site prompts. |
-| `viceme replica install <code> --target <new-directory>` | Create and display the authoritative Quote without an order; after explicit confirmation, return a private local WeChat QR image for Agent rendering, then resume the same order until paid before atomic installation. |
+| `viceme replica install <code> [--target <new-directory>]` | With an authenticated Profile, display the authoritative Quote before `--confirm`; add `--accept-price-cents <fen>` for anonymous checkout and `--payment-presented` only after its hosted payment page opens. Both paths atomically install the paid source. |
 | `viceme update` | Explicitly update the CLI. Refresh official Skills separately with `viceme install --agent auto`. |
 | `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
 | `viceme merchant work ...` | Create, inspect, update, and publish Merchant Works, including Website Works. |
@@ -401,7 +402,7 @@ installation. Neither raw npm output nor credentials are included in errors.
 
 ## Development
 
-Requirements: Go 1.23+ and Node.js 22+ for npm packaging checks.
+Requirements: Go 1.23+ and Python 3.9+; Node.js 22+ is required for npm packaging checks.
 
 ```bash
 make check

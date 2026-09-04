@@ -10,12 +10,13 @@ import (
 	"testing/fstest"
 	"time"
 
+	cliembed "github.com/ViceMe-AI/cli"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
 
 func testSkillsFS() fs.FS {
 	return fstest.MapFS{
-		"demo-skill/SKILL.md": &fstest.MapFile{Data: []byte("---\nname: demo-skill\ndescription: Demo.\n---\n\n正文。\n")},
+		"demo-skill/SKILL.md":               &fstest.MapFile{Data: []byte("---\nname: demo-skill\ndescription: Demo.\n---\n\n正文。\n")},
 		"demo-skill/references/workflow.md": &fstest.MapFile{Data: []byte("# 工作流\n")},
 		"demo-skill/agents/openai.yaml": &fstest.MapFile{Data: []byte(
 			"interface:\n  display_name: \"Demo\"\n  short_description: \"Demo skill\"\n  default_prompt: \"Run the demo.\"\n",
@@ -140,5 +141,29 @@ func TestManifestDigestsMatchBundle(t *testing.T) {
 	}
 	if !reflect.DeepEqual(decoded.Skills["demo-skill"], hosted) {
 		t.Fatalf("manifest round-trip drifted")
+	}
+}
+
+func TestOfficialMakeCopyArchiveIncludesStandaloneRuntime(t *testing.T) {
+	_, manifest, err := buildHostingArchive(cliembed.EmbeddedSkills())
+	if err != nil {
+		t.Fatalf("build official archive: %v", err)
+	}
+	hosted, ok := manifest.Skills["let-me-make-a-copy"]
+	if !ok {
+		t.Fatal("manifest missing let-me-make-a-copy")
+	}
+	want := map[string]bool{
+		"scripts/make_copy.py": false,
+	}
+	for _, name := range hosted.Files {
+		if _, required := want[name]; required {
+			want[name] = true
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Fatalf("hosted archive omitted %s", name)
+		}
 	}
 }

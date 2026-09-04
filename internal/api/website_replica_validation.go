@@ -29,6 +29,8 @@ type strictAPIResponse interface {
 func (*CreateWebsiteReplicaUploadResponse) strictAPIResponse()   {}
 func (*CompleteWebsiteReplicaUploadResponse) strictAPIResponse() {}
 func (*WebsiteReplicaResolution) strictAPIResponse()             {}
+func (*WebsiteReplicaSession) strictAPIResponse()                {}
+func (*CheckoutWebsiteReplicaResponse) strictAPIResponse()       {}
 func (*WebsiteReplicaQuote) strictAPIResponse()                  {}
 func (*WebsiteReplicaOrder) strictAPIResponse()                  {}
 func (*WebsiteReplicaOrderStatus) strictAPIResponse()            {}
@@ -185,10 +187,30 @@ func (response *WebsiteReplicaResolution) validateAPIResponse() error {
 	if response == nil || !zodUUIDPattern.MatchString(response.ReplicaID) || !websiteReplicaCodePattern.MatchString(response.ShortCode) ||
 		utf16CodeUnits(response.Title) < 1 || utf16CodeUnits(response.Title) > 200 || utf16CodeUnits(response.Summary) > 500 ||
 		utf16CodeUnits(response.Creator.Handle) < 2 || utf16CodeUnits(response.Creator.Handle) > 32 ||
+		!validAbsoluteURL(response.ViceMeWorkURL) ||
 		validateWebsiteReplicaProduct(response.Product) != nil {
 		return errors.New("Website Replica resolution response is invalid")
 	}
 	return nil
+}
+
+func (response *WebsiteReplicaSession) validateAPIResponse() error {
+	if response == nil || !zodUUIDPattern.MatchString(response.SessionID) ||
+		len(response.Token) < 43 || len(response.Token) > 256 || !validZodDatetime(response.ExpiresAt) ||
+		response.Replica.validateAPIResponse() != nil {
+		return errors.New("Website Replica session response is invalid")
+	}
+	return nil
+}
+
+func (response *CheckoutWebsiteReplicaResponse) validateAPIResponse() error {
+	if response == nil || !validAbsoluteURL(response.CheckoutURL) {
+		return errors.New("Website Replica checkout response is invalid")
+	}
+	order := WebsiteReplicaOrder{
+		OrderNo: response.OrderNo, Status: response.Status, PaymentAction: response.PaymentAction, ExpiresAt: response.ExpiresAt,
+	}
+	return order.validateAPIResponse()
 }
 
 func validateWebsiteReplicaProduct(product WebsiteReplicaProduct) error {

@@ -1,4 +1,5 @@
 GO ?= go
+PYTHON ?= python3
 GOPATH ?= $(CURDIR)/.cache/go
 GOCACHE ?= $(CURDIR)/.cache/go-build
 GOMODCACHE ?= $(GOPATH)/pkg/mod
@@ -20,6 +21,7 @@ build:
 
 test:
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test ./...
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest npm/test/make_copy_test.py
 
 test-race:
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test -race ./...

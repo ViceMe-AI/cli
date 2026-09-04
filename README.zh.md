@@ -158,9 +158,10 @@ npx --yes @viceme-ai/cli@latest install
 | `use-a-skill` | 解析免费、已购买或待购买的访问状态，安装所选 Skill，并继续原任务。 |
 | `charge-for-your-work` | 为现有网站配置关注或付费解锁并接入宿主代码；复用统一创作者资格检查，平台资源保持为内部实现。 |
 | `let-people-interact` | 分支处理仅弹幕、开放赞赏或两者；包含弹幕的路线要求已发布且 canonical Origin 精确匹配的 Website Work，Tip 可使用任意合格且已发布的 Merchant Work。默认使用 Mounted UI，仅在用户明确要求自定义 UI 时进入 Headless；三个分支均不要求 DNS 所有权验证。 |
-| `let-others-make-a-copy` | 发布包含根级 `VICEME-REPLICA.md` 的完整网站源码 ZIP，并把平台返回的“做同款”提示词接入创作者原站。 |
+| `let-others-make-a-copy` | 发布包含根级 `VICEME-REPLICA.md` 的完整网站源码 ZIP，并把平台返回的“做同款”提示词接入创作者原站；不处理买家结算与安装。 |
+| `let-me-make-a-copy` | 接受网站做同款邀请；直接读取区域化 S3 托管的官方 Skill 与 Python 3.9+ 标准库脚本，有 CLI 时复用账号或匿名购买，并优先保留既有 standalone 恢复。 |
 
-买家侧 `use-a-skill` 不属于创作者玩法，因此保持现有名称。
+买家侧 `use-a-skill` 与 `let-me-make-a-copy` 不属于创作者玩法，因此保持独立名称。
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
 可以解释每一步决策，而相同的命令契约仍可在终端或自动化中复现。
@@ -247,9 +248,9 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme publication update ...` | 用严格 JSON 文件替换完整 Listing Draft。 |
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
-| `viceme replica preview [--path <项目> | --url <回环地址>]` | 登录或上传前，在匿名 ViceMe 预览壳中打开本地网页；CLI 启动的 dev server 仅存活到命令退出，视觉验证以打开的浏览器为准。 |
+| `viceme replica preview [--path <项目> \| --url <回环地址>]` | 登录或上传前，在匿名 ViceMe 预览壳中打开本地网页；CLI 启动的 dev server 仅存活到命令退出，视觉验证以打开的浏览器为准。 |
 | `viceme replica publish ...` | 冻结项目工作树（或校验已有 ZIP）、生成根级 `VICEME-REPLICA.md`，发布不可变版本并返回源码摘要、稳定口令与自站提示词。 |
-| `viceme replica install <口令> --target <新目录>` | 创建并展示真实 Quote，不创建订单；买家明确确认后原样追加 `--confirm` 才购买并原子安装。 |
+| `viceme replica install <口令> [--target <新目录>]` | 已登录 Profile 先展示真实 Quote，明确确认后追加 `--confirm`；匿名购买则追加 `--accept-price-cents <分>`，仅在托管支付页打开后使用 `--payment-presented`。两条路径都会原子安装已支付源码。 |
 | `viceme update` | 显式更新 CLI；官方 Skills 使用 `viceme install --agent auto` 单独刷新。 |
 | `viceme merchant accounts` | 列出当前 User 通过 OWNER 成员关系经营的普通 MerchantAccount。 |
 | `viceme merchant work ...` | 创建、查看、更新和发布 Merchant Work，包括 Website Work。 |
@@ -349,7 +350,7 @@ CLI 会在创建更新事务前检查当前安装方式需要修改的全部路�
 
 ## 开发
 
-需要 Go 1.23+；npm 包检查还需要 Node.js 22+。
+需要 Go 1.23+ 与 Python 3.9+；npm 包检查还需要 Node.js 22+。
 
 ```bash
 make check

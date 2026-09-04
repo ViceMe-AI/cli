@@ -24,6 +24,7 @@ var officialSkillNames = []string{
 	"use-a-skill",
 	"let-people-interact",
 	"let-others-make-a-copy",
+	"let-me-make-a-copy",
 }
 
 func readOfficialSkillBundle(t *testing.T, skillName string) string {
@@ -153,10 +154,26 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "let-others-make-a-copy",
 			machine: []string{
 				"$become-a-creator", "MerchantAccountMember(role=OWNER)", "VICEME-REPLICA.md",
-				"viceme replica publish", "buyerEntry.prompts", "viceme replica install", "--confirm",
+				"viceme replica publish", "buyerEntry.prompts", "let-me-make-a-copy",
 			},
 			semantics: []string{
-				"完整源码", "创作者自己的站点", "不得写死价格", "发布成功后", "不得覆盖已有目录", "Quote",
+				"完整源码", "创作者自己的站点", "不得写死价格", "发布成功后", "Quote",
+				"免费做同款", "付费做同款", "不得每次问一个字段并循环追问", "最终不可变发布确认",
+				"不处理买家购买和安装",
+			},
+		},
+		{
+			name: "let-me-make-a-copy",
+			machine: []string{
+				"start --work-url", "standaloneRecoveryAvailable=true", "viceme auth status", "viceme replica install",
+				"--accept-price-cents", "REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "PRODUCT_ALREADY_OWNED",
+				"s3.viceme.cn/skills/let-me-make-a-copy/scripts/make_copy.py",
+				"s3.viceme.ai/skills/let-me-make-a-copy/scripts/make_copy.py", "command -v viceme",
+				"scripts/make_copy.py", "Python 3.9",
+			},
+			semantics: []string{
+				"不把 Skill 写入 Agent Skill 目录", "后来安装 CLI 不得触发新订单", "订单一旦创建不得切换",
+				"不得静默降级", "账号路径", "CLI 匿名路径", "无 CLI 或既有 standalone 路径",
 			},
 		},
 	}
@@ -949,7 +966,7 @@ func TestWebsiteReplicaUsesPublishedWebsiteWithoutDNSVerification(t *testing.T) 
 	}
 }
 
-func TestWebsiteReplicaKeepsInvitationShortAndBuyerStepsInSkill(t *testing.T) {
+func TestWebsiteReplicaDelegatesBuyerStepsToIndependentSkill(t *testing.T) {
 	t.Parallel()
 
 	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-others-make-a-copy/SKILL.md")
@@ -958,14 +975,17 @@ func TestWebsiteReplicaKeepsInvitationShortAndBuyerStepsInSkill(t *testing.T) {
 	}
 	text := string(content)
 	for _, required := range []string{
-		"接受一起创作邀请",
-		"`{创作者用户名} 邀请我一起创作「{作品名称}」，参考 {作品详情页.md地址} 立刻开始吧～`",
-		"该地址就是本次网站 ID", "具体步骤只由本 Skill 维护", "$creator-tools",
-		"webBaseUrl` 与详情地址 Origin 精确一致", "平台控制区", "viceme replica install",
-		"PRESENT_PAYMENT_QR", "VICEME-REPLICA.md", "不得覆盖已有目录",
+		"独立 `let-me-make-a-copy` Skill", "不执行买家预览、购买、支付、下载或安装", "作品 Markdown 平台控制区",
 	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("Website Replica Skill omitted short-invitation buyer contract %q", required)
+			t.Fatalf("Website Replica creator Skill omitted buyer delegation %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"viceme replica inspect", "viceme replica install", "REPLICA_PAYMENT_REQUIRED", "--payment-presented",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("Website Replica creator Skill retained buyer implementation %q", forbidden)
 		}
 	}
 }
