@@ -167,9 +167,10 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			machine: []string{
 				"standaloneRecoveryAvailable=true", "viceme auth status", "viceme replica install",
 				"--accept-price-cents", "REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "PRODUCT_ALREADY_OWNED",
+				"skills/manifest.json", "zip_sha256", "scripts/make-copy.cjs", "scripts/jszip.min.cjs",
 			},
 			semantics: []string{
-				"不得把远程 Skill 写入", "后来安装 CLI 不得触发新订单", "订单一旦创建不得切换",
+				"同名目录自然接管", "后来安装 CLI 不得触发新订单", "订单一旦创建不得切换",
 				"不得静默降级", "账号路径", "CLI 匿名路径", "无 CLI 或既有 standalone 路径",
 			},
 		},
