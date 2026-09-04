@@ -273,6 +273,7 @@ Never copy an access token into the conversation.
 | `viceme publication update ...` | Replace the complete listing draft from a strict JSON file. |
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
+| `viceme replica preview [--path <project> \| --url <loopback-url>]` | Open the anonymous ViceMe preview shell around a local website before sign-in or upload; a CLI-owned dev server runs only until the command exits, and the opened browser remains the authority for visual verification. |
 | `viceme replica publish ...` | Validate a complete source ZIP with a root `VICEME-REPLICA.md`, publish an immutable version, and return the stable code and creator-site prompts. |
 | `viceme replica install <code> --accept-price-cents <fen> [--payment-presented] [--target <new-directory>]` | Start anonymous checkout in the current workspace; return its hosted payment page, then use `--payment-presented` after the page opens to wait with one status check per minute for at most three minutes before atomic source installation. |
 | `viceme update` | Update the CLI and matching official Skills together. |
