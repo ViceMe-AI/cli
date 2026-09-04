@@ -241,9 +241,9 @@ func installReplicaAnonymousLocked(
 				"REPLICA_PRICE_CHANGED",
 				"the Website Replica price changed after the user chose to continue",
 			).WithDetails(map[string]any{
-				"nextAction": "OPEN_WORK_PREVIEW", "workUrl": resolved.ViceMeWorkURL,
+				"nextAction": "CONFIRM_INLINE_PREVIEW", "workUrl": resolved.ViceMeWorkURL,
 				"currency": resolved.Product.Currency, "totalAmountCents": resolved.Product.PriceCents,
-			}).WithHint("open the Work preview and ask the user to continue again at the new price")
+			}).WithHint("show the updated Replica details and ask the user to continue again at the new price")
 		}
 		if standaloneReplicaAttemptMayExist(runtime, shortCode) {
 			if err := retireStandaloneUnpaidAttempt(ctx, runtime, resolved); err != nil {

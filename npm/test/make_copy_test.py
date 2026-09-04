@@ -101,7 +101,7 @@ class MakeCopyTest(unittest.TestCase):
         self.assertEqual(args.command, "start")
         self.assertEqual(args.work_url, work_url)
 
-        preview = {"nextAction": "OPEN_WORK_PREVIEW", "workUrl": work_url}
+        preview = {"nextAction": "CONFIRM_INLINE_PREVIEW", "workUrl": work_url}
         with mock.patch.object(
             make_copy, "inspect", return_value=preview
         ) as inspect, mock.patch.object(make_copy, "result") as result:

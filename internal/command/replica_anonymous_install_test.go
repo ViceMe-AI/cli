@@ -118,7 +118,7 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	}
 	var inspectOutput bytes.Buffer
 	deps.Out, deps.ErrOut = &inspectOutput, &bytes.Buffer{}
-	if exit := Execute([]string{"replica", "inspect", fullCode}, deps); exit != 0 || !bytes.Contains(inspectOutput.Bytes(), []byte(`"nextAction": "OPEN_WORK_PREVIEW"`)) {
+	if exit := Execute([]string{"replica", "inspect", fullCode}, deps); exit != 0 || !bytes.Contains(inspectOutput.Bytes(), []byte(`"nextAction": "CONFIRM_INLINE_PREVIEW"`)) {
 		t.Fatalf("inspect failed: exit=%d output=%q", exit, inspectOutput.String())
 	}
 

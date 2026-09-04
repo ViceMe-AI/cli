@@ -1260,7 +1260,7 @@ def inspect(
         )
         recovery_available = status["payment"]["status"] == "PAID"
     return {
-        "nextAction": "OPEN_WORK_PREVIEW",
+        "nextAction": "CONFIRM_INLINE_PREVIEW",
         "workUrl": replica["viceMeWorkUrl"],
         "instruction": instruction,
         "standaloneRecoveryAvailable": recovery_available,
@@ -1284,7 +1284,7 @@ def install(
             "REPLICA_PRICE_CHANGED",
             "Replica price changed; show the Work again and ask for confirmation",
             {
-                "nextAction": "OPEN_WORK_PREVIEW",
+                "nextAction": "CONFIRM_INLINE_PREVIEW",
                 "workUrl": replica["viceMeWorkUrl"],
                 "priceCents": replica["product"]["priceCents"],
             },
