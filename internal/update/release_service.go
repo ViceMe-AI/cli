@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -165,6 +166,17 @@ func (service *ReleaseService) Apply(ctx context.Context, check CheckResult, opt
 		return result, &OperationError{Kind: ErrorReleaseReplace, Cause: errors.New("could not resolve the current ViceMe executable")}
 	}
 	if check.UpdateAvailable {
+		if err := ProbeRenameCapability(filepath.Dir(executable)); err != nil {
+			target := options.SkillTarget
+			if target == "" {
+				target = "auto"
+			}
+			result.Targets = append(result.Targets, TargetResult{Target: "standalone_binary", Status: "blocked"})
+			if options.RefreshSkills {
+				result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "blocked"})
+			}
+			return result, &OperationError{Kind: ErrorReleaseReplace, Cause: err}
+		}
 		asset := fmt.Sprintf("viceme_%s_%s_%s", targetVersion, service.GOOS, service.GOARCH)
 		if service.GOOS == "windows" {
 			asset += ".exe"
@@ -190,13 +202,15 @@ func (service *ReleaseService) Apply(ctx context.Context, check CheckResult, opt
 			if target == "" {
 				target = "auto"
 			}
-			if err := service.scheduleWindows()(staged, executable, target, service.Region, true); err != nil {
+			if err := service.scheduleWindows()(staged, executable, target, service.Region, options.RefreshSkills); err != nil {
 				os.Remove(staged)
 				return result, &OperationError{Kind: ErrorReleaseReplace, Cause: errors.New("could not schedule the Windows release activation")}
 			}
 			result.CLIVersion = targetVersion
 			result.Targets = append(result.Targets, TargetResult{Target: "standalone_binary", Status: "scheduled"})
-			result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "scheduled"})
+			if options.RefreshSkills {
+				result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "scheduled"})
+			}
 			return result, nil
 		}
 		defer os.Remove(staged)
@@ -204,12 +218,29 @@ func (service *ReleaseService) Apply(ctx context.Context, check CheckResult, opt
 		if target == "" {
 			target = "auto"
 		}
-		output, err := service.runner().Run(ctx, staged, "bootstrap", "activate", "--destination", executable, "--agent", target, "--region", service.Region)
-		if err != nil {
-			result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "failed", Error: commandError(err, output)})
-			return result, &OperationError{Kind: ErrorReleaseSkillRefresh, Cause: errors.New("new CLI could not atomically activate its executable and matching official Skills")}
+		arguments := []string{"bootstrap", "activate", "--destination", executable}
+		if options.RefreshSkills {
+			arguments = append(arguments, "--agent", target, "--region", service.Region)
+		} else {
+			arguments = append(arguments, "--region", service.Region, "--skip-skills")
 		}
-		result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "updated"})
+		output, err := service.runner().Run(ctx, staged, arguments...)
+		if err != nil {
+			childError, permissionErr := releaseChildError(err, output)
+			if options.RefreshSkills {
+				result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "failed", Error: childError})
+			}
+			if permissionErr != nil {
+				return result, permissionErr
+			}
+			if options.RefreshSkills {
+				return result, &OperationError{Kind: ErrorReleaseSkillRefresh, Cause: errors.New("new CLI could not atomically activate its executable and matching official Skills")}
+			}
+			return result, &OperationError{Kind: ErrorReleaseReplace, Cause: errors.New("new CLI could not atomically activate its executable")}
+		}
+		if options.RefreshSkills {
+			result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "updated"})
+		}
 		result.CLIVersion = targetVersion
 		result.Targets = append(result.Targets, TargetResult{Target: "standalone_binary", Status: "updated"})
 		return result, nil
@@ -226,11 +257,40 @@ func (service *ReleaseService) Apply(ctx context.Context, check CheckResult, opt
 	}
 	output, err := service.runner().Run(ctx, executable, "install", "--agent", target, "--region", service.Region)
 	if err != nil {
-		result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "failed", Error: commandError(err, output)})
+		childError, permissionErr := releaseChildError(err, output)
+		result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "failed", Error: childError})
+		if permissionErr != nil {
+			return result, permissionErr
+		}
 		return result, &OperationError{Kind: ErrorReleaseSkillRefresh, Cause: errors.New("updated CLI could not refresh the official Skills")}
 	}
 	result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "updated"})
 	return result, nil
+}
+
+type releaseChildEnvelope struct {
+	OK    bool `json:"ok"`
+	Error *struct {
+		Type    string `json:"type"`
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	} `json:"error"`
+}
+
+// releaseChildError accepts only the stable JSON envelope produced by the
+// exact downloaded ViceMe child. Raw combined output remains private because
+// it may contain environment or registry diagnostics. Permission refusal is
+// promoted to a typed updater error so the parent can request host approval;
+// every other child failure exposes only its stable code.
+func releaseChildError(processErr error, combinedOutput []byte) (string, error) {
+	var envelope releaseChildEnvelope
+	if json.Unmarshal(combinedOutput, &envelope) == nil && !envelope.OK && envelope.Error != nil && envelope.Error.Code != "" {
+		if envelope.Error.Code == "UPDATE_PERMISSION_REQUIRED" {
+			return envelope.Error.Code, &OperationError{Kind: ErrorPermission, Cause: errors.New("the standalone activation child requires host filesystem permission")}
+		}
+		return envelope.Error.Code, nil
+	}
+	return commandError(processErr, combinedOutput), nil
 }
 
 func (service *ReleaseService) get(ctx context.Context, url string, limit int64) ([]byte, error) {
@@ -397,8 +457,14 @@ $ErrorActionPreference = "Stop"
 $Result = "$Destination.viceme-update-result.json"
 try {
   Wait-Process -Id $ParentPid -ErrorAction SilentlyContinue
-  & $Staged bootstrap activate --destination $Destination --agent $Target --region $Region
-  if ($LASTEXITCODE -ne 0) { throw "atomic CLI and Skill activation failed" }
+  $ActivationArgs = @("bootstrap", "activate", "--destination", $Destination, "--region", $Region)
+  if ($RefreshSkills -eq "true") {
+    $ActivationArgs += @("--agent", $Target)
+  } else {
+    $ActivationArgs += "--skip-skills"
+  }
+  & $Staged @ActivationArgs
+  if ($LASTEXITCODE -ne 0) { throw "atomic CLI activation failed" }
   @{ status = "succeeded"; updatedAt = [DateTime]::UtcNow.ToString("o") } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $Result
 } catch {
   @{ status = "failed"; updatedAt = [DateTime]::UtcNow.ToString("o") } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $Result

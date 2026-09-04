@@ -1,7 +1,7 @@
 // Package update implements the npm-backed ViceMe CLI update path. The npm
-// launcher owns binary acquisition and checksum verification; this package
-// updates that launcher at an exact version and then refreshes the bundled
-// Agent Skill using the same exact package version.
+// launcher owns binary acquisition and checksum verification. CLI replacement
+// and optional official Skill refresh are distinct operations so a Skill
+// destination cannot roll back or block a completed CLI-only update.
 package update
 
 import (
@@ -48,6 +48,7 @@ const (
 	ErrorRegistryResponse    ErrorKind = "registry_response"
 	ErrorNPMMissing          ErrorKind = "npm_missing"
 	ErrorNPMPermission       ErrorKind = "npm_permission"
+	ErrorPermission          ErrorKind = "permission"
 	ErrorNPMCommand          ErrorKind = "npm_command"
 	ErrorReleaseNetwork      ErrorKind = "release_network"
 	ErrorReleaseResponse     ErrorKind = "release_response"
@@ -110,9 +111,9 @@ type Service interface {
 	Apply(context.Context, CheckResult, ApplyOptions) (ApplyResult, error)
 }
 
-// AutomaticChecker performs the bounded freshness gate used before ordinary
-// commands. A fresh, validated local result avoids another network request;
-// stale state is refreshed from the authoritative stable channel.
+// AutomaticChecker performs the cached release lookup used by the detached
+// automatic-update worker. A fresh, validated local result avoids another
+// network request; stale state is refreshed from the authoritative channel.
 type AutomaticChecker interface {
 	CheckAutomatic(context.Context) (CheckResult, error)
 }
@@ -191,6 +192,9 @@ func (service *NPMService) EnsureLauncher(ctx context.Context) (TargetResult, er
 		if err := ValidateActivationTarget(service.ConfigDir, target); err != nil {
 			return err
 		}
+		if err := service.probeNPMActivation(ctx); err != nil {
+			return err
+		}
 		journal, err := service.newNPMActivationJournal(target, "auto", false)
 		if err != nil {
 			return err
@@ -239,6 +243,9 @@ func (service *NPMService) PrepareCoordinatedInstallWhileLocked(ctx context.Cont
 		return result, "", errors.New("an npm activation journal is already pending")
 	}
 	if err := ValidateActivationTarget(service.ConfigDir, target); err != nil {
+		return result, "", err
+	}
+	if err := service.probeNPMActivation(ctx); err != nil {
 		return result, "", err
 	}
 	journal, err := service.newNPMActivationJournal(target, skillTarget, true)
@@ -337,7 +344,12 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 		return result, err
 	}
 	alreadyActive := false
+	preflightBlocked := false
 	err = service.withNPMActivationLock(ctx, func() error {
+		_, pending, inspectErr := service.readNPMActivation()
+		if inspectErr != nil {
+			return inspectErr
+		}
 		if err := service.recoverNPMActivation(ctx); err != nil {
 			return err
 		}
@@ -358,7 +370,15 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 				return nil
 			}
 		}
-		journal, err := service.newNPMActivationJournal(generation, target, true)
+		if err := service.probeNPMActivation(ctx); err != nil {
+			// Only this pre-mutation refusal can keep the current command
+			// running. Never infer safety from a missing journal after releasing
+			// the lock: another process may have recovered a changed generation.
+			running, generationErr := NewNPMGeneration(service.ComparableVersion)
+			preflightBlocked = IsPermissionDenied(err) && !pending && generationErr == nil && exists && active == running
+			return err
+		}
+		journal, err := service.newNPMActivationJournal(generation, target, options.RefreshSkills)
 		if err != nil {
 			return err
 		}
@@ -371,20 +391,33 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 		return service.finishNPMActivation(&journal)
 	})
 	if err != nil {
-		cliTarget.Status = "recovery_pending"
-		skillTarget.Status = "recovery_pending"
-		result.Targets = append(result.Targets, cliTarget, skillTarget)
-		return result, fmt.Errorf("npm CLI and Skill activation did not complete; the durable recovery journal was retained: %w", err)
+		status := "recovery_pending"
+		if preflightBlocked {
+			status = "blocked"
+		}
+		cliTarget.Status = status
+		result.Targets = append(result.Targets, cliTarget)
+		if options.RefreshSkills {
+			skillTarget.Status = status
+			result.Targets = append(result.Targets, skillTarget)
+			return result, fmt.Errorf("npm CLI and Skill activation did not complete: %w", err)
+		}
+		return result, fmt.Errorf("npm CLI activation did not complete: %w", err)
 	}
 	if !check.UpdateAvailable {
 		cliTarget.Status = "unchanged"
 	}
 	if alreadyActive {
 		cliTarget.Status = "unchanged"
-		skillTarget.Status = "unchanged"
+		if options.RefreshSkills {
+			skillTarget.Status = "unchanged"
+		}
 	}
 	result.CLIVersion = targetVersion
-	result.Targets = append(result.Targets, cliTarget, skillTarget)
+	result.Targets = append(result.Targets, cliTarget)
+	if options.RefreshSkills {
+		result.Targets = append(result.Targets, skillTarget)
+	}
 	return result, nil
 }
 
@@ -518,7 +551,13 @@ func (service *NPMService) recoverNPMActivation(ctx context.Context) error {
 	if journal.Status == "COMMITTED" {
 		return service.finishNPMActivation(&journal)
 	}
+	if err := service.probeNPMActivation(ctx); err != nil {
+		return err
+	}
 	if err := service.applyNPMActivation(ctx, &journal); err != nil {
+		if IsPermissionDenied(err) {
+			return err
+		}
 		if rollbackErr := service.rollbackNPMActivation(ctx, journal); rollbackErr != nil {
 			return fmt.Errorf("recover interrupted npm CLI and Skill activation: %w", errors.Join(err, rollbackErr))
 		}
@@ -607,6 +646,9 @@ func (service *NPMService) rollbackNPMActivation(ctx context.Context, journal np
 	}
 	if exists && active != *journal.Previous {
 		return errors.New("npm activation previous generation is no longer active")
+	}
+	if err := service.probeNPMActivation(ctx); err != nil {
+		return err
 	}
 	nonce, err := newNPMActivationNonce()
 	if err != nil {
@@ -1017,7 +1059,7 @@ func classifyNPMError(err error, output []byte) error {
 		return &OperationError{Kind: ErrorNPMMissing, Cause: errors.New("npm is not available in PATH")}
 	}
 	normalized := strings.ToUpper(string(output))
-	if errors.Is(err, os.ErrPermission) || strings.Contains(normalized, "EPERM") || strings.Contains(normalized, "EACCES") {
+	if errors.Is(err, os.ErrPermission) || strings.Contains(normalized, "EPERM") || strings.Contains(normalized, "EACCES") || strings.Contains(normalized, "EROFS") || strings.Contains(normalized, "CODEBUDDY_BROKER_DENY") || strings.Contains(normalized, "UPDATE_PERMISSION_REQUIRED") {
 		return &OperationError{Kind: ErrorNPMPermission, Cause: errors.New("npm could not write its cache or global installation directory")}
 	}
 	return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("npm command failed")}
