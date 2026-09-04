@@ -18,6 +18,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
@@ -214,7 +215,7 @@ func TestReplicaInspectFindsPaidStandaloneRecoveryWithoutExposingCredential(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filename, append(receipt, '\n'), 0o600); err != nil {
+	if err := privatefile.Write(filename, append(receipt, '\n'), ".standalone-replica-test-*.tmp"); err != nil {
 		t.Fatal(err)
 	}
 
