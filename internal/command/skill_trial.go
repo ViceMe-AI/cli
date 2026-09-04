@@ -315,9 +315,24 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			if !hasCredential {
 				return output.Policy("SKILL_TRIAL_GRANT_MISSING", "this machine has no active trial grant for the Skill edition").WithDetails(map[string]any{"productId": productID}).WithHint("run 'viceme skill install <product-id-or-work-url>' first; a paid edition with a trial offer installs the trial without login")
 			}
-			use, err := runtime.client().ConsumeSkillTrialUse(command.Context(), productID, credential.InstallID, credential.Secret)
+			requestID, err := beginTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID, time.Now())
 			if err != nil {
 				return err
+			}
+			use, err := runtime.client().ConsumeSkillTrialUse(command.Context(), productID, credential.InstallID, credential.Secret, requestID)
+			if err != nil {
+				// 一切错误都保留 pending:服务端可能已经扣次只是响应没回来
+				// (网络错误、5xx、无效响应),重试必须复用同一幂等键由服务端
+				// 回放;换新键会对同一使用二次扣。残留由 TTL 兜底。
+				return err
+			}
+			// 只有权威业务结果才结束本次键的生命周期;确认失败必须报错
+			// 而不是继续放行——已消费的键留在 pending 会让下一次真实使用
+			// 被当作重试回放旧响应,持续漏扣。重跑本命令即可自愈:服务端
+			// 对同一键回放本次结果,不再扣次。
+			if err := confirmTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID, requestID); err != nil {
+				return output.Internal("SKILL_TRIAL_PENDING_CONFIRM_FAILED", "trial use was consumed but the local pending record could not be confirmed", err).
+					WithHint("run 'viceme skill use' again; the server replays this use without consuming another")
 			}
 			if use.Allowed {
 				lastUse := use.RemainingUses != nil && *use.RemainingUses == 0

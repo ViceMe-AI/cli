@@ -652,10 +652,10 @@ func (c *Client) CreateSkillTrialGrant(ctx context.Context, productID, installID
 	return response, err
 }
 
-func (c *Client) ConsumeSkillTrialUse(ctx context.Context, productID, installID, secret string) (SkillTrialUse, error) {
+func (c *Client) ConsumeSkillTrialUse(ctx context.Context, productID, installID, secret, requestID string) (SkillTrialUse, error) {
 	var response SkillTrialUse
 	endpoint := "/v1/skills/" + url.PathEscape(productID) + "/trial-use"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, skillTrialUseRequest{InstallID: installID, Secret: secret}, &response, "")
+	err := c.doJSON(ctx, http.MethodPost, endpoint, skillTrialUseRequest{InstallID: installID, Secret: secret, RequestID: requestID}, &response, "")
 	return response, err
 }
 

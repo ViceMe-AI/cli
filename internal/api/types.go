@@ -1252,6 +1252,9 @@ type SkillTrialGrant struct {
 type skillTrialUseRequest struct {
 	InstallID string `json:"installId"`
 	Secret    string `json:"secret"`
+	// RequestID 是本次使用的幂等键:响应未送达的重试复用同一键由服务端
+	// 回放,新使用必须换新键。没有时间窗口兜底。
+	RequestID string `json:"requestId"`
 }
 
 type SkillTrialUse struct {
