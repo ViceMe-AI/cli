@@ -855,6 +855,7 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 		"charge-for-your-work":   false,
 		"let-people-interact":    false,
 		"let-others-make-a-copy": false,
+		"let-me-make-a-copy":     false,
 	}
 	retired := make(map[string]bool, len(retiredOfficialSkills))
 	for _, skill := range retiredOfficialSkills {
@@ -869,7 +870,7 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 		}
 	}
 	if len(officialSkillNames) != len(found) {
-		t.Fatalf("official Skill list must contain exactly eight active Skills: %#v", officialSkillNames)
+		t.Fatalf("official Skill list must contain exactly nine active Skills: %#v", officialSkillNames)
 	}
 	for name, included := range found {
 		if !included {

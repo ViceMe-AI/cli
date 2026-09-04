@@ -13,6 +13,49 @@ ViceMe CLI 只负责确认目标、返回平台接口、校验 ZIP 结构、上�
 和“发布”等业务动作；不展示命令、权限名、账号 ID、错误码、原始 JSON 或内部状态，
 也不告诉用户正在使用哪个内置 Skill。
 
+## 两种调用模式
+
+- **普通模式**：用户独立要求自定义作者页或作品页，执行下面的「固定流程」，必须先通过
+  `$become-a-creator` 取得有效 Merchant，并使用在线 preview 确认后才公开发布。
+- **创作者入驻模式**：只由 `$become-a-creator` 在普通申请提交后调用，输入必须带本次
+  status 返回的准确 `creatorIdentity.profileUrl` 和暂停的 `merchant.id`。它只允许作者页，
+  执行「入驻个人名片流程」；这个暂停租户不是经营资格，不得交给其他玩法。
+
+## 入驻个人名片流程
+
+1. 使用调用方给出的准确 `profileUrl` 和 Merchant，不让用户重选目标。先运行
+   `viceme merchant page describe --target <profileUrl> --merchant <商家ID>`；CLI 会再次校验
+   当前登录者、审核中的普通申请、DRAFT 作者身份和 handle 完全一致。
+2. 让用户二选一：“Bonjour 风格模板”或“导入/自定义已有页面”。选择 Bonjour 后，必须把
+   [bonjour-card](templates/bonjour-card/) 整个项目复制到用户工作目录作为实现起点，并先完整
+   阅读其中 `README.md` 和 `DESIGN.md`；禁止从空白页面重新生成，禁止切换技术栈，也禁止
+   把它当作可以自由发挥的灵感。该目录直接保留汪奕辰提供的 Profile Blocks 原型布局与交互，
+   包括间距、分割线、标签、标题/副标题、添加 Block、作品导入、编辑按钮和图标；除非用户在
+   看过本地预览后明确要求某项视觉改动，不得修改既有组件结构、class 名或 `src/styles.css`。
+   导入 Vite/React 源码时先实际 build，上传 build 产物；不能因为根 `index.html` 存在就把开发
+   入口当成发布产物。
+   模板已经通过现有 `context.read` 读取作者资料、作品摘要和作品封面，并通过
+   `navigation.open` 打开站内作品；不得为它另建模板专用后端或上传流程。
+3. 名称和头像使用 `qualification.user` 及平台 `context.read` 自动填写，简介有现值就复用，
+   缺失才问用户。只收集两类可选内容：
+   - 作品：标题、简介、链接、**一张作品卡片封面图**；这里的封面不是页面首屏大图。
+   - 媒体：用户主动公开的联系方式，支持飞书链接、X / Twitter 链接、邮箱和 GitHub 主页链接。
+   本期不支持视频；不添加文字、图片墙、App、公众号、高光、教育、工作经历、获奖等 Block。
+4. 运行 `npm run build`，在本地启动预览并把页面展示给用户；这一步不得上传。直接运行供应
+   源码，组件结构和 `src/styles.css` 是唯一视觉依据，不看图重做，也不增加额外校验、设置
+   或确认环节。根据反馈修改，直到用户明确确认该本地版本。不得创建线上草稿库，也不得运行
+   `viceme merchant page preview`。
+5. 在 ZIP 根目录放置 `viceme-page.json`，运行 `viceme merchant page inspect --path <zip>`，
+   再运行
+   `viceme merchant page upload --path <zip> --target <profileUrl> --merchant <商家ID>`。
+6. 上传返回 `VALIDATED` 后，运行
+   `viceme merchant page status --target <profileUrl> --merchant <商家ID>`，使用上传得到的
+   release ID 与真实当前 active release，立即运行
+   `viceme merchant page publish <release-id> --expected-active <当前ID或none> --merchant <商家ID>`。
+   本地预览已经获得确认，因此这里不再追问第二次发布确认。
+7. 发布成功后只返回调用方给出的原 `profileUrl`。申请审核期间同一路径只有登录着 ViceMe
+   的本人可见；创作者资格获批后，同一 active release 自动公开，不需要个人名片复审或重传。
+
 ## 固定流程
 
 1. 取得用户要修改的准确 ViceMe 作者页或作品页 URL。入口已经给出 URL 时直接使用，

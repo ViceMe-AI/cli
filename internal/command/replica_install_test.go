@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/pathidentity"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/privatepath"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
 	"github.com/ViceMe-AI/cli/internal/securestore"
@@ -255,21 +257,44 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	secondTarget := filepath.Join(root, "second-site")
 	var ownedOutput bytes.Buffer
 	dependencies.Out = &ownedOutput
-	dependencies.NewID = nextRequestID
-	ownedArguments := []string{"replica", "install", fullCode, "--target", secondTarget, "--locale", "zh-CN"}
-	if ownedPreviewExit := Execute(ownedArguments, dependencies); ownedPreviewExit != output.ExitConfirmation {
-		t.Fatalf("owned Website Replica quote was not presented: exit=%d output=%q", ownedPreviewExit, ownedOutput.String())
+	dependencies.NewID = func() string {
+		t.Fatal("recorded paid purchase unexpectedly created another purchase identity")
+		return ""
 	}
-	ownedOutput.Reset()
-	ownedConfirmedArguments := append(append([]string{}, ownedArguments...), "--confirm")
-	if ownedExit := Execute(ownedConfirmedArguments, dependencies); ownedExit != 0 {
+	ownedArguments := []string{"replica", "install", fullCode, "--target", secondTarget, "--locale", "zh-CN"}
+	downloadsBefore, ordersBefore := objectDownloads.Load(), orderCalls.Load()
+	if ownedExit := Execute(ownedArguments, dependencies); ownedExit != 0 {
 		t.Fatalf("owned Website Replica was not installed to a new target: exit=%d output=%q", ownedExit, ownedOutput.String())
 	}
 	if content, err := os.ReadFile(filepath.Join(secondTarget, "index.html")); err != nil || string(content) != "<h1>Purchased replica</h1>" {
 		t.Fatalf("owned source was not reinstalled: content=%q err=%v", content, err)
 	}
-	if objectDownloads.Load() != 2 || orderCalls.Load() != 3 || installationReceipts.Load() != 3 {
-		t.Fatalf("owned reinstall did not reuse its entitlement: downloads=%d orders=%d receipts=%d", objectDownloads.Load(), orderCalls.Load(), installationReceipts.Load())
+	if objectDownloads.Load() != downloadsBefore || orderCalls.Load() != ordersBefore {
+		t.Fatalf("recorded paid reinstall reached commerce or download APIs: downloads=%d orders=%d", objectDownloads.Load(), orderCalls.Load())
+	}
+	if installationReceipts.Load() != 3 {
+		t.Fatalf("recorded paid reinstall did not report installation: receipts=%d", installationReceipts.Load())
+	}
+	paidArchives, err := filepath.Glob(filepath.Join(root, "config", "replica-purchases", "paid-*.zip"))
+	if err != nil || len(paidArchives) != 1 {
+		t.Fatalf("paid source was not recorded exactly once: archives=%v err=%v", paidArchives, err)
+	}
+	paidArchive, err := os.OpenFile(paidArchives[0], os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := paidArchive.WriteAt([]byte{0}, 0); err != nil {
+		_ = paidArchive.Close()
+		t.Fatal(err)
+	}
+	if err := paidArchive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var damagedPaidOutput bytes.Buffer
+	dependencies.Out = &damagedPaidOutput
+	if exit := Execute([]string{"replica", "install", fullCode, "--target", filepath.Join(root, "third-site")}, dependencies); exit == 0 ||
+		!strings.Contains(damagedPaidOutput.String(), "REPLICA_PAID_ARCHIVE_INVALID") {
+		t.Fatalf("damaged paid source was accepted: exit=%d output=%q", exit, damagedPaidOutput.String())
 	}
 	dependencies.NewID = func() string {
 		t.Fatal("completion replay unexpectedly created another purchase identity")
@@ -566,15 +591,15 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 		case "/v1/cli/auth/status":
 			writeReplicaAuthStatus(writer)
 		case "/v1/website-replicas/resolve":
-			if resolveCalls.Add(1) != 1 {
-				t.Error("resumed purchase unexpectedly depended on mutable resolution")
-				writer.WriteHeader(http.StatusServiceUnavailable)
-				return
-			}
+			resolveCalls.Add(1)
 			writeJSONResponse(writer, replicaResolutionResponse(replicaID, shortCode))
 		case "/v1/website-replicas/quotes":
-			quoteCalls.Add(1)
-			assertJSONFields(t, request, map[string]any{"instruction": fullCode, "clientRequestId": quoteReqID})
+			call := quoteCalls.Add(1)
+			expectedRequestID := quoteReqID
+			if call == 2 {
+				expectedRequestID = "99999999-9999-4999-8999-999999999999"
+			}
+			assertJSONFields(t, request, map[string]any{"instruction": fullCode, "clientRequestId": expectedRequestID})
 			writeJSONResponse(writer, replicaQuoteResponse(quoteID))
 		case "/v1/website-replicas/orders":
 			orderCalls.Add(1)
@@ -610,7 +635,7 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 	t.Setenv(processAccessTokenEnvironment, accessToken)
 	root := t.TempDir()
 	target := filepath.Join(root, "site")
-	ids := []string{quoteReqID, orderReqID}
+	ids := []string{quoteReqID, orderReqID, "99999999-9999-4999-8999-999999999999"}
 	base := Dependencies{
 		Out: io.Discard, ErrOut: io.Discard, HTTPClient: controlServer.Client(), Store: securestore.NewMemory(),
 		APIBaseURL: controlServer.URL, Region: config.RegionCN,
@@ -644,14 +669,18 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 			t.Fatalf("purchase recovery persisted transient secret %q: %s", secret, recovery)
 		}
 	}
+	var otherTargetOutput bytes.Buffer
+	otherTarget := filepath.Join(t.TempDir(), "other-site")
+	base.Out = &otherTargetOutput
 	if exit := Execute(
-		[]string{"replica", "install", fullCode, "--target", filepath.Join(root, "other-site")},
+		[]string{"replica", "install", fullCode, "--target", otherTarget},
 		base,
-	); exit == 0 {
-		t.Fatal("unfinished purchase was bypassed by changing the target")
+	); exit != output.ExitConfirmation {
+		t.Fatalf("another target did not start an independent purchase: exit=%d output=%s", exit, otherTargetOutput.String())
 	}
-	if quoteCalls.Load() != 1 || orderCalls.Load() != 1 {
-		t.Fatalf("target change created a duplicate quote or order: quotes=%d orders=%d", quoteCalls.Load(), orderCalls.Load())
+	base.Out = io.Discard
+	if quoteCalls.Load() != 2 || orderCalls.Load() != 1 {
+		t.Fatalf("another target did not isolate its pending purchase: quotes=%d orders=%d", quoteCalls.Load(), orderCalls.Load())
 	}
 
 	paid.Store(true)
@@ -663,17 +692,35 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 	if exit := Execute([]string{"replica", "install", fullCode, "--target", target}, base); exit != 0 {
 		t.Fatalf("resumed purchase failed with exit %d", exit)
 	}
-	if resolveCalls.Load() != 1 || quoteCalls.Load() != 1 || orderCalls.Load() != 1 {
+	if resolveCalls.Load() != 2 || quoteCalls.Load() != 2 || orderCalls.Load() != 1 {
 		t.Fatalf("resume changed the original purchase: resolves=%d quotes=%d orders=%d", resolveCalls.Load(), quoteCalls.Load(), orderCalls.Load())
 	}
 	if content, err := os.ReadFile(filepath.Join(target, "index.html")); err != nil || string(content) != "resumed" {
 		t.Fatalf("resumed source was not installed: content=%q err=%v", content, err)
 	}
+	if exit := Execute([]string{"replica", "install", fullCode, "--target", otherTarget}, base); exit != 0 {
+		t.Fatalf("recorded paid purchase did not install into another target: exit=%d", exit)
+	}
+	if resolveCalls.Load() != 2 || quoteCalls.Load() != 2 || orderCalls.Load() != 1 {
+		t.Fatalf("recorded paid purchase created another transaction: resolves=%d quotes=%d orders=%d", resolveCalls.Load(), quoteCalls.Load(), orderCalls.Load())
+	}
+	if content, err := os.ReadFile(filepath.Join(otherTarget, "index.html")); err != nil || string(content) != "resumed" {
+		t.Fatalf("recorded paid source was not installed: content=%q err=%v", content, err)
+	}
 	recoveryFiles, err = filepath.Glob(filepath.Join(root, "config", "replica-purchases", "*.json"))
-	if err != nil || len(recoveryFiles) != 1 {
+	if err != nil || len(recoveryFiles) != 3 {
 		t.Fatalf("completed purchase receipt was not retained for output recovery: files=%v err=%v", recoveryFiles, err)
 	}
-	if !strings.HasPrefix(filepath.Base(recoveryFiles[0]), "completed-") {
+	completedReceipts, paidReceipts := 0, 0
+	for _, recoveryFile := range recoveryFiles {
+		if strings.HasPrefix(filepath.Base(recoveryFile), "completed-") {
+			completedReceipts++
+		}
+		if strings.HasPrefix(filepath.Base(recoveryFile), "paid-") {
+			paidReceipts++
+		}
+	}
+	if completedReceipts != 2 || paidReceipts != 1 {
 		t.Fatalf("active purchase state was not retired after completion: %v", recoveryFiles)
 	}
 	completedTarget, err := validateReplicaTarget(target)
@@ -783,6 +830,41 @@ func TestReplicaPurchaseReservationIsPrivateAndBoundToTarget(t *testing.T) {
 	}
 	if _, _, err := store.load(); err == nil {
 		t.Fatal("changed target reservation was accepted")
+	}
+}
+
+func TestReplicaPurchaseStatePersistsWhenSandboxDeniesRename(t *testing.T) {
+	root := t.TempDir()
+	stateDirectory := filepath.Join(root, "state")
+	if err := os.Mkdir(stateDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	parentID, err := pathidentity.Directory(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := replicaPurchaseStore{
+		directory:      stateDirectory,
+		filename:       filepath.Join(stateDirectory, "purchase.json"),
+		origin:         "https://api.viceme.cn",
+		shortCode:      "VMR-ABCDEFGHIJKLMNOPQRST",
+		target:         filepath.Join(root, "site"),
+		targetParentID: parentID,
+		now:            time.Now,
+	}
+	state := store.create("11111111-1111-4111-8111-111111111111")
+	if err := store.reserve(&state); err != nil {
+		t.Fatal(err)
+	}
+	originalRename := privatefile.RenameFile
+	privatefile.RenameFile = func(string, string) error { return syscall.EPERM }
+	t.Cleanup(func() { privatefile.RenameFile = originalRename })
+
+	if err := store.save(&state); err != nil {
+		t.Fatalf("sandbox-denied rename prevented purchase recovery: %v", err)
+	}
+	if _, exists, err := store.load(); err != nil || !exists {
+		t.Fatalf("sandbox fallback did not persist purchase recovery: exists=%t err=%v", exists, err)
 	}
 }
 

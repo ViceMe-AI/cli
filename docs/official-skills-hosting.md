@@ -1,7 +1,7 @@
 # 官方 Skills 云端托管
 
 官方 Skills(仓库 `skills/` 下的全部技能)随 CLI Release Workflow 托管到
-start 桶,提供**不经过 ViceMe CLI 就能安装**的稳定下载入口。生成器是
+独立的 skills 桶,提供**不经过 ViceMe CLI 就能直读或安装**的稳定入口。生成器是
 `cmd/skills-archive`,消费方式与 `agent-install.md` 的区域规则一致:
 按访问域名选区域——`s3.viceme.cn` 对应 CN,`s3.viceme.ai` 对应 GLOBAL。
 
@@ -58,7 +58,7 @@ zip 以技能目录名为根(`use-a-skill/SKILL.md`),解压到技能根目录即
 安装:
 
 ```bash
-curl -fsSL https://s3.viceme.cn/start/skills/use-a-skill.zip -o /tmp/use-a-skill.zip
+curl -fsSL https://s3.viceme.cn/skills/use-a-skill.zip -o /tmp/use-a-skill.zip
 unzip -q /tmp/use-a-skill.zip -d ~/.agents/skills/
 ```
 

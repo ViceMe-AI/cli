@@ -14,7 +14,8 @@
     "use-a-skill",
     "charge-for-your-work",
     "let-people-interact",
-    "let-others-make-a-copy"
+    "let-others-make-a-copy",
+    "let-me-make-a-copy"
   ],
   "fallbackPackage": "@viceme-ai/cli"
 }

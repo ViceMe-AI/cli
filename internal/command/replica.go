@@ -27,12 +27,56 @@ type replicaPublishResult struct {
 	SourceArchive replicacontent.SourceArchiveSummary `json:"sourceArchive"`
 }
 
+type replicaInspectResult struct {
+	NextAction                  string                       `json:"nextAction"`
+	WorkURL                     string                       `json:"workUrl"`
+	StandaloneRecoveryAvailable bool                         `json:"standaloneRecoveryAvailable"`
+	Replica                     api.WebsiteReplicaResolution `json:"replica"`
+}
+
 func newReplicaCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "replica", Short: "Publish and install Website Replica source packages"}
 	command.AddCommand(newReplicaPreviewCommand(runtime))
 	command.AddCommand(newReplicaPublishCommand(runtime))
+	command.AddCommand(newReplicaInspectCommand(runtime))
 	command.AddCommand(newReplicaInstallCommand(runtime))
 	return command
+}
+
+func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
+	return &cobra.Command{
+		Use:   "inspect <replica-code>",
+		Short: "Inspect a Website Replica and return its public Work preview",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(command *cobra.Command, args []string) error {
+			if _, err := parseReplicaCode(args[0]); err != nil {
+				return err
+			}
+			resolved, err := runtime.client().ResolveWebsiteReplicaPublic(command.Context(), args[0])
+			if err != nil {
+				return replicaInspectFailure(err)
+			}
+			recoveryAvailable, err := standaloneReplicaRecoveryAvailable(command.Context(), runtime, resolved)
+			if err != nil {
+				return replicaInspectFailure(err)
+			}
+			return runtime.business(replicaInspectResult{
+				NextAction: "OPEN_WORK_PREVIEW", WorkURL: resolved.ViceMeWorkURL,
+				StandaloneRecoveryAvailable: recoveryAvailable, Replica: resolved,
+			})
+		},
+	}
+}
+
+func replicaInspectFailure(err error) error {
+	failure := *output.AsError(err)
+	failure.Retryable = false
+	failure.Details = map[string]any{
+		"nextAction": "STOP_AND_REPORT",
+		"stage":      "INSPECT_REPLICA",
+	}
+	failure.Hint = "report that the selected ViceMe service could not inspect the Work; do not retry or diagnose local services"
+	return &failure
 }
 
 func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
