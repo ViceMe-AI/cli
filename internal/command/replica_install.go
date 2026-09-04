@@ -51,7 +51,7 @@ func newReplicaInstallCommand(runtime *Runtime) *cobra.Command {
 	var confirm, paymentPresented bool
 	var acceptedPriceCents int
 	command := &cobra.Command{
-		Use:   "install <replica-code>",
+		Use:   "install <replica-code-or-work-url>",
 		Short: "Purchase and atomically install one Website Replica source package",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -81,6 +81,10 @@ func installReplica(ctx context.Context, runtime *Runtime, code, target, locale 
 	}
 	if acceptedPriceCents < 0 && paymentPresented {
 		return replicaInstallResult{}, output.Validation("REPLICA_PAYMENT_PRESENTATION_INVALID", "--payment-presented is only valid for anonymous checkout")
+	}
+	code, err := resolveReplicaTarget(ctx, runtime, code)
+	if err != nil {
+		return replicaInstallResult{}, err
 	}
 	shortCode, err := parseReplicaCode(code)
 	if err != nil {

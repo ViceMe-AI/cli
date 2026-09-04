@@ -1487,10 +1487,13 @@ type PublicWorkProjection struct {
 			Media               []map[string]any `json:"media"`
 			ActivatedAt         *string          `json:"activatedAt"`
 		} `json:"revision"`
-		Products      []PublicWorkProduct `json:"products"`
-		Service       any                 `json:"service"`
-		WebsiteAction any                 `json:"websiteAction"`
-		Metrics       struct {
+		Products             []PublicWorkProduct `json:"products"`
+		Service              any                 `json:"service"`
+		WebsiteAction        any                 `json:"websiteAction"`
+		WebsiteReplicaAction *struct {
+			Instruction string `json:"instruction"`
+		} `json:"websiteReplicaAction"`
+		Metrics struct {
 			LikeCount    int `json:"likeCount"`
 			CommentCount int `json:"commentCount"`
 		} `json:"metrics"`

@@ -50,6 +50,10 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		resolution := replicaResolutionResponse(replicaID, shortCode)
 		switch request.URL.Path {
+		case "/v1/public/creators/alice/works/site":
+			writeJSONResponse(writer, map[string]any{
+				"work": map[string]any{"websiteReplicaAction": map[string]any{"instruction": fullCode}},
+			})
 		case "/v1/website-replicas/resolve":
 			if request.Header.Get("Authorization") != "" {
 				t.Fatalf("public resolution unexpectedly authenticated")
@@ -118,14 +122,15 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	}
 	var inspectOutput bytes.Buffer
 	deps.Out, deps.ErrOut = &inspectOutput, &bytes.Buffer{}
-	if exit := Execute([]string{"replica", "inspect", fullCode}, deps); exit != 0 || !bytes.Contains(inspectOutput.Bytes(), []byte(`"nextAction": "CONFIRM_INLINE_PREVIEW"`)) {
+	workURL := "https://viceme.cn/alice/site.md"
+	if exit := Execute([]string{"replica", "inspect", workURL}, deps); exit != 0 || !bytes.Contains(inspectOutput.Bytes(), []byte(`"nextAction": "CONFIRM_INLINE_PREVIEW"`)) {
 		t.Fatalf("inspect failed: exit=%d output=%q", exit, inspectOutput.String())
 	}
 
 	target := filepath.Join(root, strings.ToLower(shortCode))
 	var installOutput bytes.Buffer
 	deps.Out = &installOutput
-	if exit := Execute([]string{"replica", "install", fullCode, "--target", target, "--accept-price-cents", "990"}, deps); exit != 0 {
+	if exit := Execute([]string{"replica", "install", workURL, "--target", target, "--accept-price-cents", "990"}, deps); exit != 0 {
 		t.Fatalf("anonymous install failed: exit=%d output=%q", exit, installOutput.String())
 	}
 	if sessionRequestID == "" || quoteRequestID == "" || orderRequestID == "" {

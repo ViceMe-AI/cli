@@ -120,24 +120,44 @@ class MakeCopyTest(unittest.TestCase):
             make_copy.authority_for_work_url("https://example.com/alice/site.md")
         self.assertEqual(raised.exception.code, "MAKE_COPY_WORK_URL_INVALID")
 
-    def test_extracts_instruction_only_from_controlled_block(self):
+    def test_resolves_instruction_from_the_public_work_api(self):
         authority = make_copy.authority_for_work_url(
             "https://viceme.cn/alice/site.md"
         )
 
-        def request(*_args, **_kwargs):
+        def request(method, url, **_kwargs):
+            self.assertEqual(method, "GET")
+            self.assertEqual(
+                url,
+                "https://viceme.cn/api/v1/public/creators/alice/works/site",
+            )
             return response(
                 200,
-                (
-                    "## 平台控制的完整源码做同款入口\n\n"
-                    f"Instruction: VICEME-REPLICA:{SHORT_CODE}"
-                ).encode(),
+                {
+                    "work": {
+                        "websiteReplicaAction": {
+                            "instruction": f"VICEME-REPLICA:{SHORT_CODE}"
+                        }
+                    }
+                },
             )
 
         self.assertEqual(
             make_copy.fetch_work_instruction(authority, request),
             f"VICEME-REPLICA:{SHORT_CODE}",
         )
+
+    def test_rejects_work_without_structured_replica_entry(self):
+        authority = make_copy.authority_for_work_url(
+            "https://viceme.cn/alice/site.md"
+        )
+
+        with self.assertRaises(make_copy.WorkflowError) as raised:
+            make_copy.fetch_work_instruction(
+                authority, lambda *_args, **_kwargs: response(200, {"work": {}})
+            )
+
+        self.assertEqual(raised.exception.code, "MAKE_COPY_ENTRY_INVALID")
 
     def test_reports_paid_recovery_without_exposing_secret(self):
         authority = make_copy.authority_for_work_url(
@@ -160,13 +180,16 @@ class MakeCopyTest(unittest.TestCase):
             receipt.chmod(0o600)
 
             def request(method, url, **_kwargs):
-                if url.endswith(".md"):
+                if "/public/creators/" in url:
                     return response(
                         200,
-                        (
-                            "## 平台控制的完整源码做同款入口\n\n"
-                            f"Instruction: VICEME-REPLICA:{SHORT_CODE}"
-                        ).encode(),
+                        {
+                            "work": {
+                                "websiteReplicaAction": {
+                                    "instruction": f"VICEME-REPLICA:{SHORT_CODE}"
+                                }
+                            }
+                        },
                     )
                 if url.endswith("/recover-status"):
                     return response(
