@@ -165,49 +165,37 @@ def http_request(
 def fetch_work_instruction(
     authority: Authority, request_fn: RequestFn = http_request
 ) -> str:
-    response = request_fn(
-        "GET",
-        authority.work_url,
-        headers={"Accept": "text/markdown"},
-        timeout=15,
+    parsed = urllib.parse.urlsplit(authority.work_url)
+    segments = [
+        urllib.parse.unquote(value) for value in parsed.path.split("/") if value
+    ]
+    if len(segments) == 3 and segments[0] in {"zh-CN", "en-US"}:
+        segments = segments[1:]
+    if len(segments) != 2 or not segments[1].endswith(".md"):
+        raise WorkflowError("MAKE_COPY_WORK_URL_INVALID", "Work URL is invalid")
+    handle, slug = segments[0], segments[1][:-3]
+    work = api_request(
+        authority,
+        "/public/creators/"
+        + urllib.parse.quote(handle, safe="")
+        + "/works/"
+        + urllib.parse.quote(slug, safe=""),
+        request_fn=request_fn,
     )
-    if not 200 <= response.status < 300:
-        raise WorkflowError(
-            "MAKE_COPY_WORK_UNAVAILABLE", "The ViceMe Work could not be read"
-        )
-    try:
-        lines = response.body.decode("utf-8").splitlines()
-    except UnicodeDecodeError:
-        raise WorkflowError(
-            "MAKE_COPY_WORK_UNAVAILABLE", "The ViceMe Work could not be read"
-        )
-    headings = {
-        "## Platform-controlled complete-source replica entry",
-        "## 平台控制的完整源码做同款入口",
-    }
-    try:
-        section_start = next(i for i, line in enumerate(lines) if line in headings)
-    except StopIteration:
+    action = (
+        work.get("work", {}).get("websiteReplicaAction")
+        if isinstance(work, dict)
+        else None
+    )
+    instruction = action.get("instruction") if isinstance(action, dict) else None
+    if not isinstance(instruction, str) or not INSTRUCTION_PATTERN.fullmatch(
+        instruction
+    ):
         raise WorkflowError(
             "MAKE_COPY_ENTRY_INVALID",
             "The Work has no platform-controlled let-me-make-a-copy entry",
         )
-    section_end = next(
-        (
-            i
-            for i in range(section_start + 1, len(lines))
-            if lines[i].startswith("## ")
-        ),
-        len(lines),
-    )
-    controlled = "\n".join(lines[section_start + 1 : section_end])
-    instructions = sorted(set(INSTRUCTION_PATTERN.findall(controlled)))
-    if len(instructions) != 1:
-        raise WorkflowError(
-            "MAKE_COPY_ENTRY_INVALID",
-            "The Work must expose exactly one Replica instruction",
-        )
-    return instructions[0]
+    return instruction
 
 
 def api_request(

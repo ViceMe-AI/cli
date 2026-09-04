@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"regexp"
+	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -40,14 +42,15 @@ func newReplicaCommand(runtime *Runtime) *cobra.Command {
 
 func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 	return &cobra.Command{
-		Use:   "inspect <replica-code>",
+		Use:   "inspect <replica-code-or-work-url>",
 		Short: "Inspect a Website Replica and return its public Work preview",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			if _, err := parseReplicaCode(args[0]); err != nil {
+			instruction, err := resolveReplicaTarget(command.Context(), runtime, args[0])
+			if err != nil {
 				return err
 			}
-			resolved, err := runtime.client().ResolveWebsiteReplicaPublic(command.Context(), args[0])
+			resolved, err := runtime.client().ResolveWebsiteReplicaPublic(command.Context(), instruction)
 			if err != nil {
 				return replicaInspectFailure(err)
 			}
@@ -61,6 +64,37 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 			})
 		},
 	}
+}
+
+func resolveReplicaTarget(ctx context.Context, runtime *Runtime, target string) (string, error) {
+	_, codeErr := parseReplicaCode(target)
+	if codeErr == nil {
+		return target, nil
+	}
+	target = strings.TrimSpace(target)
+	parsed, err := url.Parse(target)
+	if err != nil || !parsed.IsAbs() || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return "", codeErr
+	}
+	segments := strings.Split(strings.Trim(strings.TrimSuffix(parsed.Path, ".md"), "/"), "/")
+	if len(segments) == 3 && (segments[0] == "zh-CN" || segments[0] == "en-US") {
+		segments = segments[1:]
+	}
+	if len(segments) != 2 || segments[0] == "" || segments[1] == "" {
+		return "", output.Validation("REPLICA_WORK_URL_INVALID", "canonical Work URL must contain /<creator-handle>/<work-slug>")
+	}
+	work, err := runtime.client().GetPublicWork(ctx, segments[0], segments[1])
+	if err != nil {
+		return "", err
+	}
+	action := work.Work.WebsiteReplicaAction
+	if action == nil {
+		return "", output.Policy("REPLICA_WORK_HAS_NO_ENTRY", "the Work does not expose an available Website Replica")
+	}
+	if _, err := parseReplicaCode(action.Instruction); err != nil {
+		return "", output.Policy("REPLICA_WORK_ENTRY_INVALID", "the Work returned an invalid Website Replica entry").WithCause(err)
+	}
+	return action.Instruction, nil
 }
 
 func replicaInspectFailure(err error) error {
