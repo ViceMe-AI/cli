@@ -17,10 +17,10 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 2. 按作品 Origin 选择上方唯一对应的 `<script-url>`，并选择可用的 Python 3.9 或更高版本解释器：macOS/Linux 优先 `python3`，Windows 优先 `py -3`、其次 `python`。本地 CLI 已随附当前 Skill 时可直接使用同目录 `scripts/make_copy.py`；否则直接运行云端单文件。macOS/Linux 命令为：
 
    ```bash
-   <python-command> <(curl -fsS <script-url>) inspect --work-url <work.md URL>
+   curl -fsS <script-url> | <python-command> - inspect --work-url <work.md URL>
    ```
 
-   Windows 将同一 URL 下载到当前用户私有临时文件，以 `<python-command> <temporary-script>` 运行并在本次流程结束后删除；不得保存到 Agent Skill 目录。脚本只使用 Python 标准库，不得执行 `pip install`、跟随重定向或从作品站点下载替代脚本。后续 `<script-runner>` 指本步骤确定的本地随附脚本、进程替换命令或私有临时脚本，且同一任务始终使用同一区域来源。
+   `-` 让 Python 从标准输入读取脚本，后续参数照常传入，不依赖 bash/zsh 的进程替换。Windows 将同一 URL 下载到当前用户私有临时文件，以 `<python-command> <temporary-script>` 运行并在本次流程结束后删除；不得保存到 Agent Skill 目录。脚本只使用 Python 标准库，不得执行 `pip install`、跟随重定向或从作品站点下载替代脚本。后续 `<script-runner>` 指本步骤确定的本地随附脚本、标准输入管道命令或私有临时脚本，且同一任务始终使用同一区域来源。
 
 3. 脚本结果必须返回 `nextAction=OPEN_WORK_PREVIEW`；立即打开 `workUrl`，展示创作者、作品、币种和当前价格，然后只询问“继续做同款 / 暂不继续”。
 
