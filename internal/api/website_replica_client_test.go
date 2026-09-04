@@ -65,6 +65,7 @@ func TestWebsiteReplicaClientRejectsUnknownFields(t *testing.T) {
 		func(response map[string]any) {
 			response["license"].(map[string]any)["claims"].(map[string]any)["unexpected"] = true
 		},
+		func(response map[string]any) { response["unexpected"] = true },
 	}
 	for index, mutation := range mutations {
 		test := tests[index]
@@ -88,6 +89,7 @@ func TestWebsiteReplicaClientRejectsMissingRequiredFields(t *testing.T) {
 		func(response map[string]any) { delete(response, "paymentAction") },
 		func(response map[string]any) { delete(response, "serviceCase") },
 		func(response map[string]any) { delete(response, "expiresAt") },
+		func(response map[string]any) { delete(response, "installedAt") },
 	}
 	for index, mutation := range mutations {
 		test := tests[index]
@@ -117,6 +119,7 @@ func TestWebsiteReplicaClientRejectsInvalidTimestamps(t *testing.T) {
 		func(response map[string]any) {
 			response["license"].(map[string]any)["claims"].(map[string]any)["issuedAt"] = "not-a-time"
 		},
+		func(response map[string]any) { response["installedAt"] = "not-a-time" },
 	}
 	for index, mutation := range mutations {
 		test := tests[index]
@@ -190,6 +193,13 @@ func TestWebsiteReplicaClientRejectsCrossResourceMismatches(t *testing.T) {
 				response["license"].(map[string]any)["claims"].(map[string]any)["version"] = 2
 			}),
 			call: canonicalWebsiteReplicaResponseCases()[6].call,
+		},
+		{
+			name: "installation receipt version",
+			response: mutateReplicaResponse(t, replicaInstallationResponse(), func(response map[string]any) {
+				response["versionId"] = testUploadID
+			}),
+			call: canonicalWebsiteReplicaResponseCases()[7].call,
 		},
 	}
 	for _, test := range tests {
@@ -341,6 +351,16 @@ func canonicalWebsiteReplicaResponseCases() []websiteReplicaResponseCase {
 				return err
 			},
 		},
+		{
+			name: "installation receipt", response: replicaInstallationResponse(),
+			call: func(client *Client) error {
+				_, err := client.CompleteWebsiteReplicaInstallation(context.Background(), CompleteWebsiteReplicaInstallationRequest{
+					EntitlementID: testEntitlementID,
+					VersionID:     testVersionID,
+				})
+				return err
+			},
+		},
 	}
 }
 
@@ -457,6 +477,13 @@ func replicaDownloadResponse() map[string]any {
 			"algorithm": "Ed25519", "signingKeyId": "replica-signing-v1",
 			"signingPublicKey": strings.Repeat("p", 32), "signature": strings.Repeat("s", 32),
 		},
+	}
+}
+
+func replicaInstallationResponse() map[string]any {
+	return map[string]any{
+		"replicaId": testReplicaID, "versionId": testVersionID, "version": 1,
+		"installedAt": testReplicaTimestamp,
 	}
 }
 

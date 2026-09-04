@@ -145,12 +145,12 @@ func installReplicaAnonymousLocked(
 		return replicaInstallResult{}, err
 	}
 	if completed {
-		if err := validateReplicaCompletion(ctx, runtime, completion); err != nil {
+		if _, err := validateReplicaCompletion(ctx, runtime, completion); err != nil {
 			return replicaInstallResult{}, err
 		}
 		return completion.Result, nil
 	}
-	if result, installed, err := installRecordedPaidReplica(ctx, runtime, store, absTarget); err != nil || installed {
+	if result, installed, err := installRecordedPaidReplica(ctx, runtime, store, absTarget, false); err != nil || installed {
 		return result, err
 	}
 	state, exists, err := store.load()
@@ -385,7 +385,11 @@ func installReplicaLocked(
 		return replicaInstallResult{}, err
 	}
 	if completed {
-		if err := validateReplicaCompletion(ctx, runtime, completion); err != nil {
+		claims, err := validateReplicaCompletion(ctx, runtime, completion)
+		if err != nil {
+			return replicaInstallResult{}, err
+		}
+		if err := completeReplicaInstallation(ctx, runtime.client(), completion.Result, claims); err != nil {
 			return replicaInstallResult{}, err
 		}
 		state, active, err := store.load()
@@ -404,7 +408,7 @@ func installReplicaLocked(
 		}
 		return completion.Result, nil
 	}
-	if result, installed, err := installRecordedPaidReplica(ctx, runtime, store, absTarget); err != nil || installed {
+	if result, installed, err := installRecordedPaidReplica(ctx, runtime, store, absTarget, true); err != nil || installed {
 		return result, err
 	}
 	state, exists, err := store.load()
@@ -745,6 +749,11 @@ func installReplicaDownloaded(
 	if err := store.saveCompletion(result); err != nil {
 		return replicaInstallResult{}, err
 	}
+	if state.SessionID == "" {
+		if err := completeReplicaInstallation(ctx, client, result, claims); err != nil {
+			return replicaInstallResult{}, err
+		}
+	}
 	if err := store.retire(state); err != nil {
 		return replicaInstallResult{}, err
 	}
@@ -756,6 +765,7 @@ func installRecordedPaidReplica(
 	runtime *Runtime,
 	store replicaPurchaseStore,
 	target string,
+	reportInstallation bool,
 ) (replicaInstallResult, bool, error) {
 	var result replicaInstallResult
 	var exists bool
@@ -772,7 +782,8 @@ func installRecordedPaidReplica(
 			ReplicaID: paid.ReplicaID, VersionID: paid.VersionID, Version: paid.Version,
 			FileName: "source.zip", SizeBytes: paid.SizeBytes, ArtifactDigest: paid.ArtifactDigest, License: paid.License,
 		}
-		if _, err := verifiedReplicaLicenseClaims(ctx, runtime, download, paid.OrderNo); err != nil {
+		claims, err := verifiedReplicaLicenseClaims(ctx, runtime, download, paid.OrderNo)
+		if err != nil {
 			return err
 		}
 		if err := verifyRecordedReplicaArchive(store.paidArchiveFilename, paid.SizeBytes, paid.ArtifactDigest); err != nil {
@@ -793,6 +804,11 @@ func installRecordedPaidReplica(
 		if err := store.saveCompletion(result); err != nil {
 			return err
 		}
+		if reportInstallation {
+			if err := completeReplicaInstallation(ctx, runtime.client(), result, claims); err != nil {
+				return err
+			}
+		}
 		if state, active, err := store.load(); err != nil {
 			return err
 		} else if active {
@@ -803,27 +819,46 @@ func installRecordedPaidReplica(
 	return result, exists, err
 }
 
-func validateReplicaCompletion(ctx context.Context, runtime *Runtime, completion replicaCompletionState) error {
+func validateReplicaCompletion(ctx context.Context, runtime *Runtime, completion replicaCompletionState) (api.WebsiteReplicaLicenseClaims, error) {
 	result := completion.Result
 	tree, err := replicacontent.InspectInstalledTree(result.Target)
 	if err != nil || tree.FileCount != result.FileCount || tree.ExpandedBytes != result.ExpandedBytes || tree.Digest != completion.TreeDigest {
-		return output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt").WithCause(err)
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt").WithCause(err)
 	}
 	record, err := replicacontent.ReadInstalledLicenseRecord(result.Target)
 	if err != nil {
-		return output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt").WithCause(err)
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt").WithCause(err)
 	}
 	if record.ReplicaID != result.ReplicaID || record.VersionID != result.VersionID || record.Version != result.Version ||
 		record.ArtifactDigest != result.ArtifactDigest {
-		return output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt")
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt")
 	}
-	return verifyReplicaLicense(ctx, runtime, api.WebsiteReplicaDownload{
+	return verifiedReplicaLicenseClaims(ctx, runtime, api.WebsiteReplicaDownload{
 		ReplicaID:      result.ReplicaID,
 		VersionID:      result.VersionID,
 		Version:        result.Version,
 		ArtifactDigest: result.ArtifactDigest,
 		License:        record.License,
 	}, result.OrderNo)
+}
+
+func completeReplicaInstallation(
+	ctx context.Context,
+	client *api.Client,
+	result replicaInstallResult,
+	claims api.WebsiteReplicaLicenseClaims,
+) error {
+	receipt, err := client.CompleteWebsiteReplicaInstallation(ctx, api.CompleteWebsiteReplicaInstallationRequest{
+		EntitlementID: claims.EntitlementID,
+		VersionID:     result.VersionID,
+	})
+	if err != nil {
+		return err
+	}
+	if receipt.ReplicaID != result.ReplicaID || receipt.VersionID != result.VersionID || receipt.Version != result.Version {
+		return invalidReplicaResponse("Website Replica installation receipt does not match the installed artifact")
+	}
+	return nil
 }
 
 func replicaResolutionMatchesState(resolved api.WebsiteReplicaResolution, state replicaPurchaseState) bool {
