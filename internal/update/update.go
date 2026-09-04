@@ -1,7 +1,7 @@
 // Package update implements the npm-backed ViceMe CLI update path. The npm
-// launcher owns binary acquisition and checksum verification; this package
-// updates that launcher at an exact version and then refreshes the bundled
-// Agent Skill using the same exact package version.
+// launcher owns binary acquisition and checksum verification. CLI replacement
+// and optional official Skill refresh are distinct operations so a Skill
+// destination cannot roll back or block a completed CLI-only update.
 package update
 
 import (
@@ -111,9 +111,9 @@ type Service interface {
 	Apply(context.Context, CheckResult, ApplyOptions) (ApplyResult, error)
 }
 
-// AutomaticChecker performs the bounded freshness gate used before ordinary
-// commands. A fresh, validated local result avoids another network request;
-// stale state is refreshed from the authoritative stable channel.
+// AutomaticChecker performs the cached release lookup used by the detached
+// automatic-update worker. A fresh, validated local result avoids another
+// network request; stale state is refreshed from the authoritative channel.
 type AutomaticChecker interface {
 	CheckAutomatic(context.Context) (CheckResult, error)
 }
@@ -378,7 +378,7 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 			preflightBlocked = IsPermissionDenied(err) && !pending && generationErr == nil && exists && active == running
 			return err
 		}
-		journal, err := service.newNPMActivationJournal(generation, target, true)
+		journal, err := service.newNPMActivationJournal(generation, target, options.RefreshSkills)
 		if err != nil {
 			return err
 		}
@@ -396,19 +396,28 @@ func (service *NPMService) Apply(ctx context.Context, check CheckResult, options
 			status = "blocked"
 		}
 		cliTarget.Status = status
-		skillTarget.Status = status
-		result.Targets = append(result.Targets, cliTarget, skillTarget)
-		return result, fmt.Errorf("npm CLI and Skill activation did not complete: %w", err)
+		result.Targets = append(result.Targets, cliTarget)
+		if options.RefreshSkills {
+			skillTarget.Status = status
+			result.Targets = append(result.Targets, skillTarget)
+			return result, fmt.Errorf("npm CLI and Skill activation did not complete: %w", err)
+		}
+		return result, fmt.Errorf("npm CLI activation did not complete: %w", err)
 	}
 	if !check.UpdateAvailable {
 		cliTarget.Status = "unchanged"
 	}
 	if alreadyActive {
 		cliTarget.Status = "unchanged"
-		skillTarget.Status = "unchanged"
+		if options.RefreshSkills {
+			skillTarget.Status = "unchanged"
+		}
 	}
 	result.CLIVersion = targetVersion
-	result.Targets = append(result.Targets, cliTarget, skillTarget)
+	result.Targets = append(result.Targets, cliTarget)
+	if options.RefreshSkills {
+		result.Targets = append(result.Targets, skillTarget)
+	}
 	return result, nil
 }
 

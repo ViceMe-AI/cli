@@ -166,6 +166,100 @@ func TestReleaseServiceChecksReplacesAndRefreshesMatchingSkills(t *testing.T) {
 	}
 }
 
+func TestReleaseServiceCLIOnlyUpdateDoesNotRequestSkillActivation(t *testing.T) {
+	t.Parallel()
+	binary := []byte("new-viceme-binary")
+	digest := sha256.Sum256(binary)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1.2.3/viceme_1.2.3_linux_amd64":
+			_, _ = writer.Write(binary)
+		case "/v1.2.3/viceme_1.2.3_linux_amd64.sha256":
+			_, _ = fmt.Fprintf(writer, "%x", digest)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	executable := filepath.Join(t.TempDir(), "viceme")
+	if err := os.WriteFile(executable, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	runner := &fakeRunner{hook: func(name string, args []string) error {
+		if !reflect.DeepEqual(args, []string{"bootstrap", "activate", "--destination", executable, "--region", "cn", "--skip-skills"}) {
+			return fmt.Errorf("unexpected CLI-only activation: %s %#v", name, args)
+		}
+		contents, err := os.ReadFile(name)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(executable, contents, 0o755)
+	}}
+	service := NewReleaseService("1.2.2", "1.2.2")
+	service.ReleaseBaseURL = server.URL
+	service.HTTPClient = server.Client()
+	service.ExecutablePath = executable
+	service.GOOS = "linux"
+	service.GOARCH = "amd64"
+	service.Runner = runner
+
+	result, err := service.Apply(
+		context.Background(),
+		CheckResult{CurrentVersion: "1.2.2", AvailableVersion: "1.2.3", UpdateAvailable: true},
+		ApplyOptions{RefreshSkills: false},
+	)
+	if err != nil || result.CLIVersion != "1.2.3" || len(result.Targets) != 1 || result.Targets[0].Target != "standalone_binary" {
+		t.Fatalf("CLI-only release result=%#v err=%v", result, err)
+	}
+	if len(runner.calls) != 1 {
+		t.Fatalf("CLI-only release invoked unexpected children: %#v", runner.calls)
+	}
+}
+
+func TestReleaseServiceWindowsCLIOnlyUpdateSchedulesNoSkillRefresh(t *testing.T) {
+	t.Parallel()
+	binary := []byte("new-windows-viceme-binary")
+	digest := sha256.Sum256(binary)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1.2.3/viceme_1.2.3_windows_amd64.exe":
+			_, _ = writer.Write(binary)
+		case "/v1.2.3/viceme_1.2.3_windows_amd64.exe.sha256":
+			_, _ = fmt.Fprintf(writer, "%x", digest)
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+	executable := filepath.Join(t.TempDir(), "viceme.exe")
+	if err := os.WriteFile(executable, []byte("old"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var scheduled bool
+	service := NewReleaseService("1.2.2", "1.2.2")
+	service.ReleaseBaseURL = server.URL
+	service.HTTPClient = server.Client()
+	service.ExecutablePath = executable
+	service.GOOS = "windows"
+	service.GOARCH = "amd64"
+	service.ScheduleWindows = func(staged, destination, target, region string, refreshSkills bool) error {
+		scheduled = true
+		if staged == "" || destination != executable || target != "auto" || region != "cn" || refreshSkills {
+			return fmt.Errorf("unexpected Windows activation: staged=%q destination=%q target=%q region=%q refreshSkills=%t", staged, destination, target, region, refreshSkills)
+		}
+		return nil
+	}
+	result, err := service.Apply(
+		context.Background(),
+		CheckResult{CurrentVersion: "1.2.2", AvailableVersion: "1.2.3", UpdateAvailable: true},
+		ApplyOptions{RefreshSkills: false},
+	)
+	if err != nil || !scheduled || len(result.Targets) != 1 || result.Targets[0].Status != "scheduled" {
+		t.Fatalf("Windows CLI-only result=%#v scheduled=%t err=%v", result, scheduled, err)
+	}
+}
+
 func TestReleaseServiceRestoresCurrentBinaryWhenSkillActivationFails(t *testing.T) {
 	t.Parallel()
 	binary := []byte("new-viceme-binary")
@@ -402,6 +496,29 @@ func TestNPMServiceChecksAndAppliesExactVersion(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(configDir, updateStateFilename)); err != nil {
 		t.Fatalf("version check did not persist update state: %v", err)
+	}
+}
+
+func TestNPMServiceCLIOnlyUpdateDoesNotRunSkillChild(t *testing.T) {
+	t.Parallel()
+	configDir := t.TempDir()
+	runner := &fakeRunner{}
+	service := NewNPMService("0.1.0", "0.1.0", "npm")
+	service.ConfigDir = configDir
+	service.Runner = runner
+	result, err := service.Apply(
+		context.Background(),
+		CheckResult{CurrentVersion: "0.1.0", AvailableVersion: "0.1.1", UpdateAvailable: true},
+		ApplyOptions{RefreshSkills: false},
+	)
+	if err != nil || result.CLIVersion != "0.1.1" || len(result.Targets) != 1 || result.Targets[0].Target != "npm_global" {
+		t.Fatalf("CLI-only npm result=%#v err=%v", result, err)
+	}
+	if len(runner.calls) != 1 || !slices.Contains(runner.calls[0].args, "@viceme-ai/cli@0.1.1") {
+		t.Fatalf("CLI-only npm update invoked unexpected commands: %#v", runner.calls)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, npmActivationFilename)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("CLI-only npm update retained its recovery journal: %v", err)
 	}
 }
 

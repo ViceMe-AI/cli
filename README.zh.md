@@ -249,7 +249,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
 | `viceme replica publish ...` | 校验含根级 `VICEME-REPLICA.md` 的完整源码 ZIP，发布不可变版本并返回稳定口令与自站提示词。 |
 | `viceme replica install <口令> --target <新目录>` | 创建并展示真实 Quote，不创建订单；买家明确确认后原样追加 `--confirm` 才购买并原子安装。 |
-| `viceme update` | 同时更新 CLI 与匹配版本的官方 Skills。 |
+| `viceme update` | 显式更新 CLI；官方 Skills 使用 `viceme install --agent auto` 单独刷新。 |
 | `viceme merchant accounts` | 列出当前 User 通过 OWNER 成员关系经营的普通 MerchantAccount。 |
 | `viceme merchant work ...` | 创建、查看、更新和发布 Merchant Work，包括 Website Work。 |
 | `viceme merchant page ...` | 校验、预览、发布、查看和回滚不可变的作者页/作品页自定义页面包。 |
@@ -299,36 +299,33 @@ Commerce Application 门禁，互动流程也不创建或修改 Website Widget�
 
 `meta.executingCliVersion` 表示输出本次响应的进程版本。对于 `viceme update`，
 新安装版本单独由 `data.cli_version` 返回，因为最终响应仍由启动更新的旧进程输出。
-`meta.autoUpdate.status == "updated"` 表示本次命令由新激活的版本自动继续执行。
-更新预检需要宿主权限时返回 `UPDATE_PERMISSION_REQUIRED`，旧版本不会继续执行原
-业务命令。
+启动恢复恰好需要把已经启动的旧命令交给新版本时，响应中可能出现
+`meta.autoUpdate`；它不再是每次自动更新的正常结果。
 
-正式安装在执行普通命令前都会经过有界的新鲜度检查。已经校验的结果会复用五分钟，
-避免同一工作流反复访问发布渠道。发现新的稳定版本时，CLI 与所有检测到的官方
-Skills 会作为一个可恢复的完整版本一起激活，随后由新 CLI 自动重新执行原命令。
-断网时发布发现会继续使用最后一个完整版本；如果版本激活失败，原命令会停止，避免
-旧进程在版本切换失败后继续执行写操作。
+普通命令输出响应后，CLI 才拉起独立后台进程检查稳定发布渠道，并且只更新 CLI。
+前台命令不等待版本发现或激活；后台进程启动失败、断网、权限不足或安装失败都不会
+替换本次 JSON 响应。成功替换后，下一次 `viceme` 调用会使用新版本，无需重启整个
+Codex、Claude Code 或 WorkBuddy。成功检查会合并 24 小时，失败一小时后可再次尝试。
 
-npm 安装在所有支持的平台都会自动继续原命令。Windows 独立二进制在等待操作系统释放
-旧可执行文件时，可能会返回一次可重试的 `AUTO_UPDATE_RESTART_REQUIRED`；原样重试
-同一个命令后会由新版本继续执行。
+官方 Skills 使用独立生命周期，因为 Agent 通常在任务启动时加载 Skill。CLI 自动更新
+不会改写 Skill 目录；需要刷新时运行 `viceme install --agent auto`，宿主需要重新发现
+文件时再新开一个 Agent 任务。
 
 ```bash
 viceme update --check
 viceme update
+viceme install --agent auto
 ```
 
-从旧版 `npx` 缓存启动的命令也会在更新后自动继续：CLI 校验已激活全局包的精确版本，
-再通过该包的启动器续跑原命令。
-
-`viceme update` 保留为显式修复命令。正常启动检查已经会校验精确 Release、刷新匹配
-版本的官方 Skills，并把中断的激活过程恢复成一个完整、兼容的本地版本。
+`viceme update` 保留为显式 CLI 修复命令，并继续使用权限预检与持久化恢复。
+为兼容旧调用，`viceme update --agent <target>` 仍可请求 CLI 与 Skill 联合修复；新的
+自动化应把 CLI 更新和 Skill 安装拆成两条命令。
 
 CLI 会在创建更新事务前检查当前安装方式需要修改的全部路径。npm 安装通过 Node 检查
-实际缓存、全局包及命令入口目录，保留宿主原有的文件权限代理；独立安装版同时检查
-可执行文件目录以及 Agents、WorkBuddy 等所有已选官方 Skill 目录。预检发现权限不足
-时保留原有完整版本，但停止原业务命令并申请宿主授权。预检之后权限仍可能变化；一旦
-已经尝试安装，失败时会保留恢复记录并停止业务操作。
+实际缓存、全局包及命令入口目录，保留宿主原有的文件权限代理；独立 CLI-only 更新
+只检查可执行文件目录，单独安装 Skill 时才检查所选 Agent 目录。显式更新预检发现权限
+不足时保留原有完整版本并申请宿主授权；后台权限失败只记录到本地，不影响前台命令。
+预检之后权限仍可能变化；一旦已经尝试安装，失败时会保留恢复记录，等待启动恢复。
 
 显式更新或未完成事务的恢复遇到权限不足时，返回 `UPDATE_PERMISSION_REQUIRED`
 （退出码 6，不可自动重试）。Agent 必须通过宿主提供的正式审批机制申请权限，真正

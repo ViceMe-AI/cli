@@ -274,7 +274,7 @@ Never copy an access token into the conversation.
 | `viceme publication publish ...` | Make a confirmed listing public. |
 | `viceme replica publish ...` | Validate a complete source ZIP with a root `VICEME-REPLICA.md`, publish an immutable version, and return the stable code and creator-site prompts. |
 | `viceme replica install <code> --target <new-directory>` | Create and display the authoritative Quote without an order; after explicit confirmation, return a private local WeChat QR image for Agent rendering, then resume the same order until paid before atomic installation. |
-| `viceme update` | Update the CLI and matching official Skills together. |
+| `viceme update` | Explicitly update the CLI. Refresh official Skills separately with `viceme install --agent auto`. |
 | `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
 | `viceme merchant work ...` | Create, inspect, update, and publish Merchant Works, including Website Works. |
 | `viceme merchant page ...` | Validate, preview, publish, inspect, and roll back immutable custom Creator/Work page bundles. |
@@ -334,46 +334,44 @@ text.
 `meta.executingCliVersion` is the version of the process that emitted the
 response. For `viceme update`, the newly installed version is reported
 separately as `data.cli_version` because the response is still emitted by the
-process that started the update. `meta.autoUpdate.status == "updated"` means
-the command continued under a newly activated generation. If update preflight
-needs host permission, the command returns `UPDATE_PERMISSION_REQUIRED` and the
-old business command does not run.
+process that started the update. `meta.autoUpdate` may appear when startup
+recovery had to hand an already-started command to a newly committed CLI.
 
-Every released installation passes through a bounded freshness gate before an
-ordinary command. A validated result is reused for five minutes so a single
-workflow does not repeatedly contact the release channel. When a newer stable
-release exists, the CLI and all detected official Skills are activated as one
-recoverable generation and the original command is automatically re-executed by
-the new CLI. Release discovery is fail-open while offline; activation failure
-stops the original command so an older process cannot perform a mutation after
-a failed generation change.
+After an ordinary command has emitted its response, a detached worker checks
+the stable release channel and updates only the CLI. The foreground command never waits
+for release discovery or activation, and background launch, network,
+permission, or installation failures never replace its JSON response. A
+successful replacement is used by the next `viceme` process; it does not
+require restarting the surrounding Codex, Claude Code, or WorkBuddy app.
+Checks are coalesced for 24 hours, while failed checks or updates become
+eligible for another background attempt after one hour.
 
-An npm installation continues the original command automatically on every
-supported platform, including commands started from an older `npx` cache. The
-continuation uses the activated global package after checking its exact version.
-A standalone Windows binary may return the retryable code
-`AUTO_UPDATE_RESTART_REQUIRED` once while Windows releases the old executable;
-rerunning the exact command completes under the new generation.
+Official Skills are a separate lifecycle because an Agent usually loads them
+when a task starts. CLI auto-update therefore never rewrites Skill directories.
+Refresh them intentionally with `viceme install --agent auto`, then start a new
+Agent task when the host needs to rediscover the files.
 
 ```bash
 viceme update --check
 viceme update
+viceme install --agent auto
 ```
 
-`viceme update` remains an explicit repair command. The normal startup gate
-already verifies the exact release, refreshes the matching official Skills, and
-recovers interrupted activation as one compatible local generation.
+`viceme update` remains the explicit CLI repair command and keeps the same
+permission preflight and durable recovery rules. For compatibility,
+`viceme update --agent <target>` still requests a combined CLI and Skill
+repair, but new automation should keep the two commands separate.
 
 Permission preflight checks every path that the selected installation method
 will mutate before creating an activation journal. For npm this includes the
 configured cache, actual scoped global package, and launcher directories through
-Node so the host filesystem broker is preserved. For standalone installations
-it includes the executable directory and every detected official Skill target,
-including the shared Agents and WorkBuddy directories. A denied preflight keeps
-the previous generation intact and blocks the old business command while host
-approval is requested. Permission can still change after preflight, so any
-failure after an install attempt retains the recovery journal and blocks
-business operations until recovery completes.
+Node so the host filesystem broker is preserved. For standalone CLI-only
+updates it checks the executable directory; a separate Skill install checks
+every selected Agent destination. A denied explicit-update preflight keeps the
+previous generation intact and requests host approval. A denied background
+attempt is recorded locally and does not affect the foreground command.
+Permission can still change after preflight, so any failure after an install
+attempt retains the recovery journal until startup recovery completes.
 
 An explicit update or pending recovery that lacks filesystem access returns
 `UPDATE_PERMISSION_REQUIRED` (exit 6, not automatically retryable). The Agent

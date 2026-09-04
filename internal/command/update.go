@@ -14,7 +14,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 	var target string
 	command := &cobra.Command{
 		Use:   "update",
-		Short: "Update the CLI release and reinstall matching official Skills",
+		Short: "Update the CLI release",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(command.Context(), activationOperationTimeout)
@@ -35,7 +35,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 				}
 			}
 			result, err := runtime.deps.Updater.Apply(ctx, check, updatepkg.ApplyOptions{
-				RefreshSkills: true,
+				RefreshSkills: command.Flags().Changed("agent"),
 				SkillTarget:   target,
 			})
 			if errors.Is(err, updatepkg.ErrNPMInstallRequired) {
@@ -48,7 +48,7 @@ func newUpdateCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().BoolVar(&checkOnly, "check", false, "check the latest npm release without changing local state")
-	command.Flags().StringVar(&target, "agent", "auto", "Agent target refreshed after update: auto, codex, claude, workbuddy, or agents")
+	command.Flags().StringVar(&target, "agent", "auto", "also refresh this Agent's official Skills (prefer a separate 'viceme install --agent ...')")
 	return command
 }
 

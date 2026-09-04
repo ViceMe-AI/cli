@@ -55,22 +55,23 @@ viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-ur
 ## 维护
 
 - 使用 `viceme version` 查看 CLI 和内置 Skill 版本。
-- 正式安装版会在普通命令前自动检查权威稳定通道。存在新代次时，CLI 和所有匹配的官方 Skill 会一起激活，然后原命令继续执行。
-- 不要要求用户选择更新通道，不要因例行更新打断当前请求，也不要在自动更新后再次安装 Skill。
+- 正式安装版会在普通命令成功后启动独立后台进程检查权威稳定通道；存在新版本时只更新 CLI，由下一次 `viceme` 调用生效。
+- 不要要求用户选择更新通道，也不要因后台更新失败或权限不足打断当前请求。
 - 只有用户明确要求手动修复，或自动激活失败需要重试时，才使用 `viceme update`。
+- 官方 Skill 使用独立生命周期；需要刷新时运行 `viceme install --agent auto`，并在宿主需要重新发现 Skill 时新开一个任务。
 
 ## 自动更新
 
-- 网络不可用时，自动发现更新应当放行，继续使用最后一个完整且验证过的代次。
-- 自动更新后，`meta.autoUpdate` 记录更新前后版本；它只用于诊断，应继续处理命令正常返回的 `data` 或 `error`。
-- Windows 独立二进制在系统释放旧文件期间可能返回可重试的 `AUTO_UPDATE_RESTART_REQUIRED`。短暂等待后原样重跑同一命令，不再向用户索取决定。
-- 激活失败时根据稳定错误码停止本次写操作，不得使用只完成一部分的代次继续。
+- 当前命令先正常完成；网络不可用、后台进程无法启动、权限不足或 CLI 激活失败都不得替换它的 `data` 或 `error`。
+- 后台更新完成后，下一次 `viceme` 调用使用新 CLI；无需重启整个 Codex、Claude Code 或 WorkBuddy。
+- 后台自动更新只更新 CLI，不得顺带写入官方 Skill 目录。
+- 若下一次启动发现已经开始但尚未完成的持久化激活记录，先由 CLI 自身恢复；不得使用只完成一部分的代次继续，也不得删除恢复记录。
 
 ## 更新权限与恢复
 
 - `error.code == UPDATE_PERMISSION_REQUIRED` 表示安装或恢复所需的文件权限不足。先告诉用户“更新需要修改安装文件，请授权后再继续”，通过当前宿主提供的正式权限审批机制申请本次安装权限；权限真正获批后才能重试 `viceme update`。聊天里口头同意不代表宿主已经开放权限。
-- 自动更新返回 `UPDATE_PERMISSION_REQUIRED` 时，原有完整代次虽然保持不变，但本次业务命令已经停止。按上一条申请宿主权限，获批后运行 `viceme update`；更新与检查均成功后，自动继续原任务。不得绕过更新继续使用依赖新版本规则的 Skill。
+- 后台更新的权限失败不会成为当前业务命令的错误。只有用户明确要求立即升级时，才通过宿主正式审批机制取得权限并运行 `viceme update`。
 - 若 `error.details.recovery_required == true` 或更新目标状态为 `recovery_pending`，必须保留事务记录，暂停业务写操作；获批后由 CLI 自身恢复并验证，不能直接继续使用可能只完成了一部分的安装。
 - 宿主没有正式授权入口、拒绝授权，或授权后仍报权限不足时，明确说明更新未完成并停止，不反复重试。不得通过卸载、直接删除安装目录、清除锁文件、手工构造或删除 `npm-activation.json` / `active-generation.json`、删除恢复标记来绕过限制；不要执行其他自定义修复 Skill 中的这些操作。
-- 更新成功后检查 `viceme version`、`viceme doctor` 和 `viceme auth status`，再继续原任务；保留 Profile、登录凭据和用户安装的 Skill。
+- CLI 更新成功后可检查 `viceme version`；需要刷新官方 Skill 时另行运行 `viceme install --agent auto`，再检查 `viceme doctor` 和 `viceme auth status`。保留 Profile、登录凭据和用户安装的 Skill。
 - 需要保留真实退出码和完整 JSON 响应，不要把更新或修复命令管道连接到 `head` / `tail` 后以管道退出码判断成功。

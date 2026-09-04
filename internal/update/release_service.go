@@ -171,10 +171,10 @@ func (service *ReleaseService) Apply(ctx context.Context, check CheckResult, opt
 			if target == "" {
 				target = "auto"
 			}
-			result.Targets = append(result.Targets,
-				TargetResult{Target: "standalone_binary", Status: "blocked"},
-				TargetResult{Target: "agent_skill:" + target, Status: "blocked"},
-			)
+			result.Targets = append(result.Targets, TargetResult{Target: "standalone_binary", Status: "blocked"})
+			if options.RefreshSkills {
+				result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "blocked"})
+			}
 			return result, &OperationError{Kind: ErrorReleaseReplace, Cause: err}
 		}
 		asset := fmt.Sprintf("viceme_%s_%s_%s", targetVersion, service.GOOS, service.GOARCH)
@@ -202,13 +202,15 @@ func (service *ReleaseService) Apply(ctx context.Context, check CheckResult, opt
 			if target == "" {
 				target = "auto"
 			}
-			if err := service.scheduleWindows()(staged, executable, target, service.Region, true); err != nil {
+			if err := service.scheduleWindows()(staged, executable, target, service.Region, options.RefreshSkills); err != nil {
 				os.Remove(staged)
 				return result, &OperationError{Kind: ErrorReleaseReplace, Cause: errors.New("could not schedule the Windows release activation")}
 			}
 			result.CLIVersion = targetVersion
 			result.Targets = append(result.Targets, TargetResult{Target: "standalone_binary", Status: "scheduled"})
-			result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "scheduled"})
+			if options.RefreshSkills {
+				result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "scheduled"})
+			}
 			return result, nil
 		}
 		defer os.Remove(staged)
@@ -216,16 +218,29 @@ func (service *ReleaseService) Apply(ctx context.Context, check CheckResult, opt
 		if target == "" {
 			target = "auto"
 		}
-		output, err := service.runner().Run(ctx, staged, "bootstrap", "activate", "--destination", executable, "--agent", target, "--region", service.Region)
+		arguments := []string{"bootstrap", "activate", "--destination", executable}
+		if options.RefreshSkills {
+			arguments = append(arguments, "--agent", target, "--region", service.Region)
+		} else {
+			arguments = append(arguments, "--region", service.Region, "--skip-skills")
+		}
+		output, err := service.runner().Run(ctx, staged, arguments...)
 		if err != nil {
 			childError, permissionErr := releaseChildError(err, output)
-			result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "failed", Error: childError})
+			if options.RefreshSkills {
+				result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "failed", Error: childError})
+			}
 			if permissionErr != nil {
 				return result, permissionErr
 			}
-			return result, &OperationError{Kind: ErrorReleaseSkillRefresh, Cause: errors.New("new CLI could not atomically activate its executable and matching official Skills")}
+			if options.RefreshSkills {
+				return result, &OperationError{Kind: ErrorReleaseSkillRefresh, Cause: errors.New("new CLI could not atomically activate its executable and matching official Skills")}
+			}
+			return result, &OperationError{Kind: ErrorReleaseReplace, Cause: errors.New("new CLI could not atomically activate its executable")}
 		}
-		result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "updated"})
+		if options.RefreshSkills {
+			result.Targets = append(result.Targets, TargetResult{Target: "agent_skill:" + target, Status: "updated"})
+		}
 		result.CLIVersion = targetVersion
 		result.Targets = append(result.Targets, TargetResult{Target: "standalone_binary", Status: "updated"})
 		return result, nil
@@ -442,8 +457,14 @@ $ErrorActionPreference = "Stop"
 $Result = "$Destination.viceme-update-result.json"
 try {
   Wait-Process -Id $ParentPid -ErrorAction SilentlyContinue
-  & $Staged bootstrap activate --destination $Destination --agent $Target --region $Region
-  if ($LASTEXITCODE -ne 0) { throw "atomic CLI and Skill activation failed" }
+  $ActivationArgs = @("bootstrap", "activate", "--destination", $Destination, "--region", $Region)
+  if ($RefreshSkills -eq "true") {
+    $ActivationArgs += @("--agent", $Target)
+  } else {
+    $ActivationArgs += "--skip-skills"
+  }
+  & $Staged @ActivationArgs
+  if ($LASTEXITCODE -ne 0) { throw "atomic CLI activation failed" }
   @{ status = "succeeded"; updatedAt = [DateTime]::UtcNow.ToString("o") } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $Result
 } catch {
   @{ status = "failed"; updatedAt = [DateTime]::UtcNow.ToString("o") } | ConvertTo-Json -Compress | Set-Content -Encoding UTF8 $Result

@@ -51,23 +51,26 @@ type startupRecoveryUpdater struct {
 
 type automaticUpdater struct {
 	startupRecoveryUpdater
-	check      updatepkg.CheckResult
-	checkErr   error
-	apply      updatepkg.ApplyResult
-	applyErr   error
-	checkCalls atomic.Int32
-	applyCalls atomic.Int32
+	check         updatepkg.CheckResult
+	checkErr      error
+	apply         updatepkg.ApplyResult
+	applyErr      error
+	checkCalls    atomic.Int32
+	applyCalls    atomic.Int32
+	refreshSkills atomic.Bool
 }
 
 type completedUpdateUpdater struct {
 	startupRecoveryUpdater
+	refreshSkills atomic.Bool
 }
 
 func (*completedUpdateUpdater) Check(context.Context) (updatepkg.CheckResult, error) {
 	return updatepkg.CheckResult{CurrentVersion: "0.14.2", AvailableVersion: "0.15.0", UpdateAvailable: true}, nil
 }
 
-func (*completedUpdateUpdater) Apply(context.Context, updatepkg.CheckResult, updatepkg.ApplyOptions) (updatepkg.ApplyResult, error) {
+func (updater *completedUpdateUpdater) Apply(_ context.Context, _ updatepkg.CheckResult, options updatepkg.ApplyOptions) (updatepkg.ApplyResult, error) {
+	updater.refreshSkills.Store(options.RefreshSkills)
 	return updatepkg.ApplyResult{PreviousCLIVersion: "0.14.2", CLIVersion: "0.15.0"}, nil
 }
 
@@ -80,8 +83,9 @@ func (updater *automaticUpdater) Check(context.Context) (updatepkg.CheckResult, 
 	return updater.check, updater.checkErr
 }
 
-func (updater *automaticUpdater) Apply(context.Context, updatepkg.CheckResult, updatepkg.ApplyOptions) (updatepkg.ApplyResult, error) {
+func (updater *automaticUpdater) Apply(_ context.Context, _ updatepkg.CheckResult, options updatepkg.ApplyOptions) (updatepkg.ApplyResult, error) {
 	updater.applyCalls.Add(1)
+	updater.refreshSkills.Store(options.RefreshSkills)
 	return updater.apply, updater.applyErr
 }
 
@@ -162,127 +166,172 @@ func TestBareCommandKeepsMachineOutputAsJSON(t *testing.T) {
 	}
 }
 
-func TestOrdinaryCommandAutomaticallyUpdatesAndReexecutesWithTheNewGeneration(t *testing.T) {
+func TestOrdinaryCommandSchedulesBackgroundUpdateAfterReturningItsOwnResult(t *testing.T) {
 	clearAutomaticUpdateReexecutionEnvironment(t)
 	root := t.TempDir()
-	updater := &automaticUpdater{
-		check: updatepkg.CheckResult{CurrentVersion: "0.15.2", AvailableVersion: "0.16.0", UpdateAvailable: true},
-		apply: updatepkg.ApplyResult{PreviousCLIVersion: "0.15.2", CLIVersion: "0.16.0", Targets: []updatepkg.TargetResult{
-			{Target: "npm_global", Status: "updated"},
-			{Target: "agent_skill:auto", Status: "updated"},
-		}},
-	}
+	updater := &automaticUpdater{}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	var reexecuted atomic.Bool
+	var scheduled atomic.Int32
 	exit := Execute([]string{"version"}, Dependencies{
 		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(), Updater: updater,
 		Environment:                skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 		Region:                     config.RegionCN,
 		allowDevelopmentAutoUpdate: true,
+		StartBackgroundUpdate: func() error {
+			if stdout.Len() == 0 {
+				t.Fatal("background update was started before the foreground response")
+			}
+			scheduled.Add(1)
+			return nil
+		},
 		Reexecute: func(_ context.Context, args, environment []string) (int, error) {
 			reexecuted.Store(true)
-			if !reflect.DeepEqual(args, []string{"version"}) {
-				t.Fatalf("re-executed args=%#v", args)
-			}
-			joined := strings.Join(environment, "\n")
-			for _, expected := range []string{
-				autoUpdateReexecEnvironment + "=1",
-				autoUpdateFromEnvironment + "=0.15.2",
-				autoUpdateToEnvironment + "=0.16.0",
-			} {
-				if !strings.Contains(joined, expected) {
-					t.Fatalf("re-execution environment missing %q", expected)
-				}
-			}
-			_, _ = stdout.WriteString("{\"ok\":true,\"data\":{\"version\":\"0.16.0\"}}\n")
-			return 0, nil
+			t.Fatalf("ordinary command was re-executed: args=%#v environment=%#v", args, environment)
+			return 1, nil
 		},
 	})
-	if exit != 0 || !reexecuted.Load() || updater.checkCalls.Load() != 1 || updater.applyCalls.Load() != 1 {
-		t.Fatalf("automatic update did not re-execute exactly once: exit=%d reexecuted=%t checks=%d applies=%d stdout=%q stderr=%q", exit, reexecuted.Load(), updater.checkCalls.Load(), updater.applyCalls.Load(), stdout.String(), stderr.String())
-	}
-	if !strings.Contains(stderr.String(), "0.15.2 -> 0.16.0") {
-		t.Fatalf("automatic update progress missing from stderr: %q", stderr.String())
-	}
-	if strings.Count(stdout.String(), "\n") != 1 {
-		t.Fatalf("old and new processes both emitted protocol output: %q", stdout.String())
-	}
-}
-
-func TestAutomaticUpdateDiscoveryFailureIsFailOpen(t *testing.T) {
-	clearAutomaticUpdateReexecutionEnvironment(t)
-	root := t.TempDir()
-	updater := &automaticUpdater{checkErr: errors.New("offline")}
-	var stdout bytes.Buffer
-	var reexecuted atomic.Bool
-	exit := Execute([]string{"version"}, Dependencies{
-		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
-		Environment:                skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
-		Region:                     config.RegionCN,
-		allowDevelopmentAutoUpdate: true,
-		Reexecute: func(context.Context, []string, []string) (int, error) {
-			reexecuted.Store(true)
-			return 0, nil
-		},
-	})
-	if exit != 0 || reexecuted.Load() || updater.checkCalls.Load() != 1 || updater.applyCalls.Load() != 0 {
-		t.Fatalf("offline freshness check changed the business command: exit=%d reexecuted=%t checks=%d applies=%d stdout=%q", exit, reexecuted.Load(), updater.checkCalls.Load(), updater.applyCalls.Load(), stdout.String())
+	if exit != 0 || reexecuted.Load() || scheduled.Load() != 1 || updater.checkCalls.Load() != 0 || updater.applyCalls.Load() != 0 {
+		t.Fatalf("foreground command performed update work: exit=%d reexecuted=%t scheduled=%d checks=%d applies=%d stdout=%q stderr=%q", exit, reexecuted.Load(), scheduled.Load(), updater.checkCalls.Load(), updater.applyCalls.Load(), stdout.String(), stderr.String())
 	}
 	var result map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || result["ok"] != true {
-		t.Fatalf("offline command lost its normal result: result=%#v err=%v", result, err)
+		t.Fatalf("foreground command lost its own response: result=%#v err=%v", result, err)
+	}
+	if stderr.Len() != 0 {
+		t.Fatalf("background scheduling polluted the command protocol: stdout=%q stderr=%q", stdout.String(), stderr.String())
 	}
 }
 
-func TestAutomaticUpdateApplyFailureBlocksOldBusinessCommand(t *testing.T) {
+func TestBackgroundUpdateLaunchFailureIsFailOpen(t *testing.T) {
 	clearAutomaticUpdateReexecutionEnvironment(t)
+	root := t.TempDir()
+	var stdout bytes.Buffer
+	exit := Execute([]string{"version"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: &automaticUpdater{},
+		Environment:                skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:                     config.RegionCN,
+		allowDevelopmentAutoUpdate: true,
+		StartBackgroundUpdate: func() error {
+			return errors.New("host refused to create a detached process")
+		},
+	})
+	if exit != 0 {
+		t.Fatalf("background launch failure changed the business command: exit=%d stdout=%q", exit, stdout.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil || result["ok"] != true {
+		t.Fatalf("command lost its normal result: result=%#v err=%v", result, err)
+	}
+}
+
+func TestOrdinaryCommandDoesNotSpawnWorkerDuringFreshCheckInterval(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "config")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, time.September, 4, 12, 0, 0, 0, time.UTC)
+	writeAutomaticUpdateState(configDir, automaticUpdateState{
+		SchemaVersion:  1,
+		CurrentVersion: buildinfo.CompatibilityVersion(),
+		Status:         "current",
+		CheckedAt:      now.Unix(),
+	})
+	var scheduled atomic.Int32
+	var stdout bytes.Buffer
+	exit := Execute([]string{"version"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: &automaticUpdater{},
+		Environment:                skillcontent.Environment{Home: root, ConfigDir: configDir},
+		Region:                     config.RegionCN,
+		Now:                        func() time.Time { return now.Add(time.Minute) },
+		allowDevelopmentAutoUpdate: true,
+		StartBackgroundUpdate: func() error {
+			scheduled.Add(1)
+			return nil
+		},
+	})
+	if exit != 0 || scheduled.Load() != 0 {
+		t.Fatalf("fresh automatic-update state spawned a worker: exit=%d scheduled=%d stdout=%q", exit, scheduled.Load(), stdout.String())
+	}
+}
+
+func TestBackgroundUpdateProcessDoesNotInheritPublicationCredential(t *testing.T) {
+	environment := withoutEnvironmentVariables([]string{
+		"PATH=/usr/bin",
+		processAccessTokenEnvironment + "=must-not-cross-process",
+		apiBaseURLEnvironment + "=https://api.viceme.ai",
+	}, processAccessTokenEnvironment)
+	joined := strings.Join(environment, "\n")
+	if strings.Contains(joined, "must-not-cross-process") || !strings.Contains(joined, apiBaseURLEnvironment+"=https://api.viceme.ai") {
+		t.Fatalf("background update environment=%#v", environment)
+	}
+}
+
+func TestAutomaticUpdateWorkerRecordsFailureWithoutRefreshingSkills(t *testing.T) {
 	root := t.TempDir()
 	updater := &automaticUpdater{
 		check:    updatepkg.CheckResult{CurrentVersion: "0.15.2", AvailableVersion: "0.16.0", UpdateAvailable: true},
 		applyErr: &updatepkg.OperationError{Kind: updatepkg.ErrorNPMCommand, Cause: errors.New("activation failed")},
 	}
-	var stdout bytes.Buffer
-	var reexecuted atomic.Bool
-	exit := Execute([]string{"version"}, Dependencies{
-		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+	dependencies := defaults(Dependencies{
+		Store: securestore.NewMemory(), Updater: updater,
 		Environment:                skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 		Region:                     config.RegionCN,
 		allowDevelopmentAutoUpdate: true,
-		Reexecute: func(context.Context, []string, []string) (int, error) {
-			reexecuted.Store(true)
-			return 0, nil
-		},
 	})
-	if exit == 0 || reexecuted.Load() || updater.applyCalls.Load() != 1 || !strings.Contains(stdout.String(), "update_npm_failed") {
-		t.Fatalf("failed activation allowed old business logic: exit=%d reexecuted=%t applies=%d stdout=%q", exit, reexecuted.Load(), updater.applyCalls.Load(), stdout.String())
+	runAutomaticUpdateWorker(&dependencies)
+	state, ok := readAutomaticUpdateState(filepath.Join(root, "config"))
+	if !ok || state.Status != "failed" || state.ErrorKind != string(updatepkg.ErrorNPMCommand) {
+		t.Fatalf("background failure state=%#v exists=%t", state, ok)
+	}
+	if updater.checkCalls.Load() != 1 || updater.applyCalls.Load() != 1 || updater.refreshSkills.Load() {
+		t.Fatalf("background worker checks=%d applies=%d refreshSkills=%t", updater.checkCalls.Load(), updater.applyCalls.Load(), updater.refreshSkills.Load())
 	}
 }
 
-func TestScheduledAutomaticUpdateRequiresRetryWithoutRunningTheOldCommand(t *testing.T) {
-	clearAutomaticUpdateReexecutionEnvironment(t)
+func TestAutomaticUpdateWorkerCommitsCLIOnlyForTheNextInvocation(t *testing.T) {
 	root := t.TempDir()
 	updater := &automaticUpdater{
 		check: updatepkg.CheckResult{CurrentVersion: "0.15.2", AvailableVersion: "0.16.0", UpdateAvailable: true},
-		apply: updatepkg.ApplyResult{PreviousCLIVersion: "0.15.2", CLIVersion: "0.16.0", Targets: []updatepkg.TargetResult{
-			{Target: "standalone_binary", Status: "scheduled"},
-			{Target: "agent_skill:auto", Status: "scheduled"},
-		}},
+		apply: updatepkg.ApplyResult{
+			PreviousCLIVersion: "0.15.2",
+			CLIVersion:         "0.16.0",
+			Targets:            []updatepkg.TargetResult{{Target: "standalone_binary", Status: "updated"}},
+		},
 	}
-	var stdout bytes.Buffer
-	var reexecuted atomic.Bool
-	exit := Execute([]string{"version"}, Dependencies{
-		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+	dependencies := defaults(Dependencies{
+		Store: securestore.NewMemory(), Updater: updater,
 		Environment:                skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 		Region:                     config.RegionCN,
 		allowDevelopmentAutoUpdate: true,
-		Reexecute: func(context.Context, []string, []string) (int, error) {
-			reexecuted.Store(true)
-			return 0, nil
-		},
 	})
-	if exit == 0 || reexecuted.Load() || !strings.Contains(stdout.String(), "AUTO_UPDATE_RESTART_REQUIRED") || !strings.Contains(stdout.String(), `"retryable": true`) {
-		t.Fatalf("scheduled update ran the old command or lost retry semantics: exit=%d reexecuted=%t stdout=%q", exit, reexecuted.Load(), stdout.String())
+	runAutomaticUpdateWorker(&dependencies)
+	state, ok := readAutomaticUpdateState(filepath.Join(root, "config"))
+	if !ok || state.Status != "updated" || state.AvailableVersion != "0.16.0" {
+		t.Fatalf("background success state=%#v exists=%t", state, ok)
+	}
+	if updater.applyCalls.Load() != 1 || updater.refreshSkills.Load() {
+		t.Fatalf("background success applies=%d refreshSkills=%t", updater.applyCalls.Load(), updater.refreshSkills.Load())
+	}
+}
+
+func TestAutomaticUpdateWorkerCoalescesRecentChecks(t *testing.T) {
+	root := t.TempDir()
+	updater := &automaticUpdater{
+		check: updatepkg.CheckResult{CurrentVersion: "0.15.2", AvailableVersion: "0.15.2", UpdateAvailable: false},
+	}
+	dependencies := defaults(Dependencies{
+		Store: securestore.NewMemory(), Updater: updater,
+		Environment:                skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:                     config.RegionCN,
+		allowDevelopmentAutoUpdate: true,
+	})
+	runAutomaticUpdateWorker(&dependencies)
+	runAutomaticUpdateWorker(&dependencies)
+	if updater.checkCalls.Load() != 1 || updater.applyCalls.Load() != 0 {
+		t.Fatalf("recent background checks were not coalesced: checks=%d applies=%d", updater.checkCalls.Load(), updater.applyCalls.Load())
 	}
 }
 
@@ -390,8 +439,9 @@ func TestUpdateSeparatesExecutingAndInstalledCLIVersions(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	var stdout bytes.Buffer
+	updater := &completedUpdateUpdater{}
 	exit := Execute([]string{"update"}, Dependencies{
-		Out: &stdout, Store: securestore.NewMemory(), Updater: &completedUpdateUpdater{},
+		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 		Region:      config.RegionCN,
 	})
@@ -412,6 +462,24 @@ func TestUpdateSeparatesExecutingAndInstalledCLIVersions(t *testing.T) {
 	}
 	if _, legacy := meta["cliVersion"]; legacy {
 		t.Fatalf("ambiguous legacy CLI version leaked: %#v", result)
+	}
+	if updater.refreshSkills.Load() {
+		t.Fatal("plain viceme update unexpectedly refreshed official Skills")
+	}
+}
+
+func TestUpdateAgentFlagRetainsCombinedRepairCompatibility(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	updater := &completedUpdateUpdater{}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"update", "--agent", "codex"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:      config.RegionCN,
+	})
+	if exit != 0 || !updater.refreshSkills.Load() {
+		t.Fatalf("legacy combined repair was not retained: exit=%d refreshSkills=%t stdout=%q", exit, updater.refreshSkills.Load(), stdout.String())
 	}
 }
 
