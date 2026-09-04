@@ -952,6 +952,15 @@ func (c *Client) GetWebsiteReplicaDownload(ctx context.Context, shortCode string
 	return response, err
 }
 
+func (c *Client) CompleteWebsiteReplicaInstallation(ctx context.Context, request CompleteWebsiteReplicaInstallationRequest) (WebsiteReplicaInstallationReceipt, error) {
+	var response WebsiteReplicaInstallationReceipt
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/installations", request, &response, "@stored")
+	if err == nil && response.VersionID != request.VersionID {
+		err = invalidAPIResponse(errors.New("Website Replica installation receipt does not match the requested version"))
+	}
+	return response, err
+}
+
 func validWebsiteReplicaOrderStatus(status string) bool {
 	switch status {
 	case "PENDING", "PAID", "CLOSED":
