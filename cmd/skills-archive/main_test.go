@@ -35,8 +35,10 @@ func TestBuildHostingArchiveDeterministicZip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second build: %v", err)
 	}
-	if len(first) != len(second) || len(first) != 2 {
-		t.Fatalf("expected one zip plus the manifest, got %d files", len(first))
+	// 1 个 zip + 1 个 manifest + 4 个平铺文件(SKILL.md/references/agents/
+	// skill-package.json)。
+	if len(first) != len(second) || len(first) != 6 {
+		t.Fatalf("expected zip, manifest and flat files, got %d entries", len(first))
 	}
 	for name := range first {
 		if !bytes.Equal(first[name], second[name]) {
@@ -74,6 +76,33 @@ func TestArchiveSkillZipShape(t *testing.T) {
 		}
 		if file.Mode().Perm() != 0o644 {
 			t.Fatalf("entry %q must carry fixed 0644 permissions", file.Name)
+		}
+	}
+}
+
+func TestFlatFilesMatchSourceTree(t *testing.T) {
+	// 平铺副本按原路径直读:skills/<skill>/<file> 的字节必须与源一致,
+	// 路径就是 manifest.Files 里的相对路径。
+	skillsFS := testSkillsFS()
+	files, manifest, err := buildHostingArchive(skillsFS)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	hosted := manifest.Skills["demo-skill"]
+	if len(hosted.Files) == 0 {
+		t.Fatalf("manifest must carry the file listing")
+	}
+	for _, relative := range hosted.Files {
+		data, ok := files["demo-skill/"+relative]
+		if !ok {
+			t.Fatalf("flat copy missing for %s", relative)
+		}
+		source, err := fs.ReadFile(skillsFS, "demo-skill/"+relative)
+		if err != nil {
+			t.Fatalf("read source %s: %v", relative, err)
+		}
+		if !bytes.Equal(data, source) {
+			t.Fatalf("flat copy of %s drifted from the source", relative)
 		}
 	}
 }
