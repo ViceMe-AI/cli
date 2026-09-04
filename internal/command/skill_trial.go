@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,6 +54,192 @@ func saveSkillTrialCredential(runtime *Runtime, productID string, credential ski
 	return runtime.deps.Store.Set(skillTrialStoreKey(productID), string(encoded))
 }
 
+// The script route guards its state file with an O_EXCL lockfile protocol
+// (skills/use-a-skill/scripts/trial.py ProductLock). The Go takeover below
+// must speak the SAME protocol: both tools read-modify-write one JSON file,
+// and skipping the lock lets one side read a torn write or clobber a newer
+// pending key. Staleness mirrors the script constant (5 minutes).
+const (
+	scriptTrialLockStale = 5 * time.Minute
+)
+
+// scriptTrialLockWait bounds how long the CLI waits for the script's lock.
+var scriptTrialLockWait = 10 * time.Second
+
+func acquireScriptTrialLock(lockPath string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		return nil, err
+	}
+	deadline := time.Now().Add(scriptTrialLockWait)
+	for {
+		handle, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			return handle, nil
+		}
+		if !errors.Is(err, fs.ErrExist) && !errors.Is(err, fs.ErrPermission) {
+			return nil, err
+		}
+		// Windows 共享冲突与无权创建同名:锁文件不存在即为无权创建,
+		// 立即报错而不是等满截止时间。
+		if _, statErr := os.Stat(lockPath); errors.Is(statErr, fs.ErrNotExist) {
+			return nil, fmt.Errorf("cannot create the script trial lock (permission denied): %s", lockPath)
+		}
+		if info, statErr := os.Stat(lockPath); statErr == nil && time.Since(info.ModTime()) > scriptTrialLockStale {
+			_ = os.Remove(lockPath)
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("script trial lock busy: %s", lockPath)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}
+
+func withScriptTrialLock(runtime *Runtime, productID string, action func() error) error {
+	lockPath := scriptTrialCredentialPath(runtime, productID) + ".lock"
+	handle, err := acquireScriptTrialLock(lockPath)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = handle.Close()
+		_ = os.Remove(lockPath)
+	}()
+	return action()
+}
+
+// scriptTrialCredentialPath is where the no-CLI install script
+// (skills/use-a-skill/scripts/trial.py) keeps its plaintext credential.
+// The credential is immutable per installId and the counter is
+// server-authoritative, so both routes can share one grant through this file.
+func scriptTrialCredentialPath(runtime *Runtime, productID string) string {
+	return filepath.Join(runtime.deps.Environment.Home, ".viceme", "trial", productID+".json")
+}
+
+// scriptTrialState mirrors the script's on-disk JSON; pendingRequestId is the
+// script route's unconfirmed idempotency key.
+type scriptTrialState struct {
+	InstallID        string `json:"installId"`
+	Secret           string `json:"secret"`
+	ProductID        string `json:"productId"`
+	Market           string `json:"market"`
+	PendingRequestID string `json:"pendingRequestId"`
+}
+
+// readScriptTrialState loads the script's state file. Malformed files are
+// ignored (the script also tolerates them); callers fall back to fresh state.
+func readScriptTrialState(runtime *Runtime, productID string) (scriptTrialState, bool) {
+	raw, err := os.ReadFile(scriptTrialCredentialPath(runtime, productID))
+	if err != nil || len(raw) == 0 {
+		return scriptTrialState{}, false
+	}
+	var state scriptTrialState
+	if json.Unmarshal(raw, &state) != nil || state.InstallID == "" || state.Secret == "" {
+		return scriptTrialState{}, false
+	}
+	return state, true
+}
+
+// loadScriptTrialCredential adopts the install script's credential so the
+// same machine never holds two trial grants for one Product.
+func loadScriptTrialCredential(runtime *Runtime, productID string) (skillTrialCredential, bool, error) {
+	state, ok := readScriptTrialState(runtime, productID)
+	if !ok {
+		return skillTrialCredential{}, false, nil
+	}
+	return skillTrialCredential{InstallID: state.InstallID, Secret: state.Secret}, true, nil
+}
+
+// adoptScriptTrialCredential promotes the script's plaintext credential
+// into the CLI secure store so the same machine keeps a single grant across
+// both installation routes.
+func adoptScriptTrialCredential(runtime *Runtime, productID string) (skillTrialCredential, bool, error) {
+	state, ok := readScriptTrialState(runtime, productID)
+	if !ok {
+		return skillTrialCredential{}, false, nil
+	}
+	credential := skillTrialCredential{InstallID: state.InstallID, Secret: state.Secret}
+	if err := saveSkillTrialCredential(runtime, productID, credential); err != nil {
+		return skillTrialCredential{}, false, err
+	}
+	return credential, true, nil
+}
+
+// adoptScriptTrialPending imports the script route's unconfirmed idempotency
+// key into the CLI pending store: when the script's use was consumed
+// server-side but its response was lost, the CLI must replay the SAME key on
+// takeover — a fresh key would be counted by the server as a brand-new use
+// and the same use would be deducted twice. The CLI's own unconfirmed key
+// wins if both exist. The script file's copy stays in place until
+// clearScriptTrialPendingID removes it after an authoritative result.
+func adoptScriptTrialPending(runtime *Runtime, productID string) error {
+	state, ok := readScriptTrialState(runtime, productID)
+	if !ok || state.PendingRequestID == "" {
+		return nil
+	}
+	path := trialUsePendingPath(runtime.configBase, runtime.apiBaseURL, productID)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	// 与脚本共用同一把 O_EXCL 状态锁:并发脚本进程正在改写状态文件时,
+	// 不带锁读到撕裂 JSON 会误判为无 pending 而生成新键。
+	if err := withScriptTrialLock(runtime, productID, func() error {
+		state, ok := readScriptTrialState(runtime, productID)
+		if !ok || state.PendingRequestID == "" {
+			return nil
+		}
+		lock, err := lockTrialUsePending(path)
+		if err != nil {
+			return err
+		}
+		defer lock.Unlock()
+		if readReusableTrialUsePending(path, productID) != "" {
+			return nil
+		}
+		payload, err := json.Marshal(trialUsePending{
+			ProductID: productID, RequestID: state.PendingRequestID, CreatedAt: time.Now().UnixMilli(),
+		})
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(path, payload, 0o600)
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// clearScriptTrialPendingID removes the script file's copy of an idempotency
+// key once the CLI received its authoritative result. It only deletes the key
+// it owns. The read-modify-write runs under the SAME O_EXCL lock the script
+// uses, so it can neither read a torn write nor clobber a pending key the
+// script just wrote.
+func clearScriptTrialPendingID(runtime *Runtime, productID, requestID string) error {
+	return withScriptTrialLock(runtime, productID, func() error {
+		path := scriptTrialCredentialPath(runtime, productID)
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return err
+		}
+		var state scriptTrialState
+		if json.Unmarshal(raw, &state) != nil || state.PendingRequestID != requestID {
+			return nil
+		}
+		state.PendingRequestID = ""
+		payload, err := json.Marshal(state)
+		if err != nil {
+			return err
+		}
+		temporary := path + ".cli-clear.tmp"
+		if err := os.WriteFile(temporary, payload, 0o600); err != nil {
+			return err
+		}
+		return os.Rename(temporary, path)
+	})
+}
+
 // ensureSkillTrialGrant returns a usable (grant, credential) pair for this
 // machine. Reuse the stored installId so reinstalling never resets the count;
 // when the local secret was lost but the server still knows the installId,
@@ -60,6 +248,18 @@ func ensureSkillTrialGrant(ctx context.Context, runtime *Runtime, productID stri
 	stored, hasStored, err := loadSkillTrialCredential(runtime, productID)
 	if err != nil {
 		return api.SkillTrialGrant{}, skillTrialCredential{}, err
+	}
+	if !hasStored {
+		// 收编免 CLI 安装脚本留下的明文凭证:两条安装路共用同一个 grant,
+		// 避免同机双份试用。凭证值不可变,收编后明文文件原地保留,脚本
+		// 路继续可用同一份计数。
+		script, adopted, adoptErr := adoptScriptTrialCredential(runtime, productID)
+		if adoptErr != nil {
+			return api.SkillTrialGrant{}, skillTrialCredential{}, adoptErr
+		}
+		if adopted {
+			stored, hasStored = script, true
+		}
 	}
 	installID := runtime.deps.NewID()
 	if hasStored {
@@ -313,7 +513,19 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			if !hasCredential {
+				// 脚本路装过的试用同样可以被 CLI 的预检直接收编接管。
+				credential, hasCredential, err = adoptScriptTrialCredential(runtime, productID)
+				if err != nil {
+					return err
+				}
+			}
+			if !hasCredential {
 				return output.Policy("SKILL_TRIAL_GRANT_MISSING", "this machine has no active trial grant for the Skill edition").WithDetails(map[string]any{"productId": productID}).WithHint("run 'viceme skill install <product-id-or-work-url>' first; a paid edition with a trial offer installs the trial without login")
+			}
+			// 脚本路留下的未确认幂等键必须先接管:结果未知的使用换新键,
+			// 服务端会当成一次新使用、同一使用扣两次。
+			if err := adoptScriptTrialPending(runtime, productID); err != nil {
+				return output.Internal("SKILL_TRIAL_PENDING_ADOPT_FAILED", "could not adopt the pending trial use left by the install script", err)
 			}
 			requestID, err := beginTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID, time.Now())
 			if err != nil {
@@ -332,6 +544,10 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			// 对同一键回放本次结果,不再扣次。
 			if err := confirmTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID, requestID); err != nil {
 				return output.Internal("SKILL_TRIAL_PENDING_CONFIRM_FAILED", "trial use was consumed but the local pending record could not be confirmed", err).
+					WithHint("run 'viceme skill use' again; the server replays this use without consuming another")
+			}
+			if err := clearScriptTrialPendingID(runtime, productID, requestID); err != nil {
+				return output.Internal("SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED", "trial use was consumed but the script route's pending record could not be cleared", err).
 					WithHint("run 'viceme skill use' again; the server replays this use without consuming another")
 			}
 			if use.Allowed {
