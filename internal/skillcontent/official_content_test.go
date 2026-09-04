@@ -167,10 +167,12 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			machine: []string{
 				"standaloneRecoveryAvailable=true", "viceme auth status", "viceme replica install",
 				"--accept-price-cents", "REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "PRODUCT_ALREADY_OWNED",
-				"skills/manifest.json", "zip_sha256", "scripts/make_copy.py", "Python 3.9",
+				"s3.viceme.cn/skills/let-me-make-a-copy/scripts/make_copy.py",
+				"s3.viceme.ai/skills/let-me-make-a-copy/scripts/make_copy.py", "command -v viceme",
+				"scripts/make_copy.py", "Python 3.9",
 			},
 			semantics: []string{
-				"同名目录自然接管", "后来安装 CLI 不得触发新订单", "订单一旦创建不得切换",
+				"不把 Skill 写入 Agent Skill 目录", "后来安装 CLI 不得触发新订单", "订单一旦创建不得切换",
 				"不得静默降级", "账号路径", "CLI 匿名路径", "无 CLI 或既有 standalone 路径",
 			},
 		},
