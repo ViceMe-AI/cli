@@ -28,11 +28,16 @@ type skillTrialTestServer struct {
 	server        *httptest.Server
 	archiveDigest string
 	archive       []byte
+	// grantRequests records the installId of every trial-grants request in
+	// order, and grantedInstallIDs remembers which ones already received a
+	// secret so replays stay idempotent (mirrors the real API contract).
+	grantRequests     []string
+	grantedInstallIDs map[string]bool
 }
 
 func newSkillTrialTestServer(t *testing.T) *skillTrialTestServer {
 	t.Helper()
-	state := &skillTrialTestServer{trialLimit: 2, paymentStatus: "PENDING"}
+	state := &skillTrialTestServer{trialLimit: 2, paymentStatus: "PENDING", grantedInstallIDs: map[string]bool{}}
 	state.archive = downloadableSkillArchive(t)
 	state.archiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.archive))
 	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
@@ -60,10 +65,23 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 			writer.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		writeJSONResponse(writer, map[string]any{
-			"installId": "11111111-1111-4111-8111-111111111111", "limitUses": s.trialLimit,
-			"remainingUses": s.trialLimit, "secret": skillTrialSecret,
-		})
+		var body struct {
+			InstallID string `json:"installId"`
+		}
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		s.mu.Lock()
+		s.grantRequests = append(s.grantRequests, body.InstallID)
+		issued := s.grantedInstallIDs[body.InstallID]
+		s.grantedInstallIDs[body.InstallID] = true
+		limit := s.trialLimit
+		s.mu.Unlock()
+		response := map[string]any{
+			"installId": body.InstallID, "limitUses": limit, "remainingUses": limit,
+		}
+		if !issued {
+			response["secret"] = skillTrialSecret
+		}
+		writeJSONResponse(writer, response)
 	case request.URL.Path == "/v1/skills/"+downloadableProductID+"/trial-use" && request.Method == http.MethodPost:
 		if request.Header.Get("Authorization") != "" {
 			writer.WriteHeader(http.StatusUnauthorized)
@@ -227,6 +245,87 @@ func TestPaidTrialSkillInstallsAnonymouslyWithGate(t *testing.T) {
 	state.mu.Unlock()
 	if uses != 0 {
 		t.Fatalf("trial install unexpectedly consumed a trial use: %d", uses)
+	}
+}
+
+// 免 CLI 安装脚本留下的明文凭证必须被 CLI 收编:同机两条安装路共用同一个
+// grant,不得再发第二份试用。
+func TestSkillInstallAdoptsScriptTrialCredential(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+
+	home := t.TempDir()
+	scriptInstallID := "22222222-2222-4222-8222-222222222222"
+	trialDir := filepath.Join(home, ".viceme", "trial")
+	if err := os.MkdirAll(trialDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	scriptCredential := fmt.Sprintf(`{"installId":%q,"secret":"script-secret","productId":%q,"market":"cn"}`, scriptInstallID, downloadableProductID)
+	if err := os.WriteFile(filepath.Join(trialDir, downloadableProductID+".json"), []byte(scriptCredential), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := securestore.NewMemory()
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, store,
+		"skill", "install", downloadableProductID, "--agent", "codex",
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("install over a script credential failed: exit=%d envelope=%#v", exit, envelope)
+	}
+	state.mu.Lock()
+	requests := append([]string(nil), state.grantRequests...)
+	state.mu.Unlock()
+	if len(requests) != 1 || requests[0] != scriptInstallID {
+		t.Fatalf("CLI must adopt the script credential's installId, got grant requests %v", requests)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	trial, _ := data["trial"].(map[string]any)
+	if trial == nil || trial["installId"] != scriptInstallID {
+		t.Fatalf("trial summary did not carry the adopted installId: %#v", trial)
+	}
+
+	// 收编后 use 也走同一凭证:预检正常扣次。
+	exit, envelope, _ = executeSkillTrialCommand(t, state.server, home, store,
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("use after adoption failed: exit=%d envelope=%#v", exit, envelope)
+	}
+
+	// 明文文件保留在原地:脚本路继续可用同一份计数。
+	if _, err := os.Stat(filepath.Join(trialDir, downloadableProductID+".json")); err != nil {
+		t.Fatalf("the script credential file must stay in place: %v", err)
+	}
+}
+
+// 脚本路装过的试用,`viceme skill use` 必须能直接收编明文凭证扣次,
+// 而不是报 SKILL_TRIAL_GRANT_MISSING。
+func TestSkillUseAdoptsScriptTrialCredentialWithoutInstall(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+
+	home := t.TempDir()
+	scriptInstallID := "33333333-3333-4333-8333-333333333333"
+	trialDir := filepath.Join(home, ".viceme", "trial")
+	if err := os.MkdirAll(trialDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	scriptCredential := fmt.Sprintf(`{"installId":%q,"secret":"script-secret","productId":%q,"market":"cn"}`, scriptInstallID, downloadableProductID)
+	if err := os.WriteFile(filepath.Join(trialDir, downloadableProductID+".json"), []byte(scriptCredential), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, securestore.NewMemory(),
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("use over a script-only credential failed: exit=%d envelope=%#v", exit, envelope)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	if data["allowed"] != true {
+		t.Fatalf("adopted use was not allowed: %#v", data)
 	}
 }
 

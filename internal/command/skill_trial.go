@@ -52,6 +52,44 @@ func saveSkillTrialCredential(runtime *Runtime, productID string, credential ski
 	return runtime.deps.Store.Set(skillTrialStoreKey(productID), string(encoded))
 }
 
+// scriptTrialCredentialPath is where the no-CLI install script
+// (skills/use-a-skill/scripts/trial.py) keeps its plaintext credential.
+// The credential is immutable per installId and the counter is
+// server-authoritative, so both routes can share one grant through this file.
+func scriptTrialCredentialPath(runtime *Runtime, productID string) string {
+	return filepath.Join(runtime.deps.Environment.Home, ".viceme", "trial", productID+".json")
+}
+
+// loadScriptTrialCredential adopts the install script's credential so the
+// same machine never holds two trial grants for one Product. Malformed files
+// are ignored (the script also tolerates them); a fresh grant is issued as
+// before.
+func loadScriptTrialCredential(runtime *Runtime, productID string) (skillTrialCredential, bool, error) {
+	raw, err := os.ReadFile(scriptTrialCredentialPath(runtime, productID))
+	if err != nil || len(raw) == 0 {
+		return skillTrialCredential{}, false, nil
+	}
+	var credential skillTrialCredential
+	if err := json.Unmarshal(raw, &credential); err != nil || credential.InstallID == "" || credential.Secret == "" {
+		return skillTrialCredential{}, false, nil
+	}
+	return credential, true, nil
+}
+
+// adoptScriptTrialCredential promotes the install script's plaintext
+// credential into the CLI secure store so the same machine keeps a single
+// grant across both installation routes.
+func adoptScriptTrialCredential(runtime *Runtime, productID string) (skillTrialCredential, bool, error) {
+	script, hasScript, err := loadScriptTrialCredential(runtime, productID)
+	if err != nil || !hasScript {
+		return skillTrialCredential{}, false, err
+	}
+	if err := saveSkillTrialCredential(runtime, productID, script); err != nil {
+		return skillTrialCredential{}, false, err
+	}
+	return script, true, nil
+}
+
 // ensureSkillTrialGrant returns a usable (grant, credential) pair for this
 // machine. Reuse the stored installId so reinstalling never resets the count;
 // when the local secret was lost but the server still knows the installId,
@@ -60,6 +98,18 @@ func ensureSkillTrialGrant(ctx context.Context, runtime *Runtime, productID stri
 	stored, hasStored, err := loadSkillTrialCredential(runtime, productID)
 	if err != nil {
 		return api.SkillTrialGrant{}, skillTrialCredential{}, err
+	}
+	if !hasStored {
+		// 收编免 CLI 安装脚本留下的明文凭证:两条安装路共用同一个 grant,
+		// 避免同机双份试用。凭证值不可变,收编后明文文件原地保留,脚本
+		// 路继续可用同一份计数。
+		script, adopted, adoptErr := adoptScriptTrialCredential(runtime, productID)
+		if adoptErr != nil {
+			return api.SkillTrialGrant{}, skillTrialCredential{}, adoptErr
+		}
+		if adopted {
+			stored, hasStored = script, true
+		}
 	}
 	installID := runtime.deps.NewID()
 	if hasStored {
@@ -311,6 +361,13 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			credential, hasCredential, err := loadSkillTrialCredential(runtime, productID)
 			if err != nil {
 				return err
+			}
+			if !hasCredential {
+				// 脚本路装过的试用同样可以被 CLI 的预检直接收编接管。
+				credential, hasCredential, err = adoptScriptTrialCredential(runtime, productID)
+				if err != nil {
+					return err
+				}
 			}
 			if !hasCredential {
 				return output.Policy("SKILL_TRIAL_GRANT_MISSING", "this machine has no active trial grant for the Skill edition").WithDetails(map[string]any{"productId": productID}).WithHint("run 'viceme skill install <product-id-or-work-url>' first; a paid edition with a trial offer installs the trial without login")
