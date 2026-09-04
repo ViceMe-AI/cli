@@ -48,8 +48,13 @@ JSON 或内部状态，且不得告诉用户正在使用哪个内置 Skill。
      不能把一次 `TaskOutput` 的读取超时当成登录流程完成，也不得要求用户回复“已登录”。
    - 只有登录命令成功返回后，才说“登录完成，我继续确认创作者资格。”并重跑一次
      `viceme merchant qualification`，确认 `next` 不再是 `LOGIN`。
+   - 直接申请使用的登录结果如果带有 `creatorOnboardingSelection`，在本轮保存这份网页选择；
+     不向用户展示原始字段，也不再让用户在对话里重复选择风格或重填已经提供的内容。
 3. `next=APPLY_CREATOR`（登录有效但没有有效 OWNER 商家）时，运行一次
-   `viceme merchant onboarding status`。已有申请就按状态处理，
+   `viceme merchant onboarding status`。直接申请且本轮还没有网页选择时，在读取 status 前按
+   第 2 步相同的等待和打开页面方式运行一次 `viceme auth login --purpose creator-onboarding`；
+   已登录的网页会直接进入“自定义作者页风格”，用户完成选择后命令返回
+   `creatorOnboardingSelection`。已有申请就按状态处理，
    不创建平行申请；没有申请才进入普通申请。直接申请模式遇到审核中的普通申请时，
    可以进入「申请后的个人名片」；玩法守卫仍然停止原玩法。
 4. `next=SELECT_MERCHANT`（返回多个有效商家）时，展示返回列表中的名称让用户选择，
@@ -93,13 +98,21 @@ sunny-studio。”然后运行 `viceme merchant onboarding apply --handle <主�
 ## 申请后的个人名片
 
 只在**直接申请模式**且普通申请状态为 `SUBMITTED`、`UNDER_REVIEW` 或
-`NEEDS_MORE_EVIDENCE` 时执行。询问一次：
+`NEEDS_MORE_EVIDENCE` 时执行。优先使用本轮登录结果中的 `creatorOnboardingSelection`：
+
+- `mode=SKIP`：不再询问，直接按下面的跳过路径结束。
+- `mode=BONJOUR`：不再询问模板，把 `works` 和 `contacts` 中用户已经填写的非空内容一并
+  原样交给 `$customize-your-page`；缺失内容仍按该 Skill 的入驻流程按需补充。
+- `mode=IMPORT_EXISTING`：不再询问模板，直接让 `$customize-your-page` 进入导入/自定义已有页面路径。
+
+只有旧版服务未返回 `creatorOnboardingSelection` 时，才兼容性地询问一次：
 
 “要现在设置个人名片吗？可以用 Bonjour 风格模板，也可以导入你已有的页面；也可以暂时跳过。”
 
-- 用户跳过：用 `present_files` 打开 `creatorIdentity.markdownUrl`，并提供同一 Markdown
+- 网页选择跳过或用户在兼容提问中跳过：用 `present_files` 打开 `creatorIdentity.markdownUrl`，并提供同一 Markdown
   备用链接后，按人工审核边界结束。
-- 用户同意：把本次 status 中的 `creatorIdentity.profileUrl`、`merchant.id` 和“创作者入驻模式”
+- 网页选择 Bonjour / 导入已有页面，或用户在兼容提问中同意：把本次 status 中的
+  `creatorIdentity.profileUrl`、`merchant.id`、“创作者入驻模式”以及已确认的网页选择
   原样交给 `$customize-your-page`。这个特例只授权作者页自定义，不表示商家已激活；不得改用
   `.md` 地址，不得创建在线 preview，也不得配置作品页或经营功能。
 - 个人名片发布后，用 `present_files` 打开 `creatorIdentity.profileUrl`，另起一行输出

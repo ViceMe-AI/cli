@@ -16,6 +16,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/pagepackage"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
 	"github.com/ViceMe-AI/cli/internal/replicapreview"
 	"github.com/ViceMe-AI/cli/internal/replicapublication"
@@ -34,6 +35,7 @@ type replicaPublishOptions struct {
 	PriceCents               int
 	ConfirmationVersion      string
 	ConfirmUnverifiedPreview bool
+	ReplicaOnly              bool
 	AutoApplyCreator         bool
 }
 
@@ -77,6 +79,7 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().IntVar(&options.PriceCents, "price-cents", -1, "one-time price in the market currency's minor unit")
 	command.Flags().StringVar(&options.ConfirmationVersion, "confirm", "", "exact final-review confirmation version")
 	command.Flags().BoolVar(&options.ConfirmUnverifiedPreview, "confirm-unverified-replica-only", false, "allow Replica-only publication when local preview cannot be verified")
+	command.Flags().BoolVar(&options.ReplicaOnly, "replica-only", false, "publish source only even when an existing static output can be hosted")
 	command.Flags().BoolVar(&options.AutoApplyCreator, "auto-apply-creator", false, "authorize one idempotent creator application if publication requires it")
 	_ = command.MarkFlagRequired("path")
 	_ = command.MarkFlagRequired("title")
@@ -185,6 +188,15 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		if err := artifact.Close(); err != nil {
 			return replicaPublicationPresentation{}, output.Internal("REPLICA_PUBLICATION_ARTIFACT_READ_FAILED", "could not close the verified frozen Website Replica source", err)
 		}
+		if pending.Request.Page != nil {
+			pageArtifact, err := store.OpenPageArtifact(pending)
+			if err != nil {
+				return replicaPublicationPresentation{}, err
+			}
+			if err := pageArtifact.Close(); err != nil {
+				return replicaPublicationPresentation{}, output.Internal("REPLICA_PUBLICATION_PAGE_ARTIFACT_READ_FAILED", "could not close the verified frozen Website Replica page", err)
+			}
+		}
 		confirmedAt := runtime.deps.Now().UTC()
 		pending.ConfirmedAt = &confirmedAt
 		if err := store.Save(&pending); err != nil {
@@ -231,6 +243,14 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		}
 		_, _ = fmt.Fprintln(runtime.deps.ErrOut, "Local preview could not be verified; continuing only as explicitly authorized Replica-only publication.")
 		preview = replicapublication.Preview{Verified: false}
+	}
+	var hostedPage pagepackage.Package
+	if preview.Verified && !options.ReplicaOnly {
+		progress(runtime, "Checking for an existing static output")
+		hostedPage, _, err = pagepackage.BuildWebsiteWorkPage(projectPath, options.Title)
+		if err != nil {
+			return replicaPublicationPresentation{}, err
+		}
 	}
 	clientRequestID := ""
 	creatorApplicationRequestID := ""
@@ -279,6 +299,16 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		},
 		Confirmation: nil,
 	}
+	if len(hostedPage.Bytes) > 0 {
+		request.Page = &api.WebsiteReplicaPublicationSourceArtifact{
+			FileName: hostedPage.Artifact.FileName, ContentType: hostedPage.Artifact.ContentType,
+			SizeBytes: hostedPage.Artifact.SizeBytes, Digest: hostedPage.Artifact.Digest,
+		}
+		if err := store.SavePageArtifact(clientRequestID, hostedPage.Bytes, *request.Page); err != nil {
+			cleanupErr := store.DeleteArtifact(replicapublication.Pending{ClientRequestID: clientRequestID})
+			return replicaPublicationPresentation{}, errors.Join(err, cleanupErr)
+		}
+	}
 	if options.CanonicalOrigin != "" {
 		origin := options.CanonicalOrigin
 		request.CanonicalOrigin = &origin
@@ -288,6 +318,12 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		ProjectFingerprint: projectFingerprint, ClientRequestID: clientRequestID,
 		Request: request, SourceArchive: frozen.Summary, ArtifactExpiresAt: expiresAt,
 		Preview: preview, AutoApplyCreator: options.AutoApplyCreator,
+		Hosting: func() string {
+			if request.Page != nil {
+				return "HOSTED"
+			}
+			return "REPLICA_ONLY"
+		}(),
 		CreatorApplicationRequestID: creatorApplicationRequestID, CreatedAt: createdAt,
 	}
 	if err := store.Save(&pending); err != nil {
@@ -329,7 +365,7 @@ func createAndDriveReplicaPublication(ctx context.Context, runtime *Runtime, sto
 	}
 	if response.Publication == nil || response.Target == nil || response.Publication.ClientRequestID != pending.ClientRequestID ||
 		response.Publication.Market != pending.Market || response.Publication.Source.Digest != pending.SourceArchive.Digest ||
-		response.Publication.Source.SizeBytes != pending.SourceArchive.SizeBytes ||
+		response.Publication.Source.SizeBytes != pending.SourceArchive.SizeBytes || !replicaPublicationPageMatchesRequest(*response.Publication, pending.Request) ||
 		!replicaResolvedTargetMatchesRequest(*response.Target, pending.Confirmation, pending.Request) {
 		return replicaPublicationPresentation{}, invalidReplicaResponse("Website Replica Publication does not match the frozen request")
 	}
@@ -452,7 +488,7 @@ func handleReplicaPublicationNextAction(ctx context.Context, runtime *Runtime, s
 		}
 		pending.Publication = publicationReference(publication)
 		return driveReplicaPublication(ctx, runtime, store, pending, publication, false)
-	case "AUTHORIZE_SOURCE_UPLOAD":
+	case "AUTHORIZE_SOURCE_UPLOAD", "AUTHORIZE_PAGE_UPLOAD":
 		if err := validateLocalReplicaPublicationConfirmation(pending); err != nil {
 			return replicaPublicationPresentation{}, err
 		}
@@ -461,7 +497,7 @@ func handleReplicaPublicationNextAction(ctx context.Context, runtime *Runtime, s
 			return replicaPublicationPresentation{}, err
 		}
 		if publication.ClientRequestID != pending.ClientRequestID || publication.Source.Digest != pending.SourceArchive.Digest ||
-			publication.Source.SizeBytes != pending.SourceArchive.SizeBytes {
+			publication.Source.SizeBytes != pending.SourceArchive.SizeBytes || !replicaPublicationPageMatchesRequest(publication, pending.Request) {
 			return replicaPublicationPresentation{}, invalidReplicaResponse("Website Replica upload action does not match the frozen local request")
 		}
 		pending.Publication = publicationReference(publication)
@@ -469,6 +505,14 @@ func handleReplicaPublicationNextAction(ctx context.Context, runtime *Runtime, s
 	default:
 		return replicaPublicationPresentation{}, invalidReplicaResponse("Website Replica Publication returned an unsupported next action")
 	}
+}
+
+func replicaPublicationPageMatchesRequest(publication api.WebsiteReplicaPublication, request api.CreateWebsiteReplicaPublicationRequest) bool {
+	if request.Page == nil || publication.Page == nil {
+		return request.Page == nil && publication.Page == nil
+	}
+	return publication.Page.FileName == request.Page.FileName && publication.Page.ContentType == request.Page.ContentType &&
+		publication.Page.SizeBytes == request.Page.SizeBytes && publication.Page.Digest == request.Page.Digest
 }
 
 func validateLocalReplicaPublicationConfirmation(pending replicapublication.Pending) error {
@@ -560,7 +604,7 @@ func finalReplicaPublicationReview(pending replicapublication.Pending, confirmat
 	return replicaPublicationFinalReview{
 		WebsiteReplicaPublicationReview: confirmation.Review,
 		SourceArchive:                   pending.SourceArchive, Exclusions: pending.SourceArchive.ExcludedPaths,
-		PageArtifact: nil, Hosting: "REPLICA_ONLY", AutomaticDegradation: false,
+		PageArtifact: pending.Request.Page, Hosting: pending.Hosting, AutomaticDegradation: pending.Request.Page != nil,
 		ImmutableVersions: true, ExistingBuyerVersionsRetained: true,
 		AutomaticCreatorApplication: pending.AutoApplyCreator, Preview: pending.Preview,
 		ConfirmationTTLSeconds: api.WebsiteReplicaPublicationConfirmationTTL,
@@ -571,7 +615,7 @@ func finalReplicaPublicationReview(pending replicapublication.Pending, confirmat
 func replicaConfirmationMatchesRequest(confirmation api.WebsiteReplicaPublicationConfirmationChallenge, request api.CreateWebsiteReplicaPublicationRequest) bool {
 	review := confirmation.Review
 	if review.ProjectFingerprint != request.ProjectFingerprint || review.Title != request.Title || review.Summary != request.Summary ||
-		review.PriceCents != request.PriceCents || !reflect.DeepEqual(review.Source, request.Source) {
+		review.PriceCents != request.PriceCents || !reflect.DeepEqual(review.Source, request.Source) || !reflect.DeepEqual(review.Page, request.Page) {
 		return false
 	}
 	if request.MerchantAccountID != "" && review.MerchantAccountID != request.MerchantAccountID {
@@ -626,6 +670,10 @@ func validateConfirmedReplicaRequest(options replicaPublishOptions, pending repl
 	if options.AutoApplyCreator != pending.AutoApplyCreator {
 		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "automatic creator-application authorization changed after the final review; no source was uploaded").
 			WithHint("rerun the changed publish command without --confirm to generate a fresh final review")
+	}
+	if options.ReplicaOnly && pending.Hosting != "REPLICA_ONLY" {
+		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "hosting selection changed after the final review; no artifact was uploaded").
+			WithHint("rerun the changed publish command without --confirm to freeze it and generate a new final review")
 	}
 	target, merchantID, err := replicaPublicationTarget(options, binding, bindingFound)
 	if err != nil {
@@ -721,6 +769,9 @@ func replicaPublishResumeCommand(pending replicapublication.Pending) string {
 	}
 	if !pending.Preview.Verified {
 		parts = append(parts, "--confirm-unverified-replica-only")
+	}
+	if pending.Hosting == "REPLICA_ONLY" {
+		parts = append(parts, "--replica-only")
 	}
 	if pending.AutoApplyCreator {
 		parts = append(parts, "--auto-apply-creator")

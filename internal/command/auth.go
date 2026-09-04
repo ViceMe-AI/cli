@@ -16,11 +16,12 @@ import (
 )
 
 type deviceLoginResult struct {
-	Authenticated      bool       `json:"authenticated"`
-	Profile            string     `json:"profile"`
-	DistributionRegion string     `json:"distributionRegion"`
-	UserID             string     `json:"userId,omitempty"`
-	ExpiresAt          *time.Time `json:"expiresAt,omitempty"`
+	Authenticated              bool                            `json:"authenticated"`
+	Profile                    string                          `json:"profile"`
+	DistributionRegion         string                          `json:"distributionRegion"`
+	UserID                     string                          `json:"userId,omitempty"`
+	ExpiresAt                  *time.Time                      `json:"expiresAt,omitempty"`
+	CreatorOnboardingSelection *api.CreatorOnboardingSelection `json:"creatorOnboardingSelection,omitempty"`
 }
 
 func newAuthCommand(runtime *Runtime) *cobra.Command {
@@ -164,7 +165,14 @@ func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client
 				_ = manager.Delete()
 				return err
 			}
-			result := deviceLoginResult{Authenticated: true, Profile: runtime.profile.Name, DistributionRegion: string(runtime.region), UserID: status.User.ID, ExpiresAt: &expiresAt}
+			result := deviceLoginResult{
+				Authenticated:              true,
+				Profile:                    runtime.profile.Name,
+				DistributionRegion:         string(runtime.region),
+				UserID:                     status.User.ID,
+				ExpiresAt:                  &expiresAt,
+				CreatorOnboardingSelection: token.CreatorOnboardingSelection,
+			}
 			return runtime.business(result)
 		}
 		return err

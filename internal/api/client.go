@@ -952,6 +952,20 @@ func (c *Client) CompleteWebsiteReplicaPublicationSourceUpload(ctx context.Conte
 	return c.commandWebsiteReplicaPublication(ctx, publicationID, "source/complete-upload")
 }
 
+func (c *Client) AuthorizeWebsiteReplicaPublicationPageUpload(ctx context.Context, publicationID string) (AuthorizeWebsiteReplicaPublicationPageUploadResponse, error) {
+	var response AuthorizeWebsiteReplicaPublicationPageUploadResponse
+	endpoint := websiteReplicaPublicationPath(publicationID) + "/page/upload-authorizations"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, struct{}{}, &response, "@stored")
+	if err == nil && response.PublicationID != publicationID {
+		err = invalidAPIResponse(errors.New("Website Replica page upload authorization does not match the requested Publication"))
+	}
+	return response, err
+}
+
+func (c *Client) CompleteWebsiteReplicaPublicationPageUpload(ctx context.Context, publicationID string) (WebsiteReplicaPublication, error) {
+	return c.commandWebsiteReplicaPublication(ctx, publicationID, "page/complete-upload")
+}
+
 func (c *Client) SubmitWebsiteReplicaPublication(ctx context.Context, publicationID string) (WebsiteReplicaPublication, error) {
 	return c.commandWebsiteReplicaPublication(ctx, publicationID, "submit")
 }

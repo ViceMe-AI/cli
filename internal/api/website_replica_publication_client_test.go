@@ -89,6 +89,7 @@ func TestWebsiteReplicaPublicationAcceptsEveryCanonicalNextAction(t *testing.T) 
 		{"kind": "UPGRADE_CLI", "minimumProtocolVersion": WebsiteReplicaPublicationProtocolVersion, "upgradeUrl": "https://viceme.cn/cli"},
 		{"kind": "CHECK_STATUS", "publicationId": testReplicaPublicationID, "statusUrl": "https://viceme.cn/me/website-replica-publications/" + testReplicaPublicationID},
 		{"kind": "AUTHORIZE_SOURCE_UPLOAD", "publicationId": testReplicaPublicationID},
+		{"kind": "AUTHORIZE_PAGE_UPLOAD", "publicationId": testReplicaPublicationID},
 		canonicalReplicaPublicationConfirmationResponse()["nextAction"].(map[string]any),
 	}
 	for _, action := range actions {
@@ -157,6 +158,34 @@ func TestWebsiteReplicaPublicationAcceptsEveryCanonicalLifecycleState(t *testing
 	}
 }
 
+func TestWebsiteReplicaPublicationAcceptsFailedOptionalPageForSubmitAndProcessing(t *testing.T) {
+	for _, status := range []string{"DRAFT", "PROCESSING"} {
+		status := status
+		t.Run(status, func(t *testing.T) {
+			response := canonicalReplicaPublicationResponse(status, "VERIFIED")
+			response["page"] = map[string]any{
+				"fileName": "page.zip", "contentType": "application/zip", "sizeBytes": 512,
+				"digest": strings.Repeat("d", 64), "status": "FAILED", "verifiedAt": nil,
+			}
+			response["failure"] = map[string]any{"code": "HOSTING_FAILED", "message": "Hosting failed", "retryable": false}
+			if status == "DRAFT" {
+				response["allowedActions"] = []string{"SUBMIT", "CANCEL"}
+			} else {
+				response["allowedActions"] = []string{"CANCEL"}
+				response["submittedAt"] = response["createdAt"]
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writeReplicaPublicationJSON(writer, response)
+			}))
+			defer server.Close()
+			client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
+			if _, err := client.GetWebsiteReplicaPublication(context.Background(), testReplicaPublicationID); err != nil {
+				t.Fatalf("failed optional page should not block source publication: %v", err)
+			}
+		})
+	}
+}
+
 func TestWebsiteReplicaPublicationReadyRejectsTerminalProductMismatch(t *testing.T) {
 	publication := canonicalReplicaPublicationLifecycleResponse("PUBLISHED")
 	response := map[string]any{
@@ -203,7 +232,7 @@ func canonicalReplicaPublicationConfirmationResponse() map[string]any {
 					"creatorHandle": "replica-maker", "creatorDisplayName": "Replica Maker",
 					"projectFingerprint": request.ProjectFingerprint, "workUrl": "https://viceme.cn/replica-maker/replica-site",
 					"canonicalOrigin": nil, "title": request.Title, "summary": request.Summary,
-					"priceCents": request.PriceCents, "source": request.Source,
+					"priceCents": request.PriceCents, "source": request.Source, "page": nil,
 				},
 				"issuedAt": issuedAt.Format(time.RFC3339), "expiresAt": issuedAt.Add(30 * time.Minute).Format(time.RFC3339),
 			},
@@ -231,6 +260,7 @@ func canonicalReplicaPublicationResponse(status, sourceStatus string) map[string
 			"fileName": "source.zip", "contentType": "application/zip", "sizeBytes": 1024,
 			"digest": strings.Repeat("b", 64), "status": sourceStatus, "verifiedAt": verifiedAt,
 		},
+		"page":    nil,
 		"failure": nil, "result": nil, "submittedAt": nil, "failedAt": nil, "cancelledAt": nil,
 		"createdAt": now, "updatedAt": now,
 	}
@@ -260,9 +290,14 @@ func canonicalReplicaPublicationLifecycleResponse(status string) map[string]any 
 			"product": map[string]any{
 				"id": testReplicaProductID, "skuId": testSKUID, "title": "Replica", "currency": "CNY", "priceCents": 990,
 			},
+			"pageRelease": nil,
 			"publishedAt": now,
 		}
 		if status == "PUBLISHED_DEGRADED" {
+			response["page"] = map[string]any{
+				"fileName": "page.zip", "contentType": "application/zip", "sizeBytes": 512,
+				"digest": strings.Repeat("d", 64), "status": "FAILED", "verifiedAt": nil,
+			}
 			response["failure"] = map[string]any{"code": "HOSTING_FAILED", "message": "Hosting failed", "retryable": false}
 		}
 	case "FAILED":

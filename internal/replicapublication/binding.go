@@ -31,6 +31,7 @@ type Binding struct {
 	Replica            *BindingReplica                     `json:"replica"`
 	Product            *BindingProduct                     `json:"product"`
 	Version            *BindingVersion                     `json:"version"`
+	PageRelease        *BindingPageRelease                 `json:"pageRelease"`
 	UpdatedAt          time.Time                           `json:"updatedAt"`
 }
 
@@ -67,6 +68,11 @@ type BindingVersion struct {
 	ID          string    `json:"id"`
 	Number      int       `json:"number"`
 	PublishedAt time.Time `json:"publishedAt"`
+}
+
+type BindingPageRelease struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
 }
 
 type BindingStore struct {
@@ -150,6 +156,11 @@ func (store BindingStore) Save(projectPath string, pending Pending, publication 
 			Currency: publication.Result.Product.Currency, PriceCents: publication.Result.Product.PriceCents,
 		}
 		binding.Version = &BindingVersion{ID: publication.Result.VersionID, Number: publication.Result.Version, PublishedAt: publishedAt}
+		if publication.Result.PageRelease != nil {
+			binding.PageRelease = &BindingPageRelease{ID: publication.Result.PageRelease.ID, Version: publication.Result.PageRelease.Version}
+		} else {
+			binding.PageRelease = nil
+		}
 	}
 	if store.Now == nil {
 		store.Now = time.Now
@@ -195,6 +206,9 @@ func (store BindingStore) validate(binding Binding) error {
 			!uuidPattern.MatchString(binding.Version.ID) || binding.Version.Number < 1 || binding.Version.PublishedAt.IsZero() {
 			return output.Validation("REPLICA_BINDING_INVALID", "local Website Replica stable binding is invalid")
 		}
+	}
+	if binding.PageRelease != nil && (!uuidPattern.MatchString(binding.PageRelease.ID) || binding.PageRelease.Version < 1 || binding.Work == nil) {
+		return output.Validation("REPLICA_BINDING_INVALID", "local Website Replica page release binding is invalid")
 	}
 	return nil
 }

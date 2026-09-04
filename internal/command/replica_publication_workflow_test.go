@@ -153,6 +153,34 @@ func TestReplicaStatusPresentsOnlyPublishedTerminalStatesAsComplete(t *testing.T
 	}
 }
 
+func TestReplicaStatusIncludesActivatedPageReleaseForHostedPublication(t *testing.T) {
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	response := replicaPublicationAPIResponse(now, "PUBLISHED", "ACTIVATED")
+	response["page"] = map[string]any{
+		"fileName": "page.zip", "contentType": "application/zip", "sizeBytes": 512,
+		"digest": strings.Repeat("d", 64), "status": "ACTIVATED", "verifiedAt": now.Add(-time.Minute).Format(time.RFC3339),
+	}
+	response["result"].(map[string]any)["pageRelease"] = map[string]any{
+		"id": "abababab-abab-4bab-8bab-abababababab", "version": 2,
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writeJSONResponse(writer, response)
+	}))
+	defer server.Close()
+	t.Setenv(processAccessTokenEnvironment, replicaPublicationTestAccessToken)
+	root := t.TempDir()
+	dependencies := replicaPublicationTestDependencies(t, root, server, now)
+	var stdout bytes.Buffer
+	dependencies.Out = &stdout
+	if exit := Execute([]string{"replica", "status", replicaPublicationTestID}, dependencies); exit != 0 {
+		t.Fatalf("hosted terminal status failed: exit=%d output=%s", exit, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"pageRelease": {`) || !strings.Contains(stdout.String(), `"version": 2`) ||
+		!strings.Contains(stdout.String(), `"page": {`) || !strings.Contains(stdout.String(), `"status": "ACTIVATED"`) {
+		t.Fatalf("hosted terminal status omitted the Page Release: %s", stdout.String())
+	}
+}
+
 func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *testing.T) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	project := filepath.Join(t.TempDir(), "site")
@@ -169,23 +197,35 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 	if err := os.WriteFile(filepath.Join(project, "index.html"), []byte("<h1>Replica source</h1>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(project, "dist"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "dist", "index.html"), []byte("<h1>Hosted page</h1>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	var previewOpened atomic.Bool
 	previewSession := &replicaPreviewSessionStub{result: replicapreview.Result{
 		TargetURL: "http://127.0.0.1:4173/", Reused: true, ServiceKind: replicapreview.ServiceExisting,
 	}}
 	var uploaded []byte
+	var uploadedPage []byte
 	objectServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if request.Method != http.MethodPut || request.URL.Path != "/source.zip" {
+		if request.Method != http.MethodPut || (request.URL.Path != "/source.zip" && request.URL.Path != "/page.zip") {
 			t.Fatalf("unexpected object request: %s %s", request.Method, request.URL.Path)
 		}
 		if request.Header.Get("Authorization") != "" {
 			t.Fatalf("presigned upload received API authorization: %q", request.Header.Get("Authorization"))
 		}
 		var err error
-		uploaded, err = io.ReadAll(request.Body)
+		data, err := io.ReadAll(request.Body)
 		if err != nil {
 			t.Fatal(err)
+		}
+		if request.URL.Path == "/page.zip" {
+			uploadedPage = data
+		} else {
+			uploaded = data
 		}
 		writer.WriteHeader(http.StatusNoContent)
 	}))
@@ -221,6 +261,10 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 			if source["contentType"] != "application/zip" || source["digest"] == "" || source["sizeBytes"] == float64(0) {
 				t.Fatalf("missing frozen source summary: %#v", source)
 			}
+			page, _ := input["page"].(map[string]any)
+			if page["fileName"] != "page.zip" || page["contentType"] != "application/zip" || page["digest"] == "" || page["sizeBytes"] == float64(0) {
+				t.Fatalf("missing frozen page summary: %#v", page)
+			}
 			if createCalls == 1 {
 				if input["confirmation"] != nil {
 					t.Fatalf("first request crossed confirmation boundary: %#v", input["confirmation"])
@@ -229,7 +273,8 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 				writeJSONResponse(writer, replicaConfirmationRequiredResponse(now, input, confirmationVersion))
 				return
 			}
-			if input["projectFingerprint"] != firstRequest["projectFingerprint"] || !mapsHaveEqualJSON(input["source"], firstRequest["source"]) {
+			if input["projectFingerprint"] != firstRequest["projectFingerprint"] || !mapsHaveEqualJSON(input["source"], firstRequest["source"]) ||
+				!mapsHaveEqualJSON(input["page"], firstRequest["page"]) {
 				t.Fatalf("confirmation did not use the frozen request: first=%#v confirmed=%#v", firstRequest, input)
 			}
 			confirmation, _ := input["confirmation"].(map[string]any)
@@ -241,7 +286,20 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 				"nextAction": map[string]any{"kind": "AUTHORIZE_SOURCE_UPLOAD", "publicationId": replicaPublicationTestID},
 			})
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID:
-			writeJSONResponse(writer, replicaPublicationForSource(now, "DRAFT", "WAITING_UPLOAD", firstRequest["source"].(map[string]any)))
+			writeJSONResponse(writer, replicaPublicationForArtifacts(now, "DRAFT", "WAITING_UPLOAD", firstRequest["source"].(map[string]any), "WAITING_UPLOAD", firstRequest["page"].(map[string]any)))
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID+"/page/upload-authorizations":
+			assertEmptyJSONObject(t, request)
+			writeJSONResponse(writer, map[string]any{
+				"publicationId": replicaPublicationTestID,
+				"upload": map[string]any{
+					"method": "PUT", "url": objectServer.URL + "/page.zip",
+					"headers":   map[string]string{"Content-Type": "application/zip"},
+					"expiresAt": now.Add(5 * time.Minute).Format(time.RFC3339),
+				},
+			})
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID+"/page/complete-upload":
+			assertEmptyJSONObject(t, request)
+			writeJSONResponse(writer, replicaPublicationForArtifacts(now, "DRAFT", "WAITING_UPLOAD", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID+"/source/upload-authorizations":
 			assertEmptyJSONObject(t, request)
 			writeJSONResponse(writer, map[string]any{
@@ -254,10 +312,10 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 			})
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID+"/source/complete-upload":
 			assertEmptyJSONObject(t, request)
-			writeJSONResponse(writer, replicaPublicationForSource(now, "DRAFT", "VERIFIED", firstRequest["source"].(map[string]any)))
+			writeJSONResponse(writer, replicaPublicationForArtifacts(now, "DRAFT", "VERIFIED", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID+"/submit":
 			assertEmptyJSONObject(t, request)
-			writeJSONResponse(writer, replicaPublicationForSource(now, "PROCESSING", "VERIFIED", firstRequest["source"].(map[string]any)))
+			writeJSONResponse(writer, replicaPublicationForArtifacts(now, "PROCESSING", "VERIFIED", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
 		default:
 			t.Fatalf("unexpected control request: %s %s", request.Method, request.URL.Path)
 		}
@@ -308,21 +366,22 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 	reviewError, _ := reviewEnvelope["error"].(map[string]any)
 	details, _ := reviewError["details"].(map[string]any)
 	review, _ := details["review"].(map[string]any)
-	pageArtifact, hasPageArtifact := review["pageArtifact"]
+	pageArtifact, hasPageArtifact := review["pageArtifact"].(map[string]any)
 	if reviewError["code"] != "REPLICA_PUBLICATION_CONFIRMATION_REQUIRED" || details["confirmationVersion"] != confirmationVersion ||
 		review["resolution"] != "CREATE" || review["merchantAccountId"] != replicaPublicationTestMerchantID ||
 		review["merchantDisplayName"] != "Replica Studio" || review["creatorAccountId"] != replicaPublicationTestCreatorID ||
 		review["creatorHandle"] != "replica-maker" || review["creatorDisplayName"] != "Replica Maker" ||
-		review["workUrl"] != "https://viceme.cn/replica-maker/replica-site" || review["hosting"] != "REPLICA_ONLY" ||
+		review["workUrl"] != "https://viceme.cn/replica-maker/replica-site" || review["hosting"] != "HOSTED" ||
 		review["title"] != "Replica title" || review["summary"] != "Replica summary" || review["priceCents"] != float64(990) ||
-		!hasPageArtifact || pageArtifact != nil || review["automaticDegradation"] != false || review["immutableVersions"] != true ||
+		!hasPageArtifact || pageArtifact["fileName"] != "page.zip" || pageArtifact["sizeBytes"] == float64(0) || pageArtifact["digest"] == "" ||
+		review["automaticDegradation"] != true || review["immutableVersions"] != true ||
 		review["existingBuyerVersionsRetained"] != true || review["automaticCreatorApplication"] != false ||
 		review["confirmationTtlSeconds"] != float64(1800) || review["confirmationExpiresAt"] != now.Add(30*time.Minute).Format(time.RFC3339) ||
 		review["sourceArchive"] == nil || review["exclusions"] == nil || review["preview"] == nil {
 		t.Fatalf("final review omitted required publication facts: %#v", reviewEnvelope)
 	}
-	if len(uploaded) != 0 || createCalls != 1 {
-		t.Fatalf("unconfirmed publication uploaded source: create=%d uploaded=%d", createCalls, len(uploaded))
+	if len(uploaded) != 0 || len(uploadedPage) != 0 || createCalls != 1 {
+		t.Fatalf("unconfirmed publication uploaded artifacts: create=%d source=%d page=%d", createCalls, len(uploaded), len(uploadedPage))
 	}
 	if err := os.WriteFile(filepath.Join(project, "index.html"), []byte("<h1>Changed after final review</h1>"), 0o600); err != nil {
 		t.Fatal(err)
@@ -334,11 +393,14 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 	if exit := Execute(confirmedArguments, dependencies); exit != 0 {
 		t.Fatalf("confirmed publication failed: exit=%d output=%q", exit, submittedOutput.String())
 	}
-	if len(uploaded) == 0 || createCalls != 2 {
-		t.Fatalf("confirmed publication did not upload exactly once: create=%d uploaded=%d", createCalls, len(uploaded))
+	if len(uploaded) == 0 || len(uploadedPage) == 0 || createCalls != 2 {
+		t.Fatalf("confirmed publication did not upload both artifacts exactly once: create=%d source=%d page=%d", createCalls, len(uploaded), len(uploadedPage))
 	}
 	if contents := readReplicaZIP(t, uploaded); string(contents["index.html"]) != "<h1>Replica source</h1>" {
 		t.Fatalf("working-tree changes replaced the confirmed frozen source: %q", contents["index.html"])
+	}
+	if contents := readReplicaZIP(t, uploadedPage); string(contents["dist/index.html"]) != "<h1>Hosted page</h1>" || len(contents["viceme-page.json"]) == 0 {
+		t.Fatalf("hosted page package did not preserve the frozen static output: %#v", contents)
 	}
 	if !previewSession.closed.Load() {
 		t.Fatal("publication preview session was not cleaned")
@@ -1652,9 +1714,8 @@ func TestReplicaStatusCompletesStableBindingAndUpdateDefaultsCurrentPrice(t *tes
 	if err := json.Unmarshal(bindingData, &binding); err != nil {
 		t.Fatal(err)
 	}
-	_, hasPageRelease := binding["pageRelease"]
 	if binding["work"] == nil || binding["replica"] == nil || binding["product"] == nil || binding["version"] == nil ||
-		hasPageRelease || binding["product"].(map[string]any)["priceCents"] != float64(990) {
+		binding["pageRelease"] != nil || binding["product"].(map[string]any)["priceCents"] != float64(990) {
 		t.Fatalf("terminal binding omitted stable associations: %#v", binding)
 	}
 	states, err := filepath.Glob(filepath.Join(root, "config", "replica-publications", "*", "pending-*.json"))
@@ -2117,6 +2178,7 @@ func replicaPublicationAPIResponse(now time.Time, status, sourceStatus string) m
 		failure = map[string]any{"code": "PAGE_VALIDATION_FAILED", "message": "hosted page could not be activated", "retryable": false}
 	}
 	result := any(nil)
+	page := any(nil)
 	if status == "PUBLISHED" || status == "PUBLISHED_DEGRADED" {
 		result = map[string]any{
 			"workUrl":   "https://viceme.cn/replica-maker/replica-site",
@@ -2126,7 +2188,14 @@ func replicaPublicationAPIResponse(now time.Time, status, sourceStatus string) m
 				"id": replicaPublicationTestProductID, "skuId": replicaPublicationTestSKUID,
 				"title": "Replica title", "currency": "CNY", "priceCents": 990,
 			},
+			"pageRelease": nil,
 			"publishedAt": now.Format(time.RFC3339),
+		}
+	}
+	if status == "PUBLISHED_DEGRADED" {
+		page = map[string]any{
+			"fileName": "page.zip", "contentType": "application/zip", "sizeBytes": 512,
+			"digest": strings.Repeat("d", 64), "status": "FAILED", "verifiedAt": nil,
 		}
 	}
 	return map[string]any{
@@ -2140,6 +2209,7 @@ func replicaPublicationAPIResponse(now time.Time, status, sourceStatus string) m
 			"fileName": "source.zip", "contentType": "application/zip", "sizeBytes": 1024,
 			"digest": replicaPublicationTestSourceDigest, "status": sourceStatus, "verifiedAt": verifiedAt,
 		},
+		"page":    page,
 		"failure": failure, "result": result, "submittedAt": submittedAt, "failedAt": failedAt, "cancelledAt": cancelledAt,
 		"createdAt": now.Add(-5 * time.Minute).Format(time.RFC3339), "updatedAt": now.Format(time.RFC3339),
 	}
@@ -2162,7 +2232,7 @@ func replicaConfirmationRequiredResponse(now time.Time, input map[string]any, ve
 					"creatorHandle": "replica-maker", "creatorDisplayName": "Replica Maker",
 					"projectFingerprint": input["projectFingerprint"], "workUrl": "https://viceme.cn/replica-maker/replica-site",
 					"canonicalOrigin": canonicalOrigin, "title": input["title"], "summary": input["summary"],
-					"priceCents": input["priceCents"], "source": input["source"],
+					"priceCents": input["priceCents"], "source": input["source"], "page": input["page"],
 				},
 				"issuedAt": now.Format(time.RFC3339), "expiresAt": now.Add(30 * time.Minute).Format(time.RFC3339),
 			},
@@ -2175,6 +2245,39 @@ func replicaPublicationForSource(now time.Time, status, sourceStatus string, sou
 	responseSource := response["source"].(map[string]any)
 	for _, key := range []string{"fileName", "contentType", "sizeBytes", "digest"} {
 		responseSource[key] = source[key]
+	}
+	return response
+}
+
+func replicaPublicationForArtifacts(now time.Time, status, sourceStatus string, source map[string]any, pageStatus string, page map[string]any) map[string]any {
+	response := replicaPublicationForSource(now, status, sourceStatus, source)
+	verifiedAt := any(nil)
+	if pageStatus == "VERIFIED" || pageStatus == "ACTIVATED" {
+		verifiedAt = now.Add(-time.Minute).Format(time.RFC3339)
+	}
+	responsePage := map[string]any{"status": pageStatus, "verifiedAt": verifiedAt}
+	for _, key := range []string{"fileName", "contentType", "sizeBytes", "digest"} {
+		responsePage[key] = page[key]
+	}
+	response["page"] = responsePage
+	if status == "DRAFT" {
+		actions := []string{"CANCEL"}
+		switch sourceStatus {
+		case "WAITING_UPLOAD":
+			actions = append(actions, "AUTHORIZE_SOURCE_UPLOAD", "COMPLETE_SOURCE_UPLOAD")
+		case "UPLOADED", "VALIDATING":
+			actions = append(actions, "COMPLETE_SOURCE_UPLOAD")
+		}
+		switch pageStatus {
+		case "WAITING_UPLOAD":
+			actions = append(actions, "AUTHORIZE_PAGE_UPLOAD", "COMPLETE_PAGE_UPLOAD")
+		case "UPLOADED", "VALIDATING":
+			actions = append(actions, "COMPLETE_PAGE_UPLOAD")
+		}
+		if sourceStatus == "VERIFIED" && pageStatus == "VERIFIED" {
+			actions = append(actions, "SUBMIT")
+		}
+		response["allowedActions"] = actions
 	}
 	return response
 }

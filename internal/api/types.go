@@ -26,12 +26,32 @@ type DeviceTokenRequest struct {
 }
 
 type DeviceToken struct {
-	Status      string   `json:"status"`
-	Interval    int      `json:"interval,omitempty"`
-	AccessToken string   `json:"accessToken,omitempty"`
-	TokenType   string   `json:"tokenType,omitempty"`
-	ExpiresAt   string   `json:"expiresAt,omitempty"`
-	Scopes      []string `json:"scopes,omitempty"`
+	Status                     string                      `json:"status"`
+	Interval                   int                         `json:"interval,omitempty"`
+	AccessToken                string                      `json:"accessToken,omitempty"`
+	TokenType                  string                      `json:"tokenType,omitempty"`
+	ExpiresAt                  string                      `json:"expiresAt,omitempty"`
+	Scopes                     []string                    `json:"scopes,omitempty"`
+	CreatorOnboardingSelection *CreatorOnboardingSelection `json:"creatorOnboardingSelection,omitempty"`
+}
+
+type CreatorOnboardingSelection struct {
+	Mode     string                     `json:"mode"`
+	Works    []CreatorOnboardingWork    `json:"works,omitempty"`
+	Contacts []CreatorOnboardingContact `json:"contacts,omitempty"`
+}
+
+type CreatorOnboardingWork struct {
+	Title         string `json:"title,omitempty"`
+	Summary       string `json:"summary,omitempty"`
+	URL           string `json:"url,omitempty"`
+	CoverImageURL string `json:"coverImageUrl,omitempty"`
+}
+
+type CreatorOnboardingContact struct {
+	Platform string `json:"platform"`
+	Label    string `json:"label,omitempty"`
+	Value    string `json:"value,omitempty"`
 }
 
 type AuthStatus struct {
@@ -851,6 +871,7 @@ type WebsiteReplicaPublication struct {
 	AllowedActions    []string                          `json:"allowedActions"`
 	Retry             WebsiteReplicaPublicationRetry    `json:"retry"`
 	Source            WebsiteReplicaPublicationSource   `json:"source"`
+	Page              *WebsiteReplicaPublicationSource  `json:"page"`
 	Failure           *WebsiteReplicaPublicationFailure `json:"failure"`
 	Result            *WebsiteReplicaPublicationResult  `json:"result"`
 	SubmittedAt       *string                           `json:"submittedAt"`
@@ -882,13 +903,19 @@ type WebsiteReplicaPublicationFailure struct {
 }
 
 type WebsiteReplicaPublicationResult struct {
-	WorkURL     string                `json:"workUrl"`
-	VersionID   string                `json:"versionId"`
-	Version     int                   `json:"version"`
-	ShortCode   string                `json:"shortCode"`
-	Instruction string                `json:"instruction"`
-	Product     WebsiteReplicaProduct `json:"product"`
-	PublishedAt string                `json:"publishedAt"`
+	WorkURL     string                                `json:"workUrl"`
+	VersionID   string                                `json:"versionId"`
+	Version     int                                   `json:"version"`
+	ShortCode   string                                `json:"shortCode"`
+	Instruction string                                `json:"instruction"`
+	Product     WebsiteReplicaProduct                 `json:"product"`
+	PageRelease *WebsiteReplicaPublicationPageRelease `json:"pageRelease"`
+	PublishedAt string                                `json:"publishedAt"`
+}
+
+type WebsiteReplicaPublicationPageRelease struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
 }
 
 type WebsiteReplicaProduct struct {
