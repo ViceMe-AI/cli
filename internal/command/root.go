@@ -24,6 +24,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/replicapreview"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/semver"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
@@ -45,6 +46,7 @@ type Dependencies struct {
 	Sleep                 func(context.Context, time.Duration) error
 	NewID                 func() string
 	OpenURL               func(context.Context, string) error
+	StartReplicaPreview   func(context.Context, replicapreview.Options) (replicapreview.Running, error)
 	APIBaseURL            string
 	Region                config.Region
 	Reexecute             func(context.Context, []string, []string) (int, error)
@@ -221,10 +223,6 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		apiBaseURLOverride = os.Getenv(apiBaseURLEnvironment)
 		apiBaseURLFromEnv = apiBaseURLOverride != ""
 	}
-	processCredential, err := parsePublicationCredential(os.Getenv(processAccessTokenEnvironment))
-	if err != nil {
-		return nil, nil, output.Authentication("process_credential_invalid", err.Error())
-	}
 	runtime := &Runtime{
 		deps:               dependencies,
 		region:             region,
@@ -233,7 +231,6 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 		config:             resolvedConfig,
 		profile:            *resolvedProfile,
 		configBase:         configBase,
-		processCredential:  processCredential,
 		printer: &output.Printer{
 			Out:                 dependencies.Out,
 			ErrOut:              dependencies.ErrOut,
@@ -272,6 +269,14 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.PersistentFlags().StringVar(&runtime.opts.profile, "profile", "", "use a specific profile for this command")
 	root.PersistentPreRunE = func(command *cobra.Command, _ []string) error {
 		runtime.executedCommand = command
+		runtime.processCredential = nil
+		if command.CommandPath() != "viceme replica preview" {
+			processCredential, err := parsePublicationCredential(os.Getenv(processAccessTokenEnvironment))
+			if err != nil {
+				return output.Authentication("process_credential_invalid", err.Error())
+			}
+			runtime.processCredential = processCredential
+		}
 		if err := runtime.validateProfileOverrideAuthority(runtime.opts.profile); err != nil {
 			return err
 		}
@@ -583,6 +588,9 @@ func defaults(dependencies Dependencies) Dependencies {
 	}
 	if dependencies.OpenURL == nil {
 		dependencies.OpenURL = openBrowserURL
+	}
+	if dependencies.StartReplicaPreview == nil {
+		dependencies.StartReplicaPreview = replicapreview.Start
 	}
 	if dependencies.Reexecute == nil {
 		dependencies.Reexecute = func(ctx context.Context, args, environment []string) (int, error) {
@@ -1006,7 +1014,21 @@ func openBrowserURL(ctx context.Context, target string) error {
 	default:
 		name, arguments = "xdg-open", []string{target}
 	}
-	return exec.CommandContext(ctx, name, arguments...).Run()
+	command := exec.CommandContext(ctx, name, arguments...)
+	command.Env = environmentWithoutProcessAccessToken(os.Environ())
+	return command.Run()
+}
+
+func environmentWithoutProcessAccessToken(environment []string) []string {
+	result := make([]string, 0, len(environment))
+	for _, entry := range environment {
+		name, _, _ := strings.Cut(entry, "=")
+		if strings.EqualFold(name, processAccessTokenEnvironment) {
+			continue
+		}
+		result = append(result, entry)
+	}
+	return result
 }
 
 func randomUUID() string {
