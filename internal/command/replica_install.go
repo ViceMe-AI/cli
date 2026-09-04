@@ -114,7 +114,11 @@ func installReplicaLocked(
 		return replicaInstallResult{}, err
 	}
 	if completed {
-		if err := validateReplicaCompletion(ctx, runtime, completion); err != nil {
+		claims, err := validateReplicaCompletion(ctx, runtime, completion)
+		if err != nil {
+			return replicaInstallResult{}, err
+		}
+		if err := completeReplicaInstallation(ctx, runtime.client(), completion.Result, claims); err != nil {
 			return replicaInstallResult{}, err
 		}
 		state, active, err := store.load()
@@ -385,33 +389,55 @@ func installReplicaDownload(
 	if err := store.saveCompletion(result); err != nil {
 		return replicaInstallResult{}, err
 	}
+	if err := completeReplicaInstallation(ctx, client, result, claims); err != nil {
+		return replicaInstallResult{}, err
+	}
 	if err := store.retire(state); err != nil {
 		return replicaInstallResult{}, err
 	}
 	return result, nil
 }
 
-func validateReplicaCompletion(ctx context.Context, runtime *Runtime, completion replicaCompletionState) error {
+func validateReplicaCompletion(ctx context.Context, runtime *Runtime, completion replicaCompletionState) (api.WebsiteReplicaLicenseClaims, error) {
 	result := completion.Result
 	tree, err := replicacontent.InspectInstalledTree(result.Target)
 	if err != nil || tree.FileCount != result.FileCount || tree.ExpandedBytes != result.ExpandedBytes || tree.Digest != completion.TreeDigest {
-		return output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt").WithCause(err)
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt").WithCause(err)
 	}
 	record, err := replicacontent.ReadInstalledLicenseRecord(result.Target)
 	if err != nil {
-		return output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt").WithCause(err)
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt").WithCause(err)
 	}
 	if record.ReplicaID != result.ReplicaID || record.VersionID != result.VersionID || record.Version != result.Version ||
 		record.ArtifactDigest != result.ArtifactDigest {
-		return output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt")
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_COMPLETION_TARGET_INVALID", "Website Replica completion target no longer matches its receipt")
 	}
-	return verifyReplicaLicense(ctx, runtime, api.WebsiteReplicaDownload{
+	return verifiedReplicaLicenseClaims(ctx, runtime, api.WebsiteReplicaDownload{
 		ReplicaID:      result.ReplicaID,
 		VersionID:      result.VersionID,
 		Version:        result.Version,
 		ArtifactDigest: result.ArtifactDigest,
 		License:        record.License,
 	}, result.OrderNo)
+}
+
+func completeReplicaInstallation(
+	ctx context.Context,
+	client *api.Client,
+	result replicaInstallResult,
+	claims api.WebsiteReplicaLicenseClaims,
+) error {
+	receipt, err := client.CompleteWebsiteReplicaInstallation(ctx, api.CompleteWebsiteReplicaInstallationRequest{
+		EntitlementID: claims.EntitlementID,
+		VersionID:     result.VersionID,
+	})
+	if err != nil {
+		return err
+	}
+	if receipt.ReplicaID != result.ReplicaID || receipt.VersionID != result.VersionID || receipt.Version != result.Version {
+		return invalidReplicaResponse("Website Replica installation receipt does not match the installed artifact")
+	}
+	return nil
 }
 
 func replicaResolutionMatchesState(resolved api.WebsiteReplicaResolution, state replicaPurchaseState) bool {

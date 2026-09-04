@@ -1076,6 +1076,18 @@ type WebsiteReplicaDownload struct {
 	License        json.RawMessage `json:"license"`
 }
 
+type CompleteWebsiteReplicaInstallationRequest struct {
+	EntitlementID string `json:"entitlementId"`
+	VersionID     string `json:"versionId"`
+}
+
+type WebsiteReplicaInstallationReceipt struct {
+	ReplicaID   string `json:"replicaId"`
+	VersionID   string `json:"versionId"`
+	Version     int    `json:"version"`
+	InstalledAt string `json:"installedAt"`
+}
+
 type CompleteUploadRequest struct {
 	UploadID string `json:"uploadId"`
 }

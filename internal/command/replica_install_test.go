@@ -76,6 +76,8 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	var statusCalls atomic.Int32
 	var quoteCalls atomic.Int32
 	var orderCalls atomic.Int32
+	var installationReceipts atomic.Int32
+	var target string
 	controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Header.Get("Authorization") != "Bearer "+accessToken {
 			t.Fatalf("control API did not receive authorization: %q", request.Header.Get("Authorization"))
@@ -125,6 +127,19 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 				"expiresAt": time.Now().UTC().Add(time.Minute).Format(time.RFC3339),
 				"license":   license,
 			})
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replicas/installations":
+			if _, err := os.Stat(filepath.Join(target, "index.html")); err != nil {
+				t.Fatalf("installation receipt preceded target activation: %v", err)
+			}
+			installationReceipts.Add(1)
+			assertJSONFields(t, request, map[string]any{
+				"entitlementId": "77777777-7777-4777-8777-777777777777",
+				"versionId":     versionID,
+			})
+			writeJSONResponse(writer, map[string]any{
+				"replicaId": replicaID, "versionId": versionID, "version": 7,
+				"installedAt": "2026-09-01T00:01:00.000Z",
+			})
 		default:
 			t.Fatalf("unexpected control request: %s %s", request.Method, request.URL.Path)
 		}
@@ -133,7 +148,7 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 
 	t.Setenv(processAccessTokenEnvironment, accessToken)
 	root := t.TempDir()
-	target := filepath.Join(root, "installed-site")
+	target = filepath.Join(root, "installed-site")
 	expectedTarget, err := validateReplicaTarget(target)
 	if err != nil {
 		t.Fatal(err)
@@ -157,8 +172,8 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	if previewExit := Execute(arguments, dependencies); previewExit != output.ExitConfirmation {
 		t.Fatalf("replica quote was not presented before purchase: exit=%d stdout=%q", previewExit, stdout.String())
 	}
-	if orderCalls.Load() != 0 || statusCalls.Load() != 0 || objectDownloads.Load() != 0 {
-		t.Fatalf("quote presentation started the purchase: orders=%d statuses=%d downloads=%d", orderCalls.Load(), statusCalls.Load(), objectDownloads.Load())
+	if orderCalls.Load() != 0 || statusCalls.Load() != 0 || objectDownloads.Load() != 0 || installationReceipts.Load() != 0 {
+		t.Fatalf("quote presentation started the purchase: orders=%d statuses=%d downloads=%d receipts=%d", orderCalls.Load(), statusCalls.Load(), objectDownloads.Load(), installationReceipts.Load())
 	}
 	stdout.Reset()
 	stderr.Reset()
@@ -189,8 +204,8 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	if exit := Execute(confirmedArguments, dependencies); exit != 0 {
 		t.Fatalf("replica install failed after payment presentation: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
 	}
-	if statusCalls.Load() < 2 || objectDownloads.Load() != 1 {
-		t.Fatalf("purchase interaction was incomplete: statusCalls=%d downloads=%d stderr=%q", statusCalls.Load(), objectDownloads.Load(), stderr.String())
+	if statusCalls.Load() < 2 || objectDownloads.Load() != 1 || installationReceipts.Load() != 1 {
+		t.Fatalf("purchase interaction was incomplete: statusCalls=%d downloads=%d receipts=%d stderr=%q", statusCalls.Load(), objectDownloads.Load(), installationReceipts.Load(), stderr.String())
 	}
 	if _, err := os.Stat(imagePath); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("paid order retained its payment QR image: %v", err)
@@ -234,6 +249,9 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	if objectDownloads.Load() != 1 {
 		t.Fatalf("completion replay unexpectedly downloaded another archive: downloads=%d", objectDownloads.Load())
 	}
+	if installationReceipts.Load() != 2 {
+		t.Fatalf("completion replay did not safely replay its receipt: receipts=%d", installationReceipts.Load())
+	}
 	secondTarget := filepath.Join(root, "second-site")
 	var ownedOutput bytes.Buffer
 	dependencies.Out = &ownedOutput
@@ -250,8 +268,8 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	if content, err := os.ReadFile(filepath.Join(secondTarget, "index.html")); err != nil || string(content) != "<h1>Purchased replica</h1>" {
 		t.Fatalf("owned source was not reinstalled: content=%q err=%v", content, err)
 	}
-	if objectDownloads.Load() != 2 || orderCalls.Load() != 3 {
-		t.Fatalf("owned reinstall did not reuse its entitlement: downloads=%d orders=%d", objectDownloads.Load(), orderCalls.Load())
+	if objectDownloads.Load() != 2 || orderCalls.Load() != 3 || installationReceipts.Load() != 3 {
+		t.Fatalf("owned reinstall did not reuse its entitlement: downloads=%d orders=%d receipts=%d", objectDownloads.Load(), orderCalls.Load(), installationReceipts.Load())
 	}
 	dependencies.NewID = func() string {
 		t.Fatal("completion replay unexpectedly created another purchase identity")
@@ -287,7 +305,9 @@ func TestReplicaInstallClaimsFreeReplicaAfterQuoteConfirmationWithoutPayment(t *
 	trustReplicaTestSigner(t, signer)
 	license := signedReplicaTestLicense(t, signer, replicaID, versionID, 1, orderNo, digest)
 
+	var objectDownloads atomic.Int32
 	objectServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		objectDownloads.Add(1)
 		writer.Header().Set("Content-Length", strconv.Itoa(len(archive)))
 		_, _ = writer.Write(archive)
 	}))
@@ -295,6 +315,8 @@ func TestReplicaInstallClaimsFreeReplicaAfterQuoteConfirmationWithoutPayment(t *
 
 	var orderCalls atomic.Int32
 	var statusCalls atomic.Int32
+	var installationReceipts atomic.Int32
+	var target string
 	controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/cli/auth/status":
@@ -326,6 +348,29 @@ func TestReplicaInstallClaimsFreeReplicaAfterQuoteConfirmationWithoutPayment(t *
 				"sizeBytes": len(archive), "artifactDigest": digest, "downloadUrl": objectServer.URL,
 				"expiresAt": time.Now().UTC().Add(time.Minute).Format(time.RFC3339), "license": license,
 			})
+		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replicas/installations":
+			if _, err := os.Stat(filepath.Join(target, "index.html")); err != nil {
+				t.Fatalf("free installation receipt preceded target activation: %v", err)
+			}
+			assertJSONFields(t, request, map[string]any{
+				"entitlementId": "77777777-7777-4777-8777-777777777777",
+				"versionId":     versionID,
+			})
+			if installationReceipts.Add(1) == 1 {
+				writer.Header().Set("Content-Type", "application/json")
+				writer.WriteHeader(http.StatusServiceUnavailable)
+				_ = json.NewEncoder(writer).Encode(map[string]any{
+					"statusCode": http.StatusServiceUnavailable,
+					"code":       "TEMPORARILY_UNAVAILABLE",
+					"message":    "retry",
+					"requestId":  "receipt-retry",
+				})
+				return
+			}
+			writeJSONResponse(writer, map[string]any{
+				"replicaId": replicaID, "versionId": versionID, "version": 1,
+				"installedAt": "2026-09-01T00:01:00.000Z",
+			})
 		default:
 			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
 		}
@@ -334,7 +379,7 @@ func TestReplicaInstallClaimsFreeReplicaAfterQuoteConfirmationWithoutPayment(t *
 
 	t.Setenv(processAccessTokenEnvironment, accessToken)
 	root := t.TempDir()
-	target := filepath.Join(root, "free-site")
+	target = filepath.Join(root, "free-site")
 	requestIDs := []string{quoteReqID, orderReqID}
 	dependencies := Dependencies{
 		Out: io.Discard, ErrOut: io.Discard, HTTPClient: controlServer.Client(), Store: securestore.NewMemory(),
@@ -351,14 +396,21 @@ func TestReplicaInstallClaimsFreeReplicaAfterQuoteConfirmationWithoutPayment(t *
 	}
 	var stdout bytes.Buffer
 	dependencies.Out = &stdout
-	if exit := Execute(append(arguments, "--confirm"), dependencies); exit != 0 {
-		t.Fatalf("free replica install failed: exit=%d output=%q", exit, stdout.String())
+	if exit := Execute(append(arguments, "--confirm"), dependencies); exit == 0 {
+		t.Fatalf("free replica receipt interruption unexpectedly succeeded: output=%q", stdout.String())
 	}
-	if orderCalls.Load() != 1 || statusCalls.Load() != 0 {
-		t.Fatalf("unexpected free order interaction: orders=%d statuses=%d", orderCalls.Load(), statusCalls.Load())
+	if orderCalls.Load() != 1 || statusCalls.Load() != 0 || objectDownloads.Load() != 1 || installationReceipts.Load() != 1 {
+		t.Fatalf("unexpected interrupted free interaction: orders=%d statuses=%d downloads=%d receipts=%d", orderCalls.Load(), statusCalls.Load(), objectDownloads.Load(), installationReceipts.Load())
 	}
 	if content, err := os.ReadFile(filepath.Join(target, "index.html")); err != nil || string(content) != "<h1>Free replica</h1>" {
-		t.Fatalf("free replica was not installed: content=%q err=%v", content, err)
+		t.Fatalf("receipt failure damaged the completed free replica: content=%q err=%v", content, err)
+	}
+	stdout.Reset()
+	if exit := Execute(arguments, dependencies); exit != 0 {
+		t.Fatalf("free replica receipt was not replayed: exit=%d output=%q", exit, stdout.String())
+	}
+	if orderCalls.Load() != 1 || objectDownloads.Load() != 1 || installationReceipts.Load() != 2 {
+		t.Fatalf("receipt replay repeated local commerce work: orders=%d downloads=%d receipts=%d", orderCalls.Load(), objectDownloads.Load(), installationReceipts.Load())
 	}
 	if strings.Contains(stdout.String(), "PRESENT_PAYMENT_QR") {
 		t.Fatalf("free installation exposed payment presentation: %q", stdout.String())
@@ -543,6 +595,11 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 				"replicaId": replicaID, "versionId": versionID, "version": 1, "fileName": "source.zip",
 				"sizeBytes": len(archive), "artifactDigest": digest, "downloadUrl": objectServer.URL,
 				"expiresAt": time.Now().UTC().Add(time.Minute).Format(time.RFC3339), "license": license,
+			})
+		case "/v1/website-replicas/installations":
+			writeJSONResponse(writer, map[string]any{
+				"replicaId": replicaID, "versionId": versionID, "version": 1,
+				"installedAt": "2026-09-01T00:01:00.000Z",
 			})
 		default:
 			t.Fatalf("unexpected route: %s %s", request.Method, request.URL.Path)
