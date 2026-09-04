@@ -31,6 +31,7 @@ type strictAPIResponse interface {
 func (*CreateWebsiteReplicaUploadResponse) strictAPIResponse()                     {}
 func (*CompleteWebsiteReplicaUploadResponse) strictAPIResponse()                   {}
 func (*AuthorizeWebsiteReplicaPublicationSourceUploadResponse) strictAPIResponse() {}
+func (*AuthorizeWebsiteReplicaPublicationPageUploadResponse) strictAPIResponse()   {}
 func (*WebsiteReplicaPublication) strictAPIResponse()                              {}
 func (*WebsiteReplicaResolution) strictAPIResponse()                               {}
 func (*WebsiteReplicaSession) strictAPIResponse()                                  {}
@@ -193,13 +194,14 @@ func (response *WebsiteReplicaPublication) validateAPIResponse() error {
 		!validAbsoluteURL(response.StatusURL) || response.AllowedActions == nil ||
 		response.Retry.AutomaticRetries < 0 || response.Retry.AutomaticRetries > 3 || response.Retry.MaxAutomaticRetries != 3 ||
 		!validOptionalDatetime(response.Retry.NextAttemptAt) || validateWebsiteReplicaPublicationSource(response.Source) != nil ||
+		(response.Page != nil && validateWebsiteReplicaPublicationSource(*response.Page) != nil) ||
 		!validOptionalDatetime(response.SubmittedAt) || !validOptionalDatetime(response.FailedAt) ||
 		!validOptionalDatetime(response.CancelledAt) || !validZodDatetime(response.CreatedAt) || !validZodDatetime(response.UpdatedAt) {
 		return errors.New("Website Replica Publication response is invalid")
 	}
 	actions := make(map[string]struct{}, len(response.AllowedActions))
 	for _, action := range response.AllowedActions {
-		if !validStringEnum(action, "AUTHORIZE_SOURCE_UPLOAD", "COMPLETE_SOURCE_UPLOAD", "SUBMIT", "CANCEL", "RETRY") {
+		if !validStringEnum(action, "AUTHORIZE_SOURCE_UPLOAD", "COMPLETE_SOURCE_UPLOAD", "AUTHORIZE_PAGE_UPLOAD", "COMPLETE_PAGE_UPLOAD", "SUBMIT", "CANCEL", "RETRY") {
 			return errors.New("Website Replica Publication action is invalid")
 		}
 		if _, duplicate := actions[action]; duplicate {
@@ -212,11 +214,20 @@ func (response *WebsiteReplicaPublication) validateAPIResponse() error {
 		return errors.New("Website Replica Publication source verification timestamp is invalid")
 	}
 	published := response.Status == "PUBLISHED" || response.Status == "PUBLISHED_DEGRADED"
+	pageVerified := response.Page == nil || response.Page.Status == "VERIFIED" || response.Page.Status == "ACTIVATED"
+	pageReady := pageVerified || (response.Page != nil && response.Page.Status == "FAILED")
+	pageActivated := response.Page == nil || response.Page.Status == "ACTIVATED"
 	if published != (response.Result != nil) || (response.Result != nil && validateWebsiteReplicaPublicationResult(*response.Result) != nil) ||
-		(published && response.Source.Status != "ACTIVATED") || (response.Status == "PROCESSING" && response.Source.Status != "VERIFIED") {
+		(published && response.Source.Status != "ACTIVATED") ||
+		(response.Status == "PUBLISHED" && !pageActivated) ||
+		(response.Status == "PUBLISHED" && response.Result != nil && ((response.Page == nil) != (response.Result.PageRelease == nil))) ||
+		(response.Status == "PUBLISHED_DEGRADED" && response.Result != nil && response.Result.PageRelease != nil) ||
+		(response.Status == "PUBLISHED_DEGRADED" && (response.Page == nil || response.Page.Status != "FAILED")) ||
+		(response.Status == "PROCESSING" && (response.Source.Status != "VERIFIED" || !pageReady)) {
 		return errors.New("Website Replica Publication result is invalid")
 	}
-	if ((response.Status == "PROCESSING" || response.Status == "PUBLISHED") && response.Failure != nil) ||
+	if (response.Status == "PUBLISHED" && response.Failure != nil) ||
+		(response.Status == "PROCESSING" && response.Failure != nil && (response.Page == nil || response.Page.Status != "FAILED")) ||
 		((response.Status == "FAILED" || response.Status == "PUBLISHED_DEGRADED") && response.Failure == nil) ||
 		(response.Failure != nil && (utf16CodeUnits(strings.TrimSpace(response.Failure.Code)) < 1 || utf16CodeUnits(strings.TrimSpace(response.Failure.Code)) > 64 ||
 			utf16CodeUnits(strings.TrimSpace(response.Failure.Message)) < 1 || utf16CodeUnits(strings.TrimSpace(response.Failure.Message)) > 500)) {
@@ -233,12 +244,16 @@ func (response *WebsiteReplicaPublication) validateAPIResponse() error {
 	_, canRetry := actions["RETRY"]
 	_, canAuthorize := actions["AUTHORIZE_SOURCE_UPLOAD"]
 	_, canComplete := actions["COMPLETE_SOURCE_UPLOAD"]
+	_, canAuthorizePage := actions["AUTHORIZE_PAGE_UPLOAD"]
+	_, canCompletePage := actions["COMPLETE_PAGE_UPLOAD"]
 	_, canSubmit := actions["SUBMIT"]
 	if canCancel != (response.Status == "DRAFT" || response.Status == "PROCESSING") ||
 		canRetry != (response.Status == "FAILED" && response.Failure != nil && response.Failure.Retryable) ||
 		canAuthorize != (response.Status == "DRAFT" && response.Source.Status == "WAITING_UPLOAD") ||
 		canComplete != (response.Status == "DRAFT" && validStringEnum(response.Source.Status, "WAITING_UPLOAD", "UPLOADED", "VALIDATING")) ||
-		canSubmit != (response.Status == "DRAFT" && response.Source.Status == "VERIFIED") {
+		canAuthorizePage != (response.Status == "DRAFT" && response.Page != nil && response.Page.Status == "WAITING_UPLOAD") ||
+		canCompletePage != (response.Status == "DRAFT" && response.Page != nil && validStringEnum(response.Page.Status, "WAITING_UPLOAD", "UPLOADED", "VALIDATING")) ||
+		canSubmit != (response.Status == "DRAFT" && response.Source.Status == "VERIFIED" && pageReady) {
 		return errors.New("Website Replica Publication allowed actions do not match its state")
 	}
 	return nil
@@ -247,7 +262,9 @@ func (response *WebsiteReplicaPublication) validateAPIResponse() error {
 func validateWebsiteReplicaPublicationResult(result WebsiteReplicaPublicationResult) error {
 	if !validAbsoluteURL(result.WorkURL) || !zodUUIDPattern.MatchString(result.VersionID) || !validPositiveSafeInteger(result.Version) ||
 		!websiteReplicaCodePattern.MatchString(result.ShortCode) || result.Instruction != "VICEME-REPLICA:"+result.ShortCode ||
-		validateWebsiteReplicaProduct(result.Product) != nil || !validZodDatetime(result.PublishedAt) {
+		validateWebsiteReplicaProduct(result.Product) != nil ||
+		(result.PageRelease != nil && (!zodUUIDPattern.MatchString(result.PageRelease.ID) || !validPositiveSafeInteger(result.PageRelease.Version))) ||
+		!validZodDatetime(result.PublishedAt) {
 		return errors.New("Website Replica Publication result is invalid")
 	}
 	return nil
@@ -282,6 +299,14 @@ func (response *AuthorizeWebsiteReplicaPublicationSourceUploadResponse) validate
 	if response == nil || !zodUUIDPattern.MatchString(response.PublicationID) || response.Upload.Method != "PUT" ||
 		!validAbsoluteURL(response.Upload.URL) || response.Upload.Headers == nil || !validZodDatetime(response.Upload.ExpiresAt) {
 		return errors.New("Website Replica Publication upload authorization is invalid")
+	}
+	return nil
+}
+
+func (response *AuthorizeWebsiteReplicaPublicationPageUploadResponse) validateAPIResponse() error {
+	if response == nil || !zodUUIDPattern.MatchString(response.PublicationID) || response.Upload.Method != "PUT" ||
+		!validAbsoluteURL(response.Upload.URL) || response.Upload.Headers == nil || !validZodDatetime(response.Upload.ExpiresAt) {
+		return errors.New("Website Replica Publication page upload authorization is invalid")
 	}
 	return nil
 }
@@ -336,7 +361,7 @@ func validateWebsiteReplicaPublicationNextAction(action WebsiteReplicaPublicatio
 		if !zodUUIDPattern.MatchString(action.PublicationID) || !validAbsoluteURL(action.StatusURL) {
 			return errors.New("Website Replica status action is invalid")
 		}
-	case "AUTHORIZE_SOURCE_UPLOAD":
+	case "AUTHORIZE_SOURCE_UPLOAD", "AUTHORIZE_PAGE_UPLOAD":
 		if !zodUUIDPattern.MatchString(action.PublicationID) {
 			return errors.New("Website Replica upload action is invalid")
 		}
@@ -375,6 +400,9 @@ func validateWebsiteReplicaPublicationReview(review WebsiteReplicaPublicationRev
 		utf16CodeUnits(strings.TrimSpace(review.Summary)) > 500 || !validNonnegativeSafeInteger(review.PriceCents) ||
 		review.PriceCents > 10_000_000 || validateWebsiteReplicaPublicationSourceArtifact(review.Source) != nil {
 		return errors.New("Website Replica Publication review is invalid")
+	}
+	if review.Page != nil && validateWebsiteReplicaPublicationSourceArtifact(*review.Page) != nil {
+		return errors.New("Website Replica Publication review page artifact is invalid")
 	}
 	return nil
 }

@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"time"
@@ -52,6 +53,7 @@ type Pending struct {
 	SourceArchive               replicacontent.SourceArchiveSummary                 `json:"sourceArchive"`
 	ArtifactExpiresAt           time.Time                                           `json:"artifactExpiresAt"`
 	Preview                     Preview                                             `json:"preview"`
+	Hosting                     string                                              `json:"hosting,omitempty"`
 	AutoApplyCreator            bool                                                `json:"autoApplyCreator"`
 	CreatorApplicationRequestID string                                              `json:"creatorApplicationRequestId,omitempty"`
 	Confirmation                *api.WebsiteReplicaPublicationConfirmationChallenge `json:"confirmation,omitempty"`
@@ -164,6 +166,13 @@ func (store Store) Save(pending *Pending) error {
 	if pending.CreatedAt.IsZero() {
 		pending.CreatedAt = store.Now().UTC()
 	}
+	if pending.Hosting == "" {
+		if pending.Request.Page != nil {
+			pending.Hosting = "HOSTED"
+		} else {
+			pending.Hosting = "REPLICA_ONLY"
+		}
+	}
 	pending.SchemaVersion = stateSchemaVersion
 	pending.UpdatedAt = store.Now().UTC()
 	if err := store.validatePending(*pending); err != nil {
@@ -259,13 +268,83 @@ func (store Store) OpenArtifact(pending Pending) (*os.File, error) {
 	return file, nil
 }
 
+func (store Store) SavePageArtifact(clientRequestID string, data []byte, artifact api.WebsiteReplicaPublicationSourceArtifact) error {
+	if !uuidPattern.MatchString(clientRequestID) || int64(len(data)) != artifact.SizeBytes || !digestPattern.MatchString(artifact.Digest) {
+		return output.Validation("REPLICA_PUBLICATION_PAGE_ARTIFACT_INVALID", "Website Replica frozen page artifact is invalid")
+	}
+	digest := sha256.Sum256(data)
+	if hex.EncodeToString(digest[:]) != artifact.Digest {
+		return output.Validation("REPLICA_PUBLICATION_PAGE_ARTIFACT_INVALID", "Website Replica frozen page artifact digest does not match")
+	}
+	if err := store.ensureArtifactDirectory(clientRequestID); err != nil {
+		return err
+	}
+	filename := store.pageArtifactFilename(clientRequestID)
+	stage, err := privatepath.CreateTempFile(filepath.Dir(filename), ".page-*.tmp")
+	if err != nil {
+		return stateError("REPLICA_PUBLICATION_PAGE_ARTIFACT_SAVE_FAILED", "could not create the Website Replica page recovery artifact", err)
+	}
+	stageName := stage.Name()
+	defer os.Remove(stageName)
+	if err := stage.Chmod(0o600); err != nil {
+		_ = stage.Close()
+		return stateError("REPLICA_PUBLICATION_PAGE_ARTIFACT_SAVE_FAILED", "could not protect the Website Replica page recovery artifact", err)
+	}
+	_, writeErr := stage.Write(data)
+	closeErr := stage.Close()
+	if writeErr != nil || closeErr != nil {
+		return stateError("REPLICA_PUBLICATION_PAGE_ARTIFACT_SAVE_FAILED", "could not persist the Website Replica page recovery artifact", errors.Join(writeErr, closeErr))
+	}
+	if err := atomicfile.Replace(stageName, filename); err != nil {
+		return stateError("REPLICA_PUBLICATION_PAGE_ARTIFACT_SAVE_FAILED", "could not activate the Website Replica page recovery artifact", err)
+	}
+	if err := privatepath.RequirePrivateFile(filename); err != nil {
+		return stateError("REPLICA_PUBLICATION_PAGE_ARTIFACT_SAVE_FAILED", "Website Replica page recovery artifact is not private", err)
+	}
+	return nil
+}
+
+func (store Store) OpenPageArtifact(pending Pending) (*os.File, error) {
+	if err := store.validatePending(pending); err != nil {
+		return nil, err
+	}
+	if pending.Request.Page == nil {
+		return nil, output.Validation("REPLICA_PUBLICATION_PAGE_ARTIFACT_MISSING", "the Publication did not request a hosted page")
+	}
+	filename := store.pageArtifactFilename(pending.ClientRequestID)
+	if err := privatepath.RequirePrivateFile(filename); err != nil {
+		return nil, stateError("REPLICA_PUBLICATION_PAGE_ARTIFACT_MISSING", "the frozen Website Replica page is unavailable", err)
+	}
+	file, err := os.Open(filename)
+	if err != nil {
+		return nil, stateError("REPLICA_PUBLICATION_PAGE_ARTIFACT_READ_FAILED", "could not open the frozen Website Replica page", err)
+	}
+	valid := false
+	defer func() {
+		if !valid {
+			_ = file.Close()
+		}
+	}()
+	hash := sha256.New()
+	written, err := io.Copy(hash, io.LimitReader(file, pending.Request.Page.SizeBytes+1))
+	if err != nil || written != pending.Request.Page.SizeBytes || hex.EncodeToString(hash.Sum(nil)) != pending.Request.Page.Digest {
+		return nil, output.Validation("REPLICA_PUBLICATION_PAGE_ARTIFACT_CHANGED", "the frozen Website Replica page no longer matches its confirmation").WithCause(err)
+	}
+	if _, err := file.Seek(0, io.SeekStart); err != nil {
+		return nil, stateError("REPLICA_PUBLICATION_PAGE_ARTIFACT_READ_FAILED", "could not rewind the frozen Website Replica page", err)
+	}
+	valid = true
+	return file, nil
+}
+
 func (store Store) DeleteArtifact(pending Pending) error {
 	if !uuidPattern.MatchString(pending.ClientRequestID) {
 		return output.Validation("REPLICA_PUBLICATION_ARTIFACT_INVALID", "Website Replica frozen artifact identity is invalid")
 	}
-	filename := store.artifactFilename(pending.ClientRequestID)
-	if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return stateError("REPLICA_PUBLICATION_ARTIFACT_DELETE_FAILED", "could not remove the frozen Website Replica source", err)
+	for _, filename := range []string{store.artifactFilename(pending.ClientRequestID), store.pageArtifactFilename(pending.ClientRequestID)} {
+		if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return stateError("REPLICA_PUBLICATION_ARTIFACT_DELETE_FAILED", "could not remove a frozen Website Replica artifact", err)
+		}
 	}
 	if err := os.Remove(store.artifactDirectory(pending.ClientRequestID)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return stateError("REPLICA_PUBLICATION_ARTIFACT_DELETE_FAILED", "could not remove the frozen Website Replica source directory", err)
@@ -362,12 +441,14 @@ func (store Store) validatePending(pending Pending) error {
 		request.ClientRequestID != pending.ClientRequestID || request.Market != pending.Market || request.ProjectFingerprint != pending.ProjectFingerprint ||
 		request.Confirmation != nil || request.Source.Digest != pending.SourceArchive.Digest ||
 		request.Source.SizeBytes != pending.SourceArchive.SizeBytes || !digestPattern.MatchString(pending.SourceArchive.Digest) ||
-		pending.SourceArchive.SizeBytes < 1 || pending.ArtifactExpiresAt.IsZero() || pending.CreatedAt.IsZero() || pending.UpdatedAt.IsZero() {
+		pending.SourceArchive.SizeBytes < 1 || (pending.Hosting != "" && pending.Hosting != "HOSTED" && pending.Hosting != "REPLICA_ONLY") ||
+		(pending.Hosting == "HOSTED") != (request.Page != nil) || pending.ArtifactExpiresAt.IsZero() || pending.CreatedAt.IsZero() || pending.UpdatedAt.IsZero() {
 		return output.Validation("REPLICA_PUBLICATION_STATE_INVALID", "local Website Replica publication state is invalid")
 	}
 	if pending.Confirmation != nil {
 		if pending.Confirmation.Review.ProjectFingerprint != pending.ProjectFingerprint ||
-			pending.Confirmation.Review.Source.Digest != pending.SourceArchive.Digest || pending.Confirmation.Review.Source.SizeBytes != pending.SourceArchive.SizeBytes {
+			pending.Confirmation.Review.Source.Digest != pending.SourceArchive.Digest || pending.Confirmation.Review.Source.SizeBytes != pending.SourceArchive.SizeBytes ||
+			!reflect.DeepEqual(pending.Confirmation.Review.Page, pending.Request.Page) {
 			return output.Validation("REPLICA_PUBLICATION_STATE_INVALID", "local Website Replica confirmation does not match the frozen source")
 		}
 	}
@@ -433,6 +514,10 @@ func (store Store) artifactDirectory(clientRequestID string) string {
 
 func (store Store) artifactFilename(clientRequestID string) string {
 	return filepath.Join(store.artifactDirectory(clientRequestID), "source.zip")
+}
+
+func (store Store) pageArtifactFilename(clientRequestID string) string {
+	return filepath.Join(store.artifactDirectory(clientRequestID), "page.zip")
 }
 
 func writePrivateJSON(filename string, value any, code, message string) error {

@@ -61,6 +61,13 @@ func Inspect(source string) (Package, error) {
 	if err != nil {
 		return Package{}, output.Internal("PAGE_PACKAGE_READ_FAILED", "could not read the page ZIP", err)
 	}
+	return inspectBytes(abs, filepath.Base(abs), data)
+}
+
+func inspectBytes(sourcePath, fileName string, data []byte) (Package, error) {
+	if len(data) == 0 || len(data) > MaxArchiveBytes {
+		return Package{}, output.Validation("PAGE_PACKAGE_TOO_LARGE", "page ZIP must be between 1 byte and 100 MiB")
+	}
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return Package{}, output.Validation("PAGE_PACKAGE_INVALID_ZIP", "page package is not a valid ZIP archive").WithCause(err)
@@ -70,10 +77,10 @@ func Inspect(source string) (Package, error) {
 		return Package{}, err
 	}
 	return Package{
-		SourcePath: abs,
+		SourcePath: sourcePath,
 		Manifest:   manifest,
 		Artifact: api.PageCustomizationArtifact{
-			Digest: sha256Hex(data), SizeBytes: int64(len(data)), FileName: filepath.Base(abs), ContentType: "application/zip",
+			Digest: sha256Hex(data), SizeBytes: int64(len(data)), FileName: fileName, ContentType: "application/zip",
 		},
 		FileCount: fileCount,
 		Bytes:     data,
