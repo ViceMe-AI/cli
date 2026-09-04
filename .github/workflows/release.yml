@@ -458,6 +458,9 @@ jobs:
             mkdir -p existing-release
             MISSING_ASSETS=()
             for FILE in dist/*; do
+              # dist/skills is the hosted-skills staging tree, not a release
+              # asset; gh release upload cannot take a directory.
+              [[ -f "${FILE}" ]] || continue
               NAME="${FILE#dist/}"
               if asset_exists "${NAME}"; then
                 gh release download "${TAG}" --pattern "${NAME}" --dir existing-release
@@ -470,7 +473,10 @@ jobs:
               gh release upload "${TAG}" "${MISSING_ASSETS[@]}"
             fi
           else
-            gh release create "${TAG}" dist/* --verify-tag --generate-notes --title "${TAG}"
+            # Only flat files are GitHub Release assets; dist/skills is the
+            # hosted-skills staging tree published to S3 by its own jobs.
+            mapfile -t RELEASE_ASSETS < <(find dist -maxdepth 1 -type f | sort)
+            gh release create "${TAG}" "${RELEASE_ASSETS[@]}" --verify-tag --generate-notes --title "${TAG}"
           fi
 
           rm -rf verified-release
@@ -478,6 +484,7 @@ jobs:
           gh release download "${TAG}" --dir verified-release
           test "$(find verified-release -maxdepth 1 -type f | wc -l)" -eq 20
           for FILE in dist/*; do
+            [[ -f "${FILE}" ]] || continue
             NAME="${FILE#dist/}"
             cmp --silent "${FILE}" "verified-release/${NAME}"
           done
