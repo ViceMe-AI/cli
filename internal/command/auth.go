@@ -79,6 +79,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 						"website-replica:read",
 						"website-replica:write",
 						"website-replica:purchase",
+						"website-replica:analytics:read",
 					},
 				},
 			)

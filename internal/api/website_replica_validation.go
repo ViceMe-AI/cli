@@ -33,6 +33,7 @@ func (*WebsiteReplicaQuote) strictAPIResponse()                  {}
 func (*WebsiteReplicaOrder) strictAPIResponse()                  {}
 func (*WebsiteReplicaOrderStatus) strictAPIResponse()            {}
 func (*WebsiteReplicaDownload) strictAPIResponse()               {}
+func (*WebsiteReplicaInstallationReceipt) strictAPIResponse()    {}
 
 func decodeStrictAPIResponse(data []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -340,6 +341,15 @@ func (response *WebsiteReplicaDownload) validateAPIResponse() error {
 	if license.Claims.ReplicaID != response.ReplicaID || license.Claims.VersionID != response.VersionID || license.Claims.Version != response.Version ||
 		license.Claims.ArtifactDigest != response.ArtifactDigest {
 		return errors.New("Website Replica license does not match its download")
+	}
+	return nil
+}
+
+func (response *WebsiteReplicaInstallationReceipt) validateAPIResponse() error {
+	if response == nil || !zodUUIDPattern.MatchString(response.ReplicaID) ||
+		!zodUUIDPattern.MatchString(response.VersionID) || !validPositiveSafeInteger(response.Version) ||
+		!validZodDatetime(response.InstalledAt) {
+		return errors.New("Website Replica installation receipt is invalid")
 	}
 	return nil
 }
