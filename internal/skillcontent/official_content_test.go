@@ -38,7 +38,7 @@ func readOfficialSkillBundle(t *testing.T, skillName string) string {
 			return nil
 		}
 		switch path.Ext(filePath) {
-		case ".html", ".json", ".md", ".mjs", ".yaml", ".yml":
+		case ".css", ".html", ".js", ".jsx", ".json", ".md", ".mjs", ".yaml", ".yml":
 		default:
 			return nil
 		}
@@ -103,10 +103,10 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "customize-your-page",
 			machine: []string{
 				"$become-a-creator", "viceme merchant page describe", "viceme merchant page inspect",
-				"viceme merchant page preview", "viceme merchant page publish", "viceme-page.json", "window.viceme",
+				"viceme merchant page upload", "viceme merchant page preview", "viceme merchant page publish", "viceme-page.json", "window.viceme",
 			},
 			semantics: []string{
-				"作者页和作品页共用", "不做源码安全审计", "预览不等于公开发布",
+				"作者页和作品页共用", "不做源码安全审计", "预览不等于公开发布", "本期不支持视频",
 			},
 		},
 		{
@@ -304,7 +304,7 @@ func TestPublishSkillKeepsHistoricalContextOutOfProfileSelection(t *testing.T) {
 	}
 }
 
-func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
+func TestCreatorOnboardingKeepsHumanReviewAndOffersPrivatePersonalCard(t *testing.T) {
 	t.Parallel()
 
 	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "become-a-creator/SKILL.md")
@@ -322,9 +322,13 @@ func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
 		"viceme merchant onboarding status",
 		"merchant-commerce:read",
 		"merchant-commerce:write",
+		"creatorIdentity.profileUrl",
 		"creatorIdentity.markdownUrl",
-		"随后立即用内置 `present_files` 在当前任务浏览器",
-		"批准后同一地址自动转为公开主页",
+		"要现在设置个人名片吗？",
+		"Bonjour 风格模板",
+		"创作者入驻模式",
+		"不得创建在线 preview",
+		"同一地址、同一 release 自动公开",
 		"MERCHANT_APPLICATION_HANDLE_REQUIRED",
 		"人工审核边界",
 		"同一回合不得再次查询",
@@ -336,6 +340,31 @@ func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
 	}
 	if currentUser := strings.TrimSpace(os.Getenv("USER")); currentUser != "" && strings.Contains(strings.ToLower(text), strings.ToLower(currentUser)) {
 		t.Fatal("creator onboarding Skill uses the current developer username as an example")
+	}
+}
+
+func TestBonjourCardTemplateKeepsTheSuppliedDesignAndMVPBlocksNarrow(t *testing.T) {
+	t.Parallel()
+
+	bundle := readOfficialSkillBundle(t, "customize-your-page")
+	for _, required := range []string{
+		"templates/bonjour-card/index.html",
+		"templates/bonjour-card/src/App.jsx",
+		"templates/bonjour-card/src/styles.css",
+		"作品卡片封面图",
+		"媒体：用户主动公开的联系方式",
+		"飞书链接、X / Twitter 链接、邮箱和 GitHub 主页链接",
+		"Do not rebuild, reinterpret, restyle",
+		"window.viceme.context.get()",
+	} {
+		if !strings.Contains(bundle, required) {
+			t.Fatalf("Bonjour personal-card bundle omitted %q", required)
+		}
+	}
+	for _, forbidden := range []string{"<video", `accept=\"video`, "education-block", "award-block"} {
+		if strings.Contains(bundle, forbidden) {
+			t.Fatalf("Bonjour personal-card bundle included excluded content %q", forbidden)
+		}
 	}
 }
 
