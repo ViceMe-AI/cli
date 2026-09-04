@@ -22,6 +22,15 @@ func denyRename(t *testing.T, errno syscall.Errno) {
 	t.Cleanup(func() { RenameFile = original })
 }
 
+func denyReplace(t *testing.T, errno syscall.Errno) {
+	t.Helper()
+	original := ReplaceFile
+	ReplaceFile = func(oldName, _ string) error {
+		return fmt.Errorf("replace %s: %w", oldName, errno)
+	}
+	t.Cleanup(func() { ReplaceFile = original })
+}
+
 func requirePrivateMode(t *testing.T, filename string) {
 	t.Helper()
 	if err := privatepath.RequirePrivateFile(filename); err != nil {
@@ -107,6 +116,27 @@ func TestWriteFallsBackWhenRenameIsDenied(t *testing.T) {
 		t.Fatalf("ReadFile() = %q, %v; want sandbox-payload-2", data, err)
 	}
 	requirePrivateMode(t, filename)
+}
+
+func TestWriteAtomicFailsClosedWhenRenameIsDenied(t *testing.T) {
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "binding.json")
+	if err := os.WriteFile(filename, []byte("existing"), PrivateMode); err != nil {
+		t.Fatal(err)
+	}
+	denyReplace(t, syscall.EPERM)
+
+	err := WriteAtomic(filename, []byte("replacement"), ".binding-*.tmp")
+	if err == nil || !errors.Is(err, syscall.EPERM) {
+		t.Fatalf("WriteAtomic() error = %v, want EPERM", err)
+	}
+	data, readErr := os.ReadFile(filename)
+	if readErr != nil || string(data) != "existing" {
+		t.Fatalf("atomic write changed its target after a denied rename: data=%q err=%v", data, readErr)
+	}
+	if names := stagingFileNames(t, directory); len(names) != 1 || names[0] != "binding.json" {
+		t.Fatalf("atomic write left staging debris: %v", names)
+	}
 }
 
 func TestWriteReportsBothErrorsWhenFallbackAlsoFails(t *testing.T) {

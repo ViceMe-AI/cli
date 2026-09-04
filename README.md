@@ -274,7 +274,10 @@ Never copy an access token into the conversation.
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
 | `viceme replica preview [--path <project> \| --url <loopback-url>]` | Open the anonymous ViceMe preview shell around a local website before sign-in or upload; a CLI-owned dev server runs only until the command exits, and the opened browser remains the authority for visual verification. |
-| `viceme replica publish ...` | Freeze a project worktree (or validate an existing ZIP), generate the root `VICEME-REPLICA.md`, publish an immutable version, and return its source summary, stable code, and creator-site prompts. |
+| `viceme replica publish --path <project-or-zip> ...` | In the CN market, check and preview a project (existing ZIPs are validated and privately extracted for preview), freeze its source, and return one 30-minute final review. Rerun the reported command with the exact `--confirm` version to upload and submit it; `PROCESSING` means submitted but not published. |
+| `viceme replica status <publication-id>` | Read authoritative Website Replica Publication state and complete the stable local binding after a published terminal state. |
+| `viceme replica resume <publication-id>` | Continue only the missing upload, verification, submission, or allowed retry step from authoritative state. |
+| `viceme replica cancel <publication-id>` | Cancel a Publication before activation and clean its local recoverable source. |
 | `viceme replica install <code> [--target <new-directory>]` | With an authenticated Profile, display the authoritative Quote before `--confirm`; add `--accept-price-cents <fen>` for anonymous checkout and `--payment-presented` only after its hosted payment page opens. Both paths atomically install the paid source. |
 | `viceme update` | Explicitly update the CLI. Refresh official Skills separately with `viceme install --agent auto`. |
 | `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
