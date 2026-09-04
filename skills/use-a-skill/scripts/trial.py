@@ -58,6 +58,7 @@ MAX_FILES = 1000
 MAX_FILE_BYTES = 10 << 20
 MAX_TOTAL_BYTES = 50 << 20
 LOCK_STALE_SECONDS = 300
+LOCK_WAIT_SECONDS = 10
 
 
 class Failure(Exception):
@@ -191,24 +192,37 @@ class ProductLock:
 
     def __enter__(self):
         os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
-        deadline = time.time() + 10
+        deadline = time.time() + LOCK_WAIT_SECONDS
         while True:
             try:
                 self.handle = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
                 os.write(self.handle, str(os.getpid()).encode("ascii"))
                 return self
-            except (FileExistsError, PermissionError):
-                # Windows 上并发争抢 O_EXCL 可能以共享冲突(Access denied)
-                # 而非 FileExistsError 冒出来,两种都按"锁被占"处理。
+            except FileExistsError:
+                pass  # 被 Unix 进程占用:走下方超时路径。
+            except PermissionError as error:
+                # Windows 共享冲突与 Unix「无权创建」同名:靠锁文件是否
+                # 存在区分——不存在即为无权创建(目录不可写),立即报错,
+                # 不得进入重试循环。
                 try:
-                    if time.time() - os.stat(self.path).st_mtime > LOCK_STALE_SECONDS:
-                        remove_path(self.path)
-                        continue
+                    os.stat(self.path)
+                except FileNotFoundError:
+                    raise Failure(
+                        "STATE_LOCK_PERMISSION_DENIED",
+                        "无法创建试用状态锁文件(目录不可写或无权限): %s" % self.path,
+                    ) from error
                 except OSError:
-                    continue
-                if time.time() > deadline:
-                    raise Failure("STATE_LOCK_BUSY", "另一个 ViceMe 试用操作正在进行,请稍后重试") from None
-                time.sleep(0.2)
+                    pass  # 存在但暂时不可 stat(共享冲突):按被占处理。
+            # 每一轮都先做截止检查再休眠:任何路径都不允许无休眠地
+            # 回到循环顶部,否则权限异常会变成 CPU 空转死循环。
+            if time.time() > deadline:
+                raise Failure("STATE_LOCK_BUSY", "另一个 ViceMe 试用操作正在进行,请稍后重试")
+            try:
+                if time.time() - os.stat(self.path).st_mtime > LOCK_STALE_SECONDS:
+                    remove_path(self.path)
+            except OSError:
+                pass
+            time.sleep(0.2)
 
     def __exit__(self, exc_type, exc_value, traceback):
         if self.handle is not None:

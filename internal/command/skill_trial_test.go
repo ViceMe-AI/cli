@@ -31,8 +31,12 @@ type skillTrialTestServer struct {
 	// grantRequests records the installId of every trial-grants request in
 	// order, and grantedInstallIDs remembers which ones already received a
 	// secret so replays stay idempotent (mirrors the real API contract).
+	// useRequests records every trial-use body so tests can assert the
+	// idempotency key; trialUseFailures forces that many 500 responses first.
 	grantRequests     []string
 	grantedInstallIDs map[string]bool
+	useRequests       []map[string]any
+	trialUseFailures  int
 }
 
 func newSkillTrialTestServer(t *testing.T) *skillTrialTestServer {
@@ -87,11 +91,22 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 			writer.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		var useBody map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&useBody)
 		s.mu.Lock()
+		s.useRequests = append(s.useRequests, useBody)
+		forced := s.trialUseFailures > 0
+		if forced {
+			s.trialUseFailures--
+		}
 		s.grantUses++
 		used := s.grantUses
 		limit := s.trialLimit
 		s.mu.Unlock()
+		if forced {
+			writer.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		if used <= limit {
 			writeJSONResponse(writer, map[string]any{
 				"allowed": true, "remainingUses": limit - used, "limitUses": limit, "reason": nil, "purchaseUrl": nil,
@@ -326,6 +341,126 @@ func TestSkillUseAdoptsScriptTrialCredentialWithoutInstall(t *testing.T) {
 	data, _ := envelope["data"].(map[string]any)
 	if data["allowed"] != true {
 		t.Fatalf("adopted use was not allowed: %#v", data)
+	}
+}
+
+func writeScriptTrialFile(t *testing.T, home, installID, pendingRequestID string) {
+	t.Helper()
+	trialDir := filepath.Join(home, ".viceme", "trial")
+	if err := os.MkdirAll(trialDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	payload := map[string]any{
+		"installId": installID, "secret": "script-secret",
+		"productId": downloadableProductID, "market": "cn",
+	}
+	if pendingRequestID != "" {
+		payload["pendingRequestId"] = pendingRequestID
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(trialDir, downloadableProductID+".json"), encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readScriptPendingRequestID(t *testing.T, home string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(home, ".viceme", "trial", downloadableProductID+".json"))
+	if err != nil {
+		t.Fatalf("script trial file missing: %v", err)
+	}
+	var state struct {
+		PendingRequestID string `json:"pendingRequestId"`
+	}
+	if err := json.Unmarshal(raw, &state); err != nil {
+		t.Fatal(err)
+	}
+	return state.PendingRequestID
+}
+
+func recordedUseRequestIDs(state *skillTrialTestServer) []string {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	ids := make([]string, 0, len(state.useRequests))
+	for _, body := range state.useRequests {
+		ids = append(ids, body["requestId"].(string))
+	}
+	return ids
+}
+
+// 脚本结果未知后切 CLI:未确认幂等键必须被接管并复用,服务端按同一键
+// 回放旧结果;权威结果送达后才清掉脚本文件里的副本,下一次使用换新键。
+func TestSkillUseReplaysScriptPendingRequestId(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+
+	home := t.TempDir()
+	writeScriptTrialFile(t, home, "44444444-4444-4444-8444-444444444444", "script-req-1")
+
+	store := securestore.NewMemory()
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, store,
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("use over a script pending failed: exit=%d envelope=%#v", exit, envelope)
+	}
+	if ids := recordedUseRequestIDs(state); len(ids) != 1 || ids[0] != "script-req-1" {
+		t.Fatalf("CLI must replay the script's pending request id, got %v", ids)
+	}
+	if pending := readScriptPendingRequestID(t, home); pending != "" {
+		t.Fatalf("script pending copy must be cleared after the authoritative result, got %q", pending)
+	}
+
+	exit, _, _ = executeSkillTrialCommand(t, state.server, home, store,
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 {
+		t.Fatalf("second use failed")
+	}
+	if ids := recordedUseRequestIDs(state); len(ids) != 2 || ids[1] == "script-req-1" {
+		t.Fatalf("a fresh use must use a fresh request id, got %v", ids)
+	}
+}
+
+// 响应未知(服务端 500)时未确认键保留:CLI 重试仍复用同一键,
+// 不会对同一使用发第二个键。
+func TestSkillUseKeepsScriptPendingWhenResponseLost(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+	state.mu.Lock()
+	state.trialUseFailures = 1
+	state.mu.Unlock()
+
+	home := t.TempDir()
+	writeScriptTrialFile(t, home, "44444444-4444-4444-8444-444444444444", "script-req-1")
+
+	store := securestore.NewMemory()
+	exit, _, _ := executeSkillTrialCommand(t, state.server, home, store,
+		"skill", "use", downloadableProductID,
+	)
+	if exit == 0 {
+		t.Fatal("use must fail while the response is unknown")
+	}
+	if pending := readScriptPendingRequestID(t, home); pending != "script-req-1" {
+		t.Fatalf("unknown outcome must keep the script pending key, got %q", pending)
+	}
+
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, store,
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("retry after the lost response failed: exit=%d envelope=%#v", exit, envelope)
+	}
+	if ids := recordedUseRequestIDs(state); len(ids) != 2 || ids[1] != "script-req-1" {
+		t.Fatalf("the retry must replay the same pending key, got %v", ids)
+	}
+	if pending := readScriptPendingRequestID(t, home); pending != "" {
+		t.Fatalf("script pending copy must be cleared after the retry succeeds, got %q", pending)
 	}
 }
 

@@ -175,19 +175,51 @@ class TrialScriptTestCase(unittest.TestCase):
     # F5 回归:Windows 共享冲突按"锁被占"处理
     # ------------------------------------------------------------------
 
-    def test_lock_treats_permission_error_as_contended(self):
-        real_open = os.open
+    def test_lock_treats_shared_violation_as_contended_and_times_out(self):
+        # Windows 共享冲突:os.open 报 PermissionError 但锁文件存在 →
+        # 按"被占"重试,并在有界时间内超时,而不是卡死或空转。
+        import types
 
-        def contended_open(path, flags, *args, **kwargs):
-            if path.endswith(".lock") and not getattr(contended_open, "raised", False):
-                contended_open.raised = True
-                raise PermissionError("sharing violation")
-            return real_open(path, flags, *args, **kwargs)
+        lock_path = trial.trial_state_path(PRODUCT_ID) + ".lock"
+        os.makedirs(os.path.dirname(lock_path), mode=0o700, exist_ok=True)
+        with open(lock_path, "w", encoding="utf-8") as handle:
+            handle.write("other-pid")
+        fresh = trial.time.time()
+        real_stat = trial.os.stat
 
-        with mock.patch.object(trial.os, "open", side_effect=contended_open):
-            with trial.ProductLock(PRODUCT_ID):
-                pass
-        self.assertFalse(os.path.exists(trial.trial_state_path(PRODUCT_ID) + ".lock"))
+        def fresh_lock_stat(path, *args, **kwargs):
+            if str(path).endswith(".lock"):
+                return types.SimpleNamespace(st_mtime=fresh)
+            return real_stat(path, *args, **kwargs)
+
+        with mock.patch.object(trial.os, "open", side_effect=PermissionError("sharing violation")), \
+                mock.patch.object(trial.os, "stat", side_effect=fresh_lock_stat), \
+                mock.patch.object(trial, "LOCK_WAIT_SECONDS", 0.4):
+            started = trial.time.time()
+            with self.assertRaises(trial.Failure) as caught:
+                with trial.ProductLock(PRODUCT_ID):
+                    pass
+        self.assertEqual(caught.exception.code, "STATE_LOCK_BUSY")
+        self.assertLess(trial.time.time() - started, 5, "must time out promptly")
+
+    def test_lock_fails_fast_when_creation_is_not_permitted(self):
+        # 无权创建(目录不可写):锁文件不存在,必须立即报权限错误,
+        # 不得进入重试循环。
+        real_stat = trial.os.stat
+
+        def stat_missing(path, *args, **kwargs):
+            if str(path).endswith(".lock"):
+                raise FileNotFoundError(path)
+            return real_stat(path, *args, **kwargs)
+
+        with mock.patch.object(trial.os, "open", side_effect=PermissionError("denied")), \
+                mock.patch.object(trial.os, "stat", side_effect=stat_missing):
+            started = trial.time.time()
+            with self.assertRaises(trial.Failure) as caught:
+                with trial.ProductLock(PRODUCT_ID):
+                    pass
+        self.assertEqual(caught.exception.code, "STATE_LOCK_PERMISSION_DENIED")
+        self.assertLess(trial.time.time() - started, 2, "must fail fast")
 
     def test_lock_steals_stale_lock_files(self):
         lock_path = trial.trial_state_path(PRODUCT_ID) + ".lock"
