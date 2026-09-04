@@ -3,7 +3,9 @@ package command
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
@@ -28,11 +31,20 @@ type skillTrialTestServer struct {
 	server        *httptest.Server
 	archiveDigest string
 	archive       []byte
+	// grantRequests records the installId of every trial-grants request in
+	// order, and grantedInstallIDs remembers which ones already received a
+	// secret so replays stay idempotent (mirrors the real API contract).
+	// useRequests records every trial-use body so tests can assert the
+	// idempotency key; trialUseFailures forces that many 500 responses first.
+	grantRequests     []string
+	grantedInstallIDs map[string]bool
+	useRequests       []map[string]any
+	trialUseFailures  int
 }
 
 func newSkillTrialTestServer(t *testing.T) *skillTrialTestServer {
 	t.Helper()
-	state := &skillTrialTestServer{trialLimit: 2, paymentStatus: "PENDING"}
+	state := &skillTrialTestServer{trialLimit: 2, paymentStatus: "PENDING", grantedInstallIDs: map[string]bool{}}
 	state.archive = downloadableSkillArchive(t)
 	state.archiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.archive))
 	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
@@ -60,20 +72,44 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 			writer.WriteHeader(http.StatusUnauthorized)
 			return
 		}
-		writeJSONResponse(writer, map[string]any{
-			"installId": "11111111-1111-4111-8111-111111111111", "limitUses": s.trialLimit,
-			"remainingUses": s.trialLimit, "secret": skillTrialSecret,
-		})
+		var body struct {
+			InstallID string `json:"installId"`
+		}
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		s.mu.Lock()
+		s.grantRequests = append(s.grantRequests, body.InstallID)
+		issued := s.grantedInstallIDs[body.InstallID]
+		s.grantedInstallIDs[body.InstallID] = true
+		limit := s.trialLimit
+		s.mu.Unlock()
+		response := map[string]any{
+			"installId": body.InstallID, "limitUses": limit, "remainingUses": limit,
+		}
+		if !issued {
+			response["secret"] = skillTrialSecret
+		}
+		writeJSONResponse(writer, response)
 	case request.URL.Path == "/v1/skills/"+downloadableProductID+"/trial-use" && request.Method == http.MethodPost:
 		if request.Header.Get("Authorization") != "" {
 			writer.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		var useBody map[string]any
+		_ = json.NewDecoder(request.Body).Decode(&useBody)
 		s.mu.Lock()
+		s.useRequests = append(s.useRequests, useBody)
+		forced := s.trialUseFailures > 0
+		if forced {
+			s.trialUseFailures--
+		}
 		s.grantUses++
 		used := s.grantUses
 		limit := s.trialLimit
 		s.mu.Unlock()
+		if forced {
+			writer.WriteHeader(http.StatusInternalServerError)
+			return
+		}
 		if used <= limit {
 			writeJSONResponse(writer, map[string]any{
 				"allowed": true, "remainingUses": limit - used, "limitUses": limit, "reason": nil, "purchaseUrl": nil,
@@ -227,6 +263,291 @@ func TestPaidTrialSkillInstallsAnonymouslyWithGate(t *testing.T) {
 	state.mu.Unlock()
 	if uses != 0 {
 		t.Fatalf("trial install unexpectedly consumed a trial use: %d", uses)
+	}
+}
+
+// 免 CLI 安装脚本留下的明文凭证必须被 CLI 收编:同机两条安装路共用同一个
+// grant,不得再发第二份试用。
+func TestSkillInstallAdoptsScriptTrialCredential(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+
+	home := t.TempDir()
+	scriptInstallID := "22222222-2222-4222-8222-222222222222"
+	trialDir := filepath.Join(home, ".viceme", "trial")
+	if err := os.MkdirAll(trialDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	scriptCredential := fmt.Sprintf(`{"installId":%q,"secret":"script-secret","productId":%q,"market":"cn"}`, scriptInstallID, downloadableProductID)
+	if err := os.WriteFile(filepath.Join(trialDir, downloadableProductID+".json"), []byte(scriptCredential), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	store := securestore.NewMemory()
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, store,
+		"skill", "install", downloadableProductID, "--agent", "codex",
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("install over a script credential failed: exit=%d envelope=%#v", exit, envelope)
+	}
+	state.mu.Lock()
+	requests := append([]string(nil), state.grantRequests...)
+	state.mu.Unlock()
+	if len(requests) != 1 || requests[0] != scriptInstallID {
+		t.Fatalf("CLI must adopt the script credential's installId, got grant requests %v", requests)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	trial, _ := data["trial"].(map[string]any)
+	if trial == nil || trial["installId"] != scriptInstallID {
+		t.Fatalf("trial summary did not carry the adopted installId: %#v", trial)
+	}
+
+	// 收编后 use 也走同一凭证:预检正常扣次。
+	exit, envelope, _ = executeSkillTrialCommand(t, state.server, home, store,
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("use after adoption failed: exit=%d envelope=%#v", exit, envelope)
+	}
+
+	// 明文文件保留在原地:脚本路继续可用同一份计数。
+	if _, err := os.Stat(filepath.Join(trialDir, downloadableProductID+".json")); err != nil {
+		t.Fatalf("the script credential file must stay in place: %v", err)
+	}
+}
+
+// 脚本路装过的试用,`viceme skill use` 必须能直接收编明文凭证扣次,
+// 而不是报 SKILL_TRIAL_GRANT_MISSING。
+func TestSkillUseAdoptsScriptTrialCredentialWithoutInstall(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+
+	home := t.TempDir()
+	scriptInstallID := "33333333-3333-4333-8333-333333333333"
+	trialDir := filepath.Join(home, ".viceme", "trial")
+	if err := os.MkdirAll(trialDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	scriptCredential := fmt.Sprintf(`{"installId":%q,"secret":"script-secret","productId":%q,"market":"cn"}`, scriptInstallID, downloadableProductID)
+	if err := os.WriteFile(filepath.Join(trialDir, downloadableProductID+".json"), []byte(scriptCredential), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, securestore.NewMemory(),
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("use over a script-only credential failed: exit=%d envelope=%#v", exit, envelope)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	if data["allowed"] != true {
+		t.Fatalf("adopted use was not allowed: %#v", data)
+	}
+}
+
+func writeScriptTrialFile(t *testing.T, home, installID, pendingRequestID string) {
+	t.Helper()
+	trialDir := filepath.Join(home, ".viceme", "trial")
+	if err := os.MkdirAll(trialDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	payload := map[string]any{
+		"installId": installID, "secret": "script-secret",
+		"productId": downloadableProductID, "market": "cn",
+	}
+	if pendingRequestID != "" {
+		payload["pendingRequestId"] = pendingRequestID
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(trialDir, downloadableProductID+".json"), encoded, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readScriptPendingRequestID(t *testing.T, home string) string {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(home, ".viceme", "trial", downloadableProductID+".json"))
+	if err != nil {
+		t.Fatalf("script trial file missing: %v", err)
+	}
+	var state struct {
+		PendingRequestID string `json:"pendingRequestId"`
+	}
+	if err := json.Unmarshal(raw, &state); err != nil {
+		t.Fatal(err)
+	}
+	return state.PendingRequestID
+}
+
+func recordedUseRequestIDs(state *skillTrialTestServer) []string {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	ids := make([]string, 0, len(state.useRequests))
+	for _, body := range state.useRequests {
+		ids = append(ids, body["requestId"].(string))
+	}
+	return ids
+}
+
+// 脚本结果未知后切 CLI:未确认幂等键必须被接管并复用,服务端按同一键
+// 回放旧结果;权威结果送达后才清掉脚本文件里的副本,下一次使用换新键。
+func TestSkillUseReplaysScriptPendingRequestId(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+
+	home := t.TempDir()
+	writeScriptTrialFile(t, home, "44444444-4444-4444-8444-444444444444", "script-req-1")
+
+	store := securestore.NewMemory()
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, store,
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("use over a script pending failed: exit=%d envelope=%#v", exit, envelope)
+	}
+	if ids := recordedUseRequestIDs(state); len(ids) != 1 || ids[0] != "script-req-1" {
+		t.Fatalf("CLI must replay the script's pending request id, got %v", ids)
+	}
+	if pending := readScriptPendingRequestID(t, home); pending != "" {
+		t.Fatalf("script pending copy must be cleared after the authoritative result, got %q", pending)
+	}
+
+	exit, _, _ = executeSkillTrialCommand(t, state.server, home, store,
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 {
+		t.Fatalf("second use failed")
+	}
+	if ids := recordedUseRequestIDs(state); len(ids) != 2 || ids[1] == "script-req-1" {
+		t.Fatalf("a fresh use must use a fresh request id, got %v", ids)
+	}
+}
+
+// 响应未知(服务端 500)时未确认键保留:CLI 重试仍复用同一键,
+// 不会对同一使用发第二个键。
+func TestSkillUseKeepsScriptPendingWhenResponseLost(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+	state.mu.Lock()
+	state.trialUseFailures = 1
+	state.mu.Unlock()
+
+	home := t.TempDir()
+	writeScriptTrialFile(t, home, "44444444-4444-4444-8444-444444444444", "script-req-1")
+
+	store := securestore.NewMemory()
+	exit, _, _ := executeSkillTrialCommand(t, state.server, home, store,
+		"skill", "use", downloadableProductID,
+	)
+	if exit == 0 {
+		t.Fatal("use must fail while the response is unknown")
+	}
+	if pending := readScriptPendingRequestID(t, home); pending != "script-req-1" {
+		t.Fatalf("unknown outcome must keep the script pending key, got %q", pending)
+	}
+
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, store,
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("retry after the lost response failed: exit=%d envelope=%#v", exit, envelope)
+	}
+	if ids := recordedUseRequestIDs(state); len(ids) != 2 || ids[1] != "script-req-1" {
+		t.Fatalf("the retry must replay the same pending key, got %v", ids)
+	}
+	if pending := readScriptPendingRequestID(t, home); pending != "" {
+		t.Fatalf("script pending copy must be cleared after the retry succeeds, got %q", pending)
+	}
+}
+
+// Go 的接管/清理必须与脚本共用同一把 O_EXCL 状态锁:脚本进程持锁期间
+// 有界等待并失败,而不是读到撕裂 JSON 生成新键;陈旧锁会被抢占。
+func TestAdoptScriptTrialPendingRespectsScriptLock(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+
+	home := t.TempDir()
+	writeScriptTrialFile(t, home, "44444444-4444-4444-8444-444444444444", "script-req-1")
+	lockPath := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json.lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, []byte("script-pid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	originalWait := scriptTrialLockWait
+	scriptTrialLockWait = 300 * time.Millisecond
+	defer func() { scriptTrialLockWait = originalWait }()
+
+	started := time.Now()
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, securestore.NewMemory(),
+		"skill", "use", downloadableProductID,
+	)
+	if exit == 0 {
+		t.Fatal("use must fail while the script route holds the state lock")
+	}
+	failure, _ := envelope["error"].(map[string]any)
+	if time.Since(started) > 5*time.Second || failure["code"] != "SKILL_TRIAL_PENDING_ADOPT_FAILED" {
+		t.Fatalf("use must give up on the contended script lock promptly: %v %#v", time.Since(started), envelope)
+	}
+	if ids := recordedUseRequestIDs(state); len(ids) != 0 {
+		t.Fatalf("no trial use may be sent while the state lock is held, got %v", ids)
+	}
+
+	// 释放锁后接管恢复正常:同一键回放。
+	if err := os.Remove(lockPath); err != nil {
+		t.Fatal(err)
+	}
+	exit, envelope, _ = executeSkillTrialCommand(t, state.server, home, securestore.NewMemory(),
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("use must succeed after the script lock is released: exit=%d envelope=%#v", exit, envelope)
+	}
+	if ids := recordedUseRequestIDs(state); len(ids) != 1 || ids[0] != "script-req-1" {
+		t.Fatalf("use must replay the script's pending key after lock release, got %v", ids)
+	}
+}
+
+func TestAdoptScriptTrialPendingStealsStaleScriptLock(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+
+	home := t.TempDir()
+	writeScriptTrialFile(t, home, "44444444-4444-4444-8444-444444444444", "script-req-1")
+	lockPath := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json.lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, []byte("dead-pid"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stale := time.Now().Add(-scriptTrialLockStale - time.Minute)
+	if err := os.Chtimes(lockPath, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, securestore.NewMemory(),
+		"skill", "use", downloadableProductID,
+	)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("use must steal the stale script lock and proceed: exit=%d envelope=%#v", exit, envelope)
+	}
+	if ids := recordedUseRequestIDs(state); len(ids) != 1 || ids[0] != "script-req-1" {
+		t.Fatalf("use must replay the pending key after stealing the stale lock, got %v", ids)
+	}
+	if _, err := os.Stat(lockPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("the stale lock must be cleaned up, stat err=%v", err)
 	}
 }
 
