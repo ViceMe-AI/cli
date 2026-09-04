@@ -926,6 +926,52 @@ type WebsiteReplicaProduct struct {
 	PriceCents int    `json:"priceCents"`
 }
 
+type WebsiteReplicaVersionReference struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
+}
+
+type WebsiteReplicaPageReleaseReference struct {
+	ID      string `json:"id"`
+	Version int    `json:"version"`
+}
+
+type WebsiteReplicaVersionPair struct {
+	ID             string                              `json:"id"`
+	ReplicaVersion WebsiteReplicaVersionReference      `json:"replicaVersion"`
+	WorkRevisionID string                              `json:"workRevisionId"`
+	PageRelease    *WebsiteReplicaPageReleaseReference `json:"pageRelease"`
+	CreatedAt      string                              `json:"createdAt"`
+}
+
+type WebsiteReplicaRollbackProjection struct {
+	ActivePair     *WebsiteReplicaVersionPair  `json:"activePair"`
+	AvailablePairs []WebsiteReplicaVersionPair `json:"availablePairs"`
+}
+
+type WebsiteReplicaPublicationRollbackState struct {
+	ID       string                           `json:"id"`
+	Status   string                           `json:"status"`
+	Rollback WebsiteReplicaRollbackProjection `json:"rollback"`
+}
+
+type WebsiteReplicaRollbackRequest struct {
+	ClientRequestID      string `json:"clientRequestId"`
+	TargetPairID         string `json:"targetPairId"`
+	ExpectedActivePairID string `json:"expectedActivePairId"`
+}
+
+type WebsiteReplicaRollback struct {
+	ID              string                    `json:"id"`
+	PublicationID   string                    `json:"publicationId"`
+	ClientRequestID string                    `json:"clientRequestId"`
+	PreviousPair    WebsiteReplicaVersionPair `json:"previousPair"`
+	ActivePair      WebsiteReplicaVersionPair `json:"activePair"`
+	Product         WebsiteReplicaProduct     `json:"product"`
+	PriceUnchanged  bool                      `json:"priceUnchanged"`
+	RolledBackAt    string                    `json:"rolledBackAt"`
+}
+
 type CompleteWebsiteReplicaUploadResponse struct {
 	ReplicaID   string                   `json:"replicaId"`
 	VersionID   string                   `json:"versionId"`
