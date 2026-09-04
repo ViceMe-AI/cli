@@ -22,7 +22,7 @@
 - `MERCHANT_SUSPENDED`：先区分是否已经创建发布记录。新发布尚未创建记录时，交回 `$become-a-creator` 选择其他有效商家，再用相同来源和所选 `--merchant <merchant-account-id>` 重新发起。恢复已有 Publication 时，原商家不可更换；停止并用白话说明需要等待工作人员恢复该商家。用户明确希望另起一次独立发布时，才可以确认后使用 `--new-listing` 开始新的发布；不得在同一 Publication 上静默切换商家。
 - `PUBLICATION_MERCHANT_CHANGED`：本地恢复状态、所选商家与服务端 Publication 不一致。不得覆盖恢复状态或创建替代项；检查同一 Publication 并解决所有权不一致。
 - `PUBLICATION_RECOVERY_PERMISSION_REQUIRED`：进程不能写本地发布恢复目录。为原命令申请准确的文件权限，并用同一来源和价格重试。不得删除锁文件或创建另一发布。
-- 发布或取消命令的 `ok: true` 结果里出现 `warnings`（如 `PUBLICATION_RECOVERY_RETIRE_FAILED` 或 `PUBLICATION_RECOVERY_CLEANUP_FAILED`）：服务端已达到终态，发布或取消本身已经成功，命令结果不是失败。照常收尾（取公开链接、汇报完成），同时用一句白话向用户转述警告（本地发布恢复记录清理失败，不影响结果；之后任意一次发布或恢复命令会自动重试清理）。不得把 warning 当错误重试发布，也不得向用户报告发布失败。
+- 发布或取消命令的 `ok: true` 结果里出现 `warnings`（如 `PUBLICATION_RECOVERY_RETIRE_FAILED` 或 `PUBLICATION_RECOVERY_CLEANUP_FAILED`）：服务端已达到终态，发布或取消本身已经成功，命令结果不是失败。照常收尾（取公开链接、汇报完成），同时用一句白话向用户转述警告（本地发布恢复记录清理失败，不影响结果；之后任意一次发布或恢复命令会自动重试清理）。不得把 warning 当错误重试发布，也不得向用户报告发布失败。警告文案已带恢复目录的绝对路径，仅作说明；不得据此定位、检查或修复该目录。
 - `SKILL_BINDING_PERMISSION_REQUIRED`：允许原命令写入 `.viceme/skill.json`、相邻 ZIP sidecar 或报告的端点范围索引目录，再用同一来源身份重试。
 - `SKILL_BINDING_SCOPE_MISMATCH` 或 `SKILL_LISTING_BINDING_OWNER_MISMATCH`：不得查看或切换环境，也不得覆盖原作者 Listing。询问用户是否明确希望使用 `--new-listing` 在当前 CLI 上下文创建独立 Work。
 - `SKILL_LISTING_SOURCE_AMBIGUOUS`：展示候选 Listings，请用户选择后使用 `skill listing bind`；不得根据标题或文件名猜测。

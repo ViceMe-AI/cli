@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -201,7 +202,10 @@ func BuildRemoteArchive(sourcePath string) (Package, error) {
 	if err != nil {
 		return Package{}, err
 	}
-	manifest, err := manifestFromEntries(entries)
+	if err := validateEntryLimits(entries); err != nil {
+		return Package{}, err
+	}
+	manifest, err := manifestFromEntries(entries, abs)
 	if err != nil {
 		return Package{}, err
 	}
@@ -248,7 +252,10 @@ func build(sourcePath, archiveSubpath string) (Package, error) {
 			return Package{}, err
 		}
 	}
-	manifest, err := manifestFromEntries(entries)
+	if err := validateEntryLimits(entries); err != nil {
+		return Package{}, err
+	}
+	manifest, err := manifestFromEntries(entries, abs)
 	if err != nil {
 		return Package{}, err
 	}
@@ -324,7 +331,7 @@ func selectArchiveSubpath(entries []sourceEntry, subpath string) ([]sourceEntry,
 	if err != nil {
 		return nil, err
 	}
-	if _, err := manifestFromEntries(normalizedEntries); err != nil {
+	if _, err := manifestFromEntries(normalizedEntries, subpath); err != nil {
 		return nil, output.Validation("GITHUB_PATH_SKILL_MISSING", "the selected GitHub directory must contain SKILL.md at its root").WithCause(err)
 	}
 	return normalizedEntries, nil
@@ -634,7 +641,7 @@ func writeDeterministicZip(entries []sourceEntry) ([]byte, error) {
 	return buffer.Bytes(), nil
 }
 
-func manifestFromEntries(entries []sourceEntry) (api.SkillPublicationManifest, error) {
+func manifestFromEntries(entries []sourceEntry, sourcePath string) (api.SkillPublicationManifest, error) {
 	var skill []byte
 	for _, entry := range entries {
 		if entry.name == "SKILL.md" {
@@ -648,6 +655,13 @@ func manifestFromEntries(entries []sourceEntry) (api.SkillPublicationManifest, e
 	frontmatter, err := parseSkillFrontmatter(skill)
 	if err != nil {
 		return api.SkillPublicationManifest{}, err
+	}
+	if err := validateFrontmatterLimits(frontmatter); err != nil {
+		return api.SkillPublicationManifest{}, err
+	}
+	if !skillNamePattern.MatchString(frontmatter.Name) {
+		return api.SkillPublicationManifest{}, output.Validation("SKILL_PACKAGE_NAME_INVALID",
+			"SKILL.md name is the install identifier and must use lowercase letters, digits, and single hyphens"+suggestedSkillNameSuffix(sourcePath))
 	}
 	// A missing frontmatter description no longer blocks the upload: derive a
 	// deterministic fallback from the SKILL.md body so buyer-facing copy stays
@@ -668,6 +682,67 @@ func manifestFromEntries(entries []sourceEntry) (api.SkillPublicationManifest, e
 			Sale: api.SkillPublicationSale{Currency: "CNY", PriceMinor: nil, Entitlement: "PERMANENT_DOWNLOAD"},
 		},
 	}, nil
+}
+
+// The frontmatter checks below mirror the server-side skill-package-validator
+// and its single-sourced constants in packages/contracts/src/skill-publications.ts
+// (SKILL_PACKAGE_NAME_PATTERN and the name/description lengths). The entry
+// limits reuse the Max* constants above, which carry the same values. Keep the
+// copies aligned when either side changes.
+
+var skillNamePattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
+
+const (
+	skillNameMaxRunes        = 64
+	skillDescriptionMaxRunes = 500
+)
+
+func validateFrontmatterLimits(frontmatter skillFrontmatter) error {
+	if utf8.RuneCountInString(frontmatter.Name) > skillNameMaxRunes {
+		return output.Validation("SKILL_FRONTMATTER_INVALID", fmt.Sprintf("SKILL.md name must be at most %d characters", skillNameMaxRunes))
+	}
+	if utf8.RuneCountInString(frontmatter.Description) > skillDescriptionMaxRunes {
+		return output.Validation("SKILL_FRONTMATTER_INVALID", fmt.Sprintf("SKILL.md description must be at most %d characters", skillDescriptionMaxRunes))
+	}
+	return nil
+}
+
+// suggestedSkillNameSuffix derives a valid install identifier from the source
+// directory or archive name so the error itself carries a usable fix.
+func suggestedSkillNameSuffix(sourcePath string) string {
+	base := strings.ToLower(filepath.Base(sourcePath))
+	base = strings.TrimSuffix(base, filepath.Ext(base))
+	var builder strings.Builder
+	for _, character := range base {
+		if (character >= 'a' && character <= 'z') || (character >= '0' && character <= '9') {
+			builder.WriteRune(character)
+		} else if builder.Len() > 0 && !strings.HasSuffix(builder.String(), "-") {
+			builder.WriteByte('-')
+		}
+	}
+	suggestion := strings.Trim(builder.String(), "-")
+	if suggestion == "" || !skillNamePattern.MatchString(suggestion) {
+		return ""
+	}
+	return fmt.Sprintf("; for example rename it to %q based on this source, and adjust the display title via the publication draft update instead", suggestion)
+}
+
+// validateEntryLimits enforces the uncompressed budgets locally so a highly
+// compressible oversized file fails before any upload, mirroring the server's
+// per-file and total uncompressed checks. The file count itself is already
+// enforced while reading the source.
+func validateEntryLimits(entries []sourceEntry) error {
+	total := 0
+	for _, entry := range entries {
+		if len(entry.data) > MaxFileBytes {
+			return output.Validation("SKILL_PACKAGE_FILE_TOO_LARGE", "Skill package file exceeds the size limit: "+entry.name)
+		}
+		total += len(entry.data)
+	}
+	if total > MaxUncompressedBytes {
+		return output.Validation("SKILL_PACKAGE_TOO_LARGE", "Skill package exceeds the uncompressed size limit")
+	}
+	return nil
 }
 
 func parseSkillFrontmatter(data []byte) (skillFrontmatter, error) {

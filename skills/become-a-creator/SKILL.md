@@ -29,34 +29,41 @@ JSON 或内部状态，且不得告诉用户正在使用哪个内置 Skill。
 
 ## 固定检查顺序
 
-1. 第一条进程命令运行 `viceme auth status`。之前不运行 Merchant 命令、环境检查或帮助
-   命令，也不并行执行。
-2. 未登录或缺少 `merchant-commerce:read`、`merchant-commerce:write`、
-   `skill-publication:read`、`skill-publication:write` 中任一权限时，只启动一个等待式登录：
+1. 第一条进程命令运行一次 `viceme merchant qualification`。之前不运行 Merchant 命令、
+   环境检查或帮助命令，也不并行执行。该命令一次返回登录状态、权限与当前用户拥有的
+   **全部**有效商家，并带 `next` 分发字段；流程中不拆开单独运行 `viceme auth status`
+   或 `viceme merchant accounts`。
+2. `next=LOGIN`（未登录，或缺少 `merchant-commerce:read`、`merchant-commerce:write`、
+   `skill-publication:read`、`skill-publication:write` 中任一权限）时，只启动一个等待式登录：
    - 直接申请运行 `viceme auth login --purpose creator-onboarding`，并告诉用户
      “需要登录，我现在为你打开‘登录并申请成为创作者’页面。”
    - 玩法守卫运行普通 `viceme auth login`，并告诉用户
      “需要重新登录，我现在为你打开登录页面。”
-3. 用 Bash 后台启动一次 `viceme auth login` 并保存返回的 `task_id`；用一次短时 `TaskOutput` 读取输出，
-   立即用内置 `present_files` 打开本次返回的完整链接。页面打开后立即说：
-   “请在右侧完成登录，完成后我会自动继续。”如果右侧不方便，也可以在外部浏览器打开下面这个链接。
-   同时另起一行用 Markdown 链接格式输出当前命令实际返回的完整链接：`[打开登录页面](https://…)`。
-   提示后必须立刻再次调用 `TaskOutput(task_id=<同一个任务>, timeout=180000)`；只要任务仍在运行，就不得结束当前回合、给出最终答复。
-   应继续对同一个 `task_id` 调用 `TaskOutput`，且不得启动第二次登录。`present_files` 返回也不代表登录完成。
-   不能把一次 `TaskOutput` 的读取超时当成登录流程完成，也不得要求用户回复“已登录”。
-4. 只有登录命令成功返回后，才说“登录完成，我继续确认创作者资格。”并再运行一次 `viceme auth status`，
-   确认同一用户和四项权限齐全。
-5. 运行一次 `viceme merchant accounts`。只有当前用户通过
-   `MerchantAccountMember(role=OWNER)` 拥有的有效商家代表创作者资格。一个有效商家直接
-   返回；多个时展示名称让用户选择，不得猜测。
-6. 没有有效商家时运行一次 `viceme merchant onboarding status`。已有申请就按状态处理，
+   - 用 Bash 后台启动一次 `viceme auth login` 并保存返回的 `task_id`；用一次短时 `TaskOutput` 读取输出，
+     立即用内置 `present_files` 打开本次返回的完整链接。页面打开后立即说：
+     “请在右侧完成登录，完成后我会自动继续。”如果右侧不方便，也可以在外部浏览器打开下面这个链接。
+     同时另起一行用 Markdown 链接格式输出当前命令实际返回的完整链接：`[打开登录页面](https://…)`。
+     提示后必须立刻再次调用 `TaskOutput(task_id=<同一个任务>, timeout=180000)`；只要任务仍在运行，就不得结束当前回合、给出最终答复。
+     应继续对同一个 `task_id` 调用 `TaskOutput`，且不得启动第二次登录。`present_files` 返回也不代表登录完成。
+     不能把一次 `TaskOutput` 的读取超时当成登录流程完成，也不得要求用户回复“已登录”。
+   - 只有登录命令成功返回后，才说“登录完成，我继续确认创作者资格。”并重跑一次
+     `viceme merchant qualification`，确认 `next` 不再是 `LOGIN`。
+3. `next=APPLY_CREATOR`（登录有效但没有有效 OWNER 商家）时，运行一次
+   `viceme merchant onboarding status`。已有申请就按状态处理，
    不创建平行申请；没有申请才进入普通申请。
+4. `next=SELECT_MERCHANT`（返回多个有效商家）时，展示返回列表中的名称让用户选择，
+   不得猜测、不得取第一个。
+5. `next=OK` 表示当前用户拥有唯一有效商家，直接以返回的商家继续并交回调用玩法。
+
+只有当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有的有效商家才代表创作者资格；
+`qualification` 返回的商家列表已按此过滤。
 
 `CreatorAccount` 或 `creatorIdentity.status=DRAFT` 只是稳定身份与路由，不授予经营权限，
 也不能单独证明已经提交申请。
 
-商家账户首次返回可重试的内部失败时，立即原样重试一次读取；第二次失败就停止，用白话说
-“暂时没能读取你的创作者信息，请稍后再试。”不得 sleep、轮询或读取玩法错误说明。
+商家列表读取的“可重试内部失败立即原样重试一次”已内建在 `viceme merchant qualification`
+中；第二次失败命令自行报错，用白话说“暂时没能读取你的创作者信息，请稍后再试。”
+流程不得自行 sleep、轮询或额外重试。
 
 ## 普通申请
 

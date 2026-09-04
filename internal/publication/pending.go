@@ -17,19 +17,23 @@ import (
 )
 
 type Pending struct {
-	SchemaVersion     int                         `json:"schemaVersion"`
-	PublicationID     string                      `json:"publicationId"`
-	ClientRequestID   string                      `json:"clientRequestId"`
-	MerchantAccountID string                      `json:"merchantAccountId"`
-	Fingerprint       string                      `json:"fingerprint"`
-	SourcePath        string                      `json:"sourcePath"`
-	PriceMinor        *int                        `json:"priceMinor"`
-	TrialUseLimit     *int                        `json:"trialUseLimit"`
-	ArtifactDigest    string                      `json:"artifactDigest"`
-	Source            api.SkillPublicationSource  `json:"source"`
-	Edition           api.SkillPublicationEdition `json:"edition"`
-	CreatedAt         time.Time                   `json:"createdAt"`
-	UpdatedAt         time.Time                   `json:"updatedAt"`
+	SchemaVersion     int    `json:"schemaVersion"`
+	PublicationID     string `json:"publicationId"`
+	ClientRequestID   string `json:"clientRequestId"`
+	MerchantAccountID string `json:"merchantAccountId"`
+	Fingerprint       string `json:"fingerprint"`
+	SourcePath        string `json:"sourcePath"`
+	PriceMinor        *int   `json:"priceMinor"`
+	TrialUseLimit     *int   `json:"trialUseLimit"`
+	// TrialDisabled records an explicit --trial-use-limit 0: it must reach the
+	// server as an explicit null ("disable"), never as an omitted field
+	// ("keep"), so an inherited live trial can actually be turned off.
+	TrialDisabled  bool                        `json:"trialDisabled,omitempty"`
+	ArtifactDigest string                      `json:"artifactDigest"`
+	Source         api.SkillPublicationSource  `json:"source"`
+	Edition        api.SkillPublicationEdition `json:"edition"`
+	CreatedAt      time.Time                   `json:"createdAt"`
+	UpdatedAt      time.Time                   `json:"updatedAt"`
 }
 
 type PendingStore struct {
@@ -44,6 +48,40 @@ type Intent struct {
 	PublicationID   string `json:"publicationId,omitempty"`
 }
 
+// sweepStaleIntents removes INTENT files (never the publicationId-keyed
+// recovery snapshots that share this directory) that are older than maxAge
+// AND never progressed to a publication — those are pure orphans from
+// abandoned creates. An intent that carries a publicationId may still back a
+// legitimate --resume, so it is left to the use-time terminal-state check.
+func (s PendingStore) sweepStaleIntents(maxAge time.Duration) {
+	now := time.Now()
+	if s.Now != nil {
+		now = s.Now()
+	}
+	entries, err := os.ReadDir(s.Directory)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasPrefix(entry.Name(), "intent-") || filepath.Ext(entry.Name()) != ".json" {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil || now.Sub(info.ModTime()) < maxAge {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(s.Directory, entry.Name()))
+		if err != nil {
+			continue
+		}
+		var intent Intent
+		if json.Unmarshal(data, &intent) != nil || intent.PublicationID != "" {
+			continue
+		}
+		_ = os.Remove(filepath.Join(s.Directory, entry.Name()))
+	}
+}
+
 func (s PendingStore) LoadOrCreateIntent(fingerprint string, newID func() string) (Intent, error) {
 	if !isHexDigest(fingerprint) {
 		return Intent{}, output.Validation("PUBLICATION_INTENT_INVALID", "publication intent fingerprint is invalid")
@@ -51,6 +89,10 @@ func (s PendingStore) LoadOrCreateIntent(fingerprint string, newID func() string
 	if err := os.MkdirAll(s.Directory, 0o700); err != nil {
 		return Intent{}, recoveryOperationError(s.Directory, "PUBLICATION_INTENT_SAVE_FAILED", "could not create publication recovery directory", err)
 	}
+	// Opportunistic sweep: intents whose retire failed (agent sandboxes deny
+	// the write) would otherwise accumulate forever. Best effort only —
+	// failures never block the publish flow.
+	s.sweepStaleIntents(30 * 24 * time.Hour)
 	intentLock := flock.New(s.intentLockFilename(fingerprint))
 	if err := intentLock.Lock(); err != nil {
 		return Intent{}, recoveryOperationError(s.Directory, "PUBLICATION_INTENT_LOCK_FAILED", "could not lock publication intent", err)

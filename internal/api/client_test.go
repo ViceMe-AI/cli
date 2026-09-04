@@ -272,3 +272,24 @@ func TestNormalizeAPIOriginRejectsCredentialAndRemoteHTTP(t *testing.T) {
 		t.Fatalf("unexpected normalized origin %q: %v", origin, err)
 	}
 }
+
+func TestDisableListingTrialUseLimitSendsExplicitNull(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Method != http.MethodPatch || request.URL.Path != "/v1/creator/skill-publications/22222222-2222-4222-8222-222222222222/listing-draft" {
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+		}
+		body, _ := io.ReadAll(request.Body)
+		if strings.TrimSpace(string(body)) != `{"trialUseLimit":null}` {
+			t.Fatalf("the disable patch must send an explicit null, got: %s", body)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(writer, `{"id":"22222222-2222-4222-8222-222222222222","listingId":"33333333-3333-4333-8333-333333333333","merchantAccountId":"44444444-4444-4444-8444-444444444444","draftRevision":1,"status":"DRAFT","manifest":{},"draft":{},"reviewRevision":0,"reviewDigest":null,"uploads":[],"editions":[],"nextAction":null,"failureCode":null,"createdAt":"2026-09-04T00:00:00.000Z","updatedAt":"2026-09-04T00:00:00.000Z"}`)
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
+	if _, err := client.DisableListingTrialUseLimit(context.Background(), "22222222-2222-4222-8222-222222222222"); err != nil {
+		t.Fatal(err)
+	}
+}

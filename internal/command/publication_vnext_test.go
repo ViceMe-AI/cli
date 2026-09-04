@@ -41,7 +41,7 @@ func TestPublicationCommandRecoversCreateResponseLossAndPublishesReviewedDraft(t
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte(`---
-name: Publish Test
+name: publish-test
 description: Publish a deterministic Skill through the vNext contract.
 ---
 
@@ -228,7 +228,7 @@ func TestSkillPublishBindsAdditionalEditionToExplicitListing(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte(`---
-name: Pro Edition
+name: pro-edition
 description: A separate package for the same Work.
 ---
 
@@ -338,7 +338,7 @@ func TestSkillPublishResumeWithoutPriceUploadsMediaWithoutStartingPlatformAnalys
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte(`---
-name: Progressive Publish Test
+name: progressive-publish-test
 description: Verify unpriced media and analysis continuation.
 ---
 
@@ -493,7 +493,7 @@ func TestSkillPublishRequiresExplicitMerchantWhenMultipleAreActive(t *testing.T)
 	if err := os.MkdirAll(source, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("---\nname: Merchant Select\ndescription: Require an explicit Merchant selection.\n---\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte("---\nname: merchant-select\ndescription: Require an explicit Merchant selection.\n---\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	store := securestore.NewMemory()
@@ -543,7 +543,7 @@ func TestSkillPrepareReturnsOwnedCandidatesForAmbiguousDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte(`---
-name: Candidate Test
+name: candidate-test
 description: Resolve an ambiguous stable Skill listing identity.
 ---
 

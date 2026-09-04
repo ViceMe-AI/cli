@@ -90,7 +90,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "become-a-creator",
 			machine: []string{
-				"viceme auth status", "viceme auth login", "present_files", "viceme merchant accounts",
+				"viceme merchant qualification", "viceme auth login", "present_files",
 				"viceme merchant onboarding status", "viceme merchant onboarding apply",
 				"MerchantAccountMember(role=OWNER)",
 			},
@@ -313,12 +313,13 @@ func TestCreatorOnboardingStopsAtHumanReviewAndUsesPlainLanguage(t *testing.T) {
 	}
 	text := string(onboarding)
 	for _, required := range []string{
-		"第一条进程命令运行 `viceme auth status`",
+		"第一条进程命令运行一次 `viceme merchant qualification`",
 		"直接申请模式不再确认",
 		"玩法守卫模式",
 		"现在帮你申请成为创作者吗？",
 		"viceme auth login --purpose creator-onboarding",
-		"没有有效商家时运行一次 `viceme merchant onboarding status`",
+		"`next=APPLY_CREATOR`（登录有效但没有有效 OWNER 商家）时，运行一次",
+		"viceme merchant onboarding status",
 		"merchant-commerce:read",
 		"merchant-commerce:write",
 		"creatorIdentity.markdownUrl",
@@ -1197,7 +1198,7 @@ func TestGameplaySkillsDelegateCreatorQualification(t *testing.T) {
 		if !strings.Contains(text, "$become-a-creator") {
 			t.Fatalf("%s does not delegate creator qualification", skillName)
 		}
-		for _, forbidden := range []string{"viceme auth login", "viceme merchant accounts", "viceme merchant onboarding apply"} {
+		for _, forbidden := range []string{"viceme auth login", "viceme merchant accounts", "viceme merchant qualification", "viceme merchant onboarding apply"} {
 			if strings.Contains(text, forbidden) {
 				t.Fatalf("%s duplicates onboarding command %q", skillName, forbidden)
 			}
