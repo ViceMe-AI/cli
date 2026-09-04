@@ -33,6 +33,7 @@ func newReplicaCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newReplicaStatusCommand(runtime))
 	command.AddCommand(newReplicaResumeCommand(runtime))
 	command.AddCommand(newReplicaCancelCommand(runtime))
+	command.AddCommand(newReplicaRollbackCommand(runtime))
 	command.AddCommand(newReplicaInstallCommand(runtime))
 	return command
 }

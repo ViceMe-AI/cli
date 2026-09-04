@@ -992,6 +992,26 @@ func websiteReplicaPublicationPath(publicationID string) string {
 	return "/v1/website-replica-publications/" + url.PathEscape(publicationID)
 }
 
+func (c *Client) GetWebsiteReplicaPublicationRollbackState(ctx context.Context, publicationID string) (WebsiteReplicaPublicationRollbackState, error) {
+	var response WebsiteReplicaPublicationRollbackState
+	endpoint := "/v1/website-replica-publications/" + url.PathEscape(publicationID)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	if err == nil && response.ID != publicationID {
+		err = invalidAPIResponse(errors.New("Website Replica Publication response does not match the request"))
+	}
+	return response, err
+}
+
+func (c *Client) RollbackWebsiteReplicaPublication(ctx context.Context, publicationID string, request WebsiteReplicaRollbackRequest) (WebsiteReplicaRollback, error) {
+	var response WebsiteReplicaRollback
+	endpoint := "/v1/website-replica-publications/" + url.PathEscape(publicationID) + "/rollbacks"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
+	if err == nil && (response.PublicationID != publicationID || response.ClientRequestID != request.ClientRequestID || response.ActivePair.ID != request.TargetPairID || response.PreviousPair.ID != request.ExpectedActivePairID) {
+		err = invalidAPIResponse(errors.New("Website Replica rollback response does not match the request"))
+	}
+	return response, err
+}
+
 func (c *Client) ResolveWebsiteReplica(ctx context.Context, code string) (WebsiteReplicaResolution, error) {
 	return c.resolveWebsiteReplica(ctx, code, "@stored")
 }
