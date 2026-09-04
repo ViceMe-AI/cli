@@ -379,7 +379,7 @@ recovers interrupted activation as one compatible local generation.
 
 ## Development
 
-Requirements: Go 1.23+ and Node.js 22+ for npm packaging checks.
+Requirements: Go 1.23+ and Python 3.9+; Node.js 22+ is required for npm packaging checks.
 
 ```bash
 make check

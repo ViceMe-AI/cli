@@ -28,7 +28,7 @@ The official creator Skills expose one user goal each:
 | `charge-for-your-work` | One-pass website input collection, internal Website Work/access provisioning, and host-code integration for follow or paid unlock | Login and creator application |
 | `let-people-interact` | Three-way danmaku/tip routing, hosted SDK access, default Mounted integration, explicit custom-UI Headless integration, and Website Work selection/publication with an exact canonical Origin for danmaku-bearing routes | Creator qualification, downloadable Skill publication, Website ownership verification, or Website Widget mutation for Tip |
 | `let-others-make-a-copy` | Complete website source packaging, root deployment guide, immutable Replica publication, and creator-site copy entry | Buyer preview, checkout, payment, download, or installation; those belong to the independent `let-me-make-a-copy` Skill |
-| `let-me-make-a-copy` | Regional S3-hosted installation, buyer preview, one confirmation, CLI account or anonymous checkout, bundled-script recovery, verified installation, and deployment handoff | Creator qualification, Replica publication, or creator-site mutation |
+| `let-me-make-a-copy` | Regional S3-hosted installation, buyer preview, one confirmation, CLI account or anonymous checkout, bundled Python 3.9+ recovery, verified installation, and deployment handoff | Creator qualification, Replica publication, or creator-site mutation |
 | `creator-tools` | CLI installation, ordinary login, updates, and diagnostics | Any creator gameplay |
 
 Buyer-side `use-a-skill` and `let-me-make-a-copy` do not use creator qualification.

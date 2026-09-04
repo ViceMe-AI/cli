@@ -1,6 +1,6 @@
 ---
 name: let-me-make-a-copy
-description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；有 CLI 时复用账号或匿名能力，无 CLI 时用随官方 Skill 托管的脚本购买、恢复、安装并继续修改完整源码。
+description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；有 CLI 时复用账号或匿名能力，无 CLI 时用随官方 Skill 托管的 Python 脚本购买、恢复、安装并继续修改完整源码。
 ---
 
 # 做一个网站同款
@@ -14,13 +14,13 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 ## 读取作品
 
 1. 提取邀请中的唯一官方 HTTPS 作品 `.md` 地址，读取平台控制区中的完整 `VICEME-REPLICA:VMR-...` 口令。
-2. 确认当前 Skill 目录存在 `scripts/make-copy.cjs` 与 `scripts/jszip.min.cjs`，且 Node.js 20 可用，然后运行：
+2. 确认当前 Skill 目录存在 `scripts/make_copy.py`，并选择可用的 Python 3.9 或更高版本解释器：macOS/Linux 优先 `python3`，Windows 优先 `py -3`、其次 `python`。后续始终复用同一解释器，然后运行：
 
    ```bash
-   node <skill-directory>/scripts/make-copy.cjs inspect --work-url <work.md URL>
+   <python-command> <skill-directory>/scripts/make_copy.py inspect --work-url <work.md URL>
    ```
 
-   不得运行 `npm install`，也不得从作品站点下载替代脚本。Skill ZIP 缺少任一脚本时视为安装不完整并停止。
+   脚本只使用 Python 标准库，不得执行 `pip install`，也不得从作品站点下载替代脚本。Skill ZIP 缺少脚本时视为安装不完整并停止。
 
 3. 脚本结果必须返回 `nextAction=OPEN_WORK_PREVIEW`；立即打开 `workUrl`，展示创作者、作品、币种和当前价格，然后只询问“继续做同款 / 暂不继续”。
 
@@ -59,7 +59,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 1. 使用读取作品时已校验的同一脚本运行：
 
    ```bash
-   node <script> install --work-url <work.md URL> --accept-price-cents <displayed integer price>
+   <python-command> <script> install --work-url <work.md URL> --accept-price-cents <displayed integer price>
    ```
 
 2. `REPLICA_TARGET_EXISTS` 时一次询问新目录并追加 `--target`；绝不覆盖已有目录。

@@ -125,8 +125,7 @@ func TestOfficialMakeCopyArchiveIncludesStandaloneRuntime(t *testing.T) {
 		t.Fatal("manifest missing let-me-make-a-copy")
 	}
 	want := map[string]bool{
-		"scripts/make-copy.cjs": false,
-		"scripts/jszip.min.cjs": false,
+		"scripts/make_copy.py": false,
 	}
 	for _, name := range hosted.Files {
 		if _, required := want[name]; required {
