@@ -914,6 +914,70 @@ func (c *Client) CompleteWebsiteReplicaUpload(ctx context.Context, replicaID, up
 	return response, err
 }
 
+func (c *Client) GetWebsiteReplicaPublication(ctx context.Context, publicationID string) (WebsiteReplicaPublication, error) {
+	var response WebsiteReplicaPublication
+	endpoint := "/v1/website-replica-publications/" + url.PathEscape(publicationID)
+	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
+	if err == nil && response.ID != publicationID {
+		err = invalidAPIResponse(errors.New("Website Replica Publication response does not match the requested Publication"))
+	}
+	return response, err
+}
+
+// CreateWebsiteReplicaPublication is intentionally optional-auth: the API uses
+// an anonymous request to return AUTHENTICATE_CREATOR without ever issuing an
+// upload capability. Every command after the create/resume boundary remains
+// authenticated.
+func (c *Client) CreateWebsiteReplicaPublication(ctx context.Context, request CreateWebsiteReplicaPublicationRequest) (CreateWebsiteReplicaPublicationResponse, error) {
+	var response CreateWebsiteReplicaPublicationResponse
+	credential := ""
+	if c.Tokens != nil {
+		credential = "@stored"
+	}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replica-publications", request, &response, credential)
+	return response, err
+}
+
+func (c *Client) AuthorizeWebsiteReplicaPublicationSourceUpload(ctx context.Context, publicationID string) (AuthorizeWebsiteReplicaPublicationSourceUploadResponse, error) {
+	var response AuthorizeWebsiteReplicaPublicationSourceUploadResponse
+	endpoint := websiteReplicaPublicationPath(publicationID) + "/source/upload-authorizations"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, struct{}{}, &response, "@stored")
+	if err == nil && response.PublicationID != publicationID {
+		err = invalidAPIResponse(errors.New("Website Replica upload authorization does not match the requested Publication"))
+	}
+	return response, err
+}
+
+func (c *Client) CompleteWebsiteReplicaPublicationSourceUpload(ctx context.Context, publicationID string) (WebsiteReplicaPublication, error) {
+	return c.commandWebsiteReplicaPublication(ctx, publicationID, "source/complete-upload")
+}
+
+func (c *Client) SubmitWebsiteReplicaPublication(ctx context.Context, publicationID string) (WebsiteReplicaPublication, error) {
+	return c.commandWebsiteReplicaPublication(ctx, publicationID, "submit")
+}
+
+func (c *Client) RetryWebsiteReplicaPublication(ctx context.Context, publicationID string) (WebsiteReplicaPublication, error) {
+	return c.commandWebsiteReplicaPublication(ctx, publicationID, "retry")
+}
+
+func (c *Client) CancelWebsiteReplicaPublication(ctx context.Context, publicationID string) (WebsiteReplicaPublication, error) {
+	return c.commandWebsiteReplicaPublication(ctx, publicationID, "cancel")
+}
+
+func (c *Client) commandWebsiteReplicaPublication(ctx context.Context, publicationID, command string) (WebsiteReplicaPublication, error) {
+	var response WebsiteReplicaPublication
+	endpoint := websiteReplicaPublicationPath(publicationID) + "/" + command
+	err := c.doJSON(ctx, http.MethodPost, endpoint, struct{}{}, &response, "@stored")
+	if err == nil && response.ID != publicationID {
+		err = invalidAPIResponse(errors.New("Website Replica command response does not match the requested Publication"))
+	}
+	return response, err
+}
+
+func websiteReplicaPublicationPath(publicationID string) string {
+	return "/v1/website-replica-publications/" + url.PathEscape(publicationID)
+}
+
 func (c *Client) ResolveWebsiteReplica(ctx context.Context, code string) (WebsiteReplicaResolution, error) {
 	return c.resolveWebsiteReplica(ctx, code, "@stored")
 }

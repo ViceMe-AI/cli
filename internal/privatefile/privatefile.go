@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/atomicfile"
 	"github.com/ViceMe-AI/cli/internal/privatepath"
 )
 
@@ -31,6 +32,10 @@ var staleStagingAge = time.Hour
 // RenameFile activates staged writes and is replaced by tests to simulate
 // sandbox denials. It must not be modified concurrently with Write.
 var RenameFile = os.Rename
+
+// ReplaceFile atomically replaces an existing target for fail-closed writes.
+// It is replaced by tests to simulate activation failures.
+var ReplaceFile = atomicfile.Replace
 
 // Write durably writes data to filename as a private file, staging through a
 // temporary file matching tempPattern in the same directory. Staging files
@@ -71,6 +76,39 @@ func Write(filename string, data []byte, tempPattern string) error {
 	// a partial target file; the caller treats the file as untrusted data.
 	if directErr := writeDirect(filename, data); directErr != nil {
 		return errors.Join(fmt.Errorf("activate %s: %w", filename, activateErr), directErr)
+	}
+	return nil
+}
+
+// WriteAtomic is the fail-closed variant of Write. It never falls back to a
+// direct target write when the activating rename is denied, so callers whose
+// on-disk contract requires atomic replacement cannot expose a partial file.
+func WriteAtomic(filename string, data []byte, tempPattern string) error {
+	directory := filepath.Dir(filename)
+	sweepStaleStagingFiles(directory, tempPattern)
+	file, err := privatepath.CreateTempFile(directory, tempPattern)
+	if err != nil {
+		return fmt.Errorf("create staging file: %w", err)
+	}
+	staged := file.Name()
+	defer os.Remove(staged)
+	if err := file.Chmod(PrivateMode); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("secure staging file: %w", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("write staging file: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync staging file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close staging file: %w", err)
+	}
+	if err := ReplaceFile(staged, filename); err != nil {
+		return fmt.Errorf("activate %s: %w", filename, err)
 	}
 	return nil
 }

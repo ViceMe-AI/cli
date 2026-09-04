@@ -249,7 +249,10 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
 | `viceme replica preview [--path <项目> \| --url <回环地址>]` | 登录或上传前，在匿名 ViceMe 预览壳中打开本地网页；CLI 启动的 dev server 仅存活到命令退出，视觉验证以打开的浏览器为准。 |
-| `viceme replica publish ...` | 冻结项目工作树（或校验已有 ZIP）、生成根级 `VICEME-REPLICA.md`，发布不可变版本并返回源码摘要、稳定口令与自站提示词。 |
+| `viceme replica publish --path <项目或ZIP> ...` | 在 CN 市场本地检查并预览项目（已有 ZIP 会先完整校验，再私有解压用于预览）、冻结源码并返回一份三十分钟终审；仅以返回的精确 `--confirm` 版本重跑后才上传和提交，`PROCESSING` 表示已提交但尚未发布。 |
+| `viceme replica status <publication-id>` | 读取 Website Replica Publication 权威状态，并在发布终态补全稳定本地绑定。 |
+| `viceme replica resume <publication-id>` | 从权威子状态只继续缺失的上传、校验、提交或允许的重试步骤。 |
+| `viceme replica cancel <publication-id>` | 激活前取消 Publication，并清理本地可恢复源码。 |
 | `viceme replica install <口令> [--target <新目录>]` | 已登录 Profile 先展示真实 Quote，明确确认后追加 `--confirm`；匿名购买则追加 `--accept-price-cents <分>`，仅在托管支付页打开后使用 `--payment-presented`。两条路径都会原子安装已支付源码。 |
 | `viceme update` | 显式更新 CLI；官方 Skills 使用 `viceme install --agent auto` 单独刷新。 |
 | `viceme merchant accounts` | 列出当前 User 通过 OWNER 成员关系经营的普通 MerchantAccount。 |

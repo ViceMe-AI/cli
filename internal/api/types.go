@@ -839,6 +839,58 @@ type WebsiteReplicaUploadAuthorization struct {
 	ExpiresAt string            `json:"expiresAt"`
 }
 
+type WebsiteReplicaPublication struct {
+	ID                string                            `json:"id"`
+	ClientRequestID   string                            `json:"clientRequestId"`
+	Market            string                            `json:"market"`
+	MerchantAccountID string                            `json:"merchantAccountId"`
+	WorkID            string                            `json:"workId"`
+	ReplicaID         string                            `json:"replicaId"`
+	Status            string                            `json:"status"`
+	StatusURL         string                            `json:"statusUrl"`
+	AllowedActions    []string                          `json:"allowedActions"`
+	Retry             WebsiteReplicaPublicationRetry    `json:"retry"`
+	Source            WebsiteReplicaPublicationSource   `json:"source"`
+	Failure           *WebsiteReplicaPublicationFailure `json:"failure"`
+	Result            *WebsiteReplicaPublicationResult  `json:"result"`
+	SubmittedAt       *string                           `json:"submittedAt"`
+	FailedAt          *string                           `json:"failedAt"`
+	CancelledAt       *string                           `json:"cancelledAt"`
+	CreatedAt         string                            `json:"createdAt"`
+	UpdatedAt         string                            `json:"updatedAt"`
+}
+
+type WebsiteReplicaPublicationRetry struct {
+	AutomaticRetries    int     `json:"automaticRetries"`
+	MaxAutomaticRetries int     `json:"maxAutomaticRetries"`
+	NextAttemptAt       *string `json:"nextAttemptAt"`
+}
+
+type WebsiteReplicaPublicationSource struct {
+	FileName    string  `json:"fileName"`
+	ContentType string  `json:"contentType"`
+	SizeBytes   int64   `json:"sizeBytes"`
+	Digest      string  `json:"digest"`
+	Status      string  `json:"status"`
+	VerifiedAt  *string `json:"verifiedAt"`
+}
+
+type WebsiteReplicaPublicationFailure struct {
+	Code      string `json:"code"`
+	Message   string `json:"message"`
+	Retryable bool   `json:"retryable"`
+}
+
+type WebsiteReplicaPublicationResult struct {
+	WorkURL     string                `json:"workUrl"`
+	VersionID   string                `json:"versionId"`
+	Version     int                   `json:"version"`
+	ShortCode   string                `json:"shortCode"`
+	Instruction string                `json:"instruction"`
+	Product     WebsiteReplicaProduct `json:"product"`
+	PublishedAt string                `json:"publishedAt"`
+}
+
 type WebsiteReplicaProduct struct {
 	ID         string `json:"id"`
 	SKUID      string `json:"skuId"`
