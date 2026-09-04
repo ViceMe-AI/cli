@@ -62,13 +62,49 @@ func TestTrialUsePendingLifecycle(t *testing.T) {
 		if err != nil {
 			t.Fatalf("begin: %v", err)
 		}
-		confirmTrialUsePending(base, apiBaseURL, productID)
+		confirmTrialUsePending(base, apiBaseURL, productID, first)
 		second, err := beginTrialUsePending(base, apiBaseURL, productID, now.Add(time.Second))
 		if err != nil {
 			t.Fatalf("begin after confirm: %v", err)
 		}
 		if first == second {
 			t.Fatalf("a confirmed use must start a new request id")
+		}
+	})
+
+	t.Run("a late confirm never deletes a newer pending", func(t *testing.T) {
+		// 评审复现:A、B 并发共用 ID-1,A 先返回确认删除;新使用 C 生成
+		// ID-2;B 的响应迟到再来确认时,绝不能删掉 C 的 ID-2——否则 C
+		// 的结果未知重试会分叉出 ID-3 被服务端二次扣。
+		id1, err := beginTrialUsePending(base, apiBaseURL, productID, now)
+		if err != nil {
+			t.Fatalf("begin first: %v", err)
+		}
+		confirmTrialUsePending(base, apiBaseURL, productID, id1)
+		id2, err := beginTrialUsePending(base, apiBaseURL, productID, now.Add(time.Second))
+		if err != nil {
+			t.Fatalf("begin second: %v", err)
+		}
+		if id2 == id1 {
+			t.Fatalf("a confirmed use must start a new request id")
+		}
+		// 迟到的 ID-1 确认:盘上已是 ID-2,必须原样保留。
+		confirmTrialUsePending(base, apiBaseURL, productID, id1)
+		after, err := beginTrialUsePending(base, apiBaseURL, productID, now.Add(2*time.Second))
+		if err != nil {
+			t.Fatalf("begin after late confirm: %v", err)
+		}
+		if after != id2 {
+			t.Fatalf("late confirmer deleted newer pending: %q vs %q", after, id2)
+		}
+		// 属于本键的确认照常删除。
+		confirmTrialUsePending(base, apiBaseURL, productID, id2)
+		next, err := beginTrialUsePending(base, apiBaseURL, productID, now.Add(3*time.Second))
+		if err != nil {
+			t.Fatalf("begin after own confirm: %v", err)
+		}
+		if next == id2 {
+			t.Fatalf("own confirm must remove the pending")
 		}
 	})
 

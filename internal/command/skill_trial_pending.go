@@ -15,9 +15,9 @@ import (
 )
 
 // Skill 试用消耗的请求级幂等键:每次使用一个 requestId,服务端对同一键
-// 原样回放首次结果;响应未送达时保留 pending,下一次 use 复用同一键,
-// 只有拿到权威业务结果才换新键。这替代了服务端旧的时间窗口语义——连续
-// 的新使用无论间隔多短都会各扣各的,而真正的重试不会重复扣。
+// 原样回放首次结果;结果未知时保留 pending,下一次 use 复用同一键,只有
+// 拿到权威业务结果才换新键。这替代了服务端旧的时间窗口语义——连续的新
+// 使用无论间隔多短都会各扣各的,而真正的重试不会重复扣。
 type trialUsePending struct {
 	ProductID string `json:"productId"`
 	RequestID string `json:"requestId"`
@@ -49,13 +49,27 @@ func newTrialUseRequestID() string {
 	return hex.EncodeToString(entropy)
 }
 
-// beginTrialUsePending 返回本次使用的 requestId:存在未确认且未过期的
-// pending(上次响应未送达)时复用其键,否则生成新键并落盘。
+// lockTrialUsePending 获取 pending 文件的跨进程互斥锁。gofrs/flock 的锁
+// 由 OS 持有,进程退出即释放,无残留清理问题;调用方 defer Unlock。
+func lockTrialUsePending(pendingPath string) (*flock.Flock, error) {
+	lock := flock.New(pendingPath + ".lock")
+	lockContext, cancelLock := context.WithTimeout(
+		context.Background(),
+		trialUseLockTimeout,
+	)
+	defer cancelLock()
+	if _, err := lock.TryLockContext(lockContext, trialUseLockRetry); err != nil {
+		return nil, fmt.Errorf("trial use pending lock failed: %w", err)
+	}
+	return lock, nil
+}
+
+// beginTrialUsePending 返回本次使用的 requestId:存在未确认的 pending
+// (上次结果未知)时复用其键,否则生成新键并落盘。
 //
-// 读-判-写的整个临界区由同目录的锁文件(O_EXCL 原子创建)保护:并发
-// 进程串行进入,读到的一定是完整的 pending,重复调用稳定收敛到同一个
-// requestId。锁文件崩溃残留按 staleness 清理;等锁超时返回错误,让本次
-// 命令失败而不是带着分叉的键去扣次。
+// 读-判-写的整个临界区由 flock 互斥:并发进程串行进入,读到的总是
+// 完整的 pending,重复调用稳定收敛到同一个 requestId。等锁超时返回
+// 错误,让本次命令失败而不是带着分叉的键去扣次。
 func beginTrialUsePending(
 	configBase, apiBaseURL, productID string,
 	now time.Time,
@@ -64,15 +78,9 @@ func beginTrialUsePending(
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return "", err
 	}
-	// gofrs/flock 的锁由 OS 持有,进程退出即释放,无残留清理问题。
-	lock := flock.New(path + ".lock")
-	lockContext, cancelLock := context.WithTimeout(
-		context.Background(),
-		trialUseLockTimeout,
-	)
-	defer cancelLock()
-	if _, err := lock.TryLockContext(lockContext, trialUseLockRetry); err != nil {
-		return "", fmt.Errorf("trial use pending lock failed: %w", err)
+	lock, err := lockTrialUsePending(path)
+	if err != nil {
+		return "", err
 	}
 	defer lock.Unlock()
 
@@ -88,19 +96,42 @@ func beginTrialUsePending(
 	if err != nil {
 		return "", err
 	}
-	// 持锁临界区:旧文件(过期、外域或残留的半成品)可以被安全替换。
+	// 持锁临界区:旧文件(外域或残留的半成品)可以被安全替换。
 	if err := os.WriteFile(path, payload, 0o600); err != nil {
 		return "", err
 	}
 	return pending.RequestID, nil
 }
 
-// confirmTrialUsePending 在拿到权威业务结果(成功解析的响应)后删除
-// pending:下一次使用从新键开始。服务端可能已经扣次但响应丢失(网络错
-// 误、5xx、无效响应)的情况一律不确认——键保留,重试复用同一键由服务端
-// 回放,不会二次扣。删除失败不影响主流程,残留由 TTL 兜底。
-func confirmTrialUsePending(configBase, apiBaseURL, productID string) {
-	_ = os.Remove(trialUsePendingPath(configBase, apiBaseURL, productID))
+// confirmTrialUsePending 在本次 requestId 拿到权威业务结果(成功解析的
+// 响应)后删除 pending:下一次使用从新键开始。服务端可能已经扣次但响应
+// 丢失(网络错误、5xx、无效响应)的情况一律不确认——键保留,重试复用
+// 同一键由服务端回放,不会二次扣。
+//
+// 删除与 begin 持同一把锁且只删属于自己的键:迟到的旧响应确认时,盘上
+// 可能已经是新使用的 pending,无条件删除会让新使用的结果未知重试分叉
+// 出新键、被服务端二次扣次。
+func confirmTrialUsePending(
+	configBase, apiBaseURL, productID, requestID string,
+) {
+	path := trialUsePendingPath(configBase, apiBaseURL, productID)
+	lock, err := lockTrialUsePending(path)
+	if err != nil {
+		// 拿不到锁说明另一进程正在 begin/confirm;它落盘或删除的
+		// pending 一定覆盖本键的处置,无需再动。
+		return
+	}
+	defer lock.Unlock()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	var pending trialUsePending
+	if json.Unmarshal(data, &pending) != nil || pending.RequestID != requestID {
+		return
+	}
+	_ = os.Remove(path)
 }
 
 func readReusableTrialUsePending(path, productID string) string {

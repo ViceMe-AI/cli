@@ -327,7 +327,7 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			// 只有权威业务结果才结束本次键的生命周期。
-			confirmTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID)
+			confirmTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID, requestID)
 			if use.Allowed {
 				lastUse := use.RemainingUses != nil && *use.RemainingUses == 0
 				return runtime.business(skillTrialUseResult{
