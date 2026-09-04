@@ -155,17 +155,6 @@ type MerchantWork struct {
 	UpdatedAt      string          `json:"updatedAt"`
 }
 
-type WorkPreviewGrant struct {
-	ID                     string   `json:"id"`
-	WorkID                 string   `json:"workId"`
-	WorkRevisionID         string   `json:"workRevisionId"`
-	AllowedRepresentations []string `json:"allowedRepresentations"`
-	HTMLURL                *string  `json:"htmlUrl"`
-	MarkdownURL            *string  `json:"markdownUrl"`
-	ExpiresAt              string   `json:"expiresAt"`
-	RevokedAt              *string  `json:"revokedAt"`
-}
-
 type MerchantWorksResponse struct {
 	Items []MerchantWork `json:"items"`
 }
@@ -439,15 +428,6 @@ type ProductValidation struct {
 	Warnings      []ProductValidationIssue `json:"warnings"`
 }
 
-type MerchantProductDraftResponse struct {
-	ProductID                   string                  `json:"productId"`
-	Revision                    int                     `json:"revision"`
-	CandidateSalesSpecVersionID *string                 `json:"candidateSalesSpecVersionId"`
-	CandidateDigest             *string                 `json:"candidateDigest"`
-	CandidatePurchaseSkill      *CandidatePurchaseSkill `json:"candidatePurchaseSkill"`
-	Validation                  ProductValidation       `json:"validation"`
-}
-
 type MerchantProductSummary struct {
 	ProductID                   string             `json:"productId"`
 	SubjectWorkID               *string            `json:"subjectWorkId"`
@@ -519,12 +499,6 @@ type CommerceProduct struct {
 		BuyerContract     json.RawMessage `json:"buyerContract"`
 		FulfillmentSteps  json.RawMessage `json:"fulfillmentSteps"`
 	} `json:"salesSpec"`
-}
-
-type MerchantProductActivationResponse struct {
-	Product                 CommerceProduct `json:"product"`
-	PurchaseSkillStableName string          `json:"purchaseSkillStableName"`
-	ProductDetailURL        string          `json:"productDetailUrl"`
 }
 
 type PurchaseSkillRelease struct {
@@ -1187,6 +1161,7 @@ type SkillPublication struct {
 	Editions          []PublishedSkillEdition     `json:"editions"`
 	NextAction        *SkillPublicationNextAction `json:"nextAction"`
 	FailureCode       *string                     `json:"failureCode"`
+	FailureMessage    *string                     `json:"failureMessage"`
 	CreatedAt         string                      `json:"createdAt"`
 	UpdatedAt         string                      `json:"updatedAt"`
 }
@@ -1278,6 +1253,9 @@ type SkillTrialGrant struct {
 type skillTrialUseRequest struct {
 	InstallID string `json:"installId"`
 	Secret    string `json:"secret"`
+	// RequestID 是本次使用的幂等键:响应未送达的重试复用同一键由服务端
+	// 回放,新使用必须换新键。没有时间窗口兜底。
+	RequestID string `json:"requestId"`
 }
 
 type SkillTrialUse struct {

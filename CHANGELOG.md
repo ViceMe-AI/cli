@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.27.0] - 2026-09-04
+
+### Features
+
+- 发布链路摩擦修复——本地校验前置/报错自描述/资格检查收敛/退避重试 (`eefaa76`)
+
+### Fixes
+
+- 确认失败必须报错,已消费的键不得静默留存 (`afc448c`)
+- 修复上一提交误删 case 行导致的重复响应体 (`11c9f7a`)
+- 迟到的旧确认不得删除新使用的 pending (`a18a4c5`)
+- merchant qualification 支持进程级凭证（review 二轮 F6） (`de04bcf`)
+- pending 锁改 gofrs/flock 并取消 TTL (`4f7643c`)
+- 试用 pending 加跨进程锁并收紧确认语义 (`2fcd987`)
+- 试用消耗带请求级幂等键并用 pending 区分重试 (`146c6c0`)
+- 试用三态/资格四scope/清扫范围/重试文案修复（review F1/F3/F4/F5） (`f6f2474`)
+
+### Other Changes
+
+- 评审修复:README 命令表同步+gofmt+清理死测试分支 (`e31fc4c`)
+- 移除通用商品创作命令 (`8895da1`)
+- 移除 merchant work preview 调试命令 (`afadcfb`)
+
 ## [0.26.4] - 2026-09-03
 
 ### Fixes

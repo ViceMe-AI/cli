@@ -340,27 +340,6 @@ func (c *Client) UpdateMerchantWork(ctx context.Context, workID string, input js
 	return response, err
 }
 
-func (c *Client) CreateMerchantWorkPreview(ctx context.Context, workID, merchantAccountID string, expectedRevision, expiresInSeconds int) (WorkPreviewGrant, error) {
-	var response WorkPreviewGrant
-	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/previews"
-	request := map[string]any{
-		"merchantAccountId":      merchantAccountID,
-		"expectedRevision":       expectedRevision,
-		"expiresInSeconds":       expiresInSeconds,
-		"allowedRepresentations": []string{"HTML", "MARKDOWN"},
-	}
-	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) RevokeMerchantWorkPreview(ctx context.Context, workID, grantID, merchantAccountID string) (WorkPreviewGrant, error) {
-	var response WorkPreviewGrant
-	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/previews/" + url.PathEscape(grantID)
-	request := map[string]any{"merchantAccountId": merchantAccountID}
-	err := c.doJSON(ctx, http.MethodDelete, endpoint, request, &response, "@stored")
-	return response, err
-}
-
 func (c *Client) CreateWebsiteVerification(ctx context.Context, workID string, request CreateWebsiteVerificationRequest) (WebsiteVerification, error) {
 	var response WebsiteVerification
 	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID) + "/website-verifications"
@@ -533,41 +512,6 @@ func (c *Client) CommandCommerceApplication(ctx context.Context, applicationID, 
 	return response, err
 }
 
-func (c *Client) ListMerchantProductAuthoringTemplates(ctx context.Context, merchantAccountID string) (json.RawMessage, error) {
-	var response json.RawMessage
-	query := url.Values{"merchantAccountId": {merchantAccountID}}
-	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/product-authoring-templates?"+query.Encode(), nil, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) CreateMerchantProduct(ctx context.Context, input json.RawMessage) (MerchantProductDraftResponse, error) {
-	var response MerchantProductDraftResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/products", input, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) UpdateMerchantProduct(ctx context.Context, productID string, input json.RawMessage) (MerchantProductDraftResponse, error) {
-	var response MerchantProductDraftResponse
-	endpoint := "/v1/cli/merchant/products/" + url.PathEscape(productID) + "/draft"
-	err := c.doJSON(ctx, http.MethodPatch, endpoint, input, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) CompileMerchantProduct(ctx context.Context, productID, merchantAccountID string, expectedRevision int) (MerchantProductDraftResponse, error) {
-	var response MerchantProductDraftResponse
-	endpoint := "/v1/cli/merchant/products/" + url.PathEscape(productID) + "/compile"
-	request := map[string]any{"merchantAccountId": merchantAccountID, "expectedRevision": expectedRevision}
-	err := c.doJSON(ctx, http.MethodPost, endpoint, request, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) ActivateMerchantProduct(ctx context.Context, productID string, input json.RawMessage) (MerchantProductActivationResponse, error) {
-	var response MerchantProductActivationResponse
-	endpoint := "/v1/cli/merchant/products/" + url.PathEscape(productID) + "/activate"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, input, &response, "@stored")
-	return response, err
-}
-
 func (c *Client) CommandMerchantProduct(ctx context.Context, productID, command, merchantAccountID string, expectedRevision int) (MerchantProductLifecycleResponse, error) {
 	var response MerchantProductLifecycleResponse
 	endpoint := "/v1/cli/merchant/products/" + url.PathEscape(productID) + "/" + url.PathEscape(command)
@@ -708,10 +652,10 @@ func (c *Client) CreateSkillTrialGrant(ctx context.Context, productID, installID
 	return response, err
 }
 
-func (c *Client) ConsumeSkillTrialUse(ctx context.Context, productID, installID, secret string) (SkillTrialUse, error) {
+func (c *Client) ConsumeSkillTrialUse(ctx context.Context, productID, installID, secret, requestID string) (SkillTrialUse, error) {
 	var response SkillTrialUse
 	endpoint := "/v1/skills/" + url.PathEscape(productID) + "/trial-use"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, skillTrialUseRequest{InstallID: installID, Secret: secret}, &response, "")
+	err := c.doJSON(ctx, http.MethodPost, endpoint, skillTrialUseRequest{InstallID: installID, Secret: secret, RequestID: requestID}, &response, "")
 	return response, err
 }
 
@@ -724,6 +668,18 @@ func (c *Client) GetTrialSkillDownload(ctx context.Context, productID, installID
 
 func (c *Client) UpdateListingTrialUseLimit(ctx context.Context, publicationID string, trialUseLimit *int) (SkillPublication, error) {
 	return c.UpdateListingDraftPatch(ctx, publicationID, UpdateSkillPublicationDraftRequest{TrialUseLimit: trialUseLimit})
+}
+
+// DisableListingTrialUseLimit sends an explicit JSON null: an omitted field
+// would keep the current value, so the pointer-based method above cannot
+// express "turn the trial off".
+func (c *Client) DisableListingTrialUseLimit(ctx context.Context, publicationID string) (SkillPublication, error) {
+	var response SkillPublication
+	body := struct {
+		TrialUseLimit any `json:"trialUseLimit"`
+	}{nil}
+	err := c.doJSON(ctx, http.MethodPatch, publicationPath(publicationID)+"/listing-draft", body, &response, "@stored")
+	return response, err
 }
 
 func (c *Client) GetSkillDetail(ctx context.Context, productID string) (json.RawMessage, error) {
@@ -1041,7 +997,13 @@ func (c *Client) ConfirmPublication(ctx context.Context, publicationID, reviewDi
 
 func (c *Client) PublishSkill(ctx context.Context, publicationID, reviewDigest string) (SkillPublication, error) {
 	var response SkillPublication
-	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/publish", ReviewDigestRequest{ReviewDigest: reviewDigest}, &response, "@stored")
+	// The server treats the digest as an optional re-acknowledgment and falls
+	// back to the stored review digest, so an empty flag simply omits it.
+	body := any(struct{}{})
+	if reviewDigest != "" {
+		body = ReviewDigestRequest{ReviewDigest: reviewDigest}
+	}
+	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/publish", body, &response, "@stored")
 	return response, err
 }
 

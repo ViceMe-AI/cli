@@ -21,7 +21,6 @@ func TestMerchantCommandsRequireScopedLoginBeforeAuthoring(t *testing.T) {
 	const merchantID = "11111111-1111-4111-8111-111111111111"
 	var writeEnabled atomic.Bool
 	var createCalls atomic.Int32
-	var templateCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/v1/cli/auth/status" {
 			scopes := []string{"profile:read", "merchant-commerce:read"}
@@ -45,12 +44,6 @@ func TestMerchantCommandsRequireScopedLoginBeforeAuthoring(t *testing.T) {
 				"id": merchantID, "creatorAccountId": "33333333-3333-4333-8333-333333333333",
 				"displayName": "Creator", "status": "ACTIVE", "statusVersion": 1,
 			}}})
-		case "/v1/cli/merchant/product-authoring-templates":
-			if request.URL.Query().Get("merchantAccountId") != merchantID {
-				t.Fatalf("unexpected template merchant: %s", request.URL.RawQuery)
-			}
-			templateCalls.Add(1)
-			writeJSONResponse(writer, map[string]any{"items": []any{map[string]any{"code": "GENERIC_MERCHANT", "status": "ACTIVE"}}})
 		case "/v1/cli/merchant/works":
 			createCalls.Add(1)
 			writeJSONResponse(writer, map[string]any{
@@ -96,14 +89,87 @@ func TestMerchantCommandsRequireScopedLoginBeforeAuthoring(t *testing.T) {
 	if exit, envelope := run("merchant", "accounts"); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("read-scoped account lookup failed: exit=%d result=%#v", exit, envelope)
 	}
-	if exit, envelope := run("merchant", "product", "templates", "--merchant", merchantID); exit != 0 || envelope["ok"] != true || templateCalls.Load() != 1 {
-		t.Fatalf("authoring template lookup failed: exit=%d result=%#v calls=%d", exit, envelope, templateCalls.Load())
-	}
 	if exit, envelope := run("merchant", "work", "create", "--input", input); exit == 0 || envelope["ok"] != false || createCalls.Load() != 0 {
 		t.Fatalf("write ran without write scope: exit=%d result=%#v calls=%d", exit, envelope, createCalls.Load())
 	}
 	writeEnabled.Store(true)
 	if exit, envelope := run("merchant", "work", "create", "--input", input); exit != 0 || envelope["ok"] != true || createCalls.Load() != 1 {
 		t.Fatalf("authorized Work creation failed: exit=%d result=%#v calls=%d", exit, envelope, createCalls.Load())
+	}
+}
+
+func TestMerchantQualificationUsesProcessCredentialWithoutPersistentLogin(t *testing.T) {
+	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+	const merchantID = "11111111-1111-4111-8111-111111111111"
+	fullScopes := atomic.Bool{}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+accessToken {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		switch request.URL.Path {
+		case "/v1/cli/auth/status":
+			scopes := []string{"profile:read", "merchant-commerce:read", "skill-publication:read"}
+			if fullScopes.Load() {
+				scopes = append(scopes, "merchant-commerce:write", "skill-publication:write")
+			}
+			writeJSONResponse(writer, map[string]any{
+				"authenticated": true,
+				"user":          map[string]any{"id": "22222222-2222-4222-8222-222222222222", "displayName": "Creator", "avatarUrl": nil},
+				"scopes":        scopes, "expiresAt": "2027-08-21T00:00:00Z",
+			})
+		case "/v1/cli/merchant/accounts":
+			writeJSONResponse(writer, map[string]any{"items": []any{map[string]any{
+				"id": merchantID, "creatorAccountId": "33333333-3333-4333-8333-333333333333",
+				"displayName": "Creator", "status": "ACTIVE", "statusVersion": 1,
+			}}})
+		default:
+			writer.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+	// Process credential only: the environment token drives every request and
+	// the credential store stays empty, so there is no persistent login.
+	t.Setenv(processAccessTokenEnvironment, accessToken)
+
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	dependencies := Dependencies{
+		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(),
+		HTTPClient: server.Client(), APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	}
+	run := func(arguments ...string) (int, map[string]any) {
+		t.Helper()
+		stdout.Reset()
+		stderr.Reset()
+		exit := Execute(arguments, dependencies)
+		var envelope map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+			t.Fatalf("invalid envelope: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+		}
+		return exit, envelope
+	}
+
+	// Missing write scopes must report LOGIN with the exact gaps — using the
+	// process credential, not the empty local login state.
+	exit, envelope := run("merchant", "qualification")
+	data, _ := envelope["data"].(map[string]any)
+	if exit != 0 || envelope["ok"] != true || data["next"] != "LOGIN" {
+		t.Fatalf("scoped-down process credential should report LOGIN: exit=%d result=%#v", exit, envelope)
+	}
+	if missing, _ := data["missingScopes"].([]any); len(missing) != 2 {
+		t.Fatalf("expected both write scopes to be reported missing: %#v", data["missingScopes"])
+	}
+
+	fullScopes.Store(true)
+	exit, envelope = run("merchant", "qualification")
+	data, _ = envelope["data"].(map[string]any)
+	if exit != 0 || envelope["ok"] != true || data["next"] != "OK" || data["ready"] != true {
+		t.Fatalf("fully scoped process credential should qualify: exit=%d result=%#v", exit, envelope)
+	}
+	merchant, _ := data["merchant"].(map[string]any)
+	if merchant["id"] != merchantID {
+		t.Fatalf("expected the owned merchant to be returned: %#v", data["merchant"])
 	}
 }
