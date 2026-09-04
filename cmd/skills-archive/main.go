@@ -74,11 +74,16 @@ func main() {
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		if err := os.WriteFile(filepath.Join(*outputDir, name), files[name], 0o644); err != nil {
+		target := filepath.Join(*outputDir, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+			fatal(err)
+		}
+		if err := os.WriteFile(target, files[name], 0o644); err != nil {
 			fatal(err)
 		}
 	}
-	fmt.Printf("skills-archive: wrote %d zips and manifest for CLI %s\n", len(manifest.Skills), *version)
+	fmt.Printf("skills-archive: wrote %d objects (%d skills, zips + flat files + manifest) for CLI %s\n",
+		len(files), len(manifest.Skills), *version)
 }
 
 // buildHostingArchive 从与 CLI 内嵌一致的 FS 产出托管物:每个官方技能一个
@@ -108,6 +113,16 @@ func buildHostingArchive(skillsFS fs.FS) (map[string][]byte, hostingManifest, er
 		zipName := name + ".zip"
 		files[zipName] = archive
 		zipDigest := sha256.Sum256(archive)
+		// 平铺副本:每个文件按原路径输出(<skill>/<relative>),供
+		// 「云端说明书」用法直接按 URL 读单个文件(SKILL.md、脚本等),
+		// 字节与 zip 内同名条目同源,不需要下载整包。
+		for _, relative := range listing {
+			data, err := fs.ReadFile(skillsFS, name+"/"+relative)
+			if err != nil {
+				return nil, hostingManifest{}, fmt.Errorf("read %s/%s: %w", name, relative, err)
+			}
+			files[name+"/"+relative] = data
+		}
 		skills[name] = hostedSkill{
 			SkillVersion:          metadata.SkillVersion,
 			MinimumCLIVersion:     metadata.MinimumCLIVersion,

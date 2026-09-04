@@ -8,10 +8,19 @@ start 桶,提供**不经过 ViceMe CLI 就能安装**的稳定下载入口。生
 ## URL 结构
 
 ```
-https://s3.viceme.cn/skills/manifest.json            稳定清单(随最高稳定版更新)
-https://s3.viceme.cn/skills/<skill>.zip              稳定技能包(同上)
-https://s3.viceme.cn/cli/releases/v<version>/skills/...   不可变版本化副本
+https://s3.viceme.cn/skills/manifest.json                  稳定清单(随最高稳定版更新)
+https://s3.viceme.cn/skills/<skill>.zip                    稳定技能包(整包下载)
+https://s3.viceme.cn/skills/<skill>/SKILL.md               单文件直读(按原路径平铺)
+https://s3.viceme.cn/skills/<skill>/scripts/<file>.py      单文件直读(同上)
+https://s3.viceme.cn/start/cli/releases/v<version>/skills/...   不可变版本化副本(start 桶)
 ```
+
+托管物放在**独立的公开 `skills` 桶**(与 start 桶同实例、同发布凭证):
+`https://s3.viceme.cn/skills/<file>` 就是该桶对象的直读地址,没有路径前缀。
+除了整包 zip,每个技能的**全部文件同时按原路径平铺**——「云端说明书」用
+法(agent 直接读 SKILL.md、按 URL 执行单个脚本,不下载整包)与整包安装
+并存。单文件路径就是 `manifest.json` 里 `files` 列表中的相对路径,字节
+与 zip 内同名条目同源。
 
 稳定路径的 `cache-control` 为 `max-age=300`;版本化副本
 `max-age=31536000, immutable`,且同版本重发布做字节一致校验。
@@ -49,7 +58,7 @@ zip 以技能目录名为根(`use-a-skill/SKILL.md`),解压到技能根目录即
 安装:
 
 ```bash
-curl -fsSL https://s3.viceme.cn/skills/use-a-skill.zip -o /tmp/use-a-skill.zip
+curl -fsSL https://s3.viceme.cn/start/skills/use-a-skill.zip -o /tmp/use-a-skill.zip
 unzip -q /tmp/use-a-skill.zip -d ~/.agents/skills/
 ```
 
@@ -70,6 +79,9 @@ unzip -q /tmp/use-a-skill.zip -d ~/.agents/skills/
 
 ## 桶策略
 
-start 桶的匿名读取 allowlist 需要放行 `skills/` 前缀(manifest 与 zip):
-只新增 `skills/*`,不得放开列桶或其他业务对象。发布验证里的
-`policy-probe` 断言保持不变(列桶必须仍然被拒)。
+- 公开 `skills` 桶:匿名读取 allowlist 为 `arn:aws:s3:::skills/*`
+  (GetObject),桶内只有托管 zip 与 manifest;列桶(ListBucket)不放行。
+- start 桶:匿名 allowlist 维持原有五项(install 脚本/文档与
+  `cli/releases/*`),版本化副本落在其中的 `cli/releases/v<version>/skills/`。
+- 两桶均已实施(CN+GLOBAL,2026-09-04)并通过行为级验证:
+  `/skills/<obj>` 匿名 200、未放行对象 403、两桶列桶均 403。
