@@ -4,6 +4,8 @@
 
 优先把项目根目录直接交给 `viceme replica publish --path <project-root>`。CLI 从调用时的当前工作树生成确定性 ZIP，不要求先 commit；应交付的已跟踪、未跟踪和未提交源码都会按同一规则进入冻结清单。已有 ZIP 仍可作为 `--path` 输入，但必须已经满足本合同。
 
+高层发布会把合法已有 ZIP 解压到 owner-only 临时目录用于本地预览，终审与上传仍绑定原 ZIP 字节；本地 Publication 绑定写入该 ZIP 同级的 `.viceme/website-replica.json`。临时预览目录、`.viceme` 和任何上传能力都不得进入源码包。
+
 CLI 默认排除依赖、缓存、构建产物、版本控制元数据、编辑器元数据、系统垃圾文件、`.viceme` 和真实 `.env` 文件。安全的 `.env.example`、`.env.sample`、`.env.template` 可以保留，但只能含公开配置或明确占位值。
 
 疑似 API key、私钥、Session、Cookie、数据库转储、日志、上传内容或用户数据时必须停止。不得自动删除、替换、打码后继续，也不得把命中内容发到聊天、日志或远端。
@@ -23,7 +25,7 @@ CLI 默认排除依赖、缓存、构建产物、版本控制元数据、编辑�
 
 ## 平台控制内容
 
-源码 ZIP 不得包含有效 `VICEME-REPLICA:VMR-...` instruction、真实 `buyerEntry`，也不得包含 ViceMe 官方做同款挂件、弹窗或浏览器接入实现。创作者站点入口只能在发布成功后使用平台返回的 `buyerEntry` 单独接入，不能进入本次冻结源码。
+源码 ZIP 不得包含有效 `VICEME-REPLICA:VMR-...` instruction、真实 `buyerEntry`，也不得包含 ViceMe 官方做同款挂件、弹窗或浏览器接入实现。做同款入口由 ViceMe 作品页宿主提供；本流程不修改创作者外部原站。
 
 ## 冻结与确认
 

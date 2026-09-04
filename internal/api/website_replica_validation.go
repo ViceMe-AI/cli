@@ -8,34 +8,38 @@ import (
 	"io"
 	"reflect"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 )
 
 const maxJSONSafeInteger = int64(1<<53 - 1)
 
+const websiteReplicaMaxArtifactBytes = int64(100 * 1024 * 1024)
+
 var (
-	zodDatetimePattern = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2})(?:\.(\d+))?)?Z$`)
-	zodUUIDPattern     = regexp.MustCompile(`(?i)^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$`)
-	jsonRawMessageType = reflect.TypeOf(json.RawMessage{})
-	replicaActionType  = reflect.TypeOf((*WebsiteReplicaPaymentAction)(nil))
+	zodDatetimePattern               = regexp.MustCompile(`^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2})(?::(\d{2})(?:\.(\d+))?)?Z$`)
+	zodUUIDPattern                   = regexp.MustCompile(`(?i)^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$`)
+	jsonRawMessageType               = reflect.TypeOf(json.RawMessage{})
+	replicaActionType                = reflect.TypeOf((*WebsiteReplicaPaymentAction)(nil))
+	replicaPublicationNextActionType = reflect.TypeOf(WebsiteReplicaPublicationNextAction{})
 )
 
 type strictAPIResponse interface {
 	strictAPIResponse()
 }
 
-func (*CreateWebsiteReplicaUploadResponse) strictAPIResponse()   {}
-func (*CompleteWebsiteReplicaUploadResponse) strictAPIResponse() {}
-func (*WebsiteReplicaResolution) strictAPIResponse()             {}
-func (*WebsiteReplicaSession) strictAPIResponse()                {}
-func (*CheckoutWebsiteReplicaResponse) strictAPIResponse()       {}
-func (*WebsiteReplicaQuote) strictAPIResponse()                  {}
-func (*WebsiteReplicaOrder) strictAPIResponse()                  {}
-func (*WebsiteReplicaOrderStatus) strictAPIResponse()            {}
-func (*WebsiteReplicaDownload) strictAPIResponse()               {}
-func (*WebsiteReplicaInstallationReceipt) strictAPIResponse()    {}
+func (*CreateWebsiteReplicaUploadResponse) strictAPIResponse()                     {}
+func (*CompleteWebsiteReplicaUploadResponse) strictAPIResponse()                   {}
+func (*AuthorizeWebsiteReplicaPublicationSourceUploadResponse) strictAPIResponse() {}
+func (*WebsiteReplicaPublication) strictAPIResponse()                              {}
+func (*WebsiteReplicaResolution) strictAPIResponse()                               {}
+func (*WebsiteReplicaSession) strictAPIResponse()                                  {}
+func (*CheckoutWebsiteReplicaResponse) strictAPIResponse()                         {}
+func (*WebsiteReplicaQuote) strictAPIResponse()                                    {}
+func (*WebsiteReplicaOrder) strictAPIResponse()                                    {}
+func (*WebsiteReplicaOrderStatus) strictAPIResponse()                              {}
+func (*WebsiteReplicaDownload) strictAPIResponse()                                 {}
+func (*WebsiteReplicaInstallationReceipt) strictAPIResponse()                      {}
 
 func decodeStrictAPIResponse(data []byte, target any) error {
 	decoder := json.NewDecoder(bytes.NewReader(data))
@@ -64,6 +68,9 @@ func requireJSONFields(targetType reflect.Type, raw any, path string) error {
 		return nil
 	}
 	if targetType == replicaActionType {
+		return nil
+	}
+	if targetType == replicaPublicationNextActionType {
 		return nil
 	}
 	if targetType.Kind() == reflect.Pointer {
@@ -174,6 +181,233 @@ func (response *CompleteWebsiteReplicaUploadResponse) validateAPIResponse() erro
 		!validWebsiteReplicaBuyerEntry(response.BuyerEntry, response.Instruction) ||
 		!validZodDatetime(response.PublishedAt) {
 		return errors.New("Website Replica publication response is invalid")
+	}
+	return nil
+}
+
+func (response *WebsiteReplicaPublication) validateAPIResponse() error {
+	if response == nil || !zodUUIDPattern.MatchString(response.ID) || !zodUUIDPattern.MatchString(response.ClientRequestID) ||
+		(response.Market != "CN" && response.Market != "GLOBAL") || !zodUUIDPattern.MatchString(response.MerchantAccountID) ||
+		!zodUUIDPattern.MatchString(response.WorkID) || !zodUUIDPattern.MatchString(response.ReplicaID) ||
+		!validStringEnum(response.Status, "DRAFT", "PROCESSING", "PUBLISHED", "PUBLISHED_DEGRADED", "FAILED", "CANCELLED") ||
+		!validAbsoluteURL(response.StatusURL) || response.AllowedActions == nil ||
+		response.Retry.AutomaticRetries < 0 || response.Retry.AutomaticRetries > 3 || response.Retry.MaxAutomaticRetries != 3 ||
+		!validOptionalDatetime(response.Retry.NextAttemptAt) || validateWebsiteReplicaPublicationSource(response.Source) != nil ||
+		!validOptionalDatetime(response.SubmittedAt) || !validOptionalDatetime(response.FailedAt) ||
+		!validOptionalDatetime(response.CancelledAt) || !validZodDatetime(response.CreatedAt) || !validZodDatetime(response.UpdatedAt) {
+		return errors.New("Website Replica Publication response is invalid")
+	}
+	actions := make(map[string]struct{}, len(response.AllowedActions))
+	for _, action := range response.AllowedActions {
+		if !validStringEnum(action, "AUTHORIZE_SOURCE_UPLOAD", "COMPLETE_SOURCE_UPLOAD", "SUBMIT", "CANCEL", "RETRY") {
+			return errors.New("Website Replica Publication action is invalid")
+		}
+		if _, duplicate := actions[action]; duplicate {
+			return errors.New("Website Replica Publication actions are not unique")
+		}
+		actions[action] = struct{}{}
+	}
+	verified := response.Source.Status == "VERIFIED" || response.Source.Status == "ACTIVATED"
+	if verified != (response.Source.VerifiedAt != nil) {
+		return errors.New("Website Replica Publication source verification timestamp is invalid")
+	}
+	published := response.Status == "PUBLISHED" || response.Status == "PUBLISHED_DEGRADED"
+	if published != (response.Result != nil) || (response.Result != nil && validateWebsiteReplicaPublicationResult(*response.Result) != nil) ||
+		(published && response.Source.Status != "ACTIVATED") || (response.Status == "PROCESSING" && response.Source.Status != "VERIFIED") {
+		return errors.New("Website Replica Publication result is invalid")
+	}
+	if ((response.Status == "PROCESSING" || response.Status == "PUBLISHED") && response.Failure != nil) ||
+		((response.Status == "FAILED" || response.Status == "PUBLISHED_DEGRADED") && response.Failure == nil) ||
+		(response.Failure != nil && (utf16CodeUnits(strings.TrimSpace(response.Failure.Code)) < 1 || utf16CodeUnits(strings.TrimSpace(response.Failure.Code)) > 64 ||
+			utf16CodeUnits(strings.TrimSpace(response.Failure.Message)) < 1 || utf16CodeUnits(strings.TrimSpace(response.Failure.Message)) > 500)) {
+		return errors.New("Website Replica Publication failure is invalid")
+	}
+	submitted := response.Status == "PROCESSING" || response.Status == "PUBLISHED" || response.Status == "PUBLISHED_DEGRADED" || response.Status == "FAILED"
+	if (submitted && response.SubmittedAt == nil) || (response.Status == "DRAFT" && response.SubmittedAt != nil) ||
+		(response.Status == "FAILED") != (response.FailedAt != nil) ||
+		(response.Status == "CANCELLED") != (response.CancelledAt != nil) ||
+		(response.Retry.NextAttemptAt != nil && response.Status != "PROCESSING") {
+		return errors.New("Website Replica Publication lifecycle timestamps are invalid")
+	}
+	_, canCancel := actions["CANCEL"]
+	_, canRetry := actions["RETRY"]
+	_, canAuthorize := actions["AUTHORIZE_SOURCE_UPLOAD"]
+	_, canComplete := actions["COMPLETE_SOURCE_UPLOAD"]
+	_, canSubmit := actions["SUBMIT"]
+	if canCancel != (response.Status == "DRAFT" || response.Status == "PROCESSING") ||
+		canRetry != (response.Status == "FAILED" && response.Failure != nil && response.Failure.Retryable) ||
+		canAuthorize != (response.Status == "DRAFT" && response.Source.Status == "WAITING_UPLOAD") ||
+		canComplete != (response.Status == "DRAFT" && validStringEnum(response.Source.Status, "WAITING_UPLOAD", "UPLOADED", "VALIDATING")) ||
+		canSubmit != (response.Status == "DRAFT" && response.Source.Status == "VERIFIED") {
+		return errors.New("Website Replica Publication allowed actions do not match its state")
+	}
+	return nil
+}
+
+func validateWebsiteReplicaPublicationResult(result WebsiteReplicaPublicationResult) error {
+	if !validAbsoluteURL(result.WorkURL) || !zodUUIDPattern.MatchString(result.VersionID) || !validPositiveSafeInteger(result.Version) ||
+		!websiteReplicaCodePattern.MatchString(result.ShortCode) || result.Instruction != "VICEME-REPLICA:"+result.ShortCode ||
+		validateWebsiteReplicaProduct(result.Product) != nil || !validZodDatetime(result.PublishedAt) {
+		return errors.New("Website Replica Publication result is invalid")
+	}
+	return nil
+}
+
+func (response *CreateWebsiteReplicaPublicationResponse) validateAPIResponse() error {
+	if response == nil || !validStringEnum(response.Outcome, "ACTION_REQUIRED", "PUBLICATION_READY") ||
+		validateWebsiteReplicaPublicationNextAction(response.NextAction) != nil {
+		return errors.New("Website Replica Publication create response is invalid")
+	}
+	if response.Outcome == "ACTION_REQUIRED" {
+		if !zodUUIDPattern.MatchString(response.ClientRequestID) ||
+			!validStringEnum(response.Market, "CN", "GLOBAL") || response.Target != nil || response.Publication != nil {
+			return errors.New("Website Replica Publication action response is invalid")
+		}
+		return nil
+	}
+	if response.ClientRequestID != "" || response.Market != "" || response.Target == nil || response.Publication == nil ||
+		validateWebsiteReplicaPublicationTarget(*response.Target) != nil || response.Publication.validateAPIResponse() != nil ||
+		response.Publication.ID != response.NextAction.PublicationID || response.Publication.WorkID != response.Target.WorkID ||
+		response.Publication.ReplicaID != response.Target.ReplicaID ||
+		response.Publication.MerchantAccountID != response.Target.MerchantAccountID ||
+		(response.Publication.Result != nil && (response.Target.ProductID == nil ||
+			response.Publication.Result.Product.ID != *response.Target.ProductID || response.Publication.Result.WorkURL != response.Target.WorkURL)) ||
+		!validStringEnum(response.NextAction.Kind, "AUTHORIZE_SOURCE_UPLOAD", "CHECK_STATUS") {
+		return errors.New("Website Replica Publication ready response is invalid")
+	}
+	return nil
+}
+
+func (response *AuthorizeWebsiteReplicaPublicationSourceUploadResponse) validateAPIResponse() error {
+	if response == nil || !zodUUIDPattern.MatchString(response.PublicationID) || response.Upload.Method != "PUT" ||
+		!validAbsoluteURL(response.Upload.URL) || response.Upload.Headers == nil || !validZodDatetime(response.Upload.ExpiresAt) {
+		return errors.New("Website Replica Publication upload authorization is invalid")
+	}
+	return nil
+}
+
+func validateWebsiteReplicaPublicationTarget(target WebsiteReplicaPublicationResolvedTarget) error {
+	if !validStringEnum(target.Resolution, "CREATE", "UPDATE") || !zodUUIDPattern.MatchString(target.MerchantAccountID) ||
+		!zodUUIDPattern.MatchString(target.WorkID) || !zodUUIDPattern.MatchString(target.ReplicaID) ||
+		!validOptionalUUID(target.ProductID) || !validAbsoluteURL(target.WorkURL) {
+		return errors.New("Website Replica Publication target is invalid")
+	}
+	return nil
+}
+
+func validateWebsiteReplicaPublicationNextAction(action WebsiteReplicaPublicationNextAction) error {
+	switch action.Kind {
+	case "AUTHENTICATE_CREATOR":
+		if !validAbsoluteURL(action.AuthURL) {
+			return errors.New("Website Replica authentication action is invalid")
+		}
+	case "APPLY_CREATOR":
+		if !validAbsoluteURL(action.ApplicationURL) {
+			return errors.New("Website Replica creator application action is invalid")
+		}
+	case "WAIT_CREATOR_REVIEW", "SUPPLY_CREATOR_INFO", "CREATOR_APPLICATION_REJECTED":
+		if !zodUUIDPattern.MatchString(action.OnboardingID) || !validAbsoluteURL(action.StatusURL) {
+			return errors.New("Website Replica creator review action is invalid")
+		}
+	case "SELECT_MERCHANT":
+		if len(action.Merchants) == 0 {
+			return errors.New("Website Replica Merchant selection is empty")
+		}
+		for _, merchant := range action.Merchants {
+			if !zodUUIDPattern.MatchString(merchant.ID) || strings.TrimSpace(merchant.DisplayName) == "" ||
+				utf16CodeUnits(strings.TrimSpace(merchant.CreatorHandle)) < 2 || utf16CodeUnits(strings.TrimSpace(merchant.CreatorHandle)) > 32 {
+				return errors.New("Website Replica Merchant selection is invalid")
+			}
+		}
+	case "CHOOSE_WORK_SLUG":
+		if len(action.Candidates) == 0 {
+			return errors.New("Website Replica Work slug selection is empty")
+		}
+		for _, candidate := range action.Candidates {
+			if !validWebsiteReplicaWorkSlug(candidate.Slug) || !validAbsoluteURL(candidate.WorkURL) {
+				return errors.New("Website Replica Work slug selection is invalid")
+			}
+		}
+	case "UPGRADE_CLI":
+		if action.MinimumProtocolVersion != WebsiteReplicaPublicationProtocolVersion || !validAbsoluteURL(action.UpgradeURL) {
+			return errors.New("Website Replica CLI upgrade action is invalid")
+		}
+	case "CHECK_STATUS":
+		if !zodUUIDPattern.MatchString(action.PublicationID) || !validAbsoluteURL(action.StatusURL) {
+			return errors.New("Website Replica status action is invalid")
+		}
+	case "AUTHORIZE_SOURCE_UPLOAD":
+		if !zodUUIDPattern.MatchString(action.PublicationID) {
+			return errors.New("Website Replica upload action is invalid")
+		}
+	case "CONFIRM_PUBLICATION":
+		if action.Confirmation == nil || validateWebsiteReplicaPublicationConfirmation(*action.Confirmation) != nil {
+			return errors.New("Website Replica confirmation action is invalid")
+		}
+	default:
+		return errors.New("Website Replica Publication action kind is invalid")
+	}
+	return nil
+}
+
+func validateWebsiteReplicaPublicationConfirmation(confirmation WebsiteReplicaPublicationConfirmationChallenge) error {
+	if !regexp.MustCompile(`^wrv1-[a-f0-9]{64}$`).MatchString(confirmation.Version) ||
+		!validZodDatetime(confirmation.IssuedAt) || !validZodDatetime(confirmation.ExpiresAt) ||
+		validateWebsiteReplicaPublicationReview(confirmation.Review) != nil {
+		return errors.New("Website Replica Publication confirmation is invalid")
+	}
+	issuedAt, issuedErr := parseZodDatetime(confirmation.IssuedAt)
+	expiresAt, expiresErr := parseZodDatetime(confirmation.ExpiresAt)
+	if issuedErr != nil || expiresErr != nil || expiresAt.Sub(issuedAt) != WebsiteReplicaPublicationConfirmationTTL*time.Second {
+		return errors.New("Website Replica Publication confirmation TTL is invalid")
+	}
+	return nil
+}
+
+func validateWebsiteReplicaPublicationReview(review WebsiteReplicaPublicationReview) error {
+	if !validStringEnum(review.Resolution, "CREATE", "UPDATE") || !zodUUIDPattern.MatchString(review.MerchantAccountID) ||
+		strings.TrimSpace(review.MerchantDisplayName) == "" || utf16CodeUnits(strings.TrimSpace(review.MerchantDisplayName)) > 120 ||
+		!zodUUIDPattern.MatchString(review.CreatorAccountID) || utf16CodeUnits(strings.TrimSpace(review.CreatorHandle)) < 2 ||
+		utf16CodeUnits(strings.TrimSpace(review.CreatorHandle)) > 32 || strings.TrimSpace(review.CreatorDisplayName) == "" ||
+		utf16CodeUnits(strings.TrimSpace(review.CreatorDisplayName)) > 120 || !sha256HexPattern.MatchString(review.ProjectFingerprint) ||
+		!validAbsoluteURL(review.WorkURL) || (review.CanonicalOrigin != nil && !validHTTPSURL(*review.CanonicalOrigin)) ||
+		utf16CodeUnits(strings.TrimSpace(review.Title)) < 1 || utf16CodeUnits(strings.TrimSpace(review.Title)) > 200 ||
+		utf16CodeUnits(strings.TrimSpace(review.Summary)) > 500 || !validNonnegativeSafeInteger(review.PriceCents) ||
+		review.PriceCents > 10_000_000 || validateWebsiteReplicaPublicationSourceArtifact(review.Source) != nil {
+		return errors.New("Website Replica Publication review is invalid")
+	}
+	return nil
+}
+
+func validateWebsiteReplicaPublicationSourceArtifact(source WebsiteReplicaPublicationSourceArtifact) error {
+	if utf16CodeUnits(strings.TrimSpace(source.FileName)) < 1 || utf16CodeUnits(strings.TrimSpace(source.FileName)) > 255 ||
+		strings.ContainsAny(source.FileName, "/\\\x00") || !strings.HasSuffix(strings.ToLower(source.FileName), ".zip") ||
+		source.ContentType != "application/zip" || source.SizeBytes < 1 || source.SizeBytes > websiteReplicaMaxArtifactBytes ||
+		!sha256HexPattern.MatchString(source.Digest) {
+		return errors.New("Website Replica Publication source artifact is invalid")
+	}
+	return nil
+}
+
+func validWebsiteReplicaWorkSlug(value string) bool {
+	if len(value) < 2 || len(value) > 64 || !regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`).MatchString(value) {
+		return false
+	}
+	return !validStringEnum(value, "works", "skills", "manage", "posts", "about")
+}
+
+func validHTTPSURL(value string) bool {
+	parsed, err := shopURLParser.Parse(value)
+	return err == nil && parsed != nil && parsed.Scheme() == "https" && parsed.Host() != ""
+}
+
+func validateWebsiteReplicaPublicationSource(source WebsiteReplicaPublicationSource) error {
+	if utf16CodeUnits(source.FileName) < 1 || utf16CodeUnits(source.FileName) > 255 || source.ContentType != "application/zip" ||
+		strings.ContainsAny(source.FileName, "/\\\x00") || !strings.HasSuffix(strings.ToLower(source.FileName), ".zip") ||
+		source.SizeBytes < 1 || source.SizeBytes > websiteReplicaMaxArtifactBytes || !sha256HexPattern.MatchString(source.Digest) ||
+		!validStringEnum(source.Status, "WAITING_UPLOAD", "UPLOADED", "VALIDATING", "VERIFIED", "ACTIVATED", "FAILED") ||
+		!validOptionalDatetime(source.VerifiedAt) {
+		return errors.New("Website Replica Publication source is invalid")
 	}
 	return nil
 }
@@ -424,18 +658,19 @@ func validReplicaPaymentOption(option WebsiteReplicaPaymentOption) bool {
 }
 
 func validZodDatetime(value string) bool {
+	_, err := parseZodDatetime(value)
+	return err == nil
+}
+
+func parseZodDatetime(value string) (time.Time, error) {
 	match := zodDatetimePattern.FindStringSubmatch(value)
 	if match == nil {
-		return false
-	}
-	if _, err := time.Parse("2006-01-02T15:04", match[1]); err != nil {
-		return false
+		return time.Time{}, errors.New("datetime does not match the API contract")
 	}
 	if match[2] == "" {
-		return true
+		value = match[1] + ":00Z"
 	}
-	seconds, err := strconv.Atoi(match[2])
-	return err == nil && seconds >= 0 && seconds <= 59
+	return time.Parse(time.RFC3339Nano, value)
 }
 
 func validOptionalDatetime(value *string) bool {

@@ -154,10 +154,10 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "let-others-make-a-copy",
 			machine: []string{
 				"$become-a-creator", "MerchantAccountMember(role=OWNER)", "VICEME-REPLICA.md",
-				"viceme replica publish", "buyerEntry.prompts", "let-me-make-a-copy",
+				"viceme replica publish", "viceme replica resume", ".viceme/website-replica.json", "let-me-make-a-copy",
 			},
 			semantics: []string{
-				"完整源码", "创作者自己的站点", "不得写死价格", "发布成功后", "Quote",
+				"完整源码", "不修改创作者原站", "已提交，尚未发布", "PROCESSING",
 				"免费做同款", "付费做同款", "不得每次问一个字段并循环追问", "最终不可变发布确认",
 				"不处理买家购买和安装",
 			},
@@ -938,7 +938,7 @@ func TestInteractionDanmakuUsesPublishedWebsiteWithoutDNSVerification(t *testing
 	}
 }
 
-func TestWebsiteReplicaUsesPublishedWebsiteWithoutDNSVerification(t *testing.T) {
+func TestWebsiteReplicaAllowsPublicationWithoutOriginOrDNSVerification(t *testing.T) {
 	t.Parallel()
 
 	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-others-make-a-copy/SKILL.md")
@@ -947,7 +947,7 @@ func TestWebsiteReplicaUsesPublishedWebsiteWithoutDNSVerification(t *testing.T) 
 	}
 	text := string(content)
 	for _, required := range []string{
-		"kind 为 `WEBSITE`", "canonicalOrigin", "`PUBLISHED`", "Origin 精确匹配",
+		"kind 为 `WEBSITE`", "canonicalOrigin` 只是可选外链", "`PUBLISHED`", "不参与归属、去重或发布门禁",
 		"`website.ownershipStatus` 不参与门禁", "不创建、读取、验证或撤销 Website ownership verification",
 	} {
 		if !strings.Contains(text, required) {
@@ -958,7 +958,7 @@ func TestWebsiteReplicaUsesPublishedWebsiteWithoutDNSVerification(t *testing.T) 
 		"website-verification create <work-id>", "website-verification get <work-id>",
 		"website-verification verify <work-id>", "website-verification revoke <work-id>",
 		"dnsRecordName", "--expected-verification-version", "PUBLISHED + VERIFIED Website Work",
-		"website.ownershipStatus: VERIFIED", "DNS 挑战",
+		"website.ownershipStatus: VERIFIED", "DNS 挑战", "Origin 精确匹配",
 	} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("Website Replica Skill retained DNS verification gate %q", forbidden)
@@ -990,7 +990,7 @@ func TestWebsiteReplicaDelegatesBuyerStepsToIndependentSkill(t *testing.T) {
 	}
 }
 
-func TestWebsiteReplicaCreatorEntryStaysCompactAndUsesApprovedCopy(t *testing.T) {
+func TestWebsiteReplicaDoesNotMutateTheCreatorSite(t *testing.T) {
 	t.Parallel()
 
 	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-others-make-a-copy/SKILL.md")
@@ -999,13 +999,17 @@ func TestWebsiteReplicaCreatorEntryStaysCompactAndUsesApprovedCopy(t *testing.T)
 	}
 	text := string(content)
 	for _, required := range []string{
-		"右下角紧凑浮动入口", "`✨ 喜欢这个网站？作者已授权你一键复刻`", "不占据文档流",
-		"安全区", "不遮挡核心操作", "至少 44×44 px", "入口上方短暂显示",
-		"`口令已复制！`", "`粘贴到你的 Agent，即可生成同款，并继续修改成你的版本。`",
-		"不添加卡片、横幅、整宽 CTA 或额外营销说明",
+		"做同款入口由 ViceMe 作品页宿主提供", "不修改创作者原站", "不要修改或部署创作者原站",
 	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("Website Replica Skill omitted compact creator entry contract %q", required)
+			t.Fatalf("Website Replica Skill omitted creator-site boundary %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"右下角紧凑浮动入口", "喜欢这个网站？作者已授权你一键复刻", "buyerEntry.prompts",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("Website Replica Skill retained creator-site mutation %q", forbidden)
 		}
 	}
 }

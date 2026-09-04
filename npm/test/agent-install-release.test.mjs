@@ -84,7 +84,18 @@ test("recovery can create a missing GitHub Release after an earlier job failed",
     workflow,
     /if \[\[ "\$\{RECOVERY\}" == "true" \]\] && gh release view "\$\{TAG\}" >\/dev\/null 2>&1; then/,
   );
-  assert.match(workflow, /gh release create "\$\{TAG\}" dist\/\* --verify-tag/);
+  // dist also carries the hosted-skills staging tree (dist/skills); a raw
+  // dist/* glob would hand gh release a directory and fail the publication.
+  assert.match(
+    workflow,
+    /mapfile -t RELEASE_ASSETS < <\(find dist -maxdepth 1 -type f \| sort\)/,
+  );
+  assert.match(
+    workflow,
+    /gh release create "\$\{TAG\}" "\$\{RELEASE_ASSETS\[@\]\}" --verify-tag/,
+  );
+  assert.doesNotMatch(workflow, /gh release create "\$\{TAG\}" dist\/\*/);
+  assert.match(workflow, /\[\[ -f "\$\{FILE\}" \]\] \|\| continue/);
 });
 
 test("recovery rebuilds only release binaries whose immutable bytes are absent", () => {

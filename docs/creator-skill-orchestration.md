@@ -27,7 +27,7 @@ The official creator Skills expose one user goal each:
 | `sell-a-skill` | Downloadable Skill packaging, preview, confirmation, publication, and updates | Websites, services, physical/custom goods, appointments, generic Products |
 | `charge-for-your-work` | One-pass website input collection, internal Website Work/access provisioning, and host-code integration for follow or paid unlock | Login and creator application |
 | `let-people-interact` | Three-way danmaku/tip routing, hosted SDK access, default Mounted integration, explicit custom-UI Headless integration, and Website Work selection/publication with an exact canonical Origin for danmaku-bearing routes | Creator qualification, downloadable Skill publication, Website ownership verification, or Website Widget mutation for Tip |
-| `let-others-make-a-copy` | Complete website source packaging, root deployment guide, immutable Replica publication, and creator-site copy entry | Buyer preview, checkout, payment, download, or installation; those belong to the independent `let-me-make-a-copy` Skill |
+| `let-others-make-a-copy` | Complete website source packaging, root project handoff, immutable Replica publication, and recoverable local binding | Creator-site mutation or buyer preview, checkout, payment, download, and installation; buyer flows belong to the independent `let-me-make-a-copy` Skill |
 | `let-me-make-a-copy` | Regional S3 single-file reading, buyer preview, one confirmation, CLI account or anonymous checkout, hosted Python 3.9+ recovery, verified source installation, and deployment handoff | Creator qualification, Replica publication, or creator-site mutation |
 | `creator-tools` | CLI installation, ordinary login, updates, and diagnostics | Any creator gameplay |
 
@@ -38,9 +38,16 @@ official Skill advertises or invokes them in this delivery.
 
 ## Reusable qualification contract
 
-Every creator gameplay invokes `$become-a-creator` before its first platform write and
-reuses the Merchant selected by that Skill. A gameplay must not repeat `auth status`, `auth login`,
-`merchant accounts`, or Merchant Onboarding commands.
+Every creator gameplay except Website Replica publication invokes `$become-a-creator` before its
+first platform write and reuses the Merchant selected by that Skill. A gameplay must not repeat
+`auth status`, `auth login`, `merchant accounts`, or Merchant Onboarding commands.
+
+`let-others-make-a-copy` is the narrow exception because its high-level Publication protocol must
+finish local source checks, preview, and freezing before identity or qualification can interrupt the
+flow. `viceme replica publish` owns the optional-auth create and structured qualification actions,
+keeps one main `clientRequestId`, and may submit one idempotent application only after the user adds
+`--auto-apply-creator`. Authentication, review, or rejection never grants an upload capability;
+the exact final review remains the sole authorization to send frozen source bytes.
 
 The onboarding Skill supports two invocation contexts:
 
@@ -88,8 +95,9 @@ Commands remain grouped by use case under `internal/command`:
   primitives.
 
 Reusable transport and types stay in `internal/api`; credential storage stays in `internal/auth`;
-publication package identity and recovery stay in `internal/publication`. There is no generic
-`viceme publish` command and no publish logic in `creator-tools`.
+downloadable-Skill package identity and recovery stay in `internal/publication`, while Website
+Replica Publication state and project binding stay in `internal/replicapublication`. There is no
+generic `viceme publish` command and no publish logic in `creator-tools`.
 
 ## Skill call graph
 
@@ -125,7 +133,7 @@ inputs or output.
   preserve user-modified same-name directories.
 - Keep only the downloadable workflow and publication error contract in `sell-a-skill`.
 - Route danmaku-only, open-Tip-only, and combined requests through `let-people-interact` while delegating qualification; danmaku-bearing routes require a published Website Work with an exact canonical Origin, and no engagement route requires Website ownership verification.
-- Route complete website source publication and creator-site copy entry through `let-others-make-a-copy`; route buyer preview, purchase, recovery, and installation through `let-me-make-a-copy`, which must retain an existing standalone recovery before preferring CLI.
+- Route complete website source publication through `let-others-make-a-copy` without modifying the creator's external site; route buyer preview, purchase, recovery, and installation through `let-me-make-a-copy`, which must retain an existing standalone recovery before preferring CLI.
 - Publish the `let-me-make-a-copy` flat `SKILL.md` and Python script to both regional S3 origins before the Shop Web starts emitting those hosted Skill URLs. Deploy the compatible Shop API before buyers can execute the newly hosted workflow.
 - Route both creator-page and Work-page UI customization through `customize-your-page`; discover target-specific capabilities before editing, validate only archive structure, preview on the real route, and require explicit confirmation before publication.
 - Update all official-Skill installation, manifest, metadata, and behavioral tests atomically so an
