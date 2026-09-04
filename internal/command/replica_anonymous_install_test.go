@@ -118,7 +118,7 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	}
 	var inspectOutput bytes.Buffer
 	deps.Out, deps.ErrOut = &inspectOutput, &bytes.Buffer{}
-	if exit := Execute([]string{"replica", "inspect", fullCode}, deps); exit != 0 || !bytes.Contains(inspectOutput.Bytes(), []byte(`"nextAction": "OPEN_WORK_PREVIEW"`)) {
+	if exit := Execute([]string{"replica", "inspect", fullCode}, deps); exit != 0 || !bytes.Contains(inspectOutput.Bytes(), []byte(`"nextAction": "CONFIRM_INLINE_PREVIEW"`)) {
 		t.Fatalf("inspect failed: exit=%d output=%q", exit, inspectOutput.String())
 	}
 
@@ -402,12 +402,12 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 	}, deps); exit != output.ExitNetwork {
 		t.Fatalf("pending payment did not end at the bounded deadline: exit=%d output=%q", exit, stdout.String())
 	}
-	if statusCalls != 3 || len(sleeps) != 3 {
-		t.Fatalf("payment wait did not poll once per minute for three minutes: statusCalls=%d sleeps=%v", statusCalls, sleeps)
+	if statusCalls != 6 || len(sleeps) != 6 {
+		t.Fatalf("payment wait did not poll every 30 seconds for three minutes: statusCalls=%d sleeps=%v", statusCalls, sleeps)
 	}
 	for index, delay := range sleeps {
-		if delay != time.Minute {
-			t.Fatalf("payment sleep %d = %s, want 1m", index, delay)
+		if delay != 30*time.Second {
+			t.Fatalf("payment sleep %d = %s, want 30s", index, delay)
 		}
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"code": "REPLICA_PAYMENT_TIMEOUT"`)) {

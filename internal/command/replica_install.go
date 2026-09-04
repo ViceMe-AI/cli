@@ -29,7 +29,7 @@ import (
 const (
 	replicaLicenseTermsVersion = "website-replica-license/v1"
 	replicaPaymentWaitTimeout  = 3 * time.Minute
-	replicaPaymentPollInterval = time.Minute
+	replicaPaymentPollInterval = 30 * time.Second
 	replicaPaymentImagePrefix  = ".viceme-replica-payment-"
 )
 
@@ -241,9 +241,9 @@ func installReplicaAnonymousLocked(
 				"REPLICA_PRICE_CHANGED",
 				"the Website Replica price changed after the user chose to continue",
 			).WithDetails(map[string]any{
-				"nextAction": "OPEN_WORK_PREVIEW", "workUrl": resolved.ViceMeWorkURL,
+				"nextAction": "CONFIRM_INLINE_PREVIEW", "workUrl": resolved.ViceMeWorkURL,
 				"currency": resolved.Product.Currency, "totalAmountCents": resolved.Product.PriceCents,
-			}).WithHint("open the Work preview and ask the user to continue again at the new price")
+			}).WithHint("show the updated Replica details and ask the user to continue again at the new price")
 		}
 		if standaloneReplicaAttemptMayExist(runtime, shortCode) {
 			if err := retireStandaloneUnpaidAttempt(ctx, runtime, resolved); err != nil {
@@ -362,7 +362,7 @@ func replicaPaymentPageConfirmation(state replicaPurchaseState) error {
 	return output.Confirmation("REPLICA_PAYMENT_REQUIRED", "open the ViceMe Website Replica checkout page").WithDetails(map[string]any{
 		"nextAction": "OPEN_PAYMENT_PAGE", "checkoutUrl": state.CheckoutURL, "orderNo": state.OrderNo,
 		"currency": state.Currency, "totalAmountCents": state.PriceCents, "expiresAt": state.OrderExpiresAt,
-	}).WithHint("open checkoutUrl with the available URL presentation tool, then rerun the same command with --payment-presented --timeout 3m --interval 1m; do not ask for another confirmation")
+	}).WithHint("open checkoutUrl with the available URL presentation tool, then rerun the same command with --payment-presented --timeout 3m --interval 30s; do not ask for another confirmation")
 }
 
 func installReplicaLocked(

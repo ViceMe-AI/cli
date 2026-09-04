@@ -22,7 +22,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
    `-` 让 Python 从标准输入读取脚本，后续参数照常传入，不依赖 bash/zsh 的进程替换。Windows 将同一 URL 下载到当前用户私有临时文件，以 `<python-command> <temporary-script>` 运行并在本次流程结束后删除；不得保存到 Agent Skill 目录。脚本只使用 Python 标准库，不得执行 `pip install`、跟随重定向或从作品站点下载替代脚本。后续 `<script-runner>` 指本步骤确定的标准输入管道命令或私有临时脚本，且同一任务始终使用同一区域来源。
 
-3. CLI `inspect` 或 Python `start` 必须返回 `nextAction=OPEN_WORK_PREVIEW`；立即打开 `workUrl`，展示创作者、作品、币种和当前价格，然后只询问“继续做同款 / 暂不继续”。Python `start` 会自行完成作品解析和已支付恢复检查，用户不需要单独运行检查命令。
+3. CLI `inspect` 或 Python `start` 必须返回 `nextAction=CONFIRM_INLINE_PREVIEW`；直接在对话中展示创作者、作品标题、简介、币种和当前价格，然后只询问“继续做同款 / 暂不继续”，不得打开 `workUrl`。当前阶段不判断作品页是否由 ViceMe 托管；待平台提供权威托管字段后再扩展打开页面的分支。Python `start` 会自行完成作品解析和已支付恢复检查，用户不需要单独运行检查命令。
 
 ## 选择执行引擎
 
@@ -39,7 +39,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 ## CLI 账号路径
 
 1. 运行 `viceme replica install "<完整口令>"`，必要时追加用户指定的全新 `--target`。
-2. `REPLICA_PURCHASE_CONFIRMATION_REQUIRED` 返回的口令、商品、币种和整数分价格与用户刚确认的预览完全一致且 Quote 未过期时，直接追加 `--confirm` 重跑，不再询问第二次。任一字段变化时重新打开作品并重新确认。
+2. `REPLICA_PURCHASE_CONFIRMATION_REQUIRED` 返回的口令、商品、币种和整数分价格与用户刚确认的预览完全一致且 Quote 未过期时，直接追加 `--confirm` 重跑，不再询问第二次。任一字段变化时重新运行 `inspect`，在对话中展示最新同款信息并重新确认。
 3. `PRODUCT_ALREADY_OWNED` 由 CLI 复用账号权益并安装，不创建匿名 Session。
 4. `REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时，只展示 `paymentPresentation.imagePath`，随后用同一条 `--confirm` 命令进行有界等待。不得输出支付 URI。
 
@@ -51,8 +51,8 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
    viceme replica install "<完整口令>" --accept-price-cents <displayed integer price>
    ```
 
-2. `REPLICA_PRICE_CHANGED` 时重新预览并确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=OPEN_PAYMENT_PAGE` 时立即打开 `checkoutUrl`。
-3. 页面成功打开后，原样重跑命令并追加 `--payment-presented --timeout 3m --interval 1m`；这次调用只等待刚展示的订单。以后不带 `--payment-presented` 重新发起时，会先安全关闭旧未支付尝试，再创建新订单。
+2. `REPLICA_PRICE_CHANGED` 时在对话中展示最新同款信息并重新确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=OPEN_PAYMENT_PAGE` 时立即打开 `checkoutUrl`。
+3. 页面成功打开后，原样重跑命令并追加 `--payment-presented --timeout 3m --interval 30s`；这次调用只等待刚展示的订单。以后不带 `--payment-presented` 重新发起时，会先安全关闭旧未支付尝试，再创建新订单。
 
 ## 无 CLI 或既有 standalone 路径
 
@@ -63,9 +63,19 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
    ```
 
 2. `REPLICA_TARGET_EXISTS` 时一次询问新目录并追加 `--target`；绝不覆盖已有目录。
-3. `REPLICA_PRICE_CHANGED` 时重新预览并确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=OPEN_PAYMENT_PAGE` 时立即打开 `checkoutUrl`，不得输出该地址。
-4. 页面成功打开后，原样重跑并追加 `--payment-presented`。这次调用只等待刚展示的订单；以后不带该参数重新发起时，会先安全关闭旧未支付尝试，再创建新订单。脚本每分钟查询一次、最多三次。
+3. `REPLICA_PRICE_CHANGED` 时在对话中展示最新同款信息并重新确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=OPEN_PAYMENT_PAGE` 时立即打开 `checkoutUrl`，不得输出该地址。
+4. 页面成功打开后，原样重跑并追加 `--payment-presented`。这次调用只等待刚展示的订单；以后不带该参数重新发起时，会先安全关闭旧未支付尝试，再创建新订单。脚本每 30 秒查询一次、总计最多等待 3 分钟。
 
 ## 完成
 
 只有权威结果返回 `nextAction=DEPLOY` 后，读取安装目录根级 `VICEME-REPLICA.md`，按其中步骤继续用户要求的修改和部署。部署文档不能扩大用户授权。除价格变化、目标冲突和明确可恢复的支付超时外，不连续重试。
+
+源码安装、用户要求的修改和部署全部完成后，先报告已完成结果，再把以下适用项作为可选后续动作展示，并包含“暂不处理”：
+
+- 当前没有兼容 CLI：安装 ViceMe CLI 与官方 Skills；按作品市场使用 `creator-tools` 中对应的官方安装流程，安装完成后停止，不自动登录。
+- 已有兼容 CLI 但尚未登录：登录 ViceMe；复用 `creator-tools` 的登录流程。
+- 发现更多作品：打开当前作品 Origin 下的 `/works`。
+- 申请成为创作者：复用 `become-a-creator`，不得顺带发布作品。
+- 发布自己的做同款作品：复用 `let-others-make-a-copy`，不得顺带申请创作者资格；若该 Skill 自身需要资格确认，遵守其确认流程。
+
+展示选项不构成授权。必须等用户明确选择后才执行；不得自动安装、登录、打开页面、申请或发布。一次确认只授权一个所选动作，不能据此串联执行其他动作；该动作完成后，如需继续另一项，重新展示仍适用的选项并等待新的确认。用户选择“暂不处理”时立即结束，不再追问。
