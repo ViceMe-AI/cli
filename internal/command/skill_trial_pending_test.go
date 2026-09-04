@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/gofrs/flock"
 )
 
 func TestTrialUsePendingLifecycle(t *testing.T) {
@@ -69,6 +71,37 @@ func TestTrialUsePendingLifecycle(t *testing.T) {
 		}
 		if first == second {
 			t.Fatalf("a confirmed use must start a new request id")
+		}
+	})
+
+	t.Run("a failed confirm surfaces an error and keeps the id for retry", func(t *testing.T) {
+		// 评审复现:确认路径的本地故障(锁被长期占用、读写失败)不能
+		// 静默吞掉——已消费的键留在 pending,下一次真实使用会被当作
+		// 重试回放旧响应而持续漏扣。必须报错,且 pending 原样保留供
+		// 重跑自愈(服务端对同一键回放,不重复扣)。
+		id, err := beginTrialUsePending(base, apiBaseURL, productID, now)
+		if err != nil {
+			t.Fatalf("begin: %v", err)
+		}
+		originalTimeout := trialUseLockTimeout
+		trialUseLockTimeout = 250 * time.Millisecond
+		defer func() { trialUseLockTimeout = originalTimeout }()
+
+		pendingPath := trialUsePendingPath(base, apiBaseURL, productID)
+		holder := flock.New(pendingPath + ".lock")
+		locked, err := holder.TryLock()
+		if err != nil || !locked {
+			t.Fatalf("hold the pending lock: locked=%v err=%v", locked, err)
+		}
+		defer holder.Unlock()
+
+		if err := confirmTrialUsePending(base, apiBaseURL, productID, id); err == nil {
+			t.Fatalf("failed confirm silently left the consumed id reusable")
+		}
+		holder.Unlock()
+		after, err := beginTrialUsePending(base, apiBaseURL, productID, now.Add(time.Second))
+		if err != nil || after != id {
+			t.Fatalf("pending must survive a failed confirm for retry: err=%v after=%q want=%q", err, after, id)
 		}
 	})
 

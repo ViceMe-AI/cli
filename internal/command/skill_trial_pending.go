@@ -6,7 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -27,7 +29,7 @@ type trialUsePending struct {
 // 未确认的 pending 无 TTL、持续复用:复用旧键最坏漏扣一次,而按计时器
 // 换新键可能对服务端已扣过的使用二次扣——结果未知不能由计时器变成结果
 // 已知。锁等待上限远大于临界区(读写一个小 JSON)。
-const (
+var (
 	trialUseLockTimeout = 5 * time.Second
 	trialUseLockRetry   = 5 * time.Millisecond
 )
@@ -111,27 +113,41 @@ func beginTrialUsePending(
 // 删除与 begin 持同一把锁且只删属于自己的键:迟到的旧响应确认时,盘上
 // 可能已经是新使用的 pending,无条件删除会让新使用的结果未知重试分叉
 // 出新键、被服务端二次扣次。
+//
+// 确认失败必须向调用方报错而不是静默吞掉:本键已在服务端消费,留在
+// pending 里会让下一次真实使用被当作重试回放旧响应,本地故障持续期间
+// 会持续漏扣。锁获取、读取、删除任一失败都返回错误,让 `skill use`
+// 失败;用户重跑时 begin 复用未确认键、服务端原样回放本次结果(不再
+// 扣次),确认链路自愈。文件不存在或盘上已是别的键是安全的 no-op;
+// 文件内容不可解析说明本地状态已损坏,删除后一并视为已处置——它不可
+// 能再被安全复用,而本键确定已被服务端消费。
 func confirmTrialUsePending(
 	configBase, apiBaseURL, productID, requestID string,
-) {
+) error {
 	path := trialUsePendingPath(configBase, apiBaseURL, productID)
 	lock, err := lockTrialUsePending(path)
 	if err != nil {
-		// 拿不到锁说明另一进程正在 begin/confirm;它落盘或删除的
-		// pending 一定覆盖本键的处置,无需再动。
-		return
+		return err
 	}
 	defer lock.Unlock()
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return err
 	}
 	var pending trialUsePending
-	if json.Unmarshal(data, &pending) != nil || pending.RequestID != requestID {
-		return
+	if json.Unmarshal(data, &pending) != nil || pending.ProductID != productID {
+		// 不可解析或外域残留:无法安全复用,本键确定已消费,一并清理。
+		return os.Remove(path)
 	}
-	_ = os.Remove(path)
+	if pending.RequestID != requestID {
+		// 盘上已是新使用的键:本键的处置已终结,不能动它。
+		return nil
+	}
+	return os.Remove(path)
 }
 
 func readReusableTrialUsePending(path, productID string) string {
