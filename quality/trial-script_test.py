@@ -178,6 +178,60 @@ class TrialScriptTestCase(unittest.TestCase):
                     pass
         self.assertEqual(caught.exception.code, "STATE_DIR_PERMISSION_DENIED")
 
+    def test_download_errors_never_leak_the_signed_url(self):
+        # 四轮评审 P1:下载地址是短期签名凭证(X-Amz-Signature 等),
+        # 错误输出不得携带 URL——那会进 AI 对话与日志。
+        signed = "https://storage.invalid/pro.zip?X-Amz-Signature=deadbeef&X-Amz-Credential=AKIA%2F20260904"
+        response = io.StringIO("{}")
+        import urllib.error
+
+        error = urllib.error.HTTPError(signed, 403, "Forbidden", {}, response)  # type: ignore[arg-type]
+        with mock.patch.object(trial.urllib.request, "urlopen", side_effect=error):
+            with self.assertRaises(trial.Failure) as caught:
+                trial.http_download(signed)
+        failure = caught.exception
+        self.assertEqual(failure.code, "DOWNLOAD_ERROR")
+        self.assertNotIn("url", failure.fields)
+        self.assertNotIn("X-Amz-Signature", failure.message)
+        self.assertNotIn("storage.invalid", failure.message + json.dumps(failure.fields, default=str))
+
+        # URLError 分支同样只留异常类型名,不带原始 reason 文字。
+        denial = urllib.error.URLError(OSError("proxy corp.local:3128 /Users/secret/.viceme"))
+        with mock.patch.object(trial.urllib.request, "urlopen", side_effect=denial):
+            with self.assertRaises(trial.Failure) as caught:
+                trial.http_download(signed)
+        self.assertEqual(caught.exception.code, "NETWORK_ERROR")
+        self.assertNotIn("corp.local", caught.exception.message)
+        self.assertNotIn("Users", caught.exception.message)
+
+    def test_unexpected_error_output_never_leaks_local_details(self):
+        # 兜底输出:原始异常文字(含 HOME 路径)不得出现在单行 JSON 里。
+        self._write_state()
+
+        def exploding_api(market, method, path, body=None):
+            raise FileNotFoundError("/Users/secret/.viceme/trial/leak.json")
+
+        with mock.patch.object(trial, "api_request", side_effect=exploding_api):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                exit_code = trial.run(["use", "--product", PRODUCT_ID, "--market", "cn"])
+        self.assertEqual(exit_code, 1)
+        result = json.loads(output.getvalue().strip())
+        self.assertEqual(result["code"], "UNEXPECTED_ERROR")
+        self.assertNotIn("/Users/secret", output.getvalue())
+        self.assertNotIn(self.home, output.getvalue())
+
+    def test_state_permission_failures_omit_home_paths(self):
+        def denied_makedirs(path, mode=None, exist_ok=False):
+            raise PermissionError("denied")
+
+        with mock.patch.object(trial.os, "makedirs", side_effect=denied_makedirs):
+            with self.assertRaises(trial.Failure) as caught:
+                with trial.ProductLock(PRODUCT_ID):
+                    pass
+        self.assertEqual(caught.exception.code, "STATE_DIR_PERMISSION_DENIED")
+        self.assertNotIn(self.home, caught.exception.message)
+
     def test_unexpected_exception_still_emits_single_line_json(self):
         # 脚本契约:任何异常都以单行 JSON 收场。
         captured = []
@@ -196,6 +250,7 @@ class TrialScriptTestCase(unittest.TestCase):
         result = json.loads(lines[0])
         self.assertFalse(result["ok"])
         self.assertEqual(result["code"], "UNEXPECTED_ERROR")
+        self.assertNotIn("boom", result["message"])
 
     def test_state_file_permissions_and_roundtrip(self):
         trial.save_trial_state(PRODUCT_ID, {"installId": "i", "secret": "s"})

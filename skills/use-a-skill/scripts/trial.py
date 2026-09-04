@@ -141,9 +141,12 @@ def http_download(url):
         with urllib.request.urlopen(request, timeout=HTTP_TIMEOUT) as response:
             return response.read()
     except urllib.error.HTTPError as error:
-        raise Failure("DOWNLOAD_ERROR", "下载 Skill 包失败(HTTP %s)" % error.code, url=url) from None
+        # 错误输出不得携带 URL:下载地址是短期签名凭证(X-Amz-Signature
+        # 等),进 AI 对话或日志等于泄露临时凭证。只报状态码。
+        raise Failure("DOWNLOAD_ERROR", "下载 Skill 包失败(HTTP %s)" % error.code) from None
     except urllib.error.URLError as error:
-        raise Failure("NETWORK_ERROR", "下载 Skill 包失败: %s" % error.reason) from None
+        # 原始 reason 可能携带代理地址等本机信息,只保留异常类型名。
+        raise Failure("NETWORK_ERROR", "下载 Skill 包失败: %s" % type(error.reason).__name__) from None
 
 
 # ---------------------------------------------------------------------------
@@ -178,7 +181,8 @@ def save_trial_state(product_id, state):
     try:
         os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
     except OSError as error:
-        raise Failure("STATE_DIR_PERMISSION_DENIED", "无法创建试用状态目录(权限不足): %s" % os.path.dirname(path)) from error
+        # 消息不含路径:本机目录属于不应进 AI 对话/日志的信息。
+        raise Failure("STATE_DIR_PERMISSION_DENIED", "无法创建试用状态目录(权限不足),请检查主目录可写") from error
     previous = os.stat(path).st_mode & 0o777 if os.path.exists(path) else 0o600
     # 原子替换:并发读者(Go 侧接管/清理)要么看到旧文件要么看到新文件,
     # 永远不会读到写了一半的 JSON。
@@ -203,7 +207,7 @@ class ProductLock:
         try:
             os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
         except OSError as error:
-            raise Failure("STATE_DIR_PERMISSION_DENIED", "无法创建试用状态目录(权限不足): %s" % os.path.dirname(self.path)) from error
+            raise Failure("STATE_DIR_PERMISSION_DENIED", "无法创建试用状态目录(权限不足),请检查主目录可写") from error
         deadline = time.time() + LOCK_WAIT_SECONDS
         while True:
             try:
@@ -221,7 +225,7 @@ class ProductLock:
                 except FileNotFoundError:
                     raise Failure(
                         "STATE_LOCK_PERMISSION_DENIED",
-                        "无法创建试用状态锁文件(目录不可写或无权限): %s" % self.path,
+                        "无法创建试用状态锁文件(目录不可写或无权限),请检查主目录可写",
                     ) from error
                 except OSError:
                     pass  # 存在但暂时不可 stat(共享冲突):按被占处理。
@@ -666,7 +670,9 @@ def run(argv):
     except KeyboardInterrupt:
         return 130
     except Exception as error:  # noqa: BLE001 - 脚本契约:任何失败都输出单行 JSON
-        return emit_failure(Failure("UNEXPECTED_ERROR", "脚本异常退出: %s" % error))
+        # 固定文案+异常类型名:原始错误文字可能携带用户目录、内部路径等
+        # 本机信息,不得进 AI 对话或日志。
+        return emit_failure(Failure("UNEXPECTED_ERROR", "脚本异常退出(%s),请重试;持续失败请安装 ViceMe CLI 使用完整流程" % type(error).__name__))
 
 
 if __name__ == "__main__":
