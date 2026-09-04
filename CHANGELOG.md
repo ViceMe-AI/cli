@@ -4,7 +4,16 @@
 
 ### Features
 
+- 官方 Skills 托管改独立桶并支持单文件直读 (`b7eb6af`)
 - 官方 Skills 云端托管到 start 桶 (`48b5979`)
+
+### Fixes
+
+- 托管物 Content-Type 补齐 html/js 等文本扩展 (`1846fc2`)
+
+### Other Changes
+
+- 修正托管 URL 漏掉的 /start 路径前缀 (`9c179e5`)
 
 ## [0.27.0] - 2026-09-04
 
