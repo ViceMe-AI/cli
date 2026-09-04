@@ -156,11 +156,6 @@ func newMerchantProductCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
-
-
-
-
-
 func newMerchantProductLifecycleCommand(runtime *Runtime, action string) *cobra.Command {
 	var merchantAccountID string
 	var expectedRevision int

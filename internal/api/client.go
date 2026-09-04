@@ -512,11 +512,6 @@ func (c *Client) CommandCommerceApplication(ctx context.Context, applicationID, 
 	return response, err
 }
 
-
-
-
-
-
 func (c *Client) CommandMerchantProduct(ctx context.Context, productID, command, merchantAccountID string, expectedRevision int) (MerchantProductLifecycleResponse, error) {
 	var response MerchantProductLifecycleResponse
 	endpoint := "/v1/cli/merchant/products/" + url.PathEscape(productID) + "/" + url.PathEscape(command)

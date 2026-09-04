@@ -1089,11 +1089,11 @@ func intPointer(value int) *int {
 func TestPublicationAssetUploadRetriesSlotConflictWithFreshSlot(t *testing.T) {
 	t.Parallel()
 	state := &publicationAPITestState{
-		publicationID:        "22222222-2222-4222-8222-222222222222",
-		reviewDigest:         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-		status:               "DRAFT",
-		slotConflictOnFirst:  true,
-		occupiedMediaSlot:    0,
+		publicationID:       "22222222-2222-4222-8222-222222222222",
+		reviewDigest:        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		status:              "DRAFT",
+		slotConflictOnFirst: true,
+		occupiedMediaSlot:   0,
 	}
 	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
 	defer server.Close()

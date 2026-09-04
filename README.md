@@ -281,7 +281,7 @@ Never copy an access token into the conversation.
 | `viceme merchant work website-verification ...` | Create, inspect, verify, or revoke DNS ownership for one Website Work. |
 | `viceme merchant work sdk-access ...` | Manage hosted `danmaku`/`tip` and follow/paid access on one Work. Hosted and access domains preserve each other; creation returns permanent public `keys.test` and `keys.live` identifiers, not credentials. |
 | `viceme merchant commerce-application ...` | Manage Commerce Applications. For open tips, a matching application is optional trusted-source attribution rather than an authorization gate. |
-| `viceme merchant product ...` | Create, compile, activate, suspend, or archive Products and their generated purchase Skills. |
+| `viceme merchant product ...` | List, suspend, or archive Products (downloadable Skill editions and website access products). |
 | `viceme commerce ...` | Install and run a signed purchase Skill through session, quote, payment order, and same-session status commands. |
 
 Run `viceme <command> --help` for the full flags and JSON fields.

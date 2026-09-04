@@ -44,11 +44,7 @@ func TestMerchantCommandsRequireScopedLoginBeforeAuthoring(t *testing.T) {
 				"id": merchantID, "creatorAccountId": "33333333-3333-4333-8333-333333333333",
 				"displayName": "Creator", "status": "ACTIVE", "statusVersion": 1,
 			}}})
-		case "/v1/cli/merchant/product-authoring-templates":
-			if request.URL.Query().Get("merchantAccountId") != merchantID {
-				t.Fatalf("unexpected template merchant: %s", request.URL.RawQuery)
-			}
-						writeJSONResponse(writer, map[string]any{"items": []any{map[string]any{"code": "GENERIC_MERCHANT", "status": "ACTIVE"}}})
+			writeJSONResponse(writer, map[string]any{"items": []any{map[string]any{"code": "GENERIC_MERCHANT", "status": "ACTIVE"}}})
 		case "/v1/cli/merchant/works":
 			createCalls.Add(1)
 			writeJSONResponse(writer, map[string]any{

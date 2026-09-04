@@ -158,7 +158,7 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 		writeJSONResponse(writer, map[string]any{"order": map[string]any{
 			"orderNo": skillPurchaseOrderNo, "status": status, "amountCents": 990,
 		}})
-case request.URL.Path == "/v1/cli/orders/"+skillPurchaseOrderNo+"/status":
+	case request.URL.Path == "/v1/cli/orders/"+skillPurchaseOrderNo+"/status":
 		s.mu.Lock()
 		s.paymentStatus = "PAID"
 		s.mu.Unlock()
