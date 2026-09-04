@@ -21,7 +21,6 @@ func TestMerchantCommandsRequireScopedLoginBeforeAuthoring(t *testing.T) {
 	const merchantID = "11111111-1111-4111-8111-111111111111"
 	var writeEnabled atomic.Bool
 	var createCalls atomic.Int32
-	var templateCalls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.URL.Path == "/v1/cli/auth/status" {
 			scopes := []string{"profile:read", "merchant-commerce:read"}
@@ -45,12 +44,6 @@ func TestMerchantCommandsRequireScopedLoginBeforeAuthoring(t *testing.T) {
 				"id": merchantID, "creatorAccountId": "33333333-3333-4333-8333-333333333333",
 				"displayName": "Creator", "status": "ACTIVE", "statusVersion": 1,
 			}}})
-		case "/v1/cli/merchant/product-authoring-templates":
-			if request.URL.Query().Get("merchantAccountId") != merchantID {
-				t.Fatalf("unexpected template merchant: %s", request.URL.RawQuery)
-			}
-			templateCalls.Add(1)
-			writeJSONResponse(writer, map[string]any{"items": []any{map[string]any{"code": "GENERIC_MERCHANT", "status": "ACTIVE"}}})
 		case "/v1/cli/merchant/works":
 			createCalls.Add(1)
 			writeJSONResponse(writer, map[string]any{
@@ -95,9 +88,6 @@ func TestMerchantCommandsRequireScopedLoginBeforeAuthoring(t *testing.T) {
 	}
 	if exit, envelope := run("merchant", "accounts"); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("read-scoped account lookup failed: exit=%d result=%#v", exit, envelope)
-	}
-	if exit, envelope := run("merchant", "product", "templates", "--merchant", merchantID); exit != 0 || envelope["ok"] != true || templateCalls.Load() != 1 {
-		t.Fatalf("authoring template lookup failed: exit=%d result=%#v calls=%d", exit, envelope, templateCalls.Load())
 	}
 	if exit, envelope := run("merchant", "work", "create", "--input", input); exit == 0 || envelope["ok"] != false || createCalls.Load() != 0 {
 		t.Fatalf("write ran without write scope: exit=%d result=%#v calls=%d", exit, envelope, createCalls.Load())

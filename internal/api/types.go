@@ -428,15 +428,6 @@ type ProductValidation struct {
 	Warnings      []ProductValidationIssue `json:"warnings"`
 }
 
-type MerchantProductDraftResponse struct {
-	ProductID                   string                  `json:"productId"`
-	Revision                    int                     `json:"revision"`
-	CandidateSalesSpecVersionID *string                 `json:"candidateSalesSpecVersionId"`
-	CandidateDigest             *string                 `json:"candidateDigest"`
-	CandidatePurchaseSkill      *CandidatePurchaseSkill `json:"candidatePurchaseSkill"`
-	Validation                  ProductValidation       `json:"validation"`
-}
-
 type MerchantProductSummary struct {
 	ProductID                   string             `json:"productId"`
 	SubjectWorkID               *string            `json:"subjectWorkId"`
@@ -508,12 +499,6 @@ type CommerceProduct struct {
 		BuyerContract     json.RawMessage `json:"buyerContract"`
 		FulfillmentSteps  json.RawMessage `json:"fulfillmentSteps"`
 	} `json:"salesSpec"`
-}
-
-type MerchantProductActivationResponse struct {
-	Product                 CommerceProduct `json:"product"`
-	PurchaseSkillStableName string          `json:"purchaseSkillStableName"`
-	ProductDetailURL        string          `json:"productDetailUrl"`
 }
 
 type PurchaseSkillRelease struct {
