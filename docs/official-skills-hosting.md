@@ -8,9 +8,9 @@ start 桶,提供**不经过 ViceMe CLI 就能安装**的稳定下载入口。生
 ## URL 结构
 
 ```
-https://s3.viceme.cn/skills/manifest.json            稳定清单(随最高稳定版更新)
-https://s3.viceme.cn/skills/<skill>.zip              稳定技能包(同上)
-https://s3.viceme.cn/cli/releases/v<version>/skills/...   不可变版本化副本
+https://s3.viceme.cn/start/skills/manifest.json            稳定清单(随最高稳定版更新)
+https://s3.viceme.cn/start/skills/<skill>.zip              稳定技能包(同上)
+https://s3.viceme.cn/start/cli/releases/v<version>/skills/...   不可变版本化副本
 ```
 
 稳定路径的 `cache-control` 为 `max-age=300`;版本化副本
@@ -37,7 +37,7 @@ https://s3.viceme.cn/cli/releases/v<version>/skills/...   不可变版本化副�
 }
 ```
 
-- `zip` 是相对名,消费方按所选区域拼 `https://s3.viceme.<cn|ai>/skills/<zip>`;
+- `zip` 是相对名,消费方按所选区域拼 `https://s3.viceme.<cn|ai>/start/skills/<zip>`;
 - `zip_sha256` 是 zip 字节的 SHA-256,下载后即可校验;
 - `full_skill_bundle_digest` / `embedded_content_digest` 与
   `release-manifest.json` 同源(同一内嵌 FS 的 `Bundle.Digests`):CLI
@@ -49,7 +49,7 @@ zip 以技能目录名为根(`use-a-skill/SKILL.md`),解压到技能根目录即
 安装:
 
 ```bash
-curl -fsSL https://s3.viceme.cn/skills/use-a-skill.zip -o /tmp/use-a-skill.zip
+curl -fsSL https://s3.viceme.cn/start/skills/use-a-skill.zip -o /tmp/use-a-skill.zip
 unzip -q /tmp/use-a-skill.zip -d ~/.agents/skills/
 ```
 
