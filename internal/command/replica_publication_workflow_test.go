@@ -351,6 +351,7 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 	arguments := []string{
 		"replica", "publish", "--path", project, "--slug", "replica-site",
 		"--title", "Replica title", "--summary", "Replica summary", "--price-cents", "990",
+		"--preview-url", "http://127.0.0.1:4173/", "--preview-reviewed",
 		"--canonical-origin", "HTTPS://Example.COM:443/",
 	}
 
@@ -1043,7 +1044,7 @@ func TestReplicaPublishRejectsSensitiveSourceBeforePreviewOrRemoteRequest(t *tes
 	}
 }
 
-func TestReplicaPublishAcceptsValidatedZIPAndPreviewsItsExtractedSource(t *testing.T) {
+func TestReplicaPublishAcceptsValidatedZIPWithAgentPreview(t *testing.T) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	directory := t.TempDir()
 	sourcePath := filepath.Join(directory, "replica-source.zip")
@@ -1069,30 +1070,21 @@ func TestReplicaPublishAcceptsValidatedZIPAndPreviewsItsExtractedSource(t *testi
 	root := t.TempDir()
 	dependencies := replicaPublicationTestDependencies(t, root, server, now)
 	dependencies.NewID = func() string { return replicaPublicationTestRequestID }
-	previewPath := ""
+	previewCalled := false
 	dependencies.StartReplicaPreview = func(_ context.Context, options replicapreview.Options) (replicapreview.Running, error) {
-		previewPath = options.ProjectPath
-		if previewPath == sourcePath || filepath.Ext(previewPath) == ".zip" {
-			t.Fatalf("ZIP was passed directly to the preview runtime: %q", previewPath)
+		previewCalled = true
+		if options.ProjectPath != "" || options.ExistingURL != "http://127.0.0.1:4173/" {
+			t.Fatalf("CLI attempted to infer ZIP entry: %#v", options)
 		}
-		data, err := os.ReadFile(filepath.Join(previewPath, "index.html"))
-		if err != nil || string(data) != "<h1>ZIP Replica</h1>" {
-			t.Fatalf("preview source was not extracted from ZIP: data=%q err=%v", data, err)
-		}
-		return &replicaPreviewSessionStub{result: replicapreview.Result{
-			TargetURL: "http://127.0.0.1:4173/", Reused: true, ServiceKind: replicapreview.ServiceExisting,
-		}}, nil
+		return &replicaPreviewSessionStub{result: replicapreview.Result{TargetURL: options.ExistingURL, Reused: true, ServiceKind: replicapreview.ServiceExisting}}, nil
 	}
 	var stdout bytes.Buffer
 	dependencies.Out = &stdout
 	if exit := Execute(replicaPublicationTestArguments(sourcePath, "replica-site"), dependencies); exit != output.ExitConfirmation {
 		t.Fatalf("validated ZIP did not reach final review: exit=%d output=%s", exit, stdout.String())
 	}
-	if remoteCalls != 1 || previewPath == "" {
-		t.Fatalf("ZIP publication calls=%d previewPath=%q", remoteCalls, previewPath)
-	}
-	if _, err := os.Stat(previewPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("temporary ZIP preview source was not cleaned: %v", err)
+	if remoteCalls != 1 || !previewCalled {
+		t.Fatalf("unexpected calls: %d", remoteCalls)
 	}
 	artifacts, err := filepath.Glob(filepath.Join(root, "config", "replica-publications", "*", "artifacts", "*", "source.zip"))
 	if err != nil || len(artifacts) != 1 {
@@ -1174,7 +1166,7 @@ func TestReplicaPublishRequiresExplicitReplicaOnlyFallbackWhenPreviewFails(t *te
 
 	var reviewOutput bytes.Buffer
 	dependencies.Out = &reviewOutput
-	fallback := append(append([]string{}, arguments...), "--confirm-unverified-replica-only")
+	fallback := append(append([]string{}, arguments...), "--preview-reviewed=false", "--confirm-unverified-replica-only")
 	if exit := Execute(fallback, dependencies); exit != output.ExitConfirmation ||
 		!strings.Contains(reviewOutput.String(), `"hosting": "REPLICA_ONLY"`) ||
 		!strings.Contains(reviewOutput.String(), `"verified": false`) {
@@ -1727,6 +1719,7 @@ func TestReplicaStatusCompletesStableBindingAndUpdateDefaultsCurrentPrice(t *tes
 	dependencies.Out = &updateOutput
 	updateArguments := []string{
 		"replica", "publish", "--path", project, "--title", "Updated replica", "--summary", "Updated summary",
+		"--preview-url", "http://127.0.0.1:4173/", "--preview-reviewed",
 	}
 	if exit := Execute(updateArguments, dependencies); exit != output.ExitConfirmation ||
 		!strings.Contains(updateOutput.String(), `"resolution": "UPDATE"`) || !strings.Contains(updateOutput.String(), `"priceCents": 990`) ||
@@ -2203,8 +2196,11 @@ func replicaPublicationAPIResponse(now time.Time, status, sourceStatus string) m
 		"market": "CN", "merchantAccountId": replicaPublicationTestMerchantID,
 		"workId": replicaPublicationTestWorkID, "replicaId": replicaPublicationTestReplicaID,
 		"status": status, "statusUrl": "https://viceme.cn/me/website-replica-publications/" + replicaPublicationTestID,
-		"allowedActions": allowedActions,
-		"retry":          map[string]any{"automaticRetries": 0, "maxAutomaticRetries": 3, "nextAttemptAt": nil},
+		"allowedActions":            allowedActions,
+		"allowAutomaticDegradation": false, "priceCents": 990,
+		"hosting":  map[string]any{"requested": false, "status": "NOT_REQUESTED", "activePageRelease": nil, "repair": nil, "latestRepair": nil},
+		"rollback": map[string]any{"activePair": nil, "availablePairs": []any{}},
+		"retry":    map[string]any{"automaticRetries": 0, "maxAutomaticRetries": 3, "nextAttemptAt": nil},
 		"source": map[string]any{
 			"fileName": "source.zip", "contentType": "application/zip", "sizeBytes": 1024,
 			"digest": replicaPublicationTestSourceDigest, "status": sourceStatus, "verifiedAt": verifiedAt,
@@ -2336,5 +2332,6 @@ func replicaPublicationTestArguments(project, slug string) []string {
 	return []string{
 		"replica", "publish", "--path", project, "--slug", slug,
 		"--title", "Replica title", "--summary", "Replica summary", "--price-cents", "990",
+		"--preview-url", "http://127.0.0.1:4173/", "--preview-reviewed",
 	}
 }
