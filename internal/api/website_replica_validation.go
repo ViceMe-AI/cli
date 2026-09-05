@@ -446,6 +446,7 @@ func (response *WebsiteReplicaResolution) validateAPIResponse() error {
 		utf16CodeUnits(response.Title) < 1 || utf16CodeUnits(response.Title) > 200 || utf16CodeUnits(response.Summary) > 500 ||
 		utf16CodeUnits(response.Creator.Handle) < 2 || utf16CodeUnits(response.Creator.Handle) > 32 ||
 		!validAbsoluteURL(response.ViceMeWorkURL) ||
+		!validStringEnum(response.Availability, "AVAILABLE", "DELISTED") ||
 		validateWebsiteReplicaProduct(response.Product) != nil {
 		return errors.New("Website Replica resolution response is invalid")
 	}
