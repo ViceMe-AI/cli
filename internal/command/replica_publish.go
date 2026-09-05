@@ -83,6 +83,7 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().BoolVar(&options.ConfirmUnverifiedPreview, "confirm-unverified-replica-only", false, "allow Replica-only publication when local preview cannot be verified")
 	command.Flags().BoolVar(&options.ReplicaOnly, "replica-only", false, "publish source only even when an existing static output can be hosted")
 	command.Flags().BoolVar(&options.AutoApplyCreator, "auto-apply-creator", false, "authorize one idempotent creator application if publication requires it")
+	addReplicaStorageFlag(command, runtime)
 	_ = command.MarkFlagRequired("path")
 	_ = command.MarkFlagRequired("title")
 	return command
@@ -123,15 +124,40 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 	if bindingFound {
 		projectFingerprint = binding.ProjectFingerprint
 	}
-	store := replicaPublicationStore(runtime)
-	if err := store.CleanupExpiredArtifacts(); err != nil {
-		return replicaPublicationPresentation{}, err
+	// An input-only preview must not create project recovery directories. A
+	// durable request still follows its normal locked recovery path below.
+	if !bindingFound && options.ConfirmationVersion == "" && !options.ConfirmUnverifiedPreview && (options.PreviewURL == "" || !options.PreviewReviewed) {
+		localStore, err := projectReplicaPublicationStore(runtime, projectPath)
+		if err != nil {
+			return replicaPublicationPresentation{}, err
+		}
+		_, localFound, err := localStore.LoadProject(projectFingerprint)
+		if err != nil {
+			return replicaPublicationPresentation{}, err
+		}
+		_, globalFound, err := replicaPublicationStore(runtime).LoadProject(projectFingerprint)
+		if err != nil {
+			return replicaPublicationPresentation{}, err
+		}
+		if !localFound && !globalFound {
+			if err := replicacontent.ValidateSourceWorktree(projectPath); err != nil {
+				return replicaPublicationPresentation{}, replicaSourceArchiveError(err)
+			}
+			session, _, previewErr := startReplicaPublicationPreview(ctx, runtime, options)
+			if session != nil {
+				previewErr = finishReplicaPreview(session, previewErr)
+			}
+			return replicaPublicationPresentation{}, previewErr
+		}
 	}
-	lock, err := store.Lock(projectFingerprint)
+	store, unlock, err := prepareReplicaPublishStore(runtime, projectPath, projectFingerprint)
 	if err != nil {
 		return replicaPublicationPresentation{}, err
 	}
-	defer func() { returnErr = errors.Join(returnErr, lock.Unlock()) }()
+	defer func() { returnErr = errors.Join(returnErr, unlock()) }()
+	if err := store.CleanupExpiredArtifacts(); err != nil {
+		return replicaPublicationPresentation{}, err
+	}
 
 	if bindingFound && (binding.Publication.Status == "DRAFT" || binding.Publication.Status == "PROCESSING") {
 		publication, getErr := runtime.client().GetWebsiteReplicaPublication(ctx, binding.Publication.ID)
@@ -145,7 +171,7 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		if found {
 			return synchronizeReplicaPublication(runtime, store, pending, publication)
 		}
-		return presentReplicaPublication(publication), nil
+		return presentStoredReplicaPublication(runtime, publication), nil
 	}
 
 	pending, found, err := store.LoadProject(projectFingerprint)
@@ -321,8 +347,12 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		CreatorApplicationRequestID: creatorApplicationRequestID, CreatedAt: createdAt,
 	}
 	if err := store.Save(&pending); err != nil {
-		cleanupErr := errors.Join(store.DeleteArtifact(pending), store.Delete(pending))
-		return replicaPublicationPresentation{}, errors.Join(err, cleanupErr)
+		// Keep an existing request recoverable after a permission change. A
+		// failed atomic state replacement must not delete the previous state.
+		if !found {
+			return replicaPublicationPresentation{}, errors.Join(err, store.DeleteArtifact(pending))
+		}
+		return replicaPublicationPresentation{}, err
 	}
 	return createAndDriveReplicaPublication(ctx, runtime, store, pending)
 }
@@ -374,7 +404,7 @@ func createAndDriveReplicaPublication(ctx context.Context, runtime *Runtime, sto
 }
 
 func handleReplicaPublicationNextAction(ctx context.Context, runtime *Runtime, store replicapublication.Store, pending replicapublication.Pending, action api.WebsiteReplicaPublicationNextAction) (replicaPublicationPresentation, error) {
-	resumeCommand := replicaPublishResumeCommand(pending)
+	resumeCommand := replicaStorageCommand(runtime, replicaPublishResumeCommand(pending))
 	details := map[string]any{"nextAction": action, "clientRequestId": pending.ClientRequestID, "resumeCommand": resumeCommand}
 	switch action.Kind {
 	case "CONFIRM_PUBLICATION":
@@ -475,7 +505,7 @@ func handleReplicaPublicationNextAction(ctx context.Context, runtime *Runtime, s
 			return replicaPublicationPresentation{}, invalidReplicaResponse("Website Replica status action does not match the authoritative Publication")
 		}
 		if publication.ClientRequestID != pending.ClientRequestID {
-			return presentReplicaPublication(publication), nil
+			return presentStoredReplicaPublication(runtime, publication), nil
 		}
 		if err := validateLocalReplicaPublicationConfirmation(pending); err != nil {
 			return replicaPublicationPresentation{}, err

@@ -73,6 +73,7 @@ type PublicationReference struct {
 }
 
 type Store struct {
+	ProjectScoped  bool
 	Directory      string
 	EndpointOrigin string
 	Market         string
@@ -379,9 +380,16 @@ func (store Store) CleanupExpiredArtifacts() error {
 		if !digestPattern.MatchString(fingerprint) {
 			return output.Validation("REPLICA_PUBLICATION_STATE_INVALID", "local Website Replica publication state is invalid")
 		}
-		lock, err := store.Lock(fingerprint)
+		// Cleanup is opportunistic: never wait for a publication already in
+		// progress (including the caller's own request). This avoids lock cycles
+		// when different projects clean the shared store concurrently.
+		lock := flock.New(filepath.Join(store.Directory, "project-"+fingerprint+".lock"))
+		locked, err := lock.TryLock()
 		if err != nil {
-			return err
+			return stateError("REPLICA_PUBLICATION_LOCK_FAILED", "could not lock the local Website Replica publication", err)
+		}
+		if !locked {
+			continue
 		}
 		cleanupErr := func() error {
 			pending, found, err := store.load(filepath.Join(store.Directory, entry.Name()))
@@ -535,11 +543,30 @@ func writePrivateJSON(filename string, value any, code, message string) error {
 
 func stateError(code, message string, err error) *output.Error {
 	if errors.Is(err, fs.ErrPermission) || privatefile.IsPermissionDenial(err) {
-		return stateSafetyError(err)
+		failure := stateSafetyError(err)
+		failure.Details.(map[string]any)["stage"] = code
+		return failure
 	}
 	return output.Internal(code, message, err)
 }
 
 func stateSafetyError(err error) *output.Error {
-	return output.Policy("REPLICA_PUBLICATION_STORAGE_PERMISSION_REQUIRED", "ViceMe cannot safely read or persist private Website Replica publication state").WithCause(err)
+	operation := "inspect"
+	var link *os.LinkError
+	var path *os.PathError
+	if errors.As(err, &link) {
+		operation = link.Op
+	} else if errors.As(err, &path) {
+		operation = path.Op
+	}
+	failure := StorageError("PUBLICATION_STATE", operation, err)
+	// Unsafe file types/modes are policy refusals too, even without an OS errno.
+	failure.Code = output.ExitPolicy
+	failure.Type = "policy"
+	failure.Subtype = "REPLICA_PUBLICATION_STORAGE_PERMISSION_REQUIRED"
+	failure.Message = "ViceMe cannot safely read or persist private Website Replica publication state"
+	if !errors.Is(err, fs.ErrPermission) && !privatefile.IsPermissionDenial(err) {
+		failure.Details.(map[string]any)["reason"] = "UNSAFE_PATH"
+	}
+	return failure
 }

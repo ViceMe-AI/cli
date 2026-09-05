@@ -89,6 +89,7 @@ type Runtime struct {
 	config             config.Config
 	profile            config.Profile
 	configBase         string
+	replicaProject     string
 	processCredential  *publicationCredential
 	commerceContextID  string
 	executedCommand    *cobra.Command

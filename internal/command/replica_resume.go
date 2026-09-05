@@ -13,7 +13,7 @@ import (
 )
 
 func newReplicaResumeCommand(runtime *Runtime) *cobra.Command {
-	return &cobra.Command{
+	command := &cobra.Command{
 		Use:   "resume <publication-id>",
 		Short: "Resume missing Website Replica upload or processing steps",
 		Args:  cobra.ExactArgs(1),
@@ -25,61 +25,38 @@ func newReplicaResumeCommand(runtime *Runtime) *cobra.Command {
 			return runtime.business(result)
 		},
 	}
+	addReplicaStorageFlag(command, runtime)
+	return command
 }
 
 func newReplicaCancelCommand(runtime *Runtime) *cobra.Command {
-	return &cobra.Command{
-		Use:   "cancel <publication-id>",
-		Short: "Cancel a Website Replica Publication before activation",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(command *cobra.Command, args []string) error {
-			if err := requireReplicaPublicationCN(runtime); err != nil {
-				return err
-			}
-			publicationID := strings.TrimSpace(args[0])
-			if !replicaUUIDPattern.MatchString(publicationID) {
-				return output.Validation("REPLICA_PUBLICATION_ID_INVALID", "Website Replica Publication ID must be a UUID")
-			}
-			store := replicaPublicationStore(runtime)
-			if err := store.CleanupExpiredArtifacts(); err != nil {
-				return err
-			}
-			progress(runtime, "Cancelling Website Replica Publication")
-			publication, err := runtime.client().CancelWebsiteReplicaPublication(command.Context(), publicationID)
-			if err != nil {
-				return err
-			}
-			pending, found, err := store.LoadPublication(publicationID)
-			if err != nil {
-				return err
-			}
-			if found {
-				presentation, err := synchronizeReplicaPublication(runtime, store, pending, publication)
-				if err != nil {
-					return err
-				}
-				return runtime.business(presentation)
-			}
-			return runtime.business(presentReplicaPublication(publication))
-		},
-	}
+	command := &cobra.Command{Use: "cancel <publication-id>", Short: "Cancel a Website Replica Publication before activation", Args: cobra.ExactArgs(1), RunE: func(command *cobra.Command, args []string) error {
+		result, err := controlReplicaPublication(command.Context(), runtime, args[0], true)
+		if err != nil {
+			return err
+		}
+		return runtime.business(result)
+	}}
+	addReplicaStorageFlag(command, runtime)
+	return command
 }
 
-func resumeWebsiteReplicaPublication(ctx context.Context, runtime *Runtime, publicationID string) (replicaPublicationPresentation, error) {
+func resumeWebsiteReplicaPublication(ctx context.Context, runtime *Runtime, publicationID string) (_ replicaPublicationPresentation, returnErr error) {
 	if err := requireReplicaPublicationCN(runtime); err != nil {
 		return replicaPublicationPresentation{}, err
 	}
 	if !replicaUUIDPattern.MatchString(publicationID) {
 		return replicaPublicationPresentation{}, output.Validation("REPLICA_PUBLICATION_ID_INVALID", "Website Replica Publication ID must be a UUID")
 	}
-	store := replicaPublicationStore(runtime)
-	if err := store.CleanupExpiredArtifacts(); err != nil {
-		return replicaPublicationPresentation{}, err
-	}
-	pending, found, err := store.LoadPublication(publicationID)
+	store, err := selectedReplicaPublicationStore(runtime)
 	if err != nil {
 		return replicaPublicationPresentation{}, err
 	}
+	pending, found, unlock, err := loadReplicaRecovery(runtime, store, publicationID)
+	if err != nil {
+		return replicaPublicationPresentation{}, err
+	}
+	defer func() { returnErr = errors.Join(returnErr, unlock()) }()
 	progress(runtime, "Reading authoritative Website Replica Publication status")
 	publication, err := runtime.client().GetWebsiteReplicaPublication(ctx, publicationID)
 	if err != nil {
@@ -101,12 +78,15 @@ func resumeWebsiteReplicaPublication(ctx context.Context, runtime *Runtime, publ
 				return replicaPublicationPresentation{}, err
 			}
 		}
-		return presentReplicaPublication(publication), nil
+		return presentStoredReplicaPublication(runtime, publication), nil
 	}
 	return driveReplicaPublication(ctx, runtime, store, pending, publication, true)
 }
 
 func driveReplicaPublication(ctx context.Context, runtime *Runtime, store replicapublication.Store, pending replicapublication.Pending, publication api.WebsiteReplicaPublication, allowRetry bool) (replicaPublicationPresentation, error) {
+	if err := preflightReplicaRecovery(runtime, store, pending); err != nil {
+		return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, err, publication)
+	}
 	for step := 0; step < 5; step++ {
 		if err := validateReplicaPublicationRecovery(pending, publication); err != nil {
 			return replicaPublicationPresentation{}, err
@@ -121,7 +101,7 @@ func driveReplicaPublication(ctx context.Context, runtime *Runtime, store replic
 				progress(runtime, "Retrying Website Replica Publication processing")
 				retried, err := runtime.client().RetryWebsiteReplicaPublication(ctx, publication.ID)
 				if err != nil {
-					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, err, publication)
 				}
 				publication = retried
 				allowRetry = false
@@ -142,20 +122,20 @@ func driveReplicaPublication(ctx context.Context, runtime *Runtime, store replic
 					return replicaPublicationPresentation{}, output.Validation(
 						"REPLICA_PUBLICATION_ARTIFACT_EXPIRED",
 						"the recoverable upload window expired and the frozen artifacts were removed",
-					).WithDetails(replicaRecoveryDetails(publication)).WithHint(
+					).WithDetails(replicaRecoveryDetails(runtime, publication)).WithHint(
 						"cancel this draft, then run replica publish again to preview, freeze, and confirm a new Publication",
 					).WithCause(cleanupErr)
 				}
 				if !hasReplicaPublicationAction(publication, "AUTHORIZE_PAGE_UPLOAD") {
-					return presentReplicaPublication(publication), nil
+					return presentStoredReplicaPublication(runtime, publication), nil
 				}
 				authorization, err := runtime.client().AuthorizeWebsiteReplicaPublicationPageUpload(ctx, publication.ID)
 				if err != nil {
-					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, err, publication)
 				}
 				file, err := store.OpenPageArtifact(pending)
 				if err != nil {
-					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, err, publication)
 				}
 				progress(runtime, "Uploading frozen Website Replica page")
 				uploadErr := runtime.client().PutUpload(ctx, api.UploadAuthorization{
@@ -167,12 +147,12 @@ func driveReplicaPublication(ctx context.Context, runtime *Runtime, store replic
 					closeErr = nil
 				}
 				if uploadErr != nil || closeErr != nil {
-					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(errors.Join(uploadErr, closeErr), publication)
+					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, errors.Join(uploadErr, closeErr), publication)
 				}
 				progress(runtime, "Verifying uploaded Website Replica page")
 				completed, err := runtime.client().CompleteWebsiteReplicaPublicationPageUpload(ctx, publication.ID)
 				if err != nil {
-					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, err, publication)
 				}
 				publication = completed
 				if publication.Page == nil || (publication.Page.Status != "VERIFIED" && publication.Page.Status != "FAILED") {
@@ -180,12 +160,12 @@ func driveReplicaPublication(ctx context.Context, runtime *Runtime, store replic
 				}
 			case "UPLOADED", "VALIDATING":
 				if !hasReplicaPublicationAction(publication, "COMPLETE_PAGE_UPLOAD") {
-					return presentReplicaPublication(publication), nil
+					return presentStoredReplicaPublication(runtime, publication), nil
 				}
 				progress(runtime, "Resuming Website Replica page verification")
 				completed, err := runtime.client().CompleteWebsiteReplicaPublicationPageUpload(ctx, publication.ID)
 				if err != nil {
-					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+					return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, err, publication)
 				}
 				publication = completed
 				if publication.Page == nil || (publication.Page.Status != "VERIFIED" && publication.Page.Status != "FAILED") {
@@ -206,20 +186,20 @@ func driveReplicaPublication(ctx context.Context, runtime *Runtime, store replic
 				return replicaPublicationPresentation{}, output.Validation(
 					"REPLICA_PUBLICATION_ARTIFACT_EXPIRED",
 					"the recoverable upload window expired and the frozen source was removed",
-				).WithDetails(replicaRecoveryDetails(publication)).WithHint(
+				).WithDetails(replicaRecoveryDetails(runtime, publication)).WithHint(
 					"cancel this draft, then run replica publish again to preview, freeze, and confirm a new Publication",
 				).WithCause(cleanupErr)
 			}
 			if !hasReplicaPublicationAction(publication, "AUTHORIZE_SOURCE_UPLOAD") {
-				return presentReplicaPublication(publication), nil
+				return presentStoredReplicaPublication(runtime, publication), nil
 			}
 			authorization, err := runtime.client().AuthorizeWebsiteReplicaPublicationSourceUpload(ctx, publication.ID)
 			if err != nil {
-				return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+				return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, err, publication)
 			}
 			file, err := store.OpenArtifact(pending)
 			if err != nil {
-				return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+				return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, err, publication)
 			}
 			progress(runtime, "Uploading frozen Website Replica source")
 			uploadErr := runtime.client().PutUpload(ctx, api.UploadAuthorization{
@@ -231,12 +211,12 @@ func driveReplicaPublication(ctx context.Context, runtime *Runtime, store replic
 				closeErr = nil
 			}
 			if uploadErr != nil || closeErr != nil {
-				return replicaPublicationPresentation{}, withReplicaPublicationRecovery(errors.Join(uploadErr, closeErr), publication)
+				return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, errors.Join(uploadErr, closeErr), publication)
 			}
 			progress(runtime, "Verifying uploaded Website Replica source")
 			completed, err := runtime.client().CompleteWebsiteReplicaPublicationSourceUpload(ctx, publication.ID)
 			if err != nil {
-				return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+				return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, err, publication)
 			}
 			publication = completed
 			if publication.Source.Status != "VERIFIED" {
@@ -244,12 +224,12 @@ func driveReplicaPublication(ctx context.Context, runtime *Runtime, store replic
 			}
 		case "UPLOADED", "VALIDATING":
 			if !hasReplicaPublicationAction(publication, "COMPLETE_SOURCE_UPLOAD") {
-				return presentReplicaPublication(publication), nil
+				return presentStoredReplicaPublication(runtime, publication), nil
 			}
 			progress(runtime, "Resuming Website Replica source verification")
 			completed, err := runtime.client().CompleteWebsiteReplicaPublicationSourceUpload(ctx, publication.ID)
 			if err != nil {
-				return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+				return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, err, publication)
 			}
 			publication = completed
 			if publication.Source.Status != "VERIFIED" {
@@ -266,12 +246,12 @@ func driveReplicaPublication(ctx context.Context, runtime *Runtime, store replic
 		if publication.Status == "DRAFT" && publication.Source.Status == "VERIFIED" &&
 			(publication.Page == nil || publication.Page.Status == "VERIFIED" || publication.Page.Status == "FAILED") {
 			if !hasReplicaPublicationAction(publication, "SUBMIT") {
-				return presentReplicaPublication(publication), nil
+				return presentStoredReplicaPublication(runtime, publication), nil
 			}
 			progress(runtime, "Submitting Website Replica Publication for asynchronous processing")
 			submitted, err := runtime.client().SubmitWebsiteReplicaPublication(ctx, publication.ID)
 			if err != nil {
-				return replicaPublicationPresentation{}, withReplicaPublicationRecovery(err, publication)
+				return replicaPublicationPresentation{}, withReplicaPublicationRecovery(runtime, err, publication)
 			}
 			publication = submitted
 			continue
@@ -280,7 +260,12 @@ func driveReplicaPublication(ctx context.Context, runtime *Runtime, store replic
 	return replicaPublicationPresentation{}, output.Internal("REPLICA_PUBLICATION_STATE_STALLED", "Website Replica Publication did not reach a stable recoverable state", nil)
 }
 
-func synchronizeReplicaPublication(runtime *Runtime, store replicapublication.Store, pending replicapublication.Pending, publication api.WebsiteReplicaPublication) (replicaPublicationPresentation, error) {
+func synchronizeReplicaPublication(runtime *Runtime, store replicapublication.Store, pending replicapublication.Pending, publication api.WebsiteReplicaPublication) (_ replicaPublicationPresentation, returnErr error) {
+	defer func() {
+		if returnErr != nil {
+			returnErr = withReplicaPublicationRecovery(runtime, returnErr, publication)
+		}
+	}()
 	if err := validateReplicaPublicationRecovery(pending, publication); err != nil {
 		return replicaPublicationPresentation{}, err
 	}
@@ -323,7 +308,7 @@ func synchronizeReplicaPublication(runtime *Runtime, store replicapublication.St
 			return replicaPublicationPresentation{}, err
 		}
 	}
-	return presentReplicaPublication(publication), nil
+	return presentStoredReplicaPublication(runtime, publication), nil
 }
 
 func publicationReference(publication api.WebsiteReplicaPublication) *replicapublication.PublicationReference {
@@ -377,25 +362,25 @@ func validateReplicaPublicationRecovery(pending replicapublication.Pending, publ
 	return nil
 }
 
-func withReplicaPublicationRecovery(err error, publication api.WebsiteReplicaPublication) error {
+func withReplicaPublicationRecovery(runtime *Runtime, err error, publication api.WebsiteReplicaPublication) error {
 	if err == nil {
 		return nil
 	}
 	cliErr := output.AsError(err)
 	cliErr.PublicationID = publication.ID
 	cliErr.ConsoleURL = publication.StatusURL
-	cliErr.WithDetails(map[string]any{
+	mergeReplicaRecoveryDetails(cliErr, map[string]any{
 		"publicationId": publication.ID,
 		"statusUrl":     publication.StatusURL,
-		"resume":        map[string]string{"command": "viceme replica resume " + publication.ID},
+		"resume":        map[string]string{"command": replicaStorageCommand(runtime, "viceme replica resume "+publication.ID)},
 	})
 	return cliErr
 }
 
-func replicaRecoveryDetails(publication api.WebsiteReplicaPublication) map[string]any {
+func replicaRecoveryDetails(runtime *Runtime, publication api.WebsiteReplicaPublication) map[string]any {
 	return map[string]any{
 		"publicationId": publication.ID,
 		"statusUrl":     publication.StatusURL,
-		"resume":        map[string]string{"command": "viceme replica resume " + publication.ID},
+		"resume":        map[string]string{"command": replicaStorageCommand(runtime, "viceme replica resume "+publication.ID)},
 	}
 }
