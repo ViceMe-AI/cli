@@ -2203,8 +2203,11 @@ func replicaPublicationAPIResponse(now time.Time, status, sourceStatus string) m
 		"market": "CN", "merchantAccountId": replicaPublicationTestMerchantID,
 		"workId": replicaPublicationTestWorkID, "replicaId": replicaPublicationTestReplicaID,
 		"status": status, "statusUrl": "https://viceme.cn/me/website-replica-publications/" + replicaPublicationTestID,
-		"allowedActions": allowedActions,
-		"retry":          map[string]any{"automaticRetries": 0, "maxAutomaticRetries": 3, "nextAttemptAt": nil},
+		"allowedActions":            allowedActions,
+		"allowAutomaticDegradation": false, "priceCents": 990,
+		"hosting":  map[string]any{"requested": false, "status": "NOT_REQUESTED", "activePageRelease": nil, "repair": nil, "latestRepair": nil},
+		"rollback": map[string]any{"activePair": nil, "availablePairs": []any{}},
+		"retry":    map[string]any{"automaticRetries": 0, "maxAutomaticRetries": 3, "nextAttemptAt": nil},
 		"source": map[string]any{
 			"fileName": "source.zip", "contentType": "application/zip", "sizeBytes": 1024,
 			"digest": replicaPublicationTestSourceDigest, "status": sourceStatus, "verifiedAt": verifiedAt,

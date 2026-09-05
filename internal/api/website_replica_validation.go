@@ -188,6 +188,11 @@ func (response *CompleteWebsiteReplicaUploadResponse) validateAPIResponse() erro
 }
 
 func (response *WebsiteReplicaPublication) validateAPIResponse() error {
+	if response != nil {
+		if err := response.validateHostingProjection(); err != nil {
+			return err
+		}
+	}
 	if response == nil || !zodUUIDPattern.MatchString(response.ID) || !zodUUIDPattern.MatchString(response.ClientRequestID) ||
 		(response.Market != "CN" && response.Market != "GLOBAL") || !zodUUIDPattern.MatchString(response.MerchantAccountID) ||
 		!zodUUIDPattern.MatchString(response.WorkID) || !zodUUIDPattern.MatchString(response.ReplicaID) ||

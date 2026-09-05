@@ -250,6 +250,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
 | `viceme replica preview [--path <项目> \| --url <回环地址>]` | 登录或上传前，在匿名 ViceMe 预览壳中打开本地网页；CLI 启动的 dev server 仅存活到命令退出，视觉验证以打开的浏览器为准。 |
 | `viceme replica publish --path <项目或ZIP> ...` | 在 CN 市场本地检查并预览项目（已有 ZIP 会先完整校验，再私有解压用于预览）、冻结源码并返回一份三十分钟终审；仅以返回的精确 `--confirm` 版本重跑后才上传和提交，`PROCESSING` 表示已提交但尚未发布。 |
+| `viceme replica repair-hosting --publication <ID> --path <项目或WorkPage-ZIP>` | 校验并确认仅页面托管补发；原确认命令可恢复中断，源码版本、价格和买家权益不变。 |
 | `viceme replica status <publication-id>` | 读取 Website Replica Publication 权威状态，并在发布终态补全稳定本地绑定。 |
 | `viceme replica resume <publication-id>` | 从权威子状态只继续缺失的上传、校验、提交或允许的重试步骤。 |
 | `viceme replica cancel <publication-id>` | 激活前取消 Publication，并清理本地可恢复源码。 |
