@@ -71,7 +71,7 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&options.ProjectPath, "path", "", "Website Replica project directory or existing ZIP path")
 	command.Flags().StringVar(&options.PreviewURL, "preview-url", "", "actual HTTP(S) loopback page selected and started by your agent")
-	command.Flags().BoolVar(&options.PreviewReviewed, "preview-reviewed", false, "attest that your agent observed the page and its embedding in the official preview shell")
+	command.Flags().BoolVar(&options.PreviewReviewed, "preview-reviewed", false, "attest that your agent observed the actual local page")
 	command.Flags().StringVar(&options.WorkID, "work-id", "", "existing Website Work UUID (omit when creating a new Work)")
 	command.Flags().StringVar(&options.Slug, "slug", "", "new public Work slug")
 	command.Flags().StringVar(&options.MerchantAccountID, "merchant-id", "", "ACTIVE OWNER Merchant UUID")
@@ -546,20 +546,16 @@ func startReplicaPublicationPreview(ctx context.Context, runtime *Runtime, optio
 		return nil, replicapublication.Preview{}, err
 	}
 	result := session.Result()
-	shellURL, err := replicaPreviewShellURL(runtime.profile.ResolvedWebBaseURL(), result.TargetURL)
-	if err != nil {
-		return session, replicapublication.Preview{}, err
-	}
-	if err := runtime.deps.OpenURL(ctx, shellURL); err != nil {
-		return session, replicapublication.Preview{}, fmt.Errorf("open the ViceMe preview shell: %w", err)
+	if err := runtime.deps.OpenURL(ctx, result.TargetURL); err != nil {
+		return session, replicapublication.Preview{}, fmt.Errorf("open the local page: %w", err)
 	}
 	if !options.PreviewReviewed {
-		return session, replicapublication.Preview{}, output.Validation("REPLICA_PREVIEW_REVIEW_REQUIRED", "the local service responded; your agent must observe the actual page and its embedding before publication").WithDetails(map[string]any{
+		return session, replicapublication.Preview{}, output.Validation("REPLICA_PREVIEW_REVIEW_REQUIRED", "the local service responded; your agent must observe the actual page before publication").WithDetails(map[string]any{
 			"nextAction": "REVIEW_LOCAL_PREVIEW", "previewVerified": false,
 			"browserVerificationRequired": true, "remoteUpload": false, "publicationCreated": false,
-		}).WithHint("inspect the opened preview shell, then rerun with the same --preview-url and --preview-reviewed; connectivity alone is not visual verification")
+		}).WithHint("inspect the opened local page, then rerun with the same --preview-url and --preview-reviewed; connectivity alone is not visual verification")
 	}
-	_, _ = fmt.Fprintln(runtime.deps.ErrOut, "Local preview shell opened; the final review is the only authorization to upload source.")
+	_, _ = fmt.Fprintln(runtime.deps.ErrOut, "Local page opened; the final review is the only authorization to upload source.")
 	return session, replicapublication.Preview{
 		Verified: true, ReviewedBy: "AGENT", TargetURL: result.TargetURL, Reused: result.Reused, StartedByCLI: result.StartedByCLI,
 	}, nil

@@ -4,10 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -19,7 +17,7 @@ type replicaPreviewResult struct {
 	Mode                        string                     `json:"mode"`
 	PreviewURL                  string                     `json:"previewUrl,omitempty"`
 	TargetURL                   string                     `json:"targetUrl,omitempty"`
-	PreviewShellOpened          bool                       `json:"previewShellOpened"`
+	PreviewOpened               bool                       `json:"previewOpened"`
 	PreviewVerified             bool                       `json:"previewVerified"`
 	BrowserVerificationRequired bool                       `json:"browserVerificationRequired"`
 	HostingRequested            bool                       `json:"hostingRequested"`
@@ -44,7 +42,7 @@ func newReplicaPreviewCommand(runtime *Runtime) *cobra.Command {
 	var confirmReplicaOnly bool
 	command := &cobra.Command{
 		Use:   "preview",
-		Short: "Preview the official make-a-copy experience around a local website",
+		Short: "Preview the existing local website directly",
 		Args:  cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if confirmReplicaOnly {
@@ -85,12 +83,9 @@ func runReplicaPreview(parent context.Context, runtime *Runtime, projectPath, ex
 	}
 
 	result := session.Result()
-	previewURL, err := replicaPreviewShellURL(runtime.profile.ResolvedWebBaseURL(), result.TargetURL)
-	if err != nil {
-		return finishReplicaPreview(session, err)
-	}
+	previewURL := result.TargetURL
 	if err := runtime.deps.OpenURL(ctx, previewURL); err != nil {
-		return finishReplicaPreview(session, fmt.Errorf("open the ViceMe preview shell: %w", err))
+		return finishReplicaPreview(session, fmt.Errorf("open the local page: %w", err))
 	}
 	if result.StartedByCLI {
 		_, _ = fmt.Fprintln(runtime.deps.ErrOut, "Local preview is open. Press Ctrl+C to stop the dev server owned by ViceMe.")
@@ -106,7 +101,7 @@ func runReplicaPreview(parent context.Context, runtime *Runtime, projectPath, ex
 		Mode:                        "LOCAL_PREVIEW",
 		PreviewURL:                  previewURL,
 		TargetURL:                   result.TargetURL,
-		PreviewShellOpened:          true,
+		PreviewOpened:               true,
 		PreviewVerified:             false,
 		BrowserVerificationRequired: true,
 		HostingRequested:            false,
@@ -140,23 +135,6 @@ func finishReplicaPreview(session replicapreview.Running, operationErr error) er
 	return nil
 }
 
-func replicaPreviewShellURL(webBaseURL, target string) (string, error) {
-	if strings.TrimSpace(webBaseURL) == "" {
-		return "", errors.New("the active Profile does not define a Web base URL")
-	}
-	parsed, err := url.Parse(webBaseURL)
-	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-		return "", errors.New("the active Profile Web base URL is invalid")
-	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/website-replica/preview"
-	parsed.RawPath = ""
-	query := parsed.Query()
-	query.Set("target", target)
-	parsed.RawQuery = query.Encode()
-	parsed.Fragment = ""
-	return parsed.String(), nil
-}
-
 func replicaPreviewBoundaryError(err error) *output.Error {
 	var existing *output.Error
 	if errors.As(err, &existing) {
@@ -168,7 +146,7 @@ func replicaPreviewBoundaryError(err error) *output.Error {
 		"authenticationChecked": false,
 		"merchantChecked":       false,
 		"publicationCreated":    false,
-		"unverifiedBoundaries":  []string{"preview interaction", "responsive layout", "local page embedding"},
+		"unverifiedBoundaries":  []string{"preview interaction", "responsive layout"},
 	}
 	var startErr *replicapreview.StartError
 	if errors.As(err, &startErr) {
@@ -183,7 +161,7 @@ func replicaPreviewBoundaryError(err error) *output.Error {
 	}
 	return output.Confirmation(
 		"CONFIRM_UNVERIFIED_REPLICA_ONLY",
-		"preview interaction, responsive layout, and local page embedding could not be verified; no source was uploaded",
+		"preview interaction and responsive layout could not be verified; no source was uploaded",
 	).WithDetails(details).WithHint(
 		"fix the reported preview problem and retry, or explicitly continue with 'viceme replica preview --confirm-unverified-replica-only'",
 	).WithCause(err)

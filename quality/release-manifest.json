@@ -42,8 +42,8 @@
       "skill_version": "0.33.2",
       "minimum_cli_version": "0.33.2",
       "cli_compatibility": ">=0.33.2 <0.34.0",
-      "full_skill_bundle_digest": "sha256:192326b5ad34664973856aa075e571772b259182fef198cb6671cef0f67aec30",
-      "embedded_content_digest": "sha256:3dd2b80b2093c5690853bdae64c0f367f915668273d3f3bee8b0cf472e17c9e3"
+      "full_skill_bundle_digest": "sha256:8568726c110b97ce8aa89b338eba0fdb90e6ab164184802ce06bc6089875436c",
+      "embedded_content_digest": "sha256:ae1a111e560b85951866ba09309f2ba2a4ff8aa36a6f3d67ab4950ca8df49e54"
     },
     "let-people-interact": {
       "skill_version": "0.33.2",
