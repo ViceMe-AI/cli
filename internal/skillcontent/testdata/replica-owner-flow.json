@@ -6,7 +6,7 @@
     "output": {
       "ok": false,
       "error": {
-        "code": "confirmation_required",
+        "code": "confirmation",
         "subtype": "REPLICA_PUBLICATION_CONFIRMATION_REQUIRED",
         "details": {
           "nextAction": {
