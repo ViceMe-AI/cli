@@ -15,7 +15,9 @@ import (
 	"testing"
 	"time"
 
+	cliembed "github.com/ViceMe-AI/cli"
 	"github.com/ViceMe-AI/cli/internal/config"
+	"github.com/ViceMe-AI/cli/internal/publication"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
@@ -39,10 +41,11 @@ type skillTrialTestServer struct {
 	// secret so replays stay idempotent (mirrors the real API contract).
 	// useRequests records every trial-use body so tests can assert the
 	// idempotency key; trialUseFailures forces that many 500 responses first.
-	grantRequests     []string
-	grantedInstallIDs map[string]bool
-	useRequests       []map[string]any
-	trialUseFailures  int
+	grantRequests         []string
+	grantedInstallIDs     map[string]bool
+	useRequests           []map[string]any
+	trialUseFailures      int
+	trialPurchaseRequests []map[string]string
 }
 
 func newSkillTrialTestServer(t *testing.T) *skillTrialTestServer {
@@ -52,8 +55,9 @@ func newSkillTrialTestServer(t *testing.T) *skillTrialTestServer {
 	state.archiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.archive))
 	state.ownedArchive = downloadableSkillArchiveNamed(t, "free-test", "Owned Current Skill")
 	state.ownedArchiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.ownedArchive))
-	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	server := httptest.NewUnstartedServer(http.HandlerFunc(state.serveHTTP))
 	state.server = server
+	server.Start()
 	return state
 }
 
@@ -68,6 +72,43 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 		}
 	}
 	switch {
+	case strings.HasPrefix(request.URL.Path, "/skills/_widgets/"):
+		content, err := fs.ReadFile(cliembed.EmbeddedWidgets(), filepath.Base(request.URL.Path))
+		if err != nil {
+			http.NotFound(writer, request)
+			return
+		}
+		_, _ = writer.Write(content)
+	case strings.HasPrefix(request.URL.Path, "/v1/skills/"+downloadableProductID+"/trial-purchase"):
+		var body map[string]string
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		if request.Header.Get("Authorization") != "" || body["secret"] != skillTrialSecret || body["installId"] == "" {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		s.mu.Lock()
+		s.trialPurchaseRequests = append(s.trialPurchaseRequests, body)
+		status := s.paymentStatus
+		s.mu.Unlock()
+		if strings.HasSuffix(request.URL.Path, "/download") {
+			if status != "PAID" {
+				writer.WriteHeader(http.StatusNotFound)
+				return
+			}
+			writeJSONResponse(writer, map[string]any{
+				"access":   skillAccessFixture(false, true, s.ownedArchiveDigest, ""),
+				"download": map[string]any{"url": s.server.URL + "/owned-artifact", "fileName": "formal.zip", "releaseId": downloadableReleaseID, "artifactDigest": s.ownedArchiveDigest, "expiresAt": "2099-01-01T00:00:00Z"},
+			})
+			return
+		}
+		var action any
+		if status == "PENDING" {
+			action = map[string]any{"type": "QR_CODE", "content": "weixin://pay/trial-test-only"}
+		}
+		writeJSONResponse(writer, map[string]any{
+			"productId": downloadableProductID, "orderNo": skillPurchaseOrderNo, "title": "Trial formal edition",
+			"amountCents": 990, "currency": "CNY", "status": status, "expiresAt": "2099-01-01T00:00:00Z", "paymentAction": action,
+		})
 	case request.URL.Path == "/v1/skills/"+downloadableProductID+"/access":
 		access := skillAccessFixture(false, false, s.archiveDigest, s.server.URL+"/purchase")
 		access["trial"] = map[string]any{"available": true, "limitUses": s.trialLimit}
@@ -275,8 +316,12 @@ func TestPaidTrialSkillInstallsAnonymouslyWithGate(t *testing.T) {
 	}
 	for _, path := range gatePaths {
 		content, err := os.ReadFile(path)
-		if err != nil || !bytes.Contains(content, []byte(skillTrialGateMarker)) || !bytes.Contains(content, []byte("viceme skill use "+downloadableProductID)) {
+		if err != nil || !bytes.Contains(content, []byte(skillTrialGateMarker)) || !bytes.Contains(content, []byte(skillTrialRuntimePath)) || !bytes.Contains(content, []byte("allowed: true")) {
 			t.Fatalf("installed Skill %s is missing the trial gate: err=%v", path, err)
+		}
+		rules, err := os.ReadFile(filepath.Join(filepath.Dir(path), skillTrialRuntimePath))
+		if err != nil || !bytes.Contains(rules, []byte("viceme skill use "+downloadableProductID)) {
+			t.Fatalf("installed Skill is missing usable trial rules: %v", err)
 		}
 		// 门禁段必须位于正文顶部(先于创作者标题),保证每次加载技能第一眼读到规则。
 		if strings.Index(string(content), skillTrialGateMarker) > strings.Index(string(content), "# Free Test Skill") {
@@ -288,6 +333,64 @@ func TestPaidTrialSkillInstallsAnonymouslyWithGate(t *testing.T) {
 	state.mu.Unlock()
 	if uses != 0 {
 		t.Fatalf("trial install unexpectedly consumed a trial use: %d", uses)
+	}
+}
+
+func TestPublishedFrontmatterSurvivesTrialAndCanonicalInstall(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	for _, metadata := range []string{
+		"name: latex-geometry\ntitle: latex-geometry\ndescription: LaTeX 几何绘图 Skill",
+		"name: latex-geometry\nmetadata:\n  author: yee33\nallowed-tools: [Read, Bash]",
+		"name: latex-geometry\ndescription: ''\nlicense: MIT",
+	} {
+		t.Run(metadata, func(t *testing.T) {
+			original := "---\n" + metadata + "\n---\n\n# LaTeX\n\n作者原始正文。\n"
+			source := t.TempDir()
+			if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte(original), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			packaged, err := publication.Build(source)
+			if err != nil {
+				t.Fatalf("publication rejected fixture: %v", err)
+			}
+			state := newSkillTrialTestServer(t)
+			defer state.server.Close()
+			state.archive = packaged.Bytes
+			state.archiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.archive))
+			home := t.TempDir()
+			store := securestore.NewMemory()
+			for attempt := 0; attempt < 2; attempt++ {
+				exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, store,
+					"skill", "install", downloadableProductID, "--agent", "workbuddy")
+				if exit != 0 || envelope["ok"] != true {
+					t.Fatalf("published Skill failed installation: %#v", envelope)
+				}
+			}
+			skillDir := filepath.Join(home, ".workbuddy", "skills", "latex-geometry")
+			installed, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
+			if err != nil || !strings.HasPrefix(string(installed), "---\n"+metadata+"\n---\n") || !strings.HasSuffix(string(installed), "作者原始正文。\n") || strings.Count(string(installed), skillTrialGateMarker) != 1 {
+				t.Fatalf("frontmatter/body/gate did not survive install: %q, %v", installed, err)
+			}
+			// Paid/free installs share this canonical installer; it must retain
+			// the exact published source and remove generated trial-only files.
+			files, err := extractDownloadableSkill(packaged.Bytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			report, err := installDownloadableSkill("latex-geometry", "workbuddy", files,
+				skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")},
+				skillcontent.SkillProvenance{ProductID: downloadableProductID, ReleaseID: downloadableReleaseID})
+			if err != nil || !report.AllSucceeded {
+				t.Fatalf("canonical installation failed: %#v, %v", report, err)
+			}
+			installed, err = os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
+			if err != nil || string(installed) != original {
+				t.Fatalf("canonical installation rewrote author metadata: %q, %v", installed, err)
+			}
+			if _, err := os.Stat(filepath.Join(skillDir, skillTrialRuntimePath)); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("trial rules survived canonical reinstall: %v", err)
+			}
+		})
 	}
 }
 
@@ -613,6 +716,10 @@ func TestSkillUseConsumesTrialThenClosesPurchaseAndReinstallsCanonicalPackage(t 
 	if data["lastUse"] != true {
 		t.Fatalf("last trial use was not flagged: %#v", data)
 	}
+	lastEntry, err := os.ReadFile(filepath.Join(home, ".codex", "skills", "free-test", "SKILL.md"))
+	if err != nil || !bytes.Contains(lastEntry, []byte("# Free Test Skill")) || bytes.Contains(lastEntry, []byte(skillcontent.TrialDisabledMarker)) {
+		t.Fatalf("last allowed use must retain the full Skill: %v", err)
+	}
 
 	// 第三次预检:耗尽 → 扫码支付 → 支付成功后转正并移除门禁。
 	exit, envelope, stderr := executeSkillTrialCommand(t, state.server, home, store,
@@ -645,9 +752,54 @@ func TestSkillUseConsumesTrialThenClosesPurchaseAndReinstallsCanonicalPackage(t 
 		if bytes.Contains(content, []byte(skillTrialGateMarker)) {
 			t.Fatalf("trial gate survived the purchase in %s", path)
 		}
+		if bytes.Contains(content, []byte(skillcontent.TrialDisabledMarker)) {
+			t.Fatalf("disabled entry survived the canonical paid reinstall in %s", path)
+		}
+		if _, err := os.Stat(filepath.Join(filepath.Dir(path), skillTrialRuntimePath)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("trial rules survived purchase: %v", err)
+		}
 		if !bytes.Contains(content, []byte("Owned Current Skill")) || bytes.Contains(content, []byte("Free Test Skill")) {
 			t.Fatalf("the canonical owned package did not replace the trial package in %s: %q", path, content)
 		}
+	}
+}
+
+func TestTrialExhaustionSuspendsBeforeBuyerAuthentication(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+	home := t.TempDir()
+	store := securestore.NewMemory()
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, store, "skill", "install", downloadableProductID, "--agent", "codex")
+	if exit != 0 {
+		t.Fatalf("install failed: %#v", envelope)
+	}
+	credential, _ := store.Get(skillTrialStoreKey(downloadableProductID))
+	state.mu.Lock()
+	state.grantUses = state.trialLimit
+	state.mu.Unlock()
+	exit, envelope, _ = executeSkillTrialCommand(t, state.server, home, store, "skill", "use", downloadableProductID, "--wait", "0")
+	if exit == 0 {
+		t.Fatalf("exhausted anonymous trial was allowed: %#v", envelope)
+	}
+	failure, _ := envelope["error"].(map[string]any)
+	details, _ := failure["details"].(map[string]any)
+	if details["disabledSkillCount"] != float64(2) {
+		t.Fatalf("failure omitted the completed suspension: %#v", envelope)
+	}
+	for _, root := range []string{".codex", ".agents"} {
+		directory := filepath.Join(home, root, "skills", "free-test")
+		content, err := os.ReadFile(filepath.Join(directory, "SKILL.md"))
+		if err != nil || !bytes.Contains(content, []byte(skillcontent.TrialDisabledMarker)) || bytes.Contains(content, []byte("# Free Test Skill")) {
+			t.Fatalf("trial entry was not suspended: %q, %v", content, err)
+		}
+		if _, err := os.Stat(filepath.Join(directory, "scripts", "run.sh")); err != nil {
+			t.Fatalf("suspension removed scripts: %v", err)
+		}
+	}
+	after, _ := store.Get(skillTrialStoreKey(downloadableProductID))
+	if after != credential {
+		t.Fatal("suspension changed the quota credential")
 	}
 }
 
@@ -700,8 +852,7 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 	t.Run("funnels machines without the CLI into the install contract", func(t *testing.T) {
 		files := gateFiles(frontmatter + body)
 		injectSkillTrialGate(files, productID, installDoc)
-		content := string(files["SKILL.md"].Data)
-		marker := strings.Index(content, skillTrialGateMarker)
+		content := string(files[skillTrialRuntimePath].Data)
 		for _, needle := range []string{
 			installDoc,
 			"不得跳过检查直接使用本技能",
@@ -713,19 +864,16 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 				t.Fatalf("gate is missing %q:\n%s", needle, content)
 			}
 		}
-		tail := strings.Index(content, skillTrialGateTail)
-		bodyStart := strings.Index(content, "# Demo Skill")
-		if tail < 0 || tail < marker || tail > bodyStart {
-			t.Fatalf("tail anchor must stay inside the gate, before the author body:\n%s", content)
+		entry := string(files["SKILL.md"].Data)
+		if !strings.Contains(entry, "[使用前检查]("+skillTrialRuntimePath+")") || !strings.Contains(entry, "allowed: true") || strings.Contains(entry, "viceme skill use") {
+			t.Fatalf("main Skill must contain the mandatory entry, not full commands:\n%s", entry)
 		}
 	})
 
-	t.Run("prepends when the file has no frontmatter", func(t *testing.T) {
+	t.Run("rejects missing frontmatter without mutating the source", func(t *testing.T) {
 		files := gateFiles("# Demo Skill\n")
-		injectSkillTrialGate(files, productID, installDoc)
-		content := string(files["SKILL.md"].Data)
-		if !strings.HasPrefix(content, skillTrialGateMarker) {
-			t.Fatalf("gate must be prepended without frontmatter:\n%s", content)
+		if err := injectSkillTrialGate(files, productID, installDoc); err == nil || string(files["SKILL.md"].Data) != "# Demo Skill\n" {
+			t.Fatalf("invalid frontmatter must fail without rewriting the source: %v", err)
 		}
 	})
 
@@ -733,12 +881,64 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 		files := gateFiles(frontmatter + body)
 		injectSkillTrialGate(files, productID, installDoc)
 		once := files["SKILL.md"].Data
-		injectSkillTrialGate(files, productID, installDoc)
+		delete(files, skillTrialRuntimePath)
+		if err := injectSkillTrialGate(files, productID, installDoc); err != nil {
+			t.Fatal(err)
+		}
 		if !bytes.Equal(once, files["SKILL.md"].Data) {
 			t.Fatalf("second injection changed the file")
 		}
 		if strings.Count(string(once), skillTrialGateMarker) != 1 {
 			t.Fatalf("marker injected more than once")
+		}
+		if !bytes.Contains(files[skillTrialRuntimePath].Data, []byte("viceme skill use "+productID)) {
+			t.Fatal("a marker alone must not prevent restoring the full rules")
+		}
+	})
+
+	t.Run("author marker mention does not suppress injection", func(t *testing.T) {
+		original := frontmatter + body + "\n示例: `" + skillTrialGateMarker + "`\n"
+		files := gateFiles(original)
+		if err := injectSkillTrialGate(files, productID, installDoc); err != nil {
+			t.Fatal(err)
+		}
+		content := string(files["SKILL.md"].Data)
+		if !strings.HasSuffix(content, body+"\n示例: `"+skillTrialGateMarker+"`\n") || !strings.Contains(content, skillTrialRuntimePath) || len(files[skillTrialRuntimePath].Data) == 0 {
+			t.Fatalf("marker mention suppressed the actual gate or damaged author text: %s", content)
+		}
+	})
+
+	t.Run("rejects incomplete gates and unrelated reference files", func(t *testing.T) {
+		for _, files := range []map[string]downloadableSkillFile{
+			gateFiles(frontmatter + skillTrialGateMarker + " product=" + productID + " -->\n" + body),
+			gateFiles(frontmatter + skillTrialGateMarker + " product=other -->\n" + body),
+			{"SKILL.md": {Data: []byte(frontmatter + body)}, skillTrialRuntimePath: {Data: []byte("author reference")}},
+		} {
+			before := string(files["SKILL.md"].Data)
+			if err := injectSkillTrialGate(files, productID, installDoc); err == nil || string(files["SKILL.md"].Data) != before {
+				t.Fatalf("conflicting gate must fail without changing the author file: %v", err)
+			}
+		}
+	})
+
+	t.Run("upgrades the complete legacy inline gate", func(t *testing.T) {
+		files := gateFiles(frontmatter + skillTrialGateMarker + " product=" + productID + " -->\n\n## 试用版使用规则（viceme-trial）\n\n旧版规则。" + skillTrialGateTail + "\n\n" + body)
+		if err := injectSkillTrialGate(files, productID, installDoc); err != nil {
+			t.Fatal(err)
+		}
+		content := string(files["SKILL.md"].Data)
+		if strings.Contains(content, "旧版规则") || !strings.HasSuffix(content, body) || strings.Count(content, skillTrialGateMarker) != 1 {
+			t.Fatalf("legacy gate was not cleanly replaced: %s", content)
+		}
+	})
+
+	t.Run("accepts a closing delimiter at EOF", func(t *testing.T) {
+		files := gateFiles(strings.TrimSuffix(frontmatter, "\n"))
+		if err := injectSkillTrialGate(files, productID, installDoc); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.HasPrefix(string(files["SKILL.md"].Data), frontmatter+skillTrialGateMarker) {
+			t.Fatal("EOF frontmatter was corrupted")
 		}
 	})
 
@@ -767,7 +967,6 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 
 func TestStripTrialGateSectionEdgeCases(t *testing.T) {
 	const productID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-	const installDoc = "https://s3.viceme.cn/start/agent-install.md"
 
 	write := func(t *testing.T, content string) string {
 		t.Helper()
@@ -778,10 +977,8 @@ func TestStripTrialGateSectionEdgeCases(t *testing.T) {
 		return path
 	}
 
-	t.Run("removes the injected section and restores the author body", func(t *testing.T) {
-		files := gateFiles("---\nname: demo\ndescription: Demo.\n---\n\n# Demo Skill\n\n作者正文。\n")
-		injectSkillTrialGate(files, productID, installDoc)
-		path := write(t, string(files["SKILL.md"].Data))
+	t.Run("removes the legacy inline section and restores the author body", func(t *testing.T) {
+		path := write(t, "---\nname: demo\ndescription: Demo.\n---\n"+skillTrialGateMarker+" product="+productID+" -->\n\n## 试用版使用规则（viceme-trial）\n\n旧版规则。"+skillTrialGateTail+"\n\n# Demo Skill\n\n作者正文。\n")
 		if !stripTrialGateSection(path) {
 			t.Fatalf("strip reported no change")
 		}

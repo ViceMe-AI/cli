@@ -19,13 +19,27 @@ description: 安装和使用可下载的 ViceMe Skill 版本。适用于查看�
 4. 已拥有的付费版使用同一安装命令；命令会校验当前发布包并安装，不得要求再次购买。同一 WeSimi 账号可通过此方式在其他 Agent 或设备重新安装。
 5. 尚未拥有的付费版：安装命令本身会完成购买或试用安装。先展示详情响应中的准确版本名称、价格和功能亮点，并明确询问是直接购买还是先试用。
    - access 响应携带 `trial` 块（`available=true` 且有 `limitUses`）时，该版本支持免费试用：直接运行 `viceme skill install <product-id> --agent auto` 即可匿名安装试用版，不需要登录或付费。试用规则：
-     - 安装完成后，每次开始使用该 Skill 前，必须先运行 `viceme skill use <product-id>`，按输出继续；输出带剩余次数时，先用一句话告知用户「本次是第 X / N 次试用」，再继续任务。
-     - 输出提示试用已用完并出现二维码时，停止使用，引导用户扫码付费；等待支付或支付完成后按同一命令的输出转正，再继续任务。试用不要求提前告知付费规则之外的信息，正常一句话说明「试用 N 次，用完付费」即可。
+     - 必须先读 [统一计次规则](references/trial-usage.md)，由 Agent 判断独立使用单元。每个新单元执行前运行 `viceme skill use <product-id> --wait 0`；仅 `allowed=true` 放行，记录本任务与 requestId。同一已放行任务的内部步骤、澄清和修订不重复计次。
+     - 放行时说明「本次是第 X / N 次试用」，任务完成后提示剩余次数。最后一次允许完整完成，提醒下次需付费。安装、介绍、示例展示和余额查询不计次；只查询剩余次数用 `viceme skill trial-status <product-id>`。
+     - 试用用完则停止任务。未登录用户直接使用本机凭证运行 `viceme skill trial-purchase <product-id> --wait 0`，先展示支付 Widget，再运行同一命令加 `--wait 60s` 有界等待；无需登录。已登录用户沿用 `skill use` 返回的账号购买流程。服务端确认付款与有效权益后命令会重新下载并安装完整正式包，成功后才继续原任务。
    - 用户选择直接购买（或该版本无试用）时：确认同一 WeSimi 账号具有购买权限，先运行 `viceme skill install <product-id> --agent auto --wait 0` 创建或恢复订单。返回 `SKILL_PURCHASE_REQUIRED` 是待支付结果，不是下单失败：立即展示本地二维码图片，同时用 Markdown 链接展示 `paymentUrl`（“打开支付页面”），不要先启动长时间等待而让用户看不到二维码。浏览器未登录时提示用下单的同一账号登录。展示完成后，后台运行同一安装命令并改为 `--wait 10m` 等待付款，支付到账后自动继续安装；等待超时返回 `SKILL_PURCHASE_PENDING` 时保留原订单，用户完成支付后重跑原命令。只有确认 `owned=true` 且安装成功才能说购买安装完成。不得用商品详情页代替支付页面，也不得把支付 URI 直接贴到对话里。
    - access 响应携带 `subscription` 块：`available=true` 表示该创作者开通了粉丝订阅。引导购买时必须同时告知订阅选项：订阅价 ¥X/30 天；有效期内可安装和更新该创作者全部付费 Skill，到期后不能重装或更新，但本地已经安装的内容不会删除。用户选择订阅时，先运行 `viceme subscription subscribe <creator-handle> --wait 0` 并展示二维码，再后台运行同一命令并改为 `--wait 10m` 等待支付；支付到账即订阅生效，随后重跑安装命令。`subscribedUntil` 非空表示当前处于订阅期，直接安装即可，不得再要求购买。
-6. 安装返回 `nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL` 时，立即调用返回的 `invocation` 并继续用户原来的任务。不得停在“安装成功”，也不得要求用户重复描述任务。
+6. 安装成功后读取实际 SKILL.md。用户已有明确任务：按包内门禁预检后直接继续，不要求再选示例。用户只说安装或试用：按返回的 `onboardingGuideUrl` 与 `onboardingTemplateUrl`，生成 2～3 条该 Skill 真正支持的完整示例口令；支持 Widget 的宿主用通用模板，点击“试试”由 `sendPrompt` 回传口令，无 Widget 则展示普通文本。不得写死某个 Skill 的示例或自行重设计模板，展示示例不扣次。
 
-作品链接和 access 返回的 `purchaseUrl` 是商品详情入口，不是已创建订单的支付链接，不得把它们作为“请在这里完成支付”的入口。支付入口必须来自成功创建的订单：当前微信 Native 流程同时展示命令生成的二维码图片和订单 `paymentUrl`。没有订单或二维码时先处理授权/下单错误，不得用详情页链接代替，也不得自行拼接支付链接。
+## 免 CLI 的试用转购买
+
+已经由 `trial.py` 安装的用户继续使用同一个脚本与本机试用凭证，不要求安装 CLI 或登录。`use` 负责新使用单元预检，`status` 只查询余额。试用耗尽后运行 `purchase --product <product-id> --market <market> --wait 0` 创建或恢复订单；先展示支付 Widget，再以同一命令的 `--wait 60` 等待到账。超时保留原订单继续查，二维码过期不等于订单关闭；只有服务端返回 CLOSED 后，下一次显式购买才申请新订单。支付确认且权益有效后，脚本验证正式包摘要，准备支持文件并最后原子替换主入口，重新读取 SKILL.md 后继续原任务。此身份只覆盖当前本机凭证对应的商品，不替代上文 `install=owned` 的账号验证，不承诺跨设备找回。
+
+## 通用支付展示
+
+安装响应 `nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL` 表示应按上述第 6 步继续原任务；没有原任务才展示示例。
+不得停在“安装成功”，也不得要求用户重复描述原任务。
+
+有 `paymentPresentation.widgetPath` 时先读取该文件与通用 Widget 指引，通过宿主原生 Widget 工具原样渲染 HTML 片段。WorkBuddy 先调用 `read_me({modules:["interactive"]})`，再调用 `show_widget`；二维码已内联为 SVG，不用 `<img src>`。没有 Widget 能力才使用返回的本地图片与现有订单链接。下面提到“展示二维码”均遵守此规则。
+
+必须先展示二维码再启动有界等待；Widget 不查询订单、不安装 Skill、不计次，也不根据倒计时、扫码或用户自述判断支付成功。付款由外层命令查询，到账后在宿主支持时替换或关闭旧 Widget。不得增加“查询支付结果”或“已付款但未继续”的按钮。
+
+作品链接和 access 返回的 `purchaseUrl` 是商品详情入口，不是已创建订单的支付链接，不得把它们作为“请在这里完成支付”的入口。支付入口必须来自成功创建的订单：微信 Native 流程先展示命令生成的支付 Widget 或二维码，账号购买路线另有订单 `paymentUrl` 时同时展示该链接。匿名试用购买不返回账号支付页面，不要求补登录或补造链接。没有订单或二维码时先处理授权/下单错误，不得用详情页链接代替，也不得自行拼接支付链接。
 
 已有待支付订单由原 `viceme skill install` 命令自动恢复，不要切换到需要另一种购买会话的 `viceme commerce order` 命令。返回 `SKILL_PAYMENT_QR_UNAVAILABLE` 时，说明“订单已创建，但二维码暂时无法展示”，用 Markdown 展示返回的 `paymentUrl` 让用户继续支付；不得声称二维码已生成。保留原购买状态，支付后重跑同一安装命令。
 

@@ -112,6 +112,7 @@ func openCreatorSubscriptionOrder(ctx context.Context, runtime *Runtime, creator
 		OrderNo:         created.Order.OrderNo,
 		Status:          created.Order.Status,
 		AmountCents:     created.Order.AmountCents,
+		Currency:        created.Order.Currency,
 		PaymentProvider: created.Order.Provider,
 		PaymentAction:   created.Action,
 		ExpiresAt:       created.Order.ExpiresAt,

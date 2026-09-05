@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	cliembed "github.com/ViceMe-AI/cli"
+	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
 
 var officialSkillNames = []string{
@@ -25,6 +26,18 @@ var officialSkillNames = []string{
 	"let-people-interact",
 	"let-others-make-a-copy",
 	"let-me-make-a-copy",
+}
+
+func TestOfficialSkillDescriptionsRemainRequired(t *testing.T) {
+	items, err := skillcontent.New(cliembed.EmbeddedSkills()).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.Description) == "" {
+			t.Errorf("official Skill %s must have a description", item.Name)
+		}
+	}
 }
 
 func readOfficialSkillBundle(t *testing.T, skillName string) string {
@@ -129,7 +142,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"owned=true", "nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", "--wait 10m", "--agent auto",
 				"?product=<product-id>",
 			},
-			semantics: []string{"不得要求再次购买", "不得停在“安装成功”"},
+			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口"},
 		},
 		{
 			name: "charge-for-your-work",

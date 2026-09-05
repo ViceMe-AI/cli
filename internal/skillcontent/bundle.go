@@ -217,7 +217,7 @@ func parseFrontmatter(data []byte) (frontmatter, error) {
 	if !strings.HasPrefix(text, "---\n") {
 		return frontmatter{}, output.Validation("skill_frontmatter", "SKILL.md must start with YAML frontmatter")
 	}
-	end := strings.Index(text[4:], "\n---\n")
+	end := strings.Index(text[4:]+"\n", "\n---\n")
 	if end < 0 {
 		return frontmatter{}, output.Validation("skill_frontmatter", "SKILL.md frontmatter is not closed")
 	}
@@ -226,17 +226,21 @@ func parseFrontmatter(data []byte) (frontmatter, error) {
 	if err := yaml.Unmarshal([]byte(block), &raw); err != nil {
 		return frontmatter{}, output.Validation("skill_frontmatter", "SKILL.md frontmatter is invalid YAML")
 	}
-	for key := range raw {
-		if key != "name" && key != "description" {
-			return frontmatter{}, output.Validation("skill_frontmatter", fmt.Sprintf("unsupported SKILL.md frontmatter field %q", key))
+	// Downloadable Skills use the publication contract, not the editorial
+	// conventions of our bundled Skills. Preserve extension fields (title,
+	// metadata, allowed-tools, etc.) and permit an omitted description. Parse
+	// core values without YAML's implicit number/bool-to-string coercion.
+	name, ok := raw["name"].(string)
+	if !ok || strings.TrimSpace(name) == "" {
+		return frontmatter{}, output.Validation("skill_frontmatter", "SKILL.md frontmatter requires a non-empty string name")
+	}
+	meta := frontmatter{Name: strings.TrimSpace(name)}
+	if value, exists := raw["description"]; exists {
+		description, ok := value.(string)
+		if !ok {
+			return frontmatter{}, output.Validation("skill_frontmatter", "SKILL.md frontmatter description must be a string when present")
 		}
-	}
-	var meta frontmatter
-	if err := yaml.Unmarshal([]byte(block), &meta); err != nil {
-		return frontmatter{}, output.Validation("skill_frontmatter", "SKILL.md frontmatter is invalid")
-	}
-	if strings.TrimSpace(meta.Name) == "" || strings.TrimSpace(meta.Description) == "" {
-		return frontmatter{}, output.Validation("skill_frontmatter", "SKILL.md frontmatter requires non-empty name and description")
+		meta.Description = strings.TrimSpace(description)
 	}
 	return meta, nil
 }

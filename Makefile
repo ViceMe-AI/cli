@@ -35,9 +35,10 @@ check: test
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/viceme ./cmd/viceme
 	$(MAKE) release-manifest-check
 	$(MAKE) trial-script-test
+	node --test quality/widgets.test.cjs
 
 trial-script-test:
-	python3 quality/trial-script_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 quality/trial-script_test.py
 
 quality-check: test npm-package-check
 
