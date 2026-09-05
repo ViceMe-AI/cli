@@ -270,7 +270,6 @@ func TestPaidTrialSkillInstallsAnonymouslyWithGate(t *testing.T) {
 		t.Fatalf("trial install result did not carry the trial summary: %#v", data)
 	}
 	gatePaths := []string{
-		filepath.Join(home, ".codex", "skills", "free-test", "SKILL.md"),
 		filepath.Join(home, ".agents", "skills", "free-test", "SKILL.md"),
 	}
 	for _, path := range gatePaths {
@@ -635,7 +634,6 @@ func TestSkillUseConsumesTrialThenClosesPurchaseAndReinstallsCanonicalPackage(t 
 		t.Fatalf("trial conversion must download the canonical owned package once, got %d", ownedDownloadCalls)
 	}
 	for _, path := range []string{
-		filepath.Join(home, ".codex", "skills", "free-test", "SKILL.md"),
 		filepath.Join(home, ".agents", "skills", "free-test", "SKILL.md"),
 	} {
 		content, err := os.ReadFile(path)

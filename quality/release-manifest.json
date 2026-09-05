@@ -63,7 +63,7 @@
       "skill_version": "0.33.5",
       "minimum_cli_version": "0.33.5",
       "cli_compatibility": ">=0.33.5 <0.34.0",
-      "full_skill_bundle_digest": "sha256:a71628e8ceaca4f5e58586f311ee32d3bf43e2b9939c7dca245afc3a33843a29",
+      "full_skill_bundle_digest": "sha256:fd1562fe67e5356b3e4d6b9871d72e5ab792ed227314a42e50839e2704b4fe68",
       "embedded_content_digest": "sha256:1d904840d53fb68480371ca373116a19a08a2ac48a0d9e13e15af1ad78f7d25b"
     }
   },

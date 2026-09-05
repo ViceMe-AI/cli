@@ -155,9 +155,16 @@ native user directory of every detected supported Agent:
 
 | Agent | Native directory |
 | --- | --- |
-| Codex | `~/.codex/skills` |
+| Codex | `~/.agents/skills` (shared fallback; written once) |
 | Claude Code | `~/.claude/skills` |
 | WorkBuddy | `~/.workbuddy/skills` |
+
+Codex uses the shared directory documented in [Codex Skills](https://developers.openai.com/codex/skills/).
+`--agent codex` is an alias for `agents`, including install results and doctor
+checks; it no longer writes `$CODEX_HOME/skills` (default `~/.codex/skills`).
+Existing legacy copies are left intact. Claude Code still needs its separate
+native directory: [Claude Code Skills](https://code.claude.com/docs/en/skills)
+does not list `.agents/skills` as a discovery location.
 
 Select a target explicitly with `viceme install --agent codex`, `claude`,
 `workbuddy`, or `agents`. Run `viceme doctor` after installation or repair.

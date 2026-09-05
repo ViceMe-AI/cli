@@ -99,3 +99,19 @@ func TestProbeInstallPermissionsAuthorizedRetryCleansDeniedProbe(t *testing.T) {
 		t.Fatalf("authorized retry left the denied probe behind: %v", err)
 	}
 }
+
+func TestCodexPermissionProbeDoesNotCreateLegacySkillsDirectory(t *testing.T) {
+	home := t.TempDir()
+	environment := Environment{Home: home, CodexHome: filepath.Join(home, "custom-codex"), ConfigDir: filepath.Join(home, ".viceme-cli")}
+	if err := os.MkdirAll(environment.CodexHome, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"codex", "auto"} {
+		if err := ProbeInstallPermissions(target, environment); err != nil {
+			t.Fatalf("%s permission preflight failed: %v", target, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(environment.CodexHome, "skills")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("permission preflight created a legacy Skill directory: %v", err)
+	}
+}
