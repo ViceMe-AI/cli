@@ -598,3 +598,35 @@ func assertPrivateDirectory(t *testing.T, directory string) {
 }
 
 func pointer[T any](value T) *T { return &value }
+
+func TestStoreBindsDegradationPolicyToConfirmation(t *testing.T) {
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	project := newPublicationProject(t)
+	frozen, err := replicacontent.FreezeSourceArchive(project, replicacontent.FreezeSourceOptions{ExpiresAt: now.Add(30 * time.Minute)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer frozen.Cleanup()
+	store, pending := publicationStoreFixture(t, project, frozen.Summary, now)
+	pending.Request.AllowAutomaticDegradation = true
+	if err := store.Save(&pending); err == nil {
+		t.Fatal("source-only state allowed automatic degradation")
+	}
+	pending.Hosting = "HOSTED"
+	page := pending.Request.Source
+	pending.Request.Page = &page
+	pending.Confirmation = &api.WebsiteReplicaPublicationConfirmationChallenge{Review: api.WebsiteReplicaPublicationReview{
+		ProjectFingerprint: pending.ProjectFingerprint, Source: pending.Request.Source, Page: &page,
+	}}
+	if err := store.Save(&pending); err == nil {
+		t.Fatal("state accepted a changed degradation policy")
+	}
+	pending.Confirmation.Review.AllowAutomaticDegradation = true
+	if err := store.Save(&pending); err != nil {
+		t.Fatal(err)
+	}
+	loaded, found, err := store.LoadProject(pending.ProjectFingerprint)
+	if err != nil || !found || !loaded.Request.AllowAutomaticDegradation || !loaded.Confirmation.Review.AllowAutomaticDegradation {
+		t.Fatalf("degradation consent was not preserved: found=%t err=%v", found, err)
+	}
+}
