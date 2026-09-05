@@ -47,8 +47,9 @@ access is not required. Source templates are published with the CLI release at
 `/skills/_widgets/`; this is a shared resource directory, not an installed Skill.
 
 The standalone Python route fetches shared resources by content-addressed URL
-and verifies pinned SHA-256 before using them. `qrcodegen.py` is unmodified MIT
-code from Project Nayuki, revision `3c6d0b3cefb4e049dc337e82237c9644399716a8`:
+and verifies pinned SHA-256 before using them. `qrcodegen.py` is MIT code from
+Project Nayuki with trailing whitespace normalized and no logic changes,
+revision `3c6d0b3cefb4e049dc337e82237c9644399716a8`:
 https://github.com/nayuki/QR-Code-generator/blob/3c6d0b3cefb4e049dc337e82237c9644399716a8/python/qrcodegen.py
 Its license is retained in the source. Payment URIs are encoded locally and are
 never sent to a third-party QR service. Content-addressed hosted resources must

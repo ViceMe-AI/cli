@@ -76,7 +76,7 @@ LOCK_WAIT_SECONDS = 10
 # executing the vendored encoder; never install a global Python dependency.
 WIDGET_DIGESTS = {
     "payment.html": "7fac100b7b582166d62807f3ef5319362152f2a96d4a1f43b4be052f2ed09a12",
-    "qrcodegen.py": "9f4ed1dd201dcb92b1bc0d6e14f46c754bcff0ce48580c5d7e8ace8f6926c8ef",
+    "qrcodegen.py": "b0df257ae06c83f79ac8fa408f5ae635f44a2ae0702e2fdbf6f2fe32cff33b05",
 }
 
 
