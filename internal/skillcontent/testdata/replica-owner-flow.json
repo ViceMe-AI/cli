@@ -1,0 +1,161 @@
+[
+  {
+    "name": "first-publish",
+    "exit": 10,
+    "selector": "error.subtype",
+    "output": {
+      "ok": false,
+      "error": {
+        "code": "confirmation_required",
+        "subtype": "REPLICA_PUBLICATION_CONFIRMATION_REQUIRED",
+        "details": {
+          "nextAction": {
+            "kind": "CONFIRM_PUBLICATION"
+          },
+          "review": {
+            "resolution": "CREATE"
+          }
+        }
+      }
+    },
+    "required": "展示首次发布摘要"
+  },
+  {
+    "name": "update",
+    "exit": 10,
+    "selector": "error.subtype",
+    "output": {
+      "ok": false,
+      "error": {
+        "subtype": "REPLICA_PUBLICATION_CONFIRMATION_REQUIRED",
+        "details": {
+          "review": {
+            "resolution": "UPDATE"
+          }
+        }
+      }
+    },
+    "required": "复用原绑定"
+  },
+  {
+    "name": "qualification-stop",
+    "exit": 3,
+    "selector": "error.details.nextAction.kind",
+    "output": {
+      "ok": false,
+      "error": {
+        "details": {
+          "nextAction": {
+            "kind": "WAIT_CREATOR_REVIEW"
+          }
+        },
+        "code": "authorization",
+        "subtype": "REPLICA_CREATOR_REVIEW_PENDING"
+      }
+    },
+    "required": "停止，不上传、不自动轮询"
+  },
+  {
+    "name": "processing-misleading-message",
+    "exit": 0,
+    "selector": "data.status",
+    "output": {
+      "ok": true,
+      "data": {
+        "status": "PROCESSING",
+        "message": "published"
+      }
+    },
+    "required": "已提交，尚未发布"
+  },
+  {
+    "name": "degraded",
+    "exit": 0,
+    "selector": "data.status",
+    "output": {
+      "ok": true,
+      "data": {
+        "status": "PUBLISHED_DEGRADED",
+        "hosting": {
+          "status": "DEGRADED"
+        }
+      }
+    },
+    "required": "源码已发布，托管失败"
+  },
+  {
+    "name": "repair-review",
+    "exit": 10,
+    "selector": "error.subtype",
+    "output": {
+      "ok": false,
+      "error": {
+        "subtype": "REPLICA_REPAIR_CONFIRMATION_REQUIRED"
+      }
+    },
+    "required": "确认页面摘要、目标和TTL"
+  },
+  {
+    "name": "repair-processing",
+    "exit": 0,
+    "selector": "data.nextAction",
+    "output": {
+      "ok": true,
+      "data": {
+        "nextAction": "RESUME_HOSTING_REPAIR"
+      }
+    },
+    "required": "补发尚未完成"
+  },
+  {
+    "name": "repair-complete",
+    "exit": 0,
+    "selector": "data.nextAction",
+    "output": {
+      "ok": true,
+      "data": {
+        "nextAction": "HOSTING_REPAIRED"
+      }
+    },
+    "required": "源码版本、价格及权益不变"
+  },
+  {
+    "name": "owner-sales",
+    "exit": 10,
+    "selector": "error.subtype",
+    "output": {
+      "ok": false,
+      "error": {
+        "subtype": "REPLICA_SALES_CONFIRMATION_REQUIRED"
+      }
+    },
+    "required": "展示版本、当前价格和操作影响"
+  },
+  {
+    "name": "suspended-owner",
+    "exit": 6,
+    "selector": "error.subtype",
+    "output": {
+      "ok": false,
+      "error": {
+        "subtype": "REPLICA_SALES_READ_ONLY"
+      }
+    },
+    "required": "只能读取历史"
+  },
+  {
+    "name": "degraded-audit-hosting-restored",
+    "exit": 0,
+    "selector": "data.status",
+    "output": {
+      "ok": true,
+      "data": {
+        "status": "PUBLISHED_DEGRADED",
+        "hosting": {
+          "status": "ACTIVE"
+        }
+      }
+    },
+    "required": "当前托管已恢复；保留原降级失败审计"
+  }
+]
