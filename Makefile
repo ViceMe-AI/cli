@@ -38,7 +38,7 @@ check: test
 	node --test quality/widgets.test.cjs
 
 trial-script-test:
-	python3 quality/trial-script_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 quality/trial-script_test.py
 
 quality-check: test npm-package-check
 

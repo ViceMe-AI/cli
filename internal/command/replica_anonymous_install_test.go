@@ -220,12 +220,24 @@ func TestReplicaInspectFindsPaidStandaloneRecoveryWithoutExposingCredential(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := privatefile.Write(filename, []byte("invalid private receipt"), ".standalone-replica-test-*.tmp"); err != nil {
+		t.Fatal(err)
+	}
+	var preview bytes.Buffer
+	previewExit := Execute([]string{"replica", "inspect", fullCode}, Dependencies{
+		Out: &preview, ErrOut: &bytes.Buffer{}, HTTPClient: server.Client(), Store: securestore.NewMemory(),
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:      config.RegionCN, APIBaseURL: server.URL,
+	})
+	if previewExit != 0 || recoveryBody.OrderNo != "" || bytes.Contains(preview.Bytes(), []byte("standaloneRecoveryAvailable")) {
+		t.Fatalf("public preview accessed recovery: exit=%d output=%q", previewExit, preview.String())
+	}
 	if err := privatefile.Write(filename, append(receipt, '\n'), ".standalone-replica-test-*.tmp"); err != nil {
 		t.Fatal(err)
 	}
 
 	var stdout bytes.Buffer
-	exit := Execute([]string{"replica", "inspect", fullCode}, Dependencies{
+	exit := Execute([]string{"replica", "inspect", fullCode, "--check-recovery"}, Dependencies{
 		Out: &stdout, ErrOut: &bytes.Buffer{}, HTTPClient: server.Client(), Store: securestore.NewMemory(),
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 		Region:      config.RegionCN, APIBaseURL: server.URL,

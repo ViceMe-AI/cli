@@ -71,7 +71,7 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&options.ProjectPath, "path", "", "Website Replica project directory or existing ZIP path")
 	command.Flags().StringVar(&options.PreviewURL, "preview-url", "", "actual HTTP(S) loopback page selected and started by your agent")
-	command.Flags().BoolVar(&options.PreviewReviewed, "preview-reviewed", false, "attest that your agent observed the actual local page")
+	command.Flags().BoolVar(&options.PreviewReviewed, "preview-reviewed", false, "attest that the creator viewed the local preview and approved the button styling")
 	command.Flags().StringVar(&options.WorkID, "work-id", "", "existing Website Work UUID (omit when creating a new Work)")
 	command.Flags().StringVar(&options.Slug, "slug", "", "new public Work slug")
 	command.Flags().StringVar(&options.MerchantAccountID, "merchant-id", "", "ACTIVE OWNER Merchant UUID")
@@ -270,6 +270,11 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		if err != nil {
 			return replicaPublicationPresentation{}, err
 		}
+		if len(hostedPage.Bytes) == 0 {
+			return replicaPublicationPresentation{}, output.Validation("REPLICA_HOSTED_PAGE_REQUIRED", "website publication requires a deployable static HTML page; no artifact was uploaded").WithDetails(map[string]any{
+				"nextAction": "PREPARE_HOSTED_PAGE",
+			}).WithHint("prepare and review the project's static output, then rerun the same publish command; source-only publication requires an explicit --replica-only choice")
+		}
 	}
 	clientRequestID := ""
 	creatorApplicationRequestID := ""
@@ -319,7 +324,6 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		Confirmation: nil,
 	}
 	if len(hostedPage.Bytes) > 0 {
-		request.AllowAutomaticDegradation = true
 		request.Page = &api.WebsiteReplicaPublicationSourceArtifact{
 			FileName: hostedPage.Artifact.FileName, ContentType: hostedPage.Artifact.ContentType,
 			SizeBytes: hostedPage.Artifact.SizeBytes, Digest: hostedPage.Artifact.Digest,
@@ -576,18 +580,17 @@ func startReplicaPublicationPreview(ctx context.Context, runtime *Runtime, optio
 		return nil, replicapublication.Preview{}, err
 	}
 	result := session.Result()
-	if err := runtime.deps.OpenURL(ctx, result.TargetURL); err != nil {
-		return session, replicapublication.Preview{}, fmt.Errorf("open the local page: %w", err)
-	}
 	if !options.PreviewReviewed {
-		return session, replicapublication.Preview{}, output.Validation("REPLICA_PREVIEW_REVIEW_REQUIRED", "the local service responded; your agent must observe the actual page before publication").WithDetails(map[string]any{
+		return session, replicapublication.Preview{}, output.Validation("REPLICA_PREVIEW_REVIEW_REQUIRED", "the local service responded; the creator must review the button styling in the host preview before publication").WithDetails(map[string]any{
 			"nextAction": "REVIEW_LOCAL_PREVIEW", "previewVerified": false,
-			"browserVerificationRequired": true, "remoteUpload": false, "publicationCreated": false,
-		}).WithHint("inspect the opened local page, then rerun with the same --preview-url and --preview-reviewed; connectivity alone is not visual verification")
+			"browserVerificationRequired": true, "reviewRequiredBy": "CREATOR",
+			"previewUrl": result.TargetURL, "presentationTarget": "AGENT_PLATFORM",
+			"remoteUpload": false, "publicationCreated": false,
+		}).WithHint("present the local page in the host preview (WorkBuddy: present_files), wait for creator approval, then rerun with the same --preview-url and --preview-reviewed; do not perform agent screenshot verification")
 	}
-	_, _ = fmt.Fprintln(runtime.deps.ErrOut, "Local page opened; the final review is the only authorization to upload source.")
+	_, _ = fmt.Fprintln(runtime.deps.ErrOut, "Creator preview approval recorded; the final review is the only authorization to upload source.")
 	return session, replicapublication.Preview{
-		Verified: true, ReviewedBy: "AGENT", TargetURL: result.TargetURL, Reused: result.Reused, StartedByCLI: result.StartedByCLI,
+		Verified: true, ReviewedBy: "CREATOR", TargetURL: result.TargetURL, Reused: result.Reused, StartedByCLI: result.StartedByCLI,
 	}, nil
 }
 
@@ -705,12 +708,12 @@ func validateConfirmedReplicaRequest(options replicaPublishOptions, pending repl
 		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "automatic creator-application authorization changed after the final review; no source was uploaded").
 			WithHint("rerun the changed publish command without --confirm to generate a fresh final review")
 	}
-	if pending.Preview.ReviewedBy == "AGENT" &&
+	if (pending.Preview.ReviewedBy == "CREATOR" || pending.Preview.ReviewedBy == "AGENT") &&
 		(!options.PreviewReviewed || options.PreviewURL != pending.Preview.TargetURL || options.ConfirmUnverifiedPreview) {
-		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "the agent-reviewed preview changed after the final review; no source was uploaded").
+		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "the approved preview changed after the final review; no source was uploaded").
 			WithHint("rerun without --confirm to review the new preview and generate a fresh final review")
 	}
-	if options.ReplicaOnly && pending.Hosting != "REPLICA_ONLY" {
+	if (options.ReplicaOnly || options.ConfirmUnverifiedPreview) != (pending.Hosting == "REPLICA_ONLY") {
 		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "hosting selection changed after the final review; no artifact was uploaded").
 			WithHint("rerun the changed publish command without --confirm to freeze it and generate a new final review")
 	}
@@ -808,7 +811,7 @@ func replicaPublishResumeCommand(pending replicapublication.Pending) string {
 	}
 	if pending.Preview.Verified && pending.Preview.Reused && pending.Preview.TargetURL != "" {
 		parts = append(parts, "--preview-url", shellQuote(pending.Preview.TargetURL))
-		if pending.Preview.ReviewedBy == "AGENT" {
+		if pending.Preview.ReviewedBy == "CREATOR" || pending.Preview.ReviewedBy == "AGENT" {
 			parts = append(parts, "--preview-reviewed")
 		}
 	}

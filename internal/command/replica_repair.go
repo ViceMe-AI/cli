@@ -86,8 +86,8 @@ func newReplicaRepairHostingCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if publication.Status != "PUBLISHED_DEGRADED" || publication.Result == nil || publication.Rollback.ActivePair == nil || publication.Rollback.ActivePair.ReplicaVersion.ID != publication.Result.VersionID {
-				return output.Policy("REPLICA_REPAIR_NOT_ALLOWED", "only the current degraded source version can repair hosting")
+			if (publication.Status != "PUBLISHED_DEGRADED" && !(publication.Status == "PUBLISHED" && publication.Page == nil && publication.Result != nil && publication.Result.PageRelease == nil)) || publication.Result == nil || publication.Rollback.ActivePair == nil || publication.Rollback.ActivePair.ReplicaVersion.ID != publication.Result.VersionID {
+				return output.Policy("REPLICA_REPAIR_NOT_ALLOWED", "only the current degraded or source-only published version can repair hosting")
 			}
 			requestID := runtime.deps.NewID()
 			if !replicaUUIDPattern.MatchString(requestID) {
@@ -101,7 +101,7 @@ func newReplicaRepairHostingCommand(runtime *Runtime) *cobra.Command {
 			for _, arg := range args {
 				quoted = append(quoted, shellQuote(arg))
 			}
-			return output.Confirmation("REPLICA_REPAIR_CONFIRMATION_REQUIRED", "review the repaired page and existing source version before uploading").WithDetails(map[string]any{"nextAction": "CONFIRM_HOSTING_REPAIR", "review": review, "impact": "Only page hosting changes. Source version, price and buyer rights remain unchanged; the original degraded audit is retained.", "confirmCommand": strings.Join(quoted, " "), "confirmArgs": args})
+			return output.Confirmation("REPLICA_REPAIR_CONFIRMATION_REQUIRED", "review the repaired page and existing source version before uploading").WithDetails(map[string]any{"nextAction": "CONFIRM_HOSTING_REPAIR", "review": review, "impact": "Only page hosting changes. Source version, price and buyer rights remain unchanged; the original publication audit is retained.", "confirmCommand": strings.Join(quoted, " "), "confirmArgs": args})
 		}
 		// Replaying create returns the authoritative repair for the same immutable
 		// request. No new source, Publication or sales mutation is involved.

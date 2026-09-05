@@ -148,6 +148,9 @@ func TestReplicaStatusPresentsOnlyPublishedTerminalStatesAsComplete(t *testing.T
 			if envelope.Data.Status != status || !strings.Contains(strings.ToLower(envelope.Data.Message), "publication complete") {
 				t.Fatalf("published terminal was not presented as complete: %#v", envelope.Data)
 			}
+			if status == "PUBLISHED" && !strings.Contains(envelope.Data.Message, "no hosted HTML page is active") {
+				t.Fatalf("source-only publication claimed hosted completion: %q", envelope.Data.Message)
+			}
 			if status == "PUBLISHED_DEGRADED" && (!strings.Contains(envelope.Data.Message, "source is published") ||
 				!strings.Contains(envelope.Data.Message, "hosting failed") || !strings.Contains(envelope.Data.Message, "native Work page")) {
 				t.Fatalf("degraded terminal omitted its boundaries: %q", envelope.Data.Message)
@@ -213,7 +216,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 		t.Fatal(err)
 	}
 
-	var previewOpened atomic.Bool
+	var previewProbed atomic.Bool
 	previewSession := &replicaPreviewSessionStub{result: replicapreview.Result{
 		TargetURL: "http://127.0.0.1:4173/", Reused: true, ServiceKind: replicapreview.ServiceExisting,
 	}}
@@ -245,7 +248,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 	var firstRequest map[string]any
 	submitted := false
 	controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if !previewOpened.Load() {
+		if !previewProbed.Load() {
 			t.Fatal("remote publication request happened before local preview")
 		}
 		if request.Header.Get("Authorization") != "Bearer "+replicaPublicationTestAccessToken {
@@ -260,7 +263,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 			}
 			if input["protocolVersion"] != float64(2) || input["clientRequestId"] != replicaPublicationTestRequestID ||
 				input["market"] != "CN" || input["title"] != "Replica title" || input["summary"] != "Replica summary" ||
-				input["allowAutomaticDegradation"] != true || input["priceCents"] != float64(990) || input["projectFingerprint"] == "" || input["canonicalOrigin"] != "https://example.com" {
+				input["allowAutomaticDegradation"] != false || input["priceCents"] != float64(990) || input["projectFingerprint"] == "" || input["canonicalOrigin"] != "https://example.com" {
 				t.Fatalf("unexpected create request: %#v", input)
 			}
 			target, _ := input["target"].(map[string]any)
@@ -352,14 +355,15 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 			ids = ids[1:]
 			return value
 		},
-		StartReplicaPreview: func(context.Context, replicapreview.Options) (replicapreview.Running, error) {
+		StartReplicaPreview: func(_ context.Context, options replicapreview.Options) (replicapreview.Running, error) {
+			if options.ExistingURL != previewSession.Result().TargetURL {
+				t.Fatalf("unexpected local preview URL: %q", options.ExistingURL)
+			}
+			previewProbed.Store(true)
 			return previewSession, nil
 		},
-		OpenURL: func(_ context.Context, target string) error {
-			if target != previewSession.Result().TargetURL {
-				t.Fatalf("unexpected local preview URL: %q", target)
-			}
-			previewOpened.Store(true)
+		OpenURL: func(context.Context, string) error {
+			t.Fatal("publication must reuse creator approval without opening another browser")
 			return nil
 		},
 	}
@@ -404,7 +408,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 		review["workUrl"] != "https://viceme.cn/replica-maker/replica-site" || review["hosting"] != "HOSTED" ||
 		review["title"] != "Replica title" || review["summary"] != "Replica summary" || review["priceCents"] != float64(990) ||
 		!hasPageArtifact || pageArtifact["fileName"] != "page.zip" || pageArtifact["sizeBytes"] == float64(0) || pageArtifact["digest"] == "" ||
-		review["automaticDegradation"] != true || review["immutableVersions"] != true ||
+		review["automaticDegradation"] != false || review["immutableVersions"] != true ||
 		review["existingBuyerVersionsRetained"] != true || review["automaticCreatorApplication"] != false ||
 		review["confirmationTtlSeconds"] != float64(1800) || review["confirmationExpiresAt"] != now.Add(30*time.Minute).Format(time.RFC3339) ||
 		review["sourceArchive"] == nil || review["exclusions"] == nil || review["preview"] == nil {
@@ -1819,7 +1823,7 @@ func TestReplicaStatusCompletesStableBindingAndUpdateDefaultsCurrentPrice(t *tes
 	var updateOutput bytes.Buffer
 	dependencies.Out = &updateOutput
 	updateArguments := []string{
-		"replica", "publish", "--path", project, "--title", "Updated replica", "--summary", "Updated summary",
+		"replica", "publish", "--path", project, "--title", "Updated replica", "--summary", "Updated summary", "--replica-only",
 		"--preview-url", "http://127.0.0.1:4173/", "--preview-reviewed",
 	}
 	if exit := Execute(updateArguments, dependencies); exit != output.ExitConfirmation ||
@@ -2362,7 +2366,7 @@ func replicaPublicationForArtifacts(now time.Time, status, sourceStatus string, 
 		responsePage[key] = page[key]
 	}
 	response["page"] = responsePage
-	response["allowAutomaticDegradation"] = true
+	response["allowAutomaticDegradation"] = false
 	if status == "DRAFT" {
 		actions := []string{"CANCEL"}
 		switch sourceStatus {
@@ -2439,7 +2443,7 @@ func replicaPublicationTestArguments(project, slug string) []string {
 	return []string{
 		"replica", "publish", "--path", project, "--slug", slug,
 		"--title", "Replica title", "--summary", "Replica summary", "--price-cents", "990",
-		"--preview-url", "http://127.0.0.1:4173/", "--preview-reviewed",
+		"--preview-url", "http://127.0.0.1:4173/", "--preview-reviewed", "--replica-only",
 	}
 }
 
@@ -2465,11 +2469,11 @@ func TestReplicaPublishRejectsChangedDegradationReview(t *testing.T) {
 			t.Error(err)
 			return
 		}
-		if input["allowAutomaticDegradation"] != true {
+		if input["allowAutomaticDegradation"] != false {
 			t.Error("hosted request omitted degradation policy")
 		}
 		response := replicaConfirmationRequiredResponse(now, input, "wrv1-"+strings.Repeat("a", 64))
-		response["nextAction"].(map[string]any)["confirmation"].(map[string]any)["review"].(map[string]any)["allowAutomaticDegradation"] = false
+		response["nextAction"].(map[string]any)["confirmation"].(map[string]any)["review"].(map[string]any)["allowAutomaticDegradation"] = true
 		writeJSONResponse(w, response)
 	}))
 	defer server.Close()
@@ -2477,10 +2481,52 @@ func TestReplicaPublishRejectsChangedDegradationReview(t *testing.T) {
 	deps.NewID = func() string { return replicaPublicationTestRequestID }
 	var out bytes.Buffer
 	deps.Out = &out
-	if exit := Execute(replicaPublicationTestArguments(project, "replica-site"), deps); exit != output.ExitInternal || !strings.Contains(out.String(), "RESPONSE_INVALID") {
+	if exit := Execute(append(replicaPublicationTestArguments(project, "replica-site"), "--replica-only=false"), deps); exit != output.ExitInternal || !strings.Contains(out.String(), "RESPONSE_INVALID") {
 		t.Fatalf("changed policy was accepted: exit=%d output=%s", exit, out.String())
 	}
 	if calls != 1 {
 		t.Fatalf("unexpected requests: %d", calls)
+	}
+}
+
+func TestReplicaPublishRequiresHostedOutputBeforeRemoteWork(t *testing.T) {
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	project := newReplicaPublicationTestProject(t)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		t.Error("missing hosted output reached the API")
+		w.WriteHeader(500)
+	}))
+	defer server.Close()
+	deps := replicaPublicationTestDependencies(t, t.TempDir(), server, now)
+	var out bytes.Buffer
+	deps.Out = &out
+	args := append(replicaPublicationTestArguments(project, "replica-site"), "--replica-only=false")
+	if code := Execute(args, deps); code != output.ExitValidation || !strings.Contains(out.String(), "REPLICA_HOSTED_PAGE_REQUIRED") || !strings.Contains(out.String(), "PREPARE_HOSTED_PAGE") {
+		t.Fatalf("missing HTML was not rejected: exit=%d output=%s", code, out.String())
+	}
+	if calls.Load() != 0 {
+		t.Fatalf("made %d remote calls without HTML", calls.Load())
+	}
+}
+
+func TestReplicaPublishedPresentationReportsActiveHosting(t *testing.T) {
+	result := presentReplicaPublication(api.WebsiteReplicaPublication{
+		Status: "PUBLISHED", Hosting: api.WebsiteReplicaHostingProjection{Status: "ACTIVE"},
+	})
+	if result.Message != "Website Replica source and hosted HTML publication complete." {
+		t.Fatalf("active hosting not reported: %s", result.Message)
+	}
+}
+
+func TestReplicaConfirmationCannotSilentlySwitchSourceOnlyToDefaultHosting(t *testing.T) {
+	pending := replicapublication.Pending{
+		Hosting:      "REPLICA_ONLY",
+		Confirmation: &api.WebsiteReplicaPublicationConfirmationChallenge{Version: "review"},
+	}
+	err := validateConfirmedReplicaRequest(replicaPublishOptions{ConfirmationVersion: "review"}, pending, replicapublication.Binding{}, false)
+	if err == nil || !strings.Contains(err.Error(), "hosting selection changed") {
+		t.Fatalf("source-only confirmation accepted without explicit selection: %v", err)
 	}
 }
