@@ -982,6 +982,7 @@ type WebsiteReplicaResolution struct {
 	Creator       WebsiteReplicaCreator `json:"creator"`
 	ViceMeWorkURL string                `json:"viceMeWorkUrl"`
 	Product       WebsiteReplicaProduct `json:"product"`
+	Availability  string                `json:"availability"`
 }
 
 type CreateWebsiteReplicaSessionRequest struct {
