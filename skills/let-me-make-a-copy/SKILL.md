@@ -71,7 +71,7 @@ Python `start` 读取既有 standalone 私有恢复凭证时可能触发宿主�
 1. 运行 `viceme replica install "<work.md URL>"`，必要时追加用户指定的全新 `--target`。
 2. `REPLICA_PURCHASE_CONFIRMATION_REQUIRED` 返回的口令、商品、币种和整数分价格与用户刚确认的预览完全一致且 Quote 未过期时，直接追加 `--confirm` 重跑，不再询问第二次。任一字段变化时重新运行 `inspect`，在对话中展示最新同款信息并重新确认。
 3. `PRODUCT_ALREADY_OWNED` 由 CLI 复用账号权益并安装，不创建匿名 Session。
-4. `REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时，只在正文内容区展示 `paymentPresentation.imagePath` 和公开支付提示，不为支付动作创建选项卡。展示成功后，把同一条 `--confirm` 命令追加 `--timeout 3m --interval 15s`，按“命令执行边界”只启动一次并等待其最终结果。不得输出支付 URI。
+4. `REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时，在正文内容区读取 `paymentPresentation.widgetPath`，用宿主 Widget 工具原样渲染通用支付片段（WorkBuddy 先读 `read_me` 的 interactive 模块，再调用 `show_widget`）。无 Widget 能力才展示本地 `imagePath`，不为支付动作创建选项卡。先展示二维码，再把同一条 `--confirm` 命令追加 `--timeout 3m --interval 15s`，按“命令执行边界”只启动一次并等待最终结果。Widget 倒计时不能确认到账，不得输出支付 URI。
 
 ## CLI 匿名路径
 

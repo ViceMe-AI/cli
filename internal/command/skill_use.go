@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 	"gopkg.in/yaml.v3"
 	"io"
@@ -25,15 +26,17 @@ import (
 )
 
 type downloadableSkillInstallResult struct {
-	ProductID      string                     `json:"productId"`
-	Edition        any                        `json:"edition"`
-	ReleaseID      string                     `json:"releaseId"`
-	ArtifactDigest string                     `json:"artifactDigest"`
-	InstalledName  string                     `json:"installedName"`
-	Install        skillcontent.InstallReport `json:"install"`
-	Trial          *trialInstallSummary       `json:"trial,omitempty"`
-	NextAction     string                     `json:"nextAction"`
-	Invocation     string                     `json:"invocation"`
+	ProductID             string                     `json:"productId"`
+	Edition               any                        `json:"edition"`
+	ReleaseID             string                     `json:"releaseId"`
+	ArtifactDigest        string                     `json:"artifactDigest"`
+	InstalledName         string                     `json:"installedName"`
+	Install               skillcontent.InstallReport `json:"install"`
+	Trial                 *trialInstallSummary       `json:"trial,omitempty"`
+	NextAction            string                     `json:"nextAction"`
+	Invocation            string                     `json:"invocation"`
+	OnboardingGuideURL    string                     `json:"onboardingGuideUrl"`
+	OnboardingTemplateURL string                     `json:"onboardingTemplateUrl"`
 }
 
 type downloadableSkillFile struct {
@@ -122,6 +125,9 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 						WithHint("sign in with the account that purchased this Product, or renew the creator subscription; owned install never falls back to a trial or purchase")
 				}
 			} else {
+				if state, ok := readScriptTrialState(runtime, productID); ok && state.Purchase != nil {
+					return runTrialPurchase(command.Context(), runtime, productID, wait, agent)
+				}
 				access, err = runtime.client().GetPublicSkillAccess(command.Context(), productID)
 				if err != nil {
 					return err
@@ -237,6 +243,10 @@ func installAuthorizedSkill(ctx context.Context, runtime *Runtime, productID, wo
 	if err != nil {
 		return downloadableSkillInstallResult{}, err
 	}
+	return installSkillFromReceipt(runtime, ctx, productID, workSlug, agent, access, download)
+}
+
+func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, workSlug, agent string, access api.SkillAccess, download api.DownloadURL) (downloadableSkillInstallResult, error) {
 	if download.ReleaseID != access.Release.ID || download.ArtifactDigest != access.Release.ArtifactDigest {
 		return downloadableSkillInstallResult{}, output.Policy("SKILL_DOWNLOAD_RECEIPT_MISMATCH", "download authorization does not match the authorized Skill release")
 	}
@@ -271,6 +281,8 @@ func installAuthorizedSkill(ctx context.Context, runtime *Runtime, productID, wo
 		ProductID: productID, Edition: access.Edition, ReleaseID: access.Release.ID, ArtifactDigest: digest,
 		InstalledName: installedName, Install: report,
 		NextAction: "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", Invocation: "$" + installedName,
+		OnboardingGuideURL:    sharedGuidanceURL(runtime, "_widgets/README.md"),
+		OnboardingTemplateURL: sharedGuidanceURL(runtime, "_widgets/onboarding.html"),
 	}, nil
 }
 
@@ -570,6 +582,21 @@ func installDownloadableSkill(stableName, target string, files map[string]downlo
 	bundle := skillcontent.New(os.DirFS(root))
 	var report skillcontent.InstallReport
 	err = withScriptTrialLockAt(environment.Home, provenance.ProductID, func() error {
+		if generated, trial := files[skillTrialRuntimePath]; trial && strings.HasPrefix(string(generated.Data), skillTrialRuntimeMarker) {
+			raw, err := os.ReadFile(filepath.Join(environment.Home, ".viceme", "trial", provenance.ProductID+".json"))
+			if err != nil && !os.IsNotExist(err) {
+				return err
+			}
+			if err == nil {
+				var state scriptTrialState
+				if err := json.Unmarshal(raw, &state); err != nil {
+					return err
+				}
+				if state.Purchase != nil {
+					return output.Policy("SKILL_PURCHASE_IN_PROGRESS", "resume the saved purchase; a stale trial install must not overwrite the paid edition")
+				}
+			}
+		}
 		report = bundle.InstallWithProvenance(stableName, target, environment, provenance)
 		return nil
 	})

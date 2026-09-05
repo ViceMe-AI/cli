@@ -660,12 +660,14 @@ type CommerceOrder struct {
 }
 
 type CommercePaymentPresentation struct {
-	Type      string `json:"type"`
-	Purpose   string `json:"purpose"`
-	MIMEType  string `json:"mimeType"`
-	ImagePath string `json:"imagePath"`
-	AltText   string `json:"altText"`
-	ExpiresAt string `json:"expiresAt"`
+	Type           string `json:"type"`
+	Purpose        string `json:"purpose"`
+	MIMEType       string `json:"mimeType"`
+	ImagePath      string `json:"imagePath"`
+	AltText        string `json:"altText"`
+	ExpiresAt      string `json:"expiresAt"`
+	WidgetPath     string `json:"widgetPath,omitempty"`
+	WidgetMIMEType string `json:"widgetMimeType,omitempty"`
 }
 
 type OrderStatusResponse struct {

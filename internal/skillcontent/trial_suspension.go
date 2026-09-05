@@ -192,7 +192,7 @@ func suspendedTrialMarkdown(original []byte, skillName, productID, purchaseURL, 
 		return nil, false
 	}
 	escape := strings.NewReplacer("<", "%3C", ">", "%3E", "\n", "%0A", "\r", "%0D")
-	notice := fmt.Sprintf("%s\n\n# 试用已结束\n\n本技能的免费试用次数已用完，当前已停用。不得继续执行原技能任务，也不得调用目录中保留的脚本或参考资料来继续试用。\n\n请打开[购买页面](<%s>)完成购买。然后按[官方安装说明](<%s>)安装或更新 ViceMe CLI，登录购买时使用的账号，运行 `viceme skill install %s --owned` 安装正式版。\n\n正式版安装成功后，重新读取 SKILL.md 再继续任务。重装试用版不会恢复试用次数。\n",
+	notice := fmt.Sprintf("%s\n\n# 试用已结束\n\n本技能的免费试用次数已用完，当前已停用。不得继续执行原技能任务，也不得调用目录中保留的脚本或参考资料来继续试用。\n\n读取 [使用前检查](references/viceme-runtime.md) 中的购买指引，按原预检路线创建或恢复订单，先展示支付 Widget，再有界等待到账并安装完整正式包；无需强制登录。[商品页面](<%s>)仅供查看商品。若已通过账号购买，按[官方安装说明](<%s>)使用 `viceme skill install %s --owned` 校验该账号权益并安装。\n\n正式版安装成功后，重新读取 SKILL.md 再继续任务。重装试用版不会恢复试用次数。\n",
 		disabled, escape.Replace(purchaseURL), escape.Replace(installDocURL), productID)
 	if bytes.HasPrefix(original, []byte("---\r\n")) {
 		notice = strings.ReplaceAll(notice, "\n", "\r\n")

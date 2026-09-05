@@ -65,6 +65,11 @@ func main() {
 	}
 	manifest.CLIVersion = *version
 
+	// Shared host presentation assets are not Skill directories or packages.
+	if err := addWidgetAssets(files, cliembed.EmbeddedWidgets()); err != nil {
+		fatal(err)
+	}
+
 	if err := os.MkdirAll(*outputDir, 0o755); err != nil {
 		fatal(err)
 	}
@@ -84,6 +89,23 @@ func main() {
 	}
 	fmt.Printf("skills-archive: wrote %d objects (%d skills, zips + flat files + manifest) for CLI %s\n",
 		len(files), len(manifest.Skills), *version)
+}
+
+func addWidgetAssets(files map[string][]byte, widgets fs.FS) error {
+	entries, err := fs.ReadDir(widgets, ".")
+	if err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		data, err := fs.ReadFile(widgets, entry.Name())
+		if err != nil {
+			return err
+		}
+		files["_widgets/"+entry.Name()] = data
+		digest := sha256.Sum256(data)
+		files["_widgets/sha256-"+hex.EncodeToString(digest[:])+"/"+entry.Name()] = data
+	}
+	return nil
 }
 
 // buildHostingArchive 从与 CLI 内嵌一致的 FS 产出托管物:每个官方技能一个

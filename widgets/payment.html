@@ -1,0 +1,100 @@
+<style>
+.viceme-payment{max-width:540px;background:transparent;color:var(--color-text-primary,#26342b);font:13px/1.6 var(--font-sans,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif)}.viceme-payment *{box-sizing:border-box}.viceme-payment [hidden]{display:none!important}.viceme-payment .sr-only{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.viceme-payment .pay-header{padding-bottom:18px;border-bottom:.5px solid var(--color-border-tertiary,#e1e7e2)}.viceme-payment .pay-brand{color:var(--color-text-success,#208647);font-size:15px;font-weight:500}
+.viceme-payment .pay-content{display:grid;grid-template-columns:198px minmax(0,1fr);gap:28px;align-items:center;padding:24px 0 0}.viceme-payment .qr{margin:0;text-align:center}.viceme-payment .qr-surface{width:198px;max-width:100%;aspect-ratio:1;margin:auto}.viceme-payment .qr svg{display:block;width:198px;max-width:100%;height:auto;margin:auto}.viceme-payment figcaption{font-size:12px;color:var(--color-text-secondary,#68766d);margin-top:7px}
+.viceme-payment .qr-placeholder{height:100%;display:grid;place-items:center;padding:18px;background:var(--color-background-secondary,#f4f6f4);color:var(--color-text-secondary,#68766d);border-radius:8px}.viceme-payment .validity{font-size:12px;color:var(--color-text-secondary,#68766d);margin:6px 0 0}.viceme-payment .countdown{margin-left:5px;color:var(--color-text-primary,#28674b);font-variant-numeric:tabular-nums;font-weight:500}
+.viceme-payment .payment-title{font-size:13px;font-weight:500;overflow-wrap:anywhere;margin:0 0 13px}.viceme-payment .amount{font-size:28px;font-weight:500;line-height:1.3;font-variant-numeric:tabular-nums;margin:0 0 12px;letter-spacing:-.5px}
+.viceme-payment .pay-state{display:inline-flex;align-items:center;gap:7px;color:var(--color-text-secondary,#68766d);font-size:12px}.viceme-payment .state-dot{width:6px;height:6px;border-radius:50%;background:var(--color-text-success,#2b9357)}.viceme-payment .description{font-size:12px;color:var(--color-text-secondary,#68766d);margin:12px 0 0}.viceme-payment[data-phase="expired"] .state-dot,.viceme-payment[data-phase="unavailable"] .state-dot{background:var(--color-text-secondary,#8b948d)}
+@media(max-width:480px){.viceme-payment .pay-content{grid-template-columns:minmax(0,1fr);gap:20px;padding:22px 0 0}.viceme-payment .purchase-info{grid-row:1;text-align:center}.viceme-payment .payment-title,.viceme-payment .amount{margin-bottom:8px}}
+</style>
+<section class="viceme-payment" aria-label="支付订单" data-phase="pending">
+  <h2 class="sr-only">订单金额、支付方式、支付二维码和有效期</h2>
+  <header class="pay-header"><span class="pay-brand" data-field="method"></span></header>
+  <div class="pay-content">
+    <figure class="qr">
+      <div class="qr-surface">
+        <div data-field="qr" hidden>__QR_SVG__</div>
+        <div class="qr-placeholder" data-field="placeholder">正在确认有效期</div>
+      </div>
+      <figcaption data-field="caption"></figcaption>
+      <p class="validity"><span data-field="validity-label">二维码有效期</span><span class="countdown" data-field="countdown" role="timer" aria-live="off">--:--</span></p>
+    </figure>
+    <div class="purchase-info">
+      <p class="payment-title" data-field="title"></p>
+      <p class="amount" data-field="amount" hidden></p>
+      <div class="pay-state"><span class="state-dot" aria-hidden="true"></span><span data-field="state" role="status" aria-live="polite"></span></div>
+      <p class="description" data-field="description"></p>
+    </div>
+  </div>
+</section>
+<script>
+(() => {
+  const data = __WIDGET_DATA__;
+  const root = document.currentScript.previousElementSibling;
+  if (!root || !root.classList.contains("viceme-payment")) return;
+  const field = name => root.querySelector('[data-field="' + name + '"]');
+  const en = data.locale === "en-US";
+  const labels = en ? {
+    pending:"Waiting for payment", expired:"QR code expired", unavailable:"Payment unavailable",
+    PAID:"Payment confirmed", CLOSED:"Order closed", CANCELLED:"Order cancelled", FAILED:"Payment failed", REFUNDED:"Payment refunded",
+    scan:"Scan with WeChat", refresh:"Request a new payment QR code", validity:"QR code valid for", description:"Complete payment before the QR code expires."
+  } : {
+    pending:"等待支付", expired:"二维码已过期", unavailable:"支付信息不可用",
+    PAID:"支付成功", CLOSED:"订单已关闭", CANCELLED:"订单已取消", FAILED:"支付失败", REFUNDED:"已退款",
+    scan:"打开微信扫一扫", refresh:"请重新获取支付二维码", validity:"二维码有效期", description:"请在二维码有效期内完成付款。"
+  };
+  field("title").textContent = data.title;
+  field("method").textContent = data.paymentMethodLabel;
+  field("description").textContent = labels.description;
+  field("validity-label").textContent = labels.validity;
+  const amount = field("amount");
+  if (Number.isSafeInteger(data.amountCents) && data.amountCents >= 0 && ["CNY","USD"].includes(data.currency)) {
+    amount.textContent = new Intl.NumberFormat(en ? "en-US" : "zh-CN", {style:"currency",currency:data.currency}).format(data.amountCents / 100);
+    amount.hidden = false;
+  }
+  const expires = Date.parse(data.expiresAt);
+  let timer = null;
+  let expired = false;
+  function cleanup() {
+    if (timer !== null) clearInterval(timer);
+    timer = null;
+    document.removeEventListener("visibilitychange", update);
+    window.removeEventListener("pageshow", update);
+  }
+  function phase(next, message) {
+    root.dataset.phase = next;
+    field("qr").hidden = next !== "active";
+    field("placeholder").hidden = next === "active";
+    field("placeholder").textContent = message;
+    field("state").textContent = message;
+    field("caption").textContent = next === "active" ? labels.scan : next === "expired" ? labels.refresh : "";
+  }
+  function update() {
+    if (!root.isConnected) { cleanup(); return false; }
+    // Only the caller's authoritative order status can confirm payment.
+    if (data.status !== "PENDING") {
+      phase(data.status, labels[data.status] || labels.unavailable);
+      field("description").textContent = "";
+      field("countdown").textContent = "--:--";
+      cleanup(); return false;
+    }
+    if (!Number.isFinite(expires)) {
+      phase("unavailable", labels.unavailable); cleanup(); return false;
+    }
+    const seconds = Math.max(0, Math.ceil((expires - Date.now()) / 1000));
+    expired = expired || seconds === 0;
+    field("countdown").textContent = expired ? "00:00" : String(Math.floor(seconds/60)).padStart(2,"0") + ":" + String(seconds%60).padStart(2,"0");
+    if (expired) { phase("expired", labels.expired); cleanup(); return false; }
+    if (!field("qr").querySelector("svg")) {
+      phase("unavailable", labels.unavailable); cleanup(); return false;
+    }
+    phase("active", labels.pending);
+    return true;
+  }
+  if (update()) {
+    timer = setInterval(update, 1000);
+    document.addEventListener("visibilitychange", update);
+    window.addEventListener("pageshow", update);
+  }
+})();
+</script>

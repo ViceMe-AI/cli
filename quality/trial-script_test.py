@@ -107,14 +107,16 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertEqual(files["SKILL.md"][0], once)
         self.assertEqual(files[trial.RUNTIME_PATH][0].decode("utf-8"), rules)
 
-    def test_gate_rule_four_guides_cli_conversion_honestly(self):
+    def test_gate_rule_four_supports_credential_purchase_without_cli(self):
         files = {"SKILL.md": (b"---\nname: my-skill\n---\nbody", 0o644)}
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
         content = files[trial.RUNTIME_PATH][0].decode("utf-8")
-        # 脚本路无法安装已购版本:第 4 条必须引导安装 CLI 转正,不得声称
-        # 「重新运行本命令即可转正」。
-        self.assertIn("viceme skill install %s --owned" % PRODUCT_ID, content)
-        self.assertNotIn("按同一命令的输出转正", content)
+        self.assertIn("purchase", content)
+        self.assertIn("--wait 0", content)
+        self.assertIn("--wait 60", content)
+        self.assertIn("无需 CLI 或强制登录", content)
+        self.assertIn("trial-usage.md", content)
+        self.assertIn("完整正式包", content)
 
     def test_author_marker_mention_does_not_suppress_real_gate(self):
         original = "---\nname: my-skill\n---\n\n作者示例: `%s`\n" % trial.GATE_MARKER
@@ -778,7 +780,7 @@ class InstallFlowTestCase(unittest.TestCase):
                 self.assertFalse(denied["allowed"])
                 self.assertEqual(denied["nextAction"], "PURCHASE_REQUIRED")
                 self.assertEqual(denied["purchaseUrl"], "https://shop.example.test/purchase")
-                self.assertIn("viceme skill install %s --owned" % PRODUCT_ID, denied["message"])
+                self.assertIn("purchase --wait 0", denied["message"])
                 self.assertEqual(denied["disabledSkillCount"], 1)
                 with open(entry, "rb") as handle:
                     disabled = handle.read()
@@ -793,6 +795,161 @@ class InstallFlowTestCase(unittest.TestCase):
                 mock.patch.object(trial, "http_download", return_value=self.archive_bytes), redirect_stdout(io.StringIO()):
             self.assertEqual(trial.run(["install", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy"]), 0)
         return os.path.join(self.home, ".workbuddy", "skills", "my-skill")
+
+    def _purchase_order(self, **changes):
+        return {"productId": PRODUCT_ID, "orderNo": "TRIAL_ORDER_01", "title": "A </script> test", "amountCents": 1990,
+                "currency": "CNY", "status": "PENDING", "expiresAt": "2099-01-01T00:00:00Z",
+                "paymentAction": {"type": "QR_CODE", "content": "weixin://pay/test-only"}, **changes}
+
+    def _resource_download(self, url):
+        if "/_widgets/sha256-" in url:
+            with open(os.path.join(REPOSITORY_ROOT, "widgets", url.rsplit("/", 1)[1]), "rb") as handle:
+                return handle.read()
+        return self.archive_bytes
+
+    def _run_purchase(self, *arguments):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            code = trial.run(["purchase", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy", *arguments])
+        return code, json.loads(output.getvalue())
+
+    def test_purchase_shows_verified_svg_before_wait_and_preserves_retry_identity(self):
+        self._install_trial_fixture()
+        request_ids = []
+        calls = []
+        def api(market, method, path, body):
+            calls.append(path)
+            self.assertEqual(body["secret"], "grant-secret")
+            if path.endswith("/trial-purchase"):
+                request_ids.append(body["clientRequestId"])
+                if len(request_ids) == 1:
+                    raise trial.Failure("NETWORK_ERROR", "unknown result")
+            return self._purchase_order()
+        with mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=self._resource_download), mock.patch.object(trial.time, "sleep", side_effect=AssertionError("QR must return before waiting")):
+            self.assertEqual(self._run_purchase("--wait", "60")[0], 1)
+            code, first = self._run_purchase("--wait", "60")
+            self.assertEqual(code, 0, first)
+            self.assertEqual(request_ids[0], request_ids[1])
+            self.assertFalse(first["allowed"])
+            self.assertNotIn("grant-secret", json.dumps(first))
+            self.assertNotIn("weixin://", json.dumps(first))
+            presentation = first["paymentPresentation"]
+            with open(presentation["widgetPath"], encoding="utf-8") as handle:
+                html = handle.read()
+            self.assertIn("<svg", html)
+            self.assertNotIn("__WIDGET_DATA__", html)
+            self.assertNotIn("A </script>", html)
+            self.assertNotIn("weixin://", html)
+            self.assertIn("2099-01-01T00:00:00Z", html)
+            self.assertEqual(stat.S_IMODE(os.stat(presentation["widgetPath"]).st_mode), 0o600)
+            self.assertTrue(trial.load_trial_state(PRODUCT_ID)["purchase"]["presented"])
+            code, second = self._run_purchase()
+            self.assertEqual(code, 0, second)
+            self.assertEqual(second["orderNo"], first["orderNo"])
+            self.assertTrue(calls[-1].endswith("/status"))
+            self.assertEqual(len(request_ids), 2, "retrying a known order must not create another one")
+
+    def test_paid_purchase_redownloads_full_package_and_preserves_user_files(self):
+        directory = self._install_trial_fixture()
+        with trial.ProductLock(PRODUCT_ID):
+            self.assertEqual(trial.suspend_trial_skills("cn", PRODUCT_ID, "https://example.invalid/product"), 1)
+        user_path = os.path.join(directory, "user-output.txt")
+        with open(user_path, "w", encoding="utf-8") as handle:
+            handle.write("keep my work")
+        calls = []
+        def api(market, method, path, body):
+            calls.append(path)
+            if path.endswith("/download"):
+                access = self._api(market, "GET", "/v1/skills/%s/access" % PRODUCT_ID)
+                access.update(owned=True, installKind="OWNED_PAID", trial=None)
+                download = self._api(market, "GET", "/v1/downloads/trial/%s?installId=test" % PRODUCT_ID)
+                return {"access": access, "download": download}
+            return self._purchase_order(status="PAID", paymentAction=None)
+        with mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=self._resource_download):
+            code, result = self._run_purchase()
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result["owned"])
+        self.assertTrue(result["allowed"])
+        self.assertEqual(result["kind"], "owned")
+        self.assertTrue(calls[-1].endswith("/download"))
+        with open(os.path.join(directory, "SKILL.md"), "rb") as handle:
+            body = handle.read()
+        self.assertIn(b"\nbody", body)
+        self.assertNotIn(trial.DISABLED_MARKER.encode(), body)
+        self.assertNotIn(trial.GATE_MARKER.encode(), body)
+        self.assertIn(b"metadata:\n  author: yee33", body)
+        with open(user_path, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "keep my work")
+
+    def test_payment_without_active_entitlement_never_removes_gate(self):
+        directory = self._install_trial_fixture()
+        with open(os.path.join(directory, "SKILL.md"), "rb") as handle:
+            before = handle.read()
+        def api(market, method, path, body):
+            if path.endswith("/download"):
+                return {"access": {"owned": False, "productId": PRODUCT_ID}}
+            return self._purchase_order(status="PAID", paymentAction=None)
+        with mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=AssertionError("unauthorized download")):
+            code, result = self._run_purchase()
+        self.assertEqual(code, 1)
+        self.assertEqual(result["code"], "OWNED_DOWNLOAD_INVALID")
+        with open(os.path.join(directory, "SKILL.md"), "rb") as handle:
+            self.assertEqual(handle.read(), before)
+
+    def test_formal_restore_failure_keeps_gated_entry_and_is_retryable(self):
+        directory = self._install_trial_fixture()
+        with open(os.path.join(directory, "SKILL.md"), "rb") as handle:
+            before = handle.read()
+        formal = {"SKILL.md": (b"---\nname: my-skill\n---\nformal\n", 0o644),
+                  "scripts/formal.py": (b"# formal support file\n", 0o644)}
+        real_replace = os.replace
+        def fail_support(source, destination):
+            if destination.endswith(os.path.join("scripts", "formal.py")):
+                raise PermissionError("test denied support-file activation")
+            return real_replace(source, destination)
+        with trial.ProductLock(PRODUCT_ID), mock.patch.object(trial.os, "replace", side_effect=fail_support):
+            with self.assertRaises(PermissionError):
+                trial.install_owned_to_roots(formal, "my-skill", PRODUCT_ID, "formal-release", "workbuddy")
+        with open(os.path.join(directory, "SKILL.md"), "rb") as handle:
+            self.assertEqual(handle.read(), before)
+        with trial.ProductLock(PRODUCT_ID):
+            result = trial.install_owned_to_roots(formal, "my-skill", PRODUCT_ID, "formal-release", "workbuddy")
+        self.assertTrue(all(not error for _, error in result))
+        with open(os.path.join(directory, "SKILL.md"), "rb") as handle:
+            self.assertEqual(handle.read(), formal["SKILL.md"][0])
+
+    def test_status_does_not_consume_and_resource_hashes_match_release_sources(self):
+        self._install_trial_fixture()
+        calls = []
+        def api(market, method, path, body):
+            calls.append(path)
+            return self._api(market, method, path, body)
+        with mock.patch.object(trial, "api_request", side_effect=api), redirect_stdout(io.StringIO()):
+            self.assertEqual(trial.run(["status", "--product", PRODUCT_ID, "--market", "cn"]), 0)
+        self.assertEqual(calls, ["/v1/skills/%s/trial-grants" % PRODUCT_ID])
+        with mock.patch.object(trial, "http_download", side_effect=self._resource_download):
+            for name in trial.WIDGET_DIGESTS:
+                self.assertGreater(len(trial.shared_widget_resource("cn", name)), 0)
+        with mock.patch.object(trial, "http_download", return_value=b"tampered"):
+            with self.assertRaises(trial.Failure) as failure:
+                trial.shared_widget_resource("cn", "qrcodegen.py")
+        self.assertEqual(failure.exception.code, "WIDGET_RESOURCE_INVALID")
+
+    def test_expired_qr_does_not_close_or_replace_pending_order(self):
+        self._install_trial_fixture()
+        state = trial.load_trial_state(PRODUCT_ID)
+        state["purchase"] = {"clientRequestId": "unchanged", "orderNo": "TRIAL_ORDER_01", "presented": True}
+        trial.save_trial_state(PRODUCT_ID, state)
+        calls = []
+        def api(market, method, path, body):
+            calls.append(path)
+            return self._purchase_order(expiresAt="2020-01-01T00:00:00Z", paymentAction=None)
+        with mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=self._resource_download):
+            code, result = self._run_purchase()
+        self.assertEqual(code, 0, result)
+        self.assertEqual(calls, ["/v1/skills/%s/trial-purchase/status" % PRODUCT_ID])
+        self.assertFalse(trial.load_trial_state(PRODUCT_ID)["purchase"].get("closed", False))
+        self.assertEqual(trial.load_trial_state(PRODUCT_ID)["purchase"]["clientRequestId"], "unchanged")
 
     def test_suspension_preserves_metadata_and_all_non_entry_files(self):
         directory = self._install_trial_fixture()

@@ -15,6 +15,19 @@ var embeddedSkills embed.FS
 //go:embed quality/release-manifest.json
 var embeddedReleaseManifest []byte
 
+// Widgets are CLI-wide presentation assets, independent of any official Skill.
+//
+//go:embed widgets/*.html widgets/*.md widgets/*.py
+var embeddedWidgets embed.FS
+
+func EmbeddedWidgets() fs.FS {
+	sub, err := fs.Sub(embeddedWidgets, "widgets")
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}
+
 // EmbeddedSkills returns an FS rooted at skills/.
 func EmbeddedSkills() fs.FS {
 	sub, err := fs.Sub(embeddedSkills, "skills")

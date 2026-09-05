@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	cliembed "github.com/ViceMe-AI/cli"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/publication"
 	"github.com/ViceMe-AI/cli/internal/securestore"
@@ -40,10 +41,11 @@ type skillTrialTestServer struct {
 	// secret so replays stay idempotent (mirrors the real API contract).
 	// useRequests records every trial-use body so tests can assert the
 	// idempotency key; trialUseFailures forces that many 500 responses first.
-	grantRequests     []string
-	grantedInstallIDs map[string]bool
-	useRequests       []map[string]any
-	trialUseFailures  int
+	grantRequests         []string
+	grantedInstallIDs     map[string]bool
+	useRequests           []map[string]any
+	trialUseFailures      int
+	trialPurchaseRequests []map[string]string
 }
 
 func newSkillTrialTestServer(t *testing.T) *skillTrialTestServer {
@@ -53,8 +55,9 @@ func newSkillTrialTestServer(t *testing.T) *skillTrialTestServer {
 	state.archiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.archive))
 	state.ownedArchive = downloadableSkillArchiveNamed(t, "free-test", "Owned Current Skill")
 	state.ownedArchiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.ownedArchive))
-	server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
+	server := httptest.NewUnstartedServer(http.HandlerFunc(state.serveHTTP))
 	state.server = server
+	server.Start()
 	return state
 }
 
@@ -69,6 +72,43 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 		}
 	}
 	switch {
+	case strings.HasPrefix(request.URL.Path, "/skills/_widgets/"):
+		content, err := fs.ReadFile(cliembed.EmbeddedWidgets(), filepath.Base(request.URL.Path))
+		if err != nil {
+			http.NotFound(writer, request)
+			return
+		}
+		_, _ = writer.Write(content)
+	case strings.HasPrefix(request.URL.Path, "/v1/skills/"+downloadableProductID+"/trial-purchase"):
+		var body map[string]string
+		_ = json.NewDecoder(request.Body).Decode(&body)
+		if request.Header.Get("Authorization") != "" || body["secret"] != skillTrialSecret || body["installId"] == "" {
+			writer.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		s.mu.Lock()
+		s.trialPurchaseRequests = append(s.trialPurchaseRequests, body)
+		status := s.paymentStatus
+		s.mu.Unlock()
+		if strings.HasSuffix(request.URL.Path, "/download") {
+			if status != "PAID" {
+				writer.WriteHeader(http.StatusNotFound)
+				return
+			}
+			writeJSONResponse(writer, map[string]any{
+				"access":   skillAccessFixture(false, true, s.ownedArchiveDigest, ""),
+				"download": map[string]any{"url": s.server.URL + "/owned-artifact", "fileName": "formal.zip", "releaseId": downloadableReleaseID, "artifactDigest": s.ownedArchiveDigest, "expiresAt": "2099-01-01T00:00:00Z"},
+			})
+			return
+		}
+		var action any
+		if status == "PENDING" {
+			action = map[string]any{"type": "QR_CODE", "content": "weixin://pay/trial-test-only"}
+		}
+		writeJSONResponse(writer, map[string]any{
+			"productId": downloadableProductID, "orderNo": skillPurchaseOrderNo, "title": "Trial formal edition",
+			"amountCents": 990, "currency": "CNY", "status": status, "expiresAt": "2099-01-01T00:00:00Z", "paymentAction": action,
+		})
 	case request.URL.Path == "/v1/skills/"+downloadableProductID+"/access":
 		access := skillAccessFixture(false, false, s.archiveDigest, s.server.URL+"/purchase")
 		access["trial"] = map[string]any{"available": true, "limitUses": s.trialLimit}
