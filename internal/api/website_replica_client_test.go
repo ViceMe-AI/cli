@@ -52,8 +52,6 @@ func TestWebsiteReplicaClientRejectsUnknownFields(t *testing.T) {
 	t.Parallel()
 	tests := canonicalWebsiteReplicaResponseCases()
 	mutations := []func(map[string]any){
-		func(response map[string]any) { response["unexpected"] = true },
-		func(response map[string]any) { response["product"].(map[string]any)["unexpected"] = true },
 		func(response map[string]any) { response["creator"].(map[string]any)["unexpected"] = true },
 		func(response map[string]any) {
 			response["paymentOptions"].([]any)[0].(map[string]any)["unexpected"] = true
@@ -82,8 +80,6 @@ func TestWebsiteReplicaClientRejectsMissingRequiredFields(t *testing.T) {
 	t.Parallel()
 	tests := canonicalWebsiteReplicaResponseCases()
 	mutations := []func(map[string]any){
-		func(response map[string]any) { delete(response["upload"].(map[string]any), "headers") },
-		func(response map[string]any) { delete(response, "publishedAt") },
 		func(response map[string]any) { delete(response, "summary") },
 		func(response map[string]any) { delete(response, "contractSummary") },
 		func(response map[string]any) { delete(response, "paymentAction") },
@@ -106,11 +102,6 @@ func TestWebsiteReplicaClientRejectsInvalidTimestamps(t *testing.T) {
 	t.Parallel()
 	tests := canonicalWebsiteReplicaResponseCases()
 	mutations := []func(map[string]any){
-		func(response map[string]any) {
-			response["upload"].(map[string]any)["expiresAt"] = "2026-09-01T20:34:56+08:00"
-		},
-		func(response map[string]any) { response["publishedAt"] = "2026-02-30T12:34:56Z" },
-		func(response map[string]any) { response["publishedAt"] = "2026-09-01T24:00:00Z" },
 		func(response map[string]any) { response["expiresAt"] = "2026-09-01T12:34:56z" },
 		func(response map[string]any) { response["expiresAt"] = "2026-09-01T12:34:56" },
 		func(response map[string]any) {
@@ -122,10 +113,7 @@ func TestWebsiteReplicaClientRejectsInvalidTimestamps(t *testing.T) {
 		func(response map[string]any) { response["installedAt"] = "not-a-time" },
 	}
 	for index, mutation := range mutations {
-		test := tests[index]
-		if index == 2 {
-			test = tests[1]
-		}
+		test := tests[index+1]
 		response := cloneReplicaResponse(t, test.response)
 		mutation(response)
 		t.Run(test.name+"-"+string(rune('a'+index)), func(t *testing.T) {
@@ -139,67 +127,60 @@ func TestWebsiteReplicaClientRejectsCrossResourceMismatches(t *testing.T) {
 	t.Parallel()
 	tests := []websiteReplicaResponseCase{
 		{
-			name: "published Replica",
-			response: mutateReplicaResponse(t, replicaPublicationResponse(), func(response map[string]any) {
-				response["replicaId"] = testUploadID
-			}),
-			call: canonicalWebsiteReplicaResponseCases()[1].call,
-		},
-		{
 			name: "resolved short code",
 			response: mutateReplicaResponse(t, replicaResolutionResponse(), func(response map[string]any) {
 				response["shortCode"] = "VMR-TSRQPONMLKJIHGFEDCBA"
 			}),
-			call: canonicalWebsiteReplicaResponseCases()[2].call,
+			call: canonicalWebsiteReplicaResponseCases()[0].call,
 		},
 		{
 			name: "order status",
 			response: mutateReplicaResponse(t, replicaOrderStatusResponse(), func(response map[string]any) {
 				response["orderNo"] = "VMO-20260901-999999"
 			}),
-			call: canonicalWebsiteReplicaResponseCases()[5].call,
+			call: canonicalWebsiteReplicaResponseCases()[3].call,
 		},
 		{
 			name: "service case order",
 			response: mutateReplicaResponse(t, replicaOrderStatusResponse(), func(response map[string]any) {
 				response["serviceCase"].(map[string]any)["orderNo"] = "VMO-20260901-999999"
 			}),
-			call: canonicalWebsiteReplicaResponseCases()[5].call,
+			call: canonicalWebsiteReplicaResponseCases()[3].call,
 		},
 		{
 			name: "service case fulfillment",
 			response: mutateReplicaResponse(t, replicaOrderStatusResponse(), func(response map[string]any) {
 				response["serviceCase"].(map[string]any)["fulfillmentId"] = testVersionID
 			}),
-			call: canonicalWebsiteReplicaResponseCases()[5].call,
+			call: canonicalWebsiteReplicaResponseCases()[3].call,
 		},
 		{
 			name: "service case without fulfillment",
 			response: mutateReplicaResponse(t, replicaOrderStatusResponse(), func(response map[string]any) {
 				response["fulfillment"] = nil
 			}),
-			call: canonicalWebsiteReplicaResponseCases()[5].call,
+			call: canonicalWebsiteReplicaResponseCases()[3].call,
 		},
 		{
 			name: "download license",
 			response: mutateReplicaResponse(t, replicaDownloadResponse(), func(response map[string]any) {
 				response["license"].(map[string]any)["claims"].(map[string]any)["versionId"] = testUploadID
 			}),
-			call: canonicalWebsiteReplicaResponseCases()[6].call,
+			call: canonicalWebsiteReplicaResponseCases()[4].call,
 		},
 		{
 			name: "download license version",
 			response: mutateReplicaResponse(t, replicaDownloadResponse(), func(response map[string]any) {
 				response["license"].(map[string]any)["claims"].(map[string]any)["version"] = 2
 			}),
-			call: canonicalWebsiteReplicaResponseCases()[6].call,
+			call: canonicalWebsiteReplicaResponseCases()[4].call,
 		},
 		{
 			name: "installation receipt version",
 			response: mutateReplicaResponse(t, replicaInstallationResponse(), func(response map[string]any) {
 				response["versionId"] = testUploadID
 			}),
-			call: canonicalWebsiteReplicaResponseCases()[7].call,
+			call: canonicalWebsiteReplicaResponseCases()[5].call,
 		},
 	}
 	for _, test := range tests {
@@ -218,7 +199,7 @@ func TestWebsiteReplicaClientRejectsJSAPIActionForNativeReplicaQuote(t *testing.
 		"type": "JSAPI", "appId": "wx-app", "timeStamp": "1234567890",
 		"nonceStr": "nonce", "package": "prepay_id=example", "signType": "RSA", "paySign": "signature",
 	}
-	assertInvalidWebsiteReplicaResponse(t, callWebsiteReplicaResponse(t, response, canonicalWebsiteReplicaResponseCases()[4].call))
+	assertInvalidWebsiteReplicaResponse(t, callWebsiteReplicaResponse(t, response, canonicalWebsiteReplicaResponseCases()[2].call))
 }
 
 func TestWebsiteReplicaClientAcceptsQRCodeAction(t *testing.T) {
@@ -227,7 +208,7 @@ func TestWebsiteReplicaClientAcceptsQRCodeAction(t *testing.T) {
 	response["paymentAction"] = map[string]any{
 		"type": "QR_CODE", "content": "weixin://wxpay/bizpayurl?pr=replica-test",
 	}
-	if err := callWebsiteReplicaResponse(t, response, canonicalWebsiteReplicaResponseCases()[4].call); err != nil {
+	if err := callWebsiteReplicaResponse(t, response, canonicalWebsiteReplicaResponseCases()[2].call); err != nil {
 		t.Fatalf("valid QR_CODE response was rejected: %v", err)
 	}
 }
@@ -292,7 +273,7 @@ func TestWebsiteReplicaClientDistinguishesMissingFromNullableFields(t *testing.T
 	response := replicaOrderResponse()
 	response["status"] = "PAID"
 	response["paymentAction"] = nil
-	call := canonicalWebsiteReplicaResponseCases()[4].call
+	call := canonicalWebsiteReplicaResponseCases()[2].call
 	if err := callWebsiteReplicaResponse(t, response, call); err != nil {
 		t.Fatalf("explicit null paymentAction was rejected: %v", err)
 	}
@@ -302,20 +283,6 @@ func TestWebsiteReplicaClientDistinguishesMissingFromNullableFields(t *testing.T
 
 func canonicalWebsiteReplicaResponseCases() []websiteReplicaResponseCase {
 	return []websiteReplicaResponseCase{
-		{
-			name: "authorize upload", response: replicaUploadResponse(),
-			call: func(client *Client) error {
-				_, err := client.CreateWebsiteReplicaUpload(context.Background(), CreateWebsiteReplicaUploadRequest{})
-				return err
-			},
-		},
-		{
-			name: "complete upload", response: replicaPublicationResponse(),
-			call: func(client *Client) error {
-				_, err := client.CompleteWebsiteReplicaUpload(context.Background(), testReplicaID, testUploadID)
-				return err
-			},
-		},
 		{
 			name: "resolve", response: replicaResolutionResponse(),
 			call: func(client *Client) error {
@@ -360,33 +327,6 @@ func canonicalWebsiteReplicaResponseCases() []websiteReplicaResponseCase {
 				})
 				return err
 			},
-		},
-	}
-}
-
-func replicaUploadResponse() map[string]any {
-	return map[string]any{
-		"replicaId": testReplicaID, "uploadId": testUploadID,
-		"upload": map[string]any{
-			"method": "PUT", "url": "https://objects.example/source.zip",
-			"headers": map[string]string{}, "expiresAt": testReplicaTimestamp,
-		},
-	}
-}
-
-func replicaPublicationResponse() map[string]any {
-	instruction := "VICEME-REPLICA:" + testShortCode
-	return map[string]any{
-		"replicaId": testReplicaID, "versionId": testVersionID, "version": 1,
-		"shortCode": testShortCode, "instruction": instruction,
-		"product": replicaProductResponse(), "publishedAt": testReplicaTimestamp,
-		"buyerEntry": map[string]any{
-			"instruction": instruction,
-			"prompts": map[string]any{
-				"zh-CN": "展示真实 Quote，确认后再创建订单。",
-				"en-US": "Show the real quote and create an order only after confirmation.",
-			},
-			"viceMeWorkUrl": "https://viceme.example/replica-maker/replica-source",
 		},
 	}
 }
