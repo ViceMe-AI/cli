@@ -77,9 +77,9 @@ func (c *Client) AuthStatus(ctx context.Context) (AuthStatus, error) {
 	return response, err
 }
 
-func (c *Client) GetGithubChannelVerified(ctx context.Context, merchantAccountID string) (GithubChannelVerified, error) {
-	var response GithubChannelVerified
-	endpoint := "/v1/cli/merchant/channels/github/verified?merchantAccountId=" + url.QueryEscape(merchantAccountID)
+func (c *Client) GetGithubSourceAuthorized(ctx context.Context, merchantAccountID string) (GithubSourceAuthorized, error) {
+	var response GithubSourceAuthorized
+	endpoint := "/v1/cli/skill-sources/github/authorized?merchantAccountId=" + url.QueryEscape(merchantAccountID)
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
 	return response, err
 }
@@ -135,16 +135,16 @@ func (c *Client) CreateMerchantApplication(ctx context.Context, clientRequestID 
 	return response, err
 }
 
-func (c *Client) StartGithubChannel(ctx context.Context, merchantAccountID string) (GithubAuthorizationStart, error) {
+func (c *Client) StartGithubSource(ctx context.Context, merchantAccountID string) (GithubAuthorizationStart, error) {
 	var response GithubAuthorizationStart
 	payload := map[string]any{"merchantAccountId": merchantAccountID, "returnTo": "/cli/github-result"}
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/channels/github/start", payload, &response, "@stored")
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/skill-sources/github/start", payload, &response, "@stored")
 	return response, err
 }
 
-func (c *Client) GetGithubChannelStatus(ctx context.Context, merchantAccountID, attemptID string) (GithubAuthorizationStatus, error) {
+func (c *Client) GetGithubSourceStatus(ctx context.Context, merchantAccountID, attemptID string) (GithubAuthorizationStatus, error) {
 	var response GithubAuthorizationStatus
-	endpoint := "/v1/cli/merchant/channels/github/status?merchantAccountId=" + url.QueryEscape(merchantAccountID) + "&attemptId=" + url.QueryEscape(attemptID)
+	endpoint := "/v1/cli/skill-sources/github/status?merchantAccountId=" + url.QueryEscape(merchantAccountID) + "&attemptId=" + url.QueryEscape(attemptID)
 	err := c.doJSON(ctx, http.MethodGet, endpoint, nil, &response, "@stored")
 	return response, err
 }
@@ -212,7 +212,7 @@ func (c *Client) DownloadGithubSkillSource(ctx context.Context, merchantAccountI
 		selectedPath = repositoryPath
 	}
 	payload := map[string]any{"merchantAccountId": merchantAccountID, "repository": repository, "ref": ref, "path": selectedPath}
-	data, headers, err := c.postJSONBytes(ctx, "/v1/cli/merchant/channels/github/archive", payload, "@stored", 20<<20)
+	data, headers, err := c.postJSONBytes(ctx, "/v1/cli/skill-sources/github/archive", payload, "@stored", 20<<20)
 	decodedRepository, _ := url.QueryUnescape(headers.Get("X-ViceMe-Github-Repository"))
 	decodedPath, _ := url.QueryUnescape(headers.Get("X-ViceMe-Github-Path"))
 	return SkillSourceArchive{
@@ -224,7 +224,7 @@ func (c *Client) DownloadGithubSkillSource(ctx context.Context, merchantAccountI
 
 func (c *Client) DownloadXiaohongshuSkillSource(ctx context.Context, merchantAccountID, skillID string) (SkillSourceArchive, error) {
 	payload := map[string]any{"merchantAccountId": merchantAccountID, "skillId": skillID}
-	data, headers, err := c.postJSONBytes(ctx, "/v1/cli/merchant/channels/xiaohongshu/archive", payload, "@stored", 20<<20)
+	data, headers, err := c.postJSONBytes(ctx, "/v1/cli/skill-sources/xiaohongshu/archive", payload, "@stored", 20<<20)
 	version, _ := url.QueryUnescape(headers.Get("X-ViceMe-Xiaohongshu-Artifact-Version"))
 	return SkillSourceArchive{Bytes: data, SkillID: headers.Get("X-ViceMe-Xiaohongshu-Skill-Id"), ArtifactVersion: version, ArtifactDigest: headers.Get("X-ViceMe-Xiaohongshu-Artifact-Digest"), SourceReceiptID: headers.Get("X-ViceMe-Source-Receipt"), PackageDigest: headers.Get("X-ViceMe-Package-Digest")}, err
 }
@@ -232,14 +232,7 @@ func (c *Client) DownloadXiaohongshuSkillSource(ctx context.Context, merchantAcc
 func (c *Client) SearchXiaohongshuSkills(ctx context.Context, merchantAccountID, query string) (XiaohongshuSkillSearch, error) {
 	var response XiaohongshuSkillSearch
 	payload := map[string]any{"merchantAccountId": merchantAccountID, "query": query}
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/channels/xiaohongshu/search", payload, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) StartXiaohongshuChannelVerification(ctx context.Context, merchantAccountID, subjectID, accountName string, externalHandle, profileURL *string) (MerchantOnboarding, error) {
-	var response MerchantOnboarding
-	payload := map[string]any{"merchantAccountId": merchantAccountID, "externalSubjectId": subjectID, "externalHandle": externalHandle, "publicAccountName": accountName, "profileUrl": profileURL}
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/channels/xiaohongshu/verification", payload, &response, "@stored")
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/skill-sources/xiaohongshu/search", payload, &response, "@stored")
 	return response, err
 }
 

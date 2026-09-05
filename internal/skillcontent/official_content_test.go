@@ -574,7 +574,7 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	workflowText := string(workflow)
 	stages := []string{
 		"确认当前登录和创作者资格",
-		"按来源完成且只完成必要的渠道确认",
+		"按来源读取，仅私有 GitHub 按需授权",
 		"创建或恢复同一私有草稿",
 		"一次性补齐缺少的价格、文案和媒体",
 		"只询问一次是否确认公开发布",
@@ -593,74 +593,20 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	}
 }
 
-func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
+func TestPublishSourceAuthorizationIsPrivateOnly(t *testing.T) {
 	t.Parallel()
-	const terminalReply = "最终答复只能是“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布。”这一句话"
-
 	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(workflow)
-	for _, required := range []string{
-		"在读取任何仓库内容或执行发布命令前",
-		"viceme merchant channel github <merchant-id>",
-		"只启动一次等待式 `viceme merchant channel github <merchant-id>`",
-		"用 Bash 后台启动并保存 `task_id`",
-		"用一次短时 `TaskOutput` 读取当前命令输出",
-		"这次检查默认静默",
-		"立即使用内置 `present_files` 在当前任务浏览器打开同一个链接",
-		"也可以在外部浏览器打开下面这个链接",
-		"另起一行用 Markdown 链接格式输出当前命令实际返回的完整 `https://` 链接：`[打开 GitHub 授权页面](https://…)`",
-		"`TaskOutput(task_id=<同一个任务>, timeout=180000)`",
-		"只要命令仍在运行，就继续读取同一个 `task_id`",
-		"命令成功返回 `kind=verified` 后立即继续发布",
-		"不得再次运行渠道命令、轮询状态、`sleep` 或启动另一后台任务",
-		"不得要求用户回复“完成了”",
-		"也不得创建任务列表",
-		"绝不能使用 `curl`、`gh`、`git`、WebFetch、浏览器抓取或 raw GitHub URL 代替这一步",
-		"用户未指定分支时省略 `--github-ref`",
-		"全部由 Agent 自动派生，绝不向用户询问",
-		terminalReply,
-	} {
+	for _, required := range []string{"公开仓库不要求 OAuth", "私有仓库必须由当前 User 本人 OAuth 授权", "不接受协作者或组织仓库", "小红书公开 Skill 直接按 ID 或名称搜索发布", "有效私有授权由 API 复用", "CLI 不保存 GitHub token", "只要命令仍在运行，就继续读取同一个 `task_id`", "最终只返回一个 JSON 结果", "待接手作者和官方 User 不能授权私有仓库", "不可变 commit", "包 digest/字节数"} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("publish GitHub workflow omitted guard %q", required)
+			t.Fatalf("source workflow omitted %q", required)
 		}
 	}
-
-	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/errors.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	errorsText := string(errorsContent)
-	for _, required := range []string{
-		"OAUTH_PROVIDER_NOT_CONFIGURED",
-		"确定性重试不会恢复",
-		"不得 sleep、轮询、再次运行渠道命令",
-		"不得继续追问是否切换来源",
-		terminalReply,
-	} {
-		if !strings.Contains(errorsText, required) {
-			t.Fatalf("publish error contract omitted OAuth configuration guard %q", required)
-		}
-	}
-	for _, forbidden := range []string{
-		"可以询问是否改用本地文件",
-		"是否改用本地目录",
-		"是否改用 ZIP",
-		"用户之后主动提供本地目录",
-	} {
-		if strings.Contains(errorsText, forbidden) {
-			t.Fatalf("publish error contract must end immediately instead of inviting source fallback %q", forbidden)
-		}
-	}
-
-	skillContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(skillContent), terminalReply) {
-		t.Fatalf("publish entrypoint omitted terminal GitHub configuration reply contract %q", terminalReply)
+	if strings.Contains(text, "merchant channel") {
+		t.Fatal("retired channel command remains in publishing flow")
 	}
 }
 

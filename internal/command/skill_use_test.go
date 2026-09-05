@@ -610,3 +610,30 @@ func downloadableSkillArchiveNamed(t *testing.T, name, heading string) []byte {
 	}
 	return body.Bytes()
 }
+
+func TestOfficialWorkUsesBundledInstallReferenceAndHonorsLifecycle(t *testing.T) {
+	for _, status := range []string{"PUBLISHED", "SUSPENDED"} {
+		t.Run(status, func(t *testing.T) {
+			var shopDownloads atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v1/public/creators/viceme/works/sell-a-skill" {
+					writeJSONResponse(w, map[string]any{"creator": map[string]any{"handle": "viceme", "isOfficial": true}, "work": map[string]any{"kind": "SKILL", "slug": "sell-a-skill", "status": status, "canonicalPath": "/viceme/sell-a-skill", "products": []any{}, "officialInstall": map[string]any{"kind": "CLI_BUNDLE", "skillName": "sell-a-skill", "installerDocumentUrl": "https://s3.viceme.cn/start/agent-install.md"}}})
+					return
+				}
+				shopDownloads.Add(1)
+				http.NotFound(w, r)
+			}))
+			defer server.Close()
+			exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "access", "/viceme/sell-a-skill")
+			if status == "PUBLISHED" && (exit != 0 || envelope["ok"] != true) {
+				t.Fatalf("official reference failed: %d %#v", exit, envelope)
+			}
+			if status != "PUBLISHED" && (exit == 0 || envelope["ok"] != false) {
+				t.Fatalf("disabled official Work bypassed lifecycle: %d %#v", exit, envelope)
+			}
+			if shopDownloads.Load() != 0 {
+				t.Fatalf("official Work called Shop package endpoints %d times", shopDownloads.Load())
+			}
+		})
+	}
+}

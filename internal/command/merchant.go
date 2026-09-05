@@ -17,7 +17,6 @@ func newMerchantCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newMerchantAccountsCommand(runtime))
 	command.AddCommand(newMerchantQualificationCommand(runtime))
 	command.AddCommand(newMerchantOnboardingCommand(runtime))
-	command.AddCommand(newMerchantChannelCommand(runtime))
 	command.AddCommand(newMerchantWorkCommand(runtime))
 	command.AddCommand(newMerchantPageCommand(runtime))
 	command.AddCommand(newMerchantCommerceApplicationCommand(runtime))
