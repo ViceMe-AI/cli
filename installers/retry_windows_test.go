@@ -70,6 +70,9 @@ func TestPowerShellInstallerPermissionRetry(t *testing.T) {
 	}
 	wrapper := filepath.Join(root, "invoke.ps1")
 	writeInstallerTestFile(t, wrapper, `$ErrorActionPreference = 'Stop'
+# The CI driver is PowerShell 7; this child exercises Windows PowerShell 5.1.
+# Its module discovery must use the child runtime rather than the parent's.
+$env:PSModulePath = Join-Path $PSHOME 'Modules'
 function Invoke-WebRequest {
   param([switch]$UseBasicParsing, [int]$TimeoutSec, [string]$Uri, [string]$OutFile)
   Add-Content -LiteralPath $env:VICEME_TEST_REQUESTS -Value $Uri

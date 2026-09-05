@@ -58,8 +58,15 @@ func TestInstalledPowerShellCLIResolver(t *testing.T) {
 				return
 			}
 			resolved := strings.TrimSpace(string(output))
-			if err != nil || !strings.EqualFold(resolved, candidate) {
+			if err != nil || !filepath.IsAbs(resolved) {
 				t.Fatalf("existing CLI not resolved: err=%v got=%q want=%q", err, resolved, candidate)
+			}
+			// PowerShell expands a Windows 8.3 user-directory alias to its long
+			// spelling. Compare file identity instead of path text.
+			resolvedInfo, resolvedErr := os.Stat(resolved)
+			candidateInfo, candidateErr := os.Stat(candidate)
+			if resolvedErr != nil || candidateErr != nil || !os.SameFile(resolvedInfo, candidateInfo) {
+				t.Fatalf("resolver selected a different executable: got=%q want=%q errors=%v/%v", resolved, candidate, resolvedErr, candidateErr)
 			}
 			followup := exec.Command(resolved, "/c", "echo", "resolved")
 			followup.Env = append(os.Environ(), "PATH="+filepath.Join(os.Getenv("SystemRoot"), "System32"))
