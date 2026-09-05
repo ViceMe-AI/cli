@@ -1143,9 +1143,12 @@ func TestCodexInstallUsesSharedDirectoryOnce(t *testing.T) {
 				if !report.AllSucceeded || len(report.Results) != 1 || report.Results[0].Target != "agents" {
 					t.Fatalf("expected one canonical destination: %#v", report)
 				}
-				expectedPath, err := filepath.EvalSymlinks(filepath.Join(home, ".agents", "skills", "viceme-test"))
-				if err != nil || report.Results[0].Path != expectedPath {
-					t.Fatalf("unexpected destination: %#v", report.Results[0])
+				// Compare filesystem identity: Windows folds managed paths to lower
+				// case, while macOS temporary paths may pass through a symlink.
+				expectedInfo, expectedErr := os.Stat(filepath.Join(home, ".agents", "skills", "viceme-test"))
+				actualInfo, actualErr := os.Stat(report.Results[0].Path)
+				if expectedErr != nil || actualErr != nil || !os.SameFile(expectedInfo, actualInfo) {
+					t.Fatalf("unexpected destination: %#v (expected stat: %v; actual stat: %v)", report.Results[0], expectedErr, actualErr)
 				}
 				for _, doctorTarget := range []string{"codex", "agents", "auto"} {
 					doctor := bundle.Doctor("viceme-test", doctorTarget, environment)
