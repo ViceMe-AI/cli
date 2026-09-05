@@ -36,6 +36,8 @@ ViceMe CLI 只负责确认目标、返回平台接口、校验 ZIP 结构、上�
    看过本地预览后明确要求某项视觉改动，不得修改既有组件结构、class 名或 `src/styles.css`。
    导入 Vite/React 源码时先实际 build，上传 build 产物；不能因为根 `index.html` 存在就把开发
    入口当成发布产物。
+   导入已有页面时先读 [导入与路径适配](references/import-routing.md)，在现有项目里完成路由和
+   资源路径适配，不重做页面；仅有静态产物的包无需强行执行不存在的 build。
    模板已经通过现有 `context.read` 读取作者资料、作品摘要和作品封面，并通过
    `navigation.open` 打开站内作品；不得为它另建模板专用后端或上传流程。
 3. 名称和头像使用 `qualification.user` 及平台 `context.read` 自动填写，简介有现值就复用，
@@ -44,9 +46,10 @@ ViceMe CLI 只负责确认目标、返回平台接口、校验 ZIP 结构、上�
    - 作品：标题、简介、链接、**一张作品卡片封面图**；这里的封面不是页面首屏大图。
    - 媒体：用户主动公开的联系方式，支持飞书链接、X / Twitter 链接、邮箱和 GitHub 主页链接。
    本期不支持视频；不添加文字、图片墙、App、公众号、高光、教育、工作经历、获奖等 Block。
-4. 运行 `npm run build`，在本地启动预览并把页面展示给用户；这一步不得上传。直接运行供应
-   源码，组件结构和 `src/styles.css` 是唯一视觉依据，不看图重做，也不增加额外校验、设置
-   或确认环节。根据反馈修改，直到用户明确确认该本地版本。不得创建线上草稿库，也不得运行
+4. 有源码时运行项目自己的 build；使用 [本地嵌套路径预览](references/import-routing.md#本地预览)
+   打开这次准备上传的产物，而不是只看开发服务器根路径。由 AI 在内部检查首页、页面内跳转与
+   刷新，然后把同一预览展示给用户；不增加用户设置项或额外确认。组件结构和
+   `src/styles.css` 仍是模板唯一视觉依据，不看图重做。根据反馈修改，直到用户明确确认该本地版本。不得创建线上草稿库，也不得运行
    `viceme merchant page preview`。
 5. 在 ZIP 根目录放置 `viceme-page.json`，运行 `viceme merchant page inspect --path <zip>`，
    再运行
@@ -56,7 +59,10 @@ ViceMe CLI 只负责确认目标、返回平台接口、校验 ZIP 结构、上�
    release ID 与真实当前 active release，立即运行
    `viceme merchant page publish <release-id> --expected-active <当前ID或none> --merchant <商家ID>`。
    本地预览已经获得确认，因此这里不再追问第二次发布确认。
-7. 发布成功后只返回调用方给出的原 `profileUrl`。申请审核期间同一路径只有登录着 ViceMe
+7. 保存后打开原 `profileUrl`，实际检查 iframe 中的首页、页面内跳转和刷新；`PUBLISHED`、
+   SDK 就绪或资源 HTTP 200 都不等于内容渲染成功。发现空白或应用自己的 NotFound 时按
+   [导入与路径适配](references/import-routing.md) 处理，不宣布页面已经做好，不自动循环发布。
+   验证通过后只返回调用方给出的原 `profileUrl`。申请审核期间同一路径只有登录着 ViceMe
    的本人可见；创作者资格获批后，同一 active release 自动公开，不需要个人名片复审或重传。
 
 ## 固定流程
@@ -73,6 +79,7 @@ ViceMe CLI 只负责确认目标、返回平台接口、校验 ZIP 结构、上�
    ViceMe 接口及打包文件；没有页面时根据用户要求创建。普通 HTML、CSS、JavaScript、
    多页面、外部 HTTPS API、CDN、iframe 和静态资源都可以使用，不做源码安全审计，
    也不因为疑似密钥字符串自行阻止上传。
+   已有页面先读 [导入与路径适配](references/import-routing.md)，保留页面功能与视觉，只做部署适配。
 5. 在 ZIP 根目录放置 `viceme-page.json`，声明准确的页面 kind、真实 HTML 入口，以及
    页面实际需要的平台 capabilities。不要为了省事声明所有 capabilities。ZIP 可以采用
    任意目录结构，入口不要求叫 `dist/index.html`。
@@ -81,7 +88,9 @@ ViceMe CLI 只负责确认目标、返回平台接口、校验 ZIP 结构、上�
    不借此增加浏览器源码限制。
 7. 运行 `viceme merchant page preview --path <zip> --target <准确URL> --merchant <商家ID>`，
    打开命令返回的完整预览 URL，并把同一 URL 作为 Markdown 备用链接给用户。预览期间
-   根据用户反馈修改并重新预览。
+   实际检查 iframe 内首页、页面内跳转与刷新；只有包内容发生修改时才重新运行预览命令，
+   因为每次预览都会上传一个新的草稿 release。资源请求成功
+   不代表应用路由正确，不得把空白或应用自己的 NotFound 当作可发布的预览。
 8. 预览不等于公开发布。只有展示最终预览并得到用户明确确认后，才运行
    `viceme merchant page status --target <准确URL> --merchant <商家ID>`，使用这次预览的
    release ID 和响应中的当前 active release，运行
