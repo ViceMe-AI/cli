@@ -511,9 +511,12 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{
 		Use: "use <product-id-or-work-url>", Short: "Consume one trial use of a Skill edition and gate further use", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			productID, _, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
+			productID, work, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
 			if err != nil {
 				return err
+			}
+			if work != nil && work.Work.OfficialInstall != nil {
+				return output.Validation("OFFICIAL_SKILL_NO_TRIAL", "official bundled Skills are free and do not use marketplace trials").WithHint("install the published Work with viceme skill install " + work.Work.CanonicalPath + " --agent auto")
 			}
 			// 已购短路:重新下载服务端当前正式包并原子覆盖试用包，不能只删门禁。
 			if runtimeHasAuthentication(runtime) {

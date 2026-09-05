@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
@@ -435,11 +436,11 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&source, "path", "", "Skill directory or ZIP")
-	command.Flags().StringVar(&githubRepository, "github", "", "personal GitHub repository as owner/name")
+	command.Flags().StringVar(&githubRepository, "github", "", "GitHub repository as owner/name; private repositories require your authorization")
 	command.Flags().StringVar(&githubRef, "github-ref", "HEAD", "Git ref to publish")
 	command.Flags().StringVar(&githubPath, "github-path", "", "repository-relative directory containing SKILL.md")
-	command.Flags().StringVar(&xiaohongshuSkillID, "xiaohongshu-skill-id", "", "Skill ID from the verified Xiaohongshu channel")
-	command.Flags().StringVar(&xiaohongshuSearch, "xiaohongshu-search", "", "search verified Xiaohongshu Skills by ID or name")
+	command.Flags().StringVar(&xiaohongshuSkillID, "xiaohongshu-skill-id", "", "Public Xiaohongshu Skill ID")
+	command.Flags().StringVar(&xiaohongshuSearch, "xiaohongshu-search", "", "search public Xiaohongshu Skills by ID or name")
 	command.Flags().StringVar(&resume, "resume", "", "resume an interrupted publication by ID")
 	command.Flags().IntVar(&priceMinor, "price-minor", 0, "set the CNY price in fen while continuing the private draft")
 	command.Flags().IntVar(&trialUseLimit, "trial-use-limit", 0, "free trial uses before payment (1-100); 0 disables the trial")
@@ -479,6 +480,15 @@ func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merch
 		}
 		archive, err := runtime.client().DownloadGithubSkillSource(ctx, merchantAccountID, repository, githubRef, normalizeGithubPath(githubPath))
 		if err != nil {
+			code := output.AsError(err).Subtype
+			if code == "GITHUB_SOURCE_AUTHORIZATION_REQUIRED" || code == "GITHUB_SOURCE_REAUTHORIZATION_REQUIRED" {
+				if authErr := ensureGithubSourceAuthorization(ctx, runtime, merchantAccountID, 10*time.Minute); authErr != nil {
+					return publication.Package{}, source, api.SkillPublicationEdition{}, authErr
+				}
+				archive, err = runtime.client().DownloadGithubSkillSource(ctx, merchantAccountID, repository, githubRef, normalizeGithubPath(githubPath))
+			}
+		}
+		if err != nil {
 			return publication.Package{}, source, api.SkillPublicationEdition{}, err
 		}
 		pathToBuild, err = persistPublicationSource(runtime.configBase, archive.Bytes)
@@ -503,7 +513,7 @@ func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merch
 				return publication.Package{}, source, api.SkillPublicationEdition{}, err
 			}
 			if len(matches.Items) == 0 {
-				return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("XIAOHONGSHU_SKILL_NOT_FOUND", "no verified Xiaohongshu Skill matches the search")
+				return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("XIAOHONGSHU_SKILL_NOT_FOUND", "no public Xiaohongshu Skill matches the search")
 			}
 			if len(matches.Items) > 1 {
 				return publication.Package{}, source, api.SkillPublicationEdition{}, output.Confirmation("XIAOHONGSHU_SKILL_SELECTION_REQUIRED", "multiple Xiaohongshu Skills match; rerun with --xiaohongshu-skill-id").WithDetails(map[string]any{"candidates": matches.Items})

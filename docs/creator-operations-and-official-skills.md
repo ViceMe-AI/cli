@@ -1,6 +1,6 @@
 # 运营身份、来源发布与官方 Skill
 
-状态：2026-09-05 文档先行；本轮实施和验证尚未完成。
+状态：2026-09-05 文档先行，CLI 实施和本地完整检查已完成。
 延续已合入 dev 的作者代注册 PR #200，Shop 权威设计见
 [创作者代注册、官方身份与运营邮箱](https://github.com/Leizhenpeng/ViceMe-Shop/blob/feat%28repo%29/creator-provisioning/docs/creator-provisioning-and-handover.md)。
 
@@ -44,13 +44,20 @@
 
 ## 实施与验证
 
-- [ ] 清理命令、客户端契约、错误/nextAction 与内置 Skills 的渠道认证流程。
-- [ ] 公开 GitHub / 小红书直接发布，私有 GitHub 按需 OAuth、复用及失效恢复。
-- [ ] 运营凭据废弃/作者接手后正常报告需要重新登录，不把旧授权转换为新邮箱绑定。
-- [ ] 官方 Work 能按正常接口管理，安装入口指向 CLI 官方发布源；普通下载无回归。
-- [ ] 官方身份无微信接手、个人来源绑定、提现提示；保留普通作者现有引导。
-- [ ] 重新生成 `quality/release-manifest.json`，不手改版本/摘要或发布制品。
-- [ ] 相关真实 HTTP/CLI 集成、`make check`、`make npm-package-check`、`git diff --check`。
+- [x] 清理命令、客户端契约、错误/nextAction 与内置 Skills 的渠道认证流程。
+- [x] 公开 GitHub / 小红书直接发布，私有 GitHub 按需 OAuth、复用及失效恢复。
+- [x] 运营凭据废弃/作者接手后正常报告需要重新登录，不把旧授权转换为新邮箱绑定。
+- [x] 官方 Work 能按正常接口管理，安装入口指向 CLI 官方发布源；普通下载无回归。
+- [x] 官方身份无微信接手、个人来源绑定、提现提示；保留普通作者现有引导。
+- [x] 重新生成 `quality/release-manifest.json`，不手改版本/摘要或发布制品。
+- [x] 相关真实 HTTP/CLI 集成、`make check`、`make npm-package-check`。
+
+完整检查包含 Go 测试和 vet、官方 Skill 内容/manifest 检查、51 项 npm 测试和打包预检。
+`merchant_onboarding_test.go` 覆盖新 `source github` 授权流程的等待、拒绝、超时与取消；
+`source_publication_test.go` 覆盖公开源不触发 OAuth、私有源授权后继续、失效重新授权以及
+重试次数上限；`publication_vnext_test.go` 覆盖来源发布；`skill_use_test.go` 覆盖官方安装引用、下架拒绝和普通下载。
+Shop 侧真实数据库验证运营授权撤销、来源授权复用和私有仓库所有者约束，详见
+[Shop 本轮验收记录](https://github.com/Leizhenpeng/ViceMe-Shop/blob/feat%28repo%29/creator-provisioning/docs/creator-operations-verification.md)。
 
 测试仅使用独立临时配置、输出目录及 Shop 测试服务，不触碰用户实际 CLI 登录信息或
 已安装 Agent Skills，不执行真实 OAuth、支付、发布 release 或 npm publish。

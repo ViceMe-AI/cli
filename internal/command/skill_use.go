@@ -74,9 +74,12 @@ func newSkillAccessCommand(runtime *Runtime) *cobra.Command {
 	return &cobra.Command{
 		Use: "access <product-id-or-work-url>", Short: "Resolve free, purchased, or purchase-required access for one Skill edition", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			productID, _, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
+			productID, work, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
 			if err != nil {
 				return err
+			}
+			if work != nil && work.Work.OfficialInstall != nil {
+				return runtime.business(map[string]any{"isFree": true, "officialInstall": work.Work.OfficialInstall, "work": work})
 			}
 			public, err := runtime.client().GetPublicSkillAccess(command.Context(), productID)
 			if err != nil {
@@ -106,6 +109,13 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			productID, work, installIntent, err := resolveSkillInstallTarget(command.Context(), runtime, args[0])
 			if err != nil {
 				return err
+			}
+			if work != nil && work.Work.OfficialInstall != nil {
+				installed, installErr := performAuthorizedInstall(command.Context(), runtime, agent, "")
+				if installErr != nil {
+					return installErr
+				}
+				return runtime.business(map[string]any{"officialInstall": work.Work.OfficialInstall, "install": installed, "nextAction": "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", "invocation": "$" + work.Work.OfficialInstall.SkillName})
 			}
 			var access api.SkillAccess
 			if installIntent == skillInstallIntentOwned {
@@ -320,6 +330,20 @@ func resolveSkillUseTarget(ctx context.Context, runtime *Runtime, target string)
 	work, err := runtime.client().GetPublicWork(ctx, segments[0], segments[1])
 	if err != nil {
 		return "", nil, err
+	}
+	if reference := work.Work.OfficialInstall; reference != nil {
+		known := false
+		for _, name := range officialSkillNames {
+			if name == reference.SkillName {
+				known = true
+				break
+			}
+		}
+		_, productSpecified := parsed.Query()["product"]
+		if !known || reference.Kind != "CLI_BUNDLE" || !work.Creator.IsOfficial || work.Creator.Handle != "viceme" || work.Work.Kind != "SKILL" || work.Work.Status != "PUBLISHED" || work.Work.Slug != reference.SkillName || len(work.Work.Products) != 0 || productSpecified {
+			return "", &work, output.Validation("OFFICIAL_SKILL_REFERENCE_INVALID", "the official Skill does not have a published CLI bundle reference")
+		}
+		return "", &work, nil
 	}
 	products := append([]api.PublicWorkProduct(nil), work.Work.Products...)
 	sort.Slice(products, func(left, right int) bool {
