@@ -1,6 +1,8 @@
 # 运营身份、来源发布与官方 Skill
 
 状态：2026-09-05 文档先行，CLI 实施和本地完整检查已完成。
+本轮实现提交 `053c82d`，随后以 `ef43eb0` 合入最新 dev `a081402`；合并后的
+`make check` 和 `make npm-package-check` 均通过，`git diff --check` 无错误。
 延续已合入 dev 的作者代注册 PR #200，Shop 权威设计见
 [创作者代注册、官方身份与运营邮箱](https://github.com/Leizhenpeng/ViceMe-Shop/blob/feat%28repo%29/creator-provisioning/docs/creator-provisioning-and-handover.md)。
 
