@@ -5,7 +5,7 @@ description: 用 AI 创建、上传、预览、发布或更新 ViceMe 作者页�
 
 # 自定义 ViceMe 页面
 
-首次调用 CLI 或判断 CLI 不存在前，必须先按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 查找并验证现有 CLI；后续使用返回的完整路径。不得只凭 `command not found` 判定未安装或改走免 CLI 流程。
+首次调用 CLI 或判断 CLI 不存在前，必须先按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 查找现有 CLI；后续使用返回的完整路径。不得只凭 `command not found` 判定未安装或改走免 CLI 流程。
 
 作者页和作品页共用这一套流程。页面本身由当前 Agent 使用正常的前端工具创建或修改；
 ViceMe CLI 只负责确认目标、返回平台接口、校验 ZIP 结构、上传、预览、发布和回滚。

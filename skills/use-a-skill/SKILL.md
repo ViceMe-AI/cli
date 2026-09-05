@@ -5,7 +5,7 @@ description: 安装和使用可下载的 ViceMe Skill 版本。适用于查看�
 
 # 使用可下载的 ViceMe Skill
 
-首次调用 CLI 或判断 CLI 不存在前，必须先按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 查找并验证现有 CLI；后续使用返回的完整路径。不得只凭 `command not found` 判定未安装或改走免 CLI 流程。
+首次调用 CLI 或判断 CLI 不存在前，必须先按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 查找现有 CLI；后续使用返回的完整路径。不得只凭 `command not found` 判定未安装或改走免 CLI 流程。
 
 这是用户端流程。面向用户的文字跟随用户当前语言；中文交流使用自然白话，不直接展示内部状态名、字段名或命令细节。
 

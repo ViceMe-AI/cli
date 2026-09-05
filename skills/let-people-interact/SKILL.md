@@ -5,7 +5,7 @@ description: 为创作者作品接入或修复 ViceMe 托管互动。先复用 $
 
 # 接入 ViceMe 互动
 
-首次调用 CLI 或判断 CLI 不存在前，必须先按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 查找并验证现有 CLI；后续使用返回的完整路径。不得只凭 `command not found` 判定未安装或改走免 CLI 流程。
+首次调用 CLI 或判断 CLI 不存在前，必须先按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 查找现有 CLI；后续使用返回的完整路径。不得只凭 `command not found` 判定未安装或改走免 CLI 流程。
 
 这是一次有界的宿主接入，不是 SDK 研究或全盘项目调查。先确定分支和源码，再按阶段读取对应参考；没有进入某条路线时，不加载它的参考文件。
 

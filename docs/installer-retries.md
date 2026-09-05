@@ -12,7 +12,7 @@ macOS / Linux 使用用户专属临时缓存 `viceme-bootstrap-cache-<uid>`，�
 
 安装成功返回的 `data.destination` 是当前对话后续调用的入口。CLI 安装器不能修改已运行 Agent 的父进程环境，交互终端的 shell 启动文件也不代表 Agent 沙箱的 PATH。
 
-每个新对话在需要 CLI 时，先使用官方 `creator-tools/scripts/resolve-cli.sh` 或 `resolve-cli.ps1` 定位入口。优先保留 PATH 中现有的命令（包括 npm launcher）；否则查找 `VICEME_INSTALL_DIR` 或官方默认目录。定位器只输出完整路径，不安装、不更新、不推断安装方法、不读取凭据。调用方验证 `version` 后，在所有独立工具调用中沿用带引号的完整路径。自定义目录没有加入 PATH 时，调用方须保留 `VICEME_INSTALL_DIR` 或安装返回的 destination。
+每个新对话在需要 CLI 时，先使用官方 `creator-tools/scripts/resolve-cli.sh` 或 `resolve-cli.ps1` 定位入口。优先保留 PATH 中现有的命令（包括 npm launcher）；否则查找 `VICEME_INSTALL_DIR` 或官方默认目录。定位器只输出完整路径，不安装、不更新、不推断安装方法、不读取凭据。调用方在所有独立工具调用中沿用带引号的完整路径，并按原流程执行目标命令；安装验收或调用流程要求时才检查 `version`。自定义目录没有加入 PATH 时，调用方须保留 `VICEME_INSTALL_DIR` 或安装返回的 destination。云端直读 Skill 的调用方可将同区域官方 S3 上的同一个定位脚本下载到用户私有临时文件后运行，无需先安装 Skill。
 
 定位器退出 127 表示支持的位置未找到 CLI；已有文件的执行权限或 CLI 恢复错误不等于未安装。禁止因此切换安装方法或选择免 CLI 分支，也不需要全盘搜索、读取 shell 配置或重启宿主。
 

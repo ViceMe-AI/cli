@@ -80,10 +80,12 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "creator-tools",
 			machine: []string{
+				"command -v viceme", "s3.viceme.cn/start/agent-install.md", "s3.viceme.ai/start/agent-install.md",
 				"viceme auth status", "viceme auth login", "present_files", "VICEME_ACCESS_TOKEN",
 				"viceme update", "viceme install --agent auto", "error.code",
 			},
 			semantics: []string{
+				"命令不存在时从零安装",
 				"不得为了复用其他登录而替用户切换 Profile",
 				"不得使用只完成一部分的代次继续",
 			},
@@ -167,15 +169,18 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			machine: []string{
 				"start --work-url", "standaloneRecoveryAvailable=true", "viceme auth status", "viceme replica install",
 				"--accept-price-cents", "REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "PRODUCT_ALREADY_OWNED",
-				"CONFIRM_INLINE_PREVIEW",
+				"CONFIRM_INLINE_PREVIEW", "STOP_AND_REPORT", "--timeout 3m --interval 15s", "AskUserQuestion",
 				"s3.viceme.cn/skills/let-me-make-a-copy/scripts/make_copy.py",
-				"s3.viceme.ai/skills/let-me-make-a-copy/scripts/make_copy.py", "command -v viceme",
+				"s3.viceme.ai/skills/let-me-make-a-copy/scripts/make_copy.py", "../creator-tools/SKILL.md#cli-定位",
 				"scripts/make_copy.py", "Python 3.9",
 			},
 			semantics: []string{
 				"不把 Skill 写入 Agent Skill 目录", "后来安装 CLI 不得触发新订单", "订单一旦创建不得切换",
 				"不得静默降级", "账号路径", "CLI 匿名路径", "无 CLI 或既有 standalone 路径",
 				"不得打开 `workUrl`", "当前阶段不判断作品页是否由 ViceMe 托管",
+				"只等待同一个任务或进程", "输出为空、截断、包含多个响应或不是完整 JSON", "不得再次执行安装命令",
+				"白名单之外的任何 `retryable=false`", "不得追加 `2>&1 | tail`", "允许加密访问", "工具不可用时退回编号短选项",
+				"正文内容区", "选项卡只放简短问题和选项标签", "支付入口、支付提示和完成结果",
 				"不得自动安装、登录、打开页面、申请或发布", "一次确认只授权一个所选动作",
 			},
 		},
@@ -195,6 +200,20 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestLetMeMakeACopyHasNoExternalProceduralDependencies(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-me-make-a-copy/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"use-a-skill", "connect-ai.feishu.cn"} {
+		if strings.Contains(string(content), forbidden) {
+			t.Fatalf("let-me-make-a-copy retained external procedural dependency %q", forbidden)
+		}
 	}
 }
 
