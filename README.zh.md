@@ -248,8 +248,12 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme publication update ...` | 用严格 JSON 文件替换完整 Listing Draft。 |
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
-| `viceme replica preview [--path <项目> \| --url <回环地址>]` | 登录或上传前，在匿名 ViceMe 预览壳中打开本地网页；CLI 启动的 dev server 仅存活到命令退出，视觉验证以打开的浏览器为准。 |
-| `viceme replica publish --path <项目或ZIP> ...` | 在 CN 市场本地检查并预览项目（已有 ZIP 会先完整校验，再私有解压用于预览）、冻结源码并返回一份三十分钟终审；仅以返回的精确 `--confirm` 版本重跑后才上传和提交，`PROCESSING` 表示已提交但尚未发布。 |
+| `viceme replica preview --url <本地页面地址>` | 在匿名预览壳中打开由用户 Agent 选择并启动的实际页面。CLI 校验本地地址及连通性；Agent 负责观察页面和管理自有服务。缺少地址返回 `PROVIDE_PREVIEW_URL`，不检查固定项目文件名。 |
+| `viceme replica publish --path <项目或ZIP> --preview-url <本地页面地址> --preview-reviewed ...` | 在 CN 市场，由 Agent 检查实际页面及官方壳嵌入后，校验并冻结源码。缺少观察声明返回 `REVIEW_LOCAL_PREVIEW`，连通性不代表视觉验证；ZIP 作为源码制品，不推断启动方式。返回一份三十分钟终审，仅以其精确 `--confirm` 命令重跑后才上传和提交；`PROCESSING` 表示已提交但尚未发布。 |
+| `viceme replica repair-hosting --publication <ID> --path <项目或WorkPage-ZIP>` | 校验并确认仅页面托管补发；原确认命令可恢复中断，源码版本、价格和买家权益不变。 |
+| `viceme replica sales --replica <ID>` | 查看当前源码版本、销售价格与经营权限；暂停经营后仍可只读查询。 |
+| `viceme replica price --replica <ID> --price-cents <分>` | 预览改价影响，0 表示免费；执行返回的完整确认命令后修改价格，不重新上传源码。 |
+| `viceme replica delist --replica <ID>` / `viceme replica relist --replica <ID>` | 预览下架或重新上架影响，再执行返回的完整确认命令；已有购买权益不变。 |
 | `viceme replica status <publication-id>` | 读取 Website Replica Publication 权威状态，并在发布终态补全稳定本地绑定。 |
 | `viceme replica resume <publication-id>` | 从权威子状态只继续缺失的上传、校验、提交或允许的重试步骤。 |
 | `viceme replica cancel <publication-id>` | 激活前取消 Publication，并清理本地可恢复源码。 |

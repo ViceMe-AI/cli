@@ -28,8 +28,6 @@ type strictAPIResponse interface {
 	strictAPIResponse()
 }
 
-func (*CreateWebsiteReplicaUploadResponse) strictAPIResponse()                     {}
-func (*CompleteWebsiteReplicaUploadResponse) strictAPIResponse()                   {}
 func (*AuthorizeWebsiteReplicaPublicationSourceUploadResponse) strictAPIResponse() {}
 func (*AuthorizeWebsiteReplicaPublicationPageUploadResponse) strictAPIResponse()   {}
 func (*WebsiteReplicaPublication) strictAPIResponse()                              {}
@@ -106,8 +104,17 @@ func requireJSONFields(targetType reflect.Type, raw any, path string) error {
 			}
 			allowedFields[name] = struct{}{}
 			value, found := object[name]
+			// JSON omission on output does not imply an optional API field.
+			// Only explicitly marked Zod optional fields may be absent.
+			optional := field.Tag.Get("api") == "optional"
+			if !found && optional {
+				continue
+			}
 			if !found {
 				return fmt.Errorf("%s.%s is required", path, name)
+			}
+			if optional && value == nil {
+				return fmt.Errorf("%s.%s must not be null", path, name)
 			}
 			if err := requireJSONFields(field.Type, value, path+"."+name); err != nil {
 				return err
@@ -167,27 +174,12 @@ func (action *WebsiteReplicaPaymentAction) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func (response *CreateWebsiteReplicaUploadResponse) validateAPIResponse() error {
-	if response == nil || !zodUUIDPattern.MatchString(response.ReplicaID) || !zodUUIDPattern.MatchString(response.UploadID) ||
-		response.Upload.Method != "PUT" || !validAbsoluteURL(response.Upload.URL) || response.Upload.Headers == nil ||
-		!validZodDatetime(response.Upload.ExpiresAt) {
-		return errors.New("Website Replica upload response is invalid")
-	}
-	return nil
-}
-
-func (response *CompleteWebsiteReplicaUploadResponse) validateAPIResponse() error {
-	if response == nil || !zodUUIDPattern.MatchString(response.ReplicaID) || !zodUUIDPattern.MatchString(response.VersionID) ||
-		!validPositiveSafeInteger(response.Version) || !websiteReplicaCodePattern.MatchString(response.ShortCode) ||
-		response.Instruction != "VICEME-REPLICA:"+response.ShortCode || validateWebsiteReplicaProduct(response.Product) != nil ||
-		!validWebsiteReplicaBuyerEntry(response.BuyerEntry, response.Instruction) ||
-		!validZodDatetime(response.PublishedAt) {
-		return errors.New("Website Replica publication response is invalid")
-	}
-	return nil
-}
-
 func (response *WebsiteReplicaPublication) validateAPIResponse() error {
+	if response != nil {
+		if err := response.validateHostingProjection(); err != nil {
+			return err
+		}
+	}
 	if response == nil || !zodUUIDPattern.MatchString(response.ID) || !zodUUIDPattern.MatchString(response.ClientRequestID) ||
 		(response.Market != "CN" && response.Market != "GLOBAL") || !zodUUIDPattern.MatchString(response.MerchantAccountID) ||
 		!zodUUIDPattern.MatchString(response.WorkID) || !zodUUIDPattern.MatchString(response.ReplicaID) ||
@@ -401,6 +393,9 @@ func validateWebsiteReplicaPublicationReview(review WebsiteReplicaPublicationRev
 		utf16CodeUnits(strings.TrimSpace(review.Summary)) > 500 || !validNonnegativeSafeInteger(review.PriceCents) ||
 		review.PriceCents > 10_000_000 || validateWebsiteReplicaPublicationSourceArtifact(review.Source) != nil {
 		return errors.New("Website Replica Publication review is invalid")
+	}
+	if review.AllowAutomaticDegradation && review.Page == nil {
+		return errors.New("automatic degradation requires a requested hosted page")
 	}
 	if review.Page != nil && validateWebsiteReplicaPublicationSourceArtifact(*review.Page) != nil {
 		return errors.New("Website Replica Publication review page artifact is invalid")

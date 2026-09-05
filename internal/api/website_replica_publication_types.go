@@ -26,20 +26,21 @@ type WebsiteReplicaPublicationTarget struct {
 }
 
 type WebsiteReplicaPublicationReview struct {
-	Resolution          string                                   `json:"resolution"`
-	MerchantAccountID   string                                   `json:"merchantAccountId"`
-	MerchantDisplayName string                                   `json:"merchantDisplayName"`
-	CreatorAccountID    string                                   `json:"creatorAccountId"`
-	CreatorHandle       string                                   `json:"creatorHandle"`
-	CreatorDisplayName  string                                   `json:"creatorDisplayName"`
-	ProjectFingerprint  string                                   `json:"projectFingerprint"`
-	WorkURL             string                                   `json:"workUrl"`
-	CanonicalOrigin     *string                                  `json:"canonicalOrigin"`
-	Title               string                                   `json:"title"`
-	Summary             string                                   `json:"summary"`
-	PriceCents          int                                      `json:"priceCents"`
-	Source              WebsiteReplicaPublicationSourceArtifact  `json:"source"`
-	Page                *WebsiteReplicaPublicationSourceArtifact `json:"page"`
+	AllowAutomaticDegradation bool                                     `json:"allowAutomaticDegradation"`
+	Resolution                string                                   `json:"resolution"`
+	MerchantAccountID         string                                   `json:"merchantAccountId"`
+	MerchantDisplayName       string                                   `json:"merchantDisplayName"`
+	CreatorAccountID          string                                   `json:"creatorAccountId"`
+	CreatorHandle             string                                   `json:"creatorHandle"`
+	CreatorDisplayName        string                                   `json:"creatorDisplayName"`
+	ProjectFingerprint        string                                   `json:"projectFingerprint"`
+	WorkURL                   string                                   `json:"workUrl"`
+	CanonicalOrigin           *string                                  `json:"canonicalOrigin"`
+	Title                     string                                   `json:"title"`
+	Summary                   string                                   `json:"summary"`
+	PriceCents                int                                      `json:"priceCents"`
+	Source                    WebsiteReplicaPublicationSourceArtifact  `json:"source"`
+	Page                      *WebsiteReplicaPublicationSourceArtifact `json:"page,omitempty" api:"optional"`
 }
 
 type WebsiteReplicaPublicationConfirmationChallenge struct {
@@ -58,19 +59,20 @@ type WebsiteReplicaPublicationConfirmation struct {
 }
 
 type CreateWebsiteReplicaPublicationRequest struct {
-	ProtocolVersion    int                                      `json:"protocolVersion"`
-	ClientRequestID    string                                   `json:"clientRequestId"`
-	Market             string                                   `json:"market"`
-	MerchantAccountID  string                                   `json:"merchantAccountId,omitempty"`
-	ProjectFingerprint string                                   `json:"projectFingerprint"`
-	Target             WebsiteReplicaPublicationTarget          `json:"target"`
-	CanonicalOrigin    *string                                  `json:"canonicalOrigin,omitempty"`
-	Title              string                                   `json:"title"`
-	Summary            string                                   `json:"summary"`
-	PriceCents         int                                      `json:"priceCents"`
-	Source             WebsiteReplicaPublicationSourceArtifact  `json:"source"`
-	Page               *WebsiteReplicaPublicationSourceArtifact `json:"page,omitempty"`
-	Confirmation       *WebsiteReplicaPublicationConfirmation   `json:"confirmation"`
+	AllowAutomaticDegradation bool                                     `json:"allowAutomaticDegradation"`
+	ProtocolVersion           int                                      `json:"protocolVersion"`
+	ClientRequestID           string                                   `json:"clientRequestId"`
+	Market                    string                                   `json:"market"`
+	MerchantAccountID         string                                   `json:"merchantAccountId,omitempty"`
+	ProjectFingerprint        string                                   `json:"projectFingerprint"`
+	Target                    WebsiteReplicaPublicationTarget          `json:"target"`
+	CanonicalOrigin           *string                                  `json:"canonicalOrigin,omitempty"`
+	Title                     string                                   `json:"title"`
+	Summary                   string                                   `json:"summary"`
+	PriceCents                int                                      `json:"priceCents"`
+	Source                    WebsiteReplicaPublicationSourceArtifact  `json:"source"`
+	Page                      *WebsiteReplicaPublicationSourceArtifact `json:"page,omitempty"`
+	Confirmation              *WebsiteReplicaPublicationConfirmation   `json:"confirmation"`
 }
 
 type WebsiteReplicaPublicationMerchantChoice struct {

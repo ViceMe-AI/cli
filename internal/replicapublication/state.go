@@ -36,6 +36,7 @@ var (
 )
 
 type Preview struct {
+	ReviewedBy   string `json:"reviewedBy,omitempty"`
 	Verified     bool   `json:"verified"`
 	TargetURL    string `json:"targetUrl,omitempty"`
 	Reused       bool   `json:"reused"`
@@ -439,14 +440,14 @@ func (store Store) validatePending(pending Pending) error {
 		!filepath.IsAbs(pending.ProjectPath) || !digestPattern.MatchString(pending.ProjectFingerprint) ||
 		!uuidPattern.MatchString(pending.ClientRequestID) || request.ProtocolVersion != api.WebsiteReplicaPublicationProtocolVersion ||
 		request.ClientRequestID != pending.ClientRequestID || request.Market != pending.Market || request.ProjectFingerprint != pending.ProjectFingerprint ||
-		request.Confirmation != nil || request.Source.Digest != pending.SourceArchive.Digest ||
+		(request.AllowAutomaticDegradation && request.Page == nil) || request.Confirmation != nil || request.Source.Digest != pending.SourceArchive.Digest ||
 		request.Source.SizeBytes != pending.SourceArchive.SizeBytes || !digestPattern.MatchString(pending.SourceArchive.Digest) ||
 		pending.SourceArchive.SizeBytes < 1 || (pending.Hosting != "" && pending.Hosting != "HOSTED" && pending.Hosting != "REPLICA_ONLY") ||
 		(pending.Hosting == "HOSTED") != (request.Page != nil) || pending.ArtifactExpiresAt.IsZero() || pending.CreatedAt.IsZero() || pending.UpdatedAt.IsZero() {
 		return output.Validation("REPLICA_PUBLICATION_STATE_INVALID", "local Website Replica publication state is invalid")
 	}
 	if pending.Confirmation != nil {
-		if pending.Confirmation.Review.ProjectFingerprint != pending.ProjectFingerprint ||
+		if pending.Confirmation.Review.AllowAutomaticDegradation != request.AllowAutomaticDegradation || pending.Confirmation.Review.ProjectFingerprint != pending.ProjectFingerprint ||
 			pending.Confirmation.Review.Source.Digest != pending.SourceArchive.Digest || pending.Confirmation.Review.Source.SizeBytes != pending.SourceArchive.SizeBytes ||
 			!reflect.DeepEqual(pending.Confirmation.Review.Page, pending.Request.Page) {
 			return output.Validation("REPLICA_PUBLICATION_STATE_INVALID", "local Website Replica confirmation does not match the frozen source")

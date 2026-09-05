@@ -898,22 +898,6 @@ func (c *Client) CompleteUpload(ctx context.Context, publicationID, uploadID str
 	return response, err
 }
 
-func (c *Client) CreateWebsiteReplicaUpload(ctx context.Context, request CreateWebsiteReplicaUploadRequest) (CreateWebsiteReplicaUploadResponse, error) {
-	var response CreateWebsiteReplicaUploadResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/uploads", request, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) CompleteWebsiteReplicaUpload(ctx context.Context, replicaID, uploadID string) (CompleteWebsiteReplicaUploadResponse, error) {
-	var response CompleteWebsiteReplicaUploadResponse
-	endpoint := "/v1/website-replicas/" + url.PathEscape(replicaID) + "/uploads/" + url.PathEscape(uploadID) + "/complete"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, "@stored")
-	if err == nil && response.ReplicaID != replicaID {
-		err = invalidAPIResponse(errors.New("Website Replica publication response does not match the requested Replica"))
-	}
-	return response, err
-}
-
 func (c *Client) GetWebsiteReplicaPublication(ctx context.Context, publicationID string) (WebsiteReplicaPublication, error) {
 	var response WebsiteReplicaPublication
 	endpoint := "/v1/website-replica-publications/" + url.PathEscape(publicationID)
@@ -1433,17 +1417,20 @@ func (work *MerchantWork) validateAPIResponse() error {
 		return errors.New("Work response is missing required fields")
 	}
 
+	// Older Shop responses omit the inapplicable service child. Keep required
+	// children and all other fields strict.
+	hasService := len(work.Service) > 0 && !rawJSONIsNull(work.Service)
 	switch work.Kind {
 	case "SKILL":
-		if rawJSONIsNull(work.Skill) || !rawJSONIsNull(work.Service) || work.Website != nil {
+		if rawJSONIsNull(work.Skill) || hasService || work.Website != nil {
 			return errors.New("Work typed child does not match SKILL kind")
 		}
 	case "SERVICE":
-		if rawJSONIsNull(work.Service) || !rawJSONIsNull(work.Skill) || work.Website != nil {
+		if !hasService || !rawJSONIsNull(work.Skill) || work.Website != nil {
 			return errors.New("Work typed child does not match SERVICE kind")
 		}
 	case "WEBSITE":
-		if !rawJSONIsNull(work.Skill) || !rawJSONIsNull(work.Service) || work.Website == nil || work.Website.validateAPIResponse() != nil {
+		if !rawJSONIsNull(work.Skill) || hasService || work.Website == nil || work.Website.validateAPIResponse() != nil {
 			return errors.New("Work typed child does not match WEBSITE kind")
 		}
 	}

@@ -835,23 +835,6 @@ type UploadAuthorization struct {
 	Headers   map[string]string `json:"headers"`
 }
 
-type CreateWebsiteReplicaUploadRequest struct {
-	ClientRequestID string `json:"clientRequestId"`
-	WorkID          string `json:"workId"`
-	Title           string `json:"title"`
-	Summary         string `json:"summary"`
-	FileName        string `json:"fileName"`
-	SizeBytes       int64  `json:"sizeBytes"`
-	Digest          string `json:"digest"`
-	PriceCents      int    `json:"priceCents"`
-}
-
-type CreateWebsiteReplicaUploadResponse struct {
-	ReplicaID string                            `json:"replicaId"`
-	UploadID  string                            `json:"uploadId"`
-	Upload    WebsiteReplicaUploadAuthorization `json:"upload"`
-}
-
 type WebsiteReplicaUploadAuthorization struct {
 	Method    string            `json:"method"`
 	URL       string            `json:"url"`
@@ -860,25 +843,29 @@ type WebsiteReplicaUploadAuthorization struct {
 }
 
 type WebsiteReplicaPublication struct {
-	ID                string                            `json:"id"`
-	ClientRequestID   string                            `json:"clientRequestId"`
-	Market            string                            `json:"market"`
-	MerchantAccountID string                            `json:"merchantAccountId"`
-	WorkID            string                            `json:"workId"`
-	ReplicaID         string                            `json:"replicaId"`
-	Status            string                            `json:"status"`
-	StatusURL         string                            `json:"statusUrl"`
-	AllowedActions    []string                          `json:"allowedActions"`
-	Retry             WebsiteReplicaPublicationRetry    `json:"retry"`
-	Source            WebsiteReplicaPublicationSource   `json:"source"`
-	Page              *WebsiteReplicaPublicationSource  `json:"page"`
-	Failure           *WebsiteReplicaPublicationFailure `json:"failure"`
-	Result            *WebsiteReplicaPublicationResult  `json:"result"`
-	SubmittedAt       *string                           `json:"submittedAt"`
-	FailedAt          *string                           `json:"failedAt"`
-	CancelledAt       *string                           `json:"cancelledAt"`
-	CreatedAt         string                            `json:"createdAt"`
-	UpdatedAt         string                            `json:"updatedAt"`
+	AllowAutomaticDegradation bool                              `json:"allowAutomaticDegradation"`
+	Hosting                   WebsiteReplicaHostingProjection   `json:"hosting"`
+	Rollback                  WebsiteReplicaRollbackProjection  `json:"rollback"`
+	PriceCents                int                               `json:"priceCents"`
+	ID                        string                            `json:"id"`
+	ClientRequestID           string                            `json:"clientRequestId"`
+	Market                    string                            `json:"market"`
+	MerchantAccountID         string                            `json:"merchantAccountId"`
+	WorkID                    string                            `json:"workId"`
+	ReplicaID                 string                            `json:"replicaId"`
+	Status                    string                            `json:"status"`
+	StatusURL                 string                            `json:"statusUrl"`
+	AllowedActions            []string                          `json:"allowedActions"`
+	Retry                     WebsiteReplicaPublicationRetry    `json:"retry"`
+	Source                    WebsiteReplicaPublicationSource   `json:"source"`
+	Page                      *WebsiteReplicaPublicationSource  `json:"page"`
+	Failure                   *WebsiteReplicaPublicationFailure `json:"failure"`
+	Result                    *WebsiteReplicaPublicationResult  `json:"result"`
+	SubmittedAt               *string                           `json:"submittedAt"`
+	FailedAt                  *string                           `json:"failedAt"`
+	CancelledAt               *string                           `json:"cancelledAt"`
+	CreatedAt                 string                            `json:"createdAt"`
+	UpdatedAt                 string                            `json:"updatedAt"`
 }
 
 type WebsiteReplicaPublicationRetry struct {
@@ -970,17 +957,6 @@ type WebsiteReplicaRollback struct {
 	Product         WebsiteReplicaProduct     `json:"product"`
 	PriceUnchanged  bool                      `json:"priceUnchanged"`
 	RolledBackAt    string                    `json:"rolledBackAt"`
-}
-
-type CompleteWebsiteReplicaUploadResponse struct {
-	ReplicaID   string                   `json:"replicaId"`
-	VersionID   string                   `json:"versionId"`
-	Version     int                      `json:"version"`
-	ShortCode   string                   `json:"shortCode"`
-	Instruction string                   `json:"instruction"`
-	Product     WebsiteReplicaProduct    `json:"product"`
-	BuyerEntry  WebsiteReplicaBuyerEntry `json:"buyerEntry"`
-	PublishedAt string                   `json:"publishedAt"`
 }
 
 type WebsiteReplicaBuyerEntry struct {

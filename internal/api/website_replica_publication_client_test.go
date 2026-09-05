@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -35,6 +36,9 @@ func TestCreateWebsiteReplicaPublicationUsesOptionalAuthentication(t *testing.T)
 				if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
 					t.Fatal(err)
 				}
+				if degradation, found := input["allowAutomaticDegradation"]; !found || degradation != false {
+					t.Error("source-only request must explicitly disable automatic degradation")
+				}
 				if confirmation, found := input["confirmation"]; !found || confirmation != nil {
 					t.Fatalf("create request did not send an explicit null confirmation: %#v", input)
 				}
@@ -64,6 +68,10 @@ func TestWebsiteReplicaPublicationCreateResponseIsStrictAndSemantic(t *testing.T
 		t.Fatalf("canonical confirmation response was rejected: %v", err)
 	}
 
+	nullPage := cloneReplicaResponse(t, canonical)
+	nullPage["nextAction"].(map[string]any)["confirmation"].(map[string]any)["review"].(map[string]any)["page"] = nil
+	assertInvalidWebsiteReplicaResponse(t, callWebsiteReplicaPublicationCreateResponse(t, nullPage))
+
 	unknown := cloneReplicaResponse(t, canonical)
 	unknown["nextAction"].(map[string]any)["confirmation"].(map[string]any)["review"].(map[string]any)["uploadUrl"] = "https://storage.example/source.zip"
 	assertInvalidWebsiteReplicaResponse(t, callWebsiteReplicaPublicationCreateResponse(t, unknown))
@@ -71,6 +79,13 @@ func TestWebsiteReplicaPublicationCreateResponseIsStrictAndSemantic(t *testing.T
 	missingNullable := cloneReplicaResponse(t, canonical)
 	delete(missingNullable["nextAction"].(map[string]any)["confirmation"].(map[string]any)["review"].(map[string]any), "canonicalOrigin")
 	assertInvalidWebsiteReplicaResponse(t, callWebsiteReplicaPublicationCreateResponse(t, missingNullable))
+
+	missingDegradation := cloneReplicaResponse(t, canonical)
+	delete(missingDegradation["nextAction"].(map[string]any)["confirmation"].(map[string]any)["review"].(map[string]any), "allowAutomaticDegradation")
+	assertInvalidWebsiteReplicaResponse(t, callWebsiteReplicaPublicationCreateResponse(t, missingDegradation))
+	invalidDegradation := cloneReplicaResponse(t, canonical)
+	invalidDegradation["nextAction"].(map[string]any)["confirmation"].(map[string]any)["review"].(map[string]any)["allowAutomaticDegradation"] = true
+	assertInvalidWebsiteReplicaResponse(t, callWebsiteReplicaPublicationCreateResponse(t, invalidDegradation))
 
 	invalidTTL := cloneReplicaResponse(t, canonical)
 	invalidTTL["nextAction"].(map[string]any)["confirmation"].(map[string]any)["expiresAt"] = "2026-09-01T13:04:56Z"
@@ -232,7 +247,7 @@ func canonicalReplicaPublicationConfirmationResponse() map[string]any {
 					"creatorHandle": "replica-maker", "creatorDisplayName": "Replica Maker",
 					"projectFingerprint": request.ProjectFingerprint, "workUrl": "https://viceme.cn/replica-maker/replica-site",
 					"canonicalOrigin": nil, "title": request.Title, "summary": request.Summary,
-					"priceCents": request.PriceCents, "source": request.Source, "page": nil,
+					"priceCents": request.PriceCents, "source": request.Source, "allowAutomaticDegradation": false,
 				},
 				"issuedAt": issuedAt.Format(time.RFC3339), "expiresAt": issuedAt.Add(30 * time.Minute).Format(time.RFC3339),
 			},
@@ -254,8 +269,11 @@ func canonicalReplicaPublicationResponse(status, sourceStatus string) map[string
 		"id": testReplicaPublicationID, "clientRequestId": testReplicaPublicationRequestID,
 		"market": "CN", "merchantAccountId": testMerchantID, "workId": testWorkID, "replicaId": testReplicaID,
 		"status": status, "statusUrl": "https://viceme.cn/me/website-replica-publications/" + testReplicaPublicationID,
-		"allowedActions": actions,
-		"retry":          map[string]any{"automaticRetries": 0, "maxAutomaticRetries": 3, "nextAttemptAt": nil},
+		"allowedActions":            actions,
+		"allowAutomaticDegradation": false, "priceCents": 990,
+		"hosting":  map[string]any{"requested": false, "status": "NOT_REQUESTED", "activePageRelease": nil, "repair": nil, "latestRepair": nil},
+		"rollback": map[string]any{"activePair": nil, "availablePairs": []any{}},
+		"retry":    map[string]any{"automaticRetries": 0, "maxAutomaticRetries": 3, "nextAttemptAt": nil},
 		"source": map[string]any{
 			"fileName": "source.zip", "contentType": "application/zip", "sizeBytes": 1024,
 			"digest": strings.Repeat("b", 64), "status": sourceStatus, "verifiedAt": verifiedAt,
@@ -325,4 +343,47 @@ func callWebsiteReplicaPublicationCreateResponse(t *testing.T, response map[stri
 func writeReplicaPublicationJSON(writer http.ResponseWriter, value any) {
 	writer.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(writer).Encode(value)
+}
+
+func TestWebsiteReplicaConfirmationPreservesReviewOnResubmission(t *testing.T) {
+	for _, hosted := range []bool{false, true} {
+		response := canonicalReplicaPublicationConfirmationResponse()
+		expected := response["nextAction"].(map[string]any)["confirmation"].(map[string]any)["review"].(map[string]any)
+		if hosted {
+			expected["page"] = canonicalReplicaPublicationRequest().Source
+			expected["allowAutomaticDegradation"] = true
+		}
+		data, err := json.Marshal(response)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var decoded CreateWebsiteReplicaPublicationResponse
+		if err := json.Unmarshal(data, &decoded); err != nil {
+			t.Fatal(err)
+		}
+		request := canonicalReplicaPublicationRequest()
+		challenge := decoded.NextAction.Confirmation
+		request.Confirmation = &WebsiteReplicaPublicationConfirmation{
+			Version: challenge.Version, Review: challenge.Review,
+			IssuedAt: challenge.IssuedAt, ExpiresAt: challenge.ExpiresAt, ConfirmedAt: challenge.IssuedAt,
+		}
+		serialized, err := json.Marshal(request)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var submitted map[string]any
+		if err := json.Unmarshal(serialized, &submitted); err != nil {
+			t.Fatal(err)
+		}
+		// Normalize the fixture through JSON so integer and artifact types match the wire.
+		var original map[string]any
+		if err := json.Unmarshal(data, &original); err != nil {
+			t.Fatal(err)
+		}
+		want := original["nextAction"].(map[string]any)["confirmation"].(map[string]any)["review"]
+		got := submitted["confirmation"].(map[string]any)["review"]
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("hosted=%t: confirmation changed the reviewed fields", hosted)
+		}
+	}
 }
