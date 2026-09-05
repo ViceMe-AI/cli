@@ -254,8 +254,11 @@ func canonicalReplicaPublicationResponse(status, sourceStatus string) map[string
 		"id": testReplicaPublicationID, "clientRequestId": testReplicaPublicationRequestID,
 		"market": "CN", "merchantAccountId": testMerchantID, "workId": testWorkID, "replicaId": testReplicaID,
 		"status": status, "statusUrl": "https://viceme.cn/me/website-replica-publications/" + testReplicaPublicationID,
-		"allowedActions": actions,
-		"retry":          map[string]any{"automaticRetries": 0, "maxAutomaticRetries": 3, "nextAttemptAt": nil},
+		"allowedActions":            actions,
+		"allowAutomaticDegradation": false, "priceCents": 990,
+		"hosting":  map[string]any{"requested": false, "status": "NOT_REQUESTED", "activePageRelease": nil, "repair": nil, "latestRepair": nil},
+		"rollback": map[string]any{"activePair": nil, "availablePairs": []any{}},
+		"retry":    map[string]any{"automaticRetries": 0, "maxAutomaticRetries": 3, "nextAttemptAt": nil},
 		"source": map[string]any{
 			"fileName": "source.zip", "contentType": "application/zip", "sizeBytes": 1024,
 			"digest": strings.Repeat("b", 64), "status": sourceStatus, "verifiedAt": verifiedAt,

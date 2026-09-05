@@ -26,6 +26,7 @@ import (
 type replicaPublishOptions struct {
 	ProjectPath              string
 	PreviewURL               string
+	PreviewReviewed          bool
 	WorkID                   string
 	Slug                     string
 	MerchantAccountID        string
@@ -69,7 +70,8 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&options.ProjectPath, "path", "", "Website Replica project directory or existing ZIP path")
-	command.Flags().StringVar(&options.PreviewURL, "preview-url", "", "running HTTP(S) loopback service to preview instead of starting the project")
+	command.Flags().StringVar(&options.PreviewURL, "preview-url", "", "actual HTTP(S) loopback page selected and started by your agent")
+	command.Flags().BoolVar(&options.PreviewReviewed, "preview-reviewed", false, "attest that your agent observed the page and its embedding in the official preview shell")
 	command.Flags().StringVar(&options.WorkID, "work-id", "", "existing Website Work UUID (omit when creating a new Work)")
 	command.Flags().StringVar(&options.Slug, "slug", "", "new public Work slug")
 	command.Flags().StringVar(&options.MerchantAccountID, "merchant-id", "", "ACTIVE OWNER Merchant UUID")
@@ -218,16 +220,7 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		return replicaPublicationPresentation{}, replicaSourceArchiveError(err)
 	}
 
-	previewOptions := options
-	if options.PreviewURL == "" {
-		previewProjectPath, cleanupPreview, err := replicacontent.PrepareSourcePreview(projectPath)
-		if err != nil {
-			return replicaPublicationPresentation{}, replicaSourceArchiveError(err)
-		}
-		previewOptions.ProjectPath = previewProjectPath
-		defer func() { returnErr = errors.Join(returnErr, cleanupPreview()) }()
-	}
-	previewSession, preview, err := startReplicaPublicationPreview(ctx, runtime, previewOptions)
+	previewSession, preview, err := startReplicaPublicationPreview(ctx, runtime, options)
 	if previewSession != nil {
 		defer func() {
 			if closeErr := finishReplicaPreview(previewSession, nil); closeErr != nil {
@@ -236,13 +229,13 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		}()
 	}
 	if err != nil {
-		if !options.ConfirmUnverifiedPreview {
-			return replicaPublicationPresentation{}, replicaPreviewBoundaryError(err).WithHint(
-				"fix the reported preview problem and retry, or rerun this publish command with --confirm-unverified-replica-only",
-			)
+		var inputError *output.Error
+		if errors.As(err, &inputError) {
+			return replicaPublicationPresentation{}, inputError
 		}
-		_, _ = fmt.Fprintln(runtime.deps.ErrOut, "Local preview could not be verified; continuing only as explicitly authorized Replica-only publication.")
-		preview = replicapublication.Preview{Verified: false}
+		return replicaPublicationPresentation{}, replicaPreviewBoundaryError(err).WithHint(
+			"fix the reported preview problem and retry; only after the user accepts the unverified boundaries, rerun publish without --preview-reviewed and with --confirm-unverified-replica-only",
+		)
 	}
 	var hostedPage pagepackage.Package
 	if preview.Verified && !options.ReplicaOnly {
@@ -529,13 +522,18 @@ func validateLocalReplicaPublicationConfirmation(pending replicapublication.Pend
 }
 
 func startReplicaPublicationPreview(ctx context.Context, runtime *Runtime, options replicaPublishOptions) (replicapreview.Running, replicapublication.Preview, error) {
-	progress(runtime, "Starting local Website Replica preview")
-	projectPath := options.ProjectPath
-	if options.PreviewURL != "" {
-		projectPath = ""
+	if options.ConfirmUnverifiedPreview {
+		return nil, replicapublication.Preview{Verified: false}, nil
 	}
+	if options.PreviewURL == "" {
+		return nil, replicapublication.Preview{}, replicaPreviewBoundaryError(&replicapreview.StartError{
+			Code: "REPLICA_PREVIEW_URL_REQUIRED", Stage: replicapreview.StageInspect,
+			Message: "provide the actual loopback page URL selected and started by your agent",
+		})
+	}
+	progress(runtime, "Starting local Website Replica preview")
 	session, err := runtime.deps.StartReplicaPreview(ctx, replicapreview.Options{
-		ExistingURL: options.PreviewURL, ProjectPath: projectPath, ErrOut: runtime.deps.ErrOut,
+		ExistingURL: options.PreviewURL, ErrOut: runtime.deps.ErrOut,
 		Report: func(event replicapreview.Event) {
 			_, _ = fmt.Fprintf(runtime.deps.ErrOut, "%s...\n", event.Message)
 		},
@@ -551,9 +549,15 @@ func startReplicaPublicationPreview(ctx context.Context, runtime *Runtime, optio
 	if err := runtime.deps.OpenURL(ctx, shellURL); err != nil {
 		return session, replicapublication.Preview{}, fmt.Errorf("open the ViceMe preview shell: %w", err)
 	}
+	if !options.PreviewReviewed {
+		return session, replicapublication.Preview{}, output.Validation("REPLICA_PREVIEW_REVIEW_REQUIRED", "the local service responded; your agent must observe the actual page and its embedding before publication").WithDetails(map[string]any{
+			"nextAction": "REVIEW_LOCAL_PREVIEW", "previewVerified": false,
+			"browserVerificationRequired": true, "remoteUpload": false, "publicationCreated": false,
+		}).WithHint("inspect the opened preview shell, then rerun with the same --preview-url and --preview-reviewed; connectivity alone is not visual verification")
+	}
 	_, _ = fmt.Fprintln(runtime.deps.ErrOut, "Local preview shell opened; the final review is the only authorization to upload source.")
 	return session, replicapublication.Preview{
-		Verified: true, TargetURL: result.TargetURL, Reused: result.Reused, StartedByCLI: result.StartedByCLI,
+		Verified: true, ReviewedBy: "AGENT", TargetURL: result.TargetURL, Reused: result.Reused, StartedByCLI: result.StartedByCLI,
 	}, nil
 }
 
@@ -671,6 +675,11 @@ func validateConfirmedReplicaRequest(options replicaPublishOptions, pending repl
 		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "automatic creator-application authorization changed after the final review; no source was uploaded").
 			WithHint("rerun the changed publish command without --confirm to generate a fresh final review")
 	}
+	if pending.Preview.ReviewedBy == "AGENT" &&
+		(!options.PreviewReviewed || options.PreviewURL != pending.Preview.TargetURL || options.ConfirmUnverifiedPreview) {
+		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "the agent-reviewed preview changed after the final review; no source was uploaded").
+			WithHint("rerun without --confirm to review the new preview and generate a fresh final review")
+	}
 	if options.ReplicaOnly && pending.Hosting != "REPLICA_ONLY" {
 		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "hosting selection changed after the final review; no artifact was uploaded").
 			WithHint("rerun the changed publish command without --confirm to freeze it and generate a new final review")
@@ -743,6 +752,9 @@ func validateReplicaPublishOptions(options replicaPublishOptions) error {
 			return output.Validation("REPLICA_PREVIEW_URL_INVALID", "--preview-url must be a valid local preview URL")
 		}
 	}
+	if options.PreviewReviewed && (options.PreviewURL == "" || options.ConfirmUnverifiedPreview) {
+		return output.Validation("REPLICA_PREVIEW_OPTIONS_INVALID", "--preview-reviewed requires --preview-url and cannot be combined with --confirm-unverified-replica-only")
+	}
 	if options.ConfirmationVersion != "" && !replicaConfirmationVersionPattern.MatchString(options.ConfirmationVersion) {
 		return output.Validation("REPLICA_PUBLICATION_CONFIRMATION_INVALID", "--confirm must be the exact wrv1 confirmation version")
 	}
@@ -766,6 +778,9 @@ func replicaPublishResumeCommand(pending replicapublication.Pending) string {
 	}
 	if pending.Preview.Verified && pending.Preview.Reused && pending.Preview.TargetURL != "" {
 		parts = append(parts, "--preview-url", shellQuote(pending.Preview.TargetURL))
+		if pending.Preview.ReviewedBy == "AGENT" {
+			parts = append(parts, "--preview-reviewed")
+		}
 	}
 	if !pending.Preview.Verified {
 		parts = append(parts, "--confirm-unverified-replica-only")
