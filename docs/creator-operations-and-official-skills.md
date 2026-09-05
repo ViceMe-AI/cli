@@ -3,6 +3,10 @@
 状态：2026-09-05 文档先行，CLI 实施和本地完整检查已完成。
 本轮实现提交 `053c82d`，随后以 `ef43eb0` 合入最新 dev `a081402`；合并后的
 `make check` 和 `make npm-package-check` 均通过，`git diff --check` 无错误。
+合并前收尾又以 `6c80c46` 合入 dev `7e9a919`，保留发布恢复及 Windows 权限修复，并从源码重新生成官方 manifest。
+代码已推送，当前配套为 [CLI #270](https://github.com/ViceMe-AI/cli/pull/270) 和
+[Shop #421](https://github.com/Leizhenpeng/ViceMe-Shop/pull/421)；最新提交完整复核及远端 CI 结果记录在 PR。
+本轮只处理合并前交付，数据库部署、官方初始化、CLI release/npm 和真实供应商联调在合并后进行。
 延续已合入 dev 的作者代注册 PR #200，Shop 权威设计见
 [创作者代注册、官方身份与运营邮箱](https://github.com/Leizhenpeng/ViceMe-Shop/blob/feat%28repo%29/creator-provisioning/docs/creator-provisioning-and-handover.md)。
 
