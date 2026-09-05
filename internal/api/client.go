@@ -898,22 +898,6 @@ func (c *Client) CompleteUpload(ctx context.Context, publicationID, uploadID str
 	return response, err
 }
 
-func (c *Client) CreateWebsiteReplicaUpload(ctx context.Context, request CreateWebsiteReplicaUploadRequest) (CreateWebsiteReplicaUploadResponse, error) {
-	var response CreateWebsiteReplicaUploadResponse
-	err := c.doJSON(ctx, http.MethodPost, "/v1/website-replicas/uploads", request, &response, "@stored")
-	return response, err
-}
-
-func (c *Client) CompleteWebsiteReplicaUpload(ctx context.Context, replicaID, uploadID string) (CompleteWebsiteReplicaUploadResponse, error) {
-	var response CompleteWebsiteReplicaUploadResponse
-	endpoint := "/v1/website-replicas/" + url.PathEscape(replicaID) + "/uploads/" + url.PathEscape(uploadID) + "/complete"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, nil, &response, "@stored")
-	if err == nil && response.ReplicaID != replicaID {
-		err = invalidAPIResponse(errors.New("Website Replica publication response does not match the requested Replica"))
-	}
-	return response, err
-}
-
 func (c *Client) GetWebsiteReplicaPublication(ctx context.Context, publicationID string) (WebsiteReplicaPublication, error) {
 	var response WebsiteReplicaPublication
 	endpoint := "/v1/website-replica-publications/" + url.PathEscape(publicationID)

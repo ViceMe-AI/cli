@@ -28,8 +28,6 @@ type strictAPIResponse interface {
 	strictAPIResponse()
 }
 
-func (*CreateWebsiteReplicaUploadResponse) strictAPIResponse()                     {}
-func (*CompleteWebsiteReplicaUploadResponse) strictAPIResponse()                   {}
 func (*AuthorizeWebsiteReplicaPublicationSourceUploadResponse) strictAPIResponse() {}
 func (*AuthorizeWebsiteReplicaPublicationPageUploadResponse) strictAPIResponse()   {}
 func (*WebsiteReplicaPublication) strictAPIResponse()                              {}
@@ -163,26 +161,6 @@ func (action *WebsiteReplicaPaymentAction) UnmarshalJSON(data []byte) error {
 		*action = WebsiteReplicaPaymentAction{Type: value.Type, Content: value.Content}
 	default:
 		return errors.New("Website Replica payment action type is invalid")
-	}
-	return nil
-}
-
-func (response *CreateWebsiteReplicaUploadResponse) validateAPIResponse() error {
-	if response == nil || !zodUUIDPattern.MatchString(response.ReplicaID) || !zodUUIDPattern.MatchString(response.UploadID) ||
-		response.Upload.Method != "PUT" || !validAbsoluteURL(response.Upload.URL) || response.Upload.Headers == nil ||
-		!validZodDatetime(response.Upload.ExpiresAt) {
-		return errors.New("Website Replica upload response is invalid")
-	}
-	return nil
-}
-
-func (response *CompleteWebsiteReplicaUploadResponse) validateAPIResponse() error {
-	if response == nil || !zodUUIDPattern.MatchString(response.ReplicaID) || !zodUUIDPattern.MatchString(response.VersionID) ||
-		!validPositiveSafeInteger(response.Version) || !websiteReplicaCodePattern.MatchString(response.ShortCode) ||
-		response.Instruction != "VICEME-REPLICA:"+response.ShortCode || validateWebsiteReplicaProduct(response.Product) != nil ||
-		!validWebsiteReplicaBuyerEntry(response.BuyerEntry, response.Instruction) ||
-		!validZodDatetime(response.PublishedAt) {
-		return errors.New("Website Replica publication response is invalid")
 	}
 	return nil
 }
