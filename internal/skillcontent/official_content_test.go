@@ -344,8 +344,10 @@ func TestCreatorOnboardingKeepsHumanReviewAndOffersPrivatePersonalCard(t *testin
 		"merchant-commerce:write",
 		"creatorIdentity.profileUrl",
 		"creatorIdentity.markdownUrl",
-		"要现在设置个人名片吗？",
-		"Bonjour 风格模板",
+		"page-setup <本次onboarding.id> --wait",
+		"不选名片也必须先提交申请",
+		"最多等待 10 分钟",
+		"不影响审核",
 		"创作者入驻模式",
 		"不得创建在线 preview",
 		"同一地址、同一 release 自动公开",
@@ -463,16 +465,13 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	onboardingText := string(onboarding)
 	for _, required := range []string{
 		"需要重新登录，我现在为你打开登录页面。",
-		"请在右侧完成登录，完成后我会自动继续。",
-		"也可以在外部浏览器打开下面这个链接",
-		"另起一行用 Markdown 链接格式输出",
-		"当前命令实际返回的完整链接：`[打开登录页面](https://…)`",
+		"未登录的话，请在页面上登录；如果已经登录，我会直接继续申请。",
+		"[打开登录页面](https://…)",
 		"登录完成，我继续确认创作者资格。",
-		"保存返回的 `task_id`",
-		"`present_files` 返回也不代表登录完成",
-		"`TaskOutput(task_id=<同一个任务>, timeout=180000)`",
-		"只要任务仍在运行，就不得结束当前回合、给出最终答复",
-		"不能把一次 `TaskOutput` 的读取超时当成登录流程完成",
+		"保存进程句柄",
+		"持续读取同一个进程的结果",
+		"不能因一次工具读取超时而结束本轮",
+		"不调用不存在的工具",
 		"不得编造路径或用户名",
 	} {
 		if !strings.Contains(onboardingText, required) {
@@ -480,12 +479,11 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		}
 	}
 	waitStages := []string{
-		"后台启动一次 `viceme auth login`",
-		"用一次短时 `TaskOutput`",
-		"立即用内置 `present_files`",
-		"页面打开后立即说",
-		"必须立刻再次调用 `TaskOutput",
-		"继续对同一个 `task_id` 调用 `TaskOutput`",
+		"后台进程工具启动一次登录",
+		"短时读取本次真实登录链接",
+		"用宿主可用的网页打开工具",
+		"告诉用户：",
+		"必须持续读取同一个进程的结果",
 		"只有登录命令成功返回后",
 	}
 	previousWaitStage := -1

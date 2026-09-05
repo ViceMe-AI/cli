@@ -20,6 +20,7 @@ const onboardingEvidenceTextMaxRunes = 2000
 func newMerchantOnboardingCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "onboarding", Short: "Apply for Merchant access"}
 	command.AddCommand(newMerchantOnboardingStatusCommand(runtime))
+	command.AddCommand(newCreatorPageSetupCommand(runtime))
 	command.AddCommand(newMerchantApplicationCommand(runtime))
 	command.AddCommand(newMerchantOnboardingEvidenceCommand(runtime))
 	command.AddCommand(newMerchantOnboardingSubmitCommand(runtime))
