@@ -1,23 +1,23 @@
 ---
 name: let-others-make-a-copy
-description: 为创作者网站免费或付费发布“做同款”源码交付。负责从当前工作树冻结完整源码与根级项目交接、恢复异步发布及 OWNER 经营管理；不修改创作者原站，也不处理买家购买和安装。
+description: 为创作者网站免费或付费发布“做同款”源码交付。负责从当前工作树冻结完整源码与根级项目交接、恢复异步发布及 OWNER 经营管理；发布成功后把做同款入口接入创作者原站，不处理买家购买和安装。
 ---
 
 # 让别人做你的网站同款
 
 首次调用 CLI 或判断 CLI 不存在前，必须先按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 查找现有 CLI；后续使用返回的完整路径。不得只凭 `command not found` 判定未安装或改走免 CLI 流程。
 
-把当前网站的完整源码和精简项目交接发布为不可变 Website Replica。所有确定性归档和平台读写使用 ViceMe CLI；仅在源码错误需要处理或终审核对归档范围时阅读 [package-contract.md](references/package-contract.md)，不把阅读合同作为首次执行的前置条件。做同款入口由 ViceMe 作品页宿主提供，买家邀请由作品 Markdown 平台控制区链接的独立 `let-me-make-a-copy` Skill 处理；本 Skill 不修改创作者原站，也不执行买家预览、购买、支付、下载或安装。
+把当前网站的完整源码和精简项目交接发布为不可变 Website Replica。所有确定性归档和平台读写使用 ViceMe CLI；仅在源码错误需要处理或终审核对归档范围时阅读 [package-contract.md](references/package-contract.md)，不把阅读合同作为首次执行的前置条件。ViceMe 托管作品页保留平台提供的做同款入口，发布成功后还须在创作者原站接入复制按钮；买家邀请由作品 Markdown 平台控制区链接的独立 `let-me-make-a-copy` Skill 处理；本 Skill 不执行买家预览、购买、支付、下载或安装。
 
 面向用户的说明跟随用户当前语言。不得展示登录凭据、上传地址、对象 Key、支付能力、签名 URL 或内部恢复文件。不得告诉用户正在使用哪个内置 Skill。
 
 ## 权威边界
 
 - 第一项业务动作是运行未确认的 `viceme replica publish`；源码检查、冻结及权限门禁由 CLI/API 在发布流程内执行，Agent 不提前复刻检查链。CLI 返回创作者资格动作后才以 `$become-a-creator` 的资格守卫语义处理；只有当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有有效 Merchant 才能取得上传能力。
-- Agent 负责理解仓库并确认交付边界；源码清单、项目交接和冻结 ZIP 由 CLI 确定性生成。
+- Agent 负责理解仓库、确认交付边界，并在发布成功后修改创作者原站；源码清单、项目交接和冻结 ZIP 由 CLI 确定性生成。
 - 用户的 Agent 负责判断真实页面入口、启动方式与页面是否正常；CLI 不按 `package.json`、`scripts.dev`、`index.html` 或框架白名单判断项目有效性。源码安全、权限和发布状态仍由 CLI/API 确定性校验。
 - CLI 负责认证、确定性冻结、上传与稳定 Replica 身份。
-- Shop 的 Publication 与 ViceMe 作品页是发布状态和做同款入口的权威来源；本流程不读取或拼接平台买家邀请。
+- Shop 的 Publication 与 ViceMe 作品页是发布状态和做同款入口的权威来源；原站按钮只复制发布结果 `result.workUrl` 对应的 `.md` 地址，不拼接邀请文案或购买步骤。
 
 ## CLI 能力与入口分流
 
@@ -46,6 +46,18 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
 7. 用户明确接受全部终审字段后，原样执行返回的 `confirmCommand`。网络中断只使用返回的 `viceme replica resume <publication-id>`；需要查看或取消时分别使用 `status`、`cancel`，不得用新 publish 请求制造平行版本。
 8. `PROCESSING` 只表示“已提交，尚未发布”。只有 `PUBLISHED` 或 `PUBLISHED_DEGRADED` 才算源码发布完成；后者保留源码已发布及原托管失败的审计；仅当 `hosting.status` 非 `ACTIVE` 时说明当前使用原生作品页，`ACTIVE` 时说明托管已恢复。未知、失败或取消状态不得修改宿主站点。
 
+9. 发布成功后执行下方“原站做同款入口”，不能只提供托管链接就报告全部完成。发布前、`PROCESSING`、未知、失败或取消时不写入可用入口。
+
+## 原站做同款入口
+
+- 只使用本次成功发布或同一 Publication 的 `status` / `resume` 返回的 `result.workUrl`；作品展示地址就是该 URL，按钮复制内容为该作品 URL 加 `.md`。例如展示 `https://viceme.cn/chocobean-studio/groovie`，复制 `https://viceme.cn/chocobean-studio/groovie.md`。不使用 localhost、target 包装地址、邀请文案、Replica instruction 或支付链接。缺少权威 URL 时读取同一发布状态，不猜地址、不重新发布。
+- 在创作者原项目实际页面入口加入或更新右下角紧凑浮动入口；已有入口就原位更新，不重复插入。使用项目现有框架与组件机制，默认文案为 `✨ 喜欢这个网站？作者已授权你一键复刻`，沿用初版白色圆角 pill，不添加顶部栏、卡片、整宽 CTA 或对话框。入口不占文档流，桌面和移动端距右下边缘 16px 并兼顾安全区，触控热区至少 44×44px；已有固定控件时错开，提供清晰键盘焦点。
+- 原站按钮仅在顶层页面展示；用浏览器窗口是否为顶层的判断，在 iframe 内隐藏原站入口，不访问跨域父页面内容。再次发布时，普通公开链接按钮可随当前工作树进入下一版源码与页面，但在 ViceMe 托管 iframe 中不展示，避免与平台按钮重叠。已发布的不可变源码保留当时链接；当前原项目的按钮始终原位更新到权威作品地址，不批量改写历史制品。
+- 点击只复制纯 Markdown URL。成功时在入口上方短暂显示 `口令已复制！` 和 `粘贴到你的 Agent，即可生成同款，并继续修改成你的版本。`，失败时在同处提示重试；不能直接打开窗口或调用 CLI。不引入平台浏览器 SDK、loader、认证、价格或支付接口，不复制平台宿主实现到项目中。
+- 运行原项目适用的格式、类型检查、测试与构建；实际检查 375/768/1280 宽度、键盘触发、焦点和剪贴板成功/失败反馈，以及带有既有按钮的再次发布场景：顶层原站只有一个按钮，托管 iframe 内的原站按钮隐藏、平台入口只有一个。说明修改文件与验证结果，供创作者更新到自己的网站。已有部署授权时按授权执行，否则交付修改，不自动部署外部生产站。
+- 恢复已发布作品的遗漏入口时，读取同一 Publication 的权威状态和 URL，直接补原站接入，不创建新的源码版本。原站修改或验证失败只重试接入，保留发布成功事实，不再次运行 publish；明确报告“作品已发布，原站入口未完成”。
+- 入口在冻结上传完成后写入，本次不可变 SOURCE/PAGE 制品不因此改变，也不为加入入口重新上传。ViceMe 托管页仍由平台宿主提供按钮。ZIP 输入时保留原 ZIP 与绑定，优先修改已有原项目；只有 ZIP 时将修改后的项目交付到独立目录，不把临时预览目录当作持久交付，不覆盖原 ZIP。缺少可编辑源码时报告接入未完成，不把发布成功等同于原站已更新。
+
 ## OWNER 管理
 
 先运行 `viceme replica status <publication-id>` 读取权威状态与 `hosting` / `rollback`，或 `viceme replica sales --replica <replica-id>` 读取当前版本、价格和经营权限。暂停 OWNER 只读；权限失败停止，不换身份绕过。
@@ -53,12 +65,12 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
 - 恢复发布：`viceme replica resume <publication-id>`；仅按允许动作处理 `status`、`cancel`。确定性源码或页面错误先在本地修复、重新预览与确认，不盲目重试失败制品。
 - 技术回滚：从 `rollback.availablePairs` 选择可验证配对，向用户展示目标源码/页面与当前价格，确认后执行 `viceme replica rollback --publication <publication-id> --pair <pair-id>`。回滚不会恢复旧价格，不能猜 Pair ID。
 - 改价、下架、重新上架：分别用 `viceme replica price --replica <replica-id> --price-cents <cents>`、`viceme replica delist --replica <replica-id>`、`viceme replica relist --replica <replica-id>` 获取摘要。只在用户接受当前版本、价格和影响后原样执行 `REPLICA_SALES_CONFIRMATION_REQUIRED` 的完整确认命令。保留请求快照和请求 ID；响应丢失原样重试，不用新 CAS 配旧请求 ID。版本冲突先重新读状态再确认，不自动覆盖。
-- 下架停止新交易并移除做同款入口，托管作品本身保留；已购权益继续有效。改价前有效 Quote 保持原快照价格；重新上架复用当前源码版本，不发布重复制品。
+- 下架停止新交易并移除平台托管页的做同款入口，托管作品本身保留；已购权益继续有效。改价前有效 Quote 保持原快照价格；重新上架复用当前源码版本，不发布重复制品。外部原站的静态按钮不会随平台状态自动移除；需要同步原站时按用户授权修改并单独部署。
 - 托管补发：只有当前活动源码对应的降级 Publication 进入此分支。读取平台修复口令，在本地修复页面并预览，生成可用静态输出或 WorkPage ZIP，再执行 `viceme replica repair-hosting --publication <publication-id> --path <project-or-WorkPage-ZIP>`。展示 `REPLICA_REPAIR_CONFIRMATION_REQUIRED` 的完整 review、页面摘要、原源码版本、URL、30分钟TTL与“只改页面，不改源码/价格/权益”。接受后执行返回的原始确认命令；中断也重跑该命令，不能用普通 publish 或 publication resume 代替托管修复。页面改变或TTL过期先读取状态，再生成新确认。
 - `RESUME_HOSTING_REPAIR` 仅表示补发未完成；`HOSTING_REPAIRED` 表示当前托管恢复。保留原 Publication `PUBLISHED_DEGRADED` 的失败审计，不宣称原终态被改写。`PREPARE_HOSTING_REPAIR` 要求修复本地页面，不自动创建循环补发。
 
 ## 完成报告
 
-报告 Website Work、Replica code、ViceMe 作品链接、源码版本、价格、冻结源码摘要、项目交接及验证命令。不要报告临时上传或登录能力，也不要修改或部署创作者原站。
+报告 Website Work、Replica code、ViceMe 作品链接、源码版本、价格、冻结源码摘要、项目交接、原站修改文件及验证命令。分别说明平台发布、原站入口接入和外部部署是否完成；不要报告临时上传或登录能力。
 
 发布成功后，使用发布结果返回的 `result.workUrl` 展示和验收托管作品，不再使用本地地址。做同款按钮直接复制对应的作品 Markdown URL（作品地址加 `.md`），不包装邀请文案，也不打开对话框。
