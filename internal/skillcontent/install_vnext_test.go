@@ -13,20 +13,20 @@ import (
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 )
 
-func TestExplicitAgentInstallAlsoWritesAgentsFallbackAndRepairsDrift(t *testing.T) {
+func TestClaudeInstallAlsoWritesAgentsFallbackAndRepairsDrift(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeTestSkill(t, root, "viceme-test")
 	bundle := New(os.DirFS(root))
 	home := t.TempDir()
-	environment := Environment{Home: home, CodexHome: filepath.Join(home, ".codex"), ConfigDir: filepath.Join(home, ".viceme-cli")}
+	environment := Environment{Home: home, ClaudeConfigDir: filepath.Join(home, ".claude"), ConfigDir: filepath.Join(home, ".viceme-cli")}
 
-	report := bundle.Install("viceme-test", "codex", environment)
+	report := bundle.Install("viceme-test", "claude", environment)
 	if !report.AllSucceeded || len(report.Results) != 2 {
 		t.Fatalf("unexpected install report: %#v", report)
 	}
 	for _, directory := range []string{
-		filepath.Join(home, ".codex", "skills", "viceme-test"),
+		filepath.Join(home, ".claude", "skills", "viceme-test"),
 		filepath.Join(home, ".agents", "skills", "viceme-test"),
 	} {
 		if _, err := os.Stat(filepath.Join(directory, "SKILL.md")); err != nil {
@@ -34,20 +34,20 @@ func TestExplicitAgentInstallAlsoWritesAgentsFallbackAndRepairsDrift(t *testing.
 		}
 	}
 
-	installed := filepath.Join(home, ".codex", "skills", "viceme-test", "SKILL.md")
+	installed := filepath.Join(home, ".claude", "skills", "viceme-test", "SKILL.md")
 	if err := os.WriteFile(installed, []byte("tampered"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if bundle.Doctor("viceme-test", "codex", environment).Healthy {
+	if bundle.Doctor("viceme-test", "claude", environment).Healthy {
 		t.Fatal("doctor accepted a modified Skill")
 	}
-	repaired := bundle.Install("viceme-test", "codex", environment)
-	if !repaired.AllSucceeded || !bundle.Doctor("viceme-test", "codex", environment).Healthy {
+	repaired := bundle.Install("viceme-test", "claude", environment)
+	if !repaired.AllSucceeded || !bundle.Doctor("viceme-test", "claude", environment).Healthy {
 		t.Fatalf("drift was not repaired: %#v", repaired)
 	}
 }
 
-func TestExplicitAgentInstallHonorsIsolatedAgentsSkillsDirectory(t *testing.T) {
+func TestCodexInstallHonorsIsolatedAgentsSkillsDirectory(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeTestSkill(t, root, "viceme-test")
@@ -61,16 +61,18 @@ func TestExplicitAgentInstallHonorsIsolatedAgentsSkillsDirectory(t *testing.T) {
 	}
 	bundle := New(os.DirFS(root))
 	report := bundle.Install("viceme-test", "codex", environment)
-	if !report.AllSucceeded {
+	if !report.AllSucceeded || len(report.Results) != 1 {
 		t.Fatalf("install failed: %#v", report)
 	}
 	for _, directory := range []string{
-		filepath.Join(environment.CodexHome, "skills", "viceme-test"),
 		filepath.Join(agentsSkillsDir, "viceme-test"),
 	} {
 		if _, err := os.Stat(filepath.Join(directory, "SKILL.md")); err != nil {
 			t.Fatalf("missing installed Skill at %s: %v", directory, err)
 		}
+	}
+	if _, err := os.Stat(environment.CodexHome); !os.IsNotExist(err) {
+		t.Fatalf("legacy Codex directory was unexpectedly written: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".agents", "skills", "viceme-test")); !os.IsNotExist(err) {
 		t.Fatalf("default shared Agent directory was unexpectedly written: %v", err)
@@ -89,18 +91,18 @@ func TestAutoInstallsDetectedAgentsAndFallback(t *testing.T) {
 	}
 	bundle := New(os.DirFS(root))
 	report := bundle.Install("viceme-test", "auto", Environment{Home: home})
-	if !report.AllSucceeded || len(report.Results) != 3 {
+	if !report.AllSucceeded || len(report.Results) != 2 {
 		t.Fatalf("auto targets did not include fallback and detected agents: %#v", report)
 	}
 	got := map[string]bool{}
 	for _, result := range report.Results {
 		got[result.Target] = true
 	}
-	if !got["agents"] || !got["codex"] || !got["claude"] || got["workbuddy"] {
+	if !got["agents"] || got["codex"] || !got["claude"] || got["workbuddy"] {
 		t.Fatalf("unexpected auto target set: %#v", got)
 	}
 	doctor := bundle.Doctor("viceme-test", "auto", Environment{Home: home})
-	if !doctor.Healthy || len(doctor.Results) != 3 {
+	if !doctor.Healthy || len(doctor.Results) != 2 {
 		t.Fatalf("Doctor required an agent that was not detected: %#v", doctor)
 	}
 }
@@ -1120,5 +1122,44 @@ description: Test ViceMe Skill.
 		if err := os.WriteFile(filename, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestCodexInstallUsesSharedDirectoryOnce(t *testing.T) {
+	t.Parallel()
+	for _, target := range []string{"codex", "agents", "auto"} {
+		t.Run(target, func(t *testing.T) {
+			root := t.TempDir()
+			writeTestSkill(t, root, "viceme-test")
+			bundle := New(os.DirFS(root))
+			home := t.TempDir()
+			environment := Environment{Home: home, CodexHome: filepath.Join(home, "custom-codex"), ConfigDir: filepath.Join(home, ".viceme-cli")}
+			// Existing Codex installations must not add a second Skill destination.
+			if err := os.MkdirAll(environment.CodexHome, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			for _, installTarget := range []string{target, "agents", "codex"} {
+				report := bundle.Install("viceme-test", installTarget, environment)
+				if !report.AllSucceeded || len(report.Results) != 1 || report.Results[0].Target != "agents" {
+					t.Fatalf("expected one canonical destination: %#v", report)
+				}
+				// Compare filesystem identity: Windows folds managed paths to lower
+				// case, while macOS temporary paths may pass through a symlink.
+				expectedInfo, expectedErr := os.Stat(filepath.Join(home, ".agents", "skills", "viceme-test"))
+				actualInfo, actualErr := os.Stat(report.Results[0].Path)
+				if expectedErr != nil || actualErr != nil || !os.SameFile(expectedInfo, actualInfo) {
+					t.Fatalf("unexpected destination: %#v (expected stat: %v; actual stat: %v)", report.Results[0], expectedErr, actualErr)
+				}
+				for _, doctorTarget := range []string{"codex", "agents", "auto"} {
+					doctor := bundle.Doctor("viceme-test", doctorTarget, environment)
+					if !doctor.Healthy || len(doctor.Results) != 1 {
+						t.Fatalf("shared installation not healthy for %s: %#v", doctorTarget, doctor)
+					}
+				}
+			}
+			if _, err := os.Stat(filepath.Join(environment.CodexHome, "skills")); !os.IsNotExist(err) {
+				t.Fatalf("legacy Codex skills directory was unexpectedly written: %v", err)
+			}
+		})
 	}
 }

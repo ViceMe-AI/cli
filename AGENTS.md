@@ -76,36 +76,37 @@ inside Agent instructions.
   bootstrap commands, activation children, and re-executed commands. Tests
   that exercise it must explicitly clear the ambient `CI` value and enable the
   test-only development-version path.
-- Automatic update always calls the updater with `RefreshSkills: false`. It
-  updates the CLI only. A successful replacement becomes observable on the
-  next `viceme` process; restarting the surrounding Codex, Claude Code, or
-  WorkBuddy application is not required.
+- Automatic update calls the updater with `RefreshSkills: true` and target
+  `auto`, activating the CLI and matching official Skills together. When the
+  CLI is current, check installed official Skills with Doctor and repair stale
+  or missing copies; skip activation when all are healthy. A new CLI becomes
+  observable on the next `viceme` process.
 - Windows cannot replace the currently running executable. Schedule the same
-  verified CLI-only activation for after process exit and preserve the same
+  verified CLI and Skill activation for after process exit and preserve the same
   journal and recovery semantics.
 
-Do not reintroduce foreground self-update, automatic command re-execution, or
-automatic Skill rewriting as a convenience fallback.
+Do not reintroduce foreground self-update or automatic command re-execution.
+Skill synchronization belongs to the existing detached update and activation
+protocol; do not add a separate foreground or uncoordinated file-copy path.
 
 ## CLI and Skill lifecycles
 
-The CLI executable and Agent Skills are separate lifecycles:
+CLI updates synchronize the official Skill bundle:
 
 - `viceme update --check` performs release discovery only.
-- `viceme update` is the explicit CLI-only repair/update path.
+- `viceme update` updates or repairs the CLI and official Skills for `auto`.
 - `viceme install --agent <target>` installs or refreshes official Skills.
-- `viceme update --agent <target>` remains a compatibility path for an
-  explicitly requested combined repair; new automation must keep the commands
-  separate.
+- `viceme update --agent <target>` selects the Agent destination for the
+  combined update or repair.
 
-Agent hosts commonly load Skill files when a task starts. After an explicit
+Agent hosts commonly load Skill files when a task starts. After a
 Skill refresh, a new Agent task may be needed for rediscovery. This is different
 from a CLI update: the next CLI invocation already uses the new executable.
 
-Never make a background CLI update write `.agents/skills`, `.codex/skills`,
-Claude configuration, WorkBuddy configuration, or the active ViceMe profile.
-Never roll back a successfully installed CLI merely because a separate Skill
-destination cannot be updated.
+Refresh only the official bundle through its owning installer and preserve
+other user-installed Skills, existing Profile authority, and credentials.
+Keep the combined activation journal and rollback semantics so a failed Skill
+refresh cannot be reported as a complete CLI and Skill generation.
 
 ## Permission preflight
 
@@ -186,7 +187,9 @@ Changes to installation or update behavior must cover, as applicable:
 - foreground response remains successful when background launch/network/access
   fails;
 - current, failed, stale, and concurrent automatic-update states;
-- CLI-only update does not invoke a Skill child or touch Skill/config paths;
+- normal manual and automatic updates refresh matching official Skills;
+- a current CLI repairs stale Skills but skips healthy installations;
+- explicit low-level CLI-only activation still leaves Skill/config paths alone;
 - permission refusal before mutation creates no journal and preserves hashes;
 - permission loss after mutation retains recoverable state;
 - concurrent activation commits one generation;

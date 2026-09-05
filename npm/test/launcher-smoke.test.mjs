@@ -185,6 +185,7 @@ test(
           ...process.env,
           HOME: home,
           CODEX_HOME: codexHome,
+          VICEME_AGENTS_SKILLS_DIR: path.join(home, ".agents", "skills"),
           VICEME_CLI_CONFIG_DIR: configHome,
           VICEME_BINARY_PATH: path.resolve(localBinary),
           CI: "1",
@@ -195,23 +196,29 @@ test(
     assert.equal(child.status, 0, `${child.stdout}\n${child.stderr}`);
     const result = JSON.parse(child.stdout);
     assert.equal(result.ok, true);
+    await assert.rejects(stat(path.join(codexHome, "skills")), { code: "ENOENT" });
+    assert.equal(
+      result.data.skills.every((skill) => skill.results.length === 1 && skill.results[0].target === "agents"),
+      true,
+    );
     assert.equal(result.data.skills.length, 9);
     assert.equal(result.data.skills.every((skill) => skill.all_succeeded), true);
-    await stat(path.join(codexHome, "skills", "creator-tools", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "become-a-creator", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "customize-your-page", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "sell-a-skill", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "use-a-skill", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "charge-for-your-work", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "let-people-interact", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "let-others-make-a-copy", "SKILL.md"));
-    await stat(path.join(codexHome, "skills", "let-me-make-a-copy", "SKILL.md"));
+    await stat(path.join(home, ".agents", "skills", "creator-tools", "SKILL.md"));
+    await stat(path.join(home, ".agents", "skills", "become-a-creator", "SKILL.md"));
+    await stat(path.join(home, ".agents", "skills", "customize-your-page", "SKILL.md"));
+    await stat(path.join(home, ".agents", "skills", "sell-a-skill", "SKILL.md"));
+    await stat(path.join(home, ".agents", "skills", "use-a-skill", "SKILL.md"));
+    await stat(path.join(home, ".agents", "skills", "charge-for-your-work", "SKILL.md"));
+    await stat(path.join(home, ".agents", "skills", "let-people-interact", "SKILL.md"));
+    await stat(path.join(home, ".agents", "skills", "let-others-make-a-copy", "SKILL.md"));
+    await stat(path.join(home, ".agents", "skills", "let-me-make-a-copy", "SKILL.md"));
     await stat(
-      path.join(codexHome, "skills", "let-people-interact", "templates", "single-html.html"),
+      path.join(home, ".agents", "skills", "let-people-interact", "templates", "single-html.html"),
     );
     await stat(
       path.join(
-        codexHome,
+        home,
+        ".agents",
         "skills",
         "let-people-interact",
         "templates",
@@ -220,7 +227,8 @@ test(
     );
     await stat(
       path.join(
-        codexHome,
+        home,
+        ".agents",
         "skills",
         "let-people-interact",
         "scripts",
