@@ -62,7 +62,7 @@ func newReplicaPreviewCommand(runtime *Runtime) *cobra.Command {
 			return runReplicaPreview(command.Context(), runtime, projectPath, existingURL)
 		},
 	}
-	command.Flags().StringVar(&projectPath, "path", "", "project directory containing the existing dev script (defaults to the current directory)")
+	command.Flags().StringVar(&projectPath, "path", "", "legacy project context; provide --url to preview a service started by your agent")
 	command.Flags().StringVar(&existingURL, "url", "", "running HTTP(S) loopback service to reuse")
 	command.Flags().BoolVar(&confirmReplicaOnly, "confirm-unverified-replica-only", false, "explicitly continue without verified hosting preview; performs no publication or upload")
 	return command
@@ -158,6 +158,10 @@ func replicaPreviewShellURL(webBaseURL, target string) (string, error) {
 }
 
 func replicaPreviewBoundaryError(err error) *output.Error {
+	var existing *output.Error
+	if errors.As(err, &existing) {
+		return existing
+	}
 	details := map[string]any{
 		"previewVerified":       false,
 		"remoteUpload":          false,
@@ -170,6 +174,12 @@ func replicaPreviewBoundaryError(err error) *output.Error {
 	if errors.As(err, &startErr) {
 		details["previewErrorCode"] = startErr.Code
 		details["previewStage"] = startErr.Stage
+		if startErr.Code == "REPLICA_PREVIEW_URL_REQUIRED" {
+			details["nextAction"] = "PROVIDE_PREVIEW_URL"
+			return output.Validation(startErr.Code, startErr.Message).WithDetails(details).WithHint("have your agent select and start the actual page, then supply --url to preview or --preview-url to publish")
+		}
+		// Messages are fixed runtime descriptions; never expose raw causes or URLs.
+		details["previewReason"] = startErr.Message
 	}
 	return output.Confirmation(
 		"CONFIRM_UNVERIFIED_REPLICA_ONLY",

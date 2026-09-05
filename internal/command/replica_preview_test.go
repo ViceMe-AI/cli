@@ -92,7 +92,7 @@ func TestReplicaPreviewOpensTheAnonymousShellWithoutAuthUploadOrSourceWrites(t *
 	var opened string
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exit := Execute([]string{"replica", "preview", "--path", project}, Dependencies{
+	exit := Execute([]string{"replica", "preview", "--url", "http://127.0.0.1:4173/"}, Dependencies{
 		Out: &stdout, ErrOut: &stderr,
 		HTTPClient: &http.Client{Transport: transport},
 		Store:      store,
@@ -113,7 +113,7 @@ func TestReplicaPreviewOpensTheAnonymousShellWithoutAuthUploadOrSourceWrites(t *
 	if exit != 0 {
 		t.Fatalf("preview failed: exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
 	}
-	if startedOptions.ProjectPath != project {
+	if startedOptions.ProjectPath != "" || startedOptions.ExistingURL != "http://127.0.0.1:4173/" {
 		t.Fatalf("preview inspected the wrong project: %#v", startedOptions)
 	}
 	if store.reads.Load() != 0 || transport.calls.Load() != 0 {
