@@ -835,23 +835,6 @@ type UploadAuthorization struct {
 	Headers   map[string]string `json:"headers"`
 }
 
-type CreateWebsiteReplicaUploadRequest struct {
-	ClientRequestID string `json:"clientRequestId"`
-	WorkID          string `json:"workId"`
-	Title           string `json:"title"`
-	Summary         string `json:"summary"`
-	FileName        string `json:"fileName"`
-	SizeBytes       int64  `json:"sizeBytes"`
-	Digest          string `json:"digest"`
-	PriceCents      int    `json:"priceCents"`
-}
-
-type CreateWebsiteReplicaUploadResponse struct {
-	ReplicaID string                            `json:"replicaId"`
-	UploadID  string                            `json:"uploadId"`
-	Upload    WebsiteReplicaUploadAuthorization `json:"upload"`
-}
-
 type WebsiteReplicaUploadAuthorization struct {
 	Method    string            `json:"method"`
 	URL       string            `json:"url"`
@@ -974,17 +957,6 @@ type WebsiteReplicaRollback struct {
 	Product         WebsiteReplicaProduct     `json:"product"`
 	PriceUnchanged  bool                      `json:"priceUnchanged"`
 	RolledBackAt    string                    `json:"rolledBackAt"`
-}
-
-type CompleteWebsiteReplicaUploadResponse struct {
-	ReplicaID   string                   `json:"replicaId"`
-	VersionID   string                   `json:"versionId"`
-	Version     int                      `json:"version"`
-	ShortCode   string                   `json:"shortCode"`
-	Instruction string                   `json:"instruction"`
-	Product     WebsiteReplicaProduct    `json:"product"`
-	BuyerEntry  WebsiteReplicaBuyerEntry `json:"buyerEntry"`
-	PublishedAt string                   `json:"publishedAt"`
 }
 
 type WebsiteReplicaBuyerEntry struct {
