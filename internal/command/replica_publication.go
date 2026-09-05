@@ -11,6 +11,9 @@ type replicaPublicationResume struct {
 }
 
 type replicaPublicationPresentation struct {
+	Hosting        api.WebsiteReplicaHostingProjection   `json:"hosting"`
+	Rollback       api.WebsiteReplicaRollbackProjection  `json:"rollback"`
+	PriceCents     int                                   `json:"priceCents"`
 	PublicationID  string                                `json:"publicationId"`
 	Status         string                                `json:"status"`
 	Phase          string                                `json:"phase"`
@@ -72,13 +75,17 @@ func presentReplicaPublication(publication api.WebsiteReplicaPublication) replic
 		message = "Website Replica publication complete."
 	case "PUBLISHED_DEGRADED":
 		message = "Website Replica publication complete with degraded hosting: source is published, hosting failed, and the native Work page is active."
+		if publication.Hosting.Status == "ACTIVE" {
+			message = "Website Replica source remains published; hosting has been repaired. The original degraded publication audit is retained."
+		}
 	case "FAILED":
 		message = "Website Replica Publication failed and was not published."
 	case "CANCELLED":
 		message = "Website Replica Publication was cancelled and was not published."
 	}
 	return replicaPublicationPresentation{
-		PublicationID:  publication.ID,
+		PublicationID: publication.ID,
+		Hosting:       publication.Hosting, Rollback: publication.Rollback, PriceCents: publication.PriceCents,
 		Status:         publication.Status,
 		Phase:          phase,
 		Message:        message,
