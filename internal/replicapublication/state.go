@@ -36,6 +36,7 @@ var (
 )
 
 type Preview struct {
+	ReviewedBy   string `json:"reviewedBy,omitempty"`
 	Verified     bool   `json:"verified"`
 	TargetURL    string `json:"targetUrl,omitempty"`
 	Reused       bool   `json:"reused"`
