@@ -126,9 +126,8 @@ func TestReplicaPreviewOpensTheAnonymousShellWithoutAuthUploadOrSourceWrites(t *
 	if err != nil || string(data) != source {
 		t.Fatalf("preview modified source: data=%q err=%v", data, err)
 	}
-	if !strings.HasPrefix(opened, "https://viceme.cn/website-replica/preview?") ||
-		!strings.Contains(opened, "target=http%3A%2F%2F127.0.0.1%3A4173%2F") {
-		t.Fatalf("unexpected preview shell URL: %q", opened)
+	if opened != "http://127.0.0.1:4173/" {
+		t.Fatalf("unexpected local preview URL: %q", opened)
 	}
 	if strings.Contains(stdout.String(), "VICEME-REPLICA:") {
 		t.Fatalf("preview generated a usable invitation: %q", stdout.String())
@@ -139,7 +138,7 @@ func TestReplicaPreviewOpensTheAnonymousShellWithoutAuthUploadOrSourceWrites(t *
 		Data struct {
 			Mode                        string `json:"mode"`
 			PreviewURL                  string `json:"previewUrl"`
-			PreviewShellOpened          bool   `json:"previewShellOpened"`
+			PreviewOpened               bool   `json:"previewOpened"`
 			PreviewVerified             bool   `json:"previewVerified"`
 			BrowserVerificationRequired bool   `json:"browserVerificationRequired"`
 			RemoteUpload                bool   `json:"remoteUpload"`
@@ -151,7 +150,7 @@ func TestReplicaPreviewOpensTheAnonymousShellWithoutAuthUploadOrSourceWrites(t *
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 		t.Fatalf("invalid command output: %v: %s", err, stdout.String())
 	}
-	if !envelope.OK || envelope.Data.Mode != "LOCAL_PREVIEW" || envelope.Data.PreviewURL != opened || !envelope.Data.PreviewShellOpened ||
+	if !envelope.OK || envelope.Data.Mode != "LOCAL_PREVIEW" || envelope.Data.PreviewURL != opened || !envelope.Data.PreviewOpened ||
 		envelope.Data.PreviewVerified || !envelope.Data.BrowserVerificationRequired ||
 		envelope.Data.RemoteUpload || envelope.Data.AuthenticationChecked || envelope.Data.MerchantChecked || envelope.Data.PublicationCreated {
 		t.Fatalf("unexpected preview boundary output: %#v", envelope)

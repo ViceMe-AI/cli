@@ -59,6 +59,14 @@ func archiveStaticDirectory(directory, name string) ([]byte, error) {
 		if filename == directory {
 			return nil
 		}
+		// Project recovery data is never a deployable static asset, even if a
+		// user's build copied the entire project into its output directory.
+		if strings.EqualFold(entry.Name(), ".viceme") {
+			if entry.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		info, err := entry.Info()
 		if err != nil {
 			return err

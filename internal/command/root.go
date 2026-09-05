@@ -89,6 +89,7 @@ type Runtime struct {
 	config             config.Config
 	profile            config.Profile
 	configBase         string
+	replicaProject     string
 	processCredential  *publicationCredential
 	commerceContextID  string
 	executedCommand    *cobra.Command
@@ -137,11 +138,11 @@ func Execute(args []string, dependencies Dependencies) int {
 				return reexecuteOriginalCommand(args, dependencies, printer, buildinfo.CompatibilityVersion(), active.Version)
 			}
 		}
-		return printer.Failure(err)
+		return printer.Failure(bootstrapCommandError(err, dependencies.bootstrapActivationCommand))
 	}
 	root.SetArgs(args)
 	if err := root.ExecuteContext(context.Background()); err != nil {
-		exitCode := runtime.failure(err)
+		exitCode := runtime.failure(bootstrapCommandError(err, dependencies.bootstrapActivationCommand))
 		runtime.scheduleAutomaticUpdate(runtime.executedCommand)
 		return exitCode
 	}
