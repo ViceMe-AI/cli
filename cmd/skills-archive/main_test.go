@@ -167,3 +167,20 @@ func TestOfficialMakeCopyArchiveIncludesStandaloneRuntime(t *testing.T) {
 		}
 	}
 }
+
+func TestOfficialCLIResolversAreAvailableAsHostedFiles(t *testing.T) {
+	source := cliembed.EmbeddedSkills()
+	files, _, err := buildHostingArchive(source)
+	if err != nil {
+		t.Fatalf("build official archive: %v", err)
+	}
+	for _, name := range []string{"creator-tools/scripts/resolve-cli.sh", "creator-tools/scripts/resolve-cli.ps1"} {
+		expected, err := fs.ReadFile(source, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(expected) == 0 || !bytes.Equal(files[name], expected) {
+			t.Fatalf("cloud-only Skill readers cannot retrieve the embedded resolver at %s", name)
+		}
+	}
+}

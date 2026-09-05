@@ -25,7 +25,7 @@ CLI 默认排除依赖、缓存、构建产物、版本控制元数据、编辑�
 
 ## 平台控制内容
 
-源码 ZIP 不得包含有效 `VICEME-REPLICA:VMR-...` instruction、真实 `buyerEntry`，也不得包含 ViceMe 官方做同款挂件、弹窗或浏览器接入实现。做同款入口由 ViceMe 作品页宿主提供；本流程不修改创作者外部原站。
+源码 ZIP 不得包含有效 `VICEME-REPLICA:VMR-...` instruction、真实 `buyerEntry`，也不得包含 ViceMe 官方做同款挂件、弹窗或浏览器接入实现。ViceMe 托管页入口由平台宿主提供；发布成功后，Agent 另在原项目加入仅复制公开作品 `.md` URL 的普通按钮，不复制平台挂件实现或上述控制内容。本次已冻结制品不包含发布后才加入的入口改动。
 
 ## 冻结与确认
 

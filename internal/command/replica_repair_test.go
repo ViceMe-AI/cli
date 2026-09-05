@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -34,8 +35,18 @@ func TestReplicaRepairConfirmsOnlyPageAndResumesLostResponse(t *testing.T) {
 	var original map[string]any
 	var repair map[string]any
 	creates, uploads, completes := 0, 0, 0
+	// Closing a hijacked connection does not synchronize the handler with the
+	// assertions after Execute returns the deliberately lost response.
+	var stateMu sync.Mutex
+	countsAre := func(wantCreates, wantUploads, wantCompletes int) bool {
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		return creates == wantCreates && uploads == wantUploads && completes == wantCompletes
+	}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		stateMu.Lock()
+		defer stateMu.Unlock()
 		switch {
 		case r.URL.Path == "/v1/cli/auth/status":
 			writeJSONResponse(w, map[string]any{"authenticated": true, "user": map[string]any{"id": replicaPublicationTestCreatorID, "displayName": "Creator", "avatarUrl": nil}, "scopes": []string{"website-replica:read", "website-replica:write"}, "expiresAt": now.Add(time.Hour).Format(time.RFC3339)})
@@ -102,7 +113,7 @@ func TestReplicaRepairConfirmsOnlyPageAndResumesLostResponse(t *testing.T) {
 	}
 	args := []string{"replica", "repair-hosting", "--publication", replicaPublicationTestID, "--path", project}
 	code, out := run(args)
-	if code != 10 || creates != 0 || uploads != 0 {
+	if code != 10 || !countsAre(0, 0, 0) {
 		t.Fatalf("preview wrote: %d %s", code, out)
 	}
 	var response struct {
@@ -115,18 +126,18 @@ func TestReplicaRepairConfirmsOnlyPageAndResumesLostResponse(t *testing.T) {
 	}
 	confirmed := response.Error.Details.ConfirmArgs
 	code, out = run(confirmed)
-	if code == 0 || uploads != 1 || completes != 1 {
+	if code == 0 || !countsAre(1, 1, 1) {
 		t.Fatalf("lost response reported success: %d %s", code, out)
 	}
 	code, out = run(confirmed)
-	if code != 0 || creates != 2 || uploads != 1 || completes != 1 || !bytes.Contains(out, []byte("HOSTING_REPAIRED")) {
+	if code != 0 || !countsAre(2, 1, 1) || !bytes.Contains(out, []byte("HOSTING_REPAIRED")) {
 		t.Fatalf("resume failed: %d %s", code, out)
 	}
 	if err := os.WriteFile(html, []byte("<h1>Changed after review</h1>"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	code, out = run(confirmed)
-	if code != 2 || creates != 2 {
+	if code != 2 || !countsAre(2, 1, 1) {
 		t.Fatalf("changed page was uploaded: %d %s", code, out)
 	}
 }

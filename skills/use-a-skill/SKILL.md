@@ -5,6 +5,8 @@ description: 安装和使用可下载的 ViceMe Skill 版本。适用于查看�
 
 # 使用可下载的 ViceMe Skill
 
+首次调用 CLI 或判断 CLI 不存在前，必须先按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 查找现有 CLI；后续使用返回的完整路径。不得只凭 `command not found` 判定未安装或改走免 CLI 流程。
+
 这是用户端流程。面向用户的文字跟随用户当前语言；中文交流使用自然白话，不直接展示内部状态名、字段名或命令细节。
 
 不得把此流程转到 `sell-a-skill`、商家创作命令、平台生成的交易型购买 Skill 或云端 Runtime。一个可下载版本就是一个本地 Skill 包和一个独立 Product；用户只拥有自己购买的 Product。
