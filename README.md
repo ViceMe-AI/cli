@@ -291,7 +291,7 @@ Never copy an access token into the conversation.
 | `viceme replica resume <publication-id>` | Continue only the missing upload, verification, submission, or allowed retry step from authoritative state. |
 | `viceme replica cancel <publication-id>` | Cancel a Publication before activation and clean its local recoverable source. |
 | `viceme replica install <code> [--target <new-directory>]` | With an authenticated Profile, display the authoritative Quote before `--confirm`; add `--accept-price-cents <fen>` for anonymous checkout and `--payment-presented` only after its hosted payment page opens. Both paths atomically install the paid source. |
-| `viceme update` | Explicitly update the CLI. Refresh official Skills separately with `viceme install --agent auto`. |
+| `viceme update` | Update or repair the CLI and matching official Skills together. |
 | `viceme merchant accounts` | List ordinary MerchantAccounts where the current User is the OWNER member. |
 | `viceme merchant work ...` | Create, inspect, update, and publish Merchant Works, including Website Works. |
 | `viceme merchant page ...` | Validate, preview, publish, inspect, and roll back immutable custom Creator/Work page bundles. |
@@ -355,7 +355,7 @@ process that started the update. `meta.autoUpdate` may appear when startup
 recovery had to hand an already-started command to a newly committed CLI.
 
 After an ordinary command has emitted its response, a detached worker checks
-the stable release channel and updates only the CLI. The foreground command never waits
+the stable release channel and updates the CLI and matching official Skills. The foreground command never waits
 for release discovery or activation, and background launch, network,
 permission, or installation failures never replace its JSON response. A
 successful replacement is used by the next `viceme` process; it does not
@@ -363,10 +363,12 @@ require restarting the surrounding Codex, Claude Code, or WorkBuddy app.
 Checks are coalesced for 24 hours, while failed checks or updates become
 eligible for another background attempt after one hour.
 
-Official Skills are a separate lifecycle because an Agent usually loads them
-when a task starts. CLI auto-update therefore never rewrites Skill directories.
-Refresh them intentionally with `viceme install --agent auto`, then start a new
-Agent task when the host needs to rediscover the files.
+Both manual and automatic updates synchronize official Skills through the
+existing activation transaction. When the CLI is already current, the background
+worker checks the installed official Skills and repairs stale or missing copies;
+healthy installations are left alone. Agents may have loaded the old Skill text
+when a task started, so start a new task when the host needs to rediscover the
+refreshed files. `viceme install --agent auto` remains a Skill-only repair path.
 
 ```bash
 viceme update --check
@@ -374,17 +376,17 @@ viceme update
 viceme install --agent auto
 ```
 
-`viceme update` remains the explicit CLI repair command and keeps the same
-permission preflight and durable recovery rules. For compatibility,
-`viceme update --agent <target>` still requests a combined CLI and Skill
-repair, but new automation should keep the two commands separate.
+`viceme update` uses the `auto` Skill target by default and keeps the existing
+permission preflight and durable recovery rules. Use
+`viceme update --agent <target>` to select a specific Agent destination.
+`viceme update --check` only checks the release and does not refresh Skills.
 
 Permission preflight checks every path that the selected installation method
 will mutate before creating an activation journal. For npm this includes the
 configured cache, actual scoped global package, and launcher directories through
-Node so the host filesystem broker is preserved. For standalone CLI-only
-updates it checks the executable directory; a separate Skill install checks
-every selected Agent destination. A denied explicit-update preflight keeps the
+Node so the host filesystem broker is preserved. Standalone activation checks
+the executable directory, and Skill installation checks every selected Agent
+destination. A denied explicit-update preflight keeps the
 previous generation intact and requests host approval. A denied background
 attempt is recorded locally and does not affect the foreground command.
 Permission can still change after preflight, so any failure after an install
