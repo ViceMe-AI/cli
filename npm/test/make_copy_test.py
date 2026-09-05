@@ -346,8 +346,66 @@ class MakeCopyTest(unittest.TestCase):
                 sleeps.append,
             )
         self.assertEqual(raised.exception.code, "REPLICA_PAYMENT_TIMEOUT")
-        self.assertEqual(sleeps, [30, 30, 30, 30, 30, 30])
-        self.assertEqual(len(requests), 6)
+        self.assertEqual(sleeps, [15] * 12)
+        self.assertEqual(len(requests), 12)
+
+    def test_payment_is_detected_on_the_next_poll_without_waiting_for_timeout(self):
+        sleeps = []
+        replies = iter(["PENDING", "PAID"])
+        def request(*_args, **_kwargs):
+            return response(200, {"payment": {"status": next(replies)}})
+        make_copy.wait_for_payment(
+            make_copy.Authority("", "", "https://viceme.cn/api/v1"),
+            {"sessionId": "session", "sessionToken": "token", "orderNo": "order"},
+            request, sleeps.append,
+        )
+        self.assertEqual(sleeps, [15, 15])
+
+    def test_payment_presented_cannot_skip_a_new_checkout_page(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            def checkout(_authority, state, _store, _request):
+                state.update(orderNo=ORDER_NO, sessionId=VERSION_ID, sessionToken="token")
+                return {"orderNo": ORDER_NO, "status": "PENDING", "checkoutUrl": "https://viceme.cn/replica-checkout/test"}
+            sleeps = []
+            with mock.patch.object(make_copy, "state_root", return_value=root / "state"), mock.patch.object(
+                make_copy, "resolve_work", return_value=(f"VICEME-REPLICA:{SHORT_CODE}", replica())
+            ), mock.patch.object(make_copy, "try_recover_download", return_value=None), mock.patch.object(
+                make_copy, "ensure_checkout", side_effect=checkout
+            ), self.assertRaises(make_copy.WorkflowError) as raised:
+                make_copy.install(
+                    "https://viceme.cn/alice/site.md", 100, target_path=str(root / "copy"),
+                    payment_presented=True, sleep_fn=sleeps.append,
+                    request_fn=lambda *_args, **_kwargs: response(200, {"payment": {"status": "PENDING"}}),
+                )
+            self.assertEqual(raised.exception.code, "REPLICA_PAYMENT_REQUIRED")
+            self.assertEqual(raised.exception.details["nextAction"], "OPEN_PAYMENT_PAGE")
+            self.assertEqual(raised.exception.details["presentationTarget"], "AGENT_PLATFORM")
+            self.assertEqual(sleeps, [])
+
+    def test_presented_existing_order_installs_as_soon_as_payment_is_detected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            target = root / "copy"
+            authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+            sleeps = []
+            replies = iter(["PENDING", "PAID"])
+            def request(*_args, **_kwargs):
+                return response(200, {"payment": {"status": next(replies)}})
+            with mock.patch.object(make_copy, "state_root", return_value=root / "state"):
+                store = make_copy.state_store(authority, SHORT_CODE, target)
+                state = make_copy.initial_state(authority, f"VICEME-REPLICA:{SHORT_CODE}", replica(), target)
+                state.update(orderNo=ORDER_NO, sessionId=VERSION_ID, sessionToken="token")
+                make_copy.persist_state(store, state)
+                with mock.patch.object(make_copy, "resolve_work", return_value=(state["instruction"], replica())), mock.patch.object(
+                    make_copy, "recover_order_status", return_value={"payment": {"status": "PENDING"}}
+                ), mock.patch.object(make_copy, "try_recover_download", side_effect=[None, download()]), mock.patch.object(
+                    make_copy, "ensure_checkout", return_value={"orderNo": ORDER_NO, "status": "PENDING", "checkoutUrl": "https://viceme.cn/replica-checkout/test"}
+                ), mock.patch.object(make_copy, "complete_install", return_value={"target": str(target)}) as complete:
+                    result = make_copy.install(authority.work_url, 100, target_path=str(target), payment_presented=True, sleep_fn=sleeps.append, request_fn=request)
+            self.assertEqual(result["nextAction"], "DEPLOY")
+            self.assertEqual(sleeps, [15, 15])
+            complete.assert_called_once()
 
     @unittest.skipIf(os.name == "nt", "Unix process liveness fixture")
     def test_recovers_lock_left_by_terminated_process(self):
