@@ -172,7 +172,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"viceme replica publish", "viceme replica resume", ".viceme/website-replica.json", "let-me-make-a-copy",
 			},
 			semantics: []string{
-				"完整源码", "不修改创作者原站", "已提交，尚未发布", "PROCESSING",
+				"完整源码", "发布成功后修改创作者原站", "已提交，尚未发布", "PROCESSING",
 				"免费做同款", "付费做同款", "不得每次问一个字段并循环追问", "最终不可变发布确认",
 				"不处理买家购买和安装",
 			},
@@ -1023,7 +1023,7 @@ func TestWebsiteReplicaDelegatesBuyerStepsToIndependentSkill(t *testing.T) {
 	}
 }
 
-func TestWebsiteReplicaDoesNotMutateTheCreatorSite(t *testing.T) {
+func TestWebsiteReplicaConnectsCreatorSiteAfterPublication(t *testing.T) {
 	t.Parallel()
 
 	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-others-make-a-copy/SKILL.md")
@@ -1032,17 +1032,20 @@ func TestWebsiteReplicaDoesNotMutateTheCreatorSite(t *testing.T) {
 	}
 	text := string(content)
 	for _, required := range []string{
-		"做同款入口由 ViceMe 作品页宿主提供", "不修改创作者原站", "不要修改或部署创作者原站",
+		"发布成功后修改创作者原站", "result.workUrl", "右下角紧凑浮动入口",
+		"喜欢这个网站？作者已授权你一键复刻", "不重复插入", "原站入口未完成",
+		"不再次运行 publish", "不自动部署外部生产站", "不覆盖原 ZIP",
+		"仅在顶层页面展示", "在 iframe 内隐藏原站入口", "再次发布场景",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Website Replica Skill omitted creator-site boundary %q", required)
 		}
 	}
 	for _, forbidden := range []string{
-		"右下角紧凑浮动入口", "喜欢这个网站？作者已授权你一键复刻", "buyerEntry.prompts",
+		"不修改创作者原站", "不要修改或部署创作者原站", "buyerEntry.prompts",
 	} {
 		if strings.Contains(text, forbidden) {
-			t.Fatalf("Website Replica Skill retained creator-site mutation %q", forbidden)
+			t.Fatalf("Website Replica Skill retained obsolete creator-site prohibition %q", forbidden)
 		}
 	}
 }
