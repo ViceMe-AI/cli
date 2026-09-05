@@ -20,6 +20,12 @@ import (
 )
 
 func TestReplicaRepairConfirmsOnlyPageAndResumesLostResponse(t *testing.T) {
+	for _, status := range []string{"PUBLISHED_DEGRADED", "PUBLISHED"} {
+		t.Run(status, func(t *testing.T) { testReplicaRepairResumesLostResponse(t, status) })
+	}
+}
+
+func testReplicaRepairResumesLostResponse(t *testing.T, status string) {
 	now := time.Now().UTC().Truncate(time.Second)
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
@@ -30,7 +36,7 @@ func TestReplicaRepairConfirmsOnlyPageAndResumesLostResponse(t *testing.T) {
 	if err := os.WriteFile(html, []byte("<h1>Repaired</h1>"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	publication := replicaPublicationAPIResponse(now, "PUBLISHED_DEGRADED", "ACTIVATED")
+	publication := replicaPublicationAPIResponse(now, status, "ACTIVATED")
 	publication["rollback"] = map[string]any{"activePair": replicaVersionPair(replicaPublicationTestRequestID, replicaPublicationTestVersionID, 1, replicaPublicationTestWorkID, nil), "availablePairs": []any{}}
 	var original map[string]any
 	var repair map[string]any
@@ -140,4 +146,5 @@ func TestReplicaRepairConfirmsOnlyPageAndResumesLostResponse(t *testing.T) {
 	if code != 2 || !countsAre(2, 1, 1) {
 		t.Fatalf("changed page was uploaded: %d %s", code, out)
 	}
+
 }

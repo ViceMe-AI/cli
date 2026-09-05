@@ -72,8 +72,8 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
 - 技术回滚：从 `rollback.availablePairs` 选择可验证配对，向用户展示目标源码/页面与当前价格，确认后执行 `viceme replica rollback --publication <publication-id> --pair <pair-id>`。回滚不会恢复旧价格，不能猜 Pair ID。
 - 改价、下架、重新上架：分别用 `viceme replica price --replica <replica-id> --price-cents <cents>`、`viceme replica delist --replica <replica-id>`、`viceme replica relist --replica <replica-id>` 获取摘要。只在用户接受当前版本、价格和影响后原样执行 `REPLICA_SALES_CONFIRMATION_REQUIRED` 的完整确认命令。保留请求快照和请求 ID；响应丢失原样重试，不用新 CAS 配旧请求 ID。版本冲突先重新读状态再确认，不自动覆盖。
 - 下架停止新交易并移除平台托管页的做同款入口，托管作品本身保留；已购权益继续有效。改价前有效 Quote 保持原快照价格；重新上架复用当前源码版本，不发布重复制品。外部原站的静态按钮不会随平台状态自动移除；需要同步原站时按用户授权修改并单独部署。
-- 托管补发：只有当前活动源码对应的降级 Publication 进入此分支。读取平台修复口令，在本地修复页面并预览，生成可用静态输出或 WorkPage ZIP，再执行 `viceme replica repair-hosting --publication <publication-id> --path <project-or-WorkPage-ZIP>`。展示 `REPLICA_REPAIR_CONFIRMATION_REQUIRED` 的完整 review、页面摘要、原源码版本、URL、30分钟TTL与“只改页面，不改源码/价格/权益”。接受后执行返回的原始确认命令；中断也重跑该命令，不能用普通 publish 或 publication resume 代替托管修复。页面改变或TTL过期先读取状态，再生成新确认。
-- `RESUME_HOSTING_REPAIR` 仅表示补发未完成；`HOSTING_REPAIRED` 表示当前托管恢复。保留原 Publication `PUBLISHED_DEGRADED` 的失败审计，不宣称原终态被改写。`PREPARE_HOSTING_REPAIR` 要求修复本地页面，不自动创建循环补发。
+- 托管补发：当前活动源码对应的降级 Publication，或已发布但最初未上传页面的源码-only Publication，均通过此分支补齐托管。读取平台修复口令，在本地修复页面并预览，生成可用静态输出或 WorkPage ZIP，再执行 `viceme replica repair-hosting --publication <publication-id> --path <project-or-WorkPage-ZIP>`。展示 `REPLICA_REPAIR_CONFIRMATION_REQUIRED` 的完整 review、页面摘要、原源码版本、URL、30分钟TTL与“只改页面，不改源码/价格/权益”。接受后执行返回的原始确认命令；中断也重跑该命令，不能用普通 publish 或 publication resume 代替托管修复。页面改变或TTL过期先读取状态，再生成新确认。
+- `RESUME_HOSTING_REPAIR` 仅表示补发未完成；`HOSTING_REPAIRED` 表示当前托管恢复。保留原 Publication 的 `PUBLISHED` 或 `PUBLISHED_DEGRADED` 历史终态及审计，不宣称原终态被改写。`PREPARE_HOSTING_REPAIR` 要求修复本地页面，不自动创建循环补发。
 
 ## 完成报告
 
