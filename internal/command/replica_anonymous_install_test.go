@@ -199,7 +199,7 @@ func TestReplicaInspectFindsPaidStandaloneRecoveryWithoutExposingCredential(t *t
 			writeJSONResponse(writer, map[string]any{
 				"orderNo":     orderNo,
 				"payment":     map[string]any{"status": "PAID", "paidAt": time.Now().UTC().Format(time.RFC3339), "closedAt": nil},
-				"fulfillment": nil, "serviceCase": nil,
+				"fulfillment": nil,
 			})
 		default:
 			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
@@ -296,7 +296,7 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 			writeJSONResponse(writer, map[string]any{
 				"orderNo":     body.OrderNo,
 				"payment":     map[string]any{"status": "PENDING", "paidAt": nil, "closedAt": nil},
-				"fulfillment": nil, "serviceCase": nil,
+				"fulfillment": nil,
 			})
 		case "/v1/website-replica-sessions/cancel-order":
 			cancellationCalls++
@@ -308,14 +308,14 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 			writeJSONResponse(writer, map[string]any{
 				"orderNo":     body.OrderNo,
 				"payment":     map[string]any{"status": "CLOSED", "paidAt": nil, "closedAt": time.Now().UTC().Format(time.RFC3339)},
-				"fulfillment": nil, "serviceCase": nil,
+				"fulfillment": nil,
 			})
 		case "/v1/website-replica-sessions/" + sessionIDs[1] + "/orders/" + orderNos[1] + "/status":
 			statusCalls++
 			writeJSONResponse(writer, map[string]any{
 				"orderNo":     orderNos[1],
 				"payment":     map[string]any{"status": "PENDING", "paidAt": nil, "closedAt": nil},
-				"fulfillment": nil, "serviceCase": nil,
+				"fulfillment": nil,
 			})
 		case "/v1/website-replica-sessions/recover-download":
 			var body api.RecoverWebsiteReplicaDownloadRequest
@@ -447,7 +447,7 @@ func TestReplicaSessionPaymentContinuesAsSoonAsPaid(t *testing.T) {
 		if calls == 2 {
 			status = "PAID"
 		}
-		writeJSONResponse(writer, map[string]any{"orderNo": orderNo, "payment": map[string]any{"status": status, "paidAt": nil, "closedAt": nil}, "fulfillment": nil, "serviceCase": nil})
+		writeJSONResponse(writer, map[string]any{"orderNo": orderNo, "payment": map[string]any{"status": status, "paidAt": nil, "closedAt": nil}, "fulfillment": nil})
 	}))
 	defer server.Close()
 	started := time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
