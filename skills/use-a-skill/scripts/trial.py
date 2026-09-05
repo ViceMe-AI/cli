@@ -41,6 +41,7 @@ import urllib.parse
 import urllib.request
 import uuid
 import zipfile
+from contextlib import contextmanager
 
 SCRIPT_ORIGIN = {
     "cn": "https://s3.viceme.cn",
@@ -61,6 +62,7 @@ GATE_END = "<!-- /viceme-trial:v1 -->"
 RUNTIME_PATH = "references/viceme-runtime.md"
 RUNTIME_MARKER = "<!-- viceme-trial-runtime:v1"
 GATE_TAIL = "转正，再继续任务。"
+DISABLED_MARKER = "<!-- viceme-trial-disabled:v1"
 
 HTTP_TIMEOUT = 30
 MAX_FILES = 1000
@@ -308,7 +310,13 @@ def command_install(market, product_id, agent="auto"):
     if kind == "trial":
         inject_trial_gate(files, market, product_id)
     installed_name = resolve_installed_name(files, access)
-    roots = install_to_roots(files, installed_name, product_id, release.get("id", ""), agent)
+    # 与 Go 的正式版安装/停用共锁,防止耗尽响应覆盖刚安装的正式版。
+    with ProductLock(product_id):
+        roots = install_to_roots(files, installed_name, product_id, release.get("id", ""), agent)
+        if kind == "trial":
+            for root, skip in roots:
+                if not skip:
+                    verify_installed_trial_gate(root, files)
     succeeded = [root for root, skip in roots if not skip]
     if not succeeded:
         # 全部目标都被拒绝覆盖(非 ViceMe 管理/属其他 Product)时,一个文件都没
@@ -318,10 +326,6 @@ def command_install(market, product_id, agent="auto"):
             "没有可写入的目标目录,未安装任何文件;跳过原因见 skipped 字段",
             skipped=[{"root": root, "reason": skip} for root, skip in roots if skip],
         )
-    if kind == "trial":
-        # 安装成功必须意味着入口和完整规则都已落盘,不能只检查一个注释标记。
-        for root in succeeded:
-            verify_installed_trial_gate(root, files)
 
     result = {
         "action": "installed",
@@ -415,8 +419,12 @@ def command_use(market, product_id):
             "/v1/skills/%s/trial-use" % urllib.parse.quote(product_id, safe=""),
             {"installId": state["installId"], "secret": state["secret"], "requestId": request_id},
         )
+        validate_trial_use(use)
         state.pop("pendingRequestId", None)
         save_trial_state(product_id, state)
+        disabled_count = 0
+        if use["allowed"] is False:
+            disabled_count = suspend_trial_skills(market, product_id, use["purchaseUrl"])
 
     if use.get("allowed"):
         remaining = use.get("remainingUses")
@@ -435,8 +443,24 @@ def command_use(market, product_id):
         "purchaseUrl": purchase_url,
         "installDocUrl": install_doc_url(market),
         "nextAction": "PURCHASE_REQUIRED",
+        "disabledSkillCount": disabled_count,
         "message": "试用已用完。停止使用本技能,把购买链接给用户引导付款;付款后按官方安装契约安装 ViceMe CLI,用 viceme skill install %s --owned 安装正式版(本脚本无法安装已购版本)" % product_id,
     })
+
+
+def validate_trial_use(use):
+    valid = isinstance(use, dict) and type(use.get("allowed")) is bool
+    if valid and use["allowed"]:
+        valid = type(use.get("remainingUses")) is int and use["remainingUses"] >= 0 and type(use.get("limitUses")) is int and use["limitUses"] > 0
+    elif valid:
+        try:
+            purchase = urllib.parse.urlsplit(use.get("purchaseUrl") or "")
+            valid = use.get("reason") == "EXHAUSTED" and purchase.scheme in ("http", "https") and bool(purchase.netloc) and purchase.username is None
+        except (TypeError, ValueError):
+            valid = False
+    if not valid:
+        # 不确认 pending,更不能根据缺失字段或网络错误去停用本地技能。
+        raise Failure("TRIAL_USE_RESPONSE_INVALID", "试用检查响应不完整,请重试本次检查")
 
 
 # ---------------------------------------------------------------------------
@@ -540,6 +564,163 @@ def verify_installed_trial_gate(root, files):
             valid = False
         if not valid:
             raise Failure("TRIAL_GATE_INVALID", "使用检查未完整写入,请重新安装后再使用", file=name)
+
+
+def suspension_roots():
+    # 不按当前调用方筛选:该商品之前可能由另一工具安装。包含 Go 支持的
+    # 自定义根,但从不遍历根目录之外或猜测任意用户工作区。
+    roots = target_roots("all")
+    for variable in ("CODEX_HOME", "CLAUDE_CONFIG_DIR", "WORKBUDDY_CONFIG_DIR"):
+        if os.environ.get(variable):
+            roots.append(os.path.join(os.environ[variable], "skills"))
+    if os.environ.get("VICEME_AGENTS_SKILLS_DIR"):
+        roots.append(os.environ["VICEME_AGENTS_SKILLS_DIR"])
+    return sorted({os.path.realpath(root) for root in roots})
+
+
+def trial_product_owns_directory(directory, product_id):
+    manifest_path = os.path.join(directory, ".viceme", "install-manifest.json")
+    try:
+        for path in (directory, os.path.join(directory, ".viceme"), manifest_path):
+            if stat.S_ISLNK(os.lstat(path).st_mode):
+                return False
+        with open(manifest_path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        return isinstance(manifest, dict) and manifest.get("product_id") == product_id and bool(manifest.get("release_id"))
+    except (OSError, ValueError):
+        return False
+
+
+def suspended_trial_markdown(original, skill_name, product_id, purchase_url, market):
+    if frontmatter_name({"SKILL.md": (original, 0o644)}) != skill_name:
+        return None
+    lines = original.splitlines(keepends=True)
+    if not lines or lines[0].rstrip(b"\r\n") != b"---":
+        return None
+    for index in range(1, len(lines)):
+        if lines[index].rstrip(b"\r\n") == b"---":
+            prefix = b"".join(lines[:index + 1])
+            break
+    else:
+        return None
+    try:
+        body = original[len(prefix):].decode("utf-8").replace("\r\n", "\n").lstrip("\n")
+    except UnicodeDecodeError:
+        return None
+    disabled = "%s product=%s -->" % (DISABLED_MARKER, product_id)
+    if body.startswith(disabled + "\n"):
+        return original
+    active = "%s product=%s -->\n\n" % (GATE_MARKER, product_id)
+    if not body.startswith((active + "## 使用前必读\n", active + "## 试用版使用规则（viceme-trial）\n")):
+        return None
+    safe_url = purchase_url.replace("<", "%3C").replace(">", "%3E").replace("\r", "%0D").replace("\n", "%0A")
+    notice = (
+        "%s\n\n# 试用已结束\n\n"
+        "本技能的免费试用次数已用完，当前已停用。不得继续执行原技能任务，也不得调用目录中保留的脚本或参考资料来继续试用。\n\n"
+        "请打开[购买页面](<%s>)完成购买。然后按[官方安装说明](<%s>)安装或更新 ViceMe CLI，登录购买时使用的账号，运行 `viceme skill install %s --owned` 安装正式版。\n\n"
+        "正式版安装成功后，重新读取 SKILL.md 再继续任务。重装试用版不会恢复试用次数。\n"
+    ) % (disabled, safe_url, install_doc_url(market), product_id)
+    if original.startswith(b"---\r\n"):
+        notice = notice.replace("\n", "\r\n")
+    return prefix + notice.encode("utf-8")
+
+
+def suspend_trial_skills(market, product_id, purchase_url):
+    """调用方持有 ProductLock;只替换同 Product 的已确认试用入口。"""
+    count = 0
+    try:
+        for root in suspension_roots():
+            try:
+                with os.scandir(root) as scan:
+                    directories = sorted(entry.path for entry in scan if "." not in entry.name and entry.is_dir(follow_symlinks=False))
+            except FileNotFoundError:
+                continue
+            for directory in directories:
+                if not trial_product_owns_directory(directory, product_id):
+                    continue
+                with skill_path_lock(directory):
+                    count += int(suspend_trial_entry(directory, market, product_id, purchase_url))
+    except OSError:
+        raise Failure(
+            "TRIAL_SUSPEND_FAILED", "试用已用完,但未能安全停用全部入口;请停止使用,通过宿主授权后重试,或安装已购正式版",
+            disabledSkillCount=count,
+        ) from None
+    return count
+
+
+@contextmanager
+def skill_path_lock(directory):
+    # 镜像 skillcontent.installPathLockFilename 与 gofrs/flock:Unix flock,
+    # Windows 在 offset 0 锁 1 字节。覆盖不持有 ProductLock 的原生安装恢复。
+    normalized = os.path.realpath(directory)
+    if os.name == "nt":
+        normalized = normalized.lower()
+    digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+    lock_path = os.path.join(os.path.dirname(normalized), ".viceme-install-%s.lock" % digest)
+    descriptor = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(descriptor, msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        try:
+            with open(lock_path + ".owner", encoding="utf-8") as handle:
+                owner = handle.read()
+                if owner.endswith("\n"):
+                    owner = owner[:-1]
+        except FileNotFoundError:
+            owner = None
+        if owner is not None and (not os.path.isabs(owner) or "\n" in owner or "\r" in owner or os.path.lexists(owner)):
+            raise OSError("an unfinished install transaction owns the Skill")
+        yield
+    finally:
+        os.close(descriptor)  # Closing releases the process lock, not its file.
+
+
+def suspend_trial_entry(directory, market, product_id, purchase_url):
+    if not trial_product_owns_directory(directory, product_id):
+        return False
+    filename = os.path.join(directory, "SKILL.md")
+    try:
+        info = os.lstat(filename)
+    except FileNotFoundError:
+        return False
+    if not stat.S_ISREG(info.st_mode):
+        return False
+    with open(filename, "rb") as handle:
+        original = handle.read()
+    replacement = suspended_trial_markdown(original, os.path.basename(directory), product_id, purchase_url, market)
+    if replacement is None:
+        return False
+    if replacement == original:
+        return True
+    staged = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="wb", prefix=".viceme-trial-suspend-", dir=directory, delete=False) as handle:
+            staged = handle.name
+            handle.write(replacement)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(staged, stat.S_IMODE(info.st_mode))
+        with open(filename, "rb") as handle:
+            unchanged = handle.read() == original
+        if not unchanged or not trial_product_owns_directory(directory, product_id):
+            raise OSError("Skill changed before trial suspension")
+        # 不退回原地截断:权限拒绝时保留完整旧文件,交给宿主审批。
+        os.replace(staged, filename)
+        staged = None
+        with open(filename, "rb") as handle:
+            if handle.read() != replacement:
+                raise OSError("trial suspension readback failed")
+        return True
+    finally:
+        if staged is not None:
+            try:
+                os.remove(staged)
+            except OSError:
+                pass
 
 
 def frontmatter_name(files):

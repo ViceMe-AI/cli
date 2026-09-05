@@ -37,6 +37,11 @@ PRODUCT_ID = "33709ab2-2246-4033-a41e-7b21d96bccb7"
 
 
 AGENT_MARKER_KEYS = [
+    # Keep suspension scans isolated from the developer's configured roots.
+    "CODEX_HOME",
+    "CLAUDE_CONFIG_DIR",
+    "WORKBUDDY_CONFIG_DIR",
+    "VICEME_AGENTS_SKILLS_DIR",
     "CODEBUDDY_SESSION_ID",
     "CODEBUDDY_SANDBOX_BROKER_SESSION_ID",
     "WORKBUDDY_SESSION_ID",
@@ -733,7 +738,7 @@ class InstallFlowTestCase(unittest.TestCase):
                     used += 1
                 return {
                     "allowed": allowed, "limitUses": 2, "remainingUses": 2 - used,
-                    "reason": None if allowed else "TRIAL_EXHAUSTED",
+                    "reason": None if allowed else "EXHAUSTED",
                     "purchaseUrl": "https://shop.example.test/purchase",
                 }
             result = self._api(market, method, path, body)
@@ -754,6 +759,9 @@ class InstallFlowTestCase(unittest.TestCase):
         with mock.patch.object(trial, "api_request", side_effect=counting_api), \
                 mock.patch.object(trial, "http_download", return_value=self.archive_bytes):
             run("install")
+            entry = os.path.join(self.home, ".workbuddy", "skills", "my-skill", "SKILL.md")
+            with open(entry, "rb") as handle:
+                original = handle.read()
             self.assertEqual(used, 0, "installation must not consume a use")
             first = run("use")
             self.assertTrue(first["allowed"])
@@ -763,15 +771,129 @@ class InstallFlowTestCase(unittest.TestCase):
             self.assertTrue(last["allowed"])
             self.assertTrue(last["lastUse"])
             self.assertEqual(last["remainingUses"], 0)
+            with open(entry, "rb") as handle:
+                self.assertEqual(handle.read(), original, "the last allowed use must keep the full Skill")
             for _ in range(2):
                 denied = run("use")
                 self.assertFalse(denied["allowed"])
                 self.assertEqual(denied["nextAction"], "PURCHASE_REQUIRED")
                 self.assertEqual(denied["purchaseUrl"], "https://shop.example.test/purchase")
                 self.assertIn("viceme skill install %s --owned" % PRODUCT_ID, denied["message"])
+                self.assertEqual(denied["disabledSkillCount"], 1)
+                with open(entry, "rb") as handle:
+                    disabled = handle.read()
+                self.assertIn(trial.DISABLED_MARKER.encode(), disabled)
+                self.assertNotIn(b"\nbody", disabled)
                 self.assertEqual(run("install")["trial"]["remainingUses"], 0)
             self.assertEqual(len(install_ids), 1, "reinstall must reuse the same grant")
             self.assertEqual(used, 2)
+
+    def _install_trial_fixture(self):
+        with mock.patch.object(trial, "api_request", side_effect=self._api), \
+                mock.patch.object(trial, "http_download", return_value=self.archive_bytes), redirect_stdout(io.StringIO()):
+            self.assertEqual(trial.run(["install", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy"]), 0)
+        return os.path.join(self.home, ".workbuddy", "skills", "my-skill")
+
+    def test_suspension_preserves_metadata_and_all_non_entry_files(self):
+        directory = self._install_trial_fixture()
+        entry = os.path.join(directory, "SKILL.md")
+        with open(entry, "rb") as handle:
+            original = handle.read()
+        original = original.replace(b"\n", b"\r\n")
+        with open(entry, "wb") as handle:
+            handle.write(original)
+        with open(os.path.join(directory, "user-output.txt"), "wb") as handle:
+            handle.write(b"user output")
+        before = {}
+        for current, _, names in os.walk(directory):
+            for name in names:
+                path = os.path.join(current, name)
+                with open(path, "rb") as handle:
+                    before[path] = handle.read()
+        credential = trial.load_trial_state(PRODUCT_ID)
+        with trial.ProductLock(PRODUCT_ID):
+            self.assertEqual(trial.suspend_trial_skills("cn", PRODUCT_ID, "https://shop.example.test/buy"), 1)
+        prefix = original.split(b"\r\n---\r\n", 1)[0] + b"\r\n---\r\n"
+        with open(entry, "rb") as handle:
+            disabled = handle.read()
+        self.assertTrue(disabled.startswith(prefix))
+        self.assertNotIn(b"\r\nbody", disabled)
+        self.assertIn(b"--owned", disabled)
+        self.assertEqual(trial.load_trial_state(PRODUCT_ID), credential)
+        for path, data in before.items():
+            if path != entry:
+                with open(path, "rb") as handle:
+                    self.assertEqual(handle.read(), data, path)
+        with trial.ProductLock(PRODUCT_ID):
+            self.assertEqual(trial.suspend_trial_skills("cn", PRODUCT_ID, "https://shop.example.test/buy"), 1)
+        with open(entry, "rb") as handle:
+            self.assertEqual(handle.read(), disabled)
+
+    def test_failed_or_malformed_check_does_not_suspend_and_keeps_pending(self):
+        directory = self._install_trial_fixture()
+        entry = os.path.join(directory, "SKILL.md")
+        with open(entry, "rb") as handle:
+            original = handle.read()
+        for result in (
+            {}, {"allowed": False},
+            {"allowed": False, "reason": "UNKNOWN", "purchaseUrl": "https://shop.example.test/buy"},
+            {"reason": "EXHAUSTED", "purchaseUrl": "https://shop.example.test/buy"},
+            trial.Failure("NETWORK_ERROR", "network unavailable"),
+        ):
+            with self.subTest(result=result):
+                options = {"side_effect": result} if isinstance(result, Exception) else {"return_value": result}
+                with mock.patch.object(trial, "api_request", **options), redirect_stdout(io.StringIO()):
+                    self.assertEqual(trial.run(["use", "--product", PRODUCT_ID, "--market", "cn"]), 1)
+                self.assertIn("pendingRequestId", trial.load_trial_state(PRODUCT_ID))
+                with open(entry, "rb") as handle:
+                    self.assertEqual(handle.read(), original)
+
+    def test_permission_refusal_does_not_truncate_entry_or_claim_suspension(self):
+        directory = self._install_trial_fixture()
+        entry = os.path.join(directory, "SKILL.md")
+        with open(entry, "rb") as handle:
+            original = handle.read()
+        real_replace = os.replace
+
+        def deny_entry(source, destination):
+            if os.path.realpath(destination) == os.path.realpath(entry):
+                raise PermissionError("private path must not appear")
+            return real_replace(source, destination)
+
+        with mock.patch.object(trial, "api_request", return_value={"allowed": False, "reason": "EXHAUSTED", "purchaseUrl": "https://shop.example.test/buy"}), \
+                mock.patch.object(trial.os, "replace", side_effect=deny_entry):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = trial.run(["use", "--product", PRODUCT_ID, "--market", "cn"])
+        result = json.loads(output.getvalue())
+        self.assertEqual(code, 1)
+        self.assertEqual(result["code"], "TRIAL_SUSPEND_FAILED")
+        self.assertEqual(result["disabledSkillCount"], 0)
+        self.assertNotIn("private path", output.getvalue())
+        with open(entry, "rb") as handle:
+            self.assertEqual(handle.read(), original)
+
+    def test_suspension_skips_formal_foreign_and_unmanaged_entries(self):
+        directory = self._install_trial_fixture()
+        for kind in ("formal", "foreign", "unmanaged"):
+            with self.subTest(kind=kind):
+                content = b"---\nname: my-skill\n---\n# Formal author instructions\n"
+                if kind != "formal":
+                    files = {"SKILL.md": (content, 0o644)}
+                    trial.inject_trial_gate(files, "cn", PRODUCT_ID)
+                    content = files["SKILL.md"][0]
+                with open(os.path.join(directory, "SKILL.md"), "wb") as handle:
+                    handle.write(content)
+                manifest = os.path.join(directory, ".viceme", "install-manifest.json")
+                if kind == "unmanaged":
+                    os.remove(manifest)
+                else:
+                    with open(manifest, "w", encoding="utf-8") as handle:
+                        json.dump({"product_id": "other-product" if kind == "foreign" else PRODUCT_ID, "release_id": "release-1"}, handle)
+                with trial.ProductLock(PRODUCT_ID):
+                    self.assertEqual(trial.suspend_trial_skills("cn", PRODUCT_ID, "https://shop.example.test/buy"), 0)
+                with open(os.path.join(directory, "SKILL.md"), "rb") as handle:
+                    self.assertEqual(handle.read(), content)
 
     def test_install_reports_failure_when_every_target_is_skipped(self):
         # 唯一目标 .agents/skills/my-skill 已被非 ViceMe 管理目录占用:

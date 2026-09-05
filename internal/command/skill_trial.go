@@ -98,7 +98,11 @@ func acquireScriptTrialLock(lockPath string) (*os.File, error) {
 }
 
 func withScriptTrialLock(runtime *Runtime, productID string, action func() error) error {
-	lockPath := scriptTrialCredentialPath(runtime, productID) + ".lock"
+	return withScriptTrialLockAt(runtime.deps.Environment.Home, productID, action)
+}
+
+func withScriptTrialLockAt(home, productID string, action func() error) error {
+	lockPath := filepath.Join(home, ".viceme", "trial", productID+".json.lock")
 	handle, err := acquireScriptTrialLock(lockPath)
 	if err != nil {
 		return err
@@ -534,7 +538,19 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 	var wait time.Duration
 	command := &cobra.Command{
 		Use: "use <product-id-or-work-url>", Short: "Consume one trial use of a Skill edition and gate further use", Args: cobra.ExactArgs(1),
-		RunE: func(command *cobra.Command, args []string) error {
+		RunE: func(command *cobra.Command, args []string) (resultErr error) {
+			disabledCount := 0
+			defer func() {
+				var failure *output.Error
+				if disabledCount > 0 && errors.As(resultErr, &failure) {
+					details, _ := failure.Details.(map[string]any)
+					if details == nil {
+						details = map[string]any{}
+					}
+					details["disabledSkillCount"] = disabledCount
+					failure.WithDetails(details)
+				}
+			}()
 			productID, _, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
 			if err != nil {
 				return err
@@ -604,6 +620,17 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 					ProductID: productID, Allowed: true, RemainingUses: use.RemainingUses, LimitUses: use.LimitUses, LastUse: lastUse,
 					NextAction: "CONTINUE_TASK",
 				})
+			}
+			if use.Reason != nil && *use.Reason == "EXHAUSTED" && use.PurchaseURL != nil {
+				err := withScriptTrialLock(runtime, productID, func() error {
+					var suspendErr error
+					disabledCount, suspendErr = skillcontent.SuspendTrialSkills(runtime.deps.Environment, productID, *use.PurchaseURL, config.AgentInstallDocURL(runtime.region))
+					return suspendErr
+				})
+				if err != nil {
+					return output.Internal("SKILL_TRIAL_SUSPEND_FAILED", "trial exhausted; could not safely replace every trial Skill entrypoint", err).
+						WithHint("stop using the Skill; request filesystem permission through the host and retry, or install the purchased edition with --owned")
+				}
 			}
 			// 试用耗尽:购买需要买家登录授权,然后走既有扫码购买闭环。
 			if err := runtime.requireBuyerAuthentication(command.Context()); err != nil {

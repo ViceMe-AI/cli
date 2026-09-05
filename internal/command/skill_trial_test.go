@@ -676,6 +676,10 @@ func TestSkillUseConsumesTrialThenClosesPurchaseAndReinstallsCanonicalPackage(t 
 	if data["lastUse"] != true {
 		t.Fatalf("last trial use was not flagged: %#v", data)
 	}
+	lastEntry, err := os.ReadFile(filepath.Join(home, ".codex", "skills", "free-test", "SKILL.md"))
+	if err != nil || !bytes.Contains(lastEntry, []byte("# Free Test Skill")) || bytes.Contains(lastEntry, []byte(skillcontent.TrialDisabledMarker)) {
+		t.Fatalf("last allowed use must retain the full Skill: %v", err)
+	}
 
 	// 第三次预检:耗尽 → 扫码支付 → 支付成功后转正并移除门禁。
 	exit, envelope, stderr := executeSkillTrialCommand(t, state.server, home, store,
@@ -708,12 +712,54 @@ func TestSkillUseConsumesTrialThenClosesPurchaseAndReinstallsCanonicalPackage(t 
 		if bytes.Contains(content, []byte(skillTrialGateMarker)) {
 			t.Fatalf("trial gate survived the purchase in %s", path)
 		}
+		if bytes.Contains(content, []byte(skillcontent.TrialDisabledMarker)) {
+			t.Fatalf("disabled entry survived the canonical paid reinstall in %s", path)
+		}
 		if _, err := os.Stat(filepath.Join(filepath.Dir(path), skillTrialRuntimePath)); !errors.Is(err, os.ErrNotExist) {
 			t.Fatalf("trial rules survived purchase: %v", err)
 		}
 		if !bytes.Contains(content, []byte("Owned Current Skill")) || bytes.Contains(content, []byte("Free Test Skill")) {
 			t.Fatalf("the canonical owned package did not replace the trial package in %s: %q", path, content)
 		}
+	}
+}
+
+func TestTrialExhaustionSuspendsBeforeBuyerAuthentication(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+	home := t.TempDir()
+	store := securestore.NewMemory()
+	exit, envelope, _ := executeSkillTrialCommand(t, state.server, home, store, "skill", "install", downloadableProductID, "--agent", "codex")
+	if exit != 0 {
+		t.Fatalf("install failed: %#v", envelope)
+	}
+	credential, _ := store.Get(skillTrialStoreKey(downloadableProductID))
+	state.mu.Lock()
+	state.grantUses = state.trialLimit
+	state.mu.Unlock()
+	exit, envelope, _ = executeSkillTrialCommand(t, state.server, home, store, "skill", "use", downloadableProductID, "--wait", "0")
+	if exit == 0 {
+		t.Fatalf("exhausted anonymous trial was allowed: %#v", envelope)
+	}
+	failure, _ := envelope["error"].(map[string]any)
+	details, _ := failure["details"].(map[string]any)
+	if details["disabledSkillCount"] != float64(2) {
+		t.Fatalf("failure omitted the completed suspension: %#v", envelope)
+	}
+	for _, root := range []string{".codex", ".agents"} {
+		directory := filepath.Join(home, root, "skills", "free-test")
+		content, err := os.ReadFile(filepath.Join(directory, "SKILL.md"))
+		if err != nil || !bytes.Contains(content, []byte(skillcontent.TrialDisabledMarker)) || bytes.Contains(content, []byte("# Free Test Skill")) {
+			t.Fatalf("trial entry was not suspended: %q, %v", content, err)
+		}
+		if _, err := os.Stat(filepath.Join(directory, "scripts", "run.sh")); err != nil {
+			t.Fatalf("suspension removed scripts: %v", err)
+		}
+	}
+	after, _ := store.Get(skillTrialStoreKey(downloadableProductID))
+	if after != credential {
+		t.Fatal("suspension changed the quota credential")
 	}
 }
 
