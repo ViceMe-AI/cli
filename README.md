@@ -275,6 +275,7 @@ Never copy an access token into the conversation.
 | `viceme publication publish ...` | Make a confirmed listing public. |
 | `viceme replica preview [--path <project> \| --url <loopback-url>]` | Open the anonymous ViceMe preview shell around a local website before sign-in or upload; a CLI-owned dev server runs only until the command exits, and the opened browser remains the authority for visual verification. |
 | `viceme replica publish --path <project-or-zip> ...` | In the CN market, check and preview a project (existing ZIPs are validated and privately extracted for preview), freeze its source, and return one 30-minute final review. Rerun the reported command with the exact `--confirm` version to upload and submit it; `PROCESSING` means submitted but not published. |
+| `viceme replica repair-hosting --publication <ID> --path <project-or-WorkPage-ZIP>` | Review page-only hosting repair, then run the returned confirmation command. Interrupted attempts reuse the original request; source and buyer rights remain unchanged. |
 | `viceme replica status <publication-id>` | Read authoritative Website Replica Publication state and complete the stable local binding after a published terminal state. |
 | `viceme replica resume <publication-id>` | Continue only the missing upload, verification, submission, or allowed retry step from authoritative state. |
 | `viceme replica cancel <publication-id>` | Cancel a Publication before activation and clean its local recoverable source. |
