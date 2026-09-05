@@ -270,6 +270,11 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		if err != nil {
 			return replicaPublicationPresentation{}, err
 		}
+		if len(hostedPage.Bytes) == 0 {
+			return replicaPublicationPresentation{}, output.Validation("REPLICA_HOSTED_PAGE_REQUIRED", "website publication requires a deployable static HTML page; no artifact was uploaded").WithDetails(map[string]any{
+				"nextAction": "PREPARE_HOSTED_PAGE",
+			}).WithHint("prepare and review the project's static output, then rerun the same publish command; source-only publication requires an explicit --replica-only choice")
+		}
 	}
 	clientRequestID := ""
 	creatorApplicationRequestID := ""
@@ -319,7 +324,6 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		Confirmation: nil,
 	}
 	if len(hostedPage.Bytes) > 0 {
-		request.AllowAutomaticDegradation = true
 		request.Page = &api.WebsiteReplicaPublicationSourceArtifact{
 			FileName: hostedPage.Artifact.FileName, ContentType: hostedPage.Artifact.ContentType,
 			SizeBytes: hostedPage.Artifact.SizeBytes, Digest: hostedPage.Artifact.Digest,
@@ -709,7 +713,7 @@ func validateConfirmedReplicaRequest(options replicaPublishOptions, pending repl
 		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "the approved preview changed after the final review; no source was uploaded").
 			WithHint("rerun without --confirm to review the new preview and generate a fresh final review")
 	}
-	if options.ReplicaOnly && pending.Hosting != "REPLICA_ONLY" {
+	if (options.ReplicaOnly || options.ConfirmUnverifiedPreview) != (pending.Hosting == "REPLICA_ONLY") {
 		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "hosting selection changed after the final review; no artifact was uploaded").
 			WithHint("rerun the changed publish command without --confirm to freeze it and generate a new final review")
 	}

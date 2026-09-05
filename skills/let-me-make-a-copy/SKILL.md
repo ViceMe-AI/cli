@@ -30,7 +30,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 ## 读取作品
 
 1. 提取邀请中的唯一官方 HTTPS 作品 `.md` 地址；不得从页面文案复制或猜测 `VICEME-REPLICA:VMR-...` 口令。
-2. 先按 [CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 找到现有命令；本地未安装官方 Skill 时使用同一流程的云端定位脚本。找到后沿用完整路径运行 `viceme version` 并使用 `viceme replica inspect "<work.md URL>"`；CLI 会从公开 Work API 读取平台控制的 Replica entry，并检查私有 standalone 凭证，只有服务端确认原订单已支付时才返回 `standaloneRecoveryAvailable=true`。只有定位退出 127 或版本明确不兼容时，才按作品 Origin 选择上方唯一对应的 `<script-url>`，并选择 Python 3.9 或更高版本解释器：macOS/Linux 优先 `python3`，Windows 优先 `py -3`、其次 `python`。macOS/Linux 命令为：
+2. 先按 [CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 找到现有命令；本地未安装官方 Skill 时使用同一流程的云端定位脚本。找到后沿用完整路径运行 `viceme version` 并使用 `viceme replica inspect "<work.md URL>"`；CLI 会从公开 Work API 读取平台控制的 Replica entry，仅获取公开作品信息，不读取私有购买凭证或查询原订单。只有定位退出 127 或版本明确不兼容时，才按作品 Origin 选择上方唯一对应的 `<script-url>`，并选择 Python 3.9 或更高版本解释器：macOS/Linux 优先 `python3`，Windows 优先 `py -3`、其次 `python`。macOS/Linux 命令为：
 
    ```bash
    curl -fsS <script-url> | <python-command> - start --work-url <work.md URL>
@@ -38,16 +38,16 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
    `-` 让 Python 从标准输入读取脚本，后续参数照常传入，不依赖 bash/zsh 的进程替换。Windows 将同一 URL 下载到当前用户私有临时文件，以 `<python-command> <temporary-script>` 运行并在本次流程结束后删除；不得保存到 Agent Skill 目录。脚本只使用 Python 标准库，不得执行 `pip install`、跟随重定向或从作品站点下载替代脚本。后续 `<script-runner>` 指本步骤确定的标准输入管道命令或私有临时脚本，且同一任务始终使用同一区域来源。
 
-3. CLI `inspect` 或 Python `start` 必须返回 `nextAction=CONFIRM_INLINE_PREVIEW`；先在正文内容区展示创作者、作品标题、简介、币种和当前价格，再按“用户交互”只提供“继续做同款 / 暂不继续”，不得打开 `workUrl`。当前阶段不判断作品页是否由 ViceMe 托管；待平台提供权威托管字段后再扩展打开页面的分支。Python `start` 会自行完成作品解析和已支付恢复检查，用户不需要单独运行检查命令。
+3. CLI `inspect` 或 Python `start` 必须返回 `nextAction=CONFIRM_INLINE_PREVIEW`；先在正文内容区展示创作者、作品标题、简介、币种和当前价格，再按“用户交互”只提供“继续做同款 / 暂不继续”，不得打开 `workUrl`。当前阶段不判断作品页是否由 ViceMe 托管；待平台提供权威托管字段后再扩展打开页面的分支。Python `start` 只解析公开作品信息，不读取私有购买凭证或查询原订单。
 
-Python `start` 读取既有 standalone 私有恢复凭证时可能触发宿主的敏感凭证权限卡片；这是保护恢复密钥的正常安全边界，不是流程失败。立即暂停其他动作并等待用户选择，可说明“允许加密访问（推荐）”能让命令使用凭证而不向模型暴露明文，但不得自行选择、展示凭证内容、改动凭证位置或改用普通文件读取绕过权限。用户禁止访问、权限结果不明确或读取失败时进入 `STOP_AND_REPORT`；不得改用 CLI、匿名路径或新订单，以免绕过已有已支付恢复。
+用户确认继续后，CLI `inspect --check-recovery` 或 Python `install` 读取既有 standalone 私有恢复凭证时可能触发宿主的敏感凭证权限卡片；这是保护恢复密钥的正常安全边界，不是流程失败。立即暂停其他动作并等待用户选择，可说明“允许加密访问（推荐）”能让命令使用凭证而不向模型暴露明文，但不得自行选择、展示凭证内容、改动凭证位置或改用普通文件读取绕过权限。用户禁止访问、权限结果不明确或读取失败时进入 `STOP_AND_REPORT`；不得改用 CLI、匿名路径或新订单，以免绕过已有已支付恢复。
 
 ## 选择执行引擎
 
 用户确认后才选择引擎，且订单一旦创建不得切换：
 
-1. 预览结果返回 `standaloneRecoveryAvailable=true` 时，必须继续运行原 Python `<script-runner>`，恢复已支付订单或权益。后来安装 CLI 不得触发新订单。
-2. 否则保持预览时选定的引擎：兼容 CLI 使用 CLI；没有 CLI 才使用同一 `<script-runner>`。CLI 探测发生网络或完整性错误时停止，不得静默降级。
+1. 使用 CLI 时，用户确认继续后才运行 `viceme replica inspect "<work.md URL>" --check-recovery`；只检查恢复，不创建订单。检查结果返回 `standaloneRecoveryAvailable=true` 时，按作品 Origin 选择官方 Python `<script-runner>`，必须运行该脚本，恢复已支付订单或权益。后来安装 CLI 不得触发新订单。
+2. Python 路径在用户确认后直接运行 `install`，由脚本优先恢复已支付订单；CLI 检查返回 `standaloneRecoveryAvailable=false` 时保持预览时选定的引擎：兼容 CLI 使用 CLI；没有 CLI 才使用同一 `<script-runner>`。CLI 探测发生网络或完整性错误时停止，不得静默降级。
 3. CLI 路径运行 `viceme auth status`：
    - `authenticated=true`：使用账号路径；
    - `authenticated=false`：使用 CLI 匿名路径；
@@ -64,7 +64,19 @@ Python `start` 读取既有 standalone 私有恢复凭证时可能触发宿主�
 
 以下结果必须进入 `STOP_AND_REPORT`：命令工具失败；输出为空、截断、包含多个响应或不是完整 JSON；响应明确给出 `nextAction=STOP_AND_REPORT`；白名单之外的任何 `retryable=false`，包括 `RESPONSE_INVALID`；未知 `error.code`、未知 `nextAction`、缺少当前转移所需字段或字段不匹配；CLI 网络或完整性检查失败；认证状态读取失败；敏感凭证被拒绝、读取失败或状态无效；支付返回 `REPLICA_PAYMENT_TIMEOUT`、`REPLICA_PAYMENT_TERMINAL` 或 `REPLICA_PAYMENT_INTERRUPTED`；以及除上段白名单外的任何非零结果。
 
-进入 `STOP_AND_REPORT` 后，只向用户报告阶段、稳定错误码、公开消息和权威响应提供的恢复动作；不得再次执行安装命令，不得增加额外 `sleep`，也不得运行 `inspect`、`status`、`doctor`、`curl`、进程或网络诊断来猜测订单状态。后续只有用户发来新消息且权威响应明确允许恢复时，才执行一次指定的恢复动作。
+进入 `STOP_AND_REPORT` 后，按下方“异常中断报告”向用户报告阶段、稳定错误码、公开消息和权威响应提供的恢复动作；不得再次执行安装命令，不得增加额外 `sleep`，也不得运行 `inspect`、`status`、`doctor`、`curl`、进程或网络诊断来猜测订单状态。后续只有用户发来新消息且权威响应明确允许恢复时，才执行一次指定的恢复动作。
+
+## 支付成功与订单信息
+
+首次收到当前订单的权威 `PAID` 状态或已支付订单的安装成功结果时，立即在当前 Agent 工作区的正文内容区列出订单信息，不等待后续修改、部署完成，也不放入选项卡。新支付显示“支付成功”，恢复历史已购显示“已恢复已购订单”，免费领取显示“免费领取成功”，不得把历史恢复或免费领取描述成本次扣款。
+
+订单摘要包括订单号（`orderNo`）、作品名称、订单实付金额与币种、支付状态；结果提供源码版本、安装目录时一并列出。字段只能来自当前订单的权威响应，或能与该 `orderNo` 对应的本次已确认订单信息；历史订单金额不得用作品当前售价代替。缺失字段标注“未返回”，支付状态无法确认时写“待确认”，不得根据用户说已付款、付款页面已打开或超时推断成功，也不得为补齐摘要额外查询、读取私有凭据或重试订单。
+
+## 异常中断报告
+
+本做同款流程所有异常中断均在正文报告当前阶段、已知稳定错误码、公开原因、已知订单号及已确认的支付状态、权威响应允许的下一步；未知信息明确标注“未返回”或“待确认”。覆盖 CLI 定位、作品解析、预览、恢复、认证、支付入口展示、支付等待、下载、校验、安装及后续修改或部署失败，以及工具失败、权限拒绝和输出无效；没有结构化错误码时不编造。支付已确认但安装或部署失败时，保留已支付订单摘要，分别说明支付与后续步骤的状态。
+
+每次异常中断报告末尾另起一行显示“联系 ViceMe：”，联系方式暂留空。不得自行补入邮箱、网址、微信或创建空链接；用户主动选择暂不继续属于正常结束。报告不得包含 Token、恢复秘密、许可证原文、签名下载地址、支付链接或私有状态文件内容。联系提示不改变停止与重试规则，也不授权自动发送联系消息。
 
 ## CLI 账号路径
 
