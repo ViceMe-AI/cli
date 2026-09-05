@@ -279,6 +279,7 @@ Never copy an access token into the conversation.
 | `viceme replica sales --replica <ID>` | Inspect the current source version, price and management permission; suspended owners retain read-only access. |
 | `viceme replica price --replica <ID> --price-cents <cents>` | Review a price change (0 is free), then run the complete returned confirmation command. No source upload is required. |
 | `viceme replica delist --replica <ID>` / `viceme replica relist --replica <ID>` | Review delisting or relisting, then run the complete returned confirmation command. Existing purchase rights remain unchanged. |
+| `viceme replica publish --path <project-or-zip> --state-project <same-project-or-zip> ...` | Keep atomic publication recovery state in the authorized project’s `.viceme` directory. Preserve this locator for confirmation, status, resume and cancel; existing requests are never silently migrated. See [sandbox storage and recovery](docs/replica-sandbox-storage.md). |
 | `viceme replica status <publication-id>` | Read authoritative Website Replica Publication state and complete the stable local binding after a published terminal state. |
 | `viceme replica resume <publication-id>` | Continue only the missing upload, verification, submission, or allowed retry step from authoritative state. |
 | `viceme replica cancel <publication-id>` | Cancel a Publication before activation and clean its local recoverable source. |

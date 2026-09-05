@@ -233,7 +233,11 @@ func bindingError(code, message string, err error) *output.Error {
 }
 
 func bindingSafetyError(err error) *output.Error {
-	return output.Policy("REPLICA_BINDING_PERMISSION_REQUIRED", "ViceMe cannot safely read or atomically write the local Website Replica binding").WithCause(err)
+	failure := stateSafetyError(err)
+	failure.Subtype = "REPLICA_BINDING_PERMISSION_REQUIRED"
+	failure.Message = "ViceMe cannot safely read or atomically write the local Website Replica binding"
+	failure.Details.(map[string]any)["stage"] = "PROJECT_BINDING"
+	return failure
 }
 
 func ensureBindingDirectory(directory string) error {
