@@ -48,6 +48,26 @@ func TestWebsiteReplicaClientAcceptsCanonicalStrictResponses(t *testing.T) {
 	}
 }
 
+func TestWebsiteReplicaClientValidatesAvailability(t *testing.T) {
+	for _, availability := range []string{"AVAILABLE", "DELISTED"} {
+		t.Run(availability, func(t *testing.T) {
+			response := replicaResolutionResponse()
+			response["availability"] = availability
+			if err := callWebsiteReplicaResponse(t, response, canonicalWebsiteReplicaResponseCases()[0].call); err != nil {
+				t.Fatalf("canonical availability rejected: %v", err)
+			}
+		})
+	}
+	for _, availability := range []any{nil, "", "UNKNOWN", true} {
+		response := replicaResolutionResponse()
+		response["availability"] = availability
+		assertInvalidWebsiteReplicaResponse(t, callWebsiteReplicaResponse(t, response, canonicalWebsiteReplicaResponseCases()[0].call))
+	}
+	response := replicaResolutionResponse()
+	delete(response, "availability")
+	assertInvalidWebsiteReplicaResponse(t, callWebsiteReplicaResponse(t, response, canonicalWebsiteReplicaResponseCases()[0].call))
+}
+
 func TestWebsiteReplicaClientRejectsUnknownFields(t *testing.T) {
 	t.Parallel()
 	tests := canonicalWebsiteReplicaResponseCases()
@@ -336,6 +356,7 @@ func replicaResolutionResponse() map[string]any {
 		"replicaId": testReplicaID, "shortCode": testShortCode, "title": "Replica", "summary": "Source",
 		"creator":       map[string]any{"handle": "replica-maker", "displayName": "Replica Maker"},
 		"viceMeWorkUrl": "https://viceme.example/replica-maker/replica-source",
+		"availability":  "AVAILABLE",
 		"product":       replicaProductResponse(),
 	}
 }

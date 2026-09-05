@@ -19,6 +19,7 @@ func replicaResolutionResponse(replicaID, shortCode string) map[string]any {
 			"displayName": "Replica Maker",
 		},
 		"viceMeWorkUrl": "https://viceme.example/replica-maker/replica",
+		"availability":  "AVAILABLE",
 		"product":       replicaProductResponse(),
 	}
 }
