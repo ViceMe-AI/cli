@@ -16,7 +16,8 @@
 | `APPLY_CREATOR` | 仅在已取得自动申请授权时复用 become-a-creator。 |
 | `WAIT_CREATOR_REVIEW` / `SUPPLY_CREATOR_INFO` / `CREATOR_APPLICATION_REJECTED` | 停止，不上传、不自动轮询，给出权威处理入口。 |
 | `PROCESSING` / `SUBMITTED_NOT_PUBLISHED` | 已提交，尚未发布。提供状态入口，不报告发布完成。 |
-| `PUBLISHED` 且 hosting 为 NOT_REQUESTED | 源码发布完成，主动 Replica-only，使用原生作品页。 |
+| `REPLICA_HOSTED_PAGE_REQUIRED` / `PREPARE_HOSTED_PAGE` | 未上传；准备并预览可部署静态 HTML 后重跑 publish，不能自动切换仅源码。 |
+| `PUBLISHED` 且 hosting 为 NOT_REQUESTED | 仅源码发布完成，网站尚未托管；不能报告网站发布完成。 |
 | `PUBLISHED` 且 hosting 为 ACTIVE | 源码与托管页面发布完成。 |
 | `PUBLISHED_DEGRADED` 且 hosting 非 ACTIVE | 源码已发布，托管失败，当前使用原生作品页；提供本地修复入口。 |
 | `PUBLISHED_DEGRADED` 且 hosting 为 ACTIVE | 当前托管已恢复；保留原降级失败审计。 |
