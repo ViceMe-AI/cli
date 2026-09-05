@@ -341,8 +341,8 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 			return previewSession, nil
 		},
 		OpenURL: func(_ context.Context, target string) error {
-			if !strings.HasPrefix(target, "https://viceme.cn/website-replica/preview?") {
-				t.Fatalf("unexpected preview shell URL: %q", target)
+			if target != previewSession.Result().TargetURL {
+				t.Fatalf("unexpected local preview URL: %q", target)
 			}
 			previewOpened.Store(true)
 			return nil
