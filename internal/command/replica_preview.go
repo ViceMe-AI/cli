@@ -19,6 +19,7 @@ type replicaPreviewResult struct {
 	TargetURL                   string                     `json:"targetUrl,omitempty"`
 	PreviewOpened               bool                       `json:"previewOpened"`
 	PreviewVerified             bool                       `json:"previewVerified"`
+	ReviewRequiredBy            string                     `json:"reviewRequiredBy,omitempty"`
 	BrowserVerificationRequired bool                       `json:"browserVerificationRequired"`
 	HostingRequested            bool                       `json:"hostingRequested"`
 	RemoteUpload                bool                       `json:"remoteUpload"`
@@ -104,6 +105,7 @@ func runReplicaPreview(parent context.Context, runtime *Runtime, projectPath, ex
 		PreviewOpened:               true,
 		PreviewVerified:             false,
 		BrowserVerificationRequired: true,
+		ReviewRequiredBy:            "CREATOR",
 		HostingRequested:            false,
 		RemoteUpload:                false,
 		AuthenticationChecked:       false,

@@ -216,7 +216,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 		t.Fatal(err)
 	}
 
-	var previewOpened atomic.Bool
+	var previewProbed atomic.Bool
 	previewSession := &replicaPreviewSessionStub{result: replicapreview.Result{
 		TargetURL: "http://127.0.0.1:4173/", Reused: true, ServiceKind: replicapreview.ServiceExisting,
 	}}
@@ -248,7 +248,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 	var firstRequest map[string]any
 	submitted := false
 	controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if !previewOpened.Load() {
+		if !previewProbed.Load() {
 			t.Fatal("remote publication request happened before local preview")
 		}
 		if request.Header.Get("Authorization") != "Bearer "+replicaPublicationTestAccessToken {
@@ -355,14 +355,15 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 			ids = ids[1:]
 			return value
 		},
-		StartReplicaPreview: func(context.Context, replicapreview.Options) (replicapreview.Running, error) {
+		StartReplicaPreview: func(_ context.Context, options replicapreview.Options) (replicapreview.Running, error) {
+			if options.ExistingURL != previewSession.Result().TargetURL {
+				t.Fatalf("unexpected local preview URL: %q", options.ExistingURL)
+			}
+			previewProbed.Store(true)
 			return previewSession, nil
 		},
-		OpenURL: func(_ context.Context, target string) error {
-			if target != previewSession.Result().TargetURL {
-				t.Fatalf("unexpected local preview URL: %q", target)
-			}
-			previewOpened.Store(true)
+		OpenURL: func(context.Context, string) error {
+			t.Fatal("publication must reuse creator approval without opening another browser")
 			return nil
 		},
 	}

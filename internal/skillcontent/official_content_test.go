@@ -1033,7 +1033,7 @@ func TestWebsiteReplicaDelegatesBuyerStepsToIndependentSkill(t *testing.T) {
 	}
 }
 
-func TestWebsiteReplicaConnectsCreatorSiteAfterPublication(t *testing.T) {
+func TestWebsiteReplicaPreviewsCreatorSiteBeforePublication(t *testing.T) {
 	t.Parallel()
 
 	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-others-make-a-copy/SKILL.md")
@@ -1046,6 +1046,7 @@ func TestWebsiteReplicaConnectsCreatorSiteAfterPublication(t *testing.T) {
 		"喜欢这个网站？作者已授权你一键复刻", "不重复插入", "原站入口未完成",
 		"不再次运行 publish", "不自动部署外部生产站", "不覆盖原 ZIP",
 		"仅在顶层页面展示", "在 iframe 内隐藏原站入口", "再次发布场景",
+		"present_files", "等待创作者明确确认", "预览态", "不自行启动浏览器测试",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Website Replica Skill omitted creator-site boundary %q", required)
