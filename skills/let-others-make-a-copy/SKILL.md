@@ -38,7 +38,7 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
    用户已经提供的标题、摘要、价格和目标参数一并传入；未知字段先省略，交给 CLI 返回缺失输入。不要为首次尝试先运行 `whoami`、Profile、`doctor`、商户列表、资格检查、版本检查或整套 `--help`；也不要先扫描整个仓库、准备预览、阅读全部参考文件或发起问卷。已有发布 ID 的恢复走 OWNER 流程，不新建 publish。
 2. 只处理这次返回的阻塞，再重跑补齐必要参数的同一命令，或执行返回的恢复命令。每次仅补当前缺失的依赖，不重新从头检查。保留完整 JSON 与真实退出码，不用 `| head` 截断或掩盖失败；不向用户打印敏感字段。按需查阅 [flow-contract.md](references/flow-contract.md)。
 3. 返回缺失业务输入时，一次询问当前已知且无法推断的字段，不得每次问一个字段并循环追问。首次发布使用 `--slug` 或明确拥有的 `--work-id`；可根据已有项目名称拟标题、摘要和 slug，交由终审确认。价格由用户决定，`--price-cents 0` 为免费做同款，正整数为付费做同款；不得擅自选免费或虚构价格。已有受管绑定的更新不再传目标参数，价格省略时沿用当前价格。只有返回目标歧义才查询或选择 Work；已有目标必须属于当前 OWNER Merchant，kind 为 `WEBSITE` 且为 `PUBLISHED`。`canonicalOrigin` 只是可选外链，不参与归属、去重或发布门禁，不询问上线状态作为发布门禁。`website.ownershipStatus` 不参与门禁，本流程不创建、读取、验证或撤销 Website ownership verification。
-4. 返回源码问题才按包合同检查对应文件或归档边界；CLI 负责安全扫描、确定性清单、交接文档与冻结，Agent 不手工拼 ZIP。已知敏感内容仍须停止处理，不自动删除后继续。返回预览动作才读取定位真实入口和启动方式所需的项目文件，启动或复用本地服务；纯 HTML 可用静态服务，不补造 package.json 或改名 index.html。ZIP 需安全准备预览，发布仍传原 ZIP。运行 `viceme replica preview --url <actual-loopback-page-url>` 并观察原页面及官方壳中的嵌入；只有实际观察后才追加 `--preview-reviewed`。HTTP 成功不代表交互和响应式已验证。结束、取消或失败后只清理自己启动的服务。
+4. 返回源码问题才按包合同检查对应文件或归档边界；CLI 负责安全扫描、确定性清单、交接文档与冻结，Agent 不手工拼 ZIP。已知敏感内容仍须停止处理，不自动删除后继续。返回预览动作才读取定位真实入口和启动方式所需的项目文件，启动或复用本地服务；纯 HTML 可用静态服务，不补造 package.json 或改名 index.html。ZIP 需安全准备预览，发布仍传原 ZIP。运行 `viceme replica preview --url <actual-loopback-page-url>` 并直接观察原页面，不创建额外预览壳或 target 包装地址；只有实际观察后才追加 `--preview-reviewed`。HTTP 成功不代表交互和响应式已验证。结束、取消或失败后只清理自己启动的服务。
 5. 身份与资格也只按返回动作处理；需要身份恢复时才读取当前 Profile 并固定 API、Web 与市场 authority，本期只支持 CN，明确为 GLOBAL 时停止，不切换市场绕过。严格处理命令返回的可判别动作：未登录时登录后重跑同一命令；CLI 返回资格动作时按 `$become-a-creator` 资格守卫处理；Merchant 或 slug 变化时让用户明确选择并重新生成终审；只有用户明确授权时才追加 `--auto-apply-creator`。审核中、需补资料或被拒绝时停止，不上传、不轮询，也不新建平行请求。身份或资格恢复始终复用 CLI 已保存的同一主请求，不重新冻结未过期且已确认的制品。
    `REPLICA_PREVIEW_URL_REQUIRED` / `PROVIDE_PREVIEW_URL` 要求 Agent 补充实际本地页面地址；`REPLICA_PREVIEW_REVIEW_REQUIRED` / `REVIEW_LOCAL_PREVIEW` 要求先实际观察页面再重跑。不得把缺少输入解释为网站无效或建议跳过预览，也不得把文件体积当作未经证实的失败原因。实际无法预览时说明具体未验证范围，只有用户明确接受后才使用 `--confirm-unverified-replica-only`，且不同时传 `--preview-reviewed`。若 CLI 不支持这些参数，先通过官方更新流程更新 CLI，不退回写死项目文件名的旧行为。
 6. 只依据 `REPLICA_PUBLICATION_CONFIRMATION_REQUIRED` 的完整 `review` 做一次最终不可变发布确认。逐项展示 Creator/Merchant、创建或更新、最终 URL、标题摘要、价格、源码摘要与排除项、预览边界、实际 `hosting` 选择、`automaticDegradation` 授权、SOURCE 与 PAGE 各自文件名/大小/SHA-256、不可变版本和自动申请授权；确认版本有效期为三十分钟，任一字段变化都必须刷新终审。
@@ -60,3 +60,5 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
 ## 完成报告
 
 报告 Website Work、Replica code、ViceMe 作品链接、源码版本、价格、冻结源码摘要、项目交接及验证命令。不要报告临时上传或登录能力，也不要修改或部署创作者原站。
+
+发布成功后，使用发布结果返回的 `result.workUrl` 展示和验收托管作品，不再使用本地地址。做同款按钮直接复制对应的作品 Markdown URL（作品地址加 `.md`），不包装邀请文案，也不打开对话框。
