@@ -4,6 +4,7 @@
 本轮实现提交 `053c82d`，随后以 `ef43eb0` 合入最新 dev `a081402`；合并后的
 `make check` 和 `make npm-package-check` 均通过，`git diff --check` 无错误。
 合并前收尾又以 `6c80c46` 合入 dev `7e9a919`，保留发布恢复及 Windows 权限修复，并从源码重新生成官方 manifest。
+随后以 `5f0a831` 同步新增 dev `f3482b1` 的做同款支付流程修复，并再次从源码生成官方 manifest。
 代码已推送，当前配套为 [CLI #270](https://github.com/ViceMe-AI/cli/pull/270) 和
 [Shop #421](https://github.com/Leizhenpeng/ViceMe-Shop/pull/421)；最新提交完整复核及远端 CI 结果记录在 PR。
 本轮只处理合并前交付，数据库部署、官方初始化、CLI release/npm 和真实供应商联调在合并后进行。
