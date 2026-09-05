@@ -104,8 +104,17 @@ func requireJSONFields(targetType reflect.Type, raw any, path string) error {
 			}
 			allowedFields[name] = struct{}{}
 			value, found := object[name]
+			// JSON omission on output does not imply an optional API field.
+			// Only explicitly marked Zod optional fields may be absent.
+			optional := field.Tag.Get("api") == "optional"
+			if !found && optional {
+				continue
+			}
 			if !found {
 				return fmt.Errorf("%s.%s is required", path, name)
+			}
+			if optional && value == nil {
+				return fmt.Errorf("%s.%s must not be null", path, name)
 			}
 			if err := requireJSONFields(field.Type, value, path+"."+name); err != nil {
 				return err
@@ -384,6 +393,9 @@ func validateWebsiteReplicaPublicationReview(review WebsiteReplicaPublicationRev
 		utf16CodeUnits(strings.TrimSpace(review.Summary)) > 500 || !validNonnegativeSafeInteger(review.PriceCents) ||
 		review.PriceCents > 10_000_000 || validateWebsiteReplicaPublicationSourceArtifact(review.Source) != nil {
 		return errors.New("Website Replica Publication review is invalid")
+	}
+	if review.AllowAutomaticDegradation && review.Page == nil {
+		return errors.New("automatic degradation requires a requested hosted page")
 	}
 	if review.Page != nil && validateWebsiteReplicaPublicationSourceArtifact(*review.Page) != nil {
 		return errors.New("Website Replica Publication review page artifact is invalid")

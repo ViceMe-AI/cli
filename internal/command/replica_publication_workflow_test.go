@@ -250,7 +250,7 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 			}
 			if input["protocolVersion"] != float64(2) || input["clientRequestId"] != replicaPublicationTestRequestID ||
 				input["market"] != "CN" || input["title"] != "Replica title" || input["summary"] != "Replica summary" ||
-				input["priceCents"] != float64(990) || input["projectFingerprint"] == "" || input["canonicalOrigin"] != "https://example.com" {
+				input["allowAutomaticDegradation"] != true || input["priceCents"] != float64(990) || input["projectFingerprint"] == "" || input["canonicalOrigin"] != "https://example.com" {
 				t.Fatalf("unexpected create request: %#v", input)
 			}
 			target, _ := input["target"].(map[string]any)
@@ -2216,7 +2216,7 @@ func replicaConfirmationRequiredResponse(now time.Time, input map[string]any, ve
 	if canonicalOrigin != nil {
 		canonicalOrigin = "https://example.com"
 	}
-	return map[string]any{
+	response := map[string]any{
 		"outcome": "ACTION_REQUIRED", "clientRequestId": input["clientRequestId"], "market": "CN",
 		"nextAction": map[string]any{
 			"kind": "CONFIRM_PUBLICATION",
@@ -2229,11 +2229,16 @@ func replicaConfirmationRequiredResponse(now time.Time, input map[string]any, ve
 					"projectFingerprint": input["projectFingerprint"], "workUrl": "https://viceme.cn/replica-maker/replica-site",
 					"canonicalOrigin": canonicalOrigin, "title": input["title"], "summary": input["summary"],
 					"priceCents": input["priceCents"], "source": input["source"], "page": input["page"],
+					"allowAutomaticDegradation": input["allowAutomaticDegradation"],
 				},
 				"issuedAt": now.Format(time.RFC3339), "expiresAt": now.Add(30 * time.Minute).Format(time.RFC3339),
 			},
 		},
 	}
+	if input["page"] == nil {
+		delete(response["nextAction"].(map[string]any)["confirmation"].(map[string]any)["review"].(map[string]any), "page")
+	}
+	return response
 }
 
 func replicaPublicationForSource(now time.Time, status, sourceStatus string, source map[string]any) map[string]any {
@@ -2256,6 +2261,7 @@ func replicaPublicationForArtifacts(now time.Time, status, sourceStatus string, 
 		responsePage[key] = page[key]
 	}
 	response["page"] = responsePage
+	response["allowAutomaticDegradation"] = true
 	if status == "DRAFT" {
 		actions := []string{"CANCEL"}
 		switch sourceStatus {
@@ -2333,5 +2339,47 @@ func replicaPublicationTestArguments(project, slug string) []string {
 		"replica", "publish", "--path", project, "--slug", slug,
 		"--title", "Replica title", "--summary", "Replica summary", "--price-cents", "990",
 		"--preview-url", "http://127.0.0.1:4173/", "--preview-reviewed",
+	}
+}
+
+func TestReplicaPublishRejectsChangedDegradationReview(t *testing.T) {
+	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	project := newReplicaPublicationTestProject(t)
+	if err := os.MkdirAll(filepath.Join(project, "dist"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "dist", "index.html"), []byte("<h1>Hosted</h1>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/website-replica-publications" {
+			t.Error("unexpected upload after changed review")
+			w.WriteHeader(500)
+			return
+		}
+		var input map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+			t.Error(err)
+			return
+		}
+		if input["allowAutomaticDegradation"] != true {
+			t.Error("hosted request omitted degradation policy")
+		}
+		response := replicaConfirmationRequiredResponse(now, input, "wrv1-"+strings.Repeat("a", 64))
+		response["nextAction"].(map[string]any)["confirmation"].(map[string]any)["review"].(map[string]any)["allowAutomaticDegradation"] = false
+		writeJSONResponse(w, response)
+	}))
+	defer server.Close()
+	deps := replicaPublicationTestDependencies(t, t.TempDir(), server, now)
+	deps.NewID = func() string { return replicaPublicationTestRequestID }
+	var out bytes.Buffer
+	deps.Out = &out
+	if exit := Execute(replicaPublicationTestArguments(project, "replica-site"), deps); exit != output.ExitInternal || !strings.Contains(out.String(), "RESPONSE_INVALID") {
+		t.Fatalf("changed policy was accepted: exit=%d output=%s", exit, out.String())
+	}
+	if calls != 1 {
+		t.Fatalf("unexpected requests: %d", calls)
 	}
 }
