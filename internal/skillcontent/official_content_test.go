@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	cliembed "github.com/ViceMe-AI/cli"
+	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
 
 var officialSkillNames = []string{
@@ -25,6 +26,18 @@ var officialSkillNames = []string{
 	"let-people-interact",
 	"let-others-make-a-copy",
 	"let-me-make-a-copy",
+}
+
+func TestOfficialSkillDescriptionsRemainRequired(t *testing.T) {
+	items, err := skillcontent.New(cliembed.EmbeddedSkills()).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if strings.TrimSpace(item.Description) == "" {
+			t.Errorf("official Skill %s must have a description", item.Name)
+		}
+	}
 }
 
 func readOfficialSkillBundle(t *testing.T, skillName string) string {
