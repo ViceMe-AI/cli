@@ -12,17 +12,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/replicapreview"
+	"github.com/ViceMe-AI/cli/internal/replicapublication"
 )
 
-func TestAgentPreviewMissingInputsNeverReachPublication(t *testing.T) {
+func TestCreatorPreviewMissingInputsNeverReachPublication(t *testing.T) {
 	for _, scenario := range []struct {
 		name, code, action string
 		url                bool
 	}{
 		{"missing URL", "REPLICA_PREVIEW_URL_REQUIRED", "PROVIDE_PREVIEW_URL", false},
-		{"missing observation", "REPLICA_PREVIEW_REVIEW_REQUIRED", "REVIEW_LOCAL_PREVIEW", true},
+		{"missing creator approval", "REPLICA_PREVIEW_REVIEW_REQUIRED", "REVIEW_LOCAL_PREVIEW", true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			project := t.TempDir()
@@ -55,11 +57,29 @@ func TestAgentPreviewMissingInputsNeverReachPublication(t *testing.T) {
 			if exit := Execute(args, deps); exit != output.ExitValidation || !strings.Contains(stdout.String(), scenario.code) || !strings.Contains(stdout.String(), scenario.action) {
 				t.Fatalf("unexpected result: exit=%d %s", exit, stdout.String())
 			}
+			if scenario.url {
+				var envelope struct {
+					Error struct {
+						Details struct {
+							ReviewRequiredBy   string `json:"reviewRequiredBy"`
+							PreviewURL         string `json:"previewUrl"`
+							PresentationTarget string `json:"presentationTarget"`
+						} `json:"details"`
+					} `json:"error"`
+				}
+				if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+					t.Fatal(err)
+				}
+				details := envelope.Error.Details
+				if details.ReviewRequiredBy != "CREATOR" || details.PreviewURL != page.URL+"/my-reading-corner.html?year=2026" || details.PresentationTarget != "AGENT_PLATFORM" {
+					t.Fatalf("missing creator presentation handoff: %+v", details)
+				}
+			}
 			if remoteCalls != 0 || deps.Store.(*replicaPreviewCredentialStore).reads.Load() != 0 {
 				t.Fatal("input step crossed remote/auth boundary")
 			}
-			if scenario.url && (pageCalls != 1 || opened != 1) {
-				t.Fatal("actual page was not probed and opened")
+			if scenario.url && (pageCalls != 1 || opened != 0) {
+				t.Fatal("page must be probed without opening a browser outside the host")
 			}
 			if !scenario.url && (pageCalls != 0 || opened != 0) {
 				t.Fatal("missing URL guessed a page")
@@ -72,7 +92,7 @@ func TestAgentPreviewMissingInputsNeverReachPublication(t *testing.T) {
 	}
 }
 
-func TestAgentPreviewReviewedPageReachesFrozenReview(t *testing.T) {
+func TestCreatorPreviewReviewedPageReachesFrozenReview(t *testing.T) {
 	now := time.Date(2026, 9, 5, 12, 0, 0, 0, time.UTC)
 	project := t.TempDir()
 	if err := os.WriteFile(filepath.Join(project, "my-reading-corner.html"), []byte("<h1>Reading corner</h1>"), 0600); err != nil {
@@ -92,10 +112,11 @@ func TestAgentPreviewReviewedPageReachesFrozenReview(t *testing.T) {
 	defer server.Close()
 	deps := replicaPublicationTestDependencies(t, t.TempDir(), server, now)
 	deps.StartReplicaPreview = replicapreview.Start
+	deps.OpenURL = func(context.Context, string) error { t.Fatal("publish reopened the approved preview"); return nil }
 	var stdout bytes.Buffer
 	deps.Out = &stdout
 	args := append(replicaPublicationTestArguments(project, "reading-corner"), "--preview-url", page.URL+"/my-reading-corner.html")
-	if exit := Execute(args, deps); exit != output.ExitConfirmation || !strings.Contains(stdout.String(), "REPLICA_PUBLICATION_CONFIRMATION_REQUIRED") || !strings.Contains(stdout.String(), `"reviewedBy": "AGENT"`) || !strings.Contains(stdout.String(), "--preview-reviewed") {
+	if exit := Execute(args, deps); exit != output.ExitConfirmation || !strings.Contains(stdout.String(), "REPLICA_PUBLICATION_CONFIRMATION_REQUIRED") || !strings.Contains(stdout.String(), `"reviewedBy": "CREATOR"`) || !strings.Contains(stdout.String(), "--preview-reviewed") {
 		t.Fatalf("single HTML did not reach reviewed freeze: exit=%d %s", exit, stdout.String())
 	}
 	for _, change := range [][]string{
@@ -108,5 +129,31 @@ func TestAgentPreviewReviewedPageReachesFrozenReview(t *testing.T) {
 		if exit := Execute(changed, deps); exit != output.ExitConfirmation || !strings.Contains(stdout.String(), "REPLICA_PUBLICATION_CONFIRMATION_CHANGED") {
 			t.Fatalf("changed preview crossed confirmation: exit=%d %s", exit, stdout.String())
 		}
+	}
+}
+
+func TestReplicaPreviewConfirmationPreservesCreatorAndLegacyReviews(t *testing.T) {
+	for _, reviewer := range []string{"CREATOR", "AGENT"} {
+		t.Run(reviewer, func(t *testing.T) {
+			pending := replicapublication.Pending{
+				ProjectPath:  "/tmp/site",
+				Preview:      replicapublication.Preview{Verified: true, ReviewedBy: reviewer, Reused: true, TargetURL: "http://127.0.0.1:4173/"},
+				Confirmation: &api.WebsiteReplicaPublicationConfirmationChallenge{Version: "review-version"},
+			}
+			command := replicaPublishResumeCommand(pending)
+			if !strings.Contains(command, "--preview-reviewed") || !strings.Contains(command, pending.Preview.TargetURL) {
+				t.Fatalf("resume lost approved preview: %s", command)
+			}
+			for _, options := range []replicaPublishOptions{
+				{ConfirmationVersion: "review-version", PreviewURL: pending.Preview.TargetURL},
+				{ConfirmationVersion: "review-version", PreviewReviewed: true, PreviewURL: "http://127.0.0.1:4173/changed"},
+				{ConfirmationVersion: "review-version", PreviewReviewed: true, PreviewURL: pending.Preview.TargetURL, ConfirmUnverifiedPreview: true},
+			} {
+				err := validateConfirmedReplicaRequest(options, pending, replicapublication.Binding{}, false)
+				if err == nil || !strings.Contains(err.Error(), "approved preview changed") {
+					t.Fatalf("changed preview must invalidate %s approval: %v", reviewer, err)
+				}
+			}
+		})
 	}
 }
