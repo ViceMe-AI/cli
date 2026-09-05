@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -22,7 +23,16 @@ func TestReplicaSalesRequiresConfirmationAndBindsCurrentState(t *testing.T) {
 	state := replicaSalesFixture()
 	posts := 0
 	var firstRequest map[string]any
+	// A deliberately lost HTTP response does not join the handler goroutine.
+	var stateMu sync.Mutex
+	postCount := func() int {
+		stateMu.Lock()
+		defer stateMu.Unlock()
+		return posts
+	}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		stateMu.Lock()
+		defer stateMu.Unlock()
 		switch r.URL.Path {
 		case "/v1/cli/auth/status":
 			writeJSONResponse(w, map[string]any{"authenticated": true, "user": map[string]any{"id": requestID, "displayName": "Creator", "avatarUrl": nil}, "scopes": []string{"website-replica:write"}, "expiresAt": time.Now().Add(time.Hour).UTC().Format(time.RFC3339)})
@@ -70,7 +80,7 @@ func TestReplicaSalesRequiresConfirmationAndBindsCurrentState(t *testing.T) {
 	}
 	args := []string{"replica", "price", "--replica", replicaID, "--price-cents", "1200"}
 	code, out := run(args...)
-	if code != 10 || posts != 0 {
+	if code != 10 || postCount() != 0 {
 		t.Fatalf("preview must require confirmation without writing: %d %s", code, out)
 	}
 	var result struct {
@@ -90,14 +100,16 @@ func TestReplicaSalesRequiresConfirmationAndBindsCurrentState(t *testing.T) {
 	}
 	confirmed := strings.Fields(result.Error.Details.ConfirmCommand)[1:]
 	code, out = run(confirmed...)
-	if code == 0 || posts != 1 {
+	if code == 0 || postCount() != 1 {
 		t.Fatalf("lost response should not report success: %d %s", code, out)
 	}
 	// The server committed before the response was lost. Retry must preserve the
 	// old revision and request identity, allowing server-side replay.
+	stateMu.Lock()
 	state["product"].(map[string]any)["revision"] = 4
+	stateMu.Unlock()
 	code, out = run(confirmed...)
-	if code != 0 || posts != 2 {
+	if code != 0 || postCount() != 2 {
 		t.Fatalf("idempotent retry failed: %d %s", code, out)
 	}
 	tampered := append([]string{}, confirmed...)
@@ -107,7 +119,7 @@ func TestReplicaSalesRequiresConfirmationAndBindsCurrentState(t *testing.T) {
 		}
 	}
 	code, out = run(tampered...)
-	if code != 2 || posts != 2 {
+	if code != 2 || postCount() != 2 {
 		t.Fatalf("altered confirmation wrote: %d %s", code, out)
 	}
 

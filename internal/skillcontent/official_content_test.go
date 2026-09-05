@@ -171,7 +171,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"--accept-price-cents", "REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "PRODUCT_ALREADY_OWNED",
 				"CONFIRM_INLINE_PREVIEW", "STOP_AND_REPORT", "--timeout 3m --interval 15s", "AskUserQuestion",
 				"s3.viceme.cn/skills/let-me-make-a-copy/scripts/make_copy.py",
-				"s3.viceme.ai/skills/let-me-make-a-copy/scripts/make_copy.py", "command -v viceme",
+				"s3.viceme.ai/skills/let-me-make-a-copy/scripts/make_copy.py", "../creator-tools/SKILL.md#cli-定位",
 				"scripts/make_copy.py", "Python 3.9",
 			},
 			semantics: []string{
