@@ -5,6 +5,8 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
 
 # 让别人做你的网站同款
 
+首次调用 CLI 或判断 CLI 不存在前，必须先按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 查找并验证现有 CLI；后续使用返回的完整路径。不得只凭 `command not found` 判定未安装或改走免 CLI 流程。
+
 把当前网站的完整源码和精简项目交接发布为不可变 Website Replica。所有确定性归档和平台读写使用 ViceMe CLI；冻结前完整阅读 [package-contract.md](references/package-contract.md)。做同款入口由 ViceMe 作品页宿主提供，买家邀请由作品 Markdown 平台控制区链接的独立 `let-me-make-a-copy` Skill 处理；本 Skill 不修改创作者原站，也不执行买家预览、购买、支付、下载或安装。
 
 面向用户的说明跟随用户当前语言。不得展示登录凭据、上传地址、对象 Key、支付能力、签名 URL 或内部恢复文件。不得告诉用户正在使用哪个内置 Skill。

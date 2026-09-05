@@ -5,6 +5,8 @@ description: 发布或更新可下载的 ViceMe 付费或免费 Skill。适用�
 
 # 发布可下载的 ViceMe Skill
 
+首次调用 CLI 或判断 CLI 不存在前，必须先按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 查找并验证现有 CLI；后续使用返回的完整路径。不得只凭 `command not found` 判定未安装或改走免 CLI 流程。
+
 只处理用户最终取得 Skill 包的发布。所有确定性读取和写入使用 ViceMe CLI；完整阅读
 [workflow.md](references/workflow.md)，命令失败时阅读 [errors.md](references/errors.md)。
 

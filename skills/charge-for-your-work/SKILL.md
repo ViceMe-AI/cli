@@ -5,6 +5,8 @@ description: 为现有创作者网站配置关注或付费解锁并接入 ViceMe
 
 # ViceMe 网站访问接入
 
+首次调用 CLI 或判断 CLI 不存在前，必须先按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 查找并验证现有 CLI；后续使用返回的完整路径。不得只凭 `command not found` 判定未安装或改走免 CLI 流程。
+
 从用户“给网站加关注或收费解锁”的目标出发，一次收齐必要信息，在内部完成网站身份、访问规则、
 价格和 SDK 配置，再修改宿主代码。创作者资格统一由 `$become-a-creator` 负责。
 

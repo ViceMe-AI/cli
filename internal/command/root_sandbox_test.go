@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -65,5 +66,63 @@ func TestStartupRecoveryPermissionRefusalStopsBeforeBusiness(t *testing.T) {
 	})
 	if exit != output.ExitPolicy || !strings.Contains(stdout.String(), "UPDATE_PERMISSION_REQUIRED") || !strings.Contains(stdout.String(), `"recovery_required": true`) || strings.Contains(stdout.String(), `"ok": true`) {
 		t.Fatalf("recovery denial hidden or business continued: exit=%d %s", exit, stdout.String())
+	}
+}
+
+func TestBootstrapRecoveryPermissionRefusalRetriesInstaller(t *testing.T) {
+	root := t.TempDir()
+	updater := &startupRecoveryUpdater{err: &updatepkg.OperationError{Kind: updatepkg.ErrorNPMPermission}}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"bootstrap", "activate", "--destination", filepath.Join(root, "bin", "viceme")}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")}, Region: config.RegionCN,
+	})
+	if exit != output.ExitPolicy || !strings.Contains(stdout.String(), "UPDATE_PERMISSION_REQUIRED") ||
+		!strings.Contains(stdout.String(), `"recovery_required": true`) ||
+		!strings.Contains(stdout.String(), "same versioned installer") || strings.Contains(stdout.String(), "viceme update") ||
+		strings.Contains(stdout.String(), `"ok": true`) {
+		t.Fatalf("first-install recovery lost its error or retry entrypoint: exit=%d %s", exit, stdout.String())
+	}
+}
+
+func TestBootstrapPermissionHintPreservesErrorDetails(t *testing.T) {
+	original := updatePermissionRequired(os.ErrPermission).WithDetails(map[string]any{"recovery_required": true})
+	adjusted := bootstrapCommandError(original, true).(*output.Error)
+	if adjusted.Code != original.Code || adjusted.Type != original.Type || adjusted.Details == nil ||
+		!strings.Contains(adjusted.Hint, "same versioned installer") || original.Hint != updatePermissionHint {
+		t.Fatalf("bootstrap guidance mutated the shared error or lost the protocol: %#v", adjusted)
+	}
+	if bootstrapCommandError(original, false) != original {
+		t.Fatal("ordinary update guidance changed")
+	}
+}
+
+func TestBootstrapDestinationPermissionRefusalRetriesInstaller(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("requires POSIX directory permissions enforced for a non-root user")
+	}
+	root := t.TempDir()
+	directory := filepath.Join(root, "bin")
+	if err := os.Mkdir(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(directory, "viceme")
+	if err := os.WriteFile(destination, []byte("previous generation"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(directory, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(directory, 0o755) })
+	var stdout bytes.Buffer
+	exit := Execute([]string{"bootstrap", "activate", "--destination", destination}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(),
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")}, Region: config.RegionCN,
+	})
+	if exit != output.ExitPolicy || !strings.Contains(stdout.String(), "same versioned installer") || strings.Contains(stdout.String(), "viceme update") {
+		t.Fatalf("bootstrap preflight did not guide the correct retry: exit=%d %s", exit, stdout.String())
+	}
+	if data, err := os.ReadFile(destination); err != nil || string(data) != "previous generation" {
+		t.Fatalf("preflight changed the previous executable: %v", err)
 	}
 }

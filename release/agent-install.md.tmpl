@@ -51,9 +51,15 @@ $env:VICEME_REGION='<cn-or-global>'; $env:VICEME_VERSION='{{VERSION}}'; & ./inst
 
 Do not replace an existing ViceMe Profile or endpoint. Repeating this contract for the same version must be idempotent.
 
+If installation returns `UPDATE_PERMISSION_REQUIRED` (exit 6), request filesystem permission through the host's official approval mechanism. Only after access is granted, rerun the same versioned installer with the same region and destination. The installer retains verified download bytes for this retry and rechecks them against the selected origin's checksum; it does not bypass activation or recovery. Do not substitute `viceme update` during first installation, delete recovery state, or retry while permission remains unavailable.
+
 ## Health check
 
-Run `viceme doctor` and parse its JSON result. If it fails, report the structured error code, retryability, and hint. Do not log in merely to finish installation.
+Read `data.destination` from the successful installer response and invoke that quoted executable path with `doctor`; parse its JSON result. Use that same path for subsequent CLI calls in this conversation. A successful check by absolute path does not prove that a fresh Agent shell can resolve the bare `viceme` command. Do not rely on an earlier shell's PATH export or shell startup files.
+
+In new conversations, official Skills use the `creator-tools` CLI resolver to check PATH and the official installation location before deciding that the CLI is absent. On macOS / Linux the default is `$HOME/.local/bin/viceme`; on Windows it is `$env:LOCALAPPDATA\ViceMe\bin\viceme.exe`. If a custom `VICEME_INSTALL_DIR` was selected, retain that setting or the returned destination for subsequent callers.
+
+If the health check fails, report the structured error code, retryability, and hint. Do not log in merely to finish installation.
 
 On success, return only this concise result to the instruction that invoked this contract:
 

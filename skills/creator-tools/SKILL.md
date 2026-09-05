@@ -11,6 +11,16 @@ description: 安装、登录、更新和诊断 ViceMe 创作者 CLI 与官方 Sk
 
 在 WorkBuddy 中处理 ViceMe 流程时，不得调用 `TaskCreate`、`TaskUpdate`、`TaskList` 或其他任务清单工具，不得展示完整计划。只在需要用户操作或进入新业务阶段时给一句简短白话提示；其余必要命令连续执行，不逐条播报。
 
+## CLI 定位
+
+每个新对话首次调用 CLI、或判断 CLI 不存在前，先运行本 Skill 自带的定位脚本：macOS / Linux 用 `sh "<本 Skill 目录>/scripts/resolve-cli.sh"`；Windows 用 PowerShell 执行 `<本 Skill 目录>/scripts/resolve-cli.ps1`。本 Skill 目录取宿主提供的真实 Base directory，不得猜测用户名或全盘搜索。它只查找现有 CLI，不安装、不更新、不切换 Profile。
+
+脚本优先解析 PATH 中的 `viceme`，保留现有 npm launcher；PATH 没有时查找 `VICEME_INSTALL_DIR`，未配置自定义目录时查找官方默认安装位置：macOS / Linux 的 `$HOME/.local/bin/viceme`，Windows 的 `$env:LOCALAPPDATA\ViceMe\bin\viceme.exe`。
+
+成功输出 CLI 的完整路径。用该路径运行 `version` 验证，并在本对话所有后续命令中用这个带引号的完整路径替换示例开头的 `viceme`。每次独立 Bash / PowerShell 调用都沿用该路径，不依赖上一条命令的 `export PATH`、`.zshrc` 或重启宿主。新对话重新定位。
+
+只有定位脚本退出 127 才表示这些位置未找到 CLI，此时继续原流程规定的安装或免 CLI 分支。若使用了其他自定义目录且当前未设置 `VICEME_INSTALL_DIR`，先取得当次安装返回的 `destination` 再验证；找不到 PATH 不等于未安装。现有 CLI 的权限、版本验证或恢复错误必须原样按对应流程处理，不得因此重装、换安装方式或改走免 CLI 流程。不得读取整个 shell 配置文件或环境来找命令。
+
 ## 安装
 
 1. 引导安装程序完成后，运行 `viceme install --agent auto`。
