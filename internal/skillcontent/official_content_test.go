@@ -142,7 +142,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"owned=true", "nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", "--wait 10m", "--agent auto",
 				"?product=<product-id>",
 			},
-			semantics: []string{"不得要求再次购买", "不得停在“安装成功”"},
+			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口"},
 		},
 		{
 			name: "charge-for-your-work",
