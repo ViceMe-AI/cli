@@ -1233,25 +1233,13 @@ def inspect(
     work_url: str,
     *,
     request_fn: RequestFn = http_request,
-    recovery_root: Optional[Path] = None,
 ) -> Dict[str, Any]:
     authority = authority_for_work_url(work_url)
     instruction, replica = resolve_work(authority, request_fn)
-    receipt = recoverable_paid_receipt(authority, replica, recovery_root)
-    recovery_available = False
-    if receipt:
-        status = recover_order_status(
-            authority,
-            receipt["orderNo"],
-            receipt["recoverySecret"],
-            request_fn,
-        )
-        recovery_available = status["payment"]["status"] == "PAID"
     return {
         "nextAction": "CONFIRM_INLINE_PREVIEW",
         "workUrl": replica["viceMeWorkUrl"],
         "instruction": instruction,
-        "standaloneRecoveryAvailable": recovery_available,
         "replica": replica,
     }
 

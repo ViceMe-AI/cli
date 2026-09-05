@@ -141,6 +141,7 @@ func TestReplicaPreviewOpensTheAnonymousShellWithoutAuthUploadOrSourceWrites(t *
 			PreviewOpened               bool   `json:"previewOpened"`
 			PreviewVerified             bool   `json:"previewVerified"`
 			BrowserVerificationRequired bool   `json:"browserVerificationRequired"`
+			ReviewRequiredBy            string `json:"reviewRequiredBy"`
 			RemoteUpload                bool   `json:"remoteUpload"`
 			AuthenticationChecked       bool   `json:"authenticationChecked"`
 			MerchantChecked             bool   `json:"merchantChecked"`
@@ -151,7 +152,7 @@ func TestReplicaPreviewOpensTheAnonymousShellWithoutAuthUploadOrSourceWrites(t *
 		t.Fatalf("invalid command output: %v: %s", err, stdout.String())
 	}
 	if !envelope.OK || envelope.Data.Mode != "LOCAL_PREVIEW" || envelope.Data.PreviewURL != opened || !envelope.Data.PreviewOpened ||
-		envelope.Data.PreviewVerified || !envelope.Data.BrowserVerificationRequired ||
+		envelope.Data.PreviewVerified || !envelope.Data.BrowserVerificationRequired || envelope.Data.ReviewRequiredBy != "CREATOR" ||
 		envelope.Data.RemoteUpload || envelope.Data.AuthenticationChecked || envelope.Data.MerchantChecked || envelope.Data.PublicationCreated {
 		t.Fatalf("unexpected preview boundary output: %#v", envelope)
 	}

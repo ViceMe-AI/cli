@@ -1104,7 +1104,6 @@ type WebsiteReplicaOrderStatus struct {
 	OrderNo     string                     `json:"orderNo"`
 	Payment     WebsiteReplicaPaymentState `json:"payment"`
 	Fulfillment *WebsiteReplicaFulfillment `json:"fulfillment"`
-	ServiceCase *WebsiteReplicaServiceCase `json:"serviceCase"`
 }
 
 type WebsiteReplicaPaymentState struct {
@@ -1133,53 +1132,6 @@ type WebsiteReplicaFulfillmentTask struct {
 	ResultSummary  *string `json:"resultSummary"`
 	StartedAt      *string `json:"startedAt"`
 	CompletedAt    *string `json:"completedAt"`
-}
-
-type WebsiteReplicaServiceCase struct {
-	ID               string                     `json:"id"`
-	CaseNo           string                     `json:"caseNo"`
-	OrderNo          string                     `json:"orderNo"`
-	FulfillmentID    string                     `json:"fulfillmentId"`
-	Work             WebsiteReplicaCaseWork     `json:"work"`
-	Merchant         WebsiteReplicaCaseMerchant `json:"merchant"`
-	Status           string                     `json:"status"`
-	CurrentStageCode string                     `json:"currentStageCode"`
-	Stages           []WebsiteReplicaCaseStage  `json:"stages"`
-	Intake           map[string]any             `json:"intake"`
-	PublicProgress   map[string]any             `json:"publicProgress"`
-	LockVersion      int                        `json:"lockVersion"`
-	Events           []WebsiteReplicaCaseEvent  `json:"events"`
-	SubmittedAt      string                     `json:"submittedAt"`
-	CompletedAt      *string                    `json:"completedAt"`
-	UpdatedAt        string                     `json:"updatedAt"`
-}
-
-type WebsiteReplicaCaseWork struct {
-	CreatorHandle string `json:"creatorHandle"`
-	Slug          string `json:"slug"`
-	Title         string `json:"title"`
-}
-
-type WebsiteReplicaCaseMerchant struct {
-	ID          string `json:"id"`
-	DisplayName string `json:"displayName"`
-}
-
-type WebsiteReplicaCaseStage struct {
-	Code     string `json:"code"`
-	Label    string `json:"label"`
-	Terminal bool   `json:"terminal"`
-}
-
-type WebsiteReplicaCaseEvent struct {
-	Sequence      int     `json:"sequence"`
-	FromStatus    *string `json:"fromStatus"`
-	ToStatus      string  `json:"toStatus"`
-	StageCode     string  `json:"stageCode"`
-	ActorType     string  `json:"actorType"`
-	Note          *string `json:"note"`
-	PublicMessage *string `json:"publicMessage"`
-	CreatedAt     string  `json:"createdAt"`
 }
 
 type WebsiteReplicaLicenseClaims struct {
