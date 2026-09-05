@@ -293,6 +293,7 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		Confirmation: nil,
 	}
 	if len(hostedPage.Bytes) > 0 {
+		request.AllowAutomaticDegradation = true
 		request.Page = &api.WebsiteReplicaPublicationSourceArtifact{
 			FileName: hostedPage.Artifact.FileName, ContentType: hostedPage.Artifact.ContentType,
 			SizeBytes: hostedPage.Artifact.SizeBytes, Digest: hostedPage.Artifact.Digest,
@@ -501,6 +502,9 @@ func handleReplicaPublicationNextAction(ctx context.Context, runtime *Runtime, s
 }
 
 func replicaPublicationPageMatchesRequest(publication api.WebsiteReplicaPublication, request api.CreateWebsiteReplicaPublicationRequest) bool {
+	if publication.AllowAutomaticDegradation != request.AllowAutomaticDegradation {
+		return false
+	}
 	if request.Page == nil || publication.Page == nil {
 		return request.Page == nil && publication.Page == nil
 	}
@@ -608,7 +612,7 @@ func finalReplicaPublicationReview(pending replicapublication.Pending, confirmat
 	return replicaPublicationFinalReview{
 		WebsiteReplicaPublicationReview: confirmation.Review,
 		SourceArchive:                   pending.SourceArchive, Exclusions: pending.SourceArchive.ExcludedPaths,
-		PageArtifact: pending.Request.Page, Hosting: pending.Hosting, AutomaticDegradation: pending.Request.Page != nil,
+		PageArtifact: pending.Request.Page, Hosting: pending.Hosting, AutomaticDegradation: pending.Request.AllowAutomaticDegradation,
 		ImmutableVersions: true, ExistingBuyerVersionsRetained: true,
 		AutomaticCreatorApplication: pending.AutoApplyCreator, Preview: pending.Preview,
 		ConfirmationTTLSeconds: api.WebsiteReplicaPublicationConfirmationTTL,
@@ -619,7 +623,7 @@ func finalReplicaPublicationReview(pending replicapublication.Pending, confirmat
 func replicaConfirmationMatchesRequest(confirmation api.WebsiteReplicaPublicationConfirmationChallenge, request api.CreateWebsiteReplicaPublicationRequest) bool {
 	review := confirmation.Review
 	if review.ProjectFingerprint != request.ProjectFingerprint || review.Title != request.Title || review.Summary != request.Summary ||
-		review.PriceCents != request.PriceCents || !reflect.DeepEqual(review.Source, request.Source) || !reflect.DeepEqual(review.Page, request.Page) {
+		review.AllowAutomaticDegradation != request.AllowAutomaticDegradation || review.PriceCents != request.PriceCents || !reflect.DeepEqual(review.Source, request.Source) || !reflect.DeepEqual(review.Page, request.Page) {
 		return false
 	}
 	if request.MerchantAccountID != "" && review.MerchantAccountID != request.MerchantAccountID {
