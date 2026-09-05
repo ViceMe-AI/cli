@@ -36,6 +36,9 @@ func newReplicaCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newReplicaResumeCommand(runtime))
 	command.AddCommand(newReplicaCancelCommand(runtime))
 	command.AddCommand(newReplicaRollbackCommand(runtime))
+	for _, operation := range []string{"sales", "price", "delist", "relist"} {
+		command.AddCommand(newReplicaSalesCommand(runtime, operation))
+	}
 	command.AddCommand(newReplicaInstallCommand(runtime))
 	return command
 }
