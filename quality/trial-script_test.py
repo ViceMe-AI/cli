@@ -82,28 +82,94 @@ class TrialScriptTestCase(unittest.TestCase):
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
         content = files["SKILL.md"][0].decode("utf-8")
         self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, content)
-        self.assertIn(trial.GATE_TAIL, content)
-        self.assertIn("python3 - use --product %s --market cn" % PRODUCT_ID, content)
+        self.assertIn(trial.GATE_END, content)
+        self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, content)
+        self.assertIn("allowed: true", content)
+        self.assertNotIn("python3 - use", content)
+        rules = files[trial.RUNTIME_PATH][0].decode("utf-8")
+        self.assertIn("python3 - use --product %s --market cn" % PRODUCT_ID, rules)
         # Windows 形态:先落盘再用 py 执行(避开 PS5.1 管道编码),命令同样钉死产品与市场。
         self.assertIn(
             "curl.exe -fsSL https://s3.viceme.cn/skills/use-a-skill/scripts/trial.py "
             "-o $env:TEMP\\viceme-trial.py; py $env:TEMP\\viceme-trial.py use --product %s --market cn" % PRODUCT_ID,
-            content,
+            rules,
         )
         # 门禁必须位于 frontmatter 之后、正文之前。
         self.assertLess(content.index("---\n", 4), content.index(trial.GATE_MARKER))
         once = files["SKILL.md"][0]
+        del files[trial.RUNTIME_PATH]
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
         self.assertEqual(files["SKILL.md"][0], once)
+        self.assertEqual(files[trial.RUNTIME_PATH][0].decode("utf-8"), rules)
 
     def test_gate_rule_four_guides_cli_conversion_honestly(self):
-        files = {"SKILL.md": (b"no frontmatter", 0o644)}
+        files = {"SKILL.md": (b"---\nname: my-skill\n---\nbody", 0o644)}
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
-        content = files["SKILL.md"][0].decode("utf-8")
+        content = files[trial.RUNTIME_PATH][0].decode("utf-8")
         # 脚本路无法安装已购版本:第 4 条必须引导安装 CLI 转正,不得声称
         # 「重新运行本命令即可转正」。
-        self.assertIn("viceme skill install %s" % PRODUCT_ID, content)
+        self.assertIn("viceme skill install %s --owned" % PRODUCT_ID, content)
         self.assertNotIn("按同一命令的输出转正", content)
+
+    def test_author_marker_mention_does_not_suppress_real_gate(self):
+        original = "---\nname: my-skill\n---\n\n作者示例: `%s`\n" % trial.GATE_MARKER
+        files = {"SKILL.md": (original.encode("utf-8"), 0o644)}
+        trial.inject_trial_gate(files, "cn", PRODUCT_ID)
+        content = files["SKILL.md"][0].decode("utf-8")
+        self.assertTrue(content.endswith("作者示例: `%s`\n" % trial.GATE_MARKER))
+        self.assertIn(trial.RUNTIME_PATH, content)
+        self.assertIn("python3 - use", files[trial.RUNTIME_PATH][0].decode("utf-8"))
+
+    def test_gate_rejects_invalid_structure_without_mutation(self):
+        for content in (
+            "# No frontmatter",
+            "---\nname: demo\n",
+            "---\nname: demo\n---\n%s product=%s -->\n作者正文" % (trial.GATE_MARKER, PRODUCT_ID),
+            "---\nname: demo\n---\n%s product=other -->\n作者正文" % trial.GATE_MARKER,
+        ):
+            with self.subTest(content=content):
+                files = {"SKILL.md": (content.encode("utf-8"), 0o644)}
+                before = dict(files)
+                with self.assertRaises(trial.Failure):
+                    trial.inject_trial_gate(files, "cn", PRODUCT_ID)
+                self.assertEqual(files, before)
+
+    def test_gate_preserves_unrelated_reference(self):
+        files = {
+            "SKILL.md": (b"---\nname: demo\n---\nbody", 0o644),
+            trial.RUNTIME_PATH: (b"author reference", 0o644),
+        }
+        before = dict(files)
+        with self.assertRaises(trial.Failure) as caught:
+            trial.inject_trial_gate(files, "cn", PRODUCT_ID)
+        self.assertEqual(caught.exception.code, "TRIAL_GATE_CONFLICT")
+        self.assertEqual(files, before)
+
+    def test_gate_upgrades_complete_inline_rules(self):
+        content = (
+            "---\nname: demo\n---\n%s product=%s -->\n\n"
+            "## 试用版使用规则（viceme-trial）\n\n旧版规则。%s\n\n作者正文\n"
+        ) % (trial.GATE_MARKER, PRODUCT_ID, trial.GATE_TAIL)
+        files = {"SKILL.md": (content.encode("utf-8"), 0o644)}
+        trial.inject_trial_gate(files, "cn", PRODUCT_ID)
+        content = files["SKILL.md"][0].decode("utf-8")
+        self.assertNotIn("旧版规则", content)
+        self.assertTrue(content.endswith("作者正文\n"))
+        self.assertEqual(content.count(trial.GATE_MARKER), 1)
+
+    def test_gate_preserves_extended_frontmatter_crlf_eof_and_mode(self):
+        for newline in ("\n", "\r\n"):
+            for ending in ("\n---", "\n---\n\nbody"):
+                content = ("---\nname: demo\ntitle: demo\nmetadata:\n  author: test" + ending).replace("\n", newline)
+                files = {"SKILL.md": (content.encode("utf-8"), 0o755)}
+                trial.inject_trial_gate(files, "global", PRODUCT_ID)
+                injected = files["SKILL.md"][0].decode("utf-8")
+                self.assertTrue(injected.startswith("---\nname: demo\ntitle: demo\nmetadata:\n  author: test\n---\n"))
+                self.assertNotIn("\r", injected)
+                self.assertEqual(files["SKILL.md"][1], 0o755)
+                rules = files[trial.RUNTIME_PATH][0].decode("utf-8")
+                self.assertIn("https://s3.viceme.ai/", rules)
+                self.assertIn("--market global", rules)
 
     def test_zip_extraction_rejects_traversal_and_missing_manifest(self):
         evil = io.BytesIO()
@@ -489,7 +555,9 @@ class InstallFlowTestCase(unittest.TestCase):
             info = zipfile.ZipInfo("scripts/run.sh")
             info.external_attr = 0o100755 << 16
             archive.writestr(info, b"echo hi")
-            archive.writestr("SKILL.md", "---\nname: my-skill\ndescription: d\n---\n\nbody")
+            # Regression: WorkBuddy installed a published package with title;
+            # that same package used to fail when passed to the CLI installer.
+            archive.writestr("SKILL.md", "---\nname: my-skill\ntitle: latex-geometry\nmetadata:\n  author: yee33\n---\n\nbody")
         self.archive_bytes = self.archive.getvalue()
         import hashlib
 
@@ -607,12 +675,103 @@ class InstallFlowTestCase(unittest.TestCase):
         with open(os.path.join(skill_dir, "SKILL.md"), encoding="utf-8") as handle:
             content = handle.read()
         self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, content)
+        self.assertIn("title: latex-geometry\nmetadata:\n  author: yee33", content)
+        self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, content)
+        with open(os.path.join(skill_dir, trial.RUNTIME_PATH), encoding="utf-8") as handle:
+            rules = handle.read()
+        self.assertIn("python3 - use --product %s --market cn" % PRODUCT_ID, rules)
+        self.assertIn("allowed: false", rules)
         with open(os.path.join(skill_dir, ".viceme", "install-manifest.json"), encoding="utf-8") as handle:
             manifest = json.load(handle)
         self.assertEqual(manifest["product_id"], PRODUCT_ID)
         self.assertEqual(manifest["release_id"], self.release_id)
         self.assertEqual(trial.load_trial_state(PRODUCT_ID)["secret"], "grant-secret")
         self.assertEqual(oct(stat.S_IMODE(os.stat(trial.trial_state_path(PRODUCT_ID)).st_mode)), "0o600")
+
+    def test_install_does_not_report_success_with_missing_or_damaged_gate(self):
+        real_install = trial.install_to_roots
+        for filename in ("SKILL.md", trial.RUNTIME_PATH):
+            for damage in ("missing", "changed"):
+                with self.subTest(filename=filename, damage=damage):
+                    def install_then_damage(*args):
+                        results = real_install(*args)
+                        for root, skipped in results:
+                            if skipped:
+                                continue
+                            path = os.path.join(root, filename)
+                            if damage == "missing":
+                                os.remove(path)
+                            else:
+                                with open(path, "wb") as handle:
+                                    handle.write(b"marker without usable rules")
+                        return results
+
+                    with mock.patch.object(trial, "api_request", side_effect=self._api), \
+                            mock.patch.object(trial, "http_download", return_value=self.archive_bytes), \
+                            mock.patch.object(trial, "install_to_roots", side_effect=install_then_damage):
+                        output = io.StringIO()
+                        with redirect_stdout(output):
+                            exit_code = trial.run(["install", "--product", PRODUCT_ID, "--market", "cn"])
+                    result = json.loads(output.getvalue())
+                    self.assertEqual(exit_code, 1)
+                    self.assertFalse(result["ok"])
+                    self.assertEqual(result["code"], "TRIAL_GATE_INVALID")
+
+    def test_install_use_exhaustion_and_reinstall_keep_one_quota(self):
+        used = 0
+        install_ids = set()
+        requests = set()
+
+        def counting_api(market, method, path, body=None):
+            nonlocal used
+            if path.endswith("/trial-use"):
+                self.assertIn(body["installId"], install_ids)
+                self.assertNotIn(body["requestId"], requests)
+                requests.add(body["requestId"])
+                allowed = used < 2
+                if allowed:
+                    used += 1
+                return {
+                    "allowed": allowed, "limitUses": 2, "remainingUses": 2 - used,
+                    "reason": None if allowed else "TRIAL_EXHAUSTED",
+                    "purchaseUrl": "https://shop.example.test/purchase",
+                }
+            result = self._api(market, method, path, body)
+            if path.endswith("/trial-grants"):
+                install_ids.add(body["installId"])
+                result.update(limitUses=2, remainingUses=2 - used)
+            return result
+
+        def run(action):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                code = trial.run([action, "--product", PRODUCT_ID, "--market", "cn", *(["--agent", "workbuddy"] if action == "install" else [])])
+            self.assertEqual(code, 0, output.getvalue())
+            result = json.loads(output.getvalue())
+            self.assertTrue(result["ok"])
+            return result
+
+        with mock.patch.object(trial, "api_request", side_effect=counting_api), \
+                mock.patch.object(trial, "http_download", return_value=self.archive_bytes):
+            run("install")
+            self.assertEqual(used, 0, "installation must not consume a use")
+            first = run("use")
+            self.assertTrue(first["allowed"])
+            self.assertEqual(first["remainingUses"], 1)
+            self.assertEqual(run("install")["trial"]["remainingUses"], 1)
+            last = run("use")
+            self.assertTrue(last["allowed"])
+            self.assertTrue(last["lastUse"])
+            self.assertEqual(last["remainingUses"], 0)
+            for _ in range(2):
+                denied = run("use")
+                self.assertFalse(denied["allowed"])
+                self.assertEqual(denied["nextAction"], "PURCHASE_REQUIRED")
+                self.assertEqual(denied["purchaseUrl"], "https://shop.example.test/purchase")
+                self.assertIn("viceme skill install %s --owned" % PRODUCT_ID, denied["message"])
+                self.assertEqual(run("install")["trial"]["remainingUses"], 0)
+            self.assertEqual(len(install_ids), 1, "reinstall must reuse the same grant")
+            self.assertEqual(used, 2)
 
     def test_install_reports_failure_when_every_target_is_skipped(self):
         # 唯一目标 .agents/skills/my-skill 已被非 ViceMe 管理目录占用:
