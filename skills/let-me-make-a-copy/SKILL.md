@@ -30,7 +30,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 ## 读取作品
 
 1. 提取邀请中的唯一官方 HTTPS 作品 `.md` 地址；不得从页面文案复制或猜测 `VICEME-REPLICA:VMR-...` 口令。
-2. 先按 [CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 找到现有命令；本地未安装官方 Skill 时使用同一流程的云端定位脚本。找到后沿用完整路径运行 `viceme version` 并使用 `viceme replica inspect "<work.md URL>"`；CLI 会从公开 Work API 读取平台控制的 Replica entry，并检查私有 standalone 凭证，只有服务端确认原订单已支付时才返回 `standaloneRecoveryAvailable=true`。只有定位退出 127 或版本明确不兼容时，才按作品 Origin 选择上方唯一对应的 `<script-url>`，并选择 Python 3.9 或更高版本解释器：macOS/Linux 优先 `python3`，Windows 优先 `py -3`、其次 `python`。macOS/Linux 命令为：
+2. 先按 [CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 找到现有命令；本地未安装官方 Skill 时使用同一流程的云端定位脚本。找到后沿用完整路径运行 `viceme version` 并使用 `viceme replica inspect "<work.md URL>"`；CLI 会从公开 Work API 读取平台控制的 Replica entry，仅获取公开作品信息，不读取私有购买凭证或查询原订单。只有定位退出 127 或版本明确不兼容时，才按作品 Origin 选择上方唯一对应的 `<script-url>`，并选择 Python 3.9 或更高版本解释器：macOS/Linux 优先 `python3`，Windows 优先 `py -3`、其次 `python`。macOS/Linux 命令为：
 
    ```bash
    curl -fsS <script-url> | <python-command> - start --work-url <work.md URL>
@@ -38,16 +38,16 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
    `-` 让 Python 从标准输入读取脚本，后续参数照常传入，不依赖 bash/zsh 的进程替换。Windows 将同一 URL 下载到当前用户私有临时文件，以 `<python-command> <temporary-script>` 运行并在本次流程结束后删除；不得保存到 Agent Skill 目录。脚本只使用 Python 标准库，不得执行 `pip install`、跟随重定向或从作品站点下载替代脚本。后续 `<script-runner>` 指本步骤确定的标准输入管道命令或私有临时脚本，且同一任务始终使用同一区域来源。
 
-3. CLI `inspect` 或 Python `start` 必须返回 `nextAction=CONFIRM_INLINE_PREVIEW`；先在正文内容区展示创作者、作品标题、简介、币种和当前价格，再按“用户交互”只提供“继续做同款 / 暂不继续”，不得打开 `workUrl`。当前阶段不判断作品页是否由 ViceMe 托管；待平台提供权威托管字段后再扩展打开页面的分支。Python `start` 会自行完成作品解析和已支付恢复检查，用户不需要单独运行检查命令。
+3. CLI `inspect` 或 Python `start` 必须返回 `nextAction=CONFIRM_INLINE_PREVIEW`；先在正文内容区展示创作者、作品标题、简介、币种和当前价格，再按“用户交互”只提供“继续做同款 / 暂不继续”，不得打开 `workUrl`。当前阶段不判断作品页是否由 ViceMe 托管；待平台提供权威托管字段后再扩展打开页面的分支。Python `start` 只解析公开作品信息，不读取私有购买凭证或查询原订单。
 
-Python `start` 读取既有 standalone 私有恢复凭证时可能触发宿主的敏感凭证权限卡片；这是保护恢复密钥的正常安全边界，不是流程失败。立即暂停其他动作并等待用户选择，可说明“允许加密访问（推荐）”能让命令使用凭证而不向模型暴露明文，但不得自行选择、展示凭证内容、改动凭证位置或改用普通文件读取绕过权限。用户禁止访问、权限结果不明确或读取失败时进入 `STOP_AND_REPORT`；不得改用 CLI、匿名路径或新订单，以免绕过已有已支付恢复。
+用户确认继续后，CLI `inspect --check-recovery` 或 Python `install` 读取既有 standalone 私有恢复凭证时可能触发宿主的敏感凭证权限卡片；这是保护恢复密钥的正常安全边界，不是流程失败。立即暂停其他动作并等待用户选择，可说明“允许加密访问（推荐）”能让命令使用凭证而不向模型暴露明文，但不得自行选择、展示凭证内容、改动凭证位置或改用普通文件读取绕过权限。用户禁止访问、权限结果不明确或读取失败时进入 `STOP_AND_REPORT`；不得改用 CLI、匿名路径或新订单，以免绕过已有已支付恢复。
 
 ## 选择执行引擎
 
 用户确认后才选择引擎，且订单一旦创建不得切换：
 
-1. 预览结果返回 `standaloneRecoveryAvailable=true` 时，必须继续运行原 Python `<script-runner>`，恢复已支付订单或权益。后来安装 CLI 不得触发新订单。
-2. 否则保持预览时选定的引擎：兼容 CLI 使用 CLI；没有 CLI 才使用同一 `<script-runner>`。CLI 探测发生网络或完整性错误时停止，不得静默降级。
+1. 使用 CLI 时，用户确认继续后才运行 `viceme replica inspect "<work.md URL>" --check-recovery`；只检查恢复，不创建订单。检查结果返回 `standaloneRecoveryAvailable=true` 时，按作品 Origin 选择官方 Python `<script-runner>`，必须运行该脚本，恢复已支付订单或权益。后来安装 CLI 不得触发新订单。
+2. Python 路径在用户确认后直接运行 `install`，由脚本优先恢复已支付订单；CLI 检查返回 `standaloneRecoveryAvailable=false` 时保持预览时选定的引擎：兼容 CLI 使用 CLI；没有 CLI 才使用同一 `<script-runner>`。CLI 探测发生网络或完整性错误时停止，不得静默降级。
 3. CLI 路径运行 `viceme auth status`：
    - `authenticated=true`：使用账号路径；
    - `authenticated=false`：使用 CLI 匿名路径；
