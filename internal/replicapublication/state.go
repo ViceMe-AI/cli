@@ -489,7 +489,21 @@ func (store Store) ensureDirectory() error {
 	if strings.TrimSpace(store.Directory) == "" || strings.TrimSpace(store.EndpointOrigin) == "" || (store.Market != "CN" && store.Market != "GLOBAL") {
 		return output.Internal("REPLICA_PUBLICATION_STATE_SCOPE_INVALID", "Website Replica publication state scope is invalid", nil)
 	}
-	if err := os.MkdirAll(filepath.Dir(store.Directory), 0o700); err != nil {
+	if store.ProjectScoped {
+		// Windows MkdirAll ignores Unix mode bits and creates inherited ACLs.
+		// Every managed project directory must be private from its creation.
+		parent := filepath.Dir(store.Directory)
+		root := filepath.Dir(parent)
+		if filepath.Base(root) != ".viceme" || filepath.Base(parent) != "publications" ||
+			store.Directory != ScopedDirectory(parent, store.EndpointOrigin, store.Market) {
+			return output.Internal("REPLICA_PUBLICATION_STATE_SCOPE_INVALID", "Website Replica project state scope is invalid", nil)
+		}
+		for _, directory := range []string{root, parent} {
+			if _, err := privatepath.EnsureDirectory(directory); err != nil {
+				return stateError("REPLICA_PUBLICATION_STATE_SAVE_FAILED", "local Website Replica project state directory is not private", err)
+			}
+		}
+	} else if err := os.MkdirAll(filepath.Dir(store.Directory), 0o700); err != nil {
 		return stateError("REPLICA_PUBLICATION_STATE_SAVE_FAILED", "could not create local Website Replica publication state", err)
 	}
 	if _, err := privatepath.EnsureDirectory(store.Directory); err != nil {

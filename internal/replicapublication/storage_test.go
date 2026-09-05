@@ -53,7 +53,11 @@ func TestStorageProbeReportsDeniedOperationWithoutPrivatePaths(t *testing.T) {
 
 func TestProjectStorageProtectsGitAndProbePreservesExistingState(t *testing.T) {
 	dir := t.TempDir()
-	store := Store{Directory: filepath.Join(dir, "scope"), EndpointOrigin: "https://api.viceme.cn", Market: "CN", ProjectScoped: true}
+	directory, err := ProjectStoreDirectory(dir, "https://api.viceme.cn", "CN")
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := Store{Directory: directory, EndpointOrigin: "https://api.viceme.cn", Market: "CN", ProjectScoped: true}
 	if err := store.Preflight(); err != nil {
 		t.Fatal(err)
 	}
