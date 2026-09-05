@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,12 +13,14 @@ import (
 	"path/filepath"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
 	"github.com/ViceMe-AI/cli/internal/replicapreview"
 	"github.com/ViceMe-AI/cli/internal/replicapublication"
@@ -182,6 +185,12 @@ func TestReplicaStatusIncludesActivatedPageReleaseForHostedPublication(t *testin
 }
 
 func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *testing.T) {
+	for _, projectStorage := range []bool{false, true} {
+		t.Run(fmt.Sprintf("project-storage-%t", projectStorage), func(t *testing.T) { testReplicaPublicationStorageLifecycle(t, projectStorage) })
+	}
+}
+
+func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	project := filepath.Join(t.TempDir(), "site")
 	if err := os.MkdirAll(filepath.Join(project, "node_modules"), 0o700); err != nil {
@@ -234,6 +243,7 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 	confirmationVersion := "wrv1-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
 	var createCalls int
 	var firstRequest map[string]any
+	submitted := false
 	controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if !previewOpened.Load() {
 			t.Fatal("remote publication request happened before local preview")
@@ -286,6 +296,10 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 				"nextAction": map[string]any{"kind": "AUTHORIZE_SOURCE_UPLOAD", "publicationId": replicaPublicationTestID},
 			})
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID:
+			if submitted {
+				writeJSONResponse(writer, replicaPublicationForArtifacts(now, "PROCESSING", "VERIFIED", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
+				return
+			}
 			writeJSONResponse(writer, replicaPublicationForArtifacts(now, "DRAFT", "WAITING_UPLOAD", firstRequest["source"].(map[string]any), "WAITING_UPLOAD", firstRequest["page"].(map[string]any)))
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID+"/page/upload-authorizations":
 			assertEmptyJSONObject(t, request)
@@ -314,6 +328,7 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 			assertEmptyJSONObject(t, request)
 			writeJSONResponse(writer, replicaPublicationForArtifacts(now, "DRAFT", "VERIFIED", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID+"/submit":
+			submitted = true
 			assertEmptyJSONObject(t, request)
 			writeJSONResponse(writer, replicaPublicationForArtifacts(now, "PROCESSING", "VERIFIED", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
 		default:
@@ -355,6 +370,17 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 		"--canonical-origin", "HTTPS://Example.COM:443/",
 	}
 
+	if projectStorage {
+		arguments = append(arguments, "--state-project", project)
+		original := privatefile.ReplaceFile
+		privatefile.ReplaceFile = func(from, to string) error {
+			if strings.HasPrefix(to, filepath.Join(root, "config")+string(filepath.Separator)) {
+				return syscall.EPERM
+			}
+			return original(from, to)
+		}
+		t.Cleanup(func() { privatefile.ReplaceFile = original })
+	}
 	var reviewOutput bytes.Buffer
 	dependencies.Out = &reviewOutput
 	if exit := Execute(arguments, dependencies); exit != output.ExitConfirmation {
@@ -366,6 +392,9 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 	}
 	reviewError, _ := reviewEnvelope["error"].(map[string]any)
 	details, _ := reviewError["details"].(map[string]any)
+	if projectStorage && !strings.Contains(details["confirmCommand"].(string), "--state-project ") {
+		t.Fatal("confirmation lost project storage")
+	}
 	review, _ := details["review"].(map[string]any)
 	pageArtifact, hasPageArtifact := review["pageArtifact"].(map[string]any)
 	if reviewError["code"] != "REPLICA_PUBLICATION_CONFIRMATION_REQUIRED" || details["confirmationVersion"] != confirmationVersion ||
@@ -396,6 +425,23 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 	}
 	if len(uploaded) == 0 || len(uploadedPage) == 0 || createCalls != 2 {
 		t.Fatalf("confirmed publication did not upload both artifacts exactly once: create=%d source=%d page=%d", createCalls, len(uploaded), len(uploadedPage))
+	}
+	for name := range readReplicaZIP(t, uploaded) {
+		if strings.Contains(name, ".viceme/") {
+			t.Fatalf("recovery state leaked into source: %s", name)
+		}
+	}
+	if projectStorage {
+		if !strings.Contains(submittedOutput.String(), "--state-project ") {
+			t.Fatal("resume lost project storage")
+		}
+		for _, operation := range []string{"status", "resume"} {
+			var resumed bytes.Buffer
+			dependencies.Out = &resumed
+			if exit := Execute([]string{"replica", operation, replicaPublicationTestID, "--state-project", project}, dependencies); exit != 0 {
+				t.Fatalf("%s failed: %s", operation, resumed.String())
+			}
+		}
 	}
 	if contents := readReplicaZIP(t, uploaded); string(contents["index.html"]) != "<h1>Replica source</h1>" {
 		t.Fatalf("working-tree changes replaced the confirmed frozen source: %q", contents["index.html"])
@@ -439,7 +485,11 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 	if err != nil || len(stagedBindings) != 0 {
 		t.Fatalf("atomic binding write left staging files: files=%v err=%v", stagedBindings, err)
 	}
-	artifacts, err := filepath.Glob(filepath.Join(root, "config", "replica-publications", "*", "artifacts", "*", "source.zip"))
+	storageRoot := filepath.Join(root, "config", "replica-publications")
+	if projectStorage {
+		storageRoot = filepath.Join(project, ".viceme", "publications")
+	}
+	artifacts, err := filepath.Glob(filepath.Join(storageRoot, "*", "artifacts", "*", "source.zip"))
 	if err != nil || len(artifacts) != 0 {
 		t.Fatalf("frozen source was retained after platform takeover: files=%v err=%v", artifacts, err)
 	}
@@ -1178,6 +1228,13 @@ func TestReplicaPublishRequiresExplicitReplicaOnlyFallbackWhenPreviewFails(t *te
 }
 
 func TestReplicaResumeContinuesInterruptedUploadFromAuthoritativeSourceState(t *testing.T) {
+	for _, projectStorage := range []bool{false, true} {
+		t.Run(fmt.Sprintf("project-storage-%t", projectStorage), func(t *testing.T) {
+			testReplicaResumeContinuesInterruptedUploadFromAuthoritativeSourceStateStorage(t, projectStorage)
+		})
+	}
+}
+func testReplicaResumeContinuesInterruptedUploadFromAuthoritativeSourceStateStorage(t *testing.T, projectStorage bool) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	project := newReplicaPublicationTestProject(t)
 	confirmationVersion := "wrv1-1212121212121212121212121212121212121212121212121212121212121212"
@@ -1250,9 +1307,23 @@ func TestReplicaResumeContinuesInterruptedUploadFromAuthoritativeSourceState(t *
 
 	t.Setenv(processAccessTokenEnvironment, replicaPublicationTestAccessToken)
 	root := t.TempDir()
+	storageRoot := filepath.Join(root, "config", "replica-publications")
+	storageArgs := []string{}
+	if projectStorage {
+		storageRoot = filepath.Join(project, ".viceme", "publications")
+		storageArgs = []string{"--state-project", project}
+		original := privatefile.ReplaceFile
+		privatefile.ReplaceFile = func(from, to string) error {
+			if strings.HasPrefix(to, filepath.Join(root, "config")+string(filepath.Separator)) {
+				return syscall.EPERM
+			}
+			return original(from, to)
+		}
+		t.Cleanup(func() { privatefile.ReplaceFile = original })
+	}
 	dependencies := replicaPublicationTestDependencies(t, root, controlServer, now)
 	dependencies.NewID = func() string { return replicaPublicationTestRequestID }
-	arguments := replicaPublicationTestArguments(project, "replica-site")
+	arguments := append(replicaPublicationTestArguments(project, "replica-site"), storageArgs...)
 	dependencies.Out = &bytes.Buffer{}
 	if exit := Execute(arguments, dependencies); exit != output.ExitConfirmation {
 		t.Fatalf("publication did not reach final review: exit=%d", exit)
@@ -1261,10 +1332,10 @@ func TestReplicaResumeContinuesInterruptedUploadFromAuthoritativeSourceState(t *
 	dependencies.Out = &interruptedOutput
 	confirmed := append(append([]string{}, arguments...), "--confirm", confirmationVersion)
 	if exit := Execute(confirmed, dependencies); exit != output.ExitNetwork ||
-		!strings.Contains(interruptedOutput.String(), `"command": "viceme replica resume `+replicaPublicationTestID+`"`) {
+		!strings.Contains(interruptedOutput.String(), `"command": "viceme replica resume `+replicaPublicationTestID) {
 		t.Fatalf("interrupted upload was not recoverable: exit=%d output=%s", exit, interruptedOutput.String())
 	}
-	artifacts, err := filepath.Glob(filepath.Join(root, "config", "replica-publications", "*", "artifacts", "*", "source.zip"))
+	artifacts, err := filepath.Glob(filepath.Join(storageRoot, "*", "artifacts", "*", "source.zip"))
 	if err != nil || len(artifacts) != 1 {
 		t.Fatalf("interrupted upload did not retain one frozen source: files=%v err=%v", artifacts, err)
 	}
@@ -1276,7 +1347,7 @@ func TestReplicaResumeContinuesInterruptedUploadFromAuthoritativeSourceState(t *
 	}
 	var resumedOutput bytes.Buffer
 	dependencies.Out = &resumedOutput
-	if exit := Execute([]string{"replica", "resume", replicaPublicationTestID}, dependencies); exit != 0 ||
+	if exit := Execute(append([]string{"replica", "resume", replicaPublicationTestID}, storageArgs...), dependencies); exit != 0 ||
 		!strings.Contains(resumedOutput.String(), `"status": "PROCESSING"`) {
 		t.Fatalf("upload resume did not reach PROCESSING: exit=%d output=%s", exit, resumedOutput.String())
 	}
@@ -1285,13 +1356,18 @@ func TestReplicaResumeContinuesInterruptedUploadFromAuthoritativeSourceState(t *
 		t.Fatalf("resume repeated or changed a completed step: creates=%d auth=%d complete=%d submit=%d uploads=%d equal=%v",
 			createCalls, authorizationCalls, completeCalls, submitCalls, len(uploadBodies), len(uploadBodies) == 2 && bytes.Equal(uploadBodies[0], uploadBodies[1]))
 	}
-	artifacts, err = filepath.Glob(filepath.Join(root, "config", "replica-publications", "*", "artifacts", "*", "source.zip"))
+	artifacts, err = filepath.Glob(filepath.Join(storageRoot, "*", "artifacts", "*", "source.zip"))
 	if err != nil || len(artifacts) != 0 {
 		t.Fatalf("platform takeover did not clean the frozen source: files=%v err=%v", artifacts, err)
 	}
 }
 
 func TestReplicaCancelRemovesRecoverableDraftAndFrozenSource(t *testing.T) {
+	for _, projectStorage := range []bool{false, true} {
+		t.Run(fmt.Sprintf("project-storage-%t", projectStorage), func(t *testing.T) { testReplicaCancelRemovesRecoverableDraftAndFrozenSourceStorage(t, projectStorage) })
+	}
+}
+func testReplicaCancelRemovesRecoverableDraftAndFrozenSourceStorage(t *testing.T, projectStorage bool) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	project := newReplicaPublicationTestProject(t)
 	confirmationVersion := "wrv1-3434343434343434343434343434343434343434343434343434343434343434"
@@ -1345,9 +1421,23 @@ func TestReplicaCancelRemovesRecoverableDraftAndFrozenSource(t *testing.T) {
 
 	t.Setenv(processAccessTokenEnvironment, replicaPublicationTestAccessToken)
 	root := t.TempDir()
+	storageRoot := filepath.Join(root, "config", "replica-publications")
+	storageArgs := []string{}
+	if projectStorage {
+		storageRoot = filepath.Join(project, ".viceme", "publications")
+		storageArgs = []string{"--state-project", project}
+		original := privatefile.ReplaceFile
+		privatefile.ReplaceFile = func(from, to string) error {
+			if strings.HasPrefix(to, filepath.Join(root, "config")+string(filepath.Separator)) {
+				return syscall.EPERM
+			}
+			return original(from, to)
+		}
+		t.Cleanup(func() { privatefile.ReplaceFile = original })
+	}
 	dependencies := replicaPublicationTestDependencies(t, root, controlServer, now)
 	dependencies.NewID = func() string { return replicaPublicationTestRequestID }
-	arguments := replicaPublicationTestArguments(project, "replica-site")
+	arguments := append(replicaPublicationTestArguments(project, "replica-site"), storageArgs...)
 	dependencies.Out = &bytes.Buffer{}
 	if exit := Execute(arguments, dependencies); exit != output.ExitConfirmation {
 		t.Fatalf("publication did not reach final review: exit=%d", exit)
@@ -1357,20 +1447,31 @@ func TestReplicaCancelRemovesRecoverableDraftAndFrozenSource(t *testing.T) {
 		t.Fatalf("test publication did not stop as a recoverable draft: exit=%d", exit)
 	}
 
+	if projectStorage {
+		original := privatefile.ReplaceFile
+		privatefile.ReplaceFile = func(string, string) error { return syscall.EPERM }
+		var denied bytes.Buffer
+		dependencies.Out = &denied
+		exit := Execute(append([]string{"replica", "cancel", replicaPublicationTestID}, storageArgs...), dependencies)
+		privatefile.ReplaceFile = original
+		if exit != output.ExitPolicy || cancelCalls != 0 {
+			t.Fatalf("denied cancellation mutated remote state: exit=%d calls=%d %s", exit, cancelCalls, denied.String())
+		}
+	}
 	var cancelledOutput bytes.Buffer
 	dependencies.Out = &cancelledOutput
-	if exit := Execute([]string{"replica", "cancel", replicaPublicationTestID}, dependencies); exit != 0 ||
+	if exit := Execute(append([]string{"replica", "cancel", replicaPublicationTestID}, storageArgs...), dependencies); exit != 0 ||
 		!strings.Contains(cancelledOutput.String(), `"status": "CANCELLED"`) {
 		t.Fatalf("draft cancellation failed: exit=%d output=%s", exit, cancelledOutput.String())
 	}
 	if cancelCalls != 1 {
 		t.Fatalf("cancel endpoint was called %d times", cancelCalls)
 	}
-	artifacts, err := filepath.Glob(filepath.Join(root, "config", "replica-publications", "*", "artifacts", "*", "source.zip"))
+	artifacts, err := filepath.Glob(filepath.Join(storageRoot, "*", "artifacts", "*", "source.zip"))
 	if err != nil || len(artifacts) != 0 {
 		t.Fatalf("cancelled draft retained frozen source: files=%v err=%v", artifacts, err)
 	}
-	states, err := filepath.Glob(filepath.Join(root, "config", "replica-publications", "*", "pending-*.json"))
+	states, err := filepath.Glob(filepath.Join(storageRoot, "*", "pending-*.json"))
 	if err != nil || len(states) != 0 {
 		t.Fatalf("cancelled draft retained pending state: files=%v err=%v", states, err)
 	}

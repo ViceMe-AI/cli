@@ -254,6 +254,7 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme replica sales --replica <ID>` | 查看当前源码版本、销售价格与经营权限；暂停经营后仍可只读查询。 |
 | `viceme replica price --replica <ID> --price-cents <分>` | 预览改价影响，0 表示免费；执行返回的完整确认命令后修改价格，不重新上传源码。 |
 | `viceme replica delist --replica <ID>` / `viceme replica relist --replica <ID>` | 预览下架或重新上架影响，再执行返回的完整确认命令；已有购买权益不变。 |
+| `viceme replica publish --path <项目或ZIP> --state-project <同一项目或ZIP> ...` | 在已授权项目的 `.viceme` 内保存发布恢复数据，保留原子写入；确认、status、resume、cancel 沿用同一定位参数。已有请求不自动迁移。详见 [沙箱存储与恢复](docs/replica-sandbox-storage.md)。 |
 | `viceme replica status <publication-id>` | 读取 Website Replica Publication 权威状态，并在发布终态补全稳定本地绑定。 |
 | `viceme replica resume <publication-id>` | 从权威子状态只继续缺失的上传、校验、提交或允许的重试步骤。 |
 | `viceme replica cancel <publication-id>` | 激活前取消 Publication，并清理本地可恢复源码。 |

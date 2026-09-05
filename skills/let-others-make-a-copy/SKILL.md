@@ -58,6 +58,12 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
 - 恢复已发布作品的遗漏入口时，读取同一 Publication 的权威状态和 URL，直接补原站接入，不创建新的源码版本。原站修改或验证失败只重试接入，保留发布成功事实，不再次运行 publish；明确报告“作品已发布，原站入口未完成”。
 - 入口在冻结上传完成后写入，本次不可变 SOURCE/PAGE 制品不因此改变，也不为加入入口重新上传。ViceMe 托管页仍由平台宿主提供按钮。ZIP 输入时保留原 ZIP 与绑定，优先修改已有原项目；只有 ZIP 时将修改后的项目交付到独立目录，不把临时预览目录当作持久交付，不覆盖原 ZIP。缺少可编辑源码时报告接入未完成，不把发布成功等同于原站已更新。
 
+## 沙箱存储恢复
+
+遇到 `REPLICA_PUBLICATION_STORAGE_PERMISSION_REQUIRED` 时按 CLI 的 `stage`、`operation` 和 `nextAction` 停止当前重试。新请求可以在已授权工作区使用 `--state-project <与 --path 相同的项目或 ZIP>`，把恢复数据保存在项目的受管 `.viceme` 目录；这不改变登录凭据位置。已有请求必须保留原存储位置，不自动搬迁，也不重新创建平行请求。
+
+确认命令、资格恢复命令和 `resume` 命令携带的 `--state-project` 与 `--profile` 必须原样保留；后续 `status`、`cancel` 同样带上这些参数。`REPLICA_PUBLICATION_STORAGE_CONFLICT` 必须停止并保留原数据。若项目目录也受限，使用宿主正式授权机制或在有权限的终端继续原请求。不得反复试错、扩大文件权限、移除沙箱环境变量、直跑底层二进制、删除恢复文件或反汇编 CLI。存储修复不构成跳过预览或最终发布确认的授权。
+
 ## OWNER 管理
 
 先运行 `viceme replica status <publication-id>` 读取权威状态与 `hosting` / `rollback`，或 `viceme replica sales --replica <replica-id>` 读取当前版本、价格和经营权限。暂停 OWNER 只读；权限失败停止，不换身份绕过。

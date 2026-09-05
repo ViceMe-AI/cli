@@ -1,6 +1,10 @@
 package command
 
 import (
+	"context"
+	"errors"
+	"strings"
+
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/spf13/cobra"
@@ -28,40 +32,49 @@ type replicaPublicationPresentation struct {
 }
 
 func newReplicaStatusCommand(runtime *Runtime) *cobra.Command {
-	return &cobra.Command{
-		Use:   "status <publication-id>",
-		Short: "Get authoritative Website Replica Publication status",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(command *cobra.Command, args []string) error {
-			if err := requireReplicaPublicationCN(runtime); err != nil {
-				return err
-			}
-			publicationID := args[0]
-			if !replicaUUIDPattern.MatchString(publicationID) {
-				return output.Validation("REPLICA_PUBLICATION_ID_INVALID", "Website Replica Publication ID must be a UUID")
-			}
-			store := replicaPublicationStore(runtime)
-			if err := store.CleanupExpiredArtifacts(); err != nil {
-				return err
-			}
-			publication, err := runtime.client().GetWebsiteReplicaPublication(command.Context(), publicationID)
-			if err != nil {
-				return err
-			}
-			pending, found, err := store.LoadPublication(publicationID)
-			if err != nil {
-				return err
-			}
-			if found {
-				presentation, err := synchronizeReplicaPublication(runtime, store, pending, publication)
-				if err != nil {
-					return err
-				}
-				return runtime.business(presentation)
-			}
-			return runtime.business(presentReplicaPublication(publication))
-		},
+	command := &cobra.Command{Use: "status <publication-id>", Short: "Get authoritative Website Replica Publication status", Args: cobra.ExactArgs(1), RunE: func(command *cobra.Command, args []string) error {
+		result, err := controlReplicaPublication(command.Context(), runtime, args[0], false)
+		if err != nil {
+			return err
+		}
+		return runtime.business(result)
+	}}
+	addReplicaStorageFlag(command, runtime)
+	return command
+}
+
+// Release recovery locks before the caller emits its single JSON envelope.
+func controlReplicaPublication(ctx context.Context, runtime *Runtime, publicationID string, cancel bool) (_ replicaPublicationPresentation, returnErr error) {
+	if err := requireReplicaPublicationCN(runtime); err != nil {
+		return replicaPublicationPresentation{}, err
 	}
+	publicationID = strings.TrimSpace(publicationID)
+	if !replicaUUIDPattern.MatchString(publicationID) {
+		return replicaPublicationPresentation{}, output.Validation("REPLICA_PUBLICATION_ID_INVALID", "Website Replica Publication ID must be a UUID")
+	}
+	store, err := selectedReplicaPublicationStore(runtime)
+	if err != nil {
+		return replicaPublicationPresentation{}, err
+	}
+	pending, found, unlock, err := loadReplicaRecovery(runtime, store, publicationID)
+	if err != nil {
+		return replicaPublicationPresentation{}, err
+	}
+	defer func() { returnErr = errors.Join(returnErr, unlock()) }()
+	var publication api.WebsiteReplicaPublication
+	if cancel {
+		progress(runtime, "Cancelling Website Replica Publication")
+		publication, err = runtime.client().CancelWebsiteReplicaPublication(ctx, publicationID)
+	} else {
+		publication, err = runtime.client().GetWebsiteReplicaPublication(ctx, publicationID)
+	}
+	if err != nil {
+		return replicaPublicationPresentation{}, err
+	}
+	if found {
+		return synchronizeReplicaPublication(runtime, store, pending, publication)
+	}
+	return presentStoredReplicaPublication(runtime, publication), nil
 }
 
 func presentReplicaPublication(publication api.WebsiteReplicaPublication) replicaPublicationPresentation {
