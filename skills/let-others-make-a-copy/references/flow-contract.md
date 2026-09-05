@@ -6,6 +6,12 @@
 | --- | --- |
 | `REPLICA_PUBLICATION_CONFIRMATION_REQUIRED`，review 为 CREATE | 展示首次发布摘要，确认后原样执行 confirmCommand。 |
 | `REPLICA_PUBLICATION_CONFIRMATION_REQUIRED`，review 为 UPDATE | 展示更新摘要与不可变制品，确认后复用原绑定。 |
+| 缺失业务输入 | 只补返回的缺失字段；已知待问字段一次收齐，价格不得猜测。 |
+| `REPLICA_PREVIEW_URL_REQUIRED` / `PROVIDE_PREVIEW_URL` | 此时才定位页面并启动或复用本地预览，补实际页面 URL 后重跑。 |
+| `REPLICA_PREVIEW_REVIEW_REQUIRED` / `REVIEW_LOCAL_PREVIEW` | 实际观察页面和嵌入后补 `--preview-reviewed`；不能仅凭 HTTP 成功声明通过。 |
+| `CONFIRM_UNVERIFIED_REPLICA_ONLY` | 优先修复具体预览问题；未经用户接受未验证范围，不追加降级确认标记。 |
+| 源码安全或归档错误 | 按 package-contract 检查命中范围；不把敏感内容输出或上传，不自动删除后继续。 |
+| `REQUEST_VALIDATION_FAILED` | 只核对对应请求字段与当前命令契约；无法由已支持参数修正时，通过官方工具处理兼容性。不得猜参数、换 Merchant、查无关 Work 或伪 TTY 重试；同一错误在修正后仍出现即停止并报告阻塞。 |
 | `AUTHENTICATE_CREATOR` | 完成当前市场登录后恢复同一主请求。 |
 | `APPLY_CREATOR` | 仅在已取得自动申请授权时复用 become-a-creator。 |
 | `WAIT_CREATOR_REVIEW` / `SUPPLY_CREATOR_INFO` / `CREATOR_APPLICATION_REJECTED` | 停止，不上传、不自动轮询，给出权威处理入口。 |
