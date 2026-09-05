@@ -23,8 +23,8 @@ func TestCreatorPreviewMissingInputsNeverReachPublication(t *testing.T) {
 		name, code, action string
 		url                bool
 	}{
-		{"missing URL", "REPLICA_PREVIEW_URL_REQUIRED", "PROVIDE_PREVIEW_URL", false},
-		{"missing creator approval", "REPLICA_PREVIEW_REVIEW_REQUIRED", "REVIEW_LOCAL_PREVIEW", true},
+		{"approval missing without URL", "REPLICA_PREVIEW_REVIEW_REQUIRED", "CONFIRM_CREATOR_PREVIEW", false},
+		{"missing creator approval", "REPLICA_PREVIEW_REVIEW_REQUIRED", "CONFIRM_CREATOR_PREVIEW", true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			project := t.TempDir()
@@ -71,15 +71,15 @@ func TestCreatorPreviewMissingInputsNeverReachPublication(t *testing.T) {
 					t.Fatal(err)
 				}
 				details := envelope.Error.Details
-				if details.ReviewRequiredBy != "CREATOR" || details.PreviewURL != page.URL+"/my-reading-corner.html?year=2026" || details.PresentationTarget != "AGENT_PLATFORM" {
+				if details.ReviewRequiredBy != "CREATOR" || details.PreviewURL != page.URL+"/my-reading-corner.html?year=2026" {
 					t.Fatalf("missing creator presentation handoff: %+v", details)
 				}
 			}
 			if remoteCalls != 0 || deps.Store.(*replicaPreviewCredentialStore).reads.Load() != 0 {
 				t.Fatal("input step crossed remote/auth boundary")
 			}
-			if scenario.url && (pageCalls != 1 || opened != 0) {
-				t.Fatal("page must be probed without opening a browser outside the host")
+			if scenario.url && (pageCalls != 0 || opened != 0) {
+				t.Fatal("approval must not probe the page or open a browser")
 			}
 			if !scenario.url && (pageCalls != 0 || opened != 0) {
 				t.Fatal("missing URL guessed a page")
@@ -99,7 +99,7 @@ func TestCreatorPreviewReviewedPageReachesFrozenReview(t *testing.T) {
 		t.Fatal(err)
 	}
 	page := httptest.NewServer(http.FileServer(http.Dir(project)))
-	defer page.Close()
+	page.Close() // A creator-approved URL may already be offline when publication starts.
 	// Reuse the publication fixture to exercise freezing, review and command recovery.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var input map[string]any

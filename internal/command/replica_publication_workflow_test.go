@@ -248,8 +248,8 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 	var firstRequest map[string]any
 	submitted := false
 	controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		if !previewProbed.Load() {
-			t.Fatal("remote publication request happened before local preview")
+		if previewProbed.Load() {
+			t.Fatal("publication unexpectedly probed the creator-approved page")
 		}
 		if request.Header.Get("Authorization") != "Bearer "+replicaPublicationTestAccessToken {
 			t.Fatalf("control request was not authenticated: %q", request.Header.Get("Authorization"))
@@ -370,7 +370,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 	arguments := []string{
 		"replica", "publish", "--path", project, "--slug", "replica-site",
 		"--title", "Replica title", "--summary", "Replica summary", "--price-cents", "990",
-		"--preview-url", "http://127.0.0.1:4173/", "--preview-reviewed",
+		"--preview-reviewed",
 		"--canonical-origin", "HTTPS://Example.COM:443/",
 	}
 
@@ -453,8 +453,8 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 	if contents := readReplicaZIP(t, uploadedPage); string(contents["dist/index.html"]) != "<h1>Hosted page</h1>" || len(contents["viceme-page.json"]) == 0 {
 		t.Fatalf("hosted page package did not preserve the frozen static output: %#v", contents)
 	}
-	if !previewSession.closed.Load() {
-		t.Fatal("publication preview session was not cleaned")
+	if previewSession.closed.Load() {
+		t.Fatal("publication touched a preview session it must not start")
 	}
 	if !strings.Contains(submittedOutput.String(), `"status": "PROCESSING"`) ||
 		!strings.Contains(submittedOutput.String(), `"phase": "SUBMITTED_NOT_PUBLISHED"`) {
@@ -639,7 +639,7 @@ func TestReplicaPublishResumesSameRequestAfterLogin(t *testing.T) {
 	if exit := Execute(arguments, dependencies); exit != output.ExitConfirmation || !strings.Contains(resumedOutput.String(), "REPLICA_PUBLICATION_CONFIRMATION_REQUIRED") {
 		t.Fatalf("login recovery did not reach final review: exit=%d output=%s", exit, resumedOutput.String())
 	}
-	if createCalls != 2 || newIDCalls != 1 || previewCalls != 2 {
+	if createCalls != 2 || newIDCalls != 1 || previewCalls != 0 {
 		t.Fatalf("login recovery did not reuse one request and preview target: creates=%d ids=%d previews=%d", createCalls, newIDCalls, previewCalls)
 	}
 }
@@ -1137,7 +1137,7 @@ func TestReplicaPublishAcceptsValidatedZIPWithAgentPreview(t *testing.T) {
 	if exit := Execute(replicaPublicationTestArguments(sourcePath, "replica-site"), dependencies); exit != output.ExitConfirmation {
 		t.Fatalf("validated ZIP did not reach final review: exit=%d output=%s", exit, stdout.String())
 	}
-	if remoteCalls != 1 || !previewCalled {
+	if remoteCalls != 1 || previewCalled {
 		t.Fatalf("unexpected calls: %d", remoteCalls)
 	}
 	artifacts, err := filepath.Glob(filepath.Join(root, "config", "replica-publications", "*", "artifacts", "*", "source.zip"))
@@ -1183,7 +1183,7 @@ func TestReplicaPublishRejectsUnsafeZIPBeforePreviewOrRemoteRequest(t *testing.T
 	}
 }
 
-func TestReplicaPublishRequiresExplicitReplicaOnlyFallbackWhenPreviewFails(t *testing.T) {
+func TestReplicaPublishRequiresCreatorApprovalOrExplicitSourceOnlyChoice(t *testing.T) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	project := newReplicaPublicationTestProject(t)
 	remoteCalls := 0
@@ -1206,12 +1206,11 @@ func TestReplicaPublishRequiresExplicitReplicaOnlyFallbackWhenPreviewFails(t *te
 			Message: "test project could not start", Cause: errors.New("missing dependency"),
 		}
 	}
-	arguments := replicaPublicationTestArguments(project, "replica-site")
+	arguments := append(replicaPublicationTestArguments(project, "replica-site"), "--preview-reviewed=false")
 	var blockedOutput bytes.Buffer
 	dependencies.Out = &blockedOutput
-	if exit := Execute(arguments, dependencies); exit != output.ExitConfirmation ||
-		!strings.Contains(blockedOutput.String(), "CONFIRM_UNVERIFIED_REPLICA_ONLY") ||
-		!strings.Contains(blockedOutput.String(), "--confirm-unverified-replica-only") {
+	if exit := Execute(arguments, dependencies); exit != output.ExitValidation ||
+		!strings.Contains(blockedOutput.String(), "CONFIRM_CREATOR_PREVIEW") {
 		t.Fatalf("failed preview did not require explicit fallback: exit=%d output=%s", exit, blockedOutput.String())
 	}
 	if remoteCalls != 0 {
