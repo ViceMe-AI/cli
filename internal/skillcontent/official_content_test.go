@@ -203,6 +203,29 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 	}
 }
 
+func TestReplicaBuyerUsesInPlatformPaymentAndShortOutputWaits(t *testing.T) {
+	t.Parallel()
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "let-me-make-a-copy/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"presentationTarget=AGENT_PLATFORM", "present_files", "当前任务真实工作目录",
+		"只有展示工具明确成功打开平台内付款入口后", "不启动等待、不外部降级、不自动重建订单",
+		"timeout=15000", "每 15 秒查询", "--interval 15s", "首次 `install` 不得携带 `--payment-presented`",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("buyer Skill omitted payment rule %q", required)
+		}
+	}
+	for _, forbidden := range []string{"timeout=190000", "--interval 30s", "每 30 秒查询"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("buyer Skill retained obsolete payment rule %q", forbidden)
+		}
+	}
+}
+
 func TestLetMeMakeACopyHasNoExternalProceduralDependencies(t *testing.T) {
 	t.Parallel()
 

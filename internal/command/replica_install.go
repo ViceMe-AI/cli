@@ -29,7 +29,7 @@ import (
 const (
 	replicaLicenseTermsVersion = "website-replica-license/v1"
 	replicaPaymentWaitTimeout  = 3 * time.Minute
-	replicaPaymentPollInterval = 30 * time.Second
+	replicaPaymentPollInterval = 15 * time.Second
 	replicaPaymentImagePrefix  = ".viceme-replica-payment-"
 )
 
@@ -161,6 +161,7 @@ func installReplicaAnonymousLocked(
 	if err != nil {
 		return replicaInstallResult{}, err
 	}
+	presentedOrderNo := state.OrderNo
 	client := runtime.client()
 	if exists && state.OrderNo != "" && !paymentPresented {
 		status, err := client.RecoverWebsiteReplicaOrderStatus(ctx, api.RecoverWebsiteReplicaDownloadRequest{
@@ -336,7 +337,8 @@ func installReplicaAnonymousLocked(
 		return replicaInstallResult{}, output.Policy("REPLICA_PURCHASE_STATE_INVALID", "Website Replica checkout page is unavailable")
 	}
 	_ = removeReplicaPaymentPresentation(runtime, state)
-	if !paymentPresented {
+	// A new checkout cannot have been presented by a previous invocation.
+	if !paymentPresented || presentedOrderNo != state.OrderNo {
 		return replicaInstallResult{}, replicaPaymentPageConfirmation(state)
 	}
 	if state.PaymentPresentedAt == "" {
@@ -364,9 +366,9 @@ func newReplicaSessionSecret() (string, error) {
 
 func replicaPaymentPageConfirmation(state replicaPurchaseState) error {
 	return output.Confirmation("REPLICA_PAYMENT_REQUIRED", "open the ViceMe Website Replica checkout page").WithDetails(map[string]any{
-		"nextAction": "OPEN_PAYMENT_PAGE", "checkoutUrl": state.CheckoutURL, "orderNo": state.OrderNo,
+		"nextAction": "OPEN_PAYMENT_PAGE", "presentationTarget": "AGENT_PLATFORM", "checkoutUrl": state.CheckoutURL, "orderNo": state.OrderNo,
 		"currency": state.Currency, "totalAmountCents": state.PriceCents, "expiresAt": state.OrderExpiresAt,
-	}).WithHint("open checkoutUrl with the available URL presentation tool, then rerun the same command with --payment-presented --timeout 3m --interval 30s; do not ask for another confirmation")
+	}).WithHint("open checkoutUrl inside the Agent platform using its embedded browser or payment panel; never use an external browser; only after the panel opens successfully rerun the same command with --payment-presented --timeout 3m --interval 15s; if no in-platform tool is available, stop and report")
 }
 
 func installReplicaLocked(

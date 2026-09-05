@@ -742,8 +742,8 @@ def wait_for_payment(
     request_fn: RequestFn = http_request,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> None:
-    for _ in range(6):
-        sleep_fn(30)
+    for _ in range(12):
+        sleep_fn(15)
         status = api_request(
             authority,
             "/website-replica-sessions/"
@@ -1292,6 +1292,7 @@ def install(
                 )
             return {**completion, "nextAction": "DEPLOY"}
         state = read_state(store["filename"])
+        presented_order_no = state.get("orderNo") if state is not None else None
         if state is not None:
             state = validate_state(state, authority, replica, target)
             if state.get("orderNo"):
@@ -1365,12 +1366,14 @@ def install(
                 "REPLICA_PAYMENT_TERMINAL",
                 "Website Replica payment did not complete",
             )
-        if not payment_presented:
+        # A new checkout cannot have been presented by a previous invocation.
+        if not payment_presented or checkout["orderNo"] != presented_order_no:
             raise WorkflowError(
                 "REPLICA_PAYMENT_REQUIRED",
-                "Open the hosted ViceMe payment page",
+                "Open the hosted ViceMe payment page inside the Agent platform",
                 {
                     "nextAction": "OPEN_PAYMENT_PAGE",
+                    "presentationTarget": "AGENT_PLATFORM",
                     "checkoutUrl": checkout["checkoutUrl"],
                 },
                 10,

@@ -367,7 +367,8 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 		t.Fatalf("payment page was not requested: exit=%d output=%q", exit, stdout.String())
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"nextAction": "OPEN_PAYMENT_PAGE"`)) ||
-		!bytes.Contains(stdout.Bytes(), []byte(`"checkoutUrl"`)) {
+		!bytes.Contains(stdout.Bytes(), []byte(`"checkoutUrl"`)) ||
+		!bytes.Contains(stdout.Bytes(), []byte(`"presentationTarget": "AGENT_PLATFORM"`)) {
 		t.Fatalf("unexpected payment page response: %q", stdout.String())
 	}
 	if bytes.Contains(stdout.Bytes(), []byte(paymentURI)) || bytes.Contains(stdout.Bytes(), []byte(`"sessionToken"`)) {
@@ -407,12 +408,12 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 	}, deps); exit != output.ExitNetwork {
 		t.Fatalf("pending payment did not end at the bounded deadline: exit=%d output=%q", exit, stdout.String())
 	}
-	if statusCalls != 6 || len(sleeps) != 6 {
-		t.Fatalf("payment wait did not poll every 30 seconds for three minutes: statusCalls=%d sleeps=%v", statusCalls, sleeps)
+	if statusCalls != 12 || len(sleeps) != 12 {
+		t.Fatalf("payment wait did not poll every 15 seconds for three minutes: statusCalls=%d sleeps=%v", statusCalls, sleeps)
 	}
 	for index, delay := range sleeps {
-		if delay != 30*time.Second {
-			t.Fatalf("payment sleep %d = %s, want 30s", index, delay)
+		if delay != 15*time.Second {
+			t.Fatalf("payment sleep %d = %s, want 15s", index, delay)
 		}
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"code": "REPLICA_PAYMENT_TIMEOUT"`)) {
@@ -421,7 +422,7 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 
 	stdout.Reset()
 	if exit := Execute([]string{
-		"replica", "install", fullCode, "--target", filepath.Join(root, "another-copy"), "--accept-price-cents", "990",
+		"replica", "install", fullCode, "--target", filepath.Join(root, "another-copy"), "--accept-price-cents", "990", "--payment-presented",
 	}, deps); exit != output.ExitConfirmation {
 		t.Fatalf("another target did not create its own checkout: exit=%d output=%q", exit, stdout.String())
 	}
@@ -432,4 +433,45 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 
 func serverURL(request *http.Request) string {
 	return "http://" + request.Host
+}
+
+func TestReplicaSessionPaymentContinuesAsSoonAsPaid(t *testing.T) {
+	const orderNo = "VMO-20260903-000005"
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/website-replica-sessions/session/orders/"+orderNo+"/status" {
+			t.Fatalf("unexpected path: %s", request.URL.Path)
+		}
+		calls++
+		status := "PENDING"
+		if calls == 2 {
+			status = "PAID"
+		}
+		writeJSONResponse(writer, map[string]any{"orderNo": orderNo, "payment": map[string]any{"status": status, "paidAt": nil, "closedAt": nil}, "fulfillment": nil, "serviceCase": nil})
+	}))
+	defer server.Close()
+	started := time.Date(2026, 9, 5, 0, 0, 0, 0, time.UTC)
+	now := started
+	var sleeps []time.Duration
+	runtime := &Runtime{configBase: t.TempDir(), deps: Dependencies{
+		Now: func() time.Time { return now },
+		Sleep: func(_ context.Context, delay time.Duration) error {
+			sleeps = append(sleeps, delay)
+			now = now.Add(delay)
+			return nil
+		},
+	}}
+	state := replicaPurchaseState{OrderNo: orderNo, SessionID: "session", SessionToken: "token", Target: filepath.Join(t.TempDir(), "copy")}
+	client := api.NewClient(server.URL, server.Client(), nil, "test")
+	if err := waitForReplicaSessionPayment(context.Background(), runtime, client, state, replicaPaymentWaitTimeout, replicaPaymentPollInterval); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || now.Sub(started) != 30*time.Second {
+		t.Fatalf("paid order waited beyond its next poll: calls=%d elapsed=%s", calls, now.Sub(started))
+	}
+	for _, delay := range sleeps {
+		if delay != 15*time.Second {
+			t.Fatalf("poll delay = %s", delay)
+		}
+	}
 }
