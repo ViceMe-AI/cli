@@ -568,5 +568,13 @@ func installDownloadableSkill(stableName, target string, files map[string]downlo
 		return skillcontent.InstallReport{}, err
 	}
 	bundle := skillcontent.New(os.DirFS(root))
-	return bundle.InstallWithProvenance(stableName, target, environment, provenance), nil
+	var report skillcontent.InstallReport
+	err = withScriptTrialLockAt(environment.Home, provenance.ProductID, func() error {
+		report = bundle.InstallWithProvenance(stableName, target, environment, provenance)
+		return nil
+	})
+	if err != nil {
+		return report, output.Internal("SKILL_INSTALL_LOCK_FAILED", "another trial or installation operation is active, or the shared lock cannot be created", err)
+	}
+	return report, nil
 }
