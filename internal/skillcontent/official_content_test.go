@@ -401,9 +401,7 @@ func TestCreatorOnboardingKeepsHumanReviewAndOffersPrivatePersonalCard(t *testin
 		"merchant-commerce:write",
 		"creatorIdentity.profileUrl",
 		"creatorIdentity.markdownUrl",
-		"page-setup <本次onboarding.id> --wait",
 		"不选名片也必须先提交申请",
-		"最多等待 10 分钟",
 		"不影响审核",
 		"创作者入驻模式",
 		"不得创建在线 preview",
@@ -419,6 +417,59 @@ func TestCreatorOnboardingKeepsHumanReviewAndOffersPrivatePersonalCard(t *testin
 	}
 	if currentUser := strings.TrimSpace(os.Getenv("USER")); currentUser != "" && strings.Contains(strings.ToLower(text), strings.ToLower(currentUser)) {
 		t.Fatal("creator onboarding Skill uses the current developer username as an example")
+	}
+}
+
+func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
+	t.Parallel()
+
+	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "become-a-creator/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	onboardingText := string(onboarding)
+	pageText := string(page)
+	for _, required := range []string{
+		"主动进入“创建 / 完善个人名片”",
+		"当前公开个人页",
+		"当前 Markdown 页面",
+		"所有选择与资料输入都在对话中完成",
+		"申请中仅本人可见",
+		"审核通过后同一路由自动公开",
+	} {
+		if !strings.Contains(onboardingText, required) {
+			t.Fatalf("creator onboarding omitted conversation-first personal-card contract %q", required)
+		}
+	}
+	for _, required := range []string{
+		"已登记、可打开且获授权的模板",
+		"不得虚构模板名称、查看链接或授权",
+		"原样导入自己的主页",
+		"参考别人的主页",
+		"只借鉴结构和视觉，不带入对方内容",
+		"一次性邀请用户提供已有资料",
+		"可直接使用 / 待确认公开 / 缺失",
+		"不得提供从空白或完全自定义页面开始的路径",
+		"本机 HTML 预览",
+	} {
+		if !strings.Contains(pageText, required) {
+			t.Fatalf("personal-card customization omitted template-first contract %q", required)
+		}
+	}
+	for _, retired := range []string{
+		"merchant onboarding page-setup",
+		"网页选择",
+		"mode=BONJOUR",
+		"mode=IMPORT_EXISTING",
+		"Bonjour 风格模板",
+	} {
+		if strings.Contains(onboardingText, retired) || strings.Contains(pageText, retired) {
+			t.Fatalf("personal-card flow retained retired web-selection contract %q", retired)
+		}
 	}
 }
 
