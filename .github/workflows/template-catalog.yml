@@ -1,0 +1,104 @@
+name: Creator template catalog
+
+on:
+  pull_request:
+    paths:
+      - 'templates/creator-pages/**'
+      - 'skills/customize-your-page/templates/**'
+      - 'internal/templatecatalog/**'
+      - 'cmd/template-catalog/**'
+      - '.github/workflows/template-catalog.yml'
+  push:
+    branches: [dev, main]
+    paths:
+      - 'templates/creator-pages/**'
+      - 'skills/customize-your-page/templates/**'
+      - 'internal/templatecatalog/**'
+      - 'cmd/template-catalog/**'
+      - '.github/workflows/template-catalog.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: creator-template-catalog-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: go test ./internal/templatecatalog ./cmd/template-catalog ./internal/command -run 'Template|DetachedDocument' -count=1
+
+  publish:
+    if: github.event_name == 'push'
+    needs: verify
+    runs-on: ubuntu-latest
+    environment: ${{ github.ref_name == 'main' && 'production' || 'development' }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build signed catalog
+        env:
+          VICEME_TEMPLATE_CATALOG_SIGNING_KEY: ${{ secrets.VICEME_TEMPLATE_CATALOG_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "${VICEME_TEMPLATE_CATALOG_SIGNING_KEY}"
+          printf '%s' "${VICEME_TEMPLATE_CATALOG_SIGNING_KEY}" > "${RUNNER_TEMP}/template-catalog-key"
+          # dev publish target is templates/dev/; main publish target is templates/.
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then PREFIX='templates'; else PREFIX='templates/dev'; fi
+          go run ./cmd/template-catalog --source templates/creator-pages/production.json --root . \
+            --output dist/template-catalog-cn --origin "https://s3.viceme.cn/${PREFIX}" --signing-key-file "${RUNNER_TEMP}/template-catalog-key"
+          go run ./cmd/template-catalog --source templates/creator-pages/production.json --root . \
+            --output dist/template-catalog-global --origin "https://s3.viceme.ai/${PREFIX}" --signing-key-file "${RUNNER_TEMP}/template-catalog-key"
+      - name: Publish CN and Global catalogs
+        env:
+          CN_ENDPOINT: ${{ secrets.VICEME_RELEASE_S3_ENDPOINT_CN }}
+          CN_BUCKET: ${{ secrets.VICEME_RELEASE_S3_BUCKET_CN }}
+          CN_ACCESS_KEY_ID: ${{ secrets.VICEME_RELEASE_S3_ACCESS_KEY_ID_CN }}
+          CN_SECRET_ACCESS_KEY: ${{ secrets.VICEME_RELEASE_S3_SECRET_ACCESS_KEY_CN }}
+          CN_S3_HTTPS_PROXY: ${{ secrets.CN_S3_HTTPS_PROXY }}
+          GLOBAL_ENDPOINT: ${{ secrets.VICEME_RELEASE_S3_ENDPOINT_GLOBAL }}
+          GLOBAL_BUCKET: ${{ secrets.VICEME_RELEASE_S3_BUCKET_GLOBAL }}
+          GLOBAL_ACCESS_KEY_ID: ${{ secrets.VICEME_RELEASE_S3_ACCESS_KEY_ID_GLOBAL }}
+          GLOBAL_SECRET_ACCESS_KEY: ${{ secrets.VICEME_RELEASE_S3_SECRET_ACCESS_KEY_GLOBAL }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+          AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_NAME}" == "main" ]]; then PREFIX='templates'; else PREFIX='templates/dev'; fi
+          publish_region() {
+            local ENDPOINT="$1" BUCKET="$2" ACCESS_KEY="$3" SECRET_KEY="$4" PUBLIC_ORIGIN="$5" SOURCE_DIR="$6"
+            test -n "${ENDPOINT}" && test -n "${BUCKET}" && test -n "${ACCESS_KEY}" && test -n "${SECRET_KEY}"
+            export AWS_ACCESS_KEY_ID="${ACCESS_KEY}" AWS_SECRET_ACCESS_KEY="${SECRET_KEY}" AWS_DEFAULT_REGION=us-east-1
+            local SCRATCH
+            SCRATCH="$(mktemp -d)"
+            trap 'rm -rf "${SCRATCH}"' RETURN
+            while IFS= read -r FILE; do
+              KEY="${PREFIX}/${FILE#${SOURCE_DIR}/}"
+              if aws --endpoint-url "${ENDPOINT}" s3api head-object --bucket "${BUCKET}" --key "${KEY}" >/dev/null 2>&1; then
+                aws --endpoint-url "${ENDPOINT}" s3 cp "s3://${BUCKET}/${KEY}" "${SCRATCH}/existing" --only-show-errors
+                cmp --silent "${FILE}" "${SCRATCH}/existing"
+              else
+                aws --endpoint-url "${ENDPOINT}" s3 cp "${FILE}" "s3://${BUCKET}/${KEY}" --cache-control 'public,max-age=31536000,immutable' --only-show-errors
+              fi
+            done < <(find "${SOURCE_DIR}/releases" -type f | sort)
+            for FILE in index.html manifest.json manifest.sig; do
+              aws --endpoint-url "${ENDPOINT}" s3 cp "${SOURCE_DIR}/${FILE}" "s3://${BUCKET}/${PREFIX}/${FILE}" --cache-control 'public,max-age=300' --only-show-errors
+            done
+            curl --fail --silent --show-error "${PUBLIC_ORIGIN}/${PREFIX}/manifest.json" --output "${SCRATCH}/manifest.json"
+            curl --fail --silent --show-error "${PUBLIC_ORIGIN}/${PREFIX}/manifest.sig" --output "${SCRATCH}/manifest.sig"
+            sha256sum "${SCRATCH}/manifest.json" "${SCRATCH}/manifest.sig"
+            cmp --silent "${SCRATCH}/manifest.json" "${SOURCE_DIR}/manifest.json"
+            cmp --silent "${SCRATCH}/manifest.sig" "${SOURCE_DIR}/manifest.sig"
+          }
+          HTTPS_PROXY="${CN_S3_HTTPS_PROXY}" https_proxy="${CN_S3_HTTPS_PROXY}" publish_region "${CN_ENDPOINT}" "${CN_BUCKET}" "${CN_ACCESS_KEY_ID}" "${CN_SECRET_ACCESS_KEY}" 'https://s3.viceme.cn' dist/template-catalog-cn
+          publish_region "${GLOBAL_ENDPOINT}" "${GLOBAL_BUCKET}" "${GLOBAL_ACCESS_KEY_ID}" "${GLOBAL_SECRET_ACCESS_KEY}" 'https://s3.viceme.ai' dist/template-catalog-global
