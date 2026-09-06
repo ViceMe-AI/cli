@@ -109,6 +109,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       commerce_skill_trust_keys: ${{ steps.commerce-trust-ring.outputs.ring }}
+      template_catalog_trust_keys: ${{ steps.template-catalog-trust-ring.outputs.ring }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -141,6 +142,14 @@ jobs:
           set -euo pipefail
           go run ./cmd/validate-commerce-trust-ring
           printf 'ring=%s\n' "${COMMERCE_SKILL_TRUST_KEYS}" >> "${GITHUB_OUTPUT}"
+      - id: template-catalog-trust-ring
+        name: Validate and freeze template catalog release trust ring
+        env:
+          TEMPLATE_CATALOG_TRUST_KEYS: ${{ vars.TEMPLATE_CATALOG_TRUST_KEYS }}
+        run: |
+          set -euo pipefail
+          go run ./cmd/validate-template-catalog-trust-ring
+          printf 'ring=%s\n' "${TEMPLATE_CATALOG_TRUST_KEYS}" >> "${GITHUB_OUTPUT}"
 
   tag:
     name: Release tag
@@ -236,11 +245,15 @@ jobs:
         with:
           go-version-file: .release-workflow/go.mod
           cache: true
-      - name: Revalidate frozen Commerce Skill trust ring
+      - name: Revalidate frozen catalog and Commerce Skill trust rings
         if: steps.recovery-assets.outputs.needs_build == 'true'
         env:
           COMMERCE_SKILL_TRUST_KEYS: ${{ needs.quality.outputs.commerce_skill_trust_keys }}
-        run: cd .release-workflow && go run ./cmd/validate-commerce-trust-ring
+          TEMPLATE_CATALOG_TRUST_KEYS: ${{ needs.quality.outputs.template_catalog_trust_keys }}
+        run: |
+          cd .release-workflow
+          go run ./cmd/validate-commerce-trust-ring
+          go run ./cmd/validate-template-catalog-trust-ring
       - name: Recover existing immutable binary assets
         if: steps.recovery-assets.outputs.binary_exists == 'true' || steps.recovery-assets.outputs.checksum_exists == 'true'
         env:
@@ -268,13 +281,14 @@ jobs:
           VERSION: ${{ needs.metadata.outputs.version }}
           RELEASE_SHA: ${{ needs.metadata.outputs.sha }}
           COMMERCE_SKILL_TRUST_KEYS: ${{ needs.quality.outputs.commerce_skill_trust_keys }}
+          TEMPLATE_CATALOG_TRUST_KEYS: ${{ needs.quality.outputs.template_catalog_trust_keys }}
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: "0"
         run: |
           ASSET="viceme_${VERSION}_${GOOS}_${GOARCH}${{ matrix.extension }}"
           mkdir -p dist
-          go build -trimpath -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=${VERSION} -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=${RELEASE_SHA} -X github.com/ViceMe-AI/cli/internal/buildinfo.CommerceSkillTrustKeys=${COMMERCE_SKILL_TRUST_KEYS}" -o "dist/${ASSET}" ./cmd/viceme
+          go build -trimpath -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=${VERSION} -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=${RELEASE_SHA} -X github.com/ViceMe-AI/cli/internal/buildinfo.CommerceSkillTrustKeys=${COMMERCE_SKILL_TRUST_KEYS} -X github.com/ViceMe-AI/cli/internal/buildinfo.TemplateCatalogTrustKeys=${TEMPLATE_CATALOG_TRUST_KEYS}" -o "dist/${ASSET}" ./cmd/viceme
       - name: Complete and verify the immutable checksum pair
         env:
           VERSION: ${{ needs.metadata.outputs.version }}

@@ -13,6 +13,9 @@ var (
 	// CommerceSkillTrustKeys is injected into official release binaries with
 	// -ldflags. Format: keyId:base64url-spki[,keyId:base64url-spki].
 	CommerceSkillTrustKeys = ""
+	// TemplateCatalogTrustKeys is injected into official release binaries with
+	// -ldflags. Format: keyId:base64url-spki[,keyId:base64url-spki].
+	TemplateCatalogTrustKeys = ""
 )
 
 const (
