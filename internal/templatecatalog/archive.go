@@ -16,6 +16,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/ViceMe-AI/cli/internal/commerceartifact"
 )
 
 var ErrBuild = errors.New("TEMPLATE_CATALOG_BUILD_INVALID")
@@ -142,7 +144,11 @@ func writeCatalog(outputRoot string, manifest Manifest, signer Signer, zips, pre
 	if err != nil {
 		return ErrBuild
 	}
-	signature := Signature{SchemaVersion: 1, Algorithm: "Ed25519", KeyID: signer.KeyID, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(signer.PrivateKey, manifestBody))}
+	canonicalManifest, err := commerceartifact.CanonicalDocument(manifest)
+	if err != nil {
+		return ErrBuild
+	}
+	signature := Signature{SchemaVersion: 1, Algorithm: "Ed25519", KeyID: signer.KeyID, Signature: base64.RawURLEncoding.EncodeToString(ed25519.Sign(signer.PrivateKey, canonicalManifest))}
 	signatureBody, err := json.Marshal(signature)
 	if err != nil {
 		return ErrBuild

@@ -5,12 +5,17 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/ViceMe-AI/cli/internal/commerceartifact"
 )
 
 func TestLoadSourceCatalogRejectsDevMockAndDuplicateVersion(t *testing.T) {
@@ -95,5 +100,55 @@ func TestBuildWritesDeterministicZipAndManifestDigest(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(root, "first", artifact)); err != nil {
 			t.Fatalf("missing artifact %s: %v", artifact, err)
 		}
+	}
+}
+
+func TestBuildSignsCanonicalManifest(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "source"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "source", "index.html"), []byte("<h1>Bonjour</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "preview.html"), []byte("<h1>Preview</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := SourceCatalog{SchemaVersion: 1, Templates: []SourceTemplate{{
+		ID: "bonjour-card", Status: "production", Version: "1.0.0", Name: "Bonjour Card",
+		Scenario: "作品", Description: "个人名片", SourceDir: "source", PreviewFile: "preview.html", License: "ViceMe template license",
+	}}}
+	output := filepath.Join(root, "output")
+	if _, err := Build(root, catalog, output, "https://s3.viceme.cn/templates", Signer{KeyID: "test-v1", PrivateKey: privateKey}); err != nil {
+		t.Fatal(err)
+	}
+	manifestBody, err := os.ReadFile(filepath.Join(output, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(manifestBody, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	signatureBody, err := os.ReadFile(filepath.Join(output, "manifest.sig"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signature Signature
+	if err := json.Unmarshal(signatureBody, &signature); err != nil {
+		t.Fatal(err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := commerceartifact.VerifyDetachedDocument(manifest, base64.RawURLEncoding.EncodeToString(publicDER), signature.Signature); err != nil {
+		t.Fatalf("catalog signature did not verify: %v", err)
 	}
 }

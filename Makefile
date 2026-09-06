@@ -8,12 +8,17 @@ NPM_VERSION = $(shell node -p "require('./package.json').version")
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 LDFLAGS := -X github.com/ViceMe-AI/cli/internal/buildinfo.Version=$(VERSION) -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=$(COMMIT)
 COMMERCE_SKILL_TRUST_KEYS ?=
+TEMPLATE_CATALOG_TRUST_KEYS ?=
 RELEASE_SMOKE_COMMERCE_SKILL_TRUST_KEYS := local-test:MCowBQYDK2VwAyEA11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo
+RELEASE_SMOKE_TEMPLATE_CATALOG_TRUST_KEYS := local-test:MCowBQYDK2VwAyEA11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo
 ifneq ($(strip $(COMMERCE_SKILL_TRUST_KEYS)),)
 LDFLAGS += -X github.com/ViceMe-AI/cli/internal/buildinfo.CommerceSkillTrustKeys=$(COMMERCE_SKILL_TRUST_KEYS)
 endif
+ifneq ($(strip $(TEMPLATE_CATALOG_TRUST_KEYS)),)
+LDFLAGS += -X github.com/ViceMe-AI/cli/internal/buildinfo.TemplateCatalogTrustKeys=$(TEMPLATE_CATALOG_TRUST_KEYS)
+endif
 
-.PHONY: build test test-race check skill-check quality-check trial-script-test npm-test npm-package-check release-manifest release-manifest-check skills-archive release-prepare clean update-check
+.PHONY: build test test-race check skill-check quality-check trial-script-test npm-test npm-package-check release-manifest release-manifest-check skills-archive release-prepare clean update-check template-catalog template-catalog-check
 
 build:
 	mkdir -p bin
@@ -46,7 +51,7 @@ npm-test:
 
 npm-package-check: build
 	mkdir -p .cache/npm-pack
-	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) build -trimpath -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=$(NPM_VERSION) -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=$(COMMIT) -X github.com/ViceMe-AI/cli/internal/buildinfo.CommerceSkillTrustKeys=$(RELEASE_SMOKE_COMMERCE_SKILL_TRUST_KEYS)" -o bin/viceme-release-smoke ./cmd/viceme
+	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) build -trimpath -ldflags "-X github.com/ViceMe-AI/cli/internal/buildinfo.Version=$(NPM_VERSION) -X github.com/ViceMe-AI/cli/internal/buildinfo.Commit=$(COMMIT) -X github.com/ViceMe-AI/cli/internal/buildinfo.CommerceSkillTrustKeys=$(RELEASE_SMOKE_COMMERCE_SKILL_TRUST_KEYS) -X github.com/ViceMe-AI/cli/internal/buildinfo.TemplateCatalogTrustKeys=$(RELEASE_SMOKE_TEMPLATE_CATALOG_TRUST_KEYS)" -o bin/viceme-release-smoke ./cmd/viceme
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm npm pack --pack-destination .cache/npm-pack
 	VICEME_CLI_CONFIG_DIR=$(CURDIR)/.cache/release-smoke-config VICEME_INSTALL_METHOD=npm VICEME_NPM_PACKAGE_VERSION=$(NPM_VERSION) ./bin/viceme-release-smoke --version
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm VICEME_TEST_BINARY=$(CURDIR)/bin/viceme-release-smoke VICEME_TEST_PACKAGE_TARBALL=$(CURDIR)/.cache/npm-pack/viceme-ai-cli-$(NPM_VERSION).tgz npm test
@@ -75,6 +80,14 @@ release-prepare:
 
 update-check: build
 	./bin/viceme update --check
+
+template-catalog:
+	test -n "$(TEMPLATE_CATALOG_ORIGIN)"
+	test -n "$(TEMPLATE_CATALOG_SIGNING_KEY_FILE)"
+	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) run ./cmd/template-catalog --source templates/creator-pages/production.json --root . --output dist/template-catalog --origin $(TEMPLATE_CATALOG_ORIGIN) --signing-key-file $(TEMPLATE_CATALOG_SIGNING_KEY_FILE)
+
+template-catalog-check:
+	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test ./internal/templatecatalog ./cmd/template-catalog ./internal/command -run 'Template|DetachedDocument' -count=1
 
 clean:
 	rm -rf bin .cache

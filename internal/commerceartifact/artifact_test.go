@@ -260,6 +260,29 @@ func TestVerifyDocumentUsesOnlyTheCallerTrustedKey(t *testing.T) {
 	}
 }
 
+func TestVerifyDetachedDocumentUsesCanonicalJSON(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := map[string]any{"version": "1.0.0", "templates": []string{"bonjour-card"}}
+	canonical, err := canonicalJSON(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := VerifyDetachedDocument(
+		value,
+		base64.RawURLEncoding.EncodeToString(publicDER),
+		base64.RawURLEncoding.EncodeToString(ed25519.Sign(privateKey, canonical)),
+	); err != nil {
+		t.Fatalf("valid detached document was rejected: %v", err)
+	}
+}
+
 func buildTestArtifact(t *testing.T, files map[string][]byte, signature SignatureFile, extra map[string][]byte) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
