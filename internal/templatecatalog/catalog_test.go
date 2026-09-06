@@ -152,3 +152,32 @@ func TestBuildSignsCanonicalManifest(t *testing.T) {
 		t.Fatalf("catalog signature did not verify: %v", err)
 	}
 }
+
+func TestBuildForLocalDemoAllowsOnlyLoopbackHTTPOrigin(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "source"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "source", "index.html"), []byte("<h1>Bonjour</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "preview.html"), []byte("<h1>Preview</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := SourceCatalog{SchemaVersion: 1, Templates: []SourceTemplate{{
+		ID: "bonjour-card", Status: "production", Version: "1.0.0", Name: "Bonjour Card",
+		Scenario: "作品", Description: "个人名片", SourceDir: "source", PreviewFile: "preview.html", License: "ViceMe template license",
+	}}}
+	if _, err := BuildForLocalDemo(root, catalog, filepath.Join(root, "local"), "http://127.0.0.1:8765/templates", Signer{KeyID: "test-v1", PrivateKey: privateKey}); err != nil {
+		t.Fatalf("loopback local demo build failed: %v", err)
+	}
+	if _, err := BuildForLocalDemo(root, catalog, filepath.Join(root, "unsafe"), "http://example.com/templates", Signer{KeyID: "test-v1", PrivateKey: privateKey}); !errors.Is(err, ErrBuild) {
+		t.Fatalf("non-loopback local demo origin error = %v, want ErrBuild", err)
+	}
+}
