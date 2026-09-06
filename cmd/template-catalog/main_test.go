@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -55,5 +56,25 @@ func TestRunBuildsCatalogArtifacts(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(output, "releases", "bonjour-card", "1.0.0", "source.zip")); err != nil {
 		t.Fatalf("source ZIP missing: %v", err)
+	}
+}
+
+func TestWorkflowPublishesSignedCatalogToBothRegions(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "template-catalog.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"templates/dev/",
+		"templates/",
+		"VICEME_TEMPLATE_CATALOG_SIGNING_KEY",
+		"VICEME_RELEASE_S3_ENDPOINT_CN",
+		"VICEME_RELEASE_S3_ENDPOINT_GLOBAL",
+		"manifest.sig",
+		"sha256sum",
+	} {
+		if !strings.Contains(string(body), required) {
+			t.Fatalf("catalog workflow omitted %q", required)
+		}
 	}
 }
