@@ -59,6 +59,43 @@ func TestRunBuildsCatalogArtifacts(t *testing.T) {
 	}
 }
 
+func TestRunAllowsLoopbackHTTPOnlyWithExplicitDemoFlag(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "template"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "template", "index.html"), []byte("<h1>Bonjour</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "preview.html"), []byte("<h1>Preview</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sourcePath := filepath.Join(root, "production.json")
+	if err := os.WriteFile(sourcePath, []byte(`{"schema_version":1,"templates":[{"id":"bonjour-card","status":"production","version":"1.0.0","name":"Bonjour Card","scenario":"作品","description":"个人名片","source_dir":"template","preview_file":"preview.html","license":"ViceMe template license"}]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyPath := filepath.Join(root, "signing-key")
+	if err := os.WriteFile(keyPath, []byte(base64.RawURLEncoding.EncodeToString(der)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{
+		"--source", sourcePath, "--root", root, "--output", filepath.Join(root, "output"),
+		"--origin", "http://127.0.0.1:8765/templates", "--signing-key-file", keyPath, "--allow-insecure-origin",
+	}); err != nil {
+		t.Fatalf("loopback local demo build failed: %v", err)
+	}
+}
+
 func TestWorkflowPublishesSignedCatalogToBothRegions(t *testing.T) {
 	body, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "template-catalog.yml"))
 	if err != nil {

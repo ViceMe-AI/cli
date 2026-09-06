@@ -11,6 +11,8 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -58,8 +60,18 @@ type BuildResult struct {
 }
 
 func Build(sourceRoot string, catalog SourceCatalog, outputRoot, origin string, signer Signer) (BuildResult, error) {
+	return build(sourceRoot, catalog, outputRoot, origin, signer, false)
+}
+
+// BuildForLocalDemo permits a loopback HTTP origin for an isolated local
+// catalog demonstration. It must never be used for a public catalog.
+func BuildForLocalDemo(sourceRoot string, catalog SourceCatalog, outputRoot, origin string, signer Signer) (BuildResult, error) {
+	return build(sourceRoot, catalog, outputRoot, origin, signer, true)
+}
+
+func build(sourceRoot string, catalog SourceCatalog, outputRoot, origin string, signer Signer, allowLoopbackHTTP bool) (BuildResult, error) {
 	if err := validateSourceCatalog(catalog); err != nil || sourceRoot == "" || outputRoot == "" ||
-		!strings.HasPrefix(origin, "https://") || signer.KeyID == "" || len(signer.PrivateKey) != ed25519.PrivateKeySize {
+		!validBuildOrigin(origin, allowLoopbackHTTP) || signer.KeyID == "" || len(signer.PrivateKey) != ed25519.PrivateKeySize {
 		return BuildResult{}, ErrBuild
 	}
 	origin = strings.TrimSuffix(origin, "/")
@@ -90,6 +102,24 @@ func Build(sourceRoot string, catalog SourceCatalog, outputRoot, origin string, 
 		return BuildResult{}, err
 	}
 	return BuildResult{Manifest: manifest, SourceZIP: zipByTemplate[catalog.Templates[0].ID+"@"+catalog.Templates[0].Version]}, nil
+}
+
+func validBuildOrigin(origin string, allowLoopbackHTTP bool) bool {
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Hostname() == "" {
+		return false
+	}
+	if parsed.Scheme == "https" {
+		return true
+	}
+	if !allowLoopbackHTTP || parsed.Scheme != "http" {
+		return false
+	}
+	if parsed.Hostname() == "localhost" {
+		return true
+	}
+	address := net.ParseIP(parsed.Hostname())
+	return address != nil && address.IsLoopback()
 }
 
 func buildSourceZIP(sourceDirectory, root string) ([]byte, error) {

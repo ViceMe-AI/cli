@@ -25,12 +25,14 @@ func run(args []string) error {
 	flags := flag.NewFlagSet("template-catalog", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
 	var source, root, output, origin, signingKeyFile, keyID string
+	var allowInsecureOrigin bool
 	flags.StringVar(&source, "source", "templates/creator-pages/production.json", "source catalog JSON")
 	flags.StringVar(&root, "root", ".", "repository root for relative template paths")
 	flags.StringVar(&output, "output", "", "catalog artifact output directory")
 	flags.StringVar(&origin, "origin", "", "public HTTPS catalog origin")
 	flags.StringVar(&signingKeyFile, "signing-key-file", "", "base64url PKCS#8 Ed25519 private key file")
 	flags.StringVar(&keyID, "key-id", "template-v1", "public signing key identifier")
+	flags.BoolVar(&allowInsecureOrigin, "allow-insecure-origin", false, "allow HTTP only for a loopback local demo")
 	if err := flags.Parse(args); err != nil || output == "" || origin == "" || signingKeyFile == "" || keyID == "" {
 		return errors.New("template-catalog requires --output, --origin, and --signing-key-file")
 	}
@@ -47,7 +49,12 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
-	_, err = templatecatalog.Build(root, catalog, output, origin, templatecatalog.Signer{KeyID: keyID, PrivateKey: privateKey})
+	signer := templatecatalog.Signer{KeyID: keyID, PrivateKey: privateKey}
+	if allowInsecureOrigin {
+		_, err = templatecatalog.BuildForLocalDemo(root, catalog, output, origin, signer)
+		return err
+	}
+	_, err = templatecatalog.Build(root, catalog, output, origin, signer)
 	return err
 }
 
