@@ -431,7 +431,9 @@ func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
 		}
 	}
 	for _, required := range []string{
-		"已登记、可打开且获授权的模板",
+		"viceme template list",
+		"catalog_url",
+		"production 模板",
 		"不得虚构模板名称、查看链接或授权",
 		"原样导入自己的主页",
 		"参考别人的主页",
