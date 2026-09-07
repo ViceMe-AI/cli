@@ -83,7 +83,7 @@ jobs:
             SCRATCH="$(mktemp -d)"
             trap 'rm -rf "${SCRATCH}"' RETURN
             while IFS= read -r FILE; do
-              KEY="${PREFIX}/${FILE#${SOURCE_DIR}/}"
+              KEY="${PREFIX}/${FILE#"${SOURCE_DIR}"/}"
               if aws --endpoint-url "${ENDPOINT}" s3api head-object --bucket "${BUCKET}" --key "${KEY}" >/dev/null 2>&1; then
                 aws --endpoint-url "${ENDPOINT}" s3 cp "s3://${BUCKET}/${KEY}" "${SCRATCH}/existing" --only-show-errors
                 cmp --silent "${FILE}" "${SCRATCH}/existing"
