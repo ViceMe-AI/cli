@@ -9,12 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/ViceMe-AI/cli/internal/commerceartifact"
 	"github.com/ViceMe-AI/cli/internal/semver"
@@ -29,8 +31,9 @@ var (
 )
 
 const (
-	maxManifestBytes = 1 << 20
-	maxArchiveBytes  = 32 << 20
+	maxManifestBytes   = 1 << 20
+	maxArchiveBytes    = 32 << 20
+	defaultHTTPTimeout = 30 * time.Second
 )
 
 type Client struct {
@@ -72,6 +75,10 @@ func (client Client) Load(ctx context.Context) (Manifest, error) {
 	trustedKey := client.TrustedKeys[signature.KeyID]
 	if trustedKey == "" || commerceartifact.VerifyDetachedDocument(manifest, trustedKey, signature.Signature) != nil {
 		return Manifest{}, ErrUntrustedManifest
+	}
+	for index := range manifest.Templates {
+		manifest.Templates[index].PreviewURL = origin + "/" + manifest.Templates[index].PreviewURL
+		manifest.Templates[index].SourceURL = origin + "/" + manifest.Templates[index].SourceURL
 	}
 	return manifest, nil
 }
@@ -121,7 +128,7 @@ func (client Client) Fetch(ctx context.Context, templateID, version, destination
 func (client Client) parseOrigin() (string, error) {
 	origin := strings.TrimSuffix(client.Origin, "/")
 	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && (!client.AllowInsecure || parsed.Scheme != "http")) {
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && (!client.AllowInsecure || parsed.Scheme != "http" || !isLoopbackHost(parsed.Hostname()))) {
 		return "", ErrCatalogUnavailable
 	}
 	return origin, nil
@@ -150,7 +157,7 @@ func (client Client) request(ctx context.Context, target string) (*http.Response
 	}
 	httpClient := client.HTTPClient
 	if httpClient == nil {
-		httpClient = http.DefaultClient
+		httpClient = &http.Client{Timeout: defaultHTTPTimeout}
 	}
 	response, err := httpClient.Do(request)
 	if err != nil {
@@ -159,7 +166,7 @@ func (client Client) request(ctx context.Context, target string) (*http.Response
 	return response, nil
 }
 
-func validateManifest(manifest Manifest, allowInsecure bool) error {
+func validateManifest(manifest Manifest, _ bool) error {
 	if manifest.SchemaVersion != 1 || len(manifest.Templates) == 0 {
 		return ErrCatalogUnavailable
 	}
@@ -169,8 +176,8 @@ func validateManifest(manifest Manifest, allowInsecure bool) error {
 			strings.TrimSpace(entry.Scenario) == "" || strings.TrimSpace(entry.Description) == "" || strings.TrimSpace(entry.License) == "" {
 			return ErrCatalogUnavailable
 		}
-		if _, err := semver.Parse(entry.Version); err != nil || !validCatalogURL(entry.PreviewURL, allowInsecure) ||
-			!validCatalogURL(entry.SourceURL, allowInsecure) || !validDigest(entry.SourceSHA256) {
+		if _, err := semver.Parse(entry.Version); err != nil || !safeRelativePath(entry.PreviewURL) ||
+			!safeRelativePath(entry.SourceURL) || !validDigest(entry.SourceSHA256) {
 			return ErrCatalogUnavailable
 		}
 		key := entry.ID + "@" + entry.Version
@@ -182,12 +189,12 @@ func validateManifest(manifest Manifest, allowInsecure bool) error {
 	return nil
 }
 
-func validCatalogURL(value string, allowInsecure bool) bool {
-	parsed, err := url.Parse(value)
-	if err != nil || parsed.Host == "" {
-		return false
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
 	}
-	return parsed.Scheme == "https" || allowInsecure && parsed.Scheme == "http"
+	address := net.ParseIP(host)
+	return address != nil && address.IsLoopback()
 }
 
 func validDigest(value string) bool {

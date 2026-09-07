@@ -33,7 +33,7 @@ func TestTemplateListReturnsVerifiedCatalogURL(t *testing.T) {
 	defer server.Close()
 	manifest := templatecatalog.Manifest{SchemaVersion: 1, Templates: []templatecatalog.PublishedTemplate{{
 		ID: "bonjour-card", Status: "production", Name: "Bonjour Card", Version: "1.0.0", Scenario: "作品", Description: "个人名片",
-		PreviewURL: server.URL + "/preview", SourceURL: server.URL + "/source.zip", SourceSHA256: "sha256:" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", License: "ViceMe template license",
+		PreviewURL: "releases/bonjour-card/1.0.0/preview/index.html", SourceURL: "releases/bonjour-card/1.0.0/source.zip", SourceSHA256: "sha256:" + "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", License: "ViceMe template license",
 	}}}
 	canonical, err := commerceartifact.CanonicalDocument(manifest)
 	if err != nil {
@@ -85,5 +85,13 @@ func TestTemplateListReturnsVerifiedCatalogURL(t *testing.T) {
 	}
 	if got := envelope.Data["catalog_url"]; got != server.URL+"/index.html" {
 		t.Fatalf("catalog_url = %#v, want %q", got, server.URL+"/index.html")
+	}
+	templates, ok := envelope.Data["templates"].([]any)
+	if !ok || len(templates) != 1 {
+		t.Fatalf("templates = %#v", envelope.Data["templates"])
+	}
+	entry, ok := templates[0].(map[string]any)
+	if !ok || entry["preview_url"] != server.URL+"/releases/bonjour-card/1.0.0/preview/index.html" {
+		t.Fatalf("template preview = %#v", templates[0])
 	}
 }
