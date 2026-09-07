@@ -127,9 +127,13 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 		issued := s.grantedInstallIDs[body.InstallID]
 		s.grantedInstallIDs[body.InstallID] = true
 		limit := s.trialLimit
+		remaining := limit - s.grantUses
+		if remaining < 0 {
+			remaining = 0
+		}
 		s.mu.Unlock()
 		response := map[string]any{
-			"installId": body.InstallID, "limitUses": limit, "remainingUses": limit,
+			"installId": body.InstallID, "limitUses": limit, "remainingUses": remaining,
 		}
 		if !issued {
 			response["secret"] = skillTrialSecret
@@ -336,6 +340,39 @@ func TestPaidTrialSkillInstallsAnonymouslyWithGate(t *testing.T) {
 	}
 }
 
+func TestExhaustedTrialReinstallStaysDisabled(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+	home, store := t.TempDir(), securestore.NewMemory()
+	invoke := func(args ...string) (int, map[string]any) {
+		code, result, _ := executeSkillTrialCommand(t, state.server, home, store, args...)
+		return code, result
+	}
+	if code, result := invoke("skill", "install", downloadableProductID, "--agent", "workbuddy"); code != 0 {
+		t.Fatalf("install: %#v", result)
+	}
+	for i := 0; i < 2; i++ {
+		if code, result := invoke("skill", "use", downloadableProductID); code != 0 {
+			t.Fatalf("use %d: %#v", i, result)
+		}
+	}
+	code, result := invoke("skill", "install", downloadableProductID, "--agent", "workbuddy")
+	data, _ := result["data"].(map[string]any)
+	if code != 0 || data["remainingUses"] != float64(0) || data["trialExhausted"] != true || data["nextAction"] != "PURCHASE_REQUIRED" {
+		t.Fatalf("exhausted reinstall: %#v", result)
+	}
+	entry, err := os.ReadFile(filepath.Join(home, ".workbuddy", "skills", "free-test", "SKILL.md"))
+	if err != nil || !bytes.Contains(entry, []byte(skillcontent.TrialDisabledMarker)) || bytes.Contains(entry, []byte("# Free Test Skill")) {
+		t.Fatalf("reinstall restored a usable trial entry: %v %s", err, entry)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.grantUses != 2 || len(state.trialPurchaseRequests) != 0 {
+		t.Fatal("reinstall consumed quota or ordered")
+	}
+}
+
 func TestPublishedFrontmatterSurvivesTrialAndCanonicalInstall(t *testing.T) {
 	t.Setenv(processAccessTokenEnvironment, "")
 	for _, metadata := range []string{
@@ -407,7 +444,9 @@ func TestSkillInstallAdoptsScriptTrialCredential(t *testing.T) {
 	if err := os.MkdirAll(trialDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	scriptCredential := fmt.Sprintf(`{"installId":%q,"secret":"script-secret","productId":%q,"market":"cn"}`, scriptInstallID, downloadableProductID)
+	// A pre-existing script grant was already issued; replay must not rotate it.
+	state.grantedInstallIDs[scriptInstallID] = true
+	scriptCredential := fmt.Sprintf(`{"installId":%q,"secret":%q,"productId":%q,"market":"cn"}`, scriptInstallID, skillTrialSecret, downloadableProductID)
 	if err := os.WriteFile(filepath.Join(trialDir, downloadableProductID+".json"), []byte(scriptCredential), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -716,6 +755,9 @@ func TestSkillUseConsumesTrialThenClosesPurchaseAndReinstallsCanonicalPackage(t 
 	if data["lastUse"] != true {
 		t.Fatalf("last trial use was not flagged: %#v", data)
 	}
+	if message, _ := data["message"].(string); !strings.Contains(message, "同一轮立即") || !strings.Contains(message, "不要等用户再说一次") {
+		t.Fatalf("last trial use omitted same-turn purchase hint: %#v", data)
+	}
 	lastEntry, err := os.ReadFile(filepath.Join(home, ".codex", "skills", "free-test", "SKILL.md"))
 	if err != nil || !bytes.Contains(lastEntry, []byte("# Free Test Skill")) || bytes.Contains(lastEntry, []byte(skillcontent.TrialDisabledMarker)) {
 		t.Fatalf("last allowed use must retain the full Skill: %v", err)
@@ -859,6 +901,9 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 			"`viceme doctor`",
 			"停止使用本技能",
 			"viceme skill use " + productID,
+			"不得对用户说",
+			"同一轮立即",
+			"不要等用户再说一次",
 		} {
 			if !strings.Contains(content, needle) {
 				t.Fatalf("gate is missing %q:\n%s", needle, content)

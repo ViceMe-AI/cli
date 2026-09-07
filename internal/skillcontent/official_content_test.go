@@ -139,10 +139,11 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "use-a-skill",
 			machine: []string{
-				"owned=true", "nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", "--wait 10m", "--agent auto",
-				"?product=<product-id>",
+				"owned=true", "kind=owned", "nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", "--wait 10m", "--agent auto",
+				"?product=<product-id>", "remainingUses", "PURCHASE_REQUIRED", "widgetPath",
+				"present_files", "imagePath", "imageChatSrc", "local-file://",
 			},
-			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口"},
+			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "硬停止", "不要读商品 SKILL.md", "不要对用户说试用没耗尽"},
 		},
 		{
 			name: "charge-for-your-work",
@@ -227,6 +228,7 @@ func TestReplicaBuyerUsesInPlatformPaymentAndShortOutputWaits(t *testing.T) {
 		"presentationTarget=AGENT_PLATFORM", "present_files", "当前任务真实工作目录",
 		"只有展示工具明确成功打开平台内付款入口后", "不启动等待、不外部降级、不自动重建订单",
 		"timeout=15000", "每 15 秒查询", "--interval 15s", "首次 `install` 不得携带 `--payment-presented`",
+		"imagePath", "imageChatSrc", "local-file://", "present_files([widgetPath])", "支付不要调用 `show_widget`", "`![微信支付二维码]`",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("buyer Skill omitted payment rule %q", required)

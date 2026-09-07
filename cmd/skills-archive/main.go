@@ -144,6 +144,10 @@ func buildHostingArchive(skillsFS fs.FS) (map[string][]byte, hostingManifest, er
 				return nil, hostingManifest{}, fmt.Errorf("read %s/%s: %w", name, relative, err)
 			}
 			files[name+"/"+relative] = data
+			if relative == "scripts/trial-runtime.zip" {
+				digest := sha256.Sum256(data)
+				files[name+"/scripts/sha256-"+hex.EncodeToString(digest[:])+"/trial-runtime.zip"] = data
+			}
 		}
 		skills[name] = hostedSkill{
 			SkillVersion:          metadata.SkillVersion,

@@ -21,12 +21,13 @@ import tempfile
 import time
 import unittest
 import urllib.parse
+import xml.etree.ElementTree as ET
 import zipfile
 from contextlib import redirect_stdout
 from unittest import mock
 
 REPOSITORY_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SCRIPT_PATH = os.path.join(REPOSITORY_ROOT, "skills", "use-a-skill", "scripts", "trial.py")
+SCRIPT_PATH = os.path.join(REPOSITORY_ROOT, "skills", "use-a-skill", "scripts", "trial_runtime.py")
 
 spec = importlib.util.spec_from_file_location("viceme_trial_script", SCRIPT_PATH)
 trial = importlib.util.module_from_spec(spec)
@@ -71,6 +72,16 @@ class TrialScriptTestCase(unittest.TestCase):
 
     def test_slugify_matches_cli_semantics(self):
         self.assertEqual(trial.slugify("Canghe Article Illustrator!"), "canghe-article-illustrator")
+
+    def test_local_file_chat_src_uses_workbuddy_protocol(self):
+        self.assertEqual(
+            trial.local_file_chat_src("/Users/a/.viceme/payment-presentations/wechat-aa.png"),
+            "local-file:///Users/a/.viceme/payment-presentations/wechat-aa.png",
+        )
+        self.assertEqual(
+            trial.local_file_chat_src(r"C:\Users\a\.viceme\payment-presentations\wechat-aa.png"),
+            "local-file:///C:/Users/a/.viceme/payment-presentations/wechat-aa.png",
+        )
         self.assertEqual(trial.slugify("中文标题"), "")
         self.assertEqual(trial.slugify("  A -- B  "), "a-b")
 
@@ -90,13 +101,13 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertIn(trial.GATE_END, content)
         self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, content)
         self.assertIn("allowed: true", content)
+        self.assertIn("不要读取使用前检查", content)
         self.assertNotIn("python3 - use", content)
         rules = files[trial.RUNTIME_PATH][0].decode("utf-8")
-        self.assertIn("python3 - use --product %s --market cn" % PRODUCT_ID, rules)
-        # Windows 形态:先落盘再用 py 执行(避开 PS5.1 管道编码),命令同样钉死产品与市场。
+        self.assertIn('python3 "<本 Skill 目录>/.viceme/scripts/trial.py" use --product %s --market cn' % PRODUCT_ID, rules)
+        # Both shells execute the installed script, with no network bootstrap.
         self.assertIn(
-            "curl.exe -fsSL https://s3.viceme.cn/skills/use-a-skill/scripts/trial.py "
-            "-o $env:TEMP\\viceme-trial.py; py $env:TEMP\\viceme-trial.py use --product %s --market cn" % PRODUCT_ID,
+            'py "<本 Skill 目录>/.viceme/scripts/trial.py" use --product %s --market cn' % PRODUCT_ID,
             rules,
         )
         # 门禁必须位于 frontmatter 之后、正文之前。
@@ -117,6 +128,10 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertIn("无需 CLI 或强制登录", content)
         self.assertIn("trial-usage.md", content)
         self.assertIn("完整正式包", content)
+        self.assertIn("不得对用户说", content)
+        self.assertIn("同一轮立即", content)
+        self.assertIn("不要等用户再说一次", content)
+        self.assertNotIn("提醒下次需付费", content)
 
     def test_author_marker_mention_does_not_suppress_real_gate(self):
         original = "---\nname: my-skill\n---\n\n作者示例: `%s`\n" % trial.GATE_MARKER
@@ -125,7 +140,7 @@ class TrialScriptTestCase(unittest.TestCase):
         content = files["SKILL.md"][0].decode("utf-8")
         self.assertTrue(content.endswith("作者示例: `%s`\n" % trial.GATE_MARKER))
         self.assertIn(trial.RUNTIME_PATH, content)
-        self.assertIn("python3 - use", files[trial.RUNTIME_PATH][0].decode("utf-8"))
+        self.assertIn('.viceme/scripts/trial.py" use', files[trial.RUNTIME_PATH][0].decode("utf-8"))
 
     def test_gate_rejects_invalid_structure_without_mutation(self):
         for content in (
@@ -175,8 +190,8 @@ class TrialScriptTestCase(unittest.TestCase):
                 self.assertNotIn("\r", injected)
                 self.assertEqual(files["SKILL.md"][1], 0o755)
                 rules = files[trial.RUNTIME_PATH][0].decode("utf-8")
-                self.assertIn("https://s3.viceme.ai/", rules)
                 self.assertIn("--market global", rules)
+                self.assertNotIn("curl", rules)
 
     def test_zip_extraction_rejects_traversal_and_missing_manifest(self):
         evil = io.BytesIO()
@@ -540,6 +555,23 @@ class TrialScriptTestCase(unittest.TestCase):
             self.assertTrue(os.path.exists(lock_path))
         self.assertFalse(os.path.exists(lock_path))
 
+    def test_lock_release_failure_is_visible_without_changing_state(self):
+        trial.save_trial_state(PRODUCT_ID, {"installId": "unchanged", "secret": "fixture"})
+        with mock.patch.object(trial.os, "remove", side_effect=PermissionError()), self.assertRaises(trial.Failure) as caught:
+            with trial.ProductLock(PRODUCT_ID):
+                pass
+        self.assertEqual(caught.exception.code, "STATE_LOCK_RELEASE_FAILED")
+        self.assertEqual(trial.load_trial_state(PRODUCT_ID)["installId"], "unchanged")
+        self.assertTrue(os.path.isfile(trial.trial_state_path(PRODUCT_ID) + ".lock"))
+
+    def test_unlock_failure_keeps_consumed_use_retry_key(self):
+        trial.save_trial_state(PRODUCT_ID, {"installId": "fixture", "secret": "fixture", "pendingRequestId": "same-use"})
+        with mock.patch.object(trial, "api_request", return_value={"allowed": True, "remainingUses": 1, "limitUses": 3}), \
+                mock.patch.object(trial.os, "remove", side_effect=PermissionError()), self.assertRaises(trial.Failure) as caught:
+            trial.command_use("cn", PRODUCT_ID)
+        self.assertEqual(caught.exception.code, "STATE_LOCK_RELEASE_FAILED")
+        self.assertEqual(trial.load_trial_state(PRODUCT_ID)["pendingRequestId"], "same-use")
+
 
 def time_old_mtime():
     import time
@@ -580,6 +612,7 @@ class InstallFlowTestCase(unittest.TestCase):
                 "isFree": False,
                 "owned": False,
                 "purchaseAvailable": True,
+                "purchaseUrl": "https://shop.example.test/purchase",
                 "trial": {"available": True, "limitUses": 5},
                 "edition": {"key": "pro", "title": "专业版", "sortOrder": 0, "highlights": []},
                 "release": {"id": self.release_id, "artifactDigest": self.digest, "fileName": "pro.zip"},
@@ -686,7 +719,7 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, content)
         with open(os.path.join(skill_dir, trial.RUNTIME_PATH), encoding="utf-8") as handle:
             rules = handle.read()
-        self.assertIn("python3 - use --product %s --market cn" % PRODUCT_ID, rules)
+        self.assertIn('.viceme/scripts/trial.py" use --product %s --market cn' % PRODUCT_ID, rules)
         self.assertIn("allowed: false", rules)
         with open(os.path.join(skill_dir, ".viceme", "install-manifest.json"), encoding="utf-8") as handle:
             manifest = json.load(handle)
@@ -773,6 +806,8 @@ class InstallFlowTestCase(unittest.TestCase):
             self.assertTrue(last["allowed"])
             self.assertTrue(last["lastUse"])
             self.assertEqual(last["remainingUses"], 0)
+            self.assertIn("同一轮立即", last["message"])
+            self.assertIn("不要等用户再说一次", last["message"])
             with open(entry, "rb") as handle:
                 self.assertEqual(handle.read(), original, "the last allowed use must keep the full Skill")
             for _ in range(2):
@@ -786,9 +821,138 @@ class InstallFlowTestCase(unittest.TestCase):
                     disabled = handle.read()
                 self.assertIn(trial.DISABLED_MARKER.encode(), disabled)
                 self.assertNotIn(b"\nbody", disabled)
-                self.assertEqual(run("install")["trial"]["remainingUses"], 0)
+                reinstalled = run("install")
+                self.assertEqual(reinstalled["trial"]["remainingUses"], 0)
+                self.assertEqual(reinstalled["nextAction"], "PURCHASE_REQUIRED")
+                self.assertTrue(reinstalled["trialExhausted"])
+                with open(entry, "rb") as handle:
+                    self.assertIn(trial.DISABLED_MARKER.encode(), handle.read())
             self.assertEqual(len(install_ids), 1, "reinstall must reuse the same grant")
             self.assertEqual(used, 2)
+
+    def test_ready_reports_remaining_without_use(self):
+        uses = []
+
+        def api(market, method, path, body=None):
+            if path.endswith("/trial-use"):
+                uses.append(path)
+                raise AssertionError("ready must not consume a use")
+            return self._api(market, method, path, body)
+
+        with mock.patch.object(trial, "api_request", side_effect=api), \
+                mock.patch.object(trial, "http_download", return_value=self.archive_bytes):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(trial.run(["install", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy"]), 0)
+            installed = json.loads(output.getvalue())
+            self.assertEqual(installed["remainingUses"], 5)
+            self.assertFalse(installed.get("trialExhausted"))
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(trial.run(["ready", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy"]), 0)
+            ready = json.loads(output.getvalue())
+        self.assertTrue(ready["ok"])
+        self.assertTrue(ready["ready"])
+        self.assertEqual(ready["remainingUses"], 5)
+        self.assertEqual(ready["limitUses"], 5)
+        self.assertFalse(ready.get("trialExhausted"))
+        self.assertEqual(ready["nextAction"], "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL")
+        self.assertEqual(uses, [])
+
+    def test_ready_exhausted_requires_purchase(self):
+        used = 0
+
+        def api(market, method, path, body=None):
+            nonlocal used
+            if path.endswith("/trial-use"):
+                used += 1
+                allowed = used <= 2
+                return {
+                    "allowed": allowed, "limitUses": 2, "remainingUses": max(0, 2 - used),
+                    "reason": None if allowed else "EXHAUSTED",
+                    "purchaseUrl": "https://shop.example.test/purchase",
+                }
+            result = self._api(market, method, path, body)
+            if path.endswith("/trial-grants"):
+                result.update(limitUses=2, remainingUses=max(0, 2 - used))
+            return result
+
+        def run(action):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(trial.run([action, "--product", PRODUCT_ID, "--market", "cn", *(["--agent", "workbuddy"] if action in ("install", "ready") else [])]), 0, output.getvalue())
+            return json.loads(output.getvalue())
+
+        with mock.patch.object(trial, "api_request", side_effect=api), \
+                mock.patch.object(trial, "http_download", return_value=self.archive_bytes):
+            run("install")
+            run("use")
+            run("use")
+            ready = run("ready")
+        self.assertTrue(ready["ready"])
+        self.assertEqual(ready["remainingUses"], 0)
+        self.assertTrue(ready["trialExhausted"])
+        self.assertEqual(ready["nextAction"], "PURCHASE_REQUIRED")
+        self.assertIn("不要读商品 SKILL.md", ready["message"])
+        self.assertEqual(used, 2)
+        entry = os.path.join(self.home, ".workbuddy", "skills", "my-skill", "SKILL.md")
+        with open(entry, "rb") as handle:
+            self.assertIn(trial.DISABLED_MARKER.encode(), handle.read())
+
+    def test_closed_order_does_not_hijack_install(self):
+        self._install_trial_fixture()
+        state = trial.load_trial_state(PRODUCT_ID)
+        state["purchase"] = {"clientRequestId": "closed-order", "orderNo": "TRIAL_ORDER_01", "presented": True}
+        trial.save_trial_state(PRODUCT_ID, state)
+        calls = []
+
+        def api(market, method, path, body=None):
+            calls.append(path)
+            if "trial-purchase" in path:
+                return self._purchase_order(status="CLOSED", paymentAction=None)
+            return self._api(market, method, path, body)
+
+        output = io.StringIO()
+        with mock.patch.object(trial, "api_request", side_effect=api), \
+                mock.patch.object(trial, "http_download", return_value=self.archive_bytes), redirect_stdout(output):
+            code = trial.run(["install", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy"])
+        result = json.loads(output.getvalue())
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["kind"], "trial")
+        self.assertNotEqual(result.get("nextAction"), "PAYMENT_CLOSED")
+        self.assertTrue(trial.load_trial_state(PRODUCT_ID)["purchase"]["closed"])
+        self.assertTrue(any("trial-purchase/status" in path for path in calls))
+        self.assertFalse(any(path.endswith("/trial-use") for path in calls))
+        entry = os.path.join(self.home, ".workbuddy", "skills", "my-skill", "SKILL.md")
+        with open(entry, "rb") as handle:
+            self.assertIn(trial.GATE_MARKER.encode(), handle.read())
+
+    def test_purchase_wait_zero_opens_new_order_when_previous_closed(self):
+        self._install_trial_fixture()
+        state = trial.load_trial_state(PRODUCT_ID)
+        state["purchase"] = {"clientRequestId": "old-order", "orderNo": "TRIAL_ORDER_01", "presented": True}
+        trial.save_trial_state(PRODUCT_ID, state)
+        calls = []
+
+        def api(market, method, path, body=None):
+            calls.append(path)
+            if path.endswith("/trial-purchase/status"):
+                return self._purchase_order(status="CLOSED", paymentAction=None)
+            if path.endswith("/trial-purchase"):
+                return self._purchase_order(orderNo="TRIAL_ORDER_02")
+            return self._api(market, method, path, body)
+
+        with mock.patch.object(trial, "api_request", side_effect=api), \
+                mock.patch.object(trial, "http_download", side_effect=self._resource_download), \
+                mock.patch.object(trial.time, "sleep", side_effect=AssertionError("QR must return before waiting")):
+            code, result = self._run_purchase("--wait", "0")
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["nextAction"], "PRESENT_PAYMENT_WIDGET")
+        self.assertEqual(result["orderNo"], "TRIAL_ORDER_02")
+        self.assertTrue(any(path.endswith("/trial-purchase/status") for path in calls))
+        self.assertTrue(any(path.endswith("/trial-purchase") and not path.endswith("/status") for path in calls))
+        self.assertNotEqual(result.get("nextAction"), "PAYMENT_CLOSED")
 
     def _install_trial_fixture(self):
         with mock.patch.object(trial, "api_request", side_effect=self._api), \
@@ -834,13 +998,23 @@ class InstallFlowTestCase(unittest.TestCase):
             self.assertNotIn("grant-secret", json.dumps(first))
             self.assertNotIn("weixin://", json.dumps(first))
             presentation = first["paymentPresentation"]
+            self.assertEqual(presentation["mimeType"], "image/png")
+            with open(presentation["imagePath"], "rb") as handle:
+                png = handle.read()
+            self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
+            self.assertEqual(presentation["imageChatSrc"], trial.local_file_chat_src(presentation["imagePath"]))
             with open(presentation["widgetPath"], encoding="utf-8") as handle:
                 html = handle.read()
+            self.assertIn("<!DOCTYPE html>", html)
+            self.assertIn('aria-label="微信支付二维码"', html)
             self.assertIn("<svg", html)
             self.assertNotIn("__WIDGET_DATA__", html)
             self.assertNotIn("A </script>", html)
             self.assertNotIn("weixin://", html)
             self.assertIn("2099-01-01T00:00:00Z", html)
+            start = html.index('<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="微信支付二维码"')
+            svg = html[start:html.index("</svg>", start) + len("</svg>")]
+            self.assertLess(max(map(len, svg.splitlines())), 1800)
             self.assertEqual(stat.S_IMODE(os.stat(presentation["widgetPath"]).st_mode), 0o600)
             self.assertTrue(trial.load_trial_state(PRODUCT_ID)["purchase"]["presented"])
             code, second = self._run_purchase()
@@ -880,6 +1054,33 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertIn(b"metadata:\n  author: yee33", body)
         with open(user_path, encoding="utf-8") as handle:
             self.assertEqual(handle.read(), "keep my work")
+        with open(os.path.join(directory, ".viceme", "guides", "trial-usage.md"), encoding="utf-8") as handle:
+            self.assertIn("正式版：不再计次", handle.read())
+        after_purchase = list(calls)
+
+        def blocked_download(*_arguments):
+            raise AssertionError("owned use/ready must not redownload")
+
+        with mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=blocked_download):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(trial.run(["ready", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy"]), 0)
+            ready = json.loads(output.getvalue())
+            output = io.StringIO()
+            with redirect_stdout(output):
+                self.assertEqual(trial.run(["use", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy"]), 0)
+            used = json.loads(output.getvalue())
+        self.assertEqual(ready["kind"], "owned")
+        self.assertTrue(ready.get("owned"))
+        self.assertEqual(ready["nextAction"], "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL")
+        self.assertNotIn("remainingUses", ready)
+        self.assertFalse(ready.get("trialExhausted"))
+        self.assertTrue(used["allowed"])
+        self.assertTrue(used["owned"])
+        self.assertEqual(used["kind"], "owned")
+        self.assertEqual(used["nextAction"], "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL")
+        self.assertNotIn("remainingUses", used)
+        self.assertEqual(calls, after_purchase)
 
     def test_payment_without_active_entitlement_never_removes_gate(self):
         directory = self._install_trial_fixture()
@@ -924,16 +1125,56 @@ class InstallFlowTestCase(unittest.TestCase):
         def api(market, method, path, body):
             calls.append(path)
             return self._api(market, method, path, body)
-        with mock.patch.object(trial, "api_request", side_effect=api), redirect_stdout(io.StringIO()):
+        with mock.patch.object(trial, "api_request", side_effect=api), redirect_stdout(io.StringIO()) as stdout:
             self.assertEqual(trial.run(["status", "--product", PRODUCT_ID, "--market", "cn"]), 0)
+            status = json.loads(stdout.getvalue())
+        self.assertEqual(status["nextAction"], "SHOW_REMAINING_USES")
+        self.assertFalse(status["trialExhausted"])
         self.assertEqual(calls, ["/v1/skills/%s/trial-grants" % PRODUCT_ID])
-        with mock.patch.object(trial, "http_download", side_effect=self._resource_download):
-            for name in trial.WIDGET_DIGESTS:
+        with mock.patch.object(trial, "http_download", side_effect=AssertionError("static resources must stay local")):
+            for name in ("payment.html", "qrcodegen.py"):
                 self.assertGreater(len(trial.shared_widget_resource("cn", name)), 0)
-        with mock.patch.object(trial, "http_download", return_value=b"tampered"):
+        with mock.patch("builtins.open", side_effect=FileNotFoundError()):
             with self.assertRaises(trial.Failure) as failure:
                 trial.shared_widget_resource("cn", "qrcodegen.py")
-        self.assertEqual(failure.exception.code, "WIDGET_RESOURCE_INVALID")
+        self.assertEqual(failure.exception.code, "RUNTIME_RESOURCE_MISSING")
+
+    def test_installed_runtime_ready_and_payment_need_no_static_downloads(self):
+        installed = self._install_trial_fixture()
+        root = os.path.join(self.home, ".workbuddy", "skills", "my-skill")
+        script = os.path.join(root, ".viceme/scripts/trial.py")
+        if not os.path.isfile(script):
+            # The fixture uses the normal auto target when no host is selected.
+            root = os.path.join(self.home, ".agents", "skills", "my-skill")
+            script = os.path.join(root, ".viceme/scripts/trial.py")
+        spec = importlib.util.spec_from_file_location("installed_runtime", script)
+        local = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(local)
+        with mock.patch.object(local, "api_request", side_effect=AssertionError("ready must be offline")), \
+                mock.patch.object(local, "http_download", side_effect=AssertionError("no static download")):
+            ready = local.find_ready_install("cn", PRODUCT_ID, "auto")
+            self.assertTrue(ready["ready"])
+            self.assertTrue(os.path.isfile(ready["onboardingTemplatePath"]))
+            order = {"orderNo": "QR_ROUNDTRIP_TEST", "title": "Test", "status": "PENDING", "amountCents": 1,
+                     "currency": "CNY", "expiresAt": "2099-01-01T00:00:00Z",
+                     "paymentAction": {"type": "QR_CODE", "content": "weixin://pay/local-fixture"}}
+            presentation = local.payment_presentation("cn", order)
+        with open(presentation["imagePath"], "rb") as handle:
+            png = handle.read()
+        self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertEqual(presentation["imageChatSrc"], local.local_file_chat_src(presentation["imagePath"]))
+        self.assertEqual(presentation["mimeType"], "image/png")
+        with open(presentation["widgetPath"], encoding="utf-8") as handle:
+            html = handle.read()
+        start = html.index('<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="微信支付二维码"')
+        svg = html[start:html.index("</svg>", start) + len("</svg>")]
+        self.assertLess(max(map(len, svg.splitlines())), 1800)
+        # Simulate the host's per-line cap, then prove every QR module survived.
+        capped = "\n".join(line[:2000] for line in svg.splitlines())
+        self.assertEqual(ET.tostring(ET.fromstring(svg)), ET.tostring(ET.fromstring(capped)))
+        with open(ready["onboardingTemplatePath"], "a") as handle:
+            handle.write("tampered")
+        self.assertFalse(local.find_ready_install("cn", PRODUCT_ID, "auto")["ready"])
 
     def test_expired_qr_does_not_close_or_replace_pending_order(self):
         self._install_trial_fixture()

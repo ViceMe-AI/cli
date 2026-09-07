@@ -23,7 +23,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
 收到 `OPEN_PAYMENT_PAGE` 时，按 `presentationTarget=AGENT_PLATFORM` 将完整 `checkoutUrl` 交给当前 Agent 平台内的浏览器、支付面板或弹窗工具，不得用系统 `open`、`xdg-open`、`start`、外部浏览器或 `window.open` 代替。WorkBuddy 使用内置 `present_files` 在当前任务浏览器中展示；`cwd` 使用当前任务真实工作目录。其他宿主只使用当前实际提供的平台内展示工具，不猜测工具名。不要在正文、日志或选项卡输出支付链接。
 
-只有展示工具明确成功打开平台内付款入口后，才能追加 `--payment-presented`；调用展示工具、拿到 URL、创建后台任务都不等于成功展示。若没有平台内展示能力、打开失败或结果不明确，停止并报告，保留订单，不启动等待、不外部降级、不自动重建订单。`PRESENT_PAYMENT_QR` 的二维码同样只在当前任务正文或平台内支付面板展示，不启动外部图片查看器。
+只有展示工具明确成功打开平台内付款入口后，才能追加 `--payment-presented`；调用展示工具、拿到 URL、创建后台任务都不等于成功展示。若没有平台内展示能力、打开失败或结果不明确，停止并报告，保留订单，不启动等待、不外部降级、不自动重建订单。`PRESENT_PAYMENT_QR` 时回复正文单独一行写 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 imageChatSrc（local-file:// 加上 imagePath 绝对路径）。不要只写裸绝对路径；并用 `present_files([widgetPath])` 只打开支付 HTML；不要把 PNG 交给 `present_files`，不启动外部图片查看器。
 
 首次 `install` 不得携带 `--payment-presented`。新建或替换订单返回 `OPEN_PAYMENT_PAGE` 时，即使上一张付款页已经打开，也必须展示新订单入口后才能等待。
 
@@ -83,7 +83,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 1. 运行 `viceme replica install "<work.md URL>"`，必要时追加用户指定的全新 `--target`。
 2. `REPLICA_PURCHASE_CONFIRMATION_REQUIRED` 返回的口令、商品、币种和整数分价格与用户刚确认的预览完全一致且 Quote 未过期时，直接追加 `--confirm` 重跑，不再询问第二次。任一字段变化时重新运行 `inspect`，在对话中展示最新同款信息并重新确认。
 3. `PRODUCT_ALREADY_OWNED` 由 CLI 复用账号权益并安装，不创建匿名 Session。
-4. `REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时，在正文内容区读取 `paymentPresentation.widgetPath`，用宿主 Widget 工具原样渲染通用支付片段（WorkBuddy 先读 `read_me` 的 interactive 模块，再调用 `show_widget`）。无 Widget 能力才展示本地 `imagePath`，不为支付动作创建选项卡。先展示二维码，再把同一条 `--confirm` 命令追加 `--timeout 3m --interval 15s`，按“命令执行边界”只启动一次并等待最终结果。Widget 倒计时不能确认到账，不得输出支付 URI。
+4. `REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时，回复正文单独一行写 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 imageChatSrc（local-file:// 加上 imagePath 绝对路径）。不要只写裸绝对路径；并用 `present_files([widgetPath])` 只打开支付 HTML。不要把 imagePath 交给 `present_files`，不要 Read 支付 HTML 或 PNG，支付不要调用 `show_widget`。没有 `present_files` 时仍在聊天气泡用上述 Markdown 展示图片。不为支付动作创建选项卡。先展示二维码，再把同一条 `--confirm` 命令追加 `--timeout 3m --interval 15s`，按“命令执行边界”只启动一次并等待最终结果。倒计时不能确认到账，不得输出支付 URI。
 
 ## CLI 匿名路径
 

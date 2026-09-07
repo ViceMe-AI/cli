@@ -664,6 +664,7 @@ type CommercePaymentPresentation struct {
 	Purpose        string `json:"purpose"`
 	MIMEType       string `json:"mimeType"`
 	ImagePath      string `json:"imagePath"`
+	ImageChatSrc   string `json:"imageChatSrc,omitempty"`
 	AltText        string `json:"altText"`
 	ExpiresAt      string `json:"expiresAt"`
 	WidgetPath     string `json:"widgetPath,omitempty"`

@@ -658,7 +658,7 @@ func replicaPaymentConfirmation(state replicaPurchaseState, presentation *api.Co
 		"totalAmountCents":    state.PriceCents,
 		"expiresAt":           state.OrderExpiresAt,
 		"paymentPresentation": presentation,
-	}).WithHint("read paymentPresentation.widgetPath and render its HTML with the host widget tool; if unavailable, show imagePath with the native image tool; then rerun the same confirmed install command with a bounded --timeout")
+	}).WithHint("write ![微信支付二维码](paymentPresentation.imageChatSrc) in the chat reply; imageChatSrc is local-file:// plus imagePath. Do not write a bare filesystem path. Open only widgetPath with present_files; do not pass imagePath to present_files, Read the HTML, or call show_widget; then rerun the same confirmed install command with a bounded --timeout")
 }
 
 func installOwnedReplica(

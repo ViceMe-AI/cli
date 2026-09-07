@@ -168,7 +168,7 @@ func TestPythonSuspensionSharesNativeDestinationLockAndNotice(t *testing.T) {
 	}
 	home := t.TempDir()
 	directory, original := suspensionFixture(t, filepath.Join(home, ".agents", "skills"), "demo", suspensionProduct, true)
-	script, err := filepath.Abs("../../skills/use-a-skill/scripts/trial.py")
+	script, err := filepath.Abs("../../skills/use-a-skill/scripts/trial_runtime.py")
 	if err != nil {
 		t.Fatal(err)
 	}

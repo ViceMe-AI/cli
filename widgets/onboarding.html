@@ -15,8 +15,10 @@
 <script>
 (() => {
   const data = __WIDGET_DATA__;
-  const root = document.currentScript.previousElementSibling;
-  if (!root || !root.classList.contains("viceme-onboarding")) return;
+  const root = document.querySelector('.viceme-onboarding:not([data-viceme-initialized])');
+  if (!root) return;
+  root.setAttribute("data-viceme-initialized", "true");
+  const dom = root.ownerDocument;
   const en = data.locale === "en-US";
   root.querySelector('[data-field="heading"]').textContent = en ? "Pick an example to try" : "选个例子，试一下";
   root.querySelector('[data-field="skill-name"]').textContent = data.skillName;
@@ -25,12 +27,12 @@
   const available = typeof sendPrompt === "function";
   if (!available) status.textContent = en ? "Select a prompt and paste it into the conversation." : "请选择一段口令，手动复制到对话输入框。";
   for (const {title, prompt} of data.examples) {
-    const row = document.createElement("li");
-    const content = document.createElement("div");
-    const heading = document.createElement("h4"); heading.textContent = title;
-    const text = document.createElement("p"); text.className = "prompt"; text.textContent = prompt;
+    const row = dom.createElement("li");
+    const content = dom.createElement("div");
+    const heading = dom.createElement("h4"); heading.textContent = title;
+    const text = dom.createElement("p"); text.className = "prompt"; text.textContent = prompt;
     content.append(heading, text);
-    const button = document.createElement("button");
+    const button = dom.createElement("button");
     button.type = "button"; button.textContent = en ? "Try ↗" : "试试 ↗";
     button.setAttribute("aria-label", (en ? "Try example: " : "使用示例：") + title);
     button.disabled = !available;

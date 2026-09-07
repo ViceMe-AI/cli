@@ -26,6 +26,7 @@ import (
 )
 
 type downloadableSkillInstallResult struct {
+	localSkillResources
 	ProductID             string                     `json:"productId"`
 	Edition               any                        `json:"edition"`
 	ReleaseID             string                     `json:"releaseId"`
@@ -33,6 +34,9 @@ type downloadableSkillInstallResult struct {
 	InstalledName         string                     `json:"installedName"`
 	Install               skillcontent.InstallReport `json:"install"`
 	Trial                 *trialInstallSummary       `json:"trial,omitempty"`
+	RemainingUses         *int                       `json:"remainingUses,omitempty"`
+	LimitUses             *int                       `json:"limitUses,omitempty"`
+	TrialExhausted        bool                       `json:"trialExhausted,omitempty"`
 	NextAction            string                     `json:"nextAction"`
 	Invocation            string                     `json:"invocation"`
 	OnboardingGuideURL    string                     `json:"onboardingGuideUrl"`
@@ -125,7 +129,11 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 						WithHint("sign in with the account that purchased this Product, or renew the creator subscription; owned install never falls back to a trial or purchase")
 				}
 			} else {
-				if state, ok := readScriptTrialState(runtime, productID); ok && state.Purchase != nil {
+				resume, resumeErr := trialInstallShouldResumePurchase(command.Context(), runtime, productID)
+				if resumeErr != nil {
+					return resumeErr
+				}
+				if resume {
 					return runTrialPurchase(command.Context(), runtime, productID, wait, agent)
 				}
 				access, err = runtime.client().GetPublicSkillAccess(command.Context(), productID)
@@ -267,6 +275,13 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 		return downloadableSkillInstallResult{}, err
 	}
 	installedName := downloadableSkillName(productID, manifestName, access.Edition.Title, workSlug)
+	kind := "owned"
+	if access.IsFree {
+		kind = "free"
+	}
+	if err := addSkillRuntime(runtime, files, productID, access.Release.ID, kind); err != nil {
+		return downloadableSkillInstallResult{}, err
+	}
 	report, err := installDownloadableSkill(installedName, agent, files, runtime.deps.Environment, skillcontent.SkillProvenance{
 		ProductID: productID,
 		ReleaseID: access.Release.ID,
@@ -278,7 +293,8 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 		return downloadableSkillInstallResult{}, output.Internal("SKILL_INSTALL_FAILED", "one or more Skill targets could not be installed", nil).WithDetails(map[string]any{"report": report})
 	}
 	return downloadableSkillInstallResult{
-		ProductID: productID, Edition: access.Edition, ReleaseID: access.Release.ID, ArtifactDigest: digest,
+		localSkillResources: resourcesFromReport(report, "cli"),
+		ProductID:           productID, Edition: access.Edition, ReleaseID: access.Release.ID, ArtifactDigest: digest,
 		InstalledName: installedName, Install: report,
 		NextAction: "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", Invocation: "$" + installedName,
 		OnboardingGuideURL:    sharedGuidanceURL(runtime, "_widgets/README.md"),
@@ -592,7 +608,7 @@ func installDownloadableSkill(stableName, target string, files map[string]downlo
 				if err := json.Unmarshal(raw, &state); err != nil {
 					return err
 				}
-				if state.Purchase != nil {
+				if state.Purchase != nil && !state.Purchase.Closed {
 					return output.Policy("SKILL_PURCHASE_IN_PROGRESS", "resume the saved purchase; a stale trial install must not overwrite the paid edition")
 				}
 			}

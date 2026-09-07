@@ -27,8 +27,12 @@ func TestAnonymousTrialPurchasePresentsBeforeWaitAndRestoresThroughInstall(t *te
 		t.Fatalf("trial: %#v", result)
 	}
 	// Merely querying the balance cannot call trial-use.
-	if code, result := invoke("skill", "trial-status", downloadableProductID); code != 0 {
+	code, result := invoke("skill", "trial-status", downloadableProductID)
+	if code != 0 {
 		t.Fatalf("status: %#v", result)
+	}
+	if result["data"].(map[string]any)["nextAction"] != "SHOW_REMAINING_USES" {
+		t.Fatalf("status nextAction: %#v", result)
 	}
 	state.mu.Lock()
 	uses := state.grantUses
@@ -36,7 +40,7 @@ func TestAnonymousTrialPurchasePresentsBeforeWaitAndRestoresThroughInstall(t *te
 	if uses != 0 {
 		t.Fatal("status consumed a use")
 	}
-	code, result := invoke("skill", "trial-purchase", downloadableProductID, "--wait", "60s")
+	code, result = invoke("skill", "trial-purchase", downloadableProductID, "--wait", "60s")
 	if code == 0 {
 		t.Fatal("an unpaid order was treated as installed")
 	}
@@ -46,8 +50,15 @@ func TestAnonymousTrialPurchasePresentsBeforeWaitAndRestoresThroughInstall(t *te
 	}
 	presentation := failure["details"].(map[string]any)["paymentPresentation"].(map[string]any)
 	widget, err := os.ReadFile(presentation["widgetPath"].(string))
-	if err != nil || !bytes.Contains(widget, []byte("<svg")) || bytes.Contains(widget, []byte("weixin://")) {
+	if err != nil || !bytes.Contains(widget, []byte("<!DOCTYPE html")) || !bytes.Contains(widget, []byte(`aria-label="微信支付二维码"`)) || bytes.Contains(widget, []byte("weixin://")) {
 		t.Fatalf("invalid Widget: %v", err)
+	}
+	image, err := os.ReadFile(presentation["imagePath"].(string))
+	if err != nil || len(image) < 8 || !bytes.Equal(image[:8], []byte("\x89PNG\r\n\x1a\n")) {
+		t.Fatalf("invalid QR image: %v", err)
+	}
+	if presentation["imageChatSrc"] != localFileChatSrc(presentation["imagePath"].(string)) {
+		t.Fatalf("imageChatSrc: %#v", presentation["imageChatSrc"])
 	}
 	statePath := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json")
 	raw, err := os.ReadFile(statePath)
@@ -83,12 +94,45 @@ func TestAnonymousTrialPurchasePresentsBeforeWaitAndRestoresThroughInstall(t *te
 		t.Fatalf("stale Widget was not cleaned: %v", err)
 	}
 	state.mu.Lock()
-	defer state.mu.Unlock()
-	if state.grantUses != 0 || len(state.trialPurchaseRequests) != 3 {
-		t.Fatal("conversion charged quota or opened another order")
+	downloads := state.ownedDownloadCalls
+	grants := len(state.grantRequests)
+	useCalls := len(state.useRequests)
+	state.mu.Unlock()
+	code, result = invoke("skill", "ready", downloadableProductID, "--agent", "codex")
+	data = result["data"].(map[string]any)
+	if code != 0 || data["kind"] != "owned" || data["nextAction"] != "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL" || data["trialExhausted"] == true {
+		t.Fatalf("owned ready: %#v", result)
 	}
-	if state.trialPurchaseRequests[1]["orderNo"] != saved.Purchase.OrderNo {
-		t.Fatal("did not resume the original order")
+	if _, ok := data["remainingUses"]; ok {
+		t.Fatalf("owned ready leaked remainingUses: %#v", data)
+	}
+	code, result = invoke("skill", "use", downloadableProductID)
+	data = result["data"].(map[string]any)
+	if code != 0 || data["allowed"] != true || data["owned"] != true || data["nextAction"] != "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL" {
+		t.Fatalf("owned use: %#v", result)
+	}
+	if _, ok := data["remainingUses"]; ok {
+		t.Fatalf("owned use leaked remainingUses: %#v", data)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.grantUses != 0 {
+		t.Fatal("conversion charged quota")
+	}
+	if state.ownedDownloadCalls != downloads || len(state.useRequests) != useCalls || len(state.grantRequests) != grants {
+		t.Fatal("owned ready/use re-fetched the package or checked trial quota")
+	}
+	var creations int
+	for _, request := range state.trialPurchaseRequests {
+		if request["clientRequestId"] != "" {
+			creations++
+		}
+		if request["orderNo"] != "" && request["orderNo"] != saved.Purchase.OrderNo {
+			t.Fatal("did not resume the original order")
+		}
+	}
+	if creations != 1 || len(state.trialPurchaseRequests) < 2 {
+		t.Fatalf("opened %d orders across %d purchase calls", creations, len(state.trialPurchaseRequests))
 	}
 }
 
@@ -97,7 +141,7 @@ func TestTrialPurchaseCrossProcessPythonAndGoShareOneOrder(t *testing.T) {
 	if err != nil {
 		t.Skip("Python is required for cross-client contract validation")
 	}
-	script, err := filepath.Abs("../../skills/use-a-skill/scripts/trial.py")
+	script, err := filepath.Abs("../../skills/use-a-skill/scripts/trial_runtime.py")
 	if err != nil {
 		t.Fatal(err)
 	}

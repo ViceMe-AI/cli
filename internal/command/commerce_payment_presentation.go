@@ -92,13 +92,26 @@ func newCommercePaymentPresentation(runtime *Runtime, orderNo, expiresAt, conten
 
 func commercePaymentPresentation(absolutePath, expiresAt string) *api.CommercePaymentPresentation {
 	return &api.CommercePaymentPresentation{
-		Type:      "LOCAL_IMAGE",
-		Purpose:   "PAYMENT_QR_CODE",
-		MIMEType:  "image/png",
-		ImagePath: absolutePath,
-		AltText:   "微信支付二维码",
-		ExpiresAt: expiresAt,
+		Type:         "LOCAL_IMAGE",
+		Purpose:      "PAYMENT_QR_CODE",
+		MIMEType:     "image/png",
+		ImagePath:    absolutePath,
+		ImageChatSrc: localFileChatSrc(absolutePath),
+		AltText:      "微信支付二维码",
+		ExpiresAt:    expiresAt,
 	}
+}
+
+// localFileChatSrc is the WorkBuddy chat Markdown image URL. The renderer
+// only loads local PNG through the local-file:// protocol; a bare /Users/...
+// path is treated as an origin-relative URL and does not display.
+func localFileChatSrc(absolutePath string) string {
+	normalized := strings.ReplaceAll(absolutePath, "\\", "/")
+	if len(normalized) >= 2 && normalized[1] == ':' {
+		normalized = "/" + normalized
+	}
+	escaped := strings.NewReplacer("#", "%23", "?", "%3F", " ", "%20").Replace(normalized)
+	return "local-file://" + escaped
 }
 
 func createCommercePaymentQRImage(runtime *Runtime, orderNo, content string) (string, error) {
@@ -180,7 +193,7 @@ func removeCommercePaymentPresentation(runtime *Runtime, orderNo string) error {
 		commercePaymentPresentationDirectory,
 		commercePaymentPresentationFilename(orderNo),
 	)
-	for _, path := range []string{filename, strings.TrimSuffix(filename, ".png") + ".html"} {
+	for _, path := range []string{filename, strings.TrimSuffix(filename, ".png") + ".html", strings.TrimSuffix(filename, ".png") + ".svg"} {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return err
 		}
@@ -205,7 +218,7 @@ func pruneCommercePaymentPresentations(runtime *Runtime) error {
 			continue
 		}
 		isStaging := strings.HasPrefix(entry.Name(), ".payment-qr-") && strings.HasSuffix(entry.Name(), ".tmp")
-		isPaymentArtifact := strings.HasPrefix(entry.Name(), "wechat-") && (strings.HasSuffix(entry.Name(), ".png") || strings.HasSuffix(entry.Name(), ".html"))
+		isPaymentArtifact := strings.HasPrefix(entry.Name(), "wechat-") && (strings.HasSuffix(entry.Name(), ".png") || strings.HasSuffix(entry.Name(), ".html") || strings.HasSuffix(entry.Name(), ".svg"))
 		if !isStaging && !isPaymentArtifact {
 			continue
 		}

@@ -41,14 +41,26 @@ func renderPaymentWidget(data paymentWidgetData, content string) ([]byte, error)
 		if err != nil {
 			return nil, err
 		}
-		matrix := code.Bitmap() // Includes the quiet zone required for scanning.
+		// The white .qr-surface is the scan quiet zone. Extra modules here
+		// show up as a thick white frame on the green poster.
+		code.DisableBorder = true
+		matrix := code.Bitmap()
 		var path strings.Builder
+		lineStart := 0
 		for y, row := range matrix {
 			for x, dark := range row {
 				if dark {
 					fmt.Fprintf(&path, "M%d %dh1v1h-1z", x, y)
+					if path.Len()-lineStart >= 512 {
+						path.WriteByte('\n')
+						lineStart = path.Len()
+					}
 				}
 			}
+			// Host Read tools truncate long physical lines. SVG path whitespace
+			// is insignificant between commands; preserve every QR module.
+			path.WriteByte('\n')
+			lineStart = path.Len()
 		}
 		svg = fmt.Sprintf(`<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="微信支付二维码" viewBox="0 0 %[1]d %[1]d" shape-rendering="crispEdges"><title>微信支付二维码</title><desc>使用微信扫一扫完成订单支付</desc><path fill="#fff" d="M0 0h%[1]dv%[1]dH0z"/><path fill="#000" d="%[2]s"/></svg>`, len(matrix), path.String())
 	}

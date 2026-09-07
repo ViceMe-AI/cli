@@ -12,7 +12,7 @@ class Element {
   addEventListener(name, action) { this.events[name] = action; }
   querySelectorAll(tag) { return this.children.flatMap(child => [...(child.tag === tag ? [child] : []), ...child.querySelectorAll(tag)]); }
 }
-function mount(name, data, { now = Date.UTC(2026, 8, 5), svg = true, sendPrompt } = {}) {
+function mount(name, data, { now = Date.UTC(2026, 8, 5), svg = true, sendPrompt, scoped = false } = {}) {
   const fields = new Map();
   const root = new Element(); root.isConnected = true;
   root.classList = { contains: value => value === "viceme-" + name };
@@ -24,23 +24,49 @@ function mount(name, data, { now = Date.UTC(2026, 8, 5), svg = true, sendPrompt 
   field("qr").querySelector = () => svg ? new Element("svg") : null;
   const listeners = new Map(); const intervals = new Map();
   const document = {
-    currentScript: { previousElementSibling: root }, createElement: tag => new Element(tag),
+    currentScript: null, createElement: tag => new Element(tag),
+    querySelector: selector => {
+      assert.equal(selector, '.viceme-' + name + ':not([data-viceme-initialized])');
+      return root['data-viceme-initialized'] ? null : root;
+    },
     addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener: name => listeners.delete(name),
   };
   const window = { addEventListener: document.addEventListener, removeEventListener: document.removeEventListener };
+  root.ownerDocument = document;
+  document.defaultView = window;
   class Clock extends Date { static now() { return now; } }
-  const code = source(name).match(/<script>([\s\S]*?)<\/script>\s*$/)[1].replace("__WIDGET_DATA__", JSON.stringify(data));
-  vm.runInNewContext(code, {
-    document, window, Date: Clock, Intl, sendPrompt,
+  const code = source(name).match(/<script>([\s\S]*?)<\/script>/)[1].replace("__WIDGET_DATA__", JSON.stringify(data));
+  const context = vm.createContext({
+    document: scoped ? { querySelector: document.querySelector } : document,
+    window: scoped ? {} : window, Date: Clock, Intl, sendPrompt,
     setInterval: fn => { intervals.set(1, fn); return 1; }, clearInterval: id => intervals.delete(id),
   });
+  vm.runInContext(code, context);
   return { root, fields, field, intervals, listeners,
+    rerun: () => vm.runInContext(code, context),
     advance: value => { now = value; for (const fn of [...intervals.values()]) fn(); },
     event: name => listeners.get(name)?.(),
   };
 }
 const start = Date.UTC(2026, 8, 5);
 const order = { title: "通用订单", amountCents: 1990, currency: "CNY", paymentMethodLabel: "微信支付", status: "PENDING", expiresAt: new Date(start + 60000).toISOString(), locale: "zh-CN" };
+
+test("host-scoped documents without currentScript or DOM prototype methods initialize both widgets once", async () => {
+  const calls = [];
+  const onboarding = mount("onboarding", { skillName: "Generic", examples: [{ title: "Example", prompt: "Exact prompt" }] }, { scoped: true, sendPrompt: value => calls.push(value) });
+  onboarding.rerun();
+  const buttons = onboarding.field("examples").querySelectorAll("button");
+  assert.equal(buttons.length, 1);
+  await buttons[0].events.click();
+  assert.deepEqual(calls, ["Exact prompt"]);
+  const payment = mount("payment", order, { scoped: true });
+  payment.rerun();
+  assert.equal(payment.intervals.size, 1);
+  assert.equal(payment.field("countdown").textContent, "01:00");
+  payment.advance(start + 60000);
+  assert.equal(payment.field("qr").hidden, true);
+  assert.equal(payment.intervals.size, 0);
+});
 
 test("payment uses absolute expiry across ticks, reload and clock rollback", () => {
   const view = mount("payment", order);
@@ -80,6 +106,12 @@ test("only server status can show paid, and detached Widgets release listeners",
 });
 test("payment template contains no business flow, clipboard, network or query button", () => {
   const html = source("payment");
+  assert.match(html, /<!DOCTYPE html>/);
+  assert.match(html, /<html lang=/);
+  assert.match(html, /#07c160/);
+  assert.match(html, /background:transparent/);
+  assert.match(html, /place-items:center/);
+  assert.doesNotMatch(html, /#c5ebf3/);
   assert.doesNotMatch(html, /<button|<img|<script[^>]+src|fetch\(|XMLHttpRequest|navigator\.clipboard|sendPrompt|canghe|安装|试用|查询支付|已付款，但/);
   assert.equal((html.match(/<script>/g) || []).length, 1);
   assert.ok(html.indexOf("<script>") > html.indexOf("</section>"));

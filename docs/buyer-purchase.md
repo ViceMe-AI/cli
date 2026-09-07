@@ -36,9 +36,10 @@ Go 由安装事务校验落盘摘要；Python 在报告试用安装成功前回�
 请求的幂等键。付费后必须通过已购权限检查并重装正式包，替换试用内容和内部规则，
 不能仅移除标记就宣称转正。这是面向正常使用流程的软门禁，不保证阻止手动修改。
 
-当预检明确返回 `allowed=false`、`reason=EXHAUSTED` 和购买链接时，Go 和 Python
-自动停用对应商品的试用入口：保留 `SKILL.md` 的原始 frontmatter，仅把正文
-替换成“试用已结束”、购买链接及原路线免登录购买的恢复指引；账号已购入口仍为
+当预检明确返回 `allowed=false`、`reason=EXHAUSTED` 和购买链接时，或新会话
+`ready` 读到 remainingUses=0 时，Go 和 Python 自动停用对应商品的试用入口：保留
+`SKILL.md` 的原始 frontmatter，仅把正文替换成“试用已结束”、立即购买命令及原路线
+免登录购买的恢复指引；账号已购入口仍为
 `viceme skill install <product-id> --owned`。脚本、参考资料、用户产物、安装溯源和计次凭证均不删除。
 最后一次 `allowed=true / remainingUses=0` 仍完整放行；网络错误、缺字段或格式
 异常的响应不触发停用，并保留未确认请求以便重试。
@@ -59,7 +60,7 @@ Go/Python 的商品安装与停用共用 Product 锁，停用同时遵守原生�
 
 耗尽后 `viceme skill trial-purchase <product-id> --wait 0` 或
 `trial.py purchase --product <product-id> --market cn --wait 0` 创建或恢复订单。
-先展示 `paymentPresentation.widgetPath`，再用同一命令有界等待（Go `--wait 60s`，Python `--wait 60`）。
+先在回复正文单独一行写 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 `paymentPresentation.imageChatSrc`（`local-file://` 加上绝对 `imagePath`）。不要只写裸绝对路径；并用 `present_files([widgetPath])` 只打开微信支付 HTML，再用同一命令有界等待（Go `--wait 60s`，Python `--wait 60`）。
 即使首次传了等待参数，也必须先返回二维码。等待超时和二维码过期都不等于订单关闭；
 只查询原订单，不自动重开。确认付款后还需 ACTIVE 已购权益和正式制品校验才能恢复任务。
 
@@ -69,8 +70,8 @@ Go/Python 的商品安装与停用共用 Product 锁，停用同时遵守原生�
 不会为接续购买变更账号已购路由，不承诺匿名凭证丢失或跨设备后的权益找回。
 
 通用支付模板属于 CLI 仓库 `widgets/`，与 Skill、订阅、复制等调用业务解耦。
-只有订单、金额、支付方式、内联 SVG、绝对到期时间倒计时和状态；没有查询按钮或业务动作。
-详细宿主接口、Python 资源摘要和降级规则见 [Widget 指引](../widgets/README.md)。
+支付页是完整微信支付收银台样式，可见内容只有订单、金额、二维码和扫码说明；倒计时与状态只留给无障碍和过期隐藏二维码。没有查询按钮或业务动作。
+聊天气泡用 Markdown `![微信支付二维码]` 加圆括号包裹 `imageChatSrc`（`local-file://` 加上 `imagePath`）显示 PNG；`present_files` 只打开支付 HTML。详细宿主接口、Python 资源摘要和降级规则见 [Widget 指引](../widgets/README.md)。
 本地验收可运行 `node quality/widget-preview.cjs`，测试码不用于付款，示例仅在页面回显。
 
 本轮新增 Shop `/skills/:productId/trial-purchase`、`/status`、`/download` 专用 POST
