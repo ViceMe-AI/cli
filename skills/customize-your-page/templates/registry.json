@@ -1,0 +1,59 @@
+{
+  "schema_version": 1,
+  "templates": [
+    {
+      "id": "bonjour-card",
+      "status": "ready",
+      "name": "Bonjour Card",
+      "scenario": "作品、资料与公开联系方式",
+      "description": "带 Block 编辑能力的个人名片，适合持续补充作品与社交链接。",
+      "preview_path": "templates/catalog-previews/bonjour-card.html",
+      "source_path": "templates/bonjour-card"
+    },
+    {
+      "id": "maker-portfolio",
+      "status": "dev_mock",
+      "name": "Maker Portfolio",
+      "scenario": "产品、独立开发与项目案例",
+      "description": "以项目成果为主线的作品集布局。",
+      "preview_path": "templates/catalog-previews/maker-portfolio.html",
+      "source_path": ""
+    },
+    {
+      "id": "editorial-profile",
+      "status": "dev_mock",
+      "name": "Editorial Profile",
+      "scenario": "写作、研究与内容创作",
+      "description": "强调观点、文章与长期主题的编辑式个人页。",
+      "preview_path": "templates/catalog-previews/editorial-profile.html",
+      "source_path": ""
+    },
+    {
+      "id": "studio-practice",
+      "status": "dev_mock",
+      "name": "Studio Practice",
+      "scenario": "设计、咨询与创意服务",
+      "description": "突出服务能力、代表案例与合作方式。",
+      "preview_path": "templates/catalog-previews/studio-practice.html",
+      "source_path": ""
+    },
+    {
+      "id": "minimal-resume",
+      "status": "dev_mock",
+      "name": "Minimal Resume",
+      "scenario": "求职、职业介绍与专业履历",
+      "description": "以经历、能力与联系方式为核心的极简履历页。",
+      "preview_path": "templates/catalog-previews/minimal-resume.html",
+      "source_path": ""
+    },
+    {
+      "id": "visual-journal",
+      "status": "dev_mock",
+      "name": "Visual Journal",
+      "scenario": "摄影、插画与视觉创作",
+      "description": "以大图与创作片段呈现视觉作品的画廊式主页。",
+      "preview_path": "templates/catalog-previews/visual-journal.html",
+      "source_path": ""
+    }
+  ]
+}

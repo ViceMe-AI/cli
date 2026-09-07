@@ -1,0 +1,183 @@
+package templatecatalog
+
+import (
+	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/ViceMe-AI/cli/internal/commerceartifact"
+)
+
+func TestLoadSourceCatalogRejectsDevMockAndDuplicateVersion(t *testing.T) {
+	t.Parallel()
+
+	_, err := LoadSourceCatalog(strings.NewReader(`{
+  "schema_version": 1,
+  "templates": [
+    {
+      "id": "bonjour-card",
+      "status": "production",
+      "version": "1.0.0",
+      "name": "Bonjour Card",
+      "scenario": "作品、资料与公开联系方式",
+      "description": "个人名片",
+      "source_dir": "a",
+      "preview_file": "b",
+      "license": "ViceMe template license"
+    },
+    {
+      "id": "bonjour-card",
+      "status": "dev_mock",
+      "version": "1.0.0",
+      "name": "Bonjour Card",
+      "scenario": "作品、资料与公开联系方式",
+      "description": "个人名片",
+      "source_dir": "a",
+      "preview_file": "b",
+      "license": "ViceMe template license"
+    }
+  ]
+}`))
+	if !errors.Is(err, ErrInvalidSourceCatalog) {
+		t.Fatalf("LoadSourceCatalog() error = %v, want ErrInvalidSourceCatalog", err)
+	}
+}
+
+func TestBuildWritesDeterministicZipAndManifestDigest(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "source", "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "source", "src", "main.js"), []byte("export default 'bonjour'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "preview.html"), []byte("<h1>Bonjour</h1>\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := SourceCatalog{SchemaVersion: 1, Templates: []SourceTemplate{{
+		ID: "bonjour-card", Status: "production", Version: "1.0.0", Name: "Bonjour Card",
+		Scenario: "作品", Description: "个人名片", SourceDir: "source", PreviewFile: "preview.html", License: "ViceMe template license",
+	}}}
+
+	first, err := Build(root, catalog, filepath.Join(root, "first"), "https://s3.viceme.cn/templates", Signer{KeyID: "test-v1", PrivateKey: privateKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Build(root, catalog, filepath.Join(root, "second"), "https://s3.viceme.cn/templates", Signer{KeyID: "test-v1", PrivateKey: privateKey})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(first.SourceZIP, second.SourceZIP) {
+		t.Fatal("source ZIP bytes changed between identical builds")
+	}
+	wantDigest := sha256.Sum256(first.SourceZIP)
+	if got := first.Manifest.Templates[0].SourceSHA256; got != "sha256:"+hex.EncodeToString(wantDigest[:]) {
+		t.Fatalf("source digest = %q", got)
+	}
+	for _, artifact := range []string{
+		"index.html",
+		"manifest.json",
+		"manifest.sig",
+		"releases/bonjour-card/1.0.0/preview/index.html",
+		"releases/bonjour-card/1.0.0/source.zip",
+	} {
+		if _, err := os.Stat(filepath.Join(root, "first", artifact)); err != nil {
+			t.Fatalf("missing artifact %s: %v", artifact, err)
+		}
+	}
+}
+
+func TestBuildSignsCanonicalManifest(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "source"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "source", "index.html"), []byte("<h1>Bonjour</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "preview.html"), []byte("<h1>Preview</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := SourceCatalog{SchemaVersion: 1, Templates: []SourceTemplate{{
+		ID: "bonjour-card", Status: "production", Version: "1.0.0", Name: "Bonjour Card",
+		Scenario: "作品", Description: "个人名片", SourceDir: "source", PreviewFile: "preview.html", License: "ViceMe template license",
+	}}}
+	output := filepath.Join(root, "output")
+	if _, err := Build(root, catalog, output, "https://s3.viceme.cn/templates", Signer{KeyID: "test-v1", PrivateKey: privateKey}); err != nil {
+		t.Fatal(err)
+	}
+	manifestBody, err := os.ReadFile(filepath.Join(output, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest Manifest
+	if err := json.Unmarshal(manifestBody, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	signatureBody, err := os.ReadFile(filepath.Join(output, "manifest.sig"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var signature Signature
+	if err := json.Unmarshal(signatureBody, &signature); err != nil {
+		t.Fatal(err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := commerceartifact.VerifyDetachedDocument(manifest, base64.RawURLEncoding.EncodeToString(publicDER), signature.Signature); err != nil {
+		t.Fatalf("catalog signature did not verify: %v", err)
+	}
+}
+
+func TestBuildForLocalDemoAllowsOnlyLoopbackHTTPOrigin(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "source"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "source", "index.html"), []byte("<h1>Bonjour</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "preview.html"), []byte("<h1>Preview</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := SourceCatalog{SchemaVersion: 1, Templates: []SourceTemplate{{
+		ID: "bonjour-card", Status: "production", Version: "1.0.0", Name: "Bonjour Card",
+		Scenario: "作品", Description: "个人名片", SourceDir: "source", PreviewFile: "preview.html", License: "ViceMe template license",
+	}}}
+	if _, err := BuildForLocalDemo(root, catalog, filepath.Join(root, "local"), "http://127.0.0.1:8765/templates", Signer{KeyID: "test-v1", PrivateKey: privateKey}); err != nil {
+		t.Fatalf("loopback local demo build failed: %v", err)
+	}
+	if _, err := BuildForLocalDemo(root, catalog, filepath.Join(root, "unsafe"), "http://example.com/templates", Signer{KeyID: "test-v1", PrivateKey: privateKey}); !errors.Is(err, ErrBuild) {
+		t.Fatalf("non-loopback local demo origin error = %v, want ErrBuild", err)
+	}
+}

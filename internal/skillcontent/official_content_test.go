@@ -401,9 +401,7 @@ func TestCreatorOnboardingKeepsHumanReviewAndOffersPrivatePersonalCard(t *testin
 		"merchant-commerce:write",
 		"creatorIdentity.profileUrl",
 		"creatorIdentity.markdownUrl",
-		"page-setup <本次onboarding.id> --wait",
 		"不选名片也必须先提交申请",
-		"最多等待 10 分钟",
 		"不影响审核",
 		"创作者入驻模式",
 		"不得创建在线 preview",
@@ -419,6 +417,184 @@ func TestCreatorOnboardingKeepsHumanReviewAndOffersPrivatePersonalCard(t *testin
 	}
 	if currentUser := strings.TrimSpace(os.Getenv("USER")); currentUser != "" && strings.Contains(strings.ToLower(text), strings.ToLower(currentUser)) {
 		t.Fatal("creator onboarding Skill uses the current developer username as an example")
+	}
+}
+
+func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
+	t.Parallel()
+
+	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "become-a-creator/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	onboardingText := string(onboarding)
+	pageText := string(page)
+	for _, required := range []string{
+		"主动进入“创建 / 完善个人名片”",
+		"当前公开个人页",
+		"当前 Markdown 页面",
+		"所有选择与资料输入都在对话中完成",
+		"申请中仅本人可见",
+		"审核通过后同一路由自动公开",
+	} {
+		if !strings.Contains(onboardingText, required) {
+			t.Fatalf("creator onboarding omitted conversation-first personal-card contract %q", required)
+		}
+	}
+	for _, required := range []string{
+		"viceme template list",
+		"catalog_url",
+		"production 模板",
+		"不得虚构模板名称、查看链接或授权",
+		"原样导入自己的主页",
+		"参考别人的主页",
+		"只借鉴结构和视觉，不带入对方内容",
+		"一次性邀请用户提供已有资料",
+		"可直接使用 / 待确认公开 / 缺失",
+		"不得提供从空白或完全自定义页面开始的路径",
+		"本机 HTML 预览",
+	} {
+		if !strings.Contains(pageText, required) {
+			t.Fatalf("personal-card customization omitted template-first contract %q", required)
+		}
+	}
+	for _, retired := range []string{
+		"merchant onboarding page-setup",
+		"网页选择",
+		"mode=BONJOUR",
+		"mode=IMPORT_EXISTING",
+		"Bonjour 风格模板",
+	} {
+		if strings.Contains(onboardingText, retired) || strings.Contains(pageText, retired) {
+			t.Fatalf("personal-card flow retained retired web-selection contract %q", retired)
+		}
+	}
+}
+
+func TestCreatorPersonalCardUsesCreatorFacingWelcomeCopy(t *testing.T) {
+	t.Parallel()
+
+	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "become-a-creator/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	onboardingText := string(onboarding)
+	pageText := string(page)
+	for _, required := range []string{
+		"你已经是创作者了，现在就可以开始做自己的个人名片。",
+		"申请已经提交了。我们现在可以先把你的个人名片准备好，不影响审核。",
+		"想先查看模板，还是导入一个已有主页？",
+		"查看个人页",
+		"查看当前内容",
+		"只读验收完成",
+		"页面可使用资料读取、站内跳转、访客登录与订阅能力",
+		"解除相应写入限制",
+	} {
+		if !strings.Contains(onboardingText, required) {
+			t.Fatalf("creator-facing welcome contract omitted %q", required)
+		}
+	}
+	if !strings.Contains(pageText, "不得把验收、权限、接口能力或写入限制翻译给用户") {
+		t.Fatal("personal-card entry did not keep execution constraints out of creator-facing copy")
+	}
+}
+
+func TestCreatorPersonalCardRoutesThroughQualificationBeforePageCustomization(t *testing.T) {
+	t.Parallel()
+
+	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "become-a-creator/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, required := range []string{
+		"创建或完善自己的创作者个人名片",
+		"个人名片入口",
+		"先调用 `$become-a-creator`",
+		"不得要求用户提供个人页链接",
+		"不得进入下面的「固定流程」",
+		"固定流程的第 1 步先判断用户是不是要创建或完善自己的个人名片",
+		"不得发送“我先检查登录、创作者资格和这个页面能用的功能。”",
+	} {
+		if !strings.Contains(string(onboarding), required) && !strings.Contains(string(page), required) {
+			t.Fatalf("personal-card routing omitted %q", required)
+		}
+	}
+}
+
+func TestCreatorPersonalCardUsesVerifiedCloudCatalog(t *testing.T) {
+	t.Parallel()
+
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(page)
+	for _, required := range []string{
+		"viceme template list",
+		"查看所有模板",
+		"viceme template fetch <模板 ID>",
+		"不得向正式用户称为模板来源",
+		"不得展示本地绝对路径",
+		"不得自动选择 Bonjour",
+		"你想选择哪一款，还是想导入一个已有主页？",
+		"已校验 source_path",
+		"不得先询问目标目录或额外的本机写入确认",
+		"用户确认公开范围后，同一轮直接创建本机草稿",
+		"不得再问“确认创建本机文件”",
+		"最终本机预览是唯一一次用户确认",
+		"只读验收只能在写入前停止一次",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("cloud template catalog contract omitted %q", required)
+		}
+	}
+	for _, forbidden := range []string{"templates/registry.json", "catalog-previews/", "dev_mock"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("creator-facing cloud catalog leaked %q", forbidden)
+		}
+	}
+}
+
+func TestCreatorCardImportAndUpdateFlowKeepSafeGates(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"无论选择真实模板、原样导入自己的主页或参考别人的主页",
+		"可直接使用 / 待确认公开 / 缺失",
+		"当前个人页尚未变更",
+		"不得在完成这三栏整理和最终本机预览前询问是否发布",
+		"修改当前版本", "重新制作一版",
+		"不得从线上 HTML、截图或渲染后的 Profile Blocks 反推",
+		"提供原始项目或 ZIP",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("creator-card flow omitted %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"viceme merchant page source status",
+		"viceme merchant page source restore",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("creator-card flow claimed unsupported or premature action %q", forbidden)
+		}
 	}
 }
 

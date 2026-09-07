@@ -277,7 +277,7 @@ func VerifyDocument(value any, trustedPublicKey, encodedSignature string) error 
 	if err != nil {
 		return errors.New("COMMERCE_DOCUMENT_TRUSTED_KEY_INVALID")
 	}
-	canonical, err := canonicalJSON(value)
+	canonical, err := CanonicalDocument(value)
 	if err != nil {
 		return errors.New("COMMERCE_DOCUMENT_INVALID")
 	}
@@ -288,6 +288,19 @@ func VerifyDocument(value any, trustedPublicKey, encodedSignature string) error 
 		return errors.New("COMMERCE_DOCUMENT_SIGNATURE_INVALID")
 	}
 	return nil
+}
+
+// CanonicalDocument returns the stable JSON bytes used for detached document
+// signatures. Publishers and verifiers must sign the same representation.
+func CanonicalDocument(value any) ([]byte, error) {
+	return canonicalJSON(value)
+}
+
+// VerifyDetachedDocument verifies a canonical JSON document whose signature is
+// delivered separately from the document itself. The caller owns the trust
+// decision and supplies the exact public key to use.
+func VerifyDetachedDocument(value any, trustedPublicKey, encodedSignature string) error {
+	return VerifyDocument(value, trustedPublicKey, encodedSignature)
 }
 
 func parseEd25519PublicKey(encoded string) (ed25519.PublicKey, error) {

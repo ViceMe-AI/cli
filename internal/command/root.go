@@ -311,6 +311,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newMerchantCommand(runtime))
 	root.AddCommand(newCommerceCommand(runtime))
 	root.AddCommand(newReplicaCommand(runtime))
+	root.AddCommand(newTemplateCatalogCommand(runtime))
 	return root, runtime, nil
 }
 
