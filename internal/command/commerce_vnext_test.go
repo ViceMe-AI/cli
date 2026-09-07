@@ -776,6 +776,10 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 		t.Fatalf("unexpected payment presentation: %#v", presentation)
 	}
 	imagePath := presentation["imagePath"].(string)
+	imageChatSrc, _ := presentation["imageChatSrc"].(string)
+	if imageChatSrc != localFileChatSrc(imagePath) {
+		t.Fatalf("imageChatSrc=%q imagePath=%q", imageChatSrc, imagePath)
+	}
 	image, err := os.ReadFile(imagePath)
 	if err != nil {
 		t.Fatalf("read local payment QR image: %v", err)
@@ -1109,5 +1113,15 @@ func TestCommercePaymentPresentationPrunesStagingAndStaleImages(t *testing.T) {
 	}
 	if _, err := os.Stat(activeStaging); err != nil {
 		t.Fatalf("payment presentation cleanup removed an active staging file: %v", err)
+	}
+}
+
+func TestLocalFileChatSrc(t *testing.T) {
+	t.Parallel()
+	if got := localFileChatSrc("/Users/a/.viceme/payment-presentations/wechat-aa.png"); got != "local-file:///Users/a/.viceme/payment-presentations/wechat-aa.png" {
+		t.Fatalf("unix path: %s", got)
+	}
+	if got := localFileChatSrc(`C:\Users\a\.viceme\payment-presentations\wechat-aa.png`); got != "local-file:///C:/Users/a/.viceme/payment-presentations/wechat-aa.png" {
+		t.Fatalf("windows path: %s", got)
 	}
 }

@@ -249,8 +249,8 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme publication confirm ...` | 确认当前精确 Review Digest。 |
 | `viceme publication publish ...` | 公开已经确认的 Listing。 |
 | `viceme replica preview --url <本地页面地址>` | 为创作者打开实际本地页面。CLI 校验本地地址及连通性；创作者查看样式，Agent 管理自有服务。WorkBuddy 流程使用 present_files 在右侧展示。缺少地址返回 `PROVIDE_PREVIEW_URL`，不检查固定项目文件名。 |
-| `viceme replica publish --path <项目或ZIP> --preview-url <本地页面地址> --preview-reviewed ...` | 在 CN 市场，先接入预览按钮，由创作者在宿主右侧预览确认样式后，校验并冻结源码。缺少创作者确认声明返回 `REVIEW_LOCAL_PREVIEW`，连通性不代表视觉验证；ZIP 作为源码制品，不推断启动方式。返回一份三十分钟终审，仅以其精确 `--confirm` 命令重跑后才上传和提交；`PROCESSING` 表示已提交但尚未发布。 |
-| `viceme replica repair-hosting --publication <ID> --path <项目或WorkPage-ZIP>` | 校验并确认仅页面托管补发；原确认命令可恢复中断，源码版本、价格和买家权益不变。 |
+| `viceme replica publish --path <项目或ZIP> --page-dir <页面目录> --page-entry <相对HTML入口> --preview-reviewed ...` | Agent 明确选择可部署页面目录和入口，CLI 不搜索 `dist/build/out`、不推断框架、不运行构建。纯静态网站可用 `--page-dir .`，相对目录基于源码根目录（ZIP 输入基于 ZIP 所在目录）。创作者确认预览后冻结 SOURCE 与 PAGE，返回三十分钟终审；原样执行确认命令才上传。缺少页面选择返回 `PREPARE_HOSTED_PAGE`；`PROCESSING` 表示已提交但尚未发布。 |
+| `viceme replica repair-hosting --publication <ID> --path <页面目录> --page-entry <相对HTML入口>` | Agent 明确选择修复后的页面目录和入口；已有 WorkPage ZIP 则以 ZIP 为 `--path`，不传入口参数。原确认命令可恢复中断，源码版本、价格和买家权益不变。 |
 | `viceme replica sales --replica <ID>` | 查看当前源码版本、销售价格与经营权限；暂停经营后仍可只读查询。 |
 | `viceme replica price --replica <ID> --price-cents <分>` | 预览改价影响，0 表示免费；执行返回的完整确认命令后修改价格，不重新上传源码。 |
 | `viceme replica delist --replica <ID>` / `viceme replica relist --replica <ID>` | 预览下架或重新上架影响，再执行返回的完整确认命令；已有购买权益不变。 |
