@@ -102,11 +102,11 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 			return BuildResult{}, ErrBuild
 		}
 		digest := sha256.Sum256(archive)
-		baseURL := fmt.Sprintf("%s/releases/%s/%s", origin, source.ID, source.Version)
+		basePath := fmt.Sprintf("releases/%s/%s", source.ID, source.Version)
 		manifest.Templates = append(manifest.Templates, PublishedTemplate{
 			ID: source.ID, Status: source.Status, Name: source.Name, Version: source.Version,
 			Scenario: source.Scenario, Description: source.Description,
-			PreviewURL: baseURL + "/preview/index.html", SourceURL: baseURL + "/source.zip",
+			PreviewURL: basePath + "/preview/index.html", SourceURL: basePath + "/source.zip",
 			SourceSHA256: "sha256:" + hex.EncodeToString(digest[:]), License: source.License,
 		})
 		zipByTemplate[source.ID+"@"+source.Version] = archive
@@ -121,7 +121,7 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 		}
 		demoCards = append(demoCards, demoCard{
 			DemoTemplate: demo,
-			PreviewURL:   fmt.Sprintf("%s/demo/%s/preview/index.html", origin, demo.ID),
+			PreviewURL:   fmt.Sprintf("demo/%s/preview/index.html", demo.ID),
 		})
 		demoPreviews[demo.ID] = preview
 	}
@@ -133,7 +133,7 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 
 func validBuildOrigin(origin string, allowLoopbackHTTP bool) bool {
 	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Hostname() == "" {
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return false
 	}
 	if parsed.Scheme == "https" {
@@ -256,13 +256,13 @@ func renderIndex(manifest Manifest, demos []demoCard) []byte {
 :root{color:#1d1b20;background:#f7f6f3;font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif}*{box-sizing:border-box}body{margin:0}.shell{max-width:1200px;margin:0 auto;padding:32px 28px 64px}.eyebrow{display:inline-flex;gap:8px;align-items:center;color:#6c665e;font-size:12px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}.eyebrow::before{width:8px;height:8px;border-radius:50%;background:#ff6d3a;content:""}.hero{display:grid;grid-template-columns:minmax(0,1fr) 270px;gap:24px;align-items:end;padding:44px 0 42px;border-bottom:1px solid #dfddd7}.hero h1{max-width:680px;margin:12px 0 14px;font-size:clamp(38px,6vw,70px);letter-spacing:-.07em;line-height:.98}.hero p{max-width:580px;margin:0;color:#625f59;font-size:17px;line-height:1.65}.hero-note{padding:20px;border-radius:20px;background:#262321;color:#f4f0e8;font-size:14px;line-height:1.55}.hero-note b{display:block;margin-bottom:6px;color:#ffcfb7}.section-heading{display:flex;justify-content:space-between;gap:20px;align-items:baseline;margin:36px 0 18px}.section-heading h2{margin:0;font-size:20px;letter-spacing:-.03em}.section-heading span{color:#7b766f;font-size:14px}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.template-card{overflow:hidden;border:1px solid #dfddd7;border-radius:24px;background:#fff;box-shadow:0 12px 30px rgba(38,35,33,.05)}.template-card.coming{background:#fbfaf7}.preview{position:relative;height:245px;overflow:hidden;background:#e8e5df;border-bottom:1px solid #dfddd7}.preview iframe{width:143%;height:143%;border:0;transform:scale(.7);transform-origin:0 0;pointer-events:none}.preview::after{position:absolute;inset:0;box-shadow:inset 0 0 0 1px rgba(0,0,0,.03);content:""}.details{padding:22px}.meta{display:flex;justify-content:space-between;gap:12px;align-items:center;color:#746f68;font-size:13px}.badge{display:inline-flex;padding:5px 9px;border-radius:999px;background:#f1eee8;color:#5f5a53;font-size:12px;font-weight:700}.badge.live{background:#ffe3d8;color:#9b3d1a}.details h3{margin:13px 0 8px;font-size:26px;letter-spacing:-.045em}.details p{min-height:50px;margin:0;color:#625f59;line-height:1.55}.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px}.button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 15px;border-radius:12px;font-size:14px;font-weight:700;text-decoration:none}.button.primary{background:#24211f;color:#fff}.button.secondary{border:1px solid #d7d3cc;color:#332f2c}.button.disabled{background:#ece9e3;color:#948f87;cursor:not-allowed}.coming-copy{margin-top:28px;padding:20px 22px;border-radius:18px;background:#ebe8e2;color:#625f59;line-height:1.6}@media(max-width:760px){.shell{padding:22px 18px 48px}.hero{grid-template-columns:1fr;padding:28px 0}.hero-note{max-width:none}.grid{grid-template-columns:1fr}.preview{height:220px}}
 </style><main class="shell"><header class="hero"><div><span class="eyebrow">ViceMe templates</span><h1>从一张好模板开始，做出自己的名片。</h1><p>选择一个适合你的信息结构，再用作品、经历与联系方式把它变成真正属于你的个人主页。</p></div><aside class="hero-note"><b>模板能帮你快速完成什么？</b>布局、信息层级和视觉起点已经准备好；你只需要带来自己的内容。</aside></header><section aria-labelledby="available"><div class="section-heading"><h2 id="available">现在可以使用</h2><span>已验证 · 可继续制作</span></div><div class="grid">`)
 	for _, entry := range manifest.Templates {
-		writeTemplateCard(&builder, entry.Name, entry.Version, entry.Scenario, entry.Description, entry.PreviewURL, true)
+		writeTemplateCard(&builder, entry.ID, entry.Name, entry.Version, entry.Scenario, entry.Description, entry.PreviewURL, entry.SourceURL, true)
 	}
 	builder.WriteString(`</div></section>`)
 	if len(demos) > 0 {
 		builder.WriteString(`<section aria-labelledby="coming-soon"><div class="section-heading"><h2 id="coming-soon">更多风格，正在准备</h2><span>概念预览 · 暂不可创建</span></div><div class="grid">`)
 		for _, demo := range demos {
-			writeTemplateCard(&builder, demo.Name, "即将上线", demo.Scenario, demo.Description, demo.PreviewURL, false)
+			writeTemplateCard(&builder, demo.ID, demo.Name, "即将上线", demo.Scenario, demo.Description, demo.PreviewURL, "", false)
 		}
 		builder.WriteString(`</div><p class="coming-copy">这些方向目前仅用于浏览与收集反馈。正式上线后，它们会和 Bonjour 一样提供可验证的源码与创建入口。</p></section>`)
 	}
@@ -270,7 +270,7 @@ func renderIndex(manifest Manifest, demos []demoCard) []byte {
 	return []byte(builder.String())
 }
 
-func writeTemplateCard(builder *strings.Builder, name, version, scenario, description, previewURL string, available bool) {
+func writeTemplateCard(builder *strings.Builder, id, name, version, scenario, description, previewURL, sourceURL string, available bool) {
 	builder.WriteString(`<article class="template-card`)
 	if !available {
 		builder.WriteString(` coming`)
@@ -295,9 +295,13 @@ func writeTemplateCard(builder *strings.Builder, name, version, scenario, descri
 	builder.WriteString(template.HTMLEscapeString(previewURL))
 	builder.WriteString(`">查看效果</a>`)
 	if available {
-		builder.WriteString(`<a class="button primary" href="`)
-		builder.WriteString(template.HTMLEscapeString(previewURL))
-		builder.WriteString(`">使用此模板</a>`)
+		builder.WriteString(`<a class="button secondary" download href="`)
+		builder.WriteString(template.HTMLEscapeString(sourceURL))
+		builder.WriteString(`">下载模板源码</a><a class="button primary" href="#" onclick="alert('已选择 `)
+		builder.WriteString(template.JSEscapeString(id))
+		builder.WriteString(`@`)
+		builder.WriteString(template.JSEscapeString(version))
+		builder.WriteString(`，请返回 Agent 继续制作。');return false">使用此模板</a>`)
 	} else {
 		builder.WriteString(`<span class="button disabled" aria-disabled="true">即将上线</span>`)
 	}

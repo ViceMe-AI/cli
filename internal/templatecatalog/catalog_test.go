@@ -53,6 +53,24 @@ func TestLoadSourceCatalogRejectsDevMockAndDuplicateVersion(t *testing.T) {
 	}
 }
 
+func TestSafeRelativePathRejectsURLSyntax(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{
+		"https://example.com/source.zip",
+		"//example.com/source.zip",
+		"releases/source.zip?download=1",
+		"releases/source.zip#fragment",
+		"releases/%2e%2e/source.zip",
+	} {
+		if safeRelativePath(value) {
+			t.Fatalf("safeRelativePath(%q) = true", value)
+		}
+	}
+	if !safeRelativePath("releases/bonjour-card/1.0.0/source.zip") {
+		t.Fatal("expected canonical release path to be accepted")
+	}
+}
+
 func TestBuildWritesDeterministicZipAndManifestDigest(t *testing.T) {
 	t.Parallel()
 
@@ -99,6 +117,50 @@ func TestBuildWritesDeterministicZipAndManifestDigest(t *testing.T) {
 	} {
 		if _, err := os.Stat(filepath.Join(root, "first", artifact)); err != nil {
 			t.Fatalf("missing artifact %s: %v", artifact, err)
+		}
+	}
+}
+
+func TestBuildIsByteIdenticalAcrossPublicOrigins(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "source"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "source", "index.html"), []byte("<h1>Bonjour</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "preview.html"), []byte("<h1>Preview</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := SourceCatalog{SchemaVersion: 1, Templates: []SourceTemplate{{
+		ID: "bonjour-card", Status: "production", Version: "1.0.0", Name: "Bonjour Card",
+		Scenario: "作品", Description: "个人名片", SourceDir: "source", PreviewFile: "preview.html", License: "ViceMe template license",
+	}}}
+	cn := filepath.Join(root, "cn")
+	global := filepath.Join(root, "global")
+	if _, err := Build(root, catalog, cn, "https://s3.viceme.cn/templates", Signer{KeyID: "test-v1", PrivateKey: privateKey}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Build(root, catalog, global, "https://s3.viceme.ai/templates", Signer{KeyID: "test-v1", PrivateKey: privateKey}); err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range []string{"index.html", "manifest.json", "manifest.sig", "releases/bonjour-card/1.0.0/preview/index.html", "releases/bonjour-card/1.0.0/source.zip"} {
+		cnBody, err := os.ReadFile(filepath.Join(cn, artifact))
+		if err != nil {
+			t.Fatal(err)
+		}
+		globalBody, err := os.ReadFile(filepath.Join(global, artifact))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(cnBody, globalBody) {
+			t.Fatalf("%s differs between CN and Global builds", artifact)
 		}
 	}
 }

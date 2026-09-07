@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'templates/creator-pages/**'
-      - 'skills/customize-your-page/templates/**'
+      - 'skills/customize-your-page/templates/bonjour-card/**'
       - 'internal/templatecatalog/**'
       - 'cmd/template-catalog/**'
       - '.github/workflows/template-catalog.yml'
@@ -12,7 +12,7 @@ on:
     branches: [dev, main]
     paths:
       - 'templates/creator-pages/**'
-      - 'skills/customize-your-page/templates/**'
+      - 'skills/customize-your-page/templates/bonjour-card/**'
       - 'internal/templatecatalog/**'
       - 'cmd/template-catalog/**'
       - '.github/workflows/template-catalog.yml'
@@ -39,7 +39,7 @@ jobs:
     if: github.event_name == 'push'
     needs: verify
     runs-on: ubuntu-latest
-    environment: ${{ github.ref_name == 'main' && 'production' || 'development' }}
+    environment: cdn
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
@@ -52,13 +52,13 @@ jobs:
         run: |
           set -euo pipefail
           test -n "${VICEME_TEMPLATE_CATALOG_SIGNING_KEY}"
+          umask 077
           printf '%s' "${VICEME_TEMPLATE_CATALOG_SIGNING_KEY}" > "${RUNNER_TEMP}/template-catalog-key"
           # dev publish target is templates/dev/; main publish target is templates/.
           if [[ "${GITHUB_REF_NAME}" == "main" ]]; then PREFIX='templates'; else PREFIX='templates/dev'; fi
           go run ./cmd/template-catalog --source templates/creator-pages/production.json --root . \
-            --output dist/template-catalog-cn --origin "https://s3.viceme.cn/${PREFIX}" --signing-key-file "${RUNNER_TEMP}/template-catalog-key"
-          go run ./cmd/template-catalog --source templates/creator-pages/production.json --root . \
-            --output dist/template-catalog-global --origin "https://s3.viceme.ai/${PREFIX}" --signing-key-file "${RUNNER_TEMP}/template-catalog-key"
+            --output dist/template-catalog --origin "https://s3.viceme.cn/${PREFIX}" --signing-key-file "${RUNNER_TEMP}/template-catalog-key"
+          rm -f "${RUNNER_TEMP}/template-catalog-key"
       - name: Publish CN and Global catalogs
         env:
           CN_ENDPOINT: ${{ secrets.VICEME_RELEASE_S3_ENDPOINT_CN }}
@@ -70,6 +70,7 @@ jobs:
           GLOBAL_BUCKET: ${{ secrets.VICEME_RELEASE_S3_BUCKET_GLOBAL }}
           GLOBAL_ACCESS_KEY_ID: ${{ secrets.VICEME_RELEASE_S3_ACCESS_KEY_ID_GLOBAL }}
           GLOBAL_SECRET_ACCESS_KEY: ${{ secrets.VICEME_RELEASE_S3_SECRET_ACCESS_KEY_GLOBAL }}
+          TEMPLATE_CATALOG_TRUST_KEYS: ${{ vars.TEMPLATE_CATALOG_TRUST_KEYS }}
           AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
           AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
         run: |
@@ -94,11 +95,33 @@ jobs:
             for FILE in index.html manifest.json manifest.sig; do
               aws --endpoint-url "${ENDPOINT}" s3 cp "${SOURCE_DIR}/${FILE}" "s3://${BUCKET}/${PREFIX}/${FILE}" --cache-control 'public,max-age=300' --only-show-errors
             done
-            curl --fail --silent --show-error "${PUBLIC_ORIGIN}/${PREFIX}/manifest.json" --output "${SCRATCH}/manifest.json"
-            curl --fail --silent --show-error "${PUBLIC_ORIGIN}/${PREFIX}/manifest.sig" --output "${SCRATCH}/manifest.sig"
-            sha256sum "${SCRATCH}/manifest.json" "${SCRATCH}/manifest.sig"
-            cmp --silent "${SCRATCH}/manifest.json" "${SOURCE_DIR}/manifest.json"
-            cmp --silent "${SCRATCH}/manifest.sig" "${SOURCE_DIR}/manifest.sig"
+            while IFS= read -r FILE; do
+              RELATIVE="${FILE#"${SOURCE_DIR}"/}"
+              mkdir -p "${SCRATCH}/public/$(dirname "${RELATIVE}")"
+              curl --fail --silent --show-error "${PUBLIC_ORIGIN}/${PREFIX}/${RELATIVE}" --output "${SCRATCH}/public/${RELATIVE}"
+              cmp --silent "${SCRATCH}/public/${RELATIVE}" "${FILE}"
+            done < <(find "${SOURCE_DIR}" -type f | sort)
           }
-          HTTPS_PROXY="${CN_S3_HTTPS_PROXY}" https_proxy="${CN_S3_HTTPS_PROXY}" publish_region "${CN_ENDPOINT}" "${CN_BUCKET}" "${CN_ACCESS_KEY_ID}" "${CN_SECRET_ACCESS_KEY}" 'https://s3.viceme.cn' dist/template-catalog-cn
-          publish_region "${GLOBAL_ENDPOINT}" "${GLOBAL_BUCKET}" "${GLOBAL_ACCESS_KEY_ID}" "${GLOBAL_SECRET_ACCESS_KEY}" 'https://s3.viceme.ai' dist/template-catalog-global
+          HTTPS_PROXY="${CN_S3_HTTPS_PROXY}" https_proxy="${CN_S3_HTTPS_PROXY}" publish_region "${CN_ENDPOINT}" "${CN_BUCKET}" "${CN_ACCESS_KEY_ID}" "${CN_SECRET_ACCESS_KEY}" 'https://s3.viceme.cn' dist/template-catalog
+          publish_region "${GLOBAL_ENDPOINT}" "${GLOBAL_BUCKET}" "${GLOBAL_ACCESS_KEY_ID}" "${GLOBAL_SECRET_ACCESS_KEY}" 'https://s3.viceme.ai' dist/template-catalog
+
+          VERIFY_DIR="$(mktemp -d)"
+          trap 'rm -rf "${VERIFY_DIR}"' EXIT
+          while IFS= read -r FILE; do
+            RELATIVE="${FILE#dist/template-catalog/}"
+            mkdir -p "${VERIFY_DIR}/cn/$(dirname "${RELATIVE}")" "${VERIFY_DIR}/global/$(dirname "${RELATIVE}")"
+            curl --fail --silent --show-error "https://s3.viceme.cn/${PREFIX}/${RELATIVE}" --output "${VERIFY_DIR}/cn/${RELATIVE}"
+            curl --fail --silent --show-error "https://s3.viceme.ai/${PREFIX}/${RELATIVE}" --output "${VERIFY_DIR}/global/${RELATIVE}"
+            cmp --silent "${VERIFY_DIR}/cn/${RELATIVE}" "${VERIFY_DIR}/global/${RELATIVE}"
+            sha256sum "${VERIFY_DIR}/cn/${RELATIVE}" "${VERIFY_DIR}/global/${RELATIVE}"
+          done < <(find dist/template-catalog -type f | sort)
+
+          test -n "${TEMPLATE_CATALOG_TRUST_KEYS}"
+          make build VERSION=dev TEMPLATE_CATALOG_TRUST_KEYS="${TEMPLATE_CATALOG_TRUST_KEYS}"
+          for ORIGIN in "https://s3.viceme.cn/${PREFIX}" "https://s3.viceme.ai/${PREFIX}"; do
+            VICEME_TEMPLATE_CATALOG_ORIGIN="${ORIGIN}" ./bin/viceme template list
+            DESTINATION="$(mktemp -d)"
+            VICEME_TEMPLATE_CATALOG_ORIGIN="${ORIGIN}" ./bin/viceme template fetch bonjour-card --version 1.0.0 --destination "${DESTINATION}"
+            test -f "${DESTINATION}/bonjour-card/viceme-page.json"
+            rm -rf "${DESTINATION}"
+          done

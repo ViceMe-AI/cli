@@ -6,35 +6,35 @@
       "name": "Maker Portfolio",
       "scenario": "产品与独立开发",
       "description": "以项目成果为主线的作品集布局，适合展示产品、工具与实验。",
-      "preview_file": "skills/customize-your-page/templates/catalog-previews/maker-portfolio.html"
+      "preview_file": "templates/creator-pages/previews/maker-portfolio.html"
     },
     {
       "id": "editorial-profile",
       "name": "Editorial Profile",
       "scenario": "写作与内容创作",
       "description": "强调观点、文章与长期主题的编辑式个人页。",
-      "preview_file": "skills/customize-your-page/templates/catalog-previews/editorial-profile.html"
+      "preview_file": "templates/creator-pages/previews/editorial-profile.html"
     },
     {
       "id": "studio-practice",
       "name": "Studio Practice",
       "scenario": "设计与创意服务",
       "description": "突出服务能力、代表案例与合作方式的工作室主页。",
-      "preview_file": "skills/customize-your-page/templates/catalog-previews/studio-practice.html"
+      "preview_file": "templates/creator-pages/previews/studio-practice.html"
     },
     {
       "id": "minimal-resume",
       "name": "Minimal Resume",
       "scenario": "职业介绍与履历",
       "description": "以经历、能力与联系方式为核心的极简个人页。",
-      "preview_file": "skills/customize-your-page/templates/catalog-previews/minimal-resume.html"
+      "preview_file": "templates/creator-pages/previews/minimal-resume.html"
     },
     {
       "id": "visual-journal",
       "name": "Visual Journal",
       "scenario": "摄影与视觉创作",
       "description": "以大图与创作片段呈现作品的画廊式主页。",
-      "preview_file": "skills/customize-your-page/templates/catalog-previews/visual-journal.html"
+      "preview_file": "templates/creator-pages/previews/visual-journal.html"
     }
   ]
 }

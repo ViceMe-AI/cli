@@ -152,7 +152,7 @@ func TestRunBuildsComingSoonDemoCardsForLoopbackCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"Maker Portfolio", "即将上线", "查看效果", "使用此模板", "aria-disabled=\"true\""} {
+	for _, expected := range []string{"Maker Portfolio", "即将上线", "查看效果", "下载模板源码", "使用此模板", "请返回 Agent 继续制作", "aria-disabled=\"true\""} {
 		if !strings.Contains(string(index), expected) {
 			t.Fatalf("catalog page omitted %q: %s", expected, index)
 		}

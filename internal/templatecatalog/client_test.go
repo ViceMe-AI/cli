@@ -39,7 +39,7 @@ func TestClientRejectsManifestSignedByUntrustedKey(t *testing.T) {
 	}
 	manifest := Manifest{SchemaVersion: 1, Templates: []PublishedTemplate{{
 		ID: "bonjour-card", Status: "production", Name: "Bonjour Card", Version: "1.0.0", Scenario: "作品", Description: "个人名片",
-		PreviewURL: "http://example.test/preview", SourceURL: "http://example.test/source.zip", SourceSHA256: "sha256:" + strings.Repeat("a", 64), License: "ViceMe template license",
+		PreviewURL: "releases/bonjour-card/1.0.0/preview/index.html", SourceURL: "releases/bonjour-card/1.0.0/source.zip", SourceSHA256: "sha256:" + strings.Repeat("a", 64), License: "ViceMe template license",
 	}}}
 	signature := signedManifest(t, manifest, "release-v1", attackerPrivate)
 	server := catalogServer(t, manifest, signature, nil)
@@ -69,7 +69,7 @@ func TestFetchDoesNotExtractWhenZIPDigestDiffers(t *testing.T) {
 	defer server.Close()
 	manifest := Manifest{SchemaVersion: 1, Templates: []PublishedTemplate{{
 		ID: "bonjour-card", Status: "production", Name: "Bonjour Card", Version: "1.0.0", Scenario: "作品", Description: "个人名片",
-		PreviewURL: server.URL + "/preview", SourceURL: server.URL + "/source.zip", SourceSHA256: "sha256:" + strings.Repeat("0", 64), License: "ViceMe template license",
+		PreviewURL: "releases/bonjour-card/1.0.0/preview/index.html", SourceURL: "releases/bonjour-card/1.0.0/source.zip", SourceSHA256: "sha256:" + strings.Repeat("0", 64), License: "ViceMe template license",
 	}}}
 	signature := signedManifest(t, manifest, "release-v1", privateKey)
 	server.Config.Handler = catalogHandler(t, manifest, signature, archive)
@@ -108,7 +108,7 @@ func TestFetchExtractsOnlyTheVerifiedTemplate(t *testing.T) {
 	defer server.Close()
 	manifest := Manifest{SchemaVersion: 1, Templates: []PublishedTemplate{{
 		ID: "bonjour-card", Status: "production", Name: "Bonjour Card", Version: "1.0.0", Scenario: "作品", Description: "个人名片",
-		PreviewURL: server.URL + "/preview", SourceURL: server.URL + "/source.zip", SourceSHA256: "sha256:" + hex.EncodeToString(digest[:]), License: "ViceMe template license",
+		PreviewURL: "releases/bonjour-card/1.0.0/preview/index.html", SourceURL: "releases/bonjour-card/1.0.0/source.zip", SourceSHA256: "sha256:" + hex.EncodeToString(digest[:]), License: "ViceMe template license",
 	}}}
 	signature := signedManifest(t, manifest, "release-v1", privateKey)
 	server.Config.Handler = catalogHandler(t, manifest, signature, archive)
@@ -147,7 +147,7 @@ func catalogHandler(t *testing.T, manifest Manifest, signature Signature, archiv
 			_, _ = writer.Write(manifestBody)
 		case "/manifest.sig":
 			_, _ = writer.Write(signatureBody)
-		case "/source.zip":
+		case "/releases/bonjour-card/1.0.0/source.zip":
 			_, _ = writer.Write(archive)
 		default:
 			http.NotFound(writer, request)

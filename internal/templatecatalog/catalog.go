@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net/url"
 	"path"
 	"regexp"
 	"strings"
@@ -122,5 +123,7 @@ func safeRelativePath(value string) bool {
 	if value == "" || path.IsAbs(value) || path.Clean(value) != value || value == "." {
 		return false
 	}
-	return !strings.HasPrefix(value, "../") && value != ".."
+	parsed, err := url.Parse(value)
+	return err == nil && parsed.Scheme == "" && parsed.Host == "" && parsed.User == nil && parsed.RawQuery == "" &&
+		parsed.Fragment == "" && parsed.Path == value && !strings.HasPrefix(value, "../") && value != ".."
 }

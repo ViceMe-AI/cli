@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"errors"
 	"os"
 
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
@@ -33,11 +34,11 @@ func newTemplateListCommand(runtime *Runtime) *cobra.Command {
 			}
 			manifest, err := client.Load(context.Background())
 			if err != nil {
-				return err
+				return templateCatalogCommandError(err)
 			}
 			catalogURL, err := client.CatalogURL()
 			if err != nil {
-				return err
+				return templateCatalogCommandError(err)
 			}
 			return runtime.success(map[string]any{"catalog_url": catalogURL, "templates": manifest.Templates})
 		},
@@ -59,7 +60,7 @@ func newTemplateFetchCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			if err := client.Fetch(context.Background(), args[0], version, destination); err != nil {
-				return err
+				return templateCatalogCommandError(err)
 			}
 			return runtime.success(map[string]any{
 				"template_id": args[0], "version": version, "source_path": destination + string(os.PathSeparator) + args[0],
@@ -69,6 +70,23 @@ func newTemplateFetchCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&version, "version", "", "verified template version")
 	command.Flags().StringVar(&destination, "destination", "", "directory for the extracted template")
 	return command
+}
+
+func templateCatalogCommandError(err error) error {
+	switch {
+	case errors.Is(err, templatecatalog.ErrCatalogUnavailable):
+		return output.Network("TEMPLATE_CATALOG_UNAVAILABLE", "template catalog is temporarily unavailable", err)
+	case errors.Is(err, templatecatalog.ErrUntrustedManifest):
+		return output.Policy("TEMPLATE_CATALOG_SIGNATURE_INVALID", "template catalog signature verification failed")
+	case errors.Is(err, templatecatalog.ErrTemplateNotFound):
+		return output.Validation("TEMPLATE_CATALOG_TEMPLATE_NOT_FOUND", "the requested template version is not available")
+	case errors.Is(err, templatecatalog.ErrSourceDigestMismatch):
+		return output.Policy("TEMPLATE_CATALOG_SOURCE_DIGEST_MISMATCH", "template source checksum verification failed")
+	case errors.Is(err, templatecatalog.ErrArchiveInvalid):
+		return output.Policy("TEMPLATE_CATALOG_ARCHIVE_INVALID", "template source archive failed safety validation")
+	default:
+		return output.Internal("TEMPLATE_CATALOG_FAILED", "template catalog operation failed", err)
+	}
 }
 
 func (runtime *Runtime) templateCatalogClient() (templatecatalog.Client, error) {
