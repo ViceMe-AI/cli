@@ -57,7 +57,7 @@ ViceMe CLI 只负责确认目标、返回平台接口、校验 ZIP 结构、上�
 
 1. 使用调用方给出的准确 `profileUrl` 和 Merchant，不让用户重选目标。先运行
    `viceme merchant page describe --target <profileUrl> --merchant <商家ID>`，再运行 `viceme merchant page status --target <profileUrl> --merchant <商家ID>`；CLI 会再次校验当前登录者、审核中的普通申请、DRAFT 作者身份和 handle 完全一致。必须以 status 返回的 active release 判断当前名片是否已发布；不得用 Markdown 页里的 `Works: 0`、空白页面或推测代替这一判断。
-   - **存在 active release**：右侧只打开真实 `profileUrl`，读取 describe/status 与已渲染主页后，先总结当前名片已展示的内容。给用户“修改当前版本”或“重新制作一版”两条路径；后者才进入下一步的模板册或导入路径。不得假装可以从已发布页面恢复项目源码；没有原始项目或 ZIP 时，说明只能重新制作一版，旧页面在最终本机预览确认前保持不变。
+   - **存在 active release**：右侧只打开真实 `profileUrl`，读取 describe/status 与已渲染主页后，先总结当前名片已展示的内容。只问“继续修改这一版，还是重新制作一版新的名片？”；后者才进入下一步的模板册或导入路径。不得把“查看模板 / 导入主页”用于已有 active release，不得假装可以从已发布页面恢复项目源码；没有原始项目或 ZIP 时，说明只能重新制作一版，旧页面在最终本机预览确认前保持不变。
    - **不存在 active release**：不自动打开空的 `profileUrl`，运行 `viceme template list`，右侧打开命令返回的 `catalog_url`。模板册是新名片的视觉入口；不得自动打开 `markdownUrl`。
 2. 对不存在 active release 的新名片，紧接 `$become-a-creator` 的欢迎话术，在对话中只说明两条入口，右侧不承担选择弹窗。不得把验收、权限、接口能力或写入限制翻译给用户；这些只约束 Agent 的执行。用户只需回答“查看模板”或“导入一个已有主页”：
    - **查看模板**：先解释模板会提供已经校准的布局、信息层级和可预览的起点。不存在 active release 时复用上一步为了打开模板册而读取的结果；其他入口只有用户选择查看模板后才运行 `viceme template list`。先给命令返回的 `catalog_url` 作为“查看所有模板”链接，再只列出响应中 production 模板的名称、适用场景、简述和 `preview_url`；不能靠记忆列模板，也不得虚构模板名称、查看链接或授权。不得向正式用户称为模板来源，不得展示本地绝对路径。右侧只打开 `catalog_url` 或用户要求查看的 `preview_url`。模板册结尾必须只问：“你想选择哪一款，还是想导入一个已有主页？”不得自动选择 Bonjour 或任何特定模板。

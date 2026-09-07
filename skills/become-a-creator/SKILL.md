@@ -34,7 +34,8 @@ JSON 或内部状态，且不得告诉用户正在使用哪个内置 Skill。
 1. 第一条进程命令运行一次 `viceme merchant qualification`。之前不运行 Merchant 命令、
    环境检查或帮助命令，也不并行执行。该命令一次返回登录状态、权限与当前用户拥有的
    **全部**有效商家，并带 `next` 分发字段；流程中不拆开单独运行 `viceme auth status`
-   或 `viceme merchant accounts`。
+   或 `viceme merchant accounts`。资格检查明确显示未申请时，才可向用户说申请相关话术；
+   不得在资格检查完成前说“我先确认你本机的 ViceMe 环境，然后帮你提交申请”。
 2. `next=LOGIN`（未登录，或缺少 `merchant-commerce:read`、`merchant-commerce:write`、
    `skill-publication:read`、`skill-publication:write` 中任一权限）时，只启动一个等待式登录：
    - 直接申请运行 `viceme auth login --purpose creator-onboarding`，并告诉用户
@@ -96,13 +97,25 @@ sunny-studio。”然后运行 `viceme merchant onboarding apply --handle <主�
 
 ### 创作者可见的首条回复
 
-资格和页面归属确认后，先让 `$customize-your-page` 完成 active release 分流。已有 active release 时，使用它定义的“修改当前版本 / 重新制作一版”话术；只有不存在 active release 时才使用下列对应状态的自然话术。把“真实链接”位置替换为本次 status 返回的 URL；只有实际已有 active release 时才以“查看个人页”为文字生成真实的 Markdown 链接。`markdownUrl` 只在用户主动要求查看当前内容时才以“查看当前内容”为文字生成真实链接。绝不保留占位文字，也不自己拼接 URL。不要增补验收报告、技术说明或执行限制。
+资格和页面归属确认后，先让 `$customize-your-page` 完成 active release 分流，再按下列四种互斥状态生成首条回复。不得复用不属于当前状态的段落：特别是不得把“查看模板 / 导入主页”用于已有 active release。把“真实链接”位置替换为本次 status 返回的 URL；只有实际已有 active release 时才以“查看个人页”为文字生成真实的 Markdown 链接。`markdownUrl` 只在用户主动要求查看当前内容时才以“查看当前内容”为文字生成真实链接。绝不保留占位文字，也不自己拼接 URL。不要增补验收报告、技术说明或执行限制。
+
+**已获批创作者，且已有 active release：**
+
+> 你的个人名片已经在右侧打开了。你想继续修改这一版，还是重新制作一版新的名片？
+>
+> 如果你有原项目或 ZIP，可以继续在原版上改；没有的话，我们会从新版本开始制作，当前页面会保持不变，直到你确认新的预览。
+
+**申请中创作者，且已有 active release：**
+
+> 申请仍在审核中，这版仅你自己可见。我已经在右侧打开当前名片；你想继续修改这一版，还是重新制作一版新的名片？
+>
+> 如果你有原项目或 ZIP，可以继续在原版上改；没有的话，我们会从新版本开始制作，当前私有页面会保持不变，直到你确认新的预览。
 
 **已获批创作者，且尚无 active release：**
 
 > 你已经是创作者了，现在就可以开始做自己的个人名片。
 >
-> 我会先看看你当前个人页是否已经有一版名片：已有的话在右侧打开它；还没有的话直接打开模板册。
+> 我已经在右侧打开模板册。
 > 想主动查看原始当前内容时，也可以打开查看当前内容（真实 markdownUrl）。
 >
 > 你想先查看模板，还是导入一个已有主页？
@@ -111,7 +124,7 @@ sunny-studio。”然后运行 `viceme merchant onboarding apply --handle <主�
 
 > 申请已经提交了。我们现在可以先把你的个人名片准备好，不影响审核。
 >
-> 我会先看看仅你可见的个人页是否已经有一版名片：已有的话在右侧打开它；还没有的话直接打开模板册。
+> 我已经在右侧打开模板册。
 > 想主动查看原始当前内容时，也可以打开查看当前内容（真实 markdownUrl）。
 >
 > 你想先查看模板，还是导入一个已有主页？
