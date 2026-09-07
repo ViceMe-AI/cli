@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -18,13 +19,14 @@ import (
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/pagepackage"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
-	"github.com/ViceMe-AI/cli/internal/replicapreview"
 	"github.com/ViceMe-AI/cli/internal/replicapublication"
 	"github.com/spf13/cobra"
 )
 
 type replicaPublishOptions struct {
 	ProjectPath              string
+	PageDirectory            string
+	PageEntry                string
 	PreviewURL               string
 	PreviewReviewed          bool
 	WorkID                   string
@@ -42,6 +44,8 @@ type replicaPublishOptions struct {
 
 type replicaPublicationFinalReview struct {
 	api.WebsiteReplicaPublicationReview
+	PageDirectory                 string                                  `json:"pageDirectory,omitempty"`
+	PageEntry                     string                                  `json:"pageEntry,omitempty"`
 	SourceArchive                 replicacontent.SourceArchiveSummary     `json:"sourceArchive"`
 	Exclusions                    []replicacontent.SourceArchiveExclusion `json:"exclusions"`
 	PageArtifact                  any                                     `json:"pageArtifact"`
@@ -70,7 +74,9 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&options.ProjectPath, "path", "", "Website Replica project directory or existing ZIP path")
-	command.Flags().StringVar(&options.PreviewURL, "preview-url", "", "actual HTTP(S) loopback page selected and started by your agent")
+	command.Flags().StringVar(&options.PageDirectory, "page-dir", "", "deployable page directory selected by the agent; relative to --path (ZIP parent for ZIP input)")
+	command.Flags().StringVar(&options.PageEntry, "page-entry", "", "HTML entry relative to --page-dir, selected by the agent")
+	command.Flags().StringVar(&options.PreviewURL, "preview-url", "", "optional page URL already reviewed by the creator; not fetched by publish")
 	command.Flags().BoolVar(&options.PreviewReviewed, "preview-reviewed", false, "attest that the creator viewed the local preview and approved the button styling")
 	command.Flags().StringVar(&options.WorkID, "work-id", "", "existing Website Work UUID (omit when creating a new Work)")
 	command.Flags().StringVar(&options.Slug, "slug", "", "new public Work slug")
@@ -81,7 +87,7 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().IntVar(&options.PriceCents, "price-cents", -1, "one-time price in the market currency's minor unit")
 	command.Flags().StringVar(&options.ConfirmationVersion, "confirm", "", "exact final-review confirmation version")
 	command.Flags().BoolVar(&options.ConfirmUnverifiedPreview, "confirm-unverified-replica-only", false, "allow Replica-only publication when local preview cannot be verified")
-	command.Flags().BoolVar(&options.ReplicaOnly, "replica-only", false, "publish source only even when an existing static output can be hosted")
+	command.Flags().BoolVar(&options.ReplicaOnly, "replica-only", false, "publish source only without a hosted page")
 	command.Flags().BoolVar(&options.AutoApplyCreator, "auto-apply-creator", false, "authorize one idempotent creator application if publication requires it")
 	addReplicaStorageFlag(command, runtime)
 	_ = command.MarkFlagRequired("path")
@@ -103,6 +109,20 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		return replicaPublicationPresentation{}, err
 	}
 	options.ProjectPath = projectPath
+	if options.PageDirectory != "" {
+		base := projectPath
+		info, err := os.Stat(base)
+		if err != nil {
+			return replicaPublicationPresentation{}, output.Validation("REPLICA_PROJECT_PATH_INVALID", "could not inspect the project path").WithCause(err)
+		}
+		if !info.IsDir() {
+			base = filepath.Dir(base)
+		}
+		if !filepath.IsAbs(options.PageDirectory) {
+			options.PageDirectory = filepath.Join(base, options.PageDirectory)
+		}
+		options.PageDirectory = filepath.Clean(options.PageDirectory)
+	}
 	bindingStore := replicaBindingStore(runtime)
 	binding, bindingFound, err := bindingStore.Load(projectPath)
 	if err != nil {
@@ -126,7 +146,7 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 	}
 	// An input-only preview must not create project recovery directories. A
 	// durable request still follows its normal locked recovery path below.
-	if !bindingFound && options.ConfirmationVersion == "" && !options.ConfirmUnverifiedPreview && (options.PreviewURL == "" || !options.PreviewReviewed) {
+	if !bindingFound && options.ConfirmationVersion == "" && !options.ConfirmUnverifiedPreview && !options.PreviewReviewed {
 		localStore, err := projectReplicaPublicationStore(runtime, projectPath)
 		if err != nil {
 			return replicaPublicationPresentation{}, err
@@ -143,10 +163,7 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 			if err := replicacontent.ValidateSourceWorktree(projectPath); err != nil {
 				return replicaPublicationPresentation{}, replicaSourceArchiveError(err)
 			}
-			session, _, previewErr := startReplicaPublicationPreview(ctx, runtime, options)
-			if session != nil {
-				previewErr = finishReplicaPreview(session, previewErr)
-			}
+			_, previewErr := creatorApprovedReplicaPreview(options)
 			return replicaPublicationPresentation{}, previewErr
 		}
 	}
@@ -246,34 +263,21 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		return replicaPublicationPresentation{}, replicaSourceArchiveError(err)
 	}
 
-	previewSession, preview, err := startReplicaPublicationPreview(ctx, runtime, options)
-	if previewSession != nil {
-		defer func() {
-			if closeErr := finishReplicaPreview(previewSession, nil); closeErr != nil {
-				returnErr = errors.Join(returnErr, closeErr)
-			}
-		}()
-	}
+	preview, err := creatorApprovedReplicaPreview(options)
 	if err != nil {
-		var inputError *output.Error
-		if errors.As(err, &inputError) {
-			return replicaPublicationPresentation{}, inputError
-		}
-		return replicaPublicationPresentation{}, replicaPreviewBoundaryError(err).WithHint(
-			"fix the reported preview problem and retry; only after the user accepts the unverified boundaries, rerun publish without --preview-reviewed and with --confirm-unverified-replica-only",
-		)
+		return replicaPublicationPresentation{}, err
 	}
 	var hostedPage pagepackage.Package
 	if preview.Verified && !options.ReplicaOnly {
-		progress(runtime, "Checking for an existing static output")
-		hostedPage, _, err = pagepackage.BuildWebsiteWorkPage(projectPath, options.Title)
+		if options.PageDirectory == "" || options.PageEntry == "" {
+			return replicaPublicationPresentation{}, output.Validation("REPLICA_HOSTED_PAGE_REQUIRED", "select the deployable page directory and HTML entry; no artifact was uploaded").WithDetails(map[string]any{
+				"nextAction": "PREPARE_HOSTED_PAGE",
+			}).WithHint("the agent must provide --page-dir and --page-entry; a no-build site may use --page-dir .; source-only publication requires an explicit --replica-only choice")
+		}
+		progress(runtime, "Packaging the selected static page directory")
+		hostedPage, err = pagepackage.BuildWebsiteWorkPage(options.PageDirectory, options.PageEntry, options.Title)
 		if err != nil {
 			return replicaPublicationPresentation{}, err
-		}
-		if len(hostedPage.Bytes) == 0 {
-			return replicaPublicationPresentation{}, output.Validation("REPLICA_HOSTED_PAGE_REQUIRED", "website publication requires a deployable static HTML page; no artifact was uploaded").WithDetails(map[string]any{
-				"nextAction": "PREPARE_HOSTED_PAGE",
-			}).WithHint("prepare and review the project's static output, then rerun the same publish command; source-only publication requires an explicit --replica-only choice")
 		}
 	}
 	clientRequestID := ""
@@ -339,6 +343,7 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 	}
 	pending = replicapublication.Pending{
 		EndpointOrigin: runtime.apiBaseURL, Market: market, ProjectPath: projectPath,
+		PageDirectory: options.PageDirectory, PageEntry: options.PageEntry,
 		ProjectFingerprint: projectFingerprint, ClientRequestID: clientRequestID,
 		Request: request, SourceArchive: frozen.Summary, ArtifactExpiresAt: expiresAt,
 		Preview: preview, AutoApplyCreator: options.AutoApplyCreator,
@@ -559,39 +564,20 @@ func validateLocalReplicaPublicationConfirmation(pending replicapublication.Pend
 	return nil
 }
 
-func startReplicaPublicationPreview(ctx context.Context, runtime *Runtime, options replicaPublishOptions) (replicapreview.Running, replicapublication.Preview, error) {
+func creatorApprovedReplicaPreview(options replicaPublishOptions) (replicapublication.Preview, error) {
 	if options.ConfirmUnverifiedPreview {
-		return nil, replicapublication.Preview{Verified: false}, nil
+		return replicapublication.Preview{Verified: false}, nil
 	}
-	if options.PreviewURL == "" {
-		return nil, replicapublication.Preview{}, replicaPreviewBoundaryError(&replicapreview.StartError{
-			Code: "REPLICA_PREVIEW_URL_REQUIRED", Stage: replicapreview.StageInspect,
-			Message: "provide the actual loopback page URL selected and started by your agent",
-		})
-	}
-	progress(runtime, "Starting local Website Replica preview")
-	session, err := runtime.deps.StartReplicaPreview(ctx, replicapreview.Options{
-		ExistingURL: options.PreviewURL, ErrOut: runtime.deps.ErrOut,
-		Report: func(event replicapreview.Event) {
-			_, _ = fmt.Fprintf(runtime.deps.ErrOut, "%s...\n", event.Message)
-		},
-	})
-	if err != nil {
-		return nil, replicapublication.Preview{}, err
-	}
-	result := session.Result()
 	if !options.PreviewReviewed {
-		return session, replicapublication.Preview{}, output.Validation("REPLICA_PREVIEW_REVIEW_REQUIRED", "the local service responded; the creator must review the button styling in the host preview before publication").WithDetails(map[string]any{
-			"nextAction": "REVIEW_LOCAL_PREVIEW", "previewVerified": false,
-			"browserVerificationRequired": true, "reviewRequiredBy": "CREATOR",
-			"previewUrl": result.TargetURL, "presentationTarget": "AGENT_PLATFORM",
+		return replicapublication.Preview{}, output.Validation("REPLICA_PREVIEW_REVIEW_REQUIRED", "the creator must approve the page before publication").WithDetails(map[string]any{
+			"nextAction": "CONFIRM_CREATOR_PREVIEW", "previewVerified": false,
+			"browserVerificationRequired": false, "reviewRequiredBy": "CREATOR",
+			"previewUrl":   options.PreviewURL,
 			"remoteUpload": false, "publicationCreated": false,
-		}).WithHint("present the local page in the host preview (WorkBuddy: present_files), wait for creator approval, then rerun with the same --preview-url and --preview-reviewed; do not perform agent screenshot verification")
+		}).WithHint("after the creator approves the page, rerun with --preview-reviewed; no local server or automated browser check is required")
 	}
-	_, _ = fmt.Fprintln(runtime.deps.ErrOut, "Creator preview approval recorded; the final review is the only authorization to upload source.")
-	return session, replicapublication.Preview{
-		Verified: true, ReviewedBy: "CREATOR", TargetURL: result.TargetURL, Reused: result.Reused, StartedByCLI: result.StartedByCLI,
-	}, nil
+	// Verified records creator approval, not a CLI connectivity or browser check.
+	return replicapublication.Preview{Verified: true, ReviewedBy: "CREATOR", TargetURL: options.PreviewURL}, nil
 }
 
 func optionalReplicaPublicationClient(runtime *Runtime) (*api.Client, error) {
@@ -640,7 +626,8 @@ func replicaPublicationTarget(options replicaPublishOptions, binding replicapubl
 func finalReplicaPublicationReview(pending replicapublication.Pending, confirmation api.WebsiteReplicaPublicationConfirmationChallenge) replicaPublicationFinalReview {
 	return replicaPublicationFinalReview{
 		WebsiteReplicaPublicationReview: confirmation.Review,
-		SourceArchive:                   pending.SourceArchive, Exclusions: pending.SourceArchive.ExcludedPaths,
+		PageDirectory:                   pending.PageDirectory, PageEntry: pending.PageEntry,
+		SourceArchive: pending.SourceArchive, Exclusions: pending.SourceArchive.ExcludedPaths,
 		PageArtifact: pending.Request.Page, Hosting: pending.Hosting, AutomaticDegradation: pending.Request.AllowAutomaticDegradation,
 		ImmutableVersions: true, ExistingBuyerVersionsRetained: true,
 		AutomaticCreatorApplication: pending.AutoApplyCreator, Preview: pending.Preview,
@@ -717,6 +704,10 @@ func validateConfirmedReplicaRequest(options replicaPublishOptions, pending repl
 		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "hosting selection changed after the final review; no artifact was uploaded").
 			WithHint("rerun the changed publish command without --confirm to freeze it and generate a new final review")
 	}
+	if options.PageDirectory != pending.PageDirectory || options.PageEntry != pending.PageEntry {
+		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "page directory or entry changed after the final review; no artifact was uploaded").
+			WithHint("rerun the changed publish command without --confirm to freeze it and generate a new final review")
+	}
 	target, merchantID, err := replicaPublicationTarget(options, binding, bindingFound)
 	if err != nil {
 		return err
@@ -741,6 +732,8 @@ func validateConfirmedReplicaRequest(options replicaPublishOptions, pending repl
 
 func normalizeReplicaPublishOptions(options replicaPublishOptions) replicaPublishOptions {
 	options.ProjectPath = strings.TrimSpace(options.ProjectPath)
+	options.PageDirectory = strings.TrimSpace(options.PageDirectory)
+	options.PageEntry = strings.TrimSpace(options.PageEntry)
 	options.PreviewURL = strings.TrimSpace(options.PreviewURL)
 	options.WorkID = strings.TrimSpace(options.WorkID)
 	options.Slug = strings.TrimSpace(options.Slug)
@@ -758,6 +751,9 @@ func normalizeReplicaPublishOptions(options replicaPublishOptions) replicaPublis
 func validateReplicaPublishOptions(options replicaPublishOptions) error {
 	if options.ProjectPath == "" {
 		return output.Validation("REPLICA_PROJECT_PATH_REQUIRED", "--path is required")
+	}
+	if (options.ReplicaOnly || options.ConfirmUnverifiedPreview) && (options.PageDirectory != "" || options.PageEntry != "") {
+		return output.Validation("REPLICA_PAGE_OPTIONS_INVALID", "page selection cannot be combined with source-only publication")
 	}
 	if utf16CodeUnits(options.Title) < 1 || utf16CodeUnits(options.Title) > 200 || utf16CodeUnits(options.Summary) > 500 {
 		return output.Validation("REPLICA_METADATA_INVALID", "--title must be 1-200 characters and --summary at most 500 characters")
@@ -785,8 +781,8 @@ func validateReplicaPublishOptions(options replicaPublishOptions) error {
 			return output.Validation("REPLICA_PREVIEW_URL_INVALID", "--preview-url must be a valid local preview URL")
 		}
 	}
-	if options.PreviewReviewed && (options.PreviewURL == "" || options.ConfirmUnverifiedPreview) {
-		return output.Validation("REPLICA_PREVIEW_OPTIONS_INVALID", "--preview-reviewed requires --preview-url and cannot be combined with --confirm-unverified-replica-only")
+	if options.PreviewReviewed && options.ConfirmUnverifiedPreview {
+		return output.Validation("REPLICA_PREVIEW_OPTIONS_INVALID", "--preview-reviewed cannot be combined with --confirm-unverified-replica-only")
 	}
 	if options.ConfirmationVersion != "" && !replicaConfirmationVersionPattern.MatchString(options.ConfirmationVersion) {
 		return output.Validation("REPLICA_PUBLICATION_CONFIRMATION_INVALID", "--confirm must be the exact wrv1 confirmation version")
@@ -797,6 +793,9 @@ func validateReplicaPublishOptions(options replicaPublishOptions) error {
 func replicaPublishResumeCommand(pending replicapublication.Pending) string {
 	request := pending.Request
 	parts := []string{"viceme replica publish", "--path", shellQuote(pending.ProjectPath), "--title", shellQuote(request.Title), "--summary", shellQuote(request.Summary), "--price-cents", fmt.Sprintf("%d", request.PriceCents)}
+	if pending.PageDirectory != "" {
+		parts = append(parts, "--page-dir", shellQuote(pending.PageDirectory), "--page-entry", shellQuote(pending.PageEntry))
+	}
 	switch request.Target.Kind {
 	case "NEW_WORK":
 		parts = append(parts, "--slug", shellQuote(request.Target.Slug))
@@ -809,8 +808,10 @@ func replicaPublishResumeCommand(pending replicapublication.Pending) string {
 	if request.CanonicalOrigin != nil {
 		parts = append(parts, "--canonical-origin", shellQuote(*request.CanonicalOrigin))
 	}
-	if pending.Preview.Verified && pending.Preview.Reused && pending.Preview.TargetURL != "" {
-		parts = append(parts, "--preview-url", shellQuote(pending.Preview.TargetURL))
+	if pending.Preview.Verified {
+		if pending.Preview.TargetURL != "" {
+			parts = append(parts, "--preview-url", shellQuote(pending.Preview.TargetURL))
+		}
 		if pending.Preview.ReviewedBy == "CREATOR" || pending.Preview.ReviewedBy == "AGENT" {
 			parts = append(parts, "--preview-reviewed")
 		}

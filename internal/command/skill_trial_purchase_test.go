@@ -84,11 +84,9 @@ func TestAnonymousTrialPurchasePresentsBeforeWaitAndRestoresThroughInstall(t *te
 	if data["owned"] != true || data["allowed"] != true {
 		t.Fatalf("not restored: %#v", data)
 	}
-	for _, root := range []string{".codex", ".agents"} {
-		body, err := os.ReadFile(filepath.Join(home, root, "skills", "free-test", "SKILL.md"))
-		if err != nil || !strings.Contains(string(body), "Owned Current Skill") || strings.Contains(string(body), skillTrialGateMarker) {
-			t.Fatalf("formal package not installed: %v", err)
-		}
+	body, err := os.ReadFile(filepath.Join(home, ".agents", "skills", "free-test", "SKILL.md"))
+	if err != nil || !strings.Contains(string(body), "Owned Current Skill") || strings.Contains(string(body), skillTrialGateMarker) {
+		t.Fatalf("formal package not installed: %v", err)
 	}
 	if _, err := os.Stat(presentation["widgetPath"].(string)); !os.IsNotExist(err) {
 		t.Fatalf("stale Widget was not cleaned: %v", err)
@@ -203,7 +201,7 @@ sys.exit(trial.run([sys.argv[5],"--product",sys.argv[4],"--market","cn","--agent
 					t.Fatalf("Python restore: %#v", result)
 				}
 			}
-			body, err := os.ReadFile(filepath.Join(home, ".codex", "skills", "free-test", "SKILL.md"))
+			body, err := os.ReadFile(filepath.Join(home, ".agents", "skills", "free-test", "SKILL.md"))
 			if err != nil || !strings.Contains(string(body), "Owned Current Skill") || strings.Contains(string(body), skillTrialGateMarker) {
 				t.Fatalf("formal entry: %v", err)
 			}

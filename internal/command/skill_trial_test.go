@@ -315,7 +315,6 @@ func TestPaidTrialSkillInstallsAnonymouslyWithGate(t *testing.T) {
 		t.Fatalf("trial install result did not carry the trial summary: %#v", data)
 	}
 	gatePaths := []string{
-		filepath.Join(home, ".codex", "skills", "free-test", "SKILL.md"),
 		filepath.Join(home, ".agents", "skills", "free-test", "SKILL.md"),
 	}
 	for _, path := range gatePaths {
@@ -758,7 +757,7 @@ func TestSkillUseConsumesTrialThenClosesPurchaseAndReinstallsCanonicalPackage(t 
 	if message, _ := data["message"].(string); !strings.Contains(message, "同一轮立即") || !strings.Contains(message, "不要等用户再说一次") {
 		t.Fatalf("last trial use omitted same-turn purchase hint: %#v", data)
 	}
-	lastEntry, err := os.ReadFile(filepath.Join(home, ".codex", "skills", "free-test", "SKILL.md"))
+	lastEntry, err := os.ReadFile(filepath.Join(home, ".agents", "skills", "free-test", "SKILL.md"))
 	if err != nil || !bytes.Contains(lastEntry, []byte("# Free Test Skill")) || bytes.Contains(lastEntry, []byte(skillcontent.TrialDisabledMarker)) {
 		t.Fatalf("last allowed use must retain the full Skill: %v", err)
 	}
@@ -784,7 +783,6 @@ func TestSkillUseConsumesTrialThenClosesPurchaseAndReinstallsCanonicalPackage(t 
 		t.Fatalf("trial conversion must download the canonical owned package once, got %d", ownedDownloadCalls)
 	}
 	for _, path := range []string{
-		filepath.Join(home, ".codex", "skills", "free-test", "SKILL.md"),
 		filepath.Join(home, ".agents", "skills", "free-test", "SKILL.md"),
 	} {
 		content, err := os.ReadFile(path)
@@ -826,10 +824,10 @@ func TestTrialExhaustionSuspendsBeforeBuyerAuthentication(t *testing.T) {
 	}
 	failure, _ := envelope["error"].(map[string]any)
 	details, _ := failure["details"].(map[string]any)
-	if details["disabledSkillCount"] != float64(2) {
+	if details["disabledSkillCount"] != float64(1) {
 		t.Fatalf("failure omitted the completed suspension: %#v", envelope)
 	}
-	for _, root := range []string{".codex", ".agents"} {
+	for _, root := range []string{".agents"} {
 		directory := filepath.Join(home, root, "skills", "free-test")
 		content, err := os.ReadFile(filepath.Join(directory, "SKILL.md"))
 		if err != nil || !bytes.Contains(content, []byte(skillcontent.TrialDisabledMarker)) || bytes.Contains(content, []byte("# Free Test Skill")) {

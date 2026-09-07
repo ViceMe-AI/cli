@@ -61,7 +61,6 @@ func TestFreeSkillInstallIsAnonymousAndVerifiesTheArtifact(t *testing.T) {
 	}
 	stableName := "free-test"
 	for _, filename := range []string{
-		filepath.Join(home, ".codex", "skills", stableName, "SKILL.md"),
 		filepath.Join(home, ".agents", "skills", stableName, "SKILL.md"),
 	} {
 		content, err := os.ReadFile(filename)
@@ -69,7 +68,7 @@ func TestFreeSkillInstallIsAnonymousAndVerifiesTheArtifact(t *testing.T) {
 			t.Fatalf("installed Skill %s is invalid: %q, %v", filename, content, err)
 		}
 	}
-	executable := filepath.Join(home, ".codex", "skills", stableName, "scripts", "run.sh")
+	executable := filepath.Join(home, ".agents", "skills", stableName, "scripts", "run.sh")
 	info, err := os.Stat(executable)
 	if err != nil {
 		t.Fatalf("installed executable is missing: %v", err)
@@ -426,7 +425,7 @@ func TestMarketplaceInstallPersistsProductProvenance(t *testing.T) {
 	if exit != 0 || envelope["ok"] != true {
 		t.Fatalf("free install failed: exit=%d envelope=%#v", exit, envelope)
 	}
-	manifestPath := filepath.Join(home, ".codex", "skills", "free-test", ".viceme", "install-manifest.json")
+	manifestPath := filepath.Join(home, ".agents", "skills", "free-test", ".viceme", "install-manifest.json")
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatalf("installed Skill has no install manifest: %v", err)
@@ -505,7 +504,7 @@ func TestMarketplaceSkillNameCollisionWithAnotherProductFailsClosed(t *testing.T
 	if !strings.Contains(string(reportJSON), "different Product") {
 		t.Fatalf("refusal did not name the foreign Product: %s", reportJSON)
 	}
-	installed, err := os.ReadFile(filepath.Join(home, ".codex", "skills", "shared-skill", "SKILL.md"))
+	installed, err := os.ReadFile(filepath.Join(home, ".agents", "skills", "shared-skill", "SKILL.md"))
 	if err != nil || !strings.Contains(string(installed), "Shared Skill") || strings.Contains(string(installed), "Foreign") {
 		t.Fatalf("first product content was overwritten: %q, %v", installed, err)
 	}

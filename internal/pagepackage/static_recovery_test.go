@@ -21,7 +21,7 @@ func TestStaticOutputExcludesPublicationRecovery(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte("<h1>Public</h1>"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	data, err := archiveStaticDirectory(directory, "Site")
+	data, err := archiveStaticDirectory(directory, "index.html", "Site")
 	if err != nil {
 		t.Fatal(err)
 	}
