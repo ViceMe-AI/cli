@@ -7,8 +7,7 @@
 | `REPLICA_PUBLICATION_CONFIRMATION_REQUIRED`，review 为 CREATE | 展示首次发布摘要，确认后原样执行 confirmCommand。 |
 | `REPLICA_PUBLICATION_CONFIRMATION_REQUIRED`，review 为 UPDATE | 展示更新摘要与不可变制品，确认后复用原绑定。 |
 | 缺失业务输入 | 只补返回的缺失字段；已知待问字段一次收齐，价格不得猜测。 |
-| `REPLICA_PREVIEW_URL_REQUIRED` / `PROVIDE_PREVIEW_URL` | 复用已接入按钮的本地服务；缺少服务时启动，并在宿主右侧向创作者展示实际页面。 |
-| `REPLICA_PREVIEW_REVIEW_REQUIRED` / `REVIEW_LOCAL_PREVIEW` | 创作者在宿主预览中确认按钮不影响样式后补 `--preview-reviewed`；不由模型截图验收，不能仅凭 HTTP 成功声明通过。 |
+| `REPLICA_PREVIEW_REVIEW_REQUIRED` / `CONFIRM_CREATOR_PREVIEW` | 创作者确认页面和按钮后带 `--preview-reviewed` 继续；不要求本地 URL 或服务，不进行 HTTP、截图或浏览器验收。 |
 | `CONFIRM_UNVERIFIED_REPLICA_ONLY` | 优先修复具体预览问题；未经用户接受未验证范围，不追加降级确认标记。 |
 | 源码安全或归档错误 | 按 package-contract 检查命中范围；不把敏感内容输出或上传，不自动删除后继续。 |
 | `REQUEST_VALIDATION_FAILED` | 只核对对应请求字段与当前命令契约；无法由已支持参数修正时，通过官方工具处理兼容性。不得猜参数、换 Merchant、查无关 Work 或伪 TTY 重试；同一错误在修正后仍出现即停止并报告阻塞。 |
@@ -16,7 +15,7 @@
 | `APPLY_CREATOR` | 仅在已取得自动申请授权时复用 become-a-creator。 |
 | `WAIT_CREATOR_REVIEW` / `SUPPLY_CREATOR_INFO` / `CREATOR_APPLICATION_REJECTED` | 停止，不上传、不自动轮询，给出权威处理入口。 |
 | `PROCESSING` / `SUBMITTED_NOT_PUBLISHED` | 已提交，尚未发布。提供状态入口，不报告发布完成。 |
-| `REPLICA_HOSTED_PAGE_REQUIRED` / `PREPARE_HOSTED_PAGE` | 未上传；准备并预览可部署静态 HTML 后重跑 publish，不能自动切换仅源码。 |
+| `REPLICA_HOSTED_PAGE_REQUIRED` / `PREPARE_HOSTED_PAGE` | 未上传；准备可部署静态 HTML，按内容变化取得或复用创作者确认后重跑 publish；展示按需进行，不能自动切换仅源码。 |
 | `PUBLISHED` 且 hosting 为 NOT_REQUESTED | 仅源码发布完成，网站尚未托管；不能报告网站发布完成。 |
 | `PUBLISHED` 且 hosting 为 ACTIVE | 源码与托管页面发布完成。 |
 | `PUBLISHED_DEGRADED` 且 hosting 非 ACTIVE | 源码已发布，托管失败，当前使用原生作品页；提供本地修复入口。 |
@@ -24,7 +23,7 @@
 | `FAILED` / `CANCELLED` | 未发布；只执行 allowedActions 中的操作，确定性失败需修复并重新确认。 |
 | `REPLICA_SALES_CONFIRMATION_REQUIRED` | 展示版本、当前价格和操作影响，确认后原样执行销售命令。 |
 | `REPLICA_SALES_READ_ONLY` | 只能读取历史，不执行经营写入。 |
-| `PREPARE_HOSTING_REPAIR` | 修复并预览本地页面，不重新发布源码。 |
+| `PREPARE_HOSTING_REPAIR` | 修复页面并取得创作者确认，展示按需进行，不重新发布源码。 |
 | `REPLICA_REPAIR_CONFIRMATION_REQUIRED` / `CONFIRM_HOSTING_REPAIR` | 确认页面摘要、目标和TTL后，原样执行补发命令。 |
 | `RESUME_HOSTING_REPAIR` | 补发尚未完成；显式恢复时复用原确认命令。 |
 | `HOSTING_REPAIRED` | 当前托管已恢复，源码版本、价格及权益不变。 |

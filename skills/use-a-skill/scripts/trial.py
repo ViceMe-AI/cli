@@ -569,13 +569,13 @@ def target_roots(agent="auto"):
         agent = detect_invoking_agent()
     known = {
         "workbuddy": os.path.join(home, ".workbuddy", "skills"),
-        "codex": os.path.join(home, ".codex", "skills"),
+        "codex": os.path.join(home, ".agents", "skills"),
         "claude": os.path.join(home, ".claude", "skills"),
     }
     if agent in known:
         return [known[agent]]
     roots = [os.path.join(home, ".agents", "skills")]
-    for base in (".codex", ".claude", ".workbuddy"):
+    for base in (".claude", ".workbuddy"):
         if os.path.isdir(os.path.join(home, base)):
             roots.append(os.path.join(home, base, "skills"))
     return roots

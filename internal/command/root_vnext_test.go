@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -58,6 +59,7 @@ type automaticUpdater struct {
 	checkCalls    atomic.Int32
 	applyCalls    atomic.Int32
 	refreshSkills atomic.Bool
+	skillTarget   string
 }
 
 type completedUpdateUpdater struct {
@@ -86,6 +88,7 @@ func (updater *automaticUpdater) Check(context.Context) (updatepkg.CheckResult, 
 func (updater *automaticUpdater) Apply(_ context.Context, _ updatepkg.CheckResult, options updatepkg.ApplyOptions) (updatepkg.ApplyResult, error) {
 	updater.applyCalls.Add(1)
 	updater.refreshSkills.Store(options.RefreshSkills)
+	updater.skillTarget = options.SkillTarget
 	return updater.apply, updater.applyErr
 }
 
@@ -272,7 +275,7 @@ func TestBackgroundUpdateProcessDoesNotInheritPublicationCredential(t *testing.T
 	}
 }
 
-func TestAutomaticUpdateWorkerRecordsFailureWithoutRefreshingSkills(t *testing.T) {
+func TestAutomaticUpdateWorkerRecordsCombinedUpdateFailure(t *testing.T) {
 	enableAutomaticUpdateTest(t)
 	root := t.TempDir()
 	updater := &automaticUpdater{
@@ -290,12 +293,12 @@ func TestAutomaticUpdateWorkerRecordsFailureWithoutRefreshingSkills(t *testing.T
 	if !ok || state.Status != "failed" || state.ErrorKind != string(updatepkg.ErrorNPMCommand) {
 		t.Fatalf("background failure state=%#v exists=%t", state, ok)
 	}
-	if updater.checkCalls.Load() != 1 || updater.applyCalls.Load() != 1 || updater.refreshSkills.Load() {
+	if updater.checkCalls.Load() != 1 || updater.applyCalls.Load() != 1 || !updater.refreshSkills.Load() {
 		t.Fatalf("background worker checks=%d applies=%d refreshSkills=%t", updater.checkCalls.Load(), updater.applyCalls.Load(), updater.refreshSkills.Load())
 	}
 }
 
-func TestAutomaticUpdateWorkerCommitsCLIOnlyForTheNextInvocation(t *testing.T) {
+func TestAutomaticUpdateWorkerRefreshesSkillsWithCLI(t *testing.T) {
 	enableAutomaticUpdateTest(t)
 	root := t.TempDir()
 	updater := &automaticUpdater{
@@ -317,7 +320,7 @@ func TestAutomaticUpdateWorkerCommitsCLIOnlyForTheNextInvocation(t *testing.T) {
 	if !ok || state.Status != "updated" || state.AvailableVersion != "0.16.0" {
 		t.Fatalf("background success state=%#v exists=%t", state, ok)
 	}
-	if updater.applyCalls.Load() != 1 || updater.refreshSkills.Load() {
+	if updater.applyCalls.Load() != 1 || !updater.refreshSkills.Load() || updater.skillTarget != "auto" {
 		t.Fatalf("background success applies=%d refreshSkills=%t", updater.applyCalls.Load(), updater.refreshSkills.Load())
 	}
 }
@@ -336,7 +339,7 @@ func TestAutomaticUpdateWorkerCoalescesRecentChecks(t *testing.T) {
 	})
 	runAutomaticUpdateWorker(&dependencies)
 	runAutomaticUpdateWorker(&dependencies)
-	if updater.checkCalls.Load() != 1 || updater.applyCalls.Load() != 0 {
+	if updater.checkCalls.Load() != 1 || updater.applyCalls.Load() != 1 {
 		t.Fatalf("recent background checks were not coalesced: checks=%d applies=%d", updater.checkCalls.Load(), updater.applyCalls.Load())
 	}
 }
@@ -474,8 +477,8 @@ func TestUpdateSeparatesExecutingAndInstalledCLIVersions(t *testing.T) {
 	if _, legacy := meta["cliVersion"]; legacy {
 		t.Fatalf("ambiguous legacy CLI version leaked: %#v", result)
 	}
-	if updater.refreshSkills.Load() {
-		t.Fatal("plain viceme update unexpectedly refreshed official Skills")
+	if !updater.refreshSkills.Load() {
+		t.Fatal("plain viceme update did not refresh official Skills")
 	}
 }
 
@@ -1168,5 +1171,80 @@ func TestLegacyCredentialRegionOnlyMatchesOfficialAPIOrigins(t *testing.T) {
 		if got := legacyCredentialRegionForAPIBase(endpoint); got != "" {
 			t.Fatalf("custom endpoint %q inherited official credentials through %q", endpoint, got)
 		}
+	}
+}
+
+func TestAutomaticUpdateWorkerRepairsStaleSkillsWithoutANewerCLI(t *testing.T) {
+	for _, stale := range []bool{false, true} {
+		t.Run(fmt.Sprint(stale), func(t *testing.T) {
+			enableAutomaticUpdateTest(t)
+			home := t.TempDir()
+			environment := skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, "config")}
+			updater := &automaticUpdater{
+				check: updatepkg.CheckResult{CurrentVersion: buildinfo.CompatibilityVersion(), AvailableVersion: buildinfo.CompatibilityVersion()},
+				apply: updatepkg.ApplyResult{CLIVersion: buildinfo.CompatibilityVersion()},
+			}
+			dependencies := defaults(Dependencies{
+				Store: securestore.NewMemory(), Updater: updater, Environment: environment,
+				Region: config.RegionCN, allowDevelopmentAutoUpdate: true,
+			})
+			for _, report := range dependencies.Skills.InstallSet(officialSkillNames, "auto", environment) {
+				if !report.AllSucceeded {
+					t.Fatalf("could not install current Skill fixtures: %#v", report)
+				}
+			}
+			if stale {
+				manifestPath := filepath.Join(home, ".agents", "skills", "creator-tools", ".viceme", "install-manifest.json")
+				data, err := os.ReadFile(manifestPath)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var manifest map[string]any
+				if err := json.Unmarshal(data, &manifest); err != nil {
+					t.Fatal(err)
+				}
+				manifest["cli_version"] = "0.1.0"
+				data, err = json.Marshal(manifest)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(manifestPath, data, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runAutomaticUpdateWorker(&dependencies)
+			if updater.refreshSkills.Load() != stale || (updater.applyCalls.Load() == 1) != stale {
+				t.Fatalf("stale=%t applies=%d refreshSkills=%t", stale, updater.applyCalls.Load(), updater.refreshSkills.Load())
+			}
+		})
+	}
+}
+
+func TestUpdateRepairsSkillsWithoutANewerCLIUnlessCheckOnly(t *testing.T) {
+	t.Parallel()
+	for _, scenario := range []struct {
+		name   string
+		args   []string
+		target string
+	}{
+		{name: "default repair", args: []string{"update"}, target: "auto"},
+		{name: "selected repair", args: []string{"update", "--agent", "claude"}, target: "claude"},
+		{name: "check only", args: []string{"update", "--check"}},
+		{name: "check with target", args: []string{"update", "--check", "--agent", "codex"}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			root := t.TempDir()
+			updater := &automaticUpdater{check: updatepkg.CheckResult{CurrentVersion: "0.34.0", AvailableVersion: "0.34.0"}}
+			var stdout bytes.Buffer
+			exit := Execute(scenario.args, Dependencies{
+				Out: &stdout, Store: securestore.NewMemory(), Updater: updater,
+				Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+				Region:      config.RegionCN,
+			})
+			wantApply := scenario.target != ""
+			if exit != 0 || (updater.applyCalls.Load() == 1) != wantApply || updater.refreshSkills.Load() != wantApply || updater.skillTarget != scenario.target {
+				t.Fatalf("unexpected repair: exit=%d applies=%d target=%s refreshSkills=%t stdout=%q", exit, updater.applyCalls.Load(), updater.skillTarget, updater.refreshSkills.Load(), stdout.String())
+			}
+		})
 	}
 }

@@ -68,16 +68,16 @@ viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-ur
 ## 维护
 
 - 使用 `viceme version` 查看 CLI 和内置 Skill 版本。
-- 正式安装版会在普通命令成功后启动独立后台进程检查权威稳定通道；存在新版本时只更新 CLI，由下一次 `viceme` 调用生效。
+- 正式安装版会在普通命令成功后启动独立后台进程检查权威稳定通道；存在新版本时同步更新 CLI 和匹配版本的官方 Skills，新 CLI 由下一次 `viceme` 调用生效。
 - 不要要求用户选择更新通道，也不要因后台更新失败或权限不足打断当前请求。
 - 只有用户明确要求手动修复，或自动激活失败需要重试时，才使用 `viceme update`。
-- 官方 Skill 使用独立生命周期；需要刷新时运行 `viceme install --agent auto`，并在宿主需要重新发现 Skill 时新开一个任务。
+- `viceme update` 默认同步官方 Skills；仅修复 Skills 时可运行 `viceme install --agent auto`，并在宿主需要重新发现 Skill 时新开一个任务。
 
 ## 自动更新
 
 - 当前命令先正常完成；网络不可用、后台进程无法启动、权限不足或 CLI 激活失败都不得替换它的 `data` 或 `error`。
 - 后台更新完成后，下一次 `viceme` 调用使用新 CLI；无需重启整个 Codex、Claude Code 或 WorkBuddy。
-- 后台自动更新只更新 CLI，不得顺带写入官方 Skill 目录。
+- 后台自动更新通过 CLI 的统一激活事务同步官方 Skills；CLI 已是最新版但官方 Skills 陈旧或缺失时也会修复，全部健康时跳过写入。
 - 若下一次启动发现已经开始但尚未完成的持久化激活记录，先由 CLI 自身恢复；不得使用只完成一部分的代次继续，也不得删除恢复记录。
 
 ## 更新权限与恢复
@@ -86,5 +86,5 @@ viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-ur
 - 后台更新的权限失败不会成为当前业务命令的错误。只有用户明确要求立即升级时，才通过宿主正式审批机制取得权限并运行 `viceme update`。
 - 若 `error.details.recovery_required == true` 或更新目标状态为 `recovery_pending`，必须保留事务记录，暂停业务写操作；获批后由 CLI 自身恢复并验证，不能直接继续使用可能只完成了一部分的安装。
 - 宿主没有正式授权入口、拒绝授权，或授权后仍报权限不足时，明确说明更新未完成并停止，不反复重试。不得通过卸载、直接删除安装目录、清除锁文件、手工构造或删除 `npm-activation.json` / `active-generation.json`、删除恢复标记来绕过限制；不要执行其他自定义修复 Skill 中的这些操作。
-- CLI 更新成功后可检查 `viceme version`；需要刷新官方 Skill 时另行运行 `viceme install --agent auto`，再检查 `viceme doctor` 和 `viceme auth status`。保留 Profile、登录凭据和用户安装的 Skill。
+- CLI 更新成功后可检查 `viceme version` 和 `viceme doctor`；单独修复官方 Skills 时运行 `viceme install --agent auto`。保留 Profile、登录凭据和用户安装的 Skill。
 - 需要保留真实退出码和完整 JSON 响应，不要把更新或修复命令管道连接到 `head` / `tail` 后以管道退出码判断成功。

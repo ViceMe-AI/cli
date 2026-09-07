@@ -1651,6 +1651,11 @@ func resolveTargets(skillName, target string, environment Environment) ([]target
 	if target == "" {
 		target = "auto"
 	}
+	// Codex discovers user Skills in the shared agents directory. Keep its
+	// legacy native path in resolveKnownTargets only for retirement ownership.
+	if target == "codex" {
+		target = "agents"
+	}
 	known, err := resolveKnownTargets(skillName, environment)
 	if err != nil {
 		return nil, err
@@ -1666,7 +1671,7 @@ func resolveTargets(skillName, target string, environment Environment) ([]target
 		return []targetPath{resolved, known["agents"]}, nil
 	}
 	result := []targetPath{known["agents"]}
-	for _, name := range []string{"codex", "claude", "workbuddy"} {
+	for _, name := range []string{"claude", "workbuddy"} {
 		resolved := known[name]
 		base := filepath.Dir(filepath.Dir(resolved.path))
 		if _, err := os.Stat(base); err == nil {

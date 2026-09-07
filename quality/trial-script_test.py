@@ -321,7 +321,7 @@ class TrialScriptTestCase(unittest.TestCase):
         with mock.patch.dict(os.environ, {"CODEBUDDY_SESSION_ID": "s"}):
             self.assertEqual(trial.target_roots(), [os.path.join(home, ".workbuddy", "skills")])
         with mock.patch.dict(os.environ, {"CODEX_SESSION_ID": "s", "CODEX_SANDBOX": "seatbelt"}):
-            self.assertEqual(trial.target_roots(), [os.path.join(home, ".codex", "skills")])
+            self.assertEqual(trial.target_roots(), [os.path.join(home, ".agents", "skills")])
         with mock.patch.dict(os.environ, {"CLAUDECODE": "1"}):
             self.assertEqual(trial.target_roots(), [os.path.join(home, ".claude", "skills")])
         # Claude Desktop agent 模式不带 CLAUDECODE,认 AI_AGENT 前缀。
@@ -330,7 +330,16 @@ class TrialScriptTestCase(unittest.TestCase):
         # 识别不到:退回全量 auto(agents 恒装)。
         self.assertEqual(trial.target_roots()[0], os.path.join(home, ".agents", "skills"))
         # 显式参数覆盖探测。
-        self.assertEqual(trial.target_roots("codex"), [os.path.join(home, ".codex", "skills")])
+        self.assertEqual(trial.target_roots("codex"), [os.path.join(home, ".agents", "skills")])
+
+    def test_auto_targets_do_not_duplicate_codex_skills(self):
+        for base in (".codex", ".claude", ".workbuddy"):
+            os.makedirs(os.path.join(self.home, base))
+        self.assertEqual(trial.target_roots(), [
+            os.path.join(self.home, ".agents", "skills"),
+            os.path.join(self.home, ".claude", "skills"),
+            os.path.join(self.home, ".workbuddy", "skills"),
+        ])
 
     def test_state_file_permissions_and_roundtrip(self):
         trial.save_trial_state(PRODUCT_ID, {"installId": "i", "secret": "s"})
