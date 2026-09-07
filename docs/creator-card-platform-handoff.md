@@ -55,17 +55,19 @@
 ### 1. 部署正式云端模板册
 
 本仓库已有 `.github/workflows/template-catalog.yml`：上游 `dev` 推送发布到
-`templates/dev/`，`main` 推送发布到 `templates/`，并构建 CN 和 Global 两套字节一致的静态产物。
+独立公开 `templates` 桶的 `dev/` 前缀，`main` 推送发布到该桶根，并构建 CN 和 Global 两套字节一致的静态产物。
 个人 fork 没有上游环境 secret，不能把 fork 的 Actions 成功当作正式部署成功。
 
 在上游仓库配置并验证以下 GitHub Environment secret：
 
 - `VICEME_TEMPLATE_CATALOG_SIGNING_KEY`；
-- `VICEME_RELEASE_S3_ENDPOINT_CN`、`VICEME_RELEASE_S3_BUCKET_CN`、
-  `VICEME_RELEASE_S3_ACCESS_KEY_ID_CN`、`VICEME_RELEASE_S3_SECRET_ACCESS_KEY_CN`、
+- `VICEME_RELEASE_S3_ENDPOINT_CN`、`VICEME_RELEASE_S3_ACCESS_KEY_ID_CN`、
+  `VICEME_RELEASE_S3_SECRET_ACCESS_KEY_CN`、
   `CN_S3_HTTPS_PROXY`（需要时）；
-- `VICEME_RELEASE_S3_ENDPOINT_GLOBAL`、`VICEME_RELEASE_S3_BUCKET_GLOBAL`、
-  `VICEME_RELEASE_S3_ACCESS_KEY_ID_GLOBAL`、`VICEME_RELEASE_S3_SECRET_ACCESS_KEY_GLOBAL`。
+- `VICEME_RELEASE_S3_ENDPOINT_GLOBAL`、`VICEME_RELEASE_S3_ACCESS_KEY_ID_GLOBAL`、
+  `VICEME_RELEASE_S3_SECRET_ACCESS_KEY_GLOBAL`。
+
+模板册不复用 `start` 桶：公网 URL 的首段 `templates` 对应独立同名桶，工作流使用上述凭据创建或核对该桶，并只授予匿名 `GetObject`，不授予 `ListBucket`。桶中不得存放私有对象。
 
 发布后必须从真实公开域验证：
 
