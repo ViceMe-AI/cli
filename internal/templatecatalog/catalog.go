@@ -33,6 +33,21 @@ type SourceTemplate struct {
 	License     string `json:"license"`
 }
 
+// DemoCatalog is used only when building a loopback catalog preview. Its
+// entries are never signed into the production manifest and cannot be fetched.
+type DemoCatalog struct {
+	SchemaVersion int            `json:"schema_version"`
+	Templates     []DemoTemplate `json:"templates"`
+}
+
+type DemoTemplate struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Scenario    string `json:"scenario"`
+	Description string `json:"description"`
+	PreviewFile string `json:"preview_file"`
+}
+
 func LoadSourceCatalog(reader io.Reader) (SourceCatalog, error) {
 	var catalog SourceCatalog
 	decoder := json.NewDecoder(reader)
@@ -42,6 +57,31 @@ func LoadSourceCatalog(reader io.Reader) (SourceCatalog, error) {
 	}
 	if err := validateSourceCatalog(catalog); err != nil {
 		return SourceCatalog{}, err
+	}
+	return catalog, nil
+}
+
+func LoadDemoCatalog(reader io.Reader) (DemoCatalog, error) {
+	var catalog DemoCatalog
+	decoder := json.NewDecoder(reader)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&catalog); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
+		return DemoCatalog{}, ErrInvalidSourceCatalog
+	}
+	if catalog.SchemaVersion != 1 || len(catalog.Templates) == 0 {
+		return DemoCatalog{}, ErrInvalidSourceCatalog
+	}
+	seen := make(map[string]struct{}, len(catalog.Templates))
+	for _, entry := range catalog.Templates {
+		if !idPattern.MatchString(entry.ID) || strings.TrimSpace(entry.Name) == "" ||
+			strings.TrimSpace(entry.Scenario) == "" || strings.TrimSpace(entry.Description) == "" ||
+			!safeRelativePath(entry.PreviewFile) {
+			return DemoCatalog{}, ErrInvalidSourceCatalog
+		}
+		if _, duplicate := seen[entry.ID]; duplicate {
+			return DemoCatalog{}, ErrInvalidSourceCatalog
+		}
+		seen[entry.ID] = struct{}{}
 	}
 	return catalog, nil
 }

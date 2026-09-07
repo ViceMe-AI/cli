@@ -551,6 +551,10 @@ func TestCreatorPersonalCardUsesVerifiedCloudCatalog(t *testing.T) {
 		"你想选择哪一款，还是想导入一个已有主页？",
 		"已校验 source_path",
 		"不得先询问目标目录或额外的本机写入确认",
+		"用户确认公开范围后，同一轮直接创建本机草稿",
+		"不得再问“确认创建本机文件”",
+		"最终本机预览是唯一一次用户确认",
+		"只读验收只能在写入前停止一次",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("cloud template catalog contract omitted %q", required)
@@ -559,6 +563,37 @@ func TestCreatorPersonalCardUsesVerifiedCloudCatalog(t *testing.T) {
 	for _, forbidden := range []string{"templates/registry.json", "catalog-previews/", "dev_mock"} {
 		if strings.Contains(text, forbidden) {
 			t.Fatalf("creator-facing cloud catalog leaked %q", forbidden)
+		}
+	}
+}
+
+func TestCreatorCardImportAndUpdateFlowKeepSafeGates(t *testing.T) {
+	t.Parallel()
+
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"无论选择真实模板、原样导入自己的主页或参考别人的主页",
+		"可直接使用 / 待确认公开 / 缺失",
+		"当前个人页尚未变更",
+		"不得在完成这三栏整理和最终本机预览前询问是否发布",
+		"修改当前版本", "重新制作一版",
+		"不得从线上 HTML、截图或渲染后的 Profile Blocks 反推",
+		"提供原始项目或 ZIP",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("creator-card flow omitted %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		"viceme merchant page source status",
+		"viceme merchant page source restore",
+	} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("creator-card flow claimed unsupported or premature action %q", forbidden)
 		}
 	}
 }
