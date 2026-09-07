@@ -24,9 +24,10 @@ func main() {
 func run(args []string) error {
 	flags := flag.NewFlagSet("template-catalog", flag.ContinueOnError)
 	flags.SetOutput(io.Discard)
-	var source, root, output, origin, signingKeyFile, keyID string
+	var source, demoSource, root, output, origin, signingKeyFile, keyID string
 	var allowInsecureOrigin bool
 	flags.StringVar(&source, "source", "templates/creator-pages/production.json", "source catalog JSON")
+	flags.StringVar(&demoSource, "demo-source", "templates/creator-pages/demo.json", "local-only coming-soon catalog JSON")
 	flags.StringVar(&root, "root", ".", "repository root for relative template paths")
 	flags.StringVar(&output, "output", "", "catalog artifact output directory")
 	flags.StringVar(&origin, "origin", "", "public HTTPS catalog origin")
@@ -51,7 +52,16 @@ func run(args []string) error {
 	}
 	signer := templatecatalog.Signer{KeyID: keyID, PrivateKey: privateKey}
 	if allowInsecureOrigin {
-		_, err = templatecatalog.BuildForLocalDemo(root, catalog, output, origin, signer)
+		demoFile, err := os.Open(demoSource)
+		if err != nil {
+			return err
+		}
+		defer demoFile.Close()
+		demos, err := templatecatalog.LoadDemoCatalog(demoFile)
+		if err != nil {
+			return err
+		}
+		_, err = templatecatalog.BuildForLocalDemoWithTemplates(root, catalog, demos, output, origin, signer)
 		return err
 	}
 	_, err = templatecatalog.Build(root, catalog, output, origin, signer)
