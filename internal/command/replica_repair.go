@@ -28,10 +28,11 @@ type replicaRepairReview struct {
 }
 
 func newReplicaRepairHostingCommand(runtime *Runtime) *cobra.Command {
-	var publicationID, path, confirm, snapshot string
+	var publicationID, path, entry, confirm, snapshot string
 	command := &cobra.Command{Use: "repair-hosting", Short: "Review and repair page hosting without publishing new source", Args: cobra.NoArgs}
 	command.Flags().StringVar(&publicationID, "publication", "", "degraded Publication UUID")
-	command.Flags().StringVar(&path, "path", "", "repaired project with static output, or validated WorkPage ZIP")
+	command.Flags().StringVar(&path, "path", "", "deployable page directory selected by the agent, or validated WorkPage ZIP")
+	command.Flags().StringVar(&entry, "page-entry", "", "HTML entry relative to the selected page directory; omit for a WorkPage ZIP")
 	command.Flags().StringVar(&confirm, "confirm", "", "exact review digest")
 	command.Flags().StringVar(&snapshot, "request", "", "exact request snapshot from the review")
 	_ = command.MarkFlagRequired("publication")
@@ -48,9 +49,12 @@ func newReplicaRepairHostingCommand(runtime *Runtime) *cobra.Command {
 		var pkg pagepackage.Package
 		var err error
 		if strings.EqualFold(filepath.Ext(path), ".zip") {
+			if entry != "" {
+				return output.Validation("REPLICA_PAGE_OPTIONS_INVALID", "a WorkPage ZIP already declares its entry; omit --page-entry")
+			}
 			pkg, err = pagepackage.Inspect(path)
 		} else {
-			pkg, _, err = pagepackage.BuildWebsiteWorkPage(path, "Repaired website")
+			pkg, err = pagepackage.BuildWebsiteWorkPage(path, entry, "Repaired website")
 		}
 		if err != nil {
 			return err
@@ -97,6 +101,9 @@ func newReplicaRepairHostingCommand(runtime *Runtime) *cobra.Command {
 			encoded, _ := json.Marshal(review)
 			sum := sha256.Sum256(encoded)
 			args := []string{"replica", "repair-hosting", "--publication", publicationID, "--path", path, "--confirm", hex.EncodeToString(sum[:]), "--request", base64.RawURLEncoding.EncodeToString(encoded)}
+			if entry != "" {
+				args = append(args, "--page-entry", entry)
+			}
 			quoted := []string{"viceme"}
 			for _, arg := range args {
 				quoted = append(quoted, shellQuote(arg))
