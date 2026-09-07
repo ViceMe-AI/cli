@@ -171,8 +171,12 @@ func TestWorkflowPublishesSignedCatalogToBothRegions(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, required := range []string{
-		"templates/dev/",
-		"templates/",
+		"CATALOG_BUCKET='templates'",
+		"KEY_PREFIX='dev/'",
+		"s3api put-bucket-policy",
+		"s3:GetObject",
+		"s3api list-objects-v2",
+		"list-type=2",
 		"VICEME_TEMPLATE_CATALOG_SIGNING_KEY",
 		"VICEME_RELEASE_S3_ENDPOINT_CN",
 		"VICEME_RELEASE_S3_ENDPOINT_GLOBAL",
@@ -181,6 +185,11 @@ func TestWorkflowPublishesSignedCatalogToBothRegions(t *testing.T) {
 	} {
 		if !strings.Contains(string(body), required) {
 			t.Fatalf("catalog workflow omitted %q", required)
+		}
+	}
+	for _, forbidden := range []string{"CN_BUCKET:", "GLOBAL_BUCKET:"} {
+		if strings.Contains(string(body), forbidden) {
+			t.Fatalf("catalog workflow must not reuse release bucket setting %q", forbidden)
 		}
 	}
 }
