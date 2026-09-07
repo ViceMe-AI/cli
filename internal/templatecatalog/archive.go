@@ -85,6 +85,10 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 		!validBuildOrigin(origin, allowLoopbackHTTP) || signer.KeyID == "" || len(signer.PrivateKey) != ed25519.PrivateKeySize {
 		return BuildResult{}, ErrBuild
 	}
+	canonicalRoot, err := canonicalSourceRoot(sourceRoot)
+	if err != nil {
+		return BuildResult{}, err
+	}
 	if len(demos) > 0 && !allowLoopbackHTTP {
 		return BuildResult{}, ErrBuild
 	}
@@ -93,11 +97,19 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 	zipByTemplate := make(map[string][]byte, len(catalog.Templates))
 	previewByTemplate := make(map[string][]byte, len(catalog.Templates))
 	for _, source := range catalog.Templates {
-		archive, err := buildSourceZIP(filepath.Join(sourceRoot, filepath.FromSlash(source.SourceDir)), source.ID)
+		sourceDirectory, err := sourcePath(canonicalRoot, source.SourceDir, true)
 		if err != nil {
 			return BuildResult{}, err
 		}
-		preview, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(source.PreviewFile)))
+		archive, err := buildSourceZIP(sourceDirectory, source.ID)
+		if err != nil {
+			return BuildResult{}, err
+		}
+		previewFilename, err := sourcePath(canonicalRoot, source.PreviewFile, false)
+		if err != nil {
+			return BuildResult{}, err
+		}
+		preview, err := os.ReadFile(previewFilename)
 		if err != nil || len(preview) == 0 {
 			return BuildResult{}, ErrBuild
 		}
@@ -115,7 +127,11 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 	demoCards := make([]demoCard, 0, len(demos))
 	demoPreviews := make(map[string][]byte, len(demos))
 	for _, demo := range demos {
-		preview, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(demo.PreviewFile)))
+		previewFilename, err := sourcePath(canonicalRoot, demo.PreviewFile, false)
+		if err != nil {
+			return BuildResult{}, err
+		}
+		preview, err := os.ReadFile(previewFilename)
 		if err != nil || len(preview) == 0 {
 			return BuildResult{}, ErrBuild
 		}
@@ -129,6 +145,52 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 		return BuildResult{}, err
 	}
 	return BuildResult{Manifest: manifest, SourceZIP: zipByTemplate[catalog.Templates[0].ID+"@"+catalog.Templates[0].Version]}, nil
+}
+
+func canonicalSourceRoot(sourceRoot string) (string, error) {
+	absolute, err := filepath.Abs(sourceRoot)
+	if err != nil {
+		return "", ErrBuild
+	}
+	canonical, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", ErrBuild
+	}
+	info, err := os.Stat(canonical)
+	if err != nil || !info.IsDir() {
+		return "", ErrBuild
+	}
+	return filepath.Clean(canonical), nil
+}
+
+// sourcePath rejects symlinks in every catalog-controlled component. This is
+// stronger than checking the final entry: a repository symlink in a parent
+// directory could otherwise make the signed publisher read arbitrary files
+// outside the checkout (including process-backed files on Linux).
+func sourcePath(canonicalRoot, relative string, directory bool) (string, error) {
+	if !safeRelativePath(relative) {
+		return "", ErrBuild
+	}
+	current := canonicalRoot
+	components := strings.Split(filepath.FromSlash(relative), string(filepath.Separator))
+	for index, component := range components {
+		if component == "" || component == "." || component == ".." {
+			return "", ErrBuild
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return "", ErrBuild
+		}
+		last := index == len(components)-1
+		if (!last || directory) && !info.IsDir() {
+			return "", ErrBuild
+		}
+		if last && !directory && !info.Mode().IsRegular() {
+			return "", ErrBuild
+		}
+	}
+	return current, nil
 }
 
 func validBuildOrigin(origin string, allowLoopbackHTTP bool) bool {
