@@ -23,7 +23,7 @@ var (
 type replicaInspectResult struct {
 	NextAction                  string                       `json:"nextAction"`
 	WorkURL                     string                       `json:"workUrl"`
-	StandaloneRecoveryAvailable bool                         `json:"standaloneRecoveryAvailable"`
+	StandaloneRecoveryAvailable *bool                        `json:"standaloneRecoveryAvailable,omitempty"`
 	Replica                     api.WebsiteReplicaResolution `json:"replica"`
 }
 
@@ -45,7 +45,8 @@ func newReplicaCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
-	return &cobra.Command{
+	var checkRecovery bool
+	command := &cobra.Command{
 		Use:   "inspect <replica-code-or-work-url>",
 		Short: "Inspect a Website Replica and return its public Work preview",
 		Args:  cobra.ExactArgs(1),
@@ -58,9 +59,13 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return replicaInspectFailure(err)
 			}
-			recoveryAvailable, err := standaloneReplicaRecoveryAvailable(command.Context(), runtime, resolved)
-			if err != nil {
-				return replicaInspectFailure(err)
+			var recoveryAvailable *bool
+			if checkRecovery {
+				available, err := standaloneReplicaRecoveryAvailable(command.Context(), runtime, resolved)
+				if err != nil {
+					return replicaInspectFailure(err)
+				}
+				recoveryAvailable = &available
 			}
 			return runtime.business(replicaInspectResult{
 				NextAction: "CONFIRM_INLINE_PREVIEW", WorkURL: resolved.ViceMeWorkURL,
@@ -68,6 +73,8 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 			})
 		},
 	}
+	command.Flags().BoolVar(&checkRecovery, "check-recovery", false, "check private standalone purchase recovery after user confirmation")
+	return command
 }
 
 func resolveReplicaTarget(ctx context.Context, runtime *Runtime, target string) (string, error) {

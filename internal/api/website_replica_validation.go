@@ -581,14 +581,6 @@ func (response *WebsiteReplicaOrderStatus) validateAPIResponse() error {
 	if response.Fulfillment != nil && validateReplicaFulfillment(response.Fulfillment) != nil {
 		return errors.New("Website Replica fulfillment response is invalid")
 	}
-	if response.ServiceCase != nil {
-		if response.Fulfillment == nil || validateReplicaServiceCase(response.ServiceCase) != nil || response.ServiceCase.OrderNo != response.OrderNo {
-			return errors.New("Website Replica service case response is invalid")
-		}
-		if response.ServiceCase.FulfillmentID != response.Fulfillment.ID {
-			return errors.New("Website Replica service case does not match fulfillment")
-		}
-	}
 	return nil
 }
 
@@ -615,35 +607,6 @@ func validateReplicaFulfillmentTask(task *WebsiteReplicaFulfillmentTask) error {
 		!validStringEnum(task.Status, "BLOCKED", "READY", "PROCESSING", "RECONCILING", "SUCCEEDED", "FAILED", "CANCELLED") ||
 		!validOptionalDatetime(task.StartedAt) || !validOptionalDatetime(task.CompletedAt) {
 		return errors.New("invalid fulfillment task")
-	}
-	return nil
-}
-
-func validateReplicaServiceCase(serviceCase *WebsiteReplicaServiceCase) error {
-	if !zodUUIDPattern.MatchString(serviceCase.ID) || utf16CodeUnits(serviceCase.CaseNo) < 8 || utf16CodeUnits(serviceCase.CaseNo) > 40 ||
-		utf16CodeUnits(serviceCase.OrderNo) < 6 || utf16CodeUnits(serviceCase.OrderNo) > 40 || !zodUUIDPattern.MatchString(serviceCase.FulfillmentID) ||
-		utf16CodeUnits(serviceCase.Work.CreatorHandle) < 2 || utf16CodeUnits(serviceCase.Work.CreatorHandle) > 32 ||
-		utf16CodeUnits(serviceCase.Work.Slug) < 2 || utf16CodeUnits(serviceCase.Work.Slug) > 64 ||
-		utf16CodeUnits(serviceCase.Work.Title) < 1 || utf16CodeUnits(serviceCase.Work.Title) > 200 ||
-		!zodUUIDPattern.MatchString(serviceCase.Merchant.ID) || utf16CodeUnits(serviceCase.Merchant.DisplayName) < 1 ||
-		!validServiceCaseStatus(serviceCase.Status) || utf16CodeUnits(serviceCase.CurrentStageCode) < 1 ||
-		utf16CodeUnits(serviceCase.CurrentStageCode) > 80 || serviceCase.Stages == nil || serviceCase.Intake == nil ||
-		serviceCase.PublicProgress == nil || !validPositiveSafeInteger(serviceCase.LockVersion) || serviceCase.Events == nil ||
-		!validZodDatetime(serviceCase.SubmittedAt) || !validOptionalDatetime(serviceCase.CompletedAt) ||
-		!validZodDatetime(serviceCase.UpdatedAt) {
-		return errors.New("invalid service case")
-	}
-	for _, stage := range serviceCase.Stages {
-		if utf16CodeUnits(stage.Code) < 1 || utf16CodeUnits(stage.Code) > 80 || utf16CodeUnits(stage.Label) < 1 || utf16CodeUnits(stage.Label) > 120 {
-			return errors.New("invalid service case stage")
-		}
-	}
-	for _, event := range serviceCase.Events {
-		if !validPositiveSafeInteger(event.Sequence) || (event.FromStatus != nil && !validServiceCaseStatus(*event.FromStatus)) ||
-			!validServiceCaseStatus(event.ToStatus) || utf16CodeUnits(event.StageCode) < 1 || utf16CodeUnits(event.StageCode) > 80 ||
-			!validStringEnum(event.ActorType, "SYSTEM", "BUYER", "MERCHANT", "ADMIN") || !validZodDatetime(event.CreatedAt) {
-			return errors.New("invalid service case event")
-		}
 	}
 	return nil
 }
@@ -761,10 +724,6 @@ func validPositiveSafeInteger(value int) bool {
 
 func validReplicaCurrency(value string) bool {
 	return value == "CNY" || value == "USD"
-}
-
-func validServiceCaseStatus(value string) bool {
-	return validStringEnum(value, "SUBMITTED", "ACCEPTED", "WAITING_BUYER", "IN_PROGRESS", "COMPLETED", "CANCELLED")
 }
 
 func validStringEnum(value string, allowed ...string) bool {

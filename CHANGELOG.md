@@ -1,5 +1,78 @@
 # Changelog
 
+## [0.35.0] - 2026-09-07
+
+### Features
+
+- complete creator page onboarding flow (`95b5dc1`)
+- support loopback template catalog demos (`0260fab`)
+- use cloud creator template catalog (`21ed50f`)
+- fetch verified cloud creator templates (`6cc99cf`)
+- build creator template catalog artifacts (`87f5a00`)
+- guide creator page onboarding (`1cfad54`)
+
+### Fixes
+
+- 校正模板拉取验收路径 (`bc2cfda`)
+- 使用独立模板册公开桶 (`e926221`)
+- 修复模板册 CI 与错误边界 (`5f79228`)
+- 收紧模板册发布与 Mock 隔离 (`0be4b14`)
+- quote template catalog key expansion (`3b9d922`)
+- restore CLI-only update lifecycle (`8517f7c`)
+
+### Other Changes
+
+- 更新官方 Skill 发布清单 (`1f5f19b`)
+- 移除开发过程文档 (`49a9e94`)
+- define creator card update recovery (`6a5a2db`)
+- align creator template flow with cloud catalog (`9e35bcf`)
+- add development template catalog fixtures (`1183991`)
+- publish creator template catalog (`ab710f3`)
+- design cloud creator template catalog (`e95f56d`)
+
+## [0.34.0] - 2026-09-07
+
+### Features
+
+- 完善试用耗尽购买与对话内支付二维码 (`16ea889`)
+- 接入免登录试用购买与通用 Widget (`9a0d17e`)
+
+### Fixes
+
+- 让试用脚本在 Windows 控制台编码下输出 UTF-8 JSON (`9c14805`)
+- 做同款复制完整创作邀请文案 (`dd4b04e`)
+- 由 Agent 显式选择托管页面目录与入口 (`eeaaba6`)
+- 试用耗尽后自动停用技能入口 (`e030c2f`)
+- 修复商品技能元数据兼容与试用门禁生成 (`fbfa2a0`)
+
+### Other Changes
+
+- 明确匿名支付展示与正式入口恢复边界 (`c9d6034`)
+- 规范二维码依赖空白并更新资源摘要 (`be28721`)
+
+## [0.33.6] - 2026-09-06
+
+### Fixes
+
+- 更新 CLI 时同步并修复官方 Skills (`4069758`)
+- 移除 Codex Skill 目录重复写入 (`da0d7b6`)
+- 创作者确认后发布不再探测本地预览 (`6d906dc`)
+
+### Other Changes
+
+- 按目录身份校验跨平台 Skill 安装路径 (`66dec54`)
+
+## [0.33.5] - 2026-09-05
+
+### Fixes
+
+- 补充做同款订单摘要与异常联系提示 (`0c3e241`)
+- 改为创作者确认做同款按钮预览后发布 (`aec3bbb`)
+- 默认同时发布源码和托管页面并禁止自动降级 (`d6e1106`)
+- 允许已发布源码补齐托管页面 (`1d59bb6`)
+- 确认继续后再读取做同款恢复凭据 (`9dad79d`)
+- 修复做同款订单状态契约不兼容 (`19d2a5c`)
+
 ## [0.33.4] - 2026-09-05
 
 ### Fixes

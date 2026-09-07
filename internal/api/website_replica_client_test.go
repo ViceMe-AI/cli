@@ -22,7 +22,6 @@ const (
 	testEntitlementID    = "88888888-8888-4888-8888-888888888888"
 	testFulfillmentID    = "99999999-9999-4999-8999-999999999999"
 	testTaskID           = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-	testCaseID           = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 	testMerchantID       = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 	testShortCode        = "VMR-ABCDEFGHIJKLMNOPQRST"
 	testOrderNo          = "VMO-20260901-000001"
@@ -103,7 +102,7 @@ func TestWebsiteReplicaClientRejectsMissingRequiredFields(t *testing.T) {
 		func(response map[string]any) { delete(response, "summary") },
 		func(response map[string]any) { delete(response, "contractSummary") },
 		func(response map[string]any) { delete(response, "paymentAction") },
-		func(response map[string]any) { delete(response, "serviceCase") },
+		func(response map[string]any) { delete(response, "fulfillment") },
 		func(response map[string]any) { delete(response, "expiresAt") },
 		func(response map[string]any) { delete(response, "installedAt") },
 	}
@@ -157,27 +156,6 @@ func TestWebsiteReplicaClientRejectsCrossResourceMismatches(t *testing.T) {
 			name: "order status",
 			response: mutateReplicaResponse(t, replicaOrderStatusResponse(), func(response map[string]any) {
 				response["orderNo"] = "VMO-20260901-999999"
-			}),
-			call: canonicalWebsiteReplicaResponseCases()[3].call,
-		},
-		{
-			name: "service case order",
-			response: mutateReplicaResponse(t, replicaOrderStatusResponse(), func(response map[string]any) {
-				response["serviceCase"].(map[string]any)["orderNo"] = "VMO-20260901-999999"
-			}),
-			call: canonicalWebsiteReplicaResponseCases()[3].call,
-		},
-		{
-			name: "service case fulfillment",
-			response: mutateReplicaResponse(t, replicaOrderStatusResponse(), func(response map[string]any) {
-				response["serviceCase"].(map[string]any)["fulfillmentId"] = testVersionID
-			}),
-			call: canonicalWebsiteReplicaResponseCases()[3].call,
-		},
-		{
-			name: "service case without fulfillment",
-			response: mutateReplicaResponse(t, replicaOrderStatusResponse(), func(response map[string]any) {
-				response["fulfillment"] = nil
 			}),
 			call: canonicalWebsiteReplicaResponseCases()[3].call,
 		},
@@ -407,19 +385,6 @@ func replicaOrderStatusResponse() map[string]any {
 		"fulfillment": map[string]any{
 			"id": testFulfillmentID, "status": "SUCCEEDED", "version": 1,
 			"currentTask": task, "tasks": []map[string]any{task}, "failureCode": nil, "resultSummary": nil,
-		},
-		"serviceCase": map[string]any{
-			"id": testCaseID, "caseNo": "VMC-20260901-000001", "orderNo": testOrderNo, "fulfillmentId": testFulfillmentID,
-			"work":     map[string]any{"creatorHandle": "replica-maker", "slug": "replica-source", "title": "Replica"},
-			"merchant": map[string]any{"id": testMerchantID, "displayName": "Replica Maker"},
-			"status":   "SUBMITTED", "currentStageCode": "submitted",
-			"stages": []map[string]any{{"code": "submitted", "label": "Submitted", "terminal": false}},
-			"intake": map[string]any{}, "publicProgress": map[string]any{}, "lockVersion": 1,
-			"events": []map[string]any{{
-				"sequence": 1, "fromStatus": nil, "toStatus": "SUBMITTED", "stageCode": "submitted",
-				"actorType": "SYSTEM", "note": nil, "publicMessage": nil, "createdAt": testReplicaTimestamp,
-			}},
-			"submittedAt": testReplicaTimestamp, "completedAt": nil, "updatedAt": testReplicaTimestamp,
 		},
 	}
 }

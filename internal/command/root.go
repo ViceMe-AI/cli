@@ -312,6 +312,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newSourceCommand(runtime))
 	root.AddCommand(newCommerceCommand(runtime))
 	root.AddCommand(newReplicaCommand(runtime))
+	root.AddCommand(newTemplateCatalogCommand(runtime))
 	return root, runtime, nil
 }
 
@@ -979,13 +980,10 @@ func configLoadFailure(message string, err error) *output.Error {
 	if !errors.As(err, &loadErr) {
 		return result
 	}
-	result.WithDetails(map[string]any{
-		"path":  loadErr.Path,
-		"stage": loadErr.Stage,
-	})
+	result.WithDetails(map[string]any{"stage": loadErr.Stage})
 	switch loadErr.Stage {
 	case "read":
-		result.WithHint("verify that the reported configuration path exists and is readable by this process")
+		result.WithHint("verify that the ViceMe configuration file exists and is readable by this process")
 	case "decode", "validate":
 		result.WithHint("repair or recreate the reported configuration file; do not share credentials from it")
 	case "permissions":

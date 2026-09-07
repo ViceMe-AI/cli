@@ -66,8 +66,11 @@ func newSkillCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newSkillPublishCommand(runtime))
 	command.AddCommand(newSkillDetailCommand(runtime))
 	command.AddCommand(newSkillAccessCommand(runtime))
+	command.AddCommand(newSkillReadyCommand(runtime))
 	command.AddCommand(newSkillInstallCommand(runtime))
 	command.AddCommand(newSkillUsePrecheckCommand(runtime))
+	command.AddCommand(newSkillTrialPurchaseCommand(runtime))
+	command.AddCommand(newSkillTrialStatusCommand(runtime))
 	return command
 }
 

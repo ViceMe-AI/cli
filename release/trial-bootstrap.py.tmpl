@@ -1,0 +1,85 @@
+#!/usr/bin/env python3
+"""Generated ViceMe no-CLI bootstrap; installs one verified runtime bundle."""
+import hashlib
+import io
+import json
+import os
+import runpy
+import sys
+import tempfile
+import urllib.request
+import zipfile
+
+RUNTIME_SHA256 = "__RUNTIME_SHA256__"
+SCRIPT_ORIGIN = {"cn": "https://s3.viceme.cn", "global": "https://s3.viceme.ai"}
+API_ORIGIN = {"cn": "https://api.viceme.cn", "global": "https://api.viceme.ai"}
+RUNTIME_FILES = {
+    "scripts/trial.py", "scripts/qrcodegen.py", "widgets/onboarding.html",
+    "widgets/payment.html", "guides/widgets.md", "guides/trial-usage.md",
+}
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *args, **kwargs):
+        return None
+
+
+def main():
+    market = "cn"
+    for index, argument in enumerate(sys.argv[1:], 1):
+        if argument == "--market" and index + 1 < len(sys.argv):
+            market = sys.argv[index + 1]
+        elif argument.startswith("--market="):
+            market = argument.split("=", 1)[1]
+    if market not in SCRIPT_ORIGIN:
+        raise ValueError("invalid market")
+    archive = None
+    local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trial-runtime.zip")
+    if os.path.isfile(local):
+        with open(local, "rb") as handle:
+            archive = handle.read(2 << 20)
+    else:
+        url = SCRIPT_ORIGIN[market] + "/skills/use-a-skill/scripts/sha256-" + RUNTIME_SHA256 + "/trial-runtime.zip"
+        with urllib.request.build_opener(NoRedirect).open(url, timeout=30) as response:
+            archive = response.read(2 << 20)
+    if hashlib.sha256(archive).hexdigest() != RUNTIME_SHA256:
+        raise ValueError("runtime digest mismatch")
+    with tempfile.TemporaryDirectory(prefix="viceme-runtime-") as directory:
+        with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+            if set(bundle.namelist()) != RUNTIME_FILES or len(bundle.infolist()) != len(RUNTIME_FILES):
+                raise ValueError("invalid runtime members")
+            for info in bundle.infolist():
+                if info.file_size > 1 << 20:
+                    raise ValueError("runtime member too large")
+                target = os.path.join(directory, *info.filename.split("/"))
+                os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
+                with open(target, "wb") as handle:
+                    handle.write(bundle.read(info))
+        # Persist the selected environment with the installed support files.
+        # This is configuration, never a credential or an entitlement.
+        with open(os.path.join(directory, "environment.json"), "w") as handle:
+            json.dump({"market": market, "apiBaseUrl": API_ORIGIN[market],
+                       "distributionBaseUrl": SCRIPT_ORIGIN[market]}, handle)
+        runtime = runpy.run_path(os.path.join(directory, "scripts/trial.py"))
+        return runtime["run"](sys.argv[1:])
+
+
+def emit_line(payload):
+    line = json.dumps(payload, ensure_ascii=False) + "\n"
+    stdout = sys.stdout
+    stdout.flush()
+    buffer = getattr(stdout, "buffer", None)
+    if buffer is not None:
+        buffer.write(line.encode("utf-8"))
+        buffer.flush()
+        return
+    stdout.write(line)
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except Exception:
+        emit_line({"ok": False, "code": "RUNTIME_BOOTSTRAP_FAILED",
+                   "message": "运行资源未完整取得或校验失败；保留当前安装与凭证，请重试安装。"})
+        sys.exit(1)

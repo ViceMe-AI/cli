@@ -85,7 +85,10 @@ func presentReplicaPublication(publication api.WebsiteReplicaPublication) replic
 		phase = "SUBMITTED_NOT_PUBLISHED"
 		message = "Website Replica Publication was submitted and is not published yet."
 	case "PUBLISHED":
-		message = "Website Replica publication complete."
+		message = "Website Replica source publication complete; no hosted HTML page is active."
+		if publication.Hosting.Status == "ACTIVE" {
+			message = "Website Replica source and hosted HTML publication complete."
+		}
 	case "PUBLISHED_DEGRADED":
 		message = "Website Replica publication complete with degraded hosting: source is published, hosting failed, and the native Work page is active."
 		if publication.Hosting.Status == "ACTIVE" {

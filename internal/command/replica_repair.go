@@ -28,10 +28,11 @@ type replicaRepairReview struct {
 }
 
 func newReplicaRepairHostingCommand(runtime *Runtime) *cobra.Command {
-	var publicationID, path, confirm, snapshot string
+	var publicationID, path, entry, confirm, snapshot string
 	command := &cobra.Command{Use: "repair-hosting", Short: "Review and repair page hosting without publishing new source", Args: cobra.NoArgs}
 	command.Flags().StringVar(&publicationID, "publication", "", "degraded Publication UUID")
-	command.Flags().StringVar(&path, "path", "", "repaired project with static output, or validated WorkPage ZIP")
+	command.Flags().StringVar(&path, "path", "", "deployable page directory selected by the agent, or validated WorkPage ZIP")
+	command.Flags().StringVar(&entry, "page-entry", "", "HTML entry relative to the selected page directory; omit for a WorkPage ZIP")
 	command.Flags().StringVar(&confirm, "confirm", "", "exact review digest")
 	command.Flags().StringVar(&snapshot, "request", "", "exact request snapshot from the review")
 	_ = command.MarkFlagRequired("publication")
@@ -48,9 +49,12 @@ func newReplicaRepairHostingCommand(runtime *Runtime) *cobra.Command {
 		var pkg pagepackage.Package
 		var err error
 		if strings.EqualFold(filepath.Ext(path), ".zip") {
+			if entry != "" {
+				return output.Validation("REPLICA_PAGE_OPTIONS_INVALID", "a WorkPage ZIP already declares its entry; omit --page-entry")
+			}
 			pkg, err = pagepackage.Inspect(path)
 		} else {
-			pkg, _, err = pagepackage.BuildWebsiteWorkPage(path, "Repaired website")
+			pkg, err = pagepackage.BuildWebsiteWorkPage(path, entry, "Repaired website")
 		}
 		if err != nil {
 			return err
@@ -86,8 +90,8 @@ func newReplicaRepairHostingCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if publication.Status != "PUBLISHED_DEGRADED" || publication.Result == nil || publication.Rollback.ActivePair == nil || publication.Rollback.ActivePair.ReplicaVersion.ID != publication.Result.VersionID {
-				return output.Policy("REPLICA_REPAIR_NOT_ALLOWED", "only the current degraded source version can repair hosting")
+			if (publication.Status != "PUBLISHED_DEGRADED" && !(publication.Status == "PUBLISHED" && publication.Page == nil && publication.Result != nil && publication.Result.PageRelease == nil)) || publication.Result == nil || publication.Rollback.ActivePair == nil || publication.Rollback.ActivePair.ReplicaVersion.ID != publication.Result.VersionID {
+				return output.Policy("REPLICA_REPAIR_NOT_ALLOWED", "only the current degraded or source-only published version can repair hosting")
 			}
 			requestID := runtime.deps.NewID()
 			if !replicaUUIDPattern.MatchString(requestID) {
@@ -97,11 +101,14 @@ func newReplicaRepairHostingCommand(runtime *Runtime) *cobra.Command {
 			encoded, _ := json.Marshal(review)
 			sum := sha256.Sum256(encoded)
 			args := []string{"replica", "repair-hosting", "--publication", publicationID, "--path", path, "--confirm", hex.EncodeToString(sum[:]), "--request", base64.RawURLEncoding.EncodeToString(encoded)}
+			if entry != "" {
+				args = append(args, "--page-entry", entry)
+			}
 			quoted := []string{"viceme"}
 			for _, arg := range args {
 				quoted = append(quoted, shellQuote(arg))
 			}
-			return output.Confirmation("REPLICA_REPAIR_CONFIRMATION_REQUIRED", "review the repaired page and existing source version before uploading").WithDetails(map[string]any{"nextAction": "CONFIRM_HOSTING_REPAIR", "review": review, "impact": "Only page hosting changes. Source version, price and buyer rights remain unchanged; the original degraded audit is retained.", "confirmCommand": strings.Join(quoted, " "), "confirmArgs": args})
+			return output.Confirmation("REPLICA_REPAIR_CONFIRMATION_REQUIRED", "review the repaired page and existing source version before uploading").WithDetails(map[string]any{"nextAction": "CONFIRM_HOSTING_REPAIR", "review": review, "impact": "Only page hosting changes. Source version, price and buyer rights remain unchanged; the original publication audit is retained.", "confirmCommand": strings.Join(quoted, " "), "confirmArgs": args})
 		}
 		// Replaying create returns the authoritative repair for the same immutable
 		// request. No new source, Publication or sales mutation is involved.

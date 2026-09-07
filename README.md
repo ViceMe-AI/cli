@@ -155,9 +155,16 @@ native user directory of every detected supported Agent:
 
 | Agent | Native directory |
 | --- | --- |
-| Codex | `~/.codex/skills` |
+| Codex | `~/.agents/skills` (shared fallback; written once) |
 | Claude Code | `~/.claude/skills` |
 | WorkBuddy | `~/.workbuddy/skills` |
+
+Codex uses the shared directory documented in [Codex Skills](https://developers.openai.com/codex/skills/).
+`--agent codex` is an alias for `agents`, including install results and doctor
+checks; it no longer writes `$CODEX_HOME/skills` (default `~/.codex/skills`).
+Existing legacy copies are left intact. Claude Code still needs its separate
+native directory: [Claude Code Skills](https://code.claude.com/docs/en/skills)
+does not list `.agents/skills` as a discovery location.
 
 Select a target explicitly with `viceme install --agent codex`, `claude`,
 `workbuddy`, or `agents`. Run `viceme doctor` after installation or repair.
@@ -273,9 +280,9 @@ Never copy an access token into the conversation.
 | `viceme publication update ...` | Replace the complete listing draft from a strict JSON file. |
 | `viceme publication confirm ...` | Confirm the exact current review digest. |
 | `viceme publication publish ...` | Make a confirmed listing public. |
-| `viceme replica preview --url <loopback-page-url>` | Open the anonymous preview shell around the actual page selected and served by the user's agent. The CLI validates the local address and connectivity; the agent observes the page and owns its server lifecycle. Missing input returns `PROVIDE_PREVIEW_URL`, without inspecting project filenames. |
-| `viceme replica publish --path <project-or-zip> --preview-url <loopback-page-url> --preview-reviewed ...` | In the CN market, validate and freeze the source after the agent has observed the page and its official shell embedding. Missing observation returns `REVIEW_LOCAL_PREVIEW`; connectivity alone is not verification. ZIP inputs remain source artifacts, not inferred startup projects. Return one 30-minute final review, then rerun its exact `--confirm` command to upload and submit; `PROCESSING` means submitted but not published. |
-| `viceme replica repair-hosting --publication <ID> --path <project-or-WorkPage-ZIP>` | Review page-only hosting repair, then run the returned confirmation command. Interrupted attempts reuse the original request; source and buyer rights remain unchanged. |
+| `viceme replica preview --url <loopback-page-url>` | Open the actual local page for the creator. The CLI validates connectivity; the creator reviews styling and the agent owns the server lifecycle. WorkBuddy flows present the page with present_files in the task preview. Missing input returns `PROVIDE_PREVIEW_URL`, without inspecting project filenames. |
+| `viceme replica publish --path <project-or-zip> --page-dir <directory> --page-entry <relative-html> --preview-reviewed ...` | Agent 明确选择可部署页面目录和 HTML 入口；CLI 不搜索 `dist/build/out`，不推断框架，不运行构建。纯静态项目可以用 `--page-dir .`，相对目录基于源码根目录（ZIP 输入基于 ZIP 所在目录）。创作者确认预览后冻结 SOURCE 与 PAGE，返回 30 分钟终审；原样执行 `--confirm` 命令上传。未提供页面选择时返回 `PREPARE_HOSTED_PAGE`；`PROCESSING` 仅表示已提交。 |
+| `viceme replica repair-hosting --publication <ID> --path <page-directory> --page-entry <relative-html>` | Agent 选择目录与入口，只修复页面托管；已有 WorkPage ZIP 则以 ZIP 为 `--path`，不传入口参数。执行返回的确认命令，中断后复用同一请求，源码和买家权益保持不变。 |
 | `viceme replica sales --replica <ID>` | Inspect the current source version, price and management permission; suspended owners retain read-only access. |
 | `viceme replica price --replica <ID> --price-cents <cents>` | Review a price change (0 is free), then run the complete returned confirmation command. No source upload is required. |
 | `viceme replica delist --replica <ID>` / `viceme replica relist --replica <ID>` | Review delisting or relisting, then run the complete returned confirmation command. Existing purchase rights remain unchanged. |

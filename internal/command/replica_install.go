@@ -589,7 +589,10 @@ func installReplicaLocked(
 		}
 	}
 	if order.Status == "PENDING" && state.PaymentPresentedAt == "" {
-		presentation, err := prepareReplicaPaymentPresentation(runtime, order)
+		presentation, err := prepareReplicaPaymentPresentation(runtime, order, paymentWidgetData{
+			Title: state.ProductTitle, AmountCents: &state.PriceCents, Currency: state.Currency,
+			PaymentMethodLabel: "微信支付", Status: order.Status, ExpiresAt: order.ExpiresAt, Locale: state.Locale,
+		})
 		if err != nil {
 			return replicaInstallResult{}, err
 		}
@@ -655,7 +658,7 @@ func replicaPaymentConfirmation(state replicaPurchaseState, presentation *api.Co
 		"totalAmountCents":    state.PriceCents,
 		"expiresAt":           state.OrderExpiresAt,
 		"paymentPresentation": presentation,
-	}).WithHint("render only paymentPresentation.imagePath as a Markdown image, show the order number, then rerun the same confirmed install command with a bounded --timeout")
+	}).WithHint("write ![微信支付二维码](paymentPresentation.imageChatSrc) in the chat reply; imageChatSrc is local-file:// plus imagePath. Do not write a bare filesystem path. Open only widgetPath with present_files; do not pass imagePath to present_files, Read the HTML, or call show_widget; then rerun the same confirmed install command with a bounded --timeout")
 }
 
 func installOwnedReplica(
@@ -992,12 +995,12 @@ func (runtime *Runtime) newReplicaRequestID() (string, error) {
 	return requestID, nil
 }
 
-func prepareReplicaPaymentPresentation(runtime *Runtime, order api.WebsiteReplicaOrder) (*api.CommercePaymentPresentation, error) {
+func prepareReplicaPaymentPresentation(runtime *Runtime, order api.WebsiteReplicaOrder, details ...paymentWidgetData) (*api.CommercePaymentPresentation, error) {
 	action := order.PaymentAction
 	if err := validateReplicaPaymentAction(action); err != nil {
 		return nil, err
 	}
-	presentation, err := newCommercePaymentPresentation(runtime, order.OrderNo, order.ExpiresAt, action.Content)
+	presentation, err := newCommercePaymentPresentation(runtime, order.OrderNo, order.ExpiresAt, action.Content, details...)
 	if err != nil {
 		return nil, output.Internal("REPLICA_PAYMENT_PRESENTATION_FAILED", "Website Replica payment QR image could not be prepared", err)
 	}

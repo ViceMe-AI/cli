@@ -20,17 +20,23 @@ import (
 )
 
 func TestReplicaRepairConfirmsOnlyPageAndResumesLostResponse(t *testing.T) {
+	for _, status := range []string{"PUBLISHED_DEGRADED", "PUBLISHED"} {
+		t.Run(status, func(t *testing.T) { testReplicaRepairResumesLostResponse(t, status) })
+	}
+}
+
+func testReplicaRepairResumesLostResponse(t *testing.T, status string) {
 	now := time.Now().UTC().Truncate(time.Second)
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
-	if err := os.MkdirAll(filepath.Join(project, "dist"), 0700); err != nil {
+	if err := os.MkdirAll(project, 0700); err != nil {
 		t.Fatal(err)
 	}
-	html := filepath.Join(project, "dist", "index.html")
+	html := filepath.Join(project, "repaired.html")
 	if err := os.WriteFile(html, []byte("<h1>Repaired</h1>"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	publication := replicaPublicationAPIResponse(now, "PUBLISHED_DEGRADED", "ACTIVATED")
+	publication := replicaPublicationAPIResponse(now, status, "ACTIVATED")
 	publication["rollback"] = map[string]any{"activePair": replicaVersionPair(replicaPublicationTestRequestID, replicaPublicationTestVersionID, 1, replicaPublicationTestWorkID, nil), "availablePairs": []any{}}
 	var original map[string]any
 	var repair map[string]any
@@ -80,7 +86,7 @@ func TestReplicaRepairConfirmsOnlyPageAndResumesLostResponse(t *testing.T) {
 			uploads++
 			data, _ := io.ReadAll(r.Body)
 			contents := readReplicaZIP(t, data)
-			if len(contents["viceme-page.json"]) == 0 || len(contents["VICEME-REPLICA.md"]) != 0 {
+			if len(contents["viceme-page.json"]) == 0 || len(contents["VICEME-REPLICA.md"]) != 0 || string(contents["dist/repaired.html"]) != "<h1>Repaired</h1>" {
 				t.Error("repair must upload only page artifact")
 			}
 			if r.Header.Get("Authorization") != "" {
@@ -111,7 +117,7 @@ func TestReplicaRepairConfirmsOnlyPageAndResumesLostResponse(t *testing.T) {
 		code := Execute(args, Dependencies{Out: &out, ErrOut: &bytes.Buffer{}, HTTPClient: server.Client(), Store: securestore.NewMemory(), Environment: skillcontent.Environment{Home: root, ConfigDir: root + "/config"}, Region: config.RegionCN, APIBaseURL: server.URL, Now: func() time.Time { return now }, NewID: func() string { return replicaPublicationTestRequestID }})
 		return code, out.Bytes()
 	}
-	args := []string{"replica", "repair-hosting", "--publication", replicaPublicationTestID, "--path", project}
+	args := []string{"replica", "repair-hosting", "--publication", replicaPublicationTestID, "--path", project, "--page-entry", "repaired.html"}
 	code, out := run(args)
 	if code != 10 || !countsAre(0, 0, 0) {
 		t.Fatalf("preview wrote: %d %s", code, out)
@@ -140,4 +146,5 @@ func TestReplicaRepairConfirmsOnlyPageAndResumesLostResponse(t *testing.T) {
 	if code != 2 || !countsAre(2, 1, 1) {
 		t.Fatalf("changed page was uploaded: %d %s", code, out)
 	}
+
 }

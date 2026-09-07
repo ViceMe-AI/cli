@@ -61,7 +61,6 @@ func TestFreeSkillInstallIsAnonymousAndVerifiesTheArtifact(t *testing.T) {
 	}
 	stableName := "free-test"
 	for _, filename := range []string{
-		filepath.Join(home, ".codex", "skills", stableName, "SKILL.md"),
 		filepath.Join(home, ".agents", "skills", stableName, "SKILL.md"),
 	} {
 		content, err := os.ReadFile(filename)
@@ -69,7 +68,7 @@ func TestFreeSkillInstallIsAnonymousAndVerifiesTheArtifact(t *testing.T) {
 			t.Fatalf("installed Skill %s is invalid: %q, %v", filename, content, err)
 		}
 	}
-	executable := filepath.Join(home, ".codex", "skills", stableName, "scripts", "run.sh")
+	executable := filepath.Join(home, ".agents", "skills", stableName, "scripts", "run.sh")
 	info, err := os.Stat(executable)
 	if err != nil {
 		t.Fatalf("installed executable is missing: %v", err)
@@ -426,7 +425,7 @@ func TestMarketplaceInstallPersistsProductProvenance(t *testing.T) {
 	if exit != 0 || envelope["ok"] != true {
 		t.Fatalf("free install failed: exit=%d envelope=%#v", exit, envelope)
 	}
-	manifestPath := filepath.Join(home, ".codex", "skills", "free-test", ".viceme", "install-manifest.json")
+	manifestPath := filepath.Join(home, ".agents", "skills", "free-test", ".viceme", "install-manifest.json")
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatalf("installed Skill has no install manifest: %v", err)
@@ -505,7 +504,7 @@ func TestMarketplaceSkillNameCollisionWithAnotherProductFailsClosed(t *testing.T
 	if !strings.Contains(string(reportJSON), "different Product") {
 		t.Fatalf("refusal did not name the foreign Product: %s", reportJSON)
 	}
-	installed, err := os.ReadFile(filepath.Join(home, ".codex", "skills", "shared-skill", "SKILL.md"))
+	installed, err := os.ReadFile(filepath.Join(home, ".agents", "skills", "shared-skill", "SKILL.md"))
 	if err != nil || !strings.Contains(string(installed), "Shared Skill") || strings.Contains(string(installed), "Foreign") {
 		t.Fatalf("first product content was overwritten: %q, %v", installed, err)
 	}
@@ -612,24 +611,37 @@ func downloadableSkillArchiveNamed(t *testing.T, name, heading string) []byte {
 }
 
 func TestOfficialWorkUsesBundledInstallReferenceAndHonorsLifecycle(t *testing.T) {
-	for _, status := range []string{"PUBLISHED", "SUSPENDED"} {
-		t.Run(status, func(t *testing.T) {
+	for _, test := range []struct {
+		status    string
+		command   string
+		errorCode string
+	}{
+		{status: "PUBLISHED", command: "access"},
+		{status: "SUSPENDED", command: "access", errorCode: "OFFICIAL_SKILL_REFERENCE_INVALID"},
+		{status: "PUBLISHED", command: "use", errorCode: "OFFICIAL_SKILL_NO_TRIAL"},
+		{status: "SUSPENDED", command: "use", errorCode: "OFFICIAL_SKILL_REFERENCE_INVALID"},
+	} {
+		t.Run(test.status+"/"+test.command, func(t *testing.T) {
 			var shopDownloads atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/v1/public/creators/viceme/works/sell-a-skill" {
-					writeJSONResponse(w, map[string]any{"creator": map[string]any{"handle": "viceme", "isOfficial": true}, "work": map[string]any{"kind": "SKILL", "slug": "sell-a-skill", "status": status, "canonicalPath": "/viceme/sell-a-skill", "products": []any{}, "officialInstall": map[string]any{"kind": "CLI_BUNDLE", "skillName": "sell-a-skill", "installerDocumentUrl": "https://s3.viceme.cn/start/agent-install.md"}}})
+					writeJSONResponse(w, map[string]any{"creator": map[string]any{"handle": "viceme", "isOfficial": true}, "work": map[string]any{"kind": "SKILL", "slug": "sell-a-skill", "status": test.status, "canonicalPath": "/viceme/sell-a-skill", "products": []any{}, "officialInstall": map[string]any{"kind": "CLI_BUNDLE", "skillName": "sell-a-skill", "installerDocumentUrl": "https://s3.viceme.cn/start/agent-install.md"}}})
 					return
 				}
 				shopDownloads.Add(1)
 				http.NotFound(w, r)
 			}))
 			defer server.Close()
-			exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "access", "/viceme/sell-a-skill")
-			if status == "PUBLISHED" && (exit != 0 || envelope["ok"] != true) {
-				t.Fatalf("official reference failed: %d %#v", exit, envelope)
-			}
-			if status != "PUBLISHED" && (exit == 0 || envelope["ok"] != false) {
-				t.Fatalf("disabled official Work bypassed lifecycle: %d %#v", exit, envelope)
+			exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", test.command, "/viceme/sell-a-skill")
+			if test.errorCode == "" {
+				if exit != 0 || envelope["ok"] != true {
+					t.Fatalf("official reference failed: %d %#v", exit, envelope)
+				}
+			} else {
+				failure, _ := envelope["error"].(map[string]any)
+				if exit == 0 || envelope["ok"] != false || failure["code"] != test.errorCode {
+					t.Fatalf("official Work bypassed lifecycle or trial guard: %d %#v", exit, envelope)
+				}
 			}
 			if shopDownloads.Load() != 0 {
 				t.Fatalf("official Work called Shop package endpoints %d times", shopDownloads.Load())

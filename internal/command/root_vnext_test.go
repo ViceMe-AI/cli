@@ -1170,3 +1170,38 @@ func TestLegacyCredentialRegionOnlyMatchesOfficialAPIOrigins(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigLoadFailureDoesNotExposeLocalPath(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	configDir := filepath.Join(root, "private-user-directory")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "config.json"), []byte("not-json\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	exit := Execute([]string{"version"}, Dependencies{
+		Out: &stdout, Store: securestore.NewMemory(), Updater: &startupRecoveryUpdater{},
+		Environment: skillcontent.Environment{Home: root, ConfigDir: configDir},
+	})
+	if exit != output.ExitInternal {
+		t.Fatalf("invalid configuration exit=%d stdout=%q", exit, stdout.String())
+	}
+	var envelope struct {
+		Error struct {
+			Code    string         `json:"code"`
+			Details map[string]any `json:"details"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("configuration failure returned invalid JSON: %v stdout=%q", err, stdout.String())
+	}
+	if envelope.Error.Code != "config_load" || envelope.Error.Details["stage"] != "decode" {
+		t.Fatalf("configuration failure lost its stable classification: %#v", envelope)
+	}
+	if _, exposed := envelope.Error.Details["path"]; exposed || strings.Contains(stdout.String(), root) {
+		t.Fatalf("configuration failure exposed its local path: %s", stdout.String())
+	}
+}

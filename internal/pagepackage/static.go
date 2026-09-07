@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -21,35 +22,25 @@ var (
 	replicaEntryPattern     = regexp.MustCompile(`VICEME-REPLICA:VMR-[A-Z0-9]{20}|["']buyerEntry["']\s*:`)
 )
 
-// BuildWebsiteWorkPage packages an already-generated static directory. It is
-// deliberately read-only: it never installs dependencies, runs scripts, or
-// fetches remote assets.
-func BuildWebsiteWorkPage(projectPath, name string) (Package, bool, error) {
-	info, err := os.Lstat(projectPath)
+// BuildWebsiteWorkPage packages exactly the directory and entry selected by the
+// agent. It never discovers output directories, installs dependencies, runs
+// scripts, or fetches remote assets.
+func BuildWebsiteWorkPage(directory, entry, name string) (Package, error) {
+	if !isSafeFilePath(entry) || !strings.EqualFold(path.Ext(entry), ".html") {
+		return Package{}, output.Validation("PAGE_ENTRY_INVALID", "select a relative HTML entry inside the page directory")
+	}
+	info, err := os.Lstat(directory)
 	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return Package{}, false, nil
+		return Package{}, output.Validation("PAGE_STATIC_OUTPUT_INVALID", "select an existing page directory that is not a symlink")
 	}
-	var outputDirectory string
-	for _, candidate := range []string{"dist", "build", "out"} {
-		directory := filepath.Join(projectPath, candidate)
-		entry, statErr := os.Lstat(filepath.Join(directory, "index.html"))
-		if statErr == nil && entry.Mode().IsRegular() && entry.Mode()&os.ModeSymlink == 0 {
-			outputDirectory = directory
-			break
-		}
-	}
-	if outputDirectory == "" {
-		return Package{}, false, nil
-	}
-	data, err := archiveStaticDirectory(outputDirectory, name)
+	data, err := archiveStaticDirectory(directory, entry, name)
 	if err != nil {
-		return Package{}, true, err
+		return Package{}, err
 	}
-	pkg, err := inspectBytes(outputDirectory, "page.zip", data)
-	return pkg, true, err
+	return inspectBytes(directory, "page.zip", data)
 }
 
-func archiveStaticDirectory(directory, name string) ([]byte, error) {
+func archiveStaticDirectory(directory, entry, name string) ([]byte, error) {
 	files := make([]string, 0)
 	var total int64
 	err := filepath.WalkDir(directory, func(filename string, entry fs.DirEntry, walkErr error) error {
@@ -59,9 +50,10 @@ func archiveStaticDirectory(directory, name string) ([]byte, error) {
 		if filename == directory {
 			return nil
 		}
-		// Project recovery data is never a deployable static asset, even if a
-		// user's build copied the entire project into its output directory.
-		if strings.EqualFold(entry.Name(), ".viceme") {
+		// A no-build site's public files may share the project directory with
+		// private tooling state. These entries are never hosted, including when
+		// a build copied them into its output directory.
+		if excludeStaticEntry(entry.Name()) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -101,7 +93,7 @@ func archiveStaticDirectory(directory, name string) ([]byte, error) {
 		Kind:       "WorkPage",
 		Metadata:   api.PageCustomizationManifestMetadata{Name: strings.TrimSpace(name)},
 		Spec: api.PageCustomizationManifestSpec{
-			Entry: "dist/index.html", SDKVersion: "1", Capabilities: []string{"context.read"},
+			Entry: path.Join("dist", entry), SDKVersion: "1", Capabilities: []string{"context.read"},
 		},
 	}
 	manifestBytes, err := json.Marshal(manifest)
@@ -150,6 +142,23 @@ func archiveStaticDirectory(directory, name string) ([]byte, error) {
 		return nil, output.Internal("PAGE_PACKAGE_BUILD_FAILED", "could not finalize the page package", err)
 	}
 	return buffer.Bytes(), nil
+}
+
+func excludeStaticEntry(name string) bool {
+	name = strings.ToLower(name)
+	if name == ".env" || strings.HasPrefix(name, ".env.") || strings.HasPrefix(name, "._") {
+		return true
+	}
+	switch name {
+	case ".git", ".hg", ".svn", ".viceme", ".workbuddy", ".agents", ".codex", ".claude",
+		".idea", ".vscode", ".cache", ".turbo", ".venv", ".ds_store",
+		"node_modules", "vendor", "venv", "__pycache__", "coverage",
+		"package.json", "package-lock.json", "npm-shrinkwrap.json", "pnpm-lock.yaml",
+		"yarn.lock", "bun.lock", "bun.lockb", "viceme-replica.md", "_source.json", "thumbs.db":
+		return true
+	default:
+		return false
+	}
 }
 
 func writeStaticZIPEntry(writer *zip.Writer, name string, data []byte) error {

@@ -159,58 +159,37 @@ class MakeCopyTest(unittest.TestCase):
 
         self.assertEqual(raised.exception.code, "MAKE_COPY_ENTRY_INVALID")
 
-    def test_reports_paid_recovery_without_exposing_secret(self):
-        authority = make_copy.authority_for_work_url(
-            "https://viceme.cn/alice/site.md"
-        )
+    def test_preview_never_reads_private_recovery_or_queries_order(self):
+        work_url = "https://viceme.cn/alice/site.md"
+        with mock.patch.object(
+            make_copy, "resolve_work", return_value=(f"VICEME-REPLICA:{SHORT_CODE}", replica())
+        ), mock.patch.object(
+            make_copy, "read_state", side_effect=AssertionError("private state read")
+        ), mock.patch.object(
+            make_copy, "recover_order_status", side_effect=AssertionError("order query")
+        ):
+            inspected = make_copy.inspect(work_url)
+        self.assertEqual(inspected["nextAction"], "CONFIRM_INLINE_PREVIEW")
+        self.assertNotIn("standaloneRecoveryAvailable", inspected)
+
+    def test_confirmed_install_recovers_paid_order_without_checkout(self):
         with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            receipt = make_copy.standalone_receipt_path(authority, SHORT_CODE, root)
-            receipt.write_text(
-                json.dumps(
-                    {
-                        "schemaVersion": 1,
-                        "replicaId": REPLICA_ID,
-                        "orderNo": ORDER_NO,
-                        "recoverySecret": SECRET,
-                    }
-                )
-                + "\n"
-            )
-            receipt.chmod(0o600)
-
-            def request(method, url, **_kwargs):
-                if "/public/creators/" in url:
-                    return response(
-                        200,
-                        {
-                            "work": {
-                                "websiteReplicaAction": {
-                                    "instruction": f"VICEME-REPLICA:{SHORT_CODE}"
-                                }
-                            }
-                        },
-                    )
-                if url.endswith("/recover-status"):
-                    return response(
-                        200,
-                        {
-                            "orderNo": ORDER_NO,
-                            "payment": {
-                                "status": "PAID",
-                                "paidAt": "2026-09-04T00:00:00.000Z",
-                                "closedAt": None,
-                            },
-                            "fulfillment": None,
-                        },
-                    )
-                return response(200, replica())
-
-            inspected = make_copy.inspect(
-                authority.work_url, request_fn=request, recovery_root=root
-            )
-            self.assertTrue(inspected["standaloneRecoveryAvailable"])
-            self.assertNotIn("recoverySecret", json.dumps(inspected))
+            target = Path(temporary) / "copy"
+            authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+            store = {"filename": Path(temporary) / "state.json", "completionFilename": Path(temporary) / "complete.json"}
+            state = {"orderNo": ORDER_NO, "downloadRecoverySecret": SECRET}
+            with mock.patch.object(make_copy, "resolve_work", return_value=("instruction", replica())), mock.patch.object(
+                make_copy, "state_store", return_value=store
+            ), mock.patch.object(make_copy, "with_lock", side_effect=lambda _store, run: run()), mock.patch.object(
+                make_copy, "read_state", side_effect=[None, state]
+            ), mock.patch.object(make_copy, "validate_state", return_value=state), mock.patch.object(
+                make_copy, "recover_order_status", return_value={"payment": {"status": "PAID"}}
+            ) as status, mock.patch.object(make_copy, "try_recover_download", return_value={"download": True}), mock.patch.object(
+                make_copy, "complete_install", return_value={"target": str(target)}
+            ), mock.patch.object(make_copy, "ensure_checkout", side_effect=AssertionError("new checkout")):
+                installed = make_copy.install(authority.work_url, replica()["product"]["priceCents"], target_path=str(target))
+            status.assert_called_once()
+            self.assertEqual(installed["nextAction"], "DEPLOY")
 
     def test_order_number_alone_does_not_authorize_attempt_cancellation(self):
         authority = make_copy.authority_for_work_url(

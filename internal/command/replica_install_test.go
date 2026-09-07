@@ -121,7 +121,7 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 			if statusCalls.Add(1) > 1 {
 				status = "PAID"
 			}
-			writeJSONResponse(writer, map[string]any{"orderNo": orderNo, "payment": map[string]any{"status": status, "paidAt": nil, "closedAt": nil}, "fulfillment": nil, "serviceCase": nil})
+			writeJSONResponse(writer, map[string]any{"orderNo": orderNo, "payment": map[string]any{"status": status, "paidAt": nil, "closedAt": nil}, "fulfillment": nil})
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/website-replicas/"+shortCode+"/download":
 			writeJSONResponse(writer, map[string]any{
 				"replicaId": replicaID, "versionId": versionID, "version": 7, "fileName": "source.zip",
@@ -614,7 +614,7 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 			if paid.Load() {
 				status = "PAID"
 			}
-			writeJSONResponse(writer, map[string]any{"orderNo": orderNo, "payment": map[string]any{"status": status, "paidAt": nil, "closedAt": nil}, "fulfillment": nil, "serviceCase": nil})
+			writeJSONResponse(writer, map[string]any{"orderNo": orderNo, "payment": map[string]any{"status": status, "paidAt": nil, "closedAt": nil}, "fulfillment": nil})
 		case "/v1/website-replicas/" + shortCode + "/download":
 			writeJSONResponse(writer, map[string]any{
 				"replicaId": replicaID, "versionId": versionID, "version": 1, "fileName": "source.zip",
@@ -1165,7 +1165,7 @@ func replicaPaidControlServer(t *testing.T, downloadURL string, size int, digest
 		case "/v1/website-replicas/orders":
 			writeJSONResponse(writer, map[string]any{"orderNo": orderNo, "status": "PENDING", "paymentAction": map[string]any{"type": "REDIRECT", "url": server.URL + "/payment#temporary-capability"}, "expiresAt": time.Now().UTC().Add(time.Minute).Format(time.RFC3339)})
 		case "/v1/website-replicas/orders/" + orderNo + "/status":
-			writeJSONResponse(writer, map[string]any{"orderNo": orderNo, "payment": map[string]any{"status": "PAID", "paidAt": nil, "closedAt": nil}, "fulfillment": nil, "serviceCase": nil})
+			writeJSONResponse(writer, map[string]any{"orderNo": orderNo, "payment": map[string]any{"status": "PAID", "paidAt": nil, "closedAt": nil}, "fulfillment": nil})
 		case "/v1/website-replicas/" + shortCode + "/download":
 			writeJSONResponse(writer, map[string]any{
 				"replicaId": replicaID, "versionId": "55555555-5555-4555-8555-555555555555", "version": 1,
