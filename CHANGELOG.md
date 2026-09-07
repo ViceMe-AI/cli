@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.35.0] - 2026-09-07
+
+### Features
+
+- complete creator page onboarding flow (`95b5dc1`)
+- support loopback template catalog demos (`0260fab`)
+- use cloud creator template catalog (`21ed50f`)
+- fetch verified cloud creator templates (`6cc99cf`)
+- build creator template catalog artifacts (`87f5a00`)
+- guide creator page onboarding (`1cfad54`)
+
+### Fixes
+
+- 校正模板拉取验收路径 (`bc2cfda`)
+- 使用独立模板册公开桶 (`e926221`)
+- 修复模板册 CI 与错误边界 (`5f79228`)
+- 收紧模板册发布与 Mock 隔离 (`0be4b14`)
+- quote template catalog key expansion (`3b9d922`)
+- restore CLI-only update lifecycle (`8517f7c`)
+
+### Other Changes
+
+- 更新官方 Skill 发布清单 (`1f5f19b`)
+- 移除开发过程文档 (`49a9e94`)
+- define creator card update recovery (`6a5a2db`)
+- align creator template flow with cloud catalog (`9e35bcf`)
+- add development template catalog fixtures (`1183991`)
+- publish creator template catalog (`ab710f3`)
+- design cloud creator template catalog (`e95f56d`)
+
 ## [0.34.0] - 2026-09-07
 
 ### Features
