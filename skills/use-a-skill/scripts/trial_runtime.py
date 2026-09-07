@@ -289,7 +289,18 @@ class Failure(Exception):
 
 
 def emit(payload):
-    sys.stdout.write(json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n")
+    # Hosts parse one UTF-8 JSON line. Writing through the text wrapper uses the
+    # console code page on Windows (cp1252 in CI), which cannot encode Chinese
+    # contract fields such as paymentPresentation.message.
+    line = json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
+    stdout = sys.stdout
+    stdout.flush()
+    buffer = getattr(stdout, "buffer", None)
+    if buffer is not None:
+        buffer.write(line.encode("utf-8"))
+        buffer.flush()
+        return
+    stdout.write(line)
 
 
 def emit_ok(payload):

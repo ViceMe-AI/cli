@@ -10,7 +10,7 @@ import tempfile
 import urllib.request
 import zipfile
 
-RUNTIME_SHA256 = "6b801bbdef7edd31b02af7da87c74a7f268353d60e805514e63b04c1a6885c7b"
+RUNTIME_SHA256 = "0c7342c84013ab01af97ac8f15b388430c2ecd14ba596b641594e34264dd2198"
 SCRIPT_ORIGIN = {"cn": "https://s3.viceme.cn", "global": "https://s3.viceme.ai"}
 API_ORIGIN = {"cn": "https://api.viceme.cn", "global": "https://api.viceme.ai"}
 RUNTIME_FILES = {
@@ -64,10 +64,22 @@ def main():
         return runtime["run"](sys.argv[1:])
 
 
+def emit_line(payload):
+    line = json.dumps(payload, ensure_ascii=False) + "\n"
+    stdout = sys.stdout
+    stdout.flush()
+    buffer = getattr(stdout, "buffer", None)
+    if buffer is not None:
+        buffer.write(line.encode("utf-8"))
+        buffer.flush()
+        return
+    stdout.write(line)
+
+
 if __name__ == "__main__":
     try:
         sys.exit(main())
     except Exception:
-        print(json.dumps({"ok": False, "code": "RUNTIME_BOOTSTRAP_FAILED",
-                          "message": "运行资源未完整取得或校验失败；保留当前安装与凭证，请重试安装。"}, ensure_ascii=False))
+        emit_line({"ok": False, "code": "RUNTIME_BOOTSTRAP_FAILED",
+                   "message": "运行资源未完整取得或校验失败；保留当前安装与凭证，请重试安装。"})
         sys.exit(1)

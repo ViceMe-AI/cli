@@ -77,6 +77,25 @@ class BootstrapTests(unittest.TestCase):
                         self.module.main()
                     execute.assert_not_called()
 
+    def test_bootstrap_error_writes_utf8_on_legacy_windows_stdout(self):
+        class LegacyStdout:
+            encoding = "cp1252"
+
+            def __init__(self):
+                self.buffer = io.BytesIO()
+
+            def write(self, text):
+                return self.buffer.write(text.encode("cp1252"))
+
+            def flush(self):
+                pass
+
+        fake = LegacyStdout()
+        payload = {"ok": False, "code": "RUNTIME_BOOTSTRAP_FAILED", "message": "运行资源未完整取得或校验失败"}
+        with mock.patch.object(sys, "stdout", fake):
+            self.module.emit_line(payload)
+        self.assertEqual(fake.buffer.getvalue(), (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8"))
+
 
 if __name__ == "__main__":
     unittest.main()

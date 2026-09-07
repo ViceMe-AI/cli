@@ -404,6 +404,28 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertEqual(result["code"], "UNEXPECTED_ERROR")
         self.assertNotIn("boom", result["message"])
 
+    def test_emit_writes_utf8_bytes_on_legacy_windows_stdout(self):
+        # Windows CI and consoles default to cp1252. The purchase contract
+        # includes Chinese; writing through the text wrapper raises UnicodeEncodeError.
+        class LegacyStdout:
+            encoding = "cp1252"
+
+            def __init__(self):
+                self.buffer = io.BytesIO()
+
+            def write(self, text):
+                return self.buffer.write(text.encode("cp1252"))
+
+            def flush(self):
+                pass
+
+        payload = {"message": "微信支付二维码", "ok": True}
+        fake = LegacyStdout()
+        with mock.patch.object(sys, "stdout", fake):
+            trial.emit(payload)
+        line = json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
+        self.assertEqual(fake.buffer.getvalue(), line.encode("utf-8"))
+
     def test_agent_env_markers_scope_the_install_target(self):
         home = self.home
         with mock.patch.dict(os.environ, {"CODEBUDDY_SESSION_ID": "s"}):
