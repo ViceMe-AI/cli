@@ -12,6 +12,7 @@ Replica 源码包、页面包、发布状态和项目绑定仍使用原子替换
 
 ```bash
 viceme replica publish --path /absolute/project --state-project /absolute/project \
+  --page-dir . --page-entry index.html \
   --slug my-site --title '我的网站' --summary '网站说明' --price-cents 1 \
   --preview-url http://127.0.0.1:4173/ --preview-reviewed
 ```

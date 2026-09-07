@@ -189,16 +189,25 @@ func TestReplicaStatusIncludesActivatedPageReleaseForHostedPublication(t *testin
 
 func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *testing.T) {
 	for _, projectStorage := range []bool{false, true} {
-		t.Run(fmt.Sprintf("project-storage-%t", projectStorage), func(t *testing.T) { testReplicaPublicationStorageLifecycle(t, projectStorage) })
+		for _, pageDirectory := range []string{".", "public site"} {
+			t.Run(fmt.Sprintf("project-storage-%t/page-%s", projectStorage, pageDirectory), func(t *testing.T) {
+				testReplicaPublicationStorageLifecycle(t, projectStorage, pageDirectory)
+			})
+		}
 	}
 }
 
-func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
+func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, pageDirectory string) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	project := filepath.Join(t.TempDir(), "site")
 	if err := os.MkdirAll(filepath.Join(project, "node_modules"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	canonicalProject, err := filepath.EvalSymlinks(project)
+	if err != nil {
+		t.Fatal(err)
+	}
+	project = canonicalProject
 	if err := os.WriteFile(filepath.Join(project, "package.json"), []byte(`{
   "packageManager": "pnpm@9.15.0",
   "scripts": {"dev": "vite"},
@@ -209,10 +218,10 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 	if err := os.WriteFile(filepath.Join(project, "index.html"), []byte("<h1>Replica source</h1>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(project, "dist"), 0o700); err != nil {
+	if err := os.MkdirAll(filepath.Join(project, pageDirectory), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(project, "dist", "index.html"), []byte("<h1>Hosted page</h1>"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(project, pageDirectory, "landing.html"), []byte("<h1>Hosted page</h1>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -369,6 +378,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 	}
 	arguments := []string{
 		"replica", "publish", "--path", project, "--slug", "replica-site",
+		"--page-dir", pageDirectory, "--page-entry", "landing.html",
 		"--title", "Replica title", "--summary", "Replica summary", "--price-cents", "990",
 		"--preview-reviewed",
 		"--canonical-origin", "HTTPS://Example.COM:443/",
@@ -396,12 +406,16 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 	}
 	reviewError, _ := reviewEnvelope["error"].(map[string]any)
 	details, _ := reviewError["details"].(map[string]any)
+	if !strings.Contains(details["confirmCommand"].(string), "--page-dir "+shellQuote(filepath.Join(project, pageDirectory))+" --page-entry landing.html") {
+		t.Fatal("confirmation lost the selected page directory or entry")
+	}
 	if projectStorage && !strings.Contains(details["confirmCommand"].(string), "--state-project ") {
 		t.Fatal("confirmation lost project storage")
 	}
 	review, _ := details["review"].(map[string]any)
 	pageArtifact, hasPageArtifact := review["pageArtifact"].(map[string]any)
 	if reviewError["code"] != "REPLICA_PUBLICATION_CONFIRMATION_REQUIRED" || details["confirmationVersion"] != confirmationVersion ||
+		review["pageDirectory"] != filepath.Join(project, pageDirectory) || review["pageEntry"] != "landing.html" ||
 		review["resolution"] != "CREATE" || review["merchantAccountId"] != replicaPublicationTestMerchantID ||
 		review["merchantDisplayName"] != "Replica Studio" || review["creatorAccountId"] != replicaPublicationTestCreatorID ||
 		review["creatorHandle"] != "replica-maker" || review["creatorDisplayName"] != "Replica Maker" ||
@@ -420,10 +434,23 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 	if err := os.WriteFile(filepath.Join(project, "index.html"), []byte("<h1>Changed after final review</h1>"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(project, pageDirectory, "landing.html"), []byte("<h1>Page changed after final review</h1>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	var submittedOutput bytes.Buffer
 	dependencies.Out = &submittedOutput
 	confirmedArguments := append(append([]string{}, arguments...), "--confirm", confirmationVersion)
+	for _, changed := range [][]string{{"--page-dir", "unreviewed-page"}, {"--page-entry", "other.html"}} {
+		submittedOutput.Reset()
+		if exit := Execute(append(append([]string{}, confirmedArguments...), changed...), dependencies); exit != output.ExitConfirmation || !strings.Contains(submittedOutput.String(), "REPLICA_PUBLICATION_CONFIRMATION_CHANGED") {
+			t.Fatalf("changed page selection reused confirmation: exit=%d output=%s", exit, submittedOutput.String())
+		}
+		if createCalls != 1 || len(uploaded) != 0 || len(uploadedPage) != 0 {
+			t.Fatal("changed page selection reached remote publication")
+		}
+	}
+	submittedOutput.Reset()
 	if exit := Execute(confirmedArguments, dependencies); exit != 0 {
 		t.Fatalf("confirmed publication failed: exit=%d output=%q", exit, submittedOutput.String())
 	}
@@ -450,8 +477,13 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool) {
 	if contents := readReplicaZIP(t, uploaded); string(contents["index.html"]) != "<h1>Replica source</h1>" {
 		t.Fatalf("working-tree changes replaced the confirmed frozen source: %q", contents["index.html"])
 	}
-	if contents := readReplicaZIP(t, uploadedPage); string(contents["dist/index.html"]) != "<h1>Hosted page</h1>" || len(contents["viceme-page.json"]) == 0 {
+	if contents := readReplicaZIP(t, uploadedPage); string(contents["dist/landing.html"]) != "<h1>Hosted page</h1>" || len(contents["viceme-page.json"]) == 0 {
 		t.Fatalf("hosted page package did not preserve the frozen static output: %#v", contents)
+	}
+	for name := range readReplicaZIP(t, uploadedPage) {
+		if strings.Contains(name, ".viceme/") || name == "dist/package.json" {
+			t.Fatalf("project metadata leaked into hosted page: %s", name)
+		}
 	}
 	if previewSession.closed.Load() {
 		t.Fatal("publication touched a preview session it must not start")
@@ -2480,7 +2512,7 @@ func TestReplicaPublishRejectsChangedDegradationReview(t *testing.T) {
 	deps.NewID = func() string { return replicaPublicationTestRequestID }
 	var out bytes.Buffer
 	deps.Out = &out
-	if exit := Execute(append(replicaPublicationTestArguments(project, "replica-site"), "--replica-only=false"), deps); exit != output.ExitInternal || !strings.Contains(out.String(), "RESPONSE_INVALID") {
+	if exit := Execute(append(replicaPublicationTestArguments(project, "replica-site"), "--replica-only=false", "--page-dir", "dist", "--page-entry", "index.html"), deps); exit != output.ExitInternal || !strings.Contains(out.String(), "RESPONSE_INVALID") {
 		t.Fatalf("changed policy was accepted: exit=%d output=%s", exit, out.String())
 	}
 	if calls != 1 {
@@ -2488,9 +2520,15 @@ func TestReplicaPublishRejectsChangedDegradationReview(t *testing.T) {
 	}
 }
 
-func TestReplicaPublishRequiresHostedOutputBeforeRemoteWork(t *testing.T) {
+func TestReplicaPublishRequiresAgentPageSelectionBeforeRemoteWork(t *testing.T) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	project := newReplicaPublicationTestProject(t)
+	if err := os.MkdirAll(filepath.Join(project, "dist"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(project, "dist", "index.html"), []byte("<h1>Do not infer this output</h1>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
@@ -2501,9 +2539,12 @@ func TestReplicaPublishRequiresHostedOutputBeforeRemoteWork(t *testing.T) {
 	deps := replicaPublicationTestDependencies(t, t.TempDir(), server, now)
 	var out bytes.Buffer
 	deps.Out = &out
-	args := append(replicaPublicationTestArguments(project, "replica-site"), "--replica-only=false")
-	if code := Execute(args, deps); code != output.ExitValidation || !strings.Contains(out.String(), "REPLICA_HOSTED_PAGE_REQUIRED") || !strings.Contains(out.String(), "PREPARE_HOSTED_PAGE") {
-		t.Fatalf("missing HTML was not rejected: exit=%d output=%s", code, out.String())
+	for _, selection := range [][]string{nil, {"--page-dir", "."}, {"--page-entry", "index.html"}} {
+		out.Reset()
+		args := append(replicaPublicationTestArguments(project, "replica-site"), "--replica-only=false")
+		if code := Execute(append(args, selection...), deps); code != output.ExitValidation || !strings.Contains(out.String(), "REPLICA_HOSTED_PAGE_REQUIRED") || !strings.Contains(out.String(), "PREPARE_HOSTED_PAGE") || !strings.Contains(out.String(), "--page-dir") || !strings.Contains(out.String(), "--page-entry") {
+			t.Fatalf("missing selection was not rejected: exit=%d output=%s", code, out.String())
+		}
 	}
 	if calls.Load() != 0 {
 		t.Fatalf("made %d remote calls without HTML", calls.Load())

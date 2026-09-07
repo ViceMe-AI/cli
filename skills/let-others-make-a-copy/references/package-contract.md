@@ -4,6 +4,8 @@
 
 优先把项目根目录直接交给 `viceme replica publish --path <project-root>`。CLI 从调用时的当前工作树生成确定性 ZIP，不要求先 commit；应交付的已跟踪、未跟踪和未提交源码都会按同一规则进入冻结清单。已有 ZIP 仍可作为 `--path` 输入，但必须已经满足本合同。
 
+托管 PAGE 与完整 SOURCE 分开选择：Agent 用 `--page-dir <deployable-directory> --page-entry <relative-html-entry>` 明确指定页面目录和入口。纯静态项目可以直接选择源码根目录，目录和入口不必叫 `dist` 或 `index.html`。CLI 不搜索框架产物，只校验并保留选定目录内的相对路径，ZIP 内部统一放在 `dist/` 下；依赖、工具元数据、环境文件与恢复状态不进入 PAGE。HTML 引用的资源仍须满足现有托管校验。
+
 高层发布会把合法已有 ZIP 解压到 owner-only 临时目录用于本地预览，终审与上传仍绑定原 ZIP 字节；本地 Publication 绑定写入该 ZIP 同级的 `.viceme/website-replica.json`。临时预览目录、`.viceme` 和任何上传能力都不得进入源码包。
 
 CLI 默认排除依赖、缓存、构建产物、版本控制元数据、编辑器元数据、系统垃圾文件、`.viceme` 和真实 `.env` 文件。安全的 `.env.example`、`.env.sample`、`.env.template` 可以保留，但只能含公开配置或明确占位值。
@@ -27,7 +29,7 @@ CLI 默认排除依赖、缓存、构建产物、版本控制元数据、编辑�
 
 ## 平台控制内容
 
-源码 ZIP 不得包含有效 `VICEME-REPLICA:VMR-...` instruction、真实 `buyerEntry`，也不得包含 ViceMe 官方做同款挂件、弹窗或浏览器接入实现。ViceMe 托管页入口由平台宿主提供；发布前，Agent 在原项目加入普通预览按钮并交给创作者确认；预览态只在本地回环地址显示且不复制内容，允许随工作树冻结。发布成功后在原项目原位启用仅复制公开作品 `.md` URL 的正式功能，不复制平台挂件实现或上述控制内容。本次已冻结制品不包含发布后才写入的正式地址与复制文案。
+源码 ZIP 不得包含有效 `VICEME-REPLICA:VMR-...` instruction、真实 `buyerEntry`，也不得包含 ViceMe 官方做同款挂件、弹窗或浏览器接入实现。ViceMe 托管页入口由平台宿主提供；发布前，Agent 在原项目加入普通预览按钮并交给创作者确认；预览态只在本地回环地址显示且不复制内容，允许随工作树冻结。发布成功后在原项目原位启用复制完整创作邀请的正式功能，文案包含真实作者 handle、作品标题与公开作品 `.md` URL，不复制平台挂件实现或上述控制内容。本次已冻结制品不包含发布后才写入的正式地址与复制文案。
 
 ## 冻结与确认
 

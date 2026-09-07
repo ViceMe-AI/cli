@@ -48,6 +48,8 @@ type Pending struct {
 	EndpointOrigin              string                                              `json:"endpointOrigin"`
 	Market                      string                                              `json:"market"`
 	ProjectPath                 string                                              `json:"projectPath"`
+	PageDirectory               string                                              `json:"pageDirectory,omitempty"`
+	PageEntry                   string                                              `json:"pageEntry,omitempty"`
 	ProjectFingerprint          string                                              `json:"projectFingerprint"`
 	ClientRequestID             string                                              `json:"clientRequestId"`
 	Request                     api.CreateWebsiteReplicaPublicationRequest          `json:"request"`
