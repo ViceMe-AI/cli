@@ -13,7 +13,7 @@ ifneq ($(strip $(COMMERCE_SKILL_TRUST_KEYS)),)
 LDFLAGS += -X github.com/ViceMe-AI/cli/internal/buildinfo.CommerceSkillTrustKeys=$(COMMERCE_SKILL_TRUST_KEYS)
 endif
 
-.PHONY: build test test-race check skill-check quality-check trial-script-test npm-test npm-package-check release-manifest release-manifest-check skills-archive release-prepare clean update-check
+.PHONY: build test test-race check skill-check quality-check trial-script-test trial-runtime npm-test npm-package-check release-manifest release-manifest-check skills-archive release-prepare clean update-check
 
 build:
 	mkdir -p bin
@@ -35,9 +35,11 @@ check: test
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/viceme ./cmd/viceme
 	$(MAKE) release-manifest-check
 	$(MAKE) trial-script-test
+	node --test quality/widgets.test.cjs
 
 trial-script-test:
-	python3 quality/trial-script_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 quality/trial-script_test.py
+	PYTHONDONTWRITEBYTECODE=1 python3 quality/trial-bootstrap_test.py
 
 quality-check: test npm-package-check
 
@@ -52,13 +54,17 @@ npm-package-check: build
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm VICEME_TEST_BINARY=$(CURDIR)/bin/viceme-release-smoke VICEME_TEST_PACKAGE_TARBALL=$(CURDIR)/.cache/npm-pack/viceme-ai-cli-$(NPM_VERSION).tgz npm test
 	NPM_CONFIG_CACHE=$(CURDIR)/.cache/npm npm pack --dry-run
 
-release-manifest:
+trial-runtime:
+	$(PYTHON) quality/build-trial-runtime.py
+
+release-manifest: trial-runtime
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) run ./cmd/release-manifest --output quality/release-manifest.json
 
 skills-archive:
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) run ./cmd/skills-archive --output dist/skills
 
 release-manifest-check:
+	$(PYTHON) quality/build-trial-runtime.py --check
 	@temporary="$$(mktemp)"; \
 	trap 'rm -f "$$temporary"' EXIT; \
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) run ./cmd/release-manifest --output "$$temporary"; \

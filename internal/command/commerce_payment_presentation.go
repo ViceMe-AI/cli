@@ -48,7 +48,19 @@ func prepareCommercePaymentPresentation(runtime *Runtime, order *api.CommerceOrd
 	if action.Type != "QR_CODE" || strings.TrimSpace(action.Content) == "" {
 		return errors.New("paid WeChat NATIVE order did not return a QR_CODE action")
 	}
-	presentation, err := newCommercePaymentPresentation(runtime, order.OrderNo, order.ExpiresAt, action.Content)
+	var item struct {
+		ProductTitle string `json:"productTitle"`
+	}
+	_ = json.Unmarshal(order.Item, &item)
+	title := item.ProductTitle
+	if strings.TrimSpace(title) == "" {
+		title = "订单支付"
+	}
+	presentation, err := newCommercePaymentPresentation(runtime, order.OrderNo, order.ExpiresAt, action.Content, paymentWidgetData{
+		Title: title, AmountCents: &order.AmountCents, Currency: order.Currency,
+		PaymentMethodLabel: "微信支付", Status: order.Status, ExpiresAt: order.ExpiresAt,
+		Locale: localeForRuntimeMarket(runtime),
+	})
 	if err != nil {
 		return err
 	}
@@ -59,23 +71,47 @@ func prepareCommercePaymentPresentation(runtime *Runtime, order *api.CommerceOrd
 	return nil
 }
 
-func newCommercePaymentPresentation(runtime *Runtime, orderNo, expiresAt, content string) (*api.CommercePaymentPresentation, error) {
+func newCommercePaymentPresentation(runtime *Runtime, orderNo, expiresAt, content string, details ...paymentWidgetData) (*api.CommercePaymentPresentation, error) {
 	absolutePath, err := createCommercePaymentQRImage(runtime, orderNo, content)
 	if err != nil {
 		return nil, err
 	}
-	return commercePaymentPresentation(absolutePath, expiresAt), nil
+	data := paymentWidgetData{Title: "订单支付", PaymentMethodLabel: "微信支付", Status: "PENDING", ExpiresAt: expiresAt, Locale: localeForRuntimeMarket(runtime)}
+	if len(details) > 0 {
+		data = details[0]
+	}
+	widgetPath, err := createPaymentWidget(runtime, absolutePath, content, data)
+	if err != nil {
+		return nil, err
+	}
+	presentation := commercePaymentPresentation(absolutePath, expiresAt)
+	presentation.WidgetPath = widgetPath
+	presentation.WidgetMIMEType = "text/html"
+	return presentation, nil
 }
 
 func commercePaymentPresentation(absolutePath, expiresAt string) *api.CommercePaymentPresentation {
 	return &api.CommercePaymentPresentation{
-		Type:      "LOCAL_IMAGE",
-		Purpose:   "PAYMENT_QR_CODE",
-		MIMEType:  "image/png",
-		ImagePath: absolutePath,
-		AltText:   "微信支付二维码",
-		ExpiresAt: expiresAt,
+		Type:         "LOCAL_IMAGE",
+		Purpose:      "PAYMENT_QR_CODE",
+		MIMEType:     "image/png",
+		ImagePath:    absolutePath,
+		ImageChatSrc: localFileChatSrc(absolutePath),
+		AltText:      "微信支付二维码",
+		ExpiresAt:    expiresAt,
 	}
+}
+
+// localFileChatSrc is the WorkBuddy chat Markdown image URL. The renderer
+// only loads local PNG through the local-file:// protocol; a bare /Users/...
+// path is treated as an origin-relative URL and does not display.
+func localFileChatSrc(absolutePath string) string {
+	normalized := strings.ReplaceAll(absolutePath, "\\", "/")
+	if len(normalized) >= 2 && normalized[1] == ':' {
+		normalized = "/" + normalized
+	}
+	escaped := strings.NewReplacer("#", "%23", "?", "%3F", " ", "%20").Replace(normalized)
+	return "local-file://" + escaped
 }
 
 func createCommercePaymentQRImage(runtime *Runtime, orderNo, content string) (string, error) {
@@ -157,8 +193,10 @@ func removeCommercePaymentPresentation(runtime *Runtime, orderNo string) error {
 		commercePaymentPresentationDirectory,
 		commercePaymentPresentationFilename(orderNo),
 	)
-	if err := os.Remove(filename); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	for _, path := range []string{filename, strings.TrimSuffix(filename, ".png") + ".html", strings.TrimSuffix(filename, ".png") + ".svg"} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
 	}
 	return nil
 }
@@ -180,8 +218,8 @@ func pruneCommercePaymentPresentations(runtime *Runtime) error {
 			continue
 		}
 		isStaging := strings.HasPrefix(entry.Name(), ".payment-qr-") && strings.HasSuffix(entry.Name(), ".tmp")
-		isPaymentPNG := strings.HasPrefix(entry.Name(), "wechat-") && strings.HasSuffix(entry.Name(), ".png")
-		if !isStaging && !isPaymentPNG {
+		isPaymentArtifact := strings.HasPrefix(entry.Name(), "wechat-") && (strings.HasSuffix(entry.Name(), ".png") || strings.HasSuffix(entry.Name(), ".html") || strings.HasSuffix(entry.Name(), ".svg"))
+		if !isStaging && !isPaymentArtifact {
 			continue
 		}
 		info, err := entry.Info()
@@ -190,7 +228,7 @@ func pruneCommercePaymentPresentations(runtime *Runtime) error {
 			continue
 		}
 		stale := (isStaging && info.ModTime().Before(staleStagingBefore)) ||
-			(isPaymentPNG && info.ModTime().Before(staleBefore))
+			(isPaymentArtifact && info.ModTime().Before(staleBefore))
 		if stale {
 			if err := os.Remove(filepath.Join(directory, entry.Name())); err != nil && !errors.Is(err, os.ErrNotExist) {
 				cleanupErrors = append(cleanupErrors, fmt.Errorf("remove %s: %w", entry.Name(), err))

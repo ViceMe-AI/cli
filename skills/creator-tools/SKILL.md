@@ -21,7 +21,9 @@ description: 安装、登录、更新和诊断 ViceMe 创作者 CLI 与官方 Sk
 
 成功输出 CLI 的完整路径。在本对话所有后续命令中用这个带引号的完整路径替换示例开头的 `viceme`，并按原业务流程直接执行目标命令；定位本身不增加版本或能力预检，只有安装验收或调用流程明确要求时才运行 `version`。每次独立 Bash / PowerShell 调用都沿用该路径，不依赖上一条命令的 `export PATH`、`.zshrc` 或重启宿主。新对话重新定位。
 
-只有定位脚本退出 127 才表示这些位置未找到 CLI，此时继续原流程规定的安装或免 CLI 分支。若使用了其他自定义目录且当前未设置 `VICEME_INSTALL_DIR`，先取得当次安装返回的 `destination` 再验证；找不到 PATH 不等于未安装。现有 CLI 的权限错误、`version` 执行失败或恢复错误必须原样按对应流程处理，不得因此重装、换安装方式或改走免 CLI 流程。不得读取整个 shell 配置文件或环境来找命令。
+定位成功后，禁止再自行探测 PATH：不要运行 `which viceme`、`command -v viceme`、`Get-Command viceme` 或 Python `shutil.which`。PATH 找不到不等于未安装，不得把 PATH 缺失当成 CLI 未安装，也不得因此改走 curl `trial.py`。
+
+只有定位脚本退出 127 才表示这些位置未找到 CLI，此时继续原流程规定的安装或免 CLI 分支。若使用了其他自定义目录且当前未设置 `VICEME_INSTALL_DIR`，先取得当次安装返回的 `destination` 再验证。现有 CLI 的权限错误、`version` 执行失败或恢复错误必须原样按对应流程处理，不得因此重装、换安装方式或改走免 CLI 流程。不得读取整个 shell 配置文件或环境来找命令。
 
 ## 安装
 
