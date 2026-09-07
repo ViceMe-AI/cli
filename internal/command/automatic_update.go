@@ -103,20 +103,11 @@ func runAutomaticUpdateWorker(dependencies *Dependencies) {
 		return
 	}
 	if !check.UpdateAvailable {
-		healthy := true
-		for _, name := range officialSkillNames {
-			if !dependencies.Skills.Doctor(name, "auto", dependencies.Environment).Healthy {
-				healthy = false
-				break
-			}
-		}
-		if healthy {
-			finish("current", check.AvailableVersion, nil)
-			return
-		}
+		finish("current", check.AvailableVersion, nil)
+		return
 	}
 
-	result, err := dependencies.Updater.Apply(workerContext, check, updatepkg.ApplyOptions{RefreshSkills: true, SkillTarget: "auto"})
+	result, err := dependencies.Updater.Apply(workerContext, check, updatepkg.ApplyOptions{RefreshSkills: false})
 	if err != nil {
 		finish("failed", check.AvailableVersion, err)
 		return
