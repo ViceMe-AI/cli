@@ -53,6 +53,24 @@ func TestLoadSourceCatalogRejectsDevMockAndDuplicateVersion(t *testing.T) {
 	}
 }
 
+func TestSafeRelativePathRejectsURLSyntax(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{
+		"https://example.com/source.zip",
+		"//example.com/source.zip",
+		"releases/source.zip?download=1",
+		"releases/source.zip#fragment",
+		"releases/%2e%2e/source.zip",
+	} {
+		if safeRelativePath(value) {
+			t.Fatalf("safeRelativePath(%q) = true", value)
+		}
+	}
+	if !safeRelativePath("releases/bonjour-card/1.0.0/source.zip") {
+		t.Fatal("expected canonical release path to be accepted")
+	}
+}
+
 func TestBuildWritesDeterministicZipAndManifestDigest(t *testing.T) {
 	t.Parallel()
 

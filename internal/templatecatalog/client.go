@@ -128,7 +128,8 @@ func (client Client) Fetch(ctx context.Context, templateID, version, destination
 func (client Client) parseOrigin() (string, error) {
 	origin := strings.TrimSuffix(client.Origin, "/")
 	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Host == "" || (parsed.Scheme != "https" && (!client.AllowInsecure || parsed.Scheme != "http" || !isLoopbackHost(parsed.Hostname()))) {
+	if err != nil || parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" ||
+		(parsed.Scheme != "https" && (!client.AllowInsecure || parsed.Scheme != "http" || !isLoopbackHost(parsed.Hostname()))) {
 		return "", ErrCatalogUnavailable
 	}
 	return origin, nil

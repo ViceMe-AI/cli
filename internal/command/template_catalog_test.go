@@ -15,6 +15,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/commerceartifact"
 	"github.com/ViceMe-AI/cli/internal/config"
+	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	"github.com/ViceMe-AI/cli/internal/templatecatalog"
@@ -93,5 +94,35 @@ func TestTemplateListReturnsVerifiedCatalogURL(t *testing.T) {
 	entry, ok := templates[0].(map[string]any)
 	if !ok || entry["preview_url"] != server.URL+"/releases/bonjour-card/1.0.0/preview/index.html" {
 		t.Fatalf("template preview = %#v", templates[0])
+	}
+}
+
+func TestTemplateListReturnsCanonicalUnavailableError(t *testing.T) {
+	publicKey, _, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicDER, err := x509.MarshalPKIXPublicKey(publicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+	previous := buildinfo.TemplateCatalogTrustKeys
+	buildinfo.TemplateCatalogTrustKeys = "test-v1:" + base64.RawURLEncoding.EncodeToString(publicDER)
+	t.Cleanup(func() { buildinfo.TemplateCatalogTrustKeys = previous })
+	t.Setenv("VICEME_TEMPLATE_CATALOG_ORIGIN", server.URL)
+
+	root := t.TempDir()
+	var stdout, stderr bytes.Buffer
+	exit := Execute([]string{"template", "list"}, Dependencies{
+		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(), HTTPClient: server.Client(),
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:      config.RegionCN, StartBackgroundUpdate: func() error { return nil },
+	})
+	if exit != output.ExitNetwork || !bytes.Contains(stdout.Bytes(), []byte(`"code": "TEMPLATE_CATALOG_UNAVAILABLE"`)) {
+		t.Fatalf("template list error was not canonical: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
 }

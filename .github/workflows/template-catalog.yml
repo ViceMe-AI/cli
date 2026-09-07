@@ -96,7 +96,7 @@ jobs:
               aws --endpoint-url "${ENDPOINT}" s3 cp "${SOURCE_DIR}/${FILE}" "s3://${BUCKET}/${PREFIX}/${FILE}" --cache-control 'public,max-age=300' --only-show-errors
             done
             while IFS= read -r FILE; do
-              RELATIVE="${FILE#${SOURCE_DIR}/}"
+              RELATIVE="${FILE#"${SOURCE_DIR}"/}"
               mkdir -p "${SCRATCH}/public/$(dirname "${RELATIVE}")"
               curl --fail --silent --show-error "${PUBLIC_ORIGIN}/${PREFIX}/${RELATIVE}" --output "${SCRATCH}/public/${RELATIVE}"
               cmp --silent "${SCRATCH}/public/${RELATIVE}" "${FILE}"

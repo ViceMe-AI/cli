@@ -133,7 +133,7 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 
 func validBuildOrigin(origin string, allowLoopbackHTTP bool) bool {
 	parsed, err := url.Parse(origin)
-	if err != nil || parsed.Hostname() == "" {
+	if err != nil || parsed.Hostname() == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return false
 	}
 	if parsed.Scheme == "https" {
