@@ -11,16 +11,6 @@
     .viceme-payment [hidden]{display:none!important}
     .viceme-payment .sr-only{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
     .viceme-payment .wx-shell{width:100%;max-width:360px;margin:0}
-    .viceme-payment .showcases{margin:0 0 12px;padding:12px;border-radius:12px;background:#fff}
-    .viceme-payment .showcases h3{margin:0 0 8px;font-size:14px}
-    .viceme-payment .showcases-list{display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory;padding:3px}
-    .viceme-payment .showcase{display:grid;grid-template-columns:88px minmax(0,1fr);gap:2px 10px;flex:0 0 272px;color:inherit;text-decoration:none;scroll-snap-align:start}
-    .viceme-payment .showcase:focus-visible{outline:3px solid #07c160;outline-offset:2px}
-    .viceme-payment .showcase img{display:block;grid-row:1/4;width:88px;height:68px;object-fit:cover;border-radius:6px}
-    .viceme-payment .showcase p{margin:0;overflow-wrap:anywhere;font-size:12px;line-height:16px;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}
-    .viceme-payment .showcase p:nth-child(2){font-weight:600;-webkit-line-clamp:1}
-    .viceme-payment .showcase p:nth-child(3){color:#666;-webkit-line-clamp:1}
-    .viceme-payment .entitlement{margin:8px 0 0;color:#fff;font-size:13px}
     .viceme-payment .wx-poster{border-radius:12px;overflow:hidden;box-shadow:0 10px 28px rgba(15,80,90,.12)}
     .viceme-payment .wx-hero{background:#07c160;color:#fff;padding:28px 24px 24px;text-align:center}
     .viceme-payment .wx-brand{display:flex;align-items:center;justify-content:center;gap:8px;margin:0;font-size:20px;font-weight:700;letter-spacing:.04em}
@@ -50,7 +40,6 @@
 <section class="viceme-payment" aria-label="支付订单" data-phase="pending">
   <h2 class="sr-only">订单金额、支付方式、支付二维码和有效期</h2>
   <div class="wx-shell">
-    <section class="showcases" data-field="showcases" hidden><h3 data-field="showcases-title"></h3><div class="showcases-list" data-field="showcases-list"></div></section>
     <div class="wx-poster">
       <div class="wx-hero">
         <p class="wx-brand">
@@ -71,7 +60,6 @@
           <span data-field="hero">推荐使用微信支付</span>
         </p>
         <p class="wx-hint" data-field="hint">请使用微信扫一扫</p>
-        <p class="entitlement" data-field="entitlement" hidden></p>
         <header class="pay-header"></header>
         <p class="amount" data-field="amount" hidden></p>
         <p class="validity"><span data-field="validity-label">有效期</span><span class="countdown" data-field="countdown" role="timer" aria-live="off">--:--</span></p>
@@ -124,28 +112,7 @@
     PAID:"支付成功", CLOSED:"订单已关闭", CANCELLED:"订单已取消", FAILED:"支付失败", REFUNDED:"已退款",
     hero:"推荐使用微信支付", hint:"请使用微信扫一扫", refresh:"请重新获取支付二维码", validity:"有效期"
   };
-  field("hero").textContent = data.supportCreator ? (en ? "Support the creator" : "支持创作者") : labels.hero;
-  if (data.supportCreator) {
-    field("entitlement").textContent = en ? "Get the complete source code to customize your own website" : "获得完整源码，继续修改成你的网站";
-    field("entitlement").hidden = false;
-    if (Array.isArray(data.showcases)) {
-      const safeURL = value => typeof value === "string" && /^https:\/\/[^\s/@]+(?:[/:?#]|$)/i.test(value) && !/[<>"\\]/.test(value);
-      for (const item of data.showcases.slice(0, 3)) {
-        if (!item || !safeURL(item.previewUrl) || !safeURL(item.screenshotUrl)) continue;
-        const card = dom.createElement("a");
-        card.className = "showcase"; card.href = item.previewUrl;
-        card.rel = "noreferrer noopener";
-        const img = dom.createElement("img");
-        img.src = item.screenshotUrl; img.alt = item.title; img.loading = "lazy"; img.referrerPolicy = "no-referrer";
-        const title = dom.createElement("p"); title.textContent = item.title;
-        const author = dom.createElement("p"); author.textContent = item.authorName;
-        const description = dom.createElement("p"); description.textContent = item.changeDescription;
-        card.append(img, title, author, description); field("showcases-list").append(card);
-        field("showcases").hidden = false;
-      }
-      field("showcases-title").textContent = en ? "Made with this website" : "大家用它做了什么";
-    }
-  }
+  field("hero").textContent = labels.hero;
   field("hint").textContent = labels.hint;
   field("title").textContent = data.title;
   field("method").textContent = data.paymentMethodLabel;

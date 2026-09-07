@@ -150,7 +150,7 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	var inspectOutput bytes.Buffer
 	deps.Out, deps.ErrOut = &inspectOutput, &bytes.Buffer{}
 	workURL := "https://viceme.cn/alice/site.md"
-	if exit := Execute([]string{"replica", "inspect", workURL}, deps); exit != 0 || !bytes.Contains(inspectOutput.Bytes(), []byte(`"nextAction": "CONFIRM_INLINE_PREVIEW"`)) {
+	if exit := Execute([]string{"replica", "inspect", workURL}, deps); exit != 0 || !bytes.Contains(inspectOutput.Bytes(), []byte(`"nextAction": "PRESENT_WORK"`)) {
 		t.Fatalf("inspect failed: exit=%d output=%q", exit, inspectOutput.String())
 	}
 
@@ -464,8 +464,8 @@ func TestAnonymousPaidReplicaPresentsSharedWidgetThenWaitsThreeMinutes(t *testin
 	}
 	firstWidget := paymentEnvelope.Error.Details.PaymentPresentation.WidgetPath
 	widget, err := os.ReadFile(firstWidget)
-	if err != nil || !bytes.Contains(widget, []byte("支持创作者")) || !bytes.Contains(widget, []byte(`"supportCreator":true`)) {
-		t.Fatalf("shared support widget unavailable: %v", err)
+	if err != nil || !bytes.Contains(widget, []byte("推荐使用微信支付")) || bytes.Contains(widget, []byte(`"supportCreator"`)) {
+		t.Fatalf("original payment widget unavailable: %v", err)
 	}
 
 	// Merely asking to recover must keep the existing unpaid order and widget intact.

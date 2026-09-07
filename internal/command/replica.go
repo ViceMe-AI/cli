@@ -79,7 +79,7 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 				recoveryAvailable = &available
 			}
 			return runtime.business(replicaInspectResult{
-				NextAction: "CONFIRM_INLINE_PREVIEW", WorkURL: resolved.ViceMeWorkURL,
+				NextAction: "PRESENT_WORK", WorkURL: resolved.ViceMeWorkURL,
 				Discovery: &discovery, PresentationTarget: "AGENT_PLATFORM", PresentationPlacement: "RIGHT",
 				StandaloneRecoveryAvailable: recoveryAvailable, Replica: resolved,
 			})

@@ -282,7 +282,7 @@ func installReplicaAnonymousLocked(
 				"REPLICA_PRICE_CHANGED",
 				"the Website Replica price changed after the user chose to continue",
 			).WithDetails(map[string]any{
-				"nextAction": "CONFIRM_INLINE_PREVIEW", "workUrl": resolved.ViceMeWorkURL,
+				"nextAction": "CONFIRM_PRICE", "workUrl": resolved.ViceMeWorkURL,
 				"currency": resolved.Product.Currency, "totalAmountCents": resolved.Product.PriceCents,
 			}).WithHint("show the updated Replica details and ask the user to continue again at the new price")
 		}
@@ -378,7 +378,7 @@ func installReplicaAnonymousLocked(
 	// A new checkout cannot have been presented by a previous invocation.
 	if !paymentPresented || presentedOrderNo != state.OrderNo {
 		if state.PaymentQRContent != "" {
-			presentation, err := prepareReplicaPaymentPresentation(runtime, api.WebsiteReplicaOrder{OrderNo: state.OrderNo, Status: "PENDING", PaymentAction: &api.WebsiteReplicaPaymentAction{Type: "QR_CODE", Content: state.PaymentQRContent}, ExpiresAt: state.OrderExpiresAt}, replicaSupportWidgetData(ctx, runtime, state))
+			presentation, err := prepareReplicaPaymentPresentation(runtime, api.WebsiteReplicaOrder{OrderNo: state.OrderNo, Status: "PENDING", PaymentAction: &api.WebsiteReplicaPaymentAction{Type: "QR_CODE", Content: state.PaymentQRContent}, ExpiresAt: state.OrderExpiresAt}, replicaPaymentWidgetData(state))
 			if err != nil {
 				return replicaInstallResult{}, err
 			}
@@ -636,7 +636,7 @@ func installReplicaLocked(
 		}
 	}
 	if order.Status == "PENDING" && state.PaymentPresentedAt == "" {
-		presentation, err := prepareReplicaPaymentPresentation(runtime, order, replicaSupportWidgetData(ctx, runtime, state))
+		presentation, err := prepareReplicaPaymentPresentation(runtime, order, replicaPaymentWidgetData(state))
 		if err != nil {
 			return replicaInstallResult{}, err
 		}
@@ -1247,12 +1247,6 @@ func requireReplicaTargetParentIdentity(parent, expected string) error {
 	return nil
 }
 
-// Discovery is optional at checkout: failure to refresh public examples must never discard an existing order.
-func replicaSupportWidgetData(ctx context.Context, runtime *Runtime, state replicaPurchaseState) paymentWidgetData {
-	data := paymentWidgetData{SupportCreator: true, Title: state.ProductTitle, AmountCents: &state.PriceCents, Currency: state.Currency, PaymentMethodLabel: "微信支付", Status: "PENDING", ExpiresAt: state.OrderExpiresAt, Locale: state.Locale}
-	discovery, err := runtime.client().GetWebsiteReplicaDiscovery(ctx, state.ShortCode)
-	if err == nil && discovery.ReplicaID == state.ReplicaID {
-		data.Showcases = discovery.Showcases
-	}
-	return data
+func replicaPaymentWidgetData(state replicaPurchaseState) paymentWidgetData {
+	return paymentWidgetData{Title: state.ProductTitle, AmountCents: &state.PriceCents, Currency: state.Currency, PaymentMethodLabel: "微信支付", Status: "PENDING", ExpiresAt: state.OrderExpiresAt, Locale: state.Locale}
 }

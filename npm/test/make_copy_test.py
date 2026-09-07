@@ -136,7 +136,9 @@ class MakeCopyTest(unittest.TestCase):
             html = Path(display["widgetPath"]).read_text()
             self.assertNotIn(item["title"], html)
             self.assertNotIn(checkout()["paymentAction"]["content"], html)
-            self.assertIn('"supportCreator": true', html)
+            self.assertNotIn('"supportCreator"', html)
+            self.assertNotIn('"showcases"', html)
+            self.assertIn("推荐使用微信支付", html)
             self.assertNotIn("__QR_SVG__", html)
             self.assertTrue(Path(display["imagePath"]).read_bytes().startswith(b"\x89PNG"))
             self.assertNotIn("checkoutUrl", display)
@@ -256,7 +258,7 @@ class MakeCopyTest(unittest.TestCase):
         self.assertEqual(args.command, "start")
         self.assertEqual(args.work_url, work_url)
 
-        preview = {"nextAction": "CONFIRM_INLINE_PREVIEW", "workUrl": work_url}
+        preview = {"nextAction": "PRESENT_WORK", "workUrl": work_url}
         with mock.patch.object(
             make_copy, "inspect", return_value=preview
         ) as inspect, mock.patch.object(make_copy, "result") as result:
@@ -324,7 +326,7 @@ class MakeCopyTest(unittest.TestCase):
             make_copy, "recover_order_status", side_effect=AssertionError("order query")
         ):
             inspected = make_copy.inspect(work_url, request_fn=lambda *_args, **_kwargs: response(200, discovery()))
-        self.assertEqual(inspected["nextAction"], "CONFIRM_INLINE_PREVIEW")
+        self.assertEqual(inspected["nextAction"], "PRESENT_WORK")
         self.assertNotIn("standaloneRecoveryAvailable", inspected)
 
     def test_confirmed_install_recovers_paid_order_without_checkout(self):

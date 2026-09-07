@@ -9,22 +9,19 @@ import (
 	"strings"
 
 	cliembed "github.com/ViceMe-AI/cli"
-	"github.com/ViceMe-AI/cli/internal/api"
 	qrcode "github.com/skip2/go-qrcode"
 )
 
 // General presentation input; callers supply authoritative order snapshots.
 // It has no Skill, entitlement, installation or task-continuation semantics.
 type paymentWidgetData struct {
-	SupportCreator     bool                         `json:"supportCreator,omitempty"`
-	Showcases          []api.WebsiteReplicaShowcase `json:"showcases,omitempty"`
-	Title              string                       `json:"title"`
-	AmountCents        *int                         `json:"amountCents"`
-	Currency           string                       `json:"currency"`
-	PaymentMethodLabel string                       `json:"paymentMethodLabel"`
-	Status             string                       `json:"status"`
-	ExpiresAt          string                       `json:"expiresAt"`
-	Locale             string                       `json:"locale"`
+	Title              string `json:"title"`
+	AmountCents        *int   `json:"amountCents"`
+	Currency           string `json:"currency"`
+	PaymentMethodLabel string `json:"paymentMethodLabel"`
+	Status             string `json:"status"`
+	ExpiresAt          string `json:"expiresAt"`
+	Locale             string `json:"locale"`
 }
 
 func renderPaymentWidget(data paymentWidgetData, content string) ([]byte, error) {

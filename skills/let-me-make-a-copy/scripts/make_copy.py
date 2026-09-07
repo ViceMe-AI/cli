@@ -54,7 +54,7 @@ ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 
 
 # Generated from the canonical CLI widgets by make trial-runtime.
-PAYMENT_RESOURCE_SHA256 = {"payment.html": "9780c5fef79a1c2e15cb03bbbc67ebe8f44b0e5baf2224687a1e2ed2056692e9", "qrcodegen.py": "b0df257ae06c83f79ac8fa408f5ae635f44a2ae0702e2fdbf6f2fe32cff33b05"}  # generated-payment-resources
+PAYMENT_RESOURCE_SHA256 = {"payment.html": "eb91a89ae61706486fb324c772dc3f721bf000395a6d4c2ebb31a5598a6b434d", "qrcodegen.py": "b0df257ae06c83f79ac8fa408f5ae635f44a2ae0702e2fdbf6f2fe32cff33b05"}  # generated-payment-resources
 
 
 class WorkflowError(Exception):
@@ -1377,11 +1377,10 @@ def payment_presentation(authority: Authority, replica: Dict[str, Any], checkout
         return struct.pack(">I", len(content)) + tag + content + struct.pack(">I", zlib.crc32(tag + content) & 0xffffffff)
     png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", pixels, pixels, 8, 0, 0, 0, 0))
            + chunk(b"IDAT", zlib.compress(b"".join(rows), 9)) + chunk(b"IEND", b""))
-    details = discovery(authority, replica, request_fn)
     data = {"title": replica["title"], "amountCents": checkout["amountCents"],
             "currency": checkout["currency"], "status": checkout["status"],
             "expiresAt": checkout["expiresAt"], "locale": "zh-CN" if authority.web_origin.endswith("viceme.cn") else "en-US",
-            "supportCreator": True, "paymentMethodLabel": "微信支付", "showcases": details["showcases"][:3]}
+            "paymentMethodLabel": "微信支付"}
     encoded = json.dumps(data, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
     html = payment_resource(authority, "payment.html", request_fn).decode("utf-8").replace("__QR_SVG__", svg).replace("__WIDGET_DATA__", encoded)
     stem = hashlib.sha256(checkout["orderNo"].encode()).hexdigest()
@@ -1391,7 +1390,7 @@ def payment_presentation(authority: Authority, replica: Dict[str, Any], checkout
     return {"type": "LOCAL_IMAGE", "purpose": "PAYMENT_QR_CODE", "mimeType": "image/png",
             "widgetPath": widget, "widgetMimeType": "text/html", "imagePath": image,
             "imageChatSrc": "local-file://" + urllib.parse.quote(Path(image).as_posix(), safe="/:"),
-            "expiresAt": checkout["expiresAt"], "altText": "支持创作者"}
+            "expiresAt": checkout["expiresAt"], "altText": "微信支付二维码"}
 
 
 def inspect(
@@ -1402,7 +1401,7 @@ def inspect(
     authority = authority_for_work_url(work_url)
     instruction, replica = resolve_work(authority, request_fn)
     return {
-        "nextAction": "CONFIRM_INLINE_PREVIEW",
+        "nextAction": "PRESENT_WORK",
         "workUrl": replica["viceMeWorkUrl"],
         "instruction": instruction,
         "replica": replica,
@@ -1520,7 +1519,7 @@ def install(
                 "REPLICA_PRICE_CHANGED",
                 "Replica price changed; show the Work again and ask for confirmation",
                 {
-                    "nextAction": "CONFIRM_INLINE_PREVIEW",
+                    "nextAction": "CONFIRM_PRICE",
                     "workUrl": replica["viceMeWorkUrl"],
                     "priceCents": replica["product"]["priceCents"],
                 },

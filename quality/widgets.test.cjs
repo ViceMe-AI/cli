@@ -141,16 +141,3 @@ test("onboarding falls back to readable prompts and avoids automatic resend on u
   assert.equal(button.disabled, true);
   assert.match(uncertain.root.querySelector('[role="status"]').textContent, /Check the conversation/);
 });
-
-test("replica payment explains source entitlement and renders at most three safe text-only cases", () => {
-  const example = { title: "<img onerror=alert(1)>", authorName: "Alice", changeDescription: "Added booking", previewUrl: "https://example.com/site", screenshotUrl: "https://example.com/image.png" };
-  const payment = mount("payment", { ...order, supportCreator: true, showcases: [example, example, example, example] });
-  assert.equal(payment.field("hero").textContent, "支持创作者");
-  assert.match(payment.field("entitlement").textContent, /完整源码/);
-  assert.equal(payment.field("showcases-list").children.length, 3);
-  assert.equal(payment.field("showcases-list").children[0].children[1].textContent, example.title);
-  const unsafe = mount("payment", { ...order, supportCreator: true, showcases: [{ ...example, previewUrl: "javascript:alert(1)" }] });
-  assert.equal(unsafe.field("showcases-list").children.length, 0);
-  const generic = mount("payment", order);
-  assert.equal(generic.field("hero").textContent, "推荐使用微信支付");
-});
