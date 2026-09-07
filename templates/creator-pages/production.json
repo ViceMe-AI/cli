@@ -4,12 +4,12 @@
     {
       "id": "bonjour-card",
       "status": "production",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "name": "Bonjour Card",
       "scenario": "作品、资料与公开联系方式",
       "description": "带 Block 编辑能力的个人名片，适合持续补充作品与社交链接。",
       "source_dir": "skills/customize-your-page/templates/bonjour-card",
-      "preview_file": "templates/creator-pages/previews/bonjour-card.html",
+      "preview_dir": "skills/customize-your-page/templates/bonjour-card/dist",
       "license": "ViceMe template license"
     }
   ]

@@ -440,6 +440,7 @@ func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
 		"所有选择与资料输入都在对话中完成",
 		"申请中仅本人可见",
 		"审核通过后同一路由自动公开",
+		"不得自动打开 `creatorIdentity.markdownUrl`",
 	} {
 		if !strings.Contains(onboardingText, required) {
 			t.Fatalf("creator onboarding omitted conversation-first personal-card contract %q", required)
@@ -457,6 +458,14 @@ func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
 		"可直接使用 / 待确认公开 / 缺失",
 		"不得提供从空白或完全自定义页面开始的路径",
 		"本机 HTML 预览",
+		"再运行 `viceme merchant page status --target",
+		"active release",
+		"不自动打开空的 `profileUrl`",
+		"不用按格式整理。把你已经有的资料一次发给我就行",
+		"不得用“先搭占位版看看”绕过统一资料整理",
+		"平台当前资料会覆盖名片中的姓名或头像",
+		"先改平台昵称",
+		"接受当前平台昵称继续",
 	} {
 		if !strings.Contains(pageText, required) {
 			t.Fatalf("personal-card customization omitted template-first contract %q", required)
