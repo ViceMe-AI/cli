@@ -7,6 +7,8 @@ The installed runtime never downloads its own executable or presentation assets.
 import argparse
 import hashlib
 import io
+import json
+import re
 from pathlib import Path
 import zipfile
 
@@ -33,7 +35,14 @@ def artifacts():
     content = buffer.getvalue()
     bootstrap = (ROOT / "release/trial-bootstrap.py.tmpl").read_text().replace(
         "__RUNTIME_SHA256__", hashlib.sha256(content).hexdigest())
-    return {SCRIPTS / "trial-runtime.zip": content, SCRIPTS / "trial.py": bootstrap.encode()}
+    replica_path = ROOT / "skills/let-me-make-a-copy/scripts/make_copy.py"
+    resources = {name: hashlib.sha256((ROOT / "widgets" / name).read_bytes()).hexdigest()
+                 for name in ("payment.html", "qrcodegen.py")}
+    replica = re.sub(r"^PAYMENT_RESOURCE_SHA256 = .*  # generated-payment-resources$",
+                     "PAYMENT_RESOURCE_SHA256 = " + json.dumps(resources, sort_keys=True) + "  # generated-payment-resources",
+                     replica_path.read_text(), flags=re.MULTILINE)
+    return {SCRIPTS / "trial-runtime.zip": content, SCRIPTS / "trial.py": bootstrap.encode(),
+            replica_path: replica.encode()}
 
 
 if __name__ == "__main__":

@@ -41,7 +41,8 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
    `--path` 始终是完整源码根目录。Agent 根据实际项目选择可部署页面目录及其中的 HTML 入口：纯静态网站可以直接用 `--page-dir . --page-entry index.html`，入口名称不同就传真实相对路径，不复制到 `dist`、不补造构建步骤、不改名入口。`--page-dir` 的相对路径基于 `--path`（ZIP 输入基于 ZIP 所在目录），也支持绝对路径；`--page-entry` 相对于页面目录。CLI 仅将选定目录安全打包，内部 ZIP 的 `dist/` 前缀不限制本地目录名。尚未确定页面目录时可以省略，按 `PREPARE_HOSTED_PAGE` 补齐这两个参数，不猜目录。
    `--preview-reviewed` 表示创作者已查看并确认样式，不代表模型做过视觉、交互或响应式验证。用户已经提供的标题、摘要、价格和目标参数一并传入；未知字段先省略，交给 CLI 返回缺失输入。不要提前运行 `whoami`、Profile、`doctor`、商户列表、资格检查、版本检查或整套 `--help`。已有发布 ID 的恢复走 OWNER 流程，不新建 publish。
 2. 只处理这次返回的阻塞，再重跑补齐必要参数的同一命令，或执行返回的恢复命令。每次仅补当前缺失的依赖，不重新从头检查。保留完整 JSON 与真实退出码，不用 `| head` 截断或掩盖失败；不向用户打印敏感字段。按需查阅 [flow-contract.md](references/flow-contract.md)。
-3. 返回缺失业务输入时，一次询问当前已知且无法推断的字段，不得每次问一个字段并循环追问。首次发布使用 `--slug` 或明确拥有的 `--work-id`；可根据已有项目名称拟标题、摘要和 slug，交由终审确认。价格由用户决定，`--price-cents 0` 为免费做同款，正整数为付费做同款；不得擅自选免费或虚构价格。已有受管绑定的更新不再传目标参数，价格省略时沿用当前价格。只有返回目标歧义才查询或选择 Work；已有目标必须属于当前 OWNER Merchant，kind 为 `WEBSITE` 且为 `PUBLISHED`。`canonicalOrigin` 只是可选外链，不参与归属、去重或发布门禁，不询问上线状态作为发布门禁。`website.ownershipStatus` 不参与门禁，本流程不创建、读取、验证或撤销 Website ownership verification。
+3. 发布时邀请作者补充作品介绍：能做什么、适合谁、核心亮点、可以如何改成自己的作品；已有信息直接整理，不重复询问。将作者确认的信息压缩到现有 `--summary`（最多 500 字），在最终发布审核中展示，不能虚构使用量、评论或二创案例，不新增不存在的发布参数。更详细说明沿用作品现有正文编辑能力，资料不足不阻塞源码发布。
+   返回缺失业务输入时，一次询问当前已知且无法推断的字段，不得每次问一个字段并循环追问。首次发布使用 `--slug` 或明确拥有的 `--work-id`；可根据已有项目名称拟标题、摘要和 slug，交由终审确认。价格由用户决定，`--price-cents 0` 为免费做同款，正整数为付费做同款；不得擅自选免费或虚构价格。已有受管绑定的更新不再传目标参数，价格省略时沿用当前价格。只有返回目标歧义才查询或选择 Work；已有目标必须属于当前 OWNER Merchant，kind 为 `WEBSITE` 且为 `PUBLISHED`。`canonicalOrigin` 只是可选外链，不参与归属、去重或发布门禁，不询问上线状态作为发布门禁。`website.ownershipStatus` 不参与门禁，本流程不创建、读取、验证或撤销 Website ownership verification。
 4. 返回源码问题才按包合同检查对应文件或归档边界；CLI 负责安全扫描、确定性清单、交接文档与冻结，Agent 不手工拼 ZIP。已知敏感内容仍须停止处理，不自动删除后继续。需要重新展示时复用同一本地页面和宿主预览；样式或页面内容改变后，重新取得创作者确认，不由模型补做截图验收。
 5. 身份与资格也只按返回动作处理；需要身份恢复时才读取当前 Profile 并固定 API、Web 与市场 authority，本期只支持 CN，明确为 GLOBAL 时停止，不切换市场绕过。严格处理命令返回的可判别动作：未登录时登录后重跑同一命令；CLI 返回资格动作时按 `$become-a-creator` 资格守卫处理；Merchant 或 slug 变化时让用户明确选择并重新生成终审；只有用户明确授权时才追加 `--auto-apply-creator`。审核中、需补资料或被拒绝时停止，不上传、不轮询，也不新建平行请求。身份或资格恢复始终复用 CLI 已保存的同一主请求，不重新冻结未过期且已确认的制品。
    `REPLICA_PREVIEW_REVIEW_REQUIRED` / `CONFIRM_CREATOR_PREVIEW` 只要求创作者确认页面和按钮效果。已有明确确认时直接带 `--preview-reviewed` 重跑，不要求 `--preview-url`，不探测本地服务，也不由模型代替创作者验收。可选 `--preview-url` 仅记录创作者看过的地址，不作为可访问性门禁。不能因本地服务退出改成仅源码发布；仅用户明确要求仅源码且接受未确认边界时使用旧 `--confirm-unverified-replica-only` 例外。
@@ -87,3 +88,7 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
 报告 Website Work、Replica code、ViceMe 作品链接、源码版本、价格、冻结源码摘要、项目交接、原站修改文件及验证命令。分别说明平台发布、原站入口接入和外部部署是否完成；不要报告临时上传或登录能力。
 
 发布成功后，向用户展示发布结果返回的 `result.workUrl`；原站按钮的展示仍可复用本地右侧预览，不由模型打开托管作品自行验收。做同款按钮直接复制“原站做同款入口”规定的完整创作邀请，其中参考地址为作品地址加 `.md`，不打开对话框。
+
+## 二创案例管理
+
+用户明确要求管理作品案例时，使用 `viceme replica showcase list --replica <replicaId>` 查看提交内容、状态和 revision。只有取得当前 OWNER 对具体内容的审核决定后，执行 `viceme replica showcase review --replica <replicaId> --showcase <showcaseId> --status APPROVED --expected-revision <revision>`（拒绝改为 `REJECTED`）。内容或 revision 变化必须重新展示审核，不能用旧审核自动批准新内容。提交者撤回的内容不能重新公开；案例来源和授权由 Shop 校验，不能把原作者示例冒充用户二创。

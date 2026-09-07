@@ -3,8 +3,11 @@
 Onboarding is a host-rendered HTML fragment. Payment is a complete WeChat Pay
 cashier page opened with `present_files`, not a chat Widget. Neither is a
 payment authority. The CLI owns the templates; callers own their workflows. No
-external scripts, images, clipboard API, HTTP polling, order creation or
-business actions belong inside a Widget.
+external scripts, clipboard API, HTTP polling, order creation or business
+mutations belong inside a Widget. The payment page has one presentation-only
+exception: server-approved, consented Replica showcases may use public HTTPS
+screenshot images and website preview links, with no referrer. Never derive
+examples from arbitrary source files or pending/rejected submissions.
 
 Hosts may remove script elements and evaluate their contents separately. Templates
 locate an uninitialized card through the host-scoped `document.querySelector`,
@@ -29,13 +32,20 @@ card can sit in the center of the host preview.
 
 Do not copy the provider URI into chat, an external QR service or a URL.
 The page already contains an encoded inline SVG QR; do not use `<img src>`
-inside the page and do not redraw or guess missing QR paths.
+for the QR inside the page and do not redraw or guess missing QR paths. Public
+showcase screenshots are separate from the locally encoded payment QR.
 
 Show the image and open the page before starting the caller's bounded payment
 wait. Use the caller's original command and saved order, never create a
 different order to poll. The page never says that installation or any other
 business task has completed. Only a server-confirmed order status may display
-payment success. Visible copy is the green WeChat poster, amount, countdown, QR, and merchant title. The countdown uses the order's absolute `expiresAt` and hides the QR at expiry. Expiry is not proof of failure or a reason to create a new order.
+payment success. Replica callers set `supportCreator=true`: the heading becomes “支持创作者”
+(`Support the creator`), with a clear complete-source entitlement description.
+Optional `showcases` contain at most three approved examples in a compact
+horizontally scrolling strip above the cashier; all content uses text nodes and
+HTTPS-only image/link attributes. Keyboard users can focus each preview link.
+Generic payments retain the WeChat heading. Visible cashier copy includes amount,
+countdown, QR, and merchant title. The countdown uses the order's absolute `expiresAt` and hides the QR at expiry. Expiry is not proof of failure or a reason to create a new order.
 
 If `present_files` is unavailable, still display `imageChatSrc` in the chat bubble
 with the Markdown image. If neither can be displayed, report that accurately; do
