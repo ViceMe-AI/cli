@@ -653,10 +653,35 @@ func (c *Client) CreateSkillTrialGrant(ctx context.Context, productID, installID
 }
 
 func (c *Client) ConsumeSkillTrialUse(ctx context.Context, productID, installID, secret, requestID string) (SkillTrialUse, error) {
-	var response SkillTrialUse
+	var response struct {
+		SkillTrialUse
+		ExplicitAllowed *bool `json:"allowed"`
+	}
 	endpoint := "/v1/skills/" + url.PathEscape(productID) + "/trial-use"
-	err := c.doJSON(ctx, http.MethodPost, endpoint, skillTrialUseRequest{InstallID: installID, Secret: secret, RequestID: requestID}, &response, "")
-	return response, err
+	if err := c.doJSON(ctx, http.MethodPost, endpoint, skillTrialUseRequest{InstallID: installID, Secret: secret, RequestID: requestID}, &response, ""); err != nil {
+		return SkillTrialUse{}, err
+	}
+	invalid := func() (SkillTrialUse, error) {
+		return SkillTrialUse{}, output.Internal("SKILL_TRIAL_RESPONSE_INVALID", "the trial-use response is incomplete or invalid; retry the same use", nil)
+	}
+	if response.ExplicitAllowed == nil {
+		return invalid()
+	}
+	response.Allowed = *response.ExplicitAllowed
+	if response.Allowed {
+		if response.RemainingUses == nil || response.LimitUses == nil || *response.RemainingUses < 0 || *response.LimitUses <= 0 {
+			return invalid()
+		}
+	} else {
+		if response.Reason == nil || *response.Reason != "EXHAUSTED" || response.PurchaseURL == nil {
+			return invalid()
+		}
+		purchase, err := url.Parse(*response.PurchaseURL)
+		if err != nil || purchase.Host == "" || purchase.User != nil || (purchase.Scheme != "https" && purchase.Scheme != "http") {
+			return invalid()
+		}
+	}
+	return response.SkillTrialUse, nil
 }
 
 func (c *Client) GetTrialSkillDownload(ctx context.Context, productID, installID string) (DownloadURL, error) {

@@ -9,11 +9,24 @@ import (
 // install metadata. Keeping them in the binary lets doctor compare an installed
 // Skill with the exact CLI release that is invoking it.
 //
-//go:embed skills/*/SKILL.md skills/*/skill-package.json skills/*/agents/*.yaml skills/*/references/*.md skills/*/scripts/*.mjs skills/*/scripts/*.py skills/*/scripts/*.sh skills/*/scripts/*.ps1 skills/*/templates/*
+//go:embed skills/*/SKILL.md skills/*/skill-package.json skills/*/agents/*.yaml skills/*/references/*.md skills/*/scripts/*.mjs skills/*/scripts/*.py skills/*/scripts/*.zip skills/*/scripts/*.sh skills/*/scripts/*.ps1 skills/*/templates/*
 var embeddedSkills embed.FS
 
 //go:embed quality/release-manifest.json
 var embeddedReleaseManifest []byte
+
+// Widgets are CLI-wide presentation assets, independent of any official Skill.
+//
+//go:embed widgets/*.html widgets/*.md widgets/*.py
+var embeddedWidgets embed.FS
+
+func EmbeddedWidgets() fs.FS {
+	sub, err := fs.Sub(embeddedWidgets, "widgets")
+	if err != nil {
+		panic(err)
+	}
+	return sub
+}
 
 // EmbeddedSkills returns an FS rooted at skills/.
 func EmbeddedSkills() fs.FS {
