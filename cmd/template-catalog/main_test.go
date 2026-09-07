@@ -177,6 +177,7 @@ func TestWorkflowPublishesSignedCatalogToBothRegions(t *testing.T) {
 		"s3:GetObject",
 		"s3api list-objects-v2",
 		"list-type=2",
+		"bonjour-card/public/viceme-page.json",
 		"VICEME_TEMPLATE_CATALOG_SIGNING_KEY",
 		"VICEME_RELEASE_S3_ENDPOINT_CN",
 		"VICEME_RELEASE_S3_ENDPOINT_GLOBAL",

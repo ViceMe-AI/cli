@@ -142,6 +142,6 @@ jobs:
             VICEME_TEMPLATE_CATALOG_ORIGIN="${ORIGIN}" ./bin/viceme template list
             DESTINATION="$(mktemp -d)"
             VICEME_TEMPLATE_CATALOG_ORIGIN="${ORIGIN}" ./bin/viceme template fetch bonjour-card --version 1.0.0 --destination "${DESTINATION}"
-            test -f "${DESTINATION}/bonjour-card/viceme-page.json"
+            test -f "${DESTINATION}/bonjour-card/public/viceme-page.json"
             rm -rf "${DESTINATION}"
           done
