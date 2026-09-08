@@ -149,6 +149,8 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"公开且不可逆", "响应丢失时读取同一资源恢复", "只支持以下来源",
 				"发布本作品的升级版并设价格", "不得把试用讲成免费额度",
 				"不得向用户提及该警告", "PUBLICATION_RECOVERY_RETIRE_FAILED",
+				"不得搜索 `**/SKILL.md`",
+				"不得询问 SKILL.md 在仓库根目录还是子目录",
 			},
 		},
 		{
@@ -158,7 +160,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"?product=<product-id>", "remainingUses", "PURCHASE_REQUIRED", "widgetPath",
 				"present_files", "imagePath", "imageChatSrc", "local-file://",
 			},
-			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "硬停止", "不要读商品 SKILL.md", "不要对用户说试用没耗尽"},
+			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "硬停止", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI"},
 		},
 		{
 			name: "charge-for-your-work",
@@ -978,6 +980,114 @@ func TestPublishHidesLocalRecoveryCleanupWarnings(t *testing.T) {
 	} {
 		if !strings.Contains(errorsText, required) {
 			t.Fatalf("publish errors omitted recovery-warning hide contract %q", required)
+		}
+	}
+}
+
+func TestPublishGithubDiscoversSkillMarkdownWithoutAskingRootOrSubdir(t *testing.T) {
+	t.Parallel()
+	for _, relativePath := range []string{
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+		"sell-a-skill/references/errors.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		if !strings.Contains(text, "根目录还是子目录") {
+			t.Fatalf("%s omitted GitHub SKILL.md location contract", relativePath)
+		}
+	}
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowText := string(workflow)
+	for _, required := range []string{
+		"省略 `--github-path`",
+		"GITHUB_SKILL_SELECTION_REQUIRED",
+		"details.candidates",
+		"不得先问用户「SKILL.md 在仓库根目录还是子目录」",
+	} {
+		if !strings.Contains(workflowText, required) {
+			t.Fatalf("publish workflow omitted GitHub autodiscover contract %q", required)
+		}
+	}
+	if strings.Contains(workflowText, "只有 CLI 报告入口不在根目录时") {
+		t.Fatal("publish workflow still asks the user to supply a GitHub subdirectory first")
+	}
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/errors.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	errorsText := string(errorsContent)
+	for _, required := range []string{
+		"GITHUB_SKILL_SELECTION_REQUIRED",
+		"error.details.candidates",
+		"不得改问「根目录还是子目录」",
+	} {
+		if !strings.Contains(errorsText, required) {
+			t.Fatalf("publish errors omitted GitHub autodiscover contract %q", required)
+		}
+	}
+}
+
+func TestPublishLocalZipAsksPathWithoutScanningInstalledSkills(t *testing.T) {
+	t.Parallel()
+	for _, relativePath := range []string{
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		for _, required := range []string{"提供路径", "立刻", "绝对路径"} {
+			if !strings.Contains(text, required) {
+				t.Fatalf("%s omitted local zip path contract %q", relativePath, required)
+			}
+		}
+	}
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	for _, required := range []string{
+		"不得搜索 `**/SKILL.md`",
+		"不得扫描 Downloads",
+		"检测到最近准备的 Skill",
+		"skill publish --path",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("publish workflow omitted local zip no-scan contract %q", required)
+		}
+	}
+}
+
+func TestUseSkillRetriesBusyLockWithoutAskingToDeleteLock(t *testing.T) {
+	t.Parallel()
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "use-a-skill/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"SKILL_TRIAL_LOCK_BUSY",
+		"短等几秒后重跑同一条",
+		"不得对用户说安装通道占用",
+		"不要定位或删除",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("use-a-skill omitted busy-lock contract %q", required)
+		}
+	}
+	for _, forbidden := range []string{"授权清理", "持续性的安装通道"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("use-a-skill still asks the user to inspect leftover locks via %q", forbidden)
 		}
 	}
 }

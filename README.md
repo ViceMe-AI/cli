@@ -251,6 +251,15 @@ Remote custom endpoints require HTTPS; only localhost and loopback development
 may use HTTP. Credentials are isolated by Profile authority, and an Agent
 must never switch to another Profile merely because it is already signed in.
 
+The official hosted development environment uses API `https://dev.viceme.cn/api`,
+Web `https://dev.viceme.cn`, and market `cn`. The CLI pins its Commerce signing
+key to that HTTPS origin for paid Skills and Website Replica licenses. Select
+an existing `dev` Profile, or substitute these addresses and name in the
+`profile add` example above. The development key is not trusted on production
+origins, other domains, or other ports. Unknown remote keys are never fetched
+and trusted dynamically. Key rotation requires a CLI release first; see
+[the release guide](docs/releasing.md).
+
 `viceme auth login` intentionally keeps running until browser authorization
 finishes or its bounded timeout expires. Keep the command active, show the
 one-time complete URL to the user, and wait for the final result. The page signs

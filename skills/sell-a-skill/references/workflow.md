@@ -37,7 +37,7 @@
 ## 必需输入
 
 - 恰好一个来源：根目录含 `SKILL.md` 的本地目录/ZIP、本人 GitHub 仓库，或已验证的小红书 Skill ID。公开 GitHub 仓库也必须验证所有权；私有仓库使用已保存的 OAuth 凭证。不支持组织仓库或只有 collaborator 权限的仓库。
-- 收集来源地址、本地路径或新名称这类单一输入时，一次问答直接取得值（`AskUserQuestion` 的自定义输入或其他单问形式）；不得先问「我来输入」这类占位选项、再问第二问拿值。
+- 收集来源地址、本地路径或新名称这类单一输入时，一次问答直接取得值（`AskUserQuestion` 的自定义输入或其他单问形式）；不得先问「我来输入」「提供路径」这类占位选项、再问第二问拿值。若用户已经选择本地目录/ZIP，或点了「提供路径」「我来输入」，必须立刻打开输入框收取 zip 或目录的绝对路径，拿到路径后再运行 `skill publish --path`。不得搜索 `**/SKILL.md`，不得扫描 Downloads、桌面或工作区去发现本机已有 Skill，也不得把扫到的包列成「检测到最近准备的 Skill」让用户挑选。
 - 一个由 `$become-a-creator` 确认、当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有的有效 MerchantAccount。返回多个时必须使用用户在资格流程中选择的商家，并用 `--merchant <merchant-account-id>` 发布。
 - 最终公开确认前必须确定每个条目的内部 `key`、用户可见名称、`sortOrder`、1 到 8 条 highlights，以人民币分计价的 `priceMinor`，以及付费条目的试用次数 `trialUseLimit`（1~100，`0` 或不设为不试用；首次定价时一并询问，默认建议 10 次）；这些内部值由 Agent 按组合规则自动派生，用户只需要确认价格、试用次数和内容。私有包初次上传时故意保持 `priceMinor: null`、试用次数未设置。
 - 最终预览必须展示中文简介、中英文使用说明、已验证包、一个封面和至少一个图库项，然后才能取得合并的“确认并发布”授权。
@@ -65,7 +65,7 @@ GitHub 来源直接运行一次 `viceme skill publish --github ...`。公开仓�
 
 `OAUTH_PROVIDER_NOT_CONFIGURED` 仅影响需要授权的私有仓库。确定性重试不会恢复，停止本次私有仓库发布并说明当前环境尚未配置 GitHub 私有仓库授权。公开 GitHub 仍可正常发布。待接手作者和官方 User 不能授权私有仓库；不引导官方绑定个人账号。
 
-用户未指定分支时省略 `--github-ref`，CLI 用 `HEAD` 解析默认分支；未指定子目录时省略 `--github-path`。API 固定不可变 commit、仓库、目录、所有者来源信息及包 digest/字节数，CLI 校验 `SKILL.md` 和来源回执，不另行抓取替代该回执。只有 CLI 报告入口不在根目录时，再补充准确子目录。
+用户未指定分支时省略 `--github-ref`，CLI 用 `HEAD` 解析默认分支。拿到仓库地址后直接运行 `viceme skill publish --github ...`，省略 `--github-path`，不得先问用户「SKILL.md 在仓库根目录还是子目录」，也不得让用户先填子目录。API 在已下载的仓库归档里解析 `SKILL.md`：唯一入口自动选定；多个 Skill 时 CLI 返回 `GITHUB_SKILL_SELECTION_REQUIRED` 和 `details.candidates`（仓库相对目录，空 `path` 表示根目录）。此时用 AskUserQuestion 列出这些候选目录（空 path 选项标明「仓库根目录」），按用户选择重试同一命令：选中根目录仍省略 `--github-path`，选中其他目录才带对应 `--github-path`。不得 `git clone`、WebFetch、浏览器或扫描本机去发现目录。用户已经明确给出子目录时才带 `--github-path`。API 固定不可变 commit、仓库、目录、所有者来源信息及包 digest/字节数，CLI 校验 `SKILL.md` 和来源回执，不另行抓取替代该回执。
 
 小红书公开 Skill 直接按 ID 或名称搜索发布，无 OAuth、账号绑定或 Admin 渠道审核；多个结果匹配时展示全部候选，再按用户选择的 `--xiaohongshu-skill-id` 继续。GitHub 和小红书的不可变归档保存在 CLI 私有恢复目录，`--resume` 不会重新取得不同字节。普通创作者的申请审核和包校验继续保留。
 

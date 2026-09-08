@@ -22,7 +22,7 @@ python.org 安装必装的启动器,没有时改用 `python`):
 - 下载完整性 = SHA-256 对服务端返回的 artifactDigest,不依赖签名算法。
 - 门禁入口与内部规则路径和 CLI 对齐;本机凭证购买后由当前路线重装正式包。
 - 凭证落 ~/.viceme/trial/<product>.json(0600);CLI 的 ensureSkillTrialGrant
-  在无本地凭证时会先收编该文件,两条安装路共用同一个 grant。
+  会收编该文件,也会在 CLI 安装时把同一份 grant 写回该文件,两条安装路共用同一个 grant。
 - 输出始终是单行 JSON,供 AI 助手解析分支。
 """
 
@@ -433,6 +433,63 @@ def save_trial_state(product_id, state):
     os.replace(temporary, path)
 
 
+def _pid_is_alive(pid):
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        process_query_limited_information = 0x1000
+        error_access_denied = 5
+        handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, pid)
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        return ctypes.GetLastError() == error_access_denied
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _lock_holder_pid(path):
+    try:
+        with open(path, "r", encoding="ascii") as handle:
+            raw = handle.read().strip()
+    except OSError:
+        return None
+    if not raw.isdigit():
+        return None
+    pid = int(raw)
+    if pid <= 0:
+        return None
+    return pid
+
+
+def _lock_is_empty(path):
+    try:
+        with open(path, "rb") as handle:
+            return not handle.read().strip()
+    except OSError:
+        return False
+
+
+def _lock_is_stale(path):
+    try:
+        return time.time() - os.stat(path).st_mtime > LOCK_STALE_SECONDS
+    except OSError:
+        return False
+
+
+def _lock_holder_is_dead(path):
+    pid = _lock_holder_pid(path)
+    return pid is not None and not _pid_is_alive(pid)
+
+
 class ProductLock:
     """跨进程串行化同一 Product 的 install/use,避免并发改写状态文件。"""
 
@@ -447,10 +504,20 @@ class ProductLock:
         except OSError as error:
             raise Failure("STATE_DIR_PERMISSION_DENIED", "无法创建试用状态目录(权限不足),请检查主目录可写") from error
         deadline = time.time() + LOCK_WAIT_SECONDS
+        empty_stolen = False
         while True:
             try:
                 self.handle = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.write(self.handle, str(os.getpid()).encode("ascii"))
+                try:
+                    os.write(self.handle, str(os.getpid()).encode("ascii"))
+                except OSError:
+                    os.close(self.handle)
+                    self.handle = None
+                    try:
+                        os.remove(self.path)
+                    except OSError:
+                        pass
+                    raise
                 return self
             except FileExistsError:
                 pass  # 被 Unix 进程占用:走下方超时路径。
@@ -467,17 +534,25 @@ class ProductLock:
                     ) from error
                 except OSError:
                     pass  # 存在但暂时不可 stat(共享冲突):按被占处理。
+            stolen = False
+            try:
+                if _lock_holder_is_dead(self.path) or _lock_is_stale(self.path):
+                    os.remove(self.path)
+                    stolen = True
+                elif time.time() > deadline and not empty_stolen and _lock_is_empty(self.path):
+                    os.remove(self.path)
+                    empty_stolen = True
+                    stolen = True
+            except FileNotFoundError:
+                stolen = True
+            except OSError:
+                raise Failure("STATE_LOCK_PERMISSION_DENIED", "无法读取或释放过期状态锁，请通过宿主授权后重试；不得手改锁或清空凭证") from None
+            if stolen:
+                continue
             # 每一轮都先做截止检查再休眠:任何路径都不允许无休眠地
             # 回到循环顶部,否则权限异常会变成 CPU 空转死循环。
             if time.time() > deadline:
                 raise Failure("STATE_LOCK_BUSY", "另一个 ViceMe 试用操作正在进行,请稍后重试")
-            try:
-                if time.time() - os.stat(self.path).st_mtime > LOCK_STALE_SECONDS:
-                    os.remove(self.path)
-            except FileNotFoundError:
-                pass
-            except OSError:
-                raise Failure("STATE_LOCK_PERMISSION_DENIED", "无法读取或释放过期状态锁，请通过宿主授权后重试；不得手改锁或清空凭证") from None
             time.sleep(0.2)
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -634,6 +709,44 @@ def ensure_trial_grant(market, product_id):
         }
 
 
+def grant_missing_failure(market):
+    return Failure(
+        "TRIAL_GRANT_MISSING",
+        "本机没有该 Skill 的试用凭证;先运行 install 子命令",
+        scriptUrl=script_url(market),
+    )
+
+
+def invoking_skill_directory():
+    # Installed copies live at <skill>/.viceme/scripts/trial.py. The repository
+    # source is skills/use-a-skill/scripts/trial_runtime.py and must not count.
+    scripts = os.path.dirname(os.path.abspath(__file__))
+    if os.path.basename(scripts) != "scripts":
+        return ""
+    managed = os.path.dirname(scripts)
+    if os.path.basename(managed) != ".viceme":
+        return ""
+    return os.path.dirname(managed)
+
+
+def invoking_directory_is_trial(market, product_id):
+    root = invoking_skill_directory()
+    if not root or read_manifest_product(root) != product_id:
+        return False
+    try:
+        with open(os.path.join(root, ".viceme", "runtime.json"), encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        return (
+            manifest.get("schemaVersion") == 1
+            and manifest.get("productId") == product_id
+            and manifest.get("market") == market
+            and manifest.get("kind") == "trial"
+            and os.path.isfile(os.path.join(root, "SKILL.md"))
+        )
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+
+
 # ---------------------------------------------------------------------------
 # use 子命令
 # ---------------------------------------------------------------------------
@@ -662,12 +775,10 @@ def command_use(market, product_id, agent="auto"):
     if current and current.get("purchase") and not current["purchase"].get("closed"):
         return command_purchase(market, product_id, agent=agent)
     if not load_trial_state(product_id):
-        raise Failure(
-            "TRIAL_GRANT_MISSING",
-            "本机没有该 Skill 的试用凭证;先运行 install 子命令,或安装 ViceMe CLI 后使用 viceme skill install",
-            installDocUrl=install_doc_url(market),
-            scriptUrl=script_url(market),
-        )
+        if (ready.get("ready") and ready.get("kind") == "trial") or invoking_directory_is_trial(market, product_id):
+            ensure_trial_grant(market, product_id)
+        else:
+            raise grant_missing_failure(market)
     with ProductLock(product_id) as product_lock:
         # 锁内重读权威状态:锁外快照可能错过其他进程刚写入的未确认幂等键,
         # 沿用陈旧快照会把已扣次的使用当成新使用、生成新键重复扣。
@@ -676,12 +787,7 @@ def command_use(market, product_id, agent="auto"):
         # 复用同一幂等键;换新键会对同一使用二次扣。
         state = load_trial_state(product_id)
         if not state:
-            raise Failure(
-                "TRIAL_GRANT_MISSING",
-                "本机没有该 Skill 的试用凭证;先运行 install 子命令,或安装 ViceMe CLI 后使用 viceme skill install",
-                installDocUrl=install_doc_url(market),
-                scriptUrl=script_url(market),
-            )
+            raise grant_missing_failure(market)
         request_id = state.get("pendingRequestId") or str(uuid.uuid4())
         state["pendingRequestId"] = request_id
         save_trial_state(product_id, state)
@@ -1010,22 +1116,32 @@ def inject_trial_gate(files, market, product_id):
     windows_use = (
         'py "<本 Skill 目录>/%s" use --product %s --market %s' % (script, product_id, market)
     )
+    cli_use = "viceme skill use %s --wait 0" % product_id
+    cli_purchase = "viceme skill trial-purchase %s --wait 0" % product_id
+    cli_status = "viceme skill trial-status %s" % product_id
     section = (
         "%s\n\n## 使用前必读\n\n"
         "若本对话已经从 ready 或 install 得知 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED，不要读取使用前检查，不要运行 use 或 status，立即购买。"
         "否则每次开始或继续本技能任务前，必须先读取并执行 [使用前检查](%s)，判断是否属于同一已放行的使用单元。只有本使用单元的检查明确返回 `allowed: true` 才能执行下方任务；未放行、次数用完或检查失败时停止，不得跳过检查，也不得以安装成功或其他任务的历史检查代替本次授权。\n\n%s\n"
     ) % (header, RUNTIME_PATH, GATE_END)
+    # Keep this copy in sync with injectSkillTrialGate in skill_trial.go.
     rules = (
         "%s\n# 使用前检查\n\n"
-        "本技能当前是 ViceMe 试用版。若 ready 或 install 已返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED，不要运行下面的 use 或 status，立即把检查命令换成 purchase --wait 0。"
+        "本技能当前是 ViceMe 试用版。若 ready 或 install 已返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED，不要运行下面的 use 或 status，立即购买：有 Python 则把检查命令换成 purchase --wait 0；没有 Python、已有 viceme 则运行 `%s`。"
         "否则先读取[统一计次规则](%s)，由 Agent 判断独立使用单元。同一已放行任务的内部步骤、澄清和修订不重复计次；安装、介绍、示例展示和查询余额不计次。不得沿用其他任务的授权。\n\n"
-        "1. 本机没有可用的 Python（POSIX 环境的 `python3`，Windows 的 `py` 或 `python`）时，停止并说明需要安装 Python。检查命令返回身份、权限、锁或资源错误时，按原结果报告并申请必要权限；不得跳过检查、切换到 CLI 身份、读取凭证或手工改锁。\n"
-        "2. 按本机环境运行下面的检查命令。只有本次输出明确返回 `allowed: true` 才能继续；错误、无结果或 `allowed: false` 均不得执行技能任务，即使用户要求跳过也不例外：\n"
-        "   - macOS / Linux（POSIX shell）：`%s`\n"
-        "   - Windows（PowerShell，`py` 不可用时改用 `python`）：`%s`\n"
-        "3. 每个新使用单元执行前运行检查命令，内部记录任务和返回的 requestId。对用户只用白话说「这是第 X 次试用，一共 N 次」，X = limitUses - remainingUses；不得对用户说 use、trial、放行、预检或命令名。任务完成后用白话提示还剩几次。仅查询余额把上述命令的 use 换成 status，不得调用 use 来查询。ready 已返回 remainingUses=0 时不要再跑 status。\n"
-        "4. 最后一次试用（lastUse=true 或完成后 remainingUses=0）仍完整完成本次任务；交出结果后同一轮立即把上述命令的 use 换成 purchase 并加 --wait 0 创建或恢复订单；按[通用 Widget 指引](%s)在回复正文单独一行写 ![微信支付二维码](local-file://<imagePath>)，并用 present_files([widgetPath]) 只打开支付 HTML，不要把 PNG 交给 present_files，不要只写裸绝对路径，主动请用户扫码继续用，不要等用户再说一次。再用同一 purchase 命令加 --wait 60 有界等待付款。无需 CLI 或强制登录。二维码过期或用户说已付款不是到账证明。只有服务端确认付款与有效权益、脚本成功安装完整正式包后，重新读取 SKILL.md，再继续原任务。\n"
-    ) % (runtime_header, "../.viceme/guides/trial-usage.md", posix_use, windows_use, "../.viceme/guides/widgets.md")
+        "1. 选择运行时后必须完成检查，不得跳过。检查命令返回身份、权限、锁或资源错误时，按原结果报告并申请必要权限；不得读取凭证或手工改锁。\n"
+        "   - 本机有可用的 Python（POSIX 的 `python3`，Windows 的 `py` 或 `python`）时，运行包内脚本，不得改走 CLI，也不得去安装 CLI：\n"
+        "     - macOS / Linux（POSIX shell）：`%s`\n"
+        "     - Windows（PowerShell，`py` 不可用时改用 `python`）：`%s`\n"
+        "   - 没有 Python、但已有 `viceme` 时，运行 `%s`。不要用 `which`、`command -v viceme` 或 `Get-Command viceme` 判定未安装。\n"
+        "   - Python 和 `viceme` 都没有时，按官方安装契约 %s 安装 ViceMe CLI，并用 `viceme doctor` 确认，再运行 `%s`。安装无法完成则停止使用本技能，不得跳过检查直接使用。\n"
+        "2. 只有本次输出明确返回 `allowed: true` 才能继续；错误、无结果或 `allowed: false` 均不得执行技能任务，即使用户要求跳过也不例外。\n"
+        "3. 每个新使用单元执行前运行检查命令，内部记录任务和返回的 requestId。对用户只用白话说「这是第 X 次试用，一共 N 次」，X = limitUses - remainingUses；不得对用户说 use、trial、放行、预检或命令名。任务完成后用白话提示还剩几次。仅查询余额：Python 路线把 use 换成 status，CLI 路线运行 `%s`；不得调用 use 来查询。ready 已返回 remainingUses=0 时不要再查。\n"
+        "4. 最后一次试用（lastUse=true 或完成后 remainingUses=0）仍完整完成本次任务；交出结果后同一轮立即购买并展示支付二维码，不要等用户再说一次。Python 路线把 use 换成 purchase 并加 --wait 0，再 --wait 60；CLI 路线运行 `%s`，再用 `--wait 60s`。按[通用 Widget 指引](%s)在回复正文单独一行写 ![微信支付二维码](local-file://<imagePath>)，并用 present_files([widgetPath]) 只打开支付 HTML，不要把 PNG 交给 present_files，不要只写裸绝对路径，主动请用户扫码继续用。无需强制登录。二维码过期或用户说已付款不是到账证明。只有服务端确认付款与有效权益、成功安装完整正式包后，重新读取 SKILL.md，再继续原任务。\n"
+    ) % (
+        runtime_header, cli_purchase, "../.viceme/guides/trial-usage.md", posix_use, windows_use,
+        cli_use, install_doc_url(market), cli_use, cli_status, cli_purchase, "../.viceme/guides/widgets.md",
+    )
     files["SKILL.md"] = ((content[:insert_at] + section + body).encode("utf-8"), mode)
     files[RUNTIME_PATH] = (rules.encode("utf-8"), 0o644)
 

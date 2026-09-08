@@ -91,3 +91,44 @@ func TestGithubPublicationAuthorizesOnlyWhenRequiredAndBoundsRetry(t *testing.T)
 		})
 	}
 }
+
+func TestGithubPublicationRequiresExplicitPathForMultipleSkills(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/cli/skill-sources/github/archive" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		writer.WriteHeader(http.StatusConflict)
+		writeJSONResponse(writer, map[string]any{
+			"statusCode": 409,
+			"code":       "GITHUB_SKILL_SELECTION_REQUIRED",
+			"message":    "GitHub repository contains multiple SKILL.md files; specify path",
+			"requestId":  "test-source",
+			"details": map[string]any{
+				"candidates": []map[string]string{
+					{"path": ""},
+					{"path": "packages/poster"},
+				},
+			},
+		})
+	}))
+	defer server.Close()
+	_, runtime, err := NewRoot(Dependencies{
+		Out: io.Discard, ErrOut: io.Discard, Store: securestore.NewMemory(),
+		HTTPClient: server.Client(), APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtime.processCredential = &publicationCredential{raw: "vme_cli_" + strings.Repeat("t", 43)}
+	_, _, _, err = resolveSkillPublicationPackage(context.Background(), runtime,
+		"44444444-4444-4444-8444-444444444444", "", "someone/example", "HEAD", "", "", "", "basic", "Basic", 0, nil)
+	cliErr := output.AsError(err)
+	details, _ := cliErr.Details.(map[string]any)
+	candidates, _ := details["candidates"].([]map[string]string)
+	if cliErr.Type != "confirmation" || cliErr.Subtype != "GITHUB_SKILL_SELECTION_REQUIRED" || cliErr.Code != output.ExitConfirmation || len(candidates) != 2 || candidates[1]["path"] != "packages/poster" {
+		t.Fatalf("ambiguous GitHub archive did not expose candidates: %#v details=%#v", cliErr, details)
+	}
+}
