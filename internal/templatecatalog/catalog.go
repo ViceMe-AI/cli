@@ -125,7 +125,10 @@ func validSourceTemplate(template SourceTemplate) bool {
 }
 
 func safeRelativePath(value string) bool {
-	if value == "" || path.IsAbs(value) || path.Clean(value) != value || value == "." {
+	// filepath.FromSlash is used after validation. On Windows a backslash is a
+	// path separator even though path.Clean treats it as an ordinary byte, so
+	// reject it before a catalog field can escape the repository root.
+	if value == "" || strings.Contains(value, "\\") || path.IsAbs(value) || path.Clean(value) != value || value == "." {
 		return false
 	}
 	parsed, err := url.Parse(value)

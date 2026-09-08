@@ -62,6 +62,7 @@ func TestSafeRelativePathRejectsURLSyntax(t *testing.T) {
 		"releases/source.zip?download=1",
 		"releases/source.zip#fragment",
 		"releases/%2e%2e/source.zip",
+		`..\outside\source.zip`,
 	} {
 		if safeRelativePath(value) {
 			t.Fatalf("safeRelativePath(%q) = true", value)
@@ -69,6 +70,65 @@ func TestSafeRelativePathRejectsURLSyntax(t *testing.T) {
 	}
 	if !safeRelativePath("releases/bonjour-card/1.0.0/source.zip") {
 		t.Fatal("expected canonical release path to be accepted")
+	}
+}
+
+func TestBuildRejectsCatalogSymlinksOutsideSourceRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(external, "source"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(external, "source", "index.html"), []byte("external source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(external, "preview.html"), []byte("external preview"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "local-source"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "local-source", "index.html"), []byte("local source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "local-preview.html"), []byte("local preview"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(external, "preview.html"), filepath.Join(root, "linked-preview.html")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, "linked-parent")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := Signer{KeyID: "test-v1", PrivateKey: privateKey}
+	base := SourceTemplate{
+		ID: "bonjour-card", Status: "production", Version: "1.0.0", Name: "Bonjour Card",
+		Scenario: "works", Description: "profile", SourceDir: "local-source", PreviewFile: "local-preview.html", License: "ViceMe template license",
+	}
+	for _, test := range []struct {
+		name        string
+		sourceDir   string
+		previewDir  string
+		previewFile string
+	}{
+		{name: "preview file", sourceDir: base.SourceDir, previewFile: "linked-preview.html"},
+		{name: "preview directory parent", sourceDir: base.SourceDir, previewDir: "linked-parent/source"},
+		{name: "source parent", sourceDir: "linked-parent/source", previewFile: base.PreviewFile},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			entry := base
+			entry.SourceDir, entry.PreviewDir, entry.PreviewFile = test.sourceDir, test.previewDir, test.previewFile
+			_, err := Build(root, SourceCatalog{SchemaVersion: 1, Templates: []SourceTemplate{entry}}, filepath.Join(root, "output-"+strings.ReplaceAll(test.name, " ", "-")), "https://s3.viceme.cn/templates", signer)
+			if !errors.Is(err, ErrBuild) {
+				t.Fatalf("Build() error = %v, want ErrBuild", err)
+			}
+		})
 	}
 }
 
