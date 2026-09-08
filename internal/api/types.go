@@ -1449,6 +1449,7 @@ type PublicWorkProjection struct {
 	Work struct {
 		ID            string `json:"id"`
 		Kind          string `json:"kind"`
+		IsHostedPage  bool   `json:"isHostedPage,omitempty"`
 		Slug          string `json:"slug"`
 		Status        string `json:"status"`
 		CanonicalPath string `json:"canonicalPath"`

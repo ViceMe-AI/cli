@@ -196,7 +196,8 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			machine: []string{
 				"start --work-url", "standaloneRecoveryAvailable=true", "viceme auth status", "viceme replica install",
 				"--accept-price-cents", "REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "PRODUCT_ALREADY_OWNED",
-				"PRESENT_WORK", "STOP_AND_REPORT", "--timeout 3m --interval 15s", "AskUserQuestion",
+				"PRESENT_WORK", "workPresentation", "CREATOR_PAGE", "WORKSPACE_TEXT",
+				"STOP_AND_REPORT", "--timeout 3m --interval 15s", "AskUserQuestion",
 				"s3.viceme.cn/skills/let-me-make-a-copy/scripts/make_copy.py",
 				"s3.viceme.ai/skills/let-me-make-a-copy/scripts/make_copy.py", "../creator-tools/SKILL.md#cli-定位",
 				"scripts/make_copy.py", "Python 3.9",
@@ -204,7 +205,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			semantics: []string{
 				"不把 Skill 写入 Agent Skill 目录", "后来安装 CLI 不得触发新订单", "订单一旦创建不得切换",
 				"不得静默降级", "账号路径", "CLI 匿名路径", "无 CLI 或既有 standalone 路径",
-				"右侧预览打开 `discovery.previewUrl`", "免费、已购和恢复购买也需要先展示作品",
+				"只执行 `workPresentation`", "工作区文字介绍", "免费、已购和恢复购买也需要先展示作品",
 				"只等待同一个任务或进程", "输出为空、截断、包含多个响应或不是完整 JSON", "不得再次执行安装命令",
 				"白名单之外的任何 `retryable=false`", "不得追加 `2>&1 | tail`", "允许加密访问", "工具不可用时退回编号短选项",
 				"正文内容区", "选项卡只放简短问题和选项标签", "支付入口、支付提示和完成结果",

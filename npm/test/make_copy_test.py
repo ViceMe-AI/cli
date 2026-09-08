@@ -55,12 +55,37 @@ def replica():
     }
 
 
-def discovery():
+def discovery(preview_url=None):
+    work_url = "https://viceme.cn/alice/site"
     return {"replicaId": REPLICA_ID, "shortCode": SHORT_CODE,
             "title": "Replica", "summary": "Make a portfolio", "bodyMarkdown": "Useful for artists",
-            "previewUrl": "https://viceme.cn/alice/site", "discoveryUrl": "https://viceme.cn/alice/site/discover",
+            "previewUrl": preview_url or work_url, "discoveryUrl": work_url + "/discover",
             "creator": {"handle": "alice", "displayName": "Creator"},
-            "viceMeWorkUrl": "https://viceme.cn/alice/site", "statistics": {"acquisitionCount": 2, "commentCount": 1}}
+            "viceMeWorkUrl": work_url, "statistics": {"acquisitionCount": 2, "commentCount": 1}}
+
+
+def public_work(is_hosted_page=None):
+    work = {"websiteReplicaAction": {"instruction": f"VICEME-REPLICA:{SHORT_CODE}"}}
+    if is_hosted_page is True:
+        work["isHostedPage"] = True
+    return {"work": work}
+
+
+def inspect_request(work=None, discovered=None, item=None):
+    work = public_work() if work is None else work
+    discovered = discovery() if discovered is None else discovered
+    item = replica() if item is None else item
+
+    def request(_method, url, **_kwargs):
+        if "/public/creators/" in url:
+            return response(200, work)
+        if url.endswith("/website-replicas/resolve"):
+            return response(200, item)
+        if url.endswith("/discovery"):
+            return response(200, discovered)
+        raise AssertionError(url)
+
+    return request
 
 
 def checkout():
@@ -318,7 +343,8 @@ class MakeCopyTest(unittest.TestCase):
     def test_preview_never_reads_private_recovery_or_queries_order(self):
         work_url = "https://viceme.cn/alice/site.md"
         with mock.patch.object(
-            make_copy, "resolve_work", return_value=(f"VICEME-REPLICA:{SHORT_CODE}", replica())
+            make_copy, "resolve_work_with_hosting",
+            return_value=(f"VICEME-REPLICA:{SHORT_CODE}", replica(), False),
         ), mock.patch.object(
             make_copy, "read_state", side_effect=AssertionError("private state read")
         ), mock.patch.object(
@@ -326,7 +352,43 @@ class MakeCopyTest(unittest.TestCase):
         ):
             inspected = make_copy.inspect(work_url, request_fn=lambda *_args, **_kwargs: response(200, discovery()))
         self.assertEqual(inspected["nextAction"], "PRESENT_WORK")
+        self.assertEqual(inspected["workPresentation"], {"mode": "WORKSPACE_TEXT"})
         self.assertNotIn("standaloneRecoveryAvailable", inspected)
+
+    def test_inspect_selects_work_presentation(self):
+        work_url = "https://viceme.cn/alice/site.md"
+        cases = (
+            ("hosted page", True, None, {"mode": "CREATOR_PAGE", "url": "https://viceme.cn/alice/site"}),
+            ("verified creator site", False, "https://original.example.com",
+             {"mode": "CREATOR_PAGE", "url": "https://original.example.com"}),
+            ("ordinary work", False, None, {"mode": "WORKSPACE_TEXT"}),
+            ("unknown hosted flag", None, None, {"mode": "WORKSPACE_TEXT"}),
+        )
+        for name, hosted, preview_url, expected in cases:
+            with self.subTest(name):
+                inspected = make_copy.inspect(
+                    work_url,
+                    request_fn=inspect_request(
+                        work=public_work(hosted),
+                        discovered=discovery(preview_url),
+                    ),
+                )
+                self.assertEqual(inspected["nextAction"], "PRESENT_WORK")
+                self.assertEqual(inspected["workPresentation"], expected)
+                self.assertEqual(inspected["discovery"]["previewUrl"], preview_url or "https://viceme.cn/alice/site")
+
+    def test_fetch_public_work_entry_preserves_hosted_page(self):
+        authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+        instruction, hosted = make_copy.fetch_public_work_entry(
+            authority, lambda *_args, **_kwargs: response(200, public_work(True))
+        )
+        self.assertEqual(instruction, f"VICEME-REPLICA:{SHORT_CODE}")
+        self.assertTrue(hosted)
+        instruction, hosted = make_copy.fetch_public_work_entry(
+            authority, lambda *_args, **_kwargs: response(200, public_work())
+        )
+        self.assertEqual(instruction, f"VICEME-REPLICA:{SHORT_CODE}")
+        self.assertFalse(hosted)
 
     def test_confirmed_install_recovers_paid_order_without_checkout(self):
         with tempfile.TemporaryDirectory() as temporary:
