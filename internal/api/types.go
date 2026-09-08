@@ -1435,6 +1435,15 @@ type OfficialSkillInstallReference struct {
 	InstallerDocumentURL string `json:"installerDocumentUrl"`
 }
 
+type PublicPagePresentation struct {
+	Kind         string   `json:"kind"`
+	Mode         string   `json:"mode"`
+	ReleaseID    string   `json:"releaseId"`
+	DocumentURL  string   `json:"documentUrl"`
+	SDKVersion   string   `json:"sdkVersion"`
+	Capabilities []string `json:"capabilities"`
+}
+
 type PublicWorkProjection struct {
 	Creator struct {
 		ID          string  `json:"id"`
@@ -1446,7 +1455,8 @@ type PublicWorkProjection struct {
 
 		IsOfficial bool `json:"isOfficial"`
 	} `json:"creator"`
-	Work struct {
+	Presentation *PublicPagePresentation `json:"presentation,omitempty"`
+	Work         struct {
 		ID            string `json:"id"`
 		Kind          string `json:"kind"`
 		IsHostedPage  bool   `json:"isHostedPage,omitempty"`

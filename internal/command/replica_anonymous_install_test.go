@@ -168,19 +168,16 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 
 func TestNewReplicaWorkPresentation(t *testing.T) {
 	workURL := "https://viceme.example/replica-maker/replica"
-	hosted := newReplicaWorkPresentation(true, api.WebsiteReplicaDiscovery{PreviewURL: workURL, ViceMeWorkURL: workURL})
+	hosted := newReplicaWorkPresentation(true, workURL)
 	if hosted.Mode != replicaWorkPresentationCreatorPage || hosted.URL != workURL {
-		t.Fatalf("hosted page = %#v", hosted)
+		t.Fatalf("active hosted page = %#v", hosted)
 	}
-	external := newReplicaWorkPresentation(false, api.WebsiteReplicaDiscovery{
-		PreviewURL: "https://original.example.com", ViceMeWorkURL: workURL,
-	})
-	if external.Mode != replicaWorkPresentationCreatorPage || external.URL != "https://original.example.com" {
-		t.Fatalf("verified creator site = %#v", external)
-	}
-	text := newReplicaWorkPresentation(false, api.WebsiteReplicaDiscovery{PreviewURL: workURL, ViceMeWorkURL: workURL})
+	text := newReplicaWorkPresentation(false, workURL)
 	if text.Mode != replicaWorkPresentationWorkspaceText || text.URL != "" {
 		t.Fatalf("ordinary work = %#v", text)
+	}
+	if empty := newReplicaWorkPresentation(true, ""); empty.Mode != replicaWorkPresentationWorkspaceText {
+		t.Fatalf("missing work URL = %#v", empty)
 	}
 }
 
@@ -191,16 +188,22 @@ func TestReplicaInspectSelectsWorkPresentation(t *testing.T) {
 		replicaID = "11111111-1111-4111-8111-111111111111"
 		workURL   = "https://viceme.cn/alice/site.md"
 	)
+	workURLValue := replicaResolutionResponse(replicaID, shortCode)["viceMeWorkUrl"].(string)
 	tests := []struct {
-		name       string
-		target     string
-		hosted     bool
-		previewURL string
-		wantMode   string
-		wantURL    string
+		name         string
+		target       string
+		hostedFlag   bool
+		presentation map[string]any
+		previewURL   string
+		wantMode     string
+		wantURL      string
 	}{
-		{name: "hosted page", target: workURL, hosted: true, wantMode: replicaWorkPresentationCreatorPage},
-		{name: "verified creator site", target: workURL, previewURL: "https://original.example.com", wantMode: replicaWorkPresentationCreatorPage, wantURL: "https://original.example.com"},
+		{name: "active hosted page", target: workURL, presentation: replicaActivePagePresentation("ACTIVE"), wantMode: replicaWorkPresentationCreatorPage, wantURL: workURLValue},
+		{name: "replica publish without isHostedPage", target: workURL, presentation: replicaActivePagePresentation("ACTIVE"), wantMode: replicaWorkPresentationCreatorPage, wantURL: workURLValue},
+		{name: "isHostedPage without active presentation", target: workURL, hostedFlag: true, wantMode: replicaWorkPresentationWorkspaceText},
+		{name: "verified creator site without hosted page", target: workURL, previewURL: "https://original.example.com", wantMode: replicaWorkPresentationWorkspaceText},
+		{name: "hosted page prefers work url over external preview", target: workURL, presentation: replicaActivePagePresentation("ACTIVE"), previewURL: "https://original.example.com", wantMode: replicaWorkPresentationCreatorPage, wantURL: workURLValue},
+		{name: "preview presentation is not public hosted page", target: workURL, presentation: replicaActivePagePresentation("PREVIEW"), wantMode: replicaWorkPresentationWorkspaceText},
 		{name: "ordinary work", target: workURL, wantMode: replicaWorkPresentationWorkspaceText},
 		{name: "replica code unknown hosting", target: fullCode, wantMode: replicaWorkPresentationWorkspaceText},
 	}
@@ -214,10 +217,14 @@ func TestReplicaInspectSelectsWorkPresentation(t *testing.T) {
 						t.Fatalf("replica code inspect fetched public work")
 					}
 					work := map[string]any{"websiteReplicaAction": map[string]any{"instruction": fullCode}}
-					if test.hosted {
+					if test.hostedFlag {
 						work["isHostedPage"] = true
 					}
-					writeJSONResponse(writer, map[string]any{"work": work})
+					payload := map[string]any{"work": work}
+					if test.presentation != nil {
+						payload["presentation"] = test.presentation
+					}
+					writeJSONResponse(writer, payload)
 				case "/v1/website-replicas/" + shortCode + "/discovery":
 					writeJSONResponse(writer, replicaDiscoveryResponse(replicaID, shortCode, test.previewURL))
 				case "/v1/website-replicas/resolve":
@@ -238,13 +245,9 @@ func TestReplicaInspectSelectsWorkPresentation(t *testing.T) {
 			if exit != 0 {
 				t.Fatalf("inspect failed: exit=%d output=%q", exit, stdout.String())
 			}
-			wantURL := test.wantURL
-			if test.wantMode == replicaWorkPresentationCreatorPage && wantURL == "" {
-				wantURL = replicaResolutionResponse(replicaID, shortCode)["viceMeWorkUrl"].(string)
-			}
 			mode, presentationURL := replicaInspectPresentation(t, stdout.Bytes())
-			if mode != test.wantMode || presentationURL != wantURL {
-				t.Fatalf("presentation = %s %q, want %s %q output=%q", mode, presentationURL, test.wantMode, wantURL, stdout.String())
+			if mode != test.wantMode || presentationURL != test.wantURL {
+				t.Fatalf("presentation = %s %q, want %s %q output=%q", mode, presentationURL, test.wantMode, test.wantURL, stdout.String())
 			}
 		})
 	}

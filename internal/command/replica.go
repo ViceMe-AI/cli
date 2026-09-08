@@ -26,8 +26,8 @@ const (
 )
 
 type replicaTarget struct {
-	Instruction  string
-	IsHostedPage bool
+	Instruction   string
+	HasActivePage bool
 }
 
 type replicaWorkPresentation struct {
@@ -97,7 +97,7 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 			return runtime.business(replicaInspectResult{
 				NextAction:                  "PRESENT_WORK",
 				WorkURL:                     resolved.ViceMeWorkURL,
-				WorkPresentation:            newReplicaWorkPresentation(target.IsHostedPage, discovery),
+				WorkPresentation:            newReplicaWorkPresentation(target.HasActivePage, resolved.ViceMeWorkURL),
 				Discovery:                   &discovery,
 				PresentationTarget:          "AGENT_PLATFORM",
 				PresentationPlacement:       "RIGHT",
@@ -110,9 +110,13 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
-func newReplicaWorkPresentation(isHostedPage bool, discovery api.WebsiteReplicaDiscovery) replicaWorkPresentation {
-	if isHostedPage || discovery.PreviewURL != discovery.ViceMeWorkURL {
-		return replicaWorkPresentation{Mode: replicaWorkPresentationCreatorPage, URL: discovery.PreviewURL}
+func publicWorkHasActivePage(work api.PublicWorkProjection) bool {
+	return work.Presentation != nil && work.Presentation.Mode == "ACTIVE"
+}
+
+func newReplicaWorkPresentation(hasActivePage bool, workURL string) replicaWorkPresentation {
+	if hasActivePage && workURL != "" {
+		return replicaWorkPresentation{Mode: replicaWorkPresentationCreatorPage, URL: workURL}
 	}
 	return replicaWorkPresentation{Mode: replicaWorkPresentationWorkspaceText}
 }
@@ -141,8 +145,8 @@ func resolveReplicaTarget(ctx context.Context, runtime *Runtime, target string) 
 	action := work.Work.WebsiteReplicaAction
 	if action == nil && work.Work.WebsiteReplica != nil && replicaShortCodePattern.MatchString(work.Work.WebsiteReplica.ShortCode) {
 		return replicaTarget{
-			Instruction:  "VICEME-REPLICA:" + work.Work.WebsiteReplica.ShortCode,
-			IsHostedPage: work.Work.IsHostedPage,
+			Instruction:   "VICEME-REPLICA:" + work.Work.WebsiteReplica.ShortCode,
+			HasActivePage: publicWorkHasActivePage(work),
 		}, nil
 	}
 	if action == nil {
@@ -151,7 +155,7 @@ func resolveReplicaTarget(ctx context.Context, runtime *Runtime, target string) 
 	if _, err := parseReplicaCode(action.Instruction); err != nil {
 		return replicaTarget{}, output.Policy("REPLICA_WORK_ENTRY_INVALID", "the Work returned an invalid Website Replica entry").WithCause(err)
 	}
-	return replicaTarget{Instruction: action.Instruction, IsHostedPage: work.Work.IsHostedPage}, nil
+	return replicaTarget{Instruction: action.Instruction, HasActivePage: publicWorkHasActivePage(work)}, nil
 }
 
 func replicaInspectFailure(err error) error {

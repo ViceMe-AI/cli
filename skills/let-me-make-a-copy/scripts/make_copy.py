@@ -188,7 +188,8 @@ def fetch_public_work_entry(
         + urllib.parse.quote(slug, safe=""),
         request_fn=request_fn,
     )
-    public_work = work.get("work") if isinstance(work, dict) else None
+    projection = work if isinstance(work, dict) else None
+    public_work = projection.get("work") if isinstance(projection, dict) else None
     action = (
         public_work.get("websiteReplicaAction")
         if isinstance(public_work, dict)
@@ -210,7 +211,7 @@ def fetch_public_work_entry(
             "MAKE_COPY_ENTRY_INVALID",
             "The Work has no platform-controlled let-me-make-a-copy entry",
         )
-    return instruction, isinstance(public_work, dict) and public_work.get("isHostedPage") is True
+    return instruction, public_work_has_active_page(projection)
 
 
 def fetch_work_instruction(
@@ -301,7 +302,7 @@ def resolve_work(
 def resolve_work_with_hosting(
     authority: Authority, request_fn: RequestFn = http_request
 ) -> Tuple[str, Dict[str, Any], bool]:
-    instruction, is_hosted_page = fetch_public_work_entry(authority, request_fn)
+    instruction, has_active_page = fetch_public_work_entry(authority, request_fn)
     replica = assert_resolution(
         api_request(
             authority,
@@ -323,18 +324,17 @@ def resolve_work_with_hosting(
             "MAKE_COPY_RESPONSE_INVALID",
             "Replica Work belongs to a different ViceMe authority",
         )
-    return instruction, replica, is_hosted_page
+    return instruction, replica, has_active_page
 
 
-def work_presentation(is_hosted_page: bool, discovered: Dict[str, Any]) -> Dict[str, Any]:
-    preview_url = discovered.get("previewUrl")
-    work_url = discovered.get("viceMeWorkUrl")
-    if is_hosted_page is True or (
-        isinstance(preview_url, str)
-        and isinstance(work_url, str)
-        and preview_url != work_url
-    ):
-        return {"mode": "CREATOR_PAGE", "url": preview_url}
+def public_work_has_active_page(projection: Any) -> bool:
+    presentation = projection.get("presentation") if isinstance(projection, dict) else None
+    return isinstance(presentation, dict) and presentation.get("mode") == "ACTIVE"
+
+
+def work_presentation(has_active_page: bool, work_url: str) -> Dict[str, Any]:
+    if has_active_page is True and isinstance(work_url, str) and work_url:
+        return {"mode": "CREATOR_PAGE", "url": work_url}
     return {"mode": "WORKSPACE_TEXT"}
 
 
@@ -1426,14 +1426,16 @@ def inspect(
     request_fn: RequestFn = http_request,
 ) -> Dict[str, Any]:
     authority = authority_for_work_url(work_url)
-    instruction, replica, is_hosted_page = resolve_work_with_hosting(
+    instruction, replica, has_active_page = resolve_work_with_hosting(
         authority, request_fn
     )
     discovered = discovery(authority, replica, request_fn)
     return {
         "nextAction": "PRESENT_WORK",
         "workUrl": replica["viceMeWorkUrl"],
-        "workPresentation": work_presentation(is_hosted_page, discovered),
+        "workPresentation": work_presentation(
+            has_active_page, replica["viceMeWorkUrl"]
+        ),
         "instruction": instruction,
         "replica": replica,
         "discovery": discovered,

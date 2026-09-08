@@ -8,6 +8,17 @@ const (
 	replicaTestWorkID    = "88888888-8888-4888-8888-888888888888"
 )
 
+func replicaActivePagePresentation(mode string) map[string]any {
+	return map[string]any{
+		"kind":         "CUSTOM",
+		"mode":         mode,
+		"releaseId":    "99999999-9999-4999-8999-999999999999",
+		"documentUrl":  "https://viceme.example/page-releases/99999999-9999-4999-8999-999999999999/index.html",
+		"sdkVersion":   "1",
+		"capabilities": []string{"context.read"},
+	}
+}
+
 func replicaDiscoveryResponse(replicaID, shortCode, previewURL string) map[string]any {
 	resolution := replicaResolutionResponse(replicaID, shortCode)
 	delete(resolution, "product")
