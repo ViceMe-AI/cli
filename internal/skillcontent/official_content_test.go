@@ -159,7 +159,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"?product=<product-id>", "remainingUses", "PURCHASE_REQUIRED", "widgetPath",
 				"present_files", "imagePath", "imageChatSrc", "local-file://",
 			},
-			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "硬停止", "不要读商品 SKILL.md", "不要对用户说试用没耗尽"},
+			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "硬停止", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除"},
 		},
 		{
 			name: "charge-for-your-work",
@@ -1013,6 +1013,30 @@ func TestPublishLocalZipAsksPathWithoutScanningInstalledSkills(t *testing.T) {
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("publish workflow omitted local zip no-scan contract %q", required)
+		}
+	}
+}
+
+func TestUseSkillRetriesBusyLockWithoutAskingToDeleteLock(t *testing.T) {
+	t.Parallel()
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "use-a-skill/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"SKILL_TRIAL_LOCK_BUSY",
+		"短等几秒后重跑同一条",
+		"不得对用户说安装通道占用",
+		"不要定位或删除",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("use-a-skill omitted busy-lock contract %q", required)
+		}
+	}
+	for _, forbidden := range []string{"授权清理", "持续性的安装通道"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("use-a-skill still asks the user to inspect leftover locks via %q", forbidden)
 		}
 	}
 }

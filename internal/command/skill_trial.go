@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,7 +63,8 @@ func saveSkillTrialCredential(runtime *Runtime, productID string, credential ski
 // (skills/use-a-skill/scripts/trial.py ProductLock). The Go takeover below
 // must speak the SAME protocol: both tools read-modify-write one JSON file,
 // and skipping the lock lets one side read a torn write or clobber a newer
-// pending key. Staleness mirrors the script constant (5 minutes).
+// pending key. Both write the holder PID; a dead holder or empty leftover is
+// stolen. Staleness mirrors the script constant (5 minutes).
 const (
 	scriptTrialLockStale = 5 * time.Minute
 )
@@ -77,9 +79,13 @@ func acquireScriptTrialLock(lockPath string) (*os.File, error) {
 		return nil, err
 	}
 	deadline := time.Now().Add(scriptTrialLockWait)
+	emptyStolen := false
 	for {
 		handle, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err == nil {
+			if err := writeScriptTrialLockPID(handle, lockPath); err != nil {
+				return nil, err
+			}
 			return handle, nil
 		}
 		if !errors.Is(err, fs.ErrExist) && !errors.Is(err, fs.ErrPermission) {
@@ -90,16 +96,73 @@ func acquireScriptTrialLock(lockPath string) (*os.File, error) {
 		if _, statErr := os.Stat(lockPath); errors.Is(statErr, fs.ErrNotExist) {
 			return nil, output.Policy("SKILL_TRIAL_LOCK_PERMISSION_REQUIRED", "permission is required to create the trial state lock").WithHint("request filesystem access through the host, then retry the same command; do not edit credentials or locks")
 		}
-		if info, statErr := os.Stat(lockPath); statErr == nil && time.Since(info.ModTime()) > scriptTrialLockStale {
+		steal, stealErr := scriptTrialLockShouldSteal(lockPath)
+		if stealErr != nil {
+			return nil, stealErr
+		}
+		if !steal && !emptyStolen && time.Now().After(deadline) && scriptTrialLockIsEmpty(lockPath) {
+			steal = true
+			emptyStolen = true
+		}
+		if steal {
 			if err := removeScriptTrialLock(lockPath); err != nil && !os.IsNotExist(err) {
 				return nil, output.Policy("SKILL_TRIAL_LOCK_PERMISSION_REQUIRED", "permission is required to recover the expired trial state lock").WithHint("request filesystem access through the host and retry; never modify lock timestamps")
 			}
+			continue
 		}
 		if time.Now().After(deadline) {
-			return nil, output.Policy("SKILL_TRIAL_LOCK_BUSY", "another trial operation still owns the state lock").WithHint("wait for the original operation to finish; do not switch runners, edit lock timestamps, or inspect credentials")
+			busy := output.Policy("SKILL_TRIAL_LOCK_BUSY", "another trial operation still owns the state lock").WithHint("wait for the original operation to finish; do not switch runners, edit lock timestamps, or inspect credentials")
+			busy.Retryable = true
+			return nil, busy
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+func writeScriptTrialLockPID(handle *os.File, lockPath string) error {
+	if _, err := handle.Write([]byte(strconv.Itoa(os.Getpid()))); err != nil {
+		_ = handle.Close()
+		if removeErr := removeScriptTrialLock(lockPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			return output.Policy("SKILL_TRIAL_LOCK_PERMISSION_REQUIRED", "permission is required to create the trial state lock").WithHint("request filesystem access through the host, then retry the same command; do not edit credentials or locks").WithCause(err)
+		}
+		return err
+	}
+	return nil
+}
+
+func scriptTrialLockShouldSteal(lockPath string) (bool, error) {
+	pid, ok := readScriptTrialLockPID(lockPath)
+	if ok && !scriptTrialLockProcessAlive(pid) {
+		return true, nil
+	}
+	info, err := os.Stat(lockPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, output.Policy("SKILL_TRIAL_LOCK_PERMISSION_REQUIRED", "permission is required to recover the expired trial state lock").WithHint("request filesystem access through the host and retry; never modify lock timestamps")
+	}
+	return time.Since(info.ModTime()) > scriptTrialLockStale, nil
+}
+
+func readScriptTrialLockPID(lockPath string) (int, bool) {
+	raw, err := os.ReadFile(lockPath)
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
+}
+
+func scriptTrialLockIsEmpty(lockPath string) bool {
+	raw, err := os.ReadFile(lockPath)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(raw)) == ""
 }
 
 func withScriptTrialLock(runtime *Runtime, productID string, action func() error) error {

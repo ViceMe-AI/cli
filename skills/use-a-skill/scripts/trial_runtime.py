@@ -433,6 +433,63 @@ def save_trial_state(product_id, state):
     os.replace(temporary, path)
 
 
+def _pid_is_alive(pid):
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        process_query_limited_information = 0x1000
+        error_access_denied = 5
+        handle = ctypes.windll.kernel32.OpenProcess(process_query_limited_information, False, pid)
+        if handle:
+            ctypes.windll.kernel32.CloseHandle(handle)
+            return True
+        return ctypes.GetLastError() == error_access_denied
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _lock_holder_pid(path):
+    try:
+        with open(path, "r", encoding="ascii") as handle:
+            raw = handle.read().strip()
+    except OSError:
+        return None
+    if not raw.isdigit():
+        return None
+    pid = int(raw)
+    if pid <= 0:
+        return None
+    return pid
+
+
+def _lock_is_empty(path):
+    try:
+        with open(path, "rb") as handle:
+            return not handle.read().strip()
+    except OSError:
+        return False
+
+
+def _lock_is_stale(path):
+    try:
+        return time.time() - os.stat(path).st_mtime > LOCK_STALE_SECONDS
+    except OSError:
+        return False
+
+
+def _lock_holder_is_dead(path):
+    pid = _lock_holder_pid(path)
+    return pid is not None and not _pid_is_alive(pid)
+
+
 class ProductLock:
     """跨进程串行化同一 Product 的 install/use,避免并发改写状态文件。"""
 
@@ -447,10 +504,20 @@ class ProductLock:
         except OSError as error:
             raise Failure("STATE_DIR_PERMISSION_DENIED", "无法创建试用状态目录(权限不足),请检查主目录可写") from error
         deadline = time.time() + LOCK_WAIT_SECONDS
+        empty_stolen = False
         while True:
             try:
                 self.handle = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.write(self.handle, str(os.getpid()).encode("ascii"))
+                try:
+                    os.write(self.handle, str(os.getpid()).encode("ascii"))
+                except OSError:
+                    os.close(self.handle)
+                    self.handle = None
+                    try:
+                        os.remove(self.path)
+                    except OSError:
+                        pass
+                    raise
                 return self
             except FileExistsError:
                 pass  # 被 Unix 进程占用:走下方超时路径。
@@ -467,17 +534,25 @@ class ProductLock:
                     ) from error
                 except OSError:
                     pass  # 存在但暂时不可 stat(共享冲突):按被占处理。
+            stolen = False
+            try:
+                if _lock_holder_is_dead(self.path) or _lock_is_stale(self.path):
+                    os.remove(self.path)
+                    stolen = True
+                elif time.time() > deadline and not empty_stolen and _lock_is_empty(self.path):
+                    os.remove(self.path)
+                    empty_stolen = True
+                    stolen = True
+            except FileNotFoundError:
+                stolen = True
+            except OSError:
+                raise Failure("STATE_LOCK_PERMISSION_DENIED", "无法读取或释放过期状态锁，请通过宿主授权后重试；不得手改锁或清空凭证") from None
+            if stolen:
+                continue
             # 每一轮都先做截止检查再休眠:任何路径都不允许无休眠地
             # 回到循环顶部,否则权限异常会变成 CPU 空转死循环。
             if time.time() > deadline:
                 raise Failure("STATE_LOCK_BUSY", "另一个 ViceMe 试用操作正在进行,请稍后重试")
-            try:
-                if time.time() - os.stat(self.path).st_mtime > LOCK_STALE_SECONDS:
-                    os.remove(self.path)
-            except FileNotFoundError:
-                pass
-            except OSError:
-                raise Failure("STATE_LOCK_PERMISSION_DENIED", "无法读取或释放过期状态锁，请通过宿主授权后重试；不得手改锁或清空凭证") from None
             time.sleep(0.2)
 
     def __exit__(self, exc_type, exc_value, traceback):

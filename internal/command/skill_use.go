@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"gopkg.in/yaml.v3"
 	"io"
@@ -641,6 +642,10 @@ func installDownloadableSkill(stableName, target string, files map[string]downlo
 		return nil
 	})
 	if err != nil {
+		var cliErr *output.Error
+		if errors.As(err, &cliErr) {
+			return report, err
+		}
 		return report, output.Internal("SKILL_INSTALL_LOCK_FAILED", "another trial or installation operation is active, or the shared lock cannot be created", err)
 	}
 	return report, nil

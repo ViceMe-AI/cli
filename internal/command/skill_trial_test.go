@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +18,7 @@ import (
 
 	cliembed "github.com/ViceMe-AI/cli"
 	"github.com/ViceMe-AI/cli/internal/config"
+	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/publication"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
@@ -714,6 +716,138 @@ func TestAdoptScriptTrialPendingStealsStaleScriptLock(t *testing.T) {
 	}
 	if _, err := os.Stat(lockPath); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("the stale lock must be cleaned up, stat err=%v", err)
+	}
+}
+
+func TestScriptTrialLockStealsEmptyLeftoverAfterWait(t *testing.T) {
+	home := t.TempDir()
+	lockPath := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json.lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalWait := scriptTrialLockWait
+	scriptTrialLockWait = 300 * time.Millisecond
+	defer func() { scriptTrialLockWait = originalWait }()
+
+	started := time.Now()
+	err := withScriptTrialLockAt(home, downloadableProductID, func() error { return nil })
+	if err != nil {
+		t.Fatalf("empty leftover lock must be stolen: %v", err)
+	}
+	if time.Since(started) > 5*time.Second {
+		t.Fatal("empty leftover recovery took too long")
+	}
+	if _, err := os.Stat(lockPath); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("stolen empty lock must be released, stat err=%v", err)
+	}
+}
+
+func TestScriptTrialLockStealsDeadProcessImmediately(t *testing.T) {
+	home := t.TempDir()
+	lockPath := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json.lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, []byte("999999"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	err := withScriptTrialLockAt(home, downloadableProductID, func() error { return nil })
+	if err != nil {
+		t.Fatalf("dead pid lock must be stolen: %v", err)
+	}
+	if time.Since(started) > 2*time.Second {
+		t.Fatal("dead pid recovery must not wait out the lock timeout")
+	}
+}
+
+func TestScriptTrialLockKeepsLiveProcessBusy(t *testing.T) {
+	home := t.TempDir()
+	lockPath := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json.lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalWait := scriptTrialLockWait
+	scriptTrialLockWait = 300 * time.Millisecond
+	defer func() { scriptTrialLockWait = originalWait }()
+
+	err := withScriptTrialLockAt(home, downloadableProductID, func() error { return nil })
+	var failure *output.Error
+	if !errors.As(err, &failure) || failure.Subtype != "SKILL_TRIAL_LOCK_BUSY" || !failure.Retryable {
+		t.Fatalf("live pid must stay busy and retryable: %v", err)
+	}
+	if _, statErr := os.Stat(lockPath); statErr != nil {
+		t.Fatal("live pid lock must be left in place")
+	}
+}
+
+func TestScriptTrialLockWritesProcessID(t *testing.T) {
+	home := t.TempDir()
+	err := withScriptTrialLockAt(home, downloadableProductID, func() error {
+		raw, readErr := os.ReadFile(filepath.Join(home, ".viceme", "trial", downloadableProductID+".json.lock"))
+		if readErr != nil {
+			return readErr
+		}
+		if strings.TrimSpace(string(raw)) != strconv.Itoa(os.Getpid()) {
+			t.Fatalf("lock pid=%q want %d", raw, os.Getpid())
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInstallDownloadableSkillSurfacesBusyLock(t *testing.T) {
+	home := t.TempDir()
+	lockPath := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json.lock")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	originalWait := scriptTrialLockWait
+	scriptTrialLockWait = 300 * time.Millisecond
+	defer func() { scriptTrialLockWait = originalWait }()
+
+	_, err := installDownloadableSkill("lock-test", "workbuddy", map[string]downloadableSkillFile{
+		"SKILL.md": {Data: []byte("---\nname: lock-test\n---\n"), Mode: 0o644},
+	}, skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}, skillcontent.SkillProvenance{
+		ProductID: downloadableProductID, ReleaseID: downloadableReleaseID,
+	})
+	var failure *output.Error
+	if !errors.As(err, &failure) || failure.Subtype != "SKILL_TRIAL_LOCK_BUSY" {
+		t.Fatalf("install must keep the busy lock code: %v", err)
+	}
+}
+
+func TestInstallDownloadableSkillSurfacesPurchaseInProgress(t *testing.T) {
+	home := t.TempDir()
+	trialDir := filepath.Join(home, ".viceme", "trial")
+	if err := os.MkdirAll(trialDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	state := `{"installId":"44444444-4444-4444-8444-444444444444","secret":"` + skillTrialSecret + `","productId":"` + downloadableProductID + `","market":"cn","purchase":{"clientRequestId":"req-1","orderNo":"order-1","closed":false}}`
+	if err := os.WriteFile(filepath.Join(trialDir, downloadableProductID+".json"), []byte(state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err := installDownloadableSkill("lock-test", "workbuddy", map[string]downloadableSkillFile{
+		"SKILL.md":            {Data: []byte("---\nname: lock-test\n---\n"), Mode: 0o644},
+		skillTrialRuntimePath: {Data: []byte(skillTrialRuntimeMarker + "\nrules\n"), Mode: 0o600},
+	}, skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}, skillcontent.SkillProvenance{
+		ProductID: downloadableProductID, ReleaseID: downloadableReleaseID,
+	})
+	var failure *output.Error
+	if !errors.As(err, &failure) || failure.Subtype != "SKILL_PURCHASE_IN_PROGRESS" {
+		t.Fatalf("install must keep purchase-in-progress: %v", err)
 	}
 }
 
