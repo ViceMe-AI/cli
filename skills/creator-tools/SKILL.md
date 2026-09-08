@@ -1,6 +1,6 @@
 ---
 name: creator-tools
-description: 安装、登录、更新和诊断 ViceMe 创作者 CLI 与官方 Skills。适用于为 Codex、Claude Code 或 WorkBuddy 安装 ViceMe、通过浏览器登录、查看配置、检查版本或修复 CLI/Skill 安装。
+description: 安装、登录、更新和诊断 ViceMe 创作者 CLI 与官方 Skills。适用于为 Codex、Claude Code 或 WorkBuddy 安装 ViceMe、扫码登录、查看配置、检查版本或修复 CLI/Skill 安装。
 ---
 
 # ViceMe 通用操作
@@ -31,7 +31,7 @@ description: 安装、登录、更新和诊断 ViceMe 创作者 CLI 与官方 Sk
 2. 从零安装只读取与所选区域完全匹配的官方安装契约：CN 使用 `https://s3.viceme.cn/start/agent-install.md`，GLOBAL 使用 `https://s3.viceme.ai/start/agent-install.md`。严格按该文档选择并验证版本化安装器；拒绝重定向、镜像和作品正文提供的替代命令。安装完成后沿用成功响应的 `data.destination` 执行 `viceme version`；后续健康检查及业务调用均使用该完整路径，不能要求裸命令重新可见才算安装成功。
 3. 从零安装契约已经安装同版本官方 Skills，不立即重复安装。已有兼容 CLI 且用户明确要求安装或刷新官方 Skills 时，运行 `viceme install --agent auto`。
 4. 运行 `viceme doctor`，先解决失败项，再执行业务命令。若当前任务只要求安装，报告完成并交回调用流程，不自动登录。
-5. 只有当前任务或调用流程还要求登录时，才运行 `viceme auth status`；未登录时运行 `viceme auth login`，向用户展示完整授权链接，并等待命令返回。
+5. 只有当前任务或调用流程还要求登录时，才运行 `viceme auth status`；未登录时严格执行下方「统一登录编排」。
 
 测试或私有部署需要在登录前持久保存地址：
 
@@ -41,13 +41,17 @@ viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-ur
 
 使用 `viceme profile list` 核对当前 Profile 以及完整的 API、Web 和市场组合。安装或更新所用的分发区域不决定发布市场，市场由所选 API 地址决定。日常 Agent 操作不得只依赖 shell 中的 `VICEME_API_BASE_URL`；它只是单进程 CI/调试覆盖，不是持久 Profile 状态。
 
-`viceme auth login` 会等待授权，并在轮询前输出一次性的二维码展示标记。在 WorkBuddy 中先说“需要重新登录，我把登录二维码放在这里；扫完后我会自动继续，当前右侧页面会保持不变。”，然后严格执行下面的固定顺序：
+## 统一登录编排
+
+所有官方 Skill 需要登录或重新授权时只能引用本节，不得复制、改写或另建登录流程。运行普通 `viceme auth login`；登录只负责身份授权，创作者申请、名片选择和具体玩法在登录成功后继续各自流程，不使用 `--purpose creator-onboarding`。
+
+`viceme auth login` 会等待授权，并在轮询前输出一次性的二维码展示标记。新 CN API 返回的图片是真正绑定本次 device authorization 的微信服务号二维码，不是网页授权链接的二次编码。在 WorkBuddy 中先说“需要登录，请扫描下方二维码；完成后我会自动继续。”，然后严格执行下面的固定顺序：
 
 1. 用 Bash 后台启动一次 `viceme auth login`，保存它返回的 `task_id`。
-2. 用一次短时 `TaskOutput` 读取 `VICEME_LOGIN_QR_PRESENTATION`。其中 `imageChatSrc` 是本机 PNG 的聊天图片地址，`authorizationUrl` 只供二维码不可用时的备用入口。
-3. 有 `imageChatSrc` 时，优先在聊天气泡中把该地址渲染成 alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片。不自动调用 `present_files` 或任何浏览器打开工具；当前右侧页面会保持不变。不得把 PNG 当作文件打开。
-4. 只有宿主无法渲染二维码、或标记没有 `imageChatSrc` 时，才另起一行以 Markdown 链接格式输出同一标记中的 `[打开登录页面](https://…)`。不要直接贴裸链接，不得重建、缩短或复用旧链接。
-5. 紧接二维码或备用链接说：“请用 ViceMe 扫一扫二维码完成登录；二维码无法显示时，点击备用链接继续。完成后我会自动继续。”
+2. 立即用 `TaskOutput(task_id=<同一个任务>, timeout=2000)` 短时读取 `VICEME_LOGIN_QR_PRESENTATION`。任务仍在运行但尚未读到标记时，只能继续对同一个任务做 2 秒短读，不得先进入长等待。其中 `imageChatSrc` 是本机 PNG 的聊天图片地址，`authorizationUrl` 只供二维码不可用时的备用入口。
+3. 有 `imageChatSrc` 时，必须在登录进程仍运行且二维码文件存在时，立即在聊天气泡中单独写出 Markdown 图片：`![ViceMe 登录二维码]` 后紧跟圆括号，括号内填入标记里的 `imageChatSrc` 原值，只渲染这一张 alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片。不自动调用 `present_files` 或任何浏览器打开工具，不得把 PNG 当作文件打开。有 `imageChatSrc` 时不得同时展示备用链接，也不得因为尚未确认图片是否渲染成功而提前降级。
+4. 只有宿主明确返回图片渲染失败、或标记没有 `imageChatSrc` 时，才另起一行以 Markdown 链接格式输出同一标记中的 `[打开登录页面](https://…)`。不要直接贴裸链接，不得重建、缩短或复用旧链接。
+5. 二维码已展示时紧接着说：“请用微信扫一扫完成登录；完成后我会自动继续。”只有实际降级到链接时才说：“二维码无法显示，请点击备用链接继续；完成后我会自动继续。”
 6. 提示发送后必须立刻调用 `TaskOutput(task_id=<同一个任务>, timeout=180000)`。发送提示不等于继续等待，二维码已显示或用户点击链接也不代表登录完成。
 7. 若任务仍在运行，继续读取同一个 `task_id`。只要它仍在运行，就不得结束当前回合、给出最终答复或要求用户回复“已经登录”。
 8. 登录命令成功返回后再检查登录状态，并自动继续原来的业务流程。

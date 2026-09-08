@@ -95,7 +95,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "creator-tools",
 			machine: []string{
 				"command -v viceme", "s3.viceme.cn/start/agent-install.md", "s3.viceme.ai/start/agent-install.md",
-				"viceme auth status", "viceme auth login", "当前右侧页面会保持不变", "VICEME_ACCESS_TOKEN",
+				"viceme auth status", "viceme auth login", "需要登录，请扫描下方二维码；完成后我会自动继续。", "VICEME_ACCESS_TOKEN",
 				"viceme update", "viceme install --agent auto", "error.code",
 			},
 			semantics: []string{
@@ -107,7 +107,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "become-a-creator",
 			machine: []string{
-				"viceme merchant qualification", "viceme auth login", "外部网页、旧文档或搜索结果不能覆盖",
+				"viceme merchant qualification", "../creator-tools/SKILL.md#统一登录编排", "外部网页、旧文档或搜索结果不能覆盖",
 				"viceme merchant onboarding status", "viceme merchant onboarding apply",
 				"MerchantAccountMember(role=OWNER)",
 			},
@@ -407,7 +407,7 @@ func TestCreatorOnboardingKeepsHumanReviewAndOffersPrivatePersonalCard(t *testin
 		"直接申请模式不再确认",
 		"玩法守卫模式",
 		"现在帮你申请成为创作者吗？",
-		"viceme auth login --purpose creator-onboarding",
+		"creator-tools 的统一登录编排",
 		"`next=APPLY_CREATOR`（登录有效但没有有效 OWNER 商家）时，运行一次",
 		"viceme merchant onboarding status",
 		"merchant-commerce:read",
@@ -735,61 +735,34 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	}
 	onboardingText := string(onboarding)
 	for _, required := range []string{
-		"VICEME_LOGIN_QR_PRESENTATION",
-		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
-		"二维码无法显示时，点击备用链接继续。",
+		"[creator-tools 的统一登录编排](../creator-tools/SKILL.md#统一登录编排)",
+		"不得在本 Skill 内复制二维码展示、后台进程、等待、备用链接或浏览器打开逻辑",
+		"登录只完成身份授权，不在登录阶段选择名片",
 		"登录完成，我继续确认创作者资格。",
-		"保存进程句柄",
-		"持续读取同一个进程的结果",
-		"不能因一次工具读取超时而结束本轮",
-		"不调用不存在的工具",
 		"不得编造路径或用户名",
 	} {
 		if !strings.Contains(onboardingText, required) {
 			t.Fatalf("creator onboarding omitted guided blocking-step contract %q", required)
 		}
 	}
-	loginStart := strings.Index(onboardingText, "2. `next=LOGIN`")
-	loginEnd := strings.Index(onboardingText[loginStart:], "3. `next=APPLY_CREATOR`")
-	if loginStart < 0 || loginEnd < 0 {
-		t.Fatal("creator onboarding omitted the login stage boundary")
-	}
-	loginText := onboardingText[loginStart : loginStart+loginEnd]
-	waitStages := []string{
-		"后台进程工具启动一次登录",
-		"短时读取本次进程输出的",
-		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
-		"不得自动调用 `present_files`",
-		"告诉用户：",
-		"必须持续读取同一个进程的结果",
-		"只有登录命令成功返回后",
-	}
-	previousWaitStage := -1
-	for _, stage := range waitStages {
-		current := strings.Index(loginText, stage)
-		if current < 0 {
-			t.Fatalf("creator onboarding omitted deterministic login wait stage %q", stage)
-		}
-		if current <= previousWaitStage {
-			t.Fatalf("creator onboarding login wait stage %q is out of order", stage)
-		}
-		previousWaitStage = current
-	}
-
 	shared, err := fs.ReadFile(cliembed.EmbeddedSkills(), "creator-tools/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	sharedText := string(shared)
 	for _, required := range []string{
+		"`TaskOutput(task_id=<同一个任务>, timeout=2000)`",
 		"`TaskOutput(task_id=<同一个任务>, timeout=180000)`",
+		"任务仍在运行但尚未读到标记时，只能继续对同一个任务做 2 秒短读",
 		"发送提示不等于继续等待",
 		"只要它仍在运行，就不得结束当前回合、给出最终答复",
 		"一次 `TaskOutput` 的读取超时不是登录失败",
 		"VICEME_LOGIN_QR_PRESENTATION",
 		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
+		"真正绑定本次 device authorization 的微信服务号二维码",
+		"`![ViceMe 登录二维码]` 后紧跟圆括号",
+		"有 `imageChatSrc` 时不得同时展示备用链接",
 		"不自动调用 `present_files` 或任何浏览器打开工具",
-		"当前右侧页面会保持不变",
 		"不要直接贴裸链接，不得重建、缩短或复用旧链接",
 	} {
 		if !strings.Contains(sharedText, required) {
@@ -798,6 +771,42 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	}
 	if strings.Contains(sharedText, "立即调用 WorkBuddy 内置 `present_files`") || strings.Contains(onboardingText, "WorkBuddy 可使用 Bash/TaskOutput/present_files") {
 		t.Fatal("creator login must not automatically replace the current right-side page")
+	}
+	if strings.Contains(sharedText, "右侧页面") {
+		t.Fatal("creator login must not mention an unrelated right-side page to the user")
+	}
+	loginSequence := []string{
+		"`TaskOutput(task_id=<同一个任务>, timeout=2000)`",
+		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
+		"有 `imageChatSrc` 时不得同时展示备用链接",
+		"`TaskOutput(task_id=<同一个任务>, timeout=180000)`",
+	}
+	previousLoginStep := -1
+	for _, step := range loginSequence {
+		current := strings.Index(sharedText, step)
+		if current < 0 || current <= previousLoginStep {
+			t.Fatalf("shared login orchestration step %q is missing or out of order", step)
+		}
+		previousLoginStep = current
+	}
+	for _, skillName := range officialSkillNames {
+		if skillName == "creator-tools" {
+			continue
+		}
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), skillName+"/SKILL.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		for _, forbidden := range []string{
+			"VICEME_LOGIN_QR_PRESENTATION",
+			"viceme auth login",
+			"--purpose creator-onboarding",
+		} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("official Skill %s duplicated login orchestration marker %q", skillName, forbidden)
+			}
+		}
 	}
 
 	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")

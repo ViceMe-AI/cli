@@ -88,7 +88,18 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 			if authorization.DeviceCode == "" || authorization.VerificationURIComplete == "" {
 				return output.Internal("device_authorization_response", "ViceMe API returned an incomplete device authorization", nil)
 			}
-			presentation, presentationErr := createDeviceLoginPresentation(runtime, authorization)
+			var qrImage []byte
+			if authorization.WechatMPQRCodeURL != "" {
+				qrImage, _ = client.DownloadLoginQRCode(
+					command.Context(),
+					authorization.WechatMPQRCodeURL,
+				)
+			}
+			presentation, presentationErr := createDeviceLoginPresentation(
+				runtime,
+				authorization,
+				qrImage,
+			)
 			if presentationErr != nil {
 				presentation = deviceLoginPresentation{AuthorizationURL: authorization.VerificationURIComplete}
 			}
