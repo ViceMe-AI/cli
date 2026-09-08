@@ -1465,10 +1465,13 @@ type PublicWorkProjection struct {
 			Media               []map[string]any `json:"media"`
 			ActivatedAt         *string          `json:"activatedAt"`
 		} `json:"revision"`
-		Products             []PublicWorkProduct            `json:"products"`
-		OfficialInstall      *OfficialSkillInstallReference `json:"officialInstall,omitempty"`
-		Service              any                            `json:"service"`
-		WebsiteAction        any                            `json:"websiteAction"`
+		Products        []PublicWorkProduct            `json:"products"`
+		OfficialInstall *OfficialSkillInstallReference `json:"officialInstall,omitempty"`
+		Service         any                            `json:"service"`
+		WebsiteAction   any                            `json:"websiteAction"`
+		WebsiteReplica  *struct {
+			ShortCode string `json:"shortCode"`
+		} `json:"websiteReplica"`
 		WebsiteReplicaAction *struct {
 			Instruction string `json:"instruction"`
 		} `json:"websiteReplicaAction"`

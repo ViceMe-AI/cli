@@ -91,6 +91,44 @@ func TestReplicaInstallPersistsAndPresentsQuoteBeforeCreatingOrder(t *testing.T)
 	}
 }
 
+func TestReplicaRecoveryOnlyUsesOwnedDownloadWithoutPublicResolutionOrOrder(t *testing.T) {
+	const (
+		accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+		fullCode    = "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST"
+		shortCode   = "VMR-ABCDEFGHIJKLMNOPQRST"
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.Header.Get("Authorization") != "Bearer "+accessToken {
+			t.Fatalf("request was not authenticated: %q", request.Header.Get("Authorization"))
+		}
+		switch {
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/cli/auth/status":
+			writeReplicaAuthStatus(writer)
+		case request.Method == http.MethodGet && request.URL.Path == "/v1/website-replicas/"+shortCode+"/download":
+			writer.Header().Set("Content-Type", "application/json")
+			writer.WriteHeader(http.StatusNotFound)
+			_ = json.NewEncoder(writer).Encode(map[string]any{
+				"statusCode": 404, "code": "WEBSITE_REPLICA_NOT_FOUND", "message": "not owned", "requestId": "request-id",
+			})
+		default:
+			t.Fatalf("recovery-only crossed the public discovery or order boundary: %s %s", request.Method, request.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	t.Setenv(processAccessTokenEnvironment, accessToken)
+	root := t.TempDir()
+	var stdout bytes.Buffer
+	exit := Execute([]string{"replica", "install", fullCode, "--recovery-only", "--target", filepath.Join(root, "copy")}, Dependencies{
+		Out: &stdout, ErrOut: io.Discard, HTTPClient: server.Client(), Store: securestore.NewMemory(),
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		Region:      config.RegionCN, APIBaseURL: server.URL,
+	})
+	if exit != output.ExitPolicy || !bytes.Contains(stdout.Bytes(), []byte(`"code": "REPLICA_RECOVERY_NOT_FOUND"`)) {
+		t.Fatalf("unexpected recovery-only result: exit=%d output=%q", exit, stdout.String())
+	}
+}
+
 func TestReplicaInstallCannotBlindlyConfirmANewQuote(t *testing.T) {
 	const (
 		accessToken = "vme_cli_1234567890123456789012345678901234567890123"

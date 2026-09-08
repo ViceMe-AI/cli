@@ -62,6 +62,10 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 
 	var objectDownloads atomic.Int32
 	objectServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasSuffix(request.URL.Path, "/discovery") {
+			writer.WriteHeader(404)
+			return
+		}
 		objectDownloads.Add(1)
 		if request.Method != http.MethodGet || request.URL.Path != "/private/source.zip" || request.URL.Query().Get("signature") != "download-capability" {
 			t.Fatalf("unexpected object request: %s %s", request.Method, request.URL.String())
@@ -81,6 +85,10 @@ func TestReplicaInstallPurchasesDownloadsAndAtomicallyInstallsWithoutPersistingC
 	var installationReceipts atomic.Int32
 	var target string
 	controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasSuffix(request.URL.Path, "/discovery") {
+			writer.WriteHeader(404)
+			return
+		}
 		if request.Header.Get("Authorization") != "Bearer "+accessToken {
 			t.Fatalf("control API did not receive authorization: %q", request.Header.Get("Authorization"))
 		}
@@ -332,6 +340,10 @@ func TestReplicaInstallClaimsFreeReplicaAfterQuoteConfirmationWithoutPayment(t *
 
 	var objectDownloads atomic.Int32
 	objectServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasSuffix(request.URL.Path, "/discovery") {
+			writer.WriteHeader(404)
+			return
+		}
 		objectDownloads.Add(1)
 		writer.Header().Set("Content-Length", strconv.Itoa(len(archive)))
 		_, _ = writer.Write(archive)
@@ -343,6 +355,10 @@ func TestReplicaInstallClaimsFreeReplicaAfterQuoteConfirmationWithoutPayment(t *
 	var installationReceipts atomic.Int32
 	var target string
 	controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasSuffix(request.URL.Path, "/discovery") {
+			writer.WriteHeader(404)
+			return
+		}
 		switch {
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/cli/auth/status":
 			writeReplicaAuthStatus(writer)
@@ -511,6 +527,10 @@ func TestReplicaInstallRejectsQuoteForAnotherResolvedProductOrSKU(t *testing.T) 
 		t.Run(test.name, func(t *testing.T) {
 			var orderCalls atomic.Int32
 			controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if strings.HasSuffix(request.URL.Path, "/discovery") {
+					writer.WriteHeader(404)
+					return
+				}
 				switch request.URL.Path {
 				case "/v1/cli/auth/status":
 					writeReplicaAuthStatus(writer)
@@ -573,6 +593,10 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 	const paymentURI = "weixin://pay/temporary-native-capability"
 
 	objectServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasSuffix(request.URL.Path, "/discovery") {
+			writer.WriteHeader(404)
+			return
+		}
 		if request.Header.Get("Authorization") != "" {
 			t.Fatal("presigned download leaked API authorization")
 		}
@@ -584,6 +608,10 @@ func TestReplicaInstallResumesTheSamePaidOrderAfterInterruption(t *testing.T) {
 	var resolveCalls atomic.Int32
 	var paid atomic.Bool
 	controlServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasSuffix(request.URL.Path, "/discovery") {
+			writer.WriteHeader(404)
+			return
+		}
 		if request.Header.Get("Authorization") != "Bearer "+accessToken {
 			t.Fatalf("control API authorization = %q", request.Header.Get("Authorization"))
 		}
@@ -1047,6 +1075,10 @@ func TestReplicaInstallRejectsDownloadLengthAndDigestMismatchWithoutTarget(t *te
 		t.Run(test.name, func(t *testing.T) {
 			const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
 			objectServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if strings.HasSuffix(request.URL.Path, "/discovery") {
+					writer.WriteHeader(404)
+					return
+				}
 				if request.Header.Get("Authorization") != "" {
 					t.Fatal("download leaked API authorization")
 				}
@@ -1152,6 +1184,10 @@ func replicaPaidControlServer(t *testing.T, downloadURL string, size int, digest
 	)
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasSuffix(request.URL.Path, "/discovery") {
+			writer.WriteHeader(404)
+			return
+		}
 		if request.Header.Get("Authorization") != "Bearer "+accessToken {
 			t.Fatalf("control API authorization = %q", request.Header.Get("Authorization"))
 		}
