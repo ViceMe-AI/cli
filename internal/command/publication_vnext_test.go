@@ -291,7 +291,7 @@ func TestXiaohongshuSearchRequiresExplicitSelectionForMultipleMatches(t *testing
 			})
 		case "/v1/cli/merchant/accounts":
 			writeJSONResponse(writer, api.MerchantAccountsResponse{Items: []api.MerchantAccount{{ID: merchantID, DisplayName: "Creator", Status: "ACTIVE", StatusVersion: 1}}})
-		case "/v1/cli/merchant/channels/xiaohongshu/search":
+		case "/v1/cli/skill-sources/xiaohongshu/search":
 			writeJSONResponse(writer, map[string]any{"items": []any{
 				map[string]any{"skillId": "xhs-a", "skillName": "Poster A", "authorDisplayName": "Creator", "artifactVersion": "v1", "artifactDigest": strings.Repeat("a", 64), "artifactSizeBytes": 100, "observedAt": "2026-08-27T00:00:00Z"},
 				map[string]any{"skillId": "xhs-b", "skillName": "Poster B", "authorDisplayName": "Creator", "artifactVersion": "v1", "artifactDigest": strings.Repeat("b", 64), "artifactSizeBytes": 200, "observedAt": "2026-08-27T00:00:00Z"},

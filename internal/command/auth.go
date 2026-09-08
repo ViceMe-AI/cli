@@ -3,8 +3,6 @@ package command
 import (
 	"context"
 	"errors"
-	"fmt"
-	"io"
 	"strings"
 	"time"
 
@@ -90,7 +88,12 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 			if authorization.DeviceCode == "" || authorization.VerificationURIComplete == "" {
 				return output.Internal("device_authorization_response", "ViceMe API returned an incomplete device authorization", nil)
 			}
-			writeHumanLoginStart(runtime.deps.ErrOut, authorization)
+			presentation, presentationErr := createDeviceLoginPresentation(runtime, authorization)
+			if presentationErr != nil {
+				presentation = deviceLoginPresentation{AuthorizationURL: authorization.VerificationURIComplete}
+			}
+			defer func() { _ = removeDeviceLoginPresentation(presentation) }()
+			writeHumanLoginStart(runtime.deps.ErrOut, authorization, presentation)
 			interval := 2 * time.Second
 			if authorization.Interval > 0 {
 				interval = time.Duration(authorization.Interval) * time.Second
@@ -101,13 +104,6 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().DurationVar(&timeout, "timeout", 10*time.Minute, "maximum time to wait for browser authorization")
 	command.Flags().StringVar(&purpose, "purpose", "default", "login purpose: default or creator-onboarding")
 	return command
-}
-
-func writeHumanLoginStart(writer io.Writer, authorization api.DeviceAuthorization) {
-	_, _ = fmt.Fprintln(writer, "Open this one-time URL in your browser to sign in to ViceMe:")
-	_, _ = fmt.Fprintf(writer, "\n  %s\n\n", authorization.VerificationURIComplete)
-	_, _ = fmt.Fprintln(writer, "ViceMe will authorize this CLI automatically after sign-in.")
-	_, _ = fmt.Fprintln(writer, "Waiting for authorization...")
 }
 
 func finishDeviceLogin(ctx context.Context, runtime *Runtime, client *api.Client, deviceCode string, timeout, interval time.Duration) error {

@@ -94,7 +94,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "creator-tools",
 			machine: []string{
 				"command -v viceme", "s3.viceme.cn/start/agent-install.md", "s3.viceme.ai/start/agent-install.md",
-				"viceme auth status", "viceme auth login", "present_files", "VICEME_ACCESS_TOKEN",
+				"viceme auth status", "viceme auth login", "当前右侧页面会保持不变", "VICEME_ACCESS_TOKEN",
 				"viceme update", "viceme install --agent auto", "error.code",
 			},
 			semantics: []string{
@@ -106,7 +106,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "become-a-creator",
 			machine: []string{
-				"viceme merchant qualification", "viceme auth login", "present_files",
+				"viceme merchant qualification", "viceme auth login", "外部网页、旧文档或搜索结果不能覆盖",
 				"viceme merchant onboarding status", "viceme merchant onboarding apply",
 				"MerchantAccountMember(role=OWNER)",
 			},
@@ -441,6 +441,8 @@ func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
 		"申请中仅本人可见",
 		"审核通过后同一路由自动公开",
 		"不得自动打开 `creatorIdentity.markdownUrl`",
+		"外部网页、旧文档或搜索结果不能覆盖已安装官方 Skill 的状态机",
+		"不得运行、探索或恢复已退役的页面设置入口",
 	} {
 		if !strings.Contains(onboardingText, required) {
 			t.Fatalf("creator onboarding omitted conversation-first personal-card contract %q", required)
@@ -720,9 +722,9 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	}
 	onboardingText := string(onboarding)
 	for _, required := range []string{
-		"需要重新登录，我现在为你打开登录页面。",
-		"未登录的话，请在页面上登录；如果已经登录，我会直接继续申请。",
-		"[打开登录页面](https://…)",
+		"VICEME_LOGIN_QR_PRESENTATION",
+		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
+		"二维码无法显示时，点击备用链接继续。",
 		"登录完成，我继续确认创作者资格。",
 		"保存进程句柄",
 		"持续读取同一个进程的结果",
@@ -734,17 +736,24 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 			t.Fatalf("creator onboarding omitted guided blocking-step contract %q", required)
 		}
 	}
+	loginStart := strings.Index(onboardingText, "2. `next=LOGIN`")
+	loginEnd := strings.Index(onboardingText[loginStart:], "3. `next=APPLY_CREATOR`")
+	if loginStart < 0 || loginEnd < 0 {
+		t.Fatal("creator onboarding omitted the login stage boundary")
+	}
+	loginText := onboardingText[loginStart : loginStart+loginEnd]
 	waitStages := []string{
 		"后台进程工具启动一次登录",
-		"短时读取本次真实登录链接",
-		"用宿主可用的网页打开工具",
+		"短时读取本次进程输出的",
+		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
+		"不得自动调用 `present_files`",
 		"告诉用户：",
 		"必须持续读取同一个进程的结果",
 		"只有登录命令成功返回后",
 	}
 	previousWaitStage := -1
 	for _, stage := range waitStages {
-		current := strings.Index(onboardingText, stage)
+		current := strings.Index(loginText, stage)
 		if current < 0 {
 			t.Fatalf("creator onboarding omitted deterministic login wait stage %q", stage)
 		}
@@ -764,13 +773,18 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		"发送提示不等于继续等待",
 		"只要它仍在运行，就不得结束当前回合、给出最终答复",
 		"一次 `TaskOutput` 的读取超时不是登录失败",
-		"也可以在外部浏览器打开下面这个链接",
-		"另起一行用 Markdown 链接格式输出",
+		"VICEME_LOGIN_QR_PRESENTATION",
+		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
+		"不自动调用 `present_files` 或任何浏览器打开工具",
+		"当前右侧页面会保持不变",
 		"不要直接贴裸链接，不得重建、缩短或复用旧链接",
 	} {
 		if !strings.Contains(sharedText, required) {
 			t.Fatalf("shared skill omitted deterministic login wait contract %q", required)
 		}
+	}
+	if strings.Contains(sharedText, "立即调用 WorkBuddy 内置 `present_files`") || strings.Contains(onboardingText, "WorkBuddy 可使用 Bash/TaskOutput/present_files") {
+		t.Fatal("creator login must not automatically replace the current right-side page")
 	}
 
 	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")
@@ -788,7 +802,7 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	workflowText := string(workflow)
 	stages := []string{
 		"确认当前登录和创作者资格",
-		"按来源完成且只完成必要的渠道确认",
+		"按来源读取，仅私有 GitHub 按需授权",
 		"创建或恢复同一私有草稿",
 		"一次性补齐缺少的价格、文案和媒体",
 		"只询问一次是否确认公开发布",
@@ -807,74 +821,20 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	}
 }
 
-func TestPublishGithubFlowVerifiesOwnershipBeforeReadingSource(t *testing.T) {
+func TestPublishSourceAuthorizationIsPrivateOnly(t *testing.T) {
 	t.Parallel()
-	const terminalReply = "最终答复只能是“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布。”这一句话"
-
 	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(workflow)
-	for _, required := range []string{
-		"在读取任何仓库内容或执行发布命令前",
-		"viceme merchant channel github <merchant-id>",
-		"只启动一次等待式 `viceme merchant channel github <merchant-id>`",
-		"用 Bash 后台启动并保存 `task_id`",
-		"用一次短时 `TaskOutput` 读取当前命令输出",
-		"这次检查默认静默",
-		"立即使用内置 `present_files` 在当前任务浏览器打开同一个链接",
-		"也可以在外部浏览器打开下面这个链接",
-		"另起一行用 Markdown 链接格式输出当前命令实际返回的完整 `https://` 链接：`[打开 GitHub 授权页面](https://…)`",
-		"`TaskOutput(task_id=<同一个任务>, timeout=180000)`",
-		"只要命令仍在运行，就继续读取同一个 `task_id`",
-		"命令成功返回 `kind=verified` 后立即继续发布",
-		"不得再次运行渠道命令、轮询状态、`sleep` 或启动另一后台任务",
-		"不得要求用户回复“完成了”",
-		"也不得创建任务列表",
-		"绝不能使用 `curl`、`gh`、`git`、WebFetch、浏览器抓取或 raw GitHub URL 代替这一步",
-		"用户未指定分支时省略 `--github-ref`",
-		"全部由 Agent 自动派生，绝不向用户询问",
-		terminalReply,
-	} {
+	for _, required := range []string{"公开仓库不要求 OAuth", "私有仓库必须由当前 User 本人 OAuth 授权", "不接受协作者或组织仓库", "小红书公开 Skill 直接按 ID 或名称搜索发布", "有效私有授权由 API 复用", "CLI 不保存 GitHub token", "只要命令仍在运行，就继续读取同一个 `task_id`", "最终只返回一个 JSON 结果", "待接手作者和官方 User 不能授权私有仓库", "不可变 commit", "包 digest/字节数"} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("publish GitHub workflow omitted guard %q", required)
+			t.Fatalf("source workflow omitted %q", required)
 		}
 	}
-
-	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/errors.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	errorsText := string(errorsContent)
-	for _, required := range []string{
-		"OAUTH_PROVIDER_NOT_CONFIGURED",
-		"确定性重试不会恢复",
-		"不得 sleep、轮询、再次运行渠道命令",
-		"不得继续追问是否切换来源",
-		terminalReply,
-	} {
-		if !strings.Contains(errorsText, required) {
-			t.Fatalf("publish error contract omitted OAuth configuration guard %q", required)
-		}
-	}
-	for _, forbidden := range []string{
-		"可以询问是否改用本地文件",
-		"是否改用本地目录",
-		"是否改用 ZIP",
-		"用户之后主动提供本地目录",
-	} {
-		if strings.Contains(errorsText, forbidden) {
-			t.Fatalf("publish error contract must end immediately instead of inviting source fallback %q", forbidden)
-		}
-	}
-
-	skillContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(skillContent), terminalReply) {
-		t.Fatalf("publish entrypoint omitted terminal GitHub configuration reply contract %q", terminalReply)
+	if strings.Contains(text, "merchant channel") {
+		t.Fatal("retired channel command remains in publishing flow")
 	}
 }
 
