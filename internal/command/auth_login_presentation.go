@@ -21,9 +21,9 @@ import (
 
 const deviceLoginPresentationDirectory = "auth-presentations"
 
-// deviceLoginPresentation is progress metadata for hosts that can render a
-// local image in chat. The authorization URL is retained only for the host's
-// explicit fallback link when it cannot render the QR image.
+// deviceLoginPresentation is progress metadata for hosts that can render the
+// validated WeChat QR image in chat. The authorization URL is retained only
+// for the host's explicit fallback link when it cannot render the QR image.
 type deviceLoginPresentation struct {
 	ImagePath        string `json:"imagePath,omitempty"`
 	ImageChatSrc     string `json:"imageChatSrc,omitempty"`
@@ -58,7 +58,11 @@ func createDeviceLoginPresentation(runtime *Runtime, authorization api.DeviceAut
 		return presentation, fmt.Errorf("resolve device login presentation path: %w", err)
 	}
 	presentation.ImagePath = absolutePath
-	presentation.ImageChatSrc = localFileChatSrc(absolutePath)
+	// WorkBuddy accepts HTTPS images in Markdown, while its chat renderer does
+	// not reliably load local-file:// URLs. Expose the same short-lived WeChat
+	// image that was downloaded and validated above; retain ImagePath only for
+	// hosts that need the normalized private PNG.
+	presentation.ImageChatSrc = authorization.WechatMPQRCodeURL
 	return presentation, nil
 }
 
