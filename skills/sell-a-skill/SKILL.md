@@ -41,7 +41,8 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
 
 - 根目录含 `SKILL.md` 的本地目录或 ZIP；用户选择这一来源或回答「提供路径」后，
   立刻收取绝对路径，不得扫描本机已有 Skill。
-- 当前用户本人拥有的公开或私有 GitHub 仓库；
+- 当前用户本人拥有的公开或私有 GitHub 仓库；拿到仓库地址后直接发布，不得询问
+  SKILL.md 在仓库根目录还是子目录，也不得让用户先填子目录。
 - 公开小红书 Skill ID。
 
 用户提出网站、服务、实物、定制商品、预约或其他非下载交付时，说明当前 Skill 只发布
@@ -75,3 +76,5 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
   错误码或恢复目录。
 - 用户选择本地目录/ZIP 或「提供路径」后，立刻让用户输入绝对路径；不得搜索本机
   `SKILL.md`，也不得把已有 Skill 列成候选。
+- GitHub 发布不得询问 SKILL.md 在仓库根目录还是子目录；多个 Skill 时只展示 CLI
+  返回的候选目录。

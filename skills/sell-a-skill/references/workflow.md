@@ -65,7 +65,7 @@ GitHub 来源直接运行一次 `viceme skill publish --github ...`。公开仓�
 
 `OAUTH_PROVIDER_NOT_CONFIGURED` 仅影响需要授权的私有仓库。确定性重试不会恢复，停止本次私有仓库发布并说明当前环境尚未配置 GitHub 私有仓库授权。公开 GitHub 仍可正常发布。待接手作者和官方 User 不能授权私有仓库；不引导官方绑定个人账号。
 
-用户未指定分支时省略 `--github-ref`，CLI 用 `HEAD` 解析默认分支；未指定子目录时省略 `--github-path`。API 固定不可变 commit、仓库、目录、所有者来源信息及包 digest/字节数，CLI 校验 `SKILL.md` 和来源回执，不另行抓取替代该回执。只有 CLI 报告入口不在根目录时，再补充准确子目录。
+用户未指定分支时省略 `--github-ref`，CLI 用 `HEAD` 解析默认分支。拿到仓库地址后直接运行 `viceme skill publish --github ...`，省略 `--github-path`，不得先问用户「SKILL.md 在仓库根目录还是子目录」，也不得让用户先填子目录。API 在已下载的仓库归档里解析 `SKILL.md`：唯一入口自动选定；多个 Skill 时 CLI 返回 `GITHUB_SKILL_SELECTION_REQUIRED` 和 `details.candidates`（仓库相对目录，空 `path` 表示根目录）。此时用 AskUserQuestion 列出这些候选目录（空 path 选项标明「仓库根目录」），按用户选择重试同一命令：选中根目录仍省略 `--github-path`，选中其他目录才带对应 `--github-path`。不得 `git clone`、WebFetch、浏览器或扫描本机去发现目录。用户已经明确给出子目录时才带 `--github-path`。API 固定不可变 commit、仓库、目录、所有者来源信息及包 digest/字节数，CLI 校验 `SKILL.md` 和来源回执，不另行抓取替代该回执。
 
 小红书公开 Skill 直接按 ID 或名称搜索发布，无 OAuth、账号绑定或 Admin 渠道审核；多个结果匹配时展示全部候选，再按用户选择的 `--xiaohongshu-skill-id` 继续。GitHub 和小红书的不可变归档保存在 CLI 私有恢复目录，`--resume` 不会重新取得不同字节。普通创作者的申请审核和包校验继续保留。
 

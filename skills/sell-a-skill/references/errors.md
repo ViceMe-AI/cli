@@ -9,6 +9,7 @@
 - `SKILL_PUBLICATION_PRICE_REQUIRED`：取得并展示当前完整上架信息，同时询问准确人民币分价以及希望修改的标题、文案或媒体。不得只问价格。继续同一私有 Publication。
 - `SKILL_SECRET_DETECTED` 或 `SKILL_SENSITIVE_FILE`：停止并从包中删除凭证或敏感文件，绝不打印内容。
 - `SOURCE_ARCHIVE_RATE_LIMITED`：来源归档下载触发平台限流（每用户 10 分钟 5 次）。这是重试风暴的信号，不是新问题。立即停止重试，用一句白话告知用户「刚才重试次数太多触发了平台限流，大约 10 分钟后自动恢复」，然后结束当前发布流程；恢复后由用户重新发起，幂等会接续未完成的发布。不得自行 sleep 等待后再试。
+- `GITHUB_SKILL_SELECTION_REQUIRED`：仓库里找到多个 `SKILL.md`。用 AskUserQuestion 展示 `error.details.candidates` 的目录，按用户选择带 `--github-path` 重试同一发布；空 `path` 表示仓库根目录并省略该参数。不得改问「根目录还是子目录」，不得让用户空手填路径，也不得 clone 仓库自行查找。
 - `PUBLICATION_SOURCE_CHANGED`：恢复包与开始发布时不同；恢复原包或开始新的发布。
 - `OAUTH_PROVIDER_NOT_CONFIGURED`：当前环境尚未配置 GitHub 私有仓库授权。确定性重试不会恢复，停止本次私有仓库发布；公开来源不受影响，不自动切换来源。
 - `SKILL_PUBLICATION_REVIEW_CHANGED`：获取并展示最新预览，针对新 digest 重新取得“确认并发布”授权。

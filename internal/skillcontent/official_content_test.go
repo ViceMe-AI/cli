@@ -150,6 +150,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"发布本作品的升级版并设价格", "不得把试用讲成免费额度",
 				"不得向用户提及该警告", "PUBLICATION_RECOVERY_RETIRE_FAILED",
 				"不得搜索 `**/SKILL.md`",
+				"不得询问 SKILL.md 在仓库根目录还是子目录",
 			},
 		},
 		{
@@ -979,6 +980,56 @@ func TestPublishHidesLocalRecoveryCleanupWarnings(t *testing.T) {
 	} {
 		if !strings.Contains(errorsText, required) {
 			t.Fatalf("publish errors omitted recovery-warning hide contract %q", required)
+		}
+	}
+}
+
+func TestPublishGithubDiscoversSkillMarkdownWithoutAskingRootOrSubdir(t *testing.T) {
+	t.Parallel()
+	for _, relativePath := range []string{
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+		"sell-a-skill/references/errors.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		if !strings.Contains(text, "根目录还是子目录") {
+			t.Fatalf("%s omitted GitHub SKILL.md location contract", relativePath)
+		}
+	}
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowText := string(workflow)
+	for _, required := range []string{
+		"省略 `--github-path`",
+		"GITHUB_SKILL_SELECTION_REQUIRED",
+		"details.candidates",
+		"不得先问用户「SKILL.md 在仓库根目录还是子目录」",
+	} {
+		if !strings.Contains(workflowText, required) {
+			t.Fatalf("publish workflow omitted GitHub autodiscover contract %q", required)
+		}
+	}
+	if strings.Contains(workflowText, "只有 CLI 报告入口不在根目录时") {
+		t.Fatal("publish workflow still asks the user to supply a GitHub subdirectory first")
+	}
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/errors.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	errorsText := string(errorsContent)
+	for _, required := range []string{
+		"GITHUB_SKILL_SELECTION_REQUIRED",
+		"error.details.candidates",
+		"不得改问「根目录还是子目录」",
+	} {
+		if !strings.Contains(errorsText, required) {
+			t.Fatalf("publish errors omitted GitHub autodiscover contract %q", required)
 		}
 	}
 }

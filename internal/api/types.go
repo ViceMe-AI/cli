@@ -1569,6 +1569,7 @@ type APIError struct {
 	Message    any                   `json:"message"`
 	RequestID  string                `json:"requestId"`
 	Recovery   *APIRecoveryReference `json:"recovery,omitempty"`
+	Details    json.RawMessage       `json:"details,omitempty"`
 }
 
 type APIRecoveryReference struct {
