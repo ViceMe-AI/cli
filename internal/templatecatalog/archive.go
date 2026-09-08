@@ -95,7 +95,7 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 	origin = strings.TrimSuffix(origin, "/")
 	manifest := Manifest{SchemaVersion: 1, Templates: make([]PublishedTemplate, 0, len(catalog.Templates))}
 	zipByTemplate := make(map[string][]byte, len(catalog.Templates))
-	previewByTemplate := make(map[string][]byte, len(catalog.Templates))
+	previewByTemplate := make(map[string]map[string][]byte, len(catalog.Templates))
 	for _, source := range catalog.Templates {
 		sourceDirectory, err := sourcePath(canonicalRoot, source.SourceDir, true)
 		if err != nil {
@@ -105,12 +105,8 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 		if err != nil {
 			return BuildResult{}, err
 		}
-		previewFilename, err := sourcePath(canonicalRoot, source.PreviewFile, false)
+		previews, err := buildPreviewFiles(canonicalRoot, source)
 		if err != nil {
-			return BuildResult{}, err
-		}
-		preview, err := os.ReadFile(previewFilename)
-		if err != nil || len(preview) == 0 {
 			return BuildResult{}, ErrBuild
 		}
 		digest := sha256.Sum256(archive)
@@ -122,7 +118,7 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 			SourceSHA256: "sha256:" + hex.EncodeToString(digest[:]), License: source.License,
 		})
 		zipByTemplate[source.ID+"@"+source.Version] = archive
-		previewByTemplate[source.ID+"@"+source.Version] = preview
+		previewByTemplate[source.ID+"@"+source.Version] = previews
 	}
 	demoCards := make([]demoCard, 0, len(demos))
 	demoPreviews := make(map[string][]byte, len(demos))
@@ -218,6 +214,9 @@ func buildSourceZIP(sourceDirectory, root string) ([]byte, error) {
 			return err
 		}
 		if entry.IsDir() {
+			if entry.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
@@ -258,7 +257,51 @@ func buildSourceZIP(sourceDirectory, root string) ([]byte, error) {
 	return output.Bytes(), nil
 }
 
-func writeCatalog(outputRoot string, manifest Manifest, demos []demoCard, signer Signer, zips, previews, demoPreviews map[string][]byte) error {
+func buildPreviewFiles(sourceRoot string, source SourceTemplate) (map[string][]byte, error) {
+	if source.PreviewDir == "" {
+		previewFilename, err := sourcePath(sourceRoot, source.PreviewFile, false)
+		if err != nil {
+			return nil, ErrBuild
+		}
+		body, err := os.ReadFile(previewFilename)
+		if err != nil || len(body) == 0 {
+			return nil, ErrBuild
+		}
+		return map[string][]byte{"index.html": body}, nil
+	}
+	previewDirectory, err := sourcePath(sourceRoot, source.PreviewDir, true)
+	if err != nil {
+		return nil, ErrBuild
+	}
+	files := make(map[string][]byte)
+	err = filepath.WalkDir(previewDirectory, func(filename string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
+			return ErrBuild
+		}
+		relative, err := filepath.Rel(previewDirectory, filename)
+		if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return ErrBuild
+		}
+		body, err := os.ReadFile(filename)
+		if err != nil {
+			return ErrBuild
+		}
+		files[filepath.ToSlash(relative)] = body
+		return nil
+	})
+	if err != nil || len(files["index.html"]) == 0 {
+		return nil, ErrBuild
+	}
+	return files, nil
+}
+
+func writeCatalog(outputRoot string, manifest Manifest, demos []demoCard, signer Signer, zips map[string][]byte, previews map[string]map[string][]byte, demoPreviews map[string][]byte) error {
 	manifestBody, err := json.Marshal(manifest)
 	if err != nil {
 		return ErrBuild
@@ -290,8 +333,15 @@ func writeCatalog(outputRoot string, manifest Manifest, demos []demoCard, signer
 		if err := writeFile(filepath.Join(base, "source.zip"), zips[key]); err != nil {
 			return err
 		}
-		if err := writeFile(filepath.Join(base, "preview", "index.html"), previews[key]); err != nil {
-			return err
+		paths := make([]string, 0, len(previews[key]))
+		for relative := range previews[key] {
+			paths = append(paths, relative)
+		}
+		sort.Strings(paths)
+		for _, relative := range paths {
+			if err := writeFile(filepath.Join(base, "preview", filepath.FromSlash(relative)), previews[key][relative]); err != nil {
+				return err
+			}
 		}
 	}
 	for _, demo := range demos {

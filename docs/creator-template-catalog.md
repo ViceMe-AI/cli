@@ -11,7 +11,7 @@ make template-catalog TEMPLATE_CATALOG_ORIGIN=https://s3.viceme.cn/templates/dev
 ```
 
 构建会生成 `index.html`、签名的 `manifest.json` / `manifest.sig`、每个版本的预览和 `source.zip`。manifest 中的预览与源码位置使用目录内相对 URL，CLI 只在验签后才按所选 CN/Global origin 解析，因此两个区域发布完全相同的字节。版本目录永远不可覆盖；若同一对象已经存在，发布工作流只接受字节完全相同的内容。
-`source_dir` 和 `preview_file` 必须使用正斜杠的仓库内相对路径；构建拒绝反斜杠、任一层符号链接及特殊文件，不能读取或发布检出目录以外的内容。
+`source_dir`、`preview_dir` 和 `preview_file` 必须使用正斜杠的仓库内相对路径；构建拒绝反斜杠、任一层符号链接及特殊文件，不能读取或发布检出目录以外的内容。
 
 推送到 `dev` 时工作流通过现有 `cdn` GitHub Environment 发布到独立公开 `templates` 桶的 `dev/` 前缀，推送到 `main` 时发布到该桶根。工作流使用既有 CN/Global 发布凭据创建或核对专用桶；公开策略写入前必须确认其中没有模板册约定之外的对象，随后才收敛整桶策略为仅允许匿名 `GetObject`。桶内不承载任何私有对象，也不开放 `ListBucket`。工作流会逐项从 CN/Global 公网回读首页、manifest、签名、预览和源码，比较本地产物及跨区域字节，并用实际 dev CLI 执行 `template list/fetch`。删除或下架模板时，只从 source catalog 的稳定清单移除；历史版本化对象保留，但 Agent 不再发现或下载它。
 
