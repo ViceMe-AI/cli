@@ -31,8 +31,11 @@ func TestDeviceLoginPresentationCreatesPrivateChatQRCode(t *testing.T) {
 	if !filepath.IsAbs(presentation.ImagePath) {
 		t.Fatalf("image path must be absolute: %q", presentation.ImagePath)
 	}
-	if presentation.ImageChatSrc != localFileChatSrc(presentation.ImagePath) {
+	if presentation.ImageChatSrc != authorization.WechatMPQRCodeURL {
 		t.Fatalf("unexpected chat image source: %q", presentation.ImageChatSrc)
+	}
+	if strings.HasPrefix(presentation.ImageChatSrc, "local-file://") {
+		t.Fatalf("WorkBuddy must receive the validated HTTPS QR image: %q", presentation.ImageChatSrc)
 	}
 	if strings.Contains(filepath.Base(presentation.ImagePath), authorization.DeviceCode) {
 		t.Fatalf("image filename leaked device code: %q", presentation.ImagePath)

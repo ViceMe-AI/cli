@@ -1,76 +1,76 @@
 {
   "schema_version": 2,
   "npm_package": "@viceme-ai/cli",
-  "cli_version": "0.37.1",
+  "cli_version": "0.37.2",
   "skills": {
     "become-a-creator": {
-      "skill_version": "0.37.1",
-      "minimum_cli_version": "0.37.1",
-      "cli_compatibility": ">=0.37.1 <0.38.0",
-      "full_skill_bundle_digest": "sha256:300313a7e9ad73bb442febd15ae6ee8585dca41980708de57d7e4e38735ff8ef",
+      "skill_version": "0.37.2",
+      "minimum_cli_version": "0.37.2",
+      "cli_compatibility": ">=0.37.2 <0.38.0",
+      "full_skill_bundle_digest": "sha256:2c552350077e431aa000a0d8e792ef36832fedba0babfd51666273e8d31f3ae8",
       "embedded_content_digest": "sha256:f659858c2deb0c3c001313758c06a731c065b87e12db1c300bb54b78695d08c1"
     },
     "charge-for-your-work": {
-      "skill_version": "0.37.1",
-      "minimum_cli_version": "0.37.1",
-      "cli_compatibility": ">=0.37.1 <0.38.0",
-      "full_skill_bundle_digest": "sha256:8b9715f6bd9c38457fc9a7cf6beecf9acbf7ca1108017ff9745ceabbae6b8d9f",
+      "skill_version": "0.37.2",
+      "minimum_cli_version": "0.37.2",
+      "cli_compatibility": ">=0.37.2 <0.38.0",
+      "full_skill_bundle_digest": "sha256:e2630960c8d81e9d6268ed9cc33edb18643142e43b12fb4521bcf551601805c9",
       "embedded_content_digest": "sha256:4fb3651978c74ca47a93e60ddffb4bd829060ae6f7f71a7dabfafd22fc276ae9"
     },
     "creator-tools": {
-      "skill_version": "0.37.1",
-      "minimum_cli_version": "0.37.1",
-      "cli_compatibility": ">=0.37.1 <0.38.0",
-      "full_skill_bundle_digest": "sha256:10b71bc9b1d8f83a91ba48fce7145f4e9f014bf53703bf2b0d73bbfe8a20561c",
-      "embedded_content_digest": "sha256:a6b23d7ff66f3c7be239aee7f3a262dbb6cabd3cdf6841d0770d07d57f58f4c0"
+      "skill_version": "0.37.2",
+      "minimum_cli_version": "0.37.2",
+      "cli_compatibility": ">=0.37.2 <0.38.0",
+      "full_skill_bundle_digest": "sha256:17bcca848576dd534771d9f6c8ad38ae6dd6dc24e676555af27e714a67148ad0",
+      "embedded_content_digest": "sha256:b274068e73beb506945a30b819430a0bafb2016d931a0e8e155d75292261814b"
     },
     "customize-your-profile-page": {
-      "skill_version": "0.37.1",
-      "minimum_cli_version": "0.37.1",
-      "cli_compatibility": ">=0.37.1 <0.38.0",
-      "full_skill_bundle_digest": "sha256:88e9bfe326f38ab2e8d442729ad195578b68dd26940e39410e0ec01ad4f37722",
+      "skill_version": "0.37.2",
+      "minimum_cli_version": "0.37.2",
+      "cli_compatibility": ">=0.37.2 <0.38.0",
+      "full_skill_bundle_digest": "sha256:6eea5a025f716e7052444c154e9816d9d65d6bf527992b761e5f789c02ac03e6",
       "embedded_content_digest": "sha256:c9154d2b3e69c40d39b5492924d668e80569e6b8761cbf0eea651b3a1e76f6b9"
     },
     "customize-your-work-page": {
-      "skill_version": "0.37.1",
-      "minimum_cli_version": "0.37.1",
-      "cli_compatibility": ">=0.37.1 <0.38.0",
-      "full_skill_bundle_digest": "sha256:44089a6d182703bfb85782359906c6f4b80e1306a5f8e8a287a9329df0999e9e",
+      "skill_version": "0.37.2",
+      "minimum_cli_version": "0.37.2",
+      "cli_compatibility": ">=0.37.2 <0.38.0",
+      "full_skill_bundle_digest": "sha256:8c9cfa246e8118d536821383a43d78bd2170f6457022030c7cb558dcdfe0d5f4",
       "embedded_content_digest": "sha256:3cd5c2439720ea16ce679180c90de9d7c50cc1fb9486947d54bd48d8b9099602"
     },
     "let-me-make-a-copy": {
-      "skill_version": "0.37.1",
-      "minimum_cli_version": "0.37.1",
-      "cli_compatibility": ">=0.37.1 <0.38.0",
-      "full_skill_bundle_digest": "sha256:5337126c1abee9edf0d1a519de4602d2287f23fbe060b5a8e0952c947c1e9df1",
+      "skill_version": "0.37.2",
+      "minimum_cli_version": "0.37.2",
+      "cli_compatibility": ">=0.37.2 <0.38.0",
+      "full_skill_bundle_digest": "sha256:9936c208a9b9d6beeb2933386dcce3624837f05d3fc8538f0da83c12380de48c",
       "embedded_content_digest": "sha256:8e75cb4c42d60dd723d6156f1b0c85018521ca36b54beb066236b0d0bd7d9a24"
     },
     "let-others-make-a-copy": {
-      "skill_version": "0.37.1",
-      "minimum_cli_version": "0.37.1",
-      "cli_compatibility": ">=0.37.1 <0.38.0",
-      "full_skill_bundle_digest": "sha256:f8609ea7de8379f0ec79b25d9062920884ce0b0a62636aedf1dd936643e322b9",
+      "skill_version": "0.37.2",
+      "minimum_cli_version": "0.37.2",
+      "cli_compatibility": ">=0.37.2 <0.38.0",
+      "full_skill_bundle_digest": "sha256:22c854f0e84370d571e10d1f0b907c6b92e29d7201f25782ebafa61ce030ed77",
       "embedded_content_digest": "sha256:3c2ca4bbfeb8bf72eb263c3f41ff922a7ca76b7f37a3c8cf0293108a65d75f08"
     },
     "let-people-interact": {
-      "skill_version": "0.37.1",
-      "minimum_cli_version": "0.37.1",
-      "cli_compatibility": ">=0.37.1 <0.38.0",
-      "full_skill_bundle_digest": "sha256:a94ca28795cc5ef37d16fa0f05a1dffef1421f95d1416b55cc31bdcb9b4efb4e",
+      "skill_version": "0.37.2",
+      "minimum_cli_version": "0.37.2",
+      "cli_compatibility": ">=0.37.2 <0.38.0",
+      "full_skill_bundle_digest": "sha256:11b4c9233f50766bc4e498c95294e07faf373918aa5acd58ced1138cd53c6007",
       "embedded_content_digest": "sha256:8c8a3e50064b439dbb8292831b4089f65dab3e0cb10517511e5a2565236382f3"
     },
     "sell-a-skill": {
-      "skill_version": "0.37.1",
-      "minimum_cli_version": "0.37.1",
-      "cli_compatibility": ">=0.37.1 <0.38.0",
-      "full_skill_bundle_digest": "sha256:0a90ec08bd152da34026618923e067b3a8f2bb1706f1a5b51ae3885a6e8de93a",
+      "skill_version": "0.37.2",
+      "minimum_cli_version": "0.37.2",
+      "cli_compatibility": ">=0.37.2 <0.38.0",
+      "full_skill_bundle_digest": "sha256:5647ca3bb7bf705235cc9fbc2d506bc1175f58cd04b0dfd64395c082457bbcb4",
       "embedded_content_digest": "sha256:c765eb337d77e2e10dad0f1ef89eebd1b58f09ee4d1ae9cbddaead260a179eaa"
     },
     "use-a-skill": {
-      "skill_version": "0.37.1",
-      "minimum_cli_version": "0.37.1",
-      "cli_compatibility": ">=0.37.1 <0.38.0",
-      "full_skill_bundle_digest": "sha256:5ff2f3b0f60d9180e05a8226fa01ea4734b8b85563f23abcb5157f9dab0fe39b",
+      "skill_version": "0.37.2",
+      "minimum_cli_version": "0.37.2",
+      "cli_compatibility": ">=0.37.2 <0.38.0",
+      "full_skill_bundle_digest": "sha256:4478956038807ab037a66ca74dbdb3405e942ccaa2fae5fa0d1451d7978ab68a",
       "embedded_content_digest": "sha256:1d67abbc99e60d05da4b308fdc9575c0d7dbc109d4fa3115245135dcd3b21007"
     }
   },
