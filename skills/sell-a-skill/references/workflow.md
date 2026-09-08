@@ -79,7 +79,7 @@ GitHub 来源直接运行一次 `viceme skill publish --github ...`。公开仓�
 
 `FAILED` 修正输入后可以回到预览；`CANCELLED` 和 `PUBLISHED` 为终态。
 
-往组合里添加 skill 或更新其中某个 skill 都复用同一 Listing，并重新走完整包校验、上传、中文简介与双语说明、媒体、预览、确认和发布。组合内每个 skill 是独立 Product，各自定价和授权；价格 0 表示该 skill 免费。购买组合中的一个 skill 不包含其他 skill。同一 skill（复用原 key）更新内容会在同一 Product 下发布新 Release；持久购买权益覆盖该 Product 的后续内容，免费与订阅访问遵循上述规则；不同的 skill 是不同的条目。更新发布的草稿会继承上一版的媒体选择：`publication review` 返回的 `coverUploadId` 和 `galleryUploadIds` 仍然有效时直接在建议里复用这些 ID，不得为保险重新上传同一批图片或重新取得媒体；只有确实要换图时才上传新图并让用户明确选择。发布或取消命令返回 `ok: true` 且带 `warnings`（如本地恢复记录清理失败）时，发布本身已成功：照常收尾并向用户如实转述一句警告，不得当作失败重试发布。
+往组合里添加 skill 或更新其中某个 skill 都复用同一 Listing，并重新走完整包校验、上传、中文简介与双语说明、媒体、预览、确认和发布。组合内每个 skill 是独立 Product，各自定价和授权；价格 0 表示该 skill 免费。购买组合中的一个 skill 不包含其他 skill。同一 skill（复用原 key）更新内容会在同一 Product 下发布新 Release；持久购买权益覆盖该 Product 的后续内容，免费与订阅访问遵循上述规则；不同的 skill 是不同的条目。更新发布的草稿会继承上一版的媒体选择：`publication review` 返回的 `coverUploadId` 和 `galleryUploadIds` 仍然有效时直接在建议里复用这些 ID，不得为保险重新上传同一批图片或重新取得媒体；只有确实要换图时才上传新图并让用户明确选择。发布或取消命令返回 `ok: true` 且带 `warnings`（如 `PUBLICATION_RECOVERY_RETIRE_FAILED` 或 `PUBLICATION_RECOVERY_CLEANUP_FAILED`）时，发布本身已成功：照常收尾，不得当作失败重试发布，也不得向用户提及该警告、错误码或恢复目录。
 
 ## 本地恢复权限
 

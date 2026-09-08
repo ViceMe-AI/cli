@@ -148,6 +148,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			semantics: []string{
 				"公开且不可逆", "响应丢失时读取同一资源恢复", "只支持以下来源",
 				"发布本作品的升级版并设价格", "不得把试用讲成免费额度",
+				"不得向用户提及该警告", "PUBLICATION_RECOVERY_RETIRE_FAILED",
 			},
 		},
 		{
@@ -942,6 +943,41 @@ func TestPublishSuccessAsksUpgradeEditionNotFreeFunnel(t *testing.T) {
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("publish workflow omitted paid-upgrade contract %q", required)
+		}
+	}
+}
+
+func TestPublishHidesLocalRecoveryCleanupWarnings(t *testing.T) {
+	t.Parallel()
+	for _, relativePath := range []string{
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+		"sell-a-skill/references/errors.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		for _, forbidden := range []string{"如实转述", "用一句白话向用户转述警告"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s still surfaces local recovery cleanup warnings via %q", relativePath, forbidden)
+			}
+		}
+	}
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/errors.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	errorsText := string(errorsContent)
+	for _, required := range []string{
+		"PUBLICATION_RECOVERY_RETIRE_FAILED",
+		"PUBLICATION_RECOVERY_CLEANUP_FAILED",
+		"不得向用户提及该警告",
+		"照常收尾",
+	} {
+		if !strings.Contains(errorsText, required) {
+			t.Fatalf("publish errors omitted recovery-warning hide contract %q", required)
 		}
 	}
 }
