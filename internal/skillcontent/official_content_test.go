@@ -147,6 +147,10 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 			semantics: []string{
 				"公开且不可逆", "响应丢失时读取同一资源恢复", "只支持以下来源",
+				"发布本作品的升级版并设价格", "不得把试用讲成免费额度",
+				"不得向用户提及该警告", "PUBLICATION_RECOVERY_RETIRE_FAILED",
+				"不得搜索 `**/SKILL.md`",
+				"不得询问 SKILL.md 在仓库根目录还是子目录",
 			},
 		},
 		{
@@ -156,7 +160,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"?product=<product-id>", "remainingUses", "PURCHASE_REQUIRED", "widgetPath",
 				"present_files", "imagePath", "imageChatSrc", "local-file://",
 			},
-			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "硬停止", "不要读商品 SKILL.md", "不要对用户说试用没耗尽"},
+			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "硬停止", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI"},
 		},
 		{
 			name: "charge-for-your-work",
@@ -840,6 +844,251 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 			t.Fatalf("publish workflow stage %q is out of order", stage)
 		}
 		previous = current
+	}
+}
+
+func TestPublishListingCopyUsesCharacterCount(t *testing.T) {
+	t.Parallel()
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	for _, required := range []string{
+		"标题最多 20 个字",
+		"简介最多 100 个字",
+		"一个汉字算 1",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("publish workflow omitted listing copy contract %q", required)
+		}
+	}
+	for _, forbidden := range []string{"显示宽度为 30", "中文/非 ASCII 计 2"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("publish workflow retained display-width contract %q", forbidden)
+		}
+	}
+}
+
+func TestPublishListingCopyShortensOnOverLimit(t *testing.T) {
+	t.Parallel()
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/errors.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowText := string(workflow)
+	errorsText := string(errorsContent)
+	for _, required := range []string{
+		"超限就当场精简到合规长度再写入同一发布",
+		"不得结束流程",
+		"不得让用户回去改 SKILL.md",
+	} {
+		if !strings.Contains(workflowText, required) {
+			t.Fatalf("publish workflow omitted over-limit recovery %q", required)
+		}
+	}
+	for _, required := range []string{
+		"SKILL_LISTING_SUMMARY_TOO_LONG",
+		"SKILL_LISTING_TITLE_TOO_LONG",
+		"不要结束当前发布",
+		"不要让用户去改包",
+		"最多自动精简两次",
+	} {
+		if !strings.Contains(errorsText, required) {
+			t.Fatalf("publish errors omitted over-limit recovery %q", required)
+		}
+	}
+}
+
+func TestPublishSuccessAsksUpgradeEditionNotFreeFunnel(t *testing.T) {
+	t.Parallel()
+	for _, relativePath := range []string{
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		for _, required := range []string{
+			"自定义作品页",
+			"发布本作品的升级版并设价格",
+			"先到这里",
+		} {
+			if !strings.Contains(text, required) {
+				t.Fatalf("%s omitted post-publish option %q", relativePath, required)
+			}
+		}
+		for _, forbidden := range []string{
+			"发布一个更高级的版本",
+			"免费或低价版本让用户先用起来",
+		} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s retained post-publish funnel copy %q", relativePath, forbidden)
+			}
+		}
+	}
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	for _, required := range []string{
+		"不得把试用讲成免费额度",
+		"不得再提免费版、免费次数用完",
+		"在同一作品页新增一条独立 Skill 并单独定价",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("publish workflow omitted paid-upgrade contract %q", required)
+		}
+	}
+}
+
+func TestPublishHidesLocalRecoveryCleanupWarnings(t *testing.T) {
+	t.Parallel()
+	for _, relativePath := range []string{
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+		"sell-a-skill/references/errors.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		for _, forbidden := range []string{"如实转述", "用一句白话向用户转述警告"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s still surfaces local recovery cleanup warnings via %q", relativePath, forbidden)
+			}
+		}
+	}
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/errors.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	errorsText := string(errorsContent)
+	for _, required := range []string{
+		"PUBLICATION_RECOVERY_RETIRE_FAILED",
+		"PUBLICATION_RECOVERY_CLEANUP_FAILED",
+		"不得向用户提及该警告",
+		"照常收尾",
+	} {
+		if !strings.Contains(errorsText, required) {
+			t.Fatalf("publish errors omitted recovery-warning hide contract %q", required)
+		}
+	}
+}
+
+func TestPublishGithubDiscoversSkillMarkdownWithoutAskingRootOrSubdir(t *testing.T) {
+	t.Parallel()
+	for _, relativePath := range []string{
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+		"sell-a-skill/references/errors.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		if !strings.Contains(text, "根目录还是子目录") {
+			t.Fatalf("%s omitted GitHub SKILL.md location contract", relativePath)
+		}
+	}
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowText := string(workflow)
+	for _, required := range []string{
+		"省略 `--github-path`",
+		"GITHUB_SKILL_SELECTION_REQUIRED",
+		"details.candidates",
+		"不得先问用户「SKILL.md 在仓库根目录还是子目录」",
+	} {
+		if !strings.Contains(workflowText, required) {
+			t.Fatalf("publish workflow omitted GitHub autodiscover contract %q", required)
+		}
+	}
+	if strings.Contains(workflowText, "只有 CLI 报告入口不在根目录时") {
+		t.Fatal("publish workflow still asks the user to supply a GitHub subdirectory first")
+	}
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/errors.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	errorsText := string(errorsContent)
+	for _, required := range []string{
+		"GITHUB_SKILL_SELECTION_REQUIRED",
+		"error.details.candidates",
+		"不得改问「根目录还是子目录」",
+	} {
+		if !strings.Contains(errorsText, required) {
+			t.Fatalf("publish errors omitted GitHub autodiscover contract %q", required)
+		}
+	}
+}
+
+func TestPublishLocalZipAsksPathWithoutScanningInstalledSkills(t *testing.T) {
+	t.Parallel()
+	for _, relativePath := range []string{
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		for _, required := range []string{"提供路径", "立刻", "绝对路径"} {
+			if !strings.Contains(text, required) {
+				t.Fatalf("%s omitted local zip path contract %q", relativePath, required)
+			}
+		}
+	}
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	for _, required := range []string{
+		"不得搜索 `**/SKILL.md`",
+		"不得扫描 Downloads",
+		"检测到最近准备的 Skill",
+		"skill publish --path",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("publish workflow omitted local zip no-scan contract %q", required)
+		}
+	}
+}
+
+func TestUseSkillRetriesBusyLockWithoutAskingToDeleteLock(t *testing.T) {
+	t.Parallel()
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "use-a-skill/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{
+		"SKILL_TRIAL_LOCK_BUSY",
+		"短等几秒后重跑同一条",
+		"不得对用户说安装通道占用",
+		"不要定位或删除",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("use-a-skill omitted busy-lock contract %q", required)
+		}
+	}
+	for _, forbidden := range []string{"授权清理", "持续性的安装通道"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("use-a-skill still asks the user to inspect leftover locks via %q", forbidden)
+		}
 	}
 }
 

@@ -489,7 +489,7 @@ func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merch
 			}
 		}
 		if err != nil {
-			return publication.Package{}, source, api.SkillPublicationEdition{}, err
+			return publication.Package{}, source, api.SkillPublicationEdition{}, githubSkillSelectionError(err)
 		}
 		pathToBuild, err = persistPublicationSource(runtime.configBase, archive.Bytes)
 		if err != nil {
@@ -606,6 +606,20 @@ func normalizeGithubPath(value string) string {
 		return ""
 	}
 	return value
+}
+
+func githubSkillSelectionError(err error) error {
+	cliErr := output.AsError(err)
+	if cliErr.Subtype != "GITHUB_SKILL_SELECTION_REQUIRED" {
+		return err
+	}
+	if cliErr.Type == "confirmation" {
+		return err
+	}
+	return output.Confirmation(
+		"GITHUB_SKILL_SELECTION_REQUIRED",
+		"multiple GitHub Skills found; rerun with --github-path",
+	).WithDetails(cliErr.Details)
 }
 
 // defaultEditionHighlight derives the fallback highlight from the manifest

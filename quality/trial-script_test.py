@@ -104,7 +104,7 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertIn("不要读取使用前检查", content)
         self.assertNotIn("python3 - use", content)
         rules = files[trial.RUNTIME_PATH][0].decode("utf-8")
-        self.assertIn('python3 "<本 Skill 目录>/.viceme/scripts/trial.py" use --product %s --market cn' % PRODUCT_ID, rules)
+        self._assert_gate_runtime_order(rules, PRODUCT_ID, "cn")
         # Both shells execute the installed script, with no network bootstrap.
         self.assertIn(
             'py "<本 Skill 目录>/.viceme/scripts/trial.py" use --product %s --market cn' % PRODUCT_ID,
@@ -122,16 +122,36 @@ class TrialScriptTestCase(unittest.TestCase):
         files = {"SKILL.md": (b"---\nname: my-skill\n---\nbody", 0o644)}
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
         content = files[trial.RUNTIME_PATH][0].decode("utf-8")
+        self._assert_gate_runtime_order(content, PRODUCT_ID, "cn")
         self.assertIn("purchase", content)
         self.assertIn("--wait 0", content)
         self.assertIn("--wait 60", content)
-        self.assertIn("无需 CLI 或强制登录", content)
+        self.assertIn("viceme skill trial-purchase %s --wait 0" % PRODUCT_ID, content)
+        self.assertIn("无需强制登录", content)
+        self.assertNotIn("无需 CLI 或强制登录", content)
         self.assertIn("trial-usage.md", content)
         self.assertIn("完整正式包", content)
         self.assertIn("不得对用户说", content)
         self.assertIn("同一轮立即", content)
         self.assertIn("不要等用户再说一次", content)
         self.assertNotIn("提醒下次需付费", content)
+        self.assertNotIn("停止并说明需要安装 Python", content)
+
+    def _assert_gate_runtime_order(self, rules, product_id, market):
+        python_cmd = (
+            'python3 "<本 Skill 目录>/.viceme/scripts/trial.py" use --product %s --market %s'
+            % (product_id, market)
+        )
+        cli_use = "viceme skill use %s --wait 0" % product_id
+        python_at = rules.index(python_cmd)
+        cli_at = rules.index(cli_use)
+        install_at = rules.index(trial.install_doc_url(market))
+        self.assertLess(python_at, cli_at)
+        self.assertLess(cli_at, install_at)
+        self.assertIn("不得改走 CLI，也不得去安装 CLI", rules)
+        self.assertIn("不要用 `which`", rules)
+        self.assertIn("viceme doctor", rules)
+        self.assertIn("不得跳过检查直接使用", rules)
 
     def test_author_marker_mention_does_not_suppress_real_gate(self):
         original = "---\nname: my-skill\n---\n\n作者示例: `%s`\n" % trial.GATE_MARKER
@@ -191,7 +211,9 @@ class TrialScriptTestCase(unittest.TestCase):
                 self.assertEqual(files["SKILL.md"][1], 0o755)
                 rules = files[trial.RUNTIME_PATH][0].decode("utf-8")
                 self.assertIn("--market global", rules)
+                self._assert_gate_runtime_order(rules, PRODUCT_ID, "global")
                 self.assertNotIn("curl", rules)
+                self.assertNotIn("s3.viceme.cn/start/agent-install.md", rules)
 
     def test_zip_extraction_rejects_traversal_and_missing_manifest(self):
         evil = io.BytesIO()
@@ -525,6 +547,49 @@ class TrialScriptTestCase(unittest.TestCase):
         # 响应丢失:未确认键保留,重试必须复用同一键。
         self.assertEqual(trial.load_trial_state(PRODUCT_ID)["pendingRequestId"], "req-1")
 
+    def test_use_without_credential_or_install_does_not_ask_for_cli(self):
+        with self.assertRaises(trial.Failure) as caught:
+            trial.command_use("cn", PRODUCT_ID)
+        self.assertEqual(caught.exception.code, "TRIAL_GRANT_MISSING")
+        self.assertNotIn("viceme", caught.exception.message)
+        self.assertNotIn("CLI", caught.exception.message)
+        self.assertNotIn("installDocUrl", caught.exception.fields)
+
+    def test_use_issues_grant_when_installed_trial_has_no_credential(self):
+        calls = []
+
+        def fake_api(market, method, path, body=None):
+            calls.append((method, path, body))
+            if path.endswith("/trial-grants"):
+                return {
+                    "installId": body["installId"],
+                    "secret": "issued-secret",
+                    "limitUses": 3,
+                    "remainingUses": 3,
+                }
+            if path.endswith("/trial-use"):
+                return {"allowed": True, "remainingUses": 2, "limitUses": 3}
+            raise AssertionError(path)
+
+        with mock.patch.object(trial, "find_ready_install", return_value={"ready": True, "kind": "trial", "productId": PRODUCT_ID}), \
+                mock.patch.object(trial, "api_request", side_effect=fake_api):
+            output = io.StringIO()
+            with redirect_stdout(output):
+                trial.command_use("cn", PRODUCT_ID)
+        result = json.loads(output.getvalue())
+        self.assertTrue(result["allowed"])
+        self.assertEqual(result["remainingUses"], 2)
+        self.assertEqual(calls[0][1], "/v1/skills/%s/trial-grants" % PRODUCT_ID)
+        self.assertTrue(calls[1][1].endswith("/trial-use"))
+        state = trial.load_trial_state(PRODUCT_ID)
+        self.assertEqual(state["secret"], "issued-secret")
+        self.assertEqual(state["productId"], PRODUCT_ID)
+        self.assertEqual(state["market"], "cn")
+
+    def test_invoking_directory_ignores_repository_source(self):
+        self.assertEqual(trial.invoking_skill_directory(), "")
+        self.assertFalse(trial.invoking_directory_is_trial("cn", PRODUCT_ID))
+
     # ------------------------------------------------------------------
     # F5 回归:Windows 共享冲突按"锁被占"处理
     # ------------------------------------------------------------------
@@ -585,6 +650,40 @@ class TrialScriptTestCase(unittest.TestCase):
         with trial.ProductLock(PRODUCT_ID):
             self.assertTrue(os.path.exists(lock_path))
         self.assertFalse(os.path.exists(lock_path))
+
+    def test_lock_steals_dead_pid_immediately(self):
+        lock_path = trial.trial_state_path(PRODUCT_ID) + ".lock"
+        os.makedirs(os.path.dirname(lock_path), mode=0o700, exist_ok=True)
+        with open(lock_path, "w", encoding="ascii") as handle:
+            handle.write("999999")
+        started = trial.time.time()
+        with trial.ProductLock(PRODUCT_ID):
+            self.assertTrue(os.path.exists(lock_path))
+        self.assertLess(trial.time.time() - started, 2, "dead pid must not wait out the lock timeout")
+        self.assertFalse(os.path.exists(lock_path))
+
+    def test_lock_steals_empty_leftover_after_wait(self):
+        lock_path = trial.trial_state_path(PRODUCT_ID) + ".lock"
+        os.makedirs(os.path.dirname(lock_path), mode=0o700, exist_ok=True)
+        open(lock_path, "wb").close()
+        with mock.patch.object(trial, "LOCK_WAIT_SECONDS", 0.4):
+            started = trial.time.time()
+            with trial.ProductLock(PRODUCT_ID):
+                self.assertTrue(os.path.exists(lock_path))
+        self.assertLess(trial.time.time() - started, 5, "empty leftover must recover promptly")
+        self.assertFalse(os.path.exists(lock_path))
+
+    def test_lock_keeps_live_pid_busy(self):
+        lock_path = trial.trial_state_path(PRODUCT_ID) + ".lock"
+        os.makedirs(os.path.dirname(lock_path), mode=0o700, exist_ok=True)
+        with open(lock_path, "w", encoding="ascii") as handle:
+            handle.write(str(os.getpid()))
+        with mock.patch.object(trial, "LOCK_WAIT_SECONDS", 0.4):
+            with self.assertRaises(trial.Failure) as caught:
+                with trial.ProductLock(PRODUCT_ID):
+                    pass
+        self.assertEqual(caught.exception.code, "STATE_LOCK_BUSY")
+        self.assertTrue(os.path.isfile(lock_path))
 
     def test_lock_release_failure_is_visible_without_changing_state(self):
         trial.save_trial_state(PRODUCT_ID, {"installId": "unchanged", "secret": "fixture"})

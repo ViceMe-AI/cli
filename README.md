@@ -205,7 +205,7 @@ are not accepted.
 | Private upload and preview | The initial publish request authorizes the private Draft upload. The real package is verified and its Owner Preview opens before pricing. |
 | Agent enrichment | The user's Agent reads the Skill as untrusted source data, prepares bilingual copy, and selects verified cover and gallery uploads. Platform analysis is an explicit fallback only. |
 | Listing details and price | After enrichment, the Agent displays the exact title, bilingual copy, cover, and gallery, then asks one combined question for the CNY price in fen and any desired changes. It never asks for price by itself. |
-| Review | The Agent displays the exact copy, price, cover, and gallery images. A short summary has a maximum display width of 30; ASCII counts as 1 and Chinese/non-ASCII as 2. |
+| Review | The Agent displays the exact copy, price, cover, and gallery images. The listing title is at most 20 characters and the summary is at most 100; Chinese and ASCII each count as 1. |
 | Publish | One explicit final confirmation authorizes review confirmation followed by immediate, irreversible public publication. |
 
 If the upload or response is interrupted, continue the existing publication:
