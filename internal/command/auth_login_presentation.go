@@ -1,11 +1,15 @@
 package command
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	_ "image/jpeg"
+	"image/png"
 	"io"
 	"os"
 	"path/filepath"
@@ -13,7 +17,6 @@ import (
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/privatepath"
-	qrcode "github.com/skip2/go-qrcode"
 )
 
 const deviceLoginPresentationDirectory = "auth-presentations"
@@ -28,14 +31,17 @@ type deviceLoginPresentation struct {
 	AuthorizationURL string `json:"authorizationUrl"`
 }
 
-func createDeviceLoginPresentation(runtime *Runtime, authorization api.DeviceAuthorization) (deviceLoginPresentation, error) {
+func createDeviceLoginPresentation(runtime *Runtime, authorization api.DeviceAuthorization, sourceImage []byte) (deviceLoginPresentation, error) {
 	presentation := deviceLoginPresentation{
 		AltText:          "ViceMe 登录二维码",
 		AuthorizationURL: authorization.VerificationURIComplete,
 	}
-	png, err := qrcode.Encode(authorization.VerificationURIComplete, qrcode.Medium, 512)
+	if authorization.WechatMPQRCodeURL == "" {
+		return presentation, errors.New("device authorization did not include a direct WeChat QR image")
+	}
+	pngBytes, err := normalizeLoginQRCode(sourceImage)
 	if err != nil {
-		return presentation, fmt.Errorf("encode device login QR image: %w", err)
+		return presentation, err
 	}
 	directory := filepath.Join(runtime.configBase, deviceLoginPresentationDirectory)
 	if _, err := privatepath.EnsureDirectory(directory); err != nil {
@@ -43,7 +49,7 @@ func createDeviceLoginPresentation(runtime *Runtime, authorization api.DeviceAut
 	}
 	digest := sha256.Sum256([]byte(authorization.DeviceCode))
 	filename := filepath.Join(directory, "login-"+hex.EncodeToString(digest[:16])+".png")
-	if err := privatefile.Write(filename, png, ".login-qr-*.tmp"); err != nil {
+	if err := privatefile.Write(filename, pngBytes, ".login-qr-*.tmp"); err != nil {
 		return presentation, fmt.Errorf("write device login QR image: %w", err)
 	}
 	absolutePath, err := filepath.Abs(filename)
@@ -54,6 +60,28 @@ func createDeviceLoginPresentation(runtime *Runtime, authorization api.DeviceAut
 	presentation.ImagePath = absolutePath
 	presentation.ImageChatSrc = localFileChatSrc(absolutePath)
 	return presentation, nil
+}
+
+func normalizeLoginQRCode(source []byte) ([]byte, error) {
+	if len(source) == 0 {
+		return nil, errors.New("direct WeChat QR image is empty")
+	}
+	config, _, err := image.DecodeConfig(bytes.NewReader(source))
+	if err != nil {
+		return nil, fmt.Errorf("decode login QR image metadata: %w", err)
+	}
+	if config.Width < 64 || config.Height < 64 || config.Width > 2048 || config.Height > 2048 {
+		return nil, fmt.Errorf("login QR image dimensions are outside the supported range: %dx%d", config.Width, config.Height)
+	}
+	decoded, _, err := image.Decode(bytes.NewReader(source))
+	if err != nil {
+		return nil, fmt.Errorf("decode login QR image: %w", err)
+	}
+	var normalized bytes.Buffer
+	if err := png.Encode(&normalized, decoded); err != nil {
+		return nil, fmt.Errorf("encode login QR image as PNG: %w", err)
+	}
+	return normalized.Bytes(), nil
 }
 
 func removeDeviceLoginPresentation(presentation deviceLoginPresentation) error {

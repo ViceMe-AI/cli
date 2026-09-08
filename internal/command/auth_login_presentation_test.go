@@ -2,6 +2,9 @@ package command
 
 import (
 	"bytes"
+	"image"
+	"image/color"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,10 +19,11 @@ func TestDeviceLoginPresentationCreatesPrivateChatQRCode(t *testing.T) {
 	authorization := api.DeviceAuthorization{
 		DeviceCode:              "device-code-that-must-not-appear-in-the-file-name",
 		VerificationURIComplete: "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH",
+		WechatMPQRCodeURL:       "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=device-ticket",
 		ExpiresIn:               600,
 	}
 
-	presentation, err := createDeviceLoginPresentation(runtime, authorization)
+	presentation, err := createDeviceLoginPresentation(runtime, authorization, testLoginQRImage(t))
 	if err != nil {
 		t.Fatalf("create device login presentation: %v", err)
 	}
@@ -56,7 +60,8 @@ func TestDeviceLoginPresentationIsRemovedWhenLoginEnds(t *testing.T) {
 	presentation, err := createDeviceLoginPresentation(&Runtime{configBase: t.TempDir()}, api.DeviceAuthorization{
 		DeviceCode:              "device-code",
 		VerificationURIComplete: "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH",
-	})
+		WechatMPQRCodeURL:       "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=device-ticket",
+	}, testLoginQRImage(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,4 +71,38 @@ func TestDeviceLoginPresentationIsRemovedWhenLoginEnds(t *testing.T) {
 	if _, err := os.Stat(presentation.ImagePath); !os.IsNotExist(err) {
 		t.Fatalf("one-time login QR remained after login ended: %v", err)
 	}
+}
+
+func TestDeviceLoginPresentationRefusesToTurnTheBrowserURLIntoAQRCode(t *testing.T) {
+	t.Parallel()
+	authorization := api.DeviceAuthorization{
+		DeviceCode:              "legacy-device-code",
+		VerificationURIComplete: "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH",
+	}
+	presentation, err := createDeviceLoginPresentation(
+		&Runtime{configBase: t.TempDir()},
+		authorization,
+		nil,
+	)
+	if err == nil {
+		t.Fatal("legacy browser authorization URL must not become a misleading chat QR")
+	}
+	if presentation.ImagePath != "" || presentation.AuthorizationURL != authorization.VerificationURIComplete {
+		t.Fatalf("unexpected fallback presentation: %#v", presentation)
+	}
+}
+
+func testLoginQRImage(t *testing.T) []byte {
+	t.Helper()
+	imageData := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			imageData.Set(x, y, color.RGBA{R: uint8(x * 4), G: uint8(y * 4), B: 80, A: 255})
+		}
+	}
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, imageData); err != nil {
+		t.Fatalf("encode test QR image: %v", err)
+	}
+	return encoded.Bytes()
 }
