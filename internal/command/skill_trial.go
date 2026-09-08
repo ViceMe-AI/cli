@@ -588,9 +588,12 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 					failure.WithDetails(details)
 				}
 			}()
-			productID, _, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
+			productID, work, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
 			if err != nil {
 				return err
+			}
+			if work != nil && work.Work.OfficialInstall != nil {
+				return output.Validation("OFFICIAL_SKILL_NO_TRIAL", "official bundled Skills are free and do not use marketplace trials").WithHint("install the published Work with viceme skill install " + work.Work.CanonicalPath + " --agent auto")
 			}
 			if directory, manifest, _, lookupErr := skillcontent.FindRuntimeInstall(runtime.deps.Environment, "auto", productID, runtime.apiBaseURL); lookupErr != nil {
 				return output.Internal("SKILL_LOCAL_LOOKUP_FAILED", "could not read the selected host installation", lookupErr)

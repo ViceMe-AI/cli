@@ -609,3 +609,43 @@ func downloadableSkillArchiveNamed(t *testing.T, name, heading string) []byte {
 	}
 	return body.Bytes()
 }
+
+func TestOfficialWorkUsesBundledInstallReferenceAndHonorsLifecycle(t *testing.T) {
+	for _, test := range []struct {
+		status    string
+		command   string
+		errorCode string
+	}{
+		{status: "PUBLISHED", command: "access"},
+		{status: "SUSPENDED", command: "access", errorCode: "OFFICIAL_SKILL_REFERENCE_INVALID"},
+		{status: "PUBLISHED", command: "use", errorCode: "OFFICIAL_SKILL_NO_TRIAL"},
+		{status: "SUSPENDED", command: "use", errorCode: "OFFICIAL_SKILL_REFERENCE_INVALID"},
+	} {
+		t.Run(test.status+"/"+test.command, func(t *testing.T) {
+			var shopDownloads atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/v1/public/creators/viceme/works/sell-a-skill" {
+					writeJSONResponse(w, map[string]any{"creator": map[string]any{"handle": "viceme", "isOfficial": true}, "work": map[string]any{"kind": "SKILL", "slug": "sell-a-skill", "status": test.status, "canonicalPath": "/viceme/sell-a-skill", "products": []any{}, "officialInstall": map[string]any{"kind": "CLI_BUNDLE", "skillName": "sell-a-skill", "installerDocumentUrl": "https://s3.viceme.cn/start/agent-install.md"}}})
+					return
+				}
+				shopDownloads.Add(1)
+				http.NotFound(w, r)
+			}))
+			defer server.Close()
+			exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", test.command, "/viceme/sell-a-skill")
+			if test.errorCode == "" {
+				if exit != 0 || envelope["ok"] != true {
+					t.Fatalf("official reference failed: %d %#v", exit, envelope)
+				}
+			} else {
+				failure, _ := envelope["error"].(map[string]any)
+				if exit == 0 || envelope["ok"] != false || failure["code"] != test.errorCode {
+					t.Fatalf("official Work bypassed lifecycle or trial guard: %d %#v", exit, envelope)
+				}
+			}
+			if shopDownloads.Load() != 0 {
+				t.Fatalf("official Work called Shop package endpoints %d times", shopDownloads.Load())
+			}
+		})
+	}
+}
