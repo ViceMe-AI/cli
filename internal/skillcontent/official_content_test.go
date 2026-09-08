@@ -19,7 +19,8 @@ import (
 var officialSkillNames = []string{
 	"charge-for-your-work",
 	"become-a-creator",
-	"customize-your-page",
+	"customize-your-profile-page",
+	"customize-your-work-page",
 	"sell-a-skill",
 	"creator-tools",
 	"use-a-skill",
@@ -116,13 +117,25 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 		},
 		{
-			name: "customize-your-page",
+			name: "customize-your-profile-page",
 			machine: []string{
 				"$become-a-creator", "viceme merchant page describe", "viceme merchant page inspect",
 				"viceme merchant page upload", "viceme merchant page preview", "viceme merchant page publish", "viceme-page.json", "window.viceme",
 			},
 			semantics: []string{
-				"作者页和作品页共用", "不做源码安全审计", "预览不等于公开发布", "本期不支持视频",
+				"本 Skill 只处理作者页", "不做源码安全审计", "预览不等于公开发布", "本期不支持视频",
+			},
+		},
+		{
+			name: "customize-your-work-page",
+			machine: []string{
+				"$become-a-creator", "$sell-a-skill", "viceme merchant work list",
+				"viceme merchant page describe", "viceme merchant page inspect", "viceme merchant page preview",
+				"viceme merchant page publish", "viceme-page.json", "window.viceme",
+			},
+			semantics: []string{
+				"不处理作者页", "不要给任何选项标", "也可以直接写下你想要的效果",
+				"不转成一轮“选择功能”的问题", "用户可以决定按钮是否展示",
 			},
 		},
 		{
@@ -427,7 +440,7 @@ func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +506,7 @@ func TestCreatorPersonalCardUsesCreatorFacingWelcomeCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,7 +543,7 @@ func TestCreatorPersonalCardRoutesThroughQualificationBeforePageCustomization(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +565,7 @@ func TestCreatorPersonalCardRoutesThroughQualificationBeforePageCustomization(t 
 func TestCreatorPersonalCardUsesVerifiedCloudCatalog(t *testing.T) {
 	t.Parallel()
 
-	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -586,7 +599,7 @@ func TestCreatorPersonalCardUsesVerifiedCloudCatalog(t *testing.T) {
 func TestCreatorCardImportAndUpdateFlowKeepSafeGates(t *testing.T) {
 	t.Parallel()
 
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -626,7 +639,7 @@ func TestCreatorCardImportAndUpdateFlowKeepSafeGates(t *testing.T) {
 func TestBonjourCardTemplateKeepsTheSuppliedDesignAndMVPBlocksNarrow(t *testing.T) {
 	t.Parallel()
 
-	bundle := readOfficialSkillBundle(t, "customize-your-page")
+	bundle := readOfficialSkillBundle(t, "customize-your-profile-page")
 	for _, required := range []string{
 		"templates/bonjour-card/index.html",
 		"templates/bonjour-card/src/App.jsx",

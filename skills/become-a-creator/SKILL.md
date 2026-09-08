@@ -7,7 +7,7 @@ description: 申请或检查 ViceMe 创作者资格，并把有效商家返回�
 
 首次调用 CLI 或判断 CLI 不存在前，必须先按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 查找现有 CLI；后续使用返回的完整路径。不得只凭 `command not found` 判定未安装或改走免 CLI 流程。
 
-本 Skill 是所有创作者玩法唯一的资格守卫。它负责登录、资格检查、普通申请与人工审核状态；直接申请、申请中和已获批用户都要主动续接“创建 / 完善个人名片”，并把准确的作者页目标交给 `$customize-your-page`。登录、申请、名片制作是独立环节：不选名片也必须先提交申请。它不发布作品，也不复制其他调用玩法的后续流程。
+本 Skill 是所有创作者玩法唯一的资格守卫。它负责登录、资格检查、普通申请与人工审核状态；直接申请、申请中和已获批用户都要主动续接“创建 / 完善个人名片”，并把准确的作者页目标交给 `$customize-your-profile-page`。登录、申请、名片制作是独立环节：不选名片也必须先提交申请。它不发布作品，也不复制其他调用玩法的后续流程。
 
 面向用户的文字跟随当前语言。中文使用自然白话，只说“登录”“申请成为创作者”“等待
 工作人员审核”等业务动作；不展示命令、参数、权限名、账号 ID、错误码、Profile、原始
@@ -61,7 +61,7 @@ JSON 或内部状态，且不得告诉用户正在使用哪个内置 Skill。
    可以进入「申请后的个人名片」；玩法守卫仍然停止原玩法。
 4. `next=SELECT_MERCHANT`（返回多个有效商家）时，展示返回列表中的名称让用户选择，
    不得猜测、不得取第一个。
-5. `next=OK` 表示当前用户拥有唯一有效商家。若本次是直接申请、用户正在查看创作者状态，或用户要创建/完善个人名片，必须主动进入“创建 / 完善个人名片”，不能只报告“你正在申请”或“你已经是创作者了”后结束。先运行一次 `viceme merchant onboarding status`，只使用返回的 `creatorIdentity.profileUrl` 和 `creatorIdentity.markdownUrl`：已获批时前者是当前公开个人页；当前 Markdown 页面只在用户主动要求查看原始内容或排查时使用；申请中时前者仅本人可见。随后把准确 `profileUrl`、资格返回的 Merchant 和“创作者入驻模式”交给 `$customize-your-page`，由它先判断是否有 active release 再决定右侧打开当前主页还是模板册；不重新申请、不等待网页操作。
+5. `next=OK` 表示当前用户拥有唯一有效商家。若本次是直接申请、用户正在查看创作者状态，或用户要创建/完善个人名片，必须主动进入“创建 / 完善个人名片”，不能只报告“你正在申请”或“你已经是创作者了”后结束。先运行一次 `viceme merchant onboarding status`，只使用返回的 `creatorIdentity.profileUrl` 和 `creatorIdentity.markdownUrl`：已获批时前者是当前公开个人页；当前 Markdown 页面只在用户主动要求查看原始内容或排查时使用；申请中时前者仅本人可见。随后把准确 `profileUrl`、资格返回的 Merchant 和“创作者入驻模式”交给 `$customize-your-profile-page`，由它先判断是否有 active release 再决定右侧打开当前主页还是模板册；不重新申请、不等待网页操作。
    由其他玩法调用且用户没有要求名片时，仍只交回有效 Merchant。多商家先使用用户明确选择的商家，不取第一个。
 
 只有当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有的有效商家才代表创作者资格；
@@ -98,11 +98,11 @@ sunny-studio。”然后运行 `viceme merchant onboarding apply --handle <主�
 
 ## 申请后的个人名片
 
-只在**直接申请模式**的已提交申请、或已获批/申请中用户明确要制作个人名片时执行。先把本次真实 status 返回的 `creatorIdentity.profileUrl`、`creatorIdentity.markdownUrl`、Merchant 与“创作者入驻模式”交给 `$customize-your-page`；不得自己拼接 URL。不得自动打开 `creatorIdentity.markdownUrl`：它只在用户主动要求查看原始当前内容或排查时打开。
+只在**直接申请模式**的已提交申请、或已获批/申请中用户明确要制作个人名片时执行。先把本次真实 status 返回的 `creatorIdentity.profileUrl`、`creatorIdentity.markdownUrl`、Merchant 与“创作者入驻模式”交给 `$customize-your-profile-page`；不得自己拼接 URL。不得自动打开 `creatorIdentity.markdownUrl`：它只在用户主动要求查看原始当前内容或排查时打开。
 
 ### 创作者可见的首条回复
 
-资格和页面归属确认后，先让 `$customize-your-page` 完成 active release 分流，再按下列四种互斥状态生成首条回复。不得复用不属于当前状态的段落：特别是不得把“查看模板 / 导入主页”用于已有 active release。把“真实链接”位置替换为本次 status 返回的 URL；只有实际已有 active release 时才以“查看个人页”为文字生成真实的 Markdown 链接。`markdownUrl` 只在用户主动要求查看当前内容时才以“查看当前内容”为文字生成真实链接。绝不保留占位文字，也不自己拼接 URL。不要增补验收报告、技术说明或执行限制。
+资格和页面归属确认后，先让 `$customize-your-profile-page` 完成 active release 分流，再按下列四种互斥状态生成首条回复。不得复用不属于当前状态的段落：特别是不得把“查看模板 / 导入主页”用于已有 active release。把“真实链接”位置替换为本次 status 返回的 URL；只有实际已有 active release 时才以“查看个人页”为文字生成真实的 Markdown 链接。`markdownUrl` 只在用户主动要求查看当前内容时才以“查看当前内容”为文字生成真实链接。绝不保留占位文字，也不自己拼接 URL。不要增补验收报告、技术说明或执行限制。
 
 **已获批创作者，且已有 active release：**
 
@@ -136,7 +136,7 @@ sunny-studio。”然后运行 `viceme merchant onboarding apply --handle <主�
 
 不得把“只读验收完成”“页面可使用资料读取、站内跳转、访客登录与订阅能力”“解除相应写入限制”，或任何命令、权限、接口能力、内部状态和测试限制翻译给创作者。右侧打开成功后直接进入这两条入口；不得要求用户再说一次“创建名片”。
 
-随后立刻把 `creatorIdentity.profileUrl`、`creatorIdentity.markdownUrl`、`merchant.id` 与“创作者入驻模式”交给 `$customize-your-page`。所有选择与资料输入都在对话中完成；右侧只用于打开已有页面、模板样例和本机预览。不得等待网页弹窗、要求用户再说一次“创建名片”，不得创建在线 preview，也不得自动发布。
+随后立刻把 `creatorIdentity.profileUrl`、`creatorIdentity.markdownUrl`、`merchant.id` 与“创作者入驻模式”交给 `$customize-your-profile-page`。所有选择与资料输入都在对话中完成；右侧只用于打开已有页面、模板样例和本机预览。不得等待网页弹窗、要求用户再说一次“创建名片”，不得创建在线 preview，也不得自动发布。
 
 个人名片发布后，打开并原样输出 `creatorIdentity.profileUrl`。申请中仅本人可见；审核通过后同一地址、同一 release 自动公开，不需要个人名片复审或重传。
 
@@ -178,5 +178,5 @@ Admin 已经创建账号、创作者资格与商家归属时，直接按有效 O
 仅当 CLI 确认当前用户拥有有效商家时，返回用户选择的 Merchant 并让原玩法继续。任何其他
 状态都返回清楚的用户结果并停止原玩法，不把 DRAFT 创作者身份误当成资格。
 
-如果调用方是 `$customize-your-page` 的普通模式，只交回同一个有效 Merchant，由它继续读取页面能力、
-制作预览并在用户确认后发布；本 Skill 不重复实现作者页或作品页自定义流程。
+如果调用方是 `$customize-your-profile-page` 或 `$customize-your-work-page` 的普通模式，只交回同一个有效
+Merchant，由调用方继续读取页面能力、制作预览并在用户确认后发布；本 Skill 不重复实现页面自定义流程。
