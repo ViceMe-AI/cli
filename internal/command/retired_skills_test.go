@@ -93,6 +93,7 @@ func TestLegacyRetiredSkillMigrationsMatchAuditedHistory(t *testing.T) {
 		"viceme-engagement":         true,
 		"viceme-danmaku":            true,
 		"viceme-tip":                true,
+		"customize-your-page":       true,
 	}
 	retiredNames := make(map[string]bool, len(retiredOfficialSkills))
 	aggregated := make(map[string]bool)

@@ -172,8 +172,8 @@ func TestWorkflowPublishesSignedCatalogToBothRegions(t *testing.T) {
 	}
 	for _, required := range []string{
 		"actions/setup-node",
-		"npm ci --prefix skills/customize-your-page/templates/bonjour-card",
-		"npm run build --prefix skills/customize-your-page/templates/bonjour-card",
+		"npm ci --prefix skills/customize-your-profile-page/templates/bonjour-card",
+		"npm run build --prefix skills/customize-your-profile-page/templates/bonjour-card",
 		"CATALOG_BUCKET='templates'",
 		"KEY_PREFIX='dev/'",
 		"s3api put-bucket-policy",
@@ -197,7 +197,7 @@ func TestWorkflowPublishesSignedCatalogToBothRegions(t *testing.T) {
 			t.Fatalf("catalog workflow must not reuse release bucket setting %q", forbidden)
 		}
 	}
-	if got := strings.Count(string(body), "npm run build --prefix skills/customize-your-page/templates/bonjour-card"); got != 2 {
+	if got := strings.Count(string(body), "npm run build --prefix skills/customize-your-profile-page/templates/bonjour-card"); got != 2 {
 		t.Fatalf("catalog workflow builds Bonjour preview %d times, want once for verify and once for publish", got)
 	}
 }
