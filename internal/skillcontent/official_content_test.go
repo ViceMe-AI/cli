@@ -440,6 +440,7 @@ func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
 		"所有选择与资料输入都在对话中完成",
 		"申请中仅本人可见",
 		"审核通过后同一路由自动公开",
+		"不得自动打开 `creatorIdentity.markdownUrl`",
 	} {
 		if !strings.Contains(onboardingText, required) {
 			t.Fatalf("creator onboarding omitted conversation-first personal-card contract %q", required)
@@ -457,6 +458,14 @@ func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
 		"可直接使用 / 待确认公开 / 缺失",
 		"不得提供从空白或完全自定义页面开始的路径",
 		"本机 HTML 预览",
+		"再运行 `viceme merchant page status --target",
+		"active release",
+		"不自动打开空的 `profileUrl`",
+		"不用按格式整理。把你已经有的资料一次发给我就行",
+		"不得用“先搭占位版看看”绕过统一资料整理",
+		"平台当前资料会覆盖名片中的姓名或头像",
+		"先改平台昵称",
+		"接受当前平台昵称继续",
 	} {
 		if !strings.Contains(pageText, required) {
 			t.Fatalf("personal-card customization omitted template-first contract %q", required)
@@ -492,6 +501,11 @@ func TestCreatorPersonalCardUsesCreatorFacingWelcomeCopy(t *testing.T) {
 		"你已经是创作者了，现在就可以开始做自己的个人名片。",
 		"申请已经提交了。我们现在可以先把你的个人名片准备好，不影响审核。",
 		"想先查看模板，还是导入一个已有主页？",
+		"继续修改这一版，还是重新制作一版新的名片？",
+		"申请仍在审核中，这版仅你自己可见。",
+		"资格检查明确显示未申请时",
+		"不得在资格检查完成前说“我先确认你本机的 ViceMe 环境，然后帮你提交申请”。",
+		"不得把“查看模板 / 导入主页”用于已有 active release",
 		"查看个人页",
 		"查看当前内容",
 		"只读验收完成",
@@ -578,6 +592,15 @@ func TestCreatorCardImportAndUpdateFlowKeepSafeGates(t *testing.T) {
 	for _, required := range []string{
 		"无论选择真实模板、原样导入自己的主页或参考别人的主页",
 		"可直接使用 / 待确认公开 / 缺失",
+		"已发现但未接入的可选资源",
+		"已授权来源",
+		"不得从公开网站推断或克隆源码仓库",
+		"viceme merchant work list --merchant <商家ID>",
+		"不得根据 slug 猜测公开 URL",
+		"`context.read` 与 `navigation.openWork`",
+		"保持 1:1",
+		"把 ViceMe 上的作品集接进去",
+		"不得逐条播报路由、依赖、沙箱或内部排查过程",
 		"当前个人页尚未变更",
 		"不得在完成这三栏整理和最终本机预览前询问是否发布",
 		"修改当前版本", "重新制作一版",
