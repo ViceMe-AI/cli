@@ -586,6 +586,40 @@ class TrialScriptTestCase(unittest.TestCase):
             self.assertTrue(os.path.exists(lock_path))
         self.assertFalse(os.path.exists(lock_path))
 
+    def test_lock_steals_dead_pid_immediately(self):
+        lock_path = trial.trial_state_path(PRODUCT_ID) + ".lock"
+        os.makedirs(os.path.dirname(lock_path), mode=0o700, exist_ok=True)
+        with open(lock_path, "w", encoding="ascii") as handle:
+            handle.write("999999")
+        started = trial.time.time()
+        with trial.ProductLock(PRODUCT_ID):
+            self.assertTrue(os.path.exists(lock_path))
+        self.assertLess(trial.time.time() - started, 2, "dead pid must not wait out the lock timeout")
+        self.assertFalse(os.path.exists(lock_path))
+
+    def test_lock_steals_empty_leftover_after_wait(self):
+        lock_path = trial.trial_state_path(PRODUCT_ID) + ".lock"
+        os.makedirs(os.path.dirname(lock_path), mode=0o700, exist_ok=True)
+        open(lock_path, "wb").close()
+        with mock.patch.object(trial, "LOCK_WAIT_SECONDS", 0.4):
+            started = trial.time.time()
+            with trial.ProductLock(PRODUCT_ID):
+                self.assertTrue(os.path.exists(lock_path))
+        self.assertLess(trial.time.time() - started, 5, "empty leftover must recover promptly")
+        self.assertFalse(os.path.exists(lock_path))
+
+    def test_lock_keeps_live_pid_busy(self):
+        lock_path = trial.trial_state_path(PRODUCT_ID) + ".lock"
+        os.makedirs(os.path.dirname(lock_path), mode=0o700, exist_ok=True)
+        with open(lock_path, "w", encoding="ascii") as handle:
+            handle.write(str(os.getpid()))
+        with mock.patch.object(trial, "LOCK_WAIT_SECONDS", 0.4):
+            with self.assertRaises(trial.Failure) as caught:
+                with trial.ProductLock(PRODUCT_ID):
+                    pass
+        self.assertEqual(caught.exception.code, "STATE_LOCK_BUSY")
+        self.assertTrue(os.path.isfile(lock_path))
+
     def test_lock_release_failure_is_visible_without_changing_state(self):
         trial.save_trial_state(PRODUCT_ID, {"installId": "unchanged", "secret": "fixture"})
         with mock.patch.object(trial.os, "remove", side_effect=PermissionError()), self.assertRaises(trial.Failure) as caught:
