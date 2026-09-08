@@ -41,6 +41,10 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	license := signedReplicaTestLicense(t, signer, replicaID, versionID, 1, orderNo, digest)
 
 	objectServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasSuffix(request.URL.Path, "/discovery") {
+			writer.WriteHeader(404)
+			return
+		}
 		writer.Header().Set("Content-Length", strconv.Itoa(len(archive)))
 		_, _ = writer.Write(archive)
 	}))
@@ -54,6 +58,16 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 			writeJSONResponse(writer, map[string]any{
 				"work": map[string]any{"websiteReplicaAction": map[string]any{"instruction": fullCode}},
 			})
+		case "/v1/website-replicas/" + shortCode + "/discovery":
+			resolution := replicaResolutionResponse(replicaID, shortCode)
+			delete(resolution, "product")
+			delete(resolution, "availability")
+			resolution["bodyMarkdown"] = ""
+			resolution["tags"] = []string{}
+			resolution["previewUrl"] = resolution["viceMeWorkUrl"]
+			resolution["discoveryUrl"] = resolution["viceMeWorkUrl"].(string) + "/discover"
+			resolution["statistics"] = map[string]any{"acquisitionCount": 0, "commentCount": 0}
+			writeJSONResponse(writer, resolution)
 		case "/v1/website-replicas/resolve":
 			if request.Header.Get("Authorization") != "" {
 				t.Fatalf("public resolution unexpectedly authenticated")
@@ -123,7 +137,7 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	var inspectOutput bytes.Buffer
 	deps.Out, deps.ErrOut = &inspectOutput, &bytes.Buffer{}
 	workURL := "https://viceme.cn/alice/site.md"
-	if exit := Execute([]string{"replica", "inspect", workURL}, deps); exit != 0 || !bytes.Contains(inspectOutput.Bytes(), []byte(`"nextAction": "CONFIRM_INLINE_PREVIEW"`)) {
+	if exit := Execute([]string{"replica", "inspect", workURL}, deps); exit != 0 || !bytes.Contains(inspectOutput.Bytes(), []byte(`"nextAction": "PRESENT_WORK"`)) {
 		t.Fatalf("inspect failed: exit=%d output=%q", exit, inspectOutput.String())
 	}
 
@@ -133,11 +147,19 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	if exit := Execute([]string{"replica", "install", workURL, "--target", target, "--accept-price-cents", "990"}, deps); exit != 0 {
 		t.Fatalf("anonymous install failed: exit=%d output=%q", exit, installOutput.String())
 	}
+	if !bytes.Contains(installOutput.Bytes(), []byte(`"nextAction": "DEPLOY"`)) {
+		t.Fatal("installed source did not hand off to deployment")
+	}
 	if sessionRequestID == "" || quoteRequestID == "" || orderRequestID == "" {
 		t.Fatalf("idempotency identities were not sent: session=%q quote=%q order=%q", sessionRequestID, quoteRequestID, orderRequestID)
 	}
 	if content, err := os.ReadFile(filepath.Join(target, "index.html")); err != nil || string(content) != "<h1>Anonymous copy</h1>" {
 		t.Fatalf("installed content mismatch: %q %v", content, err)
+	}
+	recoveredTarget := filepath.Join(root, "restored-copy")
+	installOutput.Reset()
+	if exit := Execute([]string{"replica", "install", fullCode, "--anonymous", "--recovery-only", "--target", recoveredTarget}, deps); exit != 0 {
+		t.Fatalf("cached purchase recovery failed: %d %s", exit, installOutput.String())
 	}
 }
 
@@ -192,6 +214,16 @@ func TestReplicaInspectFindsPaidStandaloneRecoveryWithoutExposingCredential(t *t
 	var recoveryBody api.RecoverWebsiteReplicaDownloadRequest
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch request.URL.Path {
+		case "/v1/website-replicas/" + shortCode + "/discovery":
+			resolution := replicaResolutionResponse(replicaID, shortCode)
+			delete(resolution, "product")
+			delete(resolution, "availability")
+			resolution["bodyMarkdown"] = ""
+			resolution["tags"] = []string{}
+			resolution["previewUrl"] = resolution["viceMeWorkUrl"]
+			resolution["discoveryUrl"] = resolution["viceMeWorkUrl"].(string) + "/discover"
+			resolution["statistics"] = map[string]any{"acquisitionCount": 0, "commentCount": 0}
+			writeJSONResponse(writer, resolution)
 		case "/v1/website-replicas/resolve":
 			writeJSONResponse(writer, replicaResolutionResponse(replicaID, shortCode))
 		case "/v1/website-replica-sessions/recover-status":
@@ -253,7 +285,7 @@ func TestReplicaInspectFindsPaidStandaloneRecoveryWithoutExposingCredential(t *t
 	}
 }
 
-func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *testing.T) {
+func TestAnonymousPaidReplicaPresentsSharedWidgetThenWaitsThreeMinutes(t *testing.T) {
 	const (
 		fullCode     = "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST"
 		replicaID    = "11111111-1111-4111-8111-111111111111"
@@ -269,6 +301,10 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 	var sessionCalls, checkoutCalls, recoveryStatusCalls, cancellationCalls, statusCalls int
 	recoverySecrets := make(map[string]string)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasSuffix(request.URL.Path, "/discovery") {
+			writer.WriteHeader(404)
+			return
+		}
 		resolution := replicaResolutionResponse(replicaID, "VMR-ABCDEFGHIJKLMNOPQRST")
 		switch request.URL.Path {
 		case "/v1/website-replicas/resolve":
@@ -378,9 +414,8 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 	if exit != output.ExitConfirmation {
 		t.Fatalf("payment page was not requested: exit=%d output=%q", exit, stdout.String())
 	}
-	if !bytes.Contains(stdout.Bytes(), []byte(`"nextAction": "OPEN_PAYMENT_PAGE"`)) ||
-		!bytes.Contains(stdout.Bytes(), []byte(`"checkoutUrl"`)) ||
-		!bytes.Contains(stdout.Bytes(), []byte(`"presentationTarget": "AGENT_PLATFORM"`)) {
+	if !bytes.Contains(stdout.Bytes(), []byte(`"nextAction": "PRESENT_PAYMENT_QR"`)) ||
+		!bytes.Contains(stdout.Bytes(), []byte(`"widgetPath"`)) {
 		t.Fatalf("unexpected payment page response: %q", stdout.String())
 	}
 	if bytes.Contains(stdout.Bytes(), []byte(paymentURI)) || bytes.Contains(stdout.Bytes(), []byte(`"sessionToken"`)) {
@@ -389,28 +424,40 @@ func TestAnonymousPaidReplicaOpensHostedPaymentPageThenWaitsThreeMinutes(t *test
 	var paymentEnvelope struct {
 		Error struct {
 			Details struct {
-				CheckoutURL string `json:"checkoutUrl"`
+				PaymentPresentation api.CommercePaymentPresentation `json:"paymentPresentation"`
 			} `json:"details"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &paymentEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	firstCheckoutURL := paymentEnvelope.Error.Details.CheckoutURL
-	if !strings.Contains(firstCheckoutURL, "/replica-checkout/"+sessionIDs[0]) || !strings.Contains(firstCheckoutURL, "#token=hosted-capability") {
-		t.Fatalf("payment response did not include the hosted checkout page: %q", firstCheckoutURL)
+	firstWidget := paymentEnvelope.Error.Details.PaymentPresentation.WidgetPath
+	widget, err := os.ReadFile(firstWidget)
+	if err != nil || !bytes.Contains(widget, []byte("推荐使用微信支付")) || bytes.Contains(widget, []byte(`"supportCreator"`)) {
+		t.Fatalf("original payment widget unavailable: %v", err)
 	}
 
+	// Merely asking to recover must keep the existing unpaid order and widget intact.
+	stdout.Reset()
+	if exit := Execute([]string{"replica", "install", fullCode, "--anonymous", "--target", filepath.Join(root, "copy")}, deps); exit != output.ExitConfirmation || !bytes.Contains(stdout.Bytes(), []byte(`"nextAction": "CONFIRM_PRICE"`)) {
+		t.Fatalf("recovery-only did not request price consent: %d %s", exit, stdout.String())
+	}
+	if sessionCalls != 1 || checkoutCalls != 1 || cancellationCalls != 0 || recoveryStatusCalls != 1 {
+		t.Fatalf("recovery-only mutated unpaid attempt: sessions=%d checkouts=%d cancellations=%d statuses=%d", sessionCalls, checkoutCalls, cancellationCalls, recoveryStatusCalls)
+	}
+	if _, err := os.Stat(firstWidget); err != nil {
+		t.Fatal("recovery-only removed the existing payment widget")
+	}
 	stdout.Reset()
 	if exit := Execute([]string{
 		"replica", "install", fullCode, "--target", filepath.Join(root, "copy"), "--accept-price-cents", "990",
 	}, deps); exit != output.ExitConfirmation {
 		t.Fatalf("fresh attempt did not replace the unpaid checkout: exit=%d output=%q", exit, stdout.String())
 	}
-	if !bytes.Contains(stdout.Bytes(), []byte(`"nextAction": "OPEN_PAYMENT_PAGE"`)) || sessionCalls != 2 || checkoutCalls != 2 || recoveryStatusCalls != 1 || cancellationCalls != 1 {
+	if !bytes.Contains(stdout.Bytes(), []byte(`"nextAction": "PRESENT_PAYMENT_QR"`)) || sessionCalls != 2 || checkoutCalls != 2 || recoveryStatusCalls != 2 || cancellationCalls != 1 {
 		t.Fatalf("fresh attempt did not close and replace the old checkout: sessions=%d checkouts=%d statuses=%d cancellations=%d output=%q", sessionCalls, checkoutCalls, recoveryStatusCalls, cancellationCalls, stdout.String())
 	}
-	if bytes.Contains(stdout.Bytes(), []byte(firstCheckoutURL)) || !bytes.Contains(stdout.Bytes(), []byte("/replica-checkout/"+sessionIDs[1])) {
+	if bytes.Contains(stdout.Bytes(), []byte(firstWidget)) || !bytes.Contains(stdout.Bytes(), []byte(orderNos[1])) {
 		t.Fatalf("fresh attempt did not return the replacement checkout: %q", stdout.String())
 	}
 
@@ -451,6 +498,10 @@ func TestReplicaSessionPaymentContinuesAsSoonAsPaid(t *testing.T) {
 	const orderNo = "VMO-20260903-000005"
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if strings.HasSuffix(request.URL.Path, "/discovery") {
+			writer.WriteHeader(404)
+			return
+		}
 		if request.URL.Path != "/v1/website-replica-sessions/session/orders/"+orderNo+"/status" {
 			t.Fatalf("unexpected path: %s", request.URL.Path)
 		}
@@ -485,5 +536,25 @@ func TestReplicaSessionPaymentContinuesAsSoonAsPaid(t *testing.T) {
 		if delay != 15*time.Second {
 			t.Fatalf("poll delay = %s", delay)
 		}
+	}
+}
+
+func TestAnonymousDiscoveryChoiceDoesNotCreateOrderBeforePriceConsent(t *testing.T) {
+	const code = "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST"
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/website-replicas/resolve" {
+			t.Fatalf("recovery-only choice crossed purchase/auth boundary: %s", request.URL.Path)
+		}
+		writeJSONResponse(writer, replicaResolutionResponse("11111111-1111-4111-8111-111111111111", "VMR-ABCDEFGHIJKLMNOPQRST"))
+	}))
+	defer server.Close()
+	home := t.TempDir()
+	var stdout bytes.Buffer
+	exit := Execute([]string{"replica", "install", code, "--anonymous", "--target", filepath.Join(home, "website")}, Dependencies{Out: &stdout, ErrOut: &bytes.Buffer{}, HTTPClient: server.Client(), Store: securestore.NewMemory(), Environment: skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, "config")}, Region: config.RegionCN, APIBaseURL: server.URL})
+	if exit != output.ExitConfirmation || !bytes.Contains(stdout.Bytes(), []byte(`"nextAction": "CONFIRM_PRICE"`)) || !bytes.Contains(stdout.Bytes(), []byte(`"totalAmountCents": 990`)) {
+		t.Fatalf("new anonymous quote confirmation missing: %d %s", exit, stdout.String())
+	}
+	if _, err := os.Stat(filepath.Join(home, "website")); !os.IsNotExist(err) {
+		t.Fatal("unconfirmed choice installed source")
 	}
 }

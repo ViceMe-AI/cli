@@ -52,11 +52,8 @@ type publicationPresentationResult struct {
 }
 
 type previewPresentation struct {
-	Intent           string  `json:"intent"`
-	OpenURL          *string `json:"openUrl,omitempty"`
-	OpenURLExpiresAt *string `json:"openUrlExpiresAt,omitempty"`
-	FallbackURL      string  `json:"fallbackUrl"`
-	Mode             string  `json:"mode"`
+	Intent  string `json:"intent"`
+	OpenURL string `json:"openUrl"`
 }
 
 func newSkillCommand(runtime *Runtime) *cobra.Command {
@@ -119,7 +116,7 @@ func newSkillListingGetCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			presentation := createPreviewPresentation(command.Context(), runtime, result.ListingID, result.Preview.FallbackURL)
+			presentation := createPreviewPresentation(result.Preview.FallbackURL)
 			return runtime.business(listingGetResult{SkillListingPreview: result, Presentation: presentation})
 		},
 	}
@@ -719,24 +716,15 @@ func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.
 		return listingPrepareResult{}, identity, err
 	}
 	identity.Binding = &binding
-	presentation := createPreviewPresentation(ctx, runtime, response.ListingID, response.OwnerPreviewURL)
+	presentation := createPreviewPresentation(response.OwnerPreviewURL)
 	return listingPrepareResult{PrepareSkillListingResponse: response, SourceType: sourceType, SourcePath: bindingSourcePath, CanonicalPackageDigest: pkg.Artifact.Digest, Presentation: presentation}, identity, nil
 }
 
-func createPreviewPresentation(ctx context.Context, runtime *Runtime, listingID string, fallbackURL string) previewPresentation {
-	presentation := previewPresentation{
-		Intent:      "OPEN_OWNER_PREVIEW",
-		FallbackURL: fallbackURL,
-		Mode:        "FALLBACK_URL",
+func createPreviewPresentation(openURL string) previewPresentation {
+	return previewPresentation{
+		Intent:  "OPEN_OWNER_PREVIEW",
+		OpenURL: openURL,
 	}
-	launch, err := runtime.client().CreateSkillPreviewLaunch(ctx, listingID)
-	if err != nil {
-		return presentation
-	}
-	presentation.OpenURL = &launch.LaunchURL
-	presentation.OpenURLExpiresAt = &launch.ExpiresAt
-	presentation.Mode = "ONE_TIME_LAUNCH"
-	return presentation
 }
 
 func (runtime *Runtime) requireSkillPublicationAuthentication(ctx context.Context) error {
@@ -921,7 +909,7 @@ func previewPresentationForPublication(ctx context.Context, runtime *Runtime, cu
 	if err != nil {
 		return previewPresentation{}, err
 	}
-	return createPreviewPresentation(ctx, runtime, current.ListingID, preview.Preview.FallbackURL), nil
+	return createPreviewPresentation(preview.Preview.FallbackURL), nil
 }
 
 // retirePublicationRecovery discards the local recovery intent after the

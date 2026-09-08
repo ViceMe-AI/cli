@@ -847,15 +847,16 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 	t.Parallel()
 	found := map[string]bool{
-		"creator-tools":          false,
-		"become-a-creator":       false,
-		"customize-your-page":    false,
-		"sell-a-skill":           false,
-		"use-a-skill":            false,
-		"charge-for-your-work":   false,
-		"let-people-interact":    false,
-		"let-others-make-a-copy": false,
-		"let-me-make-a-copy":     false,
+		"creator-tools":               false,
+		"become-a-creator":            false,
+		"customize-your-profile-page": false,
+		"customize-your-work-page":    false,
+		"sell-a-skill":                false,
+		"use-a-skill":                 false,
+		"charge-for-your-work":        false,
+		"let-people-interact":         false,
+		"let-others-make-a-copy":      false,
+		"let-me-make-a-copy":          false,
 	}
 	retired := make(map[string]bool, len(retiredOfficialSkills))
 	for _, skill := range retiredOfficialSkills {
@@ -870,7 +871,7 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 		}
 	}
 	if len(officialSkillNames) != len(found) {
-		t.Fatalf("official Skill list must contain exactly nine active Skills: %#v", officialSkillNames)
+		t.Fatalf("official Skill list must contain exactly ten active Skills: %#v", officialSkillNames)
 	}
 	for name, included := range found {
 		if !included {

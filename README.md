@@ -175,7 +175,8 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | --- | --- |
 | `creator-tools` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
 | `become-a-creator` | apply for or check creator qualification for every creator workflow. |
-| `customize-your-page` | use AI to create, preview, publish, update, or roll back one creator or Work page against its target-specific platform capabilities. |
+| `customize-your-profile-page` | use AI to create, preview, publish, update, or roll back a creator profile page. |
+| `customize-your-work-page` | use AI to redesign or import a downloadable Skill work page, including its visible actions and final preview. |
 | `sell-a-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
 | `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | configure follow or paid unlock for an existing website and integrate it into host code after the shared creator qualification check; platform resources stay internal. |
@@ -284,6 +285,7 @@ Never copy an access token into the conversation.
 | `viceme replica publish --path <project-or-zip> --page-dir <directory> --page-entry <relative-html> --preview-reviewed ...` | Agent 明确选择可部署页面目录和 HTML 入口；CLI 不搜索 `dist/build/out`，不推断框架，不运行构建。纯静态项目可以用 `--page-dir .`，相对目录基于源码根目录（ZIP 输入基于 ZIP 所在目录）。创作者确认预览后冻结 SOURCE 与 PAGE，返回 30 分钟终审；原样执行 `--confirm` 命令上传。未提供页面选择时返回 `PREPARE_HOSTED_PAGE`；`PROCESSING` 仅表示已提交。 |
 | `viceme replica repair-hosting --publication <ID> --path <page-directory> --page-entry <relative-html>` | Agent 选择目录与入口，只修复页面托管；已有 WorkPage ZIP 则以 ZIP 为 `--path`，不传入口参数。执行返回的确认命令，中断后复用同一请求，源码和买家权益保持不变。 |
 | `viceme replica sales --replica <ID>` | Inspect the current source version, price and management permission; suspended owners retain read-only access. |
+| `viceme replica analytics <work-url>` | 使用当前 Profile 校验作品 OWNER 权限，再带身份实时读取该作品的 Markdown；返回 `markdownUrl`、`markdown` 和 `fetchedAt`。拒绝其他 Web authority 和重定向，不向输出暴露凭据。 |
 | `viceme replica price --replica <ID> --price-cents <cents>` | Review a price change (0 is free), then run the complete returned confirmation command. No source upload is required. |
 | `viceme replica delist --replica <ID>` / `viceme replica relist --replica <ID>` | Review delisting or relisting, then run the complete returned confirmation command. Existing purchase rights remain unchanged. |
 | `viceme replica publish --path <project-or-zip> --state-project <same-project-or-zip> ...` | Keep atomic publication recovery state in the authorized project’s `.viceme` directory. Preserve this locator for confirmation, status, resume and cancel; existing requests are never silently migrated. See [sandbox storage and recovery](docs/replica-sandbox-storage.md). |

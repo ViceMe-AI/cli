@@ -201,11 +201,12 @@ test(
       result.data.skills.every((skill) => skill.results.length === 1 && skill.results[0].target === "agents"),
       true,
     );
-    assert.equal(result.data.skills.length, 9);
+    assert.equal(result.data.skills.length, 10);
     assert.equal(result.data.skills.every((skill) => skill.all_succeeded), true);
     await stat(path.join(home, ".agents", "skills", "creator-tools", "SKILL.md"));
     await stat(path.join(home, ".agents", "skills", "become-a-creator", "SKILL.md"));
-    await stat(path.join(home, ".agents", "skills", "customize-your-page", "SKILL.md"));
+    await stat(path.join(home, ".agents", "skills", "customize-your-profile-page", "SKILL.md"));
+    await stat(path.join(home, ".agents", "skills", "customize-your-work-page", "SKILL.md"));
     await stat(path.join(home, ".agents", "skills", "sell-a-skill", "SKILL.md"));
     await stat(path.join(home, ".agents", "skills", "use-a-skill", "SKILL.md"));
     await stat(path.join(home, ".agents", "skills", "charge-for-your-work", "SKILL.md"));
@@ -345,7 +346,7 @@ process.exit(child.status ?? 1);
     assert.equal(first.status, 0, `${first.stdout}\n${first.stderr}\n${debug}`);
     const install = JSON.parse(first.stdout);
     assert.equal(install.ok, true);
-    assert.equal(install.data.skills.length, 9);
+    assert.equal(install.data.skills.length, 10);
     assert.equal(install.data.skills.every((skill) => skill.all_succeeded), true);
     assert.match(
       await readFile(marker, "utf8"),

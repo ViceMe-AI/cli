@@ -19,7 +19,8 @@ import (
 var officialSkillNames = []string{
 	"charge-for-your-work",
 	"become-a-creator",
-	"customize-your-page",
+	"customize-your-profile-page",
+	"customize-your-work-page",
 	"sell-a-skill",
 	"creator-tools",
 	"use-a-skill",
@@ -116,13 +117,25 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 		},
 		{
-			name: "customize-your-page",
+			name: "customize-your-profile-page",
 			machine: []string{
 				"$become-a-creator", "viceme merchant page describe", "viceme merchant page inspect",
 				"viceme merchant page upload", "viceme merchant page preview", "viceme merchant page publish", "viceme-page.json", "window.viceme",
 			},
 			semantics: []string{
-				"作者页和作品页共用", "不做源码安全审计", "预览不等于公开发布", "本期不支持视频",
+				"本 Skill 只处理作者页", "不做源码安全审计", "预览不等于公开发布", "本期不支持视频",
+			},
+		},
+		{
+			name: "customize-your-work-page",
+			machine: []string{
+				"$become-a-creator", "$sell-a-skill", "viceme merchant work list",
+				"viceme merchant page describe", "viceme merchant page inspect", "viceme merchant page preview",
+				"viceme merchant page publish", "viceme-page.json", "window.viceme",
+			},
+			semantics: []string{
+				"不处理作者页", "不要给任何选项标", "也可以直接写下你想要的效果",
+				"不转成一轮“选择功能”的问题", "用户可以决定按钮是否展示",
 			},
 		},
 		{
@@ -183,7 +196,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			machine: []string{
 				"start --work-url", "standaloneRecoveryAvailable=true", "viceme auth status", "viceme replica install",
 				"--accept-price-cents", "REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "PRODUCT_ALREADY_OWNED",
-				"CONFIRM_INLINE_PREVIEW", "STOP_AND_REPORT", "--timeout 3m --interval 15s", "AskUserQuestion",
+				"PRESENT_WORK", "STOP_AND_REPORT", "--timeout 3m --interval 15s", "AskUserQuestion",
 				"s3.viceme.cn/skills/let-me-make-a-copy/scripts/make_copy.py",
 				"s3.viceme.ai/skills/let-me-make-a-copy/scripts/make_copy.py", "../creator-tools/SKILL.md#cli-定位",
 				"scripts/make_copy.py", "Python 3.9",
@@ -191,7 +204,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			semantics: []string{
 				"不把 Skill 写入 Agent Skill 目录", "后来安装 CLI 不得触发新订单", "订单一旦创建不得切换",
 				"不得静默降级", "账号路径", "CLI 匿名路径", "无 CLI 或既有 standalone 路径",
-				"不得打开 `workUrl`", "当前阶段不判断作品页是否由 ViceMe 托管",
+				"右侧预览打开 `discovery.previewUrl`", "免费、已购和恢复购买也需要先展示作品",
 				"只等待同一个任务或进程", "输出为空、截断、包含多个响应或不是完整 JSON", "不得再次执行安装命令",
 				"白名单之外的任何 `retryable=false`", "不得追加 `2>&1 | tail`", "允许加密访问", "工具不可用时退回编号短选项",
 				"正文内容区", "选项卡只放简短问题和选项标签", "支付入口、支付提示和完成结果",
@@ -427,7 +440,7 @@ func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,7 +506,7 @@ func TestCreatorPersonalCardUsesCreatorFacingWelcomeCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -530,7 +543,7 @@ func TestCreatorPersonalCardRoutesThroughQualificationBeforePageCustomization(t 
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -552,7 +565,7 @@ func TestCreatorPersonalCardRoutesThroughQualificationBeforePageCustomization(t 
 func TestCreatorPersonalCardUsesVerifiedCloudCatalog(t *testing.T) {
 	t.Parallel()
 
-	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -586,7 +599,7 @@ func TestCreatorPersonalCardUsesVerifiedCloudCatalog(t *testing.T) {
 func TestCreatorCardImportAndUpdateFlowKeepSafeGates(t *testing.T) {
 	t.Parallel()
 
-	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-page/SKILL.md")
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -626,7 +639,7 @@ func TestCreatorCardImportAndUpdateFlowKeepSafeGates(t *testing.T) {
 func TestBonjourCardTemplateKeepsTheSuppliedDesignAndMVPBlocksNarrow(t *testing.T) {
 	t.Parallel()
 
-	bundle := readOfficialSkillBundle(t, "customize-your-page")
+	bundle := readOfficialSkillBundle(t, "customize-your-profile-page")
 	for _, required := range []string{
 		"templates/bonjour-card/index.html",
 		"templates/bonjour-card/src/App.jsx",
@@ -1216,11 +1229,13 @@ func TestWebsiteReplicaPreviewsCreatorSiteBeforePublication(t *testing.T) {
 	}
 	text := string(content)
 	for _, required := range []string{
-		"发布成功后修改创作者原站", "result.workUrl", "右下角紧凑浮动入口",
-		"喜欢这个网站？作者已授权你一键复刻", "不重复插入", "原站入口未完成",
-		"不再次运行 publish", "不自动部署外部生产站", "不覆盖原 ZIP",
-		"仅在顶层页面展示", "在 iframe 内隐藏原站入口", "再次发布场景",
-		"present_files", "等待创作者明确确认", "预览态", "不自行启动浏览器测试",
+		"发布成功后修改创作者原站", "result.workUrl", "右下角紧凑白色圆角 pill",
+		"喜欢这个网站？作者已授权你一键复刻", "不重复添加", "原站按钮还未完成",
+		"不创建新版本", "不自动部署外部生产站", "不覆盖原 ZIP",
+		"普通托管 iframe 仍隐藏原站入口", "再次发布保留旧正式入口可用",
+		"present_files", "等待创作者明确确认", "预览态", "不做 HTTP 连通性探测、自动浏览器验收或截图检查",
+		"保留现有按钮的样式与默认交互", "默认点击直接复制邀请", "邀请句式都可以修改",
+		"仅对应作品的权威网站路径需要保留", "creatorPreview", "AskUserQuestion",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Website Replica Skill omitted creator-site boundary %q", required)

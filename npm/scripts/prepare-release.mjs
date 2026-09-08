@@ -70,7 +70,8 @@ export function selectBump(commits) {
 export const officialSkillNames = [
   "creator-tools",
   "become-a-creator",
-  "customize-your-page",
+  "customize-your-profile-page",
+  "customize-your-work-page",
   "sell-a-skill",
   "use-a-skill",
   "charge-for-your-work",

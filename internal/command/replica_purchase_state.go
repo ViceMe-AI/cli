@@ -30,6 +30,7 @@ import (
 )
 
 type replicaPurchaseState struct {
+	PaymentQRContent       string    `json:"paymentQrContent,omitempty"`
 	SchemaVersion          int       `json:"schemaVersion"`
 	APIOrigin              string    `json:"apiOrigin"`
 	ShortCode              string    `json:"shortCode"`
@@ -79,6 +80,7 @@ type replicaPurchaseStore struct {
 }
 
 type replicaCompletionState struct {
+	RecoverySecret string               `json:"recoverySecret,omitempty"`
 	SchemaVersion  int                  `json:"schemaVersion"`
 	APIOrigin      string               `json:"apiOrigin"`
 	ShortCode      string               `json:"shortCode"`
@@ -89,6 +91,7 @@ type replicaCompletionState struct {
 }
 
 type replicaPaidState struct {
+	RecoverySecret string          `json:"recoverySecret,omitempty"`
 	SchemaVersion  int             `json:"schemaVersion"`
 	APIOrigin      string          `json:"apiOrigin"`
 	ShortCode      string          `json:"shortCode"`
@@ -367,7 +370,7 @@ func (store replicaPurchaseStore) save(state *replicaPurchaseState) error {
 	return nil
 }
 
-func (store replicaPurchaseStore) saveCompletion(result replicaInstallResult) error {
+func (store replicaPurchaseStore) saveCompletion(result replicaInstallResult, recoverySecret ...string) error {
 	if err := store.verifyTargetParent(); err != nil {
 		return err
 	}
@@ -386,6 +389,9 @@ func (store replicaPurchaseStore) saveCompletion(result replicaInstallResult) er
 		TreeDigest:     tree.Digest,
 		TargetParentID: store.targetParentID,
 		CompletedAt:    store.now().UTC(),
+	}
+	if len(recoverySecret) > 0 {
+		completion.RecoverySecret = recoverySecret[0]
 	}
 	if !store.validCompletion(completion) {
 		return output.Internal("REPLICA_COMPLETION_STATE_INVALID", "refusing to save invalid Website Replica completion receipt", nil)
@@ -421,9 +427,10 @@ func (store replicaPurchaseStore) saveCompletion(result replicaInstallResult) er
 	return nil
 }
 
-func (store replicaPurchaseStore) savePaid(archivePath string, download api.WebsiteReplicaDownload, orderNo string) error {
+func (store replicaPurchaseStore) savePaid(archivePath string, download api.WebsiteReplicaDownload, orderNo, recoverySecret string) error {
 	paid := replicaPaidState{
-		SchemaVersion: 1, APIOrigin: store.origin, ShortCode: store.shortCode,
+		RecoverySecret: recoverySecret,
+		SchemaVersion:  1, APIOrigin: store.origin, ShortCode: store.shortCode,
 		ReplicaID: download.ReplicaID, VersionID: download.VersionID, Version: download.Version,
 		OrderNo: orderNo, ArtifactDigest: download.ArtifactDigest, SizeBytes: download.SizeBytes,
 		License: append(json.RawMessage(nil), download.License...), PaidAt: store.now().UTC(),
@@ -542,6 +549,9 @@ func (store replicaPurchaseStore) valid(state replicaPurchaseState) bool {
 	} else if state.SessionToken != "" || state.SessionExpiresAt != "" || state.CheckoutURL != "" {
 		return false
 	}
+	if state.PaymentQRContent != "" && (state.OrderNo == "" || validateReplicaPaymentAction(&api.WebsiteReplicaPaymentAction{Type: "QR_CODE", Content: state.PaymentQRContent}) != nil) {
+		return false
+	}
 	if state.CheckoutURL != "" && state.OrderNo == "" {
 		return false
 	}
@@ -555,6 +565,9 @@ func (store replicaPurchaseStore) valid(state replicaPurchaseState) bool {
 }
 
 func (store replicaPurchaseStore) validCompletion(completion replicaCompletionState) bool {
+	if completion.RecoverySecret != "" && !validReplicaSessionSecret(completion.RecoverySecret) {
+		return false
+	}
 	result := completion.Result
 	return completion.SchemaVersion == 1 && completion.APIOrigin == store.origin && completion.ShortCode == store.shortCode &&
 		completion.TargetParentID == store.targetParentID &&
@@ -567,7 +580,7 @@ func (store replicaPurchaseStore) validCompletion(completion replicaCompletionSt
 }
 
 func (store replicaPurchaseStore) validPaid(paid replicaPaidState) bool {
-	return paid.SchemaVersion == 1 && paid.APIOrigin == store.origin && paid.ShortCode == store.shortCode &&
+	return (paid.RecoverySecret == "" || validReplicaSessionSecret(paid.RecoverySecret)) && paid.SchemaVersion == 1 && paid.APIOrigin == store.origin && paid.ShortCode == store.shortCode &&
 		replicaUUIDPattern.MatchString(paid.ReplicaID) && replicaUUIDPattern.MatchString(paid.VersionID) && paid.Version > 0 &&
 		len(paid.OrderNo) >= 6 && len(paid.OrderNo) <= 40 && validReplicaDigest(paid.ArtifactDigest) &&
 		paid.SizeBytes > 0 && paid.SizeBytes <= replicacontent.MaxArchiveBytes &&

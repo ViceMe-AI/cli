@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -88,16 +87,22 @@ description: Publish a deterministic Skill through the vNext contract.
 		return exit, envelope
 	}
 	lastPreviewOpenURL := ""
-	expectFreshPreview := func(envelope map[string]any) {
+	expectStablePreview := func(envelope map[string]any) {
 		t.Helper()
 		data, _ := envelope["data"].(map[string]any)
 		presentation, _ := data["presentation"].(map[string]any)
 		openURL, _ := presentation["openUrl"].(string)
-		if presentation["intent"] != "OPEN_OWNER_PREVIEW" || presentation["mode"] != "ONE_TIME_LAUNCH" || openURL == "" || presentation["fallbackUrl"] == "" {
-			t.Fatalf("owner preview presentation was not actionable with a stable fallback: %#v", envelope)
+		if presentation["intent"] != "OPEN_OWNER_PREVIEW" || openURL == "" {
+			t.Fatalf("owner preview presentation was not a durable HTML page: %#v", envelope)
 		}
-		if openURL == lastPreviewOpenURL {
-			t.Fatalf("content update reused the consumed preview launch: %#v", envelope)
+		if _, hasFallback := presentation["fallbackUrl"]; hasFallback {
+			t.Fatalf("owner preview still exposes fallbackUrl: %#v", presentation)
+		}
+		if _, hasExpiry := presentation["openUrlExpiresAt"]; hasExpiry {
+			t.Fatalf("owner preview still expires openUrl: %#v", presentation)
+		}
+		if lastPreviewOpenURL != "" && openURL != lastPreviewOpenURL {
+			t.Fatalf("preview URL is not stable across updates: %s -> %s", lastPreviewOpenURL, openURL)
 		}
 		lastPreviewOpenURL = openURL
 	}
@@ -113,7 +118,7 @@ description: Publish a deterministic Skill through the vNext contract.
 		if data["listingId"] != "66666666-6666-4666-8666-666666666666" || data["publicationId"] != state.publicationID || data["requiresPrice"] != true {
 			t.Fatalf("first business result was not the uploaded private draft: %#v", envelope)
 		}
-		expectFreshPreview(envelope)
+		expectStablePreview(envelope)
 	}
 	if elapsed := time.Since(previewStartedAt); elapsed >= 10*time.Second {
 		t.Fatalf("private package preview fast path took %s", elapsed)
@@ -133,7 +138,7 @@ description: Publish a deterministic Skill through the vNext contract.
 	} else if data, _ := envelope["data"].(map[string]any); data["requiresPrice"] != false {
 		t.Fatalf("price update was not reflected in the progressive preview: %#v", envelope)
 	} else {
-		expectFreshPreview(envelope)
+		expectStablePreview(envelope)
 	}
 	state.mu.Lock()
 	if state.createCalls != 2 {
@@ -145,12 +150,12 @@ description: Publish a deterministic Skill through the vNext contract.
 	if exit, envelope := execute("publication", "asset", "upload", state.publicationID, "--role", "cover", "--path", mediaPath); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("manual cover upload failed: exit=%d envelope=%#v", exit, envelope)
 	} else {
-		expectFreshPreview(envelope)
+		expectStablePreview(envelope)
 	}
 	if exit, envelope := execute("publication", "asset", "upload", state.publicationID, "--role", "gallery", "--path", mediaPath); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("verified media reuse failed: exit=%d envelope=%#v", exit, envelope)
 	} else {
-		expectFreshPreview(envelope)
+		expectStablePreview(envelope)
 	}
 	suggestionPath := filepath.Join(root, "agent-suggestion.json")
 	suggestion := api.SuggestSkillPublicationDraftRequest{
@@ -171,7 +176,7 @@ description: Publish a deterministic Skill through the vNext contract.
 	if exit, envelope := execute("publication", "suggest", state.publicationID, "--input", suggestionPath); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("Agent suggestion failed: exit=%d envelope=%#v", exit, envelope)
 	} else {
-		expectFreshPreview(envelope)
+		expectStablePreview(envelope)
 	}
 	if exit, envelope := execute("publication", "review", state.publicationID); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("publication review failed: exit=%d envelope=%#v", exit, envelope)
@@ -184,17 +189,17 @@ description: Publish a deterministic Skill through the vNext contract.
 		if data["draftRevision"] != float64(1) {
 			t.Fatalf("review omitted the Agent CAS revision: %#v", envelope)
 		}
-		expectFreshPreview(envelope)
+		expectStablePreview(envelope)
 	}
 	if exit, envelope := execute("publication", "confirm", state.publicationID, "--review-digest", state.reviewDigest); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("review confirmation failed: exit=%d envelope=%#v", exit, envelope)
 	} else {
-		expectFreshPreview(envelope)
+		expectStablePreview(envelope)
 	}
 	if exit, envelope := execute("publication", "publish", state.publicationID, "--review-digest", state.reviewDigest); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("publish failed: exit=%d envelope=%#v", exit, envelope)
 	} else {
-		expectFreshPreview(envelope)
+		expectStablePreview(envelope)
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -858,7 +863,6 @@ type publicationAPITestState struct {
 	slotConflictOnFirst      bool
 	rivalVisible             bool
 	occupiedMediaSlot        int
-	previewLaunchCalls       int
 	analysisPolls            int
 	analysisCalls            int
 	suggestionCalls          int
@@ -913,9 +917,9 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 		}
 		writeJSONResponse(writer, api.PrepareSkillListingResponse{
 			ListingID: listingID, Market: "CN", Status: "DRAFT", DraftRevision: 1,
-			OwnerPreviewURL: state.baseURL + "/creator/skills/" + listingID + "/preview",
+			OwnerPreviewURL: state.baseURL + "/alice/demo-skill/preview",
 			BindingReceipt:  "binding-receipt", Resolution: "CREATED",
-			Preview:     api.SkillListingPreviewViewModel{SchemaVersion: "preview.viceme.ai/v1", ListingID: listingID, DraftRevision: 1, State: "SHELL", FallbackURL: state.baseURL + "/preview"},
+			Preview:     api.SkillListingPreviewViewModel{SchemaVersion: "preview.viceme.ai/v1", ListingID: listingID, DraftRevision: 1, State: "SHELL", FallbackURL: state.baseURL + "/alice/demo-skill/preview"},
 			NextActions: []string{"OPEN_PREVIEW", "SET_PRICE", "AUTHORIZE_UPLOAD"},
 		})
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-listings/candidates":
@@ -923,14 +927,8 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 			{ListingID: "77777777-7777-4777-8777-777777777777", UpdatedAt: "2026-08-14T08:00:00Z", OwnerPreviewURL: state.baseURL + "/preview/one"},
 			{ListingID: "88888888-8888-4888-8888-888888888888", UpdatedAt: "2026-08-14T07:00:00Z", OwnerPreviewURL: state.baseURL + "/preview/two"},
 		}})
-	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-listings/"+listingID+"/preview-launch":
-		state.previewLaunchCalls++
-		writeJSONResponse(writer, api.CreateSkillPreviewLaunchResponse{
-			LaunchURL: state.baseURL + fmt.Sprintf("/v1/creator/skill-preview-launches/one-time-code-%d", state.previewLaunchCalls),
-			ExpiresAt: "2026-08-14T08:01:00Z",
-		})
 	case request.Method == http.MethodGet && request.URL.Path == "/v1/creator/skill-listings/"+listingID+"/preview":
-		writeJSONResponse(writer, api.SkillListingPreview{ListingID: listingID, Status: "DRAFT", DraftRevision: 1, Publication: &api.SkillListingPublicationPreview{ID: state.publicationID, Status: state.status}, Preview: api.SkillListingPreviewViewModel{SchemaVersion: "preview.viceme.ai/v1", ListingID: listingID, DraftRevision: 1, State: "SHELL", FallbackURL: state.baseURL + "/preview"}})
+		writeJSONResponse(writer, api.SkillListingPreview{ListingID: listingID, Status: "DRAFT", DraftRevision: 1, Publication: &api.SkillListingPublicationPreview{ID: state.publicationID, Status: state.status}, Preview: api.SkillListingPreviewViewModel{SchemaVersion: "preview.viceme.ai/v1", ListingID: listingID, DraftRevision: 1, State: "SHELL", FallbackURL: state.baseURL + "/alice/demo-skill/preview"}})
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-publications":
 		var input api.CreateSkillPublicationRequest
 		_ = json.NewDecoder(request.Body).Decode(&input)

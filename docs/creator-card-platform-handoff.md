@@ -22,7 +22,7 @@
 - `viceme template list` 只信任由嵌入式 Ed25519 公钥环验证的 manifest；`viceme template fetch`
   按 `id + version` 下载、校验 SHA-256 并安全解压。Agent 不得从本地目录、开发 Mock 或任意 URL
   替代这些结果。
-- `skills/customize-your-page/SKILL.md` 规定：先展示“查看所有模板”及正式模板链接；用户在对话中
+- `skills/customize-your-profile-page/SKILL.md` 规定：先展示“查看所有模板”及正式模板链接；用户在对话中
   选择后才下载源码。右侧只用于打开模板、当前页面和本机预览。
 
 ### 创作者对话与发布闸门
@@ -114,7 +114,7 @@ source restore(releaseId, destination, merchant)
 - 新模板名片、从用户原项目导入的名片均应在发布后产生可恢复源稿；源稿保留/删除策略必须使
   `source status` 返回可信状态。
 
-页面服务/CLI Contract 完成后，再扩展 `merchant page` 命令和 `customize-your-page` Skill：只有
+页面服务/CLI Contract 完成后，再扩展 `merchant page` 命令和 `customize-your-profile-page` Skill：只有
 `RESTORABLE` 才自动恢复本机项目；缺少该状态时保留当前安全降级。不要先在 Skill 中添加不存在的
 命令。
 
