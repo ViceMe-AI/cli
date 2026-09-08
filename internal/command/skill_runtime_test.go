@@ -100,6 +100,96 @@ func TestTrialIdentityConflictDoesNotCreateLockOrMutateState(t *testing.T) {
 	}
 }
 
+func TestTrialMarketConflictStopsBeforeCredentialAdoptionOrAPI(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	for _, withCLI := range []bool{false, true} {
+		for _, arguments := range [][]string{
+			{"skill", "use", downloadableProductID},
+			{"skill", "trial-status", downloadableProductID},
+			{"skill", "trial-purchase", downloadableProductID},
+			{"skill", "install", downloadableProductID, "--agent", "workbuddy"},
+		} {
+			name := strings.Join(arguments[1:], "-")
+			if withCLI {
+				name += "-with-cli-credential"
+			}
+			t.Run(name, func(t *testing.T) {
+				state := newSkillTrialTestServer(t)
+				defer state.server.Close()
+				home, store := t.TempDir(), securestore.NewMemory()
+				credential := `{"installId":"11111111-1111-4111-8111-111111111111","secret":"` + skillTrialSecret + `"}`
+				if withCLI {
+					if err := store.Set(skillTrialStoreKey(downloadableProductID), credential); err != nil {
+						t.Fatal(err)
+					}
+				}
+				path := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json")
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				original, _ := json.Marshal(scriptTrialState{
+					InstallID: "11111111-1111-4111-8111-111111111111", Secret: skillTrialSecret,
+					ProductID: downloadableProductID, Market: "global",
+					Purchase: &trialPurchaseState{ClientRequestID: "22222222-2222-4222-8222-222222222222", OrderNo: skillPurchaseOrderNo},
+				})
+				if err := os.WriteFile(path, original, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				code, result, _ := executeSkillTrialCommand(t, state.server, home, store, arguments...)
+				if code == 0 || result["error"].(map[string]any)["code"] != "SKILL_TRIAL_IDENTITY_MISMATCH" {
+					t.Fatalf("market conflict not stopped: %#v", result)
+				}
+				if current, _ := os.ReadFile(path); string(current) != string(original) {
+					t.Fatal("foreign market state changed")
+				}
+				stored, _ := store.Get(skillTrialStoreKey(downloadableProductID))
+				if (!withCLI && stored != "") || (withCLI && stored != credential) {
+					t.Fatalf("CLI credential changed: %q", stored)
+				}
+				if _, err := os.Stat(path + ".lock"); !os.IsNotExist(err) {
+					t.Fatalf("market conflict left a lock: %v", err)
+				}
+				state.mu.Lock()
+				defer state.mu.Unlock()
+				if len(state.useRequests)+len(state.grantRequests)+len(state.trialPurchaseRequests) != 0 {
+					t.Fatal("foreign market identity reached API")
+				}
+			})
+		}
+	}
+}
+
+func TestTrialReadyDoesNotQueryQuotaWithForeignMarketState(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+	home, store := t.TempDir(), securestore.NewMemory()
+	credential := `{"installId":"11111111-1111-4111-8111-111111111111","secret":"` + skillTrialSecret + `"}`
+	if err := store.Set(skillTrialStoreKey(downloadableProductID), credential); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original, _ := json.Marshal(scriptTrialState{
+		InstallID: "11111111-1111-4111-8111-111111111111", Secret: skillTrialSecret,
+		ProductID: downloadableProductID, Market: "global",
+	})
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	code, result, _ := executeSkillTrialCommand(t, state.server, home, store, "skill", "ready", downloadableProductID, "--agent", "workbuddy")
+	if code != 0 || result["data"].(map[string]any)["ready"] != false {
+		t.Fatalf("ready failed: %#v", result)
+	}
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if len(state.grantRequests) != 0 {
+		t.Fatal("ready sent a foreign market identity to the API")
+	}
+}
+
 func TestTrialLockReleaseFailureIsReported(t *testing.T) {
 	previous := removeScriptTrialLock
 	t.Cleanup(func() { removeScriptTrialLock = previous })

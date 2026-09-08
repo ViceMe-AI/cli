@@ -555,6 +555,47 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertNotIn("CLI", caught.exception.message)
         self.assertNotIn("installDocUrl", caught.exception.fields)
 
+    def test_foreign_market_state_never_reaches_api_or_changes_identity(self):
+        state = {
+            "installId": "11111111-1111-4111-8111-111111111111",
+            "secret": "foreign-secret",
+            "productId": PRODUCT_ID,
+            "market": "global",
+        }
+        trial.save_trial_state(PRODUCT_ID, state)
+        path = trial.trial_state_path(PRODUCT_ID)
+
+        with mock.patch.object(trial, "api_request", side_effect=AssertionError("foreign identity reached API")) as api:
+            self.assertIsNone(trial.lookup_trial_quota("cn", PRODUCT_ID))
+            for operation in (
+                lambda: trial.command_use("cn", PRODUCT_ID),
+                lambda: trial.command_status("cn", PRODUCT_ID),
+                lambda: trial.ensure_trial_grant("cn", PRODUCT_ID),
+            ):
+                with self.subTest(operation=operation):
+                    with self.assertRaises(trial.Failure) as caught:
+                        operation()
+                    self.assertEqual(caught.exception.code, "TRIAL_IDENTITY_MISMATCH")
+
+            state["purchase"] = {
+                "clientRequestId": "22222222-2222-4222-8222-222222222222",
+                "orderNo": "VMO-FOREIGN",
+            }
+            trial.save_trial_state(PRODUCT_ID, state)
+            for operation in (
+                lambda: trial.trial_install_should_resume_purchase("cn", PRODUCT_ID),
+                lambda: trial.command_purchase("cn", PRODUCT_ID),
+            ):
+                with self.subTest(operation=operation):
+                    with self.assertRaises(trial.Failure) as caught:
+                        operation()
+                    self.assertEqual(caught.exception.code, "TRIAL_IDENTITY_MISMATCH")
+            self.assertEqual(api.call_count, 0)
+
+        with open(path, "rb") as handle:
+            self.assertEqual(json.loads(handle.read()), state)
+        self.assertFalse(os.path.exists(path + ".lock"))
+
     def test_use_issues_grant_when_installed_trial_has_no_credential(self):
         calls = []
 
