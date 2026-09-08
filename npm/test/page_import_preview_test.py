@@ -12,7 +12,7 @@ from urllib.request import Request, urlopen
 SCRIPT = (
     Path(__file__).resolve().parents[2]
     / "skills"
-    / "customize-your-page"
+    / "customize-your-profile-page"
     / "scripts"
     / "preview_import.py"
 )

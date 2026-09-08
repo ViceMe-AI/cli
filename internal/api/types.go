@@ -61,8 +61,8 @@ type AuthStatus struct {
 	ExpiresAt     string   `json:"expiresAt"`
 }
 
-type GithubChannelVerified struct {
-	Verified bool `json:"verified"`
+type GithubSourceAuthorized struct {
+	Authorized bool `json:"authorized"`
 }
 
 type AuthUser struct {
@@ -93,13 +93,10 @@ type MerchantOnboarding struct {
 	ID                   string                       `json:"id"`
 	Kind                 string                       `json:"kind"`
 	MerchantAccountID    *string                      `json:"merchantAccountId"`
-	Provider             *string                      `json:"provider"`
 	RequestedHandle      *string                      `json:"requestedHandle"`
 	DisplayName          string                       `json:"displayName"`
 	Status               string                       `json:"status"`
 	LockVersion          int                          `json:"lockVersion"`
-	PublicAccountName    *string                      `json:"publicAccountName"`
-	ProfileURL           *string                      `json:"profileUrl"`
 	ReservationExpiresAt *string                      `json:"reservationExpiresAt"`
 	ReasonCode           *string                      `json:"reasonCode"`
 	ReviewNote           *string                      `json:"reviewNote"`
@@ -1431,18 +1428,21 @@ type PublicWorkProduct struct {
 	} `json:"purchaseSkill"`
 }
 
+type OfficialSkillInstallReference struct {
+	Kind                 string `json:"kind"`
+	SkillName            string `json:"skillName"`
+	InstallerDocumentURL string `json:"installerDocumentUrl"`
+}
+
 type PublicWorkProjection struct {
 	Creator struct {
-		ID                 string  `json:"id"`
-		Handle             string  `json:"handle"`
-		DisplayName        string  `json:"displayName"`
-		AvatarURL          *string `json:"avatarUrl"`
-		Occupation         *string `json:"occupation"`
-		Bio                *string `json:"bio"`
-		ExternalIdentities []struct {
-			Provider       string  `json:"provider"`
-			ExternalHandle *string `json:"externalHandle"`
-		} `json:"externalIdentities"`
+		ID          string  `json:"id"`
+		Handle      string  `json:"handle"`
+		DisplayName string  `json:"displayName"`
+		AvatarURL   *string `json:"avatarUrl"`
+		Occupation  *string `json:"occupation"`
+		Bio         *string `json:"bio"`
+
 		IsOfficial bool `json:"isOfficial"`
 	} `json:"creator"`
 	Work struct {
@@ -1465,10 +1465,11 @@ type PublicWorkProjection struct {
 			Media               []map[string]any `json:"media"`
 			ActivatedAt         *string          `json:"activatedAt"`
 		} `json:"revision"`
-		Products       []PublicWorkProduct `json:"products"`
-		Service        any                 `json:"service"`
-		WebsiteAction  any                 `json:"websiteAction"`
-		WebsiteReplica *struct {
+		Products        []PublicWorkProduct            `json:"products"`
+		OfficialInstall *OfficialSkillInstallReference `json:"officialInstall,omitempty"`
+		Service         any                            `json:"service"`
+		WebsiteAction   any                            `json:"websiteAction"`
+		WebsiteReplica  *struct {
 			ShortCode string `json:"shortCode"`
 		} `json:"websiteReplica"`
 		WebsiteReplicaAction *struct {

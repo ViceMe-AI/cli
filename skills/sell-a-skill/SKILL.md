@@ -41,7 +41,7 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
 
 - 根目录含 `SKILL.md` 的本地目录或 ZIP；
 - 当前用户本人拥有的公开或私有 GitHub 仓库；
-- 已验证发布渠道中的小红书 Skill ID。
+- 公开小红书 Skill ID。
 
 用户提出网站、服务、实物、定制商品、预约或其他非下载交付时，说明当前 Skill 只发布
 可下载 Skill，并停止；不得调用保留的通用商业命令替用户试运行。

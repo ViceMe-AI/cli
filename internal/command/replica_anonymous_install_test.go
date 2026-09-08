@@ -67,7 +67,6 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 			resolution["previewUrl"] = resolution["viceMeWorkUrl"]
 			resolution["discoveryUrl"] = resolution["viceMeWorkUrl"].(string) + "/discover"
 			resolution["statistics"] = map[string]any{"acquisitionCount": 0, "commentCount": 0}
-			resolution["showcases"] = []any{}
 			writeJSONResponse(writer, resolution)
 		case "/v1/website-replicas/resolve":
 			if request.Header.Get("Authorization") != "" {
@@ -105,18 +104,6 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 				"expiresAt":   time.Now().UTC().Add(time.Hour).Format(time.RFC3339),
 				"checkoutUrl": serverURL(request) + "/replica-checkout/" + sessionID + "#token=hidden",
 			})
-		case "/v1/website-replica-sessions/showcases":
-			if request.Header.Get("Authorization") != "" {
-				t.Fatal("anonymous case switched identity")
-			}
-			var submitted map[string]any
-			if err := json.NewDecoder(request.Body).Decode(&submitted); err != nil {
-				t.Fatal(err)
-			}
-			if submitted["recoverySecret"] != recoverySecret || submitted["orderNo"] != orderNo || submitted["versionId"] != versionID || submitted["consent"] != true {
-				t.Fatalf("case is not bound to original purchase")
-			}
-			writeJSONResponse(writer, map[string]any{"id": "55555555-5555-4555-8555-555555555555", "title": "Reading site", "previewUrl": "https://example.com/site", "screenshotUrl": "https://example.com/image.png", "authorName": "Alice", "changeDescription": "Added reading list", "createdAt": time.Now().UTC().Format(time.RFC3339), "status": "PENDING", "sourceVersion": 1, "revision": 1})
 		case "/v1/website-replica-sessions/recover-download":
 			var body api.RecoverWebsiteReplicaDownloadRequest
 			_ = json.NewDecoder(request.Body).Decode(&body)
@@ -169,28 +156,11 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	if content, err := os.ReadFile(filepath.Join(target, "index.html")); err != nil || string(content) != "<h1>Anonymous copy</h1>" {
 		t.Fatalf("installed content mismatch: %q %v", content, err)
 	}
-	// Source modifications after deployment must not invalidate the original signed provenance.
-	if err := os.WriteFile(filepath.Join(target, "index.html"), []byte("<h1>Reading list</h1>"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	installOutput.Reset()
-	if exit := Execute([]string{"replica", "showcase", "submit", "--anonymous", "--work-url", workURL, "--target", target, "--title", "Reading site", "--preview-url", "https://example.com/site", "--screenshot-url", "https://example.com/image.png", "--author-name", "Alice", "--changes", "Added reading list", "--consent"}, deps); exit != 0 {
-		t.Fatalf("anonymous case failed: %d %s", exit, installOutput.String())
-	}
-	if bytes.Contains(installOutput.Bytes(), []byte(recoverySecret)) || bytes.Contains(installOutput.Bytes(), []byte("license")) {
-		t.Fatal("case response exposed private proof")
-	}
-
 	recoveredTarget := filepath.Join(root, "restored-copy")
 	installOutput.Reset()
-	if exit := Execute([]string{"replica", "install", fullCode, "--anonymous", "--target", recoveredTarget}, deps); exit != 0 {
+	if exit := Execute([]string{"replica", "install", fullCode, "--anonymous", "--recovery-only", "--target", recoveredTarget}, deps); exit != 0 {
 		t.Fatalf("cached purchase recovery failed: %d %s", exit, installOutput.String())
 	}
-	installOutput.Reset()
-	if exit := Execute([]string{"replica", "showcase", "submit", "--anonymous", "--work-url", workURL, "--target", recoveredTarget, "--title", "Reading site", "--preview-url", "https://example.com/site", "--screenshot-url", "https://example.com/image.png", "--author-name", "Alice", "--changes", "Added reading list", "--consent"}, deps); exit != 0 {
-		t.Fatalf("restored source lost showcase proof: %d %s", exit, installOutput.String())
-	}
-
 }
 
 func TestDefaultReplicaTargetUsesAChildOfTheCurrentWorkspace(t *testing.T) {
@@ -253,7 +223,6 @@ func TestReplicaInspectFindsPaidStandaloneRecoveryWithoutExposingCredential(t *t
 			resolution["previewUrl"] = resolution["viceMeWorkUrl"]
 			resolution["discoveryUrl"] = resolution["viceMeWorkUrl"].(string) + "/discover"
 			resolution["statistics"] = map[string]any{"acquisitionCount": 0, "commentCount": 0}
-			resolution["showcases"] = []any{}
 			writeJSONResponse(writer, resolution)
 		case "/v1/website-replicas/resolve":
 			writeJSONResponse(writer, replicaResolutionResponse(replicaID, shortCode))

@@ -5,7 +5,8 @@
 | User goal | Official Skill ID | Public AI route | Status |
 | --- | --- | --- | --- |
 | 申请创作者资格 | `become-a-creator` | `https://viceme.cn/viceme/become-a-creator` | Available |
-| 自定义作者页或作品页 | `customize-your-page` | `https://viceme.cn/viceme/customize-your-page` | Available |
+| 自定义作者页 | `customize-your-profile-page` | `https://viceme.cn/viceme/customize-your-profile-page` | Available |
+| 自定义 Skill 作品页 | `customize-your-work-page` | `https://viceme.cn/viceme/customize-your-work-page` | Available |
 | 发布付费 Skill | `sell-a-skill` | `https://viceme.cn/viceme/sell-a-skill` | Available |
 | 让网站开始收费 | `charge-for-your-work` | `https://viceme.cn/viceme/charge-for-your-work` | Available |
 | 接入弹幕、开放赞赏或两者 | `let-people-interact` | `https://viceme.cn/viceme/let-people-interact` | Available |
@@ -23,7 +24,8 @@ The official creator Skills expose one user goal each:
 | Skill | Owns | Does not own |
 | --- | --- | --- |
 | `become-a-creator` | Login for creator onboarding, qualification checks, application state, Merchant selection | Publishing Works, Products, or website integrations |
-| `customize-your-page` | Target ownership, capability discovery, flexible page packaging, preview, explicit publication, updates, and rollback for creator and Work pages | Creator qualification or source-code security review |
+| `customize-your-profile-page` | Creator-page target ownership, template/import flow, preview, publication, updates, and rollback | Work pages, creator qualification, or source-code security review |
+| `customize-your-work-page` | Downloadable Skill work-page selection, neutral guided design/import flow, custom action UI, preview, publication, updates, and rollback | Creator pages, websites, work metadata, pricing, or Skill package updates |
 | `sell-a-skill` | Downloadable Skill packaging, preview, confirmation, publication, and updates | Websites, services, physical/custom goods, appointments, generic Products |
 | `charge-for-your-work` | One-pass website input collection, internal Website Work/access provisioning, and host-code integration for follow or paid unlock | Login and creator application |
 | `let-people-interact` | Three-way danmaku/tip routing, hosted SDK access, default Mounted integration, explicit custom-UI Headless integration, and Website Work selection/publication with an exact canonical Origin for danmaku-bearing routes | Creator qualification, downloadable Skill publication, Website ownership verification, or Website Widget mutation for Tip |
@@ -82,6 +84,12 @@ write after the same waiting login process succeeds.
 
 Ordinary `viceme auth login` remains unchanged and sends the default purpose.
 
+## Public creator-application route
+
+The Shop-owned public route `/viceme/become-a-creator.md` is an intent entry point, not a second workflow specification. Its deployed content must preserve the existing direct-application prompt verbatim, then hand the request to the current installed `become-a-creator` Skill. It must not instruct Agents to use the retired `merchant onboarding page-setup` command, choose Bonjour before reading the active release, open a page-setup dialog, or automatically open the current Markdown page. When login is needed, the route must require the Skill to show the CLI-provided `VICEME_LOGIN_QR_PRESENTATION` QR image in the conversation first, retain the right-side page, and use the one-time authorization link only when the host cannot render that QR image.
+
+This repository ships the CLI and installed Skills but does not deploy that Shop-owned Markdown object. The Shop deployment owner must replace the currently stale public object in the same release window as this compatibility change.
+
 ## CLI command placement
 
 Commands remain grouped by use case under `internal/command`:
@@ -110,10 +118,13 @@ become-a-creator
           | qualification guard
           |
           +-- sell-a-skill
-          +-- customize-your-page
+          +-- customize-your-profile-page
+          +-- customize-your-work-page
           +-- charge-for-your-work
           +-- let-people-interact
           `-- let-others-make-a-copy
+
+sell-a-skill -- optional after publication --> customize-your-work-page
 
 work Markdown copy invitation
           |
@@ -135,6 +146,7 @@ inputs or output.
 - Route danmaku-only, open-Tip-only, and combined requests through `let-people-interact` while delegating qualification; danmaku-bearing routes require a published Website Work with an exact canonical Origin, and no engagement route requires Website ownership verification.
 - Route complete website source publication through `let-others-make-a-copy` without modifying the creator's external site; route buyer preview, purchase, recovery, and installation through `let-me-make-a-copy`, which must retain an existing standalone recovery before preferring CLI.
 - Publish the `let-me-make-a-copy` flat `SKILL.md` and Python script to both regional S3 origins before the Shop Web starts emitting those hosted Skill URLs. Deploy the compatible Shop API before buyers can execute the newly hosted workflow.
-- Route both creator-page and Work-page UI customization through `customize-your-page`; discover target-specific capabilities before editing, validate only archive structure, preview on the real route, and require explicit confirmation before publication.
+- Route creator-page UI customization only through `customize-your-profile-page`.
+- Route published downloadable-Skill page UI customization only through `customize-your-work-page`; it may reuse the exact Work and Merchant returned by `sell-a-skill`, or independently select an owned published Skill after the qualification guard. Keep its plain-language path choice neutral, preserve free-form input, discover target-specific capabilities before editing, validate only archive structure, preview on the real route, and require explicit confirmation before publication.
 - Update all official-Skill installation, manifest, metadata, and behavioral tests atomically so an
   update never treats an old creator Skill ID as active.

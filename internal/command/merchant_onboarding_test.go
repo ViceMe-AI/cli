@@ -158,7 +158,7 @@ func TestMerchantOnboardingEvidenceRejectsConflictingOrMissingInputs(t *testing.
 	}
 }
 
-func TestGithubMerchantChannelPrintsOneFallbackURLAndWaitsForVerification(t *testing.T) {
+func TestGithubSourcePrintsOneAuthorizationURLAndWaitsForAuthorization(t *testing.T) {
 	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
 	const merchantID = "44444444-4444-4444-8444-444444444444"
 	const authorizationURL = "https://github.com/login/oauth/authorize?state=one-time-state"
@@ -174,12 +174,12 @@ func TestGithubMerchantChannelPrintsOneFallbackURLAndWaitsForVerification(t *tes
 		switch request.URL.Path {
 		case "/v1/cli/auth/status":
 			writeMerchantOnboardingAuth(writer)
-		case "/v1/cli/merchant/channels/github/start":
+		case "/v1/cli/skill-sources/github/start":
 			startCalls.Add(1)
 			writeJSONResponse(writer, map[string]any{
 				"kind": "authorization", "authorizationUrl": authorizationURL, "attemptId": attemptID,
 			})
-		case "/v1/cli/merchant/channels/github/status":
+		case "/v1/cli/skill-sources/github/status":
 			if request.URL.Query().Get("merchantAccountId") != merchantID || request.URL.Query().Get("attemptId") != attemptID {
 				t.Fatalf("unexpected merchant status query: %s", request.URL.RawQuery)
 			}
@@ -187,7 +187,7 @@ func TestGithubMerchantChannelPrintsOneFallbackURLAndWaitsForVerification(t *tes
 				writeJSONResponse(writer, map[string]any{"kind": "pending"})
 				return
 			}
-			writeJSONResponse(writer, map[string]any{"kind": "verified"})
+			writeJSONResponse(writer, map[string]any{"kind": "authorized"})
 		default:
 			http.NotFound(writer, request)
 		}
@@ -195,7 +195,7 @@ func TestGithubMerchantChannelPrintsOneFallbackURLAndWaitsForVerification(t *tes
 	defer server.Close()
 
 	var stdout, stderr bytes.Buffer
-	exit := Execute([]string{"merchant", "channel", "github", merchantID}, Dependencies{
+	exit := Execute([]string{"source", "github", merchantID}, Dependencies{
 		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(),
 		HTTPClient: server.Client(), APIBaseURL: server.URL, Region: config.RegionCN,
 		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()},
@@ -214,7 +214,7 @@ func TestGithubMerchantChannelPrintsOneFallbackURLAndWaitsForVerification(t *tes
 	}
 }
 
-func TestGithubMerchantChannelStopsWhenAuthorizationIsDenied(t *testing.T) {
+func TestGithubSourceStopsWhenAuthorizationIsDenied(t *testing.T) {
 	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
 	const merchantID = "44444444-4444-4444-8444-444444444444"
 	t.Setenv(processAccessTokenEnvironment, accessToken)
@@ -222,11 +222,11 @@ func TestGithubMerchantChannelStopsWhenAuthorizationIsDenied(t *testing.T) {
 		switch request.URL.Path {
 		case "/v1/cli/auth/status":
 			writeMerchantOnboardingAuth(writer)
-		case "/v1/cli/merchant/channels/github/start":
+		case "/v1/cli/skill-sources/github/start":
 			writeJSONResponse(writer, map[string]any{
 				"kind": "authorization", "authorizationUrl": "https://github.example/authorize", "attemptId": "77777777-7777-4777-8777-777777777777",
 			})
-		case "/v1/cli/merchant/channels/github/status":
+		case "/v1/cli/skill-sources/github/status":
 			writeJSONResponse(writer, map[string]any{"kind": "denied"})
 		default:
 			http.NotFound(writer, request)
@@ -234,7 +234,7 @@ func TestGithubMerchantChannelStopsWhenAuthorizationIsDenied(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exit, envelope := executeMerchantOnboardingCommand(t, server, "merchant", "channel", "github", merchantID)
+	exit, envelope := executeMerchantOnboardingCommand(t, server, "source", "github", merchantID)
 	errorBody, _ := envelope["error"].(map[string]any)
 	if exit != output.ExitAuthentication || errorBody["code"] != "GITHUB_AUTHORIZATION_DENIED" {
 		t.Fatalf("authorization denial did not stop immediately: exit=%d envelope=%#v", exit, envelope)
@@ -251,14 +251,14 @@ func TestGithubAuthorizationTimeoutAndCancelAreStableDuringStatusRequest(t *test
 
 	timeoutContext, cancelTimeout := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancelTimeout()
-	timeoutError := output.AsError(finishGithubChannelAuthorization(timeoutContext, runtime, client, "merchant", "attempt", time.Minute, time.Second))
+	timeoutError := output.AsError(waitGithubSourceAuthorization(timeoutContext, runtime, client, "merchant", "attempt", time.Minute, time.Second))
 	if timeoutError.Subtype != "GITHUB_AUTHORIZATION_PENDING" || !timeoutError.Retryable {
 		t.Fatalf("unexpected timeout error: %#v", timeoutError)
 	}
 
 	cancelContext, cancel := context.WithCancel(context.Background())
 	cancel()
-	cancelError := output.AsError(finishGithubChannelAuthorization(cancelContext, runtime, client, "merchant", "attempt", time.Minute, time.Second))
+	cancelError := output.AsError(waitGithubSourceAuthorization(cancelContext, runtime, client, "merchant", "attempt", time.Minute, time.Second))
 	if cancelError.Subtype != "GITHUB_AUTHORIZATION_CANCELLED" || cancelError.Retryable {
 		t.Fatalf("unexpected cancellation error: %#v", cancelError)
 	}

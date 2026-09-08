@@ -3,7 +3,7 @@ package api
 import "testing"
 
 func TestReplicaDiscoveryRejectsUnboundOrUnsafePresentation(t *testing.T) {
-	baseline := WebsiteReplicaDiscovery{ReplicaID: "11111111-1111-4111-8111-111111111111", ShortCode: "VMR-ABCDEFGHIJKLMNOPQRST", Title: "Website", PreviewURL: "https://example.com/site", ViceMeWorkURL: "https://viceme.cn/alice/site", DiscoveryURL: "https://viceme.cn/alice/site/discover", Creator: WebsiteReplicaCreator{Handle: "alice"}, Showcases: []WebsiteReplicaShowcase{}}
+	baseline := WebsiteReplicaDiscovery{ReplicaID: "11111111-1111-4111-8111-111111111111", ShortCode: "VMR-ABCDEFGHIJKLMNOPQRST", Title: "Website", PreviewURL: "https://example.com/site", ViceMeWorkURL: "https://viceme.cn/alice/site", DiscoveryURL: "https://viceme.cn/alice/site/discover", Creator: WebsiteReplicaCreator{Handle: "alice"}}
 	if !validWebsiteReplicaDiscovery(baseline, baseline.ShortCode) {
 		t.Fatal("valid empty discovery rejected")
 	}
@@ -12,9 +12,6 @@ func TestReplicaDiscoveryRejectsUnboundOrUnsafePresentation(t *testing.T) {
 		func(v *WebsiteReplicaDiscovery) { v.PreviewURL = "javascript:alert(1)" },
 		func(v *WebsiteReplicaDiscovery) { v.Statistics.AcquisitionCount = -1 },
 		func(v *WebsiteReplicaDiscovery) { v.Statistics.CommentCount = -1 },
-		func(v *WebsiteReplicaDiscovery) {
-			v.Showcases = []WebsiteReplicaShowcase{{ID: "11111111-1111-4111-8111-111111111111", Title: "Injected", PreviewURL: "javascript:alert(1)"}}
-		},
 	} {
 		value := baseline
 		change(&value)

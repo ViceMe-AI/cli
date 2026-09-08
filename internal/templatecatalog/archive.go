@@ -85,20 +85,28 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 		!validBuildOrigin(origin, allowLoopbackHTTP) || signer.KeyID == "" || len(signer.PrivateKey) != ed25519.PrivateKeySize {
 		return BuildResult{}, ErrBuild
 	}
+	canonicalRoot, err := canonicalSourceRoot(sourceRoot)
+	if err != nil {
+		return BuildResult{}, err
+	}
 	if len(demos) > 0 && !allowLoopbackHTTP {
 		return BuildResult{}, ErrBuild
 	}
 	origin = strings.TrimSuffix(origin, "/")
 	manifest := Manifest{SchemaVersion: 1, Templates: make([]PublishedTemplate, 0, len(catalog.Templates))}
 	zipByTemplate := make(map[string][]byte, len(catalog.Templates))
-	previewByTemplate := make(map[string][]byte, len(catalog.Templates))
+	previewByTemplate := make(map[string]map[string][]byte, len(catalog.Templates))
 	for _, source := range catalog.Templates {
-		archive, err := buildSourceZIP(filepath.Join(sourceRoot, filepath.FromSlash(source.SourceDir)), source.ID)
+		sourceDirectory, err := sourcePath(canonicalRoot, source.SourceDir, true)
 		if err != nil {
 			return BuildResult{}, err
 		}
-		preview, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(source.PreviewFile)))
-		if err != nil || len(preview) == 0 {
+		archive, err := buildSourceZIP(sourceDirectory, source.ID)
+		if err != nil {
+			return BuildResult{}, err
+		}
+		previews, err := buildPreviewFiles(canonicalRoot, source)
+		if err != nil {
 			return BuildResult{}, ErrBuild
 		}
 		digest := sha256.Sum256(archive)
@@ -110,12 +118,16 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 			SourceSHA256: "sha256:" + hex.EncodeToString(digest[:]), License: source.License,
 		})
 		zipByTemplate[source.ID+"@"+source.Version] = archive
-		previewByTemplate[source.ID+"@"+source.Version] = preview
+		previewByTemplate[source.ID+"@"+source.Version] = previews
 	}
 	demoCards := make([]demoCard, 0, len(demos))
 	demoPreviews := make(map[string][]byte, len(demos))
 	for _, demo := range demos {
-		preview, err := os.ReadFile(filepath.Join(sourceRoot, filepath.FromSlash(demo.PreviewFile)))
+		previewFilename, err := sourcePath(canonicalRoot, demo.PreviewFile, false)
+		if err != nil {
+			return BuildResult{}, err
+		}
+		preview, err := os.ReadFile(previewFilename)
 		if err != nil || len(preview) == 0 {
 			return BuildResult{}, ErrBuild
 		}
@@ -129,6 +141,52 @@ func build(sourceRoot string, catalog SourceCatalog, demos []DemoTemplate, outpu
 		return BuildResult{}, err
 	}
 	return BuildResult{Manifest: manifest, SourceZIP: zipByTemplate[catalog.Templates[0].ID+"@"+catalog.Templates[0].Version]}, nil
+}
+
+func canonicalSourceRoot(sourceRoot string) (string, error) {
+	absolute, err := filepath.Abs(sourceRoot)
+	if err != nil {
+		return "", ErrBuild
+	}
+	canonical, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", ErrBuild
+	}
+	info, err := os.Stat(canonical)
+	if err != nil || !info.IsDir() {
+		return "", ErrBuild
+	}
+	return filepath.Clean(canonical), nil
+}
+
+// sourcePath rejects symlinks in every catalog-controlled component. This is
+// stronger than checking the final entry: a repository symlink in a parent
+// directory could otherwise make the signed publisher read arbitrary files
+// outside the checkout (including process-backed files on Linux).
+func sourcePath(canonicalRoot, relative string, directory bool) (string, error) {
+	if !safeRelativePath(relative) {
+		return "", ErrBuild
+	}
+	current := canonicalRoot
+	components := strings.Split(filepath.FromSlash(relative), string(filepath.Separator))
+	for index, component := range components {
+		if component == "" || component == "." || component == ".." {
+			return "", ErrBuild
+		}
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return "", ErrBuild
+		}
+		last := index == len(components)-1
+		if (!last || directory) && !info.IsDir() {
+			return "", ErrBuild
+		}
+		if last && !directory && !info.Mode().IsRegular() {
+			return "", ErrBuild
+		}
+	}
+	return current, nil
 }
 
 func validBuildOrigin(origin string, allowLoopbackHTTP bool) bool {
@@ -156,6 +214,9 @@ func buildSourceZIP(sourceDirectory, root string) ([]byte, error) {
 			return err
 		}
 		if entry.IsDir() {
+			if entry.Name() == "node_modules" {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
@@ -196,7 +257,51 @@ func buildSourceZIP(sourceDirectory, root string) ([]byte, error) {
 	return output.Bytes(), nil
 }
 
-func writeCatalog(outputRoot string, manifest Manifest, demos []demoCard, signer Signer, zips, previews, demoPreviews map[string][]byte) error {
+func buildPreviewFiles(sourceRoot string, source SourceTemplate) (map[string][]byte, error) {
+	if source.PreviewDir == "" {
+		previewFilename, err := sourcePath(sourceRoot, source.PreviewFile, false)
+		if err != nil {
+			return nil, ErrBuild
+		}
+		body, err := os.ReadFile(previewFilename)
+		if err != nil || len(body) == 0 {
+			return nil, ErrBuild
+		}
+		return map[string][]byte{"index.html": body}, nil
+	}
+	previewDirectory, err := sourcePath(sourceRoot, source.PreviewDir, true)
+	if err != nil {
+		return nil, ErrBuild
+	}
+	files := make(map[string][]byte)
+	err = filepath.WalkDir(previewDirectory, func(filename string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
+			return ErrBuild
+		}
+		relative, err := filepath.Rel(previewDirectory, filename)
+		if err != nil || relative == "." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+			return ErrBuild
+		}
+		body, err := os.ReadFile(filename)
+		if err != nil {
+			return ErrBuild
+		}
+		files[filepath.ToSlash(relative)] = body
+		return nil
+	})
+	if err != nil || len(files["index.html"]) == 0 {
+		return nil, ErrBuild
+	}
+	return files, nil
+}
+
+func writeCatalog(outputRoot string, manifest Manifest, demos []demoCard, signer Signer, zips map[string][]byte, previews map[string]map[string][]byte, demoPreviews map[string][]byte) error {
 	manifestBody, err := json.Marshal(manifest)
 	if err != nil {
 		return ErrBuild
@@ -228,8 +333,15 @@ func writeCatalog(outputRoot string, manifest Manifest, demos []demoCard, signer
 		if err := writeFile(filepath.Join(base, "source.zip"), zips[key]); err != nil {
 			return err
 		}
-		if err := writeFile(filepath.Join(base, "preview", "index.html"), previews[key]); err != nil {
-			return err
+		paths := make([]string, 0, len(previews[key]))
+		for relative := range previews[key] {
+			paths = append(paths, relative)
+		}
+		sort.Strings(paths)
+		for _, relative := range paths {
+			if err := writeFile(filepath.Join(base, "preview", filepath.FromSlash(relative)), previews[key][relative]); err != nil {
+				return err
+			}
 		}
 	}
 	for _, demo := range demos {

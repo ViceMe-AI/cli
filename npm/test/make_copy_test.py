@@ -60,7 +60,7 @@ def discovery():
             "title": "Replica", "summary": "Make a portfolio", "bodyMarkdown": "Useful for artists",
             "previewUrl": "https://viceme.cn/alice/site", "discoveryUrl": "https://viceme.cn/alice/site/discover",
             "creator": {"handle": "alice", "displayName": "Creator"},
-            "viceMeWorkUrl": "https://viceme.cn/alice/site", "statistics": {"acquisitionCount": 2, "commentCount": 1}, "showcases": []}
+            "viceMeWorkUrl": "https://viceme.cn/alice/site", "statistics": {"acquisitionCount": 2, "commentCount": 1}}
 
 
 def checkout():
@@ -113,10 +113,9 @@ def sign_with_rfc8032_seed(message):
 
 
 class MakeCopyTest(unittest.TestCase):
-    def test_discovery_rejects_cross_replica_and_unsafe_case_links(self):
+    def test_discovery_rejects_cross_replica_and_unsafe_preview(self):
         authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
-        for change in ({"replicaId": VERSION_ID}, {"previewUrl": "javascript:alert(1)"},
-                       {"showcases": [{"previewUrl": "https://secret@example.com"}]}):
+        for change in ({"replicaId": VERSION_ID}, {"previewUrl": "javascript:alert(1)"}):
             with self.subTest(change=change), self.assertRaises(make_copy.WorkflowError):
                 make_copy.discovery(authority, replica(), lambda *_a, **_k: response(200, {**discovery(), **change}))
 
@@ -137,7 +136,6 @@ class MakeCopyTest(unittest.TestCase):
             self.assertNotIn(item["title"], html)
             self.assertNotIn(checkout()["paymentAction"]["content"], html)
             self.assertNotIn('"supportCreator"', html)
-            self.assertNotIn('"showcases"', html)
             self.assertIn("推荐使用微信支付", html)
             self.assertNotIn("__QR_SVG__", html)
             self.assertTrue(Path(display["imagePath"]).read_bytes().startswith(b"\x89PNG"))
@@ -152,30 +150,6 @@ class MakeCopyTest(unittest.TestCase):
                 make_copy.payment_resource(authority, "qrcodegen.py", lambda *_a, **_k: response(200, b"raise Exception('bad')"))
             self.assertEqual(raised.exception.code, "PAYMENT_RESOURCE_INVALID")
 
-    def test_showcase_requires_opt_in_before_any_network_or_private_read(self):
-        with mock.patch.object(make_copy, "resolve_work", side_effect=AssertionError("network")), self.assertRaises(make_copy.WorkflowError) as raised:
-            make_copy.submit_showcase("https://viceme.cn/alice/site.md", {}, consent=False)
-        self.assertEqual(raised.exception.code, "REPLICA_SHOWCASE_CONSENT_REQUIRED")
-
-    def test_anonymous_showcase_uses_original_proof_and_never_outputs_it(self):
-        content = {"title": "My portfolio", "previewUrl": "https://example.com/site", "screenshotUrl": "https://example.com/cover.png",
-                   "authorName": "Buyer", "changeDescription": "Added booking"}
-        managed = {**content, "id": VERSION_ID, "createdAt": "2026-09-07T00:00:00Z", "status": "PENDING", "sourceVersion": 1, "revision": 1}
-        receipt = {"orderNo": ORDER_NO, "recoverySecret": SECRET, "entitlementId": ENTITLEMENT_ID, "versionId": VERSION_ID}
-        calls = []
-        def request(method, url, **kwargs):
-            calls.append((method, url, json.loads(kwargs["body"])))
-            return response(200, {**managed, "recoverySecret": SECRET})
-        with mock.patch.object(make_copy, "resolve_work", return_value=("instruction", replica())), mock.patch.object(make_copy, "recoverable_paid_receipt", return_value=receipt):
-            result = make_copy.submit_showcase("https://viceme.cn/alice/site.md", content, consent=True, request_fn=request)
-            self.assertEqual(result["nextAction"], "SHOWCASE_SUBMITTED")
-            self.assertEqual(calls[0][2]["entitlementId"], ENTITLEMENT_ID)
-            self.assertEqual(calls[0][2]["recoverySecret"], SECRET)
-            self.assertNotIn(SECRET, json.dumps(result))
-            result = make_copy.withdraw_showcase("https://viceme.cn/alice/site.md", VERSION_ID, request_fn=request)
-            self.assertTrue(calls[-1][1].endswith("/" + VERSION_ID + "/withdraw"))
-            self.assertNotIn(SECRET, json.dumps(result))
-
     def test_paid_first_install_checks_recovery_then_asks_price_without_checkout(self):
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary) / "state"), mock.patch.object(
             make_copy, "resolve_work", return_value=(f"VICEME-REPLICA:{SHORT_CODE}", replica())
@@ -187,6 +161,31 @@ class MakeCopyTest(unittest.TestCase):
         self.assertEqual(raised.exception.code, "REPLICA_PURCHASE_CONFIRMATION_REQUIRED")
         self.assertEqual(raised.exception.details["nextAction"], "CONFIRM_PRICE")
         self.assertEqual(raised.exception.details["totalAmountCents"], 100)
+
+    def test_recovery_only_uses_direct_code_without_public_discovery_or_checkout(self):
+        receipt = {"schemaVersion": 1, "replicaId": REPLICA_ID, "orderNo": ORDER_NO, "recoverySecret": SECRET}
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            make_copy, "state_root", return_value=Path(temporary) / "state"
+        ), mock.patch.object(
+            make_copy, "resolve_work", side_effect=AssertionError("public discovery")
+        ), mock.patch.object(
+            make_copy, "recoverable_paid_receipt_by_code", return_value=receipt
+        ), mock.patch.object(
+            make_copy, "recover_order_status", return_value={"payment": {"status": "PAID"}}
+        ), mock.patch.object(
+            make_copy, "try_recover_download", return_value={"replicaId": REPLICA_ID}
+        ), mock.patch.object(
+            make_copy, "complete_install", return_value={"target": str(Path(temporary) / "copy")}
+        ), mock.patch.object(
+            make_copy, "ensure_checkout", side_effect=AssertionError("new checkout")
+        ):
+            installed = make_copy.install(
+                "https://viceme.cn/alice/site.md",
+                target_path=str(Path(temporary) / "copy"),
+                replica_code=f"VICEME-REPLICA:{SHORT_CODE}",
+                recovery_only=True,
+            )
+        self.assertEqual(installed["nextAction"], "DEPLOY")
 
     def test_free_install_does_not_require_price_acceptance(self):
         free = replica()

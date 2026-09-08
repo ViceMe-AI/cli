@@ -30,6 +30,7 @@ type SourceTemplate struct {
 	Scenario    string `json:"scenario"`
 	Description string `json:"description"`
 	SourceDir   string `json:"source_dir"`
+	PreviewDir  string `json:"preview_dir"`
 	PreviewFile string `json:"preview_file"`
 	License     string `json:"license"`
 }
@@ -116,11 +117,18 @@ func validSourceTemplate(template SourceTemplate) bool {
 		strings.TrimSpace(template.Description) == "" || strings.TrimSpace(template.License) == "" {
 		return false
 	}
-	return safeRelativePath(template.SourceDir) && safeRelativePath(template.PreviewFile)
+	if !safeRelativePath(template.SourceDir) {
+		return false
+	}
+	return (template.PreviewDir == "" && safeRelativePath(template.PreviewFile)) ||
+		(template.PreviewFile == "" && safeRelativePath(template.PreviewDir))
 }
 
 func safeRelativePath(value string) bool {
-	if value == "" || path.IsAbs(value) || path.Clean(value) != value || value == "." {
+	// filepath.FromSlash is used after validation. On Windows a backslash is a
+	// path separator even though path.Clean treats it as an ordinary byte, so
+	// reject it before a catalog field can escape the repository root.
+	if value == "" || strings.Contains(value, "\\") || path.IsAbs(value) || path.Clean(value) != value || value == "." {
 		return false
 	}
 	parsed, err := url.Parse(value)

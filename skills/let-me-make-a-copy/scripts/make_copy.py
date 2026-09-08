@@ -454,14 +454,25 @@ def read_state(filename: Path) -> Optional[Dict[str, Any]]:
 def recoverable_paid_receipt(
     authority: Authority, replica: Dict[str, Any], root: Optional[Path] = None
 ) -> Optional[Dict[str, Any]]:
-    receipt = read_state(
-        standalone_receipt_path(authority, replica["shortCode"], root)
-    )
+    receipt = recoverable_paid_receipt_by_code(authority, replica["shortCode"], root)
+    if receipt is None:
+        return None
+    if receipt.get("replicaId") != replica["replicaId"]:
+        raise WorkflowError(
+            "MAKE_COPY_STATE_INVALID", "Paid Replica recovery state is invalid"
+        )
+    return receipt
+
+
+def recoverable_paid_receipt_by_code(
+    authority: Authority, short_code: str, root: Optional[Path] = None
+) -> Optional[Dict[str, Any]]:
+    receipt = read_state(standalone_receipt_path(authority, short_code, root))
     if receipt is None:
         return None
     if (
         receipt.get("schemaVersion") != 1
-        or receipt.get("replicaId") != replica["replicaId"]
+        or not UUID_PATTERN.fullmatch(str(receipt.get("replicaId", "")))
         or not isinstance(receipt.get("orderNo"), str)
         or not receipt["orderNo"]
         or not SECRET_PATTERN.fullmatch(str(receipt.get("recoverySecret", "")))
@@ -1288,17 +1299,7 @@ def discovery(authority: Authority, replica: Dict[str, Any],
              and isinstance(value.get("creator"), dict)
              and isinstance(value.get("statistics"), dict)
              and all(type(value["statistics"].get(key)) is int and value["statistics"][key] >= 0
-                     for key in ("acquisitionCount", "commentCount"))
-             and isinstance(value.get("showcases"), list)
-             and len(value["showcases"]) <= 100)
-    if valid:
-        for item in value["showcases"]:
-            valid = (isinstance(item, dict) and public_https_url(item.get("previewUrl"))
-                     and (item.get("screenshotUrl") is None or public_https_url(item.get("screenshotUrl")))
-                     and all(isinstance(item.get(key), str)
-                             for key in ("id", "title", "authorName", "changeDescription", "createdAt")))
-            if not valid:
-                break
+                     for key in ("acquisitionCount", "commentCount")))
     if not valid:
         raise WorkflowError("MAKE_COPY_RESPONSE_INVALID", "ViceMe returned invalid discovery information")
     return value
@@ -1417,10 +1418,69 @@ def install(
     *,
     target_path: Optional[str] = None,
     payment_presented: bool = False,
+    replica_code: Optional[str] = None,
+    recovery_only: bool = False,
     request_fn: RequestFn = http_request,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> Dict[str, Any]:
     authority = authority_for_work_url(work_url)
+    if recovery_only:
+        if accepted_price_cents is not None or payment_presented:
+            raise WorkflowError(
+                "REPLICA_RECOVERY_ONLY_CONFLICT",
+                "Recovery-only mode cannot accept a price or present payment",
+            )
+        if not isinstance(replica_code, str) or not INSTRUCTION_PATTERN.fullmatch(replica_code):
+            raise WorkflowError(
+                "REPLICA_RECOVERY_CODE_REQUIRED",
+                "Recovery-only mode requires the platform-generated Replica instruction",
+            )
+        short_code = replica_code.split(":", 1)[1]
+        target = resolve_target(target_path, short_code)
+        store = state_store(authority, short_code, target)
+
+        def recover_only() -> Dict[str, Any]:
+            completion = read_state(store["completionFilename"])
+            if completion is not None:
+                completed_target = Path(str(completion.get("target", "")))
+                if not completed_target.is_dir():
+                    raise WorkflowError(
+                        "REPLICA_COMPLETION_TARGET_INVALID",
+                        "Completed Replica target is unavailable",
+                    )
+                return {**completion, "nextAction": "DEPLOY"}
+            receipt = recoverable_paid_receipt_by_code(authority, short_code)
+            if receipt is None:
+                raise WorkflowError(
+                    "REPLICA_RECOVERY_NOT_FOUND",
+                    "No recoverable Website Replica entitlement exists for this code",
+                )
+            status = recover_order_status(
+                authority, receipt["orderNo"], receipt["recoverySecret"], request_fn
+            )
+            if status["payment"]["status"] != "PAID":
+                raise WorkflowError(
+                    "REPLICA_RECOVERY_NOT_FOUND",
+                    "No paid Website Replica entitlement can be recovered for this code",
+                )
+            state = {
+                "replicaId": receipt["replicaId"],
+                "orderNo": receipt["orderNo"],
+                "downloadRecoverySecret": receipt["recoverySecret"],
+                "target": str(target),
+            }
+            download = try_recover_download(authority, state, request_fn)
+            if download is None:
+                raise WorkflowError(
+                    "REPLICA_RECOVERY_NOT_FOUND",
+                    "The paid Website Replica source is not recoverable yet",
+                )
+            return {
+                **complete_install(authority, state, store, download, request_fn),
+                "nextAction": "DEPLOY",
+            }
+
+        return with_lock(store, recover_only)
     instruction, replica = resolve_work(authority, request_fn)
     target = resolve_target(target_path, replica["title"])
     store = state_store(authority, replica["shortCode"], target)
@@ -1572,68 +1632,6 @@ def install(
     return with_lock(store, run)
 
 
-def showcase_receipt(authority: Authority, replica: Dict[str, Any]) -> Dict[str, Any]:
-    receipt = recoverable_paid_receipt(authority, replica)
-    if receipt is None:
-        raise WorkflowError("REPLICA_SHOWCASE_PROOF_REQUIRED", "Use the original source acquisition before submitting a showcase")
-    return receipt
-
-
-def managed_showcase(value: Any) -> Dict[str, Any]:
-    fields = ("id", "title", "previewUrl", "screenshotUrl", "authorName", "changeDescription", "createdAt",
-              "status", "sourceVersion", "revision")
-    if (not isinstance(value, dict) or not UUID_PATTERN.fullmatch(str(value.get("id", "")))
-            or not all(isinstance(value.get(k), str) for k in fields[:8])
-            or not public_https_url(value["previewUrl"]) or not public_https_url(value["screenshotUrl"])
-            or value["status"] not in {"PENDING", "APPROVED", "REJECTED", "WITHDRAWN"}
-            or not all(type(value.get(k)) is int and value[k] > 0 for k in ("sourceVersion", "revision"))):
-        raise WorkflowError("MAKE_COPY_RESPONSE_INVALID", "ViceMe returned an invalid showcase")
-    return {key: value[key] for key in fields}
-
-
-def submit_showcase(work_url: str, content: Dict[str, Any], *, consent: bool,
-                    request_fn: RequestFn = http_request) -> Dict[str, Any]:
-    if consent is not True:
-        raise WorkflowError("REPLICA_SHOWCASE_CONSENT_REQUIRED", "Public showcase submission requires your explicit consent")
-    limits = {"title": 120, "authorName": 80, "changeDescription": 1000}
-    if (any(not isinstance(content.get(k), str) or not 1 <= len(content[k].strip()) <= limit
-            for k, limit in limits.items())
-            or not public_https_url(content.get("previewUrl")) or not public_https_url(content.get("screenshotUrl"))):
-        raise WorkflowError("REPLICA_SHOWCASE_INPUT_INVALID", "Provide a title, author, changes and public HTTPS preview and screenshot URLs")
-    authority = authority_for_work_url(work_url)
-    _, replica = resolve_work(authority, request_fn)
-    receipt = showcase_receipt(authority, replica)
-    entitlement_id = receipt.get("entitlementId")
-    version_id = receipt.get("versionId")
-    if not entitlement_id:
-        # Older private receipts keep the signed license. The server still
-        # verifies both identities against the recovery-authenticated contract.
-        try:
-            claims = decode_jws_part(receipt["licenseJws"].split(".")[1])
-            if claims.get("orderNo") == receipt["orderNo"] and claims.get("replicaId") == replica["replicaId"]:
-                entitlement_id, version_id = claims.get("entitlementId"), claims.get("versionId")
-        except (KeyError, IndexError, ValueError, TypeError):
-            pass
-    if not all(isinstance(value, str) and UUID_PATTERN.fullmatch(value) for value in (entitlement_id, version_id)):
-        raise WorkflowError("REPLICA_SHOWCASE_PROOF_REQUIRED", "Restore the original source to recover its license before submitting")
-    body = {key: content[key].strip() for key in (*limits, "previewUrl", "screenshotUrl")}
-    body.update(entitlementId=entitlement_id, versionId=version_id, consent=True,
-                orderNo=receipt["orderNo"], recoverySecret=receipt["recoverySecret"])
-    value = api_request(authority, "/website-replica-sessions/showcases", method="POST", body=body, request_fn=request_fn)
-    return {"nextAction": "SHOWCASE_SUBMITTED", "showcase": managed_showcase(value)}
-
-
-def withdraw_showcase(work_url: str, showcase_id: str, *, request_fn: RequestFn = http_request) -> Dict[str, Any]:
-    if not isinstance(showcase_id, str) or not UUID_PATTERN.fullmatch(showcase_id):
-        raise WorkflowError("REPLICA_SHOWCASE_INPUT_INVALID", "A valid showcase ID is required")
-    authority = authority_for_work_url(work_url)
-    _, replica = resolve_work(authority, request_fn)
-    receipt = showcase_receipt(authority, replica)
-    value = api_request(authority, "/website-replica-sessions/showcases/" + showcase_id + "/withdraw", method="POST",
-                        body={"orderNo": receipt["orderNo"], "recoverySecret": receipt["recoverySecret"]}, request_fn=request_fn)
-    return {"nextAction": "SHOWCASE_WITHDRAWN", "showcase": managed_showcase(value)}
-
-
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1644,14 +1642,8 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     install_parser.add_argument("--target")
     install_parser.add_argument("--accept-price-cents", type=int)
     install_parser.add_argument("--payment-presented", action="store_true")
-    submit_parser = subparsers.add_parser("showcase-submit")
-    submit_parser.add_argument("--work-url", required=True)
-    for flag in ("title", "preview-url", "screenshot-url", "author-name", "change-description"):
-        submit_parser.add_argument("--" + flag, required=True)
-    submit_parser.add_argument("--consent", action="store_true")
-    withdraw_parser = subparsers.add_parser("showcase-withdraw")
-    withdraw_parser.add_argument("--work-url", required=True)
-    withdraw_parser.add_argument("--showcase", required=True)
+    install_parser.add_argument("--replica-code")
+    install_parser.add_argument("--recovery-only", action="store_true")
     args = parser.parse_args(argv)
     if args.command == "install" and args.accept_price_cents is not None and args.accept_price_cents < 0:
         parser.error("--accept-price-cents must be a non-negative integer")
@@ -1668,19 +1660,14 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         args = parse_args(argv)
         if args.command == "start":
             data = inspect(args.work_url)
-        elif args.command == "showcase-submit":
-            data = submit_showcase(args.work_url, {
-                "title": args.title, "previewUrl": args.preview_url, "screenshotUrl": args.screenshot_url,
-                "authorName": args.author_name, "changeDescription": args.change_description,
-            }, consent=args.consent)
-        elif args.command == "showcase-withdraw":
-            data = withdraw_showcase(args.work_url, args.showcase)
         else:
             data = install(
                 args.work_url,
                 args.accept_price_cents,
                 target_path=args.target,
                 payment_presented=args.payment_presented,
+                replica_code=args.replica_code,
+                recovery_only=args.recovery_only,
             )
         result(data)
         return 0
