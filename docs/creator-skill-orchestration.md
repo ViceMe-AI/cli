@@ -84,7 +84,7 @@ Ordinary `viceme auth login` remains unchanged and sends the default purpose.
 
 ## Public creator-application route
 
-The Shop-owned public route `/viceme/become-a-creator.md` is an intent entry point, not a second workflow specification. Its deployed content must hand the request to the current installed `become-a-creator` Skill and must not instruct Agents to use the retired `merchant onboarding page-setup` command, choose Bonjour before reading the active release, open a page-setup dialog, or automatically open the current Markdown page. The public route must also present login as a user-clicked authorization link so the Agent does not replace the current right-side page.
+The Shop-owned public route `/viceme/become-a-creator.md` is an intent entry point, not a second workflow specification. Its deployed content must preserve the existing direct-application prompt verbatim, then hand the request to the current installed `become-a-creator` Skill. It must not instruct Agents to use the retired `merchant onboarding page-setup` command, choose Bonjour before reading the active release, open a page-setup dialog, or automatically open the current Markdown page. When login is needed, the route must require the Skill to show the CLI-provided `VICEME_LOGIN_QR_PRESENTATION` QR image in the conversation first, retain the right-side page, and use the one-time authorization link only when the host cannot render that QR image.
 
 This repository ships the CLI and installed Skills but does not deploy that Shop-owned Markdown object. The Shop deployment owner must replace the currently stale public object in the same release window as this compatibility change.
 

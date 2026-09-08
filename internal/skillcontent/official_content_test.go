@@ -722,9 +722,9 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	}
 	onboardingText := string(onboarding)
 	for _, required := range []string{
-		"需要重新登录。请点击下面的链接继续，当前右侧页面会保持不变。",
-		"点击下面的「打开登录页面」继续；当前页面会保持不变。",
-		"[打开登录页面](https://…)",
+		"VICEME_LOGIN_QR_PRESENTATION",
+		"![ViceMe 登录二维码](<imageChatSrc>)",
+		"二维码无法显示时，点击备用链接继续。",
 		"登录完成，我继续确认创作者资格。",
 		"保存进程句柄",
 		"持续读取同一个进程的结果",
@@ -736,17 +736,24 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 			t.Fatalf("creator onboarding omitted guided blocking-step contract %q", required)
 		}
 	}
+	loginStart := strings.Index(onboardingText, "2. `next=LOGIN`")
+	loginEnd := strings.Index(onboardingText[loginStart:], "3. `next=APPLY_CREATOR`")
+	if loginStart < 0 || loginEnd < 0 {
+		t.Fatal("creator onboarding omitted the login stage boundary")
+	}
+	loginText := onboardingText[loginStart : loginStart+loginEnd]
 	waitStages := []string{
 		"后台进程工具启动一次登录",
-		"短时读取本次真实登录链接",
-		"当前右侧页面会保持不变",
+		"短时读取本次进程输出的",
+		"![ViceMe 登录二维码](<imageChatSrc>)",
+		"不得自动调用 `present_files`",
 		"告诉用户：",
 		"必须持续读取同一个进程的结果",
 		"只有登录命令成功返回后",
 	}
 	previousWaitStage := -1
 	for _, stage := range waitStages {
-		current := strings.Index(onboardingText, stage)
+		current := strings.Index(loginText, stage)
 		if current < 0 {
 			t.Fatalf("creator onboarding omitted deterministic login wait stage %q", stage)
 		}
@@ -766,7 +773,8 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		"发送提示不等于继续等待",
 		"只要它仍在运行，就不得结束当前回合、给出最终答复",
 		"一次 `TaskOutput` 的读取超时不是登录失败",
-		"另起一行用 Markdown 链接格式输出",
+		"VICEME_LOGIN_QR_PRESENTATION",
+		"![ViceMe 登录二维码](<imageChatSrc>)",
 		"不自动调用 `present_files` 或任何浏览器打开工具",
 		"当前右侧页面保持不变",
 		"不要直接贴裸链接，不得重建、缩短或复用旧链接",
