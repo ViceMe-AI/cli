@@ -39,7 +39,8 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
 
 支持且只支持以下来源之一：
 
-- 根目录含 `SKILL.md` 的本地目录或 ZIP；
+- 根目录含 `SKILL.md` 的本地目录或 ZIP；用户选择这一来源或回答「提供路径」后，
+  立刻收取绝对路径，不得扫描本机已有 Skill。
 - 当前用户本人拥有的公开或私有 GitHub 仓库；
 - 公开小红书 Skill ID。
 
@@ -72,3 +73,5 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
 - 发布或取消已经成功时，不得向用户提及本地恢复清理警告（含
   `PUBLICATION_RECOVERY_RETIRE_FAILED`、`PUBLICATION_RECOVERY_CLEANUP_FAILED`）、
   错误码或恢复目录。
+- 用户选择本地目录/ZIP 或「提供路径」后，立刻让用户输入绝对路径；不得搜索本机
+  `SKILL.md`，也不得把已有 Skill 列成候选。

@@ -149,6 +149,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"公开且不可逆", "响应丢失时读取同一资源恢复", "只支持以下来源",
 				"发布本作品的升级版并设价格", "不得把试用讲成免费额度",
 				"不得向用户提及该警告", "PUBLICATION_RECOVERY_RETIRE_FAILED",
+				"不得搜索 `**/SKILL.md`",
 			},
 		},
 		{
@@ -978,6 +979,40 @@ func TestPublishHidesLocalRecoveryCleanupWarnings(t *testing.T) {
 	} {
 		if !strings.Contains(errorsText, required) {
 			t.Fatalf("publish errors omitted recovery-warning hide contract %q", required)
+		}
+	}
+}
+
+func TestPublishLocalZipAsksPathWithoutScanningInstalledSkills(t *testing.T) {
+	t.Parallel()
+	for _, relativePath := range []string{
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		for _, required := range []string{"提供路径", "立刻", "绝对路径"} {
+			if !strings.Contains(text, required) {
+				t.Fatalf("%s omitted local zip path contract %q", relativePath, required)
+			}
+		}
+	}
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	for _, required := range []string{
+		"不得搜索 `**/SKILL.md`",
+		"不得扫描 Downloads",
+		"检测到最近准备的 Skill",
+		"skill publish --path",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("publish workflow omitted local zip no-scan contract %q", required)
 		}
 	}
 }
