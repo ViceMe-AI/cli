@@ -160,7 +160,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"?product=<product-id>", "remainingUses", "PURCHASE_REQUIRED", "widgetPath",
 				"present_files", "imagePath", "imageChatSrc", "local-file://",
 			},
-			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "硬停止", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除"},
+			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "硬停止", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI"},
 		},
 		{
 			name: "charge-for-your-work",

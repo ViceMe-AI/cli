@@ -93,9 +93,9 @@ func StableReleaseBaseURL(region Region) string {
 	return "https://s3.viceme.cn/start/cli/releases"
 }
 
-// AgentInstallDocURL is the agent-facing CLI installation contract injected
-// into trial gates. It mirrors the INSTALL_DOC_URL the Shop markdown
-// passphrase template already hands to agents.
+// AgentInstallDocURL is the agent-facing CLI installation contract. Trial
+// usage checks prefer bundled trial.py; this document is the last-resort
+// bootstrap when neither Python nor viceme is available.
 func AgentInstallDocURL(region Region) string {
 	if region == RegionGlobal {
 		return "https://s3.viceme.ai/start/agent-install.md"
