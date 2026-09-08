@@ -52,7 +52,7 @@ func newReplicaRepairHostingCommand(runtime *Runtime) *cobra.Command {
 			if entry != "" {
 				return output.Validation("REPLICA_PAGE_OPTIONS_INVALID", "a WorkPage ZIP already declares its entry; omit --page-entry")
 			}
-			pkg, err = pagepackage.Inspect(path)
+			pkg, err = pagepackage.InspectWebsiteWorkPage(path)
 		} else {
 			pkg, err = pagepackage.BuildWebsiteWorkPage(path, entry, "Repaired website")
 		}

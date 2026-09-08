@@ -12,9 +12,10 @@ import (
 
 var ErrCreatorEntryBoundary = errors.New("Website Replica creator entry markers are incomplete or nested")
 
-// stripCreatorEntry removes only explicitly delimited creator UI from the
-// frozen delivery copy. The original worktree and all unmarked bytes survive.
-func stripCreatorEntry(name string, data []byte) ([]byte, bool, error) {
+// StripCreatorEntry removes only explicitly delimited creator UI from a source
+// or hosted page copy. Callers validate the original content before removal;
+// the original worktree and all unmarked bytes survive.
+func StripCreatorEntry(name string, data []byte) ([]byte, bool, error) {
 	if !bytes.Contains(data, []byte("VICEME_CREATOR_ENTRY_")) {
 		return data, false, nil
 	}
@@ -89,7 +90,7 @@ func stripCreatorEntriesFromZIP(archive *FrozenSourceArchive) (_ []SourceArchive
 		if err := errors.Join(readErr, reader.Close()); err != nil {
 			return nil, err
 		}
-		data, removed, err := stripCreatorEntry(file.name, data)
+		data, removed, err := StripCreatorEntry(file.name, data)
 		if err != nil {
 			return nil, err
 		}
