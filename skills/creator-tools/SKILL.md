@@ -44,11 +44,11 @@ viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-ur
 `viceme auth login` 会等待授权，并在轮询前输出一次性的二维码展示标记。在 WorkBuddy 中先说“需要重新登录，我把登录二维码放在这里；扫完后我会自动继续，当前右侧页面会保持不变。”，然后严格执行下面的固定顺序：
 
 1. 用 Bash 后台启动一次 `viceme auth login`，保存它返回的 `task_id`。
-2. 用一次短时 `TaskOutput` 读取 `VICEME_LOGIN_QR_PRESENTATION`。其中 `imageChatSrc` 是本机 PNG 的聊天图片地址，`authorizationUrl` 只供二维码不可用时的备用入口。
-3. 有 `imageChatSrc` 时，优先在聊天气泡中把该地址渲染成 alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片。不自动调用 `present_files` 或任何浏览器打开工具；当前右侧页面会保持不变。不得把 PNG 当作文件打开。
-4. 只有宿主无法渲染二维码、或标记没有 `imageChatSrc` 时，才另起一行以 Markdown 链接格式输出同一标记中的 `[打开登录页面](https://…)`。不要直接贴裸链接，不得重建、缩短或复用旧链接。
-5. 紧接二维码或备用链接说：“请用 ViceMe 扫一扫二维码完成登录；二维码无法显示时，点击备用链接继续。完成后我会自动继续。”
-6. 提示发送后必须立刻调用 `TaskOutput(task_id=<同一个任务>, timeout=180000)`。发送提示不等于继续等待，二维码已显示或用户点击链接也不代表登录完成。
+2. 立即用 `TaskOutput(task_id=<同一个任务>, timeout=2000)` 读取当前进程输出并解析 `VICEME_LOGIN_QR_PRESENTATION`。若任务仍在运行但本次尚未读到标记，继续对同一个任务以相同的 2 秒短读读取；不得先作长等待，也不得因此启动第二次登录。`imageChatSrc` 是本机 PNG 的聊天图片地址，`authorizationUrl` 只供二维码确实不可用时的备用入口。
+3. 读到含 `imageChatSrc` 的标记后，必须在登录进程仍运行且二维码文件存在时，立即单独输出一行 `![ViceMe 登录二维码](<imageChatSrc>)`。不得自动调用 `present_files` 或任何浏览器打开工具；当前右侧页面会保持不变。不得把 PNG 当作文件打开。
+4. 有 `imageChatSrc` 时不得同时展示备用链接，也不得因为尚未确认图片渲染就降级为备用链接。只有宿主明确返回图片渲染失败、或标记确实没有 `imageChatSrc` 时，才另起一行以 Markdown 链接格式输出同一标记中的 `[打开登录页面](https://…)`。不要直接贴裸链接，不得重建、缩短或复用旧链接。
+5. 二维码已展示时只说：“请用 ViceMe 扫一扫二维码完成登录；完成后我会自动继续。”；只有实际降级到链接时才说：“二维码无法显示时，点击备用链接继续。完成后我会自动继续。”
+6. 发送二维码或实际备用链接后，必须立刻调用 `TaskOutput(task_id=<同一个任务>, timeout=180000)`。发送提示不等于继续等待，二维码已显示或用户点击链接也不代表登录完成。
 7. 若任务仍在运行，继续读取同一个 `task_id`。只要它仍在运行，就不得结束当前回合、给出最终答复或要求用户回复“已经登录”。
 8. 登录命令成功返回后再检查登录状态，并自动继续原来的业务流程。
 

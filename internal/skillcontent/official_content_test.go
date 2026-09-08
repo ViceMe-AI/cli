@@ -736,8 +736,9 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	onboardingText := string(onboarding)
 	for _, required := range []string{
 		"VICEME_LOGIN_QR_PRESENTATION",
-		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
-		"二维码无法显示时，点击备用链接继续。",
+		"![ViceMe 登录二维码](<imageChatSrc>)",
+		"有 `imageChatSrc` 时不得同时展示备用链接",
+		"不得因为尚未确认图片渲染就降级为备用链接",
 		"登录完成，我继续确认创作者资格。",
 		"保存进程句柄",
 		"持续读取同一个进程的结果",
@@ -758,7 +759,7 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	waitStages := []string{
 		"后台进程工具启动一次登录",
 		"短时读取本次进程输出的",
-		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
+		"![ViceMe 登录二维码](<imageChatSrc>)",
 		"不得自动调用 `present_files`",
 		"告诉用户：",
 		"必须持续读取同一个进程的结果",
@@ -782,12 +783,15 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	}
 	sharedText := string(shared)
 	for _, required := range []string{
+		"`TaskOutput(task_id=<同一个任务>, timeout=2000)`",
 		"`TaskOutput(task_id=<同一个任务>, timeout=180000)`",
+		"在登录进程仍运行且二维码文件存在时",
 		"发送提示不等于继续等待",
 		"只要它仍在运行，就不得结束当前回合、给出最终答复",
 		"一次 `TaskOutput` 的读取超时不是登录失败",
 		"VICEME_LOGIN_QR_PRESENTATION",
-		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
+		"![ViceMe 登录二维码](<imageChatSrc>)",
+		"有 `imageChatSrc` 时不得同时展示备用链接",
 		"不自动调用 `present_files` 或任何浏览器打开工具",
 		"当前右侧页面会保持不变",
 		"不要直接贴裸链接，不得重建、缩短或复用旧链接",
@@ -798,6 +802,23 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	}
 	if strings.Contains(sharedText, "立即调用 WorkBuddy 内置 `present_files`") || strings.Contains(onboardingText, "WorkBuddy 可使用 Bash/TaskOutput/present_files") {
 		t.Fatal("creator login must not automatically replace the current right-side page")
+	}
+	loginSequence := []string{
+		"`TaskOutput(task_id=<同一个任务>, timeout=2000)`",
+		"![ViceMe 登录二维码](<imageChatSrc>)",
+		"有 `imageChatSrc` 时不得同时展示备用链接",
+		"`TaskOutput(task_id=<同一个任务>, timeout=180000)`",
+	}
+	previousLoginStep := -1
+	for _, step := range loginSequence {
+		current := strings.Index(sharedText, step)
+		if current < 0 {
+			t.Fatalf("shared skill omitted login sequence step %q", step)
+		}
+		if current <= previousLoginStep {
+			t.Fatalf("shared skill login sequence step %q is out of order", step)
+		}
+		previousLoginStep = current
 	}
 
 	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")
