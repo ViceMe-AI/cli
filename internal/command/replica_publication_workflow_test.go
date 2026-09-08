@@ -221,7 +221,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 	if err := os.MkdirAll(filepath.Join(project, pageDirectory), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(project, pageDirectory, "landing.html"), []byte("<h1>Hosted page</h1>"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(project, pageDirectory, "landing.html"), []byte("<h1>Hosted page</h1>\n<!-- VICEME_CREATOR_ENTRY_BEGIN -->\n<button>做同款</button><script>showCreatorEntry();</script>\n<!-- VICEME_CREATOR_ENTRY_END -->\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -477,7 +477,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 	if contents := readReplicaZIP(t, uploaded); string(contents["index.html"]) != "<h1>Replica source</h1>" {
 		t.Fatalf("working-tree changes replaced the confirmed frozen source: %q", contents["index.html"])
 	}
-	if contents := readReplicaZIP(t, uploadedPage); string(contents["dist/landing.html"]) != "<h1>Hosted page</h1>" || len(contents["viceme-page.json"]) == 0 {
+	if contents := readReplicaZIP(t, uploadedPage); string(contents["dist/landing.html"]) != "<h1>Hosted page</h1>\n" || len(contents["viceme-page.json"]) == 0 {
 		t.Fatalf("hosted page package did not preserve the frozen static output: %#v", contents)
 	}
 	for name := range readReplicaZIP(t, uploadedPage) {
