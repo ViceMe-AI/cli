@@ -229,6 +229,47 @@ func TestDownloadPresignedIsCredentialFreeRedirectFreeAndNetworkBounded(t *testi
 	}
 }
 
+func TestDownloadLoginQRCodeIsImageOnlyCredentialFreeAndRedirectFree(t *testing.T) {
+	t.Parallel()
+	var authorization string
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		authorization = request.Header.Get("Authorization")
+		writer.Header().Set("Content-Type", "image/png")
+		_, _ = writer.Write([]byte("small-image"))
+	}))
+	defer server.Close()
+	client := NewClient("https://api.viceme.ai", server.Client(), staticToken("must-not-be-read"), "viceme/test")
+	data, err := client.DownloadLoginQRCode(context.Background(), server.URL)
+	if err != nil || string(data) != "small-image" {
+		t.Fatalf("unexpected login QR download: data=%q err=%v", data, err)
+	}
+	if authorization != "" {
+		t.Fatalf("login QR download leaked API authorization: %q", authorization)
+	}
+
+	invalid := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/html")
+		_, _ = io.WriteString(writer, "not an image")
+	}))
+	defer invalid.Close()
+	if _, err := client.DownloadLoginQRCode(context.Background(), invalid.URL); err == nil {
+		t.Fatal("login QR download accepted a non-image response")
+	}
+
+	var redirected atomic.Bool
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		redirected.Store(true)
+	}))
+	defer target.Close()
+	redirect := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		http.Redirect(writer, request, target.URL, http.StatusTemporaryRedirect)
+	}))
+	defer redirect.Close()
+	if _, err := client.DownloadLoginQRCode(context.Background(), redirect.URL); err == nil || redirected.Load() {
+		t.Fatalf("login QR download followed a redirect: redirected=%t err=%v", redirected.Load(), err)
+	}
+}
+
 type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (function roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {

@@ -40,19 +40,8 @@ JSON 或内部状态，且不得告诉用户正在使用哪个内置 Skill。
    不得在资格检查完成前说“我先确认你本机的 ViceMe 环境，然后帮你提交申请”。
 2. `next=LOGIN`（未登录，或缺少 `merchant-commerce:read`、`merchant-commerce:write`、
    `skill-publication:read`、`skill-publication:write` 中任一权限）时，只启动一个等待式登录：
-   - 直接申请运行 `viceme auth login --purpose creator-onboarding`，并告诉用户
-     “需要登录，我把登录二维码放在这里；扫完后我会自动继续，当前右侧页面会保持不变。”
-   - 玩法守卫运行普通 `viceme auth login`，并告诉用户
-     “需要重新登录，我把登录二维码放在这里；扫完后我会自动继续，当前右侧页面会保持不变。”
-   - 使用当前宿主提供的后台进程工具启动一次登录并保存进程句柄，短时读取本次进程输出的
-     `VICEME_LOGIN_QR_PRESENTATION` 标记。标记含 `imageChatSrc` 时，优先在对话中把该地址渲染成
-     alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片。不得自动调用 `present_files` 或任何浏览器打开工具，当前右侧页面会保持不变。
-     WorkBuddy 可使用 Bash/TaskOutput；Codex 使用当前实际可用的持久进程工具，不调用不存在的工具。
-     只有当前宿主无法渲染二维码、或标记没有 `imageChatSrc` 时，才把同一标记里的真实 `authorizationUrl`
-     作为另起一行的备用 `[打开登录页面](https://…)` 链接；不要裸贴、重建、缩短或复用该一次性链接。
-     告诉用户：“请用 ViceMe 扫一扫二维码完成登录；二维码无法显示时，点击备用链接继续。完成后我会自动继续。”
-     必须持续读取同一个进程的结果，不能因一次工具读取超时而结束本轮，也不能启动第二次登录或要求用户回复“已登录”。
-   - 只有登录命令成功返回后，才说“登录完成，我继续确认创作者资格。”并重跑一次
+   - 严格调用 [creator-tools 的统一登录编排](../creator-tools/SKILL.md#统一登录编排)，不得在本 Skill 内复制二维码展示、后台进程、等待、备用链接或浏览器打开逻辑。直接申请与玩法守卫都使用同一普通登录；登录只完成身份授权，不在登录阶段选择名片。
+   - 只有统一登录编排成功返回后，才说“登录完成，我继续确认创作者资格。”并重跑一次
      `viceme merchant qualification`，确认 `next` 不再是 `LOGIN`。
 3. `next=APPLY_CREATOR`（登录有效但没有有效 OWNER 商家）时，运行一次
    `viceme merchant onboarding status`。不得为了选择模板再次运行登录，也不得在申请提交前打开名片制作。

@@ -17,6 +17,7 @@ type DeviceAuthorization struct {
 	UserCode                string `json:"userCode"`
 	VerificationURI         string `json:"verificationUri"`
 	VerificationURIComplete string `json:"verificationUriComplete"`
+	WechatMPQRCodeURL       string `json:"wechatMpQrCodeUrl,omitempty"`
 	ExpiresIn               int    `json:"expiresIn"`
 	Interval                int    `json:"interval"`
 }

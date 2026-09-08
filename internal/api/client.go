@@ -65,6 +65,43 @@ func (c *Client) StartDeviceAuthorization(ctx context.Context, request DeviceAut
 	return response, err
 }
 
+// DownloadLoginQRCode fetches the short-lived public WeChat QR image without
+// sending a stored ViceMe credential or following redirects.
+func (c *Client) DownloadLoginQRCode(ctx context.Context, rawURL string) ([]byte, error) {
+	if err := validateUploadURL(rawURL); err != nil {
+		return nil, output.Validation("LOGIN_QR_URL_INVALID", "login QR image URL must use HTTPS; loopback HTTP is allowed only for development")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, output.Internal("LOGIN_QR_REQUEST_INVALID", "failed to create the login QR image request", err)
+	}
+	request.Header.Set("Accept", "image/*")
+	if c.UserAgent != "" {
+		request.Header.Set("User-Agent", c.UserAgent)
+	}
+	response, err := withoutRedirects(c.HTTPClient).Do(request)
+	if err != nil {
+		return nil, output.Network("LOGIN_QR_DOWNLOAD_FAILED", "failed to download the login QR image", err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, maxResponseBytes))
+		return nil, output.Network("LOGIN_QR_DOWNLOAD_REJECTED", fmt.Sprintf("login QR image endpoint returned HTTP %d", response.StatusCode), nil)
+	}
+	if contentType := response.Header.Get("Content-Type"); contentType != "" && !strings.HasPrefix(strings.ToLower(contentType), "image/") {
+		return nil, output.Validation("LOGIN_QR_CONTENT_INVALID", "login QR endpoint did not return an image")
+	}
+	const maxLoginQRCodeBytes = 1 << 20
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxLoginQRCodeBytes+1))
+	if err != nil {
+		return nil, output.Network("LOGIN_QR_DOWNLOAD_FAILED", "failed to read the login QR image", err)
+	}
+	if len(data) == 0 || len(data) > maxLoginQRCodeBytes {
+		return nil, output.Validation("LOGIN_QR_CONTENT_INVALID", "login QR image is empty or exceeds the 1 MiB limit")
+	}
+	return data, nil
+}
+
 func (c *Client) ExchangeDeviceToken(ctx context.Context, deviceCode string) (DeviceToken, error) {
 	var response DeviceToken
 	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/device-authorizations/token", DeviceTokenRequest{DeviceCode: deviceCode}, &response, "")
