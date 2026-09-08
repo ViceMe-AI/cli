@@ -12,7 +12,7 @@ import (
 func TestBonjourCardKeepsTheSuppliedBlockEditorPrototype(t *testing.T) {
 	t.Parallel()
 
-	const templateRoot = "customize-your-page/templates/bonjour-card"
+	const templateRoot = "customize-your-profile-page/templates/bonjour-card"
 	for _, filename := range []string{
 		"index.html",
 		"package-lock.json",

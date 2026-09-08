@@ -1,0 +1,4 @@
+interface:
+  display_name: "自定义作者页"
+  short_description: "用 AI 创建并发布 ViceMe 创作者个人页"
+  default_prompt: "使用 $customize-your-profile-page 自定义我的 ViceMe 创作者个人页。"

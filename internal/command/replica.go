@@ -21,6 +21,9 @@ var (
 )
 
 type replicaInspectResult struct {
+	Discovery                   *api.WebsiteReplicaDiscovery `json:"discovery,omitempty"`
+	PresentationTarget          string                       `json:"presentationTarget"`
+	PresentationPlacement       string                       `json:"presentationPlacement"`
 	NextAction                  string                       `json:"nextAction"`
 	WorkURL                     string                       `json:"workUrl"`
 	StandaloneRecoveryAvailable *bool                        `json:"standaloneRecoveryAvailable,omitempty"`
@@ -32,6 +35,7 @@ func newReplicaCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newReplicaPreviewCommand(runtime))
 	command.AddCommand(newReplicaPublishCommand(runtime))
 	command.AddCommand(newReplicaInspectCommand(runtime))
+	command.AddCommand(newReplicaAnalyticsCommand(runtime))
 	command.AddCommand(newReplicaStatusCommand(runtime))
 	command.AddCommand(newReplicaResumeCommand(runtime))
 	command.AddCommand(newReplicaCancelCommand(runtime))
@@ -59,6 +63,13 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return replicaInspectFailure(err)
 			}
+			discovery, err := runtime.client().GetWebsiteReplicaDiscovery(command.Context(), resolved.ShortCode)
+			if err != nil {
+				return replicaInspectFailure(err)
+			}
+			if discovery.ReplicaID != resolved.ReplicaID || discovery.ViceMeWorkURL != resolved.ViceMeWorkURL {
+				return replicaInspectFailure(output.Internal("RESPONSE_INVALID", "discovery does not match the Work", nil))
+			}
 			var recoveryAvailable *bool
 			if checkRecovery {
 				available, err := standaloneReplicaRecoveryAvailable(command.Context(), runtime, resolved)
@@ -68,7 +79,8 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 				recoveryAvailable = &available
 			}
 			return runtime.business(replicaInspectResult{
-				NextAction: "CONFIRM_INLINE_PREVIEW", WorkURL: resolved.ViceMeWorkURL,
+				NextAction: "PRESENT_WORK", WorkURL: resolved.ViceMeWorkURL,
+				Discovery: &discovery, PresentationTarget: "AGENT_PLATFORM", PresentationPlacement: "RIGHT",
 				StandaloneRecoveryAvailable: recoveryAvailable, Replica: resolved,
 			})
 		},
@@ -99,6 +111,9 @@ func resolveReplicaTarget(ctx context.Context, runtime *Runtime, target string) 
 		return "", err
 	}
 	action := work.Work.WebsiteReplicaAction
+	if action == nil && work.Work.WebsiteReplica != nil && replicaShortCodePattern.MatchString(work.Work.WebsiteReplica.ShortCode) {
+		return "VICEME-REPLICA:" + work.Work.WebsiteReplica.ShortCode, nil
+	}
 	if action == nil {
 		return "", output.Policy("REPLICA_WORK_HAS_NO_ENTRY", "the Work does not expose an available Website Replica")
 	}
@@ -121,6 +136,9 @@ func replicaInspectFailure(err error) error {
 
 func replicaSourceArchiveError(err error) error {
 	switch {
+	case errors.Is(err, replicacontent.ErrCreatorEntryBoundary):
+		return output.Validation("REPLICA_CREATOR_ENTRY_BOUNDARY_INVALID", "creator entry markers must be complete, non-nested standalone comment lines").WithCause(err).
+			WithHint("repair only the original creator entry boundaries, including its imports, styles and event handlers; preserve the website content")
 	case errors.Is(err, replicacontent.ErrSensitiveContent):
 		return output.Validation("REPLICA_SENSITIVE_CONTENT", "Website Replica source contains suspected credentials or user data").WithCause(err)
 	case errors.Is(err, replicacontent.ErrForbiddenReplicaContent):

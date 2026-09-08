@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'templates/creator-pages/**'
-      - 'skills/customize-your-page/templates/bonjour-card/**'
+      - 'skills/customize-your-profile-page/templates/bonjour-card/**'
       - 'internal/templatecatalog/**'
       - 'cmd/template-catalog/**'
       - '.github/workflows/template-catalog.yml'
@@ -12,7 +12,7 @@ on:
     branches: [dev, main]
     paths:
       - 'templates/creator-pages/**'
-      - 'skills/customize-your-page/templates/bonjour-card/**'
+      - 'skills/customize-your-profile-page/templates/bonjour-card/**'
       - 'internal/templatecatalog/**'
       - 'cmd/template-catalog/**'
       - '.github/workflows/template-catalog.yml'
@@ -37,11 +37,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: skills/customize-your-page/templates/bonjour-card/package-lock.json
+          cache-dependency-path: skills/customize-your-profile-page/templates/bonjour-card/package-lock.json
       - name: Build Bonjour preview
         run: |
-          npm ci --prefix skills/customize-your-page/templates/bonjour-card
-          npm run build --prefix skills/customize-your-page/templates/bonjour-card
+          npm ci --prefix skills/customize-your-profile-page/templates/bonjour-card
+          npm run build --prefix skills/customize-your-profile-page/templates/bonjour-card
       - run: go test ./internal/templatecatalog ./cmd/template-catalog ./internal/command -run 'Template|DetachedDocument' -count=1
 
   publish:
@@ -59,11 +59,11 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: skills/customize-your-page/templates/bonjour-card/package-lock.json
+          cache-dependency-path: skills/customize-your-profile-page/templates/bonjour-card/package-lock.json
       - name: Build Bonjour preview
         run: |
-          npm ci --prefix skills/customize-your-page/templates/bonjour-card
-          npm run build --prefix skills/customize-your-page/templates/bonjour-card
+          npm ci --prefix skills/customize-your-profile-page/templates/bonjour-card
+          npm run build --prefix skills/customize-your-profile-page/templates/bonjour-card
       - name: Build signed catalog
         env:
           VICEME_TEMPLATE_CATALOG_SIGNING_KEY: ${{ secrets.VICEME_TEMPLATE_CATALOG_SIGNING_KEY }}

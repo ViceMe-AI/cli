@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.37.0] - 2026-09-08
+
+### Features
+
+- 带创作者身份实时读取作品经营数据 (`527cbe3`)
+- 拆分作者页与作品页自定义流程 (`6c6e4ad`)
+- 优化做同款预览与创作者支持流程 (`1aebe19`)
+
+### Fixes
+
+- 清理入口时保留源码包压缩方式 (`ba5831e`)
+- 保留默认按钮并支持创作者自定义体验 (`787a767`)
+- 从交付源码移除原作者做同款入口 (`84da504`)
+- 移除做同款确认并保留原付款模板 (`4889543`)
+
 ## [0.36.0] - 2026-09-08
 
 ### Features
@@ -8,6 +23,8 @@
 
 ### Fixes
 
+- present device login QR in chat (`3dcd13e`)
+- retire legacy page setup flow (`0962ead`)
 - reject unsafe template catalog paths (`310d0a6`)
 
 ### Other Changes
