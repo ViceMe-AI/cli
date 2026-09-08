@@ -45,7 +45,7 @@ viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-ur
 
 1. 用 Bash 后台启动一次 `viceme auth login`，保存它返回的 `task_id`。
 2. 用一次短时 `TaskOutput` 读取 `VICEME_LOGIN_QR_PRESENTATION`。其中 `imageChatSrc` 是本机 PNG 的聊天图片地址，`authorizationUrl` 只供二维码不可用时的备用入口。
-3. 有 `imageChatSrc` 时，优先在聊天气泡中渲染 `![ViceMe 登录二维码](<imageChatSrc>)`。不自动调用 `present_files` 或任何浏览器打开工具；当前右侧页面会保持不变。不得把 PNG 当作文件打开。
+3. 有 `imageChatSrc` 时，优先在聊天气泡中把该地址渲染成 alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片。不自动调用 `present_files` 或任何浏览器打开工具；当前右侧页面会保持不变。不得把 PNG 当作文件打开。
 4. 只有宿主无法渲染二维码、或标记没有 `imageChatSrc` 时，才另起一行以 Markdown 链接格式输出同一标记中的 `[打开登录页面](https://…)`。不要直接贴裸链接，不得重建、缩短或复用旧链接。
 5. 紧接二维码或备用链接说：“请用 ViceMe 扫一扫二维码完成登录；二维码无法显示时，点击备用链接继续。完成后我会自动继续。”
 6. 提示发送后必须立刻调用 `TaskOutput(task_id=<同一个任务>, timeout=180000)`。发送提示不等于继续等待，二维码已显示或用户点击链接也不代表登录完成。

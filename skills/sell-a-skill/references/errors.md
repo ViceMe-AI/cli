@@ -8,9 +8,9 @@
 - `SKILL_PUBLICATION_ALREADY_ACTIVE`：同一份内容已经属于一个已发布过版本的 Listing（常见于 `--new-listing` 或「往组合里再添加」时给了已有来源）。这不是等待中的发布冲突：更新该 Skill 走常规发布（不带 `--new-listing`，按 UPDATE 语义接续），要发布独立的新作品必须提供内容不同的包。向用户如实说明后按其选择继续；不得换参数静默重试。
 - `SKILL_PUBLICATION_PRICE_REQUIRED`：取得并展示当前完整上架信息，同时询问准确人民币分价以及希望修改的标题、文案或媒体。不得只问价格。继续同一私有 Publication。
 - `SKILL_SECRET_DETECTED` 或 `SKILL_SENSITIVE_FILE`：停止并从包中删除凭证或敏感文件，绝不打印内容。
-- `CHANNEL_ARCHIVE_RATE_LIMITED`：渠道归档下载触发平台限流（每用户 10 分钟 5 次）。这是重试风暴的信号，不是新问题。立即停止重试，用一句白话告知用户「刚才重试次数太多触发了平台限流，大约 10 分钟后自动恢复」，然后结束当前发布流程；恢复后由用户重新发起，幂等会接续未完成的发布。不得自行 sleep 等待后再试。
+- `SOURCE_ARCHIVE_RATE_LIMITED`：来源归档下载触发平台限流（每用户 10 分钟 5 次）。这是重试风暴的信号，不是新问题。立即停止重试，用一句白话告知用户「刚才重试次数太多触发了平台限流，大约 10 分钟后自动恢复」，然后结束当前发布流程；恢复后由用户重新发起，幂等会接续未完成的发布。不得自行 sleep 等待后再试。
 - `PUBLICATION_SOURCE_CHANGED`：恢复包与开始发布时不同；恢复原包或开始新的发布。
-- `OAUTH_PROVIDER_NOT_CONFIGURED`：当前部署没有接好对应的外部账号登录，确定性重试不会恢复。立即结束整个任务，不得 sleep、轮询、再次运行渠道命令，也不得继续追问是否切换来源。最终答复只能是“当前环境还没有接好 GitHub 登录，暂时不能从 GitHub 发布。”这一句话；不得附加资格摘要、商家名称、替代来源、以后如何继续、下载到本地、目录、ZIP、绕过办法或问题。
+- `OAUTH_PROVIDER_NOT_CONFIGURED`：当前环境尚未配置 GitHub 私有仓库授权。确定性重试不会恢复，停止本次私有仓库发布；公开来源不受影响，不自动切换来源。
 - `SKILL_PUBLICATION_REVIEW_CHANGED`：获取并展示最新预览，针对新 digest 重新取得“确认并发布”授权。
 - `SKILL_LISTING_MEDIA_REQUIRED`：上传真实封面和图库图片，获取新预览，再提交新的 Agent 建议。只有已明确选择平台分析兜底时才重试该兜底。
 - `PUBLICATION_SUGGESTION_INVALID`（消息要求 baseDraftRevision、中文简介、中文使用说明、一个封面和一个以上图库）：`publication suggest` 必须四类字段一次齐上，不得提交纯文案建议。媒体未就绪时先完成「需要为这个 Skill 准备封面和图库图片，你想怎么做？」问答与 `asset upload --candidate-only` 上传，再按当前 review 的 `draftRevision` 一次性提交全部字段。
