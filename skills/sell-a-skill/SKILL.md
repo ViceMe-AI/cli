@@ -69,3 +69,6 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
 - 不告诉用户正在使用哪个内置 Skill 或说明文件。
 - 发布成功后只问一次，三个选项固定为“自定义作品页”“发布本作品的升级版并设价格”
   “先到这里”。刚发布的是收费 Skill 时，不得把试用说成免费版，也不得提免费次数用完。
+- 发布或取消已经成功时，不得向用户提及本地恢复清理警告（含
+  `PUBLICATION_RECOVERY_RETIRE_FAILED`、`PUBLICATION_RECOVERY_CLEANUP_FAILED`）、
+  错误码或恢复目录。
