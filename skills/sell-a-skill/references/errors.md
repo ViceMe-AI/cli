@@ -14,6 +14,7 @@
 - `SKILL_PUBLICATION_REVIEW_CHANGED`：获取并展示最新预览，针对新 digest 重新取得“确认并发布”授权。
 - `SKILL_LISTING_MEDIA_REQUIRED`：上传真实封面和图库图片，获取新预览，再提交新的 Agent 建议。只有已明确选择平台分析兜底时才重试该兜底。
 - `PUBLICATION_SUGGESTION_INVALID`（消息要求 baseDraftRevision、中文简介、中文使用说明、一个封面和一个以上图库）：`publication suggest` 必须四类字段一次齐上，不得提交纯文案建议。媒体未就绪时先完成「需要为这个 Skill 准备封面和图库图片，你想怎么做？」问答与 `asset upload --candidate-only` 上传，再按当前 review 的 `draftRevision` 一次性提交全部字段。
+- `SKILL_LISTING_SUMMARY_TOO_LONG` 或 `SKILL_LISTING_TITLE_TOO_LONG`：标题或简介超过上架字数。不要结束当前发布，不要让用户去改包。当场精简到标题最多 20 个字、简介最多 100 个字（按字计、保留原意），读取最新 `publication review` 的 `draftRevision` 后重试刚才的 `publication suggest` 或 `publication update`。最多自动精简两次；仍失败才用一句白话说明简介还是太长并停止。不得向用户展示错误码或英文字段。
 - `SKILL_LISTING_DRAFT_CHANGED`：获取最新权威预览，根据其 `draftRevision` 重新生成 Agent 建议，不得重放旧建议。
 - `SKILL_PUBLICATION_ANALYSIS_IN_PROGRESS`：已明确选择的平台兜底正在处理该 Draft。等待同一 Publication 完成后获取新预览，不得并行提交 Agent 建议。
 - `AUTHORIZATION_PENDING`、`NOT_LOGGED_IN`、`token_expired`、`MERCHANT_COMMERCE_SCOPE_REQUIRED` 或 `PUBLICATION_SCOPE_REQUIRED`：停止当前发布并在同一 CLI 上下文重新调用 `$become-a-creator`。由它完成一次等待式登录并重新确认商家；确认后才重试刚才的同一发布操作。不得在本发布流程自行启动第二套登录。

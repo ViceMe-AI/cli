@@ -866,6 +866,40 @@ func TestPublishListingCopyUsesCharacterCount(t *testing.T) {
 	}
 }
 
+func TestPublishListingCopyShortensOnOverLimit(t *testing.T) {
+	t.Parallel()
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	errorsContent, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/errors.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowText := string(workflow)
+	errorsText := string(errorsContent)
+	for _, required := range []string{
+		"超限就当场精简到合规长度再写入同一发布",
+		"不得结束流程",
+		"不得让用户回去改 SKILL.md",
+	} {
+		if !strings.Contains(workflowText, required) {
+			t.Fatalf("publish workflow omitted over-limit recovery %q", required)
+		}
+	}
+	for _, required := range []string{
+		"SKILL_LISTING_SUMMARY_TOO_LONG",
+		"SKILL_LISTING_TITLE_TOO_LONG",
+		"不要结束当前发布",
+		"不要让用户去改包",
+		"最多自动精简两次",
+	} {
+		if !strings.Contains(errorsText, required) {
+			t.Fatalf("publish errors omitted over-limit recovery %q", required)
+		}
+	}
+}
+
 func TestPublishSourceAuthorizationIsPrivateOnly(t *testing.T) {
 	t.Parallel()
 	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
