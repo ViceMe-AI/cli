@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.35.2] - 2026-09-08
+
+### Fixes
+
+- reject unsafe template catalog paths (`310d0a6`)
+
 ## [0.35.1] - 2026-09-08
 
 ### Fixes
