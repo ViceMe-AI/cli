@@ -221,6 +221,13 @@ viceme auth login
 Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以使用 HTTP。
 凭据按完整 Profile authority 隔离；Agent 不能因为另一个 Profile 已登录就擅自切换。
 
+官方托管测试环境使用 API `https://dev.viceme.cn/api`、Web
+`https://dev.viceme.cn` 和 `cn` 市场。CLI 内置该 HTTPS Origin 专属的 Commerce
+签名公钥，支持测试环境的付费 Skill 与网站同款许可证验证。切换现有 `dev` Profile
+即可使用；首次配置时用上述 `profile add` 命令替换地址及名称。测试公钥不适用于
+生产地址、其他域名或其他端口，也不接受远程接口临时返回的未知公钥。
+公钥轮换须先发布包含新公钥的 CLI，规则见 [发布文档](docs/releasing.md)。
+
 `viceme auth login` 会一直等待，直到浏览器授权完成或达到有界超时。Agent 必须保持
 命令运行，向用户展示一次性完整链接并等待最终结果。页面会在必要时先完成登录，随后
 自动授权 CLI；用户不需要输入设备码。等待超时后重新运行 `viceme auth login` 发起新

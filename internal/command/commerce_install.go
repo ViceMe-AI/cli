@@ -174,10 +174,16 @@ func validateCommerceRuntimeBootstrap(install api.ProductPurchaseSkillInstall, d
 }
 
 func (runtime *Runtime) resolveCommerceTrustKey(ctx context.Context, keyID string) (string, error) {
+	origin, err := api.NormalizeAPIOrigin(runtime.apiBaseURL)
+	// The hosted development signer is pinned independently of the production
+	// release ring. Never discover keys from a remote server or trust this key
+	// on another origin, even when a production signer reuses the same key ID.
+	if err == nil && origin == "https://dev.viceme.cn" && keyID == "v1" {
+		return "MCowBQYDK2VwAyEAi9-dMC8FRYitvErpDTteooMjkEhYrDwUv-r11GiIQXo", nil
+	}
 	if key := compiledCommerceTrustKeys()[keyID]; key != "" {
 		return key, nil
 	}
-	origin, err := api.NormalizeAPIOrigin(runtime.apiBaseURL)
 	if err != nil || !isLoopbackOrigin(origin) {
 		return "", output.Policy("COMMERCE_SKILL_SIGNING_KEY_UNTRUSTED", "the official CLI trust ring does not contain this Commerce Skill signing key").
 			WithHint("install a ViceMe CLI release that contains the platform's current Commerce Skill public key")
