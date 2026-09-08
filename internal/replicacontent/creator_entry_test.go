@@ -1,8 +1,10 @@
 package replicacontent
 
 import (
+	"archive/zip"
 	"bytes"
 	"errors"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -125,5 +127,35 @@ func TestFreezeSourceArchiveRemovesFrameworkEntryWithoutBreakingSharedCode(t *te
 		if string(contents[name]) != pair[1] {
 			t.Fatalf("交付文件 %s 与预期不符: %q", name, contents[name])
 		}
+	}
+}
+
+func TestFreezeSourceArchiveKeepsExistingZIPCompressedAfterEntryRemoval(t *testing.T) {
+	block := make([]byte, 4096)
+	if _, err := rand.New(rand.NewSource(42)).Read(block); err != nil {
+		t.Fatal(err)
+	}
+	asset := bytes.Repeat(block, 16)
+	path := filepath.Join(t.TempDir(), "compressed.zip")
+	writeArchive(t, path, []archiveEntry{
+		{name: "index.html", method: zip.Deflate, content: []byte("<main>网站</main>\n<!-- VICEME_CREATOR_ENTRY_BEGIN -->\n<button>做同款</button>\n<!-- VICEME_CREATOR_ENTRY_END -->\n")},
+		{name: "assets/data.bin", method: zip.Deflate, content: asset},
+		{name: ProjectHandoffFile, method: zip.Deflate, content: []byte(testProjectHandoff("- None detected.", ""))},
+	})
+	original, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	archive, err := FreezeSourceArchive(path, FreezeSourceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer archive.Cleanup()
+	if archive.Summary.SizeBytes > original.Size()*2 {
+		t.Fatalf("移除入口不应把压缩资源展开进交付包: 原包 %d，交付包 %d", original.Size(), archive.Summary.SizeBytes)
+	}
+	contents, _ := readFrozenZIP(t, archive)
+	if !bytes.Equal(contents["assets/data.bin"], asset) || string(contents["index.html"]) != "<main>网站</main>\n" {
+		t.Fatal("压缩源码包的业务内容未保持完整")
 	}
 }

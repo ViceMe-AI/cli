@@ -100,7 +100,7 @@ func stripCreatorEntriesFromZIP(archive *FrozenSourceArchive) (_ []SourceArchive
 		if err := os.WriteFile(snapshot, data, 0o600); err != nil {
 			return nil, err
 		}
-		files = append(files, frozenSourceFile{name: file.name, snapshot: snapshot, mode: file.mode, size: uint64(len(data))})
+		files = append(files, frozenSourceFile{name: file.name, snapshot: snapshot, mode: file.mode, zipMethod: file.entry.Method, size: uint64(len(data))})
 	}
 	if len(excluded) > 0 {
 		// Windows cannot replace an open file. Close the validated input before
