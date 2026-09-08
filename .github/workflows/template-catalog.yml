@@ -33,6 +33,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: skills/customize-your-page/templates/bonjour-card/package-lock.json
+      - name: Build Bonjour preview
+        run: |
+          npm ci --prefix skills/customize-your-page/templates/bonjour-card
+          npm run build --prefix skills/customize-your-page/templates/bonjour-card
       - run: go test ./internal/templatecatalog ./cmd/template-catalog ./internal/command -run 'Template|DetachedDocument' -count=1
 
   publish:
@@ -46,6 +55,15 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: skills/customize-your-page/templates/bonjour-card/package-lock.json
+      - name: Build Bonjour preview
+        run: |
+          npm ci --prefix skills/customize-your-page/templates/bonjour-card
+          npm run build --prefix skills/customize-your-page/templates/bonjour-card
       - name: Build signed catalog
         env:
           VICEME_TEMPLATE_CATALOG_SIGNING_KEY: ${{ secrets.VICEME_TEMPLATE_CATALOG_SIGNING_KEY }}
@@ -141,7 +159,7 @@ jobs:
           for ORIGIN in "https://s3.viceme.cn/${CATALOG_PATH}" "https://s3.viceme.ai/${CATALOG_PATH}"; do
             VICEME_TEMPLATE_CATALOG_ORIGIN="${ORIGIN}" ./bin/viceme template list
             DESTINATION="$(mktemp -d)"
-            VICEME_TEMPLATE_CATALOG_ORIGIN="${ORIGIN}" ./bin/viceme template fetch bonjour-card --version 1.0.0 --destination "${DESTINATION}"
+            VICEME_TEMPLATE_CATALOG_ORIGIN="${ORIGIN}" ./bin/viceme template fetch bonjour-card --version 1.0.1 --destination "${DESTINATION}"
             test -f "${DESTINATION}/bonjour-card/public/viceme-page.json"
             rm -rf "${DESTINATION}"
           done

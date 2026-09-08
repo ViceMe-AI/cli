@@ -30,6 +30,7 @@ type SourceTemplate struct {
 	Scenario    string `json:"scenario"`
 	Description string `json:"description"`
 	SourceDir   string `json:"source_dir"`
+	PreviewDir  string `json:"preview_dir"`
 	PreviewFile string `json:"preview_file"`
 	License     string `json:"license"`
 }
@@ -116,7 +117,11 @@ func validSourceTemplate(template SourceTemplate) bool {
 		strings.TrimSpace(template.Description) == "" || strings.TrimSpace(template.License) == "" {
 		return false
 	}
-	return safeRelativePath(template.SourceDir) && safeRelativePath(template.PreviewFile)
+	if !safeRelativePath(template.SourceDir) {
+		return false
+	}
+	return (template.PreviewDir == "" && safeRelativePath(template.PreviewFile)) ||
+		(template.PreviewFile == "" && safeRelativePath(template.PreviewDir))
 }
 
 func safeRelativePath(value string) bool {
