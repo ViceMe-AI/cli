@@ -843,6 +843,29 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	}
 }
 
+func TestPublishListingCopyUsesCharacterCount(t *testing.T) {
+	t.Parallel()
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	for _, required := range []string{
+		"标题最多 20 个字",
+		"简介最多 100 个字",
+		"一个汉字算 1",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("publish workflow omitted listing copy contract %q", required)
+		}
+	}
+	for _, forbidden := range []string{"显示宽度为 30", "中文/非 ASCII 计 2"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("publish workflow retained display-width contract %q", forbidden)
+		}
+	}
+}
+
 func TestPublishSourceAuthorizationIsPrivateOnly(t *testing.T) {
 	t.Parallel()
 	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
