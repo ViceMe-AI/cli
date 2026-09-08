@@ -8,6 +8,8 @@
 
 ### Fixes
 
+- present device login QR in chat (`3dcd13e`)
+- retire legacy page setup flow (`0962ead`)
 - reject unsafe template catalog paths (`310d0a6`)
 
 ### Other Changes
