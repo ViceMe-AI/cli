@@ -433,7 +433,7 @@ func snapshotWorktree(root, freezeDirectory string) ([]frozenSourceFile, []Sourc
 		if err := validateForbiddenReplicaContent(source.name, data); err != nil {
 			return nil, nil, nil, err
 		}
-		data, removed, err := stripCreatorEntry(source.name, data)
+		data, removed, err := StripCreatorEntry(source.name, data)
 		if err != nil {
 			return nil, nil, nil, err
 		}

@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -62,7 +63,8 @@ func saveSkillTrialCredential(runtime *Runtime, productID string, credential ski
 // (skills/use-a-skill/scripts/trial.py ProductLock). The Go takeover below
 // must speak the SAME protocol: both tools read-modify-write one JSON file,
 // and skipping the lock lets one side read a torn write or clobber a newer
-// pending key. Staleness mirrors the script constant (5 minutes).
+// pending key. Both write the holder PID; a dead holder or empty leftover is
+// stolen. Staleness mirrors the script constant (5 minutes).
 const (
 	scriptTrialLockStale = 5 * time.Minute
 )
@@ -77,9 +79,13 @@ func acquireScriptTrialLock(lockPath string) (*os.File, error) {
 		return nil, err
 	}
 	deadline := time.Now().Add(scriptTrialLockWait)
+	emptyStolen := false
 	for {
 		handle, err := os.OpenFile(lockPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err == nil {
+			if err := writeScriptTrialLockPID(handle, lockPath); err != nil {
+				return nil, err
+			}
 			return handle, nil
 		}
 		if !errors.Is(err, fs.ErrExist) && !errors.Is(err, fs.ErrPermission) {
@@ -90,16 +96,73 @@ func acquireScriptTrialLock(lockPath string) (*os.File, error) {
 		if _, statErr := os.Stat(lockPath); errors.Is(statErr, fs.ErrNotExist) {
 			return nil, output.Policy("SKILL_TRIAL_LOCK_PERMISSION_REQUIRED", "permission is required to create the trial state lock").WithHint("request filesystem access through the host, then retry the same command; do not edit credentials or locks")
 		}
-		if info, statErr := os.Stat(lockPath); statErr == nil && time.Since(info.ModTime()) > scriptTrialLockStale {
+		steal, stealErr := scriptTrialLockShouldSteal(lockPath)
+		if stealErr != nil {
+			return nil, stealErr
+		}
+		if !steal && !emptyStolen && time.Now().After(deadline) && scriptTrialLockIsEmpty(lockPath) {
+			steal = true
+			emptyStolen = true
+		}
+		if steal {
 			if err := removeScriptTrialLock(lockPath); err != nil && !os.IsNotExist(err) {
 				return nil, output.Policy("SKILL_TRIAL_LOCK_PERMISSION_REQUIRED", "permission is required to recover the expired trial state lock").WithHint("request filesystem access through the host and retry; never modify lock timestamps")
 			}
+			continue
 		}
 		if time.Now().After(deadline) {
-			return nil, output.Policy("SKILL_TRIAL_LOCK_BUSY", "another trial operation still owns the state lock").WithHint("wait for the original operation to finish; do not switch runners, edit lock timestamps, or inspect credentials")
+			busy := output.Policy("SKILL_TRIAL_LOCK_BUSY", "another trial operation still owns the state lock").WithHint("wait for the original operation to finish; do not switch runners, edit lock timestamps, or inspect credentials")
+			busy.Retryable = true
+			return nil, busy
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+func writeScriptTrialLockPID(handle *os.File, lockPath string) error {
+	if _, err := handle.Write([]byte(strconv.Itoa(os.Getpid()))); err != nil {
+		_ = handle.Close()
+		if removeErr := removeScriptTrialLock(lockPath); removeErr != nil && !os.IsNotExist(removeErr) {
+			return output.Policy("SKILL_TRIAL_LOCK_PERMISSION_REQUIRED", "permission is required to create the trial state lock").WithHint("request filesystem access through the host, then retry the same command; do not edit credentials or locks").WithCause(err)
+		}
+		return err
+	}
+	return nil
+}
+
+func scriptTrialLockShouldSteal(lockPath string) (bool, error) {
+	pid, ok := readScriptTrialLockPID(lockPath)
+	if ok && !scriptTrialLockProcessAlive(pid) {
+		return true, nil
+	}
+	info, err := os.Stat(lockPath)
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+	if err != nil {
+		return false, output.Policy("SKILL_TRIAL_LOCK_PERMISSION_REQUIRED", "permission is required to recover the expired trial state lock").WithHint("request filesystem access through the host and retry; never modify lock timestamps")
+	}
+	return time.Since(info.ModTime()) > scriptTrialLockStale, nil
+}
+
+func readScriptTrialLockPID(lockPath string) (int, bool) {
+	raw, err := os.ReadFile(lockPath)
+	if err != nil {
+		return 0, false
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
+	if err != nil || pid <= 0 {
+		return 0, false
+	}
+	return pid, true
+}
+
+func scriptTrialLockIsEmpty(lockPath string) bool {
+	raw, err := os.ReadFile(lockPath)
+	if err != nil {
+		return false
+	}
+	return strings.TrimSpace(string(raw)) == ""
 }
 
 func withScriptTrialLock(runtime *Runtime, productID string, action func() error) error {
@@ -268,9 +331,8 @@ func ensureSkillTrialGrant(ctx context.Context, runtime *Runtime, productID stri
 		return api.SkillTrialGrant{}, skillTrialCredential{}, err
 	}
 	if !hasStored {
-		// 收编免 CLI 安装脚本留下的明文凭证:两条安装路共用同一个 grant,
-		// 避免同机双份试用。凭证值不可变,收编后明文文件原地保留,脚本
-		// 路继续可用同一份计数。
+		// 收编免 CLI 安装脚本留下的明文凭证,并在 CLI 发 grant 后写回同一文件:
+		// 两条安装路共用同一个 grant,试用检查可以只跑 trial.py。
 		script, adopted, adoptErr := adoptScriptTrialCredential(runtime, productID)
 		if adoptErr != nil {
 			return api.SkillTrialGrant{}, skillTrialCredential{}, adoptErr
@@ -289,12 +351,15 @@ func ensureSkillTrialGrant(ctx context.Context, runtime *Runtime, productID stri
 	}
 	if grant.Secret != nil && *grant.Secret != "" {
 		credential := skillTrialCredential{InstallID: grant.InstallID, Secret: *grant.Secret}
-		if err := saveSkillTrialCredential(runtime, productID, credential); err != nil {
+		if err := persistTrialCredential(runtime, productID, credential); err != nil {
 			return api.SkillTrialGrant{}, skillTrialCredential{}, err
 		}
 		return grant, credential, nil
 	}
 	if hasStored {
+		if err := mirrorTrialCredentialToScript(runtime, productID, stored); err != nil {
+			return api.SkillTrialGrant{}, skillTrialCredential{}, err
+		}
 		return grant, stored, nil
 	}
 	// 本地凭证丢失且服务端按旧 installId 幂等返回:换新 installId 重发。
@@ -307,10 +372,41 @@ func ensureSkillTrialGrant(ctx context.Context, runtime *Runtime, productID stri
 		return api.SkillTrialGrant{}, skillTrialCredential{}, output.Internal("SKILL_TRIAL_GRANT_INVALID", "the trial grant response did not carry a secret", nil)
 	}
 	credential := skillTrialCredential{InstallID: grant.InstallID, Secret: *grant.Secret}
-	if err := saveSkillTrialCredential(runtime, productID, credential); err != nil {
+	if err := persistTrialCredential(runtime, productID, credential); err != nil {
 		return api.SkillTrialGrant{}, skillTrialCredential{}, err
 	}
 	return grant, credential, nil
+}
+
+// persistTrialCredential writes the grant to the CLI store and the shared
+// script file so later trial.py use can find the same identity.
+func persistTrialCredential(runtime *Runtime, productID string, credential skillTrialCredential) error {
+	if err := saveSkillTrialCredential(runtime, productID, credential); err != nil {
+		return err
+	}
+	return mirrorTrialCredentialToScript(runtime, productID, credential)
+}
+
+// mirrorTrialCredentialToScript copies a CLI-issued grant into
+// ~/.viceme/trial/<product>.json. Matching files are left untouched so a
+// pending use or purchase in the script route is preserved. Differing
+// identities fail closed; they are not overwritten.
+func mirrorTrialCredentialToScript(runtime *Runtime, productID string, credential skillTrialCredential) error {
+	return withScriptTrialLock(runtime, productID, func() error {
+		state, exists := readScriptTrialState(runtime, productID)
+		if exists {
+			if state.InstallID != credential.InstallID || state.Secret != credential.Secret {
+				return output.Policy("SKILL_TRIAL_IDENTITY_MISMATCH", "the CLI and script refer to different local trial identities").WithHint("use the original installed Skill runtime; preserve both records, do not switch identities or report a balance from the other runner")
+			}
+			if state.Market != "" && state.Market != string(runtime.region) {
+				return output.Policy("SKILL_TRIAL_IDENTITY_MISMATCH", "local trial credentials do not match this purchase; preserve both records")
+			}
+			return nil
+		}
+		return saveScriptTrialState(runtime, productID, scriptTrialState{
+			InstallID: credential.InstallID, Secret: credential.Secret, ProductID: productID, Market: string(runtime.region),
+		})
+	})
 }
 
 // skillTrialGateTail is the end of the legacy inline gate. New entries use
@@ -320,7 +416,7 @@ const skillTrialGateTail = "转正，再继续任务。"
 // injectSkillTrialGate keeps a mandatory entry in SKILL.md and puts the full
 // pre-use instructions in a generated reference. A marker mentioned by the
 // author is not evidence that a usable gate exists.
-func injectSkillTrialGate(files map[string]downloadableSkillFile, productID, installDocURL string) error {
+func injectSkillTrialGate(files map[string]downloadableSkillFile, productID, market string) error {
 	manifest, exists := files["SKILL.md"]
 	if !exists {
 		return output.Policy("SKILL_MANIFEST_MISSING", "downloaded Skill package does not contain root SKILL.md")
@@ -360,8 +456,16 @@ func injectSkillTrialGate(files map[string]downloadableSkillFile, productID, ins
 	section := fmt.Sprintf("%s\n\n## 使用前必读\n\n若本对话已经从 ready 或 install 得知 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED，不要读取使用前检查，不要运行 use 或 status，立即购买。否则每次开始或继续本技能任务前，必须先读取并执行 [使用前检查](%s)，判断是否属于同一已放行的使用单元。只有本使用单元的检查明确返回 `allowed: true` 才能执行下方任务；未放行、次数用完或检查失败时停止，不得跳过检查，也不得以安装成功或其他任务的历史检查代替本次授权。\n\n%s\n",
 		header, skillTrialRuntimePath, skillTrialGateEnd)
 	usageURL := "../.viceme/guides/trial-usage.md"
-	rules := fmt.Sprintf("%s\n# 使用前检查\n\n本技能当前是 ViceMe 试用版。若 ready 或 install 已返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED，不要运行下面的 use 或 trial-status，立即运行 `viceme skill trial-purchase %s --wait 0`。\n\n1. 先读取[统一计次规则](%s)，由 Agent 判断独立使用单元。同一已放行任务的内部步骤、澄清和修订不重复计次；安装、介绍、示例展示和查询余额不计次。不得凭空沿用其他任务的授权。\n2. 本机没有 `viceme` 命令时，不得跳过检查直接使用本技能：按官方安装契约 %s 恢复 CLI 并用 `viceme doctor` 确认；失败则停止使用本技能。每个新使用单元执行前运行 `viceme skill use %s --wait 0` 向服务端预检，记录本任务与返回的 requestId。只有明确返回 `allowed: true` 才能执行；错误、无结果或 `allowed: false` 均停止。\n3. 内部记录额度后，对用户只用白话说「这是第 X 次试用，一共 N 次」，X = limitUses - remainingUses；不得对用户说 use、trial、放行、预检或命令名。任务完成后用白话提示还剩几次。最后一次仍完整完成本次任务。仅查询余额用 `viceme skill trial-status %s`，不能调用 use 来查询。ready 已返回 remainingUses=0 时不要再跑 trial-status。\n4. 最后一次试用（lastUse=true 或完成后 remainingUses=0）交出结果后，同一轮立即按[通用 Widget 指引](%s)在回复正文单独一行写 ![微信支付二维码](local-file://<imagePath>)，并用 present_files([widgetPath]) 只打开支付 HTML，不要把 PNG 交给 present_files，主动请用户扫码继续用，不要等用户再说一次。未登录用户可用本机试用凭证运行 `viceme skill trial-purchase %s --wait 0` 下单，再用 `--wait 60s` 等待；无需强制登录。二维码过期或用户说已付款均不是到账证明。服务端确认付款与有效权益、完整正式包安装成功后，重新读取 SKILL.md，再继续原任务。\n",
-		runtimeHeader, productID, usageURL, installDocURL, productID, productID, "../.viceme/guides/widgets.md", productID)
+	script := ".viceme/scripts/trial.py"
+	posixUse := fmt.Sprintf("python3 \"<本 Skill 目录>/%s\" use --product %s --market %s", script, productID, market)
+	windowsUse := fmt.Sprintf("py \"<本 Skill 目录>/%s\" use --product %s --market %s", script, productID, market)
+	cliUse := "viceme skill use " + productID + " --wait 0"
+	cliPurchase := "viceme skill trial-purchase " + productID + " --wait 0"
+	cliStatus := "viceme skill trial-status " + productID
+	installDoc := config.AgentInstallDocURL(config.Region(market))
+	// Keep this copy in sync with inject_trial_gate in trial_runtime.py.
+	rules := fmt.Sprintf("%s\n# 使用前检查\n\n本技能当前是 ViceMe 试用版。若 ready 或 install 已返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED，不要运行下面的 use 或 status，立即购买：有 Python 则把检查命令换成 purchase --wait 0；没有 Python、已有 viceme 则运行 `%s`。否则先读取[统一计次规则](%s)，由 Agent 判断独立使用单元。同一已放行任务的内部步骤、澄清和修订不重复计次；安装、介绍、示例展示和查询余额不计次。不得沿用其他任务的授权。\n\n1. 选择运行时后必须完成检查，不得跳过。检查命令返回身份、权限、锁或资源错误时，按原结果报告并申请必要权限；不得读取凭证或手工改锁。\n   - 本机有可用的 Python（POSIX 的 `python3`，Windows 的 `py` 或 `python`）时，运行包内脚本，不得改走 CLI，也不得去安装 CLI：\n     - macOS / Linux（POSIX shell）：`%s`\n     - Windows（PowerShell，`py` 不可用时改用 `python`）：`%s`\n   - 没有 Python、但已有 `viceme` 时，运行 `%s`。不要用 `which`、`command -v viceme` 或 `Get-Command viceme` 判定未安装。\n   - Python 和 `viceme` 都没有时，按官方安装契约 %s 安装 ViceMe CLI，并用 `viceme doctor` 确认，再运行 `%s`。安装无法完成则停止使用本技能，不得跳过检查直接使用。\n2. 只有本次输出明确返回 `allowed: true` 才能继续；错误、无结果或 `allowed: false` 均不得执行技能任务，即使用户要求跳过也不例外。\n3. 每个新使用单元执行前运行检查命令，内部记录任务和返回的 requestId。对用户只用白话说「这是第 X 次试用，一共 N 次」，X = limitUses - remainingUses；不得对用户说 use、trial、放行、预检或命令名。任务完成后用白话提示还剩几次。仅查询余额：Python 路线把 use 换成 status，CLI 路线运行 `%s`；不得调用 use 来查询。ready 已返回 remainingUses=0 时不要再查。\n4. 最后一次试用（lastUse=true 或完成后 remainingUses=0）仍完整完成本次任务；交出结果后同一轮立即购买并展示支付二维码，不要等用户再说一次。Python 路线把 use 换成 purchase 并加 --wait 0，再 --wait 60；CLI 路线运行 `%s`，再用 `--wait 60s`。按[通用 Widget 指引](%s)在回复正文单独一行写 ![微信支付二维码](local-file://<imagePath>)，并用 present_files([widgetPath]) 只打开支付 HTML，不要把 PNG 交给 present_files，不要只写裸绝对路径，主动请用户扫码继续用。无需强制登录。二维码过期或用户说已付款不是到账证明。只有服务端确认付款与有效权益、成功安装完整正式包后，重新读取 SKILL.md，再继续原任务。\n",
+		runtimeHeader, cliPurchase, usageURL, posixUse, windowsUse, cliUse, installDoc, cliUse, cliStatus, cliPurchase, "../.viceme/guides/widgets.md")
 	data := content[:insertAt] + section + body
 	files["SKILL.md"] = downloadableSkillFile{Data: []byte(data), Mode: manifest.Mode}
 	files[skillTrialRuntimePath] = downloadableSkillFile{Data: []byte(rules), Mode: 0o644}
@@ -485,7 +589,7 @@ func installTrialSkill(ctx context.Context, runtime *Runtime, productID string, 
 	if err != nil {
 		return err
 	}
-	if err := injectSkillTrialGate(files, productID, config.AgentInstallDocURL(runtime.region)); err != nil {
+	if err := injectSkillTrialGate(files, productID, string(runtime.region)); err != nil {
 		return err
 	}
 	manifestName, err := downloadableSkillManifestName(files)

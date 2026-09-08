@@ -205,7 +205,7 @@ are not accepted.
 | Private upload and preview | The initial publish request authorizes the private Draft upload. The real package is verified and its Owner Preview opens before pricing. |
 | Agent enrichment | The user's Agent reads the Skill as untrusted source data, prepares bilingual copy, and selects verified cover and gallery uploads. Platform analysis is an explicit fallback only. |
 | Listing details and price | After enrichment, the Agent displays the exact title, bilingual copy, cover, and gallery, then asks one combined question for the CNY price in fen and any desired changes. It never asks for price by itself. |
-| Review | The Agent displays the exact copy, price, cover, and gallery images. A short summary has a maximum display width of 30; ASCII counts as 1 and Chinese/non-ASCII as 2. |
+| Review | The Agent displays the exact copy, price, cover, and gallery images. The listing title is at most 20 characters and the summary is at most 100; Chinese and ASCII each count as 1. |
 | Publish | One explicit final confirmation authorizes review confirmation followed by immediate, irreversible public publication. |
 
 If the upload or response is interrupted, continue the existing publication:
@@ -250,6 +250,15 @@ state. Persistent login is disabled while it is set.
 Remote custom endpoints require HTTPS; only localhost and loopback development
 may use HTTP. Credentials are isolated by Profile authority, and an Agent
 must never switch to another Profile merely because it is already signed in.
+
+The official hosted development environment uses API `https://dev.viceme.cn/api`,
+Web `https://dev.viceme.cn`, and market `cn`. The CLI pins its Commerce signing
+key to that HTTPS origin for paid Skills and Website Replica licenses. Select
+an existing `dev` Profile, or substitute these addresses and name in the
+`profile add` example above. The development key is not trusted on production
+origins, other domains, or other ports. Unknown remote keys are never fetched
+and trusted dynamically. Key rotation requires a CLI release first; see
+[the release guide](docs/releasing.md).
 
 `viceme auth login` intentionally keeps running until browser authorization
 finishes or its bounded timeout expires. Keep the command active, show the
