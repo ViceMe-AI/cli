@@ -1929,10 +1929,42 @@ func decodeServerError(status int, data []byte, headerRequestID string) error {
 		cliError.RequestID = headerRequestID
 	}
 	cliError.Retryable = (status == http.StatusTooManyRequests || status >= 500) && code != "OAUTH_PROVIDER_NOT_CONFIGURED"
+	details := map[string]any{}
 	if validAPIRecoveryReference(serverError.Recovery) {
-		cliError.Details = map[string]any{"recovery": *serverError.Recovery}
+		details["recovery"] = *serverError.Recovery
+	}
+	if candidates, ok := githubSkillSelectionCandidates(serverError.Details); ok {
+		details["candidates"] = candidates
+	}
+	if len(details) > 0 {
+		cliError.Details = details
 	}
 	return cliError
+}
+
+func githubSkillSelectionCandidates(raw json.RawMessage) ([]map[string]string, bool) {
+	if len(bytes.TrimSpace(raw)) == 0 || rawJSONIsNull(raw) {
+		return nil, false
+	}
+	var payload struct {
+		Candidates []struct {
+			Path string `json:"path"`
+		} `json:"candidates"`
+	}
+	if json.Unmarshal(raw, &payload) != nil {
+		return nil, false
+	}
+	if len(payload.Candidates) < 2 || len(payload.Candidates) > 64 {
+		return nil, false
+	}
+	candidates := make([]map[string]string, 0, len(payload.Candidates))
+	for _, candidate := range payload.Candidates {
+		if len(candidate.Path) > 512 {
+			return nil, false
+		}
+		candidates = append(candidates, map[string]string{"path": candidate.Path})
+	}
+	return candidates, true
 }
 
 func validAPIRecoveryReference(reference *APIRecoveryReference) bool {
