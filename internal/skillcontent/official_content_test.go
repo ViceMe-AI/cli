@@ -95,7 +95,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "creator-tools",
 			machine: []string{
 				"command -v viceme", "s3.viceme.cn/start/agent-install.md", "s3.viceme.ai/start/agent-install.md",
-				"viceme auth status", "viceme auth login", "当前右侧页面会保持不变", "VICEME_ACCESS_TOKEN",
+				"viceme auth status", "viceme auth login", "需要登录，请扫描下方二维码；完成后我会自动继续。", "VICEME_ACCESS_TOKEN",
 				"viceme update", "viceme install --agent auto", "error.code",
 			},
 			semantics: []string{
@@ -763,7 +763,6 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		"`![ViceMe 登录二维码]` 后紧跟圆括号",
 		"有 `imageChatSrc` 时不得同时展示备用链接",
 		"不自动调用 `present_files` 或任何浏览器打开工具",
-		"当前右侧页面会保持不变",
 		"不要直接贴裸链接，不得重建、缩短或复用旧链接",
 	} {
 		if !strings.Contains(sharedText, required) {
@@ -772,6 +771,9 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	}
 	if strings.Contains(sharedText, "立即调用 WorkBuddy 内置 `present_files`") || strings.Contains(onboardingText, "WorkBuddy 可使用 Bash/TaskOutput/present_files") {
 		t.Fatal("creator login must not automatically replace the current right-side page")
+	}
+	if strings.Contains(sharedText, "右侧页面") {
+		t.Fatal("creator login must not mention an unrelated right-side page to the user")
 	}
 	loginSequence := []string{
 		"`TaskOutput(task_id=<同一个任务>, timeout=2000)`",
