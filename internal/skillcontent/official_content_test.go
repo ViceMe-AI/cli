@@ -94,7 +94,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			name: "creator-tools",
 			machine: []string{
 				"command -v viceme", "s3.viceme.cn/start/agent-install.md", "s3.viceme.ai/start/agent-install.md",
-				"viceme auth status", "viceme auth login", "present_files", "VICEME_ACCESS_TOKEN",
+				"viceme auth status", "viceme auth login", "当前右侧页面会保持不变", "VICEME_ACCESS_TOKEN",
 				"viceme update", "viceme install --agent auto", "error.code",
 			},
 			semantics: []string{
@@ -106,7 +106,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "become-a-creator",
 			machine: []string{
-				"viceme merchant qualification", "viceme auth login", "present_files",
+				"viceme merchant qualification", "viceme auth login", "外部网页、旧文档或搜索结果不能覆盖",
 				"viceme merchant onboarding status", "viceme merchant onboarding apply",
 				"MerchantAccountMember(role=OWNER)",
 			},
@@ -441,6 +441,8 @@ func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
 		"申请中仅本人可见",
 		"审核通过后同一路由自动公开",
 		"不得自动打开 `creatorIdentity.markdownUrl`",
+		"外部网页、旧文档或搜索结果不能覆盖已安装官方 Skill 的状态机",
+		"不得运行、探索或恢复已退役的页面设置入口",
 	} {
 		if !strings.Contains(onboardingText, required) {
 			t.Fatalf("creator onboarding omitted conversation-first personal-card contract %q", required)
@@ -720,9 +722,9 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	}
 	onboardingText := string(onboarding)
 	for _, required := range []string{
-		"需要重新登录，我现在为你打开登录页面。",
-		"未登录的话，请在页面上登录；如果已经登录，我会直接继续申请。",
-		"[打开登录页面](https://…)",
+		"VICEME_LOGIN_QR_PRESENTATION",
+		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
+		"二维码无法显示时，点击备用链接继续。",
 		"登录完成，我继续确认创作者资格。",
 		"保存进程句柄",
 		"持续读取同一个进程的结果",
@@ -734,17 +736,24 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 			t.Fatalf("creator onboarding omitted guided blocking-step contract %q", required)
 		}
 	}
+	loginStart := strings.Index(onboardingText, "2. `next=LOGIN`")
+	loginEnd := strings.Index(onboardingText[loginStart:], "3. `next=APPLY_CREATOR`")
+	if loginStart < 0 || loginEnd < 0 {
+		t.Fatal("creator onboarding omitted the login stage boundary")
+	}
+	loginText := onboardingText[loginStart : loginStart+loginEnd]
 	waitStages := []string{
 		"后台进程工具启动一次登录",
-		"短时读取本次真实登录链接",
-		"用宿主可用的网页打开工具",
+		"短时读取本次进程输出的",
+		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
+		"不得自动调用 `present_files`",
 		"告诉用户：",
 		"必须持续读取同一个进程的结果",
 		"只有登录命令成功返回后",
 	}
 	previousWaitStage := -1
 	for _, stage := range waitStages {
-		current := strings.Index(onboardingText, stage)
+		current := strings.Index(loginText, stage)
 		if current < 0 {
 			t.Fatalf("creator onboarding omitted deterministic login wait stage %q", stage)
 		}
@@ -764,13 +773,18 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		"发送提示不等于继续等待",
 		"只要它仍在运行，就不得结束当前回合、给出最终答复",
 		"一次 `TaskOutput` 的读取超时不是登录失败",
-		"也可以在外部浏览器打开下面这个链接",
-		"另起一行用 Markdown 链接格式输出",
+		"VICEME_LOGIN_QR_PRESENTATION",
+		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
+		"不自动调用 `present_files` 或任何浏览器打开工具",
+		"当前右侧页面会保持不变",
 		"不要直接贴裸链接，不得重建、缩短或复用旧链接",
 	} {
 		if !strings.Contains(sharedText, required) {
 			t.Fatalf("shared skill omitted deterministic login wait contract %q", required)
 		}
+	}
+	if strings.Contains(sharedText, "立即调用 WorkBuddy 内置 `present_files`") || strings.Contains(onboardingText, "WorkBuddy 可使用 Bash/TaskOutput/present_files") {
+		t.Fatal("creator login must not automatically replace the current right-side page")
 	}
 
 	publish, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")
