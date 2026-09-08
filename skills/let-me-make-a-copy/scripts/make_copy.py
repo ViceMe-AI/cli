@@ -14,6 +14,8 @@ import re
 import secrets
 import shutil
 import stat
+import struct
+import zlib
 import subprocess
 import sys
 import time
@@ -49,6 +51,10 @@ WINDOWS_RESERVED = re.compile(
     r"^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\..*)?$", re.IGNORECASE
 )
 ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
+
+
+# Generated from the canonical CLI widgets by make trial-runtime.
+PAYMENT_RESOURCE_SHA256 = {"payment.html": "eb91a89ae61706486fb324c772dc3f721bf000395a6d4c2ebb31a5598a6b434d", "qrcodegen.py": "b0df257ae06c83f79ac8fa408f5ae635f44a2ae0702e2fdbf6f2fe32cff33b05"}  # generated-payment-resources
 
 
 class WorkflowError(Exception):
@@ -188,6 +194,15 @@ def fetch_work_instruction(
         else None
     )
     instruction = action.get("instruction") if isinstance(action, dict) else None
+    if instruction is None and isinstance(work, dict):
+        public_work = work.get("work", {})
+        public_replica = public_work.get("websiteReplica") if isinstance(public_work, dict) else None
+        # A delisted public work retains an authoritative code for discovery
+        # and existing rights. The server still denies any new checkout.
+        if (public_work.get("kind") == "WEBSITE" and public_work.get("status") == "PUBLISHED"
+                and isinstance(public_replica, dict) and public_replica.get("availability") == "DELISTED"
+                and isinstance(public_replica.get("shortCode"), str)):
+            instruction = "VICEME-REPLICA:" + public_replica["shortCode"]
     if not isinstance(instruction, str) or not INSTRUCTION_PATTERN.fullmatch(
         instruction
     ):
@@ -439,14 +454,25 @@ def read_state(filename: Path) -> Optional[Dict[str, Any]]:
 def recoverable_paid_receipt(
     authority: Authority, replica: Dict[str, Any], root: Optional[Path] = None
 ) -> Optional[Dict[str, Any]]:
-    receipt = read_state(
-        standalone_receipt_path(authority, replica["shortCode"], root)
-    )
+    receipt = recoverable_paid_receipt_by_code(authority, replica["shortCode"], root)
+    if receipt is None:
+        return None
+    if receipt.get("replicaId") != replica["replicaId"]:
+        raise WorkflowError(
+            "MAKE_COPY_STATE_INVALID", "Paid Replica recovery state is invalid"
+        )
+    return receipt
+
+
+def recoverable_paid_receipt_by_code(
+    authority: Authority, short_code: str, root: Optional[Path] = None
+) -> Optional[Dict[str, Any]]:
+    receipt = read_state(standalone_receipt_path(authority, short_code, root))
     if receipt is None:
         return None
     if (
         receipt.get("schemaVersion") != 1
-        or receipt.get("replicaId") != replica["replicaId"]
+        or not UUID_PATTERN.fullmatch(str(receipt.get("replicaId", "")))
         or not isinstance(receipt.get("orderNo"), str)
         or not receipt["orderNo"]
         or not SECRET_PATTERN.fullmatch(str(receipt.get("recoverySecret", "")))
@@ -564,7 +590,8 @@ def validate_state(
         and value.get("replicaId") == replica["replicaId"]
         and value.get("productId") == replica["product"]["id"]
         and value.get("skuId") == replica["product"]["skuId"]
-        and value.get("priceCents") == replica["product"]["priceCents"]
+        and type(value.get("priceCents")) is int
+        and value["priceCents"] >= 0
         and value.get("target") == str(target)
         and UUID_PATTERN.fullmatch(str(value.get("sessionClientRequestId", "")))
         and UUID_PATTERN.fullmatch(str(value.get("quoteClientRequestId", "")))
@@ -660,6 +687,23 @@ def ensure_checkout(
             "updatedAt": iso_now(),
         },
     )
+    if checkout["status"] == "PENDING":
+        # Checkout creates the order but intentionally omits its amount. Read
+        # the authenticated immutable order view; never substitute today's price.
+        view = api_request(
+            authority, "/website-replica-sessions/" + urllib.parse.quote(state["sessionId"], safe="")
+            + "/orders/" + urllib.parse.quote(checkout["orderNo"], safe=""),
+            token=state["sessionToken"], request_fn=request_fn,
+        )
+        order = view.get("order") if isinstance(view, dict) else None
+        if (not isinstance(order, dict) or not isinstance(view.get("replica"), dict)
+                or view["replica"].get("replicaId") != state["replicaId"]
+                or order.get("orderNo") != checkout["orderNo"]
+                or type(order.get("amountCents")) is not int or order["amountCents"] < 0
+                or order.get("currency") != "CNY"
+                or order.get("status") not in {"PENDING", "PAID", "CLOSED", "FAILED", "CANCELLED"}):
+            raise WorkflowError("MAKE_COPY_RESPONSE_INVALID", "ViceMe returned an invalid order view; keep the original order")
+        checkout = {**checkout, **order}
     return checkout
 
 
@@ -1211,6 +1255,7 @@ def complete_install(
             "licenseJws": download["licenseJws"],
             "recoverySecret": state["downloadRecoverySecret"],
             "paidAt": claims["issuedAt"],
+            "entitlementId": claims["entitlementId"],
         },
     )
     installed = install_archive(archive_path, Path(state["target"]), download)
@@ -1229,6 +1274,126 @@ def complete_install(
     return completion
 
 
+def public_https_url(value: Any) -> bool:
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        return (isinstance(value, str) and len(value) <= 2048
+                and parsed.scheme == "https" and bool(parsed.hostname)
+                and parsed.username is None and parsed.password is None)
+    except (TypeError, ValueError):
+        return False
+
+
+def discovery(authority: Authority, replica: Dict[str, Any],
+              request_fn: RequestFn = http_request) -> Dict[str, Any]:
+    value = api_request(authority, "/website-replicas/" + replica["shortCode"] + "/discovery",
+                        request_fn=request_fn)
+    valid = (isinstance(value, dict) and value.get("replicaId") == replica["replicaId"]
+             and value.get("shortCode") == replica["shortCode"]
+             and value.get("viceMeWorkUrl") == replica["viceMeWorkUrl"]
+             and public_https_url(value.get("previewUrl"))
+             and public_https_url(value.get("discoveryUrl"))
+             and isinstance(value.get("title"), str)
+             and isinstance(value.get("summary"), str)
+             and isinstance(value.get("bodyMarkdown"), str)
+             and isinstance(value.get("creator"), dict)
+             and isinstance(value.get("statistics"), dict)
+             and all(type(value["statistics"].get(key)) is int and value["statistics"][key] >= 0
+                     for key in ("acquisitionCount", "commentCount")))
+    if not valid:
+        raise WorkflowError("MAKE_COPY_RESPONSE_INVALID", "ViceMe returned invalid discovery information")
+    return value
+
+
+def payment_resource(authority: Authority, name: str,
+                     request_fn: RequestFn = http_request) -> bytes:
+    digest = PAYMENT_RESOURCE_SHA256[name]
+    directory = state_root() / "payment-resources"
+    ensure_private_directory(directory)
+    filename = directory / (digest + "-" + name)
+    if filename.exists() or filename.is_symlink():
+        info = filename.lstat()
+        if not stat.S_ISREG(info.st_mode) or filename.is_symlink() or info.st_size > 262144:
+            raise WorkflowError("PAYMENT_RESOURCE_INVALID", "Payment resource is invalid")
+        content = filename.read_bytes()
+    else:
+        origin = "https://s3.viceme.ai" if authority.web_origin.endswith("viceme.ai") else "https://s3.viceme.cn"
+        response = request_fn("GET", origin + "/skills/_widgets/sha256-" + digest + "/" + name, timeout=20)
+        content = response.body
+        if response.status != 200 or len(content) > 262144:
+            raise WorkflowError("PAYMENT_RESOURCE_INVALID", "Payment resource is unavailable; keep the original order")
+    if hashlib.sha256(content).hexdigest() != digest:
+        raise WorkflowError("PAYMENT_RESOURCE_INVALID", "Payment resource integrity check failed")
+    if not filename.exists():
+        write_private_bytes(filename, content)
+    return content
+
+
+def write_private_bytes(filename: Path, content: bytes) -> str:
+    ensure_private_directory(filename.parent)
+    temporary = filename.with_name(filename.name + ".tmp-" + str(uuid.uuid4()))
+    descriptor = os.open(str(temporary), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        if os.name == "nt":
+            protect_windows(temporary, False)
+        os.replace(temporary, filename)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return str(filename.absolute())
+
+
+def payment_presentation(authority: Authority, replica: Dict[str, Any], checkout: Dict[str, Any],
+                         request_fn: RequestFn = http_request) -> Dict[str, Any]:
+    if type(checkout.get("amountCents")) is not int or checkout["amountCents"] < 0 or checkout.get("currency") != "CNY":
+        raise WorkflowError("MAKE_COPY_RESPONSE_INVALID", "The authoritative payment amount is unavailable; keep the original order")
+    action = checkout.get("paymentAction")
+    uri = action.get("content") if isinstance(action, dict) else None
+    if (not isinstance(uri, str) or len(uri) > 4096 or action.get("type") != "QR_CODE"
+            or not uri.startswith("weixin://") or not _valid_timestamp(checkout.get("expiresAt"))):
+        raise WorkflowError("PAYMENT_QR_INVALID", "The order has no valid WeChat QR code; keep the original order")
+    namespace = {"__name__": "viceme_qrcodegen"}
+    exec(compile(payment_resource(authority, "qrcodegen.py", request_fn), "qrcodegen.py", "exec"), namespace)
+    code = namespace["QrCode"].encode_text(uri, namespace["QrCode"].Ecc.MEDIUM)
+    size = code.get_size()
+    cells = "".join("M%d %dh1v1h-1z" % (x + 4, y + 4) for y in range(size)
+                    for x in range(size) if code.get_module(x, y))
+    dimension = size + 8
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" '
+           'role="img" aria-label="WeChat Pay QR" shape-rendering="crispEdges">'
+           '<path fill="white" d="M0 0h%dv%dH0z"/><path fill="black" d="%s"/></svg>') % (dimension, dimension, dimension, dimension, cells)
+    scale = max(4, 512 // dimension)
+    pixels = dimension * scale
+    rows = []
+    for y in range(pixels):
+        row = bytearray(1 + pixels)
+        for x in range(pixels):
+            qx, qy = x // scale - 4, y // scale - 4
+            row[x + 1] = 0 if 0 <= qx < size and 0 <= qy < size and code.get_module(qx, qy) else 255
+        rows.append(bytes(row))
+    def chunk(tag, content):
+        return struct.pack(">I", len(content)) + tag + content + struct.pack(">I", zlib.crc32(tag + content) & 0xffffffff)
+    png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", pixels, pixels, 8, 0, 0, 0, 0))
+           + chunk(b"IDAT", zlib.compress(b"".join(rows), 9)) + chunk(b"IEND", b""))
+    data = {"title": replica["title"], "amountCents": checkout["amountCents"],
+            "currency": checkout["currency"], "status": checkout["status"],
+            "expiresAt": checkout["expiresAt"], "locale": "zh-CN" if authority.web_origin.endswith("viceme.cn") else "en-US",
+            "paymentMethodLabel": "微信支付"}
+    encoded = json.dumps(data, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+    html = payment_resource(authority, "payment.html", request_fn).decode("utf-8").replace("__QR_SVG__", svg).replace("__WIDGET_DATA__", encoded)
+    stem = hashlib.sha256(checkout["orderNo"].encode()).hexdigest()
+    directory = state_root() / "payment-presentations"
+    widget = write_private_bytes(directory / (stem + ".html"), html.encode())
+    image = write_private_bytes(directory / (stem + ".png"), png)
+    return {"type": "LOCAL_IMAGE", "purpose": "PAYMENT_QR_CODE", "mimeType": "image/png",
+            "widgetPath": widget, "widgetMimeType": "text/html", "imagePath": image,
+            "imageChatSrc": "local-file://" + urllib.parse.quote(Path(image).as_posix(), safe="/:"),
+            "expiresAt": checkout["expiresAt"], "altText": "微信支付二维码"}
+
+
 def inspect(
     work_url: str,
     *,
@@ -1237,37 +1402,98 @@ def inspect(
     authority = authority_for_work_url(work_url)
     instruction, replica = resolve_work(authority, request_fn)
     return {
-        "nextAction": "CONFIRM_INLINE_PREVIEW",
+        "nextAction": "PRESENT_WORK",
         "workUrl": replica["viceMeWorkUrl"],
         "instruction": instruction,
         "replica": replica,
+        "discovery": discovery(authority, replica, request_fn),
+        "presentationTarget": "AGENT_PLATFORM",
+        "presentationPlacement": "RIGHT",
     }
 
 
 def install(
     work_url: str,
-    accepted_price_cents: int,
+    accepted_price_cents: Optional[int] = None,
     *,
     target_path: Optional[str] = None,
     payment_presented: bool = False,
+    replica_code: Optional[str] = None,
+    recovery_only: bool = False,
     request_fn: RequestFn = http_request,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> Dict[str, Any]:
     authority = authority_for_work_url(work_url)
+    if recovery_only:
+        if accepted_price_cents is not None or payment_presented:
+            raise WorkflowError(
+                "REPLICA_RECOVERY_ONLY_CONFLICT",
+                "Recovery-only mode cannot accept a price or present payment",
+            )
+        if not isinstance(replica_code, str) or not INSTRUCTION_PATTERN.fullmatch(replica_code):
+            raise WorkflowError(
+                "REPLICA_RECOVERY_CODE_REQUIRED",
+                "Recovery-only mode requires the platform-generated Replica instruction",
+            )
+        short_code = replica_code.split(":", 1)[1]
+        target = resolve_target(target_path, short_code)
+        store = state_store(authority, short_code, target)
+
+        def recover_only() -> Dict[str, Any]:
+            completion = read_state(store["completionFilename"])
+            if completion is not None:
+                completed_target = Path(str(completion.get("target", "")))
+                if not completed_target.is_dir():
+                    raise WorkflowError(
+                        "REPLICA_COMPLETION_TARGET_INVALID",
+                        "Completed Replica target is unavailable",
+                    )
+                return {**completion, "nextAction": "DEPLOY"}
+            receipt = recoverable_paid_receipt_by_code(authority, short_code)
+            if receipt is None:
+                raise WorkflowError(
+                    "REPLICA_RECOVERY_NOT_FOUND",
+                    "No recoverable Website Replica entitlement exists for this code",
+                )
+            status = recover_order_status(
+                authority, receipt["orderNo"], receipt["recoverySecret"], request_fn
+            )
+            if status["payment"]["status"] != "PAID":
+                raise WorkflowError(
+                    "REPLICA_RECOVERY_NOT_FOUND",
+                    "No paid Website Replica entitlement can be recovered for this code",
+                )
+            state = {
+                "replicaId": receipt["replicaId"],
+                "orderNo": receipt["orderNo"],
+                "downloadRecoverySecret": receipt["recoverySecret"],
+                "target": str(target),
+            }
+            download = try_recover_download(authority, state, request_fn)
+            if download is None:
+                raise WorkflowError(
+                    "REPLICA_RECOVERY_NOT_FOUND",
+                    "The paid Website Replica source is not recoverable yet",
+                )
+            return {
+                **complete_install(authority, state, store, download, request_fn),
+                "nextAction": "DEPLOY",
+            }
+
+        return with_lock(store, recover_only)
     instruction, replica = resolve_work(authority, request_fn)
-    if replica["product"]["priceCents"] != accepted_price_cents:
-        raise WorkflowError(
-            "REPLICA_PRICE_CHANGED",
-            "Replica price changed; show the Work again and ask for confirmation",
-            {
-                "nextAction": "CONFIRM_INLINE_PREVIEW",
-                "workUrl": replica["viceMeWorkUrl"],
-                "priceCents": replica["product"]["priceCents"],
-            },
-            10,
-        )
     target = resolve_target(target_path, replica["title"])
     store = state_store(authority, replica["shortCode"], target)
+
+    def price_confirmation() -> WorkflowError:
+        return WorkflowError(
+            "REPLICA_PURCHASE_CONFIRMATION_REQUIRED",
+            "Accept the displayed source price before creating or replacing an order",
+            {"nextAction": "CONFIRM_PRICE", "replicaCode": instruction, "productId": replica["product"]["id"],
+             "title": replica["title"], "currency": replica["product"]["currency"],
+             "totalAmountCents": replica["product"]["priceCents"], "workUrl": replica["viceMeWorkUrl"], "target": str(target)},
+            10,
+        )
 
     def run() -> Dict[str, Any]:
         completion = read_state(store["completionFilename"])
@@ -1303,7 +1529,10 @@ def install(
                         ),
                         "nextAction": "DEPLOY",
                     }
-                if not payment_presented:
+                if status["payment"]["status"] == "PENDING" and not payment_presented:
+                    if accepted_price_cents is None or accepted_price_cents != replica["product"]["priceCents"]:
+                        raise price_confirmation()
+                if not payment_presented and accepted_price_cents is not None:
                     if status["payment"]["status"] == "PENDING":
                         cancel_order_attempt(
                             authority,
@@ -1328,15 +1557,37 @@ def install(
             persist_state(store, state)
         receipt = recoverable_paid_receipt(authority, replica)
         if not state.get("orderNo") and receipt:
-            state["orderNo"] = receipt["orderNo"]
-            state["downloadRecoverySecret"] = receipt["recoverySecret"]
-            persist_state(store, state)
+            receipt_status = recover_order_status(authority, receipt["orderNo"], receipt["recoverySecret"], request_fn)
+            if receipt_status["payment"]["status"] == "PAID":
+                state["orderNo"] = receipt["orderNo"]
+                state["downloadRecoverySecret"] = receipt["recoverySecret"]
+                persist_state(store, state)
+            elif receipt_status["payment"]["status"] == "PENDING":
+                if accepted_price_cents is None or accepted_price_cents != replica["product"]["priceCents"]:
+                    raise price_confirmation()
+                cancel_order_attempt(authority, receipt["orderNo"], receipt["recoverySecret"], request_fn)
         download = try_recover_download(authority, state, request_fn)
         if download:
             return {
                 **complete_install(authority, state, store, download, request_fn),
                 "nextAction": "DEPLOY",
             }
+        if accepted_price_cents is None and replica["product"]["priceCents"] > 0 and not (payment_presented and state.get("orderNo")):
+            raise price_confirmation()
+        if accepted_price_cents is not None and not (payment_presented and state.get("orderNo")) and replica["product"]["priceCents"] != accepted_price_cents:
+            raise WorkflowError(
+                "REPLICA_PRICE_CHANGED",
+                "Replica price changed; show the Work again and ask for confirmation",
+                {
+                    "nextAction": "CONFIRM_PRICE",
+                    "workUrl": replica["viceMeWorkUrl"],
+                    "priceCents": replica["product"]["priceCents"],
+                },
+                10,
+            )
+        if not state.get("orderNo"):
+            state["priceCents"] = replica["product"]["priceCents"]
+            persist_state(store, state)
         checkout = ensure_checkout(authority, state, store, request_fn)
         if checkout["status"] == "PAID":
             download = try_recover_download(authority, state, request_fn)
@@ -1358,11 +1609,11 @@ def install(
         if not payment_presented or checkout["orderNo"] != presented_order_no:
             raise WorkflowError(
                 "REPLICA_PAYMENT_REQUIRED",
-                "Open the hosted ViceMe payment page inside the Agent platform",
+                "Support the creator; present the local payment page inside the Agent platform",
                 {
-                    "nextAction": "OPEN_PAYMENT_PAGE",
+                    "nextAction": "PRESENT_PAYMENT_QR",
                     "presentationTarget": "AGENT_PLATFORM",
-                    "checkoutUrl": checkout["checkoutUrl"],
+                    "paymentPresentation": payment_presentation(authority, replica, checkout, request_fn),
                 },
                 10,
             )
@@ -1389,10 +1640,12 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     install_parser = subparsers.add_parser("install")
     install_parser.add_argument("--work-url", required=True)
     install_parser.add_argument("--target")
-    install_parser.add_argument("--accept-price-cents", required=True, type=int)
+    install_parser.add_argument("--accept-price-cents", type=int)
     install_parser.add_argument("--payment-presented", action="store_true")
+    install_parser.add_argument("--replica-code")
+    install_parser.add_argument("--recovery-only", action="store_true")
     args = parser.parse_args(argv)
-    if args.command == "install" and args.accept_price_cents < 0:
+    if args.command == "install" and args.accept_price_cents is not None and args.accept_price_cents < 0:
         parser.error("--accept-price-cents must be a non-negative integer")
     return args
 
@@ -1413,6 +1666,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 args.accept_price_cents,
                 target_path=args.target,
                 payment_presented=args.payment_presented,
+                replica_code=args.replica_code,
+                recovery_only=args.recovery_only,
             )
         result(data)
         return 0
