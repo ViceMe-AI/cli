@@ -208,6 +208,10 @@ func FreezeSourceArchive(sourcePath string, options FreezeSourceOptions) (*Froze
 		if err := copyWorkspaceFile(source, result.filename, info.Size()); err != nil {
 			return nil, fmt.Errorf("freeze Website Replica ZIP: %w", err)
 		}
+		excluded, err = stripCreatorEntriesFromZIP(result)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if err := finalizeFrozenSourceArchive(result, excluded); err != nil {
 		return nil, err
@@ -427,6 +431,16 @@ func snapshotWorktree(root, freezeDirectory string) ([]frozenSourceFile, []Sourc
 		}
 		if err := validateForbiddenReplicaContent(source.name, data); err != nil {
 			return nil, nil, nil, err
+		}
+		data, removed, err := stripCreatorEntry(source.name, data)
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if removed {
+			if err := os.WriteFile(snapshot, data, 0o600); err != nil {
+				return nil, nil, nil, err
+			}
+			excluded = append(excluded, SourceArchiveExclusion{Path: source.name, Reason: "creator-entry-blocks"})
 		}
 		collectEnvironmentReferences(data, envNames)
 		files = append(files, frozenSourceFile{name: source.name, snapshot: snapshot, mode: source.mode, size: uint64(len(data))})
