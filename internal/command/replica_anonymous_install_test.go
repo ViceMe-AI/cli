@@ -526,7 +526,7 @@ func TestReplicaSessionPaymentContinuesAsSoonAsPaid(t *testing.T) {
 	}}
 	state := replicaPurchaseState{OrderNo: orderNo, SessionID: "session", SessionToken: "token", Target: filepath.Join(t.TempDir(), "copy")}
 	client := api.NewClient(server.URL, server.Client(), nil, "test")
-	if err := waitForReplicaSessionPayment(context.Background(), runtime, client, state, replicaPaymentWaitTimeout, replicaPaymentPollInterval); err != nil {
+	if _, err := waitForReplicaSessionPayment(context.Background(), runtime, client, state, replicaPaymentWaitTimeout, replicaPaymentPollInterval); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 || now.Sub(started) != 30*time.Second {
