@@ -147,6 +147,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 			semantics: []string{
 				"公开且不可逆", "响应丢失时读取同一资源恢复", "只支持以下来源",
+				"发布本作品的升级版并设价格", "不得把试用讲成免费额度",
 			},
 		},
 		{
@@ -896,6 +897,51 @@ func TestPublishListingCopyShortensOnOverLimit(t *testing.T) {
 	} {
 		if !strings.Contains(errorsText, required) {
 			t.Fatalf("publish errors omitted over-limit recovery %q", required)
+		}
+	}
+}
+
+func TestPublishSuccessAsksUpgradeEditionNotFreeFunnel(t *testing.T) {
+	t.Parallel()
+	for _, relativePath := range []string{
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		for _, required := range []string{
+			"自定义作品页",
+			"发布本作品的升级版并设价格",
+			"先到这里",
+		} {
+			if !strings.Contains(text, required) {
+				t.Fatalf("%s omitted post-publish option %q", relativePath, required)
+			}
+		}
+		for _, forbidden := range []string{
+			"发布一个更高级的版本",
+			"免费或低价版本让用户先用起来",
+		} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s retained post-publish funnel copy %q", relativePath, forbidden)
+			}
+		}
+	}
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(workflow)
+	for _, required := range []string{
+		"不得把试用讲成免费额度",
+		"不得再提免费版、免费次数用完",
+		"在同一作品页新增一条独立 Skill 并单独定价",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("publish workflow omitted paid-upgrade contract %q", required)
 		}
 	}
 }
