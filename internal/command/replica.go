@@ -32,6 +32,7 @@ func newReplicaCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newReplicaPreviewCommand(runtime))
 	command.AddCommand(newReplicaPublishCommand(runtime))
 	command.AddCommand(newReplicaInspectCommand(runtime))
+	command.AddCommand(newReplicaAnalyticsCommand(runtime))
 	command.AddCommand(newReplicaStatusCommand(runtime))
 	command.AddCommand(newReplicaResumeCommand(runtime))
 	command.AddCommand(newReplicaCancelCommand(runtime))
@@ -121,6 +122,9 @@ func replicaInspectFailure(err error) error {
 
 func replicaSourceArchiveError(err error) error {
 	switch {
+	case errors.Is(err, replicacontent.ErrCreatorEntryBoundary):
+		return output.Validation("REPLICA_CREATOR_ENTRY_BOUNDARY_INVALID", "creator entry markers must be complete, non-nested standalone comment lines").WithCause(err).
+			WithHint("repair only the original creator entry boundaries, including its imports, styles and event handlers; preserve the website content")
 	case errors.Is(err, replicacontent.ErrSensitiveContent):
 		return output.Validation("REPLICA_SENSITIVE_CONTENT", "Website Replica source contains suspected credentials or user data").WithCause(err)
 	case errors.Is(err, replicacontent.ErrForbiddenReplicaContent):

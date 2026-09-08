@@ -1229,11 +1229,13 @@ func TestWebsiteReplicaPreviewsCreatorSiteBeforePublication(t *testing.T) {
 	}
 	text := string(content)
 	for _, required := range []string{
-		"发布成功后修改创作者原站", "result.workUrl", "右下角紧凑浮动入口",
-		"喜欢这个网站？作者已授权你一键复刻", "不重复插入", "原站入口未完成",
-		"不再次运行 publish", "不自动部署外部生产站", "不覆盖原 ZIP",
-		"仅在顶层页面展示", "在 iframe 内隐藏原站入口", "再次发布场景",
-		"present_files", "等待创作者明确确认", "预览态", "不自行启动浏览器测试",
+		"发布成功后修改创作者原站", "result.workUrl", "右下角紧凑白色圆角 pill",
+		"喜欢这个网站？作者已授权你一键复刻", "不重复添加", "原站按钮还未完成",
+		"不创建新版本", "不自动部署外部生产站", "不覆盖原 ZIP",
+		"普通托管 iframe 仍隐藏原站入口", "再次发布保留旧正式入口可用",
+		"present_files", "等待创作者明确确认", "预览态", "不做 HTTP 连通性探测、自动浏览器验收或截图检查",
+		"保留现有按钮的样式与默认交互", "默认点击直接复制邀请", "邀请句式都可以修改",
+		"仅对应作品的权威网站路径需要保留", "creatorPreview", "AskUserQuestion",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("Website Replica Skill omitted creator-site boundary %q", required)
