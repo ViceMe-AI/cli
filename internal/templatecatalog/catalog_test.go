@@ -1,6 +1,7 @@
 package templatecatalog
 
 import (
+	"archive/zip"
 	"bytes"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -61,6 +62,7 @@ func TestSafeRelativePathRejectsURLSyntax(t *testing.T) {
 		"releases/source.zip?download=1",
 		"releases/source.zip#fragment",
 		"releases/%2e%2e/source.zip",
+		`..\outside\source.zip`,
 	} {
 		if safeRelativePath(value) {
 			t.Fatalf("safeRelativePath(%q) = true", value)
@@ -68,6 +70,65 @@ func TestSafeRelativePathRejectsURLSyntax(t *testing.T) {
 	}
 	if !safeRelativePath("releases/bonjour-card/1.0.0/source.zip") {
 		t.Fatal("expected canonical release path to be accepted")
+	}
+}
+
+func TestBuildRejectsCatalogSymlinksOutsideSourceRoot(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(external, "source"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(external, "source", "index.html"), []byte("external source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(external, "preview.html"), []byte("external preview"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "local-source"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "local-source", "index.html"), []byte("local source"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "local-preview.html"), []byte("local preview"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(external, "preview.html"), filepath.Join(root, "linked-preview.html")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.Symlink(external, filepath.Join(root, "linked-parent")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer := Signer{KeyID: "test-v1", PrivateKey: privateKey}
+	base := SourceTemplate{
+		ID: "bonjour-card", Status: "production", Version: "1.0.0", Name: "Bonjour Card",
+		Scenario: "works", Description: "profile", SourceDir: "local-source", PreviewFile: "local-preview.html", License: "ViceMe template license",
+	}
+	for _, test := range []struct {
+		name        string
+		sourceDir   string
+		previewDir  string
+		previewFile string
+	}{
+		{name: "preview file", sourceDir: base.SourceDir, previewFile: "linked-preview.html"},
+		{name: "preview directory parent", sourceDir: base.SourceDir, previewDir: "linked-parent/source"},
+		{name: "source parent", sourceDir: "linked-parent/source", previewFile: base.PreviewFile},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			entry := base
+			entry.SourceDir, entry.PreviewDir, entry.PreviewFile = test.sourceDir, test.previewDir, test.previewFile
+			_, err := Build(root, SourceCatalog{SchemaVersion: 1, Templates: []SourceTemplate{entry}}, filepath.Join(root, "output-"+strings.ReplaceAll(test.name, " ", "-")), "https://s3.viceme.cn/templates", signer)
+			if !errors.Is(err, ErrBuild) {
+				t.Fatalf("Build() error = %v, want ErrBuild", err)
+			}
+		})
 	}
 }
 
@@ -117,6 +178,68 @@ func TestBuildWritesDeterministicZipAndManifestDigest(t *testing.T) {
 	} {
 		if _, err := os.Stat(filepath.Join(root, "first", artifact)); err != nil {
 			t.Fatalf("missing artifact %s: %v", artifact, err)
+		}
+	}
+}
+
+func TestBuildPublishesCompletePreviewDirectory(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "source"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "source", "index.html"), []byte("<h1>Source</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "source", "node_modules", "vite"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "source", "node_modules", "vite", "package.json"), []byte(`{"private":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "preview", "assets"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "preview", "index.html"), []byte(`<script src="./assets/main.js"></script>`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "preview", "assets", "main.js"), []byte("console.log('bonjour')"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog := SourceCatalog{SchemaVersion: 1, Templates: []SourceTemplate{{
+		ID: "bonjour-card", Status: "production", Version: "1.0.1", Name: "Bonjour Card",
+		Scenario: "作品", Description: "个人名片", SourceDir: "source", PreviewDir: "preview", License: "ViceMe template license",
+	}}}
+
+	output := filepath.Join(root, "output")
+	if _, err := Build(root, catalog, output, "https://s3.viceme.cn/templates", Signer{KeyID: "test-v1", PrivateKey: privateKey}); err != nil {
+		t.Fatal(err)
+	}
+	for _, artifact := range []string{
+		"releases/bonjour-card/1.0.1/preview/index.html",
+		"releases/bonjour-card/1.0.1/preview/assets/main.js",
+	} {
+		body, err := os.ReadFile(filepath.Join(output, artifact))
+		if err != nil {
+			t.Fatalf("missing preview artifact %s: %v", artifact, err)
+		}
+		if len(body) == 0 {
+			t.Fatalf("preview artifact %s is empty", artifact)
+		}
+	}
+	reader, err := zip.OpenReader(filepath.Join(output, "releases", "bonjour-card", "1.0.1", "source.zip"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	for _, entry := range reader.File {
+		if strings.Contains(entry.Name, "/node_modules/") {
+			t.Fatalf("source ZIP includes build dependency %q", entry.Name)
 		}
 	}
 }

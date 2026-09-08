@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.35.2] - 2026-09-08
+
+### Fixes
+
+- reject unsafe template catalog paths (`310d0a6`)
+
+## [0.35.1] - 2026-09-08
+
+### Fixes
+
+- use valid setup-node action pin (`d077d3a`)
+- tailor welcome to page state (`1d4e63d`)
+- audit import sources before preview (`bcba64e`)
+- harden onboarding and publish real previews (`a7b5bc1`)
+
 ## [0.35.0] - 2026-09-07
 
 ### Features
