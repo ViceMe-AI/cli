@@ -17,10 +17,12 @@ import (
 const TrialDisabledMarker = "<!-- viceme-trial-disabled:v1"
 
 // SuspendTrialSkills replaces only a matching marketplace trial's entrypoint.
+// Both manifests must bind it to the selected API, market, Product, and Release.
+// Legacy or damaged installs without that identity are left untouched.
 // The caller holds the shared Go/Python Product lock. Native destination locks
 // also fence official installs and incomplete transactions in other profiles.
 // No credential, install manifest, script, reference, or user output is removed.
-func SuspendTrialSkills(environment Environment, productID, purchaseURL, installDocURL string) (int, error) {
+func SuspendTrialSkills(environment Environment, productID, apiBaseURL, market, purchaseURL, installDocURL string) (int, error) {
 	known, err := resolveKnownTargets("trial-scan", environment)
 	if err != nil {
 		return 0, err
@@ -48,7 +50,7 @@ func SuspendTrialSkills(environment Environment, productID, purchaseURL, install
 	sort.Strings(destinations)
 	count := 0
 	for _, destination := range destinations {
-		changed, err := suspendTrialEntry(destination, productID, purchaseURL, installDocURL)
+		changed, err := suspendTrialEntry(destination, productID, apiBaseURL, market, purchaseURL, installDocURL)
 		if changed {
 			count++
 		}
@@ -59,10 +61,10 @@ func SuspendTrialSkills(environment Environment, productID, purchaseURL, install
 	return count, nil
 }
 
-func suspendTrialEntry(directory, productID, purchaseURL, installDocURL string) (bool, error) {
+func suspendTrialEntry(directory, productID, apiBaseURL, market, purchaseURL, installDocURL string) (bool, error) {
 	// Cheap ownership check first: unrelated and unmanaged Skills need no lock
 	// or write probe. Recheck the same identity after taking the path lock.
-	if !trialProductOwnsDirectory(directory, productID) {
+	if !trialProductOwnsDirectory(directory, productID, apiBaseURL, market) {
 		return false, nil
 	}
 	locks, err := tryAcquireInstallPathLocks([]string{directory})
@@ -81,7 +83,7 @@ func suspendTrialEntry(directory, productID, purchaseURL, installDocURL string) 
 			}
 		}
 	}
-	if !trialProductOwnsDirectory(directory, productID) {
+	if !trialProductOwnsDirectory(directory, productID, apiBaseURL, market) {
 		return false, nil
 	}
 	filename := filepath.Join(directory, "SKILL.md")
@@ -125,7 +127,7 @@ func suspendTrialEntry(directory, productID, purchaseURL, installDocURL string) 
 		return false, err
 	}
 	current, err := os.ReadFile(filename)
-	if err != nil || !bytes.Equal(current, original) || !trialProductOwnsDirectory(directory, productID) {
+	if err != nil || !bytes.Equal(current, original) || !trialProductOwnsDirectory(directory, productID, apiBaseURL, market) {
 		return false, errors.New("Skill changed before trial suspension")
 	}
 	// Fail closed on permission denial; never truncate the live entrypoint.
@@ -144,10 +146,10 @@ func suspendTrialEntry(directory, productID, purchaseURL, installDocURL string) 
 
 var replaceTrialEntry = atomicfile.Replace
 
-func trialProductOwnsDirectory(directory, productID string) bool {
-	for _, filename := range []string{directory, filepath.Join(directory, ".viceme"), filepath.Join(directory, installManifestPath)} {
+func trialProductOwnsDirectory(directory, productID, apiBaseURL, market string) bool {
+	for index, filename := range []string{directory, filepath.Join(directory, ".viceme"), filepath.Join(directory, installManifestPath), filepath.Join(directory, ".viceme", "runtime.json")} {
 		info, err := os.Lstat(filename)
-		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+		if err != nil || (index < 2 && !info.IsDir()) || (index >= 2 && !info.Mode().IsRegular()) {
 			return false
 		}
 	}
@@ -156,7 +158,15 @@ func trialProductOwnsDirectory(directory, productID string) bool {
 		return false
 	}
 	var manifest installManifest
-	return json.Unmarshal(raw, &manifest) == nil && manifest.ProductID == productID && manifest.ReleaseID != ""
+	if json.Unmarshal(raw, &manifest) != nil || manifest.ProductID != productID || manifest.ReleaseID == "" {
+		return false
+	}
+	raw, err = os.ReadFile(filepath.Join(directory, ".viceme", "runtime.json"))
+	var runtime RuntimeManifest
+	return err == nil && json.Unmarshal(raw, &runtime) == nil &&
+		runtime.SchemaVersion == 1 && runtime.ProductID == productID && runtime.ReleaseID == manifest.ReleaseID &&
+		apiBaseURL != "" && runtime.APIBaseURL == apiBaseURL && market != "" && runtime.Market == market &&
+		runtime.Kind == "trial" && (runtime.Runner == "cli" || runtime.Runner == "python")
 }
 
 func suspendedTrialMarkdown(original []byte, skillName, productID, purchaseURL, installDocURL string) ([]byte, bool) {

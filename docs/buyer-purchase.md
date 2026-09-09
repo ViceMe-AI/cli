@@ -78,3 +78,5 @@ Go/Python 的商品安装与停用共用 Product 锁，停用同时遵守原生�
 接口和 grant 到购买身份的持久关联 migration。必须先部署 API/migration，再发布 CLI、
 脚本及稳定/摘要 Widget 托管物，最后更新 Web 引导。回滚不删除已购关联或历史摘要资源。
 旧安装通过原入口重装获得新门禁；不会在后台自动改写用户已安装的 Skill。
+
+试用耗尽时，Go CLI 与免 CLI Python 运行时只停用与当前 API 和市场一致的本地试用安装。停用前、获得安装目录锁后以及替换入口前，均核对 `.viceme/install-manifest.json` 与 `.viceme/runtime.json` 的 Product、Release 和试用类型；另一环境的同 Product 安装不会被加锁或改写。缺失、损坏或通过符号链接提供的身份文件不能证明安装归属，保留原文件，通过显式安装修复。此检查不会重置服务端试用次数，也不会赋予正式版权益。

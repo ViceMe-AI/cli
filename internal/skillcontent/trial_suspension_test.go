@@ -32,7 +32,8 @@ func suspensionFixture(t *testing.T, root, name, product string, trial bool) (st
 	manifest, _ := json.Marshal(map[string]any{"product_id": product, "release_id": "release-one"})
 	for relative, data := range map[string][]byte{
 		"SKILL.md": []byte(content), installManifestPath: manifest,
-		"scripts/run.sh": []byte("original script"), "references/viceme-runtime.md": []byte("original rules"),
+		".viceme/runtime.json": []byte(`{"schemaVersion":1,"productId":"` + product + `","releaseId":"release-one","apiBaseUrl":"https://api.viceme.cn","market":"cn","kind":"trial","runner":"cli"}`),
+		"scripts/run.sh":       []byte("original script"), "references/viceme-runtime.md": []byte("original rules"),
 		"outputs/user.md": []byte("user output must stay"),
 	} {
 		if err := os.WriteFile(filepath.Join(directory, relative), data, 0o644); err != nil {
@@ -54,7 +55,7 @@ func TestTrialSuspensionPreservesFrontmatterAndEveryOtherFile(t *testing.T) {
 		directory, original := suspensionFixture(t, filepath.Dir(target.path), "demo", suspensionProduct, true)
 		directories = append(directories, directory)
 		before, _ := os.ReadFile(filepath.Join(directory, installManifestPath))
-		count, err := SuspendTrialSkills(environment, suspensionProduct, suspensionPurchase, suspensionInstallDoc)
+		count, err := SuspendTrialSkills(environment, suspensionProduct, "https://api.viceme.cn", "cn", suspensionPurchase, suspensionInstallDoc)
 		if err != nil || count != len(directories) {
 			t.Fatalf("suspension failed: %d, %v", count, err)
 		}
@@ -73,7 +74,7 @@ func TestTrialSuspensionPreservesFrontmatterAndEveryOtherFile(t *testing.T) {
 				t.Fatalf("non-entry file changed: %s, %v", relative, err)
 			}
 		}
-		_, err = SuspendTrialSkills(environment, suspensionProduct, suspensionPurchase, suspensionInstallDoc)
+		_, err = SuspendTrialSkills(environment, suspensionProduct, "https://api.viceme.cn", "cn", suspensionPurchase, suspensionInstallDoc)
 		current, _ := os.ReadFile(filepath.Join(directory, "SKILL.md"))
 		if err != nil || !bytes.Equal(current, after) {
 			t.Fatalf("repeated suspension was not idempotent: %v", err)
@@ -111,7 +112,7 @@ func TestTrialSuspensionSkipsOwnedForeignUnmanagedAndSymlinkEntries(t *testing.T
 					t.Skipf("symlinks unavailable: %v", err)
 				}
 			}
-			count, err := SuspendTrialSkills(Environment{Home: home}, suspensionProduct, suspensionPurchase, suspensionInstallDoc)
+			count, err := SuspendTrialSkills(Environment{Home: home}, suspensionProduct, "https://api.viceme.cn", "cn", suspensionPurchase, suspensionInstallDoc)
 			after, _ := os.ReadFile(filename)
 			if err != nil || count != 0 || !bytes.Equal(after, original) {
 				t.Fatalf("unrelated/unsafe entry was changed: count=%d err=%v", count, err)
@@ -152,7 +153,7 @@ func TestTrialSuspensionPreservesEntryOnPermissionOrRecoveryConflict(t *testing.
 					t.Fatal(err)
 				}
 			}
-			count, err := SuspendTrialSkills(Environment{Home: home}, suspensionProduct, suspensionPurchase, suspensionInstallDoc)
+			count, err := SuspendTrialSkills(Environment{Home: home}, suspensionProduct, "https://api.viceme.cn", "cn", suspensionPurchase, suspensionInstallDoc)
 			after, _ := os.ReadFile(filepath.Join(directory, "SKILL.md"))
 			if err == nil || count != 0 || !bytes.Equal(after, original) {
 				t.Fatalf("unsafe replacement was not blocked: count=%d err=%v", count, err)
@@ -206,5 +207,64 @@ func TestPythonSuspensionSharesNativeDestinationLockAndNotice(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(directory, "scripts/run.sh")); errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("Python deleted the scripts")
+	}
+}
+
+func TestTrialSuspensionRequiresMatchingRuntimeIdentity(t *testing.T) {
+	for _, kind := range []string{"api", "market", "product", "release", "owned", "schema", "missing", "invalid", "symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			home := t.TempDir()
+			directory, original := suspensionFixture(t, filepath.Join(home, ".agents", "skills"), "demo", suspensionProduct, true)
+			filename := filepath.Join(directory, ".viceme", "runtime.json")
+			data, _ := os.ReadFile(filename)
+			var manifest map[string]any
+			if err := json.Unmarshal(data, &manifest); err != nil {
+				t.Fatal(err)
+			}
+			switch kind {
+			case "api":
+				manifest["apiBaseUrl"] = "https://staging.viceme.cn"
+			case "market":
+				manifest["market"] = "global"
+			case "product":
+				manifest["productId"] = "other-product"
+			case "release":
+				manifest["releaseId"] = "other-release"
+			case "owned":
+				manifest["kind"] = "owned"
+			case "schema":
+				manifest["schemaVersion"] = 2
+			}
+			data, _ = json.Marshal(manifest)
+			if kind == "invalid" {
+				data = []byte("null")
+			}
+			if err := os.WriteFile(filename, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if kind == "missing" || kind == "symlink" {
+				if err := os.Remove(filename); err != nil {
+					t.Fatal(err)
+				}
+				if kind == "symlink" {
+					outside := filepath.Join(t.TempDir(), "runtime.json")
+					if err := os.WriteFile(outside, data, 0o644); err != nil {
+						t.Fatal(err)
+					}
+					if err := os.Symlink(outside, filename); err != nil {
+						t.Skipf("symlinks unavailable: %v", err)
+					}
+				}
+			}
+			count, err := SuspendTrialSkills(Environment{Home: home}, suspensionProduct, "https://api.viceme.cn", "cn", suspensionPurchase, suspensionInstallDoc)
+			after, _ := os.ReadFile(filepath.Join(directory, "SKILL.md"))
+			if err != nil || count != 0 || !bytes.Equal(after, original) {
+				t.Fatalf("foreign or unbound runtime was changed: count=%d err=%v", count, err)
+			}
+			locks, _ := filepath.Glob(filepath.Join(filepath.Dir(directory), ".viceme-install-*"))
+			if len(locks) != 0 {
+				t.Fatalf("unrelated runtime created locks: %v", locks)
+			}
+		})
 	}
 }
