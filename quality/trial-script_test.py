@@ -1443,6 +1443,29 @@ class InstallFlowTestCase(unittest.TestCase):
         with open(entry, "rb") as handle:
             self.assertEqual(handle.read(), original)
 
+    def test_suspension_requires_matching_runtime_identity(self):
+        directory = self._install_trial_fixture()
+        entry = os.path.join(directory, "SKILL.md")
+        filename = os.path.join(directory, ".viceme", "runtime.json")
+        with open(entry, "rb") as handle:
+            original = handle.read()
+        with open(filename, encoding="utf-8") as handle:
+            baseline = json.load(handle)
+        for field, value in (("apiBaseUrl", "https://staging.viceme.cn"), ("market", "global"),
+                             ("productId", "other-product"), ("releaseId", "other-release"),
+                             ("kind", "owned"), ("schemaVersion", 2), ("invalid", None), ("missing", None)):
+            with self.subTest(field=field):
+                manifest = dict(baseline)
+                manifest[field] = value
+                with open(filename, "w", encoding="utf-8") as handle:
+                    json.dump(None if field == "invalid" else manifest, handle)
+                if field == "missing":
+                    os.remove(filename)
+                with mock.patch.object(trial, "skill_path_lock", side_effect=AssertionError("foreign install was locked")):
+                    self.assertEqual(trial.suspend_trial_skills("cn", PRODUCT_ID, ""), 0)
+                with open(entry, "rb") as handle:
+                    self.assertEqual(handle.read(), original)
+
     def test_suspension_skips_formal_foreign_and_unmanaged_entries(self):
         directory = self._install_trial_fixture()
         for kind in ("formal", "foreign", "unmanaged"):

@@ -686,7 +686,7 @@ func installTrialSkill(ctx context.Context, runtime *Runtime, productID string, 
 			purchaseURL = *access.PurchaseURL
 		}
 		if err := withScriptTrialLock(runtime, productID, func() error {
-			_, suspendErr := skillcontent.SuspendTrialSkills(runtime.deps.Environment, productID, purchaseURL, config.AgentInstallDocURL(runtime.region))
+			_, suspendErr := skillcontent.SuspendTrialSkills(runtime.deps.Environment, productID, runtime.apiBaseURL, string(runtime.region), purchaseURL, config.AgentInstallDocURL(runtime.region))
 			return suspendErr
 		}); err != nil {
 			return output.Internal("SKILL_TRIAL_SUSPEND_FAILED", "trial exhausted; could not safely replace every trial Skill entrypoint", err).
@@ -855,7 +855,7 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			if use.Reason != nil && *use.Reason == "EXHAUSTED" && use.PurchaseURL != nil {
 				err := withScriptTrialLock(runtime, productID, func() error {
 					var suspendErr error
-					disabledCount, suspendErr = skillcontent.SuspendTrialSkills(runtime.deps.Environment, productID, *use.PurchaseURL, config.AgentInstallDocURL(runtime.region))
+					disabledCount, suspendErr = skillcontent.SuspendTrialSkills(runtime.deps.Environment, productID, runtime.apiBaseURL, string(runtime.region), *use.PurchaseURL, config.AgentInstallDocURL(runtime.region))
 					return suspendErr
 				})
 				if err != nil {

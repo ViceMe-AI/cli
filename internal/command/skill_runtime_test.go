@@ -410,3 +410,74 @@ func TestClosedTrialOrderDoesNotHijackInstall(t *testing.T) {
 		t.Fatalf("closed install blocked available use: %#v", result)
 	}
 }
+
+func TestTrialExhaustionPreservesOtherAPIInstallation(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	for _, operation := range []string{"ready", "use", "install"} {
+		t.Run(operation, func(t *testing.T) {
+			state := newSkillTrialTestServer(t)
+			defer state.server.Close()
+			home, store := t.TempDir(), securestore.NewMemory()
+			code, result, _ := executeSkillTrialCommand(t, state.server, home, store, "skill", "install", downloadableProductID, "--agent", "workbuddy")
+			if code != 0 {
+				t.Fatalf("install: %#v", result)
+			}
+			current := filepath.Dir(result["data"].(map[string]any)["skillPath"].(string))
+			foreign := filepath.Join(home, ".claude", "skills", filepath.Base(current))
+			if err := os.CopyFS(foreign, os.DirFS(current)); err != nil {
+				t.Fatal(err)
+			}
+			filename := filepath.Join(foreign, ".viceme", "runtime.json")
+			data, err := os.ReadFile(filename)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var manifest skillcontent.RuntimeManifest
+			if err := json.Unmarshal(data, &manifest); err != nil {
+				t.Fatal(err)
+			}
+			manifest.APIBaseURL = "https://another-api.example.test"
+			data, _ = json.Marshal(manifest)
+			if err := os.WriteFile(filename, data, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			original, _ := os.ReadFile(filepath.Join(foreign, "SKILL.md"))
+			state.mu.Lock()
+			state.grantUses = 2
+			state.mu.Unlock()
+			args := []string{"skill", operation, downloadableProductID}
+			if operation != "use" {
+				args = append(args, "--agent", "workbuddy")
+			}
+			code, result, _ = executeSkillTrialCommand(t, state.server, home, store, args...)
+			if operation == "use" {
+				if code == 0 || result["error"].(map[string]any)["code"] != "SKILL_PURCHASE_REQUIRED" {
+					t.Fatalf("use: %#v", result)
+				}
+			} else if code != 0 || result["data"].(map[string]any)["trialExhausted"] != true {
+				t.Fatalf("%s: %#v", operation, result)
+			}
+			entry, _ := os.ReadFile(filepath.Join(current, "SKILL.md"))
+			if !bytes.Contains(entry, []byte(skillcontent.TrialDisabledMarker)) {
+				t.Fatal("current API installation was not suspended")
+			}
+			after, _ := os.ReadFile(filepath.Join(foreign, "SKILL.md"))
+			if !bytes.Equal(after, original) {
+				t.Fatal("other API installation changed")
+			}
+			locks, _ := filepath.Glob(filepath.Join(filepath.Dir(foreign), ".viceme-install-*"))
+			if len(locks) != 0 {
+				t.Fatal("other API installation was locked")
+			}
+			state.mu.Lock()
+			defer state.mu.Unlock()
+			expectedPurchases, expectedUseRequests := 0, 0
+			if operation == "use" {
+				expectedPurchases, expectedUseRequests = 1, 1
+			}
+			if len(state.useRequests) != expectedUseRequests || len(state.trialPurchaseRequests) != expectedPurchases {
+				t.Fatal("suspension changed quota or purchase behavior")
+			}
+		})
+	}
+}

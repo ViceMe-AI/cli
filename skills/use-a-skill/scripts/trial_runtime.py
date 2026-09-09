@@ -1183,15 +1183,24 @@ def suspension_roots():
     return sorted({os.path.realpath(root) for root in roots})
 
 
-def trial_product_owns_directory(directory, product_id):
+def trial_product_owns_directory(directory, market, product_id):
     manifest_path = os.path.join(directory, ".viceme", "install-manifest.json")
+    runtime_path = os.path.join(directory, ".viceme", "runtime.json")
     try:
-        for path in (directory, os.path.join(directory, ".viceme"), manifest_path):
-            if stat.S_ISLNK(os.lstat(path).st_mode):
+        for index, path in enumerate((directory, os.path.join(directory, ".viceme"), manifest_path, runtime_path)):
+            mode = os.lstat(path).st_mode
+            if (index < 2 and not stat.S_ISDIR(mode)) or (index >= 2 and not stat.S_ISREG(mode)):
                 return False
         with open(manifest_path, encoding="utf-8") as handle:
             manifest = json.load(handle)
-        return isinstance(manifest, dict) and manifest.get("product_id") == product_id and bool(manifest.get("release_id"))
+        if not isinstance(manifest, dict) or manifest.get("product_id") != product_id or not isinstance(manifest.get("release_id"), str) or not manifest["release_id"]:
+            return False
+        with open(runtime_path, encoding="utf-8") as handle:
+            runtime = json.load(handle)
+        return (isinstance(runtime, dict) and type(runtime.get("schemaVersion")) is int and runtime.get("schemaVersion") == 1
+                and runtime.get("productId") == product_id and runtime.get("releaseId") == manifest["release_id"]
+                and runtime.get("apiBaseUrl") == API_ORIGIN[market] and runtime.get("market") == market
+                and runtime.get("kind") == "trial" and runtime.get("runner") in ("cli", "python"))
     except (OSError, ValueError):
         return False
 
@@ -1231,7 +1240,7 @@ def suspended_trial_markdown(original, skill_name, product_id, purchase_url, mar
 
 
 def suspend_trial_skills(market, product_id, purchase_url):
-    """调用方持有 ProductLock;只替换同 Product 的已确认试用入口。"""
+    """调用方持有 ProductLock;只替换 API、市场、Product 和 Release 身份一致的试用入口。"""
     count = 0
     try:
         for root in suspension_roots():
@@ -1241,7 +1250,7 @@ def suspend_trial_skills(market, product_id, purchase_url):
             except FileNotFoundError:
                 continue
             for directory in directories:
-                if not trial_product_owns_directory(directory, product_id):
+                if not trial_product_owns_directory(directory, market, product_id):
                     continue
                 with skill_path_lock(directory):
                     count += int(suspend_trial_entry(directory, market, product_id, purchase_url))
@@ -1285,7 +1294,7 @@ def skill_path_lock(directory):
 
 
 def suspend_trial_entry(directory, market, product_id, purchase_url):
-    if not trial_product_owns_directory(directory, product_id):
+    if not trial_product_owns_directory(directory, market, product_id):
         return False
     filename = os.path.join(directory, "SKILL.md")
     try:
@@ -1311,7 +1320,7 @@ def suspend_trial_entry(directory, market, product_id, purchase_url):
         os.chmod(staged, stat.S_IMODE(info.st_mode))
         with open(filename, "rb") as handle:
             unchanged = handle.read() == original
-        if not unchanged or not trial_product_owns_directory(directory, product_id):
+        if not unchanged or not trial_product_owns_directory(directory, market, product_id):
             raise OSError("Skill changed before trial suspension")
         # 不退回原地截断:权限拒绝时保留完整旧文件,交给宿主审批。
         os.replace(staged, filename)
