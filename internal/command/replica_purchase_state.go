@@ -194,7 +194,7 @@ func (store replicaPurchaseStore) load() (replicaPurchaseState, bool, error) {
 	if err := decoder.Decode(&state); err != nil || decoder.Decode(&struct{}{}) != io.EOF || !store.valid(state) {
 		return replicaPurchaseState{}, false, output.Policy("REPLICA_PURCHASE_STATE_INVALID", "Website Replica purchase recovery state is invalid")
 	}
-	if err := store.verifyReservation(state); err != nil {
+	if err := store.restoreMissingReservation(state); err != nil {
 		return replicaPurchaseState{}, false, err
 	}
 	return state, true, nil
@@ -284,12 +284,17 @@ func (store replicaPurchaseStore) reserve(state *replicaPurchaseState) error {
 	if err := store.removeOwnedOrphanReservation(filename); err != nil {
 		return err
 	}
+	return store.writeReservation(*state)
+}
+
+func (store replicaPurchaseStore) writeReservation(state replicaPurchaseState) error {
+	filename := replicaTargetReservationPath(state.Target)
 	file, err := privatepath.CreateExclusiveFile(filename)
 	if err != nil {
 		return output.Policy("REPLICA_TARGET_RESERVED", "the Website Replica target is already reserved by another installation").WithCause(err)
 	}
 	writeErr := func() error {
-		if _, err := file.Write(store.reservationPayload(*state)); err != nil {
+		if _, err := file.Write(store.reservationPayload(state)); err != nil {
 			return err
 		}
 		if err := file.Sync(); err != nil {
@@ -328,14 +333,57 @@ func (store replicaPurchaseStore) removeOwnedOrphanReservation(filename string) 
 
 func (store replicaPurchaseStore) verifyReservation(state replicaPurchaseState) error {
 	if err := verifyReplicaTargetParent(state.Target, state.TargetParentID); err != nil {
-		return err
+		return output.AsError(err).WithDetails(replicaReservationDetails(state, "PARENT_CHANGED"))
 	}
 	filename := replicaTargetReservationPath(state.Target)
 	data, err := readReplicaBoundedFile(filename, 256)
-	if err != nil || !bytes.Equal(data, store.reservationPayload(state)) {
-		return output.Policy("REPLICA_TARGET_RESERVATION_INVALID", "the Website Replica target reservation changed unexpectedly")
+	if err != nil {
+		reason := "UNREADABLE"
+		if errors.Is(err, fs.ErrNotExist) {
+			reason = "MISSING"
+		}
+		return replicaReservationFailure(state, reason).WithCause(err)
+	}
+	if !bytes.Equal(data, store.reservationPayload(state)) {
+		return replicaReservationFailure(state, "MISMATCH")
 	}
 	return nil
+}
+
+// Only a validated, still-bound purchase may restore its absent marker. Never
+// replace another reservation or claim a target that has appeared meanwhile.
+func (store replicaPurchaseStore) restoreMissingReservation(state replicaPurchaseState) error {
+	if state.Target != store.target {
+		return replicaReservationFailure(state, "TARGET_CHANGED")
+	}
+	if err := verifyReplicaTargetParent(state.Target, state.TargetParentID); err != nil {
+		return output.AsError(err).WithDetails(replicaReservationDetails(state, "PARENT_CHANGED"))
+	}
+	if _, err := os.Lstat(replicaTargetReservationPath(state.Target)); !errors.Is(err, fs.ErrNotExist) {
+		return store.verifyReservation(state)
+	}
+	if err := requireMissingReplicaTarget(state.Target); err != nil {
+		return replicaReservationFailure(state, "TARGET_OCCUPIED").WithCause(err)
+	}
+	if err := store.writeReservation(state); err != nil {
+		return replicaReservationFailure(state, "RESTORE_FAILED").WithCause(err)
+	}
+	return store.verifyReservation(state)
+}
+
+func replicaReservationDetails(state replicaPurchaseState, reason string) map[string]any {
+	details := state.describe()
+	details["source"] = "LOCAL_FILESYSTEM"
+	details["reason"] = reason
+	details["stage"] = "VALIDATE_TARGET_RESERVATION"
+	details["nextAction"] = "STOP_AND_REPORT"
+	return details
+}
+
+func replicaReservationFailure(state replicaPurchaseState, reason string) *output.Error {
+	return output.Policy("REPLICA_TARGET_RESERVATION_INVALID", "the local Website Replica target reservation could not be verified").
+		WithDetails(replicaReservationDetails(state, reason)).
+		WithHint("preserve the purchase recovery record and existing target; resolve the local filesystem conflict before retrying the original purchase")
 }
 
 func (store replicaPurchaseStore) reservationPayload(state replicaPurchaseState) []byte {
