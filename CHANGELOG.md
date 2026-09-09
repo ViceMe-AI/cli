@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.38.1] - 2026-09-09
+
+### Fixes
+
+- 试用扣次成功后锁释放失败仍交付本次使用 (`bc51b5e`)
+- 修正付费Skill发布的来源选择与人类可见文案 (`aae9ccf`)
+- scope trial recovery state to market (`e4eee1f`)
+
 ## [0.38.0] - 2026-09-09
 
 ### Features
