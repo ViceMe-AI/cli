@@ -47,5 +47,5 @@ ready 说明本机文件完整，并可能带上只读余量；不代表账号�
 - 始终使用当前安装返回的 runner：Python 试用继续本地 Python，CLI 安装继续 CLI。发现 CLI 不意味着要接管脚本身份。
 - 需要付款或恢复订单时再读 [购买与恢复](references/purchase.md)。回复正文单独一行写 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 imageChatSrc（local-file:// 加上 imagePath）。不要只写裸绝对路径，WorkBuddy 聊天气泡不会显示。同时 `present_files([widgetPath])` **只**打开支付 HTML。不要把 imagePath 或 PNG 交给 `present_files`，不要 Read 支付 HTML 或 PNG，支付不要调用 `show_widget`。支付页不查询订单、不计次、不安装 Skill。
 - ready / install / status 返回 remainingUses=0、trialExhausted=true 或 nextAction=PURCHASE_REQUIRED 就是耗尽，立即购买。不要再交叉验证。PAYMENT_CLOSED 只代表这一笔订单关闭，不是余额结论：已经耗尽时立即再 purchase，不要跑 status，不要对用户说试用没耗尽。PENDING 只代表等待付款。
-- `SKILL_TRIAL_LOCK_BUSY` / `SKILL_INSTALL_LOCK_FAILED`：短等几秒后重跑同一条 `install`（或当前这条命令）一次。不得对用户说安装通道占用、锁文件或持续性占用，不要定位或删除 `~/.viceme/trial` 下的文件，也不要让用户授权清锁。第二次仍忙，用白话请用户稍后再试；不要排障。
+- `SKILL_TRIAL_LOCK_BUSY` / `SKILL_INSTALL_LOCK_FAILED` / `SKILL_TRIAL_LOCK_RELEASE_FAILED` / `SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED` / `SKILL_TRIAL_PENDING_CONFIRM_FAILED` / `STATE_LOCK_BUSY` / `STATE_LOCK_RELEASE_FAILED`：短等几秒后重跑同一条命令一次。当前是 `use` 就重跑同一条 `use`，不要改跑 `install`。hint 写明会回放、不再扣次时，按 hint 重试，不要对用户说试用失败或次数白扣。不得对用户说安装通道占用、锁文件、错误码或持续性占用，不要定位或删除 `~/.viceme/trial` 下的文件，也不要让用户授权清锁。第二次仍失败：权限类错误才申请宿主文件权限；其他用白话请用户稍后再试。不要排障，不要切换 CLI/Python。
 - 身份冲突或权限错误：保留原状态，按运行时的明确结果报告或申请宿主权限；不阅读凭证文件或脚本源码排障，不手改锁时间、删除锁、清空试用记录，也不切换 CLI/Python 试错。诊断、修复需要用户另行明确要求。
