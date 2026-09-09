@@ -735,13 +735,14 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertEqual(trial.load_trial_state(PRODUCT_ID)["installId"], "unchanged")
         self.assertTrue(os.path.isfile(trial.trial_state_path(PRODUCT_ID) + ".lock"))
 
-    def test_unlock_failure_keeps_consumed_use_retry_key(self):
-        trial.save_trial_state(PRODUCT_ID, {"installId": "fixture", "secret": "fixture", "pendingRequestId": "same-use"})
+    def test_unlock_failure_after_consume_still_allows_use(self):
+        trial.save_trial_state(PRODUCT_ID, {"installId": "fixture", "secret": "fixture", "productId": PRODUCT_ID, "market": "cn", "pendingRequestId": "same-use"})
         with mock.patch.object(trial, "api_request", return_value={"allowed": True, "remainingUses": 1, "limitUses": 3}), \
-                mock.patch.object(trial.os, "remove", side_effect=PermissionError()), self.assertRaises(trial.Failure) as caught:
-            trial.command_use("cn", PRODUCT_ID)
-        self.assertEqual(caught.exception.code, "STATE_LOCK_RELEASE_FAILED")
-        self.assertEqual(trial.load_trial_state(PRODUCT_ID)["pendingRequestId"], "same-use")
+                mock.patch.object(trial.os, "remove", side_effect=PermissionError()):
+            code = trial.command_use("cn", PRODUCT_ID)
+        self.assertEqual(code, 0)
+        self.assertNotIn("pendingRequestId", trial.load_trial_state(PRODUCT_ID))
+        self.assertTrue(os.path.isfile(trial.trial_state_path(PRODUCT_ID) + ".lock"))
 
 
 def time_old_mtime():

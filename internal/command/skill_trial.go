@@ -178,10 +178,61 @@ func withScriptTrialLockAt(home, productID string, action func() error) (resultE
 	defer func() {
 		_ = handle.Close()
 		if err := removeScriptTrialLock(lockPath); err != nil && !os.IsNotExist(err) {
-			resultErr = output.Policy("SKILL_TRIAL_LOCK_RELEASE_FAILED", "the trial operation ended but its state lock could not be released").WithHint("preserve state and request filesystem access through the host before retrying; never edit lock timestamps or create another identity")
+			// A leftover lock after a finished action is recoverable; do not
+			// hide the action's own error behind the cleanup failure.
+			if resultErr == nil {
+				resultErr = scriptTrialLockReleaseFailed()
+			}
 		}
 	}()
 	return action()
+}
+
+func scriptTrialLockReleaseFailed() *output.Error {
+	failure := output.Policy("SKILL_TRIAL_LOCK_RELEASE_FAILED", "the trial operation ended but its state lock could not be released").WithHint("preserve state and request filesystem access through the host before retrying; never edit lock timestamps or create another identity")
+	failure.Retryable = true
+	return failure
+}
+
+func trialLockPolicyError(err error) *output.Error {
+	var failure *output.Error
+	if !errors.As(err, &failure) {
+		return nil
+	}
+	switch failure.Subtype {
+	case "SKILL_TRIAL_LOCK_BUSY", "SKILL_TRIAL_LOCK_PERMISSION_REQUIRED", "SKILL_TRIAL_LOCK_RELEASE_FAILED":
+		return failure
+	default:
+		return nil
+	}
+}
+
+func retryableConsumedUseFailure(subtype, message string, cause error) *output.Error {
+	failure := output.Internal(subtype, message, cause)
+	failure.Retryable = true
+	return failure.WithHint("run 'viceme skill use' again; the server replays this use without consuming another")
+}
+
+// settleConsumedTrialUse clears the script pending copy and confirms the CLI
+// retry key after the server accepted this use. A leftover shared lock after a
+// successful clear must not hide the allowed result: the use is already
+// counted, and the next process steals a dead holder's lock. Busy or permission
+// failures keep the retry key so a later identical command replays without
+// consuming another use.
+func settleConsumedTrialUse(runtime *Runtime, productID, requestID string) error {
+	if err := clearScriptTrialPendingID(runtime, productID, requestID); err != nil {
+		policy := trialLockPolicyError(err)
+		if policy == nil {
+			return retryableConsumedUseFailure("SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED", "trial use was consumed but the script route's pending record could not be cleared", err)
+		}
+		if policy.Subtype != "SKILL_TRIAL_LOCK_RELEASE_FAILED" {
+			return policy
+		}
+	}
+	if err := confirmTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID, requestID); err != nil {
+		return retryableConsumedUseFailure("SKILL_TRIAL_PENDING_CONFIRM_FAILED", "trial use was consumed but the local pending record could not be confirmed", err)
+	}
+	return nil
 }
 
 // scriptTrialCredentialPath is where the no-CLI install script
@@ -763,7 +814,12 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			// 脚本路留下的未确认幂等键必须先接管:结果未知的使用换新键,
 			// 服务端会当成一次新使用、同一使用扣两次。
 			if err := adoptScriptTrialPending(runtime, productID); err != nil {
-				return output.Internal("SKILL_TRIAL_PENDING_ADOPT_FAILED", "could not adopt the pending trial use left by the install script", err)
+				if policy := trialLockPolicyError(err); policy != nil {
+					return policy
+				}
+				failure := output.Internal("SKILL_TRIAL_PENDING_ADOPT_FAILED", "could not adopt the pending trial use left by the install script", err)
+				failure.Retryable = true
+				return failure
 			}
 			requestID, err := beginTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID, time.Now())
 			if err != nil {
@@ -778,17 +834,11 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			}
 			// 只有权威业务结果才结束本次键的生命周期;确认失败必须报错
 			// 而不是继续放行——已消费的键留在 pending 会让下一次真实使用
-			// 被当作重试回放旧响应,持续漏扣。重跑本命令即可自愈:服务端
-			// 对同一键回放本次结果,不再扣次。
-			if err := clearScriptTrialPendingID(runtime, productID, requestID); err != nil {
-				return output.Internal("SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED", "trial use was consumed but the script route's pending record could not be cleared", err).
-					WithHint("run 'viceme skill use' again; the server replays this use without consuming another")
-			}
-			// Keep the CLI retry key until the shared-state lock was released.
-			// A cleanup failure must replay this use, never consume a fresh one.
-			if err := confirmTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID, requestID); err != nil {
-				return output.Internal("SKILL_TRIAL_PENDING_CONFIRM_FAILED", "trial use was consumed but the local pending record could not be confirmed", err).
-					WithHint("run 'viceme skill use' again; the server replays this use without consuming another")
+			// 被当作重试回放旧响应,持续漏扣。锁释放失败且 pending 已清时
+			// 仍交付本次 allowed:次数已经扣过,残留锁由下一进程抢占。忙锁
+			// 或权限失败保留 pending,重跑同一条命令由服务端回放、不再扣次。
+			if err := settleConsumedTrialUse(runtime, productID, requestID); err != nil {
+				return err
 			}
 			if use.Allowed {
 				lastUse := use.RemainingUses != nil && *use.RemainingUses == 0

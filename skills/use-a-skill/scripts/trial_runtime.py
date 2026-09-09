@@ -559,16 +559,18 @@ class ProductLock:
     def __exit__(self, exc_type, exc_value, traceback):
         if self.handle is not None:
             os.close(self.handle)
+            self.handle = None
         try:
             os.remove(self.path)
         except FileNotFoundError:
             pass
         except OSError:
-            # The lock file still exists: restore the retry key before reporting
-            # an unsuccessful command, while peers still cannot enter.
+            # Leftover lock: restore the retry key only when this command did
+            # not finish. Do not hide the action's own error.
             if self.on_release_failure is not None:
                 self.on_release_failure()
-            raise Failure("STATE_LOCK_RELEASE_FAILED", "本次操作已结束，但状态锁未能释放；请通过宿主授权后重试，不得修改锁时间、清空凭证或更换身份") from None
+            if exc_type is None:
+                raise Failure("STATE_LOCK_RELEASE_FAILED", "本次操作已结束，但状态锁未能释放；请通过宿主授权后重试，不得修改锁时间、清空凭证或更换身份") from None
         return False
 
 
@@ -781,29 +783,39 @@ def command_use(market, product_id, agent="auto"):
             ensure_trial_grant(market, product_id)
         else:
             raise grant_missing_failure(market)
-    with ProductLock(product_id) as product_lock:
-        # 锁内重读权威状态:锁外快照可能错过其他进程刚写入的未确认幂等键,
-        # 沿用陈旧快照会把已扣次的使用当成新使用、生成新键重复扣。
-        # 未确认的 pending 幂等键优先重放:服务端按 requestId 回放旧结果,不重复扣次;
-        # 网络错误/5xx 时保留 pending:服务端可能已扣次只是响应未送达,重试必须
-        # 复用同一幂等键;换新键会对同一使用二次扣。
-        state = require_trial_state(market, product_id)
-        request_id = state.get("pendingRequestId") or str(uuid.uuid4())
-        state["pendingRequestId"] = request_id
-        save_trial_state(product_id, state)
-        product_lock.on_release_failure = lambda: save_trial_state(product_id, {**state, "pendingRequestId": request_id})
-        use = api_request(
-            market,
-            "POST",
-            "/v1/skills/%s/trial-use" % urllib.parse.quote(product_id, safe=""),
-            {"installId": state["installId"], "secret": state["secret"], "requestId": request_id},
-        )
-        validate_trial_use(use)
-        state.pop("pendingRequestId", None)
-        save_trial_state(product_id, state)
-        disabled_count = 0
-        if use["allowed"] is False:
-            disabled_count = suspend_trial_skills(market, product_id, use["purchaseUrl"])
+    use = None
+    request_id = None
+    disabled_count = 0
+    try:
+        with ProductLock(product_id) as product_lock:
+            # 锁内重读权威状态:锁外快照可能错过其他进程刚写入的未确认幂等键,
+            # 沿用陈旧快照会把已扣次的使用当成新使用、生成新键重复扣。
+            # 未确认的 pending 幂等键优先重放:服务端按 requestId 回放旧结果,不重复扣次;
+            # 网络错误/5xx 时保留 pending:服务端可能已扣次只是响应未送达,重试必须
+            # 复用同一幂等键;换新键会对同一使用二次扣。
+            state = require_trial_state(market, product_id)
+            request_id = state.get("pendingRequestId") or str(uuid.uuid4())
+            state["pendingRequestId"] = request_id
+            save_trial_state(product_id, state)
+            product_lock.on_release_failure = lambda: save_trial_state(product_id, {**state, "pendingRequestId": request_id})
+            consumed = api_request(
+                market,
+                "POST",
+                "/v1/skills/%s/trial-use" % urllib.parse.quote(product_id, safe=""),
+                {"installId": state["installId"], "secret": state["secret"], "requestId": request_id},
+            )
+            validate_trial_use(consumed)
+            use = consumed
+            state.pop("pendingRequestId", None)
+            save_trial_state(product_id, state)
+            # Consume already counted; a leftover lock must not restore the key
+            # or hide allowed. The next process steals a dead holder's lock.
+            product_lock.on_release_failure = None
+            if use["allowed"] is False:
+                disabled_count = suspend_trial_skills(market, product_id, use["purchaseUrl"])
+    except Failure as failure:
+        if failure.code != "STATE_LOCK_RELEASE_FAILED" or use is None:
+            raise
 
     if use.get("allowed"):
         remaining = use.get("remainingUses")

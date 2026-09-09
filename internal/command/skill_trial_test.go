@@ -644,6 +644,31 @@ func TestSkillUseKeepsScriptPendingWhenResponseLost(t *testing.T) {
 	}
 }
 
+func TestSettleConsumedTrialUseReportsRetryableWhenScriptStateUnreadable(t *testing.T) {
+	home := t.TempDir()
+	configBase := t.TempDir()
+	runtime := &Runtime{
+		configBase: configBase,
+		apiBaseURL: "https://api.viceme.cn",
+		deps:       Dependencies{Environment: skillcontent.Environment{Home: home}},
+	}
+	if err := os.MkdirAll(scriptTrialCredentialPath(runtime, downloadableProductID), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	requestID, err := beginTrialUsePending(configBase, runtime.apiBaseURL, downloadableProductID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = settleConsumedTrialUse(runtime, downloadableProductID, requestID)
+	var failure *output.Error
+	if !errors.As(err, &failure) || failure.Subtype != "SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED" || !failure.Retryable {
+		t.Fatalf("unreadable script state must stay retryable: %v", err)
+	}
+	if reusable := readReusableTrialUsePending(trialUsePendingPath(configBase, runtime.apiBaseURL, downloadableProductID), downloadableProductID); reusable != requestID {
+		t.Fatalf("retry key must stay until replay: %q", reusable)
+	}
+}
+
 // Go 的接管/清理必须与脚本共用同一把 O_EXCL 状态锁:脚本进程持锁期间
 // 有界等待并失败,而不是读到撕裂 JSON 生成新键;陈旧锁会被抢占。
 func TestAdoptScriptTrialPendingRespectsScriptLock(t *testing.T) {
@@ -673,7 +698,7 @@ func TestAdoptScriptTrialPendingRespectsScriptLock(t *testing.T) {
 		t.Fatal("use must fail while the script route holds the state lock")
 	}
 	failure, _ := envelope["error"].(map[string]any)
-	if time.Since(started) > 5*time.Second || failure["code"] != "SKILL_TRIAL_PENDING_ADOPT_FAILED" {
+	if time.Since(started) > 5*time.Second || failure["code"] != "SKILL_TRIAL_LOCK_BUSY" || failure["retryable"] != true {
 		t.Fatalf("use must give up on the contended script lock promptly: %v %#v", time.Since(started), envelope)
 	}
 	if ids := recordedUseRequestIDs(state); len(ids) != 0 {

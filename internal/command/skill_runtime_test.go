@@ -197,7 +197,7 @@ func TestTrialLockReleaseFailureIsReported(t *testing.T) {
 	home := t.TempDir()
 	err := withScriptTrialLockAt(home, downloadableProductID, func() error { return nil })
 	var failure *output.Error
-	if !errors.As(err, &failure) || failure.Subtype != "SKILL_TRIAL_LOCK_RELEASE_FAILED" {
+	if !errors.As(err, &failure) || failure.Subtype != "SKILL_TRIAL_LOCK_RELEASE_FAILED" || !failure.Retryable {
 		t.Fatalf("cleanup silently ignored: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(home, ".viceme/trial", downloadableProductID+".json.lock")); err != nil {
@@ -205,7 +205,19 @@ func TestTrialLockReleaseFailureIsReported(t *testing.T) {
 	}
 }
 
-func TestTrialUseKeepsRetryKeyWhenSharedLockReleaseFails(t *testing.T) {
+func TestTrialLockReleaseFailureDoesNotHideActionError(t *testing.T) {
+	previous := removeScriptTrialLock
+	t.Cleanup(func() { removeScriptTrialLock = previous })
+	removeScriptTrialLock = func(string) error { return os.ErrPermission }
+	home := t.TempDir()
+	action := errors.New("write pending failed")
+	err := withScriptTrialLockAt(home, downloadableProductID, func() error { return action })
+	if !errors.Is(err, action) {
+		t.Fatalf("lock release hid the action error: %v", err)
+	}
+}
+
+func TestTrialUseDeliversAllowedWhenSharedLockReleaseFails(t *testing.T) {
 	t.Setenv(processAccessTokenEnvironment, "")
 	state := newSkillTrialTestServer(t)
 	defer state.server.Close()
@@ -233,23 +245,34 @@ func TestTrialUseKeepsRetryKeyWhenSharedLockReleaseFails(t *testing.T) {
 		return previous(path)
 	}
 	code, result, _ = executeSkillTrialCommand(t, state.server, home, store, "skill", "use", downloadableProductID)
-	if code == 0 || result["error"].(map[string]any)["code"] != "SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED" {
-		t.Fatalf("cleanup failure: %#v", result)
+	data, _ := result["data"].(map[string]any)
+	if code != 0 || data["allowed"] != true {
+		t.Fatalf("consumed use must still be delivered: %#v", result)
 	}
-	// The isolated fixture's filesystem permission is restored, then the same
-	// operation retries. Never change a real user's lock timestamp or identity.
+	if current, _ := os.ReadFile(path); strings.Contains(string(current), "pendingRequestId") {
+		t.Fatal("script pending copy was left behind")
+	}
+	if _, err := os.Stat(path + ".lock"); err != nil {
+		t.Fatal("leftover lock evidence was destroyed")
+	}
+	state.mu.Lock()
+	firstIDs := append([]map[string]any(nil), state.useRequests...)
+	state.mu.Unlock()
+	if len(firstIDs) != 1 {
+		t.Fatalf("first use should consume once: %#v", firstIDs)
+	}
 	removeScriptTrialLock = previous
 	if err := os.Remove(path + ".lock"); err != nil {
 		t.Fatal(err)
 	}
 	code, result, _ = executeSkillTrialCommand(t, state.server, home, store, "skill", "use", downloadableProductID)
 	if code != 0 {
-		t.Fatalf("retry failed: %#v", result)
+		t.Fatalf("next use failed: %#v", result)
 	}
 	state.mu.Lock()
 	defer state.mu.Unlock()
-	if len(state.useRequests) != 2 || state.useRequests[0]["requestId"] != state.useRequests[1]["requestId"] {
-		t.Fatalf("retry used another key: %#v", state.useRequests)
+	if len(state.useRequests) != 2 || state.useRequests[0]["requestId"] == state.useRequests[1]["requestId"] {
+		t.Fatalf("confirmed use must not replay into the next task: %#v", state.useRequests)
 	}
 }
 
