@@ -43,7 +43,13 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
   立刻收取绝对路径，不得扫描本机已有 Skill。
 - 当前用户本人拥有的公开或私有 GitHub 仓库；拿到仓库地址后直接发布，不得询问
   SKILL.md 在仓库根目录还是子目录，也不得让用户先填子目录。
-- 公开小红书 Skill ID。
+- 公开小红书 Skill ID 或名称。
+
+用户尚未给出唯一来源时，用一次 AskUserQuestion，选项固定为且只能是这三个，
+顺序不变：「本地目录或 ZIP」「GitHub 仓库」「小红书 Skill」。工具支持自定义
+输入时保留。不得增加「本机已有 Skill」，不得先扫描或列出本机目录，也不得说
+「先看看你本机有哪些可用的 Skill 目录」。选本地后立刻收取绝对路径；选 GitHub
+后立刻收取仓库地址；选小红书后立刻收取 Skill ID 或名称。
 
 用户提出网站、服务、实物、定制商品、预约或其他非下载交付时，说明当前 Skill 只发布
 可下载 Skill，并停止；不得调用保留的通用商业命令替用户试运行。
@@ -56,12 +62,16 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
 3. 创建草稿和预览可恢复。响应丢失时读取同一资源恢复，继续使用同一 Publication，不创建重复项。
 4. 公开发布前展示标题、中文简介、中英文使用说明、价格、试用次数（免费试用 N 次后付费，
    或不开试用）、封面和图库，以及本次新增/更新、原价与新价、原免费入口是否保留和已有
-   下载权益影响，并取得一次明确确认。
+   下载权益影响，并取得一次明确确认。用户改名称时只改作品页和当前这条 Skill 的购买卡片
+   （`publication update` 的 title），不得改 `SKILL.md` 的 `name`，也不得另传 `--edition-title`。
 5. 用户只需要理解作品里每个 Skill——用“免费版/付费版/升级版/高级版”这类版本
    说法解释——各自的价格和下载权益；Shop 的商业数据结构属于底层
    实现，不进入用户选择，也不扩展成本 Skill 的发布类型。刚发布的是收费 Skill 时，
    收尾不得把试用说成免费版，也不得用免费漏斗解释升级版。
-6. 返回平台响应中的公开详情链接，不自行拼接路径。
+6. 给人看的作品链接用发布结果 `product.detailUrl` 或 listing `publicUrl`；尚未
+   发布则把 `presentation.openUrl` 去掉末尾 `/preview` 后给出同一路径，这是唯一
+   允许的派生。商家主页用 `creatorIdentity.profileUrl`。不得把 slug、安装名、
+   `.md` 或 `/preview` 称为公开链接，不得从 handle 自行拼接路径。
 
 ## 用户表达
 
@@ -76,5 +86,13 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
   错误码或恢复目录。
 - 用户选择本地目录/ZIP 或「提供路径」后，立刻让用户输入绝对路径；不得搜索本机
   `SKILL.md`，也不得把已有 Skill 列成候选。
+- 来源选项必须包含「小红书 Skill」，不得出现「本机已有 Skill」，不得说
+  「先看看你本机有哪些可用的 Skill 目录」。
+- 给人看的作品链接和商家主页只用人类 HTML 页：作品用 `publicUrl` /
+  `product.detailUrl`，主页用 `profileUrl`。不得把 slug、安装名、`markdownUrl`
+  或任何 `.md` 地址称为公开链接。
+- 用户改名称只改作品页和当前这条 Skill 的购买卡片；不得改 `SKILL.md` 的 `name`，
+  也不得另传 `--edition-title`。
+- 订阅已设置时对用户说「已生效」，不得写 `ACTIVE` 或「已 ACTIVE」。
 - GitHub 发布不得询问 SKILL.md 在仓库根目录还是子目录；多个 Skill 时只展示 CLI
   返回的候选目录。

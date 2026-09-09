@@ -151,6 +151,8 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"不得向用户提及该警告", "PUBLICATION_RECOVERY_RETIRE_FAILED",
 				"不得搜索 `**/SKILL.md`",
 				"不得询问 SKILL.md 在仓库根目录还是子目录",
+				"小红书 Skill", "本机已有 Skill",
+				"先看看你本机有哪些可用的 Skill 目录", "已生效",
 			},
 		},
 		{
@@ -160,7 +162,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"?product=<product-id>", "remainingUses", "PURCHASE_REQUIRED", "widgetPath",
 				"present_files", "imagePath", "imageChatSrc", "local-file://",
 			},
-			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "硬停止", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI"},
+			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "硬停止", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI", "不再扣次", "不要对用户说试用失败或次数白扣"},
 		},
 		{
 			name: "charge-for-your-work",
@@ -1069,6 +1071,63 @@ func TestPublishLocalZipAsksPathWithoutScanningInstalledSkills(t *testing.T) {
 	}
 }
 
+func TestPublishSourcePickerAndHumanFacingLinks(t *testing.T) {
+	t.Parallel()
+	for _, relativePath := range []string{
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		for _, required := range []string{
+			"本地目录或 ZIP",
+			"GitHub 仓库",
+			"小红书 Skill",
+			"本机已有 Skill",
+			"先看看你本机有哪些可用的 Skill 目录",
+			"publicUrl",
+			"profileUrl",
+			"已生效",
+		} {
+			if !strings.Contains(text, required) {
+				t.Fatalf("%s omitted source-picker or human-link contract %q", relativePath, required)
+			}
+		}
+		for _, forbidden := range []string{"公开链接 slug"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s still tells the agent to show a public-link slug", relativePath)
+			}
+		}
+	}
+	skill, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(skill), "不得写 `ACTIVE` 或「已 ACTIVE」") {
+		t.Fatal("publish skill omitted the human-facing subscription status contract")
+	}
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowText := string(workflow)
+	for _, required := range []string{
+		"product.detailUrl",
+		"creatorIdentity.profileUrl",
+		"markdownUrl",
+		"去掉末尾 `/preview`",
+		"当前这条 Skill",
+		"不得另编一套营销名",
+	} {
+		if !strings.Contains(workflowText, required) {
+			t.Fatalf("publish workflow omitted human-link field %q", required)
+		}
+	}
+}
+
 func TestUseSkillRetriesBusyLockWithoutAskingToDeleteLock(t *testing.T) {
 	t.Parallel()
 	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "use-a-skill/SKILL.md")
@@ -1078,9 +1137,14 @@ func TestUseSkillRetriesBusyLockWithoutAskingToDeleteLock(t *testing.T) {
 	text := string(content)
 	for _, required := range []string{
 		"SKILL_TRIAL_LOCK_BUSY",
+		"SKILL_TRIAL_LOCK_RELEASE_FAILED",
+		"SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED",
+		"SKILL_TRIAL_PENDING_CONFIRM_FAILED",
 		"短等几秒后重跑同一条",
 		"不得对用户说安装通道占用",
 		"不要定位或删除",
+		"不再扣次",
+		"不要对用户说试用失败或次数白扣",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("use-a-skill omitted busy-lock contract %q", required)
