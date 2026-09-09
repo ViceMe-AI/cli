@@ -668,6 +668,13 @@ func installReplicaLocked(
 			QuoteID: state.QuoteID, ClientRequestID: state.OrderRequestID, Locale: state.Locale,
 		})
 		if err != nil {
+			if state.OrderNo == "" && output.AsError(err).Subtype == "PRODUCT_PURCHASE_SELF_REJECTED" {
+				// The API checks for an existing idempotent order before rejecting
+				// self-purchases, so this attempt has no order left to recover.
+				if retireErr := store.retire(state); retireErr != nil {
+					return replicaInstallResult{}, retireErr
+				}
+			}
 			if output.AsError(err).Subtype == "PRODUCT_ALREADY_OWNED" {
 				return installOwnedReplica(ctx, runtime, store, state, client, shortCode, absTarget)
 			}
