@@ -41,29 +41,38 @@ func newMerchantOnboardingStatusCommand(runtime *Runtime) *cobra.Command {
 func newMerchantApplicationCommand(runtime *Runtime) *cobra.Command {
 	var displayName, handle string
 	command := &cobra.Command{
-		Use: "apply", Short: "Submit a normal Merchant application and reserve its handle", Args: cobra.NoArgs,
+		Use: "apply", Short: "Submit a Merchant application with the creator username chosen by the author", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
 				return err
 			}
-			var optionalDisplayName, optionalHandle *string
+			var optionalDisplayName *string
 			if value := strings.TrimSpace(displayName); value != "" {
 				optionalDisplayName = &value
 			}
-			if value := strings.TrimSpace(handle); value != "" {
-				optionalHandle = &value
+			confirmedHandle := strings.TrimSpace(handle)
+			if err := validateConfirmedCreatorHandle(confirmedHandle); err != nil {
+				return err
 			}
-			result, err := runtime.client().CreateMerchantApplication(command.Context(), runtime.deps.NewID(), optionalDisplayName, optionalHandle)
+			result, err := runtime.client().CreateMerchantApplication(command.Context(), runtime.deps.NewID(), optionalDisplayName, confirmedHandle)
 			if err != nil {
 				return err
 			}
 			return runtime.business(result)
 		},
 	}
-	// 两个参数均可选：服务端按用户资料派生；仅显式覆盖时发送。
 	command.Flags().StringVar(&displayName, "display-name", "", "optional Merchant display name override")
-	command.Flags().StringVar(&handle, "handle", "", "optional public creator handle override")
+	command.Flags().StringVar(&handle, "handle", "", "author-confirmed creator username and permanent homepage handle")
+	_ = command.MarkFlagRequired("handle")
 	return command
+}
+
+func validateConfirmedCreatorHandle(handle string) error {
+	_, reserved := pageReservedCreatorHandles[handle]
+	if len(handle) < 2 || len(handle) > 32 || !pageCreatorHandlePattern.MatchString(handle) || reserved {
+		return output.Validation("MERCHANT_APPLICATION_HANDLE_INVALID", "--handle must be 2-32 lowercase letters, digits, and single hyphens, start with a letter, and not be reserved")
+	}
+	return nil
 }
 
 func newMerchantOnboardingEvidenceCommand(runtime *Runtime) *cobra.Command {

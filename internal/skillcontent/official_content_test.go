@@ -112,8 +112,8 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"MerchantAccountMember(role=OWNER)",
 			},
 			semantics: []string{
-				"不创建平行申请", "直接申请模式不再确认", "玩法守卫模式",
-				"申请中", "交回调用玩法",
+				"不创建平行申请", "每次提交申请前都必须先让作者本人确定 handle", "玩法守卫模式",
+				"Shop 不从昵称派生 handle", "申请中", "交回调用玩法",
 			},
 		},
 		{
@@ -412,7 +412,10 @@ func TestCreatorOnboardingKeepsHumanReviewAndOffersPrivatePersonalCard(t *testin
 	text := string(onboarding)
 	for _, required := range []string{
 		"第一条进程命令运行一次 `viceme merchant qualification`",
-		"直接申请模式不再确认",
+		"每次提交申请前都必须先让作者本人确定 handle",
+		"它也会成为你的永久主页地址",
+		"viceme merchant onboarding apply --handle <作者确认的用户名>",
+		"Shop 不从昵称派生 handle",
 		"玩法守卫模式",
 		"现在帮你申请成为创作者吗？",
 		"creator-tools 的统一登录编排",
@@ -427,7 +430,6 @@ func TestCreatorOnboardingKeepsHumanReviewAndOffersPrivatePersonalCard(t *testin
 		"创作者入驻模式",
 		"不得创建在线 preview",
 		"同一地址、同一 release 自动公开",
-		"MERCHANT_APPLICATION_HANDLE_REQUIRED",
 		"人工审核边界",
 		"同一回合不得再次查询",
 		"不把 DRAFT 创作者身份误当成资格",
