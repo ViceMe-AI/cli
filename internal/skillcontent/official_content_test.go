@@ -151,6 +151,8 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"不得向用户提及该警告", "PUBLICATION_RECOVERY_RETIRE_FAILED",
 				"不得搜索 `**/SKILL.md`",
 				"不得询问 SKILL.md 在仓库根目录还是子目录",
+				"小红书 Skill", "本机已有 Skill",
+				"先看看你本机有哪些可用的 Skill 目录", "已生效",
 			},
 		},
 		{
@@ -1065,6 +1067,63 @@ func TestPublishLocalZipAsksPathWithoutScanningInstalledSkills(t *testing.T) {
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("publish workflow omitted local zip no-scan contract %q", required)
+		}
+	}
+}
+
+func TestPublishSourcePickerAndHumanFacingLinks(t *testing.T) {
+	t.Parallel()
+	for _, relativePath := range []string{
+		"sell-a-skill/SKILL.md",
+		"sell-a-skill/references/workflow.md",
+	} {
+		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), relativePath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(content)
+		for _, required := range []string{
+			"本地目录或 ZIP",
+			"GitHub 仓库",
+			"小红书 Skill",
+			"本机已有 Skill",
+			"先看看你本机有哪些可用的 Skill 目录",
+			"publicUrl",
+			"profileUrl",
+			"已生效",
+		} {
+			if !strings.Contains(text, required) {
+				t.Fatalf("%s omitted source-picker or human-link contract %q", relativePath, required)
+			}
+		}
+		for _, forbidden := range []string{"公开链接 slug"} {
+			if strings.Contains(text, forbidden) {
+				t.Fatalf("%s still tells the agent to show a public-link slug", relativePath)
+			}
+		}
+	}
+	skill, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(skill), "不得写 `ACTIVE` 或「已 ACTIVE」") {
+		t.Fatal("publish skill omitted the human-facing subscription status contract")
+	}
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	workflowText := string(workflow)
+	for _, required := range []string{
+		"product.detailUrl",
+		"creatorIdentity.profileUrl",
+		"markdownUrl",
+		"去掉末尾 `/preview`",
+		"当前这条 Skill",
+		"不得另编一套营销名",
+	} {
+		if !strings.Contains(workflowText, required) {
+			t.Fatalf("publish workflow omitted human-link field %q", required)
 		}
 	}
 }
