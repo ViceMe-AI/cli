@@ -217,12 +217,22 @@ func readScriptTrialState(runtime *Runtime, productID string) (scriptTrialState,
 	return state, true
 }
 
+func validateScriptTrialStateIdentity(runtime *Runtime, productID string, state scriptTrialState) error {
+	if state.ProductID != productID || state.Market != string(runtime.region) {
+		return output.Policy("SKILL_TRIAL_IDENTITY_MISMATCH", "local trial credentials belong to another Product or market; preserve the existing record")
+	}
+	return nil
+}
+
 // loadScriptTrialCredential adopts the install script's credential so the
 // same machine never holds two trial grants for one Product.
 func loadScriptTrialCredential(runtime *Runtime, productID string) (skillTrialCredential, bool, error) {
 	state, ok := readScriptTrialState(runtime, productID)
 	if !ok {
 		return skillTrialCredential{}, false, nil
+	}
+	if err := validateScriptTrialStateIdentity(runtime, productID, state); err != nil {
+		return skillTrialCredential{}, false, err
 	}
 	return skillTrialCredential{InstallID: state.InstallID, Secret: state.Secret}, true, nil
 }
@@ -231,11 +241,10 @@ func loadScriptTrialCredential(runtime *Runtime, productID string) (skillTrialCr
 // into the CLI secure store so the same machine keeps a single grant across
 // both installation routes.
 func adoptScriptTrialCredential(runtime *Runtime, productID string) (skillTrialCredential, bool, error) {
-	state, ok := readScriptTrialState(runtime, productID)
-	if !ok {
-		return skillTrialCredential{}, false, nil
+	credential, ok, err := loadScriptTrialCredential(runtime, productID)
+	if err != nil || !ok {
+		return credential, ok, err
 	}
-	credential := skillTrialCredential{InstallID: state.InstallID, Secret: state.Secret}
 	if err := saveSkillTrialCredential(runtime, productID, credential); err != nil {
 		return skillTrialCredential{}, false, err
 	}
@@ -254,6 +263,9 @@ func adoptScriptTrialPending(runtime *Runtime, productID string) error {
 	if !ok || state.PendingRequestID == "" {
 		return nil
 	}
+	if err := validateScriptTrialStateIdentity(runtime, productID, state); err != nil {
+		return err
+	}
 	path := trialUsePendingPath(runtime.configBase, runtime.apiBaseURL, productID)
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
@@ -264,6 +276,9 @@ func adoptScriptTrialPending(runtime *Runtime, productID string) error {
 		state, ok := readScriptTrialState(runtime, productID)
 		if !ok || state.PendingRequestID == "" {
 			return nil
+		}
+		if err := validateScriptTrialStateIdentity(runtime, productID, state); err != nil {
+			return err
 		}
 		lock, err := lockTrialUsePending(path)
 		if err != nil {
@@ -304,6 +319,9 @@ func clearScriptTrialPendingID(runtime *Runtime, productID, requestID string) er
 		var state scriptTrialState
 		if json.Unmarshal(raw, &state) != nil || state.PendingRequestID != requestID {
 			return nil
+		}
+		if err := validateScriptTrialStateIdentity(runtime, productID, state); err != nil {
+			return err
 		}
 		state.PendingRequestID = ""
 		// Preserve unknown fields owned by the standalone script (including
@@ -395,11 +413,11 @@ func mirrorTrialCredentialToScript(runtime *Runtime, productID string, credentia
 	return withScriptTrialLock(runtime, productID, func() error {
 		state, exists := readScriptTrialState(runtime, productID)
 		if exists {
+			if err := validateScriptTrialStateIdentity(runtime, productID, state); err != nil {
+				return err
+			}
 			if state.InstallID != credential.InstallID || state.Secret != credential.Secret {
 				return output.Policy("SKILL_TRIAL_IDENTITY_MISMATCH", "the CLI and script refer to different local trial identities").WithHint("use the original installed Skill runtime; preserve both records, do not switch identities or report a balance from the other runner")
-			}
-			if state.Market != "" && state.Market != string(runtime.region) {
-				return output.Policy("SKILL_TRIAL_IDENTITY_MISMATCH", "local trial credentials do not match this purchase; preserve both records")
 			}
 			return nil
 		}

@@ -113,8 +113,13 @@ func trialPurchaseCredential(runtime *Runtime, productID string) (skillTrialCred
 	if err != nil {
 		return credential, ok, err
 	}
-	if script, exists := readScriptTrialState(runtime, productID); exists && ok && (script.InstallID != credential.InstallID || script.Secret != credential.Secret) {
-		return skillTrialCredential{}, false, output.Policy("SKILL_TRIAL_IDENTITY_MISMATCH", "the CLI and script refer to different local trial identities").WithHint("use the original installed Skill runtime; preserve both records, do not switch identities or report a balance from the other runner")
+	if script, exists := readScriptTrialState(runtime, productID); exists {
+		if err := validateScriptTrialStateIdentity(runtime, productID, script); err != nil {
+			return skillTrialCredential{}, false, err
+		}
+		if ok && (script.InstallID != credential.InstallID || script.Secret != credential.Secret) {
+			return skillTrialCredential{}, false, output.Policy("SKILL_TRIAL_IDENTITY_MISMATCH", "the CLI and script refer to different local trial identities").WithHint("use the original installed Skill runtime; preserve both records, do not switch identities or report a balance from the other runner")
+		}
 	}
 	if ok {
 		return credential, true, nil
@@ -228,6 +233,9 @@ func trialInstallShouldResumePurchase(ctx context.Context, runtime *Runtime, pro
 	if !ok || state.Purchase == nil || state.Purchase.Closed || state.Purchase.OrderNo == "" {
 		return false, nil
 	}
+	if err := validateScriptTrialStateIdentity(runtime, productID, state); err != nil {
+		return false, err
+	}
 	order, err := runtime.client().TrialPurchase(ctx, productID, state.InstallID, state.Secret, "", "", state.Purchase.OrderNo)
 	if err != nil {
 		return false, err
@@ -239,6 +247,9 @@ func trialInstallShouldResumePurchase(ctx context.Context, runtime *Runtime, pro
 		current, exists := readScriptTrialState(runtime, productID)
 		if !exists || current.Purchase == nil || current.Purchase.OrderNo != order.OrderNo {
 			return nil
+		}
+		if err := validateScriptTrialStateIdentity(runtime, productID, current); err != nil {
+			return err
 		}
 		current.Purchase.Closed = true
 		return saveScriptTrialState(runtime, productID, current)
@@ -253,6 +264,9 @@ func setTrialPurchasePresentation(runtime *Runtime, productID, orderNo string, p
 		state, ok := readScriptTrialState(runtime, productID)
 		if !ok || state.Purchase == nil || state.Purchase.OrderNo != orderNo {
 			return fmt.Errorf("trial purchase recovery state changed")
+		}
+		if err := validateScriptTrialStateIdentity(runtime, productID, state); err != nil {
+			return err
 		}
 		state.Purchase.Presented, state.Purchase.Closed = presented, closed
 		return saveScriptTrialState(runtime, productID, state)

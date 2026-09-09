@@ -163,13 +163,13 @@ func attachReadyTrialSnapshot(ctx context.Context, runtime *Runtime, productID s
 	}
 	installID := ""
 	if credential, ok, err := loadSkillTrialCredential(runtime, productID); err == nil && ok {
-		if script, exists := readScriptTrialState(runtime, productID); exists && (script.InstallID != credential.InstallID || script.Secret != credential.Secret) {
-			installID = ""
-		} else {
+		if script, exists := readScriptTrialState(runtime, productID); !exists {
+			installID = credential.InstallID
+		} else if validateScriptTrialStateIdentity(runtime, productID, script) == nil && script.InstallID == credential.InstallID && script.Secret == credential.Secret {
 			installID = credential.InstallID
 		}
 	} else if err == nil {
-		if script, exists := readScriptTrialState(runtime, productID); exists && script.InstallID != "" {
+		if script, exists := readScriptTrialState(runtime, productID); exists && validateScriptTrialStateIdentity(runtime, productID, script) == nil {
 			installID = script.InstallID
 		}
 	}
