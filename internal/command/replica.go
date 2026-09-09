@@ -20,11 +20,27 @@ var (
 	replicaShortCodePattern = regexp.MustCompile(`^VMR-[A-Z0-9]{20}$`)
 )
 
+const (
+	replicaWorkPresentationCreatorPage   = "CREATOR_PAGE"
+	replicaWorkPresentationWorkspaceText = "WORKSPACE_TEXT"
+)
+
+type replicaTarget struct {
+	Instruction   string
+	HasActivePage bool
+}
+
+type replicaWorkPresentation struct {
+	Mode string `json:"mode"`
+	URL  string `json:"url,omitempty"`
+}
+
 type replicaInspectResult struct {
 	Discovery                   *api.WebsiteReplicaDiscovery `json:"discovery,omitempty"`
 	PresentationTarget          string                       `json:"presentationTarget"`
 	PresentationPlacement       string                       `json:"presentationPlacement"`
 	NextAction                  string                       `json:"nextAction"`
+	WorkPresentation            replicaWorkPresentation      `json:"workPresentation"`
 	WorkURL                     string                       `json:"workUrl"`
 	StandaloneRecoveryAvailable *bool                        `json:"standaloneRecoveryAvailable,omitempty"`
 	Replica                     api.WebsiteReplicaResolution `json:"replica"`
@@ -55,11 +71,11 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 		Short: "Inspect a Website Replica and return its public Work preview",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			instruction, err := resolveReplicaTarget(command.Context(), runtime, args[0])
+			target, err := resolveReplicaTarget(command.Context(), runtime, args[0])
 			if err != nil {
 				return err
 			}
-			resolved, err := runtime.client().ResolveWebsiteReplicaPublic(command.Context(), instruction)
+			resolved, err := runtime.client().ResolveWebsiteReplicaPublic(command.Context(), target.Instruction)
 			if err != nil {
 				return replicaInspectFailure(err)
 			}
@@ -79,9 +95,14 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 				recoveryAvailable = &available
 			}
 			return runtime.business(replicaInspectResult{
-				NextAction: "PRESENT_WORK", WorkURL: resolved.ViceMeWorkURL,
-				Discovery: &discovery, PresentationTarget: "AGENT_PLATFORM", PresentationPlacement: "RIGHT",
-				StandaloneRecoveryAvailable: recoveryAvailable, Replica: resolved,
+				NextAction:                  "PRESENT_WORK",
+				WorkURL:                     resolved.ViceMeWorkURL,
+				WorkPresentation:            newReplicaWorkPresentation(target.HasActivePage, resolved.ViceMeWorkURL),
+				Discovery:                   &discovery,
+				PresentationTarget:          "AGENT_PLATFORM",
+				PresentationPlacement:       "RIGHT",
+				StandaloneRecoveryAvailable: recoveryAvailable,
+				Replica:                     resolved,
 			})
 		},
 	}
@@ -89,38 +110,52 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
-func resolveReplicaTarget(ctx context.Context, runtime *Runtime, target string) (string, error) {
+func publicWorkHasActivePage(work api.PublicWorkProjection) bool {
+	return work.Presentation != nil && work.Presentation.Mode == "ACTIVE"
+}
+
+func newReplicaWorkPresentation(hasActivePage bool, workURL string) replicaWorkPresentation {
+	if hasActivePage && workURL != "" {
+		return replicaWorkPresentation{Mode: replicaWorkPresentationCreatorPage, URL: workURL}
+	}
+	return replicaWorkPresentation{Mode: replicaWorkPresentationWorkspaceText}
+}
+
+func resolveReplicaTarget(ctx context.Context, runtime *Runtime, target string) (replicaTarget, error) {
 	_, codeErr := parseReplicaCode(target)
 	if codeErr == nil {
-		return target, nil
+		return replicaTarget{Instruction: target}, nil
 	}
 	target = strings.TrimSpace(target)
 	parsed, err := url.Parse(target)
 	if err != nil || !parsed.IsAbs() || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return "", codeErr
+		return replicaTarget{}, codeErr
 	}
 	segments := strings.Split(strings.Trim(strings.TrimSuffix(parsed.Path, ".md"), "/"), "/")
 	if len(segments) == 3 && (segments[0] == "zh-CN" || segments[0] == "en-US") {
 		segments = segments[1:]
 	}
 	if len(segments) != 2 || segments[0] == "" || segments[1] == "" {
-		return "", output.Validation("REPLICA_WORK_URL_INVALID", "canonical Work URL must contain /<creator-handle>/<work-slug>")
+		return replicaTarget{}, output.Validation("REPLICA_WORK_URL_INVALID", "canonical Work URL must contain /<creator-handle>/<work-slug>")
 	}
 	work, err := runtime.client().GetPublicWork(ctx, segments[0], segments[1])
 	if err != nil {
-		return "", err
+		return replicaTarget{}, err
 	}
 	action := work.Work.WebsiteReplicaAction
 	if action == nil && work.Work.WebsiteReplica != nil && replicaShortCodePattern.MatchString(work.Work.WebsiteReplica.ShortCode) {
-		return "VICEME-REPLICA:" + work.Work.WebsiteReplica.ShortCode, nil
+		return replicaTarget{
+			Instruction:   "VICEME-REPLICA:" + work.Work.WebsiteReplica.ShortCode,
+			HasActivePage: publicWorkHasActivePage(work),
+		}, nil
 	}
 	if action == nil {
-		return "", output.Policy("REPLICA_WORK_HAS_NO_ENTRY", "the Work does not expose an available Website Replica")
+		return replicaTarget{}, output.Policy("REPLICA_WORK_HAS_NO_ENTRY", "the Work does not expose an available Website Replica")
 	}
 	if _, err := parseReplicaCode(action.Instruction); err != nil {
-		return "", output.Policy("REPLICA_WORK_ENTRY_INVALID", "the Work returned an invalid Website Replica entry").WithCause(err)
+		return replicaTarget{}, output.Policy("REPLICA_WORK_ENTRY_INVALID", "the Work returned an invalid Website Replica entry").WithCause(err)
 	}
-	return action.Instruction, nil
+	return replicaTarget{Instruction: action.Instruction, HasActivePage: publicWorkHasActivePage(work)}, nil
 }
 
 func replicaInspectFailure(err error) error {

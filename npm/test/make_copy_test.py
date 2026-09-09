@@ -55,12 +55,51 @@ def replica():
     }
 
 
-def discovery():
+def discovery(preview_url=None):
+    work_url = "https://viceme.cn/alice/site"
     return {"replicaId": REPLICA_ID, "shortCode": SHORT_CODE,
             "title": "Replica", "summary": "Make a portfolio", "bodyMarkdown": "Useful for artists",
-            "previewUrl": "https://viceme.cn/alice/site", "discoveryUrl": "https://viceme.cn/alice/site/discover",
+            "previewUrl": preview_url or work_url, "discoveryUrl": work_url + "/discover",
             "creator": {"handle": "alice", "displayName": "Creator"},
-            "viceMeWorkUrl": "https://viceme.cn/alice/site", "statistics": {"acquisitionCount": 2, "commentCount": 1}}
+            "viceMeWorkUrl": work_url, "statistics": {"acquisitionCount": 2, "commentCount": 1}}
+
+
+def public_work(is_hosted_page=None, presentation=None):
+    work = {"websiteReplicaAction": {"instruction": f"VICEME-REPLICA:{SHORT_CODE}"}}
+    if is_hosted_page is True:
+        work["isHostedPage"] = True
+    payload = {"work": work}
+    if presentation is not None:
+        payload["presentation"] = presentation
+    return payload
+
+
+def active_presentation(mode="ACTIVE"):
+    return {
+        "kind": "CUSTOM",
+        "mode": mode,
+        "releaseId": "99999999-9999-4999-8999-999999999999",
+        "documentUrl": "https://viceme.cn/page-releases/test/index.html",
+        "sdkVersion": "1",
+        "capabilities": ["context.read"],
+    }
+
+
+def inspect_request(work=None, discovered=None, item=None):
+    work = public_work() if work is None else work
+    discovered = discovery() if discovered is None else discovered
+    item = replica() if item is None else item
+
+    def request(_method, url, **_kwargs):
+        if "/public/creators/" in url:
+            return response(200, work)
+        if url.endswith("/website-replicas/resolve"):
+            return response(200, item)
+        if url.endswith("/discovery"):
+            return response(200, discovered)
+        raise AssertionError(url)
+
+    return request
 
 
 def checkout():
@@ -318,7 +357,8 @@ class MakeCopyTest(unittest.TestCase):
     def test_preview_never_reads_private_recovery_or_queries_order(self):
         work_url = "https://viceme.cn/alice/site.md"
         with mock.patch.object(
-            make_copy, "resolve_work", return_value=(f"VICEME-REPLICA:{SHORT_CODE}", replica())
+            make_copy, "resolve_work_with_hosting",
+            return_value=(f"VICEME-REPLICA:{SHORT_CODE}", replica(), False),
         ), mock.patch.object(
             make_copy, "read_state", side_effect=AssertionError("private state read")
         ), mock.patch.object(
@@ -326,7 +366,55 @@ class MakeCopyTest(unittest.TestCase):
         ):
             inspected = make_copy.inspect(work_url, request_fn=lambda *_args, **_kwargs: response(200, discovery()))
         self.assertEqual(inspected["nextAction"], "PRESENT_WORK")
+        self.assertEqual(inspected["workPresentation"], {"mode": "WORKSPACE_TEXT"})
         self.assertNotIn("standaloneRecoveryAvailable", inspected)
+
+    def test_inspect_selects_work_presentation(self):
+        work_url = "https://viceme.cn/alice/site.md"
+        official = "https://viceme.cn/alice/site"
+        cases = (
+            ("active hosted page", public_work(presentation=active_presentation()), None,
+             {"mode": "CREATOR_PAGE", "url": official}),
+            ("replica publish without isHostedPage", public_work(presentation=active_presentation()), None,
+             {"mode": "CREATOR_PAGE", "url": official}),
+            ("isHostedPage without active presentation", public_work(True), None, {"mode": "WORKSPACE_TEXT"}),
+            ("verified creator site without hosted page", public_work(), "https://original.example.com",
+             {"mode": "WORKSPACE_TEXT"}),
+            ("hosted page prefers work url over external preview",
+             public_work(presentation=active_presentation()), "https://original.example.com",
+             {"mode": "CREATOR_PAGE", "url": official}),
+            ("preview presentation is not public hosted page",
+             public_work(presentation=active_presentation("PREVIEW")), None, {"mode": "WORKSPACE_TEXT"}),
+            ("ordinary work", public_work(False), None, {"mode": "WORKSPACE_TEXT"}),
+            ("unknown hosted flag", public_work(), None, {"mode": "WORKSPACE_TEXT"}),
+        )
+        for name, work, preview_url, expected in cases:
+            with self.subTest(name):
+                inspected = make_copy.inspect(
+                    work_url,
+                    request_fn=inspect_request(work=work, discovered=discovery(preview_url)),
+                )
+                self.assertEqual(inspected["nextAction"], "PRESENT_WORK")
+                self.assertEqual(inspected["workPresentation"], expected)
+                self.assertEqual(inspected["discovery"]["previewUrl"], preview_url or official)
+
+    def test_fetch_public_work_entry_uses_active_presentation(self):
+        authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+        instruction, active = make_copy.fetch_public_work_entry(
+            authority, lambda *_args, **_kwargs: response(200, public_work(presentation=active_presentation()))
+        )
+        self.assertEqual(instruction, f"VICEME-REPLICA:{SHORT_CODE}")
+        self.assertTrue(active)
+        instruction, active = make_copy.fetch_public_work_entry(
+            authority, lambda *_args, **_kwargs: response(200, public_work(True))
+        )
+        self.assertEqual(instruction, f"VICEME-REPLICA:{SHORT_CODE}")
+        self.assertFalse(active)
+        instruction, active = make_copy.fetch_public_work_entry(
+            authority, lambda *_args, **_kwargs: response(200, public_work())
+        )
+        self.assertEqual(instruction, f"VICEME-REPLICA:{SHORT_CODE}")
+        self.assertFalse(active)
 
     def test_confirmed_install_recovers_paid_order_without_checkout(self):
         with tempfile.TemporaryDirectory() as temporary:

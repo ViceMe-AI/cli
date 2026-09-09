@@ -39,11 +39,11 @@
       "embedded_content_digest": "sha256:3cd5c2439720ea16ce679180c90de9d7c50cc1fb9486947d54bd48d8b9099602"
     },
     "let-me-make-a-copy": {
-      "skill_version": "0.37.3",
-      "minimum_cli_version": "0.37.3",
-      "cli_compatibility": ">=0.37.3 <0.38.0",
-      "full_skill_bundle_digest": "sha256:876a020eec06ed38f20065f5ee6e07f52c82ca7b248d25f68ac2583ea9ead03c",
-      "embedded_content_digest": "sha256:8e75cb4c42d60dd723d6156f1b0c85018521ca36b54beb066236b0d0bd7d9a24"
+      "skill_version": "0.37.4",
+      "minimum_cli_version": "0.37.1",
+      "cli_compatibility": ">=0.37.1 <0.38.0",
+      "full_skill_bundle_digest": "sha256:cd50d5ae8603ff7c9d522389798bf3435f2b0146728c541469674347bf761a61",
+      "embedded_content_digest": "sha256:fcf6a3e78160857943a32ec2d6b979a7047734e0005c015f56b1e68127deb96a"
     },
     "let-others-make-a-copy": {
       "skill_version": "0.37.3",
