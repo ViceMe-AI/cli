@@ -100,10 +100,11 @@ func installReplica(ctx context.Context, runtime *Runtime, code, target, locale 
 			return replicaInstallResult{}, output.Validation("REPLICA_RECOVERY_CODE_REQUIRED", "--recovery-only requires the platform-generated Replica instruction").WithCause(err)
 		}
 	} else {
-		code, err = resolveReplicaTarget(ctx, runtime, code)
+		resolvedTarget, err := resolveReplicaTarget(ctx, runtime, code)
 		if err != nil {
 			return replicaInstallResult{}, err
 		}
+		code = resolvedTarget.Instruction
 	}
 	shortCode, err := parseReplicaCode(code)
 	if err != nil {
