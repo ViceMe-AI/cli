@@ -164,7 +164,7 @@ func installReplicaAnonymousLocked(
 	paymentPresented bool,
 	acceptedPriceCents int,
 	recoveryOnly bool,
-) (replicaInstallResult, error) {
+) (result replicaInstallResult, resultErr error) {
 	completion, completed, err := store.loadCompletion()
 	if err != nil {
 		return replicaInstallResult{}, err
@@ -183,6 +183,8 @@ func installReplicaAnonymousLocked(
 		return replicaInstallResult{}, err
 	}
 	client := runtime.client()
+	var payment api.WebsiteReplicaPaymentState
+	defer func() { resultErr = replicaPaidFailure(resultErr, runtime, state, payment, true) }()
 	if recoveryOnly {
 		if exists && state.OrderNo != "" {
 			status, err := client.RecoverWebsiteReplicaOrderStatus(ctx, api.RecoverWebsiteReplicaDownloadRequest{OrderNo: state.OrderNo, RecoverySecret: state.DownloadRecoverySecret})
@@ -190,6 +192,7 @@ func installReplicaAnonymousLocked(
 				return replicaInstallResult{}, err
 			}
 			if status.Payment.Status == "PAID" {
+				payment = status.Payment
 				return installReplicaRecoveredDownload(ctx, runtime, store, state, client, state.OrderNo, absTarget)
 			}
 		}
@@ -204,6 +207,7 @@ func installReplicaAnonymousLocked(
 			}
 			switch status.Payment.Status {
 			case "PAID":
+				payment = status.Payment
 				return installReplicaRecoveredDownload(ctx, runtime, store, state, client, state.OrderNo, absTarget)
 			case "PENDING":
 				pendingOrder = true
@@ -232,6 +236,7 @@ func installReplicaAnonymousLocked(
 		}
 		switch status.Payment.Status {
 		case "PAID":
+			payment = status.Payment
 		case "PENDING":
 			closed, err := client.CancelWebsiteReplicaOrderAttempt(ctx, api.RecoverWebsiteReplicaDownloadRequest{
 				OrderNo: state.OrderNo, RecoverySecret: state.DownloadRecoverySecret,
@@ -380,6 +385,7 @@ func installReplicaAnonymousLocked(
 			state.PaymentQRContent = checkout.PaymentAction.Content
 		}
 		if checkout.Status == "PAID" {
+			payment = api.WebsiteReplicaPaymentState{Status: "PAID"}
 			_ = removeReplicaPaymentPresentation(runtime, state)
 			if err := store.save(&state); err != nil {
 				return replicaInstallResult{}, err
@@ -418,7 +424,11 @@ func installReplicaAnonymousLocked(
 			return replicaInstallResult{}, err
 		}
 	}
-	if err := waitForReplicaSessionPayment(ctx, runtime, client, state, timeout, interval); err != nil {
+	observed, err := waitForReplicaSessionPayment(ctx, runtime, client, state, timeout, interval)
+	if observed.Status == "PAID" {
+		payment = observed
+	}
+	if err != nil {
 		if output.AsError(err).Subtype == "REPLICA_PAYMENT_TERMINAL" {
 			_ = store.retire(state)
 		}
@@ -454,7 +464,7 @@ func installReplicaLocked(
 	interval time.Duration,
 	confirm bool,
 	recoveryOnly bool,
-) (replicaInstallResult, error) {
+) (result replicaInstallResult, resultErr error) {
 	requiredScopes := []string{"website-replica:read", "website-replica:purchase"}
 	if recoveryOnly {
 		requiredScopes = requiredScopes[:1]
@@ -498,7 +508,16 @@ func installReplicaLocked(
 		return replicaInstallResult{}, err
 	}
 	client := runtime.client()
+	var payment api.WebsiteReplicaPaymentState
+	defer func() { resultErr = replicaPaidFailure(resultErr, runtime, state, payment, false) }()
 	if recoveryOnly {
+		if exists && state.OrderNo != "" {
+			status, err := client.GetWebsiteReplicaOrderStatus(ctx, state.OrderNo)
+			if err != nil {
+				return replicaInstallResult{}, err
+			}
+			payment = status.Payment
+		}
 		return installOwnedReplicaOnly(ctx, runtime, store, state, exists, client, shortCode, absTarget)
 	}
 	if exists && state.OrderNo != "" && !confirm {
@@ -508,6 +527,7 @@ func installReplicaLocked(
 		}
 		switch status.Payment.Status {
 		case "PAID":
+			payment = status.Payment
 		case "PENDING":
 			closed, err := client.CancelWebsiteReplicaOrder(ctx, state.OrderNo)
 			if err != nil {
@@ -627,6 +647,9 @@ func installReplicaLocked(
 			return replicaInstallResult{}, err
 		}
 		order.Status = status.Payment.Status
+		if order.Status == "PAID" {
+			payment = status.Payment
+		}
 		if order.Status == "CLOSED" {
 			if err := store.retire(state); err != nil {
 				return replicaInstallResult{}, err
@@ -669,6 +692,9 @@ func installReplicaLocked(
 			}
 		}
 		state.OrderNo = order.OrderNo
+		if order.Status == "PAID" {
+			payment = api.WebsiteReplicaPaymentState{Status: "PAID"}
+		}
 		state.OrderExpiresAt = order.ExpiresAt
 		if err := store.save(&state); err != nil {
 			return replicaInstallResult{}, err
@@ -685,7 +711,11 @@ func installReplicaLocked(
 		}
 		return replicaInstallResult{}, replicaPaymentConfirmation(state, presentation)
 	}
-	if err := waitForReplicaPayment(ctx, runtime, client, order, timeout, interval); err != nil {
+	observed, err := waitForReplicaPayment(ctx, runtime, client, order, timeout, interval)
+	if observed.Status == "PAID" && payment.Status != "PAID" {
+		payment = observed
+	}
+	if err != nil {
 		if output.AsError(err).Subtype == "REPLICA_PAYMENT_TERMINAL" {
 			_ = store.retire(state)
 		}
@@ -1152,31 +1182,31 @@ func validateReplicaPaymentAction(action *api.WebsiteReplicaPaymentAction) error
 	return nil
 }
 
-func waitForReplicaPayment(ctx context.Context, runtime *Runtime, client *api.Client, order api.WebsiteReplicaOrder, timeout, interval time.Duration) error {
+func waitForReplicaPayment(ctx context.Context, runtime *Runtime, client *api.Client, order api.WebsiteReplicaOrder, timeout, interval time.Duration) (api.WebsiteReplicaPaymentState, error) {
 	switch order.Status {
 	case "PAID":
 		_ = removeCommercePaymentPresentation(runtime, order.OrderNo)
-		return nil
+		return api.WebsiteReplicaPaymentState{Status: "PAID"}, nil
 	case "PENDING":
 	case "CLOSED", "FAILED", "CANCELLED":
-		return output.Policy("REPLICA_PAYMENT_TERMINAL", "Website Replica payment did not complete")
+		return api.WebsiteReplicaPaymentState{}, output.Policy("REPLICA_PAYMENT_TERMINAL", "Website Replica payment did not complete")
 	default:
-		return output.Internal("REPLICA_ORDER_RESPONSE_INVALID", "Website Replica order status is invalid", nil)
+		return api.WebsiteReplicaPaymentState{}, output.Internal("REPLICA_ORDER_RESPONSE_INVALID", "Website Replica order status is invalid", nil)
 	}
 	deadline := runtime.deps.Now().Add(timeout)
 	for {
 		status, err := client.GetWebsiteReplicaOrderStatus(ctx, order.OrderNo)
 		if err != nil {
-			return err
+			return api.WebsiteReplicaPaymentState{}, err
 		}
 		switch status.Payment.Status {
 		case "PAID":
 			_ = removeCommercePaymentPresentation(runtime, order.OrderNo)
-			return nil
+			return status.Payment, nil
 		case "PENDING":
 		case "CLOSED", "FAILED", "CANCELLED":
 			_ = removeCommercePaymentPresentation(runtime, order.OrderNo)
-			return output.Policy("REPLICA_PAYMENT_TERMINAL", "Website Replica payment did not complete").WithDetails(map[string]any{"orderNo": order.OrderNo, "status": status.Payment.Status})
+			return api.WebsiteReplicaPaymentState{}, output.Policy("REPLICA_PAYMENT_TERMINAL", "Website Replica payment did not complete").WithDetails(map[string]any{"orderNo": order.OrderNo, "status": status.Payment.Status})
 		}
 		if !runtime.deps.Now().Before(deadline) {
 			pending := output.Network("REPLICA_PAYMENT_TIMEOUT", "Website Replica payment was not observed before the wait deadline", context.DeadlineExceeded)
@@ -1185,19 +1215,19 @@ func waitForReplicaPayment(ctx context.Context, runtime *Runtime, client *api.Cl
 				"orderNo":    order.OrderNo,
 				"expiresAt":  order.ExpiresAt,
 			})
-			return pending
+			return api.WebsiteReplicaPaymentState{}, pending
 		}
 		delay := interval
 		if remaining := deadline.Sub(runtime.deps.Now()); remaining < delay {
 			delay = remaining
 		}
 		if err := runtime.deps.Sleep(ctx, delay); err != nil {
-			return output.Network("REPLICA_PAYMENT_INTERRUPTED", "Website Replica payment wait was interrupted", err)
+			return api.WebsiteReplicaPaymentState{}, output.Network("REPLICA_PAYMENT_INTERRUPTED", "Website Replica payment wait was interrupted", err)
 		}
 	}
 }
 
-func waitForReplicaSessionPayment(ctx context.Context, runtime *Runtime, client *api.Client, state replicaPurchaseState, timeout, interval time.Duration) error {
+func waitForReplicaSessionPayment(ctx context.Context, runtime *Runtime, client *api.Client, state replicaPurchaseState, timeout, interval time.Duration) (api.WebsiteReplicaPaymentState, error) {
 	deadline := runtime.deps.Now().Add(timeout)
 	for {
 		delay := interval
@@ -1205,25 +1235,25 @@ func waitForReplicaSessionPayment(ctx context.Context, runtime *Runtime, client 
 			delay = remaining
 		}
 		if err := runtime.deps.Sleep(ctx, delay); err != nil {
-			return output.Network("REPLICA_PAYMENT_INTERRUPTED", "Website Replica payment wait was interrupted", err)
+			return api.WebsiteReplicaPaymentState{}, output.Network("REPLICA_PAYMENT_INTERRUPTED", "Website Replica payment wait was interrupted", err)
 		}
 		status, err := client.GetWebsiteReplicaSessionOrderStatus(ctx, state.SessionID, state.SessionToken, state.OrderNo)
 		if err != nil {
-			return err
+			return api.WebsiteReplicaPaymentState{}, err
 		}
 		switch status.Payment.Status {
 		case "PAID":
 			_ = removeReplicaPaymentPresentation(runtime, state)
-			return nil
+			return status.Payment, nil
 		case "PENDING":
 		case "CLOSED", "FAILED", "CANCELLED":
 			_ = removeReplicaPaymentPresentation(runtime, state)
-			return output.Policy("REPLICA_PAYMENT_TERMINAL", "Website Replica payment did not complete").WithDetails(map[string]any{"orderNo": state.OrderNo, "status": status.Payment.Status})
+			return api.WebsiteReplicaPaymentState{}, output.Policy("REPLICA_PAYMENT_TERMINAL", "Website Replica payment did not complete").WithDetails(map[string]any{"orderNo": state.OrderNo, "status": status.Payment.Status})
 		default:
-			return invalidReplicaResponse("Website Replica order status is invalid")
+			return api.WebsiteReplicaPaymentState{}, invalidReplicaResponse("Website Replica order status is invalid")
 		}
 		if !runtime.deps.Now().Before(deadline) {
-			return output.Network("REPLICA_PAYMENT_TIMEOUT", "Website Replica payment was not observed before the wait deadline", context.DeadlineExceeded).WithDetails(map[string]any{
+			return api.WebsiteReplicaPaymentState{}, output.Network("REPLICA_PAYMENT_TIMEOUT", "Website Replica payment was not observed before the wait deadline", context.DeadlineExceeded).WithDetails(map[string]any{
 				"nextAction": "PAYMENT_PENDING", "orderNo": state.OrderNo, "expiresAt": state.OrderExpiresAt,
 			})
 		}
