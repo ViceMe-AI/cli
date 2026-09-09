@@ -137,8 +137,11 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	var inspectOutput bytes.Buffer
 	deps.Out, deps.ErrOut = &inspectOutput, &bytes.Buffer{}
 	workURL := "https://viceme.cn/alice/site.md"
-	if exit := Execute([]string{"replica", "inspect", workURL}, deps); exit != 0 || !bytes.Contains(inspectOutput.Bytes(), []byte(`"nextAction": "PRESENT_WORK"`)) {
+	if exit := Execute([]string{"replica", "inspect", workURL}, deps); exit != 0 {
 		t.Fatalf("inspect failed: exit=%d output=%q", exit, inspectOutput.String())
+	}
+	if mode, presentationURL := replicaInspectPresentation(t, inspectOutput.Bytes()); mode != replicaWorkPresentationWorkspaceText || presentationURL != "" {
+		t.Fatalf("ordinary work presentation = %s %q output=%q", mode, presentationURL, inspectOutput.String())
 	}
 
 	target := filepath.Join(root, strings.ToLower(shortCode))
@@ -161,6 +164,107 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	if exit := Execute([]string{"replica", "install", fullCode, "--anonymous", "--recovery-only", "--target", recoveredTarget}, deps); exit != 0 {
 		t.Fatalf("cached purchase recovery failed: %d %s", exit, installOutput.String())
 	}
+}
+
+func TestNewReplicaWorkPresentation(t *testing.T) {
+	workURL := "https://viceme.example/replica-maker/replica"
+	hosted := newReplicaWorkPresentation(true, workURL)
+	if hosted.Mode != replicaWorkPresentationCreatorPage || hosted.URL != workURL {
+		t.Fatalf("active hosted page = %#v", hosted)
+	}
+	text := newReplicaWorkPresentation(false, workURL)
+	if text.Mode != replicaWorkPresentationWorkspaceText || text.URL != "" {
+		t.Fatalf("ordinary work = %#v", text)
+	}
+	if empty := newReplicaWorkPresentation(true, ""); empty.Mode != replicaWorkPresentationWorkspaceText {
+		t.Fatalf("missing work URL = %#v", empty)
+	}
+}
+
+func TestReplicaInspectSelectsWorkPresentation(t *testing.T) {
+	const (
+		fullCode  = "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST"
+		shortCode = "VMR-ABCDEFGHIJKLMNOPQRST"
+		replicaID = "11111111-1111-4111-8111-111111111111"
+		workURL   = "https://viceme.cn/alice/site.md"
+	)
+	workURLValue := replicaResolutionResponse(replicaID, shortCode)["viceMeWorkUrl"].(string)
+	tests := []struct {
+		name         string
+		target       string
+		hostedFlag   bool
+		presentation map[string]any
+		previewURL   string
+		wantMode     string
+		wantURL      string
+	}{
+		{name: "active hosted page", target: workURL, presentation: replicaActivePagePresentation("ACTIVE"), wantMode: replicaWorkPresentationCreatorPage, wantURL: workURLValue},
+		{name: "replica publish without isHostedPage", target: workURL, presentation: replicaActivePagePresentation("ACTIVE"), wantMode: replicaWorkPresentationCreatorPage, wantURL: workURLValue},
+		{name: "isHostedPage without active presentation", target: workURL, hostedFlag: true, wantMode: replicaWorkPresentationWorkspaceText},
+		{name: "verified creator site without hosted page", target: workURL, previewURL: "https://original.example.com", wantMode: replicaWorkPresentationWorkspaceText},
+		{name: "hosted page prefers work url over external preview", target: workURL, presentation: replicaActivePagePresentation("ACTIVE"), previewURL: "https://original.example.com", wantMode: replicaWorkPresentationCreatorPage, wantURL: workURLValue},
+		{name: "preview presentation is not public hosted page", target: workURL, presentation: replicaActivePagePresentation("PREVIEW"), wantMode: replicaWorkPresentationWorkspaceText},
+		{name: "ordinary work", target: workURL, wantMode: replicaWorkPresentationWorkspaceText},
+		{name: "replica code unknown hosting", target: fullCode, wantMode: replicaWorkPresentationWorkspaceText},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				resolution := replicaResolutionResponse(replicaID, shortCode)
+				switch request.URL.Path {
+				case "/v1/public/creators/alice/works/site":
+					if test.target != workURL {
+						t.Fatalf("replica code inspect fetched public work")
+					}
+					work := map[string]any{"websiteReplicaAction": map[string]any{"instruction": fullCode}}
+					if test.hostedFlag {
+						work["isHostedPage"] = true
+					}
+					payload := map[string]any{"work": work}
+					if test.presentation != nil {
+						payload["presentation"] = test.presentation
+					}
+					writeJSONResponse(writer, payload)
+				case "/v1/website-replicas/" + shortCode + "/discovery":
+					writeJSONResponse(writer, replicaDiscoveryResponse(replicaID, shortCode, test.previewURL))
+				case "/v1/website-replicas/resolve":
+					writeJSONResponse(writer, resolution)
+				default:
+					t.Fatalf("unexpected request: %s %s", request.Method, request.URL.Path)
+				}
+			}))
+			defer server.Close()
+
+			root := t.TempDir()
+			var stdout bytes.Buffer
+			exit := Execute([]string{"replica", "inspect", test.target}, Dependencies{
+				Out: &stdout, ErrOut: &bytes.Buffer{}, HTTPClient: server.Client(), Store: securestore.NewMemory(),
+				Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+				Region:      config.RegionCN, APIBaseURL: server.URL,
+			})
+			if exit != 0 {
+				t.Fatalf("inspect failed: exit=%d output=%q", exit, stdout.String())
+			}
+			mode, presentationURL := replicaInspectPresentation(t, stdout.Bytes())
+			if mode != test.wantMode || presentationURL != test.wantURL {
+				t.Fatalf("presentation = %s %q, want %s %q output=%q", mode, presentationURL, test.wantMode, test.wantURL, stdout.String())
+			}
+		})
+	}
+}
+
+func replicaInspectPresentation(t *testing.T, stdout []byte) (string, string) {
+	t.Helper()
+	var envelope struct {
+		Data replicaInspectResult `json:"data"`
+	}
+	if err := json.Unmarshal(stdout, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if envelope.Data.NextAction != "PRESENT_WORK" {
+		t.Fatalf("nextAction = %q", envelope.Data.NextAction)
+	}
+	return envelope.Data.WorkPresentation.Mode, envelope.Data.WorkPresentation.URL
 }
 
 func TestDefaultReplicaTargetUsesAChildOfTheCurrentWorkspace(t *testing.T) {
@@ -264,6 +368,9 @@ func TestReplicaInspectFindsPaidStandaloneRecoveryWithoutExposingCredential(t *t
 	if previewExit != 0 || recoveryBody.OrderNo != "" || bytes.Contains(preview.Bytes(), []byte("standaloneRecoveryAvailable")) {
 		t.Fatalf("public preview accessed recovery: exit=%d output=%q", previewExit, preview.String())
 	}
+	if mode, presentationURL := replicaInspectPresentation(t, preview.Bytes()); mode != replicaWorkPresentationWorkspaceText || presentationURL != "" {
+		t.Fatalf("unknown hosting presentation = %s %q", mode, presentationURL)
+	}
 	if err := privatefile.Write(filename, append(receipt, '\n'), ".standalone-replica-test-*.tmp"); err != nil {
 		t.Fatal(err)
 	}
@@ -282,6 +389,9 @@ func TestReplicaInspectFindsPaidStandaloneRecoveryWithoutExposingCredential(t *t
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"standaloneRecoveryAvailable": true`)) || bytes.Contains(stdout.Bytes(), []byte(secret)) {
 		t.Fatalf("inspect did not safely report standalone recovery: %q", stdout.String())
+	}
+	if mode, presentationURL := replicaInspectPresentation(t, stdout.Bytes()); mode != replicaWorkPresentationWorkspaceText || presentationURL != "" {
+		t.Fatalf("recovery inspect presentation = %s %q", mode, presentationURL)
 	}
 }
 
@@ -526,7 +636,7 @@ func TestReplicaSessionPaymentContinuesAsSoonAsPaid(t *testing.T) {
 	}}
 	state := replicaPurchaseState{OrderNo: orderNo, SessionID: "session", SessionToken: "token", Target: filepath.Join(t.TempDir(), "copy")}
 	client := api.NewClient(server.URL, server.Client(), nil, "test")
-	if err := waitForReplicaSessionPayment(context.Background(), runtime, client, state, replicaPaymentWaitTimeout, replicaPaymentPollInterval); err != nil {
+	if _, err := waitForReplicaSessionPayment(context.Background(), runtime, client, state, replicaPaymentWaitTimeout, replicaPaymentPollInterval); err != nil {
 		t.Fatal(err)
 	}
 	if calls != 2 || now.Sub(started) != 30*time.Second {

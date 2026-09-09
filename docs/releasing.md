@@ -70,6 +70,23 @@ Shop signs with the new key. Never replace key material under an existing ID;
 remove an old public key only after every Release signed by it is no longer
 installable.
 
+**Hosted development Commerce signer.**
+
+`https://dev.viceme.cn` has a separate source-pinned Commerce trust entry in
+`internal/command/commerce_install.go`. Its `v1` public Ed25519 SPKI SHA-256 is
+`20f58035b232eef096699009db4301ad708cf2ae962cdbece04b62d26dd16196`.
+The entry matches the normalized HTTPS origin, including its port, and applies
+to both Commerce Skill releases and Website Replica licenses. It does not
+relax document signatures, artifact checks, or the existing loopback policy.
+
+Do not put this development key in the origin-independent production
+`COMMERCE_SKILL_TRUST_KEYS` variable. For development key rotation, verify the
+new public key against the intended development deployment, allocate a new
+key ID, add another entry scoped to the same origin, and release the CLI before
+switching the development signer. Retain old entries while their signed
+releases or paid licenses remain recoverable. A remote endpoint response alone
+never changes an installed CLI's trust policy.
+
 Keep `main` as the repository default branch, but target normal feature and fix
 pull requests explicitly at `dev`. Repository settings allow merge commits only;
 squash and rebase merging are disabled so an administrator bypass cannot detach

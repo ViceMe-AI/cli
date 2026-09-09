@@ -4,7 +4,7 @@
 
 优先把项目根目录直接交给 `viceme replica publish --path <project-root>`。CLI 从调用时的当前工作树生成确定性 ZIP，不要求先 commit；应交付的已跟踪、未跟踪和未提交源码都会按同一规则进入冻结清单。已有 ZIP 仍可作为 `--path` 输入，但必须已经满足本合同。
 
-托管 PAGE 与完整 SOURCE 分开选择：Agent 用 `--page-dir <deployable-directory> --page-entry <relative-html-entry>` 明确指定页面目录和入口。纯静态项目可以直接选择源码根目录，目录和入口不必叫 `dist` 或 `index.html`。CLI 不搜索框架产物，只校验并保留选定目录内的相对路径，ZIP 内部统一放在 `dist/` 下；依赖、工具元数据、环境文件与恢复状态不进入 PAGE。HTML 引用的资源仍须满足现有托管校验。
+托管 PAGE 与完整 SOURCE 分开选择：Agent 用 `--page-dir <deployable-directory> --page-entry <relative-html-entry>` 明确指定页面目录和入口。纯静态项目可以直接选择源码根目录，目录和入口不必叫 `dist` 或 `index.html`。CLI 不搜索框架产物，只校验并保留选定目录内的相对路径，ZIP 内部统一放在 `dist/` 下；依赖、工具元数据、环境文件与恢复状态不进入 PAGE。HTML 引用的资源仍须满足现有托管校验。PAGE 也按完整 `VICEME_CREATOR_ENTRY_BEGIN` / `VICEME_CREATOR_ENTRY_END` 边界移除原站入口，避免与平台入口重复；托管补发使用同一规则，未标记内容不按文案删除。
 
 高层发布会把合法已有 ZIP 解压到 owner-only 临时目录用于本地预览；未含创作者入口标记时，终审与上传保持原 ZIP 字节。包含标记时，只在私有冻结副本中移除完整标记块并重新计算摘要，终审和上传绑定清理后的字节，原 ZIP 不变。本地 Publication 绑定写入该 ZIP 同级的 `.viceme/website-replica.json`。临时预览目录、`.viceme` 和任何上传能力都不得进入源码包。
 

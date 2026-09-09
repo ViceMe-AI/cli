@@ -21,11 +21,13 @@ import (
 
 func TestReplicaRepairConfirmsOnlyPageAndResumesLostResponse(t *testing.T) {
 	for _, status := range []string{"PUBLISHED_DEGRADED", "PUBLISHED"} {
-		t.Run(status, func(t *testing.T) { testReplicaRepairResumesLostResponse(t, status) })
+		for _, source := range []string{"directory", "zip"} {
+			t.Run(status+"/"+source, func(t *testing.T) { testReplicaRepairResumesLostResponse(t, status, source) })
+		}
 	}
 }
 
-func testReplicaRepairResumesLostResponse(t *testing.T, status string) {
+func testReplicaRepairResumesLostResponse(t *testing.T, status, source string) {
 	now := time.Now().UTC().Truncate(time.Second)
 	root := t.TempDir()
 	project := filepath.Join(root, "project")
@@ -33,9 +35,24 @@ func testReplicaRepairResumesLostResponse(t *testing.T, status string) {
 		t.Fatal(err)
 	}
 	html := filepath.Join(project, "repaired.html")
-	if err := os.WriteFile(html, []byte("<h1>Repaired</h1>"), 0600); err != nil {
-		t.Fatal(err)
+	archive := filepath.Join(root, "page.zip")
+	writePage := func(content string) {
+		t.Helper()
+		if err := os.WriteFile(html, []byte(content), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if source == "zip" {
+			data := rawReplicaTestZIP(t, map[string]string{
+				"viceme-page.json":   `{"apiVersion":"page.viceme.ai/v1alpha1","kind":"WorkPage","metadata":{"name":"Repair"},"spec":{"entry":"dist/repaired.html","sdkVersion":"1","capabilities":["context.read"]}}`,
+				"dist/repaired.html": content,
+			})
+			if err := os.WriteFile(archive, data, 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
+	originalHTML := "<h1>Repaired</h1>\n<!-- VICEME_CREATOR_ENTRY_BEGIN -->\n<button>做同款</button><script>showCreatorEntry();</script>\n<!-- VICEME_CREATOR_ENTRY_END -->\n"
+	writePage(originalHTML)
 	publication := replicaPublicationAPIResponse(now, status, "ACTIVATED")
 	publication["rollback"] = map[string]any{"activePair": replicaVersionPair(replicaPublicationTestRequestID, replicaPublicationTestVersionID, 1, replicaPublicationTestWorkID, nil), "availablePairs": []any{}}
 	var original map[string]any
@@ -86,7 +103,7 @@ func testReplicaRepairResumesLostResponse(t *testing.T, status string) {
 			uploads++
 			data, _ := io.ReadAll(r.Body)
 			contents := readReplicaZIP(t, data)
-			if len(contents["viceme-page.json"]) == 0 || len(contents["VICEME-REPLICA.md"]) != 0 || string(contents["dist/repaired.html"]) != "<h1>Repaired</h1>" {
+			if len(contents["viceme-page.json"]) == 0 || len(contents["VICEME-REPLICA.md"]) != 0 || string(contents["dist/repaired.html"]) != "<h1>Repaired</h1>\n" {
 				t.Error("repair must upload only page artifact")
 			}
 			if r.Header.Get("Authorization") != "" {
@@ -118,6 +135,9 @@ func testReplicaRepairResumesLostResponse(t *testing.T, status string) {
 		return code, out.Bytes()
 	}
 	args := []string{"replica", "repair-hosting", "--publication", replicaPublicationTestID, "--path", project, "--page-entry", "repaired.html"}
+	if source == "zip" {
+		args = []string{"replica", "repair-hosting", "--publication", replicaPublicationTestID, "--path", archive}
+	}
 	code, out := run(args)
 	if code != 10 || !countsAre(0, 0, 0) {
 		t.Fatalf("preview wrote: %d %s", code, out)
@@ -139,9 +159,11 @@ func testReplicaRepairResumesLostResponse(t *testing.T, status string) {
 	if code != 0 || !countsAre(2, 1, 1) || !bytes.Contains(out, []byte("HOSTING_REPAIRED")) {
 		t.Fatalf("resume failed: %d %s", code, out)
 	}
-	if err := os.WriteFile(html, []byte("<h1>Changed after review</h1>"), 0600); err != nil {
-		t.Fatal(err)
+	current, err := os.ReadFile(html)
+	if err != nil || string(current) != originalHTML {
+		t.Fatalf("补发改写了原项目: %v", err)
 	}
+	writePage("<h1>Changed after review</h1>")
 	code, out = run(confirmed)
 	if code != 2 || !countsAre(2, 1, 1) {
 		t.Fatalf("changed page was uploaded: %d %s", code, out)

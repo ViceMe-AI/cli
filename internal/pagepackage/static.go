@@ -37,7 +37,11 @@ func BuildWebsiteWorkPage(directory, entry, name string) (Package, error) {
 	if err != nil {
 		return Package{}, err
 	}
-	return inspectBytes(directory, "page.zip", data)
+	pkg, err := inspectBytes(directory, "page.zip", data)
+	if err != nil {
+		return Package{}, err
+	}
+	return stripWebsiteCreatorEntries(pkg)
 }
 
 func archiveStaticDirectory(directory, entry, name string) ([]byte, error) {
