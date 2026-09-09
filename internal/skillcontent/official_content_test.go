@@ -131,7 +131,8 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			machine: []string{
 				"$become-a-creator", "$sell-a-skill", "viceme merchant work list",
 				"viceme merchant page describe", "viceme merchant page inspect", "viceme merchant page preview",
-				"viceme merchant page publish", "viceme-page.json", "window.viceme",
+				"viceme merchant page source status", "source restore", "--source <项目根目录>",
+				"--expected-concurrency <concurrencyToken>", "viceme merchant page publish", "viceme-page.json", "window.viceme",
 			},
 			semantics: []string{
 				"不处理作者页", "不要给任何选项标", "也可以直接写下你想要的效果",
@@ -628,17 +629,14 @@ func TestCreatorCardImportAndUpdateFlowKeepSafeGates(t *testing.T) {
 		"修改当前版本", "重新制作一版",
 		"不得从线上 HTML、截图或渲染后的 Profile Blocks 反推",
 		"提供原始项目或 ZIP",
+		"viceme merchant page source status",
+		"source restore",
+		"RESTORABLE",
+		"LOCAL_SOURCE_REQUIRED",
+		"--expected-concurrency <concurrencyToken>",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("creator-card flow omitted %q", required)
-		}
-	}
-	for _, forbidden := range []string{
-		"viceme merchant page source status",
-		"viceme merchant page source restore",
-	} {
-		if strings.Contains(text, forbidden) {
-			t.Fatalf("creator-card flow claimed unsupported or premature action %q", forbidden)
 		}
 	}
 }
@@ -767,10 +765,11 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		"VICEME_LOGIN_QR_PRESENTATION",
 		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
 		"真正绑定本次 device authorization 的微信服务号二维码",
-		"`![ViceMe 登录二维码]` 后紧跟圆括号",
-		"有 `imageChatSrc` 时不得同时展示备用链接",
-		"不自动调用 `present_files` 或任何浏览器打开工具",
-		"不要直接贴裸链接，不得重建、缩短或复用旧链接",
+		"圆括号内使用 `imageChatSrc` 原值",
+		"圆括号内使用 `authorizationUrl` 原值",
+		"两者必须始终一起出现",
+		"不自动调用 `present_files` 或浏览器工具",
+		"完成后我会自动继续",
 	} {
 		if !strings.Contains(sharedText, required) {
 			t.Fatalf("shared skill omitted deterministic login wait contract %q", required)
@@ -785,7 +784,7 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	loginSequence := []string{
 		"`TaskOutput(task_id=<同一个任务>, timeout=2000)`",
 		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
-		"有 `imageChatSrc` 时不得同时展示备用链接",
+		"两者必须始终一起出现",
 		"`TaskOutput(task_id=<同一个任务>, timeout=180000)`",
 	}
 	previousLoginStep := -1

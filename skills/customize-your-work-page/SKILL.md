@@ -47,6 +47,12 @@ Block、capability、manifest、iframe、release、Merchant、JSON、权限名�
 运行 `viceme merchant page describe --target <准确URL> --merchant <商家ID>`。目标不是已发布的
 Skill 作品页时，用白话说明当前只支持 Skill 作品页并停止，不尝试网站或其他作品类型。
 
+随后运行 `viceme merchant page status --target <准确URL> --merchant <商家ID>`。已有 active release 时，
+再运行 `viceme merchant page source status --target <准确URL> --merchant <商家ID>`：返回 `RESTORABLE`
+就用 `source restore` 恢复到一个不存在的新目录，并基于恢复出的源稿继续修改；返回
+`LOCAL_SOURCE_REQUIRED` 才请用户提供原始项目或 ZIP，或选择重新制作。不得从线上 HTML、截图或
+渲染产物反推源码，也不得覆盖已有本地目录。没有 active release 时直接使用本次取得或制作的项目。
+
 ## 页面制作路径
 
 先从用户已经说过的话和当前工作区判断路径。意图明确时直接执行；只有确实不明确时，才使用当前
@@ -95,7 +101,8 @@ Agent 的原生结构化单选工具询问：
 你的要求修改”。否则只问“请把网页文件、压缩包、项目位置或参考页面发给我。”
 
 目录、ZIP 或仓库必须由用户拥有或明确授权；公开页面只能作为视觉和结构参考，不能反推或克隆其
-源码、文案、图片或品牌素材。有源码时复用其技术栈和构建流程；只有静态产物时不要强行补造源码。
+源码、文案、图片或品牌素材。有源码时复用其技术栈和构建流程；只有静态产物时不要强行补造源码，
+但要把用户提供的 ZIP 安全解压到一个新的项目目录，原样作为后续可恢复的源稿。
 
 ## 页面和按钮
 
@@ -122,7 +129,7 @@ Agent 的原生结构化单选工具询问：
 1. 有源码时先运行项目自己的 build。导入页面按
    [导入与路径适配](references/import-routing.md) 检查嵌套路径、资源和页面内跳转。
 2. 运行 `viceme merchant page inspect --path <zip>`，只修复包结构和声明不一致问题。
-3. 运行 `viceme merchant page preview --path <zip> --target <准确URL> --merchant <商家ID>`，打开返回的
+3. 运行 `viceme merchant page preview --path <zip> --source <项目根目录> --target <准确URL> --merchant <商家ID>`，打开返回的
    完整预览 URL，并把同一 URL 作为 Markdown 备用链接。对用户只说：“新页面已经打开，你可以看看
    整体效果、按钮位置和文字是否合适。”
 4. Agent 在预览中自行检查电脑和手机布局、首页、页面内跳转和刷新；检查点赞初始状态与可逆切换后
@@ -130,9 +137,11 @@ Agent 的原生结构化单选工具询问：
    验收擅自发表公开评论、创建订单或购买订阅。
 5. 最终预览只问一次，使用中立选项：`就用这个页面`、`继续修改`、`先不使用`，同时允许用户直接
    输入修改意见。用户选择继续修改时更新同一份本地项目并重新预览，不重新询问制作路径。
-6. 只有用户选择“就用这个页面”或用自由文字明确同意后，才读取 status，并用这次预览的 release ID
-   与真实 active release 运行
-   `viceme merchant page publish <release-id> --expected-active <当前ID或none> --merchant <商家ID>`。
+6. 只有用户选择“就用这个页面”或用自由文字明确同意后，才读取 status，并用这次预览的 release ID、
+   真实 active release 与 `concurrencyToken` 运行
+   `viceme merchant page publish <release-id> --expected-active <当前ID或none> --expected-concurrency <concurrencyToken> --merchant <商家ID>`。
+   这仍是一次用户发布动作；系统内部同时保存公开运行包和仅 owner 可恢复的可编辑源稿。如果页面在
+   预览确认后已被其他流程更新，发布必须拒绝并重新读取状态，不得覆盖更新。
    不得把开始制作或先前发布 Skill 的确认当作页面发布确认。
 7. 发布后打开最初确认的准确作品 URL，重新检查页面、刷新和实际出现的按钮。失败时保留默认页面或
    上一个正常版本，不宣布完成，不自动循环发布。

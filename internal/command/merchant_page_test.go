@@ -3,6 +3,8 @@ package command
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
@@ -28,6 +31,7 @@ func TestMerchantPagePreviewUsesScopedAuthAndPresignedUpload(t *testing.T) {
 	var mu sync.Mutex
 	var requests []string
 	var uploaded []byte
+	var uploadedSource []byte
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		mu.Lock()
@@ -47,7 +51,7 @@ func TestMerchantPagePreviewUsesScopedAuthAndPresignedUpload(t *testing.T) {
 			}}})
 		case "/v1/cli/merchant/page-customizations/drafts":
 			body, _ := io.ReadAll(request.Body)
-			if !strings.Contains(string(body), `"contractVersion":"2026-09-06"`) || !strings.Contains(string(body), `"creatorHandle":"alice-maker"`) {
+			if !strings.Contains(string(body), `"contractVersion":"2026-09-09"`) || !strings.Contains(string(body), `"creatorHandle":"alice-maker"`) || !strings.Contains(string(body), `"sourceSnapshot"`) {
 				t.Fatalf("unexpected draft body: %s", body)
 			}
 			writeJSONResponse(writer, map[string]any{"release": pageTestRelease("UPLOADING")})
@@ -61,6 +65,14 @@ func TestMerchantPagePreviewUsesScopedAuthAndPresignedUpload(t *testing.T) {
 				t.Fatalf("unsafe presigned upload request: method=%s headers=%v", request.Method, request.Header)
 			}
 			uploaded, _ = io.ReadAll(request.Body)
+			writer.WriteHeader(http.StatusNoContent)
+		case "/v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/source-upload-authorizations":
+			writeJSONResponse(writer, map[string]any{
+				"uploadUrl": server.URL + "/upload/source.zip", "expiresAt": "2027-08-21T00:15:00Z",
+				"headers": map[string]string{"content-type": "application/zip", "if-none-match": "*"},
+			})
+		case "/upload/source.zip":
+			uploadedSource, _ = io.ReadAll(request.Body)
 			writer.WriteHeader(http.StatusNoContent)
 		case "/v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/complete-upload":
 			writeJSONResponse(writer, pageTestRelease("VALIDATED"))
@@ -79,9 +91,10 @@ func TestMerchantPagePreviewUsesScopedAuthAndPresignedUpload(t *testing.T) {
 
 	root := t.TempDir()
 	pageZIP := writeCommandPageZIP(t, root)
+	pageSource := writeCommandPageSource(t, root)
 	var stdout, stderr bytes.Buffer
 	exit := Execute([]string{
-		"merchant", "page", "preview", "--path", pageZIP,
+		"merchant", "page", "preview", "--path", pageZIP, "--source", pageSource,
 		"--target", "https://viceme.cn/alice-maker", "--merchant", pageTestMerchantID,
 	}, Dependencies{
 		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(), HTTPClient: server.Client(),
@@ -91,8 +104,8 @@ func TestMerchantPagePreviewUsesScopedAuthAndPresignedUpload(t *testing.T) {
 	if exit != 0 {
 		t.Fatalf("preview failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
 	}
-	if len(uploaded) == 0 || strings.Contains(stdout.String(), pageTestToken) || strings.Contains(stderr.String(), pageTestToken) {
-		t.Fatalf("upload or credential boundary failed: uploaded=%d stdout=%s stderr=%s", len(uploaded), stdout.String(), stderr.String())
+	if len(uploaded) == 0 || len(uploadedSource) == 0 || strings.Contains(stdout.String(), pageTestToken) || strings.Contains(stderr.String(), pageTestToken) {
+		t.Fatalf("upload or credential boundary failed: deployed=%d source=%d stdout=%s stderr=%s", len(uploaded), len(uploadedSource), stdout.String(), stderr.String())
 	}
 	var envelope map[string]any
 	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil || envelope["ok"] != true {
@@ -106,6 +119,8 @@ func TestMerchantPagePreviewUsesScopedAuthAndPresignedUpload(t *testing.T) {
 		"POST /v1/cli/merchant/page-customizations/drafts",
 		"POST /v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/upload-authorizations",
 		"PUT /upload/page.zip",
+		"POST /v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/source-upload-authorizations",
+		"PUT /upload/source.zip",
 		"POST /v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/complete-upload",
 		"POST /v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/previews",
 	}
@@ -118,6 +133,7 @@ func TestMerchantPageUploadUsesPendingCreatorTenantWithoutOnlinePreview(t *testi
 	var mu sync.Mutex
 	var requests []string
 	var uploaded []byte
+	var uploadedSource []byte
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		mu.Lock()
@@ -166,6 +182,14 @@ func TestMerchantPageUploadUsesPendingCreatorTenantWithoutOnlinePreview(t *testi
 		case "/upload/page.zip":
 			uploaded, _ = io.ReadAll(request.Body)
 			writer.WriteHeader(http.StatusNoContent)
+		case "/v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/source-upload-authorizations":
+			writeJSONResponse(writer, map[string]any{
+				"uploadUrl": server.URL + "/upload/source.zip", "expiresAt": "2027-08-21T00:15:00Z",
+				"headers": map[string]string{"content-type": "application/zip", "if-none-match": "*"},
+			})
+		case "/upload/source.zip":
+			uploadedSource, _ = io.ReadAll(request.Body)
+			writer.WriteHeader(http.StatusNoContent)
 		case "/v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/complete-upload":
 			writeJSONResponse(writer, pageTestRelease("VALIDATED"))
 		default:
@@ -177,17 +201,18 @@ func TestMerchantPageUploadUsesPendingCreatorTenantWithoutOnlinePreview(t *testi
 
 	root := t.TempDir()
 	pageZIP := writeCommandPageZIP(t, root)
+	pageSource := writeCommandPageSource(t, root)
 	var stdout, stderr bytes.Buffer
 	exit := Execute([]string{
-		"merchant", "page", "upload", "--path", pageZIP,
+		"merchant", "page", "upload", "--path", pageZIP, "--source", pageSource,
 		"--target", "https://viceme.cn/alice-maker", "--merchant", pageTestMerchantID,
 	}, Dependencies{
 		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(), HTTPClient: server.Client(),
 		APIBaseURL: server.URL, Region: config.RegionCN, NewID: func() string { return "55555555-5555-4555-8555-555555555555" },
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 	})
-	if exit != 0 || len(uploaded) == 0 || !strings.Contains(stdout.String(), `"status": "VALIDATED"`) {
-		t.Fatalf("pending upload failed: exit=%d uploaded=%d stdout=%s stderr=%s", exit, len(uploaded), stdout.String(), stderr.String())
+	if exit != 0 || len(uploaded) == 0 || len(uploadedSource) == 0 || !strings.Contains(stdout.String(), `"status": "VALIDATED"`) {
+		t.Fatalf("pending upload failed: exit=%d deployed=%d source=%d stdout=%s stderr=%s", exit, len(uploaded), len(uploadedSource), stdout.String(), stderr.String())
 	}
 	mu.Lock()
 	defer mu.Unlock()
@@ -198,6 +223,8 @@ func TestMerchantPageUploadUsesPendingCreatorTenantWithoutOnlinePreview(t *testi
 		"POST /v1/cli/merchant/page-customizations/drafts",
 		"POST /v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/upload-authorizations",
 		"PUT /upload/page.zip",
+		"POST /v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/source-upload-authorizations",
+		"PUT /upload/source.zip",
 		"POST /v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/complete-upload",
 	}
 	if strings.Join(requests, "\n") != strings.Join(want, "\n") {
@@ -251,6 +278,86 @@ func TestMerchantPageDescribeReturnsTargetSpecificCapabilities(t *testing.T) {
 	})
 	if exit != 0 || !strings.Contains(stdout.String(), `"work.like"`) {
 		t.Fatalf("describe failed: exit=%d output=%s", exit, stdout.String())
+	}
+}
+
+func TestMerchantPageSourceRestoreVerifiesAndInstallsOwnerSnapshot(t *testing.T) {
+	root := t.TempDir()
+	sourceRoot := writeCommandPageSource(t, root)
+	frozen, _, err := freezePageSource(api.PageCustomizationTarget{
+		Type: "WORK", CreatorHandle: "alice-maker", WorkSlug: "writing-skill",
+	}, sourceRoot, "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer frozen.Cleanup()
+	archive, err := os.ReadFile(frozen.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	digest := sha256.Sum256(archive)
+	digestHex := hex.EncodeToString(digest[:])
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/cli/auth/status":
+			writeJSONResponse(writer, map[string]any{
+				"authenticated": true,
+				"user":          map[string]any{"id": "33333333-3333-4333-8333-333333333333", "displayName": "Creator", "avatarUrl": nil},
+				"scopes":        []string{"merchant-commerce:read", "merchant-commerce:write"}, "expiresAt": "2027-08-21T00:00:00Z",
+			})
+		case "/v1/cli/merchant/accounts":
+			writeJSONResponse(writer, map[string]any{"items": []any{map[string]any{
+				"id": pageTestMerchantID, "creatorAccountId": "44444444-4444-4444-8444-444444444444",
+				"displayName": "Creator", "status": "ACTIVE", "ownershipStatus": "OWNED", "statusVersion": 1,
+			}}})
+		case "/v1/cli/merchant/page-customizations/source":
+			if request.URL.Query().Get("targetType") != "WORK" || request.URL.Query().Get("workSlug") != "writing-skill" {
+				t.Fatalf("source status lost exact Work target: %s", request.URL.RawQuery)
+			}
+			writeJSONResponse(writer, map[string]any{
+				"target": map[string]any{"type": "WORK", "creatorHandle": "alice-maker", "workSlug": "writing-skill"}, "ownerVerified": true,
+				"activeRelease":    map[string]any{"id": pageTestReleaseID, "version": 3},
+				"concurrencyToken": strings.Repeat("c", 64), "availability": "RESTORABLE",
+				"source": map[string]any{
+					"releaseId": pageTestReleaseID, "releaseVersion": 3, "digest": digestHex,
+					"sizeBytes": len(archive), "fileName": "custom-page-source.zip", "createdAt": "2027-08-21T00:00:00Z", "template": nil,
+				},
+			})
+		case "/v1/cli/merchant/page-customizations/releases/" + pageTestReleaseID + "/source":
+			writer.Header().Set("Content-Type", "application/zip")
+			_, _ = writer.Write(archive)
+		default:
+			t.Fatalf("unexpected request: %s %s", request.Method, request.URL.String())
+		}
+	}))
+	defer server.Close()
+	t.Setenv(processAccessTokenEnvironment, pageTestToken)
+	destination := filepath.Join(root, "restored-page")
+	var stdout, stderr bytes.Buffer
+	exit := Execute([]string{
+		"merchant", "page", "source", "restore", "--target", "https://viceme.cn/alice-maker/writing-skill",
+		"--merchant", pageTestMerchantID, "--destination", destination,
+	}, Dependencies{
+		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(), HTTPClient: server.Client(),
+		APIBaseURL: server.URL, Region: config.RegionCN,
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+	})
+	if exit != 0 {
+		t.Fatalf("restore failed: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+	restored, err := os.ReadFile(filepath.Join(destination, "index.html"))
+	if err != nil {
+		t.Fatalf("editable source was not restored: %v", err)
+	}
+	if !strings.Contains(string(restored), "VICEME_CREATOR_ENTRY_BEGIN") || !strings.Contains(string(restored), "Keep this editable block") {
+		t.Fatalf("owner source was rewritten while freezing or restoring: %s", restored)
+	}
+	if _, err := os.Stat(filepath.Join(destination, "VICEME-REPLICA.md")); !os.IsNotExist(err) {
+		t.Fatalf("owner source unexpectedly acquired a Website Replica handoff: %v", err)
+	}
+	if !strings.Contains(stdout.String(), digestHex) || !strings.Contains(stdout.String(), strings.Repeat("c", 64)) {
+		t.Fatalf("restore output omitted source identity: %s", stdout.String())
 	}
 }
 
@@ -322,6 +429,19 @@ func writeCommandPageZIP(t *testing.T, root string) string {
 		t.Fatal(err)
 	}
 	return filename
+}
+
+func writeCommandPageSource(t *testing.T, root string) string {
+	t.Helper()
+	directory := filepath.Join(root, "creator-page-source")
+	if err := os.Mkdir(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := "<!doctype html><title>Editable creator source</title>\n<!-- VICEME_CREATOR_ENTRY_BEGIN -->\n<div>Keep this editable block</div>\n<!-- VICEME_CREATOR_ENTRY_END -->\n"
+	if err := os.WriteFile(filepath.Join(directory, "index.html"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return directory
 }
 
 func pageTestRelease(status string) map[string]any {

@@ -48,13 +48,12 @@ viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-ur
 `viceme auth login` 会等待授权，并在轮询前输出一次性的二维码展示标记。新 CN API 返回的图片是真正绑定本次 device authorization 的微信服务号二维码，不是网页授权链接的二次编码。在 WorkBuddy 中先说“需要登录，请扫描下方二维码；完成后我会自动继续。”，然后严格执行下面的固定顺序：
 
 1. 用 Bash 后台启动一次 `viceme auth login`，保存它返回的 `task_id`。
-2. 立即用 `TaskOutput(task_id=<同一个任务>, timeout=2000)` 短时读取 `VICEME_LOGIN_QR_PRESENTATION`。任务仍在运行但尚未读到标记时，只能继续对同一个任务做 2 秒短读，不得先进入长等待。其中 `imageChatSrc` 是 CLI 已下载校验过、且与本次 device authorization 绑定的微信 HTTPS 二维码地址，`authorizationUrl` 只供二维码不可用时的备用入口。
-3. 有 `imageChatSrc` 时，必须在登录进程仍运行且二维码文件存在时，立即在聊天气泡中单独写出 Markdown 图片：`![ViceMe 登录二维码]` 后紧跟圆括号，括号内填入标记里的 `imageChatSrc` 原值，只渲染这一张 alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片。不自动调用 `present_files` 或任何浏览器打开工具，不得把 PNG 当作文件打开。有 `imageChatSrc` 时不得同时展示备用链接，也不得因为尚未确认图片是否渲染成功而提前降级。
-4. 只有宿主明确返回图片渲染失败、或标记没有 `imageChatSrc` 时，才另起一行以 Markdown 链接格式输出同一标记中的 `[打开登录页面](https://…)`。不要直接贴裸链接，不得重建、缩短或复用旧链接。
-5. 二维码已展示时紧接着说：“请用微信扫一扫完成登录；完成后我会自动继续。”只有实际降级到链接时才说：“二维码无法显示，请点击备用链接继续；完成后我会自动继续。”
-6. 提示发送后必须立刻调用 `TaskOutput(task_id=<同一个任务>, timeout=180000)`。发送提示不等于继续等待，二维码已显示或用户点击链接也不代表登录完成。
-7. 若任务仍在运行，继续读取同一个 `task_id`。只要它仍在运行，就不得结束当前回合、给出最终答复或要求用户回复“已经登录”。
-8. 登录命令成功返回后再检查登录状态，并自动继续原来的业务流程。
+2. 立即用 `TaskOutput(task_id=<同一个任务>, timeout=2000)` 短时读取 `VICEME_LOGIN_QR_PRESENTATION`。任务仍在运行但尚未读到标记时，只能继续对同一个任务做 2 秒短读，不得先进入长等待。其中 `imageChatSrc` 是 CLI 已下载校验过、由 Shop 托管且与本次 device authorization 绑定的微信 HTTPS 二维码地址；`authorizationUrl` 是同一次登录任务的网页入口。
+3. 读到标记后，必须先在聊天气泡中同时展示二维码和蓝链：单独写出 alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片，圆括号内使用 `imageChatSrc` 原值；下一行写文案为“打开登录页面”的 Markdown 链接，圆括号内使用 `authorizationUrl` 原值。不得重建、缩短或复用旧地址，不自动调用 `present_files` 或浏览器工具，不得把 PNG 当作文件打开。蓝链不是二维码失败后的备用品，两者必须始终一起出现。
+4. 紧接着说：“可以直接用微信扫描上方二维码，也可以点击链接后扫码；完成后我会自动继续。”在这三项内容提交给用户之前，不得进入长等待。
+5. 展示完成后必须立刻调用 `TaskOutput(task_id=<同一个任务>, timeout=180000)`。发送提示不等于继续等待，二维码已显示或用户点击链接也不代表登录完成。
+6. 若任务仍在运行，继续读取同一个 `task_id`。只要它仍在运行，就不得结束当前回合、给出最终答复或要求用户回复“已经登录”。
+7. 登录命令成功返回后再检查登录状态，并自动继续原来的业务流程。
 
 这些后台调用只用于取得和等待同一个登录进程的输出，不得创建用户可见任务清单。不得使用操作系统级 WorkBuddy 深链，不得在首个登录仍等待时再启动第二个登录，也不得要求用户输入设备码。只有登录命令自身明确返回有界等待超时后，才为同一 Profile 重新运行一次 `viceme auth login`；一次 `TaskOutput` 的读取超时不是登录失败。
 

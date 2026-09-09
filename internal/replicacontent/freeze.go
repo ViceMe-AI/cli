@@ -37,6 +37,10 @@ var excludedFileReasons = map[string]string{
 type FreezeSourceOptions struct {
 	Purpose, CreatorNotes string
 	ExpiresAt             time.Time
+	// OwnerOnlySnapshot keeps editable page code byte-for-byte. It reuses the
+	// bounded archive machinery but does not apply Website Replica content
+	// rewriting or require a buyer handoff document.
+	OwnerOnlySnapshot bool
 }
 type SourceArchiveExclusion struct {
 	Path   string `json:"path"`
@@ -101,7 +105,7 @@ func ValidateSourceWorktree(sourcePath string) (returnErr error) {
 		return fmt.Errorf("create private Website Replica inspection directory: %w", err)
 	}
 	defer func() { returnErr = errors.Join(returnErr, os.RemoveAll(directory)) }()
-	files, _, _, err := snapshotWorktree(source, directory)
+	files, _, _, err := snapshotWorktree(source, directory, false)
 	if err != nil {
 		return err
 	}
@@ -181,15 +185,17 @@ func FreezeSourceArchive(sourcePath string, options FreezeSourceOptions) (*Froze
 	}()
 	excluded := make([]SourceArchiveExclusion, 0)
 	if info.IsDir() {
-		files, worktreeExclusions, envNames, err := snapshotWorktree(source, directory)
+		files, worktreeExclusions, envNames, err := snapshotWorktree(source, directory, options.OwnerOnlySnapshot)
 		if err != nil {
 			return nil, err
 		}
-		handoff, err := generateProjectHandoff(files, envNames, options)
-		if err != nil {
-			return nil, err
+		if !options.OwnerOnlySnapshot {
+			handoff, err := generateProjectHandoff(files, envNames, options)
+			if err != nil {
+				return nil, err
+			}
+			files = append(files, frozenSourceFile{name: ProjectHandoffFile, mode: 0o644, size: uint64(len(handoff)), data: handoff})
 		}
-		files = append(files, frozenSourceFile{name: ProjectHandoffFile, mode: 0o644, size: uint64(len(handoff)), data: handoff})
 		sort.Slice(files, func(i, j int) bool { return files[i].name < files[j].name })
 		if err := writeDeterministicSourceZIP(result.filename, files); err != nil {
 			return nil, err
@@ -209,19 +215,21 @@ func FreezeSourceArchive(sourcePath string, options FreezeSourceOptions) (*Froze
 		if err := copyWorkspaceFile(source, result.filename, info.Size()); err != nil {
 			return nil, fmt.Errorf("freeze Website Replica ZIP: %w", err)
 		}
-		excluded, err = stripCreatorEntriesFromZIP(result)
-		if err != nil {
-			return nil, err
+		if !options.OwnerOnlySnapshot {
+			excluded, err = stripCreatorEntriesFromZIP(result)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
-	if err := finalizeFrozenSourceArchive(result, excluded); err != nil {
+	if err := finalizeFrozenSourceArchive(result, excluded, options.OwnerOnlySnapshot); err != nil {
 		return nil, err
 	}
 	succeeded = true
 	return result, nil
 }
 
-func finalizeFrozenSourceArchive(result *FrozenSourceArchive, excluded []SourceArchiveExclusion) error {
+func finalizeFrozenSourceArchive(result *FrozenSourceArchive, excluded []SourceArchiveExclusion, ownerOnlySnapshot bool) error {
 	file, err := os.Open(result.filename)
 	if err != nil {
 		return err
@@ -231,7 +239,12 @@ func finalizeFrozenSourceArchive(result *FrozenSourceArchive, excluded []SourceA
 		_ = file.Close()
 		return errors.New("frozen Website Replica ZIP exceeds the archive limit")
 	}
-	plan, err := validatePublishArchive(file, archiveInfo.Size())
+	var plan archivePlan
+	if ownerOnlySnapshot {
+		plan, err = validateOwnerSourceArchive(file, archiveInfo.Size())
+	} else {
+		plan, err = validatePublishArchive(file, archiveInfo.Size())
+	}
 	if err != nil {
 		_ = file.Close()
 		return err
@@ -333,7 +346,7 @@ func (archive *FrozenSourceArchive) CleanupIfExpired(now time.Time) (bool, error
 	return true, nil
 }
 
-func snapshotWorktree(root, freezeDirectory string) ([]frozenSourceFile, []SourceArchiveExclusion, map[string]struct{}, error) {
+func snapshotWorktree(root, freezeDirectory string, ownerOnlySnapshot bool) ([]frozenSourceFile, []SourceArchiveExclusion, map[string]struct{}, error) {
 	type pendingFile struct {
 		name, filename string
 		mode           fs.FileMode
@@ -427,21 +440,24 @@ func snapshotWorktree(root, freezeDirectory string) ([]frozenSourceFile, []Sourc
 		if err != nil {
 			return nil, nil, nil, err
 		}
-		if err := validateSensitiveContent(source.name, data); err != nil {
-			return nil, nil, nil, err
-		}
-		if err := validateForbiddenReplicaContent(source.name, data); err != nil {
-			return nil, nil, nil, err
-		}
-		data, removed, err := StripCreatorEntry(source.name, data)
-		if err != nil {
-			return nil, nil, nil, err
-		}
-		if removed {
-			if err := os.WriteFile(snapshot, data, 0o600); err != nil {
+		if !ownerOnlySnapshot {
+			if err := validateSensitiveContent(source.name, data); err != nil {
 				return nil, nil, nil, err
 			}
-			excluded = append(excluded, SourceArchiveExclusion{Path: source.name, Reason: "creator-entry-blocks"})
+			if err := validateForbiddenReplicaContent(source.name, data); err != nil {
+				return nil, nil, nil, err
+			}
+			var removed bool
+			data, removed, err = StripCreatorEntry(source.name, data)
+			if err != nil {
+				return nil, nil, nil, err
+			}
+			if removed {
+				if err := os.WriteFile(snapshot, data, 0o600); err != nil {
+					return nil, nil, nil, err
+				}
+				excluded = append(excluded, SourceArchiveExclusion{Path: source.name, Reason: "creator-entry-blocks"})
+			}
 		}
 		collectEnvironmentReferences(data, envNames)
 		files = append(files, frozenSourceFile{name: source.name, snapshot: snapshot, mode: source.mode, size: uint64(len(data))})
