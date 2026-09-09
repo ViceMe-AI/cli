@@ -14,7 +14,7 @@
 4. 草稿就绪后立即运行 `viceme publication review <publication-id>`，并马上用内置 `present_files` 在当前任务浏览器打开返回的 `presentation.openUrl` 稳定预览页面（`/{handle}/{slug}/preview`），同时按通用约定在对话里给出该链接的 Markdown 备用入口，说一句“预览页面已经打开了，我会边补资料边更新，你随时能看到变化”。预览页面必须先于任何补资料、生成图片或询问出现；后续每一步更新（封面、图库、双语文案、价格）都提交到同一份草稿，让页面内容逐步生长，而不是让用户在空白中等待。预览永远指这个稳定作品页：不得用 `present_files` 把本地图片或媒体文件当作“预览”打开、抢占或顶掉浏览器里的作品页；本地图片只能作为对话内的 Markdown 内嵌展示（Codex 环境按下文媒体核验流程处理），作品页本身保持打开，让用户靠它看到每一步更新。
 5. 基于预览一次性补齐缺少的价格、文案和媒体；能由当前 Agent 从包内容可靠提出的内容直接形成候选，不做平台分析等待。
 6. 展示完整最终预览，只询问一次是否确认公开发布。
-7. 用户确认后连续完成确认与公开发布，打开并返回公开链接；随后只问一次：“作品已经发布，默认页面也准备好了。接下来想做什么？”使用当前 Agent 的原生结构化单选工具给出三个中立选项：“自定义作品页”“发布本作品的升级版并设价格”“先到这里”。不得给任何选项标记推荐或替用户选择；工具支持自定义输入时必须保留，工具不可用时给出相同的三个编号选项并说明用户也可以直接说想做什么。用户选“自定义作品页”时，把本次响应的准确公开链接和已确认 Merchant 直接交给 `$customize-your-work-page`，不让用户复制链接、重选作品或重新检查创作者资格；用户选“发布本作品的升级版并设价格”时按正常发布流程处理新来源（见组合规则），在同一作品页新增一条独立 Skill 并单独定价，不覆盖刚发布的那一条；用户选结束时立即结束。自由文字已经明确表达其中一种意图时直接进入对应路径，只有确实无法判断时才追问一句。刚发布的是收费 Skill 时，试用次数属于这一条收费 Skill：不得再提免费版、免费次数用完，也不得把试用讲成免费额度。这一问不得使用「免费版让用户先用起来、高级版承接付费用户」这类漏斗说法。升级版是同一作品页新增的独立 Skill，不覆盖、不替换已发布条目；改原条目还是新增条目仍按「发布意图与条目选择」区分。
+7. 用户确认后连续完成确认与公开发布，打开并返回人类作品页（`product.detailUrl` 或 listing `publicUrl`，不要给 `.md` 或 `/preview`）。若需要提到商家主页，只用 `creatorIdentity.profileUrl`，不得给 `markdownUrl`。随后只问一次：“作品已经发布，默认页面也准备好了。接下来想做什么？”使用当前 Agent 的原生结构化单选工具给出三个中立选项：“自定义作品页”“发布本作品的升级版并设价格”“先到这里”。不得给任何选项标记推荐或替用户选择；工具支持自定义输入时必须保留，工具不可用时给出相同的三个编号选项并说明用户也可以直接说想做什么。用户选“自定义作品页”时，把本次响应的准确公开链接和已确认 Merchant 直接交给 `$customize-your-work-page`，不让用户复制链接、重选作品或重新检查创作者资格；用户选“发布本作品的升级版并设价格”时按正常发布流程处理新来源（见组合规则），在同一作品页新增一条独立 Skill 并单独定价，不覆盖刚发布的那一条；用户选结束时立即结束。自由文字已经明确表达其中一种意图时直接进入对应路径，只有确实无法判断时才追问一句。刚发布的是收费 Skill 时，试用次数属于这一条收费 Skill：不得再提免费版、免费次数用完，也不得把试用讲成免费额度。这一问不得使用「免费版让用户先用起来、高级版承接付费用户」这类漏斗说法。升级版是同一作品页新增的独立 Skill，不覆盖、不替换已发布条目；改原条目还是新增条目仍按「发布意图与条目选择」区分。
 
 `resolution` 只描述 Listing/Work 身份：`"UPDATE"` 表示复用已有作品页，既可能更新其中某个 Skill，也可能新增一个独立 Skill；不能据此声称原 Skill 已被替换。条目身份取决于同一 Listing 下的 `edition.key`，与名称、价格、包 digest 不等价。本地绑定、GitHub 仓库归属或小红书 Skill ID 可以定位作品，但不证明用户想改哪个条目；跨会话、换机器也必须读取当前服务端状态。
 
@@ -37,6 +37,7 @@
 ## 必需输入
 
 - 恰好一个来源：根目录含 `SKILL.md` 的本地目录/ZIP、本人 GitHub 仓库，或已验证的小红书 Skill ID。公开 GitHub 仓库也必须验证所有权；私有仓库使用已保存的 OAuth 凭证。不支持组织仓库或只有 collaborator 权限的仓库。
+- 用户尚未给出唯一来源时，用一次 AskUserQuestion，选项固定为且只能是这三个，顺序不变：「本地目录或 ZIP」「GitHub 仓库」「小红书 Skill」。工具支持自定义输入时保留。不得增加「本机已有 Skill」，不得先扫描或列出本机目录，也不得说「先看看你本机有哪些可用的 Skill 目录」。选「本地目录或 ZIP」后立刻打开输入框收取 zip 或目录的绝对路径；选「GitHub 仓库」后立刻收取仓库地址；选「小红书 Skill」后立刻收取 Skill ID 或名称。
 - 收集来源地址、本地路径或新名称这类单一输入时，一次问答直接取得值（`AskUserQuestion` 的自定义输入或其他单问形式）；不得先问「我来输入」「提供路径」这类占位选项、再问第二问拿值。若用户已经选择本地目录/ZIP，或点了「提供路径」「我来输入」，必须立刻打开输入框收取 zip 或目录的绝对路径，拿到路径后再运行 `skill publish --path`。不得搜索 `**/SKILL.md`，不得扫描 Downloads、桌面或工作区去发现本机已有 Skill，也不得把扫到的包列成「检测到最近准备的 Skill」让用户挑选。
 - 一个由 `$become-a-creator` 确认、当前用户通过 `MerchantAccountMember(role=OWNER)` 拥有的有效 MerchantAccount。返回多个时必须使用用户在资格流程中选择的商家，并用 `--merchant <merchant-account-id>` 发布。
 - 最终公开确认前必须确定每个条目的内部 `key`、用户可见名称、`sortOrder`、1 到 8 条 highlights，以人民币分计价的 `priceMinor`，以及付费条目的试用次数 `trialUseLimit`（1~100，`0` 或不设为不试用；首次定价时一并询问，默认建议 10 次）；这些内部值由 Agent 按组合规则自动派生，用户只需要确认价格、试用次数和内容。私有包初次上传时故意保持 `priceMinor: null`、试用次数未设置。
@@ -95,7 +96,7 @@ GitHub 来源直接运行一次 `viceme skill publish --github ...`。公开仓�
 
 视觉预览时，把所选封面和图库 upload ID 对应到 `publication review` 返回的准确上传项。在 Codex 中，把 `viewUrl` 下载到唯一临时目录；确认响应成功、内容类型为 `image/*` 且文件非空后，使用绝对本地路径的 Markdown 图片展示。保持服务端顺序，标明封面和图库位置，原 URL 仅作兜底。不得让用户仅凭文件名批准媒体。
 
-`reviewDigest` 是不透明的并发和完整性 token，不是用户摘要。仅在内部用于 `publication confirm` 和 `publication publish`。用户看到的预览应包括中文简介、双语使用说明、价格、内嵌封面和有序图库，以及公开链接 slug 与安装名（包内 `SKILL.md` 的 `name`）。更新或改名场景必须明示「公开链接保持 <slug> 不变」，确认信息里不得遗漏这两项，否则用户确认后才会发现链接或安装名与预期不符。
+`reviewDigest` 是不透明的并发和完整性 token，不是用户摘要。仅在内部用于 `publication confirm` 和 `publication publish`。用户看到的预览应包括中文简介、双语使用说明、价格、内嵌封面和有序图库，以及完整的人类作品页链接。已发布用 listing `publicUrl` 或发布结果 `product.detailUrl`；尚未发布则把当前 `presentation.openUrl` 去掉末尾 `/preview` 后给出同一路径。不得把 slug、安装名、`.md` 或带 `/preview` 的地址称为公开链接。改名时用白话说「作品页地址发布后保持不变」，不要把 slug 当成链接展示。
 
 ## 合并确认
 
@@ -127,7 +128,7 @@ GitHub 来源直接运行一次 `viceme skill publish --github ...`。公开仓�
 
 每个修改或完成 Draft 的成功 CLI 结果都包含新 `presentation`。始终用 `presentation.openUrl` 打开稳定 HTML 作品预览页（`/{handle}/{slug}/preview`），不切换为 Markdown、一次性入口或 `fallbackUrl`。该地址长期有效、无需登录、页面只读；不要先要求用户在浏览器登录。打开链接的工具返回成功只证明入口已打开，未观察到页面内容时不能声称预览已正常显示。草稿更新通过 revision 轮询呈现。发布后的追加询问只遵循主线第 7 步，只问一次，不再重复追问。
 
-用户明确要求设置粉丝订阅时，先说明：“订阅有效期内，订阅者可以安装和更新你的全部付费 Skill；到期后不能重装或更新，但本地已安装内容不会删除”，再询问月价并运行 `viceme subscription set --price-minor <fen>`。发布成功后不得自动追加订阅询问；创作者已有订阅计划（`viceme subscription show` 返回 status=ACTIVE）时不得自行改价。
+用户明确要求设置粉丝订阅时，先说明：“订阅有效期内，订阅者可以安装和更新你的全部付费 Skill；到期后不能重装或更新，但本地已安装内容不会删除”，再询问月价并运行 `viceme subscription set --price-minor <fen>`。设置成功后对用户只说「已生效」，不得写 `ACTIVE` 或「已 ACTIVE」。发布成功后不得自动追加订阅询问；创作者已有订阅计划（`viceme subscription show` 返回 status=ACTIVE）时不得自行改价。
 
 ## 更新草稿文件
 
@@ -152,4 +153,4 @@ GitHub 来源直接运行一次 `viceme skill publish --github ...`。公开仓�
 
 ## 改展示名称
 
-用户说「改个名称」「换个标题」时，指的是作品页和购买卡片上的展示标题。展示标题是 Listing 字段，不是包标识：不得修改包内 `SKILL.md` 的 `name`（`name` 是安装标识符，只允许小写字母、数字和单个连字符；改名重传整包既不必要，也会把安装名一起改掉）。正确做法是在当前 Publication 上运行 `publication update --input` 提交完整严格 JSON（含新 `title`，以及保持不变的 `summaryZhCn`、`usageInstructionsZhCn`、`currency`、`priceMinor`、`coverUploadId`、`galleryUploadIds`——媒体 ID 直接复用 review 返回的当前值），然后照常走预览、确认和发布。同时用一句白话说明两点：公开链接的 slug 保持不变；买家安装的 skill 名称（包 name）也保持不变。
+用户说「改个名称」「换个标题」时，指的是作品页大标题和当前这条 Skill 的购买卡片标题，不是包标识，也不是组合里其他 Skill 的卡片。不得修改包内 `SKILL.md` 的 `name`（`name` 是安装标识符，只允许小写字母、数字和单个连字符；改名重传整包既不必要，也会把安装名一起改掉）。`--edition-title` 只在首次创建该条目时从包标题派生；用户改名后不得另编一套营销名，`--resume` 也不能改 edition 身份。正确做法是在当前 Publication 上运行 `publication update --input` 提交完整严格 JSON（含新 `title`，以及保持不变的 `summaryZhCn`、`usageInstructionsZhCn`、`currency`、`priceMinor`、`coverUploadId`、`galleryUploadIds`——媒体 ID 直接复用 review 返回的当前值），然后照常走预览、确认和发布。服务端会把当前这条 Skill 的购买卡片写成同一个 `title`。同时用一句白话说明：作品页地址和买家安装名发布后都保持不变；作品页给完整人类 HTML 链接，不要把 slug 当成公开链接。
