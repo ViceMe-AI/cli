@@ -65,18 +65,20 @@ JSON 或内部状态，且不得告诉用户正在使用哪个内置 Skill。
 
 ## 普通申请
 
-直接申请模式不再确认，只运行一次 `viceme merchant onboarding apply`。
+每次提交申请前都必须先让作者本人确定 handle。用白话说明：
+“请选一个创作者用户名，它也会成为你的永久主页地址。只能用小写字母、数字和短横线，
+例如 `sunny-studio`，主页就是 `/sunny-studio`。”
 
-玩法守卫模式先说明该玩法需要创作者资格并询问“现在帮你申请成为创作者吗？”。只有用户
-明确同意后才运行同一条最少字段申请命令。
+直接申请模式只询问这一个必要信息，拿到明确答案后运行一次
+`viceme merchant onboarding apply --handle <作者确认的用户名>`。
 
-显示名称和主页 handle 默认由 Shop 从登录用户与预生成身份派生，不预先提问。只有 API
-返回 `MERCHANT_APPLICATION_HANDLE_REQUIRED` 时，才问一次：
-“选一个用于个人主页链接的英文名称吧，只能用小写字母、数字和短横线，例如
-sunny-studio。”然后运行 `viceme merchant onboarding apply --handle <主页链接名称>`。
+玩法守卫模式先说明该玩法需要创作者资格并询问“现在帮你申请成为创作者吗？”。用户明确
+同意后，再询问并确认同一个 handle，然后运行上述命令。
 
-用户主动给出显示名称或 handle 时可以作为可选覆盖传入。主页名称冲突时请用户换一个，
-不得自行加数字重试。不要收集身份证、营业执照、手机号、支付资料或其他接口不需要的信息。
+Shop 不从昵称派生 handle，也不自动追加数字。主页名称冲突时请作者重新选择，不得自行修改
+或加数字重试。只有用户主动给出真实展示名称时，才可额外传 `--display-name`；微信登录产生的
+“微信用户”不是展示名称，不能传入。不要收集身份证、营业执照、手机号、支付资料或其他接口
+不需要的信息。
 
 申请成功后立即运行一次 `viceme merchant onboarding status`，读取真实状态、
 `merchant.id` 与 `creatorIdentity.profileUrl` / `markdownUrl`。这次读回用于确认刚才的写入，
