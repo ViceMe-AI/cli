@@ -8,36 +8,36 @@ web
 
 ## Stack
 
-delegated: React + Vite; the user approved an independent, reusable source template rather than a modification of an existing portfolio.
+React + Vite static template.
 
 ## Users
 
-Creators who need a personal profile page that they can update without editing component code.
+Creators who want an Agent to prepare a compact public profile from confirmed work and public-contact data.
 
 ## Product Purpose
 
-Create and manage a compact public profile from work blocks and public contact/media blocks.
+Present a read-only personal profile with work cards and public contact/media cards. The Agent owns content collection and updates; the page provides viewing and safe link-opening only.
 
 ## Positioning
 
-The supplied local-first profile-block editor, narrowed to the confirmed creator-onboarding scope.
+An Agent-driven, static personal-card preview for the creator-onboarding flow.
 
 ## Capabilities and Constraints
 
-- Add, edit, delete, and locally persist blocks.
-- Work blocks begin as an editable placeholder and accept link, cover, title, and description.
-- Contact/media blocks support Feishu, X / Twitter, email, and GitHub; users retain final control over display details.
-- Text, image-gallery, video, education, employment, award, app, and official-account blocks are out of scope.
-- No brand marks, copy, code, imagery, or network APIs from Bonjour are used.
-- No login, database, scraping, analytics, or remote publication is in scope for this first version.
+- Present Agent-prepared work cards and public contact/media cards.
+- Open a valid external link in a link-view dialog; preserve actual ViceMe work navigation when present.
+- Keep the visual scope to compact profile, work and contact information.
+- No brand marks, copy, code, imagery or network APIs from Bonjour are used.
+- No login, database, scraping, analytics, remote publication or browser-stored drafts are in scope.
+- Runtime platform-profile reads are not used; users confirm the profile data before Agent-generated content is built.
 
 ## Evidence on Hand
 
-- Four user-supplied reference screenshots describe the required editor flows.
-- No approved user imagery or external API credentials were supplied.
+- The supplied template layout describes the required read-only presentation.
+- No approved user imagery or external API credentials are supplied by default.
 
 ## Product Principles
 
-- Content remains local to the browser while the AI uses the template as a generation reference.
-- User-authored data is more reliable than unverified social scraping.
-- The interface should be useful immediately after cloning the repository.
+- The Agent is the only editing surface; the preview avoids a second, diverging draft.
+- User-confirmed data is more reliable than unverified social scraping.
+- The static page is useful immediately after it is built and reviewed locally.

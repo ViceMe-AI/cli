@@ -1,22 +1,15 @@
 # Design contract
 
-This file is normative. When this template is selected, use the supplied React/Vite project as the
-implementation. Do not rebuild, reinterpret, restyle, or replace it with a newly generated page.
+This file is normative. When this template is selected, use the supplied React/Vite project as the implementation. It is a read-only, Agent-driven preview. Do not rebuild, reinterpret, restyle, or replace it with a newly generated page.
 
 ## Locked visual structure
 
 - Keep the 48 px translucent top bar and its compact brand mark.
-- Keep the desktop two-column workspace: left profile rail, 1 px vertical divider, right white content
-  canvas. At 760 px and below it becomes one column with a horizontal divider.
-- Keep the left-rail order: edit icon, rounded-square avatar, name, headline, bio, divider, “主题标签”
-  label, tag pills.
-- Keep the right-canvas order: “内容 Block” title, explanatory subtitle, blue “添加 Block” button,
-  optional notice, then the Block stack.
-- Keep the Block anatomy: 48 px symbol/cover rail, blue type label, title, subtitle, circular edit icon.
-- Keep “添加 Block”的 popover、作品占位卡、个人资料弹窗、作品编辑弹窗、媒体与联系平台选择
-  弹窗和链接确认弹窗。
-- Keep the authored inline SVG icons. Do not substitute emoji, text glyphs, a new icon library, or
-  generated image icons.
+- Keep the desktop two-column workspace: left profile rail, 1 px vertical divider, right white content canvas. At 760 px and below it becomes one column with a horizontal divider.
+- Keep the left-rail order: rounded-square avatar, name, headline, bio, divider, “主题标签” label, tag pills.
+- Keep the right-canvas order: “个人主页” title, explanatory subtitle, then the Block stack.
+- Keep the Block anatomy: 48 px symbol/cover rail, blue type label, title and subtitle. A card with a valid URL may open the existing link-view dialog; a card without one remains display-only.
+- Keep the authored inline SVG icons. Do not substitute emoji, text glyphs, a new icon library, or generated image icons.
 
 ## Locked tokens
 
@@ -36,33 +29,22 @@ implementation. Do not rebuild, reinterpret, restyle, or replace it with a newly
 | Block gap | `10px` |
 | Block minimum height | `92px` |
 
-The exact source values in `src/styles.css` are authoritative. Do not approximate them from this
-table or translate them into a different design system.
+The exact source values in `src/styles.css` are authoritative. Do not approximate them from this table or translate them into a different design system.
 
 ## Allowed changes
 
 - Replace profile name, headline, bio, avatar and tags with user-confirmed content.
-- Add, edit, reorder or remove only the supported Block data:
-  - works: link, title, description and one cover image;
-  - media/contact: Feishu link, X / Twitter link, email or GitHub profile link.
-- Add the minimum ViceMe data adapter or export code without changing existing component structure,
-  class names or CSS.
-- Make a visual change only when the user explicitly asks for that exact change after seeing the local
-  preview.
+- Replace the data of existing work and contact cards: links, titles, descriptions and one cover image.
+- Make a visual change only when the user explicitly asks for that exact change after seeing the local preview.
 
 ## Forbidden changes
 
 - Do not start from a blank HTML file or another framework.
-- Do not create a hero page, masonry gallery, portfolio grid, brutalist card, marketing landing page or
-  another “inspired by” layout.
-- Do not remove the add/edit controls, headings, subtitle, dividers, tags, labels, buttons or icons.
-- Do not add text, image-gallery, video, App, official-account, highlight, education, employment or award
-  Blocks.
+- Do not create a hero page, masonry gallery, portfolio grid, brutalist card, marketing landing page or another “inspired by” layout.
+- Do not add manual authoring controls, browser-persisted drafts, runtime profile overrides or additional Block types.
+- Do not add text, image-gallery, video, App, official-account, highlight, education, employment or award Blocks.
 - Do not call image generation for decoration or invent user content.
 
 ## Local preview
 
-Before upload, run the supplied source directly and show that local page to the user. The source
-structure and `src/styles.css` are the only visual authority; do not reconstruct the page from an
-image or add a screenshot-comparison step. Keep “添加 Block”的“导入作品”和“媒体与联系”两个
-入口；需要修复时直接沿用供应的源码，不重新设计。
+Before upload, build the supplied source and show the resulting static page through the local nested-path preview. The source structure and `src/styles.css` are the only visual authority; do not reconstruct the page from an image or add a screenshot-comparison step. All content changes return to the Agent conversation, while the page remains a read-only preview.

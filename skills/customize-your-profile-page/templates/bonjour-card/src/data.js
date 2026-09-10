@@ -1,5 +1,3 @@
-export const STORAGE_KEY = 'profile-blocks-template-v2';
-
 export const initialProfile = {
   name: '你的名字',
   headline: '创作者 · 独立开发者',
@@ -25,10 +23,3 @@ export const initialBlocks = [
     url: 'https://x.com',
   },
 ];
-
-export const blockDefinitions = [
-  { type: 'work', label: '导入作品', description: '从链接或手动信息建立作品卡', icon: 'work' },
-  { type: 'contact', label: '媒体与联系', description: '添加飞书、X、邮箱或 GitHub', icon: 'social' },
-];
-
-export const contactPlatforms = ['飞书', 'X / Twitter', '邮箱', 'GitHub'];
