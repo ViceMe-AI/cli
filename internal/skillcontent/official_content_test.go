@@ -113,6 +113,8 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			},
 			semantics: []string{
 				"不创建平行申请", "每次提交申请前都必须先让作者本人确定 handle", "玩法守卫模式",
+				"WorkBuddy 使用 `AskUserQuestion`", "其他宿主使用其等价原生能力", "本 Skill 不调用 `show_widget`",
+				"同一个等待点只展示一种交互", "并保留卡片自带的自由输入",
 				"Shop 不从昵称派生 handle", "申请中", "交回调用玩法",
 			},
 		},
