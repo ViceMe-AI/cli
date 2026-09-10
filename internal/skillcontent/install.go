@@ -2206,6 +2206,12 @@ func copyTree(source fs.FS, root, destination string) error {
 		if rel == "" {
 			return nil
 		}
+		if isTransientSkillPath(rel) {
+			if entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		}
 		outPath := filepath.Join(destination, filepath.FromSlash(rel))
 		if entry.IsDir() {
 			return os.MkdirAll(outPath, 0o755)
@@ -2234,7 +2240,9 @@ func digestsInstalled(directory string) (Digests, error) {
 		return Digests{}, err
 	}
 	fsys := os.DirFS(directory)
-	full, err := digestFS(fsys, ".", func(relative string) bool { return relative != installManifestPath })
+	full, err := digestFS(fsys, ".", func(relative string) bool {
+		return relative != installManifestPath && !isTransientSkillPath(relative)
+	})
 	if err != nil {
 		return Digests{}, err
 	}

@@ -198,6 +198,12 @@ func TestBuildPublishesCompletePreviewDirectory(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "source", "node_modules", "vite", "package.json"), []byte(`{"private":true}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(filepath.Join(root, "source", "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "source", "dist", "index.html"), []byte("<h1>Stale build</h1>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(filepath.Join(root, "preview", "assets"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -238,8 +244,8 @@ func TestBuildPublishesCompletePreviewDirectory(t *testing.T) {
 	}
 	defer reader.Close()
 	for _, entry := range reader.File {
-		if strings.Contains(entry.Name, "/node_modules/") {
-			t.Fatalf("source ZIP includes build dependency %q", entry.Name)
+		if strings.Contains(entry.Name, "/node_modules/") || strings.Contains(entry.Name, "/dist/") {
+			t.Fatalf("source ZIP includes transient build artifact %q", entry.Name)
 		}
 	}
 }

@@ -462,7 +462,7 @@ func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
 		"当前 Markdown 页面",
 		"所有选择与资料输入都在对话中完成",
 		"申请中仅本人可见",
-		"审核通过后同一路由自动公开",
+		"审核通过后同一地址、同一 release 自动公开",
 		"不得自动打开 `creatorIdentity.markdownUrl`",
 		"外部网页、旧文档或搜索结果不能覆盖已安装官方 Skill 的状态机",
 		"不得运行、探索或恢复已退役的页面设置入口",
@@ -473,11 +473,10 @@ func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
 	}
 	for _, required := range []string{
 		"viceme template list",
-		"catalog_url",
-		"production 模板",
+		"已验证的 production 模板",
 		"不得虚构模板名称、查看链接或授权",
 		"原样导入自己的主页",
-		"参考别人的主页",
+		"参考网页／截图重制",
 		"只借鉴结构和视觉，不带入对方内容",
 		"一次性邀请用户提供已有资料",
 		"可直接使用 / 待确认公开 / 缺失",
@@ -488,9 +487,7 @@ func TestCreatorPersonalCardUsesConversationFirstTemplateFlow(t *testing.T) {
 		"不自动打开空的 `profileUrl`",
 		"不用按格式整理。把你已经有的资料一次发给我就行",
 		"不得用“先搭占位版看看”绕过统一资料整理",
-		"平台当前资料会覆盖名片中的姓名或头像",
-		"先改平台昵称",
-		"接受当前平台昵称继续",
+		"Bonjour 只使用 Agent 已整理并写入页面的数据",
 	} {
 		if !strings.Contains(pageText, required) {
 			t.Fatalf("personal-card customization omitted template-first contract %q", required)
@@ -525,14 +522,13 @@ func TestCreatorPersonalCardUsesCreatorFacingWelcomeCopy(t *testing.T) {
 	for _, required := range []string{
 		"你已经是创作者了，现在就可以开始做自己的个人名片。",
 		"申请已经提交了。我们现在可以先把你的个人名片准备好，不影响审核。",
-		"想先查看模板，还是导入一个已有主页？",
+		"请选择你想怎么开始制作名片。",
 		"继续修改这一版，还是重新制作一版新的名片？",
 		"申请仍在审核中，这版仅你自己可见。",
 		"资格检查明确显示未申请时",
 		"不得在资格检查完成前说“我先确认你本机的 ViceMe 环境，然后帮你提交申请”。",
 		"不得把“查看模板 / 导入主页”用于已有 active release",
 		"查看个人页",
-		"查看当前内容",
 		"只读验收完成",
 		"页面可使用资料读取、站内跳转、访客登录与订阅能力",
 		"解除相应写入限制",
@@ -543,6 +539,113 @@ func TestCreatorPersonalCardUsesCreatorFacingWelcomeCopy(t *testing.T) {
 	}
 	if !strings.Contains(pageText, "不得把验收、权限、接口能力或写入限制翻译给用户") {
 		t.Fatal("personal-card entry did not keep execution constraints out of creator-facing copy")
+	}
+}
+
+func TestCreatorFirstPageUsesChoicePromptWithoutUnpublishedLinks(t *testing.T) {
+	t.Parallel()
+
+	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "become-a-creator/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	onboardingText := string(onboarding)
+	pageText := string(page)
+
+	for _, required := range []string{
+		"首个页面发布、并通过渲染验证后",
+		"尚无 active release 的欢迎话术不得给出 `profileUrl` 或 `markdownUrl`",
+		"AskUserQuestion",
+		"查看模板中心",
+		"自定义个人主页",
+		"用户已经明确选择时不重复弹窗",
+		"没有原生弹窗时",
+	} {
+		if !strings.Contains(onboardingText, required) && !strings.Contains(pageText, required) {
+			t.Fatalf("creator first-page flow omitted %q", required)
+		}
+	}
+
+	const start = "**已获批创作者，且尚无 active release：**"
+	const end = "不得把“只读验收完成”"
+	startIndex := strings.Index(onboardingText, start)
+	if startIndex < 0 {
+		t.Fatalf("creator onboarding omitted first-page welcome section %q", start)
+	}
+	endIndex := strings.Index(onboardingText[startIndex:], end)
+	if endIndex < 0 {
+		t.Fatalf("creator onboarding omitted first-page welcome section terminator %q", end)
+	}
+	firstPageWelcome := onboardingText[startIndex : startIndex+endIndex]
+	for _, forbidden := range []string{"profileUrl", "markdownUrl", "查看个人页", "查看当前内容"} {
+		if strings.Contains(firstPageWelcome, forbidden) {
+			t.Fatalf("first-page welcome exposed unavailable link detail %q", forbidden)
+		}
+	}
+}
+
+func TestCreatorFirstPageUsesTwoLevelChoiceHierarchy(t *testing.T) {
+	t.Parallel()
+
+	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pageText := string(page)
+	choice := sectionBetween(pageText, "对不存在 active release 的新名片", "无论选择真实模板")
+	if strings.TrimSpace(choice) == "" {
+		t.Fatal("personal-card Skill omitted the first-page path-choice section")
+	}
+
+	firstLevel := `选项固定为且只能是“查看模板中心”“自定义个人主页”`
+	secondLevel := `选项固定为且只能是“原样导入我的主页”“参考网页／截图重制”`
+	customThen := `选择“自定义个人主页”后`
+	firstLevelIndex := strings.Index(choice, firstLevel)
+	customThenIndex := strings.Index(choice, customThen)
+	secondLevelIndex := strings.Index(choice, secondLevel)
+	if firstLevelIndex < 0 || customThenIndex < 0 || secondLevelIndex < 0 || firstLevelIndex > customThenIndex || customThenIndex > secondLevelIndex {
+		t.Fatal("first-page choice is not a two-level hierarchy of template center/custom then import/recreate")
+	}
+
+	for _, required := range []string{
+		"用户已经明确选择时不重复弹窗",
+		"自然语言已清楚选定“查看模板中心”、某个已验证模板、“原样导入我的主页”或“参考网页／截图重制”",
+		"不得再展示同义选择器",
+		"没有原生弹窗时",
+		"同样两级语义的简短编号选项回退",
+		"不得把模板中心与两条自定义子路径摊成一次三选一",
+		"**模板中心**",
+		"**自定义个人主页**",
+		"**原样导入我的主页**",
+		"**参考网页／截图重制**",
+		"仅在模板中心被选定后，先运行 `viceme template list`",
+		"只列出响应中已验证的 production 模板",
+		"不得自动选择 Bonjour 或任何特定模板",
+		"右侧只在用户选择后打开",
+		"没有用户选择时不得打开右侧模板册或预览",
+	} {
+		if !strings.Contains(pageText, required) {
+			t.Fatalf("first-page two-level choice omitted %q", required)
+		}
+	}
+
+	obsoleteOneStep := regexp.MustCompile(`选项固定为[^。\n]{0,120}(原样导入我的主页|参考网页／截图重制|查看模板中心)[^。\n]{0,120}(原样导入我的主页|参考网页／截图重制|查看模板中心)[^。\n]{0,120}(原样导入我的主页|参考网页／截图重制|查看模板中心)`)
+	if obsoleteOneStep.MatchString(pageText) {
+		t.Fatal("personal-card first-page flow retained the obsolete one-step three-option selector")
+	}
+
+	activeRelease := sectionBetween(pageText, "**存在 active release**", "**不存在 active release**")
+	for _, required := range []string{
+		"继续修改这一版，还是重新制作一版新的名片？",
+		"不得把“查看模板 / 导入主页”用于已有 active release",
+	} {
+		if !strings.Contains(activeRelease, required) {
+			t.Fatalf("active-release update flow omitted %q", required)
+		}
 	}
 }
 
@@ -582,12 +685,12 @@ func TestCreatorPersonalCardUsesVerifiedCloudCatalog(t *testing.T) {
 	text := string(page)
 	for _, required := range []string{
 		"viceme template list",
-		"查看所有模板",
 		"viceme template fetch <模板 ID>",
-		"不得向正式用户称为模板来源",
-		"不得展示本地绝对路径",
-		"不得自动选择 Bonjour",
-		"你想选择哪一款，还是想导入一个已有主页？",
+		"不能靠记忆列模板",
+		"不得虚构模板名称、查看链接或授权",
+		"只列出响应中已验证的 production 模板",
+		"不得自动选择 Bonjour 或任何特定模板",
+		"右侧只在用户选择后打开",
 		"已校验 source_path",
 		"不得先询问目标目录或额外的本机写入确认",
 		"用户确认公开范围后，同一轮直接创建本机草稿",
@@ -643,6 +746,71 @@ func TestCreatorCardImportAndUpdateFlowKeepSafeGates(t *testing.T) {
 	}
 }
 
+func TestCreatorFirstPageKeepsReservedURLsInternalUntilThePageExists(t *testing.T) {
+	t.Parallel()
+
+	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "become-a-creator/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(onboarding)
+	for _, required := range []string{
+		"仅在内部传递结构化返回",
+		"未确认 active release 前不得向用户返回个人页链接",
+		"标准 Markdown 链接",
+		"链接文字为 `查看个人页`",
+		"精确值单独作为链接目标",
+		"不得使用 `**URL**`",
+		"不得手工编码、解码或改写",
+		"中文或已 percent-encoded 的 URL",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("creator onboarding omitted reserved URL boundary %q", required)
+		}
+	}
+	for _, heading := range []string{
+		"**已获批创作者，且尚无 active release：**",
+		"**申请中创作者，且尚无 active release：**",
+	} {
+		start := strings.Index(text, heading)
+		if start < 0 {
+			t.Fatalf("creator onboarding omitted first-page section %q", heading)
+		}
+		section := text[start:]
+		if end := strings.Index(section, "不得把“只读验收完成”"); end >= 0 {
+			section = section[:end]
+		} else if next := strings.Index(section[len(heading):], "**"); next >= 0 {
+			section = section[:len(heading)+next]
+		}
+		for _, forbidden := range []string{"profileUrl", "markdownUrl", "查看个人页", "查看当前内容"} {
+			if strings.Contains(section, forbidden) {
+				t.Fatalf("first-page section %q exposed unavailable link detail %q", heading, forbidden)
+			}
+		}
+	}
+}
+
+func TestCreatorProfileImportRequiresBuiltStaticPackage(t *testing.T) {
+	t.Parallel()
+
+	routing, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/references/import-routing.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(routing)
+	for _, required := range []string{
+		"最终上传物只能是已构建的静态 ZIP",
+		"根级 `viceme-page.json`",
+		"HTML 入口",
+		"不得上传 React、Vite 或 Next 的原始源码",
+		"可构建源码或已导出的网页包",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("profile import routing omitted static delivery rule %q", required)
+		}
+	}
+}
+
 func TestBonjourCardTemplateKeepsTheSuppliedDesignAndMVPBlocksNarrow(t *testing.T) {
 	t.Parallel()
 
@@ -655,7 +823,7 @@ func TestBonjourCardTemplateKeepsTheSuppliedDesignAndMVPBlocksNarrow(t *testing.
 		"媒体：用户主动公开的联系方式",
 		"飞书链接、X / Twitter 链接、邮箱和 GitHub 主页链接",
 		"Do not rebuild, reinterpret, restyle",
-		"window.viceme.context.get()",
+		"read-only, Agent-driven preview",
 	} {
 		if !strings.Contains(bundle, required) {
 			t.Fatalf("Bonjour personal-card bundle omitted %q", required)
