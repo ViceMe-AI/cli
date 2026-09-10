@@ -304,6 +304,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newDoctorCommand(runtime))
 	root.AddCommand(newUpdateCommand(runtime))
 	root.AddCommand(newAuthCommand(runtime))
+	root.AddCommand(newAccountCommand(runtime))
 	root.AddCommand(newProfileCommand(runtime))
 	root.AddCommand(newSkillCommand(runtime))
 	root.AddCommand(newPublicationCommand(runtime))

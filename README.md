@@ -274,6 +274,8 @@ Never copy an access token into the conversation.
 | `viceme version` | Show the CLI and bundled Skill versions. |
 | `viceme doctor` | Check the CLI, active Profile, credentials, API readiness, and installed official Skills. |
 | `viceme auth status` | Show whether the active Profile is signed in. |
+| `viceme account profile update --display-name <name>` | Update the current account's public display name through the CLI. |
+| `viceme account avatar upload --path <image>` | Upload an account avatar (maximum 2 MiB); the platform also updates the creator's public avatar. |
 | `viceme profile list` | Show Profiles and their API, Web, and market authorities. |
 | `viceme skill inspect --path <path>` | Validate a local Skill without side effects. |
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |

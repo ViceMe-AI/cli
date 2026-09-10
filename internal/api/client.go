@@ -114,6 +114,30 @@ func (c *Client) AuthStatus(ctx context.Context) (AuthStatus, error) {
 	return response, err
 }
 
+func (c *Client) UpdateAccountDisplayName(ctx context.Context, displayName string) (AccountProfileResponse, error) {
+	var response AccountProfileResponse
+	err := c.doJSON(ctx, http.MethodPatch, "/v1/cli/account/profile", map[string]string{"displayName": displayName}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) UploadAccountAvatar(ctx context.Context, filename string, image []byte) (AccountAvatarUploadResponse, error) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("file", filepath.Base(filename))
+	if err != nil {
+		return AccountAvatarUploadResponse{}, output.Internal("ACCOUNT_AVATAR_ENCODE_FAILED", "could not encode the avatar upload", err)
+	}
+	if _, err := part.Write(image); err != nil {
+		return AccountAvatarUploadResponse{}, output.Internal("ACCOUNT_AVATAR_ENCODE_FAILED", "could not encode the avatar upload", err)
+	}
+	if err := writer.Close(); err != nil {
+		return AccountAvatarUploadResponse{}, output.Internal("ACCOUNT_AVATAR_ENCODE_FAILED", "could not finish the avatar upload", err)
+	}
+	var response AccountAvatarUploadResponse
+	err = c.doBody(ctx, http.MethodPost, "/v1/cli/account/avatar", &body, writer.FormDataContentType(), &response, "@stored", maxResponseBytes)
+	return response, err
+}
+
 func (c *Client) GetGithubSourceAuthorized(ctx context.Context, merchantAccountID string) (GithubSourceAuthorized, error) {
 	var response GithubSourceAuthorized
 	endpoint := "/v1/cli/skill-sources/github/authorized?merchantAccountId=" + url.QueryEscape(merchantAccountID)
