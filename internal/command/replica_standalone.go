@@ -74,8 +74,8 @@ func standaloneReplicaRecoveryAvailable(ctx context.Context, runtime *Runtime, r
 	return status.Payment.Status == "PAID", nil
 }
 
-func retireStandaloneUnpaidAttempt(ctx context.Context, runtime *Runtime, resolved api.WebsiteReplicaResolution) error {
-	attempt, filename, found, err := loadStandaloneReplicaAttempt(runtime, resolved)
+func requireStandaloneAttemptResolved(ctx context.Context, runtime *Runtime, resolved api.WebsiteReplicaResolution) error {
+	attempt, _, found, err := loadStandaloneReplicaAttempt(runtime, resolved)
 	if err != nil || !found {
 		return err
 	}
@@ -89,19 +89,7 @@ func retireStandaloneUnpaidAttempt(ctx context.Context, runtime *Runtime, resolv
 	if status.Payment.Status == "PAID" {
 		return output.Policy("REPLICA_STANDALONE_RECOVERY_REQUIRED", "a paid standalone Website Replica purchase must be recovered before creating another order")
 	}
-	if status.Payment.Status == "PENDING" {
-		status, err = client.CancelWebsiteReplicaOrderAttempt(ctx, api.RecoverWebsiteReplicaDownloadRequest{
-			OrderNo: attempt.OrderNo, RecoverySecret: attempt.RecoverySecret,
-		})
-		if err != nil {
-			return err
-		}
-	}
-	if status.Payment.Status != "CLOSED" {
-		return invalidReplicaResponse("standalone Website Replica cancellation was not definitive")
-	}
-	if err := os.Remove(filename); err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return output.Internal("REPLICA_STANDALONE_STATE_FAILED", "could not retire the standalone Website Replica attempt", err)
-	}
-	return nil
+	return output.Policy("REPLICA_STANDALONE_RECOVERY_REQUIRED", "the standalone payment attempt must be handled by its original engine before starting another purchase").WithDetails(map[string]any{
+		"nextAction": "STOP_AND_REPORT", "orderNo": attempt.OrderNo, "status": status.Payment.Status,
+	})
 }

@@ -54,7 +54,7 @@ ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 
 
 # Generated from the canonical CLI widgets by make trial-runtime.
-PAYMENT_RESOURCE_SHA256 = {"payment.html": "eb91a89ae61706486fb324c772dc3f721bf000395a6d4c2ebb31a5598a6b434d", "qrcodegen.py": "b0df257ae06c83f79ac8fa408f5ae635f44a2ae0702e2fdbf6f2fe32cff33b05"}  # generated-payment-resources
+PAYMENT_RESOURCE_SHA256 = {"payment.html": "59999b6d68ae84941b782b1aaf1a9194feb67f5891c8051d99b8cdded5c4c3b1", "qrcodegen.py": "b0df257ae06c83f79ac8fa408f5ae635f44a2ae0702e2fdbf6f2fe32cff33b05"}  # generated-payment-resources
 
 
 class WorkflowError(Exception):
@@ -697,6 +697,8 @@ def ensure_checkout(
             request_fn=request_fn,
         )
     )
+    if state.get("orderNo") and state["orderNo"] != checkout["orderNo"]:
+        raise WorkflowError("REPLICA_PURCHASE_RECOVERY_CONFLICT", "Checkout no longer matches the original payment attempt", {"nextAction": "STOP_AND_REPORT"})
     state.update(
         orderNo=checkout["orderNo"],
         orderExpiresAt=checkout.get("expiresAt"),
@@ -730,6 +732,8 @@ def ensure_checkout(
                 or order.get("status") not in {"PENDING", "PAID", "CLOSED", "FAILED", "CANCELLED"}):
             raise WorkflowError("MAKE_COPY_RESPONSE_INVALID", "ViceMe returned an invalid order view; keep the original order")
         checkout = {**checkout, **order}
+        state.update(orderAmountCents=order["amountCents"], orderCurrency=order["currency"])
+        persist_state(store, state)
     return checkout
 
 
@@ -806,14 +810,24 @@ def cancel_order_attempt(
     return status
 
 
+def payment_restart_required(authority: Authority, state: Dict[str, Any], status: str) -> WorkflowError:
+    details = {"nextAction": "STOP_AND_REPORT", "orderNo": state["orderNo"], "status": status}
+    if state.get("instruction") and state.get("target"):
+        details["recovery"] = {"mode": "RECOVERY_ONLY", "requiresUserRequest": True,
+                               "args": ["install", "--work-url", authority.work_url, "--replica-code", state["instruction"],
+                                        "--recovery-only", "--expected-order-no", state["orderNo"], "--target", state["target"]]}
+    return WorkflowError("REPLICA_PAYMENT_RESTART_REQUIRED",
+                         "The original payment attempt is retained; replacing it requires a new explicit user request", details)
+
+
 def wait_for_payment(
     authority: Authority,
     state: Dict[str, Any],
     request_fn: RequestFn = http_request,
     sleep_fn: Callable[[float], None] = time.sleep,
-) -> None:
-    for _ in range(12):
-        sleep_fn(15)
+) -> Dict[str, Any]:
+    for _ in range(60):
+        sleep_fn(3)
         status = api_request(
             authority,
             "/website-replica-sessions/"
@@ -825,8 +839,12 @@ def wait_for_payment(
             request_fn=request_fn,
         )
         payment = status.get("payment", {}) if isinstance(status, dict) else {}
+        if (not isinstance(status, dict) or status.get("orderNo") != state["orderNo"]
+                or not isinstance(payment, dict)
+                or payment.get("status") not in {"PENDING", "PAID", "CLOSED", "FAILED", "CANCELLED"}):
+            raise WorkflowError("MAKE_COPY_RESPONSE_INVALID", "ViceMe returned an invalid payment status; keep the original order")
         if payment.get("status") == "PAID":
-            return
+            return payment
         if payment.get("status") in {"CLOSED", "FAILED", "CANCELLED"}:
             raise WorkflowError(
                 "REPLICA_PAYMENT_TERMINAL",
@@ -836,7 +854,7 @@ def wait_for_payment(
     raise WorkflowError(
         "REPLICA_PAYMENT_TIMEOUT",
         "Website Replica payment was not observed before the wait deadline",
-        {"nextAction": "PAYMENT_PENDING", "orderNo": state["orderNo"]},
+        {"nextAction": "STOP_AND_REPORT", "orderNo": state["orderNo"]},
     )
 
 
@@ -1420,6 +1438,39 @@ def payment_presentation(authority: Authority, replica: Dict[str, Any], checkout
             "expiresAt": checkout["expiresAt"], "altText": "微信支付二维码"}
 
 
+def support_result(authority: Authority, state: Dict[str, Any], replica: Dict[str, Any],
+                   payment: Dict[str, Any], request_fn: RequestFn = http_request) -> Dict[str, Any]:
+    if payment.get("status") != "PAID" or not state.get("orderNo") or state.get("priceCents", 0) <= 0:
+        raise WorkflowError("MAKE_COPY_RESPONSE_INVALID", "Support presentation requires a confirmed paid order")
+    en = authority.web_origin.endswith("viceme.ai")
+    confirmed = {"status": "PAID", "paidAt": payment.get("paidAt")}
+    continuation = {"mode": "RECOVERY_ONLY", "args": ["install", "--work-url", authority.work_url,
+                    "--replica-code", state["instruction"], "--recovery-only", "--expected-order-no", state["orderNo"], "--target", state["target"]]}
+    data = {"status": "PAID", "locale": "en-US" if en else "zh-CN", "title": replica["title"],
+            "resultTitle": "The creator has received your support" if en else "创作者已收到你的支持",
+            "resultDescription": "Thank you for supporting this idea. Your work is being prepared." if en else "感谢你支持这个创意，正在为你准备作品。"}
+    try:
+        template = payment_resource(authority, "payment.html", request_fn).decode("utf-8")
+        encoded = json.dumps(data, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
+        html = template.replace("__QR_SVG__", "").replace("__WIDGET_DATA__", encoded)
+        stem = hashlib.sha256(state["orderNo"].encode()).hexdigest()
+        directory = state_root() / "payment-presentations"
+        widget = write_private_bytes(directory / (stem + ".support.html"), html.encode())
+    except Exception as error:
+        raise WorkflowError("REPLICA_SUPPORT_PRESENTATION_FAILED", "Confirmed support result could not be prepared",
+                            {"orderNo": state["orderNo"], "payment": confirmed, "stage": "PRESENT_SUPPORT_RESULT",
+                             "nextAction": "STOP_AND_REPORT",
+                             "recovery": {**continuation, "requiresUserRequest": True}}) from error
+    result = {"nextAction": "PRESENT_SUPPORT_RESULT", "orderNo": state["orderNo"], "payment": confirmed,
+              "title": replica["title"], "target": state["target"], "continuation": continuation,
+              "presentation": {"widgetPath": widget, "widgetMimeType": "text/html",
+                               "replacesWidgetPath": str((directory / (stem + ".html")).absolute())}}
+    # Older records may lack the immutable order amount. Never use today's price.
+    if type(state.get("orderAmountCents")) is int and state["orderAmountCents"] >= 0 and state.get("orderCurrency") == "CNY":
+        result.update(amountCents=state["orderAmountCents"], currency=state["orderCurrency"])
+    return result
+
+
 def inspect(
     work_url: str,
     *,
@@ -1452,12 +1503,21 @@ def install(
     payment_presented: bool = False,
     replica_code: Optional[str] = None,
     recovery_only: bool = False,
+    payment_result_first: bool = False,
+    expected_order_no: Optional[str] = None,
+    replace_unpaid_order: Optional[str] = None,
     request_fn: RequestFn = http_request,
     sleep_fn: Callable[[float], None] = time.sleep,
 ) -> Dict[str, Any]:
     authority = authority_for_work_url(work_url)
+    if replace_unpaid_order and (recovery_only or payment_presented or payment_result_first or accepted_price_cents is None):
+        raise WorkflowError("REPLICA_PAYMENT_REPLACEMENT_INVALID", "Replacing an unpaid order requires a new accepted payment request")
+    if expected_order_no and not recovery_only:
+        raise WorkflowError("REPLICA_RECOVERY_ONLY_CONFLICT", "Expected order requires recovery-only mode")
+    if payment_result_first and not payment_presented:
+        raise WorkflowError("REPLICA_PAYMENT_RESULT_INVALID", "Payment result requires the existing presented payment flow")
     if recovery_only:
-        if accepted_price_cents is not None or payment_presented:
+        if accepted_price_cents is not None or payment_presented or payment_result_first:
             raise WorkflowError(
                 "REPLICA_RECOVERY_ONLY_CONFLICT",
                 "Recovery-only mode cannot accept a price or present payment",
@@ -1474,6 +1534,8 @@ def install(
         def recover_only() -> Dict[str, Any]:
             completion = read_state(store["completionFilename"])
             if completion is not None:
+                if expected_order_no and completion.get("orderNo") != expected_order_no:
+                    raise WorkflowError("REPLICA_PURCHASE_RECOVERY_CONFLICT", "Completed work does not match the original purchase")
                 completed_target = Path(str(completion.get("target", "")))
                 if not completed_target.is_dir():
                     raise WorkflowError(
@@ -1481,7 +1543,21 @@ def install(
                         "Completed Replica target is unavailable",
                     )
                 return {**completion, "nextAction": "DEPLOY"}
-            receipt = recoverable_paid_receipt_by_code(authority, short_code)
+            # A normal post-payment continuation is bound to the original local
+            # attempt, even if another target has replaced the shared code receipt.
+            saved = read_state(store["filename"]) if expected_order_no else None
+            if saved is not None:
+                if (saved.get("schemaVersion") != 1 or saved.get("apiBaseUrl") != authority.api_base_url
+                        or saved.get("shortCode") != short_code or saved.get("instruction") != replica_code
+                        or saved.get("target") != str(target) or saved.get("orderNo") != expected_order_no
+                        or not UUID_PATTERN.fullmatch(str(saved.get("replicaId", "")))
+                        or not SECRET_PATTERN.fullmatch(str(saved.get("downloadRecoverySecret", "")))):
+                    raise WorkflowError("REPLICA_PURCHASE_RECOVERY_CONFLICT", "Continuation does not match the original purchase")
+                receipt = {"replicaId": saved["replicaId"], "orderNo": saved["orderNo"], "recoverySecret": saved["downloadRecoverySecret"]}
+            else:
+                receipt = recoverable_paid_receipt_by_code(authority, short_code)
+            if expected_order_no and (receipt is None or receipt.get("orderNo") != expected_order_no):
+                raise WorkflowError("REPLICA_PURCHASE_RECOVERY_CONFLICT", "Continuation does not match the original purchase")
             if receipt is None:
                 raise WorkflowError(
                     "REPLICA_RECOVERY_NOT_FOUND",
@@ -1501,16 +1577,26 @@ def install(
                 "downloadRecoverySecret": receipt["recoverySecret"],
                 "target": str(target),
             }
-            download = try_recover_download(authority, state, request_fn)
-            if download is None:
-                raise WorkflowError(
-                    "REPLICA_RECOVERY_NOT_FOUND",
-                    "The paid Website Replica source is not recoverable yet",
-                )
-            return {
-                **complete_install(authority, state, store, download, request_fn),
-                "nextAction": "DEPLOY",
-            }
+            try:
+                download = try_recover_download(authority, state, request_fn)
+                if download is None:
+                    raise WorkflowError(
+                        "REPLICA_RECOVERY_NOT_FOUND",
+                        "The paid Website Replica source is not recoverable yet",
+                    )
+                return {
+                    **complete_install(authority, state, store, download, request_fn),
+                    "nextAction": "DEPLOY",
+                }
+            except Exception as error:
+                failure = error if isinstance(error, WorkflowError) else WorkflowError("MAKE_COPY_INTERNAL", "Paid work could not be prepared")
+                raise WorkflowError(failure.code, failure.message,
+                                    {**failure.details, "orderNo": state["orderNo"],
+                                     "payment": {"status": "PAID", "paidAt": status["payment"].get("paidAt")},
+                                     "stage": "INSTALL_REPLICA", "nextAction": "STOP_AND_REPORT",
+                                     "recovery": {"mode": "RECOVERY_ONLY", "requiresUserRequest": True,
+                                                  "args": ["install", "--work-url", authority.work_url, "--replica-code", replica_code,
+                                                           "--recovery-only", "--expected-order-no", state["orderNo"], "--target", state["target"]]}}, failure.exit_code) from error
 
         return with_lock(store, recover_only)
     instruction, replica = resolve_work(authority, request_fn)
@@ -1539,6 +1625,8 @@ def install(
             return {**completion, "nextAction": "DEPLOY"}
         state = read_state(store["filename"])
         presented_order_no = state.get("orderNo") if state is not None else None
+        if replace_unpaid_order and (state is None or state.get("orderNo") != replace_unpaid_order):
+            raise WorkflowError("REPLICA_PURCHASE_RECOVERY_CONFLICT", "Payment replacement does not match the original attempt", {"nextAction": "STOP_AND_REPORT"})
         if state is not None:
             state = validate_state(state, authority, replica, target)
             if state.get("orderNo"):
@@ -1549,6 +1637,8 @@ def install(
                     request_fn,
                 )
                 if status["payment"]["status"] == "PAID":
+                    if payment_result_first and state.get("priceCents", 0) > 0:
+                        return support_result(authority, state, replica, status["payment"], request_fn)
                     download = try_recover_download(authority, state, request_fn)
                     if not download:
                         raise WorkflowError(
@@ -1561,23 +1651,21 @@ def install(
                         ),
                         "nextAction": "DEPLOY",
                     }
-                if status["payment"]["status"] == "PENDING" and not payment_presented:
-                    if accepted_price_cents is None or accepted_price_cents != replica["product"]["priceCents"]:
+                if not payment_presented:
+                    if not replace_unpaid_order:
+                        raise payment_restart_required(authority, state, status["payment"]["status"])
+                    if accepted_price_cents != replica["product"]["priceCents"]:
                         raise price_confirmation()
-                if not payment_presented and accepted_price_cents is not None:
                     if status["payment"]["status"] == "PENDING":
-                        cancel_order_attempt(
-                            authority,
-                            state["orderNo"],
-                            state["downloadRecoverySecret"],
-                            request_fn,
-                        )
+                        cancel_order_attempt(authority, state["orderNo"], state["downloadRecoverySecret"], request_fn)
                     store["filename"].unlink(missing_ok=True)
                     receipt = read_state(store["paidReceiptFilename"])
                     if receipt and receipt.get("orderNo") == state["orderNo"]:
                         store["paidReceiptFilename"].unlink(missing_ok=True)
                     state = initial_state(authority, instruction, replica, target)
                     persist_state(store, state)
+                elif status["payment"]["status"] != "PENDING":
+                    raise payment_restart_required(authority, state, status["payment"]["status"])
         else:
             if target.exists() or target.is_symlink():
                 raise WorkflowError(
@@ -1594,11 +1682,9 @@ def install(
                 state["orderNo"] = receipt["orderNo"]
                 state["downloadRecoverySecret"] = receipt["recoverySecret"]
                 persist_state(store, state)
-            elif receipt_status["payment"]["status"] == "PENDING":
-                if accepted_price_cents is None or accepted_price_cents != replica["product"]["priceCents"]:
-                    raise price_confirmation()
-                cancel_order_attempt(authority, receipt["orderNo"], receipt["recoverySecret"], request_fn)
-        download = try_recover_download(authority, state, request_fn)
+            else:
+                raise payment_restart_required(authority, {"orderNo": receipt["orderNo"]}, receipt_status["payment"]["status"])
+        download = None if payment_result_first and state.get("orderNo") else try_recover_download(authority, state, request_fn)
         if download:
             return {
                 **complete_install(authority, state, store, download, request_fn),
@@ -1620,8 +1706,13 @@ def install(
         if not state.get("orderNo"):
             state["priceCents"] = replica["product"]["priceCents"]
             persist_state(store, state)
-        checkout = ensure_checkout(authority, state, store, request_fn)
+        if payment_presented and state.get("orderNo") and state.get("sessionId") and state.get("sessionToken"):
+            checkout = {"orderNo": state["orderNo"], "status": "PENDING"}
+        else:
+            checkout = ensure_checkout(authority, state, store, request_fn)
         if checkout["status"] == "PAID":
+            if payment_result_first and state.get("priceCents", 0) > 0:
+                return support_result(authority, state, replica, {"status": "PAID"}, request_fn)
             download = try_recover_download(authority, state, request_fn)
             if not download:
                 raise WorkflowError(
@@ -1649,7 +1740,18 @@ def install(
                 },
                 10,
             )
-        wait_for_payment(authority, state, request_fn, sleep_fn)
+        try:
+            payment = wait_for_payment(authority, state, request_fn, sleep_fn)
+        except WorkflowError as error:
+            if error.code not in {"REPLICA_PAYMENT_TIMEOUT", "REPLICA_PAYMENT_TERMINAL", "REPLICA_PAYMENT_INTERRUPTED"}:
+                raise
+            raise WorkflowError(error.code, error.message,
+                                {**error.details, "nextAction": "STOP_AND_REPORT", "orderNo": state["orderNo"],
+                                 "recovery": {"mode": "RECOVERY_ONLY", "requiresUserRequest": True,
+                                              "args": ["install", "--work-url", authority.work_url, "--replica-code", state["instruction"],
+                                                       "--recovery-only", "--expected-order-no", state["orderNo"], "--target", state["target"]]}}, error.exit_code) from error
+        if payment_result_first and state.get("priceCents", 0) > 0:
+            return support_result(authority, state, replica, payment, request_fn)
         download = try_recover_download(authority, state, request_fn)
         if not download:
             raise WorkflowError(
@@ -1674,8 +1776,11 @@ def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     install_parser.add_argument("--target")
     install_parser.add_argument("--accept-price-cents", type=int)
     install_parser.add_argument("--payment-presented", action="store_true")
+    install_parser.add_argument("--payment-result-first", action="store_true")
     install_parser.add_argument("--replica-code")
     install_parser.add_argument("--recovery-only", action="store_true")
+    install_parser.add_argument("--expected-order-no")
+    install_parser.add_argument("--replace-unpaid-order")
     args = parser.parse_args(argv)
     if args.command == "install" and args.accept_price_cents is not None and args.accept_price_cents < 0:
         parser.error("--accept-price-cents must be a non-negative integer")
@@ -1698,8 +1803,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 args.accept_price_cents,
                 target_path=args.target,
                 payment_presented=args.payment_presented,
+                payment_result_first=args.payment_result_first,
                 replica_code=args.replica_code,
                 recovery_only=args.recovery_only,
+                expected_order_no=args.expected_order_no,
+                replace_unpaid_order=args.replace_unpaid_order,
             )
         result(data)
         return 0
