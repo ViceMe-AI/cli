@@ -269,7 +269,7 @@ class MakeCopyTest(unittest.TestCase):
                     make_copy, "ensure_checkout", side_effect=AssertionError("checkout during recovery check")
                 ), mock.patch.object(make_copy, "cancel_order_attempt", side_effect=AssertionError("cancel before consent")), self.assertRaises(make_copy.WorkflowError) as raised:
                     make_copy.install(authority.work_url, target_path=str(target))
-                self.assertEqual(raised.exception.code, "REPLICA_PURCHASE_CONFIRMATION_REQUIRED")
+                self.assertEqual(raised.exception.code, "REPLICA_PAYMENT_RESTART_REQUIRED")
                 self.assertEqual(make_copy.read_state(store["filename"])["orderNo"], ORDER_NO)
 
     def test_pending_receipt_for_another_target_does_not_create_or_cancel_without_consent(self):
@@ -287,8 +287,8 @@ class MakeCopyTest(unittest.TestCase):
                 make_copy, "try_recover_download", side_effect=AssertionError("download pending order")
             ), self.assertRaises(make_copy.WorkflowError) as raised:
                 make_copy.install("https://viceme.cn/alice/site.md", target_path=str(Path(temporary) / "new-copy"))
-            self.assertEqual(raised.exception.code, "REPLICA_PURCHASE_CONFIRMATION_REQUIRED")
-            self.assertEqual(raised.exception.details["totalAmountCents"], current_price)
+            self.assertEqual(raised.exception.code, "REPLICA_PAYMENT_RESTART_REQUIRED")
+            self.assertEqual(raised.exception.details["nextAction"], "STOP_AND_REPORT")
 
     def test_start_is_the_single_public_preview_entrypoint(self):
         work_url = "https://viceme.cn/alice/site.md"
@@ -583,6 +583,81 @@ class MakeCopyTest(unittest.TestCase):
             request, sleeps.append,
         )
         self.assertEqual(sleeps, [3, 3])
+
+    def test_timeout_repeats_keep_original_order_and_late_payment_recovers(self):
+        for terminal in (False, True):
+            with self.subTest(terminal=terminal), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary).resolve()
+                target = root / "copy"
+                authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+                with mock.patch.object(make_copy, "state_root", return_value=root / "state"):
+                    store = make_copy.state_store(authority, SHORT_CODE, target)
+                    state = make_copy.initial_state(authority, f"VICEME-REPLICA:{SHORT_CODE}", replica(), target)
+                    state.update(orderNo=ORDER_NO, sessionId=VERSION_ID, sessionToken="token")
+                    make_copy.persist_state(store, state)
+                    with mock.patch.object(make_copy, "resolve_work", return_value=(state["instruction"], replica())), mock.patch.object(
+                        make_copy, "recover_order_status", return_value={"payment": {"status": "PENDING"}}
+                    ) as status, mock.patch.object(make_copy, "ensure_checkout", side_effect=AssertionError("another checkout after timeout")), mock.patch.object(
+                        make_copy, "cancel_order_attempt", side_effect=AssertionError("automatic cancellation after timeout")
+                    ), mock.patch.object(make_copy, "try_recover_download", return_value=download()), mock.patch.object(
+                        make_copy, "complete_install", return_value={"orderNo": ORDER_NO, "target": str(target)}
+                    ) as complete:
+                        with self.assertRaises(make_copy.WorkflowError) as timed_out:
+                            make_copy.install(authority.work_url, 100, target_path=str(target), payment_presented=True,
+                                              payment_result_first=True, sleep_fn=lambda _: None,
+                                              request_fn=lambda *_a, **_k: response(200, {"orderNo": ORDER_NO, "payment": {"status": "PENDING"}}))
+                        self.assertEqual(timed_out.exception.code, "REPLICA_PAYMENT_TIMEOUT")
+                        self.assertEqual(timed_out.exception.details["nextAction"], "STOP_AND_REPORT")
+                        for price in (None, 100):
+                            with self.assertRaises(make_copy.WorkflowError) as repeated:
+                                make_copy.install(authority.work_url, price, target_path=str(target))
+                            self.assertEqual(repeated.exception.code, "REPLICA_PAYMENT_RESTART_REQUIRED")
+                        if terminal:
+                            status.return_value = {"payment": {"status": "CLOSED"}}
+                            for presented in (True, False):
+                                with self.assertRaises(make_copy.WorkflowError) as closed:
+                                    make_copy.install(authority.work_url, 100, target_path=str(target), payment_presented=presented)
+                                self.assertEqual(closed.exception.code, "REPLICA_PAYMENT_RESTART_REQUIRED")
+                            self.assertEqual(make_copy.read_state(store["filename"])["orderNo"], ORDER_NO)
+                            complete.assert_not_called()
+                        else:
+                            status.return_value = {"payment": {"status": "PAID"}}
+                            args = make_copy.parse_args(timed_out.exception.details["recovery"]["args"])
+                            result = make_copy.install(args.work_url, target_path=args.target, replica_code=args.replica_code,
+                                                       recovery_only=True, expected_order_no=args.expected_order_no)
+                            self.assertEqual(result["nextAction"], "DEPLOY")
+                            self.assertEqual(result["orderNo"], ORDER_NO)
+
+    def test_explicit_order_replacement_cannot_be_replayed_for_another_order(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary).resolve()
+            target = root / "copy"
+            authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+            with mock.patch.object(make_copy, "state_root", return_value=root / "state"):
+                store = make_copy.state_store(authority, SHORT_CODE, target)
+                state = make_copy.initial_state(authority, f"VICEME-REPLICA:{SHORT_CODE}", replica(), target)
+                state.update(orderNo=ORDER_NO, sessionId=VERSION_ID, sessionToken="token")
+                make_copy.persist_state(store, state)
+                def new_checkout(_authority, attempt, current_store, _request):
+                    attempt.update(orderNo="VMO-SECOND", sessionId=VERSION_ID, sessionToken="new-token")
+                    make_copy.persist_state(current_store, attempt)
+                    return {**checkout(), "orderNo": "VMO-SECOND"}
+                with mock.patch.object(make_copy, "resolve_work", return_value=(state["instruction"], replica())), mock.patch.object(
+                    make_copy, "recover_order_status", return_value={"payment": {"status": "PENDING"}}
+                ), mock.patch.object(make_copy, "cancel_order_attempt") as cancel, mock.patch.object(
+                    make_copy, "ensure_checkout", side_effect=new_checkout
+                ) as checkout_call, mock.patch.object(make_copy, "try_recover_download", return_value=None), mock.patch.object(
+                    make_copy, "payment_presentation", return_value={"widgetPath": "test.html"}
+                ):
+                    with self.assertRaises(make_copy.WorkflowError) as fresh:
+                        make_copy.install(authority.work_url, 100, target_path=str(target), replace_unpaid_order=ORDER_NO)
+                    self.assertEqual(fresh.exception.code, "REPLICA_PAYMENT_REQUIRED")
+                    with self.assertRaises(make_copy.WorkflowError) as repeat:
+                        make_copy.install(authority.work_url, 100, target_path=str(target), replace_unpaid_order=ORDER_NO)
+                    self.assertEqual(repeat.exception.code, "REPLICA_PURCHASE_RECOVERY_CONFLICT")
+                    cancel.assert_called_once()
+                    checkout_call.assert_called_once()
+                    self.assertEqual(make_copy.read_state(store["filename"])["orderNo"], "VMO-SECOND")
 
     def test_payment_presented_cannot_skip_a_new_checkout_page(self):
         with tempfile.TemporaryDirectory() as temporary:

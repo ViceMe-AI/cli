@@ -22,8 +22,9 @@ import (
 type replicaDiagnosticsEnvelope struct {
 	Data  replicaSupportResult `json:"data"`
 	Error struct {
-		Code    string         `json:"code"`
-		Details map[string]any `json:"details"`
+		Code      string         `json:"code"`
+		Retryable bool           `json:"retryable"`
+		Details   map[string]any `json:"details"`
 	} `json:"error"`
 }
 
@@ -35,6 +36,7 @@ type replicaRecoveryDiagnosticsFixture struct {
 	checkoutCalls         atomic.Int32
 	downloadFailure       atomic.Bool
 	statusFailure         atomic.Bool
+	paymentStatus         atomic.Value
 	paidObserved          atomic.Bool
 	validLicense          atomic.Bool
 	downloadCalls         atomic.Int32
@@ -92,8 +94,18 @@ func newReplicaRecoveryDiagnosticsFixture(t *testing.T, immediate bool) *replica
 				writeJSONResponse(w, map[string]any{"statusCode": 503, "code": "DEPENDENCY_UNAVAILABLE", "message": "Status unavailable", "requestId": "test"})
 				return
 			}
-			f.paidObserved.Store(true)
-			writeJSONResponse(w, map[string]any{"orderNo": f.orderNo, "payment": map[string]any{"status": "PAID", "paidAt": "2026-09-08T14:38:37.000Z", "closedAt": nil}, "fulfillment": nil})
+			status := "PAID"
+			if override := f.paymentStatus.Load(); override != nil {
+				status = override.(string)
+			}
+			var paidAt, closedAt any
+			if status == "PAID" {
+				paidAt = "2026-09-08T14:38:37.000Z"
+				f.paidObserved.Store(true)
+			} else if status == "CLOSED" {
+				closedAt = "2026-09-10T00:00:00.000Z"
+			}
+			writeJSONResponse(w, map[string]any{"orderNo": f.orderNo, "payment": map[string]any{"status": status, "paidAt": paidAt, "closedAt": closedAt}, "fulfillment": nil})
 		case "/v1/website-replica-sessions/recover-download", "/v1/website-replicas/" + shortCode + "/download":
 			f.downloadCalls.Add(1)
 			if !f.paidObserved.Load() {

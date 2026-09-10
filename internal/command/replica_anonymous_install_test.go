@@ -549,8 +549,8 @@ func TestAnonymousPaidReplicaPresentsSharedWidgetThenWaitsThreeMinutes(t *testin
 
 	// Merely asking to recover must keep the existing unpaid order and widget intact.
 	stdout.Reset()
-	if exit := Execute([]string{"replica", "install", fullCode, "--anonymous", "--target", filepath.Join(root, "copy")}, deps); exit != output.ExitConfirmation || !bytes.Contains(stdout.Bytes(), []byte(`"nextAction": "CONFIRM_PRICE"`)) {
-		t.Fatalf("recovery-only did not request price consent: %d %s", exit, stdout.String())
+	if exit := Execute([]string{"replica", "install", fullCode, "--anonymous", "--target", filepath.Join(root, "copy")}, deps); exit != output.ExitPolicy || !bytes.Contains(stdout.Bytes(), []byte(`"code": "REPLICA_PAYMENT_RESTART_REQUIRED"`)) {
+		t.Fatalf("repeated install did not preserve the original payment: %d %s", exit, stdout.String())
 	}
 	if sessionCalls != 1 || checkoutCalls != 1 || cancellationCalls != 0 || recoveryStatusCalls != 1 {
 		t.Fatalf("recovery-only mutated unpaid attempt: sessions=%d checkouts=%d cancellations=%d statuses=%d", sessionCalls, checkoutCalls, cancellationCalls, recoveryStatusCalls)
@@ -560,7 +560,7 @@ func TestAnonymousPaidReplicaPresentsSharedWidgetThenWaitsThreeMinutes(t *testin
 	}
 	stdout.Reset()
 	if exit := Execute([]string{
-		"replica", "install", fullCode, "--target", filepath.Join(root, "copy"), "--accept-price-cents", "990",
+		"replica", "install", fullCode, "--target", filepath.Join(root, "copy"), "--accept-price-cents", "990", "--replace-unpaid-order", orderNos[0],
 	}, deps); exit != output.ExitConfirmation {
 		t.Fatalf("fresh attempt did not replace the unpaid checkout: exit=%d output=%q", exit, stdout.String())
 	}
@@ -569,6 +569,14 @@ func TestAnonymousPaidReplicaPresentsSharedWidgetThenWaitsThreeMinutes(t *testin
 	}
 	if bytes.Contains(stdout.Bytes(), []byte(firstWidget)) || !bytes.Contains(stdout.Bytes(), []byte(orderNos[1])) {
 		t.Fatalf("fresh attempt did not return the replacement checkout: %q", stdout.String())
+	}
+
+	stdout.Reset()
+	if exit := Execute([]string{"replica", "install", fullCode, "--target", filepath.Join(root, "copy"), "--accept-price-cents", "990", "--replace-unpaid-order", orderNos[0]}, deps); exit != output.ExitPolicy || !bytes.Contains(stdout.Bytes(), []byte("REPLICA_PURCHASE_RECOVERY_CONFLICT")) {
+		t.Fatal("a repeated replacement request was allowed to replace its successor")
+	}
+	if cancellationCalls != 1 || checkoutCalls != 2 {
+		t.Fatal("a repeated replacement created another payment")
 	}
 
 	stdout.Reset()

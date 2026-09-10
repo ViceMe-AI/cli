@@ -116,6 +116,14 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
 公开 `inspect` / `start` 因作品下架、作者停用或公开接口不可用而失败时，只能沿用已选定路径，使用邀请中平台生成的 Replica 口令执行一次仅恢复模式。CLI 路径运行 `viceme replica install "<Replica instruction>" --recovery-only`；Python 路径运行 `<script-runner> install --work-url <work.md URL> --replica-code "<Replica instruction>" --recovery-only`。该模式不得解析公开作品、报价、创建或替换订单；返回 `REPLICA_RECOVERY_NOT_FOUND` 时停止并报告。邀请缺少可信口令时同样停止，不能从 URL 推导或重新下单。
 
+## 支付等待超时后
+
+`REPLICA_PAYMENT_TIMEOUT` 只表示本次等待结束，不证明用户没付款。立即停止本轮流程，正文说明“这次等待已结束，暂未确认收到支持；已保留本次付款记录，不会自动发起新的付款”。不要自动展示新的二维码、询问重付、重跑安装、删除状态、换目录或切换引擎。`REPLICA_PAYMENT_RESTART_REQUIRED` 同样必须停止，不能当作新的支持金额确认。
+
+用户之后明确要求核对已付款结果时，只执行返回的 `recovery.args`，校验其中 `--expected-order-no` 为原 `orderNo`，保持 `RECOVERY_ONLY`、原作品、目标和身份；延迟到账就恢复原作品，状态仍不明确时继续停止。不能因超时、二维码过期或 `retryable` 自动新建付款。
+
+只有用户在新的消息中明确要求“重新付款／换一个付款码”，且明确接受本次支持金额后，才在原引擎、原目录的安装命令上追加一次 `--replace-unpaid-order <原 orderNo>`；CLI 账号路径仍须 `--confirm`，匿名或 Python 路径仍须传已确认的 `--accept-price-cents`。这次不能携带 `--payment-presented`、`--payment-result-first` 或 `--recovery-only`。原订单若已到账则复用权益；若仍待支付，运行时确认关闭后才开始新尝试。该替换参数只属于被替换的旧单，收到后续报价或新付款入口后去掉它，不得复用来替换下一笔付款；价格变化仍重新确认。普通的“继续”或旧的金额确认不等于新的付款授权。
+
 ## 到账后先更新预览
 
 等待命令追加 `--payment-result-first`，把到账反馈与下载安装拆开；该参数只用于已经展示付款入口的等待阶段，不加到首轮读取、免费获取、仅恢复或后续继续命令。
@@ -159,7 +167,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
    ```
 
 2. `REPLICA_PRICE_CHANGED` 时在正文内容区展示最新同款信息并重新确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时按“平台内支付展示”展示 `paymentPresentation.widgetPath` 与二维码；只有旧订单返回 `nextAction=OPEN_PAYMENT_PAGE` 时才在平台内打开 `checkoutUrl`，并在正文内容区给出公开支付提示，不为支付动作创建选项卡。
-3. 当前订单的支付 HTML 或二维码成功展示后，原样重跑命令并追加 `--payment-presented --payment-result-first --timeout 3m --interval 3s`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单。以后不带 `--payment-presented` 重新发起时，会先安全关闭旧未支付尝试，再创建新订单。
+3. 当前订单的支付 HTML 或二维码成功展示后，原样重跑命令并追加 `--payment-presented --payment-result-first --timeout 3m --interval 3s`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单。以后不带 `--payment-presented` 重跑时，保留旧尝试并停止，不能把重复执行当成重新付款授权。
 
 ## 无 CLI 或既有 standalone 路径
 
@@ -175,7 +183,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
 2. `REPLICA_TARGET_EXISTS` 时一次询问新目录并追加 `--target`；绝不覆盖已有目录。
 3. `REPLICA_PRICE_CHANGED` 时在正文内容区展示最新同款信息并重新确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时按“平台内支付展示”展示 `paymentPresentation.widgetPath` 与二维码；只有旧订单返回 `nextAction=OPEN_PAYMENT_PAGE` 时才在平台内打开 `checkoutUrl`，并在正文内容区给出公开支付提示，不为支付动作创建选项卡，也不得输出该地址。
-4. 当前订单的支付 HTML 或二维码成功展示后，原样重跑并追加 `--payment-presented --payment-result-first`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单；以后不带该参数重新发起时，会先安全关闭旧未支付尝试，再创建新订单。脚本每 3 秒查询一次，检测到 `PAID` 立即返回支持结果，按下方规则更新预览后继续准备作品，不等待三分钟结束；未支付时轮询 60 次（约三分钟，另计网络请求耗时）后返回超时。
+4. 当前订单的支付 HTML 或二维码成功展示后，原样重跑并追加 `--payment-presented --payment-result-first`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单；以后不带该参数重跑时，保留旧尝试并停止，不能自动关闭旧单或新建付款。脚本每 3 秒查询一次，检测到 `PAID` 立即返回支持结果，按下方规则更新预览后继续准备作品，不等待三分钟结束；未支付时轮询 60 次（约三分钟，另计网络请求耗时）后返回超时。
 
 ## 安装成功后先打开作品预览
 
