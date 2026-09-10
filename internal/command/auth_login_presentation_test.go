@@ -20,7 +20,13 @@ func TestDeviceLoginPresentationCreatesPrivateChatQRCode(t *testing.T) {
 		DeviceCode:              "device-code-that-must-not-appear-in-the-file-name",
 		VerificationURIComplete: "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH",
 		WechatMPQRCodeURL:       "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=device-ticket",
-		ExpiresIn:               600,
+		LoginPresentation: &api.LoginPresentation{
+			Kind:             "WECHAT_MP",
+			ImageURL:         "https://api.viceme.cn/v1/auth/wechat-mp/login-presentations/opaque-token",
+			AuthorizationURL: "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH",
+			DisplayMode:      "QR_AND_LINK",
+		},
+		ExpiresIn: 600,
 	}
 
 	presentation, err := createDeviceLoginPresentation(runtime, authorization, testLoginQRImage(t))
@@ -31,8 +37,11 @@ func TestDeviceLoginPresentationCreatesPrivateChatQRCode(t *testing.T) {
 	if !filepath.IsAbs(presentation.ImagePath) {
 		t.Fatalf("image path must be absolute: %q", presentation.ImagePath)
 	}
-	if presentation.ImageChatSrc != authorization.WechatMPQRCodeURL {
+	if presentation.ImageChatSrc != authorization.LoginPresentation.ImageURL {
 		t.Fatalf("unexpected chat image source: %q", presentation.ImageChatSrc)
+	}
+	if strings.Contains(presentation.ImageChatSrc, "mp.weixin.qq.com") {
+		t.Fatalf("WorkBuddy received the provider QR URL: %q", presentation.ImageChatSrc)
 	}
 	if strings.HasPrefix(presentation.ImageChatSrc, "local-file://") {
 		t.Fatalf("WorkBuddy must receive the validated HTTPS QR image: %q", presentation.ImageChatSrc)

@@ -40,6 +40,7 @@ type replicaPublishOptions struct {
 	ConfirmUnverifiedPreview bool
 	ReplicaOnly              bool
 	AutoApplyCreator         bool
+	CreatorHandle            string
 }
 
 type replicaPublicationFinalReview struct {
@@ -54,6 +55,7 @@ type replicaPublicationFinalReview struct {
 	ImmutableVersions             bool                                    `json:"immutableVersions"`
 	ExistingBuyerVersionsRetained bool                                    `json:"existingBuyerVersionsRetained"`
 	AutomaticCreatorApplication   bool                                    `json:"automaticCreatorApplication"`
+	CreatorApplicationHandle      string                                  `json:"creatorApplicationHandle,omitempty"`
 	Preview                       replicapublication.Preview              `json:"preview"`
 	ConfirmationTTLSeconds        int                                     `json:"confirmationTtlSeconds"`
 	ConfirmationExpiresAt         string                                  `json:"confirmationExpiresAt"`
@@ -89,6 +91,7 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().BoolVar(&options.ConfirmUnverifiedPreview, "confirm-unverified-replica-only", false, "allow Replica-only publication when local preview cannot be verified")
 	command.Flags().BoolVar(&options.ReplicaOnly, "replica-only", false, "publish source only without a hosted page")
 	command.Flags().BoolVar(&options.AutoApplyCreator, "auto-apply-creator", false, "authorize one idempotent creator application if publication requires it")
+	command.Flags().StringVar(&options.CreatorHandle, "creator-handle", "", "author-confirmed creator username used only if a creator application is required")
 	addReplicaStorageFlag(command, runtime)
 	_ = command.MarkFlagRequired("path")
 	_ = command.MarkFlagRequired("title")
@@ -347,6 +350,7 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		ProjectFingerprint: projectFingerprint, ClientRequestID: clientRequestID,
 		Request: request, SourceArchive: frozen.Summary, ArtifactExpiresAt: expiresAt,
 		Preview: preview, AutoApplyCreator: options.AutoApplyCreator,
+		CreatorHandle: options.CreatorHandle,
 		Hosting: func() string {
 			if request.Page != nil {
 				return "HOSTED"
@@ -455,6 +459,14 @@ func handleReplicaPublicationNextAction(ctx context.Context, runtime *Runtime, s
 				"creator access is required and automatic application has not been authorized; no source was uploaded",
 			).WithDetails(details).WithHint("rerun authorizeCommand only if ViceMe may submit one creator application, then resume this same publication request")
 		}
+		if pending.CreatorHandle == "" {
+			details["creatorUsernameRequired"] = true
+			details["chooseUsernameCommand"] = resumeCommand + " --creator-handle <creator-username>"
+			return replicaPublicationPresentation{}, output.Confirmation(
+				"REPLICA_CREATOR_HANDLE_REQUIRED",
+				"the author must choose the permanent creator username before an application can be submitted; no source was uploaded",
+			).WithDetails(details).WithHint("ask the author to choose a 2-32 character lowercase username, then rerun chooseUsernameCommand with the exact confirmed value")
+		}
 		if pending.CreatorApplicationRequestID == "" {
 			pending.CreatorApplicationRequestID = runtime.deps.NewID()
 			if !replicaUUIDPattern.MatchString(pending.CreatorApplicationRequestID) {
@@ -465,7 +477,7 @@ func handleReplicaPublicationNextAction(ctx context.Context, runtime *Runtime, s
 			}
 		}
 		progress(runtime, "Submitting the authorized creator application")
-		application, err := runtime.client().CreateMerchantApplication(ctx, pending.CreatorApplicationRequestID, nil, nil)
+		application, err := runtime.client().CreateMerchantApplication(ctx, pending.CreatorApplicationRequestID, nil, pending.CreatorHandle)
 		if err != nil {
 			return replicaPublicationPresentation{}, err
 		}
@@ -631,8 +643,9 @@ func finalReplicaPublicationReview(pending replicapublication.Pending, confirmat
 		PageArtifact: pending.Request.Page, Hosting: pending.Hosting, AutomaticDegradation: pending.Request.AllowAutomaticDegradation,
 		ImmutableVersions: true, ExistingBuyerVersionsRetained: true,
 		AutomaticCreatorApplication: pending.AutoApplyCreator, Preview: pending.Preview,
-		ConfirmationTTLSeconds: api.WebsiteReplicaPublicationConfirmationTTL,
-		ConfirmationExpiresAt:  confirmation.ExpiresAt,
+		CreatorApplicationHandle: pending.CreatorHandle,
+		ConfirmationTTLSeconds:   api.WebsiteReplicaPublicationConfirmationTTL,
+		ConfirmationExpiresAt:    confirmation.ExpiresAt,
 	}
 }
 
@@ -695,6 +708,10 @@ func validateConfirmedReplicaRequest(options replicaPublishOptions, pending repl
 		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "automatic creator-application authorization changed after the final review; no source was uploaded").
 			WithHint("rerun the changed publish command without --confirm to generate a fresh final review")
 	}
+	if options.CreatorHandle != pending.CreatorHandle {
+		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "the author-confirmed creator username changed after the final review; no source was uploaded").
+			WithHint("rerun the changed publish command without --confirm to generate a fresh final review")
+	}
 	if (pending.Preview.ReviewedBy == "CREATOR" || pending.Preview.ReviewedBy == "AGENT") &&
 		(!options.PreviewReviewed || options.PreviewURL != pending.Preview.TargetURL || options.ConfirmUnverifiedPreview) {
 		return output.Confirmation("REPLICA_PUBLICATION_CONFIRMATION_CHANGED", "the approved preview changed after the final review; no source was uploaded").
@@ -738,6 +755,7 @@ func normalizeReplicaPublishOptions(options replicaPublishOptions) replicaPublis
 	options.WorkID = strings.TrimSpace(options.WorkID)
 	options.Slug = strings.TrimSpace(options.Slug)
 	options.MerchantAccountID = strings.TrimSpace(options.MerchantAccountID)
+	options.CreatorHandle = strings.TrimSpace(options.CreatorHandle)
 	options.CanonicalOrigin = strings.TrimSpace(options.CanonicalOrigin)
 	if origin, valid := canonicalReplicaOrigin(options.CanonicalOrigin); valid {
 		options.CanonicalOrigin = origin
@@ -766,6 +784,11 @@ func validateReplicaPublishOptions(options replicaPublishOptions) error {
 	}
 	if options.MerchantAccountID != "" && !replicaUUIDPattern.MatchString(options.MerchantAccountID) {
 		return output.Validation("REPLICA_MERCHANT_ID_INVALID", "--merchant-id must be a UUID")
+	}
+	if options.CreatorHandle != "" {
+		if err := validateConfirmedCreatorHandle(options.CreatorHandle); err != nil {
+			return err
+		}
 	}
 	if options.Slug != "" && !validReplicaWorkSlug(options.Slug) {
 		return output.Validation("REPLICA_WORK_SLUG_INVALID", "--slug must be 2-64 lowercase letters, digits, and single hyphens")
@@ -824,6 +847,9 @@ func replicaPublishResumeCommand(pending replicapublication.Pending) string {
 	}
 	if pending.AutoApplyCreator {
 		parts = append(parts, "--auto-apply-creator")
+	}
+	if pending.CreatorHandle != "" {
+		parts = append(parts, "--creator-handle", shellQuote(pending.CreatorHandle))
 	}
 	return strings.Join(parts, " ")
 }

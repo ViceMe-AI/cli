@@ -9,6 +9,18 @@
 预览，使用 `viceme merchant page upload` 上传，不调用线上 preview；暂停租户不能调用任何经营接口。
 发布后的资产继续私有，直到创作者申请批准后由同一公开路由读取。
 
+## 可编辑源稿
+
+每次作者页 upload/preview 都必须同时传入 `--source <项目根目录>`。平台在同一个 release 内分别保存
+公开运行包与 owner-only 的可编辑源码快照；这不是两次用户发布，也不会把源码放进公开静态资源。
+模板项目同时传准确的 `--template-id` 和 `--template-version`。
+
+更新已发布作者页前，运行 `merchant page source status`。只有 `RESTORABLE` 可以用
+`merchant page source restore` 恢复到一个不存在的新目录；`LOCAL_SOURCE_REQUIRED` 表示旧版本没有
+源稿，只能使用用户持有的原项目或重新制作。发布必须把本次 page status 返回的
+`concurrencyToken` 作为 `--expected-concurrency` 传回，若页面在此期间已被别人更新，发布会拒绝，
+必须重新读取状态并让用户确认变化。
+
 ## 页面包
 
 ZIP 根目录必须包含 `viceme-page.json`，其余目录自由组织。HTML 入口可以位于任意安全的

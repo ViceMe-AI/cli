@@ -3,7 +3,7 @@ package api
 import "encoding/json"
 
 const SkillPublicationContractVersion = "2026-08-27"
-const PageCustomizationContractVersion = "2026-09-06"
+const PageCustomizationContractVersion = "2026-09-09"
 
 type DeviceAuthorizationRequest struct {
 	ClientName string   `json:"clientName"`
@@ -13,13 +13,22 @@ type DeviceAuthorizationRequest struct {
 }
 
 type DeviceAuthorization struct {
-	DeviceCode              string `json:"deviceCode"`
-	UserCode                string `json:"userCode"`
-	VerificationURI         string `json:"verificationUri"`
-	VerificationURIComplete string `json:"verificationUriComplete"`
-	WechatMPQRCodeURL       string `json:"wechatMpQrCodeUrl,omitempty"`
-	ExpiresIn               int    `json:"expiresIn"`
-	Interval                int    `json:"interval"`
+	DeviceCode              string             `json:"deviceCode"`
+	UserCode                string             `json:"userCode"`
+	VerificationURI         string             `json:"verificationUri"`
+	VerificationURIComplete string             `json:"verificationUriComplete"`
+	WechatMPQRCodeURL       string             `json:"wechatMpQrCodeUrl,omitempty"`
+	LoginPresentation       *LoginPresentation `json:"loginPresentation,omitempty"`
+	ExpiresIn               int                `json:"expiresIn"`
+	Interval                int                `json:"interval"`
+}
+
+type LoginPresentation struct {
+	Kind             string `json:"kind"`
+	ImageURL         string `json:"imageUrl"`
+	AuthorizationURL string `json:"authorizationUrl"`
+	ExpiresAt        string `json:"expiresAt"`
+	DisplayMode      string `json:"displayMode"`
 }
 
 type DeviceTokenRequest struct {
@@ -233,28 +242,49 @@ type PageCustomizationArtifact struct {
 	ContentType string `json:"contentType"`
 }
 
+type PageCustomizationTemplateReference struct {
+	ID      string `json:"id"`
+	Version string `json:"version"`
+}
+
+type PageCustomizationSourceSnapshotInput struct {
+	Artifact PageCustomizationArtifact           `json:"artifact"`
+	Template *PageCustomizationTemplateReference `json:"template"`
+}
+
 type CreatePageCustomizationDraftRequest struct {
-	ClientRequestID   string                    `json:"clientRequestId"`
-	ContractVersion   string                    `json:"contractVersion"`
-	CLIVersion        string                    `json:"cliVersion"`
-	MerchantAccountID string                    `json:"merchantAccountId"`
-	Target            PageCustomizationTarget   `json:"target"`
-	Artifact          PageCustomizationArtifact `json:"artifact"`
+	ClientRequestID   string                                `json:"clientRequestId"`
+	ContractVersion   string                                `json:"contractVersion"`
+	CLIVersion        string                                `json:"cliVersion"`
+	MerchantAccountID string                                `json:"merchantAccountId"`
+	Target            PageCustomizationTarget               `json:"target"`
+	Artifact          PageCustomizationArtifact             `json:"artifact"`
+	SourceSnapshot    *PageCustomizationSourceSnapshotInput `json:"sourceSnapshot,omitempty"`
+}
+
+type PageCustomizationSourceSnapshot struct {
+	Digest      string                              `json:"digest"`
+	SizeBytes   int64                               `json:"sizeBytes"`
+	FileName    string                              `json:"fileName"`
+	ContentType string                              `json:"contentType"`
+	Template    *PageCustomizationTemplateReference `json:"template"`
+	ValidatedAt *string                             `json:"validatedAt"`
 }
 
 type PageCustomizationRelease struct {
-	ID               string                     `json:"id"`
-	CustomizationID  string                     `json:"customizationId"`
-	Version          int                        `json:"version"`
-	Status           string                     `json:"status"`
-	Target           PageCustomizationTarget    `json:"target"`
-	Artifact         PageCustomizationArtifact  `json:"artifact"`
-	Manifest         *PageCustomizationManifest `json:"manifest"`
-	ValidationIssues []string                   `json:"validationIssues"`
-	CreatedAt        string                     `json:"createdAt"`
-	UploadedAt       *string                    `json:"uploadedAt"`
-	ValidatedAt      *string                    `json:"validatedAt"`
-	PublishedAt      *string                    `json:"publishedAt"`
+	ID               string                           `json:"id"`
+	CustomizationID  string                           `json:"customizationId"`
+	Version          int                              `json:"version"`
+	Status           string                           `json:"status"`
+	Target           PageCustomizationTarget          `json:"target"`
+	Artifact         PageCustomizationArtifact        `json:"artifact"`
+	SourceSnapshot   *PageCustomizationSourceSnapshot `json:"sourceSnapshot"`
+	Manifest         *PageCustomizationManifest       `json:"manifest"`
+	ValidationIssues []string                         `json:"validationIssues"`
+	CreatedAt        string                           `json:"createdAt"`
+	UploadedAt       *string                          `json:"uploadedAt"`
+	ValidatedAt      *string                          `json:"validatedAt"`
+	PublishedAt      *string                          `json:"publishedAt"`
 }
 
 type CreatePageCustomizationDraftResponse struct {
@@ -274,10 +304,31 @@ type PageCustomizationPreview struct {
 }
 
 type PageCustomizationState struct {
-	Target          PageCustomizationTarget    `json:"target"`
-	ActiveReleaseID *string                    `json:"activeReleaseId"`
-	Revision        int                        `json:"revision"`
-	Releases        []PageCustomizationRelease `json:"releases"`
+	Target           PageCustomizationTarget    `json:"target"`
+	ActiveReleaseID  *string                    `json:"activeReleaseId"`
+	Revision         int                        `json:"revision"`
+	ConcurrencyToken string                     `json:"concurrencyToken"`
+	Releases         []PageCustomizationRelease `json:"releases"`
+}
+
+type PageCustomizationSourceStatus struct {
+	Target        PageCustomizationTarget `json:"target"`
+	OwnerVerified bool                    `json:"ownerVerified"`
+	ActiveRelease *struct {
+		ID      string `json:"id"`
+		Version int    `json:"version"`
+	} `json:"activeRelease"`
+	ConcurrencyToken *string `json:"concurrencyToken"`
+	Availability     string  `json:"availability"`
+	Source           *struct {
+		ReleaseID      string                              `json:"releaseId"`
+		ReleaseVersion int                                 `json:"releaseVersion"`
+		Digest         string                              `json:"digest"`
+		SizeBytes      int64                               `json:"sizeBytes"`
+		FileName       string                              `json:"fileName"`
+		CreatedAt      string                              `json:"createdAt"`
+		Template       *PageCustomizationTemplateReference `json:"template"`
+	} `json:"source"`
 }
 
 type CreateWebsiteVerificationRequest struct {

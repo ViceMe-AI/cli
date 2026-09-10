@@ -158,15 +158,12 @@ func (c *Client) GetMerchantOnboarding(ctx context.Context) (CurrentMerchantOnbo
 	return response, err
 }
 
-func (c *Client) CreateMerchantApplication(ctx context.Context, clientRequestID string, displayName, handle *string) (MerchantOnboarding, error) {
+func (c *Client) CreateMerchantApplication(ctx context.Context, clientRequestID string, displayName *string, handle string) (MerchantOnboarding, error) {
 	var response MerchantOnboarding
-	payload := map[string]any{"clientRequestId": clientRequestID}
-	// displayName/handle 均可由服务端派生；空值不发送（最少提问申请链路）。
+	payload := map[string]any{"clientRequestId": clientRequestID, "handle": handle}
+	// displayName 是可选展示名称；handle 必须由作者本人确认并始终发送。
 	if displayName != nil {
 		payload["displayName"] = *displayName
-	}
-	if handle != nil {
-		payload["handle"] = *handle
 	}
 	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/onboarding/applications", payload, &response, "@stored")
 	return response, err
@@ -308,6 +305,13 @@ func (c *Client) GetPageCustomizationState(ctx context.Context, merchantAccountI
 	return response, err
 }
 
+func (c *Client) GetPageCustomizationSourceStatus(ctx context.Context, merchantAccountID string, target PageCustomizationTarget) (PageCustomizationSourceStatus, error) {
+	var response PageCustomizationSourceStatus
+	query := pageCustomizationTargetQuery(merchantAccountID, target)
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/page-customizations/source?"+query.Encode(), nil, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) DescribePageCustomizationTarget(ctx context.Context, merchantAccountID string, target PageCustomizationTarget) (PageCustomizationTargetDescription, error) {
 	var response PageCustomizationTargetDescription
 	query := pageCustomizationTargetQuery(merchantAccountID, target)
@@ -340,6 +344,35 @@ func (c *Client) AuthorizePageCustomizationUpload(ctx context.Context, releaseID
 	return response, err
 }
 
+func (c *Client) AuthorizePageCustomizationSourceUpload(ctx context.Context, releaseID, merchantAccountID string) (PageCustomizationUploadAuthorization, error) {
+	var response PageCustomizationUploadAuthorization
+	endpoint := "/v1/cli/merchant/page-customizations/releases/" + url.PathEscape(releaseID) + "/source-upload-authorizations"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]any{"merchantAccountId": merchantAccountID}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) DownloadPageCustomizationSource(ctx context.Context, releaseID, merchantAccountID string) ([]byte, error) {
+	query := url.Values{"merchantAccountId": {merchantAccountID}}
+	endpoint := "/v1/cli/merchant/page-customizations/releases/" + url.PathEscape(releaseID) + "/source?" + query.Encode()
+	response, err := c.sendBody(ctx, http.MethodGet, endpoint, nil, "", "@stored")
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	const maxPageSourceBytes = 100 << 20
+	data, readErr := io.ReadAll(io.LimitReader(response.Body, maxPageSourceBytes+1))
+	if readErr != nil {
+		return nil, output.Network("PAGE_SOURCE_DOWNLOAD_FAILED", "failed to read the custom page source", readErr)
+	}
+	if len(data) > maxPageSourceBytes {
+		return nil, output.Validation("PAGE_SOURCE_TOO_LARGE", "custom page source exceeds the 100 MiB limit")
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, decodeServerError(response.StatusCode, data, response.Header.Get("X-Request-Id"))
+	}
+	return data, nil
+}
+
 func (c *Client) CompletePageCustomizationUpload(ctx context.Context, releaseID, merchantAccountID string) (PageCustomizationRelease, error) {
 	var response PageCustomizationRelease
 	endpoint := "/v1/cli/merchant/page-customizations/releases/" + url.PathEscape(releaseID) + "/complete-upload"
@@ -355,10 +388,13 @@ func (c *Client) CreatePageCustomizationPreview(ctx context.Context, releaseID, 
 	return response, err
 }
 
-func (c *Client) PublishPageCustomization(ctx context.Context, releaseID, merchantAccountID string, expectedActiveReleaseID *string, action string) (PageCustomizationRelease, error) {
+func (c *Client) PublishPageCustomization(ctx context.Context, releaseID, merchantAccountID string, expectedActiveReleaseID *string, expectedConcurrencyToken, action string) (PageCustomizationRelease, error) {
 	var response PageCustomizationRelease
 	endpoint := "/v1/cli/merchant/page-customizations/releases/" + url.PathEscape(releaseID) + "/" + action
 	payload := map[string]any{"merchantAccountId": merchantAccountID, "expectedActiveReleaseId": expectedActiveReleaseID}
+	if expectedConcurrencyToken != "" {
+		payload["expectedConcurrencyToken"] = expectedConcurrencyToken
+	}
 	err := c.doJSON(ctx, http.MethodPost, endpoint, payload, &response, "@stored")
 	return response, err
 }

@@ -21,9 +21,8 @@ import (
 
 const deviceLoginPresentationDirectory = "auth-presentations"
 
-// deviceLoginPresentation is progress metadata for hosts that can render the
-// validated WeChat QR image in chat. The authorization URL is retained only
-// for the host's explicit fallback link when it cannot render the QR image.
+// deviceLoginPresentation is progress metadata for hosts that render the Shop-
+// owned QR image and authorization link together before waiting for completion.
 type deviceLoginPresentation struct {
 	ImagePath        string `json:"imagePath,omitempty"`
 	ImageChatSrc     string `json:"imageChatSrc,omitempty"`
@@ -32,11 +31,17 @@ type deviceLoginPresentation struct {
 }
 
 func createDeviceLoginPresentation(runtime *Runtime, authorization api.DeviceAuthorization, sourceImage []byte) (deviceLoginPresentation, error) {
+	authorizationURL := authorization.VerificationURIComplete
+	imageURL := authorization.WechatMPQRCodeURL
+	if authorization.LoginPresentation != nil {
+		authorizationURL = authorization.LoginPresentation.AuthorizationURL
+		imageURL = authorization.LoginPresentation.ImageURL
+	}
 	presentation := deviceLoginPresentation{
 		AltText:          "ViceMe 登录二维码",
-		AuthorizationURL: authorization.VerificationURIComplete,
+		AuthorizationURL: authorizationURL,
 	}
-	if authorization.WechatMPQRCodeURL == "" {
+	if imageURL == "" {
 		return presentation, errors.New("device authorization did not include a direct WeChat QR image")
 	}
 	pngBytes, err := normalizeLoginQRCode(sourceImage)
@@ -59,10 +64,9 @@ func createDeviceLoginPresentation(runtime *Runtime, authorization api.DeviceAut
 	}
 	presentation.ImagePath = absolutePath
 	// WorkBuddy accepts HTTPS images in Markdown, while its chat renderer does
-	// not reliably load local-file:// URLs. Expose the same short-lived WeChat
-	// image that was downloaded and validated above; retain ImagePath only for
-	// hosts that need the normalized private PNG.
-	presentation.ImageChatSrc = authorization.WechatMPQRCodeURL
+	// not reliably load local-file:// URLs. The URL is owned by Shop; the CLI
+	// validates the same bytes before asking the host to render it.
+	presentation.ImageChatSrc = imageURL
 	return presentation, nil
 }
 
@@ -99,7 +103,9 @@ func removeDeviceLoginPresentation(presentation deviceLoginPresentation) error {
 }
 
 func writeHumanLoginStart(writer io.Writer, authorization api.DeviceAuthorization, presentation deviceLoginPresentation) {
-	presentation.AuthorizationURL = authorization.VerificationURIComplete
+	if presentation.AuthorizationURL == "" {
+		presentation.AuthorizationURL = authorization.VerificationURIComplete
+	}
 	encoded, err := json.Marshal(presentation)
 	if err == nil {
 		_, _ = fmt.Fprintf(writer, "VICEME_LOGIN_QR_PRESENTATION=%s\n", encoded)

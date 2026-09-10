@@ -1963,8 +1963,8 @@ func TestReplicaPublishAppliesForCreatorOnlyAfterExplicitAuthorization(t *testin
 			if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
 				t.Fatal(err)
 			}
-			if input["clientRequestId"] != applicationRequestID || len(input) != 1 {
-				t.Fatalf("creator application was not minimal and idempotent: %#v", input)
+			if input["clientRequestId"] != applicationRequestID || input["handle"] != "replica-maker" || len(input) != 2 {
+				t.Fatalf("creator application did not preserve the author-confirmed username: %#v", input)
 			}
 			writeJSONResponse(writer, merchantOnboardingFixture("APPLICATION", "SUBMITTED", nil))
 		default:
@@ -2004,12 +2004,13 @@ func TestReplicaPublishAppliesForCreatorOnlyAfterExplicitAuthorization(t *testin
 		t.Fatalf("creator application ran without authorization: calls=%d", applicationCalls)
 	}
 
-	authorizedArguments := append(append([]string{}, arguments...), "--auto-apply-creator")
+	authorizedArguments := append(append([]string{}, arguments...), "--auto-apply-creator", "--creator-handle", "replica-maker")
 	var authorizedReviewOutput bytes.Buffer
 	dependencies.Out = &authorizedReviewOutput
 	if exit := Execute(authorizedArguments, dependencies); exit != output.ExitConfirmation ||
 		!strings.Contains(authorizedReviewOutput.String(), "REPLICA_PUBLICATION_CONFIRMATION_REQUIRED") ||
-		!strings.Contains(authorizedReviewOutput.String(), `"automaticCreatorApplication": true`) {
+		!strings.Contains(authorizedReviewOutput.String(), `"automaticCreatorApplication": true`) ||
+		!strings.Contains(authorizedReviewOutput.String(), `"creatorApplicationHandle": "replica-maker"`) {
 		t.Fatalf("changed creator application authorization did not get a fresh review: exit=%d output=%s", exit, authorizedReviewOutput.String())
 	}
 

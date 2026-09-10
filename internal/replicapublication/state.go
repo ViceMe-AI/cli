@@ -31,8 +31,9 @@ const (
 )
 
 var (
-	uuidPattern   = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
-	digestPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	uuidPattern          = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+	digestPattern        = regexp.MustCompile(`^[a-f0-9]{64}$`)
+	creatorHandlePattern = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
 )
 
 type Preview struct {
@@ -58,6 +59,7 @@ type Pending struct {
 	Preview                     Preview                                             `json:"preview"`
 	Hosting                     string                                              `json:"hosting,omitempty"`
 	AutoApplyCreator            bool                                                `json:"autoApplyCreator"`
+	CreatorHandle               string                                              `json:"creatorHandle,omitempty"`
 	CreatorApplicationRequestID string                                              `json:"creatorApplicationRequestId,omitempty"`
 	Confirmation                *api.WebsiteReplicaPublicationConfirmationChallenge `json:"confirmation,omitempty"`
 	ConfirmedAt                 *time.Time                                          `json:"confirmedAt,omitempty"`
@@ -468,6 +470,9 @@ func (store Store) validatePending(pending Pending) error {
 	}
 	if pending.CreatorApplicationRequestID != "" && !uuidPattern.MatchString(pending.CreatorApplicationRequestID) {
 		return output.Validation("REPLICA_PUBLICATION_STATE_INVALID", "local Website Replica creator application identity is invalid")
+	}
+	if pending.CreatorHandle != "" && (len(pending.CreatorHandle) < 2 || len(pending.CreatorHandle) > 32 || !creatorHandlePattern.MatchString(pending.CreatorHandle)) {
+		return output.Validation("REPLICA_PUBLICATION_STATE_INVALID", "local Website Replica creator username is invalid")
 	}
 	if pending.Publication != nil && (!uuidPattern.MatchString(pending.Publication.ID) || !validPublicationStatus(pending.Publication.Status) || pending.Publication.StatusURL == "") {
 		return output.Validation("REPLICA_PUBLICATION_STATE_INVALID", "local Website Replica Publication reference is invalid")
