@@ -152,9 +152,14 @@ func TestRunBuildsComingSoonDemoCardsForLoopbackCatalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"Maker Portfolio", "即将上线", "查看效果", "下载模板源码", "使用此模板", "请返回 Agent 继续制作", "aria-disabled=\"true\""} {
+	for _, expected := range []string{"Maker Portfolio", "即将上线", "查看效果"} {
 		if !strings.Contains(string(index), expected) {
 			t.Fatalf("catalog page omitted %q: %s", expected, index)
+		}
+	}
+	for _, forbidden := range []string{"下载模板源码", "使用此模板", "请返回 Agent 继续制作", "source.zip"} {
+		if strings.Contains(string(index), forbidden) {
+			t.Fatalf("catalog page retained non-preview action %q: %s", forbidden, index)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(output, "demo", "maker-portfolio", "preview", "index.html")); err != nil {
@@ -186,7 +191,7 @@ func TestWorkflowPublishesSignedCatalogToBothRegions(t *testing.T) {
 		"VICEME_RELEASE_S3_ENDPOINT_GLOBAL",
 		"manifest.sig",
 		"sha256sum",
-		"--version 1.0.1",
+		"--version 1.0.2",
 	} {
 		if !strings.Contains(string(body), required) {
 			t.Fatalf("catalog workflow omitted %q", required)

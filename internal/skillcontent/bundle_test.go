@@ -1,9 +1,40 @@
 package skillcontent
 
 import (
+	"io/fs"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
+
+func TestSkillDigestsIgnoreTemplateBuildArtifacts(t *testing.T) {
+	t.Parallel()
+
+	base := fstest.MapFS{
+		"viceme-test/SKILL.md":               &fstest.MapFile{Data: []byte("---\nname: viceme-test\ndescription: test\n---\n")},
+		"viceme-test/skill-package.json":     &fstest.MapFile{Data: []byte(`{"schema_version":1,"skill_version":"1.0.0","minimum_cli_version":"1.0.0","cli_compatibility":">=1.0.0 <2.0.0"}`)},
+		"viceme-test/agents/openai.yaml":     &fstest.MapFile{Data: []byte("interface: {}\n")},
+		"viceme-test/templates/card/App.jsx": &fstest.MapFile{Data: []byte("export default null\n")},
+	}
+	withBuild := fstest.MapFS{}
+	for name, file := range base {
+		withBuild[name] = file
+	}
+	withBuild["viceme-test/templates/card/node_modules/vite/index.js"] = &fstest.MapFile{Data: []byte("vite")}
+	withBuild["viceme-test/templates/card/dist/index.html"] = &fstest.MapFile{Data: []byte("stale build")}
+
+	stable, err := New(fs.FS(base)).Digests("viceme-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	transient, err := New(fs.FS(withBuild)).Digests("viceme-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transient != stable {
+		t.Fatalf("transient template build artifacts changed Skill digests: got %#v, want %#v", transient, stable)
+	}
+}
 
 func TestFrontmatterAcceptsPublishedMetadata(t *testing.T) {
 	for _, block := range []string{
