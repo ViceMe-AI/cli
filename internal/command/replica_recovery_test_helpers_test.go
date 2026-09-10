@@ -20,6 +20,7 @@ import (
 )
 
 type replicaDiagnosticsEnvelope struct {
+	Data  replicaSupportResult `json:"data"`
 	Error struct {
 		Code    string         `json:"code"`
 		Details map[string]any `json:"details"`
@@ -35,6 +36,8 @@ type replicaRecoveryDiagnosticsFixture struct {
 	downloadFailure       atomic.Bool
 	statusFailure         atomic.Bool
 	paidObserved          atomic.Bool
+	validLicense          atomic.Bool
+	downloadCalls         atomic.Int32
 }
 
 func newReplicaRecoveryDiagnosticsFixture(t *testing.T, immediate bool) *replicaRecoveryDiagnosticsFixture {
@@ -53,6 +56,7 @@ func newReplicaRecoveryDiagnosticsFixture(t *testing.T, immediate bool) *replica
 	signer := newReplicaTestSigner(t, "replica-diagnostics-v1")
 	trustReplicaTestSigner(t, signer)
 	license := signedReplicaTestLicense(t, signer, replicaID, versionID, 1, f.orderNo, digest)
+	validLicense := license
 	license.Signature = base64.RawURLEncoding.EncodeToString(make([]byte, 64))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasSuffix(r.URL.Path, "/discovery") {
@@ -91,6 +95,7 @@ func newReplicaRecoveryDiagnosticsFixture(t *testing.T, immediate bool) *replica
 			f.paidObserved.Store(true)
 			writeJSONResponse(w, map[string]any{"orderNo": f.orderNo, "payment": map[string]any{"status": "PAID", "paidAt": "2026-09-08T14:38:37.000Z", "closedAt": nil}, "fulfillment": nil})
 		case "/v1/website-replica-sessions/recover-download", "/v1/website-replicas/" + shortCode + "/download":
+			f.downloadCalls.Add(1)
 			if !f.paidObserved.Load() {
 				w.WriteHeader(404)
 				writeJSONResponse(w, map[string]any{"statusCode": 404, "code": "WEBSITE_REPLICA_NOT_FOUND", "message": "No entitlement yet", "requestId": "test"})
@@ -101,7 +106,15 @@ func newReplicaRecoveryDiagnosticsFixture(t *testing.T, immediate bool) *replica
 				writeJSONResponse(w, map[string]any{"statusCode": 503, "code": "DEPENDENCY_UNAVAILABLE", "message": "Download unavailable", "requestId": "test"})
 				return
 			}
-			writeJSONResponse(w, map[string]any{"replicaId": replicaID, "versionId": versionID, "version": 1, "fileName": "source.zip", "sizeBytes": len(archive), "artifactDigest": digest, "downloadUrl": serverURL(r) + "/source.zip?secret=download-capability", "expiresAt": time.Now().Add(time.Hour).UTC().Format(time.RFC3339), "license": license})
+			deliveryLicense := license
+			if f.validLicense.Load() {
+				deliveryLicense = validLicense
+			}
+			writeJSONResponse(w, map[string]any{"replicaId": replicaID, "versionId": versionID, "version": 1, "fileName": "source.zip", "sizeBytes": len(archive), "artifactDigest": digest, "downloadUrl": serverURL(r) + "/source.zip?secret=download-capability", "expiresAt": time.Now().Add(time.Hour).UTC().Format(time.RFC3339), "license": deliveryLicense})
+		case "/source.zip":
+			_, _ = w.Write(archive)
+		case "/v1/website-replicas/installations":
+			writeJSONResponse(w, map[string]any{"replicaId": replicaID, "versionId": versionID, "version": 1, "installedAt": "2026-09-10T00:00:00.000Z"})
 		default:
 			t.Errorf("unexpected request %s %s", r.Method, r.URL.Path)
 			w.WriteHeader(500)

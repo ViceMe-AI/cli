@@ -577,12 +577,12 @@ func TestAnonymousPaidReplicaPresentsSharedWidgetThenWaitsThreeMinutes(t *testin
 	}, deps); exit != output.ExitNetwork {
 		t.Fatalf("pending payment did not end at the bounded deadline: exit=%d output=%q", exit, stdout.String())
 	}
-	if statusCalls != 12 || len(sleeps) != 12 {
-		t.Fatalf("payment wait did not poll every 15 seconds for three minutes: statusCalls=%d sleeps=%v", statusCalls, sleeps)
+	if statusCalls != 60 || len(sleeps) != 60 {
+		t.Fatalf("payment wait did not poll every 3 seconds for three minutes: statusCalls=%d sleeps=%v", statusCalls, sleeps)
 	}
 	for index, delay := range sleeps {
-		if delay != 15*time.Second {
-			t.Fatalf("payment sleep %d = %s, want 15s", index, delay)
+		if delay != 3*time.Second {
+			t.Fatalf("payment sleep %d = %s, want 3s", index, delay)
 		}
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"code": "REPLICA_PAYMENT_TIMEOUT"`)) {
@@ -639,11 +639,11 @@ func TestReplicaSessionPaymentContinuesAsSoonAsPaid(t *testing.T) {
 	if _, err := waitForReplicaSessionPayment(context.Background(), runtime, client, state, replicaPaymentWaitTimeout, replicaPaymentPollInterval); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || now.Sub(started) != 30*time.Second {
+	if calls != 2 || now.Sub(started) != 6*time.Second {
 		t.Fatalf("paid order waited beyond its next poll: calls=%d elapsed=%s", calls, now.Sub(started))
 	}
 	for _, delay := range sleeps {
-		if delay != 15*time.Second {
+		if delay != 3*time.Second {
 			t.Fatalf("poll delay = %s", delay)
 		}
 	}

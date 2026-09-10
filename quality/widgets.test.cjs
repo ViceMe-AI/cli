@@ -116,6 +116,25 @@ test("payment template contains no business flow, clipboard, network or query bu
   assert.equal((html.match(/<script>/g) || []).length, 1);
   assert.ok(html.indexOf("<script>") > html.indexOf("</section>"));
 });
+test("confirmed support replaces the cashier, while pending and failed states cannot show it", () => {
+  const copy = { resultTitle: "创作者已收到你的支持", resultDescription: "感谢你支持这个创意，正在为你准备作品。" };
+  const paid = mount("payment", { ...order, ...copy, status: "PAID" });
+  assert.equal(paid.field("cashier").hidden, true);
+  assert.equal(paid.field("result").hidden, false);
+  assert.equal(paid.field("result-title").textContent, copy.resultTitle);
+  assert.equal(paid.field("result-description").textContent, copy.resultDescription);
+  assert.equal(paid.field("qr").hidden, true);
+  assert.equal(paid.intervals.size, 0);
+  for (const status of ["PENDING", "CLOSED", "FAILED", "CANCELLED", "UNKNOWN"]) {
+    const view = mount("payment", { ...order, ...copy, status });
+    assert.notEqual(view.field("cashier").hidden, true);
+    assert.notEqual(view.field("result-title").textContent, copy.resultTitle);
+  }
+  const unsafe = "<img src=x onerror=alert(1)>";
+  const escaped = mount("payment", { ...order, status: "PAID", resultTitle: unsafe, resultDescription: "Text only" });
+  assert.equal(escaped.field("result-title").textContent, unsafe);
+  assert.equal(escaped.field("result-title").children.length, 0);
+});
 test("onboarding sends the exact prompt once and never treats titles as HTML", async () => {
   const prompt = "使用任意 Skill。\n<script>not code</script>";
   const data = { skillName: "任意 Skill", examples: [{ title: "示例一", prompt }, { title: "示例二", prompt: "another" }] };

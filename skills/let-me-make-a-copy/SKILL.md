@@ -104,17 +104,26 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
 ## 命令执行边界
 
-每次命令都直接执行，不得追加 `2>&1 | tail`、其他管道或截断输出；必须取得该进程最终退出后的单个完整 JSON 响应和真实退出状态。长时间支付等待只能启动一次：若宿主返回仍在运行的任务或进程 ID，只等待同一个任务或进程，不得启动第二条命令，也不得同时执行诊断。WorkBuddy 需要后台任务时，在支付页面或二维码已经展示后启动下文指定的三分钟等待命令，并只用 `TaskOutput(task_id=<同一个任务>, timeout=15000)` 读取；若这次读取超时且原任务仍在运行，立即继续读取同一个 `task_id`；一收到最终结果就处理，不先 sleep 三分钟，也不等倒计时结束。后台脚本或 CLI 自身每 15 秒查询支付状态，`TaskOutput` 只读取其输出，不承担支付查询。
+每次命令都直接执行，不得追加 `2>&1 | tail`、其他管道或截断输出；必须取得该进程最终退出后的单个完整 JSON 响应和真实退出状态。长时间支付等待只能启动一次：若宿主返回仍在运行的任务或进程 ID，只等待同一个任务或进程，不得启动第二条命令，也不得同时执行诊断。WorkBuddy 需要后台任务时，在支付页面或二维码已经展示后启动下文指定的三分钟等待命令，并只用 `TaskOutput(task_id=<同一个任务>, timeout=15000)` 读取；若这次读取超时且原任务仍在运行，立即继续读取同一个 `task_id`；一收到最终结果就处理，不先 sleep 三分钟，也不等倒计时结束。后台脚本或 CLI 自身每 3 秒查询支付状态，`TaskOutput` 只读取其输出，不承担支付查询。
 
 ## 状态机与停止条件
 
-只有以下完整权威结果允许继续：`PRESENT_WORK` 按 `workPresentation` 完成平台内预览或工作区文字介绍后直接检查权益，不增加做同款确认；字段完全匹配的 `REPLICA_PURCHASE_CONFIRMATION_REQUIRED`（匿名 `nextAction=CONFIRM_PRICE`）进入一次明确支持金额确认后执行命令；`REPLICA_TARGET_EXISTS` 进入一次新目录输入；`REPLICA_PRICE_CHANGED` 展示新价格并重新确认；`REPLICA_PAYMENT_REQUIRED` 且 `nextAction` 与当前引擎要求完全一致时展示支付入口并开始一次有界等待；`PRODUCT_ALREADY_OWNED` 复用权益；`DEPLOY` 进入安装后的交接。不得从消息文本、`retryable=true` 或成功退出码推导其他转移。
+只有以下完整权威结果允许继续：`PRESENT_WORK` 按 `workPresentation` 完成平台内预览或工作区文字介绍后直接检查权益，不增加做同款确认；字段完全匹配的 `REPLICA_PURCHASE_CONFIRMATION_REQUIRED`（匿名 `nextAction=CONFIRM_PRICE`）进入一次明确支持金额确认后执行命令；`REPLICA_TARGET_EXISTS` 进入一次新目录输入；`REPLICA_PRICE_CHANGED` 展示新价格并重新确认；`REPLICA_PAYMENT_REQUIRED` 且 `nextAction` 与当前引擎要求完全一致时展示支付入口并开始一次有界等待；`PRODUCT_ALREADY_OWNED` 复用权益；`PRESENT_SUPPORT_RESULT` 且 `payment.status=PAID`、支持结果 HTML 和 `continuation.mode=RECOVERY_ONLY` 的参数完整匹配本次作品与目录时，按“到账后先更新预览”展示并继续；`DEPLOY` 进入安装后的交接。不得从消息文本、`retryable=true` 或成功退出码推导其他转移。
 
 以下结果必须进入 `STOP_AND_REPORT`：命令工具失败；输出为空、截断、包含多个响应或不是完整 JSON；响应明确给出 `nextAction=STOP_AND_REPORT`；白名单之外的任何 `retryable=false`，包括 `RESPONSE_INVALID`；未知 `error.code`、未知 `nextAction`、缺少当前转移所需字段或字段不匹配；CLI 网络或完整性检查失败；认证状态读取失败；敏感凭证被拒绝、读取失败或状态无效；支付返回 `REPLICA_PAYMENT_TIMEOUT`、`REPLICA_PAYMENT_TERMINAL` 或 `REPLICA_PAYMENT_INTERRUPTED`；以及除上段白名单外的任何非零结果。
 
 进入 `STOP_AND_REPORT` 后，按下方“异常中断报告”向用户报告阶段、稳定错误码、公开消息和权威响应提供的恢复动作；不得再次执行安装命令，不得增加额外 `sleep`，也不得运行 `inspect`、`status`、`doctor`、`curl`、进程或网络诊断来猜测订单状态。后续只有用户发来新消息且权威响应明确允许恢复时，才执行一次指定的恢复动作。
 
 公开 `inspect` / `start` 因作品下架、作者停用或公开接口不可用而失败时，只能沿用已选定路径，使用邀请中平台生成的 Replica 口令执行一次仅恢复模式。CLI 路径运行 `viceme replica install "<Replica instruction>" --recovery-only`；Python 路径运行 `<script-runner> install --work-url <work.md URL> --replica-code "<Replica instruction>" --recovery-only`。该模式不得解析公开作品、报价、创建或替换订单；返回 `REPLICA_RECOVERY_NOT_FOUND` 时停止并报告。邀请缺少可信口令时同样停止，不能从 URL 推导或重新下单。
+
+## 到账后先更新预览
+
+等待命令追加 `--payment-result-first`，把到账反馈与下载安装拆开；该参数只用于已经展示付款入口的等待阶段，不加到首轮读取、免费获取、仅恢复或后续继续命令。
+
+1. 收到完整 `nextAction=PRESENT_SUPPORT_RESULT` 且当前 `payment.status=PAID` 后，立即在正文说明“创作者已收到你的支持，正在为你准备作品”，不要等到下载、校验、安装或部署结束。该结果不是安装成功，不读取目标目录里的交接文件。
+2. 立即使用返回的 `presentation.widgetPath` 更新平台内预览。WorkBuddy 再次调用 `present_files([presentation.widgetPath])`，只传这一份支持结果 HTML，让当前预览切换到结果卡；其他宿主使用实际提供的平台内文件预览能力。结果采用与旧二维码不同的文件路径，不能只覆写旧 HTML 后假设宿主自动刷新。不要重新展示旧 PNG、读取或改写 HTML、使用 `show_widget` 或打开外部浏览器。历史聊天中的二维码图片不视为可动态更新的支付状态。
+3. 预览成功后，在同一轮自动执行 `continuation.args`，不再询问用户是否继续。CLI 使用原完整命令路径，Python 使用原 `<script-runner>`；严格保留原引擎、Profile、身份、作品和目标目录，校验 `--expected-order-no` 与本次返回的 `orderNo` 完全一致且不得删除或替换，只运行响应给出的 `RECOVERY_ONLY` 继续参数，不追加 `--confirm`、`--accept-price-cents`、`--payment-presented` 或 `--payment-result-first`，不重新建单。这是本次正常成功结果的继续动作，不套用异常后“等待用户新消息”的限制。
+4. 若宿主确实没有结果预览能力，在正文明确已确认支持及预览能力限制，再按同一继续参数准备作品；若实际预览调用失败、结果不明确，或继续参数缺失、不匹配，停止并报告，保留已确认支付事实，不称为支付失败、不再次收款。后续准备失败同样保留支持结果，按原异常恢复规则处理。
 
 ## 支持结果与作品准备
 
@@ -137,7 +146,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 1. 运行 `viceme replica install "<work.md URL>"`，必要时追加用户指定的全新 `--target`。
 2. `REPLICA_PURCHASE_CONFIRMATION_REQUIRED` 返回的口令、商品、币种和整数分价格与用户明确接受的付费报价完全一致且 Quote 未过期时，直接追加 `--confirm` 重跑，不再询问第二次；尚未接受金额时先完成“支持创作者”的金额确认。免费报价为 0 且作品与用户粘贴的口令一致时，直接确认获取；不能将免费获取文案写成支持付款。任一字段变化时重新运行 `inspect`，在对话中展示最新同款信息并重新确认。
 3. `PRODUCT_ALREADY_OWNED` 由 CLI 复用账号权益并安装，不创建匿名 Session。
-4. `REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时，回复正文单独一行写 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 imageChatSrc（local-file:// 加上 imagePath 绝对路径）。不要只写裸绝对路径；并用 `present_files([widgetPath])` 只打开支付 HTML。不要把 imagePath 交给 `present_files`，不要 Read 支付 HTML 或 PNG，支付不要调用 `show_widget`。没有 `present_files` 时仍在聊天气泡用上述 Markdown 展示图片。不为支付动作创建选项卡。先展示二维码，再把同一条 `--confirm` 命令追加 `--timeout 3m --interval 15s`，按“命令执行边界”只启动一次并等待最终结果。倒计时不能确认到账，不得输出支付 URI。
+4. `REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时，回复正文单独一行写 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 imageChatSrc（local-file:// 加上 imagePath 绝对路径）。不要只写裸绝对路径；并用 `present_files([widgetPath])` 只打开支付 HTML。不要把 imagePath 交给 `present_files`，不要 Read 支付 HTML 或 PNG，支付不要调用 `show_widget`。没有 `present_files` 时仍在聊天气泡用上述 Markdown 展示图片。不为支付动作创建选项卡。先展示二维码，再把同一条 `--confirm` 命令追加 `--payment-result-first --timeout 3m --interval 3s`，按“命令执行边界”只启动一次并等待最终结果。倒计时不能确认到账，不得输出支付 URI。
 
 ## CLI 匿名路径
 
@@ -150,7 +159,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
    ```
 
 2. `REPLICA_PRICE_CHANGED` 时在正文内容区展示最新同款信息并重新确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时按“平台内支付展示”展示 `paymentPresentation.widgetPath` 与二维码；只有旧订单返回 `nextAction=OPEN_PAYMENT_PAGE` 时才在平台内打开 `checkoutUrl`，并在正文内容区给出公开支付提示，不为支付动作创建选项卡。
-3. 当前订单的支付 HTML 或二维码成功展示后，原样重跑命令并追加 `--payment-presented --timeout 3m --interval 15s`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单。以后不带 `--payment-presented` 重新发起时，会先安全关闭旧未支付尝试，再创建新订单。
+3. 当前订单的支付 HTML 或二维码成功展示后，原样重跑命令并追加 `--payment-presented --payment-result-first --timeout 3m --interval 3s`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单。以后不带 `--payment-presented` 重新发起时，会先安全关闭旧未支付尝试，再创建新订单。
 
 ## 无 CLI 或既有 standalone 路径
 
@@ -166,7 +175,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
 2. `REPLICA_TARGET_EXISTS` 时一次询问新目录并追加 `--target`；绝不覆盖已有目录。
 3. `REPLICA_PRICE_CHANGED` 时在正文内容区展示最新同款信息并重新确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时按“平台内支付展示”展示 `paymentPresentation.widgetPath` 与二维码；只有旧订单返回 `nextAction=OPEN_PAYMENT_PAGE` 时才在平台内打开 `checkoutUrl`，并在正文内容区给出公开支付提示，不为支付动作创建选项卡，也不得输出该地址。
-4. 当前订单的支付 HTML 或二维码成功展示后，原样重跑并追加 `--payment-presented`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单；以后不带该参数重新发起时，会先安全关闭旧未支付尝试，再创建新订单。脚本每 15 秒查询一次，检测到 `PAID` 立即下载和安装，不等待三分钟结束；未支付时轮询 12 次（约三分钟，另计网络请求耗时）后返回超时。
+4. 当前订单的支付 HTML 或二维码成功展示后，原样重跑并追加 `--payment-presented --payment-result-first`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单；以后不带该参数重新发起时，会先安全关闭旧未支付尝试，再创建新订单。脚本每 3 秒查询一次，检测到 `PAID` 立即返回支持结果，按下方规则更新预览后继续准备作品，不等待三分钟结束；未支付时轮询 60 次（约三分钟，另计网络请求耗时）后返回超时。
 
 ## 完成
 
