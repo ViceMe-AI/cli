@@ -88,12 +88,23 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 			if authorization.DeviceCode == "" || authorization.VerificationURIComplete == "" {
 				return output.Internal("device_authorization_response", "ViceMe API returned an incomplete device authorization", nil)
 			}
+			qrCodeURL := authorization.WechatMPQRCodeURL
+			if authorization.LoginPresentation != nil {
+				if authorization.LoginPresentation.DisplayMode != "QR_AND_LINK" {
+					return output.Internal("device_authorization_response", "ViceMe API returned an unsupported login presentation", nil)
+				}
+				qrCodeURL = authorization.LoginPresentation.ImageURL
+			}
 			var qrImage []byte
-			if authorization.WechatMPQRCodeURL != "" {
-				qrImage, _ = client.DownloadLoginQRCode(
+			var qrImageErr error
+			if qrCodeURL != "" {
+				qrImage, qrImageErr = client.DownloadLoginQRCode(
 					command.Context(),
-					authorization.WechatMPQRCodeURL,
+					qrCodeURL,
 				)
+				if qrImageErr != nil {
+					return qrImageErr
+				}
 			}
 			presentation, presentationErr := createDeviceLoginPresentation(
 				runtime,
@@ -101,6 +112,9 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 				qrImage,
 			)
 			if presentationErr != nil {
+				if qrCodeURL != "" {
+					return output.Internal("LOGIN_QR_PRESENTATION_FAILED", "could not prepare the ViceMe login QR presentation", presentationErr)
+				}
 				presentation = deviceLoginPresentation{AuthorizationURL: authorization.VerificationURIComplete}
 			}
 			defer func() { _ = removeDeviceLoginPresentation(presentation) }()

@@ -92,6 +92,24 @@ func ValidatePublishArchive(file *os.File, size int64) error {
 	return err
 }
 
+// validateOwnerSourceArchive applies the same portable ZIP and extraction
+// budgets as Website Replica packages without interpreting or rewriting the
+// owner's editable page code.
+func validateOwnerSourceArchive(file *os.File, size int64) (archivePlan, error) {
+	entries, err := validateArchiveStructure(file, size)
+	if err != nil {
+		return archivePlan{}, err
+	}
+	reader, err := zip.NewReader(file, size)
+	if err != nil {
+		return archivePlan{}, fmt.Errorf("open custom-page source ZIP directory: %w", err)
+	}
+	if err := validateZIPReader(reader, entries); err != nil {
+		return archivePlan{}, err
+	}
+	return inspectArchive(reader)
+}
+
 func validatePublishArchive(file *os.File, size int64) (archivePlan, error) {
 	entries, err := validateArchiveStructure(file, size)
 	if err != nil {
@@ -193,6 +211,82 @@ func InstallArchiveAnchored(archivePath, target, targetParentID string, license 
 		return InstallResult{}, errors.New("Website Replica target parent identity is required")
 	}
 	return installArchive(archivePath, target, targetParentID, license)
+}
+
+// RestoreOwnerSourceArchive safely installs an owner-authenticated source
+// snapshot into a new local directory. It never overwrites an existing path
+// and deliberately does not create a Replica license or publication binding.
+func RestoreOwnerSourceArchive(archivePath, target string) (InstallResult, error) {
+	absTarget, err := filepath.Abs(target)
+	if err != nil || strings.TrimSpace(target) == "" {
+		return InstallResult{}, errors.New("custom-page source target path is invalid")
+	}
+	absTarget = filepath.Clean(absTarget)
+	parent := filepath.Dir(absTarget)
+	parentInfo, err := os.Lstat(parent)
+	if err != nil || !parentInfo.IsDir() || parentInfo.Mode()&os.ModeSymlink != 0 {
+		return InstallResult{}, fmt.Errorf("custom-page source target parent is not a real existing directory: %w", err)
+	}
+	if err := requireMissingPath(absTarget, "custom-page source target already exists"); err != nil {
+		return InstallResult{}, err
+	}
+
+	archive, err := os.Open(archivePath)
+	if err != nil {
+		return InstallResult{}, fmt.Errorf("open custom-page source archive: %w", err)
+	}
+	info, statErr := archive.Stat()
+	if statErr != nil {
+		_ = archive.Close()
+		return InstallResult{}, statErr
+	}
+	_, validationErr := validateOwnerSourceArchive(archive, info.Size())
+	closeErr := archive.Close()
+	if validationErr != nil || closeErr != nil {
+		return InstallResult{}, errors.Join(validationErr, closeErr)
+	}
+
+	reader, closeArchive, err := openArchive(archivePath)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	defer closeArchive()
+	plan, err := inspectArchive(reader)
+	if err != nil {
+		return InstallResult{}, err
+	}
+	parentAnchor, err := pathidentity.OpenDirectory(parent)
+	if err != nil {
+		return InstallResult{}, fmt.Errorf("anchor custom-page source target parent: %w", err)
+	}
+	defer parentAnchor.Close()
+	stage, err := privatepath.CreateTempDirectory(parent, "."+filepath.Base(absTarget)+".page-source-*")
+	if err != nil {
+		return InstallResult{}, fmt.Errorf("create custom-page source staging directory: %w", err)
+	}
+	stageActive := true
+	defer func() {
+		if stageActive {
+			_ = os.RemoveAll(stage)
+		}
+	}()
+	if err := extractArchive(plan, stage); err != nil {
+		return InstallResult{}, err
+	}
+	if err := syncStagedDirectories(stage); err != nil {
+		return InstallResult{}, err
+	}
+	if err := requireMissingPath(absTarget, "custom-page source target appeared while restoring"); err != nil {
+		return InstallResult{}, err
+	}
+	if err := parentAnchor.RenameNoReplace(filepath.Base(stage), filepath.Base(absTarget)); err != nil {
+		return InstallResult{}, fmt.Errorf("activate custom-page source without overwrite: %w", err)
+	}
+	stageActive = false
+	if err := parentAnchor.Sync(); err != nil {
+		return InstallResult{}, fmt.Errorf("sync custom-page source restore: %w", err)
+	}
+	return InstallResult{Target: absTarget, FileCount: len(plan.files), ExpandedBytes: plan.expandedBytes}, nil
 }
 
 func installArchive(archivePath, target, expectedParentID string, license LicenseRecord) (InstallResult, error) {

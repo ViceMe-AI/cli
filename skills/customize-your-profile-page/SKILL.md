@@ -36,13 +36,12 @@ ViceMe CLI 只负责确认目标、返回平台能力、校验 ZIP 结构、上�
 2. 重新制作一版：从模板或导入主页开始，完成后替换现在的名片。
 ```
 
-- **修改当前版本**：当前 CLI 不能从已经发布的页面取回项目源码。若用户提供原始项目或 ZIP，
-  将它作为「原样导入自己的主页」继续；否则说明需要重新制作一版。不得从线上 HTML、截图或渲染后的 Profile Blocks 反推、抓取或声称已恢复源码。当前页面在新版本最终确认前保持不变。
+- **修改当前版本**：先运行 `viceme merchant page source status --target <profileUrl> --merchant <商家ID>`。
+  只有它返回 `RESTORABLE` 才运行 `source restore`，恢复到当前工作区一个全新的子目录，并以恢复结果里的源码、模板信息和并发令牌继续修改。返回 `LOCAL_SOURCE_REQUIRED` 时，如实说明这个历史版本没有可恢复源稿，请用户提供原始项目或 ZIP，或选择重新制作；不得从线上 HTML、截图或渲染后的 Profile Blocks 反推源码。当前页面在新版本最终确认前保持不变。
 - **重新制作一版**：执行下面的模板册或导入路径。用户确认最终本机预览后，才将新版本发布到
   原 `profileUrl`；不要新建或猜测个人页地址。
 
-平台以后若提供经过 owner 校验的源稿恢复 Contract，才可在其明确返回“可恢复”时自动恢复当前
-版本；在此之前不得调用或编造源稿状态、恢复命令或共享草稿能力。
+源码恢复只信任本次 owner 校验后的 `source status`；不得根据页面能访问、历史聊天、本地缓存或公开资源猜测可恢复性。恢复命令只能写入不存在的新目录，不能覆盖本地项目。
 
 ## 两种调用模式
 
@@ -56,7 +55,7 @@ ViceMe CLI 只负责确认目标、返回平台能力、校验 ZIP 结构、上�
 
 1. 使用调用方给出的准确 `profileUrl` 和 Merchant，不让用户重选目标。先运行
    `viceme merchant page describe --target <profileUrl> --merchant <商家ID>`，再运行 `viceme merchant page status --target <profileUrl> --merchant <商家ID>`；CLI 会再次校验当前登录者、审核中的普通申请、DRAFT 作者身份和 handle 完全一致。必须以 status 返回的 active release 判断当前名片是否已发布；不得用 Markdown 页里的 `Works: 0`、空白页面或推测代替这一判断。
-   - **存在 active release**：右侧只打开真实 `profileUrl`，读取 describe/status 与已渲染主页后，先总结当前名片已展示的内容。只问“继续修改这一版，还是重新制作一版新的名片？”；后者才进入下一步的模板册或导入路径。不得把“查看模板 / 导入主页”用于已有 active release，不得假装可以从已发布页面恢复项目源码；没有原始项目或 ZIP 时，说明只能重新制作一版，旧页面在最终本机预览确认前保持不变。
+   - **存在 active release**：右侧只打开真实 `profileUrl`，读取 describe/status 与已渲染主页后，先总结当前名片已展示的内容，再运行 `source status`。只问“继续修改这一版，还是重新制作一版新的名片？”；用户选择修改时，`RESTORABLE` 自动恢复当前源稿后继续，`LOCAL_SOURCE_REQUIRED` 才请用户提供原始项目或 ZIP，或改为重新制作。后者才进入下一步的模板册或导入路径。旧页面在最终本机预览确认前保持不变。
    - **不存在 active release**：不自动打开空的 `profileUrl`，运行 `viceme template list`，右侧打开命令返回的 `catalog_url`。模板册是新名片的视觉入口；不得自动打开 `markdownUrl`。
 2. 对不存在 active release 的新名片，紧接 `$become-a-creator` 的欢迎话术，在对话中只说明两条入口，右侧不承担选择弹窗。不得把验收、权限、接口能力或写入限制翻译给用户；这些只约束 Agent 的执行。用户只需回答“查看模板”或“导入一个已有主页”：
    - **查看模板**：先解释模板会提供已经校准的布局、信息层级和可预览的起点。不存在 active release 时复用上一步为了打开模板册而读取的结果；其他入口只有用户选择查看模板后才运行 `viceme template list`。先给命令返回的 `catalog_url` 作为“查看所有模板”链接，再只列出响应中 production 模板的名称、适用场景、简述和 `preview_url`；不能靠记忆列模板，也不得虚构模板名称、查看链接或授权。不得向正式用户称为模板来源，不得展示本地绝对路径。右侧只打开 `catalog_url` 或用户要求查看的 `preview_url`。模板册结尾必须只问：“你想选择哪一款，还是想导入一个已有主页？”不得自动选择 Bonjour 或任何特定模板。
@@ -111,11 +110,11 @@ ViceMe CLI 只负责确认目标、返回平台能力、校验 ZIP 结构、上�
    ‘确认更新名片’；我会更新原来的个人页链接。”
 5. 在 ZIP 根目录放置 `viceme-page.json`，运行 `viceme merchant page inspect --path <zip>`，
    再运行
-   `viceme merchant page upload --path <zip> --target <profileUrl> --merchant <商家ID>`。
+   `viceme merchant page upload --path <zip> --source <项目根目录> --target <profileUrl> --merchant <商家ID>`；从模板开始时同时传入本次真实的 `--template-id` 与 `--template-version`。这仍是一次用户发布动作，CLI 在内部同时保存公开运行包和私有可编辑源稿。
 6. 上传返回 `VALIDATED` 后，运行
    `viceme merchant page status --target <profileUrl> --merchant <商家ID>`，使用上传得到的
-   release ID 与真实当前 active release，立即运行
-   `viceme merchant page publish <release-id> --expected-active <当前ID或none> --merchant <商家ID>`。
+   release ID、真实当前 active release 与 `concurrencyToken`，立即运行
+   `viceme merchant page publish <release-id> --expected-active <当前ID或none> --expected-concurrency <concurrencyToken> --merchant <商家ID>`。
    本地预览已经获得确认，因此这里不再追问第二次发布确认。
 7. 保存后打开原 `profileUrl`，实际检查 iframe 中的首页、页面内跳转和刷新；`PUBLISHED`、
    SDK 就绪或资源 HTTP 200 都不等于内容渲染成功。发现空白或应用自己的 NotFound 时按
@@ -148,15 +147,15 @@ ViceMe CLI 只负责确认目标、返回平台能力、校验 ZIP 结构、上�
 6. 运行 `viceme merchant page inspect --path <zip>`。只修复它返回的包结构问题，例如
    ZIP 无法读取、路径穿越、压缩炸弹、缺少 manifest、入口不存在或 manifest 不匹配；
    不借此增加浏览器源码限制。
-7. 运行 `viceme merchant page preview --path <zip> --target <准确URL> --merchant <商家ID>`，
+7. 运行 `viceme merchant page preview --path <zip> --source <项目根目录> --target <准确URL> --merchant <商家ID>`；从模板开始时同时传入本次真实的 `--template-id` 与 `--template-version`，
    打开命令返回的完整预览 URL，并把同一 URL 作为 Markdown 备用链接给用户。预览期间
    实际检查 iframe 内首页、页面内跳转与刷新；只有包内容发生修改时才重新运行预览命令，
    因为每次预览都会上传一个新的草稿 release。资源请求成功
    不代表应用路由正确，不得把空白或应用自己的 NotFound 当作可发布的预览。
 8. 预览不等于公开发布。只有展示最终预览并得到用户明确确认后，才运行
    `viceme merchant page status --target <准确URL> --merchant <商家ID>`，使用这次预览的
-   release ID 和响应中的当前 active release，运行
-   `viceme merchant page publish <release-id> --expected-active <当前ID或none> --merchant <商家ID>`。
+   release ID、响应中的当前 active release 与 `concurrencyToken`，运行
+   `viceme merchant page publish <release-id> --expected-active <当前ID或none> --expected-concurrency <concurrencyToken> --merchant <商家ID>`。
 9. 发布后把第 1 步确认的准确目标 URL 交给用户，不自行重建地址。后续更新重复 describe、制作、inspect、
    preview、确认和 publish；用户明确要求回滚时，先读 status，再对准确历史 release 运行
    `viceme merchant page activate`，并传当前 active release。
