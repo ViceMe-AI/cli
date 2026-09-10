@@ -159,7 +159,7 @@ jobs:
           for ORIGIN in "https://s3.viceme.cn/${CATALOG_PATH}" "https://s3.viceme.ai/${CATALOG_PATH}"; do
             VICEME_TEMPLATE_CATALOG_ORIGIN="${ORIGIN}" ./bin/viceme template list
             DESTINATION="$(mktemp -d)"
-            VICEME_TEMPLATE_CATALOG_ORIGIN="${ORIGIN}" ./bin/viceme template fetch bonjour-card --version 1.0.1 --destination "${DESTINATION}"
+            VICEME_TEMPLATE_CATALOG_ORIGIN="${ORIGIN}" ./bin/viceme template fetch bonjour-card --version 1.0.2 --destination "${DESTINATION}"
             test -f "${DESTINATION}/bonjour-card/public/viceme-page.json"
             rm -rf "${DESTINATION}"
           done

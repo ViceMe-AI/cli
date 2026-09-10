@@ -184,7 +184,7 @@ func (b *Bundle) Digests(name string) (Digests, error) {
 	if err := b.Validate(name); err != nil {
 		return Digests{}, err
 	}
-	full, err := digestFS(b.FS, name, func(string) bool { return true })
+	full, err := digestFS(b.FS, name, func(relative string) bool { return !isTransientSkillPath(relative) })
 	if err != nil {
 		return Digests{}, err
 	}
@@ -195,6 +195,23 @@ func (b *Bundle) Digests(name string) (Digests, error) {
 		return Digests{}, err
 	}
 	return Digests{Full: full, Embedded: embedded}, nil
+}
+
+// isTransientSkillPath excludes local template build outputs and dependencies.
+// They are generated outside version control and must not change a published
+// Skill's integrity record or be installed into an Agent's Skill directory.
+func isTransientSkillPath(relative string) bool {
+	insideTemplate := false
+	for _, segment := range strings.Split(path.Clean(relative), "/") {
+		if segment == "templates" {
+			insideTemplate = true
+			continue
+		}
+		if segment == "node_modules" || (insideTemplate && segment == "dist") {
+			return true
+		}
+	}
+	return false
 }
 
 func (b *Bundle) metadata(name string) (frontmatter, error) {

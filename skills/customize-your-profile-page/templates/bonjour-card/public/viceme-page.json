@@ -2,11 +2,11 @@
   "apiVersion": "page.viceme.ai/v1alpha1",
   "kind": "CreatorPage",
   "metadata": {
-    "name": "Profile Blocks personal card"
+    "name": "Bonjour Card"
   },
   "spec": {
     "entry": "index.html",
     "sdkVersion": "1",
-    "capabilities": ["context.read", "navigation.open"]
+    "capabilities": ["navigation.open"]
   }
 }
