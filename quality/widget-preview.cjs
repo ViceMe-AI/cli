@@ -15,11 +15,17 @@ const startedAt = Date.now();
 const server = createServer((req, res) => {
   const url = new URL(req.url, "http://localhost");
   const state = url.searchParams.get("state");
-  const order = { title: "通用订单 · 演示", amountCents: 1990, currency: "CNY", paymentMethodLabel: "微信支付", status: state === "paid" ? "PAID" : "PENDING", expiresAt: new Date(startedAt + (state === "expired" ? -1 : 3600000)).toISOString(), locale: "zh-CN" };
+  const en = url.searchParams.get("locale") === "en-US";
+  const order = { title: "通用订单 · 演示", amountCents: 1990, currency: "CNY", paymentMethodLabel: "微信支付", status: ["paid", "support"].includes(state) ? "PAID" : "PENDING", expiresAt: new Date(startedAt + (state === "expired" ? -1 : 3600000)).toISOString(), locale: en ? "en-US" : "zh-CN" };
+  if (state === "support") Object.assign(order, { resultTitle: en ? "The creator has received your support" : "创作者已收到你的支持", resultDescription: en ? "Thank you for supporting this idea. Your work is being prepared." : "感谢你支持这个创意，正在为你准备作品。" });
   const onboarding = { skillName: "任意 Skill", locale: "zh-CN", examples: [{ title: "从一个小任务开始", prompt: "请使用这个 Skill，根据它支持的能力完成一个最小示例，并说明输入和结果。" }, { title: "带着自己的材料来", prompt: "请使用这个 Skill 处理我接下来提供的材料。先确认需要哪些输入，再开始任务。" }, { title: "把已有结果再做好一点", prompt: "请使用这个 Skill，根据我给出的目标改进已有结果，并说明本次修改的要点。" }] };
   const bridge = '<script>window.sendPrompt=async prompt=>{document.getElementById("prompt-result").textContent=prompt;};</script>';
   const fill = (name, data) => readFileSync(join(widgets, name + ".html"), "utf8").replace("__WIDGET_DATA__", () => encode(data)).replace("__QR_SVG__", () => svg);
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+  if (url.pathname === "/support-check") {
+    res.end('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>做同款支持结果 · 本地验收</title><style>body{font:15px system-ui;margin:24px;background:#f6f8f7}main{display:flex;gap:24px;flex-wrap:wrap}iframe{border:1px solid #ddd;height:520px;background:transparent}a{display:block;margin:12px 0}</style><h1>做同款支持结果 · 本地模拟</h1><p>无真实付款。检查中文、英文及 320px 窄屏；支持结果应隐藏二维码、金额和倒计时。</p><a href="/payment?state=support">单独查看支持结果</a><main><section><h2>中文 · 360px</h2><iframe title="中文支持结果" width="360" src="/payment?state=support"></iframe></section><section><h2>英文 · 320px</h2><iframe title="英文支持结果" width="320" src="/payment?state=support&locale=en-US"></iframe></section></main></html>');
+    return;
+  }
   if (url.pathname === "/payment") {
     res.end(fill("payment", order));
     return;

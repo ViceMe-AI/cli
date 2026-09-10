@@ -22,6 +22,8 @@ type paymentWidgetData struct {
 	Status             string `json:"status"`
 	ExpiresAt          string `json:"expiresAt"`
 	Locale             string `json:"locale"`
+	ResultTitle        string `json:"resultTitle,omitempty"`
+	ResultDescription  string `json:"resultDescription,omitempty"`
 }
 
 func renderPaymentWidget(data paymentWidgetData, content string) ([]byte, error) {
