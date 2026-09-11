@@ -107,6 +107,11 @@ func (runtime *Runtime) requireProfileWriteAuthentication(ctx context.Context) e
 	if err != nil {
 		return err
 	}
+	if !status.Authenticated {
+		return output.Authentication("NOT_LOGGED_IN", "sign in before updating the account profile").
+			WithHint("run 'viceme auth login' for the current profile").
+			WithDetails(map[string]any{"profile": runtime.profile.Name, "apiBaseUrl": runtime.apiBaseURL})
+	}
 	for _, scope := range status.Scopes {
 		if scope == "profile:write" {
 			return nil

@@ -102,6 +102,30 @@ func TestAccountCommandsRequireProfileWriteScope(t *testing.T) {
 	}
 }
 
+func TestAccountCommandsRejectUnauthenticatedStatusBeforeWrite(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, accountTestToken)
+	var writes int
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/cli/auth/status":
+			writeJSONResponse(writer, map[string]any{
+				"authenticated": false,
+				"scopes":        []string{"profile:write"},
+			})
+		default:
+			writes++
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	exit, envelope := executeAccountCommand(t, server, "account", "profile", "update", "--display-name", "jingxu")
+	errorBody, _ := envelope["error"].(map[string]any)
+	if exit != output.ExitAuthentication || errorBody["code"] != "NOT_LOGGED_IN" || writes != 0 {
+		t.Fatalf("unauthenticated status did not block the write: exit=%d response=%#v writes=%d", exit, envelope, writes)
+	}
+}
+
 func TestAccountAvatarRejectsOversizedFilesBeforeNetwork(t *testing.T) {
 	root := t.TempDir()
 	path := filepath.Join(root, "oversized.png")
