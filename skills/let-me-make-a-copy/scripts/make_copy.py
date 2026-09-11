@@ -279,7 +279,7 @@ def assert_resolution(value: Any) -> Dict[str, Any]:
         and isinstance(product, dict)
         and UUID_PATTERN.fullmatch(str(product.get("id", "")))
         and UUID_PATTERN.fullmatch(str(product.get("skuId", "")))
-        and product.get("currency") == "CNY"
+        and product.get("currency") in {"CNY", "USD"}
         and isinstance(product.get("priceCents"), int)
         and not isinstance(product.get("priceCents"), bool)
         and product["priceCents"] >= 0
@@ -1466,7 +1466,7 @@ def support_result(authority: Authority, state: Dict[str, Any], replica: Dict[st
               "presentation": {"widgetPath": widget, "widgetMimeType": "text/html",
                                "replacesWidgetPath": str((directory / (stem + ".html")).absolute())}}
     # Older records may lack the immutable order amount. Never use today's price.
-    if type(state.get("orderAmountCents")) is int and state["orderAmountCents"] >= 0 and state.get("orderCurrency") == "CNY":
+    if type(state.get("orderAmountCents")) is int and state["orderAmountCents"] >= 0 and state.get("orderCurrency") in {"CNY", "USD"}:
         result.update(amountCents=state["orderAmountCents"], currency=state["orderCurrency"])
     return result
 
