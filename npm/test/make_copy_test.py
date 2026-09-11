@@ -152,6 +152,80 @@ def sign_with_rfc8032_seed(message):
 
 
 class MakeCopyTest(unittest.TestCase):
+    def test_invitation_start_is_explicit_and_telemetry_failure_is_optional(self):
+        flow_id = "66666666-6666-4666-8666-666666666666"
+        calls = []
+        base = inspect_request()
+        def request(method, url, **kwargs):
+            if url.endswith("/website-replica-invitation-flows"):
+                calls.append(json.loads(kwargs["body"]))
+                self.assertEqual(kwargs["timeout"], 1)
+                self.assertNotIn("Authorization", kwargs["headers"])
+                return response(200, {"recorded": True})
+            return base(method, url, **kwargs)
+        self.assertNotIn("invitationFlowId", make_copy.inspect("https://viceme.cn/alice/site.md", request_fn=request))
+        self.assertEqual(calls, [])
+        for _ in range(2):
+            result = make_copy.inspect("https://viceme.cn/alice/site.md", invitation_flow_id=flow_id, request_fn=request)
+            self.assertEqual(result["invitationFlowId"], flow_id)
+        self.assertEqual(calls[0], calls[1])
+        self.assertEqual(set(calls[0]), {"flowId", "shortCode", "engine", "clientVersion"})
+        def unavailable(method, url, **kwargs):
+            if url.endswith("/website-replica-invitation-flows"):
+                raise TimeoutError("unavailable")
+            return base(method, url, **kwargs)
+        result = make_copy.inspect("https://viceme.cn/alice/site.md", invitation_flow_id=flow_id, request_fn=unavailable)
+        self.assertEqual(result["nextAction"], "PRESENT_WORK")
+        self.assertNotIn("invitationFlowId", result)
+
+    def test_invitation_survives_price_confirmation_and_reports_after_actual_install(self):
+        flow_id = "66666666-6666-4666-8666-666666666666"
+        events = []
+        def request(_method, url, **kwargs):
+            events.append((url, json.loads(kwargs["body"])))
+            return response(200, {"recorded": True})
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary) / "state"), mock.patch.object(
+            make_copy, "resolve_work", return_value=(f"VICEME-REPLICA:{SHORT_CODE}", replica())
+        ), mock.patch.object(make_copy, "try_recover_download", return_value=None):
+            target = str(Path(temporary).resolve() / "copy")
+            with self.assertRaises(make_copy.WorkflowError) as raised:
+                make_copy.install("https://viceme.cn/alice/site.md", target_path=target, invitation_flow_id=flow_id, request_fn=request)
+            self.assertEqual(raised.exception.code, "REPLICA_PURCHASE_CONFIRMATION_REQUIRED")
+            self.assertEqual(events, [])
+            authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+            store = make_copy.state_store(authority, SHORT_CODE, Path(target))
+            state = make_copy.read_state(store["filename"])
+            self.assertEqual(state["invitationFlowId"], flow_id)
+            state.update(orderNo=ORDER_NO, sessionId=VERSION_ID, sessionToken="example-session")
+            make_copy.persist_state(store, state)
+            with mock.patch.object(make_copy, "recover_order_status", return_value={"payment": {"status": "PAID"}}), mock.patch.object(
+                make_copy, "try_recover_download", return_value=download()
+            ), mock.patch.object(make_copy, "complete_install", return_value={"orderNo": ORDER_NO, "target": target}):
+                result = make_copy.install(authority.work_url, target_path=target, replica_code=state["instruction"], recovery_only=True, expected_order_no=ORDER_NO, request_fn=request)
+            self.assertEqual(result["nextAction"], "DEPLOY")
+            self.assertEqual(events[-1][1], {"flowId": flow_id, "event": "INSTALL_COMPLETED"})
+            self.assertTrue(events[-2][0].endswith("/invitation-flow"))
+            self.assertFalse(any(event.get("event") == "RESTORED" for _, event in events))
+
+    def test_invitation_recovery_is_separate_and_failed_install_has_no_completion(self):
+        events = []
+        def request(_method, _url, **kwargs):
+            events.append(json.loads(kwargs["body"]))
+            return response(200, {"recorded": True})
+        authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+        current = "66666666-6666-4666-8666-666666666666"
+        flow = make_copy.InvitationFlow(authority, current, request)
+        flow.use_saved("77777777-7777-4777-8777-777777777777")
+        flow.use_saved("77777777-7777-4777-8777-777777777777")
+        self.assertEqual(events, [{"flowId": current, "event": "RESTORED"}])
+        flow.report("INSTALL_COMPLETED")
+        self.assertEqual(events[-1], {"flowId": "77777777-7777-4777-8777-777777777777", "event": "INSTALL_COMPLETED"})
+        events.clear()
+        with mock.patch.object(make_copy, "_install", side_effect=make_copy.WorkflowError("REPLICA_INSTALL_FAILED", "failed")):
+            with self.assertRaises(make_copy.WorkflowError):
+                make_copy.install(authority.work_url, invitation_flow_id=current, request_fn=request)
+        self.assertEqual(events, [])
+
     def test_discovery_rejects_cross_replica_and_unsafe_preview(self):
         authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
         for change in ({"replicaId": VERSION_ID}, {"previewUrl": "javascript:alert(1)"}):

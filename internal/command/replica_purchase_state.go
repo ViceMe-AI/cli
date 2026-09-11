@@ -30,6 +30,7 @@ import (
 )
 
 type replicaPurchaseState struct {
+	InvitationFlowID       string    `json:"-"`
 	PaymentQRContent       string    `json:"paymentQrContent,omitempty"`
 	SchemaVersion          int       `json:"schemaVersion"`
 	APIOrigin              string    `json:"apiOrigin"`
@@ -91,18 +92,19 @@ type replicaCompletionState struct {
 }
 
 type replicaPaidState struct {
-	RecoverySecret string          `json:"recoverySecret,omitempty"`
-	SchemaVersion  int             `json:"schemaVersion"`
-	APIOrigin      string          `json:"apiOrigin"`
-	ShortCode      string          `json:"shortCode"`
-	ReplicaID      string          `json:"replicaId"`
-	VersionID      string          `json:"versionId"`
-	Version        int             `json:"version"`
-	OrderNo        string          `json:"orderNo"`
-	ArtifactDigest string          `json:"artifactDigest"`
-	SizeBytes      int64           `json:"sizeBytes"`
-	License        json.RawMessage `json:"license"`
-	PaidAt         time.Time       `json:"paidAt"`
+	InvitationFlowID string          `json:"-"`
+	RecoverySecret   string          `json:"recoverySecret,omitempty"`
+	SchemaVersion    int             `json:"schemaVersion"`
+	APIOrigin        string          `json:"apiOrigin"`
+	ShortCode        string          `json:"shortCode"`
+	ReplicaID        string          `json:"replicaId"`
+	VersionID        string          `json:"versionId"`
+	Version          int             `json:"version"`
+	OrderNo          string          `json:"orderNo"`
+	ArtifactDigest   string          `json:"artifactDigest"`
+	SizeBytes        int64           `json:"sizeBytes"`
+	License          json.RawMessage `json:"license"`
+	PaidAt           time.Time       `json:"paidAt"`
 }
 
 func newReplicaPurchaseStore(runtime *Runtime, shortCode, target string) (replicaPurchaseStore, error) {
@@ -197,6 +199,7 @@ func (store replicaPurchaseStore) load() (replicaPurchaseState, bool, error) {
 	if err := store.restoreMissingReservation(state); err != nil {
 		return replicaPurchaseState{}, false, err
 	}
+	state.InvitationFlowID = readReplicaInvitation(store.filename, data)
 	return state, true, nil
 }
 
@@ -214,6 +217,7 @@ func (store replicaPurchaseStore) loadCompletion() (replicaCompletionState, bool
 	if err := decoder.Decode(&completion); err != nil || decoder.Decode(&struct{}{}) != io.EOF || !store.validCompletion(completion) {
 		return replicaCompletionState{}, false, output.Policy("REPLICA_COMPLETION_STATE_INVALID", "Website Replica completion receipt is invalid")
 	}
+	completion.Result.InvitationFlowID = readReplicaInvitation(store.completionFilename, data)
 	return completion, true, nil
 }
 
@@ -231,6 +235,7 @@ func (store replicaPurchaseStore) loadPaidLocked() (replicaPaidState, bool, erro
 	if err := decoder.Decode(&paid); err != nil || decoder.Decode(&struct{}{}) != io.EOF || !store.validPaid(paid) {
 		return replicaPaidState{}, false, output.Policy("REPLICA_PAID_STATE_INVALID", "Website Replica paid receipt is invalid")
 	}
+	paid.InvitationFlowID = readReplicaInvitation(store.paidFilename, data)
 	return paid, true, nil
 }
 
@@ -415,6 +420,7 @@ func (store replicaPurchaseStore) save(state *replicaPurchaseState) error {
 	if err := atomicfile.SyncDirectory(store.directory); err != nil {
 		return output.Internal("REPLICA_PURCHASE_STATE_FAILED", "could not sync Website Replica purchase recovery", err)
 	}
+	saveReplicaInvitation(store.filename, data, state.InvitationFlowID)
 	return nil
 }
 
@@ -444,6 +450,8 @@ func (store replicaPurchaseStore) saveCompletion(result replicaInstallResult, re
 	if !store.validCompletion(completion) {
 		return output.Internal("REPLICA_COMPLETION_STATE_INVALID", "refusing to save invalid Website Replica completion receipt", nil)
 	}
+	// 原完成凭据由旧 CLI 严格解析，埋点字段只写附属文件。
+	completion.Result.InvitationFlowID = ""
 	data, err := json.MarshalIndent(completion, "", "  ")
 	if err != nil {
 		return output.Internal("REPLICA_COMPLETION_STATE_FAILED", "could not encode Website Replica completion receipt", err)
@@ -472,13 +480,19 @@ func (store replicaPurchaseStore) saveCompletion(result replicaInstallResult, re
 	if err := atomicfile.SyncDirectory(store.directory); err != nil {
 		return output.Internal("REPLICA_COMPLETION_STATE_FAILED", "could not sync Website Replica completion receipt", err)
 	}
+	saveReplicaInvitation(store.completionFilename, data, result.InvitationFlowID)
 	return nil
 }
 
-func (store replicaPurchaseStore) savePaid(archivePath string, download api.WebsiteReplicaDownload, orderNo, recoverySecret string) error {
+func (store replicaPurchaseStore) savePaid(archivePath string, download api.WebsiteReplicaDownload, orderNo, recoverySecret string, flowIDs ...string) error {
+	var flowID string
+	if len(flowIDs) > 0 && replicaUUIDPattern.MatchString(flowIDs[0]) {
+		flowID = flowIDs[0]
+	}
 	paid := replicaPaidState{
-		RecoverySecret: recoverySecret,
-		SchemaVersion:  1, APIOrigin: store.origin, ShortCode: store.shortCode,
+		InvitationFlowID: flowID,
+		RecoverySecret:   recoverySecret,
+		SchemaVersion:    1, APIOrigin: store.origin, ShortCode: store.shortCode,
 		ReplicaID: download.ReplicaID, VersionID: download.VersionID, Version: download.Version,
 		OrderNo: orderNo, ArtifactDigest: download.ArtifactDigest, SizeBytes: download.SizeBytes,
 		License: append(json.RawMessage(nil), download.License...), PaidAt: store.now().UTC(),
@@ -508,6 +522,7 @@ func (store replicaPurchaseStore) savePaid(archivePath string, download api.Webs
 	if err != nil {
 		return output.Internal("REPLICA_PAID_STATE_FAILED", "could not encode Website Replica paid receipt", err)
 	}
+	data = append(data, '\n')
 	return store.withPaidLock(func() error {
 		if err := atomicfile.Replace(stagedName, store.paidArchiveFilename); err != nil {
 			return output.Internal("REPLICA_PAID_STATE_FAILED", "could not preserve paid Website Replica source", err)
@@ -515,9 +530,10 @@ func (store replicaPurchaseStore) savePaid(archivePath string, download api.Webs
 		if err := atomicfile.SyncDirectory(store.directory); err != nil {
 			return output.Internal("REPLICA_PAID_STATE_FAILED", "could not sync paid Website Replica source", err)
 		}
-		if err := privatefile.Write(store.paidFilename, append(data, '\n'), ".replica-paid-*.tmp"); err != nil {
+		if err := privatefile.Write(store.paidFilename, data, ".replica-paid-*.tmp"); err != nil {
 			return output.Internal("REPLICA_PAID_STATE_FAILED", "could not persist Website Replica paid receipt", err)
 		}
+		saveReplicaInvitation(store.paidFilename, data, paid.InvitationFlowID)
 		return nil
 	})
 }
