@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/api"
+	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
 	"github.com/spf13/cobra"
@@ -36,6 +37,7 @@ type replicaWorkPresentation struct {
 }
 
 type replicaInspectResult struct {
+	InvitationFlowID            string                       `json:"invitationFlowId,omitempty"`
 	Discovery                   *api.WebsiteReplicaDiscovery `json:"discovery,omitempty"`
 	PresentationTarget          string                       `json:"presentationTarget"`
 	PresentationPlacement       string                       `json:"presentationPlacement"`
@@ -51,6 +53,7 @@ func newReplicaCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newReplicaPreviewCommand(runtime))
 	command.AddCommand(newReplicaPublishCommand(runtime))
 	command.AddCommand(newReplicaInspectCommand(runtime))
+	command.AddCommand(newReplicaFlowIDCommand(runtime))
 	command.AddCommand(newReplicaAnalyticsCommand(runtime))
 	command.AddCommand(newReplicaStatusCommand(runtime))
 	command.AddCommand(newReplicaResumeCommand(runtime))
@@ -66,6 +69,7 @@ func newReplicaCommand(runtime *Runtime) *cobra.Command {
 
 func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 	var checkRecovery bool
+	var invitationFlowID string
 	command := &cobra.Command{
 		Use:   "inspect <replica-code-or-work-url>",
 		Short: "Inspect a Website Replica and return its public Work preview",
@@ -94,7 +98,11 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 				}
 				recoveryAvailable = &available
 			}
+			if !replicaUUIDPattern.MatchString(invitationFlowID) || !runtime.client().RecordReplicaInvitation(command.Context(), invitationFlowID, resolved.ShortCode, buildinfo.Version) {
+				invitationFlowID = ""
+			}
 			return runtime.business(replicaInspectResult{
+				InvitationFlowID:            invitationFlowID,
 				NextAction:                  "PRESENT_WORK",
 				WorkURL:                     resolved.ViceMeWorkURL,
 				WorkPresentation:            newReplicaWorkPresentation(target.HasActivePage, resolved.ViceMeWorkURL),
@@ -106,6 +114,7 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 			})
 		},
 	}
+	command.Flags().StringVar(&invitationFlowID, "invitation-flow-id", "", "reuse the identity of an explicitly started invitation")
 	command.Flags().BoolVar(&checkRecovery, "check-recovery", false, "check private standalone purchase recovery after user confirmation")
 	return command
 }

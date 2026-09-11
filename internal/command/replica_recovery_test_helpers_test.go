@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,6 +30,9 @@ type replicaDiagnosticsEnvelope struct {
 }
 
 type replicaRecoveryDiagnosticsFixture struct {
+	invitationMu          sync.Mutex
+	invitationEvents      []map[string]string
+	invitationStatus      int
 	t                     *testing.T
 	deps                  Dependencies
 	target, code, orderNo string
@@ -61,6 +65,23 @@ func newReplicaRecoveryDiagnosticsFixture(t *testing.T, immediate bool) *replica
 	validLicense := license
 	license.Signature = base64.RawURLEncoding.EncodeToString(make([]byte, 64))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.Contains(r.URL.Path, "/invitation-flow") || strings.HasPrefix(r.URL.Path, "/v1/website-replica-invitation-flows") {
+			var event map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&event); err != nil {
+				t.Error(err)
+			}
+			event["path"] = r.URL.Path
+			f.invitationMu.Lock()
+			f.invitationEvents = append(f.invitationEvents, event)
+			status := f.invitationStatus
+			f.invitationMu.Unlock()
+			if status != 0 {
+				w.WriteHeader(status)
+				return
+			}
+			writeJSONResponse(w, map[string]any{"recorded": true})
+			return
+		}
 		if strings.HasSuffix(r.URL.Path, "/discovery") {
 			w.WriteHeader(404)
 			return

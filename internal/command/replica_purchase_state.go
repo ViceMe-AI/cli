@@ -30,6 +30,7 @@ import (
 )
 
 type replicaPurchaseState struct {
+	InvitationFlowID       string    `json:"invitationFlowId,omitempty"`
 	PaymentQRContent       string    `json:"paymentQrContent,omitempty"`
 	SchemaVersion          int       `json:"schemaVersion"`
 	APIOrigin              string    `json:"apiOrigin"`
@@ -91,18 +92,19 @@ type replicaCompletionState struct {
 }
 
 type replicaPaidState struct {
-	RecoverySecret string          `json:"recoverySecret,omitempty"`
-	SchemaVersion  int             `json:"schemaVersion"`
-	APIOrigin      string          `json:"apiOrigin"`
-	ShortCode      string          `json:"shortCode"`
-	ReplicaID      string          `json:"replicaId"`
-	VersionID      string          `json:"versionId"`
-	Version        int             `json:"version"`
-	OrderNo        string          `json:"orderNo"`
-	ArtifactDigest string          `json:"artifactDigest"`
-	SizeBytes      int64           `json:"sizeBytes"`
-	License        json.RawMessage `json:"license"`
-	PaidAt         time.Time       `json:"paidAt"`
+	InvitationFlowID string          `json:"invitationFlowId,omitempty"`
+	RecoverySecret   string          `json:"recoverySecret,omitempty"`
+	SchemaVersion    int             `json:"schemaVersion"`
+	APIOrigin        string          `json:"apiOrigin"`
+	ShortCode        string          `json:"shortCode"`
+	ReplicaID        string          `json:"replicaId"`
+	VersionID        string          `json:"versionId"`
+	Version          int             `json:"version"`
+	OrderNo          string          `json:"orderNo"`
+	ArtifactDigest   string          `json:"artifactDigest"`
+	SizeBytes        int64           `json:"sizeBytes"`
+	License          json.RawMessage `json:"license"`
+	PaidAt           time.Time       `json:"paidAt"`
 }
 
 func newReplicaPurchaseStore(runtime *Runtime, shortCode, target string) (replicaPurchaseStore, error) {
@@ -475,10 +477,15 @@ func (store replicaPurchaseStore) saveCompletion(result replicaInstallResult, re
 	return nil
 }
 
-func (store replicaPurchaseStore) savePaid(archivePath string, download api.WebsiteReplicaDownload, orderNo, recoverySecret string) error {
+func (store replicaPurchaseStore) savePaid(archivePath string, download api.WebsiteReplicaDownload, orderNo, recoverySecret string, flowIDs ...string) error {
+	var flowID string
+	if len(flowIDs) > 0 && replicaUUIDPattern.MatchString(flowIDs[0]) {
+		flowID = flowIDs[0]
+	}
 	paid := replicaPaidState{
-		RecoverySecret: recoverySecret,
-		SchemaVersion:  1, APIOrigin: store.origin, ShortCode: store.shortCode,
+		InvitationFlowID: flowID,
+		RecoverySecret:   recoverySecret,
+		SchemaVersion:    1, APIOrigin: store.origin, ShortCode: store.shortCode,
 		ReplicaID: download.ReplicaID, VersionID: download.VersionID, Version: download.Version,
 		OrderNo: orderNo, ArtifactDigest: download.ArtifactDigest, SizeBytes: download.SizeBytes,
 		License: append(json.RawMessage(nil), download.License...), PaidAt: store.now().UTC(),
