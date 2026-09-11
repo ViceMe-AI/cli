@@ -74,9 +74,9 @@
       "embedded_content_digest": "sha256:4afcc490e9796cec9530757bfd9bd5890b81c3ee52550f950f40c2f1f245e02d"
     }
   },
-  "bootstrap_contract_digest": "sha256:4876f236d90759b8cbd343c5ad7664129e18184379458dea626929c4f0f860f2",
+  "bootstrap_contract_digest": "sha256:fa3c6e3c3931da08bbb4af952c375c08eea4210699bb94830d25197d891ed072",
   "installer_digests": {
-    "install.ps1": "sha256:e7bb5bf2b8d51a6d6a6c1cd90862211694447c11cfa2ff5d081beb30f4f35b62",
-    "install.sh": "sha256:ed4efa75162dc58d7af8d372da5d888e8010b482e15d08ea0413375c86696907"
+    "install.ps1": "sha256:4c930532ba9e6158f1748178706c84c41b92fba2f9322449e03d4ea645ae1434",
+    "install.sh": "sha256:03e0543e0a41bd95ef07748c9c004dab872eb2aab4a26ec52e7033b76e1ccc0d"
   }
 }
