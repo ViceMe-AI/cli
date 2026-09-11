@@ -36,6 +36,7 @@ def artifacts():
         for name, source in sorted(sources.items()):
             info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_STORED
+            info.create_system = 3
             info.external_attr = 0o100644 << 16
             archive.writestr(info, canonical_text_bytes(source))
     content = buffer.getvalue()
