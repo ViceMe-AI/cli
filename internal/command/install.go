@@ -17,6 +17,7 @@ import (
 )
 
 var officialSkillNames = []string{
+	"withdraw-income",
 	"creator-tools",
 	"become-a-creator",
 	"customize-your-profile-page",

@@ -12,6 +12,7 @@
 | 接入弹幕、开放赞赏或两者 | `let-people-interact` | `https://viceme.cn/viceme/let-people-interact` | Available |
 | 让别人做你的网站同款 | `let-others-make-a-copy` | `https://viceme.cn/viceme/let-others-make-a-copy` | Available |
 | 接受网站做同款邀请 | `let-me-make-a-copy` | 作品 Markdown 中的平台控制入口 | Available |
+| 提取创作者收入 | `withdraw-income` | `viceme install --agent auto` 安装 | Available |
 | 基础设施 | `creator-tools` | `https://viceme.cn/viceme/creator-tools` | Available |
 
 This is a breaking rename. The old `viceme-*` creator Skill IDs and old Markdown routes are not
@@ -31,6 +32,7 @@ The official creator Skills expose one user goal each:
 | `let-people-interact` | Three-way danmaku/tip routing, hosted SDK access, default Mounted integration, explicit custom-UI Headless integration, and Website Work selection/publication with an exact canonical Origin for danmaku-bearing routes | Creator qualification, downloadable Skill publication, Website ownership verification, or Website Widget mutation for Tip |
 | `let-others-make-a-copy` | Complete website source packaging, root project handoff, immutable Replica publication, and recoverable local binding | Creator-site mutation or buyer preview, checkout, payment, download, and installation; buyer flows belong to the independent `let-me-make-a-copy` Skill |
 | `let-me-make-a-copy` | Regional S3 single-file reading, buyer preview, one confirmation, CLI account or anonymous checkout, hosted Python 3.9+ recovery, verified source installation, and deployment handoff | Creator qualification, Replica publication, or creator-site mutation |
+| `withdraw-income` | 国内站收入提现、账户选择、首次办理引导、原单恢复和进度查询 | 上层定期调度、替本人签约或确认收款 |
 | `creator-tools` | CLI installation, ordinary login, updates, and diagnostics | Any creator gameplay |
 
 Buyer-side `use-a-skill` and `let-me-make-a-copy` do not use creator qualification.
@@ -40,7 +42,7 @@ official Skill advertises or invokes them in this delivery.
 
 ## Reusable qualification contract
 
-Every creator gameplay except Website Replica publication invokes `$become-a-creator` before its
+Every creator gameplay except Website Replica publication and income withdrawal invokes `$become-a-creator` before its
 first platform write and reuses the Merchant selected by that Skill. A gameplay must not repeat
 `auth status`, `auth login`, `merchant accounts`, or Merchant Onboarding commands.
 
@@ -150,3 +152,5 @@ inputs or output.
 - Route published downloadable-Skill page UI customization only through `customize-your-work-page`; it may reuse the exact Work and Merchant returned by `sell-a-skill`, or independently select an owned published Skill after the qualification guard. Keep its plain-language path choice neutral, preserve free-form input, discover target-specific capabilities before editing, validate only archive structure, preview on the real route, and require explicit confirmation before publication.
 - Update all official-Skill installation, manifest, metadata, and behavioral tests atomically so an
   update never treats an old creator Skill ID as active.
+
+Income withdrawal checks the authoritative OWNER guard through `withdraw context`. It invokes `become-a-creator` only when that guard reports `MERCHANT_OWNER_REQUIRED`. Its normal CLI login includes withdrawal access; it does not repeat login after a valid credential is confirmed.

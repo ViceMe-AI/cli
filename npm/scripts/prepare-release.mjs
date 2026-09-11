@@ -68,6 +68,7 @@ export function selectBump(commits) {
 // The authoritative official Skill list. Every skills/<name>/ directory in the
 // repository must appear here so release preparation bumps all bundled Skills.
 export const officialSkillNames = [
+  "withdraw-income",
   "creator-tools",
   "become-a-creator",
   "customize-your-profile-page",
