@@ -37,9 +37,6 @@ func newReplicaRepairHostingCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().StringVar(&snapshot, "request", "", "exact request snapshot from the review")
 	_ = command.MarkFlagRequired("publication")
 	command.RunE = func(cmd *cobra.Command, _ []string) error {
-		if err := requireReplicaPublicationCN(runtime); err != nil {
-			return err
-		}
 		if !replicaUUIDPattern.MatchString(publicationID) {
 			return output.Validation("REPLICA_PUBLICATION_ID_INVALID", "--publication must be a UUID")
 		}

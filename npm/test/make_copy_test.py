@@ -226,18 +226,29 @@ class MakeCopyTest(unittest.TestCase):
             )
         self.assertEqual(installed["nextAction"], "DEPLOY")
 
+    def test_global_free_resolution_preserves_usd(self):
+        value = replica()
+        value["viceMeWorkUrl"] = "https://viceme.ai/alice/site"
+        value["product"].update(currency="USD", priceCents=0)
+        self.assertEqual(make_copy.assert_resolution(value)["product"], value["product"])
+        value["product"]["currency"] = "EUR"
+        with self.assertRaises(make_copy.WorkflowError):
+            make_copy.assert_resolution(value)
+
     def test_free_install_does_not_require_price_acceptance(self):
-        free = replica()
-        free["product"]["priceCents"] = 0
-        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary) / "state"), mock.patch.object(
-            make_copy, "resolve_work", return_value=(f"VICEME-REPLICA:{SHORT_CODE}", free)
-        ), mock.patch.object(make_copy, "try_recover_download", side_effect=[None, download()]), mock.patch.object(
-            make_copy, "ensure_checkout", return_value={**checkout(), "status": "PAID"}
-        ), mock.patch.object(make_copy, "complete_install", return_value={"target": str(Path(temporary) / "copy")}), mock.patch.object(
-            make_copy, "payment_presentation", side_effect=AssertionError("payment for free work")
-        ):
-            result = make_copy.install("https://viceme.cn/alice/site.md", target_path=str(Path(temporary) / "copy"))
-        self.assertEqual(result["nextAction"], "DEPLOY")
+        for host, currency in [("viceme.cn", "CNY"), ("viceme.ai", "USD")]:
+            free = replica()
+            free["product"].update(priceCents=0, currency=currency)
+            free["viceMeWorkUrl"] = f"https://{host}/alice/site"
+            with tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary) / "state"), mock.patch.object(
+                make_copy, "resolve_work", return_value=(f"VICEME-REPLICA:{SHORT_CODE}", free)
+            ), mock.patch.object(make_copy, "try_recover_download", side_effect=[None, download()]), mock.patch.object(
+                make_copy, "ensure_checkout", return_value={**checkout(), "status": "PAID"}
+            ), mock.patch.object(make_copy, "complete_install", return_value={"target": str(Path(temporary) / "copy")}), mock.patch.object(
+                make_copy, "payment_presentation", side_effect=AssertionError("payment for free work")
+            ):
+                result = make_copy.install(f"https://{host}/alice/site.md", target_path=str(Path(temporary) / "copy"))
+            self.assertEqual(result["nextAction"], "DEPLOY")
 
     def test_delisted_public_work_retains_authoritative_discovery_and_recovery_entry(self):
         authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
