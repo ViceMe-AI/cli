@@ -23,7 +23,7 @@ This document selects exactly `v{{VERSION}}`. Fetch these immutable files from t
 - `cli/releases/v{{VERSION}}/agent-release-manifest.json`
 - `cli/releases/v{{VERSION}}/agent-release-manifest.sigstore.json`
 - `cli/releases/v{{VERSION}}/install.sh` on macOS or Linux
-- `cli/releases/v{{VERSION}}/install.ps1` on Windows
+- the Windows executable named by the Manifest for the host's native CPU
 
 The Manifest names the CLI version, official Skill versions, platform assets, SHA-256 digests, and detached Sigstore bundle. When `cosign` is available, verify the Manifest before running an installer:
 
@@ -31,11 +31,11 @@ The Manifest names the CLI version, official Skill versions, platform assets, SH
 cosign verify-blob --bundle agent-release-manifest.sigstore.json --certificate-identity https://github.com/ViceMe-AI/cli/.github/workflows/release.yml@refs/heads/main --certificate-oidc-issuer https://token.actions.githubusercontent.com agent-release-manifest.json
 ```
 
-If signature verification is attempted and fails, stop. Do not switch endpoint, region, Profile, installer, or download source. The versioned installer verifies the selected platform binary SHA-256 before activation. It activates the CLI and all official Skills as one generation; an activation failure keeps the previous complete generation.
+If signature verification is attempted and fails, stop. Do not switch endpoint, region, Profile, installer, or download source. The selected installation path verifies the platform binary SHA-256 before activation. It activates the CLI and all official Skills as one generation; an activation failure keeps the previous complete generation.
 
 ## Install or update
 
-Detect the operating system and CPU architecture. Download the versioned installer from the matching official origin without following a redirect to another host.
+Detect the operating system and native CPU architecture. Download release files from the matching official origin without following a redirect to another host.
 
 On macOS or Linux, run the downloaded `install.sh` with:
 
@@ -43,15 +43,19 @@ On macOS or Linux, run the downloaded `install.sh` with:
 VICEME_REGION=<cn-or-global> VICEME_VERSION={{VERSION}} sh ./install.sh
 ```
 
-On Windows, run the downloaded `install.ps1` with:
+On Windows, do not require PowerShell, npm, or a globally writable package directory. Select the `windows` artifact whose `arch` matches the native CPU from `agent-release-manifest.json`, download that exact executable into a private temporary directory, and verify its SHA-256 against the selected Manifest entry. Do not execute it when the digest differs.
+
+Then run the verified temporary executable directly with:
 
 ```text
-$env:VICEME_REGION='<cn-or-global>'; $env:VICEME_VERSION='{{VERSION}}'; & ./install.ps1
+"<verified-temporary-viceme.exe>" bootstrap activate --destination "<LocalAppData>\ViceMe\bin\viceme.exe" --agent auto --region <cn-or-global>
 ```
+
+Resolve `<LocalAppData>` from the current Windows user's environment and pass an absolute native Windows path; never pass the placeholder literally. Use the current host shell's ordinary download and SHA-256 facilities, including a POSIX shell such as Git Bash when that is the host-provided tool. Do not launch another shell solely for installation. The verified CLI owns destination preflight, atomic activation, recovery, and official Skill installation; do not copy it into place manually.
 
 Do not replace an existing ViceMe Profile or endpoint. Repeating this contract for the same version must be idempotent.
 
-If installation returns `UPDATE_PERMISSION_REQUIRED` (exit 6), request filesystem permission through the host's official approval mechanism. Only after access is granted, rerun the same versioned installer with the same region and destination. The installer retains verified download bytes for this retry and rechecks them against the selected origin's checksum; it does not bypass activation or recovery. Do not substitute `viceme update` during first installation, delete recovery state, or retry while permission remains unavailable.
+If installation returns `UPDATE_PERMISSION_REQUIRED` (exit 6), request filesystem permission through the host's official approval mechanism. Only after access is granted, rerun the same versioned installer on macOS or Linux, or the same verified temporary executable and activation command on Windows, with the same region and destination. Retain the verified Windows executable for that authorized retry; do not redownload or bypass activation or recovery. Do not substitute `viceme update` during first installation, delete recovery state, or retry while permission remains unavailable.
 
 ## Health check
 

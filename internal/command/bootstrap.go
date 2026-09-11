@@ -49,14 +49,15 @@ type bootstrapActivationResult struct {
 
 // Bootstrap is also the first-install entrypoint: viceme may not be on disk or
 // PATH yet. Preserve the error and recovery details, but direct an authorized
-// retry back to the same installer instead of a possibly unavailable updater.
+// retry back to the same verified bootstrap path instead of a possibly
+// unavailable updater.
 func bootstrapCommandError(err error, bootstrap bool) error {
 	var cliError *output.Error
 	if !bootstrap || !errors.As(err, &cliError) || cliError.Subtype != "UPDATE_PERMISSION_REQUIRED" {
 		return err
 	}
 	result := *cliError
-	result.Hint = "Request permission through the host agent's official approval mechanism, then rerun the same versioned installer with the same region and destination only after access is granted. The installer reuses its verified download for permission retries. If access is denied or unavailable, stop; do not delete activation journals, uninstall the CLI, or bypass host restrictions."
+	result.Hint = "Request permission through the host agent's official approval mechanism, then rerun the same verified bootstrap path with the same version, region, and destination only after access is granted. If a versioned installer launched this command, rerun that installer so it can reuse the verified download. If a verified release executable was invoked directly, retain and rerun that exact executable. If access is denied or unavailable, stop; do not delete activation journals, uninstall the CLI, or bypass host restrictions."
 	return &result
 }
 

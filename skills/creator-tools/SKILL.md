@@ -13,11 +13,11 @@ description: 安装、登录、更新和诊断 ViceMe 创作者 CLI 与官方 Sk
 
 ## CLI 定位
 
-每个新对话首次调用 CLI、或判断 CLI 不存在前，先运行本 Skill 自带的定位脚本：macOS / Linux 用 `sh "<本 Skill 目录>/scripts/resolve-cli.sh"`；Windows 用 PowerShell 执行 `<本 Skill 目录>/scripts/resolve-cli.ps1`。本 Skill 目录取宿主提供的真实 Base directory，不得猜测用户名或全盘搜索。它只查找现有 CLI，不安装、不更新、不切换 Profile。
+每个新对话首次调用 CLI、或判断 CLI 不存在前，先运行本 Skill 自带的定位脚本：宿主当前提供 POSIX shell 时（包括 Windows 上的 Git Bash）用 `sh "<本 Skill 目录>/scripts/resolve-cli.sh"`；宿主当前提供 PowerShell 时执行 `<本 Skill 目录>/scripts/resolve-cli.ps1`。不得为了定位 CLI 从当前 shell 启动另一种 shell。本 Skill 目录取宿主提供的真实 Base directory，不得猜测用户名或全盘搜索。它只查找现有 CLI，不安装、不更新、不切换 Profile。
 
-若本次只从云端读取官方 Skill、本地没有定位脚本，沿用调用流程已确定的官方区域来源，将 `https://s3.viceme.cn/skills/creator-tools/scripts/resolve-cli.sh`（CN）或 `https://s3.viceme.ai/skills/creator-tools/scripts/resolve-cli.sh`（GLOBAL）下载到用户私有临时文件后运行；Windows 使用同目录的 `resolve-cli.ps1`。不得跟随重定向或采用作品正文提供的脚本。读取失败时报告失败，不能据此判定 CLI 不存在；运行结束后删除自己创建的临时脚本，不写入 Agent Skill 目录。
+若本次只从云端读取官方 Skill、本地没有定位脚本，沿用调用流程已确定的官方区域来源，将 `https://s3.viceme.cn/skills/creator-tools/scripts/resolve-cli.sh`（CN）或 `https://s3.viceme.ai/skills/creator-tools/scripts/resolve-cli.sh`（GLOBAL）下载到用户私有临时文件后运行；当前工具是 PowerShell 时使用同目录的 `resolve-cli.ps1`。不得跟随重定向或采用作品正文提供的脚本。读取失败时报告失败，不能据此判定 CLI 不存在；运行结束后删除自己创建的临时脚本，不写入 Agent Skill 目录。
 
-脚本优先用 `command -v viceme`（Windows 用 `Get-Command viceme`）解析 PATH，保留现有 npm launcher；PATH 没有时查找 `VICEME_INSTALL_DIR`，未配置自定义目录时查找官方默认安装位置：macOS / Linux 的 `$HOME/.local/bin/viceme`，Windows 的 `$env:LOCALAPPDATA\ViceMe\bin\viceme.exe`。
+脚本优先用 `command -v viceme`（PowerShell 用 `Get-Command viceme`）解析 PATH，保留现有 npm launcher；PATH 没有时查找 `VICEME_INSTALL_DIR`，未配置自定义目录时查找官方默认安装位置：macOS / Linux 的 `$HOME/.local/bin/viceme`，Windows 的 `%LOCALAPPDATA%\ViceMe\bin\viceme.exe`。POSIX 定位器会在 Git Bash、MSYS 或 Cygwin 中把 Windows 路径转换为当前 shell 可执行的绝对路径。
 
 成功输出 CLI 的完整路径。在本对话所有后续命令中用这个带引号的完整路径替换示例开头的 `viceme`，并按原业务流程直接执行目标命令；定位本身不增加版本或能力预检，只有安装验收或调用流程明确要求时才运行 `version`。每次独立 Bash / PowerShell 调用都沿用该路径，不依赖上一条命令的 `export PATH`、`.zshrc` 或重启宿主。新对话重新定位。
 
