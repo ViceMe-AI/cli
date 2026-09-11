@@ -134,12 +134,22 @@ func replicaSalesFixture() map[string]any {
 }
 
 func TestReplicaSalesLifecycleAndReadOnly(t *testing.T) {
+	for _, region := range []config.Region{config.RegionCN, config.RegionGlobal} {
+		t.Run(string(region), func(t *testing.T) { testReplicaSalesLifecycleAndReadOnly(t, region) })
+	}
+}
+
+func testReplicaSalesLifecycleAndReadOnly(t *testing.T, region config.Region) {
 	for _, operation := range []string{"sales", "price", "delist", "relist"} {
 		for _, enabled := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s/enabled=%t", operation, enabled), func(t *testing.T) {
 				state := replicaSalesFixture()
 				state["operationsEnabled"] = enabled
 				product := state["product"].(map[string]any)
+				if region == config.RegionGlobal {
+					product["currency"] = "USD"
+					product["priceCents"] = 0
+				}
 				if operation == "relist" {
 					state["saleStatus"] = "DELISTED"
 					product["status"] = "SUSPENDED"
@@ -193,7 +203,7 @@ func TestReplicaSalesLifecycleAndReadOnly(t *testing.T) {
 				root := t.TempDir()
 				run := func(args []string) (int, []byte) {
 					var out bytes.Buffer
-					code := Execute(args, Dependencies{Out: &out, ErrOut: &bytes.Buffer{}, HTTPClient: server.Client(), Store: securestore.NewMemory(), Environment: skillcontent.Environment{Home: root, ConfigDir: root + "/config"}, Region: config.RegionCN, APIBaseURL: server.URL, NewID: func() string { return state["workId"].(string) }})
+					code := Execute(args, Dependencies{Out: &out, ErrOut: &bytes.Buffer{}, HTTPClient: server.Client(), Store: securestore.NewMemory(), Environment: skillcontent.Environment{Home: root, ConfigDir: root + "/config"}, Region: region, APIBaseURL: server.URL, NewID: func() string { return state["workId"].(string) }})
 					return code, out.Bytes()
 				}
 				args := []string{"replica", operation, "--replica", state["replicaId"].(string)}

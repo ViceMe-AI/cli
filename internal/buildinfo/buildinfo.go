@@ -22,12 +22,12 @@ const (
 	// ReleaseVersion is the source-tree and npm package version. Development
 	// builds still report Version=dev, but use ReleaseVersion for compatibility
 	// evaluation.
-	ReleaseVersion = "0.39.1"
+	ReleaseVersion = "0.41.0"
 	// SkillVersion is versioned independently so compatibility drift can be
 	// diagnosed even when the binary and Skill happen to ship together.
-	SkillVersion      = "0.39.1"
-	MinimumCLIVersion = "0.39.1"
-	CLICompatibility  = ">=0.39.1 <0.40.0"
+	SkillVersion      = "0.41.0"
+	MinimumCLIVersion = "0.41.0"
+	CLICompatibility  = ">=0.41.0 <0.42.0"
 )
 
 type Info struct {

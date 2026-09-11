@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -55,7 +56,7 @@ func TestReplicaSelfPurchaseRejectionAllowsAnonymousRetryAtSameTarget(t *testing
 	}
 }
 
-func TestReplicaRejectedPurchasePreservesUncertainAndExistingOrders(t *testing.T) {
+func TestReplicaPurchaseFailurePreservesUncertainAndExistingOrders(t *testing.T) {
 	for _, test := range []struct {
 		name, code string
 		existing   bool
@@ -63,7 +64,7 @@ func TestReplicaRejectedPurchasePreservesUncertainAndExistingOrders(t *testing.T
 	}{
 		{"unknown denial", "PURCHASE_DENIED", false, output.ExitAuthentication},
 		{"provider failure", "DEPENDENCY_UNAVAILABLE", false, output.ExitNetwork},
-		{"existing pending order", "PRODUCT_PURCHASE_SELF_REJECTED", true, output.ExitAuthentication},
+		{"already presented pending order", "REPLICA_PAYMENT_INTERRUPTED", true, output.ExitNetwork},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			fixture := newReplicaRejectedPurchaseFixture(t, test.code, test.existing)
@@ -71,6 +72,9 @@ func TestReplicaRejectedPurchasePreservesUncertainAndExistingOrders(t *testing.T
 			args := []string{"replica", "install", fixture.code, "--target", fixture.target, "--confirm"}
 			if test.existing {
 				fixture.run(output.ExitConfirmation, "REPLICA_PAYMENT_REQUIRED", args...)
+				// A displayed order now resumes status polling without another order
+				// request. Interrupt the wait instead of waiting three real minutes.
+				fixture.deps.Sleep = func(context.Context, time.Duration) error { return context.Canceled }
 			}
 			fixture.run(test.exit, test.code, args...)
 			data, err := os.ReadFile(fixture.stateFile())
@@ -80,6 +84,9 @@ func TestReplicaRejectedPurchasePreservesUncertainAndExistingOrders(t *testing.T
 			var state replicaPurchaseState
 			if err := json.Unmarshal(data, &state); err != nil || state.OrderRequestID == "" || state.QuoteID == "" {
 				t.Fatalf("rejection lost the original idempotency identity: %v", err)
+			}
+			if test.existing && fixture.accountOrders.Load() != 1 {
+				t.Fatal("resuming a presented payment made another order request")
 			}
 			if test.existing && state.OrderNo != "VMO-EXISTING" {
 				t.Fatalf("existing order identity changed: %q", state.OrderNo)

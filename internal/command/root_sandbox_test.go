@@ -69,7 +69,7 @@ func TestStartupRecoveryPermissionRefusalStopsBeforeBusiness(t *testing.T) {
 	}
 }
 
-func TestBootstrapRecoveryPermissionRefusalRetriesInstaller(t *testing.T) {
+func TestBootstrapRecoveryPermissionRefusalRetriesVerifiedBootstrapPath(t *testing.T) {
 	root := t.TempDir()
 	updater := &startupRecoveryUpdater{err: &updatepkg.OperationError{Kind: updatepkg.ErrorNPMPermission}}
 	var stdout bytes.Buffer
@@ -79,7 +79,8 @@ func TestBootstrapRecoveryPermissionRefusalRetriesInstaller(t *testing.T) {
 	})
 	if exit != output.ExitPolicy || !strings.Contains(stdout.String(), "UPDATE_PERMISSION_REQUIRED") ||
 		!strings.Contains(stdout.String(), `"recovery_required": true`) ||
-		!strings.Contains(stdout.String(), "same versioned installer") || strings.Contains(stdout.String(), "viceme update") ||
+		!strings.Contains(stdout.String(), "same verified bootstrap path") ||
+		!strings.Contains(stdout.String(), "verified release executable") || strings.Contains(stdout.String(), "viceme update") ||
 		strings.Contains(stdout.String(), `"ok": true`) {
 		t.Fatalf("first-install recovery lost its error or retry entrypoint: exit=%d %s", exit, stdout.String())
 	}
@@ -89,7 +90,8 @@ func TestBootstrapPermissionHintPreservesErrorDetails(t *testing.T) {
 	original := updatePermissionRequired(os.ErrPermission).WithDetails(map[string]any{"recovery_required": true})
 	adjusted := bootstrapCommandError(original, true).(*output.Error)
 	if adjusted.Code != original.Code || adjusted.Type != original.Type || adjusted.Details == nil ||
-		!strings.Contains(adjusted.Hint, "same versioned installer") || original.Hint != updatePermissionHint {
+		!strings.Contains(adjusted.Hint, "same verified bootstrap path") ||
+		!strings.Contains(adjusted.Hint, "verified release executable") || original.Hint != updatePermissionHint {
 		t.Fatalf("bootstrap guidance mutated the shared error or lost the protocol: %#v", adjusted)
 	}
 	if bootstrapCommandError(original, false) != original {
@@ -97,7 +99,7 @@ func TestBootstrapPermissionHintPreservesErrorDetails(t *testing.T) {
 	}
 }
 
-func TestBootstrapDestinationPermissionRefusalRetriesInstaller(t *testing.T) {
+func TestBootstrapDestinationPermissionRefusalRetriesVerifiedBootstrapPath(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("requires POSIX directory permissions enforced for a non-root user")
 	}
@@ -119,7 +121,7 @@ func TestBootstrapDestinationPermissionRefusalRetriesInstaller(t *testing.T) {
 		Out: &stdout, Store: securestore.NewMemory(),
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")}, Region: config.RegionCN,
 	})
-	if exit != output.ExitPolicy || !strings.Contains(stdout.String(), "same versioned installer") || strings.Contains(stdout.String(), "viceme update") {
+	if exit != output.ExitPolicy || !strings.Contains(stdout.String(), "same verified bootstrap path") || strings.Contains(stdout.String(), "viceme update") {
 		t.Fatalf("bootstrap preflight did not guide the correct retry: exit=%d %s", exit, stdout.String())
 	}
 	if data, err := os.ReadFile(destination); err != nil || string(data) != "previous generation" {

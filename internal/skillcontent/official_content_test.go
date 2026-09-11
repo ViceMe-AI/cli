@@ -17,6 +17,7 @@ import (
 )
 
 var officialSkillNames = []string{
+	"withdraw-income",
 	"charge-for-your-work",
 	"become-a-creator",
 	"customize-your-profile-page",
@@ -206,7 +207,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"start --work-url", "standaloneRecoveryAvailable=true", "viceme auth status", "viceme replica install",
 				"--accept-price-cents", "REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "PRODUCT_ALREADY_OWNED",
 				"PRESENT_WORK", "workPresentation", "CREATOR_PAGE", "WORKSPACE_TEXT",
-				"STOP_AND_REPORT", "--timeout 3m --interval 15s", "AskUserQuestion",
+				"STOP_AND_REPORT", "--timeout 3m --interval 3s", "AskUserQuestion",
 				"s3.viceme.cn/skills/let-me-make-a-copy/scripts/make_copy.py",
 				"s3.viceme.ai/skills/let-me-make-a-copy/scripts/make_copy.py", "../creator-tools/SKILL.md#cli-定位",
 				"scripts/make_copy.py", "Python 3.9",
@@ -250,7 +251,7 @@ func TestReplicaBuyerUsesInPlatformPaymentAndShortOutputWaits(t *testing.T) {
 	for _, required := range []string{
 		"presentationTarget=AGENT_PLATFORM", "present_files", "当前任务真实工作目录",
 		"只有展示工具明确成功打开平台内付款入口后", "不启动等待、不外部降级、不自动重建订单",
-		"timeout=15000", "每 15 秒查询", "--interval 15s", "首次 `install` 不得携带 `--payment-presented`",
+		"timeout=15000", "每 3 秒查询", "--interval 3s", "--payment-result-first", "PRESENT_SUPPORT_RESULT", "continuation.args", "首次 `install` 不得携带 `--payment-presented`",
 		"imagePath", "imageChatSrc", "local-file://", "present_files([widgetPath])", "支付不要调用 `show_widget`", "`![微信支付二维码]`",
 	} {
 		if !strings.Contains(text, required) {

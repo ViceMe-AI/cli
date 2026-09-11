@@ -42,9 +42,6 @@ func newReplicaCancelCommand(runtime *Runtime) *cobra.Command {
 }
 
 func resumeWebsiteReplicaPublication(ctx context.Context, runtime *Runtime, publicationID string) (_ replicaPublicationPresentation, returnErr error) {
-	if err := requireReplicaPublicationCN(runtime); err != nil {
-		return replicaPublicationPresentation{}, err
-	}
 	if !replicaUUIDPattern.MatchString(publicationID) {
 		return replicaPublicationPresentation{}, output.Validation("REPLICA_PUBLICATION_ID_INVALID", "Website Replica Publication ID must be a UUID")
 	}

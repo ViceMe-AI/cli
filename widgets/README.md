@@ -41,6 +41,22 @@ If `present_files` is unavailable, still display `imageChatSrc` in the chat bubb
 with the Markdown image. If neither can be displayed, report that accurately; do
 not claim the user has seen a QR.
 
+Callers may supply `resultTitle` and `resultDescription` for a confirmed `PAID`
+snapshot. The template then hides the entire cashier (including the QR,
+countdown and scan instructions) and shows a plain acknowledgement card. These
+fields have no effect while payment is pending or unconfirmed. They never
+trigger a business action.
+
+Website Replica's opt-in `--payment-result-first` wait returns
+`PRESENT_SUPPORT_RESULT` before downloading. The host explicitly presents its
+`presentation.widgetPath`, a separate `.support.html` file, to replace the
+active preview; rewriting a previously opened file does not prove a host has
+refreshed it. The caller then executes the returned recovery-only continuation
+for the same purchase, preserving `--expected-order-no` as the returned
+`orderNo`. A different local purchase must stop instead of taking over delivery.
+Presentation failure retains the payment fact and must
+not trigger another purchase. The historical chat PNG is not a live status UI.
+
 ## Onboarding
 
 The caller's `use-a-skill` installation guide decides when to show onboarding,

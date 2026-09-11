@@ -549,8 +549,8 @@ func TestAnonymousPaidReplicaPresentsSharedWidgetThenWaitsThreeMinutes(t *testin
 
 	// Merely asking to recover must keep the existing unpaid order and widget intact.
 	stdout.Reset()
-	if exit := Execute([]string{"replica", "install", fullCode, "--anonymous", "--target", filepath.Join(root, "copy")}, deps); exit != output.ExitConfirmation || !bytes.Contains(stdout.Bytes(), []byte(`"nextAction": "CONFIRM_PRICE"`)) {
-		t.Fatalf("recovery-only did not request price consent: %d %s", exit, stdout.String())
+	if exit := Execute([]string{"replica", "install", fullCode, "--anonymous", "--target", filepath.Join(root, "copy")}, deps); exit != output.ExitPolicy || !bytes.Contains(stdout.Bytes(), []byte(`"code": "REPLICA_PAYMENT_RESTART_REQUIRED"`)) {
+		t.Fatalf("repeated install did not preserve the original payment: %d %s", exit, stdout.String())
 	}
 	if sessionCalls != 1 || checkoutCalls != 1 || cancellationCalls != 0 || recoveryStatusCalls != 1 {
 		t.Fatalf("recovery-only mutated unpaid attempt: sessions=%d checkouts=%d cancellations=%d statuses=%d", sessionCalls, checkoutCalls, cancellationCalls, recoveryStatusCalls)
@@ -560,7 +560,7 @@ func TestAnonymousPaidReplicaPresentsSharedWidgetThenWaitsThreeMinutes(t *testin
 	}
 	stdout.Reset()
 	if exit := Execute([]string{
-		"replica", "install", fullCode, "--target", filepath.Join(root, "copy"), "--accept-price-cents", "990",
+		"replica", "install", fullCode, "--target", filepath.Join(root, "copy"), "--accept-price-cents", "990", "--replace-unpaid-order", orderNos[0],
 	}, deps); exit != output.ExitConfirmation {
 		t.Fatalf("fresh attempt did not replace the unpaid checkout: exit=%d output=%q", exit, stdout.String())
 	}
@@ -572,17 +572,25 @@ func TestAnonymousPaidReplicaPresentsSharedWidgetThenWaitsThreeMinutes(t *testin
 	}
 
 	stdout.Reset()
+	if exit := Execute([]string{"replica", "install", fullCode, "--target", filepath.Join(root, "copy"), "--accept-price-cents", "990", "--replace-unpaid-order", orderNos[0]}, deps); exit != output.ExitPolicy || !bytes.Contains(stdout.Bytes(), []byte("REPLICA_PURCHASE_RECOVERY_CONFLICT")) {
+		t.Fatal("a repeated replacement request was allowed to replace its successor")
+	}
+	if cancellationCalls != 1 || checkoutCalls != 2 {
+		t.Fatal("a repeated replacement created another payment")
+	}
+
+	stdout.Reset()
 	if exit := Execute([]string{
 		"replica", "install", fullCode, "--target", filepath.Join(root, "copy"), "--accept-price-cents", "990", "--payment-presented",
 	}, deps); exit != output.ExitNetwork {
 		t.Fatalf("pending payment did not end at the bounded deadline: exit=%d output=%q", exit, stdout.String())
 	}
-	if statusCalls != 12 || len(sleeps) != 12 {
-		t.Fatalf("payment wait did not poll every 15 seconds for three minutes: statusCalls=%d sleeps=%v", statusCalls, sleeps)
+	if statusCalls != 60 || len(sleeps) != 60 {
+		t.Fatalf("payment wait did not poll every 3 seconds for three minutes: statusCalls=%d sleeps=%v", statusCalls, sleeps)
 	}
 	for index, delay := range sleeps {
-		if delay != 15*time.Second {
-			t.Fatalf("payment sleep %d = %s, want 15s", index, delay)
+		if delay != 3*time.Second {
+			t.Fatalf("payment sleep %d = %s, want 3s", index, delay)
 		}
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"code": "REPLICA_PAYMENT_TIMEOUT"`)) {
@@ -639,11 +647,11 @@ func TestReplicaSessionPaymentContinuesAsSoonAsPaid(t *testing.T) {
 	if _, err := waitForReplicaSessionPayment(context.Background(), runtime, client, state, replicaPaymentWaitTimeout, replicaPaymentPollInterval); err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || now.Sub(started) != 30*time.Second {
+	if calls != 2 || now.Sub(started) != 6*time.Second {
 		t.Fatalf("paid order waited beyond its next poll: calls=%d elapsed=%s", calls, now.Sub(started))
 	}
 	for _, delay := range sleeps {
-		if delay != 15*time.Second {
+		if delay != 3*time.Second {
 			t.Fatalf("poll delay = %s", delay)
 		}
 	}
