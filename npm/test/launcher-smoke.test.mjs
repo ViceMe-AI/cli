@@ -32,24 +32,28 @@ test("launcher gives the CLI exact re-execution authority", () => {
   assert.equal(environment.VICEME_NPM_LAUNCHER_PATH, launcherPath);
 });
 
-test("global launcher pins npm mutations to its own POSIX prefix", () => {
-  const launcherPath =
-    "/Applications/Work Buddy/lib/node_modules/@viceme-ai/cli/npm/bin/viceme.mjs";
-  assert.equal(
-    installedNPMPrefix(launcherPath, "darwin"),
-    "/Applications/Work Buddy",
-  );
-  const environment = launcherEnvironment(
-    {
-      NPM_CONFIG_PREFIX: "/Users/example/.nvm/versions/node/current",
-      npm_config_prefix: "/Users/example/.nvm/versions/node/current",
-    },
-    launcherPath,
-    process.execPath,
-  );
-  assert.equal(environment.NPM_CONFIG_PREFIX, "/Applications/Work Buddy");
-  assert.equal(environment.npm_config_prefix, "/Applications/Work Buddy");
-});
+test(
+  "global launcher pins npm mutations to its own POSIX prefix",
+  { skip: process.platform === "win32" },
+  () => {
+    const launcherPath =
+      "/Applications/Work Buddy/lib/node_modules/@viceme-ai/cli/npm/bin/viceme.mjs";
+    assert.equal(
+      installedNPMPrefix(launcherPath, "darwin"),
+      "/Applications/Work Buddy",
+    );
+    const environment = launcherEnvironment(
+      {
+        NPM_CONFIG_PREFIX: "/Users/example/.nvm/versions/node/current",
+        npm_config_prefix: "/Users/example/.nvm/versions/node/current",
+      },
+      launcherPath,
+      process.execPath,
+    );
+    assert.equal(environment.NPM_CONFIG_PREFIX, "/Applications/Work Buddy");
+    assert.equal(environment.npm_config_prefix, "/Applications/Work Buddy");
+  },
+);
 
 test("npx launcher preserves the configured global prefix", () => {
   const launcherPath =
