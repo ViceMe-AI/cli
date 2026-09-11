@@ -72,9 +72,16 @@
       "cli_compatibility": ">=0.40.0 <0.41.0",
       "full_skill_bundle_digest": "sha256:5bc945aa2fe79dec00ce966a6775eab1f76037cdfef1c0aaf79edea10256e045",
       "embedded_content_digest": "sha256:4afcc490e9796cec9530757bfd9bd5890b81c3ee52550f950f40c2f1f245e02d"
+    },
+    "withdraw-income": {
+      "skill_version": "0.40.0",
+      "minimum_cli_version": "0.40.0",
+      "cli_compatibility": ">=0.40.0 <0.41.0",
+      "full_skill_bundle_digest": "sha256:8eff730c1838070f7e2cd5939071a9ec4d40cae23a49a88c58358aa70cf42e35",
+      "embedded_content_digest": "sha256:25e6d8d4c289b84703e25b25dd2a18655ae64e3f4436b1349acf10826dff1461"
     }
   },
-  "bootstrap_contract_digest": "sha256:fa3c6e3c3931da08bbb4af952c375c08eea4210699bb94830d25197d891ed072",
+  "bootstrap_contract_digest": "sha256:8021364e051880c28aff6b6eabe11909dae0f0cd8d5879eb014abd46871e7681",
   "installer_digests": {
     "install.ps1": "sha256:4c930532ba9e6158f1748178706c84c41b92fba2f9322449e03d4ea645ae1434",
     "install.sh": "sha256:03e0543e0a41bd95ef07748c9c004dab872eb2aab4a26ec52e7033b76e1ccc0d"

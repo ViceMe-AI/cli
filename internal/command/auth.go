@@ -67,6 +67,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 					CLIVersion: buildinfo.Version,
 					Purpose:    devicePurpose,
 					Scopes: []string{
+						"withdrawal:read", "withdrawal:write",
 						"profile:read",
 						"profile:write",
 						"skill-publication:read",
