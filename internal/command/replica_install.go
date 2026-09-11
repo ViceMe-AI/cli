@@ -48,7 +48,7 @@ type replicaInstallResult struct {
 }
 
 func newReplicaInstallCommand(runtime *Runtime) *cobra.Command {
-	var target, locale, expectedOrderNo string
+	var target, locale, expectedOrderNo, replaceUnpaidOrder string
 	var timeout, interval time.Duration
 	var confirm, paymentPresented, anonymous, recoveryOnly, paymentResultFirst bool
 	var acceptedPriceCents int
@@ -60,7 +60,7 @@ func newReplicaInstallCommand(runtime *Runtime) *cobra.Command {
 			if anonymous && acceptedPriceCents < 0 {
 				acceptedPriceCents = replicaUnacceptedAnonymousPrice
 			}
-			result, err := installReplica(command.Context(), runtime, args[0], target, locale, timeout, interval, confirm, paymentPresented, acceptedPriceCents, recoveryOnly, paymentResultFirst, expectedOrderNo)
+			result, err := installReplica(command.Context(), runtime, args[0], target, locale, timeout, interval, confirm, paymentPresented, acceptedPriceCents, recoveryOnly, paymentResultFirst, expectedOrderNo, replaceUnpaidOrder)
 			if err != nil {
 				return err
 			}
@@ -84,10 +84,14 @@ func newReplicaInstallCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().BoolVar(&recoveryOnly, "recovery-only", false, "recover an existing entitlement without public discovery, quotes or new orders")
 	command.Flags().BoolVar(&paymentResultFirst, "payment-result-first", false, "return the confirmed support presentation before continuing delivery")
 	command.Flags().StringVar(&expectedOrderNo, "expected-order-no", "", "bind a recovery-only continuation to its confirmed order")
+	command.Flags().StringVar(&replaceUnpaidOrder, "replace-unpaid-order", "", "replace this exact unpaid order only after a new explicit payment request")
 	return command
 }
 
-func installReplica(ctx context.Context, runtime *Runtime, code, target, locale string, timeout, interval time.Duration, confirm, paymentPresented bool, acceptedPriceCents int, recoveryOnly, paymentResultFirst bool, expectedOrderNo string) (replicaInstallResult, error) {
+func installReplica(ctx context.Context, runtime *Runtime, code, target, locale string, timeout, interval time.Duration, confirm, paymentPresented bool, acceptedPriceCents int, recoveryOnly, paymentResultFirst bool, expectedOrderNo, replaceUnpaidOrder string) (replicaInstallResult, error) {
+	if replaceUnpaidOrder != "" && (recoveryOnly || paymentPresented || paymentResultFirst || (!confirm && acceptedPriceCents < 0)) {
+		return replicaInstallResult{}, output.Validation("REPLICA_PAYMENT_REPLACEMENT_INVALID", "--replace-unpaid-order requires a new confirmed payment request and cannot resume or recover an existing payment")
+	}
 	if expectedOrderNo != "" && !recoveryOnly {
 		return replicaInstallResult{}, output.Validation("REPLICA_RECOVERY_ONLY_CONFLICT", "--expected-order-no requires --recovery-only")
 	}
@@ -153,11 +157,16 @@ func installReplica(ctx context.Context, runtime *Runtime, code, target, locale 
 				return err
 			}
 		}
+		if replaceUnpaidOrder != "" {
+			if err := verifyReplicaPaymentReplacement(store, replaceUnpaidOrder); err != nil {
+				return err
+			}
+		}
 		var installErr error
 		if acceptedPriceCents >= 0 || acceptedPriceCents == replicaUnacceptedAnonymousPrice {
-			result, installErr = installReplicaAnonymousLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, paymentPresented, acceptedPriceCents, recoveryOnly, paymentResultFirst, expectedOrderNo)
+			result, installErr = installReplicaAnonymousLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, paymentPresented, acceptedPriceCents, recoveryOnly, paymentResultFirst, expectedOrderNo, replaceUnpaidOrder)
 		} else {
-			result, installErr = installReplicaLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, confirm, recoveryOnly, paymentResultFirst, expectedOrderNo)
+			result, installErr = installReplicaLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, confirm, recoveryOnly, paymentResultFirst, expectedOrderNo, replaceUnpaidOrder)
 		}
 		return installErr
 	})
@@ -183,6 +192,7 @@ func installReplicaAnonymousLocked(
 	recoveryOnly bool,
 	paymentResultFirst bool,
 	expectedOrderNo string,
+	replaceUnpaidOrder string,
 ) (result replicaInstallResult, resultErr error) {
 	completion, completed, err := store.loadCompletion()
 	if err != nil {
@@ -195,7 +205,7 @@ func installReplicaAnonymousLocked(
 		return completion.Result, nil
 	}
 	// A presentation or bound continuation must use this attempt, not a shared paid cache.
-	if !paymentResultFirst && expectedOrderNo == "" {
+	if !paymentResultFirst && expectedOrderNo == "" && replaceUnpaidOrder == "" {
 		if result, installed, err := installRecordedPaidReplica(ctx, runtime, store, absTarget, false); err != nil || installed {
 			return result, err
 		}
@@ -206,7 +216,10 @@ func installReplicaAnonymousLocked(
 	}
 	client := runtime.client()
 	var payment api.WebsiteReplicaPaymentState
-	defer func() { resultErr = replicaPaidFailure(resultErr, runtime, state, payment, true) }()
+	defer func() {
+		resultErr = replicaStoppedPayment(resultErr, runtime, state, true)
+		resultErr = replicaPaidFailure(resultErr, runtime, state, payment, true)
+	}()
 	if recoveryOnly {
 		if exists && state.OrderNo != "" {
 			status, err := client.RecoverWebsiteReplicaOrderStatus(ctx, api.RecoverWebsiteReplicaDownloadRequest{OrderNo: state.OrderNo, RecoverySecret: state.DownloadRecoverySecret})
@@ -221,7 +234,6 @@ func installReplicaAnonymousLocked(
 		return replicaInstallResult{}, output.Policy("REPLICA_RECOVERY_NOT_FOUND", "no recoverable Website Replica entitlement exists for this code")
 	}
 	if acceptedPriceCents == replicaUnacceptedAnonymousPrice {
-		pendingOrder := false
 		if exists && state.OrderNo != "" {
 			status, err := client.RecoverWebsiteReplicaOrderStatus(ctx, api.RecoverWebsiteReplicaDownloadRequest{OrderNo: state.OrderNo, RecoverySecret: state.DownloadRecoverySecret})
 			if err != nil {
@@ -231,9 +243,8 @@ func installReplicaAnonymousLocked(
 			case "PAID":
 				payment = status.Payment
 				return installReplicaRecoveredDownload(ctx, runtime, store, state, client, state.OrderNo, absTarget)
-			case "PENDING":
-				pendingOrder = true
-			case "CLOSED":
+			case "PENDING", "CLOSED":
+				return replicaInstallResult{}, replicaPaymentRestartRequired(state, status.Payment.Status)
 			default:
 				return replicaInstallResult{}, invalidReplicaResponse("Website Replica recovery status is invalid")
 			}
@@ -242,7 +253,7 @@ func installReplicaAnonymousLocked(
 		if err != nil {
 			return replicaInstallResult{}, err
 		}
-		if pendingOrder || resolved.Product.PriceCents > 0 {
+		if resolved.Product.PriceCents > 0 {
 			return replicaInstallResult{}, output.Confirmation("REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "show the source entitlement and ask whether to support the creator").WithDetails(map[string]any{"nextAction": "CONFIRM_PRICE", "replicaCode": code, "productId": resolved.Product.ID, "title": resolved.Title, "currency": resolved.Product.Currency, "totalAmountCents": resolved.Product.PriceCents, "workUrl": resolved.ViceMeWorkURL, "target": absTarget})
 		}
 		acceptedPriceCents = 0
@@ -260,6 +271,9 @@ func installReplicaAnonymousLocked(
 		case "PAID":
 			payment = status.Payment
 		case "PENDING":
+			if replaceUnpaidOrder == "" {
+				return replicaInstallResult{}, replicaPaymentRestartRequired(state, status.Payment.Status)
+			}
 			closed, err := client.CancelWebsiteReplicaOrderAttempt(ctx, api.RecoverWebsiteReplicaDownloadRequest{
 				OrderNo: state.OrderNo, RecoverySecret: state.DownloadRecoverySecret,
 			})
@@ -272,12 +286,15 @@ func installReplicaAnonymousLocked(
 			if err := store.retire(state); err != nil {
 				return replicaInstallResult{}, err
 			}
-			return installReplicaAnonymousLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, paymentPresented, acceptedPriceCents, false, paymentResultFirst, "")
+			return installReplicaAnonymousLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, paymentPresented, acceptedPriceCents, false, paymentResultFirst, "", "")
 		case "CLOSED":
+			if replaceUnpaidOrder == "" {
+				return replicaInstallResult{}, replicaPaymentRestartRequired(state, status.Payment.Status)
+			}
 			if err := store.retire(state); err != nil {
 				return replicaInstallResult{}, err
 			}
-			return installReplicaAnonymousLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, paymentPresented, acceptedPriceCents, false, paymentResultFirst, "")
+			return installReplicaAnonymousLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, paymentPresented, acceptedPriceCents, false, paymentResultFirst, "", "")
 		default:
 			return replicaInstallResult{}, invalidReplicaResponse("Website Replica recovery status is invalid")
 		}
@@ -338,7 +355,7 @@ func installReplicaAnonymousLocked(
 			}).WithHint("show the updated Replica details and ask the user to continue again at the new price")
 		}
 		if standaloneReplicaAttemptMayExist(runtime, shortCode) {
-			if err := retireStandaloneUnpaidAttempt(ctx, runtime, resolved); err != nil {
+			if err := requireStandaloneAttemptResolved(ctx, runtime, resolved); err != nil {
 				return replicaInstallResult{}, err
 			}
 		}
@@ -454,9 +471,6 @@ func installReplicaAnonymousLocked(
 		payment = observed
 	}
 	if err != nil {
-		if output.AsError(err).Subtype == "REPLICA_PAYMENT_TERMINAL" {
-			_ = store.retire(state)
-		}
 		return replicaInstallResult{}, err
 	}
 	if paymentResultFirst && state.PriceCents > 0 {
@@ -494,6 +508,7 @@ func installReplicaLocked(
 	recoveryOnly bool,
 	paymentResultFirst bool,
 	expectedOrderNo string,
+	replaceUnpaidOrder string,
 ) (result replicaInstallResult, resultErr error) {
 	requiredScopes := []string{"website-replica:read", "website-replica:purchase"}
 	if recoveryOnly {
@@ -531,7 +546,7 @@ func installReplicaLocked(
 		return completion.Result, nil
 	}
 	// A presentation or bound continuation must use this attempt, not a shared paid cache.
-	if !paymentResultFirst && expectedOrderNo == "" {
+	if !paymentResultFirst && expectedOrderNo == "" && replaceUnpaidOrder == "" {
 		if result, installed, err := installRecordedPaidReplica(ctx, runtime, store, absTarget, true); err != nil || installed {
 			return result, err
 		}
@@ -542,7 +557,10 @@ func installReplicaLocked(
 	}
 	client := runtime.client()
 	var payment api.WebsiteReplicaPaymentState
-	defer func() { resultErr = replicaPaidFailure(resultErr, runtime, state, payment, false) }()
+	defer func() {
+		resultErr = replicaStoppedPayment(resultErr, runtime, state, false)
+		resultErr = replicaPaidFailure(resultErr, runtime, state, payment, false)
+	}()
 	if recoveryOnly {
 		if exists && state.OrderNo != "" {
 			status, err := client.GetWebsiteReplicaOrderStatus(ctx, state.OrderNo)
@@ -559,7 +577,7 @@ func installReplicaLocked(
 		}
 		return installOwnedReplicaOnly(ctx, runtime, store, state, exists, client, shortCode, absTarget)
 	}
-	if exists && state.OrderNo != "" && !confirm {
+	if exists && state.OrderNo != "" && (!confirm || replaceUnpaidOrder != "") {
 		status, err := client.GetWebsiteReplicaOrderStatus(ctx, state.OrderNo)
 		if err != nil {
 			return replicaInstallResult{}, err
@@ -568,6 +586,9 @@ func installReplicaLocked(
 		case "PAID":
 			payment = status.Payment
 		case "PENDING":
+			if replaceUnpaidOrder == "" {
+				return replicaInstallResult{}, replicaPaymentRestartRequired(state, status.Payment.Status)
+			}
 			closed, err := client.CancelWebsiteReplicaOrder(ctx, state.OrderNo)
 			if err != nil {
 				return replicaInstallResult{}, err
@@ -578,12 +599,15 @@ func installReplicaLocked(
 			if err := store.retire(state); err != nil {
 				return replicaInstallResult{}, err
 			}
-			return installReplicaLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, confirm, false, paymentResultFirst, "")
+			return installReplicaLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, confirm, false, paymentResultFirst, "", "")
 		case "CLOSED":
+			if replaceUnpaidOrder == "" {
+				return replicaInstallResult{}, replicaPaymentRestartRequired(state, status.Payment.Status)
+			}
 			if err := store.retire(state); err != nil {
 				return replicaInstallResult{}, err
 			}
-			return installReplicaLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, confirm, false, paymentResultFirst, "")
+			return installReplicaLocked(ctx, runtime, store, code, shortCode, absTarget, locale, timeout, interval, confirm, false, paymentResultFirst, "", "")
 		default:
 			return replicaInstallResult{}, invalidReplicaResponse("Website Replica order status is invalid")
 		}
@@ -664,7 +688,7 @@ func installReplicaLocked(
 			if err != nil {
 				return replicaInstallResult{}, err
 			}
-			if err := retireStandaloneUnpaidAttempt(ctx, runtime, resolved); err != nil {
+			if err := requireStandaloneAttemptResolved(ctx, runtime, resolved); err != nil {
 				return replicaInstallResult{}, err
 			}
 		}
@@ -690,13 +714,10 @@ func installReplicaLocked(
 			payment = status.Payment
 		}
 		if order.Status == "CLOSED" {
-			if err := store.retire(state); err != nil {
-				return replicaInstallResult{}, err
-			}
-			return replicaInstallResult{}, output.Policy("REPLICA_PAYMENT_TERMINAL", "Website Replica payment did not complete")
+			return replicaInstallResult{}, replicaPaymentRestartRequired(state, order.Status)
 		}
 	}
-	if state.OrderNo == "" || order.Status == "PENDING" {
+	if state.OrderNo == "" || (order.Status == "PENDING" && state.PaymentPresentedAt == "") {
 		if err := store.verifyReservation(state); err != nil {
 			return replicaInstallResult{}, err
 		}
@@ -717,7 +738,7 @@ func installReplicaLocked(
 			if output.AsError(err).Subtype == "PRODUCT_ALREADY_OWNED" {
 				return installOwnedReplica(ctx, runtime, store, state, client, shortCode, absTarget)
 			}
-			if output.AsError(err).Subtype == "QUOTE_EXPIRED" {
+			if state.OrderNo == "" && output.AsError(err).Subtype == "QUOTE_EXPIRED" {
 				return refreshReplicaQuote(ctx, runtime, store, state, code, shortCode, absTarget, locale, timeout, interval, confirm, paymentResultFirst)
 			}
 			return replicaInstallResult{}, err
@@ -755,9 +776,6 @@ func installReplicaLocked(
 		payment = observed
 	}
 	if err != nil {
-		if output.AsError(err).Subtype == "REPLICA_PAYMENT_TERMINAL" {
-			_ = store.retire(state)
-		}
 		return replicaInstallResult{}, err
 	}
 	if paymentResultFirst && state.PriceCents > 0 {
@@ -783,7 +801,7 @@ func refreshReplicaQuote(
 	if err := store.retire(state); err != nil {
 		return replicaInstallResult{}, err
 	}
-	return installReplicaLocked(ctx, runtime, store, code, shortCode, target, locale, timeout, interval, confirm, false, paymentResultFirst, "")
+	return installReplicaLocked(ctx, runtime, store, code, shortCode, target, locale, timeout, interval, confirm, false, paymentResultFirst, "", "")
 }
 
 func replicaQuoteConfirmation(state replicaPurchaseState) error {
@@ -1253,8 +1271,9 @@ func waitForReplicaPayment(ctx context.Context, runtime *Runtime, client *api.Cl
 		}
 		if !runtime.deps.Now().Before(deadline) {
 			pending := output.Network("REPLICA_PAYMENT_TIMEOUT", "Website Replica payment was not observed before the wait deadline", context.DeadlineExceeded)
+			pending.Retryable = false
 			pending.WithDetails(map[string]any{
-				"nextAction": "PAYMENT_PENDING",
+				"nextAction": "STOP_AND_REPORT",
 				"orderNo":    order.OrderNo,
 				"expiresAt":  order.ExpiresAt,
 			})
@@ -1296,9 +1315,11 @@ func waitForReplicaSessionPayment(ctx context.Context, runtime *Runtime, client 
 			return api.WebsiteReplicaPaymentState{}, invalidReplicaResponse("Website Replica order status is invalid")
 		}
 		if !runtime.deps.Now().Before(deadline) {
-			return api.WebsiteReplicaPaymentState{}, output.Network("REPLICA_PAYMENT_TIMEOUT", "Website Replica payment was not observed before the wait deadline", context.DeadlineExceeded).WithDetails(map[string]any{
-				"nextAction": "PAYMENT_PENDING", "orderNo": state.OrderNo, "expiresAt": state.OrderExpiresAt,
+			failure := output.Network("REPLICA_PAYMENT_TIMEOUT", "Website Replica payment was not observed before the wait deadline", context.DeadlineExceeded).WithDetails(map[string]any{
+				"nextAction": "STOP_AND_REPORT", "orderNo": state.OrderNo, "expiresAt": state.OrderExpiresAt,
 			})
+			failure.Retryable = false
+			return api.WebsiteReplicaPaymentState{}, failure
 		}
 	}
 }

@@ -10,7 +10,7 @@ import tempfile
 import urllib.request
 import zipfile
 
-RUNTIME_SHA256 = "edf2bbd7dc8699d7f7b4d3edb1d7f162cf3a082352874887816c69d765414348"
+RUNTIME_SHA256 = "587954109b76a7e5ce75fac90f12e780f5b1f485486b2f48b35331322dabf2cc"
 SCRIPT_ORIGIN = {"cn": "https://s3.viceme.cn", "global": "https://s3.viceme.ai"}
 API_ORIGIN = {"cn": "https://api.viceme.cn", "global": "https://api.viceme.ai"}
 RUNTIME_FILES = {

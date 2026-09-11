@@ -45,8 +45,6 @@ git diff --check
 无横向溢出；Tab 可经过页面链接进入预览，无键盘陷阱；
 文档标题、区域标签和读屏状态均切换为支持结果。
 
-![中文和英文支持结果](replica-support-result.png)
-
 本机 WorkBuddy 5.5.4 的工具结果分发代码显示：新的 `present_files`
 调用从返回文件中选择目标文件，发出 `openResultView` 请求，打开对应的
 本地文件预览并显示结果面板。独立结果文件配合新的预览调用符合该路径，
