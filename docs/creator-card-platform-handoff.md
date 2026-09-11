@@ -2,8 +2,8 @@
 
 ## 交接目的
 
-本分支完成了 CLI / Agent Skill 侧的模板优先个人名片流程、云端模板册的构建与校验能力，
-以及导入和更新名片的安全状态机。它**不**伪造尚不存在的平台能力。
+本分支完成了 CLI / Agent Skill 侧的模板优先个人名片流程、云端模板册的构建与校验能力、
+导入和更新名片的安全状态机，以及通过 CLI 同步账户展示名称和头像的接口边界。
 
 接手开发需要先审查本分支的实际 diff 和测试，再在独立分支实现剩余平台 Contract、部署和
 端到端验收；不要仅凭本文件直接合并或假定接口已经可用。
@@ -24,6 +24,9 @@
   替代这些结果。
 - `skills/customize-your-profile-page/SKILL.md` 规定：先展示“查看所有模板”及正式模板链接；用户在对话中
   选择后才下载源码。右侧只用于打开模板、当前页面和本机预览。
+- `viceme account profile update --display-name <name>` 与 `viceme account avatar upload --path <image>`
+  是名片资料写回平台账户的唯一入口；CLI 用当前 Profile 的令牌调用 Shop 的 CLI 账户接口，后端将头像
+  同时写入 User 与 CreatorAccount。模板、右侧编辑器和浏览器 `localStorage` 不能替代该同步。
 
 ### 创作者对话与发布闸门
 

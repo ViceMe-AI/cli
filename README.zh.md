@@ -240,6 +240,8 @@ Endpoint 必须使用 HTTPS；只有 localhost 和 loopback 本地开发可以�
 | `viceme version` | 显示 CLI 与随包 Skills 版本。 |
 | `viceme doctor` | 检查 CLI、当前 Profile、凭据、API readiness 和已安装官方 Skills。 |
 | `viceme auth status` | 显示当前 Profile 是否已登录。 |
+| `viceme account profile update --display-name <称呼>` | 通过 CLI 更新当前账户的公开展示名称。 |
+| `viceme account avatar upload --path <图片>` | 上传当前账户头像（最大 2 MiB）；平台会同时更新创作者公开头像。 |
 | `viceme profile list` | 显示 Profile 的 API、Web 与市场 authority。 |
 | `viceme skill inspect --path <path>` | 无副作用校验本地 Skill。 |
 | `viceme skill listing prepare --path <path>` | 创建或恢复稳定的创作者私有预览，并保存本地绑定。 |

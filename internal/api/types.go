@@ -81,6 +81,17 @@ type AuthUser struct {
 	AvatarURL   *string `json:"avatarUrl"`
 }
 
+// AccountProfileResponse intentionally models the stable identity subset that
+// account commands return to automation. The API may include additional
+// browser-only profile fields without making this CLI contract brittle.
+type AccountProfileResponse struct {
+	User AuthUser `json:"user"`
+}
+
+type AccountAvatarUploadResponse struct {
+	AvatarURL string `json:"avatarUrl"`
+}
+
 type MerchantAccount struct {
 	ID               string  `json:"id"`
 	CreatorAccountID *string `json:"creatorAccountId"`

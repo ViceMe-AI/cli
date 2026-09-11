@@ -1,1 +1,5 @@
 skills/** text=auto eol=lf
+widgets/** text=auto eol=lf
+installers/install.ps1 text eol=lf
+installers/install.sh text eol=lf
+release/bootstrap-contract.json text eol=lf

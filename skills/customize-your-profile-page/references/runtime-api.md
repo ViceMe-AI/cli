@@ -1,5 +1,16 @@
 # ViceMe 自定义作者页接口
 
+## 账户资料同步
+
+名片制作时，模板中的本地头像状态不会自动写回平台账户。Agent 只能在用户已明确同意把该资料作为平台资料展示后，通过当前登录 Profile 的 CLI 命令完成同步：
+
+```text
+viceme account profile update --display-name <已确认称呼>
+viceme account avatar upload --path <已确认头像文件>
+```
+
+这不是 `window.viceme` 的页面 capability，页面运行时不能直接调用账户 API、读取凭据或上传对象存储。头像上传由 Shop 后端校验并同时更新账户和创作者公开头像；命令返回成功前，Agent 不得宣称同步完成或发布使用不同资料的最终名片。
+
 始终先运行 `viceme merchant page describe --target <URL> --merchant <商家ID>`。它只返回
 作者页能用的 capability 分组。页面入口加载时，平台会注入
 `window.viceme`。manifest 只声明页面实际调用的 capability。
