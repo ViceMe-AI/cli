@@ -16,6 +16,10 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "skills/use-a-skill/scripts"
 
 
+def canonical_text_bytes(path):
+    return path.read_text(encoding="utf-8").encode("utf-8")
+
+
 def artifacts():
     sources = {
         "scripts/trial.py": SCRIPTS / "trial_runtime.py",
@@ -26,21 +30,23 @@ def artifacts():
         "guides/trial-usage.md": ROOT / "skills/use-a-skill/references/trial-usage.md",
     }
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+    # Keep the published runtime byte-for-byte reproducible across Python and
+    # zlib versions; the small archive does not need compression.
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_STORED) as archive:
         for name, source in sorted(sources.items()):
             info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
+            info.compress_type = zipfile.ZIP_STORED
             info.external_attr = 0o100644 << 16
-            archive.writestr(info, source.read_bytes())
+            archive.writestr(info, canonical_text_bytes(source))
     content = buffer.getvalue()
-    bootstrap = (ROOT / "release/trial-bootstrap.py.tmpl").read_text().replace(
+    bootstrap = (ROOT / "release/trial-bootstrap.py.tmpl").read_text(encoding="utf-8").replace(
         "__RUNTIME_SHA256__", hashlib.sha256(content).hexdigest())
     replica_path = ROOT / "skills/let-me-make-a-copy/scripts/make_copy.py"
-    resources = {name: hashlib.sha256((ROOT / "widgets" / name).read_bytes()).hexdigest()
+    resources = {name: hashlib.sha256(canonical_text_bytes(ROOT / "widgets" / name)).hexdigest()
                  for name in ("payment.html", "qrcodegen.py")}
     replica = re.sub(r"^PAYMENT_RESOURCE_SHA256 = .*  # generated-payment-resources$",
                      "PAYMENT_RESOURCE_SHA256 = " + json.dumps(resources, sort_keys=True) + "  # generated-payment-resources",
-                     replica_path.read_text(), flags=re.MULTILINE)
+                     replica_path.read_text(encoding="utf-8"), flags=re.MULTILINE)
     return {SCRIPTS / "trial-runtime.zip": content, SCRIPTS / "trial.py": bootstrap.encode(),
             replica_path: replica.encode()}
 

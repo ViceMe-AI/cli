@@ -165,7 +165,7 @@ class MakeCopyTest(unittest.TestCase):
             if url.endswith("/discovery"):
                 return response(200, discovery())
             filename = url.rsplit("/", 1)[1]
-            content = (repository / "widgets" / filename).read_bytes()
+            content = (repository / "widgets" / filename).read_text(encoding="utf-8").encode("utf-8")
             self.assertIn(hashlib.sha256(content).hexdigest(), url)
             return response(200, content)
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary)):
