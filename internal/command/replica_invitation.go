@@ -2,6 +2,13 @@ package command
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"path/filepath"
+
+	"github.com/ViceMe-AI/cli/internal/atomicfile"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 
 	"github.com/spf13/cobra"
 )
@@ -73,5 +80,39 @@ func associateReplicaInvitation(ctx context.Context, runtime *Runtime, state rep
 func completeReplicaInvitation(ctx context.Context, runtime *Runtime) {
 	if flow := replicaInvitationFrom(ctx); flow != nil && flow.id != "" {
 		runtime.client().ReportReplicaInvitation(ctx, flow.id, "INSTALL_COMPLETED")
+	}
+}
+
+// 埋点与购买凭据分开持久化。摘要绑定确切凭据，旧 CLI 重写凭据后不会复用陈旧归因。
+// 附属文件丢失、损坏或不可写均不影响购买或恢复。
+type replicaInvitationReceipt struct {
+	FlowID      string `json:"flowId"`
+	StateDigest string `json:"stateDigest"`
+}
+
+func readReplicaInvitation(filename string, state []byte) string {
+	data, err := readReplicaBoundedFile(filename+".invitation.json", 512)
+	if err != nil {
+		return ""
+	}
+	var receipt replicaInvitationReceipt
+	digest := sha256.Sum256(state)
+	if json.Unmarshal(data, &receipt) != nil || !replicaUUIDPattern.MatchString(receipt.FlowID) || receipt.StateDigest != hex.EncodeToString(digest[:]) {
+		return ""
+	}
+	return receipt.FlowID
+}
+
+func saveReplicaInvitation(filename string, state []byte, id string) {
+	if !replicaUUIDPattern.MatchString(id) {
+		return
+	}
+	digest := sha256.Sum256(state)
+	data, err := json.Marshal(replicaInvitationReceipt{FlowID: id, StateDigest: hex.EncodeToString(digest[:])})
+	if err != nil {
+		return
+	}
+	if privatefile.Write(filename+".invitation.json", data, ".replica-invitation-*.tmp") == nil {
+		_ = atomicfile.SyncDirectory(filepath.Dir(filename))
 	}
 }

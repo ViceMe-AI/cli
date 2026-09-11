@@ -1,7 +1,10 @@
 package command
 
 import (
+	"bytes"
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -112,5 +115,75 @@ func TestReplicaNewInvitationContinuingOldOrderCompletesOriginalFlow(t *testing.
 	}
 	if restored != 1 || installed != 1 || f.checkoutCalls.Load() != 1 {
 		t.Fatal("recovery did not retain original order and flow")
+	}
+}
+
+func TestReplicaInvitationLeavesLegacyPurchaseFilesUnchanged(t *testing.T) {
+	const id = "66666666-6666-4666-8666-666666666666"
+	f := newReplicaRecoveryDiagnosticsFixture(t, false)
+	f.validLicense.Store(true)
+	f.run(output.ExitConfirmation, "REPLICA_PAYMENT_REQUIRED", "--invitation-flow-id", id)
+	runtime := &Runtime{configBase: f.deps.Environment.ConfigDir, apiBaseURL: f.deps.APIBaseURL, deps: f.deps}
+	target, err := validateReplicaTarget(f.target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := newReplicaPurchaseStore(runtime, "VMR-ABCDEFGHIJKLMNOPQRST", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertCompatible := func(filename string) {
+		t.Helper()
+		data, err := os.ReadFile(filename)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(data, []byte("invitationFlowId")) {
+			t.Fatal("analytics changed a strictly decoded legacy file")
+		}
+		if readReplicaInvitation(filename, data) != id {
+			t.Fatal("sidecar lost attribution")
+		}
+		if readReplicaInvitation(filename, append(data, ' ')) != "" {
+			t.Fatal("old-client rewrite reused stale attribution")
+		}
+	}
+	assertCompatible(store.filename)
+	f.paymentStatus.Store("PAID")
+	f.run(0, "", "--recovery-only", "--expected-order-no", f.orderNo)
+	assertCompatible(store.paidFilename)
+	assertCompatible(store.completionFilename)
+}
+
+func TestReplicaInvitationUnreadableOrUnwritableSidecarDoesNotBlockRecovery(t *testing.T) {
+	for _, directory := range []bool{false, true} {
+		t.Run(map[bool]string{false: "corrupt", true: "unwritable"}[directory], func(t *testing.T) {
+			const id = "66666666-6666-4666-8666-666666666666"
+			f := newReplicaRecoveryDiagnosticsFixture(t, false)
+			f.validLicense.Store(true)
+			f.run(output.ExitConfirmation, "REPLICA_PAYMENT_REQUIRED", "--invitation-flow-id", id)
+			sidecars, err := filepath.Glob(filepath.Join(f.deps.Environment.ConfigDir, "replica-purchases", "*.invitation.json"))
+			if err != nil || len(sidecars) != 1 {
+				t.Fatal("missing sidecar")
+			}
+			if directory {
+				if err := os.Remove(sidecars[0]); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Mkdir(sidecars[0], 0700); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(sidecars[0], []byte("corrupt"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if directory {
+				saveReplicaInvitation(sidecars[0][:len(sidecars[0])-len(".invitation.json")], []byte("state"), id)
+			}
+			f.paymentStatus.Store("PAID")
+			result := f.run(0, "", "--recovery-only", "--expected-order-no", f.orderNo)
+			if result.Data.NextAction != "DEPLOY" || f.checkoutCalls.Load() != 1 {
+				t.Fatal("analytics affected purchase recovery")
+			}
+		})
 	}
 }
