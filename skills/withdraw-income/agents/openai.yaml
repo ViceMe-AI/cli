@@ -1,0 +1,4 @@
+interface:
+  display_name: "提取创作者收入"
+  short_description: "自主提现国内站创作者收入，并恢复和查询到账进度"
+  default_prompt: "使用 $withdraw-income 提取我的 ViceMe 创作者收入并查询结果。"

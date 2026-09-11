@@ -137,6 +137,7 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 		t.Fatalf("device login returned before authorization completed: polls=%d", tokenPolls.Load())
 	}
 	expectedScopes := []string{
+		"withdrawal:read", "withdrawal:write",
 		"profile:read", "skill-publication:read", "skill-publication:write",
 		"merchant-commerce:read", "merchant-commerce:write", "skill-use:read",
 		"buyer-commerce:read", "buyer-commerce:write",
