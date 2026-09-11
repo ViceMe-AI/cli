@@ -439,3 +439,21 @@ make release-manifest
 The CLI and official Agent Skills are versioned and released together. GitHub,
 npm, `s3.viceme.cn`, and `s3.viceme.ai` artifacts come from the same reviewed
 commit.
+
+## 创作者收入提现
+
+国内站登录后，可由 Agent 调用官方 `withdraw-income` Skill 自主提现；旧凭证首次使用时重新运行 `viceme auth login`。
+
+```sh
+viceme withdraw context
+viceme withdraw create --request-id <稳定任务标识>
+viceme withdraw create --request-id <稳定任务标识> --amount 100.00
+viceme withdraw status --request-id <原任务标识>
+```
+
+`--amount` 的单位是人民币元；省略时按可提现收入、渠道上限和剩余当日额度选择金额。
+每个新任务使用新请求标识；首次办理、重新登录和网络失败后沿用原标识及原参数恢复。
+CLI 在当前账号与 Profile 下保存请求，确保恢复时不会重新选额或换账户。
+渠道需要本人实名签约、绑定或确认收款时，Skill 展示现有网站入口，完成后继续原单。
+`PENDING` 与 `ACTION_REQUIRED` 均不代表到账；只有 `SUCCEEDED` 表示全部提现成功。
+定期触发和长时间跟踪由上层 Agent 负责。

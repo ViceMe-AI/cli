@@ -43,33 +43,6 @@ const (
 	replicaPublicationTestProjectDigest = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 )
 
-func TestReplicaPublicationRejectsUnsupportedGlobalMarketBeforeLocalWork(t *testing.T) {
-	project := newReplicaPublicationTestProject(t)
-	previewCalled := false
-	runtime := &Runtime{
-		apiBaseURL: "https://api.viceme.ai",
-		configBase: t.TempDir(),
-		profile:    config.Profile{MarketRegion: config.RegionGlobal},
-		deps: Dependencies{
-			Now:    func() time.Time { return time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC) },
-			ErrOut: io.Discard,
-			StartReplicaPreview: func(context.Context, replicapreview.Options) (replicapreview.Running, error) {
-				previewCalled = true
-				return nil, errors.New("preview must not start")
-			},
-		},
-	}
-	_, err := publishWebsiteReplica(context.Background(), runtime, replicaPublishOptions{
-		ProjectPath: project, Slug: "replica-site", Title: "Replica title", Summary: "Replica summary", PriceCents: 990,
-	})
-	if cliErr := output.AsError(err); err == nil || cliErr.Subtype != "REPLICA_PUBLICATION_MARKET_UNSUPPORTED" || cliErr.Type != "policy" {
-		t.Fatalf("GLOBAL publication was not rejected by policy: %#v", cliErr)
-	}
-	if previewCalled {
-		t.Fatal("GLOBAL publication reached local preview")
-	}
-}
-
 func TestReplicaStatusPresentsProcessingAsSubmittedButNotPublished(t *testing.T) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
@@ -191,14 +164,55 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 	for _, projectStorage := range []bool{false, true} {
 		for _, pageDirectory := range []string{".", "public site"} {
 			t.Run(fmt.Sprintf("project-storage-%t/page-%s", projectStorage, pageDirectory), func(t *testing.T) {
-				testReplicaPublicationStorageLifecycle(t, projectStorage, pageDirectory)
+				testReplicaPublicationStorageLifecycle(t, projectStorage, pageDirectory, config.RegionCN)
 			})
 		}
 	}
 }
 
-func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, pageDirectory string) {
+func TestReplicaPublishGlobalFreeHostedLifecycle(t *testing.T) {
+	for _, projectStorage := range []bool{false, true} {
+		t.Run(fmt.Sprint(projectStorage), func(t *testing.T) {
+			testReplicaPublicationStorageLifecycle(t, projectStorage, ".", config.RegionGlobal)
+		})
+	}
+}
+
+// Adapt the shared server fixtures while retaining the full confirmation,
+// upload, recovery, and local binding assertions for the GLOBAL authority.
+func rewriteGlobalReplicaTestResponse(response map[string]any) {
+	for key, value := range response {
+		if child, ok := value.(map[string]any); ok {
+			rewriteGlobalReplicaTestResponse(child)
+			continue
+		}
+		switch key {
+		case "market":
+			response[key] = "GLOBAL"
+		case "currency":
+			response[key] = "USD"
+		case "priceCents":
+			response[key] = 0
+		default:
+			if text, ok := value.(string); ok {
+				response[key] = strings.ReplaceAll(text, "https://viceme.cn/", "https://viceme.ai/")
+			}
+		}
+	}
+}
+
+func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, pageDirectory string, region config.Region) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
+	market, price, workURL := "CN", 990, "https://viceme.cn/replica-maker/replica-site"
+	if region == config.RegionGlobal {
+		market, price, workURL = "GLOBAL", 0, "https://viceme.ai/replica-maker/replica-site"
+	}
+	writeResponse := func(w http.ResponseWriter, response map[string]any) {
+		if region == config.RegionGlobal {
+			rewriteGlobalReplicaTestResponse(response)
+		}
+		writeJSONResponse(w, response)
+	}
 	project := filepath.Join(t.TempDir(), "site")
 	if err := os.MkdirAll(filepath.Join(project, "node_modules"), 0o700); err != nil {
 		t.Fatal(err)
@@ -271,8 +285,8 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 				t.Fatal(err)
 			}
 			if input["protocolVersion"] != float64(2) || input["clientRequestId"] != replicaPublicationTestRequestID ||
-				input["market"] != "CN" || input["title"] != "Replica title" || input["summary"] != "Replica summary" ||
-				input["allowAutomaticDegradation"] != false || input["priceCents"] != float64(990) || input["projectFingerprint"] == "" || input["canonicalOrigin"] != "https://example.com" {
+				input["market"] != market || input["title"] != "Replica title" || input["summary"] != "Replica summary" ||
+				input["allowAutomaticDegradation"] != false || input["priceCents"] != float64(price) || input["projectFingerprint"] == "" || input["canonicalOrigin"] != "https://example.com" {
 				t.Fatalf("unexpected create request: %#v", input)
 			}
 			target, _ := input["target"].(map[string]any)
@@ -292,7 +306,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 					t.Fatalf("first request crossed confirmation boundary: %#v", input["confirmation"])
 				}
 				firstRequest = input
-				writeJSONResponse(writer, replicaConfirmationRequiredResponse(now, input, confirmationVersion))
+				writeResponse(writer, replicaConfirmationRequiredResponse(now, input, confirmationVersion))
 				return
 			}
 			if input["projectFingerprint"] != firstRequest["projectFingerprint"] || !mapsHaveEqualJSON(input["source"], firstRequest["source"]) ||
@@ -303,19 +317,19 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 			if confirmation["version"] != confirmationVersion || confirmation["confirmedAt"] == nil {
 				t.Fatalf("confirmed request did not bind the challenge: %#v", confirmation)
 			}
-			writeJSONResponse(writer, map[string]any{
-				"outcome": "ACTION_REQUIRED", "clientRequestId": replicaPublicationTestRequestID, "market": "CN",
+			writeResponse(writer, map[string]any{
+				"outcome": "ACTION_REQUIRED", "clientRequestId": replicaPublicationTestRequestID, "market": market,
 				"nextAction": map[string]any{"kind": "AUTHORIZE_SOURCE_UPLOAD", "publicationId": replicaPublicationTestID},
 			})
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID:
 			if submitted {
-				writeJSONResponse(writer, replicaPublicationForArtifacts(now, "PROCESSING", "VERIFIED", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
+				writeResponse(writer, replicaPublicationForArtifacts(now, "PROCESSING", "VERIFIED", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
 				return
 			}
-			writeJSONResponse(writer, replicaPublicationForArtifacts(now, "DRAFT", "WAITING_UPLOAD", firstRequest["source"].(map[string]any), "WAITING_UPLOAD", firstRequest["page"].(map[string]any)))
+			writeResponse(writer, replicaPublicationForArtifacts(now, "DRAFT", "WAITING_UPLOAD", firstRequest["source"].(map[string]any), "WAITING_UPLOAD", firstRequest["page"].(map[string]any)))
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID+"/page/upload-authorizations":
 			assertEmptyJSONObject(t, request)
-			writeJSONResponse(writer, map[string]any{
+			writeResponse(writer, map[string]any{
 				"publicationId": replicaPublicationTestID,
 				"upload": map[string]any{
 					"method": "PUT", "url": objectServer.URL + "/page.zip",
@@ -325,10 +339,10 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 			})
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID+"/page/complete-upload":
 			assertEmptyJSONObject(t, request)
-			writeJSONResponse(writer, replicaPublicationForArtifacts(now, "DRAFT", "WAITING_UPLOAD", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
+			writeResponse(writer, replicaPublicationForArtifacts(now, "DRAFT", "WAITING_UPLOAD", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID+"/source/upload-authorizations":
 			assertEmptyJSONObject(t, request)
-			writeJSONResponse(writer, map[string]any{
+			writeResponse(writer, map[string]any{
 				"publicationId": replicaPublicationTestID,
 				"upload": map[string]any{
 					"method": "PUT", "url": objectServer.URL + "/source.zip",
@@ -338,11 +352,11 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 			})
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID+"/source/complete-upload":
 			assertEmptyJSONObject(t, request)
-			writeJSONResponse(writer, replicaPublicationForArtifacts(now, "DRAFT", "VERIFIED", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
+			writeResponse(writer, replicaPublicationForArtifacts(now, "DRAFT", "VERIFIED", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID+"/submit":
 			submitted = true
 			assertEmptyJSONObject(t, request)
-			writeJSONResponse(writer, replicaPublicationForArtifacts(now, "PROCESSING", "VERIFIED", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
+			writeResponse(writer, replicaPublicationForArtifacts(now, "PROCESSING", "VERIFIED", firstRequest["source"].(map[string]any), "VERIFIED", firstRequest["page"].(map[string]any)))
 		default:
 			t.Fatalf("unexpected control request: %s %s", request.Method, request.URL.Path)
 		}
@@ -355,7 +369,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 	dependencies := Dependencies{
 		ErrOut: &bytes.Buffer{}, HTTPClient: controlServer.Client(), Store: securestore.NewMemory(),
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
-		Region:      config.RegionCN, APIBaseURL: controlServer.URL, Now: func() time.Time { return now },
+		Region:      region, APIBaseURL: controlServer.URL, Now: func() time.Time { return now },
 		NewID: func() string {
 			if len(ids) == 0 {
 				t.Fatal("publication allocated more than one main clientRequestId")
@@ -379,7 +393,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 	arguments := []string{
 		"replica", "publish", "--path", project, "--slug", "replica-site",
 		"--page-dir", pageDirectory, "--page-entry", "landing.html",
-		"--title", "Replica title", "--summary", "Replica summary", "--price-cents", "990",
+		"--title", "Replica title", "--summary", "Replica summary", "--price-cents", fmt.Sprint(price),
 		"--preview-reviewed",
 		"--canonical-origin", "HTTPS://Example.COM:443/",
 	}
@@ -419,8 +433,8 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 		review["resolution"] != "CREATE" || review["merchantAccountId"] != replicaPublicationTestMerchantID ||
 		review["merchantDisplayName"] != "Replica Studio" || review["creatorAccountId"] != replicaPublicationTestCreatorID ||
 		review["creatorHandle"] != "replica-maker" || review["creatorDisplayName"] != "Replica Maker" ||
-		review["workUrl"] != "https://viceme.cn/replica-maker/replica-site" || review["hosting"] != "HOSTED" ||
-		review["title"] != "Replica title" || review["summary"] != "Replica summary" || review["priceCents"] != float64(990) ||
+		review["workUrl"] != workURL || review["hosting"] != "HOSTED" ||
+		review["title"] != "Replica title" || review["summary"] != "Replica summary" || review["priceCents"] != float64(price) ||
 		!hasPageArtifact || pageArtifact["fileName"] != "page.zip" || pageArtifact["sizeBytes"] == float64(0) || pageArtifact["digest"] == "" ||
 		review["automaticDegradation"] != false || review["immutableVersions"] != true ||
 		review["existingBuyerVersionsRetained"] != true || review["automaticCreatorApplication"] != false ||
@@ -505,7 +519,7 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 	publicationBinding, _ := binding["publication"].(map[string]any)
 	merchantBinding, _ := binding["merchant"].(map[string]any)
 	frozenSource, _ := binding["frozenSource"].(map[string]any)
-	if binding["projectFingerprint"] != firstRequest["projectFingerprint"] || publicationBinding["id"] != replicaPublicationTestID ||
+	if binding["market"] != market || binding["projectFingerprint"] != firstRequest["projectFingerprint"] || publicationBinding["id"] != replicaPublicationTestID ||
 		merchantBinding["id"] != replicaPublicationTestMerchantID || frozenSource["digest"] != firstRequest["source"].(map[string]any)["digest"] {
 		t.Fatalf("platform takeover binding is incomplete: %#v", binding)
 	}

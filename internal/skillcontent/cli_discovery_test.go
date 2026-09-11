@@ -96,6 +96,56 @@ func TestInstalledCLIResolverWorksInFreshAgentShell(t *testing.T) {
 	}
 }
 
+func TestPosixCLIResolverFindsWindowsDefaultWithoutPowerShell(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the POSIX-on-Windows path is covered by a portable shell fixture")
+	}
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	environment := skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")}
+	for _, report := range skillcontent.New(cliembed.EmbeddedSkills()).InstallSet([]string{"creator-tools"}, "workbuddy", environment) {
+		if !report.AllSucceeded {
+			t.Fatalf("install resolver through real Skill transaction: %#v", report)
+		}
+	}
+	localAppData := filepath.Join(root, "Local App Data")
+	candidate := filepath.Join(localAppData, "ViceMe", "bin", "viceme.exe")
+	if err := os.MkdirAll(filepath.Dir(candidate), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(candidate, []byte("#!/bin/sh\nprintf 'windows-posix\\n'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tools := filepath.Join(root, "host tools")
+	if err := os.MkdirAll(tools, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tools, "cygpath"), []byte("#!/bin/sh\nprintf '%s\\n' \"$CYGPATH_RESULT\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	resolver := filepath.Join(root, ".workbuddy", "skills", "creator-tools", "scripts", "resolve-cli.sh")
+	command := exec.Command("/bin/sh", resolver)
+	command.Env = []string{
+		"CYGPATH_RESULT=" + localAppData,
+		"HOME=" + root,
+		`LOCALAPPDATA=C:\Users\viceme-test\AppData\Local`,
+		"OS=Windows_NT",
+		"PATH=" + tools + ":/usr/bin:/bin",
+	}
+	output, err := command.CombinedOutput()
+	resolved := strings.TrimSpace(string(output))
+	if err != nil || resolved != candidate {
+		t.Fatalf("Windows default was not resolved through the POSIX host tool: got=%q want=%q err=%v", output, candidate, err)
+	}
+	followup := exec.Command("/bin/sh", "-c", `exec "$1"`, "sh", resolved)
+	followup.Env = []string{"PATH=/usr/bin:/bin"}
+	if output, err := followup.CombinedOutput(); err != nil || string(output) != "windows-posix\n" {
+		t.Fatalf("fresh POSIX tool call did not reach the Windows installation: %v %s", err, output)
+	}
+}
+
 func TestEveryOfficialSkillResolvesCLIThroughCreatorTools(t *testing.T) {
 	for _, name := range officialSkillNames {
 		content, err := fs.ReadFile(cliembed.EmbeddedSkills(), name+"/SKILL.md")

@@ -27,13 +27,10 @@ func newReplicaSalesCommand(runtime *Runtime, operation string) *cobra.Command {
 		command.Flags().StringVar(&confirmation, "confirm", "", "exact confirmation digest from the review")
 	}
 	if operation == "price" {
-		command.Flags().IntVar(&price, "price-cents", 0, "new CNY price in cents (0 is free)")
+		command.Flags().IntVar(&price, "price-cents", 0, "new price in the market currency's minor unit (0 is free)")
 		_ = command.MarkFlagRequired("price-cents")
 	}
 	command.RunE = func(cmd *cobra.Command, _ []string) error {
-		if err := requireReplicaPublicationCN(runtime); err != nil {
-			return err
-		}
 		if !replicaUUIDPattern.MatchString(replicaID) {
 			return output.Validation("REPLICA_ID_INVALID", "--replica must be a UUID")
 		}
@@ -83,8 +80,12 @@ func newReplicaSalesCommand(runtime *Runtime, operation string) *cobra.Command {
 		if !state.OperationsEnabled {
 			return output.Policy("REPLICA_SALES_READ_ONLY", "the OWNER may inspect history but cannot change sales")
 		}
-		if state.Product.Currency != "CNY" {
-			return output.Policy("REPLICA_SALES_MARKET_UNSUPPORTED", "sales management currently requires the CN CNY product")
+		currency := "CNY"
+		if replicaPublicationMarket(runtime) == "GLOBAL" {
+			currency = "USD"
+		}
+		if state.Product.Currency != currency {
+			return output.Policy("REPLICA_SALES_MARKET_UNSUPPORTED", "the Product currency does not match the current market")
 		}
 		if requestID == "" {
 			requestID = runtime.deps.NewID()

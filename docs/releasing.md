@@ -159,8 +159,11 @@ Every release renders two public Agent contracts with the exact stable version:
 
 - `release/agent-install.md.tmpl` is the narrow CLI Runtime bootstrap. It
   installs or updates one verified CLI plus official-Skill generation, runs
-  `viceme doctor`, and then returns control to its caller. It does not know a
-  Product stable name or install a merchant Product Skill.
+  `viceme doctor`, and then returns control to its caller. Windows Agents verify
+  the Manifest-selected executable and invoke the executable's own
+  `bootstrap activate` entrypoint directly, so a POSIX-only host such as WorkBuddy does not need to
+  escape into PowerShell or npm. It does not know a Product stable name or
+  install a merchant Product Skill.
 - `release/commerce-skill-install.md.tmpl` is the generic Product Skill
   activation contract. It first uses an already healthy Commerce Runtime and
   delegates to the same-region `agent-install.md` only when the Runtime is

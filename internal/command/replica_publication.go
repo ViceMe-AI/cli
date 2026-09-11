@@ -45,9 +45,6 @@ func newReplicaStatusCommand(runtime *Runtime) *cobra.Command {
 
 // Release recovery locks before the caller emits its single JSON envelope.
 func controlReplicaPublication(ctx context.Context, runtime *Runtime, publicationID string, cancel bool) (_ replicaPublicationPresentation, returnErr error) {
-	if err := requireReplicaPublicationCN(runtime); err != nil {
-		return replicaPublicationPresentation{}, err
-	}
 	publicationID = strings.TrimSpace(publicationID)
 	if !replicaUUIDPattern.MatchString(publicationID) {
 		return replicaPublicationPresentation{}, output.Validation("REPLICA_PUBLICATION_ID_INVALID", "Website Replica Publication ID must be a UUID")

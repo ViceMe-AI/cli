@@ -104,9 +104,6 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		return replicaPublicationPresentation{}, err
 	}
 	market := replicaPublicationMarket(runtime)
-	if err := requireReplicaPublicationCN(runtime); err != nil {
-		return replicaPublicationPresentation{}, err
-	}
 	derivedFingerprint, projectPath, err := replicapublication.ProjectFingerprint(runtime.apiBaseURL, market, options.ProjectPath)
 	if err != nil {
 		return replicaPublicationPresentation{}, err
@@ -866,13 +863,6 @@ func replicaPublicationMarket(runtime *Runtime) string {
 		return "GLOBAL"
 	}
 	return "CN"
-}
-
-func requireReplicaPublicationCN(runtime *Runtime) error {
-	if replicaPublicationMarket(runtime) != "CN" {
-		return output.Policy("REPLICA_PUBLICATION_MARKET_UNSUPPORTED", "Website Replica publication is currently available only in the CN market")
-	}
-	return nil
 }
 
 func replicaPublicationStore(runtime *Runtime) replicapublication.Store {
