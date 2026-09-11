@@ -11,12 +11,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/privatefile"
 	qrcode "github.com/skip2/go-qrcode"
 )
+
+// Payment presentations use stable order-derived filenames. Serialize their
+// in-process construction so concurrent commands recovering the same pending
+// order do not race while activating its PNG and widget files. Cross-process
+// writes remain protected by privatefile's atomic replacement protocol.
+var commercePaymentPresentationMu sync.Mutex
 
 const (
 	commercePaymentPresentationDirectory = "payment-presentations"
@@ -72,6 +79,9 @@ func prepareCommercePaymentPresentation(runtime *Runtime, order *api.CommerceOrd
 }
 
 func newCommercePaymentPresentation(runtime *Runtime, orderNo, expiresAt, content string, details ...paymentWidgetData) (*api.CommercePaymentPresentation, error) {
+	commercePaymentPresentationMu.Lock()
+	defer commercePaymentPresentationMu.Unlock()
+
 	absolutePath, err := createCommercePaymentQRImage(runtime, orderNo, content)
 	if err != nil {
 		return nil, err
