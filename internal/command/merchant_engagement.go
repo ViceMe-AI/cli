@@ -433,11 +433,13 @@ func workAccessFeatureInputs(features []api.WorkAccessFeature) []api.WorkAccessF
 	inputs := make([]api.WorkAccessFeatureInput, len(features))
 	for index, feature := range features {
 		inputs[index] = api.WorkAccessFeatureInput{
-			FeatureKey: feature.FeatureKey,
-			Title:      feature.Title,
-			PolicyType: feature.PolicyType,
-			Price:      feature.Price,
-			Status:     feature.Status,
+			Availability:  feature.Availability,
+			PricingIntent: feature.PricingIntent,
+			FeatureKey:    feature.FeatureKey,
+			Title:         feature.Title,
+			PolicyType:    feature.PolicyType,
+			Price:         feature.Price,
+			Status:        feature.Status,
 		}
 	}
 	return inputs

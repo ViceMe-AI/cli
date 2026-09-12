@@ -171,12 +171,11 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "charge-for-your-work",
 			machine: []string{
-				"access.require()", "access.getFeatures()", "<viceme-access-layer>", "FOLLOW_OWNER", "WORK_ENTITLEMENT",
-				"Hosted Checkout", "Product ID", "access.check()", "$become-a-creator", "merchant work create",
-				"sdk-access create", "sdk-access update", "canonicalOrigin", "status: PUBLISHED",
+				"access.require(featureKey)", "access.getFeatures()", "<viceme-access-layer>", "FOLLOW_OWNER", "WORK_ENTITLEMENT",
+				"access.check()", "$become-a-creator", "website access configure", "website access resume", "website work enrich", "canonicalOrigin", "status=PUBLISHED",
 			},
 			semantics: []string{
-				"登录不等于关注", "不得改变其参数、返回值、错误或副作用", "内部实现", "不向用户展示",
+				"无二次确认", "保持其参数、返回值、错误和副作用", "Origin 可不填", "匿名用户可付款",
 			},
 		},
 		{
@@ -1918,44 +1917,25 @@ func TestChargeForYourWorkUsesDualSDKKeys(t *testing.T) {
 
 func TestChargeForYourWorkUsesPlatformAwareInteractiveGuidance(t *testing.T) {
 	t.Parallel()
-
 	bundle := readOfficialSkillBundle(t, "charge-for-your-work")
-	for _, required := range []string{
-		"先确认当前 Agent 平台", "当前平台明确为 WorkBuddy", "AskUserQuestion",
-		"其他平台使用", "原生的等效交互工具", "没有交互式提问工具时才退回编号短选项", "回复编号",
-		"默认当前项目就是目标网站", "没有项目上下文时", "一次交互工具调用", "正式部署域名", "要保护的按钮或功能",
-		"关注解锁还是付费解锁", "付费功能名称", "人民币价格", "不要求用户手打内部键值",
-		"真正开放且无法列出候选的信息", "两个 SDK key", "功能键和其他内部值", "都不询问用户",
-	} {
+	for _, required := range []string{"先确认当前 Agent 平台", "AskUserQuestion", "默认当前项目就是目标网站", "Origin 可不填", "一次交互工具调用", "不猜价格", "不要求用户手打内部键值"} {
 		if !strings.Contains(bundle, required) {
-			t.Fatalf("charge-for-your-work omitted interactive guidance %q", required)
+			t.Fatalf("missing input boundary %q", required)
 		}
-	}
-	if strings.Contains(bundle, "优先使用 WorkBuddy") {
-		t.Fatal("charge-for-your-work assumes WorkBuddy without identifying the current platform")
 	}
 }
 
 func TestChargeForYourWorkKeepsProvisioningInternal(t *testing.T) {
 	t.Parallel()
-
 	bundle := readOfficialSkillBundle(t, "charge-for-your-work")
-	for _, required := range []string{
-		"平台资源不存在时进入下面的内部配置流程", "merchant work list", "merchant work create",
-		"status: PUBLISHED", "sdk-access create", "sdk-access update", "写后重读",
-		"不得向用户展示、解释、索取", "不得报告 Website Work", "不把缺失状态变成用户任务",
-	} {
+	for _, required := range []string{"website access configure", "AUTHENTICATE_CREATOR", "resumeArgs", "PENDING_CHANNEL", "website work enrich", "匿名用户可付款", "无二次确认", "sub-agent", "verified=true", "不把缺失状态变成用户任务"} {
 		if !strings.Contains(bundle, required) {
-			t.Fatalf("charge-for-your-work omitted internal provisioning boundary %q", required)
+			t.Fatalf("missing access workflow boundary %q", required)
 		}
 	}
-	for _, forbidden := range []string{
-		"缺少发布结果或平台配置时停止并说明需要先完成网站发布配置",
-		"请先在 ViceMe 发布网站",
-		"keys 信息",
-	} {
+	for _, forbidden := range []string{"登录后不会自动关注", "登录不会自动关注", "匿名访问 → 登录 →", "首次询问一次收齐 HTTPS Origin"} {
 		if strings.Contains(bundle, forbidden) {
-			t.Fatalf("charge-for-your-work exposes internal prerequisite %q", forbidden)
+			t.Fatalf("retained superseded behavior %q", forbidden)
 		}
 	}
 }
