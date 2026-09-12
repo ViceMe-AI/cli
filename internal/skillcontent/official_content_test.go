@@ -417,6 +417,7 @@ func TestCreatorOnboardingKeepsHumanReviewSeparateFromPersonalPages(t *testing.T
 	for _, required := range []string{
 		"第一条进程命令运行一次 `viceme merchant qualification`",
 		"每次提交申请前都必须先让作者本人确定 handle",
+		"除「普通申请」明确要求单次运行的",
 		"下面两项都是可选的，跳过也不影响申请",
 		"用一两句话介绍下你自己和你擅长做什么？",
 		"方便留一个外部账号吗？GitHub、小红书、个人网站都行",
