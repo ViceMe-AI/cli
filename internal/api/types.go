@@ -4,6 +4,7 @@ import "encoding/json"
 
 const SkillPublicationContractVersion = "2026-08-27"
 const PageCustomizationContractVersion = "2026-09-09"
+const ProfilePageCustomizationContractVersion = "2026-09-12"
 
 type DeviceAuthorizationRequest struct {
 	ClientName string   `json:"clientName"`
@@ -218,6 +219,16 @@ type PageCustomizationTargetDescription struct {
 	CapabilityGroups []PageCustomizationCapabilityGroup `json:"capabilityGroups"`
 }
 
+type ProfilePageCustomizationTargetDescription struct {
+	Target           PageCustomizationTarget            `json:"target"`
+	ManifestKind     string                             `json:"manifestKind"`
+	SDKVersion       string                             `json:"sdkVersion"`
+	ContextSchema    string                             `json:"contextSchema"`
+	CapabilityGroups []PageCustomizationCapabilityGroup `json:"capabilityGroups"`
+	ProfileURL       string                             `json:"profileUrl"`
+	MarkdownURL      string                             `json:"markdownUrl"`
+}
+
 type PageCustomizationManifestMetadata struct {
 	Name string `json:"name"`
 }
@@ -260,6 +271,14 @@ type CreatePageCustomizationDraftRequest struct {
 	Target            PageCustomizationTarget               `json:"target"`
 	Artifact          PageCustomizationArtifact             `json:"artifact"`
 	SourceSnapshot    *PageCustomizationSourceSnapshotInput `json:"sourceSnapshot,omitempty"`
+}
+
+type CreateProfilePageCustomizationDraftRequest struct {
+	ClientRequestID string                                `json:"clientRequestId"`
+	ContractVersion string                                `json:"contractVersion"`
+	CLIVersion      string                                `json:"cliVersion"`
+	Artifact        PageCustomizationArtifact             `json:"artifact"`
+	SourceSnapshot  *PageCustomizationSourceSnapshotInput `json:"sourceSnapshot"`
 }
 
 type PageCustomizationSourceSnapshot struct {

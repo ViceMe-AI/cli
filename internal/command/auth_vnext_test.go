@@ -138,7 +138,7 @@ func TestDeviceLoginWaitsAndPersistsScopedCredentialWithoutPrintingToken(t *test
 	}
 	expectedScopes := []string{
 		"withdrawal:read", "withdrawal:write",
-		"profile:read", "skill-publication:read", "skill-publication:write",
+		"profile:read", "profile:write", "skill-publication:read", "skill-publication:write",
 		"merchant-commerce:read", "merchant-commerce:write", "skill-use:read",
 		"buyer-commerce:read", "buyer-commerce:write",
 		"website-replica:read", "website-replica:write", "website-replica:purchase",

@@ -68,7 +68,7 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 					Purpose:    devicePurpose,
 					Scopes: []string{
 						"withdrawal:read", "withdrawal:write",
-						"profile:read",
+						"profile:read", "profile:write",
 						"skill-publication:read",
 						"skill-publication:write",
 						"merchant-commerce:read",

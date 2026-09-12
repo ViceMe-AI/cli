@@ -174,8 +174,8 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | Skill | Use it when you want to... |
 | --- | --- |
 | `creator-tools` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
-| `become-a-creator` | apply for or check creator qualification for every creator workflow. |
-| `customize-your-profile-page` | use AI to create, preview, publish, update, or roll back a creator profile page. |
+| `become-a-creator` | apply for or check creator qualification for merchant-only workflows; personal profile publishing stays independent. |
+| `customize-your-profile-page` | use AI to create, locally preview, publish, update, or roll back any signed-in user's personal profile page. |
 | `customize-your-work-page` | use AI to redesign or import a downloadable Skill work page, including its visible actions and final preview. |
 | `sell-a-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
 | `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
@@ -275,6 +275,9 @@ Never copy an access token into the conversation.
 | `viceme doctor` | Check the CLI, active Profile, credentials, API readiness, and installed official Skills. |
 | `viceme auth status` | Show whether the active Profile is signed in. |
 | `viceme profile list` | Show Profiles and their API, Web, and market authorities. |
+| `viceme profile page describe` | Resolve the signed-in user's server-authoritative personal profile URL and supported page capabilities. |
+| `viceme profile page upload ...` | Validate and upload a static personal profile bundle together with its owner-only editable source, without Merchant or an online preview. |
+| `viceme profile page status/source/publish/activate ...` | Inspect, restore, publish, or roll back the current user's immutable personal profile releases with concurrency protection. |
 | `viceme skill inspect --path <path>` | Validate a local Skill without side effects. |
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |
 | `viceme skill listing get <listing-id>` | Read the authoritative private Listing state. |
