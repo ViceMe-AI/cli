@@ -68,14 +68,19 @@ Both contexts stop at human review. Only a valid active Merchant returned from
 
 ## Minimum application input
 
-`merchant onboarding apply` does not require display name or handle. The Shop derives them from the
-signed-in user and the stable DRAFT CreatorAccount. The Agent asks for a handle only when the API
-returns `MERCHANT_APPLICATION_HANDLE_REQUIRED`; a supplied display name or handle remains an optional
-override.
+`merchant onboarding apply` requires an author-confirmed handle. Suggested handles, previews, echoed
+values, and profile URLs use the bare handle and never add an `@` prefix. If the author enters `@`
+anywhere in the value, the Agent asks whether to remove every `@` before validation or submission.
+Choosing removal strips every `@`, echoes and revalidates the result, then submits only when valid.
+Choosing retention preserves the input for the response but does not submit it because Shop handles
+support only lowercase letters, numbers, and hyphens; the Agent asks for another valid handle instead.
+Ordinary valid handles do not gain another confirmation step.
 
 After application, the Skill reads `merchant onboarding status` once as a write readback. That
-response returns `creatorIdentity`, including the stable `markdownPath`. The Skill reports that route
-as “申请中” and stops until a later run observes an approved OWNER Merchant.
+response returns `creatorIdentity`, including the stable `markdownPath`. The returned
+`onboarding.requestedHandle` and `creatorIdentity.handle` must exactly match the submitted value before
+the Skill echoes the saved username or server-provided profile URL. The Skill reports that route as
+“申请中” and stops until a later run observes an approved OWNER Merchant.
 
 ## Login purpose
 
