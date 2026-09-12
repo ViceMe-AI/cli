@@ -74,7 +74,10 @@ anywhere in the value, the Agent asks whether to remove every `@` before validat
 Choosing removal strips every `@`, echoes and revalidates the result, then submits only when valid.
 Choosing retention preserves the input for the response but does not submit it because Shop handles
 support only lowercase letters, numbers, and hyphens; the Agent asks for another valid handle instead.
-Ordinary valid handles do not gain another confirmation step.
+Ordinary valid handles do not gain another confirmation step. A short introduction and one GitHub,
+Xiaohongshu, or personal-website account are optional and must never block submission. The Agent asks
+for these fields only when the installed CLI exposes both matching flags, passes a display name only
+when the author volunteered a real one, and omits optional profile fields when skipped or unsupported.
 
 After application, the Skill reads `merchant onboarding status` once as a write readback. That
 response returns `creatorIdentity`, including the stable `markdownPath`. The returned

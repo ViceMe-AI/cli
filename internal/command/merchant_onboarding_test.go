@@ -36,7 +36,9 @@ func TestMerchantApplicationUsesTheUnifiedOnboardingRoute(t *testing.T) {
 			if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
 				t.Fatal(err)
 			}
-			if input["displayName"] != "Creator Shop" || input["handle"] != "creator-shop" || input["clientRequestId"] == "" {
+			if input["displayName"] != "Creator Shop" || input["handle"] != "creator-shop" || input["clientRequestId"] == "" ||
+				input["introduction"] != "独立开发者，擅长把复杂工作流做成简单工具。" ||
+				input["externalAccount"] != "https://github.com/creator-shop" {
 				t.Fatalf("unexpected application input: %#v", input)
 			}
 			writeJSONResponse(writer, merchantOnboardingFixture("APPLICATION", "SUBMITTED", nil))
@@ -48,6 +50,8 @@ func TestMerchantApplicationUsesTheUnifiedOnboardingRoute(t *testing.T) {
 
 	exit, envelope := executeMerchantOnboardingCommand(t, server,
 		"merchant", "onboarding", "apply", "--display-name", "Creator Shop", "--handle", "creator-shop",
+		"--introduction", " 独立开发者，擅长把复杂工作流做成简单工具。 ",
+		"--external-account", " https://github.com/creator-shop ",
 	)
 	if exit != 0 || envelope["ok"] != true || applicationCalls.Load() != 1 {
 		t.Fatalf("merchant application failed: exit=%d envelope=%#v calls=%d", exit, envelope, applicationCalls.Load())
@@ -81,6 +85,12 @@ func TestMerchantApplicationRequiresAuthorConfirmedHandle(t *testing.T) {
 			if input["clientRequestId"] == "" {
 				t.Fatalf("clientRequestId missing: %#v", input)
 			}
+			if _, exists := input["introduction"]; exists {
+				t.Fatalf("skipped introduction must not be sent: %#v", input)
+			}
+			if _, exists := input["externalAccount"]; exists {
+				t.Fatalf("skipped external account must not be sent: %#v", input)
+			}
 			writeJSONResponse(writer, merchantOnboardingFixture("APPLICATION", "SUBMITTED", nil))
 		default:
 			http.NotFound(writer, request)
@@ -97,6 +107,48 @@ func TestMerchantApplicationRequiresAuthorConfirmedHandle(t *testing.T) {
 	)
 	if exit != 0 || envelope["ok"] != true || applicationCalls.Load() != 1 {
 		t.Fatalf("confirmed application failed: exit=%d envelope=%#v calls=%d", exit, envelope, applicationCalls.Load())
+	}
+}
+
+func TestMerchantApplicationValidatesOptionalProfileLengthsBeforeCallingAPI(t *testing.T) {
+	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
+	t.Setenv(processAccessTokenEnvironment, accessToken)
+	var applicationCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		switch request.URL.Path {
+		case "/v1/cli/auth/status":
+			writeMerchantOnboardingAuth(writer)
+		case "/v1/cli/merchant/onboarding/applications":
+			applicationCalls.Add(1)
+			writeJSONResponse(writer, merchantOnboardingFixture("APPLICATION", "SUBMITTED", nil))
+		default:
+			http.NotFound(writer, request)
+		}
+	}))
+	defer server.Close()
+
+	exit, _ := executeMerchantOnboardingCommand(t, server,
+		"merchant", "onboarding", "apply", "--handle", "chosen-name",
+		"--introduction", strings.Repeat("😀", merchantApplicationIntroductionMaxUTF16Units/2),
+		"--external-account", strings.Repeat("😀", merchantApplicationExternalAccountMaxUTF16Units/2),
+	)
+	if exit != 0 || applicationCalls.Load() != 1 {
+		t.Fatalf("UTF-16 boundary input was rejected: exit=%d calls=%d", exit, applicationCalls.Load())
+	}
+
+	exit, _ = executeMerchantOnboardingCommand(t, server,
+		"merchant", "onboarding", "apply", "--handle", "chosen-name",
+		"--introduction", strings.Repeat("😀", merchantApplicationIntroductionMaxUTF16Units/2+1),
+	)
+	if exit == 0 || applicationCalls.Load() != 1 {
+		t.Fatalf("overlong introduction crossed the API boundary: exit=%d calls=%d", exit, applicationCalls.Load())
+	}
+	exit, _ = executeMerchantOnboardingCommand(t, server,
+		"merchant", "onboarding", "apply", "--handle", "chosen-name",
+		"--external-account", strings.Repeat("😀", merchantApplicationExternalAccountMaxUTF16Units/2+1),
+	)
+	if exit == 0 || applicationCalls.Load() != 1 {
+		t.Fatalf("overlong external account crossed the API boundary: exit=%d calls=%d", exit, applicationCalls.Load())
 	}
 }
 

@@ -154,18 +154,24 @@ func (c *Client) ListMerchantAccounts(ctx context.Context) (MerchantAccountsResp
 
 func (c *Client) GetMerchantOnboarding(ctx context.Context) (CurrentMerchantOnboarding, error) {
 	var response CurrentMerchantOnboarding
-	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/onboarding/current", nil, &response, "@stored")
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/onboarding/current?includeApplicationProfile=1", nil, &response, "@stored")
 	return response, err
 }
 
-func (c *Client) CreateMerchantApplication(ctx context.Context, clientRequestID string, displayName *string, handle string) (MerchantOnboarding, error) {
+func (c *Client) CreateMerchantApplication(ctx context.Context, clientRequestID string, displayName *string, handle string, introduction *string, externalAccount *string) (MerchantOnboarding, error) {
 	var response MerchantOnboarding
 	payload := map[string]any{"clientRequestId": clientRequestID, "handle": handle}
 	// displayName 是可选展示名称；handle 必须由作者本人确认并始终发送。
 	if displayName != nil {
 		payload["displayName"] = *displayName
 	}
-	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/onboarding/applications", payload, &response, "@stored")
+	if introduction != nil {
+		payload["introduction"] = *introduction
+	}
+	if externalAccount != nil {
+		payload["externalAccount"] = *externalAccount
+	}
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/merchant/onboarding/applications?includeApplicationProfile=1", payload, &response, "@stored")
 	return response, err
 }
 

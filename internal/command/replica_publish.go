@@ -474,7 +474,7 @@ func handleReplicaPublicationNextAction(ctx context.Context, runtime *Runtime, s
 			}
 		}
 		progress(runtime, "Submitting the authorized creator application")
-		application, err := runtime.client().CreateMerchantApplication(ctx, pending.CreatorApplicationRequestID, nil, pending.CreatorHandle)
+		application, err := runtime.client().CreateMerchantApplication(ctx, pending.CreatorApplicationRequestID, nil, pending.CreatorHandle, nil, nil)
 		if err != nil {
 			return replicaPublicationPresentation{}, err
 		}
