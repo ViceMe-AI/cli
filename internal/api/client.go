@@ -399,6 +399,83 @@ func (c *Client) PublishPageCustomization(ctx context.Context, releaseID, mercha
 	return response, err
 }
 
+func (c *Client) DescribeProfilePageCustomization(ctx context.Context) (ProfilePageCustomizationTargetDescription, error) {
+	var response ProfilePageCustomizationTargetDescription
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/profile/page-customizations/describe", nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetProfilePageCustomizationState(ctx context.Context) (PageCustomizationState, error) {
+	var response PageCustomizationState
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/profile/page-customizations", nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) GetProfilePageCustomizationSourceStatus(ctx context.Context) (PageCustomizationSourceStatus, error) {
+	var response PageCustomizationSourceStatus
+	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/profile/page-customizations/source", nil, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CreateProfilePageCustomizationDraft(ctx context.Context, request CreateProfilePageCustomizationDraftRequest) (CreatePageCustomizationDraftResponse, error) {
+	var response CreatePageCustomizationDraftResponse
+	err := c.doJSON(ctx, http.MethodPost, "/v1/cli/profile/page-customizations/drafts", request, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) AuthorizeProfilePageCustomizationUpload(ctx context.Context, releaseID string) (PageCustomizationUploadAuthorization, error) {
+	var response PageCustomizationUploadAuthorization
+	endpoint := "/v1/cli/profile/page-customizations/releases/" + url.PathEscape(releaseID) + "/upload-authorizations"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]any{}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) AuthorizeProfilePageCustomizationSourceUpload(ctx context.Context, releaseID string) (PageCustomizationUploadAuthorization, error) {
+	var response PageCustomizationUploadAuthorization
+	endpoint := "/v1/cli/profile/page-customizations/releases/" + url.PathEscape(releaseID) + "/source-upload-authorizations"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]any{}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) CompleteProfilePageCustomizationUpload(ctx context.Context, releaseID string) (PageCustomizationRelease, error) {
+	var response PageCustomizationRelease
+	endpoint := "/v1/cli/profile/page-customizations/releases/" + url.PathEscape(releaseID) + "/complete-upload"
+	err := c.doJSON(ctx, http.MethodPost, endpoint, map[string]any{}, &response, "@stored")
+	return response, err
+}
+
+func (c *Client) DownloadProfilePageCustomizationSource(ctx context.Context, releaseID string) ([]byte, error) {
+	endpoint := "/v1/cli/profile/page-customizations/releases/" + url.PathEscape(releaseID) + "/source"
+	response, err := c.sendBody(ctx, http.MethodGet, endpoint, nil, "", "@stored")
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	const maxPageSourceBytes = 100 << 20
+	data, readErr := io.ReadAll(io.LimitReader(response.Body, maxPageSourceBytes+1))
+	if readErr != nil {
+		return nil, output.Network("PAGE_SOURCE_DOWNLOAD_FAILED", "failed to read the personal profile source", readErr)
+	}
+	if len(data) > maxPageSourceBytes {
+		return nil, output.Validation("PAGE_SOURCE_TOO_LARGE", "personal profile source exceeds the 100 MiB limit")
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, decodeServerError(response.StatusCode, data, response.Header.Get("X-Request-Id"))
+	}
+	return data, nil
+}
+
+func (c *Client) PublishProfilePageCustomization(ctx context.Context, releaseID string, expectedActiveReleaseID *string, expectedConcurrencyToken, action string) (PageCustomizationRelease, error) {
+	var response PageCustomizationRelease
+	endpoint := "/v1/cli/profile/page-customizations/releases/" + url.PathEscape(releaseID) + "/" + action
+	payload := map[string]any{"expectedActiveReleaseId": expectedActiveReleaseID}
+	if expectedConcurrencyToken != "" {
+		payload["expectedConcurrencyToken"] = expectedConcurrencyToken
+	}
+	err := c.doJSON(ctx, http.MethodPost, endpoint, payload, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) UpdateMerchantWork(ctx context.Context, workID string, input json.RawMessage) (MerchantWork, error) {
 	var response MerchantWork
 	endpoint := "/v1/cli/merchant/works/" + url.PathEscape(workID)

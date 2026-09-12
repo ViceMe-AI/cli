@@ -1,6 +1,6 @@
 export const initialProfile = {
   name: '你的名字',
-  headline: '创作者 · 独立开发者',
+  headline: '个人简介 · 你正在做的事',
   bio: '用作品和公开联系方式介绍你正在做的事。',
   tags: ['AI 产品', '构建', '创作'],
   avatar: '',
