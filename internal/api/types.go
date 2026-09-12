@@ -373,24 +373,29 @@ type UpdateWorkSdkAccessRequest struct {
 
 type WorkAccessPrice struct {
 	Currency    string `json:"currency"`
-	AmountCents int    `json:"amountCents"`
+	AmountCents int    `json:"amountCents,omitempty"`
+	AmountMinor int    `json:"amountMinor,omitempty"`
 }
 
 type WorkAccessFeature struct {
-	FeatureKey string           `json:"featureKey"`
-	Title      string           `json:"title"`
-	PolicyType string           `json:"policyType"`
-	ProductID  *string          `json:"productId,omitempty"`
-	Price      *WorkAccessPrice `json:"price"`
-	Status     string           `json:"status"`
+	Availability  string                      `json:"availability,omitempty"`
+	PricingIntent *WebsiteAccessPricingIntent `json:"pricingIntent,omitempty"`
+	FeatureKey    string                      `json:"featureKey"`
+	Title         string                      `json:"title"`
+	PolicyType    string                      `json:"policyType"`
+	ProductID     *string                     `json:"productId,omitempty"`
+	Price         *WorkAccessPrice            `json:"price"`
+	Status        string                      `json:"status"`
 }
 
 type WorkAccessFeatureInput struct {
-	FeatureKey string           `json:"featureKey"`
-	Title      string           `json:"title"`
-	PolicyType string           `json:"policyType"`
-	Price      *WorkAccessPrice `json:"price"`
-	Status     string           `json:"status"`
+	Availability  string                      `json:"availability,omitempty"`
+	PricingIntent *WebsiteAccessPricingIntent `json:"pricingIntent,omitempty"`
+	FeatureKey    string                      `json:"featureKey"`
+	Title         string                      `json:"title"`
+	PolicyType    string                      `json:"policyType"`
+	Price         *WorkAccessPrice            `json:"price"`
+	Status        string                      `json:"status"`
 }
 
 type WorkSdkAccessKeys struct {
