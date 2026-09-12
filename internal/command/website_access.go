@@ -237,8 +237,8 @@ func normalizeWebsiteAccessInput(input *websiteAccessInput, market string) error
 	}
 	if value := input.Work.CanonicalOrigin; value != "" {
 		parsed, err := url.Parse(value)
-		if err != nil || parsed.User != nil || parsed.Host == "" || (parsed.Scheme != "https" && parsed.Scheme != "http") || strings.ContainsAny(value, "\r\n\t") {
-			return output.Validation("WEBSITE_ACCESS_INPUT_INVALID", "optional website address must be a valid HTTP(S) URL")
+		if err != nil || parsed.User != nil || parsed.Host == "" || parsed.Scheme != "https" || strings.ContainsAny(value, "\r\n\t") {
+			return output.Validation("WEBSITE_ACCESS_INPUT_INVALID", "optional website address must be a valid HTTPS URL")
 		}
 	}
 	if len(input.AccessFeatures) > 100 {
@@ -251,13 +251,17 @@ func normalizeWebsiteAccessInput(input *websiteAccessInput, market string) error
 			f.Status = "ACTIVE"
 		}
 		if f.Availability == "" {
-			f.Availability = "ACTIVE"
-			if f.PolicyType == "WORK_ENTITLEMENT" && market == "GLOBAL" {
+			f.Availability = f.Status
+			if f.Status != "DISABLED" && f.PolicyType == "WORK_ENTITLEMENT" && market == "GLOBAL" {
 				f.Availability = "PENDING_CHANNEL"
 			}
 		}
 		if !api.ValidWebsiteAccessFeatureInput(*f) || seen[f.FeatureKey] {
 			return output.Validation("WEBSITE_ACCESS_INPUT_INVALID", "feature keys, policies, status and positive CNY/USD prices must be valid and unique")
+		}
+		// Shop stores lifecycle separately from channel availability.
+		if f.Status == "PENDING_CHANNEL" {
+			f.Status = "ACTIVE"
 		}
 		seen[f.FeatureKey] = true
 	}
@@ -275,14 +279,18 @@ func verifyWebsiteAccessDelta(access *api.WorkSdkAccess, delta []api.WebsiteAcce
 	changed := map[string]bool{}
 	for _, f := range delta {
 		actual, found := byKey[f.FeatureKey]
-		if !found || actual.PolicyType != f.PolicyType || actual.Title != f.Title || actual.Status != f.Status {
+		lifecycleStatus := actual.Status
+		if lifecycleStatus == "PENDING_CHANNEL" && (actual.Availability == "" || actual.Availability == "PENDING_CHANNEL") {
+			lifecycleStatus = "ACTIVE"
+		}
+		if !found || actual.PolicyType != f.PolicyType || actual.Title != f.Title || lifecycleStatus != f.Status {
 			return output.Validation("WEBSITE_ACCESS_READBACK_MISMATCH", "configured feature does not match the requested delta")
 		}
 		changed[f.FeatureKey] = true
 		if f.PricingIntent != nil {
 			price := actual.PricingIntent
 			if price == nil && actual.Price != nil {
-				price = &api.WebsiteAccessPricingIntent{Currency: actual.Price.Currency, AmountMinor: int64(actual.Price.AmountCents)}
+				price = &api.WebsiteAccessPricingIntent{Currency: actual.Price.Currency, AmountMinor: int64(actual.Price.MinorUnits())}
 			}
 			if !reflect.DeepEqual(price, f.PricingIntent) {
 				return output.Validation("WEBSITE_ACCESS_READBACK_MISMATCH", "configured price does not match the requested delta")

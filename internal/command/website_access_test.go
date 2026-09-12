@@ -393,3 +393,29 @@ func TestWebsiteAccessConcurrentOwnerStopsBeforeNetwork(t *testing.T) {
 		t.Fatal("concurrent request created another identity")
 	}
 }
+
+func TestWebsiteAccessCanonicalOriginAndLifecycleContract(t *testing.T) {
+	for _, value := range []string{"", "https://example.test"} {
+		input := websiteAccessInput{Work: api.WebsiteAccessWorkInput{CanonicalOrigin: value}}
+		if err := normalizeWebsiteAccessInput(&input, "CN"); err != nil {
+			t.Fatalf("valid optional origin %q: %v", value, err)
+		}
+	}
+	input := websiteAccessInput{Work: api.WebsiteAccessWorkInput{CanonicalOrigin: "http://example.test"}}
+	if normalizeWebsiteAccessInput(&input, "CN") == nil {
+		t.Fatal("HTTP origin incompatible with Shop accepted")
+	}
+	for _, status := range []string{"PENDING_CHANNEL", "DISABLED"} {
+		input := websiteAccessInput{AccessFeatures: []api.WebsiteAccessFeatureInput{{FeatureKey: "export", Title: "Export", PolicyType: "WORK_ENTITLEMENT", Status: status, PricingIntent: &api.WebsiteAccessPricingIntent{Currency: "USD", AmountMinor: 199}}}}
+		if err := normalizeWebsiteAccessInput(&input, "GLOBAL"); err != nil {
+			t.Fatal(err)
+		}
+		feature := input.AccessFeatures[0]
+		if feature.Availability != status {
+			t.Fatalf("lost availability: %#v", feature)
+		}
+		if status == "PENDING_CHANNEL" && feature.Status != "ACTIVE" {
+			t.Fatalf("pending lifecycle not normalized: %#v", feature)
+		}
+	}
+}

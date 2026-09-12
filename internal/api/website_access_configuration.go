@@ -84,7 +84,7 @@ func (result *WebsiteAccessConfigurationResponse) validateAPIResponse() error {
 }
 
 func ValidWebsiteAccessFeatureInput(feature WebsiteAccessFeatureInput) bool {
-	if !accessWorkFeatureKeyPattern.MatchString(feature.FeatureKey) || strings.TrimSpace(feature.Title) == "" || utf16CodeUnits(feature.Title) > 120 || (feature.Status != "ACTIVE" && feature.Status != "DISABLED") {
+	if !accessWorkFeatureKeyPattern.MatchString(feature.FeatureKey) || strings.TrimSpace(feature.Title) == "" || utf16CodeUnits(feature.Title) > 120 || (feature.Status != "ACTIVE" && feature.Status != "PENDING_CHANNEL" && feature.Status != "DISABLED") {
 		return false
 	}
 	switch feature.Availability {
@@ -92,10 +92,13 @@ func ValidWebsiteAccessFeatureInput(feature WebsiteAccessFeatureInput) bool {
 	default:
 		return false
 	}
+	if feature.Status == "PENDING_CHANNEL" && feature.Availability != "PENDING_CHANNEL" {
+		return false
+	}
 	if feature.PolicyType == "WORK_ENTITLEMENT" {
 		return validWebsiteAccessPricing(feature.PricingIntent)
 	}
-	return (feature.PolicyType == "PUBLIC" || feature.PolicyType == "FOLLOW_OWNER") && feature.PricingIntent == nil && feature.Availability != "PENDING_CHANNEL"
+	return (feature.PolicyType == "PUBLIC" || feature.PolicyType == "FOLLOW_OWNER") && feature.PricingIntent == nil && feature.Availability != "PENDING_CHANNEL" && feature.Status != "PENDING_CHANNEL"
 }
 
 func validWebsiteAccessPricing(price *WebsiteAccessPricingIntent) bool {
@@ -107,4 +110,22 @@ func websiteAccessPricingEqual(left, right *WebsiteAccessPricingIntent) bool {
 		return left == nil && right == nil
 	}
 	return *left == *right
+}
+
+// MinorUnits accepts both the legacy CNY amountCents and the v3 price union.
+func (price WorkAccessPrice) MinorUnits() int {
+	if price.AmountMinor != 0 {
+		return price.AmountMinor
+	}
+	return price.AmountCents
+}
+
+func validWorkAccessPrice(price *WorkAccessPrice) bool {
+	if price == nil || price.MinorUnits() < 1 || price.MinorUnits() > 2147483647 {
+		return false
+	}
+	if price.AmountMinor != 0 {
+		return price.AmountCents == 0 && (price.Currency == "CNY" || price.Currency == "USD")
+	}
+	return price.Currency == "CNY"
 }

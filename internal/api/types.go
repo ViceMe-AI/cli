@@ -373,7 +373,8 @@ type UpdateWorkSdkAccessRequest struct {
 
 type WorkAccessPrice struct {
 	Currency    string `json:"currency"`
-	AmountCents int    `json:"amountCents"`
+	AmountCents int    `json:"amountCents,omitempty"`
+	AmountMinor int    `json:"amountMinor,omitempty"`
 }
 
 type WorkAccessFeature struct {

@@ -18,20 +18,20 @@ viceme website access resume --project /absolute/project
 
 ```json
 {
-  "work": {"title": "图片导出工具", "summary": "编辑图片并导出高清版本"},
+  "work": {"title": "图片导出工具", "slug": "image-exporter", "summary": "编辑图片并导出高清版本"},
   "accessFeatures": [
     {"featureKey": "export", "title": "高清导出", "policyType": "WORK_ENTITLEMENT", "availability": "ACTIVE", "pricingIntent": {"currency": "CNY", "amountMinor": 990}, "status": "ACTIVE"}
   ]
 }
 ```
 
-关注规则用 FOLLOW_OWNER，pricingIntent 为 null。GLOBAL USD 示例将 currency 改 USD、availability 改 PENDING_CHANNEL，金额由作者确定。work.canonicalOrigin、workId 和 merchantAccountId 可省略；已绑定时不能换成其他目标。价格和 availability 以服务端实际结果为准，不从总渠道枚举判断可收款。
+关注规则用 FOLLOW_OWNER，pricingIntent 为 null。GLOBAL USD 示例将 currency 改 USD、availability 改 PENDING_CHANNEL，金额由作者确定。新 Work 需要 title 和 slug；从项目事实生成合法 slug，收到 PROVIDE_INPUT 时只补 missingFields。work.canonicalOrigin、workId 和 merchantAccountId 可省略；选填的网站地址须为 HTTPS，缺域名不触发验证流程。已绑定时不能换成其他目标。价格和 availability 以服务端实际结果为准，不从总渠道枚举判断可收款。
 
 响应含 nextAction、completedSteps、phase、requestId、resumeArgs、Work 目标、access、availability。API 写入成功后，CLI 用现有 sdk-access get 写后重读。PLATFORM_CONFIGURED 不代表宿主已修改或验证；权限、网络或配置冲突时保存原请求恢复，不能为了 retry 新建 Work。代码失败保留可恢复平台配置并说明，不能盲目把整份配置 disable 或覆盖他人的新版本。
 
 ## 浏览器 SDK
 
-安装 `@viceme-ai/sdk`，生产用 keys.live，region 跟随配置市场：
+先查项目已安装版本、锁文件及正式发布能力说明，选择支持 Access v3 的 `@viceme-ai/sdk`，记录实际采用的发布版本；不要假定 npm 默认版本已包含当前开发分支。生产用 keys.live，region 跟随配置市场：
 
 ```ts
 import { createViceMe } from "@viceme-ai/sdk";
@@ -43,6 +43,8 @@ async function exportImage() {
   await originalExportImage();
 }
 ```
+
+`ready()` 只完成本地初始化，不能据此判断协议可用。首次 `access.check()`／`access.require()` 创建 session 时，新 SDK 发送 `supportedAccessProtocolVersions: [3]`；验证响应为 `accessProtocolVersion: 3`，且 `marketCapabilities.market` 与目标市场一致，使用其登录、币种、checkoutAvailability 和 anonymousPurchase 能力。不要在日志／回执保存 session、buyer 或 user token。无版本响应仍可供旧 SDK 流程兼容，但不满足本方案匿名权益及 GLOBAL 验收；缺少正式 SDK 或服务端能力时保留平台配置并报告依赖待发布，不生成 verified=true。
 
 显示名称和价格使用 access.getFeatures()。宿主只有原动作外层门控，匿名识别／恢复、登录默认关注、结账和账号领取均由平台及 SDK 处理。桌面结账保留在 SDK Access Layer，移动 H5/WAP 可进入支付渠道页面；窗口创建、拦截和失败反馈属于 Shop。仅根据新的服务端访问决定解锁，取消或支付窗口失败时宿主不解锁。
 

@@ -15,7 +15,7 @@ description: 为现有网站接入关注或匿名付费解锁，支持 CN/GLOBAL
 2. 首次调用 CLI 前按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 找到现有完整路径。直接执行 `website access configure --project <项目> --input <JSON>`；不先跑 auth status、merchant qualification 或全套诊断。输入和回执见 [接入参考](references/integration.md)。平台资源由命令内部处理，不把缺失状态变成用户任务。
 3. 只依据稳定 error.code、结构化 nextAction 和 resumeArgs 继续。`AUTHENTICATE_CREATOR` 时用 creator-tools 的统一登录编排；资格动作出现后才调用 `$become-a-creator`，复用已授权申请、已选商家和用户名。审核待处理时保留请求。登录／资格恢复后用原 resumeArgs，不重新建 Work 或发布源码。PROVIDE_INPUT／COLLECT_INPUT 需补业务输入时重新 configure 同一项目；不要改写受管状态文件。
 4. `PLATFORM_CONFIGURED` 只表示平台配置成功。CLI 已完成写后重读并提供永久公开 `keys.test`、`keys.live`，没有顶层单一 `workKey` 字段。生产宿主把 `keys.live` 传给 SDK。完整 hosted `danmaku`/`tip` features、完整 `accessFeatures`、精确 `configVersion` 及两个 key 应保留且没有发生轮换。部署市场依据同一 profile，不能由界面语言猜测。
-5. 安装 `@viceme-ai/sdk`，复用原项目的包管理器和组件。在原用户点击处理器调用 `access.require(featureKey)`，只有 `allowed: true` 后执行原动作，保持其参数、返回值、错误和副作用。名称和价格使用 `access.getFeatures()`。每个 live key 复用一个客户端，卸载时 destroy。
+5. 检查项目现有 SDK／锁文件及对应正式发布的能力说明，安装 `@viceme-ai/sdk` 中已支持 Access v3 的正式版本并记录实际版本；不能把仓库未发布版本或旧版兼容模式当成匿名付费／绑定已完成。真实验证首个 Access 请求协商 `accessProtocolVersion: 3` 和 `marketCapabilities`，不记录 token。新 SDK 或服务端尚未发布时保留 PLATFORM_CONFIGURED，明确等待依赖，不提交 verified=true。复用原项目的包管理器和组件。在原用户点击处理器调用 `access.require(featureKey)`，只有 `allowed: true` 后执行原动作，保持其参数、返回值、错误和副作用。名称和价格使用 `access.getFeatures()`。每个 live key 复用一个客户端，卸载时 destroy。
 6. 测试实际允许、拒绝、取消、匿名购买恢复、登录绑定、已购以及关注路径。支付窗口失败反馈由 Shop 平台层负责；未完成时宿主不解锁。提交真实宿主回执给 `website access resume --receipt <JSON>`，主 Agent 核对 diff、配置及验证证据后才报告完成。没有实际验证不能写 verified=true。
 
 ## 异步接入与完成后资料
