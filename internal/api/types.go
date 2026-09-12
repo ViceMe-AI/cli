@@ -106,6 +106,8 @@ type MerchantOnboarding struct {
 	MerchantAccountID    *string                      `json:"merchantAccountId"`
 	RequestedHandle      *string                      `json:"requestedHandle"`
 	DisplayName          string                       `json:"displayName"`
+	Introduction         *string                      `json:"introduction"`
+	ExternalAccount      *string                      `json:"externalAccount"`
 	Status               string                       `json:"status"`
 	LockVersion          int                          `json:"lockVersion"`
 	ReservationExpiresAt *string                      `json:"reservationExpiresAt"`

@@ -10,6 +10,8 @@ import (
 
 // 与 API 契约 MERCHANT_ONBOARDING_EVIDENCE_TEXT_MAX 保持一致。
 const onboardingEvidenceTextMaxRunes = 2000
+const merchantApplicationIntroductionMaxUTF16Units = 500
+const merchantApplicationExternalAccountMaxUTF16Units = 2000
 
 func newMerchantOnboardingCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "onboarding", Short: "Apply for Merchant access"}
@@ -39,22 +41,27 @@ func newMerchantOnboardingStatusCommand(runtime *Runtime) *cobra.Command {
 }
 
 func newMerchantApplicationCommand(runtime *Runtime) *cobra.Command {
-	var displayName, handle string
+	var displayName, handle, introduction, externalAccount string
 	command := &cobra.Command{
 		Use: "apply", Short: "Submit a Merchant application with the creator username chosen by the author", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error {
 			if err := runtime.requireSkillPublicationAuthentication(command.Context()); err != nil {
 				return err
 			}
-			var optionalDisplayName *string
-			if value := strings.TrimSpace(displayName); value != "" {
-				optionalDisplayName = &value
+			optionalDisplayName := optionalTrimmedString(displayName)
+			optionalIntroduction := optionalTrimmedString(introduction)
+			optionalExternalAccount := optionalTrimmedString(externalAccount)
+			if optionalIntroduction != nil && utf16CodeUnits(*optionalIntroduction) > merchantApplicationIntroductionMaxUTF16Units {
+				return output.Validation("MERCHANT_APPLICATION_INTRODUCTION_TOO_LONG", "--introduction must be at most 500 characters")
+			}
+			if optionalExternalAccount != nil && utf16CodeUnits(*optionalExternalAccount) > merchantApplicationExternalAccountMaxUTF16Units {
+				return output.Validation("MERCHANT_APPLICATION_EXTERNAL_ACCOUNT_TOO_LONG", "--external-account must be at most 2000 characters")
 			}
 			confirmedHandle := strings.TrimSpace(handle)
 			if err := validateConfirmedCreatorHandle(confirmedHandle); err != nil {
 				return err
 			}
-			result, err := runtime.client().CreateMerchantApplication(command.Context(), runtime.deps.NewID(), optionalDisplayName, confirmedHandle)
+			result, err := runtime.client().CreateMerchantApplication(command.Context(), runtime.deps.NewID(), optionalDisplayName, confirmedHandle, optionalIntroduction, optionalExternalAccount)
 			if err != nil {
 				return err
 			}
@@ -63,8 +70,18 @@ func newMerchantApplicationCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&displayName, "display-name", "", "optional Merchant display name override")
 	command.Flags().StringVar(&handle, "handle", "", "author-confirmed creator username and permanent homepage handle")
+	command.Flags().StringVar(&introduction, "introduction", "", "optional short introduction and areas of expertise")
+	command.Flags().StringVar(&externalAccount, "external-account", "", "optional GitHub, Xiaohongshu, or personal website account")
 	_ = command.MarkFlagRequired("handle")
 	return command
+}
+
+func optionalTrimmedString(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 func validateConfirmedCreatorHandle(handle string) error {
