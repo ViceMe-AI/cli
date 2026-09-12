@@ -116,6 +116,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"不创建平行申请", "每次提交申请前都必须先让作者本人确定 handle", "玩法守卫模式",
 				"WorkBuddy 使用 `AskUserQuestion`", "其他宿主使用其等价原生能力", "本 Skill 不调用 `show_widget`",
 				"同一个等待点只展示一种交互", "并保留卡片自带的自由输入",
+				"创作者用户名中包含 @，是否删除全部 @？", "不得静默删除或直接提交",
 				"Shop 不从昵称派生 handle", "申请中", "交回调用玩法",
 			},
 		},
@@ -438,6 +439,40 @@ func TestCreatorOnboardingKeepsHumanReviewSeparateFromPersonalPages(t *testing.T
 	}
 	if currentUser := strings.TrimSpace(os.Getenv("USER")); currentUser != "" && strings.Contains(strings.ToLower(text), strings.ToLower(currentUser)) {
 		t.Fatal("creator onboarding Skill uses the current developer username as an example")
+	}
+}
+
+func TestCreatorOnboardingSkillConfirmsAtSignRemovalAndEchoesSavedHandle(t *testing.T) {
+	t.Parallel()
+
+	onboarding, err := fs.ReadFile(cliembed.EmbeddedSkills(), "become-a-creator/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(onboarding)
+	for _, required := range []string{
+		"所有自动候选、快捷项、预览、回显和主页地址都使用不带 `@` 的裸 handle",
+		"开头或中间包含任意 `@`",
+		"创作者用户名中包含 @，是否删除全部 @？",
+		"不得静默删除或直接提交",
+		"选择“删除 @”",
+		"删除输入中的全部 `@`",
+		"再按相同字符规则重新校验",
+		"选择“保留 @”",
+		"永久用户名不支持 `@`",
+		"普通用户名不增加额外确认",
+		"`onboarding.requestedHandle` 与 `creatorIdentity.handle` 必须都和最终",
+		"提交值完全一致",
+		"后续用户名和主页地址只原样使用这次服务端回读，不得添加 `@`",
+	} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("creator onboarding omitted @ normalization contract %q", required)
+		}
+	}
+	for _, forbidden := range []string{"https://viceme.cn/@", "https://viceme.ai/@"} {
+		if strings.Contains(text, forbidden) {
+			t.Fatalf("creator onboarding retained an @-prefixed creator URL %q", forbidden)
+		}
 	}
 }
 
