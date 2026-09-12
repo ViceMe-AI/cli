@@ -32,6 +32,9 @@ func TestMerchantApplicationUsesTheUnifiedOnboardingRoute(t *testing.T) {
 			writeMerchantOnboardingAuth(writer)
 		case "/v1/cli/merchant/onboarding/applications":
 			applicationCalls.Add(1)
+			if request.URL.Query().Get("includeApplicationProfile") != "1" {
+				t.Fatal("application request did not opt in to optional profile fields")
+			}
 			var input map[string]any
 			if err := json.NewDecoder(request.Body).Decode(&input); err != nil {
 				t.Fatal(err)

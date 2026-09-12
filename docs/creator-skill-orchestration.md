@@ -78,6 +78,9 @@ Ordinary valid handles do not gain another confirmation step. A short introducti
 Xiaohongshu, or personal-website account are optional and must never block submission. The Agent asks
 for these fields only when the installed CLI exposes both matching flags, passes a display name only
 when the author volunteered a real one, and omits optional profile fields when skipped or unsupported.
+The Skill probes `merchant onboarding apply --help` before collecting the optional fields. This keeps
+the same Skill executable with an already released 0.41.0 CLI: missing flags select the handle-only
+fallback instead of issuing an `unknown flag` command.
 
 After application, the Skill reads `merchant onboarding status` once as a write readback. That
 response returns `creatorIdentity`, including the stable `markdownPath`. The returned
