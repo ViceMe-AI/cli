@@ -4,7 +4,7 @@
 
 ## 免 CLI 的试用转购买
 
-已经由 `trial.py` 安装的用户继续使用同一个脚本与本机试用凭证，不要求安装 CLI 或登录。`ready` / `install` / `status` 已经返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED 时，不要再跑 `status` 或 `use`，不要读商品 SKILL.md，不要跑 `auth status` 或 `profile list`，立刻运行 `purchase --product <product-id> --market <market> --wait 0`。`use` 只负责新使用单元预检；`status` 只查询余额，且 ready 已经给出 0 时不要再查。最后一次试用交出结果的同一轮立即运行同一条 `purchase --wait 0` 创建或恢复订单，不要等用户再说一次；之后用户再来时同样立即出码。回复正文单独一行写 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 imageChatSrc（local-file:// 加上 imagePath 绝对路径）。不要只写裸绝对路径；并用 `present_files([widgetPath])` 只打开微信支付 HTML，再以同一命令的 `--wait 60` 等待到账。超时保留原订单继续查，二维码过期不等于订单关闭。本次 `purchase --wait 0` 若返回 PAYMENT_CLOSED，立即再运行同一条命令创建新订单；不要跑 status，不要对用户说试用没耗尽。支付确认且权益有效后，脚本验证正式包摘要，准备支持文件并最后原子替换主入口，重新读取 SKILL.md 后继续原任务。此身份只覆盖当前本机凭证对应的商品，不替代上文 `install=owned` 的账号验证，不承诺跨设备找回。
+已经由 `trial.py` 安装的用户继续使用同一个脚本与本机试用凭证，不要求安装 CLI 或登录。`ready` / `install` / `status` 已经返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED 时，不要再跑 `status` 或 `use`，不要读商品 SKILL.md，不要跑 `auth status` 或 `profile list`，立刻运行 `purchase --product <product-id> --market <market> --wait 0`。`use` 只负责新使用单元预检；`status` 只查询余额，且 ready 已经给出 0 时不要再查。最后一次试用交出结果的同一轮立即运行同一条 `purchase --wait 0` 创建或恢复订单，不要等用户再说一次；之后用户再来时同样立即出码。出码后按下方「通用支付展示」中当前运行环境的通道展示支付二维码，再以同一命令的 `--wait 60` 等待到账。超时保留原订单继续查，二维码过期不等于订单关闭。本次 `purchase --wait 0` 若返回 PAYMENT_CLOSED，立即再运行同一条命令创建新订单；不要跑 status，不要对用户说试用没耗尽。支付确认且权益有效后，脚本验证正式包摘要，准备支持文件并最后原子替换主入口，重新读取 SKILL.md 后继续原任务。此身份只覆盖当前本机凭证对应的商品，不替代上文 `install=owned` 的账号验证，不承诺跨设备找回。
 
 ## 通用支付展示
 
@@ -22,7 +22,7 @@
 
 必须先让用户看到二维码再启动有界等待；支付页和图片都不查询订单、不安装 Skill、不计次，也不根据倒计时、扫码或用户自述判断支付成功。付款由外层命令查询。不得增加“查询支付结果”或“已付款但未继续”的按钮。
 
-作品链接和 access 返回的 `purchaseUrl` 是商品详情入口，不是已创建订单的支付链接，不得把它们作为“请在这里完成支付”的入口。支付入口必须来自成功创建的订单：微信 Native 流程先展示命令生成的二维码图片并用 `present_files` 打开支付页，账号购买路线另有订单 `paymentUrl` 时同时展示该链接。匿名试用购买不返回账号支付页面，不要求补登录或补造链接。没有订单或二维码时先处理授权/下单错误，不得用详情页链接代替，也不得自行拼接支付链接。
+作品链接和 access 返回的 `purchaseUrl` 是商品详情入口，不是已创建订单的支付链接，不得把它们作为“请在这里完成支付”的入口。支付入口必须来自成功创建的订单：微信 Native 流程按上方「通用支付展示」中当前运行环境的通道展示命令生成的支付页或二维码，账号购买路线另有订单 `paymentUrl` 时同时展示该链接。匿名试用购买不返回账号支付页面，不要求补登录或补造链接。没有订单或二维码时先处理授权/下单错误，不得用详情页链接代替，也不得自行拼接支付链接。
 
 已有待支付订单由原 `viceme skill install` 命令自动恢复，不要切换到需要另一种购买会话的 `viceme commerce order` 命令。返回 `SKILL_PAYMENT_QR_UNAVAILABLE` 时，说明“订单已创建，但二维码暂时无法展示”，用 Markdown 展示返回的 `paymentUrl` 让用户继续支付；不得声称二维码已生成。保留原购买状态，支付后重跑同一安装命令。
 

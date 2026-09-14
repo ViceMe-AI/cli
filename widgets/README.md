@@ -1,7 +1,9 @@
 # ViceMe CLI shared Widgets
 
 Onboarding is a host-rendered HTML fragment. Payment is a complete WeChat Pay
-cashier page opened with `present_files`, not a chat Widget. Neither is a
+cashier page presented through the invoking host's channel (WorkBuddy and
+Doubao Work deliver it with `present_files`; other hosts follow the command
+output's guidance), not a chat Widget. Neither is a
 payment authority. The CLI owns the templates; callers own their workflows. No
 external scripts, images, clipboard API, HTTP polling, order creation or
 business actions belong inside a Widget.
@@ -18,11 +20,25 @@ per card so replaying a script does not duplicate examples or timers.
 The command returns `paymentPresentation.widgetPath` (a complete WeChat Pay
 page), `paymentPresentation.imagePath` (a local PNG), and
 `paymentPresentation.imageChatSrc` (`local-file://` plus that absolute path).
-Chat bubbles embed the PNG with Markdown `![微信支付二维码]` followed by
-parentheses around `imageChatSrc`. WorkBuddy does not render a bare filesystem
-path as an image. Hosts without the `local-file://` protocol may still use
-`imagePath`. WorkBuddy opens only the HTML page with
-`present_files([widgetPath])`; never pass the PNG to `present_files`. Do not
+Presentation follows the command output's per-platform guidance; the channel
+depends on the invoking agent host:
+
+- WorkBuddy: embed the PNG in the chat bubble with Markdown `![微信支付二维码]`
+  followed by parentheses around `imageChatSrc` (a bare filesystem path does
+  not render as an image), and open only the HTML page with
+  `present_files([widgetPath])`; never pass the PNG to `present_files`. When
+  `present_files` is unavailable on WorkBuddy, the chat image alone still
+  counts as displayed.
+- Doubao Work: deliver `widgetPath` with `present_files`; its chat renders no
+  local images, so do not write a Markdown image and do not paste a bare
+  `imagePath`.
+- Other hosts (Codex, Claude, unknown): hand `widgetPath` to a browser, page,
+  or payment panel tool the platform actually provides — do not guess tool
+  names, and do not treat a Markdown image or a bare `imagePath` as displayed.
+  When no in-platform display capability exists, state the `widgetPath`
+  absolute path verbatim and ask the user to open it.
+
+Do not
 Read the HTML or PNG, do not paste HTML into chat, and do not call
 `show_widget` for payment. The page background is transparent so the cashier
 card can sit in the center of the host preview.
@@ -37,8 +53,8 @@ different order to poll. The page never says that installation or any other
 business task has completed. Only a server-confirmed order status may display
 payment success. Visible copy is the green WeChat poster, amount, countdown, QR, and merchant title. The countdown uses the order's absolute `expiresAt` and hides the QR at expiry. Expiry is not proof of failure or a reason to create a new order.
 
-If `present_files` is unavailable, still display `imageChatSrc` in the chat bubble
-with the Markdown image. If neither can be displayed, report that accurately; do
+If the invoking host's channel cannot display anything (per the platform
+rules above), report that accurately; do
 not claim the user has seen a QR.
 
 Callers may supply `resultTitle` and `resultDescription` for a confirmed `PAID`

@@ -37,20 +37,15 @@ spec.loader.exec_module(trial)
 PRODUCT_ID = "33709ab2-2246-4033-a41e-7b21d96bccb7"
 
 
+# 指纹标记直接从运行时的权威表派生,新增平台(如豆包)自动纳入清理,
+# 避免"在对应宿主里跑测试时分支断言被宿主自身标记污染"。
 AGENT_MARKER_KEYS = [
     # Keep suspension scans isolated from the developer's configured roots.
     "CODEX_HOME",
     "CLAUDE_CONFIG_DIR",
     "WORKBUDDY_CONFIG_DIR",
     "VICEME_AGENTS_SKILLS_DIR",
-    "CODEBUDDY_SESSION_ID",
-    "CODEBUDDY_SANDBOX_BROKER_SESSION_ID",
-    "WORKBUDDY_SESSION_ID",
-    "CODEX_SESSION_ID",
-    "CODEX_THREAD_ID",
-    "CODEX_SANDBOX",
-    "CLAUDECODE",
-    "CLAUDE_AGENT_SDK_VERSION",
+] + [marker for markers in trial.AGENT_ENV_MARKERS.values() for marker in markers] + [
     "AI_AGENT",
 ]
 
