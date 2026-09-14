@@ -35,20 +35,21 @@ const (
 )
 
 type replicaInstallResult struct {
-	SupportResult  *replicaSupportResult `json:"-"`
-	ReplicaID      string                `json:"replicaId"`
-	VersionID      string                `json:"versionId"`
-	Version        int                   `json:"version"`
-	OrderNo        string                `json:"orderNo"`
-	Target         string                `json:"target"`
-	ArtifactDigest string                `json:"artifactDigest"`
-	LicensePath    string                `json:"licensePath"`
-	FileCount      int                   `json:"fileCount"`
-	ExpandedBytes  uint64                `json:"expandedBytes"`
+	InvitationFlowID string                `json:"invitationFlowId,omitempty"`
+	SupportResult    *replicaSupportResult `json:"-"`
+	ReplicaID        string                `json:"replicaId"`
+	VersionID        string                `json:"versionId"`
+	Version          int                   `json:"version"`
+	OrderNo          string                `json:"orderNo"`
+	Target           string                `json:"target"`
+	ArtifactDigest   string                `json:"artifactDigest"`
+	LicensePath      string                `json:"licensePath"`
+	FileCount        int                   `json:"fileCount"`
+	ExpandedBytes    uint64                `json:"expandedBytes"`
 }
 
 func newReplicaInstallCommand(runtime *Runtime) *cobra.Command {
-	var target, locale, expectedOrderNo, replaceUnpaidOrder string
+	var target, locale, expectedOrderNo, replaceUnpaidOrder, invitationFlowID string
 	var timeout, interval time.Duration
 	var confirm, paymentPresented, anonymous, recoveryOnly, paymentResultFirst bool
 	var acceptedPriceCents int
@@ -60,19 +61,22 @@ func newReplicaInstallCommand(runtime *Runtime) *cobra.Command {
 			if anonymous && acceptedPriceCents < 0 {
 				acceptedPriceCents = replicaUnacceptedAnonymousPrice
 			}
-			result, err := installReplica(command.Context(), runtime, args[0], target, locale, timeout, interval, confirm, paymentPresented, acceptedPriceCents, recoveryOnly, paymentResultFirst, expectedOrderNo, replaceUnpaidOrder)
+			ctx := withReplicaInvitation(command.Context(), invitationFlowID)
+			result, err := installReplica(ctx, runtime, args[0], target, locale, timeout, interval, confirm, paymentPresented, acceptedPriceCents, recoveryOnly, paymentResultFirst, expectedOrderNo, replaceUnpaidOrder)
 			if err != nil {
 				return err
 			}
 			if result.SupportResult != nil {
 				return runtime.business(result.SupportResult)
 			}
+			completeReplicaInvitation(ctx, runtime)
 			return runtime.business(struct {
 				replicaInstallResult
 				NextAction string `json:"nextAction"`
 			}{result, "DEPLOY"})
 		},
 	}
+	command.Flags().StringVar(&invitationFlowID, "invitation-flow-id", "", "continue an invitation without incrementing its start count")
 	command.Flags().StringVar(&target, "target", "", "new destination directory for the Replica source")
 	command.Flags().StringVar(&locale, "locale", "zh-CN", "localized checkout presentation: zh-CN or en-US")
 	command.Flags().DurationVar(&timeout, "timeout", replicaPaymentWaitTimeout, "maximum time to wait for payment")
@@ -202,6 +206,7 @@ func installReplicaAnonymousLocked(
 		if _, err := validateReplicaCompletion(ctx, runtime, completion); err != nil {
 			return replicaInstallResult{}, err
 		}
+		useReplicaInvitation(ctx, runtime, completion.Result.InvitationFlowID, true)
 		return completion.Result, nil
 	}
 	// A presentation or bound continuation must use this attempt, not a shared paid cache.
@@ -214,9 +219,11 @@ func installReplicaAnonymousLocked(
 	if err != nil {
 		return replicaInstallResult{}, err
 	}
+	bindReplicaInvitation(ctx, runtime, &state)
 	client := runtime.client()
 	var payment api.WebsiteReplicaPaymentState
 	defer func() {
+		associateReplicaInvitation(ctx, runtime, state)
 		resultErr = replicaStoppedPayment(resultErr, runtime, state, true)
 		resultErr = replicaPaidFailure(resultErr, runtime, state, payment, true)
 	}()
@@ -314,6 +321,7 @@ func installReplicaAnonymousLocked(
 			return replicaInstallResult{}, err
 		}
 		state = store.create(requestID)
+		bindReplicaInvitation(ctx, runtime, &state)
 		state.SessionReplaySecret, err = newReplicaSessionSecret()
 		if err != nil {
 			return replicaInstallResult{}, err
@@ -543,6 +551,7 @@ func installReplicaLocked(
 		} else if err := store.removeOwnedOrphanReservation(replicaTargetReservationPath(completion.Result.Target)); err != nil {
 			return replicaInstallResult{}, err
 		}
+		useReplicaInvitation(ctx, runtime, completion.Result.InvitationFlowID, true)
 		return completion.Result, nil
 	}
 	// A presentation or bound continuation must use this attempt, not a shared paid cache.
@@ -555,9 +564,11 @@ func installReplicaLocked(
 	if err != nil {
 		return replicaInstallResult{}, err
 	}
+	bindReplicaInvitation(ctx, runtime, &state)
 	client := runtime.client()
 	var payment api.WebsiteReplicaPaymentState
 	defer func() {
+		associateReplicaInvitation(ctx, runtime, state)
 		resultErr = replicaStoppedPayment(resultErr, runtime, state, false)
 		resultErr = replicaPaidFailure(resultErr, runtime, state, payment, false)
 	}()
@@ -628,6 +639,7 @@ func installReplicaLocked(
 			return replicaInstallResult{}, err
 		}
 		state = store.create(quoteRequestID)
+		bindReplicaInvitation(ctx, runtime, &state)
 		if err := store.reserve(&state); err != nil {
 			return replicaInstallResult{}, err
 		}
@@ -809,16 +821,17 @@ func replicaQuoteConfirmation(state replicaPurchaseState) error {
 		"REPLICA_PURCHASE_CONFIRMATION_REQUIRED",
 		"confirm the Website Replica quote before creating an order",
 	).WithDetails(map[string]any{
-		"replicaId":        state.ReplicaID,
-		"replicaCode":      "VICEME-REPLICA:" + state.ShortCode,
-		"productId":        state.ProductID,
-		"title":            state.ProductTitle,
-		"currency":         state.Currency,
-		"totalAmountCents": state.PriceCents,
-		"quoteId":          state.QuoteID,
-		"expiresAt":        state.QuoteExpiresAt,
-		"target":           state.Target,
-	}).WithHint("show the exact product, price, and quote expiry to the user; only after explicit confirmation rerun the same install command with --confirm")
+		"redistributionNotice": "未经授权不得二次分发或转售源码。获取使用权不等于获得再分发权；获准的再发布仅限 ViceMe 平台，并保留来源链。",
+		"replicaId":            state.ReplicaID,
+		"replicaCode":          "VICEME-REPLICA:" + state.ShortCode,
+		"productId":            state.ProductID,
+		"title":                state.ProductTitle,
+		"currency":             state.Currency,
+		"totalAmountCents":     state.PriceCents,
+		"quoteId":              state.QuoteID,
+		"expiresAt":            state.QuoteExpiresAt,
+		"target":               state.Target,
+	}).WithHint("show the exact product, price, quote expiry, and redistribution notice to the user; only after explicit confirmation rerun the same install command with --confirm")
 }
 
 func replicaPaymentConfirmation(state replicaPurchaseState, presentation *api.CommercePaymentPresentation) error {
@@ -844,6 +857,7 @@ func installOwnedReplica(
 	shortCode string,
 	target string,
 ) (replicaInstallResult, error) {
+	useReplicaInvitation(ctx, runtime, "", true)
 	return installReplicaDownload(ctx, runtime, store, state, client, shortCode, "", target)
 }
 
@@ -870,6 +884,7 @@ func installOwnedReplicaOnly(
 			return replicaInstallResult{}, err
 		}
 		state = store.create(requestID)
+		bindReplicaInvitation(ctx, runtime, &state)
 		if err := store.reserve(&state); err != nil {
 			return replicaInstallResult{}, err
 		}
@@ -895,6 +910,7 @@ func installOwnedReplicaOnly(
 	if state.ReplicaID != "" && state.ReplicaID != download.ReplicaID {
 		return replicaInstallResult{}, replicaPurchaseConflict(state, "the owned Website Replica identity does not match the recoverable purchase")
 	}
+	useReplicaInvitation(ctx, runtime, "", true)
 	state.ReplicaID = download.ReplicaID
 	return installReplicaDownloaded(ctx, runtime, store, state, client, download, "", target)
 }
@@ -977,7 +993,8 @@ func installReplicaDownloaded(
 		return replicaInstallResult{}, err
 	}
 	result := replicaInstallResult{
-		ReplicaID: download.ReplicaID, VersionID: download.VersionID, Version: download.Version,
+		InvitationFlowID: state.InvitationFlowID,
+		ReplicaID:        download.ReplicaID, VersionID: download.VersionID, Version: download.Version,
 		OrderNo: claims.OrderNo, Target: installed.Target, ArtifactDigest: download.ArtifactDigest,
 		LicensePath: installed.LicensePath, FileCount: installed.FileCount, ExpandedBytes: installed.ExpandedBytes,
 	}
@@ -1010,6 +1027,7 @@ func installRecordedPaidReplica(
 			return err
 		}
 		exists = true
+		useReplicaInvitation(ctx, runtime, paid.InvitationFlowID, true)
 		if err := requireMissingReplicaTarget(target); err != nil {
 			return err
 		}
@@ -1032,7 +1050,8 @@ func installRecordedPaidReplica(
 			return output.Internal("REPLICA_INSTALL_FAILED", "could not atomically install the recorded paid Website Replica", err)
 		}
 		result = replicaInstallResult{
-			ReplicaID: paid.ReplicaID, VersionID: paid.VersionID, Version: paid.Version, OrderNo: paid.OrderNo,
+			InvitationFlowID: paid.InvitationFlowID,
+			ReplicaID:        paid.ReplicaID, VersionID: paid.VersionID, Version: paid.Version, OrderNo: paid.OrderNo,
 			Target: installed.Target, ArtifactDigest: paid.ArtifactDigest, LicensePath: installed.LicensePath,
 			FileCount: installed.FileCount, ExpandedBytes: installed.ExpandedBytes,
 		}
@@ -1147,6 +1166,9 @@ func verifiedReplicaLicenseClaims(ctx context.Context, runtime *Runtime, downloa
 		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_INVALID", "Website Replica license has an invalid schema")
 	}
 	claims := license.Claims
+	if grant := claims.Redistribution; grant != nil && (grant.Scope != "VICEME" || !grant.UnauthorizedRedistributionProhibited) {
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_INVALID", "Website Replica redistribution grant is invalid")
+	}
 	if license.Algorithm != "Ed25519" || license.SigningKeyID == "" || license.SigningPublicKey == "" || license.Signature == "" ||
 		claims.SchemaVersion != replicaLicenseTermsVersion || claims.LicenseTermsVersion != replicaLicenseTermsVersion ||
 		!replicaUUIDPattern.MatchString(claims.EntitlementID) || claims.ReplicaID != download.ReplicaID ||
@@ -1404,7 +1426,7 @@ func downloadAndInstallReplica(
 		return replicacontent.InstallResult{}, output.Policy("REPLICA_DOWNLOAD_DIGEST_MISMATCH", "downloaded Website Replica digest does not match its authorization")
 	}
 	if state.PriceCents > 0 {
-		if err := store.savePaid(temporaryName, download, claims.OrderNo, state.DownloadRecoverySecret); err != nil {
+		if err := store.savePaid(temporaryName, download, claims.OrderNo, state.DownloadRecoverySecret, state.InvitationFlowID); err != nil {
 			return replicacontent.InstallResult{}, err
 		}
 	}

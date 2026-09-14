@@ -174,8 +174,8 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | Skill | Use it when you want to... |
 | --- | --- |
 | `creator-tools` | install ViceMe, sign in through the browser, manage Profiles, update, diagnose, or repair the local setup. |
-| `become-a-creator` | apply for or check creator qualification for every creator workflow. |
-| `customize-your-profile-page` | use AI to create, preview, publish, update, or roll back a creator profile page. |
+| `become-a-creator` | apply for or check creator qualification for merchant-only workflows; personal profile publishing stays independent. |
+| `customize-your-profile-page` | use AI to create, locally preview, publish, update, or roll back any signed-in user's personal profile page. |
 | `customize-your-work-page` | use AI to redesign or import a downloadable Skill work page, including its visible actions and final preview. |
 | `sell-a-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
 | `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
@@ -275,6 +275,9 @@ Never copy an access token into the conversation.
 | `viceme doctor` | Check the CLI, active Profile, credentials, API readiness, and installed official Skills. |
 | `viceme auth status` | Show whether the active Profile is signed in. |
 | `viceme profile list` | Show Profiles and their API, Web, and market authorities. |
+| `viceme profile page describe` | Resolve the signed-in user's server-authoritative personal profile URL and supported page capabilities. |
+| `viceme profile page upload ...` | Validate and upload a static personal profile bundle together with its owner-only editable source, without Merchant or an online preview. |
+| `viceme profile page status/source/publish/activate ...` | Inspect, restore, publish, or roll back the current user's immutable personal profile releases with concurrency protection. |
 | `viceme skill inspect --path <path>` | Validate a local Skill without side effects. |
 | `viceme skill listing prepare --path <path>` | Create or recover the stable private owner preview and persist the local binding. |
 | `viceme skill listing get <listing-id>` | Read the authoritative private Listing state. |
@@ -457,3 +460,16 @@ CLI 在当前账号与 Profile 下保存请求，确保恢复时不会重新选�
 渠道需要本人实名签约、绑定或确认收款时，Skill 展示现有网站入口，完成后继续原单。
 `PENDING` 与 `ACTION_REQUIRED` 均不代表到账；只有 `SUCCEEDED` 表示全部提现成功。
 定期触发和长时间跟踪由上层 Agent 负责。
+
+## 网站创作提示词教程
+
+`merchant work tutorial publish <work-id>` 从 `--input tutorial.json` 发布教程；必填 `--merchant`、`--request-id`、`--expected-version`、`--preview-steps`、`--price-cents`。重试复用原请求 ID 和完整输入，价格 0 表示全文公开。教程与网站源码分别授权，版本发布后不可修改。
+
+```bash
+viceme tutorial preview <work-id>
+viceme tutorial read <work-id> --version 1
+viceme tutorial buy <work-id> --version 1
+viceme tutorial download <work-id> --version 1 --output tutorial-v1.json
+```
+
+预览无需登录；读取、购买入口和下载使用当前 CLI 账号。`buy` 返回网站结账入口，需在网站使用相同账号完成支付；不自动扣款。下载仅导出已解锁的指定版本 JSON，拒绝覆盖已有文件。网站托管预览沿用 `replica publish --page-dir ... --page-entry ...`，无需新增上传机制。需要先部署 Shop 的教程 API，再使用这些命令。

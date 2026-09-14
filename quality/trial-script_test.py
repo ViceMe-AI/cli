@@ -37,20 +37,15 @@ spec.loader.exec_module(trial)
 PRODUCT_ID = "33709ab2-2246-4033-a41e-7b21d96bccb7"
 
 
+# 指纹标记直接从运行时的权威表派生,新增平台(如豆包)自动纳入清理,
+# 避免"在对应宿主里跑测试时分支断言被宿主自身标记污染"。
 AGENT_MARKER_KEYS = [
     # Keep suspension scans isolated from the developer's configured roots.
     "CODEX_HOME",
     "CLAUDE_CONFIG_DIR",
     "WORKBUDDY_CONFIG_DIR",
     "VICEME_AGENTS_SKILLS_DIR",
-    "CODEBUDDY_SESSION_ID",
-    "CODEBUDDY_SANDBOX_BROKER_SESSION_ID",
-    "WORKBUDDY_SESSION_ID",
-    "CODEX_SESSION_ID",
-    "CODEX_THREAD_ID",
-    "CODEX_SANDBOX",
-    "CLAUDECODE",
-    "CLAUDE_AGENT_SDK_VERSION",
+] + [marker for markers in trial.AGENT_ENV_MARKERS.values() for marker in markers] + [
     "AI_AGENT",
 ]
 
@@ -463,6 +458,30 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertEqual(trial.target_roots()[0], os.path.join(home, ".agents", "skills"))
         # 显式参数覆盖探测。
         self.assertEqual(trial.target_roots("codex"), [os.path.join(home, ".agents", "skills")])
+
+    def test_payment_instructions_branch_by_invoking_agent(self):
+        # WorkBuddy:聊天 local-file 图片 + present_files 支付页,原契约不变。
+        with mock.patch.dict(os.environ, {"CODEBUDDY_SESSION_ID": "s"}):
+            instructions = trial.payment_display_instructions()
+            self.assertIn("![微信支付二维码](<imageChatSrc>)", instructions)
+            self.assertIn("present_files([widgetPath])", instructions)
+        # 豆包工作保留页面偏好,不禁止宿主明确支持的其他通道。
+        with mock.patch.dict(os.environ, {"DOUBAO_OFFICE_APP_ID": "1"}):
+            instructions = trial.payment_display_instructions()
+            self.assertIn("present_files([widgetPath])", instructions)
+        # 任一环境都必须允许明确支持的图片通道;路径交付不是展示成功。
+        for markers in ({"CODEBUDDY_SESSION_ID": "s"}, {"DOUBAO_OFFICE_APP_ID": "1"},
+                        {"CODEX_SESSION_ID": "s"}, {"CLAUDECODE": "1"}, {}):
+            with self.subTest(markers=markers):
+                with mock.patch.dict(os.environ, markers):
+                    instructions = trial.payment_display_instructions()
+                    for required in ("当前宿主明确支持", "![微信支付二维码](<imagePath>)",
+                                     "支持本地 HTML", "另一个独立获准的通道",
+                                     "只有图片和页面都无法展示时", "仅交付路径时不要启动等待"):
+                        self.assertIn(required, instructions)
+                    exhausted = trial.exhausted_purchase_message()
+                    self.assertNotIn("present_files", exhausted)
+                    self.assertIn("展示指引", exhausted)
 
     def test_auto_targets_do_not_duplicate_codex_skills(self):
         for base in (".codex", ".claude", ".workbuddy"):
@@ -1161,12 +1180,16 @@ class InstallFlowTestCase(unittest.TestCase):
                 if len(request_ids) == 1:
                     raise trial.Failure("NETWORK_ERROR", "unknown result")
             return self._purchase_order()
-        with mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=self._resource_download), mock.patch.object(trial.time, "sleep", side_effect=AssertionError("QR must return before waiting")):
+        with mock.patch.dict(os.environ, {"CODEX_SESSION_ID": "test-session"}), \
+                mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=self._resource_download), mock.patch.object(trial.time, "sleep", side_effect=AssertionError("QR must return before waiting")):
             self.assertEqual(self._run_purchase("--wait", "60")[0], 1)
             code, first = self._run_purchase("--wait", "60")
             self.assertEqual(code, 0, first)
             self.assertEqual(request_ids[0], request_ids[1])
             self.assertFalse(first["allowed"])
+            self.assertIn("![微信支付二维码](<imagePath>)", first["message"])
+            self.assertIn("只有图片和页面都无法展示时", first["message"])
+            self.assertNotIn("不要声称或依赖聊天显示本地图片", first["message"])
             self.assertNotIn("grant-secret", json.dumps(first))
             self.assertNotIn("weixin://", json.dumps(first))
             presentation = first["paymentPresentation"]
@@ -1194,6 +1217,83 @@ class InstallFlowTestCase(unittest.TestCase):
             self.assertEqual(second["orderNo"], first["orderNo"])
             self.assertTrue(calls[-1].endswith("/status"))
             self.assertEqual(len(request_ids), 2, "retrying a known order must not create another one")
+
+    def test_hosted_payment_instructions_keep_link_and_image_with_host_preferences(self):
+        for host, markers in (("workbuddy", {"CODEBUDDY_SESSION_ID": "s"}),
+                              ("doubao", {"DOUBAO_OFFICE_APP_ID": "1"}),
+                              ("codex", {"CODEX_SESSION_ID": "s"}),
+                              ("claude", {"CLAUDECODE": "1"}), ("unknown", {})):
+            with self.subTest(host=host), mock.patch.dict(os.environ, markers):
+                instructions = trial.payment_display_instructions(hosted=True)
+                for required in ("checkoutUrl 和 checkoutImageUrl 位于输出外层", "始终把返回的 checkoutUrl",
+                                 "同时单独一行", "不假设任何聊天都能渲染图片", "当前宿主明确支持",
+                                 "只使用实际返回的字段", "交付可点击的 checkoutUrl 后"):
+                    self.assertIn(required, instructions)
+                preference = "优先使用可用的平台内本地展示" if host in ("workbuddy", "doubao") else "优先展示托管图片和链接"
+                self.assertIn(preference, instructions)
+
+    def test_purchase_passes_through_hosted_checkout_links(self):
+        self._install_trial_fixture()
+        order = self._purchase_order(checkoutUrl="https://shop.example.test/trial-checkout/TRIAL_ORDER_01#t=fixture",
+                                     checkoutImageUrl="https://shop.example.test/v1/skills/trial-checkout/qr/fixture.png")
+        with mock.patch.object(trial, "api_request", return_value=order), mock.patch.object(trial, "http_download", side_effect=self._resource_download):
+            code, result = self._run_purchase()
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["checkoutUrl"], order["checkoutUrl"])
+        self.assertEqual(result["checkoutImageUrl"], order["checkoutImageUrl"])
+        self.assertTrue(os.path.isfile(result["paymentPresentation"]["imagePath"]))
+        self.assertNotIn("checkoutUrl", result["paymentPresentation"])
+
+    def test_hosted_checkout_survives_local_io_failure_retry_and_paid_restore(self):
+        directory = self._install_trial_fixture()
+        with open(os.path.join(self.home, ".viceme", "payment-presentations"), "w", encoding="utf-8") as handle:
+            handle.write("fixture blocking optional artifacts")
+        calls = []
+        paid = False
+        order = self._purchase_order(checkoutUrl="https://shop.example.test/trial-checkout/TRIAL_ORDER_01#t=fixture",
+                                     checkoutImageUrl="https://shop.example.test/v1/skills/trial-checkout/qr/fixture.png")
+        def api(market, method, path, body):
+            calls.append(path)
+            if path.endswith("/download"):
+                access = self._api(market, "GET", "/v1/skills/%s/access" % PRODUCT_ID)
+                access.update(owned=True, installKind="OWNED_PAID", trial=None)
+                download = self._api(market, "GET", "/v1/downloads/trial/%s?installId=test" % PRODUCT_ID)
+                return {"access": access, "download": download}
+            return self._purchase_order(status="PAID", paymentAction=None) if paid else order
+        with mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=self._resource_download):
+            code, first = self._run_purchase()
+            self.assertEqual(code, 0, first)
+            self.assertEqual(first["checkoutUrl"], order["checkoutUrl"])
+            self.assertEqual(first["checkoutImageUrl"], order["checkoutImageUrl"])
+            self.assertNotIn("paymentPresentation", first)
+            code, retry = self._run_purchase()
+            self.assertEqual(code, 0, retry)
+            self.assertEqual(retry["checkoutUrl"], first["checkoutUrl"])
+            self.assertEqual(retry["orderNo"], first["orderNo"])
+            self.assertEqual(sum(path.endswith("/trial-purchase") for path in calls), 1)
+            paid = True
+            code, result = self._run_purchase()
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result["owned"])
+        with open(os.path.join(directory, "SKILL.md"), encoding="utf-8") as handle:
+            self.assertNotIn(trial.GATE_MARKER, handle.read())
+
+    def test_hosted_checkout_does_not_hide_payment_integrity_failure(self):
+        self._install_trial_fixture()
+        order = self._purchase_order(checkoutUrl="https://shop.example.test/checkout")
+        with mock.patch.object(trial, "api_request", return_value=order), mock.patch.object(trial, "payment_presentation", side_effect=trial.Failure("RUNTIME_RESOURCE_INVALID", "fixture integrity failure")):
+            code, result = self._run_purchase()
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["code"], "RUNTIME_RESOURCE_INVALID")
+        self.assertFalse(trial.load_trial_state(PRODUCT_ID)["purchase"].get("presented", False))
+
+    def test_legacy_purchase_still_reports_local_io_failure(self):
+        self._install_trial_fixture()
+        with mock.patch.object(trial, "api_request", return_value=self._purchase_order()), mock.patch.object(trial, "payment_presentation", side_effect=PermissionError("fixture")):
+            code, result = self._run_purchase()
+        self.assertEqual(code, 1, result)
+        self.assertNotIn("checkoutUrl", result)
+        self.assertFalse(trial.load_trial_state(PRODUCT_ID)["purchase"].get("presented", False))
 
     def test_paid_purchase_redownloads_full_package_and_preserves_user_files(self):
         directory = self._install_trial_fixture()
@@ -1331,6 +1431,16 @@ class InstallFlowTestCase(unittest.TestCase):
                      "currency": "CNY", "expiresAt": "2099-01-01T00:00:00Z",
                      "paymentAction": {"type": "QR_CODE", "content": "weixin://pay/local-fixture"}}
             presentation = local.payment_presentation("cn", order)
+        with mock.patch.dict(os.environ, {"CODEX_SESSION_ID": "test-session"}):
+            self.assertIn("![微信支付二维码](<imagePath>)", local.payment_display_instructions())
+        with open(os.path.join(root, ".viceme/guides/widgets.md"), encoding="utf-8") as handle:
+            guide = handle.read()
+        self.assertIn("![微信支付二维码](<imagePath>)", guide)
+        self.assertNotIn("do not treat a Markdown image or a bare", guide)
+        with open(os.path.join(root, trial.RUNTIME_PATH), encoding="utf-8") as handle:
+            rules = handle.read()
+        self.assertIn("当前宿主明确支持的图片或页面通道", rules)
+        self.assertNotIn("不要声称聊天能显示本地图片", rules)
         with open(presentation["imagePath"], "rb") as handle:
             png = handle.read()
         self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))

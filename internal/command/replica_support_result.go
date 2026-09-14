@@ -70,6 +70,9 @@ func prepareReplicaSupportResult(runtime *Runtime, store replicaPurchaseStore, s
 		return replicaInstallResult{}, supportPresentationFailure(err)
 	}
 	args := []string{"replica", "install", "VICEME-REPLICA:" + state.ShortCode, "--recovery-only", "--expected-order-no", state.OrderNo, "--target", state.Target, "--profile", runtime.profile.Name}
+	if replicaUUIDPattern.MatchString(state.InvitationFlowID) {
+		args = append(args, "--invitation-flow-id", state.InvitationFlowID)
+	}
 	if anonymous {
 		args = append(args, "--anonymous")
 	}

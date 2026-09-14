@@ -1290,6 +1290,7 @@ def complete_install(
         store["paidReceiptFilename"],
         {
             "schemaVersion": 1,
+            **({"invitationFlowId": state["invitationFlowId"]} if state.get("invitationFlowId") else {}),
             "replicaId": download["replicaId"],
             "versionId": download["versionId"],
             "version": download["version"],
@@ -1305,6 +1306,7 @@ def complete_install(
     installed = install_archive(archive_path, Path(state["target"]), download)
     completion = {
         **installed,
+        **({"invitationFlowId": state["invitationFlowId"]} if state.get("invitationFlowId") else {}),
         "schemaVersion": 1,
         "replicaId": download["replicaId"],
         "versionId": download["versionId"],
@@ -1471,9 +1473,66 @@ def support_result(authority: Authority, state: Dict[str, Any], replica: Dict[st
     return result
 
 
+class InvitationFlow:
+    """Optional analytics; never changes a purchase request or its outcome."""
+
+    def __init__(self, authority: Authority, flow_id: Optional[str], request_fn: RequestFn):
+        self.authority = authority
+        self.id = flow_id if isinstance(flow_id, str) and UUID_PATTERN.fullmatch(flow_id) else None
+        self.request_fn = request_fn
+        self.state: Optional[Dict[str, Any]] = None
+        self.restored = False
+
+    def send(self, endpoint: str, body: Dict[str, Any], token: Optional[str] = None) -> bool:
+        try:
+            response = api_request(self.authority, endpoint, method="POST", body=body,
+                                   token=token, timeout=1, request_fn=self.request_fn)
+            return isinstance(response, dict) and response.get("recorded") is True
+        except Exception:
+            return False
+
+    def start(self, short_code: str) -> Optional[str]:
+        if self.id and self.send("/website-replica-invitation-flows", {
+            "flowId": self.id, "shortCode": short_code, "engine": "PYTHON",
+            "clientVersion": "standalone-invitation-v1",
+        }):
+            return self.id
+        return None
+
+    def report(self, event: str) -> None:
+        if self.id:
+            self.send("/website-replica-invitation-flows/events", {"flowId": self.id, "event": event})
+
+    def use_saved(self, saved_id: Optional[str], existing: bool = True) -> None:
+        if not self.id and isinstance(saved_id, str) and UUID_PATTERN.fullmatch(saved_id):
+            self.id = saved_id
+        if existing and self.id and self.id != saved_id and not self.restored:
+            self.report("RESTORED")
+            self.restored = True
+        if existing and isinstance(saved_id, str) and UUID_PATTERN.fullmatch(saved_id):
+            self.id = saved_id
+
+    def bind(self, state: Dict[str, Any]) -> None:
+        self.use_saved(state.get("invitationFlowId"), bool(state.get("orderNo") or state.get("invitationFlowId")))
+        if self.id and not state.get("orderNo") and not state.get("invitationFlowId"):
+            state["invitationFlowId"] = self.id
+        self.state = state
+
+    def associate(self) -> None:
+        state = self.state or {}
+        flow_id = state.get("invitationFlowId")
+        if not isinstance(flow_id, str) or not UUID_PATTERN.fullmatch(flow_id):
+            return
+        if not all(state.get(key) for key in ("sessionId", "sessionToken", "orderNo")):
+            return
+        endpoint = "/website-replica-sessions/" + urllib.parse.quote(state["sessionId"], safe="") + "/orders/" + urllib.parse.quote(state["orderNo"], safe="") + "/invitation-flow"
+        self.send(endpoint, {"flowId": flow_id}, state["sessionToken"])
+
+
 def inspect(
     work_url: str,
     *,
+    invitation_flow_id: Optional[str] = None,
     request_fn: RequestFn = http_request,
 ) -> Dict[str, Any]:
     authority = authority_for_work_url(work_url)
@@ -1481,7 +1540,9 @@ def inspect(
         authority, request_fn
     )
     discovered = discovery(authority, replica, request_fn)
+    recorded_flow_id = InvitationFlow(authority, invitation_flow_id, request_fn).start(replica["shortCode"])
     return {
+        **({"invitationFlowId": recorded_flow_id} if recorded_flow_id else {}),
         "nextAction": "PRESENT_WORK",
         "workUrl": replica["viceMeWorkUrl"],
         "workPresentation": work_presentation(
@@ -1495,10 +1556,32 @@ def inspect(
     }
 
 
-def install(
+def install(work_url: str, accepted_price_cents: Optional[int] = None, *,
+            invitation_flow_id: Optional[str] = None, **kwargs: Any) -> Dict[str, Any]:
+    flow = InvitationFlow(authority_for_work_url(work_url), invitation_flow_id, kwargs.get("request_fn", http_request))
+    completed = None
+    try:
+        completed = _install(work_url, accepted_price_cents, flow=flow, **kwargs)
+        continuation = completed.get("continuation", {})
+        if flow.id and isinstance(continuation.get("args"), list):
+            continuation["args"] += ["--invitation-flow-id", flow.id]
+        return completed
+    except WorkflowError as error:
+        recovery = error.details.get("recovery", {})
+        if flow.id and isinstance(recovery.get("args"), list) and "--invitation-flow-id" not in recovery["args"]:
+            recovery["args"] += ["--invitation-flow-id", flow.id]
+        raise
+    finally:
+        flow.associate()
+        if completed and completed.get("nextAction") == "DEPLOY":
+            flow.report("INSTALL_COMPLETED")
+
+
+def _install(
     work_url: str,
     accepted_price_cents: Optional[int] = None,
     *,
+    flow: InvitationFlow,
     target_path: Optional[str] = None,
     payment_presented: bool = False,
     replica_code: Optional[str] = None,
@@ -1542,6 +1625,7 @@ def install(
                         "REPLICA_COMPLETION_TARGET_INVALID",
                         "Completed Replica target is unavailable",
                     )
+                flow.use_saved(completion.get("invitationFlowId"))
                 return {**completion, "nextAction": "DEPLOY"}
             # A normal post-payment continuation is bound to the original local
             # attempt, even if another target has replaced the shared code receipt.
@@ -1553,7 +1637,8 @@ def install(
                         or not UUID_PATTERN.fullmatch(str(saved.get("replicaId", "")))
                         or not SECRET_PATTERN.fullmatch(str(saved.get("downloadRecoverySecret", "")))):
                     raise WorkflowError("REPLICA_PURCHASE_RECOVERY_CONFLICT", "Continuation does not match the original purchase")
-                receipt = {"replicaId": saved["replicaId"], "orderNo": saved["orderNo"], "recoverySecret": saved["downloadRecoverySecret"]}
+                flow.bind(saved)
+                receipt = {"replicaId": saved["replicaId"], "orderNo": saved["orderNo"], "recoverySecret": saved["downloadRecoverySecret"], "invitationFlowId": saved.get("invitationFlowId")}
             else:
                 receipt = recoverable_paid_receipt_by_code(authority, short_code)
             if expected_order_no and (receipt is None or receipt.get("orderNo") != expected_order_no):
@@ -1571,8 +1656,10 @@ def install(
                     "REPLICA_RECOVERY_NOT_FOUND",
                     "No paid Website Replica entitlement can be recovered for this code",
                 )
+            flow.use_saved(receipt.get("invitationFlowId"))
             state = {
                 "replicaId": receipt["replicaId"],
+                **({"invitationFlowId": flow.id} if flow.id else {}),
                 "orderNo": receipt["orderNo"],
                 "downloadRecoverySecret": receipt["recoverySecret"],
                 "target": str(target),
@@ -1622,6 +1709,7 @@ def install(
                     "REPLICA_COMPLETION_TARGET_INVALID",
                     "Completed Replica target is unavailable",
                 )
+            flow.use_saved(completion.get("invitationFlowId"))
             return {**completion, "nextAction": "DEPLOY"}
         state = read_state(store["filename"])
         presented_order_no = state.get("orderNo") if state is not None else None
@@ -1629,6 +1717,7 @@ def install(
             raise WorkflowError("REPLICA_PURCHASE_RECOVERY_CONFLICT", "Payment replacement does not match the original attempt", {"nextAction": "STOP_AND_REPORT"})
         if state is not None:
             state = validate_state(state, authority, replica, target)
+            flow.bind(state)
             if state.get("orderNo"):
                 status = recover_order_status(
                     authority,
@@ -1663,6 +1752,7 @@ def install(
                     if receipt and receipt.get("orderNo") == state["orderNo"]:
                         store["paidReceiptFilename"].unlink(missing_ok=True)
                     state = initial_state(authority, instruction, replica, target)
+                    flow.bind(state)
                     persist_state(store, state)
                 elif status["payment"]["status"] != "PENDING":
                     raise payment_restart_required(authority, state, status["payment"]["status"])
@@ -1674,11 +1764,13 @@ def install(
                     {"target": str(target)},
                 )
             state = initial_state(authority, instruction, replica, target)
+            flow.bind(state)
             persist_state(store, state)
         receipt = recoverable_paid_receipt(authority, replica)
         if not state.get("orderNo") and receipt:
             receipt_status = recover_order_status(authority, receipt["orderNo"], receipt["recoverySecret"], request_fn)
             if receipt_status["payment"]["status"] == "PAID":
+                flow.use_saved(receipt.get("invitationFlowId"))
                 state["orderNo"] = receipt["orderNo"]
                 state["downloadRecoverySecret"] = receipt["recoverySecret"]
                 persist_state(store, state)
@@ -1769,11 +1861,14 @@ def install(
 def parse_args(argv: Optional[Iterable[str]] = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
+    subparsers.add_parser("flow-id")
     start_parser = subparsers.add_parser("start")
     start_parser.add_argument("--work-url", required=True)
+    start_parser.add_argument("--invitation-flow-id")
     install_parser = subparsers.add_parser("install")
     install_parser.add_argument("--work-url", required=True)
     install_parser.add_argument("--target")
+    install_parser.add_argument("--invitation-flow-id")
     install_parser.add_argument("--accept-price-cents", type=int)
     install_parser.add_argument("--payment-presented", action="store_true")
     install_parser.add_argument("--payment-result-first", action="store_true")
@@ -1795,12 +1890,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 "Python 3.9 or newer is required",
             )
         args = parse_args(argv)
-        if args.command == "start":
-            data = inspect(args.work_url)
+        if args.command == "flow-id":
+            data = {"invitationFlowId": str(uuid.uuid4())}
+        elif args.command == "start":
+            data = inspect(args.work_url, **({"invitation_flow_id": args.invitation_flow_id} if args.invitation_flow_id else {}))
         else:
             data = install(
                 args.work_url,
                 args.accept_price_cents,
+                invitation_flow_id=args.invitation_flow_id,
                 target_path=args.target,
                 payment_presented=args.payment_presented,
                 payment_result_first=args.payment_result_first,

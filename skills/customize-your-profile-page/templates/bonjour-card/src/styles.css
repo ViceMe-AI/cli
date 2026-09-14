@@ -62,7 +62,7 @@ button.block-main:hover strong { color: #0066cc; }
 
 @media (max-width: 760px) {
   .topbar { padding: 0 18px; }
-  .workspace { grid-template-columns: 1fr; }
+  .workspace { grid-template-columns: minmax(0, 1fr); }
   .profile-rail { padding: 28px 22px; border-right: 0; border-bottom: 1px solid rgba(0, 0, 0, .08); }
   .avatar { width: 60px; height: 60px; margin-bottom: 14px; }
   .bio { max-width: 48ch; }

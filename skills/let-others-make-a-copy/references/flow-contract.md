@@ -2,12 +2,14 @@
 
 这是 CLI 输出的解释表，不是服务端状态机。只消费结构化字段；不得根据 message 文本猜动作。用户接受终审前不上传源码或页面。
 
+先按主 Skill 判断操作范围：只改已发布原站入口时不进入本表，不为样式调整生成平台发布请求；首次发布、明确的平台更新和已有请求恢复才消费对应动作。
+
 需要用户确认时，先在对话正文分行展示摘要，再按主 Skill 的确认卡规则调用提问工具：卡片只保留简短问题、“同意”“拒绝”两个预设选项及工具原生自定义输入，不把摘要放进卡片。拒绝时停止待确认动作；自定义修改意见不能当作同意，修改后刷新受影响的预览或终审再确认。
 
 | 结构化条件 | 下一步与用户说明 |
 | --- | --- |
 | `REPLICA_PUBLICATION_CONFIRMATION_REQUIRED`，review 为 CREATE | 展示首次发布摘要，确认后原样执行 confirmCommand。 |
-| `REPLICA_PUBLICATION_CONFIRMATION_REQUIRED`，review 为 UPDATE | 展示更新摘要与不可变制品，确认后复用原绑定。 |
+| `REPLICA_PUBLICATION_CONFIRMATION_REQUIRED`，review 为 UPDATE | Agent 核对不可变制品，只向创作者展示简短更新摘要，确认后复用原绑定。 |
 | 缺失业务输入 | 只补返回的缺失字段；已提供的信息不重问。WorkBuddy 用 AskUserQuestion，一张定价卡支持档位和自定义金额，价格不得猜测。 |
 | `REPLICA_CREATOR_ENTRY_BOUNDARY_INVALID` | 修复原作者入口的完整独占行标记，只移除交付副本中的入口，不猜边界、不修改其他功能。 |
 | `REPLICA_PREVIEW_REVIEW_REQUIRED` / `CONFIRM_CREATOR_PREVIEW` | 创作者确认页面和按钮后带 `--preview-reviewed` 继续；不要求本地 URL 或服务，不进行 HTTP、截图或浏览器验收。 |

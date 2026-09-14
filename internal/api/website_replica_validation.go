@@ -383,6 +383,9 @@ func validateWebsiteReplicaPublicationConfirmation(confirmation WebsiteReplicaPu
 }
 
 func validateWebsiteReplicaPublicationReview(review WebsiteReplicaPublicationReview) error {
+	if review.SourceEntitlementID != "" && !zodUUIDPattern.MatchString(review.SourceEntitlementID) {
+		return errors.New("invalid redistribution source entitlement")
+	}
 	if !validStringEnum(review.Resolution, "CREATE", "UPDATE") || !zodUUIDPattern.MatchString(review.MerchantAccountID) ||
 		strings.TrimSpace(review.MerchantDisplayName) == "" || utf16CodeUnits(strings.TrimSpace(review.MerchantDisplayName)) > 120 ||
 		!zodUUIDPattern.MatchString(review.CreatorAccountID) || utf16CodeUnits(strings.TrimSpace(review.CreatorHandle)) < 2 ||

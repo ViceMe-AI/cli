@@ -1668,7 +1668,7 @@ func resolveTargets(skillName, target string, environment Environment) ([]target
 		if target == "agents" {
 			return []targetPath{resolved}, nil
 		}
-		return []targetPath{resolved, known["agents"]}, nil
+		return deduplicateTargetPaths([]targetPath{resolved, known["agents"]}, known), nil
 	}
 	result := []targetPath{known["agents"]}
 	for _, name := range []string{"claude", "workbuddy"} {
@@ -1678,7 +1678,34 @@ func resolveTargets(skillName, target string, environment Environment) ([]target
 			result = append(result, resolved)
 		}
 	}
-	return result, nil
+	return deduplicateTargetPaths(result, known), nil
+}
+
+func deduplicateTargetPaths(selected []targetPath, known map[string]targetPath) []targetPath {
+	// The registry assigns one target name to each physical path. Choose that
+	// name independently of the caller's selector so later auto or explicit
+	// installs keep the same owner when agent directories share a symlink.
+	canonicalByPath := make(map[string]targetPath, len(known))
+	for _, name := range []string{"agents", "claude", "workbuddy"} {
+		resolved := known[name]
+		if _, exists := canonicalByPath[resolved.path]; !exists {
+			canonicalByPath[resolved.path] = resolved
+		}
+	}
+
+	result := make([]targetPath, 0, len(selected))
+	seen := make(map[string]struct{}, len(selected))
+	for _, resolved := range selected {
+		if _, exists := seen[resolved.path]; exists {
+			continue
+		}
+		seen[resolved.path] = struct{}{}
+		if canonical, exists := canonicalByPath[resolved.path]; exists {
+			resolved = canonical
+		}
+		result = append(result, resolved)
+	}
+	return result
 }
 
 func resolveKnownTargets(skillName string, environment Environment) (map[string]targetPath, error) {

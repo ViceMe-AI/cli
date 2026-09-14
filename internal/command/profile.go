@@ -27,6 +27,7 @@ func newProfileCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newProfileAddCommand(runtime))
 	command.AddCommand(newProfileUseCommand(runtime))
 	command.AddCommand(newProfileRemoveCommand(runtime))
+	command.AddCommand(newProfilePageCommand(runtime))
 	return command
 }
 

@@ -7,7 +7,10 @@ import { spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 
-import { launcherEnvironment } from "../lib/launcher-environment.mjs";
+import {
+  installedNPMPrefix,
+  launcherEnvironment,
+} from "../lib/launcher-environment.mjs";
 
 const localBinary = process.env.VICEME_TEST_BINARY;
 const packageTarball = process.env.VICEME_TEST_PACKAGE_TARBALL;
@@ -27,6 +30,41 @@ test("launcher gives the CLI exact re-execution authority", () => {
   assert.equal(environment.VICEME_INSTALL_METHOD, "npm");
   assert.equal(environment.VICEME_NPM_LAUNCHER_RUNTIME, process.execPath);
   assert.equal(environment.VICEME_NPM_LAUNCHER_PATH, launcherPath);
+});
+
+test(
+  "global launcher pins npm mutations to its own POSIX prefix",
+  { skip: process.platform === "win32" },
+  () => {
+    const launcherPath =
+      "/Applications/Work Buddy/lib/node_modules/@viceme-ai/cli/npm/bin/viceme.mjs";
+    assert.equal(
+      installedNPMPrefix(launcherPath, "darwin"),
+      "/Applications/Work Buddy",
+    );
+    const environment = launcherEnvironment(
+      {
+        NPM_CONFIG_PREFIX: "/Users/example/.nvm/versions/node/current",
+        npm_config_prefix: "/Users/example/.nvm/versions/node/current",
+      },
+      launcherPath,
+      process.execPath,
+    );
+    assert.equal(environment.NPM_CONFIG_PREFIX, "/Applications/Work Buddy");
+    assert.equal(environment.npm_config_prefix, "/Applications/Work Buddy");
+  },
+);
+
+test("npx launcher preserves the configured global prefix", () => {
+  const launcherPath =
+    "/Users/example/.npm/_npx/cache/node_modules/@viceme-ai/cli/npm/bin/viceme.mjs";
+  assert.equal(installedNPMPrefix(launcherPath, "darwin"), undefined);
+  const environment = launcherEnvironment(
+    { NPM_CONFIG_PREFIX: "/Users/example/.nvm/versions/node/current" },
+    launcherPath,
+    process.execPath,
+  );
+  assert.equal(environment.NPM_CONFIG_PREFIX, "/Users/example/.nvm/versions/node/current");
 });
 
 test("launcher classifies npm-managed launches instead of trusting foreign inherited state", () => {

@@ -1,6 +1,7 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,69 @@ import (
 	updatepkg "github.com/ViceMe-AI/cli/internal/update"
 	"github.com/spf13/cobra"
 )
+
+func TestBootstrapAutoDeduplicatesSymlinkedAgentSkillTargets(t *testing.T) {
+	root := t.TempDir()
+	sharedSkills := filepath.Join(root, ".cc-switch", "skills")
+	if err := os.MkdirAll(sharedSkills, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, agentHome := range []string{".agents", ".claude", ".codex"} {
+		directory := filepath.Join(root, agentHome)
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(sharedSkills, filepath.Join(directory, "skills")); err != nil {
+			t.Skipf("Skill 目录软链在当前平台不可用: %v", err)
+		}
+	}
+
+	health := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/v1/health/ready" {
+			http.NotFound(writer, request)
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	}))
+	defer health.Close()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	destination := filepath.Join(root, "bin", "viceme")
+	exit := Execute([]string{"bootstrap", "activate", "--destination", destination, "--agent", "auto"}, Dependencies{
+		Out: &stdout, ErrOut: &stderr,
+		Store:       securestore.NewMemory(),
+		Skills:      skillcontent.New(cliembed.EmbeddedSkills()),
+		Updater:     &startupRecoveryUpdater{},
+		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
+		APIBaseURL:  health.URL,
+		Region:      config.RegionCN,
+	})
+	if exit != 0 {
+		t.Fatalf("软链到同一物理目录的 auto 安装失败: exit=%d stdout=%s stderr=%s", exit, stdout.String(), stderr.String())
+	}
+
+	var envelope struct {
+		OK   bool                      `json:"ok"`
+		Data bootstrapActivationResult `json:"data"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
+		t.Fatalf("bootstrap 没有返回有效 JSON: %v; stdout=%s", err, stdout.String())
+	}
+	if !envelope.OK || len(envelope.Data.Install.Skills) != len(officialSkillNames) {
+		t.Fatalf("bootstrap 没有安装完整官方 Skill 集: %#v", envelope)
+	}
+	for _, report := range envelope.Data.Install.Skills {
+		if !report.AllSucceeded || len(report.Results) != 1 || report.Results[0].Target != "agents" {
+			t.Fatalf("同一物理目录没有按稳定 agents 目标只写一次: %#v", report)
+		}
+	}
+	for _, name := range officialSkillNames {
+		if _, err := os.Stat(filepath.Join(sharedSkills, name, "SKILL.md")); err != nil {
+			t.Fatalf("共享物理目录缺少 %s: %v", name, err)
+		}
+	}
+}
 
 func TestBootstrapCoalescesAnAlreadyCompleteStandaloneGeneration(t *testing.T) {
 	t.Parallel()
