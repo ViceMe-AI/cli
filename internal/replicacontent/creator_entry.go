@@ -13,7 +13,7 @@ import (
 var ErrCreatorEntryBoundary = errors.New("Website Replica creator entry markers are incomplete or nested")
 
 // StripCreatorEntry removes only explicitly delimited creator UI from a source
-// or hosted page copy. Callers validate the original content before removal;
+// copy. PAGE callers only validate boundaries and retain the original bytes;
 // the original worktree and all unmarked bytes survive.
 func StripCreatorEntry(name string, data []byte) ([]byte, bool, error) {
 	if !bytes.Contains(data, []byte("VICEME_CREATOR_ENTRY_")) {
