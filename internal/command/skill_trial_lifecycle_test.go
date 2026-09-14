@@ -290,7 +290,7 @@ func TestTrialPendingPurchaseFinishesPartialSuspensionAcrossHosts(t *testing.T) 
 	first := filepath.Join(home, ".agents", "skills", "free-test")
 	// Reproduce an older interrupted suspension: the first host is already
 	// disabled, but another matching installation still has an active entry.
-	if count, err := skillcontent.SuspendTrialSkills(skillcontent.Environment{Home: t.TempDir()}, downloadableProductID, state.server.URL, "", "https://s3.viceme.cn/start/agent-install.md", first); err != nil || count != 1 {
+	if count, err := skillcontent.SuspendTrialSkills(skillcontent.Environment{Home: t.TempDir()}, downloadableProductID, state.server.URL, "cn", "", "https://s3.viceme.cn/start/agent-install.md", first); err != nil || count != 1 {
 		t.Fatalf("partial fixture: %d %v", count, err)
 	}
 	state.mu.Lock()

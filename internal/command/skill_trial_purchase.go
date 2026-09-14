@@ -290,7 +290,7 @@ func suspendExhaustedTrial(ctx context.Context, runtime *Runtime, productID, age
 			exhausted = grant.RemainingUses == 0
 		}
 		if exhausted {
-			if _, err := skillcontent.SuspendTrialSkills(runtime.deps.Environment, productID, runtime.apiBaseURL, "", config.AgentInstallDocURL(runtime.region), directories...); err != nil {
+			if _, err := skillcontent.SuspendTrialSkills(runtime.deps.Environment, productID, runtime.apiBaseURL, string(runtime.region), "", config.AgentInstallDocURL(runtime.region), directories...); err != nil {
 				return output.Internal("SKILL_TRIAL_SUSPEND_FAILED", "exhausted trial entry could not be safely suspended; preserve the existing order and retry", err)
 			}
 		}
