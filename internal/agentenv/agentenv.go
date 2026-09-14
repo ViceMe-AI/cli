@@ -17,12 +17,14 @@ const (
 	WorkBuddy Platform = "workbuddy"
 	Codex     Platform = "codex"
 	Claude    Platform = "claude"
+	Doubao    Platform = "doubao"
 	Unknown   Platform = ""
 )
 
 // AgentEnvMarkers is the invoking-agent fingerprint table in detection
 // precedence order. Marker tuples must stay identical, and in the same
 // platform order, as AGENT_ENV_MARKERS in the trial runtime script.
+// Token-bearing variables are deliberately not used as markers.
 var AgentEnvMarkers = []struct {
 	Platform Platform
 	Markers  []string
@@ -30,6 +32,7 @@ var AgentEnvMarkers = []struct {
 	{WorkBuddy, []string{"CODEBUDDY_SESSION_ID", "CODEBUDDY_SANDBOX_BROKER_SESSION_ID", "WORKBUDDY_SESSION_ID"}},
 	{Codex, []string{"CODEX_SESSION_ID", "CODEX_THREAD_ID", "CODEX_SANDBOX"}},
 	{Claude, []string{"CLAUDECODE", "CLAUDE_AGENT_SDK_VERSION"}},
+	{Doubao, []string{"DOUBAO_OFFICE_APP_ID", "DOUBAO_OFFICE_AGENT_NAME", "DOUBAO_OFFICE_EDITION"}},
 }
 
 // Detect returns the invoking agent platform, or Unknown when no known agent

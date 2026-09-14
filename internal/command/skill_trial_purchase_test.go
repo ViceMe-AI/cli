@@ -228,6 +228,10 @@ func TestSkillPaymentPresentationHintBranchesByInvokingAgent(t *testing.T) {
 	if !strings.Contains(workBuddy, "present_files") || !strings.Contains(workBuddy, "imageChatSrc") {
 		t.Fatalf("workbuddy hint lost the present_files contract: %s", workBuddy)
 	}
+	doubao := skillPaymentPresentationHint(getenv(map[string]string{"DOUBAO_OFFICE_APP_ID": "1"}))
+	if !strings.Contains(doubao, "present_files") || strings.Contains(doubao, "imageChatSrc") {
+		t.Fatalf("doubao hint must deliver widgetPath with present_files and skip chat images: %s", doubao)
+	}
 	for name, env := range map[string]map[string]string{
 		"codex":   {"CODEX_SESSION_ID": "s"},
 		"claude":  {"CLAUDECODE": "1"},

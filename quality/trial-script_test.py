@@ -473,6 +473,13 @@ class TrialScriptTestCase(unittest.TestCase):
             exhausted = trial.exhausted_purchase_message()
             self.assertIn("present_files", exhausted)
             self.assertIn("imageChatSrc", exhausted)
+        # 豆包工作:有自己的 present_files 但聊天不渲染本地图片,
+        # 只投递支付页,不写 Markdown 图片。
+        with mock.patch.dict(os.environ, {"DOUBAO_OFFICE_APP_ID": "1"}):
+            instructions = trial.payment_display_instructions()
+            self.assertIn("present_files([widgetPath])", instructions)
+            self.assertNotIn("imageChatSrc", instructions)
+            self.assertNotIn("![微信支付二维码]", instructions)
         # Codex 与未知宿主:平台内展示工具,不猜测工具名,兜底把路径原样告诉用户;
         # 不得再声称聊天能显示本地图片或要求 present_files。
         for markers in ({"CODEX_SESSION_ID": "s"}, {"CLAUDECODE": "1"}, {}):
