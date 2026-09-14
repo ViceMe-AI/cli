@@ -465,6 +465,8 @@ class TrialScriptTestCase(unittest.TestCase):
             instructions = trial.payment_display_instructions()
             self.assertIn("![微信支付二维码](<imageChatSrc>)", instructions)
             self.assertIn("present_files([widgetPath])", instructions)
+            self.assertNotIn("checkoutUrl", instructions)
+            self.assertIn("checkoutUrl", trial.payment_display_instructions(hosted=True))
             exhausted = trial.exhausted_purchase_message()
             self.assertIn("present_files", exhausted)
             self.assertIn("imageChatSrc", exhausted)
@@ -475,6 +477,7 @@ class TrialScriptTestCase(unittest.TestCase):
             self.assertIn("present_files([widgetPath])", instructions)
             self.assertNotIn("imageChatSrc", instructions)
             self.assertNotIn("![微信支付二维码]", instructions)
+            self.assertIn("checkoutUrl", trial.payment_display_instructions(hosted=True))
         # Codex 与未知宿主:平台内展示工具,不猜测工具名,兜底把路径原样告诉用户;
         # 不得再声称聊天能显示本地图片或要求 present_files。
         for markers in ({"CODEX_SESSION_ID": "s"}, {"CLAUDECODE": "1"}, {}):
@@ -485,9 +488,20 @@ class TrialScriptTestCase(unittest.TestCase):
                     self.assertIn("绝对路径", instructions)
                     self.assertNotIn("present_files", instructions)
                     self.assertNotIn("imageChatSrc", instructions)
+                    self.assertNotIn("checkoutImageUrl", instructions)
                     exhausted = trial.exhausted_purchase_message()
                     self.assertNotIn("present_files", exhausted)
                     self.assertIn("展示指引", exhausted)
+        # 托管收银台链接存在时:非 WorkBuddy 宿主的第一通道是 https 图片/链接,
+        # 本地工具与绝对路径退居其后;WorkBuddy/豆包保持平台通道优先。
+        with mock.patch.dict(os.environ, {"CODEX_SESSION_ID": "s"}):
+            hosted = trial.payment_display_instructions(hosted=True)
+            self.assertIn("![微信支付二维码](<checkoutImageUrl>)", hosted)
+            self.assertIn("checkoutUrl", hosted)
+            self.assertLess(
+                hosted.index("checkoutImageUrl"), hosted.index("平台内实际存在")
+            )
+            self.assertIn("绝对路径", hosted)
 
     def test_auto_targets_do_not_duplicate_codex_skills(self):
         for base in (".codex", ".claude", ".workbuddy"):
@@ -1219,6 +1233,33 @@ class InstallFlowTestCase(unittest.TestCase):
             self.assertEqual(second["orderNo"], first["orderNo"])
             self.assertTrue(calls[-1].endswith("/status"))
             self.assertEqual(len(request_ids), 2, "retrying a known order must not create another one")
+
+    def test_purchase_passes_through_hosted_checkout_links_when_server_returns_them(self):
+        self._install_trial_fixture()
+        checkout_url = "http://127.0.0.1:39999/trial-checkout/TRIAL_ORDER_01#t=vtc_" + "a" * 43
+        checkout_image = "http://127.0.0.1:39999/v1/skills/trial-checkout/qr/vtc_" + "a" * 43 + ".png"
+
+        def hosted(market, method, path, body):
+            return self._purchase_order(checkoutUrl=checkout_url, checkoutImageUrl=checkout_image)
+
+        with mock.patch.object(trial, "api_request", side_effect=hosted), mock.patch.object(trial, "http_download", side_effect=self._resource_download):
+            with mock.patch.dict(os.environ, {"CODEX_SESSION_ID": "s"}):
+                code, result = self._run_purchase()
+            self.assertEqual(code, 0, result)
+            self.assertEqual(result["checkoutUrl"], checkout_url)
+            self.assertEqual(result["checkoutImageUrl"], checkout_image)
+            self.assertIn("![微信支付二维码](<checkoutImageUrl>)", result["message"])
+
+        def legacy(market, method, path, body):
+            return self._purchase_order()
+
+        with mock.patch.object(trial, "api_request", side_effect=legacy), mock.patch.object(trial, "http_download", side_effect=self._resource_download):
+            with mock.patch.dict(os.environ, {"CODEX_SESSION_ID": "s"}):
+                code, legacy_result = self._run_purchase()
+            self.assertEqual(code, 0, legacy_result)
+            self.assertNotIn("checkoutUrl", legacy_result)
+            self.assertNotIn("checkoutImageUrl", legacy_result)
+            self.assertNotIn("checkoutUrl", legacy_result["message"])
 
     def test_paid_purchase_redownloads_full_package_and_preserves_user_files(self):
         directory = self._install_trial_fixture()

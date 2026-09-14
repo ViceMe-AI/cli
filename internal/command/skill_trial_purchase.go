@@ -222,10 +222,18 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 			return err
 		}
 	}
-	return output.Confirmation("SKILL_PURCHASE_REQUIRED", "scan to pay; payment will restore the formal edition without login").WithDetails(map[string]any{
+	details := map[string]any{
 		"productId": productID, "orderNo": order.OrderNo, "amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
 		"paymentPresentation": commerce.PaymentPresentation,
-	}).WithHint(skillPaymentPresentationHint(os.Getenv) + fmt.Sprintf("; then run viceme skill trial-purchase %s --wait 60s; expiry never proves an order is closed", productID))
+	}
+	if order.CheckoutURL != "" {
+		details["checkoutUrl"] = order.CheckoutURL
+	}
+	if order.CheckoutImageURL != "" {
+		details["checkoutImageUrl"] = order.CheckoutImageURL
+	}
+	return output.Confirmation("SKILL_PURCHASE_REQUIRED", "scan to pay; payment will restore the formal edition without login").WithDetails(details).
+		WithHint(skillPaymentPresentationHint(os.Getenv, order.HostedCheckout()) + fmt.Sprintf("; then run viceme skill trial-purchase %s --wait 60s; expiry never proves an order is closed", productID))
 }
 
 func trialInstallShouldResumePurchase(ctx context.Context, runtime *Runtime, productID string) (bool, error) {

@@ -32,11 +32,13 @@ depends on the invoking agent host:
 - Doubao Work: deliver `widgetPath` with `present_files`; its chat renders no
   local images, so do not write a Markdown image and do not paste a bare
   `imagePath`.
-- Other hosts (Codex, Claude, unknown): hand `widgetPath` to a browser, page,
-  or payment panel tool the platform actually provides — do not guess tool
-  names, and do not treat a Markdown image or a bare `imagePath` as displayed.
-  When no in-platform display capability exists, state the `widgetPath`
-  absolute path verbatim and ask the user to open it.
+- Other hosts (Codex, Claude, unknown): when the command output includes
+  `checkoutImageUrl`/`checkoutUrl`, present the hosted https image or link
+  first — they render in every chat. Otherwise hand `widgetPath` to a browser,
+  page, or payment panel tool the platform actually provides — do not guess
+  tool names, and do not treat a Markdown image or a bare `imagePath` as
+  displayed. When no in-platform display capability exists, state the
+  `widgetPath` absolute path verbatim and ask the user to open it.
 
 Do not
 Read the HTML or PNG, do not paste HTML into chat, and do not call

@@ -224,11 +224,18 @@ func TestSkillPaymentPresentationHintBranchesByInvokingAgent(t *testing.T) {
 	getenv := func(env map[string]string) func(string) string {
 		return func(key string) string { return env[key] }
 	}
-	workBuddy := skillPaymentPresentationHint(getenv(map[string]string{"CODEBUDDY_SESSION_ID": "s"}))
+	workBuddy := skillPaymentPresentationHint(getenv(map[string]string{"CODEBUDDY_SESSION_ID": "s"}), false)
 	if !strings.Contains(workBuddy, "present_files") || !strings.Contains(workBuddy, "imageChatSrc") {
 		t.Fatalf("workbuddy hint lost the present_files contract: %s", workBuddy)
 	}
-	doubao := skillPaymentPresentationHint(getenv(map[string]string{"DOUBAO_OFFICE_APP_ID": "1"}))
+	if strings.Contains(workBuddy, "checkoutUrl") {
+		t.Fatalf("workbuddy hint must not require hosted links on old servers: %s", workBuddy)
+	}
+	workBuddyHosted := skillPaymentPresentationHint(getenv(map[string]string{"CODEBUDDY_SESSION_ID": "s"}), true)
+	if !strings.Contains(workBuddyHosted, "checkoutUrl") {
+		t.Fatalf("hosted workbuddy hint must mention the hosted fallback: %s", workBuddyHosted)
+	}
+	doubao := skillPaymentPresentationHint(getenv(map[string]string{"DOUBAO_OFFICE_APP_ID": "1"}), false)
 	if !strings.Contains(doubao, "present_files") || strings.Contains(doubao, "imageChatSrc") {
 		t.Fatalf("doubao hint must deliver widgetPath with present_files and skip chat images: %s", doubao)
 	}
@@ -237,12 +244,16 @@ func TestSkillPaymentPresentationHintBranchesByInvokingAgent(t *testing.T) {
 		"claude":  {"CLAUDECODE": "1"},
 		"unknown": {},
 	} {
-		hint := skillPaymentPresentationHint(getenv(env))
+		hint := skillPaymentPresentationHint(getenv(env), false)
 		if strings.Contains(hint, "imageChatSrc") {
 			t.Fatalf("%s hint must not rely on chat-rendered local images: %s", name, hint)
 		}
 		if !strings.Contains(hint, "widgetPath") || !strings.Contains(hint, "absolute path") {
 			t.Fatalf("%s hint must defer to in-platform tools and state the widgetPath verbatim: %s", name, hint)
+		}
+		hosted := skillPaymentPresentationHint(getenv(env), true)
+		if !strings.Contains(hosted, "checkoutImageUrl") || !strings.Contains(hosted, "checkoutUrl") {
+			t.Fatalf("%s hosted hint must lead with the hosted image and link: %s", name, hosted)
 		}
 	}
 }
