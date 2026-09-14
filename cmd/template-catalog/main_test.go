@@ -191,15 +191,17 @@ func TestWorkflowPublishesSignedCatalogToBothRegions(t *testing.T) {
 		"VICEME_RELEASE_S3_ENDPOINT_GLOBAL",
 		"manifest.sig",
 		"sha256sum",
-		"--version 1.0.2",
+		"templates/creator-pages/production.json",
+		`--version "${TEMPLATE_VERSION}"`,
+		"already exists with different bytes; bump the template version",
 	} {
 		if !strings.Contains(string(body), required) {
 			t.Fatalf("catalog workflow omitted %q", required)
 		}
 	}
-	for _, forbidden := range []string{"CN_BUCKET:", "GLOBAL_BUCKET:"} {
+	for _, forbidden := range []string{"CN_BUCKET:", "GLOBAL_BUCKET:", "--version 1.0.2"} {
 		if strings.Contains(string(body), forbidden) {
-			t.Fatalf("catalog workflow must not reuse release bucket setting %q", forbidden)
+			t.Fatalf("catalog workflow must not contain %q", forbidden)
 		}
 	}
 	if got := strings.Count(string(body), "npm run build --prefix skills/customize-your-profile-page/templates/bonjour-card"); got != 2 {
