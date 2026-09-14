@@ -52,6 +52,7 @@ func newReplicaCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "replica", Short: "Publish and install Website Replica source packages"}
 	command.AddCommand(newReplicaPreviewCommand(runtime))
 	command.AddCommand(newReplicaPublishCommand(runtime))
+	command.AddCommand(newReplicaRedistributionGrantsCommand(runtime))
 	command.AddCommand(newReplicaInspectCommand(runtime))
 	command.AddCommand(newReplicaFlowIDCommand(runtime))
 	command.AddCommand(newReplicaAnalyticsCommand(runtime))

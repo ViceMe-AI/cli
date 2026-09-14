@@ -15,20 +15,21 @@ type replicaPublicationResume struct {
 }
 
 type replicaPublicationPresentation struct {
-	Hosting        api.WebsiteReplicaHostingProjection   `json:"hosting"`
-	Rollback       api.WebsiteReplicaRollbackProjection  `json:"rollback"`
-	PriceCents     int                                   `json:"priceCents"`
-	PublicationID  string                                `json:"publicationId"`
-	Status         string                                `json:"status"`
-	Phase          string                                `json:"phase"`
-	Message        string                                `json:"message"`
-	StatusURL      string                                `json:"statusUrl"`
-	Source         api.WebsiteReplicaPublicationSource   `json:"source"`
-	Page           *api.WebsiteReplicaPublicationSource  `json:"page"`
-	Failure        *api.WebsiteReplicaPublicationFailure `json:"failure"`
-	Result         *api.WebsiteReplicaPublicationResult  `json:"result"`
-	AllowedActions []string                              `json:"allowedActions"`
-	Resume         replicaPublicationResume              `json:"resume"`
+	RedistributionPrompt string                                `json:"redistributionPrompt,omitempty"`
+	Hosting              api.WebsiteReplicaHostingProjection   `json:"hosting"`
+	Rollback             api.WebsiteReplicaRollbackProjection  `json:"rollback"`
+	PriceCents           int                                   `json:"priceCents"`
+	PublicationID        string                                `json:"publicationId"`
+	Status               string                                `json:"status"`
+	Phase                string                                `json:"phase"`
+	Message              string                                `json:"message"`
+	StatusURL            string                                `json:"statusUrl"`
+	Source               api.WebsiteReplicaPublicationSource   `json:"source"`
+	Page                 *api.WebsiteReplicaPublicationSource  `json:"page"`
+	Failure              *api.WebsiteReplicaPublicationFailure `json:"failure"`
+	Result               *api.WebsiteReplicaPublicationResult  `json:"result"`
+	AllowedActions       []string                              `json:"allowedActions"`
+	Resume               replicaPublicationResume              `json:"resume"`
 }
 
 func newReplicaStatusCommand(runtime *Runtime) *cobra.Command {
@@ -96,9 +97,14 @@ func presentReplicaPublication(publication api.WebsiteReplicaPublication) replic
 	case "CANCELLED":
 		message = "Website Replica Publication was cancelled and was not published."
 	}
+	redistributionPrompt := ""
+	if publication.Status == "PUBLISHED" || publication.Status == "PUBLISHED_DEGRADED" {
+		redistributionPrompt = "请询问创作者是否允许在 ViceMe 二次分发，并打开 statusUrl 中的分发设置。新作品默认关闭；不得替创作者自动开启。"
+	}
 	return replicaPublicationPresentation{
-		PublicationID: publication.ID,
-		Hosting:       publication.Hosting, Rollback: publication.Rollback, PriceCents: publication.PriceCents,
+		RedistributionPrompt: redistributionPrompt,
+		PublicationID:        publication.ID,
+		Hosting:              publication.Hosting, Rollback: publication.Rollback, PriceCents: publication.PriceCents,
 		Status:         publication.Status,
 		Phase:          phase,
 		Message:        message,

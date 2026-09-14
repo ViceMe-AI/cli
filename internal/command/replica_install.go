@@ -821,16 +821,17 @@ func replicaQuoteConfirmation(state replicaPurchaseState) error {
 		"REPLICA_PURCHASE_CONFIRMATION_REQUIRED",
 		"confirm the Website Replica quote before creating an order",
 	).WithDetails(map[string]any{
-		"replicaId":        state.ReplicaID,
-		"replicaCode":      "VICEME-REPLICA:" + state.ShortCode,
-		"productId":        state.ProductID,
-		"title":            state.ProductTitle,
-		"currency":         state.Currency,
-		"totalAmountCents": state.PriceCents,
-		"quoteId":          state.QuoteID,
-		"expiresAt":        state.QuoteExpiresAt,
-		"target":           state.Target,
-	}).WithHint("show the exact product, price, and quote expiry to the user; only after explicit confirmation rerun the same install command with --confirm")
+		"redistributionNotice": "未经授权不得二次分发或转售源码。获取使用权不等于获得再分发权；获准的再发布仅限 ViceMe 平台，并保留来源链。",
+		"replicaId":            state.ReplicaID,
+		"replicaCode":          "VICEME-REPLICA:" + state.ShortCode,
+		"productId":            state.ProductID,
+		"title":                state.ProductTitle,
+		"currency":             state.Currency,
+		"totalAmountCents":     state.PriceCents,
+		"quoteId":              state.QuoteID,
+		"expiresAt":            state.QuoteExpiresAt,
+		"target":               state.Target,
+	}).WithHint("show the exact product, price, quote expiry, and redistribution notice to the user; only after explicit confirmation rerun the same install command with --confirm")
 }
 
 func replicaPaymentConfirmation(state replicaPurchaseState, presentation *api.CommercePaymentPresentation) error {
@@ -1165,6 +1166,9 @@ func verifiedReplicaLicenseClaims(ctx context.Context, runtime *Runtime, downloa
 		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_INVALID", "Website Replica license has an invalid schema")
 	}
 	claims := license.Claims
+	if grant := claims.Redistribution; grant != nil && (grant.Scope != "VICEME" || !grant.UnauthorizedRedistributionProhibited) {
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_INVALID", "Website Replica redistribution grant is invalid")
+	}
 	if license.Algorithm != "Ed25519" || license.SigningKeyID == "" || license.SigningPublicKey == "" || license.Signature == "" ||
 		claims.SchemaVersion != replicaLicenseTermsVersion || claims.LicenseTermsVersion != replicaLicenseTermsVersion ||
 		!replicaUUIDPattern.MatchString(claims.EntitlementID) || claims.ReplicaID != download.ReplicaID ||
