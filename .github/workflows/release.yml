@@ -572,11 +572,17 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ needs.metadata.outputs.sha }}
+          # Recovery tags may predate this publisher. Execute the trusted
+          # current workflow revision against immutable dist artifacts.
+          ref: ${{ github.sha }}
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: release-contract
           path: dist
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: Publish immutable release and monotonic latest pointers
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
@@ -589,190 +595,13 @@ jobs:
           GLOBAL_BUCKET: ${{ secrets.VICEME_RELEASE_S3_BUCKET_GLOBAL }}
           GLOBAL_ACCESS_KEY_ID: ${{ secrets.VICEME_RELEASE_S3_ACCESS_KEY_ID_GLOBAL }}
           GLOBAL_SECRET_ACCESS_KEY: ${{ secrets.VICEME_RELEASE_S3_SECRET_ACCESS_KEY_GLOBAL }}
-          # GitHub runner images track the latest AWS CLI, which enables
-          # optional streaming checksums by default. Our S3-compatible origins
-          # do not accept that trailer protocol, so retain SigV4 integrity but
-          # calculate request/response checksums only when the API requires it.
+          # GitHub runner images and aws-sdk-go-v2 enable optional streaming
+          # checksums by default. Our S3-compatible origins do not accept that
+          # trailer protocol, so retain SigV4 integrity but calculate
+          # request/response checksums only when the API requires it.
           AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
           AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
-        run: |
-          set -euo pipefail
-          publish_region() {
-            local ENDPOINT="$1" BUCKET="$2" ACCESS_KEY="$3" SECRET_KEY="$4" LABEL="$5" PUBLIC_ORIGIN="$6"
-            test -n "${ENDPOINT}" && test -n "${BUCKET}" && test -n "${ACCESS_KEY}" && test -n "${SECRET_KEY}"
-            export AWS_ACCESS_KEY_ID="${ACCESS_KEY}"
-            export AWS_SECRET_ACCESS_KEY="${SECRET_KEY}"
-            export AWS_DEFAULT_REGION="us-east-1"
-            local PREFIX="cli/releases"
-            local SCRATCH
-            SCRATCH="$(mktemp -d)"
-            trap 'rm -rf "${SCRATCH}"' RETURN
-
-            put_immutable() {
-              local SOURCE="$1" KEY="$2" CONTENT_TYPE="${3:-}"
-              local CONTENT_TYPE_ARGS=()
-              if [[ -n "${CONTENT_TYPE}" ]]; then
-                CONTENT_TYPE_ARGS=(--content-type "${CONTENT_TYPE}")
-              fi
-              if aws --endpoint-url "${ENDPOINT}" s3api head-object --bucket "${BUCKET}" --key "${KEY}" >/dev/null 2>&1; then
-                aws --endpoint-url "${ENDPOINT}" s3 cp "s3://${BUCKET}/${KEY}" "${SCRATCH}/existing" --only-show-errors
-                cmp --silent "${SOURCE}" "${SCRATCH}/existing"
-              else
-                aws --endpoint-url "${ENDPOINT}" s3 cp "${SOURCE}" "s3://${BUCKET}/${KEY}" \
-                  --cache-control 'public,max-age=31536000,immutable' "${CONTENT_TYPE_ARGS[@]}" --only-show-errors
-              fi
-            }
-
-            for FILE in dist/*; do
-              # dist/skills is published as its own tree below; directories are
-              # never objects of the flat contract loop.
-              [[ -f "${FILE}" ]] || continue
-              if [[ "${FILE}" == *.md ]]; then
-                put_immutable "${FILE}" "${PREFIX}/v${VERSION}/${FILE#dist/}" 'text/markdown; charset=utf-8'
-              else
-                put_immutable "${FILE}" "${PREFIX}/v${VERSION}/${FILE#dist/}"
-              fi
-            done
-
-            # Hosted official Skills: deterministic zips, the machine-readable
-            # hosting manifest, and a flat per-file tree for direct single-file
-            # URLs (skills/<skill>/SKILL.md, scripts/...). Flat files are raw
-            # source bytes, so byte-immutability holds by construction.
-            # 按扩展映射托管物的 Content-Type;未知扩展留空,由对象存储
-            # 按默认 application/octet-stream 处理——对未来的二进制资源
-            # (图片等)是安全默认,不会把二进制标成文本。
-            hosted_content_type() {
-              case "${1}" in
-                *.zip) echo 'application/zip' ;;
-                *.json) echo 'application/json; charset=utf-8' ;;
-                *.md|*.markdown) echo 'text/markdown; charset=utf-8' ;;
-                *.txt) echo 'text/plain; charset=utf-8' ;;
-                *.py) echo 'text/x-python; charset=utf-8' ;;
-                *.sh) echo 'text/x-shellscript; charset=utf-8' ;;
-                *.yaml|*.yml) echo 'text/yaml; charset=utf-8' ;;
-                *.toml) echo 'application/toml; charset=utf-8' ;;
-                *.html|*.htm) echo 'text/html; charset=utf-8' ;;
-                *.js|*.mjs) echo 'text/javascript; charset=utf-8' ;;
-                *.css) echo 'text/css; charset=utf-8' ;;
-                *.svg) echo 'image/svg+xml' ;;
-                *) echo '' ;;
-              esac
-            }
-            while IFS= read -r FILE; do
-              put_immutable "${FILE}" "${PREFIX}/v${VERSION}/skills/${FILE#dist/skills/}" "$(hosted_content_type "${FILE}")"
-            done < <(find dist/skills -type f | sort)
-
-            local EXISTING_LATEST=""
-            if aws --endpoint-url "${ENDPOINT}" s3 cp "s3://${BUCKET}/${PREFIX}/latest" "${SCRATCH}/latest" --only-show-errors 2>/dev/null; then
-              EXISTING_LATEST="$(tr -d '\r\n' <"${SCRATCH}/latest")"
-            fi
-            local HIGHEST
-            HIGHEST="$(printf '%s\n%s\n' "${EXISTING_LATEST:-0.0.0}" "${VERSION}" | sort -V | tail -n 1)"
-            if [[ "${HIGHEST}" == "${VERSION}" ]]; then
-              printf '%s\n' "${VERSION}" >"${SCRATCH}/new-latest"
-              aws --endpoint-url "${ENDPOINT}" s3 cp "${SCRATCH}/new-latest" "s3://${BUCKET}/${PREFIX}/latest" \
-                --content-type text/plain --cache-control 'public,max-age=60' --only-show-errors
-              for FILE in install.sh install.ps1 bootstrap-contract.json release-manifest.json agent-release-manifest.json agent-release-manifest.sigstore.json agent-install.md commerce-skill-install.md; do
-                if [[ "${FILE}" == *.md ]]; then
-                  aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${PREFIX}/${FILE}" \
-                    --content-type 'text/markdown; charset=utf-8' --cache-control 'public,max-age=300' --only-show-errors
-                else
-                  aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${PREFIX}/${FILE}" \
-                    --cache-control 'public,max-age=300' --only-show-errors
-                fi
-              done
-              # These files stay at the public start bucket root while the scripts
-              # resolve immutable artifacts below cli/releases/v{version}.
-              for FILE in install.sh install.ps1 agent-install.md commerce-skill-install.md; do
-                if [[ "${FILE}" == *.md ]]; then
-                  aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${FILE}" \
-                    --content-type 'text/markdown; charset=utf-8' --cache-control 'public,max-age=300' --only-show-errors
-                else
-                  aws --endpoint-url "${ENDPOINT}" s3 cp "dist/${FILE}" "s3://${BUCKET}/${FILE}" \
-                    --cache-control 'public,max-age=300' --only-show-errors
-                fi
-              done
-              # Hosted official Skills live in their own public bucket so the
-              # stable URL is https://s3.viceme.<cn|ai>/skills/<file> with no
-              # path prefix; versioned copies stay under the start bucket's
-              # immutable cli/releases tree. Same RustFS credentials cover it.
-              # The whole tree ships: zips, manifest and the flat per-file
-              # copies for direct single-file access.
-              while IFS= read -r FILE; do
-                local HOSTED_TYPE
-                HOSTED_TYPE="$(hosted_content_type "${FILE}")"
-                local HOSTED_TYPE_ARGS=()
-                if [[ -n "${HOSTED_TYPE}" ]]; then
-                  HOSTED_TYPE_ARGS=(--content-type "${HOSTED_TYPE}")
-                fi
-                aws --endpoint-url "${ENDPOINT}" s3 cp "${FILE}" "s3://skills/${FILE#dist/skills/}" \
-                  "${HOSTED_TYPE_ARGS[@]}" --cache-control 'public,max-age=300' --only-show-errors
-              done < <(find dist/skills -type f | sort)
-            fi
-
-            aws --endpoint-url "${ENDPOINT}" s3 cp "dist/agent-install.md" "s3://${BUCKET}/policy-probe/${GITHUB_RUN_ID}" \
-              --cache-control 'private,no-store' --only-show-errors
-            local PROBE_STATUS
-            PROBE_STATUS="$(curl --silent --output /dev/null --write-out '%{http_code}' \
-              "${PUBLIC_ORIGIN}/policy-probe/${GITHUB_RUN_ID}" || true)"
-            aws --endpoint-url "${ENDPOINT}" s3 rm "s3://${BUCKET}/policy-probe/${GITHUB_RUN_ID}" --only-show-errors
-            test "${PROBE_STATUS}" != "200"
-            test "$(curl --silent --output /dev/null --write-out '%{http_code}' "${PUBLIC_ORIGIN}/?list-type=2")" != "200"
-
-            curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/agent-install.md" \
-              --output "${SCRATCH}/agent-install.md"
-            cmp --silent dist/agent-install.md "${SCRATCH}/agent-install.md"
-            if [[ "${HIGHEST}" == "${VERSION}" ]]; then
-              local SKILLS_ORIGIN="${PUBLIC_ORIGIN%/start}"
-              curl --fail --silent --show-error "${SKILLS_ORIGIN}/skills/manifest.json" \
-                --output "${SCRATCH}/hosted-manifest.json"
-              cmp --silent dist/skills/manifest.json "${SCRATCH}/hosted-manifest.json"
-            fi
-            curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/commerce-skill-install.md" \
-              --output "${SCRATCH}/commerce-skill-install.md"
-            cmp --silent dist/commerce-skill-install.md "${SCRATCH}/commerce-skill-install.md"
-            curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/agent-release-manifest.json" \
-              --output "${SCRATCH}/agent-release-manifest.json"
-            cmp --silent dist/agent-release-manifest.json "${SCRATCH}/agent-release-manifest.json"
-            curl --fail --silent --show-error "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/agent-release-manifest.sigstore.json" \
-              --output "${SCRATCH}/agent-release-manifest.sigstore.json"
-            cmp --silent dist/agent-release-manifest.sigstore.json "${SCRATCH}/agent-release-manifest.sigstore.json"
-            curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/agent-install.md" \
-              | grep -i '^cache-control:.*max-age=31536000.*immutable'
-            curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/cli/releases/v${VERSION}/commerce-skill-install.md" \
-              | grep -i '^cache-control:.*max-age=31536000.*immutable'
-            if [[ "${HIGHEST}" == "${VERSION}" ]]; then
-              curl --fail --silent --show-error "${PUBLIC_ORIGIN}/agent-install.md" --output "${SCRATCH}/root-agent-install.md"
-              cmp --silent dist/agent-install.md "${SCRATCH}/root-agent-install.md"
-              curl --fail --silent --show-error "${PUBLIC_ORIGIN}/commerce-skill-install.md" --output "${SCRATCH}/root-commerce-skill-install.md"
-              cmp --silent dist/commerce-skill-install.md "${SCRATCH}/root-commerce-skill-install.md"
-              curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/agent-install.md" \
-                | grep -i '^cache-control:.*max-age=300'
-              curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/agent-install.md" \
-                | grep -i '^content-type:[[:space:]]*text/markdown;[[:space:]]*charset=utf-8'
-              curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/commerce-skill-install.md" \
-                | grep -i '^cache-control:.*max-age=300'
-              curl --fail --silent --show-error --head "${PUBLIC_ORIGIN}/commerce-skill-install.md" \
-                | grep -i '^content-type:[[:space:]]*text/markdown;[[:space:]]*charset=utf-8'
-            fi
-            echo "Published ${LABEL} release v${VERSION}"
-          }
-
-          test -n "${CN_S3_HTTPS_PROXY}"
-          HTTPS_PROXY="${CN_S3_HTTPS_PROXY}" https_proxy="${CN_S3_HTTPS_PROXY}" \
-            publish_region "${CN_ENDPOINT}" "${CN_BUCKET}" "${CN_ACCESS_KEY_ID}" "${CN_SECRET_ACCESS_KEY}" CN 'https://s3.viceme.cn/start'
-          publish_region "${GLOBAL_ENDPOINT}" "${GLOBAL_BUCKET}" "${GLOBAL_ACCESS_KEY_ID}" "${GLOBAL_SECRET_ACCESS_KEY}" GLOBAL 'https://s3.viceme.ai/start'
-
-          VERIFY_DIR="$(mktemp -d)"
-          trap 'rm -rf "${VERIFY_DIR}"' EXIT
-          HTTPS_PROXY="${CN_S3_HTTPS_PROXY}" https_proxy="${CN_S3_HTTPS_PROXY}" \
-            curl --fail --silent --show-error 'https://s3.viceme.cn/start/agent-install.md' --output "${VERIFY_DIR}/cn-agent-install.md"
-          curl --fail --silent --show-error 'https://s3.viceme.ai/start/agent-install.md' --output "${VERIFY_DIR}/global-agent-install.md"
-          cmp --silent "${VERIFY_DIR}/cn-agent-install.md" "${VERIFY_DIR}/global-agent-install.md"
-          HTTPS_PROXY="${CN_S3_HTTPS_PROXY}" https_proxy="${CN_S3_HTTPS_PROXY}" \
-            curl --fail --silent --show-error 'https://s3.viceme.cn/start/commerce-skill-install.md' --output "${VERIFY_DIR}/cn-commerce-skill-install.md"
-          curl --fail --silent --show-error 'https://s3.viceme.ai/start/commerce-skill-install.md' --output "${VERIFY_DIR}/global-commerce-skill-install.md"
-          cmp --silent "${VERIFY_DIR}/cn-commerce-skill-install.md" "${VERIFY_DIR}/global-commerce-skill-install.md"
+        run: go run ./cmd/s3-publish
 
   notify:
     name: Feishu release notification

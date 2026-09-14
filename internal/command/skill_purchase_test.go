@@ -536,6 +536,8 @@ func TestPaidSkillPurchaseIntentIsBoundToVerifiedAccount(t *testing.T) {
 }
 
 func TestPaidSkillConcurrentPurchaseReusesOneOrder(t *testing.T) {
+	// Order creation and QR presentation share the buyer purchase lock so two
+	// Windows processes cannot race on the same wechat-*.png activation.
 	t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
 	state := newSkillPurchaseTestServer(t)
 	defer state.server.Close()

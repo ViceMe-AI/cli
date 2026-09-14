@@ -4,7 +4,7 @@
     {
       "id": "bonjour-card",
       "status": "production",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "name": "Bonjour Card",
       "scenario": "作品、资料与公开联系方式",
       "description": "由 Agent 对话整理资料的只读个人名片，适合展示作品与公开联系方式。",

@@ -13,6 +13,7 @@ import (
 )
 
 const suspensionProduct = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+const suspensionAPI = "https://api.viceme.cn"
 const suspensionPurchase = "https://shop.example.test/purchase"
 const suspensionInstallDoc = "https://s3.viceme.cn/start/agent-install.md"
 
@@ -29,9 +30,14 @@ func suspensionFixture(t *testing.T, root, name, product string, trial bool) (st
 		content += "<!-- viceme-trial:v1 product=" + product + " -->\r\n\r\n## 使用前必读\r\n\r\nCheck first.\r\n<!-- /viceme-trial:v1 -->\r\n"
 	}
 	content += "\r\n# Original author instructions\r\n"
+	kind := "owned"
+	if trial {
+		kind = "trial"
+	}
+	runtime, _ := json.Marshal(map[string]any{"schemaVersion": 1, "productId": product, "releaseId": "release-one", "kind": kind, "market": "cn", "apiBaseUrl": suspensionAPI})
 	manifest, _ := json.Marshal(map[string]any{"product_id": product, "release_id": "release-one"})
 	for relative, data := range map[string][]byte{
-		"SKILL.md": []byte(content), installManifestPath: manifest,
+		"SKILL.md": []byte(content), installManifestPath: manifest, ".viceme/runtime.json": runtime,
 		"scripts/run.sh": []byte("original script"), "references/viceme-runtime.md": []byte("original rules"),
 		"outputs/user.md": []byte("user output must stay"),
 	} {
@@ -54,7 +60,7 @@ func TestTrialSuspensionPreservesFrontmatterAndEveryOtherFile(t *testing.T) {
 		directory, original := suspensionFixture(t, filepath.Dir(target.path), "demo", suspensionProduct, true)
 		directories = append(directories, directory)
 		before, _ := os.ReadFile(filepath.Join(directory, installManifestPath))
-		count, err := SuspendTrialSkills(environment, suspensionProduct, suspensionPurchase, suspensionInstallDoc)
+		count, err := SuspendTrialSkills(environment, suspensionProduct, suspensionAPI, "cn", suspensionPurchase, suspensionInstallDoc)
 		if err != nil || count != len(directories) {
 			t.Fatalf("suspension failed: %d, %v", count, err)
 		}
@@ -73,7 +79,7 @@ func TestTrialSuspensionPreservesFrontmatterAndEveryOtherFile(t *testing.T) {
 				t.Fatalf("non-entry file changed: %s, %v", relative, err)
 			}
 		}
-		_, err = SuspendTrialSkills(environment, suspensionProduct, suspensionPurchase, suspensionInstallDoc)
+		_, err = SuspendTrialSkills(environment, suspensionProduct, suspensionAPI, "cn", suspensionPurchase, suspensionInstallDoc)
 		current, _ := os.ReadFile(filepath.Join(directory, "SKILL.md"))
 		if err != nil || !bytes.Equal(current, after) {
 			t.Fatalf("repeated suspension was not idempotent: %v", err)
@@ -82,7 +88,7 @@ func TestTrialSuspensionPreservesFrontmatterAndEveryOtherFile(t *testing.T) {
 }
 
 func TestTrialSuspensionSkipsOwnedForeignUnmanagedAndSymlinkEntries(t *testing.T) {
-	for _, kind := range []string{"owned", "foreign", "unmanaged", "symlink", "author-marker"} {
+	for _, kind := range []string{"owned", "foreign", "foreign-market", "unmanaged", "symlink", "author-marker"} {
 		t.Run(kind, func(t *testing.T) {
 			home := t.TempDir()
 			product := suspensionProduct
@@ -91,6 +97,14 @@ func TestTrialSuspensionSkipsOwnedForeignUnmanagedAndSymlinkEntries(t *testing.T
 			}
 			directory, original := suspensionFixture(t, filepath.Join(home, ".agents", "skills"), "demo", product, kind != "owned")
 			filename := filepath.Join(directory, "SKILL.md")
+			if kind == "foreign-market" {
+				path := filepath.Join(directory, ".viceme/runtime.json")
+				raw, _ := os.ReadFile(path)
+				raw = bytes.Replace(raw, []byte(`"market":"cn"`), []byte(`"market":"global"`), 1)
+				if err := os.WriteFile(path, raw, 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if kind == "unmanaged" {
 				if err := os.Remove(filepath.Join(directory, installManifestPath)); err != nil {
 					t.Fatal(err)
@@ -111,7 +125,7 @@ func TestTrialSuspensionSkipsOwnedForeignUnmanagedAndSymlinkEntries(t *testing.T
 					t.Skipf("symlinks unavailable: %v", err)
 				}
 			}
-			count, err := SuspendTrialSkills(Environment{Home: home}, suspensionProduct, suspensionPurchase, suspensionInstallDoc)
+			count, err := SuspendTrialSkills(Environment{Home: home}, suspensionProduct, suspensionAPI, "cn", suspensionPurchase, suspensionInstallDoc)
 			after, _ := os.ReadFile(filename)
 			if err != nil || count != 0 || !bytes.Equal(after, original) {
 				t.Fatalf("unrelated/unsafe entry was changed: count=%d err=%v", count, err)
@@ -152,7 +166,7 @@ func TestTrialSuspensionPreservesEntryOnPermissionOrRecoveryConflict(t *testing.
 					t.Fatal(err)
 				}
 			}
-			count, err := SuspendTrialSkills(Environment{Home: home}, suspensionProduct, suspensionPurchase, suspensionInstallDoc)
+			count, err := SuspendTrialSkills(Environment{Home: home}, suspensionProduct, suspensionAPI, "cn", suspensionPurchase, suspensionInstallDoc)
 			after, _ := os.ReadFile(filepath.Join(directory, "SKILL.md"))
 			if err == nil || count != 0 || !bytes.Equal(after, original) {
 				t.Fatalf("unsafe replacement was not blocked: count=%d err=%v", count, err)

@@ -51,13 +51,16 @@ type skillTrialTestServer struct {
 	trialHostedCheckout   bool
 }
 
-func newSkillTrialTestServer(t *testing.T) *skillTrialTestServer {
+func newSkillTrialTestServer(t *testing.T, configure ...func(*skillTrialTestServer)) *skillTrialTestServer {
 	t.Helper()
 	state := &skillTrialTestServer{trialLimit: 2, paymentStatus: "PENDING", grantedInstallIDs: map[string]bool{}}
 	state.archive = downloadableSkillArchive(t)
 	state.archiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.archive))
 	state.ownedArchive = downloadableSkillArchiveNamed(t, "free-test", "Owned Current Skill")
 	state.ownedArchiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.ownedArchive))
+	for _, prepare := range configure {
+		prepare(state)
+	}
 	server := httptest.NewUnstartedServer(http.HandlerFunc(state.serveHTTP))
 	state.server = server
 	server.Start()
@@ -336,7 +339,7 @@ func TestPaidTrialSkillInstallsAnonymouslyWithGate(t *testing.T) {
 		}
 		assertTrialGateRuntimeOrder(t, string(rules), downloadableProductID, "cn")
 		// 门禁段必须位于正文顶部(先于创作者标题),保证每次加载技能第一眼读到规则。
-		if strings.Index(string(content), skillTrialGateMarker) > strings.Index(string(content), "# Free Test Skill") {
+		if bytes.Contains(content, []byte("# Free Test Skill")) {
 			t.Fatalf("trial gate is not at the top of %s", path)
 		}
 	}
@@ -421,7 +424,7 @@ func TestPublishedFrontmatterSurvivesTrialAndCanonicalInstall(t *testing.T) {
 			}
 			skillDir := filepath.Join(home, ".workbuddy", "skills", "latex-geometry")
 			installed, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
-			if err != nil || !strings.HasPrefix(string(installed), "---\n"+metadata+"\n---\n") || !strings.HasSuffix(string(installed), "作者原始正文。\n") || strings.Count(string(installed), skillTrialGateMarker) != 1 {
+			if err != nil || !strings.HasPrefix(string(installed), "---\n"+metadata+"\n---\n") || strings.Contains(string(installed), "作者原始正文。") || strings.Count(string(installed), skillTrialGateMarker) != 1 {
 				t.Fatalf("frontmatter/body/gate did not survive install: %q, %v", installed, err)
 			}
 			// Paid/free installs share this canonical installer; it must retain
@@ -502,12 +505,30 @@ func TestSkillInstallAdoptsScriptTrialCredential(t *testing.T) {
 
 // 脚本路装过的试用,`viceme skill use` 必须能直接收编明文凭证扣次,
 // 而不是报 SKILL_TRIAL_GRANT_MISSING。
+func writeScriptRuntimeFixture(t *testing.T, home, apiBase string) string {
+	t.Helper()
+	files := map[string]downloadableSkillFile{"SKILL.md": {Data: []byte("---\nname: free-test\ndescription: Test.\n---\n\n# Free Test Skill\n"), Mode: 0o644}}
+	runtime := &Runtime{apiBaseURL: apiBase, region: config.RegionCN}
+	if err := injectSkillTrialGate(files, downloadableProductID, "cn"); err != nil {
+		t.Fatal(err)
+	}
+	if err := addSkillRuntime(runtime, files, downloadableProductID, downloadableReleaseID, "trial"); err != nil {
+		t.Fatal(err)
+	}
+	report, err := installDownloadableSkill("free-test", "agents", files, skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, ".viceme-cli")}, skillcontent.SkillProvenance{ProductID: downloadableProductID, ReleaseID: downloadableReleaseID})
+	if err != nil || !report.AllSucceeded {
+		t.Fatalf("runtime fixture: %v %+v", err, report)
+	}
+	return filepath.Join(home, ".agents", "skills", "free-test")
+}
+
 func TestSkillUseAdoptsScriptTrialCredentialWithoutInstall(t *testing.T) {
 	t.Setenv(processAccessTokenEnvironment, "")
 	state := newSkillTrialTestServer(t)
 	defer state.server.Close()
 
 	home := t.TempDir()
+	writeScriptRuntimeFixture(t, home, state.server.URL)
 	scriptInstallID := "33333333-3333-4333-8333-333333333333"
 	trialDir := filepath.Join(home, ".viceme", "trial")
 	if err := os.MkdirAll(trialDir, 0o700); err != nil {
@@ -585,6 +606,7 @@ func TestSkillUseReplaysScriptPendingRequestId(t *testing.T) {
 	defer state.server.Close()
 
 	home := t.TempDir()
+	writeScriptRuntimeFixture(t, home, state.server.URL)
 	writeScriptTrialFile(t, home, "44444444-4444-4444-8444-444444444444", "script-req-1")
 
 	store := securestore.NewMemory()
@@ -623,6 +645,7 @@ func TestSkillUseKeepsScriptPendingWhenResponseLost(t *testing.T) {
 	state.mu.Unlock()
 
 	home := t.TempDir()
+	writeScriptRuntimeFixture(t, home, state.server.URL)
 	writeScriptTrialFile(t, home, "44444444-4444-4444-8444-444444444444", "script-req-1")
 
 	store := securestore.NewMemory()
@@ -650,7 +673,7 @@ func TestSkillUseKeepsScriptPendingWhenResponseLost(t *testing.T) {
 	}
 }
 
-func TestSettleConsumedTrialUseReportsRetryableWhenScriptStateUnreadable(t *testing.T) {
+func TestTrialUseMigrationPreservesLegacyKeyWhenSharedStateUnreadable(t *testing.T) {
 	home := t.TempDir()
 	configBase := t.TempDir()
 	runtime := &Runtime{
@@ -665,10 +688,11 @@ func TestSettleConsumedTrialUseReportsRetryableWhenScriptStateUnreadable(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = settleConsumedTrialUse(runtime, downloadableProductID, requestID)
-	var failure *output.Error
-	if !errors.As(err, &failure) || failure.Subtype != "SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED" || !failure.Retryable {
-		t.Fatalf("unreadable script state must stay retryable: %v", err)
+	err = withScriptTrialLock(runtime, downloadableProductID, func() error {
+		return migrateLegacyTrialUsePending(runtime, downloadableProductID, &scriptTrialState{ProductID: downloadableProductID, Market: "cn"})
+	})
+	if err == nil {
+		t.Fatal("unreadable shared state must prevent migration")
 	}
 	if reusable := readReusableTrialUsePending(trialUsePendingPath(configBase, runtime.apiBaseURL, downloadableProductID), downloadableProductID); reusable != requestID {
 		t.Fatalf("retry key must stay until replay: %q", reusable)
@@ -683,6 +707,7 @@ func TestAdoptScriptTrialPendingRespectsScriptLock(t *testing.T) {
 	defer state.server.Close()
 
 	home := t.TempDir()
+	writeScriptRuntimeFixture(t, home, state.server.URL)
 	writeScriptTrialFile(t, home, "44444444-4444-4444-8444-444444444444", "script-req-1")
 	lockPath := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json.lock")
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
@@ -732,6 +757,7 @@ func TestAdoptScriptTrialPendingStealsStaleScriptLock(t *testing.T) {
 	defer state.server.Close()
 
 	home := t.TempDir()
+	writeScriptRuntimeFixture(t, home, state.server.URL)
 	writeScriptTrialFile(t, home, "44444444-4444-4444-8444-444444444444", "script-req-1")
 	lockPath := filepath.Join(home, ".viceme", "trial", downloadableProductID+".json.lock")
 	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
@@ -932,8 +958,8 @@ func TestSkillUseConsumesTrialThenClosesPurchaseAndReinstallsCanonicalPackage(t 
 		t.Fatalf("last trial use omitted same-turn purchase hint: %#v", data)
 	}
 	lastEntry, err := os.ReadFile(filepath.Join(home, ".agents", "skills", "free-test", "SKILL.md"))
-	if err != nil || !bytes.Contains(lastEntry, []byte("# Free Test Skill")) || bytes.Contains(lastEntry, []byte(skillcontent.TrialDisabledMarker)) {
-		t.Fatalf("last allowed use must retain the full Skill: %v", err)
+	if err != nil || !bytes.Contains(lastEntry, []byte(skillcontent.TrialDisabledMarker)) || !strings.Contains(data["skillMarkdown"].(string), "# Free Test Skill") || data["entrySuspended"] != true {
+		t.Fatalf("last allowed use must suspend its entry and deliver the task body: %v", err)
 	}
 
 	// 第三次预检:耗尽 → 扫码支付 → 支付成功后转正并移除门禁。
@@ -1075,13 +1101,13 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 		content := string(files["SKILL.md"].Data)
 		marker := strings.Index(content, skillTrialGateMarker)
 		heading := strings.Index(content, "# Demo Skill")
-		if marker < 0 || heading < 0 || marker > heading {
+		if marker < 0 || heading >= 0 {
 			t.Fatalf("gate must sit between frontmatter and author body:\n%s", content)
 		}
 		if !strings.HasPrefix(content, frontmatter) {
 			t.Fatalf("frontmatter must stay untouched:\n%s", content)
 		}
-		if !strings.HasSuffix(strings.TrimSpace(content), "作者正文第一段。") {
+		if string(files[skillcontent.TrialBodyPath].Data) != frontmatter+body {
 			t.Fatalf("author body must stay at the end:\n%s", content)
 		}
 	})
@@ -1114,8 +1140,8 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 			}
 		}
 		entry := string(files["SKILL.md"].Data)
-		if !strings.Contains(entry, "[使用前检查]("+skillTrialRuntimePath+")") || !strings.Contains(entry, "allowed: true") || strings.Contains(entry, "trial.py") {
-			t.Fatalf("main Skill must contain the mandatory entry, not full commands:\n%s", entry)
+		if !strings.Contains(entry, "[使用前检查]("+skillTrialRuntimePath+")") || !strings.Contains(entry, "allowed: true") || !strings.Contains(entry, "trial.py") {
+			t.Fatalf("main Skill must contain the direct precheck command:\n%s", entry)
 		}
 	})
 
@@ -1162,7 +1188,7 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 			t.Fatal(err)
 		}
 		content := string(files["SKILL.md"].Data)
-		if !strings.HasSuffix(content, body+"\n示例: `"+skillTrialGateMarker+"`\n") || !strings.Contains(content, skillTrialRuntimePath) || len(files[skillTrialRuntimePath].Data) == 0 {
+		if string(files[skillcontent.TrialBodyPath].Data) != original || !strings.Contains(content, skillTrialRuntimePath) || len(files[skillTrialRuntimePath].Data) == 0 {
 			t.Fatalf("marker mention suppressed the actual gate or damaged author text: %s", content)
 		}
 	})
@@ -1186,7 +1212,7 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 			t.Fatal(err)
 		}
 		content := string(files["SKILL.md"].Data)
-		if strings.Contains(content, "旧版规则") || !strings.HasSuffix(content, body) || strings.Count(content, skillTrialGateMarker) != 1 {
+		if strings.Contains(content, "旧版规则") || !strings.HasSuffix(string(files[skillcontent.TrialBodyPath].Data), body) || strings.Count(content, skillTrialGateMarker) != 1 {
 			t.Fatalf("legacy gate was not cleanly replaced: %s", content)
 		}
 	})
@@ -1208,7 +1234,7 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 		if strings.Contains(content, "\r") {
 			t.Fatalf("CRLF must be normalized")
 		}
-		if marker := strings.Index(content, skillTrialGateMarker); marker < 0 || marker > strings.Index(content, "# Demo Skill") {
+		if marker := strings.Index(content, skillTrialGateMarker); marker < 0 || strings.Contains(content, "# Demo Skill") || string(files[skillcontent.TrialBodyPath].Data) != frontmatter+body {
 			t.Fatalf("gate must sit above the author body:\n%s", content)
 		}
 	})

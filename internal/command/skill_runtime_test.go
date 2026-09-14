@@ -239,7 +239,7 @@ func TestTrialUseDeliversAllowedWhenSharedLockReleaseFails(t *testing.T) {
 	t.Cleanup(func() { removeScriptTrialLock = previous })
 	removeScriptTrialLock = func(path string) error {
 		calls++
-		if calls == 2 {
+		if calls == 1 {
 			return os.ErrPermission
 		}
 		return previous(path)

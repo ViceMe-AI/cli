@@ -110,6 +110,7 @@ func newSkillAccessCommand(runtime *Runtime) *cobra.Command {
 
 func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 	var agent string
+	var skillDirectory string
 	var wait time.Duration
 	command := &cobra.Command{
 		Use: "install <product-id-or-work-url>", Short: "Verify and atomically install one free or purchased Skill edition", Args: cobra.ExactArgs(1),
@@ -118,6 +119,18 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			selectedRuntime := runtime
+			if skillDirectory != "" {
+				directory, err := filepath.Abs(skillDirectory)
+				manifest, valid := skillcontent.ReadRuntimeIdentity(directory, productID, runtime.apiBaseURL)
+				if err != nil || !valid || manifest.Market != string(runtime.region) {
+					return output.Policy("SKILL_INSTALLATION_IDENTITY_INVALID", "the invoking Skill directory does not match this Product and market")
+				}
+				localRuntime := *runtime
+				localRuntime.deps.Environment.InstallDirectory = directory
+				selectedRuntime = &localRuntime
+			}
+			runtime := selectedRuntime
 			if work != nil && work.Work.OfficialInstall != nil {
 				installed, installErr := performAuthorizedInstall(command.Context(), runtime, agent, "")
 				if installErr != nil {
@@ -145,7 +158,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 					return resumeErr
 				}
 				if resume {
-					return runTrialPurchase(command.Context(), runtime, productID, wait, agent)
+					return runTrialPurchase(command.Context(), runtime, productID, wait, agent, skillDirectory)
 				}
 				access, err = runtime.client().GetPublicSkillAccess(command.Context(), productID)
 				if err != nil {
@@ -190,17 +203,17 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 					if err := runtime.requireBuyerAuthentication(command.Context()); err != nil {
 						return err
 					}
-					orderValue, err := openSkillPurchaseOrder(command.Context(), runtime, productID)
-					if err != nil {
-						return err
-					}
+					orderValue, presentation, err := openSkillPurchaseOrderAndPresentQR(command.Context(), runtime, productID, true)
 					order := &orderValue
 					paymentURL := skillOrderPaymentURL(runtime, order.OrderNo)
 					if order.Status == "PENDING" && paymentURL != "" {
 						_, _ = fmt.Fprintf(runtime.deps.ErrOut, "打开订单支付页面（请使用下单的同一账号登录）：\n%s\n", paymentURL)
 					}
-					presentation, err := presentSkillPaymentQR(runtime, order)
 					if err != nil {
+						var cliErr *output.Error
+						if errors.As(err, &cliErr) || order.OrderNo == "" {
+							return err
+						}
 						return output.Policy("SKILL_PAYMENT_QR_UNAVAILABLE", "the order exists but its payment QR could not be presented").
 							WithDetails(map[string]any{"orderNo": order.OrderNo, "paymentUrl": paymentURL}).
 							WithHint("present the order paymentUrl to the user to continue payment with the same account; preserve the purchase state and retry the same install command after payment")
@@ -239,7 +252,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			if work != nil {
 				workSlug = work.Work.Slug
 			}
-			result, err := installAuthorizedSkill(command.Context(), runtime, productID, workSlug, agent, access)
+			result, err := installAuthorizedSkill(command.Context(), runtime, productID, workSlug, agent, access, skillDirectory)
 			if err != nil {
 				return err
 			}
@@ -247,11 +260,12 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&agent, "agent", "auto", "installation target: auto, codex, claude, workbuddy, or agents")
+	command.Flags().StringVar(&skillDirectory, "skill-dir", "", "repair this exact verified Skill installation")
 	command.Flags().DurationVar(&wait, "wait", 5*time.Minute, "wait up to this duration for the WeChat QR payment of a paid edition; 0 presents the QR without waiting")
 	return command
 }
 
-func installAuthorizedSkill(ctx context.Context, runtime *Runtime, productID, workSlug, agent string, access api.SkillAccess) (downloadableSkillInstallResult, error) {
+func installAuthorizedSkill(ctx context.Context, runtime *Runtime, productID, workSlug, agent string, access api.SkillAccess, directories ...string) (downloadableSkillInstallResult, error) {
 	var download api.DownloadURL
 	var err error
 	if access.IsFree {
@@ -262,10 +276,19 @@ func installAuthorizedSkill(ctx context.Context, runtime *Runtime, productID, wo
 	if err != nil {
 		return downloadableSkillInstallResult{}, err
 	}
-	return installSkillFromReceipt(runtime, ctx, productID, workSlug, agent, access, download)
+	return installSkillFromReceipt(runtime, ctx, productID, workSlug, agent, access, download, directories...)
 }
 
-func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, workSlug, agent string, access api.SkillAccess, download api.DownloadURL) (downloadableSkillInstallResult, error) {
+func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, workSlug, agent string, access api.SkillAccess, download api.DownloadURL, directories ...string) (downloadableSkillInstallResult, error) {
+	environment := runtime.deps.Environment
+	if len(directories) > 0 && directories[0] != "" {
+		directory, err := filepath.Abs(directories[0])
+		manifest, valid := skillcontent.ReadRuntimeIdentity(directory, productID, runtime.apiBaseURL)
+		if err != nil || !valid || manifest.Market != string(runtime.region) {
+			return downloadableSkillInstallResult{}, output.Policy("SKILL_INSTALLATION_IDENTITY_INVALID", "the invoking Skill directory does not match this Product and market")
+		}
+		environment.InstallDirectory = directory
+	}
 	if download.ReleaseID != access.Release.ID || download.ArtifactDigest != access.Release.ArtifactDigest {
 		return downloadableSkillInstallResult{}, output.Policy("SKILL_DOWNLOAD_RECEIPT_MISMATCH", "download authorization does not match the authorized Skill release")
 	}
@@ -293,7 +316,7 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	if err := addSkillRuntime(runtime, files, productID, access.Release.ID, kind); err != nil {
 		return downloadableSkillInstallResult{}, err
 	}
-	report, err := installDownloadableSkill(installedName, agent, files, runtime.deps.Environment, skillcontent.SkillProvenance{
+	report, err := installDownloadableSkill(installedName, agent, files, environment, skillcontent.SkillProvenance{
 		ProductID: productID,
 		ReleaseID: access.Release.ID,
 	})
