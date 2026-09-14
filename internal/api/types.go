@@ -1208,15 +1208,32 @@ type WebsiteReplicaFulfillmentTask struct {
 }
 
 type WebsiteReplicaLicenseClaims struct {
-	SchemaVersion       string `json:"schemaVersion"`
-	EntitlementID       string `json:"entitlementId"`
-	ReplicaID           string `json:"replicaId"`
-	VersionID           string `json:"versionId"`
-	Version             int    `json:"version"`
-	OrderNo             string `json:"orderNo"`
-	ArtifactDigest      string `json:"artifactDigest"`
-	LicenseTermsVersion string `json:"licenseTermsVersion"`
-	IssuedAt            string `json:"issuedAt"`
+	Redistribution      *WebsiteReplicaRedistributionLicense `json:"redistribution,omitempty" api:"optional"`
+	BaseArtifactDigest  string                               `json:"baseArtifactDigest,omitempty" api:"optional"`
+	Traceability        *WebsiteReplicaTraceabilityLicense   `json:"traceability,omitempty" api:"optional"`
+	SchemaVersion       string                               `json:"schemaVersion"`
+	EntitlementID       string                               `json:"entitlementId"`
+	ReplicaID           string                               `json:"replicaId"`
+	VersionID           string                               `json:"versionId"`
+	Version             int                                  `json:"version"`
+	OrderNo             string                               `json:"orderNo"`
+	ArtifactDigest      string                               `json:"artifactDigest"`
+	LicenseTermsVersion string                               `json:"licenseTermsVersion"`
+	IssuedAt            string                               `json:"issuedAt"`
+}
+
+type WebsiteReplicaRedistributionLicense struct {
+	Allowed                              bool   `json:"allowed"`
+	Scope                                string `json:"scope"`
+	UnauthorizedRedistributionProhibited bool   `json:"unauthorizedRedistributionProhibited"`
+}
+
+type WebsiteReplicaTraceabilityLicense struct {
+	Enabled                    bool   `json:"enabled"`
+	Purpose                    string `json:"purpose"`
+	RuntimeReporting           bool   `json:"runtimeReporting"`
+	RemovalOrEvasionProhibited bool   `json:"removalOrEvasionProhibited"`
+	ResaleProhibited           bool   `json:"resaleProhibited"`
 }
 
 type WebsiteReplicaLicense struct {

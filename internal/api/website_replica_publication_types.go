@@ -26,6 +26,7 @@ type WebsiteReplicaPublicationTarget struct {
 }
 
 type WebsiteReplicaPublicationReview struct {
+	SourceEntitlementID       string                                   `json:"sourceEntitlementId,omitempty" api:"optional"`
 	AllowAutomaticDegradation bool                                     `json:"allowAutomaticDegradation"`
 	Resolution                string                                   `json:"resolution"`
 	MerchantAccountID         string                                   `json:"merchantAccountId"`
@@ -59,6 +60,7 @@ type WebsiteReplicaPublicationConfirmation struct {
 }
 
 type CreateWebsiteReplicaPublicationRequest struct {
+	SourceEntitlementID       string                                   `json:"sourceEntitlementId,omitempty"`
 	AllowAutomaticDegradation bool                                     `json:"allowAutomaticDegradation"`
 	ProtocolVersion           int                                      `json:"protocolVersion"`
 	ClientRequestID           string                                   `json:"clientRequestId"`
