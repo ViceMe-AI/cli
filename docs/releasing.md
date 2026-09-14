@@ -150,10 +150,13 @@ the public `/-/binary/viceme-cli/` mirror; it does not create another npm
 package.
 
 The CN and Global release mirrors are S3-compatible origins rather than Amazon
-S3 itself. The publication job sets AWS CLI request and response checksum
-calculation to `WHEN_REQUIRED`: immutable artifacts are still compared
-byte-for-byte on recovery, while optional AWS streaming checksum trailers that
-the origins do not implement are not sent.
+S3 itself. `cmd/s3-publish` always runs from the GitHub Actions workflow
+revision that is executing (so recovering an older tag still uses the current
+publisher) and reads the immutable `dist` artifact assembled for that release.
+The publisher and workflow set request and response checksum calculation to
+`WHEN_REQUIRED`: immutable artifacts are still compared byte-for-byte on
+recovery, while optional AWS streaming checksum trailers that the origins do
+not implement are not sent.
 
 Every release renders two public Agent contracts with the exact stable version:
 
