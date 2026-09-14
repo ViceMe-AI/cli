@@ -24,6 +24,7 @@ import (
 )
 
 type replicaPublishOptions struct {
+	SourceEntitlementID      string
 	ProjectPath              string
 	PageDirectory            string
 	PageEntry                string
@@ -76,6 +77,7 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&options.ProjectPath, "path", "", "Website Replica project directory or existing ZIP path")
+	command.Flags().StringVar(&options.SourceEntitlementID, "source-entitlement", "", "owned redistribution entitlement from replica redistribution-grants; binds the permanent source")
 	command.Flags().StringVar(&options.PageDirectory, "page-dir", "", "deployable page directory selected by the agent; relative to --path (ZIP parent for ZIP input)")
 	command.Flags().StringVar(&options.PageEntry, "page-entry", "", "HTML entry relative to --page-dir, selected by the agent")
 	command.Flags().StringVar(&options.PreviewURL, "preview-url", "", "optional page URL already reviewed by the creator; not fetched by publish")
@@ -312,15 +314,16 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		return replicaPublicationPresentation{}, err
 	}
 	request := api.CreateWebsiteReplicaPublicationRequest{
-		ProtocolVersion:    api.WebsiteReplicaPublicationProtocolVersion,
-		ClientRequestID:    clientRequestID,
-		Market:             market,
-		MerchantAccountID:  merchantID,
-		ProjectFingerprint: projectFingerprint,
-		Target:             target,
-		Title:              options.Title,
-		Summary:            options.Summary,
-		PriceCents:         options.PriceCents,
+		SourceEntitlementID: options.SourceEntitlementID,
+		ProtocolVersion:     api.WebsiteReplicaPublicationProtocolVersion,
+		ClientRequestID:     clientRequestID,
+		Market:              market,
+		MerchantAccountID:   merchantID,
+		ProjectFingerprint:  projectFingerprint,
+		Target:              target,
+		Title:               options.Title,
+		Summary:             options.Summary,
+		PriceCents:          options.PriceCents,
 		Source: api.WebsiteReplicaPublicationSourceArtifact{
 			FileName: "source.zip", ContentType: "application/zip",
 			SizeBytes: frozen.Summary.SizeBytes, Digest: frozen.Summary.Digest,
@@ -648,6 +651,9 @@ func finalReplicaPublicationReview(pending replicapublication.Pending, confirmat
 
 func replicaConfirmationMatchesRequest(confirmation api.WebsiteReplicaPublicationConfirmationChallenge, request api.CreateWebsiteReplicaPublicationRequest) bool {
 	review := confirmation.Review
+	if review.SourceEntitlementID != request.SourceEntitlementID {
+		return false
+	}
 	if review.ProjectFingerprint != request.ProjectFingerprint || review.Title != request.Title || review.Summary != request.Summary ||
 		review.AllowAutomaticDegradation != request.AllowAutomaticDegradation || review.PriceCents != request.PriceCents || !reflect.DeepEqual(review.Source, request.Source) || !reflect.DeepEqual(review.Page, request.Page) {
 		return false
@@ -730,6 +736,7 @@ func validateConfirmedReplicaRequest(options replicaPublishOptions, pending repl
 	expected.Target = target
 	expected.MerchantAccountID = merchantID
 	expected.Title = options.Title
+	expected.SourceEntitlementID = options.SourceEntitlementID
 	expected.Summary = options.Summary
 	expected.PriceCents = options.PriceCents
 	expected.CanonicalOrigin = nil
@@ -764,6 +771,9 @@ func normalizeReplicaPublishOptions(options replicaPublishOptions) replicaPublis
 }
 
 func validateReplicaPublishOptions(options replicaPublishOptions) error {
+	if options.SourceEntitlementID != "" && !replicaUUIDPattern.MatchString(options.SourceEntitlementID) {
+		return output.Validation("REPLICA_SOURCE_ENTITLEMENT_INVALID", "--source-entitlement must be an owned entitlement UUID")
+	}
 	if options.ProjectPath == "" {
 		return output.Validation("REPLICA_PROJECT_PATH_REQUIRED", "--path is required")
 	}
@@ -813,6 +823,9 @@ func validateReplicaPublishOptions(options replicaPublishOptions) error {
 func replicaPublishResumeCommand(pending replicapublication.Pending) string {
 	request := pending.Request
 	parts := []string{"viceme replica publish", "--path", shellQuote(pending.ProjectPath), "--title", shellQuote(request.Title), "--summary", shellQuote(request.Summary), "--price-cents", fmt.Sprintf("%d", request.PriceCents)}
+	if request.SourceEntitlementID != "" {
+		parts = append(parts, "--source-entitlement", request.SourceEntitlementID)
+	}
 	if pending.PageDirectory != "" {
 		parts = append(parts, "--page-dir", shellQuote(pending.PageDirectory), "--page-entry", shellQuote(pending.PageEntry))
 	}
