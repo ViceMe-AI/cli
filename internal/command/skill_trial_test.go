@@ -48,6 +48,7 @@ type skillTrialTestServer struct {
 	useRequests           []map[string]any
 	trialUseFailures      int
 	trialPurchaseRequests []map[string]string
+	trialHostedCheckout   bool
 }
 
 func newSkillTrialTestServer(t *testing.T) *skillTrialTestServer {
@@ -107,10 +108,15 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 		if status == "PENDING" {
 			action = map[string]any{"type": "QR_CODE", "content": "weixin://pay/trial-test-only"}
 		}
-		writeJSONResponse(writer, map[string]any{
+		purchase := map[string]any{
 			"productId": downloadableProductID, "orderNo": skillPurchaseOrderNo, "title": "Trial formal edition",
 			"amountCents": 990, "currency": "CNY", "status": status, "expiresAt": "2099-01-01T00:00:00Z", "paymentAction": action,
-		})
+		}
+		if s.trialHostedCheckout && status == "PENDING" {
+			purchase["checkoutUrl"] = "https://shop.example.invalid/trial-checkout/order#t=test-only"
+			purchase["checkoutImageUrl"] = "https://shop.example.invalid/api/v1/skills/trial-checkout/qr/test-only.png"
+		}
+		writeJSONResponse(writer, purchase)
 	case request.URL.Path == "/v1/skills/"+downloadableProductID+"/access":
 		access := skillAccessFixture(false, false, s.archiveDigest, s.server.URL+"/purchase")
 		access["trial"] = map[string]any{"available": true, "limitUses": s.trialLimit}

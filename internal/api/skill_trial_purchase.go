@@ -19,6 +19,16 @@ type TrialPurchase struct {
 	Currency      string          `json:"currency"`
 	ExpiresAt     string          `json:"expiresAt"`
 	PaymentAction json.RawMessage `json:"paymentAction"`
+	// Hosted login-free cashier links. Absent on API generations before the
+	// hosted checkout shipped; presence is derived, never assumed.
+	CheckoutURL      string `json:"checkoutUrl"`
+	CheckoutImageURL string `json:"checkoutImageUrl"`
+}
+
+// HostedCheckout reports whether the server returned the hosted login-free
+// cashier links for this payable order.
+func (purchase TrialPurchase) HostedCheckout() bool {
+	return purchase.CheckoutURL != "" || purchase.CheckoutImageURL != ""
 }
 
 type TrialOwnedDownload struct {
