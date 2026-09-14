@@ -12,12 +12,13 @@
 `kind=owned` 或 `owned=true` 后按正式 SKILL.md 继续，不要再运行 `use`、不要读计次指引、不要提剩余次数。
 不得停在“安装成功”，也不得要求用户重复描述原任务。
 
-有 `paymentPresentation` 时，同一条用户可见回复必须同时做到：
+有 `paymentPresentation` 时，按当前运行环境选择通道，同一条用户可见回复必须完成该环境的全部展示：
 
-1. 聊天气泡：正文单独一行写出 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 `imageChatSrc`（`local-file://` 加上 `imagePath` 绝对路径）。不要只写裸 `/Users/...` 或盘符路径，WorkBuddy 不会把它渲染成图。不要 Read PNG，不要把 imagePath 交给 `present_files`。
-2. 右侧浏览器：`present_files` 的 `files` 数组只能包含 `widgetPath` 这一个 HTML 路径。把 PNG 放进去会把图片抢到右侧预览。
+1. 聊天气泡（WorkBuddy）：正文单独一行写出 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 `imageChatSrc`（`local-file://` 加上 `imagePath` 绝对路径）。不要只写裸 `/Users/...` 或盘符路径，WorkBuddy 不会把它渲染成图。不要 Read PNG，不要把 imagePath 交给 `present_files`。
+2. 右侧浏览器（WorkBuddy）：`present_files` 的 `files` 数组只能包含 `widgetPath` 这一个 HTML 路径。把 PNG 放进去会把图片抢到右侧预览。
+3. 其他宿主（Codex、Claude 等）：把 `widgetPath` 交给当前平台内实际存在的浏览器、页面或支付面板工具（不猜测工具名，没有就不要假装调用）；没有平台内展示能力或打开失败时，把 `widgetPath` 绝对路径原样告诉用户，请用户自行用浏览器打开支付页。非 WorkBuddy 宿主的聊天通常不渲染本地图片，不要把 Markdown 图片或裸 `imagePath` 当作已展示。
 
-不要 Read 支付 HTML，不要把 HTML 贴进聊天，支付不要调用 `show_widget`。没有 `present_files` 时仍在聊天气泡用上述 Markdown 展示图片。不得重画或猜补二维码，也不得把支付 URI 交给第三方。下面提到“展示二维码”均遵守此规则。
+不要 Read 支付 HTML，不要把 HTML 贴进聊天，支付不要调用 `show_widget`。WorkBuddy 没有 `present_files` 时仍在聊天气泡用上述 Markdown 展示图片。不得重画或猜补二维码，也不得把支付 URI 交给第三方。下面提到“展示二维码”均遵守此规则。
 
 必须先让用户看到二维码再启动有界等待；支付页和图片都不查询订单、不安装 Skill、不计次，也不根据倒计时、扫码或用户自述判断支付成功。付款由外层命令查询。不得增加“查询支付结果”或“已付款但未继续”的按钮。
 
