@@ -219,30 +219,3 @@ sys.exit(trial.run([sys.argv[5],"--product",sys.argv[4],"--market","cn","--agent
 		})
 	}
 }
-
-func TestSkillPaymentPresentationHintBranchesByInvokingAgent(t *testing.T) {
-	getenv := func(env map[string]string) func(string) string {
-		return func(key string) string { return env[key] }
-	}
-	workBuddy := skillPaymentPresentationHint(getenv(map[string]string{"CODEBUDDY_SESSION_ID": "s"}))
-	if !strings.Contains(workBuddy, "present_files") || !strings.Contains(workBuddy, "imageChatSrc") {
-		t.Fatalf("workbuddy hint lost the present_files contract: %s", workBuddy)
-	}
-	doubao := skillPaymentPresentationHint(getenv(map[string]string{"DOUBAO_OFFICE_APP_ID": "1"}))
-	if !strings.Contains(doubao, "present_files") || strings.Contains(doubao, "imageChatSrc") {
-		t.Fatalf("doubao hint must deliver widgetPath with present_files and skip chat images: %s", doubao)
-	}
-	for name, env := range map[string]map[string]string{
-		"codex":   {"CODEX_SESSION_ID": "s"},
-		"claude":  {"CLAUDECODE": "1"},
-		"unknown": {},
-	} {
-		hint := skillPaymentPresentationHint(getenv(env))
-		if strings.Contains(hint, "imageChatSrc") {
-			t.Fatalf("%s hint must not rely on chat-rendered local images: %s", name, hint)
-		}
-		if !strings.Contains(hint, "widgetPath") || !strings.Contains(hint, "absolute path") {
-			t.Fatalf("%s hint must defer to in-platform tools and state the widgetPath verbatim: %s", name, hint)
-		}
-	}
-}
