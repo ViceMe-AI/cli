@@ -464,6 +464,36 @@ class TrialScriptTestCase(unittest.TestCase):
         # 显式参数覆盖探测。
         self.assertEqual(trial.target_roots("codex"), [os.path.join(home, ".agents", "skills")])
 
+    def test_payment_instructions_branch_by_invoking_agent(self):
+        # WorkBuddy:聊天 local-file 图片 + present_files 支付页,原契约不变。
+        with mock.patch.dict(os.environ, {"CODEBUDDY_SESSION_ID": "s"}):
+            instructions = trial.payment_display_instructions()
+            self.assertIn("![微信支付二维码](<imageChatSrc>)", instructions)
+            self.assertIn("present_files([widgetPath])", instructions)
+            exhausted = trial.exhausted_purchase_message()
+            self.assertIn("present_files", exhausted)
+            self.assertIn("imageChatSrc", exhausted)
+        # 豆包工作:有自己的 present_files 但聊天不渲染本地图片,
+        # 只投递支付页,不写 Markdown 图片。
+        with mock.patch.dict(os.environ, {"DOUBAO_OFFICE_APP_ID": "1"}):
+            instructions = trial.payment_display_instructions()
+            self.assertIn("present_files([widgetPath])", instructions)
+            self.assertNotIn("imageChatSrc", instructions)
+            self.assertNotIn("![微信支付二维码]", instructions)
+        # Codex 与未知宿主:平台内展示工具,不猜测工具名,兜底把路径原样告诉用户;
+        # 不得再声称聊天能显示本地图片或要求 present_files。
+        for markers in ({"CODEX_SESSION_ID": "s"}, {"CLAUDECODE": "1"}, {}):
+            with self.subTest(markers=markers):
+                with mock.patch.dict(os.environ, markers):
+                    instructions = trial.payment_display_instructions()
+                    self.assertIn("widgetPath", instructions)
+                    self.assertIn("绝对路径", instructions)
+                    self.assertNotIn("present_files", instructions)
+                    self.assertNotIn("imageChatSrc", instructions)
+                    exhausted = trial.exhausted_purchase_message()
+                    self.assertNotIn("present_files", exhausted)
+                    self.assertIn("展示指引", exhausted)
+
     def test_auto_targets_do_not_duplicate_codex_skills(self):
         for base in (".codex", ".claude", ".workbuddy"):
             os.makedirs(os.path.join(self.home, base))
