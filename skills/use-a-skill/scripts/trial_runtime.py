@@ -31,6 +31,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import stat
 import struct
 import sys
@@ -63,6 +64,7 @@ GATE_MARKER = "<!-- viceme-trial:v1"
 GATE_END = "<!-- /viceme-trial:v1 -->"
 RUNTIME_PATH = "references/viceme-runtime.md"
 TRIAL_BODY_PATH = ".viceme/trial-body.md"
+PACKAGE_FILES_PATH = ".viceme/package-files.json"
 RUNTIME_MARKER = "<!-- viceme-trial-runtime:v1"
 GATE_TAIL = "转正，再继续任务。"
 DISABLED_MARKER = "<!-- viceme-trial-disabled:v1"
@@ -183,7 +185,7 @@ def prepare_runtime_files(files, market, product_id, release_id, kind):
     environment = {"market": market, "apiBaseUrl": API_ORIGIN[market],
                    "distributionBaseUrl": SCRIPT_ORIGIN[market], "productId": product_id}
     additions[".viceme/environment.json"] = (json.dumps(environment, sort_keys=True).encode(), 0o644)
-    if any(name in files for name in additions) or ".viceme/runtime.json" in files:
+    if any(name in files for name in additions) or ".viceme/runtime.json" in files or PACKAGE_FILES_PATH in files:
         raise Failure("RUNTIME_RESOURCE_CONFLICT", "作者包占用了平台运行资源路径，未覆盖任何文件")
     files.update(additions)
     manifest = {"schemaVersion": 1, "productId": product_id, "releaseId": release_id,
@@ -334,10 +336,14 @@ def read_runtime_install(root, market, product_id):
             with open(resolved, "rb") as handle:
                 if hashlib.sha256(handle.read()).hexdigest() != digest:
                     raise ValueError()
+        if os.path.lexists(os.path.join(root, PACKAGE_FILES_PATH)):
+            package = read_package_files(root, product_id)
+            if package is None or package.get("installing") or package.get("previousReleaseId") or package.get("recoveryDirectory"):
+                return unavailable
         return {"ready": True, "productId": product_id, "installedName": os.path.basename(root),
                 "runner": manifest["runner"], "kind": manifest["kind"],
                 "nextAction": "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", **installed_resources(root)}
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError, Failure):
         return unavailable
 
 
@@ -608,7 +614,8 @@ class ProductLock:
                     pass  # 存在但暂时不可 stat(共享冲突):按被占处理。
             stolen = False
             try:
-                if _lock_holder_is_dead(self.path) or _lock_is_stale(self.path):
+                holder = _lock_holder_pid(self.path)
+                if (holder is not None and not _pid_is_alive(holder)) or (holder is None and _lock_is_stale(self.path)):
                     os.remove(self.path)
                     stolen = True
                 elif time.time() > deadline and not empty_stolen and _lock_is_empty(self.path):
@@ -651,6 +658,7 @@ class ProductLock:
 
 
 def command_install(market, product_id, agent="auto"):
+    validate_invoking_purchase_directory(market, product_id)
     if trial_install_should_resume_purchase(market, product_id):
         return command_purchase(market, product_id, agent=agent)
     access = api_request(market, "GET", "/v1/skills/%s/access" % urllib.parse.quote(product_id, safe=""))
@@ -736,6 +744,8 @@ def finish_install(market, product_id, agent, access, download, kind, grant=None
     result["onboardingGuideUrl"] = SCRIPT_ORIGIN[market] + "/skills/_widgets/README.md"
     result["onboardingTemplateUrl"] = SCRIPT_ORIGIN[market] + "/skills/_widgets/onboarding.html"
     result.update(installed_resources(succeeded[0]))
+    if getattr(roots, "local_recoveries", None):
+        result["localRecoveries"] = roots.local_recoveries
     if kind == "trial" and grant.get("remainingUses") == 0:
         suspend_trial_skills(market, product_id, access.get("purchaseUrl") or "")
         result["nextAction"] = "PURCHASE_REQUIRED"
@@ -1566,73 +1576,11 @@ def target_roots(agent="auto"):
 
 
 def install_to_roots(files, installed_name, product_id, release_id, agent="auto"):
-    results = []
-    for root in target_roots(agent):
-        destination = os.path.join(root, installed_name)
-        os.makedirs(root, exist_ok=True)
-        owner = read_manifest_product(destination)
-        if owner is None:
-            results.append((destination, "skipped: 目录已存在且非 ViceMe 管理,拒绝覆盖"))
-            continue
-        if owner and owner != product_id:
-            results.append((destination, "skipped: 目录属于其他 Product(%s),拒绝覆盖" % owner))
-            continue
-        if owner == product_id:
-            overwrite_in_place(files, installed_name, destination, product_id, release_id)
-            results.append((destination, ""))
-            continue
-        staged = stage_skill(files, installed_name, product_id, release_id, root)
-        backup = destination + ".viceme-script-backup"
-        remove_path(backup)
-        if os.path.exists(destination):
-            os.rename(destination, backup)
-        try:
-            # staged 是临时外壳,里面才是同名技能目录;搬运内层,
-            # 外壳随后清掉。
-            os.rename(os.path.join(staged, installed_name), destination)
-        except OSError:
-            if os.path.exists(backup) and not os.path.exists(destination):
-                os.rename(backup, destination)
-            remove_path(staged)
-            results.append((destination, "skipped: 写入失败"))
-            continue
-        remove_path(backup)
-        remove_path(staged)
-        results.append((destination, ""))
-    return results
-
-
-def validate_invoking_purchase_directory(market, product_id):
-    root = invoking_skill_directory()
-    if not root:
-        return ""
-    try:
-        for path in (root, os.path.join(root, ".viceme"), os.path.join(root, ".viceme/install-manifest.json"), os.path.join(root, ".viceme/runtime.json")):
-            if stat.S_ISLNK(os.lstat(path).st_mode):
-                raise ValueError("symlink")
-        with open(os.path.join(root, ".viceme/runtime.json"), encoding="utf-8") as handle:
-            runtime = json.load(handle)
-        if (read_manifest_product(root) == product_id and runtime.get("productId") == product_id
-                and runtime.get("market") == market and runtime.get("apiBaseUrl") == API_ORIGIN[market]):
-            return root
-    except (OSError, ValueError):
-        pass
-    raise Failure("INSTALLATION_IDENTITY_INVALID", "当前脚本所在目录不属于此商品或市场,未发起购买或覆盖文件")
-
-
-def install_owned_to_roots(files, installed_name, product_id, release_id, agent="auto"):
-    """Activate the formal entry last, without bulk-deleting local user files.
-
-    Caller holds ProductLock. Each target also uses the Go-compatible path
-    lock. All formal bytes are already verified. Until every supporting file
-    is written, the old suspended/trial entry stays in place. A denied write
-    therefore cannot activate a partially prepared formal entry.
-    """
-    complete = compose_skill_files(files, installed_name, product_id, release_id)
     runtime = json.loads(files[".viceme/runtime.json"][0])
     invoking = validate_invoking_purchase_directory(runtime["market"], product_id)
     destinations = [invoking] if invoking else [os.path.join(root, installed_name) for root in target_roots(agent)]
-    results = []
+    complete = compose_skill_files(files, installed_name, product_id, release_id)
+    results = InstallResults()
     for destination in destinations:
         os.makedirs(os.path.dirname(destination), mode=0o700, exist_ok=True)
         with skill_path_lock(destination):
@@ -1640,39 +1588,79 @@ def install_owned_to_roots(files, installed_name, product_id, release_id, agent=
             if owner is None or (owner and owner != product_id) or os.path.islink(destination):
                 results.append((destination, "skipped: 目标不属于当前 Product,拒绝覆盖"))
                 continue
-            os.makedirs(destination, mode=0o755, exist_ok=True)
-            for name in sorted(complete, key=lambda name: (name == "SKILL.md", name)):
-                path = destination
-                for component in name.split("/"):
-                    path = os.path.join(path, component)
-                    if os.path.islink(path):
-                        raise Failure("INSTALL_UNSAFE_PATH", "正式包安装目标包含符号链接,保留原入口并停止")
-                os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-                fd, temporary = tempfile.mkstemp(prefix=".viceme-formal-", dir=os.path.dirname(path))
+            if owner:
+                validate_install_directory(destination, runtime["market"], product_id)
+                recovery = install_complete_files(complete, destination, product_id, release_id)
+            else:
+                # A first installation has no durable identity to resume from.
+                # Publish only a fully verified staged tree on the same volume.
+                staged = stage_skill(complete, installed_name, os.path.dirname(destination))
                 try:
-                    data, mode = complete[name]
-                    with os.fdopen(fd, "wb") as handle:
-                        handle.write(data)
-                        handle.flush()
-                        os.fsync(handle.fileno())
-                    os.chmod(temporary, mode)
-                    os.replace(temporary, path)
+                    if os.path.lexists(destination):
+                        raise Failure("INSTALL_FILE_CONFLICT", "安装目标已存在,未覆盖本地目录")
+                    os.replace(os.path.join(staged, installed_name), destination)
                 finally:
-                    if os.path.exists(temporary):
-                        os.remove(temporary)
-            # Only our generated reference is removable. Never sweep files
-            # omitted by the formal package: they may be user-created output.
-            runtime_path = os.path.join(destination, RUNTIME_PATH)
-            if RUNTIME_PATH not in complete and not os.path.islink(runtime_path):
-                try:
-                    with open(runtime_path, "rb") as handle:
-                        generated = handle.read().startswith((RUNTIME_MARKER + " product=" + product_id + " -->").encode())
-                    if generated:
-                        os.remove(runtime_path)
-                except FileNotFoundError:
-                    pass
+                    shutil.rmtree(staged, ignore_errors=True)
+                recovery = None
+            if recovery:
+                results.local_recoveries.append(recovery)
             results.append((destination, ""))
     return results
+
+
+def validate_invoking_purchase_directory(market, product_id):
+    root = invoking_skill_directory()
+    if not root:
+        return ""
+    validate_install_directory(root, market, product_id)
+    return root
+
+
+def validate_install_directory(root, market, product_id):
+    """Validate ownership without requiring the resources being repaired.
+
+    During a partial replacement the two local identity records can belong to
+    different releases; their Product, market and API must still agree. A
+    missing runtime record can be repaired using the remaining environment
+    identity, but a present conflicting record never falls back to another.
+    """
+    try:
+        for path in (root, os.path.join(root, ".viceme"), os.path.join(root, ".viceme/install-manifest.json")):
+            if stat.S_ISLNK(os.lstat(path).st_mode):
+                raise ValueError("symlink")
+        with open(os.path.join(root, ".viceme/install-manifest.json"), encoding="utf-8") as handle:
+            owner = json.load(handle)
+        if owner.get("product_id") != product_id or not owner.get("release_id"):
+            raise ValueError("owner")
+        identities = 0
+        for name in ("runtime.json", "environment.json"):
+            path = os.path.join(root, ".viceme", name)
+            try:
+                info = os.lstat(path)
+            except FileNotFoundError:
+                continue
+            if not stat.S_ISREG(info.st_mode):
+                raise ValueError("identity")
+            with open(path, encoding="utf-8") as handle:
+                identity = json.load(handle)
+            if (identity.get("productId") != product_id or identity.get("market") != market
+                    or identity.get("apiBaseUrl") != API_ORIGIN[market]):
+                raise ValueError("identity")
+            if name == "runtime.json" and identity.get("releaseId") != owner["release_id"]:
+                transition = read_package_files(root, product_id)
+                if (transition is None or not transition.get("previousReleaseId")
+                        or identity.get("releaseId") not in (transition["releaseId"], transition["previousReleaseId"])):
+                    raise ValueError("unbound release transition")
+            identities += 1
+        if identities:
+            return
+    except (OSError, ValueError, AttributeError, TypeError):
+        pass
+    raise Failure("INSTALLATION_IDENTITY_INVALID", "当前安装目录不属于此商品或市场,未发起购买或覆盖文件")
+
+
+def install_owned_to_roots(files, installed_name, product_id, release_id, agent="auto"):
+    return install_to_roots(files, installed_name, product_id, release_id, agent)
 
 
 def read_manifest_product(destination):
@@ -1733,52 +1721,293 @@ def compose_skill_files(files, installed_name, product_id, release_id):
         ).encode("utf-8"),
         0o644,
     )
+    if PACKAGE_FILES_PATH in files:
+        raise Failure("RUNTIME_RESOURCE_CONFLICT", "作者包占用了平台文件归属清单,未覆盖任何文件")
+    manifest = {
+        "schemaVersion": 1, "productId": product_id, "releaseId": release_id,
+        "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in complete.items()
+                  if name != ".viceme/install-manifest.json"},
+    }
+    complete[PACKAGE_FILES_PATH] = (json.dumps(manifest, sort_keys=True).encode(), 0o644)
     return complete
 
 
-def stage_skill(files, installed_name, product_id, release_id, root):
+class InstallResults(list):
+    def __init__(self):
+        super().__init__()
+        self.local_recoveries = []
+
+
+def safe_package_path(name):
+    return (isinstance(name, str) and bool(name) and not name.startswith("/") and "\\" not in name
+            and all(part not in ("", ".", "..") and ":" not in part for part in name.split("/")))
+
+
+def read_package_files(destination, product_id):
+    """Unknown legacy ownership requires preserving the entire old generation.
+
+    previousReleaseId permits an interrupted in-place replacement: its union
+    still identifies old resources that a retry must remove before activation.
+    Go consumes this same document and transition field.
+    """
+    try:
+        path = os.path.join(destination, PACKAGE_FILES_PATH)
+        if not stat.S_ISREG(os.lstat(path).st_mode):
+            return None
+        with open(path, encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        with open(os.path.join(destination, ".viceme/install-manifest.json"), encoding="utf-8") as handle:
+            owner = json.load(handle)
+        if (manifest.get("schemaVersion") != 1 or manifest.get("productId") != product_id
+                or not isinstance(manifest.get("releaseId"), str) or not manifest["releaseId"]
+                or owner.get("release_id") not in (manifest["releaseId"], manifest.get("previousReleaseId"))):
+            return None
+        if "previousReleaseId" in manifest and (not isinstance(manifest["previousReleaseId"], str)
+                or not manifest["previousReleaseId"] or manifest["previousReleaseId"] == manifest["releaseId"]):
+            return None
+        if "recoveryDirectory" in manifest and (not isinstance(manifest["recoveryDirectory"], str)
+                or not manifest["recoveryDirectory"]):
+            return None
+        if "installing" in manifest and not isinstance(manifest["installing"], bool):
+            return None
+        files = manifest.get("files")
+        if not isinstance(files, dict) or "SKILL.md" not in files:
+            return None
+        for name, digest in files.items():
+            if (not safe_package_path(name) or name in (PACKAGE_FILES_PATH, ".viceme/install-manifest.json")
+                    or not isinstance(digest, str) or len(digest) != 64
+                    or any(character not in "0123456789abcdef" for character in digest)):
+                return None
+        return manifest
+    except (OSError, ValueError, AttributeError, TypeError):
+        return None
+
+
+def install_file_path(destination, name, allow_leaf_link=False):
+    if not safe_package_path(name):
+        raise Failure("INSTALL_UNSAFE_PATH", "安装文件路径无效,保留原入口并停止")
+    path = destination
+    parts = name.split("/")
+    for index, component in enumerate(parts):
+        path = os.path.join(path, component)
+        if os.path.islink(path) and not (allow_leaf_link and index == len(parts) - 1):
+            raise Failure("INSTALL_UNSAFE_PATH", "安装目标包含符号链接,保留原入口并停止")
+        if index < len(parts) - 1 and os.path.lexists(path) and not os.path.isdir(path):
+            raise Failure("INSTALL_FILE_CONFLICT", "新发布文件与本地文件路径冲突,原安装未变更")
+    return path
+
+
+def write_install_file(destination, name, file):
+    path = install_file_path(destination, name)
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=".viceme-install-", dir=os.path.dirname(path))
+    try:
+        data, mode = file
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, mode)
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
+
+
+def install_complete_files(complete, destination, product_id, release_id):
+    existing = os.path.isdir(destination)
+    previous = read_package_files(destination, product_id) if existing else None
+    if existing and previous is None:
+        return migrate_legacy_install(complete, destination, product_id, release_id)
+    recovery = read_legacy_recovery(previous["recoveryDirectory"], destination, product_id) if previous and previous.get("recoveryDirectory") else None
+    old_files = previous["files"] if previous else {}
+    stale = set(old_files) - set(complete)
+    # Preflight only the paths we own or will write. Unmanaged user output and
+    # virtual environments, including their interpreter symlinks, stay intact.
+    for name in complete:
+        path = install_file_path(destination, name)
+        if name not in old_files and name not in (PACKAGE_FILES_PATH, ".viceme/install-manifest.json") and os.path.lexists(path):
+            if not stat.S_ISREG(os.lstat(path).st_mode):
+                raise Failure("INSTALL_FILE_CONFLICT", "新发布文件与本地文件路径冲突,原安装未变更")
+            with open(path, "rb") as handle:
+                if handle.read() != complete[name][0]:
+                    raise Failure("INSTALL_FILE_CONFLICT", "新发布文件与本地文件内容冲突,原安装未变更")
+    for name in stale:
+        install_file_path(destination, name, allow_leaf_link=True)
+    os.makedirs(destination, mode=0o755, exist_ok=True)
+    final_manifest = json.loads(complete[PACKAGE_FILES_PATH][0])
+    transition = dict(final_manifest)
+    transition["installing"] = True
+    transition["files"] = {**old_files, **final_manifest["files"]}
+    if previous:
+        with open(os.path.join(destination, ".viceme/install-manifest.json"), encoding="utf-8") as handle:
+            prior_release = json.load(handle)["release_id"]
+        if prior_release != release_id:
+            transition["previousReleaseId"] = prior_release
+        if recovery:
+            transition["recoveryDirectory"] = recovery["directory"]
+    write_install_file(destination, PACKAGE_FILES_PATH, (json.dumps(transition, sort_keys=True).encode(), 0o644))
+    identity_files = {".viceme/install-manifest.json", ".viceme/runtime.json"}
+    for name in sorted(set(complete) - {"SKILL.md", PACKAGE_FILES_PATH} - identity_files):
+        write_install_file(destination, name, complete[name])
+    empty_candidates = set()
+    for name in sorted(stale):
+        path = install_file_path(destination, name, allow_leaf_link=True)
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            continue
+        parent = os.path.dirname(path)
+        while parent != destination:
+            empty_candidates.add(parent)
+            parent = os.path.dirname(parent)
+    for path in sorted(empty_candidates, key=lambda value: (-value.count(os.sep), value)):
+        try:
+            os.rmdir(path)
+        except OSError:
+            pass  # Nonempty directories still contain new or user-owned files.
+    for name in sorted(identity_files):
+        write_install_file(destination, name, complete[name])
+    write_install_file(destination, "SKILL.md", complete["SKILL.md"])
+    # Commit readiness only after the complete installed package is verified.
+    # Later edits to authored files are user work, not installation failures.
+    verify_install_files(complete, destination, skip_inventory=True)
+    write_install_file(destination, PACKAGE_FILES_PATH, complete[PACKAGE_FILES_PATH])
+    return recovery
+
+
+def verify_install_files(complete, destination, skip_inventory=False):
+    for name, (data, mode) in complete.items():
+        if skip_inventory and name == PACKAGE_FILES_PATH:
+            continue
+        path = install_file_path(destination, name)
+        with open(path, "rb") as handle:
+            if handle.read() != data:
+                raise OSError("installed package readback failed")
+        if os.name != "nt" and stat.S_IMODE(os.stat(path).st_mode) != mode:
+            raise OSError("installed package mode readback failed")
+
+
+def recovery_snapshot(directory):
+    entries = {}
+    def capture(path):
+        name = os.path.relpath(path, directory).replace(os.sep, "/")
+        info = os.lstat(path)
+        # Windows has no POSIX permission contract; match the Go snapshot.
+        record = {"mode": 0 if os.name == "nt" else stat.S_IMODE(info.st_mode) & 0o777}
+        if stat.S_ISLNK(info.st_mode):
+            record.update(kind="symlink", link=os.readlink(path))
+        elif stat.S_ISDIR(info.st_mode):
+            record["kind"] = "directory"
+        elif stat.S_ISREG(info.st_mode):
+            with open(path, "rb") as handle:
+                digest = hashlib.sha256()
+                for chunk in iter(lambda: handle.read(1 << 20), b""):
+                    digest.update(chunk)
+                record.update(kind="file", digest=digest.hexdigest())
+        else:
+            raise Failure("INSTALL_UNSAFE_PATH", "旧安装包含无法保全的特殊文件,原目录未变更")
+        entries[name] = record
+    def walk_error(error):
+        raise error
+    capture(directory)
+    for root, directories, filenames in os.walk(directory, followlinks=False, onerror=walk_error):
+        for name in directories + filenames:
+            capture(os.path.join(root, name))
+    return entries
+
+
+def read_legacy_recovery(directory, destination, product_id):
+    """A durable transition may delete legacy files only after rechecking backup."""
+    try:
+        expected_parent = os.path.join(home_directory(), ".viceme", "recovery", product_id)
+        if (not isinstance(directory, str) or not os.path.isabs(directory) or os.path.islink(directory)
+                or not os.path.samefile(os.path.dirname(directory), expected_parent)):
+            raise ValueError("recovery location")
+        info = os.lstat(directory)
+        if not stat.S_ISDIR(info.st_mode) or (os.name != "nt" and stat.S_IMODE(info.st_mode) & 0o077):
+            raise ValueError("recovery permissions")
+        metadata_path = os.path.join(directory, "recovery.json")
+        if not stat.S_ISREG(os.lstat(metadata_path).st_mode):
+            raise ValueError("recovery metadata")
+        with open(metadata_path, encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        recorded_destination = metadata.get("skillDirectory")
+        if (metadata.get("schemaVersion") != 1 or metadata.get("productId") != product_id
+                or not isinstance(recorded_destination, str) or not os.path.isabs(recorded_destination)
+                or not os.path.samefile(recorded_destination, destination)
+                or not isinstance(metadata.get("releaseId"), str) or not metadata["releaseId"]
+                or metadata.get("files") != recovery_snapshot(os.path.join(directory, "files"))):
+            raise ValueError("recovery identity or contents")
+        return {"skillDirectory": destination, "directory": directory, "files": sorted(metadata["files"])}
+    except (OSError, ValueError, TypeError, AttributeError):
+        raise Failure("INSTALL_RECOVERY_INVALID", "旧文件的恢复备份未通过校验,已停止更新并保留当前安装") from None
+
+
+def migrate_legacy_install(complete, destination, product_id, release_id):
+    """Back up legacy content before a durable in-place transition.
+
+    The active directory and its script are never moved away. Even SIGKILL
+    leaves that exact script callable; a retry reads this union and rechecks
+    the full backup before removing any remaining legacy files.
+    """
+    recovery = None
+    recorded = False
+    try:
+        snapshot = recovery_snapshot(destination)
+        old_files = {}
+        for name, entry in snapshot.items():
+            if entry["kind"] == "directory" or name in (PACKAGE_FILES_PATH, ".viceme/install-manifest.json"):
+                continue
+            if not safe_package_path(name):
+                raise Failure("INSTALL_UNSAFE_PATH", "旧安装包含无法安全登记的文件路径,原目录未变更")
+            old_files[name] = entry.get("digest") or hashlib.sha256(entry["link"].encode("utf-8")).hexdigest()
+        recovery_base = os.path.join(home_directory(), ".viceme", "recovery")
+        os.makedirs(recovery_base, mode=0o700, exist_ok=True)
+        os.chmod(recovery_base, 0o700)
+        recovery_base = os.path.join(recovery_base, product_id)
+        os.makedirs(recovery_base, mode=0o700, exist_ok=True)
+        os.chmod(recovery_base, 0o700)
+        recovery = tempfile.mkdtemp(prefix="install-", dir=recovery_base)
+        with open(os.path.join(destination, ".viceme/install-manifest.json"), encoding="utf-8") as handle:
+            owner = json.load(handle)
+        metadata = {"schemaVersion": 1, "productId": product_id, "releaseId": owner["release_id"],
+                    "skillDirectory": os.path.abspath(destination), "files": snapshot}
+        write_install_file(recovery, "recovery.json", (json.dumps(metadata, sort_keys=True).encode(), 0o600))
+        shutil.copytree(destination, os.path.join(recovery, "files"), symlinks=True)
+        read_legacy_recovery(recovery, destination, product_id)
+        if recovery_snapshot(destination) != snapshot:
+            raise OSError("legacy installation changed during preservation")
+        transition = json.loads(complete[PACKAGE_FILES_PATH][0])
+        transition["installing"] = True
+        transition["files"] = {**old_files, **transition["files"]}
+        transition["recoveryDirectory"] = recovery
+        if owner["release_id"] != release_id:
+            transition["previousReleaseId"] = owner["release_id"]
+        recorded = True
+        write_install_file(destination, PACKAGE_FILES_PATH, (json.dumps(transition, sort_keys=True).encode(), 0o644))
+        return install_complete_files(complete, destination, product_id, release_id)
+    finally:
+        # Once the active transition names the backup it is recovery state,
+        # retained on every failure and process interruption until retry.
+        if recovery is not None and not recorded:
+            shutil.rmtree(recovery, ignore_errors=True)
+
+
+def stage_skill(complete, installed_name, root):
     staged = tempfile.mkdtemp(prefix=installed_name + ".viceme-script-", dir=root)
     skill_dir = os.path.join(staged, installed_name)
-    os.makedirs(skill_dir, mode=0o700)
-    for name, (data, mode) in sorted(compose_skill_files(files, installed_name, product_id, release_id).items()):
-        destination = os.path.join(skill_dir, *name.split("/"))
-        os.makedirs(os.path.dirname(destination), mode=0o700, exist_ok=True)
-        with open(destination, "wb") as handle:
-            handle.write(data)
-        os.chmod(destination, mode)
-    os.chmod(skill_dir, 0o755)
-    os.chmod(staged, 0o755)
-    return staged
+    try:
+        os.makedirs(skill_dir, mode=0o700)
+        for name, file in sorted(complete.items()):
+            write_install_file(skill_dir, name, file)
+        verify_install_files(complete, skill_dir)
+        os.chmod(skill_dir, 0o755)
+        return staged
+    except BaseException:
+        shutil.rmtree(staged, ignore_errors=True)
+        raise
 
-
-def overwrite_in_place(files, installed_name, destination, product_id, release_id):
-    """同款重装:原地覆写,只删新版没有的文件。
-
-    整目录换建(备份→替换→删备份)会把旧安装全部计入"删除",触发执行
-    环境的批量删除护栏(WorkBuddy 沙箱阈值 50 项)并吓到用户;原地覆写
-    让重装同版本的删除数为零,升级时只清理作者真正移除的文件。
-    """
-    complete = compose_skill_files(files, installed_name, product_id, release_id)
-    wanted_dirs = set()
-    for name in complete:
-        parts = name.split("/")
-        for depth in range(1, len(parts)):
-            wanted_dirs.add(os.path.join(destination, *parts[:depth]))
-    for name in sorted(complete):
-        path = os.path.join(destination, *name.split("/"))
-        os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
-        data, mode = complete[name]
-        with open(path, "wb") as handle:
-            handle.write(data)
-        os.chmod(path, mode)
-    for current, _dirnames, filenames in os.walk(destination, topdown=False):
-        for filename in filenames:
-            path = os.path.join(current, filename)
-            relative = os.path.relpath(path, destination).replace(os.sep, "/")
-            if relative not in complete:
-                os.remove(path)
-        if current != destination and current not in wanted_dirs and not os.listdir(current):
-            os.rmdir(current)
 
 
 def remove_path(path):

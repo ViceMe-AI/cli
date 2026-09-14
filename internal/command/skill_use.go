@@ -110,6 +110,7 @@ func newSkillAccessCommand(runtime *Runtime) *cobra.Command {
 
 func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 	var agent string
+	var skillDirectory string
 	var wait time.Duration
 	command := &cobra.Command{
 		Use: "install <product-id-or-work-url>", Short: "Verify and atomically install one free or purchased Skill edition", Args: cobra.ExactArgs(1),
@@ -118,6 +119,18 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			selectedRuntime := runtime
+			if skillDirectory != "" {
+				directory, err := filepath.Abs(skillDirectory)
+				manifest, valid := skillcontent.ReadRuntimeIdentity(directory, productID, runtime.apiBaseURL)
+				if err != nil || !valid || manifest.Market != string(runtime.region) {
+					return output.Policy("SKILL_INSTALLATION_IDENTITY_INVALID", "the invoking Skill directory does not match this Product and market")
+				}
+				localRuntime := *runtime
+				localRuntime.deps.Environment.InstallDirectory = directory
+				selectedRuntime = &localRuntime
+			}
+			runtime := selectedRuntime
 			if work != nil && work.Work.OfficialInstall != nil {
 				installed, installErr := performAuthorizedInstall(command.Context(), runtime, agent, "")
 				if installErr != nil {
@@ -145,7 +158,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 					return resumeErr
 				}
 				if resume {
-					return runTrialPurchase(command.Context(), runtime, productID, wait, agent)
+					return runTrialPurchase(command.Context(), runtime, productID, wait, agent, skillDirectory)
 				}
 				access, err = runtime.client().GetPublicSkillAccess(command.Context(), productID)
 				if err != nil {
@@ -239,7 +252,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 			if work != nil {
 				workSlug = work.Work.Slug
 			}
-			result, err := installAuthorizedSkill(command.Context(), runtime, productID, workSlug, agent, access)
+			result, err := installAuthorizedSkill(command.Context(), runtime, productID, workSlug, agent, access, skillDirectory)
 			if err != nil {
 				return err
 			}
@@ -247,6 +260,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 		},
 	}
 	command.Flags().StringVar(&agent, "agent", "auto", "installation target: auto, codex, claude, workbuddy, or agents")
+	command.Flags().StringVar(&skillDirectory, "skill-dir", "", "repair this exact verified Skill installation")
 	command.Flags().DurationVar(&wait, "wait", 5*time.Minute, "wait up to this duration for the WeChat QR payment of a paid edition; 0 presents the QR without waiting")
 	return command
 }
@@ -299,7 +313,6 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	if access.IsFree {
 		kind = "free"
 	}
-	environment.PreserveLocalFiles = kind == "owned"
 	if err := addSkillRuntime(runtime, files, productID, access.Release.ID, kind); err != nil {
 		return downloadableSkillInstallResult{}, err
 	}

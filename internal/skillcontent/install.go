@@ -1,7 +1,6 @@
 package skillcontent
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -39,8 +38,6 @@ type Environment struct {
 	// third-party workspace locations whose basename differs from the Skill name.
 	// It is set by receipt installation only, never from environment variables.
 	InstallDirectory string
-	// Receipt conversion keeps local files absent from the formal package.
-	PreserveLocalFiles bool
 }
 
 func DefaultEnvironment() Environment {
@@ -100,8 +97,9 @@ type InstallResult struct {
 }
 
 type InstallReport struct {
-	AllSucceeded bool            `json:"all_succeeded"`
-	Results      []InstallResult `json:"results"`
+	AllSucceeded    bool            `json:"all_succeeded"`
+	Results         []InstallResult `json:"results"`
+	LocalRecoveries []LocalRecovery `json:"localRecoveries,omitempty"`
 }
 
 type DoctorResult struct {
@@ -478,13 +476,15 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 			continue
 		}
 		if operation.Retired == nil {
-			staged, expected, stageErr := b.stageInstallation(operation.Skill, operation.Destination, provenance, operation.InstallID, environment.PreserveLocalFiles)
+			staged, expected, preservation, stageErr := b.stageInstallation(operation.Skill, operation.Destination, provenance, operation.InstallID, environment.Home)
 			if stageErr != nil {
 				cleanupStagedOperations(operations)
 				return fail(stageErr)
 			}
 			operation.Stage = staged
 			operation.Expected = expected
+			operation.LegacyMarketplace = preservation.Legacy
+			operation.LocalRecovery = preservation.Recovery
 		}
 		if operation.Backup == "" {
 			operation.Backup = operation.Destination + ".viceme-transaction-backup"
@@ -594,6 +594,19 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 				registry.Installs[operation.ManagedPath] = record
 				registryDirty = true
 			}
+		}
+	}
+	for index := range operations {
+		operation := &operations[index]
+		if operation.LegacyMarketplace {
+			recovery, err := transaction.preserveLegacyMarketplace(operation, environment.Home)
+			if err != nil {
+				return fail(err)
+			}
+			operation.LocalRecovery = recovery
+		}
+		if operation.LocalRecovery != nil {
+			reports[operation.ReportIndex].LocalRecoveries = append(reports[operation.ReportIndex].LocalRecoveries, *operation.LocalRecovery)
 		}
 	}
 	if provenance == nil && registryDirty {
@@ -988,6 +1001,8 @@ type installOperation struct {
 	RetirementResultIndex int
 	HadExisting           bool
 	Unchanged             bool
+	LegacyMarketplace     bool
+	LocalRecovery         *LocalRecovery
 	Retired               *RetiredSkill
 	Retirement            retiredSkillOwnership
 }
@@ -1012,122 +1027,81 @@ type installJournalEntry struct {
 	Activating  bool   `json:"activating"`
 }
 
-func (b *Bundle) stageInstallation(name, destination string, provenance *SkillProvenance, installID string, preserveLocalFiles bool) (string, Digests, error) {
+func (b *Bundle) stageInstallation(name, destination string, provenance *SkillProvenance, installID, home string) (string, Digests, marketplacePreservation, error) {
 	parent := filepath.Dir(destination)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return "", Digests{}, fmt.Errorf("create Skill parent: %w", err)
+		return "", Digests{}, marketplacePreservation{}, fmt.Errorf("create Skill parent: %w", err)
 	}
 	expected, err := b.Digests(name)
 	if err != nil {
-		return "", Digests{}, err
+		return "", Digests{}, marketplacePreservation{}, err
 	}
 	stageRoot, err := os.MkdirTemp(parent, ".viceme-stage-")
 	if err != nil {
-		return "", Digests{}, fmt.Errorf("create Skill staging directory: %w", err)
+		return "", Digests{}, marketplacePreservation{}, fmt.Errorf("create Skill staging directory: %w", err)
+	}
+	fail := func(cause error) (string, Digests, marketplacePreservation, error) {
+		_ = os.RemoveAll(stageRoot)
+		return "", Digests{}, marketplacePreservation{}, cause
 	}
 	stagedSkill := filepath.Join(stageRoot, name)
 	if err := os.MkdirAll(stagedSkill, 0o755); err != nil {
-		_ = os.RemoveAll(stageRoot)
-		return "", Digests{}, err
+		return fail(err)
 	}
 	if err := copyTree(b.FS, name, stagedSkill); err != nil {
-		_ = os.RemoveAll(stageRoot)
-		return "", Digests{}, err
+		return fail(err)
+	}
+	// Validate publisher bytes before adding local output. Local Markdown and
+	// symbolic links are not package content and must not be parsed or followed.
+	if err := New(os.DirFS(stageRoot)).Validate(name); err != nil {
+		return fail(fmt.Errorf("validate staged Skill: %w", err))
 	}
 	manifest, err := b.installManifest(name)
 	if err != nil {
-		_ = os.RemoveAll(stageRoot)
-		return "", Digests{}, err
+		return fail(err)
 	}
+	preservation := marketplacePreservation{}
 	if provenance != nil {
-		manifest.ProductID = provenance.ProductID
-		manifest.ReleaseID = provenance.ReleaseID
-		if preserveLocalFiles {
-			if err := preserveMarketplaceFiles(destination, stagedSkill); err != nil {
-				_ = os.RemoveAll(stageRoot)
-				return "", Digests{}, err
-			}
-			expected, err = digestsInstalled(stagedSkill)
-			if err != nil {
-				_ = os.RemoveAll(stageRoot)
-				return "", Digests{}, err
-			}
-			manifest.FullBundleDigest, manifest.EmbeddedContentDigest = expected.Full, expected.Embedded
+		manifest.ProductID, manifest.ReleaseID = provenance.ProductID, provenance.ReleaseID
+		if err := writePackageFiles(stagedSkill, *provenance); err != nil {
+			return fail(err)
 		}
+		{
+			if _, err := os.Lstat(destination); err == nil {
+				inventory, valid := readPackageFiles(destination, *provenance)
+				if valid && inventory.RecoveryDirectory != "" {
+					recovery, recoveryErr := readLocalRecovery(inventory.RecoveryDirectory, destination, home, *provenance)
+					if recoveryErr != nil {
+						return fail(fmt.Errorf("validate interrupted legacy recovery: %w", recoveryErr))
+					}
+					preservation.Recovery = recovery
+				}
+				if valid {
+					if err := preserveMarketplaceFiles(destination, stagedSkill, inventory); err != nil {
+						return fail(err)
+					}
+				} else {
+					preservation.Legacy = true
+				}
+			} else if !errors.Is(err, fs.ErrNotExist) {
+				return fail(err)
+			}
+		}
+		expected, err = digestsInstalled(stagedSkill)
+		if err != nil {
+			return fail(err)
+		}
+		manifest.FullBundleDigest, manifest.EmbeddedContentDigest = expected.Full, expected.Embedded
 	} else {
 		if !validInstallID(installID) {
-			_ = os.RemoveAll(stageRoot)
-			return "", Digests{}, errors.New("managed Skill installation requires a valid install ID")
+			return fail(errors.New("managed Skill installation requires a valid install ID"))
 		}
-		manifest.SchemaVersion = 2
-		manifest.InstallID = installID
+		manifest.SchemaVersion, manifest.InstallID = 2, installID
 	}
 	if err := writeInstallManifest(stagedSkill, manifest); err != nil {
-		_ = os.RemoveAll(stageRoot)
-		return "", Digests{}, err
+		return fail(err)
 	}
-	stagedBundle := New(os.DirFS(stageRoot))
-	if err := stagedBundle.Validate(name); err != nil {
-		_ = os.RemoveAll(stageRoot)
-		return "", Digests{}, fmt.Errorf("validate staged Skill: %w", err)
-	}
-	return stagedSkill, expected, nil
-}
-
-// The product and path locks are held and destination ownership is verified.
-// Merge into staging before activation, so failures preserve the old entry and
-// normal transaction rollback also covers retained user output.
-func preserveMarketplaceFiles(source, staged string) error {
-	if _, err := os.Lstat(source); errors.Is(err, fs.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	return filepath.WalkDir(source, func(filename string, entry fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		relative, err := filepath.Rel(source, filename)
-		if err != nil {
-			return err
-		}
-		if relative == "." {
-			return nil
-		}
-		relative = filepath.ToSlash(relative)
-		if relative == installManifestPath || relative == TrialBodyPath {
-			return nil
-		}
-		if relative == "references/viceme-runtime.md" {
-			data, err := os.ReadFile(filename)
-			if err != nil {
-				return err
-			}
-			if bytes.HasPrefix(data, []byte("<!-- viceme-trial-runtime:v1 product=")) {
-				return nil
-			}
-		}
-		target := filepath.Join(staged, filepath.FromSlash(relative))
-		if info, err := os.Lstat(target); err == nil {
-			if info.IsDir() != entry.IsDir() {
-				return errors.New("formal package conflicts with a local file or directory")
-			}
-			return nil
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return err
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			return os.MkdirAll(target, info.Mode().Perm())
-		}
-		if !info.Mode().IsRegular() {
-			return errors.New("local Skill files contain an unsupported file type")
-		}
-		return copyFilePlain(filename, target, info.Mode().Perm())
-	})
+	return stagedSkill, expected, preservation, nil
 }
 
 // renamePath and removeAllPath are the directory-entry mutations used by
@@ -1238,42 +1212,81 @@ func probeInstallDirectory(directory string, mode os.FileMode) error {
 	return cleanup()
 }
 
-// copyTreeOnDisk mirrors source (a file or directory tree) into destination
-// using only plain file and directory writes, which the observed agent
-// sandboxes permit even where they deny renames. Symlinks are refused so a
-// degraded copy never silently changes file identity.
+// copyTreeOnDisk copies filesystem entries without following symbolic links.
+// The same primitive preserves user dependencies in normal backups, legacy
+// recovery copies, and the existing permission-degraded rollback path.
 func copyTreeOnDisk(source, destination string) error {
 	info, err := os.Lstat(source)
 	if err != nil {
 		return err
 	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return copyLinkPlain(source, destination)
+	}
 	if !info.IsDir() {
+		if !info.Mode().IsRegular() {
+			return errors.New("cannot copy a special filesystem entry")
+		}
 		return copyFilePlain(source, destination, info.Mode().Perm())
 	}
-	return filepath.WalkDir(source, func(current string, entry fs.DirEntry, walkErr error) error {
+	type directoryMode struct {
+		path string
+		mode os.FileMode
+	}
+	var directories []directoryMode
+	err = filepath.WalkDir(source, func(current string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
-		relative, relErr := filepath.Rel(source, current)
-		if relErr != nil {
-			return relErr
+		relative, err := filepath.Rel(source, current)
+		if err != nil {
+			return err
 		}
 		target := filepath.Join(destination, relative)
-		entryInfo, infoErr := entry.Info()
-		if infoErr != nil {
-			return infoErr
+		entryInfo, err := entry.Info()
+		if err != nil {
+			return err
 		}
 		if entry.IsDir() {
-			return os.MkdirAll(target, entryInfo.Mode().Perm())
+			if existing, err := os.Lstat(target); err == nil && (!existing.IsDir() || existing.Mode()&os.ModeSymlink != 0) {
+				return errors.New("copy destination directory is a symbolic link or file")
+			} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+				return err
+			}
+			if err := os.MkdirAll(target, entryInfo.Mode().Perm()|0o700); err != nil {
+				return err
+			}
+			directories = append(directories, directoryMode{target, entryInfo.Mode().Perm()})
+			return nil
 		}
-		if entry.Type()&fs.ModeSymlink != 0 {
-			return fmt.Errorf("refuse degraded copy of symlink %s", current)
+		if err := plainDirectoryParents(destination, filepath.Dir(target)); err != nil {
+			return err
+		}
+		if entryInfo.Mode()&os.ModeSymlink != 0 {
+			return copyLinkPlain(current, target)
+		}
+		if !entryInfo.Mode().IsRegular() {
+			return errors.New("cannot copy a special filesystem entry")
 		}
 		return copyFilePlain(current, target, entryInfo.Mode().Perm())
 	})
+	if err != nil {
+		return err
+	}
+	for index := len(directories) - 1; index >= 0; index-- {
+		if err := os.Chmod(directories[index].path, directories[index].mode); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func copyFilePlain(source, destination string, perm fs.FileMode) error {
+	if info, err := os.Lstat(destination); err == nil && (!info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0) {
+		return errors.New("copy destination is not a regular file")
+	} else if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	data, err := os.ReadFile(source)
 	if err != nil {
 		return err
@@ -1286,7 +1299,10 @@ func copyFilePlain(source, destination string, perm fs.FileMode) error {
 		_ = file.Close()
 		return err
 	}
-	return file.Close()
+	if err := file.Close(); err != nil {
+		return err
+	}
+	return os.Chmod(destination, perm)
 }
 
 // degradedBackupMarkerSuffix names the sibling marker of a transaction backup
@@ -1919,6 +1935,11 @@ func readInstallManifest(directory string) (installManifest, error) {
 }
 
 func (b *Bundle) installationCurrent(name, directory, target string, record *managedSkillRecord, provenance *SkillProvenance) bool {
+	if provenance != nil {
+		if inventory, valid := readPackageFiles(directory, *provenance); !valid || inventory.Installing || inventory.PreviousReleaseID != "" || inventory.RecoveryDirectory != "" {
+			return false
+		}
+	}
 	expected, err := b.Digests(name)
 	if err != nil {
 		return false
@@ -2348,14 +2369,13 @@ func digestsInstalled(directory string) (Digests, error) {
 	if _, err := os.Stat(directory); err != nil {
 		return Digests{}, err
 	}
-	fsys := os.DirFS(directory)
-	full, err := digestFS(fsys, ".", func(relative string) bool {
-		return relative != installManifestPath && !isTransientSkillPath(relative)
+	full, err := digestInstalledTree(directory, func(relative string) bool {
+		return relative != installManifestPath && relative != PackageFilesPath && !isTransientSkillPath(relative)
 	})
 	if err != nil {
 		return Digests{}, err
 	}
-	embedded, err := digestFS(fsys, ".", func(relative string) bool {
+	embedded, err := digestInstalledTree(directory, func(relative string) bool {
 		return relative == "SKILL.md" || strings.HasPrefix(relative, "references/")
 	})
 	if err != nil {

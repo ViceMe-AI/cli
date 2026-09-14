@@ -12,13 +12,18 @@
 """
 
 import importlib.util
+import hashlib
+import errno
+import http.server
 import io
 import json
 import os
 import stat
+import subprocess
 import sys
 import tempfile
 import time
+import threading
 import unittest
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -755,6 +760,9 @@ class TrialScriptTestCase(unittest.TestCase):
         os.makedirs(os.path.dirname(lock_path), mode=0o700, exist_ok=True)
         with open(lock_path, "w", encoding="ascii") as handle:
             handle.write(str(os.getpid()))
+        # A slow live command still owns its lock after the legacy TTL.
+        stale = time_old_mtime()
+        os.utime(lock_path, (stale, stale))
         with mock.patch.object(trial, "LOCK_WAIT_SECONDS", 0.4):
             with self.assertRaises(trial.Failure) as caught:
                 with trial.ProductLock(PRODUCT_ID):
@@ -882,7 +890,31 @@ class InstallFlowTestCase(unittest.TestCase):
         with open(os.path.join(skill_dir, ".viceme", "install-manifest.json"), encoding="utf-8") as handle:
             self.assertEqual(json.load(handle)["product_id"], PRODUCT_ID)
 
+    def test_first_install_write_failure_leaves_target_absent_and_retries(self):
+        directory = os.path.join(self.home, ".agents", "skills", "my-skill")
+        write = trial.write_install_file
+        def fail_runtime(root, name, file):
+            if name == trial.RUNTIME_PATH:
+                raise PermissionError("first runtime write denied")
+            write(root, name, file)
+        arguments = ["install", "--product", PRODUCT_ID, "--market", "cn", "--agent", "codex"]
+        with mock.patch.object(trial, "api_request", side_effect=self._api), mock.patch.object(trial, "http_download", return_value=self.archive_bytes):
+            with mock.patch.object(trial, "write_install_file", side_effect=fail_runtime), redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(arguments), 1)
+            self.assertFalse(json.loads(output.getvalue())["ok"])
+            self.assertFalse(os.path.lexists(directory), "an incomplete first install must never become the active target")
+            self.assertFalse(any(name.startswith("my-skill.viceme-script-") for name in os.listdir(os.path.dirname(directory))))
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(arguments), 0, output.getvalue())
+        self.assertTrue(trial.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+
     def test_reinstall_prunes_only_stale_files(self):
+        original = self.archive_bytes
+        archive = io.BytesIO(original)
+        with zipfile.ZipFile(archive, "a") as package:
+            package.writestr("legacy/old-file.txt", "published old resource")
+        self.archive_bytes = archive.getvalue()
+        self.digest = hashlib.sha256(self.archive_bytes).hexdigest()
         with mock.patch.object(trial, "api_request", side_effect=self._api), \
                 mock.patch.object(trial, "http_download", return_value=self.archive_bytes):
             output = io.StringIO()
@@ -890,9 +922,12 @@ class InstallFlowTestCase(unittest.TestCase):
                 self.assertEqual(trial.run(["install", "--product", PRODUCT_ID, "--market", "cn"]), 0)
         skill_dir = os.path.join(self.home, ".agents", "skills", "my-skill")
         stale = os.path.join(skill_dir, "legacy", "old-file.txt")
-        os.makedirs(os.path.dirname(stale), exist_ok=True)
-        with open(stale, "w", encoding="utf-8") as handle:
-            handle.write("stale")
+        notes = os.path.join(skill_dir, "user-notes.txt")
+        with open(notes, "w", encoding="utf-8") as handle:
+            handle.write("keep local output")
+        self.archive_bytes = original
+        self.digest = hashlib.sha256(self.archive_bytes).hexdigest()
+        self.release_id = "release-2"
         removals = []
         real_remove = trial.os.remove
 
@@ -909,6 +944,8 @@ class InstallFlowTestCase(unittest.TestCase):
         skill_removals = [path for path in removals if os.sep + ".viceme" + os.sep + "trial" + os.sep not in path]
         self.assertEqual(skill_removals, [stale], "only the stale file may be deleted")
         self.assertFalse(os.path.exists(os.path.dirname(stale)), " emptied stale dirs are pruned")
+        with open(notes, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "keep local output")
 
     def test_install_success_writes_gate_manifest_and_credential(self):
         with mock.patch.object(trial, "api_request", side_effect=self._api), \
@@ -1256,6 +1293,393 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertNotIn(local.GATE_MARKER, formal)
         with open(os.path.join(directory, "user-output.txt")) as handle:
             self.assertEqual(handle.read(), "keep me")
+
+    def _embedded_trial(self):
+        source = self._install_trial_fixture()
+        directory = os.path.join(self.home, "project", "skills", "workspace-alias")
+        os.makedirs(os.path.dirname(directory), exist_ok=True)
+        os.rename(source, directory)
+        spec = importlib.util.spec_from_file_location("repair_workspace_trial", os.path.join(directory, ".viceme/scripts/trial.py"))
+        local = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(local)
+        return directory, source, local
+
+    def _new_package(self, body="updated authored task"):
+        archive = io.BytesIO()
+        with zipfile.ZipFile(archive, "w") as package:
+            package.writestr("SKILL.md", "---\nname: my-skill\ndescription: fixture\n---\n\n" + body + "\n")
+            package.writestr("scripts/current.py", "# current published resource\n")
+        self.archive_bytes = archive.getvalue()
+        self.digest = hashlib.sha256(self.archive_bytes).hexdigest()
+        self.release_id = "release-2"
+
+    def _run_local(self, local, command):
+        with redirect_stdout(io.StringIO()) as output:
+            code = local.run([command, "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy"])
+        return code, json.loads(output.getvalue())
+
+    def test_embedded_trial_update_uses_actual_directory_and_new_body(self):
+        directory, source, local = self._embedded_trial()
+        self._new_package()
+        calls = []
+        def api(market, method, path, body=None):
+            calls.append(path)
+            if path.endswith("/trial-use"):
+                return {"allowed": True, "limitUses": 5, "remainingUses": 4}
+            return self._api(market, method, path, body)
+        with mock.patch.object(local, "api_request", side_effect=api), mock.patch.object(local, "http_download", return_value=self.archive_bytes):
+            code, installed = self._run_local(local, "install")
+            self.assertEqual(code, 0, installed)
+            self.assertEqual(installed["roots"], [directory])
+            self.assertEqual(installed["releaseId"], "release-2")
+            self.assertFalse(os.path.exists(source))
+            code, ready = self._run_local(local, "ready")
+            self.assertEqual(code, 0, ready)
+            self.assertTrue(ready["ready"])
+            self.assertEqual(ready["skillPath"], os.path.join(directory, "SKILL.md"))
+            code, used = self._run_local(local, "use")
+        self.assertEqual(code, 0, used)
+        self.assertIn("updated authored task", used["skillMarkdown"])
+        self.assertEqual(sum(path.endswith("/trial-use") for path in calls), 1)
+
+    def test_embedded_trial_missing_body_repairs_in_place_without_consuming(self):
+        directory, source, local = self._embedded_trial()
+        os.remove(os.path.join(directory, trial.TRIAL_BODY_PATH))
+        self._new_package()
+        with mock.patch.object(local, "api_request", side_effect=self._api), mock.patch.object(local, "http_download", return_value=self.archive_bytes):
+            _, ready = self._run_local(local, "ready")
+            self.assertFalse(ready["ready"])
+            self.assertEqual(ready["nextAction"], "REPAIR_INSTALLATION")
+            code, installed = self._run_local(local, "install")
+            self.assertEqual(code, 0, installed)
+            self.assertEqual(installed["roots"], [directory])
+            _, ready = self._run_local(local, "ready")
+        self.assertTrue(ready["ready"])
+        self.assertFalse(os.path.exists(source))
+        with open(os.path.join(directory, trial.TRIAL_BODY_PATH), encoding="utf-8") as handle:
+            self.assertIn("updated authored task", handle.read())
+
+    def test_embedded_repair_rejects_conflicting_identity_before_api(self):
+        directory, _, local = self._embedded_trial()
+        filename = os.path.join(directory, ".viceme/runtime.json")
+        with open(filename, encoding="utf-8") as handle:
+            original = json.load(handle)
+        for changes in ({"productId": "another-product"}, {"market": "global"}, {"apiBaseUrl": "https://api.other.invalid"}, {"releaseId": "unrelated-release"}):
+            with self.subTest(changes=changes):
+                with open(filename, "w", encoding="utf-8") as handle:
+                    json.dump({**original, **changes}, handle)
+                before = local.recovery_snapshot(directory)
+                with mock.patch.object(local, "api_request", side_effect=AssertionError("identity must precede network")):
+                    code, result = self._run_local(local, "install")
+                self.assertEqual(code, 1)
+                self.assertEqual(result["code"], "INSTALLATION_IDENTITY_INVALID")
+                self.assertEqual(local.recovery_snapshot(directory), before)
+
+    def test_embedded_repair_recovers_bound_partial_metadata_transition(self):
+        directory, _, local = self._embedded_trial()
+        self._new_package()
+        replace = local.os.replace
+        def fail_runtime(source, destination):
+            if destination == os.path.join(directory, ".viceme/runtime.json"):
+                raise PermissionError("runtime identity replacement denied")
+            return replace(source, destination)
+        with mock.patch.object(local, "api_request", side_effect=self._api), mock.patch.object(local, "http_download", return_value=self.archive_bytes):
+            with mock.patch.object(local.os, "replace", side_effect=fail_runtime):
+                code, _ = self._run_local(local, "install")
+            self.assertEqual(code, 1)
+            with open(os.path.join(directory, ".viceme/install-manifest.json"), encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle)["release_id"], "release-2")
+            with open(os.path.join(directory, ".viceme/runtime.json"), encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle)["releaseId"], "release-1")
+            self.assertFalse(local.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+            code, installed = self._run_local(local, "install")
+        self.assertEqual(code, 0, installed)
+        self.assertNotIn("localRecoveries", installed)
+        self.assertEqual(installed["roots"], [directory])
+        self.assertTrue(local.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+
+    def test_owned_upgrade_removes_published_files_and_preserves_virtualenv(self):
+        directory = self._install_trial_fixture()
+        notes = os.path.join(directory, "user-notes.txt")
+        with open(notes, "w", encoding="utf-8") as handle:
+            handle.write("local output")
+        virtualenv = os.path.join(directory, ".venv", "bin")
+        os.makedirs(virtualenv)
+        interpreter = os.path.join(virtualenv, "python")
+        os.symlink(sys.executable, interpreter)
+        formal = {"SKILL.md": (b"---\nname: my-skill\n---\nformal\n", 0o644),
+                  "scripts/formal.py": (b"# new formal support\n", 0o644)}
+        trial.prepare_runtime_files(formal, "cn", PRODUCT_ID, "formal-release", "owned")
+        with trial.ProductLock(PRODUCT_ID), mock.patch.object(trial.os, "walk", side_effect=AssertionError("known ownership must not scan user trees")):
+            trial.install_owned_to_roots(formal, "my-skill", PRODUCT_ID, "formal-release", "workbuddy")
+        self.assertFalse(os.path.exists(os.path.join(directory, "scripts/run.sh")))
+        self.assertFalse(os.path.exists(os.path.join(directory, trial.TRIAL_BODY_PATH)))
+        self.assertFalse(os.path.exists(os.path.join(directory, trial.RUNTIME_PATH)))
+        self.assertEqual(os.readlink(interpreter), sys.executable)
+        with open(notes, encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), "local output")
+        self.assertTrue(trial.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+
+    def test_owned_entry_failure_is_unready_until_same_install_recovers(self):
+        directory = self._install_trial_fixture()
+        formal = {"SKILL.md": (b"---\nname: my-skill\n---\nformal\n", 0o644),
+                  "scripts/formal.py": (b"# new formal support\n", 0o644)}
+        trial.prepare_runtime_files(formal, "cn", PRODUCT_ID, "formal-release", "owned")
+        replace = trial.os.replace
+        def fail_entry(source, destination):
+            if destination == os.path.join(directory, "SKILL.md"):
+                raise PermissionError("entry activation denied")
+            return replace(source, destination)
+        with trial.ProductLock(PRODUCT_ID), mock.patch.object(trial.os, "replace", side_effect=fail_entry), self.assertRaises(PermissionError):
+            trial.install_owned_to_roots(formal, "my-skill", PRODUCT_ID, "formal-release", "workbuddy")
+        self.assertFalse(trial.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+        with trial.ProductLock(PRODUCT_ID):
+            roots = trial.install_owned_to_roots(formal, "my-skill", PRODUCT_ID, "formal-release", "workbuddy")
+        self.assertEqual(roots.local_recoveries, [], "a partial update retains precise ownership for retry")
+        self.assertTrue(trial.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+
+    def test_same_release_repair_commits_readiness_after_full_readback(self):
+        directory = self._install_trial_fixture()
+        formal = {"SKILL.md": (b"---\nname: my-skill\n---\nformal\n", 0o644),
+                  "scripts/formal.py": (b"# published support\n", 0o644)}
+        trial.prepare_runtime_files(formal, "cn", PRODUCT_ID, "formal-release", "owned")
+        with trial.ProductLock(PRODUCT_ID):
+            trial.install_owned_to_roots(formal, "my-skill", PRODUCT_ID, "formal-release", "workbuddy")
+        for name in ("SKILL.md", "scripts/formal.py"):
+            with open(os.path.join(directory, name), "ab") as handle:
+                handle.write(b"\n# normal user edits\n")
+        self.assertTrue(trial.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"],
+                        "authored file edits remain supported after installation")
+        write = trial.write_install_file
+        def damage_written_support(root, name, file):
+            write(root, name, file)
+            if name == "scripts/formal.py":
+                with open(os.path.join(root, name), "wb") as handle:
+                    handle.write(b"incomplete write")
+        with trial.ProductLock(PRODUCT_ID), mock.patch.object(trial, "write_install_file", side_effect=damage_written_support), self.assertRaises(OSError):
+            trial.install_owned_to_roots(formal, "my-skill", PRODUCT_ID, "formal-release", "workbuddy")
+        manifest = trial.read_package_files(directory, PRODUCT_ID)
+        self.assertTrue(manifest["installing"])
+        self.assertNotIn("previousReleaseId", manifest)
+        self.assertFalse(trial.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+        with trial.ProductLock(PRODUCT_ID):
+            trial.install_owned_to_roots(formal, "my-skill", PRODUCT_ID, "formal-release", "workbuddy")
+        self.assertNotIn("installing", trial.read_package_files(directory, PRODUCT_ID))
+        self.assertTrue(trial.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+
+    def test_owned_upgrade_preflights_unmanaged_conflicts_before_any_write(self):
+        directory = self._install_trial_fixture()
+        local_path = os.path.join(directory, "local.txt")
+        formal = {"SKILL.md": (b"---\nname: my-skill\n---\nformal\n", 0o644),
+                  "scripts/early.py": (b"# newly published file\n", 0o644),
+                  "local.txt": (b"published data\n", 0o755)}
+        trial.prepare_runtime_files(formal, "cn", PRODUCT_ID, "formal-release", "owned")
+        for kind in ("different-file", "symlink", "directory"):
+            with self.subTest(kind=kind):
+                if kind == "different-file":
+                    with open(local_path, "wb") as handle:
+                        handle.write(b"user data\n")
+                elif kind == "symlink":
+                    os.symlink(sys.executable, local_path)
+                else:
+                    os.mkdir(local_path)
+                previous = trial.recovery_snapshot(directory)
+                with trial.ProductLock(PRODUCT_ID), self.assertRaises(trial.Failure):
+                    trial.install_owned_to_roots(formal, "my-skill", PRODUCT_ID, "formal-release", "workbuddy")
+                self.assertEqual(trial.recovery_snapshot(directory), previous)
+                if kind == "directory":
+                    os.rmdir(local_path)
+                else:
+                    os.remove(local_path)
+        with open(local_path, "wb") as handle:
+            handle.write(formal["local.txt"][0])
+        os.chmod(local_path, 0o600)
+        with trial.ProductLock(PRODUCT_ID):
+            trial.install_owned_to_roots(formal, "my-skill", PRODUCT_ID, "formal-release", "workbuddy")
+        self.assertEqual(os.stat(local_path).st_mode & 0o777, 0o755)
+        self.assertTrue(trial.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+
+    def test_legacy_repair_preserves_unknown_generation_outside_skill_roots(self):
+        directory, source, local = self._embedded_trial()
+        os.remove(os.path.join(directory, trial.PACKAGE_FILES_PATH))
+        with open(os.path.join(directory, "user-notes.txt"), "w", encoding="utf-8") as handle:
+            handle.write("old local output")
+        os.makedirs(os.path.join(directory, ".venv", "bin"))
+        os.symlink(sys.executable, os.path.join(directory, ".venv", "bin", "python"))
+        previous = local.recovery_snapshot(directory)
+        self._new_package()
+        replace = local.os.replace
+        workspace = os.path.join(self.home, "project") + os.sep
+        def separate_volumes(source, destination):
+            if str(source).startswith(workspace) != str(destination).startswith(workspace):
+                raise OSError(errno.EXDEV, "workspace and HOME are separate volumes")
+            return replace(source, destination)
+        with mock.patch.object(local, "api_request", side_effect=self._api), mock.patch.object(local, "http_download", return_value=self.archive_bytes), mock.patch.object(local.os, "replace", side_effect=separate_volumes):
+            code, installed = self._run_local(local, "install")
+        self.assertEqual(code, 0, installed)
+        self.assertFalse(os.path.exists(source))
+        self.assertFalse(os.path.exists(os.path.join(directory, "scripts/run.sh")))
+        self.assertFalse(os.path.exists(os.path.join(directory, "user-notes.txt")))
+        recovery = installed["localRecoveries"][0]
+        self.assertEqual(recovery["skillDirectory"], directory)
+        self.assertEqual(recovery["files"], sorted(previous))
+        self.assertTrue(recovery["directory"].startswith(os.path.join(self.home, ".viceme", "recovery", PRODUCT_ID) + os.sep))
+        self.assertEqual(os.stat(recovery["directory"]).st_mode & 0o777, 0o700)
+        self.assertEqual(local.recovery_snapshot(os.path.join(recovery["directory"], "files")), previous)
+        with open(os.path.join(recovery["directory"], "recovery.json"), encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        self.assertEqual(metadata["files"], previous)
+        self.assertTrue(local.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+        with mock.patch.object(local.os, "name", "nt"):
+            windows_snapshot = local.recovery_snapshot(os.path.join(recovery["directory"], "files"))
+        self.assertEqual({entry["mode"] for entry in windows_snapshot.values()}, {0})
+
+    def test_legacy_repair_copy_failure_preserves_original_before_exchange(self):
+        directory, _, local = self._embedded_trial()
+        os.remove(os.path.join(directory, trial.PACKAGE_FILES_PATH))
+        previous = local.recovery_snapshot(directory)
+        self._new_package()
+        with mock.patch.object(local, "api_request", side_effect=self._api), mock.patch.object(local, "http_download", return_value=self.archive_bytes), mock.patch.object(local.shutil, "copytree", side_effect=PermissionError("backup copy denied")):
+            code, _ = self._run_local(local, "install")
+        self.assertEqual(code, 1)
+        self.assertEqual(local.recovery_snapshot(directory), previous)
+        self.assertEqual(os.listdir(os.path.join(self.home, ".viceme", "recovery", PRODUCT_ID)), [])
+
+    def test_legacy_recovery_accepts_existing_case_aliases(self):
+        directory = os.path.join(self.home, "project", "marketplace-skill")
+        os.makedirs(directory)
+        alias = os.path.join(os.path.dirname(directory), "MARKETPLACE-SKILL")
+        if not os.path.exists(alias) or not os.path.samefile(directory, alias):
+            self.skipTest("filesystem distinguishes case in existing directory names")
+        with open(os.path.join(directory, "notes.txt"), "w", encoding="utf-8") as handle:
+            handle.write("preserved user output")
+        recovery = os.path.join(self.home, ".viceme", "recovery", PRODUCT_ID, "install-fixture")
+        os.makedirs(recovery, mode=0o700)
+        trial.shutil.copytree(directory, os.path.join(recovery, "files"), symlinks=True)
+        metadata = {"schemaVersion": 1, "productId": PRODUCT_ID, "releaseId": "release-1",
+                    "skillDirectory": alias, "files": trial.recovery_snapshot(directory)}
+        with open(os.path.join(recovery, "recovery.json"), "w", encoding="utf-8") as handle:
+            json.dump(metadata, handle)
+        recovery_alias = os.path.join(self.home, ".VICEME", "RECOVERY", PRODUCT_ID, "install-fixture")
+        self.assertTrue(os.path.samefile(os.path.dirname(recovery_alias), os.path.dirname(recovery)))
+        restored = trial.read_legacy_recovery(recovery_alias, directory, PRODUCT_ID)
+        self.assertEqual(restored["skillDirectory"], directory)
+        self.assertIn("notes.txt", restored["files"])
+
+    def test_legacy_repair_entry_failure_retains_script_and_recovers_in_place(self):
+        directory, _, local = self._embedded_trial()
+        os.remove(os.path.join(directory, trial.PACKAGE_FILES_PATH))
+        previous = local.recovery_snapshot(directory)
+        replace = local.os.replace
+        def fail_activation(source, destination):
+            if destination == os.path.join(directory, "SKILL.md"):
+                raise PermissionError("new generation activation denied")
+            return replace(source, destination)
+        self._new_package()
+        with mock.patch.object(local, "api_request", side_effect=self._api), mock.patch.object(local, "http_download", return_value=self.archive_bytes), mock.patch.object(local.os, "replace", side_effect=fail_activation):
+            code, _ = self._run_local(local, "install")
+        self.assertEqual(code, 1)
+        self.assertTrue(os.path.isfile(os.path.join(directory, ".viceme/scripts/trial.py")))
+        self.assertFalse(local.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+        marker = local.read_package_files(directory, PRODUCT_ID)
+        self.assertEqual(local.recovery_snapshot(os.path.join(marker["recoveryDirectory"], "files")), previous)
+        metadata_path = os.path.join(marker["recoveryDirectory"], "recovery.json")
+        with open(metadata_path, encoding="utf-8") as handle:
+            metadata = json.load(handle)
+        alias = os.path.join(self.home, "same-project-alias")
+        os.symlink(os.path.dirname(directory), alias)
+        metadata["skillDirectory"] = os.path.join(alias, os.path.basename(directory))
+        with open(metadata_path, "w", encoding="utf-8") as handle:
+            json.dump(metadata, handle)
+        self.assertEqual(local.read_legacy_recovery(marker["recoveryDirectory"], directory, PRODUCT_ID)["skillDirectory"], directory)
+        active = local.recovery_snapshot(directory)
+        recovery_parent = os.path.dirname(marker["recoveryDirectory"])
+        for invalid in ("directory", "product", "digest"):
+            with self.subTest(invalid=invalid):
+                altered = json.loads(json.dumps(metadata))
+                if invalid == "directory":
+                    altered["skillDirectory"] = os.path.join(self.home, "another-skill")
+                elif invalid == "product":
+                    altered["productId"] = "22222222-2222-4222-8222-222222222222"
+                else:
+                    altered["files"]["SKILL.md"]["digest"] = "0" * 64
+                with open(metadata_path, "w", encoding="utf-8") as handle:
+                    json.dump(altered, handle)
+                with mock.patch.object(local, "api_request", side_effect=self._api), mock.patch.object(local, "http_download", return_value=self.archive_bytes):
+                    code, rejected = self._run_local(local, "install")
+                self.assertEqual(code, 1, rejected)
+                self.assertEqual(rejected["code"], "INSTALL_RECOVERY_INVALID")
+                self.assertEqual(local.recovery_snapshot(directory), active)
+                self.assertEqual(os.listdir(recovery_parent), [os.path.basename(marker["recoveryDirectory"])])
+        with open(metadata_path, "w", encoding="utf-8") as handle:
+            json.dump(metadata, handle)
+        with mock.patch.object(local, "api_request", side_effect=self._api), mock.patch.object(local, "http_download", return_value=self.archive_bytes):
+            code, installed = self._run_local(local, "install")
+        self.assertEqual(code, 0, installed)
+        self.assertEqual(installed["localRecoveries"][0]["directory"], marker["recoveryDirectory"])
+        self.assertTrue(local.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+
+    def test_legacy_repair_interruption_resumes_from_original_script_in_new_process(self):
+        owner = self
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+            def do_GET(self):
+                if self.path == "/artifact":
+                    self.send_response(200)
+                    self.end_headers()
+                    self.wfile.write(owner.archive_bytes)
+                else:
+                    self.respond("GET")
+            def do_POST(self):
+                self.respond("POST")
+            def respond(self, method):
+                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0)))) if method == "POST" else None
+                result = owner._api("cn", method, self.path, body)
+                if self.path.startswith("/v1/downloads/"):
+                    result["url"] = base_url + "/artifact"
+                encoded = json.dumps(result).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(encoded)))
+                self.end_headers()
+                self.wfile.write(encoded)
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        base_url = "http://127.0.0.1:%d" % server.server_port
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        with mock.patch.dict(trial.API_ORIGIN, {"cn": base_url}):
+            directory, _, local = self._embedded_trial()
+        os.remove(os.path.join(directory, trial.PACKAGE_FILES_PATH))
+        with open(os.path.join(directory, "user-notes.txt"), "w", encoding="utf-8") as handle:
+            handle.write("preserve through process interruption")
+        previous = local.recovery_snapshot(directory)
+        self._new_package()
+        replace = local.os.replace
+        def interrupt_after_support(source, destination):
+            result = replace(source, destination)
+            if destination == os.path.join(directory, "scripts/current.py"):
+                raise KeyboardInterrupt()
+            return result
+        with mock.patch.object(local, "api_request", side_effect=self._api), mock.patch.object(local, "http_download", return_value=self.archive_bytes), mock.patch.object(local.os, "replace", side_effect=interrupt_after_support), redirect_stdout(io.StringIO()):
+            code = local.run(["install", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy"])
+        self.assertEqual(code, 130)
+        script = os.path.join(directory, ".viceme/scripts/trial.py")
+        self.assertTrue(os.path.isfile(script), "the original command must remain callable")
+        marker = local.read_package_files(directory, PRODUCT_ID)
+        self.assertEqual(local.recovery_snapshot(os.path.join(marker["recoveryDirectory"], "files")), previous)
+        completed = subprocess.run([sys.executable, "-B", script, "install", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy"],
+                                   capture_output=True, text=True, timeout=15, env=dict(os.environ))
+        self.assertEqual(completed.returncode, 0, completed.stdout + completed.stderr)
+        installed = json.loads(completed.stdout)
+        self.assertEqual(installed["roots"], [directory])
+        self.assertEqual(installed["localRecoveries"][0]["directory"], marker["recoveryDirectory"])
+        self.assertEqual(len(os.listdir(os.path.dirname(marker["recoveryDirectory"]))), 1)
+        self.assertTrue(local.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+        self.assertFalse(os.path.exists(os.path.join(directory, "scripts/run.sh")))
+        self.assertFalse(os.path.exists(os.path.join(directory, "user-notes.txt")))
 
     def test_pending_purchase_repairs_only_exhausted_entries(self):
         for remaining in (0, 1):

@@ -166,23 +166,17 @@ func attachReadyTrialSnapshot(ctx context.Context, runtime *Runtime, productID s
 	if result.Kind == "owned" || result.Kind == "free" {
 		return nil
 	}
-	installID := ""
+	selectedCredential := skillTrialCredential{}
+	script, exists := readScriptTrialState(runtime, productID)
 	if credential, ok, err := loadSkillTrialCredential(runtime, productID); err == nil && ok {
-		if script, exists := readScriptTrialState(runtime, productID); !exists {
-			installID = credential.InstallID
-		} else if validateScriptTrialStateIdentity(runtime, productID, script) == nil && script.InstallID == credential.InstallID && script.Secret == credential.Secret {
-			installID = credential.InstallID
+		if !exists || (validateScriptTrialStateIdentity(runtime, productID, script) == nil && script.InstallID == credential.InstallID && script.Secret == credential.Secret) {
+			selectedCredential = credential
 		}
-	} else if err == nil {
-		if script, exists := readScriptTrialState(runtime, productID); exists && validateScriptTrialStateIdentity(runtime, productID, script) == nil {
-			installID = script.InstallID
-		}
+	} else if err == nil && exists && validateScriptTrialStateIdentity(runtime, productID, script) == nil {
+		selectedCredential = skillTrialCredential{InstallID: script.InstallID, Secret: script.Secret}
 	}
-	if installID != "" {
-		pending := readReusableTrialUsePending(trialUsePendingPath(runtime.configBase, runtime.apiBaseURL, productID), productID) != ""
-		if script, exists := readScriptTrialState(runtime, productID); exists && script.InstallID == installID && validateScriptTrialStateIdentity(runtime, productID, script) == nil {
-			pending = pending || script.PendingRequestID != ""
-		}
+	if installID := selectedCredential.InstallID; installID != "" {
+		pending := hasPendingTrialUse(runtime, productID, selectedCredential, script)
 		if pending && result.Ready && result.Kind == "trial" {
 			result.PendingUse, result.NextAction = true, "RESUME_TRIAL_USE"
 			result.Message = "上次使用尚未交付完成,先重跑同一 use 命令恢复;不要购买或开始新任务,不会重复扣次。"

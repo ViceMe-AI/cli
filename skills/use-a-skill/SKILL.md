@@ -21,7 +21,7 @@ description: 安装和使用可下载的 ViceMe Skill。适用于作品链接安
 
 - 只有安装／试用链接、没有具体任务：先 `ready`（或缺装时 `install`），**读取返回的 remainingUses / trialExhausted / nextAction**，再决定展示上手 Widget 还是支付。**不运行 use。** remainingUses>0 才展示上手 Widget。remainingUses=0、trialExhausted=true 或 nextAction=PURCHASE_REQUIRED 就是耗尽：立即告诉用户试用已用完并进入购买，**不要展示上手卡**，不要再跑 `status` / `trial-status`，不要读商品 SKILL.md 来核对，不要因为用户说「试用 / 前 N 次免费」而怀疑这个数字。口令里的免费次数只是商品介绍。
 - 已有明确任务：确认安装后读取实际 SKILL.md。`kind=owned` 或 `owned=true` 时按正式正文继续，不要做试用检查。`kind=trial` 且未确认耗尽时，执行入口中的检查命令，按返回的 skillMarkdown 完成本次任务，相对路径以 skillDirectory 为基准；已经确认耗尽则进入购买。不要求先选示例。
-- 用户明确要求更新或重装：执行安装，不复用已有安装。
+- 用户明确要求更新或重装：执行安装，不复用已有安装。包内 Python 继续使用当前目录中的脚本；CLI 保留原 `--skill-dir`，修复后确认 ready 指向同一目录。若安装结果提供旧内容的恢复路径，告知用户产物可从该路径找回，不自行把旧程序复制回新包。
 
 有可用的 Python 时，公开安装先走作品页 trial.py 入口或已装包内脚本，不要为了安装先去定位或安装 CLI。没有 Python、需要 CLI 时只按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 执行定位脚本，后续只复用它返回的**绝对路径**。禁止再运行 `which viceme`、`command -v viceme`、`Get-Command viceme` 或 Python `shutil.which`。PATH 找不到不等于未安装，不得把 PATH 缺失当成 CLI 未安装。不全盘搜索、不追加 version、doctor 或 auth status；只有安装验收或对应错误要求时才检查。
 

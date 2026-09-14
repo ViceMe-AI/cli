@@ -12,13 +12,11 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/ViceMe-AI/cli/internal/agentenv"
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
-	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	"github.com/spf13/cobra"
 )
@@ -91,7 +89,7 @@ func saveSkillTrialCredential(runtime *Runtime, productID string, credential ski
 // must speak the SAME protocol: both tools read-modify-write one JSON file,
 // and skipping the lock lets one side read a torn write or clobber a newer
 // pending key. Both write the holder PID; a dead holder or empty leftover is
-// stolen. Staleness mirrors the script constant (5 minutes).
+// stolen. Live PIDs never expire; age recovery is only for malformed legacy locks.
 const (
 	scriptTrialLockStale = 5 * time.Minute
 )
@@ -159,8 +157,8 @@ func writeScriptTrialLockPID(handle *os.File, lockPath string) error {
 
 func scriptTrialLockShouldSteal(lockPath string) (bool, error) {
 	pid, ok := readScriptTrialLockPID(lockPath)
-	if ok && !scriptTrialLockProcessAlive(pid) {
-		return true, nil
+	if ok {
+		return !scriptTrialLockProcessAlive(pid), nil
 	}
 	info, err := os.Stat(lockPath)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -240,28 +238,6 @@ func retryableConsumedUseFailure(subtype, message string, cause error) *output.E
 	return failure.WithHint("run 'viceme skill use' again; the server replays this use without consuming another")
 }
 
-// settleConsumedTrialUse clears the script pending copy and confirms the CLI
-// retry key after the server accepted this use. A leftover shared lock after a
-// successful clear must not hide the allowed result: the use is already
-// counted, and the next process steals a dead holder's lock. Busy or permission
-// failures keep the retry key so a later identical command replays without
-// consuming another use.
-func settleConsumedTrialUse(runtime *Runtime, productID, requestID string) error {
-	if err := clearScriptTrialPendingID(runtime, productID, requestID); err != nil {
-		policy := trialLockPolicyError(err)
-		if policy == nil {
-			return retryableConsumedUseFailure("SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED", "trial use was consumed but the script route's pending record could not be cleared", err)
-		}
-		if policy.Subtype != "SKILL_TRIAL_LOCK_RELEASE_FAILED" {
-			return policy
-		}
-	}
-	if err := confirmTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID, requestID); err != nil {
-		return retryableConsumedUseFailure("SKILL_TRIAL_PENDING_CONFIRM_FAILED", "trial use was consumed but the local pending record could not be confirmed", err)
-	}
-	return nil
-}
-
 // scriptTrialCredentialPath is where the no-CLI install script
 // (skills/use-a-skill/scripts/trial.py) keeps its plaintext credential.
 // The credential is immutable per installId and the counter is
@@ -273,12 +249,13 @@ func scriptTrialCredentialPath(runtime *Runtime, productID string) string {
 // scriptTrialState mirrors the script's on-disk JSON; pendingRequestId is the
 // script route's unconfirmed idempotency key.
 type scriptTrialState struct {
-	InstallID        string              `json:"installId"`
-	Secret           string              `json:"secret"`
-	ProductID        string              `json:"productId"`
-	Market           string              `json:"market"`
-	PendingRequestID string              `json:"pendingRequestId"`
-	Purchase         *trialPurchaseState `json:"purchase,omitempty"`
+	InstallID            string              `json:"installId"`
+	Secret               string              `json:"secret"`
+	ProductID            string              `json:"productId"`
+	Market               string              `json:"market"`
+	PendingRequestID     string              `json:"pendingRequestId"`
+	MigratedCLIRequestID string              `json:"migratedCliRequestId,omitempty"`
+	Purchase             *trialPurchaseState `json:"purchase,omitempty"`
 }
 
 // readScriptTrialState loads the script's state file. Malformed files are
@@ -327,94 +304,6 @@ func adoptScriptTrialCredential(runtime *Runtime, productID string) (skillTrialC
 		return skillTrialCredential{}, false, err
 	}
 	return credential, true, nil
-}
-
-// adoptScriptTrialPending imports the script route's unconfirmed idempotency
-// key into the CLI pending store: when the script's use was consumed
-// server-side but its response was lost, the CLI must replay the SAME key on
-// takeover — a fresh key would be counted by the server as a brand-new use
-// and the same use would be deducted twice. The CLI's own unconfirmed key
-// wins if both exist. The script file's copy stays in place until
-// clearScriptTrialPendingID removes it after an authoritative result.
-func adoptScriptTrialPending(runtime *Runtime, productID string) error {
-	state, ok := readScriptTrialState(runtime, productID)
-	if !ok || state.PendingRequestID == "" {
-		return nil
-	}
-	if err := validateScriptTrialStateIdentity(runtime, productID, state); err != nil {
-		return err
-	}
-	path := trialUsePendingPath(runtime.configBase, runtime.apiBaseURL, productID)
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	// 与脚本共用同一把 O_EXCL 状态锁:并发脚本进程正在改写状态文件时,
-	// 不带锁读到撕裂 JSON 会误判为无 pending 而生成新键。
-	if err := withScriptTrialLock(runtime, productID, func() error {
-		state, ok := readScriptTrialState(runtime, productID)
-		if !ok || state.PendingRequestID == "" {
-			return nil
-		}
-		if err := validateScriptTrialStateIdentity(runtime, productID, state); err != nil {
-			return err
-		}
-		lock, err := lockTrialUsePending(path)
-		if err != nil {
-			return err
-		}
-		defer lock.Unlock()
-		if readReusableTrialUsePending(path, productID) != "" {
-			return nil
-		}
-		payload, err := json.Marshal(trialUsePending{
-			ProductID: productID, RequestID: state.PendingRequestID, CreatedAt: time.Now().UnixMilli(),
-		})
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(path, payload, 0o600)
-	}); err != nil {
-		return err
-	}
-	return nil
-}
-
-// clearScriptTrialPendingID removes the script file's copy of an idempotency
-// key once the CLI received its authoritative result. It only deletes the key
-// it owns. The read-modify-write runs under the SAME O_EXCL lock the script
-// uses, so it can neither read a torn write nor clobber a pending key the
-// script just wrote.
-func clearScriptTrialPendingID(runtime *Runtime, productID, requestID string) error {
-	return withScriptTrialLock(runtime, productID, func() error {
-		path := scriptTrialCredentialPath(runtime, productID)
-		raw, err := os.ReadFile(path)
-		if err != nil {
-			if errors.Is(err, fs.ErrNotExist) {
-				return nil
-			}
-			return err
-		}
-		var state scriptTrialState
-		if json.Unmarshal(raw, &state) != nil || state.PendingRequestID != requestID {
-			return nil
-		}
-		if err := validateScriptTrialStateIdentity(runtime, productID, state); err != nil {
-			return err
-		}
-		state.PendingRequestID = ""
-		// Preserve unknown fields owned by the standalone script (including
-		// purchase recovery) while clearing only this confirmed request.
-		var fields map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &fields); err != nil {
-			return err
-		}
-		delete(fields, "pendingRequestId")
-		payload, err := json.Marshal(fields)
-		if err != nil {
-			return err
-		}
-		return privatefile.Write(path, payload, ".trial-state-*.tmp")
-	})
 }
 
 // ensureSkillTrialGrant returns a usable (grant, credential) pair for this
@@ -719,7 +608,7 @@ func installTrialSkill(ctx context.Context, runtime *Runtime, productID string, 
 			purchaseURL = *access.PurchaseURL
 		}
 		if err := withScriptTrialLock(runtime, productID, func() error {
-			_, suspendErr := skillcontent.SuspendTrialSkills(runtime.deps.Environment, productID, runtime.apiBaseURL, string(runtime.region), purchaseURL, config.AgentInstallDocURL(runtime.region))
+			_, suspendErr := skillcontent.SuspendTrialSkills(runtime.deps.Environment, productID, runtime.apiBaseURL, string(runtime.region), purchaseURL, config.AgentInstallDocURL(runtime.region), runtime.deps.Environment.InstallDirectory)
 			return suspendErr
 		}); err != nil {
 			return output.Internal("SKILL_TRIAL_SUSPEND_FAILED", "trial exhausted; could not safely replace every trial Skill entrypoint", err).
@@ -846,73 +735,16 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			if !hasCredential {
 				return output.Policy("SKILL_TRIAL_GRANT_MISSING", "this machine has no active trial grant for the Skill edition").WithDetails(map[string]any{"productId": productID}).WithHint("run 'viceme skill install <product-id-or-work-url>' first; a paid edition with a trial offer installs the trial without login")
 			}
-			if state, ok := readScriptTrialState(runtime, productID); ok && state.Purchase != nil && !state.Purchase.Closed && state.PendingRequestID == "" && readReusableTrialUsePending(trialUsePendingPath(runtime.configBase, runtime.apiBaseURL, productID), productID) == "" {
+			use, resumePurchase, err := runLockedSkillTrialUse(command.Context(), runtime, productID, credential, skillDirectory)
+			disabledCount = use.DisabledSkillCount
+			if err != nil {
+				return err
+			}
+			if resumePurchase {
 				return runTrialPurchase(command.Context(), runtime, productID, wait, "auto", skillDirectory)
 			}
-			directory, manifest, _, lookupErr := skillcontent.FindRuntimeInstall(runtime.deps.Environment, "auto", productID, runtime.apiBaseURL, skillDirectory)
-			if lookupErr != nil || directory == "" || manifest.Kind != "trial" || manifest.Market != string(runtime.region) {
-				return output.Policy("SKILL_TRIAL_INSTALLATION_REQUIRED", "the trial body or installation identity could not be verified; repair this Skill before using it; no use was consumed")
-			}
-			markdown, err := os.ReadFile(filepath.Join(directory, filepath.FromSlash(skillcontent.TrialBodyPath)))
-			if err != nil || !utf8.Valid(markdown) {
-				return output.Policy("SKILL_TRIAL_BODY_INVALID", "the verified trial body could not be read; repair this Skill before using it")
-			}
-			// 脚本路留下的未确认幂等键必须先接管:结果未知的使用换新键,
-			// 服务端会当成一次新使用、同一使用扣两次。
-			if err := adoptScriptTrialPending(runtime, productID); err != nil {
-				if policy := trialLockPolicyError(err); policy != nil {
-					return policy
-				}
-				failure := output.Internal("SKILL_TRIAL_PENDING_ADOPT_FAILED", "could not adopt the pending trial use left by the install script", err)
-				failure.Retryable = true
-				return failure
-			}
-			requestID, err := beginTrialUsePending(runtime.configBase, runtime.apiBaseURL, productID, time.Now())
-			if err != nil {
-				return err
-			}
-			use, err := runtime.client().ConsumeSkillTrialUse(command.Context(), productID, credential.InstallID, credential.Secret, requestID)
-			if err != nil {
-				// 一切错误都保留 pending:服务端可能已经扣次只是响应没回来
-				// (网络错误、5xx、无效响应),重试必须复用同一幂等键由服务端
-				// 回放;换新键会对同一使用二次扣。残留由 TTL 兜底。
-				return err
-			}
-			lastUse := use.Allowed && use.RemainingUses != nil && *use.RemainingUses == 0
-			if lastUse || (use.Reason != nil && *use.Reason == "EXHAUSTED") {
-				purchaseURL := ""
-				if use.PurchaseURL != nil {
-					purchaseURL = *use.PurchaseURL
-				}
-				err := withScriptTrialLock(runtime, productID, func() error {
-					var suspendErr error
-					disabledCount, suspendErr = skillcontent.SuspendTrialSkills(runtime.deps.Environment, productID, runtime.apiBaseURL, string(runtime.region), purchaseURL, config.AgentInstallDocURL(runtime.region), directory)
-					return suspendErr
-				})
-				if err != nil {
-					return retryableConsumedUseFailure("SKILL_TRIAL_SUSPEND_FAILED", "the trial use cannot be delivered until the entry is safely suspended", err)
-				}
-			}
-			// 只有权威业务结果才结束本次键的生命周期;确认失败必须报错
-			// 而不是继续放行——已消费的键留在 pending 会让下一次真实使用
-			// 被当作重试回放旧响应,持续漏扣。锁释放失败且 pending 已清时
-			// 仍交付本次 allowed:次数已经扣过,残留锁由下一进程抢占。忙锁
-			// 或权限失败保留 pending,重跑同一条命令由服务端回放、不再扣次。
-			if err := settleConsumedTrialUse(runtime, productID, requestID); err != nil {
-				return err
-			}
 			if use.Allowed {
-				result := skillTrialUseResult{
-					ProductID: productID, Allowed: true, RemainingUses: use.RemainingUses, LimitUses: use.LimitUses, LastUse: lastUse,
-					RequestID:      requestID,
-					NextAction:     "CONTINUE_TASK",
-					SkillDirectory: directory, SkillMarkdown: string(markdown),
-				}
-				if lastUse {
-					result.EntrySuspended, result.DisabledSkillCount = true, disabledCount
-					result.Message = "这是最后一次试用,入口已经停用。本次仍获准:用 skillMarkdown 完整完成当前任务,不要因入口已替换而中止;相对资源路径以 skillDirectory 为基准。先完整交付本次结果，同一轮立即运行 viceme skill trial-purchase --wait 0 并带上原 --skill-dir 展示支付二维码，不要等用户再说一次。新任务必须重新检查,不得复用本次正文。对用户只说白话余量和请扫码，不得对用户说命令名。"
-				}
-				return runtime.business(result)
+				return runtime.business(use)
 			}
 			// Anonymous trials can purchase with their existing installation
 			// credential. Registered-account purchase behavior remains unchanged.

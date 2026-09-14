@@ -143,18 +143,19 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 	if !ok {
 		return output.Policy("SKILL_TRIAL_GRANT_MISSING", "no local trial credential for this purchase")
 	}
-	if readReusableTrialUsePending(trialUsePendingPath(runtime.configBase, runtime.apiBaseURL, productID), productID) != "" {
+	// Reject known identity/environment conflicts before creating a lock. Repeat
+	// both the identity and pending checks while locked below.
+	state, exists := readScriptTrialState(runtime, productID)
+	if exists && (state.InstallID != credential.InstallID || state.Secret != credential.Secret || state.Market != string(runtime.region) || state.ProductID != productID) {
+		return output.Policy("SKILL_TRIAL_IDENTITY_MISMATCH", "local trial credentials do not match this purchase; preserve both records")
+	}
+	if hasPendingTrialUse(runtime, productID, credential, state) {
 		return retryableConsumedUseFailure("SKILL_TRIAL_USE_PENDING", "resume the unconfirmed use before purchasing", nil)
 	}
 	if len(directories) > 0 && directories[0] != "" {
 		if manifest, valid := skillcontent.ReadRuntimeIdentity(directories[0], productID, runtime.apiBaseURL); !valid || manifest.Market != string(runtime.region) {
 			return output.Policy("SKILL_TRIAL_INSTALLATION_REQUIRED", "the selected Skill installation could not be verified; preserve it and repair the installation")
 		}
-	}
-	// Reject known identity/environment conflicts before creating a lock. Repeat
-	// the check while locked below to cover a concurrent writer.
-	if state, exists := readScriptTrialState(runtime, productID); exists && (state.InstallID != credential.InstallID || state.Secret != credential.Secret || state.Market != string(runtime.region) || state.ProductID != productID) {
-		return output.Policy("SKILL_TRIAL_IDENTITY_MISMATCH", "local trial credentials do not match this purchase; preserve both records")
 	}
 	var order api.TrialPurchase
 	presented := false
@@ -163,7 +164,7 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 		if exists && (state.InstallID != credential.InstallID || state.Secret != credential.Secret || state.Market != string(runtime.region) || state.ProductID != productID) {
 			return output.Policy("SKILL_TRIAL_IDENTITY_MISMATCH", "local trial credentials do not match this purchase; preserve both records")
 		}
-		if state.PendingRequestID != "" {
+		if hasPendingTrialUse(runtime, productID, credential, state) {
 			return retryableConsumedUseFailure("SKILL_TRIAL_USE_PENDING", "resume the unconfirmed use before purchasing", nil)
 		}
 		if !exists {

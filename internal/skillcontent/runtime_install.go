@@ -101,7 +101,13 @@ func ReadRuntimeIdentity(directory, productID, apiBaseURL string) (RuntimeManife
 		return manifest, false
 	}
 	raw, err = os.ReadFile(filepath.Join(directory, ".viceme/runtime.json"))
-	if err != nil || json.Unmarshal(raw, &manifest) != nil || manifest.SchemaVersion != 1 || manifest.ProductID != productID || manifest.ReleaseID != owner.ReleaseID || manifest.APIBaseURL != apiBaseURL || (manifest.Runner != "cli" && manifest.Runner != "python") {
+	if err != nil || json.Unmarshal(raw, &manifest) != nil || manifest.SchemaVersion != 1 || manifest.ProductID != productID || manifest.APIBaseURL != apiBaseURL || (manifest.Runner != "cli" && manifest.Runner != "python") {
+		return manifest, false
+	}
+	// A cross-client restore can stop between writing its two identity files.
+	// Only the recorded old/new release pair permits another repair to resume;
+	// runtime readiness still rejects an unfinished package transition below.
+	if manifest.ReleaseID != owner.ReleaseID && !PackageIdentityTransitionMatches(directory, productID, owner.ReleaseID, manifest.ReleaseID) {
 		return manifest, false
 	}
 	skill, err := os.Stat(filepath.Join(directory, "SKILL.md"))
@@ -142,6 +148,9 @@ func readRuntimeInstall(directory, productID, apiBaseURL string) (RuntimeManifes
 		if err != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != digest {
 			return manifest, false
 		}
+	}
+	if !PackageInstallationComplete(directory, productID) {
+		return manifest, false
 	}
 	return manifest, true
 }

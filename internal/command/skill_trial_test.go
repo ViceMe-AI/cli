@@ -51,13 +51,16 @@ type skillTrialTestServer struct {
 	trialHostedCheckout   bool
 }
 
-func newSkillTrialTestServer(t *testing.T) *skillTrialTestServer {
+func newSkillTrialTestServer(t *testing.T, configure ...func(*skillTrialTestServer)) *skillTrialTestServer {
 	t.Helper()
 	state := &skillTrialTestServer{trialLimit: 2, paymentStatus: "PENDING", grantedInstallIDs: map[string]bool{}}
 	state.archive = downloadableSkillArchive(t)
 	state.archiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.archive))
 	state.ownedArchive = downloadableSkillArchiveNamed(t, "free-test", "Owned Current Skill")
 	state.ownedArchiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.ownedArchive))
+	for _, prepare := range configure {
+		prepare(state)
+	}
 	server := httptest.NewUnstartedServer(http.HandlerFunc(state.serveHTTP))
 	state.server = server
 	server.Start()
@@ -670,7 +673,7 @@ func TestSkillUseKeepsScriptPendingWhenResponseLost(t *testing.T) {
 	}
 }
 
-func TestSettleConsumedTrialUseReportsRetryableWhenScriptStateUnreadable(t *testing.T) {
+func TestTrialUseMigrationPreservesLegacyKeyWhenSharedStateUnreadable(t *testing.T) {
 	home := t.TempDir()
 	configBase := t.TempDir()
 	runtime := &Runtime{
@@ -685,10 +688,11 @@ func TestSettleConsumedTrialUseReportsRetryableWhenScriptStateUnreadable(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = settleConsumedTrialUse(runtime, downloadableProductID, requestID)
-	var failure *output.Error
-	if !errors.As(err, &failure) || failure.Subtype != "SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED" || !failure.Retryable {
-		t.Fatalf("unreadable script state must stay retryable: %v", err)
+	err = withScriptTrialLock(runtime, downloadableProductID, func() error {
+		return migrateLegacyTrialUsePending(runtime, downloadableProductID, &scriptTrialState{ProductID: downloadableProductID, Market: "cn"})
+	})
+	if err == nil {
+		t.Fatal("unreadable shared state must prevent migration")
 	}
 	if reusable := readReusableTrialUsePending(trialUsePendingPath(configBase, runtime.apiBaseURL, downloadableProductID), downloadableProductID); reusable != requestID {
 		t.Fatalf("retry key must stay until replay: %q", reusable)
