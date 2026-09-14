@@ -41,7 +41,7 @@ func BuildWebsiteWorkPage(directory, entry, name string) (Package, error) {
 	if err != nil {
 		return Package{}, err
 	}
-	return stripWebsiteCreatorEntries(pkg)
+	return validateWebsiteCreatorEntries(pkg)
 }
 
 func archiveStaticDirectory(directory, entry, name string) ([]byte, error) {

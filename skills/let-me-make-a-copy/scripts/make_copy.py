@@ -54,7 +54,7 @@ ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 
 
 # Generated from the canonical CLI widgets by make trial-runtime.
-PAYMENT_RESOURCE_SHA256 = {"payment.html": "59999b6d68ae84941b782b1aaf1a9194feb67f5891c8051d99b8cdded5c4c3b1", "qrcodegen.py": "b0df257ae06c83f79ac8fa408f5ae635f44a2ae0702e2fdbf6f2fe32cff33b05"}  # generated-payment-resources
+PAYMENT_RESOURCE_SHA256 = {"payment.html": "e61b9c04eb170942d79b1ce8e37e8c9aed0a528b22e0c9ded96f63ff227df289", "qrcodegen.py": "b0df257ae06c83f79ac8fa408f5ae635f44a2ae0702e2fdbf6f2fe32cff33b05"}  # generated-payment-resources
 
 
 class WorkflowError(Exception):

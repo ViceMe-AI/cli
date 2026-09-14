@@ -10,45 +10,35 @@ import (
 	"github.com/ViceMe-AI/cli/internal/output"
 )
 
-// 复现 WorkBuddy 在发布前写入无 iframe 判断的预览按钮。
-// 平台宿主另有正式入口，PAGE 必须移除整块原站代码，而原项目保持不变。
-func TestBuildWebsiteWorkPageRemovesCreatorEntryAndPreservesOriginal(t *testing.T) {
+// PAGE 必须保留自定义 HTML、样式和交互，原项目及制品摘要保持一致。
+func TestBuildWebsiteWorkPagePreservesCreatorEntryAndOriginal(t *testing.T) {
 	project := t.TempDir()
-	files := map[string][2]string{
-		"index.html": {
-			"<main>共享办公计算器</main>\n<!-- VICEME_CREATOR_ENTRY_BEGIN -->\n<style>#viceme-entry{display:flex;position:fixed}</style>\n<button id=\"viceme-entry\">做同款</button>\n<script>document.querySelector('#viceme-entry').onclick = () => alert('口令已复制');</script>\n<!-- VICEME_CREATOR_ENTRY_END -->\n<footer>作者署名；做同款介绍</footer>\n",
-			"<main>共享办公计算器</main>\n<footer>作者署名；做同款介绍</footer>\n",
-		},
-		"assets/site.js": {
-			"calculate();\n/* VICEME_CREATOR_ENTRY_BEGIN */\nshowCreatorEntry();\n/* VICEME_CREATOR_ENTRY_END */\nmountDanmaku();\n",
-			"calculate();\nmountDanmaku();\n",
-		},
-		"assets/site.css": {
-			"main { color: black; }\r\n/* VICEME_CREATOR_ENTRY_BEGIN */\r\n#viceme-entry { display: flex; }\r\n/* VICEME_CREATOR_ENTRY_END */\r\n",
-			"main { color: black; }\r\n",
-		},
-		"assets/tip.js": {"mountTip();", "mountTip();"},
-		"LICENSE":       {"Copyright original creator", "Copyright original creator"},
+	files := map[string]string{
+		"index.html":      "<main>共享办公计算器</main>\n<!-- VICEME_CREATOR_ENTRY_BEGIN -->\n<style>#viceme-entry{display:flex;position:fixed}</style>\n<button id=\"viceme-entry\">做同款</button>\n<script>document.querySelector('#viceme-entry').onclick = () => alert('口令已复制');</script>\n<!-- VICEME_CREATOR_ENTRY_END -->\n<footer>作者署名；做同款介绍</footer>\n",
+		"assets/site.js":  "calculate();\n/* VICEME_CREATOR_ENTRY_BEGIN */\nshowCreatorEntry();\n/* VICEME_CREATOR_ENTRY_END */\nmountDanmaku();\n",
+		"assets/site.css": "main { color: black; }\r\n/* VICEME_CREATOR_ENTRY_BEGIN */\r\n#viceme-entry { display: flex; }\r\n/* VICEME_CREATOR_ENTRY_END */\r\n",
+		"assets/tip.js":   "mountTip();",
+		"LICENSE":         "Copyright original creator",
 	}
-	for name, pair := range files {
-		writeStaticTestFile(t, project, name, pair[0])
+	for name, content := range files {
+		writeStaticTestFile(t, project, name, content)
 	}
 	pkg, err := BuildWebsiteWorkPage(project, "index.html", "共享办公")
 	if err != nil {
 		t.Fatal(err)
 	}
 	entries := staticTestArchive(t, pkg.Bytes)
-	for name, pair := range files {
-		if got := entries["dist/"+name]; got != pair[1] {
-			t.Errorf("托管页面残留原站入口或改动无关内容 %s: %q", name, got)
+	for name, content := range files {
+		if got := entries["dist/"+name]; got != content {
+			t.Errorf("托管页面丢失自定义入口或改动无关内容 %s: %q", name, got)
 		}
 		original, err := os.ReadFile(filepath.Join(project, name))
-		if err != nil || string(original) != pair[0] {
+		if err != nil || string(original) != content {
 			t.Errorf("打包修改了创作者原项目 %s: %v", name, err)
 		}
 	}
 	if pkg.Artifact.Digest != sha256Hex(pkg.Bytes) || pkg.Artifact.SizeBytes != int64(len(pkg.Bytes)) {
-		t.Fatal("终审摘要未绑定清理后的 PAGE")
+		t.Fatal("终审摘要未绑定实际 PAGE")
 	}
 	again, err := BuildWebsiteWorkPage(project, "index.html", "共享办公")
 	if err != nil || again.Artifact != pkg.Artifact {
@@ -71,7 +61,7 @@ func TestBuildWebsiteWorkPageRejectsAmbiguousCreatorEntryBoundaries(t *testing.T
 	}
 }
 
-func TestBuildWebsiteWorkPageChecksResourcesBeforeRemovingCreatorEntry(t *testing.T) {
+func TestBuildWebsiteWorkPageChecksCreatorEntryResources(t *testing.T) {
 	project := t.TempDir()
 	writeStaticTestFile(t, project, "index.html", "<main>网站</main>\n<!-- VICEME_CREATOR_ENTRY_BEGIN -->\n<script src=\"https://unverified.example/entry.js\"></script>\n<!-- VICEME_CREATOR_ENTRY_END -->\n")
 	_, err := BuildWebsiteWorkPage(project, "index.html", "Site")
@@ -80,7 +70,7 @@ func TestBuildWebsiteWorkPageChecksResourcesBeforeRemovingCreatorEntry(t *testin
 	}
 }
 
-func TestInspectWebsiteWorkPageCleansRepairZIPWithoutChangingOriginalOrGenericImports(t *testing.T) {
+func TestInspectWebsiteWorkPagePreservesRepairZIPAndGenericImports(t *testing.T) {
 	originalHTML := "<main>网站</main>\n<!-- VICEME_CREATOR_ENTRY_BEGIN -->\n<button>做同款</button><script>showCreatorEntry();</script>\n<!-- VICEME_CREATOR_ENTRY_END -->\n"
 	archive := writePageZIP(t, map[string]string{
 		"viceme-page.json": validManifest("WorkPage"),
@@ -100,11 +90,11 @@ func TestInspectWebsiteWorkPageCleansRepairZIPWithoutChangingOriginalOrGenericIm
 		t.Fatal(err)
 	}
 	entries := staticTestArchive(t, pkg.Bytes)
-	if entries["dist/index.html"] != "<main>网站</main>\n" || entries["dist/tip.js"] != "mountTip();" {
-		t.Fatal("托管补发仍带原作者入口或损坏共享功能")
+	if entries["dist/index.html"] != originalHTML || entries["dist/tip.js"] != "mountTip();" {
+		t.Fatal("托管补发丢失自定义入口或损坏共享功能")
 	}
-	if pkg.Artifact.Digest == generic.Artifact.Digest || pkg.Artifact.Digest != sha256Hex(pkg.Bytes) {
-		t.Fatal("托管补发未绑定清理后的摘要")
+	if pkg.Artifact.Digest != generic.Artifact.Digest || pkg.Artifact.Digest != sha256Hex(pkg.Bytes) {
+		t.Fatal("托管补发改写了原始摘要")
 	}
 	again, err := InspectWebsiteWorkPage(archive)
 	if err != nil || !bytes.Equal(pkg.Bytes, again.Bytes) {
@@ -137,7 +127,7 @@ func TestInspectWebsiteWorkPageKeepsUnmarkedZIPBytesAndRejectsOtherPageKinds(t *
 	}
 }
 
-func TestInspectWebsiteWorkPageValidatesBeforeCleaning(t *testing.T) {
+func TestInspectWebsiteWorkPageValidatesPreservedEntries(t *testing.T) {
 	for _, invalid := range []string{"../outside.html", "dist/index.html"} {
 		files := map[string]string{
 			"viceme-page.json": validManifest("WorkPage"),

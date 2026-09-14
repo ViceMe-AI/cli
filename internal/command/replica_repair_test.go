@@ -103,7 +103,7 @@ func testReplicaRepairResumesLostResponse(t *testing.T, status, source string) {
 			uploads++
 			data, _ := io.ReadAll(r.Body)
 			contents := readReplicaZIP(t, data)
-			if len(contents["viceme-page.json"]) == 0 || len(contents["VICEME-REPLICA.md"]) != 0 || string(contents["dist/repaired.html"]) != "<h1>Repaired</h1>\n" {
+			if len(contents["viceme-page.json"]) == 0 || len(contents["VICEME-REPLICA.md"]) != 0 || string(contents["dist/repaired.html"]) != originalHTML {
 				t.Error("repair must upload only page artifact")
 			}
 			if r.Header.Get("Authorization") != "" {
