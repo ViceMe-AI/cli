@@ -114,6 +114,8 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
 
 ## OWNER 管理
 
+用户要求添加、替换或删除作品介绍、部署说明、视频教程时，直接按 [作品资料管理](references/work-tutorials.md) 读取当前作品并做最小修改；不先查询销售状态，不进入源码发布，也不要求找回原发布对话。只改原站按钮继续使用上方入口短流程。
+
 先运行 `viceme replica status <publication-id>` 读取权威状态与 `hosting` / `rollback`，或 `viceme replica sales --replica <replica-id>` 读取当前版本、价格和经营权限。暂停 OWNER 只读；权限失败停止，不换身份绕过。
 
 - 恢复发布：`viceme replica resume <publication-id>`；仅按允许动作处理 `status`、`cancel`。确定性源码或页面错误先在本地修复、重新预览与确认，不盲目重试失败制品。
