@@ -30,16 +30,17 @@ const skillTrialGateMarker = "<!-- viceme-trial:v1"
 const skillTrialGateEnd = "<!-- /viceme-trial:v1 -->"
 const skillTrialRuntimePath = "references/viceme-runtime.md"
 
-// skillPaymentPresentationHint 按当前调用方环境返回支付呈现指引,
-// 分支语义与 trial_runtime.py 的 payment_display_instructions 保持一致。
+// skillPaymentPresentationHint 按当前调用方环境返回支付呈现指引本身，
+// 分支语义与 trial_runtime.py 的 payment_display_instructions 保持一致；
+// 后续等待命令由各调用方自行拼接。
 func skillPaymentPresentationHint(getenv func(string) string) string {
 	switch agentenv.Detect(getenv) {
 	case agentenv.WorkBuddy:
-		return "write ![微信支付二维码](paymentPresentation.imageChatSrc) in the chat reply; imageChatSrc is local-file:// plus imagePath. Do not write a bare filesystem path. Open only widgetPath with present_files; do not pass imagePath to present_files; then rerun the same use command with --wait while the payment is in progress"
+		return "write ![微信支付二维码](paymentPresentation.imageChatSrc) in the chat reply; imageChatSrc is local-file:// plus imagePath. Do not write a bare filesystem path. Open only widgetPath with present_files; do not pass imagePath to present_files"
 	case agentenv.Doubao:
-		return "deliver widgetPath with present_files; Doubao Work renders delivered files in its side panel. Local images do not render in this chat, so do not write a markdown image and do not paste a bare imagePath; do not pass imagePath or the PNG to present_files. If present_files is unavailable or delivery fails, state the widgetPath absolute path verbatim and ask the user to open it; then rerun the same use command with --wait while the payment is in progress"
+		return "deliver widgetPath with present_files; Doubao Work renders delivered files in its side panel. Local images do not render in this chat, so do not write a markdown image and do not paste a bare imagePath; do not pass imagePath or the PNG to present_files. If present_files is unavailable or delivery fails, state the widgetPath absolute path verbatim and ask the user to open it"
 	}
-	return "open the payment page for the user: hand widgetPath to a browser, page, or payment panel tool the current platform actually provides (do not guess tool names; WorkBuddy uses present_files). If no in-platform display capability exists or opening fails, state the widgetPath absolute path verbatim and ask the user to open it in a browser; do not rely on chat-rendered local images and do not paste a bare imagePath. Then rerun the same use command with --wait while the payment is in progress"
+	return "open the payment page for the user: hand widgetPath to a browser, page, or payment panel tool the current platform actually provides (do not guess tool names; WorkBuddy uses present_files). If no in-platform display capability exists or opening fails, state the widgetPath absolute path verbatim and ask the user to open it in a browser; do not rely on chat-rendered local images and do not paste a bare imagePath"
 }
 const skillTrialRuntimeMarker = "<!-- viceme-trial-runtime:v1"
 
@@ -907,7 +908,7 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 				return output.Confirmation("SKILL_PURCHASE_REQUIRED", "the trial is exhausted; purchase this edition to keep using it").WithDetails(map[string]any{
 					"productId": productID, "orderNo": order.OrderNo, "amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
 					"paymentPresentation": presentation,
-				}).WithHint(skillPaymentPresentationHint(os.Getenv))
+				}).WithHint(skillPaymentPresentationHint(os.Getenv) + "; then rerun the same use command with --wait while the payment is in progress")
 			}
 			if err := waitForSkillOrderPayment(command.Context(), runtime, productID, order.OrderNo, wait); err != nil {
 				return err
