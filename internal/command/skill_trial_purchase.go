@@ -198,6 +198,14 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 		if err != nil {
 			return err
 		}
+		if api.DeliveryMode(receipt.Access.DeliveryMode) == "CLOUD" {
+			result, err := resumeCloudAfterPurchase(ctx, runtime, productID, agent)
+			if err != nil {
+				return err
+			}
+			_ = removeCommercePaymentPresentation(runtime, order.OrderNo)
+			return runtime.business(result)
+		}
 		installed, err := installSkillFromReceipt(runtime, ctx, productID, "", agent, receipt.Access, receipt.Download)
 		if err != nil {
 			return err

@@ -826,6 +826,123 @@ class InstallFlowTestCase(unittest.TestCase):
             }
         raise AssertionError("unexpected API call %s %s" % (method, path))
 
+    def test_cloud_install_and_paid_recovery_keep_stub_and_original_task(self):
+        self.release_id = "66666666-6666-4666-8666-666666666666"
+        def install_api(market, method, path, body=None):
+            response = self._api(market, method, path, body)
+            if path.endswith("/access") or "/downloads/" in path:
+                response["deliveryMode"] = "CLOUD"
+            if path.endswith("/trial-grants"):
+                response["remainingUses"] = 0
+            return response
+        with mock.patch.object(trial, "api_request", side_effect=install_api), mock.patch.object(trial, "http_download", return_value=self.archive_bytes), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(trial.run(["install", "--product", PRODUCT_ID, "--agent", "workbuddy"]), 0)
+        installed = json.loads(output.getvalue())
+        self.assertEqual(installed["nextAction"], "SUBMIT_CLOUD_TASK")
+        with open(installed["skillPath"], "rb") as handle:
+            original = handle.read()
+        self.assertNotIn(trial.GATE_MARKER.encode(), original)
+        self.assertNotIn(trial.DISABLED_MARKER.encode(), original)
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(installed["skillPath"]), trial.RUNTIME_PATH)))
+        with mock.patch.object(trial, "api_request", side_effect=AssertionError("cloud ready/use cannot call old quota")):
+            ready = trial.attach_trial_snapshot(trial.find_ready_install("cn", PRODUCT_ID, "workbuddy"), "cn", PRODUCT_ID)
+            self.assertEqual(ready["nextAction"], "SUBMIT_CLOUD_TASK")
+            with self.assertRaises(trial.Failure):
+                trial.command_use("cn", PRODUCT_ID, "workbuddy")
+        value = {"productId": PRODUCT_ID, "requestKey": "77777777-7777-4777-8777-777777777777", "prompt": "create a draft", "facts": {}}
+        with mock.patch.object(trial, "api_request", side_effect=trial.Failure("SKILL_CLOUD_TRIAL_EXHAUSTED", "exhausted")):
+            with self.assertRaises(trial.Failure):
+                trial.run_cloud_task("cn", PRODUCT_ID, value, 0)
+        # An older pending task sorts first but cannot run against this install.
+        directory = trial.cloud_task_directory("cn", PRODUCT_ID)
+        with open(os.path.join(directory, value["requestKey"] + ".json"), encoding="utf-8") as handle:
+            older = json.load(handle)
+        older["input"]["requestKey"] = "11111111-1111-4111-8111-111111111111"
+        older["input"]["releaseId"] = "99999999-9999-4999-8999-999999999999"
+        older_path = os.path.join(directory, older["input"]["requestKey"] + ".json")
+        trial.write_cloud_file(older_path, older)
+        calls = []
+        def paid_api(market, method, path, body=None, canonical_errors=False):
+            calls.append(path)
+            if path.endswith("/trial-purchase"):
+                return self._purchase_order(status="PAID", paymentAction=None)
+            if path.endswith("/trial-purchase/download"):
+                return {"access": {"productId": PRODUCT_ID, "owned": True, "installKind": "OWNED_PAID", "deliveryMode": "CLOUD"}, "download": None}
+            if path == "/v1/skill-cloud/trial/requests":
+                self.assertEqual(body["requestKey"], value["requestKey"])
+                self.assertEqual(body["prompt"], value["prompt"])
+                self.assertTrue(canonical_errors)
+                return {"requestId": value["requestKey"], "sessionId": "88888888-8888-4888-8888-888888888888", "releaseId": self.release_id, "version": 1,
+                        "status": "SUCCEEDED", "outcome": "ready", "instructions": "Do this one task.", "message": None, "errorCode": None, "retryable": False, "expiresAt": "2099-01-01T00:00:00Z", "trial": None}
+            raise AssertionError(path)
+        with mock.patch.object(trial, "api_request", side_effect=paid_api), mock.patch.object(trial, "http_download", side_effect=AssertionError("cloud payment must not download a package")):
+            code, result = self._run_purchase("--wait", "0")
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["resumedTasks"][0]["error"]["code"], "SKILL_CLOUD_RELEASE_MISMATCH")
+        self.assertTrue(result["resumedTasks"][1]["allowed"])
+        self.assertFalse(result["allowed"])
+        self.assertEqual(result["resumedTasks"][1]["requestKey"], value["requestKey"])
+        with open(older_path, encoding="utf-8") as handle:
+            self.assertEqual(json.load(handle), older)
+        with open(installed["skillPath"], "rb") as handle:
+            self.assertEqual(handle.read(), original)
+        self.assertFalse(any(path.endswith("/trial-use") for path in calls))
+
+    def test_cloud_nonready_and_canonical_errors_never_deliver_instructions(self):
+        for outcome in ("needs_input", "refused"):
+            value = {"requestId": "77777777-7777-4777-8777-777777777777", "sessionId": "88888888-8888-4888-8888-888888888888", "releaseId": "99999999-9999-4999-8999-999999999999", "version": 1,
+                     "status": "SUCCEEDED", "outcome": outcome, "instructions": None, "message": "clarify or stop", "retryable": False, "expiresAt": "2099-01-01T00:00:00Z"}
+            self.assertEqual(trial.cloud_result(value)["outcome"], outcome)
+            with self.assertRaises(trial.Failure):
+                trial.cloud_result({**value, "instructions": "must not execute"})
+        from urllib.error import HTTPError
+        body = io.BytesIO(json.dumps({"statusCode": 403, "code": "SKILL_CLOUD_TRIAL_EXHAUSTED", "message": "exhausted", "requestId": "trace-test"}).encode())
+        error = HTTPError("https://api.example.invalid", 403, "Forbidden", {}, body)
+        with mock.patch.object(trial.urllib.request, "urlopen", side_effect=error), self.assertRaises(trial.Failure) as failure:
+            trial.api_request("cn", "POST", "/v1/skill-cloud/trial/requests", {}, canonical_errors=True)
+        self.assertEqual(failure.exception.code, "SKILL_CLOUD_TRIAL_EXHAUSTED")
+        self.assertEqual(failure.exception.fields["requestId"], "trace-test")
+
+    @unittest.skipIf(os.name == "nt", "POSIX locator integration; PowerShell is covered by its existing locator tests")
+    def test_cloud_owned_fallback_uses_official_locator_when_cli_is_not_on_path(self):
+        directory = os.path.join(self.home, "existing-cli")
+        os.makedirs(directory)
+        executable = os.path.join(directory, "viceme")
+        arguments = os.path.join(directory, "arguments.txt")
+        with open(executable, "w", encoding="utf-8") as handle:
+            handle.write("#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + arguments + "'\nprintf '%s\\n' '{\"ok\":true,\"data\":{\"deliveryMode\":\"CLOUD\"}}'\n")
+        os.chmod(executable, 0o755)
+        with mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin", "VICEME_INSTALL_DIR": directory}), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(trial.cloud_cli_fallback("cn", PRODUCT_ID, os.path.join(self.home, "task.json"), 0), 0)
+        self.assertTrue(json.loads(output.getvalue())["ok"])
+        with open(arguments, encoding="utf-8") as handle:
+            args = handle.read().splitlines()
+        self.assertEqual(args[:3], ["skill", "cloud", "--input"])
+        self.assertIn("--market", args)
+        self.assertIn(PRODUCT_ID, args)
+
+    def test_cloud_new_task_prefers_account_entitlement_but_preserves_saved_trial_identity(self):
+        trial.save_trial_state(PRODUCT_ID, {"productId": PRODUCT_ID, "market": "cn", "installId": "original-install", "secret": "fixture"})
+        value = {"productId": PRODUCT_ID, "releaseId": "66666666-6666-4666-8666-666666666666", "requestKey": "77777777-7777-4777-8777-777777777777", "prompt": "draft", "facts": {}}
+        path = os.path.join(self.home, "task.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(value, handle)
+        # The fresh task delegates even if the installed runtime is still trial.
+        with mock.patch.object(trial, "cloud_runtime_manifest", return_value=None), mock.patch.object(trial, "cloud_cli_fallback", return_value=0) as delegated, mock.patch.object(trial, "run_cloud_task", side_effect=AssertionError("must query current account entitlement")):
+            self.assertEqual(trial.command_cloud("cn", PRODUCT_ID, path, 0), 0)
+            self.assertTrue(delegated.call_args.kwargs["optional"])
+        # A known owned install must require CLI credentials if its CLI is missing.
+        manifest = {"productId": PRODUCT_ID, "releaseId": value["releaseId"], "apiBaseUrl": trial.API_ORIGIN["cn"], "deliveryMode": "CLOUD", "kind": "owned"}
+        with mock.patch.object(trial, "cloud_runtime_manifest", return_value=manifest), mock.patch.object(trial, "cloud_cli_fallback", side_effect=trial.Failure("SKILL_CLOUD_LOGIN_REQUIRED", "restore CLI")) as delegated, mock.patch.object(trial, "command_purchase", side_effect=AssertionError("owned runtime cannot repurchase anonymous access")):
+            with self.assertRaises(trial.Failure):
+                trial.command_cloud("cn", PRODUCT_ID, path, 0)
+            self.assertFalse(delegated.call_args.kwargs["optional"])
+        record = {"schemaVersion": 1, "input": value, "principal": "trial:original-install"}
+        trial.write_cloud_file(os.path.join(trial.cloud_task_directory("cn", PRODUCT_ID), value["requestKey"] + ".json"), record)
+        with mock.patch.object(trial, "cloud_cli_fallback", side_effect=AssertionError("saved trial must retain identity")), mock.patch.object(trial, "run_cloud_task", return_value={"allowed": False}) as submitted, redirect_stdout(io.StringIO()):
+            self.assertEqual(trial.command_cloud("cn", PRODUCT_ID, path, 0), 0)
+            self.assertEqual(submitted.call_args.args[2], value)
+
     def test_reinstall_overwrites_in_place_without_deletions(self):
         # 同款重装不得产生"删除"操作:WorkBuddy 沙箱按删除计数护栏
         # (阈值 50),整目录换建会被拦;原地覆写重装同版本删除数=0。

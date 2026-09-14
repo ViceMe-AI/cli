@@ -14,6 +14,12 @@ description: 发布或更新可下载的 ViceMe 付费或免费 Skill。适用�
 只说“检查登录和创作者资格”“确认 GitHub 账号”“准备预览”“发布”等业务动作。
 不得向用户展示命令、参数、Profile、ID、错误码、原始 JSON 或内部状态。不得告诉用户正在使用哪个内置 Skill。
 
+## 云端保护发布
+
+作者明确选择云端保护时，在源目录根创建 `viceme-cloud.json`：`version:1`、公开用途 `purpose`、`privateFiles` 与 `publicFiles`。每个源文件必须明确分类；`SKILL.md` 必须私有，私有只支持 UTF-8 `.md` / `.txt`（每个最多 16000 字符），源规则与私有提示词由服务器保存。图片、脚本、模板仅在作者明确授权公开且列入 publicFiles 后发布；未声明图片会被拒绝，不能为填充封面自动公开私有素材。
+
+仍用当前 `viceme skill publish <源目录> --price-minor <分> ...` 流程。CLI 自动将声明写入 `spec.deliveryMode=CLOUD` 与 `spec.cloud`，上传完整源 ZIP 给服务器拆包；交付包只有生成的短 SKILL.md 和公开文件。CLOUD 目前必须付费，可配置匿名试用次数。源码、清单或公开范围变化后重新构建发布；恢复相同待办要求源 ZIP 摘要保持一致。完整清单示例见仓库 `docs/cloud-skills.md`。
+
 ## 快速交互约定
 
 - 在 WorkBuddy 中不得调用 `TaskCreate`、`TaskUpdate`、`TaskList` 或其他任务清单工具，
