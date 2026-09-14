@@ -386,29 +386,22 @@ func (r *regionRuntime) ensureObject(ctx context.Context, bucket string, item up
 	if err != nil {
 		return "", err
 	}
-	if exists {
-		if item.Immutable {
-			remote, getErr := r.store.Get(ctx, bucket, item.Key)
-			if getErr != nil {
-				return "", getErr
-			}
-			if !bytes.Equal(remote, body) {
-				return "", fmt.Errorf("%s immutable object %s already exists with different bytes", r.region.Label, item.Key)
-			}
-			return "skip-identical", nil
+	if exists && item.Immutable {
+		remote, getErr := r.store.Get(ctx, bucket, item.Key)
+		if getErr != nil {
+			return "", getErr
 		}
-		if meta.Size == int64(len(body)) && etagMatches(meta.ETag, body) {
-			return "skip-identical", nil
+		if !bytes.Equal(remote, body) {
+			return "", fmt.Errorf("%s immutable object %s already exists with different bytes", r.region.Label, item.Key)
 		}
-		if meta.ETag == "" || strings.Contains(meta.ETag, "-") || meta.Size != int64(len(body)) {
-			remote, getErr := r.store.Get(ctx, bucket, item.Key)
-			if getErr != nil && !isNotFound(getErr) {
-				return "", getErr
-			}
-			if getErr == nil && bytes.Equal(remote, body) {
-				return "skip-identical", nil
-			}
-		} else if etagMatches(meta.ETag, body) {
+		return "skip-identical", nil
+	}
+	if exists && !item.Immutable {
+		same, matchErr := r.stableMatches(ctx, bucket, item, body, meta)
+		if matchErr != nil {
+			return "", matchErr
+		}
+		if same {
 			return "skip-identical", nil
 		}
 	}
@@ -416,6 +409,36 @@ func (r *regionRuntime) ensureObject(ctx context.Context, bucket string, item up
 		return "", err
 	}
 	return "put", nil
+}
+
+func (r *regionRuntime) stableMatches(ctx context.Context, bucket string, item upload, body []byte, meta objectMeta) (bool, error) {
+	if !meta.HasHeaders {
+		headed, ok, err := r.store.Head(ctx, bucket, item.Key)
+		if err != nil {
+			return false, err
+		}
+		if !ok {
+			return false, nil
+		}
+		meta = headed
+	}
+	if !headersMatch(meta, item) {
+		return false, nil
+	}
+	if meta.Size == int64(len(body)) && etagMatches(meta.ETag, body) {
+		return true, nil
+	}
+	if meta.ETag == "" || strings.Contains(meta.ETag, "-") || meta.Size != int64(len(body)) {
+		remote, getErr := r.store.Get(ctx, bucket, item.Key)
+		if getErr != nil {
+			if isNotFound(getErr) {
+				return false, nil
+			}
+			return false, getErr
+		}
+		return bytes.Equal(remote, body), nil
+	}
+	return false, nil
 }
 
 func (r *regionRuntime) objectExists(ctx context.Context, bucket, key string, listed listing) (bool, objectMeta, error) {

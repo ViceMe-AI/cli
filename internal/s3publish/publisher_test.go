@@ -215,6 +215,109 @@ func TestPublishListDeniedFallsBackToHead(t *testing.T) {
 	}
 }
 
+func TestPublishRewritesStableObjectsWhenHeadersDiffer(t *testing.T) {
+	dist := writeDist(t)
+	cn, global := newFakeS3(), newFakeS3()
+	defer cn.close()
+	defer global.close()
+	cfg := testConfig(dist, cn, global, ioDiscard())
+	if err := Publish(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	tamperStableHeaders(cn)
+	tamperStableHeaders(global)
+	if err := Publish(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	root, ok := cn.get("start", "agent-install.md")
+	if !ok || root.CacheControl != cacheStable || root.ContentType != markdownType {
+		t.Fatalf("root install doc kept stale headers: cache=%q type=%q", root.CacheControl, root.ContentType)
+	}
+	commerce, ok := cn.get("start", "commerce-skill-install.md")
+	if !ok || commerce.CacheControl != cacheStable || commerce.ContentType != markdownType {
+		t.Fatalf("commerce install doc kept stale headers: cache=%q type=%q", commerce.CacheControl, commerce.ContentType)
+	}
+	manifest, ok := cn.get("skills", "manifest.json")
+	if !ok || manifest.CacheControl != cacheStable || manifest.ContentType != "application/json; charset=utf-8" {
+		t.Fatalf("stable skill manifest kept stale headers: cache=%q type=%q", manifest.CacheControl, manifest.ContentType)
+	}
+	skill, ok := cn.get("skills", "demo-skill/SKILL.md")
+	if !ok || skill.CacheControl != cacheStable || skill.ContentType != markdownType {
+		t.Fatalf("stable skill file kept stale headers: cache=%q type=%q", skill.CacheControl, skill.ContentType)
+	}
+	if cn.putCount("start", "agent-install.md") < 2 || cn.putCount("skills", "manifest.json") < 2 {
+		t.Fatal("stale stable headers must be rewritten")
+	}
+}
+
+func TestPublishSkipsStableObjectsWhenBytesAndHeadersMatch(t *testing.T) {
+	dist := writeDist(t)
+	cn, global := newFakeS3(), newFakeS3()
+	defer cn.close()
+	defer global.close()
+	cfg := testConfig(dist, cn, global, ioDiscard())
+	if err := Publish(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	rootPuts := cn.putCount("start", "agent-install.md")
+	skillPuts := cn.putCount("skills", "manifest.json")
+	if err := Publish(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cn.putCount("start", "agent-install.md") != rootPuts {
+		t.Fatalf("identical stable root was rewritten %d times after %d", cn.putCount("start", "agent-install.md"), rootPuts)
+	}
+	if cn.putCount("skills", "manifest.json") != skillPuts {
+		t.Fatalf("identical stable skill object was rewritten %d times after %d", cn.putCount("skills", "manifest.json"), skillPuts)
+	}
+}
+
+func TestStableHeadersMatch(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		meta objectMeta
+		item upload
+		want bool
+	}{
+		{
+			name: "markdown stable",
+			meta: objectMeta{CacheControl: "public, max-age=300", ContentType: "text/markdown; charset=utf-8", HasHeaders: true},
+			item: upload{Cache: cacheStable, ContentType: markdownType},
+			want: true,
+		},
+		{
+			name: "wrong content type",
+			meta: objectMeta{CacheControl: cacheStable, ContentType: "text/plain", HasHeaders: true},
+			item: upload{Cache: cacheStable, ContentType: markdownType},
+			want: false,
+		},
+		{
+			name: "wrong cache",
+			meta: objectMeta{CacheControl: cacheImmutable, ContentType: markdownType, HasHeaders: true},
+			item: upload{Cache: cacheStable, ContentType: markdownType},
+			want: false,
+		},
+		{
+			name: "headers unknown",
+			meta: objectMeta{CacheControl: cacheStable, ContentType: markdownType},
+			item: upload{Cache: cacheStable, ContentType: markdownType},
+			want: false,
+		},
+		{
+			name: "empty type accepts octet-stream",
+			meta: objectMeta{CacheControl: cacheStable, ContentType: "application/octet-stream", HasHeaders: true},
+			item: upload{Cache: cacheStable, ContentType: ""},
+			want: true,
+		},
+	}
+	for _, tc := range cases {
+		if got := headersMatch(tc.meta, tc.item); got != tc.want {
+			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestPublishConcurrentImmutableUsesPerObjectBuffers(t *testing.T) {
 	dist := writeDist(t)
 	files := []string{"one.md", "two.md", "three.md", "four.md", "five.md", "six.md", "seven.md", "eight.md"}
@@ -296,6 +399,25 @@ func writeDist(t *testing.T) string {
 		}
 	}
 	return root
+}
+
+func tamperStableHeaders(fake *fakeS3) {
+	targets := []struct {
+		bucket string
+		key    string
+	}{
+		{bucket: "start", key: "agent-install.md"},
+		{bucket: "start", key: "commerce-skill-install.md"},
+		{bucket: "skills", key: "manifest.json"},
+		{bucket: "skills", key: "demo-skill/SKILL.md"},
+	}
+	for _, target := range targets {
+		obj, ok := fake.get(target.bucket, target.key)
+		if !ok {
+			continue
+		}
+		fake.seed(target.bucket, target.key, obj.Body, cacheImmutable, "text/plain")
+	}
 }
 
 func seedVersionTree(fake *fakeS3, dist string) {

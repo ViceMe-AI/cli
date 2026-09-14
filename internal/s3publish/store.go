@@ -19,8 +19,11 @@ import (
 )
 
 type objectMeta struct {
-	Size int64
-	ETag string
+	Size         int64
+	ETag         string
+	CacheControl string
+	ContentType  string
+	HasHeaders   bool
 }
 
 type listing struct {
@@ -52,12 +55,18 @@ func (s *awsStore) Head(ctx context.Context, bucket, key string) (objectMeta, bo
 		}
 		return objectMeta{}, false, storageErr(s.label, "head", key, err)
 	}
-	meta := objectMeta{}
+	meta := objectMeta{HasHeaders: true}
 	if out.ContentLength != nil {
 		meta.Size = *out.ContentLength
 	}
 	if out.ETag != nil {
 		meta.ETag = *out.ETag
+	}
+	if out.CacheControl != nil {
+		meta.CacheControl = *out.CacheControl
+	}
+	if out.ContentType != nil {
+		meta.ContentType = *out.ContentType
 	}
 	return meta, true, nil
 }
@@ -217,4 +226,29 @@ func etagMatches(etag string, body []byte) bool {
 	}
 	sum := md5.Sum(body)
 	return normalized == hex.EncodeToString(sum[:])
+}
+
+func headersMatch(meta objectMeta, item upload) bool {
+	if !meta.HasHeaders {
+		return false
+	}
+	return cacheControlMatch(meta.CacheControl, item.Cache) && contentTypeMatch(meta.ContentType, item.ContentType)
+}
+
+func cacheControlMatch(got, want string) bool {
+	return canonicalHeader(got) == canonicalHeader(want)
+}
+
+func contentTypeMatch(got, want string) bool {
+	got = canonicalHeader(got)
+	want = canonicalHeader(want)
+	if want == "" {
+		return got == "" || got == "application/octet-stream" || got == "binary/octet-stream"
+	}
+	return got == want
+}
+
+func canonicalHeader(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	return strings.ReplaceAll(value, " ", "")
 }

@@ -76,7 +76,8 @@ unzip -q /tmp/use-a-skill.zip -d ~/.agents/skills/
   `cmd/s3-publish` 把 artifact 里的 `dist/` 发到 CN 与 Global:版本化副本
   落在 `cli/releases/v<version>/skills/`,稳定入口落在独立 `skills` 桶的
   对象根(zip、manifest、平铺文件与 widget)。发布器对两区并行、区内有界
-  并发,并对已存在的不可变对象做字节一致校验;
+  并发,并对已存在的不可变对象做字节一致校验;稳定入口在字节或
+  Cache-Control / Content-Type 不一致时重新 PUT,避免错误响应头被跳过;
 - 发布后匿名 GET `skills/manifest.json` 与版本化 Agent 合同,确认字节与
   Cache-Control 头与本地 dist 一致;
 - zip 为确定性产物:固定时间戳(epoch)、固定权限(0644)、排序遍历、

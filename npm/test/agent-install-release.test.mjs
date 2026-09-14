@@ -9,6 +9,15 @@ import { planReleaseBinaryRecovery } from "../scripts/plan-release-binary-recove
 const workflow = (
   await readFile(".github/workflows/release.yml", "utf8")
 ).replaceAll("\r\n", "\n");
+const publisherMain = (
+  await readFile("cmd/s3-publish/main.go", "utf8")
+).replaceAll("\r\n", "\n");
+const publisherVerify = (
+  await readFile("internal/s3publish/verify.go", "utf8")
+).replaceAll("\r\n", "\n");
+const publisherTypes = (
+  await readFile("internal/s3publish/contenttype.go", "utf8")
+).replaceAll("\r\n", "\n");
 const agentTemplate = await readFile("release/agent-install.md.tmpl", "utf8");
 const commerceTemplate = await readFile(
   "release/commerce-skill-install.md.tmpl",
@@ -46,18 +55,14 @@ test("publishes one generic Commerce Skill activation contract to both regions",
   assert.doesNotMatch(commerceTemplate, /mobile-recharge|photo-printing/);
   assert.match(workflow, /cosign sign-blob --bundle/);
   assert.match(workflow, /cosign verify-blob/);
-  assert.match(workflow, /s3\.viceme\.cn\/start\/agent-install\.md/);
-  assert.match(workflow, /s3\.viceme\.ai\/start\/agent-install\.md/);
-  assert.match(workflow, /s3\.viceme\.cn\/start\/commerce-skill-install\.md/);
-  assert.match(workflow, /s3\.viceme\.ai\/start\/commerce-skill-install\.md/);
+  assert.match(workflow, /go run \.\/cmd\/s3-publish/);
+  assert.match(publisherMain, /https:\/\/s3\.viceme\.cn\/start/);
+  assert.match(publisherMain, /https:\/\/s3\.viceme\.ai\/start/);
   assert.match(
-    workflow,
-    /cmp --silent .*cn-agent-install\.md.*global-agent-install\.md/,
+    publisherVerify,
+    /"agent-install\.md", "commerce-skill-install\.md"/,
   );
-  assert.match(
-    workflow,
-    /cmp --silent .*cn-commerce-skill-install\.md.*global-commerce-skill-install\.md/,
-  );
+  assert.match(publisherVerify, /differs between CN and Global/);
 });
 
 test("runs trusted recovery generators as source files outside the release module", () => {
@@ -240,26 +245,22 @@ test("gates S3 publication through the cdn environment", () => {
 });
 
 test("keeps the start bucket anonymous read policy narrow and cache-aware", () => {
-  assert.match(workflow, /policy-probe\/\$\{GITHUB_RUN_ID\}/);
-  assert.match(workflow, /test "\$\{PROBE_STATUS\}" != "200"/);
-  assert.match(workflow, /\?list-type=2/);
-  assert.match(workflow, /max-age=31536000.*immutable/);
-  assert.match(workflow, /max-age=300/);
-  assert.match(
-    workflow,
-    /if \[\[ "\$\{FILE\}" == \*\.md \]\]; then\s+put_immutable .*'text\/markdown; charset=utf-8'/,
-  );
-  assert.match(
-    workflow,
-    /s3:\/\/\$\{BUCKET\}\/\$\{PREFIX\}\/\$\{FILE\}.*\n\s+--content-type 'text\/markdown; charset=utf-8'/,
-  );
-  assert.match(
-    workflow,
-    /s3:\/\/\$\{BUCKET\}\/\$\{FILE\}.*\n\s+--content-type 'text\/markdown; charset=utf-8'/,
-  );
-  assert.match(
-    workflow,
-    /\^content-type:\[\[:space:\]\]\*text\/markdown;\[\[:space:\]\]\*charset=utf-8/,
-  );
-  assert.match(workflow, /dist\/commerce-skill-install\.md/);
+  const start = workflow.indexOf("\n  s3-publication:\n");
+  const end = workflow.indexOf("\n  notify:\n", start);
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const s3Job = workflow.slice(start, end);
+  assert.match(s3Job, /go run \.\/cmd\/s3-publish/);
+  assert.match(publisherMain, /GITHUB_RUN_ID/);
+  assert.match(publisherVerify, /policy-probe\//);
+  assert.match(publisherVerify, /policy probe is publicly readable/);
+  assert.match(publisherVerify, /\?list-type=2/);
+  assert.match(publisherVerify, /origin allows public listing/);
+  assert.match(publisherTypes, /max-age=31536000,immutable/);
+  assert.match(publisherTypes, /max-age=300/);
+  assert.match(publisherTypes, /text\/markdown; charset=utf-8/);
+  assert.match(publisherVerify, /missing the immutable cache header/);
+  assert.match(publisherVerify, /missing the stable cache header/);
+  assert.match(publisherVerify, /missing the markdown content type/);
+  assert.match(publisherVerify, /commerce-skill-install\.md/);
 });
