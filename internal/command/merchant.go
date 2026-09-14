@@ -139,6 +139,7 @@ func newMerchantWorkCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newMerchantWorkUpdateCommand(runtime))
 	command.AddCommand(newMerchantWorkWebsiteVerificationCommand(runtime))
 	command.AddCommand(newMerchantWorkSdkAccessCommand(runtime))
+	command.AddCommand(newMerchantWorkTutorialCommand(runtime))
 	return command
 }
 

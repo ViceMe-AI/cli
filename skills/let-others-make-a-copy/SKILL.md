@@ -28,6 +28,30 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
 - Shop 的 Publication 与 ViceMe 作品页是发布状态和做同款入口的权威来源；做同款入口保留发布结果 `result.workUrl`，邀请中的参考地址使用其对应的 `.md` 地址。创作者可以修改其余文案、样式和交互，不把默认邀请句式当成固定协议。
 - 再发布通过做同款获取的源码必须保留直接来源。用户说明、已有任务上下文或 `.viceme/replica-license.json` 可作为来源线索，但不能作为授权证明；使用 `viceme replica redistribution-grants` 核验当前账号的权益，选择与实际源作品一致且 `canRedistribute: true` 的条目，有 `nextCursor` 时继续查询。首次发布该衍生作品时传 `--source-entitlement <entitlementId>`，后端验证付款、归属和授权。无授权、来源不明或当前账号无该权益时停止再发布，不去掉参数冒充原创，不删除许可证或溯源标记。真正原创作品无需查询来源；更新已有受管作品由后端保留原来源，不能换父。
 
+## 作品资料与创作教程分流
+
+同一作品页面的资料面板包含两类内容，先按用户明确目标选择，不因为出现“教程”二字就发布版本：
+
+- 公开介绍、使用/部署说明、公开视频链接：按 [公开资料管理](references/work-tutorials.md) 只更新 Work.tutorials，不运行 tutorial publish 或 replica publish。
+- 创作提示词步骤、教程价格、免费节选或步骤中的视频：使用下面的版本化教程流程；视频跟随所在步骤权限，不能复制到 Work.tutorials 或公开作品 Markdown。
+- 只改原站按钮文案、样式或触发方式：仍按原站入口分流，修改和预览后结束，不更新上述两类资料。
+
+用户只说“改教程”且无法从当前内容、步骤或上下文定位范围时，先询问是公开资料还是创作教程，不擅自公开付费内容。
+
+## 网站创作提示词教程
+
+用户要求发布创作提示词或教程时，使用独立的教程命令。教程与做同款源码分别定价、分别授权，可以仅为已有网站作品发布教程，无需重新上传源码或页面。
+
+从当前真实创作对话、用户提供的记录或已有教程整理 `tutorial.json`，不要从成品倒推并冒充原始对话。结构为 `schemaVersion: 1`、`title`、`summary`、`prerequisites: []`、`steps: [{title, explanation, prompt, model?, videoLinks?}]`。每步可选 videoLinks，最多 20 条 `{type:"VIDEO_LINK", title, url}`；title 非空且最多 120 字，url 是无凭据的公网 HTTPS 地址，最多 2048 字符。视频仅作为外链，不上传或转码。更新时保留未请求删除的现有视频；锁定步骤中的链接不进入公开资料，发布成功后核对预览没有泄漏非预览步骤的视频。正文保存完整可执行提示词，说明环境及模型；先去除密钥、个人信息与不应公开的内容。标题、摘要、准备工作和每步标题始终公开，秘密只能放在未公开步骤正文中。最多 100 步，总内容不超过 500 KB。
+
+复用创作者资格与已发布网站的真实 Work ID，先执行 `viceme tutorial read <work-id>` 读取当前版本；只有 `WEBSITE_TUTORIAL_NOT_FOUND` 表示尚无教程，首次 `expected-version` 用 0。权限、网络或其他错误不能视为首次发布。发布内容、免费节选步数及价格明确后执行：
+
+```bash
+viceme merchant work tutorial publish <work-id> --merchant <merchant-id> --input tutorial.json --expected-version <current-version> --preview-steps <count> --price-cents <minor-units> --request-id <uuid>
+```
+
+`request-id` 由 Agent 生成并在当前任务保存；网络中断必须复用相同 ID、文件和参数重试。版本冲突先重新读取，不能自动换 ID 覆盖别人的版本。价格为 0 时全部公开；正数价格仅公开前 `preview-steps` 步正文。发布后用 `viceme tutorial preview <work-id> --version <published-version>` 检查节选，并打开返回的既有网站作品页供用户查看。教程版本不可变，修改产生新版本，旧购买不自动升级，也不包含源码权益。网页托管仍沿用下方 `replica publish` 的 PAGE 流程；教程发布成功不代表新页面已托管。
+
 ## CLI 能力与入口分流
 
 基础发布协议要求 CLI >= 0.32.0，但这不代表旧版本已支持入口移除或经营数据查询。不要先探测版本或遍历命令能力；直接执行本次目标命令。命令不存在、参数不支持、返回 `UPGRADE_CLI`，或本次有入口标记却缺少下述移除回执时，通过 `$creator-tools` 在当前市场安装或执行 `viceme update`。按需读取失败命令的 `--help`，不遍历其他命令。更新后重新生成尚未确认的终审；已确认的旧制品先停止，不能继续上传残留入口的源码。官方发布仍缺能力时停止，不循环更新或回退旧上传协议。需要刷新官方 Skill 时另行执行 `viceme install --agent <target>`。安装来源必须属于当前市场。
