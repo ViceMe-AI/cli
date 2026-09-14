@@ -460,3 +460,16 @@ CLI 在当前账号与 Profile 下保存请求，确保恢复时不会重新选�
 渠道需要本人实名签约、绑定或确认收款时，Skill 展示现有网站入口，完成后继续原单。
 `PENDING` 与 `ACTION_REQUIRED` 均不代表到账；只有 `SUCCEEDED` 表示全部提现成功。
 定期触发和长时间跟踪由上层 Agent 负责。
+
+## 网站创作提示词教程
+
+`merchant work tutorial publish <work-id>` 从 `--input tutorial.json` 发布教程；必填 `--merchant`、`--request-id`、`--expected-version`、`--preview-steps`、`--price-cents`。重试复用原请求 ID 和完整输入，价格 0 表示全文公开。教程与网站源码分别授权，版本发布后不可修改。
+
+```bash
+viceme tutorial preview <work-id>
+viceme tutorial read <work-id> --version 1
+viceme tutorial buy <work-id> --version 1
+viceme tutorial download <work-id> --version 1 --output tutorial-v1.json
+```
+
+预览无需登录；读取、购买入口和下载使用当前 CLI 账号。`buy` 返回网站结账入口，需在网站使用相同账号完成支付；不自动扣款。下载仅导出已解锁的指定版本 JSON，拒绝覆盖已有文件。网站托管预览沿用 `replica publish --page-dir ... --page-entry ...`，无需新增上传机制。需要先部署 Shop 的教程 API，再使用这些命令。
