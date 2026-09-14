@@ -754,7 +754,7 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			if err := runtime.requireBuyerAuthentication(command.Context()); err != nil {
 				return err
 			}
-			order, err := openSkillPurchaseOrder(command.Context(), runtime, productID)
+			order, presentation, err := openSkillPurchaseOrderAndPresentQR(command.Context(), runtime, productID, true)
 			if err != nil {
 				return err
 			}
@@ -768,10 +768,6 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 					ProductID: productID, Allowed: true, Owned: true, Install: installed, OrderNo: order.OrderNo,
 					NextAction: "CONTINUE_TASK", Invocation: installed.Invocation,
 				})
-			}
-			presentation, err := presentSkillPaymentQR(runtime, &order)
-			if err != nil {
-				return err
 			}
 			if wait <= 0 {
 				return output.Confirmation("SKILL_PURCHASE_REQUIRED", "the trial is exhausted; purchase this edition to keep using it").WithDetails(map[string]any{
