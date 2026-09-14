@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/agentenv"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 )
 
@@ -229,20 +230,70 @@ func TestSkillPaymentPresentationHintBranchesByInvokingAgent(t *testing.T) {
 		t.Fatalf("workbuddy hint lost the present_files contract: %s", workBuddy)
 	}
 	doubao := skillPaymentPresentationHint(getenv(map[string]string{"DOUBAO_OFFICE_APP_ID": "1"}))
-	if !strings.Contains(doubao, "present_files") || strings.Contains(doubao, "imageChatSrc") {
-		t.Fatalf("doubao hint must deliver widgetPath with present_files and skip chat images: %s", doubao)
+	if !strings.Contains(doubao, "deliver widgetPath with present_files") {
+		t.Fatalf("doubao hint lost its page preference: %s", doubao)
 	}
 	for name, env := range map[string]map[string]string{
-		"codex":   {"CODEX_SESSION_ID": "s"},
-		"claude":  {"CLAUDECODE": "1"},
-		"unknown": {},
+		"workbuddy": {"CODEBUDDY_SESSION_ID": "s"},
+		"doubao":    {"DOUBAO_OFFICE_APP_ID": "1"},
+		"codex":     {"CODEX_SESSION_ID": "s"},
+		"claude":    {"CLAUDECODE": "1"},
+		"unknown":   {},
 	} {
 		hint := skillPaymentPresentationHint(getenv(env))
-		if strings.Contains(hint, "imageChatSrc") {
-			t.Fatalf("%s hint must not rely on chat-rendered local images: %s", name, hint)
+		for _, required := range []string{"current host explicitly supports", "![微信支付二维码](<imagePath>)", "supports local HTML", "another independently supported channel", "Only when neither image nor page", "path alone must not start the wait"} {
+			if !strings.Contains(hint, required) {
+				t.Fatalf("%s hint omitted capability rule %q: %s", name, required, hint)
+			}
 		}
-		if !strings.Contains(hint, "widgetPath") || !strings.Contains(hint, "absolute path") {
-			t.Fatalf("%s hint must defer to in-platform tools and state the widgetPath verbatim: %s", name, hint)
+	}
+}
+
+func TestTrialPaymentCommandsKeepSupportedImageChannel(t *testing.T) {
+	// Exercise both real command exits, not just the presentation helper.
+	for _, entry := range agentenv.AgentEnvMarkers {
+		for _, marker := range entry.Markers {
+			t.Setenv(marker, "")
 		}
+	}
+	t.Setenv("AI_AGENT", "")
+	t.Setenv("CODEX_SESSION_ID", "test-session")
+	t.Setenv(processAccessTokenEnvironment, "")
+	for _, name := range []string{"use", "trial-purchase"} {
+		t.Run(name, func(t *testing.T) {
+			state := newSkillTrialTestServer(t)
+			defer state.server.Close()
+			home, store := t.TempDir(), securestore.NewMemory()
+			invoke := func(args ...string) (int, map[string]any) {
+				code, result, _ := executeSkillTrialCommand(t, state.server, home, store, args...)
+				return code, result
+			}
+			if code, result := invoke("skill", "install", downloadableProductID, "--agent", "codex"); code != 0 {
+				t.Fatalf("install: %#v", result)
+			}
+			for i := 0; i < 2; i++ {
+				if code, result := invoke("skill", "use", downloadableProductID); code != 0 {
+					t.Fatalf("use: %#v", result)
+				}
+			}
+			code, result := invoke("skill", name, downloadableProductID, "--wait", "0")
+			failure, _ := result["error"].(map[string]any)
+			if code == 0 || failure["code"] != "SKILL_PURCHASE_REQUIRED" {
+				t.Fatalf("expected payment presentation: %#v", result)
+			}
+			hint, _ := failure["hint"].(string)
+			if !strings.Contains(hint, "![微信支付二维码](<imagePath>)") || strings.Contains(hint, "do not rely on chat-rendered local images") {
+				t.Fatalf("command excluded the supported image channel: %s", hint)
+			}
+			presentation := failure["details"].(map[string]any)["paymentPresentation"].(map[string]any)
+			png, err := os.ReadFile(presentation["imagePath"].(string))
+			if err != nil || !bytes.HasPrefix(png, []byte("\x89PNG\r\n\x1a\n")) {
+				t.Fatalf("image channel has no usable PNG: %v", err)
+			}
+			guide, err := os.ReadFile(filepath.Join(home, ".agents", "skills", "free-test", ".viceme", "guides", "widgets.md"))
+			if err != nil || !bytes.Contains(guide, []byte("![微信支付二维码](<imagePath>)")) {
+				t.Fatalf("installed guide omitted the image channel: %v", err)
+			}
+		})
 	}
 }

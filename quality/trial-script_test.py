@@ -465,26 +465,20 @@ class TrialScriptTestCase(unittest.TestCase):
             instructions = trial.payment_display_instructions()
             self.assertIn("![微信支付二维码](<imageChatSrc>)", instructions)
             self.assertIn("present_files([widgetPath])", instructions)
-            exhausted = trial.exhausted_purchase_message()
-            self.assertIn("present_files", exhausted)
-            self.assertIn("imageChatSrc", exhausted)
-        # 豆包工作:有自己的 present_files 但聊天不渲染本地图片,
-        # 只投递支付页,不写 Markdown 图片。
+        # 豆包工作保留页面偏好,不禁止宿主明确支持的其他通道。
         with mock.patch.dict(os.environ, {"DOUBAO_OFFICE_APP_ID": "1"}):
             instructions = trial.payment_display_instructions()
             self.assertIn("present_files([widgetPath])", instructions)
-            self.assertNotIn("imageChatSrc", instructions)
-            self.assertNotIn("![微信支付二维码]", instructions)
-        # Codex 与未知宿主:平台内展示工具,不猜测工具名,兜底把路径原样告诉用户;
-        # 不得再声称聊天能显示本地图片或要求 present_files。
-        for markers in ({"CODEX_SESSION_ID": "s"}, {"CLAUDECODE": "1"}, {}):
+        # 任一环境都必须允许明确支持的图片通道;路径交付不是展示成功。
+        for markers in ({"CODEBUDDY_SESSION_ID": "s"}, {"DOUBAO_OFFICE_APP_ID": "1"},
+                        {"CODEX_SESSION_ID": "s"}, {"CLAUDECODE": "1"}, {}):
             with self.subTest(markers=markers):
                 with mock.patch.dict(os.environ, markers):
                     instructions = trial.payment_display_instructions()
-                    self.assertIn("widgetPath", instructions)
-                    self.assertIn("绝对路径", instructions)
-                    self.assertNotIn("present_files", instructions)
-                    self.assertNotIn("imageChatSrc", instructions)
+                    for required in ("当前宿主明确支持", "![微信支付二维码](<imagePath>)",
+                                     "支持本地 HTML", "另一个独立获准的通道",
+                                     "只有图片和页面都无法展示时", "仅交付路径时不要启动等待"):
+                        self.assertIn(required, instructions)
                     exhausted = trial.exhausted_purchase_message()
                     self.assertNotIn("present_files", exhausted)
                     self.assertIn("展示指引", exhausted)
@@ -1186,12 +1180,16 @@ class InstallFlowTestCase(unittest.TestCase):
                 if len(request_ids) == 1:
                     raise trial.Failure("NETWORK_ERROR", "unknown result")
             return self._purchase_order()
-        with mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=self._resource_download), mock.patch.object(trial.time, "sleep", side_effect=AssertionError("QR must return before waiting")):
+        with mock.patch.dict(os.environ, {"CODEX_SESSION_ID": "test-session"}), \
+                mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=self._resource_download), mock.patch.object(trial.time, "sleep", side_effect=AssertionError("QR must return before waiting")):
             self.assertEqual(self._run_purchase("--wait", "60")[0], 1)
             code, first = self._run_purchase("--wait", "60")
             self.assertEqual(code, 0, first)
             self.assertEqual(request_ids[0], request_ids[1])
             self.assertFalse(first["allowed"])
+            self.assertIn("![微信支付二维码](<imagePath>)", first["message"])
+            self.assertIn("只有图片和页面都无法展示时", first["message"])
+            self.assertNotIn("不要声称或依赖聊天显示本地图片", first["message"])
             self.assertNotIn("grant-secret", json.dumps(first))
             self.assertNotIn("weixin://", json.dumps(first))
             presentation = first["paymentPresentation"]
@@ -1356,6 +1354,16 @@ class InstallFlowTestCase(unittest.TestCase):
                      "currency": "CNY", "expiresAt": "2099-01-01T00:00:00Z",
                      "paymentAction": {"type": "QR_CODE", "content": "weixin://pay/local-fixture"}}
             presentation = local.payment_presentation("cn", order)
+        with mock.patch.dict(os.environ, {"CODEX_SESSION_ID": "test-session"}):
+            self.assertIn("![微信支付二维码](<imagePath>)", local.payment_display_instructions())
+        with open(os.path.join(root, ".viceme/guides/widgets.md"), encoding="utf-8") as handle:
+            guide = handle.read()
+        self.assertIn("![微信支付二维码](<imagePath>)", guide)
+        self.assertNotIn("do not treat a Markdown image or a bare", guide)
+        with open(os.path.join(root, trial.RUNTIME_PATH), encoding="utf-8") as handle:
+            rules = handle.read()
+        self.assertIn("当前宿主明确支持的图片或页面通道", rules)
+        self.assertNotIn("不要声称聊天能显示本地图片", rules)
         with open(presentation["imagePath"], "rb") as handle:
             png = handle.read()
         self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))

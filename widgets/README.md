@@ -1,10 +1,9 @@
 # ViceMe CLI shared Widgets
 
-Onboarding is a host-rendered HTML fragment. Payment is a complete WeChat Pay
-cashier page presented through the invoking host's channel (WorkBuddy and
-Doubao Work deliver it with `present_files`; other hosts follow the command
-output's guidance), not a chat Widget. Neither is a
-payment authority. The CLI owns the templates; callers own their workflows. No
+Onboarding is a host-rendered HTML fragment. Payment provides a complete WeChat
+Pay cashier page and a PNG QR image. The Agent presents them through a channel
+the current host explicitly supports. Neither is a payment authority.
+The CLI owns the templates; callers own their workflows. No
 external scripts, images, clipboard API, HTTP polling, order creation or
 business actions belong inside a Widget.
 
@@ -20,23 +19,38 @@ per card so replaying a script does not duplicate examples or timers.
 The command returns `paymentPresentation.widgetPath` (a complete WeChat Pay
 page), `paymentPresentation.imagePath` (a local PNG), and
 `paymentPresentation.imageChatSrc` (`local-file://` plus that absolute path).
-Presentation follows the command output's per-platform guidance; the channel
-depends on the invoking agent host:
+The Agent chooses using the current host's documented image syntax and available
+presentation tools. Platform detection provides a preference, not a capability
+decision; it must not exclude a channel the current host explicitly supports.
+The caller's workflow still defines permitted channels (for example,
+`AGENT_PLATFORM`); capability checks do not relax those restrictions.
 
-- WorkBuddy: embed the PNG in the chat bubble with Markdown `![微信支付二维码]`
+- Image channel: embed `imagePath` using the host's documented syntax. When the
+  host supports absolute-path Markdown (as current Codex Desktop does), write
+  `![微信支付二维码](<imagePath>)` with the actual absolute path. Use `imageChatSrc`
+  only when the host supports `local-file://`; do not copy that protocol to
+  another host or assume every Markdown renderer supports local images.
+- Page channel: pass `widgetPath` to an available tool that explicitly supports
+  local HTML. Do not guess tool names. Having a browser tool does not prove it
+  accepts local files or `file://` URLs.
+- If one channel fails, respect the host's restrictions and use another
+  independently supported channel. Only when neither image nor page can be
+  displayed, state the `widgetPath` absolute path verbatim and ask the user to
+  open it. A bare path is not a displayed QR and must not start the payment wait.
+
+Known host preferences follow the same capability rules:
+
+- WorkBuddy: prefer embedding the PNG in the chat bubble with Markdown `![微信支付二维码]`
   followed by parentheses around `imageChatSrc` (a bare filesystem path does
-  not render as an image), and open only the HTML page with
+  not render as an image), and, when available, open only the HTML page with
   `present_files([widgetPath])`; never pass the PNG to `present_files`. When
   `present_files` is unavailable on WorkBuddy, the chat image alone still
   counts as displayed.
-- Doubao Work: deliver `widgetPath` with `present_files`; its chat renders no
-  local images, so do not write a Markdown image and do not paste a bare
-  `imagePath`.
-- Other hosts (Codex, Claude, unknown): hand `widgetPath` to a browser, page,
-  or payment panel tool the platform actually provides — do not guess tool
-  names, and do not treat a Markdown image or a bare `imagePath` as displayed.
-  When no in-platform display capability exists, state the `widgetPath`
-  absolute path verbatim and ask the user to open it.
+- Doubao Work: prefer delivering `widgetPath` with `present_files` when
+  available. Do not pass the PNG to `present_files` or infer chat image support
+  from the platform name. Another explicitly supported channel remains usable.
+- Codex, Claude, and unknown hosts: choose either supported channel above;
+  identifying a platform does not prove or disprove local image support.
 
 Do not
 Read the HTML or PNG, do not paste HTML into chat, and do not call
@@ -47,14 +61,15 @@ Do not copy the provider URI into chat, an external QR service or a URL.
 The page already contains an encoded inline SVG QR; do not use `<img src>`
 inside the page and do not redraw or guess missing QR paths.
 
-Show the image and open the page before starting the caller's bounded payment
-wait. Use the caller's original command and saved order, never create a
+Display the QR through at least one supported channel before starting the
+caller's bounded payment wait; both image and page are not required. Merely
+generating artifacts or returning a tool response does not prove display.
+Use the caller's original command and saved order, never create a
 different order to poll. The page never says that installation or any other
 business task has completed. Only a server-confirmed order status may display
 payment success. Visible copy is the green WeChat poster, amount, countdown, QR, and merchant title. The countdown uses the order's absolute `expiresAt` and hides the QR at expiry. Expiry is not proof of failure or a reason to create a new order.
 
-If the invoking host's channel cannot display anything (per the platform
-rules above), report that accurately; do
+If no supported channel displays anything, report that accurately; do
 not claim the user has seen a QR.
 
 Callers may supply `resultTitle` and `resultDescription` for a confirmed `PAID`
