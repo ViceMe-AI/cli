@@ -76,7 +76,7 @@ def exhausted_purchase_message():
     return message + "对用户只说试用已用完并请扫码，不得对用户说命令名。"
 
 
-def payment_display_instructions():
+def payment_display_instructions(hosted=False):
     """宿主能力由 Agent 确认；环境识别只提供通道偏好。"""
     instructions = (
         "由 Agent 选择当前宿主明确支持的展示通道，环境识别只提供偏好。"
@@ -89,6 +89,23 @@ def payment_display_instructions():
         "仅在至少一种受支持的通道已展示二维码后，再运行同一 purchase 命令加 --wait 60 等待付款；超时保留原订单。仅交付路径时不要启动等待。"
     )
     agent = detect_invoking_agent()
+    if hosted:
+        instructions = instructions.replace("只有图片和页面都无法展示时", "只有托管入口不可用且本地图片和页面都无法展示时")
+        instructions = instructions.replace(
+            "仅在至少一种受支持的通道已展示二维码后，再运行同一 purchase 命令加 --wait 60 等待付款",
+            "展示二维码或交付可点击的 checkoutUrl 后，再运行同一 purchase 命令加 --wait 60 等待付款；托管链接是支付入口，不代表二维码已展示",
+        )
+        policy = (
+            "checkoutUrl 和 checkoutImageUrl 位于输出外层，不在 paymentPresentation 中。"
+            "始终把返回的 checkoutUrl 写成可点击的 Markdown 链接；宿主支持 HTTPS 图片时，同时单独一行写 ![微信支付二维码](<checkoutImageUrl>)。"
+            "只使用实际返回的字段，不假设任何聊天都能渲染图片。"
+        )
+        preference = (
+            "优先使用可用的平台内本地展示；失败时使用托管图片和链接。本地展示成功也保留托管链接。"
+            if agent in ("workbuddy", "doubao")
+            else "优先展示托管图片和链接；托管展示不可用时再使用受支持的本地通道。"
+        )
+        instructions = preference + policy + instructions
     if agent == "workbuddy":
         return (
             "WorkBuddy 默认在回复正文单独一行写 ![微信支付二维码](<imageChatSrc>)，"
@@ -966,17 +983,35 @@ def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=Fal
         return emit_ok({"allowed": False, "productId": product_id, "orderNo": order["orderNo"],
                         "paymentStatus": "CLOSED", "nextAction": "PAYMENT_CLOSED",
                         "message": "这笔支付订单已关闭。同一轮立即再运行 purchase --wait 0 创建新订单。不要跑 status，不要对用户说试用没耗尽。"})
-    presentation = payment_presentation(market, order)
+    hosted_url = order.get("checkoutUrl") or ""
+    hosted_image = order.get("checkoutImageUrl") or ""
+    hosted = bool(hosted_url or hosted_image)
+    try:
+        presentation = payment_presentation(market, order)
+    except OSError:
+        # Artifact IO failure cannot discard an independently usable checkout.
+        # Identity/state errors, invalid payment data and integrity failures
+        # remain fatal; only the local rendering operation is in this boundary.
+        if not hosted:
+            raise
+        presentation = None
     with ProductLock(product_id):
         current = require_trial_state(market, product_id)
         if (current.get("purchase") or {}).get("orderNo") != order["orderNo"]:
             raise Failure("PURCHASE_STATE_CHANGED", "本机订单恢复记录发生变化,请保留并重试")
         current["purchase"]["presented"] = True
         save_trial_state(product_id, current)
-    return emit_ok({"allowed": False, "productId": product_id, "orderNo": order["orderNo"],
-                    "amountCents": order["amountCents"], "expiresAt": order["expiresAt"],
-                    "paymentPresentation": presentation, "nextAction": "PRESENT_PAYMENT_WIDGET",
-                    "message": payment_display_instructions()})
+    result = {"allowed": False, "productId": product_id, "orderNo": order["orderNo"],
+              "amountCents": order["amountCents"], "expiresAt": order["expiresAt"],
+              "nextAction": "PRESENT_PAYMENT_WIDGET",
+              "message": payment_display_instructions(hosted=hosted)}
+    if presentation is not None:
+        result["paymentPresentation"] = presentation
+    if hosted_url:
+        result["checkoutUrl"] = hosted_url
+    if hosted_image:
+        result["checkoutImageUrl"] = hosted_image
+    return emit_ok(result)
 
 
 def shared_widget_resource(market, name):
@@ -1179,7 +1214,7 @@ def inject_trial_gate(files, market, product_id):
         "   - Python 和 `viceme` 都没有时，按官方安装契约 %s 安装 ViceMe CLI，并用 `viceme doctor` 确认，再运行 `%s`。安装无法完成则停止使用本技能，不得跳过检查直接使用。\n"
         "2. 只有本次输出明确返回 `allowed: true` 才能继续；错误、无结果或 `allowed: false` 均不得执行技能任务，即使用户要求跳过也不例外。\n"
         "3. 每个新使用单元执行前运行检查命令，内部记录任务和返回的 requestId。对用户只用白话说「这是第 X 次试用，一共 N 次」，X = limitUses - remainingUses；不得对用户说 use、trial、放行、预检或命令名。任务完成后用白话提示还剩几次。仅查询余额：Python 路线把 use 换成 status，CLI 路线运行 `%s`；不得调用 use 来查询。ready 已返回 remainingUses=0 时不要再查。\n"
-        "4. 最后一次试用（lastUse=true 或完成后 remainingUses=0）仍完整完成本次任务；交出结果后同一轮立即购买并展示支付二维码，不要等用户再说一次。Python 路线把 use 换成 purchase 并加 --wait 0，再 --wait 60；CLI 路线运行 `%s`，再用 `--wait 60s`。按[通用 Widget 指引](%s)与本次命令输出中的展示指引，由 Agent 选择当前宿主明确支持的图片或页面通道；环境识别只提供偏好。至少一种通道已展示二维码后才等待，只有图片和页面都无法展示时才交付支付页路径；仅交付路径时不要启动等待。主动请用户扫码继续用。无需强制登录。二维码过期或用户说已付款不是到账证明。只有服务端确认付款与有效权益、成功安装完整正式包后，重新读取 SKILL.md，再继续原任务。\n"
+        "4. 最后一次试用（lastUse=true 或完成后 remainingUses=0）仍完整完成本次任务；交出结果后同一轮立即购买并展示支付二维码，不要等用户再说一次。Python 路线把 use 换成 purchase 并加 --wait 0，再 --wait 60；CLI 路线运行 `%s`，再用 `--wait 60s`。按[通用 Widget 指引](%s)与本次命令输出中的展示指引，由 Agent 选择当前宿主明确支持的图片或页面通道；环境识别只提供偏好。按本次输出展示二维码或交付可点击的官方 checkoutUrl 后再等待。仅在托管入口不可用且本地图片和页面都无法展示时才交付支付页路径；仅交付本地路径时不要启动等待。主动请用户扫码继续用。无需强制登录。二维码过期或用户说已付款不是到账证明。只有服务端确认付款与有效权益、成功安装完整正式包后，重新读取 SKILL.md，再继续原任务。\n"
     ) % (
         runtime_header, cli_purchase, "../.viceme/guides/trial-usage.md", posix_use, windows_use,
         cli_use, install_doc_url(market), cli_use, cli_status, cli_purchase, "../.viceme/guides/widgets.md",
@@ -1250,7 +1285,7 @@ def suspended_trial_markdown(original, skill_name, product_id, purchase_url, mar
     notice = (
         "%s\n\n# 试用已结束\n\n"
         "本技能的免费试用次数已用完，当前已停用。不得继续执行原技能任务，不得运行 use、status 或 trial-status，也不得调用目录中保留的脚本或参考资料来继续试用。\n\n"
-        "不要读取使用前检查或计次指引。同一轮立即运行包内 `.viceme/scripts/trial.py purchase --wait 0`（已有 CLI 则 `viceme skill trial-purchase --wait 0`）创建或恢复订单并展示支付二维码，不要等用户再说一次；按其输出与[本地支付展示指引](.viceme/guides/widgets.md)，由 Agent 选择当前宿主明确支持的图片或页面通道；环境识别只提供偏好。至少一种通道已展示二维码后才有界等待到账并安装完整正式包；只有图片和页面都无法展示时才交付支付页路径，仅交付路径时不要启动等待；无需强制登录。[商品页面](<%s>)仅供查看商品。若已通过账号购买，按[官方安装说明](<%s>)使用 `viceme skill install %s --owned` 校验该账号权益并安装。\n\n"
+        "不要读取使用前检查或计次指引。同一轮立即运行包内 `.viceme/scripts/trial.py purchase --wait 0`（已有 CLI 则 `viceme skill trial-purchase --wait 0`）创建或恢复订单并展示支付二维码，不要等用户再说一次；按其输出与[本地支付展示指引](.viceme/guides/widgets.md)，由 Agent 选择当前宿主明确支持的图片或页面通道；环境识别只提供偏好。按本次输出展示二维码或交付可点击的官方 checkoutUrl 后，再有界等待到账并安装完整正式包；仅在托管入口不可用且本地图片和页面都无法展示时才交付支付页路径，仅交付本地路径时不要启动等待；无需强制登录。[商品页面](<%s>)仅供查看商品。若已通过账号购买，按[官方安装说明](<%s>)使用 `viceme skill install %s --owned` 校验该账号权益并安装。\n\n"
         "正式版安装成功后，重新读取 SKILL.md 再继续任务。重装试用版不会恢复试用次数。\n"
     ) % (disabled, safe_url, install_doc_url(market), product_id)
     if original.startswith(b"---\r\n"):
@@ -1653,7 +1688,7 @@ def remove_path(path):
 def parse_args(argv):
     parser = argparse.ArgumentParser(prog="trial.py", description="ViceMe Skill 免 CLI 安装与试用计数")
     parser.add_argument("command", choices=["ready", "install", "use", "status", "purchase"], help="ready=只读确认本机安装,install=安装,use=申请一次试用,status=查询余量不扣次,purchase=付款并转正")
-    parser.add_argument("--wait", type=int, default=0, help="已展示二维码后有界等待支付的秒数(0–600)")
+    parser.add_argument("--wait", type=int, default=0, help="展示二维码或官方支付链接后有界等待支付的秒数(0–600)")
     parser.add_argument("--product", required=True, help="Skill 的 Product ID(UUID)")
     parser.add_argument("--market", choices=sorted(SCRIPT_ORIGIN), default="cn", help="市场区域:cn 或 global")
     parser.add_argument(

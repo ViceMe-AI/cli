@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -66,7 +67,7 @@ func newSkillTrialPurchaseCommand(runtime *Runtime) *cobra.Command {
 			return runTrialPurchase(command.Context(), runtime, productID, wait, agent)
 		},
 	}
-	command.Flags().DurationVar(&wait, "wait", 0, "bounded payment wait after the QR was presented; 0 presents immediately")
+	command.Flags().DurationVar(&wait, "wait", 0, "bounded payment wait after presenting the QR or hosted link; 0 presents immediately")
 	command.Flags().StringVar(&agent, "agent", "auto", "installation target")
 	return command
 }
@@ -201,9 +202,9 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 		if err != nil {
 			return err
 		}
-		if err := removeCommercePaymentPresentation(runtime, order.OrderNo); err != nil {
-			return err
-		}
+		// Display cleanup cannot change a completed formal installation or
+		// server-confirmed ownership. Match the standalone runtime's behavior.
+		_ = removeCommercePaymentPresentation(runtime, order.OrderNo)
 		return runtime.business(skillTrialUseResult{ProductID: productID, Allowed: true, Owned: true, OrderNo: order.OrderNo, Install: &installed, NextAction: "CONTINUE_TASK", Invocation: installed.Invocation})
 	}
 	if order.Status == "CLOSED" {
@@ -215,17 +216,32 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 	commerce := api.CommerceOrder{OrderNo: order.OrderNo, Status: order.Status, Currency: order.Currency, AmountCents: order.AmountCents, ExpiresAt: order.ExpiresAt, PaymentProvider: "WECHAT_PAY", PaymentAction: order.PaymentAction}
 	commerce.Item, _ = json.Marshal(map[string]string{"productTitle": order.Title})
 	if err := prepareCommercePaymentPresentation(runtime, &commerce); err != nil {
-		return err
+		// Local artifact IO is independent of the server's payable checkout.
+		// Authentication, order validation, and invalid payment data still fail.
+		var pathError *os.PathError
+		if !order.HostedCheckout() || !errors.As(err, &pathError) {
+			return err
+		}
 	}
-	if commerce.PaymentPresentation != nil {
+	if commerce.PaymentPresentation != nil || order.HostedCheckout() {
 		if err := setTrialPurchasePresentation(runtime, productID, order.OrderNo, true, false); err != nil {
 			return err
 		}
 	}
-	return output.Confirmation("SKILL_PURCHASE_REQUIRED", "scan to pay; payment will restore the formal edition without login").WithDetails(map[string]any{
+	details := map[string]any{
 		"productId": productID, "orderNo": order.OrderNo, "amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
-		"paymentPresentation": commerce.PaymentPresentation,
-	}).WithHint(skillPaymentPresentationHint(os.Getenv) + fmt.Sprintf("; then run viceme skill trial-purchase %s --wait 60s; expiry never proves an order is closed", productID))
+	}
+	if commerce.PaymentPresentation != nil {
+		details["paymentPresentation"] = commerce.PaymentPresentation
+	}
+	if order.CheckoutURL != "" {
+		details["checkoutUrl"] = order.CheckoutURL
+	}
+	if order.CheckoutImageURL != "" {
+		details["checkoutImageUrl"] = order.CheckoutImageURL
+	}
+	return output.Confirmation("SKILL_PURCHASE_REQUIRED", "scan to pay; payment will restore the formal edition without login").WithDetails(details).
+		WithHint(skillPaymentPresentationHint(os.Getenv, order.HostedCheckout()) + fmt.Sprintf("; then run viceme skill trial-purchase %s --wait 60s; expiry never proves an order is closed", productID))
 }
 
 func trialInstallShouldResumePurchase(ctx context.Context, runtime *Runtime, productID string) (bool, error) {

@@ -33,8 +33,18 @@ const skillTrialRuntimePath = "references/viceme-runtime.md"
 // skillPaymentPresentationHint 按当前调用方环境返回支付呈现指引本身，
 // 分支语义与 trial_runtime.py 的 payment_display_instructions 保持一致；
 // 后续等待命令由各调用方自行拼接。
-func skillPaymentPresentationHint(getenv func(string) string) string {
+func skillPaymentPresentationHint(getenv func(string) string, hosted bool) string {
 	presentation := "The agent selects a channel the current host explicitly supports; platform detection is only a preference. For local images, embed imagePath using the host's documented image syntax; if absolute-path Markdown is supported, write ![微信支付二维码](<imagePath>). Use imageChatSrc only with a host that supports local-file://. For a payment page, pass widgetPath to an available tool that supports local HTML; a browser tool name alone does not prove local file support. If a channel fails, use another independently supported channel while respecting host restrictions. Only when neither image nor page can be displayed, state the widgetPath absolute path verbatim and ask the user to open it; a bare path is not a displayed QR. Do not Read the PNG or HTML, paste HTML into chat, call show_widget for payment, redraw the QR, or upload payment data to third parties. Start the bounded payment wait only after a supported channel has displayed the QR; handing over a path alone must not start the wait"
+	if hosted {
+		presentation = strings.Replace(presentation, "Only when neither image nor page can be displayed", "Only when no hosted entry is usable and neither local image nor page can be displayed", 1)
+		presentation = strings.Replace(presentation, "Start the bounded payment wait only after a supported channel has displayed the QR; handing over a path alone must not start the wait", "Start the bounded payment wait after displaying the QR or delivering the clickable checkoutUrl; a hosted link is a payment entry, not proof that the QR was displayed. A local path alone must not start the wait", 1)
+		hostedPolicy := "Use checkoutUrl and checkoutImageUrl from the outer output details, not paymentPresentation. Always send the returned checkoutUrl as a clickable Markdown link, and also embed the returned checkoutImageUrl on its own line using ![微信支付二维码](<checkoutImageUrl>) when the host supports HTTPS images. Do not assume every chat renders images. Only use fields actually returned. "
+		if agent := agentenv.Detect(getenv); agent == agentenv.WorkBuddy || agent == agentenv.Doubao {
+			presentation = "Prefer available local platform presentation; if it fails, use the hosted image and link. Keep the hosted link available alongside the local presentation. " + hostedPolicy + presentation
+		} else {
+			presentation = "Prefer the hosted image and link; use supported local channels when hosted presentation is unavailable. " + hostedPolicy + presentation
+		}
+	}
 	switch agentenv.Detect(getenv) {
 	case agentenv.WorkBuddy:
 		return "WorkBuddy preference: write ![微信支付二维码](paymentPresentation.imageChatSrc) in the chat reply and open only widgetPath with present_files when available; do not pass imagePath to present_files. " + presentation
@@ -549,7 +559,7 @@ func injectSkillTrialGate(files map[string]downloadableSkillFile, productID, mar
 	cliStatus := "viceme skill trial-status " + productID
 	installDoc := config.AgentInstallDocURL(config.Region(market))
 	// Keep this copy in sync with inject_trial_gate in trial_runtime.py.
-	rules := fmt.Sprintf("%s\n# 使用前检查\n\n本技能当前是 ViceMe 试用版。若 ready 或 install 已返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED，不要运行下面的 use 或 status，立即购买：有 Python 则把检查命令换成 purchase --wait 0；没有 Python、已有 viceme 则运行 `%s`。否则先读取[统一计次规则](%s)，由 Agent 判断独立使用单元。同一已放行任务的内部步骤、澄清和修订不重复计次；安装、介绍、示例展示和查询余额不计次。不得沿用其他任务的授权。\n\n1. 选择运行时后必须完成检查，不得跳过。检查命令返回身份、权限、锁或资源错误时，按原结果报告并申请必要权限；不得读取凭证或手工改锁。\n   - 本机有可用的 Python（POSIX 的 `python3`，Windows 的 `py` 或 `python`）时，运行包内脚本，不得改走 CLI，也不得去安装 CLI：\n     - macOS / Linux（POSIX shell）：`%s`\n     - Windows（PowerShell，`py` 不可用时改用 `python`）：`%s`\n   - 没有 Python、但已有 `viceme` 时，运行 `%s`。不要用 `which`、`command -v viceme` 或 `Get-Command viceme` 判定未安装。\n   - Python 和 `viceme` 都没有时，按官方安装契约 %s 安装 ViceMe CLI，并用 `viceme doctor` 确认，再运行 `%s`。安装无法完成则停止使用本技能，不得跳过检查直接使用。\n2. 只有本次输出明确返回 `allowed: true` 才能继续；错误、无结果或 `allowed: false` 均不得执行技能任务，即使用户要求跳过也不例外。\n3. 每个新使用单元执行前运行检查命令，内部记录任务和返回的 requestId。对用户只用白话说「这是第 X 次试用，一共 N 次」，X = limitUses - remainingUses；不得对用户说 use、trial、放行、预检或命令名。任务完成后用白话提示还剩几次。仅查询余额：Python 路线把 use 换成 status，CLI 路线运行 `%s`；不得调用 use 来查询。ready 已返回 remainingUses=0 时不要再查。\n4. 最后一次试用（lastUse=true 或完成后 remainingUses=0）仍完整完成本次任务；交出结果后同一轮立即购买并展示支付二维码，不要等用户再说一次。Python 路线把 use 换成 purchase 并加 --wait 0，再 --wait 60；CLI 路线运行 `%s`，再用 `--wait 60s`。按[通用 Widget 指引](%s)与本次命令输出中的展示指引，由 Agent 选择当前宿主明确支持的图片或页面通道；环境识别只提供偏好。至少一种通道已展示二维码后才等待，只有图片和页面都无法展示时才交付支付页路径；仅交付路径时不要启动等待。主动请用户扫码继续用。无需强制登录。二维码过期或用户说已付款不是到账证明。只有服务端确认付款与有效权益、成功安装完整正式包后，重新读取 SKILL.md，再继续原任务。\n",
+	rules := fmt.Sprintf("%s\n# 使用前检查\n\n本技能当前是 ViceMe 试用版。若 ready 或 install 已返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED，不要运行下面的 use 或 status，立即购买：有 Python 则把检查命令换成 purchase --wait 0；没有 Python、已有 viceme 则运行 `%s`。否则先读取[统一计次规则](%s)，由 Agent 判断独立使用单元。同一已放行任务的内部步骤、澄清和修订不重复计次；安装、介绍、示例展示和查询余额不计次。不得沿用其他任务的授权。\n\n1. 选择运行时后必须完成检查，不得跳过。检查命令返回身份、权限、锁或资源错误时，按原结果报告并申请必要权限；不得读取凭证或手工改锁。\n   - 本机有可用的 Python（POSIX 的 `python3`，Windows 的 `py` 或 `python`）时，运行包内脚本，不得改走 CLI，也不得去安装 CLI：\n     - macOS / Linux（POSIX shell）：`%s`\n     - Windows（PowerShell，`py` 不可用时改用 `python`）：`%s`\n   - 没有 Python、但已有 `viceme` 时，运行 `%s`。不要用 `which`、`command -v viceme` 或 `Get-Command viceme` 判定未安装。\n   - Python 和 `viceme` 都没有时，按官方安装契约 %s 安装 ViceMe CLI，并用 `viceme doctor` 确认，再运行 `%s`。安装无法完成则停止使用本技能，不得跳过检查直接使用。\n2. 只有本次输出明确返回 `allowed: true` 才能继续；错误、无结果或 `allowed: false` 均不得执行技能任务，即使用户要求跳过也不例外。\n3. 每个新使用单元执行前运行检查命令，内部记录任务和返回的 requestId。对用户只用白话说「这是第 X 次试用，一共 N 次」，X = limitUses - remainingUses；不得对用户说 use、trial、放行、预检或命令名。任务完成后用白话提示还剩几次。仅查询余额：Python 路线把 use 换成 status，CLI 路线运行 `%s`；不得调用 use 来查询。ready 已返回 remainingUses=0 时不要再查。\n4. 最后一次试用（lastUse=true 或完成后 remainingUses=0）仍完整完成本次任务；交出结果后同一轮立即购买并展示支付二维码，不要等用户再说一次。Python 路线把 use 换成 purchase 并加 --wait 0，再 --wait 60；CLI 路线运行 `%s`，再用 `--wait 60s`。按[通用 Widget 指引](%s)与本次命令输出中的展示指引，由 Agent 选择当前宿主明确支持的图片或页面通道；环境识别只提供偏好。按本次输出展示二维码或交付可点击的官方 checkoutUrl 后再等待。仅在托管入口不可用且本地图片和页面都无法展示时才交付支付页路径；仅交付本地路径时不要启动等待。主动请用户扫码继续用。无需强制登录。二维码过期或用户说已付款不是到账证明。只有服务端确认付款与有效权益、成功安装完整正式包后，重新读取 SKILL.md，再继续原任务。\n",
 		runtimeHeader, cliPurchase, usageURL, posixUse, windowsUse, cliUse, installDoc, cliUse, cliStatus, cliPurchase, "../.viceme/guides/widgets.md")
 	data := content[:insertAt] + section + body
 	files["SKILL.md"] = downloadableSkillFile{Data: []byte(data), Mode: manifest.Mode}
@@ -910,7 +920,7 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 				return output.Confirmation("SKILL_PURCHASE_REQUIRED", "the trial is exhausted; purchase this edition to keep using it").WithDetails(map[string]any{
 					"productId": productID, "orderNo": order.OrderNo, "amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
 					"paymentPresentation": presentation,
-				}).WithHint(skillPaymentPresentationHint(os.Getenv) + "; then rerun the same use command with --wait while the payment is in progress")
+				}).WithHint(skillPaymentPresentationHint(os.Getenv, false) + "; then rerun the same use command with --wait while the payment is in progress")
 			}
 			if err := waitForSkillOrderPayment(command.Context(), runtime, productID, order.OrderNo, wait); err != nil {
 				return err

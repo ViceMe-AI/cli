@@ -225,11 +225,11 @@ func TestSkillPaymentPresentationHintBranchesByInvokingAgent(t *testing.T) {
 	getenv := func(env map[string]string) func(string) string {
 		return func(key string) string { return env[key] }
 	}
-	workBuddy := skillPaymentPresentationHint(getenv(map[string]string{"CODEBUDDY_SESSION_ID": "s"}))
+	workBuddy := skillPaymentPresentationHint(getenv(map[string]string{"CODEBUDDY_SESSION_ID": "s"}), false)
 	if !strings.Contains(workBuddy, "present_files") || !strings.Contains(workBuddy, "imageChatSrc") {
 		t.Fatalf("workbuddy hint lost the present_files contract: %s", workBuddy)
 	}
-	doubao := skillPaymentPresentationHint(getenv(map[string]string{"DOUBAO_OFFICE_APP_ID": "1"}))
+	doubao := skillPaymentPresentationHint(getenv(map[string]string{"DOUBAO_OFFICE_APP_ID": "1"}), false)
 	if !strings.Contains(doubao, "deliver widgetPath with present_files") {
 		t.Fatalf("doubao hint lost its page preference: %s", doubao)
 	}
@@ -240,7 +240,7 @@ func TestSkillPaymentPresentationHintBranchesByInvokingAgent(t *testing.T) {
 		"claude":    {"CLAUDECODE": "1"},
 		"unknown":   {},
 	} {
-		hint := skillPaymentPresentationHint(getenv(env))
+		hint := skillPaymentPresentationHint(getenv(env), false)
 		for _, required := range []string{"current host explicitly supports", "![微信支付二维码](<imagePath>)", "supports local HTML", "another independently supported channel", "Only when neither image nor page", "path alone must not start the wait"} {
 			if !strings.Contains(hint, required) {
 				t.Fatalf("%s hint omitted capability rule %q: %s", name, required, hint)

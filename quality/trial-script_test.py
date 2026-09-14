@@ -1218,6 +1218,83 @@ class InstallFlowTestCase(unittest.TestCase):
             self.assertTrue(calls[-1].endswith("/status"))
             self.assertEqual(len(request_ids), 2, "retrying a known order must not create another one")
 
+    def test_hosted_payment_instructions_keep_link_and_image_with_host_preferences(self):
+        for host, markers in (("workbuddy", {"CODEBUDDY_SESSION_ID": "s"}),
+                              ("doubao", {"DOUBAO_OFFICE_APP_ID": "1"}),
+                              ("codex", {"CODEX_SESSION_ID": "s"}),
+                              ("claude", {"CLAUDECODE": "1"}), ("unknown", {})):
+            with self.subTest(host=host), mock.patch.dict(os.environ, markers):
+                instructions = trial.payment_display_instructions(hosted=True)
+                for required in ("checkoutUrl 和 checkoutImageUrl 位于输出外层", "始终把返回的 checkoutUrl",
+                                 "同时单独一行", "不假设任何聊天都能渲染图片", "当前宿主明确支持",
+                                 "只使用实际返回的字段", "交付可点击的 checkoutUrl 后"):
+                    self.assertIn(required, instructions)
+                preference = "优先使用可用的平台内本地展示" if host in ("workbuddy", "doubao") else "优先展示托管图片和链接"
+                self.assertIn(preference, instructions)
+
+    def test_purchase_passes_through_hosted_checkout_links(self):
+        self._install_trial_fixture()
+        order = self._purchase_order(checkoutUrl="https://shop.example.test/trial-checkout/TRIAL_ORDER_01#t=fixture",
+                                     checkoutImageUrl="https://shop.example.test/v1/skills/trial-checkout/qr/fixture.png")
+        with mock.patch.object(trial, "api_request", return_value=order), mock.patch.object(trial, "http_download", side_effect=self._resource_download):
+            code, result = self._run_purchase()
+        self.assertEqual(code, 0, result)
+        self.assertEqual(result["checkoutUrl"], order["checkoutUrl"])
+        self.assertEqual(result["checkoutImageUrl"], order["checkoutImageUrl"])
+        self.assertTrue(os.path.isfile(result["paymentPresentation"]["imagePath"]))
+        self.assertNotIn("checkoutUrl", result["paymentPresentation"])
+
+    def test_hosted_checkout_survives_local_io_failure_retry_and_paid_restore(self):
+        directory = self._install_trial_fixture()
+        with open(os.path.join(self.home, ".viceme", "payment-presentations"), "w", encoding="utf-8") as handle:
+            handle.write("fixture blocking optional artifacts")
+        calls = []
+        paid = False
+        order = self._purchase_order(checkoutUrl="https://shop.example.test/trial-checkout/TRIAL_ORDER_01#t=fixture",
+                                     checkoutImageUrl="https://shop.example.test/v1/skills/trial-checkout/qr/fixture.png")
+        def api(market, method, path, body):
+            calls.append(path)
+            if path.endswith("/download"):
+                access = self._api(market, "GET", "/v1/skills/%s/access" % PRODUCT_ID)
+                access.update(owned=True, installKind="OWNED_PAID", trial=None)
+                download = self._api(market, "GET", "/v1/downloads/trial/%s?installId=test" % PRODUCT_ID)
+                return {"access": access, "download": download}
+            return self._purchase_order(status="PAID", paymentAction=None) if paid else order
+        with mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=self._resource_download):
+            code, first = self._run_purchase()
+            self.assertEqual(code, 0, first)
+            self.assertEqual(first["checkoutUrl"], order["checkoutUrl"])
+            self.assertEqual(first["checkoutImageUrl"], order["checkoutImageUrl"])
+            self.assertNotIn("paymentPresentation", first)
+            code, retry = self._run_purchase()
+            self.assertEqual(code, 0, retry)
+            self.assertEqual(retry["checkoutUrl"], first["checkoutUrl"])
+            self.assertEqual(retry["orderNo"], first["orderNo"])
+            self.assertEqual(sum(path.endswith("/trial-purchase") for path in calls), 1)
+            paid = True
+            code, result = self._run_purchase()
+        self.assertEqual(code, 0, result)
+        self.assertTrue(result["owned"])
+        with open(os.path.join(directory, "SKILL.md"), encoding="utf-8") as handle:
+            self.assertNotIn(trial.GATE_MARKER, handle.read())
+
+    def test_hosted_checkout_does_not_hide_payment_integrity_failure(self):
+        self._install_trial_fixture()
+        order = self._purchase_order(checkoutUrl="https://shop.example.test/checkout")
+        with mock.patch.object(trial, "api_request", return_value=order), mock.patch.object(trial, "payment_presentation", side_effect=trial.Failure("RUNTIME_RESOURCE_INVALID", "fixture integrity failure")):
+            code, result = self._run_purchase()
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["code"], "RUNTIME_RESOURCE_INVALID")
+        self.assertFalse(trial.load_trial_state(PRODUCT_ID)["purchase"].get("presented", False))
+
+    def test_legacy_purchase_still_reports_local_io_failure(self):
+        self._install_trial_fixture()
+        with mock.patch.object(trial, "api_request", return_value=self._purchase_order()), mock.patch.object(trial, "payment_presentation", side_effect=PermissionError("fixture")):
+            code, result = self._run_purchase()
+        self.assertEqual(code, 1, result)
+        self.assertNotIn("checkoutUrl", result)
+        self.assertFalse(trial.load_trial_state(PRODUCT_ID)["purchase"].get("presented", False))
+
     def test_paid_purchase_redownloads_full_package_and_preserves_user_files(self):
         directory = self._install_trial_fixture()
         with trial.ProductLock(PRODUCT_ID):
