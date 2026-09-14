@@ -167,7 +167,19 @@ type WebsiteWork struct {
 	VerifiedAt          *string `json:"verifiedAt"`
 }
 
+type WorkVideoLink struct {
+	Type  string `json:"type"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
+type WorkTutorials struct {
+	Instructions string          `json:"instructions"`
+	VideoLinks   []WorkVideoLink `json:"videoLinks"`
+}
+
 type MerchantWork struct {
+	Tutorials      *WorkTutorials  `json:"tutorials,omitempty"`
 	ID             string          `json:"id"`
 	Kind           string          `json:"kind"`
 	Origin         string          `json:"origin"`
@@ -1546,13 +1558,14 @@ type PublicWorkProjection struct {
 	} `json:"creator"`
 	Presentation *PublicPagePresentation `json:"presentation,omitempty"`
 	Work         struct {
-		ID            string `json:"id"`
-		Kind          string `json:"kind"`
-		IsHostedPage  bool   `json:"isHostedPage,omitempty"`
-		Slug          string `json:"slug"`
-		Status        string `json:"status"`
-		CanonicalPath string `json:"canonicalPath"`
-		MarkdownPath  string `json:"markdownPath"`
+		Tutorials     *WorkTutorials `json:"tutorials,omitempty"`
+		ID            string         `json:"id"`
+		Kind          string         `json:"kind"`
+		IsHostedPage  bool           `json:"isHostedPage,omitempty"`
+		Slug          string         `json:"slug"`
+		Status        string         `json:"status"`
+		CanonicalPath string         `json:"canonicalPath"`
+		MarkdownPath  string         `json:"markdownPath"`
 		Revision      struct {
 			Version             int              `json:"version"`
 			Digest              string           `json:"digest"`
