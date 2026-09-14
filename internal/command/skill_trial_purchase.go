@@ -225,7 +225,7 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 	return output.Confirmation("SKILL_PURCHASE_REQUIRED", "scan to pay; payment will restore the formal edition without login").WithDetails(map[string]any{
 		"productId": productID, "orderNo": order.OrderNo, "amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
 		"paymentPresentation": commerce.PaymentPresentation,
-	}).WithHint(skillPaymentPresentationHint(os.Getenv) + fmt.Sprintf("; then run viceme skill trial-purchase %s --wait 60s; expiry never proves an order is closed", productID))
+	}).WithHint(fmt.Sprintf("write ![微信支付二维码](paymentPresentation.imageChatSrc) in the chat reply; imageChatSrc is local-file:// plus imagePath. Do not write a bare filesystem path. Open only widgetPath with present_files. Do not pass imagePath to present_files, Read the PNG or HTML, or call show_widget. Then run viceme skill trial-purchase %s --wait 60s; expiry never proves an order is closed", productID))
 }
 
 func trialInstallShouldResumePurchase(ctx context.Context, runtime *Runtime, productID string) (bool, error) {
