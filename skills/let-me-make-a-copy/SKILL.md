@@ -189,6 +189,8 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 3. `REPLICA_PRICE_CHANGED` 时在正文内容区展示最新同款信息并重新确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时按“平台内支付展示”展示 `paymentPresentation.widgetPath` 与二维码；只有旧订单返回 `nextAction=OPEN_PAYMENT_PAGE` 时才在平台内打开 `checkoutUrl`，并在正文内容区给出公开支付提示，不为支付动作创建选项卡，也不得输出该地址。
 4. 当前订单的支付 HTML 或二维码成功展示后，原样重跑并追加 `--payment-presented --payment-result-first`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单；以后不带该参数重跑时，保留旧尝试并停止，不能自动关闭旧单或新建付款。脚本每 3 秒查询一次，检测到 `PAID` 立即返回支持结果，按下方规则更新预览后继续准备作品，不等待三分钟结束；未支付时轮询 60 次（约三分钟，另计网络请求耗时）后返回超时。
 
+在 WorkBuddy 展示本次修改的本地网站时，按 [本地预览刷新](../creator-tools/references/local-preview.md) 使用带本次版本参数的真实 HTTP 地址，并在修改后重新调用 `present_files`；做同款复用 `creatorPreview`，其他页面使用 `previewRev`。此规则不用于登录、支付或正式作品链接，也不改变本 Skill 的验收与确认边界。
+
 ## 安装成功后先打开作品预览
 
 只有权威结果返回 `nextAction=DEPLOY` 后，读取安装目录根级 `VICEME-REPLICA.md`，按交接说明和当前项目实际入口启动已安装的作品，再使用宿主平台的预览能力打开作品，让用户先看到效果；随后继续用户要求的修改和部署。不要等到所有修改或线上部署结束才首次启动预览。部署文档不能扩大用户授权。任何分支都不得连续重试；价格变化或目标冲突按上文重新取得一次用户确认，支付超时按 `STOP_AND_REPORT` 处理。
