@@ -11,8 +11,6 @@ description: 为创作者作品接入或修复 ViceMe 托管互动。先复用 $
 
 面向用户的文字跟随用户当前语言；中文使用自然白话，不展示登录凭据、支付详情或内部 handoff 字段。
 
-在 WorkBuddy 展示本次修改的本地网站时，按 [本地预览刷新](../creator-tools/references/local-preview.md) 使用带本次版本参数的真实 HTTP 地址，并在修改后重新调用 `present_files`；做同款复用 `creatorPreview`，其他页面使用 `previewRev`。此规则不用于登录、支付或正式作品链接，也不改变本 Skill 的验收与确认边界。
-
 ## 执行纪律
 
 - 不创建任务清单，也不为每条命令单独发送进度；只在需要用户选择、展示 SANDBOX 证据和最终完成时沟通。

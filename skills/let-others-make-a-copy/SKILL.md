@@ -28,7 +28,7 @@ description: 为创作者网站免费或付费发布“做同款”源码交付�
 
 所有分支只依据退出码、`ok`、稳定 `error.code` / `error.subtype`、`retryable` 与结构化 `nextAction`。不解析 `message` 猜测状态。具体状态解释见 [flow-contract.md](references/flow-contract.md)。
 
-在 WorkBuddy 展示本次修改的本地网站时，按 [本地预览刷新](../creator-tools/references/local-preview.md) 使用带本次版本参数的真实 HTTP 地址，并在修改后重新调用 `present_files`；做同款复用 `creatorPreview`，其他页面使用 `previewRev`。此规则不用于登录、支付或正式作品链接，也不改变本 Skill 的验收与确认边界。
+在 WorkBuddy 展示做同款按钮预览时，按 [做同款预览刷新](references/local-preview.md) 使用带本次 `creatorPreview` 参数的真实 HTTP 地址，并在修改后重新调用 `present_files`。此规则不用于登录、支付或正式作品链接，也不改变创作者验收与确认边界。
 
 ## 创作者流程
 

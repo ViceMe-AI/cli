@@ -94,7 +94,3 @@ viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-ur
 - 宿主没有正式授权入口、拒绝授权，或授权后仍报权限不足时，明确说明更新未完成并停止，不反复重试。不得通过卸载、直接删除安装目录、清除锁文件、手工构造或删除 `npm-activation.json` / `active-generation.json`、删除恢复标记来绕过限制；不要执行其他自定义修复 Skill 中的这些操作。
 - CLI 更新成功后可检查 `viceme version`；需要刷新官方 Skill 时另行运行 `viceme install --agent auto`，再检查 `viceme doctor` 和 `viceme auth status`。保留 Profile、登录凭据和用户安装的 Skill。
 - 需要保留真实退出码和完整 JSON 响应，不要把更新或修复命令管道连接到 `head` / `tail` 后以管道退出码判断成功。
-
-## 本地网站预览
-
-在 WorkBuddy 展示或刷新正在修改的本地网站时，读取 [本地预览刷新](references/local-preview.md)。该规则只处理本地作品展示，不用于登录、授权或支付链接。
