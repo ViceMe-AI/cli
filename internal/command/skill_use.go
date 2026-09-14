@@ -190,17 +190,17 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 					if err := runtime.requireBuyerAuthentication(command.Context()); err != nil {
 						return err
 					}
-					orderValue, err := openSkillPurchaseOrder(command.Context(), runtime, productID)
-					if err != nil {
-						return err
-					}
+					orderValue, presentation, err := openSkillPurchaseOrderAndPresentQR(command.Context(), runtime, productID, true)
 					order := &orderValue
 					paymentURL := skillOrderPaymentURL(runtime, order.OrderNo)
 					if order.Status == "PENDING" && paymentURL != "" {
 						_, _ = fmt.Fprintf(runtime.deps.ErrOut, "打开订单支付页面（请使用下单的同一账号登录）：\n%s\n", paymentURL)
 					}
-					presentation, err := presentSkillPaymentQR(runtime, order)
 					if err != nil {
+						var cliErr *output.Error
+						if errors.As(err, &cliErr) || order.OrderNo == "" {
+							return err
+						}
 						return output.Policy("SKILL_PAYMENT_QR_UNAVAILABLE", "the order exists but its payment QR could not be presented").
 							WithDetails(map[string]any{"orderNo": order.OrderNo, "paymentUrl": paymentURL}).
 							WithHint("present the order paymentUrl to the user to continue payment with the same account; preserve the purchase state and retry the same install command after payment")

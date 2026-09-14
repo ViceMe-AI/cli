@@ -155,21 +155,55 @@ func encodeCommercePaymentQR(content string) ([]byte, error) {
 	return png, nil
 }
 
+const commercePaymentWriteAttempts = 8
+
 func writeCommercePaymentPresentation(filename string, data []byte) error {
-	if existing, err := os.ReadFile(filename); err == nil && bytes.Equal(existing, data) {
-		if err := secureCommercePaymentFile(filename); err != nil {
-			return fmt.Errorf("secure existing payment QR image: %w", err)
+	var last error
+	for attempt := 0; attempt < commercePaymentWriteAttempts; attempt++ {
+		if err := writeCommercePaymentPresentationOnce(filename, data); err == nil {
+			return nil
+		} else {
+			last = err
 		}
+		time.Sleep(time.Duration(attempt+1) * 5 * time.Millisecond)
+	}
+	return last
+}
+
+func writeCommercePaymentPresentationOnce(filename string, data []byte) error {
+	if err := adoptIdenticalCommercePaymentFile(filename, data); err == nil {
 		return nil
 	}
 	// The shared degraded write replaces the previous Windows remove-and-retry:
 	// the direct-write fallback also covers a sandbox or filesystem that cannot
-	// replace the target through a rename.
+	// replace the target through a rename. Concurrent presenters of the same
+	// order may lose the activating rename on Windows; identical bytes already
+	// at the target are success.
 	if err := privatefile.Write(filename, data, ".payment-qr-*.tmp"); err != nil {
+		if adoptErr := adoptIdenticalCommercePaymentFile(filename, data); adoptErr == nil {
+			return nil
+		}
 		return fmt.Errorf("write payment QR image: %w", err)
 	}
 	if err := secureCommercePaymentFile(filename); err != nil {
+		if adoptErr := adoptIdenticalCommercePaymentFile(filename, data); adoptErr == nil {
+			return nil
+		}
 		return fmt.Errorf("secure active payment QR image: %w", err)
+	}
+	return nil
+}
+
+func adoptIdenticalCommercePaymentFile(filename string, data []byte) error {
+	existing, err := os.ReadFile(filename)
+	if err != nil {
+		return err
+	}
+	if !bytes.Equal(existing, data) {
+		return errors.New("payment presentation content differs")
+	}
+	if err := secureCommercePaymentFile(filename); err != nil {
+		return fmt.Errorf("secure existing payment QR image: %w", err)
 	}
 	return nil
 }
