@@ -251,7 +251,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
-func installAuthorizedSkill(ctx context.Context, runtime *Runtime, productID, workSlug, agent string, access api.SkillAccess) (downloadableSkillInstallResult, error) {
+func installAuthorizedSkill(ctx context.Context, runtime *Runtime, productID, workSlug, agent string, access api.SkillAccess, directories ...string) (downloadableSkillInstallResult, error) {
 	var download api.DownloadURL
 	var err error
 	if access.IsFree {
@@ -262,10 +262,19 @@ func installAuthorizedSkill(ctx context.Context, runtime *Runtime, productID, wo
 	if err != nil {
 		return downloadableSkillInstallResult{}, err
 	}
-	return installSkillFromReceipt(runtime, ctx, productID, workSlug, agent, access, download)
+	return installSkillFromReceipt(runtime, ctx, productID, workSlug, agent, access, download, directories...)
 }
 
-func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, workSlug, agent string, access api.SkillAccess, download api.DownloadURL) (downloadableSkillInstallResult, error) {
+func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, workSlug, agent string, access api.SkillAccess, download api.DownloadURL, directories ...string) (downloadableSkillInstallResult, error) {
+	environment := runtime.deps.Environment
+	if len(directories) > 0 && directories[0] != "" {
+		directory, err := filepath.Abs(directories[0])
+		manifest, valid := skillcontent.ReadRuntimeIdentity(directory, productID, runtime.apiBaseURL)
+		if err != nil || !valid || manifest.Market != string(runtime.region) {
+			return downloadableSkillInstallResult{}, output.Policy("SKILL_INSTALLATION_IDENTITY_INVALID", "the invoking Skill directory does not match this Product and market")
+		}
+		environment.InstallDirectory = directory
+	}
 	if download.ReleaseID != access.Release.ID || download.ArtifactDigest != access.Release.ArtifactDigest {
 		return downloadableSkillInstallResult{}, output.Policy("SKILL_DOWNLOAD_RECEIPT_MISMATCH", "download authorization does not match the authorized Skill release")
 	}
@@ -290,10 +299,11 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	if access.IsFree {
 		kind = "free"
 	}
+	environment.PreserveLocalFiles = kind == "owned"
 	if err := addSkillRuntime(runtime, files, productID, access.Release.ID, kind); err != nil {
 		return downloadableSkillInstallResult{}, err
 	}
-	report, err := installDownloadableSkill(installedName, agent, files, runtime.deps.Environment, skillcontent.SkillProvenance{
+	report, err := installDownloadableSkill(installedName, agent, files, environment, skillcontent.SkillProvenance{
 		ProductID: productID,
 		ReleaseID: access.Release.ID,
 	})

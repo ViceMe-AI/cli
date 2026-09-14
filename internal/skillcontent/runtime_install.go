@@ -30,7 +30,18 @@ var RuntimeResourcePaths = []string{
 
 // FindRuntimeInstall checks only the selected host and its normal shared root.
 // No CLI credentials, server calls, writes, or install/activation decisions occur.
-func FindRuntimeInstall(environment Environment, target, productID, apiBaseURL string) (string, RuntimeManifest, bool, error) {
+func FindRuntimeInstall(environment Environment, target, productID, apiBaseURL string, directories ...string) (string, RuntimeManifest, bool, error) {
+	if len(directories) > 0 && directories[0] != "" {
+		directory, err := filepath.Abs(directories[0])
+		if err != nil {
+			return "", RuntimeManifest{}, true, err
+		}
+		manifest, valid := readRuntimeInstall(directory, productID, apiBaseURL)
+		if valid {
+			return directory, manifest, true, nil
+		}
+		return "", RuntimeManifest{}, true, nil
+	}
 	targets, err := resolveTargets("runtime-lookup", target, environment)
 	if err != nil {
 		return "", RuntimeManifest{}, false, err
@@ -61,43 +72,7 @@ func FindRuntimeInstall(environment Environment, target, productID, apiBaseURL s
 				continue
 			}
 			found = true
-			raw, err = os.ReadFile(filepath.Join(directory, ".viceme", "runtime.json"))
-			var manifest RuntimeManifest
-			if err != nil || json.Unmarshal(raw, &manifest) != nil || manifest.SchemaVersion != 1 || manifest.ProductID != productID || manifest.ReleaseID != owner.ReleaseID || manifest.APIBaseURL != apiBaseURL || (manifest.Runner != "cli" && manifest.Runner != "python") {
-				return "", RuntimeManifest{}, true, nil
-			}
-			// Readiness verifies only platform resources, not every authored asset.
-			// The trial suspension intentionally replaces SKILL.md after exhaustion.
-			skill, skillErr := os.Stat(filepath.Join(directory, "SKILL.md"))
-			if skillErr != nil || !skill.Mode().IsRegular() {
-				return "", RuntimeManifest{}, true, nil
-			}
-			required := append([]string{".viceme/environment.json"}, runtimeFiles()...)
-			if manifest.Kind == "trial" {
-				required = append(required, "references/viceme-runtime.md")
-			}
-			valid := manifest.Kind == "trial" || manifest.Kind == "free" || manifest.Kind == "owned"
-			for _, relative := range required {
-				valid = valid && manifest.Files[relative] != ""
-			}
-			for relative, digest := range manifest.Files {
-				if !fs.ValidPath(relative) || strings.Contains(relative, "\\") {
-					valid = false
-					break
-				}
-				filename := filepath.Join(directory, filepath.FromSlash(relative))
-				resolved, err := filepath.EvalSymlinks(filename)
-				base, baseErr := filepath.EvalSymlinks(directory)
-				if err != nil || baseErr != nil || !strings.HasPrefix(resolved, base+string(filepath.Separator)) {
-					valid = false
-					break
-				}
-				data, err := os.ReadFile(filename)
-				if err != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != digest {
-					valid = false
-					break
-				}
-			}
+			manifest, valid := readRuntimeInstall(directory, productID, apiBaseURL)
 			if valid {
 				return directory, manifest, true, nil
 			}
@@ -105,6 +80,70 @@ func FindRuntimeInstall(environment Environment, target, productID, apiBaseURL s
 		}
 	}
 	return "", RuntimeManifest{}, found, nil
+}
+
+// ReadRuntimeIdentity verifies destination ownership without requiring usable runtime files.
+// Receipt restoration may repair incomplete or older installations.
+func ReadRuntimeIdentity(directory, productID, apiBaseURL string) (RuntimeManifest, bool) {
+	var manifest RuntimeManifest
+	for _, relative := range []string{"", ".viceme", installManifestPath, ".viceme/runtime.json", "SKILL.md"} {
+		info, err := os.Lstat(filepath.Join(directory, relative))
+		if err != nil || info.Mode()&os.ModeSymlink != 0 {
+			return manifest, false
+		}
+	}
+	raw, err := os.ReadFile(filepath.Join(directory, installManifestPath))
+	var owner struct {
+		ProductID string `json:"product_id"`
+		ReleaseID string `json:"release_id"`
+	}
+	if err != nil || json.Unmarshal(raw, &owner) != nil || owner.ProductID != productID || owner.ReleaseID == "" {
+		return manifest, false
+	}
+	raw, err = os.ReadFile(filepath.Join(directory, ".viceme/runtime.json"))
+	if err != nil || json.Unmarshal(raw, &manifest) != nil || manifest.SchemaVersion != 1 || manifest.ProductID != productID || manifest.ReleaseID != owner.ReleaseID || manifest.APIBaseURL != apiBaseURL || (manifest.Runner != "cli" && manifest.Runner != "python") {
+		return manifest, false
+	}
+	skill, err := os.Stat(filepath.Join(directory, "SKILL.md"))
+	if err != nil || !skill.Mode().IsRegular() {
+		return manifest, false
+	}
+	return manifest, manifest.Kind == "trial" || manifest.Kind == "owned" || manifest.Kind == "free"
+}
+
+func readRuntimeInstall(directory, productID, apiBaseURL string) (RuntimeManifest, bool) {
+	manifest, valid := ReadRuntimeIdentity(directory, productID, apiBaseURL)
+	if !valid {
+		return manifest, false
+	}
+	required := append([]string{".viceme/environment.json"}, runtimeFiles()...)
+	if manifest.Kind == "trial" {
+		required = append(required, "references/viceme-runtime.md", TrialBodyPath)
+	}
+	if manifest.Kind != "trial" && manifest.Kind != "free" && manifest.Kind != "owned" {
+		return manifest, false
+	}
+	for _, relative := range required {
+		if manifest.Files[relative] == "" {
+			return manifest, false
+		}
+	}
+	for relative, digest := range manifest.Files {
+		if !fs.ValidPath(relative) || strings.Contains(relative, "\\") {
+			return manifest, false
+		}
+		filename := filepath.Join(directory, filepath.FromSlash(relative))
+		resolved, err := filepath.EvalSymlinks(filename)
+		base, baseErr := filepath.EvalSymlinks(directory)
+		if err != nil || baseErr != nil || !strings.HasPrefix(resolved, base+string(filepath.Separator)) {
+			return manifest, false
+		}
+		data, err := os.ReadFile(filename)
+		if err != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != digest {
+			return manifest, false
+		}
+	}
+	return manifest, true
 }
 
 func runtimeFiles() []string {

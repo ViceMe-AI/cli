@@ -62,6 +62,7 @@ SCRIPT_RELATIVE_PATH = "/skills/use-a-skill/scripts/trial.py"
 GATE_MARKER = "<!-- viceme-trial:v1"
 GATE_END = "<!-- /viceme-trial:v1 -->"
 RUNTIME_PATH = "references/viceme-runtime.md"
+TRIAL_BODY_PATH = ".viceme/trial-body.md"
 RUNTIME_MARKER = "<!-- viceme-trial-runtime:v1"
 GATE_TAIL = "转正，再继续任务。"
 DISABLED_MARKER = "<!-- viceme-trial-disabled:v1"
@@ -187,7 +188,7 @@ def prepare_runtime_files(files, market, product_id, release_id, kind):
     files.update(additions)
     manifest = {"schemaVersion": 1, "productId": product_id, "releaseId": release_id,
                 "apiBaseUrl": API_ORIGIN[market], "market": market, "runner": "python", "kind": kind,
-                "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in files.items() if name in additions or name == RUNTIME_PATH}}
+                "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in files.items() if name in additions or name in (RUNTIME_PATH, TRIAL_BODY_PATH)}}
     files[".viceme/runtime.json"] = (json.dumps(manifest, sort_keys=True).encode(), 0o644)
 
 
@@ -249,15 +250,17 @@ def attach_trial_snapshot(result, market, product_id, grant=None):
 
 
 def command_ready(market, product_id, agent="auto"):
-    result = attach_trial_snapshot(find_ready_install(market, product_id, agent), market, product_id)
+    result = find_ready_install(market, product_id, agent)
+    state = load_trial_state(product_id)
+    if result.get("ready") and result.get("kind") == "trial" and state and state.get("productId") == product_id and state.get("market") == market and state.get("pendingRequestId"):
+        result.update(pendingUse=True, nextAction="RESUME_TRIAL_USE", message="上次使用尚未交付完成,先重跑同一 use 命令恢复;不要购买或开始新任务,不会重复扣次。")
+        return emit_ok(result)
+    attach_trial_snapshot(result, market, product_id)
     if result.get("ready") and result.get("trialExhausted") and result.get("kind") == "trial":
         result["nextAction"] = "PURCHASE_REQUIRED"
         result["message"] = exhausted_purchase_message()
-        try:
-            with ProductLock(product_id):
-                suspend_trial_skills(market, product_id, "")
-        except Failure:
-            pass
+        with ProductLock(product_id):
+            suspend_trial_skills(market, product_id, "")
     return emit_ok(result)
 
 
@@ -281,6 +284,12 @@ def trial_install_should_resume_purchase(market, product_id):
 
 
 def find_ready_install(market, product_id, agent):
+    invoking = invoking_skill_directory()
+    if invoking:
+        # A repackaged Skill may live in a workspace under a different name.
+        # Its own script identifies the exact directory; never scan arbitrary
+        # workspaces or silently substitute another host's installation.
+        return read_runtime_install(invoking, market, product_id)
     for base in target_roots(agent):
         if not os.path.isdir(base):
             continue
@@ -288,40 +297,57 @@ def find_ready_install(market, product_id, agent):
             root = os.path.join(base, name)
             if os.path.islink(root) or not os.path.isdir(root) or read_manifest_product(root) != product_id:
                 continue
-            unavailable = {"ready": False, "productId": product_id, "nextAction": "REPAIR_INSTALLATION"}
-            try:
-                with open(os.path.join(root, ".viceme/install-manifest.json"), encoding="utf-8") as handle:
-                    owner = json.load(handle)
-                with open(os.path.join(root, ".viceme/runtime.json"), encoding="utf-8") as handle:
-                    manifest = json.load(handle)
-                if (manifest.get("schemaVersion") != 1 or manifest.get("productId") != product_id
-                        or manifest.get("apiBaseUrl") != API_ORIGIN[market] or manifest.get("market") != market
-                        or manifest.get("releaseId") != owner.get("release_id")
-                        or manifest.get("runner") not in ("python", "cli")
-                        or manifest.get("kind") not in ("trial", "free", "owned")
-                        or not os.path.isfile(os.path.join(root, "SKILL.md"))):
-                    return unavailable
-                expected = manifest.get("files") or {}
-                required = {".viceme/environment.json", *(".viceme/" + path for path in RUNTIME_FILES)}
-                if manifest["kind"] == "trial":
-                    required.add(RUNTIME_PATH)
-                if not required.issubset(expected):
-                    return unavailable
-                for path, digest in expected.items():
-                    if path.startswith("/") or ".." in path.split("/") or "\\" in path:
-                        raise ValueError()
-                    resolved = os.path.join(root, *path.split("/"))
-                    if os.path.commonpath([os.path.realpath(resolved), os.path.realpath(root)]) != os.path.realpath(root):
-                        raise ValueError()
-                    with open(resolved, "rb") as handle:
-                        if hashlib.sha256(handle.read()).hexdigest() != digest:
-                            raise ValueError()
-                return {"ready": True, "productId": product_id, "installedName": name,
-                        "runner": manifest["runner"], "kind": manifest["kind"],
-                        "nextAction": "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", **installed_resources(root)}
-            except (OSError, ValueError, KeyError, TypeError):
-                return unavailable
+            return read_runtime_install(root, market, product_id)
     return {"ready": False, "productId": product_id, "nextAction": "INSTALL_REQUIRED"}
+
+
+def read_runtime_install(root, market, product_id):
+    unavailable = {"ready": False, "productId": product_id, "nextAction": "REPAIR_INSTALLATION"}
+    try:
+        for path in (root, os.path.join(root, ".viceme"), os.path.join(root, ".viceme/install-manifest.json"), os.path.join(root, ".viceme/runtime.json"), os.path.join(root, "SKILL.md")):
+            if stat.S_ISLNK(os.lstat(path).st_mode):
+                return unavailable
+        with open(os.path.join(root, ".viceme/install-manifest.json"), encoding="utf-8") as handle:
+            owner = json.load(handle)
+        with open(os.path.join(root, ".viceme/runtime.json"), encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        if (owner.get("product_id") != product_id or not owner.get("release_id")
+                or manifest.get("schemaVersion") != 1 or manifest.get("productId") != product_id
+                or manifest.get("apiBaseUrl") != API_ORIGIN[market] or manifest.get("market") != market
+                or manifest.get("releaseId") != owner.get("release_id")
+                or manifest.get("runner") not in ("python", "cli")
+                or manifest.get("kind") not in ("trial", "free", "owned")
+                or not os.path.isfile(os.path.join(root, "SKILL.md"))):
+            return unavailable
+        expected = manifest.get("files") or {}
+        required = {".viceme/environment.json", *(".viceme/" + path for path in RUNTIME_FILES)}
+        if manifest["kind"] == "trial":
+            required.update((RUNTIME_PATH, TRIAL_BODY_PATH))
+        if not required.issubset(expected):
+            return unavailable
+        for path, digest in expected.items():
+            if not path or path.startswith("/") or ".." in path.split("/") or "\\" in path:
+                raise ValueError()
+            resolved = os.path.join(root, *path.split("/"))
+            if os.path.commonpath([os.path.realpath(resolved), os.path.realpath(root)]) != os.path.realpath(root):
+                raise ValueError()
+            with open(resolved, "rb") as handle:
+                if hashlib.sha256(handle.read()).hexdigest() != digest:
+                    raise ValueError()
+        return {"ready": True, "productId": product_id, "installedName": os.path.basename(root),
+                "runner": manifest["runner"], "kind": manifest["kind"],
+                "nextAction": "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", **installed_resources(root)}
+    except (OSError, ValueError, KeyError, TypeError):
+        return unavailable
+
+
+def read_trial_task(market, product_id, agent):
+    ready = find_ready_install(market, product_id, agent)
+    if not ready.get("ready") or ready.get("kind") != "trial":
+        raise Failure("TRIAL_INSTALLATION_REQUIRED", "试用正文或安装身份未通过验证,请先更新或修复此 Skill 安装;未扣次数")
+    root = os.path.dirname(ready["skillPath"])
+    with open(os.path.join(root, TRIAL_BODY_PATH), encoding="utf-8") as handle:
+        return {"skillDirectory": root, "skillMarkdown": handle.read()}
 
 
 class Failure(Exception):
@@ -821,7 +847,7 @@ def command_use(market, product_id, agent="auto"):
     if ready.get("ready") and ready.get("kind") == "owned":
         return emit_ok(owned_continue_result(ready, product_id))
     current = load_trial_state(product_id)
-    if current and current.get("purchase") and not current["purchase"].get("closed"):
+    if current and current.get("purchase") and not current["purchase"].get("closed") and not current.get("pendingRequestId"):
         return command_purchase(market, product_id, agent=agent)
     if not load_trial_state(product_id):
         if (ready.get("ready") and ready.get("kind") == "trial") or invoking_directory_is_trial(market, product_id):
@@ -831,6 +857,7 @@ def command_use(market, product_id, agent="auto"):
     use = None
     request_id = None
     disabled_count = 0
+    settled = False
     try:
         with ProductLock(product_id) as product_lock:
             # 锁内重读权威状态:锁外快照可能错过其他进程刚写入的未确认幂等键,
@@ -839,6 +866,7 @@ def command_use(market, product_id, agent="auto"):
             # 网络错误/5xx 时保留 pending:服务端可能已扣次只是响应未送达,重试必须
             # 复用同一幂等键;换新键会对同一使用二次扣。
             state = require_trial_state(market, product_id)
+            task = read_trial_task(market, product_id, agent)
             request_id = state.get("pendingRequestId") or str(uuid.uuid4())
             state["pendingRequestId"] = request_id
             save_trial_state(product_id, state)
@@ -851,15 +879,22 @@ def command_use(market, product_id, agent="auto"):
             )
             validate_trial_use(consumed)
             use = consumed
+            # Deliver the final permitted task only after its entry is safely
+            # suspended. On any write failure the same pending key survives,
+            # so retry replays the grant and still retrieves its saved body.
+            if use["allowed"] is False or use.get("remainingUses") == 0:
+                disabled_count = suspend_trial_skills(market, product_id, use.get("purchaseUrl") or "", task["skillDirectory"])
             state.pop("pendingRequestId", None)
             save_trial_state(product_id, state)
             # Consume already counted; a leftover lock must not restore the key
             # or hide allowed. The next process steals a dead holder's lock.
             product_lock.on_release_failure = None
-            if use["allowed"] is False:
-                disabled_count = suspend_trial_skills(market, product_id, use["purchaseUrl"])
+            settled = True
     except Failure as failure:
-        if failure.code != "STATE_LOCK_RELEASE_FAILED" or use is None:
+        if failure.code != "STATE_LOCK_RELEASE_FAILED" or not settled:
+            if use is not None:
+                failure.fields.update(retryable=True, nextAction="RESUME_TRIAL_USE")
+                failure.message += ";请重跑原 use 命令恢复同一次使用,不会重复扣次"
             raise
 
     if use.get("allowed"):
@@ -872,9 +907,12 @@ def command_use(market, product_id, agent="auto"):
             "lastUse": remaining == 0,
             "requestId": request_id,
             "nextAction": "CONTINUE_TASK",
+            **task,
         }
         if remaining == 0:
-            result["message"] = "这是最后一次试用。先完整交付本次结果，同一轮立即运行 purchase --wait 0 展示支付二维码，不要等用户再说一次。对用户只说白话余量和请扫码，不得对用户说命令名。"
+            result["entrySuspended"] = True
+            result["disabledSkillCount"] = disabled_count
+            result["message"] = "这是最后一次试用,入口已经停用。本次仍获准:用 skillMarkdown 完整完成当前任务,不要因入口已替换而中止;相对资源路径以 skillDirectory 为基准。先完整交付本次结果，同一轮立即运行原脚本 purchase --wait 0 展示支付二维码，不要等用户再说一次。新任务必须重新检查,不得复用本次正文。对用户只说白话余量和请扫码，不得对用户说命令名。"
         return emit_ok(result)
     purchase_url = use.get("purchaseUrl") or ""
     return emit_ok({
@@ -935,8 +973,11 @@ def validate_purchase(order, product_id, order_no=None):
 
 
 def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=False):
+    validate_invoking_purchase_directory(market, product_id)
     with ProductLock(product_id):
         state = require_trial_state(market, product_id)
+        if state.get("pendingRequestId"):
+            raise Failure("TRIAL_USE_PENDING", "上次使用尚未确认交付,请先重跑同一 use 命令恢复;不会重复扣次", retryable=True)
         purchase = state.get("purchase")
         if not purchase or purchase.get("closed"):
             purchase = {"clientRequestId": str(uuid.uuid4())}
@@ -983,6 +1024,9 @@ def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=Fal
         return emit_ok({"allowed": False, "productId": product_id, "orderNo": order["orderNo"],
                         "paymentStatus": "CLOSED", "nextAction": "PAYMENT_CLOSED",
                         "message": "这笔支付订单已关闭。同一轮立即再运行 purchase --wait 0 创建新订单。不要跑 status，不要对用户说试用没耗尽。"})
+    # A resumed order can predate entry suspension. Repair exhausted entries
+    # before reporting payment presentation; buying early must not end a trial.
+    suspend_exhausted_trial(market, product_id)
     hosted_url = order.get("checkoutUrl") or ""
     hosted_image = order.get("checkoutImageUrl") or ""
     hosted = bool(hosted_url or hosted_image)
@@ -1176,6 +1220,9 @@ def inject_trial_gate(files, market, product_id):
     if RUNTIME_PATH in files and not files[RUNTIME_PATH][0].startswith(runtime_header.encode("utf-8")):
         raise Failure("TRIAL_GATE_CONFLICT", "Skill 包中已有非本产品生成的 %s,不能覆盖" % RUNTIME_PATH)
     body = content[insert_at:]
+    generated = body.startswith(header + "\n")
+    if TRIAL_BODY_PATH in files and not generated:
+        raise Failure("TRIAL_GATE_CONFLICT", "Skill 包占用了试用正文路径,不能覆盖")
     if body.startswith(GATE_MARKER + " product="):
         if not body.startswith(header + "\n"):
             raise Failure("TRIAL_GATE_CONFLICT", "Skill 包包含其他产品的使用检查")
@@ -1193,18 +1240,22 @@ def inject_trial_gate(files, market, product_id):
     windows_use = (
         'py "<本 Skill 目录>/%s" use --product %s --market %s' % (script, product_id, market)
     )
-    cli_use = "viceme skill use %s --wait 0" % product_id
-    cli_purchase = "viceme skill trial-purchase %s --wait 0" % product_id
+    cli_use = 'viceme skill use %s --wait 0 --skill-dir "<本 Skill 目录>"' % product_id
+    cli_purchase = 'viceme skill trial-purchase %s --wait 0 --skill-dir "<本 Skill 目录>"' % product_id
     cli_status = "viceme skill trial-status %s" % product_id
     section = (
         "%s\n\n## 使用前必读\n\n"
-        "若本对话已经从 ready 或 install 得知 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED，不要读取使用前检查，不要运行 use 或 status，立即购买。"
-        "否则每次开始或继续本技能任务前，必须先读取并执行 [使用前检查](%s)，判断是否属于同一已放行的使用单元。只有本使用单元的检查明确返回 `allowed: true` 才能执行下方任务；未放行、次数用完或检查失败时停止，不得跳过检查，也不得以安装成功或其他任务的历史检查代替本次授权。\n\n%s\n"
-    ) % (header, RUNTIME_PATH, GATE_END)
+        "本入口不包含任务正文。每个新的独立任务开始前，先运行下面的检查命令；不要凭介绍、安装成功或其他任务的历史结果直接执行。安装、介绍、示例和查询余额不计次；同一已获准任务的澄清与局部修订不重复计次。\n\n"
+        "- macOS / Linux：`%s`\n"
+        "- Windows：`%s`（没有 py 时用 python）\n"
+        "- 只有没有 Python 时才用已有 CLI：`%s`；两者都没有时按[使用前检查](%s)中的官方安装说明处理。\n\n"
+        "只有本次返回 `allowed: true` 和 `skillMarkdown` 才执行本次任务正文，正文的相对资源路径以返回的 `skillDirectory` 为基准。如果返回 `owned: true`，重新读取已恢复的 SKILL.md 后继续。新试用任务必须重新运行检查。可重试错误先重跑同一命令，不要跳转购买或换请求；确认耗尽且没有待恢复使用时才购买。\n\n"
+        "最后一次获准使用返回 `lastUse: true` 时，脚本已经替换入口；仍用本次返回的正文完整完成任务，不要因磁盘入口已停用而中止。交付结果后同一轮运行原脚本 purchase --wait 0，按输出展示支付。详细计次和支付规则见[使用前检查](%s)。\n\n%s\n"
+    ) % (header, posix_use, windows_use, cli_use, RUNTIME_PATH, RUNTIME_PATH, GATE_END)
     # Keep this copy in sync with injectSkillTrialGate in skill_trial.go.
     rules = (
         "%s\n# 使用前检查\n\n"
-        "本技能当前是 ViceMe 试用版。若 ready 或 install 已返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED，不要运行下面的 use 或 status，立即购买：有 Python 则把检查命令换成 purchase --wait 0；没有 Python、已有 viceme 则运行 `%s`。"
+        "本技能当前是 ViceMe 试用版。若上次 use 报可重试错误或 ready 返回 pendingUse，先重跑原 use 恢复同一次使用，不重复扣次。只有没有待恢复使用，且 ready 或 install 已返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED 时，才立即购买：有 Python 则把检查命令换成 purchase --wait 0；没有 Python、已有 viceme 则运行 `%s`。"
         "否则先读取[统一计次规则](%s)，由 Agent 判断独立使用单元。同一已放行任务的内部步骤、澄清和修订不重复计次；安装、介绍、示例展示和查询余额不计次。不得沿用其他任务的授权。\n\n"
         "1. 选择运行时后必须完成检查，不得跳过。检查命令返回身份、权限、锁或资源错误时，按原结果报告并申请必要权限；不得读取凭证或手工改锁。\n"
         "   - 本机有可用的 Python（POSIX 的 `python3`，Windows 的 `py` 或 `python`）时，运行包内脚本，不得改走 CLI，也不得去安装 CLI：\n"
@@ -1212,19 +1263,21 @@ def inject_trial_gate(files, market, product_id):
         "     - Windows（PowerShell，`py` 不可用时改用 `python`）：`%s`\n"
         "   - 没有 Python、但已有 `viceme` 时，运行 `%s`。不要用 `which`、`command -v viceme` 或 `Get-Command viceme` 判定未安装。\n"
         "   - Python 和 `viceme` 都没有时，按官方安装契约 %s 安装 ViceMe CLI，并用 `viceme doctor` 确认，再运行 `%s`。安装无法完成则停止使用本技能，不得跳过检查直接使用。\n"
-        "2. 只有本次输出明确返回 `allowed: true` 才能继续；错误、无结果或 `allowed: false` 均不得执行技能任务，即使用户要求跳过也不例外。\n"
+        "2. 只有本次输出明确返回 `allowed: true` 和 `skillMarkdown` 才能继续；使用返回的正文执行当前任务,相对资源路径以 skillDirectory 为基准。错误、无结果或 `allowed: false` 均不得执行技能任务，即使用户要求跳过也不例外。可重试错误重跑原 use 命令,由服务端回放同一次,不要改走购买。\n"
         "3. 每个新使用单元执行前运行检查命令，内部记录任务和返回的 requestId。对用户只用白话说「这是第 X 次试用，一共 N 次」，X = limitUses - remainingUses；不得对用户说 use、trial、放行、预检或命令名。任务完成后用白话提示还剩几次。仅查询余额：Python 路线把 use 换成 status，CLI 路线运行 `%s`；不得调用 use 来查询。ready 已返回 remainingUses=0 时不要再查。\n"
-        "4. 最后一次试用（lastUse=true 或完成后 remainingUses=0）仍完整完成本次任务；交出结果后同一轮立即购买并展示支付二维码，不要等用户再说一次。Python 路线把 use 换成 purchase 并加 --wait 0，再 --wait 60；CLI 路线运行 `%s`，再用 `--wait 60s`。按[通用 Widget 指引](%s)与本次命令输出中的展示指引，由 Agent 选择当前宿主明确支持的图片或页面通道；环境识别只提供偏好。按本次输出展示二维码或交付可点击的官方 checkoutUrl 后再等待。仅在托管入口不可用且本地图片和页面都无法展示时才交付支付页路径；仅交付本地路径时不要启动等待。主动请用户扫码继续用。无需强制登录。二维码过期或用户说已付款不是到账证明。只有服务端确认付款与有效权益、成功安装完整正式包后，重新读取 SKILL.md，再继续原任务。\n"
+        "4. 最后一次试用（lastUse=true）已由程序停用入口，仍用本次返回的 skillMarkdown 完整完成任务；交出结果后同一轮立即购买并展示支付二维码，不要等用户再说一次。Python 路线把 use 换成 purchase 并加 --wait 0，再 --wait 60；CLI 路线运行 `%s`，再用 `--wait 60s`。按[通用 Widget 指引](%s)与本次命令输出中的展示指引，由 Agent 选择当前宿主明确支持的图片或页面通道；环境识别只提供偏好。按本次输出展示二维码或交付可点击的官方 checkoutUrl 后再等待。仅在托管入口不可用且本地图片和页面都无法展示时才交付支付页路径；仅交付本地路径时不要启动等待。主动请用户扫码继续用。无需强制登录。二维码过期或用户说已付款不是到账证明。只有服务端确认付款与有效权益、成功安装完整正式包后，重新读取 SKILL.md，再继续原任务。\n"
     ) % (
         runtime_header, cli_purchase, "../.viceme/guides/trial-usage.md", posix_use, windows_use,
         cli_use, install_doc_url(market), cli_use, cli_status, cli_purchase, "../.viceme/guides/widgets.md",
     )
-    files["SKILL.md"] = ((content[:insert_at] + section + body).encode("utf-8"), mode)
+    authored = files[TRIAL_BODY_PATH][0] if TRIAL_BODY_PATH in files else (content[:insert_at] + body).encode("utf-8")
+    files[TRIAL_BODY_PATH] = (authored, 0o644)
+    files["SKILL.md"] = ((content[:insert_at] + section).encode("utf-8"), mode)
     files[RUNTIME_PATH] = (rules.encode("utf-8"), 0o644)
 
 
 def verify_installed_trial_gate(root, files):
-    for name in ("SKILL.md", RUNTIME_PATH):
+    for name in ("SKILL.md", RUNTIME_PATH, TRIAL_BODY_PATH):
         try:
             with open(os.path.join(root, *name.split("/")), "rb") as handle:
                 valid = handle.read() == files[name][0]
@@ -1246,7 +1299,36 @@ def suspension_roots():
     return sorted({os.path.realpath(root) for root in roots})
 
 
-def trial_product_owns_directory(directory, product_id):
+def trial_directories():
+    directories = set()
+    invoking = invoking_skill_directory()
+    if invoking:
+        directories.add(invoking)
+    for root in suspension_roots():
+        try:
+            with os.scandir(root) as scan:
+                directories.update(entry.path for entry in scan if "." not in entry.name and entry.is_dir(follow_symlinks=False))
+        except FileNotFoundError:
+            continue
+    return sorted(directories)
+
+
+def suspend_exhausted_trial(market, product_id):
+    with ProductLock(product_id):
+        state = require_trial_state(market, product_id)
+        active = [directory for directory in trial_directories()
+                  if trial_product_owns_directory(directory, product_id, market)
+                  and not trial_entry_exhausted(os.path.join(directory, "SKILL.md"), product_id)]
+        if not active:
+            return
+        grant = api_request(market, "POST", "/v1/skills/%s/trial-grants" % product_id, {"installId": state["installId"]})
+        if grant.get("installId") != state["installId"] or type(grant.get("remainingUses")) is not int or type(grant.get("limitUses")) is not int or not 0 <= grant["remainingUses"] <= grant["limitUses"] or grant["limitUses"] <= 0:
+            raise Failure("TRIAL_STATUS_INVALID", "无法确认剩余次数,请重试查询")
+        if grant["remainingUses"] == 0:
+            suspend_trial_skills(market, product_id, "")
+
+
+def trial_product_owns_directory(directory, product_id, market=None):
     manifest_path = os.path.join(directory, ".viceme", "install-manifest.json")
     try:
         for path in (directory, os.path.join(directory, ".viceme"), manifest_path):
@@ -1254,13 +1336,24 @@ def trial_product_owns_directory(directory, product_id):
                 return False
         with open(manifest_path, encoding="utf-8") as handle:
             manifest = json.load(handle)
-        return isinstance(manifest, dict) and manifest.get("product_id") == product_id and bool(manifest.get("release_id"))
+        if not isinstance(manifest, dict) or manifest.get("product_id") != product_id or not manifest.get("release_id"):
+            return False
+        if market is not None:
+            path = os.path.join(directory, ".viceme/runtime.json")
+            if stat.S_ISLNK(os.lstat(path).st_mode):
+                return False
+            with open(path, encoding="utf-8") as handle:
+                runtime = json.load(handle)
+            return (runtime.get("productId") == product_id and runtime.get("releaseId") == manifest["release_id"]
+                    and runtime.get("kind") == "trial" and runtime.get("market") == market
+                    and runtime.get("apiBaseUrl") == API_ORIGIN[market])
+        return True
     except (OSError, ValueError):
         return False
 
 
 def suspended_trial_markdown(original, skill_name, product_id, purchase_url, market):
-    if frontmatter_name({"SKILL.md": (original, 0o644)}) != skill_name:
+    if not frontmatter_name({"SKILL.md": (original, 0o644)}):
         return None
     lines = original.splitlines(keepends=True)
     if not lines or lines[0].rstrip(b"\r\n") != b"---":
@@ -1284,30 +1377,32 @@ def suspended_trial_markdown(original, skill_name, product_id, purchase_url, mar
     safe_url = purchase_url.replace("<", "%3C").replace(">", "%3E").replace("\r", "%0D").replace("\n", "%0A")
     notice = (
         "%s\n\n# 试用已结束\n\n"
-        "本技能的免费试用次数已用完，当前已停用。不得继续执行原技能任务，不得运行 use、status 或 trial-status，也不得调用目录中保留的脚本或参考资料来继续试用。\n\n"
-        "不要读取使用前检查或计次指引。同一轮立即运行包内 `.viceme/scripts/trial.py purchase --wait 0`（已有 CLI 则 `viceme skill trial-purchase --wait 0`）创建或恢复订单并展示支付二维码，不要等用户再说一次；按其输出与[本地支付展示指引](.viceme/guides/widgets.md)，由 Agent 选择当前宿主明确支持的图片或页面通道；环境识别只提供偏好。按本次输出展示二维码或交付可点击的官方 checkoutUrl 后，再有界等待到账并安装完整正式包；仅在托管入口不可用且本地图片和页面都无法展示时才交付支付页路径，仅交付本地路径时不要启动等待；无需强制登录。[商品页面](<%s>)仅供查看商品。若已通过账号购买，按[官方安装说明](<%s>)使用 `viceme skill install %s --owned` 校验该账号权益并安装。\n\n"
+        "本技能的免费试用次数已用完，当前已停用。如果本轮已经返回 allowed:true 和 skillMarkdown,仍按该正文完整完成本次任务。上次 use 报可重试错误或 ready 返回 pendingUse 时,先重跑原 use 恢复同一次使用,不要购买;恢复不重复扣次。其余情况不得开始新试用任务,不得调用保留的正文或参考资料绕过检查。\n\n"
+        "不要读取使用前检查或计次指引。同一轮立即运行包内 `python3 \"<本 Skill 目录>/.viceme/scripts/trial.py\" purchase --product %s --market %s --wait 0`（Windows 用 py 或 python；只有没有 Python 时才用已有 CLI：`viceme skill trial-purchase %s --wait 0 --skill-dir \"<本 Skill 目录>\"`）创建或恢复订单并展示支付二维码，不要等用户再说一次；按其输出与[本地支付展示指引](.viceme/guides/widgets.md)，由 Agent 选择当前宿主明确支持的图片或页面通道；环境识别只提供偏好。按本次输出展示二维码或交付可点击的官方 checkoutUrl 后，再有界等待到账并安装完整正式包；仅在托管入口不可用且本地图片和页面都无法展示时才交付支付页路径，仅交付本地路径时不要启动等待；无需强制登录。[商品页面](<%s>)仅供查看商品。若已通过账号购买，按[官方安装说明](<%s>)使用 `viceme skill install %s --owned` 校验该账号权益并安装。\n\n"
         "正式版安装成功后，重新读取 SKILL.md 再继续任务。重装试用版不会恢复试用次数。\n"
-    ) % (disabled, safe_url, install_doc_url(market), product_id)
+    ) % (disabled, product_id, market, product_id, safe_url, install_doc_url(market), product_id)
     if original.startswith(b"---\r\n"):
         notice = notice.replace("\n", "\r\n")
     return prefix + notice.encode("utf-8")
 
 
-def suspend_trial_skills(market, product_id, purchase_url):
+def suspend_trial_skills(market, product_id, purchase_url, required_directory=None):
     """调用方持有 ProductLock;只替换同 Product 的已确认试用入口。"""
     count = 0
     try:
-        for root in suspension_roots():
-            try:
-                with os.scandir(root) as scan:
-                    directories = sorted(entry.path for entry in scan if "." not in entry.name and entry.is_dir(follow_symlinks=False))
-            except FileNotFoundError:
-                continue
-            for directory in directories:
-                if not trial_product_owns_directory(directory, product_id):
-                    continue
+        normalize = lambda path: os.path.join(os.path.realpath(os.path.dirname(path)), os.path.basename(path))
+        directories = {normalize(path) for path in trial_directories()}
+        if required_directory:
+            required_directory = normalize(required_directory)
+            directories.add(required_directory)
+        for directory in sorted(directories):
+            changed = False
+            if trial_product_owns_directory(directory, product_id, market):
                 with skill_path_lock(directory):
-                    count += int(suspend_trial_entry(directory, market, product_id, purchase_url))
+                    changed = suspend_trial_entry(directory, market, product_id, purchase_url)
+            if required_directory and directory == required_directory and not changed:
+                raise OSError("the invoking trial entry could not be suspended")
+            count += int(changed)
     except OSError:
         raise Failure(
             "TRIAL_SUSPEND_FAILED", "试用已用完,但未能安全停用全部入口;请停止使用,通过宿主授权后重试,或安装已购正式版",
@@ -1348,7 +1443,7 @@ def skill_path_lock(directory):
 
 
 def suspend_trial_entry(directory, market, product_id, purchase_url):
-    if not trial_product_owns_directory(directory, product_id):
+    if not trial_product_owns_directory(directory, product_id, market):
         return False
     filename = os.path.join(directory, "SKILL.md")
     try:
@@ -1374,7 +1469,7 @@ def suspend_trial_entry(directory, market, product_id, purchase_url):
         os.chmod(staged, stat.S_IMODE(info.st_mode))
         with open(filename, "rb") as handle:
             unchanged = handle.read() == original
-        if not unchanged or not trial_product_owns_directory(directory, product_id):
+        if not unchanged or not trial_product_owns_directory(directory, product_id, market):
             raise OSError("Skill changed before trial suspension")
         # 不退回原地截断:权限拒绝时保留完整旧文件,交给宿主审批。
         os.replace(staged, filename)
@@ -1507,6 +1602,24 @@ def install_to_roots(files, installed_name, product_id, release_id, agent="auto"
     return results
 
 
+def validate_invoking_purchase_directory(market, product_id):
+    root = invoking_skill_directory()
+    if not root:
+        return ""
+    try:
+        for path in (root, os.path.join(root, ".viceme"), os.path.join(root, ".viceme/install-manifest.json"), os.path.join(root, ".viceme/runtime.json")):
+            if stat.S_ISLNK(os.lstat(path).st_mode):
+                raise ValueError("symlink")
+        with open(os.path.join(root, ".viceme/runtime.json"), encoding="utf-8") as handle:
+            runtime = json.load(handle)
+        if (read_manifest_product(root) == product_id and runtime.get("productId") == product_id
+                and runtime.get("market") == market and runtime.get("apiBaseUrl") == API_ORIGIN[market]):
+            return root
+    except (OSError, ValueError):
+        pass
+    raise Failure("INSTALLATION_IDENTITY_INVALID", "当前脚本所在目录不属于此商品或市场,未发起购买或覆盖文件")
+
+
 def install_owned_to_roots(files, installed_name, product_id, release_id, agent="auto"):
     """Activate the formal entry last, without bulk-deleting local user files.
 
@@ -1516,10 +1629,12 @@ def install_owned_to_roots(files, installed_name, product_id, release_id, agent=
     therefore cannot activate a partially prepared formal entry.
     """
     complete = compose_skill_files(files, installed_name, product_id, release_id)
+    runtime = json.loads(files[".viceme/runtime.json"][0])
+    invoking = validate_invoking_purchase_directory(runtime["market"], product_id)
+    destinations = [invoking] if invoking else [os.path.join(root, installed_name) for root in target_roots(agent)]
     results = []
-    for root in target_roots(agent):
-        os.makedirs(root, mode=0o700, exist_ok=True)
-        destination = os.path.join(root, installed_name)
+    for destination in destinations:
+        os.makedirs(os.path.dirname(destination), mode=0o700, exist_ok=True)
         with skill_path_lock(destination):
             owner = read_manifest_product(destination)
             if owner is None or (owner and owner != product_id) or os.path.islink(destination):

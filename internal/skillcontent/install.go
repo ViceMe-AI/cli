@@ -1,6 +1,7 @@
 package skillcontent
 
 import (
+	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -34,6 +35,12 @@ type Environment struct {
 	WorkBuddyConfigDir string
 	AgentsSkillsDir    string
 	ConfigDir          string
+	// InstallDirectory selects a verified marketplace installation, including
+	// third-party workspace locations whose basename differs from the Skill name.
+	// It is set by receipt installation only, never from environment variables.
+	InstallDirectory string
+	// Receipt conversion keeps local files absent from the formal package.
+	PreserveLocalFiles bool
 }
 
 func DefaultEnvironment() Environment {
@@ -471,7 +478,7 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 			continue
 		}
 		if operation.Retired == nil {
-			staged, expected, stageErr := b.stageInstallation(operation.Skill, operation.Destination, provenance, operation.InstallID)
+			staged, expected, stageErr := b.stageInstallation(operation.Skill, operation.Destination, provenance, operation.InstallID, environment.PreserveLocalFiles)
 			if stageErr != nil {
 				cleanupStagedOperations(operations)
 				return fail(stageErr)
@@ -1005,7 +1012,7 @@ type installJournalEntry struct {
 	Activating  bool   `json:"activating"`
 }
 
-func (b *Bundle) stageInstallation(name, destination string, provenance *SkillProvenance, installID string) (string, Digests, error) {
+func (b *Bundle) stageInstallation(name, destination string, provenance *SkillProvenance, installID string, preserveLocalFiles bool) (string, Digests, error) {
 	parent := filepath.Dir(destination)
 	if err := os.MkdirAll(parent, 0o755); err != nil {
 		return "", Digests{}, fmt.Errorf("create Skill parent: %w", err)
@@ -1035,6 +1042,18 @@ func (b *Bundle) stageInstallation(name, destination string, provenance *SkillPr
 	if provenance != nil {
 		manifest.ProductID = provenance.ProductID
 		manifest.ReleaseID = provenance.ReleaseID
+		if preserveLocalFiles {
+			if err := preserveMarketplaceFiles(destination, stagedSkill); err != nil {
+				_ = os.RemoveAll(stageRoot)
+				return "", Digests{}, err
+			}
+			expected, err = digestsInstalled(stagedSkill)
+			if err != nil {
+				_ = os.RemoveAll(stageRoot)
+				return "", Digests{}, err
+			}
+			manifest.FullBundleDigest, manifest.EmbeddedContentDigest = expected.Full, expected.Embedded
+		}
 	} else {
 		if !validInstallID(installID) {
 			_ = os.RemoveAll(stageRoot)
@@ -1053,6 +1072,62 @@ func (b *Bundle) stageInstallation(name, destination string, provenance *SkillPr
 		return "", Digests{}, fmt.Errorf("validate staged Skill: %w", err)
 	}
 	return stagedSkill, expected, nil
+}
+
+// The product and path locks are held and destination ownership is verified.
+// Merge into staging before activation, so failures preserve the old entry and
+// normal transaction rollback also covers retained user output.
+func preserveMarketplaceFiles(source, staged string) error {
+	if _, err := os.Lstat(source); errors.Is(err, fs.ErrNotExist) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	return filepath.WalkDir(source, func(filename string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		relative, err := filepath.Rel(source, filename)
+		if err != nil {
+			return err
+		}
+		if relative == "." {
+			return nil
+		}
+		relative = filepath.ToSlash(relative)
+		if relative == installManifestPath || relative == TrialBodyPath {
+			return nil
+		}
+		if relative == "references/viceme-runtime.md" {
+			data, err := os.ReadFile(filename)
+			if err != nil {
+				return err
+			}
+			if bytes.HasPrefix(data, []byte("<!-- viceme-trial-runtime:v1 product=")) {
+				return nil
+			}
+		}
+		target := filepath.Join(staged, filepath.FromSlash(relative))
+		if info, err := os.Lstat(target); err == nil {
+			if info.IsDir() != entry.IsDir() {
+				return errors.New("formal package conflicts with a local file or directory")
+			}
+			return nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			return os.MkdirAll(target, info.Mode().Perm())
+		}
+		if !info.Mode().IsRegular() {
+			return errors.New("local Skill files contain an unsupported file type")
+		}
+		return copyFilePlain(filename, target, info.Mode().Perm())
+	})
 }
 
 // renamePath and removeAllPath are the directory-entry mutations used by
@@ -1648,6 +1723,13 @@ type retirementTarget struct {
 }
 
 func resolveTargets(skillName, target string, environment Environment) ([]targetPath, error) {
+	if environment.InstallDirectory != "" {
+		destination, err := normalizeManagedSkillPath(environment.InstallDirectory)
+		if err != nil {
+			return nil, err
+		}
+		return []targetPath{{name: "agents", path: destination}}, nil
+	}
 	if target == "" {
 		target = "auto"
 	}

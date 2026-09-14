@@ -4,6 +4,8 @@
 
 ## 免 CLI 的试用转购买
 
+上次 use 报可重试错误或 ready 返回 pendingUse 时，先恢复原 use；没有待恢复使用时才执行以下购买流程。已有 CLI 路线必须保留原来的 `--skill-dir`，Python 使用实际安装目录里的脚本，付款后恢复该目录。
+
 已经由 `trial.py` 安装的用户继续使用同一个脚本与本机试用凭证，不要求安装 CLI 或登录。`ready` / `install` / `status` 已经返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED 时，不要再跑 `status` 或 `use`，不要读商品 SKILL.md，不要跑 `auth status` 或 `profile list`，立刻运行 `purchase --product <product-id> --market <market> --wait 0`。`use` 只负责新使用单元预检；`status` 只查询余额，且 ready 已经给出 0 时不要再查。最后一次试用交出结果的同一轮立即运行同一条 `purchase --wait 0` 创建或恢复订单，不要等用户再说一次；之后用户再来时同样立即出码。出码后按下方「通用支付展示」展示二维码或交付官方支付链接，再以同一命令的 `--wait 60` 等待到账。超时保留原订单继续查，二维码过期不等于订单关闭。本次 `purchase --wait 0` 若返回 PAYMENT_CLOSED，立即再运行同一条命令创建新订单；不要跑 status，不要对用户说试用没耗尽。支付确认且权益有效后，脚本验证正式包摘要，准备支持文件并最后原子替换主入口，重新读取 SKILL.md 后继续原任务。此身份只覆盖当前本机凭证对应的商品，不替代上文 `install=owned` 的账号验证，不承诺跨设备找回。
 
 ## 通用支付展示

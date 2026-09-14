@@ -96,7 +96,9 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertIn(trial.GATE_END, content)
         self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, content)
         self.assertIn("allowed: true", content)
-        self.assertIn("不要读取使用前检查", content)
+        self.assertIn("skillMarkdown", content)
+        self.assertNotIn("\nbody", content)
+        self.assertTrue(files[trial.TRIAL_BODY_PATH][0].endswith(b"body"))
         self.assertNotIn("python3 - use", content)
         rules = files[trial.RUNTIME_PATH][0].decode("utf-8")
         self._assert_gate_runtime_order(rules, PRODUCT_ID, "cn")
@@ -153,7 +155,8 @@ class TrialScriptTestCase(unittest.TestCase):
         files = {"SKILL.md": (original.encode("utf-8"), 0o644)}
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
         content = files["SKILL.md"][0].decode("utf-8")
-        self.assertTrue(content.endswith("作者示例: `%s`\n" % trial.GATE_MARKER))
+        self.assertEqual(files[trial.TRIAL_BODY_PATH][0].decode(), original)
+        self.assertNotIn("作者示例", content)
         self.assertIn(trial.RUNTIME_PATH, content)
         self.assertIn('.viceme/scripts/trial.py" use', files[trial.RUNTIME_PATH][0].decode("utf-8"))
 
@@ -191,7 +194,8 @@ class TrialScriptTestCase(unittest.TestCase):
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
         content = files["SKILL.md"][0].decode("utf-8")
         self.assertNotIn("旧版规则", content)
-        self.assertTrue(content.endswith("作者正文\n"))
+        self.assertTrue(files[trial.TRIAL_BODY_PATH][0].decode().endswith("作者正文\n"))
+        self.assertNotIn("作者正文", content)
         self.assertEqual(content.count(trial.GATE_MARKER), 1)
 
     def test_gate_preserves_extended_frontmatter_crlf_eof_and_mode(self):
@@ -374,6 +378,7 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertNotIn("Users", caught.exception.message)
 
     def test_unexpected_error_output_never_leaks_local_details(self):
+        self._write_trial_install()
         # 兜底输出:原始异常文字(含 HOME 路径)不得出现在单行 JSON 里。
         self._write_state()
 
@@ -402,6 +407,7 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertNotIn(self.home, caught.exception.message)
 
     def test_unexpected_exception_still_emits_single_line_json(self):
+        self._write_trial_install()
         # 脚本契约:任何异常都以单行 JSON 收场。
         captured = []
 
@@ -502,12 +508,21 @@ class TrialScriptTestCase(unittest.TestCase):
     # F3 回归:锁内重读 + 未确认幂等键重放
     # ------------------------------------------------------------------
 
+    def _write_trial_install(self):
+        files = {"SKILL.md": (b"---\nname: my-skill\n---\n\nfixture task body\n", 0o644)}
+        trial.inject_trial_gate(files, "cn", PRODUCT_ID)
+        trial.prepare_runtime_files(files, "cn", PRODUCT_ID, "release-fixture", "trial")
+        roots = trial.install_to_roots(files, "my-skill", PRODUCT_ID, "release-fixture", "agents")
+        self.assertTrue(all(not error for _, error in roots))
+        return roots[0][0]
+
     def _write_state(self, install_id="install-1", **extra):
         state = {"installId": install_id, "secret": "secret-1", "productId": PRODUCT_ID, "market": "cn"}
         state.update(extra)
         trial.save_trial_state(PRODUCT_ID, state)
 
     def test_use_replays_unconfirmed_request_id(self):
+        self._write_trial_install()
         self._write_state(pendingRequestId="req-1")
         captured = []
 
@@ -527,6 +542,7 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertNotIn("pendingRequestId", trial.load_trial_state(PRODUCT_ID))
 
     def test_use_reloads_state_inside_the_product_lock(self):
+        self._write_trial_install()
         # 模拟评审 F3 的竞态:锁外快照(第一次 load)没有 pendingRequestId,
         # 而磁盘上的权威状态带着另一个进程刚写入的未确认键。锁内必须重读并
         # 重放该键;沿用锁外快照会生成新键、对同一使用重复扣次。
@@ -555,6 +571,7 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertEqual(captured[-1]["requestId"], "req-from-other-process")
 
     def test_use_keeps_pending_when_response_is_lost(self):
+        self._write_trial_install()
         self._write_state(pendingRequestId="req-1")
 
         def lost_response(market, method, path, body=None):
@@ -616,6 +633,7 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertFalse(os.path.exists(path + ".lock"))
 
     def test_use_issues_grant_when_installed_trial_has_no_credential(self):
+        self._write_trial_install()
         calls = []
 
         def fake_api(market, method, path, body=None):
@@ -631,8 +649,7 @@ class TrialScriptTestCase(unittest.TestCase):
                 return {"allowed": True, "remainingUses": 2, "limitUses": 3}
             raise AssertionError(path)
 
-        with mock.patch.object(trial, "find_ready_install", return_value={"ready": True, "kind": "trial", "productId": PRODUCT_ID}), \
-                mock.patch.object(trial, "api_request", side_effect=fake_api):
+        with mock.patch.object(trial, "api_request", side_effect=fake_api):
             output = io.StringIO()
             with redirect_stdout(output):
                 trial.command_use("cn", PRODUCT_ID)
@@ -755,6 +772,7 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertTrue(os.path.isfile(trial.trial_state_path(PRODUCT_ID) + ".lock"))
 
     def test_unlock_failure_after_consume_still_allows_use(self):
+        self._write_trial_install()
         trial.save_trial_state(PRODUCT_ID, {"installId": "fixture", "secret": "fixture", "productId": PRODUCT_ID, "market": "cn", "pendingRequestId": "same-use"})
         with mock.patch.object(trial, "api_request", return_value={"allowed": True, "remainingUses": 1, "limitUses": 3}), \
                 mock.patch.object(trial.os, "remove", side_effect=PermissionError()):
@@ -1000,7 +1018,10 @@ class InstallFlowTestCase(unittest.TestCase):
             self.assertIn("同一轮立即", last["message"])
             self.assertIn("不要等用户再说一次", last["message"])
             with open(entry, "rb") as handle:
-                self.assertEqual(handle.read(), original, "the last allowed use must keep the full Skill")
+                self.assertIn(trial.DISABLED_MARKER.encode(), handle.read())
+            self.assertTrue(last["entrySuspended"])
+            self.assertIn("\nbody", last["skillMarkdown"])
+            self.assertNotIn("\nbody", original.decode())
             for _ in range(2):
                 denied = run("use")
                 self.assertFalse(denied["allowed"])
@@ -1156,6 +1177,141 @@ class InstallFlowTestCase(unittest.TestCase):
                 "currency": "CNY", "status": "PENDING", "expiresAt": "2099-01-01T00:00:00Z",
                 "paymentAction": {"type": "QR_CODE", "content": "weixin://pay/test-only"}, **changes}
 
+    def test_final_use_write_failure_replays_body_before_purchase(self):
+        directory = self._install_trial_fixture()
+        entry = os.path.join(directory, "SKILL.md")
+        ids = []
+        responses = {}
+        def api(market, method, path, body=None):
+            if path.endswith("/trial-use"):
+                ids.append(body["requestId"])
+                responses.setdefault(body["requestId"], {"allowed": True, "limitUses": 1, "remainingUses": 0})
+                return responses[body["requestId"]]
+            raise AssertionError("pending use must precede quota queries and purchase: " + path)
+        real_replace = os.replace
+        def deny_entry(source, destination):
+            if os.path.samefile(os.path.dirname(destination), directory) and os.path.basename(destination) == "SKILL.md":
+                raise PermissionError("fixture suspension failure")
+            return real_replace(source, destination)
+        with mock.patch.object(trial, "api_request", side_effect=api):
+            with mock.patch.object(trial.os, "replace", side_effect=deny_entry), redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(["use", "--product", PRODUCT_ID]), 1)
+            failure = json.loads(output.getvalue())
+            self.assertEqual(failure["code"], "TRIAL_SUSPEND_FAILED")
+            self.assertTrue(failure["retryable"])
+            pending = trial.load_trial_state(PRODUCT_ID)["pendingRequestId"]
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(["ready", "--product", PRODUCT_ID, "--agent", "workbuddy"]), 0)
+            self.assertEqual(json.loads(output.getvalue())["nextAction"], "RESUME_TRIAL_USE")
+            self.assertEqual(self._run_purchase()[1]["code"], "TRIAL_USE_PENDING")
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(["use", "--product", PRODUCT_ID]), 0)
+            result = json.loads(output.getvalue())
+        self.assertEqual(ids, [pending, pending])
+        self.assertEqual(len(responses), 1)
+        self.assertTrue(result["entrySuspended"])
+        self.assertIn("\nbody", result["skillMarkdown"])
+        self.assertNotIn("pendingRequestId", trial.load_trial_state(PRODUCT_ID))
+        with open(entry) as handle:
+            self.assertIn(trial.DISABLED_MARKER, handle.read())
+
+    def test_embedded_workspace_alias_suspends_and_restores_same_directory(self):
+        source = self._install_trial_fixture()
+        directory = os.path.join(self.home, "project", "skills", "adnaks")
+        os.makedirs(os.path.dirname(directory))
+        os.rename(source, directory)
+        with open(os.path.join(directory, "user-output.txt"), "w") as handle:
+            handle.write("keep me")
+        spec = importlib.util.spec_from_file_location("workspace_trial", os.path.join(directory, ".viceme/scripts/trial.py"))
+        local = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(local)
+        def api(market, method, path, body=None):
+            if path.endswith("/trial-use"):
+                return {"allowed": True, "limitUses": 1, "remainingUses": 0}
+            if path.endswith("/download"):
+                access = self._api(market, "GET", "/v1/skills/%s/access" % PRODUCT_ID)
+                access.update(owned=True, installKind="OWNED_PAID", trial=None)
+                download = self._api(market, "GET", "/v1/downloads/trial/%s?installId=test" % PRODUCT_ID)
+                return {"access": access, "download": download}
+            return self._purchase_order(status="PAID", paymentAction=None)
+        with mock.patch.object(local, "api_request", side_effect=api), mock.patch.object(local, "http_download", return_value=self.archive_bytes):
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(local.run(["use", "--product", PRODUCT_ID]), 0)
+            used = json.loads(output.getvalue())
+            self.assertTrue(os.path.samefile(used["skillDirectory"], directory))
+            self.assertEqual(used["disabledSkillCount"], 1)
+            self.assertIn("\nbody", used["skillMarkdown"])
+            with open(os.path.join(directory, "SKILL.md")) as handle:
+                self.assertIn(local.DISABLED_MARKER, handle.read())
+            with redirect_stdout(io.StringIO()):
+                self.assertEqual(local.run(["purchase", "--product", PRODUCT_ID]), 0)
+        ready = local.find_ready_install("cn", PRODUCT_ID, "auto")
+        self.assertTrue(ready["ready"])
+        self.assertEqual(ready["kind"], "owned")
+        self.assertFalse(os.path.exists(source))
+        with open(os.path.join(directory, "SKILL.md")) as handle:
+            formal = handle.read()
+        self.assertIn("name: my-skill", formal)
+        self.assertIn("\nbody", formal)
+        self.assertNotIn(local.GATE_MARKER, formal)
+        with open(os.path.join(directory, "user-output.txt")) as handle:
+            self.assertEqual(handle.read(), "keep me")
+
+    def test_pending_purchase_repairs_only_exhausted_entries(self):
+        for remaining in (0, 1):
+            with self.subTest(remaining=remaining), tempfile.TemporaryDirectory() as home, mock.patch.dict(os.environ, {"HOME": home}):
+                self._install_trial_fixture()
+                directory = os.path.join(home, ".workbuddy", "skills", "my-skill")
+                state = trial.load_trial_state(PRODUCT_ID)
+                state["purchase"] = {"clientRequestId": "same-order", "orderNo": "TRIAL_ORDER_01"}
+                trial.save_trial_state(PRODUCT_ID, state)
+                calls = []
+                def api(market, method, path, body=None):
+                    calls.append(path)
+                    if path.endswith("/trial-grants"):
+                        return {"installId": state["installId"], "limitUses": 1, "remainingUses": remaining}
+                    self.assertTrue(path.endswith("/status"))
+                    return self._purchase_order()
+                with mock.patch.object(trial, "api_request", side_effect=api):
+                    code, result = self._run_purchase()
+                self.assertEqual(code, 0, result)
+                self.assertEqual(sum(path.endswith("/trial-grants") for path in calls), 1)
+                with open(os.path.join(directory, "SKILL.md")) as handle:
+                    self.assertEqual(trial.DISABLED_MARKER in handle.read(), remaining == 0)
+                self.assertEqual(trial.load_trial_state(PRODUCT_ID)["purchase"]["clientRequestId"], "same-order")
+
+    def test_missing_trial_body_requires_repair_without_consuming(self):
+        directory = self._install_trial_fixture()
+        os.remove(os.path.join(directory, trial.TRIAL_BODY_PATH))
+        with mock.patch.object(trial, "api_request", side_effect=AssertionError("must not consume")), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(trial.run(["use", "--product", PRODUCT_ID]), 1)
+        self.assertEqual(json.loads(output.getvalue())["code"], "TRIAL_INSTALLATION_REQUIRED")
+        self.assertNotIn("pendingRequestId", trial.load_trial_state(PRODUCT_ID))
+
+    def test_ready_reports_suspension_failure(self):
+        self._install_trial_fixture()
+        state = trial.load_trial_state(PRODUCT_ID)
+        grant = {"installId": state["installId"], "limitUses": 1, "remainingUses": 0}
+        with mock.patch.object(trial, "api_request", return_value=grant), mock.patch.object(trial, "suspend_trial_skills", side_effect=trial.Failure("TRIAL_SUSPEND_FAILED", "denied")), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(trial.run(["ready", "--product", PRODUCT_ID, "--agent", "workbuddy"]), 1)
+        self.assertEqual(json.loads(output.getvalue())["code"], "TRIAL_SUSPEND_FAILED")
+
+    def test_unlock_error_cannot_hide_failed_final_suspension(self):
+        directory = self._install_trial_fixture()
+        real_remove = os.remove
+        def deny_unlock(path):
+            if path == trial.trial_state_path(PRODUCT_ID) + ".lock":
+                raise PermissionError("fixture unlock failure")
+            return real_remove(path)
+        with mock.patch.object(trial, "api_request", return_value={"allowed": True, "limitUses": 1, "remainingUses": 0}), mock.patch.object(trial, "suspend_trial_skills", side_effect=trial.Failure("TRIAL_SUSPEND_FAILED", "denied")), mock.patch.object(trial.os, "remove", side_effect=deny_unlock), redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(trial.run(["use", "--product", PRODUCT_ID]), 1)
+        result = json.loads(output.getvalue())
+        self.assertTrue(result["retryable"])
+        self.assertNotIn("skillMarkdown", result)
+        self.assertTrue(trial.load_trial_state(PRODUCT_ID)["pendingRequestId"])
+        with open(os.path.join(directory, "SKILL.md")) as handle:
+            self.assertNotIn(trial.DISABLED_MARKER, handle.read())
+
     def _resource_download(self, url):
         if "/_widgets/sha256-" in url:
             with open(os.path.join(REPOSITORY_ROOT, "widgets", url.rsplit("/", 1)[1]), "rb") as handle:
@@ -1173,6 +1329,8 @@ class InstallFlowTestCase(unittest.TestCase):
         request_ids = []
         calls = []
         def api(market, method, path, body):
+            if path.endswith("/trial-grants"):
+                return self._api(market, method, path, body)
             calls.append(path)
             self.assertEqual(body["secret"], "grant-secret")
             if path.endswith("/trial-purchase"):
@@ -1236,7 +1394,7 @@ class InstallFlowTestCase(unittest.TestCase):
         self._install_trial_fixture()
         order = self._purchase_order(checkoutUrl="https://shop.example.test/trial-checkout/TRIAL_ORDER_01#t=fixture",
                                      checkoutImageUrl="https://shop.example.test/v1/skills/trial-checkout/qr/fixture.png")
-        with mock.patch.object(trial, "api_request", return_value=order), mock.patch.object(trial, "http_download", side_effect=self._resource_download):
+        with mock.patch.object(trial, "api_request", side_effect=lambda market, method, path, body: self._api(market, method, path, body) if path.endswith("/trial-grants") else order), mock.patch.object(trial, "http_download", side_effect=self._resource_download):
             code, result = self._run_purchase()
         self.assertEqual(code, 0, result)
         self.assertEqual(result["checkoutUrl"], order["checkoutUrl"])
@@ -1253,6 +1411,8 @@ class InstallFlowTestCase(unittest.TestCase):
         order = self._purchase_order(checkoutUrl="https://shop.example.test/trial-checkout/TRIAL_ORDER_01#t=fixture",
                                      checkoutImageUrl="https://shop.example.test/v1/skills/trial-checkout/qr/fixture.png")
         def api(market, method, path, body):
+            if path.endswith("/trial-grants"):
+                return self._api(market, method, path, body)
             calls.append(path)
             if path.endswith("/download"):
                 access = self._api(market, "GET", "/v1/skills/%s/access" % PRODUCT_ID)
@@ -1281,7 +1441,7 @@ class InstallFlowTestCase(unittest.TestCase):
     def test_hosted_checkout_does_not_hide_payment_integrity_failure(self):
         self._install_trial_fixture()
         order = self._purchase_order(checkoutUrl="https://shop.example.test/checkout")
-        with mock.patch.object(trial, "api_request", return_value=order), mock.patch.object(trial, "payment_presentation", side_effect=trial.Failure("RUNTIME_RESOURCE_INVALID", "fixture integrity failure")):
+        with mock.patch.object(trial, "api_request", side_effect=lambda market, method, path, body: self._api(market, method, path, body) if path.endswith("/trial-grants") else order), mock.patch.object(trial, "payment_presentation", side_effect=trial.Failure("RUNTIME_RESOURCE_INVALID", "fixture integrity failure")):
             code, result = self._run_purchase()
         self.assertEqual(code, 1, result)
         self.assertEqual(result["code"], "RUNTIME_RESOURCE_INVALID")
@@ -1304,6 +1464,8 @@ class InstallFlowTestCase(unittest.TestCase):
             handle.write("keep my work")
         calls = []
         def api(market, method, path, body):
+            if path.endswith("/trial-grants"):
+                return self._api(market, method, path, body)
             calls.append(path)
             if path.endswith("/download"):
                 access = self._api(market, "GET", "/v1/skills/%s/access" % PRODUCT_ID)
@@ -1359,6 +1521,8 @@ class InstallFlowTestCase(unittest.TestCase):
         with open(os.path.join(directory, "SKILL.md"), "rb") as handle:
             before = handle.read()
         def api(market, method, path, body):
+            if path.endswith("/trial-grants"):
+                return self._api(market, method, path, body)
             if path.endswith("/download"):
                 return {"access": {"owned": False, "productId": PRODUCT_ID}}
             return self._purchase_order(status="PAID", paymentAction=None)
@@ -1375,6 +1539,7 @@ class InstallFlowTestCase(unittest.TestCase):
             before = handle.read()
         formal = {"SKILL.md": (b"---\nname: my-skill\n---\nformal\n", 0o644),
                   "scripts/formal.py": (b"# formal support file\n", 0o644)}
+        trial.prepare_runtime_files(formal, "cn", PRODUCT_ID, "formal-release", "owned")
         real_replace = os.replace
         def fail_support(source, destination):
             if destination.endswith(os.path.join("scripts", "formal.py")):
@@ -1465,6 +1630,8 @@ class InstallFlowTestCase(unittest.TestCase):
         trial.save_trial_state(PRODUCT_ID, state)
         calls = []
         def api(market, method, path, body):
+            if path.endswith("/trial-grants"):
+                return self._api(market, method, path, body)
             calls.append(path)
             return self._purchase_order(expiresAt="2020-01-01T00:00:00Z", paymentAction=None)
         with mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=self._resource_download):

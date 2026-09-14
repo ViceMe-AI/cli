@@ -1,6 +1,6 @@
 # 试用：如何判断一次使用
 
-只适用于 `kind=trial` 的安装。`ready` / `install` / `purchase` 返回 `kind=owned` 或 `owned=true` 时不要读这份文件，也不要运行 `use`。`ready` / `install` / `status` 已经返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED 时也不要读这份文件，立即购买。
+只适用于 `kind=trial` 的安装。上次 use 可重试或 ready 返回 pendingUse 时，先恢复原 use，余额为 0 也不跳去购买；以下耗尽规则仅适用于没有待恢复使用时。`ready` / `install` / `purchase` 返回 `kind=owned` 或 `owned=true` 时不要读这份文件，也不要运行 `use`。`ready` / `install` / `status` 已经返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED 时也不要读这份文件，立即购买。
 
 ViceMe 试用是提示词软门禁。Agent 负责理解任务，ViceMe 服务端负责计次和放行。
 不要按工具调用次数、对话轮数或生成文件数机械扣次。
@@ -17,7 +17,7 @@ ViceMe 试用是提示词软门禁。Agent 负责理解任务，ViceMe 服务端
   查询余量只运行 `status` / `trial-status`，不得运行 `use`。安装口令里 `ready`
   返回的 remainingUses / trialExhausted 可用来决定上手 Widget 还是购买，也不计次。
   `ready` 已经给出 remainingUses=0 时不要再跑 `status`。
-- 一次使用是一个有明确目标、可以独立验收的 Skill 任务。根据实际 SKILL.md 和
+- 一次使用是一个有明确目标、可以独立验收的 Skill 任务。根据 Skill 的能力简介和
   用户需求判断单位：例如同一篇文章的整套配图通常算一次，不是每张图一次。
 - 同一已放行任务的必要澄清、内部工具步骤、失败重试和为完成原目标的局部修改，
   不重复扣次。不要把任意后续新需求都塞进此前任务。
@@ -29,16 +29,16 @@ ViceMe 试用是提示词软门禁。Agent 负责理解任务，ViceMe 服务端
 
 1. 在当前对话内部记录本次任务的目标、计次单位和处理状态。对于新任务，在产生技能
    结果前运行使用检查命令（`use`），向 ViceMe 申请一次使用。不要把这一步说给用户听。
-2. 只有该任务收到明确的 `allowed: true` 才执行。网络错误、超时、响应不完整或
+2. 只有该任务收到明确的 `allowed: true` 和 `skillMarkdown` 才执行返回正文；相对资源路径以 `skillDirectory` 为基准。网络错误、超时、响应不完整或
    `allowed: false` 都不能推断为获准；按原命令重试，客户端复用未确认请求的幂等键。
    若错误 hint 写明会回放且不再扣次，重跑同一条 `use`，不要对用户说次数已扣或任务失败。
 3. 内部记录返回的 `requestId` 和额度快照。对用户只用白话说「这是第 X 次试用，一共 N 次」。
-   `lastUse: true` 时仍完整完成本次任务。
+   `lastUse: true` 时程序已替换磁盘入口，仍用本次返回正文完整完成任务，无需额外调用停用命令。
 4. 完成后用这次响应的 `remainingUses` 用白话提醒余量，不为了显示余量再调用 `use`。
    如果期间还有其他使用，运行只读的余量查询，不把本地数字当作最新权威。
 5. 同一任务继续时沿用已记录的放行结果，不重新扣次；新对话只有能确认对应任务
    和放行记录才可继续沿用，不能把历史放行当成任何新任务的通行证。
-6. 若本次是最后一次（`lastUse: true` 或完成后 `remainingUses=0`）：先交出本次结果，
+6. 若本次是最后一次（`lastUse: true`）：先交出本次结果，
    同一轮立即按购买指引创建或恢复订单并展示支付二维码，主动请用户扫码继续用，
    不要等用户再说一次。用户说“已付款”、倒计时结束都不是付款证明。服务端确认付款
    与权益、正式包验证并安装成功后，重新读取正式 SKILL.md，恢复被暂停的任务。
