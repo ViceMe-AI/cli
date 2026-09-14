@@ -1,5 +1,7 @@
 # 试用：如何判断一次使用
 
+`deliveryMode=CLOUD` 时只使用本节，后续 SOURCE 规则不适用。云端入口保持短壳；运行本地 `python3 .viceme/scripts/trial.py cloud --input task.json --wait 60`（Windows 用 `py`，CLI 为 `viceme skill cloud --input task.json --wait 60s`）。任务 JSON 包含 UUID requestKey、prompt、facts，可包含 productId 与 sessionId；包内 Python 可从环境补齐商品。每次新任务用新键，重试保留原键与全部输入。releaseId 从已安装 runtime 补齐并固定；本地版本变化时恢复原版本，不把旧任务改到新 releaseId。只在 ready 且 allowed=true 后读取 executionPath 并执行该任务；needs_input 使用同 sessionId、新键补充事实，refused 停止。ready 才计次，其他结果不扣。付款恢复原任务，不下载源码，owned 也不能离线开始新任务。
+
 只适用于 `kind=trial` 的安装。`ready` / `install` / `purchase` 返回 `kind=owned` 或 `owned=true` 时不要读这份文件，也不要运行 `use`。`ready` / `install` / `status` 已经返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED 时也不要读这份文件，立即购买。
 
 ViceMe 试用是提示词软门禁。Agent 负责理解任务，ViceMe 服务端负责计次和放行。

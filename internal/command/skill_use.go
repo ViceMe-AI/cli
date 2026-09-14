@@ -266,6 +266,9 @@ func installAuthorizedSkill(ctx context.Context, runtime *Runtime, productID, wo
 }
 
 func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, workSlug, agent string, access api.SkillAccess, download api.DownloadURL) (downloadableSkillInstallResult, error) {
+	if api.DeliveryMode(download.DeliveryMode) != api.DeliveryMode(access.DeliveryMode) {
+		return downloadableSkillInstallResult{}, output.Policy("SKILL_DOWNLOAD_RECEIPT_MISMATCH", "download delivery mode does not match access")
+	}
 	if download.ReleaseID != access.Release.ID || download.ArtifactDigest != access.Release.ArtifactDigest {
 		return downloadableSkillInstallResult{}, output.Policy("SKILL_DOWNLOAD_RECEIPT_MISMATCH", "download authorization does not match the authorized Skill release")
 	}
@@ -290,7 +293,7 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	if access.IsFree {
 		kind = "free"
 	}
-	if err := addSkillRuntime(runtime, files, productID, access.Release.ID, kind); err != nil {
+	if err := addSkillRuntime(runtime, files, productID, access.Release.ID, kind, access.DeliveryMode); err != nil {
 		return downloadableSkillInstallResult{}, err
 	}
 	report, err := installDownloadableSkill(installedName, agent, files, runtime.deps.Environment, skillcontent.SkillProvenance{
@@ -303,11 +306,15 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	if !report.AllSucceeded {
 		return downloadableSkillInstallResult{}, output.Internal("SKILL_INSTALL_FAILED", "one or more Skill targets could not be installed", nil).WithDetails(map[string]any{"report": report})
 	}
+	nextAction := "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL"
+	if api.DeliveryMode(access.DeliveryMode) == "CLOUD" {
+		nextAction = "SUBMIT_CLOUD_TASK"
+	}
 	return downloadableSkillInstallResult{
-		localSkillResources: resourcesFromReport(report, "cli"),
+		localSkillResources: cloudResources(resourcesFromReport(report, "cli"), access.DeliveryMode),
 		ProductID:           productID, Edition: access.Edition, ReleaseID: access.Release.ID, ArtifactDigest: digest,
 		InstalledName: installedName, Install: report,
-		NextAction: "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", Invocation: "$" + installedName,
+		NextAction: nextAction, Invocation: "$" + installedName,
 		OnboardingGuideURL:    sharedGuidanceURL(runtime, "_widgets/README.md"),
 		OnboardingTemplateURL: sharedGuidanceURL(runtime, "_widgets/onboarding.html"),
 	}, nil

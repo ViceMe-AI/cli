@@ -19,6 +19,8 @@ SCRIPTS = ROOT / "skills/use-a-skill/scripts"
 def artifacts():
     sources = {
         "scripts/trial.py": SCRIPTS / "trial_runtime.py",
+        "scripts/resolve-cli.sh": ROOT / "skills/creator-tools/scripts/resolve-cli.sh",
+        "scripts/resolve-cli.ps1": ROOT / "skills/creator-tools/scripts/resolve-cli.ps1",
         "scripts/qrcodegen.py": ROOT / "widgets/qrcodegen.py",
         "widgets/onboarding.html": ROOT / "widgets/onboarding.html",
         "widgets/payment.html": ROOT / "widgets/payment.html",

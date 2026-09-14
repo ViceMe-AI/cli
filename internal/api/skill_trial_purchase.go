@@ -71,7 +71,13 @@ func (c *Client) TrialOwnedSkillDownload(ctx context.Context, productID, install
 		return response, err
 	}
 	if !response.Access.Owned || response.Access.InstallKind != "OWNED_PAID" || response.Access.ProductID != productID ||
-		response.Access.Release.ID == "" || response.Access.Release.ID != response.Download.ReleaseID ||
+		response.Access.Release.ID == "" {
+		return TrialOwnedDownload{}, output.Authorization("SKILL_NOT_OWNED", "no matching active paid Skill release was authorized")
+	}
+	if DeliveryMode(response.Access.DeliveryMode) == "CLOUD" {
+		return response, nil
+	}
+	if DeliveryMode(response.Access.DeliveryMode) != "SOURCE" || response.Access.Release.ID != response.Download.ReleaseID ||
 		response.Access.Release.ArtifactDigest == "" || response.Access.Release.ArtifactDigest != response.Download.ArtifactDigest {
 		return TrialOwnedDownload{}, output.Authorization("SKILL_NOT_OWNED", "no matching active paid Skill release was authorized")
 	}

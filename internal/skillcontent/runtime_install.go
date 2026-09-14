@@ -13,6 +13,7 @@ import (
 // RuntimeManifest describes installed files, not an entitlement or trial grant.
 // It shares its on-disk shape with the standalone Python installer.
 type RuntimeManifest struct {
+	DeliveryMode  string            `json:"deliveryMode,omitempty"`
 	SchemaVersion int               `json:"schemaVersion"`
 	ProductID     string            `json:"productId"`
 	ReleaseID     string            `json:"releaseId"`
@@ -63,7 +64,7 @@ func FindRuntimeInstall(environment Environment, target, productID, apiBaseURL s
 			found = true
 			raw, err = os.ReadFile(filepath.Join(directory, ".viceme", "runtime.json"))
 			var manifest RuntimeManifest
-			if err != nil || json.Unmarshal(raw, &manifest) != nil || manifest.SchemaVersion != 1 || manifest.ProductID != productID || manifest.ReleaseID != owner.ReleaseID || manifest.APIBaseURL != apiBaseURL || (manifest.Runner != "cli" && manifest.Runner != "python") {
+			if err != nil || json.Unmarshal(raw, &manifest) != nil || (manifest.SchemaVersion != 1 && manifest.SchemaVersion != 2) || manifest.ProductID != productID || manifest.ReleaseID != owner.ReleaseID || manifest.APIBaseURL != apiBaseURL || (manifest.Runner != "cli" && manifest.Runner != "python") {
 				return "", RuntimeManifest{}, true, nil
 			}
 			// Readiness verifies only platform resources, not every authored asset.
@@ -73,10 +74,14 @@ func FindRuntimeInstall(environment Environment, target, productID, apiBaseURL s
 				return "", RuntimeManifest{}, true, nil
 			}
 			required := append([]string{".viceme/environment.json"}, runtimeFiles()...)
-			if manifest.Kind == "trial" {
+			if manifest.DeliveryMode == "CLOUD" {
+				required = append(required, ".viceme/scripts/resolve-cli.sh", ".viceme/scripts/resolve-cli.ps1")
+			}
+			if manifest.Kind == "trial" && manifest.DeliveryMode != "CLOUD" {
 				required = append(required, "references/viceme-runtime.md")
 			}
-			valid := manifest.Kind == "trial" || manifest.Kind == "free" || manifest.Kind == "owned"
+			valid := (manifest.DeliveryMode == "" || manifest.DeliveryMode == "SOURCE" || (manifest.DeliveryMode == "CLOUD" && manifest.SchemaVersion == 2))
+			valid = valid && (manifest.Kind == "trial" || manifest.Kind == "free" || manifest.Kind == "owned")
 			for _, relative := range required {
 				valid = valid && manifest.Files[relative] != ""
 			}
