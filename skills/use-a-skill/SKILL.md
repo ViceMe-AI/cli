@@ -7,6 +7,14 @@ description: 安装和使用可下载的 ViceMe Skill。适用于作品链接安
 
 面向用户跟随当前语言，使用自然白话。只说任务结果、还剩几次试用、试用已用完、请扫码付款。不得对用户说 use、trial、trial.py、viceme、CLI、放行、预检、requestId、nextAction、widgetPath 或任何命令行；这些只出现在工具调用里。可见思考摘要同样遵守。本流程只消费用户选择的 Product，不转到商家发布流程。安装就绪、还能试用和付款成功是不同状态。
 
+## 无试用的付费安装
+
+作品页明确所选版本「未提供免费试用」，或 Python install 返回错误 `PURCHASE_REQUIRED` 并要求账号购买时，进入 [购买与恢复](references/purchase.md) 的「账号购买和订阅」。这是尚未购买，不是试用耗尽；不运行 Python install / purchase，不申请试用凭证，不展示试用上手卡。
+
+该分支使用 CLI：按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 定位已有 CLI，缺少时按作品页官方契约安装；保留完整作品 URL 和 `product`，运行 `viceme skill install '<完整 URL>' --agent <当前宿主> --wait 0`。当前账号已有权益则直接安装；否则按购买指引完成登录授权，创建或恢复订单，先展示支付二维码及订单支付链接，再等待付款并继续安装。原有待恢复试用使用仍优先恢复，不把已有试用身份切成账号购买。
+
+以下 Python 优先规则用于免费版和开放试用版；严格已购链接仍遵循 `install=owned` 的账号校验。
+
 ## 待恢复使用优先
 
 上次 use 返回可重试错误，或 ready 返回 pendingUse / RESUME_TRIAL_USE 时，先重跑原 use，保留 Product、市场和实际 Skill 目录。程序复用同一次请求，不重复扣次；即使余额已经为 0，也先恢复这次使用。不要转去购买、重装或开始新任务。
@@ -19,19 +27,19 @@ description: 安装和使用可下载的 ViceMe Skill。适用于作品链接安
 
 ## 先确定本次要做什么
 
-- 只有安装／试用链接、没有具体任务：先 `ready`（或缺装时 `install`），**读取返回的 remainingUses / trialExhausted / nextAction**，再决定展示上手 Widget 还是支付。**不运行 use。** remainingUses>0 才展示上手 Widget。remainingUses=0、trialExhausted=true 或 nextAction=PURCHASE_REQUIRED 就是耗尽：立即告诉用户试用已用完并进入购买，**不要展示上手卡**，不要再跑 `status` / `trial-status`，不要读商品 SKILL.md 来核对，不要因为用户说「试用 / 前 N 次免费」而怀疑这个数字。口令里的免费次数只是商品介绍。
+- 只有免费／试用安装链接、没有具体任务：先 `ready`（或缺装时 `install`），**读取返回的 remainingUses / trialExhausted / nextAction**，再决定展示上手 Widget 还是支付。**不运行 use。** remainingUses>0 才展示上手 Widget。remainingUses=0、trialExhausted=true 或 nextAction=PURCHASE_REQUIRED 就是耗尽：立即告诉用户试用已用完并进入购买，**不要展示上手卡**，不要再跑 `status` / `trial-status`，不要读商品 SKILL.md 来核对，不要因为用户说「试用 / 前 N 次免费」而怀疑这个数字。口令里的免费次数只是商品介绍。
 - 已有明确任务：确认安装后读取实际 SKILL.md。`kind=owned` 或 `owned=true` 时按正式正文继续，不要做试用检查。`kind=trial` 且未确认耗尽时，执行入口中的检查命令，按返回的 skillMarkdown 完成本次任务，相对路径以 skillDirectory 为基准；已经确认耗尽则进入购买。不要求先选示例。
 - 用户明确要求更新或重装：执行安装，不复用已有安装。包内 Python 继续使用当前目录中的脚本；CLI 保留原 `--skill-dir`，修复后确认 ready 指向同一目录。若安装结果提供旧内容的恢复路径，告知用户产物可从该路径找回，不自行把旧程序复制回新包。
 
-有可用的 Python 时，公开安装先走作品页 trial.py 入口或已装包内脚本，不要为了安装先去定位或安装 CLI。没有 Python、需要 CLI 时只按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 执行定位脚本，后续只复用它返回的**绝对路径**。禁止再运行 `which viceme`、`command -v viceme`、`Get-Command viceme` 或 Python `shutil.which`。PATH 找不到不等于未安装，不得把 PATH 缺失当成 CLI 未安装。不全盘搜索、不追加 version、doctor 或 auth status；只有安装验收或对应错误要求时才检查。
+免费或开放试用版本有可用的 Python 时，公开安装先走作品页 trial.py 入口或已装包内脚本，不要为了安装先去定位或安装 CLI。没有 Python、需要 CLI 时只按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 执行定位脚本，后续只复用它返回的**绝对路径**。禁止再运行 `which viceme`、`command -v viceme`、`Get-Command viceme` 或 Python `shutil.which`。PATH 找不到不等于未安装，不得把 PATH 缺失当成 CLI 未安装。不全盘搜索、不追加 version、doctor 或 auth status；只有安装验收或对应错误要求时才检查。
 
-口令路径只做：有 Python 则 `trial.py` `ready`/`install`；没有 Python 再用 CLI `ready`/`install`；两者都没有才按官方契约安装 CLI。remainingUses>0 才调用 `show_widget`；已耗尽则立即购买。不要 curl 作品 `.md`、远端 `use-a-skill`、`trial.py --help`，也不要在安装过程中写入 WorkBuddy 记忆。
+免费或开放试用口令路径只做：有 Python 则 `trial.py` `ready`/`install`；没有 Python 再用 CLI `ready`/`install`；两者都没有才按官方契约安装 CLI。remainingUses>0 才调用 `show_widget`；已耗尽则立即购买。不要 curl 作品 `.md`、远端 `use-a-skill`、`trial.py --help`，也不要在安装过程中写入 WorkBuddy 记忆。
 
 ## 确认或安装
 
 1. 从口令的 `?product=<product-id>` 保留准确 Product ID 和市场。用户已明确试用或安装意图时，不再重复查版本或问“购买还是试用”。只有需要浏览、比较或选择版本时才运行 `skill detail` / `skill access`；按 sortOrder 选择，不按价格猜层级，一个版本不包含另一个 Product。
-2. 有可用的 Python：已有商品 Skill 时，执行其包内 `.viceme/scripts/trial.py ready --product <id> --market <market>`，本 Skill 目录来自宿主的实际安装路径。否则按作品页现有 trial.py 安装入口执行一次；引导程序校验完整运行包后随商品安装。不要为了读取本指引先装 CLI。之后只执行返回的本地 runtimePath，不再 curl 脚本、二维码库或模板。
-3. 没有 Python、已有 CLI：普通安装意图先运行 `viceme skill ready <product-id> --agent <当前宿主>`（WorkBuddy 用 workbuddy）。已有实际 Skill 目录时同时带 `--skill-dir "<本 Skill 目录>"`，后续 use 和 trial-purchase 保留同一参数。它读取本机安装和只读余量，不计次、不下单。ready=true 后使用返回的 skillPath、runner、本地资源路径和 remainingUses。INSTALL_REQUIRED 才运行 `viceme skill install <product-id> --agent <当前宿主> --wait 0`；免费／开放试用不要求登录。REPAIR_INSTALLATION 表示平台运行文件不完整：直接再跑同一条 `install`，**不要问用户是否修复**。若安装因作者包冲突被跳过，停止并说明，不要覆盖作者文件。
+2. 免费或开放试用版本有可用的 Python：已有商品 Skill 时，执行其包内 `.viceme/scripts/trial.py ready --product <id> --market <market>`，本 Skill 目录来自宿主的实际安装路径。否则按作品页现有 trial.py 安装入口执行一次；引导程序校验完整运行包后随商品安装。不要为了读取本指引先装 CLI。之后只执行返回的本地 runtimePath，不再 curl 脚本、二维码库或模板。
+3. 免费或开放试用版本没有 Python、已有 CLI：普通安装意图先运行 `viceme skill ready <product-id> --agent <当前宿主>`（WorkBuddy 用 workbuddy）。已有实际 Skill 目录时同时带 `--skill-dir "<本 Skill 目录>"`，后续 use 和 trial-purchase 保留同一参数。它读取本机安装和只读余量，不计次、不下单。ready=true 后使用返回的 skillPath、runner、本地资源路径和 remainingUses。INSTALL_REQUIRED 才运行 `viceme skill install <product-id> --agent <当前宿主> --wait 0`；免费／开放试用不要求登录。REPAIR_INSTALLATION 表示平台运行文件不完整：直接再跑同一条 `install`，**不要问用户是否修复**。若安装因作者包冲突被跳过，停止并说明，不要覆盖作者文件。
 4. Python 和 `viceme` 都没有时，按作品页官方安装契约安装 ViceMe CLI，并用 `viceme doctor` 确认，再走第 3 步。安装无法完成则停止，不得跳过安装直接使用。
 5. 严格已购链接 `?product=<id>&install=owned` **不走 ready 或公开试用**：先确保兼容的最新版 CLI，保留完整 URL，运行 `viceme skill install '<完整 URL>'`。当前账号权益必须通过服务端校验；未登录、账号错误、权益失效时停止，不删除参数、不新建订单、不回退试用。作品下架不应阻止有永久权益的用户重装保留版本。
 

@@ -1996,3 +1996,23 @@ func fencedBlocks(text, language string) []string {
 	}
 	return blocks
 }
+
+func TestPaidSkillWithoutTrialUsesAccountPurchaseGuide(t *testing.T) {
+	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "use-a-skill/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(content)
+	for _, required := range []string{"## 无试用的付费安装", "未提供免费试用", "账号购买和订阅", "不是试用耗尽", "不运行 Python install / purchase", "已有权益则直接安装"} {
+		if !strings.Contains(text, required) {
+			t.Fatalf("paid entry omitted %q", required)
+		}
+	}
+	purchase, err := fs.ReadFile(cliembed.EmbeddedSkills(), "use-a-skill/references/purchase.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(purchase), "没有试用安装和凭证时不得调用") {
+		t.Fatal("account purchase must not require a trial identity")
+	}
+}

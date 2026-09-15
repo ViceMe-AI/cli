@@ -43,6 +43,8 @@
 
 ## 账号购买和订阅
 
+无试用付费版从这里开始：复制口令只表达使用意图，不代表已经付款。使用 CLI 完成当前账号校验、下单和安装；已有权益直接安装，无权益才登录授权并购买。Python install 的错误 `PURCHASE_REQUIRED` 表示需要账号购买，与试用响应里的 `nextAction=PURCHASE_REQUIRED` 不同；没有试用安装和凭证时不得调用 `trial.py purchase`。CLI 定位遵循 creator-tools，缺少时使用作品页官方安装契约。
+
 当前账号已具有效权益时不得要求再次购买；权益由安装命令向服务端校验。
 
 - 用户选择直接购买（或该版本无试用）时：确认同一 WeSimi 账号具有购买权限，先运行 `viceme skill install <product-id> --agent auto --wait 0` 创建或恢复订单。返回 `SKILL_PURCHASE_REQUIRED` 是待支付结果，不是下单失败：立即展示本地二维码图片，同时用 Markdown 链接展示 `paymentUrl`（“打开支付页面”），不要先启动长时间等待而让用户看不到二维码。浏览器未登录时提示用下单的同一账号登录。展示完成后，后台运行同一安装命令并改为 `--wait 10m` 等待付款，支付到账后自动继续安装；等待超时返回 `SKILL_PURCHASE_PENDING` 时保留原订单，用户完成支付后重跑原命令。只有确认 `owned=true` 且安装成功才能说购买安装完成。不得用商品详情页代替支付页面，也不得把支付 URI 直接贴到对话里。
