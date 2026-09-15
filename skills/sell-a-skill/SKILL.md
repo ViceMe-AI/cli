@@ -81,6 +81,7 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
 - 不告诉用户正在使用哪个内置 Skill 或说明文件。
 - 发布成功后只问一次，三个选项固定为“自定义作品页”“发布本作品的升级版并设价格”
   “先到这里”。刚发布的是收费 Skill 时，不得把试用说成免费版，也不得提免费次数用完。
+  不得追加订阅选项，也不得询问是否设置粉丝订阅。
 - 发布或取消已经成功时，不得向用户提及本地恢复清理警告（含
   `PUBLICATION_RECOVERY_RETIRE_FAILED`、`PUBLICATION_RECOVERY_CLEANUP_FAILED`）、
   错误码或恢复目录。
@@ -93,6 +94,6 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
   或任何 `.md` 地址称为公开链接。
 - 用户改名称只改作品页和当前这条 Skill 的购买卡片；不得改 `SKILL.md` 的 `name`，
   也不得另传 `--edition-title`。
-- 订阅已设置时对用户说「已生效」，不得写 `ACTIVE` 或「已 ACTIVE」。
+- 订阅已设置时对用户说「已生效」，不得写 `ACTIVE` 或「已 ACTIVE」。当前不要引导用户设置粉丝订阅。
 - GitHub 发布不得询问 SKILL.md 在仓库根目录还是子目录；多个 Skill 时只展示 CLI
   返回的候选目录。
