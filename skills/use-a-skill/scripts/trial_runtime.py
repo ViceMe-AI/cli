@@ -70,6 +70,12 @@ PACKAGE_FILES_PATH = ".viceme/package-files.json"
 RUNTIME_MARKER = "<!-- viceme-trial-runtime:v1"
 GATE_TAIL = "转正，再继续任务。"
 DISABLED_MARKER = "<!-- viceme-trial-disabled:v1"
+PURCHASE_MARKER = "<!-- viceme-purchase-required:v1"
+
+
+def purchase_required_message():
+    return ("Skill 已安装，需要购买后使用。同一轮立即运行 runtimePath 指向的本地脚本 purchase --wait 0，"
+            "按返回指引展示支付入口；付款确认后在原目录安装正式内容，再继续用户任务。无需 CLI 或登录。")
 
 
 def exhausted_purchase_message():
@@ -184,6 +190,8 @@ def prepare_runtime_files(files, market, product_id, release_id, kind):
     additions = {".viceme/" + name: (runtime_resource(name), 0o644) for name in RUNTIME_FILES}
     if kind == "owned":
         additions[".viceme/guides/trial-usage.md"] = (OWNED_USAGE_GUIDE.encode(), 0o644)
+    elif kind == "purchase":
+        additions[".viceme/guides/trial-usage.md"] = (purchase_required_message().encode(), 0o644)
     environment = {"market": market, "apiBaseUrl": API_ORIGIN[market],
                    "distributionBaseUrl": SCRIPT_ORIGIN[market], "productId": product_id}
     additions[".viceme/environment.json"] = (json.dumps(environment, sort_keys=True).encode(), 0o644)
@@ -192,7 +200,7 @@ def prepare_runtime_files(files, market, product_id, release_id, kind):
     files.update(additions)
     manifest = {"schemaVersion": 1, "productId": product_id, "releaseId": release_id,
                 "apiBaseUrl": API_ORIGIN[market], "market": market, "runner": "python", "kind": kind,
-                "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in files.items() if name in additions or name in (RUNTIME_PATH, TRIAL_BODY_PATH)}}
+                "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in files.items() if name in additions or name in (RUNTIME_PATH, TRIAL_BODY_PATH) or (kind == "purchase" and name == "SKILL.md")}}
     files[".viceme/runtime.json"] = (json.dumps(manifest, sort_keys=True).encode(), 0o644)
 
 
@@ -229,6 +237,9 @@ def lookup_trial_quota(market, product_id):
 
 
 def attach_trial_snapshot(result, market, product_id, grant=None):
+    if result.get("kind") == "purchase":
+        result.update(allowed=False, nextAction="PURCHASE_REQUIRED", message=purchase_required_message())
+        return result
     if result.get("kind") == "owned":
         result["owned"] = True
         return result
@@ -324,13 +335,15 @@ def read_runtime_install(root, market, product_id):
                 or manifest.get("apiBaseUrl") != API_ORIGIN[market] or manifest.get("market") != market
                 or manifest.get("releaseId") != owner.get("release_id")
                 or manifest.get("runner") not in ("python", "cli")
-                or manifest.get("kind") not in ("trial", "free", "owned")
+                or manifest.get("kind") not in ("trial", "free", "owned", "purchase")
                 or not os.path.isfile(os.path.join(root, "SKILL.md"))):
             return unavailable
         expected = manifest.get("files") or {}
         required = {".viceme/environment.json", *(".viceme/" + path for path in RUNTIME_FILES)}
         if manifest["kind"] == "trial":
             required.update((RUNTIME_PATH, TRIAL_BODY_PATH))
+        elif manifest["kind"] == "purchase":
+            required.add("SKILL.md")
         if not required.issubset(expected):
             return unavailable
         for path, digest in expected.items():
@@ -676,13 +689,58 @@ def command_install(market, product_id, agent="auto"):
         kind = "trial"
         grant = ensure_trial_grant(market, product_id)
     else:
-        return command_purchase(market, product_id, agent=agent)
+        return install_purchase_entry(market, product_id, agent, access)
 
     if kind == "trial":
         download = api_request(market, "GET", "/v1/downloads/trial/%s?installId=%s" % (urllib.parse.quote(product_id, safe=""), urllib.parse.quote(grant["installId"])))
     else:
         download = api_request(market, "GET", "/v1/downloads/free/%s" % urllib.parse.quote(product_id, safe=""))
     return finish_install(market, product_id, agent, access, download, kind, grant)
+
+
+def install_purchase_entry(market, product_id, agent, access):
+    """Install a public purchase entry without downloading any paid content."""
+    release = access.get("release") or {}
+    if access.get("productId") != product_id or not release.get("id") or access.get("purchaseAvailable") is not True:
+        raise Failure("PURCHASE_UNAVAILABLE", "当前商品不可购买，请稍后重试")
+    product = api_request(market, "GET", "/v1/products/%s?locale=%s" % (
+        urllib.parse.quote(product_id, safe=""), "zh-CN" if market == "cn" else "en-US"))
+    if (product.get("id") != product_id or product.get("market") != market.upper()
+            or not isinstance(product.get("title"), str) or not product["title"].strip()
+            or not isinstance(product.get("summary"), str)):
+        raise Failure("PRODUCT_METADATA_INVALID", "商品信息不完整，请重试安装")
+    installed_name = (slugify(product.get("slug"))[:55].rstrip("-") or "viceme") + "-" + product_id.replace("-", "")[:8]
+    # Public metadata stays in quoted frontmatter; only platform instructions
+    # form the body. No authored package, trial body, or buyer credential ships.
+    description = product["title"] + "：" + product["summary"] + "（购买后使用）"
+    markdown = ("---\nname: %s\ndescription: %s\n---\n\n%s product=%s -->\n\n"
+                "# 购买后使用\n\n当前 Skill 已安装，尚未购买，不提供免费试用。\n"
+                "正式任务内容会在付款确认后下载并覆盖此入口。不要编造或执行尚未取得的正式内容。\n\n"
+                "1. 以当前 SKILL.md 所在目录为工作目录，立即运行以下本地依赖（Windows 可用 py）：\n\n"
+                "```bash\npython3 .viceme/scripts/trial.py purchase --product %s --market %s --wait 0\n```\n\n"
+                "2. 按输出中的展示指引，给用户展示支付二维码或购买链接。\n"
+                "3. 展示后用同一脚本运行 purchase --wait 60，保留 --product 和 --market。\n"
+                "4. 仅当结果 kind=owned、allowed=true 时，重新读取返回的 skillPath，继续原任务。\n"
+                "   待支付或失败时保留此目录和原订单，重跑同一购买命令恢复。\n"
+                "无需安装 CLI 或登录；不执行试用计次，不把未购买描述成试用耗尽。\n") % (
+                    json.dumps(installed_name), json.dumps(description, ensure_ascii=False),
+                    PURCHASE_MARKER, product_id, product_id, market)
+    files = {"SKILL.md": (markdown.encode(), 0o644)}
+    prepare_runtime_files(files, market, product_id, release["id"], "purchase")
+    with ProductLock(product_id):
+        existing = find_ready_install(market, product_id, agent)
+        if existing.get("ready") and existing.get("kind") == "owned":
+            return emit_ok(owned_continue_result(existing, product_id))
+        roots = install_to_roots(files, installed_name, product_id, release["id"], agent)
+    succeeded = [root for root, skip in roots if not skip]
+    if not succeeded:
+        raise Failure("INSTALL_FAILED", "没有可写入的目标目录，未安装购买入口",
+                      skipped=[{"root": root, "reason": skip} for root, skip in roots])
+    result = {"action": "installed", "ready": True, "kind": "purchase", "runner": "python",
+              "productId": product_id, "installedName": os.path.basename(succeeded[0]),
+              "releaseId": release["id"], "roots": succeeded,
+              "skippedRoots": [skip for _, skip in roots if skip], **installed_resources(succeeded[0])}
+    return emit_ok(attach_trial_snapshot(result, market, product_id))
 
 
 def finish_install(market, product_id, agent, access, download, kind, grant=None):
@@ -725,7 +783,7 @@ def finish_install(market, product_id, agent, access, download, kind, grant=None
         "action": "installed",
         "kind": kind,
         "productId": product_id,
-        "installedName": installed_name,
+        "installedName": os.path.basename(succeeded[0]),
         "roots": succeeded,
         "skippedRoots": [skip for _, skip in roots if skip],
         "releaseId": release.get("id"),
@@ -856,6 +914,8 @@ def command_use(market, product_id, agent="auto"):
     ready = find_ready_install(market, product_id, agent)
     if ready.get("ready") and ready.get("kind") == "owned":
         return emit_ok(owned_continue_result(ready, product_id))
+    if ready.get("ready") and ready.get("kind") == "purchase":
+        return command_purchase(market, product_id, agent=agent)
     current = load_trial_state(product_id)
     if current and current.get("purchase") and not current["purchase"].get("closed") and not current.get("pendingRequestId"):
         return command_purchase(market, product_id, agent=agent)
@@ -937,6 +997,9 @@ def command_use(market, product_id, agent="auto"):
 
 
 def command_status(market, product_id):
+    ready = find_ready_install(market, product_id, "auto")
+    if ready.get("ready") and ready.get("kind") == "purchase":
+        return emit_ok(attach_trial_snapshot(ready, market, product_id))
     state = require_trial_state(market, product_id)
     grant = api_request(market, "POST", "/v1/skills/%s/trial-grants" % product_id, {"installId": state["installId"]})
     if grant.get("installId") != state["installId"] or type(grant.get("remainingUses")) is not int or type(grant.get("limitUses")) is not int or not 0 <= grant["remainingUses"] <= grant["limitUses"] or grant["limitUses"] <= 0:
@@ -1052,8 +1115,8 @@ def validate_purchase(order, product_id, order_no=None):
 def prepare_purchase_runtime(market, product_id):
     """Keep the verified runtime usable after a streamed bootstrap exits.
 
-    A first paid installation has no Skill directory yet. The bootstrap's
-    extraction directory is temporary, so returning __file__ alone is invalid.
+    Compatibility for callers that invoke purchase without installing first.
+    Normal installation returns the runtime inside the installed Skill.
     """
     files = {name: runtime_resource(name) for name in RUNTIME_FILES}
     files["environment.json"] = json.dumps({"market": market, "productId": product_id,
@@ -1103,7 +1166,8 @@ def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=Fal
             purchase = {"clientRequestId": str(uuid.uuid4())}
             state["purchase"] = purchase
             save_purchase_state(product_id, state)
-        runtime_path = prepare_purchase_runtime(market, product_id)
+        local = find_ready_install(market, product_id, agent)
+        runtime_path = local["runtimePath"] if local.get("ready") else prepare_purchase_runtime(market, product_id)
         presented = purchase.get("presented") is True
         if purchase.get("orderNo"):
             order = purchase_request(market, product_id, state, "status", {"orderNo": purchase["orderNo"]})
@@ -1172,6 +1236,8 @@ def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=Fal
               "nextAction": "PRESENT_PAYMENT_WIDGET",
               "runtimePath": runtime_path,
               "message": payment_display_instructions(hosted=hosted)}
+    if local.get("ready"):
+        result.update(skillPath=local["skillPath"], kind=local["kind"])
     if presentation is not None:
         result["paymentPresentation"] = presentation
     if hosted_url:
@@ -1691,7 +1757,18 @@ def target_roots(agent="auto"):
 def install_to_roots(files, installed_name, product_id, release_id, agent="auto"):
     runtime = json.loads(files[".viceme/runtime.json"][0])
     invoking = validate_invoking_purchase_directory(runtime["market"], product_id)
-    destinations = [invoking] if invoking else [os.path.join(root, installed_name) for root in target_roots(agent)]
+    destinations = [invoking] if invoking else []
+    if not invoking:
+        for base in target_roots(agent):
+            # A purchase entry cannot know the private package's frontmatter
+            # name. Restore every matching installation in the selected host,
+            # including interrupted replacements, instead of creating a sibling.
+            existing = []
+            if runtime["kind"] in ("purchase", "owned") and os.path.isdir(base):
+                existing = [os.path.join(base, name) for name in sorted(os.listdir(base))
+                            if not os.path.islink(os.path.join(base, name))
+                            and read_manifest_product(os.path.join(base, name)) == product_id]
+            destinations.extend(existing or [os.path.join(base, installed_name)])
     complete = compose_skill_files(files, installed_name, product_id, release_id)
     results = InstallResults()
     for destination in destinations:

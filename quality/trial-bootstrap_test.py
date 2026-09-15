@@ -81,7 +81,7 @@ class BootstrapTests(unittest.TestCase):
                         self.module.main()
                     execute.assert_not_called()
 
-    def test_no_cli_purchase_survives_bootstrap_exit_and_installs_only_after_payment(self):
+    def test_no_cli_installs_purchase_entry_before_order_and_restores_same_directory(self):
         product = "11111111-1111-4111-8111-111111111111"
         release = "22222222-2222-4222-8222-222222222222"
         package = io.BytesIO()
@@ -104,14 +104,21 @@ class BootstrapTests(unittest.TestCase):
             def do_GET(self):
                 requests.append(self.path)
                 if self.path == "/package.zip":
+                    if not paid[0]:
+                        self.send_error(403)
+                        return
                     self.send_response(200)
                     self.end_headers()
                     self.wfile.write(archive_bytes)
                     return
+                if self.path.startswith("/v1/products/" + product + "?"):
+                    self.respond({"id": product, "market": "CN", "title": "Paid example", "summary": "Test purchase", "slug": "public-name"})
+                    return
                 if self.path != "/v1/skills/" + product + "/access":
                     self.send_error(404)
                     return
-                self.respond({"productId": product, "isFree": False, "trial": None})
+                self.respond({"productId": product, "isFree": False, "trial": None, "purchaseAvailable": True,
+                    "release": {"id": release, "artifactDigest": digest}})
             def do_POST(self):
                 requests.append(self.path)
                 body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
@@ -148,25 +155,60 @@ class BootstrapTests(unittest.TestCase):
                     "--market", "cn", "--agent", "agents"], cwd=temporary, env=environment,
                     capture_output=True, text=True, timeout=20)
                 self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
-                pending = json.loads(first.stdout)
-                self.assertEqual(pending["nextAction"], "PRESENT_PAYMENT_WIDGET")
-                runtime = Path(pending["runtimePath"])
-                self.assertTrue(runtime.is_file(), "bootstrap cleanup must not delete the recovery runtime")
+                entry = json.loads(first.stdout)
+                self.assertEqual(entry["kind"], "purchase")
+                self.assertEqual(entry["nextAction"], "PURCHASE_REQUIRED")
+                self.assertFalse(entry["allowed"])
+                runtime = Path(entry["runtimePath"])
+                skill_path = Path(entry["skillPath"])
+                self.assertTrue(runtime.is_file(), "bootstrap cleanup must leave installed dependencies")
+                self.assertTrue(skill_path.is_file())
+                self.assertIn("viceme-purchase-required:v1", skill_path.read_text())
+                self.assertNotIn("Full paid Skill", skill_path.read_text())
+                self.assertFalse((skill_path.parent / ".viceme/trial-body.md").exists())
                 self.assertFalse((directory / ".agents/skills/paid-demo").exists())
                 self.assertFalse((directory / ".viceme/trial" / (product + ".json")).exists())
                 state_path = directory / ".viceme/purchases" / (product + ".json")
+                self.assertFalse(state_path.exists())
+                self.assertFalse(any("purchase" in path or path == "/package.zip" for path in requests))
+                before = list(requests)
+                for command in ("ready", "status"):
+                    check = subprocess.run([sys.executable, str(runtime), command, "--product", product,
+                        "--market", "cn"], cwd=temporary, env=environment, capture_output=True, text=True, timeout=20)
+                    self.assertEqual(check.returncode, 0, check.stdout + check.stderr)
+                    ready = json.loads(check.stdout)
+                    self.assertTrue(ready["ready"])
+                    self.assertFalse(ready["allowed"])
+                    self.assertEqual(ready["nextAction"], "PURCHASE_REQUIRED")
+                    self.assertNotIn("remainingUses", ready)
+                self.assertEqual(requests, before, "readiness cannot create a trial or order")
+                order = subprocess.run([sys.executable, str(runtime), "use", "--product", product,
+                    "--market", "cn", "--agent", "agents"], cwd=temporary,
+                    env=environment, capture_output=True, text=True, timeout=20)
+                self.assertEqual(order.returncode, 0, order.stdout + order.stderr)
+                pending = json.loads(order.stdout)
+                self.assertEqual(pending["nextAction"], "PRESENT_PAYMENT_WIDGET")
+                self.assertEqual(pending["runtimePath"], str(runtime))
+                self.assertEqual(pending["skillPath"], str(skill_path))
+                self.assertNotIn("Full paid Skill", skill_path.read_text())
                 identity = state_path.read_bytes()
+                for file in skill_path.parent.rglob("*"):
+                    if file.is_file():
+                        self.assertNotIn(json.loads(identity)["secret"].encode(), file.read_bytes())
                 paid[0] = True
                 second = subprocess.run([sys.executable, str(runtime), "purchase", "--product", product,
                     "--market", "cn", "--agent", "agents", "--wait", "0"], cwd=temporary,
                     env=environment, capture_output=True, text=True, timeout=20)
                 self.assertEqual(second.returncode, 0, second.stderr + second.stdout)
                 installed = json.loads(second.stdout)
+                self.assertEqual(installed["skillPath"], str(skill_path))
+                self.assertFalse((directory / ".agents/skills/paid-demo").exists())
                 self.assertTrue(installed["owned"])
                 self.assertEqual(installed["nextAction"], "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL")
                 content = Path(installed["skillPath"]).read_text()
                 self.assertIn("Full paid Skill", content)
                 self.assertNotIn("viceme-trial:v1", content)
+                self.assertNotIn("viceme-purchase-required:v1", content)
                 self.assertEqual(state_path.read_bytes(), identity)
                 self.assertFalse(any("trial-grants" in path or "trial-purchase" in path for path in requests))
                 self.assertEqual(requests.count("/v1/skills/" + product + "/purchase"), 1)

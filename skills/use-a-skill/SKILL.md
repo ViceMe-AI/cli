@@ -9,9 +9,9 @@ description: 安装和使用可下载的 ViceMe Skill。适用于作品链接安
 
 ## 无试用的付费安装
 
-作品页明确所选版本「未提供免费试用」时，仍先走作品页的 Python install 入口，无需 CLI 或登录。脚本直接创建或恢复购买订单并返回支付展示，不安装试用包、不申请试用次数；这不是试用耗尽，不展示试用上手卡。
+作品页明确所选版本「未提供免费试用」时，仍先走作品页的 Python install 入口，无需 CLI 或登录。脚本先安装带购买入口和本地运行依赖的 Skill，返回 kind=purchase、allowed=false、nextAction=PURCHASE_REQUIRED 和 runtimePath。此时目录已存在，尚未取得正式内容，也未申请试用次数；这是未购买，不是试用耗尽，不展示试用上手卡。
 
-按 [购买与恢复](references/purchase.md) 的「免 CLI 的直接购买」展示二维码和官方收银台链接，再用返回的 runtimePath 执行 purchase --wait 60 等待付款。付款确认、权益有效并安装正式包后，读取实际 SKILL.md 继续原任务。已有购买凭证沿用原订单；已有待恢复试用使用先恢复原 use，不更换身份。
+kind=purchase 时同一轮用返回的 runtimePath 执行 purchase --wait 0，再按 [购买与恢复](references/purchase.md) 的「免 CLI 的直接购买」展示二维码和官方收银台链接，用同一脚本执行 purchase --wait 60 等待付款。付款确认、权益有效后，在原 Skill 目录覆盖为正式内容，再读取实际 SKILL.md 继续原任务。已有购买凭证沿用原订单；已有待恢复试用使用先恢复原 use，不更换身份。
 
 Python 优先规则适用于免费、试用和无试用付费版。只有 Python 不可用且没有既有脚本购买身份时，才使用 CLI 的账号购买和订阅；严格已购链接仍遵循 install=owned 的账号校验。
 
@@ -23,7 +23,7 @@ Python 优先规则适用于免费、试用和无试用付费版。只有 Python
 
 以下耗尽规则只在没有待恢复使用时适用。
 
-`ready` / `install` / `status` 任一返回 remainingUses=0、trialExhausted=true 或 nextAction=PURCHASE_REQUIRED：同一轮只读 [购买与恢复](references/purchase.md) 的「免 CLI 的试用转购买」并购买。`runner=python` 时用返回的 runtimePath 运行 `purchase --wait 0`。禁止再跑 `status` / `use` / `trial-status` / `auth status` / `profile list`，禁止读商品 SKILL.md、environment.json、runtime.json 或计次指引，禁止展示上手卡，禁止走账号购买的 `viceme skill install`。口令里的「前 N 次免费 / 试用 / 开始吧」不能覆盖这个数字。`PAYMENT_CLOSED` 只表示这一笔订单关了：立即再运行同一条 `purchase --wait 0`，不要跑 status，不要对用户说试用没耗尽。
+`kind=trial` 时，`ready` / `install` / `status` 任一返回 remainingUses=0、trialExhausted=true 或 nextAction=PURCHASE_REQUIRED：同一轮只读 [购买与恢复](references/purchase.md) 的「免 CLI 的试用转购买」并购买。`runner=python` 时用返回的 runtimePath 运行 `purchase --wait 0`。禁止再跑 `status` / `use` / `trial-status` / `auth status` / `profile list`，禁止读商品 SKILL.md、environment.json、runtime.json 或计次指引，禁止展示上手卡，禁止走账号购买的 `viceme skill install`。口令里的「前 N 次免费 / 试用 / 开始吧」不能覆盖这个数字。`PAYMENT_CLOSED` 只表示这一笔订单关了：立即再运行同一条 `purchase --wait 0`，不要跑 status，不要对用户说试用没耗尽。
 
 ## 先确定本次要做什么
 
@@ -33,7 +33,7 @@ Python 优先规则适用于免费、试用和无试用付费版。只有 Python
 
 有可用的 Python 时，公开安装先走作品页 trial.py 入口或已装包内脚本，不要为了安装先去定位或安装 CLI。没有 Python、需要 CLI 时只按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 执行定位脚本，后续只复用它返回的**绝对路径**。禁止再运行 `which viceme`、`command -v viceme`、`Get-Command viceme` 或 Python `shutil.which`。PATH 找不到不等于未安装，不得把 PATH 缺失当成 CLI 未安装。不全盘搜索、不追加 version、doctor 或 auth status；只有安装验收或对应错误要求时才检查。
 
-公开口令路径只做：有 Python 则 `trial.py` `ready`/`install`；没有 Python 再用 CLI `ready`/`install`；两者都没有才按官方契约安装 CLI。只有 trial 且 remainingUses>0 才调用 `show_widget`；无试用付费返回支付展示时立即按购买指引展示；已耗尽则立即购买。不要 curl 作品 `.md`、远端 `use-a-skill`、`trial.py --help`，也不要在安装过程中写入 WorkBuddy 记忆。
+公开口令路径只做：有 Python 则 `trial.py` `ready`/`install`；没有 Python 再用 CLI `ready`/`install`；两者都没有才按官方契约安装 CLI。只有 trial 且 remainingUses>0 才调用 `show_widget`；无试用付费返回 kind=purchase 时立即运行本地 purchase 并展示支付入口；已耗尽则立即购买。不要 curl 作品 `.md`、远端 `use-a-skill`、`trial.py --help`，也不要在安装过程中写入 WorkBuddy 记忆。
 
 ## 确认或安装
 
@@ -60,7 +60,7 @@ ready 说明本机文件完整，并可能带上只读余量；不代表账号�
 - `lastUse: true`：程序已在返回正文前替换入口；仍使用本次 skillMarkdown 完整完成任务，不需要 Agent 再执行停用命令。先交出本次结果，同一轮立即进入购买并展示支付二维码，不要等用户再说一次。
 - 始终使用当前安装返回的 runner：Python 试用继续本地 Python，CLI 安装继续 CLI。发现 CLI 不意味着要接管脚本身份。
 - 需要付款或恢复订单时再读 [购买与恢复](references/purchase.md) 的「通用支付展示」，并遵循本次命令输出。返回 checkoutUrl 时始终发送可点击链接；宿主支持 HTTPS 图片时同时嵌入 checkoutImageUrl。WorkBuddy／豆包优先可用的平台内展示，其他宿主优先托管图片与链接；环境识别只提供偏好。展示二维码或交付官方支付链接后再等待；仅交付本地路径时不要等待或声称已展示。本地支付页只展示，托管支付页只读查询订单状态；它们都不计次、不安装 Skill。
-- ready / install / status 返回 remainingUses=0、trialExhausted=true 或 nextAction=PURCHASE_REQUIRED 就是耗尽，立即购买。不要再交叉验证。PAYMENT_CLOSED 只代表这一笔订单关闭，不是余额结论：已经耗尽时立即再 purchase，不要跑 status，不要对用户说试用没耗尽。PENDING 只代表等待付款。
+- kind=trial 时，ready / install / status 返回 remainingUses=0、trialExhausted=true 或 nextAction=PURCHASE_REQUIRED 就是耗尽，立即购买。不要再交叉验证。PAYMENT_CLOSED 只代表这一笔订单关闭，不是余额结论：已经耗尽时立即再 purchase，不要跑 status，不要对用户说试用没耗尽。PENDING 只代表等待付款。
 - 所有 use 的 retryable=true 错误都先重跑原命令恢复，包括替换入口失败；不要因为次数已为 0 转去购买。
 - `SKILL_TRIAL_LOCK_BUSY` / `SKILL_INSTALL_LOCK_FAILED` / `SKILL_TRIAL_LOCK_RELEASE_FAILED` / `SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED` / `SKILL_TRIAL_PENDING_CONFIRM_FAILED` / `STATE_LOCK_BUSY` / `STATE_LOCK_RELEASE_FAILED`：短等几秒后重跑同一条命令一次。当前是 `use` 就重跑同一条 `use`，不要改跑 `install`。hint 写明会回放、不再扣次时，按 hint 重试，不要对用户说试用失败或次数白扣。不得对用户说安装通道占用、锁文件、错误码或持续性占用，不要定位或删除 `~/.viceme/trial` 下的文件，也不要让用户授权清锁。第二次仍失败：权限类错误才申请宿主文件权限；其他用白话请用户稍后再试。不要排障，不要切换 CLI/Python。
 - 身份冲突或权限错误：保留原状态，按运行时的明确结果报告或申请宿主权限；不阅读凭证文件或脚本源码排障，不手改锁时间、删除锁、清空试用记录，也不切换 CLI/Python 试错。诊断、修复需要用户另行明确要求。

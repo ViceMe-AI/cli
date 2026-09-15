@@ -2003,7 +2003,7 @@ func TestPaidSkillWithoutTrialUsesStandalonePurchaseGuide(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(content)
-	for _, required := range []string{"## 无试用的付费安装", "未提供免费试用", "Python install", "无需 CLI 或登录", "不是试用耗尽", "已有购买凭证沿用原订单"} {
+	for _, required := range []string{"## 无试用的付费安装", "未提供免费试用", "Python install", "无需 CLI 或登录", "不是试用耗尽", "已有购买凭证沿用原订单", "kind=purchase", "原 Skill 目录", "purchase --wait 0"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("paid entry omitted %q", required)
 		}
@@ -2013,6 +2013,6 @@ func TestPaidSkillWithoutTrialUsesStandalonePurchaseGuide(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(purchase), "## 免 CLI 的直接购买") || !strings.Contains(string(purchase), "runtimePath") {
-		t.Fatal("direct purchase must support resuming before any Skill is installed")
+		t.Fatal("direct purchase must return the installed Skill runtime for payment and recovery")
 	}
 }

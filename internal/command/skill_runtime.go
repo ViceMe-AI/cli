@@ -118,6 +118,7 @@ func addSkillRuntime(runtime *Runtime, files map[string]downloadableSkillFile, p
 }
 
 type skillReadyResult struct {
+	Allowed        *bool  `json:"allowed,omitempty"`
 	Ready          bool   `json:"ready"`
 	ProductID      string `json:"productId"`
 	Kind           string `json:"kind,omitempty"`
@@ -163,6 +164,13 @@ func newSkillReadyCommand(runtime *Runtime) *cobra.Command {
 }
 
 func attachReadyTrialSnapshot(ctx context.Context, runtime *Runtime, productID string, result *skillReadyResult) error {
+	if result.Kind == "purchase" {
+		allowed := false
+		result.Allowed = &allowed
+		result.NextAction = "PURCHASE_REQUIRED"
+		result.Message = "Skill 已安装，需要购买后使用。立即用 Python 执行返回的 runtimePath，运行 purchase --product " + productID + " --market " + string(runtime.region) + " --wait 0；按输出展示支付入口，确认付款后在原目录恢复正式内容。无需 CLI 或登录，不执行试用计次。"
+		return nil
+	}
 	if result.Kind == "owned" || result.Kind == "free" {
 		return nil
 	}

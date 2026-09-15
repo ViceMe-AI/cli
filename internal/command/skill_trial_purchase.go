@@ -268,7 +268,7 @@ func suspendExhaustedTrial(ctx context.Context, runtime *Runtime, productID, age
 	if err != nil {
 		return err
 	}
-	if !found || manifest.Kind == "owned" || manifest.Kind == "free" {
+	if !found || manifest.Kind == "owned" || manifest.Kind == "free" || manifest.Kind == "purchase" {
 		return nil
 	}
 	exhausted := directory != "" && trialEntryExhausted(filepath.Join(directory, "SKILL.md"), productID)
