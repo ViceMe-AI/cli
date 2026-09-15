@@ -928,6 +928,7 @@ type WebsiteReplicaUploadAuthorization struct {
 }
 
 type WebsiteReplicaPublication struct {
+	TraceabilityEnabled       *bool                             `json:"traceabilityEnabled,omitempty" api:"optional"`
 	AllowAutomaticDegradation bool                              `json:"allowAutomaticDegradation"`
 	Hosting                   WebsiteReplicaHostingProjection   `json:"hosting"`
 	Rollback                  WebsiteReplicaRollbackProjection  `json:"rollback"`
