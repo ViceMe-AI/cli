@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""ViceMe Skill 免 CLI 安装/试用运行时（由 trial.py 引导安装）。
+"""ViceMe Skill 免 CLI 安装/试用/购买运行时（由 trial.py 引导安装）。
 
 作品页 `.md` 口令的无 `viceme` 分支调用本脚本;也可独立使用:
 
@@ -23,6 +23,8 @@ python.org 安装必装的启动器,没有时改用 `python`):
 - 门禁入口与内部规则路径和 CLI 对齐;本机凭证购买后由当前路线重装正式包。
 - 凭证落 ~/.viceme/trial/<product>.json(0600);CLI 的 ensureSkillTrialGrant
   会收编该文件,也会在 CLI 安装时把同一份 grant 写回该文件,两条安装路共用同一个 grant。
+- 直接购买凭证独立落 ~/.viceme/purchases/<product>.json(0600)，不创建试用记录；
+  有试用凭证时始终沿用原身份。所有购买写入仍共用 ProductLock。
 - 输出始终是单行 JSON,供 AI 助手解析分支。
 """
 
@@ -267,21 +269,25 @@ def command_ready(market, product_id, agent="auto"):
 
 
 def trial_install_should_resume_purchase(market, product_id):
-    """Closed orders never hijack install. Pending or paid orders still resume purchase."""
-    state = load_trial_state(product_id)
+    """Closed trial orders allow reinstall; unknown, pending and paid resume."""
+    state = load_purchase_state(market, product_id)
+    if state and state.get("credentialKind") == "purchase":
+        return True
     purchase = (state or {}).get("purchase")
-    if not purchase or purchase.get("closed") or not purchase.get("orderNo"):
+    if not purchase or purchase.get("closed"):
         return False
-    state = require_trial_state(market, product_id)
+    # A create response may have been lost before an orderNo was persisted.
+    if not purchase.get("orderNo"):
+        return True
     order = purchase_request(market, product_id, state, "status", {"orderNo": purchase["orderNo"]})
     validate_purchase(order, product_id, purchase["orderNo"])
     if order["status"] != "CLOSED":
         return True
     with ProductLock(product_id):
-        current = require_trial_state(market, product_id)
+        current = require_purchase_state(market, product_id)
         if (current.get("purchase") or {}).get("orderNo") == order["orderNo"]:
             current["purchase"]["closed"] = True
-            save_trial_state(product_id, current)
+            save_purchase_state(product_id, current)
     return False
 
 
@@ -670,13 +676,7 @@ def command_install(market, product_id, agent="auto"):
         kind = "trial"
         grant = ensure_trial_grant(market, product_id)
     else:
-        purchase_url = access.get("purchaseUrl") or ""
-        raise Failure(
-            "PURCHASE_REQUIRED",
-            "该 Skill 需要登录购买后才能安装;请打开作品页完成支付,或安装 ViceMe CLI 后使用 viceme skill install",
-            purchaseUrl=purchase_url,
-            installDocUrl=install_doc_url(market),
-        )
+        return command_purchase(market, product_id, agent=agent)
 
     if kind == "trial":
         download = api_request(market, "GET", "/v1/downloads/trial/%s?installId=%s" % (urllib.parse.quote(product_id, safe=""), urllib.parse.quote(grant["installId"])))
@@ -963,10 +963,77 @@ def require_trial_state(market, product_id):
     return state
 
 
+def purchase_state_path(product_id):
+    return os.path.join(home_directory(), ".viceme", "purchases", product_id + ".json")
+
+
+def load_purchase_state(market, product_id):
+    """Never silently replace a lost/corrupt credential or switch buyer kinds."""
+    trial_state = load_trial_state(product_id)
+    if trial_state:
+        trial_state = require_trial_state(market, product_id)
+    elif os.path.lexists(trial_state_path(product_id)):
+        raise Failure("PURCHASE_STATE_INVALID", "本机试用凭证无法读取，请恢复原文件后重试；未创建新的购买身份")
+    path = purchase_state_path(product_id)
+    try:
+        # Symlinked credentials are not an authority to overwrite their target.
+        if os.path.islink(path):
+            raise ValueError("symlink")
+        with open(path, encoding="utf-8") as handle:
+            state = json.load(handle)
+        if not isinstance(state, dict) or state.get("credentialKind") != "purchase":
+            raise ValueError("kind")
+        uuid.UUID(state["installId"])
+        if len(state["secret"]) != 64 or any(c not in "0123456789abcdef" for c in state["secret"]):
+            raise ValueError("secret")
+    except FileNotFoundError:
+        return trial_state
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        raise Failure("PURCHASE_STATE_INVALID", "本机购买凭证无法读取，请恢复原文件后重试；未创建新的购买身份") from None
+    if state.get("productId") != product_id or state.get("market") != market:
+        raise Failure("PURCHASE_IDENTITY_MISMATCH", "本机购买凭证属于另一商品或市场；已保留原记录，未发起网络请求")
+    if trial_state:
+        raise Failure("PURCHASE_IDENTITY_CONFLICT", "本机存在两份不同的购买身份，请保留原凭证并恢复原订单；不会自动切换身份")
+    return state
+
+
+def require_purchase_state(market, product_id, create=False):
+    state = load_purchase_state(market, product_id)
+    if state:
+        return state
+    if not create:
+        raise Failure("PURCHASE_STATE_MISSING", "本机购买凭证缺失，请恢复原文件；未更换购买身份")
+    state = {"credentialKind": "purchase", "installId": str(uuid.uuid4()),
+             "secret": os.urandom(32).hex(), "productId": product_id, "market": market}
+    # Persist the identity before the first request, including provider failures.
+    save_purchase_state(product_id, state)
+    return state
+
+
+def save_purchase_state(product_id, state):
+    if state.get("credentialKind") != "purchase":
+        return save_trial_state(product_id, state)
+    path = purchase_state_path(product_id)
+    directory = os.path.dirname(path)
+    os.makedirs(directory, mode=0o700, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".purchase-", dir=directory)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            json.dump(state, handle, ensure_ascii=False, indent=2, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.remove(temporary)
+
+
 def purchase_request(market, product_id, state, action="", extra=None):
     body = {"installId": state["installId"], "secret": state["secret"]}
     body.update(extra or {})
-    return api_request(market, "POST", "/v1/skills/%s/trial-purchase%s" % (product_id, "/" + action if action else ""), body)
+    endpoint = "purchase" if state.get("credentialKind") == "purchase" else "trial-purchase"
+    return api_request(market, "POST", "/v1/skills/%s/%s%s" % (product_id, endpoint, "/" + action if action else ""), body)
 
 
 def validate_purchase(order, product_id, order_no=None):
@@ -982,17 +1049,61 @@ def validate_purchase(order, product_id, order_no=None):
         raise Failure("PURCHASE_RESPONSE_INVALID", "订单响应不完整,请保留本机购买记录并重试")
 
 
+def prepare_purchase_runtime(market, product_id):
+    """Keep the verified runtime usable after a streamed bootstrap exits.
+
+    A first paid installation has no Skill directory yet. The bootstrap's
+    extraction directory is temporary, so returning __file__ alone is invalid.
+    """
+    files = {name: runtime_resource(name) for name in RUNTIME_FILES}
+    files["environment.json"] = json.dumps({"market": market, "productId": product_id,
+        "apiBaseUrl": API_ORIGIN[market], "distributionBaseUrl": SCRIPT_ORIGIN[market]}, sort_keys=True).encode()
+    digest = hashlib.sha256(json.dumps({name: hashlib.sha256(data).hexdigest()
+        for name, data in files.items()}, sort_keys=True).encode()).hexdigest()
+    parent = os.path.join(home_directory(), ".viceme", "purchase-runtimes", market, product_id)
+    os.makedirs(parent, mode=0o700, exist_ok=True)
+    root = os.path.join(parent, digest)
+    if not os.path.lexists(root):
+        staging = tempfile.mkdtemp(prefix=".prepare-", dir=parent)
+        try:
+            for name, data in files.items():
+                target = os.path.join(staging, *name.split("/"))
+                os.makedirs(os.path.dirname(target), mode=0o700, exist_ok=True)
+                with open(target, "wb") as handle:
+                    handle.write(data)
+                    handle.flush()
+                    os.fsync(handle.fileno())
+            os.replace(staging, root)
+        finally:
+            if os.path.exists(staging):
+                shutil.rmtree(staging)
+    for name, data in files.items():
+        target = root
+        for component in [""] + name.split("/"):
+            target = os.path.join(target, component) if component else target
+            if os.path.islink(target):
+                raise Failure("PURCHASE_RUNTIME_INVALID", "购买恢复脚本校验失败，请使用原安装入口修复；保留原订单与凭证")
+        try:
+            with open(target, "rb") as handle:
+                if handle.read() != data:
+                    raise ValueError("digest")
+        except (OSError, ValueError):
+            raise Failure("PURCHASE_RUNTIME_INVALID", "购买恢复脚本校验失败，请使用原安装入口修复；保留原订单与凭证") from None
+    return os.path.join(root, "scripts", "trial.py")
+
+
 def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=False):
     validate_invoking_purchase_directory(market, product_id)
     with ProductLock(product_id):
-        state = require_trial_state(market, product_id)
+        state = require_purchase_state(market, product_id, create=True)
         if state.get("pendingRequestId"):
             raise Failure("TRIAL_USE_PENDING", "上次使用尚未确认交付,请先重跑同一 use 命令恢复;不会重复扣次", retryable=True)
         purchase = state.get("purchase")
         if not purchase or purchase.get("closed"):
             purchase = {"clientRequestId": str(uuid.uuid4())}
             state["purchase"] = purchase
-            save_trial_state(product_id, state)
+            save_purchase_state(product_id, state)
+        runtime_path = prepare_purchase_runtime(market, product_id)
         presented = purchase.get("presented") is True
         if purchase.get("orderNo"):
             order = purchase_request(market, product_id, state, "status", {"orderNo": purchase["orderNo"]})
@@ -1007,7 +1118,7 @@ def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=Fal
         purchase["orderNo"] = order["orderNo"]
         if order["status"] == "CLOSED":
             purchase["closed"] = True
-        save_trial_state(product_id, state)
+        save_purchase_state(product_id, state)
     # The first invocation always returns a QR before any wait. Polling cannot
     # create a new order, even when a local countdown has reached zero.
     deadline = time.monotonic() + wait if presented else time.monotonic()
@@ -1025,10 +1136,10 @@ def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=Fal
         return result
     if order["status"] == "CLOSED":
         with ProductLock(product_id):
-            current = require_trial_state(market, product_id)
+            current = require_purchase_state(market, product_id)
             if (current.get("purchase") or {}).get("orderNo") == order["orderNo"]:
                 current["purchase"]["closed"] = True
-                save_trial_state(product_id, current)
+                save_purchase_state(product_id, current)
         if wait == 0 and not _closed_retry:
             return command_purchase(market, product_id, 0, agent, _closed_retry=True)
         return emit_ok({"allowed": False, "productId": product_id, "orderNo": order["orderNo"],
@@ -1036,7 +1147,8 @@ def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=Fal
                         "message": "这笔支付订单已关闭。同一轮立即再运行 purchase --wait 0 创建新订单。不要跑 status，不要对用户说试用没耗尽。"})
     # A resumed order can predate entry suspension. Repair exhausted entries
     # before reporting payment presentation; buying early must not end a trial.
-    suspend_exhausted_trial(market, product_id)
+    if state.get("credentialKind") != "purchase":
+        suspend_exhausted_trial(market, product_id)
     hosted_url = order.get("checkoutUrl") or ""
     hosted_image = order.get("checkoutImageUrl") or ""
     hosted = bool(hosted_url or hosted_image)
@@ -1050,14 +1162,15 @@ def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=Fal
             raise
         presentation = None
     with ProductLock(product_id):
-        current = require_trial_state(market, product_id)
+        current = require_purchase_state(market, product_id)
         if (current.get("purchase") or {}).get("orderNo") != order["orderNo"]:
             raise Failure("PURCHASE_STATE_CHANGED", "本机订单恢复记录发生变化,请保留并重试")
         current["purchase"]["presented"] = True
-        save_trial_state(product_id, current)
+        save_purchase_state(product_id, current)
     result = {"allowed": False, "productId": product_id, "orderNo": order["orderNo"],
               "amountCents": order["amountCents"], "expiresAt": order["expiresAt"],
               "nextAction": "PRESENT_PAYMENT_WIDGET",
+              "runtimePath": runtime_path,
               "message": payment_display_instructions(hosted=hosted)}
     if presentation is not None:
         result["paymentPresentation"] = presentation

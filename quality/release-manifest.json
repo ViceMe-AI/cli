@@ -70,8 +70,8 @@
       "skill_version": "0.42.3",
       "minimum_cli_version": "0.42.3",
       "cli_compatibility": ">=0.42.3 <0.43.0",
-      "full_skill_bundle_digest": "sha256:f42e2f7d45cd5ca3d2bc730f648b690b0b6d5c811b0e36727244962674115192",
-      "embedded_content_digest": "sha256:27863cc345a9f77dcde16f9fef8ca048138b73a0f12c05fc20fb5020b16b65a8"
+      "full_skill_bundle_digest": "sha256:ace46dd18c87baedfcd4c18de1e5477be303636df83fee1859d039382a7a783c",
+      "embedded_content_digest": "sha256:4c186f5e8b3e3bb1d58bfa2dc0660f3fefcf6d7afe1b48affa51efde8703a67c"
     },
     "withdraw-income": {
       "skill_version": "0.42.3",

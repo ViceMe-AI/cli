@@ -1748,6 +1748,65 @@ class InstallFlowTestCase(unittest.TestCase):
             code = trial.run(["purchase", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy", *arguments])
         return code, json.loads(output.getvalue())
 
+    def test_no_trial_install_persists_identity_before_network_and_recovers_lost_create(self):
+        requests = []
+        def api(market, method, path, body=None):
+            self.assertNotIn("trial-grants", path)
+            self.assertNotIn("trial-purchase", path)
+            if path.endswith("/access"):
+                access = self._api(market, method, path, body)
+                access["trial"] = None
+                return access
+            persisted = trial.load_purchase_state("cn", PRODUCT_ID)
+            self.assertEqual(persisted["installId"], body["installId"])
+            self.assertEqual(persisted["secret"], body["secret"])
+            self.assertFalse(os.path.exists(trial.trial_state_path(PRODUCT_ID)))
+            if path.endswith("/purchase"):
+                requests.append((body["installId"], body["secret"], body["clientRequestId"]))
+                self.assertEqual(persisted["purchase"]["clientRequestId"], body["clientRequestId"])
+                if len(requests) == 1:
+                    raise trial.Failure("NETWORK_ERROR", "synthetic response loss")
+            return self._purchase_order()
+        arguments = ["install", "--product", PRODUCT_ID, "--market", "cn"]
+        with mock.patch.object(trial, "api_request", side_effect=api):
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(arguments), 1)
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(arguments), 0)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["nextAction"], "PRESENT_PAYMENT_WIDGET")
+            self.assertTrue(os.path.isfile(result["runtimePath"]))
+            self.assertEqual(requests[0], requests[1])
+            self.assertNotIn(requests[0][1], output.getvalue())
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(arguments), 0)
+            self.assertEqual(json.loads(output.getvalue())["orderNo"], result["orderNo"])
+            self.assertEqual(len(requests), 2)
+            self.assertEqual(stat.S_IMODE(os.stat(trial.purchase_state_path(PRODUCT_ID)).st_mode), 0o600)
+
+    def test_direct_purchase_rejects_foreign_corrupt_and_conflicting_state_before_network(self):
+        state = {"credentialKind": "purchase", "installId": "11111111-1111-4111-8111-111111111111",
+                 "secret": "a" * 64, "productId": PRODUCT_ID, "market": "global"}
+        trial.save_purchase_state(PRODUCT_ID, state)
+        path = trial.purchase_state_path(PRODUCT_ID)
+        with mock.patch.object(trial, "api_request", side_effect=AssertionError("unexpected API")):
+            with self.assertRaises(trial.Failure) as caught:
+                trial.command_install("cn", PRODUCT_ID)
+            self.assertEqual(caught.exception.code, "PURCHASE_IDENTITY_MISMATCH")
+            with open(path, encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle), state)
+            with open(path, "w") as handle:
+                handle.write("{broken")
+            with self.assertRaises(trial.Failure) as caught:
+                trial.command_purchase("cn", PRODUCT_ID)
+            self.assertEqual(caught.exception.code, "PURCHASE_STATE_INVALID")
+            state["market"] = "cn"
+            trial.save_purchase_state(PRODUCT_ID, state)
+            trial.save_trial_state(PRODUCT_ID, {"installId": "another", "secret": "trial-secret", "productId": PRODUCT_ID, "market": "cn"})
+            with self.assertRaises(trial.Failure) as caught:
+                trial.command_install("cn", PRODUCT_ID)
+            self.assertEqual(caught.exception.code, "PURCHASE_IDENTITY_CONFLICT")
+
     def test_purchase_shows_verified_svg_before_wait_and_preserves_retry_identity(self):
         self._install_trial_fixture()
         request_ids = []

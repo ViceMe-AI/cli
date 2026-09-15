@@ -167,7 +167,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"?product=<product-id>", "remainingUses", "PURCHASE_REQUIRED", "widgetPath",
 				"present_files", "imagePath", "imageChatSrc", "local-file://",
 			},
-			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名试用购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "待恢复使用优先", "确认耗尽后停止新任务", "skillMarkdown", "skillDirectory", "pendingUse", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI", "不再扣次", "不要对用户说试用失败或次数白扣"},
+			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名 Skill 购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "待恢复使用优先", "确认耗尽后停止新任务", "skillMarkdown", "skillDirectory", "pendingUse", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI", "不再扣次", "不要对用户说试用失败或次数白扣"},
 		},
 		{
 			name: "charge-for-your-work",
@@ -1997,13 +1997,13 @@ func fencedBlocks(text, language string) []string {
 	return blocks
 }
 
-func TestPaidSkillWithoutTrialUsesAccountPurchaseGuide(t *testing.T) {
+func TestPaidSkillWithoutTrialUsesStandalonePurchaseGuide(t *testing.T) {
 	content, err := fs.ReadFile(cliembed.EmbeddedSkills(), "use-a-skill/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(content)
-	for _, required := range []string{"## 无试用的付费安装", "未提供免费试用", "账号购买和订阅", "不是试用耗尽", "不运行 Python install / purchase", "已有权益则直接安装"} {
+	for _, required := range []string{"## 无试用的付费安装", "未提供免费试用", "Python install", "无需 CLI 或登录", "不是试用耗尽", "已有购买凭证沿用原订单"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("paid entry omitted %q", required)
 		}
@@ -2012,7 +2012,7 @@ func TestPaidSkillWithoutTrialUsesAccountPurchaseGuide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(purchase), "没有试用安装和凭证时不得调用") {
-		t.Fatal("account purchase must not require a trial identity")
+	if !strings.Contains(string(purchase), "## 免 CLI 的直接购买") || !strings.Contains(string(purchase), "runtimePath") {
+		t.Fatal("direct purchase must support resuming before any Skill is installed")
 	}
 }
