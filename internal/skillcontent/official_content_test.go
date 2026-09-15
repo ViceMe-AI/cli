@@ -1019,6 +1019,7 @@ func TestPublishSuccessAsksUpgradeEditionNotFreeFunnel(t *testing.T) {
 		for _, forbidden := range []string{
 			"发布一个更高级的版本",
 			"免费或低价版本让用户先用起来",
+			"要不要设置粉丝订阅",
 		} {
 			if strings.Contains(text, forbidden) {
 				t.Fatalf("%s retained post-publish funnel copy %q", relativePath, forbidden)
@@ -1038,6 +1039,31 @@ func TestPublishSuccessAsksUpgradeEditionNotFreeFunnel(t *testing.T) {
 		if !strings.Contains(text, required) {
 			t.Fatalf("publish workflow omitted paid-upgrade contract %q", required)
 		}
+	}
+}
+
+func TestPublishDoesNotGuideFanSubscription(t *testing.T) {
+	t.Parallel()
+	skill, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	skillText := string(skill)
+	for _, required := range []string{
+		"不得追加订阅选项",
+		"不得询问是否设置粉丝订阅",
+		"当前不要引导用户设置粉丝订阅",
+	} {
+		if !strings.Contains(skillText, required) {
+			t.Fatalf("publish skill omitted subscription-hide contract %q", required)
+		}
+	}
+	workflow, err := fs.ReadFile(cliembed.EmbeddedSkills(), "sell-a-skill/references/workflow.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(workflow), "当前关闭粉丝订阅引导") {
+		t.Fatal("publish workflow omitted the disabled fan-subscription guide")
 	}
 }
 
