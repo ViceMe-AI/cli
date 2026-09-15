@@ -1061,14 +1061,15 @@ type ResolveWebsiteReplicaRequest struct {
 }
 
 type WebsiteReplicaResolution struct {
-	ReplicaID     string                `json:"replicaId"`
-	ShortCode     string                `json:"shortCode"`
-	Title         string                `json:"title"`
-	Summary       string                `json:"summary"`
-	Creator       WebsiteReplicaCreator `json:"creator"`
-	ViceMeWorkURL string                `json:"viceMeWorkUrl"`
-	Product       WebsiteReplicaProduct `json:"product"`
-	Availability  string                `json:"availability"`
+	RedistributionEnabled bool                  `json:"redistributionEnabled,omitempty" api:"optional"`
+	ReplicaID             string                `json:"replicaId"`
+	ShortCode             string                `json:"shortCode"`
+	Title                 string                `json:"title"`
+	Summary               string                `json:"summary"`
+	Creator               WebsiteReplicaCreator `json:"creator"`
+	ViceMeWorkURL         string                `json:"viceMeWorkUrl"`
+	Product               WebsiteReplicaProduct `json:"product"`
+	Availability          string                `json:"availability"`
 }
 
 type CreateWebsiteReplicaSessionRequest struct {

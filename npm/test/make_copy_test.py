@@ -263,6 +263,32 @@ class MakeCopyTest(unittest.TestCase):
                 make_copy.payment_resource(authority, "qrcodegen.py", lambda *_a, **_k: response(200, b"raise Exception('bad')"))
             self.assertEqual(raised.exception.code, "PAYMENT_RESOURCE_INVALID")
 
+    def test_redistribution_requires_account_before_anonymous_checkout(self):
+        for price in [0, 100]:
+            for accepted in [None, price]:
+                value = replica()
+                value["redistributionEnabled"] = True
+                value["product"]["priceCents"] = price
+                with self.subTest(price=price, accepted=accepted), tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary) / "state"), mock.patch.object(make_copy, "ensure_checkout", side_effect=AssertionError("checkout before login")):
+                    with self.assertRaises(make_copy.WorkflowError) as raised:
+                        make_copy.install("https://viceme.cn/alice/site.md", accepted, target_path=str(Path(temporary) / "copy"), request_fn=inspect_request(item=value))
+                    self.assertEqual(raised.exception.code, "WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED")
+                    self.assertEqual(raised.exception.details["nextAction"], "LOGIN_REQUIRED")
+                    self.assertIs(raised.exception.details["orderCreated"], False)
+
+    def test_redistribution_enabled_after_inspection_returns_login_handoff(self):
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary) / "state"), mock.patch.object(make_copy, "ensure_checkout", side_effect=make_copy.WorkflowError("WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED", "Account required")):
+            with self.assertRaises(make_copy.WorkflowError) as raised:
+                make_copy.install("https://viceme.cn/alice/site.md", 100, target_path=str(Path(temporary) / "copy"), request_fn=inspect_request())
+            self.assertEqual(raised.exception.details["nextAction"], "LOGIN_REQUIRED")
+            self.assertIs(raised.exception.details["orderCreated"], False)
+
+    def test_redistribution_flag_must_be_boolean(self):
+        value = replica()
+        value["redistributionEnabled"] = "false"
+        with self.assertRaises(make_copy.WorkflowError):
+            make_copy.assert_resolution(value)
+
     def test_paid_first_install_checks_recovery_then_asks_price_without_checkout(self):
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary) / "state"), mock.patch.object(
             make_copy, "resolve_work", return_value=(f"VICEME-REPLICA:{SHORT_CODE}", replica())
