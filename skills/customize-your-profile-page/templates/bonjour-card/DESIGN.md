@@ -4,7 +4,7 @@ This file is normative. When this template is selected, use the supplied React/V
 
 ## Locked visual structure
 
-- Keep the 48 px translucent top bar and its compact brand mark.
+- Do not render a product-brand header; the two-column workspace begins at the top of the page.
 - Keep the desktop two-column workspace: left profile rail, 1 px vertical divider, right white content canvas. At 760 px and below it becomes one column with a horizontal divider.
 - Keep the left-rail order: rounded-square avatar, name, headline, bio, divider, “主题标签” label, tag pills.
 - Keep the right-canvas order: “个人主页” title, explanatory subtitle, then the Block stack.
