@@ -1170,11 +1170,15 @@ func verifiedReplicaLicenseClaims(ctx context.Context, runtime *Runtime, downloa
 		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_INVALID", "Website Replica redistribution grant is invalid")
 	}
 	if license.Algorithm != "Ed25519" || license.SigningKeyID == "" || license.SigningPublicKey == "" || license.Signature == "" ||
-		claims.SchemaVersion != replicaLicenseTermsVersion || claims.LicenseTermsVersion != replicaLicenseTermsVersion ||
+		claims.SchemaVersion != replicaLicenseTermsVersion ||
 		!replicaUUIDPattern.MatchString(claims.EntitlementID) || claims.ReplicaID != download.ReplicaID ||
 		claims.VersionID != download.VersionID || claims.Version != download.Version || (orderNo != "" && claims.OrderNo != orderNo) ||
 		claims.ArtifactDigest != download.ArtifactDigest {
 		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_IDENTITY_MISMATCH", "Website Replica license does not match the purchased artifact")
+	}
+	// 数据格式仍为 v1；可追溯交付使用独立的 v3 许可条款。
+	if claims.LicenseTermsVersion != replicaLicenseTermsVersion && claims.LicenseTermsVersion != "website-replica-license/v3" {
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_TERMS_UNSUPPORTED", "Website Replica license terms require a compatible CLI")
 	}
 	trustedPublicKey, err := runtime.resolveCommerceTrustKey(ctx, license.SigningKeyID)
 	if err != nil {
