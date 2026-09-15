@@ -260,6 +260,9 @@ func installReplicaAnonymousLocked(
 		if err != nil {
 			return replicaInstallResult{}, err
 		}
+		if resolved.RedistributionEnabled && !exists {
+			return replicaInstallResult{}, replicaRedistributionLoginRequired(resolved.ViceMeWorkURL, absTarget)
+		}
 		if resolved.Product.PriceCents > 0 {
 			return replicaInstallResult{}, output.Confirmation("REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "show the source entitlement and ask whether to support the creator").WithDetails(map[string]any{"nextAction": "CONFIRM_PRICE", "replicaCode": code, "productId": resolved.Product.ID, "title": resolved.Title, "currency": resolved.Product.Currency, "totalAmountCents": resolved.Product.PriceCents, "workUrl": resolved.ViceMeWorkURL, "target": absTarget})
 		}
@@ -353,6 +356,12 @@ func installReplicaAnonymousLocked(
 		if resolved.ShortCode != shortCode || resolved.Title != resolved.Product.Title {
 			return replicaInstallResult{}, invalidReplicaResponse("Website Replica resolution does not match the supplied code")
 		}
+		if resolved.RedistributionEnabled {
+			if err := store.retire(state); err != nil {
+				return replicaInstallResult{}, err
+			}
+			return replicaInstallResult{}, replicaRedistributionLoginRequired(resolved.ViceMeWorkURL, absTarget)
+		}
 		if resolved.Product.PriceCents != acceptedPriceCents {
 			return replicaInstallResult{}, output.Confirmation(
 				"REPLICA_PRICE_CHANGED",
@@ -423,6 +432,12 @@ func installReplicaAnonymousLocked(
 			OrderClientRequestID: state.OrderRequestID, DownloadRecoverySecret: state.DownloadRecoverySecret, Locale: state.Locale,
 		})
 		if err != nil {
+			if output.AsError(err).Subtype == "WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED" {
+				if retireErr := store.retire(state); retireErr != nil {
+					return replicaInstallResult{}, retireErr
+				}
+				return replicaInstallResult{}, replicaRedistributionLoginRequired(code, absTarget)
+			}
 			return replicaInstallResult{}, err
 		}
 		state.OrderNo = checkout.OrderNo
@@ -1460,4 +1475,14 @@ func requireReplicaTargetParentIdentity(parent, expected string) error {
 
 func replicaPaymentWidgetData(state replicaPurchaseState) paymentWidgetData {
 	return paymentWidgetData{Title: state.ProductTitle, AmountCents: &state.PriceCents, Currency: state.Currency, PaymentMethodLabel: "微信支付", Status: "PENDING", ExpiresAt: state.OrderExpiresAt, Locale: state.Locale}
+}
+
+func replicaRedistributionLoginRequired(work string, target string) error {
+	details := map[string]any{"nextAction": "LOGIN_REQUIRED", "target": target, "orderCreated": false}
+	if strings.HasPrefix(work, "VICEME-REPLICA:") {
+		details["replicaCode"] = work
+	} else {
+		details["workUrl"] = work
+	}
+	return output.Policy("WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED", "Redistribution rights require account authorization before purchase").WithDetails(details).WithHint("use creator-tools to authorize the CLI account, then continue the same work without --anonymous; a followWork login page does not authorize the CLI")
 }

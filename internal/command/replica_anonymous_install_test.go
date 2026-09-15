@@ -676,3 +676,48 @@ func TestAnonymousDiscoveryChoiceDoesNotCreateOrderBeforePriceConsent(t *testing
 		t.Fatal("unconfirmed choice installed source")
 	}
 }
+
+func TestReplicaRedistributionRequiresAccountBeforeAnonymousPurchase(t *testing.T) {
+	for _, accepted := range []bool{false, true} {
+		for _, race := range []bool{false, true} {
+			t.Run(strconv.FormatBool(accepted)+"/switch-after-inspect="+strconv.FormatBool(race), func(t *testing.T) {
+				const code = "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST"
+				const sid = "44444444-4444-4444-8444-444444444444"
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					resolved := replicaResolutionResponse("11111111-1111-4111-8111-111111111111", "VMR-ABCDEFGHIJKLMNOPQRST")
+					resolved["redistributionEnabled"] = !race
+					switch r.URL.Path {
+					case "/v1/website-replicas/resolve":
+						writeJSONResponse(w, resolved)
+					case "/v1/website-replica-sessions":
+						if !race {
+							t.Error("created session before required login")
+						}
+						writeJSONResponse(w, map[string]any{"sessionId": sid, "token": strings.Repeat("a", 43), "expiresAt": time.Now().UTC().Add(time.Hour).Format(time.RFC3339), "recovered": false, "replica": resolved})
+					case "/v1/website-replica-sessions/" + sid + "/checkout":
+						if !race {
+							t.Error("created checkout before required login")
+						}
+						w.WriteHeader(http.StatusForbidden)
+						writeJSONResponse(w, map[string]any{"statusCode": 403, "code": "WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED", "message": "Account required", "requestId": "test"})
+					default:
+						t.Errorf("unexpected endpoint %s", r.URL.Path)
+						w.WriteHeader(500)
+					}
+				}))
+				defer server.Close()
+				home := t.TempDir()
+				var out bytes.Buffer
+				args := []string{"replica", "install", code, "--anonymous", "--target", filepath.Join(home, "site")}
+				if accepted || race {
+					args = append(args, "--accept-price-cents", "990")
+				}
+				deps := Dependencies{Out: &out, ErrOut: &bytes.Buffer{}, HTTPClient: server.Client(), Store: securestore.NewMemory(), Environment: skillcontent.Environment{Home: home, ConfigDir: filepath.Join(home, "config")}, Region: config.RegionCN, APIBaseURL: server.URL}
+				exit := Execute(args, deps)
+				if exit != output.ExitPolicy || !strings.Contains(out.String(), `"nextAction": "LOGIN_REQUIRED"`) || !strings.Contains(out.String(), `"orderCreated": false`) {
+					t.Fatalf("expected login handoff: %d %s", exit, out.String())
+				}
+			})
+		}
+	}
+}

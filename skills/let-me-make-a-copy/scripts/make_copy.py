@@ -270,6 +270,7 @@ def assert_resolution(value: Any) -> Dict[str, Any]:
     product = value.get("product", {}) if valid else {}
     valid = bool(
         valid
+        and ("redistributionEnabled" not in value or type(value["redistributionEnabled"]) is bool)
         and UUID_PATTERN.fullmatch(str(value.get("replicaId", "")))
         and re.fullmatch(r"VMR-[A-Z0-9]{20}", str(value.get("shortCode", "")))
         and isinstance(value.get("title"), str)
@@ -1556,6 +1557,15 @@ def inspect(
     }
 
 
+def redistribution_login_required(authority: Authority, target: Path) -> WorkflowError:
+    return WorkflowError(
+        "WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED",
+        "Redistribution rights require account authorization before purchase",
+        {"nextAction": "LOGIN_REQUIRED", "workUrl": authority.work_url,
+         "target": str(target), "orderCreated": False},
+    )
+
+
 def install(work_url: str, accepted_price_cents: Optional[int] = None, *,
             invitation_flow_id: Optional[str] = None, **kwargs: Any) -> Dict[str, Any]:
     flow = InvitationFlow(authority_for_work_url(work_url), invitation_flow_id, kwargs.get("request_fn", http_request))
@@ -1782,6 +1792,8 @@ def _install(
                 **complete_install(authority, state, store, download, request_fn),
                 "nextAction": "DEPLOY",
             }
+        if replica.get("redistributionEnabled") is True and not state.get("orderNo") and not state.get("sessionId"):
+            raise redistribution_login_required(authority, target)
         if accepted_price_cents is None and replica["product"]["priceCents"] > 0 and not (payment_presented and state.get("orderNo")):
             raise price_confirmation()
         if accepted_price_cents is not None and not (payment_presented and state.get("orderNo")) and replica["product"]["priceCents"] != accepted_price_cents:
@@ -1801,7 +1813,12 @@ def _install(
         if payment_presented and state.get("orderNo") and state.get("sessionId") and state.get("sessionToken"):
             checkout = {"orderNo": state["orderNo"], "status": "PENDING"}
         else:
-            checkout = ensure_checkout(authority, state, store, request_fn)
+            try:
+                checkout = ensure_checkout(authority, state, store, request_fn)
+            except WorkflowError as error:
+                if error.code == "WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED" and not state.get("orderNo"):
+                    raise redistribution_login_required(authority, target) from error
+                raise
         if checkout["status"] == "PAID":
             if payment_result_first and state.get("priceCents", 0) > 0:
                 return support_result(authority, state, replica, {"status": "PAID"}, request_fn)
