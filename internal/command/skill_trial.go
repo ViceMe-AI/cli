@@ -697,6 +697,12 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			}
 			if directory, manifest, _, lookupErr := skillcontent.FindRuntimeInstall(runtime.deps.Environment, "auto", productID, runtime.apiBaseURL, skillDirectory); lookupErr != nil {
 				return output.Internal("SKILL_LOCAL_LOOKUP_FAILED", "could not read the selected host installation", lookupErr)
+			} else if directory != "" && manifest.Kind == "purchase" && manifest.Market == string(runtime.region) {
+				result := skillReadyResult{Ready: true, ProductID: productID, Kind: "purchase", localSkillResources: skillResourcesAt(directory, manifest.Runner)}
+				if err := attachReadyTrialSnapshot(command.Context(), runtime, productID, &result); err != nil {
+					return err
+				}
+				return runtime.business(result)
 			} else if directory != "" && manifest.Kind == "owned" && manifest.Market == string(runtime.region) {
 				return runtime.business(skillTrialUseResult{
 					ProductID: productID, Allowed: true, Owned: true,

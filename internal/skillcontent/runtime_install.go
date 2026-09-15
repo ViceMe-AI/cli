@@ -114,7 +114,7 @@ func ReadRuntimeIdentity(directory, productID, apiBaseURL string) (RuntimeManife
 	if err != nil || !skill.Mode().IsRegular() {
 		return manifest, false
 	}
-	return manifest, manifest.Kind == "trial" || manifest.Kind == "owned" || manifest.Kind == "free"
+	return manifest, manifest.Kind == "trial" || manifest.Kind == "owned" || manifest.Kind == "free" || manifest.Kind == "purchase"
 }
 
 func readRuntimeInstall(directory, productID, apiBaseURL string) (RuntimeManifest, bool) {
@@ -126,7 +126,10 @@ func readRuntimeInstall(directory, productID, apiBaseURL string) (RuntimeManifes
 	if manifest.Kind == "trial" {
 		required = append(required, "references/viceme-runtime.md", TrialBodyPath)
 	}
-	if manifest.Kind != "trial" && manifest.Kind != "free" && manifest.Kind != "owned" {
+	if manifest.Kind == "purchase" {
+		required = append(required, "SKILL.md")
+	}
+	if manifest.Kind != "trial" && manifest.Kind != "free" && manifest.Kind != "owned" && manifest.Kind != "purchase" {
 		return manifest, false
 	}
 	for _, relative := range required {

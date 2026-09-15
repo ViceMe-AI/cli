@@ -1748,6 +1748,114 @@ class InstallFlowTestCase(unittest.TestCase):
             code = trial.run(["purchase", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy", *arguments])
         return code, json.loads(output.getvalue())
 
+    def test_no_trial_install_precedes_order_and_recovers_lost_create(self):
+        requests = []
+        def api(market, method, path, body=None):
+            self.assertNotIn("trial-grants", path)
+            self.assertNotIn("trial-purchase", path)
+            if path.endswith("/access"):
+                access = self._api(market, method, path, body)
+                access["trial"] = None
+                access["purchaseAvailable"] = True
+                return access
+            if path.startswith("/v1/products/"):
+                return {"id": PRODUCT_ID, "market": "CN", "title": "Test paid Skill", "summary": "Public intro", "slug": "public-name"}
+            persisted = trial.load_purchase_state("cn", PRODUCT_ID)
+            self.assertEqual(persisted["installId"], body["installId"])
+            self.assertEqual(persisted["secret"], body["secret"])
+            self.assertFalse(os.path.exists(trial.trial_state_path(PRODUCT_ID)))
+            if path.endswith("/purchase"):
+                requests.append((body["installId"], body["secret"], body["clientRequestId"]))
+                self.assertEqual(persisted["purchase"]["clientRequestId"], body["clientRequestId"])
+                if len(requests) == 1:
+                    raise trial.Failure("NETWORK_ERROR", "synthetic response loss")
+            return self._purchase_order()
+        arguments = ["install", "--product", PRODUCT_ID, "--market", "cn"]
+        with mock.patch.object(trial, "api_request", side_effect=api):
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(arguments), 0)
+            entry = json.loads(output.getvalue())
+            self.assertEqual(entry["kind"], "purchase")
+            self.assertFalse(os.path.exists(trial.purchase_state_path(PRODUCT_ID)))
+            self.assertEqual(requests, [])
+            self.assertTrue(os.path.isfile(entry["skillPath"]))
+            arguments[0] = "purchase"
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(arguments), 1)
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(arguments), 0)
+            result = json.loads(output.getvalue())
+            self.assertEqual(result["runtimePath"], entry["runtimePath"])
+            self.assertEqual(result["nextAction"], "PRESENT_PAYMENT_WIDGET")
+            self.assertTrue(os.path.isfile(result["runtimePath"]))
+            self.assertEqual(requests[0], requests[1])
+            self.assertNotIn(requests[0][1], output.getvalue())
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(arguments), 0)
+            self.assertEqual(json.loads(output.getvalue())["orderNo"], result["orderNo"])
+            self.assertEqual(len(requests), 2)
+            self.assertEqual(stat.S_IMODE(os.stat(trial.purchase_state_path(PRODUCT_ID)).st_mode), 0o600)
+
+    def test_purchase_entry_reinstall_and_interrupted_paid_restore_keep_original_directory(self):
+        access = self._api("cn", "GET", "/v1/skills/%s/access" % PRODUCT_ID)
+        access["trial"] = None
+        metadata = {"id": PRODUCT_ID, "market": "CN", "title": "Paid example", "summary": "Public summary", "slug": "public-name-" * 10}
+        with mock.patch.object(trial, "api_request", return_value=metadata), \
+                mock.patch.object(trial, "http_download", side_effect=AssertionError("unpaid install downloaded content")):
+            for _ in range(2):
+                with redirect_stdout(io.StringIO()) as out:
+                    trial.install_purchase_entry("cn", PRODUCT_ID, "workbuddy", access)
+                entry = json.loads(out.getvalue())
+        root = os.path.dirname(entry["skillPath"])
+        self.assertLessEqual(len(os.path.basename(root)), 64)
+        with open(entry["skillPath"], "rb") as handle:
+            before = handle.read()
+        formal = {"SKILL.md": (b"---\nname: private-package-name\n---\npaid content\n", 0o644),
+                  "scripts/formal.py": (b"# formal support file\n", 0o644)}
+        trial.prepare_runtime_files(formal, "cn", PRODUCT_ID, "formal-release", "owned")
+        real_replace = os.replace
+        def fail_support(source, destination):
+            if destination.endswith(os.path.join("scripts", "formal.py")):
+                raise PermissionError("test denied support-file activation")
+            return real_replace(source, destination)
+        with trial.ProductLock(PRODUCT_ID), mock.patch.object(trial.os, "replace", side_effect=fail_support):
+            with self.assertRaises(PermissionError):
+                trial.install_owned_to_roots(formal, "private-package-name", PRODUCT_ID, "formal-release", "workbuddy")
+        with open(entry["skillPath"], "rb") as handle:
+            self.assertEqual(handle.read(), before)
+        self.assertFalse(os.path.exists(os.path.join(os.path.dirname(root), "private-package-name")))
+        with trial.ProductLock(PRODUCT_ID):
+            result = trial.install_owned_to_roots(formal, "private-package-name", PRODUCT_ID, "formal-release", "workbuddy")
+        self.assertEqual(list(result), [(root, "")])
+        with open(entry["skillPath"], "rb") as handle:
+            self.assertEqual(handle.read(), formal["SKILL.md"][0])
+        with mock.patch.object(trial, "api_request", return_value=metadata), redirect_stdout(io.StringIO()) as out:
+            trial.install_purchase_entry("cn", PRODUCT_ID, "workbuddy", access)
+        self.assertTrue(json.loads(out.getvalue())["owned"], "stale gate install cannot downgrade an owned installation")
+
+    def test_direct_purchase_rejects_foreign_corrupt_and_conflicting_state_before_network(self):
+        state = {"credentialKind": "purchase", "installId": "11111111-1111-4111-8111-111111111111",
+                 "secret": "a" * 64, "productId": PRODUCT_ID, "market": "global"}
+        trial.save_purchase_state(PRODUCT_ID, state)
+        path = trial.purchase_state_path(PRODUCT_ID)
+        with mock.patch.object(trial, "api_request", side_effect=AssertionError("unexpected API")):
+            with self.assertRaises(trial.Failure) as caught:
+                trial.command_install("cn", PRODUCT_ID)
+            self.assertEqual(caught.exception.code, "PURCHASE_IDENTITY_MISMATCH")
+            with open(path, encoding="utf-8") as handle:
+                self.assertEqual(json.load(handle), state)
+            with open(path, "w") as handle:
+                handle.write("{broken")
+            with self.assertRaises(trial.Failure) as caught:
+                trial.command_purchase("cn", PRODUCT_ID)
+            self.assertEqual(caught.exception.code, "PURCHASE_STATE_INVALID")
+            state["market"] = "cn"
+            trial.save_purchase_state(PRODUCT_ID, state)
+            trial.save_trial_state(PRODUCT_ID, {"installId": "another", "secret": "trial-secret", "productId": PRODUCT_ID, "market": "cn"})
+            with self.assertRaises(trial.Failure) as caught:
+                trial.command_install("cn", PRODUCT_ID)
+            self.assertEqual(caught.exception.code, "PURCHASE_IDENTITY_CONFLICT")
+
     def test_purchase_shows_verified_svg_before_wait_and_preserves_retry_identity(self):
         self._install_trial_fixture()
         request_ids = []
