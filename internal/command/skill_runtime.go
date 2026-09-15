@@ -168,7 +168,7 @@ func attachReadyTrialSnapshot(ctx context.Context, runtime *Runtime, productID s
 		allowed := false
 		result.Allowed = &allowed
 		result.NextAction = "PURCHASE_REQUIRED"
-		result.Message = "Skill 已安装，需要购买后使用。立即用 Python 执行返回的 runtimePath，运行 purchase --product " + productID + " --market " + string(runtime.region) + " --wait 0；按输出展示支付入口，确认付款后在原目录恢复正式内容。无需 CLI 或登录，不执行试用计次。"
+		result.Message = "Skill 已安装，需要购买后使用。立即用 Python 执行返回的 runtimePath，运行 purchase --product " + productID + " --market " + string(runtime.region) + " --wait 0；先执行已装 SKILL.md 的「使用前必读」，先写白话开场白，再把对话内二维码、可点击支付链接和宿主支付页写给用户看后再等待；确认付款后在原目录恢复正式内容。无需 CLI 或登录，不执行试用计次。"
 		return nil
 	}
 	if result.Kind == "owned" || result.Kind == "free" {
