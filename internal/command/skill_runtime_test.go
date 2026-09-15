@@ -2,8 +2,10 @@ package command
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -408,5 +410,69 @@ func TestClosedTrialOrderDoesNotHijackInstall(t *testing.T) {
 	}
 	if code, result, _ = executeSkillTrialCommand(t, state.server, home, store, "skill", "use", downloadableProductID); code != 0 || result["data"].(map[string]any)["allowed"] != true {
 		t.Fatalf("closed install blocked available use: %#v", result)
+	}
+}
+
+func TestPurchaseEntryReadyAndUseDoNotConsumeTrial(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	state := newSkillTrialTestServer(t)
+	defer state.server.Close()
+	home, store := t.TempDir(), securestore.NewMemory()
+	code, result, _ := executeSkillTrialCommand(t, state.server, home, store, "skill", "install", downloadableProductID, "--agent", "workbuddy")
+	if code != 0 {
+		t.Fatalf("fixture install failed: %#v", result)
+	}
+	installed := result["data"].(map[string]any)
+	skillPath := installed["skillPath"].(string)
+	runtimePath := filepath.Join(filepath.Dir(skillPath), ".viceme", "runtime.json")
+	raw, err := os.ReadFile(runtimePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest skillcontent.RuntimeManifest
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	manifest.Kind, manifest.Runner = "purchase", "python"
+	content := []byte("---\nname: purchase-entry\ndescription: Paid Skill\n---\nPurchase required\n")
+	guide := []byte("# 购买、支付与正式版恢复\n")
+	manifest.Files["SKILL.md"] = fmt.Sprintf("%x", sha256.Sum256(content))
+	manifest.Files["references/purchase.md"] = fmt.Sprintf("%x", sha256.Sum256(guide))
+	if err := os.WriteFile(skillPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(filepath.Dir(skillPath), "references"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(skillPath), "references", "purchase.md"), guide, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ = json.Marshal(manifest)
+	if err := os.WriteFile(runtimePath, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before := len(state.grantRequests) + len(state.useRequests) + len(state.trialPurchaseRequests)
+	for _, operation := range []string{"ready", "use"} {
+		code, result, _ = executeSkillTrialCommand(t, state.server, home, store, "skill", operation, downloadableProductID, "--skill-dir", filepath.Dir(skillPath))
+		if code != 0 {
+			t.Fatalf("%s failed: %#v", operation, result)
+		}
+		data := result["data"].(map[string]any)
+		if data["ready"] != true || data["allowed"] != false || data["kind"] != "purchase" || data["nextAction"] != "PURCHASE_REQUIRED" || data["runtimePath"] != installed["runtimePath"] {
+			t.Fatalf("%s lost the local purchase entry: %#v", operation, data)
+		}
+		if data["remainingUses"] != nil || data["trialExhausted"] == true {
+			t.Fatalf("purchase was classified as trial: %#v", data)
+		}
+	}
+	if len(state.grantRequests)+len(state.useRequests)+len(state.trialPurchaseRequests) != before {
+		t.Fatal("purchase entry invoked trial API")
+	}
+	if err := os.WriteFile(skillPath, []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, result, _ = executeSkillTrialCommand(t, state.server, home, store, "skill", "ready", downloadableProductID, "--agent", "workbuddy")
+	if code != 0 || result["data"].(map[string]any)["ready"] != false {
+		t.Fatalf("damaged purchase entry passed readiness: %#v", result)
 	}
 }
