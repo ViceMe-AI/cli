@@ -11,7 +11,7 @@ description: 安装和使用可下载的 ViceMe Skill。适用于作品链接安
 
 作品页明确所选版本「未提供免费试用」时，仍先走作品页的 Python install 入口，无需 CLI 或登录。脚本先安装带购买入口和本地运行依赖的 Skill，返回 kind=purchase、allowed=false、nextAction=PURCHASE_REQUIRED 和 runtimePath。此时目录已存在，尚未取得正式内容，也未申请试用次数；这是未购买，不是试用耗尽，不展示试用上手卡。
 
-kind=purchase 时同一轮用返回的 runtimePath 执行 purchase --wait 0，再按 [购买与恢复](references/purchase.md) 的「免 CLI 的直接购买」展示二维码和官方收银台链接，用同一脚本执行 purchase --wait 60 等待付款。付款确认、权益有效后，在原 Skill 目录覆盖为正式内容，再读取实际 SKILL.md 继续原任务。已有购买凭证沿用原订单；已有待恢复试用使用先恢复原 use，不更换身份。
+kind=purchase 时同一轮先读取已装 SKILL.md 的「使用前必读」，用返回的 runtimePath 执行 purchase --wait 0，再按该必读指向的购买展示指引：先写白话开场白，再完成可见支付入口。只打开预览或工具成功、正文没有二维码和链接，不算已展示，不得开始 purchase --wait 60。付款确认、权益有效后，在原 Skill 目录覆盖为正式内容，再读取实际 SKILL.md 继续原任务。已有购买凭证沿用原订单；已有待恢复试用使用先恢复原 use，不更换身份。
 
 Python 优先规则适用于免费、试用和无试用付费版。只有 Python 不可用且没有既有脚本购买身份时，才使用 CLI 的账号购买和订阅；严格已购链接仍遵循 install=owned 的账号校验。
 

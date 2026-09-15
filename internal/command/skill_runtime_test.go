@@ -435,8 +435,16 @@ func TestPurchaseEntryReadyAndUseDoNotConsumeTrial(t *testing.T) {
 	}
 	manifest.Kind, manifest.Runner = "purchase", "python"
 	content := []byte("---\nname: purchase-entry\ndescription: Paid Skill\n---\nPurchase required\n")
+	guide := []byte("# 购买、支付与正式版恢复\n")
 	manifest.Files["SKILL.md"] = fmt.Sprintf("%x", sha256.Sum256(content))
+	manifest.Files["references/purchase.md"] = fmt.Sprintf("%x", sha256.Sum256(guide))
 	if err := os.WriteFile(skillPath, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(filepath.Dir(skillPath), "references"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(skillPath), "references", "purchase.md"), guide, 0o644); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ = json.Marshal(manifest)

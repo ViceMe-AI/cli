@@ -73,6 +73,22 @@ class TrialScriptTestCase(unittest.TestCase):
     def test_slugify_matches_cli_semantics(self):
         self.assertEqual(trial.slugify("Canghe Article Illustrator!"), "canghe-article-illustrator")
 
+    def test_purchase_entry_skill_markdown_is_a_hard_gate(self):
+        text = trial.purchase_entry_skill_markdown(
+            "demo-33709ab2", "Demo：简介（购买后使用）", PRODUCT_ID, "cn")
+        self.assertIn("## 使用前必读", text)
+        self.assertIn(trial.PURCHASE_MARKER + " product=" + PRODUCT_ID, text)
+        self.assertIn(trial.PURCHASE_END, text)
+        self.assertIn(trial.PURCHASE_GUIDE_PATH, text)
+        self.assertNotIn("# 购买后使用", text)
+        self.assertNotIn("imageChatSrc", text)
+        self.assertNotIn("present_files", text)
+        for required in ("不算已展示", "--wait 0", "--wait 60", "开场白"):
+            self.assertIn(required, text)
+        gate = text.split("## 使用前必读", 1)[1]
+        self.assertLess(gate.find("必须先读取并执行"), gate.find("改成 `--wait 60`"))
+        self.assertLess(gate.find("开场白"), gate.find("二维码"))
+
     def test_local_file_chat_src_uses_workbuddy_protocol(self):
         self.assertEqual(
             trial.local_file_chat_src("/Users/a/.viceme/payment-presentations/wechat-aa.png"),
@@ -488,7 +504,8 @@ class TrialScriptTestCase(unittest.TestCase):
                     instructions = trial.payment_display_instructions()
                     for required in ("当前宿主明确支持", "![微信支付二维码](<imagePath>)",
                                      "支持本地 HTML", "另一个独立获准的通道",
-                                     "只有图片和页面都无法展示时", "仅交付路径时不要启动等待"):
+                                     "只有图片和页面都无法展示时", "仅交付路径时不要启动等待",
+                                     "开场白必须出现在二维码"):
                         self.assertIn(required, instructions)
                     exhausted = trial.exhausted_purchase_message()
                     self.assertNotIn("present_files", exhausted)
@@ -1810,6 +1827,18 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertLessEqual(len(os.path.basename(root)), 64)
         with open(entry["skillPath"], "rb") as handle:
             before = handle.read()
+        text = before.decode()
+        self.assertIn("## 使用前必读", text)
+        self.assertIn(trial.PURCHASE_END, text)
+        self.assertIn(trial.PURCHASE_GUIDE_PATH, text)
+        self.assertIn("不算已展示", text)
+        self.assertIn("开场白", text)
+        self.assertNotIn("imageChatSrc", text)
+        with open(os.path.join(root, trial.PURCHASE_GUIDE_PATH), encoding="utf-8") as handle:
+            guide = handle.read()
+        self.assertIn("## 通用支付展示", guide)
+        self.assertIn("imageChatSrc", guide)
+        self.assertIn("checkoutUrl", guide)
         formal = {"SKILL.md": (b"---\nname: private-package-name\n---\npaid content\n", 0o644),
                   "scripts/formal.py": (b"# formal support file\n", 0o644)}
         trial.prepare_runtime_files(formal, "cn", PRODUCT_ID, "formal-release", "owned")

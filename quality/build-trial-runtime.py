@@ -24,6 +24,7 @@ def artifacts():
         "widgets/payment.html": ROOT / "widgets/payment.html",
         "guides/widgets.md": ROOT / "widgets/README.md",
         "guides/trial-usage.md": ROOT / "skills/use-a-skill/references/trial-usage.md",
+        "guides/purchase.md": ROOT / "skills/use-a-skill/references/purchase.md",
     }
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
