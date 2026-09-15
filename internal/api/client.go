@@ -1605,17 +1605,45 @@ func (work *MerchantWork) validateAPIResponse() error {
 	return nil
 }
 
-func (website *WebsiteWork) validateAPIResponse() error {
-	if website == nil || len(website.DomainASCII) < 1 || len(website.DomainASCII) > 253 ||
-		website.VerificationVersion < 1 || !validWebsiteOwnershipStatus(website.OwnershipStatus) {
-		return errors.New("Website Work response is missing required fields")
+// UnmarshalJSON preserves the distinction between explicit null origins and an
+// incomplete response. The API requires both fields even for origin-free Works.
+func (website *WebsiteWork) UnmarshalJSON(data []byte) error {
+	type plainWebsiteWork WebsiteWork
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
 	}
-	normalizedOrigin, ok := normalizeCommerceApplicationOrigin(website.CanonicalOrigin)
-	if !ok || website.CanonicalOrigin != normalizedOrigin {
-		return errors.New("Website Work response contains an invalid canonical origin")
+	if fields["canonicalOrigin"] == nil || fields["domainAscii"] == nil {
+		return errors.New("Website Work response is missing origin fields")
+	}
+	var decoded plainWebsiteWork
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*website = WebsiteWork(decoded)
+	return nil
+}
+
+func (website *WebsiteWork) validateAPIResponse() error {
+	if website == nil || website.VerificationVersion < 1 || !validWebsiteOwnershipStatus(website.OwnershipStatus) {
+		return errors.New("Website Work response is missing required fields")
 	}
 	if website.VerifiedAt != nil && !validTimestamp(*website.VerifiedAt) {
 		return errors.New("Website Work response contains an invalid verifiedAt")
+	}
+	if (website.CanonicalOrigin == nil) != (website.DomainASCII == nil) ||
+		(website.CanonicalOrigin == nil && website.OwnershipStatus == "VERIFIED") {
+		return errors.New("Website Work response contains inconsistent origin fields")
+	}
+	if website.CanonicalOrigin == nil {
+		return nil
+	}
+	if len(*website.DomainASCII) < 1 || len(*website.DomainASCII) > 253 {
+		return errors.New("Website Work response contains an invalid domain")
+	}
+	normalizedOrigin, ok := normalizeCommerceApplicationOrigin(*website.CanonicalOrigin)
+	if !ok || *website.CanonicalOrigin != normalizedOrigin {
+		return errors.New("Website Work response contains an invalid canonical origin")
 	}
 	return nil
 }

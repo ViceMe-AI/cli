@@ -160,8 +160,8 @@ type WorkOwner struct {
 }
 
 type WebsiteWork struct {
-	CanonicalOrigin     string  `json:"canonicalOrigin"`
-	DomainASCII         string  `json:"domainAscii"`
+	CanonicalOrigin     *string `json:"canonicalOrigin"`
+	DomainASCII         *string `json:"domainAscii"`
 	OwnershipStatus     string  `json:"ownershipStatus"`
 	VerificationVersion int     `json:"verificationVersion"`
 	VerifiedAt          *string `json:"verifiedAt"`
