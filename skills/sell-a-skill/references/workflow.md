@@ -128,7 +128,11 @@ GitHub 来源直接运行一次 `viceme skill publish --github ...`。公开仓�
 
 每个修改或完成 Draft 的成功 CLI 结果都包含新 `presentation`。始终用 `presentation.openUrl` 打开稳定 HTML 作品预览页（`/{handle}/{slug}/preview`），不切换为 Markdown、一次性入口或 `fallbackUrl`。该地址长期有效、无需登录、页面只读；不要先要求用户在浏览器登录。打开链接的工具返回成功只证明入口已打开，未观察到页面内容时不能声称预览已正常显示。草稿更新通过 revision 轮询呈现。发布后的追加询问只遵循主线第 7 步，只问一次，不再重复追问。
 
+当前关闭粉丝订阅引导：发布成功后不要询问是否设置订阅，也不要把订阅加入选项。若用户已经设置完成，对用户只说「已生效」，不得写 `ACTIVE` 或「已 ACTIVE」。创作者已有订阅计划（`viceme subscription show` 返回 status=ACTIVE）时不得自行改价。
+
+<!--
 用户明确要求设置粉丝订阅时，先说明：“订阅有效期内，订阅者可以安装和更新你的全部付费 Skill；到期后不能重装或更新，但本地已安装内容不会删除”，再询问月价并运行 `viceme subscription set --price-minor <fen>`。设置成功后对用户只说「已生效」，不得写 `ACTIVE` 或「已 ACTIVE」。发布成功后不得自动追加订阅询问；创作者已有订阅计划（`viceme subscription show` 返回 status=ACTIVE）时不得自行改价。
+-->
 
 ## 更新草稿文件
 
