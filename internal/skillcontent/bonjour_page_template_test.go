@@ -57,6 +57,8 @@ func TestBonjourCardIsAReadOnlyAgentDrivenPreview(t *testing.T) {
 		}
 	}
 	for _, forbidden := range []string{
+		"<header className=\"topbar\">",
+		"Bonjour Card</a>",
 		"添加 Block",
 		"编辑个人资料",
 		"补充作品信息",
@@ -118,7 +120,7 @@ func TestBonjourCardIsAReadOnlyAgentDrivenPreview(t *testing.T) {
 			t.Fatalf("read-only preview omitted supplied visual rule %q", required)
 		}
 	}
-	for _, forbidden := range []string{".add-control", ".block-edit", ".block-picker", ".dialog-footer", ".delete-button"} {
+	for _, forbidden := range []string{".topbar", ".brand", ".brand-mark", ".add-control", ".block-edit", ".block-picker", ".dialog-footer", ".delete-button"} {
 		if strings.Contains(style, forbidden) {
 			t.Fatalf("read-only preview retained editor style %q", forbidden)
 		}
