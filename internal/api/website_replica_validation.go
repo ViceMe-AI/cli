@@ -253,6 +253,9 @@ func (response *WebsiteReplicaPublication) validateAPIResponse() error {
 }
 
 func validateWebsiteReplicaPublicationResult(result WebsiteReplicaPublicationResult) error {
+	if result.TraceabilityMode != nil && !validStringEnum(*result.TraceabilityMode, "OFF", "BASIC", "STRONG") {
+		return errors.New("Website Replica Publication traceability mode is invalid")
+	}
 	if !validAbsoluteURL(result.WorkURL) || !zodUUIDPattern.MatchString(result.VersionID) || !validPositiveSafeInteger(result.Version) ||
 		!websiteReplicaCodePattern.MatchString(result.ShortCode) || result.Instruction != "VICEME-REPLICA:"+result.ShortCode ||
 		validateWebsiteReplicaProduct(result.Product) != nil ||

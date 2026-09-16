@@ -1,0 +1,87 @@
+{
+  "id": "12121212-1212-4212-8212-121212121212",
+  "clientRequestId": "00000001-0000-4000-8000-000000000001",
+  "market": "CN",
+  "merchantAccountId": "00000002-0000-4000-8000-000000000001",
+  "workId": "00000003-0000-4000-8000-000000000001",
+  "replicaId": "00000004-0000-4000-8000-000000000001",
+  "status": "PUBLISHED",
+  "statusUrl": "https://viceme.cn/replica-maker/works/publications/12121212-1212-4212-8212-121212121212",
+  "allowedActions": [],
+  "retry": {
+    "automaticRetries": 0,
+    "maxAutomaticRetries": 3,
+    "nextAttemptAt": null
+  },
+  "allowAutomaticDegradation": false,
+  "traceabilityEnabled": true,
+  "hosting": {
+    "requested": true,
+    "status": "ACTIVE",
+    "activePageRelease": {
+      "id": "00000005-0000-4000-8000-000000000001",
+      "version": 1
+    },
+    "repair": null,
+    "latestRepair": null
+  },
+  "rollback": {
+    "activePair": {
+      "id": "00000006-0000-4000-8000-000000000001",
+      "replicaVersion": {
+        "id": "00000007-0000-4000-8000-000000000001",
+        "version": 1
+      },
+      "workRevisionId": "00000008-0000-4000-8000-000000000001",
+      "pageRelease": {
+        "id": "00000005-0000-4000-8000-000000000001",
+        "version": 1
+      },
+      "createdAt": "2026-09-01T12:34:57.000Z"
+    },
+    "availablePairs": []
+  },
+  "priceCents": 10,
+  "source": {
+    "fileName": "source.zip",
+    "contentType": "application/zip",
+    "sizeBytes": 810464,
+    "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "status": "ACTIVATED",
+    "verifiedAt": "2026-09-01T12:34:57.000Z"
+  },
+  "page": {
+    "fileName": "page.zip",
+    "contentType": "application/zip",
+    "sizeBytes": 319515,
+    "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "status": "ACTIVATED",
+    "verifiedAt": "2026-09-01T12:34:57.000Z"
+  },
+  "failure": null,
+  "result": {
+    "workUrl": "https://viceme.cn/replica-maker?mode=consumer&view=work&workSlug=replica-site",
+    "traceabilityMode": "BASIC",
+    "versionId": "00000007-0000-4000-8000-000000000001",
+    "version": 1,
+    "shortCode": "VMR-1234567890ABCDEF1234",
+    "instruction": "VICEME-REPLICA:VMR-1234567890ABCDEF1234",
+    "product": {
+      "id": "00000009-0000-4000-8000-000000000001",
+      "skuId": "00000010-0000-4000-8000-000000000001",
+      "title": "Replica",
+      "currency": "CNY",
+      "priceCents": 10
+    },
+    "pageRelease": {
+      "id": "00000005-0000-4000-8000-000000000001",
+      "version": 1
+    },
+    "publishedAt": "2026-09-01T12:34:57.000Z"
+  },
+  "submittedAt": "2026-09-01T12:34:57.000Z",
+  "failedAt": null,
+  "cancelledAt": null,
+  "createdAt": "2026-09-01T12:34:57.000Z",
+  "updatedAt": "2026-09-01T12:34:57.000Z"
+}
