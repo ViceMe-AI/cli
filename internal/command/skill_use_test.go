@@ -116,7 +116,7 @@ func TestCanonicalWorkURLSelectsTheFreeEditionByDefault(t *testing.T) {
 			writeJSONResponse(writer, map[string]any{
 				"creator": map[string]any{"handle": "creator"},
 				"work": map[string]any{
-					"canonicalPath": "/creator/example-skill",
+					"canonicalPath": "/creator?mode=consumer&view=work&workSlug=example-skill",
 					"products": []any{
 						map[string]any{"id": transactionalProductID, "minimumPriceCents": 0, "isFree": false, "installKind": nil, "activeRelease": nil, "edition": nil},
 						map[string]any{"id": paidProductID, "currency": "CNY", "minimumPriceCents": 300, "maximumPriceCents": 300, "isFree": false, "installKind": "PURCHASE_REQUIRED", "activeRelease": map[string]any{"id": downloadableReleaseID, "artifactDigest": strings.Repeat("b", 64), "fileName": "pro.zip"}, "edition": map[string]any{"key": "pro", "title": "Pro", "sortOrder": 0, "highlights": []string{"Advanced workflow", "Priority templates"}}},
@@ -124,7 +124,7 @@ func TestCanonicalWorkURLSelectsTheFreeEditionByDefault(t *testing.T) {
 					},
 				},
 			})
-		case "/v1/skills/" + downloadableProductID + "/access":
+		case "/v1/skills/" + downloadableProductID + "/access", "/v1/skills/" + paidProductID + "/access":
 			requestedAccessPath = request.URL.Path
 			writeJSONResponse(writer, skillAccessFixture(true, false, "a1", ""))
 		default:
@@ -133,17 +133,22 @@ func TestCanonicalWorkURLSelectsTheFreeEditionByDefault(t *testing.T) {
 	}))
 	defer server.Close()
 
-	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(),
-		"skill", "access", server.URL+"/creator/example-skill",
-	)
-	if exit != 0 || envelope["ok"] != true {
-		t.Fatalf("canonical Work URL did not resolve: exit=%d envelope=%#v", exit, envelope)
-	}
-	if requestedAccessPath != "/v1/skills/"+downloadableProductID+"/access" {
-		t.Fatalf("canonical Work URL selected the wrong edition: %q", requestedAccessPath)
+	for _, params := range []string{"", "&mode=consumer&view=work", "&mode=consumer", "&view=work"} {
+		for _, product := range []string{"", paidProductID} {
+			target := server.URL + "/creator.md?workSlug=example-skill" + params
+			expected := downloadableProductID
+			if product != "" {
+				target += "&product=" + product
+				expected = product
+			}
+			exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "access", target)
+			if exit != 0 || envelope["ok"] != true || requestedAccessPath != "/v1/skills/"+expected+"/access" {
+				t.Fatalf("Work URL selected wrong edition: target=%s path=%s exit=%d envelope=%#v", target, requestedAccessPath, exit, envelope)
+			}
+		}
 	}
 	detailExit, detail := executeSkillUseCommand(t, server, t.TempDir(),
-		"skill", "detail", server.URL+"/creator/example-skill",
+		"skill", "detail", server.URL+"/creator?workSlug=example-skill",
 	)
 	if detailExit != 0 || detail["ok"] != true {
 		t.Fatalf("canonical Work detail failed: exit=%d envelope=%#v", detailExit, detail)
@@ -170,7 +175,7 @@ func TestCanonicalWorkURLSelectsTheFreeEditionByDefault(t *testing.T) {
 				selector = transactionalProductID
 			}
 			exit, failure := executeSkillUseCommand(t, server, t.TempDir(),
-				"skill", "access", server.URL+"/creator/example-skill?product="+selector,
+				"skill", "access", server.URL+"/creator?workSlug=example-skill&product="+selector,
 			)
 			if exit == 0 || failure["ok"] != false {
 				t.Fatalf("invalid explicit selector unexpectedly fell back: %#v", failure)
@@ -309,7 +314,7 @@ func TestStrictOwnedURLSkipsPublicWorkAndPublicTrial(t *testing.T) {
 	}))
 	defer server.Close()
 
-	target := server.URL + "/creator/delisted-skill.md?product=" + downloadableProductID + "&install=owned"
+	target := server.URL + "/creator.md?workSlug=delisted-skill&product=" + downloadableProductID + "&install=owned"
 	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", target, "--agent", "agents")
 	if exit != 0 || envelope["ok"] != true {
 		t.Fatalf("strict owned reinstall failed: exit=%d envelope=%#v", exit, envelope)
@@ -341,7 +346,7 @@ func TestStrictOwnedURLNeverFallsBackForTheWrongAccount(t *testing.T) {
 	}))
 	defer server.Close()
 
-	target := server.URL + "/creator/skill.md?product=" + downloadableProductID + "&install=owned"
+	target := server.URL + "/creator.md?workSlug=skill&product=" + downloadableProductID + "&install=owned"
 	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", target)
 	if exit == 0 || envelope["ok"] != false {
 		t.Fatalf("wrong account unexpectedly installed through strict owned intent: %#v", envelope)
@@ -361,7 +366,7 @@ func TestStrictOwnedURLRequiresLoginWithoutTouchingPublicEndpoints(t *testing.T)
 	}))
 	defer server.Close()
 
-	target := server.URL + "/creator/skill.md?product=" + downloadableProductID + "&install=owned"
+	target := server.URL + "/creator.md?workSlug=skill&product=" + downloadableProductID + "&install=owned"
 	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", target)
 	if exit == 0 || envelope["ok"] != false {
 		t.Fatalf("anonymous strict owned install unexpectedly succeeded: %#v", envelope)
@@ -385,7 +390,7 @@ func TestStrictOwnedURLValidatesIntentAndProductExactly(t *testing.T) {
 		"?product=" + downloadableProductID + "&product=" + downloadableProductID + "&install=owned",
 	}
 	for _, query := range queries {
-		exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", server.URL+"/creator/skill.md"+query)
+		exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", server.URL+"/creator.md?workSlug=skill&"+strings.TrimPrefix(query, "?"))
 		if exit == 0 || envelope["ok"] != false {
 			t.Fatalf("invalid owned URL unexpectedly succeeded: query=%s envelope=%#v", query, envelope)
 		}
@@ -625,14 +630,14 @@ func TestOfficialWorkUsesBundledInstallReferenceAndHonorsLifecycle(t *testing.T)
 			var shopDownloads atomic.Int32
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path == "/v1/public/creators/viceme/works/sell-a-skill" {
-					writeJSONResponse(w, map[string]any{"creator": map[string]any{"handle": "viceme", "isOfficial": true}, "work": map[string]any{"kind": "SKILL", "slug": "sell-a-skill", "status": test.status, "canonicalPath": "/viceme/sell-a-skill", "products": []any{}, "officialInstall": map[string]any{"kind": "CLI_BUNDLE", "skillName": "sell-a-skill", "installerDocumentUrl": "https://s3.viceme.cn/start/agent-install.md"}}})
+					writeJSONResponse(w, map[string]any{"creator": map[string]any{"handle": "viceme", "isOfficial": true}, "work": map[string]any{"kind": "SKILL", "slug": "sell-a-skill", "status": test.status, "canonicalPath": "/viceme?mode=consumer&view=work&workSlug=sell-a-skill", "products": []any{}, "officialInstall": map[string]any{"kind": "CLI_BUNDLE", "skillName": "sell-a-skill", "installerDocumentUrl": "https://s3.viceme.cn/start/agent-install.md"}}})
 					return
 				}
 				shopDownloads.Add(1)
 				http.NotFound(w, r)
 			}))
 			defer server.Close()
-			exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", test.command, "/viceme/sell-a-skill")
+			exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", test.command, "/viceme?workSlug=sell-a-skill")
 			if test.errorCode == "" {
 				if exit != 0 || envelope["ok"] != true {
 					t.Fatalf("official reference failed: %d %#v", exit, envelope)

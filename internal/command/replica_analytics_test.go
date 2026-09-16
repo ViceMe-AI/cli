@@ -28,7 +28,10 @@ func TestReplicaAnalyticsReadsLatestOwnerMarkdown(t *testing.T) {
 				t.Error("缺少创作者身份")
 			}
 			writeJSONResponse(w, map[string]any{"workId": workID})
-		case "/alice/site.md":
+		case "/alice.md":
+			if r.URL.Query().Get("mode") != "creator" || r.URL.Query().Get("view") != "work" || r.URL.Query().Get("workSlug") != "site" {
+				t.Error("owner Markdown route lost private context")
+			}
 			if r.Header.Get("Authorization") != "Bearer "+token || !strings.Contains(r.Header.Get("Cache-Control"), "no-store") {
 				t.Error("MD 必须带身份重新读取")
 			}
@@ -44,7 +47,7 @@ func TestReplicaAnalyticsReadsLatestOwnerMarkdown(t *testing.T) {
 	t.Setenv(processAccessTokenEnvironment, token)
 	run := analyticsTestRunner(t, server)
 	for _, expected := range []string{"付费订单: 1", "付费订单: 2"} {
-		code, out := run("replica", "analytics", server.URL+"/alice/site")
+		code, out := run("replica", "analytics", server.URL+"/alice?workSlug=site")
 		if code != 0 || !strings.Contains(string(out), expected) || bytes.Contains(out, []byte(token)) {
 			t.Fatalf("经营数据读取不正确: %d %s", code, out)
 		}
@@ -112,7 +115,7 @@ func TestReplicaAnalyticsDenialDoesNotReadPublicMarkdownAsOwner(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv(processAccessTokenEnvironment, "vme_cli_1234567890123456789012345678901234567890123")
-	code, out := analyticsTestRunner(t, server)("replica", "analytics", server.URL+"/alice/site.md")
+	code, out := analyticsTestRunner(t, server)("replica", "analytics", server.URL+"/alice.md?workSlug=site")
 	if code == 0 || markdownReads != 0 || !bytes.Contains(out, []byte("WEBSITE_REPLICA_OWNER_ANALYTICS_FORBIDDEN")) {
 		t.Fatalf("无权查询时错误读取公共文档: %d %s", code, out)
 	}
@@ -140,7 +143,10 @@ func TestReplicaAnalyticsRejectsUnusableMarkdownAndRedirects(t *testing.T) {
 					writeJSONResponse(w, map[string]any{"creator": map[string]any{"handle": "alice"}, "work": map[string]any{"id": workID, "kind": "WEBSITE", "slug": "site"}})
 				case "/v1/website-replicas/owner-analytics/works/" + workID:
 					writeJSONResponse(w, map[string]any{"workId": workID})
-				case "/alice/site.md":
+				case "/alice.md":
+					if r.URL.Query().Get("mode") != "creator" || r.URL.Query().Get("view") != "work" || r.URL.Query().Get("workSlug") != "site" {
+						t.Error("owner Markdown route lost private context")
+					}
 					w.Header().Set("Content-Type", scenario.contentType)
 					w.Header().Set("Location", "/another-site.md")
 					w.WriteHeader(scenario.status)
@@ -153,7 +159,7 @@ func TestReplicaAnalyticsRejectsUnusableMarkdownAndRedirects(t *testing.T) {
 			}))
 			defer server.Close()
 			t.Setenv(processAccessTokenEnvironment, token)
-			code, out := analyticsTestRunner(t, server)("replica", "analytics", server.URL+"/alice/site")
+			code, out := analyticsTestRunner(t, server)("replica", "analytics", server.URL+"/alice?workSlug=site")
 			if code == 0 || redirectReads != 0 || bytes.Contains(out, []byte(token)) {
 				t.Fatalf("不应接受无效 MD 或转发凭据: %d %s", code, out)
 			}
@@ -173,7 +179,7 @@ func TestReplicaAnalyticsRequiresLoginBeforeReadingPrivateData(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
-	code, out := analyticsTestRunner(t, server)("replica", "analytics", server.URL+"/alice/site")
+	code, out := analyticsTestRunner(t, server)("replica", "analytics", server.URL+"/alice?workSlug=site")
 	if code == 0 || privateReads != 0 || !bytes.Contains(out, []byte("not_logged_in")) {
 		t.Fatalf("未登录时不应查询经营数据: %d %s", code, out)
 	}

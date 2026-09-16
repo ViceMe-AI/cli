@@ -21,12 +21,12 @@ import (
 	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/privatepath"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
+	"github.com/ViceMe-AI/cli/internal/workurl"
 	"github.com/spf13/cobra"
 )
 
 var (
 	pageCreatorHandlePattern   = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$`)
-	pageWorkSlugPattern        = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 	pageUUIDPattern            = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	pageReservedCreatorHandles = map[string]struct{}{
 		"api": {}, "admin": {}, "auth": {}, "agent": {}, "works": {}, "orders": {},
@@ -34,9 +34,6 @@ var (
 		"hosted-checkout": {}, "payment-result": {}, "cli": {}, "creator": {},
 		"merchant-onboarding": {}, "wishlist": {}, "me": {}, "run": {}, "share": {},
 		"public-view": {}, "terms": {}, "privacy": {},
-	}
-	pageReservedWorkSlugs = map[string]struct{}{
-		"works": {}, "skills": {}, "manage": {}, "posts": {}, "about": {},
 	}
 )
 
@@ -564,30 +561,27 @@ func resolvePageCustomizationMerchant(ctx context.Context, runtime *Runtime, req
 
 func parsePageTargetURL(value string) (api.PageCustomizationTarget, error) {
 	targetURL, err := url.ParseRequestURI(strings.TrimSpace(value))
-	if err != nil || targetURL.Scheme == "" || targetURL.Host == "" || targetURL.User != nil || targetURL.RawQuery != "" || targetURL.Fragment != "" || (targetURL.Scheme != "https" && !(targetURL.Scheme == "http" && isLoopbackHost(targetURL.Hostname()))) {
-		return api.PageCustomizationTarget{}, output.Validation("PAGE_TARGET_INVALID", "--target must be an HTTPS ViceMe creator or Work URL without query or fragment; loopback HTTP is allowed for development")
+	if err != nil || targetURL.Scheme == "" || targetURL.Host == "" || targetURL.User != nil || targetURL.Fragment != "" || (targetURL.Scheme != "https" && !(targetURL.Scheme == "http" && isLoopbackHost(targetURL.Hostname()))) {
+		return api.PageCustomizationTarget{}, output.Validation("PAGE_TARGET_INVALID", "--target must be an HTTPS ViceMe creator or Work URL without a fragment; loopback HTTP is allowed for development")
 	}
-	segments := strings.Split(strings.Trim(targetURL.EscapedPath(), "/"), "/")
-	for index, segment := range segments {
-		decoded, decodeErr := url.PathUnescape(segment)
-		if decodeErr != nil || decoded != segment {
-			return api.PageCustomizationTarget{}, output.Validation("PAGE_TARGET_INVALID", "--target path must use canonical unescaped route segments")
+	query, queryErr := url.ParseQuery(targetURL.RawQuery)
+	if queryErr != nil {
+		return api.PageCustomizationTarget{}, output.Validation("PAGE_TARGET_INVALID", "--target contains invalid query parameters")
+	}
+	if query.Has("workSlug") {
+		handle, slug, ok := workurl.PublicParts(targetURL)
+		_, reserved := pageReservedCreatorHandles[handle]
+		if !ok || reserved {
+			return api.PageCustomizationTarget{}, output.Validation("PAGE_TARGET_INVALID", "--target must identify a public Work route")
 		}
-		segments[index] = decoded
+		return api.PageCustomizationTarget{Type: "WORK", CreatorHandle: handle, WorkSlug: slug}, nil
 	}
-	_, creatorReserved := pageReservedCreatorHandles[segments[0]]
-	if len(segments) < 1 || len(segments) > 2 || len(segments[0]) < 2 || len(segments[0]) > 32 || !pageCreatorHandlePattern.MatchString(segments[0]) || creatorReserved {
-		return api.PageCustomizationTarget{}, output.Validation("PAGE_TARGET_INVALID", "--target must identify one canonical creator or Work route")
+	handle := strings.TrimPrefix(targetURL.Path, "/")
+	_, reserved := pageReservedCreatorHandles[handle]
+	if targetURL.RawQuery != "" || targetURL.EscapedPath() != targetURL.Path || len(handle) < 2 || len(handle) > 32 || !pageCreatorHandlePattern.MatchString(handle) || reserved {
+		return api.PageCustomizationTarget{}, output.Validation("PAGE_TARGET_INVALID", "--target must identify one public creator or Work route")
 	}
-	target := api.PageCustomizationTarget{Type: "CREATOR", CreatorHandle: segments[0]}
-	if len(segments) == 2 {
-		_, workReserved := pageReservedWorkSlugs[segments[1]]
-		if len(segments[1]) < 2 || len(segments[1]) > 64 || !pageWorkSlugPattern.MatchString(segments[1]) || workReserved {
-			return api.PageCustomizationTarget{}, output.Validation("PAGE_TARGET_INVALID", "--target contains an invalid Work slug")
-		}
-		target.Type = "WORK"
-		target.WorkSlug = segments[1]
-	}
+	target := api.PageCustomizationTarget{Type: "CREATOR", CreatorHandle: handle}
 	return target, nil
 }
 

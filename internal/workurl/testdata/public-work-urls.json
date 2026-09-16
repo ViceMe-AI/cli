@@ -1,0 +1,256 @@
+[
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&mode=consumer",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&view=work",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&mode=consumer&view=work",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.cn/viceme.md?workSlug=use-a-skill",
+    "handle": "viceme",
+    "slug": "use-a-skill",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.cn/viceme.md?workSlug=use-a-skill&mode=consumer",
+    "handle": "viceme",
+    "slug": "use-a-skill",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.cn/viceme.md?workSlug=use-a-skill&view=work",
+    "handle": "viceme",
+    "slug": "use-a-skill",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.cn/viceme.md?workSlug=use-a-skill&mode=consumer&view=work",
+    "handle": "viceme",
+    "slug": "use-a-skill",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.ai/alice.md?workSlug=site",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.ai/alice.md?workSlug=site&mode=consumer",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.ai/alice.md?workSlug=site&view=work",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.ai/alice.md?workSlug=site&mode=consumer&view=work",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.ai/viceme.md?workSlug=use-a-skill",
+    "handle": "viceme",
+    "slug": "use-a-skill",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.ai/viceme.md?workSlug=use-a-skill&mode=consumer",
+    "handle": "viceme",
+    "slug": "use-a-skill",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.ai/viceme.md?workSlug=use-a-skill&view=work",
+    "handle": "viceme",
+    "slug": "use-a-skill",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.ai/viceme.md?workSlug=use-a-skill&mode=consumer&view=work",
+    "handle": "viceme",
+    "slug": "use-a-skill",
+    "valid": true
+  },
+  {
+    "url": "https://dev.viceme.cn/alice.md?workSlug=site",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://dev.viceme.cn/alice.md?workSlug=site&mode=consumer",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://dev.viceme.cn/alice.md?workSlug=site&view=work",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://dev.viceme.cn/alice.md?workSlug=site&mode=consumer&view=work",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://dev.viceme.cn/viceme.md?workSlug=use-a-skill",
+    "handle": "viceme",
+    "slug": "use-a-skill",
+    "valid": true
+  },
+  {
+    "url": "https://dev.viceme.cn/viceme.md?workSlug=use-a-skill&mode=consumer",
+    "handle": "viceme",
+    "slug": "use-a-skill",
+    "valid": true
+  },
+  {
+    "url": "https://dev.viceme.cn/viceme.md?workSlug=use-a-skill&view=work",
+    "handle": "viceme",
+    "slug": "use-a-skill",
+    "valid": true
+  },
+  {
+    "url": "https://dev.viceme.cn/viceme.md?workSlug=use-a-skill&mode=consumer&view=work",
+    "handle": "viceme",
+    "slug": "use-a-skill",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&product=11111111-1111-4111-8111-111111111111",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&product=11111111-1111-4111-8111-111111111111&install=owned",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&utm_source=copy#readme",
+    "handle": "alice",
+    "slug": "site",
+    "valid": true
+  },
+  {
+    "url": "https://viceme.cn/alice/site.md",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/zh-CN/alice.md?workSlug=site",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=..",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=about",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site%2fother",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice%2fextra.md?workSlug=site",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site%ZZ",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&mode=creator",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&mode=",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&view=discover",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&view=",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&workSlug=site",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&mode=consumer&mode=consumer",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&view=work&view=work",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&product=one&product=two",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&action=preview",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&type=skill",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&orderNo=123",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site&listingId=123",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice.md?workSlug=site;view=work",
+    "valid": false
+  },
+  {
+    "url": "https://viceme.cn/alice/.md?workSlug=site",
+    "valid": false
+  }
+]
