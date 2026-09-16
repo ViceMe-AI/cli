@@ -331,7 +331,7 @@ func writeBindingJSON(filename string, value any) error {
 		return output.Internal("SKILL_BINDING_SAVE_FAILED", "could not encode the Skill binding", err)
 	}
 	data = append(data, '\n')
-	if err := privatefile.Write(filename, data, ".binding-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(filename, data, ".binding-*.tmp"); err != nil {
 		return bindingWriteError(filepath.Dir(filename), "SKILL_BINDING_SAVE_FAILED", "could not write the Skill binding", err)
 	}
 	return nil
@@ -341,7 +341,20 @@ func bindingWriteError(directory, code, message string, err error) error {
 	if errors.Is(err, fs.ErrPermission) {
 		return output.Policy("SKILL_BINDING_PERMISSION_REQUIRED", "ViceMe cannot write the stable Skill binding from this process").WithCause(err).WithDetails(map[string]any{"directory": directory}).WithHint("allow this process to write the reported directory, then retry the exact same command")
 	}
-	return output.Internal(code, message, err)
+	details := map[string]any{"directory": directory}
+	if err != nil {
+		details["reason"] = firstLine(err.Error())
+	}
+	return output.Internal(code, message, err).WithDetails(details).WithHint("the local security software may be intercepting access to the reported directory; allow the ViceMe CLI there, then retry the exact same command")
+}
+
+// firstLine bounds a wrapped filesystem error chain to its outermost line so
+// diagnostics stay readable and never leak stack-shaped text.
+func firstLine(text string) string {
+	if index := strings.IndexByte(text, '\n'); index >= 0 {
+		return text[:index]
+	}
+	return text
 }
 
 func endpointKey(origin string) string {

@@ -24,6 +24,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/replicapreview"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/semver"
@@ -241,6 +242,22 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	}
 	if err := runtime.selectProfile(resolvedProfile.Name); err != nil {
 		return nil, nil, err
+	}
+	// Security software on Windows can rewrite the hardened ACL of freshly
+	// staged files; non-credential state then completes through a plain write.
+	// Surface that degradation on stderr so operators can tell a tolerated
+	// antivirus product apart from a genuinely hostile environment.
+	privatefile.DegradedWriteReporter = func(filename string, strictErr error) {
+		if dependencies.ErrOut == nil {
+			return
+		}
+		reason := ""
+		if strictErr != nil {
+			if line, _, _ := strings.Cut(strictErr.Error(), "\n"); line != "" {
+				reason = " (" + line + ")"
+			}
+		}
+		fmt.Fprintf(dependencies.ErrOut, "warning: wrote %s without the hardened private permission profile%s; the state is still durable, and security software is the usual cause\n", filename, reason)
 	}
 	root := &cobra.Command{
 		Use:           "viceme",

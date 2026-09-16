@@ -168,7 +168,7 @@ func CommitActiveGeneration(configDir string, target ActiveGeneration) error {
 		return err
 	}
 	data = append(data, '\n')
-	return privatefile.Write(filepath.Join(configDir, activeGenerationFile), data, ".active-generation-*.tmp")
+	return privatefile.WriteTolerant(filepath.Join(configDir, activeGenerationFile), data, ".active-generation-*.tmp")
 }
 
 func validateActiveGeneration(generation ActiveGeneration) error {

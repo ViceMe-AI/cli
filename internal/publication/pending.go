@@ -209,7 +209,7 @@ func (s PendingStore) Save(value Pending) error {
 		return output.Internal("PUBLICATION_PENDING_SAVE_FAILED", "could not encode publication recovery state", err)
 	}
 	data = append(data, '\n')
-	if err := privatefile.Write(s.filename(value.PublicationID), data, ".pending-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(s.filename(value.PublicationID), data, ".pending-*.tmp"); err != nil {
 		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not write publication recovery state", err)
 	}
 	return nil
@@ -271,7 +271,7 @@ func writePrivateJSON(filename string, value any) error {
 		return output.Internal("PUBLICATION_RECOVERY_SAVE_FAILED", "could not encode publication recovery state", err)
 	}
 	data = append(data, '\n')
-	if err := privatefile.Write(filename, data, ".recovery-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(filename, data, ".recovery-*.tmp"); err != nil {
 		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not write publication recovery state", err)
 	}
 	return nil
