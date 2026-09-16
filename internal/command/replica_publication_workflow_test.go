@@ -164,7 +164,7 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 	for _, projectStorage := range []bool{false, true} {
 		for _, pageDirectory := range []string{".", "public site"} {
 			t.Run(fmt.Sprintf("project-storage-%t/page-%s", projectStorage, pageDirectory), func(t *testing.T) {
-				testReplicaPublicationStorageLifecycle(t, projectStorage, pageDirectory, config.RegionCN, false)
+				testReplicaPublicationStorageLifecycle(t, projectStorage, pageDirectory, config.RegionCN, false, false)
 			})
 		}
 	}
@@ -173,7 +173,15 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 func TestReplicaPublishGlobalFreeHostedLifecycle(t *testing.T) {
 	for _, projectStorage := range []bool{false, true} {
 		t.Run(fmt.Sprint(projectStorage), func(t *testing.T) {
-			testReplicaPublicationStorageLifecycle(t, projectStorage, ".", config.RegionGlobal, false)
+			testReplicaPublicationStorageLifecycle(t, projectStorage, ".", config.RegionGlobal, false, false)
+		})
+	}
+}
+
+func TestReplicaPublishCombinesPreviewAndPublicationConfirmation(t *testing.T) {
+	for _, projectStorage := range []bool{false, true} {
+		t.Run(fmt.Sprint(projectStorage), func(t *testing.T) {
+			testReplicaPublicationStorageLifecycle(t, projectStorage, ".", config.RegionCN, false, true)
 		})
 	}
 }
@@ -201,14 +209,14 @@ func rewriteGlobalReplicaTestResponse(response map[string]any) {
 	}
 }
 
-func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, pageDirectory string, region config.Region, queryRoute bool) {
+func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, pageDirectory string, region config.Region, queryRoute, previewPresented bool) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
-	market, price, workURL := "CN", 990, "https://viceme.cn/replica-maker/replica-site"
+	market, price, workURL := "CN", 990, "https://viceme.cn/replica-maker?workSlug=replica-site"
 	if region == config.RegionGlobal {
-		market, price, workURL = "GLOBAL", 0, "https://viceme.ai/replica-maker/replica-site"
+		market, price, workURL = "GLOBAL", 0, "https://viceme.ai/replica-maker?workSlug=replica-site"
 	}
 	if queryRoute {
-		workURL = strings.ReplaceAll(workURL, "/replica-maker/replica-site", "/replica-maker?mode=consumer&view=work&workSlug=replica-site")
+		workURL = strings.ReplaceAll(workURL, "/replica-maker?workSlug=replica-site", "/replica-maker?mode=consumer&view=work&workSlug=replica-site")
 	}
 	writeResponse := func(w http.ResponseWriter, response map[string]any) {
 		if region == config.RegionGlobal {
@@ -417,6 +425,9 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 		"--canonical-origin", "HTTPS://Example.COM:443/",
 	}
 
+	if previewPresented {
+		arguments = append(arguments, "--preview-reviewed=false", "--preview-presented")
+	}
 	if projectStorage {
 		arguments = append(arguments, "--state-project", project)
 		original := privatefile.ReplaceFile
@@ -474,7 +485,26 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 	var submittedOutput bytes.Buffer
 	dependencies.Out = &submittedOutput
 	confirmedArguments := append(append([]string{}, arguments...), "--confirm", confirmationVersion)
-	for _, changed := range [][]string{{"--page-dir", "unreviewed-page"}, {"--page-entry", "other.html"}} {
+	if previewPresented {
+		preview := review["preview"].(map[string]any)
+		if preview["verified"] != false || preview["presented"] != true || preview["reviewedBy"] != nil {
+			t.Fatalf("presentation was mislabeled as approval: %#v", preview)
+		}
+		if !strings.Contains(details["confirmCommand"].(string), "--preview-reviewed") ||
+			strings.Contains(details["resumeCommand"].(string), "--preview-reviewed") ||
+			strings.Contains(details["confirmCommand"].(string), "--confirm-unverified-replica-only") {
+			t.Fatalf("confirmation and preparation were not separated: %#v", details)
+		}
+		if exit := Execute(confirmedArguments, dependencies); exit != output.ExitConfirmation ||
+			!strings.Contains(submittedOutput.String(), "REPLICA_PUBLICATION_CONFIRMATION_CHANGED") {
+			t.Fatalf("unapproved preview was published: exit=%d %s", exit, submittedOutput.String())
+		}
+		if createCalls != 1 || len(uploaded) != 0 || len(uploadedPage) != 0 {
+			t.Fatal("presentation alone authorized a remote upload")
+		}
+		confirmedArguments = append(confirmedArguments, "--preview-reviewed")
+	}
+	for _, changed := range [][]string{{"--page-dir", "unreviewed-page"}, {"--page-entry", "other.html"}, {"--preview-url", "http://127.0.0.1:4173/changed"}} {
 		submittedOutput.Reset()
 		if exit := Execute(append(append([]string{}, confirmedArguments...), changed...), dependencies); exit != output.ExitConfirmation || !strings.Contains(submittedOutput.String(), "REPLICA_PUBLICATION_CONFIRMATION_CHANGED") {
 			t.Fatalf("changed page selection reused confirmation: exit=%d output=%s", exit, submittedOutput.String())
@@ -608,7 +638,7 @@ func TestReplicaPublishRejectsUploadCapabilityBeforeLocalFinalConfirmation(t *te
 					"target": map[string]any{
 						"resolution": "CREATE", "merchantAccountId": replicaPublicationTestMerchantID,
 						"workId": replicaPublicationTestWorkID, "replicaId": replicaPublicationTestReplicaID,
-						"productId": nil, "workUrl": "https://viceme.cn/replica-maker/replica-site",
+						"productId": nil, "workUrl": "https://viceme.cn/replica-maker?workSlug=replica-site",
 					},
 					"publication": replicaPublicationForSource(now, "DRAFT", "WAITING_UPLOAD", source),
 					"nextAction":  test.nextAction,
@@ -873,7 +903,7 @@ func TestReplicaPublishRequiresFreshConfirmationAfterSlugChanges(t *testing.T) {
 		}
 		target := input["target"].(map[string]any)
 		expectedSlug := "replica-site"
-		workURL := "https://viceme.cn/replica-maker/replica-site"
+		workURL := "https://viceme.cn/replica-maker?workSlug=replica-site"
 		if createCalls == 2 {
 			expectedSlug = "replica-site-2"
 			workURL += "-2"
@@ -927,7 +957,7 @@ func TestReplicaPublicationReadyTargetMustMatchConfirmedRequest(t *testing.T) {
 	productID := replicaPublicationTestProductID
 	review := api.WebsiteReplicaPublicationReview{
 		Resolution: "UPDATE", MerchantAccountID: replicaPublicationTestMerchantID,
-		WorkURL: "https://viceme.cn/replica-maker/replica-site",
+		WorkURL: "https://viceme.cn/replica-maker?workSlug=replica-site",
 	}
 	confirmation := &api.WebsiteReplicaPublicationConfirmationChallenge{Review: review}
 	request := api.CreateWebsiteReplicaPublicationRequest{Target: api.WebsiteReplicaPublicationTarget{
@@ -970,7 +1000,7 @@ func TestReplicaPublicationReadyTargetMustMatchConfirmedRequest(t *testing.T) {
 	if !replicaResolvedTargetMatchesRequest(newTarget, newConfirmation, newRequest) {
 		t.Fatal("matching new-Work slug was rejected")
 	}
-	newTarget.WorkURL = "https://viceme.cn/replica-maker/different-site"
+	newTarget.WorkURL = "https://viceme.cn/replica-maker?workSlug=different-site"
 	newConfirmation.Review.WorkURL = newTarget.WorkURL
 	if replicaResolvedTargetMatchesRequest(newTarget, newConfirmation, newRequest) {
 		t.Fatal("resolved new-Work slug that differs from the request was accepted")
@@ -985,7 +1015,7 @@ func TestReplicaPublicationRecoveryRejectsResultMetadataMismatch(t *testing.T) {
 		SourceArchive: replicacontent.SourceArchiveSummary{Digest: digest, SizeBytes: 1024},
 		Publication:   &replicapublication.PublicationReference{ID: replicaPublicationTestID},
 		Confirmation: &api.WebsiteReplicaPublicationConfirmationChallenge{Review: api.WebsiteReplicaPublicationReview{
-			MerchantAccountID: replicaPublicationTestMerchantID, WorkURL: "https://viceme.cn/replica-maker/replica-site",
+			MerchantAccountID: replicaPublicationTestMerchantID, WorkURL: "https://viceme.cn/replica-maker?workSlug=replica-site",
 		}},
 	}
 	publication := api.WebsiteReplicaPublication{
@@ -993,7 +1023,7 @@ func TestReplicaPublicationRecoveryRejectsResultMetadataMismatch(t *testing.T) {
 		MerchantAccountID: replicaPublicationTestMerchantID,
 		Source:            api.WebsiteReplicaPublicationSource{Digest: digest, SizeBytes: 1024},
 		Result: &api.WebsiteReplicaPublicationResult{
-			WorkURL: "https://viceme.cn/replica-maker/replica-site",
+			WorkURL: "https://viceme.cn/replica-maker?workSlug=replica-site",
 			Product: api.WebsiteReplicaProduct{Title: "Replica title", Currency: "CNY", PriceCents: 990},
 		},
 	}
@@ -1344,7 +1374,7 @@ func testReplicaResumeContinuesInterruptedUploadFromAuthoritativeSourceStateStor
 				"target": map[string]any{
 					"resolution": "CREATE", "merchantAccountId": replicaPublicationTestMerchantID,
 					"workId": replicaPublicationTestWorkID, "replicaId": replicaPublicationTestReplicaID,
-					"productId": nil, "workUrl": "https://viceme.cn/replica-maker/replica-site",
+					"productId": nil, "workUrl": "https://viceme.cn/replica-maker?workSlug=replica-site",
 				},
 				"publication": replicaPublicationForSource(now, "DRAFT", "WAITING_UPLOAD", source),
 				"nextAction":  map[string]any{"kind": "AUTHORIZE_SOURCE_UPLOAD", "publicationId": replicaPublicationTestID},
@@ -1465,7 +1495,7 @@ func testReplicaCancelRemovesRecoverableDraftAndFrozenSourceStorage(t *testing.T
 				"target": map[string]any{
 					"resolution": "CREATE", "merchantAccountId": replicaPublicationTestMerchantID,
 					"workId": replicaPublicationTestWorkID, "replicaId": replicaPublicationTestReplicaID,
-					"productId": nil, "workUrl": "https://viceme.cn/replica-maker/replica-site",
+					"productId": nil, "workUrl": "https://viceme.cn/replica-maker?workSlug=replica-site",
 				},
 				"publication": replicaPublicationForSource(now, "DRAFT", "WAITING_UPLOAD", source),
 				"nextAction":  map[string]any{"kind": "AUTHORIZE_SOURCE_UPLOAD", "publicationId": replicaPublicationTestID},
@@ -1790,7 +1820,7 @@ func testReplicaRecoveryCompletesStableBindingAndUpdateDefaultsCurrentPrice(t *t
 				"target": map[string]any{
 					"resolution": "UPDATE", "merchantAccountId": replicaPublicationTestMerchantID,
 					"workId": replicaPublicationTestWorkID, "replicaId": replicaPublicationTestReplicaID,
-					"productId": replicaPublicationTestProductID, "workUrl": "https://viceme.cn/replica-maker/replica-site",
+					"productId": replicaPublicationTestProductID, "workUrl": "https://viceme.cn/replica-maker?workSlug=replica-site",
 				},
 				"publication": publication,
 				"nextAction":  map[string]any{"kind": "AUTHORIZE_SOURCE_UPLOAD", "publicationId": updatePublicationID},
@@ -2156,7 +2186,7 @@ func TestReplicaFinalReviewGetsTheFullChallengeTTL(t *testing.T) {
 			Resolution: "CREATE", MerchantAccountID: replicaPublicationTestMerchantID,
 			MerchantDisplayName: "Replica Studio", CreatorAccountID: replicaPublicationTestCreatorID,
 			CreatorHandle: "replica-maker", CreatorDisplayName: "Replica Maker",
-			ProjectFingerprint: fingerprint, WorkURL: "https://viceme.cn/replica-maker/replica-site",
+			ProjectFingerprint: fingerprint, WorkURL: "https://viceme.cn/replica-maker?workSlug=replica-site",
 			Title: "Replica title", Summary: "Replica summary", PriceCents: 990, Source: source,
 		},
 		IssuedAt: issuedAt.Format(time.RFC3339), ExpiresAt: issuedAt.Add(30 * time.Minute).Format(time.RFC3339),
@@ -2364,7 +2394,7 @@ func replicaPublicationAPIResponse(now time.Time, status, sourceStatus string) m
 	page := any(nil)
 	if status == "PUBLISHED" || status == "PUBLISHED_DEGRADED" {
 		result = map[string]any{
-			"workUrl":   "https://viceme.cn/replica-maker/replica-site",
+			"workUrl":   "https://viceme.cn/replica-maker?workSlug=replica-site",
 			"versionId": replicaPublicationTestVersionID, "version": 1,
 			"shortCode": "VMR-ABCDEFGHIJKLMNOPQRST", "instruction": "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST",
 			"product": map[string]any{
@@ -2416,7 +2446,7 @@ func replicaConfirmationRequiredResponse(now time.Time, input map[string]any, ve
 					"resolution": "CREATE", "merchantAccountId": replicaPublicationTestMerchantID,
 					"merchantDisplayName": "Replica Studio", "creatorAccountId": replicaPublicationTestCreatorID,
 					"creatorHandle": "replica-maker", "creatorDisplayName": "Replica Maker",
-					"projectFingerprint": input["projectFingerprint"], "workUrl": "https://viceme.cn/replica-maker/replica-site",
+					"projectFingerprint": input["projectFingerprint"], "workUrl": "https://viceme.cn/replica-maker?workSlug=replica-site",
 					"canonicalOrigin": canonicalOrigin, "title": input["title"], "summary": input["summary"],
 					"priceCents": input["priceCents"], "source": input["source"], "page": input["page"],
 					"allowAutomaticDegradation": input["allowAutomaticDegradation"],
@@ -2628,7 +2658,7 @@ func TestReplicaConfirmationCannotSilentlySwitchSourceOnlyToDefaultHosting(t *te
 func TestReplicaPublishQueryWorkURLLifecycle(t *testing.T) {
 	for _, region := range []config.Region{config.RegionCN, config.RegionGlobal} {
 		t.Run(string(region), func(t *testing.T) {
-			testReplicaPublicationStorageLifecycle(t, false, ".", region, true)
+			testReplicaPublicationStorageLifecycle(t, false, ".", region, true, false)
 		})
 	}
 }
@@ -2638,7 +2668,7 @@ func rewriteQueryReplicaTestResponse(response map[string]any) {
 		if child, ok := value.(map[string]any); ok {
 			rewriteQueryReplicaTestResponse(child)
 		} else if text, ok := value.(string); ok {
-			response[key] = strings.ReplaceAll(text, "/replica-maker/replica-site", "/replica-maker?mode=consumer&view=work&workSlug=replica-site")
+			response[key] = strings.ReplaceAll(text, "/replica-maker?workSlug=replica-site", "/replica-maker?mode=consumer&view=work&workSlug=replica-site")
 		}
 	}
 }

@@ -74,6 +74,7 @@ func TestMerchantEngagementCommandTreeReplacesLegacyRoots(t *testing.T) {
 		t.Fatal(err)
 	}
 	paths := []string{
+		"website access configure", "website access status", "website access resume", "website work enrich",
 		"merchant work website-verification create",
 		"merchant work website-verification get",
 		"merchant work website-verification verify",
@@ -96,7 +97,7 @@ func TestMerchantEngagementCommandTreeReplacesLegacyRoots(t *testing.T) {
 			t.Fatalf("command path %q was not registered: command=%q remaining=%v err=%v", path, command.CommandPath(), remaining, findErr)
 		}
 	}
-	for _, retired := range []string{"website", "access", "creator-app"} {
+	for _, retired := range []string{"access", "creator-app"} {
 		for _, command := range root.Commands() {
 			if command.Name() == retired {
 				t.Fatalf("retired root command %q remains registered", retired)

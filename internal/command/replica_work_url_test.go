@@ -15,14 +15,16 @@ func TestReplicaWorkURLContract(t *testing.T) {
 		path  string
 		valid bool
 	}{
-		{"/alice/site", true},
-		{"/en-US/alice/site.md", true},
+		{"/alice/site", false},
+		{"/en-US/alice/site.md", false},
 		{"/alice?mode=consumer&view=work&workSlug=site", true},
-		{"/zh-CN/alice?workSlug=site&view=work&mode=consumer", true},
+		{"/zh-CN/alice?workSlug=site&view=work&mode=consumer", false},
 		{"/alice?mode=consumer&view=work&workSlug=other", false},
 		{"/alice?mode=creator&view=work&workSlug=site", false},
 		{"/alice?mode=consumer&view=profile&workSlug=site", false},
-		{"/alice?view=work&workSlug=site", false},
+		{"/alice?view=work&workSlug=site", true},
+		{"/alice.md?workSlug=site", true},
+		{"/alice?mode=consumer&workSlug=site", true},
 		{"/alice?mode=consumer&view=work&workSlug=site&workSlug=other", false},
 		{"/alice?mode=consumer&mode=creator&view=work&workSlug=site", false},
 		{"/alice?mode=consumer&view=work&workSlug=", false},
@@ -73,13 +75,13 @@ func TestReplicaInspectQueryWorkURLResolvesThroughAPI(t *testing.T) {
 	}))
 	defer server.Close()
 	run := analyticsTestRunner(t, server)
-	for _, path := range []string{"/alice/site", "/alice?mode=consumer&view=work&workSlug=site"} {
+	for _, path := range []string{"/alice.md?workSlug=site", "/alice?mode=consumer&view=work&workSlug=site", "/alice?mode=consumer&workSlug=site", "/alice?view=work&workSlug=site"} {
 		_, out := run("replica", "inspect", server.URL+path)
 		if !strings.Contains(string(out), "REPLICA_WORK_HAS_NO_ENTRY") {
 			t.Fatalf("failed to reach authoritative Work: %s", out)
 		}
 	}
-	if reads != 2 {
+	if reads != 4 {
 		t.Fatalf("reads=%d", reads)
 	}
 }

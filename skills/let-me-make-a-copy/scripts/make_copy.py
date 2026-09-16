@@ -138,6 +138,7 @@ def authority_for_work_url(raw: str) -> Authority:
             "MAKE_COPY_WORK_URL_INVALID",
             "Work URL must be an official ViceMe HTTPS .md URL",
         )
+    public_work_url_parts(parsed)
     canonical_host = "viceme.ai" if host.endswith("viceme.ai") else "viceme.cn"
     work_url = urllib.parse.urlunsplit(
         (parsed.scheme, parsed.netloc, parsed.path, parsed.query, "")
@@ -168,18 +169,41 @@ def http_request(
         return HttpResponse(error.code, error.read())
 
 
+def public_work_url_parts(parsed) -> Tuple[str, str]:
+    # Match the CLI public Work route; never infer a different page from an
+    # explicit mode/view or silently discard duplicate/legacy selectors.
+    try:
+        query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True,
+                                     encoding="utf-8", errors="strict")
+        if re.search(r"%(?![0-9a-fA-F]{2})", parsed.query) or ";" in parsed.query:
+            raise ValueError("invalid query")
+        handle = parsed.path[1:-3] if parsed.path.endswith(".md") else parsed.path[1:]
+        slug = query.get("workSlug", [""])[0]
+        invalid = (any(len(values) != 1 for values in query.values())
+                   or query.get("mode", ["consumer"]) != ["consumer"]
+                   or query.get("view", ["work"]) != ["work"]
+                   or any(key in query for key in (
+                       "action", "type", "panel", "analytics", "orderNo", "payoutId",
+                       "listingId", "editionKey", "workId", "productId", "entryId",
+                       "threadId", "inquiryId", "publicationId", "applicationId", "kind"))
+                   or not parsed.path.startswith("/")
+                   or not 2 <= len(handle) <= 32
+                   or not re.fullmatch(r"[a-z][a-z0-9]*(?:-[a-z0-9]+)*", handle)
+                   or not 2 <= len(slug) <= 64
+                   or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", slug)
+                   or slug in {"works", "skills", "manage", "posts", "about"})
+        if invalid:
+            raise ValueError("invalid Work route")
+    except (ValueError, UnicodeError):
+        raise WorkflowError("MAKE_COPY_WORK_URL_INVALID", "Work URL must identify a public Work using workSlug")
+    return handle, slug
+
+
 def fetch_public_work_entry(
     authority: Authority, request_fn: RequestFn = http_request
 ) -> Tuple[str, bool]:
     parsed = urllib.parse.urlsplit(authority.work_url)
-    segments = [
-        urllib.parse.unquote(value) for value in parsed.path.split("/") if value
-    ]
-    if len(segments) == 3 and segments[0] in {"zh-CN", "en-US"}:
-        segments = segments[1:]
-    if len(segments) != 2 or not segments[1].endswith(".md"):
-        raise WorkflowError("MAKE_COPY_WORK_URL_INVALID", "Work URL is invalid")
-    handle, slug = segments[0], segments[1][:-3]
+    handle, slug = public_work_url_parts(parsed)
     work = api_request(
         authority,
         "/public/creators/"
@@ -314,11 +338,14 @@ def resolve_work_with_hosting(
         )
     )
     resolved = urllib.parse.urlsplit(replica["viceMeWorkUrl"])
-    expected = urllib.parse.urlsplit(authority.work_url).path[:-3]
+    expected = public_work_url_parts(urllib.parse.urlsplit(authority.work_url))
+    try:
+        resolved_identity = public_work_url_parts(resolved)
+    except WorkflowError:
+        resolved_identity = None
     if (
         resolved.scheme + "://" + resolved.netloc != authority.web_origin
-        or resolved.path != expected
-        or resolved.query
+        or resolved_identity != expected
         or resolved.fragment
     ):
         raise WorkflowError(

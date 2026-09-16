@@ -23,6 +23,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
+	"github.com/ViceMe-AI/cli/internal/workurl"
 	"github.com/spf13/cobra"
 )
 
@@ -354,12 +355,12 @@ func resolveSkillInstallTarget(ctx context.Context, runtime *Runtime, target str
 	if len(installValues) != 1 || installValues[0] != string(skillInstallIntentOwned) {
 		return "", nil, skillInstallIntentOpen, output.Validation("SKILL_INSTALL_INTENT_INVALID", "the install selector must contain exactly one supported value")
 	}
-	if _, err := skillWorkURLSegments(parsed); err != nil {
-		return "", nil, skillInstallIntentOwned, err
-	}
 	productValues, productSpecified := parsed.Query()["product"]
 	if !productSpecified || len(productValues) != 1 || !skillUseProductIDPattern.MatchString(productValues[0]) {
 		return "", nil, skillInstallIntentOwned, output.Validation("SKILL_OWNED_PRODUCT_REQUIRED", "owned install requires exactly one valid Product selector")
+	}
+	if _, err := skillWorkURLSegments(parsed); err != nil {
+		return "", nil, skillInstallIntentOwned, err
 	}
 	// The Product ID is the authority for a strict owned install. Avoid the
 	// public Work projection so a durable buyer can reinstall after delisting.
@@ -446,14 +447,11 @@ func skillWorkURLSegments(parsed *url.URL) ([]string, error) {
 	if parsed.IsAbs() && parsed.Scheme != "http" && parsed.Scheme != "https" {
 		return nil, output.Validation("SKILL_TARGET_INVALID", "canonical Work URL must use HTTP or HTTPS")
 	}
-	segments := strings.Split(strings.Trim(strings.TrimSuffix(parsed.Path, ".md"), "/"), "/")
-	if len(segments) == 3 && (segments[0] == "zh-CN" || segments[0] == "en-US") {
-		segments = segments[1:]
+	handle, slug, ok := workurl.PublicParts(parsed)
+	if !ok {
+		return nil, output.Validation("SKILL_WORK_URL_INVALID", "Work URL must use /<creator-handle>?workSlug=<work-slug> with public Work parameters")
 	}
-	if len(segments) != 2 || segments[0] == "" || segments[1] == "" {
-		return nil, output.Validation("SKILL_WORK_URL_INVALID", "canonical Work URL must contain /<creator-handle>/<work-slug>")
-	}
-	return segments, nil
+	return []string{handle, slug}, nil
 }
 
 func isDownloadableWorkProduct(product api.PublicWorkProduct) bool {

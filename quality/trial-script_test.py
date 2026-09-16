@@ -40,6 +40,7 @@ sys.modules["viceme_trial_script"] = trial
 spec.loader.exec_module(trial)
 
 PRODUCT_ID = "33709ab2-2246-4033-a41e-7b21d96bccb7"
+RELEASE_ID = "44709ab2-2246-4033-a41e-7b21d96bccb7"
 
 
 # 指纹标记直接从运行时的权威表派生,新增平台(如豆包)自动纳入清理,
@@ -255,6 +256,91 @@ class TrialScriptTestCase(unittest.TestCase):
         with self.assertRaises(trial.Failure) as caught:
             trial.extract_skill_package(empty.getvalue())
         self.assertEqual(caught.exception.code, "MANIFEST_MISSING")
+
+    def test_export_package_trial_injects_gate_without_install_or_api(self):
+        original = os.path.join(self.home, "original.zip")
+        output = os.path.join(self.home, "gated-trial.zip")
+        with zipfile.ZipFile(original, "w") as archive:
+            archive.writestr(
+                "SKILL.md",
+                "---\nname: my-skill\ndescription: demo\n---\n\nPAID_BODY_SECRET\n",
+            )
+            archive.writestr("scripts/grade.py", "print('secret')\n")
+        api = mock.Mock(side_effect=AssertionError("export-package must not call api_request"))
+        stdout = io.StringIO()
+        with mock.patch.object(trial, "api_request", api), redirect_stdout(stdout):
+            code = trial.run([
+                "export-package", "--product", PRODUCT_ID, "--market", "cn",
+                "--kind", "trial", "--release-id", RELEASE_ID,
+                "--input", original, "--output", output,
+            ])
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["kind"], "trial")
+        with open(output, "rb") as handle:
+            digest = hashlib.sha256(handle.read()).hexdigest()
+        self.assertEqual(payload["digest"], digest)
+        api.assert_not_called()
+        with zipfile.ZipFile(output) as archive:
+            names = set(archive.namelist())
+            skill = archive.read("SKILL.md").decode("utf-8")
+            body = archive.read(trial.TRIAL_BODY_PATH).decode("utf-8")
+        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, skill)
+        self.assertNotIn("PAID_BODY_SECRET", skill)
+        self.assertIn("PAID_BODY_SECRET", body)
+        self.assertIn(".viceme/scripts/trial.py", names)
+        self.assertIn("scripts/grade.py", names)
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".agents")))
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".codex")))
+
+    def test_export_package_purchase_is_entry_only_without_api(self):
+        output = os.path.join(self.home, "purchase-entry.zip")
+        stdout = io.StringIO()
+        api = mock.Mock(side_effect=AssertionError("export-package must not call api_request"))
+        with mock.patch.object(trial, "api_request", api), redirect_stdout(stdout):
+            code = trial.run([
+                "export-package", "--product", PRODUCT_ID, "--market", "cn",
+                "--kind", "purchase", "--release-id", RELEASE_ID,
+                "--output", output, "--title", "评分助手", "--summary", "简介",
+                "--slug", "essay-grading-assistant",
+            ])
+        self.assertEqual(code, 0)
+        payload = json.loads(stdout.getvalue())
+        self.assertTrue(payload["ok"])
+        self.assertEqual(payload["kind"], "purchase")
+        api.assert_not_called()
+        with zipfile.ZipFile(output) as archive:
+            names = set(archive.namelist())
+            skill = archive.read("SKILL.md").decode("utf-8")
+        self.assertIn(trial.PURCHASE_MARKER + " product=%s -->" % PRODUCT_ID, skill)
+        self.assertIn("使用前必读", skill)
+        self.assertNotIn("PAID_BODY_SECRET", skill)
+        self.assertIn(trial.PURCHASE_GUIDE_PATH, names)
+        self.assertIn(".viceme/scripts/trial.py", names)
+        self.assertNotIn("scripts/grade.py", names)
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".agents")))
+
+    def test_export_package_rejects_mismatched_inputs(self):
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            code = trial.run([
+                "export-package", "--product", PRODUCT_ID, "--kind", "trial",
+                "--release-id", RELEASE_ID, "--output", os.path.join(self.home, "out.zip"),
+            ])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(stdout.getvalue())["code"], "ARGUMENT_INVALID")
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            code = trial.run([
+                "export-package", "--product", PRODUCT_ID, "--kind", "purchase",
+                "--release-id", RELEASE_ID, "--output", os.path.join(self.home, "out.zip"),
+                "--input", os.path.join(self.home, "original.zip"),
+                "--title", "标题", "--summary", "简介", "--slug", "demo",
+            ])
+        self.assertEqual(code, 1)
+        self.assertEqual(json.loads(stdout.getvalue())["code"], "ARGUMENT_INVALID")
 
     def test_install_preserves_unconfirmed_pending(self):
         # 三轮评审 F1:use 结果未知留下的 pendingRequestId 必须在重新
