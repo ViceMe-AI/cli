@@ -68,13 +68,13 @@ func newSkillDetailCommand(runtime *Runtime) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				return runtime.business(work)
+				return runtime.business(presentPublicWork(*work, args[0], runtime.profile.ResolvedWebBaseURL()))
 			}
 			result, err := runtime.client().GetSkillDetail(command.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			return runtime.business(result)
+			return runtime.business(presentSkillDetail(result, args[0], runtime.profile.ResolvedWebBaseURL()))
 		},
 	}
 }
@@ -88,7 +88,7 @@ func newSkillAccessCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			if work != nil && work.Work.OfficialInstall != nil {
-				return runtime.business(map[string]any{"isFree": true, "officialInstall": work.Work.OfficialInstall, "work": work})
+				return runtime.business(map[string]any{"isFree": true, "officialInstall": work.Work.OfficialInstall, "work": presentPublicWork(*work, args[0], runtime.profile.ResolvedWebBaseURL())})
 			}
 			public, err := runtime.client().GetPublicSkillAccess(command.Context(), productID)
 			if err != nil {

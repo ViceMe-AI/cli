@@ -18,6 +18,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
+	"github.com/ViceMe-AI/cli/internal/workurl"
 	"github.com/spf13/cobra"
 )
 
@@ -693,7 +694,7 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			if work != nil && work.Work.OfficialInstall != nil {
-				return output.Validation("OFFICIAL_SKILL_NO_TRIAL", "official bundled Skills are free and do not use marketplace trials").WithHint("install the published Work with viceme skill install " + work.Work.CanonicalPath + " --agent auto")
+				return output.Validation("OFFICIAL_SKILL_NO_TRIAL", "official bundled Skills are free and do not use marketplace trials").WithHint("install the published Work with viceme skill install " + shellQuote(workurl.Display(work.Work.CanonicalPath)) + " --agent auto")
 			}
 			if directory, manifest, _, lookupErr := skillcontent.FindRuntimeInstall(runtime.deps.Environment, "auto", productID, runtime.apiBaseURL, skillDirectory); lookupErr != nil {
 				return output.Internal("SKILL_LOCAL_LOOKUP_FAILED", "could not read the selected host installation", lookupErr)

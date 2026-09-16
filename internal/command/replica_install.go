@@ -23,6 +23,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/pathidentity"
 	"github.com/ViceMe-AI/cli/internal/privatepath"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
+	"github.com/ViceMe-AI/cli/internal/workurl"
 	"github.com/spf13/cobra"
 )
 
@@ -264,7 +265,7 @@ func installReplicaAnonymousLocked(
 			return replicaInstallResult{}, replicaRedistributionLoginRequired(resolved.ViceMeWorkURL, absTarget)
 		}
 		if resolved.Product.PriceCents > 0 {
-			return replicaInstallResult{}, output.Confirmation("REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "show the source entitlement and ask whether to support the creator").WithDetails(map[string]any{"nextAction": "CONFIRM_PRICE", "replicaCode": code, "productId": resolved.Product.ID, "title": resolved.Title, "currency": resolved.Product.Currency, "totalAmountCents": resolved.Product.PriceCents, "workUrl": resolved.ViceMeWorkURL, "target": absTarget})
+			return replicaInstallResult{}, output.Confirmation("REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "show the source entitlement and ask whether to support the creator").WithDetails(map[string]any{"nextAction": "CONFIRM_PRICE", "replicaCode": code, "productId": resolved.Product.ID, "title": resolved.Title, "currency": resolved.Product.Currency, "totalAmountCents": resolved.Product.PriceCents, "workUrl": workurl.Display(resolved.ViceMeWorkURL), "target": absTarget})
 		}
 		acceptedPriceCents = 0
 	}
@@ -367,7 +368,7 @@ func installReplicaAnonymousLocked(
 				"REPLICA_PRICE_CHANGED",
 				"the Website Replica price changed after the user chose to continue",
 			).WithDetails(map[string]any{
-				"nextAction": "CONFIRM_PRICE", "workUrl": resolved.ViceMeWorkURL,
+				"nextAction": "CONFIRM_PRICE", "workUrl": workurl.Display(resolved.ViceMeWorkURL),
 				"currency": resolved.Product.Currency, "totalAmountCents": resolved.Product.PriceCents,
 			}).WithHint("show the updated Replica details and ask the user to continue again at the new price")
 		}
@@ -1482,7 +1483,7 @@ func replicaRedistributionLoginRequired(work string, target string) error {
 	if strings.HasPrefix(work, "VICEME-REPLICA:") {
 		details["replicaCode"] = work
 	} else {
-		details["workUrl"] = work
+		details["workUrl"] = workurl.Display(work)
 	}
 	return output.Policy("WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED", "Redistribution rights require account authorization before purchase").WithDetails(details).WithHint("use creator-tools to authorize the CLI account, then continue the same work without --anonymous; a followWork login page does not authorize the CLI")
 }

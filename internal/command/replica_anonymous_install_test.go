@@ -188,7 +188,8 @@ func TestReplicaInspectSelectsWorkPresentation(t *testing.T) {
 		replicaID = "11111111-1111-4111-8111-111111111111"
 		workURL   = "https://viceme.cn/alice.md?workSlug=site"
 	)
-	workURLValue := replicaResolutionResponse(replicaID, shortCode)["viceMeWorkUrl"].(string)
+	workURLValue := "https://viceme.cn/alice?workSlug=site"
+	canonical := "https://viceme.cn/alice?mode=consumer&view=work&workSlug=site"
 	tests := []struct {
 		name         string
 		target       string
@@ -211,6 +212,7 @@ func TestReplicaInspectSelectsWorkPresentation(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				resolution := replicaResolutionResponse(replicaID, shortCode)
+				resolution["viceMeWorkUrl"] = canonical
 				switch request.URL.Path {
 				case "/v1/public/creators/alice/works/site":
 					if test.target != workURL {
@@ -226,7 +228,9 @@ func TestReplicaInspectSelectsWorkPresentation(t *testing.T) {
 					}
 					writeJSONResponse(writer, payload)
 				case "/v1/website-replicas/" + shortCode + "/discovery":
-					writeJSONResponse(writer, replicaDiscoveryResponse(replicaID, shortCode, test.previewURL))
+					discovery := replicaDiscoveryResponse(replicaID, shortCode, test.previewURL)
+					discovery["viceMeWorkUrl"] = canonical
+					writeJSONResponse(writer, discovery)
 				case "/v1/website-replicas/resolve":
 					writeJSONResponse(writer, resolution)
 				default:
@@ -244,6 +248,15 @@ func TestReplicaInspectSelectsWorkPresentation(t *testing.T) {
 			})
 			if exit != 0 {
 				t.Fatalf("inspect failed: exit=%d output=%q", exit, stdout.String())
+			}
+			var output struct {
+				Data replicaInspectResult `json:"data"`
+			}
+			if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+				t.Fatal(err)
+			}
+			if output.Data.WorkURL != workURLValue || output.Data.Replica.ViceMeWorkURL != canonical {
+				t.Fatal("short display or login canonical changed")
 			}
 			mode, presentationURL := replicaInspectPresentation(t, stdout.Bytes())
 			if mode != test.wantMode || presentationURL != test.wantURL {

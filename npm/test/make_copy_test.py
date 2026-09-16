@@ -152,6 +152,23 @@ def sign_with_rfc8032_seed(message):
 
 
 class PublicWorkRouteTest(unittest.TestCase):
+    def test_display_short_links_without_mutating_canonical_resolution(self):
+        canonical = "https://viceme.cn/alice?mode=consumer&view=work&workSlug=site"
+        short = "https://viceme.cn/alice?workSlug=site"
+        item = replica()
+        item["viceMeWorkUrl"] = canonical
+        discovered = discovery()
+        discovered["viceMeWorkUrl"] = canonical
+        result = make_copy.inspect(canonical.replace("/alice?", "/alice.md?"), request_fn=inspect_request(work=public_work(presentation=active_presentation()), item=item, discovered=discovered))
+        self.assertEqual(result["workUrl"], short)
+        self.assertEqual(result["workPresentation"]["url"], short)
+        self.assertEqual(result["replica"]["viceMeWorkUrl"], canonical)
+        self.assertEqual(item["viceMeWorkUrl"], canonical)
+        selected = canonical + "&product=p%31&install=owned#readme"
+        self.assertEqual(make_copy.display_work_url(selected), short + "&product=p%31&install=owned#readme")
+        for original in [canonical + "&signature=opaque", canonical.replace("consumer", "creator"), canonical.replace("view=work", "view=discover"), canonical + "&workSlug=other"]:
+            self.assertEqual(make_copy.display_work_url(original), original)
+
     def test_shared_go_python_route_contract(self):
         fixtures = Path(__file__).parents[2] / "internal/workurl/testdata/public-work-urls.json"
         for case in json.loads(fixtures.read_text()):

@@ -101,7 +101,9 @@ func TestReplicaStatusPresentsOnlyPublishedTerminalStatesAsComplete(t *testing.T
 		status := status
 		t.Run(status, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-				writeJSONResponse(writer, replicaPublicationAPIResponse(now, status, "ACTIVATED"))
+				response := replicaPublicationAPIResponse(now, status, "ACTIVATED")
+				rewriteQueryReplicaTestResponse(response)
+				writeJSONResponse(writer, response)
 			}))
 			defer server.Close()
 			t.Setenv(processAccessTokenEnvironment, replicaPublicationTestAccessToken)
@@ -120,6 +122,9 @@ func TestReplicaStatusPresentsOnlyPublishedTerminalStatesAsComplete(t *testing.T
 			}
 			if envelope.Data.Status != status || !strings.Contains(strings.ToLower(envelope.Data.Message), "publication complete") {
 				t.Fatalf("published terminal was not presented as complete: %#v", envelope.Data)
+			}
+			if envelope.Data.Result == nil || envelope.Data.Result.WorkURL != "https://viceme.cn/replica-maker?workSlug=replica-site" {
+				t.Fatalf("terminal Work not shortened: %#v", envelope.Data.Result)
 			}
 			if status == "PUBLISHED" && !strings.Contains(envelope.Data.Message, "no hosted HTML page is active") {
 				t.Fatalf("source-only publication claimed hosted completion: %q", envelope.Data.Message)
