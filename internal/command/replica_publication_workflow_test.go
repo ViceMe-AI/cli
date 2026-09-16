@@ -1705,6 +1705,14 @@ func TestReplicaResumeDoesNotRetryNonRetryableFailureAndCleansRecoveryState(t *t
 }
 
 func TestReplicaStatusCompletesStableBindingAndUpdateDefaultsCurrentPrice(t *testing.T) {
+	testReplicaRecoveryCompletesStableBindingAndUpdateDefaultsCurrentPrice(t, "status")
+}
+
+func TestReplicaPublishCompletesStableBindingAndUpdateDefaultsCurrentPrice(t *testing.T) {
+	testReplicaRecoveryCompletesStableBindingAndUpdateDefaultsCurrentPrice(t, "publish")
+}
+
+func testReplicaRecoveryCompletesStableBindingAndUpdateDefaultsCurrentPrice(t *testing.T, operation string) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	project := newReplicaPublicationTestProject(t)
 	root := t.TempDir()
@@ -1729,7 +1737,9 @@ func TestReplicaStatusCompletesStableBindingAndUpdateDefaultsCurrentPrice(t *tes
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		switch {
 		case request.Method == http.MethodGet && request.URL.Path == "/v1/website-replica-publications/"+replicaPublicationTestID:
-			writeJSONResponse(writer, replicaPublicationAPIResponse(now, "PUBLISHED", "ACTIVATED"))
+			response := replicaPublicationAPIResponse(now, "PUBLISHED", "ACTIVATED")
+			response["result"].(map[string]any)["traceabilityMode"] = "BASIC"
+			writeJSONResponse(writer, response)
 		case request.Method == http.MethodPost && request.URL.Path == "/v1/website-replica-publications":
 			updateCreateCalls++
 			var input map[string]any
@@ -1844,9 +1854,19 @@ func TestReplicaStatusCompletesStableBindingAndUpdateDefaultsCurrentPrice(t *tes
 	dependencies.NewID = func() string { return updateRequestID }
 	var statusOutput bytes.Buffer
 	dependencies.Out = &statusOutput
-	if exit := Execute([]string{"replica", "status", replicaPublicationTestID}, dependencies); exit != 0 ||
+	arguments := []string{"replica", "status", replicaPublicationTestID}
+	if operation == "publish" {
+		arguments = replicaPublicationTestArguments(project, "replica-site")
+	}
+	if exit := Execute(arguments, dependencies); exit != 0 ||
 		!strings.Contains(statusOutput.String(), `"status": "PUBLISHED"`) {
 		t.Fatalf("terminal status did not complete publication: exit=%d output=%s", exit, statusOutput.String())
+	}
+	if updateCreateCalls != 0 {
+		t.Fatal("recovering the existing publication created another publication")
+	}
+	if !strings.Contains(statusOutput.String(), `"traceabilityMode": "BASIC"`) {
+		t.Fatal("recovery lost traceability mode")
 	}
 	bindingData, err := os.ReadFile(filepath.Join(project, ".viceme", "website-replica.json"))
 	if err != nil {

@@ -976,14 +976,15 @@ type WebsiteReplicaPublicationFailure struct {
 }
 
 type WebsiteReplicaPublicationResult struct {
-	WorkURL     string                                `json:"workUrl"`
-	VersionID   string                                `json:"versionId"`
-	Version     int                                   `json:"version"`
-	ShortCode   string                                `json:"shortCode"`
-	Instruction string                                `json:"instruction"`
-	Product     WebsiteReplicaProduct                 `json:"product"`
-	PageRelease *WebsiteReplicaPublicationPageRelease `json:"pageRelease"`
-	PublishedAt string                                `json:"publishedAt"`
+	TraceabilityMode *string                               `json:"traceabilityMode,omitempty" api:"optional"`
+	WorkURL          string                                `json:"workUrl"`
+	VersionID        string                                `json:"versionId"`
+	Version          int                                   `json:"version"`
+	ShortCode        string                                `json:"shortCode"`
+	Instruction      string                                `json:"instruction"`
+	Product          WebsiteReplicaProduct                 `json:"product"`
+	PageRelease      *WebsiteReplicaPublicationPageRelease `json:"pageRelease"`
+	PublishedAt      string                                `json:"publishedAt"`
 }
 
 type WebsiteReplicaPublicationPageRelease struct {
