@@ -268,7 +268,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 					trialDisabled = true
 				}
 			}
-			store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now}
+			store := publication.PendingStore{Directory: filepath.Join(runtime.configBase, "publications"), Now: runtime.deps.Now, ReportDegraded: runtime.deps.ReportDegradedWrite}
 			if resume != "" {
 				pending, err := store.Load(resume)
 				if err != nil {
@@ -679,7 +679,7 @@ func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.
 	if err != nil {
 		return listingPrepareResult{}, publication.ResolvedSourceIdentity{}, output.Internal("SKILL_BINDING_SCOPE_INVALID", "could not normalize the current API endpoint", err)
 	}
-	store := publication.BindingStore{Directory: filepath.Join(runtime.configBase, "skill-bindings"), EndpointOrigin: origin, Now: runtime.deps.Now}
+	store := publication.BindingStore{Directory: filepath.Join(runtime.configBase, "skill-bindings"), EndpointOrigin: origin, Now: runtime.deps.Now, ReportDegraded: runtime.deps.ReportDegradedWrite}
 	resolution := ""
 	if targetListingID != "" {
 		resolution = "BIND_EXISTING:" + targetListingID

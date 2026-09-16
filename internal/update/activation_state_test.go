@@ -16,7 +16,7 @@ func TestActiveGenerationRejectsLateOlderTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, newer); err != nil {
+	if err := CommitActiveGeneration(configDir, newer, nil); err != nil {
 		t.Fatal(err)
 	}
 	older, err := NewNPMGeneration("1.2.3")
@@ -39,7 +39,7 @@ func TestNPMApplyDoesNotRunOlderTargetAfterNewerGenerationCommitted(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, newer); err != nil {
+	if err := CommitActiveGeneration(configDir, newer, nil); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{}
@@ -66,7 +66,7 @@ func TestNPMStartupRecoveryCompletesGenerationBeforeOrdinaryCommand(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, previous); err != nil {
+	if err := CommitActiveGeneration(configDir, previous, nil); err != nil {
 		t.Fatal(err)
 	}
 	target, err := NewNPMGeneration("1.2.4")
@@ -107,7 +107,7 @@ func TestNPMStartupRecoveryRequiresRestartWhenCurrentProcessIsPreviousGeneration
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, previous); err != nil {
+	if err := CommitActiveGeneration(configDir, previous, nil); err != nil {
 		t.Fatal(err)
 	}
 	target, err := NewNPMGeneration("1.2.4")
@@ -140,7 +140,7 @@ func TestNPMStartupRecoveryRestoresPreviousGenerationWhenForwardFails(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, previous); err != nil {
+	if err := CommitActiveGeneration(configDir, previous, nil); err != nil {
 		t.Fatal(err)
 	}
 	target, err := NewNPMGeneration("1.2.4")
@@ -177,7 +177,7 @@ func TestNPMRecoveryAfterSemanticCommitOnlyRetiresJournal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, previous); err != nil {
+	if err := CommitActiveGeneration(configDir, previous, nil); err != nil {
 		t.Fatal(err)
 	}
 	target, err := NewNPMGeneration("1.2.4")
@@ -196,7 +196,7 @@ func TestNPMRecoveryAfterSemanticCommitOnlyRetiresJournal(t *testing.T) {
 	if err := service.writeNPMActivation(journal); err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, target); err != nil {
+	if err := CommitActiveGeneration(configDir, target, nil); err != nil {
 		t.Fatal(err)
 	}
 
@@ -218,7 +218,7 @@ func TestNPMCommittedJournalFinalizesLocallyWithoutNetwork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, previous); err != nil {
+	if err := CommitActiveGeneration(configDir, previous, nil); err != nil {
 		t.Fatal(err)
 	}
 	target, err := NewNPMGeneration("1.2.4")
@@ -257,7 +257,7 @@ func TestNPMSameGenerationRepairIsNotMistakenForAnEarlierCommit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, target); err != nil {
+	if err := CommitActiveGeneration(configDir, target, nil); err != nil {
 		t.Fatal(err)
 	}
 	service := NewNPMService("1.2.4", "1.2.4", "npm")
@@ -288,7 +288,7 @@ func TestNPMRolledBackJournalFinalizesLocallyWithoutNetwork(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, previous); err != nil {
+	if err := CommitActiveGeneration(configDir, previous, nil); err != nil {
 		t.Fatal(err)
 	}
 	target, err := NewNPMGeneration("1.2.4")
@@ -326,7 +326,7 @@ func TestNPMActivationRejectsCrossMethodMigrationBeforeMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, standalone); err != nil {
+	if err := CommitActiveGeneration(configDir, standalone, nil); err != nil {
 		t.Fatal(err)
 	}
 	service := NewNPMService("1.2.4", "1.2.4", "npm")

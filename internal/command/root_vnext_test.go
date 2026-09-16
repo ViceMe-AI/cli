@@ -241,7 +241,7 @@ func TestOrdinaryCommandDoesNotSpawnWorkerDuringFreshCheckInterval(t *testing.T)
 		CurrentVersion: buildinfo.CompatibilityVersion(),
 		Status:         "current",
 		CheckedAt:      now.Unix(),
-	})
+	}, nil)
 	var scheduled atomic.Int32
 	var stdout bytes.Buffer
 	exit := Execute([]string{"version"}, Dependencies{
@@ -405,7 +405,7 @@ func TestCommandWaitingOnAnotherActivationReexecutesTheCommittedGeneration(t *te
 		})
 	}()
 	time.Sleep(100 * time.Millisecond)
-	if err := updatepkg.CommitActiveGeneration(configDir, target); err != nil {
+	if err := updatepkg.CommitActiveGeneration(configDir, target, nil); err != nil {
 		_ = activationLock.Unlock()
 		t.Fatal(err)
 	}
@@ -517,7 +517,7 @@ func TestOrdinaryCommandRecoversNPMGenerationBeforeOutput(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := updatepkg.CommitActiveGeneration(configDir, previous); err != nil {
+	if err := updatepkg.CommitActiveGeneration(configDir, previous, nil); err != nil {
 		t.Fatal(err)
 	}
 	runner := &commandNPMRunner{errors: []error{nil, errors.New("killed before Skill child started")}}
@@ -575,7 +575,7 @@ func TestStandaloneEntryRecoversPendingNPMJournalThenRequiresRestart(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := updatepkg.CommitActiveGeneration(configDir, previous); err != nil {
+	if err := updatepkg.CommitActiveGeneration(configDir, previous, nil); err != nil {
 		t.Fatal(err)
 	}
 	target, err := updatepkg.NewNPMGeneration(buildinfo.CompatibilityVersion())
@@ -630,7 +630,7 @@ func TestNPMEntryCannotRunAgainstStandaloneActiveGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := updatepkg.CommitActiveGeneration(configDir, active); err != nil {
+	if err := updatepkg.CommitActiveGeneration(configDir, active, nil); err != nil {
 		t.Fatal(err)
 	}
 	updater := updatepkg.NewNPMService(buildinfo.Version, buildinfo.CompatibilityVersion(), "npm")
@@ -704,7 +704,7 @@ func TestOrdinaryInstallCannotCommitAfterItsRunningGenerationWasReplaced(t *test
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := updatepkg.CommitActiveGeneration(configDir, active); err != nil {
+	if err := updatepkg.CommitActiveGeneration(configDir, active, nil); err != nil {
 		t.Fatal(err)
 	}
 	runtime := &Runtime{
@@ -807,7 +807,7 @@ func TestStaleNPMChildRevalidatesItsJournalBeforeInstallingSkills(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := updatepkg.CommitActiveGeneration(configDir, active); err != nil {
+	if err := updatepkg.CommitActiveGeneration(configDir, active, nil); err != nil {
 		t.Fatal(err)
 	}
 	journal, err := json.Marshal(map[string]any{

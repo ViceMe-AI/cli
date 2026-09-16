@@ -164,10 +164,10 @@ func TestIncompleteInstallJournalRollsBackBeforeNewWork(t *testing.T) {
 	journal := installTransaction{SchemaVersion: 1, Status: "PREPARING", Entries: []installJournalEntry{{
 		Destination: destination, Backup: backup, Stage: stage, HadExisting: true, Activating: true,
 	}}}
-	if err := writeInstallTransaction(journalPath, journal); err != nil {
+	if err := writeInstallTransaction(journalPath, journal, nil); err != nil {
 		t.Fatal(err)
 	}
-	if err := recoverInstallTransaction(journalPath); err != nil {
+	if err := recoverInstallTransaction(journalPath, nil); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(destination, "state.txt"))
@@ -211,10 +211,10 @@ func TestLegacyRelativeInstallJournalStillRecovers(t *testing.T) {
 		Destination: relativeDestination, Backup: relativeBackup, HadExisting: true, Activating: true,
 	}}}
 	journalPath := filepath.Join(root, installTransactionFilename)
-	if err := writeInstallTransaction(journalPath, journal); err != nil {
+	if err := writeInstallTransaction(journalPath, journal, nil); err != nil {
 		t.Fatalf("legacy schema 1 journal was rejected: %v", err)
 	}
-	if err := recoverInstallTransaction(journalPath); err != nil {
+	if err := recoverInstallTransaction(journalPath, nil); err != nil {
 		t.Fatal(err)
 	}
 	content, err := os.ReadFile(filepath.Join(destination, "state.txt"))
@@ -261,7 +261,7 @@ func TestBootstrapRecoveryDispositionOverridesMatchingInnerGeneration(t *testing
 					Activating:  true,
 				}},
 			}
-			if err := writeInstallTransaction(journalPath, journal); err != nil {
+			if err := writeInstallTransaction(journalPath, journal, nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := RecoverInstallTransaction(Environment{Home: root, ConfigDir: root}, scenario.commit); err != nil {
@@ -316,7 +316,7 @@ func TestAutomaticRecoveryUsesTargetCLIVersionAsCommitFence(t *testing.T) {
 					Activating:  true,
 				}},
 			}
-			if err := writeInstallTransaction(filepath.Join(root, installTransactionFilename), journal); err != nil {
+			if err := writeInstallTransaction(filepath.Join(root, installTransactionFilename), journal, nil); err != nil {
 				t.Fatal(err)
 			}
 			if err := RecoverInstallTransactionAuto(Environment{Home: root, ConfigDir: root}); err != nil {
@@ -695,7 +695,7 @@ func TestRetirementPreservesOwnershipMismatch(t *testing.T) {
 				record := registry.Installs[managedPath]
 				record.Digest = "sha256:0000000000000000000000000000000000000000000000000000000000000000"
 				registry.Installs[managedPath] = record
-				if err := writeManagedSkillRegistry(registryPath, registry); err != nil {
+				if err := writeManagedSkillRegistry(registryPath, registry, nil); err != nil {
 					t.Fatal(err)
 				}
 			case "registry":

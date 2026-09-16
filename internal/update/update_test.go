@@ -529,7 +529,7 @@ func TestConcurrentNPMAutomaticUpdatesCoalesceIntoOneGenerationActivation(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, previous); err != nil {
+	if err := CommitActiveGeneration(configDir, previous, nil); err != nil {
 		t.Fatal(err)
 	}
 	runner := &blockingConcurrentRunner{
@@ -794,7 +794,7 @@ func TestNPMServiceRepairReinstallsSkillsWhenGenerationIsAlreadyActive(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, active); err != nil {
+	if err := CommitActiveGeneration(configDir, active, nil); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{outputs: [][]byte{nil, []byte(`{"ok":true}`)}}
@@ -853,7 +853,7 @@ func TestNPMServiceRepairRollbackRetiresJournalWhenSkillChildKeepsFailing(t *tes
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(configDir, active); err != nil {
+	if err := CommitActiveGeneration(configDir, active, nil); err != nil {
 		t.Fatal(err)
 	}
 	runner := &fakeRunner{errors: []error{nil, errors.New("refresh failed"), nil, errors.New("refresh failed")}}

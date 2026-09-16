@@ -14,7 +14,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -50,25 +49,11 @@ var renameBackoff = func(attempt int) {
 	time.Sleep(time.Duration(attempt) * 150 * time.Millisecond)
 }
 
-// degradedWriteReporter holds the installed degradation callback. It is
-// stored atomically because command instances are constructed concurrently in
-// tests while writes may already be in flight.
-var degradedWriteReporter atomic.Value // stores func(filename string, strictErr error)
-
-// SetDegradedWriteReporter installs the callback notified after WriteTolerant
-// completes a write whose hardened permission profile was refused by the
-// environment. The command layer installs it per command instance; a later
-// installation replaces the earlier one.
-func SetDegradedWriteReporter(reporter func(filename string, strictErr error)) {
-	degradedWriteReporter.Store(reporter)
-}
-
-func reportDegradedWrite(filename string, strictErr error) {
-	reporter, ok := degradedWriteReporter.Load().(func(string, error))
-	if ok && reporter != nil {
-		reporter(filename, strictErr)
-	}
-}
+// DegradedReporter is notified after a tolerant write completes without the
+// hardened permission profile. It is supplied per call — never through
+// package state — so a warning always belongs to the command instance whose
+// write was degraded.
+type DegradedReporter func(filename string, strictErr error)
 
 // Write durably writes data to filename as a private file, staging through a
 // temporary file matching tempPattern in the same directory. Staging files
@@ -117,10 +102,10 @@ func Write(filename string, data []byte, tempPattern string) error {
 // strict write fails only because a permission profile check refused an
 // otherwise writable file — the signature of security software rewriting
 // access entries — it retries through a plain staging write and reports the
-// degradation through DegradedWriteReporter. Reserve it for non-credential
-// state; credential stores must keep failing closed through Write and
-// WriteAtomic.
-func WriteTolerant(filename string, data []byte, tempPattern string) error {
+// degradation to reportDegraded (nil reports nowhere). Reserve it for
+// non-credential state; credential stores must keep failing closed through
+// Write and WriteAtomic.
+func WriteTolerant(filename string, data []byte, tempPattern string, reportDegraded DegradedReporter) error {
 	strictErr := Write(filename, data, tempPattern)
 	if strictErr == nil {
 		return nil
@@ -131,7 +116,9 @@ func WriteTolerant(filename string, data []byte, tempPattern string) error {
 	if err := writeLenient(filename, data, tempPattern); err != nil {
 		return errors.Join(strictErr, err)
 	}
-	reportDegradedWrite(filename, strictErr)
+	if reportDegraded != nil {
+		reportDegraded(filename, strictErr)
+	}
 	return nil
 }
 

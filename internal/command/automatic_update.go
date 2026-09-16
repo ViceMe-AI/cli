@@ -61,7 +61,7 @@ func runAutomaticUpdateWorker(dependencies *Dependencies) {
 	}
 
 	state := automaticUpdateState{SchemaVersion: 1, CurrentVersion: currentVersion, Status: "checking"}
-	writeAutomaticUpdateState(configBase, state)
+	writeAutomaticUpdateState(configBase, state, dependencies.ReportDegradedWrite)
 	finish := func(status, available string, workerErr error) {
 		state.Status = status
 		state.AvailableVersion = available
@@ -69,7 +69,7 @@ func runAutomaticUpdateWorker(dependencies *Dependencies) {
 		if workerErr != nil {
 			state.ErrorKind = string(updatepkg.ErrorKindOf(workerErr))
 		}
-		writeAutomaticUpdateState(configBase, state)
+		writeAutomaticUpdateState(configBase, state, dependencies.ReportDegradedWrite)
 	}
 
 	workerContext, cancel := context.WithTimeout(context.Background(), activationOperationTimeout)
@@ -162,10 +162,10 @@ func readAutomaticUpdateState(configBase string) (automaticUpdateState, bool) {
 	return state, true
 }
 
-func writeAutomaticUpdateState(configBase string, state automaticUpdateState) {
+func writeAutomaticUpdateState(configBase string, state automaticUpdateState, reportDegraded privatefile.DegradedReporter) {
 	data, err := json.Marshal(state)
 	if err != nil {
 		return
 	}
-	_ = privatefile.WriteTolerant(filepath.Join(configBase, automaticUpdateStateFilename), data, ".automatic-update-*.tmp")
+	_ = privatefile.WriteTolerant(filepath.Join(configBase, automaticUpdateStateFilename), data, ".automatic-update-*.tmp", reportDegraded)
 }

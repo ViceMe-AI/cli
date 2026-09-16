@@ -34,6 +34,25 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// degradedWriteReporter builds the per-instance reporter notified when a
+// tolerant write completes without the hardened permission profile (the usual
+// cause is local security software). Each command instance binds its own
+// ErrOut so warnings never route to another instance.
+func degradedWriteReporter(errOut io.Writer) privatefile.DegradedReporter {
+	if errOut == nil {
+		return nil
+	}
+	return func(filename string, strictErr error) {
+		reason := ""
+		if strictErr != nil {
+			if line, _, _ := strings.Cut(strictErr.Error(), "\n"); line != "" {
+				reason = " (" + line + ")"
+			}
+		}
+		fmt.Fprintf(errOut, "warning: wrote %s without the hardened private permission profile%s; the state is still durable, and security software is the usual cause\n", filename, reason)
+	}
+}
+
 type Dependencies struct {
 	In                    io.Reader
 	Out                   io.Writer
@@ -48,6 +67,9 @@ type Dependencies struct {
 	NewID                 func() string
 	OpenURL               func(context.Context, string) error
 	StartReplicaPreview   func(context.Context, replicapreview.Options) (replicapreview.Running, error)
+	// ReportDegradedWrite is notified when a tolerant state write completes
+	// without the hardened permission profile. defaults() binds it to ErrOut.
+	ReportDegradedWrite   privatefile.DegradedReporter
 	APIBaseURL            string
 	Region                config.Region
 	Reexecute             func(context.Context, []string, []string) (int, error)
@@ -243,22 +265,6 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	if err := runtime.selectProfile(resolvedProfile.Name); err != nil {
 		return nil, nil, err
 	}
-	// Security software on Windows can rewrite the hardened ACL of freshly
-	// staged files; non-credential state then completes through a plain write.
-	// Surface that degradation on stderr so operators can tell a tolerated
-	// antivirus product apart from a genuinely hostile environment.
-	privatefile.SetDegradedWriteReporter(func(filename string, strictErr error) {
-		if dependencies.ErrOut == nil {
-			return
-		}
-		reason := ""
-		if strictErr != nil {
-			if line, _, _ := strings.Cut(strictErr.Error(), "\n"); line != "" {
-				reason = " (" + line + ")"
-			}
-		}
-		fmt.Fprintf(dependencies.ErrOut, "warning: wrote %s without the hardened private permission profile%s; the state is still durable, and security software is the usual cause\n", filename, reason)
-	})
 	root := &cobra.Command{
 		Use:           "viceme",
 		Short:         "Publish Skills and manage ViceMe creator tooling",
@@ -502,6 +508,9 @@ func npmRecoveryService(configDir string, dependencies Dependencies) *updatepkg.
 		if service.ConfigDir == "" {
 			service.ConfigDir = configDir
 		}
+		if service.ReportDegraded == nil {
+			service.ReportDegraded = dependencies.ReportDegradedWrite
+		}
 		return service
 	}
 	service := updatepkg.NewNPMService(
@@ -511,6 +520,7 @@ func npmRecoveryService(configDir string, dependencies Dependencies) *updatepkg.
 	)
 	service.ConfigDir = configDir
 	service.HTTPClient = dependencies.HTTPClient
+	service.ReportDegraded = dependencies.ReportDegradedWrite
 	return service
 }
 
@@ -574,9 +584,13 @@ func defaults(dependencies Dependencies) Dependencies {
 	if dependencies.Skills == nil {
 		dependencies.Skills = skillcontent.New(cliembed.EmbeddedSkills())
 	}
+	if dependencies.ReportDegradedWrite == nil {
+		dependencies.ReportDegradedWrite = degradedWriteReporter(dependencies.ErrOut)
+	}
 	if dependencies.Environment.Home == "" {
 		dependencies.Environment = skillcontent.DefaultEnvironment()
 	}
+	dependencies.Environment.ReportDegradedWrite = dependencies.ReportDegradedWrite
 	if dependencies.Store == nil {
 		dependencies.Store = securestore.NewDefault("viceme-cli", runtimeConfigBase(dependencies.Environment))
 	}
@@ -589,6 +603,7 @@ func defaults(dependencies Dependencies) Dependencies {
 			)
 			updater.ConfigDir = runtimeConfigBase(dependencies.Environment)
 			updater.HTTPClient = dependencies.HTTPClient
+			updater.ReportDegraded = dependencies.ReportDegradedWrite
 			dependencies.Updater = updater
 		} else {
 			updater := updatepkg.NewReleaseService(
@@ -597,6 +612,7 @@ func defaults(dependencies Dependencies) Dependencies {
 			)
 			updater.ConfigDir = runtimeConfigBase(dependencies.Environment)
 			updater.HTTPClient = dependencies.HTTPClient
+			updater.ReportDegraded = dependencies.ReportDegradedWrite
 			dependencies.Updater = updater
 		}
 	}
