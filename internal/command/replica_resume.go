@@ -20,7 +20,7 @@ func newReplicaResumeCommand(runtime *Runtime) *cobra.Command {
 		RunE: func(command *cobra.Command, args []string) error {
 			result, err := resumeWebsiteReplicaPublication(command.Context(), runtime, strings.TrimSpace(args[0]))
 			if err != nil {
-				return err
+				return replicaPublicationResponseFailure(err)
 			}
 			return runtime.business(result)
 		},
@@ -33,7 +33,7 @@ func newReplicaCancelCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "cancel <publication-id>", Short: "Cancel a Website Replica Publication before activation", Args: cobra.ExactArgs(1), RunE: func(command *cobra.Command, args []string) error {
 		result, err := controlReplicaPublication(command.Context(), runtime, args[0], true)
 		if err != nil {
-			return err
+			return replicaPublicationResponseFailure(err)
 		}
 		return runtime.business(result)
 	}}

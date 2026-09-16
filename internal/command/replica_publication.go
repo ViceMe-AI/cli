@@ -36,12 +36,33 @@ func newReplicaStatusCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "status <publication-id>", Short: "Get authoritative Website Replica Publication status", Args: cobra.ExactArgs(1), RunE: func(command *cobra.Command, args []string) error {
 		result, err := controlReplicaPublication(command.Context(), runtime, args[0], false)
 		if err != nil {
-			return err
+			return replicaPublicationResponseFailure(err)
 		}
 		return runtime.business(result)
 	}}
 	addReplicaStorageFlag(command, runtime)
 	return command
+}
+
+// A malformed API response supplies no authoritative recovery action. Keep
+// the original request/state intact and stop the host from guessing retries.
+func replicaPublicationResponseFailure(err error) error {
+	var original *output.Error
+	if !errors.As(err, &original) || original.Subtype != "RESPONSE_INVALID" {
+		return err
+	}
+	failure := *original
+	details := map[string]any{}
+	if previous, ok := failure.Details.(map[string]any); ok {
+		for key, value := range previous {
+			details[key] = value
+		}
+	}
+	details["nextAction"] = "STOP_AND_REPORT"
+	failure.Details = details
+	failure.Retryable = false
+	failure.Hint = "stop and report the incompatible API response; preserve the current profile and publication recovery state; do not repeat publish/resume, disable the sandbox, or create another publication"
+	return &failure
 }
 
 // Release recovery locks before the caller emits its single JSON envelope.

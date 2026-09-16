@@ -71,7 +71,7 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			result, err := publishWebsiteReplica(command.Context(), runtime, options)
 			if err != nil {
-				return err
+				return replicaPublicationResponseFailure(err)
 			}
 			return runtime.business(result)
 		},
