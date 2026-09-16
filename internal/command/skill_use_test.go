@@ -148,13 +148,13 @@ func TestCanonicalWorkURLSelectsTheFreeEditionByDefault(t *testing.T) {
 		}
 	}
 	detailExit, detail := executeSkillUseCommand(t, server, t.TempDir(),
-		"skill", "detail", server.URL+"/creator?workSlug=example-skill",
+		"skill", "detail", server.URL+"/creator/example-skill",
 	)
 	if detailExit != 0 || detail["ok"] != true {
 		t.Fatalf("canonical Work detail failed: exit=%d envelope=%#v", detailExit, detail)
 	}
 	data := detail["data"].(map[string]any)
-	if data["workUrl"] != server.URL+"/creator?workSlug=example-skill" || data["markdownUrl"] != server.URL+"/creator.md?workSlug=example-skill" {
+	if data["workUrl"] != server.URL+"/creator/example-skill" || data["markdownUrl"] != server.URL+"/creator/example-skill.md" {
 		t.Fatalf("detail did not expose short links: %#v", data)
 	}
 	if data["work"].(map[string]any)["canonicalPath"] != "/creator?mode=consumer&view=work&workSlug=example-skill" {
@@ -182,7 +182,7 @@ func TestCanonicalWorkURLSelectsTheFreeEditionByDefault(t *testing.T) {
 				selector = transactionalProductID
 			}
 			exit, failure := executeSkillUseCommand(t, server, t.TempDir(),
-				"skill", "access", server.URL+"/creator?workSlug=example-skill&product="+selector,
+				"skill", "access", server.URL+"/creator/example-skill?product="+selector,
 			)
 			if exit == 0 || failure["ok"] != false {
 				t.Fatalf("invalid explicit selector unexpectedly fell back: %#v", failure)
@@ -321,7 +321,7 @@ func TestStrictOwnedURLSkipsPublicWorkAndPublicTrial(t *testing.T) {
 	}))
 	defer server.Close()
 
-	target := server.URL + "/creator.md?workSlug=delisted-skill&product=" + downloadableProductID + "&install=owned"
+	target := server.URL + "/creator/delisted-skill.md?product=" + downloadableProductID + "&install=owned"
 	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", target, "--agent", "agents")
 	if exit != 0 || envelope["ok"] != true {
 		t.Fatalf("strict owned reinstall failed: exit=%d envelope=%#v", exit, envelope)
@@ -353,7 +353,7 @@ func TestStrictOwnedURLNeverFallsBackForTheWrongAccount(t *testing.T) {
 	}))
 	defer server.Close()
 
-	target := server.URL + "/creator.md?workSlug=skill&product=" + downloadableProductID + "&install=owned"
+	target := server.URL + "/creator/skill.md?product=" + downloadableProductID + "&install=owned"
 	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", target)
 	if exit == 0 || envelope["ok"] != false {
 		t.Fatalf("wrong account unexpectedly installed through strict owned intent: %#v", envelope)
@@ -373,7 +373,7 @@ func TestStrictOwnedURLRequiresLoginWithoutTouchingPublicEndpoints(t *testing.T)
 	}))
 	defer server.Close()
 
-	target := server.URL + "/creator.md?workSlug=skill&product=" + downloadableProductID + "&install=owned"
+	target := server.URL + "/creator/skill.md?product=" + downloadableProductID + "&install=owned"
 	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", target)
 	if exit == 0 || envelope["ok"] != false {
 		t.Fatalf("anonymous strict owned install unexpectedly succeeded: %#v", envelope)
@@ -397,7 +397,7 @@ func TestStrictOwnedURLValidatesIntentAndProductExactly(t *testing.T) {
 		"?product=" + downloadableProductID + "&product=" + downloadableProductID + "&install=owned",
 	}
 	for _, query := range queries {
-		exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", server.URL+"/creator.md?workSlug=skill&"+strings.TrimPrefix(query, "?"))
+		exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", server.URL+"/creator/skill.md?"+strings.TrimPrefix(query, "?"))
 		if exit == 0 || envelope["ok"] != false {
 			t.Fatalf("invalid owned URL unexpectedly succeeded: query=%s envelope=%#v", query, envelope)
 		}
@@ -644,7 +644,7 @@ func TestOfficialWorkUsesBundledInstallReferenceAndHonorsLifecycle(t *testing.T)
 				http.NotFound(w, r)
 			}))
 			defer server.Close()
-			exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", test.command, "/viceme?workSlug=sell-a-skill")
+			exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", test.command, "/viceme/sell-a-skill")
 			if test.errorCode == "" {
 				if exit != 0 || envelope["ok"] != true {
 					t.Fatalf("official reference failed: %d %#v", exit, envelope)

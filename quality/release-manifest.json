@@ -42,8 +42,8 @@
       "skill_version": "0.43.0",
       "minimum_cli_version": "0.43.0",
       "cli_compatibility": ">=0.43.0 <0.44.0",
-      "full_skill_bundle_digest": "sha256:7179c39d822a108fb3b7b266eb52057ad3d8c00e327bf5e486eea04428307bbe",
-      "embedded_content_digest": "sha256:ce603b4f61022859793a61a08912a8443bff01a29ff9b9c717ab6983dc47d97d"
+      "full_skill_bundle_digest": "sha256:080cb91c2b14731c221f19750136059bfcd40b304f708055cfdcdb5bdf9201fc",
+      "embedded_content_digest": "sha256:91ef44de18ba389d97d6214d226e82b20beca3599d899786e353b309072296a8"
     },
     "let-others-make-a-copy": {
       "skill_version": "0.43.0",
@@ -70,8 +70,8 @@
       "skill_version": "0.43.0",
       "minimum_cli_version": "0.43.0",
       "cli_compatibility": ">=0.43.0 <0.44.0",
-      "full_skill_bundle_digest": "sha256:66c4eab80ed4e240d63ad5bae183bf9e73ef28e156a5c1ef56bf7b522767d004",
-      "embedded_content_digest": "sha256:9cd47d19e1ea91899533703e38d69465cf545bc5846b459473d53eedaf0e3312"
+      "full_skill_bundle_digest": "sha256:739645549cefd47fa32e90e2665af2352edc5a644ac1b63614eca1b7e41aae52",
+      "embedded_content_digest": "sha256:46d0a02bbaa969cb44ccd0e2c23c04c84a1c23676fa694de376e157bbca8487e"
     },
     "withdraw-income": {
       "skill_version": "0.43.0",

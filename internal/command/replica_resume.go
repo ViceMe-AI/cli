@@ -9,6 +9,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/replicapublication"
+	"github.com/ViceMe-AI/cli/internal/workurl"
 	"github.com/spf13/cobra"
 )
 
@@ -334,14 +335,14 @@ func validateReplicaPublicationRecovery(pending replicapublication.Pending, publ
 	if pending.Confirmation != nil {
 		review := pending.Confirmation.Review
 		if publication.MerchantAccountID != review.MerchantAccountID ||
-			(publication.Result != nil && publication.Result.WorkURL != review.WorkURL) {
+			(publication.Result != nil && !workurl.Equivalent(publication.Result.WorkURL, review.WorkURL)) {
 			return invalidReplicaResponse("Website Replica Publication recovery does not match the confirmed target")
 		}
 	}
 	if pending.Target != nil {
 		target := pending.Target
 		if publication.MerchantAccountID != target.MerchantAccountID || publication.WorkID != target.WorkID ||
-			publication.ReplicaID != target.ReplicaID || (publication.Result != nil && publication.Result.WorkURL != target.WorkURL) ||
+			publication.ReplicaID != target.ReplicaID || (publication.Result != nil && !workurl.Equivalent(publication.Result.WorkURL, target.WorkURL)) ||
 			(target.ProductID != nil && publication.Result != nil && publication.Result.Product.ID != *target.ProductID) {
 			return invalidReplicaResponse("Website Replica Publication recovery does not match the resolved target")
 		}

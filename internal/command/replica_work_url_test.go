@@ -15,7 +15,7 @@ func TestReplicaWorkURLContract(t *testing.T) {
 		path  string
 		valid bool
 	}{
-		{"/alice/site", false},
+		{"/alice/site", true},
 		{"/en-US/alice/site.md", false},
 		{"/alice?mode=consumer&view=work&workSlug=site", true},
 		{"/zh-CN/alice?workSlug=site&view=work&mode=consumer", false},

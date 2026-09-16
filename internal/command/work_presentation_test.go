@@ -14,7 +14,7 @@ func TestReplicaPublicationDisplayPreservesAuthoritativeURL(t *testing.T) {
 	source := api.WebsiteReplicaPublication{Status: "PUBLISHED", StatusURL: private, Result: &api.WebsiteReplicaPublicationResult{WorkURL: canonical}}
 	for range 2 {
 		result := presentReplicaPublication(source)
-		if result.Result.WorkURL != "https://viceme.cn/alice?workSlug=site" || result.StatusURL != private {
+		if result.Result.WorkURL != "https://viceme.cn/alice/site" || result.StatusURL != private {
 			t.Fatalf("wrong display: %#v", result)
 		}
 		if source.Result.WorkURL != canonical || source.Result == result.Result {
@@ -22,7 +22,7 @@ func TestReplicaPublicationDisplayPreservesAuthoritativeURL(t *testing.T) {
 		}
 	}
 	view := newReplicaWorkPresentation(true, canonical)
-	if view.URL != "https://viceme.cn/alice?workSlug=site" {
+	if view.URL != "https://viceme.cn/alice/site" {
 		t.Fatalf("wrong preview: %#v", view)
 	}
 }
@@ -33,13 +33,13 @@ func TestPublicWorkDisplayPreservesEditionAndCanonical(t *testing.T) {
 	source.Work.MarkdownPath = "/alice.md?mode=consumer&view=work&workSlug=site"
 	target := "https://dev.viceme.cn/alice.md?mode=consumer&view=work&workSlug=site&product=one&install=owned"
 	result := presentPublicWork(source, target, "https://viceme.ai")
-	if result.WorkURL != "https://dev.viceme.cn/alice?workSlug=site&product=one&install=owned" || result.MarkdownURL != "https://dev.viceme.cn/alice.md?workSlug=site&product=one&install=owned" {
+	if result.WorkURL != "https://dev.viceme.cn/alice/site?product=one&install=owned" || result.MarkdownURL != "https://dev.viceme.cn/alice/site.md?product=one&install=owned" {
 		t.Fatalf("lost display selectors: %#v", result)
 	}
 	if source.Work.CanonicalPath != result.Work.CanonicalPath || source.Work.MarkdownPath != result.Work.MarkdownPath {
 		t.Fatal("canonical output changed")
 	}
-	if got := presentPublicWork(source, "/other?workSlug=other", "https://viceme.ai"); got.WorkURL != "https://viceme.ai/alice?workSlug=site" {
+	if got := presentPublicWork(source, "/other/other", "https://viceme.ai"); got.WorkURL != "https://viceme.ai/alice/site" {
 		t.Fatal("different Work replaced source identity")
 	}
 }
@@ -61,7 +61,7 @@ func TestProductDetailDisplaysSelectedEditionAndRetainsAPIFields(t *testing.T) {
 	if data["canonicalPath"] != canonical || data["unknown"].(map[string]any)["keep"] != "exact" {
 		t.Fatal("raw API identity/fields changed")
 	}
-	if data["workUrl"] != "https://viceme.cn/alice?product="+downloadableProductID+"&workSlug=site" || data["markdownUrl"] != "https://viceme.cn/alice.md?product="+downloadableProductID+"&workSlug=site" {
+	if data["workUrl"] != "https://viceme.cn/alice/site?product="+downloadableProductID+"" || data["markdownUrl"] != "https://viceme.cn/alice/site.md?product="+downloadableProductID+"" {
 		t.Fatalf("wrong selected edition URLs: %#v", data)
 	}
 }

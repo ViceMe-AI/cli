@@ -39,23 +39,25 @@ the CLI, but they do not own its installation state or recovery protocol.
 
 ## Work URL parameters
 
-- Shop work pages use `/{handle}?workSlug={slug}` (or `/{handle}.md?...`).
-  Omitted `mode` and `view` mean `consumer` and `work` only when `workSlug`
-  exists. Bare `/{handle}` is a creator profile, never a Work.
-- Explicit mode/view must identify the public Work for install, replica, and
-  page customization inputs. Reject duplicates, invalid identity, private or
-  mismatched selectors, and retired nested/locale-prefixed Work paths.
-- `internal/workurl` owns Go URL identity parsing for command and API consumers.
-  Product selection and `install=owned` retain their existing owners; never drop
-  these selectors or silently select another product or purchase flow.
+- Public Work URLs prefer `/{handle}/{workSlug}` and Markdown prefers
+  `/{handle}/{workSlug}.md`. Also accept `/{handle}?workSlug={slug}` and
+  `/{handle}.md?workSlug={slug}`, including explicit `mode=consumer&view=work`.
+  Missing public mode/view may be inferred, but explicit invalid modes/views,
+  duplicate parameters, mismatched path/query identities and locale-prefixed
+  paths must be rejected. Bare `/{handle}` is the public profile.
+- `internal/workurl.PublicParts` owns shared Work identity parsing. Preserve
+  `product`, `install=owned`, origin and the full input passed to owning flows.
+  Private owner Markdown remains `/{handle}.md?mode=creator&view=work&workSlug=...`.
 - The standalone Replica Python script uses the same contract fixtures in
   `internal/workurl/testdata`. Keep Go and Python acceptance behavior aligned.
 - User-facing public Work links use `workurl.Display` at the output boundary:
   publication `result.workUrl`, published Skill `product.detailUrl`, listing
-  `publicUrl`, and `workUrl` / `workPresentation.url` display fields are short.
+  `publicUrl`, and `workUrl` / `workPresentation.url` display fields prefer the path-shaped URL.
   Work detail exposes `workUrl` and `markdownUrl`; its API canonical fields
   remain unchanged. Do not shorten opaque URLs with unknown query parameters.
 - Do not mutate returned canonical URLs or signed/confirmation identities.
+  Across representations compare frozen public identities with `workurl.Equivalent`;
+  it must retain origin, Work identity and edition/intent, never ignore opaque fields.
   When constructing Markdown, append `.md` to the pathname before the query.
   Owner analytics must verify ownership and explicitly request creator mode.
 - Preserve pathname plus query in login `returnTo`. URL mode is presentation,
