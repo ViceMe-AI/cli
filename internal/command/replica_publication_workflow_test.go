@@ -164,7 +164,7 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 	for _, projectStorage := range []bool{false, true} {
 		for _, pageDirectory := range []string{".", "public site"} {
 			t.Run(fmt.Sprintf("project-storage-%t/page-%s", projectStorage, pageDirectory), func(t *testing.T) {
-				testReplicaPublicationStorageLifecycle(t, projectStorage, pageDirectory, config.RegionCN)
+				testReplicaPublicationStorageLifecycle(t, projectStorage, pageDirectory, config.RegionCN, false)
 			})
 		}
 	}
@@ -173,7 +173,7 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 func TestReplicaPublishGlobalFreeHostedLifecycle(t *testing.T) {
 	for _, projectStorage := range []bool{false, true} {
 		t.Run(fmt.Sprint(projectStorage), func(t *testing.T) {
-			testReplicaPublicationStorageLifecycle(t, projectStorage, ".", config.RegionGlobal)
+			testReplicaPublicationStorageLifecycle(t, projectStorage, ".", config.RegionGlobal, false)
 		})
 	}
 }
@@ -201,15 +201,21 @@ func rewriteGlobalReplicaTestResponse(response map[string]any) {
 	}
 }
 
-func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, pageDirectory string, region config.Region) {
+func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, pageDirectory string, region config.Region, queryRoute bool) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	market, price, workURL := "CN", 990, "https://viceme.cn/replica-maker/replica-site"
 	if region == config.RegionGlobal {
 		market, price, workURL = "GLOBAL", 0, "https://viceme.ai/replica-maker/replica-site"
 	}
+	if queryRoute {
+		workURL = strings.ReplaceAll(workURL, "/replica-maker/replica-site", "/replica-maker?mode=consumer&view=work&workSlug=replica-site")
+	}
 	writeResponse := func(w http.ResponseWriter, response map[string]any) {
 		if region == config.RegionGlobal {
 			rewriteGlobalReplicaTestResponse(response)
+		}
+		if queryRoute {
+			rewriteQueryReplicaTestResponse(response)
 		}
 		writeJSONResponse(w, response)
 	}
@@ -316,6 +322,19 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 			confirmation, _ := input["confirmation"].(map[string]any)
 			if confirmation["version"] != confirmationVersion || confirmation["confirmedAt"] == nil {
 				t.Fatalf("confirmed request did not bind the challenge: %#v", confirmation)
+			}
+			if queryRoute {
+				writeResponse(writer, map[string]any{
+					"outcome": "PUBLICATION_READY",
+					"target": map[string]any{
+						"resolution": "CREATE", "merchantAccountId": replicaPublicationTestMerchantID,
+						"workId": replicaPublicationTestWorkID, "replicaId": replicaPublicationTestReplicaID,
+						"productId": nil, "workUrl": workURL,
+					},
+					"publication": replicaPublicationForArtifacts(now, "DRAFT", "WAITING_UPLOAD", firstRequest["source"].(map[string]any), "WAITING_UPLOAD", firstRequest["page"].(map[string]any)),
+					"nextAction":  map[string]any{"kind": "AUTHORIZE_SOURCE_UPLOAD", "publicationId": replicaPublicationTestID},
+				})
+				return
 			}
 			writeResponse(writer, map[string]any{
 				"outcome": "ACTION_REQUIRED", "clientRequestId": replicaPublicationTestRequestID, "market": market,
@@ -2603,5 +2622,23 @@ func TestReplicaConfirmationCannotSilentlySwitchSourceOnlyToDefaultHosting(t *te
 	err := validateConfirmedReplicaRequest(replicaPublishOptions{ConfirmationVersion: "review"}, pending, replicapublication.Binding{}, false)
 	if err == nil || !strings.Contains(err.Error(), "hosting selection changed") {
 		t.Fatalf("source-only confirmation accepted without explicit selection: %v", err)
+	}
+}
+
+func TestReplicaPublishQueryWorkURLLifecycle(t *testing.T) {
+	for _, region := range []config.Region{config.RegionCN, config.RegionGlobal} {
+		t.Run(string(region), func(t *testing.T) {
+			testReplicaPublicationStorageLifecycle(t, false, ".", region, true)
+		})
+	}
+}
+
+func rewriteQueryReplicaTestResponse(response map[string]any) {
+	for key, value := range response {
+		if child, ok := value.(map[string]any); ok {
+			rewriteQueryReplicaTestResponse(child)
+		} else if text, ok := value.(string); ok {
+			response[key] = strings.ReplaceAll(text, "/replica-maker/replica-site", "/replica-maker?mode=consumer&view=work&workSlug=replica-site")
+		}
 	}
 }
