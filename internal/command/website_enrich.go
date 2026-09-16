@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"reflect"
+	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -113,28 +114,71 @@ func websiteEnrichedContent(active json.RawMessage, input websiteEnrichInput) (j
 	if err != nil {
 		return nil, err
 	}
+	if err = normalizeWebsiteEnrichInput(&input); err != nil {
+		return nil, err
+	}
 	delta, _ := json.Marshal(input)
 	var fields map[string]json.RawMessage
 	_ = json.Unmarshal(delta, &fields)
 	if len(fields) == 0 {
 		return nil, output.Validation("WEBSITE_ENRICH_INPUT_INVALID", "provide at least one confirmed content field")
 	}
-	if input.Summary != nil && (len([]rune(*input.Summary)) == 0 || len([]rune(*input.Summary)) > 500) {
-		return nil, output.Validation("WEBSITE_ENRICH_INPUT_INVALID", "summary must contain 1 to 500 characters")
-	}
-	for _, key := range []string{"tags", "media"} {
-		if raw, ok := fields[key]; ok {
-			var list []json.RawMessage
-			if json.Unmarshal(raw, &list) != nil || list == nil {
-				return nil, output.Validation("WEBSITE_ENRICH_INPUT_INVALID", "tags and media must be arrays")
-			}
-		}
-	}
 	for key, value := range fields {
 		content[key] = value
 	}
 	data, err := json.Marshal(content)
 	return data, err
+}
+
+func normalizeWebsiteEnrichInput(input *websiteEnrichInput) error {
+	if input.Summary != nil {
+		value := strings.TrimSpace(*input.Summary)
+		if utf16CodeUnits(value) < 1 || utf16CodeUnits(value) > 500 {
+			return output.Validation("WEBSITE_ENRICH_INPUT_INVALID", "summary must contain 1 to 500 characters")
+		}
+		input.Summary = &value
+	}
+	if input.BodyMarkdown != nil {
+		value := strings.TrimSpace(*input.BodyMarkdown)
+		if utf16CodeUnits(value) < 1 || utf16CodeUnits(value) > 100000 {
+			return output.Validation("WEBSITE_ENRICH_INPUT_INVALID", "bodyMarkdown must contain 1 to 100000 characters")
+		}
+		input.BodyMarkdown = &value
+	}
+	if input.UsageInstructions != nil {
+		value := strings.TrimSpace(*input.UsageInstructions)
+		if utf16CodeUnits(value) < 1 || utf16CodeUnits(value) > 20000 {
+			return output.Validation("WEBSITE_ENRICH_INPUT_INVALID", "usageInstructions must contain 1 to 20000 characters")
+		}
+		input.UsageInstructions = &value
+	}
+	if input.Tags != nil {
+		var tags []string
+		if json.Unmarshal(*input.Tags, &tags) != nil || tags == nil || len(tags) > 50 {
+			return output.Validation("WEBSITE_ENRICH_INPUT_INVALID", "tags must be an array with at most 50 strings")
+		}
+		for i := range tags {
+			tags[i] = strings.TrimSpace(tags[i])
+			if utf16CodeUnits(tags[i]) < 1 || utf16CodeUnits(tags[i]) > 80 {
+				return output.Validation("WEBSITE_ENRICH_INPUT_INVALID", "each tag must contain 1 to 80 characters")
+			}
+		}
+		normalized, _ := json.Marshal(tags)
+		raw := json.RawMessage(normalized)
+		input.Tags = &raw
+	}
+	if input.Media != nil {
+		var media []map[string]json.RawMessage
+		if json.Unmarshal(*input.Media, &media) != nil || media == nil || len(media) > 100 {
+			return output.Validation("WEBSITE_ENRICH_INPUT_INVALID", "media must be an array with at most 100 objects")
+		}
+		for _, item := range media {
+			if item == nil {
+				return output.Validation("WEBSITE_ENRICH_INPUT_INVALID", "each media item must be an object")
+			}
+		}
+	}
+	return nil
 }
 
 func performWebsiteEnrich(ctx context.Context, runtime *Runtime, project string, state *websiteAccessState, current api.MerchantWork) error {

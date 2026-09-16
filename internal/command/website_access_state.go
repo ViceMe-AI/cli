@@ -24,6 +24,7 @@ type websiteAccessState struct {
 	ProjectPath      string                                  `json:"projectPath"`
 	ProjectBindingID string                                  `json:"projectBindingId"`
 	Attempted        bool                                    `json:"attempted"`
+	RequestRejected  bool                                    `json:"requestRejected,omitempty"`
 	Phase            string                                  `json:"phase"`
 	Request          api.WebsiteAccessConfigurationRequest   `json:"request"`
 	PreviousAccess   *api.WorkSdkAccess                      `json:"previousAccess,omitempty"`

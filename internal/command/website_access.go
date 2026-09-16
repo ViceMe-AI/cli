@@ -3,7 +3,6 @@ package command
 import (
 	"context"
 	"encoding/json"
-	"net/url"
 	"reflect"
 	"strings"
 
@@ -123,6 +122,7 @@ func newWebsiteAccessCommand(runtime *Runtime, mode string) *cobra.Command {
 			return refreshWebsiteAccess(command.Context(), runtime, canonical, &state, true, receiptFile)
 		}
 		state.Attempted = true
+		state.RequestRejected = false
 		if err = saveWebsiteAccessState(canonical, state); err != nil {
 			return err
 		}
@@ -138,6 +138,13 @@ func newWebsiteAccessCommand(runtime *Runtime, mode string) *cobra.Command {
 			}
 		}
 		if err != nil {
+			if websiteAccessRequestDefinitelyRejected(err) {
+				state.Attempted = false
+				state.RequestRejected = true
+				if saveErr := saveWebsiteAccessState(canonical, state); saveErr != nil {
+					return saveErr
+				}
+			}
 			return websiteAccessActionError(runtime, canonical, state, err)
 		}
 		if result.Access != nil {
@@ -210,7 +217,7 @@ func prepareWebsiteAccessRequest(runtime *Runtime, state *websiteAccessState, in
 		if state.Phase == "PREPARED" && state.Attempted && (state.Result == nil || state.Result.Access != nil) {
 			return output.Policy("WEBSITE_ACCESS_REQUEST_PENDING", "resume the original request before changing an uncertain configuration")
 		}
-		if state.Phase != "PREPARED" {
+		if state.Phase != "PREPARED" || state.RequestRejected {
 			id, err := runtime.newReplicaRequestID()
 			if err != nil {
 				return err
@@ -225,6 +232,7 @@ func prepareWebsiteAccessRequest(runtime *Runtime, state *websiteAccessState, in
 		state.Phase = "PREPARED"
 		state.HostReceipt = nil
 		state.Attempted = false
+		state.RequestRejected = false
 	}
 	return nil
 }
@@ -235,11 +243,33 @@ func normalizeWebsiteAccessInput(input *websiteAccessInput, market string) error
 			return output.Validation("WEBSITE_ACCESS_INPUT_INVALID", "Work and merchant IDs must be UUIDs")
 		}
 	}
+	if value := input.Work.Title; value != "" {
+		input.Work.Title = strings.TrimSpace(value)
+		if input.Work.Title == "" || utf16CodeUnits(input.Work.Title) > 200 {
+			return output.Validation("WEBSITE_ACCESS_INPUT_INVALID", "optional Work title must contain 1 to 200 characters")
+		}
+	}
+	if value := input.Work.Slug; value != "" && !validReplicaWorkSlug(value) {
+		return output.Validation("WEBSITE_ACCESS_INPUT_INVALID", "optional Work slug must be a non-reserved lowercase slug containing 2 to 64 characters")
+	}
+	if value := input.Work.Summary; value != "" {
+		input.Work.Summary = strings.TrimSpace(value)
+		if input.Work.Summary == "" || utf16CodeUnits(input.Work.Summary) > 500 {
+			return output.Validation("WEBSITE_ACCESS_INPUT_INVALID", "optional Work summary must contain 1 to 500 characters")
+		}
+	}
+	if value := input.Work.BodyMarkdown; value != "" {
+		input.Work.BodyMarkdown = strings.TrimSpace(value)
+		if input.Work.BodyMarkdown == "" || utf16CodeUnits(input.Work.BodyMarkdown) > 100000 {
+			return output.Validation("WEBSITE_ACCESS_INPUT_INVALID", "optional Work body must contain 1 to 100000 characters")
+		}
+	}
 	if value := input.Work.CanonicalOrigin; value != "" {
-		parsed, err := url.Parse(value)
-		if err != nil || parsed.User != nil || parsed.Host == "" || parsed.Scheme != "https" || strings.ContainsAny(value, "\r\n\t") {
+		canonical, valid := canonicalReplicaOrigin(value)
+		if !valid || strings.TrimSpace(value) != value || strings.ContainsAny(value, "\r\n\t") {
 			return output.Validation("WEBSITE_ACCESS_INPUT_INVALID", "optional website address must be a valid HTTPS URL")
 		}
+		input.Work.CanonicalOrigin = canonical
 	}
 	if len(input.AccessFeatures) > 100 {
 		return output.Validation("WEBSITE_ACCESS_INPUT_INVALID", "at most 100 feature changes are supported")
@@ -247,6 +277,7 @@ func normalizeWebsiteAccessInput(input *websiteAccessInput, market string) error
 	seen := map[string]bool{}
 	for i := range input.AccessFeatures {
 		f := &input.AccessFeatures[i]
+		f.Title = strings.TrimSpace(f.Title)
 		if f.Status == "" {
 			f.Status = "ACTIVE"
 		}
@@ -269,6 +300,15 @@ func normalizeWebsiteAccessInput(input *websiteAccessInput, market string) error
 		input.AccessFeatures = []api.WebsiteAccessFeatureInput{}
 	}
 	return nil
+}
+
+func websiteAccessRequestDefinitelyRejected(err error) bool {
+	switch output.AsError(err).Subtype {
+	case "REQUEST_VALIDATION_FAILED", "VALIDATION_ERROR":
+		return true
+	default:
+		return false
+	}
 }
 
 func verifyWebsiteAccessDelta(access *api.WorkSdkAccess, delta []api.WebsiteAccessFeatureInput, previous *api.WebsiteAccessConfigurationResponse) error {
@@ -392,6 +432,8 @@ func websiteAccessActionError(runtime *Runtime, project string, state websiteAcc
 		action = "AUTHENTICATE_CREATOR"
 	}
 	switch failure.Subtype {
+	case "REQUEST_VALIDATION_FAILED", "VALIDATION_ERROR":
+		action = "CORRECT_INPUT"
 	case "MERCHANT_NOT_FOUND", "MERCHANT_REQUIRED":
 		action = "APPLY_CREATOR"
 	case "ROUTE_NOT_FOUND", "NOT_FOUND":
