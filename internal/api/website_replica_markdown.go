@@ -8,12 +8,12 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"strings"
 	"time"
 	"unicode/utf8"
 
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/workurl"
 )
 
 // ReadWebsiteReplicaOwnerMarkdown uses only the selected profile's Web origin.
@@ -24,20 +24,19 @@ func (c *Client) ReadWebsiteReplicaOwnerMarkdown(ctx context.Context, webBaseURL
 	if err != nil {
 		return "", "", output.Validation("REPLICA_WEB_AUTHORITY_REQUIRED", "select a profile with a matching Web base URL")
 	}
-	target, err := config.NormalizeWebBaseURL(workURL)
-	if err != nil || !strings.HasPrefix(target, base+"/") {
+	target, err := url.Parse(workURL)
+	if err != nil || target.Scheme+"://"+target.Host != base || target.Fragment != "" {
 		return "", "", output.Validation("REPLICA_WORK_URL_INVALID", "Work URL must belong to the selected profile's Web authority")
 	}
-	workPath := strings.TrimSuffix(strings.TrimPrefix(target, base+"/"), ".md")
-	segments := strings.Split(workPath, "/")
-	if len(segments) != 2 || segments[0] == "" || segments[1] == "" {
-		return "", "", output.Validation("REPLICA_WORK_URL_INVALID", "use the canonical /creator/work URL")
+	handle, slug, ok := workurl.PublicParts(target)
+	if !ok {
+		return "", "", output.Validation("REPLICA_WORK_URL_INVALID", "use /<handle>?workSlug=<slug> with public Work parameters")
 	}
-	work, err := c.GetPublicWork(ctx, segments[0], segments[1])
+	work, err := c.GetPublicWork(ctx, handle, slug)
 	if err != nil {
 		return "", "", err
 	}
-	if !uuidPattern.MatchString(work.Work.ID) || work.Work.Kind != "WEBSITE" || work.Creator.Handle != segments[0] || work.Work.Slug != segments[1] {
+	if !uuidPattern.MatchString(work.Work.ID) || work.Work.Kind != "WEBSITE" || work.Creator.Handle != handle || work.Work.Slug != slug {
 		return "", "", invalidAPIResponse(errors.New("analytics Work target mismatch"))
 	}
 	var access struct {
@@ -53,7 +52,12 @@ func (c *Client) ReadWebsiteReplicaOwnerMarkdown(ctx context.Context, webBaseURL
 	if err != nil {
 		return "", "", err
 	}
-	markdownURL := base + "/" + workPath + ".md"
+	// Ownership was checked above. Explicit creator mode selects the private
+	// Markdown document; public defaults must never stand in for owner data.
+	markdownTarget, _ := url.Parse(base)
+	markdownTarget.Path = "/" + handle + ".md"
+	markdownTarget.RawQuery = url.Values{"mode": {"creator"}, "view": {"work"}, "workSlug": {slug}}.Encode()
+	markdownURL := markdownTarget.String()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, markdownURL, nil)
 	if err != nil {
 		return "", "", output.Validation("REPLICA_WORK_URL_INVALID", "could not construct the Work Markdown URL")
