@@ -83,8 +83,13 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertNotIn("# 购买后使用", text)
         self.assertNotIn("imageChatSrc", text)
         self.assertNotIn("present_files", text)
-        for required in ("不算已展示", "--wait 0", "--wait 60", "开场白"):
+        for required in ("不算已展示", "--wait 0", "--wait 60", "开场白", "无试用开场白", "已经装到本地", "现在就试", "先放着"):
             self.assertIn(required, text)
+        self.assertNotIn("Skill 已安装", trial.purchase_required_message())
+        self.assertIn("无试用开场白", trial.purchase_required_message())
+        self.assertIn("已经装到本地", trial.purchase_required_message())
+        self.assertIn("现在就试", trial.OWNED_USAGE_GUIDE)
+        self.assertIn("先放着", trial.OWNED_USAGE_GUIDE)
         gate = text.split("## 使用前必读", 1)[1]
         self.assertLess(gate.find("必须先读取并执行"), gate.find("改成 `--wait 60`"))
         self.assertLess(gate.find("开场白"), gate.find("二维码"))
@@ -505,7 +510,7 @@ class TrialScriptTestCase(unittest.TestCase):
                     for required in ("当前宿主明确支持", "![微信支付二维码](<imagePath>)",
                                      "支持本地 HTML", "另一个独立获准的通道",
                                      "只有图片和页面都无法展示时", "仅交付路径时不要启动等待",
-                                     "开场白必须出现在二维码"):
+                                     "开场白必须出现在二维码", "无试用开场白", "已经装到本地"):
                         self.assertIn(required, instructions)
                     exhausted = trial.exhausted_purchase_message()
                     self.assertNotIn("present_files", exhausted)
@@ -2050,7 +2055,10 @@ class InstallFlowTestCase(unittest.TestCase):
         with open(user_path, encoding="utf-8") as handle:
             self.assertEqual(handle.read(), "keep my work")
         with open(os.path.join(directory, ".viceme", "guides", "trial-usage.md"), encoding="utf-8") as handle:
-            self.assertIn("正式版：不再计次", handle.read())
+            usage = handle.read()
+        self.assertIn("正式版：不再计次", usage)
+        self.assertIn("现在就试", usage)
+        self.assertIn("先放着", usage)
         after_purchase = list(calls)
 
         def blocked_download(*_arguments):

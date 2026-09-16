@@ -6,25 +6,33 @@
 
 无试用付费版使用作品页的 Python install 入口；无需 CLI 或登录。脚本先安装 kind=purchase 的 Skill：保留商品名称与能力简介，正文是封闭的「使用前必读」，并带上本文件作为购买展示细则。不把出码规则再写进 SKILL.md。不下载正式正文、脚本或其他付费附件；不在安装包中写入购买凭证。不要创建「零次试用」，也不要安装试用上手卡。
 
-安装返回 PURCHASE_REQUIRED 时立即读取已装 SKILL.md 的「使用前必读」，并使用响应中的本地 runtimePath 执行 `python3 '<runtimePath>' purchase --product <product-id> --market <market> --wait 0`（Windows 用 py）。此步骤才持久化本机购买身份并创建或恢复订单。返回后先按该必读写给用户看的开场白：用入口 frontmatter 的名称和简介说明这件能做什么、没有试用、需要先付费才能开始；金额只用返回字段。开场白必须出现在二维码、支付链接和支付页之前，不要等用户确认是否购买，也不要编造尚未取得的正式正文。随后完成本文件「通用支付展示」。只打开预览、只完成工具调用或只交付本地路径，而回复正文没有二维码和支付链接，都不算已展示，不得开始 --wait 60。展示完成后再改用 --wait 60 有界等待。付款确认后由同一脚本校验权益、下载正式包，并在原 Skill 目录替换内容，读取实际 SKILL.md 后继续原任务。没有原任务才介绍用法。
+安装返回 PURCHASE_REQUIRED 时立即读取已装 SKILL.md 的「使用前必读」，并使用响应中的本地 runtimePath 执行 `python3 '<runtimePath>' purchase --product <product-id> --market <market> --wait 0`（Windows 用 py）。此步骤才持久化本机购买身份并创建或恢复订单。返回后先按下方「无试用开场白」写给用户看，再完成本文件「通用支付展示」。开场白必须出现在二维码、支付链接和支付页之前，不要等用户确认是否购买，也不要编造尚未取得的正式正文。只打开预览、只完成工具调用或只交付本地路径，而回复正文没有二维码和支付链接，都不算已展示，不得开始 --wait 60。展示完成后再改用 --wait 60 有界等待。付款确认后由同一脚本校验权益、下载正式包，并在原 Skill 目录替换内容，再读取实际 SKILL.md。有原任务立即继续，不要问现在试还是以后用。没有原任务才按正式 SKILL.md 用一两句说明怎么开始，然后等用户下一条内容；不要问「现在就试还是先放着」，也不要停在安装成功。
 
 无试用购买凭证独立存储；重试、进程重启、支付超时和安装失败都保留原凭证与订单。已有试用凭证时由原试用身份购买；先恢复待交付 use。已有脚本订单时不得改走账号购买或删除凭证重新下单。已通过该凭证购买的商品直接恢复正式安装；这不替代 install=owned 的账号校验，也不承诺跨设备找回。
+
+## 无试用开场白
+
+给用户看的第一段只按下面句式；可按当前语言微调标点，不得增加安装过程旁白：
+
+「{商品标题}」{能力简介}。这是付费作品（{金额}），没有免费试用，付费后才能开始用。请扫下面的二维码付款：
+
+标题和简介用商品 `title` / `summary`，或入口 description 去掉「（购买后使用）」后的标题与简介；不要用目录名或 frontmatter `name`。金额只用本次 purchase 返回字段。不得对用户说已经装到本地、已经安装、Skill 已安装、目录已就绪或安装成功。
 
 ## 免 CLI 的试用转购买
 
 上次 use 报可重试错误或 ready 返回 pendingUse 时，先恢复原 use；没有待恢复使用时才执行以下购买流程。已有 CLI 路线必须保留原来的 `--skill-dir`，Python 使用实际安装目录里的脚本，付款后恢复该目录。
 
-已经由 `trial.py` 安装的用户继续使用同一个脚本与本机试用凭证，不要求安装 CLI 或登录。`ready` / `install` / `status` 已经返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED 时，不要再跑 `status` 或 `use`，不要读商品 SKILL.md，不要跑 `auth status` 或 `profile list`，立刻运行 `purchase --product <product-id> --market <market> --wait 0`。`use` 只负责新使用单元预检；`status` 只查询余额，且 ready 已经给出 0 时不要再查。最后一次试用交出结果的同一轮立即运行同一条 `purchase --wait 0` 创建或恢复订单，不要等用户再说一次；之后用户再来时同样立即出码。出码后按下方「通用支付展示」展示二维码或交付官方支付链接，再以同一命令的 `--wait 60` 等待到账。超时保留原订单继续查，二维码过期不等于订单关闭。本次 `purchase --wait 0` 若返回 PAYMENT_CLOSED，立即再运行同一条命令创建新订单；不要跑 status，不要对用户说试用没耗尽。支付确认且权益有效后，脚本验证正式包摘要，准备支持文件并最后原子替换主入口，重新读取 SKILL.md 后继续原任务。此身份只覆盖当前本机凭证对应的商品，不替代上文 `install=owned` 的账号验证，不承诺跨设备找回。
+已经由 `trial.py` 安装的用户继续使用同一个脚本与本机试用凭证，不要求安装 CLI 或登录。`ready` / `install` / `status` 已经返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED 时，不要再跑 `status` 或 `use`，不要读商品 SKILL.md，不要跑 `auth status` 或 `profile list`，立刻运行 `purchase --product <product-id> --market <market> --wait 0`。`use` 只负责新使用单元预检；`status` 只查询余额，且 ready 已经给出 0 时不要再查。最后一次试用交出结果的同一轮立即运行同一条 `purchase --wait 0` 创建或恢复订单，不要等用户再说一次；之后用户再来时同样立即出码。出码后按下方「通用支付展示」展示二维码或交付官方支付链接，再以同一命令的 `--wait 60` 等待到账。超时保留原订单继续查，二维码过期不等于订单关闭。本次 `purchase --wait 0` 若返回 PAYMENT_CLOSED，立即再运行同一条命令创建新订单；不要跑 status，不要对用户说试用没耗尽。支付确认且权益有效后，脚本验证正式包摘要，准备支持文件并最后原子替换主入口，重新读取 SKILL.md：有原任务立即继续，不要问现在试还是以后用；没有原任务才说明怎么开始并等用户下一条。此身份只覆盖当前本机凭证对应的商品，不替代上文 `install=owned` 的账号验证，不承诺跨设备找回。
 
 ## 通用支付展示
 
-安装响应 `nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL` 表示重新读取已安装的 SKILL.md，按包内规则继续原任务；没有原任务才展示示例。
+安装响应 `nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL` 表示重新读取已安装的 SKILL.md，按包内规则继续原任务；没有原任务才说明怎么开始。
 `kind=owned` 或 `owned=true` 后按正式 SKILL.md 继续，不要再运行 `use`、不要读计次指引、不要提剩余次数。
-不得停在“安装成功”，也不得要求用户重复描述原任务。
+不得停在“安装成功”，不得要求用户重复描述原任务，也不得问现在试还是以后用。
 
 匿名 Skill 订单返回外层 `checkoutUrl` / `checkoutImageUrl` 时，两者分别是官方免登录收银台链接和 HTTPS 二维码，不在 `paymentPresentation` 内。始终把返回的 `checkoutUrl` 写成可点击的 Markdown 链接；宿主支持 HTTPS 图片时，同时在单独一行用 Markdown 嵌入 `checkoutImageUrl`。图片不能替代链接，不承诺任何聊天都能显示图片，只使用实际返回的字段。WorkBuddy／豆包优先用可用的平台内本地展示，失败时使用托管图片和链接；本地展示成功也保留链接。其他宿主优先托管图片和链接，再用实际支持的本地通道。本地文件生成失败时仍可返回托管入口，此时可能没有 `paymentPresentation`，不要编造本地路径。旧 API 不返回托管字段时，按下方原有本地规则展示。
 
-无试用直接购买时，上述支付入口还必须排在开场白之后：先用入口 frontmatter 说明能力、没有试用、请先付费，再出码。试用耗尽不必再介绍能力，只说试用已用完并请扫码。
+无试用直接购买时，上述支付入口还必须排在开场白之后：先写「无试用开场白」，再出码。试用耗尽不必再介绍能力，只说试用已用完并请扫码。
 
 有 `paymentPresentation` 时，由 Agent 根据当前宿主明确声明的图片格式和实际可用的展示工具选择通道。环境识别只提供偏好，不能据此禁止宿主明确支持的能力：
 
