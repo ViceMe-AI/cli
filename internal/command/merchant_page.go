@@ -568,7 +568,7 @@ func parsePageTargetURL(value string) (api.PageCustomizationTarget, error) {
 	if queryErr != nil {
 		return api.PageCustomizationTarget{}, output.Validation("PAGE_TARGET_INVALID", "--target contains invalid query parameters")
 	}
-	if query.Has("workSlug") {
+	if query.Has("workSlug") || strings.Contains(strings.TrimPrefix(targetURL.Path, "/"), "/") {
 		handle, slug, ok := workurl.PublicParts(targetURL)
 		_, reserved := pageReservedCreatorHandles[handle]
 		if !ok || reserved {

@@ -20,6 +20,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/pagepackage"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
 	"github.com/ViceMe-AI/cli/internal/replicapublication"
+	"github.com/ViceMe-AI/cli/internal/workurl"
 	"github.com/spf13/cobra"
 )
 
@@ -691,7 +692,7 @@ func replicaResolvedTargetMatchesRequest(target api.WebsiteReplicaPublicationRes
 		return false
 	}
 	review := confirmation.Review
-	if target.Resolution != review.Resolution || target.MerchantAccountID != review.MerchantAccountID || target.WorkURL != review.WorkURL {
+	if target.Resolution != review.Resolution || target.MerchantAccountID != review.MerchantAccountID || !workurl.Equivalent(target.WorkURL, review.WorkURL) {
 		return false
 	}
 	switch request.Target.Kind {

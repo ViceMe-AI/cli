@@ -177,9 +177,14 @@ def public_work_url_parts(parsed) -> Tuple[str, str]:
                                      encoding="utf-8", errors="strict")
         if re.search(r"%(?![0-9a-fA-F]{2})", parsed.query) or ";" in parsed.query:
             raise ValueError("invalid query")
-        handle = parsed.path[1:-3] if parsed.path.endswith(".md") else parsed.path[1:]
-        slug = query.get("workSlug", [""])[0]
-        invalid = (any(len(values) != 1 for values in query.values())
+        path = parsed.path[:-3] if parsed.path.endswith(".md") else parsed.path
+        parts = path[1:].split("/")
+        if len(parts) not in {1, 2}:
+            raise ValueError("invalid Work path")
+        handle = parts[0]
+        slug = parts[1] if len(parts) == 2 else query.get("workSlug", [""])[0]
+        invalid = (("workSlug" in query and query["workSlug"] != [slug])
+                   or any(len(values) != 1 for values in query.values())
                    or query.get("mode", ["consumer"]) != ["consumer"]
                    or query.get("view", ["work"]) != ["work"]
                    or any(key in query for key in (
@@ -203,15 +208,16 @@ def display_work_url(raw: str) -> str:
     # Output-only copy; canonical resolution and private recovery stay untouched.
     try:
         parsed = urllib.parse.urlsplit(raw)
-        public_work_url_parts(parsed)
+        handle, slug = public_work_url_parts(parsed)
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
             return raw
         query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
         if set(query) - {"mode", "view", "workSlug", "product", "install"}:
             return raw
         parts = [part for part in parsed.query.split("&")
-                 if urllib.parse.unquote_plus(part.split("=", 1)[0]) not in {"mode", "view"}]
-        return urllib.parse.urlunsplit(parsed._replace(query="&".join(parts)))
+                 if urllib.parse.unquote_plus(part.split("=", 1)[0]) not in {"mode", "view", "workSlug"}]
+        path = f"/{handle}/{slug}" + (".md" if parsed.path.endswith(".md") else "")
+        return urllib.parse.urlunsplit(parsed._replace(path=path, query="&".join(parts)))
     except (ValueError, WorkflowError):
         return raw
 
