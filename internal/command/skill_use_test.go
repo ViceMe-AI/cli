@@ -153,6 +153,13 @@ func TestCanonicalWorkURLSelectsTheFreeEditionByDefault(t *testing.T) {
 	if detailExit != 0 || detail["ok"] != true {
 		t.Fatalf("canonical Work detail failed: exit=%d envelope=%#v", detailExit, detail)
 	}
+	data := detail["data"].(map[string]any)
+	if data["workUrl"] != server.URL+"/creator?workSlug=example-skill" || data["markdownUrl"] != server.URL+"/creator.md?workSlug=example-skill" {
+		t.Fatalf("detail did not expose short links: %#v", data)
+	}
+	if data["work"].(map[string]any)["canonicalPath"] != "/creator?mode=consumer&view=work&workSlug=example-skill" {
+		t.Fatal("detail changed canonical identity")
+	}
 	products := detail["data"].(map[string]any)["work"].(map[string]any)["products"].([]any)
 	paid := products[1].(map[string]any)
 	if paid["currency"] != "CNY" || paid["maximumPriceCents"] != float64(300) {

@@ -7,6 +7,7 @@ import (
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/workurl"
 	"github.com/spf13/cobra"
 )
 
@@ -122,6 +123,13 @@ func presentReplicaPublication(publication api.WebsiteReplicaPublication) replic
 	if publication.Status == "PUBLISHED" || publication.Status == "PUBLISHED_DEGRADED" {
 		redistributionPrompt = "请询问创作者是否允许在 ViceMe 二次分发，并打开 statusUrl 中的分发设置。新作品默认关闭；不得替创作者自动开启。"
 	}
+	// Output owns its copy; recovery and confirmation retain the API URL exactly.
+	var result *api.WebsiteReplicaPublicationResult
+	if publication.Result != nil {
+		copy := *publication.Result
+		copy.WorkURL = workurl.Display(copy.WorkURL)
+		result = &copy
+	}
 	return replicaPublicationPresentation{
 		RedistributionPrompt: redistributionPrompt,
 		PublicationID:        publication.ID,
@@ -133,7 +141,7 @@ func presentReplicaPublication(publication api.WebsiteReplicaPublication) replic
 		Source:         publication.Source,
 		Page:           publication.Page,
 		Failure:        publication.Failure,
-		Result:         publication.Result,
+		Result:         result,
 		AllowedActions: publication.AllowedActions,
 		Resume:         replicaPublicationResume{Command: "viceme replica resume " + publication.ID},
 	}

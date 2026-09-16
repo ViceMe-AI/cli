@@ -13,6 +13,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
+	"github.com/ViceMe-AI/cli/internal/workurl"
 	"github.com/spf13/cobra"
 )
 
@@ -105,7 +106,7 @@ func newReplicaInspectCommand(runtime *Runtime) *cobra.Command {
 			return runtime.business(replicaInspectResult{
 				InvitationFlowID:            invitationFlowID,
 				NextAction:                  "PRESENT_WORK",
-				WorkURL:                     resolved.ViceMeWorkURL,
+				WorkURL:                     workurl.Display(resolved.ViceMeWorkURL),
 				WorkPresentation:            newReplicaWorkPresentation(target.HasActivePage, resolved.ViceMeWorkURL),
 				Discovery:                   &discovery,
 				PresentationTarget:          "AGENT_PLATFORM",
@@ -126,7 +127,7 @@ func publicWorkHasActivePage(work api.PublicWorkProjection) bool {
 
 func newReplicaWorkPresentation(hasActivePage bool, workURL string) replicaWorkPresentation {
 	if hasActivePage && workURL != "" {
-		return replicaWorkPresentation{Mode: replicaWorkPresentationCreatorPage, URL: workURL}
+		return replicaWorkPresentation{Mode: replicaWorkPresentationCreatorPage, URL: workurl.Display(workURL)}
 	}
 	return replicaWorkPresentation{Mode: replicaWorkPresentationWorkspaceText}
 }

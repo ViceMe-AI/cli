@@ -68,3 +68,5 @@ ready 说明本机文件完整，并可能带上只读余量；不代表账号�
 ## 作品链接参数
 
 作品使用 `/{handle}?workSlug={slug}`，Markdown 使用 `/{handle}.md?workSlug={slug}`。省略 `mode`、`view` 时按公开消费者作品页处理；显式参数必须有效。将完整 URL 加引号传给 CLI，保留 `workSlug`、`product`、`install=owned` 和原域名，不自行拼回旧的 `/{handle}/{slug}` 路径。裸 `/{handle}` 仅表示个人主页。
+
+向用户展示作品时优先使用 CLI 的 `workUrl`、`markdownUrl` 或 `workPresentation.url` 精简地址；发布结果使用 `result.workUrl` 或 `product.detailUrl`。`canonicalPath`、`replica.viceMeWorkUrl` 等原始身份字段保留给协议处理，不代替展示地址。登录关注仍按既有流程使用原始 `replica.viceMeWorkUrl`。

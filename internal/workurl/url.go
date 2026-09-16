@@ -52,3 +52,40 @@ func PublicParts(parsed *url.URL) (string, string, bool) {
 	}
 	return handle, slug, true
 }
+
+// Display returns a short public Work link for presentation only. It must not
+// rewrite canonical, confirmation, recovery, or signed values in stored data.
+func Display(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	if _, _, ok := PublicParts(parsed); !ok {
+		return raw
+	}
+	query := parsed.Query()
+	// Unknown query fields may carry signatures or protocol state. Only shorten
+	// the public-page contract; never rewrite arbitrary URLs or opaque payloads.
+	for key := range query {
+		switch key {
+		case "mode", "view", "workSlug", "product", "install":
+		default:
+			return raw
+		}
+	}
+	if !query.Has("mode") && !query.Has("view") {
+		return raw
+	}
+	// Retain all other query bytes (including encoded product values and order).
+	parts := strings.Split(parsed.RawQuery, "&")
+	kept := parts[:0]
+	for _, part := range parts {
+		key, _, _ := strings.Cut(part, "=")
+		key, _ = url.QueryUnescape(key)
+		if key != "mode" && key != "view" {
+			kept = append(kept, part)
+		}
+	}
+	parsed.RawQuery = strings.Join(kept, "&")
+	return parsed.String()
+}

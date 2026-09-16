@@ -199,6 +199,23 @@ def public_work_url_parts(parsed) -> Tuple[str, str]:
     return handle, slug
 
 
+def display_work_url(raw: str) -> str:
+    # Output-only copy; canonical resolution and private recovery stay untouched.
+    try:
+        parsed = urllib.parse.urlsplit(raw)
+        public_work_url_parts(parsed)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            return raw
+        query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+        if set(query) - {"mode", "view", "workSlug", "product", "install"}:
+            return raw
+        parts = [part for part in parsed.query.split("&")
+                 if urllib.parse.unquote_plus(part.split("=", 1)[0]) not in {"mode", "view"}]
+        return urllib.parse.urlunsplit(parsed._replace(query="&".join(parts)))
+    except (ValueError, WorkflowError):
+        return raw
+
+
 def fetch_public_work_entry(
     authority: Authority, request_fn: RequestFn = http_request
 ) -> Tuple[str, bool]:
@@ -362,7 +379,7 @@ def public_work_has_active_page(projection: Any) -> bool:
 
 def work_presentation(has_active_page: bool, work_url: str) -> Dict[str, Any]:
     if has_active_page is True and isinstance(work_url, str) and work_url:
-        return {"mode": "CREATOR_PAGE", "url": work_url}
+        return {"mode": "CREATOR_PAGE", "url": display_work_url(work_url)}
     return {"mode": "WORKSPACE_TEXT"}
 
 
@@ -1572,7 +1589,7 @@ def inspect(
     return {
         **({"invitationFlowId": recorded_flow_id} if recorded_flow_id else {}),
         "nextAction": "PRESENT_WORK",
-        "workUrl": replica["viceMeWorkUrl"],
+        "workUrl": display_work_url(replica["viceMeWorkUrl"]),
         "workPresentation": work_presentation(
             has_active_page, replica["viceMeWorkUrl"]
         ),
@@ -1588,7 +1605,7 @@ def redistribution_login_required(authority: Authority, target: Path) -> Workflo
     return WorkflowError(
         "WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED",
         "Redistribution rights require account authorization before purchase",
-        {"nextAction": "LOGIN_REQUIRED", "workUrl": authority.work_url,
+        {"nextAction": "LOGIN_REQUIRED", "workUrl": display_work_url(authority.work_url),
          "target": str(target), "orderCreated": False},
     )
 
@@ -1733,7 +1750,7 @@ def _install(
             "Accept the displayed source price before creating or replacing an order",
             {"nextAction": "CONFIRM_PRICE", "replicaCode": instruction, "productId": replica["product"]["id"],
              "title": replica["title"], "currency": replica["product"]["currency"],
-             "totalAmountCents": replica["product"]["priceCents"], "workUrl": replica["viceMeWorkUrl"], "target": str(target)},
+             "totalAmountCents": replica["product"]["priceCents"], "workUrl": display_work_url(replica["viceMeWorkUrl"]), "target": str(target)},
             10,
         )
 
@@ -1829,7 +1846,7 @@ def _install(
                 "Replica price changed; show the Work again and ask for confirmation",
                 {
                     "nextAction": "CONFIRM_PRICE",
-                    "workUrl": replica["viceMeWorkUrl"],
+                    "workUrl": display_work_url(replica["viceMeWorkUrl"]),
                     "priceCents": replica["product"]["priceCents"],
                 },
                 10,

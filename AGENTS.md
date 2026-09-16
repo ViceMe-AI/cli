@@ -50,6 +50,11 @@ the CLI, but they do not own its installation state or recovery protocol.
   these selectors or silently select another product or purchase flow.
 - The standalone Replica Python script uses the same contract fixtures in
   `internal/workurl/testdata`. Keep Go and Python acceptance behavior aligned.
+- User-facing public Work links use `workurl.Display` at the output boundary:
+  publication `result.workUrl`, published Skill `product.detailUrl`, listing
+  `publicUrl`, and `workUrl` / `workPresentation.url` display fields are short.
+  Work detail exposes `workUrl` and `markdownUrl`; its API canonical fields
+  remain unchanged. Do not shorten opaque URLs with unknown query parameters.
 - Do not mutate returned canonical URLs or signed/confirmation identities.
   When constructing Markdown, append `.md` to the pathname before the query.
   Owner analytics must verify ownership and explicitly request creator mode.

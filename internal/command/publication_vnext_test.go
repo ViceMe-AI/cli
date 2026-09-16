@@ -84,6 +84,13 @@ description: Publish a deterministic Skill through the vNext contract.
 		if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 			t.Fatalf("command did not emit one JSON envelope: exit=%d stdout=%q stderr=%q err=%v", exit, stdout.String(), stderr.String(), err)
 		}
+		if data, ok := envelope["data"].(map[string]any); ok {
+			if product, ok := data["product"].(map[string]any); ok {
+				if product["detailUrl"] != "https://viceme.cn/alice?workSlug=publish-test&product=33333333-3333-4333-8333-333333333333" {
+					t.Fatalf("published Skill URL not shortened: %#v", product)
+				}
+			}
+		}
 		return exit, envelope
 	}
 	lastPreviewOpenURL := ""
@@ -1066,7 +1073,7 @@ func (state *publicationAPITestState) publication() api.SkillPublication {
 		result.Analysis = &api.PublicationAnalysis{Status: "SUCCEEDED"}
 	}
 	if state.status == "PUBLISHED" {
-		result.Product = &api.PublishedProduct{ID: "33333333-3333-4333-8333-333333333333", Slug: "publish-test", DetailURL: "https://viceme.cn/zh-CN/share/publish-test", ReleaseID: "44444444-4444-4444-8444-444444444444"}
+		result.Product = &api.PublishedProduct{ID: "33333333-3333-4333-8333-333333333333", Slug: "publish-test", DetailURL: "https://viceme.cn/alice?mode=consumer&view=work&workSlug=publish-test&product=33333333-3333-4333-8333-333333333333", ReleaseID: "44444444-4444-4444-8444-444444444444"}
 	}
 	return result
 }
