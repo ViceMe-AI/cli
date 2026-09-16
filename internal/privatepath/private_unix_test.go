@@ -39,3 +39,37 @@ func TestSecurePathPermissions(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestPermissionMismatchClassifiesAsACLMismatch(t *testing.T) {
+	root := t.TempDir()
+	file := filepath.Join(root, "wide")
+	if err := os.WriteFile(file, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := RequirePrivateFile(file)
+	if err == nil {
+		t.Fatal("RequirePrivateFile accepted a group-readable file")
+	}
+	if !IsACLMismatch(err) {
+		t.Fatalf("RequirePrivateFile error = %v, want an ACL mismatch", err)
+	}
+}
+
+func TestSymlinkRejectionIsNotAnACLMismatch(t *testing.T) {
+	root := t.TempDir()
+	target := filepath.Join(root, "target")
+	if err := os.WriteFile(target, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	err := RequirePrivateFile(link)
+	if err == nil {
+		t.Fatal("RequirePrivateFile accepted a symbolic link")
+	}
+	if IsACLMismatch(err) {
+		t.Fatalf("symlink rejection must stay fail-closed, got ACL mismatch: %v", err)
+	}
+}

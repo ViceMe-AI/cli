@@ -37,6 +37,23 @@ var RenameFile = os.Rename
 // It is replaced by tests to simulate activation failures.
 var ReplaceFile = atomicfile.Replace
 
+// renameAttempts bounds the retries given to a transient activation failure.
+// Security software commonly holds a freshly written staging file for a scan
+// and releases it within a few hundred milliseconds, so a short bounded retry
+// absorbs that window before degrading or failing.
+var renameAttempts = 3
+
+// renameBackoff waits between rename attempts and is replaced by tests to
+// remove real sleeps.
+var renameBackoff = func(attempt int) {
+	time.Sleep(time.Duration(attempt) * 150 * time.Millisecond)
+}
+
+// DegradedWriteReporter, when set, is notified after WriteTolerant completes a
+// write whose hardened permission profile was refused by the environment. The
+// command layer installs it to surface a human-readable warning on stderr.
+var DegradedWriteReporter func(filename string, strictErr error)
+
 // Write durably writes data to filename as a private file, staging through a
 // temporary file matching tempPattern in the same directory. Staging files
 // abandoned by earlier writes are swept opportunistically.
@@ -64,11 +81,11 @@ func Write(filename string, data []byte, tempPattern string) error {
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close staging file: %w", err)
 	}
-	activateErr := RenameFile(staged, filename)
+	activateErr := retryRename(func() error { return RenameFile(staged, filename) })
 	if activateErr == nil {
 		return nil
 	}
-	if !IsPermissionDenial(activateErr) {
+	if !shouldDirectWriteFallback(activateErr) {
 		return fmt.Errorf("activate %s: %w", filename, activateErr)
 	}
 	// The sandbox denied the directory-entry mutation but still permits plain
@@ -76,6 +93,30 @@ func Write(filename string, data []byte, tempPattern string) error {
 	// a partial target file; the caller treats the file as untrusted data.
 	if directErr := writeDirect(filename, data); directErr != nil {
 		return errors.Join(fmt.Errorf("activate %s: %w", filename, activateErr), directErr)
+	}
+	return nil
+}
+
+// WriteTolerant behaves like Write but degrades one step further: when the
+// strict write fails only because a permission profile check refused an
+// otherwise writable file — the signature of security software rewriting
+// access entries — it retries through a plain staging write and reports the
+// degradation through DegradedWriteReporter. Reserve it for non-credential
+// state; credential stores must keep failing closed through Write and
+// WriteAtomic.
+func WriteTolerant(filename string, data []byte, tempPattern string) error {
+	strictErr := Write(filename, data, tempPattern)
+	if strictErr == nil {
+		return nil
+	}
+	if !privatepath.IsACLMismatch(strictErr) {
+		return strictErr
+	}
+	if err := writeLenient(filename, data, tempPattern); err != nil {
+		return errors.Join(strictErr, err)
+	}
+	if DegradedWriteReporter != nil {
+		DegradedWriteReporter(filename, strictErr)
 	}
 	return nil
 }
@@ -107,8 +148,73 @@ func WriteAtomic(filename string, data []byte, tempPattern string) error {
 	if err := file.Close(); err != nil {
 		return fmt.Errorf("close staging file: %w", err)
 	}
-	if err := ReplaceFile(staged, filename); err != nil {
+	if err := retryRename(func() error { return ReplaceFile(staged, filename) }); err != nil {
 		return fmt.Errorf("activate %s: %w", filename, err)
+	}
+	return nil
+}
+
+// retryRename gives a transient activation failure (a security-software scan
+// hold surfaces as EACCES or a sharing violation) a bounded chance to settle
+// before the caller degrades or fails.
+func retryRename(activate func() error) error {
+	err := activate()
+	for attempt := 1; err != nil && isTransientRenameError(err) && attempt < renameAttempts; attempt++ {
+		renameBackoff(attempt)
+		err = activate()
+	}
+	return err
+}
+
+func isTransientRenameError(err error) bool {
+	if isSharingContention(err) {
+		return true
+	}
+	var errno syscall.Errno
+	return errors.As(err, &errno) && errno == syscall.EACCES
+}
+
+func shouldDirectWriteFallback(err error) bool {
+	return IsPermissionDenial(err) || isSharingContention(err)
+}
+
+// writeLenient completes a write without the hardened permission profile
+// after the environment refused it. The file still stages in the target
+// directory and activates atomically when renames are available; only the
+// owner-only ACL enforcement is dropped.
+func writeLenient(filename string, data []byte, tempPattern string) error {
+	directory := filepath.Dir(filename)
+	sweepStaleStagingFiles(directory, tempPattern)
+	file, err := os.CreateTemp(directory, tempPattern)
+	if err != nil {
+		return fmt.Errorf("create plain staging file: %w", err)
+	}
+	staged := file.Name()
+	defer os.Remove(staged)
+	_ = file.Chmod(PrivateMode)
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("write plain staging file: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync plain staging file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close plain staging file: %w", err)
+	}
+	activateErr := retryRename(func() error { return RenameFile(staged, filename) })
+	if activateErr == nil {
+		return nil
+	}
+	if !shouldDirectWriteFallback(activateErr) {
+		return fmt.Errorf("activate %s: %w", filename, activateErr)
+	}
+	if info, statErr := os.Lstat(filename); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+		return errors.Join(fmt.Errorf("activate %s: %w", filename, activateErr), errors.New("refuse to replace a symbolic link through the degraded path"))
+	}
+	if err := os.WriteFile(filename, data, PrivateMode); err != nil {
+		return errors.Join(fmt.Errorf("activate %s: %w", filename, activateErr), fmt.Errorf("write target file: %w", err))
 	}
 	return nil
 }

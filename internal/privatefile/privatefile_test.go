@@ -197,3 +197,192 @@ func TestWriteSweepsStaleStagingFiles(t *testing.T) {
 		t.Fatalf("fresh staging file removed by the sweep: %v", err)
 	}
 }
+
+func noRenameBackoff(t *testing.T) {
+	t.Helper()
+	original := renameBackoff
+	renameBackoff = func(int) {}
+	t.Cleanup(func() { renameBackoff = original })
+}
+
+func TestWriteRetriesTransientRenameFailure(t *testing.T) {
+	noRenameBackoff(t)
+	attempts := 0
+	original := RenameFile
+	RenameFile = func(oldName, newName string) error {
+		attempts++
+		if attempts < 3 {
+			return fmt.Errorf("rename %s: %w", oldName, syscall.EACCES)
+		}
+		return original(oldName, newName)
+	}
+	t.Cleanup(func() { RenameFile = original })
+
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "state.json")
+	if err := Write(filename, []byte("payload"), ".state-*.tmp"); err != nil {
+		t.Fatalf("Write() with transient rename denials error = %v", err)
+	}
+	if attempts != 3 {
+		t.Fatalf("rename attempts = %d, want 3", attempts)
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil || string(data) != "payload" {
+		t.Fatalf("ReadFile() = %q, %v", data, err)
+	}
+	requirePrivateMode(t, filename)
+}
+
+func TestWriteFallsBackAfterTransientRetriesExhausted(t *testing.T) {
+	noRenameBackoff(t)
+	attempts := 0
+	original := RenameFile
+	RenameFile = func(oldName, _ string) error {
+		attempts++
+		return fmt.Errorf("rename %s: %w", oldName, syscall.EACCES)
+	}
+	t.Cleanup(func() { RenameFile = original })
+
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "state.json")
+	if err := Write(filename, []byte("payload"), ".state-*.tmp"); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if attempts != renameAttempts {
+		t.Fatalf("rename attempts = %d, want %d", attempts, renameAttempts)
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil || string(data) != "payload" {
+		t.Fatalf("ReadFile() = %q, %v", data, err)
+	}
+	requirePrivateMode(t, filename)
+}
+
+func TestWriteDoesNotRetryDeterministicDenials(t *testing.T) {
+	noRenameBackoff(t)
+	attempts := 0
+	original := RenameFile
+	RenameFile = func(oldName, _ string) error {
+		attempts++
+		return fmt.Errorf("rename %s: %w", oldName, syscall.EPERM)
+	}
+	t.Cleanup(func() { RenameFile = original })
+
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "state.json")
+	if err := Write(filename, []byte("payload"), ".state-*.tmp"); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("rename attempts = %d, want 1 (sandbox EPERM is deterministic)", attempts)
+	}
+}
+
+func TestWriteAtomicRetriesTransientReplaceFailure(t *testing.T) {
+	noRenameBackoff(t)
+	attempts := 0
+	original := ReplaceFile
+	ReplaceFile = func(oldName, newName string) error {
+		attempts++
+		if attempts == 1 {
+			return fmt.Errorf("replace %s: %w", oldName, syscall.EACCES)
+		}
+		return original(oldName, newName)
+	}
+	t.Cleanup(func() { ReplaceFile = original })
+
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "binding.json")
+	if err := WriteAtomic(filename, []byte("payload"), ".binding-*.tmp"); err != nil {
+		t.Fatalf("WriteAtomic() with transient replace denial error = %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("replace attempts = %d, want 2", attempts)
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil || string(data) != "payload" {
+		t.Fatalf("ReadFile() = %q, %v", data, err)
+	}
+}
+
+func TestWriteTolerantDegradesOnPermissionProfileMismatch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the staged-file ACL mismatch simulated here is produced through the Unix mode bits")
+	}
+	noRenameBackoff(t)
+	denyRename(t, syscall.EPERM)
+
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "state.json")
+	// A pre-existing target with group/other permissions makes the strict
+	// direct-write validation refuse it as an ACL mismatch.
+	if err := os.WriteFile(filename, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var reported string
+	reportedErr := error(nil)
+	originalReporter := DegradedWriteReporter
+	DegradedWriteReporter = func(name string, strictErr error) { reported, reportedErr = name, strictErr }
+	t.Cleanup(func() { DegradedWriteReporter = originalReporter })
+
+	if err := WriteTolerant(filename, []byte("payload"), ".state-*.tmp"); err != nil {
+		t.Fatalf("WriteTolerant() error = %v", err)
+	}
+	data, err := os.ReadFile(filename)
+	if err != nil || string(data) != "payload" {
+		t.Fatalf("ReadFile() = %q, %v", data, err)
+	}
+	if reported != filename {
+		t.Fatalf("degraded write reported %q, want %q", reported, filename)
+	}
+	if !privatepath.IsACLMismatch(reportedErr) {
+		t.Fatalf("reported strict error = %v, want an ACL mismatch", reportedErr)
+	}
+}
+
+func TestWriteTolerantPropagatesNonMismatchFailures(t *testing.T) {
+	noRenameBackoff(t)
+	denyRename(t, syscall.EPERM)
+
+	directory := t.TempDir()
+	// The target path is a directory: the direct-write fallback fails with a
+	// plain validation error, never an ACL mismatch.
+	filename := filepath.Join(directory, "state.json")
+	if err := os.Mkdir(filename, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	reported := false
+	originalReporter := DegradedWriteReporter
+	DegradedWriteReporter = func(string, error) { reported = true }
+	t.Cleanup(func() { DegradedWriteReporter = originalReporter })
+
+	err := WriteTolerant(filename, []byte("payload"), ".state-*.tmp")
+	if err == nil {
+		t.Fatal("WriteTolerant() unexpectedly succeeded")
+	}
+	if privatepath.IsACLMismatch(err) {
+		t.Fatalf("WriteTolerant() error = %v, want a non-mismatch failure", err)
+	}
+	if reported {
+		t.Fatal("degraded write reporter fired for a non-degraded failure")
+	}
+}
+
+func TestWriteTolerantUsesStrictPathWhenHealthy(t *testing.T) {
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "state.json")
+	reported := false
+	originalReporter := DegradedWriteReporter
+	DegradedWriteReporter = func(string, error) { reported = true }
+	t.Cleanup(func() { DegradedWriteReporter = originalReporter })
+
+	if err := WriteTolerant(filename, []byte("payload"), ".state-*.tmp"); err != nil {
+		t.Fatalf("WriteTolerant() error = %v", err)
+	}
+	if reported {
+		t.Fatal("degraded write reporter fired for a healthy strict write")
+	}
+	requirePrivateMode(t, filename)
+}

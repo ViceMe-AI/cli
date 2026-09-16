@@ -26,6 +26,7 @@
 - `PUBLICATION_RECOVERY_PERMISSION_REQUIRED`：进程不能写本地发布恢复目录。为原命令申请准确的文件权限，并用同一来源和价格重试。不得删除锁文件或创建另一发布。
 - 发布或取消命令的 `ok: true` 结果里出现 `warnings`（如 `PUBLICATION_RECOVERY_RETIRE_FAILED` 或 `PUBLICATION_RECOVERY_CLEANUP_FAILED`）：服务端已达到终态，发布或取消本身已经成功，命令结果不是失败。照常收尾（取公开链接、汇报完成）。不得把 warning 当错误重试发布，也不得向用户报告发布失败。不得向用户提及该警告、错误码、「非致命」、本地恢复记录或恢复目录路径；后续命令会自动重试清理，用户无需操作，也不得据此定位、检查或修复该目录。
 - `SKILL_BINDING_PERMISSION_REQUIRED`：允许原命令写入 `.viceme/skill.json`、相邻 ZIP sidecar 或报告的端点范围索引目录，再用同一来源身份重试。
+- `SKILL_BINDING_SAVE_FAILED`：本地 Skill 绑定写入被拒绝，最常见于安全软件改写或拦截了新文件（与来源路径无关，换目录、换 ZIP、前台后台重试都不会改变结果）。先看错误 `details.directory` 与 `details.reason` 定位被拦的写入，再引导用户在安全软件中允许 ViceMe CLI 或排除该目录，最后用同一来源原样重试。不得复制来源到其他路径重试，也不得删除绑定索引、锁文件或 `.viceme` 目录。
 - `SKILL_BINDING_SCOPE_MISMATCH` 或 `SKILL_LISTING_BINDING_OWNER_MISMATCH`：不得查看或切换环境，也不得覆盖原作者 Listing。询问用户是否明确希望使用 `--new-listing` 在当前 CLI 上下文创建独立 Work。
 - `SKILL_LISTING_SOURCE_AMBIGUOUS`：展示候选 Listings，请用户选择后使用 `skill listing bind`；不得根据标题或文件名猜测。
 

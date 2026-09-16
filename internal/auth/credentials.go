@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/output"
+	"github.com/ViceMe-AI/cli/internal/privatepath"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 )
 
@@ -92,8 +93,12 @@ func (m *Manager) PreflightSave() error {
 	}
 	for _, key := range m.storageKeys() {
 		if err := probe.Preflight(key); err != nil {
+			hint := "verify that the ViceMe configuration directory is writable and private, then retry; if this command runs inside an agent sandbox, allow writes to the ViceMe configuration directory or run the login from an unsandboxed terminal; no device authorization was consumed"
+			if privatepath.IsACLMismatch(err) {
+				hint = "the local security software is modifying files the ViceMe credential store creates; allow the ViceMe CLI in the security software (or exclude the ViceMe configuration directory), then retry; no device authorization was consumed"
+			}
 			return output.Authentication("credential_store_unavailable", "the local credential store is not writable from this process").
-				WithHint("verify that the ViceMe configuration directory is writable and private, then retry; if this command runs inside an agent sandbox, allow writes to the ViceMe configuration directory or run the login from an unsandboxed terminal; no device authorization was consumed").
+				WithHint(hint).
 				WithCause(err)
 		}
 	}

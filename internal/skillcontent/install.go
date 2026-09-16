@@ -982,7 +982,7 @@ func readInstallPathOwner(filename string) (string, bool, error) {
 
 func writeInstallPathOwner(filename, journalPath string) error {
 	data := []byte(journalPath + "\n")
-	if err := privatefile.Write(filename, data, ".viceme-install-owner-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(filename, data, ".viceme-install-owner-*.tmp"); err != nil {
 		return fmt.Errorf("write install transaction owner: %w", err)
 	}
 	return nil
@@ -1419,7 +1419,7 @@ func writeInstallTransaction(filename string, journal installTransaction) error 
 		return fmt.Errorf("encode install transaction: %w", err)
 	}
 	data = append(data, '\n')
-	if err := privatefile.Write(filename, data, ".install-transaction-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(filename, data, ".install-transaction-*.tmp"); err != nil {
 		return fmt.Errorf("write install transaction: %w", err)
 	}
 	return nil
@@ -2316,7 +2316,7 @@ func writeManagedSkillRegistry(filename string, registry managedSkillRegistry) e
 		return fmt.Errorf("encode managed Skill registry: %w", err)
 	}
 	data = append(data, '\n')
-	if err := privatefile.Write(filename, data, ".managed-skills-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(filename, data, ".managed-skills-*.tmp"); err != nil {
 		return fmt.Errorf("write managed Skill registry: %w", err)
 	}
 	return nil

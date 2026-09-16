@@ -725,7 +725,7 @@ func (service *NPMService) writeNPMActivation(journal npmActivationJournal) erro
 		return err
 	}
 	data = append(data, '\n')
-	if err := privatefile.Write(filepath.Join(service.ConfigDir, npmActivationFilename), data, ".npm-activation-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(filepath.Join(service.ConfigDir, npmActivationFilename), data, ".npm-activation-*.tmp"); err != nil {
 		return &OperationError{Kind: ErrorNPMPermission, Cause: fmt.Errorf("could not write the npm recovery journal: %w", err)}
 	}
 	return nil
@@ -1016,7 +1016,7 @@ func saveCachedUpdateState(filename, directory, temporaryPattern, version string
 	// The update cache is best effort: a sandbox that denies the activating
 	// rename previously leaked one staging file per check, so route it through
 	// the shared degraded write and ignore failures.
-	_ = privatefile.Write(filename, data, temporaryPattern)
+	_ = privatefile.WriteTolerant(filename, data, temporaryPattern)
 }
 
 func (service *NPMService) loadUpdateState() (updateState, bool) {

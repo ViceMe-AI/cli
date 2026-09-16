@@ -167,5 +167,5 @@ func writeAutomaticUpdateState(configBase string, state automaticUpdateState) {
 	if err != nil {
 		return
 	}
-	_ = privatefile.Write(filepath.Join(configBase, automaticUpdateStateFilename), data, ".automatic-update-*.tmp")
+	_ = privatefile.WriteTolerant(filepath.Join(configBase, automaticUpdateStateFilename), data, ".automatic-update-*.tmp")
 }

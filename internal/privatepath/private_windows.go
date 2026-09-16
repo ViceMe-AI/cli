@@ -179,7 +179,7 @@ func requirePrivateWindowsACL(path string) error {
 	}
 	control, _, err := descriptor.Control()
 	if err != nil || control&windows.SE_DACL_PROTECTED == 0 {
-		return errors.New("private Windows DACL is not protected")
+		return &ACLMismatchError{Path: path, Reason: "DACL is not protected from inheritance"}
 	}
 	owner, _, err := descriptor.Owner()
 	if err != nil || owner == nil {
@@ -189,12 +189,12 @@ func requirePrivateWindowsACL(path string) error {
 	if err != nil {
 		return fmt.Errorf("resolve current Windows user: %w", err)
 	}
-	if !owner.Equals(user.User.Sid) {
-		return errors.New("private Windows path is not owned by the current user")
+	if !owner.Equals(user.User.Sid) && !toleratedSystemSID(owner) {
+		return &ACLMismatchError{Path: path, Reason: "owner is neither the current user nor a well-known system principal"}
 	}
 	dacl, _, err := descriptor.DACL()
 	if err != nil || dacl == nil || dacl.AceCount == 0 {
-		return errors.New("private Windows path has no DACL entries")
+		return &ACLMismatchError{Path: path, Reason: "path has no DACL entries"}
 	}
 	for index := uint32(0); index < uint32(dacl.AceCount); index++ {
 		var ace *windows.ACCESS_ALLOWED_ACE
@@ -202,14 +202,31 @@ func requirePrivateWindowsACL(path string) error {
 			return fmt.Errorf("read private Windows DACL entry %d: %w", index, err)
 		}
 		if ace.Header.AceType != windows.ACCESS_ALLOWED_ACE_TYPE || ace.Mask == 0 {
-			return fmt.Errorf("private Windows DACL entry %d is unsupported", index)
+			return &ACLMismatchError{Path: path, Reason: fmt.Sprintf("DACL entry %d has an unsupported type or empty mask", index)}
 		}
 		trustee := (*windows.SID)(unsafe.Pointer(&ace.SidStart))
-		if !trustee.Equals(user.User.Sid) {
-			return fmt.Errorf("private Windows DACL entry %d grants another principal access", index)
+		if !trustee.Equals(user.User.Sid) && !toleratedSystemSID(trustee) {
+			return &ACLMismatchError{Path: path, Reason: fmt.Sprintf("DACL entry %d grants an unknown principal access", index)}
 		}
 	}
 	return nil
+}
+
+// toleratedSystemSID reports whether sid is SYSTEM or the local Administrators
+// group. Both already hold full control over every object on the machine —
+// and an elevated creator produces Administrators-owned files by default — so
+// their presence never exposes the path to an additional user. Endpoint
+// security products commonly inject such entries into newly created files,
+// which must not be mistaken for a privacy breach.
+func toleratedSystemSID(sid *windows.SID) bool {
+	if sid == nil {
+		return false
+	}
+	switch sid.String() {
+	case "S-1-5-18", "S-1-5-32-544": // SYSTEM, Administrators
+		return true
+	}
+	return false
 }
 
 func privateTempName(pattern string) (string, error) {
