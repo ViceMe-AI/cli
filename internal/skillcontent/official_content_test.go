@@ -167,7 +167,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"?product=<product-id>", "remainingUses", "PURCHASE_REQUIRED", "widgetPath",
 				"present_files", "imagePath", "imageChatSrc", "local-file://",
 			},
-			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名 Skill 购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "待恢复使用优先", "确认耗尽后停止新任务", "skillMarkdown", "skillDirectory", "pendingUse", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI", "不再扣次", "不要对用户说试用失败或次数白扣", "使用前必读", "不算已展示", "开场白"},
+			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名 Skill 购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码]`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "待恢复使用优先", "确认耗尽后停止新任务", "skillMarkdown", "skillDirectory", "pendingUse", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI", "不再扣次", "不要对用户说试用失败或次数白扣", "使用前必读", "不算已展示", "开场白", "无试用开场白", "已经装到本地", "现在就试", "先放着"},
 		},
 		{
 			name: "charge-for-your-work",
@@ -2003,7 +2003,7 @@ func TestPaidSkillWithoutTrialUsesStandalonePurchaseGuide(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(content)
-	for _, required := range []string{"## 无试用的付费安装", "未提供免费试用", "Python install", "无需 CLI 或登录", "不是试用耗尽", "已有购买凭证沿用原订单", "kind=purchase", "原 Skill 目录", "purchase --wait 0", "使用前必读", "不算已展示", "开场白"} {
+	for _, required := range []string{"## 无试用的付费安装", "未提供免费试用", "Python install", "无需 CLI 或登录", "不是试用耗尽", "已有购买凭证沿用原订单", "kind=purchase", "原 Skill 目录", "purchase --wait 0", "使用前必读", "不算已展示", "开场白", "已经装到本地", "现在就试"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("paid entry omitted %q", required)
 		}
@@ -2016,7 +2016,7 @@ func TestPaidSkillWithoutTrialUsesStandalonePurchaseGuide(t *testing.T) {
 	if !strings.Contains(guide, "## 免 CLI 的直接购买") || !strings.Contains(guide, "runtimePath") {
 		t.Fatal("direct purchase must return the installed Skill runtime for payment and recovery")
 	}
-	for _, required := range []string{"使用前必读", "checkoutUrl", "不算已展示", "开场白"} {
+	for _, required := range []string{"使用前必读", "checkoutUrl", "不算已展示", "开场白", "无试用开场白", "已经装到本地", "现在就试", "先放着"} {
 		if !strings.Contains(guide, required) {
 			t.Fatalf("direct purchase omitted visible payment gate %q", required)
 		}
