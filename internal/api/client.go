@@ -1834,20 +1834,29 @@ func validWorkAccessFeatures(features []WorkAccessFeature) bool {
 	for _, feature := range features {
 		if !accessWorkFeatureKeyPattern.MatchString(feature.FeatureKey) ||
 			utf16CodeUnits(strings.TrimSpace(feature.Title)) < 1 || utf16CodeUnits(strings.TrimSpace(feature.Title)) > 120 ||
-			(feature.Status != "ACTIVE" && feature.Status != "DISABLED") {
+			(feature.Status != "ACTIVE" && feature.Status != "PENDING_CHANNEL" && feature.Status != "DISABLED") {
 			return false
 		}
 		if _, exists := seen[feature.FeatureKey]; exists {
 			return false
 		}
 		seen[feature.FeatureKey] = struct{}{}
+		if feature.Availability != "" && feature.Availability != "ACTIVE" && feature.Availability != "PENDING_CHANNEL" && feature.Availability != "DISABLED" {
+			return false
+		}
 		switch feature.PolicyType {
 		case "PUBLIC", "FOLLOW_OWNER":
-			if feature.Price != nil || feature.ProductID != nil {
+			if feature.Price != nil || feature.ProductID != nil || feature.PricingIntent != nil || feature.Availability == "PENDING_CHANNEL" || feature.Status == "PENDING_CHANNEL" {
 				return false
 			}
 		case "WORK_ENTITLEMENT":
-			if feature.Price == nil || feature.Price.Currency != "CNY" || feature.Price.AmountCents < 1 ||
+			if (feature.Availability == "PENDING_CHANNEL" || feature.Availability == "DISABLED" || (feature.Availability == "" && feature.Status != "ACTIVE")) && feature.ProductID == nil {
+				if !validWebsiteAccessPricing(feature.PricingIntent) {
+					return false
+				}
+				continue
+			}
+			if !validWorkAccessPrice(feature.Price) ||
 				feature.ProductID == nil || !uuidPattern.MatchString(*feature.ProductID) {
 				return false
 			}
@@ -1866,20 +1875,34 @@ func validWorkAccessFeatureInputs(features []WorkAccessFeatureInput) bool {
 	for _, feature := range features {
 		if !accessWorkFeatureKeyPattern.MatchString(feature.FeatureKey) ||
 			utf16CodeUnits(strings.TrimSpace(feature.Title)) < 1 || utf16CodeUnits(strings.TrimSpace(feature.Title)) > 120 ||
-			(feature.Status != "ACTIVE" && feature.Status != "DISABLED") {
+			(feature.Status != "ACTIVE" && feature.Status != "PENDING_CHANNEL" && feature.Status != "DISABLED") {
 			return false
 		}
 		if _, exists := seen[feature.FeatureKey]; exists {
 			return false
 		}
 		seen[feature.FeatureKey] = struct{}{}
+		if feature.Availability != "" || feature.PricingIntent != nil || feature.Status == "PENDING_CHANNEL" {
+			availability := feature.Availability
+			if availability == "" {
+				availability = feature.Status
+			}
+			pricing := feature.PricingIntent
+			if pricing == nil && feature.Price != nil {
+				pricing = &WebsiteAccessPricingIntent{Currency: feature.Price.Currency, AmountMinor: int64(feature.Price.MinorUnits())}
+			}
+			if !ValidWebsiteAccessFeatureInput(WebsiteAccessFeatureInput{FeatureKey: feature.FeatureKey, Title: feature.Title, PolicyType: feature.PolicyType, Availability: availability, PricingIntent: pricing, Status: feature.Status}) {
+				return false
+			}
+			continue
+		}
 		switch feature.PolicyType {
 		case "PUBLIC", "FOLLOW_OWNER":
 			if feature.Price != nil {
 				return false
 			}
 		case "WORK_ENTITLEMENT":
-			if feature.Price == nil || feature.Price.Currency != "CNY" || feature.Price.AmountCents < 1 {
+			if !validWorkAccessPrice(feature.Price) {
 				return false
 			}
 		default:
@@ -1899,6 +1922,9 @@ func workAccessFeaturesMatchRequest(actual []WorkAccessFeature, expected []WorkA
 	}
 	for _, feature := range actual {
 		expectedFeature, exists := expectedByKey[feature.FeatureKey]
+		if expectedFeature.Availability != "" && (feature.Availability != expectedFeature.Availability || !websiteAccessPricingEqual(feature.PricingIntent, expectedFeature.PricingIntent)) {
+			return false
+		}
 		if !exists || feature.Title != strings.TrimSpace(expectedFeature.Title) || feature.PolicyType != expectedFeature.PolicyType ||
 			feature.Status != expectedFeature.Status || !workAccessPricesEqual(feature.Price, expectedFeature.Price) {
 			return false
@@ -1911,7 +1937,7 @@ func workAccessPricesEqual(actual, expected *WorkAccessPrice) bool {
 	if actual == nil || expected == nil {
 		return actual == nil && expected == nil
 	}
-	return *actual == *expected
+	return actual.Currency == expected.Currency && actual.MinorUnits() == expected.MinorUnits()
 }
 
 func workSdkFeaturesEqual(actual, expected []string) bool {
