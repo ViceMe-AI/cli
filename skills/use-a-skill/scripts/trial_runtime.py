@@ -743,6 +743,87 @@ def purchase_entry_skill_markdown(installed_name, description, product_id, marke
          header, posix, windows, PURCHASE_GUIDE_PATH, PURCHASE_END)
 
 
+def purchase_entry_files(market, product_id, title, summary, slug, release_id):
+    """Synthesize the public purchase-entry package. No authored body, no API."""
+    if not isinstance(title, str) or not title.strip() or not isinstance(summary, str):
+        raise Failure("PRODUCT_METADATA_INVALID", "商品信息不完整，请重试安装")
+    installed_name = (
+        (slugify(slug if isinstance(slug, str) else "")[:55].rstrip("-") or "viceme")
+        + "-" + product_id.replace("-", "")[:8]
+    )
+    description = title.strip() + "：" + summary + "（购买后使用）"
+    files = {
+        "SKILL.md": (purchase_entry_skill_markdown(
+            installed_name, description, product_id, market).encode(), 0o644),
+        PURCHASE_GUIDE_PATH: (runtime_resource("guides/purchase.md"), 0o644),
+    }
+    prepare_runtime_files(files, market, product_id, release_id, "purchase")
+    return files, installed_name
+
+
+def write_skill_zip(files, path):
+    directory = os.path.dirname(path)
+    if directory:
+        os.makedirs(directory, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(prefix=".export-", suffix=".zip", dir=directory or None)
+    try:
+        with os.fdopen(fd, "wb") as handle:
+            with zipfile.ZipFile(handle, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                for name in sorted(files):
+                    data, mode = files[name]
+                    info = zipfile.ZipInfo(name.replace("\\", "/"))
+                    info.external_attr = ((mode & 0o777) or 0o644) << 16
+                    info.compress_type = zipfile.ZIP_DEFLATED
+                    archive.writestr(info, data)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except BaseException:
+        if os.path.exists(temporary):
+            os.remove(temporary)
+        raise
+    with open(path, "rb") as handle:
+        return hashlib.sha256(handle.read()).hexdigest()
+
+
+def command_export_package(market, product_id, kind, release_id, output, input_path=None, title=None, summary=None, slug=None):
+    """Pure transform for Admin channel zips. Does not install or call the API."""
+    if kind not in ("trial", "purchase"):
+        raise Failure("ARGUMENT_INVALID", "导出 kind 必须为 trial 或 purchase")
+    try:
+        if not release_id or str(uuid.UUID(release_id)) != release_id.lower():
+            raise ValueError()
+    except (ValueError, AttributeError, TypeError):
+        raise Failure("ARGUMENT_INVALID", "release-id 必须为 UUID") from None
+    if not output or not str(output).endswith(".zip"):
+        raise Failure("ARGUMENT_INVALID", "导出路径必须以 .zip 结尾")
+    output = os.path.abspath(output)
+    if kind == "trial":
+        if not input_path:
+            raise Failure("ARGUMENT_INVALID", "试用门禁包需要 --input 指向原始 zip")
+        try:
+            with open(input_path, "rb") as handle:
+                archive = handle.read(MAX_TOTAL_BYTES + 1)
+        except OSError:
+            raise Failure("ARCHIVE_INVALID", "无法读取原始 Skill 包") from None
+        if len(archive) > MAX_TOTAL_BYTES:
+            raise Failure("ARCHIVE_LIMIT_EXCEEDED", "Skill 包超出安全解包限制")
+        files = extract_skill_package(archive)
+        inject_trial_gate(files, market, product_id)
+        prepare_runtime_files(files, market, product_id, release_id, "trial")
+    else:
+        if input_path:
+            raise Failure("ARGUMENT_INVALID", "购买入口包不接受 --input")
+        files, _ = purchase_entry_files(market, product_id, title, summary, slug, release_id)
+    digest = write_skill_zip(files, output)
+    return emit_ok({
+        "kind": kind,
+        "fileName": os.path.basename(output),
+        "digest": digest,
+        "sizeBytes": os.path.getsize(output),
+    })
+
+
 def install_purchase_entry(market, product_id, agent, access):
     """Install a public purchase entry without downloading any paid content."""
     release = access.get("release") or {}
@@ -754,16 +835,8 @@ def install_purchase_entry(market, product_id, agent, access):
             or not isinstance(product.get("title"), str) or not product["title"].strip()
             or not isinstance(product.get("summary"), str)):
         raise Failure("PRODUCT_METADATA_INVALID", "商品信息不完整，请重试安装")
-    installed_name = (slugify(product.get("slug"))[:55].rstrip("-") or "viceme") + "-" + product_id.replace("-", "")[:8]
-    # Public metadata stays in quoted frontmatter; only platform instructions
-    # form the body. No authored package, trial body, or buyer credential ships.
-    description = product["title"] + "：" + product["summary"] + "（购买后使用）"
-    files = {
-        "SKILL.md": (purchase_entry_skill_markdown(
-            installed_name, description, product_id, market).encode(), 0o644),
-        PURCHASE_GUIDE_PATH: (runtime_resource("guides/purchase.md"), 0o644),
-    }
-    prepare_runtime_files(files, market, product_id, release["id"], "purchase")
+    files, installed_name = purchase_entry_files(
+        market, product_id, product["title"], product["summary"], product.get("slug"), release["id"])
     with ProductLock(product_id):
         existing = find_ready_install(market, product_id, agent)
         if existing.get("ready") and existing.get("kind") == "owned":
@@ -2258,7 +2331,7 @@ def remove_path(path):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(prog="trial.py", description="ViceMe Skill 免 CLI 安装与试用计数")
-    parser.add_argument("command", choices=["ready", "install", "use", "status", "purchase"], help="ready=只读确认本机安装,install=安装,use=申请一次试用,status=查询余量不扣次,purchase=付款并转正")
+    parser.add_argument("command", choices=["ready", "install", "use", "status", "purchase", "export-package"], help="ready=只读确认本机安装,install=安装,use=申请一次试用,status=查询余量不扣次,purchase=付款并转正,export-package=导出试用门禁或购买入口 zip(不安装、不请求 API)")
     parser.add_argument("--wait", type=int, default=0, help="展示二维码或官方支付链接后有界等待支付的秒数(0–600)")
     parser.add_argument("--product", required=True, help="Skill 的 Product ID(UUID)")
     parser.add_argument("--market", choices=sorted(SCRIPT_ORIGIN), default="cn", help="市场区域:cn 或 global")
@@ -2268,6 +2341,13 @@ def parse_args(argv):
         default="auto",
         help="安装目标:auto=按调用方环境自动定向(识别不到时装全部标准目录)",
     )
+    parser.add_argument("--kind", choices=["trial", "purchase"], help="export-package 的包类型")
+    parser.add_argument("--input", help="export-package trial 的原始 Skill zip 路径")
+    parser.add_argument("--output", help="export-package 的输出 zip 路径")
+    parser.add_argument("--release-id", help="export-package 的 SkillRelease ID(UUID)")
+    parser.add_argument("--title", help="export-package purchase 的商品标题")
+    parser.add_argument("--summary", default=None, help="export-package purchase 的商品简介")
+    parser.add_argument("--slug", help="export-package purchase 的商品 slug")
     return parser.parse_args(argv)
 
 
@@ -2278,6 +2358,10 @@ def main(argv):
             raise ValueError()
     except ValueError:
         raise Failure("ARGUMENT_INVALID", "商品 ID 必须为 UUID,等待时间必须在 0–600 秒之间") from None
+    if args.command == "export-package":
+        return command_export_package(
+            args.market, args.product, args.kind, args.release_id, args.output,
+            input_path=args.input, title=args.title, summary=args.summary, slug=args.slug)
     load_runtime_environment(args.market, args.product)
     if args.command == "ready":
         return command_ready(args.market, args.product, args.agent)
