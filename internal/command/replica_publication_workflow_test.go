@@ -164,7 +164,7 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 	for _, projectStorage := range []bool{false, true} {
 		for _, pageDirectory := range []string{".", "public site"} {
 			t.Run(fmt.Sprintf("project-storage-%t/page-%s", projectStorage, pageDirectory), func(t *testing.T) {
-				testReplicaPublicationStorageLifecycle(t, projectStorage, pageDirectory, config.RegionCN, false)
+				testReplicaPublicationStorageLifecycle(t, projectStorage, pageDirectory, config.RegionCN, false, false)
 			})
 		}
 	}
@@ -173,7 +173,15 @@ func TestReplicaPublishPreviewsConfirmsUploadsAndRecordsProcessingBinding(t *tes
 func TestReplicaPublishGlobalFreeHostedLifecycle(t *testing.T) {
 	for _, projectStorage := range []bool{false, true} {
 		t.Run(fmt.Sprint(projectStorage), func(t *testing.T) {
-			testReplicaPublicationStorageLifecycle(t, projectStorage, ".", config.RegionGlobal, false)
+			testReplicaPublicationStorageLifecycle(t, projectStorage, ".", config.RegionGlobal, false, false)
+		})
+	}
+}
+
+func TestReplicaPublishCombinesPreviewAndPublicationConfirmation(t *testing.T) {
+	for _, projectStorage := range []bool{false, true} {
+		t.Run(fmt.Sprint(projectStorage), func(t *testing.T) {
+			testReplicaPublicationStorageLifecycle(t, projectStorage, ".", config.RegionCN, false, true)
 		})
 	}
 }
@@ -201,7 +209,7 @@ func rewriteGlobalReplicaTestResponse(response map[string]any) {
 	}
 }
 
-func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, pageDirectory string, region config.Region, queryRoute bool) {
+func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, pageDirectory string, region config.Region, queryRoute, previewPresented bool) {
 	now := time.Date(2026, 9, 4, 12, 0, 0, 0, time.UTC)
 	market, price, workURL := "CN", 990, "https://viceme.cn/replica-maker/replica-site"
 	if region == config.RegionGlobal {
@@ -417,6 +425,9 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 		"--canonical-origin", "HTTPS://Example.COM:443/",
 	}
 
+	if previewPresented {
+		arguments = append(arguments, "--preview-reviewed=false", "--preview-presented")
+	}
 	if projectStorage {
 		arguments = append(arguments, "--state-project", project)
 		original := privatefile.ReplaceFile
@@ -474,7 +485,26 @@ func testReplicaPublicationStorageLifecycle(t *testing.T, projectStorage bool, p
 	var submittedOutput bytes.Buffer
 	dependencies.Out = &submittedOutput
 	confirmedArguments := append(append([]string{}, arguments...), "--confirm", confirmationVersion)
-	for _, changed := range [][]string{{"--page-dir", "unreviewed-page"}, {"--page-entry", "other.html"}} {
+	if previewPresented {
+		preview := review["preview"].(map[string]any)
+		if preview["verified"] != false || preview["presented"] != true || preview["reviewedBy"] != nil {
+			t.Fatalf("presentation was mislabeled as approval: %#v", preview)
+		}
+		if !strings.Contains(details["confirmCommand"].(string), "--preview-reviewed") ||
+			strings.Contains(details["resumeCommand"].(string), "--preview-reviewed") ||
+			strings.Contains(details["confirmCommand"].(string), "--confirm-unverified-replica-only") {
+			t.Fatalf("confirmation and preparation were not separated: %#v", details)
+		}
+		if exit := Execute(confirmedArguments, dependencies); exit != output.ExitConfirmation ||
+			!strings.Contains(submittedOutput.String(), "REPLICA_PUBLICATION_CONFIRMATION_CHANGED") {
+			t.Fatalf("unapproved preview was published: exit=%d %s", exit, submittedOutput.String())
+		}
+		if createCalls != 1 || len(uploaded) != 0 || len(uploadedPage) != 0 {
+			t.Fatal("presentation alone authorized a remote upload")
+		}
+		confirmedArguments = append(confirmedArguments, "--preview-reviewed")
+	}
+	for _, changed := range [][]string{{"--page-dir", "unreviewed-page"}, {"--page-entry", "other.html"}, {"--preview-url", "http://127.0.0.1:4173/changed"}} {
 		submittedOutput.Reset()
 		if exit := Execute(append(append([]string{}, confirmedArguments...), changed...), dependencies); exit != output.ExitConfirmation || !strings.Contains(submittedOutput.String(), "REPLICA_PUBLICATION_CONFIRMATION_CHANGED") {
 			t.Fatalf("changed page selection reused confirmation: exit=%d output=%s", exit, submittedOutput.String())
@@ -2628,7 +2658,7 @@ func TestReplicaConfirmationCannotSilentlySwitchSourceOnlyToDefaultHosting(t *te
 func TestReplicaPublishQueryWorkURLLifecycle(t *testing.T) {
 	for _, region := range []config.Region{config.RegionCN, config.RegionGlobal} {
 		t.Run(string(region), func(t *testing.T) {
-			testReplicaPublicationStorageLifecycle(t, false, ".", region, true)
+			testReplicaPublicationStorageLifecycle(t, false, ".", region, true, false)
 		})
 	}
 }
