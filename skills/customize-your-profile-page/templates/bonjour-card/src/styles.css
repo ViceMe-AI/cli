@@ -14,12 +14,8 @@ button:focus-visible, a:focus-visible { outline: 2px solid #0071e3; outline-offs
 ::selection { background: #0071e3; color: #fff; }
 
 .app-shell { min-height: 100vh; background: #f5f5f7; }
-.topbar { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; min-height: 48px; padding: 0 4.5vw; border-bottom: 1px solid rgba(0, 0, 0, .08); background: rgba(255, 255, 255, .78); backdrop-filter: saturate(180%) blur(20px); }
-.brand { display: inline-flex; align-items: center; gap: 9px; color: #1d1d1f; font-size: 13px; font-weight: 600; letter-spacing: -.01em; text-decoration: none; }
-.brand-mark { display: grid; width: 24px; height: 24px; place-items: center; border-radius: 7px; background: #1d1d1f; }
-.brand-mark span { width: 9px; height: 9px; border: 1.5px solid #fff; border-radius: 2px; transform: rotate(45deg); }
 
-.workspace { display: grid; grid-template-columns: minmax(255px, .78fr) minmax(0, 1.7fr); width: min(1180px, 100%); min-height: calc(100vh - 48px); margin: 0 auto; }
+.workspace { display: grid; grid-template-columns: minmax(255px, .78fr) minmax(0, 1.7fr); width: min(1180px, 100%); min-height: 100vh; margin: 0 auto; }
 .profile-rail { padding: 56px clamp(24px, 4vw, 52px); border-right: 1px solid rgba(0, 0, 0, .08); background: #f5f5f7; }
 .avatar { width: 80px; height: 80px; margin-bottom: 20px; border-radius: 20px; background: #d2d2d7 center / cover; }
 .profile-rail h2 { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", sans-serif; font-size: clamp(26px, 3vw, 34px); font-weight: 600; letter-spacing: -.04em; line-height: 1.1; }
@@ -61,8 +57,7 @@ button.block-main:hover strong { color: #0066cc; }
 .preview-caption { margin: 12px 0 0; color: rgba(29, 29, 31, .48); font-size: 12px; letter-spacing: -.01em; }
 
 @media (max-width: 760px) {
-  .topbar { padding: 0 18px; }
-  .workspace { grid-template-columns: 1fr; }
+  .workspace { grid-template-columns: minmax(0, 1fr); }
   .profile-rail { padding: 28px 22px; border-right: 0; border-bottom: 1px solid rgba(0, 0, 0, .08); }
   .avatar { width: 60px; height: 60px; margin-bottom: 14px; }
   .bio { max-width: 48ch; }

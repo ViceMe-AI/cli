@@ -12,7 +12,7 @@ React + Vite static template.
 
 ## Users
 
-Creators who want an Agent to prepare a compact public profile from confirmed work and public-contact data.
+Any signed-in ViceMe user who wants an Agent to prepare a compact public profile from confirmed project and public-contact data. Creator qualification is not required.
 
 ## Product Purpose
 
@@ -20,7 +20,7 @@ Present a read-only personal profile with work cards and public contact/media ca
 
 ## Positioning
 
-An Agent-driven, static personal-card preview for the creator-onboarding flow.
+An Agent-driven, static personal-card preview for the ordinary personal-profile publishing flow.
 
 ## Capabilities and Constraints
 

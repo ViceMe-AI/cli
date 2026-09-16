@@ -4,6 +4,7 @@ import "encoding/json"
 
 const SkillPublicationContractVersion = "2026-08-27"
 const PageCustomizationContractVersion = "2026-09-09"
+const ProfilePageCustomizationContractVersion = "2026-09-12"
 
 type DeviceAuthorizationRequest struct {
 	ClientName string   `json:"clientName"`
@@ -105,6 +106,8 @@ type MerchantOnboarding struct {
 	MerchantAccountID    *string                      `json:"merchantAccountId"`
 	RequestedHandle      *string                      `json:"requestedHandle"`
 	DisplayName          string                       `json:"displayName"`
+	Introduction         *string                      `json:"introduction"`
+	ExternalAccount      *string                      `json:"externalAccount"`
 	Status               string                       `json:"status"`
 	LockVersion          int                          `json:"lockVersion"`
 	ReservationExpiresAt *string                      `json:"reservationExpiresAt"`
@@ -164,7 +167,19 @@ type WebsiteWork struct {
 	VerifiedAt          *string `json:"verifiedAt"`
 }
 
+type WorkVideoLink struct {
+	Type  string `json:"type"`
+	Title string `json:"title"`
+	URL   string `json:"url"`
+}
+
+type WorkTutorials struct {
+	Instructions string          `json:"instructions"`
+	VideoLinks   []WorkVideoLink `json:"videoLinks"`
+}
+
 type MerchantWork struct {
+	Tutorials      *WorkTutorials  `json:"tutorials,omitempty"`
 	ID             string          `json:"id"`
 	Kind           string          `json:"kind"`
 	Origin         string          `json:"origin"`
@@ -218,6 +233,16 @@ type PageCustomizationTargetDescription struct {
 	CapabilityGroups []PageCustomizationCapabilityGroup `json:"capabilityGroups"`
 }
 
+type ProfilePageCustomizationTargetDescription struct {
+	Target           PageCustomizationTarget            `json:"target"`
+	ManifestKind     string                             `json:"manifestKind"`
+	SDKVersion       string                             `json:"sdkVersion"`
+	ContextSchema    string                             `json:"contextSchema"`
+	CapabilityGroups []PageCustomizationCapabilityGroup `json:"capabilityGroups"`
+	ProfileURL       string                             `json:"profileUrl"`
+	MarkdownURL      string                             `json:"markdownUrl"`
+}
+
 type PageCustomizationManifestMetadata struct {
 	Name string `json:"name"`
 }
@@ -260,6 +285,14 @@ type CreatePageCustomizationDraftRequest struct {
 	Target            PageCustomizationTarget               `json:"target"`
 	Artifact          PageCustomizationArtifact             `json:"artifact"`
 	SourceSnapshot    *PageCustomizationSourceSnapshotInput `json:"sourceSnapshot,omitempty"`
+}
+
+type CreateProfilePageCustomizationDraftRequest struct {
+	ClientRequestID string                                `json:"clientRequestId"`
+	ContractVersion string                                `json:"contractVersion"`
+	CLIVersion      string                                `json:"cliVersion"`
+	Artifact        PageCustomizationArtifact             `json:"artifact"`
+	SourceSnapshot  *PageCustomizationSourceSnapshotInput `json:"sourceSnapshot"`
 }
 
 type PageCustomizationSourceSnapshot struct {
@@ -900,6 +933,7 @@ type WebsiteReplicaUploadAuthorization struct {
 }
 
 type WebsiteReplicaPublication struct {
+	TraceabilityEnabled       *bool                             `json:"traceabilityEnabled,omitempty" api:"optional"`
 	AllowAutomaticDegradation bool                              `json:"allowAutomaticDegradation"`
 	Hosting                   WebsiteReplicaHostingProjection   `json:"hosting"`
 	Rollback                  WebsiteReplicaRollbackProjection  `json:"rollback"`
@@ -1032,14 +1066,15 @@ type ResolveWebsiteReplicaRequest struct {
 }
 
 type WebsiteReplicaResolution struct {
-	ReplicaID     string                `json:"replicaId"`
-	ShortCode     string                `json:"shortCode"`
-	Title         string                `json:"title"`
-	Summary       string                `json:"summary"`
-	Creator       WebsiteReplicaCreator `json:"creator"`
-	ViceMeWorkURL string                `json:"viceMeWorkUrl"`
-	Product       WebsiteReplicaProduct `json:"product"`
-	Availability  string                `json:"availability"`
+	RedistributionEnabled bool                  `json:"redistributionEnabled,omitempty" api:"optional"`
+	ReplicaID             string                `json:"replicaId"`
+	ShortCode             string                `json:"shortCode"`
+	Title                 string                `json:"title"`
+	Summary               string                `json:"summary"`
+	Creator               WebsiteReplicaCreator `json:"creator"`
+	ViceMeWorkURL         string                `json:"viceMeWorkUrl"`
+	Product               WebsiteReplicaProduct `json:"product"`
+	Availability          string                `json:"availability"`
 }
 
 type CreateWebsiteReplicaSessionRequest struct {
@@ -1192,15 +1227,32 @@ type WebsiteReplicaFulfillmentTask struct {
 }
 
 type WebsiteReplicaLicenseClaims struct {
-	SchemaVersion       string `json:"schemaVersion"`
-	EntitlementID       string `json:"entitlementId"`
-	ReplicaID           string `json:"replicaId"`
-	VersionID           string `json:"versionId"`
-	Version             int    `json:"version"`
-	OrderNo             string `json:"orderNo"`
-	ArtifactDigest      string `json:"artifactDigest"`
-	LicenseTermsVersion string `json:"licenseTermsVersion"`
-	IssuedAt            string `json:"issuedAt"`
+	Redistribution      *WebsiteReplicaRedistributionLicense `json:"redistribution,omitempty" api:"optional"`
+	BaseArtifactDigest  string                               `json:"baseArtifactDigest,omitempty" api:"optional"`
+	Traceability        *WebsiteReplicaTraceabilityLicense   `json:"traceability,omitempty" api:"optional"`
+	SchemaVersion       string                               `json:"schemaVersion"`
+	EntitlementID       string                               `json:"entitlementId"`
+	ReplicaID           string                               `json:"replicaId"`
+	VersionID           string                               `json:"versionId"`
+	Version             int                                  `json:"version"`
+	OrderNo             string                               `json:"orderNo"`
+	ArtifactDigest      string                               `json:"artifactDigest"`
+	LicenseTermsVersion string                               `json:"licenseTermsVersion"`
+	IssuedAt            string                               `json:"issuedAt"`
+}
+
+type WebsiteReplicaRedistributionLicense struct {
+	Allowed                              bool   `json:"allowed"`
+	Scope                                string `json:"scope"`
+	UnauthorizedRedistributionProhibited bool   `json:"unauthorizedRedistributionProhibited"`
+}
+
+type WebsiteReplicaTraceabilityLicense struct {
+	Enabled                    bool   `json:"enabled"`
+	Purpose                    string `json:"purpose"`
+	RuntimeReporting           bool   `json:"runtimeReporting"`
+	RemovalOrEvasionProhibited bool   `json:"removalOrEvasionProhibited"`
+	ResaleProhibited           bool   `json:"resaleProhibited"`
 }
 
 type WebsiteReplicaLicense struct {
@@ -1513,13 +1565,14 @@ type PublicWorkProjection struct {
 	} `json:"creator"`
 	Presentation *PublicPagePresentation `json:"presentation,omitempty"`
 	Work         struct {
-		ID            string `json:"id"`
-		Kind          string `json:"kind"`
-		IsHostedPage  bool   `json:"isHostedPage,omitempty"`
-		Slug          string `json:"slug"`
-		Status        string `json:"status"`
-		CanonicalPath string `json:"canonicalPath"`
-		MarkdownPath  string `json:"markdownPath"`
+		Tutorials     *WorkTutorials `json:"tutorials,omitempty"`
+		ID            string         `json:"id"`
+		Kind          string         `json:"kind"`
+		IsHostedPage  bool           `json:"isHostedPage,omitempty"`
+		Slug          string         `json:"slug"`
+		Status        string         `json:"status"`
+		CanonicalPath string         `json:"canonicalPath"`
+		MarkdownPath  string         `json:"markdownPath"`
 		Revision      struct {
 			Version             int              `json:"version"`
 			Digest              string           `json:"digest"`

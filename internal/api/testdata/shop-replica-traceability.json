@@ -1,0 +1,87 @@
+{
+  "confirmation": {
+    "outcome": "ACTION_REQUIRED",
+    "clientRequestId": "23232323-2323-4232-8232-232323232323",
+    "market": "CN",
+    "nextAction": {
+      "kind": "CONFIRM_PUBLICATION",
+      "confirmation": {
+        "version": "wrv1-cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "review": {
+          "resolution": "CREATE",
+          "merchantAccountId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+          "merchantDisplayName": "Replica Studio",
+          "creatorAccountId": "34343434-3434-4343-8343-343434343434",
+          "creatorHandle": "replica-maker",
+          "creatorDisplayName": "Replica Maker",
+          "projectFingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "workUrl": "https://viceme.cn/replica-maker/replica-site",
+          "canonicalOrigin": null,
+          "title": "Replica",
+          "summary": "Summary",
+          "priceCents": 990,
+          "allowAutomaticDegradation": false,
+          "traceabilityEnabled": false,
+          "source": {
+            "fileName": "source.zip",
+            "contentType": "application/zip",
+            "sizeBytes": 1024,
+            "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        },
+        "issuedAt": "2026-09-01T12:34:57Z",
+        "expiresAt": "2026-09-01T13:04:57Z"
+      }
+    }
+  },
+  "publication": {
+    "id": "12121212-1212-4212-8212-121212121212",
+    "clientRequestId": "23232323-2323-4232-8232-232323232323",
+    "market": "CN",
+    "merchantAccountId": "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    "workId": "77777777-7777-4777-8777-777777777777",
+    "replicaId": "11111111-1111-4111-8111-111111111111",
+    "status": "DRAFT",
+    "statusUrl": "https://viceme.cn/replica-maker/works/publications/12121212-1212-4212-8212-121212121212",
+    "allowedActions": [
+      "AUTHORIZE_SOURCE_UPLOAD",
+      "COMPLETE_SOURCE_UPLOAD",
+      "CANCEL"
+    ],
+    "retry": {
+      "automaticRetries": 0,
+      "maxAutomaticRetries": 3,
+      "nextAttemptAt": null
+    },
+    "allowAutomaticDegradation": false,
+    "traceabilityEnabled": false,
+    "hosting": {
+      "requested": false,
+      "status": "NOT_REQUESTED",
+      "activePageRelease": null,
+      "repair": null,
+      "latestRepair": null
+    },
+    "rollback": {
+      "activePair": null,
+      "availablePairs": []
+    },
+    "priceCents": 990,
+    "source": {
+      "fileName": "source.zip",
+      "contentType": "application/zip",
+      "sizeBytes": 1024,
+      "digest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "status": "WAITING_UPLOAD",
+      "verifiedAt": null
+    },
+    "page": null,
+    "failure": null,
+    "result": null,
+    "submittedAt": null,
+    "failedAt": null,
+    "cancelledAt": null,
+    "createdAt": "2026-09-01T12:34:57Z",
+    "updatedAt": "2026-09-01T12:34:57Z"
+  }
+}

@@ -260,6 +260,9 @@ func installReplicaAnonymousLocked(
 		if err != nil {
 			return replicaInstallResult{}, err
 		}
+		if resolved.RedistributionEnabled && !exists {
+			return replicaInstallResult{}, replicaRedistributionLoginRequired(resolved.ViceMeWorkURL, absTarget)
+		}
 		if resolved.Product.PriceCents > 0 {
 			return replicaInstallResult{}, output.Confirmation("REPLICA_PURCHASE_CONFIRMATION_REQUIRED", "show the source entitlement and ask whether to support the creator").WithDetails(map[string]any{"nextAction": "CONFIRM_PRICE", "replicaCode": code, "productId": resolved.Product.ID, "title": resolved.Title, "currency": resolved.Product.Currency, "totalAmountCents": resolved.Product.PriceCents, "workUrl": resolved.ViceMeWorkURL, "target": absTarget})
 		}
@@ -353,6 +356,12 @@ func installReplicaAnonymousLocked(
 		if resolved.ShortCode != shortCode || resolved.Title != resolved.Product.Title {
 			return replicaInstallResult{}, invalidReplicaResponse("Website Replica resolution does not match the supplied code")
 		}
+		if resolved.RedistributionEnabled {
+			if err := store.retire(state); err != nil {
+				return replicaInstallResult{}, err
+			}
+			return replicaInstallResult{}, replicaRedistributionLoginRequired(resolved.ViceMeWorkURL, absTarget)
+		}
 		if resolved.Product.PriceCents != acceptedPriceCents {
 			return replicaInstallResult{}, output.Confirmation(
 				"REPLICA_PRICE_CHANGED",
@@ -423,6 +432,12 @@ func installReplicaAnonymousLocked(
 			OrderClientRequestID: state.OrderRequestID, DownloadRecoverySecret: state.DownloadRecoverySecret, Locale: state.Locale,
 		})
 		if err != nil {
+			if output.AsError(err).Subtype == "WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED" {
+				if retireErr := store.retire(state); retireErr != nil {
+					return replicaInstallResult{}, retireErr
+				}
+				return replicaInstallResult{}, replicaRedistributionLoginRequired(code, absTarget)
+			}
 			return replicaInstallResult{}, err
 		}
 		state.OrderNo = checkout.OrderNo
@@ -821,16 +836,17 @@ func replicaQuoteConfirmation(state replicaPurchaseState) error {
 		"REPLICA_PURCHASE_CONFIRMATION_REQUIRED",
 		"confirm the Website Replica quote before creating an order",
 	).WithDetails(map[string]any{
-		"replicaId":        state.ReplicaID,
-		"replicaCode":      "VICEME-REPLICA:" + state.ShortCode,
-		"productId":        state.ProductID,
-		"title":            state.ProductTitle,
-		"currency":         state.Currency,
-		"totalAmountCents": state.PriceCents,
-		"quoteId":          state.QuoteID,
-		"expiresAt":        state.QuoteExpiresAt,
-		"target":           state.Target,
-	}).WithHint("show the exact product, price, and quote expiry to the user; only after explicit confirmation rerun the same install command with --confirm")
+		"redistributionNotice": "未经授权不得二次分发或转售源码。获取使用权不等于获得再分发权；获准的再发布仅限 ViceMe 平台，并保留来源链。",
+		"replicaId":            state.ReplicaID,
+		"replicaCode":          "VICEME-REPLICA:" + state.ShortCode,
+		"productId":            state.ProductID,
+		"title":                state.ProductTitle,
+		"currency":             state.Currency,
+		"totalAmountCents":     state.PriceCents,
+		"quoteId":              state.QuoteID,
+		"expiresAt":            state.QuoteExpiresAt,
+		"target":               state.Target,
+	}).WithHint("show the exact product, price, quote expiry, and redistribution notice to the user; only after explicit confirmation rerun the same install command with --confirm")
 }
 
 func replicaPaymentConfirmation(state replicaPurchaseState, presentation *api.CommercePaymentPresentation) error {
@@ -1165,12 +1181,19 @@ func verifiedReplicaLicenseClaims(ctx context.Context, runtime *Runtime, downloa
 		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_INVALID", "Website Replica license has an invalid schema")
 	}
 	claims := license.Claims
+	if grant := claims.Redistribution; grant != nil && (grant.Scope != "VICEME" || !grant.UnauthorizedRedistributionProhibited) {
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_INVALID", "Website Replica redistribution grant is invalid")
+	}
 	if license.Algorithm != "Ed25519" || license.SigningKeyID == "" || license.SigningPublicKey == "" || license.Signature == "" ||
-		claims.SchemaVersion != replicaLicenseTermsVersion || claims.LicenseTermsVersion != replicaLicenseTermsVersion ||
+		claims.SchemaVersion != replicaLicenseTermsVersion ||
 		!replicaUUIDPattern.MatchString(claims.EntitlementID) || claims.ReplicaID != download.ReplicaID ||
 		claims.VersionID != download.VersionID || claims.Version != download.Version || (orderNo != "" && claims.OrderNo != orderNo) ||
 		claims.ArtifactDigest != download.ArtifactDigest {
 		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_IDENTITY_MISMATCH", "Website Replica license does not match the purchased artifact")
+	}
+	// 数据格式仍为 v1；可追溯交付使用独立的 v3 许可条款。
+	if claims.LicenseTermsVersion != replicaLicenseTermsVersion && claims.LicenseTermsVersion != "website-replica-license/v3" {
+		return api.WebsiteReplicaLicenseClaims{}, output.Policy("REPLICA_LICENSE_TERMS_UNSUPPORTED", "Website Replica license terms require a compatible CLI")
 	}
 	trustedPublicKey, err := runtime.resolveCommerceTrustKey(ctx, license.SigningKeyID)
 	if err != nil {
@@ -1452,4 +1475,14 @@ func requireReplicaTargetParentIdentity(parent, expected string) error {
 
 func replicaPaymentWidgetData(state replicaPurchaseState) paymentWidgetData {
 	return paymentWidgetData{Title: state.ProductTitle, AmountCents: &state.PriceCents, Currency: state.Currency, PaymentMethodLabel: "微信支付", Status: "PENDING", ExpiresAt: state.OrderExpiresAt, Locale: state.Locale}
+}
+
+func replicaRedistributionLoginRequired(work string, target string) error {
+	details := map[string]any{"nextAction": "LOGIN_REQUIRED", "target": target, "orderCreated": false}
+	if strings.HasPrefix(work, "VICEME-REPLICA:") {
+		details["replicaCode"] = work
+	} else {
+		details["workUrl"] = work
+	}
+	return output.Policy("WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED", "Redistribution rights require account authorization before purchase").WithDetails(details).WithHint("use creator-tools to authorize the CLI account, then continue the same work without --anonymous; a followWork login page does not authorize the CLI")
 }

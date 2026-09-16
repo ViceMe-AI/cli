@@ -15,10 +15,6 @@ function App() {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <a className="brand" href="#profile" aria-label="回到个人主页顶部"><span className="brand-mark"><span /></span> Bonjour Card</a>
-      </header>
-
       <main className="workspace" id="profile">
         <ProfileRail profile={initialProfile} />
         <section className="canvas" aria-labelledby="canvas-title">

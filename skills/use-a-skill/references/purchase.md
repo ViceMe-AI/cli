@@ -2,30 +2,54 @@
 
 只在需要购买、恢复待支付订单或校验账号已有权益时读取。上手示例阶段不加载这份指引。
 
+## 免 CLI 的直接购买
+
+无试用付费版使用作品页的 Python install 入口；无需 CLI 或登录。脚本先安装 kind=purchase 的 Skill：保留商品名称与能力简介，正文是封闭的「使用前必读」，并带上本文件作为购买展示细则。不把出码规则再写进 SKILL.md。不下载正式正文、脚本或其他付费附件；不在安装包中写入购买凭证。不要创建「零次试用」，也不要安装试用上手卡。
+
+安装返回 PURCHASE_REQUIRED 时立即读取已装 SKILL.md 的「使用前必读」，并使用响应中的本地 runtimePath 执行 `python3 '<runtimePath>' purchase --product <product-id> --market <market> --wait 0`（Windows 用 py）。此步骤才持久化本机购买身份并创建或恢复订单。返回后先按下方「无试用开场白」写给用户看，再完成本文件「通用支付展示」。开场白必须出现在二维码、支付链接和支付页之前，不要等用户确认是否购买，也不要编造尚未取得的正式正文。只打开预览、只完成工具调用或只交付本地路径，而回复正文没有二维码和支付链接，都不算已展示，不得开始 --wait 60。展示完成后再改用 --wait 60 有界等待。付款确认后由同一脚本校验权益、下载正式包，并在原 Skill 目录替换内容，再读取实际 SKILL.md。有原任务立即继续，不要问现在试还是以后用。没有原任务才按正式 SKILL.md 用一两句说明怎么开始，然后等用户下一条内容；不要问「现在就试还是先放着」，也不要停在安装成功。
+
+无试用购买凭证独立存储；重试、进程重启、支付超时和安装失败都保留原凭证与订单。已有试用凭证时由原试用身份购买；先恢复待交付 use。已有脚本订单时不得改走账号购买或删除凭证重新下单。已通过该凭证购买的商品直接恢复正式安装；这不替代 install=owned 的账号校验，也不承诺跨设备找回。
+
+## 无试用开场白
+
+给用户看的第一段只按下面句式；可按当前语言微调标点，不得增加安装过程旁白：
+
+「{商品标题}」{能力简介}。这是付费作品（{金额}），没有免费试用，付费后才能开始用。请扫下面的二维码付款：
+
+标题和简介用商品 `title` / `summary`，或入口 description 去掉「（购买后使用）」后的标题与简介；不要用目录名或 frontmatter `name`。金额只用本次 purchase 返回字段。不得对用户说已经装到本地、已经安装、Skill 已安装、目录已就绪或安装成功。
+
 ## 免 CLI 的试用转购买
 
-已经由 `trial.py` 安装的用户继续使用同一个脚本与本机试用凭证，不要求安装 CLI 或登录。`ready` / `install` / `status` 已经返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED 时，不要再跑 `status` 或 `use`，不要读商品 SKILL.md，不要跑 `auth status` 或 `profile list`，立刻运行 `purchase --product <product-id> --market <market> --wait 0`。`use` 只负责新使用单元预检；`status` 只查询余额，且 ready 已经给出 0 时不要再查。最后一次试用交出结果的同一轮立即运行同一条 `purchase --wait 0` 创建或恢复订单，不要等用户再说一次；之后用户再来时同样立即出码。回复正文单独一行写 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 imageChatSrc（local-file:// 加上 imagePath 绝对路径）。不要只写裸绝对路径；并用 `present_files([widgetPath])` 只打开微信支付 HTML，再以同一命令的 `--wait 60` 等待到账。超时保留原订单继续查，二维码过期不等于订单关闭。本次 `purchase --wait 0` 若返回 PAYMENT_CLOSED，立即再运行同一条命令创建新订单；不要跑 status，不要对用户说试用没耗尽。支付确认且权益有效后，脚本验证正式包摘要，准备支持文件并最后原子替换主入口，重新读取 SKILL.md 后继续原任务。此身份只覆盖当前本机凭证对应的商品，不替代上文 `install=owned` 的账号验证，不承诺跨设备找回。
+上次 use 报可重试错误或 ready 返回 pendingUse 时，先恢复原 use；没有待恢复使用时才执行以下购买流程。已有 CLI 路线必须保留原来的 `--skill-dir`，Python 使用实际安装目录里的脚本，付款后恢复该目录。
+
+已经由 `trial.py` 安装的用户继续使用同一个脚本与本机试用凭证，不要求安装 CLI 或登录。`ready` / `install` / `status` 已经返回 remainingUses=0、trialExhausted 或 PURCHASE_REQUIRED 时，不要再跑 `status` 或 `use`，不要读商品 SKILL.md，不要跑 `auth status` 或 `profile list`，立刻运行 `purchase --product <product-id> --market <market> --wait 0`。`use` 只负责新使用单元预检；`status` 只查询余额，且 ready 已经给出 0 时不要再查。最后一次试用交出结果的同一轮立即运行同一条 `purchase --wait 0` 创建或恢复订单，不要等用户再说一次；之后用户再来时同样立即出码。出码后按下方「通用支付展示」展示二维码或交付官方支付链接，再以同一命令的 `--wait 60` 等待到账。超时保留原订单继续查，二维码过期不等于订单关闭。本次 `purchase --wait 0` 若返回 PAYMENT_CLOSED，立即再运行同一条命令创建新订单；不要跑 status，不要对用户说试用没耗尽。支付确认且权益有效后，脚本验证正式包摘要，准备支持文件并最后原子替换主入口，重新读取 SKILL.md：有原任务立即继续，不要问现在试还是以后用；没有原任务才说明怎么开始并等用户下一条。此身份只覆盖当前本机凭证对应的商品，不替代上文 `install=owned` 的账号验证，不承诺跨设备找回。
 
 ## 通用支付展示
 
-安装响应 `nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL` 表示重新读取已安装的 SKILL.md，按包内规则继续原任务；没有原任务才展示示例。
+安装响应 `nextAction=CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL` 表示重新读取已安装的 SKILL.md，按包内规则继续原任务；没有原任务才说明怎么开始。
 `kind=owned` 或 `owned=true` 后按正式 SKILL.md 继续，不要再运行 `use`、不要读计次指引、不要提剩余次数。
-不得停在“安装成功”，也不得要求用户重复描述原任务。
+不得停在“安装成功”，不得要求用户重复描述原任务，也不得问现在试还是以后用。
 
-有 `paymentPresentation` 时，同一条用户可见回复必须同时做到：
+匿名 Skill 订单返回外层 `checkoutUrl` / `checkoutImageUrl` 时，两者分别是官方免登录收银台链接和 HTTPS 二维码，不在 `paymentPresentation` 内。始终把返回的 `checkoutUrl` 写成可点击的 Markdown 链接；宿主支持 HTTPS 图片时，同时在单独一行用 Markdown 嵌入 `checkoutImageUrl`。图片不能替代链接，不承诺任何聊天都能显示图片，只使用实际返回的字段。WorkBuddy／豆包优先用可用的平台内本地展示，失败时使用托管图片和链接；本地展示成功也保留链接。其他宿主优先托管图片和链接，再用实际支持的本地通道。本地文件生成失败时仍可返回托管入口，此时可能没有 `paymentPresentation`，不要编造本地路径。旧 API 不返回托管字段时，按下方原有本地规则展示。
 
-1. 聊天气泡：正文单独一行写出 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 `imageChatSrc`（`local-file://` 加上 `imagePath` 绝对路径）。不要只写裸 `/Users/...` 或盘符路径，WorkBuddy 不会把它渲染成图。不要 Read PNG，不要把 imagePath 交给 `present_files`。
-2. 右侧浏览器：`present_files` 的 `files` 数组只能包含 `widgetPath` 这一个 HTML 路径。把 PNG 放进去会把图片抢到右侧预览。
+无试用直接购买时，上述支付入口还必须排在开场白之后：先写「无试用开场白」，再出码。试用耗尽不必再介绍能力，只说试用已用完并请扫码。
 
-不要 Read 支付 HTML，不要把 HTML 贴进聊天，支付不要调用 `show_widget`。没有 `present_files` 时仍在聊天气泡用上述 Markdown 展示图片。不得重画或猜补二维码，也不得把支付 URI 交给第三方。下面提到“展示二维码”均遵守此规则。
+有 `paymentPresentation` 时，由 Agent 根据当前宿主明确声明的图片格式和实际可用的展示工具选择通道。环境识别只提供偏好，不能据此禁止宿主明确支持的能力：
 
-必须先让用户看到二维码再启动有界等待；支付页和图片都不查询订单、不安装 Skill、不计次，也不根据倒计时、扫码或用户自述判断支付成功。付款由外层命令查询。不得增加“查询支付结果”或“已付款但未继续”的按钮。
+1. 图片通道：按宿主支持的格式嵌入 `imagePath`。明确支持绝对路径 Markdown 的宿主（如当前 Codex Desktop）可写 `![微信支付二维码]` 后紧跟圆括号，括号内填入 `imagePath` 的实际绝对路径；不能只贴裸路径，也不能假设所有宿主都支持本地图片。
+2. 页面通道：把 `widgetPath` 交给实际存在且支持本地 HTML 的展示工具。不猜测工具名；存在浏览器工具不代表它能打开本地文件或 `file://` URL。
+3. WorkBuddy 默认在正文单独一行写 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 `imageChatSrc`（`local-file://` 加上 `imagePath`）。工具可用时再用 `present_files([widgetPath])` 打开支付页；不要把 imagePath 或 PNG 交给 `present_files`。豆包工作默认用这个工具投递支付页，不从平台名称推断聊天图片能力。其他宿主依照前两条选择。`imageChatSrc` 只用于明确支持 `local-file://` 的宿主。
+4. 某个通道失败时，遵守宿主限制，改用另一个独立获准的通道。只有托管入口不可用且本地图片和页面都无法展示时，才把 `widgetPath` 绝对路径原样告诉用户，请用户自行打开；此时不能声称已展示二维码，也不要启动等待。
 
-作品链接和 access 返回的 `purchaseUrl` 是商品详情入口，不是已创建订单的支付链接，不得把它们作为“请在这里完成支付”的入口。支付入口必须来自成功创建的订单：微信 Native 流程先展示命令生成的二维码图片并用 `present_files` 打开支付页，账号购买路线另有订单 `paymentUrl` 时同时展示该链接。匿名试用购买不返回账号支付页面，不要求补登录或补造链接。没有订单或二维码时先处理授权/下单错误，不得用详情页链接代替，也不得自行拼接支付链接。
+不要 Read 支付 HTML，不要把 HTML 贴进聊天，支付不要调用 `show_widget`。WorkBuddy 没有 `present_files` 时仍在聊天气泡用上述 Markdown 展示图片。不得重画或猜补二维码，也不得把支付 URI 交给第三方。下面提到“展示二维码”均遵守此规则。
+
+至少一种受支持的通道已展示二维码，或已交付可点击的官方 `checkoutUrl` 后才启动有界等待；托管链接是支付入口，不代表二维码已展示，不要求本地图片和页面同时成功。仅生成文件、返回工具结果或交付路径不算已展示。本地支付页和图片不查询订单、不安装 Skill、不计次，也不根据倒计时、扫码或用户自述判断支付成功。官方托管页可只读查询服务端订单状态，但安装与权益确认仍由外层命令负责。不得增加“查询支付结果”或“已付款但未继续”的按钮。
+
+作品链接和 access 返回的 `purchaseUrl` 是商品详情入口，不是已创建订单的支付链接，不得把它们作为“请在这里完成支付”的入口。支付入口必须来自成功创建的订单：微信 Native 流程按上方「通用支付展示」中当前运行环境的通道展示命令生成的支付页或二维码，账号购买路线另有订单 `paymentUrl` 时同时展示该链接。匿名 Skill 购买不返回账号支付页面，不要求补登录或补造链接；可使用返回的免登录 `checkoutUrl` / `checkoutImageUrl`。没有订单或二维码时先处理授权/下单错误，不得用详情页链接代替，也不得自行拼接支付链接。
 
 已有待支付订单由原 `viceme skill install` 命令自动恢复，不要切换到需要另一种购买会话的 `viceme commerce order` 命令。返回 `SKILL_PAYMENT_QR_UNAVAILABLE` 时，说明“订单已创建，但二维码暂时无法展示”，用 Markdown 展示返回的 `paymentUrl` 让用户继续支付；不得声称二维码已生成。保留原购买状态，支付后重跑同一安装命令。
 
-购买前检查 `viceme auth status` 时，`authenticated=true` 还不够：`scopes` 必须同时包含 `buyer-commerce:read` 和 `buyer-commerce:write`。这项检查只用于**账号购买**分支。免费版、匿名试用转购买（`runner=python` / `trial.py purchase`）和已购下载禁止 `auth status`，也不要求新增购买权限。
+购买前检查 `viceme auth status` 时，`authenticated=true` 还不够：`scopes` 必须同时包含 `buyer-commerce:read` 和 `buyer-commerce:write`。这项检查只用于**账号购买**分支。免费版、免 CLI 直接购买、匿名试用转购买（`runner=python` / `trial.py purchase`）和已购下载禁止 `auth status`，也不要求新增购买权限。
 
 检查发现缺少购买权限，或购买命令返回 `BUYER_PURCHASE_SCOPE_REQUIRED` 时，必须先向用户说明：“当前登录尚未授权购买，需要重新登录授权。完成后我会继续本次购买，并展示支付二维码。”随后调用 `creator-tools`，按其中的 WorkBuddy 登录流程展示本次授权页面和链接，等待同一账号完成授权；不得只启动前台登录命令后静默等待，也不得在生成二维码之前告诉用户扫码付款。授权成功后再次检查购买权限，并自动重跑原购买命令；用户之前的购买确认仍然有效，不重复询问是否购买。如果授权成功后仍缺少权限，明确报告授权未补齐并保留购买状态，不循环启动登录。
 
@@ -37,7 +61,9 @@
 
 ## 账号购买和订阅
 
+仅在用户明确选择账号购买/订阅，或 Python 不可用且没有既有脚本购买身份时使用。无试用付费默认走上方「免 CLI 的直接购买」。已有脚本订单不得切换账号重新购买。CLI 定位遵循 creator-tools，缺少时使用作品页官方安装契约。
+
 当前账号已具有效权益时不得要求再次购买；权益由安装命令向服务端校验。
 
-- 用户选择直接购买（或该版本无试用）时：确认同一 WeSimi 账号具有购买权限，先运行 `viceme skill install <product-id> --agent auto --wait 0` 创建或恢复订单。返回 `SKILL_PURCHASE_REQUIRED` 是待支付结果，不是下单失败：立即展示本地二维码图片，同时用 Markdown 链接展示 `paymentUrl`（“打开支付页面”），不要先启动长时间等待而让用户看不到二维码。浏览器未登录时提示用下单的同一账号登录。展示完成后，后台运行同一安装命令并改为 `--wait 10m` 等待付款，支付到账后自动继续安装；等待超时返回 `SKILL_PURCHASE_PENDING` 时保留原订单，用户完成支付后重跑原命令。只有确认 `owned=true` 且安装成功才能说购买安装完成。不得用商品详情页代替支付页面，也不得把支付 URI 直接贴到对话里。
+- 用户选择账号购买时：确认同一 WeSimi 账号具有购买权限，先运行 `viceme skill install <product-id> --agent auto --wait 0` 创建或恢复订单。返回 `SKILL_PURCHASE_REQUIRED` 是待支付结果，不是下单失败：立即展示本地二维码图片，同时用 Markdown 链接展示 `paymentUrl`（“打开支付页面”），不要先启动长时间等待而让用户看不到二维码。浏览器未登录时提示用下单的同一账号登录。展示完成后，后台运行同一安装命令并改为 `--wait 10m` 等待付款，支付到账后自动继续安装；等待超时返回 `SKILL_PURCHASE_PENDING` 时保留原订单，用户完成支付后重跑原命令。只有确认 `owned=true` 且安装成功才能说购买安装完成。不得用商品详情页代替支付页面，也不得把支付 URI 直接贴到对话里。
 - access 响应携带 `subscription` 块：`available=true` 表示该创作者开通了粉丝订阅。引导购买时必须同时告知订阅选项：订阅价 ¥X/30 天；有效期内可安装和更新该创作者全部付费 Skill，到期后不能重装或更新，但本地已经安装的内容不会删除。用户选择订阅时，先运行 `viceme subscription subscribe <creator-handle> --wait 0` 并展示二维码，再后台运行同一命令并改为 `--wait 10m` 等待支付；支付到账即订阅生效，随后重跑安装命令。`subscribedUntil` 非空表示当前处于订阅期，直接安装即可，不得再要求购买。

@@ -70,17 +70,25 @@ unzip -q /tmp/use-a-skill.zip -d ~/.agents/skills/
 
 - `cmd/skills-archive` 在 Release Workflow 的
   `Assemble exact-version agent installation contract` 步骤随版本清单
-  一起生成 `dist/skills/<skill>.zip` 与 `dist/skills/manifest.json`;
-- `CN and Global S3 publication` 步骤把 `dist/skills/*` 发布到
-  `cli/releases/v<version>/skills/`(不可变)与桶根 `skills/`(稳定),
-  并对稳定 `manifest.json` 做匿名读取与字节一致的发布后验证;
+  一起生成 `dist/skills/<skill>.zip`、`dist/skills/manifest.json` 以及每个
+  技能文件的平铺副本(含 widget 与 content-addressed 副本);
+- `CN and Global S3 publication` 用当前 workflow 修订上的
+  `cmd/s3-publish` 把 artifact 里的 `dist/` 发到 CN 与 Global:版本化副本
+  落在 `cli/releases/v<version>/skills/`,稳定入口落在独立 `skills` 桶的
+  对象根(zip、manifest、平铺文件与 widget)。发布器对两区并行、区内有界
+  并发,并对已存在的不可变对象做字节一致校验;稳定入口在字节或
+  Cache-Control / Content-Type 不一致时重新 PUT,避免错误响应头被跳过;
+- 发布后匿名 GET `skills/manifest.json` 与版本化 Agent 合同,确认字节与
+  Cache-Control 头与本地 dist 一致;
 - zip 为确定性产物:固定时间戳(epoch)、固定权限(0644)、排序遍历、
   不写目录条目——同版本重发布字节必须一致,否则视为篡改并失败。
 
 ## 桶策略
 
 - 公开 `skills` 桶:匿名读取 allowlist 为 `arn:aws:s3:::skills/*`
-  (GetObject),桶内只有托管 zip 与 manifest;列桶(ListBucket)不放行。
+  (GetObject)。桶内是官方托管物整棵树:每个技能的 zip、`manifest.json`、
+  按原路径平铺的全部文件,以及 `_widgets/` 稳定副本与 content-addressed
+  副本。列桶(ListBucket)不放行。
 - start 桶:匿名 allowlist 维持原有五项(install 脚本/文档与
   `cli/releases/*`),版本化副本落在其中的 `cli/releases/v<version>/skills/`。
 - 两桶均已实施(CN+GLOBAL,2026-09-04)并通过行为级验证:

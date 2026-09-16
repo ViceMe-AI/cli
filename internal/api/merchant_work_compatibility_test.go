@@ -86,3 +86,49 @@ func TestMerchantWorkRejectsMissingRequiredAndConflictingChildren(t *testing.T) 
 		})
 	}
 }
+
+func TestMerchantWorkTutorialsUpdateAndReadback(t *testing.T) {
+	work := testWebsiteMerchantWork("UNVERIFIED", 1, 1)
+	tutorials := &WorkTutorials{Instructions: "部署说明", VideoLinks: []WorkVideoLink{{Type: "VIDEO_LINK", Title: "教程", URL: "https://www.bilibili.com/video/BV1example"}}}
+	request, err := json.Marshal(map[string]any{"merchantAccountId": testMerchantAccountID, "expectedRevision": 1, "tutorials": tutorials})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writes := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPatch {
+			var body map[string]json.RawMessage
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+				return
+			}
+			if len(body) != 3 || body["content"] != nil || body["status"] != nil {
+				t.Error("tutorial update must not publish a work revision")
+			}
+			if err := json.Unmarshal(body["tutorials"], &work.Tutorials); err != nil {
+				t.Error(err)
+				return
+			}
+			writes++
+		}
+		json.NewEncoder(w).Encode(work)
+	}))
+	defer server.Close()
+	client := NewClient(server.URL, server.Client(), staticToken("vme_cli_test"), "viceme/test")
+	updated, err := client.UpdateMerchantWork(context.Background(), testWebsiteWorkID, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	readback, err := client.GetMerchantWork(context.Background(), testWebsiteWorkID, testMerchantAccountID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, result := range []MerchantWork{updated, readback} {
+		if result.Tutorials == nil || result.Tutorials.Instructions != tutorials.Instructions || len(result.Tutorials.VideoLinks) != 1 || result.Tutorials.VideoLinks[0] != tutorials.VideoLinks[0] {
+			t.Fatalf("tutorials lost in API response: %#v", result.Tutorials)
+		}
+	}
+	if writes != 1 {
+		t.Fatal("unexpected repeated update")
+	}
+}

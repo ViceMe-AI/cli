@@ -3,8 +3,10 @@ package command
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/privatefile"
+	"github.com/ViceMe-AI/cli/internal/skillcontent"
 	"github.com/spf13/cobra"
 )
 
@@ -57,17 +60,19 @@ func saveScriptTrialState(runtime *Runtime, productID string, state scriptTrialS
 func newSkillTrialPurchaseCommand(runtime *Runtime) *cobra.Command {
 	var wait time.Duration
 	var agent string
+	var skillDirectory string
 	command := &cobra.Command{Use: "trial-purchase <product-id>", Short: "Purchase and restore a trial using this installation's credential", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			productID, _, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
 			if err != nil {
 				return err
 			}
-			return runTrialPurchase(command.Context(), runtime, productID, wait, agent)
+			return runTrialPurchase(command.Context(), runtime, productID, wait, agent, skillDirectory)
 		},
 	}
-	command.Flags().DurationVar(&wait, "wait", 0, "bounded payment wait after the QR was presented; 0 presents immediately")
+	command.Flags().DurationVar(&wait, "wait", 0, "bounded payment wait after presenting the QR or hosted link; 0 presents immediately")
 	command.Flags().StringVar(&agent, "agent", "auto", "installation target")
+	command.Flags().StringVar(&skillDirectory, "skill-dir", "", "exact installed Skill directory")
 	return command
 }
 
@@ -127,7 +132,7 @@ func trialPurchaseCredential(runtime *Runtime, productID string) (skillTrialCred
 	return adoptScriptTrialCredential(runtime, productID)
 }
 
-func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, wait time.Duration, agent string) error {
+func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, wait time.Duration, agent string, directories ...string) error {
 	if wait < 0 || wait > 10*time.Minute {
 		return output.Validation("SKILL_PURCHASE_WAIT_INVALID", "--wait must be between 0 and 10m")
 	}
@@ -139,9 +144,18 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 		return output.Policy("SKILL_TRIAL_GRANT_MISSING", "no local trial credential for this purchase")
 	}
 	// Reject known identity/environment conflicts before creating a lock. Repeat
-	// the check while locked below to cover a concurrent writer.
-	if state, exists := readScriptTrialState(runtime, productID); exists && (state.InstallID != credential.InstallID || state.Secret != credential.Secret || state.Market != string(runtime.region) || state.ProductID != productID) {
+	// both the identity and pending checks while locked below.
+	state, exists := readScriptTrialState(runtime, productID)
+	if exists && (state.InstallID != credential.InstallID || state.Secret != credential.Secret || state.Market != string(runtime.region) || state.ProductID != productID) {
 		return output.Policy("SKILL_TRIAL_IDENTITY_MISMATCH", "local trial credentials do not match this purchase; preserve both records")
+	}
+	if hasPendingTrialUse(runtime, productID, credential, state) {
+		return retryableConsumedUseFailure("SKILL_TRIAL_USE_PENDING", "resume the unconfirmed use before purchasing", nil)
+	}
+	if len(directories) > 0 && directories[0] != "" {
+		if manifest, valid := skillcontent.ReadRuntimeIdentity(directories[0], productID, runtime.apiBaseURL); !valid || manifest.Market != string(runtime.region) {
+			return output.Policy("SKILL_TRIAL_INSTALLATION_REQUIRED", "the selected Skill installation could not be verified; preserve it and repair the installation")
+		}
 	}
 	var order api.TrialPurchase
 	presented := false
@@ -149,6 +163,9 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 		state, exists := readScriptTrialState(runtime, productID)
 		if exists && (state.InstallID != credential.InstallID || state.Secret != credential.Secret || state.Market != string(runtime.region) || state.ProductID != productID) {
 			return output.Policy("SKILL_TRIAL_IDENTITY_MISMATCH", "local trial credentials do not match this purchase; preserve both records")
+		}
+		if hasPendingTrialUse(runtime, productID, credential, state) {
+			return retryableConsumedUseFailure("SKILL_TRIAL_USE_PENDING", "resume the unconfirmed use before purchasing", nil)
 		}
 		if !exists {
 			state = scriptTrialState{InstallID: credential.InstallID, Secret: credential.Secret, ProductID: productID, Market: string(runtime.region)}
@@ -197,13 +214,13 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 		if err != nil {
 			return err
 		}
-		installed, err := installSkillFromReceipt(runtime, ctx, productID, "", agent, receipt.Access, receipt.Download)
+		installed, err := installSkillFromReceipt(runtime, ctx, productID, "", agent, receipt.Access, receipt.Download, directories...)
 		if err != nil {
 			return err
 		}
-		if err := removeCommercePaymentPresentation(runtime, order.OrderNo); err != nil {
-			return err
-		}
+		// Display cleanup cannot change a completed formal installation or
+		// server-confirmed ownership. Match the standalone runtime's behavior.
+		_ = removeCommercePaymentPresentation(runtime, order.OrderNo)
 		return runtime.business(skillTrialUseResult{ProductID: productID, Allowed: true, Owned: true, OrderNo: order.OrderNo, Install: &installed, NextAction: "CONTINUE_TASK", Invocation: installed.Invocation})
 	}
 	if order.Status == "CLOSED" {
@@ -212,20 +229,74 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 		}
 		return output.Policy("SKILL_PURCHASE_ORDER_CLOSED", "this payment order is closed").WithDetails(map[string]any{"productId": productID, "paymentStatus": "CLOSED", "nextAction": "PAYMENT_CLOSED"}).WithHint("immediately run viceme skill trial-purchase --wait 0 to open a new order; do not run trial-status; do not tell the user the trial is not exhausted")
 	}
+	if err := suspendExhaustedTrial(ctx, runtime, productID, agent, directories...); err != nil {
+		return err
+	}
 	commerce := api.CommerceOrder{OrderNo: order.OrderNo, Status: order.Status, Currency: order.Currency, AmountCents: order.AmountCents, ExpiresAt: order.ExpiresAt, PaymentProvider: "WECHAT_PAY", PaymentAction: order.PaymentAction}
 	commerce.Item, _ = json.Marshal(map[string]string{"productTitle": order.Title})
 	if err := prepareCommercePaymentPresentation(runtime, &commerce); err != nil {
-		return err
+		// Local artifact IO is independent of the server's payable checkout.
+		// Authentication, order validation, and invalid payment data still fail.
+		var pathError *os.PathError
+		if !order.HostedCheckout() || !errors.As(err, &pathError) {
+			return err
+		}
 	}
-	if commerce.PaymentPresentation != nil {
+	if commerce.PaymentPresentation != nil || order.HostedCheckout() {
 		if err := setTrialPurchasePresentation(runtime, productID, order.OrderNo, true, false); err != nil {
 			return err
 		}
 	}
-	return output.Confirmation("SKILL_PURCHASE_REQUIRED", "scan to pay; payment will restore the formal edition without login").WithDetails(map[string]any{
+	details := map[string]any{
 		"productId": productID, "orderNo": order.OrderNo, "amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
-		"paymentPresentation": commerce.PaymentPresentation,
-	}).WithHint(fmt.Sprintf("write ![微信支付二维码](paymentPresentation.imageChatSrc) in the chat reply; imageChatSrc is local-file:// plus imagePath. Do not write a bare filesystem path. Open only widgetPath with present_files. Do not pass imagePath to present_files, Read the PNG or HTML, or call show_widget. Then run viceme skill trial-purchase %s --wait 60s; expiry never proves an order is closed", productID))
+	}
+	if commerce.PaymentPresentation != nil {
+		details["paymentPresentation"] = commerce.PaymentPresentation
+	}
+	if order.CheckoutURL != "" {
+		details["checkoutUrl"] = order.CheckoutURL
+	}
+	if order.CheckoutImageURL != "" {
+		details["checkoutImageUrl"] = order.CheckoutImageURL
+	}
+	return output.Confirmation("SKILL_PURCHASE_REQUIRED", "scan to pay; payment will restore the formal edition without login").WithDetails(details).
+		WithHint(skillPaymentPresentationHint(os.Getenv, order.HostedCheckout()) + fmt.Sprintf("; then rerun this same viceme skill trial-purchase %s command with --wait 60s, retaining --skill-dir when specified; expiry never proves an order is closed", productID))
+}
+
+func suspendExhaustedTrial(ctx context.Context, runtime *Runtime, productID, agent string, directories ...string) error {
+	directory, manifest, found, err := skillcontent.FindRuntimeInstall(runtime.deps.Environment, agent, productID, runtime.apiBaseURL, directories...)
+	if err != nil {
+		return err
+	}
+	if !found || manifest.Kind == "owned" || manifest.Kind == "free" || manifest.Kind == "purchase" {
+		return nil
+	}
+	exhausted := directory != "" && trialEntryExhausted(filepath.Join(directory, "SKILL.md"), productID)
+	return withScriptTrialLock(runtime, productID, func() error {
+		state, ok := readScriptTrialState(runtime, productID)
+		if !ok {
+			return output.Policy("SKILL_TRIAL_GRANT_MISSING", "no local trial credential")
+		}
+		if err := validateScriptTrialStateIdentity(runtime, productID, state); err != nil {
+			return err
+		}
+		if !exhausted {
+			grant, err := runtime.client().CreateSkillTrialGrant(ctx, productID, state.InstallID)
+			if err != nil {
+				return err
+			}
+			if grant.InstallID != state.InstallID || grant.LimitUses <= 0 || grant.RemainingUses < 0 || grant.RemainingUses > grant.LimitUses {
+				return output.Policy("SKILL_TRIAL_RESPONSE_INVALID", "invalid quota response")
+			}
+			exhausted = grant.RemainingUses == 0
+		}
+		if exhausted {
+			if _, err := skillcontent.SuspendTrialSkills(runtime.deps.Environment, productID, runtime.apiBaseURL, string(runtime.region), "", config.AgentInstallDocURL(runtime.region), directories...); err != nil {
+				return output.Internal("SKILL_TRIAL_SUSPEND_FAILED", "exhausted trial entry could not be safely suspended; preserve the existing order and retry", err)
+			}
+		}
+		return nil
+	})
 }
 
 func trialInstallShouldResumePurchase(ctx context.Context, runtime *Runtime, productID string) (bool, error) {

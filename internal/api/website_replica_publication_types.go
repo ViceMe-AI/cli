@@ -26,6 +26,10 @@ type WebsiteReplicaPublicationTarget struct {
 }
 
 type WebsiteReplicaPublicationReview struct {
+	// Preserve omission in legacy confirmations as well as explicit false/true;
+	// the server binds the complete reviewed JSON to the confirmation version.
+	TraceabilityEnabled       *bool                                    `json:"traceabilityEnabled,omitempty" api:"optional"`
+	SourceEntitlementID       string                                   `json:"sourceEntitlementId,omitempty" api:"optional"`
 	AllowAutomaticDegradation bool                                     `json:"allowAutomaticDegradation"`
 	Resolution                string                                   `json:"resolution"`
 	MerchantAccountID         string                                   `json:"merchantAccountId"`
@@ -59,6 +63,7 @@ type WebsiteReplicaPublicationConfirmation struct {
 }
 
 type CreateWebsiteReplicaPublicationRequest struct {
+	SourceEntitlementID       string                                   `json:"sourceEntitlementId,omitempty"`
 	AllowAutomaticDegradation bool                                     `json:"allowAutomaticDegradation"`
 	ProtocolVersion           int                                      `json:"protocolVersion"`
 	ClientRequestID           string                                   `json:"clientRequestId"`

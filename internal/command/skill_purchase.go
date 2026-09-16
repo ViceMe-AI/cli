@@ -33,12 +33,28 @@ func localeForRuntimeMarket(runtime *Runtime) string {
 }
 
 func openSkillPurchaseOrder(ctx context.Context, runtime *Runtime, productID string) (api.CommerceOrder, error) {
+	order, _, err := openSkillPurchaseOrderAndPresentQR(ctx, runtime, productID, false)
+	return order, err
+}
+
+func openSkillPurchaseOrderAndPresentQR(ctx context.Context, runtime *Runtime, productID string, presentQR bool) (api.CommerceOrder, *api.CommercePaymentPresentation, error) {
 	unlock, err := lockBuyerPurchase(ctx, runtime, "skill", productID)
 	if err != nil {
-		return api.CommerceOrder{}, err
+		return api.CommerceOrder{}, nil, err
 	}
 	defer unlock()
-	return openSkillPurchaseOrderAttempt(ctx, runtime, productID, true)
+	order, err := openSkillPurchaseOrderAttempt(ctx, runtime, productID, true)
+	if err != nil {
+		return api.CommerceOrder{}, nil, err
+	}
+	if !presentQR {
+		return order, nil, nil
+	}
+	presentation, err := presentSkillPaymentQR(runtime, &order)
+	if err != nil {
+		return order, nil, err
+	}
+	return order, presentation, nil
 }
 
 // The caller holds the buyer purchase lock across the bounded quote refresh.
