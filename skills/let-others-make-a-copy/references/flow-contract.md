@@ -16,6 +16,7 @@
 | `CONFIRM_UNVERIFIED_REPLICA_ONLY` | 优先修复具体预览问题；未经用户接受未验证范围，不追加降级确认标记。 |
 | 源码安全或归档错误 | 按 package-contract 检查命中范围；不把敏感内容输出或上传，不自动删除后继续。 |
 | `REQUEST_VALIDATION_FAILED` | 只核对对应请求字段与当前命令契约；无法由已支持参数修正时，通过官方工具处理兼容性。不得猜参数、换 Merchant、查无关 Work 或伪 TTY 重试；同一错误在修正后仍出现即停止并报告阻塞。 |
+| `RESPONSE_INVALID` / `STOP_AND_REPORT`，或没有明确恢复动作的不可重试内部错误 | 停止发布并报告当前响应无法确认；保留原 Profile 和恢复状态，不把错误当成未创建请求或未发布的证据。不重复 `publish` / `resume`，不关闭沙箱、不扫描本机配置或读取凭据、不猜目录名作为 Publication ID，也不自动更新 CLI。只使用 CLI 已返回的标识与诊断信息；平台或兼容性问题修复后，再恢复同一请求。 |
 | `AUTHENTICATE_CREATOR` | 完成当前市场登录后恢复同一主请求。 |
 | `APPLY_CREATOR` | 仅在已取得自动申请授权时复用 become-a-creator。 |
 | `WAIT_CREATOR_REVIEW` / `SUPPLY_CREATOR_INFO` / `CREATOR_APPLICATION_REJECTED` | 停止，不上传、不自动轮询，给出权威处理入口。 |

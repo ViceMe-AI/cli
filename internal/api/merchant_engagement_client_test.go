@@ -431,15 +431,15 @@ func TestMerchantEngagementClientRejectsInvalidSuccessfulResponses(t *testing.T)
 	wrongVerificationVersion := testWebsiteMerchantWork("VERIFIED", 4, 3)
 	nonAdvancingWorkRevision := testWebsiteMerchantWork("REVOKED", 7, 2)
 	nonCanonicalWebsiteOrigin := testWebsiteMerchantWork("VERIFIED", 4, 2)
-	nonCanonicalWebsiteOrigin.Website.CanonicalOrigin = "https://EXAMPLE.com"
+	*nonCanonicalWebsiteOrigin.Website.CanonicalOrigin = "https://EXAMPLE.com"
 	websiteOriginWithCredentials := testWebsiteMerchantWork("VERIFIED", 4, 2)
-	websiteOriginWithCredentials.Website.CanonicalOrigin = "https://user:password@example.com"
+	*websiteOriginWithCredentials.Website.CanonicalOrigin = "https://user:password@example.com"
 	websiteOriginWithPath := testWebsiteMerchantWork("VERIFIED", 4, 2)
-	websiteOriginWithPath.Website.CanonicalOrigin = "https://example.com/path"
+	*websiteOriginWithPath.Website.CanonicalOrigin = "https://example.com/path"
 	websiteOriginWithQuery := testWebsiteMerchantWork("VERIFIED", 4, 2)
-	websiteOriginWithQuery.Website.CanonicalOrigin = "https://example.com/?source=test"
+	*websiteOriginWithQuery.Website.CanonicalOrigin = "https://example.com/?source=test"
 	websiteOriginWithFragment := testWebsiteMerchantWork("VERIFIED", 4, 2)
-	websiteOriginWithFragment.Website.CanonicalOrigin = "https://example.com/#fragment"
+	*websiteOriginWithFragment.Website.CanonicalOrigin = "https://example.com/#fragment"
 	wrongApplicationID := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 1, "Demo Widget", []string{"https://example.com"}, []string{})
 	wrongApplicationID.ID = testOtherID
 	zeroApplicationRevision := testCommerceApplication("WEBSITE_WIDGET", "SANDBOX", "DRAFT", 0, "Demo Widget", []string{"https://example.com"}, []string{})
@@ -850,9 +850,10 @@ func testWebsiteMerchantWork(ownershipStatus string, revision, verificationVersi
 		CreatedAt:      testTimestamp,
 		UpdatedAt:      testTimestamp,
 	}
+	canonicalOrigin, domainASCII := "https://example.com", "example.com"
 	work.Website = &WebsiteWork{
-		CanonicalOrigin:     "https://example.com",
-		DomainASCII:         "example.com",
+		CanonicalOrigin:     &canonicalOrigin,
+		DomainASCII:         &domainASCII,
 		OwnershipStatus:     ownershipStatus,
 		VerificationVersion: verificationVersion,
 	}

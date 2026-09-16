@@ -71,7 +71,7 @@ func newReplicaPublishCommand(runtime *Runtime) *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			result, err := publishWebsiteReplica(command.Context(), runtime, options)
 			if err != nil {
-				return err
+				return replicaPublicationResponseFailure(err)
 			}
 			return runtime.business(result)
 		},
@@ -694,9 +694,8 @@ func replicaResolvedTargetMatchesRequest(target api.WebsiteReplicaPublicationRes
 		if err != nil {
 			return false
 		}
-		path := strings.Trim(parsed.Path, "/")
-		segments := strings.Split(path, "/")
-		return len(segments) >= 2 && segments[len(segments)-1] == request.Target.Slug
+		_, slug, ok := replicaWorkURLParts(parsed)
+		return ok && slug == request.Target.Slug
 	default:
 		return false
 	}

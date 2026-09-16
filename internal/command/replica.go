@@ -141,14 +141,11 @@ func resolveReplicaTarget(ctx context.Context, runtime *Runtime, target string) 
 	if err != nil || !parsed.IsAbs() || (parsed.Scheme != "http" && parsed.Scheme != "https") {
 		return replicaTarget{}, codeErr
 	}
-	segments := strings.Split(strings.Trim(strings.TrimSuffix(parsed.Path, ".md"), "/"), "/")
-	if len(segments) == 3 && (segments[0] == "zh-CN" || segments[0] == "en-US") {
-		segments = segments[1:]
+	handle, slug, ok := replicaWorkURLParts(parsed)
+	if !ok {
+		return replicaTarget{}, output.Validation("REPLICA_WORK_URL_INVALID", "canonical Work URL must identify a creator and a work slug")
 	}
-	if len(segments) != 2 || segments[0] == "" || segments[1] == "" {
-		return replicaTarget{}, output.Validation("REPLICA_WORK_URL_INVALID", "canonical Work URL must contain /<creator-handle>/<work-slug>")
-	}
-	work, err := runtime.client().GetPublicWork(ctx, segments[0], segments[1])
+	work, err := runtime.client().GetPublicWork(ctx, handle, slug)
 	if err != nil {
 		return replicaTarget{}, err
 	}
