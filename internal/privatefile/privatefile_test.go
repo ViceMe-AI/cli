@@ -198,6 +198,12 @@ func TestWriteSweepsStaleStagingFiles(t *testing.T) {
 	}
 }
 
+func stubDegradedReporter(t *testing.T, reporter func(string, error)) {
+	t.Helper()
+	SetDegradedWriteReporter(reporter)
+	t.Cleanup(func() { SetDegradedWriteReporter(nil) })
+}
+
 func noRenameBackoff(t *testing.T) {
 	t.Helper()
 	original := renameBackoff
@@ -322,9 +328,7 @@ func TestWriteTolerantDegradesOnPermissionProfileMismatch(t *testing.T) {
 
 	var reported string
 	reportedErr := error(nil)
-	originalReporter := DegradedWriteReporter
-	DegradedWriteReporter = func(name string, strictErr error) { reported, reportedErr = name, strictErr }
-	t.Cleanup(func() { DegradedWriteReporter = originalReporter })
+	stubDegradedReporter(t, func(name string, strictErr error) { reported, reportedErr = name, strictErr })
 
 	if err := WriteTolerant(filename, []byte("payload"), ".state-*.tmp"); err != nil {
 		t.Fatalf("WriteTolerant() error = %v", err)
@@ -354,9 +358,7 @@ func TestWriteTolerantPropagatesNonMismatchFailures(t *testing.T) {
 	}
 
 	reported := false
-	originalReporter := DegradedWriteReporter
-	DegradedWriteReporter = func(string, error) { reported = true }
-	t.Cleanup(func() { DegradedWriteReporter = originalReporter })
+	stubDegradedReporter(t, func(string, error) { reported = true })
 
 	err := WriteTolerant(filename, []byte("payload"), ".state-*.tmp")
 	if err == nil {
@@ -374,9 +376,7 @@ func TestWriteTolerantUsesStrictPathWhenHealthy(t *testing.T) {
 	directory := t.TempDir()
 	filename := filepath.Join(directory, "state.json")
 	reported := false
-	originalReporter := DegradedWriteReporter
-	DegradedWriteReporter = func(string, error) { reported = true }
-	t.Cleanup(func() { DegradedWriteReporter = originalReporter })
+	stubDegradedReporter(t, func(string, error) { reported = true })
 
 	if err := WriteTolerant(filename, []byte("payload"), ".state-*.tmp"); err != nil {
 		t.Fatalf("WriteTolerant() error = %v", err)

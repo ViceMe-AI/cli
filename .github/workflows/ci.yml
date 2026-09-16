@@ -103,4 +103,4 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - run: go test ./internal/config ./internal/skillcontent ./internal/command
+      - run: go test ./internal/config ./internal/skillcontent ./internal/command ./internal/privatefile ./internal/privatepath

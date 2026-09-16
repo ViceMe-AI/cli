@@ -247,7 +247,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	// staged files; non-credential state then completes through a plain write.
 	// Surface that degradation on stderr so operators can tell a tolerated
 	// antivirus product apart from a genuinely hostile environment.
-	privatefile.DegradedWriteReporter = func(filename string, strictErr error) {
+	privatefile.SetDegradedWriteReporter(func(filename string, strictErr error) {
 		if dependencies.ErrOut == nil {
 			return
 		}
@@ -258,7 +258,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 			}
 		}
 		fmt.Fprintf(dependencies.ErrOut, "warning: wrote %s without the hardened private permission profile%s; the state is still durable, and security software is the usual cause\n", filename, reason)
-	}
+	})
 	root := &cobra.Command{
 		Use:           "viceme",
 		Short:         "Publish Skills and manage ViceMe creator tooling",

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -49,10 +50,25 @@ var renameBackoff = func(attempt int) {
 	time.Sleep(time.Duration(attempt) * 150 * time.Millisecond)
 }
 
-// DegradedWriteReporter, when set, is notified after WriteTolerant completes a
-// write whose hardened permission profile was refused by the environment. The
-// command layer installs it to surface a human-readable warning on stderr.
-var DegradedWriteReporter func(filename string, strictErr error)
+// degradedWriteReporter holds the installed degradation callback. It is
+// stored atomically because command instances are constructed concurrently in
+// tests while writes may already be in flight.
+var degradedWriteReporter atomic.Value // stores func(filename string, strictErr error)
+
+// SetDegradedWriteReporter installs the callback notified after WriteTolerant
+// completes a write whose hardened permission profile was refused by the
+// environment. The command layer installs it per command instance; a later
+// installation replaces the earlier one.
+func SetDegradedWriteReporter(reporter func(filename string, strictErr error)) {
+	degradedWriteReporter.Store(reporter)
+}
+
+func reportDegradedWrite(filename string, strictErr error) {
+	reporter, ok := degradedWriteReporter.Load().(func(string, error))
+	if ok && reporter != nil {
+		reporter(filename, strictErr)
+	}
+}
 
 // Write durably writes data to filename as a private file, staging through a
 // temporary file matching tempPattern in the same directory. Staging files
@@ -115,9 +131,7 @@ func WriteTolerant(filename string, data []byte, tempPattern string) error {
 	if err := writeLenient(filename, data, tempPattern); err != nil {
 		return errors.Join(strictErr, err)
 	}
-	if DegradedWriteReporter != nil {
-		DegradedWriteReporter(filename, strictErr)
-	}
+	reportDegradedWrite(filename, strictErr)
 	return nil
 }
 
@@ -167,11 +181,7 @@ func retryRename(activate func() error) error {
 }
 
 func isTransientRenameError(err error) bool {
-	if isSharingContention(err) {
-		return true
-	}
-	var errno syscall.Errno
-	return errors.As(err, &errno) && errno == syscall.EACCES
+	return isSharingContention(err) || isAccessDenied(err)
 }
 
 func shouldDirectWriteFallback(err error) bool {
@@ -213,9 +223,34 @@ func writeLenient(filename string, data []byte, tempPattern string) error {
 	if info, statErr := os.Lstat(filename); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
 		return errors.Join(fmt.Errorf("activate %s: %w", filename, activateErr), errors.New("refuse to replace a symbolic link through the degraded path"))
 	}
-	if err := os.WriteFile(filename, data, PrivateMode); err != nil {
-		return errors.Join(fmt.Errorf("activate %s: %w", filename, activateErr), fmt.Errorf("write target file: %w", err))
+	if err := writeLenientDirect(filename, data); err != nil {
+		return errors.Join(fmt.Errorf("activate %s: %w", filename, activateErr), err)
 	}
+	return nil
+}
+
+// writeLenientDirect replaces the target in place while keeping the durable
+// write guarantee of the strict path: write, sync, close. The staged file's
+// sync does not cover the target once the rename is refused.
+func writeLenientDirect(filename string, data []byte) error {
+	file, err := os.OpenFile(filename, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, PrivateMode)
+	if err != nil {
+		return fmt.Errorf("create target file: %w", err)
+	}
+	if _, err := file.Write(data); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("write target file: %w", err)
+	}
+	if err := file.Sync(); err != nil {
+		_ = file.Close()
+		return fmt.Errorf("sync target file: %w", err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close target file: %w", err)
+	}
+	// Best effort: the hardened profile was already refused by the
+	// environment, so a denied chmod must not fail an otherwise durable write.
+	_ = os.Chmod(filename, PrivateMode)
 	return nil
 }
 
@@ -258,6 +293,9 @@ func writeDirect(filename string, data []byte) error {
 // denial (EPERM, EACCES, or a read-only filesystem) at any depth of its chain. Callers use it to
 // classify a failed rename or remove and degrade to plain writes.
 func IsPermissionDenial(err error) bool {
+	if isAccessDenied(err) {
+		return true
+	}
 	var errno syscall.Errno
 	if !errors.As(err, &errno) {
 		return false
