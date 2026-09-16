@@ -16,6 +16,7 @@ import (
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/publication"
+	"github.com/ViceMe-AI/cli/internal/workurl"
 	"github.com/spf13/cobra"
 )
 
@@ -117,6 +118,10 @@ func newSkillListingGetCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			presentation := createPreviewPresentation(result.Preview.FallbackURL)
+			if result.PublicURL != nil {
+				short := workurl.Display(*result.PublicURL)
+				result.PublicURL = &short
+			}
 			return runtime.business(listingGetResult{SkillListingPreview: result, Presentation: presentation})
 		},
 	}
@@ -907,6 +912,11 @@ func presentPublicationWithWarnings(ctx context.Context, runtime *Runtime, curre
 	presentation, err := previewPresentationForPublication(ctx, runtime, current)
 	if err != nil {
 		return err
+	}
+	if current.Product != nil {
+		product := *current.Product
+		product.DetailURL = workurl.Display(product.DetailURL)
+		current.Product = &product
 	}
 	return runtime.business(publicationPresentationResult{
 		SkillPublication: current,

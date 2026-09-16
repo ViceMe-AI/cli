@@ -404,6 +404,12 @@ func TestParsePageTargetURLMatchesPublicRouteContracts(t *testing.T) {
 }
 
 func TestPageTargetShortAndExplicitWorkURLs(t *testing.T) {
+	for _, path := range []string{"/alice-maker/writing-skill", "/alice-maker/writing-skill.md?product=one"} {
+		target, err := parsePageTargetURL("https://viceme.cn" + path)
+		if err != nil || target.Type != "WORK" || target.WorkSlug != "writing-skill" {
+			t.Fatalf("nested target rejected: %#v %v", target, err)
+		}
+	}
 	for _, query := range []string{"workSlug=writing-skill", "mode=consumer&workSlug=writing-skill", "view=work&workSlug=writing-skill", "mode=consumer&view=work&workSlug=writing-skill"} {
 		target, err := parsePageTargetURL("https://dev.viceme.cn/alice-maker?" + query)
 		if err != nil || target.Type != "WORK" || target.CreatorHandle != "alice-maker" || target.WorkSlug != "writing-skill" {
@@ -415,8 +421,8 @@ func TestPageTargetShortAndExplicitWorkURLs(t *testing.T) {
 			t.Fatalf("accepted %s", query)
 		}
 	}
-	if _, err := parsePageTargetURL("https://viceme.cn/alice-maker/writing-skill"); err == nil {
-		t.Fatal("accepted retired nested route")
+	if _, err := parsePageTargetURL("https://viceme.cn/alice-maker/writing-skill?workSlug=other"); err == nil {
+		t.Fatal("accepted conflicting Work identities")
 	}
 }
 

@@ -52,3 +52,39 @@ func TestPublicWorkURLRelativeAndAuthorityBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestDisplayOnlyOmitsPublicDefaults(t *testing.T) {
+	for _, base := range []string{"https://viceme.cn", "https://viceme.ai", "https://dev.viceme.cn", ""} {
+		for _, ext := range []string{"", ".md"} {
+			full := base + "/alice" + ext + "?mode=consumer&view=work&workSlug=site&product=p%31&install=owned#readme"
+			want := base + "/alice/site" + ext + "?product=p%31&install=owned#readme"
+			if got := Display(full); got != want {
+				t.Errorf("got %s, want %s", got, want)
+			}
+			if Display(want) != want {
+				t.Fatal("short link is not idempotent")
+			}
+		}
+	}
+	for _, raw := range []string{
+		"/alice?mode=creator&view=work&workSlug=site", "/alice?mode=consumer&view=discover&workSlug=site",
+		"/alice?mode=consumer&view=work&workSlug=site&signature=opaque", "/alice?mode=consumer&view=work&workSlug=site&workSlug=other",
+		"/alice?mode=consumer&view=work&workSlug=site&action=preview", "/alice", "/alice/site", "/README.md", "https://s3.viceme.cn/download?signature=opaque",
+	} {
+		if got := Display(raw); got != raw {
+			t.Errorf("rewrote %s to %s", raw, got)
+		}
+	}
+}
+
+func TestEquivalentKeepsAuthorityAndEdition(t *testing.T) {
+	const full = "https://viceme.cn/alice?mode=consumer&view=work&workSlug=site&product=one"
+	if !Equivalent(full, "https://viceme.cn/alice/site?product=one") {
+		t.Fatal("same Work rejected")
+	}
+	for _, other := range []string{"https://viceme.ai/alice/site?product=one", "https://viceme.cn/bob/site?product=one", "https://viceme.cn/alice/other?product=one", "https://viceme.cn/alice/site?product=two", "https://viceme.cn/alice/site?product=one&install=owned", "https://viceme.cn/alice/site?product=one&signature=opaque", "https://viceme.cn/alice/site.md?product=one", "https://viceme.cn/alice/site?workSlug=other&product=one"} {
+		if Equivalent(full, other) {
+			t.Fatalf("accepted changed identity: %s", other)
+		}
+	}
+}

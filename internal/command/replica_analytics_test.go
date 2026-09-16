@@ -86,7 +86,7 @@ func TestReplicaAnalyticsRejectsAnotherWebAuthorityBeforeNetwork(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests++; w.WriteHeader(500) }))
 	defer server.Close()
 	run := analyticsTestRunner(t, server)
-	for _, target := range []string{"https://other.example/alice/site", server.URL + "@other.example/alice/site", server.URL + "/alice/site?next=https://other.example", server.URL + "/alice/../site"} {
+	for _, target := range []string{"https://other.example/alice/site", server.URL + "@other.example/alice/site", server.URL + "/alice/site?workSlug=other&next=https://other.example", server.URL + "/alice/../site"} {
 		code, out := run("replica", "analytics", target)
 		if code == 0 || !bytes.Contains(out, []byte("REPLICA_WORK_URL_INVALID")) {
 			t.Fatalf("接受了非当前作品地址: %d %s", code, out)
