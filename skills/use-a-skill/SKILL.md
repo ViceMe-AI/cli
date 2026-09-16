@@ -5,13 +5,13 @@ description: 安装和使用可下载的 ViceMe Skill。适用于作品链接安
 
 # 使用可下载的 ViceMe Skill
 
-面向用户跟随当前语言，使用自然白话。只说任务结果、还剩几次试用、试用已用完、请扫码付款。不得对用户说 use、trial、trial.py、viceme、CLI、放行、预检、requestId、nextAction、widgetPath 或任何命令行；这些只出现在工具调用里。可见思考摘要同样遵守。本流程只消费用户选择的 Product，不转到商家发布流程。安装就绪、还能试用和付款成功是不同状态。
+面向用户跟随当前语言，使用自然白话。只说任务结果、还剩几次试用、试用已用完、请扫码付款。不得对用户说 use、trial、trial.py、viceme、CLI、放行、预检、requestId、nextAction、widgetPath、已经装到本地、Skill 已安装或任何命令行；这些只出现在工具调用里。可见思考摘要同样遵守。本流程只消费用户选择的 Product，不转到商家发布流程。安装就绪、还能试用和付款成功是不同状态。
 
 ## 无试用的付费安装
 
-作品页明确所选版本「未提供免费试用」时，仍先走作品页的 Python install 入口，无需 CLI 或登录。脚本先安装带购买入口和本地运行依赖的 Skill，返回 kind=purchase、allowed=false、nextAction=PURCHASE_REQUIRED 和 runtimePath。此时目录已存在，尚未取得正式内容，也未申请试用次数；这是未购买，不是试用耗尽，不展示试用上手卡。
+作品页明确所选版本「未提供免费试用」时，仍先走作品页的 Python install 入口，无需 CLI 或登录。脚本先安装带购买入口和本地运行依赖的 Skill，返回 kind=purchase、allowed=false、nextAction=PURCHASE_REQUIRED 和 runtimePath。此时目录已存在，尚未取得正式内容，也未申请试用次数；这是未购买，不是试用耗尽，不展示试用上手卡。目录已存在只是内部状态，不得对用户说已经装到本地或安装成功。
 
-kind=purchase 时同一轮先读取已装 SKILL.md 的「使用前必读」，用返回的 runtimePath 执行 purchase --wait 0，再按该必读指向的购买展示指引：先写白话开场白，再完成可见支付入口。只打开预览或工具成功、正文没有二维码和链接，不算已展示，不得开始 purchase --wait 60。付款确认、权益有效后，在原 Skill 目录覆盖为正式内容，再读取实际 SKILL.md 继续原任务。已有购买凭证沿用原订单；已有待恢复试用使用先恢复原 use，不更换身份。
+kind=purchase 时同一轮先读取已装 SKILL.md 的「使用前必读」，用返回的 runtimePath 执行 purchase --wait 0，再按该必读指向的购买展示指引：先按「无试用开场白」写给用户看，再完成可见支付入口。只打开预览或工具成功、正文没有二维码和链接，不算已展示，不得开始 purchase --wait 60。付款确认、权益有效后，在原 Skill 目录覆盖为正式内容，再读取实际 SKILL.md：有原任务立即继续，不要问现在试还是以后用；没有原任务才用一两句说明怎么开始，然后等用户下一条，不要做成「现在就试还是先放着」的二选一。已有购买凭证沿用原订单；已有待恢复试用使用先恢复原 use，不更换身份。
 
 Python 优先规则适用于免费、试用和无试用付费版。只有 Python 不可用且没有既有脚本购买身份时，才使用 CLI 的账号购买和订阅；严格已购链接仍遵循 install=owned 的账号校验。
 
@@ -55,7 +55,7 @@ ready 说明本机文件完整，并可能带上只读余量；不代表账号�
 
 ## 执行、支付与异常边界
 
-- `kind=owned` 或 `owned=true`：已经是正式版。只读正式 SKILL.md 并继续任务或展示上手示例；不要读计次指引，不要运行 `use` / `status` / `trial-status`，不要提剩余次数或「第 X / N 次试用」。
+- `kind=owned` 或 `owned=true`：已经是正式版。只读正式 SKILL.md：有原任务立即继续；没有原任务才说明怎么开始并等用户下一条。不要问现在试还是以后用，不要读计次指引，不要运行 `use` / `status` / `trial-status`，不要提剩余次数或「第 X / N 次试用」。
 - 只有 `kind=trial` 且未确认耗尽时，新的独立任务才执行入口中的 use，只有本次 allowed=true 和 skillMarkdown 才执行返回正文；介绍、展示示例、查询余量、以及已经 PURCHASE_REQUIRED 都不调用 use。后续按已放行的同一任务继续，完成后用白话提醒还剩几次。对用户不要旁白检查过程。
 - `lastUse: true`：程序已在返回正文前替换入口；仍使用本次 skillMarkdown 完整完成任务，不需要 Agent 再执行停用命令。先交出本次结果，同一轮立即进入购买并展示支付二维码，不要等用户再说一次。
 - 始终使用当前安装返回的 runner：Python 试用继续本地 Python，CLI 安装继续 CLI。发现 CLI 不意味着要接管脚本身份。
