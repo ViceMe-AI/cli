@@ -156,3 +156,7 @@ Agent 的原生结构化单选工具询问：
 - 用户修改页面不等于修改作品资料、价格、发布内容或开通新能力。
 - 页面包通过结构检查后就允许上传；浏览器的 CORS、混合内容或第三方服务限制在预览中处理，不能
   升级成额外的上传禁令。
+
+## 作品链接参数
+
+作品使用 `/{handle}?workSlug={slug}`，Markdown 使用 `/{handle}.md?workSlug={slug}`。省略 `mode`、`view` 时按公开消费者作品页处理；显式参数必须有效。将完整 URL 加引号传给 CLI，保留 `workSlug`、`product`、`install=owned` 和原域名，不自行拼回旧的 `/{handle}/{slug}` 路径。裸 `/{handle}` 仅表示个人主页。

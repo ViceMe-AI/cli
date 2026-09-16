@@ -271,7 +271,7 @@ func TestMerchantPageDescribeReturnsTargetSpecificCapabilities(t *testing.T) {
 	root := t.TempDir()
 	var stdout bytes.Buffer
 	exit := Execute([]string{
-		"merchant", "page", "describe", "--target", "https://viceme.cn/alice-maker/writing-skill", "--merchant", pageTestMerchantID,
+		"merchant", "page", "describe", "--target", "https://viceme.cn/alice-maker?workSlug=writing-skill", "--merchant", pageTestMerchantID,
 	}, Dependencies{
 		Out: &stdout, Store: securestore.NewMemory(), HTTPClient: server.Client(), APIBaseURL: server.URL, Region: config.RegionCN,
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
@@ -336,7 +336,7 @@ func TestMerchantPageSourceRestoreVerifiesAndInstallsOwnerSnapshot(t *testing.T)
 	destination := filepath.Join(root, "restored-page")
 	var stdout, stderr bytes.Buffer
 	exit := Execute([]string{
-		"merchant", "page", "source", "restore", "--target", "https://viceme.cn/alice-maker/writing-skill",
+		"merchant", "page", "source", "restore", "--target", "https://viceme.cn/alice-maker?workSlug=writing-skill",
 		"--merchant", pageTestMerchantID, "--destination", destination,
 	}, Dependencies{
 		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(), HTTPClient: server.Client(),
@@ -370,7 +370,7 @@ func TestMerchantPageRejectsTargetMismatchBeforeNetwork(t *testing.T) {
 	var stdout bytes.Buffer
 	exit := Execute([]string{
 		"merchant", "page", "preview", "--path", pageZIP,
-		"--target", "https://viceme.cn/alice-maker/writing-skill",
+		"--target", "https://viceme.cn/alice-maker?workSlug=writing-skill",
 	}, Dependencies{
 		Out: &stdout, Store: securestore.NewMemory(), HTTPClient: server.Client(), APIBaseURL: server.URL, Region: config.RegionCN,
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
@@ -397,9 +397,26 @@ func TestParsePageTargetURLMatchesPublicRouteContracts(t *testing.T) {
 	if err != nil || creator.Type != "CREATOR" {
 		t.Fatalf("creator target mismatch: %#v err=%v", creator, err)
 	}
-	work, err := parsePageTargetURL("https://viceme.cn/alice-maker/writing-skill")
+	work, err := parsePageTargetURL("https://viceme.cn/alice-maker?workSlug=writing-skill")
 	if err != nil || work.Type != "WORK" || work.WorkSlug != "writing-skill" {
 		t.Fatalf("Work target mismatch: %#v err=%v", work, err)
+	}
+}
+
+func TestPageTargetShortAndExplicitWorkURLs(t *testing.T) {
+	for _, query := range []string{"workSlug=writing-skill", "mode=consumer&workSlug=writing-skill", "view=work&workSlug=writing-skill", "mode=consumer&view=work&workSlug=writing-skill"} {
+		target, err := parsePageTargetURL("https://dev.viceme.cn/alice-maker?" + query)
+		if err != nil || target.Type != "WORK" || target.CreatorHandle != "alice-maker" || target.WorkSlug != "writing-skill" {
+			t.Fatalf("%s: %#v %v", query, target, err)
+		}
+	}
+	for _, query := range []string{"workSlug=writing-skill&mode=creator", "workSlug=writing-skill&view=analytics", "workSlug=writing-skill&workSlug=other", "workSlug=writing-skill&action=edit", "workSlug=writing-skill&listingId=one"} {
+		if _, err := parsePageTargetURL("https://viceme.cn/alice-maker?" + query); err == nil {
+			t.Fatalf("accepted %s", query)
+		}
+	}
+	if _, err := parsePageTargetURL("https://viceme.cn/alice-maker/writing-skill"); err == nil {
+		t.Fatal("accepted retired nested route")
 	}
 }
 

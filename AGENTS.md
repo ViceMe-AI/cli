@@ -37,6 +37,27 @@ the CLI, but they do not own its installation state or recovery protocol.
   failure stops the command; it must never be hidden behind a successful
   business response.
 
+## Work URL parameters
+
+- Shop work pages use `/{handle}?workSlug={slug}` (or `/{handle}.md?...`).
+  Omitted `mode` and `view` mean `consumer` and `work` only when `workSlug`
+  exists. Bare `/{handle}` is a creator profile, never a Work.
+- Explicit mode/view must identify the public Work for install, replica, and
+  page customization inputs. Reject duplicates, invalid identity, private or
+  mismatched selectors, and retired nested/locale-prefixed Work paths.
+- `internal/workurl` owns Go URL identity parsing for command and API consumers.
+  Product selection and `install=owned` retain their existing owners; never drop
+  these selectors or silently select another product or purchase flow.
+- The standalone Replica Python script uses the same contract fixtures in
+  `internal/workurl/testdata`. Keep Go and Python acceptance behavior aligned.
+- Do not mutate returned canonical URLs or signed/confirmation identities.
+  When constructing Markdown, append `.md` to the pathname before the query.
+  Owner analytics must verify ownership and explicitly request creator mode.
+- Preserve pathname plus query in login `returnTo`. URL mode is presentation,
+  never authorization. URL parsing does not change the selected profile or
+  the existing official-origin requirements for standalone scripts.
+
+
 ## Supported installation methods
 
 ViceMe supports two installation owners and they must remain distinct:

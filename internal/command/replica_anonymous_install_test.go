@@ -136,7 +136,7 @@ func TestReplicaInspectAndAnonymousFreeInstall(t *testing.T) {
 	}
 	var inspectOutput bytes.Buffer
 	deps.Out, deps.ErrOut = &inspectOutput, &bytes.Buffer{}
-	workURL := "https://viceme.cn/alice/site.md"
+	workURL := "https://viceme.cn/alice.md?workSlug=site"
 	if exit := Execute([]string{"replica", "inspect", workURL}, deps); exit != 0 {
 		t.Fatalf("inspect failed: exit=%d output=%q", exit, inspectOutput.String())
 	}
@@ -186,7 +186,7 @@ func TestReplicaInspectSelectsWorkPresentation(t *testing.T) {
 		fullCode  = "VICEME-REPLICA:VMR-ABCDEFGHIJKLMNOPQRST"
 		shortCode = "VMR-ABCDEFGHIJKLMNOPQRST"
 		replicaID = "11111111-1111-4111-8111-111111111111"
-		workURL   = "https://viceme.cn/alice/site.md"
+		workURL   = "https://viceme.cn/alice.md?workSlug=site"
 	)
 	workURLValue := replicaResolutionResponse(replicaID, shortCode)["viceMeWorkUrl"].(string)
 	tests := []struct {

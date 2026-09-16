@@ -44,7 +44,7 @@ def replica():
         "shortCode": SHORT_CODE,
         "title": "Replica",
         "creator": {"displayName": "Creator"},
-        "viceMeWorkUrl": "https://viceme.cn/alice/site",
+        "viceMeWorkUrl": "https://viceme.cn/alice?workSlug=site",
         "product": {
             "id": VERSION_ID,
             "skuId": ENTITLEMENT_ID,
@@ -56,10 +56,10 @@ def replica():
 
 
 def discovery(preview_url=None):
-    work_url = "https://viceme.cn/alice/site"
+    work_url = "https://viceme.cn/alice?workSlug=site"
     return {"replicaId": REPLICA_ID, "shortCode": SHORT_CODE,
             "title": "Replica", "summary": "Make a portfolio", "bodyMarkdown": "Useful for artists",
-            "previewUrl": preview_url or work_url, "discoveryUrl": work_url + "/discover",
+            "previewUrl": preview_url or work_url, "discoveryUrl": work_url + "&view=discover",
             "creator": {"handle": "alice", "displayName": "Creator"},
             "viceMeWorkUrl": work_url, "statistics": {"acquisitionCount": 2, "commentCount": 1}}
 
@@ -151,6 +151,44 @@ def sign_with_rfc8032_seed(message):
     return public_key, encoded_r + scalar_s.to_bytes(32, "little")
 
 
+class PublicWorkRouteTest(unittest.TestCase):
+    def test_shared_go_python_route_contract(self):
+        fixtures = Path(__file__).parents[2] / "internal/workurl/testdata/public-work-urls.json"
+        for case in json.loads(fixtures.read_text()):
+            with self.subTest(url=case["url"]):
+                parsed = make_copy.urllib.parse.urlsplit(case["url"])
+                if case["valid"]:
+                    self.assertEqual(make_copy.public_work_url_parts(parsed), (case["handle"], case["slug"]))
+                else:
+                    with self.assertRaises(make_copy.WorkflowError) as raised:
+                        make_copy.public_work_url_parts(parsed)
+                    self.assertEqual(raised.exception.code, "MAKE_COPY_WORK_URL_INVALID")
+
+    def test_short_and_explicit_urls_resolve_same_authoritative_work(self):
+        for host in ["viceme.cn", "viceme.ai"]:
+            for query in ["workSlug=site", "mode=consumer&view=work&workSlug=site"]:
+                requested = []
+                canonical = "https://" + host + "/alice?mode=consumer&view=work&workSlug=site"
+                item = replica()
+                item["viceMeWorkUrl"] = canonical
+                def request(method, url, **kwargs):
+                    requested.append(url)
+                    if url.endswith("/public/creators/alice/works/site"):
+                        return response(200, public_work())
+                    if url.endswith("/website-replicas/resolve"):
+                        return response(200, item)
+                    raise AssertionError(url)
+                authority = make_copy.authority_for_work_url("https://" + host + "/alice.md?" + query)
+                instruction, resolved = make_copy.resolve_work(authority, request)
+                self.assertEqual(instruction, "VICEME-REPLICA:" + SHORT_CODE)
+                self.assertEqual(resolved["viceMeWorkUrl"], canonical)
+                self.assertEqual(requested, ["https://" + host + "/api/v1/public/creators/alice/works/site", "https://" + host + "/api/v1/website-replicas/resolve"])
+                item["viceMeWorkUrl"] = canonical.replace("workSlug=site", "workSlug=other")
+                with self.assertRaises(make_copy.WorkflowError) as raised:
+                    make_copy.resolve_work(authority, request)
+                self.assertEqual(raised.exception.code, "MAKE_COPY_RESPONSE_INVALID")
+
+
 class MakeCopyTest(unittest.TestCase):
     def test_invitation_start_is_explicit_and_telemetry_failure_is_optional(self):
         flow_id = "66666666-6666-4666-8666-666666666666"
@@ -163,10 +201,10 @@ class MakeCopyTest(unittest.TestCase):
                 self.assertNotIn("Authorization", kwargs["headers"])
                 return response(200, {"recorded": True})
             return base(method, url, **kwargs)
-        self.assertNotIn("invitationFlowId", make_copy.inspect("https://viceme.cn/alice/site.md", request_fn=request))
+        self.assertNotIn("invitationFlowId", make_copy.inspect("https://viceme.cn/alice.md?workSlug=site", request_fn=request))
         self.assertEqual(calls, [])
         for _ in range(2):
-            result = make_copy.inspect("https://viceme.cn/alice/site.md", invitation_flow_id=flow_id, request_fn=request)
+            result = make_copy.inspect("https://viceme.cn/alice.md?workSlug=site", invitation_flow_id=flow_id, request_fn=request)
             self.assertEqual(result["invitationFlowId"], flow_id)
         self.assertEqual(calls[0], calls[1])
         self.assertEqual(set(calls[0]), {"flowId", "shortCode", "engine", "clientVersion"})
@@ -174,7 +212,7 @@ class MakeCopyTest(unittest.TestCase):
             if url.endswith("/website-replica-invitation-flows"):
                 raise TimeoutError("unavailable")
             return base(method, url, **kwargs)
-        result = make_copy.inspect("https://viceme.cn/alice/site.md", invitation_flow_id=flow_id, request_fn=unavailable)
+        result = make_copy.inspect("https://viceme.cn/alice.md?workSlug=site", invitation_flow_id=flow_id, request_fn=unavailable)
         self.assertEqual(result["nextAction"], "PRESENT_WORK")
         self.assertNotIn("invitationFlowId", result)
 
@@ -189,10 +227,10 @@ class MakeCopyTest(unittest.TestCase):
         ), mock.patch.object(make_copy, "try_recover_download", return_value=None):
             target = str(Path(temporary).resolve() / "copy")
             with self.assertRaises(make_copy.WorkflowError) as raised:
-                make_copy.install("https://viceme.cn/alice/site.md", target_path=target, invitation_flow_id=flow_id, request_fn=request)
+                make_copy.install("https://viceme.cn/alice.md?workSlug=site", target_path=target, invitation_flow_id=flow_id, request_fn=request)
             self.assertEqual(raised.exception.code, "REPLICA_PURCHASE_CONFIRMATION_REQUIRED")
             self.assertEqual(events, [])
-            authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+            authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
             store = make_copy.state_store(authority, SHORT_CODE, Path(target))
             state = make_copy.read_state(store["filename"])
             self.assertEqual(state["invitationFlowId"], flow_id)
@@ -212,7 +250,7 @@ class MakeCopyTest(unittest.TestCase):
         def request(_method, _url, **kwargs):
             events.append(json.loads(kwargs["body"]))
             return response(200, {"recorded": True})
-        authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+        authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
         current = "66666666-6666-4666-8666-666666666666"
         flow = make_copy.InvitationFlow(authority, current, request)
         flow.use_saved("77777777-7777-4777-8777-777777777777")
@@ -227,13 +265,13 @@ class MakeCopyTest(unittest.TestCase):
         self.assertEqual(events, [])
 
     def test_discovery_rejects_cross_replica_and_unsafe_preview(self):
-        authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+        authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
         for change in ({"replicaId": VERSION_ID}, {"previewUrl": "javascript:alert(1)"}):
             with self.subTest(change=change), self.assertRaises(make_copy.WorkflowError):
                 make_copy.discovery(authority, replica(), lambda *_a, **_k: response(200, {**discovery(), **change}))
 
     def test_payment_uses_canonical_widget_and_private_encoded_artifacts(self):
-        authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+        authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
         repository = SCRIPT.parents[3]
         def request(_method, url, **_kwargs):
             if url.endswith("/discovery"):
@@ -257,7 +295,7 @@ class MakeCopyTest(unittest.TestCase):
                 self.assertEqual(stat.S_IMODE(Path(display["widgetPath"]).stat().st_mode), 0o600)
 
     def test_payment_resource_rejects_tampering_before_executing_encoder(self):
-        authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+        authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary)):
             with self.assertRaises(make_copy.WorkflowError) as raised:
                 make_copy.payment_resource(authority, "qrcodegen.py", lambda *_a, **_k: response(200, b"raise Exception('bad')"))
@@ -271,7 +309,7 @@ class MakeCopyTest(unittest.TestCase):
                 value["product"]["priceCents"] = price
                 with self.subTest(price=price, accepted=accepted), tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary) / "state"), mock.patch.object(make_copy, "ensure_checkout", side_effect=AssertionError("checkout before login")):
                     with self.assertRaises(make_copy.WorkflowError) as raised:
-                        make_copy.install("https://viceme.cn/alice/site.md", accepted, target_path=str(Path(temporary) / "copy"), request_fn=inspect_request(item=value))
+                        make_copy.install("https://viceme.cn/alice.md?workSlug=site", accepted, target_path=str(Path(temporary) / "copy"), request_fn=inspect_request(item=value))
                     self.assertEqual(raised.exception.code, "WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED")
                     self.assertEqual(raised.exception.details["nextAction"], "LOGIN_REQUIRED")
                     self.assertIs(raised.exception.details["orderCreated"], False)
@@ -279,7 +317,7 @@ class MakeCopyTest(unittest.TestCase):
     def test_redistribution_enabled_after_inspection_returns_login_handoff(self):
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary) / "state"), mock.patch.object(make_copy, "ensure_checkout", side_effect=make_copy.WorkflowError("WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED", "Account required")):
             with self.assertRaises(make_copy.WorkflowError) as raised:
-                make_copy.install("https://viceme.cn/alice/site.md", 100, target_path=str(Path(temporary) / "copy"), request_fn=inspect_request())
+                make_copy.install("https://viceme.cn/alice.md?workSlug=site", 100, target_path=str(Path(temporary) / "copy"), request_fn=inspect_request())
             self.assertEqual(raised.exception.details["nextAction"], "LOGIN_REQUIRED")
             self.assertIs(raised.exception.details["orderCreated"], False)
 
@@ -295,7 +333,7 @@ class MakeCopyTest(unittest.TestCase):
         ), mock.patch.object(make_copy, "try_recover_download", return_value=None) as recovery, mock.patch.object(
             make_copy, "ensure_checkout", side_effect=AssertionError("order before consent")
         ), self.assertRaises(make_copy.WorkflowError) as raised:
-            make_copy.install("https://viceme.cn/alice/site.md", target_path=str(Path(temporary) / "copy"))
+            make_copy.install("https://viceme.cn/alice.md?workSlug=site", target_path=str(Path(temporary) / "copy"))
         recovery.assert_called_once()
         self.assertEqual(raised.exception.code, "REPLICA_PURCHASE_CONFIRMATION_REQUIRED")
         self.assertEqual(raised.exception.details["nextAction"], "CONFIRM_PRICE")
@@ -319,7 +357,7 @@ class MakeCopyTest(unittest.TestCase):
             make_copy, "ensure_checkout", side_effect=AssertionError("new checkout")
         ):
             installed = make_copy.install(
-                "https://viceme.cn/alice/site.md",
+                "https://viceme.cn/alice.md?workSlug=site",
                 target_path=str(Path(temporary) / "copy"),
                 replica_code=f"VICEME-REPLICA:{SHORT_CODE}",
                 recovery_only=True,
@@ -328,7 +366,7 @@ class MakeCopyTest(unittest.TestCase):
 
     def test_global_free_resolution_preserves_usd(self):
         value = replica()
-        value["viceMeWorkUrl"] = "https://viceme.ai/alice/site"
+        value["viceMeWorkUrl"] = "https://viceme.ai/alice?workSlug=site"
         value["product"].update(currency="USD", priceCents=0)
         self.assertEqual(make_copy.assert_resolution(value)["product"], value["product"])
         value["product"]["currency"] = "EUR"
@@ -339,7 +377,7 @@ class MakeCopyTest(unittest.TestCase):
         for host, currency in [("viceme.cn", "CNY"), ("viceme.ai", "USD")]:
             free = replica()
             free["product"].update(priceCents=0, currency=currency)
-            free["viceMeWorkUrl"] = f"https://{host}/alice/site"
+            free["viceMeWorkUrl"] = f"https://{host}/alice?workSlug=site"
             with tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary) / "state"), mock.patch.object(
                 make_copy, "resolve_work", return_value=(f"VICEME-REPLICA:{SHORT_CODE}", free)
             ), mock.patch.object(make_copy, "try_recover_download", side_effect=[None, download()]), mock.patch.object(
@@ -347,11 +385,11 @@ class MakeCopyTest(unittest.TestCase):
             ), mock.patch.object(make_copy, "complete_install", return_value={"target": str(Path(temporary) / "copy")}), mock.patch.object(
                 make_copy, "payment_presentation", side_effect=AssertionError("payment for free work")
             ):
-                result = make_copy.install(f"https://{host}/alice/site.md", target_path=str(Path(temporary) / "copy"))
+                result = make_copy.install(f"https://{host}/alice.md?workSlug=site", target_path=str(Path(temporary) / "copy"))
             self.assertEqual(result["nextAction"], "DEPLOY")
 
     def test_delisted_public_work_retains_authoritative_discovery_and_recovery_entry(self):
-        authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+        authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
         work = {"work": {"kind": "WEBSITE", "status": "PUBLISHED", "websiteReplica": {"shortCode": SHORT_CODE, "availability": "DELISTED"}}}
         self.assertEqual(make_copy.fetch_work_instruction(authority, lambda *_a, **_k: response(200, work)), "VICEME-REPLICA:" + SHORT_CODE)
         work["work"]["websiteReplica"]["shortCode"] = "invalid-code"
@@ -359,7 +397,7 @@ class MakeCopyTest(unittest.TestCase):
             make_copy.fetch_work_instruction(authority, lambda *_a, **_k: response(200, work))
 
     def test_payment_rejects_raw_checkout_without_authoritative_amount(self):
-        authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+        authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
         with self.assertRaises(make_copy.WorkflowError) as raised:
             make_copy.payment_presentation(authority, replica(), checkout(), lambda *_a, **_k: self.fail("network before validation"))
         self.assertEqual(raised.exception.code, "MAKE_COPY_RESPONSE_INVALID")
@@ -368,7 +406,7 @@ class MakeCopyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             target = root / "copy"
-            authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+            authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
             with mock.patch.object(make_copy, "state_root", return_value=root / "state"):
                 store = make_copy.state_store(authority, SHORT_CODE, target)
                 state = make_copy.initial_state(authority, f"VICEME-REPLICA:{SHORT_CODE}", replica(), target)
@@ -397,12 +435,12 @@ class MakeCopyTest(unittest.TestCase):
             ), mock.patch.object(make_copy, "ensure_checkout", side_effect=AssertionError("new order before consent")), mock.patch.object(
                 make_copy, "try_recover_download", side_effect=AssertionError("download pending order")
             ), self.assertRaises(make_copy.WorkflowError) as raised:
-                make_copy.install("https://viceme.cn/alice/site.md", target_path=str(Path(temporary) / "new-copy"))
+                make_copy.install("https://viceme.cn/alice.md?workSlug=site", target_path=str(Path(temporary) / "new-copy"))
             self.assertEqual(raised.exception.code, "REPLICA_PAYMENT_RESTART_REQUIRED")
             self.assertEqual(raised.exception.details["nextAction"], "STOP_AND_REPORT")
 
     def test_start_is_the_single_public_preview_entrypoint(self):
-        work_url = "https://viceme.cn/alice/site.md"
+        work_url = "https://viceme.cn/alice.md?workSlug=site"
         args = make_copy.parse_args(["start", "--work-url", work_url])
         self.assertEqual(args.command, "start")
         self.assertEqual(args.work_url, work_url)
@@ -417,18 +455,18 @@ class MakeCopyTest(unittest.TestCase):
 
     def test_accepts_only_official_work_markdown_authorities(self):
         authority = make_copy.authority_for_work_url(
-            "https://viceme.cn/alice/site.md"
+            "https://viceme.cn/alice.md?workSlug=site"
         )
         self.assertEqual(authority.api_base_url, "https://viceme.cn/api/v1")
         with self.assertRaisesRegex(
             make_copy.WorkflowError, "official ViceMe HTTPS"
         ) as raised:
-            make_copy.authority_for_work_url("https://example.com/alice/site.md")
+            make_copy.authority_for_work_url("https://example.com/alice.md?workSlug=site")
         self.assertEqual(raised.exception.code, "MAKE_COPY_WORK_URL_INVALID")
 
     def test_resolves_instruction_from_the_public_work_api(self):
         authority = make_copy.authority_for_work_url(
-            "https://viceme.cn/alice/site.md"
+            "https://viceme.cn/alice.md?workSlug=site"
         )
 
         def request(method, url, **_kwargs):
@@ -455,7 +493,7 @@ class MakeCopyTest(unittest.TestCase):
 
     def test_rejects_work_without_structured_replica_entry(self):
         authority = make_copy.authority_for_work_url(
-            "https://viceme.cn/alice/site.md"
+            "https://viceme.cn/alice.md?workSlug=site"
         )
 
         with self.assertRaises(make_copy.WorkflowError) as raised:
@@ -466,7 +504,7 @@ class MakeCopyTest(unittest.TestCase):
         self.assertEqual(raised.exception.code, "MAKE_COPY_ENTRY_INVALID")
 
     def test_preview_never_reads_private_recovery_or_queries_order(self):
-        work_url = "https://viceme.cn/alice/site.md"
+        work_url = "https://viceme.cn/alice.md?workSlug=site"
         with mock.patch.object(
             make_copy, "resolve_work_with_hosting",
             return_value=(f"VICEME-REPLICA:{SHORT_CODE}", replica(), False),
@@ -481,8 +519,8 @@ class MakeCopyTest(unittest.TestCase):
         self.assertNotIn("standaloneRecoveryAvailable", inspected)
 
     def test_inspect_selects_work_presentation(self):
-        work_url = "https://viceme.cn/alice/site.md"
-        official = "https://viceme.cn/alice/site"
+        work_url = "https://viceme.cn/alice.md?workSlug=site"
+        official = "https://viceme.cn/alice?workSlug=site"
         cases = (
             ("active hosted page", public_work(presentation=active_presentation()), None,
              {"mode": "CREATOR_PAGE", "url": official}),
@@ -510,7 +548,7 @@ class MakeCopyTest(unittest.TestCase):
                 self.assertEqual(inspected["discovery"]["previewUrl"], preview_url or official)
 
     def test_fetch_public_work_entry_uses_active_presentation(self):
-        authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+        authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
         instruction, active = make_copy.fetch_public_work_entry(
             authority, lambda *_args, **_kwargs: response(200, public_work(presentation=active_presentation()))
         )
@@ -530,7 +568,7 @@ class MakeCopyTest(unittest.TestCase):
     def test_confirmed_install_recovers_paid_order_without_checkout(self):
         with tempfile.TemporaryDirectory() as temporary:
             target = Path(temporary) / "copy"
-            authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+            authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
             store = {"filename": Path(temporary) / "state.json", "completionFilename": Path(temporary) / "complete.json"}
             state = {"orderNo": ORDER_NO, "downloadRecoverySecret": SECRET}
             with mock.patch.object(make_copy, "resolve_work", return_value=("instruction", replica())), mock.patch.object(
@@ -548,7 +586,7 @@ class MakeCopyTest(unittest.TestCase):
 
     def test_order_number_alone_does_not_authorize_attempt_cancellation(self):
         authority = make_copy.authority_for_work_url(
-            "https://viceme.cn/alice/site.md"
+            "https://viceme.cn/alice.md?workSlug=site"
         )
 
         def request(method, url, **kwargs):
@@ -700,7 +738,7 @@ class MakeCopyTest(unittest.TestCase):
             with self.subTest(terminal=terminal), tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary).resolve()
                 target = root / "copy"
-                authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+                authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
                 with mock.patch.object(make_copy, "state_root", return_value=root / "state"):
                     store = make_copy.state_store(authority, SHORT_CODE, target)
                     state = make_copy.initial_state(authority, f"VICEME-REPLICA:{SHORT_CODE}", replica(), target)
@@ -743,7 +781,7 @@ class MakeCopyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             target = root / "copy"
-            authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+            authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
             with mock.patch.object(make_copy, "state_root", return_value=root / "state"):
                 store = make_copy.state_store(authority, SHORT_CODE, target)
                 state = make_copy.initial_state(authority, f"VICEME-REPLICA:{SHORT_CODE}", replica(), target)
@@ -783,7 +821,7 @@ class MakeCopyTest(unittest.TestCase):
                 make_copy, "ensure_checkout", side_effect=checkout
             ), mock.patch.object(make_copy, "payment_presentation", return_value={"widgetPath": "/tmp/payment.html"}), self.assertRaises(make_copy.WorkflowError) as raised:
                 make_copy.install(
-                    "https://viceme.cn/alice/site.md", 100, target_path=str(root / "copy"),
+                    "https://viceme.cn/alice.md?workSlug=site", 100, target_path=str(root / "copy"),
                     payment_presented=True, sleep_fn=sleeps.append,
                     request_fn=lambda *_args, **_kwargs: response(200, {"payment": {"status": "PENDING"}}),
                 )
@@ -796,7 +834,7 @@ class MakeCopyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             target = root / "copy"
-            authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+            authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
             sleeps = []
             replies = iter(["PENDING", "PAID"])
             def request(*_args, **_kwargs):
@@ -820,7 +858,7 @@ class MakeCopyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary).resolve()
             target = root / "copy"
-            authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+            authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
             payment = {"status": "PAID", "paidAt": "2026-09-10T00:00:00Z"}
             template = (SCRIPT.parents[3] / "widgets/payment.html").read_bytes()
             with mock.patch.object(make_copy, "state_root", return_value=root / "state"):
@@ -890,7 +928,7 @@ class MakeCopyTest(unittest.TestCase):
             self.assertEqual(raised.exception.code, "MAKE_COPY_RESPONSE_INVALID")
 
     def test_support_render_failure_retains_payment_and_safe_recovery(self):
-        authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
+        authority = make_copy.authority_for_work_url("https://viceme.cn/alice.md?workSlug=site")
         state = {"orderNo": ORDER_NO, "priceCents": 100, "instruction": f"VICEME-REPLICA:{SHORT_CODE}", "target": "/copy"}
         with mock.patch.object(make_copy, "payment_resource", side_effect=OSError("private error")), self.assertRaises(make_copy.WorkflowError) as raised:
             make_copy.support_result(authority, state, replica(), {"status": "PAID"})
