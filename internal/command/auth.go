@@ -3,6 +3,7 @@ package command
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -118,7 +119,12 @@ func newAuthLoginCommand(runtime *Runtime) *cobra.Command {
 				}
 				presentation = deviceLoginPresentation{AuthorizationURL: authorization.VerificationURIComplete}
 			}
-			defer func() { _ = removeDeviceLoginPresentation(presentation) }()
+			defer func() { _ = removeDeviceLoginPresentation(runtime, presentation) }()
+			if err := persistDeviceLoginPresentation(runtime, presentation); err != nil {
+				// Hosts whose task reads surface stderr still get the full
+				// presentation from the marker below; keep the login alive.
+				_, _ = fmt.Fprintf(runtime.deps.ErrOut, "ViceMe login presentation file could not be written: %v\n", err)
+			}
 			writeHumanLoginStart(runtime.deps.ErrOut, authorization, presentation)
 			interval := 2 * time.Second
 			if authorization.Interval > 0 {

@@ -63,7 +63,7 @@ process.exitCode = 7;
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := updatepkg.CommitActiveGeneration(configDir, active); err != nil {
+	if err := updatepkg.CommitActiveGeneration(configDir, active, nil); err != nil {
 		t.Fatal(err)
 	}
 	updater := updatepkg.NewNPMService(buildinfo.Version, buildinfo.CompatibilityVersion(), "npm")

@@ -156,7 +156,8 @@ func ValidateActivationTarget(configDir string, target ActiveGeneration) error {
 
 // CommitActiveGeneration writes the semantic commit point for launcher,
 // Skills, and config. The caller must still hold ActivationLockFilename.
-func CommitActiveGeneration(configDir string, target ActiveGeneration) error {
+// reportDegraded is bound per command instance; nil is silent.
+func CommitActiveGeneration(configDir string, target ActiveGeneration, reportDegraded privatefile.DegradedReporter) error {
 	if err := ValidateActivationTarget(configDir, target); err != nil {
 		return err
 	}
@@ -168,7 +169,7 @@ func CommitActiveGeneration(configDir string, target ActiveGeneration) error {
 		return err
 	}
 	data = append(data, '\n')
-	return privatefile.Write(filepath.Join(configDir, activeGenerationFile), data, ".active-generation-*.tmp")
+	return privatefile.WriteTolerant(filepath.Join(configDir, activeGenerationFile), data, ".active-generation-*.tmp", reportDegraded)
 }
 
 func validateActiveGeneration(generation ActiveGeneration) error {

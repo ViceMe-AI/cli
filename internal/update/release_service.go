@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/semver"
 )
 
@@ -43,6 +44,9 @@ type ReleaseService struct {
 	GOOS              string
 	GOARCH            string
 	ScheduleWindows   func(staged, destination, target, region string, refreshSkills bool) error
+	// ReportDegraded is notified when an update-state write completes without
+	// the hardened permission profile. Bound per command instance; nil is silent.
+	ReportDegraded privatefile.DegradedReporter
 }
 
 func NewReleaseService(currentVersion, comparableVersion string) *ReleaseService {
@@ -134,7 +138,7 @@ func (service *ReleaseService) updateStateIsFresh(state updateState) bool {
 }
 
 func (service *ReleaseService) saveUpdateState(version string) {
-	saveCachedUpdateState(service.updateStatePath(), service.ConfigDir, ".release-update-state-*", version, service.now())
+	saveCachedUpdateState(service.updateStatePath(), service.ConfigDir, ".release-update-state-*", version, service.now(), service.ReportDegraded)
 }
 
 func (service *ReleaseService) updateStatePath() string {

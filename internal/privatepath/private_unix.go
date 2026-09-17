@@ -75,8 +75,11 @@ func RequirePrivateDirectory(path string) error {
 	if err != nil {
 		return err
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
-		return errors.New("path is not a private directory")
+	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("path is not a real directory")
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return &ACLMismatchError{Path: path, Reason: "directory is readable or writable by group or others"}
 	}
 	return nil
 }
@@ -86,8 +89,11 @@ func RequirePrivateFile(path string) error {
 	if err != nil {
 		return err
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0o077 != 0 {
-		return errors.New("path is not a private regular file")
+	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("path is not a regular file")
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return &ACLMismatchError{Path: path, Reason: "file is readable or writable by group or others"}
 	}
 	return nil
 }

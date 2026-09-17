@@ -64,7 +64,7 @@ func permissionService(t *testing.T, runner *permissionRunner) *NPMService {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := CommitActiveGeneration(service.ConfigDir, previous); err != nil {
+	if err := CommitActiveGeneration(service.ConfigDir, previous, nil); err != nil {
 		t.Fatal(err)
 	}
 	return service

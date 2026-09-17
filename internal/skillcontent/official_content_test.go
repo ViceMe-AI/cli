@@ -845,9 +845,11 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 	}
 	sharedText := string(shared)
 	for _, required := range []string{
-		"`TaskOutput(task_id=<同一个任务>, timeout=2000)`",
+		"按 `data.environment.loginLaunchStrategy` 启动一次 `viceme auth login`",
+		"为 true 时对同一 `task_id` 做 2 秒短读",
+		"改为每 2 秒读一次 `data.environment.loginPresentationPath` 指向的文件",
+		"取码不顺不得重启登录，标记未到手不得进入展示或长等待",
 		"`TaskOutput(task_id=<同一个任务>, timeout=180000)`",
-		"任务仍在运行但尚未读到标记时，只能继续对同一个任务做 2 秒短读",
 		"发送提示不等于继续等待",
 		"只要它仍在运行，就不得结束当前回合、给出最终答复",
 		"一次 `TaskOutput` 的读取超时不是登录失败",
@@ -871,7 +873,7 @@ func TestCoreSkillsForbidWorkBuddyTaskListsAndKeepBlockingStepsGuided(t *testing
 		t.Fatal("creator login must not mention an unrelated right-side page to the user")
 	}
 	loginSequence := []string{
-		"`TaskOutput(task_id=<同一个任务>, timeout=2000)`",
+		"为 true 时对同一 `task_id` 做 2 秒短读",
 		"alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片",
 		"两者必须始终一起出现",
 		"`TaskOutput(task_id=<同一个任务>, timeout=180000)`",

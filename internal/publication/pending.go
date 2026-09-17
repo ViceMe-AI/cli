@@ -39,6 +39,9 @@ type Pending struct {
 type PendingStore struct {
 	Directory string
 	Now       func() time.Time
+	// ReportDegraded is notified when a recovery write completes without the
+	// hardened permission profile. Bound per command instance; nil is silent.
+	ReportDegraded privatefile.DegradedReporter
 }
 
 type Intent struct {
@@ -116,7 +119,7 @@ func (s PendingStore) LoadOrCreateIntent(fingerprint string, newID func() string
 	if !safeID(intent.ClientRequestID) {
 		return Intent{}, output.Internal("PUBLICATION_INTENT_ID_FAILED", "could not allocate a publication request ID", nil)
 	}
-	if err := writePrivateJSON(filename, intent); err != nil {
+	if err := writePrivateJSON(filename, intent, s.ReportDegraded); err != nil {
 		return Intent{}, err
 	}
 	return intent, nil
@@ -147,7 +150,7 @@ func (s PendingStore) SaveIntent(intent Intent) error {
 	if err := decoder.Decode(&current); err != nil || current.SchemaVersion != 1 || current.Fingerprint != intent.Fingerprint || current.ClientRequestID != intent.ClientRequestID || (current.PublicationID != "" && current.PublicationID != intent.PublicationID) {
 		return output.Validation("PUBLICATION_INTENT_CONFLICT", "publication intent changed while the request was in flight")
 	}
-	return writePrivateJSON(s.intentFilename(intent.Fingerprint), intent)
+	return writePrivateJSON(s.intentFilename(intent.Fingerprint), intent, s.ReportDegraded)
 }
 
 // RetireIntent removes only the exact fingerprint mapping that produced this
@@ -209,7 +212,7 @@ func (s PendingStore) Save(value Pending) error {
 		return output.Internal("PUBLICATION_PENDING_SAVE_FAILED", "could not encode publication recovery state", err)
 	}
 	data = append(data, '\n')
-	if err := privatefile.Write(s.filename(value.PublicationID), data, ".pending-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(s.filename(value.PublicationID), data, ".pending-*.tmp", s.ReportDegraded); err != nil {
 		return recoveryOperationError(s.Directory, "PUBLICATION_PENDING_SAVE_FAILED", "could not write publication recovery state", err)
 	}
 	return nil
@@ -261,7 +264,7 @@ func (s PendingStore) intentLockFilename(fingerprint string) string {
 	return filepath.Join(s.Directory, fmt.Sprintf("intent-%s.lock", fingerprint))
 }
 
-func writePrivateJSON(filename string, value any) error {
+func writePrivateJSON(filename string, value any, reportDegraded privatefile.DegradedReporter) error {
 	directory := filepath.Dir(filename)
 	if err := os.MkdirAll(directory, 0o700); err != nil {
 		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not create publication recovery directory", err)
@@ -271,7 +274,7 @@ func writePrivateJSON(filename string, value any) error {
 		return output.Internal("PUBLICATION_RECOVERY_SAVE_FAILED", "could not encode publication recovery state", err)
 	}
 	data = append(data, '\n')
-	if err := privatefile.Write(filename, data, ".recovery-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(filename, data, ".recovery-*.tmp", reportDegraded); err != nil {
 		return recoveryOperationError(directory, "PUBLICATION_RECOVERY_SAVE_FAILED", "could not write publication recovery state", err)
 	}
 	return nil
