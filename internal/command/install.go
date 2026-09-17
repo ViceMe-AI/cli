@@ -433,6 +433,7 @@ func newDoctorCommand(runtime *Runtime) *cobra.Command {
 			result := map[string]any{
 				"healthy": healthy, "profile": runtime.profile.Name, "distributionRegion": runtime.region,
 				"authenticated": status.Authenticated, "network": network, "skills": results,
+				"environment": doctorEnvironmentSection(os.Getenv, runtime.configBase),
 			}
 			if !healthy {
 				return output.Validation("DOCTOR_UNHEALTHY", "ViceMe CLI or official Skill installation is unhealthy").WithDetails(result)

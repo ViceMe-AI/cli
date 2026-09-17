@@ -2,6 +2,7 @@ package command
 
 import (
 	"bytes"
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
@@ -33,7 +34,7 @@ func TestDeviceLoginPresentationCreatesPrivateChatQRCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create device login presentation: %v", err)
 	}
-	t.Cleanup(func() { _ = removeDeviceLoginPresentation(presentation) })
+	t.Cleanup(func() { _ = removeDeviceLoginPresentation(runtime, presentation) })
 	if !filepath.IsAbs(presentation.ImagePath) {
 		t.Fatalf("image path must be absolute: %q", presentation.ImagePath)
 	}
@@ -69,7 +70,8 @@ func TestDeviceLoginPresentationCreatesPrivateChatQRCode(t *testing.T) {
 
 func TestDeviceLoginPresentationIsRemovedWhenLoginEnds(t *testing.T) {
 	t.Parallel()
-	presentation, err := createDeviceLoginPresentation(&Runtime{configBase: t.TempDir()}, api.DeviceAuthorization{
+	configBase := t.TempDir()
+	presentation, err := createDeviceLoginPresentation(&Runtime{configBase: configBase}, api.DeviceAuthorization{
 		DeviceCode:              "device-code",
 		VerificationURIComplete: "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH",
 		WechatMPQRCodeURL:       "https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=device-ticket",
@@ -77,7 +79,7 @@ func TestDeviceLoginPresentationIsRemovedWhenLoginEnds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := removeDeviceLoginPresentation(presentation); err != nil {
+	if err := removeDeviceLoginPresentation(&Runtime{configBase: configBase}, presentation); err != nil {
 		t.Fatalf("remove device login presentation: %v", err)
 	}
 	if _, err := os.Stat(presentation.ImagePath); !os.IsNotExist(err) {
@@ -117,4 +119,42 @@ func testLoginQRImage(t *testing.T) []byte {
 		t.Fatalf("encode test QR image: %v", err)
 	}
 	return encoded.Bytes()
+}
+
+func TestPersistDeviceLoginPresentationWritesDeterministicJSON(t *testing.T) {
+	t.Parallel()
+	runtime := &Runtime{configBase: t.TempDir()}
+	presentation := deviceLoginPresentation{
+		ImagePath:        filepath.Join(runtime.configBase, deviceLoginPresentationDirectory, "login-example.png"),
+		ImageChatSrc:     "https://api.viceme.cn/v1/auth/wechat-mp/login-presentations/opaque-token",
+		AltText:          "ViceMe 登录二维码",
+		AuthorizationURL: "https://viceme.cn/cli/authorize?user_code=ABCD-EFGH",
+	}
+	if err := persistDeviceLoginPresentation(runtime, presentation); err != nil {
+		t.Fatalf("persist device login presentation: %v", err)
+	}
+	t.Cleanup(func() { _ = removeDeviceLoginPresentation(runtime, presentation) })
+	raw, err := os.ReadFile(deviceLoginPresentationFilePath(runtime.configBase))
+	if err != nil {
+		t.Fatalf("read deterministic presentation file: %v", err)
+	}
+	if !json.Valid(raw) {
+		t.Fatalf("presentation file is not JSON: %q", raw)
+	}
+	var decoded deviceLoginPresentation
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		t.Fatalf("decode presentation file: %v", err)
+	}
+	if decoded != presentation {
+		t.Fatalf("presentation file content = %#v, want %#v", decoded, presentation)
+	}
+	if private, err := commercePaymentPresentationIsPrivate(deviceLoginPresentationFilePath(runtime.configBase)); err != nil || !private {
+		t.Fatalf("presentation file is not private: private=%v err=%v", private, err)
+	}
+	if err := removeDeviceLoginPresentation(runtime, deviceLoginPresentation{}); err != nil {
+		t.Fatalf("remove deterministic presentation file: %v", err)
+	}
+	if _, err := os.Stat(deviceLoginPresentationFilePath(runtime.configBase)); !os.IsNotExist(err) {
+		t.Fatalf("deterministic presentation file remained after login ended: %v", err)
+	}
 }
