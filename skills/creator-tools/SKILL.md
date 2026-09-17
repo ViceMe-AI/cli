@@ -45,17 +45,19 @@ viceme profile add --name <profile> --api-base-url <https-api-url> --web-base-ur
 
 所有官方 Skill 需要登录或重新授权时只能引用本节，不得复制、改写或另建登录流程。运行普通 `viceme auth login`；登录只负责身份授权，创作者申请、名片选择和具体玩法在登录成功后继续各自流程，不使用 `--purpose creator-onboarding`。
 
-`viceme auth login` 会等待授权，并在轮询前输出一次性的二维码展示标记。新 CN API 返回的图片是真正绑定本次 device authorization 的微信服务号二维码，不是网页授权链接的二次编码。在 WorkBuddy 中先说“需要登录，请扫描下方二维码；完成后我会自动继续。”，然后严格执行下面的固定顺序：
+`viceme auth login` 会等待授权，并在轮询开始前把一次性的二维码展示标记同时写到两处：进程 stderr 的 `VICEME_LOGIN_QR_PRESENTATION=` 行，以及 `data.environment.loginPresentationPath` 指向的 UTF-8 JSON 文件（字段与标记相同，登录结束即删除）。新 CN API 返回的图片是真正绑定本次 device authorization 的微信服务号二维码，不是网页授权链接的二次编码。启动与取码方式按宿主能力选择，不得按宿主名字猜测；能力来自最近一次 `viceme doctor` 返回的 `data.environment` 节，没有该节或字段缺失时按 `loginLaunchStrategy=unverified`、`taskOutputStderr=false` 处理。
 
-1. 用 Bash 后台启动一次 `viceme auth login`，保存它返回的 `task_id`。
-2. 立即用 `TaskOutput(task_id=<同一个任务>, timeout=2000)` 短时读取 `VICEME_LOGIN_QR_PRESENTATION`。任务仍在运行但尚未读到标记时，只能继续对同一个任务做 2 秒短读，不得先进入长等待。其中 `imageChatSrc` 是 CLI 已下载校验过、由 Shop 托管且与本次 device authorization 绑定的微信 HTTPS 二维码地址；`authorizationUrl` 是同一次登录任务的网页入口。
+先说“需要登录，请扫描下方二维码；完成后我会自动继续。”，然后严格执行下面的固定顺序：
+
+1. 按 `data.environment.loginLaunchStrategy` 启动一次 `viceme auth login` 并保存 `task_id`。取值为 `background-param` 时用 shell 工具的后台参数启动；该参数此前以非零码立即失败且没有产生任务时不得重试，直接改用前台启动。其余取值（`foreground-auto-background`、`unverified`）一律前台启动：宿主会在短等待后把它转入后台并返回 `task_id`；若宿主不转入后台而继续阻塞，保持等待即可，不得重启登录。
+2. 按 `data.environment.taskOutputStderr` 取码。为 true 时对同一 `task_id` 做 2 秒短读，直到输出中出现 `VICEME_LOGIN_QR_PRESENTATION`；为 false、或短读两次仍无任何输出时，改为每 2 秒读一次 `data.environment.loginPresentationPath` 指向的文件，最多 30 秒，读到同字段 JSON 即为标记。两条通道字段相同，任一条读到即继续；取码不顺不得重启登录，标记未到手不得进入展示或长等待。其中 `imageChatSrc` 是 CLI 已下载校验过、由 Shop 托管且与本次 device authorization 绑定的微信 HTTPS 二维码地址；`authorizationUrl` 是同一次登录任务的网页入口。
 3. 读到标记后，必须先在聊天气泡中同时展示二维码和蓝链：单独写出 alt 文本为 `ViceMe 登录二维码` 的 Markdown 图片，圆括号内使用 `imageChatSrc` 原值；下一行写文案为“打开登录页面”的 Markdown 链接，圆括号内使用 `authorizationUrl` 原值。不得重建、缩短或复用旧地址，不自动调用 `present_files` 或浏览器工具，不得把 PNG 当作文件打开。蓝链不是二维码失败后的备用品，两者必须始终一起出现。
 4. 紧接着说：“可以直接用微信扫描上方二维码，也可以点击链接后扫码；完成后我会自动继续。”在这三项内容提交给用户之前，不得进入长等待。
-5. 展示完成后必须立刻调用 `TaskOutput(task_id=<同一个任务>, timeout=180000)`。发送提示不等于继续等待，二维码已显示或用户点击链接也不代表登录完成。
+5. 展示完成后必须立刻调用 `TaskOutput(task_id=<同一个任务>, timeout=180000)`；宿主没有该工具时用其等价的任务等待能力。发送提示不等于继续等待，二维码已显示或用户点击链接也不代表登录完成。
 6. 若任务仍在运行，继续读取同一个 `task_id`。只要它仍在运行，就不得结束当前回合、给出最终答复或要求用户回复“已经登录”。
 7. 登录命令成功返回后再检查登录状态，并自动继续原来的业务流程。
 
-这些后台调用只用于取得和等待同一个登录进程的输出，不得创建用户可见任务清单。不得使用操作系统级 WorkBuddy 深链，不得在首个登录仍等待时再启动第二个登录，也不得要求用户输入设备码。只有登录命令自身明确返回有界等待超时后，才为同一 Profile 重新运行一次 `viceme auth login`；一次 `TaskOutput` 的读取超时不是登录失败。
+这些后台调用只用于取得和等待同一个登录进程的输出，不得创建用户可见任务清单。不得使用操作系统级宿主深链，不得在首个登录仍等待时再启动第二个登录，也不得要求用户输入设备码。只有登录命令自身明确返回有界等待超时后，才为同一 Profile 重新运行一次 `viceme auth login`；一次 `TaskOutput` 的读取超时不是登录失败。异常清理登录进程时，进程匹配模式不得与清理命令自身命令行匹配：POSIX 下用 `pkill -f "[v]iceme auth login"` 这类不自匹配写法，Windows 用 `Stop-Process` 按进程名。
 
 登录失效时向用户说“登录状态已过期，需要重新登录”，不要直接说 token、scope、协议状态或原始错误码。
 

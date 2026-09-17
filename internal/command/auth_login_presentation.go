@@ -92,14 +92,46 @@ func normalizeLoginQRCode(source []byte) ([]byte, error) {
 	return normalized.Bytes(), nil
 }
 
-func removeDeviceLoginPresentation(presentation deviceLoginPresentation) error {
-	if presentation.ImagePath == "" {
-		return nil
+// deviceLoginPresentationFilename is the deterministic presentation file every
+// login attempt writes next to the QR image. Hosts whose task reads never
+// surface stderr (agentenv Capabilities.TaskOutputStderr=false) poll this file
+// instead; doctor reports its path so skills do not have to construct it.
+const deviceLoginPresentationFilename = "login-presentation.json"
+
+// deviceLoginPresentationFilePath returns the deterministic presentation file
+// path for a CLI config base.
+func deviceLoginPresentationFilePath(configBase string) string {
+	return filepath.Join(configBase, deviceLoginPresentationDirectory, deviceLoginPresentationFilename)
+}
+
+// persistDeviceLoginPresentation writes the same JSON the stderr marker
+// carries to the deterministic presentation path before the wait loop starts.
+func persistDeviceLoginPresentation(runtime *Runtime, presentation deviceLoginPresentation) error {
+	encoded, err := json.Marshal(presentation)
+	if err != nil {
+		return fmt.Errorf("encode device login presentation: %w", err)
 	}
-	if err := os.Remove(presentation.ImagePath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	directory := filepath.Join(runtime.configBase, deviceLoginPresentationDirectory)
+	if _, err := privatepath.EnsureDirectory(directory); err != nil {
+		return fmt.Errorf("create device login presentation directory: %w", err)
+	}
+	if err := privatefile.Write(deviceLoginPresentationFilePath(runtime.configBase), encoded, ".login-presentation-*.tmp"); err != nil {
+		return fmt.Errorf("write device login presentation file: %w", err)
 	}
 	return nil
+}
+
+func removeDeviceLoginPresentation(runtime *Runtime, presentation deviceLoginPresentation) error {
+	var firstErr error
+	if presentation.ImagePath != "" {
+		if err := os.Remove(presentation.ImagePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			firstErr = err
+		}
+	}
+	if err := os.Remove(deviceLoginPresentationFilePath(runtime.configBase)); err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
 }
 
 func writeHumanLoginStart(writer io.Writer, authorization api.DeviceAuthorization, presentation deviceLoginPresentation) {
