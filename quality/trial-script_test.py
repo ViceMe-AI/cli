@@ -94,6 +94,17 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertIn(trial.INSTALL_DOC_ORIGIN["cn"], text)
         self.assertIn(trial.INSTALL_DOC_ORIGIN["global"], trial.purchase_entry_skill_markdown(
             "demo-33709ab2", "Demo：简介（购买后使用）", PRODUCT_ID, "global"))
+        # 购买指令必须进入元数据层：实测代理可以只读 .viceme JSON 就决定安装，不读 SKILL.md。
+        entry_files, _ = trial.purchase_entry_files("cn", PRODUCT_ID, "作文批改助手", "批改作文", "essay-grading-assistant", "release-fixture")
+        for metadata in (".viceme/environment.json", ".viceme/runtime.json"):
+            payload = json.loads(entry_files[metadata][0])
+            self.assertIn("agentDirective", payload)
+            for required in ("不是可安装的技能包", "不要把它解压", "任何技能目录", "支付二维码"):
+                self.assertIn(required, payload["agentDirective"])
+        trial_files = {}
+        trial.prepare_runtime_files(trial_files, "cn", PRODUCT_ID, "release-fixture", "trial")
+        for metadata in (".viceme/environment.json", ".viceme/runtime.json"):
+            self.assertNotIn("agentDirective", json.loads(trial_files[metadata][0]))
         self.assertNotIn("Skill 已安装", trial.purchase_required_message())
         self.assertIn("无试用开场白", trial.purchase_required_message())
         self.assertIn("已经装到本地", trial.purchase_required_message())

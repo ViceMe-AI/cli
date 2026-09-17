@@ -151,6 +151,11 @@ RUNTIME_FILES = ("scripts/trial.py", "scripts/qrcodegen.py", "widgets/onboarding
                  "widgets/payment.html", "guides/widgets.md", "guides/trial-usage.md",
                  "guides/purchase.md")
 PURCHASE_GUIDE_PATH = "references/purchase.md"
+PURCHASE_ENTRY_DIRECTIVE = (
+    "本包是付费购买入口，不是可安装的技能包。不要把它解压、复制或链接进任何技能目录；"
+    "解压到普通工作目录后，立即按 SKILL.md「使用前必读」运行购买命令、向用户展示支付二维码，"
+    "付款确认后才会取得正式技能包。"
+)
 OWNED_USAGE_GUIDE = (
     "# 正式版：不再计次\n\n"
     "当前安装是 ViceMe 正式版（kind=owned）。\n\n"
@@ -207,6 +212,11 @@ def prepare_runtime_files(files, market, product_id, release_id, kind):
         additions[".viceme/guides/trial-usage.md"] = (purchase_required_message().encode(), 0o644)
     environment = {"market": market, "apiBaseUrl": API_ORIGIN[market],
                    "distributionBaseUrl": SCRIPT_ORIGIN[market], "productId": product_id}
+    if kind == "purchase":
+        # 实测（2026-09-17 豆包会话日志）：代理可以只读 .viceme 元数据就把
+        # kind=purchase 当作包类型分类，断定「安装到技能目录即可」，全程不读
+        # SKILL.md 门禁。购买指令必须同样出现在元数据层，代理先读哪里都会撞上。
+        environment["agentDirective"] = PURCHASE_ENTRY_DIRECTIVE
     additions[".viceme/environment.json"] = (json.dumps(environment, sort_keys=True).encode(), 0o644)
     if any(name in files for name in additions) or ".viceme/runtime.json" in files or PACKAGE_FILES_PATH in files:
         raise Failure("RUNTIME_RESOURCE_CONFLICT", "作者包占用了平台运行资源路径，未覆盖任何文件")
@@ -214,6 +224,8 @@ def prepare_runtime_files(files, market, product_id, release_id, kind):
     manifest = {"schemaVersion": 1, "productId": product_id, "releaseId": release_id,
                 "apiBaseUrl": API_ORIGIN[market], "market": market, "runner": "python", "kind": kind,
                 "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in files.items() if name in additions or name in (RUNTIME_PATH, TRIAL_BODY_PATH) or (kind == "purchase" and name in ("SKILL.md", PURCHASE_GUIDE_PATH))}}
+    if kind == "purchase":
+        manifest["agentDirective"] = PURCHASE_ENTRY_DIRECTIVE
     files[".viceme/runtime.json"] = (json.dumps(manifest, sort_keys=True).encode(), 0o644)
 
 
