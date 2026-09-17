@@ -64,6 +64,9 @@ type BindingStore struct {
 	Directory      string
 	EndpointOrigin string
 	Now            func() time.Time
+	// ReportDegraded is notified when a binding write completes without the
+	// hardened permission profile. Bound per command instance; nil is silent.
+	ReportDegraded privatefile.DegradedReporter
 }
 
 func SourceType(sourcePath string) (string, string, error) {
@@ -143,7 +146,7 @@ func (s BindingStore) Save(sourcePath, sourceType string, binding SkillBinding) 
 		return err
 	}
 	if !isLogicalRemoteSource(sourcePath) {
-		if err := writeBindingJSON(sidecarFilename(sourcePath, sourceType), binding); err != nil {
+		if err := writeBindingJSON(sidecarFilename(sourcePath, sourceType), binding, s.ReportDegraded); err != nil {
 			return err
 		}
 	}
@@ -235,7 +238,7 @@ func (s BindingStore) loadIndex() (bindingIndex, error) {
 func (s BindingStore) saveIndex(index bindingIndex) error {
 	index.SchemaVersion = 1
 	index.EndpointOrigin = s.EndpointOrigin
-	return writeBindingJSON(s.indexFilename(), index)
+	return writeBindingJSON(s.indexFilename(), index, s.ReportDegraded)
 }
 
 func (s BindingStore) indexFilename() string {
@@ -322,7 +325,7 @@ func isLogicalRemoteSource(sourcePath string) bool {
 	return strings.HasPrefix(sourcePath, "remote:")
 }
 
-func writeBindingJSON(filename string, value any) error {
+func writeBindingJSON(filename string, value any, reportDegraded privatefile.DegradedReporter) error {
 	if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
 		return bindingWriteError(filepath.Dir(filename), "SKILL_BINDING_SAVE_FAILED", "could not create the Skill binding directory", err)
 	}
@@ -331,7 +334,7 @@ func writeBindingJSON(filename string, value any) error {
 		return output.Internal("SKILL_BINDING_SAVE_FAILED", "could not encode the Skill binding", err)
 	}
 	data = append(data, '\n')
-	if err := privatefile.WriteTolerant(filename, data, ".binding-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(filename, data, ".binding-*.tmp", reportDegraded); err != nil {
 		return bindingWriteError(filepath.Dir(filename), "SKILL_BINDING_SAVE_FAILED", "could not write the Skill binding", err)
 	}
 	return nil

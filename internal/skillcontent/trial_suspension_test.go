@@ -162,7 +162,7 @@ func TestTrialSuspensionPreservesEntryOnPermissionOrRecoveryConflict(t *testing.
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := writeInstallPathOwner(installPathOwnerFilename(normalizedDirectory), journal); err != nil {
+				if err := writeInstallPathOwner(installPathOwnerFilename(normalizedDirectory), journal, nil); err != nil {
 					t.Fatal(err)
 				}
 			}

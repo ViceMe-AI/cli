@@ -38,6 +38,10 @@ type Environment struct {
 	// third-party workspace locations whose basename differs from the Skill name.
 	// It is set by receipt installation only, never from environment variables.
 	InstallDirectory string
+	// ReportDegradedWrite is notified when an install-state write completes
+	// without the hardened permission profile. Bound per command instance;
+	// nil is silent.
+	ReportDegradedWrite privatefile.DegradedReporter
 }
 
 func DefaultEnvironment() Environment {
@@ -243,12 +247,13 @@ func (b *Bundle) InstallSet(names []string, target string, environment Environme
 // A crash releases the lock but leaves the journal, so the next invocation can
 // restore the complete previous generation before doing any new work.
 type InstallTransaction struct {
-	journalPath string
-	journal     installTransaction
-	lock        *flock.Flock
-	pathLocks   []installPathLock
-	retirements []InstallResult
-	closed      bool
+	journalPath    string
+	journal        installTransaction
+	lock           *flock.Flock
+	pathLocks      []installPathLock
+	retirements    []InstallResult
+	closed         bool
+	reportDegraded privatefile.DegradedReporter
 }
 
 type installPathLock struct {
@@ -311,7 +316,7 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 		return nil, nil, errors.New("another ViceMe install transaction is active")
 	}
 	journalPath := filepath.Join(environment.ConfigDir, installTransactionFilename)
-	if err := recoverInstallTransactionWithPathLocks(journalPath); err != nil {
+	if err := recoverInstallTransactionWithPathLocks(journalPath, environment.ReportDegradedWrite); err != nil {
 		_ = transactionLock.Unlock()
 		return nil, nil, err
 	}
@@ -322,9 +327,10 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 		return nil, nil, err
 	}
 	transaction := &InstallTransaction{
-		journalPath: journalPath,
-		journal:     installTransaction{SchemaVersion: 1, Status: "PREPARING", TargetCLIVersion: buildinfo.Version},
-		lock:        transactionLock,
+		journalPath:    journalPath,
+		journal:        installTransaction{SchemaVersion: 1, Status: "PREPARING", TargetCLIVersion: buildinfo.Version},
+		lock:           transactionLock,
+		reportDegraded: environment.ReportDegradedWrite,
 	}
 	fail := func(cause error) (*InstallTransaction, []InstallReport, error) {
 		rollbackErr := transaction.Rollback()
@@ -424,7 +430,7 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 		return fail(err)
 	}
 	transaction.pathLocks = append(transaction.pathLocks, pathLocks...)
-	if err := claimInstallPathLocks(transaction.pathLocks, journalPath); err != nil {
+	if err := claimInstallPathLocks(transaction.pathLocks, journalPath, environment.ReportDegradedWrite); err != nil {
 		return fail(err)
 	}
 	sweepParents := make([]string, 0, len(operations))
@@ -506,7 +512,7 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 		})
 	}
 	if len(transaction.journal.Entries) > 0 {
-		if err := writeInstallTransaction(journalPath, transaction.journal); err != nil {
+		if err := writeInstallTransaction(journalPath, transaction.journal, environment.ReportDegradedWrite); err != nil {
 			cleanupStagedOperations(operations)
 			return fail(err)
 		}
@@ -532,14 +538,14 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 				transaction.retirements[operation.RetirementResultIndex].Status = status
 				entry.Backup = ""
 				entry.HadExisting = false
-				if err := writeInstallTransaction(journalPath, transaction.journal); err != nil {
+				if err := writeInstallTransaction(journalPath, transaction.journal, environment.ReportDegradedWrite); err != nil {
 					return fail(err)
 				}
 				continue
 			}
 		}
 		entry.Activating = true
-		if err := writeInstallTransaction(journalPath, transaction.journal); err != nil {
+		if err := writeInstallTransaction(journalPath, transaction.journal, environment.ReportDegradedWrite); err != nil {
 			return fail(err)
 		}
 		if operation.HadExisting {
@@ -560,7 +566,7 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 				entry.Activating = false
 				entry.Backup = ""
 				entry.HadExisting = false
-				if err := writeInstallTransaction(journalPath, transaction.journal); err != nil {
+				if err := writeInstallTransaction(journalPath, transaction.journal, environment.ReportDegradedWrite); err != nil {
 					return fail(err)
 				}
 				continue
@@ -613,7 +619,7 @@ func (b *Bundle) prepareInstallSet(names []string, retired []RetiredSkill, prove
 		if err := transaction.TrackPath(registryPath); err != nil {
 			return fail(err)
 		}
-		if err := writeManagedSkillRegistry(registryPath, registry); err != nil {
+		if err := writeManagedSkillRegistry(registryPath, registry, environment.ReportDegradedWrite); err != nil {
 			return fail(err)
 		}
 	}
@@ -661,7 +667,7 @@ func (transaction *InstallTransaction) TrackPath(destination string) error {
 	}
 	entry := installJournalEntry{Destination: absDestination, Backup: backup, HadExisting: hadExisting, Activating: true}
 	transaction.journal.Entries = append(transaction.journal.Entries, entry)
-	if err := writeInstallTransaction(transaction.journalPath, transaction.journal); err != nil {
+	if err := writeInstallTransaction(transaction.journalPath, transaction.journal, transaction.reportDegraded); err != nil {
 		transaction.journal.Entries = transaction.journal.Entries[:len(transaction.journal.Entries)-1]
 		return err
 	}
@@ -679,11 +685,11 @@ func (transaction *InstallTransaction) Commit() error {
 	}
 	transaction.journal.Status = "COMMITTED"
 	if len(transaction.journal.Entries) > 0 {
-		if err := writeInstallTransaction(transaction.journalPath, transaction.journal); err != nil {
+		if err := writeInstallTransaction(transaction.journalPath, transaction.journal, transaction.reportDegraded); err != nil {
 			transaction.close()
 			return err
 		}
-		if err := recoverInstallTransaction(transaction.journalPath); err != nil {
+		if err := recoverInstallTransaction(transaction.journalPath, transaction.reportDegraded); err != nil {
 			transaction.close()
 			return err
 		}
@@ -704,7 +710,7 @@ func (transaction *InstallTransaction) MarkCommitting() error {
 	if len(transaction.journal.Entries) == 0 {
 		return nil
 	}
-	return writeInstallTransaction(transaction.journalPath, transaction.journal)
+	return writeInstallTransaction(transaction.journalPath, transaction.journal, transaction.reportDegraded)
 }
 
 // RecoverInstallTransaction is used by the staged bootstrap coordinator after
@@ -752,10 +758,10 @@ func RecoverInstallTransaction(environment Environment, commit bool) error {
 		return clearInstallPathOwners(pathLocks, journalPath)
 	}
 	journal.Status = "COMMITTED"
-	if err := writeInstallTransaction(journalPath, journal); err != nil {
+	if err := writeInstallTransaction(journalPath, journal, environment.ReportDegradedWrite); err != nil {
 		return err
 	}
-	if err := recoverInstallTransaction(journalPath); err != nil {
+	if err := recoverInstallTransaction(journalPath, environment.ReportDegradedWrite); err != nil {
 		return err
 	}
 	return clearInstallPathOwners(pathLocks, journalPath)
@@ -779,7 +785,7 @@ func RecoverInstallTransactionAuto(environment Environment) error {
 		return fmt.Errorf("acquire install recovery lock: %w", err)
 	}
 	defer transactionLock.Unlock()
-	return recoverInstallTransactionWithPathLocks(filepath.Join(environment.ConfigDir, installTransactionFilename))
+	return recoverInstallTransactionWithPathLocks(filepath.Join(environment.ConfigDir, installTransactionFilename), environment.ReportDegradedWrite)
 }
 
 func (transaction *InstallTransaction) Rollback() error {
@@ -828,7 +834,7 @@ func (transaction *InstallTransaction) acquirePathLock(destination string) error
 	if err != nil {
 		return err
 	}
-	if err := claimInstallPathLocks(locks, transaction.journalPath); err != nil {
+	if err := claimInstallPathLocks(locks, transaction.journalPath, transaction.reportDegraded); err != nil {
 		cleanupErr := clearInstallPathOwners(locks, transaction.journalPath)
 		releaseInstallPathLocks(locks)
 		return errors.Join(err, cleanupErr)
@@ -900,7 +906,7 @@ func installPathOwnerFilename(destination string) string {
 
 // Owner sidecars survive a crashed process lock so another ConfigDir cannot
 // adopt a destination that an older journal may still roll back.
-func claimInstallPathLocks(locks []installPathLock, journalPath string) error {
+func claimInstallPathLocks(locks []installPathLock, journalPath string, reportDegraded privatefile.DegradedReporter) error {
 	if err := checkInstallPathOwners(locks, journalPath); err != nil {
 		return err
 	}
@@ -909,7 +915,7 @@ func claimInstallPathLocks(locks []installPathLock, journalPath string) error {
 		return fmt.Errorf("normalize install transaction owner: %w", err)
 	}
 	for _, held := range locks {
-		if err := writeInstallPathOwner(installPathOwnerFilename(held.destination), normalizedJournal); err != nil {
+		if err := writeInstallPathOwner(installPathOwnerFilename(held.destination), normalizedJournal, reportDegraded); err != nil {
 			return err
 		}
 	}
@@ -980,9 +986,9 @@ func readInstallPathOwner(filename string) (string, bool, error) {
 	return owner, true, nil
 }
 
-func writeInstallPathOwner(filename, journalPath string) error {
+func writeInstallPathOwner(filename, journalPath string, reportDegraded privatefile.DegradedReporter) error {
 	data := []byte(journalPath + "\n")
-	if err := privatefile.WriteTolerant(filename, data, ".viceme-install-owner-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(filename, data, ".viceme-install-owner-*.tmp", reportDegraded); err != nil {
 		return fmt.Errorf("write install transaction owner: %w", err)
 	}
 	return nil
@@ -1410,7 +1416,7 @@ func sweepStaleInstallDebris(parents ...string) {
 	}
 }
 
-func writeInstallTransaction(filename string, journal installTransaction) error {
+func writeInstallTransaction(filename string, journal installTransaction, reportDegraded privatefile.DegradedReporter) error {
 	if err := validateInstallTransaction(journal); err != nil {
 		return err
 	}
@@ -1419,13 +1425,13 @@ func writeInstallTransaction(filename string, journal installTransaction) error 
 		return fmt.Errorf("encode install transaction: %w", err)
 	}
 	data = append(data, '\n')
-	if err := privatefile.WriteTolerant(filename, data, ".install-transaction-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(filename, data, ".install-transaction-*.tmp", reportDegraded); err != nil {
 		return fmt.Errorf("write install transaction: %w", err)
 	}
 	return nil
 }
 
-func recoverInstallTransactionWithPathLocks(filename string) error {
+func recoverInstallTransactionWithPathLocks(filename string, reportDegraded privatefile.DegradedReporter) error {
 	data, err := os.ReadFile(filename)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -1445,7 +1451,7 @@ func recoverInstallTransactionWithPathLocks(filename string) error {
 	if err := checkInstallPathOwners(pathLocks, filename); err != nil {
 		return err
 	}
-	if err := recoverInstallTransaction(filename); err != nil {
+	if err := recoverInstallTransaction(filename, reportDegraded); err != nil {
 		return err
 	}
 	return clearInstallPathOwners(pathLocks, filename)
@@ -1459,7 +1465,7 @@ func installTransactionDestinations(journal installTransaction) []string {
 	return destinations
 }
 
-func recoverInstallTransaction(filename string) error {
+func recoverInstallTransaction(filename string, reportDegraded privatefile.DegradedReporter) error {
 	data, err := os.ReadFile(filename)
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil
@@ -1473,7 +1479,7 @@ func recoverInstallTransaction(filename string) error {
 	}
 	if journal.Status == "COMMITTING" && journal.TargetCLIVersion == buildinfo.Version {
 		journal.Status = "COMMITTED"
-		if err := writeInstallTransaction(filename, journal); err != nil {
+		if err := writeInstallTransaction(filename, journal, reportDegraded); err != nil {
 			return err
 		}
 	}
@@ -2310,13 +2316,13 @@ func readManagedSkillRegistry(filename string) (managedSkillRegistry, error) {
 	return registry, nil
 }
 
-func writeManagedSkillRegistry(filename string, registry managedSkillRegistry) error {
+func writeManagedSkillRegistry(filename string, registry managedSkillRegistry, reportDegraded privatefile.DegradedReporter) error {
 	data, err := json.MarshalIndent(registry, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode managed Skill registry: %w", err)
 	}
 	data = append(data, '\n')
-	if err := privatefile.WriteTolerant(filename, data, ".managed-skills-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(filename, data, ".managed-skills-*.tmp", reportDegraded); err != nil {
 		return fmt.Errorf("write managed Skill registry: %w", err)
 	}
 	return nil

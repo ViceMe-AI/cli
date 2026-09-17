@@ -362,7 +362,7 @@ func recoverBootstrapActivation(configDir string, environment skillcontent.Envir
 			if err != nil {
 				return err
 			}
-			if err := updatepkg.CommitActiveGeneration(configDir, generation); err != nil {
+			if err := updatepkg.CommitActiveGeneration(configDir, generation, environment.ReportDegradedWrite); err != nil {
 				return err
 			}
 		}

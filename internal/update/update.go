@@ -157,6 +157,9 @@ type NPMService struct {
 	HTTPClient        *http.Client
 	Now               func() time.Time
 	Runner            Runner
+	// ReportDegraded is notified when an activation write completes without
+	// the hardened permission profile. Bound per command instance; nil is silent.
+	ReportDegraded privatefile.DegradedReporter
 }
 
 func NewNPMService(currentVersion, comparableVersion, installMethod string) *NPMService {
@@ -531,7 +534,7 @@ func (service *NPMService) recoverNPMActivation(ctx context.Context) error {
 		if journal.Previous == nil {
 			return errors.New("rolled-back npm activation has no previous generation")
 		}
-		if err := CommitActiveGeneration(service.ConfigDir, *journal.Previous); err != nil {
+		if err := CommitActiveGeneration(service.ConfigDir, *journal.Previous, service.ReportDegraded); err != nil {
 			return err
 		}
 		return service.removeNPMActivation()
@@ -677,7 +680,7 @@ func (service *NPMService) rollbackNPMActivation(ctx context.Context, journal np
 			return err
 		}
 	}
-	if err := CommitActiveGeneration(service.ConfigDir, *journal.Previous); err != nil {
+	if err := CommitActiveGeneration(service.ConfigDir, *journal.Previous, service.ReportDegraded); err != nil {
 		return err
 	}
 	return service.removeNPMActivation()
@@ -725,7 +728,7 @@ func (service *NPMService) writeNPMActivation(journal npmActivationJournal) erro
 		return err
 	}
 	data = append(data, '\n')
-	if err := privatefile.WriteTolerant(filepath.Join(service.ConfigDir, npmActivationFilename), data, ".npm-activation-*.tmp"); err != nil {
+	if err := privatefile.WriteTolerant(filepath.Join(service.ConfigDir, npmActivationFilename), data, ".npm-activation-*.tmp", service.ReportDegraded); err != nil {
 		return &OperationError{Kind: ErrorNPMPermission, Cause: fmt.Errorf("could not write the npm recovery journal: %w", err)}
 	}
 	return nil
@@ -738,7 +741,7 @@ func (service *NPMService) finishNPMActivation(journal *npmActivationJournal) er
 			return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("could not persist the committed npm generation")}
 		}
 	}
-	if err := CommitActiveGeneration(service.ConfigDir, journal.Target); err != nil {
+	if err := CommitActiveGeneration(service.ConfigDir, journal.Target, service.ReportDegraded); err != nil {
 		return &OperationError{Kind: ErrorNPMCommand, Cause: errors.New("could not commit the active npm generation")}
 	}
 	return service.removeNPMActivation()
@@ -1002,7 +1005,7 @@ func isCachedUpdateStateFresh(state updateState, now time.Time) bool {
 	return age >= 0 && age <= updateCacheTTL
 }
 
-func saveCachedUpdateState(filename, directory, temporaryPattern, version string, now time.Time) {
+func saveCachedUpdateState(filename, directory, temporaryPattern, version string, now time.Time, reportDegraded privatefile.DegradedReporter) {
 	if filename == "" {
 		return
 	}
@@ -1016,7 +1019,7 @@ func saveCachedUpdateState(filename, directory, temporaryPattern, version string
 	// The update cache is best effort: a sandbox that denies the activating
 	// rename previously leaked one staging file per check, so route it through
 	// the shared degraded write and ignore failures.
-	_ = privatefile.WriteTolerant(filename, data, temporaryPattern)
+	_ = privatefile.WriteTolerant(filename, data, temporaryPattern, reportDegraded)
 }
 
 func (service *NPMService) loadUpdateState() (updateState, bool) {
@@ -1036,7 +1039,7 @@ func (service *NPMService) loadFreshUpdateState() (string, bool) {
 }
 
 func (service *NPMService) saveUpdateState(version string) {
-	saveCachedUpdateState(service.updateStatePath(), service.ConfigDir, ".update-state-*", version, service.now())
+	saveCachedUpdateState(service.updateStatePath(), service.ConfigDir, ".update-state-*", version, service.now(), service.ReportDegraded)
 }
 
 func (service *NPMService) runNPM(ctx context.Context, args ...string) ([]byte, error) {

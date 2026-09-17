@@ -135,7 +135,7 @@ func performOrdinaryInstall(ctx context.Context, runtime *Runtime, agent, region
 			return updatepkg.ErrActivationRestartNeeded
 		}
 		if !exists {
-			return updatepkg.CommitActiveGeneration(runtime.configBase, expected)
+			return updatepkg.CommitActiveGeneration(runtime.configBase, expected, runtime.deps.ReportDegradedWrite)
 		}
 		return nil
 	}}

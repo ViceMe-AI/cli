@@ -117,7 +117,7 @@ func TestBootstrapCoalescesAnAlreadyCompleteStandaloneGeneration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := updatepkg.CommitActiveGeneration(configDir, target); err != nil {
+	if err := updatepkg.CommitActiveGeneration(configDir, target, nil); err != nil {
 		t.Fatal(err)
 	}
 	configured := config.Default(config.RegionCN)
@@ -373,7 +373,7 @@ func TestBootstrapRejectsLateOlderGenerationInsideActivationLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := updatepkg.CommitActiveGeneration(configDir, active); err != nil {
+	if err := updatepkg.CommitActiveGeneration(configDir, active, nil); err != nil {
 		t.Fatal(err)
 	}
 	runtime := &Runtime{
@@ -422,7 +422,7 @@ func TestBootstrapRejectsNPMToStandaloneMigrationBeforeMutation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := updatepkg.CommitActiveGeneration(configDir, active); err != nil {
+	if err := updatepkg.CommitActiveGeneration(configDir, active, nil); err != nil {
 		t.Fatal(err)
 	}
 	runtime := &Runtime{

@@ -322,11 +322,9 @@ func TestWriteTolerantDegradesOnPermissionProfileMismatch(t *testing.T) {
 
 	var reported string
 	reportedErr := error(nil)
-	originalReporter := DegradedWriteReporter
-	DegradedWriteReporter = func(name string, strictErr error) { reported, reportedErr = name, strictErr }
-	t.Cleanup(func() { DegradedWriteReporter = originalReporter })
+	reporter := func(name string, strictErr error) { reported, reportedErr = name, strictErr }
 
-	if err := WriteTolerant(filename, []byte("payload"), ".state-*.tmp"); err != nil {
+	if err := WriteTolerant(filename, []byte("payload"), ".state-*.tmp", reporter); err != nil {
 		t.Fatalf("WriteTolerant() error = %v", err)
 	}
 	data, err := os.ReadFile(filename)
@@ -354,11 +352,9 @@ func TestWriteTolerantPropagatesNonMismatchFailures(t *testing.T) {
 	}
 
 	reported := false
-	originalReporter := DegradedWriteReporter
-	DegradedWriteReporter = func(string, error) { reported = true }
-	t.Cleanup(func() { DegradedWriteReporter = originalReporter })
+	reporter := func(string, error) { reported = true }
 
-	err := WriteTolerant(filename, []byte("payload"), ".state-*.tmp")
+	err := WriteTolerant(filename, []byte("payload"), ".state-*.tmp", reporter)
 	if err == nil {
 		t.Fatal("WriteTolerant() unexpectedly succeeded")
 	}
@@ -370,15 +366,68 @@ func TestWriteTolerantPropagatesNonMismatchFailures(t *testing.T) {
 	}
 }
 
+func TestWriteTolerantReportsOnlyToTheDegradedCall(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the staged-file ACL mismatch simulated here is produced through the Unix mode bits")
+	}
+	noRenameBackoff(t)
+	denyRename(t, syscall.EPERM)
+
+	directory := t.TempDir()
+	filename := filepath.Join(directory, "state.json")
+	// A pre-existing target with group/other permissions makes the strict
+	// direct-write validation refuse it as an ACL mismatch, so every call
+	// here degrades and reports.
+	if err := os.WriteFile(filename, []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var firstHeard []string
+	firstReporter := func(name string, _ error) { firstHeard = append(firstHeard, name) }
+	if err := WriteTolerant(filename, []byte("first"), ".state-*.tmp", firstReporter); err != nil {
+		t.Fatalf("first WriteTolerant() error = %v", err)
+	}
+	if len(firstHeard) != 1 || firstHeard[0] != filename {
+		t.Fatalf("first call's reporter heard %v, want exactly [%s]", firstHeard, filename)
+	}
+
+	// The first degraded write healed the target's permissions, so widen them
+	// again to force the second call down the degraded path too.
+	if err := os.Chmod(filename, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var secondHeard []string
+	secondReporter := func(name string, _ error) { secondHeard = append(secondHeard, name) }
+	if err := WriteTolerant(filename, []byte("second"), ".state-*.tmp", secondReporter); err != nil {
+		t.Fatalf("second WriteTolerant() error = %v", err)
+	}
+	if len(secondHeard) != 1 || secondHeard[0] != filename {
+		t.Fatalf("second call's reporter heard %v, want exactly [%s]", secondHeard, filename)
+	}
+	if len(firstHeard) != 1 {
+		t.Fatalf("first call's reporter heard another call's warning: %v", firstHeard)
+	}
+
+	// A call without a reporter stays silent.
+	if err := os.Chmod(filename, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := WriteTolerant(filename, []byte("third"), ".state-*.tmp", nil); err != nil {
+		t.Fatalf("reporter-less WriteTolerant() error = %v", err)
+	}
+	if len(firstHeard) != 1 || len(secondHeard) != 1 {
+		t.Fatalf("reporter-less call leaked a warning: first=%v second=%v", firstHeard, secondHeard)
+	}
+}
+
 func TestWriteTolerantUsesStrictPathWhenHealthy(t *testing.T) {
 	directory := t.TempDir()
 	filename := filepath.Join(directory, "state.json")
 	reported := false
-	originalReporter := DegradedWriteReporter
-	DegradedWriteReporter = func(string, error) { reported = true }
-	t.Cleanup(func() { DegradedWriteReporter = originalReporter })
+	reporter := func(string, error) { reported = true }
 
-	if err := WriteTolerant(filename, []byte("payload"), ".state-*.tmp"); err != nil {
+	if err := WriteTolerant(filename, []byte("payload"), ".state-*.tmp", reporter); err != nil {
 		t.Fatalf("WriteTolerant() error = %v", err)
 	}
 	if reported {
