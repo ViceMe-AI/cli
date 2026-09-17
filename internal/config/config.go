@@ -74,9 +74,9 @@ func ParseRegion(raw string) (Region, error) {
 
 func APIBaseURL(region Region) string {
 	if region == RegionGlobal {
-		return "https://api.viceme.ai"
+		return "https://viceme.ai/api"
 	}
-	return "https://api.viceme.cn"
+	return "https://viceme.cn/api"
 }
 
 func WebBaseURL(region Region) string {
@@ -107,7 +107,17 @@ func AgentInstallDocURL(region Region) string {
 // Remote endpoints must use HTTPS; loopback HTTP is intentionally supported
 // for local Shop development only.
 func NormalizeAPIBaseURL(raw string) (string, error) {
-	return normalizeBaseURL(raw, "API base URL")
+	value, err := normalizeBaseURL(raw, "API base URL")
+	if err != nil {
+		return "", err
+	}
+	switch value {
+	case "https://api.viceme.cn":
+		return APIBaseURL(RegionCN), nil
+	case "https://api.viceme.ai":
+		return APIBaseURL(RegionGlobal), nil
+	}
+	return value, nil
 }
 
 func NormalizeWebBaseURL(raw string) (string, error) {
@@ -387,7 +397,12 @@ func normalizeProfileAuthority(profile *Profile, requireComplete bool) error {
 }
 
 func officialAPIRegion(apiBaseURL string) Region {
-	return officialURLRegion(apiBaseURL, APIBaseURL)
+	if region := officialURLRegion(apiBaseURL, APIBaseURL); region != "" {
+		return region
+	}
+	return officialURLRegion(apiBaseURL, func(region Region) string {
+		return APIStateBaseURL(APIBaseURL(region))
+	})
 }
 
 func officialWebRegion(webBaseURL string) Region {

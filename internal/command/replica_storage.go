@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/api"
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/replicapublication"
 	"github.com/spf13/cobra"
@@ -16,18 +17,18 @@ func addReplicaStorageFlag(command *cobra.Command, runtime *Runtime) {
 }
 
 func projectReplicaPublicationStore(runtime *Runtime, project string) (replicapublication.Store, error) {
-	directory, err := replicapublication.ProjectStoreDirectory(project, runtime.apiBaseURL, replicaPublicationMarket(runtime))
+	directory, err := replicapublication.ProjectStoreDirectory(project, config.APIStateBaseURL(runtime.apiBaseURL), replicaPublicationMarket(runtime))
 	if err != nil {
 		return replicapublication.Store{}, err
 	}
-	return replicapublication.Store{ProjectScoped: true, Directory: directory, EndpointOrigin: runtime.apiBaseURL, Market: replicaPublicationMarket(runtime), Now: runtime.deps.Now}, nil
+	return replicapublication.Store{ProjectScoped: true, Directory: directory, EndpointOrigin: config.APIStateBaseURL(runtime.apiBaseURL), Market: replicaPublicationMarket(runtime), Now: runtime.deps.Now}, nil
 }
 
 func selectedReplicaPublicationStore(runtime *Runtime) (replicapublication.Store, error) {
 	if runtime.replicaProject == "" {
 		return replicaPublicationStore(runtime), nil
 	}
-	_, project, err := replicapublication.ProjectFingerprint(runtime.apiBaseURL, replicaPublicationMarket(runtime), runtime.replicaProject)
+	_, project, err := replicapublication.ProjectFingerprint(config.APIStateBaseURL(runtime.apiBaseURL), replicaPublicationMarket(runtime), runtime.replicaProject)
 	if err != nil {
 		return replicapublication.Store{}, err
 	}
@@ -43,7 +44,7 @@ func prepareReplicaPublishStore(runtime *Runtime, project, fingerprint string) (
 		return replicapublication.Store{}, nil, err
 	}
 	if runtime.replicaProject != "" {
-		_, selected, err := replicapublication.ProjectFingerprint(runtime.apiBaseURL, replicaPublicationMarket(runtime), runtime.replicaProject)
+		_, selected, err := replicapublication.ProjectFingerprint(config.APIStateBaseURL(runtime.apiBaseURL), replicaPublicationMarket(runtime), runtime.replicaProject)
 		if err != nil {
 			return replicapublication.Store{}, nil, err
 		}

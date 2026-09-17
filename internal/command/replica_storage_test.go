@@ -64,6 +64,8 @@ func TestReplicaStorageSelectionPinsExistingRequest(t *testing.T) {
 	if err := global.Save(&pending); err != nil {
 		t.Fatal(err)
 	}
+	// Upgrade after the request was persisted under the retired official API.
+	runtime.apiBaseURL = config.APIBaseURL(config.RegionCN)
 	runtime.replicaProject = canonical
 	if _, _, err := prepareReplicaPublishStore(runtime, canonical, fingerprint); err == nil || output.AsError(err).Subtype != "REPLICA_PUBLICATION_STORAGE_CONFLICT" {
 		t.Fatalf("existing global request moved: %v", err)

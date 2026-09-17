@@ -18,6 +18,28 @@ type staticToken string
 
 func (token staticToken) Token(context.Context) (string, error) { return string(token), nil }
 
+func TestGatewayRequestsUseAPIPathWithoutRedirect(t *testing.T) {
+	for input, host := range map[string]string{
+		"https://api.viceme.cn": "viceme.cn", "https://api.viceme.ai": "viceme.ai",
+		"https://viceme.cn/api": "viceme.cn", "https://viceme.ai/api": "viceme.ai",
+	} {
+		t.Run(input, func(t *testing.T) {
+			calls := 0
+			transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {
+				calls++
+				if request.URL.String() != "https://"+host+"/api/v1/creator/skill-publications" || request.Header.Get("Authorization") != "Bearer test-token" {
+					t.Fatalf("unexpected Gateway request: %s", request.URL)
+				}
+				return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"publicationId":"11111111-1111-4111-8111-111111111111","status":"DRAFT","packageUpload":null}`))}, nil
+			})
+			client := NewClient(input, &http.Client{Transport: transport}, staticToken("test-token"), "test")
+			if _, err := client.CreateSkillPublication(context.Background(), CreateSkillPublicationRequest{ClientRequestID: "gateway-test"}); err != nil || calls != 1 {
+				t.Fatalf("request failed: %v calls=%d", err, calls)
+			}
+		})
+	}
+}
+
 func TestPublicationClientUsesBearerAndExactContract(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

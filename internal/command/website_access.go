@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/api"
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/replicapublication"
 	"github.com/spf13/cobra"
@@ -70,14 +71,14 @@ func newWebsiteAccessCommand(runtime *Runtime, mode string) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				state = websiteAccessState{SchemaVersion: 1, EndpointOrigin: runtime.apiBaseURL, Market: replicaPublicationMarket(runtime), ProjectPath: canonical, ProjectBindingID: id, Phase: "PREPARED"}
+				state = websiteAccessState{SchemaVersion: 1, EndpointOrigin: config.APIStateBaseURL(runtime.apiBaseURL), Market: replicaPublicationMarket(runtime), ProjectPath: canonical, ProjectBindingID: id, Phase: "PREPARED"}
 				state.Request = api.WebsiteAccessConfigurationRequest{RequestID: requestID, ProjectBindingID: id, Market: state.Market}
 				binding, found, err := replicaBindingStore(runtime).Load(canonical)
 				if err != nil {
 					return err
 				}
 				if found && binding.Work != nil {
-					fingerprint, _, err := replicapublication.ProjectFingerprint(runtime.apiBaseURL, state.Market, canonical)
+					fingerprint, _, err := replicapublication.ProjectFingerprint(config.APIStateBaseURL(runtime.apiBaseURL), state.Market, canonical)
 					if err != nil {
 						return err
 					}

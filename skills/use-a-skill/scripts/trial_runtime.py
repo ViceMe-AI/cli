@@ -53,8 +53,8 @@ SCRIPT_ORIGIN = {
     "global": "https://s3.viceme.ai",
 }
 API_ORIGIN = {
-    "cn": "https://api.viceme.cn",
-    "global": "https://api.viceme.ai",
+    "cn": "https://viceme.cn/api",
+    "global": "https://viceme.ai/api",
 }
 INSTALL_DOC_ORIGIN = {
     "cn": "https://s3.viceme.cn/start/agent-install.md",
@@ -183,6 +183,24 @@ def runtime_resource(name):
         raise Failure("RUNTIME_RESOURCE_MISSING", "本地运行资源不完整，请修复安装；不会临时下载或改写脚本") from None
 
 
+def canonical_api_base_url(value):
+    """Recognize only the retired official roots; never rewrite custom targets."""
+    if not isinstance(value, str):
+        return None
+    value = value.strip().rstrip("/")
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        if (parsed.scheme.lower() == "https" and parsed.port in (None, 443)
+                and parsed.username is None and parsed.password is None
+                and not parsed.query and not parsed.fragment and not parsed.path):
+            return {"api.viceme.cn": "https://viceme.cn/api",
+                    "api.viceme.ai": "https://viceme.ai/api"}.get(
+                        (parsed.hostname or "").lower().rstrip("."), value)
+    except ValueError:
+        return value
+    return value
+
+
 def load_runtime_environment(market, product_id):
     filename = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "environment.json")
     if not os.path.isfile(filename):
@@ -196,7 +214,7 @@ def load_runtime_environment(market, product_id):
         parsed = urllib.parse.urlsplit(value)
         if parsed.scheme != "https" and not (parsed.scheme == "http" and parsed.hostname in ("127.0.0.1", "localhost", "::1")):
             raise Failure("RUNTIME_ENVIRONMENT_INVALID", "本地运行环境地址无效，请修复安装")
-        origins[market] = value.rstrip("/")
+        origins[market] = canonical_api_base_url(value) if key == "apiBaseUrl" else value.rstrip("/")
 
 
 def prepare_runtime_files(files, market, product_id, release_id, kind):
@@ -345,7 +363,8 @@ def read_runtime_install(root, market, product_id):
             manifest = json.load(handle)
         if (owner.get("product_id") != product_id or not owner.get("release_id")
                 or manifest.get("schemaVersion") != 1 or manifest.get("productId") != product_id
-                or manifest.get("apiBaseUrl") != API_ORIGIN[market] or manifest.get("market") != market
+                or manifest.get("apiBaseUrl") != canonical_api_base_url(manifest.get("apiBaseUrl"))
+                or canonical_api_base_url(manifest.get("apiBaseUrl")) != canonical_api_base_url(API_ORIGIN[market]) or manifest.get("market") != market
                 or manifest.get("releaseId") != owner.get("release_id")
                 or manifest.get("runner") not in ("python", "cli")
                 or manifest.get("kind") not in ("trial", "free", "owned", "purchase")
@@ -435,7 +454,7 @@ def install_doc_url(market):
 
 
 def api_endpoint(market, path):
-    return API_ORIGIN[market] + path
+    return canonical_api_base_url(API_ORIGIN[market]) + path
 
 
 def api_request(market, method, path, body=None):
@@ -1653,7 +1672,7 @@ def trial_product_owns_directory(directory, product_id, market=None):
                 runtime = json.load(handle)
             return (runtime.get("productId") == product_id and runtime.get("releaseId") == manifest["release_id"]
                     and runtime.get("kind") == "trial" and runtime.get("market") == market
-                    and runtime.get("apiBaseUrl") == API_ORIGIN[market])
+                    and canonical_api_base_url(runtime.get("apiBaseUrl")) == canonical_api_base_url(API_ORIGIN[market]))
         return True
     except (OSError, ValueError):
         return False
@@ -1952,7 +1971,7 @@ def validate_install_directory(root, market, product_id):
             with open(path, encoding="utf-8") as handle:
                 identity = json.load(handle)
             if (identity.get("productId") != product_id or identity.get("market") != market
-                    or identity.get("apiBaseUrl") != API_ORIGIN[market]):
+                    or canonical_api_base_url(identity.get("apiBaseUrl")) != canonical_api_base_url(API_ORIGIN[market])):
                 raise ValueError("identity")
             if name == "runtime.json" and identity.get("releaseId") != owner["release_id"]:
                 transition = read_package_files(root, product_id)

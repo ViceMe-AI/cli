@@ -36,10 +36,10 @@ func TestProfileRoundTripContainsNoCredentialFields(t *testing.T) {
 }
 
 func TestAPIBaseURLs(t *testing.T) {
-	if APIBaseURL(RegionCN) != "https://api.viceme.cn" {
+	if APIBaseURL(RegionCN) != "https://viceme.cn/api" {
 		t.Fatal("unexpected CN API URL")
 	}
-	if APIBaseURL(RegionGlobal) != "https://api.viceme.ai" {
+	if APIBaseURL(RegionGlobal) != "https://viceme.ai/api" {
 		t.Fatal("unexpected global API URL")
 	}
 }
@@ -218,7 +218,7 @@ func TestLegacyProfileRegionMigratesToDistributionRegionAndExplicitEndpoints(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	if defaultProfile.APIBaseURL != "https://api.viceme.ai" {
+	if defaultProfile.APIBaseURL != "https://viceme.ai/api" {
 		t.Fatalf("legacy profile endpoint was not materialized: %#v", defaultProfile)
 	}
 	local, err := loaded.Resolve("local-dev")

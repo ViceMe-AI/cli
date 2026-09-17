@@ -32,7 +32,7 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(set(str(p.relative_to(directory)) for p in directory.rglob("*") if p.is_file()), self.module.RUNTIME_FILES | {"environment.json"})
             env = json.loads((directory / "environment.json").read_text())
             self.assertEqual(env["market"], "global")
-            self.assertEqual(env["apiBaseUrl"], "https://api.viceme.ai")
+            self.assertEqual(env["apiBaseUrl"], "https://viceme.ai/api")
             return {"run": lambda args: 19 if args == argv[1:] else 99}
         with mock.patch.object(sys, "argv", argv), mock.patch.object(self.module.runpy, "run_path", side_effect=inspect):
             return self.module.main()
