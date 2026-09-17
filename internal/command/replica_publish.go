@@ -16,6 +16,7 @@ import (
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/pagepackage"
 	"github.com/ViceMe-AI/cli/internal/replicacontent"
@@ -109,7 +110,7 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		return replicaPublicationPresentation{}, err
 	}
 	market := replicaPublicationMarket(runtime)
-	derivedFingerprint, projectPath, err := replicapublication.ProjectFingerprint(runtime.apiBaseURL, market, options.ProjectPath)
+	derivedFingerprint, projectPath, err := replicapublication.ProjectFingerprint(config.APIStateBaseURL(runtime.apiBaseURL), market, options.ProjectPath)
 	if err != nil {
 		return replicaPublicationPresentation{}, err
 	}
@@ -352,7 +353,7 @@ func publishWebsiteReplica(ctx context.Context, runtime *Runtime, options replic
 		request.CanonicalOrigin = &origin
 	}
 	pending = replicapublication.Pending{
-		EndpointOrigin: runtime.apiBaseURL, Market: market, ProjectPath: projectPath,
+		EndpointOrigin: config.APIStateBaseURL(runtime.apiBaseURL), Market: market, ProjectPath: projectPath,
 		PageDirectory: options.PageDirectory, PageEntry: options.PageEntry,
 		ProjectFingerprint: projectFingerprint, ClientRequestID: clientRequestID,
 		Request: request, SourceArchive: frozen.Summary, ArtifactExpiresAt: expiresAt,
@@ -898,15 +899,15 @@ func replicaPublicationStore(runtime *Runtime) replicapublication.Store {
 	market := replicaPublicationMarket(runtime)
 	return replicapublication.Store{
 		Directory: replicapublication.ScopedDirectory(
-			filepath.Join(runtime.configBase, "replica-publications"), runtime.apiBaseURL, market,
+			filepath.Join(runtime.configBase, "replica-publications"), config.APIStateBaseURL(runtime.apiBaseURL), market,
 		),
-		EndpointOrigin: runtime.apiBaseURL, Market: market, Now: runtime.deps.Now,
+		EndpointOrigin: config.APIStateBaseURL(runtime.apiBaseURL), Market: market, Now: runtime.deps.Now,
 	}
 }
 
 func replicaBindingStore(runtime *Runtime) replicapublication.BindingStore {
 	return replicapublication.BindingStore{
-		EndpointOrigin: runtime.apiBaseURL, Market: replicaPublicationMarket(runtime), Now: runtime.deps.Now,
+		EndpointOrigin: config.APIStateBaseURL(runtime.apiBaseURL), Market: replicaPublicationMarket(runtime), Now: runtime.deps.Now,
 	}
 }
 

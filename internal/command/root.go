@@ -953,13 +953,12 @@ func validatePublicationProcessCredentialTarget(credential *publicationCredentia
 }
 
 func validatePublicationCredentialTarget(apiBaseURL string) error {
-	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	baseURL, err := config.NormalizeAPIBaseURL(apiBaseURL)
 	if err != nil {
 		return errors.New("the process credential target is invalid")
 	}
-	cn, _ := api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionCN))
-	global, _ := api.NormalizeAPIOrigin(config.APIBaseURL(config.RegionGlobal))
-	if origin == cn || origin == global || isLoopbackOrigin(origin) {
+	origin, _ := api.NormalizeAPIOrigin(baseURL)
+	if baseURL == config.APIBaseURL(config.RegionCN) || baseURL == config.APIBaseURL(config.RegionGlobal) || isLoopbackOrigin(origin) {
 		return nil
 	}
 	return errors.New("VICEME_ACCESS_TOKEN may only target an official ViceMe API origin or loopback development")
@@ -1084,7 +1083,7 @@ func uuidFromEntropy(reader io.Reader, now time.Time, processID int, sequence ui
 }
 
 func customCredentialScope(apiBaseURL string) (string, error) {
-	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	origin, err := config.APIStateOrigin(apiBaseURL)
 	if err != nil {
 		return "", err
 	}
@@ -1097,13 +1096,12 @@ func credentialScopeForAPIBase(apiBaseURL string) (string, error) {
 }
 
 func legacyCredentialRegionForAPIBase(apiBaseURL string) string {
-	origin, err := api.NormalizeAPIOrigin(apiBaseURL)
+	baseURL, err := config.NormalizeAPIBaseURL(apiBaseURL)
 	if err != nil {
 		return ""
 	}
 	for _, region := range []config.Region{config.RegionCN, config.RegionGlobal} {
-		officialOrigin, normalizeErr := api.NormalizeAPIOrigin(config.APIBaseURL(region))
-		if normalizeErr == nil && origin == officialOrigin {
+		if baseURL == config.APIBaseURL(region) {
 			return string(region)
 		}
 	}
