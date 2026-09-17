@@ -715,6 +715,8 @@ def purchase_entry_skill_markdown(installed_name, description, product_id, marke
     """生成无试用购买入口的封闭「使用前必读」，形状对齐试用门禁。"""
     posix = "python3 .viceme/scripts/trial.py purchase --product %s --market %s --wait 0" % (product_id, market)
     windows = "py .viceme/scripts/trial.py purchase --product %s --market %s --wait 0" % (product_id, market)
+    cli_purchase = "viceme skill trial-purchase %s --wait 0 --skill-dir \"<本 Skill 目录>\"" % product_id
+    install_doc = INSTALL_DOC_ORIGIN[market] if market in INSTALL_DOC_ORIGIN else INSTALL_DOC_ORIGIN["cn"]
     header = "%s product=%s -->" % (PURCHASE_MARKER, product_id)
     return (
         "---\nname: %s\ndescription: %s\n---\n\n"
@@ -723,9 +725,15 @@ def purchase_entry_skill_markdown(installed_name, description, product_id, marke
         "本入口不包含任务正文，也不提供免费试用。每次开始或继续本技能任务前，必须先完成本节；"
         "不要读取试用检查，不要运行 use 或 status，不要展示上手卡，也不得以安装成功或其他任务的历史代替本次付款。"
         "正式任务内容只在付款确认后覆盖此入口；未购买前不要编造或执行尚未取得的正式内容。\n\n"
+        "收到「安装」「导入」「使用」本包或同义请求时，完成本节购买流程是唯一正确的下一步：本包是购买入口，不是技能本体。"
+        "把本包解压、复制或链接进任何技能目录（包括宿主自带的技能目录）都不构成安装，也不解决付费，不得据此向用户报告已安装；"
+        "为运行本节命令而需要解压时，解压到普通工作目录即可。\n\n"
         "以当前 SKILL.md 所在目录为工作目录，立即运行：\n\n"
         "- macOS / Linux：`%s`\n"
-        "- Windows：`%s`（没有 py 时用 python）\n\n"
+        "- Windows：`%s`（没有 py 时用 python）\n"
+        "- 本机没有 Python、但已有 `viceme` 时：`%s`。不要用 `which`、`command -v viceme` 或 `Get-Command viceme` 判定未安装。\n"
+        "- Python 和 `viceme` 都没有时，按官方安装契约 %s 安装 ViceMe CLI 并用 `viceme doctor` 确认后，运行上面的 CLI 购买命令；"
+        "安装无法完成则如实说明当前无法完成购买并停止，不得把入口包当作技能安装了事。\n\n"
         "命令返回后，必须先读取并执行 [购买与支付展示](%s) 的「免 CLI 的直接购买」和「通用支付展示」；"
         "不要走账号购买或订阅。"
         "给用户看的回复必须先有白话开场白，再展示支付入口。"
@@ -737,10 +745,10 @@ def purchase_entry_skill_markdown(installed_name, description, product_id, marke
         "只打开右侧预览、只完成工具调用、或只交付本地路径，而回复正文没有二维码和支付链接，都不算已展示，不得开始等待。\n\n"
         "仅当结果 `kind=owned`、`allowed=true` 时，重新读取返回的 skillPath：有原任务立即继续，不要问现在试还是以后用；没有原任务才按正式 SKILL.md 说明怎么开始，等用户下一条，不要问「现在就试还是先放着」。"
         "待支付或失败时保留此目录和原订单，重跑同一购买命令恢复。"
-        "无需安装 CLI 或登录；不执行试用计次，不把未购买描述成试用耗尽。\n\n"
+        "有 Python 时无需安装 CLI 或登录；走 CLI 兜底时同样不要求登录。不执行试用计次，不把未购买描述成试用耗尽。\n\n"
         "%s\n"
     ) % (json.dumps(installed_name), json.dumps(description, ensure_ascii=False),
-         header, posix, windows, PURCHASE_GUIDE_PATH, PURCHASE_END)
+         header, posix, windows, cli_purchase, install_doc, PURCHASE_GUIDE_PATH, PURCHASE_END)
 
 
 def purchase_entry_files(market, product_id, title, summary, slug, release_id):

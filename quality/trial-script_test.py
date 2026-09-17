@@ -86,6 +86,14 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertNotIn("present_files", text)
         for required in ("不算已展示", "--wait 0", "--wait 60", "开场白", "无试用开场白", "已经装到本地", "现在就试", "先放着"):
             self.assertIn(required, text)
+        # 「安装」请求不得绕过购买：入口包解压进技能目录不构成安装（豆包实测绕过，2026-09-17）。
+        for required in ("唯一正确的下一步", "不构成安装", "包括宿主自带的技能目录", "解压到普通工作目录"):
+            self.assertIn(required, text)
+        # 无 Python 时必须有 CLI 兜底，与试用门禁的三路结构对齐。
+        self.assertIn("viceme skill trial-purchase " + PRODUCT_ID, text)
+        self.assertIn(trial.INSTALL_DOC_ORIGIN["cn"], text)
+        self.assertIn(trial.INSTALL_DOC_ORIGIN["global"], trial.purchase_entry_skill_markdown(
+            "demo-33709ab2", "Demo：简介（购买后使用）", PRODUCT_ID, "global"))
         self.assertNotIn("Skill 已安装", trial.purchase_required_message())
         self.assertIn("无试用开场白", trial.purchase_required_message())
         self.assertIn("已经装到本地", trial.purchase_required_message())
