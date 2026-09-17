@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/ViceMe-AI/cli/internal/config"
 )
 
 // RuntimeManifest describes installed files, not an entitlement or trial grant.
@@ -102,7 +104,7 @@ func ReadRuntimeIdentity(directory, productID, apiBaseURL string) (RuntimeManife
 		return manifest, false
 	}
 	raw, err = os.ReadFile(filepath.Join(directory, ".viceme/runtime.json"))
-	if err != nil || json.Unmarshal(raw, &manifest) != nil || manifest.SchemaVersion != 1 || manifest.ProductID != productID || manifest.APIBaseURL != apiBaseURL || (manifest.Runner != "cli" && manifest.Runner != "python") {
+	if err != nil || json.Unmarshal(raw, &manifest) != nil || manifest.SchemaVersion != 1 || manifest.ProductID != productID || !config.EquivalentAPIBaseURLs(manifest.APIBaseURL, apiBaseURL) || (manifest.Runner != "cli" && manifest.Runner != "python") {
 		return manifest, false
 	}
 	// A cross-client restore can stop between writing its two identity files.
@@ -121,6 +123,12 @@ func ReadRuntimeIdentity(directory, productID, apiBaseURL string) (RuntimeManife
 func readRuntimeInstall(directory, productID, apiBaseURL string) (RuntimeManifest, bool) {
 	manifest, valid := ReadRuntimeIdentity(directory, productID, apiBaseURL)
 	if !valid {
+		return manifest, false
+	}
+	// An older embedded Python script still calls the removed public API host.
+	// Ownership remains valid for explicit repair, but do not report it ready.
+	normalized, err := config.NormalizeAPIBaseURL(manifest.APIBaseURL)
+	if err != nil || normalized != manifest.APIBaseURL {
 		return manifest, false
 	}
 	required := append([]string{".viceme/environment.json"}, runtimeFiles()...)

@@ -74,6 +74,32 @@ class TrialScriptTestCase(unittest.TestCase):
     def test_slugify_matches_cli_semantics(self):
         self.assertEqual(trial.slugify("Canghe Article Illustrator!"), "canghe-article-illustrator")
 
+    def test_gateway_aliases_keep_custom_endpoints_separate(self):
+        for old, new in (("https://api.viceme.cn", "https://viceme.cn/api"),
+                         ("HTTPS://API.VICEME.AI:443/", "https://viceme.ai/api")):
+            self.assertEqual(trial.canonical_api_base_url(old), new)
+        for custom in ("https://api.viceme.cn:8443", "https://api.viceme.cn/custom",
+                       "https://api.viceme.cn.example.com", "http://localhost:3001",
+                       "https://dev.viceme.cn/api", "https://api.viceme.cn?other=1"):
+            self.assertEqual(trial.canonical_api_base_url(custom), custom)
+
+    def test_gateway_loads_old_environment_without_rewriting_it(self):
+        directory = os.path.join(self.home, "skill", ".viceme")
+        os.makedirs(os.path.join(directory, "scripts"))
+        filename = os.path.join(directory, "environment.json")
+        original = json.dumps({"productId": PRODUCT_ID, "market": "cn",
+                               "apiBaseUrl": "https://api.viceme.cn",
+                               "distributionBaseUrl": "https://s3.viceme.cn"})
+        with open(filename, "w") as handle:
+            handle.write(original)
+        with mock.patch.object(trial, "__file__", os.path.join(directory, "scripts", "trial.py")), \
+                mock.patch.dict(trial.API_ORIGIN), mock.patch.dict(trial.SCRIPT_ORIGIN):
+            trial.load_runtime_environment("cn", PRODUCT_ID)
+            self.assertEqual(trial.api_endpoint("cn", "/v1/skills/test"),
+                             "https://viceme.cn/api/v1/skills/test")
+        with open(filename) as handle:
+            self.assertEqual(handle.read(), original)
+
     def test_purchase_entry_skill_markdown_is_a_hard_gate(self):
         text = trial.purchase_entry_skill_markdown(
             "demo-33709ab2", "Demo：简介（购买后使用）", PRODUCT_ID, "cn")
@@ -1329,6 +1355,24 @@ class InstallFlowTestCase(unittest.TestCase):
         return {"productId": PRODUCT_ID, "orderNo": "TRIAL_ORDER_01", "title": "A </script> test", "amountCents": 1990,
                 "currency": "CNY", "status": "PENDING", "expiresAt": "2099-01-01T00:00:00Z",
                 "paymentAction": {"type": "QR_CODE", "content": "weixin://pay/test-only"}, **changes}
+
+    def test_gateway_repairs_legacy_install_without_resetting_trial(self):
+        with mock.patch.dict(trial.API_ORIGIN, {"cn": "https://api.viceme.cn"}):
+            directory = self._install_trial_fixture()
+        state = trial.load_trial_state(PRODUCT_ID)
+        state["pendingRequestId"] = "unconfirmed-before-cutover"
+        trial.save_trial_state(PRODUCT_ID, state)
+        with open(os.path.join(directory, "user-output.txt"), "w") as handle:
+            handle.write("keep me")
+        self.assertFalse(trial.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+        repaired = self._install_trial_fixture()
+        self.assertEqual(repaired, directory)
+        self.assertTrue(trial.read_runtime_install(directory, "cn", PRODUCT_ID)["ready"])
+        self.assertEqual(trial.load_trial_state(PRODUCT_ID), state)
+        with open(os.path.join(directory, "user-output.txt")) as handle:
+            self.assertEqual(handle.read(), "keep me")
+        with open(os.path.join(directory, ".viceme/environment.json")) as handle:
+            self.assertEqual(json.load(handle)["apiBaseUrl"], "https://viceme.cn/api")
 
     def test_final_use_write_failure_replays_body_before_purchase(self):
         directory = self._install_trial_fixture()

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/gofrs/flock"
 )
 
@@ -32,7 +33,7 @@ var (
 )
 
 func trialUsePendingPath(configBase, apiBaseURL, productID string) string {
-	digest := sha256.Sum256([]byte(apiBaseURL + "\x00" + productID))
+	digest := sha256.Sum256([]byte(config.APIStateBaseURL(apiBaseURL) + "\x00" + productID))
 	return filepath.Join(
 		configBase,
 		"trial-use-pending",

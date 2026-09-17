@@ -13,6 +13,7 @@ import (
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/publication"
@@ -675,7 +676,7 @@ func prepareSkillListing(ctx context.Context, runtime *Runtime, pkg publication.
 	if pkg.BindingIdentity != "" {
 		bindingSourcePath = pkg.BindingIdentity
 	}
-	origin, err := api.NormalizeAPIOrigin(runtime.apiBaseURL)
+	origin, err := config.APIStateOrigin(runtime.apiBaseURL)
 	if err != nil {
 		return listingPrepareResult{}, publication.ResolvedSourceIdentity{}, output.Internal("SKILL_BINDING_SCOPE_INVALID", "could not normalize the current API endpoint", err)
 	}

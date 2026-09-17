@@ -223,6 +223,29 @@ Each Profile binds one API base URL, Web base URL, market region, and
 device-authorized account as one authority. The separately stored distribution
 region selects only the CLI and bundled Skill download source.
 
+Official CN Profiles use API `https://viceme.cn/api` and Web
+`https://viceme.cn`; GLOBAL uses API `https://viceme.ai/api` and Web
+`https://viceme.ai`. Commands append `/v1/...` to the API base, so requests
+enter the site's Gateway as `/api/v1/...`.
+
+Profiles saved with the retired `https://api.viceme.cn` or
+`https://api.viceme.ai` roots resolve to the corresponding Gateway URL in
+memory. Reading a Profile does not rewrite its configuration file; the next
+explicit save persists the canonical URL. Profile IDs, existing credentials,
+publication bindings and pending requests keep their original local storage
+identity. Only these two official endpoint aliases are recognized; custom
+hosts, paths, ports and local development endpoints remain separate.
+
+Previously installed product Skills can contain an older Python runtime.
+After updating the CLI, `viceme skill ready <product> --skill-dir <directory>`
+reports that installation needs repair. Run
+`viceme skill install <product> --skill-dir <directory>` explicitly to refresh
+it in place. Repair preserves trial identity, pending requests and user files;
+it does not reset the server's trial quota. Background CLI updates do not
+rewrite installed Skills. Standalone Python users need the newly published
+official bootstrap before repairing an old installation; an old embedded
+script cannot update itself after its API host has been removed.
+
 ```bash
 viceme auth login
 viceme auth status

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/ViceMe-AI/cli/internal/api"
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/privatefile"
 	"github.com/ViceMe-AI/cli/internal/privatepath"
@@ -99,7 +100,7 @@ func loadWebsiteAccessState(runtime *Runtime, project string) (websiteAccessStat
 	if err = decoder.Decode(&state); err != nil || decoder.Decode(&struct{}{}) != io.EOF {
 		return state, false, output.Validation("WEBSITE_ACCESS_STATE_INVALID", "website access recovery state is invalid")
 	}
-	if state.SchemaVersion != 1 || state.EndpointOrigin != runtime.apiBaseURL || state.Market != replicaPublicationMarket(runtime) || state.ProjectPath != project || !replicaUUIDPattern.MatchString(state.ProjectBindingID) || state.Request.ProjectBindingID != state.ProjectBindingID || !replicaUUIDPattern.MatchString(state.Request.RequestID) || state.Request.Market != state.Market {
+	if state.SchemaVersion != 1 || state.EndpointOrigin != config.APIStateBaseURL(runtime.apiBaseURL) || state.Market != replicaPublicationMarket(runtime) || state.ProjectPath != project || !replicaUUIDPattern.MatchString(state.ProjectBindingID) || state.Request.ProjectBindingID != state.ProjectBindingID || !replicaUUIDPattern.MatchString(state.Request.RequestID) || state.Request.Market != state.Market {
 		return state, false, output.Validation("WEBSITE_ACCESS_BINDING_CONFLICT", "website access binding does not match this project, market or API authority")
 	}
 	switch state.Phase {

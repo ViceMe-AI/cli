@@ -18,6 +18,7 @@ import (
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/atomicfile"
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/pathidentity"
 	"github.com/ViceMe-AI/cli/internal/privatefile"
@@ -108,7 +109,7 @@ type replicaPaidState struct {
 }
 
 func newReplicaPurchaseStore(runtime *Runtime, shortCode, target string) (replicaPurchaseStore, error) {
-	origin, err := api.NormalizeAPIOrigin(runtime.apiBaseURL)
+	origin, err := config.APIStateOrigin(runtime.apiBaseURL)
 	if err != nil {
 		return replicaPurchaseStore{}, output.Validation("REPLICA_API_ORIGIN_INVALID", "Website Replica API origin is invalid").WithCause(err)
 	}

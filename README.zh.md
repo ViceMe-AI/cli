@@ -195,6 +195,22 @@ viceme skill publish --resume <publication-id>
 每个 Profile 把 API Base URL、Web Base URL、市场区域和浏览器授权账户绑定为一个完整
 authority；单独的分发区域只选择 CLI 与官方 Skills 的下载来源。
 
+官方 CN Profile 使用 API `https://viceme.cn/api`、Web `https://viceme.cn`；
+GLOBAL 使用 API `https://viceme.ai/api`、Web `https://viceme.ai`。
+命令在 API 基址后拼接 `/v1/...`，实际通过站点 Gateway 的 `/api/v1/...` 访问服务。
+
+已有 Profile 中的 `https://api.viceme.cn`、`https://api.viceme.ai` 会在读取时
+于内存中解析为对应的新入口；读取不会改写配置文件，下次主动保存配置才写入新地址。
+Profile ID、原登录凭据、发布绑定和未完成请求继续使用原来的本地存储标识。
+兼容只覆盖这两个官方入口；自定义主机、路径、端口及本地开发地址保持独立。
+
+已安装的商品 Skill 可能包含旧 Python 脚本。升级 CLI 后，
+`viceme skill ready <product> --skill-dir <directory>` 会提示修复旧运行包，
+再明确执行 `viceme skill install <product> --skill-dir <directory>` 原地更新。
+修复保留试用身份、未完成请求和用户文件，不重置服务端试用次数。
+CLI 后台更新不会改写已安装 Skills。仅使用 Python 的用户需要先获取新发布的
+官方引导脚本，再修复旧安装；旧脚本无法在原 API 域名移除后自行联网更新。
+
 ```bash
 viceme auth login
 viceme auth status
