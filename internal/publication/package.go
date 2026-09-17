@@ -238,8 +238,14 @@ func build(sourcePath, archiveSubpath string) (Package, error) {
 	var entries []sourceEntry
 	if info.IsDir() {
 		entries, err = readDirectory(abs)
+		if err == nil {
+			entries, err = RestoreGatedDirectory(abs, entries)
+		}
 	} else if strings.EqualFold(filepath.Ext(abs), ".zip") {
 		entries, err = readZip(abs)
+		if err == nil {
+			err = RejectGatedArchive(entries)
+		}
 	} else {
 		return Package{}, output.Validation("SKILL_SOURCE_UNSUPPORTED", "Skill source must be a directory or ZIP file")
 	}

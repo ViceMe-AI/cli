@@ -1054,6 +1054,16 @@ func (c *Client) GetSkillPublication(ctx context.Context, publicationID string) 
 	return response, err
 }
 
+// GetSkillPublicationPackage exports the exact published original package of
+// one publication for its author. The response carries the signed download
+// URL plus the artifact digest the caller must verify against the downloaded
+// bytes; channel delivery must use this exact release, never "the latest".
+func (c *Client) GetSkillPublicationPackage(ctx context.Context, publicationID string) (DownloadURL, error) {
+	var response DownloadURL
+	err := c.doJSON(ctx, http.MethodGet, publicationPath(publicationID)+"/package", nil, &response, "@stored")
+	return response, err
+}
+
 func (c *Client) AuthorizeUpload(ctx context.Context, publicationID string, request UploadAuthorizationRequest) (UploadAuthorization, error) {
 	var response UploadAuthorization
 	err := c.doJSON(ctx, http.MethodPost, publicationPath(publicationID)+"/upload-authorizations", request, &response, "@stored")
