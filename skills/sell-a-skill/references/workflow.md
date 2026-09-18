@@ -72,6 +72,8 @@ GitHub 来源直接运行一次 `viceme skill publish --github ...`。公开仓�
 
 一个作品是一个 skill 组合：里面可以有很多个 skill，各自独立定价、独立购买。组合内每个条目用 `--edition-key`、`--edition-title`、`--edition-order` 和 `--edition-highlight` 这组内部参数表达，全部由 Agent 自动派生，绝不向用户询问。这里“派生”包括按上述规则原样复用已选条目的 key/order；仅新条目才从标题生成未占用的 key（例如 “Xiaohongshu Cover Generator” → “xiaohongshu-cover-generator”）。highlights 可省略让 CLI 用包简介；用户明确指定内部值时也必须校验其与已确认操作一致。
 
+来源目录可以已经被渠道交付包装过（`SKILL.md` 是门禁入口、原文在 `.viceme/trial-body.md`）。`viceme skill publish --path <该目录>` 会在构建区自动还原原始包再校验上传，作者工作区不被修改；渠道 ZIP 本身不能作为来源（会被拒绝并引导使用解包目录）。交付与固定分支/PR 的编排放行见 [channel-delivery.md](channel-delivery.md)。
+
 首个作品省略 `--listing`，但仍显式传 edition key/order。新增或更新已知作品中的 Skill 时，传入 `--listing <listing-id>` 以及已确定的 `--edition-key`、`--edition-order`；所有非 `--resume` 发布都必须显式选择，自动恢复旧 Listing 也不能绕过，不能依赖默认 `standard`。只有这个明确绑定能把不同包放在同一 Work 下，不能按包 digest 或标题推断。digest 候选不明确时展示候选，用户选择自己拥有的 Listing 后才运行 `skill listing bind <listing-id> --path ...`。
 
 ## 状态顺序

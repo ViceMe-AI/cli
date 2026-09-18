@@ -63,14 +63,14 @@
       "skill_version": "0.45.3",
       "minimum_cli_version": "0.45.3",
       "cli_compatibility": ">=0.45.3 <0.46.0",
-      "full_skill_bundle_digest": "sha256:3ce308e0df3df64f8a8f995401b372da287392c0767dd75d9d808a456db33e19",
-      "embedded_content_digest": "sha256:5f375e2301d5f88c5e3b584ef1e93de7bbcb60764166521fce74705617805ac5"
+      "full_skill_bundle_digest": "sha256:f09601903f88f1095506a858a2e3b69142ef3052f22cfbceb50f0719e005fdd5",
+      "embedded_content_digest": "sha256:e05c0c30cb85c184cf876b4cf213e726146dc7f877d20b0ce37d1c4131110281"
     },
     "use-a-skill": {
       "skill_version": "0.45.3",
       "minimum_cli_version": "0.45.3",
       "cli_compatibility": ">=0.45.3 <0.46.0",
-      "full_skill_bundle_digest": "sha256:0ef16d281d94c5acc9b907329e5f5dbd2ca2726a76ce3d4dda8d3c27e4d511e9",
+      "full_skill_bundle_digest": "sha256:c85e6148f832c840e57af1a41cb1b2eb0ce31a56b7f591d0a8f56c2b42165a86",
       "embedded_content_digest": "sha256:46d0a02bbaa969cb44ccd0e2c23c04c84a1c23676fa694de376e157bbca8487e"
     },
     "withdraw-income": {

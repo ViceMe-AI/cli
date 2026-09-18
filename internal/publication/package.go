@@ -238,8 +238,14 @@ func build(sourcePath, archiveSubpath string) (Package, error) {
 	var entries []sourceEntry
 	if info.IsDir() {
 		entries, err = readDirectory(abs)
+		if err == nil {
+			entries, err = RestoreGatedDirectory(abs, entries)
+		}
 	} else if strings.EqualFold(filepath.Ext(abs), ".zip") {
 		entries, err = readZip(abs)
+		if err == nil {
+			err = RejectGatedArchive(entries)
+		}
 	} else {
 		return Package{}, output.Validation("SKILL_SOURCE_UNSUPPORTED", "Skill source must be a directory or ZIP file")
 	}
@@ -1011,6 +1017,29 @@ func shouldIgnorePackagedPath(name string) bool {
 		}
 	}
 	return false
+}
+
+// PackagedPathIgnored reports whether a workspace path is excluded from the
+// authored package. Channel delivery reuses the exact packaging rule to tell
+// unpublished author work from ignored files when it compares the directory
+// against the published release.
+func PackagedPathIgnored(name string) bool {
+	return shouldIgnorePackagedPath(name)
+}
+
+// WorkspaceEntryIgnored reports whether one workspace entry (file or
+// directory) under root would be excluded from the authored package, including
+// the author's .vicemeignore patterns. Directory semantics follow the packager
+// walk: an ignored directory prunes everything below it. Channel delivery
+// reuses this complete packaging rule when it compares a directory against the
+// published release; an unreadable .vicemeignore degrades to the fixed
+// exclusion set.
+func WorkspaceEntryIgnored(root, name string, directory bool) bool {
+	patterns, err := readViceMeIgnore(root)
+	if err != nil {
+		patterns = nil
+	}
+	return shouldIgnoreWorkspacePath(name, directory, patterns)
 }
 
 func imageContentType(_ string, data []byte) string {

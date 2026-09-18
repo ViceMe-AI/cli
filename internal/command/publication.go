@@ -29,6 +29,7 @@ func newPublicationCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newPublicationSuggestCommand(runtime))
 	command.AddCommand(newPublicationConfirmCommand(runtime))
 	command.AddCommand(newPublicationPublishCommand(runtime))
+	command.AddCommand(newPublicationDeliverCommand(runtime))
 	command.AddCommand(newPublicationCancelCommand(runtime))
 	return command
 }

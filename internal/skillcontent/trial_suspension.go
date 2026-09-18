@@ -18,6 +18,15 @@ import (
 const TrialDisabledMarker = "<!-- viceme-trial-disabled:v1"
 const TrialBodyPath = ".viceme/trial-body.md"
 
+// 渠道门禁协议常量：Go 门禁注入、作者侧渠道还原与 Python 运行时共用。
+// 与 skills/use-a-skill/scripts/trial_runtime.py 的 inject_trial_gate 保持同步。
+const TrialGateMarker = "<!-- viceme-trial:v1"
+const TrialGateEnd = "<!-- /viceme-trial:v1 -->"
+const TrialRuntimePath = "references/viceme-runtime.md"
+const TrialRuntimeMarker = "<!-- viceme-trial-runtime:v1"
+const RuntimeManifestPath = ".viceme/runtime.json"
+const InstallManifestPath = ".viceme/install-manifest.json"
+
 // SuspendTrialSkills replaces only a matching marketplace trial's entrypoint.
 // The caller holds the shared Go/Python Product lock. Native destination locks
 // also fence official installs and incomplete transactions in other profiles.

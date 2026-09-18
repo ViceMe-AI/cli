@@ -9,6 +9,9 @@ description: 发布或更新可下载的 ViceMe 付费或免费 Skill。适用�
 
 只处理用户最终取得 Skill 包的发布。所有确定性读取和写入使用 ViceMe CLI；完整阅读
 [workflow.md](references/workflow.md)，命令失败时阅读 [errors.md](references/errors.md)。
+发布成功后用户要求渠道交付（固定分支、PR 或渠道 ZIP）时，按
+[channel-delivery.md](references/channel-delivery.md) 执行；GitHub 写入只在用户明确
+同意交付到具体仓库后进行。
 
 面向用户的提问、进度、结果和可见思考摘要跟随用户当前语言。中文交流使用自然白话，
 只说“检查登录和创作者资格”“确认 GitHub 账号”“准备预览”“发布”等业务动作。
@@ -72,6 +75,9 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
    发布则把 `presentation.openUrl` 去掉末尾 `/preview` 后给出同一路径，这是唯一
    允许的派生。商家主页用 `creatorIdentity.profileUrl`。不得把 slug、安装名、
    `.md` 或 `/preview` 称为公开链接，不得从 handle 自行拼接路径。
+7. 渠道交付不改变已发布事实：不重定价、不创建第二个商品、不重置试用次数；交付冲突
+   时保全作者本地改动，不静默覆盖；PR 合并不是使用前置条件。交付细节见
+   [channel-delivery.md](references/channel-delivery.md)。
 
 ## 用户表达
 
