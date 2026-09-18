@@ -643,7 +643,7 @@ class TrialScriptTestCase(unittest.TestCase):
                     instructions = trial.payment_display_instructions()
                     for required in ("当前宿主明确支持", "![微信支付二维码](<imagePath>)",
                                      "支持本地 HTML", "另一个独立获准的通道",
-                                     "只有图片和页面都无法展示时", "仅交付路径时不要启动等待",
+                                     "只有托管入口不可用且本地图片和页面都无法展示时", "仅交付路径时不要启动等待",
                                      "商品与金额说明放在二维码", "无试用时可参考以下表达", "正式内容尚未安装",
                                      "同一订单只嵌入一张二维码图片", "不要提前在后台启动等待"):
                         self.assertIn(required, instructions)
@@ -1995,7 +1995,9 @@ class InstallFlowTestCase(unittest.TestCase):
         with open(os.path.join(root, trial.PURCHASE_GUIDE_PATH), encoding="utf-8") as handle:
             guide = handle.read()
         self.assertIn("## 通用支付展示", guide)
-        self.assertIn("imageChatSrc", guide)
+        self.assertIn("host-presentation.md", guide)
+        with open(os.path.join(root, "references/host-presentation.md"), encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), trial.runtime_resource("guides/host-presentation.md").decode("utf-8"))
         self.assertIn("checkoutUrl", guide)
         formal = {"SKILL.md": (b"---\nname: private-package-name\n---\npaid content\n", 0o644),
                   "scripts/formal.py": (b"# formal support file\n", 0o644)}
@@ -2065,7 +2067,7 @@ class InstallFlowTestCase(unittest.TestCase):
             self.assertEqual(request_ids[0], request_ids[1])
             self.assertFalse(first["allowed"])
             self.assertIn("![微信支付二维码](<imagePath>)", first["message"])
-            self.assertIn("只有图片和页面都无法展示时", first["message"])
+            self.assertIn("只有托管入口不可用且本地图片和页面都无法展示时", first["message"])
             self.assertNotIn("不要声称或依赖聊天显示本地图片", first["message"])
             self.assertNotIn("grant-secret", json.dumps(first))
             self.assertNotIn("weixin://", json.dumps(first))
@@ -2102,13 +2104,11 @@ class InstallFlowTestCase(unittest.TestCase):
                               ("claude", {"CLAUDECODE": "1"}), ("unknown", {})):
             with self.subTest(host=host), mock.patch.dict(os.environ, markers):
                 instructions = trial.payment_display_instructions(hosted=True)
-                for required in ("checkoutUrl 和 checkoutImageUrl 位于输出外层", "始终把返回的 checkoutUrl",
-                                 "只有选定 HTTPS 图片通道时", "不假设任何聊天都能渲染图片", "当前宿主明确支持",
-                                 "已选择可用的本地图片时不再嵌入 HTTPS 二维码",
-                                 "只使用实际返回的字段", "交付可点击的 checkoutUrl 后"):
-                    self.assertIn(required, instructions)
-                preference = "优先使用可用的平台内本地展示" if host in ("workbuddy", "doubao") else "优先展示托管图片和链接"
-                self.assertIn(preference, instructions)
+                guide = trial.runtime_resource("guides/host-presentation.md").decode("utf-8")
+                self.assertTrue(instructions.endswith(guide))
+                self.assertIn("open_in_codex", guide)
+                self.assertIn("Codex 终端版", guide)
+
 
     def test_purchase_passes_through_hosted_checkout_links(self):
         self._install_trial_fixture()
@@ -2321,7 +2321,7 @@ class InstallFlowTestCase(unittest.TestCase):
             presentation = local.payment_presentation("cn", order)
         with mock.patch.dict(os.environ, {"CODEX_SESSION_ID": "test-session"}):
             self.assertIn("![微信支付二维码](<imagePath>)", local.payment_display_instructions())
-        with open(os.path.join(root, ".viceme/guides/widgets.md"), encoding="utf-8") as handle:
+        with open(os.path.join(root, ".viceme/guides/host-presentation.md"), encoding="utf-8") as handle:
             guide = handle.read()
         self.assertIn("![微信支付二维码](<imagePath>)", guide)
         self.assertNotIn("do not treat a Markdown image or a bare", guide)

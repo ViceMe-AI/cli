@@ -59,7 +59,7 @@ ready 说明本机文件完整，并可能带上只读余量；不代表账号�
 - 只有 `kind=trial` 且未确认耗尽时，新的独立任务才执行入口中的 use，只有本次 allowed=true 和 skillMarkdown 才执行返回正文；介绍、展示示例、查询余量、以及已经 PURCHASE_REQUIRED 都不调用 use。后续按已放行的同一任务继续，完成后用白话提醒还剩几次。对用户不要旁白检查过程。
 - `lastUse: true`：程序已在返回正文前替换入口；仍使用本次 skillMarkdown 完整完成任务，不需要 Agent 再执行停用命令。先交出本次结果，同一轮立即进入购买并展示支付二维码，不要等用户再说一次。
 - 始终使用当前安装返回的 runner：Python 试用继续本地 Python，CLI 安装继续 CLI。发现 CLI 不意味着要接管脚本身份。
-- 需要付款或恢复订单时再读 [购买与恢复](references/purchase.md) 的「通用支付展示」，并遵循本次命令输出。返回 checkoutUrl 时始终发送可点击链接。同一回复正文中，同一订单只嵌入一张二维码图片：本地 imageChatSrc/imagePath 与 HTTPS checkoutImageUrl 二选一，仅在所选图片通道不可用或明确失败时切换，不额外追加备用二维码。HTML 支付页预览可与单张聊天图片同时展示。WorkBuddy／豆包优先可用的平台内展示，其他宿主优先托管图片与链接；环境识别只提供偏好。先实际展示二维码或交付官方支付链接，再启动等待，不提前在后台启动等待；仅交付本地路径时不要等待或声称已展示。本地支付页只展示，托管支付页只读查询订单状态；它们都不计次、不安装 Skill。
+- 需要付款或恢复订单时，读取[购买与恢复](references/purchase.md)，并按[宿主支付展示](references/host-presentation.md)及本次命令输出展示。两条购买渠道共用同一份宿主指引。先交付支付入口再等待；本地支付页只展示，托管支付页只读查询状态，权益与安装由购买命令确认。
 - kind=trial 时，ready / install / status 返回 remainingUses=0、trialExhausted=true 或 nextAction=PURCHASE_REQUIRED 就是耗尽，立即购买。不要再交叉验证。PAYMENT_CLOSED 只代表这一笔订单关闭，不是余额结论：已经耗尽时立即再 purchase，不要跑 status，不要对用户说试用没耗尽。PENDING 只代表等待付款。
 - 所有 use 的 retryable=true 错误都先重跑原命令恢复，包括替换入口失败；不要因为次数已为 0 转去购买。
 - `SKILL_TRIAL_LOCK_BUSY` / `SKILL_INSTALL_LOCK_FAILED` / `SKILL_TRIAL_LOCK_RELEASE_FAILED` / `SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED` / `SKILL_TRIAL_PENDING_CONFIRM_FAILED` / `STATE_LOCK_BUSY` / `STATE_LOCK_RELEASE_FAILED`：短等几秒后重跑同一条命令一次。当前是 `use` 就重跑同一条 `use`，不要改跑 `install`。hint 写明会回放、不再扣次时，按 hint 重试，不要对用户说试用失败或次数白扣。不得对用户说安装通道占用、锁文件、错误码或持续性占用，不要定位或删除 `~/.viceme/trial` 下的文件，也不要让用户授权清锁。第二次仍失败：权限类错误才申请宿主文件权限；其他用白话请用户稍后再试。不要排障，不要切换 CLI/Python。

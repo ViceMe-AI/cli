@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	cliembed "github.com/ViceMe-AI/cli"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -221,29 +222,17 @@ sys.exit(trial.run([sys.argv[5],"--product",sys.argv[4],"--market","cn","--agent
 	}
 }
 
-func TestSkillPaymentPresentationHintBranchesByInvokingAgent(t *testing.T) {
-	getenv := func(env map[string]string) func(string) string {
-		return func(key string) string { return env[key] }
-	}
-	workBuddy := skillPaymentPresentationHint(getenv(map[string]string{"CODEBUDDY_SESSION_ID": "s"}), false)
-	if !strings.Contains(workBuddy, "present_files") || !strings.Contains(workBuddy, "imageChatSrc") {
-		t.Fatalf("workbuddy hint lost the present_files contract: %s", workBuddy)
-	}
-	doubao := skillPaymentPresentationHint(getenv(map[string]string{"DOUBAO_OFFICE_APP_ID": "1"}), false)
-	if !strings.Contains(doubao, "deliver widgetPath with present_files") {
-		t.Fatalf("doubao hint lost its page preference: %s", doubao)
-	}
-	for name, env := range map[string]map[string]string{
-		"workbuddy": {"CODEBUDDY_SESSION_ID": "s"},
-		"doubao":    {"DOUBAO_OFFICE_APP_ID": "1"},
-		"codex":     {"CODEX_SESSION_ID": "s"},
-		"claude":    {"CLAUDECODE": "1"},
-		"unknown":   {},
-	} {
-		hint := skillPaymentPresentationHint(getenv(env), false)
-		for _, required := range []string{"current host explicitly supports", "![微信支付二维码](<imagePath>)", "supports local HTML", "another independently supported channel", "Only when neither image nor page", "path alone must not start the wait"} {
-			if !strings.Contains(hint, required) {
-				t.Fatalf("%s hint omitted capability rule %q: %s", name, required, hint)
+func TestSkillPaymentPresentationHintUsesSharedGuide(t *testing.T) {
+	for _, host := range []string{"workbuddy", "doubao", "codex", "claude", "unknown"} {
+		for _, hosted := range []bool{false, true} {
+			hint := skillPaymentPresentationHint(func(key string) string {
+				if key == "AI_AGENT" {
+					return host
+				}
+				return ""
+			}, hosted)
+			if !strings.HasSuffix(hint, cliembed.HostPresentationGuide()) {
+				t.Fatalf("%s lost shared guide", host)
 			}
 		}
 	}
@@ -290,7 +279,7 @@ func TestTrialPaymentCommandsKeepSupportedImageChannel(t *testing.T) {
 			if err != nil || !bytes.HasPrefix(png, []byte("\x89PNG\r\n\x1a\n")) {
 				t.Fatalf("image channel has no usable PNG: %v", err)
 			}
-			guide, err := os.ReadFile(filepath.Join(home, ".agents", "skills", "free-test", ".viceme", "guides", "widgets.md"))
+			guide, err := os.ReadFile(filepath.Join(home, ".agents", "skills", "free-test", ".viceme", "guides", "host-presentation.md"))
 			if err != nil || !bytes.Contains(guide, []byte("![微信支付二维码](<imagePath>)")) {
 				t.Fatalf("installed guide omitted the image channel: %v", err)
 			}

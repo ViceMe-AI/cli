@@ -43,3 +43,9 @@ func EmbeddedSkills() fs.FS {
 func EmbeddedReleaseManifest() []byte {
 	return append([]byte(nil), embeddedReleaseManifest...)
 }
+
+//go:embed skills/use-a-skill/references/host-presentation.md
+var hostPresentationGuide string
+
+// HostPresentationGuide is the single source shared with the Python runtime.
+func HostPresentationGuide() string { return hostPresentationGuide }

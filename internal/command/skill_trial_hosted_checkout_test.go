@@ -62,10 +62,10 @@ func TestTrialHostedCheckoutSurvivesLocalPresentationFailure(t *testing.T) {
 					if details["checkoutUrl"] == nil || details["checkoutImageUrl"] == nil {
 						t.Fatal("lost hosted entry")
 					}
-					if strings.Contains(hint, "paymentPresentation.checkoutImageUrl") || !strings.Contains(hint, "Always send") || !strings.Contains(hint, "Only embed") {
+					if strings.Contains(hint, "paymentPresentation.checkoutImageUrl") || !strings.Contains(hint, "始终写成可点击") || !strings.Contains(hint, "只嵌入一张") {
 						t.Fatalf("wrong hosted output contract: %s", hint)
 					}
-				} else if details["checkoutUrl"] != nil || strings.Contains(hint, "checkoutUrl") {
+				} else if details["checkoutUrl"] != nil || details["checkoutImageUrl"] != nil {
 					t.Fatal("legacy server behavior changed")
 				}
 				if blocked && details["paymentPresentation"] != nil {
@@ -97,17 +97,10 @@ func TestHostedCheckoutPreferencesRespectHostCapabilities(t *testing.T) {
 			}
 			return ""
 		}, true)
-		for _, text := range []string{"current host explicitly supports", "Always send the returned checkoutUrl", "Only embed the returned checkoutImageUrl", "at most one QR image", "Do not start the wait in the background", "Do not assume every chat", "not paymentPresentation"} {
+		for _, text := range []string{"当前宿主明确支持", "Codex Desktop", "open_in_codex", "target.type=browser", "queued", "Codex 终端版", "WorkBuddy", "豆包工作", "Claude", "同一订单只嵌入一张二维码图片", "不要提前在后台启动等待"} {
 			if !strings.Contains(hint, text) {
 				t.Fatalf("%s omitted %q", host, text)
 			}
-		}
-		if host == "workbuddy" || host == "doubao" {
-			if !strings.Contains(hint, "Prefer available local platform presentation") {
-				t.Fatal("lost local preference")
-			}
-		} else if !strings.HasPrefix(hint, "Prefer the hosted image and link") {
-			t.Fatal("lost hosted preference")
 		}
 	}
 }
