@@ -25,6 +25,7 @@ const TrialGateEnd = "<!-- /viceme-trial:v1 -->"
 const TrialRuntimePath = "references/viceme-runtime.md"
 const TrialRuntimeMarker = "<!-- viceme-trial-runtime:v1"
 const RuntimeManifestPath = ".viceme/runtime.json"
+const InstallManifestPath = ".viceme/install-manifest.json"
 
 // SuspendTrialSkills replaces only a matching marketplace trial's entrypoint.
 // The caller holds the shared Go/Python Product lock. Native destination locks

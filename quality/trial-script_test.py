@@ -320,11 +320,16 @@ class TrialScriptTestCase(unittest.TestCase):
             names = set(archive.namelist())
             skill = archive.read("SKILL.md").decode("utf-8")
             body = archive.read(trial.TRIAL_BODY_PATH).decode("utf-8")
+            # 渠道包从解压起携带无凭证安装身份，消费者首次 use 不必先官方 install。
+            install = json.loads(archive.read(".viceme/install-manifest.json"))
         self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, skill)
         self.assertNotIn("PAID_BODY_SECRET", skill)
         self.assertIn("PAID_BODY_SECRET", body)
         self.assertIn(".viceme/scripts/trial.py", names)
         self.assertIn("scripts/grade.py", names)
+        self.assertIn(".viceme/install-manifest.json", names)
+        self.assertEqual(install["product_id"], PRODUCT_ID)
+        self.assertEqual(install["release_id"], RELEASE_ID)
         self.assertFalse(os.path.exists(os.path.join(self.home, ".agents")))
         self.assertFalse(os.path.exists(os.path.join(self.home, ".codex")))
 

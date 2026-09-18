@@ -15,8 +15,14 @@
   不做渠道交付；不得为了统一形式劝作者加试用。
 - 目录与 ZIP 来自同一份构建结果；交付幂等，无变化重跑不会重写文件。
 - 命令返回 `branch`（固定分支名，来自作品 slug，展示名、价格、Release 和生成器版本
-  变化都不改分支名）、`commitScope`（本次应提交的准确文件列表）、`zip`（路径与
-  digest）、`trialBodyEditPosition`（固定为 `.viceme/trial-body.md`）。
+  变化都不改分支名）、`commitScope`（该目录当前受本命令管理的完整路径清单——不是
+  本轮写入差异；响应丢失后重跑同样给出全量清单）、`zip`（路径与 digest）、
+  `trialBodyEditPosition`（固定为 `.viceme/trial-body.md`）。
+- 目录里的作者业务文件必须与目标 Release 一致：本地改过或新增了未发布内容、或缺少
+  已发布文件时，交付报 `SKILL_CHANNEL_LOCAL_CONFLICT` 并在 `conflicts` 里逐条列明。
+  此时目录、命令 ZIP 与作者自打包的 PR 分支会分叉——先把改动走发布
+  （`viceme skill publish --path <目录>` 自动还原原始包），再重新交付；或明确丢弃
+  本地改动后重跑。
 - PR 失败不撤销已发布版本；重试交付不重复扣费、不重置试用次数、不创建新商品。
 
 ## 作者编辑位置（必须写进 PR 说明）
@@ -36,9 +42,12 @@ GitHub 写入只在用户明确同意交付到具体仓库后进行；仓库可�
    的来源提交创建该分支；同名分支已存在时先核对仓库、Skill 相对路径、
    `.viceme/skill.json` 绑定的 listingId 与市场环境，不能直接重置或覆盖。后续交付
    始终基于远端固定分支当前提交，不从默认分支重新复制。
-2. **提交范围**：只提交 `commitScope` 列出的路径与必要的说明文件；不顺手改其他
-   Skill，不重排仓库，不提交渠道 ZIP 和任何 `.viceme` 之外的临时产物。作者本地
-   未提交、未推送的内容先确认归属并隔离，不混入自动提交。
+2. **提交范围**：只提交 `commitScope` 列出的路径与必要的说明文件；`commitScope` 是
+   受管路径全集，本轮是否新写入要看 `written`/`unchanged`。是否创建提交由 Git 实际
+   差异决定：`git status` 在这些路径上有未提交变化就提交，没有任何差异（包括重跑
+   全量 `unchanged` 且 Git 干净）才不创建提交或 PR。不顺手改其他 Skill，不重排仓库，
+   不提交渠道 ZIP 和任何 `.viceme` 之外的临时产物。作者本地未提交、未推送的内容先
+   确认归属并隔离，不混入自动提交。
 3. **推送**：推送前核对远端分支是否前移；有作者新提交时先拉取合并并检查冲突，
    绝不 force push。分支被删除时按交付记录与 GitHub 当前状态恢复可证明的提交，
    无法确定就明确报告缺失信息，不用旧本地快照硬重建。
@@ -62,14 +71,17 @@ GitHub 写入只在用户明确同意交付到具体仓库后进行；仓库可�
    会被拒绝（`SKILL_CHANNEL_ARCHIVE_NOT_AUTHORABLE`）。
 2. 走正常预览、确认、发布主线，同一商品产生新 Release。
 3. 重新运行 `viceme publication deliver <新 publication-id> --skill-dir <同一目录>`，
-   用准确新版本重建渠道内容，然后按上文提交、推送、更新 PR。
-4. 无变化重跑：交付返回全量 `unchanged` 时不创建新提交或新 PR。
+   用准确新版本重建渠道内容（同一商品的新发布会继承上一版交付基线，不会把旧生成
+   文件误报为冲突），然后按上文提交、推送、更新 PR。
+4. 无变化重跑：交付返回全量 `unchanged` 且 Git 无差异时不创建新提交或新 PR。
 
 ## 错误分支
 
-- `SKILL_CHANNEL_LOCAL_CONFLICT`：向用户报告冲突文件清单（白话：哪些生成文件有
-  未发布的本地改动），给出两条路：先发布改动再交付，或确认丢弃这些改动后重跑。
-  不得静默覆盖。
+- `SKILL_CHANNEL_LOCAL_CONFLICT`：向用户报告冲突文件清单（白话：哪些生成文件被手改
+  过、哪些业务文件与已发布版本不一致），给出两条路：先发布改动再交付，或确认丢弃
+  这些改动后重跑。不得静默覆盖。
+- `SKILL_CHANNEL_DELIVERY_IN_PROGRESS`：另一条交付正持有该目录的锁。等待其结束后
+  重跑同一命令；被挡下的那次不会改动目录或 ZIP。
 - `SKILL_CHANNEL_BINDING_MISMATCH` / `SKILL_CHANNEL_DIR_OWNED_BY_OTHER_PRODUCT`：
   目录绑定与本次发布不一致。向用户核实正确目录；不得重置未知渠道目录。
 - `SKILL_CHANNEL_PUBLICATION_NOT_PUBLISHED`：先完成发布再交付。

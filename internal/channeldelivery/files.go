@@ -10,10 +10,12 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/ViceMe-AI/cli/internal/output"
@@ -118,7 +120,9 @@ func SaveZip(filename string, data []byte) error {
 // Anything else on disk is treated as uncommitted author work: it is kept and
 // reported as a conflict, never silently overwritten. Stale files from a
 // previous delivery disappear only when their bytes still match the record;
-// unknown author files are never removed.
+// unknown author files are never removed. Every write and remove first walks
+// the whole path chain from root: a symbolic link anywhere above the target
+// (for example a linked subdirectory) is a conflict, never followed.
 func Apply(root string, files map[string]File, owned map[string][]string) (*ApplyResult, error) {
 	result := &ApplyResult{}
 	allowed := make(map[string]map[string]struct{}, len(owned))
@@ -135,15 +139,15 @@ func Apply(root string, files map[string]File, owned map[string][]string) (*Appl
 	}
 	sort.Strings(names)
 	for _, name := range names {
-		target := filepath.Join(root, filepath.FromSlash(name))
 		file := files[name]
 		next := digestHex(file.Data)
-		if info, err := os.Lstat(target); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		if plain, current, err := resolveManagedPath(root, name); err != nil {
+			return nil, err
+		} else if !plain {
 			result.Conflicts = append(result.Conflicts, Conflict{Path: name,
-				Reason: "local path is a symbolic link"})
+				Reason: "the local path chain contains a symbolic link or non-directory"})
 			continue
-		}
-		if current, err := os.ReadFile(target); err == nil {
+		} else if current != nil {
 			currentDigest := digestHex(current)
 			if currentDigest == next {
 				result.Unchanged = append(result.Unchanged, name)
@@ -154,11 +158,8 @@ func Apply(root string, files map[string]File, owned map[string][]string) (*Appl
 					Reason: "local content differs from both the recorded delivery and the new build"})
 				continue
 			}
-		} else if !os.IsNotExist(err) {
-			return nil, output.Internal("SKILL_CHANNEL_APPLY_FAILED", "could not read the existing channel file", err).
-				WithDetails(map[string]any{"path": name})
 		}
-		if err := writeFile(target, file); err != nil {
+		if err := writeFile(filepath.Join(root, filepath.FromSlash(name)), file); err != nil {
 			return nil, err
 		}
 		result.Written = append(result.Written, name)
@@ -172,17 +173,16 @@ func Apply(root string, files map[string]File, owned map[string][]string) (*Appl
 	}
 	sort.Strings(stale)
 	for _, name := range stale {
-		target := filepath.Join(root, filepath.FromSlash(name))
-		current, err := os.ReadFile(target)
-		if os.IsNotExist(err) {
+		if plain, current, err := resolveManagedPath(root, name); err != nil {
+			return nil, err
+		} else if !plain {
+			result.Conflicts = append(result.Conflicts, Conflict{Path: name,
+				Reason: "the local path chain contains a symbolic link or non-directory"})
 			continue
-		}
-		if err != nil {
-			return nil, output.Internal("SKILL_CHANNEL_APPLY_FAILED", "could not read a stale channel file", err).
-				WithDetails(map[string]any{"path": name})
-		}
-		if set, ok := allowed[name]; ok && containsDigest(set, digestHex(current)) {
-			if err := os.Remove(target); err != nil {
+		} else if current == nil {
+			continue
+		} else if set, ok := allowed[name]; ok && containsDigest(set, digestHex(current)) {
+			if err := os.Remove(filepath.Join(root, filepath.FromSlash(name))); err != nil {
 				return nil, output.Internal("SKILL_CHANNEL_APPLY_FAILED", "could not remove a stale channel file", err).
 					WithDetails(map[string]any{"path": name})
 			}
@@ -193,6 +193,46 @@ func Apply(root string, files map[string]File, owned map[string][]string) (*Appl
 			Reason: "file came from an earlier delivery but has local changes"})
 	}
 	return result, nil
+}
+
+// resolveManagedPath walks every component of name from root. Each existing
+// directory component must be a real directory, and an existing final component
+// must be a regular file; missing trailing components are safe to create. It
+// reports whether the path is plain and, when the file exists, its content.
+func resolveManagedPath(root, name string) (bool, []byte, error) {
+	components := strings.Split(name, "/")
+	current := root
+	for index, component := range components {
+		current = filepath.Join(current, component)
+		info, err := os.Lstat(current)
+		if errors.Is(err, os.ErrNotExist) {
+			if index == len(components)-1 {
+				return true, nil, nil
+			}
+			// A missing intermediate directory: everything below it does not
+			// exist either, so the whole remaining chain is safe to create.
+			return true, nil, nil
+		}
+		if err != nil {
+			return false, nil, output.Internal("SKILL_CHANNEL_APPLY_FAILED", "could not inspect the channel path", err).
+				WithDetails(map[string]any{"path": name})
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return false, nil, nil
+		}
+		if index < len(components)-1 && !info.IsDir() {
+			return false, nil, nil
+		}
+		if index == len(components)-1 && !info.Mode().IsRegular() {
+			return false, nil, nil
+		}
+	}
+	data, err := os.ReadFile(current)
+	if err != nil {
+		return false, nil, output.Internal("SKILL_CHANNEL_APPLY_FAILED", "could not read the channel file", err).
+			WithDetails(map[string]any{"path": name})
+	}
+	return true, data, nil
 }
 
 func containsDigest(set map[string]struct{}, digest string) bool {

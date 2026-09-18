@@ -18,11 +18,13 @@ import (
 
 const RecordAPIVersion = "channel-delivery.viceme.ai/v1"
 
-// Record is the local delivery-recovery state of one channel delivery. It is
-// isolated per endpoint, market, publication, and Skill directory, and it is
-// author-side state only: it never proves an installation, an entitlement, or
-// GitHub authorization. Remote branch/PR progress must be re-verified against
-// GitHub itself; this record only says what this machine last applied.
+// Record is the local delivery-recovery state of one Skill directory's
+// channel. It is keyed by product and directory — not by publication — so the
+// second publication of the same product inherits the ownership baseline of
+// the last successful delivery instead of treating its own generated files as
+// unknown author work. It is author-side state only: it never proves an
+// installation, an entitlement, or GitHub authorization. Remote branch/PR
+// progress must be re-verified against GitHub itself.
 type Record struct {
 	APIVersion     string            `json:"apiVersion"`
 	EndpointOrigin string            `json:"endpointOrigin"`
@@ -51,8 +53,11 @@ type Store struct {
 	ReportDegraded privatefile.DegradedReporter
 }
 
-func (s Store) Key(publicationID, skillDir string) string {
-	sum := sha256.Sum256([]byte(publicationID + "\x00" + skillDir))
+// Key identifies one delivery target: the product and the normalized Skill
+// directory under the current endpoint. Publications of the same product share
+// the key so updates inherit the previous baseline.
+func (s Store) Key(productID, skillDir string) string {
+	sum := sha256.Sum256([]byte(productID + "\x00" + filepath.Clean(skillDir)))
 	return hex.EncodeToString(sum[:16])
 }
 
@@ -61,14 +66,33 @@ func (s Store) filename(key string) string {
 	return filepath.Join(s.Directory, hex.EncodeToString(sum[:8]), key+".json")
 }
 
-func (s Store) lockFilename(key string) string {
-	return s.filename(key) + ".lock"
+// Lock takes the delivery mutex of one Skill directory. The caller must hold
+// it from before reading the baseline record until the delivery state is
+// persisted, so concurrent deliveries — of any publication — cannot interleave
+// filesystem writes on the same directory.
+func (s Store) Lock(skillDir string) (func() error, error) {
+	sum := sha256.Sum256([]byte(s.EndpointOrigin + "\x00" + filepath.Clean(skillDir)))
+	shard := filepath.Join(s.Directory, hex.EncodeToString(sum[:8]))
+	if err := os.MkdirAll(shard, 0o700); err != nil {
+		return nil, operationError("SKILL_CHANNEL_RECORD_SAVE_FAILED", "could not create the channel delivery record directory", err)
+	}
+	lock := flock.New(filepath.Join(shard, hex.EncodeToString(sum[:])+".lock"))
+	locked, err := lock.TryLock()
+	if err != nil {
+		return nil, operationError("SKILL_CHANNEL_RECORD_LOCK_FAILED", "could not lock the channel delivery record", err)
+	}
+	if !locked {
+		return nil, output.Policy("SKILL_CHANNEL_DELIVERY_IN_PROGRESS",
+			"another channel delivery for the same Skill directory is running in this process family").
+			WithHint("wait for the other delivery to finish, then re-run this command; it is idempotent")
+	}
+	return lock.Unlock, nil
 }
 
-// Load returns the previous delivery record for the same publication and Skill
+// Load returns the previous delivery record for the same product and Skill
 // directory. A missing record is not an error; the second return is false.
-func (s Store) Load(publicationID, skillDir string) (Record, bool, error) {
-	raw, err := os.ReadFile(s.filename(s.Key(publicationID, skillDir)))
+func (s Store) Load(productID, skillDir string) (Record, bool, error) {
+	raw, err := os.ReadFile(s.filename(s.Key(productID, skillDir)))
 	if errors.Is(err, fs.ErrNotExist) {
 		return Record{}, false, nil
 	}
@@ -82,25 +106,14 @@ func (s Store) Load(publicationID, skillDir string) (Record, bool, error) {
 	return record, true, nil
 }
 
-// Save persists the record with an exclusive lock so concurrent deliveries of
-// the same target serialize instead of interleaving writes.
+// Save persists the record. The caller must hold the directory Lock; writes
+// happen inside it so the on-disk record never interleaves with another
+// delivery of the same directory.
 func (s Store) Save(record Record) error {
-	key := s.Key(record.PublicationID, record.SkillDir)
-	filename := s.filename(key)
+	filename := s.filename(s.Key(record.ProductID, record.SkillDir))
 	if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
 		return operationError("SKILL_CHANNEL_RECORD_SAVE_FAILED", "could not create the channel delivery record directory", err)
 	}
-	lock := flock.New(s.lockFilename(key))
-	locked, err := lock.TryLock()
-	if err != nil {
-		return operationError("SKILL_CHANNEL_RECORD_LOCK_FAILED", "could not lock the channel delivery record", err)
-	}
-	if !locked {
-		return output.Policy("SKILL_CHANNEL_DELIVERY_IN_PROGRESS",
-			"another channel delivery for the same Skill directory is running in this process family").
-			WithHint("wait for the other delivery to finish, then re-run this command; it is idempotent")
-	}
-	defer lock.Unlock()
 	if s.Now != nil {
 		stamp := s.Now().UTC().Format(time.RFC3339)
 		if record.CreatedAt == "" {

@@ -4,8 +4,10 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/ViceMe-AI/cli/internal/buildinfo"
@@ -80,7 +82,7 @@ func deliverSkillChannel(command *cobra.Command, runtime *Runtime, publicationID
 				"the local .viceme/skill.json binding belongs to a different API endpoint").
 				WithDetails(map[string]any{"boundEndpoint": binding.EndpointOrigin, "endpoint": runtime.apiBaseURL})
 		}
-		if binding.Market != string(runtime.region) {
+		if !strings.EqualFold(binding.Market, string(runtime.region)) {
 			return output.Validation("SKILL_CHANNEL_BINDING_MISMATCH",
 				"the local .viceme/skill.json binding belongs to a different market").
 				WithDetails(map[string]any{"boundMarket": binding.Market, "market": string(runtime.region)})
@@ -92,7 +94,7 @@ func deliverSkillChannel(command *cobra.Command, runtime *Runtime, publicationID
 	if existing, ok, err := readChannelRuntimeIdentity(absSkillDir); err != nil {
 		return err
 	} else if ok {
-		if existing.ProductID != product.ID || existing.Market != string(runtime.region) || (existing.Kind != "" && existing.Kind != "trial") {
+		if existing.ProductID != product.ID || !strings.EqualFold(existing.Market, string(runtime.region)) || (existing.Kind != "" && existing.Kind != "trial") {
 			return output.Validation("SKILL_CHANNEL_DIR_OWNED_BY_OTHER_PRODUCT",
 				"the directory already carries channel runtime files for a different product, market, or kind").
 				WithDetails(map[string]any{"directoryProductId": existing.ProductID, "productId": product.ID,
@@ -130,6 +132,13 @@ func deliverSkillChannel(command *cobra.Command, runtime *Runtime, publicationID
 	if err := addSkillRuntime(runtime, files, product.ID, product.ReleaseID, "trial"); err != nil {
 		return err
 	}
+	// The channel package carries the credential-free install identity from the
+	// moment it is unpacked, exactly like the purchase entry export: consumers
+	// can run the gate's use/ready commands in the unpacked directory without
+	// a prior official install.
+	files[skillcontent.InstallManifestPath] = downloadableSkillFile{
+		Data: channelInstallManifest(product.ID, product.ReleaseID), Mode: 0o644,
+	}
 
 	channelFiles := make(map[string]channeldelivery.File, len(files))
 	for name, file := range files {
@@ -155,9 +164,18 @@ func deliverSkillChannel(command *cobra.Command, runtime *Runtime, publicationID
 	}
 	zipDigest := fmt.Sprintf("%x", sha256.Sum256(zipBytes))
 
+	// One directory, one delivery at a time: the lock covers reading the
+	// baseline record, every file modification, the ZIP, and the final record
+	// persistence, for deliveries of any publication into this directory.
 	store := channeldelivery.Store{Directory: filepath.Join(runtime.configBase, "channel-deliveries"),
 		EndpointOrigin: runtime.apiBaseURL, Now: runtime.deps.Now, ReportDegraded: runtime.deps.ReportDegradedWrite}
-	record, hasRecord, err := store.Load(publicationID, absSkillDir)
+	unlock, err := store.Lock(absSkillDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unlock() }()
+
+	record, hasRecord, err := store.Load(product.ID, absSkillDir)
 	if err != nil {
 		return err
 	}
@@ -188,6 +206,10 @@ func deliverSkillChannel(command *cobra.Command, runtime *Runtime, publicationID
 	if err != nil {
 		return err
 	}
+	// The channel directory, the channel ZIP, and a ZIP the author packs from
+	// the directory must be the same delivery: unpublished local changes to
+	// authored files stop the delivery instead of silently forking it.
+	apply.Conflicts = append(apply.Conflicts, authorFileConflicts(absSkillDir, files, channelFiles)...)
 	if err := channeldelivery.SaveZip(absZip, zipBytes); err != nil {
 		return err
 	}
@@ -220,26 +242,125 @@ func deliverSkillChannel(command *cobra.Command, runtime *Runtime, publicationID
 		return err
 	}
 
+	// The commit scope is the managed path set of the directory — not only
+	// this run's delta — so a re-run after a lost response still reports every
+	// channel path that may be waiting for its Git commit.
+	scope := make([]string, 0, len(applied))
+	for name := range applied {
+		scope = append(scope, name)
+	}
+	sort.Strings(scope)
+
 	details := map[string]any{
 		"publicationId": publicationID, "listingId": published.ListingID,
 		"productId": product.ID, "releaseId": product.ReleaseID, "productSlug": product.Slug,
 		"market": string(runtime.region), "status": "DELIVERED",
 		"skillDir": absSkillDir, "branch": branch,
 		"trialBodyEditPosition": skillcontent.TrialBodyPath,
-		"zip": map[string]any{"path": absZip, "digest": zipDigest, "sizeBytes": len(zipBytes)},
-		"written": apply.Written, "unchanged": apply.Unchanged, "removed": apply.Removed,
-		"commitScope": append(append([]string{}, apply.Written...), apply.Removed...),
+		"zip":                   map[string]any{"path": absZip, "digest": zipDigest, "sizeBytes": len(zipBytes)},
+		"written":               apply.Written, "unchanged": apply.Unchanged, "removed": apply.Removed,
+		"commitScope": scope, "commitScopeNote": "managed channel paths for the fixed branch; commit the ones your Git status reports as changed",
 	}
 	if len(apply.Conflicts) > 0 {
 		details["conflicts"] = apply.Conflicts
 		details["warnings"] = warnings
 		return output.Validation("SKILL_CHANNEL_LOCAL_CONFLICT",
-			"local edits to generated channel files were preserved; nothing of the author's work was overwritten").
+			"local edits to generated channel files or unpublished author files were preserved; nothing of the author's work was overwritten").
 			WithDetails(details).
 			WithHint("publish the author's edits first ('viceme skill publish --path <skill-dir>' restores them), then re-run this command; or discard the local edits and re-run")
 	}
 	details["warnings"] = warnings
 	return runtime.business(details)
+}
+
+// channelInstallManifest mirrors trial_install_manifest in trial_runtime.py
+// byte for byte; the interop test pins the parity. It carries no credentials:
+// consumer install identity (installId/secret) is created per machine on the
+// first gate use.
+func channelInstallManifest(productID, releaseID string) []byte {
+	payload := struct {
+		SchemaVersion         int    `json:"schema_version"`
+		CLIVersion            string `json:"cli_version"`
+		SkillVersion          string `json:"skill_version"`
+		MinimumCLIVersion     string `json:"minimum_cli_version"`
+		CLICompatibility      string `json:"cli_compatibility"`
+		FullSkillBundleDigest string `json:"full_skill_bundle_digest"`
+		EmbeddedContentDigest string `json:"embedded_content_digest"`
+		ProductID             string `json:"product_id"`
+		ReleaseID             string `json:"release_id"`
+	}{
+		SchemaVersion: 1, CLIVersion: "viceme-trial-script/1", SkillVersion: "1",
+		CLICompatibility: "script", ProductID: productID, ReleaseID: releaseID,
+	}
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return []byte("{}\n")
+	}
+	return append(data, '\n')
+}
+
+// authorFileConflicts compares the directory's authored surface against the
+// exported release: every authored file of the package must exist locally with
+// the published bytes, and every non-ignored local file must belong to the
+// package. Anything else is unpublished local work that would fork the
+// channel directory from the delivered ZIP.
+func authorFileConflicts(root string, packageFiles map[string]downloadableSkillFile, channelFiles map[string]channeldelivery.File) []channeldelivery.Conflict {
+	expected := make(map[string]string, len(packageFiles))
+	for name, file := range packageFiles {
+		if _, generated := channelFiles[name]; generated {
+			continue
+		}
+		expected[name] = fmt.Sprintf("%x", sha256.Sum256(file.Data))
+	}
+	seen := make(map[string]bool, len(expected))
+	var conflicts []channeldelivery.Conflict
+	_ = filepath.WalkDir(root, func(current string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		relative, relErr := filepath.Rel(root, current)
+		if relErr != nil {
+			return nil
+		}
+		relative = filepath.ToSlash(relative)
+		if relative == ".viceme" {
+			return filepath.SkipDir
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		if strings.HasPrefix(relative, ".viceme/") || publication.PackagedPathIgnored(relative) {
+			return nil
+		}
+		if _, managed := channelFiles[relative]; managed {
+			// Generated channel files were just applied from the release; the
+			// authored surface check only governs author content.
+			return nil
+		}
+		if digest, ok := expected[relative]; ok {
+			seen[relative] = true
+			if data, readErr := os.ReadFile(current); readErr != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != digest {
+				conflicts = append(conflicts, channeldelivery.Conflict{Path: relative,
+					Reason: "local authored file differs from the published release; publish it first"})
+			}
+			return nil
+		}
+		conflicts = append(conflicts, channeldelivery.Conflict{Path: relative,
+			Reason: "local file is not part of the published release; publish it or remove it"})
+		return nil
+	})
+	names := make([]string, 0, len(expected))
+	for name := range expected {
+		if !seen[name] {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		conflicts = append(conflicts, channeldelivery.Conflict{Path: name,
+			Reason: "published authored file is missing from the local directory"})
+	}
+	return conflicts
 }
 
 func isChannelGeneratedPath(name string) bool {

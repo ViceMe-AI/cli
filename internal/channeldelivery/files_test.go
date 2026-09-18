@@ -10,14 +10,16 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/ViceMe-AI/cli/internal/output"
 )
 
 func TestWriteZipIsDeterministicAndCarriesModes(t *testing.T) {
 	t.Parallel()
 	files := map[string]File{
-		"SKILL.md":                     {Data: []byte("entry"), Mode: 0o644},
-		".viceme/scripts/trial.py":     {Data: []byte("#!/usr/bin/env python3\n"), Mode: 0o755},
-		".viceme/environment.json":     {Data: []byte("{}"), Mode: 0o644},
+		"SKILL.md":                 {Data: []byte("entry"), Mode: 0o644},
+		".viceme/scripts/trial.py": {Data: []byte("#!/usr/bin/env python3\n"), Mode: 0o755},
+		".viceme/environment.json": {Data: []byte("{}"), Mode: 0o644},
 	}
 	first, err := WriteZip(files)
 	if err != nil {
@@ -66,9 +68,9 @@ func TestApplyWritesOwnsAndPreservesConflicts(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	first := map[string]File{
-		"SKILL.md":                 {Data: []byte("gate v1"), Mode: 0o644},
-		".viceme/runtime.json":     {Data: []byte(`{"kind":"trial"}`), Mode: 0o644},
-		".viceme/obsolete.json":    {Data: []byte("stale"), Mode: 0o644},
+		"SKILL.md":              {Data: []byte("gate v1"), Mode: 0o644},
+		".viceme/runtime.json":  {Data: []byte(`{"kind":"trial"}`), Mode: 0o644},
+		".viceme/obsolete.json": {Data: []byte("stale"), Mode: 0o644},
 	}
 	result, err := Apply(root, first, nil)
 	if err != nil {
@@ -139,7 +141,8 @@ func TestApplyWritesOwnsAndPreservesConflicts(t *testing.T) {
 		t.Fatalf("edited stale file was not preserved as a conflict: %#v", result)
 	}
 
-	// Symbolic links in generated paths are refused, never written through.
+	// Symbolic links are refused anywhere in the path chain — a linked
+	// subdirectory must not let a generated file escape the Skill root.
 	linkRoot := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(linkRoot, ".viceme"), 0o755); err != nil {
 		t.Fatal(err)
@@ -161,6 +164,25 @@ func TestApplyWritesOwnsAndPreservesConflicts(t *testing.T) {
 	if content, _ := os.ReadFile(outside); string(content) != "precious" {
 		t.Fatalf("symlink target was modified: %q", content)
 	}
+
+	linkedDir := t.TempDir()
+	escape := filepath.Join(t.TempDir(), "outside-references")
+	if err := os.MkdirAll(escape, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(escape, filepath.Join(linkedDir, "references")); err != nil {
+		t.Fatal(err)
+	}
+	result, err = Apply(linkedDir, map[string]File{"references/viceme-runtime.md": {Data: []byte("rules"), Mode: 0o644}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Conflicts) != 1 || result.Conflicts[0].Path != "references/viceme-runtime.md" {
+		t.Fatalf("linked ancestor directory was not refused: %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(escape, "viceme-runtime.md")); !os.IsNotExist(err) {
+		t.Fatalf("write escaped the Skill root through a linked directory: %v", err)
+	}
 }
 
 func TestRecordRoundTripAndBranchNaming(t *testing.T) {
@@ -168,33 +190,39 @@ func TestRecordRoundTripAndBranchNaming(t *testing.T) {
 	directory := t.TempDir()
 	now := func() time.Time { return time.Date(2026, 9, 17, 12, 0, 0, 0, time.UTC) }
 	store := Store{Directory: directory, EndpointOrigin: "https://api.viceme.cn", Now: now}
+	const productID = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee"
 	record := Record{
 		APIVersion: RecordAPIVersion, EndpointOrigin: "https://api.viceme.cn", Market: "global",
-		PublicationID: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", SkillDir: "/repo/skills/demo",
+		PublicationID: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", ProductID: productID, SkillDir: "/repo/skills/demo",
 		AppliedFiles: map[string]string{"SKILL.md": digestOf([]byte("gate"))},
 	}
-	if _, exists, err := store.Load(record.PublicationID, record.SkillDir); err != nil || exists {
+	if _, exists, err := store.Load(productID, record.SkillDir); err != nil || exists {
 		t.Fatalf("missing record must be a clean miss: %v %v", exists, err)
 	}
 	if err := store.Save(record); err != nil {
 		t.Fatal(err)
 	}
-	loaded, exists, err := store.Load(record.PublicationID, record.SkillDir)
+	loaded, exists, err := store.Load(productID, record.SkillDir)
 	if err != nil || !exists {
 		t.Fatalf("record did not round-trip: %v %v", exists, err)
 	}
 	if loaded.AppliedFiles["SKILL.md"] != record.AppliedFiles["SKILL.md"] || loaded.UpdatedAt == "" {
 		t.Fatalf("record content drifted: %#v", loaded)
 	}
-	// A different skill directory or endpoint must not collide.
-	if _, exists, _ := store.Load(record.PublicationID, "/repo/skills/other"); exists {
+	// A different skill directory or endpoint must not collide, and a second
+	// publication of the same product shares the key so updates inherit the
+	// baseline instead of conflicting with their own generated files.
+	if _, exists, _ := store.Load(productID, "/repo/skills/other"); exists {
 		t.Fatal("record key does not include the skill directory")
 	}
+	if _, exists, _ := store.Load("ffffffff-ffff-4fff-8fff-ffffffffffff", record.SkillDir); exists {
+		t.Fatal("record key does not include the product")
+	}
 	isolation := Store{Directory: directory, EndpointOrigin: "https://api.viceme.global", Now: now}
-	if _, exists, _ := isolation.Load(record.PublicationID, record.SkillDir); exists {
+	if _, exists, _ := isolation.Load(productID, record.SkillDir); exists {
 		t.Fatal("record store does not shard by endpoint")
 	}
-	raw, err := os.ReadFile(store.filename(store.Key(record.PublicationID, record.SkillDir)))
+	raw, err := os.ReadFile(store.filename(store.Key(productID, record.SkillDir)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -203,6 +231,26 @@ func TestRecordRoundTripAndBranchNaming(t *testing.T) {
 	}
 	var stored Record
 	if err := json.Unmarshal(raw, &stored); err != nil {
+		t.Fatal(err)
+	}
+
+	// The directory mutex is shared by every publication targeting one Skill
+	// directory under one endpoint.
+	unlock, err := store.Lock(record.SkillDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Lock(record.SkillDir); err == nil {
+		t.Fatal("a second delivery of the same directory must not take the lock")
+	} else if output.AsError(err).Subtype != "SKILL_CHANNEL_DELIVERY_IN_PROGRESS" {
+		t.Fatalf("unexpected lock failure: %v", err)
+	}
+	if err := unlock(); err != nil {
+		t.Fatal(err)
+	}
+	if unlockAgain, err := store.Lock(record.SkillDir); err != nil {
+		t.Fatalf("lock must be reusable after release: %v", err)
+	} else if err := unlockAgain(); err != nil {
 		t.Fatal(err)
 	}
 

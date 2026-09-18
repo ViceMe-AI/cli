@@ -1019,6 +1019,14 @@ func shouldIgnorePackagedPath(name string) bool {
 	return false
 }
 
+// PackagedPathIgnored reports whether a workspace path is excluded from the
+// authored package. Channel delivery reuses the exact packaging rule to tell
+// unpublished author work from ignored files when it compares the directory
+// against the published release.
+func PackagedPathIgnored(name string) bool {
+	return shouldIgnorePackagedPath(name)
+}
+
 func imageContentType(_ string, data []byte) string {
 	detected := http.DetectContentType(data)
 	switch detected {
