@@ -75,10 +75,10 @@ PURCHASE_END = "<!-- /viceme-purchase-required:v1 -->"
 
 
 def purchase_required_message():
-    return ("需要购买后才能使用正式内容。同一轮立即运行 runtimePath 指向的本地脚本 purchase --wait 0，"
-            "并执行已装 SKILL.md 的「使用前必读」：对用户只按「无试用开场白」句式说话，不得说已经装到本地或安装成功；"
-            "先写该开场白，再把对话内二维码、可点击支付链接和宿主支付页写给用户看，"
-            "再 --wait 60。付款确认后在原目录安装正式内容，再继续用户任务。无需 CLI 或登录。")
+    return ("正式内容需要购买。按包内流程运行 runtimePath 指向的本地脚本 purchase --wait 0，"
+            "并遵循已装 SKILL.md 的「使用前必读」及宿主授权要求。该命令会保存本机购买身份并创建或恢复订单；已有已付款订单时会校验权益并继续安装。待付款时，"
+            "先说明商品、金额和无免费试用，再按返回的展示指引提供支付入口。付款由用户本人确认；交付可用支付入口后，"
+            "用 --wait 60 有界等待。服务端确认付款和权益、正式内容安装成功后，再报告安装完成并继续用户任务。无需 CLI 或登录。")
 
 
 def exhausted_purchase_message():
@@ -91,52 +91,18 @@ def exhausted_purchase_message():
 
 
 def payment_display_instructions(hosted=False):
-    """宿主能力由 Agent 确认；环境识别只提供通道偏好。"""
+    """Read the same packaged guide embedded by the CLI; never fetch at payment time."""
     instructions = (
-        "回复正文必须先有白话开场白，再展示支付入口。"
-        "无试用开场白固定句式：「{商品标题}」{能力简介}。这是付费作品（{金额}），没有免费试用，付费后才能开始用。请扫下面的二维码付款："
+        "回复正文先说明当前购买状态，再展示支付入口。"
+        "无试用时可参考以下表达：「{商品标题}」{能力简介}。这是付费作品（{金额}），没有免费试用。付款确认后会下载并安装正式内容，请扫码或打开下方支付页面付款："
         "标题和简介用商品 title/summary，不要用目录名；金额只用返回字段。"
-        "不得对用户说已经装到本地、已经安装、Skill 已安装、目录已就绪或安装成功。"
-        "试用耗尽只说试用已用完并请扫码。开场白必须出现在二维码、支付链接和支付页之前。"
-        "不要等用户确认是否购买。对用户不得说命令名、widgetPath 或 JSON 字段名。"
-        "由 Agent 选择当前宿主明确支持的展示通道，环境识别只提供偏好。"
-        "本地图片通道：用宿主声明的图片格式嵌入 imagePath；若支持绝对路径 Markdown，写 ![微信支付二维码](<imagePath>)。"
-        "imageChatSrc 仅用于支持 local-file:// 的宿主。"
-        "支付页通道：把 widgetPath 交给实际存在且支持本地 HTML 的展示工具，不猜测工具名；有浏览器工具不代表能打开本地文件。"
-        "某个通道失败时，遵守宿主限制，改用另一个独立获准的通道。"
-        "只有图片和页面都无法展示时，才把 widgetPath 绝对路径原样告诉用户，请用户自行打开；裸路径不算已展示。"
-        "不要 Read PNG 或支付 HTML，不要把 HTML 贴进聊天，支付不要调用 show_widget；不得重画二维码或向第三方上传支付数据。"
-        "仅在至少一种受支持的通道已展示二维码后，再运行同一 purchase 命令加 --wait 60 等待付款；超时保留原订单。仅交付路径时不要启动等待。"
+        "待付款时说明正式内容尚未安装；只有实际安装成功后才报告安装完成。"
+        "试用耗尽时说明试用已用完、购买后可继续。商品与金额说明放在二维码、支付链接和支付页之前。"
+        "支付入口已就绪，付款由用户本人确认。回复以商品、金额和下一步操作为主；需要时可解释命令作用和本地文件用途。"
     )
-    agent = detect_invoking_agent()
-    if hosted:
-        instructions = instructions.replace("只有图片和页面都无法展示时", "只有托管入口不可用且本地图片和页面都无法展示时")
-        instructions = instructions.replace(
-            "仅在至少一种受支持的通道已展示二维码后，再运行同一 purchase 命令加 --wait 60 等待付款",
-            "展示二维码或交付可点击的 checkoutUrl 后，再运行同一 purchase 命令加 --wait 60 等待付款；托管链接是支付入口，不代表二维码已展示",
-        )
-        policy = (
-            "checkoutUrl 和 checkoutImageUrl 位于输出外层，不在 paymentPresentation 中。"
-            "始终把返回的 checkoutUrl 写成可点击的 Markdown 链接；宿主支持 HTTPS 图片时，同时单独一行写 ![微信支付二维码](<checkoutImageUrl>)。"
-            "只使用实际返回的字段，不假设任何聊天都能渲染图片。"
-        )
-        preference = (
-            "优先使用可用的平台内本地展示；失败时使用托管图片和链接。本地展示成功也保留托管链接。"
-            if agent in ("workbuddy", "doubao")
-            else "优先展示托管图片和链接；托管展示不可用时再使用受支持的本地通道。"
-        )
-        instructions = preference + policy + instructions
-    if agent == "workbuddy":
-        return (
-            "WorkBuddy 默认在回复正文单独一行写 ![微信支付二维码](<imageChatSrc>)，"
-            "并在工具可用时用 present_files([widgetPath]) 打开支付页；不要把 imagePath 或 PNG 交给 present_files。" + instructions
-        )
-    if agent == "doubao":
-        return (
-            "豆包工作默认在工具可用时用 present_files([widgetPath]) 投递支付页；"
-            "不要把 imagePath 或 PNG 交给 present_files，不从平台名称推断聊天图片能力。" + instructions
-        )
-    return instructions
+    guide = runtime_resource("guides/host-presentation.md").decode("utf-8")
+    return instructions + "\n当前环境标记：%s；本次是否有匿名托管支付入口：%s。\n" % (detect_invoking_agent(), hosted) + guide
+
 
 HTTP_TIMEOUT = 30
 MAX_FILES = 1000
@@ -149,7 +115,7 @@ LOCK_WAIT_SECONDS = 10
 # executing the vendored encoder; never install a global Python dependency.
 RUNTIME_FILES = ("scripts/trial.py", "scripts/qrcodegen.py", "widgets/onboarding.html",
                  "widgets/payment.html", "guides/widgets.md", "guides/trial-usage.md",
-                 "guides/purchase.md")
+                 "guides/purchase.md", "guides/host-presentation.md")
 PURCHASE_GUIDE_PATH = "references/purchase.md"
 OWNED_USAGE_GUIDE = (
     "# 正式版：不再计次\n\n"
@@ -173,12 +139,16 @@ def runtime_resource(name):
             "guides/widgets.md": os.path.join(repository, "widgets/README.md"),
             "guides/trial-usage.md": os.path.join(directory, "../references/trial-usage.md"),
             "guides/purchase.md": os.path.join(directory, "../references/purchase.md"),
+            "guides/host-presentation.md": os.path.join(directory, "../references/host-presentation.md"),
         }.get(name, os.path.join(repository, name))
     else:
         source = os.path.join(os.path.dirname(directory), *name.split("/"))
     try:
         with open(source, "rb") as handle:
-            return handle.read()
+            content = handle.read()
+            if name == "guides/widgets.md":
+                content = content.replace(b"../skills/use-a-skill/references/host-presentation.md", b"host-presentation.md")
+            return content
     except OSError:
         raise Failure("RUNTIME_RESOURCE_MISSING", "本地运行资源不完整，请修复安装；不会临时下载或改写脚本") from None
 
@@ -731,7 +701,7 @@ def command_install(market, product_id, agent="auto"):
 
 
 def purchase_entry_skill_markdown(installed_name, description, product_id, market):
-    """生成无试用购买入口的封闭「使用前必读」，形状对齐试用门禁。"""
+    """生成无试用购买入口的安装与支付说明。"""
     posix = "python3 .viceme/scripts/trial.py purchase --product %s --market %s --wait 0" % (product_id, market)
     windows = "py .viceme/scripts/trial.py purchase --product %s --market %s --wait 0" % (product_id, market)
     cli_purchase = "viceme skill trial-purchase %s --wait 0 --skill-dir \"<本 Skill 目录>\"" % product_id
@@ -741,27 +711,27 @@ def purchase_entry_skill_markdown(installed_name, description, product_id, marke
         "---\nname: %s\ndescription: %s\n---\n\n"
         "%s\n\n"
         "## 使用前必读\n\n"
-        "本入口不包含任务正文，也不提供免费试用。每次开始或继续本技能任务前，必须先完成本节；"
-        "不要读取试用检查，不要运行 use 或 status，不要展示上手卡，也不得以安装成功或其他任务的历史代替本次付款。"
+        "本包是付费 Skill 的安装入口，包含安装与支付辅助程序，不含正式任务内容，也不提供免费试用。"
+        "本流程不使用试用计次或上手卡，无需运行 use 或 status；正式内容的安装以当前商品的有效权益为准。"
         "正式任务内容只在付款确认后覆盖此入口；未购买前不要编造或执行尚未取得的正式内容。\n\n"
-        "收到「安装」「导入」「使用」本包或同义请求时，完成本节购买流程是唯一正确的下一步：本包是购买入口，不是技能本体。"
-        "把本包解压、复制或链接进任何技能目录（包括宿主自带的技能目录）都不构成安装，也不解决付费，不得据此向用户报告已安装；"
+        "用户请求安装、导入或使用本包时，按以下流程获取正式内容。"
+        "解压或复制入口包不代表正式 Skill 已安装；"
         "为运行本节命令而需要解压时，解压到普通工作目录即可。\n\n"
-        "以当前 SKILL.md 所在目录为工作目录，立即运行：\n\n"
+        "以下命令会向本包配置的 ViceMe 服务创建或恢复待支付订单，并在本机保存当前商品的购买身份和订单记录，用于后续恢复。付款由用户本人在支付渠道确认，脚本不会代替用户付款。已有已付款订单时，命令会校验权益并继续安装正式内容。执行遵循当前宿主的授权要求；已有授权继续沿用，需要补充授权时说明具体操作。以当前 SKILL.md 所在目录为工作目录运行：\n\n"
         "- macOS / Linux：`%s`\n"
         "- Windows：`%s`（没有 py 时用 python）\n"
         "- 本机没有 Python、但已有 `viceme` 时：`%s`。不要用 `which`、`command -v viceme` 或 `Get-Command viceme` 判定未安装。\n"
         "- Python 和 `viceme` 都没有时，按官方安装契约 %s 安装 ViceMe CLI 并用 `viceme doctor` 确认后，运行上面的 CLI 购买命令；"
         "安装无法完成则如实说明当前无法完成购买并停止，不得把入口包当作技能安装了事。\n\n"
-        "命令返回后，必须先读取并执行 [购买与支付展示](%s) 的「免 CLI 的直接购买」和「通用支付展示」；"
+        "命令返回待付款结果时，按 [购买与支付展示](%s) 的「免 CLI 的直接购买」和「通用支付展示」提供支付入口；"
         "不要走账号购买或订阅。"
-        "给用户看的回复必须先有白话开场白，再展示支付入口。"
-        "开场白只按「无试用开场白」：「{商品标题}」{能力简介}。这是付费作品（{金额}），没有免费试用，付费后才能开始用。请扫下面的二维码付款："
+        "先简短说明商品、金额、无免费试用及付款后的安装流程，再展示支付入口。"
+        "具体表达可参考「无试用开场白」，并按实际情况说明必要的操作信息：「{商品标题}」{能力简介}。这是付费作品（{金额}），没有免费试用。付款确认后会下载并安装正式内容，请扫码或打开下方支付页面付款："
         "标题和简介用商品 title/summary 或入口 description 去掉「（购买后使用）」后的内容，不要用本文件 name；金额只用返回字段。"
-        "不得对用户说已经装到本地、已经安装、Skill 已安装、目录已就绪或安装成功。"
-        "开场白必须出现在二维码、支付链接和支付页之前。不要等用户确认是否购买，也不要编造尚未取得的正式正文。"
-        "把支付入口写进给用户看的回复后，再运行同一命令把 `--wait 0` 改成 `--wait 60`。"
-        "只打开右侧预览、只完成工具调用、或只交付本地路径，而回复正文没有二维码和支付链接，都不算已展示，不得开始等待。\n\n"
+        "待付款时说明正式内容尚未安装；只有实际安装成功后才报告安装完成。"
+        "商品与金额说明放在二维码、支付链接和支付页之前。已有授权的同一流程继续执行，付款由用户本人确认；取得正式内容前不能开始技能任务。"
+        "按展示指引实际交付可用支付入口后，再运行同一命令把 `--wait 0` 改成 `--wait 60`；不要提前在后台启动等待。"
+        "仅生成文件、返回工具结果或交付裸路径不算完成支付展示，此时不启动等待。\n\n"
         "仅当结果 `kind=owned`、`allowed=true` 时，重新读取返回的 skillPath：有原任务立即继续，不要问现在试还是以后用；没有原任务才按正式 SKILL.md 说明怎么开始，等用户下一条，不要问「现在就试还是先放着」。"
         "待支付或失败时保留此目录和原订单，重跑同一购买命令恢复。"
         "有 Python 时无需安装 CLI 或登录；走 CLI 兜底时同样不要求登录。不执行试用计次，不把未购买描述成试用耗尽。\n\n"
@@ -783,6 +753,7 @@ def purchase_entry_files(market, product_id, title, summary, slug, release_id):
         "SKILL.md": (purchase_entry_skill_markdown(
             installed_name, description, product_id, market).encode(), 0o644),
         PURCHASE_GUIDE_PATH: (runtime_resource("guides/purchase.md"), 0o644),
+        "references/host-presentation.md": (runtime_resource("guides/host-presentation.md"), 0o644),
     }
     # 购买入口包从解压起即携带安装身份：purchase 的归属校验只认这份文件,
     # 预置后按门禁在解压目录直接运行购买命令即可成立,不必先走官方 install。

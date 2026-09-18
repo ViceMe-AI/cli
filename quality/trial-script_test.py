@@ -110,10 +110,10 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertNotIn("# 购买后使用", text)
         self.assertNotIn("imageChatSrc", text)
         self.assertNotIn("present_files", text)
-        for required in ("不算已展示", "--wait 0", "--wait 60", "开场白", "无试用开场白", "已经装到本地", "现在就试", "先放着"):
+        for required in ("不算完成支付展示", "--wait 0", "--wait 60", "开场白", "无试用开场白", "正式内容尚未安装", "现在就试", "先放着"):
             self.assertIn(required, text)
-        # 「安装」请求不得绕过购买：入口包解压进技能目录不构成安装（豆包实测绕过，2026-09-17）。
-        for required in ("唯一正确的下一步", "不构成安装", "包括宿主自带的技能目录", "解压到普通工作目录"):
+        # 入口说明区分解压、下单、本人付款与正式安装，并保留宿主授权边界。
+        for required in ("按以下流程获取正式内容", "解压或复制入口包不代表正式 Skill 已安装", "解压到普通工作目录", "需要补充授权时说明具体操作"):
             self.assertIn(required, text)
         # 无 Python 时必须有 CLI 兜底，与试用门禁的三路结构对齐。
         self.assertIn("viceme skill trial-purchase " + PRODUCT_ID, text)
@@ -135,12 +135,12 @@ class TrialScriptTestCase(unittest.TestCase):
                     handle.write(data)
             trial.validate_install_directory(extracted, "cn", PRODUCT_ID)
         self.assertNotIn("Skill 已安装", trial.purchase_required_message())
-        self.assertIn("无试用开场白", trial.purchase_required_message())
-        self.assertIn("已经装到本地", trial.purchase_required_message())
+        self.assertIn("无免费试用", trial.purchase_required_message())
+        self.assertIn("正式内容安装成功后，再报告安装完成", trial.purchase_required_message())
         self.assertIn("现在就试", trial.OWNED_USAGE_GUIDE)
         self.assertIn("先放着", trial.OWNED_USAGE_GUIDE)
         gate = text.split("## 使用前必读", 1)[1]
-        self.assertLess(gate.find("必须先读取并执行"), gate.find("改成 `--wait 60`"))
+        self.assertLess(gate.find("购买与支付展示"), gate.find("改成 `--wait 60`"))
         self.assertLess(gate.find("开场白"), gate.find("二维码"))
 
     def test_local_file_chat_src_uses_workbuddy_protocol(self):
@@ -643,8 +643,9 @@ class TrialScriptTestCase(unittest.TestCase):
                     instructions = trial.payment_display_instructions()
                     for required in ("当前宿主明确支持", "![微信支付二维码](<imagePath>)",
                                      "支持本地 HTML", "另一个独立获准的通道",
-                                     "只有图片和页面都无法展示时", "仅交付路径时不要启动等待",
-                                     "开场白必须出现在二维码", "无试用开场白", "已经装到本地"):
+                                     "只有托管入口不可用且本地图片和页面都无法展示时", "仅交付路径时不要启动等待",
+                                     "商品与金额说明放在二维码", "无试用时可参考以下表达", "正式内容尚未安装",
+                                     "同一订单只嵌入一张二维码图片", "不要提前在后台启动等待"):
                         self.assertIn(required, instructions)
                     exhausted = trial.exhausted_purchase_message()
                     self.assertNotIn("present_files", exhausted)
@@ -1988,13 +1989,15 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertIn("## 使用前必读", text)
         self.assertIn(trial.PURCHASE_END, text)
         self.assertIn(trial.PURCHASE_GUIDE_PATH, text)
-        self.assertIn("不算已展示", text)
+        self.assertIn("不算完成支付展示", text)
         self.assertIn("开场白", text)
         self.assertNotIn("imageChatSrc", text)
         with open(os.path.join(root, trial.PURCHASE_GUIDE_PATH), encoding="utf-8") as handle:
             guide = handle.read()
         self.assertIn("## 通用支付展示", guide)
-        self.assertIn("imageChatSrc", guide)
+        self.assertIn("host-presentation.md", guide)
+        with open(os.path.join(root, "references/host-presentation.md"), encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), trial.runtime_resource("guides/host-presentation.md").decode("utf-8"))
         self.assertIn("checkoutUrl", guide)
         formal = {"SKILL.md": (b"---\nname: private-package-name\n---\npaid content\n", 0o644),
                   "scripts/formal.py": (b"# formal support file\n", 0o644)}
@@ -2064,7 +2067,7 @@ class InstallFlowTestCase(unittest.TestCase):
             self.assertEqual(request_ids[0], request_ids[1])
             self.assertFalse(first["allowed"])
             self.assertIn("![微信支付二维码](<imagePath>)", first["message"])
-            self.assertIn("只有图片和页面都无法展示时", first["message"])
+            self.assertIn("只有托管入口不可用且本地图片和页面都无法展示时", first["message"])
             self.assertNotIn("不要声称或依赖聊天显示本地图片", first["message"])
             self.assertNotIn("grant-secret", json.dumps(first))
             self.assertNotIn("weixin://", json.dumps(first))
@@ -2101,12 +2104,11 @@ class InstallFlowTestCase(unittest.TestCase):
                               ("claude", {"CLAUDECODE": "1"}), ("unknown", {})):
             with self.subTest(host=host), mock.patch.dict(os.environ, markers):
                 instructions = trial.payment_display_instructions(hosted=True)
-                for required in ("checkoutUrl 和 checkoutImageUrl 位于输出外层", "始终把返回的 checkoutUrl",
-                                 "同时单独一行", "不假设任何聊天都能渲染图片", "当前宿主明确支持",
-                                 "只使用实际返回的字段", "交付可点击的 checkoutUrl 后"):
-                    self.assertIn(required, instructions)
-                preference = "优先使用可用的平台内本地展示" if host in ("workbuddy", "doubao") else "优先展示托管图片和链接"
-                self.assertIn(preference, instructions)
+                guide = trial.runtime_resource("guides/host-presentation.md").decode("utf-8")
+                self.assertTrue(instructions.endswith(guide))
+                self.assertIn("open_in_codex", guide)
+                self.assertIn("Codex 终端版", guide)
+
 
     def test_purchase_passes_through_hosted_checkout_links(self):
         self._install_trial_fixture()
@@ -2319,7 +2321,7 @@ class InstallFlowTestCase(unittest.TestCase):
             presentation = local.payment_presentation("cn", order)
         with mock.patch.dict(os.environ, {"CODEX_SESSION_ID": "test-session"}):
             self.assertIn("![微信支付二维码](<imagePath>)", local.payment_display_instructions())
-        with open(os.path.join(root, ".viceme/guides/widgets.md"), encoding="utf-8") as handle:
+        with open(os.path.join(root, ".viceme/guides/host-presentation.md"), encoding="utf-8") as handle:
             guide = handle.read()
         self.assertIn("![微信支付二维码](<imagePath>)", guide)
         self.assertNotIn("do not treat a Markdown image or a bare", guide)

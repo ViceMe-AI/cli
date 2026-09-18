@@ -15,6 +15,7 @@ import (
 	"sync"
 	"testing"
 
+	cliembed "github.com/ViceMe-AI/cli"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
@@ -415,6 +416,10 @@ func TestSubscriptionSubscribePaysWithWeChatQR(t *testing.T) {
 		t.Fatalf("unexpected subscribe error: %#v", envelope)
 	}
 
+	if !strings.Contains(errorBody["hint"].(string), cliembed.HostPresentationGuide()) {
+		t.Fatal("subscription omitted shared host guide")
+	}
+
 	state.setSubscriptionState("PAID")
 	exit, envelope, stderr := executeSkillPurchaseCommand(t, state.server, home,
 		"subscription", "subscribe", "dogtiti", "--wait", "10m",
@@ -557,6 +562,9 @@ func TestPaidSkillConcurrentPurchaseReusesOneOrder(t *testing.T) {
 	for result := range results {
 		if result["error"].(map[string]any)["code"] != "SKILL_PURCHASE_REQUIRED" {
 			t.Fatalf("unexpected concurrent result: %#v", result)
+		}
+		if !strings.Contains(result["error"].(map[string]any)["hint"].(string), cliembed.HostPresentationGuide()) {
+			t.Fatal("account purchase omitted shared host guide")
 		}
 	}
 	if state.orderCreates != 1 {

@@ -19,80 +19,20 @@ per card so replaying a script does not duplicate examples or timers.
 When local generation succeeds, the command returns `paymentPresentation.widgetPath` (a complete WeChat Pay
 page), `paymentPresentation.imagePath` (a local PNG), and
 `paymentPresentation.imageChatSrc` (`local-file://` plus that absolute path).
-The Agent chooses using the current host's documented image syntax and available
-presentation tools. Platform detection provides a preference, not a capability
-decision; it must not exclude a channel the current host explicitly supports.
-The caller's workflow still defines permitted channels (for example,
-`AGENT_PLATFORM`); capability checks do not relax those restrictions.
+Host capabilities, image syntax, browser tools, preferences, and fallbacks are
+owned by [the shared host presentation guide](../skills/use-a-skill/references/host-presentation.md).
+In packaged runtimes it is the sibling `host-presentation.md` under `guides/`.
+The CLI embeds that same source and Python reads the packaged resource; neither
+maintains a separate host-policy branch. Follow the invoking purchase flow for
+payment state, amounts, and waiting.
 
-- Image channel: embed `imagePath` using the host's documented syntax. When the
-  host supports absolute-path Markdown (as current Codex Desktop does), write
-  `![微信支付二维码](<imagePath>)` with the actual absolute path. Use `imageChatSrc`
-  only when the host supports `local-file://`; do not copy that protocol to
-  another host or assume every Markdown renderer supports local images.
-- Page channel: pass `widgetPath` to an available tool that explicitly supports
-  local HTML. Do not guess tool names. Having a browser tool does not prove it
-  accepts local files or `file://` URLs.
-- If one channel fails, respect the host's restrictions and use another
-  independently supported channel. Only when no hosted entry is usable and neither local image nor page can be
-  displayed, state the `widgetPath` absolute path verbatim and ask the user to
-  open it. A bare path is not a displayed QR and must not start the payment wait.
-
-Anonymous trial purchases may also return **outer** `checkoutUrl` (the official
-login-free cashier) and `checkoutImageUrl` (its HTTPS QR image); these are not
-members of `paymentPresentation`. Always provide the returned checkout URL as a
-clickable Markdown link. When the host supports HTTPS images, also embed the
-returned image on its own line; do not replace the link with the image or claim
-that every chat can render it. Use only returned fields, never construct URLs.
-
-WorkBuddy and Doubao Work prefer their available local platform channel, with
-the hosted pair as fallback; retain the hosted link alongside local display.
-Other hosts prefer the hosted image and link, then their independently supported
-local channels. Local artifact IO can fail without losing a valid hosted entry;
-`paymentPresentation` is absent in that case, so do not invent local paths.
-With an older API that returns neither URL, use the local rules above unchanged.
-Only when neither hosted nor local presentation is available, hand over an
-existing local HTML path. Respect the caller's permitted channels throughout.
-
-Known host preferences follow the same capability rules:
-
-- WorkBuddy: prefer embedding the PNG in the chat bubble with Markdown `![微信支付二维码]`
-  followed by parentheses around `imageChatSrc` (a bare filesystem path does
-  not render as an image), and, when available, open only the HTML page with
-  `present_files([widgetPath])`; never pass the PNG to `present_files`. When
-  `present_files` is unavailable on WorkBuddy, the chat image alone still
-  counts as displayed.
-- Doubao Work: prefer delivering `widgetPath` with `present_files` when
-  available. Do not pass the PNG to `present_files` or infer chat image support
-  from the platform name. Another explicitly supported channel remains usable.
-- Codex, Claude, and unknown hosts: choose either supported channel above;
-  identifying a platform does not prove or disprove local image support.
-
-Do not
-Read the HTML or PNG, do not paste HTML into chat, and do not call
-`show_widget` for payment. The page background is transparent so the cashier
-card can sit in the center of the host preview.
-
-Do not copy the provider URI into chat, an external QR service or a URL.
-The page already contains an encoded inline SVG QR; do not use `<img src>`
-inside the page and do not redraw or guess missing QR paths.
-
-Display the QR through at least one supported channel or deliver a clickable
-official checkoutUrl before starting the caller's bounded payment wait. A hosted
-link is a payment entry, not evidence that a QR was displayed. Both local image
-and page are not required. Merely
-generating artifacts or returning a tool response does not prove display.
-Use the caller's original command and saved order, never create a
-different order to poll. The local page never says that installation or any other
-business task has completed. Only a server-confirmed order status may display
-payment success. Visible copy is the green WeChat poster, amount, countdown, QR, and merchant title. The countdown uses the order's absolute `expiresAt` and hides the QR at expiry. Expiry is not proof of failure or a reason to create a new order.
+The page background is transparent, with a centered cashier card. The local
+page is presentation only and never reports task or installation completion.
+Visible copy is the green WeChat poster, amount, countdown, QR, and merchant title. The countdown uses the order's absolute `expiresAt` and hides the QR at expiry. Expiry is not proof of failure or a reason to create a new order.
 
 The official hosted cashier may poll its restricted read-only order snapshot
 and show server-confirmed payment status. It cannot install Skills, consume
 trials, or grant entitlements. Local Widgets remain network-free.
-
-If no supported channel displays anything, report that accurately; do
-not claim the user has seen a QR.
 
 Callers may supply `resultTitle` and `resultDescription` for a confirmed `PAID`
 snapshot. The template then hides the entire cashier (including the QR,

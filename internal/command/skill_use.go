@@ -231,7 +231,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 						if access.Subscription.Available {
 							hint = "present the payment QR to the user, or subscribe with `viceme subscription subscribe <creator-handle>` to install and update the creator's paid Skills while the subscription is active; expiry keeps local copies but blocks reinstall and updates"
 						}
-						return output.Confirmation("SKILL_PURCHASE_REQUIRED", "purchase this edition before installation").WithDetails(details).WithHint(hint)
+						return output.Confirmation("SKILL_PURCHASE_REQUIRED", "purchase this edition before installation").WithDetails(details).WithHint(skillPaymentPresentationHint(os.Getenv, false) + "\n" + hint)
 					}
 					paymentWait := wait
 					if paymentWait <= 0 {
