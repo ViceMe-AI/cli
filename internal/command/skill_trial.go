@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	cliembed "github.com/ViceMe-AI/cli"
 	"github.com/ViceMe-AI/cli/internal/agentenv"
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/config"
@@ -30,28 +31,9 @@ const skillTrialGateMarker = "<!-- viceme-trial:v1"
 const skillTrialGateEnd = "<!-- /viceme-trial:v1 -->"
 const skillTrialRuntimePath = "references/viceme-runtime.md"
 
-// skillPaymentPresentationHint 按当前调用方环境返回支付呈现指引本身，
-// 分支语义与 trial_runtime.py 的 payment_display_instructions 保持一致；
-// 后续等待命令由各调用方自行拼接。
+// skillPaymentPresentationHint adds invocation context without duplicating host rules.
 func skillPaymentPresentationHint(getenv func(string) string, hosted bool) string {
-	presentation := "The agent selects a channel the current host explicitly supports; platform detection is only a preference. For local images, embed imagePath using the host's documented image syntax; if absolute-path Markdown is supported, write ![微信支付二维码](<imagePath>). Use imageChatSrc only with a host that supports local-file://. For a payment page, pass widgetPath to an available tool that supports local HTML; a browser tool name alone does not prove local file support. If a channel fails, use another independently supported channel while respecting host restrictions. Only when neither image nor page can be displayed, state the widgetPath absolute path verbatim and ask the user to open it; a bare path is not a displayed QR. Do not Read the PNG or HTML, paste HTML into chat, call show_widget for payment, redraw the QR, or upload payment data to third parties. Start the bounded payment wait only after a supported channel has displayed the QR; handing over a path alone must not start the wait"
-	if hosted {
-		presentation = strings.Replace(presentation, "Only when neither image nor page can be displayed", "Only when no hosted entry is usable and neither local image nor page can be displayed", 1)
-		presentation = strings.Replace(presentation, "Start the bounded payment wait only after a supported channel has displayed the QR; handing over a path alone must not start the wait", "Start the bounded payment wait after displaying the QR or delivering the clickable checkoutUrl; a hosted link is a payment entry, not proof that the QR was displayed. A local path alone must not start the wait", 1)
-		hostedPolicy := "Use checkoutUrl and checkoutImageUrl from the outer output details, not paymentPresentation. Always send the returned checkoutUrl as a clickable Markdown link, and also embed the returned checkoutImageUrl on its own line using ![微信支付二维码](<checkoutImageUrl>) when the host supports HTTPS images. Do not assume every chat renders images. Only use fields actually returned. "
-		if agent := agentenv.Detect(getenv); agent == agentenv.WorkBuddy || agent == agentenv.Doubao {
-			presentation = "Prefer available local platform presentation; if it fails, use the hosted image and link. Keep the hosted link available alongside the local presentation. " + hostedPolicy + presentation
-		} else {
-			presentation = "Prefer the hosted image and link; use supported local channels when hosted presentation is unavailable. " + hostedPolicy + presentation
-		}
-	}
-	switch agentenv.Detect(getenv) {
-	case agentenv.WorkBuddy:
-		return "WorkBuddy preference: write ![微信支付二维码](paymentPresentation.imageChatSrc) in the chat reply and open only widgetPath with present_files when available; do not pass imagePath to present_files. " + presentation
-	case agentenv.Doubao:
-		return "Doubao Work preference: deliver widgetPath with present_files when available; do not pass imagePath or the PNG to present_files. Do not assume chat image support from the platform name. " + presentation
-	}
-	return presentation
+	return fmt.Sprintf("当前环境标记：%s；本次是否有匿名托管支付入口：%t。按以下共享指引及实际返回字段展示。\n%s", agentenv.Detect(getenv), hosted, cliembed.HostPresentationGuide())
 }
 
 const skillTrialRuntimeMarker = "<!-- viceme-trial-runtime:v1"

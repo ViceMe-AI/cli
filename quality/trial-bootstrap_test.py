@@ -41,6 +41,7 @@ class BootstrapTests(unittest.TestCase):
         archive = (SCRIPTS / "trial-runtime.zip").read_bytes()
         self.assertEqual(hashlib.sha256(archive).hexdigest(), self.module.RUNTIME_SHA256)
         with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
+            self.assertEqual(bundle.read("guides/host-presentation.md"), (ROOT / "skills/use-a-skill/references/host-presentation.md").read_bytes())
             self.assertEqual(bundle.read("scripts/trial.py"), (SCRIPTS / "trial_runtime.py").read_bytes())
             self.assertEqual(bundle.read("widgets/payment.html"), (ROOT / "widgets/payment.html").read_bytes())
         with mock.patch.object(self.module.urllib.request, "build_opener", side_effect=AssertionError("static HTTP after official install")):
@@ -180,7 +181,8 @@ class BootstrapTests(unittest.TestCase):
                 self.assertIn("已经装到本地", guide.read_text())
                 self.assertIn("现在就试", guide.read_text())
                 self.assertIn("先放着", guide.read_text())
-                self.assertIn("imageChatSrc", guide.read_text())
+                self.assertIn("host-presentation.md", guide.read_text())
+                self.assertEqual((guide.parent / "host-presentation.md").read_bytes(), (ROOT / "skills/use-a-skill/references/host-presentation.md").read_bytes())
                 self.assertFalse((skill_path.parent / ".viceme/trial-body.md").exists())
                 self.assertFalse((directory / ".agents/skills/paid-demo").exists())
                 self.assertFalse((directory / ".viceme/trial" / (product + ".json")).exists())

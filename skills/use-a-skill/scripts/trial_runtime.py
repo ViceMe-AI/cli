@@ -91,7 +91,7 @@ def exhausted_purchase_message():
 
 
 def payment_display_instructions(hosted=False):
-    """宿主能力由 Agent 确认；环境识别只提供通道偏好。"""
+    """Read the same packaged guide embedded by the CLI; never fetch at payment time."""
     instructions = (
         "回复正文必须先有白话开场白，再展示支付入口。"
         "无试用开场白固定句式：「{商品标题}」{能力简介}。这是付费作品（{金额}），没有免费试用，付费后才能开始用。请扫下面的二维码付款："
@@ -99,44 +99,10 @@ def payment_display_instructions(hosted=False):
         "不得对用户说已经装到本地、已经安装、Skill 已安装、目录已就绪或安装成功。"
         "试用耗尽只说试用已用完并请扫码。开场白必须出现在二维码、支付链接和支付页之前。"
         "不要等用户确认是否购买。对用户不得说命令名、widgetPath 或 JSON 字段名。"
-        "由 Agent 选择当前宿主明确支持的展示通道，环境识别只提供偏好。"
-        "本地图片通道：用宿主声明的图片格式嵌入 imagePath；若支持绝对路径 Markdown，写 ![微信支付二维码](<imagePath>)。"
-        "imageChatSrc 仅用于支持 local-file:// 的宿主。"
-        "支付页通道：把 widgetPath 交给实际存在且支持本地 HTML 的展示工具，不猜测工具名；有浏览器工具不代表能打开本地文件。"
-        "某个通道失败时，遵守宿主限制，改用另一个独立获准的通道。"
-        "只有图片和页面都无法展示时，才把 widgetPath 绝对路径原样告诉用户，请用户自行打开；裸路径不算已展示。"
-        "不要 Read PNG 或支付 HTML，不要把 HTML 贴进聊天，支付不要调用 show_widget；不得重画二维码或向第三方上传支付数据。"
-        "仅在至少一种受支持的通道已展示二维码后，再运行同一 purchase 命令加 --wait 60 等待付款；超时保留原订单。仅交付路径时不要启动等待。"
     )
-    agent = detect_invoking_agent()
-    if hosted:
-        instructions = instructions.replace("只有图片和页面都无法展示时", "只有托管入口不可用且本地图片和页面都无法展示时")
-        instructions = instructions.replace(
-            "仅在至少一种受支持的通道已展示二维码后，再运行同一 purchase 命令加 --wait 60 等待付款",
-            "展示二维码或交付可点击的 checkoutUrl 后，再运行同一 purchase 命令加 --wait 60 等待付款；托管链接是支付入口，不代表二维码已展示",
-        )
-        policy = (
-            "checkoutUrl 和 checkoutImageUrl 位于输出外层，不在 paymentPresentation 中。"
-            "始终把返回的 checkoutUrl 写成可点击的 Markdown 链接；宿主支持 HTTPS 图片时，同时单独一行写 ![微信支付二维码](<checkoutImageUrl>)。"
-            "只使用实际返回的字段，不假设任何聊天都能渲染图片。"
-        )
-        preference = (
-            "优先使用可用的平台内本地展示；失败时使用托管图片和链接。本地展示成功也保留托管链接。"
-            if agent in ("workbuddy", "doubao")
-            else "优先展示托管图片和链接；托管展示不可用时再使用受支持的本地通道。"
-        )
-        instructions = preference + policy + instructions
-    if agent == "workbuddy":
-        return (
-            "WorkBuddy 默认在回复正文单独一行写 ![微信支付二维码](<imageChatSrc>)，"
-            "并在工具可用时用 present_files([widgetPath]) 打开支付页；不要把 imagePath 或 PNG 交给 present_files。" + instructions
-        )
-    if agent == "doubao":
-        return (
-            "豆包工作默认在工具可用时用 present_files([widgetPath]) 投递支付页；"
-            "不要把 imagePath 或 PNG 交给 present_files，不从平台名称推断聊天图片能力。" + instructions
-        )
-    return instructions
+    guide = runtime_resource("guides/host-presentation.md").decode("utf-8")
+    return instructions + "\n当前环境标记：%s；本次是否有匿名托管支付入口：%s。\n" % (detect_invoking_agent(), hosted) + guide
+
 
 HTTP_TIMEOUT = 30
 MAX_FILES = 1000
@@ -149,7 +115,7 @@ LOCK_WAIT_SECONDS = 10
 # executing the vendored encoder; never install a global Python dependency.
 RUNTIME_FILES = ("scripts/trial.py", "scripts/qrcodegen.py", "widgets/onboarding.html",
                  "widgets/payment.html", "guides/widgets.md", "guides/trial-usage.md",
-                 "guides/purchase.md")
+                 "guides/purchase.md", "guides/host-presentation.md")
 PURCHASE_GUIDE_PATH = "references/purchase.md"
 OWNED_USAGE_GUIDE = (
     "# 正式版：不再计次\n\n"
@@ -173,12 +139,16 @@ def runtime_resource(name):
             "guides/widgets.md": os.path.join(repository, "widgets/README.md"),
             "guides/trial-usage.md": os.path.join(directory, "../references/trial-usage.md"),
             "guides/purchase.md": os.path.join(directory, "../references/purchase.md"),
+            "guides/host-presentation.md": os.path.join(directory, "../references/host-presentation.md"),
         }.get(name, os.path.join(repository, name))
     else:
         source = os.path.join(os.path.dirname(directory), *name.split("/"))
     try:
         with open(source, "rb") as handle:
-            return handle.read()
+            content = handle.read()
+            if name == "guides/widgets.md":
+                content = content.replace(b"../skills/use-a-skill/references/host-presentation.md", b"host-presentation.md")
+            return content
     except OSError:
         raise Failure("RUNTIME_RESOURCE_MISSING", "本地运行资源不完整，请修复安装；不会临时下载或改写脚本") from None
 
@@ -783,6 +753,7 @@ def purchase_entry_files(market, product_id, title, summary, slug, release_id):
         "SKILL.md": (purchase_entry_skill_markdown(
             installed_name, description, product_id, market).encode(), 0o644),
         PURCHASE_GUIDE_PATH: (runtime_resource("guides/purchase.md"), 0o644),
+        "references/host-presentation.md": (runtime_resource("guides/host-presentation.md"), 0o644),
     }
     # 购买入口包从解压起即携带安装身份：purchase 的归属校验只认这份文件,
     # 预置后按门禁在解压目录直接运行购买命令即可成立,不必先走官方 install。
