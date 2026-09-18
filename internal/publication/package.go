@@ -1027,17 +1027,19 @@ func PackagedPathIgnored(name string) bool {
 	return shouldIgnorePackagedPath(name)
 }
 
-// WorkspacePathIgnored reports whether one workspace file under root would be
-// excluded from the authored package, including the author's .vicemeignore
-// patterns. Channel delivery reuses this complete packaging rule when it
-// compares a directory against the published release; an unreadable
-// .vicemeignore degrades to the fixed exclusion set.
-func WorkspacePathIgnored(root, name string) bool {
+// WorkspaceEntryIgnored reports whether one workspace entry (file or
+// directory) under root would be excluded from the authored package, including
+// the author's .vicemeignore patterns. Directory semantics follow the packager
+// walk: an ignored directory prunes everything below it. Channel delivery
+// reuses this complete packaging rule when it compares a directory against the
+// published release; an unreadable .vicemeignore degrades to the fixed
+// exclusion set.
+func WorkspaceEntryIgnored(root, name string, directory bool) bool {
 	patterns, err := readViceMeIgnore(root)
 	if err != nil {
 		patterns = nil
 	}
-	return shouldIgnoreWorkspacePath(name, false, patterns)
+	return shouldIgnoreWorkspacePath(name, directory, patterns)
 }
 
 func imageContentType(_ string, data []byte) string {

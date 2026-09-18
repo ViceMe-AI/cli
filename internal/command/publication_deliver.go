@@ -333,14 +333,18 @@ func channelInstallManifest(productID, releaseID string) []byte {
 // package. Anything else is unpublished local work that would fork the
 // channel directory from the delivered ZIP.
 func authorFileConflicts(root string, packageFiles map[string]downloadableSkillFile, channelFiles map[string]channeldelivery.File) []channeldelivery.Conflict {
-	expected := make(map[string]string, len(packageFiles))
+	type expectedFile struct {
+		digest string
+		mode   os.FileMode
+	}
+	expectedFiles := make(map[string]expectedFile, len(packageFiles))
 	for name, file := range packageFiles {
 		if _, generated := channelFiles[name]; generated {
 			continue
 		}
-		expected[name] = fmt.Sprintf("%x", sha256.Sum256(file.Data))
+		expectedFiles[name] = expectedFile{digest: fmt.Sprintf("%x", sha256.Sum256(file.Data)), mode: file.Mode}
 	}
-	seen := make(map[string]bool, len(expected))
+	seen := make(map[string]bool, len(expectedFiles))
 	var conflicts []channeldelivery.Conflict
 	_ = filepath.WalkDir(root, func(current string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -354,10 +358,15 @@ func authorFileConflicts(root string, packageFiles map[string]downloadableSkillF
 		if relative == ".viceme" {
 			return filepath.SkipDir
 		}
+		if relative != "." && entry.IsDir() && publication.WorkspaceEntryIgnored(root, relative, true) {
+			// The packager prunes ignored directories wholesale; the surface
+			// comparison must not report their children as foreign files.
+			return filepath.SkipDir
+		}
 		if entry.IsDir() {
 			return nil
 		}
-		if strings.HasPrefix(relative, ".viceme/") || publication.WorkspacePathIgnored(root, relative) {
+		if strings.HasPrefix(relative, ".viceme/") || publication.WorkspaceEntryIgnored(root, relative, false) {
 			return nil
 		}
 		if _, managed := channelFiles[relative]; managed {
@@ -365,11 +374,21 @@ func authorFileConflicts(root string, packageFiles map[string]downloadableSkillF
 			// authored surface check only governs author content.
 			return nil
 		}
-		if digest, ok := expected[relative]; ok {
+		if file, ok := expectedFiles[relative]; ok {
 			seen[relative] = true
-			if data, readErr := os.ReadFile(current); readErr != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != digest {
+			data, readErr := os.ReadFile(current)
+			if readErr != nil || fmt.Sprintf("%x", sha256.Sum256(data)) != file.digest {
 				conflicts = append(conflicts, channeldelivery.Conflict{Path: relative,
 					Reason: "local authored file differs from the published release; publish it first"})
+				return nil
+			}
+			// The packaging rules only assign meaning to the executable bit;
+			// a same-bytes file without it changes how the channel directory
+			// behaves compared to the delivered ZIP.
+			if info, statErr := entry.Info(); statErr == nil &&
+				(info.Mode().Perm()&0o111 != 0) != (file.mode.Perm()&0o111 != 0) {
+				conflicts = append(conflicts, channeldelivery.Conflict{Path: relative,
+					Reason: "local authored file carries a different executable bit than the published release; publish it first"})
 			}
 			return nil
 		}
@@ -377,8 +396,8 @@ func authorFileConflicts(root string, packageFiles map[string]downloadableSkillF
 			Reason: "local file is not part of the published release; publish it or remove it"})
 		return nil
 	})
-	names := make([]string, 0, len(expected))
-	for name := range expected {
+	names := make([]string, 0, len(expectedFiles))
+	for name := range expectedFiles {
 		if !seen[name] {
 			names = append(names, name)
 		}

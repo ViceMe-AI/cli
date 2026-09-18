@@ -58,15 +58,49 @@ type Store struct {
 }
 
 // physicalDir resolves one Skill directory to its physical identity so path
-// aliases — a symbolic link in any parent component, such as /tmp versus
-// /private/tmp — share one lock and one record. A path that cannot be resolved
+// aliases share one lock and one record: symbolic links in any parent
+// component (such as /tmp versus /private/tmp) via EvalSymlinks, and letter
+// case on case-insensitive volumes (macOS and Windows defaults) via a stat
+// probe. On case-sensitive volumes the probe finds no same-file twin, so
+// distinct casings stay distinct directories. A path that cannot be resolved
 // is used cleaned.
 func physicalDir(directory string) string {
 	resolved, err := filepath.EvalSymlinks(directory)
 	if err != nil {
 		return filepath.Clean(directory)
 	}
+	if CaseInsensitiveVolume(resolved) {
+		return strings.ToLower(resolved)
+	}
 	return resolved
+}
+
+// CaseInsensitiveVolume reports whether the volume holding directory treats
+// letter case as significant: it stats the directory against a case-variant
+// spelling of its own path and compares file identity. The probe touches only
+// names that already exist, so on a case-sensitive volume it never matches.
+func CaseInsensitiveVolume(directory string) bool {
+	index := -1
+	for position, character := range directory {
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' {
+			index = position
+		}
+	}
+	if index < 0 {
+		return false
+	}
+	runes := []rune(directory)
+	if runes[index] >= 'a' && runes[index] <= 'z' {
+		runes[index] = runes[index] - 'a' + 'A'
+	} else {
+		runes[index] = runes[index] - 'A' + 'a'
+	}
+	original, originalErr := os.Stat(directory)
+	variant, variantErr := os.Stat(string(runes))
+	if originalErr != nil || variantErr != nil {
+		return false
+	}
+	return os.SameFile(original, variant)
 }
 
 // Key identifies one delivery target: the product and the physical Skill

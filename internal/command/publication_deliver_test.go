@@ -640,3 +640,137 @@ func TestPublicationDeliverHonorsViceMeIgnore(t *testing.T) {
 		t.Fatalf("ignored local file was touched: %q %v", notes, err)
 	}
 }
+
+// TestPublicationDeliverLocksAcrossCaseAliases proves a case-variant spelling
+// of the same directory cannot fork the lock or the record on volumes where
+// letter case is not significant. The probe skips case-sensitive filesystems,
+// where such aliases are genuinely different directories.
+func TestPublicationDeliverLocksAcrossCaseAliases(t *testing.T) {
+	t.Parallel()
+	harness := newDeliverHarness(t, deliverAuthorBody)
+	defer harness.server.Close()
+	root := harness.root
+	lower := filepath.Join(root, "case-lock")
+	if err := os.MkdirAll(filepath.Join(lower, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lower, "SKILL.md"), []byte(deliverAuthorBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lower, "scripts", "run.sh"), []byte("#!/bin/sh\necho demo\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !channeldelivery.CaseInsensitiveVolume(lower) {
+		t.Skip("filesystem treats letter case as significant; case aliases are distinct directories")
+	}
+	upper := filepath.Join(root, "CASE-LOCK")
+
+	store := channeldelivery.Store{Directory: filepath.Join(root, "config", "channel-deliveries"), EndpointOrigin: harness.server.URL}
+	unlock, err := store.Lock(lower)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exit, envelope := harness.execute("publication", "deliver", harness.firstID, "--skill-dir", upper)
+	if exit == 0 || envelope["ok"] != false {
+		t.Fatalf("case alias bypassed the directory lock: exit=%d envelope=%v", exit, envelope)
+	}
+	failure, _ := envelope["error"].(map[string]any)
+	if failure["code"] != "SKILL_CHANNEL_DELIVERY_IN_PROGRESS" {
+		t.Fatalf("unexpected lock failure code: %#v", failure)
+	}
+	if _, err := os.Stat(filepath.Join(lower, ".viceme", "runtime.json")); !os.IsNotExist(err) {
+		t.Fatalf("case-alias delivery wrote through a held lock: %v", err)
+	}
+	if err := unlock(); err != nil {
+		t.Fatal(err)
+	}
+
+	exit, envelope = harness.execute("publication", "deliver", harness.firstID, "--skill-dir", upper)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("delivery through the case alias failed: exit=%d envelope=%v", exit, envelope)
+	}
+	records, err := filepath.Glob(filepath.Join(root, "config", "channel-deliveries", "*", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("case aliases must share one record: %v", records)
+	}
+}
+
+// TestPublicationDeliverPrunesIgnoredDirectories proves directory-level
+// .vicemeignore patterns (bare names and wildcards) exclude whole subtrees
+// exactly as the packaging walk does, instead of flagging their files.
+func TestPublicationDeliverPrunesIgnoredDirectories(t *testing.T) {
+	t.Parallel()
+	harness := newDeliverHarness(t, deliverAuthorBody)
+	defer harness.server.Close()
+	source := harness.source
+
+	for _, dir := range []string{"drafts", "dev-notes"} {
+		if err := os.MkdirAll(filepath.Join(source, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(source, dir, "notes.txt"), []byte("local only"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(source, ".vicemeignore"), []byte("drafts\ndev-*\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ignored, err := publication.Build(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness.state.publications[harness.firstID] = publicationBytes{releaseID: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", pkg: ignored}
+
+	exit, envelope := harness.execute("publication", "deliver", harness.firstID, "--skill-dir", source)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("ignored directories blocked the delivery: exit=%d envelope=%v", exit, envelope)
+	}
+	if notes, err := os.ReadFile(filepath.Join(source, "drafts", "notes.txt")); err != nil || string(notes) != "local only" {
+		t.Fatalf("ignored directory content was touched: %q %v", notes, err)
+	}
+}
+
+// TestPublicationDeliverStopsOnExecutableBitDrift proves an authored file
+// with identical bytes but a different executable bit cannot fork the channel
+// directory from the delivered ZIP.
+func TestPublicationDeliverStopsOnExecutableBitDrift(t *testing.T) {
+	t.Parallel()
+	harness := newDeliverHarness(t, deliverAuthorBody)
+	defer harness.server.Close()
+	source := harness.source
+
+	exit, _ := harness.execute("publication", "deliver", harness.firstID, "--skill-dir", source)
+	if exit != 0 {
+		t.Fatal("first delivery failed")
+	}
+	script := filepath.Join(source, "scripts", "run.sh")
+	if err := os.Chmod(script, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exit, envelope := harness.execute("publication", "deliver", harness.firstID, "--skill-dir", source)
+	if exit == 0 || envelope["ok"] != false {
+		t.Fatalf("executable-bit drift did not stop the delivery: exit=%d envelope=%v", exit, envelope)
+	}
+	failure, _ := envelope["error"].(map[string]any)
+	if failure["code"] != "SKILL_CHANNEL_LOCAL_CONFLICT" {
+		t.Fatalf("unexpected code for executable-bit drift: %#v", failure)
+	}
+	details, _ := failure["details"].(map[string]any)
+	conflicts, _ := details["conflicts"].([]any)
+	found := false
+	for _, item := range conflicts {
+		if conflict, _ := item.(map[string]any); conflict != nil && conflict["path"] == "scripts/run.sh" &&
+			strings.Contains(conflict["reason"].(string), "executable bit") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("conflicts did not name the executable-bit drift: %#v", details["conflicts"])
+	}
+	if info, err := os.Stat(script); err != nil || info.Mode().Perm() != 0o644 {
+		t.Fatalf("author's mode change was not preserved: %v", err)
+	}
+}
