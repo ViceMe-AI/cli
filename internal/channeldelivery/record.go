@@ -77,11 +77,14 @@ func physicalDir(directory string) string {
 
 // CaseInsensitiveVolume reports whether the volume holding directory treats
 // letter case as significant: it stats the directory against a case-variant
-// spelling of its own path and compares file identity. The probe touches only
-// names that already exist, so on a case-sensitive volume it never matches.
+// spelling of its own path and compares file identity. The probe works purely
+// on runes so paths with non-ASCII (e.g. Chinese) components stay valid, and
+// it touches only names that already exist, so on a case-sensitive volume it
+// never matches.
 func CaseInsensitiveVolume(directory string) bool {
+	runes := []rune(directory)
 	index := -1
-	for position, character := range directory {
+	for position, character := range runes {
 		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' {
 			index = position
 		}
@@ -89,7 +92,6 @@ func CaseInsensitiveVolume(directory string) bool {
 	if index < 0 {
 		return false
 	}
-	runes := []rune(directory)
 	if runes[index] >= 'a' && runes[index] <= 'z' {
 		runes[index] = runes[index] - 'a' + 'A'
 	} else {

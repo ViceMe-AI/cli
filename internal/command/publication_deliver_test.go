@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -742,6 +743,9 @@ func TestPublicationDeliverStopsOnExecutableBitDrift(t *testing.T) {
 	defer harness.server.Close()
 	source := harness.source
 
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX chmod cannot express clearing the executable bit on Windows")
+	}
 	exit, _ := harness.execute("publication", "deliver", harness.firstID, "--skill-dir", source)
 	if exit != 0 {
 		t.Fatal("first delivery failed")
@@ -772,5 +776,31 @@ func TestPublicationDeliverStopsOnExecutableBitDrift(t *testing.T) {
 	}
 	if info, err := os.Stat(script); err != nil || info.Mode().Perm() != 0o644 {
 		t.Fatalf("author's mode change was not preserved: %v", err)
+	}
+}
+
+// TestPublicationDeliverHandlesNonASCIIParentDirectories covers the panic the
+// fourth review found: the case probe must index runes, not bytes, so a legal
+// path with Chinese components delivers normally.
+func TestPublicationDeliverHandlesNonASCIIParentDirectories(t *testing.T) {
+	t.Parallel()
+	harness := newDeliverHarness(t, deliverAuthorBody)
+	defer harness.server.Close()
+	source := filepath.Join(harness.root, "中文目录", "skill")
+	if err := os.MkdirAll(filepath.Join(source, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "SKILL.md"), []byte(deliverAuthorBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, "scripts", "run.sh"), []byte("#!/bin/sh\necho demo\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	exit, envelope := harness.execute("publication", "deliver", harness.firstID, "--skill-dir", source)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("delivery under a non-ASCII parent directory failed: exit=%d envelope=%v", exit, envelope)
+	}
+	if _, err := os.Stat(filepath.Join(source, ".viceme", "runtime.json")); err != nil {
+		t.Fatalf("channel files were not applied: %v", err)
 	}
 }
