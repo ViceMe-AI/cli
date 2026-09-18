@@ -784,6 +784,9 @@ def purchase_entry_files(market, product_id, title, summary, slug, release_id):
             installed_name, description, product_id, market).encode(), 0o644),
         PURCHASE_GUIDE_PATH: (runtime_resource("guides/purchase.md"), 0o644),
     }
+    # 购买入口包从解压起即携带安装身份：purchase 的归属校验只认这份文件,
+    # 预置后按门禁在解压目录直接运行购买命令即可成立,不必先走官方 install。
+    files[".viceme/install-manifest.json"] = (trial_install_manifest(product_id, release_id), 0o644)
     prepare_runtime_files(files, market, product_id, release_id, "purchase")
     return files, installed_name
 
@@ -2057,8 +2060,6 @@ def compose_skill_files(files, installed_name, product_id, release_id):
         ).encode("utf-8"),
         0o600,
     )
-    # 与 CLI 的 installManifest 字段对齐;溯源守卫只认 product_id/release_id,
-    # 版本/摘要字段留空表示「由免 CLI 脚本安装」,CLI 转正重装时会重写完整清单。
     complete[".viceme/install-manifest.json"] = (trial_install_manifest(product_id, release_id), 0o644)
     if PACKAGE_FILES_PATH in files:
         raise Failure("RUNTIME_RESOURCE_CONFLICT", "作者包占用了平台文件归属清单,未覆盖任何文件")

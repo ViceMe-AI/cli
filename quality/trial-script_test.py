@@ -120,6 +120,20 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertIn(trial.INSTALL_DOC_ORIGIN["cn"], text)
         self.assertIn(trial.INSTALL_DOC_ORIGIN["global"], trial.purchase_entry_skill_markdown(
             "demo-33709ab2", "Demo：简介（购买后使用）", PRODUCT_ID, "global"))
+        # 导出包自带安装身份：解压目录直接通过 purchase 归属校验，无需先走官方 install。
+        entry_files, _ = trial.purchase_entry_files("cn", PRODUCT_ID, "作文批改助手", "批改作文", "essay-grading-assistant", "release-fixture")
+        self.assertIn(".viceme/install-manifest.json", entry_files)
+        manifest = json.loads(entry_files[".viceme/install-manifest.json"][0])
+        self.assertEqual(manifest["product_id"], PRODUCT_ID)
+        self.assertEqual(manifest["release_id"], "release-fixture")
+        self.assertEqual(manifest, json.loads(trial.trial_install_manifest(PRODUCT_ID, "release-fixture")))
+        with tempfile.TemporaryDirectory() as extracted:
+            for name, (data, _) in entry_files.items():
+                path = os.path.join(extracted, name)
+                os.makedirs(os.path.dirname(path), exist_ok=True)
+                with open(path, "wb") as handle:
+                    handle.write(data)
+            trial.validate_install_directory(extracted, "cn", PRODUCT_ID)
         self.assertNotIn("Skill 已安装", trial.purchase_required_message())
         self.assertIn("无试用开场白", trial.purchase_required_message())
         self.assertIn("已经装到本地", trial.purchase_required_message())
