@@ -784,6 +784,9 @@ def purchase_entry_files(market, product_id, title, summary, slug, release_id):
             installed_name, description, product_id, market).encode(), 0o644),
         PURCHASE_GUIDE_PATH: (runtime_resource("guides/purchase.md"), 0o644),
     }
+    # 购买入口包从解压起即携带安装身份：purchase 的归属校验只认这份文件,
+    # 预置后按门禁在解压目录直接运行购买命令即可成立,不必先走官方 install。
+    files[".viceme/install-manifest.json"] = (trial_install_manifest(product_id, release_id), 0o644)
     prepare_runtime_files(files, market, product_id, release_id, "purchase")
     return files, installed_name
 
@@ -2005,6 +2008,33 @@ def read_manifest_product(destination):
     return product
 
 
+def trial_install_manifest(product_id, release_id):
+    """安装身份文件：与 CLI 的 installManifest 字段对齐。
+
+    溯源守卫只认 product_id/release_id，不含任何凭证（installId/secret 在
+    每台机器的 ~/.viceme 状态里），因此同一份内容可随购买入口包分发——
+    导出的 zip 从解压那一刻起就是一个可验证归属的目录，purchase 不必先
+    走官方 install 建立身份。CLI 转正重装时会重写完整清单。
+    """
+    return (
+        json.dumps(
+            {
+                "schema_version": 1,
+                "cli_version": "viceme-trial-script/1",
+                "skill_version": "1",
+                "minimum_cli_version": "",
+                "cli_compatibility": "script",
+                "full_skill_bundle_digest": "",
+                "embedded_content_digest": "",
+                "product_id": product_id,
+                "release_id": release_id,
+            },
+            indent=2,
+        )
+        + "\n"
+    ).encode("utf-8")
+
+
 def compose_skill_files(files, installed_name, product_id, release_id):
     """包文件 + 平台合成文件的完整清单(name -> (bytes, mode))。"""
     complete = dict(files)
@@ -2026,28 +2056,7 @@ def compose_skill_files(files, installed_name, product_id, release_id):
         ).encode("utf-8"),
         0o600,
     )
-    # 与 CLI 的 installManifest 字段对齐;溯源守卫只认 product_id/release_id,
-    # 版本/摘要字段留空表示「由免 CLI 脚本安装」,CLI 转正重装时会重写完整清单。
-    complete[".viceme/install-manifest.json"] = (
-        (
-            json.dumps(
-                {
-                    "schema_version": 1,
-                    "cli_version": "viceme-trial-script/1",
-                    "skill_version": "1",
-                    "minimum_cli_version": "",
-                    "cli_compatibility": "script",
-                    "full_skill_bundle_digest": "",
-                    "embedded_content_digest": "",
-                    "product_id": product_id,
-                    "release_id": release_id,
-                },
-                indent=2,
-            )
-            + "\n"
-        ).encode("utf-8"),
-        0o644,
-    )
+    complete[".viceme/install-manifest.json"] = (trial_install_manifest(product_id, release_id), 0o644)
     if PACKAGE_FILES_PATH in files:
         raise Failure("RUNTIME_RESOURCE_CONFLICT", "作者包占用了平台文件归属清单,未覆盖任何文件")
     manifest = {
