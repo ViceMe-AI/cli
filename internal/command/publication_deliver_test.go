@@ -3,7 +3,9 @@ package command
 import (
 	"archive/zip"
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -480,4 +482,161 @@ func assertDeliveredChannel(t *testing.T, source, productID, releaseID, authored
 
 func containsGate(skill []byte, productID string) bool {
 	return bytes.Contains(skill, []byte("<!-- viceme-trial:v1 product="+productID+" -->"))
+}
+
+// TestPublicationDeliverLocksOnPhysicalDirectoryIdentity proves a parent-path
+// alias cannot fork the delivery lock: a delivery invoked through a symbolic
+// link above the Skill directory blocks against a lock taken on the physical
+// path, and a successful delivery through the alias keys one record that the
+// physical path finds again.
+func TestPublicationDeliverLocksOnPhysicalDirectoryIdentity(t *testing.T) {
+	t.Parallel()
+	harness := newDeliverHarness(t, deliverAuthorBody)
+	defer harness.server.Close()
+	root := harness.root
+	physical := filepath.Join(root, "real", "skill")
+	if err := os.MkdirAll(filepath.Join(physical, "scripts"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(physical, "SKILL.md"), []byte(deliverAuthorBody), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(physical, "scripts", "run.sh"), []byte("#!/bin/sh\necho demo\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aliasParent := filepath.Join(root, "alias")
+	if err := os.Symlink(filepath.Join(root, "real"), aliasParent); err != nil {
+		t.Fatal(err)
+	}
+	aliased := filepath.Join(aliasParent, "skill")
+
+	store := channeldelivery.Store{Directory: filepath.Join(root, "config", "channel-deliveries"), EndpointOrigin: harness.server.URL}
+	unlock, err := store.Lock(physical)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exit, envelope := harness.execute("publication", "deliver", harness.firstID, "--skill-dir", aliased)
+	if exit == 0 || envelope["ok"] != false {
+		t.Fatalf("alias path bypassed the physical lock: exit=%d envelope=%v", exit, envelope)
+	}
+	failure, _ := envelope["error"].(map[string]any)
+	if failure["code"] != "SKILL_CHANNEL_DELIVERY_IN_PROGRESS" {
+		t.Fatalf("unexpected lock failure code: %#v", failure)
+	}
+	if _, err := os.Stat(filepath.Join(physical, ".viceme", "runtime.json")); !os.IsNotExist(err) {
+		t.Fatalf("alias delivery wrote through a held lock: %v", err)
+	}
+	if err := unlock(); err != nil {
+		t.Fatal(err)
+	}
+
+	exit, envelope = harness.execute("publication", "deliver", harness.firstID, "--skill-dir", aliased)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("delivery through the alias failed after unlock: exit=%d envelope=%v", exit, envelope)
+	}
+	records, err := filepath.Glob(filepath.Join(root, "config", "channel-deliveries", "*", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("alias and physical paths must share one record: %v", records)
+	}
+	if _, exists, err := (channeldelivery.Store{Directory: filepath.Join(root, "config", "channel-deliveries"), EndpointOrigin: harness.server.URL}).Load(harness.state.productID, physical); err != nil || !exists {
+		t.Fatalf("physical path lost the record written through the alias: %v %v", exists, err)
+	}
+}
+
+// TestPublicationDeliverKeepsRemovedManagedPathsInScope proves deletions of
+// previously delivered managed files stay in the commit scope across re-runs,
+// so a lost response cannot leave an obsolete generated file on the branch.
+func TestPublicationDeliverKeepsRemovedManagedPathsInScope(t *testing.T) {
+	t.Parallel()
+	harness := newDeliverHarness(t, deliverAuthorBody)
+	defer harness.server.Close()
+	source := harness.source
+
+	exit, envelope := harness.execute("publication", "deliver", harness.firstID, "--skill-dir", source)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("first delivery failed: exit=%d envelope=%v", exit, envelope)
+	}
+
+	store := channeldelivery.Store{Directory: filepath.Join(harness.root, "config", "channel-deliveries"), EndpointOrigin: harness.server.URL}
+	record, exists, err := store.Load(harness.state.productID, source)
+	if err != nil || !exists {
+		t.Fatalf("record missing after delivery: %v %v", exists, err)
+	}
+	legacy := filepath.Join(source, ".viceme", "legacy.json")
+	if err := os.WriteFile(legacy, []byte("previous generator output"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	record.AppliedFiles[".viceme/legacy.json"] = fmt.Sprintf("%x", sha256.Sum256([]byte("previous generator output")))
+	if err := store.Save(record); err != nil {
+		t.Fatal(err)
+	}
+
+	exit, envelope = harness.execute("publication", "deliver", harness.firstID, "--skill-dir", source)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("delivery with a stale managed file failed: exit=%d envelope=%v", exit, envelope)
+	}
+	data, _ := envelope["data"].(map[string]any)
+	if removed, _ := data["removed"].([]any); len(removed) != 1 || removed[0] != ".viceme/legacy.json" {
+		t.Fatalf("stale managed file was not removed: %#v", data["removed"])
+	}
+	if !containsScopePath(data, ".viceme/legacy.json") {
+		t.Fatalf("commit scope lost the removed path on the removing run: %#v", data["commitScope"])
+	}
+	if _, err := os.Stat(legacy); !os.IsNotExist(err) {
+		t.Fatalf("stale managed file still exists: %v", err)
+	}
+
+	// Simulate the lost response: a second run must still report the deletion
+	// in the commit scope even though nothing is removed this time.
+	exit, envelope = harness.execute("publication", "deliver", harness.firstID, "--skill-dir", source)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("re-run after the removal failed: exit=%d envelope=%v", exit, envelope)
+	}
+	data, _ = envelope["data"].(map[string]any)
+	if !containsScopePath(data, ".viceme/legacy.json") {
+		t.Fatalf("commit scope forgot the pending deletion on re-run: %#v", data["commitScope"])
+	}
+}
+
+func containsScopePath(data map[string]any, want string) bool {
+	scope, _ := data["commitScope"].([]any)
+	for _, item := range scope {
+		if path, _ := item.(string); path == want {
+			return true
+		}
+	}
+	return false
+}
+
+// TestPublicationDeliverHonorsViceMeIgnore proves the authored-surface check
+// reuses the complete packaging filter: a local file excluded by the author's
+// .vicemeignore stays out of the release without blocking the delivery.
+func TestPublicationDeliverHonorsViceMeIgnore(t *testing.T) {
+	t.Parallel()
+	harness := newDeliverHarness(t, deliverAuthorBody)
+	defer harness.server.Close()
+	source := harness.source
+
+	if err := os.WriteFile(filepath.Join(source, "notes.txt"), []byte("local only, never packaged"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(source, ".vicemeignore"), []byte("notes.txt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ignored, err := publication.Build(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	harness.state.publications[harness.firstID] = publicationBytes{releaseID: "dddddddd-dddd-4ddd-8ddd-dddddddddddd", pkg: ignored}
+
+	exit, envelope := harness.execute("publication", "deliver", harness.firstID, "--skill-dir", source)
+	if exit != 0 || envelope["ok"] != true {
+		t.Fatalf("ignored local file blocked the delivery: exit=%d envelope=%v", exit, envelope)
+	}
+	if notes, err := os.ReadFile(filepath.Join(source, "notes.txt")); err != nil || string(notes) != "local only, never packaged" {
+		t.Fatalf("ignored local file was touched: %q %v", notes, err)
+	}
 }

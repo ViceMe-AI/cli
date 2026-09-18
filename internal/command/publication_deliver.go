@@ -67,6 +67,14 @@ func deliverSkillChannel(command *cobra.Command, runtime *Runtime, publicationID
 	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
 		return output.Validation("SKILL_CHANNEL_DIR_INVALID", "--skill-dir must be a real directory, not a symlink")
 	}
+	// Lock, record, and file operations share one physical directory identity:
+	// parent-path aliases (a symbolic link above the directory, e.g. /tmp vs
+	// /private/tmp) must not fork the delivery lock or the baseline record.
+	physicalSkillDir, err := filepath.EvalSymlinks(absSkillDir)
+	if err != nil {
+		return output.Validation("SKILL_CHANNEL_DIR_INVALID", "could not resolve the Skill directory").WithCause(err)
+	}
+	absSkillDir = physicalSkillDir
 
 	var warnings []string
 	binding, hasBinding := readChannelBinding(absSkillDir)
@@ -231,11 +239,28 @@ func deliverSkillChannel(command *cobra.Command, runtime *Runtime, publicationID
 	if branch == "" {
 		branch = "viceme-skill-" + strings.ReplaceAll(product.ID, "-", "")[:12]
 	}
+	// Removed managed paths stay recorded until a later delivery re-applies
+	// content at the same path, so a retry after a lost response still tells
+	// the agent which deletions are waiting for their Git commit.
+	removed := make(map[string]string, len(record.RemovedFiles))
+	for name, release := range record.RemovedFiles {
+		removed[name] = release
+	}
+	for _, name := range apply.Written {
+		delete(removed, name)
+	}
+	for _, name := range apply.Unchanged {
+		delete(removed, name)
+	}
+	for _, name := range apply.Removed {
+		removed[name] = product.ReleaseID
+	}
 	next := channeldelivery.Record{
 		APIVersion: channeldelivery.RecordAPIVersion, EndpointOrigin: runtime.apiBaseURL,
 		Market: string(runtime.region), PublicationID: publicationID, ListingID: published.ListingID,
 		ProductID: product.ID, ReleaseID: product.ReleaseID, ProductSlug: product.Slug, Branch: branch,
-		SkillDir: absSkillDir, AppliedFiles: applied, ZipPath: absZip, ZipDigest: zipDigest,
+		SkillDir: absSkillDir, AppliedFiles: applied, RemovedFiles: removed,
+		ZipPath: absZip, ZipDigest: zipDigest,
 		Generator: buildinfo.Version, CreatedAt: record.CreatedAt,
 	}
 	if err := store.Save(next); err != nil {
@@ -244,9 +269,12 @@ func deliverSkillChannel(command *cobra.Command, runtime *Runtime, publicationID
 
 	// The commit scope is the managed path set of the directory — not only
 	// this run's delta — so a re-run after a lost response still reports every
-	// channel path that may be waiting for its Git commit.
-	scope := make([]string, 0, len(applied))
+	// channel path, including deletions, that may be waiting for its Git commit.
+	scope := make([]string, 0, len(applied)+len(removed))
 	for name := range applied {
+		scope = append(scope, name)
+	}
+	for name := range removed {
 		scope = append(scope, name)
 	}
 	sort.Strings(scope)
@@ -329,7 +357,7 @@ func authorFileConflicts(root string, packageFiles map[string]downloadableSkillF
 		if entry.IsDir() {
 			return nil
 		}
-		if strings.HasPrefix(relative, ".viceme/") || publication.PackagedPathIgnored(relative) {
+		if strings.HasPrefix(relative, ".viceme/") || publication.WorkspacePathIgnored(root, relative) {
 			return nil
 		}
 		if _, managed := channelFiles[relative]; managed {

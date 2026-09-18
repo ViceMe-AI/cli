@@ -37,11 +37,15 @@ type Record struct {
 	Branch         string            `json:"branch"`
 	SkillDir       string            `json:"skillDir"`
 	AppliedFiles   map[string]string `json:"appliedFiles"`
-	ZipPath        string            `json:"zipPath"`
-	ZipDigest      string            `json:"zipDigest"`
-	Generator      string            `json:"generatorVersion"`
-	CreatedAt      string            `json:"createdAt"`
-	UpdatedAt      string            `json:"updatedAt"`
+	// RemovedFiles remembers managed paths an earlier delivery deleted, so a
+	// re-run after a lost response still reports them in the commit scope
+	// until a later delivery applies content at that path again.
+	RemovedFiles map[string]string `json:"removedFiles,omitempty"`
+	ZipPath      string            `json:"zipPath"`
+	ZipDigest    string            `json:"zipDigest"`
+	Generator    string            `json:"generatorVersion"`
+	CreatedAt    string            `json:"createdAt"`
+	UpdatedAt    string            `json:"updatedAt"`
 }
 
 // Store persists delivery records under the CLI config directory, sharded by
@@ -53,11 +57,23 @@ type Store struct {
 	ReportDegraded privatefile.DegradedReporter
 }
 
-// Key identifies one delivery target: the product and the normalized Skill
+// physicalDir resolves one Skill directory to its physical identity so path
+// aliases — a symbolic link in any parent component, such as /tmp versus
+// /private/tmp — share one lock and one record. A path that cannot be resolved
+// is used cleaned.
+func physicalDir(directory string) string {
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		return filepath.Clean(directory)
+	}
+	return resolved
+}
+
+// Key identifies one delivery target: the product and the physical Skill
 // directory under the current endpoint. Publications of the same product share
 // the key so updates inherit the previous baseline.
 func (s Store) Key(productID, skillDir string) string {
-	sum := sha256.Sum256([]byte(productID + "\x00" + filepath.Clean(skillDir)))
+	sum := sha256.Sum256([]byte(productID + "\x00" + physicalDir(skillDir)))
 	return hex.EncodeToString(sum[:16])
 }
 
@@ -71,7 +87,7 @@ func (s Store) filename(key string) string {
 // persisted, so concurrent deliveries — of any publication — cannot interleave
 // filesystem writes on the same directory.
 func (s Store) Lock(skillDir string) (func() error, error) {
-	sum := sha256.Sum256([]byte(s.EndpointOrigin + "\x00" + filepath.Clean(skillDir)))
+	sum := sha256.Sum256([]byte(s.EndpointOrigin + "\x00" + physicalDir(skillDir)))
 	shard := filepath.Join(s.Directory, hex.EncodeToString(sum[:8]))
 	if err := os.MkdirAll(shard, 0o700); err != nil {
 		return nil, operationError("SKILL_CHANNEL_RECORD_SAVE_FAILED", "could not create the channel delivery record directory", err)
@@ -110,6 +126,7 @@ func (s Store) Load(productID, skillDir string) (Record, bool, error) {
 // happen inside it so the on-disk record never interleaves with another
 // delivery of the same directory.
 func (s Store) Save(record Record) error {
+	record.SkillDir = physicalDir(record.SkillDir)
 	filename := s.filename(s.Key(record.ProductID, record.SkillDir))
 	if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
 		return operationError("SKILL_CHANNEL_RECORD_SAVE_FAILED", "could not create the channel delivery record directory", err)
