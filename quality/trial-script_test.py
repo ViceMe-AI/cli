@@ -110,10 +110,10 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertNotIn("# 购买后使用", text)
         self.assertNotIn("imageChatSrc", text)
         self.assertNotIn("present_files", text)
-        for required in ("不算已展示", "--wait 0", "--wait 60", "开场白", "无试用开场白", "已经装到本地", "现在就试", "先放着"):
+        for required in ("不算完成支付展示", "--wait 0", "--wait 60", "开场白", "无试用开场白", "正式内容尚未安装", "现在就试", "先放着"):
             self.assertIn(required, text)
-        # 「安装」请求不得绕过购买：入口包解压进技能目录不构成安装（豆包实测绕过，2026-09-17）。
-        for required in ("唯一正确的下一步", "不构成安装", "包括宿主自带的技能目录", "解压到普通工作目录"):
+        # 入口说明区分解压、下单、本人付款与正式安装，并保留宿主授权边界。
+        for required in ("按以下流程获取正式内容", "解压或复制入口包不代表正式 Skill 已安装", "解压到普通工作目录", "需要补充授权时说明具体操作"):
             self.assertIn(required, text)
         # 无 Python 时必须有 CLI 兜底，与试用门禁的三路结构对齐。
         self.assertIn("viceme skill trial-purchase " + PRODUCT_ID, text)
@@ -135,12 +135,12 @@ class TrialScriptTestCase(unittest.TestCase):
                     handle.write(data)
             trial.validate_install_directory(extracted, "cn", PRODUCT_ID)
         self.assertNotIn("Skill 已安装", trial.purchase_required_message())
-        self.assertIn("无试用开场白", trial.purchase_required_message())
-        self.assertIn("已经装到本地", trial.purchase_required_message())
+        self.assertIn("无免费试用", trial.purchase_required_message())
+        self.assertIn("正式内容安装成功后，再报告安装完成", trial.purchase_required_message())
         self.assertIn("现在就试", trial.OWNED_USAGE_GUIDE)
         self.assertIn("先放着", trial.OWNED_USAGE_GUIDE)
         gate = text.split("## 使用前必读", 1)[1]
-        self.assertLess(gate.find("必须先读取并执行"), gate.find("改成 `--wait 60`"))
+        self.assertLess(gate.find("购买与支付展示"), gate.find("改成 `--wait 60`"))
         self.assertLess(gate.find("开场白"), gate.find("二维码"))
 
     def test_local_file_chat_src_uses_workbuddy_protocol(self):
@@ -644,7 +644,8 @@ class TrialScriptTestCase(unittest.TestCase):
                     for required in ("当前宿主明确支持", "![微信支付二维码](<imagePath>)",
                                      "支持本地 HTML", "另一个独立获准的通道",
                                      "只有托管入口不可用且本地图片和页面都无法展示时", "仅交付路径时不要启动等待",
-                                     "开场白必须出现在二维码", "无试用开场白", "已经装到本地"):
+                                     "商品与金额说明放在二维码", "无试用时可参考以下表达", "正式内容尚未安装",
+                                     "同一订单只嵌入一张二维码图片", "不要提前在后台启动等待"):
                         self.assertIn(required, instructions)
                     exhausted = trial.exhausted_purchase_message()
                     self.assertNotIn("present_files", exhausted)
@@ -1988,7 +1989,7 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertIn("## 使用前必读", text)
         self.assertIn(trial.PURCHASE_END, text)
         self.assertIn(trial.PURCHASE_GUIDE_PATH, text)
-        self.assertIn("不算已展示", text)
+        self.assertIn("不算完成支付展示", text)
         self.assertIn("开场白", text)
         self.assertNotIn("imageChatSrc", text)
         with open(os.path.join(root, trial.PURCHASE_GUIDE_PATH), encoding="utf-8") as handle:
