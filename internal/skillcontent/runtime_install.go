@@ -28,7 +28,7 @@ type RuntimeManifest struct {
 var RuntimeResourcePaths = []string{
 	"scripts/trial.py", "scripts/qrcodegen.py", "widgets/onboarding.html",
 	"widgets/payment.html", "guides/widgets.md", "guides/trial-usage.md",
-	"guides/purchase.md",
+	"guides/purchase.md", "guides/host-presentation.md",
 }
 
 // FindRuntimeInstall checks only the selected host and its normal shared root.

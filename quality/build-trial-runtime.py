@@ -25,6 +25,7 @@ def artifacts():
         "guides/widgets.md": ROOT / "widgets/README.md",
         "guides/trial-usage.md": ROOT / "skills/use-a-skill/references/trial-usage.md",
         "guides/purchase.md": ROOT / "skills/use-a-skill/references/purchase.md",
+        "guides/host-presentation.md": ROOT / "skills/use-a-skill/references/host-presentation.md",
     }
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -32,7 +33,10 @@ def artifacts():
             info = zipfile.ZipInfo(name, (1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o100644 << 16
-            archive.writestr(info, source.read_bytes())
+            content = source.read_bytes()
+            if name == "guides/widgets.md":
+                content = content.replace(b"../skills/use-a-skill/references/host-presentation.md", b"host-presentation.md")
+            archive.writestr(info, content)
     content = buffer.getvalue()
     bootstrap = (ROOT / "release/trial-bootstrap.py.tmpl").read_text().replace(
         "__RUNTIME_SHA256__", hashlib.sha256(content).hexdigest())
