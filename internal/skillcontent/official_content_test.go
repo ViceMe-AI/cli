@@ -1998,7 +1998,11 @@ func TestPaidSkillWithoutTrialUsesStandalonePurchaseGuide(t *testing.T) {
 	if !strings.Contains(guide, "## 免 CLI 的直接购买") || !strings.Contains(guide, "runtimePath") {
 		t.Fatal("direct purchase must return the installed Skill runtime for payment and recovery")
 	}
-	for _, required := range []string{"使用前必读", "checkoutUrl", "不算已展示", "开场白", "无试用开场白", "正式内容尚未安装", "现在就试", "先放着"} {
+	for _, required := range []string{
+		"使用前必读", "checkoutUrl", "不算已展示", "开场白", "无试用开场白", "正式内容尚未安装",
+		"正式内容安装完成后，重新读取实际 SKILL.md 并继续原任务",
+		"没有原任务时，简短说明怎么开始，等待用户提供任务内容",
+	} {
 		if !strings.Contains(guide, required) {
 			t.Fatalf("direct purchase omitted visible payment gate %q", required)
 		}
