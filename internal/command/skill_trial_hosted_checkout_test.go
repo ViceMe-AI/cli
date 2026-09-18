@@ -62,7 +62,7 @@ func TestTrialHostedCheckoutSurvivesLocalPresentationFailure(t *testing.T) {
 					if details["checkoutUrl"] == nil || details["checkoutImageUrl"] == nil {
 						t.Fatal("lost hosted entry")
 					}
-					if strings.Contains(hint, "paymentPresentation.checkoutImageUrl") || !strings.Contains(hint, "Always send") || !strings.Contains(hint, "also embed") {
+					if strings.Contains(hint, "paymentPresentation.checkoutImageUrl") || !strings.Contains(hint, "Always send") || !strings.Contains(hint, "Only embed") {
 						t.Fatalf("wrong hosted output contract: %s", hint)
 					}
 				} else if details["checkoutUrl"] != nil || strings.Contains(hint, "checkoutUrl") {
@@ -97,7 +97,7 @@ func TestHostedCheckoutPreferencesRespectHostCapabilities(t *testing.T) {
 			}
 			return ""
 		}, true)
-		for _, text := range []string{"current host explicitly supports", "Always send the returned checkoutUrl", "also embed the returned checkoutImageUrl", "Do not assume every chat", "not paymentPresentation"} {
+		for _, text := range []string{"current host explicitly supports", "Always send the returned checkoutUrl", "Only embed the returned checkoutImageUrl", "at most one QR image", "Do not start the wait in the background", "Do not assume every chat", "not paymentPresentation"} {
 			if !strings.Contains(hint, text) {
 				t.Fatalf("%s omitted %q", host, text)
 			}

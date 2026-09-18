@@ -41,9 +41,14 @@ The caller's workflow still defines permitted channels (for example,
 Anonymous trial purchases may also return **outer** `checkoutUrl` (the official
 login-free cashier) and `checkoutImageUrl` (its HTTPS QR image); these are not
 members of `paymentPresentation`. Always provide the returned checkout URL as a
-clickable Markdown link. When the host supports HTTPS images, also embed the
-returned image on its own line; do not replace the link with the image or claim
-that every chat can render it. Use only returned fields, never construct URLs.
+clickable Markdown link. Embed at most one QR image per order in each chat
+response: choose either a supported local image or the hosted HTTPS image.
+Use checkoutImageUrl only when the HTTPS image channel is selected; do not
+append it as a second QR image when a usable local image is already selected.
+Switch sources only if the selected image channel is unavailable or explicitly
+fails. The HTML payment preview may accompany the single selected chat image.
+Do not replace the link with an image or assume every chat can render images.
+Use only returned fields, never construct URLs.
 
 WorkBuddy and Doubao Work prefer their available local platform channel, with
 the hosted pair as fallback; retain the hosted link alongside local display.
@@ -61,24 +66,27 @@ Known host preferences follow the same capability rules:
   not render as an image), and, when available, open only the HTML page with
   `present_files([widgetPath])`; never pass the PNG to `present_files`. When
   `present_files` is unavailable on WorkBuddy, the chat image alone still
-  counts as displayed.
+  counts as displayed. If the local image channel is unavailable or explicitly
+  fails, use the hosted image when supported; do not embed both QR images.
 - Doubao Work: prefer delivering `widgetPath` with `present_files` when
   available. Do not pass the PNG to `present_files` or infer chat image support
   from the platform name. Another explicitly supported channel remains usable.
 - Codex, Claude, and unknown hosts: choose either supported channel above;
   identifying a platform does not prove or disprove local image support.
 
-Do not
-Read the HTML or PNG, do not paste HTML into chat, and do not call
-`show_widget` for payment. The page background is transparent so the cashier
-card can sit in the center of the host preview.
+For presentation, use the returned HTML page or PNG directly; reading their
+contents as text is unnecessary. Source files may be inspected when needed
+for a security review. Do not paste HTML into chat or call `show_widget` for
+payment. The page background is transparent so the cashier card can sit in
+the center of the host preview.
 
 Do not copy the provider URI into chat, an external QR service or a URL.
 The page already contains an encoded inline SVG QR; do not use `<img src>`
 inside the page and do not redraw or guess missing QR paths.
 
 Display the QR through at least one supported channel or deliver a clickable
-official checkoutUrl before starting the caller's bounded payment wait. A hosted
+official checkoutUrl before starting the caller's bounded payment wait.
+Do not start the wait in the background before delivering the payment entry. A hosted
 link is a payment entry, not evidence that a QR was displayed. Both local image
 and page are not required. Merely
 generating artifacts or returning a tool response does not prove display.
