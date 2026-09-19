@@ -84,6 +84,11 @@ func TestCloudPublicSummaryUsesDeclarationAndUTF16Limit(t *testing.T) {
 			t.Fatal("summary differs from trimmed API contract")
 		}
 	}
+	declaration, _ = json.Marshal(map[string]any{"version": 1, "purpose": strings.Repeat("🪷", 1000) + "\n", "localWorkflow": "WORKFLOW.md", "privateFiles": []string{"SKILL.md"}, "publicFiles": []string{"WORKFLOW.md"}})
+	writeTestFile(t, filepath.Join(directory, "viceme-cloud.json"), declaration, 0o644)
+	if pkg, err := Build(directory); err != nil || pkg.Manifest.Spec.Cloud.Purpose != strings.Repeat("🪷", 1000) {
+		t.Fatal("purpose limit did not follow API trim-before-validation")
+	}
 	oversized := strings.Repeat("🪷", 1001)
 	declaration, _ = json.Marshal(map[string]any{"version": 1, "purpose": oversized, "localWorkflow": "WORKFLOW.md", "privateFiles": []string{"SKILL.md"}, "publicFiles": []string{"WORKFLOW.md"}})
 	writeTestFile(t, filepath.Join(directory, "viceme-cloud.json"), declaration, 0o644)

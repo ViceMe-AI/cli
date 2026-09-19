@@ -34,7 +34,7 @@ func cloudManifestFromEntries(entries []sourceEntry) (*api.SkillCloudPackageMani
 	var manifest api.SkillCloudPackageManifest
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&manifest) != nil || decoder.Decode(new(any)) != io.EOF || manifest.Version != 1 || strings.TrimSpace(manifest.Purpose) == "" || utf16Length(manifest.Purpose) > 2000 || len(manifest.PrivateFiles) == 0 || len(manifest.PrivateFiles) > 40 || len(manifest.PublicFiles) > 1000 || manifest.PublicFiles == nil {
+	if decoder.Decode(&manifest) != nil || decoder.Decode(new(any)) != io.EOF || manifest.Version != 1 || strings.TrimSpace(manifest.Purpose) == "" || utf16Length(strings.TrimSpace(manifest.Purpose)) > 2000 || len(manifest.PrivateFiles) == 0 || len(manifest.PrivateFiles) > 40 || len(manifest.PublicFiles) > 1000 || manifest.PublicFiles == nil {
 		return invalid()
 	}
 	seen := map[string]bool{"viceme-cloud.json": true}
