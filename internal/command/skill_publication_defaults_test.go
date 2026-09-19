@@ -50,3 +50,12 @@ func TestDefaultEditionHighlightTruncatesAtBoundary(t *testing.T) {
 		t.Errorf("sentence-cut highlight should end at a sentence mark, got %q", got)
 	}
 }
+
+func TestDefaultEditionHighlightPreservesUTF16Contract(t *testing.T) {
+	if got := defaultEditionHighlight(strings.Repeat("🪷", 101)); got != strings.Repeat("🪷", 100) {
+		t.Fatal("non-BMP public purpose exceeded the API highlight limit")
+	}
+	if got := defaultEditionHighlight(strings.Repeat("a", 199) + "🪷b"); got != strings.Repeat("a", 199) {
+		t.Fatal("highlight split a Unicode character")
+	}
+}
