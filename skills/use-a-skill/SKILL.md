@@ -7,6 +7,18 @@ description: 安装和使用可下载的 ViceMe Skill。适用于作品链接安
 
 面向用户跟随当前语言，使用自然白话，优先说明任务结果、试用余量、购买状态和下一步操作。需要说明脚本作用、授权范围或本地文件用途时可简短解释，避免堆砌内部字段和命令。待付款时说明正式内容尚未安装；只有实际安装成功后才报告安装完成。可见思考摘要同样遵守。本流程只消费用户选择的 Product，不转到商家发布流程。安装就绪、还能试用和付款成功是不同状态。
 
+## 云端交付优先分支
+
+先看 `deliveryMode`（缺省 `SOURCE`）。`CLOUD` 安装的是短入口与作者明确公开的文件，下面 SOURCE 的软门禁、耗尽后停止正文、`owned` 离线执行和付款换包规则均不适用。`kind` 表示安装时权益，不能替代云端任务授权；即使 `owned=true`，新任务仍需调用云端。
+
+先读取生成入口指定的公开流程，了解本地脚本和输入输出。有任务时，只把用户确认的任务范围与选择规则所需的事实写入本地 JSON；用户文件、业务明细和脚本输出保留本地，不自动上传：`requestKey` 用一次 UUID，`prompt` 写当前任务，`facts` 放必要事实。用返回的本地路径运行 `python3 <runtimePath> cloud --input <任务.json> --wait 60`（Windows 用 `py`）；CLI 路线运行 `viceme skill cloud --input <任务.json> --wait 60s`。包内 Python 自动补齐商品和市场；CLI 输入应有 `productId` 或 `--product`。保存原输入与从已安装 runtime 补齐的 releaseId；超时、进程中断、网络错误及付款恢复均重用同一文件和 requestKey，不因重试新建 UUID。SKILL_CLOUD_RELEASE_MISMATCH 表示本地公开文件与任务版本不同，保留任务并恢复对应版本，不换 releaseId 重扣一次。
+
+只有 `task.outcome=ready` 且 `allowed=true` 才按作者公开流程与 `executionPath` 内的核心指导在本地执行原脚本、作业务判断并验证最终产物；这是一次计次单位，不能拿来生成另一个任务。`needs_input` 只向用户澄清选择规则所缺的范围事实，不要求为了云端生成指导而上传原始业务记录，保留 `sessionId`，补齐输入并用新 requestKey；`refused` 解释返回的 message 并停止。失败和非 ready 不扣次。等待结束返回 RETRY_SAME_TASK 时再次运行同一输入。
+
+次数耗尽或缺少权益时命令会给出购买入口，按本次输出展示付款。付款后匿名 `purchase` / `trial-purchase` 会恢复原待办；注册账号重新运行原 cloud 命令。只依据恢复结果继续，不下载作者源码、不运行旧 `use`。Python 遇到需要账号的任务会复用打包的官方定位脚本和现有 CLI 登录，不读取或复制账号令牌。完整请求与发布样例见仓库 `docs/cloud-skills.md`。
+
+以下章节仅适用于 `deliveryMode=SOURCE`。
+
 ## 无试用的付费安装
 
 作品页明确所选版本「未提供免费试用」时，仍先走作品页的 Python install 入口，无需 CLI 或登录。用户直接提供渠道包时，解压后按包内 SKILL.md 的「使用前必读」执行，无需重新从作品页安装。脚本先安装带购买入口和本地运行依赖的 Skill，返回 kind=purchase、allowed=false、nextAction=PURCHASE_REQUIRED 和 runtimePath。此时目录已存在，尚未取得正式内容，也未申请试用次数；这是未购买，不是试用耗尽，不展示试用上手卡。目录已存在只表示入口包就绪，正式内容尚未安装。

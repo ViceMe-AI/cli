@@ -36,8 +36,8 @@ type TrialOwnedDownload struct {
 	Download DownloadURL `json:"download"`
 }
 
-func (c *Client) TrialPurchase(ctx context.Context, productID, installID, secret, requestID, locale, orderNo string) (TrialPurchase, error) {
-	endpoint := "/v1/skills/" + url.PathEscape(productID) + "/trial-purchase"
+func (c *Client) TrialPurchase(ctx context.Context, productID, installID, secret, requestID, locale, orderNo string, kinds ...string) (TrialPurchase, error) {
+	endpoint := "/v1/skills/" + url.PathEscape(productID) + "/" + skillPurchaseEndpoint(kinds)
 	body := map[string]string{"installId": installID, "secret": secret}
 	if orderNo != "" {
 		endpoint += "/status"
@@ -63,17 +63,30 @@ func (c *Client) TrialPurchase(ctx context.Context, productID, installID, secret
 	return response.TrialPurchase, nil
 }
 
-func (c *Client) TrialOwnedSkillDownload(ctx context.Context, productID, installID, secret string) (TrialOwnedDownload, error) {
+func (c *Client) TrialOwnedSkillDownload(ctx context.Context, productID, installID, secret string, kinds ...string) (TrialOwnedDownload, error) {
 	var response TrialOwnedDownload
-	err := c.doJSON(ctx, http.MethodPost, "/v1/skills/"+url.PathEscape(productID)+"/trial-purchase/download",
+	err := c.doJSON(ctx, http.MethodPost, "/v1/skills/"+url.PathEscape(productID)+"/"+skillPurchaseEndpoint(kinds)+"/download",
 		map[string]string{"installId": installID, "secret": secret}, &response, "")
 	if err != nil {
 		return response, err
 	}
 	if !response.Access.Owned || response.Access.InstallKind != "OWNED_PAID" || response.Access.ProductID != productID ||
-		response.Access.Release.ID == "" || response.Access.Release.ID != response.Download.ReleaseID ||
+		response.Access.Release.ID == "" {
+		return TrialOwnedDownload{}, output.Authorization("SKILL_NOT_OWNED", "no matching active paid Skill release was authorized")
+	}
+	if DeliveryMode(response.Access.DeliveryMode) == "CLOUD" {
+		return response, nil
+	}
+	if DeliveryMode(response.Access.DeliveryMode) != "SOURCE" || response.Access.Release.ID != response.Download.ReleaseID ||
 		response.Access.Release.ArtifactDigest == "" || response.Access.Release.ArtifactDigest != response.Download.ArtifactDigest {
 		return TrialOwnedDownload{}, output.Authorization("SKILL_NOT_OWNED", "no matching active paid Skill release was authorized")
 	}
 	return response, nil
+}
+
+func skillPurchaseEndpoint(kinds []string) string {
+	if len(kinds) > 0 && kinds[0] == "purchase" {
+		return "purchase"
+	}
+	return "trial-purchase"
 }

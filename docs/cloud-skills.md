@@ -50,3 +50,5 @@ Go 与 Python 的结果保持相同机器可读字段，stdout 只输出一个 J
 本地真实进程测试使用隔离 HOME、CLI 配置、Skill 路径与缓存。覆盖公开附件保真、无试用购买身份、两种 runtime 的安装与恢复、版本冲突、输入不可变、失败/重试及 SOURCE 回归。服务端使用隔离基础设施验证权益和并发；真实模型指导由本地原脚本完成产物构建。
 
 完成 `make check`、规定的 race 与 npm 门禁后，由独立子代理整体评审并修复，再 PR 到 dev。生成的内嵌 runtime ZIP 与 release manifest 通过仓库脚本重建，不手工修补摘要。不发布 npm、正式安装器或生产版本；本地成功不代表官方渠道已分发此能力。
+
+Python 转交账号任务前，通过 CLI `version` 的 `protocols.skillCloud: 1` 协商能力。旧 CLI 不接收任务；独立匿名身份继续由 Python 执行，账号任务提示更新 CLI 后原键重试。

@@ -825,10 +825,12 @@ type SkillPublicationMetadata struct {
 }
 
 type SkillPublicationSpec struct {
-	PublishMode string                  `json:"publishMode" yaml:"publishMode"`
-	Source      SkillPublicationSource  `json:"source" yaml:"source"`
-	Edition     SkillPublicationEdition `json:"edition" yaml:"edition"`
-	Sale        SkillPublicationSale    `json:"sale" yaml:"sale"`
+	DeliveryMode string                     `json:"deliveryMode,omitempty" yaml:"deliveryMode,omitempty"`
+	Cloud        *SkillCloudPackageManifest `json:"cloud,omitempty" yaml:"cloud,omitempty"`
+	PublishMode  string                     `json:"publishMode" yaml:"publishMode"`
+	Source       SkillPublicationSource     `json:"source" yaml:"source"`
+	Edition      SkillPublicationEdition    `json:"edition" yaml:"edition"`
+	Sale         SkillPublicationSale       `json:"sale" yaml:"sale"`
 }
 
 type SkillPublicationSource struct {
@@ -1414,6 +1416,7 @@ type CreatorSubscriptionPlan struct {
 }
 
 type SkillAccess struct {
+	DeliveryMode      string                  `json:"deliveryMode,omitempty"`
 	ProductID         string                  `json:"productId"`
 	IsFree            bool                    `json:"isFree"`
 	Owned             bool                    `json:"owned"`
@@ -1437,6 +1440,7 @@ type SkillAccess struct {
 }
 
 type DownloadURL struct {
+	DeliveryMode   string `json:"deliveryMode,omitempty"`
 	URL            string `json:"url"`
 	FileName       string `json:"fileName"`
 	ReleaseID      string `json:"releaseId"`
