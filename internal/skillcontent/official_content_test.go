@@ -635,7 +635,7 @@ func TestPersonalPageDoesNotRouteThroughCreatorQualification(t *testing.T) {
 	}
 }
 
-func TestCreatorPersonalCardUsesVerifiedCloudCatalog(t *testing.T) {
+func TestCreatorPersonalCardUsesVerifiedGuidanceCatalog(t *testing.T) {
 	t.Parallel()
 
 	page, err := fs.ReadFile(cliembed.EmbeddedSkills(), "customize-your-profile-page/SKILL.md")
@@ -654,12 +654,12 @@ func TestCreatorPersonalCardUsesVerifiedCloudCatalog(t *testing.T) {
 		"最终本机预览是唯一一次用户确认",
 	} {
 		if !strings.Contains(text, required) {
-			t.Fatalf("cloud template catalog contract omitted %q", required)
+			t.Fatalf("guidance template catalog contract omitted %q", required)
 		}
 	}
 	for _, forbidden := range []string{"templates/registry.json", "catalog-previews/", "dev_mock"} {
 		if strings.Contains(text, forbidden) {
-			t.Fatalf("creator-facing cloud catalog leaked %q", forbidden)
+			t.Fatalf("creator-facing guidance catalog leaked %q", forbidden)
 		}
 	}
 }

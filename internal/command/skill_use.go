@@ -185,8 +185,8 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				if installIntent != skillInstallIntentOwned && !access.Owned && access.Trial != nil && access.Trial.Available {
 					return installTrialSkill(command.Context(), runtime, productID, workSlugForTrial, agent, access)
 				}
-				if installIntent != skillInstallIntentOwned && !access.Owned && access.PurchaseAvailable && api.DeliveryMode(access.DeliveryMode) == "CLOUD" {
-					download, err := runtime.client().GetCloudSkillDownload(command.Context(), productID)
+				if installIntent != skillInstallIntentOwned && !access.Owned && access.PurchaseAvailable && api.DeliveryMode(access.DeliveryMode) == "PROTECTED" {
+					download, err := runtime.client().GetGuidanceSkillDownload(command.Context(), productID)
 					if err != nil {
 						return err
 					}
@@ -327,7 +327,7 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	kind := "owned"
 	if access.IsFree {
 		kind = "free"
-	} else if !access.Owned && api.DeliveryMode(access.DeliveryMode) == "CLOUD" {
+	} else if !access.Owned && api.DeliveryMode(access.DeliveryMode) == "PROTECTED" {
 		kind = "purchase"
 	}
 	if err := addSkillRuntime(runtime, files, productID, access.Release.ID, kind, access.DeliveryMode); err != nil {
@@ -344,11 +344,11 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 		return downloadableSkillInstallResult{}, output.Internal("SKILL_INSTALL_FAILED", "one or more Skill targets could not be installed", nil).WithDetails(map[string]any{"report": report})
 	}
 	nextAction := "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL"
-	if api.DeliveryMode(access.DeliveryMode) == "CLOUD" {
-		nextAction = "SUBMIT_CLOUD_TASK"
+	if api.DeliveryMode(access.DeliveryMode) == "PROTECTED" {
+		nextAction = "SUBMIT_GUIDANCE_TASK"
 	}
 	return downloadableSkillInstallResult{
-		localSkillResources: cloudResources(resourcesFromReport(report, "cli"), access.DeliveryMode),
+		localSkillResources: guidanceResources(resourcesFromReport(report, "cli"), access.DeliveryMode),
 		ProductID:           productID, Edition: access.Edition, ReleaseID: access.Release.ID, ArtifactDigest: digest,
 		InstalledName: installedName, Install: report,
 		NextAction: nextAction, Invocation: "$" + installedName,

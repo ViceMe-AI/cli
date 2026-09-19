@@ -814,7 +814,7 @@ func (r *Runtime) writeVersion() error {
 	return r.business(versionResult{
 		Info:      buildinfo.Current(),
 		Skills:    skills,
-		Protocols: map[string]int{"skillCloud": 1},
+		Protocols: map[string]int{"skillGuidance": 1},
 	})
 }
 

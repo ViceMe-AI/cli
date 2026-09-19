@@ -567,7 +567,7 @@ func installTrialSkill(ctx context.Context, runtime *Runtime, productID string, 
 	if err != nil {
 		return err
 	}
-	if api.DeliveryMode(access.DeliveryMode) != "CLOUD" {
+	if api.DeliveryMode(access.DeliveryMode) != "PROTECTED" {
 		if err := injectSkillTrialGate(files, productID, string(runtime.region)); err != nil {
 			return err
 		}
@@ -591,10 +591,10 @@ func installTrialSkill(ctx context.Context, runtime *Runtime, productID string, 
 		return output.Internal("SKILL_INSTALL_FAILED", "one or more Skill targets could not be installed", nil).WithDetails(map[string]any{"report": report})
 	}
 	nextAction := "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL"
-	if api.DeliveryMode(access.DeliveryMode) == "CLOUD" {
-		nextAction = "SUBMIT_CLOUD_TASK"
+	if api.DeliveryMode(access.DeliveryMode) == "PROTECTED" {
+		nextAction = "SUBMIT_GUIDANCE_TASK"
 	}
-	if grant.RemainingUses == 0 && api.DeliveryMode(access.DeliveryMode) != "CLOUD" {
+	if grant.RemainingUses == 0 && api.DeliveryMode(access.DeliveryMode) != "PROTECTED" {
 		purchaseURL := ""
 		if access.PurchaseURL != nil {
 			purchaseURL = *access.PurchaseURL
@@ -610,7 +610,7 @@ func installTrialSkill(ctx context.Context, runtime *Runtime, productID string, 
 	}
 	remaining, limit := grant.RemainingUses, grant.LimitUses
 	return runtime.business(downloadableSkillInstallResult{
-		localSkillResources: cloudResources(resourcesFromReport(report, "cli"), access.DeliveryMode),
+		localSkillResources: guidanceResources(resourcesFromReport(report, "cli"), access.DeliveryMode),
 		ProductID:           productID, Edition: access.Edition, ReleaseID: access.Release.ID, ArtifactDigest: digest,
 		InstalledName: installedName, Install: report,
 		RemainingUses: &remaining, LimitUses: &limit, TrialExhausted: remaining == 0,
@@ -689,8 +689,8 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 			}
 			if directory, manifest, _, lookupErr := skillcontent.FindRuntimeInstall(runtime.deps.Environment, "auto", productID, runtime.apiBaseURL, skillDirectory); lookupErr != nil {
 				return output.Internal("SKILL_LOCAL_LOOKUP_FAILED", "could not read the selected host installation", lookupErr)
-			} else if directory != "" && manifest.DeliveryMode == "CLOUD" {
-				return output.Policy("SKILL_CLOUD_TASK_REQUIRED", "cloud Skills require a task input file").WithHint("run viceme skill cloud --input task.json; never consume a separate trial use")
+			} else if directory != "" && manifest.DeliveryMode == "PROTECTED" {
+				return output.Policy("SKILL_GUIDANCE_TASK_REQUIRED", "protected Skills require a task input file").WithHint("run viceme skill guidance --input task.json; never consume a separate trial use")
 			} else if directory != "" && manifest.Kind == "purchase" && manifest.Market == string(runtime.region) {
 				result := skillReadyResult{Ready: true, ProductID: productID, Kind: "purchase", localSkillResources: skillResourcesAt(directory, manifest.Runner)}
 				if err := attachReadyTrialSnapshot(command.Context(), runtime, productID, &result); err != nil {
@@ -710,8 +710,8 @@ func newSkillUsePrecheckCommand(runtime *Runtime) *cobra.Command {
 				if accessErr != nil {
 					return accessErr
 				}
-				if api.DeliveryMode(access.DeliveryMode) == "CLOUD" {
-					return output.Policy("SKILL_CLOUD_TASK_REQUIRED", "run skill cloud with a persistent task input file")
+				if api.DeliveryMode(access.DeliveryMode) == "PROTECTED" {
+					return output.Policy("SKILL_GUIDANCE_TASK_REQUIRED", "run skill guidance with a persistent task input file")
 				}
 				if access.Owned {
 					installed, installErr := installAuthorizedSkill(command.Context(), runtime, productID, "", "auto", access, skillDirectory)

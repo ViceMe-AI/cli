@@ -13,12 +13,12 @@ import (
 
 // Only a verified direct-purchase installation may create this identity.
 // Sharing the Python product lock prevents two runners from replacing it.
-func ensureCloudPurchaseIdentity(runtime *Runtime, productID, agent string) (scriptTrialState, bool, error) {
+func ensureGuidancePurchaseIdentity(runtime *Runtime, productID, agent string) (scriptTrialState, bool, error) {
 	directory, manifest, _, err := skillcontent.FindRuntimeInstall(runtime.deps.Environment, agent, productID, runtime.apiBaseURL, runtime.deps.Environment.InstallDirectory)
 	if err != nil {
 		return scriptTrialState{}, false, err
 	}
-	if directory == "" || manifest.DeliveryMode != "CLOUD" || manifest.Kind != "purchase" || manifest.Market != string(runtime.region) {
+	if directory == "" || manifest.DeliveryMode != "PROTECTED" || manifest.Kind != "purchase" || manifest.Market != string(runtime.region) {
 		return scriptTrialState{}, false, nil
 	}
 	var state scriptTrialState

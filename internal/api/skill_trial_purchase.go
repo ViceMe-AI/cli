@@ -74,7 +74,7 @@ func (c *Client) TrialOwnedSkillDownload(ctx context.Context, productID, install
 		response.Access.Release.ID == "" {
 		return TrialOwnedDownload{}, output.Authorization("SKILL_NOT_OWNED", "no matching active paid Skill release was authorized")
 	}
-	if DeliveryMode(response.Access.DeliveryMode) == "CLOUD" {
+	if DeliveryMode(response.Access.DeliveryMode) == "PROTECTED" {
 		return response, nil
 	}
 	if DeliveryMode(response.Access.DeliveryMode) != "SOURCE" || response.Access.Release.ID != response.Download.ReleaseID ||

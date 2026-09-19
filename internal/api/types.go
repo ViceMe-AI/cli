@@ -825,12 +825,10 @@ type SkillPublicationMetadata struct {
 }
 
 type SkillPublicationSpec struct {
-	DeliveryMode string                     `json:"deliveryMode,omitempty" yaml:"deliveryMode,omitempty"`
-	Cloud        *SkillCloudPackageManifest `json:"cloud,omitempty" yaml:"cloud,omitempty"`
-	PublishMode  string                     `json:"publishMode" yaml:"publishMode"`
-	Source       SkillPublicationSource     `json:"source" yaml:"source"`
-	Edition      SkillPublicationEdition    `json:"edition" yaml:"edition"`
-	Sale         SkillPublicationSale       `json:"sale" yaml:"sale"`
+	PublishMode string                  `json:"publishMode" yaml:"publishMode"`
+	Source      SkillPublicationSource  `json:"source" yaml:"source"`
+	Edition     SkillPublicationEdition `json:"edition" yaml:"edition"`
+	Sale        SkillPublicationSale    `json:"sale" yaml:"sale"`
 }
 
 type SkillPublicationSource struct {

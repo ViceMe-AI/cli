@@ -8,7 +8,7 @@
 
 使用 viceme skill guidance --input task.json（独立 runtime 为 python3 .viceme/scripts/trial.py guidance --input task.json）。任务包含 requestKey、prompt、可选 facts 和 sessionId；原始业务文件保留本地。ready 后本地 Agent 完整读取 executionPath，按指导调用原始脚本并校验产物。
 
-同一任务重试必须保留原文件和 requestKey；付款完成后继续原任务。修改任务使用新键；语言调整和补充事实使用原 sessionId。服务端拒绝、补充信息和失败不会扣试用，重复恢复不重复扣。失败按 retryable 提示恢复，耗尽预算后停止。
+同一任务重试必须保留原文件和 requestKey；付款完成后继续原任务。已有 sessionId 的新键续接保留该会话的原身份，Go 与 Python 共用本地会话记录。不同账号购买不会迁移原会话；原身份权益失效时，明确提示使用新 requestKey 且省略 sessionId 新开会话。新独立任务的普通 CLI 登录被服务端明确判定失效时，可沿用已经存在的匿名购买或试用凭证；显式 token、已绑定账号的任务以及网络故障不触发回退。修改任务使用新键；语言调整和补充事实使用原 sessionId。服务端拒绝、补充信息和失败不会扣试用，重复恢复不重复扣。失败按 retryable 提示恢复，耗尽预算后停止。
 
 导出 PROTECTED 渠道包使用服务端已验证的消费者包摘要，附加官方 runtime 和既有 .viceme 身份，不依赖根目录配置文件，不追加源码门禁或私有正文。Go CLI 和独立 Python runtime 必须遵守同一授权、版本和幂等协议。
 

@@ -239,8 +239,8 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 		if err != nil {
 			return err
 		}
-		if api.DeliveryMode(receipt.Access.DeliveryMode) == "CLOUD" {
-			result, err := resumeCloudAfterPurchase(ctx, runtime, productID, agent)
+		if api.DeliveryMode(receipt.Access.DeliveryMode) == "PROTECTED" {
+			result, err := resumeGuidanceAfterPurchase(ctx, runtime, productID, agent)
 			if err != nil {
 				return err
 			}
@@ -303,7 +303,7 @@ func suspendExhaustedTrial(ctx context.Context, runtime *Runtime, productID, age
 	if err != nil {
 		return err
 	}
-	if !found || manifest.DeliveryMode == "CLOUD" || manifest.Kind == "owned" || manifest.Kind == "free" || manifest.Kind == "purchase" {
+	if !found || manifest.DeliveryMode == "PROTECTED" || manifest.Kind == "owned" || manifest.Kind == "free" || manifest.Kind == "purchase" {
 		return nil
 	}
 	exhausted := directory != "" && trialEntryExhausted(filepath.Join(directory, "SKILL.md"), productID)

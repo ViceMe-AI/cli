@@ -687,12 +687,10 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 		putFailures          int
 		loseCompleteResponse bool
 		candidateOnly        bool
-		cloud                bool
 	}{
 		{name: "expired upload authorization", putFailures: 1},
 		{name: "lost completion response", loseCompleteResponse: true},
 		{name: "Agent candidate without user selection", putFailures: 1, candidateOnly: true},
-		{name: "CLOUD public media response loss", loseCompleteResponse: true, cloud: true},
 	} {
 		scenario := scenario
 		t.Run(scenario.name, func(t *testing.T) {
@@ -707,10 +705,6 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 					Title: "Publish Test", SummaryZhCN: stringPointer("发布测试"), UsageInstructionsZhCN: stringPointer("按 SKILL.md 中的步骤运行。"),
 					Currency: "CNY", PriceMinor: intPointer(1), GalleryUploadIDs: []string{},
 				},
-			}
-			if scenario.cloud {
-				state.manifest.Spec.DeliveryMode = "CLOUD"
-				state.manifest.Spec.Cloud = &api.SkillCloudPackageManifest{PublicFiles: []string{"assets/manual-cover.png"}}
 			}
 			server := httptest.NewServer(http.HandlerFunc(state.serveHTTP))
 			defer server.Close()
@@ -740,7 +734,7 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 				Out: &stdout, ErrOut: &stderr, Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
 				Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 			}
-			execute := func(extra ...string) (int, map[string]any) {
+			execute := func() (int, map[string]any) {
 				t.Helper()
 				stdout.Reset()
 				stderr.Reset()
@@ -748,27 +742,12 @@ func TestPublicationAssetUploadRecoversWithoutBurningMediaSlots(t *testing.T) {
 				if scenario.candidateOnly {
 					arguments = append(arguments, "--candidate-only")
 				}
-				if scenario.cloud && extra == nil {
-					arguments = append(arguments, "--relative-path", "assets/manual-cover.png")
-				}
-				arguments = append(arguments, extra...)
 				exit := Execute(arguments, dependencies)
 				var envelope map[string]any
 				if err := json.Unmarshal(stdout.Bytes(), &envelope); err != nil {
 					t.Fatalf("command did not emit one JSON envelope: exit=%d stdout=%q stderr=%q err=%v", exit, stdout.String(), stderr.String(), err)
 				}
 				return exit, envelope
-			}
-
-			if scenario.cloud {
-				for _, path := range []string{"", "private/secret.png"} {
-					if exit, envelope := execute("--relative-path", path); exit == 0 || envelope["error"].(map[string]any)["code"] != "SKILL_CLOUD_MEDIA_NOT_PUBLIC" {
-						t.Fatalf("invalid CLOUD path accepted: %#v", envelope)
-					}
-				}
-				if state.uploadAuthorizationCalls != 0 {
-					t.Fatal("invalid path uploaded media")
-				}
 			}
 
 			if exit, envelope := execute(); exit == 0 || envelope["ok"] != false {
@@ -863,7 +842,6 @@ func TestTerminalPublicationRetirementFailureIsRecoverable(t *testing.T) {
 }
 
 type publicationAPITestState struct {
-	mediaRelativePath        *string
 	mu                       sync.Mutex
 	baseURL                  string
 	publicationID            string
@@ -1006,10 +984,6 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 			_, _ = writer.Write([]byte(`{"statusCode":409,"code":"SKILL_PUBLICATION_UPLOAD_SLOT_CONFLICT","message":"The requested media upload slot already contains another file"}`))
 			return
 		}
-		state.mediaRelativePath = nil
-		if input.RelativePath != "" {
-			state.mediaRelativePath = stringPointer(input.RelativePath)
-		}
 		state.mediaDigest = input.Digest
 		state.mediaFileName = input.FileName
 		state.mediaContentType = input.ContentType
@@ -1087,9 +1061,9 @@ func (state *publicationAPITestState) publication() api.SkillPublication {
 		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-rival", Kind: "MEDIA", Status: "VERIFIED", FileName: "rival.png", ContentType: "image/png", SizeBytes: 1, Digest: strings.Repeat("c", 64), SortOrder: state.occupiedMediaSlot})
 	}
 	if state.mediaVerified {
-		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-media", Kind: "MEDIA", Status: "VERIFIED", FileName: state.mediaFileName, ContentType: state.mediaContentType, SizeBytes: state.mediaSizeBytes, Digest: state.mediaDigest, SortOrder: state.mediaSortOrder, RelativePath: state.mediaRelativePath})
+		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-media", Kind: "MEDIA", Status: "VERIFIED", FileName: state.mediaFileName, ContentType: state.mediaContentType, SizeBytes: state.mediaSizeBytes, Digest: state.mediaDigest, SortOrder: state.mediaSortOrder})
 	} else if state.mediaPending {
-		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-media", Kind: "MEDIA", Status: "PENDING", FileName: state.mediaFileName, ContentType: state.mediaContentType, SizeBytes: state.mediaSizeBytes, Digest: state.mediaDigest, SortOrder: state.mediaSortOrder, RelativePath: state.mediaRelativePath})
+		uploads = append(uploads, api.SkillPublicationUpload{ID: "upload-media", Kind: "MEDIA", Status: "PENDING", FileName: state.mediaFileName, ContentType: state.mediaContentType, SizeBytes: state.mediaSizeBytes, Digest: state.mediaDigest, SortOrder: state.mediaSortOrder})
 	}
 	result := api.SkillPublication{ID: state.publicationID, ListingID: "66666666-6666-4666-8666-666666666666", MerchantAccountID: "99999999-9999-4999-8999-999999999999", DraftRevision: 1, Status: state.status, Manifest: state.manifest, Draft: state.draft, ReviewRevision: 1, ReviewDigest: &state.reviewDigest, Uploads: uploads}
 	if state.analysisPolls > 0 {

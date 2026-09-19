@@ -16,9 +16,8 @@ description: 发布或更新可下载的 ViceMe 付费或免费 Skill。适用�
 
 ## 云端保护发布
 
-作者明确选择云端保护时，在源目录根创建 `viceme-cloud.json`：`version:1`、公开用途 `purpose`、`localWorkflow`、`privateFiles` 与 `publicFiles`。每个源文件必须明确分类；`SKILL.md` 必须私有，私有只支持 UTF-8 `.md` / `.txt`（每个最多 16000 字符），源规则与私有提示词由服务器保存。图片、脚本、模板仅在作者明确授权公开且列入 publicFiles 后发布；未声明图片会被拒绝，不能为填充封面自动公开私有素材。
+作者按原有命令上传完整 Skill 包，无须填写额外保护配置。服务端为新付费版本保留原始 SKILL.md，并在消费者包中替换为通用调用入口，其余原始附件全部保留。不要新增 viceme-cloud.json 或 WORKFLOW.md，不使用公开/私有文件清单。既有发布审核、暂存和激活流程不变，恢复仍用 --resume。协议见 `docs/protected-skills.md`。
 
-仍用当前 `viceme skill publish <源目录> --price-minor <分> ...` 流程。CLI 自动将声明写入 `spec.deliveryMode=CLOUD` 与 `spec.cloud`，上传完整源 ZIP 给服务器拆包；交付包只有生成的短 SKILL.md 和公开文件。CLOUD 目前必须付费，可配置匿名试用次数。`localWorkflow` 指向 publicFiles 内的公开 Markdown，写明固定流程、脚本参数、输入输出与产物校验；核心判断规则只放私有文件，公开流程不能让模型重新生成脚本。可无试用直接购买，或仅通过有效订阅使用。仍遵循暂存、核验、激活流程，暂存不开放新版本任务。源码、清单或公开范围变化后重新构建发布；恢复相同待办要求源 ZIP 摘要保持一致。完整清单示例见仓库 `docs/cloud-skills.md`。
 
 ## 快速交互约定
 

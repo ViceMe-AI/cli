@@ -33,6 +33,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import base64
@@ -192,12 +193,12 @@ def load_runtime_environment(market, product_id):
 
 
 def prepare_runtime_files(files, market, product_id, release_id, kind, delivery_mode="SOURCE"):
-    if delivery_mode not in ("SOURCE", "CLOUD"):
+    if delivery_mode not in ("SOURCE", "PROTECTED"):
         raise Failure("SKILL_DELIVERY_MODE_UNSUPPORTED", "不支持的 Skill 交付模式")
     additions = {".viceme/" + name: (runtime_resource(name), 0o644) for name in RUNTIME_FILES}
-    if kind == "owned" and delivery_mode != "CLOUD":
+    if kind == "owned" and delivery_mode != "PROTECTED":
         additions[".viceme/guides/trial-usage.md"] = (OWNED_USAGE_GUIDE.encode(), 0o644)
-    elif kind == "purchase" and delivery_mode != "CLOUD":
+    elif kind == "purchase" and delivery_mode != "PROTECTED":
         additions[".viceme/guides/trial-usage.md"] = (purchase_required_message().encode(), 0o644)
     environment = {"market": market, "apiBaseUrl": API_ORIGIN[market],
                    "distributionBaseUrl": SCRIPT_ORIGIN[market], "productId": product_id, "deliveryMode": delivery_mode}
@@ -205,9 +206,9 @@ def prepare_runtime_files(files, market, product_id, release_id, kind, delivery_
     if any(name in files for name in additions) or ".viceme/runtime.json" in files or PACKAGE_FILES_PATH in files:
         raise Failure("RUNTIME_RESOURCE_CONFLICT", "作者包占用了平台运行资源路径，未覆盖任何文件")
     files.update(additions)
-    manifest = {"schemaVersion": 2 if delivery_mode == "CLOUD" else 1, "deliveryMode": delivery_mode, "productId": product_id, "releaseId": release_id,
+    manifest = {"schemaVersion": 2 if delivery_mode == "PROTECTED" else 1, "deliveryMode": delivery_mode, "productId": product_id, "releaseId": release_id,
                 "apiBaseUrl": API_ORIGIN[market], "market": market, "runner": "python", "kind": kind,
-                "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in files.items() if delivery_mode == "CLOUD" or name in additions or name in (RUNTIME_PATH, TRIAL_BODY_PATH) or (kind == "purchase" and name in ("SKILL.md", PURCHASE_GUIDE_PATH))}}
+                "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in files.items() if delivery_mode == "PROTECTED" or name in additions or name in (RUNTIME_PATH, TRIAL_BODY_PATH) or (kind == "purchase" and name in ("SKILL.md", PURCHASE_GUIDE_PATH))}}
     files[".viceme/runtime.json"] = (json.dumps(manifest, sort_keys=True).encode(), 0o644)
 
 
@@ -244,8 +245,8 @@ def lookup_trial_quota(market, product_id):
 
 
 def attach_trial_snapshot(result, market, product_id, grant=None):
-    if result.get("deliveryMode") == "CLOUD":
-        result["nextAction"] = "SUBMIT_CLOUD_TASK"
+    if result.get("deliveryMode") == "PROTECTED":
+        result["nextAction"] = "SUBMIT_GUIDANCE_TASK"
         return result
     if result.get("kind") == "purchase":
         result.update(allowed=False, nextAction="PURCHASE_REQUIRED", message=purchase_required_message())
@@ -350,15 +351,15 @@ def read_runtime_install(root, market, product_id):
                 or not os.path.isfile(os.path.join(root, "SKILL.md"))):
             return unavailable
         delivery_mode = manifest.get("deliveryMode", "SOURCE")
-        if delivery_mode not in ("SOURCE", "CLOUD") or (delivery_mode == "CLOUD" and manifest.get("schemaVersion") != 2):
+        if delivery_mode not in ("SOURCE", "PROTECTED") or (delivery_mode == "PROTECTED" and manifest.get("schemaVersion") != 2):
             return unavailable
         expected = manifest.get("files") or {}
         required = {".viceme/environment.json", *(".viceme/" + path for path in RUNTIME_FILES)}
-        if delivery_mode != "CLOUD":
+        if delivery_mode != "PROTECTED":
             required -= {".viceme/scripts/resolve-cli.sh", ".viceme/scripts/resolve-cli.ps1"}
-        if manifest["kind"] == "trial" and delivery_mode != "CLOUD":
+        if manifest["kind"] == "trial" and delivery_mode != "PROTECTED":
             required.update((RUNTIME_PATH, TRIAL_BODY_PATH))
-        elif manifest["kind"] == "purchase" and delivery_mode != "CLOUD":
+        elif manifest["kind"] == "purchase" and delivery_mode != "PROTECTED":
             required.update(("SKILL.md", PURCHASE_GUIDE_PATH))
         if not required.issubset(expected):
             return unavailable
@@ -377,7 +378,7 @@ def read_runtime_install(root, market, product_id):
                 return unavailable
         return {"ready": True, "productId": product_id, "installedName": os.path.basename(root),
                 "runner": manifest["runner"], "kind": manifest["kind"], "deliveryMode": delivery_mode,
-                "nextAction": "SUBMIT_CLOUD_TASK" if delivery_mode == "CLOUD" else "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", **installed_resources(root)}
+                "nextAction": "SUBMIT_GUIDANCE_TASK" if delivery_mode == "PROTECTED" else "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", **installed_resources(root)}
     except (OSError, ValueError, KeyError, TypeError, Failure):
         return unavailable
 
@@ -779,9 +780,9 @@ def purchase_entry_files(market, product_id, title, summary, slug, release_id, d
         PURCHASE_GUIDE_PATH: (runtime_resource("guides/purchase.md"), 0o644),
         "references/host-presentation.md": (runtime_resource("guides/host-presentation.md"), 0o644),
     }
-    if delivery_mode == "CLOUD":
+    if delivery_mode == "PROTECTED":
         files["SKILL.md"] = (("---\nname: %s\ndescription: %s\n---\n\n" % (json.dumps(installed_name), json.dumps(description, ensure_ascii=False)) +
-            "这是云端 Skill 的公开任务入口，不包含私有规则，也不提供免费试用。把当前任务写入 task.json，使用一次 UUID requestKey、prompt 与 facts，运行 `python3 .viceme/scripts/trial.py cloud --input task.json --wait 60`（Windows 用 py）。商品与版本从本地 runtime 读取。\n\n"
+            "这是核心保护 Skill 的公开任务入口，不包含私有规则，也不提供免费试用。把当前任务写入 task.json，使用一次 UUID requestKey、prompt 与 facts，运行 `python3 .viceme/scripts/trial.py guidance --input task.json --wait 60`（Windows 用 py）。商品与版本从本地 runtime 读取。\n\n"
             "收到购买入口时，按 [购买与支付展示](references/purchase.md) 展示支付；付款确认后保留入口及同一任务重试，不下载私有源码。仅 task.outcome=ready 且 allowed=true 时读取 executionPath 完成本次任务；needs_input 用相同 sessionId、新键补充事实；refused 停止。新任务仍需服务端判权，不复用其他任务指令。\n").encode(), 0o644)
     # 购买入口包从解压起即携带安装身份：purchase 的归属校验只认这份文件,
     # 预置后按门禁在解压目录直接运行购买命令即可成立,不必先走官方 install。
@@ -815,10 +816,10 @@ def write_skill_zip(files, path):
         return hashlib.sha256(handle.read()).hexdigest()
 
 
-def command_export_package(market, product_id, kind, release_id, output, input_path=None, title=None, summary=None, slug=None, delivery_mode="SOURCE"):
+def command_export_package(market, product_id, kind, release_id, output, input_path=None, title=None, summary=None, slug=None, delivery_mode="SOURCE", artifact_digest=None):
     """Pure transform for Admin channel zips. Does not install or call the API."""
-    if kind not in ("trial", "purchase") or delivery_mode not in ("SOURCE", "CLOUD"):
-        raise Failure("ARGUMENT_INVALID", "导出 kind 必须为 trial 或 purchase，交付模式必须为 SOURCE 或 CLOUD")
+    if kind not in ("trial", "purchase") or delivery_mode not in ("SOURCE", "PROTECTED"):
+        raise Failure("ARGUMENT_INVALID", "导出 kind 必须为 trial 或 purchase，交付模式必须为 SOURCE 或 PROTECTED")
     try:
         if not release_id or str(uuid.UUID(release_id)) != release_id.lower():
             raise ValueError()
@@ -827,9 +828,9 @@ def command_export_package(market, product_id, kind, release_id, output, input_p
     if not output or not str(output).endswith(".zip"):
         raise Failure("ARGUMENT_INVALID", "导出路径必须以 .zip 结尾")
     output = os.path.abspath(output)
-    if kind == "trial" or delivery_mode == "CLOUD":
+    if kind == "trial" or delivery_mode == "PROTECTED":
         if not input_path:
-            raise Failure("ARGUMENT_INVALID", "试用包或云端公开包需要 --input 指向对应发布 zip")
+            raise Failure("ARGUMENT_INVALID", "试用包或核心保护公开包需要 --input 指向对应发布 zip")
         try:
             with open(input_path, "rb") as handle:
                 archive = handle.read(MAX_TOTAL_BYTES + 1)
@@ -838,19 +839,15 @@ def command_export_package(market, product_id, kind, release_id, output, input_p
         if len(archive) > MAX_TOTAL_BYTES:
             raise Failure("ARCHIVE_LIMIT_EXCEEDED", "Skill 包超出安全解包限制")
         files = extract_skill_package(archive)
-        if delivery_mode == "CLOUD":
-            try:
-                marker = json.loads(files["viceme-cloud.json"][0])
-                if type(marker) is not dict or type(marker.get("version")) is not int or marker != {"version": 1, "deliveryMode": "CLOUD", "releaseId": release_id}:
-                    raise ValueError()
-                if any(name.casefold() == ".viceme" or name.casefold().startswith(".viceme/") for name in files):
-                    raise ValueError()
-            except (KeyError, ValueError, TypeError, UnicodeError):
-                raise Failure("SKILL_CLOUD_RELEASE_MISMATCH", "云端公开包标识或版本不匹配，未生成渠道包") from None
+        if delivery_mode == "PROTECTED":
+            if not artifact_digest or not re.fullmatch(r"[a-f0-9]{64}", artifact_digest) or hashlib.sha256(archive).hexdigest() != artifact_digest:
+                raise Failure("SKILL_GUIDANCE_RELEASE_MISMATCH", "公开包摘要与服务端授权不匹配，未生成渠道包")
+            if "viceme-cloud.json" in files or any(name.casefold() == ".viceme" or name.casefold().startswith(".viceme/") for name in files):
+                raise Failure("SKILL_GUIDANCE_RELEASE_MISMATCH", "公开源包不得包含旧配置或安装身份")
             files[".viceme/install-manifest.json"] = (trial_install_manifest(product_id, release_id), 0o644)
         else:
             if "viceme-cloud.json" in files:
-                raise Failure("SKILL_CLOUD_RELEASE_MISMATCH", "云端公开包必须显式使用 CLOUD 交付模式")
+                raise Failure("SKILL_GUIDANCE_RELEASE_MISMATCH", "核心保护公开包必须显式使用 PROTECTED 交付模式")
             inject_trial_gate(files, market, product_id)
         prepare_runtime_files(files, market, product_id, release_id, kind, delivery_mode)
     else:
@@ -871,8 +868,8 @@ def install_purchase_entry(market, product_id, agent, access):
     release = access.get("release") or {}
     if access.get("productId") != product_id or not release.get("id") or access.get("purchaseAvailable") is not True:
         raise Failure("PURCHASE_UNAVAILABLE", "当前商品不可购买，请稍后重试")
-    if access.get("deliveryMode", "SOURCE") == "CLOUD":
-        download = api_request(market, "GET", "/v1/downloads/cloud/" + urllib.parse.quote(product_id, safe=""))
+    if access.get("deliveryMode", "SOURCE") == "PROTECTED":
+        download = api_request(market, "GET", "/v1/downloads/guidance/" + urllib.parse.quote(product_id, safe=""))
         return finish_install(market, product_id, agent, access, download, "purchase")
     product = api_request(market, "GET", "/v1/products/%s?locale=%s" % (
         urllib.parse.quote(product_id, safe=""), "zh-CN" if market == "cn" else "en-US"))
@@ -885,7 +882,7 @@ def install_purchase_entry(market, product_id, agent, access):
     with ProductLock(product_id):
         existing = find_ready_install(market, product_id, agent)
         if existing.get("ready") and existing.get("kind") == "owned":
-            return emit_ok(attach_trial_snapshot(existing, market, product_id) if existing.get("deliveryMode") == "CLOUD" else owned_continue_result(existing, product_id))
+            return emit_ok(attach_trial_snapshot(existing, market, product_id) if existing.get("deliveryMode") == "PROTECTED" else owned_continue_result(existing, product_id))
         roots = install_to_roots(files, installed_name, product_id, release["id"], agent)
     succeeded = [root for root, skip in roots if not skip]
     if not succeeded:
@@ -900,7 +897,7 @@ def install_purchase_entry(market, product_id, agent, access):
 
 def finish_install(market, product_id, agent, access, download, kind, grant=None):
     delivery_mode = access.get("deliveryMode", "SOURCE")
-    if delivery_mode not in ("SOURCE", "CLOUD") or download.get("deliveryMode", "SOURCE") != delivery_mode:
+    if delivery_mode not in ("SOURCE", "PROTECTED") or download.get("deliveryMode", "SOURCE") != delivery_mode:
         raise Failure("DOWNLOAD_RECEIPT_MISMATCH", "下载授权与交付模式不一致")
     release = access.get("release") or {}
     if download.get("releaseId") != release.get("id") or download.get("artifactDigest") != release.get("artifactDigest"):
@@ -912,7 +909,7 @@ def finish_install(market, product_id, agent, access, download, kind, grant=None
         raise Failure("ARTIFACT_DIGEST_MISMATCH", "下载的 Skill 包与发布版本不匹配(完整性校验失败)")
 
     files = extract_skill_package(archive)
-    if kind == "trial" and delivery_mode != "CLOUD":
+    if kind == "trial" and delivery_mode != "PROTECTED":
         inject_trial_gate(files, market, product_id)
     prepare_runtime_files(files, market, product_id, release.get("id", ""), kind, delivery_mode)
     installed_name = resolve_installed_name(files, access)
@@ -923,7 +920,7 @@ def finish_install(market, product_id, agent, access, download, kind, grant=None
             raise Failure("PURCHASE_IN_PROGRESS", "本机已有购买流程,请运行 purchase 恢复,不能覆盖为试用版")
         installer = install_owned_to_roots if kind == "owned" else install_to_roots
         roots = installer(files, installed_name, product_id, release.get("id", ""), agent)
-        if kind == "trial" and delivery_mode != "CLOUD":
+        if kind == "trial" and delivery_mode != "PROTECTED":
             for root, skip in roots:
                 if not skip:
                     verify_installed_trial_gate(root, files)
@@ -963,16 +960,16 @@ def finish_install(market, product_id, agent, access, download, kind, grant=None
     result.update(installed_resources(succeeded[0]))
     if getattr(roots, "local_recoveries", None):
         result["localRecoveries"] = roots.local_recoveries
-    if kind == "trial" and delivery_mode != "CLOUD" and grant.get("remainingUses") == 0:
+    if kind == "trial" and delivery_mode != "PROTECTED" and grant.get("remainingUses") == 0:
         suspend_trial_skills(market, product_id, access.get("purchaseUrl") or "")
         result["nextAction"] = "PURCHASE_REQUIRED"
-    if kind == "owned" and delivery_mode != "CLOUD":
+    if kind == "owned" and delivery_mode != "PROTECTED":
         result["allowed"] = True
         result["owned"] = True
         result["nextAction"] = "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL"
-    if delivery_mode == "CLOUD":
+    if delivery_mode == "PROTECTED":
         result["allowed"] = False
-        result["nextAction"] = "SUBMIT_CLOUD_TASK"
+        result["nextAction"] = "SUBMIT_GUIDANCE_TASK"
     return emit_ok(result)
 
 
@@ -1073,8 +1070,8 @@ def owned_continue_result(ready, product_id):
 
 
 def command_use(market, product_id, agent="auto"):
-    if find_ready_install(market, product_id, agent).get("deliveryMode") == "CLOUD":
-        raise Failure("SKILL_CLOUD_TASK_REQUIRED", "云端 Skill 请运行 cloud --input task.json；每个 ready 任务由服务端计次")
+    if find_ready_install(market, product_id, agent).get("deliveryMode") == "PROTECTED":
+        raise Failure("SKILL_GUIDANCE_TASK_REQUIRED", "核心保护 Skill 请运行 guidance --input task.json；每个 ready 任务由服务端计次")
     ready = find_ready_install(market, product_id, agent)
     if ready.get("ready") and ready.get("kind") == "owned":
         return emit_ok(owned_continue_result(ready, product_id))
@@ -1359,10 +1356,10 @@ def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=Fal
         access = receipt.get("access") or {}
         if access.get("owned") is not True or access.get("installKind") != "OWNED_PAID" or access.get("productId") != product_id:
             raise Failure("OWNED_DOWNLOAD_INVALID", "未确认当前商品的有效购买权益,不能安装正式版")
-        if access.get("deliveryMode", "SOURCE") == "CLOUD":
+        if access.get("deliveryMode", "SOURCE") == "PROTECTED":
             if receipt.get("download") is not None:
                 raise Failure("OWNED_DOWNLOAD_INVALID", "云端权益确认不应携带源码下载")
-            result = emit_ok(resume_cloud_after_purchase(market, product_id))
+            result = emit_ok(resume_guidance_after_purchase(market, product_id))
         else:
             result = finish_install(market, product_id, agent, access, receipt.get("download") or {}, "owned")
         remove_payment_artifacts(order["orderNo"])
@@ -1703,7 +1700,7 @@ def trial_product_owns_directory(directory, product_id, market=None):
             with open(path, encoding="utf-8") as handle:
                 runtime = json.load(handle)
             return (runtime.get("productId") == product_id and runtime.get("releaseId") == manifest["release_id"]
-                    and runtime.get("kind") == "trial" and runtime.get("deliveryMode", "SOURCE") != "CLOUD" and runtime.get("market") == market
+                    and runtime.get("kind") == "trial" and runtime.get("deliveryMode", "SOURCE") != "PROTECTED" and runtime.get("market") == market
                     and canonical_api_base_url(runtime.get("apiBaseUrl")) == canonical_api_base_url(API_ORIGIN[market]))
         return True
     except (OSError, ValueError):
@@ -2394,14 +2391,14 @@ def remove_path(path):
 # ---------------------------------------------------------------------------
 
 
-def cloud_task_directory(market, product_id):
+def guidance_task_directory(market, product_id):
     digest = hashlib.sha256((API_ORIGIN[market].rstrip("/") + "\x00" + product_id).encode()).hexdigest()
-    return os.path.join(home_directory(), ".viceme", "cloud", digest)
+    return os.path.join(home_directory(), ".viceme", "guidance", digest)
 
 
-def validate_cloud_input(value, product_id):
+def validate_guidance_input(value, product_id):
     if not isinstance(value, dict) or set(value) - {"productId", "releaseId", "requestKey", "sessionId", "prompt", "facts"}:
-        raise Failure("SKILL_CLOUD_INPUT_INVALID", "任务 JSON 字段无效")
+        raise Failure("SKILL_GUIDANCE_INPUT_INVALID", "任务 JSON 字段无效")
     value = dict(value)
     value.setdefault("productId", product_id)
     value.setdefault("facts", {})
@@ -2416,17 +2413,17 @@ def validate_cloud_input(value, product_id):
                 or any(not isinstance(k, str) or not 1 <= len(k) <= 80 or not isinstance(v, str) or len(v) > 4000 for k, v in facts.items())):
             raise ValueError()
     except (ValueError, TypeError, AttributeError):
-        raise Failure("SKILL_CLOUD_INPUT_INVALID", "任务须包含 UUID requestKey、商品、prompt 和 facts；重试保持原输入") from None
+        raise Failure("SKILL_GUIDANCE_INPUT_INVALID", "任务须包含 UUID requestKey、商品、prompt 和 facts；重试保持原输入") from None
     return value
 
 
-def cloud_runtime_manifest(market, product_id):
+def guidance_runtime_manifest(market, product_id):
     manifest_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "runtime.json")
     manifest = None
     if os.path.isfile(manifest_path):
         root = os.path.dirname(os.path.dirname(manifest_path))
         if not read_runtime_install(root, market, product_id).get("ready"):
-            raise Failure("SKILL_CLOUD_RELEASE_MISMATCH", "本地公开文件或运行时校验失败，请恢复对应安装后重试")
+            raise Failure("SKILL_GUIDANCE_RELEASE_MISMATCH", "本地公开文件或运行时校验失败，请恢复对应安装后重试")
         with open(manifest_path, encoding="utf-8") as handle:
             manifest = json.load(handle)
     else:
@@ -2437,28 +2434,54 @@ def cloud_runtime_manifest(market, product_id):
     return manifest
 
 
-def complete_cloud_input(market, product_id, value):
+def complete_guidance_input(market, product_id, value):
     value = dict(value)
-    filename = os.path.join(cloud_task_directory(market, product_id), value["requestKey"] + ".json")
+    filename = os.path.join(guidance_task_directory(market, product_id), value["requestKey"] + ".json")
     if not value.get("releaseId") and os.path.isfile(filename):
         with open(filename, encoding="utf-8") as handle:
             value["releaseId"] = json.load(handle).get("input", {}).get("releaseId")
-    manifest = cloud_runtime_manifest(market, product_id)
+    manifest = guidance_runtime_manifest(market, product_id)
     if manifest:
-        if manifest.get("deliveryMode") != "CLOUD" or manifest.get("productId") != product_id or manifest.get("apiBaseUrl") != API_ORIGIN[market]:
-            raise Failure("SKILL_CLOUD_RELEASE_MISMATCH", "本地安装不属于此云端任务")
+        if manifest.get("deliveryMode") != "PROTECTED" or manifest.get("productId") != product_id or manifest.get("apiBaseUrl") != API_ORIGIN[market]:
+            raise Failure("SKILL_GUIDANCE_RELEASE_MISMATCH", "本地安装不属于此云端任务")
         value.setdefault("releaseId", manifest["releaseId"])
         if value.get("releaseId") != manifest["releaseId"]:
-            raise Failure("SKILL_CLOUD_RELEASE_MISMATCH", "任务版本与本地公开文件不同，请恢复匹配安装后重试")
+            raise Failure("SKILL_GUIDANCE_RELEASE_MISMATCH", "任务版本与本地公开文件不同，请恢复匹配安装后重试")
     if not value.get("releaseId"):
-        raise Failure("SKILL_CLOUD_INPUT_INVALID", "请安装云端 Skill 或提供准确 releaseId，不会自动使用最新版本")
-    return validate_cloud_input(value, product_id)
+        raise Failure("SKILL_GUIDANCE_INPUT_INVALID", "请安装核心保护 Skill 或提供准确 releaseId，不会自动使用最新版本")
+    return validate_guidance_input(value, product_id)
 
 
-def write_cloud_file(filename, value):
+def guidance_session_principal(market, product_id, value):
+    if not value.get("sessionId"):
+        return ""
+    directory = guidance_task_directory(market, product_id)
+    principal = ""
+    for name in sorted(os.listdir(directory) if os.path.isdir(directory) else []):
+        if not name.endswith(".json") or name.endswith(".input.json"):
+            continue
+        try:
+            with open(os.path.join(directory, name), encoding="utf-8") as handle:
+                record = json.load(handle)
+        except (ValueError, UnicodeError):
+            continue
+        if (not isinstance(record, dict) or record.get("schemaVersion") != 1
+                or record.get("apiBaseUrl") != API_ORIGIN[market].rstrip("/") or record.get("market") != market
+                or not isinstance(record.get("input"), dict) or record["input"].get("productId") != product_id
+                or record["input"].get("releaseId") != value.get("releaseId")):
+            continue
+        if value["sessionId"] != record.get("sessionId"):
+            continue
+        if principal and principal != record.get("principal"):
+            raise Failure("SKILL_GUIDANCE_STATE_INVALID", "会话恢复记录包含不同身份，请保留原记录")
+        principal = record.get("principal", "")
+    return principal
+
+
+def write_guidance_file(filename, value):
     os.makedirs(os.path.dirname(filename), mode=0o700, exist_ok=True)
     data = value if isinstance(value, bytes) else json.dumps(value, ensure_ascii=False, sort_keys=True).encode()
-    fd, temporary = tempfile.mkstemp(prefix=".cloud-", dir=os.path.dirname(filename))
+    fd, temporary = tempfile.mkstemp(prefix=".guidance-", dir=os.path.dirname(filename))
     try:
         with os.fdopen(fd, "wb") as handle:
             handle.write(data)
@@ -2470,7 +2493,7 @@ def write_cloud_file(filename, value):
             os.unlink(temporary)
 
 
-def cloud_result(value, previous=None):
+def guidance_result(value, previous=None):
     try:
         valid = isinstance(value, dict)
         for key in ("requestId", "sessionId", "releaseId"):
@@ -2494,11 +2517,11 @@ def cloud_result(value, previous=None):
     except (KeyError, ValueError, TypeError, AttributeError):
         valid = False
     if not valid:
-        raise Failure("SKILL_CLOUD_RESPONSE_INVALID", "云端任务响应无效；保留原任务并重试")
+        raise Failure("SKILL_GUIDANCE_RESPONSE_INVALID", "云端任务响应无效；保留原任务并重试")
     return value
 
 
-def cloud_cli_fallback(market, product_id, input_path, wait, optional=False):
+def guidance_cli_fallback(market, product_id, input_path, wait, optional=False):
     # Invoke the existing entrypoint, preserving PATH/npm launcher semantics.
     # Credentials remain owned by the CLI; this runtime does not read tokens.
     name = "resolve-cli.ps1" if os.name == "nt" else "resolve-cli.sh"
@@ -2510,10 +2533,10 @@ def cloud_cli_fallback(market, product_id, input_path, wait, optional=False):
     if located.returncode:
         if optional:
             return None
-        raise Failure("SKILL_CLOUD_LOGIN_REQUIRED", "当前任务需要已登录的 ViceMe CLI；请按官方入口定位并登录后，用同一输入重试", nextAction="LOGIN_AND_RETRY_SAME_TASK")
+        raise Failure("SKILL_GUIDANCE_LOGIN_REQUIRED", "当前任务需要已登录的 ViceMe CLI；请按官方入口定位并登录后，用同一输入重试", nextAction="LOGIN_AND_RETRY_SAME_TASK")
     executable = located.stdout.decode("utf-8-sig").strip()
     if not os.path.isabs(executable) or not os.path.isfile(executable):
-        raise Failure("SKILL_CLOUD_LOGIN_REQUIRED", "CLI 定位没有返回有效的现有入口")
+        raise Failure("SKILL_GUIDANCE_LOGIN_REQUIRED", "CLI 定位没有返回有效的现有入口")
     environment = os.environ.copy()
     environment["VICEME_API_BASE_URL"] = API_ORIGIN[market]
     # Negotiate the protocol before passing task data. A discovered older CLI
@@ -2525,15 +2548,15 @@ def cloud_cli_fallback(market, product_id, input_path, wait, optional=False):
     try:
         probe = subprocess.run(probe_command, capture_output=True, env=environment, timeout=15, check=False)
         version = json.loads(probe.stdout.decode("utf-8"))
-        protocol = version.get("data", {}).get("protocols", {}).get("skillCloud") if isinstance(version, dict) else None
+        protocol = version.get("data", {}).get("protocols", {}).get("skillGuidance") if isinstance(version, dict) else None
         supported = probe.returncode == 0 and version.get("ok") is True and type(protocol) is int and protocol == 1
     except (OSError, subprocess.TimeoutExpired, ValueError, UnicodeError, AttributeError):
         supported = False
     if not supported:
         if optional:
             return None
-        raise Failure("SKILL_CLOUD_CLI_UPDATE_REQUIRED", "现有 CLI 不支持此云端任务协议，请更新 CLI 后用同一输入重试", nextAction="UPDATE_CLI_AND_RETRY_SAME_TASK")
-    command = [executable, "skill", "cloud", "--input", os.path.abspath(input_path), "--product", product_id, "--market", market, "--wait", "%ss" % wait]
+        raise Failure("SKILL_GUIDANCE_CLI_UPDATE_REQUIRED", "现有 CLI 不支持此云端任务协议，请更新 CLI 后用同一输入重试", nextAction="UPDATE_CLI_AND_RETRY_SAME_TASK")
+    command = [executable, "skill", "guidance", "--input", os.path.abspath(input_path), "--product", product_id, "--market", market, "--wait", "%ss" % wait]
     if invoking_skill_directory():
         command += ["--skill-dir", invoking_skill_directory()]
     if os.name == "nt":
@@ -2545,19 +2568,22 @@ def cloud_cli_fallback(market, product_id, input_path, wait, optional=False):
         if not isinstance(payload, dict) or "ok" not in payload:
             raise ValueError()
     except (ValueError, UnicodeError):
-        raise Failure("SKILL_CLOUD_CLI_RESPONSE_INVALID", "CLI 未返回有效任务结果，请保留输入并重试") from None
+        raise Failure("SKILL_GUIDANCE_CLI_RESPONSE_INVALID", "CLI 未返回有效任务结果，请保留输入并重试") from None
     emit(payload)
     return result.returncode
 
 
-def run_cloud_task(market, product_id, value, wait=60):
-    value = validate_cloud_input(value, product_id)
-    value = complete_cloud_input(market, product_id, value)
+def run_guidance_task(market, product_id, value, wait=60):
+    value = validate_guidance_input(value, product_id)
+    value = complete_guidance_input(market, product_id, value)
     credential = require_purchase_state(market, product_id)
     credential_kind = "purchase" if credential.get("credentialKind") == "purchase" else "trial"
-    filename = os.path.join(cloud_task_directory(market, product_id), value["requestKey"] + ".json")
+    filename = os.path.join(guidance_task_directory(market, product_id), value["requestKey"] + ".json")
     record = {"schemaVersion": 1, "apiBaseUrl": API_ORIGIN[market].rstrip("/"), "market": market,
               "principal": credential_kind + ":" + credential["installId"], "input": value, "paymentRequired": False}
+    session_principal = guidance_session_principal(market, product_id, value)
+    if session_principal and session_principal != record["principal"]:
+        raise Failure("SKILL_GUIDANCE_REQUEST_CONFLICT", "请恢复原会话身份后重试；如要使用另一身份，请明确新开会话，使用新 requestKey 并省略 sessionId")
     with ProductLock(product_id):
         try:
             with open(filename, encoding="utf-8") as handle:
@@ -2566,37 +2592,41 @@ def run_cloud_task(market, product_id, value, wait=60):
             saved = None
         if saved is not None:
             if not isinstance(saved, dict) or any(saved.get(k) != record[k] for k in ("schemaVersion", "apiBaseUrl", "market", "principal", "input")):
-                raise Failure("SKILL_CLOUD_REQUEST_CONFLICT", "同一请求键已绑定其他输入或身份，请保留原记录")
+                raise Failure("SKILL_GUIDANCE_REQUEST_CONFLICT", "同一请求键已绑定其他输入或身份，请保留原记录")
             record = saved
-        write_cloud_file(filename, record)
+        write_guidance_file(filename, record)
         input_path = filename[:-5] + ".input.json"
-        write_cloud_file(input_path, value)
+        write_guidance_file(input_path, value)
     try:
-        result = cloud_result(api_request(market, "POST", "/v1/skill-cloud/%s/requests" % credential_kind, {**value, "installId": credential["installId"], "secret": credential["secret"]}, canonical_errors=True))
+        result = guidance_result(api_request(market, "POST", "/v1/skill-guidance/%s/requests" % credential_kind, {**value, "installId": credential["installId"], "secret": credential["secret"]}, canonical_errors=True))
     except Failure as error:
-        if error.code in ("SKILL_CLOUD_TRIAL_EXHAUSTED", "SKILL_CLOUD_ENTITLEMENT_REQUIRED"):
+        if error.code in ("SKILL_GUIDANCE_TRIAL_EXHAUSTED", "SKILL_GUIDANCE_ENTITLEMENT_REQUIRED"):
             record["paymentRequired"] = True
             with ProductLock(product_id):
-                write_cloud_file(filename, record)
+                write_guidance_file(filename, record)
         raise
-    if result["releaseId"] != value["releaseId"] or (value.get("sessionId") and result["sessionId"] != value["sessionId"]):
-        raise Failure("SKILL_CLOUD_RESPONSE_INVALID", "云端响应改变了任务会话")
+    if (result["releaseId"] != value["releaseId"] or (value.get("sessionId") and result["sessionId"] != value["sessionId"])
+            or (record.get("sessionId") and result["sessionId"] != record["sessionId"])):
+        raise Failure("SKILL_GUIDANCE_RESPONSE_INVALID", "云端响应改变了任务会话")
+    record["sessionId"] = result["sessionId"]
+    with ProductLock(product_id):
+        write_guidance_file(filename, record)
     deadline = time.monotonic() + wait
     while result["status"] in ("QUEUED", "RUNNING") and time.monotonic() < deadline:
         time.sleep(min(1, max(0, deadline - time.monotonic())))
         body = {"productId": product_id, "installId": credential["installId"], "secret": credential["secret"]}
-        result = cloud_result(api_request(market, "POST", "/v1/skill-cloud/%s/requests/%s/read" % (credential_kind, result["requestId"]), body, canonical_errors=True), result)
+        result = guidance_result(api_request(market, "POST", "/v1/skill-guidance/%s/requests/%s/read" % (credential_kind, result["requestId"]), body, canonical_errors=True), result)
     record["paymentRequired"] = False
     with ProductLock(product_id):
-        write_cloud_file(filename, record)
-    data = {"productId": product_id, "requestKey": value["requestKey"], "deliveryMode": "CLOUD", "task": result,
+        write_guidance_file(filename, record)
+    data = {"productId": product_id, "requestKey": value["requestKey"], "deliveryMode": "PROTECTED", "task": result,
             "inputPath": input_path, "allowed": False, "nextAction": "RETRY_SAME_TASK"}
     if result["status"] == "SUCCEEDED":
         if result["outcome"] == "ready":
-            complete_cloud_input(market, product_id, value)
+            complete_guidance_input(market, product_id, value)
             execution = filename[:-5] + ".execution.md"
-            write_cloud_file(execution, result["instructions"].encode())
-            data.update(allowed=True, nextAction="EXECUTE_CLOUD_INSTRUCTIONS", executionPath=execution)
+            write_guidance_file(execution, result["instructions"].encode())
+            data.update(allowed=True, nextAction="EXECUTE_GUIDANCE_INSTRUCTIONS", executionPath=execution)
         elif result["outcome"] == "needs_input":
             data["nextAction"] = "SUPPLY_INPUT_WITH_NEW_KEY_AND_SAME_SESSION"
         else:
@@ -2606,17 +2636,17 @@ def run_cloud_task(market, product_id, value, wait=60):
     return data
 
 
-def command_cloud(market, product_id, input_path, wait=60, agent="auto"):
+def command_guidance(market, product_id, input_path, wait=60, agent="auto"):
     with open(input_path, "rb") as handle:
         raw = handle.read(1024 * 1024 + 1)
     if len(raw) > 1024 * 1024:
-        raise Failure("SKILL_CLOUD_INPUT_INVALID", "任务输入超过大小限制")
+        raise Failure("SKILL_GUIDANCE_INPUT_INVALID", "任务输入超过大小限制")
     try:
-        value = validate_cloud_input(json.loads(raw), product_id)
+        value = validate_guidance_input(json.loads(raw), product_id)
     except (ValueError, UnicodeError):
-        raise Failure("SKILL_CLOUD_INPUT_INVALID", "任务输入必须为 JSON 对象") from None
+        raise Failure("SKILL_GUIDANCE_INPUT_INVALID", "任务输入必须为 JSON 对象") from None
     state = load_purchase_state(market, product_id)
-    filename = os.path.join(cloud_task_directory(market, product_id), value["requestKey"] + ".json")
+    filename = os.path.join(guidance_task_directory(market, product_id), value["requestKey"] + ".json")
     saved = None
     if os.path.isfile(filename):
         with open(filename, encoding="utf-8") as handle:
@@ -2624,23 +2654,24 @@ def command_cloud(market, product_id, input_path, wait=60, agent="auto"):
     # Fresh tasks use the CLI's current entitlement decision when available.
     # A remaining anonymous grant must not hide a later account purchase.
     # Persisted tasks always retain their original principal.
-    installed_kind = (cloud_runtime_manifest(market, product_id) or {}).get("kind")
+    installed_kind = (guidance_runtime_manifest(market, product_id) or {}).get("kind")
     fresh_channel_trial = not state and not saved and installed_kind == "trial"
     if not state and not saved and installed_kind == "purchase":
         with ProductLock(product_id):
             state = require_purchase_state(market, product_id, create=True)
-    if not saved or saved.get("principal", "").startswith("user:") or not state:
-        value = complete_cloud_input(market, product_id, value)
+    session_principal = guidance_session_principal(market, product_id, complete_guidance_input(market, product_id, value))
+    if not saved or saved.get("principal", "").startswith("user:") or session_principal.startswith("user:") or not state:
+        value = complete_guidance_input(market, product_id, value)
         if saved and saved.get("input") != value:
-            raise Failure("SKILL_CLOUD_REQUEST_CONFLICT", "同一请求键的输入发生变化，请保留原任务")
-        directory = cloud_task_directory(market, product_id)
+            raise Failure("SKILL_GUIDANCE_REQUEST_CONFLICT", "同一请求键的输入发生变化，请保留原任务")
+        directory = guidance_task_directory(market, product_id)
         os.makedirs(directory, mode=0o700, exist_ok=True)
         fd, normalized_path = tempfile.mkstemp(prefix=".cli-input-", suffix=".tmp", dir=directory)
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(value, handle, ensure_ascii=False)
-            owned_install = (cloud_runtime_manifest(market, product_id) or {}).get("kind") == "owned"
-            result = cloud_cli_fallback(market, product_id, normalized_path, wait, optional=not saved and (bool(state) or fresh_channel_trial) and not owned_install)
+            owned_install = (guidance_runtime_manifest(market, product_id) or {}).get("kind") == "owned"
+            result = guidance_cli_fallback(market, product_id, normalized_path, wait, optional=not saved and (bool(state) or fresh_channel_trial) and not owned_install and not session_principal.startswith("user:"))
             if result is not None:
                 return result
         finally:
@@ -2650,15 +2681,21 @@ def command_cloud(market, product_id, input_path, wait=60, agent="auto"):
         # invocation needs to establish an anonymous grant on this machine.
         ensure_trial_grant(market, product_id)
     try:
-        return emit_ok(run_cloud_task(market, product_id, value, wait))
+        return emit_ok(run_guidance_task(market, product_id, value, wait))
     except Failure as error:
-        if error.code in ("SKILL_CLOUD_TRIAL_EXHAUSTED", "SKILL_CLOUD_ENTITLEMENT_REQUIRED"):
+        if error.code in ("SKILL_GUIDANCE_TRIAL_EXHAUSTED", "SKILL_GUIDANCE_ENTITLEMENT_REQUIRED"):
+            if value.get("sessionId"):
+                # The CLI can identify a purchase on a different account and
+                # explain a new-session requirement without creating another order.
+                result = guidance_cli_fallback(market, product_id, input_path, wait, optional=True)
+                if result is not None:
+                    return result
             return command_purchase(market, product_id, 0, agent)
         raise
 
 
-def resume_cloud_after_purchase(market, product_id):
-    directory = cloud_task_directory(market, product_id)
+def resume_guidance_after_purchase(market, product_id):
+    directory = guidance_task_directory(market, product_id)
     results = []
     for name in sorted(os.listdir(directory) if os.path.isdir(directory) else []):
         if not name.endswith(".json") or name.endswith(".input.json"):
@@ -2668,22 +2705,22 @@ def resume_cloud_after_purchase(market, product_id):
             with open(os.path.join(directory, name), encoding="utf-8") as handle:
                 record = json.load(handle)
             if not isinstance(record, dict) or record.get("schemaVersion") != 1 or not isinstance(record.get("input"), dict):
-                raise Failure("SKILL_CLOUD_STATE_INVALID", "云端恢复记录无效，请保留原记录")
+                raise Failure("SKILL_GUIDANCE_STATE_INVALID", "云端恢复记录无效，请保留原记录")
             if record.get("paymentRequired"):
-                results.append(run_cloud_task(market, product_id, record["input"]))
+                results.append(run_guidance_task(market, product_id, record["input"]))
         except (OSError, ValueError):
             results.append({"requestKey": request_key, "allowed": False, "nextAction": "RETRY_SAME_TASK",
-                            "error": {"code": "SKILL_CLOUD_STATE_INVALID", "message": "云端恢复记录不可读取，请保留原记录"}})
+                            "error": {"code": "SKILL_GUIDANCE_STATE_INVALID", "message": "云端恢复记录不可读取，请保留原记录"}})
         except Failure as error:
             results.append({"requestKey": request_key, "allowed": False, "nextAction": "RETRY_SAME_TASK",
                             "error": {"code": error.code, "message": error.message, "requestId": error.fields.get("requestId")}})
-    return {"productId": product_id, "deliveryMode": "CLOUD", "owned": True, "allowed": False,
-            "nextAction": "SUBMIT_CLOUD_TASK", "resumedTasks": results}
+    return {"productId": product_id, "deliveryMode": "PROTECTED", "owned": True, "allowed": False,
+            "nextAction": "SUBMIT_GUIDANCE_TASK", "resumedTasks": results}
 
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(prog="trial.py", description="ViceMe Skill 免 CLI 安装与试用计数")
-    parser.add_argument("command", choices=["ready", "install", "use", "status", "purchase", "cloud", "export-package"], help="ready=只读确认本机安装,install=安装,use=申请一次试用,status=查询余量不扣次,purchase=付款并转正,export-package=导出试用门禁或购买入口 zip(不安装、不请求 API)")
+    parser.add_argument("command", choices=["ready", "install", "use", "status", "purchase", "guidance", "export-package"], help="ready=只读确认本机安装,install=安装,use=申请一次试用,status=查询余量不扣次,purchase=付款并转正,export-package=导出试用门禁或购买入口 zip(不安装、不请求 API)")
     parser.add_argument("--wait", type=int, default=0, help="展示二维码或官方支付链接后有界等待支付的秒数(0–600)")
     parser.add_argument("--product", help="Skill 的 Product ID(UUID)")
     parser.add_argument("--market", choices=sorted(SCRIPT_ORIGIN), default=None, help="市场区域:cn 或 global")
@@ -2694,8 +2731,9 @@ def parse_args(argv):
         help="安装目标:auto=按调用方环境自动定向(识别不到时装全部标准目录)",
     )
     parser.add_argument("--kind", choices=["trial", "purchase"], help="export-package 的包类型")
-    parser.add_argument("--delivery-mode", choices=["SOURCE", "CLOUD"], default="SOURCE", help="export-package 的交付模式；CLOUD 使用公开安装包")
-    parser.add_argument("--input", help="cloud 任务 JSON 文件（同 UUID requestKey 重试保持输入不变），或 export-package trial 的原始 Skill zip")
+    parser.add_argument("--artifact-digest")
+    parser.add_argument("--delivery-mode", choices=["SOURCE", "PROTECTED"], default="SOURCE", help="export-package 的交付模式；PROTECTED 使用公开安装包")
+    parser.add_argument("--input", help="guidance 任务 JSON 文件（同 UUID requestKey 重试保持输入不变），或 export-package trial 的原始 Skill zip")
     parser.add_argument("--output", help="export-package 的输出 zip 路径")
     parser.add_argument("--release-id", help="export-package 的 SkillRelease ID(UUID)")
     parser.add_argument("--title", help="export-package purchase 的商品标题")
@@ -2713,7 +2751,7 @@ def main(argv):
             env = json.load(handle)
     args.product = args.product or env.get("productId")
     args.market = args.market or env.get("market") or "cn"
-    if args.command == "cloud" and not args.product and args.input:
+    if args.command == "guidance" and not args.product and args.input:
         with open(args.input, encoding="utf-8") as handle:
             args.product = json.load(handle).get("productId")
     try:
@@ -2724,12 +2762,12 @@ def main(argv):
     if args.command == "export-package":
         return command_export_package(
             args.market, args.product, args.kind, args.release_id, args.output,
-            input_path=args.input, title=args.title, summary=args.summary, slug=args.slug, delivery_mode=args.delivery_mode)
+            input_path=args.input, title=args.title, summary=args.summary, slug=args.slug, delivery_mode=args.delivery_mode, artifact_digest=args.artifact_digest)
     load_runtime_environment(args.market, args.product)
-    if args.command == "cloud":
+    if args.command == "guidance":
         if not args.input:
-            raise Failure("ARGUMENT_INVALID", "cloud 必须提供 --input task.json")
-        return command_cloud(args.market, args.product, args.input, args.wait, args.agent)
+            raise Failure("ARGUMENT_INVALID", "guidance 必须提供 --input task.json")
+        return command_guidance(args.market, args.product, args.input, args.wait, args.agent)
     if args.command == "ready":
         return command_ready(args.market, args.product, args.agent)
     if args.command == "install":

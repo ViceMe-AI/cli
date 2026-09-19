@@ -65,7 +65,7 @@ func addSkillRuntime(runtime *Runtime, files map[string]downloadableSkillFile, p
 	if len(deliveryModes) > 0 {
 		deliveryMode = api.DeliveryMode(deliveryModes[0])
 	}
-	if deliveryMode != "SOURCE" && deliveryMode != "CLOUD" {
+	if deliveryMode != "SOURCE" && deliveryMode != "PROTECTED" {
 		return output.Policy("SKILL_DELIVERY_MODE_UNSUPPORTED", "unsupported Skill delivery mode")
 	}
 	raw, err := fs.ReadFile(cliembed.EmbeddedSkills(), "use-a-skill/scripts/trial-runtime.zip")
@@ -89,7 +89,7 @@ func addSkillRuntime(runtime *Runtime, files map[string]downloadableSkillFile, p
 		}
 		additions[".viceme/"+file.Name] = downloadableSkillFile{Data: data, Mode: 0o644}
 	}
-	if kind == "owned" && deliveryMode != "CLOUD" {
+	if kind == "owned" && deliveryMode != "PROTECTED" {
 		additions[".viceme/guides/trial-usage.md"] = downloadableSkillFile{Data: []byte(ownedUsageGuide), Mode: 0o644}
 	}
 	environment, err := json.Marshal(map[string]string{
@@ -114,11 +114,11 @@ func addSkillRuntime(runtime *Runtime, files map[string]downloadableSkillFile, p
 	}
 	manifest := skillcontent.RuntimeManifest{SchemaVersion: 1, ProductID: productID, ReleaseID: releaseID,
 		DeliveryMode: deliveryMode, APIBaseURL: runtime.apiBaseURL, Market: string(runtime.region), Runner: "cli", Kind: kind, Files: map[string]string{}}
-	if deliveryMode == "CLOUD" {
+	if deliveryMode == "PROTECTED" {
 		manifest.SchemaVersion = 2
 	}
 	for name, file := range files {
-		if _, managed := additions[name]; deliveryMode == "CLOUD" || managed || name == skillTrialRuntimePath || name == skillcontent.TrialBodyPath {
+		if _, managed := additions[name]; deliveryMode == "PROTECTED" || managed || name == skillTrialRuntimePath || name == skillcontent.TrialBodyPath {
 			manifest.Files[name] = fmt.Sprintf("%x", sha256.Sum256(file.Data))
 		}
 	}
@@ -165,8 +165,8 @@ func newSkillReadyCommand(runtime *Runtime) *cobra.Command {
 				result.NextAction = "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL"
 				result.localSkillResources = skillResourcesAt(directory, manifest.Runner)
 				result.DeliveryMode = api.DeliveryMode(manifest.DeliveryMode)
-				if result.DeliveryMode == "CLOUD" {
-					result.NextAction = "SUBMIT_CLOUD_TASK"
+				if result.DeliveryMode == "PROTECTED" {
+					result.NextAction = "SUBMIT_GUIDANCE_TASK"
 				}
 			}
 			if err := attachReadyTrialSnapshot(command.Context(), runtime, args[0], &result); err != nil {
@@ -181,7 +181,7 @@ func newSkillReadyCommand(runtime *Runtime) *cobra.Command {
 }
 
 func attachReadyTrialSnapshot(ctx context.Context, runtime *Runtime, productID string, result *skillReadyResult) error {
-	if result.DeliveryMode == "CLOUD" {
+	if result.DeliveryMode == "PROTECTED" {
 		return nil
 	}
 	if result.Kind == "purchase" {

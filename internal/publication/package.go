@@ -652,14 +652,6 @@ func manifestFromEntries(entries []sourceEntry, sourcePath string) (api.SkillPub
 	if len(skill) == 0 {
 		return api.SkillPublicationManifest{}, output.Validation("SKILL_MANIFEST_MISSING", "Skill package must contain SKILL.md at its root")
 	}
-	cloud, err := cloudManifestFromEntries(entries)
-	if err != nil {
-		return api.SkillPublicationManifest{}, err
-	}
-	deliveryMode := ""
-	if cloud != nil {
-		deliveryMode = "CLOUD"
-	}
 	frontmatter, err := parseSkillFrontmatter(skill)
 	if err != nil {
 		return api.SkillPublicationManifest{}, err
@@ -671,20 +663,19 @@ func manifestFromEntries(entries []sourceEntry, sourcePath string) (api.SkillPub
 		return api.SkillPublicationManifest{}, output.Validation("SKILL_PACKAGE_NAME_INVALID",
 			"SKILL.md name is the install identifier and must use lowercase letters, digits, and single hyphens"+suggestedSkillNameSuffix(sourcePath))
 	}
-	// CLOUD metadata comes only from the explicitly public declaration. Private
-	// frontmatter and body text must not become listing or analysis input.
+	// A missing frontmatter description no longer blocks the upload: derive a
+	// deterministic fallback from the SKILL.md body so buyer-facing copy stays
+	// non-empty. The author's own description always wins when present.
 	summary := frontmatter.Description
-	if cloud != nil {
-		summary = strings.TrimSpace(truncateUTF16(cloud.Purpose, 500))
-	} else if summary == "" {
+	if summary == "" {
 		summary = deriveSkillSummary(skill, frontmatter.Name)
 	}
 	return api.SkillPublicationManifest{
 		APIVersion: "publication.viceme.ai/v1alpha1", Kind: "Skill",
 		Metadata: api.SkillPublicationMetadata{Title: frontmatter.Name, Summary: summary},
 		Spec: api.SkillPublicationSpec{
-			PublishMode: "DOWNLOADABLE_SKILL", DeliveryMode: deliveryMode, Cloud: cloud,
-			Source: api.SkillPublicationSource{Type: "WORKSPACE", Entry: "SKILL.md"},
+			PublishMode: "DOWNLOADABLE_SKILL",
+			Source:      api.SkillPublicationSource{Type: "WORKSPACE", Entry: "SKILL.md"},
 			Edition: api.SkillPublicationEdition{
 				Key: "standard", Title: frontmatter.Name, SortOrder: 0, Highlights: []string{summary},
 			},
@@ -830,21 +821,8 @@ func truncateRunes(value string, limit int) string {
 }
 
 func listingCandidates(entries []sourceEntry) []Candidate {
-	cloud, err := cloudManifestFromEntries(entries)
-	if err != nil {
-		return nil
-	}
-	public := map[string]bool{}
-	if cloud != nil {
-		for _, name := range cloud.PublicFiles {
-			public[name] = true
-		}
-	}
 	result := make([]Candidate, 0, MaxCandidates)
 	for _, entry := range entries {
-		if cloud != nil && !public[entry.name] {
-			continue
-		}
 		contentType := imageContentType(entry.name, entry.data)
 		if contentType == "" {
 			continue

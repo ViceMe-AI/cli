@@ -217,15 +217,11 @@ viceme skill publish --resume <publication-id>
 Never create a second publication merely because the previous response was
 unknown. Query or resume the existing ID first.
 
-Cloud-protected Skills use the same publication and installation commands.
-Declare every private and public source file and a public `localWorkflow` in a root `viceme-cloud.json`;
-the server delivers an entry and the original public workflow, scripts and assets. User records stay local; the server supplies task-specific core rules. Execute each
-task with `viceme skill cloud --input task.json`, or the installed
-`python3 .viceme/scripts/trial.py cloud --input task.json`. Reuse the same
-request UUID and input after a lost response or payment. Cloud purchases keep
-the public entry and require online authorization for new tasks. See
-[cloud Skill publishing and execution](docs/cloud-skills.md) for the manifest,
-runtime schema, trial accounting, and recovery contract.
+Guidance-protected Skills use the same publication and installation commands.
+Publish the complete source package using the existing commands. The server keeps
+SKILL.md private for new paid releases and replaces only that file in the consumer
+package; every original attachment remains unchanged. No extra publishing flags,
+file classification manifest, root metadata file, or generated workflow is needed.
 
 ## Authentication and Profiles
 

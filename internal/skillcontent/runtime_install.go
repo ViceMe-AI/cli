@@ -108,7 +108,7 @@ func ReadRuntimeIdentity(directory, productID, apiBaseURL string) (RuntimeManife
 	if err != nil || json.Unmarshal(raw, &manifest) != nil || (manifest.SchemaVersion != 1 && manifest.SchemaVersion != 2) || manifest.ProductID != productID || !config.EquivalentAPIBaseURLs(manifest.APIBaseURL, apiBaseURL) || (manifest.Runner != "cli" && manifest.Runner != "python") {
 		return manifest, false
 	}
-	if manifest.DeliveryMode != "" && manifest.DeliveryMode != "SOURCE" && manifest.DeliveryMode != "CLOUD" || manifest.DeliveryMode == "CLOUD" && manifest.SchemaVersion != 2 {
+	if manifest.DeliveryMode != "" && manifest.DeliveryMode != "SOURCE" && manifest.DeliveryMode != "PROTECTED" || manifest.DeliveryMode == "PROTECTED" && manifest.SchemaVersion != 2 {
 		return manifest, false
 	}
 	// A cross-client restore can stop between writing its two identity files.
@@ -136,13 +136,13 @@ func readRuntimeInstall(directory, productID, apiBaseURL string) (RuntimeManifes
 		return manifest, false
 	}
 	required := append([]string{".viceme/environment.json"}, runtimeFiles()...)
-	if manifest.Kind == "trial" && manifest.DeliveryMode != "CLOUD" {
+	if manifest.Kind == "trial" && manifest.DeliveryMode != "PROTECTED" {
 		required = append(required, "references/viceme-runtime.md", TrialBodyPath)
 	}
-	if manifest.DeliveryMode == "CLOUD" {
+	if manifest.DeliveryMode == "PROTECTED" {
 		required = append(required, ".viceme/scripts/resolve-cli.sh", ".viceme/scripts/resolve-cli.ps1")
 	}
-	if manifest.Kind == "purchase" && manifest.DeliveryMode != "CLOUD" {
+	if manifest.Kind == "purchase" && manifest.DeliveryMode != "PROTECTED" {
 		required = append(required, "SKILL.md", "references/purchase.md")
 	}
 	if manifest.Kind != "trial" && manifest.Kind != "free" && manifest.Kind != "owned" && manifest.Kind != "purchase" {
