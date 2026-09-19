@@ -13,7 +13,10 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/ViceMe-AI/cli/internal/api"
+	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/securestore"
+	"github.com/ViceMe-AI/cli/internal/skillcontent"
 )
 
 func TestCloudRegisteredPurchaseRetriesSameUserAndNeverDownloads(t *testing.T) {
@@ -432,5 +435,209 @@ func TestCloudDirectPurchaseInstallsPublicPackageWithoutTrialAndKeepsIdentity(t 
 	}
 	if _, err := os.Stat(filepath.Join(home, ".viceme", "trials", downloadableProductID+".json")); !os.IsNotExist(err) {
 		t.Fatal("created trial state")
+	}
+}
+
+// Task execution and direct-purchase identity selection must both honor the
+// invoking directory, including workspace names excluded from host discovery.
+func TestCloudTaskUsesExactSkillDirectory(t *testing.T) {
+	const selectedRelease = "99999999-9999-4999-8999-999999999999"
+	for _, test := range []struct {
+		name      string
+		directory string
+		release   string
+		missing   bool
+		corrupt   bool
+		allowed   bool
+	}{
+		{name: "coexisting versions", directory: "selected-v2", allowed: true},
+		{name: "dotted workspace directory", directory: "selected.v2", allowed: true},
+		{name: "explicit old version cannot select sibling", directory: "selected-v2", release: downloadableReleaseID},
+		{name: "missing directory with explicit release", directory: "missing", release: downloadableReleaseID, missing: true},
+		{name: "missing directory without explicit release", directory: "missing", missing: true},
+		{name: "corrupt directory cannot use valid sibling", directory: "selected-v2", release: downloadableReleaseID, corrupt: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Setenv(processAccessTokenEnvironment, "")
+			home, store := t.TempDir(), securestore.NewMemory()
+			var calls atomic.Int32
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls.Add(1)
+				if r.URL.Path != "/v1/skill-cloud/purchase/requests" {
+					t.Errorf("exact purchase installation used another flow: %s", r.URL.Path)
+					http.Error(w, "unexpected request", http.StatusBadRequest)
+					return
+				}
+				var input map[string]any
+				if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+					t.Error(err)
+					return
+				}
+				if input["releaseId"] != selectedRelease || input["installId"] == "" || input["secret"] == "" {
+					t.Errorf("task did not bind selected installation: release=%v", input["releaseId"])
+				}
+				writeJSONResponse(w, map[string]any{"requestId": input["requestKey"], "sessionId": "11111111-1111-4111-8111-111111111111", "releaseId": input["releaseId"], "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "Follow the selected local workflow.", "message": nil, "retryable": false, "errorCode": nil, "expiresAt": "2099-01-01T00:00:00Z"})
+			}))
+			defer server.Close()
+			workspace := t.TempDir()
+
+			// Discovery would pick this alphabetically first installation. Its different
+			// kind also detects an exact task lookup followed by a broad buyer lookup.
+			writeCloudRuntimeFixture(t, filepath.Join(workspace, "a-old-owned"), server.URL, downloadableReleaseID, "owned")
+			selected := filepath.Join(workspace, test.directory)
+			if !test.missing {
+				writeCloudRuntimeFixture(t, selected, server.URL, selectedRelease, "purchase")
+			}
+			if test.corrupt {
+				if err := os.WriteFile(filepath.Join(selected, "WORKFLOW.md"), []byte("changed"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			input := map[string]any{"productId": downloadableProductID, "requestKey": "12121212-1212-4212-8212-121212121212", "prompt": "review local inputs", "facts": map[string]string{}}
+			if test.release != "" {
+				input["releaseId"] = test.release
+			}
+			raw, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			inputPath := filepath.Join(home, "task.json")
+			if err := os.WriteFile(inputPath, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			code, result, _ := executeSkillTrialCommand(t, server, home, store, "skill", "cloud", "--input", inputPath, "--skill-dir", selected, "--wait", "0")
+			if test.allowed {
+				if code != 0 || result["data"].(map[string]any)["allowed"] != true || calls.Load() != 1 {
+					t.Fatalf("selected installation could not run: calls=%d result=%#v", calls.Load(), result)
+				}
+				if _, err := os.Stat(filepath.Join(home, ".viceme", "purchases", downloadableProductID+".json")); err != nil {
+					t.Fatal(err)
+				}
+			} else {
+				if code == 0 || result["error"].(map[string]any)["code"] != "SKILL_CLOUD_RELEASE_MISMATCH" || calls.Load() != 0 {
+					t.Fatalf("invalid selected installation reached task or wrong error: calls=%d result=%#v", calls.Load(), result)
+				}
+				if _, err := os.Stat(filepath.Join(home, ".viceme", "purchases", downloadableProductID+".json")); !os.IsNotExist(err) {
+					t.Fatalf("invalid installation created a purchase identity: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func writeCloudRuntimeFixture(t *testing.T, directory, apiBaseURL, release, kind string) {
+	t.Helper()
+	files := map[string]downloadableSkillFile{
+		"SKILL.md":    {Data: []byte("---\nname: cloud-fixture\n---\nUse the public workflow.\n"), Mode: 0o644},
+		"WORKFLOW.md": {Data: []byte("Read local input and apply this task's guidance.\n"), Mode: 0o644},
+	}
+	runtime := &Runtime{apiBaseURL: apiBaseURL, region: config.RegionCN}
+	if err := addSkillRuntime(runtime, files, downloadableProductID, release, kind, "CLOUD"); err != nil {
+		t.Fatal(err)
+	}
+	owner, err := json.Marshal(map[string]string{"product_id": downloadableProductID, "release_id": release})
+	if err != nil {
+		t.Fatal(err)
+	}
+	files[".viceme/install-manifest.json"] = downloadableSkillFile{Data: owner, Mode: 0o600}
+	for name, file := range files {
+		filename := filepath.Join(directory, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filename, file.Data, file.Mode); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestCloudPurchaseRecoveryUsesExactSkillDirectory(t *testing.T) {
+	const selectedRelease = "99999999-9999-4999-8999-999999999999"
+	const installID = "33333333-3333-4333-8333-333333333333"
+	for _, kind := range []string{"trial", "purchase"} {
+		for _, corrupt := range []bool{false, true} {
+			name := kind + "/ready"
+			if corrupt {
+				name = kind + "/corrupt"
+			}
+			t.Run(name, func(t *testing.T) {
+				t.Setenv(processAccessTokenEnvironment, "")
+				home, store := t.TempDir(), securestore.NewMemory()
+				endpoint := "trial-purchase"
+				if kind == "purchase" {
+					endpoint = "purchase"
+				}
+				var cloudCalls atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					switch r.URL.Path {
+					case "/v1/skills/" + downloadableProductID + "/" + endpoint + "/status":
+						writeJSONResponse(w, map[string]any{"productId": downloadableProductID, "orderNo": skillPurchaseOrderNo, "title": "Cloud fixture", "status": "PAID", "amountCents": 100, "currency": "CNY", "expiresAt": "2099-01-01T00:00:00Z", "paymentAction": nil})
+					case "/v1/skills/" + downloadableProductID + "/" + endpoint + "/download":
+						writeJSONResponse(w, map[string]any{"access": map[string]any{"productId": downloadableProductID, "owned": true, "installKind": "OWNED_PAID", "deliveryMode": "CLOUD", "release": map[string]any{"id": selectedRelease}}, "download": nil})
+					case "/v1/skill-cloud/" + kind + "/requests":
+						cloudCalls.Add(1)
+						var input map[string]any
+						if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+							t.Error(err)
+							return
+						}
+						if input["releaseId"] != selectedRelease || input["installId"] != installID {
+							t.Error("purchase recovery changed the installation or buyer identity")
+						}
+						writeJSONResponse(w, map[string]any{"requestId": input["requestKey"], "sessionId": "11111111-1111-4111-8111-111111111111", "releaseId": input["releaseId"], "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "Follow the selected local workflow.", "message": nil, "retryable": false, "errorCode": nil, "expiresAt": "2099-01-01T00:00:00Z"})
+					default:
+						t.Errorf("unexpected purchase recovery request: %s", r.URL.Path)
+						http.Error(w, "unexpected request", http.StatusBadRequest)
+					}
+				}))
+				defer server.Close()
+				selected := filepath.Join(t.TempDir(), "selected.v2")
+				writeCloudRuntimeFixture(t, selected, server.URL, selectedRelease, kind)
+				writeCloudRuntimeFixture(t, filepath.Join(home, ".agents", "skills", "old-version"), server.URL, downloadableReleaseID, "owned")
+				if corrupt {
+					if err := os.WriteFile(filepath.Join(selected, "WORKFLOW.md"), []byte("changed"), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
+				runtime := &Runtime{apiBaseURL: server.URL, region: config.RegionCN, deps: Dependencies{Environment: skillcontent.Environment{Home: home}}}
+				identity := scriptTrialState{ProductID: downloadableProductID, Market: "cn", InstallID: installID, Secret: skillTrialSecret, Purchase: &trialPurchaseState{ClientRequestID: "44444444-4444-4444-8444-444444444444", OrderNo: skillPurchaseOrderNo, Presented: true}}
+				identityPath := scriptTrialCredentialPath(runtime, downloadableProductID)
+				if kind == "purchase" {
+					identity.CredentialKind = "purchase"
+					identityPath = scriptPurchasePath(runtime, downloadableProductID)
+				}
+				if err := os.MkdirAll(filepath.Dir(identityPath), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := saveSkillPurchaseState(runtime, downloadableProductID, kind, identity); err != nil {
+					t.Fatal(err)
+				}
+				record := cloudTaskRecord{SchemaVersion: 1, APIBaseURL: server.URL, Market: "cn", Principal: kind + ":" + installID, PaymentRequired: true,
+					Input: api.SkillCloudSubmit{ProductID: downloadableProductID, ReleaseID: selectedRelease, RequestKey: "12121212-1212-4212-8212-121212121212", Prompt: "review local inputs", Facts: map[string]string{}}}
+				filename := filepath.Join(cloudTaskDirectory(runtime, downloadableProductID), record.Input.RequestKey+".json")
+				if err := os.MkdirAll(filepath.Dir(filename), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := writeCloudRecord(filename, record); err != nil {
+					t.Fatal(err)
+				}
+				code, result, _ := executeSkillTrialCommand(t, server, home, store, "skill", "trial-purchase", downloadableProductID, "--skill-dir", selected, "--wait", "0")
+				if code != 0 {
+					t.Fatalf("purchase recovery: %#v", result)
+				}
+				tasks := result["data"].(map[string]any)["resumedTasks"].([]any)
+				if len(tasks) != 1 {
+					t.Fatalf("pending task was lost: %#v", result)
+				}
+				task := tasks[0].(map[string]any)
+				if corrupt {
+					if task["allowed"] != false || task["error"].(map[string]any)["code"] != "SKILL_CLOUD_RELEASE_MISMATCH" || cloudCalls.Load() != 0 {
+						t.Fatalf("corrupt selected installation ran after payment: %#v", result)
+					}
+				} else if task["allowed"] != true || cloudCalls.Load() != 1 {
+					t.Fatalf("paid task did not resume in selected installation: %#v", result)
+				}
+			})
+		}
 	}
 }

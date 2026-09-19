@@ -815,10 +815,10 @@ def write_skill_zip(files, path):
         return hashlib.sha256(handle.read()).hexdigest()
 
 
-def command_export_package(market, product_id, kind, release_id, output, input_path=None, title=None, summary=None, slug=None):
+def command_export_package(market, product_id, kind, release_id, output, input_path=None, title=None, summary=None, slug=None, delivery_mode="SOURCE"):
     """Pure transform for Admin channel zips. Does not install or call the API."""
-    if kind not in ("trial", "purchase"):
-        raise Failure("ARGUMENT_INVALID", "导出 kind 必须为 trial 或 purchase")
+    if kind not in ("trial", "purchase") or delivery_mode not in ("SOURCE", "CLOUD"):
+        raise Failure("ARGUMENT_INVALID", "导出 kind 必须为 trial 或 purchase，交付模式必须为 SOURCE 或 CLOUD")
     try:
         if not release_id or str(uuid.UUID(release_id)) != release_id.lower():
             raise ValueError()
@@ -827,9 +827,9 @@ def command_export_package(market, product_id, kind, release_id, output, input_p
     if not output or not str(output).endswith(".zip"):
         raise Failure("ARGUMENT_INVALID", "导出路径必须以 .zip 结尾")
     output = os.path.abspath(output)
-    if kind == "trial":
+    if kind == "trial" or delivery_mode == "CLOUD":
         if not input_path:
-            raise Failure("ARGUMENT_INVALID", "试用门禁包需要 --input 指向原始 zip")
+            raise Failure("ARGUMENT_INVALID", "试用包或云端公开包需要 --input 指向对应发布 zip")
         try:
             with open(input_path, "rb") as handle:
                 archive = handle.read(MAX_TOTAL_BYTES + 1)
@@ -838,8 +838,21 @@ def command_export_package(market, product_id, kind, release_id, output, input_p
         if len(archive) > MAX_TOTAL_BYTES:
             raise Failure("ARCHIVE_LIMIT_EXCEEDED", "Skill 包超出安全解包限制")
         files = extract_skill_package(archive)
-        inject_trial_gate(files, market, product_id)
-        prepare_runtime_files(files, market, product_id, release_id, "trial")
+        if delivery_mode == "CLOUD":
+            try:
+                marker = json.loads(files["viceme-cloud.json"][0])
+                if type(marker) is not dict or type(marker.get("version")) is not int or marker != {"version": 1, "deliveryMode": "CLOUD", "releaseId": release_id}:
+                    raise ValueError()
+                if any(name.casefold() == ".viceme" or name.casefold().startswith(".viceme/") for name in files):
+                    raise ValueError()
+            except (KeyError, ValueError, TypeError, UnicodeError):
+                raise Failure("SKILL_CLOUD_RELEASE_MISMATCH", "云端公开包标识或版本不匹配，未生成渠道包") from None
+            files[".viceme/install-manifest.json"] = (trial_install_manifest(product_id, release_id), 0o644)
+        else:
+            if "viceme-cloud.json" in files:
+                raise Failure("SKILL_CLOUD_RELEASE_MISMATCH", "云端公开包必须显式使用 CLOUD 交付模式")
+            inject_trial_gate(files, market, product_id)
+        prepare_runtime_files(files, market, product_id, release_id, kind, delivery_mode)
     else:
         if input_path:
             raise Failure("ARGUMENT_INVALID", "购买入口包不接受 --input")
@@ -2611,7 +2624,9 @@ def command_cloud(market, product_id, input_path, wait=60, agent="auto"):
     # Fresh tasks use the CLI's current entitlement decision when available.
     # A remaining anonymous grant must not hide a later account purchase.
     # Persisted tasks always retain their original principal.
-    if not state and not saved and (cloud_runtime_manifest(market, product_id) or {}).get("kind") == "purchase":
+    installed_kind = (cloud_runtime_manifest(market, product_id) or {}).get("kind")
+    fresh_channel_trial = not state and not saved and installed_kind == "trial"
+    if not state and not saved and installed_kind == "purchase":
         with ProductLock(product_id):
             state = require_purchase_state(market, product_id, create=True)
     if not saved or saved.get("principal", "").startswith("user:") or not state:
@@ -2625,11 +2640,15 @@ def command_cloud(market, product_id, input_path, wait=60, agent="auto"):
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(value, handle, ensure_ascii=False)
             owned_install = (cloud_runtime_manifest(market, product_id) or {}).get("kind") == "owned"
-            result = cloud_cli_fallback(market, product_id, normalized_path, wait, optional=not saved and bool(state) and not owned_install)
+            result = cloud_cli_fallback(market, product_id, normalized_path, wait, optional=not saved and (bool(state) or fresh_channel_trial) and not owned_install)
             if result is not None:
                 return result
         finally:
             os.unlink(normalized_path)
+    if fresh_channel_trial:
+        # Prefer an existing account entitlement above; only a standalone channel
+        # invocation needs to establish an anonymous grant on this machine.
+        ensure_trial_grant(market, product_id)
     try:
         return emit_ok(run_cloud_task(market, product_id, value, wait))
     except Failure as error:
@@ -2675,6 +2694,7 @@ def parse_args(argv):
         help="安装目标:auto=按调用方环境自动定向(识别不到时装全部标准目录)",
     )
     parser.add_argument("--kind", choices=["trial", "purchase"], help="export-package 的包类型")
+    parser.add_argument("--delivery-mode", choices=["SOURCE", "CLOUD"], default="SOURCE", help="export-package 的交付模式；CLOUD 使用公开安装包")
     parser.add_argument("--input", help="cloud 任务 JSON 文件（同 UUID requestKey 重试保持输入不变），或 export-package trial 的原始 Skill zip")
     parser.add_argument("--output", help="export-package 的输出 zip 路径")
     parser.add_argument("--release-id", help="export-package 的 SkillRelease ID(UUID)")
@@ -2704,7 +2724,7 @@ def main(argv):
     if args.command == "export-package":
         return command_export_package(
             args.market, args.product, args.kind, args.release_id, args.output,
-            input_path=args.input, title=args.title, summary=args.summary, slug=args.slug)
+            input_path=args.input, title=args.title, summary=args.summary, slug=args.slug, delivery_mode=args.delivery_mode)
     load_runtime_environment(args.market, args.product)
     if args.command == "cloud":
         if not args.input:

@@ -671,16 +671,13 @@ func manifestFromEntries(entries []sourceEntry, sourcePath string) (api.SkillPub
 		return api.SkillPublicationManifest{}, output.Validation("SKILL_PACKAGE_NAME_INVALID",
 			"SKILL.md name is the install identifier and must use lowercase letters, digits, and single hyphens"+suggestedSkillNameSuffix(sourcePath))
 	}
-	// A missing frontmatter description no longer blocks the upload: derive a
-	// deterministic fallback from the SKILL.md body so buyer-facing copy stays
-	// non-empty. The author's own description always wins when present.
+	// CLOUD metadata comes only from the explicitly public declaration. Private
+	// frontmatter and body text must not become listing or analysis input.
 	summary := frontmatter.Description
-	if summary == "" {
-		if cloud != nil {
-			summary = truncateRunes(cloud.Purpose, skillDescriptionMaxRunes)
-		} else {
-			summary = deriveSkillSummary(skill, frontmatter.Name)
-		}
+	if cloud != nil {
+		summary = strings.TrimSpace(truncateUTF16(cloud.Purpose, 500))
+	} else if summary == "" {
+		summary = deriveSkillSummary(skill, frontmatter.Name)
 	}
 	return api.SkillPublicationManifest{
 		APIVersion: "publication.viceme.ai/v1alpha1", Kind: "Skill",

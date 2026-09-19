@@ -149,6 +149,7 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 	var role string
 	var filename string
 	var candidateOnly bool
+	var relativePath string
 	command := &cobra.Command{
 		Use: "upload <publication-id>", Short: "Upload a replacement cover or gallery image", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
@@ -164,6 +165,11 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			if current.Manifest.Spec.DeliveryMode == "CLOUD" &&
+				(current.Manifest.Spec.Cloud == nil || relativePath == "" || !containsString(current.Manifest.Spec.Cloud.PublicFiles, relativePath)) {
+				return output.Validation("SKILL_CLOUD_MEDIA_NOT_PUBLIC", "provide --relative-path with the exact publicFiles path from this Skill package")
+			}
+			candidate.RelativePath = relativePath
 			matched := matchingMediaUpload(current.Uploads, candidate)
 			uploadedID := ""
 			if matched != nil && matched.Status == "VERIFIED" {
@@ -187,7 +193,7 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 					}
 					authorized, err := client.AuthorizeUpload(command.Context(), args[0], api.UploadAuthorizationRequest{
 						Kind: "MEDIA", Digest: candidate.Digest, SizeBytes: candidate.SizeBytes,
-						FileName: candidate.FileName, ContentType: candidate.ContentType, SortOrder: slot,
+						FileName: candidate.FileName, ContentType: candidate.ContentType, SortOrder: slot, RelativePath: candidate.RelativePath,
 					})
 					if err != nil {
 						var cliErr *output.Error
@@ -248,6 +254,7 @@ func newPublicationAssetUploadCommand(runtime *Runtime) *cobra.Command {
 	}
 	command.Flags().StringVar(&role, "role", "", "asset role: cover or gallery")
 	command.Flags().StringVar(&filename, "path", "", "image file")
+	command.Flags().StringVar(&relativePath, "relative-path", "", "exact public image path inside the Skill package (required for CLOUD)")
 	command.Flags().BoolVar(&candidateOnly, "candidate-only", false, "upload verified media without marking a user selection")
 	_ = command.MarkFlagRequired("role")
 	_ = command.MarkFlagRequired("path")
@@ -279,7 +286,8 @@ func newPublicationSuggestCommand(runtime *Runtime) *cobra.Command {
 
 func matchingMediaUpload(uploads []api.SkillPublicationUpload, candidate publication.Candidate) *api.SkillPublicationUpload {
 	for _, upload := range uploads {
-		if upload.Kind == "MEDIA" && upload.Digest == candidate.Digest && upload.SizeBytes == candidate.SizeBytes && upload.FileName == candidate.FileName && upload.ContentType == candidate.ContentType && upload.RelativePath == nil {
+		if upload.Kind == "MEDIA" && upload.Digest == candidate.Digest && upload.SizeBytes == candidate.SizeBytes && upload.FileName == candidate.FileName && upload.ContentType == candidate.ContentType &&
+			((candidate.RelativePath == "" && upload.RelativePath == nil) || (upload.RelativePath != nil && *upload.RelativePath == candidate.RelativePath)) {
 			matched := upload
 			return &matched
 		}

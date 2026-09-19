@@ -415,7 +415,7 @@ func completeCloudInput(runtime *Runtime, input *api.SkillCloudSubmit, agent str
 			}
 		}
 	}
-	directory, manifest, found, err := skillcontent.FindRuntimeInstall(runtime.deps.Environment, agent, input.ProductID, runtime.apiBaseURL)
+	directory, manifest, found, err := skillcontent.FindRuntimeInstall(runtime.deps.Environment, agent, input.ProductID, runtime.apiBaseURL, runtime.deps.Environment.InstallDirectory)
 	if err != nil {
 		return err
 	}

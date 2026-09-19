@@ -369,6 +369,136 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertNotIn("scripts/grade.py", names)
         self.assertFalse(os.path.exists(os.path.join(self.home, ".agents")))
 
+    def test_export_cloud_packages_preserve_public_bytes_and_validate_runtime(self):
+        public = {"SKILL.md": b"---\nname: cloud-channel\ndescription: demo\n---\n\nRun local workflow with cloud guidance.\n",
+                  "WORKFLOW.md": b"Run scripts/check.py locally.\n",
+                  "scripts/check.py": b"print('original public script')\n",
+                  "viceme-cloud.json": json.dumps({"version": 1, "deliveryMode": "CLOUD", "releaseId": RELEASE_ID}).encode()}
+        original = os.path.join(self.home, "cloud-public.zip")
+        with zipfile.ZipFile(original, "w") as archive:
+            for name, data in public.items():
+                info = zipfile.ZipInfo(name)
+                info.external_attr = (0o755 if name.endswith(".py") else 0o644) << 16
+                archive.writestr(info, data)
+        for kind in ("trial", "purchase"):
+            with self.subTest(kind=kind):
+                output = os.path.join(self.home, "cloud-%s.zip" % kind)
+                with mock.patch.object(trial, "api_request", side_effect=AssertionError("export must stay offline")), redirect_stdout(io.StringIO()):
+                    code = trial.run(["export-package", "--product", PRODUCT_ID, "--market", "cn",
+                                      "--kind", kind, "--delivery-mode", "CLOUD", "--release-id", RELEASE_ID,
+                                      "--input", original, "--output", output])
+                self.assertEqual(code, 0)
+                destination = os.path.join(self.home, kind)
+                with zipfile.ZipFile(output) as archive:
+                    for name, expected in public.items():
+                        self.assertEqual(archive.read(name), expected)
+                    self.assertEqual((archive.getinfo("scripts/check.py").external_attr >> 16) & 0o777, 0o755)
+                    self.assertNotIn(trial.TRIAL_BODY_PATH, archive.namelist())
+                    archive.extractall(destination)
+                ready = trial.read_runtime_install(destination, "cn", PRODUCT_ID)
+                self.assertEqual((ready["ready"], ready["kind"], ready["deliveryMode"]), (True, kind, "CLOUD"))
+                with open(os.path.join(destination, "scripts/check.py"), "ab") as handle:
+                    handle.write(b"# tampered")
+                self.assertFalse(trial.read_runtime_install(destination, "cn", PRODUCT_ID)["ready"])
+        # Never silently turn a cloud package into a SOURCE trial gate, or accept
+        # a publisher source declaration / another immutable release as public.
+        for marker in ({"version": 1, "deliveryMode": "CLOUD", "releaseId": PRODUCT_ID},
+                       {"version": 1, "purpose": "private", "privateFiles": ["SKILL.md"]},
+                       {"version": True, "deliveryMode": "CLOUD", "releaseId": RELEASE_ID}):
+            with zipfile.ZipFile(original, "w") as archive:
+                archive.writestr("SKILL.md", public["SKILL.md"])
+                archive.writestr("viceme-cloud.json", json.dumps(marker))
+            stdout = io.StringIO()
+            with redirect_stdout(stdout):
+                code = trial.run(["export-package", "--product", PRODUCT_ID, "--kind", "purchase",
+                                  "--delivery-mode", "CLOUD", "--release-id", RELEASE_ID,
+                                  "--input", original, "--output", os.path.join(self.home, "invalid.zip")])
+            self.assertEqual(code, 1)
+            self.assertEqual(json.loads(stdout.getvalue())["code"], "SKILL_CLOUD_RELEASE_MISMATCH")
+            self.assertFalse(os.path.exists(os.path.join(self.home, "invalid.zip")))
+
+    def test_cloud_channel_trial_first_use_establishes_local_grant_without_legacy_charge(self):
+        value = {"requestKey": "55709ab2-2246-4033-a41e-7b21d96bccb7", "prompt": "review local input", "releaseId": RELEASE_ID}
+        input_path = os.path.join(self.home, "task.json")
+        with open(input_path, "w") as handle:
+            json.dump(value, handle)
+        def api(market, method, route, body=None):
+            self.assertTrue(route.endswith("/trial-grants"))
+            return {"installId": body["installId"], "secret": "ab" * 32, "limitUses": 3, "remainingUses": 3}
+        manifest = {"kind": "trial", "deliveryMode": "CLOUD", "productId": PRODUCT_ID, "releaseId": RELEASE_ID, "apiBaseUrl": trial.API_ORIGIN["cn"]}
+        with mock.patch.object(trial, "cloud_runtime_manifest", return_value=manifest), mock.patch.object(trial, "api_request", side_effect=api) as requests, mock.patch.object(trial, "cloud_cli_fallback", return_value=None), mock.patch.object(trial, "run_cloud_task", return_value={"allowed": False}) as submitted, redirect_stdout(io.StringIO()):
+            self.assertEqual(trial.command_cloud("cn", PRODUCT_ID, input_path, wait=0), 0)
+        self.assertEqual(requests.call_count, 1)
+        self.assertEqual(trial.require_trial_state("cn", PRODUCT_ID)["secret"], "ab" * 32)
+        submitted.assert_called_once()
+
+    def test_exported_cloud_trial_executes_in_new_process_and_prefers_existing_cli(self):
+        calls = []
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(handler):
+                body = json.loads(handler.rfile.read(int(handler.headers["Content-Length"])))
+                calls.append(handler.path)
+                if handler.path.endswith("/trial-grants"):
+                    response = {"installId": body["installId"], "secret": "ab" * 32, "limitUses": 3, "remainingUses": 3}
+                elif handler.path == "/v1/skill-cloud/trial/requests":
+                    response = {"requestId": "66709ab2-2246-4033-a41e-7b21d96bccb7", "sessionId": "77709ab2-2246-4033-a41e-7b21d96bccb7", "releaseId": RELEASE_ID,
+                                "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "# Execution Instructions\n\nFollow the public workflow.",
+                                "message": None, "errorCode": None, "retryable": False, "expiresAt": "2099-01-01T00:00:00Z", "trial": {"remainingUses": 2, "limitUses": 3}}
+                else:
+                    handler.send_response(404)
+                    handler.end_headers()
+                    return
+                data = json.dumps(response).encode()
+                handler.send_response(200)
+                handler.send_header("Content-Type", "application/json")
+                handler.send_header("Content-Length", str(len(data)))
+                handler.end_headers()
+                handler.wfile.write(data)
+            def log_message(handler, *args):
+                pass
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        self.addCleanup(server.server_close)
+        self.addCleanup(server.shutdown)
+        original = os.path.join(self.home, "public.zip")
+        output = os.path.join(self.home, "channel.zip")
+        with zipfile.ZipFile(original, "w") as archive:
+            archive.writestr("SKILL.md", "---\nname: exported-cloud\ndescription: demo\n---\nCloud entry")
+            archive.writestr("WORKFLOW.md", "Read local records.")
+            archive.writestr("viceme-cloud.json", json.dumps({"version": 1, "deliveryMode": "CLOUD", "releaseId": RELEASE_ID}))
+        with mock.patch.dict(trial.API_ORIGIN, {"cn": "http://127.0.0.1:%s" % server.server_port}), redirect_stdout(io.StringIO()):
+            self.assertEqual(trial.command_export_package("cn", PRODUCT_ID, "trial", RELEASE_ID, output, input_path=original, delivery_mode="CLOUD"), 0)
+        destination = os.path.join(self.home, "channel")
+        with zipfile.ZipFile(output) as archive:
+            archive.extractall(destination)
+        task = os.path.join(self.home, "task.json")
+        with open(task, "w") as handle:
+            json.dump({"requestKey": "88709ab2-2246-4033-a41e-7b21d96bccb7", "prompt": "review local records"}, handle)
+        runtime = os.path.join(destination, ".viceme/scripts/trial.py")
+        command = [sys.executable, runtime, "cloud", "--input", task, "--wait", "0"]
+        standalone_home = os.path.join(self.home, "standalone")
+        os.makedirs(standalone_home)
+        env = {**os.environ, "HOME": standalone_home, "PATH": "/usr/bin:/bin", "VICEME_CONFIG_DIR": os.path.join(standalone_home, ".viceme")}
+        result = subprocess.run(command, cwd=destination, env=env, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertTrue(json.loads(result.stdout)["allowed"])
+        self.assertEqual(calls, ["/v1/skills/%s/trial-grants" % PRODUCT_ID, "/v1/skill-cloud/trial/requests"])
+        # A separately installed capable CLI represents the account route. No
+        # grant request may precede delegation, even if anonymous issuance fails.
+        calls.clear()
+        cli_home = os.path.join(self.home, "with-cli")
+        bindir = os.path.join(cli_home, "bin")
+        os.makedirs(bindir)
+        fake_cli = os.path.join(bindir, "viceme")
+        with open(fake_cli, "w") as handle:
+            handle.write("#!%s\nimport json,sys\nprint(json.dumps({'ok':True,'data':{'protocols':{'skillCloud':1}}} if sys.argv[1]=='version' else {'ok':True,'data':{'via':'account'}}))\n" % sys.executable)
+        os.chmod(fake_cli, 0o755)
+        result = subprocess.run(command, cwd=destination, env={**env, "HOME": cli_home, "VICEME_CONFIG_DIR": os.path.join(cli_home, ".viceme"), "PATH": bindir + ":/usr/bin:/bin"}, capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertEqual(json.loads(result.stdout)["data"]["via"], "account")
+        self.assertEqual(calls, [])
+
     def test_export_package_rejects_mismatched_inputs(self):
         stdout = io.StringIO()
         with redirect_stdout(stdout):

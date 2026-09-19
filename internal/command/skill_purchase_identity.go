@@ -14,7 +14,7 @@ import (
 // Only a verified direct-purchase installation may create this identity.
 // Sharing the Python product lock prevents two runners from replacing it.
 func ensureCloudPurchaseIdentity(runtime *Runtime, productID, agent string) (scriptTrialState, bool, error) {
-	directory, manifest, _, err := skillcontent.FindRuntimeInstall(runtime.deps.Environment, agent, productID, runtime.apiBaseURL)
+	directory, manifest, _, err := skillcontent.FindRuntimeInstall(runtime.deps.Environment, agent, productID, runtime.apiBaseURL, runtime.deps.Environment.InstallDirectory)
 	if err != nil {
 		return scriptTrialState{}, false, err
 	}

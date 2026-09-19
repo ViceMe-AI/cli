@@ -175,6 +175,9 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 		if manifest, valid := skillcontent.ReadRuntimeIdentity(directories[0], productID, runtime.apiBaseURL); !valid || manifest.Market != string(runtime.region) {
 			return output.Policy("SKILL_TRIAL_INSTALLATION_REQUIRED", "the selected Skill installation could not be verified; preserve it and repair the installation")
 		}
+		selectedRuntime := *runtime
+		selectedRuntime.deps.Environment.InstallDirectory = directories[0]
+		runtime = &selectedRuntime
 	}
 	var order api.TrialPurchase
 	presented := false
