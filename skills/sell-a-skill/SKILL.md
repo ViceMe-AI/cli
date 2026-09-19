@@ -14,6 +14,11 @@ description: 发布或更新可下载的 ViceMe 付费或免费 Skill。适用�
 只说“检查登录和创作者资格”“确认 GitHub 账号”“准备预览”“发布”等业务动作。
 不得向用户展示命令、参数、Profile、ID、错误码、原始 JSON 或内部状态。不得告诉用户正在使用哪个内置 Skill。
 
+## 云端保护发布
+
+作者按原有命令上传完整 Skill 包，无须填写额外保护配置。服务端为新付费版本保留原始 SKILL.md，并在消费者包中替换为通用调用入口，其余原始附件全部保留。不要新增 viceme-cloud.json 或 WORKFLOW.md，不使用公开/私有文件清单。既有发布审核、暂存和激活流程不变，恢复仍用 --resume。协议见 `docs/protected-skills.md`。
+
+
 ## 快速交互约定
 
 - 在 WorkBuddy 中不得调用 `TaskCreate`、`TaskUpdate`、`TaskList` 或其他任务清单工具，

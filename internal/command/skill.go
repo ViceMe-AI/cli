@@ -68,6 +68,7 @@ func newSkillCommand(runtime *Runtime) *cobra.Command {
 	command.AddCommand(newSkillReadyCommand(runtime))
 	command.AddCommand(newSkillInstallCommand(runtime))
 	command.AddCommand(newSkillUsePrecheckCommand(runtime))
+	command.AddCommand(newSkillGuidanceCommand(runtime))
 	command.AddCommand(newSkillTrialPurchaseCommand(runtime))
 	command.AddCommand(newSkillTrialStatusCommand(runtime))
 	return command
@@ -630,13 +631,25 @@ func githubSkillSelectionError(err error) error {
 
 // defaultEditionHighlight derives the fallback highlight from the manifest
 // summary, cutting at a sentence or word boundary so auto-derived copy never
-// exceeds the 200-character edition highlight limit.
+// exceeds the API's 200 UTF-16-unit edition highlight limit.
 func defaultEditionHighlight(summary string) string {
 	runes := []rune(strings.TrimSpace(summary))
-	if len(runes) <= 200 {
+	units, end := 0, 0
+	for _, r := range runes {
+		size := 1
+		if r > 0xffff {
+			size = 2
+		}
+		if units+size > 200 {
+			break
+		}
+		units += size
+		end++
+	}
+	if end == len(runes) {
 		return string(runes)
 	}
-	cut := runes[:200]
+	cut := runes[:end]
 	for index := len(cut) - 1; index >= 0; index-- {
 		if strings.ContainsRune("。！？；，、,.!?;: ", cut[index]) {
 			return strings.TrimSpace(string(cut[:index+1]))

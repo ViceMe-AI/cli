@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	cliembed "github.com/ViceMe-AI/cli"
+	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/config"
 	"github.com/ViceMe-AI/cli/internal/output"
 	"github.com/ViceMe-AI/cli/internal/skillcontent"
@@ -21,6 +22,7 @@ import (
 )
 
 type localSkillResources struct {
+	DeliveryMode           string `json:"deliveryMode,omitempty"`
 	SkillPath              string `json:"skillPath,omitempty"`
 	RuntimePath            string `json:"runtimePath,omitempty"`
 	Runner                 string `json:"runner,omitempty"`
@@ -58,7 +60,14 @@ const ownedUsageGuide = `# 正式版：不再计次
 - 不要问现在试还是以后用，不要问「现在就试还是先放着」。
 `
 
-func addSkillRuntime(runtime *Runtime, files map[string]downloadableSkillFile, productID, releaseID, kind string) error {
+func addSkillRuntime(runtime *Runtime, files map[string]downloadableSkillFile, productID, releaseID, kind string, deliveryModes ...string) error {
+	deliveryMode := "SOURCE"
+	if len(deliveryModes) > 0 {
+		deliveryMode = api.DeliveryMode(deliveryModes[0])
+	}
+	if deliveryMode != "SOURCE" && deliveryMode != "PROTECTED" {
+		return output.Policy("SKILL_DELIVERY_MODE_UNSUPPORTED", "unsupported Skill delivery mode")
+	}
 	raw, err := fs.ReadFile(cliembed.EmbeddedSkills(), "use-a-skill/scripts/trial-runtime.zip")
 	if err != nil {
 		return err
@@ -80,13 +89,13 @@ func addSkillRuntime(runtime *Runtime, files map[string]downloadableSkillFile, p
 		}
 		additions[".viceme/"+file.Name] = downloadableSkillFile{Data: data, Mode: 0o644}
 	}
-	if kind == "owned" {
+	if kind == "owned" && deliveryMode != "PROTECTED" {
 		additions[".viceme/guides/trial-usage.md"] = downloadableSkillFile{Data: []byte(ownedUsageGuide), Mode: 0o644}
 	}
 	environment, err := json.Marshal(map[string]string{
 		"market": string(runtime.region), "apiBaseUrl": runtime.apiBaseURL,
 		"distributionBaseUrl": strings.TrimSuffix(config.AgentInstallDocURL(runtime.region), "/start/agent-install.md"),
-		"productId":           productID,
+		"productId":           productID, "deliveryMode": deliveryMode,
 	})
 	if err != nil {
 		return err
@@ -104,9 +113,12 @@ func addSkillRuntime(runtime *Runtime, files map[string]downloadableSkillFile, p
 		files[name] = file
 	}
 	manifest := skillcontent.RuntimeManifest{SchemaVersion: 1, ProductID: productID, ReleaseID: releaseID,
-		APIBaseURL: runtime.apiBaseURL, Market: string(runtime.region), Runner: "cli", Kind: kind, Files: map[string]string{}}
+		DeliveryMode: deliveryMode, APIBaseURL: runtime.apiBaseURL, Market: string(runtime.region), Runner: "cli", Kind: kind, Files: map[string]string{}}
+	if deliveryMode == "PROTECTED" {
+		manifest.SchemaVersion = 2
+	}
 	for name, file := range files {
-		if _, managed := additions[name]; managed || name == skillTrialRuntimePath || name == skillcontent.TrialBodyPath {
+		if _, managed := additions[name]; deliveryMode == "PROTECTED" || managed || name == skillTrialRuntimePath || name == skillcontent.TrialBodyPath {
 			manifest.Files[name] = fmt.Sprintf("%x", sha256.Sum256(file.Data))
 		}
 	}
@@ -152,6 +164,10 @@ func newSkillReadyCommand(runtime *Runtime) *cobra.Command {
 				result.Ready, result.Kind = true, manifest.Kind
 				result.NextAction = "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL"
 				result.localSkillResources = skillResourcesAt(directory, manifest.Runner)
+				result.DeliveryMode = api.DeliveryMode(manifest.DeliveryMode)
+				if result.DeliveryMode == "PROTECTED" {
+					result.NextAction = "SUBMIT_GUIDANCE_TASK"
+				}
 			}
 			if err := attachReadyTrialSnapshot(command.Context(), runtime, args[0], &result); err != nil {
 				return err
@@ -165,6 +181,9 @@ func newSkillReadyCommand(runtime *Runtime) *cobra.Command {
 }
 
 func attachReadyTrialSnapshot(ctx context.Context, runtime *Runtime, productID string, result *skillReadyResult) error {
+	if result.DeliveryMode == "PROTECTED" {
+		return nil
+	}
 	if result.Kind == "purchase" {
 		allowed := false
 		result.Allowed = &allowed

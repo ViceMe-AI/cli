@@ -185,6 +185,17 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				if installIntent != skillInstallIntentOwned && !access.Owned && access.Trial != nil && access.Trial.Available {
 					return installTrialSkill(command.Context(), runtime, productID, workSlugForTrial, agent, access)
 				}
+				if installIntent != skillInstallIntentOwned && !access.Owned && access.PurchaseAvailable && api.DeliveryMode(access.DeliveryMode) == "PROTECTED" {
+					download, err := runtime.client().GetGuidanceSkillDownload(command.Context(), productID)
+					if err != nil {
+						return err
+					}
+					result, err := installSkillFromReceipt(runtime, command.Context(), productID, workSlugForTrial, agent, access, download, skillDirectory)
+					if err != nil {
+						return err
+					}
+					return runtime.business(result)
+				}
 				if !access.Owned && !access.PurchaseAvailable {
 					return output.Policy("SKILL_ACCESS_UNAVAILABLE", "this paid Skill edition is not available for purchase").WithDetails(map[string]any{"productId": productID})
 				}
@@ -281,6 +292,9 @@ func installAuthorizedSkill(ctx context.Context, runtime *Runtime, productID, wo
 }
 
 func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, workSlug, agent string, access api.SkillAccess, download api.DownloadURL, directories ...string) (downloadableSkillInstallResult, error) {
+	if api.DeliveryMode(download.DeliveryMode) != api.DeliveryMode(access.DeliveryMode) {
+		return downloadableSkillInstallResult{}, output.Policy("SKILL_DOWNLOAD_RECEIPT_MISMATCH", "download delivery mode does not match access")
+	}
 	environment := runtime.deps.Environment
 	if len(directories) > 0 && directories[0] != "" {
 		directory, err := filepath.Abs(directories[0])
@@ -313,8 +327,10 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	kind := "owned"
 	if access.IsFree {
 		kind = "free"
+	} else if !access.Owned && api.DeliveryMode(access.DeliveryMode) == "PROTECTED" {
+		kind = "purchase"
 	}
-	if err := addSkillRuntime(runtime, files, productID, access.Release.ID, kind); err != nil {
+	if err := addSkillRuntime(runtime, files, productID, access.Release.ID, kind, access.DeliveryMode); err != nil {
 		return downloadableSkillInstallResult{}, err
 	}
 	report, err := installDownloadableSkill(installedName, agent, files, environment, skillcontent.SkillProvenance{
@@ -327,11 +343,15 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	if !report.AllSucceeded {
 		return downloadableSkillInstallResult{}, output.Internal("SKILL_INSTALL_FAILED", "one or more Skill targets could not be installed", nil).WithDetails(map[string]any{"report": report})
 	}
+	nextAction := "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL"
+	if api.DeliveryMode(access.DeliveryMode) == "PROTECTED" {
+		nextAction = "SUBMIT_GUIDANCE_TASK"
+	}
 	return downloadableSkillInstallResult{
-		localSkillResources: resourcesFromReport(report, "cli"),
+		localSkillResources: guidanceResources(resourcesFromReport(report, "cli"), access.DeliveryMode),
 		ProductID:           productID, Edition: access.Edition, ReleaseID: access.Release.ID, ArtifactDigest: digest,
 		InstalledName: installedName, Install: report,
-		NextAction: "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", Invocation: "$" + installedName,
+		NextAction: nextAction, Invocation: "$" + installedName,
 		OnboardingGuideURL:    sharedGuidanceURL(runtime, "_widgets/README.md"),
 		OnboardingTemplateURL: sharedGuidanceURL(runtime, "_widgets/onboarding.html"),
 	}, nil

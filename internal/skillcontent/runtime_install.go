@@ -15,6 +15,7 @@ import (
 // RuntimeManifest describes installed files, not an entitlement or trial grant.
 // It shares its on-disk shape with the standalone Python installer.
 type RuntimeManifest struct {
+	DeliveryMode  string            `json:"deliveryMode,omitempty"`
 	SchemaVersion int               `json:"schemaVersion"`
 	ProductID     string            `json:"productId"`
 	ReleaseID     string            `json:"releaseId"`
@@ -104,7 +105,10 @@ func ReadRuntimeIdentity(directory, productID, apiBaseURL string) (RuntimeManife
 		return manifest, false
 	}
 	raw, err = os.ReadFile(filepath.Join(directory, ".viceme/runtime.json"))
-	if err != nil || json.Unmarshal(raw, &manifest) != nil || manifest.SchemaVersion != 1 || manifest.ProductID != productID || !config.EquivalentAPIBaseURLs(manifest.APIBaseURL, apiBaseURL) || (manifest.Runner != "cli" && manifest.Runner != "python") {
+	if err != nil || json.Unmarshal(raw, &manifest) != nil || (manifest.SchemaVersion != 1 && manifest.SchemaVersion != 2) || manifest.ProductID != productID || !config.EquivalentAPIBaseURLs(manifest.APIBaseURL, apiBaseURL) || (manifest.Runner != "cli" && manifest.Runner != "python") {
+		return manifest, false
+	}
+	if manifest.DeliveryMode != "" && manifest.DeliveryMode != "SOURCE" && manifest.DeliveryMode != "PROTECTED" || manifest.DeliveryMode == "PROTECTED" && manifest.SchemaVersion != 2 {
 		return manifest, false
 	}
 	// A cross-client restore can stop between writing its two identity files.
@@ -132,10 +136,13 @@ func readRuntimeInstall(directory, productID, apiBaseURL string) (RuntimeManifes
 		return manifest, false
 	}
 	required := append([]string{".viceme/environment.json"}, runtimeFiles()...)
-	if manifest.Kind == "trial" {
+	if manifest.Kind == "trial" && manifest.DeliveryMode != "PROTECTED" {
 		required = append(required, "references/viceme-runtime.md", TrialBodyPath)
 	}
-	if manifest.Kind == "purchase" {
+	if manifest.DeliveryMode == "PROTECTED" {
+		required = append(required, ".viceme/scripts/resolve-cli.sh", ".viceme/scripts/resolve-cli.ps1")
+	}
+	if manifest.Kind == "purchase" && manifest.DeliveryMode != "PROTECTED" {
 		required = append(required, "SKILL.md", "references/purchase.md")
 	}
 	if manifest.Kind != "trial" && manifest.Kind != "free" && manifest.Kind != "owned" && manifest.Kind != "purchase" {

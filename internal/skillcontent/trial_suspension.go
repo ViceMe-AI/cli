@@ -182,7 +182,7 @@ func trialProductOwnsDirectory(directory, productID, apiBaseURL, market string) 
 	}
 	raw, err = os.ReadFile(filepath.Join(directory, ".viceme/runtime.json"))
 	var runtime RuntimeManifest
-	return err == nil && json.Unmarshal(raw, &runtime) == nil && runtime.ProductID == productID && runtime.ReleaseID == manifest.ReleaseID && runtime.Kind == "trial" && config.EquivalentAPIBaseURLs(runtime.APIBaseURL, apiBaseURL) && runtime.Market == market
+	return err == nil && json.Unmarshal(raw, &runtime) == nil && runtime.ProductID == productID && runtime.ReleaseID == manifest.ReleaseID && runtime.Kind == "trial" && runtime.DeliveryMode != "PROTECTED" && config.EquivalentAPIBaseURLs(runtime.APIBaseURL, apiBaseURL) && runtime.Market == market
 }
 
 func suspendedTrialMarkdown(original []byte, skillName, productID, purchaseURL, installDocURL string, markets ...string) ([]byte, bool) {

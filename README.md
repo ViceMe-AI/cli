@@ -217,6 +217,12 @@ viceme skill publish --resume <publication-id>
 Never create a second publication merely because the previous response was
 unknown. Query or resume the existing ID first.
 
+Guidance-protected Skills use the same publication and installation commands.
+Publish the complete source package using the existing commands. The server keeps
+SKILL.md private for new paid releases and replaces only that file in the consumer
+package; every original attachment remains unchanged. No extra publishing flags,
+file classification manifest, root metadata file, or generated workflow is needed.
+
 ## Authentication and Profiles
 
 Each Profile binds one API base URL, Web base URL, market region, and

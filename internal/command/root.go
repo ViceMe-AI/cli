@@ -54,19 +54,19 @@ func degradedWriteReporter(errOut io.Writer) privatefile.DegradedReporter {
 }
 
 type Dependencies struct {
-	In                    io.Reader
-	Out                   io.Writer
-	ErrOut                io.Writer
-	HTTPClient            *http.Client
-	Store                 securestore.Store
-	Skills                *skillcontent.Bundle
-	Updater               updatepkg.Service
-	Environment           skillcontent.Environment
-	Now                   func() time.Time
-	Sleep                 func(context.Context, time.Duration) error
-	NewID                 func() string
-	OpenURL               func(context.Context, string) error
-	StartReplicaPreview   func(context.Context, replicapreview.Options) (replicapreview.Running, error)
+	In                  io.Reader
+	Out                 io.Writer
+	ErrOut              io.Writer
+	HTTPClient          *http.Client
+	Store               securestore.Store
+	Skills              *skillcontent.Bundle
+	Updater             updatepkg.Service
+	Environment         skillcontent.Environment
+	Now                 func() time.Time
+	Sleep               func(context.Context, time.Duration) error
+	NewID               func() string
+	OpenURL             func(context.Context, string) error
+	StartReplicaPreview func(context.Context, replicapreview.Options) (replicapreview.Running, error)
 	// ReportDegradedWrite is notified when a tolerant state write completes
 	// without the hardened permission profile. defaults() binds it to ErrOut.
 	ReportDegradedWrite   privatefile.DegradedReporter
@@ -798,7 +798,8 @@ func (r *Runtime) successWithMeta(data any, meta output.Meta) error {
 
 type versionResult struct {
 	buildinfo.Info
-	Skills map[string]skillcontent.Digests `json:"skills"`
+	Skills    map[string]skillcontent.Digests `json:"skills"`
+	Protocols map[string]int                  `json:"protocols"`
 }
 
 func (r *Runtime) writeVersion() error {
@@ -811,8 +812,9 @@ func (r *Runtime) writeVersion() error {
 		skills[name] = digests
 	}
 	return r.business(versionResult{
-		Info:   buildinfo.Current(),
-		Skills: skills,
+		Info:      buildinfo.Current(),
+		Skills:    skills,
+		Protocols: map[string]int{"skillGuidance": 1},
 	})
 }
 

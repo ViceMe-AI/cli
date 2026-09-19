@@ -1,5 +1,7 @@
 # 购买、支付与正式版恢复
 
+云端交付例外：`deliveryMode=PROTECTED` 的支付确认只刷新服务端权益并恢复原请求键对应的任务。不要运行旧 use、重新下载源码或把 owned 当作离线授权。匿名购买沿用本机同一凭证，`purchase` / `trial-purchase` 返回 resumedTasks 后只执行其中 ready 且 allowed=true 的结果；账号购买后重跑原 guidance 输入。以下完整包替换说明仅用于 SOURCE。
+
 只在需要购买、恢复待支付订单或校验账号已有权益时读取。上手示例阶段不加载这份指引。
 
 ## 免 CLI 的直接购买

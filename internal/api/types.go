@@ -1414,6 +1414,7 @@ type CreatorSubscriptionPlan struct {
 }
 
 type SkillAccess struct {
+	DeliveryMode      string                  `json:"deliveryMode,omitempty"`
 	ProductID         string                  `json:"productId"`
 	IsFree            bool                    `json:"isFree"`
 	Owned             bool                    `json:"owned"`
@@ -1437,6 +1438,7 @@ type SkillAccess struct {
 }
 
 type DownloadURL struct {
+	DeliveryMode   string `json:"deliveryMode,omitempty"`
 	URL            string `json:"url"`
 	FileName       string `json:"fileName"`
 	ReleaseID      string `json:"releaseId"`
