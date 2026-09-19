@@ -2684,12 +2684,12 @@ def command_guidance(market, product_id, input_path, wait=60, agent="auto"):
         return emit_ok(run_guidance_task(market, product_id, value, wait))
     except Failure as error:
         if error.code in ("SKILL_GUIDANCE_TRIAL_EXHAUSTED", "SKILL_GUIDANCE_ENTITLEMENT_REQUIRED"):
-            if value.get("sessionId"):
-                # The CLI can identify a purchase on a different account and
-                # explain a new-session requirement without creating another order.
-                result = guidance_cli_fallback(market, product_id, input_path, wait, optional=True)
-                if result is not None:
-                    return result
+            # A rejected first task is already bound to its anonymous identity,
+            # even though the server has not issued a sessionId. Check an account
+            # purchase before creating another order for either kind of task.
+            result = guidance_cli_fallback(market, product_id, input_path, wait, optional=True)
+            if result is not None:
+                return result
             return command_purchase(market, product_id, 0, agent)
         raise
 

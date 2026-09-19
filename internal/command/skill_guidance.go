@@ -93,7 +93,7 @@ func newSkillGuidanceCommand(runtime *Runtime) *cobra.Command {
 					return err
 				}
 				if strings.HasPrefix(record.Principal, "trial:") || strings.HasPrefix(record.Principal, "purchase:") {
-					if sessionErr := checkGuidanceSessionPurchase(command.Context(), runtime, input); sessionErr != nil {
+					if sessionErr := checkGuidanceAccountPurchase(command.Context(), runtime, input); sessionErr != nil {
 						return sessionErr
 					}
 					return runTrialPurchase(command.Context(), runtime, input.ProductID, 0, agent, runtime.deps.Environment.InstallDirectory)
@@ -437,9 +437,10 @@ func resumeGuidanceAfterPurchase(ctx context.Context, runtime *Runtime, productI
 	return map[string]any{"productId": productID, "deliveryMode": "PROTECTED", "owned": true, "allowed": false, "nextAction": "SUBMIT_GUIDANCE_TASK", "resumedTasks": results}, nil
 }
 
-// An account purchase cannot silently transfer an anonymous conversation.
-func checkGuidanceSessionPurchase(ctx context.Context, runtime *Runtime, input api.SkillGuidanceSubmit) error {
-	if input.SessionID == "" || !runtimeHasAuthentication(runtime) {
+// An account purchase cannot silently transfer an anonymous task or conversation.
+// A payment-rejected task is already bound locally even before a server session exists.
+func checkGuidanceAccountPurchase(ctx context.Context, runtime *Runtime, input api.SkillGuidanceSubmit) error {
+	if !runtimeHasAuthentication(runtime) {
 		return nil
 	}
 	status, err := runtime.client().AuthStatus(ctx)
@@ -457,7 +458,7 @@ func checkGuidanceSessionPurchase(ctx context.Context, runtime *Runtime, input a
 		return err
 	}
 	if access.Owned {
-		return output.Policy("SKILL_GUIDANCE_SESSION_ENTITLEMENT_REQUIRED", "the original session identity has no remaining access; the current account purchase belongs to another identity").WithHint("explicitly start a new session using the current account, a new requestKey and no sessionId; preserve the original session record")
+		return output.Policy("SKILL_GUIDANCE_SESSION_ENTITLEMENT_REQUIRED", "the original task identity has no remaining access; the current account purchase belongs to another identity").WithHint("explicitly start a new task using the current account, a new requestKey and no sessionId; preserve the original task record")
 	}
 	return nil
 }

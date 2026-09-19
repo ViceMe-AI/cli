@@ -833,44 +833,53 @@ type guidanceTestTransport func(*http.Request) (*http.Response, error)
 func (f guidanceTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestGuidanceSessionWithDifferentAccountPurchaseDoesNotRepurchase(t *testing.T) {
-	runtime, input, calls, cleanup := guidanceIdentityFixture(t, "purchase", 200)
-	defer cleanup()
-	input.SessionID = "11111111-1111-4111-8111-111111111111"
-	prior := input
-	prior.RequestKey = "33333333-3333-4333-8333-333333333333"
-	prior.SessionID = ""
-	record, filename, err := prepareGuidanceRecord(runtime, prior, "purchase:44444444-4444-4444-8444-444444444444")
-	if err != nil {
-		t.Fatal(err)
-	}
-	record.SessionID = input.SessionID
-	if err := writeGuidanceRecord(filename, record); err != nil {
-		t.Fatal(err)
-	}
-	runtime.deps.HTTPClient.Transport = guidanceTestTransport(func(request *http.Request) (*http.Response, error) {
-		status, body := 200, `{"authenticated":true,"user":{"id":"22222222-2222-4222-8222-222222222222"}}`
-		switch request.URL.Path {
-		case "/v1/cli/auth/status":
-		case "/v1/cli/skills/" + input.ProductID + "/access":
-			body = `{"owned":true}`
-		case "/v1/skill-guidance/purchase/requests":
-			calls.Add(1)
-			status, body = 403, `{"statusCode":403,"code":"SKILL_GUIDANCE_ENTITLEMENT_REQUIRED","message":"original identity has no access","requestId":"test"}`
-		default:
-			t.Errorf("must not create a second purchase: %s", request.URL.Path)
-		}
-		return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
-	})
-	inputPath := filepath.Join(runtime.deps.Environment.Home, "task.json")
-	raw, _ := json.Marshal(input)
-	if err := os.WriteFile(inputPath, raw, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	command := newSkillGuidanceCommand(runtime)
-	command.SilenceErrors, command.SilenceUsage = true, true
-	command.SetArgs([]string{"--input", inputPath, "--wait", "0"})
-	err = command.Execute()
-	if err == nil || output.AsError(err).Subtype != "SKILL_GUIDANCE_SESSION_ENTITLEMENT_REQUIRED" || calls.Load() != 1 {
-		t.Fatalf("wrong session purchase transition: %v calls=%d", err, calls.Load())
+	for _, stage := range []string{"accepted-session", "rejected-before-session"} {
+		t.Run(stage, func(t *testing.T) {
+			runtime, input, calls, cleanup := guidanceIdentityFixture(t, "purchase", 200)
+			defer cleanup()
+			runtime.deps.NewID = func() string { return "88888888-8888-4888-8888-888888888888" }
+			if stage == "accepted-session" {
+				input.SessionID = "11111111-1111-4111-8111-111111111111"
+			}
+			prior := input
+			if stage == "accepted-session" {
+				prior.RequestKey = "33333333-3333-4333-8333-333333333333"
+			}
+			prior.SessionID = ""
+			record, filename, err := prepareGuidanceRecord(runtime, prior, "purchase:44444444-4444-4444-8444-444444444444")
+			if err != nil {
+				t.Fatal(err)
+			}
+			record.SessionID = input.SessionID
+			if err := writeGuidanceRecord(filename, record); err != nil {
+				t.Fatal(err)
+			}
+			runtime.deps.HTTPClient.Transport = guidanceTestTransport(func(request *http.Request) (*http.Response, error) {
+				status, body := 200, `{"authenticated":true,"user":{"id":"22222222-2222-4222-8222-222222222222"}}`
+				switch request.URL.Path {
+				case "/v1/cli/auth/status":
+				case "/v1/cli/skills/" + input.ProductID + "/access":
+					body = `{"owned":true}`
+				case "/v1/skill-guidance/purchase/requests":
+					calls.Add(1)
+					status, body = 403, `{"statusCode":403,"code":"SKILL_GUIDANCE_ENTITLEMENT_REQUIRED","message":"original identity has no access","requestId":"test"}`
+				default:
+					t.Errorf("must not create a second purchase: %s", request.URL.Path)
+				}
+				return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})
+			inputPath := filepath.Join(runtime.deps.Environment.Home, "task.json")
+			raw, _ := json.Marshal(input)
+			if err := os.WriteFile(inputPath, raw, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			command := newSkillGuidanceCommand(runtime)
+			command.SilenceErrors, command.SilenceUsage = true, true
+			command.SetArgs([]string{"--input", inputPath, "--wait", "0"})
+			err = command.Execute()
+			if err == nil || output.AsError(err).Subtype != "SKILL_GUIDANCE_SESSION_ENTITLEMENT_REQUIRED" || calls.Load() != 1 {
+				t.Fatalf("wrong session purchase transition: %v calls=%d", err, calls.Load())
+			}
+		})
 	}
 }

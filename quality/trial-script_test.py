@@ -1334,16 +1334,21 @@ class InstallFlowTestCase(unittest.TestCase):
 
     def test_guidance_session_payment_failure_checks_existing_account_before_repurchase(self):
         trial.save_trial_state(PRODUCT_ID, {"productId": PRODUCT_ID, "market": "cn", "installId": "original-install", "secret": "fixture"})
-        value = {"productId": PRODUCT_ID, "releaseId": RELEASE_ID, "requestKey": "77777777-7777-4777-8777-777777777777", "prompt": "follow up", "facts": {}, "sessionId": "88888888-8888-4888-8888-888888888888"}
-        record = {"schemaVersion": 1, "apiBaseUrl": trial.API_ORIGIN["cn"], "market": "cn", "input": value,
-                  "principal": "trial:original-install", "sessionId": value["sessionId"], "paymentRequired": True}
-        trial.write_guidance_file(os.path.join(trial.guidance_task_directory("cn", PRODUCT_ID), value["requestKey"] + ".json"), record)
-        path = os.path.join(self.home, "task.json")
-        with open(path, "w", encoding="utf-8") as handle:
-            json.dump(value, handle)
-        with mock.patch.object(trial, "guidance_runtime_manifest", return_value=None), mock.patch.object(trial, "run_guidance_task", side_effect=trial.Failure("SKILL_GUIDANCE_TRIAL_EXHAUSTED", "original session exhausted")), mock.patch.object(trial, "guidance_cli_fallback", return_value=6) as delegated, mock.patch.object(trial, "command_purchase", side_effect=AssertionError("the CLI already explained the different account purchase")):
-            self.assertEqual(trial.command_guidance("cn", PRODUCT_ID, path, 0), 6)
-        self.assertTrue(delegated.call_args.kwargs["optional"])
+        for session_id in ("88888888-8888-4888-8888-888888888888", None):
+            with self.subTest(session_id=session_id):
+                value = {"productId": PRODUCT_ID, "releaseId": RELEASE_ID, "requestKey": "77777777-7777-4777-8777-777777777777", "prompt": "follow up", "facts": {}}
+                record = {"schemaVersion": 1, "apiBaseUrl": trial.API_ORIGIN["cn"], "market": "cn", "input": value,
+                          "principal": "trial:original-install", "paymentRequired": True}
+                if session_id:
+                    value["sessionId"] = session_id
+                    record["sessionId"] = session_id
+                trial.write_guidance_file(os.path.join(trial.guidance_task_directory("cn", PRODUCT_ID), value["requestKey"] + ".json"), record)
+                path = os.path.join(self.home, "task.json")
+                with open(path, "w", encoding="utf-8") as handle:
+                    json.dump(value, handle)
+                with mock.patch.object(trial, "guidance_runtime_manifest", return_value=None), mock.patch.object(trial, "run_guidance_task", side_effect=trial.Failure("SKILL_GUIDANCE_TRIAL_EXHAUSTED", "original task exhausted")), mock.patch.object(trial, "guidance_cli_fallback", return_value=6) as delegated, mock.patch.object(trial, "command_purchase", side_effect=AssertionError("the CLI already explained the different account purchase")):
+                    self.assertEqual(trial.command_guidance("cn", PRODUCT_ID, path, 0), 6)
+                self.assertTrue(delegated.call_args.kwargs["optional"])
 
     def test_reinstall_overwrites_in_place_without_deletions(self):
         # 同款重装不得产生"删除"操作:WorkBuddy 沙箱按删除计数护栏
