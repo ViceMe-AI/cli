@@ -39,6 +39,7 @@ type downloadableSkillInstallResult struct {
 	RemainingUses         *int                       `json:"remainingUses,omitempty"`
 	LimitUses             *int                       `json:"limitUses,omitempty"`
 	TrialExhausted        bool                       `json:"trialExhausted,omitempty"`
+	Kind                  string                     `json:"kind,omitempty"`
 	NextAction            string                     `json:"nextAction"`
 	Invocation            string                     `json:"invocation"`
 	OnboardingGuideURL    string                     `json:"onboardingGuideUrl"`
@@ -346,12 +347,15 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	nextAction := "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL"
 	if api.DeliveryMode(access.DeliveryMode) == "PROTECTED" {
 		nextAction = "SUBMIT_GUIDANCE_TASK"
+		if kind == "purchase" {
+			nextAction = "PURCHASE_REQUIRED"
+		}
 	}
 	return downloadableSkillInstallResult{
 		localSkillResources: guidanceResources(resourcesFromReport(report, "cli"), access.DeliveryMode),
 		ProductID:           productID, Edition: access.Edition, ReleaseID: access.Release.ID, ArtifactDigest: digest,
 		InstalledName: installedName, Install: report,
-		NextAction: nextAction, Invocation: "$" + installedName,
+		Kind: kind, NextAction: nextAction, Invocation: "$" + installedName,
 		OnboardingGuideURL:    sharedGuidanceURL(runtime, "_widgets/README.md"),
 		OnboardingTemplateURL: sharedGuidanceURL(runtime, "_widgets/onboarding.html"),
 	}, nil
@@ -658,7 +662,14 @@ func installDownloadableSkill(stableName, target string, files map[string]downlo
 		}
 	}
 	packageMetadata := fmt.Sprintf("{\n  \"schema_version\": 1,\n  \"skill_version\": %q,\n  \"minimum_cli_version\": %q,\n  \"cli_compatibility\": %q\n}\n", buildinfo.SkillVersion, buildinfo.MinimumCLIVersion, buildinfo.CLICompatibility)
-	if err := os.WriteFile(filepath.Join(skillRoot, "skill-package.json"), []byte(packageMetadata), 0o600); err != nil {
+	metadataPath := "skill-package.json"
+	if raw, exists := files[".viceme/runtime.json"]; exists {
+		var identity skillcontent.RuntimeManifest
+		if json.Unmarshal(raw.Data, &identity) == nil && identity.DeliveryMode == "PROTECTED" {
+			metadataPath = ".viceme/skill-package.json"
+		}
+	}
+	if err := os.WriteFile(filepath.Join(skillRoot, metadataPath), []byte(packageMetadata), 0o600); err != nil {
 		return skillcontent.InstallReport{}, err
 	}
 	bundle := skillcontent.New(os.DirFS(root))

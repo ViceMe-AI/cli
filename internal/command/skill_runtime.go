@@ -182,6 +182,29 @@ func newSkillReadyCommand(runtime *Runtime) *cobra.Command {
 
 func attachReadyTrialSnapshot(ctx context.Context, runtime *Runtime, productID string, result *skillReadyResult) error {
 	if result.DeliveryMode == "PROTECTED" {
+		if result.Kind == "purchase" {
+			result.NextAction = "CHECK_PURCHASE_ACCESS"
+			result.Message = "先运行本地 runtime 的 purchase --wait 0 校验并恢复购买；只有服务端返回待付款时才展示支付。已购不重新付款，无待执行任务时按公开简介展示示例。"
+			return nil
+		}
+		if result.Kind != "trial" {
+			return nil
+		}
+		state, exists := readScriptTrialState(runtime, productID)
+		if exists && validateScriptTrialStateIdentity(runtime, productID, state) == nil {
+			grant, err := runtime.client().CreateSkillTrialGrant(ctx, productID, state.InstallID)
+			if err != nil {
+				return err
+			}
+			if grant.InstallID == state.InstallID && grant.LimitUses > 0 && grant.RemainingUses >= 0 && grant.RemainingUses <= grant.LimitUses {
+				remaining, limit := grant.RemainingUses, grant.LimitUses
+				result.RemainingUses, result.LimitUses, result.TrialExhausted = &remaining, &limit, remaining == 0
+				if remaining == 0 {
+					result.NextAction = "CHECK_PURCHASE_ACCESS"
+					result.Message = "试用余额为零，先运行本地 runtime 的 purchase --wait 0 校验已有购买并恢复；仅服务端确认待付款时展示支付。"
+				}
+			}
+		}
 		return nil
 	}
 	if result.Kind == "purchase" {

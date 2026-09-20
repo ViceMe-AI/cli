@@ -29,7 +29,7 @@ type RuntimeManifest struct {
 var RuntimeResourcePaths = []string{
 	"scripts/trial.py", "scripts/qrcodegen.py", "widgets/onboarding.html",
 	"widgets/payment.html", "guides/widgets.md", "guides/trial-usage.md",
-	"guides/purchase.md", "guides/host-presentation.md",
+	"guides/purchase.md", "guides/host-presentation.md", "guides/viceme-runtime.md",
 }
 
 // FindRuntimeInstall checks only the selected host and its normal shared root.
@@ -135,7 +135,12 @@ func readRuntimeInstall(directory, productID, apiBaseURL string) (RuntimeManifes
 	if err != nil || normalized != manifest.APIBaseURL {
 		return manifest, false
 	}
-	required := append([]string{".viceme/environment.json"}, runtimeFiles()...)
+	required := []string{".viceme/environment.json"}
+	for _, name := range runtimeFiles() {
+		if name != ".viceme/guides/viceme-runtime.md" || manifest.DeliveryMode == "PROTECTED" {
+			required = append(required, name)
+		}
+	}
 	if manifest.Kind == "trial" && manifest.DeliveryMode != "PROTECTED" {
 		required = append(required, "references/viceme-runtime.md", TrialBodyPath)
 	}

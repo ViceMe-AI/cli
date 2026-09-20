@@ -370,6 +370,42 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertNotIn("scripts/grade.py", names)
         self.assertFalse(os.path.exists(os.path.join(self.home, ".agents")))
 
+    def test_protected_install_preserves_author_metadata_and_source_stays_ready_without_new_guide(self):
+        for mode in ("SOURCE", "PROTECTED"):
+            with self.subTest(mode=mode):
+                files = {"SKILL.md": (b"---\nname: demo\ndescription: demo\n---\n", 0o644),
+                         "skill-package.json": (b"author original custom metadata", 0o644)}
+                trial.prepare_runtime_files(files, "cn", PRODUCT_ID, RELEASE_ID, "owned", mode)
+                if mode == "SOURCE":
+                    del files[".viceme/guides/viceme-runtime.md"]
+                    manifest = json.loads(files[".viceme/runtime.json"][0])
+                    del manifest["files"][".viceme/guides/viceme-runtime.md"]
+                    files[".viceme/runtime.json"] = (json.dumps(manifest).encode(), 0o644)
+                complete = trial.compose_skill_files(files, "demo", PRODUCT_ID, RELEASE_ID)
+                root = Path(self.home) / mode
+                for name, (data, _) in complete.items():
+                    target = root / name
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes(data)
+                self.assertTrue(trial.read_runtime_install(str(root), "cn", PRODUCT_ID)["ready"])
+                if mode == "PROTECTED":
+                    self.assertEqual((root / "skill-package.json").read_bytes(), b"author original custom metadata")
+                    self.assertTrue((root / ".viceme/skill-package.json").exists())
+
+    def test_protected_purchase_entry_checks_purchase_without_a_model_task(self):
+        with mock.patch.object(trial, "api_request", side_effect=AssertionError("must not invoke model or create order")):
+            result = trial.attach_trial_snapshot({"ready": True, "kind": "purchase", "deliveryMode": "PROTECTED"}, "cn", PRODUCT_ID)
+        self.assertEqual(result["nextAction"], "CHECK_PURCHASE_ACCESS")
+        self.assertIn("已有购买", result["message"])
+
+    def test_guidance_oversized_input_requires_reduced_complete_task_with_new_key(self):
+        for values in ({"prompt": "a" * 8001}, {"facts": {"k": "a" * 4001}}):
+            with self.subTest(values=list(values)):
+                with self.assertRaises(trial.Failure) as caught:
+                    trial.validate_guidance_input({"productId": PRODUCT_ID, "requestKey": "55709ab2-2246-4033-a41e-7b21d96bccb7", "prompt": "complete task", **values}, PRODUCT_ID)
+                self.assertEqual(caught.exception.code, "SKILL_GUIDANCE_INPUT_TOO_LARGE")
+                self.assertIn("新 requestKey", caught.exception.message)
+
     def test_export_guidance_packages_preserve_public_bytes_and_validate_runtime(self):
         public = {"SKILL.md": b"---\nname: guidance-channel\ndescription: demo\n---\n\nRun local workflow with task guidance.\n",
                   "WORKFLOW.md": b"Run scripts/check.py locally.\n",
@@ -442,7 +478,7 @@ class TrialScriptTestCase(unittest.TestCase):
                 if handler.path.endswith("/trial-grants"):
                     response = {"installId": body["installId"], "secret": "ab" * 32, "limitUses": 3, "remainingUses": 3}
                 elif handler.path == "/v1/skill-guidance/trial/requests":
-                    response = {"requestId": "66709ab2-2246-4033-a41e-7b21d96bccb7", "sessionId": "77709ab2-2246-4033-a41e-7b21d96bccb7", "releaseId": RELEASE_ID,
+                    response = {"requestId": "66709ab2-2246-4033-a41e-7b21d96bccb7", "releaseId": RELEASE_ID,
                                 "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "# Execution Instructions\n\nFollow the public workflow.",
                                 "message": None, "errorCode": None, "retryable": False, "expiresAt": "2099-01-01T00:00:00Z", "trial": {"remainingUses": 2, "limitUses": 3}}
                 else:
@@ -1155,7 +1191,7 @@ class InstallFlowTestCase(unittest.TestCase):
             trial.install_purchase_entry("cn", PRODUCT_ID, "workbuddy", access)
         installed = json.loads(out.getvalue())
         self.assertEqual(installed["kind"], "purchase")
-        self.assertEqual(installed["nextAction"], "SUBMIT_GUIDANCE_TASK")
+        self.assertEqual(installed["nextAction"], "PURCHASE_REQUIRED")
         root = os.path.dirname(installed["skillPath"])
         with zipfile.ZipFile(io.BytesIO(self.archive_bytes)) as archive:
             for name in archive.namelist():
@@ -1180,15 +1216,15 @@ class InstallFlowTestCase(unittest.TestCase):
         with mock.patch.object(trial, "api_request", side_effect=install_api), mock.patch.object(trial, "http_download", return_value=self.archive_bytes), redirect_stdout(io.StringIO()) as output:
             self.assertEqual(trial.run(["install", "--product", PRODUCT_ID, "--agent", "workbuddy"]), 0)
         installed = json.loads(output.getvalue())
-        self.assertEqual(installed["nextAction"], "SUBMIT_GUIDANCE_TASK")
+        self.assertEqual(installed["nextAction"], "CHECK_PURCHASE_ACCESS")
         with open(installed["skillPath"], "rb") as handle:
             original = handle.read()
         self.assertNotIn(trial.GATE_MARKER.encode(), original)
         self.assertNotIn(trial.DISABLED_MARKER.encode(), original)
         self.assertFalse(os.path.exists(os.path.join(os.path.dirname(installed["skillPath"]), trial.RUNTIME_PATH)))
-        with mock.patch.object(trial, "api_request", side_effect=AssertionError("guidance ready/use cannot call old quota")):
+        with mock.patch.object(trial, "api_request", side_effect=install_api):
             ready = trial.attach_trial_snapshot(trial.find_ready_install("cn", PRODUCT_ID, "workbuddy"), "cn", PRODUCT_ID)
-            self.assertEqual(ready["nextAction"], "SUBMIT_GUIDANCE_TASK")
+            self.assertEqual(ready["nextAction"], "CHECK_PURCHASE_ACCESS")
             with self.assertRaises(trial.Failure):
                 trial.command_use("cn", PRODUCT_ID, "workbuddy")
         value = {"productId": PRODUCT_ID, "requestKey": "77777777-7777-4777-8777-777777777777", "prompt": "create a draft", "facts": {}}
@@ -1214,7 +1250,7 @@ class InstallFlowTestCase(unittest.TestCase):
                 self.assertEqual(body["requestKey"], value["requestKey"])
                 self.assertEqual(body["prompt"], value["prompt"])
                 self.assertTrue(canonical_errors)
-                return {"requestId": value["requestKey"], "sessionId": "88888888-8888-4888-8888-888888888888", "releaseId": self.release_id, "version": 1,
+                return {"requestId": value["requestKey"], "releaseId": self.release_id, "version": 1,
                         "status": "SUCCEEDED", "outcome": "ready", "instructions": "Do this one task.", "message": None, "errorCode": None, "retryable": False, "expiresAt": "2099-01-01T00:00:00Z", "trial": None}
             raise AssertionError(path)
         with mock.patch.object(trial, "api_request", side_effect=paid_api), mock.patch.object(trial, "http_download", side_effect=AssertionError("guidance payment must not download a package")):
@@ -1232,7 +1268,7 @@ class InstallFlowTestCase(unittest.TestCase):
 
     def test_guidance_nonready_and_canonical_errors_never_deliver_instructions(self):
         for outcome in ("needs_input", "refused"):
-            value = {"requestId": "77777777-7777-4777-8777-777777777777", "sessionId": "88888888-8888-4888-8888-888888888888", "releaseId": "99999999-9999-4999-8999-999999999999", "version": 1,
+            value = {"requestId": "77777777-7777-4777-8777-777777777777", "releaseId": "99999999-9999-4999-8999-999999999999", "version": 1,
                      "status": "SUCCEEDED", "outcome": outcome, "instructions": None, "message": "clarify or stop", "retryable": False, "expiresAt": "2099-01-01T00:00:00Z"}
             self.assertEqual(trial.guidance_result(value)["outcome"], outcome)
             with self.assertRaises(trial.Failure):
@@ -1302,53 +1338,39 @@ class InstallFlowTestCase(unittest.TestCase):
             self.assertEqual(trial.command_guidance("cn", PRODUCT_ID, path, 0), 0)
             self.assertEqual(submitted.call_args.args[2], value)
 
-    def test_guidance_session_retains_go_record_identity_and_rejects_replacement(self):
-        value = {"productId": PRODUCT_ID, "releaseId": RELEASE_ID, "requestKey": "77777777-7777-4777-8777-777777777777", "prompt": "follow up", "facts": {}, "sessionId": "88888888-8888-4888-8888-888888888888"}
-        prior = {**value, "requestKey": "99999999-9999-4999-8999-999999999999"}
-        prior.pop("sessionId")
-        record = {"schemaVersion": 1, "apiBaseUrl": trial.API_ORIGIN["cn"], "market": "cn", "input": prior,
-                  "principal": "trial:original-install", "sessionId": value["sessionId"], "paymentRequired": False}
-        trial.write_guidance_file(os.path.join(trial.guidance_task_directory("cn", PRODUCT_ID), prior["requestKey"] + ".json"), record)
-        trial.save_trial_state(PRODUCT_ID, {"productId": PRODUCT_ID, "market": "cn", "installId": "replacement-install", "secret": "fixture"})
-        with mock.patch.object(trial, "guidance_runtime_manifest", return_value=None), mock.patch.object(trial, "api_request", side_effect=AssertionError("session must not change credentials")):
+    def test_guidance_rejects_old_session_input_before_request(self):
+        value = {"productId": PRODUCT_ID, "releaseId": RELEASE_ID, "requestKey": "77777777-7777-4777-8777-777777777777", "prompt": "complete task", "sessionId": "88888888-8888-4888-8888-888888888888"}
+        with mock.patch.object(trial, "api_request", side_effect=AssertionError("must reject locally")):
             with self.assertRaises(trial.Failure) as caught:
                 trial.run_guidance_task("cn", PRODUCT_ID, value, 0)
-        self.assertEqual(caught.exception.code, "SKILL_GUIDANCE_REQUEST_CONFLICT")
-        self.assertFalse(os.path.exists(os.path.join(trial.guidance_task_directory("cn", PRODUCT_ID), value["requestKey"] + ".json")))
+        self.assertEqual(caught.exception.code, "SKILL_GUIDANCE_INPUT_INVALID")
 
-    def test_guidance_user_session_requires_original_cli_even_with_anonymous_state(self):
+    def test_guidance_saved_user_request_requires_original_cli_even_with_anonymous_state(self):
         trial.save_trial_state(PRODUCT_ID, {"productId": PRODUCT_ID, "market": "cn", "installId": "original-install", "secret": "fixture"})
-        value = {"productId": PRODUCT_ID, "releaseId": RELEASE_ID, "requestKey": "77777777-7777-4777-8777-777777777777", "prompt": "follow up", "facts": {}, "sessionId": "88888888-8888-4888-8888-888888888888"}
-        prior = {**value, "requestKey": "99999999-9999-4999-8999-999999999999"}
-        prior.pop("sessionId")
-        record = {"schemaVersion": 1, "apiBaseUrl": trial.API_ORIGIN["cn"], "market": "cn", "input": prior,
-                  "principal": "user:original-user", "sessionId": value["sessionId"], "paymentRequired": False}
-        trial.write_guidance_file(os.path.join(trial.guidance_task_directory("cn", PRODUCT_ID), prior["requestKey"] + ".json"), record)
+        value = {"productId": PRODUCT_ID, "releaseId": RELEASE_ID, "requestKey": "77777777-7777-4777-8777-777777777777", "prompt": "complete task", "facts": {}}
+        record = {"schemaVersion": 1, "apiBaseUrl": trial.API_ORIGIN["cn"], "market": "cn", "input": value,
+                  "principal": "user:original-user", "paymentRequired": False}
+        trial.write_guidance_file(os.path.join(trial.guidance_task_directory("cn", PRODUCT_ID), value["requestKey"] + ".json"), record)
         path = os.path.join(self.home, "task.json")
         with open(path, "w", encoding="utf-8") as handle:
             json.dump(value, handle)
-        with mock.patch.object(trial, "guidance_runtime_manifest", return_value=None), mock.patch.object(trial, "guidance_cli_fallback", side_effect=trial.Failure("SKILL_GUIDANCE_LOGIN_REQUIRED", "restore original account")) as delegated, mock.patch.object(trial, "run_guidance_task", side_effect=AssertionError("user session must not become anonymous")):
+        with mock.patch.object(trial, "guidance_runtime_manifest", return_value=None), mock.patch.object(trial, "guidance_cli_fallback", side_effect=trial.Failure("SKILL_GUIDANCE_LOGIN_REQUIRED", "restore original account")) as delegated, mock.patch.object(trial, "run_guidance_task", side_effect=AssertionError("saved user request must not become anonymous")):
             with self.assertRaises(trial.Failure):
                 trial.command_guidance("cn", PRODUCT_ID, path, 0)
         self.assertFalse(delegated.call_args.kwargs["optional"])
 
-    def test_guidance_session_payment_failure_checks_existing_account_before_repurchase(self):
+    def test_guidance_payment_failure_checks_existing_account_before_repurchase(self):
         trial.save_trial_state(PRODUCT_ID, {"productId": PRODUCT_ID, "market": "cn", "installId": "original-install", "secret": "fixture"})
-        for session_id in ("88888888-8888-4888-8888-888888888888", None):
-            with self.subTest(session_id=session_id):
-                value = {"productId": PRODUCT_ID, "releaseId": RELEASE_ID, "requestKey": "77777777-7777-4777-8777-777777777777", "prompt": "follow up", "facts": {}}
-                record = {"schemaVersion": 1, "apiBaseUrl": trial.API_ORIGIN["cn"], "market": "cn", "input": value,
-                          "principal": "trial:original-install", "paymentRequired": True}
-                if session_id:
-                    value["sessionId"] = session_id
-                    record["sessionId"] = session_id
-                trial.write_guidance_file(os.path.join(trial.guidance_task_directory("cn", PRODUCT_ID), value["requestKey"] + ".json"), record)
-                path = os.path.join(self.home, "task.json")
-                with open(path, "w", encoding="utf-8") as handle:
-                    json.dump(value, handle)
-                with mock.patch.object(trial, "guidance_runtime_manifest", return_value=None), mock.patch.object(trial, "run_guidance_task", side_effect=trial.Failure("SKILL_GUIDANCE_TRIAL_EXHAUSTED", "original task exhausted")), mock.patch.object(trial, "guidance_cli_fallback", return_value=6) as delegated, mock.patch.object(trial, "command_purchase", side_effect=AssertionError("the CLI already explained the different account purchase")):
-                    self.assertEqual(trial.command_guidance("cn", PRODUCT_ID, path, 0), 6)
-                self.assertTrue(delegated.call_args.kwargs["optional"])
+        value = {"productId": PRODUCT_ID, "releaseId": RELEASE_ID, "requestKey": "77777777-7777-4777-8777-777777777777", "prompt": "complete task", "facts": {}}
+        record = {"schemaVersion": 1, "apiBaseUrl": trial.API_ORIGIN["cn"], "market": "cn", "input": value,
+                  "principal": "trial:original-install", "paymentRequired": True}
+        trial.write_guidance_file(os.path.join(trial.guidance_task_directory("cn", PRODUCT_ID), value["requestKey"] + ".json"), record)
+        path = os.path.join(self.home, "task.json")
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(value, handle)
+        with mock.patch.object(trial, "guidance_runtime_manifest", return_value=None), mock.patch.object(trial, "run_guidance_task", side_effect=trial.Failure("SKILL_GUIDANCE_TRIAL_EXHAUSTED", "original task exhausted")), mock.patch.object(trial, "guidance_cli_fallback", return_value=6) as delegated, mock.patch.object(trial, "command_purchase", side_effect=AssertionError("the CLI already explained the different account purchase")):
+            self.assertEqual(trial.command_guidance("cn", PRODUCT_ID, path, 0), 6)
+        self.assertTrue(delegated.call_args.kwargs["optional"])
 
     def test_reinstall_overwrites_in_place_without_deletions(self):
         # 同款重装不得产生"删除"操作:WorkBuddy 沙箱按删除计数护栏

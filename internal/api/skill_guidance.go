@@ -20,8 +20,6 @@ func DeliveryMode(value string) string {
 	return value
 }
 
-
-
 func (c *Client) GetGuidanceSkillDownload(ctx context.Context, productID string) (DownloadURL, error) {
 	var result DownloadURL
 	err := c.doJSON(ctx, http.MethodGet, "/v1/downloads/guidance/"+url.PathEscape(productID), nil, &result, "")
@@ -32,7 +30,6 @@ type SkillGuidanceSubmit struct {
 	ReleaseID  string            `json:"releaseId,omitempty"`
 	ProductID  string            `json:"productId"`
 	RequestKey string            `json:"requestKey"`
-	SessionID  string            `json:"sessionId,omitempty"`
 	Prompt     string            `json:"prompt"`
 	Facts      map[string]string `json:"facts"`
 }
@@ -44,7 +41,6 @@ type SkillGuidanceTrial struct {
 
 type SkillGuidanceResult struct {
 	RequestID    string              `json:"requestId"`
-	SessionID    string              `json:"sessionId"`
 	ReleaseID    string              `json:"releaseId"`
 	Version      int                 `json:"version"`
 	Status       string              `json:"status"`
@@ -98,7 +94,7 @@ func (c *Client) skillGuidanceCall(ctx context.Context, method, endpoint string,
 		return result, err
 	}
 	expiry, expiryErr := time.Parse(time.RFC3339, result.ExpiresAt)
-	valid := guidanceUUIDPattern.MatchString(result.RequestID) && guidanceUUIDPattern.MatchString(result.SessionID) && guidanceUUIDPattern.MatchString(result.ReleaseID) && result.Version > 0 && expiryErr == nil && expiry.After(time.Now()) && (requestID == "" || result.RequestID == requestID)
+	valid := guidanceUUIDPattern.MatchString(result.RequestID) && guidanceUUIDPattern.MatchString(result.ReleaseID) && result.Version > 0 && expiryErr == nil && expiry.After(time.Now()) && (requestID == "" || result.RequestID == requestID)
 	valid = valid && (result.Status == "QUEUED" || result.Status == "RUNNING" || result.Status == "SUCCEEDED" || result.Status == "FAILED")
 	if result.Status == "SUCCEEDED" {
 		valid = valid && result.Outcome != nil

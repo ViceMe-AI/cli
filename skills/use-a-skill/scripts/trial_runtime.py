@@ -118,7 +118,7 @@ LOCK_WAIT_SECONDS = 10
 # executing the vendored encoder; never install a global Python dependency.
 RUNTIME_FILES = ("scripts/trial.py", "scripts/qrcodegen.py", "scripts/resolve-cli.sh", "scripts/resolve-cli.ps1", "widgets/onboarding.html",
                  "widgets/payment.html", "guides/widgets.md", "guides/trial-usage.md",
-                 "guides/purchase.md", "guides/host-presentation.md")
+                 "guides/purchase.md", "guides/host-presentation.md", "guides/viceme-runtime.md")
 PURCHASE_GUIDE_PATH = "references/purchase.md"
 OWNED_USAGE_GUIDE = (
     "# 正式版：不再计次\n\n"
@@ -144,6 +144,7 @@ def runtime_resource(name):
             "guides/widgets.md": os.path.join(repository, "widgets/README.md"),
             "guides/trial-usage.md": os.path.join(directory, "../references/trial-usage.md"),
             "guides/purchase.md": os.path.join(directory, "../references/purchase.md"),
+            "guides/viceme-runtime.md": os.path.join(directory, "../references/viceme-runtime.md"),
             "guides/host-presentation.md": os.path.join(directory, "../references/host-presentation.md"),
         }.get(name, os.path.join(repository, name))
     else:
@@ -247,6 +248,12 @@ def lookup_trial_quota(market, product_id):
 def attach_trial_snapshot(result, market, product_id, grant=None):
     if result.get("deliveryMode") == "PROTECTED":
         result["nextAction"] = "SUBMIT_GUIDANCE_TASK"
+        if result.get("kind") == "trial":
+            quota = (grant["remainingUses"], grant["limitUses"]) if grant else lookup_trial_quota(market, product_id)
+            if quota:
+                result.update(remainingUses=quota[0], limitUses=quota[1], trialExhausted=quota[0] == 0)
+        if result.get("kind") == "purchase" or result.get("trialExhausted"):
+            result.update(allowed=False, nextAction="CHECK_PURCHASE_ACCESS", message="先运行本地 runtime 的 purchase --wait 0 校验已有购买并恢复；只有服务端返回待付款时才展示支付，不重复购买。无待执行任务时按公开简介展示示例。")
         return result
     if result.get("kind") == "purchase":
         result.update(allowed=False, nextAction="PURCHASE_REQUIRED", message=purchase_required_message())
@@ -282,7 +289,7 @@ def command_ready(market, product_id, agent="auto"):
         result.update(pendingUse=True, nextAction="RESUME_TRIAL_USE", message="上次使用尚未交付完成,先重跑同一 use 命令恢复;不要购买或开始新任务,不会重复扣次。")
         return emit_ok(result)
     attach_trial_snapshot(result, market, product_id)
-    if result.get("ready") and result.get("trialExhausted") and result.get("kind") == "trial":
+    if result.get("deliveryMode") != "PROTECTED" and result.get("ready") and result.get("trialExhausted") and result.get("kind") == "trial":
         result["nextAction"] = "PURCHASE_REQUIRED"
         result["message"] = exhausted_purchase_message()
         with ProductLock(product_id):
@@ -356,7 +363,7 @@ def read_runtime_install(root, market, product_id):
         expected = manifest.get("files") or {}
         required = {".viceme/environment.json", *(".viceme/" + path for path in RUNTIME_FILES)}
         if delivery_mode != "PROTECTED":
-            required -= {".viceme/scripts/resolve-cli.sh", ".viceme/scripts/resolve-cli.ps1"}
+            required -= {".viceme/scripts/resolve-cli.sh", ".viceme/scripts/resolve-cli.ps1", ".viceme/guides/viceme-runtime.md"}
         if manifest["kind"] == "trial" and delivery_mode != "PROTECTED":
             required.update((RUNTIME_PATH, TRIAL_BODY_PATH))
         elif manifest["kind"] == "purchase" and delivery_mode != "PROTECTED":
@@ -783,7 +790,7 @@ def purchase_entry_files(market, product_id, title, summary, slug, release_id, d
     if delivery_mode == "PROTECTED":
         files["SKILL.md"] = (("---\nname: %s\ndescription: %s\n---\n\n" % (json.dumps(installed_name), json.dumps(description, ensure_ascii=False)) +
             "这是核心保护 Skill 的公开任务入口，不包含私有规则，也不提供免费试用。把当前任务写入 task.json，使用一次 UUID requestKey、prompt 与 facts，运行 `python3 .viceme/scripts/trial.py guidance --input task.json --wait 60`（Windows 用 py）。商品与版本从本地 runtime 读取。\n\n"
-            "收到购买入口时，按 [购买与支付展示](references/purchase.md) 展示支付；付款确认后保留入口及同一任务重试，不下载私有源码。仅 task.outcome=ready 且 allowed=true 时读取 executionPath 完成本次任务；needs_input 用相同 sessionId、新键补充事实；refused 停止。新任务仍需服务端判权，不复用其他任务指令。\n").encode(), 0o644)
+            "收到购买入口时，按 [购买与支付展示](references/purchase.md) 展示支付；付款确认后保留入口及同一任务重试，不下载私有源码。仅 task.outcome=ready 且 allowed=true 时读取 executionPath 完成本次任务；needs_input 将原需求与补充整理成完整任务，以新 requestKey 提交；不传 sessionId，服务端没有对话历史；refused 停止。新任务仍需服务端判权，不复用其他任务指令。\n").encode(), 0o644)
     # 购买入口包从解压起即携带安装身份：purchase 的归属校验只认这份文件,
     # 预置后按门禁在解压目录直接运行购买命令即可成立,不必先走官方 install。
     files[".viceme/install-manifest.json"] = (trial_install_manifest(product_id, release_id), 0o644)
@@ -969,7 +976,9 @@ def finish_install(market, product_id, agent, access, download, kind, grant=None
         result["nextAction"] = "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL"
     if delivery_mode == "PROTECTED":
         result["allowed"] = False
-        result["nextAction"] = "SUBMIT_GUIDANCE_TASK"
+        attach_trial_snapshot(result, market, product_id, grant)
+        if kind == "purchase" and not access.get("owned"):
+            result["nextAction"] = "PURCHASE_REQUIRED"
     return emit_ok(result)
 
 
@@ -1318,6 +1327,10 @@ def prepare_purchase_runtime(market, product_id):
 
 def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=False):
     validate_invoking_purchase_directory(market, product_id)
+    if find_ready_install(market, product_id, agent).get("deliveryMode") == "PROTECTED":
+        delegated = guidance_cli_fallback(market, product_id, None, wait, optional=True, purchase=True)
+        if delegated is not None:
+            return delegated
     with ProductLock(product_id):
         state = require_purchase_state(market, product_id, create=True)
         if state.get("pendingRequestId"):
@@ -2072,7 +2085,9 @@ def compose_skill_files(files, installed_name, product_id, release_id):
             ).encode("utf-8"),
             0o600,
         )
-    complete["skill-package.json"] = (
+    runtime = json.loads(files.get(".viceme/runtime.json", (b"{}", 0))[0])
+    metadata_path = ".viceme/skill-package.json" if runtime.get("deliveryMode") == "PROTECTED" else "skill-package.json"
+    complete[metadata_path] = (
         (
             json.dumps(
                 {"schema_version": 1, "skill_version": "1", "minimum_cli_version": "", "cli_compatibility": "script"},
@@ -2397,13 +2412,17 @@ def guidance_task_directory(market, product_id):
 
 
 def validate_guidance_input(value, product_id):
-    if not isinstance(value, dict) or set(value) - {"productId", "releaseId", "requestKey", "sessionId", "prompt", "facts"}:
+    if not isinstance(value, dict) or set(value) - {"productId", "releaseId", "requestKey", "prompt", "facts"}:
         raise Failure("SKILL_GUIDANCE_INPUT_INVALID", "任务 JSON 字段无效")
     value = dict(value)
     value.setdefault("productId", product_id)
     value.setdefault("facts", {})
+    facts = value["facts"]
+    if ((isinstance(value.get("prompt"), str) and len(value["prompt"]) > 8000)
+            or (isinstance(facts, dict) and (len(facts) > 30 or any((isinstance(k, str) and len(k) > 80) or (isinstance(v, str) and len(v) > 4000) for k, v in facts.items())))):
+        raise Failure("SKILL_GUIDANCE_INPUT_TOO_LARGE", "prompt 最多 8000 字符，facts 最多 30 项（键 80、值 4000 字符）。请本地 Agent 精简完整任务后使用新 requestKey 提交，不要原样重试。", nextAction="REDUCE_COMPLETE_INPUT_WITH_NEW_KEY")
     try:
-        for key in ("productId", "releaseId", "requestKey", "sessionId"):
+        for key in ("productId", "releaseId", "requestKey"):
             if key in value and str(uuid.UUID(value[key])) != value[key].lower():
                 raise ValueError()
         facts = value["facts"]
@@ -2452,32 +2471,6 @@ def complete_guidance_input(market, product_id, value):
     return validate_guidance_input(value, product_id)
 
 
-def guidance_session_principal(market, product_id, value):
-    if not value.get("sessionId"):
-        return ""
-    directory = guidance_task_directory(market, product_id)
-    principal = ""
-    for name in sorted(os.listdir(directory) if os.path.isdir(directory) else []):
-        if not name.endswith(".json") or name.endswith(".input.json"):
-            continue
-        try:
-            with open(os.path.join(directory, name), encoding="utf-8") as handle:
-                record = json.load(handle)
-        except (ValueError, UnicodeError):
-            continue
-        if (not isinstance(record, dict) or record.get("schemaVersion") != 1
-                or record.get("apiBaseUrl") != API_ORIGIN[market].rstrip("/") or record.get("market") != market
-                or not isinstance(record.get("input"), dict) or record["input"].get("productId") != product_id
-                or record["input"].get("releaseId") != value.get("releaseId")):
-            continue
-        if value["sessionId"] != record.get("sessionId"):
-            continue
-        if principal and principal != record.get("principal"):
-            raise Failure("SKILL_GUIDANCE_STATE_INVALID", "会话恢复记录包含不同身份，请保留原记录")
-        principal = record.get("principal", "")
-    return principal
-
-
 def write_guidance_file(filename, value):
     os.makedirs(os.path.dirname(filename), mode=0o700, exist_ok=True)
     data = value if isinstance(value, bytes) else json.dumps(value, ensure_ascii=False, sort_keys=True).encode()
@@ -2496,12 +2489,12 @@ def write_guidance_file(filename, value):
 def guidance_result(value, previous=None):
     try:
         valid = isinstance(value, dict)
-        for key in ("requestId", "sessionId", "releaseId"):
+        for key in ("requestId", "releaseId"):
             valid = valid and str(uuid.UUID(value[key])) == value[key].lower()
         valid = valid and type(value["version"]) is int and value["version"] > 0 and type(value["retryable"]) is bool
         valid = valid and datetime.fromisoformat(value["expiresAt"].replace("Z", "+00:00")) > datetime.now(timezone.utc)
         if previous:
-            valid = valid and all(value[k] == previous[k] for k in ("requestId", "sessionId", "releaseId", "version"))
+            valid = valid and all(value[k] == previous[k] for k in ("requestId", "releaseId", "version"))
         if value["status"] == "SUCCEEDED":
             if value["outcome"] == "ready":
                 valid = valid and isinstance(value.get("instructions"), str) and 0 < len(value["instructions"]) <= 16000 and value.get("message") is None
@@ -2521,7 +2514,7 @@ def guidance_result(value, previous=None):
     return value
 
 
-def guidance_cli_fallback(market, product_id, input_path, wait, optional=False):
+def guidance_cli_fallback(market, product_id, input_path, wait, optional=False, purchase=False):
     # Invoke the existing entrypoint, preserving PATH/npm launcher semantics.
     # Credentials remain owned by the CLI; this runtime does not read tokens.
     name = "resolve-cli.ps1" if os.name == "nt" else "resolve-cli.sh"
@@ -2556,7 +2549,8 @@ def guidance_cli_fallback(market, product_id, input_path, wait, optional=False):
         if optional:
             return None
         raise Failure("SKILL_GUIDANCE_CLI_UPDATE_REQUIRED", "现有 CLI 不支持此云端任务协议，请更新 CLI 后用同一输入重试", nextAction="UPDATE_CLI_AND_RETRY_SAME_TASK")
-    command = [executable, "skill", "guidance", "--input", os.path.abspath(input_path), "--product", product_id, "--market", market, "--wait", "%ss" % wait]
+    command = ([executable, "skill", "trial-purchase", product_id, "--market", market, "--wait", "%ss" % wait] if purchase else
+               [executable, "skill", "guidance", "--input", os.path.abspath(input_path), "--product", product_id, "--market", market, "--wait", "%ss" % wait])
     if invoking_skill_directory():
         command += ["--skill-dir", invoking_skill_directory()]
     if os.name == "nt":
@@ -2581,9 +2575,6 @@ def run_guidance_task(market, product_id, value, wait=60):
     filename = os.path.join(guidance_task_directory(market, product_id), value["requestKey"] + ".json")
     record = {"schemaVersion": 1, "apiBaseUrl": API_ORIGIN[market].rstrip("/"), "market": market,
               "principal": credential_kind + ":" + credential["installId"], "input": value, "paymentRequired": False}
-    session_principal = guidance_session_principal(market, product_id, value)
-    if session_principal and session_principal != record["principal"]:
-        raise Failure("SKILL_GUIDANCE_REQUEST_CONFLICT", "请恢复原会话身份后重试；如要使用另一身份，请明确新开会话，使用新 requestKey 并省略 sessionId")
     with ProductLock(product_id):
         try:
             with open(filename, encoding="utf-8") as handle:
@@ -2605,12 +2596,8 @@ def run_guidance_task(market, product_id, value, wait=60):
             with ProductLock(product_id):
                 write_guidance_file(filename, record)
         raise
-    if (result["releaseId"] != value["releaseId"] or (value.get("sessionId") and result["sessionId"] != value["sessionId"])
-            or (record.get("sessionId") and result["sessionId"] != record["sessionId"])):
-        raise Failure("SKILL_GUIDANCE_RESPONSE_INVALID", "云端响应改变了任务会话")
-    record["sessionId"] = result["sessionId"]
-    with ProductLock(product_id):
-        write_guidance_file(filename, record)
+    if result["releaseId"] != value["releaseId"]:
+        raise Failure("SKILL_GUIDANCE_RESPONSE_INVALID", "指导响应改变了任务版本")
     deadline = time.monotonic() + wait
     while result["status"] in ("QUEUED", "RUNNING") and time.monotonic() < deadline:
         time.sleep(min(1, max(0, deadline - time.monotonic())))
@@ -2628,11 +2615,11 @@ def run_guidance_task(market, product_id, value, wait=60):
             write_guidance_file(execution, result["instructions"].encode())
             data.update(allowed=True, nextAction="EXECUTE_GUIDANCE_INSTRUCTIONS", executionPath=execution)
         elif result["outcome"] == "needs_input":
-            data["nextAction"] = "SUPPLY_INPUT_WITH_NEW_KEY_AND_SAME_SESSION"
+            data["nextAction"] = "SUPPLY_COMPLETE_INPUT_WITH_NEW_KEY"
         else:
             data["nextAction"] = "TASK_REFUSED"
     if result["status"] == "FAILED" and not result["retryable"]:
-        data["nextAction"] = "TASK_FAILED"
+        data["nextAction"] = "REDUCE_COMPLETE_INPUT_WITH_NEW_KEY" if result.get("errorCode") == "MODEL_INPUT_TOO_LARGE" else "TASK_FAILED"
     return data
 
 
@@ -2659,8 +2646,7 @@ def command_guidance(market, product_id, input_path, wait=60, agent="auto"):
     if not state and not saved and installed_kind == "purchase":
         with ProductLock(product_id):
             state = require_purchase_state(market, product_id, create=True)
-    session_principal = guidance_session_principal(market, product_id, complete_guidance_input(market, product_id, value))
-    if not saved or saved.get("principal", "").startswith("user:") or session_principal.startswith("user:") or not state:
+    if not saved or saved.get("principal", "").startswith("user:") or not state:
         value = complete_guidance_input(market, product_id, value)
         if saved and saved.get("input") != value:
             raise Failure("SKILL_GUIDANCE_REQUEST_CONFLICT", "同一请求键的输入发生变化，请保留原任务")
@@ -2671,7 +2657,7 @@ def command_guidance(market, product_id, input_path, wait=60, agent="auto"):
             with os.fdopen(fd, "w", encoding="utf-8") as handle:
                 json.dump(value, handle, ensure_ascii=False)
             owned_install = (guidance_runtime_manifest(market, product_id) or {}).get("kind") == "owned"
-            result = guidance_cli_fallback(market, product_id, normalized_path, wait, optional=not saved and (bool(state) or fresh_channel_trial) and not owned_install and not session_principal.startswith("user:"))
+            result = guidance_cli_fallback(market, product_id, normalized_path, wait, optional=not saved and (bool(state) or fresh_channel_trial) and not owned_install)
             if result is not None:
                 return result
         finally:
@@ -2685,8 +2671,8 @@ def command_guidance(market, product_id, input_path, wait=60, agent="auto"):
     except Failure as error:
         if error.code in ("SKILL_GUIDANCE_TRIAL_EXHAUSTED", "SKILL_GUIDANCE_ENTITLEMENT_REQUIRED"):
             # A rejected first task is already bound to its anonymous identity,
-            # even though the server has not issued a sessionId. Check an account
-            # purchase before creating another order for either kind of task.
+            # even when admission failed. Check an account purchase before
+            # creating another order for that immutable task.
             result = guidance_cli_fallback(market, product_id, input_path, wait, optional=True)
             if result is not None:
                 return result

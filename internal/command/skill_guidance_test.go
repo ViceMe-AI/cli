@@ -1,9 +1,11 @@
 package command
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -52,7 +54,7 @@ func TestGuidanceRegisteredPurchaseRetriesSameUserAndNeverDownloads(t *testing.T
 				writeJSONResponse(w, map[string]any{"statusCode": 403, "code": "SKILL_GUIDANCE_ENTITLEMENT_REQUIRED", "message": "purchase required", "requestId": "trace"})
 				return
 			}
-			writeJSONResponse(w, map[string]any{"requestId": input["requestKey"], "sessionId": "11111111-1111-4111-8111-111111111111", "releaseId": input["releaseId"], "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "Execute this task.", "message": nil, "retryable": false, "errorCode": nil, "expiresAt": "2099-01-01T00:00:00Z"})
+			writeJSONResponse(w, map[string]any{"requestId": input["requestKey"], "releaseId": input["releaseId"], "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "Execute this task.", "message": nil, "retryable": false, "errorCode": nil, "expiresAt": "2099-01-01T00:00:00Z"})
 			return
 		}
 		if strings.Contains(r.URL.Path, "download") || r.URL.Path == "/artifact" {
@@ -95,6 +97,29 @@ func TestGuidanceInstallLostResponseCrossRunnerAndPaidRecovery(t *testing.T) {
 	t.Setenv(processAccessTokenEnvironment, "")
 	state := newSkillTrialTestServer(t)
 	defer state.server.Close()
+	// Authored metadata is an ordinary attachment; platform metadata must not overwrite it.
+	archive, err := zip.NewReader(bytes.NewReader(state.archive), int64(len(state.archive)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var buf bytes.Buffer
+	writer := zip.NewWriter(&buf)
+	for _, file := range archive.File {
+		if err := writer.Copy(file); err != nil {
+			t.Fatal(err)
+		}
+	}
+	metadata, err := writer.Create("skill-package.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = metadata.Write([]byte("author custom metadata"))
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	state.archive = buf.Bytes()
+	state.archiveDigest = fmt.Sprintf("%x", sha256Sum256ForTest(state.archive))
+
 	home, store := t.TempDir(), securestore.NewMemory()
 	var mu sync.Mutex
 	tasks := map[string]map[string]any{}
@@ -105,7 +130,7 @@ func TestGuidanceInstallLostResponseCrossRunnerAndPaidRecovery(t *testing.T) {
 	original := state.server.Config.Handler
 	state.server.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/v1/skill-guidance/trial/requests/") && strings.HasSuffix(r.URL.Path, "/read") {
-			writeJSONResponse(w, map[string]any{"requestId": "89898989-8989-4989-8989-898989898989", "sessionId": "11111111-1111-4111-8111-111111111111", "releaseId": downloadableReleaseID, "version": 1, "status": "SUCCEEDED", "instructions": "Wrong task must never execute.", "message": nil, "outcome": "ready", "errorCode": nil, "retryable": false, "expiresAt": "2099-01-01T00:00:00Z"})
+			writeJSONResponse(w, map[string]any{"requestId": "89898989-8989-4989-8989-898989898989", "releaseId": downloadableReleaseID, "version": 1, "status": "SUCCEEDED", "instructions": "Wrong task must never execute.", "message": nil, "outcome": "ready", "errorCode": nil, "retryable": false, "expiresAt": "2099-01-01T00:00:00Z"})
 			return
 		}
 		if r.URL.Path == "/v1/skill-guidance/trial/requests" {
@@ -143,7 +168,7 @@ func TestGuidanceInstallLostResponseCrossRunnerAndPaidRecovery(t *testing.T) {
 				if outcome == "ready" && input["prompt"] != "queued" {
 					deliveries++
 				}
-				result = map[string]any{"requestId": key, "sessionId": "11111111-1111-4111-8111-111111111111", "releaseId": downloadableReleaseID, "version": 1, "status": "SUCCEEDED", "instructions": instructions, "message": message, "outcome": outcome, "errorCode": nil, "retryable": false, "expiresAt": "2099-01-01T00:00:00Z", "trial": nil}
+				result = map[string]any{"requestId": key, "releaseId": downloadableReleaseID, "version": 1, "status": "SUCCEEDED", "instructions": instructions, "message": message, "outcome": outcome, "errorCode": nil, "retryable": false, "expiresAt": "2099-01-01T00:00:00Z", "trial": nil}
 				if input["prompt"] == "queued" {
 					result["status"] = "RUNNING"
 					result["outcome"] = nil
@@ -203,6 +228,10 @@ func TestGuidanceInstallLostResponseCrossRunnerAndPaidRecovery(t *testing.T) {
 	}
 	data := installed["data"].(map[string]any)
 	skillPath := data["skillPath"].(string)
+	authorMetadata, _ := os.ReadFile(filepath.Join(filepath.Dir(skillPath), "skill-package.json"))
+	if string(authorMetadata) != "author custom metadata" {
+		t.Fatal("author metadata was overwritten")
+	}
 	originalSkill, err := os.ReadFile(skillPath)
 	if err != nil {
 		t.Fatal(err)
@@ -214,7 +243,7 @@ func TestGuidanceInstallLostResponseCrossRunnerAndPaidRecovery(t *testing.T) {
 		t.Fatal("guidance installed legacy trial rules")
 	}
 	code, ready := invoke("skill", "ready", downloadableProductID, "--agent", "codex")
-	if code != 0 || ready["data"].(map[string]any)["nextAction"] != "SUBMIT_GUIDANCE_TASK" {
+	if code != 0 || ready["data"].(map[string]any)["nextAction"] != "CHECK_PURCHASE_ACCESS" {
 		t.Fatalf("guidance ready: %#v", ready)
 	}
 	if code, _ = invoke("skill", "use", downloadableProductID); code == 0 {
@@ -387,7 +416,7 @@ func TestGuidanceDirectPurchaseInstallsPublicPackageWithoutTrialAndKeepsIdentity
 			} else if firstID != id || firstSecret != secret {
 				t.Error("purchase identity changed")
 			}
-			writeJSONResponse(w, map[string]any{"requestId": body["requestKey"], "sessionId": "11111111-1111-4111-8111-111111111111", "releaseId": downloadableReleaseID, "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "Follow the local workflow.", "message": nil, "errorCode": nil, "retryable": false, "expiresAt": "2099-01-01T00:00:00Z"})
+			writeJSONResponse(w, map[string]any{"requestId": body["requestKey"], "releaseId": downloadableReleaseID, "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "Follow the local workflow.", "message": nil, "errorCode": nil, "retryable": false, "expiresAt": "2099-01-01T00:00:00Z"})
 			return
 		}
 		recorder := httptest.NewRecorder()
@@ -481,7 +510,7 @@ func TestGuidanceTaskUsesExactSkillDirectory(t *testing.T) {
 				if input["releaseId"] != selectedRelease || input["installId"] == "" || input["secret"] == "" {
 					t.Errorf("task did not bind selected installation: release=%v", input["releaseId"])
 				}
-				writeJSONResponse(w, map[string]any{"requestId": input["requestKey"], "sessionId": "11111111-1111-4111-8111-111111111111", "releaseId": input["releaseId"], "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "Follow the selected local workflow.", "message": nil, "retryable": false, "errorCode": nil, "expiresAt": "2099-01-01T00:00:00Z"})
+				writeJSONResponse(w, map[string]any{"requestId": input["requestKey"], "releaseId": input["releaseId"], "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "Follow the selected local workflow.", "message": nil, "retryable": false, "errorCode": nil, "expiresAt": "2099-01-01T00:00:00Z"})
 			}))
 			defer server.Close()
 			workspace := t.TempDir()
@@ -589,7 +618,7 @@ func TestGuidancePurchaseRecoveryUsesExactSkillDirectory(t *testing.T) {
 						if input["releaseId"] != selectedRelease || input["installId"] != installID {
 							t.Error("purchase recovery changed the installation or buyer identity")
 						}
-						writeJSONResponse(w, map[string]any{"requestId": input["requestKey"], "sessionId": "11111111-1111-4111-8111-111111111111", "releaseId": input["releaseId"], "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "Follow the selected local workflow.", "message": nil, "retryable": false, "errorCode": nil, "expiresAt": "2099-01-01T00:00:00Z"})
+						writeJSONResponse(w, map[string]any{"requestId": input["requestKey"], "releaseId": input["releaseId"], "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "Follow the selected local workflow.", "message": nil, "retryable": false, "errorCode": nil, "expiresAt": "2099-01-01T00:00:00Z"})
 					default:
 						t.Errorf("unexpected purchase recovery request: %s", r.URL.Path)
 						http.Error(w, "unexpected request", http.StatusBadRequest)
@@ -686,9 +715,8 @@ func TestGuidanceExistingAnonymousIdentitySurvivesRevokedStoredLogin(t *testing.
 	}
 }
 
-// A Python-produced record has the same session identity as a Go-produced one.
-// A new key in that session must not switch to a newly purchased account.
-func TestGuidanceSessionContinuationRetainsCrossRunnerPrincipal(t *testing.T) {
+// Replaying the same immutable request across runners preserves its principal.
+func TestGuidanceRequestReplayRetainsCrossRunnerPrincipal(t *testing.T) {
 	for _, kind := range []string{"trial", "purchase"} {
 		t.Run(kind, func(t *testing.T) {
 			runtime, input, calls, cleanup := guidanceIdentityFixture(t, kind, 401)
@@ -697,11 +725,7 @@ func TestGuidanceSessionContinuationRetainsCrossRunnerPrincipal(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			sessionID := result["task"].(api.SkillGuidanceResult).SessionID
-			input.RequestKey = "33333333-3333-4333-8333-333333333333"
-			input.SessionID = sessionID
-			// A separate Python process discovers the Go record, continues that
-			// session, and writes the shared session field for the next Go turn.
+			// A separate Python process replays the original Go request.
 			python, err := exec.LookPath("python3")
 			if err != nil {
 				t.Fatal(err)
@@ -720,15 +744,14 @@ func TestGuidanceSessionContinuationRetainsCrossRunnerPrincipal(t *testing.T) {
 			pythonOutput, err := child.CombinedOutput()
 			var pythonResult map[string]any
 			if err != nil || json.Unmarshal(pythonOutput, &pythonResult) != nil || pythonResult["allowed"] != true {
-				t.Fatalf("cross-runner session continuation failed: %v %s", err, pythonOutput)
+				t.Fatalf("cross-runner request replay failed: %v %s", err, pythonOutput)
 			}
-			input.RequestKey = "66666666-6666-4666-8666-666666666666"
-			// The stored login now works and owns a different purchase. Continuing
-			// this session must use its existing anonymous credential without asking it.
+			// The stored login now works and owns a different purchase. Replaying
+			// this request must use its existing anonymous credential without asking it.
 			original := runtime.deps.HTTPClient.Transport
 			runtime.deps.HTTPClient.Transport = guidanceTestTransport(func(request *http.Request) (*http.Response, error) {
 				if request.URL.Path == "/v1/cli/auth/status" {
-					t.Error("continued session reselected its account")
+					t.Error("replayed request reselected its account")
 				}
 				if original != nil {
 					return original.RoundTrip(request)
@@ -737,44 +760,37 @@ func TestGuidanceSessionContinuationRetainsCrossRunnerPrincipal(t *testing.T) {
 			})
 			result, err = runGuidanceTask(context.Background(), runtime, input, 0)
 			if err != nil || result["allowed"] != true || calls.Load() != 3 {
-				t.Fatalf("session identity changed: %v %#v", err, result)
+				t.Fatalf("request identity changed: %v %#v", err, result)
 			}
-			principal, err := guidanceSessionPrincipal(runtime, input)
-			if err != nil || !strings.HasPrefix(principal, kind+":") {
-				t.Fatalf("session not durably bound: %s %v", principal, err)
-			}
+
 		})
 	}
 }
 
-func TestGuidanceSessionDoesNotChangeAccount(t *testing.T) {
+func TestGuidanceRequestDoesNotChangeAccount(t *testing.T) {
 	runtime, input, calls, cleanup := guidanceIdentityFixture(t, "purchase", 200)
 	defer cleanup()
-	input.SessionID = "11111111-1111-4111-8111-111111111111"
 	prior := input
-	prior.RequestKey = "33333333-3333-4333-8333-333333333333"
-	prior.SessionID = ""
 	record, filename, err := prepareGuidanceRecord(runtime, prior, "user:22222222-2222-4222-8222-222222222222")
 	if err != nil {
 		t.Fatal(err)
 	}
-	record.SessionID = input.SessionID
 	if err := writeGuidanceRecord(filename, record); err != nil {
 		t.Fatal(err)
 	}
 	_, err = runGuidanceTask(context.Background(), runtime, input, 0)
 	if err == nil || output.AsError(err).Type != "authentication" || calls.Load() != 0 {
-		t.Fatalf("user session fell back to anonymous identity: %v", err)
+		t.Fatalf("user request fell back to anonymous identity: %v", err)
 	}
 	runtime.deps.HTTPClient.Transport = guidanceTestTransport(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Path != "/v1/cli/auth/status" {
-			t.Errorf("different account must not submit a session task: %s", request.URL.Path)
+			t.Errorf("different account must not submit a saved task: %s", request.URL.Path)
 		}
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"authenticated":true,"user":{"id":"77777777-7777-4777-8777-777777777777"}}`))}, nil
 	})
 	_, err = runGuidanceTask(context.Background(), runtime, input, 0)
 	if err == nil || output.AsError(err).Subtype != "SKILL_GUIDANCE_REQUEST_CONFLICT" || calls.Load() != 0 {
-		t.Fatalf("continued session changed accounts: %v", err)
+		t.Fatalf("replayed request changed accounts: %v", err)
 	}
 }
 
@@ -801,7 +817,7 @@ func guidanceIdentityFixture(t *testing.T, kind string, authStatus int) (*Runtim
 			t.Error("anonymous credential changed")
 		}
 		calls.Add(1)
-		writeJSONResponse(w, map[string]any{"requestId": body["requestKey"], "sessionId": "11111111-1111-4111-8111-111111111111", "releaseId": downloadableReleaseID, "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "Execute the selected task.", "message": nil, "errorCode": nil, "retryable": false, "expiresAt": "2099-01-01T00:00:00Z"})
+		writeJSONResponse(w, map[string]any{"requestId": body["requestKey"], "releaseId": downloadableReleaseID, "version": 1, "status": "SUCCEEDED", "outcome": "ready", "instructions": "Execute the selected task.", "message": nil, "errorCode": nil, "retryable": false, "expiresAt": "2099-01-01T00:00:00Z"})
 	}))
 	home, store := t.TempDir(), securestore.NewMemory()
 	scope, err := credentialScopeForAPIBase(server.URL)
@@ -832,25 +848,17 @@ type guidanceTestTransport func(*http.Request) (*http.Response, error)
 
 func (f guidanceTestTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func TestGuidanceSessionWithDifferentAccountPurchaseDoesNotRepurchase(t *testing.T) {
-	for _, stage := range []string{"accepted-session", "rejected-before-session"} {
+func TestGuidanceRequestWithDifferentAccountPurchaseDoesNotRepurchase(t *testing.T) {
+	for _, stage := range []string{"accepted-request", "rejected-request"} {
 		t.Run(stage, func(t *testing.T) {
 			runtime, input, calls, cleanup := guidanceIdentityFixture(t, "purchase", 200)
 			defer cleanup()
 			runtime.deps.NewID = func() string { return "88888888-8888-4888-8888-888888888888" }
-			if stage == "accepted-session" {
-				input.SessionID = "11111111-1111-4111-8111-111111111111"
-			}
 			prior := input
-			if stage == "accepted-session" {
-				prior.RequestKey = "33333333-3333-4333-8333-333333333333"
-			}
-			prior.SessionID = ""
 			record, filename, err := prepareGuidanceRecord(runtime, prior, "purchase:44444444-4444-4444-8444-444444444444")
 			if err != nil {
 				t.Fatal(err)
 			}
-			record.SessionID = input.SessionID
 			if err := writeGuidanceRecord(filename, record); err != nil {
 				t.Fatal(err)
 			}
@@ -877,9 +885,190 @@ func TestGuidanceSessionWithDifferentAccountPurchaseDoesNotRepurchase(t *testing
 			command.SilenceErrors, command.SilenceUsage = true, true
 			command.SetArgs([]string{"--input", inputPath, "--wait", "0"})
 			err = command.Execute()
-			if err == nil || output.AsError(err).Subtype != "SKILL_GUIDANCE_SESSION_ENTITLEMENT_REQUIRED" || calls.Load() != 1 {
-				t.Fatalf("wrong session purchase transition: %v calls=%d", err, calls.Load())
+			if err == nil || output.AsError(err).Subtype != "SKILL_GUIDANCE_REQUEST_ENTITLEMENT_REQUIRED" || calls.Load() != 1 {
+				t.Fatalf("wrong request purchase transition: %v calls=%d", err, calls.Load())
 			}
 		})
+	}
+}
+
+func TestGuidancePurchaseBeforeTaskUsesAccountOrCreatesDirectPurchaseIdentity(t *testing.T) {
+	for _, owned := range []bool{false, true} {
+		t.Run(fmt.Sprint(owned), func(t *testing.T) {
+			t.Setenv(processAccessTokenEnvironment, "")
+			if owned {
+				t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
+			}
+			home, store := t.TempDir(), securestore.NewMemory()
+			var purchases, guidance int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/v1/cli/skills/" + downloadableProductID + "/access":
+					access := skillAccessFixture(false, owned, strings.Repeat("a", 64), "")
+					access["deliveryMode"] = "PROTECTED"
+					writeJSONResponse(w, access)
+				case "/v1/skills/" + downloadableProductID + "/purchase":
+					purchases++
+					var body map[string]any
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					if body["installId"] == "" || body["secret"] == "" {
+						t.Error("missing purchase identity")
+					}
+					writeJSONResponse(w, map[string]any{"productId": downloadableProductID, "orderNo": skillPurchaseOrderNo, "title": "Protected", "status": "PAID", "amountCents": 100, "currency": "CNY", "expiresAt": "2099-01-01T00:00:00Z", "paymentAction": nil})
+				case "/v1/skills/" + downloadableProductID + "/purchase/download":
+					writeJSONResponse(w, map[string]any{"access": map[string]any{"productId": downloadableProductID, "owned": true, "installKind": "OWNED_PAID", "deliveryMode": "PROTECTED", "release": map[string]any{"id": downloadableReleaseID}}, "download": nil})
+				default:
+					if strings.Contains(r.URL.Path, "guidance") {
+						guidance++
+					}
+					t.Errorf("unexpected purchase request: %s", r.URL.Path)
+					http.Error(w, "unexpected", 400)
+				}
+			}))
+			defer server.Close()
+			selected := filepath.Join(t.TempDir(), "purchase-entry")
+			writeGuidanceRuntimeFixture(t, selected, server.URL, downloadableReleaseID, "purchase")
+			code, result, _ := executeSkillTrialCommand(t, server, home, store, "skill", "trial-purchase", downloadableProductID, "--skill-dir", selected, "--market", "cn", "--wait", "0")
+			if code != 0 || result["data"].(map[string]any)["owned"] != true {
+				t.Fatalf("purchase before task: %#v", result)
+			}
+			if guidance != 0 || (owned && purchases != 0) || (!owned && purchases != 1) {
+				t.Fatalf("purchase=%d guidance=%d", purchases, guidance)
+			}
+			_, err := os.Stat(filepath.Join(home, ".viceme", "purchases", downloadableProductID+".json"))
+			if owned && !os.IsNotExist(err) {
+				t.Fatal("account owner created anonymous identity")
+			}
+			if !owned && err != nil {
+				t.Fatal("direct purchase identity not persisted")
+			}
+		})
+	}
+}
+
+func TestGuidancePurchaseRecoveryWithRefusedStoredLogin(t *testing.T) {
+	for _, kind := range []string{"purchase", "trial"} {
+		for _, scenario := range []struct {
+			name     string
+			status   int
+			override bool
+			missing  bool
+			allowed  bool
+		}{
+			{"stored-refused", 401, false, false, true},
+			{"explicit-refused", 401, true, false, false},
+			{"service-unavailable", 503, false, false, false},
+			{"no-existing-identity", 401, false, true, false},
+		} {
+			t.Run(kind+"/"+scenario.name, func(t *testing.T) {
+				t.Setenv(processAccessTokenEnvironment, "")
+				if scenario.override {
+					t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
+				}
+				runtime, input, _, cleanup := guidanceIdentityFixture(t, kind, 200)
+				defer cleanup()
+				if scenario.override {
+					runtime.processCredential = &publicationCredential{raw: skillPurchaseAccessToken}
+				}
+				var stdout bytes.Buffer
+				runtime.printer = &output.Printer{Out: &stdout, ErrOut: io.Discard}
+				runtime.deps.NewID = func() string { return "88888888-8888-4888-8888-888888888888" }
+				identityPath := scriptPurchasePath(runtime, input.ProductID)
+				if kind == "trial" {
+					identityPath = scriptTrialCredentialPath(runtime, input.ProductID)
+				}
+				if scenario.missing {
+					if err := os.Remove(identityPath); err != nil {
+						t.Fatal(err)
+					}
+				}
+				selected := filepath.Join(t.TempDir(), "installed")
+				writeGuidanceRuntimeFixture(t, selected, runtime.apiBaseURL, input.ReleaseID, kind)
+				purchases := 0
+				runtime.deps.HTTPClient.Transport = guidanceTestTransport(func(request *http.Request) (*http.Response, error) {
+					status, body := 200, ""
+					switch request.URL.Path {
+					case "/v1/cli/skills/" + input.ProductID + "/access":
+						status = scenario.status
+						body = fmt.Sprintf(`{"statusCode":%d,"code":"ACCOUNT_UNAVAILABLE","message":"account unavailable","requestId":"test"}`, status)
+					case "/v1/skills/" + input.ProductID + "/trial-purchase", "/v1/skills/" + input.ProductID + "/purchase":
+						purchases++
+						var purchase map[string]any
+						_ = json.NewDecoder(request.Body).Decode(&purchase)
+						if purchase["installId"] != "44444444-4444-4444-8444-444444444444" || purchase["secret"] != strings.Repeat("01", 32) || request.Header.Get("Authorization") != "" {
+							t.Error("purchase recovery did not preserve anonymous identity")
+						}
+						body = `{"productId":"` + input.ProductID + `","orderNo":"` + skillPurchaseOrderNo + `","title":"Protected","status":"PAID","amountCents":100,"currency":"CNY","expiresAt":"2099-01-01T00:00:00Z","paymentAction":null}`
+					case "/v1/skills/" + input.ProductID + "/trial-purchase/download", "/v1/skills/" + input.ProductID + "/purchase/download":
+						body = `{"access":{"productId":"` + input.ProductID + `","owned":true,"installKind":"OWNED_PAID","deliveryMode":"PROTECTED","release":{"id":"` + input.ReleaseID + `"}},"download":null}`
+					default:
+						t.Errorf("unexpected recovery request: %s", request.URL.Path)
+						status, body = 500, `{}`
+					}
+					return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+				})
+				err := runTrialPurchase(context.Background(), runtime, input.ProductID, 0, "auto", selected)
+				if scenario.allowed {
+					var envelope struct {
+						Data struct {
+							Owned bool `json:"owned"`
+						} `json:"data"`
+					}
+					if err != nil || purchases != 1 || json.Unmarshal(stdout.Bytes(), &envelope) != nil || !envelope.Data.Owned {
+						t.Fatalf("existing anonymous recovery failed: %v calls=%d output=%s", err, purchases, stdout.String())
+					}
+				} else if err == nil || purchases != 0 {
+					t.Fatalf("unexpected anonymous fallback: %v calls=%d", err, purchases)
+				}
+				if scenario.missing {
+					if _, err := os.Stat(identityPath); !os.IsNotExist(err) {
+						t.Fatal("refused login created a new anonymous identity")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestGuidancePurchaseResumeWithDifferentAccountRequestsNewCompleteInput(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, "")
+	runtime, input, _, cleanup := guidanceIdentityFixture(t, "purchase", 200)
+	defer cleanup()
+	record, filename, err := prepareGuidanceRecord(runtime, input, "purchase:44444444-4444-4444-8444-444444444444")
+	if err != nil {
+		t.Fatal(err)
+	}
+	record.PaymentRequired = true
+	if err := writeGuidanceRecord(filename, record); err != nil {
+		t.Fatal(err)
+	}
+	runtime.deps.HTTPClient.Transport = guidanceTestTransport(func(request *http.Request) (*http.Response, error) {
+		status, body := 200, `{"authenticated":true,"user":{"id":"22222222-2222-4222-8222-222222222222"}}`
+		switch request.URL.Path {
+		case "/v1/cli/auth/status":
+		case "/v1/cli/skills/" + input.ProductID + "/access":
+			body = `{"owned":true}`
+		case "/v1/skill-guidance/purchase/requests":
+			status, body = 403, `{"statusCode":403,"code":"SKILL_GUIDANCE_ENTITLEMENT_REQUIRED","message":"original identity has no access","requestId":"test"}`
+		default:
+			t.Errorf("must not purchase or transfer the old request: %s", request.URL.Path)
+		}
+		return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	result, err := resumeGuidanceAfterPurchase(context.Background(), runtime, input.ProductID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resumed := result["resumedTasks"].([]map[string]any)
+	if len(resumed) != 1 || resumed[0]["nextAction"] != "SUBMIT_COMPLETE_INPUT_WITH_NEW_KEY" || resumed[0]["error"].(map[string]any)["code"] != "SKILL_GUIDANCE_REQUEST_ENTITLEMENT_REQUIRED" || resumed[0]["error"].(map[string]any)["hint"] == "" {
+		t.Fatalf("invalid account purchase recovery: %#v", result)
+	}
+	raw, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after guidanceTaskRecord
+	if json.Unmarshal(raw, &after) != nil || after.Principal != record.Principal || after.Input.RequestKey != input.RequestKey || !after.PaymentRequired {
+		t.Fatal("original anonymous request was changed or lost")
 	}
 }

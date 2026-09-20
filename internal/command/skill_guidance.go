@@ -31,7 +31,6 @@ type guidanceTaskRecord struct {
 	Market          string                  `json:"market"`
 	Principal       string                  `json:"principal"`
 	Input           api.SkillGuidanceSubmit `json:"input"`
-	SessionID       string                  `json:"sessionId,omitempty"`
 	PaymentRequired bool                    `json:"paymentRequired"`
 }
 
@@ -65,7 +64,7 @@ func newSkillGuidanceCommand(runtime *Runtime) *cobra.Command {
 			decoder := json.NewDecoder(bytes.NewReader(raw))
 			decoder.DisallowUnknownFields()
 			if len(raw) > 1024*1024 || decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF {
-				return output.Validation("SKILL_GUIDANCE_INPUT_INVALID", "task input must be one JSON object with productId, requestKey, optional sessionId, prompt and facts")
+				return output.Validation("SKILL_GUIDANCE_INPUT_INVALID", "task input must be one JSON object with productId, requestKey, a complete prompt and optional facts")
 			}
 			if input.ProductID == "" {
 				input.ProductID = productID
@@ -93,8 +92,8 @@ func newSkillGuidanceCommand(runtime *Runtime) *cobra.Command {
 					return err
 				}
 				if strings.HasPrefix(record.Principal, "trial:") || strings.HasPrefix(record.Principal, "purchase:") {
-					if sessionErr := checkGuidanceAccountPurchase(command.Context(), runtime, input); sessionErr != nil {
-						return sessionErr
+					if purchaseErr := checkGuidanceAccountPurchase(command.Context(), runtime, input); purchaseErr != nil {
+						return purchaseErr
 					}
 					return runTrialPurchase(command.Context(), runtime, input.ProductID, 0, agent, runtime.deps.Environment.InstallDirectory)
 				}
@@ -116,13 +115,20 @@ func newSkillGuidanceCommand(runtime *Runtime) *cobra.Command {
 }
 
 func validateGuidanceInput(input api.SkillGuidanceSubmit) error {
-	valid := skillUseProductIDPattern.MatchString(input.ReleaseID) && skillUseProductIDPattern.MatchString(input.ProductID) && skillUseProductIDPattern.MatchString(input.RequestKey) && (input.SessionID == "" || skillUseProductIDPattern.MatchString(input.SessionID))
+	tooLarge := utf8.RuneCountInString(input.Prompt) > 8000 || len(input.Facts) > 30
+	for key, value := range input.Facts {
+		tooLarge = tooLarge || utf8.RuneCountInString(key) > 80 || utf8.RuneCountInString(value) > 4000
+	}
+	if tooLarge {
+		return output.Validation("SKILL_GUIDANCE_INPUT_TOO_LARGE", "prompt allows 8000 characters; facts allow 30 keys of 80 characters and values of 4000 characters").WithHint("The local Agent must condense the complete task and submit a new requestKey; do not retry the unchanged oversized input")
+	}
+	valid := skillUseProductIDPattern.MatchString(input.ReleaseID) && skillUseProductIDPattern.MatchString(input.ProductID) && skillUseProductIDPattern.MatchString(input.RequestKey)
 	valid = valid && strings.TrimSpace(input.Prompt) != "" && utf8.RuneCountInString(input.Prompt) <= 8000 && len(input.Facts) <= 30
 	for key, value := range input.Facts {
 		valid = valid && strings.TrimSpace(key) != "" && utf8.RuneCountInString(key) <= 80 && utf8.RuneCountInString(value) <= 4000
 	}
 	if !valid {
-		return output.Validation("SKILL_GUIDANCE_INPUT_INVALID", "provide UUID productId/requestKey/sessionId, a prompt of 1–8000 characters, and at most 30 facts (key 1–80, value at most 4000 characters)")
+		return output.Validation("SKILL_GUIDANCE_INPUT_INVALID", "provide UUID productId/releaseId/requestKey, a prompt of 1–8000 characters, and at most 30 facts (key 1–80, value at most 4000 characters)")
 	}
 	return nil
 }
@@ -155,12 +161,6 @@ func guidancePrincipal(ctx context.Context, runtime *Runtime, input api.SkillGui
 		savedPrincipal = record.Principal
 	} else if !errors.Is(readErr, os.ErrNotExist) {
 		return "", credential, readErr
-	}
-	if savedPrincipal == "" && input.SessionID != "" {
-		savedPrincipal, err = guidanceSessionPrincipal(runtime, input)
-		if err != nil {
-			return "", credential, err
-		}
 	}
 	if strings.HasPrefix(savedPrincipal, "purchase:") {
 		if !purchaseExists || savedPrincipal != "purchase:"+purchase.InstallID {
@@ -208,7 +208,7 @@ func guidancePrincipal(ctx context.Context, runtime *Runtime, input api.SkillGui
 			return "", credential, output.Policy("SKILL_GUIDANCE_RESPONSE_INVALID", "authenticated account has no identity")
 		}
 		if savedPrincipal != "" && savedPrincipal != "user:"+status.User.ID {
-			return "", credential, output.Policy("SKILL_GUIDANCE_REQUEST_CONFLICT", "restore the original task or session account before retrying").WithHint("to use a different account, explicitly start a new session with a new requestKey and omit sessionId")
+			return "", credential, output.Policy("SKILL_GUIDANCE_REQUEST_CONFLICT", "restore the original task account before retrying").WithHint("to use a different account, explicitly submit the complete task with a new requestKey")
 		}
 		if savedPrincipal == "" {
 			access, err := runtime.client().GetSkillAccess(ctx, input.ProductID)
@@ -244,40 +244,6 @@ func guidancePrincipal(ctx context.Context, runtime *Runtime, input api.SkillGui
 		return "", credential, err
 	}
 	return "trial:" + credential.InstallID, credential, nil
-}
-
-// Session ownership is recovered only from this API/product's task records.
-// The server still authenticates that principal and authorizes every new request.
-func guidanceSessionPrincipal(runtime *Runtime, input api.SkillGuidanceSubmit) (string, error) {
-	entries, err := os.ReadDir(guidanceTaskDirectory(runtime, input.ProductID))
-	if errors.Is(err, os.ErrNotExist) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	principal := ""
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || strings.HasSuffix(entry.Name(), ".input.json") {
-			continue
-		}
-		raw, err := os.ReadFile(filepath.Join(guidanceTaskDirectory(runtime, input.ProductID), entry.Name()))
-		if err != nil {
-			return "", err
-		}
-		var record guidanceTaskRecord
-		if json.Unmarshal(raw, &record) != nil || record.SchemaVersion != 1 || record.APIBaseURL != strings.TrimRight(runtime.apiBaseURL, "/") || record.Market != string(runtime.region) || record.Input.ProductID != input.ProductID || record.Input.ReleaseID != input.ReleaseID {
-			continue
-		}
-		if record.SessionID != input.SessionID {
-			continue
-		}
-		if principal != "" && principal != record.Principal {
-			return "", output.Policy("SKILL_GUIDANCE_STATE_INVALID", "session recovery records contain conflicting identities; preserve them")
-		}
-		principal = record.Principal
-	}
-	return principal, nil
 }
 
 func writeGuidanceRecord(filename string, record guidanceTaskRecord) error {
@@ -348,10 +314,9 @@ func runGuidanceTask(ctx context.Context, runtime *Runtime, input api.SkillGuida
 		}
 		return nil, err
 	}
-	if result.ReleaseID != input.ReleaseID || input.SessionID != "" && result.SessionID != input.SessionID || record.SessionID != "" && result.SessionID != record.SessionID {
-		return nil, output.Policy("SKILL_GUIDANCE_RESPONSE_INVALID", "guidance response changed the task session")
+	if result.ReleaseID != input.ReleaseID {
+		return nil, output.Policy("SKILL_GUIDANCE_RESPONSE_INVALID", "guidance response changed the task version")
 	}
-	record.SessionID = result.SessionID
 	if err := withScriptTrialLock(runtime, input.ProductID, func() error { return writeGuidanceRecord(filename, record) }); err != nil {
 		return nil, err
 	}
@@ -364,7 +329,7 @@ func runGuidanceTask(ctx context.Context, runtime *Runtime, input api.SkillGuida
 		if err != nil {
 			return nil, err
 		}
-		if next.RequestID != result.RequestID || next.SessionID != result.SessionID || next.ReleaseID != result.ReleaseID || next.Version != result.Version {
+		if next.RequestID != result.RequestID || next.ReleaseID != result.ReleaseID || next.Version != result.Version {
 			return nil, output.Policy("SKILL_GUIDANCE_RESPONSE_INVALID", "guidance response changed the task identity")
 		}
 		result = next
@@ -386,13 +351,16 @@ func runGuidanceTask(ctx context.Context, runtime *Runtime, input api.SkillGuida
 			}
 			data["allowed"], data["nextAction"], data["executionPath"] = true, "EXECUTE_GUIDANCE_INSTRUCTIONS", execution
 		case "needs_input":
-			data["nextAction"] = "SUPPLY_INPUT_WITH_NEW_KEY_AND_SAME_SESSION"
+			data["nextAction"] = "SUPPLY_COMPLETE_INPUT_WITH_NEW_KEY"
 		case "refused":
 			data["nextAction"] = "TASK_REFUSED"
 		}
 	}
 	if result.Status == "FAILED" && !result.Retryable {
 		data["nextAction"] = "TASK_FAILED"
+		if result.ErrorCode != nil && *result.ErrorCode == "MODEL_INPUT_TOO_LARGE" {
+			data["nextAction"] = "REDUCE_COMPLETE_INPUT_WITH_NEW_KEY"
+		}
 	}
 	return data, nil
 }
@@ -405,7 +373,11 @@ func resumeGuidanceAfterPurchase(ctx context.Context, runtime *Runtime, productI
 	results := []map[string]any{}
 	appendFailure := func(name string, err error) {
 		failure := output.AsError(err)
-		results = append(results, map[string]any{"requestKey": strings.TrimSuffix(name, ".json"), "allowed": false, "nextAction": "RETRY_SAME_TASK", "error": map[string]any{"code": failure.Subtype, "message": failure.Message, "requestId": failure.RequestID}})
+		nextAction := "RETRY_SAME_TASK"
+		if failure.Subtype == "SKILL_GUIDANCE_REQUEST_ENTITLEMENT_REQUIRED" {
+			nextAction = "SUBMIT_COMPLETE_INPUT_WITH_NEW_KEY"
+		}
+		results = append(results, map[string]any{"requestKey": strings.TrimSuffix(name, ".json"), "allowed": false, "nextAction": nextAction, "error": map[string]any{"code": failure.Subtype, "message": failure.Message, "hint": failure.Hint, "requestId": failure.RequestID}})
 	}
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") || strings.HasSuffix(entry.Name(), ".input.json") {
@@ -429,6 +401,11 @@ func resumeGuidanceAfterPurchase(ctx context.Context, runtime *Runtime, productI
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}
+			if isGuidancePaymentRequired(err) {
+				if purchaseErr := checkGuidanceAccountPurchase(ctx, runtime, record.Input); purchaseErr != nil {
+					err = purchaseErr
+				}
+			}
 			appendFailure(entry.Name(), err)
 			continue
 		}
@@ -437,8 +414,8 @@ func resumeGuidanceAfterPurchase(ctx context.Context, runtime *Runtime, productI
 	return map[string]any{"productId": productID, "deliveryMode": "PROTECTED", "owned": true, "allowed": false, "nextAction": "SUBMIT_GUIDANCE_TASK", "resumedTasks": results}, nil
 }
 
-// An account purchase cannot silently transfer an anonymous task or conversation.
-// A payment-rejected task is already bound locally even before a server session exists.
+// An account purchase cannot silently transfer an anonymous request.
+// A payment-rejected task is already bound locally even before a server request exists.
 func checkGuidanceAccountPurchase(ctx context.Context, runtime *Runtime, input api.SkillGuidanceSubmit) error {
 	if !runtimeHasAuthentication(runtime) {
 		return nil
@@ -458,7 +435,7 @@ func checkGuidanceAccountPurchase(ctx context.Context, runtime *Runtime, input a
 		return err
 	}
 	if access.Owned {
-		return output.Policy("SKILL_GUIDANCE_SESSION_ENTITLEMENT_REQUIRED", "the original task identity has no remaining access; the current account purchase belongs to another identity").WithHint("explicitly start a new task using the current account, a new requestKey and no sessionId; preserve the original task record")
+		return output.Policy("SKILL_GUIDANCE_REQUEST_ENTITLEMENT_REQUIRED", "the original task identity has no remaining access; the current account purchase belongs to another identity").WithHint("explicitly start a new task using the current account, a new requestKey containing the complete task; preserve the original task record")
 	}
 	return nil
 }

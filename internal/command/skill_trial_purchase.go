@@ -64,9 +64,16 @@ func saveScriptStateAt(filename string, state scriptTrialState) error {
 func newSkillTrialPurchaseCommand(runtime *Runtime) *cobra.Command {
 	var wait time.Duration
 	var agent string
-	var skillDirectory string
+	var skillDirectory, market string
 	command := &cobra.Command{Use: "trial-purchase <product-id>", Short: "Purchase and restore a trial using this installation's credential", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
+			if market != "" {
+				region, err := config.ParseRegion(market)
+				if err != nil {
+					return output.Validation("SKILL_PURCHASE_MARKET_INVALID", "--market must be cn or global")
+				}
+				runtime.region = region
+			}
 			productID, _, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
 			if err != nil {
 				return err
@@ -77,6 +84,7 @@ func newSkillTrialPurchaseCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().DurationVar(&wait, "wait", 0, "bounded payment wait after presenting the QR or hosted link; 0 presents immediately")
 	command.Flags().StringVar(&agent, "agent", "auto", "installation target")
 	command.Flags().StringVar(&skillDirectory, "skill-dir", "", "exact installed Skill directory")
+	command.Flags().StringVar(&market, "market", "", "market from the installed runtime (cn or global)")
 	return command
 }
 
@@ -140,6 +148,16 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 	if wait < 0 || wait > 10*time.Minute {
 		return output.Validation("SKILL_PURCHASE_WAIT_INVALID", "--wait must be between 0 and 10m")
 	}
+	if len(directories) > 0 && directories[0] != "" {
+		selected := *runtime
+		selected.deps.Environment.InstallDirectory = directories[0]
+		runtime = &selected
+	}
+	directory, manifest, _, lookupErr := skillcontent.FindRuntimeInstall(runtime.deps.Environment, agent, productID, runtime.apiBaseURL, runtime.deps.Environment.InstallDirectory)
+	if lookupErr != nil {
+		return lookupErr
+	}
+	protected := directory != "" && manifest.DeliveryMode == "PROTECTED" && manifest.Market == string(runtime.region)
 	purchase, purchaseExists, purchaseErr := readScriptPurchaseState(runtime, productID)
 	if purchaseErr != nil {
 		return purchaseErr
@@ -148,11 +166,35 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 	if err != nil {
 		return err
 	}
+	if purchaseExists && ok {
+		return output.Policy("PURCHASE_IDENTITY_CONFLICT", "preserve both purchase identities; do not switch credentials")
+	}
+	if protected && runtimeHasAuthentication(runtime) {
+		access, err := runtime.client().GetSkillAccess(ctx, productID)
+		if err != nil {
+			_, overrideSource, _ := runtime.overrideCredential()
+			// Only a refused stored login may fall back to an existing anonymous
+			// identity. Explicit credentials and availability failures remain errors.
+			if (!purchaseExists && !ok) || overrideSource != "" || output.AsError(err).Type != "authentication" {
+				return err
+			}
+		}
+		if err == nil && access.Owned {
+			result, err := resumeGuidanceAfterPurchase(ctx, runtime, productID, agent)
+			if err != nil {
+				return err
+			}
+			return runtime.business(result)
+		}
+	}
+	if protected && !purchaseExists && !ok {
+		purchase, purchaseExists, err = ensureGuidancePurchaseIdentity(runtime, productID, agent)
+		if err != nil {
+			return err
+		}
+	}
 	kind := "trial"
 	if purchaseExists {
-		if ok {
-			return output.Policy("PURCHASE_IDENTITY_CONFLICT", "preserve both purchase identities; do not switch credentials")
-		}
 		kind, ok = "purchase", true
 		credential = skillTrialCredential{InstallID: purchase.InstallID, Secret: purchase.Secret}
 	}

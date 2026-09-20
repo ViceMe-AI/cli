@@ -593,6 +593,9 @@ func installTrialSkill(ctx context.Context, runtime *Runtime, productID string, 
 	nextAction := "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL"
 	if api.DeliveryMode(access.DeliveryMode) == "PROTECTED" {
 		nextAction = "SUBMIT_GUIDANCE_TASK"
+		if grant.RemainingUses == 0 {
+			nextAction = "CHECK_PURCHASE_ACCESS"
+		}
 	}
 	if grant.RemainingUses == 0 && api.DeliveryMode(access.DeliveryMode) != "PROTECTED" {
 		purchaseURL := ""
@@ -614,7 +617,7 @@ func installTrialSkill(ctx context.Context, runtime *Runtime, productID string, 
 		ProductID:           productID, Edition: access.Edition, ReleaseID: access.Release.ID, ArtifactDigest: digest,
 		InstalledName: installedName, Install: report,
 		RemainingUses: &remaining, LimitUses: &limit, TrialExhausted: remaining == 0,
-		NextAction: nextAction, Invocation: "$" + installedName,
+		Kind: "trial", NextAction: nextAction, Invocation: "$" + installedName,
 		Trial:                 &trialInstallSummary{InstallID: grant.InstallID, LimitUses: grant.LimitUses, RemainingUses: grant.RemainingUses},
 		OnboardingGuideURL:    sharedGuidanceURL(runtime, "_widgets/README.md"),
 		OnboardingTemplateURL: sharedGuidanceURL(runtime, "_widgets/onboarding.html"),

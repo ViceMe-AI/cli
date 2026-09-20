@@ -11,9 +11,9 @@ description: 安装和使用可下载的 ViceMe Skill。适用于作品链接安
 
 先看 `deliveryMode`（缺省 `SOURCE`）。`PROTECTED` 只将原始 `SKILL.md` 替换为通用调用入口，其余原始附件原样保留，下面 SOURCE 的软门禁、耗尽后停止正文、`owned` 离线执行和付款换包规则均不适用。`kind` 表示安装时权益，不能替代云端任务授权；即使 `owned=true`，新任务仍需调用云端。
 
-先读取安装后的通用调用入口，不假设存在额外的公开流程文件。有任务时，只把用户确认的任务范围与选择规则所需的事实写入本地 JSON；用户文件、业务明细和脚本输出保留本地，不自动上传：`requestKey` 用一次 UUID，`prompt` 写当前任务，`facts` 放必要事实。用返回的本地路径运行 `python3 <runtimePath> guidance --input <任务.json> --wait 60`（Windows 用 `py`）；CLI 路线运行 `viceme skill guidance --input <任务.json> --wait 60s`。包内 Python 自动补齐商品和市场；CLI 输入应有 `productId` 或 `--product`。保存原输入与从已安装 runtime 补齐的 releaseId；超时、进程中断、网络错误及付款恢复均重用同一文件和 requestKey，不因重试新建 UUID。SKILL_GUIDANCE_RELEASE_MISMATCH 表示本地公开文件与任务版本不同，保留任务并恢复对应版本，不换 releaseId 重扣一次。
+先读取安装后的通用调用入口与平台[调用、门禁与恢复](references/viceme-runtime.md)，不假设存在额外的作者公开流程文件。没有原任务且无需立即购买时，本地根据公开能力简介生成 3 个示例任务，不调用指导接口、不扣试用；用户选定后才提交指导。有任务时，只把用户确认的任务范围与选择规则所需的事实写入本地 JSON；用户文件、业务明细和脚本输出保留本地，不自动上传：`requestKey` 用一次 UUID，`prompt` 写当前完整任务（包含全部仍有效的要求，不只提交追问片段），`facts` 放必要事实。用返回的本地路径运行 `python3 <runtimePath> guidance --input <任务.json> --wait 60`（Windows 用 `py`）；CLI 路线运行 `viceme skill guidance --input <任务.json> --wait 60s`。包内 Python 自动补齐商品和市场；CLI 输入应有 `productId` 或 `--product`。保存原输入与从已安装 runtime 补齐的 releaseId；超时、进程中断、网络错误及付款恢复均重用同一文件和 requestKey，不因重试新建 UUID。SKILL_GUIDANCE_RELEASE_MISMATCH 表示本地公开文件与任务版本不同，保留任务并恢复对应版本，不换 releaseId 重扣一次。
 
-只有 `task.outcome=ready` 且 `allowed=true` 才完整读取 `executionPath`，按其中的前置条件、步骤、原脚本参数与产物校验要求执行，并读取指导实际引用的原始附件；这是一次计次单位，不能拿来生成另一个任务。`needs_input` 只向用户澄清选择规则所缺的范围事实，不要求为了云端生成指导而上传原始业务记录，保留 `sessionId`，补齐输入并用新 requestKey；`refused` 解释返回的 message 并停止。失败和非 ready 不扣次。等待结束返回 RETRY_SAME_TASK 时再次运行同一输入。
+只有 `task.outcome=ready` 且 `allowed=true` 才完整读取 `executionPath`，按其中的前置条件、步骤、原脚本参数与产物校验要求执行，并读取指导实际引用的原始附件；这是一次计次单位，不能拿来生成另一个任务。`needs_input` 只向用户澄清选择规则所缺的范围事实，不要求为了云端生成指导而上传原始业务记录，把全部有效需求与补充事实整理成完整输入，并用新 requestKey（不传 sessionId，服务端没有对话历史）；`refused` 解释返回的 message 并停止。失败和非 ready 不扣次。等待结束返回 RETRY_SAME_TASK 时再次运行同一输入。
 
 次数耗尽或缺少权益时命令会给出购买入口，按本次输出展示付款。付款后匿名 `purchase` / `trial-purchase` 会恢复原待办；注册账号重新运行原 guidance 命令。只依据恢复结果继续，不下载作者源码、不运行旧 `use`。Python 遇到需要账号的任务会复用打包的官方定位脚本和现有 CLI 登录，不读取或复制账号令牌。完整请求与发布样例见仓库 `docs/protected-skills.md`。
 

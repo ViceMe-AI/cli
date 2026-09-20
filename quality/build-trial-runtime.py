@@ -27,6 +27,7 @@ def artifacts():
         "guides/widgets.md": ROOT / "widgets/README.md",
         "guides/trial-usage.md": ROOT / "skills/use-a-skill/references/trial-usage.md",
         "guides/purchase.md": ROOT / "skills/use-a-skill/references/purchase.md",
+        "guides/viceme-runtime.md": ROOT / "skills/use-a-skill/references/viceme-runtime.md",
         "guides/host-presentation.md": ROOT / "skills/use-a-skill/references/host-presentation.md",
     }
     buffer = io.BytesIO()

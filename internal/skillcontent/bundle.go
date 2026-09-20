@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path"
@@ -144,7 +145,13 @@ func (b *Bundle) Package(name string) (PackageMetadata, error) {
 	if err := validName(name); err != nil {
 		return PackageMetadata{}, err
 	}
-	data, err := fs.ReadFile(b.FS, path.Join(name, "skill-package.json"))
+	data, err := fs.ReadFile(b.FS, path.Join(name, ".viceme/skill-package.json"))
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return PackageMetadata{}, err
+	}
+	if errors.Is(err, fs.ErrNotExist) {
+		data, err = fs.ReadFile(b.FS, path.Join(name, "skill-package.json"))
+	}
 	if err != nil {
 		return PackageMetadata{}, output.Validation("skill_package_metadata", "skill-package.json is required in the install bundle")
 	}
