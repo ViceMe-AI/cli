@@ -6,9 +6,13 @@
 
 既有 .viceme 元数据绑定产品、API、市场和发布版本。凭据保存在本机私有目录；安装包不含购买秘密。购买不会解锁原始 SKILL.md。
 
-使用 viceme skill guidance --input task.json（独立 runtime 为 python3 .viceme/scripts/trial.py guidance --input task.json）。任务包含 requestKey、prompt、可选 facts 和 sessionId；原始业务文件保留本地。ready 后本地 Agent 完整读取 executionPath，按指导调用原始脚本并校验产物。
+使用 viceme skill guidance --input task.json（独立 runtime 为 python3 .viceme/scripts/trial.py guidance --input task.json）。任务包含 requestKey、完整 prompt 和可选 facts，不接受或返回 sessionId；原始业务文件保留本地。每次调用只使用本次输入和私有 Skill，不保存对话历史。ready 后本地 Agent 完整读取 executionPath，按指导调用原始脚本并校验产物。
 
-同一任务重试必须保留原文件和 requestKey；付款完成后继续原任务。已有 sessionId 的新键续接保留该会话的原身份，Go 与 Python 共用本地会话记录。不同账号购买不会迁移原会话；原身份权益失效时，明确提示使用新 requestKey 且省略 sessionId 新开会话。新独立任务的普通 CLI 登录被服务端明确判定失效时，可沿用已经存在的匿名购买或试用凭证；显式 token、已绑定账号的任务以及网络故障不触发回退。修改任务使用新键；语言调整和补充事实使用原 sessionId。服务端拒绝、补充信息和失败不会扣试用，重复恢复不重复扣。失败按 retryable 提示恢复，耗尽预算后停止。
+同一任务重试必须保留原文件、身份和 requestKey；付款完成后继续原任务。Go 与 Python 共用本地请求恢复记录。不同账号购买不会迁移已有请求；原身份权益失效时，明确提示使用当前账号和新 requestKey 提交独立任务。新独立任务的普通 CLI 登录被服务端明确判定失效时，可沿用已经存在的匿名购买或试用凭证；显式 token、已绑定账号的任务以及网络故障不触发回退。修改任务、语言调整、补充事实或 needs_input 时，由用户 Agent 整合全部有效要求和事实，用新键提交完整任务；服务器不替用户管理对话。超长输入由 Agent 整理精简后新键重提，不自动压缩，不无限重试原输入。服务端拒绝、补充信息和失败不会扣试用，重复恢复不重复扣。失败按 retryable 提示恢复，耗尽预算后停止。
+
+本地 SKILL.md 是能力简介、公共门禁指引和指导调用说明。平台的 viceme-runtime.md、purchase.md 与支付展示指引随官方 .viceme runtime 提供，避免覆盖原作者附件；服务端代码先判权，再决定是否调用模型。购买不解锁私有正文。安装后已有任务直接继续；没有任务时，Agent 根据公开能力简介在本地生成 3 个示例任务，不调用指导接口、不扣试用，不编造执行结果。只有用户选定并实际开始任务时才申请指导。
+
+这是首次上线前的无会话协议切换，API、CLI 与独立 runtime 需配套更新；旧 sessionId 输入明确拒绝，不静默忽略或续接历史会话。
 
 导出 PROTECTED 渠道包使用服务端已验证的消费者包摘要，附加官方 runtime 和既有 .viceme 身份，不依赖根目录配置文件，不追加源码门禁或私有正文。Go CLI 和独立 Python runtime 必须遵守同一授权、版本和幂等协议。
 
