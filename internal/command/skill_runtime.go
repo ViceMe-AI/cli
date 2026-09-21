@@ -138,7 +138,7 @@ func newSkillReadyCommand(runtime *Runtime) *cobra.Command {
 	command := &cobra.Command{Use: "ready <product-id>", Short: "Read local installation, onboarding paths, and remaining trial uses without consuming a use or creating an order", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			if !skillUseProductIDPattern.MatchString(args[0]) {
-				return output.Validation("SKILL_PRODUCT_ID_INVALID", "ready requires an exact Product ID; owned installation must use skill install with the complete owned URL")
+				return output.Validation("SKILL_PRODUCT_ID_INVALID", "ready requires an exact Product ID")
 			}
 			directory, manifest, found, err := skillcontent.FindRuntimeInstall(runtime.deps.Environment, agent, args[0], runtime.apiBaseURL, skillDirectory)
 			if err != nil {

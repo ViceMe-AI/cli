@@ -78,7 +78,7 @@ func TestAnonymousTrialPurchasePresentsBeforeWaitAndRestoresThroughInstall(t *te
 	state.paymentStatus = "PAID"
 	state.mu.Unlock()
 	// The ordinary open install route resumes the saved anonymous purchase,
-	// whereas --owned remains the separate current-account route.
+	// The ordinary install route also checks an authenticated account.
 	if code, result = invoke("skill", "install", downloadableProductID, "--agent", "codex", "--wait", "0"); code != 0 {
 		t.Fatalf("formal restore: %#v", result)
 	}

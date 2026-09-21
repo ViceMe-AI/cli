@@ -169,40 +169,6 @@ func newSkillInspectCommand(runtime *Runtime) *cobra.Command {
 	return command
 }
 
-// editionSelectionError explains the missing --edition-key/--edition-order
-// with the editions that already exist, so the caller can re-run the exact
-// command instead of archaeology. Extra reads happen only on this error path
-// and degrade to a precise command hint when they are unavailable.
-func editionSelectionError(ctx context.Context, runtime *Runtime, listingIDFlag, sourcePath string) error {
-	base := output.Validation("SKILL_EDITION_SELECTION_REQUIRED", "publishing requires explicit --edition-key and --edition-order; reuse the selected Skill's key/order to update it, or use an unused key/order to add a separate Skill")
-	listingID := strings.TrimSpace(listingIDFlag)
-	if listingID == "" {
-		if bound, ok := publication.BoundListingID(sourcePath); ok {
-			listingID = bound
-		}
-	}
-	if listingID == "" {
-		return base.WithHint("no local listing binding was found; run `viceme skill listing prepare --path <source>` first, or pass --listing explicitly")
-	}
-	if err := runtime.requireSkillPublicationAuthentication(ctx); err != nil {
-		return base.WithHint("read the existing editions with `viceme skill listing get " + listingID + "`, then re-run with those exact --edition-key/--edition-order values")
-	}
-	preview, err := runtime.client().GetSkillListingPreview(ctx, listingID)
-	if err != nil || preview.Publication == nil {
-		return base.WithHint("read the existing editions with `viceme skill listing get " + listingID + "`, then re-run with those exact --edition-key/--edition-order values")
-	}
-	current, err := runtime.client().GetSkillPublication(ctx, preview.Publication.ID)
-	if err != nil || len(current.Editions) == 0 {
-		return base.WithHint("read the existing editions with `viceme publication review " + preview.Publication.ID + "`, then re-run with those exact --edition-key/--edition-order values")
-	}
-	parts := make([]string, 0, len(current.Editions))
-	for _, edition := range current.Editions {
-		parts = append(parts, fmt.Sprintf("%s (order %d)", edition.Key, edition.SortOrder))
-	}
-	return base.WithHint(fmt.Sprintf("listing %s already publishes edition(s) %s; re-run with `--edition-key <key> --edition-order <order>` using one of them to update that Skill, or pick an unused key/order to add a separate Skill (details: `viceme publication review %s`)",
-		listingID, strings.Join(parts, ", "), preview.Publication.ID))
-}
-
 func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	var source string
 	var githubRepository string
@@ -214,10 +180,6 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	var priceMinor int
 	var trialUseLimit int
 	var merchantAccountID string
-	var editionKey string
-	var editionTitle string
-	var editionOrder int
-	var editionHighlights []string
 	var forceNew bool
 	var listingID string
 	command := &cobra.Command{
@@ -238,11 +200,8 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if forceNew && strings.TrimSpace(listingID) != "" {
 				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--new-listing cannot be combined with --listing")
 			}
-			if resume == "" && (!command.Flags().Changed("edition-key") || !command.Flags().Changed("edition-order")) {
-				return editionSelectionError(command.Context(), runtime, listingID, source)
-			}
-			if resume != "" && (forceNew || command.Flags().Changed("edition-key") || command.Flags().Changed("edition-title") || command.Flags().Changed("edition-order") || command.Flags().Changed("edition-highlight")) {
-				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--resume continues the same Skill; it cannot change the edition or create a new Listing")
+			if resume != "" && forceNew {
+				return output.Validation("PUBLICATION_FLAGS_CONFLICT", "--resume cannot create a new Listing")
 			}
 			priceConfirmed := command.Flags().Changed("price-minor")
 			if priceConfirmed && (priceMinor < 0 || priceMinor > 10_000_000) {
@@ -340,7 +299,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			pkg, manifestSource, edition, err := resolveSkillPublicationPackage(command.Context(), runtime, merchant.ID, source, githubRepository, githubRef, githubPath, xiaohongshuSkillID, xiaohongshuSearch, editionKey, editionTitle, editionOrder, editionHighlights)
+			pkg, manifestSource, edition, err := resolveSkillPublicationPackage(command.Context(), runtime, merchant.ID, source, githubRepository, githubRef, githubPath, xiaohongshuSkillID, xiaohongshuSearch)
 			if err != nil {
 				return err
 			}
@@ -451,27 +410,14 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 	command.Flags().IntVar(&priceMinor, "price-minor", 0, "set the CNY price in fen while continuing the private draft")
 	command.Flags().IntVar(&trialUseLimit, "trial-use-limit", 0, "free trial uses before payment (1-100); 0 disables the trial")
 	command.Flags().StringVar(&merchantAccountID, "merchant", "", "Merchant account ID; required only when multiple active accounts exist")
-	command.Flags().StringVar(&editionKey, "edition-key", "", "required stable lowercase edition key (except --resume)")
-	command.Flags().StringVar(&editionTitle, "edition-title", "", "buyer-visible edition title; defaults to the Skill title")
-	command.Flags().IntVar(&editionOrder, "edition-order", 0, "explicit edition display order")
-	command.Flags().StringSliceVar(&editionHighlights, "edition-highlight", nil, "buyer-visible edition highlight; repeat or comma-separate")
-	command.Flags().StringVar(&listingID, "listing", "", "existing Skill Listing ID for another edition of the same Work")
+	command.Flags().StringVar(&listingID, "listing", "", "existing Skill Listing ID to update the same Skill")
 	command.Flags().BoolVar(&forceNew, "new-listing", false, "explicitly create a separate Listing even when content matches")
 	return command
 }
 
-var publicationEditionKeyPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 var githubRepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
-func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merchantAccountID, localPath, githubRepository, githubRef, githubPath, xiaohongshuSkillID, xiaohongshuSearch, editionKey, editionTitle string, editionOrder int, editionHighlights []string) (publication.Package, api.SkillPublicationSource, api.SkillPublicationEdition, error) {
-	editionKey = strings.TrimSpace(editionKey)
-	if !publicationEditionKeyPattern.MatchString(editionKey) || len(editionKey) > 64 {
-		return publication.Package{}, api.SkillPublicationSource{}, api.SkillPublicationEdition{}, output.Validation("SKILL_EDITION_KEY_INVALID", "--edition-key must be a lowercase kebab-case key up to 64 characters")
-	}
-	if editionOrder < 0 || editionOrder > 10_000 {
-		return publication.Package{}, api.SkillPublicationSource{}, api.SkillPublicationEdition{}, output.Validation("SKILL_EDITION_ORDER_INVALID", "--edition-order must be between 0 and 10000")
-	}
-
+func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merchantAccountID, localPath, githubRepository, githubRef, githubPath, xiaohongshuSkillID, xiaohongshuSearch string) (publication.Package, api.SkillPublicationSource, api.SkillPublicationEdition, error) {
 	source := api.SkillPublicationSource{}
 	pathToBuild := localPath
 	remotePackageDigest := ""
@@ -565,28 +511,7 @@ func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merch
 		pkg.BindingIdentity = "remote:xiaohongshu:" + source.SkillID
 	}
 
-	editionTitle = strings.TrimSpace(editionTitle)
-	if editionTitle == "" {
-		editionTitle = pkg.Manifest.Metadata.Title
-	}
-	if len([]rune(editionTitle)) > 64 {
-		return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("SKILL_EDITION_TITLE_INVALID", "edition title must be at most 64 characters")
-	}
-	highlights := make([]string, 0, len(editionHighlights))
-	for _, highlight := range editionHighlights {
-		highlight = strings.TrimSpace(highlight)
-		if highlight == "" || len([]rune(highlight)) > 200 {
-			return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("SKILL_EDITION_HIGHLIGHT_INVALID", "each edition highlight must be 1 to 200 characters")
-		}
-		highlights = append(highlights, highlight)
-	}
-	if len(highlights) == 0 {
-		highlights = []string{defaultEditionHighlight(pkg.Manifest.Metadata.Summary)}
-	}
-	if len(highlights) > 8 {
-		return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("SKILL_EDITION_HIGHLIGHT_INVALID", "an edition supports at most eight highlights")
-	}
-	edition := api.SkillPublicationEdition{Key: editionKey, Title: editionTitle, SortOrder: editionOrder, Highlights: highlights}
+	edition := pkg.Manifest.Spec.Edition
 	pkg, err = publication.Customize(pkg, source, edition)
 	return pkg, source, edition, err
 }
@@ -626,23 +551,6 @@ func githubSkillSelectionError(err error) error {
 		"GITHUB_SKILL_SELECTION_REQUIRED",
 		"multiple GitHub Skills found; rerun with --github-path",
 	).WithDetails(cliErr.Details)
-}
-
-// defaultEditionHighlight derives the fallback highlight from the manifest
-// summary, cutting at a sentence or word boundary so auto-derived copy never
-// exceeds the 200-character edition highlight limit.
-func defaultEditionHighlight(summary string) string {
-	runes := []rune(strings.TrimSpace(summary))
-	if len(runes) <= 200 {
-		return string(runes)
-	}
-	cut := runes[:200]
-	for index := len(cut) - 1; index >= 0; index-- {
-		if strings.ContainsRune("。！？；，、,.!?;: ", cut[index]) {
-			return strings.TrimSpace(string(cut[:index+1]))
-		}
-	}
-	return string(cut)
 }
 
 func persistPublicationSource(configBase string, archive []byte) (string, error) {

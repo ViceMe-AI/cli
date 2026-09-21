@@ -595,7 +595,7 @@ func installTrialSkill(ctx context.Context, runtime *Runtime, productID string, 
 			return suspendErr
 		}); err != nil {
 			return output.Internal("SKILL_TRIAL_SUSPEND_FAILED", "trial exhausted; could not safely replace every trial Skill entrypoint", err).
-				WithHint("stop using the Skill; request filesystem permission through the host and retry, or install the purchased edition with --owned")
+				WithHint("stop using the Skill; request filesystem permission through the host and retry, or retry the ordinary skill install command using the original purchase identity")
 		}
 		nextAction = "PURCHASE_REQUIRED"
 	}

@@ -66,7 +66,7 @@ func TestTrialSuspensionPreservesFrontmatterAndEveryOtherFile(t *testing.T) {
 		}
 		after, _ := os.ReadFile(filepath.Join(directory, "SKILL.md"))
 		frontmatterEnd := bytes.Index(original[5:], []byte("\r\n---\r\n")) + 5 + len("\r\n---\r\n")
-		if !bytes.Equal(after[:frontmatterEnd], original[:frontmatterEnd]) || bytes.Contains(after, []byte("Original author instructions")) || !bytes.Contains(after, []byte(TrialDisabledMarker)) || !bytes.Contains(after, []byte("--owned")) {
+		if !bytes.Equal(after[:frontmatterEnd], original[:frontmatterEnd]) || bytes.Contains(after, []byte("Original author instructions")) || !bytes.Contains(after, []byte(TrialDisabledMarker)) || !bytes.Contains(after, []byte("viceme skill install ")) {
 			t.Fatalf("suspension did not preserve metadata and replace the body: %q", after)
 		}
 		manifest, _ := os.ReadFile(filepath.Join(directory, installManifestPath))

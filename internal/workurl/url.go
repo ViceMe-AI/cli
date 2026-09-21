@@ -40,7 +40,7 @@ func PublicParts(parsed *url.URL) (string, string, bool) {
 		(query.Has("view") && query.Get("view") != "work") {
 		return "", "", false
 	}
-	for _, key := range []string{"action", "type", "panel", "analytics", "orderNo", "payoutId", "listingId", "editionKey", "workId", "productId", "entryId", "threadId", "inquiryId", "publicationId", "applicationId", "kind"} {
+	for _, key := range []string{"action", "type", "panel", "analytics", "orderNo", "payoutId", "listingId", "editionKey", "install", "workId", "productId", "entryId", "threadId", "inquiryId", "publicationId", "applicationId", "kind"} {
 		if query.Has(key) {
 			return "", "", false
 		}
@@ -79,7 +79,7 @@ func Display(raw string) string {
 	// the public-page contract; never rewrite arbitrary URLs or opaque payloads.
 	for key := range query {
 		switch key {
-		case "mode", "view", "workSlug", "product", "install":
+		case "mode", "view", "workSlug", "product":
 		default:
 			return raw
 		}
@@ -126,7 +126,7 @@ func Equivalent(left, right string) bool {
 			switch k {
 			case "mode", "view", "workSlug":
 				q.Del(k)
-			case "product", "install":
+			case "product":
 			default:
 				return "", false
 			}
