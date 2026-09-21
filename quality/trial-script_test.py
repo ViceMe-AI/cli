@@ -342,6 +342,44 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.home, ".agents")))
         self.assertFalse(os.path.exists(os.path.join(self.home, ".codex")))
 
+    def test_exported_channel_packages_are_ready_after_extraction(self):
+        for market in ("cn", "global"):
+            for kind in ("trial", "purchase"):
+                with self.subTest(market=market, kind=kind):
+                    original = os.path.join(self.home, "original.zip")
+                    output = os.path.join(self.home, "%s-%s.zip" % (market, kind))
+                    destination = os.path.join(self.home, "%s-%s" % (market, kind))
+                    with zipfile.ZipFile(original, "w") as archive:
+                        archive.writestr("SKILL.md", "---\nname: demo\ndescription: demo\n---\nTask body\n")
+                    with mock.patch.object(trial, "api_request", side_effect=AssertionError("export must be offline")), redirect_stdout(io.StringIO()):
+                        trial.command_export_package(
+                            market, PRODUCT_ID, kind, RELEASE_ID, output,
+                            input_path=original if kind == "trial" else None,
+                            title="Demo", summary="Demo skill", slug="demo")
+                    with zipfile.ZipFile(output) as archive:
+                        archive.extractall(destination)
+                    # Exercise the shipped script, not the source module: channel
+                    # users only extract the ZIP and do not run the CLI installer.
+                    script = os.path.join(destination, ".viceme", "scripts", "trial.py")
+                    result = subprocess.run(
+                        [sys.executable, script, "ready", "--product", PRODUCT_ID, "--market", market],
+                        capture_output=True, text=True, check=True,
+                    )
+                    ready = json.loads(result.stdout)
+                    self.assertTrue(ready["ready"], ready)
+                    self.assertEqual(ready["kind"], kind)
+                    trial.validate_install_directory(destination, market, PRODUCT_ID)
+                    self.assertEqual(trial.read_manifest_product(destination), PRODUCT_ID)
+                    if kind == "trial":
+                        with mock.patch.object(trial, "__file__", script):
+                            self.assertTrue(trial.invoking_directory_is_trial(market, PRODUCT_ID))
+                        self.assertTrue(trial.trial_product_owns_directory(destination, PRODUCT_ID, market))
+                    with self.assertRaises(trial.Failure):
+                        trial.validate_install_directory(destination, market, RELEASE_ID)
+                    with self.assertRaises(trial.Failure):
+                        trial.validate_install_directory(destination, "global" if market == "cn" else "cn", PRODUCT_ID)
+        self.assertFalse(os.path.exists(os.path.join(self.home, ".viceme")))
+
     def test_export_package_purchase_is_entry_only_without_api(self):
         output = os.path.join(self.home, "purchase-entry.zip")
         stdout = io.StringIO()

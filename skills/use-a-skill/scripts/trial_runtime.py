@@ -811,6 +811,9 @@ def command_export_package(market, product_id, kind, release_id, output, input_p
             raise Failure("ARCHIVE_LIMIT_EXCEEDED", "Skill 包超出安全解包限制")
         files = extract_skill_package(archive)
         inject_trial_gate(files, market, product_id)
+        # Channel installs only extract this archive. Bind the directory before
+        # first use, just as purchase entries do, without creating device state.
+        files[".viceme/install-manifest.json"] = (trial_install_manifest(product_id, release_id), 0o644)
         prepare_runtime_files(files, market, product_id, release_id, "trial")
     else:
         if input_path:
@@ -1983,7 +1986,7 @@ def trial_install_manifest(product_id, release_id):
     """安装身份文件：与 CLI 的 installManifest 字段对齐。
 
     溯源守卫只认 product_id/release_id，不含任何凭证（installId/secret 在
-    每台机器的 ~/.viceme 状态里），因此同一份内容可随购买入口包分发——
+    每台机器的 ~/.viceme 状态里），因此同一份内容可随试用或购买入口包分发——
     导出的 zip 从解压那一刻起就是一个可验证归属的目录，purchase 不必先
     走官方 install 建立身份。CLI 转正重装时会重写完整清单。
     """
