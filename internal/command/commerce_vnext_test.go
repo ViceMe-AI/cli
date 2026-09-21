@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	cliembed "github.com/ViceMe-AI/cli"
 	"maps"
 	"net/http"
 	"net/http/httptest"
@@ -696,7 +697,7 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 			if statusCalls.Load() >= 2 {
 				orderStatus = "PAID"
 			}
-			writeJSONResponse(writer, map[string]any{"order": map[string]any{
+			writeJSONResponse(writer, map[string]any{"checkoutUrl": "https://shop.example/order-checkout/" + orderNo + "#t=test-only", "checkoutImageUrl": "https://shop.example/v1/order-checkout/qr/test-only.png", "order": map[string]any{
 				"orderNo": orderNo, "kind": "PRODUCT_PURCHASE", "status": orderStatus, "region": "CN",
 				"currency": "CNY", "amountCents": 1500, "paymentProvider": "WECHAT_PAY",
 				"principalKind": "GENERATED", "item": map[string]any{},
@@ -766,6 +767,10 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 		t.Fatal(err)
 	}
 	created := run("commerce", "order", "create", "--skill", stableName, "--input", orderInput, "--session-context", localContextID)
+	createdData := created["data"].(map[string]any)
+	if createdData["checkoutUrl"] != "https://shop.example/order-checkout/"+orderNo+"#t=test-only" || createdData["checkoutImageUrl"] != "https://shop.example/v1/order-checkout/qr/test-only.png" || !strings.Contains(createdData["paymentPresentationGuide"].(string), cliembed.PaymentPresentationGuide()) {
+		t.Fatalf("generic order omitted official checkout links or shared guide: %#v", createdData)
+	}
 	createdOrder := created["data"].(map[string]any)["order"].(map[string]any)
 	paymentAction := createdOrder["paymentAction"].(map[string]any)
 	if paymentAction["type"] != "QR_CODE" || paymentAction["content"] != nil {
@@ -796,6 +801,32 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	if strings.Contains(stdout.String(), "weixin://") {
 		t.Fatalf("provider payment URI leaked to Agent output: %s", stdout.String())
 	}
+	// A local filesystem failure must preserve the already-created server link
+	// and the same-session recovery binding without exposing the provider URI.
+	if err := os.Remove(imagePath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(imagePath, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	stdout.Reset()
+	stderr.Reset()
+	if exit := Execute([]string{"commerce", "order", "create", "--skill", stableName, "--input", orderInput, "--session-context", localContextID}, dependencies); exit == 0 {
+		t.Fatal("local QR failure was hidden")
+	}
+	var failed map[string]any
+	if err := json.Unmarshal(stdout.Bytes(), &failed); err != nil {
+		t.Fatal(err)
+	}
+	failure := failed["error"].(map[string]any)
+	failureDetails, _ := failure["details"].(map[string]any)
+	if failure["code"] != "COMMERCE_PAYMENT_PRESENTATION_FAILED" || failureDetails["checkoutUrl"] != createdData["checkoutUrl"] || failureDetails["orderNo"] != orderNo || strings.Contains(stdout.String(), "weixin://") {
+		t.Fatalf("QR failure lost checkout recovery or leaked payment URI: %#v", failed)
+	}
+	if err := os.Remove(imagePath); err != nil {
+		t.Fatal(err)
+	}
+	run("commerce", "order", "create", "--skill", stableName, "--input", orderInput, "--session-context", localContextID)
 	pending := run("commerce", "order", "status", "--skill", stableName, "--order", orderNo, "--session-context", localContextID)
 	if pending["data"].(map[string]any)["payment"].(map[string]any)["status"] != "PENDING" {
 		t.Fatalf("first status read was not pending: %#v", pending)
@@ -854,6 +885,9 @@ func TestCommerceRuntimeKeepsOneSessionFromQuoteThroughTerminalFulfillment(t *te
 	flowConfirmedData := flowConfirmed["data"].(map[string]any)
 	if flowConfirmedData["nextAction"] != commerceFlowPresentPaymentQR {
 		t.Fatalf("flow confirm returned the wrong action: %#v", flowConfirmedData)
+	}
+	if flowConfirmedData["checkoutUrl"] != createdData["checkoutUrl"] || flowConfirmedData["checkoutImageUrl"] != createdData["checkoutImageUrl"] || flowConfirmedData["paymentPresentationGuide"] != createdData["paymentPresentationGuide"] {
+		t.Fatalf("flow confirm lost the shared payment entry: %#v", flowConfirmedData)
 	}
 	assertPlatformCommerceTrustBoundary(t, flowConfirmedData)
 	flowOrder := flowConfirmedData["order"].(map[string]any)
@@ -974,7 +1008,11 @@ func assertPlatformCommerceTrustBoundary(t *testing.T, data map[string]any) {
 		t.Fatalf("Commerce Flow omitted the platform trust boundary: %#v", data)
 	}
 	keys, ok := boundary["instructionKeys"].([]any)
-	if !ok || len(keys) != 1 || keys[0] != "nextAction" {
+	expectedKeyCount := 1
+	if data["paymentPresentationGuide"] != nil {
+		expectedKeyCount = 2
+	}
+	if !ok || len(keys) != expectedKeyCount || keys[0] != "nextAction" || (expectedKeyCount == 2 && keys[1] != "paymentPresentationGuide") {
 		t.Fatalf("Commerce Flow exposed an unexpected instruction source: %#v", boundary)
 	}
 	policy, ok := boundary["policy"].(string)

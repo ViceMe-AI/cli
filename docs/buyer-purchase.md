@@ -93,10 +93,24 @@ Python runtime ZIP/bootstrap。旧 Skill 中的内嵌脚本不会随 CLI 后台�
 两端在同一 Product 锁内保存请求键与订单号，已开始的购买可由另一端接续。
 不会为接续购买变更账号已购路由，不承诺匿名凭证丢失或跨设备后的权益找回。
 
-公共支付展示规则属于 CLI 的 `payments/` 功能层，Skill 购买与网站复制购买共用同一维护源。
+公共支付展示规则属于 CLI 的 `payments/` 功能层，Skill 购买、网站复制、创作者订阅和通用 Commerce 订单共用同一维护源。
 官方收银台按服务端订单状态原地显示已支付；聊天二维码保持静态。上手示例 Widget 仍保留，可用 `node quality/widget-preview.cjs` 本地预览，示例仅在页面回显。
 
 本轮新增 Shop `/skills/:productId/trial-purchase`、`/status`、`/download` 专用 POST
 接口和 grant 到购买身份的持久关联 migration。必须先部署 API/migration，再发布 CLI、
 脚本及稳定/摘要 Widget 托管物，最后更新 Web 引导。回滚不删除已购关联或历史摘要资源。
 旧安装通过原入口重装获得新门禁；不会在后台自动改写用户已安装的 Skill。
+
+## 公共订单收银台（本轮增量）
+
+Shop 的公共 `OrderCheckoutModule` 负责为微信 Native 待付款订单签发只读收银台链接。
+订阅创建响应及 Commerce 创建订单响应返回 `checkoutUrl`、`checkoutImageUrl`；CLI 原样转交，
+不拼接登录账号的收银台，也不改变原购买身份或 Session。`commerce flow confirm` 另返回平台自有
+`paymentPresentationGuide`，其正文直接来自公共展示规则。订阅通过 `error.hint` 返回同源指引。
+二维码写入失败时返回原错误及已经取得的官方链接，保留原幂等请求用于重试。
+
+`skills/*/references/host-presentation.md` 是带维护源声明的构建副本，不是独立规则；
+只编辑 `payments/host-presentation.md`，运行 `make release-manifest` 同步所有发布产物。
+
+先部署新增响应字段和 `/order-checkout` 的 Shop API/Web，再发布 CLI 与生成的 Skill 包。
+兼容已有 `/trial-checkout` 链接，本轮不新增数据库迁移或环境变量。实际微信扣款与宿主原生浏览器另行验收。

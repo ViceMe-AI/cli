@@ -52,7 +52,8 @@ def artifacts():
     outputs = {SCRIPTS / "trial-runtime.zip": content, SCRIPTS / "trial.py": bootstrap.encode(),
                replica_path: replica.encode()}
     for skill in ("use-a-skill", "let-me-make-a-copy"):
-        outputs[ROOT / "skills" / skill / "references/host-presentation.md"] = guide
+        outputs[ROOT / "skills" / skill / "references/host-presentation.md"] = (
+            "<!-- 自动生成；唯一维护源：payments/host-presentation.md。请勿手工修改；运行 make release-manifest 更新。 -->\n\n".encode() + guide)
     return outputs
 
 

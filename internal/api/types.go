@@ -725,7 +725,10 @@ type CommercePaymentOption struct {
 }
 
 type CreateOrderResponse struct {
-	Order CommerceOrder `json:"order"`
+	Order                    CommerceOrder `json:"order"`
+	CheckoutURL              string        `json:"checkoutUrl,omitempty"`
+	CheckoutImageURL         string        `json:"checkoutImageUrl,omitempty"`
+	PaymentPresentationGuide string        `json:"paymentPresentationGuide,omitempty"`
 }
 
 type CommerceOrder struct {
@@ -781,8 +784,10 @@ type PaymentOrder struct {
 }
 
 type CreatePaymentResponse struct {
-	Order  PaymentOrder    `json:"order"`
-	Action json.RawMessage `json:"action"`
+	CheckoutURL      string          `json:"checkoutUrl,omitempty"`
+	CheckoutImageURL string          `json:"checkoutImageUrl,omitempty"`
+	Order            PaymentOrder    `json:"order"`
+	Action           json.RawMessage `json:"action"`
 }
 
 type PaymentStatusResponse struct {
