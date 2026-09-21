@@ -54,7 +54,8 @@ ED25519_SPKI_PREFIX = bytes.fromhex("302a300506032b6570032100")
 
 
 # Generated from the canonical CLI widgets by make trial-runtime.
-PAYMENT_RESOURCE_SHA256 = {"payment.html": "59999b6d68ae84941b782b1aaf1a9194feb67f5891c8051d99b8cdded5c4c3b1", "qrcodegen.py": "b0df257ae06c83f79ac8fa408f5ae635f44a2ae0702e2fdbf6f2fe32cff33b05"}  # generated-payment-resources
+PAYMENT_PRESENTATION_GUIDE = "# 宿主支付展示\n\n这是免 CLI 与 CLI 共用的支付展示规则。只使用实际返回的字段和当前宿主明确支持的能力；环境识别仅提供图片格式偏好，不能把终端版当成桌面版。\n\n## 统一展示顺序\n\n1. 始终把 `checkoutUrl` 写成可点击的官方支付链接，不称为备用链接。账号订单只有 `paymentUrl` 时使用原值，并说明需要下单的同一账号登录。链接位于输出外层，不在 `paymentPresentation` 中；保留完整 URL，不猜补或改写。链接缺失时报告，保留原订单，不为获取链接另建订单。\n2. 宿主支持聊天图片且返回 `paymentPresentation.imagePath` 时，优先展示本地 PNG。同一回复正文中，同一订单只嵌入一张二维码图片。本地图片不可用或明确失败时，才使用宿主独立允许的 HTTPS 图片通道展示 `checkoutImageUrl`；不要下载远程图片绕过宿主限制。图片不能替代官方支付链接。\n3. 实际存在内置浏览器工具时，调用该工具在当前任务内打开同一官方支付链接。链接和聊天图片与网页预览可以同时展示。没有内置浏览器或打开失败时，保留聊天图片和可点击链接，让用户扫码或自行点击；不要自动启动外部浏览器，也不要声称页面已经打开。工具返回 queued 不等于已加载。\n\n官方收银台只读查询当前订单，并在服务端确认到账后原地显示「已支付」。聊天二维码是静态图片，不代表最新订单状态。付款成功不等于安装完成；权益、下载安装和恢复由原购买命令确认。\n\n## 各宿主的图片与浏览器能力\n\n- **Codex Desktop**：本地图片写成 `![微信支付二维码](<imagePath>)`，替换为实际绝对路径，不使用 `local-file://`。实际提供 `open_in_codex` 时，调用它以 `target.type=browser` 打开返回的支付链接，使用当前任务；不能只写链接代替工具调用。\n- **WorkBuddy**：本地图片写成 `![微信支付二维码](<imageChatSrc>)`，使用返回的 `local-file://` 地址，不用裸文件路径。只在宿主实际提供内置浏览器工具时打开官方链接，不把 `present_files` 当作浏览器。\n- **豆包工作**：不根据平台名称假定支持本地聊天图片；遵循实际获准的图片与内置浏览器能力，始终保留链接。\n- **Codex 终端版、Claude 与未知宿主**：始终交付官方链接，图片与网页预览只在能力明确可用时使用；不假定存在桌面预览。\n\n本地付款 HTML 已退役：不生成、不展示 `widgetPath`，不调用 `present_files` 或 `show_widget` 展示付款卡片。不要读取支付凭证、重画二维码、拼接 URL 或向第三方上传支付数据。其他用途的 Widget 不受影响。\n\n## 展示结果与等待边界\n\n先实际交付二维码或可点击官方链接，再启动原购买流程的有界等待；不要提前在后台启动等待。仅生成图片文件或返回本地路径不算展示成功。保留同一订单和原身份继续查询；网络失败、倒计时结束或用户自述都不是付款结果，也不能作为重新下单的依据。\n"  # generated-payment-guide
+PAYMENT_RESOURCE_SHA256 = {"qrcodegen.py": "b0df257ae06c83f79ac8fa408f5ae635f44a2ae0702e2fdbf6f2fe32cff33b05"}  # generated-payment-resources
 
 
 class WorkflowError(Exception):
@@ -1456,12 +1457,7 @@ def payment_presentation(authority: Authority, replica: Dict[str, Any], checkout
     exec(compile(payment_resource(authority, "qrcodegen.py", request_fn), "qrcodegen.py", "exec"), namespace)
     code = namespace["QrCode"].encode_text(uri, namespace["QrCode"].Ecc.MEDIUM)
     size = code.get_size()
-    cells = "".join("M%d %dh1v1h-1z" % (x + 4, y + 4) for y in range(size)
-                    for x in range(size) if code.get_module(x, y))
     dimension = size + 8
-    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 %d %d" '
-           'role="img" aria-label="WeChat Pay QR" shape-rendering="crispEdges">'
-           '<path fill="white" d="M0 0h%dv%dH0z"/><path fill="black" d="%s"/></svg>') % (dimension, dimension, dimension, dimension, cells)
     scale = max(4, 512 // dimension)
     pixels = dimension * scale
     rows = []
@@ -1475,18 +1471,11 @@ def payment_presentation(authority: Authority, replica: Dict[str, Any], checkout
         return struct.pack(">I", len(content)) + tag + content + struct.pack(">I", zlib.crc32(tag + content) & 0xffffffff)
     png = (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", pixels, pixels, 8, 0, 0, 0, 0))
            + chunk(b"IDAT", zlib.compress(b"".join(rows), 9)) + chunk(b"IEND", b""))
-    data = {"title": replica["title"], "amountCents": checkout["amountCents"],
-            "currency": checkout["currency"], "status": checkout["status"],
-            "expiresAt": checkout["expiresAt"], "locale": "zh-CN" if authority.web_origin.endswith("viceme.cn") else "en-US",
-            "paymentMethodLabel": "微信支付"}
-    encoded = json.dumps(data, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-    html = payment_resource(authority, "payment.html", request_fn).decode("utf-8").replace("__QR_SVG__", svg).replace("__WIDGET_DATA__", encoded)
     stem = hashlib.sha256(checkout["orderNo"].encode()).hexdigest()
     directory = state_root() / "payment-presentations"
-    widget = write_private_bytes(directory / (stem + ".html"), html.encode())
     image = write_private_bytes(directory / (stem + ".png"), png)
     return {"type": "LOCAL_IMAGE", "purpose": "PAYMENT_QR_CODE", "mimeType": "image/png",
-            "widgetPath": widget, "widgetMimeType": "text/html", "imagePath": image,
+            "imagePath": image,
             "imageChatSrc": "local-file://" + urllib.parse.quote(Path(image).as_posix(), safe="/:"),
             "expiresAt": checkout["expiresAt"], "altText": "微信支付二维码"}
 
@@ -1499,25 +1488,10 @@ def support_result(authority: Authority, state: Dict[str, Any], replica: Dict[st
     confirmed = {"status": "PAID", "paidAt": payment.get("paidAt")}
     continuation = {"mode": "RECOVERY_ONLY", "args": ["install", "--work-url", authority.work_url,
                     "--replica-code", state["instruction"], "--recovery-only", "--expected-order-no", state["orderNo"], "--target", state["target"]]}
-    data = {"status": "PAID", "locale": "en-US" if en else "zh-CN", "title": replica["title"],
-            "resultTitle": "The creator has received your support" if en else "创作者已收到你的支持",
-            "resultDescription": "Thank you for supporting this idea. Your work is being prepared." if en else "感谢你支持这个创意，正在为你准备作品。"}
-    try:
-        template = payment_resource(authority, "payment.html", request_fn).decode("utf-8")
-        encoded = json.dumps(data, ensure_ascii=True).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026")
-        html = template.replace("__QR_SVG__", "").replace("__WIDGET_DATA__", encoded)
-        stem = hashlib.sha256(state["orderNo"].encode()).hexdigest()
-        directory = state_root() / "payment-presentations"
-        widget = write_private_bytes(directory / (stem + ".support.html"), html.encode())
-    except Exception as error:
-        raise WorkflowError("REPLICA_SUPPORT_PRESENTATION_FAILED", "Confirmed support result could not be prepared",
-                            {"orderNo": state["orderNo"], "payment": confirmed, "stage": "PRESENT_SUPPORT_RESULT",
-                             "nextAction": "STOP_AND_REPORT",
-                             "recovery": {**continuation, "requiresUserRequest": True}}) from error
     result = {"nextAction": "PRESENT_SUPPORT_RESULT", "orderNo": state["orderNo"], "payment": confirmed,
               "title": replica["title"], "target": state["target"], "continuation": continuation,
-              "presentation": {"widgetPath": widget, "widgetMimeType": "text/html",
-                               "replacesWidgetPath": str((directory / (stem + ".html")).absolute())}}
+              "presentation": {"title": "Paid" if en else "已支付",
+                               "description": "Payment confirmed. Please do not pay again." if en else "付款已确认，请勿重复支付"}}
     # Older records may lack the immutable order amount. Never use today's price.
     if type(state.get("orderAmountCents")) is int and state["orderAmountCents"] >= 0 and state.get("orderCurrency") in {"CNY", "USD"}:
         result.update(amountCents=state["orderAmountCents"], currency=state["orderCurrency"])
@@ -1891,11 +1865,13 @@ def _install(
         if not payment_presented or checkout["orderNo"] != presented_order_no:
             raise WorkflowError(
                 "REPLICA_PAYMENT_REQUIRED",
-                "Support the creator; present the local payment page inside the Agent platform",
+                "Present the QR image and clickable official payment link; open the link in an available in-app browser",
                 {
                     "nextAction": "PRESENT_PAYMENT_QR",
                     "presentationTarget": "AGENT_PLATFORM",
                     "paymentPresentation": payment_presentation(authority, replica, checkout, request_fn),
+                    "checkoutUrl": checkout["checkoutUrl"],
+                    "message": PAYMENT_PRESENTATION_GUIDE,
                 },
                 10,
             )

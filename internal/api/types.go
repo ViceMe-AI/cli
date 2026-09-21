@@ -747,15 +747,13 @@ type CommerceOrder struct {
 }
 
 type CommercePaymentPresentation struct {
-	Type           string `json:"type"`
-	Purpose        string `json:"purpose"`
-	MIMEType       string `json:"mimeType"`
-	ImagePath      string `json:"imagePath"`
-	ImageChatSrc   string `json:"imageChatSrc,omitempty"`
-	AltText        string `json:"altText"`
-	ExpiresAt      string `json:"expiresAt"`
-	WidgetPath     string `json:"widgetPath,omitempty"`
-	WidgetMIMEType string `json:"widgetMimeType,omitempty"`
+	Type         string `json:"type"`
+	Purpose      string `json:"purpose"`
+	MIMEType     string `json:"mimeType"`
+	ImagePath    string `json:"imagePath"`
+	ImageChatSrc string `json:"imageChatSrc,omitempty"`
+	AltText      string `json:"altText"`
+	ExpiresAt    string `json:"expiresAt"`
 }
 
 type OrderStatusResponse struct {

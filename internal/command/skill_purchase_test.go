@@ -416,7 +416,7 @@ func TestSubscriptionSubscribePaysWithWeChatQR(t *testing.T) {
 		t.Fatalf("unexpected subscribe error: %#v", envelope)
 	}
 
-	if !strings.Contains(errorBody["hint"].(string), cliembed.HostPresentationGuide()) {
+	if !strings.Contains(errorBody["hint"].(string), cliembed.PaymentPresentationGuide()) {
 		t.Fatal("subscription omitted shared host guide")
 	}
 
@@ -563,7 +563,7 @@ func TestPaidSkillConcurrentPurchaseReusesOneOrder(t *testing.T) {
 		if result["error"].(map[string]any)["code"] != "SKILL_PURCHASE_REQUIRED" {
 			t.Fatalf("unexpected concurrent result: %#v", result)
 		}
-		if !strings.Contains(result["error"].(map[string]any)["hint"].(string), cliembed.HostPresentationGuide()) {
+		if !strings.Contains(result["error"].(map[string]any)["hint"].(string), cliembed.PaymentPresentationGuide()) {
 			t.Fatal("account purchase omitted shared host guide")
 		}
 	}

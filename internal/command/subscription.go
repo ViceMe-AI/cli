@@ -46,7 +46,7 @@ func newSubscriptionSubscribeCommand(runtime *Runtime) *cobra.Command {
 						"amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
 						"paymentPresentation": presentation,
 					}).
-					WithHint(skillPaymentPresentationHint(os.Getenv, false) + "\npresent the payment QR to the user, then rerun the same subscribe command with --wait while the payment is in progress")
+					WithHint(paymentPresentationHint(os.Getenv, false) + "\npresent the payment QR to the user, then rerun the same subscribe command with --wait while the payment is in progress")
 			}
 			if wait <= 0 {
 				wait = time.Second

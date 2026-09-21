@@ -538,7 +538,7 @@ func TestAnonymousPaidReplicaPresentsSharedWidgetThenWaitsThreeMinutes(t *testin
 		t.Fatalf("payment page was not requested: exit=%d output=%q", exit, stdout.String())
 	}
 	if !bytes.Contains(stdout.Bytes(), []byte(`"nextAction": "PRESENT_PAYMENT_QR"`)) ||
-		!bytes.Contains(stdout.Bytes(), []byte(`"widgetPath"`)) {
+		!bytes.Contains(stdout.Bytes(), []byte(`"checkoutUrl"`)) {
 		t.Fatalf("unexpected payment page response: %q", stdout.String())
 	}
 	if bytes.Contains(stdout.Bytes(), []byte(paymentURI)) || bytes.Contains(stdout.Bytes(), []byte(`"sessionToken"`)) {
@@ -554,9 +554,9 @@ func TestAnonymousPaidReplicaPresentsSharedWidgetThenWaitsThreeMinutes(t *testin
 	if err := json.Unmarshal(stdout.Bytes(), &paymentEnvelope); err != nil {
 		t.Fatal(err)
 	}
-	firstWidget := paymentEnvelope.Error.Details.PaymentPresentation.WidgetPath
+	firstWidget := paymentEnvelope.Error.Details.PaymentPresentation.ImagePath
 	widget, err := os.ReadFile(firstWidget)
-	if err != nil || !bytes.Contains(widget, []byte("推荐使用微信支付")) || bytes.Contains(widget, []byte(`"supportCreator"`)) {
+	if err != nil || !bytes.HasPrefix(widget, []byte("\x89PNG")) {
 		t.Fatalf("original payment widget unavailable: %v", err)
 	}
 

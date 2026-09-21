@@ -32,7 +32,7 @@ func TestSkillReadyUsesOnlyInstalledResources(t *testing.T) {
 	if code != 0 || data["ready"] != true || data["runner"] != "cli" {
 		t.Fatalf("not locally ready: %#v", result)
 	}
-	for _, field := range []string{"skillPath", "runtimePath", "onboardingGuidePath", "onboardingTemplatePath", "paymentTemplatePath"} {
+	for _, field := range []string{"skillPath", "runtimePath", "onboardingGuidePath", "onboardingTemplatePath"} {
 		path, _ := data[field].(string)
 		if path == "" || path != installed[field] {
 			t.Fatalf("missing or inconsistent %s: %#v", field, data)

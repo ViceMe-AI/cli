@@ -1,10 +1,6 @@
 package command
 
 import (
-	"os"
-	"path/filepath"
-	"strings"
-
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/output"
 )
@@ -24,9 +20,8 @@ type replicaSupportResult struct {
 }
 
 type replicaSupportPresentation struct {
-	WidgetPath         string `json:"widgetPath"`
-	WidgetMIMEType     string `json:"widgetMimeType"`
-	ReplacesWidgetPath string `json:"replacesWidgetPath"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
 }
 
 type replicaSupportContinuation struct {
@@ -41,33 +36,9 @@ func prepareReplicaSupportResult(runtime *Runtime, store replicaPurchaseStore, s
 	if err := store.verifyReservation(state); err != nil {
 		return replicaInstallResult{}, err
 	}
-	data := replicaPaymentWidgetData(state)
-	data.Status = "PAID"
-	data.ResultTitle = "创作者已收到你的支持"
-	data.ResultDescription = "感谢你支持这个创意，正在为你准备作品。"
+	title, description := "已支付", "付款已确认，请勿重复支付"
 	if state.Locale == "en-US" {
-		data.ResultTitle = "The creator has received your support"
-		data.ResultDescription = "Thank you for supporting this idea. Your work is being prepared."
-	}
-	widget, err := renderPaymentWidget(data, "")
-	if err != nil {
-		return replicaInstallResult{}, supportPresentationFailure(err)
-	}
-	directory, err := filepath.Abs(filepath.Join(runtime.configBase, commercePaymentPresentationDirectory))
-	if err != nil {
-		return replicaInstallResult{}, supportPresentationFailure(err)
-	}
-	if err := os.MkdirAll(directory, 0o700); err != nil {
-		return replicaInstallResult{}, supportPresentationFailure(err)
-	}
-	if err := secureCommercePaymentDirectory(directory); err != nil {
-		return replicaInstallResult{}, supportPresentationFailure(err)
-	}
-	stem := strings.TrimSuffix(commercePaymentPresentationFilename(state.OrderNo), ".png")
-	// A distinct path avoids hosts reusing a cached copy of the pending HTML.
-	path := filepath.Join(directory, stem+".support.html")
-	if err := writeCommercePaymentPresentation(path, widget); err != nil {
-		return replicaInstallResult{}, supportPresentationFailure(err)
+		title, description = "Paid", "Payment confirmed. Please do not pay again."
 	}
 	args := []string{"replica", "install", "VICEME-REPLICA:" + state.ShortCode, "--recovery-only", "--expected-order-no", state.OrderNo, "--target", state.Target, "--profile", runtime.profile.Name}
 	if replicaUUIDPattern.MatchString(state.InvitationFlowID) {
@@ -79,13 +50,9 @@ func prepareReplicaSupportResult(runtime *Runtime, store replicaPurchaseStore, s
 	return replicaInstallResult{SupportResult: &replicaSupportResult{
 		NextAction: "PRESENT_SUPPORT_RESULT", OrderNo: state.OrderNo, Title: state.ProductTitle,
 		AmountCents: state.PriceCents, Currency: state.Currency, Target: state.Target, Payment: payment,
-		Presentation: replicaSupportPresentation{WidgetPath: path, WidgetMIMEType: "text/html", ReplacesWidgetPath: filepath.Join(directory, stem+".html")},
+		Presentation: replicaSupportPresentation{Title: title, Description: description},
 		Continuation: replicaSupportContinuation{Mode: "RECOVERY_ONLY", Args: args},
 	}}, nil
-}
-
-func supportPresentationFailure(err error) error {
-	return output.Internal("REPLICA_SUPPORT_PRESENTATION_FAILED", "confirmed support result could not be prepared", err).WithDetails(map[string]any{"stage": "PRESENT_SUPPORT_RESULT"})
 }
 
 func verifyReplicaSupportContinuation(store replicaPurchaseStore, expectedOrderNo string) error {

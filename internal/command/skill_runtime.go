@@ -26,7 +26,6 @@ type localSkillResources struct {
 	Runner                 string `json:"runner,omitempty"`
 	OnboardingGuidePath    string `json:"onboardingGuidePath,omitempty"`
 	OnboardingTemplatePath string `json:"onboardingTemplatePath,omitempty"`
-	PaymentTemplatePath    string `json:"paymentTemplatePath,omitempty"`
 }
 
 func skillResourcesAt(directory, runner string) localSkillResources {
@@ -35,7 +34,6 @@ func skillResourcesAt(directory, runner string) localSkillResources {
 		RuntimePath:            filepath.Join(directory, ".viceme", "scripts", "trial.py"),
 		OnboardingGuidePath:    filepath.Join(directory, ".viceme", "guides", "widgets.md"),
 		OnboardingTemplatePath: filepath.Join(directory, ".viceme", "widgets", "onboarding.html"),
-		PaymentTemplatePath:    filepath.Join(directory, ".viceme", "widgets", "payment.html"),
 	}
 }
 

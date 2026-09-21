@@ -10,12 +10,12 @@ import tempfile
 import urllib.request
 import zipfile
 
-RUNTIME_SHA256 = "6df64eadcfd0390464358bf59ee33635394abe91bd46a83731a3fa714ab5ad3f"
+RUNTIME_SHA256 = "60ce4d8cc4c7e4e05392e1a5884ea023e3bb7d0d0f64f3bfc0f1896310848f6b"
 SCRIPT_ORIGIN = {"cn": "https://s3.viceme.cn", "global": "https://s3.viceme.ai"}
 API_ORIGIN = {"cn": "https://viceme.cn/api", "global": "https://viceme.ai/api"}
 RUNTIME_FILES = {
     "scripts/trial.py", "scripts/qrcodegen.py", "widgets/onboarding.html",
-    "widgets/payment.html", "guides/widgets.md", "guides/trial-usage.md",
+    "guides/widgets.md", "guides/trial-usage.md",
     "guides/purchase.md", "guides/host-presentation.md",
 }
 

@@ -62,7 +62,7 @@ func TestTrialHostedCheckoutSurvivesLocalPresentationFailure(t *testing.T) {
 					if details["checkoutUrl"] == nil || details["checkoutImageUrl"] == nil {
 						t.Fatal("lost hosted entry")
 					}
-					if strings.Contains(hint, "paymentPresentation.checkoutImageUrl") || !strings.Contains(hint, "始终写成可点击") || !strings.Contains(hint, "只嵌入一张") {
+					if strings.Contains(hint, "paymentPresentation.checkoutImageUrl") || !strings.Contains(hint, "可点击的官方支付链接") || !strings.Contains(hint, "只嵌入一张") {
 						t.Fatalf("wrong hosted output contract: %s", hint)
 					}
 				} else if details["checkoutUrl"] != nil || details["checkoutImageUrl"] != nil {
@@ -89,7 +89,7 @@ func TestTrialHostedCheckoutSurvivesLocalPresentationFailure(t *testing.T) {
 
 func TestHostedCheckoutPreferencesRespectHostCapabilities(t *testing.T) {
 	for _, host := range []string{"workbuddy", "doubao", "codex", "claude", "unknown"} {
-		hint := skillPaymentPresentationHint(func(key string) string {
+		hint := paymentPresentationHint(func(key string) string {
 			for _, entry := range agentenv.AgentEnvMarkers {
 				if string(entry.Platform) == host && key == entry.Markers[0] {
 					return "fixture"

@@ -1,11 +1,28 @@
-# ViceMe CLI shared Widgets
+# ViceMe CLI shared presentation resources
 
-Onboarding is a host-rendered HTML fragment. Payment provides a complete WeChat
-Pay cashier page and a PNG QR image. The Agent presents them through a channel
-the current host explicitly supports. Neither is a payment authority.
-The CLI owns the templates; callers own their workflows. No
-external scripts, images, clipboard API, HTTP polling, order creation or
-business actions belong inside a Widget.
+The CLI owns onboarding HTML and the local payment PNG encoder. Purchase flows
+own order status, entitlement, installation and recovery. The shared
+[host presentation guide](../payments/host-presentation.md)
+is authoritative for chat image formats and in-app browser behavior.
+
+## Payment
+
+Payment returns a local PNG (`imagePath`, with `imageChatSrc` for hosts that
+support it) and an official `checkoutUrl` or authenticated `paymentUrl`.
+Always show the clickable official link, prefer one local chat QR image where
+supported, and open that same link with an available in-app browser.
+No local payment HTML or result HTML is generated or distributed.
+The hosted cashier polls a restricted read-only order snapshot and changes to
+Paid in place. It cannot install Skills, consume trials or grant entitlements.
+Historical chat images are static, and QR expiry does not prove an order failed.
+
+Website Replica's `--payment-result-first` still returns the server-confirmed
+`PRESENT_SUPPORT_RESULT` before downloading, with plain `presentation.title`
+and `presentation.description`. Report it in chat; the open cashier updates
+itself. Execute the returned recovery-only continuation for the same purchase,
+preserving `--expected-order-no`. Presentation cannot initiate another order.
+
+## Onboarding
 
 Hosts may remove script elements and evaluate their contents separately. Templates
 locate an uninitialized card through the host-scoped `document.querySelector`,
@@ -14,43 +31,6 @@ Do not depend on `document.currentScript`, script adjacency, or prototype method
 being present on a host's scoped document/window facade. Initialization is marked
 per card so replaying a script does not duplicate examples or timers.
 
-## Payment
-
-When local generation succeeds, the command returns `paymentPresentation.widgetPath` (a complete WeChat Pay
-page), `paymentPresentation.imagePath` (a local PNG), and
-`paymentPresentation.imageChatSrc` (`local-file://` plus that absolute path).
-Host capabilities, image syntax, browser tools, preferences, and fallbacks are
-owned by [the shared host presentation guide](../skills/use-a-skill/references/host-presentation.md).
-In packaged runtimes it is the sibling `host-presentation.md` under `guides/`.
-The CLI embeds that same source and Python reads the packaged resource; neither
-maintains a separate host-policy branch. Follow the invoking purchase flow for
-payment state, amounts, and waiting.
-
-The page background is transparent, with a centered cashier card. The local
-page is presentation only and never reports task or installation completion.
-Visible copy is the green WeChat poster, amount, countdown, QR, and merchant title. The countdown uses the order's absolute `expiresAt` and hides the QR at expiry. Expiry is not proof of failure or a reason to create a new order.
-
-The official hosted cashier may poll its restricted read-only order snapshot
-and show server-confirmed payment status. It cannot install Skills, consume
-trials, or grant entitlements. Local Widgets remain network-free.
-
-Callers may supply `resultTitle` and `resultDescription` for a confirmed `PAID`
-snapshot. The template then hides the entire cashier (including the QR,
-countdown and scan instructions) and shows a plain acknowledgement card. These
-fields have no effect while payment is pending or unconfirmed. They never
-trigger a business action.
-
-Website Replica's opt-in `--payment-result-first` wait returns
-`PRESENT_SUPPORT_RESULT` before downloading. The host explicitly presents its
-`presentation.widgetPath`, a separate `.support.html` file, to replace the
-active preview; rewriting a previously opened file does not prove a host has
-refreshed it. The caller then executes the returned recovery-only continuation
-for the same purchase, preserving `--expected-order-no` as the returned
-`orderNo`. A different local purchase must stop instead of taking over delivery.
-Presentation failure retains the payment fact and must
-not trigger another purchase. The historical chat PNG is not a live status UI.
-
-## Onboarding
 
 The caller's `use-a-skill` installation guide decides when to show onboarding,
 including after confirming an existing installation. This section only owns

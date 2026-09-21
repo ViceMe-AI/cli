@@ -84,7 +84,7 @@ Python runtime ZIP/bootstrap。旧 Skill 中的内嵌脚本不会随 CLI 后台�
 
 耗尽后 `viceme skill trial-purchase <product-id> --wait 0` 或
 `trial.py purchase --product <product-id> --market cn --wait 0` 创建或恢复订单。
-先在回复正文单独一行写 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 `paymentPresentation.imageChatSrc`（`local-file://` 加上绝对 `imagePath`）。不要只写裸绝对路径；并用 `present_files([widgetPath])` 只打开微信支付 HTML，再用同一命令有界等待（Go `--wait 60s`，Python `--wait 60`）。
+支付展示统一遵循[宿主支付展示](../payments/host-presentation.md)：聊天中优先展示一张本地二维码，始终保留官方支付链接，有内置浏览器时打开该链接。本地付款 HTML 已退役。先展示再使用原购买命令有界等待（Go `--wait 60s`，Python `--wait 60`）。
 即使首次传了等待参数，也必须先返回二维码。等待超时和二维码过期都不等于订单关闭；
 只查询原订单，不自动重开。确认付款后还需 ACTIVE 已购权益和正式制品校验才能恢复任务。
 
@@ -93,10 +93,8 @@ Python runtime ZIP/bootstrap。旧 Skill 中的内嵌脚本不会随 CLI 后台�
 两端在同一 Product 锁内保存请求键与订单号，已开始的购买可由另一端接续。
 不会为接续购买变更账号已购路由，不承诺匿名凭证丢失或跨设备后的权益找回。
 
-通用支付模板属于 CLI 仓库 `widgets/`，与 Skill、订阅、复制等调用业务解耦。
-支付页是完整微信支付收银台样式，可见内容只有订单、金额、二维码和扫码说明；倒计时与状态只留给无障碍和过期隐藏二维码。没有查询按钮或业务动作。
-聊天气泡用 Markdown `![微信支付二维码]` 加圆括号包裹 `imageChatSrc`（`local-file://` 加上 `imagePath`）显示 PNG；`present_files` 只打开支付 HTML。详细宿主接口、Python 资源摘要和降级规则见 [Widget 指引](../widgets/README.md)。
-本地验收可运行 `node quality/widget-preview.cjs`，测试码不用于付款，示例仅在页面回显。
+公共支付展示规则属于 CLI 的 `payments/` 功能层，Skill 购买与网站复制购买共用同一维护源。
+官方收银台按服务端订单状态原地显示已支付；聊天二维码保持静态。上手示例 Widget 仍保留，可用 `node quality/widget-preview.cjs` 本地预览，示例仅在页面回显。
 
 本轮新增 Shop `/skills/:productId/trial-purchase`、`/status`、`/download` 专用 POST
 接口和 grant 到购买身份的持久关联 migration。必须先部署 API/migration，再发布 CLI、
