@@ -453,7 +453,10 @@ def api_request(market, method, path, body=None, canonical_errors=False):
     data = None
     headers = {"Accept": "application/json"}
     if body is not None:
-        data = json.dumps(body).encode("utf-8")
+        guidance_submission = method == "POST" and re.fullmatch(r"/v1/skill-guidance/(?:trial|purchase)/requests", path)
+        data = json.dumps(body, ensure_ascii=not guidance_submission, separators=(",", ":") if guidance_submission else None).encode("utf-8")
+        if guidance_submission and len(data) > 16 * 1024 * 1024:
+            raise Failure("SKILL_GUIDANCE_INPUT_TOO_LARGE", "指导请求超过 16 MiB 传输上限。请精简完整任务后使用新 requestKey 提交。", nextAction="REDUCE_COMPLETE_INPUT_WITH_NEW_KEY")
         headers["Content-Type"] = "application/json"
     request = urllib.request.Request(api_endpoint(market, path), data=data, headers=headers, method=method)
     try:
@@ -2417,19 +2420,15 @@ def validate_guidance_input(value, product_id):
     value = dict(value)
     value.setdefault("productId", product_id)
     value.setdefault("facts", {})
-    facts = value["facts"]
-    if ((isinstance(value.get("prompt"), str) and len(value["prompt"]) > 8000)
-            or (isinstance(facts, dict) and (len(facts) > 30 or any((isinstance(k, str) and len(k) > 80) or (isinstance(v, str) and len(v) > 4000) for k, v in facts.items())))):
-        raise Failure("SKILL_GUIDANCE_INPUT_TOO_LARGE", "prompt 最多 8000 字符，facts 最多 30 项（键 80、值 4000 字符）。请本地 Agent 精简完整任务后使用新 requestKey 提交，不要原样重试。", nextAction="REDUCE_COMPLETE_INPUT_WITH_NEW_KEY")
     try:
         for key in ("productId", "releaseId", "requestKey"):
             if key in value and str(uuid.UUID(value[key])) != value[key].lower():
                 raise ValueError()
         facts = value["facts"]
         if (value["productId"] != product_id or "requestKey" not in value
-                or not isinstance(value.get("prompt"), str) or not value["prompt"].strip() or len(value["prompt"]) > 8000
-                or not isinstance(facts, dict) or len(facts) > 30
-                or any(not isinstance(k, str) or not 1 <= len(k) <= 80 or not isinstance(v, str) or len(v) > 4000 for k, v in facts.items())):
+                or not isinstance(value.get("prompt"), str) or not value["prompt"].strip()
+                or not isinstance(facts, dict)
+                or any(not isinstance(k, str) or not k.strip() or not isinstance(v, str) for k, v in facts.items())):
             raise ValueError()
     except (ValueError, TypeError, AttributeError):
         raise Failure("SKILL_GUIDANCE_INPUT_INVALID", "任务须包含 UUID requestKey、商品、prompt 和 facts；重试保持原输入") from None
@@ -2623,15 +2622,22 @@ def run_guidance_task(market, product_id, value, wait=60):
     return data
 
 
-def command_guidance(market, product_id, input_path, wait=60, agent="auto"):
+def read_guidance_input(input_path):
     with open(input_path, "rb") as handle:
-        raw = handle.read(1024 * 1024 + 1)
-    if len(raw) > 1024 * 1024:
-        raise Failure("SKILL_GUIDANCE_INPUT_INVALID", "任务输入超过大小限制")
+        raw = handle.read(16 * 1024 * 1024 + 1)
+    if len(raw) > 16 * 1024 * 1024:
+        raise Failure("SKILL_GUIDANCE_INPUT_TOO_LARGE", "任务输入超过 16 MiB 传输上限。请精简完整任务后使用新 requestKey 提交。", nextAction="REDUCE_COMPLETE_INPUT_WITH_NEW_KEY")
     try:
-        value = validate_guidance_input(json.loads(raw), product_id)
+        value = json.loads(raw)
     except (ValueError, UnicodeError):
         raise Failure("SKILL_GUIDANCE_INPUT_INVALID", "任务输入必须为 JSON 对象") from None
+    if not isinstance(value, dict):
+        raise Failure("SKILL_GUIDANCE_INPUT_INVALID", "任务输入必须为 JSON 对象")
+    return value
+
+
+def command_guidance(market, product_id, input_path, wait=60, agent="auto", input_value=None):
+    value = validate_guidance_input(read_guidance_input(input_path) if input_value is None else input_value, product_id)
     state = load_purchase_state(market, product_id)
     filename = os.path.join(guidance_task_directory(market, product_id), value["requestKey"] + ".json")
     saved = None
@@ -2737,9 +2743,10 @@ def main(argv):
             env = json.load(handle)
     args.product = args.product or env.get("productId")
     args.market = args.market or env.get("market") or "cn"
-    if args.command == "guidance" and not args.product and args.input:
-        with open(args.input, encoding="utf-8") as handle:
-            args.product = json.load(handle).get("productId")
+    guidance_input = None
+    if args.command == "guidance" and args.input:
+        guidance_input = read_guidance_input(args.input)
+        args.product = args.product or guidance_input.get("productId")
     try:
         if str(uuid.UUID(args.product)) != args.product.lower() or not 0 <= args.wait <= 600:
             raise ValueError()
@@ -2753,7 +2760,7 @@ def main(argv):
     if args.command == "guidance":
         if not args.input:
             raise Failure("ARGUMENT_INVALID", "guidance 必须提供 --input task.json")
-        return command_guidance(args.market, args.product, args.input, args.wait, args.agent)
+        return command_guidance(args.market, args.product, args.input, args.wait, args.agent, guidance_input)
     if args.command == "ready":
         return command_ready(args.market, args.product, args.agent)
     if args.command == "install":

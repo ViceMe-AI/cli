@@ -1493,6 +1493,10 @@ func (c *Client) sendBody(ctx context.Context, method, endpoint string, body io.
 	return response, nil
 }
 
+// encodedJSONRequest is JSON already encoded and size-checked by its owner.
+// Do not re-encode it: HTML escaping could invalidate the checked byte budget.
+type encodedJSONRequest []byte
+
 func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBody, responseBody any, credential string) error {
 	base, err := validateAPIBaseURL(c.BaseURL)
 	if err != nil {
@@ -1506,7 +1510,11 @@ func (c *Client) doJSON(ctx context.Context, method, endpoint string, requestBod
 	base.RawQuery = relative.RawQuery
 	var body io.Reader
 	if requestBody != nil {
-		encoded, encodeErr := json.Marshal(requestBody)
+		encoded, preencoded := requestBody.(encodedJSONRequest)
+		var encodeErr error
+		if !preencoded {
+			encoded, encodeErr = json.Marshal(requestBody)
+		}
 		if encodeErr != nil {
 			return output.Internal("REQUEST_ENCODE_FAILED", "failed to encode the API request", encodeErr)
 		}

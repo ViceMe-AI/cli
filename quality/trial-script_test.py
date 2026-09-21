@@ -398,13 +398,43 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertEqual(result["nextAction"], "CHECK_PURCHASE_ACCESS")
         self.assertIn("已有购买", result["message"])
 
-    def test_guidance_oversized_input_requires_reduced_complete_task_with_new_key(self):
-        for values in ({"prompt": "a" * 8001}, {"facts": {"k": "a" * 4001}}):
-            with self.subTest(values=list(values)):
-                with self.assertRaises(trial.Failure) as caught:
-                    trial.validate_guidance_input({"productId": PRODUCT_ID, "requestKey": "55709ab2-2246-4033-a41e-7b21d96bccb7", "prompt": "complete task", **values}, PRODUCT_ID)
-                self.assertEqual(caught.exception.code, "SKILL_GUIDANCE_INPUT_TOO_LARGE")
-                self.assertIn("新 requestKey", caught.exception.message)
+    def test_guidance_large_input_retains_complete_prompt_and_facts(self):
+        value = {"productId": PRODUCT_ID, "requestKey": "55709ab2-2246-4033-a41e-7b21d96bccb7",
+                 "prompt": "任务" * 500000,
+                 "facts": {" %s%s " % (i, "名" * 81): "值" * 4001 for i in range(31)}}
+        self.assertEqual(trial.validate_guidance_input(value, PRODUCT_ID), value)
+
+    def test_guidance_file_transport_limit_precedes_identity_and_network(self):
+        path = os.path.join(self.home, "oversized.json")
+        with open(path, "wb") as handle:
+            handle.truncate(16 * 1024 * 1024 + 1)
+        with mock.patch.object(trial, "api_request", side_effect=AssertionError("must not contact API")):
+            with self.assertRaises(trial.Failure) as caught:
+                trial.command_guidance("cn", PRODUCT_ID, path)
+        self.assertEqual(caught.exception.code, "SKILL_GUIDANCE_INPUT_TOO_LARGE")
+        self.assertIn("新 requestKey", caught.exception.message)
+
+        with mock.patch.object(trial, "load_runtime_environment", side_effect=AssertionError("must not read identity")):
+            with self.assertRaises(trial.Failure) as caught:
+                trial.main(["guidance", "--input", path])
+        self.assertEqual(caught.exception.code, "SKILL_GUIDANCE_INPUT_TOO_LARGE")
+
+    def test_guidance_http_utf8_encoding_preserves_large_task_and_checks_envelope(self):
+        body = {"prompt": "中文<>&" * 600000, "installId": "test-install", "secret": "test-secret"}
+        response = mock.MagicMock()
+        response.__enter__.return_value.read.return_value = b"{}"
+        def receive(request, **kwargs):
+            self.assertLess(len(request.data), 16 * 1024 * 1024)
+            self.assertEqual(json.loads(request.data), body)
+            self.assertNotIn(b"\\u4e2d", request.data)
+            return response
+        with mock.patch.object(trial.urllib.request, "urlopen", side_effect=receive) as http:
+            trial.api_request("cn", "POST", "/v1/skill-guidance/trial/requests", body, canonical_errors=True)
+            self.assertEqual(http.call_count, 1)
+        with mock.patch.object(trial.urllib.request, "urlopen", side_effect=AssertionError("must stop before network")):
+            with self.assertRaises(trial.Failure) as caught:
+                trial.api_request("cn", "POST", "/v1/skill-guidance/purchase/requests", {"prompt": "a" * (16 * 1024 * 1024 - 10)}, canonical_errors=True)
+        self.assertEqual(caught.exception.code, "SKILL_GUIDANCE_INPUT_TOO_LARGE")
 
     def test_export_guidance_packages_preserve_public_bytes_and_validate_runtime(self):
         public = {"SKILL.md": b"---\nname: guidance-channel\ndescription: demo\n---\n\nRun local workflow with task guidance.\n",

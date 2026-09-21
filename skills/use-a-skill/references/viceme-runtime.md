@@ -10,6 +10,8 @@
 
 把当前完整任务写入 task.json：`requestKey` 为新 UUID，`prompt` 包含全部有效要求，`facts` 只放选择规则所必需的字符串事实。用户业务文件、明细和脚本输出留在本地，不自动上传，不包含凭证。修改语言、补充信息或纠正事实时，由用户 Agent 整理当前完整需求并使用新键。服务端不管理对话历史，不接受 sessionId，也不会补回旧事实。
 
+`facts` 可省略，完整需求可以全部放在 `prompt`。不必按字段拆分来规避长度限制；服务端会将系统指令、私有 Skill 和本次任务合计计数，最多使用 838,860 tokens（1M 输入上限的 80%）。超限不生成、不扣试用，由本地 Agent 精简完整任务后用新键提交。输入文件与 HTTP 提交另有 16 MiB 传输上限。
+
 在 Skill 目录运行 `python3 .viceme/scripts/trial.py guidance --input task.json --wait 60`（Windows 使用 `py`）；CLI 路线为 `viceme skill guidance --input task.json --wait 60s`。安装的 runtime 提供商品、市场、API 与 releaseId；请求版本必须与本地原附件相符，不能自行改成新版本。
 
 ## 按返回状态操作

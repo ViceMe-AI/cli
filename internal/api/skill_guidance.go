@@ -1,7 +1,9 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -10,6 +12,8 @@ import (
 
 	"github.com/ViceMe-AI/cli/internal/output"
 )
+
+const SkillGuidanceMaxRequestBytes = 16 * 1024 * 1024
 
 // DeliveryMode is independent of entitlement: a purchased protected Skill still
 // requires server authorization for every new task.
@@ -64,7 +68,16 @@ func (c *Client) SubmitSkillGuidance(ctx context.Context, input SkillGuidanceSub
 			Secret    string `json:"secret"`
 		}{input, installID, secret}
 	}
-	return c.skillGuidanceCall(ctx, http.MethodPost, endpoint, body, credential, "")
+	var encoded bytes.Buffer
+	encoder := json.NewEncoder(&encoded)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(body); err != nil {
+		return SkillGuidanceResult{}, output.Internal("REQUEST_ENCODE_FAILED", "failed to encode guidance input", err)
+	}
+	if encoded.Len() > SkillGuidanceMaxRequestBytes {
+		return SkillGuidanceResult{}, output.Validation("SKILL_GUIDANCE_INPUT_TOO_LARGE", "guidance HTTP body exceeds the 16 MiB transport limit").WithHint("Condense the complete task and submit a new requestKey")
+	}
+	return c.skillGuidanceCall(ctx, http.MethodPost, endpoint, encodedJSONRequest(encoded.Bytes()), credential, "")
 }
 
 func (c *Client) ReadSkillGuidance(ctx context.Context, productID, requestID, installID, secret string, resume bool, kinds ...string) (SkillGuidanceResult, error) {

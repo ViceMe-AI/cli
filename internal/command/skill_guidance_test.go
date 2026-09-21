@@ -27,6 +27,11 @@ import (
 )
 
 func TestGuidanceRegisteredPurchaseRetriesSameUserAndNeverDownloads(t *testing.T) {
+	largePrompt := strings.Repeat("完整需求", 100_000)
+	largeFacts := map[string]string{}
+	for i := 0; i < 31; i++ {
+		largeFacts[fmt.Sprintf(" %d%s ", i, strings.Repeat("名", 81))] = strings.Repeat("值", 4001)
+	}
 	t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
 	state := newSkillPurchaseTestServer(t)
 	defer state.server.Close()
@@ -43,6 +48,9 @@ func TestGuidanceRegisteredPurchaseRetriesSameUserAndNeverDownloads(t *testing.T
 			guidanceCalls.Add(1)
 			var input map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&input)
+			if input["prompt"] != largePrompt || len(input["facts"].(map[string]any)) != 31 {
+				t.Error("complete large task was not preserved")
+			}
 			if _, hasSecret := input["secret"]; hasSecret || !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer vme_cli_") {
 				t.Error("registered guidance credential boundary violated")
 			}
@@ -64,7 +72,7 @@ func TestGuidanceRegisteredPurchaseRetriesSameUserAndNeverDownloads(t *testing.T
 	})
 	home := t.TempDir()
 	inputPath := filepath.Join(home, "task.json")
-	raw, _ := json.Marshal(map[string]any{"productId": downloadableProductID, "releaseId": downloadableReleaseID, "requestKey": "12121212-1212-4212-8212-121212121212", "prompt": "draft", "facts": map[string]string{}})
+	raw, _ := json.Marshal(map[string]any{"productId": downloadableProductID, "releaseId": downloadableReleaseID, "requestKey": "12121212-1212-4212-8212-121212121212", "prompt": largePrompt, "facts": largeFacts})
 	if err := os.WriteFile(inputPath, raw, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -90,6 +98,26 @@ func TestGuidanceRegisteredPurchaseRetriesSameUserAndNeverDownloads(t *testing.T
 	code, result = invoke()
 	if code == 0 || result["error"].(map[string]any)["code"] != "SKILL_GUIDANCE_REQUEST_CONFLICT" || guidanceCalls.Load() != before {
 		t.Fatalf("task changed user: %#v", result)
+	}
+}
+
+func TestGuidanceFileTransportLimitBeforeIdentityOrNetwork(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "oversized.json")
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Truncate(guidanceMaxInputBytes + 1); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	command := newSkillGuidanceCommand(&Runtime{})
+	command.SetArgs([]string{"--input", path})
+	err = command.Execute()
+	if err == nil || !strings.Contains(err.Error(), "16 MiB") {
+		t.Fatalf("expected bounded file read failure: %v", err)
 	}
 }
 

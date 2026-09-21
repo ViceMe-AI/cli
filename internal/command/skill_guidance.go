@@ -13,7 +13,6 @@ import (
 	"reflect"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/ViceMe-AI/cli/internal/api"
 	"github.com/ViceMe-AI/cli/internal/config"
@@ -33,6 +32,9 @@ type guidanceTaskRecord struct {
 	Input           api.SkillGuidanceSubmit `json:"input"`
 	PaymentRequired bool                    `json:"paymentRequired"`
 }
+
+// Transport protection only; the API counts private source plus input tokens.
+const guidanceMaxInputBytes = api.SkillGuidanceMaxRequestBytes
 
 func guidanceResources(resources localSkillResources, mode string) localSkillResources {
 	resources.DeliveryMode = api.DeliveryMode(mode)
@@ -56,14 +58,22 @@ func newSkillGuidanceCommand(runtime *Runtime) *cobra.Command {
 				}
 				runtime.region = region
 			}
-			raw, err := os.ReadFile(inputPath)
+			file, err := os.Open(inputPath)
 			if err != nil {
 				return output.Validation("SKILL_GUIDANCE_INPUT_INVALID", "could not read the task JSON file")
+			}
+			defer file.Close()
+			raw, err := io.ReadAll(io.LimitReader(file, guidanceMaxInputBytes+1))
+			if err != nil {
+				return output.Validation("SKILL_GUIDANCE_INPUT_INVALID", "could not read the task JSON file")
+			}
+			if len(raw) > guidanceMaxInputBytes {
+				return output.Validation("SKILL_GUIDANCE_INPUT_TOO_LARGE", "task file exceeds the 16 MiB transport limit").WithHint("Condense the complete task and submit a new requestKey")
 			}
 			var input api.SkillGuidanceSubmit
 			decoder := json.NewDecoder(bytes.NewReader(raw))
 			decoder.DisallowUnknownFields()
-			if len(raw) > 1024*1024 || decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF {
+			if decoder.Decode(&input) != nil || decoder.Decode(new(any)) != io.EOF {
 				return output.Validation("SKILL_GUIDANCE_INPUT_INVALID", "task input must be one JSON object with productId, requestKey, a complete prompt and optional facts")
 			}
 			if input.ProductID == "" {
@@ -115,20 +125,13 @@ func newSkillGuidanceCommand(runtime *Runtime) *cobra.Command {
 }
 
 func validateGuidanceInput(input api.SkillGuidanceSubmit) error {
-	tooLarge := utf8.RuneCountInString(input.Prompt) > 8000 || len(input.Facts) > 30
-	for key, value := range input.Facts {
-		tooLarge = tooLarge || utf8.RuneCountInString(key) > 80 || utf8.RuneCountInString(value) > 4000
-	}
-	if tooLarge {
-		return output.Validation("SKILL_GUIDANCE_INPUT_TOO_LARGE", "prompt allows 8000 characters; facts allow 30 keys of 80 characters and values of 4000 characters").WithHint("The local Agent must condense the complete task and submit a new requestKey; do not retry the unchanged oversized input")
-	}
 	valid := skillUseProductIDPattern.MatchString(input.ReleaseID) && skillUseProductIDPattern.MatchString(input.ProductID) && skillUseProductIDPattern.MatchString(input.RequestKey)
-	valid = valid && strings.TrimSpace(input.Prompt) != "" && utf8.RuneCountInString(input.Prompt) <= 8000 && len(input.Facts) <= 30
-	for key, value := range input.Facts {
-		valid = valid && strings.TrimSpace(key) != "" && utf8.RuneCountInString(key) <= 80 && utf8.RuneCountInString(value) <= 4000
+	valid = valid && strings.TrimSpace(input.Prompt) != ""
+	for key := range input.Facts {
+		valid = valid && strings.TrimSpace(key) != ""
 	}
 	if !valid {
-		return output.Validation("SKILL_GUIDANCE_INPUT_INVALID", "provide UUID productId/releaseId/requestKey, a prompt of 1–8000 characters, and at most 30 facts (key 1–80, value at most 4000 characters)")
+		return output.Validation("SKILL_GUIDANCE_INPUT_INVALID", "provide UUID productId/releaseId/requestKey, a complete nonempty prompt and optional string facts with nonempty keys")
 	}
 	return nil
 }
