@@ -1,0 +1,117 @@
+name: CLI dev test delivery
+run-name: Dev CLI ${{ inputs.expected_sha }}
+on:
+  workflow_dispatch:
+    inputs:
+      expected_sha:
+        description: Full current dev commit SHA (40 lowercase hex characters)
+        required: true
+        type: string
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
+permissions:
+  contents: read
+concurrency:
+  group: cli-dev-test-delivery
+  cancel-in-progress: false
+jobs:
+  build:
+    name: Verify dev and build six-platform test packages
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: dev
+    outputs:
+      build_id: ${{ steps.source.outputs.build_id }}
+      sha: ${{ steps.source.outputs.sha }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: dev
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Freeze and verify exact dev commit
+        id: source
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          BUILD_ID="dev-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${EXPECTED_SHA:0:12}"
+          echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
+          echo "sha=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+      - name: Production-equivalent source and installer gates
+        run: |
+          set -euo pipefail
+          make check
+          go test -race ./internal/command ./internal/update ./internal/devsetup
+          make npm-package-check
+          python3 -m unittest discover -s quality -p 'dev_release_test.py'
+          git diff --exit-code
+      - name: Build dev-only distribution snapshot
+        env:
+          BUILD_ID: ${{ steps.source.outputs.build_id }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha }}
+          COMMERCE_SKILL_TRUST_KEYS: ${{ vars.VICEME_DEV_COMMERCE_SKILL_TRUST_KEYS }}
+          TEMPLATE_CATALOG_TRUST_KEYS: ${{ vars.VICEME_DEV_TEMPLATE_CATALOG_TRUST_KEYS }}
+        run: |
+          set -euo pipefail
+          test -n "$COMMERCE_SKILL_TRUST_KEYS"
+          test -n "$TEMPLATE_CATALOG_TRUST_KEYS"
+          go run ./cmd/validate-commerce-trust-ring
+          go run ./cmd/validate-template-catalog-trust-ring
+          python3 quality/build-dev-release.py --source . --output "$RUNNER_TEMP/dev-dist" \
+            --build-id "$BUILD_ID" --commit "$SOURCE_SHA"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ${{ steps.source.outputs.build_id }}
+          path: ${{ runner.temp }}/dev-dist
+          if-no-files-found: error
+          retention-days: 30
+  publish:
+    name: Publish only to dev S3 and verify public downloads
+    needs: build
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          ref: ${{ needs.build.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: ${{ needs.build.outputs.build_id }}
+          path: dist
+      - name: Publish immutable build and dev entrypoints
+        env:
+          BUILD_ID: ${{ needs.build.outputs.build_id }}
+          DIST_DIR: dist
+          CN_ENDPOINT: ${{ secrets.VICEME_DEV_CN_S3_ENDPOINT }}
+          CN_ACCESS_KEY_ID: ${{ secrets.VICEME_DEV_CN_S3_ACCESS_KEY_ID }}
+          CN_SECRET_ACCESS_KEY: ${{ secrets.VICEME_DEV_CN_S3_SECRET_ACCESS_KEY }}
+          CN_S3_HTTPS_PROXY: ${{ secrets.VICEME_DEV_CN_S3_HTTPS_PROXY }}
+          GLOBAL_ENDPOINT: ${{ secrets.VICEME_DEV_GLOBAL_S3_ENDPOINT }}
+          GLOBAL_ACCESS_KEY_ID: ${{ secrets.VICEME_DEV_GLOBAL_S3_ACCESS_KEY_ID }}
+          GLOBAL_SECRET_ACCESS_KEY: ${{ secrets.VICEME_DEV_GLOBAL_S3_SECRET_ACCESS_KEY }}
+        run: go run ./cmd/dev-s3-publish
+      - name: Delivery pointers
+        env:
+          BUILD_ID: ${{ needs.build.outputs.build_id }}
+          SOURCE_SHA: ${{ needs.build.outputs.sha }}
+        run: |
+          {
+            echo "Dev build: $BUILD_ID"
+            echo "Commit: $SOURCE_SHA"
+            echo "CN: https://s3.viceme.cn/dev/builds/$BUILD_ID/delivery.json"
+            echo "GLOBAL: https://s3.viceme.ai/dev/builds/$BUILD_ID/delivery.json"
+            echo "Use the immutable URLs and SHA256SUMS in the tester handoff."
+          } >> "$GITHUB_STEP_SUMMARY"
