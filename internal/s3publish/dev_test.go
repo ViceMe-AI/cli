@@ -21,6 +21,17 @@ func TestDevPublicationCannotTargetProduction(t *testing.T) {
 		t.Fatal("production public origin accepted")
 	}
 }
+func TestDevPublicationRejectsUndeployedOverseasBeforeConnecting(t *testing.T) {
+	cfg := Config{DistDir: t.TempDir(), Version: "dev-123-1-abcdefabcdef", Regions: []Region{{Label: "GLOBAL", Bucket: "dev", PublicOrigin: "https://s3.viceme.ai/dev", Endpoint: "https://storage.example", AccessKey: "test", SecretKey: "test"}}}
+	err := publishDev(context.Background(), cfg, func(context.Context, Config, Region) (*regionRuntime, error) {
+		t.Fatal("connected to undeployed overseas storage")
+		return nil, nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "dev credentials") {
+		t.Fatalf("overseas target was not rejected before reading artifacts: %v", err)
+	}
+}
+
 func TestDevBuildOrder(t *testing.T) {
 	for _, tt := range []struct {
 		a, b string

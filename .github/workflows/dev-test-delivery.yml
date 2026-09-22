@@ -40,17 +40,24 @@ jobs:
           BUILD_ID="dev-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${EXPECTED_SHA:0:12}"
           echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
           echo "sha=$EXPECTED_SHA" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
+          cache: true
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify generated release files are committed
+        run: |
+          make release-manifest
+          git diff --exit-code
       - name: Production-equivalent source and installer gates
         run: |
           set -euo pipefail
           make check
-          go test -race ./internal/command ./internal/update ./internal/devsetup
+          go test -race ./internal/command ./internal/update ./internal/devsetup ./internal/s3publish
           make npm-package-check
           python3 -m unittest discover -s quality -p 'dev_release_test.py'
           git diff --exit-code
@@ -84,9 +91,10 @@ jobs:
         with:
           ref: ${{ needs.build.outputs.sha }}
           persist-credentials: false
-      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
+          cache: true
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: ${{ needs.build.outputs.build_id }}
@@ -99,9 +107,8 @@ jobs:
           CN_ACCESS_KEY_ID: ${{ secrets.VICEME_DEV_CN_S3_ACCESS_KEY_ID }}
           CN_SECRET_ACCESS_KEY: ${{ secrets.VICEME_DEV_CN_S3_SECRET_ACCESS_KEY }}
           CN_S3_HTTPS_PROXY: ${{ secrets.VICEME_DEV_CN_S3_HTTPS_PROXY }}
-          GLOBAL_ENDPOINT: ${{ secrets.VICEME_DEV_GLOBAL_S3_ENDPOINT }}
-          GLOBAL_ACCESS_KEY_ID: ${{ secrets.VICEME_DEV_GLOBAL_S3_ACCESS_KEY_ID }}
-          GLOBAL_SECRET_ACCESS_KEY: ${{ secrets.VICEME_DEV_GLOBAL_S3_SECRET_ACCESS_KEY }}
+          AWS_REQUEST_CHECKSUM_CALCULATION: WHEN_REQUIRED
+          AWS_RESPONSE_CHECKSUM_VALIDATION: WHEN_REQUIRED
         run: go run ./cmd/dev-s3-publish
       - name: Delivery pointers
         env:
@@ -112,6 +119,5 @@ jobs:
             echo "Dev build: $BUILD_ID"
             echo "Commit: $SOURCE_SHA"
             echo "CN: https://s3.dev.viceme.cn/dev/builds/$BUILD_ID/delivery.json"
-            echo "GLOBAL: https://s3.viceme.ai/dev/builds/$BUILD_ID/delivery.json"
             echo "Use the immutable URLs and SHA256SUMS in the tester handoff."
           } >> "$GITHUB_STEP_SUMMARY"
