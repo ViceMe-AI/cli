@@ -23,9 +23,10 @@ Shop `/v1/cli/product-quotes`、`/v1/cli/orders` 和
 匹配；第三方安装后的目录别名可以不同。`description` 可以省略，存在时必须是字符串。官方内置 Skill 必须填写
 description 的内容规范在构建测试中单独检查，不再作为所有商品的安装门槛。
 
-Go CLI 与免 CLI 的 `trial.py` 在试用安装时生成三处内容：
+Go CLI 与免 CLI 的 `trial.py` 在试用安装时生成四处内容：
 
-- `SKILL.md` 保留原 frontmatter，正文只放直接可执行的使用检查入口。
+- `SKILL.md` 保留原 frontmatter，正文只保留指向 `references/entry.md` 的入口句。
+- `references/entry.md` 保存直接可执行的使用检查入口。
 - `.viceme/trial-body.md` 保存去掉生成门禁后的作者正文，由 runtime manifest 记录摘要。
 - `references/viceme-runtime.md` 保存详细的计次与支付规则。
 

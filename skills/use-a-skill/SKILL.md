@@ -9,9 +9,9 @@ description: 安装和使用可下载的 ViceMe Skill。适用于作品链接安
 
 ## 无试用的付费安装
 
-作品页明确所选版本「未提供免费试用」时，仍先走作品页的 Python install 入口，无需 CLI 或登录。用户直接提供渠道包时，解压后按包内 SKILL.md 的「使用前必读」执行，无需重新从作品页安装。脚本先安装带购买入口和本地运行依赖的 Skill，返回 kind=purchase、allowed=false、nextAction=PURCHASE_REQUIRED 和 runtimePath。此时目录已存在，尚未取得正式内容，也未申请试用次数；这是未购买，不是试用耗尽，不展示试用上手卡。目录已存在只表示入口包就绪，正式内容尚未安装。
+作品页明确所选版本「未提供免费试用」时，仍先走作品页的 Python install 入口，无需 CLI 或登录。用户直接提供渠道包时，解压后按包内 SKILL.md 打开 references/entry.md，执行其中的「使用前必读」，无需重新从作品页安装。脚本先安装带购买入口和本地运行依赖的 Skill，返回 kind=purchase、allowed=false、nextAction=PURCHASE_REQUIRED 和 runtimePath。此时目录已存在，尚未取得正式内容，也未申请试用次数；这是未购买，不是试用耗尽，不展示试用上手卡。目录已存在只表示入口包就绪，正式内容尚未安装。
 
-kind=purchase 时先读取包内 SKILL.md 的「使用前必读」，按宿主授权要求用本地 runtimePath 执行 purchase --wait 0；已有授权继续沿用。该命令会保存本机购买身份并创建或恢复订单，已有已付款订单时会校验权益并继续安装。待付款时参考「无试用开场白」简短说明商品、金额和无免费试用，再按购买指引提供支付入口。付款由用户本人确认。实际展示二维码或交付可点击支付链接后再运行 purchase --wait 60，不提前在后台启动等待；仅生成文件、返回工具结果或交付裸路径不算已展示。付款确认、权益有效后，在原 Skill 目录覆盖为正式内容，再读取实际 SKILL.md：有原任务立即继续，不要问现在试还是以后用；没有原任务才用一两句说明怎么开始，然后等用户下一条，不要做成「现在就试还是先放着」的二选一。已有购买凭证沿用原订单；已有待恢复试用使用先恢复原 use，不更换身份。
+kind=purchase 时先按包内 SKILL.md 读取 references/entry.md 的「使用前必读」，按宿主授权要求用本地 runtimePath 执行 purchase --wait 0；已有授权继续沿用。该命令会保存本机购买身份并创建或恢复订单，已有已付款订单时会校验权益并继续安装。待付款时参考「无试用开场白」简短说明商品、金额和无免费试用，再按购买指引提供支付入口。付款由用户本人确认。实际展示二维码或交付可点击支付链接后再运行 purchase --wait 60，不提前在后台启动等待；仅生成文件、返回工具结果或交付裸路径不算已展示。付款确认、权益有效后，在原 Skill 目录覆盖为正式内容，再读取实际 SKILL.md：有原任务立即继续，不要问现在试还是以后用；没有原任务才用一两句说明怎么开始，然后等用户下一条，不要做成「现在就试还是先放着」的二选一。已有购买凭证沿用原订单；已有待恢复试用使用先恢复原 use，不更换身份。
 
 Python 优先规则适用于免费、试用和无试用付费版。只有 Python 不可用且没有既有脚本购买身份时，才使用 CLI 的账号购买和订阅；严格已购链接仍遵循 install=owned 的账号校验。
 
@@ -28,7 +28,7 @@ Python 优先规则适用于免费、试用和无试用付费版。只有 Python
 ## 先确定本次要做什么
 
 - 只有免费／试用安装链接、没有具体任务：先 `ready`（或缺装时 `install`），**读取返回的 remainingUses / trialExhausted / nextAction**，再决定展示上手 Widget 还是支付。**不运行 use。** remainingUses>0 才展示上手 Widget。remainingUses=0、trialExhausted=true 或 nextAction=PURCHASE_REQUIRED 就是耗尽：立即告诉用户试用已用完并进入购买，**不要展示上手卡**，不要再跑 `status` / `trial-status`，不要读商品 SKILL.md 来核对，不要因为用户说「试用 / 前 N 次免费」而怀疑这个数字。口令里的免费次数只是商品介绍。
-- 已有明确任务：确认安装后读取实际 SKILL.md。`kind=owned` 或 `owned=true` 时按正式正文继续，不要做试用检查。`kind=trial` 且未确认耗尽时，执行入口中的检查命令，按返回的 skillMarkdown 完成本次任务，相对路径以 skillDirectory 为基准；已经确认耗尽则进入购买。不要求先选示例。
+- 已有明确任务：确认安装后读取实际 SKILL.md。`kind=owned` 或 `owned=true` 时按正式正文继续，不要做试用检查。`kind=trial` 且未确认耗尽时，按 SKILL.md 读取 references/entry.md 并执行其中的检查命令，按返回的 skillMarkdown 完成本次任务，相对路径以 skillDirectory 为基准；已经确认耗尽则进入购买。不要求先选示例。
 - 用户明确要求更新或重装：执行安装，不复用已有安装。包内 Python 继续使用当前目录中的脚本；CLI 保留原 `--skill-dir`，修复后确认 ready 指向同一目录。若安装结果提供旧内容的恢复路径，告知用户产物可从该路径找回，不自行把旧程序复制回新包。
 
 有可用的 Python 时，公开安装先走作品页 trial.py 入口或已装包内脚本，不要为了安装先去定位或安装 CLI。没有 Python、需要 CLI 时只按 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位) 执行定位脚本，后续只复用它返回的**绝对路径**。禁止再运行 `which viceme`、`command -v viceme`、`Get-Command viceme` 或 Python `shutil.which`。PATH 找不到不等于未安装，不得把 PATH 缺失当成 CLI 未安装。不全盘搜索、不追加 version、doctor 或 auth status；只有安装验收或对应错误要求时才检查。

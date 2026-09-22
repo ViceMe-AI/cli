@@ -396,7 +396,7 @@ func TestClosedTrialOrderDoesNotHijackInstall(t *testing.T) {
 	if text, _ := json.Marshal(result); strings.Contains(string(text), "PAYMENT_CLOSED") {
 		t.Fatal("install returned PAYMENT_CLOSED")
 	}
-	entry, err := os.ReadFile(filepath.Join(home, ".workbuddy", "skills", "free-test", "SKILL.md"))
+	entry, err := os.ReadFile(filepath.Join(home, ".workbuddy", "skills", "free-test", skillEntryPath))
 	if err != nil || !strings.Contains(string(entry), skillTrialGateMarker) {
 		t.Fatalf("trial entry missing after closed install: %v", err)
 	}

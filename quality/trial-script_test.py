@@ -101,8 +101,11 @@ class TrialScriptTestCase(unittest.TestCase):
             self.assertEqual(handle.read(), original)
 
     def test_purchase_entry_skill_markdown_is_a_hard_gate(self):
-        text = trial.purchase_entry_skill_markdown(
-            "demo-33709ab2", "Demo：简介（购买后使用）", PRODUCT_ID, "cn")
+        text = trial.purchase_entry_instructions(PRODUCT_ID, "cn")
+        skill = trial.purchase_entry_skill_markdown("demo-33709ab2", "Demo：简介")
+        self.assertIn(trial.ENTRY_POINTER.strip(), skill)
+        self.assertNotIn("## 使用前必读", skill)
+        self.assertNotIn("购买后使用", skill)
         self.assertIn("## 使用前必读", text)
         self.assertIn(trial.PURCHASE_MARKER + " product=" + PRODUCT_ID, text)
         self.assertIn(trial.PURCHASE_END, text)
@@ -118,10 +121,14 @@ class TrialScriptTestCase(unittest.TestCase):
         # 无 Python 时必须有 CLI 兜底，与试用门禁的三路结构对齐。
         self.assertIn("viceme skill trial-purchase " + PRODUCT_ID, text)
         self.assertIn(trial.INSTALL_DOC_ORIGIN["cn"], text)
-        self.assertIn(trial.INSTALL_DOC_ORIGIN["global"], trial.purchase_entry_skill_markdown(
-            "demo-33709ab2", "Demo：简介（购买后使用）", PRODUCT_ID, "global"))
+        self.assertIn(trial.INSTALL_DOC_ORIGIN["global"], trial.purchase_entry_instructions(PRODUCT_ID, "global"))
         # 导出包自带安装身份：解压目录直接通过 purchase 归属校验，无需先走官方 install。
         entry_files, _ = trial.purchase_entry_files("cn", PRODUCT_ID, "作文批改助手", "批改作文", "essay-grading-assistant", "release-fixture")
+        listing = entry_files["SKILL.md"][0].decode("utf-8")
+        self.assertIn("作文批改助手：批改作文", listing)
+        self.assertNotIn("购买后使用", listing)
+        self.assertIn(trial.ENTRY_PATH, listing)
+        self.assertEqual(entry_files[trial.ENTRY_PATH][0].decode("utf-8"), text)
         self.assertIn(".viceme/install-manifest.json", entry_files)
         manifest = json.loads(entry_files[".viceme/install-manifest.json"][0])
         self.assertEqual(manifest["product_id"], PRODUCT_ID)
@@ -167,14 +174,17 @@ class TrialScriptTestCase(unittest.TestCase):
         files = {"SKILL.md": (b"---\nname: my-skill\n---\n\nbody", 0o644)}
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
         content = files["SKILL.md"][0].decode("utf-8")
-        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, content)
-        self.assertIn(trial.GATE_END, content)
-        self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, content)
-        self.assertIn("allowed: true", content)
-        self.assertIn("skillMarkdown", content)
+        entry = files[trial.ENTRY_PATH][0].decode("utf-8")
+        self.assertIn(trial.ENTRY_POINTER.strip(), content)
+        self.assertNotIn(trial.GATE_MARKER, content)
+        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, entry)
+        self.assertIn(trial.GATE_END, entry)
+        self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, entry)
+        self.assertIn("allowed: true", entry)
+        self.assertIn("skillMarkdown", entry)
         self.assertNotIn("\nbody", content)
         self.assertTrue(files[trial.TRIAL_BODY_PATH][0].endswith(b"body"))
-        self.assertNotIn("python3 - use", content)
+        self.assertNotIn("python3 - use", entry)
         rules = files[trial.RUNTIME_PATH][0].decode("utf-8")
         self._assert_gate_runtime_order(rules, PRODUCT_ID, "cn")
         # Both shells execute the installed script, with no network bootstrap.
@@ -182,8 +192,8 @@ class TrialScriptTestCase(unittest.TestCase):
             'py "<本 Skill 目录>/.viceme/scripts/trial.py" use --product %s --market cn' % PRODUCT_ID,
             rules,
         )
-        # 门禁必须位于 frontmatter 之后、正文之前。
-        self.assertLess(content.index("---\n", 4), content.index(trial.GATE_MARKER))
+        # 入口句在 frontmatter 之后，检查步骤不进入渠道解析的正文。
+        self.assertLess(content.index("---\n", 4), content.index(trial.ENTRY_PATH))
         once = files["SKILL.md"][0]
         del files[trial.RUNTIME_PATH]
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
@@ -232,7 +242,7 @@ class TrialScriptTestCase(unittest.TestCase):
         content = files["SKILL.md"][0].decode("utf-8")
         self.assertEqual(files[trial.TRIAL_BODY_PATH][0].decode(), original)
         self.assertNotIn("作者示例", content)
-        self.assertIn(trial.RUNTIME_PATH, content)
+        self.assertIn(trial.RUNTIME_PATH, files[trial.ENTRY_PATH][0].decode("utf-8"))
         self.assertIn('.viceme/scripts/trial.py" use', files[trial.RUNTIME_PATH][0].decode("utf-8"))
 
     def test_gate_rejects_invalid_structure_without_mutation(self):
@@ -268,10 +278,13 @@ class TrialScriptTestCase(unittest.TestCase):
         files = {"SKILL.md": (content.encode("utf-8"), 0o644)}
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
         content = files["SKILL.md"][0].decode("utf-8")
+        entry = files[trial.ENTRY_PATH][0].decode("utf-8")
         self.assertNotIn("旧版规则", content)
+        self.assertNotIn("旧版规则", entry)
         self.assertTrue(files[trial.TRIAL_BODY_PATH][0].decode().endswith("作者正文\n"))
         self.assertNotIn("作者正文", content)
-        self.assertEqual(content.count(trial.GATE_MARKER), 1)
+        self.assertNotIn(trial.GATE_MARKER, content)
+        self.assertEqual(entry.count(trial.GATE_MARKER), 1)
 
     def test_gate_preserves_extended_frontmatter_crlf_eof_and_mode(self):
         for newline in ("\n", "\r\n"):
@@ -334,7 +347,10 @@ class TrialScriptTestCase(unittest.TestCase):
             names = set(archive.namelist())
             skill = archive.read("SKILL.md").decode("utf-8")
             body = archive.read(trial.TRIAL_BODY_PATH).decode("utf-8")
-        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, skill)
+            entry = archive.read(trial.ENTRY_PATH).decode("utf-8")
+        self.assertIn(trial.ENTRY_POINTER.strip(), skill)
+        self.assertNotIn(trial.GATE_MARKER, skill)
+        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, entry)
         self.assertNotIn("PAID_BODY_SECRET", skill)
         self.assertIn("PAID_BODY_SECRET", body)
         self.assertIn(".viceme/scripts/trial.py", names)
@@ -399,8 +415,13 @@ class TrialScriptTestCase(unittest.TestCase):
         with zipfile.ZipFile(output) as archive:
             names = set(archive.namelist())
             skill = archive.read("SKILL.md").decode("utf-8")
-        self.assertIn(trial.PURCHASE_MARKER + " product=%s -->" % PRODUCT_ID, skill)
-        self.assertIn("使用前必读", skill)
+            entry = archive.read(trial.ENTRY_PATH).decode("utf-8")
+        self.assertIn(trial.ENTRY_POINTER.strip(), skill)
+        self.assertNotIn(trial.PURCHASE_MARKER, skill)
+        self.assertNotIn("使用前必读", skill)
+        self.assertNotIn("购买后使用", skill)
+        self.assertIn(trial.PURCHASE_MARKER + " product=%s -->" % PRODUCT_ID, entry)
+        self.assertIn("使用前必读", entry)
         self.assertNotIn("PAID_BODY_SECRET", skill)
         self.assertIn(trial.PURCHASE_GUIDE_PATH, names)
         self.assertIn(".viceme/scripts/trial.py", names)
@@ -1155,9 +1176,13 @@ class InstallFlowTestCase(unittest.TestCase):
         skill_dir = os.path.join(self.home, ".agents", "skills", "my-skill")
         with open(os.path.join(skill_dir, "SKILL.md"), encoding="utf-8") as handle:
             content = handle.read()
-        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, content)
+        self.assertIn(trial.ENTRY_POINTER.strip(), content)
+        self.assertNotIn(trial.GATE_MARKER, content)
         self.assertIn("title: latex-geometry\nmetadata:\n  author: yee33", content)
-        self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, content)
+        with open(os.path.join(skill_dir, trial.ENTRY_PATH), encoding="utf-8") as handle:
+            entry = handle.read()
+        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, entry)
+        self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, entry)
         with open(os.path.join(skill_dir, trial.RUNTIME_PATH), encoding="utf-8") as handle:
             rules = handle.read()
         self.assertIn('.viceme/scripts/trial.py" use --product %s --market cn' % PRODUCT_ID, rules)
@@ -1171,7 +1196,7 @@ class InstallFlowTestCase(unittest.TestCase):
 
     def test_install_does_not_report_success_with_missing_or_damaged_gate(self):
         real_install = trial.install_to_roots
-        for filename in ("SKILL.md", trial.RUNTIME_PATH):
+        for filename in ("SKILL.md", trial.RUNTIME_PATH, trial.ENTRY_PATH):
             for damage in ("missing", "changed"):
                 with self.subTest(filename=filename, damage=damage):
                     def install_then_damage(*args):
@@ -1368,7 +1393,7 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertTrue(trial.load_trial_state(PRODUCT_ID)["purchase"]["closed"])
         self.assertTrue(any("trial-purchase/status" in path for path in calls))
         self.assertFalse(any(path.endswith("/trial-use") for path in calls))
-        entry = os.path.join(self.home, ".workbuddy", "skills", "my-skill", "SKILL.md")
+        entry = os.path.join(self.home, ".workbuddy", "skills", "my-skill", trial.ENTRY_PATH)
         with open(entry, "rb") as handle:
             self.assertIn(trial.GATE_MARKER.encode(), handle.read())
 
@@ -2024,12 +2049,17 @@ class InstallFlowTestCase(unittest.TestCase):
         with open(entry["skillPath"], "rb") as handle:
             before = handle.read()
         text = before.decode()
-        self.assertIn("## 使用前必读", text)
-        self.assertIn(trial.PURCHASE_END, text)
-        self.assertIn(trial.PURCHASE_GUIDE_PATH, text)
-        self.assertIn("不算完成支付展示", text)
-        self.assertIn("开场白", text)
-        self.assertNotIn("imageChatSrc", text)
+        self.assertIn(trial.ENTRY_POINTER.strip(), text)
+        self.assertNotIn("## 使用前必读", text)
+        self.assertNotIn("购买后使用", text)
+        with open(os.path.join(root, trial.ENTRY_PATH), encoding="utf-8") as handle:
+            instructions = handle.read()
+        self.assertIn("## 使用前必读", instructions)
+        self.assertIn(trial.PURCHASE_END, instructions)
+        self.assertIn(trial.PURCHASE_GUIDE_PATH, instructions)
+        self.assertIn("不算完成支付展示", instructions)
+        self.assertIn("开场白", instructions)
+        self.assertNotIn("imageChatSrc", instructions)
         with open(os.path.join(root, trial.PURCHASE_GUIDE_PATH), encoding="utf-8") as handle:
             guide = handle.read()
         self.assertIn("## 通用支付展示", guide)
