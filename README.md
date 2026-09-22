@@ -181,6 +181,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | configure follow or paid unlock for an existing website and integrate it into host code after the shared creator qualification check; platform resources stay internal. |
 | `let-people-interact` | branch between danmaku, open tips, or both; danmaku-bearing routes require a published Website Work with an exact canonical Origin, while Tip can use any eligible published Merchant Work. It defaults to Mounted UI and uses Headless only for an explicit custom-UI request; none requires DNS ownership verification. |
+| `viceme-mini-game-commerce` | 为已有本地小游戏按作品接入离线购买与许可证兑换，保留原代码并增量更新道具；不上传、托管或打包。 |
 | `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site; it does not perform buyer checkout or installation. |
 | `let-me-make-a-copy` | accept a website copy invitation; install from the regional S3-hosted official Skill ZIP, reuse account-bound or anonymous CLI purchasing when available, preserve an existing standalone recovery, and fall back to the bundled no-CLI script. |
 
@@ -190,6 +191,22 @@ The Agent Skills own the conversational workflow and approval rules. The CLI
 owns deterministic local work and API calls. This separation lets an Agent
 explain decisions while the same command contract remains reproducible from a
 terminal or automation.
+
+### 作品级小游戏接入
+
+先由 `become-a-creator` 返回有效商家，再运行：
+
+```sh
+viceme mini-game integrate --work <UUID> --merchant-account <UUID> --environment sandbox --project <path>
+viceme mini-game check --project <path>
+```
+
+同一项目重跑会复用绑定，仅更新 `viceme/mini-game-commerce.js` 和
+`viceme/mini-game-config.js`；`.viceme` 保留必要管理状态。宿主通过全局
+`ViceMeMiniGame` 的异步接口按不可变道具 alias 接线。命令报告 HTML 脚本顺序、
+缺失/动态/未知别名、配置过期与手改冲突，不盲目重写原游戏。下架道具仍保留用于永久权益恢复。
+静态检查通过后还需实际验证付款卡与许可证；最终平台检查和打包交回小红书上传页的当前官方口令与 Skill，
+参见[官方说明](https://miniapp-sandbox.xiaohongshu.com/minitool/doc)。
 
 ## How Skill publishing works
 

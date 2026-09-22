@@ -77,6 +77,7 @@ export const officialSkillNames = [
   "use-a-skill",
   "charge-for-your-work",
   "let-people-interact",
+  "viceme-mini-game-commerce",
   "let-others-make-a-copy",
   "let-me-make-a-copy",
 ];

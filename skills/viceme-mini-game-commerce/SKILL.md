@@ -1,0 +1,73 @@
+---
+name: viceme-mini-game-commerce
+description: 为已有本地小游戏接入 ViceMe 作品级离线购买与许可证兑换，按道具别名连接付费点并增量检查；不上传、托管、打包或发布游戏。
+---
+
+# 接入 ViceMe 小游戏购买与兑换
+
+本 Skill 接受创作者中心的作品级口令。一次作品接入只安装一份运行库和一份作品配置，所有道具共用它们。仅操作用户指定的现有本地小游戏项目，不创建第二套游戏，不发布普通 Skill 商品。
+
+面向用户使用自然中文，说明实际动作与需要处理的问题，不展示凭据、商家 ID、原始 JSON、内部状态或 Skill 名称。WorkBuddy 中不得调用任务清单工具或展示完整计划。需要用户输入项目路径时使用宿主已经提供的原生结构化提问，不猜测工具名；已有路径直接复用，不重复询问。
+
+## 1. 唯一资格守卫
+
+首先调用 `$become-a-creator` 的**玩法守卫**模式，严格等待返回有效 Merchant。资格检查、登录、申请、审批与多 OWNER 商家选择全部归该 Skill；不要在这里复制，不单独运行登录或商家选择命令，也不要取第一个商家。申请中、资格不满足、用户不愿申请时停止接入。
+
+首次调用 CLI 或判断 CLI 不存在前，必须遵循 [creator-tools 的 CLI 定位流程](../creator-tools/SKILL.md#cli-定位)，之后复用定位得到的完整可执行路径。资格守卫已经完成定位时复用结果；下文的 `viceme` 均代表该完整路径。
+
+守卫成功后，从作品口令读取 `work`、`environment` 和目标站点 `webBaseUrl`，商家只使用守卫返回值。运行 `viceme profile list` 核对 active 项的 `webBaseUrl` 与口令目标站点一致，且市场为 `cn`；页面语言不决定市场。若不一致，停止并说明当前登录环境与作品站点不匹配，让用户通过 creator-tools 确认环境；不得悄悄新增或切换 profile，不拿另一站的登录凭据重试。
+
+作品必须是当前商家拥有的已发布 `MINI_GAME`，由服务端验证；这个流程不创建作品、不修改道具价格。环境必须来自口令或用户明确选择的 sandbox / production，不自行升为生产环境。
+
+## 2. 在原项目安装受管资产
+
+确认用户提供的项目目录确实包含原有 HTML/JS 小游戏入口；只读取所需源码，绝不执行不可信宿主脚本来探测。运行：
+
+```sh
+viceme mini-game integrate --work <口令中的作品UUID> --merchant-account <资格守卫返回的商家UUID> --environment <sandbox或production> --project <已有项目路径>
+```
+
+CLI 使用当前凭据获取经过严格校验的集成 manifest，不缓存价格、私钥或支付凭据。它只管理：
+
+- `viceme/mini-game-commerce.js`：官方运行库。
+- `viceme/mini-game-config.js`：作品配置与全局单例 `ViceMeMiniGame`。
+- `.viceme/mini-game.v1.json` 与 `.viceme/mini-game.lock`：绑定、完整性和中断恢复状态；不用于平台运行。
+
+读取返回的 `items`、`issues`、`installed` 与 `ready`。`integrate` 成功只代表资产安装成功；`ready=false` 时继续完成原代码接线，不能宣称接入已完成。CLI 不猜测或改写任意宿主代码。
+
+受管文件已被手改、存在未受管同名文件、符号链接、错绑作品或错误环境时停止覆盖，按错误 `hint` 处理，保留用户原文件。不要删除锁、猜写哈希或加 `--force` 绕过。并发提示时等待现有命令结束，再重跑同一命令；不要自动轮询或删除管理状态。
+
+## 3. 最小连接原游戏入口与付费点
+
+先读 [接线合同](references/integration.md)，再按原项目已有结构做最小修改：
+
+1. HTML 按顺序各引用一次运行库、配置，然后才加载会调用 `ViceMeMiniGame` 的原游戏脚本。根据实际 HTML 位置调整相对路径；两份受管脚本不要使用 async、defer 或 module。
+2. 在当前游戏会话初始化时调用并等待 `ViceMeMiniGame.initialize()`，检查返回的 `ok`。初始化失败只影响购买/兑换与受保护能力，展示真实 `message`，不要清除数据，不把普通免费玩法一并关闭。
+3. 每个 `ACTIVE` 道具在真实购买按钮上调用 `await ViceMeMiniGame.createPurchaseCard("实际alias")`。使用响应的 `alias` 字面量，不把展示标题、ID 或动态变量当别名。运行库负责生成和保存付款卡；检查 `ok` 并按结果展示成功或错误，不重复实现二维码与结算 URL。
+4. 为每个可恢复权益保留文本兑换与图片导入入口。文本调用 `await ViceMeMiniGame.redeemLicense("实际alias", token)`；图片按钮直接在用户点击调用栈触发 `ViceMeMiniGame.importLicenseImage("实际alias")`，不要先 await 其他队列再打开选图。
+5. 原游戏受保护能力根据 `await ViceMeMiniGame.isUnlocked("实际alias")` 的 `ok && unlocked` 判定，兑换成功后刷新原 UI。不要把函数返回的 Promise 当布尔值，不伪造解锁，不用本地业务开关代替许可证验证。
+6. 所有接口均异步并返回业务结果；逐个处理 `ok=false` 的 `code/message`。只在真实操作路径接线，不在注释、隐藏伪按钮、未加载文件或 vendor 中凑引用。
+
+只改本次接入必需的 HTML/JS 位置，不覆盖原游戏、资源、样式、路由或其他支付集成。配置中的所有生命周期道具都用于恢复历史永久权益；`SUSPENDED` / `ARCHIVED` 道具可以移除当前购买按钮，但不能从受管配置删除。`DRAFT` 不要求购买入口。标题改名不改变不可变 `alias`，不得自行重命名 alias。
+
+## 4. 检查与重跑
+
+```sh
+viceme mini-game check --project <同一项目路径>
+```
+
+状态存在时 `integrate` / `check` 都可以省略作品、商家和环境参数；显式提供的值必须与原绑定一致。`check` 只读项目，但会认证读取最新 manifest，用它识别新增/改名/下架与配置过期。
+
+按 `issues[].code`、`file`、`line`、`alias` 和 `fix` 修复，直到 `check` 成功。检查只覆盖 HTML 实际加载的本地脚本和静态 import：忽略注释、字符串伪调用、vendor、受管配置及未加载源码；动态别名会明确要求改为可验证的字面量，不执行宿主代码。
+
+新增、下架或重命名道具后，重新运行**同一作品级口令**，资格守卫成功后执行 `integrate`，再检查并只补新增 ACTIVE 道具的真实入口。不创建每道具 Skill，不复制运行库，不上传源码或 ZIP。环境切换使用独立的未接入项目副本，不覆盖另一环境的绑定。
+
+静态检查通过后，运行原项目已有预览方式，实际验证付款卡展示、文本许可证兑换、图片许可证导入、刷新后的权益恢复，以及原免费玩法不受影响。只使用当前环境中真实可用的测试许可证，不伪造真实支付结果或声称浏览器预览等于小红书最终验收。
+
+## 5. 明确交回小红书官方流程
+
+完成后明确告诉用户：
+
+> ViceMe 的作品购买与兑换已接入。请回到小红书小工具上传页，在第一步「调整为符合小红书规范的代码格式」复制**当前官方完整口令**并下载对应 **Skill**，再由小红书官方流程完成兼容检查和打包。
+
+可以提供[小红书小工具官方说明](https://miniapp-sandbox.xiaohongshu.com/minitool/doc)帮助定位，但不要把文档页称作上传页，不猜测上传地址。本 Skill 不复制小红书兼容规则，不替代当前官方口令，不执行最终平台打包、上传或发布，也不部署、托管游戏。

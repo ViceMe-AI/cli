@@ -333,6 +333,7 @@ func NewRoot(dependencies Dependencies) (*cobra.Command, *Runtime, error) {
 	root.AddCommand(newSubscriptionCommand(runtime))
 	root.AddCommand(newMerchantCommand(runtime))
 	root.AddCommand(newWebsiteCommand(runtime))
+	root.AddCommand(newMiniGameCommand(runtime))
 	root.AddCommand(newWithdrawalCommand(runtime))
 	root.AddCommand(newSourceCommand(runtime))
 	root.AddCommand(newCommerceCommand(runtime))
