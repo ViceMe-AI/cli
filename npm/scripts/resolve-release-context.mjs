@@ -30,6 +30,7 @@ export async function resolveReleaseContext({
       requested_tag: recoveryTag,
       recovery: "true",
       release_pr_number: "",
+      release_pull_request: "",
     };
   }
 
@@ -50,20 +51,24 @@ export async function resolveReleaseContext({
       pullRequest.merge_commit_sha === event.after &&
       pullRequest.base?.ref === "main" &&
       pullRequest.base?.repo?.full_name === repository &&
-      pullRequest.head?.ref === "dev" &&
+      typeof pullRequest.head?.ref === "string" &&
+      pullRequest.head.ref.length > 0 &&
+      pullRequest.head.ref !== "main" &&
+      !pullRequest.head.ref.startsWith("chore(repo)/integrate-") &&
+      !pullRequest.head.ref.startsWith("hotfix/") &&
       pullRequest.head?.repo?.full_name === repository,
   );
   if (releasePullRequests.length !== 1) {
     throw new Error(
-      `main commit must resolve to exactly one merged repository-owned dev to main PR; found ${releasePullRequests.length}`,
+      `main commit must resolve to exactly one merged repository-owned release PR into main; found ${releasePullRequests.length}`,
     );
   }
 
   const pullRequest = releasePullRequests[0];
   if (!commitPattern.test(pullRequest.head.sha ?? "")) {
-    throw new Error("release PR does not contain a valid reviewed dev head");
+    throw new Error("release PR does not contain a valid reviewed source head");
   }
-  if (typeof pullRequest.title !== "string" || pullRequest.title === "") {
+  if (typeof pullRequest.title !== "string" || !/^chore\(release\): v\d+\.\d+\.\d+$/.test(pullRequest.title)) {
     throw new Error("release PR title is missing");
   }
 
@@ -73,6 +78,10 @@ export async function resolveReleaseContext({
     requested_tag: "",
     recovery: "false",
     release_pr_number: String(pullRequest.number),
+    release_pull_request: JSON.stringify({
+      merged: true, merge_commit_sha: pullRequest.merge_commit_sha,
+      base: pullRequest.base, head: pullRequest.head, user: pullRequest.user,
+    }),
   };
 }
 
@@ -83,6 +92,7 @@ async function fetchAssociatedPullRequests(commit) {
   const response = await fetch(
     `${apiURL}/repos/${repository}/commits/${commit}/pulls?per_page=100`,
     {
+      signal: AbortSignal.timeout(15000),
       headers: {
         Accept: "application/vnd.github+json",
         Authorization: `Bearer ${token}`,

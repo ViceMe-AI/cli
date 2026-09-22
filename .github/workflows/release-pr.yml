@@ -9,6 +9,7 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+      - edited
   workflow_dispatch:
 
 permissions:
@@ -16,21 +17,23 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: viceme-cli-release-pr
-  cancel-in-progress: true
+  group: viceme-cli-release-pr-${{ github.head_ref || 'dev' }}
+  cancel-in-progress: false
 
 jobs:
   prepare:
     name: Release candidate preparation
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
       (github.base_ref == 'main' &&
-       github.head_ref == 'dev' &&
+       !startsWith(github.head_ref, 'hotfix/') &&
+       !startsWith(github.head_ref, 'chore(repo)/integrate-') &&
        github.event.pull_request.draft == false &&
-       github.event.pull_request.head.repo.full_name == github.repository &&
-       github.event.pull_request.head.ref == 'dev')
+       github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      SOURCE_BRANCH: ${{ github.head_ref || 'dev' }}
     steps:
       - id: release-app-token
         name: Create repository-scoped Release App token
@@ -48,8 +51,23 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           token: ${{ steps.release-app-token.outputs.token }}
-          ref: dev
+          ref: ${{ github.event.pull_request.head.sha || 'dev' }}
           fetch-depth: 0
+      - name: Validate accepted release source
+        env:
+          PR_BASE_REF: ${{ github.base_ref }}
+          PR_HEAD_REF: ${{ github.head_ref }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name }}
+        run: |
+          bash scripts/ci/validate-pr-target.sh
+          git fetch origin +refs/heads/main:refs/remotes/origin/main --tags
+          if [[ "$SOURCE_BRANCH" != dev ]]; then
+            git merge-base --is-ancestor origin/main HEAD || {
+              echo "Sync latest main into the feature branch and accept it in dev before release" >&2
+              exit 1
+            }
+          fi
       - id: release-head
         name: Detect an already prepared Release Bot head
         env:
@@ -82,7 +100,11 @@ jobs:
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
       - name: Compute version, CHANGELOG, and generated release contracts
         if: steps.release-head.outputs.prepared != 'true'
-        run: make release-prepare
+        run: |
+          RELEASE_DATE="$(date -u +%F)"
+          echo "RELEASE_DATE=${RELEASE_DATE}" >>"${GITHUB_ENV}"
+          export RELEASE_DATE
+          make release-prepare
       - name: Verify prepared release
         if: steps.release-head.outputs.prepared != 'true'
         run: |
@@ -90,7 +112,7 @@ jobs:
           make npm-package-check
           git diff --check
       - id: release
-        name: Commit prepared release to protected dev
+        name: Commit prepared release to original source branch
         if: steps.release-head.outputs.prepared != 'true'
         env:
           APP_SLUG: ${{ steps.release-app-token.outputs.app-slug }}
@@ -99,7 +121,7 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           TAG="v${VERSION}"
-          RELEASE_TRAILERS="$(printf 'ViceMe-Release-Prepared: true\nViceMe-Release-Run: %s' "${RUN_URL}")"
+          RELEASE_TRAILERS="$(printf 'ViceMe-Release-Prepared: true\nViceMe-Release-Run: %s\nViceMe-Release-Date: %s' "${RUN_URL}" "${RELEASE_DATE}")"
           git config user.name "${APP_SLUG}[bot]"
           git config user.email "${APP_USER_ID}+${APP_SLUG}[bot]@users.noreply.github.com"
           git add \
@@ -118,7 +140,7 @@ jobs:
             --allow-empty \
             --message "chore(release): ${TAG}" \
             --message "${RELEASE_TRAILERS}"
-          git push origin HEAD:dev
+          git push origin "HEAD:refs/heads/${SOURCE_BRANCH}"
           {
             echo "version=${VERSION}"
             echo "tag=${TAG}"
@@ -149,7 +171,7 @@ jobs:
             echo "pushed=false"
             echo "run_url=${RUN_URL}"
           } >>"${GITHUB_OUTPUT}"
-      - name: Create or update dev to main Release PR
+      - name: Create or update source to main Release PR
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.release.outputs.tag || steps.prepared-release.outputs.tag }}
@@ -158,27 +180,29 @@ jobs:
         run: |
           BODY_FILE="${RUNNER_TEMP}/release-pr.md"
           {
-            echo "## Automated release"
+            echo "## 自动发布 ${TAG}"
             echo
-            echo "This PR promotes the reviewed CLI changes from \`dev\` to \`main\` and releases **${TAG}** when merged."
+            echo "将已评审的 CLI 来源分支 \`${SOURCE_BRANCH}\` 发布到 \`main\`。"
             echo
-            echo "The release preparation workflow automatically:"
+            echo "自动更新版本号、CHANGELOG、官方 Skill 元数据与发布清单。"
+            echo "已通过 \`make check\` 与 \`make npm-package-check\`。"
+            echo "准备提交：\`${RELEASE_SHA}\`"
+            echo "工作流证据：${RUN_URL}"
             echo
-            echo "- selected the semantic version from Conventional Commits;"
-            echo "- updated npm, Go, all bundled Skills, release digests, and compatibility metadata;"
-            echo "- generated \`CHANGELOG.md\`;"
-            echo "- passed \`make check\` and \`make npm-package-check\`."
-            echo "- committed the generated files to protected \`dev\` as the dedicated ViceMe Release App."
-            echo
-            echo "Prepared head: \`${RELEASE_SHA}\`  "
-            echo "Evidence: ${RUN_URL}"
-            echo
-            echo "> Merging is the release approval: GitHub Actions creates the tag, GitHub Release and platform assets, publishes npm, and sends the Feishu summary automatically."
+            echo "合并后自动打标签、构建六平台产物、发布 npm 与双区域镜像，并发送飞书总结。"
           } >"${BODY_FILE}"
 
-          PR_URL="$(gh pr list --state open --base main --head dev --json url --jq '.[0].url // empty')"
+          PR_URL="$(gh pr list --state open --base main --head "${SOURCE_BRANCH}" --json url --jq '.[0].url // empty')"
           if [[ -z "${PR_URL}" ]]; then
-            gh pr create --base main --head dev --title "chore(release): ${TAG}" --body-file "${BODY_FILE}"
+            gh pr create --base main --head "${SOURCE_BRANCH}" --title "chore(release): ${TAG}" --body-file "${BODY_FILE}"
           else
-            gh pr edit "${PR_URL}" --title "chore(release): ${TAG}" --body-file "${BODY_FILE}"
+            # Preserve feature PR authorship and human acceptance evidence.
+            CURRENT_TITLE="$(gh pr view "$PR_URL" --json title --jq .title)"
+            if [[ "$SOURCE_BRANCH" == dev ]]; then
+              if [[ "$CURRENT_TITLE" != "chore(release): ${TAG}" ]]; then
+                gh pr edit "$PR_URL" --title "chore(release): ${TAG}" --body-file "$BODY_FILE"
+              fi
+            elif [[ "$CURRENT_TITLE" != "chore(release): ${TAG}" ]]; then
+              gh pr edit "$PR_URL" --title "chore(release): ${TAG}"
+            fi
           fi

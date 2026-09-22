@@ -1,52 +1,65 @@
-# Automated CLI releases
+# CLI 开发与自动发布
 
-ViceMe CLI uses an automated Release PR as the only normal production release
-gate. Maintainers merge feature and fix PRs into `dev`; they do not edit version
-files, create tags, write changelog entries, or run npm commands locally.
+`main` 是生产来源和新分支基线，`dev` 是集成验收分支。两种常规发布方式并存：
+同仓库功能分支独立发布，以及原有 `dev → main` 整体发布。维护者不手工修改版本号
+或发布清单，不手动移动标签。本规则仅适用于 CLI，SDK 保持自己的发布流程。
 
-## Normal flow
+## 功能开发与独立发布
 
-1. Feature and fix PRs can merge into `dev` without starting release
-   preparation.
-2. A maintainer explicitly opens or marks ready a repository-owned `dev` to
-   `main` PR. That release intent starts `CLI release preparation`.
-3. `npm/scripts/prepare-release.mjs` finds the newest reachable stable tag and
-   reads all unreleased non-merge commits.
-4. Conventional Commits select the next version:
-   - a `BREAKING CHANGE` footer or `type!:` selects major;
-   - `feat:` selects minor;
-   - every other releasable change selects patch.
-5. The workflow synchronizes `package.json`, `package-lock.json`, Go build
-   metadata, bundled Skill metadata, release manifest digests, and
-   `CHANGELOG.md`.
-6. While this preparation is running, the initial unprepared `dev` to `main`
-   head runs only the cheap pull-request target gate. It does not start the Go,
-   npm, macOS, or Windows validation matrix.
-7. The preparation workflow runs `make check` and `make npm-package-check`, creates a short-lived
-   installation token for the repository-scoped ViceMe Release GitHub App, and
-   commits only the generated files directly to protected `dev`. The commit is
-   marked with trusted preparation and evidence trailers.
-8. The existing `dev` to `main` PR synchronizes, runs its required quality
-   checks, and is updated to `chore(release): vX.Y.Z` with exact run and commit
-   evidence. The synchronized release-preparation run validates the marked bot
-   commit and reuses the original evidence without reinstalling dependencies or
-   repeating the preparation checks. No internal preparation PR is created.
-9. A maintainer reviews and merges that same Release PR.
-10. Merging the Release PR pushes its merge commit to `main`.
-   `CLI release publication` resolves that commit back to exactly one merged,
-   repository-owned `dev` to `main` PR, then tags the exact reviewed `dev`
-   head, reruns the quality gates, builds six platform binaries and six
-   checksums, creates the GitHub Release, bundles those exact checksums into
-   the npm launcher, signs the exact-version Agent installation Manifest with
-   GitHub OIDC, publishes the identical installation contract to the CN and
-   Global `start` buckets, publishes npm, and then sends an
-   AI-generated release summary to the release notification group in Feishu.
+1. 从最新 `origin/main` 创建短期功能分支，向 `dev` 提 PR，完成检查和验收。
+2. 在原功能分支向 `main` 提 PR，正文记录已验收的准确业务 SHA、测试环境或安装包
+   版本、验证命令及结果。CI 检查 head 是否已进入最新拉取的 `dev`；此检查不能
+   代替人工验收记录。功能分支不得包含其他未发布功能。
+3. Ready 的 main PR 触发 `CLI release preparation`。Bot 基于该 PR 的准确 head，
+   按 Conventional Commits 计算版本：breaking 为 major、feat 为 minor、其余为 patch。
+   更新 npm/Go/官方 Skill 版本、兼容范围、CHANGELOG 与发布清单。
+4. Bot 先运行 `make check` 和 `make npm-package-check`，再把单个生成提交推到
+   **原功能分支**，更新现有 PR 标题，保留作者与人工验收正文。分支移动时普通 push
+   失败，不强推、不覆盖开发者的新提交。
+5. 更新后的 PR 运行完整质量与安装检查。其业务父提交必须在 dev 中；生成提交仅
+   允许发布文件，并依据原工作流记录的日期从父提交重新生成、比较整个 Git tree。
+   校验 Actions API 中的原工作流、源 SHA 与状态。不能仅凭 Bot 邮箱或 trailer 放行。
+   此严格限定的生成提交不要求再人工合入 dev；任何后续业务改动仍须重新进入 dev。
+6. 评审后使用 merge commit 合入 main。发布工作流从 main 的合并提交解析唯一的
+   同仓库 Release PR，为已包含在 main 历史中的准确源 head 打不可变标签，保留
+   六平台二进制、checksum、npm OIDC、CN/Global 安装清单及镜像发布流程。
+7. npm 与双区域发布成功后发送飞书总结。独立发布显示原 PR 作者的真实 @ 和
+   “单独发布”，不归属给 approve/merge 操作者。映射见 `.github/feishu-users.json`。
 
-After a production promotion, merge the new `main` history back into `dev`
-before opening the next Release PR. When the released tree already matches
-`dev`, keep the `dev` tree and record only the ancestry merge; this prevents the
-next `dev` to `main` promotion from reopening conflicts in already-released
-files.
+多个候选 PR 可以开发并行，但生产发布按顺序处理。准备前功能分支必须包含最新
+main；前一个发布合入后，下一个候选需同步 main、解决版本冲突、重新进入 dev 验收
+并重新准备。不得强行复用已经发布的版本。不可变标签检查会拒绝版本碰撞。
+尚未准备的 main PR 只运行轻量来源检查；准备成功后的准确 head 运行完整矩阵。
+
+## 保留 dev → main 整体发布
+
+把已验收的 dev 向 main 提 Ready PR，仍自动准备版本，并由 Release App 将生成提交
+写回 dev。原 Release PR 更新后运行完整检查，评审合并触发相同发布流水线。
+手动触发版本准备仅允许在 main 工作流上操作 dev。该模式不显示“单独发布”。
+生产发布后，通过 PR 将 main 同步回 dev；仅当两侧 tree 完全一致时才能只记录 ancestry，
+不得用丢弃改动的合并策略处理实际差异。
+
+## dev 集成冲突
+
+功能分支保持基于 main，禁止点 Update branch 将 dev 合回功能分支。
+如功能分支与 dev 上其他未发布功能冲突：
+
+```bash
+git fetch origin
+git switch -c 'chore(repo)/integrate-example' origin/dev
+git merge 'origin/feat(cli)/example'
+# 在临时分支解决冲突，提交并推送，再提 PR 到 dev
+```
+
+临时集成分支只能合入 dev，禁止作为 main 发布来源。原功能分支仍用于独立发布。
+验收记录写明原功能 SHA 与实际测试的 dev 版本；原分支再更新时，重新集成和验收。
+与 main 冲突则将 main 同步到原分支，再经 dev 验收。
+
+## 存量分支与恢复
+
+从 dev 创建的存量分支必须检查相对 main 的全部差异，确认没有夹带未发布功能；
+不能只根据 PR 标题判断，也不要求批量 rebase。生产 hotfix 和不可变标签恢复保留
+既有边界；hotfix 不走普通自动准备，恢复不能创建新版本或冒充独立发布。
 
 ## One-time repository setup
 
@@ -90,16 +103,21 @@ never changes an installed CLI's trust policy.
 Keep `main` as the repository default branch, but target normal feature and fix
 pull requests explicitly at `dev`. Repository settings allow merge commits only;
 squash and rebase merging are disabled so an administrator bypass cannot detach
-a reviewed `dev` head from `main` history.
+a reviewed source head from `main` history.
 
 Protect `dev` with its own active branch ruleset that retains the normal pull
 request, one approving review, the `PR quality` check, all three `PR npm
-installer (<runner>)` checks, strict required-status synchronization, deletion
+installer (<runner>)` checks, deletion
 protection, and force push protection. Protect `main` with a separate ruleset
 that requires the same checks plus `Release candidate preparation`, but does
 not require `dev` to contain the previous release merge commit. Both rulesets
 allow merge commits only. The required `PR quality` job rejects `main` pull
-requests unless they come from the same repository's `dev` or `hotfix/*`.
+requests from forks or dev-only integration branches. Feature PRs additionally
+require accepted dev ancestry and reproducible preparation. Disable strict
+up-to-date checks for dev and set repository `allow_update_branch=false` so the UI
+does not encourage merging dev into independently releasable source branches.
+Keep the existing review and required checks; disabling this suggestion cannot
+prevent a developer from manually merging dev, so review ancestry and full diff.
 
 Add `ViceMe CLI Release Bot` and the organization-admin role to both bypass
 lists with `Always allow`; the latter preserves the legacy rule's existing
@@ -113,14 +131,12 @@ generated files and validates the complete release before pushing. No
 maintainer PAT or Deploy Key is used.
 
 The general `CLI PR checks` workflow runs for pull requests, not branch pushes.
-For a repository-owned `dev` to `main` promotion, it classifies the exact head:
+For a repository-owned source to `main` promotion, it classifies the exact head:
 an unprepared head runs only target validation, while the marked Release Bot
 commit runs the complete required matrix. A Release App push synchronizes the
 already-open PR and cancels any older generic run for the same PR. The resulting
-full checks therefore cover the exact prepared commit once. The synchronize
-event runs release preparation again only as a fast metadata verification and
-PR update; it does not install dependencies, regenerate files, or repeat the
-preparation checks.
+full checks therefore cover the exact prepared commit once. The synchronize event reuses preparation metadata; the required PR quality
+job independently regenerates and verifies feature-release commits.
 
 The checks from `CLI release publication` are deliberately not required for
 merging: that workflow starts only after the release PR has been merged and
@@ -270,8 +286,7 @@ already exists, it must be non-draft and every existing asset must match
 byte-for-byte before a missing asset is uploaded. Recovery still refuses
 missing tags, version mismatches, changed release assets, and npm integrity
 mismatches. It cannot create a new release identity. Normal production releases
-still originate only from merging the repository-owned `dev` Release PR into
-`main`.
+originate from merging an eligible repository-owned Release PR into `main`.
 
 ## Shared host payment presentation
 
