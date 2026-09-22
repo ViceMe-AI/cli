@@ -277,20 +277,29 @@ def attach_trial_snapshot(result, market, product_id, grant=None):
     return result
 
 
-def command_enter(market, product_id, agent="auto"):
-    """Web entry runs from the current verified bootstrap, not a cached Skill."""
+def command_install(market, product_id, agent="auto"):
+    """Install missing content or refresh an existing verified platform runtime."""
+    invoking = validate_invoking_purchase_directory(market, product_id)
+    if invoking and not (read_package_files(invoking, product_id) or {}).get("runtimeRefreshing"):
+        # Running the installed package explicitly retains its repair/reinstall flow.
+        return install_product(market, product_id, agent)
     local = find_ready_install(market, product_id, agent)
     if not local.get("ready"):
         if local.get("nextAction") != "REPAIR_INSTALLATION":
-            return command_install(market, product_id, agent)
+            return install_product(market, product_id, agent)
         candidates = [invoking_skill_directory()] if invoking_skill_directory() else [
             os.path.join(base, name) for base in target_roots(agent) if os.path.isdir(base)
             for name in sorted(os.listdir(base)) if read_manifest_product(os.path.join(base, name)) == product_id]
         root = next((path for path in candidates if (read_package_files(path, product_id) or {}).get("runtimeRefreshing") is True), None)
         if not root:
-            raise Failure("RUNTIME_REFRESH_REQUIRED", "已有入口包不完整，请保留订单与凭证并修复安装；不要继续旧包")
+            for candidate in candidates:
+                validate_install_directory(candidate, market, product_id)
+            return install_product(market, product_id, agent)
     else:
         root = os.path.dirname(local["skillPath"])
+    if not read_package_files(root, product_id):
+        # Legacy generations use the existing ownership-preserving repair protocol.
+        return install_product(market, product_id, agent)
     with ProductLock(product_id), skill_path_lock(root):
         validate_install_directory(root, market, product_id)
         inventory = read_package_files(root, product_id)
@@ -335,7 +344,11 @@ def command_enter(market, product_id, agent="auto"):
                                          if name != ".viceme/install-manifest.json"}}
             complete[PACKAGE_FILES_PATH] = (json.dumps(final_inventory, sort_keys=True).encode(), 0o644)
             install_complete_files(complete, root, product_id, manifest["releaseId"], runtime_refresh=True)
-    # Read quota/pending use only after the filesystem locks are released.
+    # Preserve install recovery of existing orders, after releasing filesystem locks.
+    state = load_trial_state(product_id)
+    pending_use = state and state.get("pendingRequestId")
+    if not pending_use and trial_install_should_resume_purchase(market, product_id):
+        return command_purchase(market, product_id, agent=agent)
     return command_ready(market, product_id, agent)
 
 
@@ -752,7 +765,7 @@ class ProductLock:
 # ---------------------------------------------------------------------------
 
 
-def command_install(market, product_id, agent="auto"):
+def install_product(market, product_id, agent="auto"):
     validate_invoking_purchase_directory(market, product_id)
     if trial_install_should_resume_purchase(market, product_id):
         return command_purchase(market, product_id, agent=agent)
@@ -2420,7 +2433,7 @@ def remove_path(path):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(prog="trial.py", description="ViceMe Skill 免 CLI 安装与试用计数")
-    parser.add_argument("command", choices=["enter", "ready", "install", "use", "status", "purchase", "export-package"], help="enter=网页入口校验更新平台运行文件,ready=只读确认本机安装,install=安装,use=申请一次试用,status=查询余量不扣次,purchase=付款并转正,export-package=导出试用门禁或购买入口 zip(不安装、不请求 API)")
+    parser.add_argument("command", choices=["ready", "install", "use", "status", "purchase", "export-package"], help="ready=只读确认本机安装,install=安装或校验更新平台运行文件,use=申请一次试用,status=查询余量不扣次,purchase=付款并转正,export-package=导出试用门禁或购买入口 zip(不安装、不请求 API)")
     parser.add_argument("--wait", type=int, default=0, help="展示二维码或官方支付链接后有界等待支付的秒数(0–600)")
     parser.add_argument("--product", required=True, help="Skill 的 Product ID(UUID)")
     parser.add_argument("--market", choices=sorted(SCRIPT_ORIGIN), default="cn", help="市场区域:cn 或 global")
@@ -2452,8 +2465,6 @@ def main(argv):
         return command_export_package(
             args.market, args.product, args.kind, args.release_id, args.output,
             input_path=args.input, title=args.title, summary=args.summary, slug=args.slug)
-    if args.command == "enter":
-        return command_enter(args.market, args.product, args.agent)
     if args.command == "ready":
         return command_ready(args.market, args.product, args.agent)
     if args.command == "install":

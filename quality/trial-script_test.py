@@ -19,6 +19,7 @@ import io
 import json
 import os
 import stat
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -1161,7 +1162,7 @@ class InstallFlowTestCase(unittest.TestCase):
             removals.append(path)
             return real_remove(path)
 
-        with mock.patch.object(trial.os, "remove", side_effect=counting_remove):
+        with mock.patch.object(trial.os, "remove", side_effect=counting_remove), mock.patch.object(trial, "invoking_skill_directory", return_value=skill_dir):
             with mock.patch.object(trial, "api_request", side_effect=self._api), \
                     mock.patch.object(trial, "http_download", return_value=self.archive_bytes):
                 output = io.StringIO()
@@ -1209,6 +1210,9 @@ class InstallFlowTestCase(unittest.TestCase):
         for filename in ("SKILL.md", trial.RUNTIME_PATH, trial.ENTRY_PATH):
             for damage in ("missing", "changed"):
                 with self.subTest(filename=filename, damage=damage):
+                    # Each case must exercise a fresh install, not reuse another host copy.
+                    for base in trial.target_roots("auto"):
+                        shutil.rmtree(base, ignore_errors=True)
                     def install_then_damage(*args):
                         results = real_install(*args)
                         for root, skipped in results:
@@ -1277,7 +1281,7 @@ class InstallFlowTestCase(unittest.TestCase):
             first = run("use")
             self.assertTrue(first["allowed"])
             self.assertEqual(first["remainingUses"], 1)
-            self.assertEqual(run("install")["trial"]["remainingUses"], 1)
+            self.assertEqual(run("install")["remainingUses"], 1)
             last = run("use")
             self.assertTrue(last["allowed"])
             self.assertTrue(last["lastUse"])
@@ -1301,7 +1305,7 @@ class InstallFlowTestCase(unittest.TestCase):
                 self.assertIn(trial.DISABLED_MARKER.encode(), disabled)
                 self.assertNotIn(b"\nbody", disabled)
                 reinstalled = run("install")
-                self.assertEqual(reinstalled["trial"]["remainingUses"], 0)
+                self.assertEqual(reinstalled["remainingUses"], 0)
                 self.assertEqual(reinstalled["nextAction"], "PURCHASE_REQUIRED")
                 self.assertTrue(reinstalled["trialExhausted"])
                 with open(entry, "rb") as handle:
@@ -1996,7 +2000,7 @@ class InstallFlowTestCase(unittest.TestCase):
             code = trial.run(["purchase", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy", *arguments])
         return code, json.loads(output.getvalue())
 
-    def test_enter_refreshes_runtime_and_keeps_product_credentials_and_user_files(self):
+    def test_install_refreshes_runtime_and_keeps_product_credentials_and_user_files(self):
         self._install_trial_fixture()
         local = trial.find_ready_install("cn", PRODUCT_ID, "auto")
         root = os.path.dirname(local["skillPath"])
@@ -2012,28 +2016,28 @@ class InstallFlowTestCase(unittest.TestCase):
             return original(name) + (b"\nUpdated guide\n" if name == "guides/host-presentation.md" else b"")
         with mock.patch.object(trial, "runtime_resource", side_effect=newer), mock.patch.object(trial, "api_request", side_effect=AssertionError("no business request during pending recovery")):
             with redirect_stdout(io.StringIO()) as output:
-                self.assertEqual(trial.run(["enter", "--product", PRODUCT_ID]), 0)
+                self.assertEqual(trial.run(["install", "--product", PRODUCT_ID]), 0)
             self.assertEqual(json.loads(output.getvalue())["nextAction"], "RESUME_TRIAL_USE")
             with mock.patch.object(trial, "install_complete_files", side_effect=AssertionError("unchanged runtime must not be rewritten")):
                 with redirect_stdout(io.StringIO()):
-                    self.assertEqual(trial.run(["enter", "--product", PRODUCT_ID]), 0)
+                    self.assertEqual(trial.run(["install", "--product", PRODUCT_ID]), 0)
         self.assertEqual(Path(local["skillPath"]).read_bytes(), body)
         self.assertEqual(Path(trial.trial_state_path(PRODUCT_ID)).read_bytes(), before)
         self.assertEqual(Path(root, "user-output.txt").read_text(), "keep me")
         self.assertTrue(trial.read_runtime_install(root, "cn", PRODUCT_ID)["ready"])
         self.assertIn(b"Updated guide", Path(root, ".viceme/guides/host-presentation.md").read_bytes())
 
-    def test_enter_rejects_cross_environment_refresh_without_touching_files(self):
+    def test_install_refresh_rejects_cross_environment_refresh_without_touching_files(self):
         root = self._install_trial_fixture()
         before = {str(path.relative_to(root)): path.read_bytes() for path in Path(root).rglob("*") if path.is_file()}
         with mock.patch.dict(trial.API_ORIGIN, {"cn": "https://dev.viceme.cn/api"}), mock.patch.object(trial, "api_request", side_effect=AssertionError("cross-environment network call")):
             with redirect_stdout(io.StringIO()) as output:
-                self.assertEqual(trial.run(["enter", "--product", PRODUCT_ID]), 1)
-            self.assertEqual(json.loads(output.getvalue())["code"], "RUNTIME_REFRESH_REQUIRED")
+                self.assertEqual(trial.run(["install", "--product", PRODUCT_ID]), 1)
+            self.assertEqual(json.loads(output.getvalue())["code"], "INSTALLATION_IDENTITY_INVALID")
         after = {str(path.relative_to(root)): path.read_bytes() for path in Path(root).rglob("*") if path.is_file()}
         self.assertEqual(after, before)
 
-    def test_enter_recovers_interrupted_refresh_without_business_requests(self):
+    def test_install_refresh_recovers_interrupted_refresh_without_business_requests(self):
         root = self._install_trial_fixture()
         state = trial.load_trial_state(PRODUCT_ID)
         state["pendingRequestId"] = "pending-original"
@@ -2049,15 +2053,15 @@ class InstallFlowTestCase(unittest.TestCase):
             return original_write(destination, name, file)
         with mock.patch.object(trial, "runtime_resource", side_effect=newer), mock.patch.object(trial, "api_request", side_effect=AssertionError("must preserve pending use")):
             with mock.patch.object(trial, "write_install_file", side_effect=fail_entry), redirect_stdout(io.StringIO()):
-                self.assertEqual(trial.run(["enter", "--product", PRODUCT_ID]), 1)
+                self.assertEqual(trial.run(["install", "--product", PRODUCT_ID]), 1)
             self.assertFalse(trial.read_runtime_install(root, "cn", PRODUCT_ID)["ready"])
             with redirect_stdout(io.StringIO()) as output:
-                self.assertEqual(trial.run(["enter", "--product", PRODUCT_ID]), 0, output.getvalue())
+                self.assertEqual(trial.run(["install", "--product", PRODUCT_ID]), 0, output.getvalue())
             self.assertEqual(json.loads(output.getvalue())["nextAction"], "RESUME_TRIAL_USE")
         self.assertEqual(Path(trial.trial_state_path(PRODUCT_ID)).read_bytes(), before)
         self.assertFalse(trial.read_package_files(root, PRODUCT_ID).get("installing"))
 
-    def test_enter_recovers_before_new_support_file_was_written(self):
+    def test_install_refresh_recovers_before_new_support_file_was_written(self):
         files, name = trial.purchase_entry_files("cn", PRODUCT_ID, "Paid skill", "Summary", "paid-skill", RELEASE_ID)
         new_path = "references/host-presentation.md"
         files.pop(new_path)
@@ -2071,7 +2075,7 @@ class InstallFlowTestCase(unittest.TestCase):
             if path == new_path:
                 raise PermissionError("synthetic new file interruption")
             return original(destination, path, data)
-        args = ["enter", "--product", PRODUCT_ID, "--agent", "workbuddy"]
+        args = ["install", "--product", PRODUCT_ID, "--agent", "workbuddy"]
         with mock.patch.object(trial, "write_install_file", side_effect=fail_new_file), redirect_stdout(io.StringIO()):
             self.assertEqual(trial.run(args), 1)
         self.assertFalse((root / new_path).exists())
