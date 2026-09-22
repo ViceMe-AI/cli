@@ -112,5 +112,6 @@ Shop 的公共 `OrderCheckoutModule` 负责为微信 Native 待付款订单签�
 `skills/*/references/host-presentation.md` 是带维护源声明的构建副本，不是独立规则；
 只编辑 `payments/host-presentation.md`，运行 `make release-manifest` 同步所有发布产物。
 
-先部署新增响应字段和 `/order-checkout` 的 Shop API/Web，再发布 CLI 与生成的 Skill 包。
-兼容已有 `/trial-checkout` 链接，本轮不新增数据库迁移或环境变量。实际微信扣款与宿主原生浏览器另行验收。
+先保证新增响应字段和 `/order-checkout` 的 Shop API/Web 可用，再启用依赖新入口的客户端。
+Shop 导出器与官方运行包须配套切换：新导出要求 `guides/host-presentation.md`，拒绝 `widgets/payment.html`；仅更新任意一侧可能暂时导致导出失败，回滚也须选择匹配版本。
+历史摘要资源保留，已有用户安装包不会被重新校验或改写。兼容已有 `/trial-checkout` 链接，本轮不新增数据库迁移或环境变量。实际微信扣款与宿主原生浏览器另行验收。
