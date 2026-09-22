@@ -201,7 +201,7 @@ def prepare_runtime_files(files, market, product_id, release_id, kind):
     files.update(additions)
     manifest = {"schemaVersion": 1, "productId": product_id, "releaseId": release_id,
                 "apiBaseUrl": API_ORIGIN[market], "market": market, "runner": "python", "kind": kind,
-                "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in files.items() if name in additions or name in (RUNTIME_PATH, TRIAL_BODY_PATH) or (kind == "purchase" and name in ("SKILL.md", PURCHASE_GUIDE_PATH))}}
+                "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in files.items() if name in additions or name in (RUNTIME_PATH, TRIAL_BODY_PATH) or (kind == "purchase" and name in ("SKILL.md", PURCHASE_GUIDE_PATH, "references/host-presentation.md"))}}
     files[".viceme/runtime.json"] = (json.dumps(manifest, sort_keys=True).encode(), 0o644)
 
 
@@ -262,6 +262,66 @@ def attach_trial_snapshot(result, market, product_id, grant=None):
         result["nextAction"] = "PURCHASE_REQUIRED"
         result["message"] = exhausted_purchase_message()
     return result
+
+
+def command_enter(market, product_id, agent="auto"):
+    """Web entry runs from the current verified bootstrap, not a cached Skill."""
+    local = find_ready_install(market, product_id, agent)
+    if not local.get("ready"):
+        if local.get("nextAction") != "REPAIR_INSTALLATION":
+            return command_install(market, product_id, agent)
+        candidates = [invoking_skill_directory()] if invoking_skill_directory() else [
+            os.path.join(base, name) for base in target_roots(agent) if os.path.isdir(base)
+            for name in sorted(os.listdir(base)) if read_manifest_product(os.path.join(base, name)) == product_id]
+        root = next((path for path in candidates if (read_package_files(path, product_id) or {}).get("runtimeRefreshing") is True), None)
+        if not root:
+            raise Failure("RUNTIME_REFRESH_REQUIRED", "已有入口包不完整，请保留订单与凭证并修复安装；不要继续旧包")
+    else:
+        root = os.path.dirname(local["skillPath"])
+    with ProductLock(product_id), skill_path_lock(root):
+        validate_install_directory(root, market, product_id)
+        inventory = read_package_files(root, product_id)
+        resuming = bool(inventory and inventory.get("runtimeRefreshing") is True)
+        if not resuming and not read_runtime_install(root, market, product_id).get("ready"):
+            raise Failure("RUNTIME_REFRESH_REQUIRED", "入口包发生变化，请保留原状态并重试")
+        if not inventory or (inventory.get("installing") and not resuming) or inventory.get("recoveryDirectory") or inventory.get("previousReleaseId"):
+            raise Failure("RUNTIME_REFRESH_REQUIRED", "入口包缺少完整文件归属记录，请保留订单与凭证并修复安装")
+        with open(os.path.join(root, ".viceme/runtime.json"), encoding="utf-8") as handle:
+            manifest = json.load(handle)
+        # Refresh only platform support. Product revision, authored content,
+        # exhausted gate and all credential/order files keep their identity.
+        additions = {}
+        prepare_runtime_files(additions, market, product_id, manifest["releaseId"], manifest["kind"])
+        additions.pop(".viceme/runtime.json")
+        if manifest["kind"] == "purchase":
+            additions[PURCHASE_GUIDE_PATH] = (runtime_resource("guides/purchase.md"), 0o644)
+            additions["references/host-presentation.md"] = (runtime_resource("guides/host-presentation.md"), 0o644)
+        for name, digest in manifest["files"].items():
+            if name not in additions:
+                with open(install_file_path(root, name), "rb") as handle:
+                    if hashlib.sha256(handle.read()).hexdigest() != digest:
+                        raise Failure("RUNTIME_REFRESH_REQUIRED", "商品门禁文件发生变化，请保留原状态并修复安装")
+        changed = any(manifest["files"].get(name) != hashlib.sha256(data).hexdigest()
+                      for name, (data, _) in additions.items())
+        if resuming or changed:
+            complete = {}
+            for name in inventory["files"]:
+                path = install_file_path(root, name)
+                with open(path, "rb") as handle:
+                    complete[name] = (handle.read(), stat.S_IMODE(os.stat(path).st_mode))
+            complete.update(additions)
+            manifest["files"].update({name: hashlib.sha256(data).hexdigest()
+                                      for name, (data, _) in additions.items()})
+            complete[".viceme/runtime.json"] = (json.dumps(manifest, sort_keys=True).encode(), 0o644)
+            with open(os.path.join(root, ".viceme/install-manifest.json"), "rb") as handle:
+                complete[".viceme/install-manifest.json"] = (handle.read(), 0o644)
+            final_inventory = {"schemaVersion": 1, "productId": product_id, "releaseId": manifest["releaseId"],
+                               "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in complete.items()
+                                         if name != ".viceme/install-manifest.json"}}
+            complete[PACKAGE_FILES_PATH] = (json.dumps(final_inventory, sort_keys=True).encode(), 0o644)
+            install_complete_files(complete, root, product_id, manifest["releaseId"], runtime_refresh=True)
+    # Read quota/pending use only after the filesystem locks are released.
+    return command_ready(market, product_id, agent)
 
 
 def command_ready(market, product_id, agent="auto"):
@@ -1286,7 +1346,7 @@ def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=Fal
         else:
             order = purchase_request(market, product_id, state, extra={"clientRequestId": purchase["clientRequestId"], "locale": "zh-CN" if market == "cn" else "en-US"})
         validate_purchase(order, product_id, purchase.get("orderNo"))
-        if purchase.get("orderNo") and order["status"] == "PENDING" and not order.get("paymentAction") and datetime.fromisoformat(order["expiresAt"].replace("Z", "+00:00")) > datetime.now(timezone.utc):
+        if purchase.get("orderNo") and order["status"] == "PENDING" and not order.get("paymentAction"):
             # Resume this order after an uncertain provider response. Status
             # polling below is read-only and never opens another payment.
             order = purchase_request(market, product_id, state, extra={"clientRequestId": purchase["clientRequestId"], "locale": "zh-CN" if market == "cn" else "en-US"})
@@ -1321,6 +1381,10 @@ def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=Fal
         return emit_ok({"allowed": False, "productId": product_id, "orderNo": order["orderNo"],
                         "paymentStatus": "CLOSED", "nextAction": "PAYMENT_CLOSED",
                         "message": "这笔支付订单已关闭。同一轮立即再运行 purchase --wait 0 创建新订单。不要跑 status，不要对用户说试用没耗尽。"})
+    if (datetime.fromisoformat(order["expiresAt"].replace("Z", "+00:00")) <= datetime.now(timezone.utc)
+            or not (order.get("paymentAction") or order.get("checkoutUrl") or order.get("checkoutImageUrl"))):
+        raise Failure("PAYMENT_CONFIRMATION_PENDING", "正在确认原订单的支付状态，请稍后重试同一购买命令；不要展示旧二维码、创建新身份或清除订单。", retryable=True,
+                      orderNo=order["orderNo"], nextAction="WAIT_PAYMENT_CONFIRMATION")
     # A resumed order can predate entry suspension. Repair exhausted entries
     # before reporting payment presentation; buying early must not end a trial.
     if state.get("credentialKind") != "purchase":
@@ -1337,6 +1401,9 @@ def command_purchase(market, product_id, wait=0, agent="auto", _closed_retry=Fal
         if not hosted:
             raise
         presentation = None
+    if presentation is None and not hosted:
+        raise Failure("PAYMENT_CONFIRMATION_PENDING", "支付入口暂不可用，请保留原订单并稍后重试同一购买命令。", retryable=True,
+                      orderNo=order["orderNo"], nextAction="WAIT_PAYMENT_CONFIRMATION")
     with ProductLock(product_id):
         current = require_purchase_state(market, product_id)
         if (current.get("purchase") or {}).get("orderNo") != order["orderNo"]:
@@ -2109,7 +2176,7 @@ def write_install_file(destination, name, file):
             os.remove(temporary)
 
 
-def install_complete_files(complete, destination, product_id, release_id):
+def install_complete_files(complete, destination, product_id, release_id, runtime_refresh=False):
     existing = os.path.isdir(destination)
     previous = read_package_files(destination, product_id) if existing else None
     if existing and previous is None:
@@ -2133,6 +2200,8 @@ def install_complete_files(complete, destination, product_id, release_id):
     final_manifest = json.loads(complete[PACKAGE_FILES_PATH][0])
     transition = dict(final_manifest)
     transition["installing"] = True
+    if runtime_refresh:
+        transition["runtimeRefreshing"] = True
     transition["files"] = {**old_files, **final_manifest["files"]}
     if previous:
         with open(os.path.join(destination, ".viceme/install-manifest.json"), encoding="utf-8") as handle:
@@ -2326,7 +2395,7 @@ def remove_path(path):
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(prog="trial.py", description="ViceMe Skill 免 CLI 安装与试用计数")
-    parser.add_argument("command", choices=["ready", "install", "use", "status", "purchase", "export-package"], help="ready=只读确认本机安装,install=安装,use=申请一次试用,status=查询余量不扣次,purchase=付款并转正,export-package=导出试用门禁或购买入口 zip(不安装、不请求 API)")
+    parser.add_argument("command", choices=["enter", "ready", "install", "use", "status", "purchase", "export-package"], help="enter=网页入口校验更新平台运行文件,ready=只读确认本机安装,install=安装,use=申请一次试用,status=查询余量不扣次,purchase=付款并转正,export-package=导出试用门禁或购买入口 zip(不安装、不请求 API)")
     parser.add_argument("--wait", type=int, default=0, help="展示二维码或官方支付链接后有界等待支付的秒数(0–600)")
     parser.add_argument("--product", required=True, help="Skill 的 Product ID(UUID)")
     parser.add_argument("--market", choices=sorted(SCRIPT_ORIGIN), default="cn", help="市场区域:cn 或 global")
@@ -2358,6 +2427,8 @@ def main(argv):
             args.market, args.product, args.kind, args.release_id, args.output,
             input_path=args.input, title=args.title, summary=args.summary, slug=args.slug)
     load_runtime_environment(args.market, args.product)
+    if args.command == "enter":
+        return command_enter(args.market, args.product, args.agent)
     if args.command == "ready":
         return command_ready(args.market, args.product, args.agent)
     if args.command == "install":

@@ -28,6 +28,7 @@ import unittest
 import urllib.parse
 import xml.etree.ElementTree as ET
 import zipfile
+from pathlib import Path
 from contextlib import redirect_stdout
 from unittest import mock
 
@@ -1963,6 +1964,87 @@ class InstallFlowTestCase(unittest.TestCase):
             code = trial.run(["purchase", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy", *arguments])
         return code, json.loads(output.getvalue())
 
+    def test_enter_refreshes_runtime_and_keeps_product_credentials_and_user_files(self):
+        self._install_trial_fixture()
+        local = trial.find_ready_install("cn", PRODUCT_ID, "auto")
+        root = os.path.dirname(local["skillPath"])
+        state = trial.load_trial_state(PRODUCT_ID)
+        state["pendingRequestId"] = "pending-same-use"
+        trial.save_trial_state(PRODUCT_ID, state)
+        before = Path(trial.trial_state_path(PRODUCT_ID)).read_bytes()
+        body = Path(local["skillPath"]).read_bytes()
+        with open(os.path.join(root, "user-output.txt"), "w") as handle:
+            handle.write("keep me")
+        original = trial.runtime_resource
+        def newer(name):
+            return original(name) + (b"\nUpdated guide\n" if name == "guides/host-presentation.md" else b"")
+        with mock.patch.object(trial, "runtime_resource", side_effect=newer), mock.patch.object(trial, "api_request", side_effect=AssertionError("no business request during pending recovery")):
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(["enter", "--product", PRODUCT_ID]), 0)
+            self.assertEqual(json.loads(output.getvalue())["nextAction"], "RESUME_TRIAL_USE")
+            with mock.patch.object(trial, "install_complete_files", side_effect=AssertionError("unchanged runtime must not be rewritten")):
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(trial.run(["enter", "--product", PRODUCT_ID]), 0)
+        self.assertEqual(Path(local["skillPath"]).read_bytes(), body)
+        self.assertEqual(Path(trial.trial_state_path(PRODUCT_ID)).read_bytes(), before)
+        self.assertEqual(Path(root, "user-output.txt").read_text(), "keep me")
+        self.assertTrue(trial.read_runtime_install(root, "cn", PRODUCT_ID)["ready"])
+        self.assertIn(b"Updated guide", Path(root, ".viceme/guides/host-presentation.md").read_bytes())
+
+    def test_enter_rejects_cross_environment_refresh_without_touching_files(self):
+        root = self._install_trial_fixture()
+        before = {str(path.relative_to(root)): path.read_bytes() for path in Path(root).rglob("*") if path.is_file()}
+        with mock.patch.dict(trial.API_ORIGIN, {"cn": "https://dev.viceme.cn/api"}), mock.patch.object(trial, "api_request", side_effect=AssertionError("cross-environment network call")):
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(["enter", "--product", PRODUCT_ID]), 1)
+            self.assertEqual(json.loads(output.getvalue())["code"], "RUNTIME_REFRESH_REQUIRED")
+        after = {str(path.relative_to(root)): path.read_bytes() for path in Path(root).rglob("*") if path.is_file()}
+        self.assertEqual(after, before)
+
+    def test_enter_recovers_interrupted_refresh_without_business_requests(self):
+        root = self._install_trial_fixture()
+        state = trial.load_trial_state(PRODUCT_ID)
+        state["pendingRequestId"] = "pending-original"
+        trial.save_trial_state(PRODUCT_ID, state)
+        before = Path(trial.trial_state_path(PRODUCT_ID)).read_bytes()
+        original_resource = trial.runtime_resource
+        def newer(name):
+            return original_resource(name) + (b"\nNew runtime guide\n" if name == "guides/host-presentation.md" else b"")
+        original_write = trial.write_install_file
+        def fail_entry(destination, name, file):
+            if name == "SKILL.md":
+                raise PermissionError("synthetic interrupted refresh")
+            return original_write(destination, name, file)
+        with mock.patch.object(trial, "runtime_resource", side_effect=newer), mock.patch.object(trial, "api_request", side_effect=AssertionError("must preserve pending use")):
+            with mock.patch.object(trial, "write_install_file", side_effect=fail_entry), redirect_stdout(io.StringIO()):
+                self.assertEqual(trial.run(["enter", "--product", PRODUCT_ID]), 1)
+            self.assertFalse(trial.read_runtime_install(root, "cn", PRODUCT_ID)["ready"])
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(["enter", "--product", PRODUCT_ID]), 0, output.getvalue())
+            self.assertEqual(json.loads(output.getvalue())["nextAction"], "RESUME_TRIAL_USE")
+        self.assertEqual(Path(trial.trial_state_path(PRODUCT_ID)).read_bytes(), before)
+        self.assertFalse(trial.read_package_files(root, PRODUCT_ID).get("installing"))
+
+    def test_expired_pending_purchase_recovers_same_identity_without_empty_presentation(self):
+        state = trial.require_purchase_state("cn", PRODUCT_ID, create=True)
+        state["purchase"] = {"clientRequestId": "same-request", "orderNo": "ORDER001"}
+        trial.save_purchase_state(PRODUCT_ID, state)
+        order = self._purchase_order(orderNo="ORDER001", expiresAt="2020-01-01T00:00:00Z", paymentAction=None)
+        calls = []
+        def api(market, product, credential, action="", extra=None):
+            calls.append((action, extra))
+            self.assertEqual(credential["installId"], state["installId"])
+            return order
+        with mock.patch.object(trial, "purchase_request", side_effect=api):
+            code, result = self._run_purchase()
+        self.assertEqual(code, 1)
+        self.assertEqual(result["code"], "PAYMENT_CONFIRMATION_PENDING")
+        self.assertNotIn("paymentPresentation", result)
+        self.assertEqual(calls, [("status", {"orderNo": "ORDER001"}), ("", {"clientRequestId": "same-request", "locale": "zh-CN"})])
+        saved = trial.load_purchase_state("cn", PRODUCT_ID)
+        self.assertEqual(saved["purchase"]["clientRequestId"], "same-request")
+        self.assertFalse(saved["purchase"].get("presented", False))
+
     def test_no_trial_install_precedes_order_and_recovers_lost_create(self):
         requests = []
         def api(market, method, path, body=None):
@@ -2383,8 +2465,10 @@ class InstallFlowTestCase(unittest.TestCase):
             return self._purchase_order(expiresAt="2020-01-01T00:00:00Z", paymentAction=None)
         with mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=self._resource_download):
             code, result = self._run_purchase()
-        self.assertEqual(code, 0, result)
-        self.assertEqual(calls, ["/v1/skills/%s/trial-purchase/status" % PRODUCT_ID])
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["code"], "PAYMENT_CONFIRMATION_PENDING")
+        self.assertEqual(calls, ["/v1/skills/%s/trial-purchase/status" % PRODUCT_ID,
+                               "/v1/skills/%s/trial-purchase" % PRODUCT_ID])
         self.assertFalse(trial.load_trial_state(PRODUCT_ID)["purchase"].get("closed", False))
         self.assertEqual(trial.load_trial_state(PRODUCT_ID)["purchase"]["clientRequestId"], "unchanged")
 

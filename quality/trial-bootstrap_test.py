@@ -152,7 +152,7 @@ class BootstrapTests(unittest.TestCase):
                 runner = directory / "run-bootstrap.py"
                 runner.write_text("import runpy, sys\nm = runpy.run_path(sys.argv[1])\nm['API_ORIGIN']['cn'] = sys.argv[2]\nsys.argv = sys.argv[1:2] + sys.argv[3:]\nraise SystemExit(m['main']())\n")
                 first = subprocess.run([sys.executable, str(runner), str(SCRIPTS / "trial.py"),
-                    "http://127.0.0.1:%s" % server.server_port, "install", "--product", product,
+                    "http://127.0.0.1:%s" % server.server_port, "enter", "--product", product,
                     "--market", "cn", "--agent", "agents"], cwd=temporary, env=environment,
                     capture_output=True, text=True, timeout=20)
                 self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
@@ -210,6 +210,22 @@ class BootstrapTests(unittest.TestCase):
                 self.assertEqual(pending["skillPath"], str(skill_path))
                 self.assertNotIn("Full paid Skill", skill_path.read_text())
                 identity = state_path.read_bytes()
+                # A new chat/process must refresh a self-consistent older bundle,
+                # without resetting the already created purchase identity.
+                old_guide = skill_path.parent / ".viceme/guides/host-presentation.md"
+                old_guide.write_text("Older presentation rules")
+                runtime_manifest = skill_path.parent / ".viceme/runtime.json"
+                manifest = json.loads(runtime_manifest.read_text())
+                manifest["files"][".viceme/guides/host-presentation.md"] = hashlib.sha256(old_guide.read_bytes()).hexdigest()
+                runtime_manifest.write_text(json.dumps(manifest))
+                refreshed = subprocess.run([sys.executable, str(runner), str(SCRIPTS / "trial.py"),
+                    "http://127.0.0.1:%s" % server.server_port, "enter", "--product", product,
+                    "--market", "cn", "--agent", "agents"], cwd=temporary, env=environment,
+                    capture_output=True, text=True, timeout=20)
+                self.assertEqual(refreshed.returncode, 0, refreshed.stdout + refreshed.stderr)
+                self.assertEqual(old_guide.read_bytes(), (ROOT / "payments/host-presentation.md").read_bytes())
+                self.assertEqual(state_path.read_bytes(), identity)
+
                 for file in skill_path.parent.rglob("*"):
                     if file.is_file():
                         self.assertNotIn(json.loads(identity)["secret"].encode(), file.read_bytes())
