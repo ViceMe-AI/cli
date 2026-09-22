@@ -37,7 +37,7 @@ func publishDev(ctx context.Context, cfg Config, factory func(context.Context, C
 		return errors.New("invalid dev publication")
 	}
 	for _, region := range cfg.Regions {
-		origin := "https://s3.viceme.cn/dev"
+		origin := "https://s3.dev.viceme.cn/dev"
 		if region.Label == "GLOBAL" {
 			origin = "https://s3.viceme.ai/dev"
 		}

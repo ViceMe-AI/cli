@@ -62,7 +62,7 @@ func TestCommerceRuntimeBootstrapAcceptsOnlyThePlatformInstallContract(t *testin
 		t.Fatalf("valid runtime bootstrap was rejected: %v", err)
 	}
 
-	for _, origin := range []string{"https://s3.viceme.cn/dev", "https://s3.viceme.ai/dev"} {
+	for _, origin := range []string{"https://s3.dev.viceme.cn/dev", "https://s3.viceme.ai/dev"} {
 		dev := valid
 		dev.Runtime.InstallerContractURL = origin + "/start/agent-install.md"
 		dev.Runtime.CommerceInstallerContractURL = origin + "/start/commerce-skill-install.md"

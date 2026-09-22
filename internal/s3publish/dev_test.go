@@ -67,7 +67,7 @@ func TestDevPublicationWritesIsolatedImmutableBuildBeforePointer(t *testing.T) {
 	for _, name := range []string{"SHA256SUMS", "start/agent-install.md", "skills/manifest.json", "skills/use-a-skill/scripts/trial.py"} {
 		write(name, []byte(name))
 	}
-	cfg := Config{DistDir: root, Version: build, Regions: []Region{{Label: "CN", Bucket: "dev", PublicOrigin: "https://s3.viceme.cn/dev", Endpoint: fake.endpoint(), AccessKey: "test", SecretKey: "test"}}}
+	cfg := Config{DistDir: root, Version: build, Regions: []Region{{Label: "CN", Bucket: "dev", PublicOrigin: "https://s3.dev.viceme.cn/dev", Endpoint: fake.endpoint(), AccessKey: "test", SecretKey: "test"}}}
 	factory := func(ctx context.Context, cfg Config, region Region) (*regionRuntime, error) {
 		client := fake.server.Client()
 		s3, err := newS3Client(ctx, region, client)

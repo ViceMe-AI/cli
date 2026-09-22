@@ -10,7 +10,7 @@ import (
 func main() {
 	regions := []s3publish.Region{}
 	for _, name := range []string{"CN", "GLOBAL"} {
-		origin := "https://s3.viceme.cn/dev"
+		origin := "https://s3.dev.viceme.cn/dev"
 		if name == "GLOBAL" {
 			origin = "https://s3.viceme.ai/dev"
 		}

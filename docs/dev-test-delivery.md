@@ -18,7 +18,7 @@ GitHub 创建 dev Environment，限制只有本工作流的授权维护者使用
 | Variable | VICEME_DEV_COMMERCE_SKILL_TRUST_KEYS | dev Commerce 签名验证公钥；不可使用私钥 |
 | Variable | VICEME_DEV_TEMPLATE_CATALOG_TRUST_KEYS | 模板目录签名验证公钥；当前只读公共模板仍使用原发布源 |
 
-公开访问为 https://s3.viceme.cn/dev/ 与 https://s3.viceme.ai/dev/。配置只读对象访问，禁止公开列桶和写入。发布工具固定 bucket=dev 且校验对应公开 origin，不能传 start/skills 桶。
+公开访问为 https://s3.dev.viceme.cn/dev/ 与 https://s3.viceme.ai/dev/。配置只读对象访问，禁止公开列桶和写入。发布工具固定 bucket=dev 且校验对应公开 origin，不能传 start/skills 桶。
 
 Shop 的 Web、Admin、API 配置 DEPLOYMENT_ENV=dev，并配置 dev 公共 Web/API 地址。NODE_ENV 继续使用 production 构建，MARKET_REGION 只区分 CN/GLOBAL。部署设置与环境备份遵守 Shop 仓库规范。
 

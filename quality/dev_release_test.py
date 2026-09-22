@@ -19,7 +19,7 @@ class DevArtifactsTest(unittest.TestCase):
             mod.render_dev_assets(root,"dev-123-1-abcdefabcdef")
             self.assertEqual(original,(root/"internal/update/update.go").read_bytes())
             script=(root/"skills/use-a-skill/scripts/test.py").read_text()
-            self.assertIn("https://s3.viceme.cn/dev/builds/dev-123-1-abcdefabcdef/skills/x",script)
+            self.assertIn("https://s3.dev.viceme.cn/dev/builds/dev-123-1-abcdefabcdef/skills/x",script)
             self.assertIn("https://dev.viceme.cn/api",script)
             self.assertIn("https://s3.viceme.ai/dev/builds/",script)
             self.assertIn("https://s3.viceme.cn/viceme-sdk/1/index.js",script)
