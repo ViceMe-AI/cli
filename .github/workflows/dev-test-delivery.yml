@@ -7,6 +7,8 @@ on:
         description: Full current dev commit SHA (40 lowercase hex characters)
         required: true
         type: string
+env:
+  PYTHONDONTWRITEBYTECODE: "1"
 permissions:
   contents: read
 concurrency:
