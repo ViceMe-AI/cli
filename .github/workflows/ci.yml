@@ -2,10 +2,12 @@ name: CLI PR checks
 
 on:
   pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, edited]
   workflow_dispatch:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: cli-pr-checks-${{ github.event.pull_request.number || github.ref }}
@@ -21,10 +23,11 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          fetch-depth: 1
+          fetch-depth: 0
       - id: classify
         name: Decide whether the promotion head is final
         env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_REF: ${{ github.base_ref }}
           PR_HEAD_REF: ${{ github.head_ref }}
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || '' }}
@@ -35,7 +38,9 @@ jobs:
           export PR_HEAD_SUBJECT PR_HEAD_BODY PR_HEAD_AUTHOR_EMAIL
           echo "run-full=$(bash scripts/ci/validate-pr-target.sh --should-run-full-checks)" >>"${GITHUB_OUTPUT}"
       - name: Test pull request target contract
-        run: bash scripts/ci/validate-pr-target.sh --self-test
+        run: |
+          bash scripts/ci/validate-pr-target.sh --self-test
+          python3 scripts/ci/test-release-gate.py
 
   quality:
     name: PR quality
@@ -44,14 +49,19 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
       - name: Validate protected branch pull request target
         env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_BASE_REF: ${{ github.base_ref }}
           PR_HEAD_REF: ${{ github.head_ref }}
           PR_HEAD_REPOSITORY: ${{ github.event.pull_request.head.repo.full_name || '' }}
         run: bash scripts/ci/validate-pr-target.sh
       - name: Test pull request target contract
-        run: bash scripts/ci/validate-pr-target.sh --self-test
+        run: |
+          bash scripts/ci/validate-pr-target.sh --self-test
+          python3 scripts/ci/test-release-gate.py
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         if: needs.classify.outputs.run-full == 'true'
         with:
@@ -64,6 +74,12 @@ jobs:
           cache: npm
       - if: needs.classify.outputs.run-full == 'true'
         run: npm ci
+      - name: Verify generated release commit against its accepted parent
+        if: needs.classify.outputs.run-full == 'true' && github.base_ref == 'main' && github.head_ref != 'dev' && !startsWith(github.head_ref, 'hotfix/')
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/verify-prepared-release.sh
       - name: Validate GitHub Actions workflows
         if: needs.classify.outputs.run-full == 'true'
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7

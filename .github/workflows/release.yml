@@ -31,6 +31,7 @@ jobs:
       sha: ${{ steps.release.outputs.sha }}
       recovery: ${{ steps.release.outputs.recovery }}
       release_exists: ${{ steps.release.outputs.release_exists }}
+      release_pull_request: ${{ steps.context.outputs.release_pull_request }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
@@ -44,7 +45,7 @@ jobs:
         run: node npm/scripts/resolve-release-context.mjs
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          # Normal releases publish the exact reviewed dev head. Recovery
+          # Normal releases publish the exact reviewed source head. Recovery
           # checks out an already-existing immutable release tag.
           ref: ${{ steps.context.outputs.release_ref }}
           fetch-depth: 0
@@ -71,6 +72,11 @@ jobs:
               exit 1
             fi
           else
+            git merge-base --is-ancestor "$SHA" "$GITHUB_SHA"
+            if [[ "$(git rev-parse "${SHA}^{tree}")" != "$(git rev-parse "${GITHUB_SHA}^{tree}")" ]]; then
+              echo "Merged main tree differs from reviewed source; refusing to publish a stale candidate" >&2
+              exit 1
+            fi
             if [[ "${PR_TITLE}" != "chore(release): ${TAG}" ]]; then
               echo "Release PR title must be exactly chore(release): ${TAG}" >&2
               exit 1
@@ -615,7 +621,7 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          ref: ${{ needs.metadata.outputs.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
       - name: Resolve release range
         id: range
@@ -641,13 +647,18 @@ jobs:
             echo "${COMMITS}"
             echo "${DELIMITER}"
           } >>"${GITHUB_OUTPUT}"
-      - uses: Dogtiti/feishu-bot-webhook-action@fd68eb3a1e032761a500da0ec8ea82489a8b4d9c # main
+      - name: Load release publisher mapping
+        id: publisher
+        run: echo "users=$(jq -c . .github/feishu-users.json)" >>"${GITHUB_OUTPUT}"
+      - uses: Dogtiti/feishu-bot-webhook-action@4fc6d2f9a77d146eba364825518cd2cb21fee0df # CLI release context
         with:
           webhook: ${{ secrets.FEISHU_RELEASE_WEBHOOK }}
           mode: release-changelog
           ai_api_key: ${{ secrets.AI_API_KEY }}
           ai_model: ${{ secrets.AI_MODEL || 'deepseek-chat' }}
           ai_base_url: ${{ secrets.AI_BASE_URL || 'https://api.deepseek.com/v1' }}
+          github_feishu_users: ${{ steps.publisher.outputs.users }}
+          release_pull_request: ${{ needs.metadata.outputs.release_pull_request }}
           service_name: viceme-cli
           tag_name: ${{ needs.metadata.outputs.tag }}
           commits: ${{ steps.range.outputs.commits }}
