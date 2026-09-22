@@ -181,7 +181,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | configure follow or paid unlock for an existing website and integrate it into host code after the shared creator qualification check; platform resources stay internal. |
 | `let-people-interact` | branch between danmaku, open tips, or both; danmaku-bearing routes require a published Website Work with an exact canonical Origin, while Tip can use any eligible published Merchant Work. It defaults to Mounted UI and uses Headless only for an explicit custom-UI request; none requires DNS ownership verification. |
-| `viceme-mini-game-commerce` | 为已有本地小游戏按作品接入离线购买与许可证兑换，保留原代码并增量更新道具；不上传、托管或打包。 |
+| `viceme-mini-game-commerce` | 为已有本地小游戏按作品接入离线购买与六位动态码兑换，保留原代码并增量更新道具；不上传、托管或打包。 |
 | `let-others-make-a-copy` | publish a complete website source ZIP with a root `VICEME-REPLICA.md`, then integrate the platform-provided replica prompt into the creator's own site; it does not perform buyer checkout or installation. |
 | `let-me-make-a-copy` | accept a website copy invitation; install from the regional S3-hosted official Skill ZIP, reuse account-bound or anonymous CLI purchasing when available, preserve an existing standalone recovery, and fall back to the bundled no-CLI script. |
 
@@ -205,8 +205,9 @@ viceme mini-game check --project <path>
 `viceme/mini-game-config.js`；`.viceme` 保留必要管理状态。宿主通过全局
 `ViceMeMiniGame` 的异步接口按不可变道具 alias 接线。命令报告 HTML 脚本顺序、
 缺失/动态/未知别名、配置过期与手改冲突，不盲目重写原游戏。下架道具仍保留用于永久权益恢复。
-静态检查通过后还需实际验证付款卡与许可证；最终平台检查和打包交回小红书上传页的当前官方口令与 Skill，
-参见[官方说明](https://miniapp-sandbox.xiaohongshu.com/minitool/doc)。
+静态检查通过后还需实际验证付款卡与六位动态码兑换；权益固定绑定原安装，清数据、重装或换设备无法继承。
+普通浏览器与小红书分别使用各自的持久化存储，不迁移安装身份。只有发布到小红书时，才将最终平台检查和打包
+交回上传页的当前官方口令与 Skill，参见[官方说明](https://miniapp-sandbox.xiaohongshu.com/minitool/doc)。
 
 ## How Skill publishing works
 

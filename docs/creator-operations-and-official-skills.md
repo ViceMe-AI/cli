@@ -58,8 +58,10 @@ CLI profile、凭据与选定商家读取已发布 CN `MINI_GAME` 的集成 mani
 `viceme mini-game integrate --work <UUID> --merchant-account <UUID> --environment sandbox|production --project <path>`
 管理一份官方运行库、一份作品配置与必要本地状态；`viceme mini-game check --project <path>`
 只读检查最新道具及入口引用。原游戏代码由 Skill 最小接线，受管文件冲突时停止覆盖；
-道具标题变更不改变 alias，下架道具仍用于永久权益恢复。完成接入后回到小红书上传页使用当前
-官方完整口令和对应 Skill；本流程不上传源码或 ZIP、不托管、不执行最终打包和发布。
+道具标题变更不改变 alias，下架道具仍用于原安装的永久权益恢复。兑换使用六位动态码，不兼容旧长许可证，
+不支持跨安装换绑或恢复；清数据、重装或换设备无法继承。普通浏览器与小红书使用各自存储，不迁移安装身份。
+只有发布到小红书时，才回到上传页使用当前官方完整口令和对应 Skill；
+本流程不上传源码或 ZIP、不托管、不执行最终打包和发布。
 
 ## 实施与验证
 
