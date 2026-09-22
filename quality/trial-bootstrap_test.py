@@ -152,7 +152,7 @@ class BootstrapTests(unittest.TestCase):
                 runner = directory / "run-bootstrap.py"
                 runner.write_text("import runpy, sys\nm = runpy.run_path(sys.argv[1])\nm['API_ORIGIN']['cn'] = sys.argv[2]\nsys.argv = sys.argv[1:2] + sys.argv[3:]\nraise SystemExit(m['main']())\n")
                 first = subprocess.run([sys.executable, str(runner), str(SCRIPTS / "trial.py"),
-                    "http://127.0.0.1:%s" % server.server_port, "enter", "--product", product,
+                    "http://127.0.0.1:%s" % server.server_port, "install", "--product", product,
                     "--market", "cn", "--agent", "agents"], cwd=temporary, env=environment,
                     capture_output=True, text=True, timeout=20)
                 self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
@@ -219,7 +219,7 @@ class BootstrapTests(unittest.TestCase):
                 manifest["files"][".viceme/guides/host-presentation.md"] = hashlib.sha256(old_guide.read_bytes()).hexdigest()
                 runtime_manifest.write_text(json.dumps(manifest))
                 refreshed = subprocess.run([sys.executable, str(runner), str(SCRIPTS / "trial.py"),
-                    "http://127.0.0.1:%s" % server.server_port, "enter", "--product", product,
+                    "http://127.0.0.1:%s" % server.server_port, "install", "--product", product,
                     "--market", "cn", "--agent", "agents"], cwd=temporary, env=environment,
                     capture_output=True, text=True, timeout=20)
                 self.assertEqual(refreshed.returncode, 0, refreshed.stdout + refreshed.stderr)
