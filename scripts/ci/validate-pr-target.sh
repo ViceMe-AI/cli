@@ -18,20 +18,40 @@ validate_pr_target() {
   [[ "$base_ref" == "main" ]] || return 0
 
   if [[ "$head_repository" != "$repository" ]]; then
-    fail "main only accepts same-repository dev or hotfix/* pull requests"
+    fail "main only accepts same-repository pull requests"
     return 1
   fi
 
   case "$head_ref" in
     dev | hotfix/*) return 0 ;;
-    *) fail "main only accepts dev or hotfix/*; got $head_ref" ;;
+    "" | main | chore\(repo\)/integrate-*) fail "invalid release source: $head_ref"; return 1 ;;
   esac
+  local head="${PR_HEAD_SHA:-}"
+  [[ "$head" =~ ^[a-f0-9]{40}$ ]] || { fail "exact PR_HEAD_SHA is required"; return 1; }
+  git fetch --no-tags origin +refs/heads/dev:refs/remotes/origin/dev || return 1
+  git cat-file -e "${head}^{commit}" || return 1
+  if git merge-base --is-ancestor "$head" refs/remotes/origin/dev; then
+    return 0
+  fi
+  # This is only admission to the expensive reproducibility check, not proof
+  # that a bot-authored commit is safe to publish.
+  PR_HEAD_SUBJECT="$(git show -s --format=%s "$head")"
+  PR_HEAD_BODY="$(git show -s --format=%B "$head")"
+  PR_HEAD_AUTHOR_EMAIL="$(git show -s --format=%ae "$head")"
+  export PR_HEAD_SUBJECT PR_HEAD_BODY PR_HEAD_AUTHOR_EMAIL
+  if is_prepared_release_commit &&
+    [[ "$(git rev-list --parents -n 1 "$head" | wc -w | tr -d ' ')" == 2 ]] &&
+    git merge-base --is-ancestor "${head}^" refs/remotes/origin/dev; then
+    return 0
+  fi
+  fail "feature head must enter dev first; only one reproducible release commit may follow it"
+  return 1
 }
 
 is_release_promotion() {
   [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" ]] &&
     [[ "${PR_BASE_REF:-}" == "main" ]] &&
-    [[ "${PR_HEAD_REF:-}" == "dev" ]] &&
+    [[ -n "${PR_HEAD_REF:-}" && "${PR_HEAD_REF}" != hotfix/* && "${PR_HEAD_REF}" != chore\(repo\)/integrate-* && "${PR_HEAD_REF}" != main ]] &&
     [[ "${PR_HEAD_REPOSITORY:-}" == "${GITHUB_REPOSITORY:-}" ]]
 }
 

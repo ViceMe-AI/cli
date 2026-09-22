@@ -231,9 +231,22 @@ that an unpublished official release exists; state that boundary explicitly.
 
 ## Release and pull-request workflow
 
-- Normal feature and fix PRs target `dev`. Production promotion is the reviewed
-  repository-owned `dev` to `main` Release PR described in
-  `docs/releasing.md`.
+- 从最新 `origin/main` 创建功能分支，先 PR 到 `dev` 验收，再用同一来源分支 PR 到
+  `main` 独立发布；保留 `dev → main` 整体发布。详见 `docs/releasing.md`。
+- 禁止将 `dev` 或临时集成分支反向合入功能分支。集成冲突在从 `dev` 创建的
+  `chore(repo)/integrate-*` 分支解决，该分支只能 PR 到 `dev`。
+- Hotfix 发布后统一通过 `main → dev` PR 回灌完整发布历史，使用 Merge commit；
+  仅合入 hotfix 来源分支不算完成。普通发布后也须验证本次 main 发布 SHA 已进入 dev。
+  发布回灌的冲突在从 main 创建的 `chore(repo)/integrate-main-into-dev-*` 专用分支处理，
+  在该分支合入 dev 后仅向 dev 提 PR，不得合回 main、hotfix 或功能分支。详见 `docs/releasing.md`。
+- 独立发布的业务 head 必须已进入最新 `dev`，PR 正文记录验收 SHA 和结果。
+  唯一例外是紧随该 head 的一个自动版本提交：必须通过发布工作流证据、文件白名单
+  和从父提交重新生成后的完整 Git tree 比对；不能仅信任作者或提交标题。
+- Bot 更新原来源分支，最终提交运行完整发布检查。业务代码再变更必须再次进入 dev。
+  分支只从 main 同步；不得为满足检查把 dev 合入。已从 dev 创建的存量分支逐一
+  检查相对 main 的完整差异，不批量重建。
+- PR 标题与正文使用中文（自动发布标题保留 `chore(release): vX.Y.Z`），交付至少
+  一个已有语义标签。未经明确授权不合并 PR、不发布。
 - Use Conventional Commit subjects. Keep generated version, changelog, package,
   checksum, and manifest changes inside the automated release preparation flow.
 - Do not create or move release tags manually, publish npm locally, or edit
