@@ -2025,6 +2025,30 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertEqual(Path(trial.trial_state_path(PRODUCT_ID)).read_bytes(), before)
         self.assertFalse(trial.read_package_files(root, PRODUCT_ID).get("installing"))
 
+    def test_enter_recovers_before_new_support_file_was_written(self):
+        files, name = trial.purchase_entry_files("cn", PRODUCT_ID, "Paid skill", "Summary", "paid-skill", RELEASE_ID)
+        new_path = "references/host-presentation.md"
+        files.pop(new_path)
+        manifest = json.loads(files[".viceme/runtime.json"][0])
+        manifest["files"].pop(new_path)
+        files[".viceme/runtime.json"] = (json.dumps(manifest).encode(), 0o644)
+        trial.install_to_roots(files, name, PRODUCT_ID, RELEASE_ID, "workbuddy")
+        root = Path(self.home, ".workbuddy", "skills", name)
+        original = trial.write_install_file
+        def fail_new_file(destination, path, data):
+            if path == new_path:
+                raise PermissionError("synthetic new file interruption")
+            return original(destination, path, data)
+        args = ["enter", "--product", PRODUCT_ID, "--agent", "workbuddy"]
+        with mock.patch.object(trial, "write_install_file", side_effect=fail_new_file), redirect_stdout(io.StringIO()):
+            self.assertEqual(trial.run(args), 1)
+        self.assertFalse((root / new_path).exists())
+        with redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(trial.run(args), 0, output.getvalue())
+        self.assertEqual((root / new_path).read_bytes(), trial.runtime_resource("guides/host-presentation.md"))
+        self.assertTrue(trial.read_runtime_install(str(root), "cn", PRODUCT_ID)["ready"])
+        self.assertFalse(Path(trial.purchase_state_path(PRODUCT_ID)).exists())
+
     def test_expired_pending_purchase_recovers_same_identity_without_empty_presentation(self):
         state = trial.require_purchase_state("cn", PRODUCT_ID, create=True)
         state["purchase"] = {"clientRequestId": "same-request", "orderNo": "ORDER001"}

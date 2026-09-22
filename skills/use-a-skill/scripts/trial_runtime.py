@@ -306,6 +306,8 @@ def command_enter(market, product_id, agent="auto"):
         if resuming or changed:
             complete = {}
             for name in inventory["files"]:
+                if name in additions:
+                    continue  # A newly added support file may not exist after interruption.
                 path = install_file_path(root, name)
                 with open(path, "rb") as handle:
                     complete[name] = (handle.read(), stat.S_IMODE(os.stat(path).st_mode))
