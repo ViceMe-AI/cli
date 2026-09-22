@@ -2368,11 +2368,11 @@ def main(argv):
             raise ValueError()
     except ValueError:
         raise Failure("ARGUMENT_INVALID", "商品 ID 必须为 UUID,等待时间必须在 0–600 秒之间") from None
+    load_runtime_environment(args.market, args.product)
     if args.command == "export-package":
         return command_export_package(
             args.market, args.product, args.kind, args.release_id, args.output,
             input_path=args.input, title=args.title, summary=args.summary, slug=args.slug)
-    load_runtime_environment(args.market, args.product)
     if args.command == "ready":
         return command_ready(args.market, args.product, args.agent)
     if args.command == "install":
