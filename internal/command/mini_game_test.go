@@ -165,6 +165,34 @@ func TestMiniGameIntegrateAndCheckLifecycle(t *testing.T) {
 	}
 }
 
+func TestMiniGameIntegrateAndCheckAcceptHTTPCheckoutLoopback(t *testing.T) {
+	for _, origin := range []string{
+		"http://localhost",
+		"http://localhost:3000",
+		"http://127.0.0.1",
+		"http://127.0.0.1:3000",
+		"http://[::1]",
+		"http://[::1]:3000",
+	} {
+		t.Run(origin, func(t *testing.T) {
+			project := t.TempDir()
+			writeMiniGameHost(t, project)
+			manifest := miniGameFixture()
+			manifest.CheckoutOrigin = origin
+			server := miniGameServer(t, func() any { return manifest })
+			exit, out := executeMerchantEngagementCommand(t, server, miniGameArgs("integrate", project))
+			report := miniGameReportFromOutput(t, out)
+			if exit != 0 || !report.Installed || !report.Ready {
+				t.Fatalf("HTTP 回环接入失败: %s", out)
+			}
+			exit, out = executeMerchantEngagementCommand(t, server, []string{"mini-game", "check", "--project", project})
+			if exit != 0 || !miniGameReportFromOutput(t, out).Ready {
+				t.Fatalf("HTTP 回环检查失败: %s", out)
+			}
+		})
+	}
+}
+
 func TestMiniGameRequiresReferencesForRetainedEntitlements(t *testing.T) {
 	project := t.TempDir()
 	writeMiniGameHost(t, project)
@@ -214,6 +242,29 @@ func TestMiniGameRejectsInvalidManifestWithoutChangingFiles(t *testing.T) {
 		"非十六进制密钥":   func(m map[string]any) { m["sharedSecret"] = strings.Repeat("g", 64) },
 		"尾斜杠Origin": func(m map[string]any) { m["checkoutOrigin"] = "https://viceme.cn/" },
 	}
+	for _, origin := range []string{
+		"http://viceme.cn",
+		"http://192.168.1.1:3000",
+		"http://localhost.evil",
+		"http://127.0.0.2",
+		"http://[::ffff:127.0.0.1]",
+		"http://localhost/",
+		"http://localhost/path",
+		"http://localhost?query=1",
+		"http://localhost?",
+		"http://localhost#fragment",
+		"http://localhost#",
+		"http://user@localhost",
+		"http://LOCALHOST",
+		"http://localhost.",
+		"http://127.1",
+		"http://2130706433",
+		"http://[0:0:0:0:0:0:0:1]",
+		"http://localhost:80",
+		"http://localhost:03000",
+	} {
+		cases[origin] = func(m map[string]any) { m["checkoutOrigin"] = origin }
+	}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
 			project := t.TempDir()
@@ -231,12 +282,14 @@ func TestMiniGameRejectsInvalidManifestWithoutChangingFiles(t *testing.T) {
 			_ = json.Unmarshal(encoded, &invalid)
 			mutate(invalid)
 			body = invalid
-			exit, out = executeMerchantEngagementCommand(t, server, []string{"mini-game", "integrate", "--project", project})
-			if exit == 0 || !strings.Contains(out, "RESPONSE_INVALID") {
-				t.Fatalf("接受了非法 manifest: %s", out)
-			}
-			if secret, ok := invalid["sharedSecret"].(string); ok && strings.Contains(out, secret) {
-				t.Fatal("非法 manifest 错误输出泄露共享密钥")
+			for _, mode := range []string{"integrate", "check"} {
+				exit, out = executeMerchantEngagementCommand(t, server, []string{"mini-game", mode, "--project", project})
+				if exit == 0 || !strings.Contains(out, "RESPONSE_INVALID") {
+					t.Fatalf("%s 接受了非法 manifest: %s", mode, out)
+				}
+				if secret, ok := invalid["sharedSecret"].(string); ok && strings.Contains(out, secret) {
+					t.Fatal("非法 manifest 错误输出泄露共享密钥")
+				}
 			}
 			if !bytes.Equal(before, miniGameRead(t, project, miniGameConfigPath)) || !bytes.Equal(state, miniGameRead(t, project, miniGameStatePath)) {
 				t.Fatal("非法响应改写了已有安装")

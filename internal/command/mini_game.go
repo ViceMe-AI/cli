@@ -131,7 +131,7 @@ func runMiniGame(command *cobra.Command, runtime *Runtime, mode, project string,
 	report.Ready = len(report.Issues) == 0
 	report.Next = "按 issues 修复原项目入口和付费点，然后运行 viceme mini-game check；命令不会改写宿主代码。"
 	if report.Ready {
-		report.Next = "静态接入检查通过；请实际验证付款卡和六位动态码兑换，再使用小红书上传页当前官方口令与 Skill 完成平台检查和打包。此命令不上传、托管、打包或发布。"
+		report.Next = "静态接入检查通过；请在原游戏中实际验证付款卡、六位动态码兑换与刷新恢复，普通浏览器可直接验收。仅在发布小红书时使用上传页当前官方口令与 Skill 完成平台检查和打包。此命令不上传、托管、打包或发布。"
 	}
 	if mode == "check" && !report.Ready {
 		return output.Validation("MINI_GAME_CHECK_FAILED", "小游戏仍有接入问题").WithHint(report.Next).WithDetails(report)
@@ -183,5 +183,5 @@ func miniGameConfiguration(manifest api.MiniGameIntegration) ([]byte, error) {
 	if err != nil {
 		return nil, output.Internal("MINI_GAME_CONFIG_INVALID", "无法生成小游戏配置", err)
 	}
-	return []byte(fmt.Sprintf("// ViceMe 受管文件：请通过 viceme mini-game integrate 更新，不要手改。\n(function () {\n  \"use strict\";\n  if (window.ViceMeMiniGame) throw new Error(\"ViceMeMiniGame 已初始化，请删除重复的配置脚本引用\");\n  var configuration = %s;\n  window.ViceMeMiniGame = ViceMeMiniGameCommerce.createMiniGameRuntime(configuration, ViceMeMiniGameCommerce.createXiaohongshuPlatform(window));\n})();\n", data)), nil
+	return []byte(fmt.Sprintf("// ViceMe 受管文件：请通过 viceme mini-game integrate 更新，不要手改。\n(function () {\n  \"use strict\";\n  if (window.ViceMeMiniGame) throw new Error(\"ViceMeMiniGame 已初始化，请删除重复的配置脚本引用\");\n  var configuration = %s;\n  window.ViceMeMiniGame = ViceMeMiniGameCommerce.createMiniGameRuntime(configuration, ViceMeMiniGameCommerce.createMiniGamePlatform(window));\n})();\n", data)), nil
 }

@@ -427,6 +427,8 @@ var ViceMeMiniGameCommerce = (() => {
   // src/commerce.ts
   var commerce_exports = {};
   __export(commerce_exports, {
+    createBrowserPlatform: () => createBrowserPlatform,
+    createMiniGamePlatform: () => createMiniGamePlatform,
     createMiniGameRuntime: () => createMiniGameRuntime,
     createXiaohongshuPlatform: () => createXiaohongshuPlatform
   });
@@ -503,7 +505,8 @@ var ViceMeMiniGameCommerce = (() => {
   var UUID_PATTERN2 = /^(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$/, MESSAGES = {
     CONFIGURATION_INVALID: "\u8D2D\u4E70\u914D\u7F6E\u65E0\u6548\uFF0C\u8BF7\u8054\u7CFB\u6E38\u620F\u4F5C\u8005\u66F4\u65B0\u540E\u91CD\u8BD5\u3002",
     UNSUPPORTED_CLIENT: "\u8D2D\u4E70\u529F\u80FD\u9700\u8981\u5C0F\u7EA2\u4E66 9.46.0 \u6216\u66F4\u65B0\u7248\u672C\uFF0C\u8BF7\u5347\u7EA7\u540E\u91CD\u8BD5\uFF1B\u666E\u901A\u6E38\u620F\u4E0D\u53D7\u5F71\u54CD\u3002",
-    STORAGE_UNAVAILABLE: "\u65E0\u6CD5\u4F7F\u7528\u5B89\u5168\u5B58\u50A8\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u6E38\u620F\u540E\u91CD\u8BD5\uFF1B\u666E\u901A\u6E38\u620F\u4E0D\u53D7\u5F71\u54CD\u3002",
+    BROWSER_UNSUPPORTED: "\u5F53\u524D\u6D4F\u89C8\u5668\u4E0D\u652F\u6301\u8D2D\u4E70\u529F\u80FD\uFF0C\u8BF7\u4F7F\u7528\u652F\u6301\u672C\u5730\u5B58\u50A8\u7684\u73B0\u4EE3\u6D4F\u89C8\u5668\u6253\u5F00\u6E38\u620F\uFF1B\u666E\u901A\u6E38\u620F\u4E0D\u53D7\u5F71\u54CD\u3002",
+    STORAGE_UNAVAILABLE: "\u65E0\u6CD5\u4F7F\u7528\u8D2D\u4E70\u8BB0\u5F55\u5B58\u50A8\uFF0C\u8BF7\u68C0\u67E5\u5B58\u50A8\u6743\u9650\u5E76\u91CD\u65B0\u6253\u5F00\u6E38\u620F\uFF1B\u666E\u901A\u6E38\u620F\u4E0D\u53D7\u5F71\u54CD\u3002",
     STORAGE_READ_FAILED: "\u65E0\u6CD5\u8BFB\u53D6\u8D2D\u4E70\u8BB0\u5F55\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u6E38\u620F\u540E\u91CD\u8BD5\uFF0C\u4E0D\u8981\u6E05\u9664\u6E38\u620F\u6570\u636E\u3002",
     STORAGE_WRITE_FAILED: "\u8D2D\u4E70\u8BB0\u5F55\u672A\u80FD\u4FDD\u5B58\uFF0C\u8BF7\u68C0\u67E5\u5B58\u50A8\u7A7A\u95F4\u540E\u91CD\u8BD5\u3002",
     STORAGE_READBACK_FAILED: "\u8D2D\u4E70\u8BB0\u5F55\u4FDD\u5B58\u540E\u6821\u9A8C\u5931\u8D25\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u6E38\u620F\u540E\u91CD\u8BD5\uFF0C\u4E0D\u8981\u6E05\u9664\u6E38\u620F\u6570\u636E\u3002",
@@ -511,7 +514,7 @@ var ViceMeMiniGameCommerce = (() => {
     NOT_INITIALIZED: "\u8D2D\u4E70\u529F\u80FD\u5C1A\u672A\u5C31\u7EEA\uFF0C\u8BF7\u5148\u91CD\u65B0\u521D\u59CB\u5316\uFF1B\u666E\u901A\u6E38\u620F\u4E0D\u53D7\u5F71\u54CD\u3002",
     ITEM_NOT_FOUND: "\u6E38\u620F\u672A\u914D\u7F6E\u6B64\u9053\u5177\uFF0C\u8BF7\u8054\u7CFB\u6E38\u620F\u4F5C\u8005\u66F4\u65B0\u3002",
     RANDOM_UNAVAILABLE: "\u65E0\u6CD5\u521B\u5EFA\u5B89\u5168\u7684\u8D2D\u4E70\u5B9E\u4F8B\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u6E38\u620F\u540E\u91CD\u8BD5\u3002",
-    CARD_SAVE_FAILED: "\u4ED8\u6B3E\u5361\u672A\u80FD\u4FDD\u5B58\uFF0C\u8BF7\u5141\u8BB8\u4FDD\u5B58\u5230\u76F8\u518C\u540E\u91CD\u8BD5\u3002",
+    CARD_SAVE_FAILED: "\u4ED8\u6B3E\u5361\u672A\u80FD\u5C55\u793A\u6216\u4FDD\u5B58\uFF0C\u8BF7\u91CD\u8BD5\u5E76\u68C0\u67E5\u4E0B\u8F7D\u6216\u76F8\u518C\u6743\u9650\u3002",
     MINI_GAME_UNLOCK_CODE_INVALID: "\u516D\u4F4D\u52A8\u6001\u7801\u65E0\u6548\u3001\u5DF2\u8FC7\u671F\u6216\u4E0D\u5C5E\u4E8E\u5F53\u524D\u6E38\u620F\u5B89\u88C5\u3002\u8BF7\u68C0\u67E5\u8BBE\u5907\u65F6\u95F4\uFF0C\u5E76\u4ECE\u672C\u5B89\u88C5\u4ED8\u6B3E\u5361\u83B7\u53D6\u65B0\u7801\u3002",
     RUNTIME_UNAVAILABLE: "\u8D2D\u4E70\u529F\u80FD\u6682\u4E0D\u53EF\u7528\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u6E38\u620F\u540E\u91CD\u8BD5\uFF1B\u666E\u901A\u6E38\u620F\u4E0D\u53D7\u5F71\u54CD\u3002"
   };
@@ -547,8 +550,8 @@ var ViceMeMiniGameCommerce = (() => {
     ]) || value.protocolVersion !== 2 || !isUuid(value.workId) || !nonempty(value.workTitle) || value.environment !== "SANDBOX" && value.environment !== "PRODUCTION" || typeof value.publicClientId != "string" || value.publicClientId.length !== 36 || !/^vca_[A-Za-z0-9_-]{32}$/.test(value.publicClientId) || typeof value.sharedSecret != "string" || value.sharedSecret.length !== 64 || !/^[0-9a-f]{64}$/.test(value.sharedSecret) || typeof value.checkoutOrigin != "string" || !Array.isArray(value.items))
       return !1;
     try {
-      let origin = new URL(value.checkoutOrigin);
-      if (origin.protocol !== "https:" || origin.origin !== value.checkoutOrigin)
+      let origin = new URL(value.checkoutOrigin), isLoopbackHttp = origin.protocol === "http:" && (origin.hostname === "localhost" || origin.hostname === "127.0.0.1" || origin.hostname === "[::1]");
+      if (origin.protocol !== "https:" && !isLoopbackHttp || origin.origin !== value.checkoutOrigin)
         return !1;
     } catch (e) {
       return !1;
@@ -1765,6 +1768,52 @@ var ViceMeMiniGameCommerce = (() => {
     return base64.flush(), "data:image/gif;base64," + base64;
   }, qrcode_default = qrcode, stringToBytes = qrcode.stringToBytes;
 
+  // src/card.ts
+  function drawCard(document, card) {
+    let qr = qrcode_default(0, "M");
+    qr.addData(card.checkoutUrl, "Byte"), qr.make();
+    let canvas = document.createElement("canvas");
+    canvas.width = 900, canvas.height = 1200;
+    let context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas unavailable");
+    context.fillStyle = "#ffffff", context.fillRect(0, 0, canvas.width, canvas.height), context.textAlign = "center", context.textBaseline = "middle";
+    let sandbox = card.environment === "SANDBOX";
+    context.fillStyle = sandbox ? "#9b241f" : "#152238", context.fillRect(0, 0, 900, 96), context.fillStyle = "#ffffff", context.font = "bold 34px sans-serif", context.fillText(
+      sandbox ? "SANDBOX TEST ONLY" : "ViceMe \xB7 \u9053\u5177\u8D2D\u4E70",
+      450,
+      48
+    ), context.fillStyle = "#152238", context.font = "bold 36px sans-serif", context.fillText(fitTitle(context, card.workTitle, 780), 450, 162), context.font = "30px sans-serif", context.fillText(fitTitle(context, card.itemTitle, 780), 450, 222);
+    let count = qr.getModuleCount(), moduleSize = Math.floor(680 / (count + 8));
+    if (moduleSize < 2) throw new Error("Checkout QR too large");
+    let left = Math.floor((900 - count * moduleSize) / 2), top = 300 + 4 * moduleSize;
+    context.fillStyle = "#000000";
+    for (let row = 0; row < count; row++)
+      for (let column = 0; column < count; column++)
+        qr.isDark(row, column) && context.fillRect(
+          left + column * moduleSize,
+          top + row * moduleSize,
+          moduleSize,
+          moduleSize
+        );
+    return context.fillStyle = "#152238", context.font = "28px sans-serif", context.fillText(
+      sandbox ? "\u4EC5\u7528\u4E8E\u6D4B\u8BD5\uFF0C\u4E0D\u4F1A\u4EA7\u751F\u771F\u5B9E\u4ED8\u6B3E" : "\u5728\u5FAE\u4FE1\u4E2D\u8BC6\u522B\u4E8C\u7EF4\u7801\uFF0C\u67E5\u770B\u8BE6\u60C5\u540E\u8D2D\u4E70",
+      450,
+      1030
+    ), context.font = "24px sans-serif", context.fillText("\u6743\u76CA\u7ED1\u5B9A\u5F53\u524D\u6E38\u620F\u5B89\u88C5\uFF0C\u8BA2\u5355\u5C5E\u4E8E\u4ED8\u6B3E\u8D26\u53F7", 450, 1084), context.fillText("\u5B8C\u6210\u540E\u8FD4\u56DE\u6E38\u620F\uFF0C\u8F93\u5165\u516D\u4F4D\u52A8\u6001\u7801\u89E3\u9501", 450, 1130), canvas;
+  }
+  function fitTitle(context, value, width) {
+    let characters = Array.from(
+      value.slice(0, 512).replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, " ").trim()
+    );
+    characters.length && /^[\ud800-\udbff]$/.test(characters[characters.length - 1]) && characters.pop();
+    let text = characters.join("");
+    if (value.length <= 512 && context.measureText(text).width <= width)
+      return text;
+    for (; characters.length && context.measureText(characters.join("") + "\u2026").width > width; )
+      characters.pop();
+    return characters.join("") + "\u2026";
+  }
+
   // src/xiaohongshu.ts
   function failure2(code, message) {
     return Object.assign(new Error(message), { code });
@@ -1870,49 +1919,160 @@ var ViceMeMiniGameCommerce = (() => {
       }
     };
   }
-  function drawCard(document, card) {
-    let qr = qrcode_default(0, "M");
-    qr.addData(card.checkoutUrl, "Byte"), qr.make();
-    let canvas = document.createElement("canvas");
-    canvas.width = 900, canvas.height = 1200;
-    let context = canvas.getContext("2d");
-    if (!context) throw new Error("Canvas unavailable");
-    context.fillStyle = "#ffffff", context.fillRect(0, 0, canvas.width, canvas.height), context.textAlign = "center", context.textBaseline = "middle";
-    let sandbox = card.environment === "SANDBOX";
-    context.fillStyle = sandbox ? "#9b241f" : "#152238", context.fillRect(0, 0, 900, 96), context.fillStyle = "#ffffff", context.font = "bold 34px sans-serif", context.fillText(
-      sandbox ? "SANDBOX TEST ONLY" : "ViceMe \xB7 \u9053\u5177\u8D2D\u4E70",
-      450,
-      48
-    ), context.fillStyle = "#152238", context.font = "bold 36px sans-serif", context.fillText(fitTitle(context, card.workTitle, 780), 450, 162), context.font = "30px sans-serif", context.fillText(fitTitle(context, card.itemTitle, 780), 450, 222);
-    let count = qr.getModuleCount(), moduleSize = Math.floor(680 / (count + 8));
-    if (moduleSize < 2) throw new Error("Checkout QR too large");
-    let left = Math.floor((900 - count * moduleSize) / 2), top = 300 + 4 * moduleSize;
-    context.fillStyle = "#000000";
-    for (let row = 0; row < count; row++)
-      for (let column = 0; column < count; column++)
-        qr.isDark(row, column) && context.fillRect(
-          left + column * moduleSize,
-          top + row * moduleSize,
-          moduleSize,
-          moduleSize
-        );
-    return context.fillStyle = "#152238", context.font = "28px sans-serif", context.fillText(
-      sandbox ? "\u4EC5\u7528\u4E8E\u6D4B\u8BD5\uFF0C\u4E0D\u4F1A\u4EA7\u751F\u771F\u5B9E\u4ED8\u6B3E" : "\u5728\u5FAE\u4FE1\u4E2D\u8BC6\u522B\u4E8C\u7EF4\u7801\uFF0C\u67E5\u770B\u8BE6\u60C5\u540E\u8D2D\u4E70",
-      450,
-      1030
-    ), context.font = "24px sans-serif", context.fillText("\u6743\u76CA\u7ED1\u5B9A\u5F53\u524D\u6E38\u620F\u5B89\u88C5\uFF0C\u8BA2\u5355\u5C5E\u4E8E\u4ED8\u6B3E\u8D26\u53F7", 450, 1084), context.fillText("\u5B8C\u6210\u540E\u8FD4\u56DE\u6E38\u620F\uFF0C\u8F93\u5165\u516D\u4F4D\u52A8\u6001\u7801\u89E3\u9501", 450, 1130), canvas;
+
+  // src/browser.ts
+  var DATABASE = "viceme-mini-game-commerce-browser", STORE = "records";
+  function failure3(code, message) {
+    return Object.assign(new Error(message), { code });
   }
-  function fitTitle(context, value, width) {
-    let characters = Array.from(
-      value.slice(0, 512).replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, " ").trim()
-    );
-    characters.length && /^[\ud800-\udbff]$/.test(characters[characters.length - 1]) && characters.pop();
-    let text = characters.join("");
-    if (value.length <= 512 && context.measureText(text).width <= width)
-      return text;
-    for (; characters.length && context.measureText(characters.join("") + "\u2026").width > width; )
-      characters.pop();
-    return characters.join("") + "\u2026";
+  function openDatabase(window) {
+    return new Promise((resolve, reject) => {
+      let request = window.indexedDB.open(DATABASE, 1), abandoned = !1;
+      request.onblocked = () => {
+        abandoned = !0, reject(new Error("Purchase storage upgrade blocked"));
+      }, request.onerror = () => reject(request.error), request.onupgradeneeded = () => {
+        var _a;
+        if (abandoned) {
+          (_a = request.transaction) == null || _a.abort();
+          return;
+        }
+        request.result.createObjectStore(STORE);
+      }, request.onsuccess = () => {
+        let database = request.result;
+        if (abandoned) {
+          database.close();
+          return;
+        }
+        database.onversionchange = () => database.close(), resolve(database);
+      };
+    });
+  }
+  async function transact(window, mode, operation) {
+    let database = await openDatabase(window);
+    try {
+      return await new Promise((resolve, reject) => {
+        let transaction = database.transaction(STORE, mode), request = operation(transaction.objectStore(STORE));
+        transaction.oncomplete = () => resolve(request.result), transaction.onabort = () => reject(transaction.error || new Error("Purchase storage aborted")), transaction.onerror = () => reject(transaction.error || request.error);
+      });
+    } finally {
+      database.close();
+    }
+  }
+  function showCard(window, card) {
+    let document = window.document, checkout = new URL(card.checkoutUrl);
+    if (checkout.protocol !== "https:" && checkout.protocol !== "http:")
+      throw new Error("Invalid checkout URL");
+    let dialog = document.createElement("dialog"), previousFocus = document.activeElement, canvas, observer, disposed = !1, dispose = () => {
+      disposed || (disposed = !0, observer == null || observer.disconnect(), dialog.remove(), dialog.replaceChildren(), canvas && (canvas.width = 0, canvas.height = 0), previousFocus != null && previousFocus.isConnected && typeof previousFocus.focus == "function" && previousFocus.focus({ preventScroll: !0 }));
+    };
+    try {
+      canvas = drawCard(document, card);
+      let png = canvas.toDataURL("image/png");
+      if (!png.startsWith("data:image/png;base64,"))
+        throw new Error("PNG encoding unavailable");
+      dialog.setAttribute("aria-label", "\u9053\u5177\u8D2D\u4E70\u4ED8\u6B3E\u5361"), dialog.style.cssText = "box-sizing:border-box;margin:auto;width:min(440px,calc(100vw - 32px));max-width:calc(100vw - 32px);max-height:calc(100vh - 32px);max-height:calc(100dvh - 32px);overflow:auto;padding:20px;border:1px solid #cbd5e1;border-radius:16px;background:#fff;color:#152238;font:16px/1.5 system-ui,sans-serif;";
+      let title = document.createElement("h2");
+      title.textContent = "\u9053\u5177\u8D2D\u4E70\u4ED8\u6B3E\u5361", title.style.cssText = "margin:0 0 12px;font-size:20px;", title.tabIndex = -1, title.autofocus = !0;
+      let description = document.createElement("p");
+      description.textContent = "\u6253\u5F00\u7ED3\u7B97\u9875\u67E5\u770B\u8BE6\u60C5\u5E76\u8D2D\u4E70\uFF0C\u6216\u4E0B\u8F7D\u4ED8\u6B3E\u5361\u3002\u5B8C\u6210\u540E\u56DE\u5230\u6B64\u6E38\u620F\u8F93\u5165\u516D\u4F4D\u52A8\u6001\u7801\uFF1B\u8BF7\u4FDD\u7559\u5F53\u524D\u6D4F\u89C8\u5668\u7684\u6E38\u620F\u6570\u636E\u3002", description.style.cssText = "margin:0 0 16px;", canvas.setAttribute("role", "img"), canvas.setAttribute(
+        "aria-label",
+        "".concat(card.workTitle, " \xB7 ").concat(card.itemTitle, "\uFF0C").concat(card.environment === "SANDBOX" ? "\u6C99\u7BB1\u6D4B\u8BD5\uFF0C\u4E0D\u4F1A\u4EA7\u751F\u771F\u5B9E\u4ED8\u6B3E" : "\u9053\u5177\u8D2D\u4E70", "\u4ED8\u6B3E\u5361\u3002\u53EF\u4F7F\u7528\u4E0B\u65B9\u94FE\u63A5\u6253\u5F00\u7ED3\u7B97\u9875\u3002")
+      ), canvas.style.cssText = "display:block;width:100%;height:auto;margin:0 0 16px;";
+      let actions = document.createElement("div");
+      actions.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;";
+      let checkoutLink = document.createElement("a");
+      checkoutLink.href = checkout.href, checkoutLink.target = "_blank", checkoutLink.rel = "noopener noreferrer", checkoutLink.textContent = "\u6253\u5F00\u7ED3\u7B97\u9875\uFF08\u65B0\u7A97\u53E3\uFF09";
+      let downloadLink = document.createElement("a");
+      downloadLink.href = png, downloadLink.download = "viceme-purchase-card.png", downloadLink.textContent = "\u4E0B\u8F7D\u4ED8\u6B3E\u5361 PNG";
+      let close = document.createElement("button");
+      close.type = "button", close.textContent = "\u5173\u95ED\uFF0C\u8FD4\u56DE\u6E38\u620F";
+      for (let control of [checkoutLink, downloadLink, close])
+        control.style.cssText = "box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#152238;font:inherit;text-align:center;cursor:pointer;";
+      checkoutLink.style.background = "#152238", checkoutLink.style.color = "#fff", close.addEventListener("click", () => dialog.close()), dialog.addEventListener("close", dispose, { once: !0 }), actions.append(checkoutLink, downloadLink, close), dialog.append(title, description, canvas, actions), document.body.append(dialog);
+      let host = window;
+      observer = new host.MutationObserver(() => {
+        dialog.isConnected || dispose();
+      }), observer.observe(document.body, { childList: !0 }), dialog.showModal();
+    } catch (error) {
+      throw dispose(), error;
+    }
+  }
+  function createBrowserPlatform(window) {
+    return {
+      async checkSupport() {
+        try {
+          let dialog = window.document.createElement("dialog"), canvas = window.document.createElement("canvas"), host = window;
+          if (!window.indexedDB || typeof window.indexedDB.open != "function" || !window.crypto || typeof window.crypto.getRandomValues != "function" || !window.document.body || typeof dialog.showModal != "function" || typeof dialog.close != "function" || typeof canvas.getContext != "function" || typeof canvas.toDataURL != "function" || typeof host.MutationObserver != "function")
+            throw new Error("Browser capabilities unavailable");
+        } catch (e) {
+          throw failure3(
+            "BROWSER_UNSUPPORTED",
+            "\u5F53\u524D\u6D4F\u89C8\u5668\u4E0D\u652F\u6301\u8D2D\u4E70\u529F\u80FD\uFF0C\u8BF7\u4F7F\u7528\u652F\u6301\u672C\u5730\u5B58\u50A8\u7684\u73B0\u4EE3\u6D4F\u89C8\u5668\u6253\u5F00\u6E38\u620F\uFF1B\u666E\u901A\u6E38\u620F\u4ECD\u53EF\u7EE7\u7EED\u3002"
+          );
+        }
+      },
+      async read(key) {
+        try {
+          let cursor = await transact(
+            window,
+            "readonly",
+            (store) => store.openCursor(key)
+          );
+          if (cursor === null) return null;
+          if (cursor.value === null || cursor.value === void 0)
+            throw new Error("Missing existing storage value");
+          return cursor.value;
+        } catch (e) {
+          throw failure3(
+            "STORAGE_READ_FAILED",
+            "\u65E0\u6CD5\u8BFB\u53D6\u8D2D\u4E70\u8BB0\u5F55\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u5C0F\u6E38\u620F\u540E\u91CD\u8BD5\u3002\u8BF7\u52FF\u6E05\u9664\u5B58\u50A8\uFF0C\u4EE5\u514D\u4E22\u5931\u5F53\u524D\u5B89\u88C5\u8BB0\u5F55\u3002"
+          );
+        }
+      },
+      async write(key, value) {
+        try {
+          await transact(window, "readwrite", (store) => store.put(value, key));
+        } catch (e) {
+          throw failure3(
+            "STORAGE_WRITE_FAILED",
+            "\u8D2D\u4E70\u8BB0\u5F55\u4FDD\u5B58\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u5B58\u50A8\u7A7A\u95F4\u540E\u91CD\u8BD5\uFF1B\u52A8\u6001\u7801\u8FC7\u671F\u540E\u8BF7\u8FD4\u56DE\u4ED8\u6B3E\u9875\u9762\u5237\u65B0\u3002"
+          );
+        }
+      },
+      randomId() {
+        try {
+          let bytes = new Uint8Array(16);
+          window.crypto.getRandomValues(bytes), bytes[6] = bytes[6] & 15 | 64, bytes[8] = bytes[8] & 63 | 128;
+          let id = "";
+          for (let index = 0; index < bytes.length; index++)
+            (index === 4 || index === 6 || index === 8 || index === 10) && (id += "-"), id += bytes[index].toString(16).padStart(2, "0");
+          return id;
+        } catch (e) {
+          throw failure3(
+            "RANDOM_UNAVAILABLE",
+            "\u65E0\u6CD5\u5B89\u5168\u5EFA\u7ACB\u5B89\u88C5\u8BB0\u5F55\uFF0C\u8BF7\u91CD\u65B0\u6253\u5F00\u6E38\u620F\u540E\u91CD\u8BD5\u3002"
+          );
+        }
+      },
+      async saveCard(card) {
+        try {
+          showCard(window, card);
+        } catch (e) {
+          throw failure3(
+            "CARD_SAVE_FAILED",
+            "\u4ED8\u6B3E\u5361\u5C55\u793A\u5931\u8D25\uFF0C\u8BF7\u68C0\u67E5\u6D4F\u89C8\u5668\u6743\u9650\u540E\u91CD\u8BD5\u3002"
+          );
+        }
+      }
+    };
+  }
+
+  // src/platform.ts
+  function createMiniGamePlatform(window) {
+    var _a;
+    return "xhs" in window || /xiaohongshu|\bxhs\b|xhsminiapp|xhsminitool/i.test(
+      ((_a = window.navigator) == null ? void 0 : _a.userAgent) || ""
+    ) ? createXiaohongshuPlatform(window) : createBrowserPlatform(window);
   }
   return __toCommonJS(commerce_exports);
 })();

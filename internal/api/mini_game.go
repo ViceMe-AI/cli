@@ -45,7 +45,7 @@ func (m *MiniGameIntegration) validateAPIResponse() error {
 	if !miniGameSharedSecretPattern.MatchString(m.SharedSecret) {
 		return errors.New("invalid mini-game shared secret")
 	}
-	if !validCommerceApplicationOrigin(m.CheckoutOrigin) {
+	if !validMiniGameCheckoutOrigin(m.CheckoutOrigin) {
 		return errors.New("invalid mini-game checkout origin")
 	}
 	ids, aliases := map[string]bool{}, map[string]bool{}
@@ -57,6 +57,18 @@ func (m *MiniGameIntegration) validateAPIResponse() error {
 		ids[id], aliases[item.Alias] = true, true
 	}
 	return nil
+}
+
+func validMiniGameCheckoutOrigin(value string) bool {
+	if !strings.HasPrefix(value, "http://") {
+		return validCommerceApplicationOrigin(value)
+	}
+	target, err := shopURLParser.Parse(value)
+	if err != nil || target.Scheme() != "http" || value != "http://"+target.Host() {
+		return false
+	}
+	host := target.Hostname()
+	return host == "localhost" || host == "127.0.0.1" || host == "[::1]"
 }
 
 func miniGameText(value string) bool {
