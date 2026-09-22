@@ -63,6 +63,28 @@ func TestCommerceRuntimeBootstrapAcceptsOnlyThePlatformInstallContract(t *testin
 		t.Fatalf("valid runtime bootstrap was rejected: %v", err)
 	}
 
+	for _, origin := range []string{"https://s3.dev.viceme.cn"} {
+		dev := valid
+		dev.Runtime.InstallerContractURL = origin + "/start/agent-install.md"
+		dev.Runtime.CommerceInstallerContractURL = origin + "/start/commerce-skill-install.md"
+		if err := validateCommerceRuntimeBootstrap(dev, descriptor, "DIRECT"); err != nil {
+			t.Fatal(err)
+		}
+		dev.Runtime.CommerceInstallerContractURL = valid.Runtime.CommerceInstallerContractURL
+		if err := validateCommerceRuntimeBootstrap(dev, descriptor, "DIRECT"); err == nil {
+			t.Fatal("mixed dev/prod accepted")
+		}
+	}
+
+	for _, origin := range []string{"https://s3.dev.viceme.cn/dev", "https://s3.viceme.ai/dev", "https://s3.dev.viceme.ai"} {
+		unsupported := valid
+		unsupported.Runtime.InstallerContractURL = origin + "/start/agent-install.md"
+		unsupported.Runtime.CommerceInstallerContractURL = origin + "/start/commerce-skill-install.md"
+		if err := validateCommerceRuntimeBootstrap(unsupported, descriptor, "DIRECT"); err == nil {
+			t.Fatalf("unsupported dev origin accepted: %s", origin)
+		}
+	}
+
 	untrusted := valid
 	untrusted.Runtime.InstallerContractURL = "https://merchant.example/install.md"
 	if err := validateCommerceRuntimeBootstrap(untrusted, descriptor, "DIRECT"); err == nil {

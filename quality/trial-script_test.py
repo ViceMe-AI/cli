@@ -305,6 +305,13 @@ class TrialScriptTestCase(unittest.TestCase):
             trial.extract_skill_package(empty.getvalue())
         self.assertEqual(caught.exception.code, "MANIFEST_MISSING")
 
+    def test_export_package_loads_environment_before_transform(self):
+        calls = []
+        with mock.patch.object(trial, "load_runtime_environment", side_effect=lambda *args: calls.append("environment")), \
+             mock.patch.object(trial, "command_export_package", side_effect=lambda *args, **kwargs: calls.append("export")):
+            trial.main(["export-package", "--product", PRODUCT_ID, "--market", "cn", "--kind", "purchase", "--release-id", RELEASE_ID, "--output", "fixture.zip"])
+        self.assertEqual(calls, ["environment", "export"])
+
     def test_export_package_trial_injects_gate_without_install_or_api(self):
         original = os.path.join(self.home, "original.zip")
         output = os.path.join(self.home, "gated-trial.zip")

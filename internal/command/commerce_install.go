@@ -149,18 +149,16 @@ func validateCommerceRuntimeBootstrap(install api.ProductPurchaseSkillInstall, d
 		runtime.MinimumRuntimeVersion != descriptor.ActiveRelease.MinimumRuntimeVersion {
 		return output.Policy("COMMERCE_RUNTIME_BOOTSTRAP_INVALID", "purchase Skill installation response contains an invalid Commerce Runtime bootstrap")
 	}
-	if runtime.InstallerContractURL != "https://s3.viceme.cn/start/agent-install.md" &&
-		runtime.InstallerContractURL != "https://s3.viceme.ai/start/agent-install.md" {
-		return output.Policy("COMMERCE_RUNTIME_BOOTSTRAP_INVALID", "purchase Skill installation response contains an untrusted CLI installation contract")
+	trustedPair := false
+	for _, origin := range []string{"https://s3.viceme.cn", "https://s3.viceme.ai", "https://s3.dev.viceme.cn"} {
+		if runtime.InstallerContractURL == origin+"/start/agent-install.md" &&
+			runtime.CommerceInstallerContractURL == origin+"/start/commerce-skill-install.md" {
+			trustedPair = true
+			break
+		}
 	}
-	if runtime.CommerceInstallerContractURL != "https://s3.viceme.cn/start/commerce-skill-install.md" &&
-		runtime.CommerceInstallerContractURL != "https://s3.viceme.ai/start/commerce-skill-install.md" {
-		return output.Policy("COMMERCE_RUNTIME_BOOTSTRAP_INVALID", "purchase Skill installation response contains an untrusted Commerce Skill installation contract")
-	}
-	cnAgentContract := runtime.InstallerContractURL == "https://s3.viceme.cn/start/agent-install.md"
-	cnCommerceContract := runtime.CommerceInstallerContractURL == "https://s3.viceme.cn/start/commerce-skill-install.md"
-	if cnAgentContract != cnCommerceContract {
-		return output.Policy("COMMERCE_RUNTIME_BOOTSTRAP_INVALID", "purchase Skill installation contracts use different regions")
+	if !trustedPair {
+		return output.Policy("COMMERCE_RUNTIME_BOOTSTRAP_INVALID", "purchase Skill installation contracts must use one trusted region and environment")
 	}
 	agent := "auto"
 	if distribution == "WORKBUDDY" {
