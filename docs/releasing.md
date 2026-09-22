@@ -25,6 +25,7 @@
    六平台二进制、checksum、npm OIDC、CN/Global 安装清单及镜像发布流程。
 7. npm 与双区域发布成功后发送飞书总结。独立发布显示原 PR 作者的真实 @ 和
    “单独发布”，不归属给 approve/merge 操作者。映射见 `.github/feishu-users.json`。
+8. 按[发布后同步 main 到 dev](#发布后同步-main-到-dev)回灌本次发布历史。
 
 多个候选 PR 可以开发并行，但生产发布按顺序处理。准备前功能分支必须包含最新
 main；前一个发布合入后，下一个候选需同步 main、解决版本冲突、重新进入 dev 验收
@@ -36,8 +37,8 @@ main；前一个发布合入后，下一个候选需同步 main、解决版本�
 把已验收的 dev 向 main 提 Ready PR，仍自动准备版本，并由 Release App 将生成提交
 写回 dev。原 Release PR 更新后运行完整检查，评审合并触发相同发布流水线。
 手动触发版本准备仅允许在 main 工作流上操作 dev。该模式不显示“单独发布”。
-生产发布后，通过 PR 将 main 同步回 dev；仅当两侧 tree 完全一致时才能只记录 ancestry，
-不得用丢弃改动的合并策略处理实际差异。
+生产发布后，按[发布后同步 main 到 dev](#发布后同步-main-到-dev)回灌完整发布历史，
+包括自动版本提交和 main 的发布合并节点；不得用丢弃改动的合并策略处理实际差异。
 
 ## dev 集成冲突
 
@@ -60,6 +61,74 @@ git merge 'origin/feat(cli)/example'
 从 dev 创建的存量分支必须检查相对 main 的全部差异，确认没有夹带未发布功能；
 不能只根据 PR 标题判断，也不要求批量 rebase。生产 hotfix 和不可变标签恢复保留
 既有边界；hotfix 不走普通自动准备，恢复不能创建新版本或冒充独立发布。
+
+## 发布后同步 main 到 dev
+
+本仓库统一采用 `hotfix → main → dev`：Hotfix 合入 main 并完成发布验证后，
+通过 `main → dev` PR 同步生产修复和完整发布历史。普通独立发布、整体发布后也按
+本节同步。只把 hotfix 来源分支合入 dev、或 cherry-pick 相同代码，不构成完整回灌；
+还须确认 main 的发布合并提交已进入 dev 历史。这是本仓库的约定，不是所有 Git
+分支模型的通用要求。
+
+### 无冲突时
+
+1. 拉取最新 main/dev，记录本次待同步的 main SHA 与 dev 基线。
+2. 检查完整差异与实际合并结果；main 可能包含多个已发布改动，不能仅按 hotfix
+   标题判断范围。提交 `main → dev` PR，记录来源 SHA、验证结果和关联发布 PR。
+3. Review 和必需检查通过后，使用 **Merge commit**，不得 squash/rebase。
+   没有文件变化的历史同步仍须保留父提交关系，不能因 diff 为空而省略。
+
+### 有冲突或 GitHub 的比较结果异常时
+
+先在本地针对准确的两个 SHA 计算合并结果。GitHub 显示冲突不等于一定需要修改
+业务代码；但也不能仅因本地无冲突就跳过合并结果与 CI 验证。
+
+从最新 main 创建专用回灌分支，合入 dev，在该分支解决冲突：
+
+```bash
+git fetch origin main dev
+sync_main_sha="$(git rev-parse origin/main)"
+sync_dev_sha="$(git rev-parse origin/dev)"
+git switch -c 'chore(repo)/integrate-main-into-dev-<unique-id>' "$sync_main_sha"
+git merge --no-ff --no-commit "$sync_dev_sha"
+# 若有冲突，逐段解决并 git add 明确的文件；保留生产修复与 dev 的未发布功能。
+git diff --name-only --diff-filter=U
+git diff --cached --check
+git diff --cached "$sync_dev_sha" --stat
+# 确认无未解决冲突、完成差异审查和适用验证，再创建合并提交。
+git commit -m 'chore(repo): 同步 main 发布历史到 dev'
+git push -u origin HEAD
+# 从该回灌分支向 dev 提 PR，使用 Merge commit。
+```
+
+分支名中的 `<unique-id>` 替换为本次发布标识。此分支只用于回灌 dev，禁止向 main
+提 PR 或作为功能发布来源；不得向原功能分支、hotfix 分支或 main 合入 dev。
+这与功能开发分支的独立发布规则不同。不要在来源为 main 的 PR 上点击解决冲突
+或 Update branch，把 dev 写回生产分支。不得使用 `git merge -s ours` 或整文件覆盖
+来隐藏真实冲突。若 main 已是 dev 的祖先，无须重复创建同步提交。
+
+比较时以 dev 为目标：main 与 dev 本身文件不同是正常的。只有**实际合并结果的
+Git tree 与 dev 基线一致**，才能说明这次同步没有文件变化；不能预设每次回灌
+都是零差异。有实际代码变化或冲突解决时，按受影响范围验证。
+
+新回灌 PR 建立后，关联并关闭被替代的直接 main → dev PR。目标分支若有推进，
+在专用回灌分支同步最新 dev 并重新验证，原 main 基线功能分支保持独立。
+
+### 合入后的完成条件
+
+```bash
+git fetch origin main dev
+git merge-base --is-ancestor "$sync_main_sha" origin/dev
+```
+
+`sync_main_sha` 使用本次 PR 记录的准确发布 SHA；成功只证明历史包含关系，
+不代表部署或业务验收通过。检查相关功能 PR 相对最新 dev 的文件列表，确认只含
+本次预期范围，再结束回灌并按发布规则清理来源分支。
+
+如果本地比较与 GitHub Compare 已正确，而原 PR 的 Files changed 仍显示旧内容，
+先核对来源/目标 SHA 和共同基点，等待刷新；必要时关闭再重新打开同一个未合并 PR，
+随后复核文件列表与检查状态。不要为刷新显示修改业务文件、重写历史，或将 dev
+合回功能分支。刷新显示不能替代真实的历史同步。
 
 ## One-time repository setup
 
