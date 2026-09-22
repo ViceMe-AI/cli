@@ -474,12 +474,12 @@ func installReplicaAnonymousLocked(
 	// A new checkout cannot have been presented by a previous invocation.
 	if !paymentPresented || presentedOrderNo != state.OrderNo {
 		if state.PaymentQRContent != "" {
-			presentation, err := prepareReplicaPaymentPresentation(runtime, api.WebsiteReplicaOrder{OrderNo: state.OrderNo, Status: "PENDING", PaymentAction: &api.WebsiteReplicaPaymentAction{Type: "QR_CODE", Content: state.PaymentQRContent}, ExpiresAt: state.OrderExpiresAt}, replicaPaymentWidgetData(state))
+			presentation, err := prepareReplicaPaymentPresentation(runtime, api.WebsiteReplicaOrder{OrderNo: state.OrderNo, Status: "PENDING", PaymentAction: &api.WebsiteReplicaPaymentAction{Type: "QR_CODE", Content: state.PaymentQRContent}, ExpiresAt: state.OrderExpiresAt})
 			if err != nil {
 				return replicaInstallResult{}, err
 			}
-			failure := output.AsError(replicaPaymentConfirmation(state, presentation))
-			failure.Hint = "present paymentPresentation.widgetPath inside the Agent platform; only after successful presentation rerun the same command with --payment-presented --payment-result-first --timeout 3m --interval 3s"
+			failure := output.AsError(replicaPaymentConfirmation(runtime, state, presentation))
+			failure.Hint = paymentPresentationHint(os.Getenv, true) + "\nAfter presenting the QR or clickable checkoutUrl, rerun with --payment-presented --payment-result-first --timeout 3m --interval 3s"
 			return replicaInstallResult{}, failure
 		}
 		return replicaInstallResult{}, replicaPaymentPageConfirmation(state)
@@ -515,7 +515,7 @@ func replicaPaymentPageConfirmation(state replicaPurchaseState) error {
 	return output.Confirmation("REPLICA_PAYMENT_REQUIRED", "open the ViceMe Website Replica checkout page").WithDetails(map[string]any{
 		"nextAction": "OPEN_PAYMENT_PAGE", "presentationTarget": "AGENT_PLATFORM", "checkoutUrl": state.CheckoutURL, "orderNo": state.OrderNo,
 		"currency": state.Currency, "totalAmountCents": state.PriceCents, "expiresAt": state.OrderExpiresAt,
-	}).WithHint("open checkoutUrl inside the Agent platform using its embedded browser or payment panel; never use an external browser; only after the panel opens successfully rerun the same command with --payment-presented --payment-result-first --timeout 3m --interval 3s; if no in-platform tool is available, stop and report")
+	}).WithHint("always show checkoutUrl as a clickable official payment link; open it with an available in-app browser; after delivering the link rerun the same command with --payment-presented --payment-result-first --timeout 3m --interval 3s")
 }
 
 func installReplicaLocked(
@@ -789,7 +789,7 @@ func installReplicaLocked(
 		}
 	}
 	if order.Status == "PENDING" && state.PaymentPresentedAt == "" {
-		presentation, err := prepareReplicaPaymentPresentation(runtime, order, replicaPaymentWidgetData(state))
+		presentation, err := prepareReplicaPaymentPresentation(runtime, order)
 		if err != nil {
 			return replicaInstallResult{}, err
 		}
@@ -797,7 +797,7 @@ func installReplicaLocked(
 		if err := store.save(&state); err != nil {
 			return replicaInstallResult{}, err
 		}
-		return replicaInstallResult{}, replicaPaymentConfirmation(state, presentation)
+		return replicaInstallResult{}, replicaPaymentConfirmation(runtime, state, presentation)
 	}
 	observed, err := waitForReplicaPayment(ctx, runtime, client, order, timeout, interval)
 	if observed.Status == "PAID" && payment.Status != "PAID" {
@@ -850,7 +850,7 @@ func replicaQuoteConfirmation(state replicaPurchaseState) error {
 	}).WithHint("show the exact product, price, quote expiry, and redistribution notice to the user; only after explicit confirmation rerun the same install command with --confirm")
 }
 
-func replicaPaymentConfirmation(state replicaPurchaseState, presentation *api.CommercePaymentPresentation) error {
+func replicaPaymentConfirmation(runtime *Runtime, state replicaPurchaseState, presentation *api.CommercePaymentPresentation) error {
 	return output.Confirmation(
 		"REPLICA_PAYMENT_REQUIRED",
 		"render the Website Replica payment QR before waiting for payment",
@@ -861,7 +861,8 @@ func replicaPaymentConfirmation(state replicaPurchaseState, presentation *api.Co
 		"totalAmountCents":    state.PriceCents,
 		"expiresAt":           state.OrderExpiresAt,
 		"paymentPresentation": presentation,
-	}).WithHint("write ![微信支付二维码](paymentPresentation.imageChatSrc) in the chat reply; imageChatSrc is local-file:// plus imagePath. Do not write a bare filesystem path. Open only widgetPath with present_files; do not pass imagePath to present_files, Read the HTML, or call show_widget; then rerun the same confirmed install command with --payment-result-first --timeout 3m --interval 3s")
+		"checkoutUrl":         replicaCheckoutURL(runtime, state),
+	}).WithHint(paymentPresentationHint(os.Getenv, state.CheckoutURL != "") + "\nAccount checkout requires the same buyer account. After presentation, rerun the same confirmed command with --payment-result-first --timeout 3m --interval 3s")
 }
 
 func installOwnedReplica(
@@ -1263,12 +1264,12 @@ func (runtime *Runtime) newReplicaRequestID() (string, error) {
 	return requestID, nil
 }
 
-func prepareReplicaPaymentPresentation(runtime *Runtime, order api.WebsiteReplicaOrder, details ...paymentWidgetData) (*api.CommercePaymentPresentation, error) {
+func prepareReplicaPaymentPresentation(runtime *Runtime, order api.WebsiteReplicaOrder) (*api.CommercePaymentPresentation, error) {
 	action := order.PaymentAction
 	if err := validateReplicaPaymentAction(action); err != nil {
 		return nil, err
 	}
-	presentation, err := newCommercePaymentPresentation(runtime, order.OrderNo, order.ExpiresAt, action.Content, details...)
+	presentation, err := newCommercePaymentPresentation(runtime, order.OrderNo, order.ExpiresAt, action.Content)
 	if err != nil {
 		return nil, output.Internal("REPLICA_PAYMENT_PRESENTATION_FAILED", "Website Replica payment QR image could not be prepared", err)
 	}
@@ -1474,10 +1475,6 @@ func requireReplicaTargetParentIdentity(parent, expected string) error {
 	return nil
 }
 
-func replicaPaymentWidgetData(state replicaPurchaseState) paymentWidgetData {
-	return paymentWidgetData{Title: state.ProductTitle, AmountCents: &state.PriceCents, Currency: state.Currency, PaymentMethodLabel: "微信支付", Status: "PENDING", ExpiresAt: state.OrderExpiresAt, Locale: state.Locale}
-}
-
 func replicaRedistributionLoginRequired(work string, target string) error {
 	details := map[string]any{"nextAction": "LOGIN_REQUIRED", "target": target, "orderCreated": false}
 	if strings.HasPrefix(work, "VICEME-REPLICA:") {
@@ -1486,4 +1483,11 @@ func replicaRedistributionLoginRequired(work string, target string) error {
 		details["workUrl"] = workurl.Display(work)
 	}
 	return output.Policy("WEBSITE_REPLICA_REDISTRIBUTION_LOGIN_REQUIRED", "Redistribution rights require account authorization before purchase").WithDetails(details).WithHint("use creator-tools to authorize the CLI account, then continue the same work without --anonymous; a followWork login page does not authorize the CLI")
+}
+
+func replicaCheckoutURL(runtime *Runtime, state replicaPurchaseState) string {
+	if state.CheckoutURL != "" {
+		return state.CheckoutURL
+	}
+	return skillOrderPaymentURL(runtime, state.OrderNo)
 }

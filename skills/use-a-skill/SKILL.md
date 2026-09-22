@@ -11,7 +11,7 @@ description: 安装和使用可下载的 ViceMe Skill。适用于作品链接安
 
 作品页明确所选版本「未提供免费试用」时，仍先走作品页的 Python install 入口，无需 CLI 或登录。用户直接提供渠道包时，解压后按包内 SKILL.md 的「使用前必读」执行，无需重新从作品页安装。脚本先安装带购买入口和本地运行依赖的 Skill，返回 kind=purchase、allowed=false、nextAction=PURCHASE_REQUIRED 和 runtimePath。此时目录已存在，尚未取得正式内容，也未申请试用次数；这是未购买，不是试用耗尽，不展示试用上手卡。目录已存在只表示入口包就绪，正式内容尚未安装。
 
-kind=purchase 时先读取包内 SKILL.md 的「使用前必读」，按宿主授权要求用本地 runtimePath 执行 purchase --wait 0；已有授权继续沿用。该命令会保存本机购买身份并创建或恢复订单，已有已付款订单时会校验权益并继续安装。待付款时参考「无试用开场白」简短说明商品、金额和无免费试用，再按购买指引提供支付入口。付款由用户本人确认。实际展示二维码或交付可点击支付链接后再运行 purchase --wait 60，不提前在后台启动等待；仅生成文件、返回工具结果或交付裸路径不算已展示。付款确认、权益有效后，在原 Skill 目录覆盖为正式内容，再读取实际 SKILL.md：有原任务立即继续，不要问现在试还是以后用；没有原任务才用一两句说明怎么开始，然后等用户下一条，不要做成「现在就试还是先放着」的二选一。已有购买凭证沿用原订单；已有待恢复试用使用先恢复原 use，不更换身份。
+kind=purchase 时先读取包内 SKILL.md 的「使用前必读」，按宿主授权要求用本地 runtimePath 执行 purchase --wait 0；已有授权继续沿用。该命令会保存本机购买身份并创建或恢复订单，已有已付款订单时会校验权益并继续安装。待付款时参考「无试用开场白」简短说明商品、金额和无免费试用，再按购买指引提供支付入口。付款由用户本人确认。实际展示二维码或交付可点击支付链接后再运行 purchase --wait 60，不提前在后台启动等待；仅生成文件、返回工具结果或交付裸路径不算展示成功。付款确认、权益有效后，在原 Skill 目录覆盖为正式内容，再读取实际 SKILL.md：有原任务立即继续，不要问现在试还是以后用；没有原任务才用一两句说明怎么开始，然后等用户下一条，不要做成「现在就试还是先放着」的二选一。已有购买凭证沿用原订单；已有待恢复试用使用先恢复原 use，不更换身份。
 
 Python 优先规则适用于免费、试用和无试用付费版。只有 Python 不可用且没有既有脚本购买身份时，才使用 CLI 的账号购买和订阅；严格已购链接仍遵循 install=owned 的账号校验。
 
@@ -59,7 +59,7 @@ ready 说明本机文件完整，并可能带上只读余量；不代表账号�
 - 只有 `kind=trial` 且未确认耗尽时，新的独立任务才执行入口中的 use，只有本次 allowed=true 和 skillMarkdown 才执行返回正文；介绍、展示示例、查询余量、以及已经 PURCHASE_REQUIRED 都不调用 use。后续按已放行的同一任务继续，完成后用白话提醒还剩几次。对用户不要旁白检查过程。
 - `lastUse: true`：程序已在返回正文前替换入口；仍使用本次 skillMarkdown 完整完成任务，不需要 Agent 再执行停用命令。先交出本次结果，同一轮立即进入购买并展示支付二维码，不要等用户再说一次。
 - 始终使用当前安装返回的 runner：Python 试用继续本地 Python，CLI 安装继续 CLI。发现 CLI 不意味着要接管脚本身份。
-- 需要付款或恢复订单时，读取[购买与恢复](references/purchase.md)，并按[宿主支付展示](references/host-presentation.md)及本次命令输出展示。两条购买渠道共用同一份宿主指引。先交付支付入口再等待；本地支付页只展示，托管支付页只读查询状态，权益与安装由购买命令确认。
+- 需要付款或恢复订单时，读取[购买与恢复](references/purchase.md)，并按[宿主支付展示](references/host-presentation.md)及本次命令输出展示。两条购买渠道共用同一份宿主指引。先交付聊天二维码和官方支付链接再等待；有内置浏览器时打开官方链接，托管支付页只读查询状态，权益与安装由购买命令确认。
 - kind=trial 时，ready / install / status 返回 remainingUses=0、trialExhausted=true 或 nextAction=PURCHASE_REQUIRED 就是耗尽，立即购买。不要再交叉验证。PAYMENT_CLOSED 只代表这一笔订单关闭，不是余额结论：已经耗尽时立即再 purchase，不要跑 status，不要对用户说试用没耗尽。PENDING 只代表等待付款。
 - 所有 use 的 retryable=true 错误都先重跑原命令恢复，包括替换入口失败；不要因为次数已为 0 转去购买。
 - `SKILL_TRIAL_LOCK_BUSY` / `SKILL_INSTALL_LOCK_FAILED` / `SKILL_TRIAL_LOCK_RELEASE_FAILED` / `SKILL_TRIAL_SCRIPT_PENDING_CLEAR_FAILED` / `SKILL_TRIAL_PENDING_CONFIRM_FAILED` / `STATE_LOCK_BUSY` / `STATE_LOCK_RELEASE_FAILED`：短等几秒后重跑同一条命令一次。当前是 `use` 就重跑同一条 `use`，不要改跑 `install`。hint 写明会回放、不再扣次时，按 hint 重试，不要对用户说试用失败或次数白扣。不得对用户说安装通道占用、锁文件、错误码或持续性占用，不要定位或删除 `~/.viceme/trial` 下的文件，也不要让用户授权清锁。第二次仍失败：权限类错误才申请宿主文件权限；其他用白话请用户稍后再试。不要排障，不要切换 CLI/Python。

@@ -260,7 +260,7 @@ func runTrialPurchase(ctx context.Context, runtime *Runtime, productID string, w
 		details["checkoutImageUrl"] = order.CheckoutImageURL
 	}
 	return output.Confirmation("SKILL_PURCHASE_REQUIRED", "scan to pay; payment will restore the formal edition without login").WithDetails(details).
-		WithHint(skillPaymentPresentationHint(os.Getenv, order.HostedCheckout()) + fmt.Sprintf("; then rerun this same viceme skill trial-purchase %s command with --wait 60s, retaining --skill-dir when specified; expiry never proves an order is closed", productID))
+		WithHint(paymentPresentationHint(os.Getenv, order.HostedCheckout()) + fmt.Sprintf("; then rerun this same viceme skill trial-purchase %s command with --wait 60s, retaining --skill-dir when specified; expiry never proves an order is closed", productID))
 }
 
 func suspendExhaustedTrial(ctx context.Context, runtime *Runtime, productID, agent string, directories ...string) error {

@@ -244,8 +244,10 @@ func (s *skillPurchaseTestServer) serveHTTP(writer http.ResponseWriter, request 
 		}
 		s.mu.Unlock()
 		writeJSONResponse(writer, map[string]any{
-			"order":  map[string]any{"orderNo": skillSubscriptionOrderNo, "status": "PENDING", "productId": nil, "provider": "WECHAT_PAY", "currency": "CNY", "amountCents": 2990, "expiresAt": "2027-08-27T00:00:00Z"},
-			"action": map[string]any{"type": "QR_CODE", "content": "weixin://wxpay/bizpayurl?pr=sub"},
+			"order":            map[string]any{"orderNo": skillSubscriptionOrderNo, "status": "PENDING", "productId": nil, "provider": "WECHAT_PAY", "currency": "CNY", "amountCents": 2990, "expiresAt": "2027-08-27T00:00:00Z"},
+			"action":           map[string]any{"type": "QR_CODE", "content": "weixin://wxpay/bizpayurl?pr=sub"},
+			"checkoutUrl":      "https://shop.example/order-checkout/" + skillSubscriptionOrderNo + "#t=test-only",
+			"checkoutImageUrl": "https://shop.example/v1/order-checkout/qr/test-only.png",
 		})
 	case request.URL.Path == "/v1/cli/creator-subscription-orders/"+skillSubscriptionOrderNo:
 		s.mu.Lock()
@@ -416,8 +418,16 @@ func TestSubscriptionSubscribePaysWithWeChatQR(t *testing.T) {
 		t.Fatalf("unexpected subscribe error: %#v", envelope)
 	}
 
-	if !strings.Contains(errorBody["hint"].(string), cliembed.HostPresentationGuide()) {
+	if !strings.Contains(errorBody["hint"].(string), cliembed.PaymentPresentationGuide()) {
 		t.Fatal("subscription omitted shared host guide")
+	}
+
+	details := errorBody["details"].(map[string]any)
+	if details["checkoutUrl"] != "https://shop.example/order-checkout/"+skillSubscriptionOrderNo+"#t=test-only" || details["checkoutImageUrl"] != "https://shop.example/v1/order-checkout/qr/test-only.png" {
+		t.Fatalf("subscription lost the server's exact payment links: %#v", details)
+	}
+	if _, exists := details["paymentPresentation"].(map[string]any)["widgetPath"]; exists {
+		t.Fatal("subscription still emits a payment widget")
 	}
 
 	state.setSubscriptionState("PAID")
@@ -440,6 +450,33 @@ func TestSubscriptionSubscribePaysWithWeChatQR(t *testing.T) {
 	matches, _ := filepath.Glob(filepath.Join(home, ".viceme-cli", "payment-presentations", "wechat-*.png"))
 	if len(matches) != 0 {
 		t.Fatalf("subscription QR image survived a completed payment: %v", matches)
+	}
+}
+
+func TestSubscriptionQRFailureRetainsCheckoutAndOriginalOrder(t *testing.T) {
+	t.Setenv(processAccessTokenEnvironment, skillPurchaseAccessToken)
+	state := newSkillPurchaseTestServer(t)
+	defer state.server.Close()
+	home := t.TempDir()
+	directory := filepath.Join(home, ".viceme-cli", "payment-presentations", commercePaymentPresentationFilename(skillSubscriptionOrderNo))
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	exit, envelope, _ := executeSkillPurchaseCommand(t, state.server, home, "subscription", "subscribe", "dogtiti", "--wait", "0")
+	if exit == 0 {
+		t.Fatal("local QR failure was hidden")
+	}
+	failure := envelope["error"].(map[string]any)
+	details, _ := failure["details"].(map[string]any)
+	if failure["code"] != "COMMERCE_PAYMENT_PRESENTATION_FAILED" || details["checkoutUrl"] != "https://shop.example/order-checkout/"+skillSubscriptionOrderNo+"#t=test-only" || details["orderNo"] != skillSubscriptionOrderNo {
+		t.Fatalf("subscription QR failure lost official checkout: %#v", envelope)
+	}
+	if err := os.Remove(directory); err != nil {
+		t.Fatal(err)
+	}
+	_, recovered, _ := executeSkillPurchaseCommand(t, state.server, home, "subscription", "subscribe", "dogtiti", "--wait", "0")
+	if recovered["error"].(map[string]any)["details"].(map[string]any)["checkoutUrl"] != details["checkoutUrl"] || state.subscriptionCreates != 1 {
+		t.Fatalf("subscription did not recover the same order: %#v", recovered)
 	}
 }
 
@@ -563,7 +600,7 @@ func TestPaidSkillConcurrentPurchaseReusesOneOrder(t *testing.T) {
 		if result["error"].(map[string]any)["code"] != "SKILL_PURCHASE_REQUIRED" {
 			t.Fatalf("unexpected concurrent result: %#v", result)
 		}
-		if !strings.Contains(result["error"].(map[string]any)["hint"].(string), cliembed.HostPresentationGuide()) {
+		if !strings.Contains(result["error"].(map[string]any)["hint"].(string), cliembed.PaymentPresentationGuide()) {
 			t.Fatal("account purchase omitted shared host guide")
 		}
 	}

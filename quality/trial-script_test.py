@@ -664,15 +664,17 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertEqual(trial.target_roots("codex"), [os.path.join(home, ".agents", "skills")])
 
     def test_payment_instructions_branch_by_invoking_agent(self):
-        # WorkBuddy:聊天 local-file 图片 + present_files 支付页,原契约不变。
+        # WorkBuddy 使用 local-file 聊天图片，有内置浏览器时打开官方链接。
         with mock.patch.dict(os.environ, {"CODEBUDDY_SESSION_ID": "s"}):
             instructions = trial.payment_display_instructions()
             self.assertIn("![微信支付二维码](<imageChatSrc>)", instructions)
-            self.assertIn("present_files([widgetPath])", instructions)
-        # 豆包工作保留页面偏好,不禁止宿主明确支持的其他通道。
+            self.assertNotIn("present_files([widgetPath])", instructions)
+            self.assertIn("内置浏览器", instructions)
+        # 豆包工作同样按实际宿主能力使用官方链接和图片。
         with mock.patch.dict(os.environ, {"DOUBAO_OFFICE_APP_ID": "1"}):
             instructions = trial.payment_display_instructions()
-            self.assertIn("present_files([widgetPath])", instructions)
+            self.assertNotIn("present_files([widgetPath])", instructions)
+            self.assertIn("内置浏览器", instructions)
         # 任一环境都必须允许明确支持的图片通道;路径交付不是展示成功。
         for markers in ({"CODEBUDDY_SESSION_ID": "s"}, {"DOUBAO_OFFICE_APP_ID": "1"},
                         {"CODEX_SESSION_ID": "s"}, {"CLAUDECODE": "1"}, {}):
@@ -680,8 +682,8 @@ class TrialScriptTestCase(unittest.TestCase):
                 with mock.patch.dict(os.environ, markers):
                     instructions = trial.payment_display_instructions()
                     for required in ("当前宿主明确支持", "![微信支付二维码](<imagePath>)",
-                                     "支持本地 HTML", "另一个独立获准的通道",
-                                     "只有托管入口不可用且本地图片和页面都无法展示时", "仅交付路径时不要启动等待",
+                                     "本地付款 HTML 已退役", "宿主独立允许的 HTTPS 图片通道",
+                                     "始终把 `checkoutUrl` 写成可点击的官方支付链接", "仅生成图片文件或返回本地路径不算展示成功",
                                      "商品与金额说明放在二维码", "无试用时可参考以下表达", "正式内容尚未安装",
                                      "同一订单只嵌入一张二维码图片", "不要提前在后台启动等待"):
                         self.assertIn(required, instructions)
@@ -1392,7 +1394,7 @@ class InstallFlowTestCase(unittest.TestCase):
                 mock.patch.object(trial.time, "sleep", side_effect=AssertionError("QR must return before waiting")):
             code, result = self._run_purchase("--wait", "0")
         self.assertEqual(code, 0, result)
-        self.assertEqual(result["nextAction"], "PRESENT_PAYMENT_WIDGET")
+        self.assertEqual(result["nextAction"], "PRESENT_PAYMENT_QR")
         self.assertEqual(result["orderNo"], "TRIAL_ORDER_02")
         self.assertTrue(any(path.endswith("/trial-purchase/status") for path in calls))
         self.assertTrue(any(path.endswith("/trial-purchase") and not path.endswith("/status") for path in calls))
@@ -1999,7 +2001,7 @@ class InstallFlowTestCase(unittest.TestCase):
                 self.assertEqual(trial.run(arguments), 0)
             result = json.loads(output.getvalue())
             self.assertEqual(result["runtimePath"], entry["runtimePath"])
-            self.assertEqual(result["nextAction"], "PRESENT_PAYMENT_WIDGET")
+            self.assertEqual(result["nextAction"], "PRESENT_PAYMENT_QR")
             self.assertTrue(os.path.isfile(result["runtimePath"]))
             self.assertEqual(requests[0], requests[1])
             self.assertNotIn(requests[0][1], output.getvalue())
@@ -2105,7 +2107,7 @@ class InstallFlowTestCase(unittest.TestCase):
             self.assertEqual(request_ids[0], request_ids[1])
             self.assertFalse(first["allowed"])
             self.assertIn("![微信支付二维码](<imagePath>)", first["message"])
-            self.assertIn("只有托管入口不可用且本地图片和页面都无法展示时", first["message"])
+            self.assertIn("本地付款 HTML 已退役", first["message"])
             self.assertNotIn("不要声称或依赖聊天显示本地图片", first["message"])
             self.assertNotIn("grant-secret", json.dumps(first))
             self.assertNotIn("weixin://", json.dumps(first))
@@ -2115,19 +2117,8 @@ class InstallFlowTestCase(unittest.TestCase):
                 png = handle.read()
             self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
             self.assertEqual(presentation["imageChatSrc"], trial.local_file_chat_src(presentation["imagePath"]))
-            with open(presentation["widgetPath"], encoding="utf-8") as handle:
-                html = handle.read()
-            self.assertIn("<!DOCTYPE html>", html)
-            self.assertIn('aria-label="微信支付二维码"', html)
-            self.assertIn("<svg", html)
-            self.assertNotIn("__WIDGET_DATA__", html)
-            self.assertNotIn("A </script>", html)
-            self.assertNotIn("weixin://", html)
-            self.assertIn("2099-01-01T00:00:00Z", html)
-            start = html.index('<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="微信支付二维码"')
-            svg = html[start:html.index("</svg>", start) + len("</svg>")]
-            self.assertLess(max(map(len, svg.splitlines())), 1800)
-            self.assertEqual(stat.S_IMODE(os.stat(presentation["widgetPath"]).st_mode), 0o600)
+            self.assertNotIn("widgetPath", presentation)
+            self.assertEqual(stat.S_IMODE(os.stat(presentation["imagePath"]).st_mode), 0o600)
             self.assertTrue(trial.load_trial_state(PRODUCT_ID)["purchase"]["presented"])
             code, second = self._run_purchase()
             self.assertEqual(code, 0, second)
@@ -2330,7 +2321,7 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertFalse(status["trialExhausted"])
         self.assertEqual(calls, ["/v1/skills/%s/trial-grants" % PRODUCT_ID])
         with mock.patch.object(trial, "http_download", side_effect=AssertionError("static resources must stay local")):
-            for name in ("payment.html", "qrcodegen.py"):
+            for name in ("qrcodegen.py",):
                 self.assertGreater(len(trial.shared_widget_resource("cn", name)), 0)
         with mock.patch("builtins.open", side_effect=FileNotFoundError()):
             with self.assertRaises(trial.Failure) as failure:
@@ -2372,14 +2363,7 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertEqual(presentation["imageChatSrc"], local.local_file_chat_src(presentation["imagePath"]))
         self.assertEqual(presentation["mimeType"], "image/png")
-        with open(presentation["widgetPath"], encoding="utf-8") as handle:
-            html = handle.read()
-        start = html.index('<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="微信支付二维码"')
-        svg = html[start:html.index("</svg>", start) + len("</svg>")]
-        self.assertLess(max(map(len, svg.splitlines())), 1800)
-        # Simulate the host's per-line cap, then prove every QR module survived.
-        capped = "\n".join(line[:2000] for line in svg.splitlines())
-        self.assertEqual(ET.tostring(ET.fromstring(svg)), ET.tostring(ET.fromstring(capped)))
+        self.assertNotIn("widgetPath", presentation)
         with open(ready["onboardingTemplatePath"], "a") as handle:
             handle.write("tampered")
         self.assertFalse(local.find_ready_install("cn", PRODUCT_ID, "auto")["ready"])
