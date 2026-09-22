@@ -8,6 +8,7 @@
 
 ### Fixes
 
+- 把渠道包的购买和试用说明移出 SKILL.md (`ea130ca`)
 - 明确 WorkBuddy 支付页工具与通用 Markdown 链接 (`1c8e7b7`)
 - 使用独立 dev 域名根路径发布测试包 (`59c6a03`)
 - 修正 CN dev S3 分发域名 (`d92b52d`)
