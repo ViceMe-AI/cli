@@ -32,7 +32,7 @@ def render_dev_assets(root, build_id):
         text = path.read_text()
         for region in ("cn", "ai"):
             text = re.sub(r"https://s3\.viceme\." + region + r"(?=/skills/|/start/|[\"\']|$)",
-                          f"https://s3.viceme.{region}/dev/builds/{build_id}", text)
+                          ("https://s3.dev.viceme.cn/dev" if region == "cn" else "https://s3.viceme.ai/dev") + f"/builds/{build_id}", text)
             text = text.replace("https://viceme." + region, "https://dev.viceme." + region)
         if path.name == "make_copy.py":
             # Replica validates bare hostnames separately from URL constants.
@@ -45,7 +45,7 @@ def render_dev_assets(root, build_id):
             marker = "---"
             parts = text.split(marker, 2)
             notice = ("\n> dev 测试分发：先确认 dev CLI 与 dev Profile。安装、更新、恢复由本构建的 "
-                      f"https://s3.viceme.cn/dev/builds/{build_id}/start/agent-install.md 指导；"
+                      f"https://s3.dev.viceme.cn/dev/builds/{build_id}/start/agent-install.md 指导；"
                       "本分发中通用的 viceme update 生产更新步骤不适用。不得向生产环境重试。\n\n")
             if len(parts) == 3:
                 text = marker.join(parts[:2]) + marker + notice + parts[2]
@@ -126,7 +126,7 @@ def build(source, output, build_id, commit, platforms, allow_dirty=False):
                  "不要对 dev 使用生产 update，不要删除恢复日志。npm 安装先使用 npm uninstall -g @viceme-ai/cli。\n",
                  "| 平台 | 下载 | SHA-256 |\n|---|---|---|"]
         for item in delivery["packages"]:
-            guide.append(f"| {item['os']}/{item['arch']} | [CN](https://s3.viceme.cn/dev/builds/{build_id}/{item['file']}) / [GLOBAL](https://s3.viceme.ai/dev/builds/{build_id}/{item['file']}) | {item['sha256']} |")
+            guide.append(f"| {item['os']}/{item['arch']} | [CN](https://s3.dev.viceme.cn/dev/builds/{build_id}/{item['file']}) / [GLOBAL](https://s3.viceme.ai/dev/builds/{build_id}/{item['file']}) | {item['sha256']} |")
         (output / "start").mkdir()
         (output / "start/agent-install.md").write_text("\n\n".join(guide) + "\n")
         (output / "start/commerce-skill-install.md").write_text(
