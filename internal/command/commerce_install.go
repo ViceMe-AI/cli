@@ -150,7 +150,7 @@ func validateCommerceRuntimeBootstrap(install api.ProductPurchaseSkillInstall, d
 		return output.Policy("COMMERCE_RUNTIME_BOOTSTRAP_INVALID", "purchase Skill installation response contains an invalid Commerce Runtime bootstrap")
 	}
 	trustedPair := false
-	for _, origin := range []string{"https://s3.viceme.cn", "https://s3.viceme.ai", "https://s3.dev.viceme.cn/dev", "https://s3.viceme.ai/dev"} {
+	for _, origin := range []string{"https://s3.viceme.cn", "https://s3.viceme.ai", "https://s3.dev.viceme.cn"} {
 		if runtime.InstallerContractURL == origin+"/start/agent-install.md" &&
 			runtime.CommerceInstallerContractURL == origin+"/start/commerce-skill-install.md" {
 			trustedPair = true

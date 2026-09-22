@@ -19,9 +19,9 @@ class DevArtifactsTest(unittest.TestCase):
             mod.render_dev_assets(root,"dev-123-1-abcdefabcdef")
             self.assertEqual(original,(root/"internal/update/update.go").read_bytes())
             script=(root/"skills/use-a-skill/scripts/test.py").read_text()
-            self.assertIn("https://s3.dev.viceme.cn/dev/builds/dev-123-1-abcdefabcdef/skills/x",script)
+            self.assertIn("https://s3.dev.viceme.cn/start/builds/dev-123-1-abcdefabcdef/skills/x",script)
             self.assertIn("https://dev.viceme.cn/api",script)
-            self.assertIn("https://s3.viceme.ai/dev/builds/",script)
+            self.assertNotIn("https://s3.viceme.ai/dev",script)
             self.assertIn("https://s3.viceme.cn/viceme-sdk/1/index.js",script)
     def test_build_identity_rejects_unpinned_names(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -38,8 +38,21 @@ class DevArtifactsTest(unittest.TestCase):
             (root/"release").mkdir();(root/"release/trial-bootstrap.py.tmpl").write_text("")
             mod.render_dev_assets(root,"dev-123-1-abcdefabcdef")
             namespace=runpy.run_path(str(target))
-            for region in ("cn","ai"):
-                authority=namespace["authority_for_work_url"](f"https://dev.viceme.{region}/alice/demo.md?product=11111111-1111-4111-8111-111111111111")
-                self.assertEqual(authority.api_base_url,f"https://dev.viceme.{region}/api/v1")
+            authority=namespace["authority_for_work_url"]("https://dev.viceme.cn/alice/demo.md?product=11111111-1111-4111-8111-111111111111")
+            self.assertEqual(authority.api_base_url,"https://dev.viceme.cn/api/v1")
+            for host in ("viceme.cn", "viceme.ai", "dev.viceme.ai"):
                 with self.assertRaises(namespace["WorkflowError"]):
-                    namespace["authority_for_work_url"](f"https://viceme.{region}/alice/demo.md")
+                    namespace["authority_for_work_url"](f"https://{host}/alice/demo.md")
+
+    def test_dev_trial_bootstrap_has_no_global_choice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            (root/"release").mkdir()
+            source=Path(__file__).resolve().parents[1]/"release/trial-bootstrap.py.tmpl"
+            target=root/"release/trial-bootstrap.py.tmpl"
+            shutil.copyfile(source,target)
+            mod.render_dev_assets(root,"dev-123-1-abcdefabcdef")
+            namespace={}
+            exec(compile(target.read_text().replace("__RUNTIME_SHA256__", "a"*64),str(target),"exec"),namespace)
+            self.assertEqual(list(namespace["SCRIPT_ORIGIN"]),["cn"])
+            self.assertEqual(list(namespace["API_ORIGIN"]),["cn"])

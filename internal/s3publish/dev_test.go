@@ -12,17 +12,19 @@ import (
 )
 
 func TestDevPublicationCannotTargetProduction(t *testing.T) {
-	cfg := Config{DistDir: t.TempDir(), Version: "dev-123-1-abcdefabcdef", Regions: []Region{{Label: "CN", Bucket: "start", PublicOrigin: "https://s3.viceme.cn/start"}}}
-	if err := PublishDev(context.Background(), cfg); err == nil {
-		t.Fatal("production target accepted")
-	}
-	cfg.Regions[0].Bucket = "dev"
-	if err := PublishDev(context.Background(), cfg); err == nil {
-		t.Fatal("production public origin accepted")
+	for _, endpoint := range []string{"https://s3.viceme.cn", "https://s3.viceme.ai", "https://storage.example"} {
+		cfg := Config{DistDir: t.TempDir(), Version: "dev-123-1-abcdefabcdef", Regions: []Region{{Label: "CN", Bucket: "start", PublicOrigin: "https://s3.dev.viceme.cn/start", Endpoint: endpoint, AccessKey: "test", SecretKey: "test"}}}
+		err := publishDev(context.Background(), cfg, func(context.Context, Config, Region) (*regionRuntime, error) {
+			t.Fatal("connected to a non-dev endpoint")
+			return nil, nil
+		})
+		if err == nil || !strings.Contains(err.Error(), "dev credentials") {
+			t.Fatalf("non-dev endpoint accepted: %s: %v", endpoint, err)
+		}
 	}
 }
 func TestDevPublicationRejectsUndeployedOverseasBeforeConnecting(t *testing.T) {
-	cfg := Config{DistDir: t.TempDir(), Version: "dev-123-1-abcdefabcdef", Regions: []Region{{Label: "GLOBAL", Bucket: "dev", PublicOrigin: "https://s3.viceme.ai/dev", Endpoint: "https://storage.example", AccessKey: "test", SecretKey: "test"}}}
+	cfg := Config{DistDir: t.TempDir(), Version: "dev-123-1-abcdefabcdef", Regions: []Region{{Label: "GLOBAL", Bucket: "start", PublicOrigin: "https://s3.viceme.ai/dev", Endpoint: "https://storage.example", AccessKey: "test", SecretKey: "test"}}}
 	err := publishDev(context.Background(), cfg, func(context.Context, Config, Region) (*regionRuntime, error) {
 		t.Fatal("connected to undeployed overseas storage")
 		return nil, nil
@@ -78,43 +80,49 @@ func TestDevPublicationWritesIsolatedImmutableBuildBeforePointer(t *testing.T) {
 	for _, name := range []string{"SHA256SUMS", "start/agent-install.md", "skills/manifest.json", "skills/use-a-skill/scripts/trial.py"} {
 		write(name, []byte(name))
 	}
-	cfg := Config{DistDir: root, Version: build, Regions: []Region{{Label: "CN", Bucket: "dev", PublicOrigin: "https://s3.dev.viceme.cn/dev", Endpoint: fake.endpoint(), AccessKey: "test", SecretKey: "test"}}}
+	cfg := Config{DistDir: root, Version: build, Regions: []Region{{Label: "CN", Bucket: "start", PublicOrigin: "https://s3.dev.viceme.cn/start", Endpoint: "https://s3.dev.viceme.cn", AccessKey: "test", SecretKey: "test"}}}
 	factory := func(ctx context.Context, cfg Config, region Region) (*regionRuntime, error) {
+		region.Endpoint = fake.endpoint()
 		client := fake.server.Client()
 		s3, err := newS3Client(ctx, region, client)
 		if err != nil {
 			return nil, err
 		}
-		region.PublicOrigin = fake.endpoint() + "/dev"
+		region.PublicOrigin = fake.endpoint() + "/start"
 		return &regionRuntime{cfg: cfg, region: region, store: &awsStore{client: s3, label: region.Label}, http: client}, nil
 	}
 	if err := publishDev(context.Background(), cfg, factory); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := fake.get("dev", "builds/"+build+"/delivery.json"); !ok {
+	if _, ok := fake.get("start", "builds/"+build+"/delivery.json"); !ok {
 		t.Fatal("immutable manifest absent")
 	}
-	if got, ok := fake.get("dev", "delivery.json"); !ok || string(got.Body) != string(manifest) {
+	if got, ok := fake.get("start", "delivery.json"); !ok || string(got.Body) != string(manifest) {
 		t.Fatal("pointer differs")
 	}
 	for _, key := range fake.putKeys {
-		if !strings.HasPrefix(key, "dev\x00") {
-			t.Fatal("production bucket mutated", key)
+		if !strings.HasPrefix(key, "start\x00") && !strings.HasPrefix(key, "skills\x00") {
+			t.Fatal("unrelated bucket mutated", key)
 		}
 	}
-	if fake.putKeys[len(fake.putKeys)-1] != objectID("dev", "delivery.json") {
+	if fake.putKeys[len(fake.putKeys)-1] != objectID("start", "delivery.json") {
 		t.Fatal("pointer was not last")
+	}
+	for _, alias := range []struct{ bucket, key string }{{"start", "agent-install.md"}, {"skills", "manifest.json"}, {"skills", "use-a-skill/scripts/trial.py"}} {
+		if _, ok := fake.get(alias.bucket, alias.key); !ok {
+			t.Fatalf("missing root-level alias %s/%s", alias.bucket, alias.key)
+		}
 	}
 	// Same bytes are idempotent; changed immutable bytes must never advance pointers.
 	if err := publishDev(context.Background(), cfg, factory); err != nil {
 		t.Fatal(err)
 	}
 	write("start/agent-install.md", []byte("changed"))
-	previous := fake.putCount("dev", "delivery.json")
+	previous := fake.putCount("start", "delivery.json")
 	if err := publishDev(context.Background(), cfg, factory); err == nil {
 		t.Fatal("immutable conflict accepted")
 	}
-	if fake.putCount("dev", "delivery.json") != previous {
+	if fake.putCount("start", "delivery.json") != previous {
 		t.Fatal("advanced pointer after failed immutable write")
 	}
 }

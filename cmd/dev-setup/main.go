@@ -64,7 +64,7 @@ func run(args []string) (any, error) {
 	target := flags.String("destination", destination, "explicit standalone CLI path")
 	base := flags.String("config-dir", configDir, "existing CLI config directory")
 	pkg := flags.String("package-dir", filepath.Dir(exe), "verified extracted platform package")
-	region := flags.String("region", "cn", "cn or global")
+	region := flags.String("region", "cn", "cn (only deployed dev region)")
 	agent := flags.String("agent", "auto", "official Skill target")
 	replace := flags.Bool("replace-standalone", false, "authorize retirement of an existing standalone CLI")
 	expected := flags.String("sha256", "", "required installed dev binary digest for uninstall/resume")
@@ -110,8 +110,8 @@ func run(args []string) (any, error) {
 	if args[0] != "install" {
 		return nil, errors.New("unknown operation")
 	}
-	if *region != "cn" && *region != "global" {
-		return nil, errors.New("invalid region")
+	if *region != "cn" {
+		return nil, errors.New("dev installation supports only the cn region")
 	}
 	data, err := os.ReadFile(filepath.Join(*pkg, "BUILD.json"))
 	if err != nil {
@@ -154,9 +154,6 @@ func run(args []string) (any, error) {
 		return nil, err
 	}
 	web := "https://dev.viceme.cn"
-	if *region == "global" {
-		web = "https://dev.viceme.ai"
-	}
 	profile, err := cfg.Resolve("dev")
 	if err == nil {
 		if profile.APIBaseURL != web+"/api" || profile.WebBaseURL != web || string(profile.MarketRegion) != *region {
