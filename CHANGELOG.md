@@ -8,6 +8,7 @@
 
 ### Fixes
 
+- 明确 WorkBuddy 支付页工具与通用 Markdown 链接 (`1c8e7b7`)
 - 使用独立 dev 域名根路径发布测试包 (`59c6a03`)
 - 修正 CN dev S3 分发域名 (`d92b52d`)
 - 导出渠道 Skill 时读取指定运行环境 (`f3b7b33`)
@@ -17,6 +18,7 @@
 
 ### Other Changes
 
+- 对齐 Python 支付展示契约断言 (`d2958ad`)
 - 统一发布后 main 到 dev 的回灌规则 (`7f2e1bb`)
 - 对齐生产门禁并仅发布国内 dev 存储 (`5f8360e`)
 - 更新单商品 Skill 说明 (`390ac2f`)
