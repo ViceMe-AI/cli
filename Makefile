@@ -26,7 +26,7 @@ build:
 
 test:
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test ./...
-	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest npm/test/make_copy_test.py npm/test/page_import_preview_test.py
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest npm/test/make_copy_test.py npm/test/page_import_preview_test.py quality/build_your_work_packager_test.py
 
 test-race:
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test -race ./...

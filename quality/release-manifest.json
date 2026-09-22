@@ -10,6 +10,13 @@
       "full_skill_bundle_digest": "sha256:841356bbef39dea80a6026c0582dd26f848771c6fba3c29d92249534c8986f4f",
       "embedded_content_digest": "sha256:5c1a91469b55487aeade7800e50dc90baa17e953601219d591a41f8e0ea2ce75"
     },
+    "build-your-work": {
+      "skill_version": "0.45.6",
+      "minimum_cli_version": "0.45.6",
+      "cli_compatibility": ">=0.45.6 <0.46.0",
+      "full_skill_bundle_digest": "sha256:b1efe33bc6ef4eed05dda7d4cc4ed6b1956e661e20d4dcf83bac0e01dccc84f9",
+      "embedded_content_digest": "sha256:34cfa47e619c19a4fc117b842b7a076bfff02333e891c6b123b9a8464515b040"
+    },
     "charge-for-your-work": {
       "skill_version": "0.46.0",
       "minimum_cli_version": "0.46.0",
@@ -88,7 +95,7 @@
       "embedded_content_digest": "sha256:25e6d8d4c289b84703e25b25dd2a18655ae64e3f4436b1349acf10826dff1461"
     }
   },
-  "bootstrap_contract_digest": "sha256:8021364e051880c28aff6b6eabe11909dae0f0cd8d5879eb014abd46871e7681",
+  "bootstrap_contract_digest": "sha256:f36b58217cef9cd1f095ed2ac72a2afb02d814c2f1e0a24059f015f7da322848",
   "installer_digests": {
     "install.ps1": "sha256:4c930532ba9e6158f1748178706c84c41b92fba2f9322449e03d4ea645ae1434",
     "install.sh": "sha256:03e0543e0a41bd95ef07748c9c004dab872eb2aab4a26ec52e7033b76e1ccc0d"

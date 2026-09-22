@@ -73,6 +73,7 @@ export const officialSkillNames = [
   "become-a-creator",
   "customize-your-profile-page",
   "customize-your-work-page",
+  "build-your-work",
   "sell-a-skill",
   "use-a-skill",
   "charge-for-your-work",
