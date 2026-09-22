@@ -116,3 +116,14 @@ Shop 的公共 `OrderCheckoutModule` 负责为微信 Native 待付款订单签�
 先保证新增响应字段和 `/order-checkout` 的 Shop API/Web 可用，再启用依赖新入口的客户端。
 Shop 导出器与官方运行包须配套切换：新导出要求 `guides/host-presentation.md`，拒绝 `widgets/payment.html`；仅更新任意一侧可能暂时导致导出失败，回滚也须选择匹配版本。
 历史摘要资源保留，已有用户安装包不会被重新校验或改写。兼容已有 `/trial-checkout` 链接，本轮不新增数据库迁移或环境变量。实际微信扣款与宿主原生浏览器另行验收。
+
+## 网页入口与到期恢复
+
+网页口令使用当前环境的官方 bootstrap 执行 `enter`，不能用已安装商品的旧 `ready`
+替代。`enter` 校验并比较平台文件，变化时保留商品内容、订单和凭证原地更新，未变化不写入；
+之后执行返回的本地运行路径。离线渠道包仍按包内流程执行，CLI 的后台更新不刷新 Skill。
+
+购买恢复继续使用原身份和幂等键，包括已到期但仍 PENDING 的订单。显式恢复请求由服务端
+确认支付或关单；普通轮询只读。只有确认 CLOSED 才创建新订单，PAID 仍须验证下载权益。
+到期或缺失可用支付入口返回 `PAYMENT_CONFIRMATION_PENDING` / `WAIT_PAYMENT_CONFIRMATION`，
+不能报告二维码就绪或将该次响应标记为已展示。先发布服务端和运行资源，再切换网页入口。
