@@ -10,6 +10,7 @@ const releaseCommit = "b".repeat(40);
 function releasePullRequest(overrides = {}) {
   return {
     number: 45,
+    user: { login: "Dogtiti" },
     title: "chore(release): v0.9.0",
     merged_at: "2026-07-27T03:42:00Z",
     merge_commit_sha: mergeCommit,
@@ -39,7 +40,11 @@ test("push to main resolves the exact reviewed dev head", async () => {
     },
   });
 
+  const publisher = JSON.parse(result.release_pull_request);
+  assert.equal(publisher.user.login, "Dogtiti");
+  assert.equal(publisher.merged, true);
   assert.deepEqual(result, {
+    release_pull_request: result.release_pull_request,
     release_ref: releaseCommit,
     release_pr_title: "chore(release): v0.9.0",
     requested_tag: "",
@@ -59,7 +64,7 @@ test("push resolution rejects unrelated or ambiguous PRs", async () => {
       fetchPullRequests: async () => [
         releasePullRequest({
           head: {
-            ref: "feature",
+            ref: "chore(repo)/integrate-feature",
             sha: releaseCommit,
             repo: { full_name: repository },
           },
@@ -102,6 +107,7 @@ test("manual recovery accepts only an exact stable tag", async () => {
     requested_tag: "v0.9.0",
     recovery: "true",
     release_pr_number: "",
+    release_pull_request: "",
   });
 
   await assert.rejects(
@@ -128,3 +134,25 @@ test("manual recovery accepts only an exact stable tag", async () => {
     /protected main branch/,
   );
 });
+
+for (const branch of ['feat(cli)/feature', 'fix(cli)/repair']) {
+  test(`independent release accepts ${branch}`, async () => {
+    const pr = releasePullRequest(); pr.head.ref = branch;
+    const result = await resolveReleaseContext({ eventName: 'push',
+      event: { ref: 'refs/heads/main', after: mergeCommit }, repository,
+      fetchPullRequests: async () => [pr] });
+    assert.equal(result.release_ref, releaseCommit);
+    assert.equal(JSON.parse(result.release_pull_request).user.login, 'Dogtiti');
+  });
+}
+for (const change of [
+  { merged_at: null }, { merge_commit_sha: 'c'.repeat(40) },
+  { head: { ref: 'feat/example', repo: { full_name: 'fork/cli' } } },
+  { head: { ref: 'hotfix/urgent', repo: { full_name: repository } } },
+]) {
+  test(`reject invalid release source ${JSON.stringify(change)}`, async () => {
+    await assert.rejects(resolveReleaseContext({ eventName: 'push',
+      event: { ref: 'refs/heads/main', after: mergeCommit }, repository,
+      fetchPullRequests: async () => [releasePullRequest(change)] }), /found 0/);
+  });
+}
