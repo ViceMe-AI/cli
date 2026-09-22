@@ -58,3 +58,10 @@
 
 - 用户选择账号购买时：确认同一 WeSimi 账号具有购买权限，先运行 `viceme skill install <product-id> --agent auto --wait 0` 创建或恢复订单。返回 `SKILL_PURCHASE_REQUIRED` 是待支付结果，不是下单失败：立即展示本地二维码图片，同时用 Markdown 链接展示 `paymentUrl`（“打开支付页面”），不要先启动长时间等待而让用户看不到二维码。浏览器未登录时提示用下单的同一账号登录。展示完成后，后台运行同一安装命令并改为 `--wait 10m` 等待付款，支付到账后自动继续安装；等待超时返回 `SKILL_PURCHASE_PENDING` 时保留原订单，用户完成支付后重跑原命令。只有确认 `owned=true` 且安装成功才能说购买安装完成。不得用商品详情页代替支付页面，也不得把支付 URI 直接贴到对话里。
 - access 响应携带 `subscription` 块：`available=true` 表示该创作者开通了粉丝订阅。引导购买时必须同时告知订阅选项：订阅价 ¥X/30 天；有效期内可安装和更新该创作者全部付费 Skill，到期后不能重装或更新，但本地已经安装的内容不会删除。用户选择订阅时，先运行 `viceme subscription subscribe <creator-handle> --wait 0` 按公共支付指引展示二维码和返回的 `checkoutUrl`，再后台运行同一命令并改为 `--wait 10m` 等待支付；支付到账即订阅生效，随后重跑安装命令。`subscribedUntil` 非空表示当前处于订阅期，直接安装即可，不得再要求购买。
+
+## 原订单正在确认
+
+返回 `PAYMENT_CONFIRMATION_PENDING` 或 `WAIT_PAYMENT_CONFIRMATION` 时，说明原订单
+尚未确认支付或关闭。告诉用户正在确认付款状态；本轮停止展示和重试，稍后沿用相同购买
+命令恢复。不得展示旧二维码、创建新购买身份、删除订单状态或反复翻查本地源码。
+只有拿到有效支付入口才能展示并启动付款等待；`PAID` 后仍须完成权益校验和正式安装。

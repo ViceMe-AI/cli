@@ -104,3 +104,37 @@ func TestHostedCheckoutPreferencesRespectHostCapabilities(t *testing.T) {
 		}
 	}
 }
+
+func TestTrialExpiredPendingRecoveryNeverPresentsEmptyPayment(t *testing.T) {
+	state := newSkillTrialTestServer(t, func(s *skillTrialTestServer) { s.trialPurchaseExpired = true })
+	defer state.server.Close()
+	home, store := t.TempDir(), securestore.NewMemory()
+	invoke := func(args ...string) (int, map[string]any) {
+		code, result, _ := executeSkillTrialCommand(t, state.server, home, store, args...)
+		return code, result
+	}
+	if code, result := invoke("skill", "install", downloadableProductID, "--agent", "codex"); code != 0 {
+		t.Fatalf("install: %#v", result)
+	}
+	for i := 0; i < 2; i++ {
+		_, result := invoke("skill", "trial-purchase", downloadableProductID, "--wait", "0")
+		failure := result["error"].(map[string]any)
+		if failure["code"] != "PAYMENT_CONFIRMATION_PENDING" {
+			t.Fatalf("must wait for authoritative recovery: %#v", result)
+		}
+		details := failure["details"].(map[string]any)
+		if details["nextAction"] != "WAIT_PAYMENT_CONFIRMATION" || details["paymentPresentation"] != nil {
+			t.Fatalf("invalid presentation: %#v", details)
+		}
+	}
+	state.mu.Lock()
+	requests := append([]map[string]string(nil), state.trialPurchaseRequests...)
+	state.paymentStatus = "PAID"
+	state.mu.Unlock()
+	if len(requests) != 3 || requests[0]["clientRequestId"] == "" || requests[0]["clientRequestId"] != requests[2]["clientRequestId"] {
+		t.Fatalf("must resume same request after local status: %#v", requests)
+	}
+	if code, result := invoke("skill", "trial-purchase", downloadableProductID, "--wait", "0", "--agent", "codex"); code != 0 {
+		t.Fatalf("paid recovery: %#v", result)
+	}
+}

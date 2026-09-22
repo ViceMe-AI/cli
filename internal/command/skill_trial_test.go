@@ -48,6 +48,7 @@ type skillTrialTestServer struct {
 	useRequests           []map[string]any
 	trialUseFailures      int
 	trialPurchaseRequests []map[string]string
+	trialPurchaseExpired  bool
 	trialHostedCheckout   bool
 }
 
@@ -114,6 +115,10 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 		purchase := map[string]any{
 			"productId": downloadableProductID, "orderNo": skillPurchaseOrderNo, "title": "Trial formal edition",
 			"amountCents": 990, "currency": "CNY", "status": status, "expiresAt": "2099-01-01T00:00:00Z", "paymentAction": action,
+		}
+		if s.trialPurchaseExpired {
+			purchase["expiresAt"] = "2020-01-01T00:00:00Z"
+			purchase["paymentAction"] = nil
 		}
 		if s.trialHostedCheckout && status == "PENDING" {
 			purchase["checkoutUrl"] = "https://shop.example.invalid/trial-checkout/order#t=test-only"
