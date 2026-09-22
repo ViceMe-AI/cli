@@ -683,7 +683,7 @@ class TrialScriptTestCase(unittest.TestCase):
                     instructions = trial.payment_display_instructions()
                     for required in ("当前宿主明确支持", "![微信支付二维码](<imagePath>)",
                                      "本地付款 HTML 已退役", "宿主独立允许的 HTTPS 图片通道",
-                                     "始终把 `checkoutUrl` 写成可点击的官方支付链接", "仅生成图片文件或返回本地路径不算展示成功",
+                                     "[打开支付页面](完整 checkoutUrl)", "仅生成图片文件或返回本地路径不算展示成功",
                                      "商品与金额说明放在二维码", "无试用时可参考以下表达", "正式内容尚未安装",
                                      "同一订单只嵌入一张二维码图片", "不要提前在后台启动等待"):
                         self.assertIn(required, instructions)
@@ -2135,7 +2135,9 @@ class InstallFlowTestCase(unittest.TestCase):
                 instructions = trial.payment_display_instructions(hosted=True)
                 guide = trial.runtime_resource("guides/host-presentation.md").decode("utf-8")
                 self.assertTrue(instructions.endswith(guide))
-                self.assertIn("open_in_codex", guide)
+                self.assertIn('present_files({"files":[完整 checkoutUrl]', guide)
+                self.assertIn("ToolSearch", guide)
+                self.assertNotIn("不把 `present_files` 当作浏览器", guide)
                 self.assertIn("Codex 终端版", guide)
 
 
