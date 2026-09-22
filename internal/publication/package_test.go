@@ -328,9 +328,6 @@ func TestBuildDerivesSummaryWhenDescriptionIsMissing(t *testing.T) {
 	if result.Manifest.Metadata.Summary != "Turns a short prompt into a printable poster." {
 		t.Fatalf("unexpected derived summary: %q", result.Manifest.Metadata.Summary)
 	}
-	if len(result.Manifest.Spec.Edition.Highlights) != 1 || result.Manifest.Spec.Edition.Highlights[0] != result.Manifest.Metadata.Summary {
-		t.Fatalf("edition highlights should follow the derived summary: %#v", result.Manifest.Spec.Edition.Highlights)
-	}
 }
 
 func TestBuildStillRequiresFrontmatterName(t *testing.T) {

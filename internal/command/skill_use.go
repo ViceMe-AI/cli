@@ -30,7 +30,6 @@ import (
 type downloadableSkillInstallResult struct {
 	localSkillResources
 	ProductID             string                     `json:"productId"`
-	Edition               any                        `json:"edition"`
 	ReleaseID             string                     `json:"releaseId"`
 	ArtifactDigest        string                     `json:"artifactDigest"`
 	InstalledName         string                     `json:"installedName"`
@@ -52,16 +51,9 @@ type downloadableSkillFile struct {
 
 var skillUseProductIDPattern = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
-type skillInstallIntent string
-
-const (
-	skillInstallIntentOpen  skillInstallIntent = "open"
-	skillInstallIntentOwned skillInstallIntent = "owned"
-)
-
 func newSkillDetailCommand(runtime *Runtime) *cobra.Command {
 	return &cobra.Command{
-		Use: "detail <product-id-or-work-url>", Short: "Show a Skill Work and all of its free or paid editions", Args: cobra.ExactArgs(1),
+		Use: "detail <product-id-or-work-url>", Short: "Show a Skill Work and its product", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
 			if !skillUseProductIDPattern.MatchString(args[0]) {
 				_, work, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
@@ -114,9 +106,9 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 	var skillDirectory string
 	var wait time.Duration
 	command := &cobra.Command{
-		Use: "install <product-id-or-work-url>", Short: "Verify and atomically install one free or purchased Skill edition", Args: cobra.ExactArgs(1),
+		Use: "install <product-id-or-work-url>", Short: "Verify and atomically install one free or purchased Skill", Args: cobra.ExactArgs(1),
 		RunE: func(command *cobra.Command, args []string) error {
-			productID, work, installIntent, err := resolveSkillInstallTarget(command.Context(), runtime, args[0])
+			productID, work, err := resolveSkillUseTarget(command.Context(), runtime, args[0])
 			if err != nil {
 				return err
 			}
@@ -140,35 +132,21 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				return runtime.business(map[string]any{"officialInstall": work.Work.OfficialInstall, "install": installed, "nextAction": "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", "invocation": "$" + work.Work.OfficialInstall.SkillName})
 			}
 			var access api.SkillAccess
-			if installIntent == skillInstallIntentOwned {
-				if err := runtime.requireSkillUseAuthentication(command.Context()); err != nil {
-					return err
-				}
-				access, err = runtime.client().GetSkillAccess(command.Context(), productID)
-				if err != nil {
-					return err
-				}
-				if !access.Owned {
-					return output.Authorization("SKILL_NOT_OWNED", "the current account does not have active access to this paid Skill edition").
-						WithDetails(map[string]any{"productId": productID}).
-						WithHint("sign in with the account that purchased this Product, or renew the creator subscription; owned install never falls back to a trial or purchase")
-				}
-			} else {
-				resume, resumeErr := trialInstallShouldResumePurchase(command.Context(), runtime, productID)
-				if resumeErr != nil {
-					return resumeErr
-				}
-				if resume {
-					return runTrialPurchase(command.Context(), runtime, productID, wait, agent, skillDirectory)
-				}
-				access, err = runtime.client().GetPublicSkillAccess(command.Context(), productID)
-				if err != nil {
-					return err
-				}
+			resume, resumeErr := trialInstallShouldResumePurchase(command.Context(), runtime, productID)
+			if resumeErr != nil {
+				return resumeErr
 			}
+			if resume {
+				return runTrialPurchase(command.Context(), runtime, productID, wait, agent, skillDirectory)
+			}
+			access, err = runtime.client().GetPublicSkillAccess(command.Context(), productID)
+			if err != nil {
+				return err
+			}
+
 			if !access.IsFree {
 				// 普通入口对已登录账号先查权益，避免已购用户被公开试用分支截走。
-				if installIntent != skillInstallIntentOwned && runtimeHasAuthentication(runtime) {
+				if runtimeHasAuthentication(runtime) {
 					if err := runtime.requireSkillUseAuthentication(command.Context()); err != nil {
 						return err
 					}
@@ -182,7 +160,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				if work != nil {
 					workSlugForTrial = work.Work.Slug
 				}
-				if installIntent != skillInstallIntentOwned && !access.Owned && access.Trial != nil && access.Trial.Available {
+				if !access.Owned && access.Trial != nil && access.Trial.Available {
 					return installTrialSkill(command.Context(), runtime, productID, workSlugForTrial, agent, access)
 				}
 				if !access.Owned && !access.PurchaseAvailable {
@@ -191,7 +169,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 				if err := runtime.requireSkillUseAuthentication(command.Context()); err != nil {
 					return err
 				}
-				if installIntent != skillInstallIntentOwned && !access.Owned {
+				if !access.Owned {
 					access, err = runtime.client().GetSkillAccess(command.Context(), productID)
 					if err != nil {
 						return err
@@ -225,7 +203,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 							"amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
 							"paymentPresentation": presentation,
 							"paymentUrl":          paymentURL,
-							"edition":             access.Edition, "subscription": access.Subscription,
+							"subscription":        access.Subscription,
 						}
 						hint := "present both the order paymentUrl and QR image to the user; the payment page requires the same account; rerun the same install command with --wait while payment is in progress"
 						if access.Subscription.Available {
@@ -309,7 +287,7 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	if err != nil {
 		return downloadableSkillInstallResult{}, err
 	}
-	installedName := downloadableSkillName(productID, manifestName, access.Edition.Title, workSlug)
+	installedName := downloadableSkillName(productID, manifestName, access.Title, workSlug)
 	kind := "owned"
 	if access.IsFree {
 		kind = "free"
@@ -329,42 +307,12 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	}
 	return downloadableSkillInstallResult{
 		localSkillResources: resourcesFromReport(report, "cli"),
-		ProductID:           productID, Edition: access.Edition, ReleaseID: access.Release.ID, ArtifactDigest: digest,
+		ProductID:           productID, ReleaseID: access.Release.ID, ArtifactDigest: digest,
 		InstalledName: installedName, Install: report,
 		NextAction: "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", Invocation: "$" + installedName,
 		OnboardingGuideURL:    sharedGuidanceURL(runtime, "_widgets/README.md"),
 		OnboardingTemplateURL: sharedGuidanceURL(runtime, "_widgets/onboarding.html"),
 	}, nil
-}
-
-func resolveSkillInstallTarget(ctx context.Context, runtime *Runtime, target string) (string, *api.PublicWorkProjection, skillInstallIntent, error) {
-	trimmed := strings.TrimSpace(target)
-	if skillUseProductIDPattern.MatchString(trimmed) {
-		productID, work, err := resolveSkillUseTarget(ctx, runtime, trimmed)
-		return productID, work, skillInstallIntentOpen, err
-	}
-	parsed, err := url.Parse(trimmed)
-	if err != nil {
-		return "", nil, skillInstallIntentOpen, output.Validation("SKILL_TARGET_INVALID", "Skill target must be a Product ID or canonical Work URL")
-	}
-	installValues, installSpecified := parsed.Query()["install"]
-	if !installSpecified {
-		productID, work, resolveErr := resolveSkillUseTarget(ctx, runtime, trimmed)
-		return productID, work, skillInstallIntentOpen, resolveErr
-	}
-	if len(installValues) != 1 || installValues[0] != string(skillInstallIntentOwned) {
-		return "", nil, skillInstallIntentOpen, output.Validation("SKILL_INSTALL_INTENT_INVALID", "the install selector must contain exactly one supported value")
-	}
-	productValues, productSpecified := parsed.Query()["product"]
-	if !productSpecified || len(productValues) != 1 || !skillUseProductIDPattern.MatchString(productValues[0]) {
-		return "", nil, skillInstallIntentOwned, output.Validation("SKILL_OWNED_PRODUCT_REQUIRED", "owned install requires exactly one valid Product selector")
-	}
-	if _, err := skillWorkURLSegments(parsed); err != nil {
-		return "", nil, skillInstallIntentOwned, err
-	}
-	// The Product ID is the authority for a strict owned install. Avoid the
-	// public Work projection so a durable buyer can reinstall after delisting.
-	return productValues[0], nil, skillInstallIntentOwned, nil
 }
 
 func resolveSkillUseTarget(ctx context.Context, runtime *Runtime, target string) (string, *api.PublicWorkProjection, error) {
@@ -398,49 +346,13 @@ func resolveSkillUseTarget(ctx context.Context, runtime *Runtime, target string)
 		}
 		return "", &work, nil
 	}
-	products := append([]api.PublicWorkProduct(nil), work.Work.Products...)
-	sort.Slice(products, func(left, right int) bool {
-		leftOrder, rightOrder := int(^uint(0)>>1), int(^uint(0)>>1)
-		if products[left].Edition != nil {
-			leftOrder = products[left].Edition.SortOrder
-		}
-		if products[right].Edition != nil {
-			rightOrder = products[right].Edition.SortOrder
-		}
-		if leftOrder != rightOrder {
-			return leftOrder < rightOrder
-		}
-		return products[left].ID < products[right].ID
-	})
-	if values, present := parsed.Query()["product"]; present {
-		requested := ""
-		if len(values) == 1 {
-			requested = values[0]
-		}
-		if !skillUseProductIDPattern.MatchString(requested) {
-			return "", &work, output.Validation("SKILL_EDITION_SELECTOR_INVALID", "the explicit Product selector must contain one valid Product ID")
-		}
-		for _, product := range products {
-			if product.ID == requested {
-				if !isDownloadableWorkProduct(product) {
-					return "", &work, output.Validation("SKILL_EDITION_NOT_INSTALLABLE", "the requested Product is not a downloadable Skill edition")
-				}
-				return product.ID, &work, nil
-			}
-		}
-		return "", &work, output.Validation("SKILL_EDITION_NOT_IN_WORK", "the requested Product does not belong to this Work")
+	if parsed.Query().Has("product") {
+		return "", &work, output.Validation("SKILL_WORK_URL_INVALID", "Skill Work URLs do not support a Product selector")
 	}
-	for _, product := range products {
-		if product.IsFree && product.InstallKind != nil && *product.InstallKind == "PUBLIC_FREE" && isDownloadableWorkProduct(product) {
-			return product.ID, &work, nil
-		}
+	if work.Work.Kind != "SKILL" || len(work.Work.Products) != 1 || !isDownloadableWorkProduct(work.Work.Products[0]) {
+		return "", &work, output.Validation("SKILL_WORK_NOT_INSTALLABLE", "the Work must expose exactly one downloadable Skill")
 	}
-	for _, product := range products {
-		if isDownloadableWorkProduct(product) {
-			return product.ID, &work, nil
-		}
-	}
-	return "", &work, output.Validation("SKILL_WORK_HAS_NO_EDITIONS", "the Work does not expose an installable Skill edition")
+	return work.Work.Products[0].ID, &work, nil
 }
 
 func skillWorkURLSegments(parsed *url.URL) ([]string, error) {
@@ -449,13 +361,13 @@ func skillWorkURLSegments(parsed *url.URL) ([]string, error) {
 	}
 	handle, slug, ok := workurl.PublicParts(parsed)
 	if !ok {
-		return nil, output.Validation("SKILL_WORK_URL_INVALID", "Work URL must use /<creator-handle>?workSlug=<work-slug> with public Work parameters")
+		return nil, output.Validation("SKILL_WORK_URL_INVALID", "Work URL must identify /<creator-handle>/<work-slug> with public Work parameters")
 	}
 	return []string{handle, slug}, nil
 }
 
 func isDownloadableWorkProduct(product api.PublicWorkProduct) bool {
-	if product.InstallKind == nil || product.ActiveRelease == nil || product.Edition == nil {
+	if product.InstallKind == nil || product.ActiveRelease == nil {
 		return false
 	}
 	switch *product.InstallKind {
@@ -536,15 +448,15 @@ func extractDownloadableSkill(archive []byte) (map[string]downloadableSkillFile,
 
 // downloadableSkillName keeps the author-facing identity: the package's own
 // SKILL.md name comes first (the installer requires the directory name to
-// match it), then the edition-title slug, the work slug for non-Latin
+// match it), then the product-title slug, the work slug for non-Latin
 // titles, and finally a unique platform-scoped fallback.
 func downloadableSkillName(
-	productID, manifestName, editionTitle, workSlug string,
+	productID, manifestName, productTitle, workSlug string,
 ) string {
 	if slug := slugifyInstallName(manifestName); slug != "" {
 		return slug
 	}
-	if slug := slugifyInstallName(editionTitle); slug != "" {
+	if slug := slugifyInstallName(productTitle); slug != "" {
 		return slug
 	}
 	if workSlug != "" {

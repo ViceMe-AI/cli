@@ -563,7 +563,7 @@ func installTrialSkill(ctx context.Context, runtime *Runtime, productID string, 
 	if err != nil {
 		return err
 	}
-	installedName := downloadableSkillName(productID, manifestName, access.Edition.Title, workSlug)
+	installedName := downloadableSkillName(productID, manifestName, access.Title, workSlug)
 	if err := addSkillRuntime(runtime, files, productID, access.Release.ID, "trial"); err != nil {
 		return err
 	}
@@ -588,14 +588,14 @@ func installTrialSkill(ctx context.Context, runtime *Runtime, productID string, 
 			return suspendErr
 		}); err != nil {
 			return output.Internal("SKILL_TRIAL_SUSPEND_FAILED", "trial exhausted; could not safely replace every trial Skill entrypoint", err).
-				WithHint("stop using the Skill; request filesystem permission through the host and retry, or install the purchased edition with --owned")
+				WithHint("stop using the Skill; request filesystem permission through the host and retry, or retry the ordinary skill install command using the original purchase identity")
 		}
 		nextAction = "PURCHASE_REQUIRED"
 	}
 	remaining, limit := grant.RemainingUses, grant.LimitUses
 	return runtime.business(downloadableSkillInstallResult{
 		localSkillResources: resourcesFromReport(report, "cli"),
-		ProductID:           productID, Edition: access.Edition, ReleaseID: access.Release.ID, ArtifactDigest: digest,
+		ProductID:           productID, ReleaseID: access.Release.ID, ArtifactDigest: digest,
 		InstalledName: installedName, Install: report,
 		RemainingUses: &remaining, LimitUses: &limit, TrialExhausted: remaining == 0,
 		NextAction: nextAction, Invocation: "$" + installedName,

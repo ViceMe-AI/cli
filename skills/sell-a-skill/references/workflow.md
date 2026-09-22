@@ -14,23 +14,17 @@
 4. 草稿就绪后立即运行 `viceme publication review <publication-id>`，并马上用内置 `present_files` 在当前任务浏览器打开返回的 `presentation.openUrl` 稳定预览页面（`/{handle}/{slug}/preview`），同时按通用约定在对话里给出该链接的 Markdown 备用入口，说一句“预览页面已经打开了，我会边补资料边更新，你随时能看到变化”。预览页面必须先于任何补资料、生成图片或询问出现；后续每一步更新（封面、图库、双语文案、价格）都提交到同一份草稿，让页面内容逐步生长，而不是让用户在空白中等待。预览永远指这个稳定作品页：不得用 `present_files` 把本地图片或媒体文件当作“预览”打开、抢占或顶掉浏览器里的作品页；本地图片只能作为对话内的 Markdown 内嵌展示（Codex 环境按下文媒体核验流程处理），作品页本身保持打开，让用户靠它看到每一步更新。
 5. 基于预览一次性补齐缺少的价格、文案和媒体；能由当前 Agent 从包内容可靠提出的内容直接形成候选，不做平台分析等待。
 6. 展示完整最终预览，只询问一次是否确认公开发布。
-7. 用户确认后连续完成确认与公开发布，打开并返回人类作品页（`product.detailUrl` 或 listing `publicUrl`，不要给 `.md` 或 `/preview`）。若需要提到商家主页，只用 `creatorIdentity.profileUrl`，不得给 `markdownUrl`。随后只问一次：“作品已经发布，默认页面也准备好了。接下来想做什么？”使用当前 Agent 的原生结构化单选工具给出三个中立选项：“自定义作品页”“发布本作品的升级版并设价格”“先到这里”。不得给任何选项标记推荐或替用户选择；工具支持自定义输入时必须保留，工具不可用时给出相同的三个编号选项并说明用户也可以直接说想做什么。用户选“自定义作品页”时，把本次响应的准确公开链接和已确认 Merchant 直接交给 `$customize-your-work-page`，不让用户复制链接、重选作品或重新检查创作者资格；用户选“发布本作品的升级版并设价格”时按正常发布流程处理新来源（见组合规则），在同一作品页新增一条独立 Skill 并单独定价，不覆盖刚发布的那一条；用户选结束时立即结束。自由文字已经明确表达其中一种意图时直接进入对应路径，只有确实无法判断时才追问一句。刚发布的是收费 Skill 时，试用次数属于这一条收费 Skill：不得再提免费版、免费次数用完，也不得把试用讲成免费额度。这一问不得使用「免费版让用户先用起来、高级版承接付费用户」这类漏斗说法。升级版是同一作品页新增的独立 Skill，不覆盖、不替换已发布条目；改原条目还是新增条目仍按「发布意图与条目选择」区分。
+7. 用户确认后连续完成确认与公开发布，打开并返回人类作品页（`product.detailUrl` 或 listing `publicUrl`，不要给 `.md` 或 `/preview`）。商家主页使用 `creatorIdentity.profileUrl`，不得给 `markdownUrl`。随后只问一次：“作品已经发布，默认页面也准备好了。接下来想做什么？”使用当前 Agent 的原生结构化单选工具给出“自定义作品页”“先到这里”，不标记推荐或替用户选择；保留工具支持的自定义输入，工具不可用时给出相同的编号选项。选择自定义时，将准确公开链接和已确认 Merchant 交给 `$customize-your-work-page`；选择结束时立即结束。用户已明确表达意图时直接进入对应路径。
 
-`resolution` 只描述 Listing/Work 身份：`"UPDATE"` 表示复用已有作品页，既可能更新其中某个 Skill，也可能新增一个独立 Skill；不能据此声称原 Skill 已被替换。条目身份取决于同一 Listing 下的 `edition.key`，与名称、价格、包 digest 不等价。本地绑定、GitHub 仓库归属或小红书 Skill ID 可以定位作品，但不证明用户想改哪个条目；跨会话、换机器也必须读取当前服务端状态。
+## 发布意图与作品选择
 
-用户要「发布本作品的升级版并设价格」「发布升级版」「往组合里添加 skill」或「再发布一个」时，先确认新增条目及其内容。相同来源位置可能已有新的包内容，不能仅凭路径或标题断言只能更新；完全相同的已发布包也不能靠换 key 或名称绕过内容约束。意图不明确时先澄清，不得先创建 Publication 再靠报错或取消收场。
+一个作品只发布一款 Skill。`resolution=UPDATE` 表示更新原作品的同一个商品，商品 ID 和已有购买权益保持关联；重新发布会生成新的 Release。发布 manifest 不包含 edition 字段；安装和购买由商品及 Release 标识。
 
-## 发布意图与条目选择
+1. 更新已有作品时先读取 `viceme skill listing get <listing-id>` 和当前 `publication review`，确认目标作品、现价和试用设置，使用 `--listing <listing-id>` 发布更新。无需选择其他款式或排序。
+2. 用户明确要保留旧作品、另建独立作品时，使用 `--new-listing`。新作品拥有自己的页面、价格和权益。意图不明确时先澄清是否更新原作品。
+3. `--resume` 只继续同一次发布，不能更换来源或 Listing。review 后核对目标 Listing 与更新内容，再预览、确认并发布。
 
-用户说“升级收费”“不换名字，要收费”等，并没有说明是否保留原免费入口。执行发布或改价命令前，用一句白话问：“你希望把原来的 Skill 改为收费，还是保留原免费 Skill、在同一个作品页新增一个收费 Skill？”不要推荐覆盖原条目；用户已经明确选择时不重复询问。
-
-1. 已知作品 ID 时，先运行 `viceme skill listing get <listing-id>`，再用返回的 `publication.id` 运行 `viceme publication review <publication-id>`，读取 `editions` 的 `key`、`title`、`sortOrder`、`priceMinor` 和 `productId`。本地绑定只用于定位作品，不能当作条目清单；旧会话也不能代替当前 review。无法取得当前条目或多个条目无法确定目标时，先取得必要信息，不猜测。
-2. **更新原 Skill（包括改价）**：必须先通过 `viceme skill listing get <listing-id>` 与 `publication review` 读回目标条目当前的 `key` 和 `sortOrder` 并**原样复用**；不得凭标题或包名自行派生——派生值碰巧相同只是运气，派生值不同会在同一作品页静默新增一个重复条目。命令显式带 `--listing`、`--edition-key`、`--edition-order`。免费改收费会关闭原免费获取入口：仅下载过免费包不等于获得永久权益，之后再次下载或更新可能需要购买；已持有该 Product 持久购买权益的用户不受改价影响，订阅者仅在订阅有效期内按订阅规则访问。不得把曾经免费安装过等同于已购买。
-3. **保留免费并新增收费 Skill**：复用同一 Listing，选择清单中未使用的新 key 和新的排序位置，提供新增内容；不得复用免费条目的 key。原免费 Product、价格及权益不改，新增条目独立购买。用户不用理解内部参数，只确认可见 Skill 和操作影响。
-4. 首次创建独立作品时才从包标题派生新 key，排序从 0 开始。给已有作品新增时必须先检查 key 不冲突，排序用当前最大 `sortOrder + 1`，不能用条目数推测。`--new-listing` 只用于用户明确要求独立作品，不是保留免费入口的必要条件。
-5. 创建后的 review 再核对 `manifest.spec.edition` 与选定目标一致。`resolution=UPDATE` 不能替代这一步。`--resume` 仅恢复同一条目，不能传 edition 参数改变身份；目标不符时停止，不得用改价格来掩盖身份错误。
-
-最终“确认并发布”前，必须同时展示：新增还是更新、目标 Skill 名称、原价和新价、试用次数（免费试用 N 次后付费，或不开试用）、原免费入口是否保留、已有用户权益是否变化。例如：“将原 Skill 从免费改为 ¥0.01，试用 10 次后付费，不再保留原免费获取入口；以前仅下载过免费包的用户，之后下载或更新可能需要购买。已有购买权益保留，订阅访问按有效期处理。”或“保留原免费 Skill，新增 ¥0.01 的独立收费 Skill（试用 10 次）；原免费入口不变，新增 Skill 不包含在原条目的购买权益里。”只展示价格和相同 URL 不足以取得授权。用户改变意图时重新核对目标和最终预览后再确认。
+最终确认前展示目标作品、新增或更新、原价和新价、试用次数与权益影响。免费改收费会关闭原免费获取入口：仅下载过免费包不等于获得永久权益，以后下载或更新可能需要购买。已有持久购买权益保留，订阅访问按有效期处理。
 
 用户可见提示保持简短且与当前阶段一致：开始时说“我先检查登录和创作者资格。”；资格已就绪后只说固定的一句“账号已经确认，我正在准备发布预览。”，不得再自造“现在开始处理 GitHub 仓库”之类的额外过渡语；预览页面打开时说“预览页面已经打开了，我会边补资料边更新，你随时能看到变化。”；需要用户登录或授权时先打开页面并立即说明应在右侧完成什么；用户确认最终预览后说“收到，我现在发布。”。同一阶段不为每条命令重复提示，任何等待前不得保持无说明的静默。
 
@@ -54,10 +48,10 @@
 只使用一种来源形式：
 
 ```text
-viceme skill publish --path <dir-or-zip> ...edition flags...
-viceme skill publish --github <owner/repo-or-url> [--github-ref <ref>] [--github-path <directory>] ...edition flags...
-viceme skill publish --xiaohongshu-skill-id <id> ...edition flags...
-viceme skill publish --xiaohongshu-search <name-or-id> ...edition flags...
+viceme skill publish --path <dir-or-zip>
+viceme skill publish --github <owner/repo-or-url> [--github-ref <ref>] [--github-path <directory>]
+viceme skill publish --xiaohongshu-skill-id <id>
+viceme skill publish --xiaohongshu-search <name-or-id>
 ```
 
 GitHub 来源直接运行一次 `viceme skill publish --github ...`。公开仓库不要求 OAuth，也不校验发布者是否拥有仓库；私有仓库必须由当前 User 本人 OAuth 授权，且归该个人 GitHub 账号所有，不接受协作者或组织仓库。有效私有授权由 API 复用，CLI 不保存 GitHub token。
@@ -70,9 +64,7 @@ GitHub 来源直接运行一次 `viceme skill publish --github ...`。公开仓�
 
 小红书公开 Skill 直接按 ID 或名称搜索发布，无 OAuth、账号绑定或 Admin 渠道审核；多个结果匹配时展示全部候选，再按用户选择的 `--xiaohongshu-skill-id` 继续。GitHub 和小红书的不可变归档保存在 CLI 私有恢复目录，`--resume` 不会重新取得不同字节。普通创作者的申请审核和包校验继续保留。
 
-一个作品是一个 skill 组合：里面可以有很多个 skill，各自独立定价、独立购买。组合内每个条目用 `--edition-key`、`--edition-title`、`--edition-order` 和 `--edition-highlight` 这组内部参数表达，全部由 Agent 自动派生，绝不向用户询问。这里“派生”包括按上述规则原样复用已选条目的 key/order；仅新条目才从标题生成未占用的 key（例如 “Xiaohongshu Cover Generator” → “xiaohongshu-cover-generator”）。highlights 可省略让 CLI 用包简介；用户明确指定内部值时也必须校验其与已确认操作一致。
-
-首个作品省略 `--listing`，但仍显式传 edition key/order。新增或更新已知作品中的 Skill 时，传入 `--listing <listing-id>` 以及已确定的 `--edition-key`、`--edition-order`；所有非 `--resume` 发布都必须显式选择，自动恢复旧 Listing 也不能绕过，不能依赖默认 `standard`。只有这个明确绑定能把不同包放在同一 Work 下，不能按包 digest 或标题推断。digest 候选不明确时展示候选，用户选择自己拥有的 Listing 后才运行 `skill listing bind <listing-id> --path ...`。
+首个作品省略 `--listing`；更新已知作品时使用 `--listing <listing-id>`。本地绑定和来源身份用于恢复同一个作品。digest 候选不明确时展示候选，用户选择自己拥有的 Listing 后才运行 `skill listing bind <listing-id> --path ...`。
 
 ## 状态顺序
 
@@ -80,7 +72,7 @@ GitHub 来源直接运行一次 `viceme skill publish --github ...`。公开仓�
 
 `FAILED` 修正输入后可以回到预览；`CANCELLED` 和 `PUBLISHED` 为终态。
 
-往组合里添加 skill 或更新其中某个 skill 都复用同一 Listing，并重新走完整包校验、上传、中文简介与双语说明、媒体、预览、确认和发布。组合内每个 skill 是独立 Product，各自定价和授权；价格 0 表示该 skill 免费。购买组合中的一个 skill 不包含其他 skill。同一 skill（复用原 key）更新内容会在同一 Product 下发布新 Release；持久购买权益覆盖该 Product 的后续内容，免费与订阅访问遵循上述规则；不同的 skill 是不同的条目。更新发布的草稿会继承上一版的媒体选择：`publication review` 返回的 `coverUploadId` 和 `galleryUploadIds` 仍然有效时直接在建议里复用这些 ID，不得为保险重新上传同一批图片或重新取得媒体；只有确实要换图时才上传新图并让用户明确选择。发布或取消命令返回 `ok: true` 且带 `warnings`（如 `PUBLICATION_RECOVERY_RETIRE_FAILED` 或 `PUBLICATION_RECOVERY_CLEANUP_FAILED`）时，发布本身已成功：照常收尾，不得当作失败重试发布，也不得向用户提及该警告、错误码或恢复目录。
+更新 Skill 复用同一 Listing 和 Product，重新执行包校验、上传、文案、媒体、预览、确认和发布；新 Release 仍属于原商品。更新发布的草稿会继承上一版的媒体选择：`publication review` 返回的 `coverUploadId` 和 `galleryUploadIds` 仍然有效时直接在建议里复用这些 ID，不得为保险重新上传同一批图片或重新取得媒体；只有确实要换图时才上传新图并让用户明确选择。发布或取消命令返回 `ok: true` 且带 `warnings`（如 `PUBLICATION_RECOVERY_RETIRE_FAILED` 或 `PUBLICATION_RECOVERY_CLEANUP_FAILED`）时，发布本身已成功：照常收尾，不得当作失败重试发布，也不得向用户提及该警告、错误码或恢复目录。
 
 ## 本地恢复权限
 
@@ -157,4 +149,4 @@ GitHub 来源直接运行一次 `viceme skill publish --github ...`。公开仓�
 
 ## 改展示名称
 
-用户说「改个名称」「换个标题」时，指的是作品页大标题和当前这条 Skill 的购买卡片标题，不是包标识，也不是组合里其他 Skill 的卡片。不得修改包内 `SKILL.md` 的 `name`（`name` 是安装标识符，只允许小写字母、数字和单个连字符；改名重传整包既不必要，也会把安装名一起改掉）。`--edition-title` 只在首次创建该条目时从包标题派生；用户改名后不得另编一套营销名，`--resume` 也不能改 edition 身份。正确做法是在当前 Publication 上运行 `publication update --input` 提交完整严格 JSON（含新 `title`，以及保持不变的 `summaryZhCn`、`usageInstructionsZhCn`、`currency`、`priceMinor`、`coverUploadId`、`galleryUploadIds`——媒体 ID 直接复用 review 返回的当前值），然后照常走预览、确认和发布。服务端会把当前这条 Skill 的购买卡片写成同一个 `title`。同时用一句白话说明：作品页地址和买家安装名发布后都保持不变；作品页给完整人类 HTML 链接，不要把 slug 当成公开链接。
+用户说「改个名称」「换个标题」时，指的是作品页大标题和当前这条 Skill 的购买卡片标题，不是包标识。不得修改包内 `SKILL.md` 的 `name`（`name` 是安装标识符，只允许小写字母、数字和单个连字符；改名重传整包既不必要，也会把安装名一起改掉）。不得另编一套营销名。正确做法是在当前 Publication 上运行 `publication update --input` 提交完整严格 JSON（含新 `title`，以及保持不变的 `summaryZhCn`、`usageInstructionsZhCn`、`currency`、`priceMinor`、`coverUploadId`、`galleryUploadIds`——媒体 ID 直接复用 review 返回的当前值），然后照常走预览、确认和发布。服务端会把当前这条 Skill 的购买卡片写成同一个 `title`。同时用一句白话说明：作品页地址和买家安装名发布后都保持不变；作品页给完整人类 HTML 链接，不要把 slug 当成公开链接。

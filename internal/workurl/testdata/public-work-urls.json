@@ -151,9 +151,7 @@
   },
   {
     "url": "https://viceme.cn/alice.md?workSlug=site&product=11111111-1111-4111-8111-111111111111&install=owned",
-    "handle": "alice",
-    "slug": "site",
-    "valid": true
+    "valid": false
   },
   {
     "url": "https://viceme.cn/alice.md?workSlug=site&utm_source=copy#readme",
@@ -269,15 +267,11 @@
   },
   {
     "url": "https://viceme.cn/alice/site?product=one&install=owned",
-    "valid": true,
-    "handle": "alice",
-    "slug": "site"
+    "valid": false
   },
   {
     "url": "https://viceme.cn/alice/site.md?product=one&install=owned",
-    "valid": true,
-    "handle": "alice",
-    "slug": "site"
+    "valid": false
   },
   {
     "url": "https://viceme.cn/alice/site?mode=consumer&view=work&workSlug=site",
@@ -299,15 +293,11 @@
   },
   {
     "url": "https://viceme.ai/alice/site?product=one&install=owned",
-    "valid": true,
-    "handle": "alice",
-    "slug": "site"
+    "valid": false
   },
   {
     "url": "https://viceme.ai/alice/site.md?product=one&install=owned",
-    "valid": true,
-    "handle": "alice",
-    "slug": "site"
+    "valid": false
   },
   {
     "url": "https://viceme.ai/alice/site?mode=consumer&view=work&workSlug=site",
@@ -329,15 +319,11 @@
   },
   {
     "url": "https://dev.viceme.cn/alice/site?product=one&install=owned",
-    "valid": true,
-    "handle": "alice",
-    "slug": "site"
+    "valid": false
   },
   {
     "url": "https://dev.viceme.cn/alice/site.md?product=one&install=owned",
-    "valid": true,
-    "handle": "alice",
-    "slug": "site"
+    "valid": false
   },
   {
     "url": "https://dev.viceme.cn/alice/site?mode=consumer&view=work&workSlug=site",

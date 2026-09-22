@@ -190,7 +190,7 @@ def public_work_url_parts(parsed) -> Tuple[str, str]:
                    or query.get("view", ["work"]) != ["work"]
                    or any(key in query for key in (
                        "action", "type", "panel", "analytics", "orderNo", "payoutId",
-                       "listingId", "editionKey", "workId", "productId", "entryId",
+                       "listingId", "editionKey", "install", "workId", "productId", "entryId",
                        "threadId", "inquiryId", "publicationId", "applicationId", "kind"))
                    or not parsed.path.startswith("/")
                    or not 2 <= len(handle) <= 32
@@ -213,7 +213,7 @@ def display_work_url(raw: str) -> str:
         if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
             return raw
         query = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
-        if set(query) - {"mode", "view", "workSlug", "product", "install"}:
+        if set(query) - {"mode", "view", "workSlug", "product"}:
             return raw
         parts = [part for part in parsed.query.split("&")
                  if urllib.parse.unquote_plus(part.split("=", 1)[0]) not in {"mode", "view", "workSlug"}]

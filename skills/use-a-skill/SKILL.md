@@ -13,7 +13,7 @@ description: 安装和使用可下载的 ViceMe Skill。适用于作品链接安
 
 kind=purchase 时先读取包内 SKILL.md 的「使用前必读」，按宿主授权要求用本地 runtimePath 执行 purchase --wait 0；已有授权继续沿用。该命令会保存本机购买身份并创建或恢复订单，已有已付款订单时会校验权益并继续安装。待付款时参考「无试用开场白」简短说明商品、金额和无免费试用，再按购买指引提供支付入口。付款由用户本人确认。实际展示二维码或交付可点击支付链接后再运行 purchase --wait 60，不提前在后台启动等待；仅生成文件、返回工具结果或交付裸路径不算展示成功。付款确认、权益有效后，在原 Skill 目录覆盖为正式内容，再读取实际 SKILL.md：有原任务立即继续，不要问现在试还是以后用；没有原任务才用一两句说明怎么开始，然后等用户下一条，不要做成「现在就试还是先放着」的二选一。已有购买凭证沿用原订单；已有待恢复试用使用先恢复原 use，不更换身份。
 
-Python 优先规则适用于免费、试用和无试用付费版。只有 Python 不可用且没有既有脚本购买身份时，才使用 CLI 的账号购买和订阅；严格已购链接仍遵循 install=owned 的账号校验。
+Python 优先规则适用于免费、试用和无试用付费版。只有 Python 不可用且没有既有脚本购买身份时，才使用 CLI 的账号购买和订阅。
 
 ## 待恢复使用优先
 
@@ -41,7 +41,6 @@ Python 优先规则适用于免费、试用和无试用付费版。只有 Python
 2. 有可用的 Python：已有商品 Skill 时，执行其包内 `.viceme/scripts/trial.py ready --product <id> --market <market>`，本 Skill 目录来自宿主的实际安装路径。否则按作品页现有 trial.py 安装入口执行一次；引导程序校验完整运行包后随商品安装。不要为了读取本指引先装 CLI。之后只执行返回的本地 runtimePath，不再 curl 脚本、二维码库或模板。
 3. 没有 Python、已有 CLI：普通安装意图先运行 `viceme skill ready <product-id> --agent <当前宿主>`（WorkBuddy 用 workbuddy）。已有实际 Skill 目录时同时带 `--skill-dir "<本 Skill 目录>"`，后续 use 和 trial-purchase 保留同一参数。它读取本机安装和只读余量，不计次、不下单。ready=true 后使用返回的 skillPath、runner、本地资源路径和 remainingUses。INSTALL_REQUIRED 才运行 `viceme skill install <product-id> --agent <当前宿主> --wait 0`；免费／开放试用不要求登录。REPAIR_INSTALLATION 表示平台运行文件不完整：直接再跑同一条 `install`，**不要问用户是否修复**。若安装因作者包冲突被跳过，停止并说明，不要覆盖作者文件。
 4. Python 和 `viceme` 都没有时，按作品页官方安装契约安装 ViceMe CLI，并用 `viceme doctor` 确认，再走第 3 步。安装无法完成则停止，不得跳过安装直接使用。
-5. 严格已购链接 `?product=<id>&install=owned` **不走 ready 或公开试用**：先确保兼容的最新版 CLI，保留完整 URL，运行 `viceme skill install '<完整 URL>'`。当前账号权益必须通过服务端校验；未登录、账号错误、权益失效时停止，不删除参数、不新建订单、不回退试用。作品下架不应阻止有永久权益的用户重装保留版本。
 
 ready 说明本机文件完整，并可能带上只读余量；不代表账号购买权益。以安装响应判断安装是否成功，不能从价格、网页、商品链接或用户自述推断已付款。PAYMENT_CLOSED 只代表一个订单关闭，不是试用余额结论：已有试用凭证且仍可试用时，install 可以继续原试用；无试用直接购买则沿用原购买身份重新下单。已经 PURCHASE_REQUIRED 时不要把 PAYMENT_CLOSED 说成试用没耗尽。
 
@@ -67,6 +66,6 @@ ready 说明本机文件完整，并可能带上只读余量；不代表账号�
 
 ## 作品链接参数
 
-公开作品优先使用 `/{handle}/{workSlug}`，Markdown 使用 `/{handle}/{workSlug}.md`。参数式 `/{handle}?workSlug={slug}`、`/{handle}.md?workSlug={slug}` 及显式 `mode=consumer&view=work` 的地址仍支持。将完整 URL 加引号传给 CLI，保留商品 `product`、`install=owned` 和原域名；不得让显式参数覆盖路径中的作品身份。裸 `/{handle}` 仅表示个人主页；创作者中心和经营 Markdown 继续使用单段 handle 加参数。
+公开作品优先使用 `/{handle}/{workSlug}`，Markdown 使用 `/{handle}/{workSlug}.md`。参数式 `/{handle}?workSlug={slug}`、`/{handle}.md?workSlug={slug}` 及显式 `mode=consumer&view=work` 的地址仍支持。将完整 URL 加引号传给 CLI，保留原域名；Skill 作品链接不带 `product` 或 `install` 参数；不得让显式参数覆盖路径中的作品身份。裸 `/{handle}` 仅表示个人主页；创作者中心和经营 Markdown 继续使用单段 handle 加参数。
 
 向用户展示作品时优先使用 CLI 的 `workUrl`、`markdownUrl` 或 `workPresentation.url` 精简地址；发布结果使用 `result.workUrl` 或 `product.detailUrl`。`canonicalPath`、`replica.viceMeWorkUrl` 等原始身份字段保留给协议处理，不代替展示地址。登录关注仍按既有流程使用原始 `replica.viceMeWorkUrl`。

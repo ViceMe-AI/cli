@@ -164,8 +164,8 @@ class PublicWorkRouteTest(unittest.TestCase):
         self.assertEqual(result["workPresentation"]["url"], short)
         self.assertEqual(result["replica"]["viceMeWorkUrl"], canonical)
         self.assertEqual(item["viceMeWorkUrl"], canonical)
-        selected = canonical + "&product=p%31&install=owned#readme"
-        self.assertEqual(make_copy.display_work_url(selected), short + "?product=p%31&install=owned#readme")
+        selected = canonical + "&product=p%31#readme"
+        self.assertEqual(make_copy.display_work_url(selected), short + "?product=p%31#readme")
         for original in [canonical + "&signature=opaque", canonical.replace("consumer", "creator"), canonical.replace("view=work", "view=discover"), canonical + "&workSlug=other"]:
             self.assertEqual(make_copy.display_work_url(original), original)
 

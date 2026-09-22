@@ -1035,7 +1035,7 @@ class InstallFlowTestCase(unittest.TestCase):
                 "purchaseAvailable": True,
                 "purchaseUrl": "https://shop.example.test/purchase",
                 "trial": {"available": True, "limitUses": 5},
-                "edition": {"key": "pro", "title": "专业版", "sortOrder": 0, "highlights": []},
+                "title": "专业版",
                 "release": {"id": self.release_id, "artifactDigest": self.digest, "fileName": "pro.zip"},
             }
         if pure == "/v1/skills/%s/trial-grants" % quoted:
@@ -2417,7 +2417,8 @@ class InstallFlowTestCase(unittest.TestCase):
             disabled = handle.read()
         self.assertTrue(disabled.startswith(prefix))
         self.assertNotIn(b"\r\nbody", disabled)
-        self.assertIn(b"--owned", disabled)
+        self.assertIn(b"viceme skill install ", disabled)
+        self.assertNotIn(b"--owned", disabled)
         self.assertEqual(trial.load_trial_state(PRODUCT_ID), credential)
         for path, data in before.items():
             if path != entry:
