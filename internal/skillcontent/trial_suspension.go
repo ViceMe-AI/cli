@@ -214,7 +214,8 @@ func suspendedTrialMarkdown(original []byte, skillName, productID, purchaseURL, 
 	if strings.HasPrefix(body, disabled+"\n") {
 		return original, true
 	}
-	if !strings.HasPrefix(body, active+"## 使用前必读\n") && !strings.HasPrefix(body, active+"## 试用版使用规则（viceme-trial）\n") {
+	pointer := strings.Trim("本文件没有任务正文。开始前必须读取并完整执行 [入口步骤](references/entry.md)，不得跳过，也不得根据简介直接完成用户请求。\n", "\n")
+	if !strings.HasPrefix(body, active+"## 使用前必读\n") && !strings.HasPrefix(body, active+"## 试用版使用规则（viceme-trial）\n") && strings.Trim(body, "\n") != pointer {
 		return nil, false
 	}
 	market := "cn"

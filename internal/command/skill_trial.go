@@ -28,6 +28,8 @@ import (
 const skillTrialGateMarker = "<!-- viceme-trial:v1"
 const skillTrialGateEnd = "<!-- /viceme-trial:v1 -->"
 const skillTrialRuntimePath = "references/viceme-runtime.md"
+const skillEntryPath = "references/entry.md"
+const skillEntryPointer = "本文件没有任务正文。开始前必须读取并完整执行 [入口步骤](references/entry.md)，不得跳过，也不得根据简介直接完成用户请求。\n"
 
 const skillTrialRuntimeMarker = "<!-- viceme-trial-runtime:v1"
 
@@ -399,11 +401,17 @@ func injectSkillTrialGate(files map[string]downloadableSkillFile, productID, mar
 	if existing, ok := files[skillTrialRuntimePath]; ok && !strings.HasPrefix(string(existing.Data), runtimeHeader) {
 		return output.Policy("SKILL_TRIAL_GATE_CONFLICT", "Skill package already contains an unrelated "+skillTrialRuntimePath)
 	}
+	if existing, ok := files[skillEntryPath]; ok && !strings.HasPrefix(strings.ReplaceAll(string(existing.Data), "\r\n", "\n"), header+"\n") {
+		return output.Policy("SKILL_TRIAL_GATE_CONFLICT", "the authored package occupies "+skillEntryPath)
+	}
 	body := content[insertAt:]
-	if _, exists := files[skillcontent.TrialBodyPath]; exists && !strings.HasPrefix(body, header+"\n") {
+	pointer := strings.Trim(strings.ReplaceAll(body, "\r\n", "\n"), "\n") == strings.Trim(skillEntryPointer, "\n")
+	if _, exists := files[skillcontent.TrialBodyPath]; exists && !strings.HasPrefix(body, header+"\n") && !pointer {
 		return output.Policy("SKILL_TRIAL_GATE_CONFLICT", "the authored package occupies the trial body path")
 	}
-	if strings.HasPrefix(body, skillTrialGateMarker+" product=") {
+	if pointer {
+		body = ""
+	} else if strings.HasPrefix(body, skillTrialGateMarker+" product=") {
 		if !strings.HasPrefix(body, header+"\n") {
 			return output.Policy("SKILL_TRIAL_GATE_CONFLICT", "Skill package contains a gate for another Product")
 		}
@@ -433,8 +441,8 @@ func injectSkillTrialGate(files map[string]downloadableSkillFile, productID, mar
 	if _, exists := files[skillcontent.TrialBodyPath]; !exists {
 		files[skillcontent.TrialBodyPath] = downloadableSkillFile{Data: []byte(content[:insertAt] + body), Mode: 0o644}
 	}
-	data := content[:insertAt] + section
-	files["SKILL.md"] = downloadableSkillFile{Data: []byte(data), Mode: manifest.Mode}
+	files["SKILL.md"] = downloadableSkillFile{Data: []byte(content[:insertAt] + "\n" + skillEntryPointer), Mode: manifest.Mode}
+	files[skillEntryPath] = downloadableSkillFile{Data: []byte(section), Mode: 0o644}
 	files[skillTrialRuntimePath] = downloadableSkillFile{Data: []byte(rules), Mode: 0o644}
 	return nil
 }

@@ -72,11 +72,24 @@ GATE_TAIL = "转正，再继续任务。"
 DISABLED_MARKER = "<!-- viceme-trial-disabled:v1"
 PURCHASE_MARKER = "<!-- viceme-purchase-required:v1"
 PURCHASE_END = "<!-- /viceme-purchase-required:v1 -->"
+ENTRY_PATH = "references/entry.md"
+ENTRY_POINTER = (
+    "本文件没有任务正文。开始前必须读取并完整执行 [入口步骤](references/entry.md)，"
+    "不得跳过，也不得根据简介直接完成用户请求。\n"
+)
+
+
+def entry_pointer_body():
+    return "\n" + ENTRY_POINTER
+
+
+def body_is_entry_pointer(body):
+    return body.replace("\r\n", "\n").strip("\n") == ENTRY_POINTER.strip("\n")
 
 
 def purchase_required_message():
     return ("正式内容需要购买。按包内流程运行 runtimePath 指向的本地脚本 purchase --wait 0，"
-            "并遵循已装 SKILL.md 的「使用前必读」及宿主授权要求。该命令会保存本机购买身份并创建或恢复订单；已有已付款订单时会校验权益并继续安装。待付款时，"
+            "并遵循已装 SKILL.md 指向的 references/entry.md「使用前必读」及宿主授权要求。该命令会保存本机购买身份并创建或恢复订单；已有已付款订单时会校验权益并继续安装。待付款时，"
             "先说明商品、金额和无免费试用，再按返回的展示指引提供支付入口。付款由用户本人确认；交付可用支付入口后，"
             "用 --wait 60 有界等待。服务端确认付款和权益、正式内容安装成功后，再报告安装完成并继续用户任务。无需 CLI 或登录。")
 
@@ -201,7 +214,7 @@ def prepare_runtime_files(files, market, product_id, release_id, kind):
     files.update(additions)
     manifest = {"schemaVersion": 1, "productId": product_id, "releaseId": release_id,
                 "apiBaseUrl": API_ORIGIN[market], "market": market, "runner": "python", "kind": kind,
-                "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in files.items() if name in additions or name in (RUNTIME_PATH, TRIAL_BODY_PATH) or (kind == "purchase" and name in ("SKILL.md", PURCHASE_GUIDE_PATH))}}
+                "files": {name: hashlib.sha256(data).hexdigest() for name, (data, _) in files.items() if name in additions or name in (RUNTIME_PATH, TRIAL_BODY_PATH, ENTRY_PATH) or (kind == "purchase" and name in ("SKILL.md", PURCHASE_GUIDE_PATH))}}
     files[".viceme/runtime.json"] = (json.dumps(manifest, sort_keys=True).encode(), 0o644)
 
 
@@ -699,7 +712,14 @@ def command_install(market, product_id, agent="auto"):
     return finish_install(market, product_id, agent, access, download, kind, grant)
 
 
-def purchase_entry_skill_markdown(installed_name, description, product_id, market):
+def purchase_entry_skill_markdown(installed_name, description):
+    """生成给渠道审核解析的购买入口。执行步骤在 references/entry.md。"""
+    return (
+        "---\nname: %s\ndescription: %s\n---\n%s"
+    ) % (json.dumps(installed_name), json.dumps(description, ensure_ascii=False), entry_pointer_body())
+
+
+def purchase_entry_instructions(product_id, market):
     """生成无试用购买入口的安装与支付说明。"""
     posix = "python3 .viceme/scripts/trial.py purchase --product %s --market %s --wait 0" % (product_id, market)
     windows = "py .viceme/scripts/trial.py purchase --product %s --market %s --wait 0" % (product_id, market)
@@ -707,7 +727,6 @@ def purchase_entry_skill_markdown(installed_name, description, product_id, marke
     install_doc = INSTALL_DOC_ORIGIN[market] if market in INSTALL_DOC_ORIGIN else INSTALL_DOC_ORIGIN["cn"]
     header = "%s product=%s -->" % (PURCHASE_MARKER, product_id)
     return (
-        "---\nname: %s\ndescription: %s\n---\n\n"
         "%s\n\n"
         "## 使用前必读\n\n"
         "本包是付费 Skill 的安装入口，包含安装与支付辅助程序，不含正式任务内容，也不提供免费试用。"
@@ -735,8 +754,7 @@ def purchase_entry_skill_markdown(installed_name, description, product_id, marke
         "待支付或失败时保留此目录和原订单，重跑同一购买命令恢复。"
         "有 Python 时无需安装 CLI 或登录；走 CLI 兜底时同样不要求登录。不执行试用计次，不把未购买描述成试用耗尽。\n\n"
         "%s\n"
-    ) % (json.dumps(installed_name), json.dumps(description, ensure_ascii=False),
-         header, posix, windows, cli_purchase, install_doc, PURCHASE_GUIDE_PATH, PURCHASE_END)
+    ) % (header, posix, windows, cli_purchase, install_doc, PURCHASE_GUIDE_PATH, PURCHASE_END)
 
 
 def purchase_entry_files(market, product_id, title, summary, slug, release_id):
@@ -747,10 +765,10 @@ def purchase_entry_files(market, product_id, title, summary, slug, release_id):
         (slugify(slug if isinstance(slug, str) else "")[:55].rstrip("-") or "viceme")
         + "-" + product_id.replace("-", "")[:8]
     )
-    description = title.strip() + "：" + summary + "（购买后使用）"
+    description = title.strip() + ("：" + summary if summary else "")
     files = {
-        "SKILL.md": (purchase_entry_skill_markdown(
-            installed_name, description, product_id, market).encode(), 0o644),
+        "SKILL.md": (purchase_entry_skill_markdown(installed_name, description).encode(), 0o644),
+        ENTRY_PATH: (purchase_entry_instructions(product_id, market).encode(), 0o644),
         PURCHASE_GUIDE_PATH: (runtime_resource("guides/purchase.md"), 0o644),
         "references/host-presentation.md": (runtime_resource("guides/host-presentation.md"), 0o644),
     }
@@ -1507,11 +1525,16 @@ def inject_trial_gate(files, market, product_id):
     runtime_header = "%s product=%s -->\n" % (RUNTIME_MARKER, product_id)
     if RUNTIME_PATH in files and not files[RUNTIME_PATH][0].startswith(runtime_header.encode("utf-8")):
         raise Failure("TRIAL_GATE_CONFLICT", "Skill 包中已有非本产品生成的 %s,不能覆盖" % RUNTIME_PATH)
+    if ENTRY_PATH in files and not files[ENTRY_PATH][0].decode("utf-8", "replace").replace("\r\n", "\n").startswith(header + "\n"):
+        raise Failure("TRIAL_GATE_CONFLICT", "Skill 包占用了入口步骤路径,不能覆盖")
     body = content[insert_at:]
-    generated = body.startswith(header + "\n")
+    pointer = body_is_entry_pointer(body)
+    generated = body.startswith(header + "\n") or pointer
     if TRIAL_BODY_PATH in files and not generated:
         raise Failure("TRIAL_GATE_CONFLICT", "Skill 包占用了试用正文路径,不能覆盖")
-    if body.startswith(GATE_MARKER + " product="):
+    if pointer:
+        body = ""
+    elif body.startswith(GATE_MARKER + " product="):
         if not body.startswith(header + "\n"):
             raise Failure("TRIAL_GATE_CONFLICT", "Skill 包包含其他产品的使用检查")
         gate_end = "\n" + GATE_END + "\n"
@@ -1560,12 +1583,13 @@ def inject_trial_gate(files, market, product_id):
     )
     authored = files[TRIAL_BODY_PATH][0] if TRIAL_BODY_PATH in files else (content[:insert_at] + body).encode("utf-8")
     files[TRIAL_BODY_PATH] = (authored, 0o644)
-    files["SKILL.md"] = ((content[:insert_at] + section).encode("utf-8"), mode)
+    files["SKILL.md"] = ((content[:insert_at] + entry_pointer_body()).encode("utf-8"), mode)
+    files[ENTRY_PATH] = (section.encode("utf-8"), 0o644)
     files[RUNTIME_PATH] = (rules.encode("utf-8"), 0o644)
 
 
 def verify_installed_trial_gate(root, files):
-    for name in ("SKILL.md", RUNTIME_PATH, TRIAL_BODY_PATH):
+    for name in ("SKILL.md", RUNTIME_PATH, TRIAL_BODY_PATH, ENTRY_PATH):
         try:
             with open(os.path.join(root, *name.split("/")), "rb") as handle:
                 valid = handle.read() == files[name][0]
@@ -1660,7 +1684,7 @@ def suspended_trial_markdown(original, skill_name, product_id, purchase_url, mar
     if body.startswith(disabled + "\n"):
         return original
     active = "%s product=%s -->\n\n" % (GATE_MARKER, product_id)
-    if not body.startswith((active + "## 使用前必读\n", active + "## 试用版使用规则（viceme-trial）\n")):
+    if not body.startswith((active + "## 使用前必读\n", active + "## 试用版使用规则（viceme-trial）\n")) and not body_is_entry_pointer(body):
         return None
     safe_url = purchase_url.replace("<", "%3C").replace(">", "%3E").replace("\r", "%0D").replace("\n", "%0A")
     notice = (
