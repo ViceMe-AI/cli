@@ -167,7 +167,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"?product=<product-id>", "remainingUses", "PURCHASE_REQUIRED", "widgetPath",
 				"present_files", "imagePath", "imageChatSrc", "local-file://",
 			},
-			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名 Skill 购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "本地付款 HTML 已退役", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码](<imagePath>)`", "不把 `present_files` 当作浏览器", "不要再跑 `status`", "待恢复使用优先", "确认耗尽后停止新任务", "skillMarkdown", "skillDirectory", "pendingUse", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI", "不再扣次", "不要对用户说试用失败或次数白扣", "使用前必读", "不算展示成功", "开场白", "无试用开场白", "正式内容尚未安装", "现在就试", "先放着"},
+			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名 Skill 购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "本地付款 HTML 已退役", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码](<imagePath>)`", "`files` 传完整支付 URL", "不要再跑 `status`", "待恢复使用优先", "确认耗尽后停止新任务", "skillMarkdown", "skillDirectory", "pendingUse", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI", "不再扣次", "不要对用户说试用失败或次数白扣", "使用前必读", "不算展示成功", "开场白", "无试用开场白", "正式内容尚未安装", "现在就试", "先放着"},
 		},
 		{
 			name: "charge-for-your-work",

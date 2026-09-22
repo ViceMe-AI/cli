@@ -62,7 +62,7 @@ func TestTrialHostedCheckoutSurvivesLocalPresentationFailure(t *testing.T) {
 					if details["checkoutUrl"] == nil || details["checkoutImageUrl"] == nil {
 						t.Fatal("lost hosted entry")
 					}
-					if strings.Contains(hint, "paymentPresentation.checkoutImageUrl") || !strings.Contains(hint, "可点击的官方支付链接") || !strings.Contains(hint, "只嵌入一张") {
+					if strings.Contains(hint, "paymentPresentation.checkoutImageUrl") || !strings.Contains(hint, "[打开支付页面](完整 checkoutUrl)") || !strings.Contains(hint, "只嵌入一张") {
 						t.Fatalf("wrong hosted output contract: %s", hint)
 					}
 				} else if details["checkoutUrl"] != nil || details["checkoutImageUrl"] != nil {
@@ -97,7 +97,7 @@ func TestHostedCheckoutPreferencesRespectHostCapabilities(t *testing.T) {
 			}
 			return ""
 		}, true)
-		for _, text := range []string{"当前宿主明确支持", "Codex Desktop", "open_in_codex", "target.type=browser", "queued", "Codex 终端版", "WorkBuddy", "豆包工作", "Claude", "同一订单只嵌入一张二维码图片", "不要提前在后台启动等待"} {
+		for _, text := range []string{"当前宿主明确支持", "Codex Desktop", "present_files", "ToolSearch", "DeferExecuteTool", "右侧内置浏览器", "不输出裸 URL", "queued", "Codex 终端版", "WorkBuddy", "豆包工作", "Claude", "同一订单只嵌入一张二维码图片", "不要提前在后台启动等待"} {
 			if !strings.Contains(hint, text) {
 				t.Fatalf("%s omitted %q", host, text)
 			}
