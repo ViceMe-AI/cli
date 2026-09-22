@@ -33,15 +33,11 @@ func PublishDev(ctx context.Context, cfg Config) error {
 }
 
 func publishDev(ctx context.Context, cfg Config, factory func(context.Context, Config, Region) (*regionRuntime, error)) error {
-	if !devBuildPattern.MatchString(cfg.Version) || cfg.DistDir == "" || len(cfg.Regions) == 0 {
+	if !devBuildPattern.MatchString(cfg.Version) || cfg.DistDir == "" || len(cfg.Regions) != 1 {
 		return errors.New("invalid dev publication")
 	}
 	for _, region := range cfg.Regions {
-		origin := "https://s3.dev.viceme.cn/dev"
-		if region.Label == "GLOBAL" {
-			origin = "https://s3.viceme.ai/dev"
-		}
-		if (region.Label != "CN" && region.Label != "GLOBAL") || region.Bucket != "dev" || region.PublicOrigin != origin || region.Endpoint == "" || region.AccessKey == "" || region.SecretKey == "" {
+		if region.Label != "CN" || region.Bucket != "dev" || region.PublicOrigin != "https://s3.dev.viceme.cn/dev" || region.Endpoint == "" || region.AccessKey == "" || region.SecretKey == "" {
 			return errors.New("dev credentials must target the isolated dev bucket and official dev origin")
 		}
 	}

@@ -120,13 +120,13 @@ def build(source, output, build_id, commit, platforms, allow_dirty=False):
         (output / "delivery.json").write_text(json.dumps(delivery, indent=2) + "\n")
         guide = ["# ViceMe dev CLI 安装\n", f"构建：{build_id}；源码：{commit}。\n",
                  "本入口仅用于 dev 测试。选择当前操作系统与架构，下载并校验下表 ZIP 后解压。",
-                 "运行包内 viceme-dev-setup install --region cn --agent auto --replace-standalone；GLOBAL 使用 --region global。",
+                 "当前仅有国内 dev 环境。运行包内 viceme-dev-setup install --region cn --agent auto --replace-standalone。",
                  "使用工具返回的 CLI 绝对路径，确认 dev Profile 后，从 Shop dev 网页复制原始口令测试。",
                  "恢复生产前使用同包工具 uninstall --sha256 <BUILD.json 中 viceme 的摘要>，再执行生产官方安装器并切回生产 Profile。",
                  "不要对 dev 使用生产 update，不要删除恢复日志。npm 安装先使用 npm uninstall -g @viceme-ai/cli。\n",
                  "| 平台 | 下载 | SHA-256 |\n|---|---|---|"]
         for item in delivery["packages"]:
-            guide.append(f"| {item['os']}/{item['arch']} | [CN](https://s3.dev.viceme.cn/dev/builds/{build_id}/{item['file']}) / [GLOBAL](https://s3.viceme.ai/dev/builds/{build_id}/{item['file']}) | {item['sha256']} |")
+            guide.append(f"| {item['os']}/{item['arch']} | [CN](https://s3.dev.viceme.cn/dev/builds/{build_id}/{item['file']}) | {item['sha256']} |")
         (output / "start").mkdir()
         (output / "start/agent-install.md").write_text("\n\n".join(guide) + "\n")
         (output / "start/commerce-skill-install.md").write_text(

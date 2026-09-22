@@ -8,19 +8,24 @@
 
 ## 一次性配置
 
-GitHub 创建 dev Environment，限制只有本工作流的授权维护者使用。两个区域分别使用仅能访问 dev 桶的凭据，禁止复制有生产桶写权限的 credentials。工作流不会创建桶或修改权限。
+GitHub 创建 dev Environment，通过部署分支策略仅允许 main 工作流使用。当前只有国内 dev 环境；使用仅能访问国内 dev 桶的凭据，禁止复制有生产桶或业务桶写权限的 credentials。工作流不会创建桶或修改权限。
 
 | 类型 | 名称 | 要求 |
 | --- | --- | --- |
 | Secret | VICEME_DEV_CN_S3_ENDPOINT、VICEME_DEV_CN_S3_ACCESS_KEY_ID、VICEME_DEV_CN_S3_SECRET_ACCESS_KEY | CN dev 桶 |
 | Secret | VICEME_DEV_CN_S3_HTTPS_PROXY | CN 上传需要代理时配置，不能泄漏凭据 |
-| Secret | VICEME_DEV_GLOBAL_S3_ENDPOINT、VICEME_DEV_GLOBAL_S3_ACCESS_KEY_ID、VICEME_DEV_GLOBAL_S3_SECRET_ACCESS_KEY | GLOBAL dev 桶 |
 | Variable | VICEME_DEV_COMMERCE_SKILL_TRUST_KEYS | dev Commerce 签名验证公钥；不可使用私钥 |
 | Variable | VICEME_DEV_TEMPLATE_CATALOG_TRUST_KEYS | 模板目录签名验证公钥；当前只读公共模板仍使用原发布源 |
 
-公开访问为 https://s3.dev.viceme.cn/dev/ 与 https://s3.viceme.ai/dev/。配置只读对象访问，禁止公开列桶和写入。发布工具固定 bucket=dev 且校验对应公开 origin，不能传 start/skills 桶。
+公开访问为 https://s3.dev.viceme.cn/dev/，endpoint 为 https://s3.dev.viceme.cn（不含桶路径）。不发布海外 dev，也不要求海外 dev 密钥。配置只读对象访问，禁止公开列桶和写入。发布工具固定 bucket=dev 且校验对应公开 origin，不能传 start/skills 桶。
 
 Shop 的 Web、Admin、API 配置 DEPLOYMENT_ENV=dev，并配置 dev 公共 Web/API 地址。NODE_ENV 继续使用 production 构建，MARKET_REGION 只区分 CN/GLOBAL。部署设置与环境备份遵守 Shop 仓库规范。
+
+## 与生产 CI 的对应关系
+
+复用生产的 Go/Node 版本、npm ci、release-manifest 重新生成与干净检查、make check、npm-package-check、信任公钥校验、六平台 Go 编译，以及同一个 S3 客户端的上传和公开回读校验。dev 另加安装/恢复及 S3 发布 race 测试。
+
+两条工作流并非逐步骤相同：dev 手动冻结 dev SHA，生成独立 ZIP 与 dev 安装工具，只发布国内 dev 桶；生产生成稳定标签、签名安装契约、GitHub Release 和 npm 包，并发布两个生产区域。生产更新和签名安装器流程保持原样。
 
 ## 产物和发布顺序
 
@@ -31,7 +36,7 @@ Shop 的 Web、Admin、API 配置 DEPLOYMENT_ENV=dev，并配置 dev 公共 Web/
 1. 写入不可变 builds/BUILD_ID/ 下的所有平台包、官方 Skills、指引和 runtime；已存在而字节不同即失败。
 2. 下载公开不可变产物并核对字节与缓存头。
 3. 按 run/attempt 单调更新 dev 当前 skills/、start/ 入口，最后更新 delivery.json。旧运行不得覆盖新运行。
-4. 回读当前入口。跨区域发布不承诺事务原子性；任一失败则该 run 失败，不宣称完成。重跑使用新 attempt，不复用原构建身份。
+4. 回读当前入口。任一发布或回读失败则该 run 失败，不宣称完成。重跑使用新 attempt，不复用原构建身份。
 
 Agent 从同一次 run 下载 artifact，匹配 delivery.json/SHA256SUMS 和公开下载；交付文档使用不可变 URL。工作流/权限/桶未就绪时报告 Actions 地址及输入，由维护者手动处理，不用旧包兜底。
 
