@@ -35,18 +35,20 @@ func newSubscriptionSubscribeCommand(runtime *Runtime) *cobra.Command {
 				return err
 			}
 			creatorHandle := args[0]
-			order, presentation, err := openCreatorSubscriptionOrder(command.Context(), runtime, creatorHandle)
+			checkout, presentation, err := openCreatorSubscriptionOrder(command.Context(), runtime, creatorHandle)
 			if err != nil {
 				return err
 			}
+			order := checkout.Order
 			if wait <= 0 && order.Status != "PAID" {
 				return output.Confirmation("CREATOR_SUBSCRIPTION_PURCHASE_REQUIRED", "complete the subscription payment before it expires").
 					WithDetails(map[string]any{
 						"creatorHandle": creatorHandle, "orderNo": order.OrderNo,
 						"amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
 						"paymentPresentation": presentation,
+						"checkoutUrl":         checkout.CheckoutURL, "checkoutImageUrl": checkout.CheckoutImageURL,
 					}).
-					WithHint(skillPaymentPresentationHint(os.Getenv, false) + "\npresent the payment QR to the user, then rerun the same subscribe command with --wait while the payment is in progress")
+					WithHint(paymentPresentationHint(os.Getenv, checkout.CheckoutURL != "") + "\npresent the payment QR to the user, then rerun the same subscribe command with --wait while the payment is in progress")
 			}
 			if wait <= 0 {
 				wait = time.Second
@@ -68,27 +70,27 @@ func newSubscriptionSubscribeCommand(runtime *Runtime) *cobra.Command {
 // openCreatorSubscriptionOrder opens a WeChat NATIVE subscription order and
 // renders its payment QR as a local image; the provider URI never reaches
 // stdout.
-func openCreatorSubscriptionOrder(ctx context.Context, runtime *Runtime, creatorHandle string) (api.PaymentOrder, *api.CommercePaymentPresentation, error) {
+func openCreatorSubscriptionOrder(ctx context.Context, runtime *Runtime, creatorHandle string) (api.CreatePaymentResponse, *api.CommercePaymentPresentation, error) {
 	unlock, err := lockBuyerPurchase(ctx, runtime, "subscription", creatorHandle)
 	if err != nil {
-		return api.PaymentOrder{}, nil, err
+		return api.CreatePaymentResponse{}, nil, err
 	}
 	defer unlock()
 	intent, err := loadBuyerPurchaseIntent(runtime, "subscription", creatorHandle)
 	if err != nil {
-		return api.PaymentOrder{}, nil, err
+		return api.CreatePaymentResponse{}, nil, err
 	}
 	if intent != nil && intent.OrderNo != "" {
 		current, err := runtime.client().GetCreatorSubscriptionOrderStatus(ctx, intent.OrderNo)
 		if err != nil {
-			return api.PaymentOrder{}, nil, err
+			return api.CreatePaymentResponse{}, nil, err
 		}
 		if current.Order.Status == "PAID" {
-			return current.Order, nil, nil
+			return api.CreatePaymentResponse{Order: current.Order}, nil, nil
 		}
 		if current.Order.Status == "CLOSED" || current.Order.Status == "CANCELLED" {
 			if err := os.Remove(buyerPurchaseIntentPath(runtime, "subscription", creatorHandle)); err != nil {
-				return api.PaymentOrder{}, nil, err
+				return api.CreatePaymentResponse{}, nil, err
 			}
 			intent = nil
 		}
@@ -97,16 +99,16 @@ func openCreatorSubscriptionOrder(ctx context.Context, runtime *Runtime, creator
 		request, _ := json.Marshal(map[string]any{"creatorHandle": creatorHandle, "clientRequestId": runtime.deps.NewID(), "paymentProvider": "WECHAT_PAY", "paymentScene": "NATIVE", "locale": localeForRuntimeMarket(runtime)})
 		intent = &buyerPurchaseIntent{OrderRequest: request}
 		if err := saveBuyerPurchaseIntent(runtime, "subscription", creatorHandle, *intent); err != nil {
-			return api.PaymentOrder{}, nil, err
+			return api.CreatePaymentResponse{}, nil, err
 		}
 	}
 	created, err := runtime.client().CreateCreatorSubscriptionOrder(ctx, intent.OrderRequest)
 	if err != nil {
-		return api.PaymentOrder{}, nil, err
+		return api.CreatePaymentResponse{}, nil, err
 	}
 	intent.OrderNo = created.Order.OrderNo
 	if err := saveBuyerPurchaseIntent(runtime, "subscription", creatorHandle, *intent); err != nil {
-		return api.PaymentOrder{}, nil, err
+		return api.CreatePaymentResponse{}, nil, err
 	}
 	order := api.CommerceOrder{
 		OrderNo:         created.Order.OrderNo,
@@ -118,14 +120,16 @@ func openCreatorSubscriptionOrder(ctx context.Context, runtime *Runtime, creator
 		ExpiresAt:       created.Order.ExpiresAt,
 	}
 	if err := prepareCommercePaymentPresentation(runtime, &order); err != nil {
-		return created.Order, nil, err
+		return created, nil, output.Internal("COMMERCE_PAYMENT_PRESENTATION_FAILED", "the subscription order was created but its local payment QR image could not be prepared", err).
+			WithDetails(map[string]any{"orderNo": created.Order.OrderNo, "checkoutUrl": created.CheckoutURL, "checkoutImageUrl": created.CheckoutImageURL}).
+			WithHint(paymentPresentationHint(os.Getenv, created.CheckoutURL != "") + "\nReport the local QR error and present the existing checkout link when available. Retry the same subscribe command to recover this order.")
 	}
 	if order.PaymentPresentation != nil {
 		amount := formatCentsAsYuan(created.Order.AmountCents)
 		progress(runtime, "微信支付二维码已生成（订阅订单 "+created.Order.OrderNo+"，"+amount+"，"+created.Order.ExpiresAt+" 前有效）："+order.PaymentPresentation.ImagePath)
 		progress(runtime, "请扫码完成支付；支付到账后，订阅有效期内可安装和更新该创作者的全部付费 Skill；到期后本地内容保留，但不能重装或更新")
 	}
-	return created.Order, order.PaymentPresentation, nil
+	return created, order.PaymentPresentation, nil
 }
 
 func waitForCreatorSubscriptionPayment(ctx context.Context, runtime *Runtime, creatorHandle, orderNo string, timeout time.Duration) error {

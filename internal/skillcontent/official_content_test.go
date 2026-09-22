@@ -167,7 +167,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 				"?product=<product-id>", "remainingUses", "PURCHASE_REQUIRED", "widgetPath",
 				"present_files", "imagePath", "imageChatSrc", "local-file://",
 			},
-			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名 Skill 购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "支付不要调用 `show_widget`", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码](<imagePath>)`", "不要把 imagePath 或 PNG 交给 `present_files`", "不要再跑 `status`", "待恢复使用优先", "确认耗尽后停止新任务", "skillMarkdown", "skillDirectory", "pendingUse", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI", "不再扣次", "不要对用户说试用失败或次数白扣", "使用前必读", "不算已展示", "开场白", "无试用开场白", "正式内容尚未安装", "现在就试", "先放着"},
+			semantics: []string{"不得要求再次购买", "不得停在“安装成功”", "匿名 Skill 购买不返回账号支付页面，不要求补登录或补造链接", "准备支持文件并最后原子替换主入口", "不要展示上手卡", "不运行 use", "不要提剩余次数", "本地付款 HTML 已退役", "不得对用户说", "同一轮立即", "不要等用户再说一次", "`![微信支付二维码](<imagePath>)`", "不把 `present_files` 当作浏览器", "不要再跑 `status`", "待恢复使用优先", "确认耗尽后停止新任务", "skillMarkdown", "skillDirectory", "pendingUse", "不要读商品 SKILL.md", "不要对用户说试用没耗尽", "不得对用户说安装通道占用", "短等几秒后重跑同一条", "不要定位或删除", "有可用的 Python 时", "不要为了安装先去定位或安装 CLI", "不再扣次", "不要对用户说试用失败或次数白扣", "使用前必读", "不算展示成功", "开场白", "无试用开场白", "正式内容尚未安装", "现在就试", "先放着"},
 		},
 		{
 			name: "charge-for-your-work",
@@ -250,9 +250,9 @@ func TestReplicaBuyerUsesInPlatformPaymentAndShortOutputWaits(t *testing.T) {
 	text := string(content)
 	for _, required := range []string{
 		"presentationTarget=AGENT_PLATFORM", "present_files", "当前任务真实工作目录",
-		"只有展示工具明确成功打开平台内付款入口后", "不启动等待、不外部降级、不自动重建订单",
+		"先实际交付聊天二维码或可点击的官方链接", "展示未完成时不启动等待、不自动重建订单",
 		"timeout=15000", "每 3 秒查询", "--interval 3s", "--payment-result-first", "PRESENT_SUPPORT_RESULT", "continuation.args", "首次 `install` 不得携带 `--payment-presented`",
-		"imagePath", "imageChatSrc", "local-file://", "present_files([widgetPath])", "支付不要调用 `show_widget`", "`![微信支付二维码]`",
+		"references/host-presentation.md", "checkoutUrl", "本地付款 HTML 已退役", "聊天二维码",
 	} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("buyer Skill omitted payment rule %q", required)
@@ -1955,7 +1955,7 @@ func TestPaidSkillWithoutTrialUsesStandalonePurchaseGuide(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(content)
-	for _, required := range []string{"## 无试用的付费安装", "未提供免费试用", "Python install", "无需 CLI 或登录", "不是试用耗尽", "已有购买凭证沿用原订单", "kind=purchase", "原 Skill 目录", "purchase --wait 0", "使用前必读", "不算已展示", "开场白", "正式内容尚未安装", "现在就试"} {
+	for _, required := range []string{"## 无试用的付费安装", "未提供免费试用", "Python install", "无需 CLI 或登录", "不是试用耗尽", "已有购买凭证沿用原订单", "kind=purchase", "原 Skill 目录", "purchase --wait 0", "使用前必读", "不算展示成功", "开场白", "正式内容尚未安装", "现在就试"} {
 		if !strings.Contains(text, required) {
 			t.Fatalf("paid entry omitted %q", required)
 		}
@@ -1969,7 +1969,7 @@ func TestPaidSkillWithoutTrialUsesStandalonePurchaseGuide(t *testing.T) {
 		t.Fatal("direct purchase must return the installed Skill runtime for payment and recovery")
 	}
 	for _, required := range []string{
-		"使用前必读", "checkoutUrl", "不算已展示", "开场白", "无试用开场白", "正式内容尚未安装",
+		"使用前必读", "checkoutUrl", "不算展示成功", "开场白", "无试用开场白", "正式内容尚未安装",
 		"正式内容安装完成后，重新读取实际 SKILL.md 并继续原任务",
 		"没有原任务时，简短说明怎么开始，等待用户提供任务内容",
 	} {

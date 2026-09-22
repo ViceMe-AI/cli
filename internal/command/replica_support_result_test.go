@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/ViceMe-AI/cli/internal/output"
-	"github.com/ViceMe-AI/cli/internal/privatepath"
 )
 
 func TestReplicaSupportResultPrecedesDeliveryAndResumesOriginalPurchase(t *testing.T) {
@@ -35,15 +34,8 @@ func TestReplicaSupportResultPrecedesDeliveryAndResumesOriginalPurchase(t *testi
 			if _, err := os.Stat(f.target); !os.IsNotExist(err) {
 				t.Fatal("target was installed before the presentation boundary")
 			}
-			if result.Presentation.WidgetPath == result.Presentation.ReplacesWidgetPath || !filepath.IsAbs(result.Presentation.WidgetPath) {
-				t.Fatal("support result reused the cached pending path")
-			}
-			if err := privatepath.RequirePrivateFile(result.Presentation.WidgetPath); err != nil {
-				t.Fatal(err)
-			}
-			html, err := os.ReadFile(result.Presentation.WidgetPath)
-			if err != nil || !bytes.Contains(html, []byte(`"status":"PAID"`)) || bytes.Contains(html, []byte("weixin://")) || !bytes.Contains(html, []byte("创作者已收到你的支持")) {
-				t.Fatal("invalid support presentation")
+			if result.Presentation.Title != "已支付" {
+				t.Fatal("missing paid acknowledgement")
 			}
 			if result.Continuation.Mode != "RECOVERY_ONLY" || strings.Contains(strings.Join(result.Continuation.Args, " "), "--accept-price-cents") {
 				t.Fatal("continuation could purchase again")
@@ -74,9 +66,6 @@ func TestReplicaSupportResultPrecedesDeliveryAndResumesOriginalPurchase(t *testi
 			if content, err := os.ReadFile(filepath.Join(f.target, "index.html")); err != nil || string(content) != "<h1>Recovered</h1>" || f.checkoutCalls.Load() != 1 {
 				t.Fatal("continuation changed the purchase or failed to install")
 			}
-			if _, err := os.Stat(result.Presentation.WidgetPath); err != nil {
-				t.Fatal("delivery removed the displayed support result")
-			}
 		})
 	}
 }
@@ -90,9 +79,6 @@ func TestReplicaSupportResultKeepsPaidFactWhenDeliveryFails(t *testing.T) {
 	assertReplicaPaidFailure(t, failed, result.OrderNo)
 	if f.checkoutCalls.Load() != 1 {
 		t.Fatal("delivery failure caused another checkout")
-	}
-	if _, err := os.Stat(result.Presentation.WidgetPath); err != nil {
-		t.Fatal("delivery failure removed the support result")
 	}
 }
 

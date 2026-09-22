@@ -21,7 +21,7 @@ func TestSharedWidgetsHaveIdenticalStableAndContentAddressedObjects(t *testing.T
 	if _, exists := manifest.Skills["_widgets"]; exists {
 		t.Fatal("widgets must not become an installable Skill")
 	}
-	for _, name := range []string{"payment.html", "onboarding.html", "README.md", "qrcodegen.py"} {
+	for _, name := range []string{"onboarding.html", "README.md", "qrcodegen.py"} {
 		content, err := fs.ReadFile(cliembed.EmbeddedWidgets(), name)
 		if err != nil {
 			t.Fatal(err)

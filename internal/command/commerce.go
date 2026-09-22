@@ -526,8 +526,12 @@ func createCommerceOrderInput(ctx context.Context, runtime *Runtime, stableName 
 			"COMMERCE_PAYMENT_PRESENTATION_FAILED",
 			"the order was created but its local payment QR image could not be prepared",
 			err,
-		).WithDetails(map[string]any{"orderNo": created.Order.OrderNo}).
-			WithHint("rerun the same order create command in this Commerce Session; do not expose the payment URI or use an external QR service")
+		).WithDetails(map[string]any{
+			"orderNo": created.Order.OrderNo, "checkoutUrl": created.CheckoutURL, "checkoutImageUrl": created.CheckoutImageURL,
+		}).WithHint(paymentPresentationHint(os.Getenv, created.CheckoutURL != "") + "\nReport the local QR error and present the existing checkout link when available. Retry the same order create command in this Commerce Session; do not create another order.")
+	}
+	if created.Order.Status == "PENDING" && (created.Order.PaymentPresentation != nil || created.CheckoutURL != "") {
+		created.PaymentPresentationGuide = paymentPresentationHint(os.Getenv, created.CheckoutURL != "")
 	}
 	return created, nil
 }
