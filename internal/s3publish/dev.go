@@ -14,7 +14,7 @@ import (
 	"strings"
 )
 
-// Dev publication is a separate bucket and namespace. It cannot invoke stable
+// Dev publication uses a separate storage endpoint. It cannot invoke stable
 // release publication, touch production pointers or publish npm/tags.
 var devBuildPattern = regexp.MustCompile("^dev-([0-9]+)-([0-9]+)-[a-f0-9]{12}$")
 
@@ -37,8 +37,8 @@ func publishDev(ctx context.Context, cfg Config, factory func(context.Context, C
 		return errors.New("invalid dev publication")
 	}
 	for _, region := range cfg.Regions {
-		if region.Label != "CN" || region.Bucket != "dev" || region.PublicOrigin != "https://s3.dev.viceme.cn/dev" || region.Endpoint == "" || region.AccessKey == "" || region.SecretKey == "" {
-			return errors.New("dev credentials must target the isolated dev bucket and official dev origin")
+		if region.Label != "CN" || region.Bucket != "start" || region.PublicOrigin != "https://s3.dev.viceme.cn/start" || region.Endpoint != "https://s3.dev.viceme.cn" || region.AccessKey == "" || region.SecretKey == "" {
+			return errors.New("dev credentials must target the isolated dev endpoint and official start origin")
 		}
 	}
 	var manifest struct {
@@ -80,7 +80,7 @@ func publishDev(ctx context.Context, cfg Config, factory func(context.Context, C
 			return errors.New("dev package checksum mismatch")
 		}
 	}
-	var immutable, aliases []upload
+	var immutable, startAliases, skillAliases []upload
 	err = filepath.WalkDir(cfg.DistDir, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -99,10 +99,14 @@ func publishDev(ctx context.Context, cfg Config, factory func(context.Context, C
 		item := upload{Path: path, Key: "builds/" + cfg.Version + "/" + relative, ContentType: HostedContentType(relative), Cache: cacheImmutable, Immutable: true}
 		immutable = append(immutable, item)
 		if strings.HasPrefix(relative, "skills/") || strings.HasPrefix(relative, "start/") {
-			item.Key = relative
+			_, item.Key, _ = strings.Cut(relative, "/")
 			item.Cache = cacheStable
 			item.Immutable = false
-			aliases = append(aliases, item)
+			if strings.HasPrefix(relative, "start/") {
+				startAliases = append(startAliases, item)
+			} else {
+				skillAliases = append(skillAliases, item)
+			}
 		}
 		return nil
 	})
@@ -144,14 +148,21 @@ func publishDev(ctx context.Context, cfg Config, factory func(context.Context, C
 				return fmt.Errorf("dev pointer already targets newer build %s; immutable artifacts retained", old.BuildID)
 			}
 		}
-		if err := r.runUploads(ctx, "dev-entrypoints", region.Bucket, aliases, listing{available: false}); err != nil {
+		if err := r.runUploads(ctx, "dev-start", "start", startAliases, listing{available: false}); err != nil {
+			return err
+		}
+		if err := r.runUploads(ctx, "dev-skills", "skills", skillAliases, listing{available: false}); err != nil {
 			return err
 		}
 		if err := r.store.Put(ctx, region.Bucket, "delivery.json", data, "no-cache", "application/json"); err != nil {
 			return err
 		}
 		for _, file := range []string{"delivery.json", "start/agent-install.md", "skills/use-a-skill/scripts/trial.py"} {
-			if err := r.verifyPublic(ctx, publicCheck{URL: region.PublicOrigin + "/" + file, File: file}); err != nil {
+			url := strings.TrimSuffix(region.PublicOrigin, "/start") + "/" + file
+			if file == "delivery.json" {
+				url = region.PublicOrigin + "/" + file
+			}
+			if err := r.verifyPublic(ctx, publicCheck{URL: url, File: file}); err != nil {
 				return err
 			}
 		}

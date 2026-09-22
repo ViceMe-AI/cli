@@ -118,6 +118,6 @@ jobs:
           {
             echo "Dev build: $BUILD_ID"
             echo "Commit: $SOURCE_SHA"
-            echo "CN: https://s3.dev.viceme.cn/dev/builds/$BUILD_ID/delivery.json"
+            echo "CN: https://s3.dev.viceme.cn/start/builds/$BUILD_ID/delivery.json"
             echo "Use the immutable URLs and SHA256SUMS in the tester handoff."
           } >> "$GITHUB_STEP_SUMMARY"
