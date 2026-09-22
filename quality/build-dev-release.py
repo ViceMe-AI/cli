@@ -34,6 +34,13 @@ def render_dev_assets(root, build_id):
             text = re.sub(r"https://s3\.viceme\." + region + r"(?=/skills/|/start/|[\"\']|$)",
                           f"https://s3.viceme.{region}/dev/builds/{build_id}", text)
             text = text.replace("https://viceme." + region, "https://dev.viceme." + region)
+        if path.name == "make_copy.py":
+            # Replica validates bare hostnames separately from URL constants.
+            # Restrict this dev artifact to dev authorities; never redirect a
+            # production URL into a development API.
+            for region in ("cn", "ai"):
+                for host in (f"www.viceme.{region}", f"viceme.{region}"):
+                    text = text.replace('"' + host + '"', '"dev.viceme.' + region + '"')
         if path.name == "SKILL.md":
             marker = "---"
             parts = text.split(marker, 2)

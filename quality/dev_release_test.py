@@ -1,6 +1,8 @@
 import importlib.util
 from pathlib import Path
 import tempfile
+import shutil
+import runpy
 import unittest
 
 spec=importlib.util.spec_from_file_location("dev_release",Path(__file__).with_name("build-dev-release.py"))
@@ -26,3 +28,18 @@ class DevArtifactsTest(unittest.TestCase):
             for build_id,commit in [("dev","a"*40),("dev-1-1-bbbbbbbbbbbb","a"*40),("dev-1-1-aaaaaaaaaaaa","main")]:
                 with self.assertRaises(ValueError):
                     mod.build(Path(tmp),Path(tmp)/"out",build_id,commit,[])
+
+    def test_dev_replica_uses_dev_authority_and_rejects_production(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            target=root/"skills/let-me-make-a-copy/scripts/make_copy.py"
+            target.parent.mkdir(parents=True)
+            shutil.copyfile(Path(__file__).resolve().parents[1]/target.relative_to(root),target)
+            (root/"release").mkdir();(root/"release/trial-bootstrap.py.tmpl").write_text("")
+            mod.render_dev_assets(root,"dev-123-1-abcdefabcdef")
+            namespace=runpy.run_path(str(target))
+            for region in ("cn","ai"):
+                authority=namespace["authority_for_work_url"](f"https://dev.viceme.{region}/alice/demo.md?product=11111111-1111-4111-8111-111111111111")
+                self.assertEqual(authority.api_base_url,f"https://dev.viceme.{region}/api/v1")
+                with self.assertRaises(namespace["WorkflowError"]):
+                    namespace["authority_for_work_url"](f"https://viceme.{region}/alice/demo.md")
