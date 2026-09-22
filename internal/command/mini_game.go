@@ -131,7 +131,7 @@ func runMiniGame(command *cobra.Command, runtime *Runtime, mode, project string,
 	report.Ready = len(report.Issues) == 0
 	report.Next = "按 issues 修复原项目入口和付费点，然后运行 viceme mini-game check；命令不会改写宿主代码。"
 	if report.Ready {
-		report.Next = "静态接入检查通过；请实际验证付款卡和许可证兑换，再使用小红书上传页当前官方口令与 Skill 完成平台检查和打包。此命令不上传、托管、打包或发布。"
+		report.Next = "静态接入检查通过；请实际验证付款卡和六位动态码兑换，再使用小红书上传页当前官方口令与 Skill 完成平台检查和打包。此命令不上传、托管、打包或发布。"
 	}
 	if mode == "check" && !report.Ready {
 		return output.Validation("MINI_GAME_CHECK_FAILED", "小游戏仍有接入问题").WithHint(report.Next).WithDetails(report)
@@ -143,7 +143,7 @@ func resolveMiniGameSelection(selection miniGameSelection, state *miniGameState)
 	selection.WorkID = strings.ToLower(selection.WorkID)
 	selection.MerchantAccountID = strings.ToLower(selection.MerchantAccountID)
 	if selection.Environment != "" && selection.Environment != "sandbox" && selection.Environment != "production" {
-		return selection, output.Validation("MINI_GAME_ENVIRONMENT_INVALID", "--environment 必须是 sandbox 或 production").WithHint("用作品口令指定的环境重跑；不要混用测试与生产许可证。")
+		return selection, output.Validation("MINI_GAME_ENVIRONMENT_INVALID", "--environment 必须是 sandbox 或 production").WithHint("用作品口令指定的环境重跑；不要混用测试与生产动态码。")
 	}
 	selection.Environment = strings.ToUpper(selection.Environment)
 	if state != nil {
@@ -170,14 +170,15 @@ func miniGameConfiguration(manifest api.MiniGameIntegration) ([]byte, error) {
 		items = append(items, runtimeItem{item.ID, item.Alias, item.Title})
 	}
 	configuration := struct {
-		WorkID         string        `json:"workId"`
-		WorkTitle      string        `json:"workTitle"`
-		Environment    string        `json:"environment"`
-		PublicClientID string        `json:"publicClientId"`
-		PublicKey      string        `json:"publicKey"`
-		CheckoutOrigin string        `json:"checkoutOrigin"`
-		Items          []runtimeItem `json:"items"`
-	}{manifest.WorkID, manifest.WorkTitle, manifest.Environment, manifest.PublicClientID, manifest.PublicKey, manifest.CheckoutOrigin, items}
+		ProtocolVersion int           `json:"protocolVersion"`
+		WorkID          string        `json:"workId"`
+		WorkTitle       string        `json:"workTitle"`
+		Environment     string        `json:"environment"`
+		PublicClientID  string        `json:"publicClientId"`
+		SharedSecret    string        `json:"sharedSecret"`
+		CheckoutOrigin  string        `json:"checkoutOrigin"`
+		Items           []runtimeItem `json:"items"`
+	}{2, manifest.WorkID, manifest.WorkTitle, manifest.Environment, manifest.PublicClientID, manifest.SharedSecret, manifest.CheckoutOrigin, items}
 	data, err := json.MarshalIndent(configuration, "  ", "  ")
 	if err != nil {
 		return nil, output.Internal("MINI_GAME_CONFIG_INVALID", "无法生成小游戏配置", err)

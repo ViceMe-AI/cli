@@ -1,4 +1,4 @@
 interface:
   display_name: "接入小游戏购买与兑换"
   short_description: "为已有小游戏安装作品配置并连接道具付费点"
-  default_prompt: "使用 $viceme-mini-game-commerce 先通过唯一创作者资格守卫，再在我的现有本地小游戏中按作品口令接入购买与离线许可证兑换；保留原代码，完成检查后交回小红书上传页当前官方口令与 Skill，不上传或打包。"
+  default_prompt: "使用 $viceme-mini-game-commerce 先通过唯一创作者资格守卫，再在我的现有本地小游戏中按作品口令接入购买与安装绑定六位离线动态码兑换；不展示或编辑安装 ID，说明清数据或换设备丢失绑定权益；保留原代码，完成检查后交回小红书上传页当前官方口令与 Skill，不上传或打包。"

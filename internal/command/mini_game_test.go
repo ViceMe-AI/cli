@@ -15,7 +15,7 @@ import (
 )
 
 func miniGameFixture() api.MiniGameIntegration {
-	return api.MiniGameIntegration{SchemaVersion: 1, RuntimeVersion: "1.0.0", WorkID: "11111111-1111-4111-8111-111111111111", WorkTitle: "已有小游戏", Environment: "SANDBOX", PublicClientID: "vca_" + strings.Repeat("a", 32), PublicKey: strings.Repeat("A", 43), CheckoutOrigin: "https://viceme.cn", Items: []api.MiniGameItem{{ID: "33333333-3333-4333-8333-333333333333", Alias: "hero-sword", Title: "英雄之剑", Status: "ACTIVE"}}}
+	return api.MiniGameIntegration{SchemaVersion: 2, RuntimeVersion: "2.0.0", WorkID: "11111111-1111-4111-8111-111111111111", WorkTitle: "已有小游戏", Environment: "SANDBOX", PublicClientID: "vca_" + strings.Repeat("a", 32), SharedSecret: strings.Repeat("a", 64), CheckoutOrigin: "https://viceme.cn", Items: []api.MiniGameItem{{ID: "33333333-3333-4333-8333-333333333333", Alias: "hero-sword", Title: "英雄之剑", Status: "ACTIVE"}}}
 }
 
 func writeMiniGameHost(t *testing.T, project string) {
@@ -101,6 +101,9 @@ func TestMiniGameIntegrateAndCheckLifecycle(t *testing.T) {
 	if exit != 0 {
 		t.Fatal(out)
 	}
+	if strings.Contains(out, manifest.SharedSecret) || strings.Contains(out, "sharedSecret") {
+		t.Fatal("接入输出泄露共享密钥")
+	}
 	report := miniGameReportFromOutput(t, out)
 	if !report.Installed || !report.Ready {
 		t.Fatalf("接入没有就绪: %s", out)
@@ -117,6 +120,9 @@ func TestMiniGameIntegrateAndCheckLifecycle(t *testing.T) {
 	if exit != 0 || !miniGameReportFromOutput(t, out).Ready {
 		t.Fatal(out)
 	}
+	if strings.Contains(out, manifest.SharedSecret) || strings.Contains(out, "sharedSecret") {
+		t.Fatal("检查输出泄露共享密钥")
+	}
 	for name, before := range initial {
 		if !bytes.Equal(before, miniGameRead(t, project, name)) {
 			t.Errorf("重复接入/只读检查改写了 %s", name)
@@ -129,6 +135,9 @@ func TestMiniGameIntegrateAndCheckLifecycle(t *testing.T) {
 	if exit == 0 || !miniGameHasIssue(miniGameReportFromOutput(t, out), "CONFIGURATION_STALE", "") {
 		t.Fatalf("漏报过期配置: %s", out)
 	}
+	if strings.Contains(out, manifest.SharedSecret) || strings.Contains(out, "sharedSecret") {
+		t.Fatal("检查失败输出泄露共享密钥")
+	}
 	if !bytes.Equal(initial[miniGameConfigPath], miniGameRead(t, project, miniGameConfigPath)) {
 		t.Fatal("check 修改了旧配置")
 	}
@@ -136,6 +145,9 @@ func TestMiniGameIntegrateAndCheckLifecycle(t *testing.T) {
 	report = miniGameReportFromOutput(t, out)
 	if exit != 0 || !miniGameHasIssue(report, "ACTIVE_ALIAS_MISSING", "magic-shield") || miniGameHasIssue(report, "ACTIVE_ALIAS_MISSING", "retired-hat") || miniGameHasIssue(report, "ACTIVE_ALIAS_MISSING", "draft-cloak") || miniGameHasIssue(report, "ACTIVE_ALIAS_MISSING", "hero-sword") {
 		t.Fatalf("生命周期检查错误: %s", out)
+	}
+	if strings.Contains(out, manifest.SharedSecret) || strings.Contains(out, "sharedSecret") {
+		t.Fatal("接入问题报告泄露共享密钥")
 	}
 	updated := string(miniGameRead(t, project, miniGameConfigPath))
 	for _, required := range []string{"hero-sword", "改名后的英雄之剑", "retired-hat", "draft-cloak", "magic-shield"} {
@@ -170,7 +182,7 @@ func TestMiniGameRequiresReferencesForRetainedEntitlements(t *testing.T) {
 	if exit == 0 || !miniGameHasIssue(miniGameReportFromOutput(t, out), "ITEM_ALIAS_MISSING", "hero-sword") {
 		t.Fatalf("下架后的无效购买按钮被当作权益恢复入口: %s", out)
 	}
-	miniGameWrite(t, project, "game.js", `async function restore() { await ViceMeMiniGame.initialize(); document.querySelector('#buy').hidden = await ViceMeMiniGame.isUnlocked('hero-sword'); } restore();`)
+	miniGameWrite(t, project, "game.js", `async function restore() { await ViceMeMiniGame.initialize(); document.querySelector('#buy').onclick = () => ViceMeMiniGame.redeemCode('hero-sword', document.querySelector('#code').value); } restore();`)
 	exit, out = executeMerchantEngagementCommand(t, server, []string{"mini-game", "check", "--project", project})
 	if exit != 0 || !miniGameReportFromOutput(t, out).Ready {
 		t.Fatalf("保留权益引用后仍要求下架道具购买入口: %s", out)
@@ -190,11 +202,16 @@ func TestMiniGameRejectsInvalidManifestWithoutChangingFiles(t *testing.T) {
 		},
 		"缓存价格":      func(m map[string]any) { m["items"].([]any)[0].(map[string]any)["priceMinor"] = 100 },
 		"未知顶层字段":    func(m map[string]any) { m["privateKey"] = "不能接受" },
-		"不支持版本":     func(m map[string]any) { m["runtimeVersion"] = "2.0.0" },
+		"不支持版本":     func(m map[string]any) { m["runtimeVersion"] = "1.0.0" },
+		"旧协议版本":     func(m map[string]any) { m["schemaVersion"] = 1 },
 		"错误环境":      func(m map[string]any) { m["environment"] = "PRODUCTION" },
 		"错误作品":      func(m map[string]any) { m["workId"] = "99999999-9999-4999-8999-999999999999" },
 		"缺失道具字段":    func(m map[string]any) { delete(m["items"].([]any)[0].(map[string]any), "status") },
-		"错误公钥":      func(m map[string]any) { m["publicKey"] = strings.Repeat("A", 42) + "B" },
+		"旧公钥字段":     func(m map[string]any) { m["publicKey"] = strings.Repeat("A", 43) },
+		"缺失密钥":      func(m map[string]any) { delete(m, "sharedSecret") },
+		"大写密钥":      func(m map[string]any) { m["sharedSecret"] = strings.Repeat("A", 64) },
+		"错误密钥长度":    func(m map[string]any) { m["sharedSecret"] = strings.Repeat("a", 63) },
+		"非十六进制密钥":   func(m map[string]any) { m["sharedSecret"] = strings.Repeat("g", 64) },
 		"尾斜杠Origin": func(m map[string]any) { m["checkoutOrigin"] = "https://viceme.cn/" },
 	}
 	for name, mutate := range cases {
@@ -217,6 +234,9 @@ func TestMiniGameRejectsInvalidManifestWithoutChangingFiles(t *testing.T) {
 			exit, out = executeMerchantEngagementCommand(t, server, []string{"mini-game", "integrate", "--project", project})
 			if exit == 0 || !strings.Contains(out, "RESPONSE_INVALID") {
 				t.Fatalf("接受了非法 manifest: %s", out)
+			}
+			if secret, ok := invalid["sharedSecret"].(string); ok && strings.Contains(out, secret) {
+				t.Fatal("非法 manifest 错误输出泄露共享密钥")
 			}
 			if !bytes.Equal(before, miniGameRead(t, project, miniGameConfigPath)) || !bytes.Equal(state, miniGameRead(t, project, miniGameStatePath)) {
 				t.Fatal("非法响应改写了已有安装")

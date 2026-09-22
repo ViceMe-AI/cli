@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"encoding/base64"
 	"errors"
 	"net/http"
 	"net/url"
@@ -11,11 +10,12 @@ import (
 	"time"
 )
 
-const MiniGameRuntimeVersion = "1.0.0"
+const MiniGameRuntimeVersion = "2.0.0"
 
 var miniGameAliasPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 var miniGameClientPattern = regexp.MustCompile(`^vca_[A-Za-z0-9_-]{32}$`)
 var miniGameUUIDShapedAlias = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+var miniGameSharedSecretPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
 
 type MiniGameItem struct {
 	ID     string `json:"id"`
@@ -31,7 +31,7 @@ type MiniGameIntegration struct {
 	WorkTitle      string         `json:"workTitle"`
 	Environment    string         `json:"environment"`
 	PublicClientID string         `json:"publicClientId"`
-	PublicKey      string         `json:"publicKey"`
+	SharedSecret   string         `json:"sharedSecret"`
 	CheckoutOrigin string         `json:"checkoutOrigin"`
 	Items          []MiniGameItem `json:"items"`
 }
@@ -39,12 +39,11 @@ type MiniGameIntegration struct {
 func (*MiniGameIntegration) strictAPIResponse() {}
 
 func (m *MiniGameIntegration) validateAPIResponse() error {
-	if m == nil || m.SchemaVersion != 1 || m.RuntimeVersion != MiniGameRuntimeVersion || !uuidPattern.MatchString(m.WorkID) || m.WorkID != strings.ToLower(m.WorkID) || !miniGameText(m.WorkTitle) || !validCommerceApplicationEnvironment(m.Environment) || !miniGameClientPattern.MatchString(m.PublicClientID) || m.Items == nil {
+	if m == nil || m.SchemaVersion != 2 || m.RuntimeVersion != MiniGameRuntimeVersion || !uuidPattern.MatchString(m.WorkID) || m.WorkID != strings.ToLower(m.WorkID) || !miniGameText(m.WorkTitle) || !validCommerceApplicationEnvironment(m.Environment) || !miniGameClientPattern.MatchString(m.PublicClientID) || m.Items == nil {
 		return errors.New("invalid mini-game integration identity or version")
 	}
-	key, err := base64.RawURLEncoding.Strict().DecodeString(m.PublicKey)
-	if err != nil || len(key) != 32 || len(m.PublicKey) != 43 {
-		return errors.New("invalid mini-game public key")
+	if !miniGameSharedSecretPattern.MatchString(m.SharedSecret) {
+		return errors.New("invalid mini-game shared secret")
 	}
 	if !validCommerceApplicationOrigin(m.CheckoutOrigin) {
 		return errors.New("invalid mini-game checkout origin")

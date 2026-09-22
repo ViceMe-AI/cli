@@ -100,7 +100,7 @@ func checkMiniGameReferences(project string, manifest api.MiniGameIntegration) (
 						firstCall = index
 					}
 					method := tokens[pos+2].text
-					if method != "createPurchaseCard" && method != "isUnlocked" && method != "redeemLicense" && method != "importLicenseImage" {
+					if method != "createPurchaseCard" && method != "isUnlocked" && method != "redeemCode" {
 						continue
 					}
 					if pos+5 >= len(tokens) || tokens[pos+4].kind != 's' || (tokens[pos+5].text != ")" && tokens[pos+5].text != ",") {
@@ -242,7 +242,7 @@ func checkMiniGameReferences(project string, manifest api.MiniGameIntegration) (
 		if item.Status == "ACTIVE" && !purchases[item.Alias] {
 			issues = append(issues, miniGameIssue{Code: "ACTIVE_ALIAS_MISSING", Alias: item.Alias, Fix: "在 HTML 实际加载的游戏 JS 中，为此道具的真实购买按钮调用 await ViceMeMiniGame.createPurchaseCard(" + strconv.Quote(item.Alias) + ")，并展示返回的付款卡；不要在注释、未加载文件或受管配置中伪造引用。"})
 		} else if item.Status != "ACTIVE" && !references[item.Alias] {
-			issues = append(issues, miniGameIssue{Code: "ITEM_ALIAS_MISSING", Alias: item.Alias, Fix: "在 HTML 实际加载的游戏 JS 中保留此道具的权益引用，例如 await ViceMeMiniGame.isUnlocked(" + strconv.Quote(item.Alias) + ")；下架或归档只移除新购买入口，不得删除已有许可证的兑换与权益恢复。"})
+			issues = append(issues, miniGameIssue{Code: "ITEM_ALIAS_MISSING", Alias: item.Alias, Fix: "在 HTML 实际加载的游戏 JS 中保留此道具的权益引用，例如 await ViceMeMiniGame.isUnlocked(" + strconv.Quote(item.Alias) + ")；下架或归档只移除新购买入口，不得删除同一安装的动态码兑换与权益恢复。"})
 		}
 	}
 	return issues, nil
