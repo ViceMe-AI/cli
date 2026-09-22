@@ -25,6 +25,9 @@ class ReleaseGateTest(unittest.TestCase):
         shutil.copytree(ROOT / "scripts/ci", self.repo / "scripts/ci")
         (self.repo / "package.json").write_text('{"version":"1.0.0"}\n')
         (self.repo / "Makefile").write_text('release-prepare:\n\tprintf \'{"version":"1.0.1"}\\n\' > package.json\n')
+        (self.repo / ".gitignore").write_text(".cache/\n")
+        makefile = self.repo / "Makefile"
+        makefile.write_text(makefile.read_text() + "\tif [ -n \"$$TEST_READONLY_CACHE\" ]; then mkdir -p .cache/go/pkg/mod/example; touch .cache/go/pkg/mod/example/module.go; chmod 444 .cache/go/pkg/mod/example/module.go; chmod 555 .cache/go/pkg/mod/example; fi\n")
         self.git("add", ".")
         self.git("commit", "-m", "initial")
         self.git("branch", "dev")
@@ -86,6 +89,13 @@ class ReleaseGateTest(unittest.TestCase):
         self.assertEqual(self.gate().returncode, 0)
         result = self.verify()
         self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+    def test_removes_readonly_module_cache(self):
+        self.prepared()
+        self.env["TEST_READONLY_CACHE"] = "1"
+        result = self.verify()
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        self.assertEqual(self.git("worktree", "list", "--porcelain").stdout.count("worktree "), 1)
 
     def test_tampered_allowed_file(self):
         self.prepared()

@@ -40,7 +40,19 @@ EVIDENCE="$evidence" EXPECTED_PARENT="$parent" node --input-type=module -e '
 # A synchronize run may start while its successful producer finishes updating
 # the PR. Reproducibility below remains mandatory even when that run is active.
 scratch="$(mktemp -d)"
-cleanup() { git worktree remove --force "$scratch/source" >/dev/null 2>&1 || true; rm -rf "$scratch"; }
+cleanup() {
+  local status=$?
+  trap - EXIT
+  # Go modules contain read-only directories. Restore directory write access
+  # only inside this invocation's disposable tree before removing it. find
+  # does not follow symlinks; shared caches outside scratch are never changed.
+  find "$scratch" -type d -exec chmod u+w {} + || return 1
+  if [[ -e "$scratch/source/.git" ]]; then
+    git worktree remove --force "$scratch/source" || return 1
+  fi
+  rm -rf "$scratch" || return 1
+  return "$status"
+}
 trap cleanup EXIT
 git worktree add --detach "$scratch/source" "$parent" >/dev/null
 (
