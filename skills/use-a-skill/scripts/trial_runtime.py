@@ -1819,8 +1819,7 @@ def slugify(title):
 def resolve_installed_name(files, access):
     if slug := slugify(frontmatter_name(files)):
         return slug
-    edition = access.get("edition") or {}
-    if slug := slugify(edition.get("title") or ""):
+    if slug := slugify(access.get("title") or ""):
         return slug
     compact = access.get("productId", "").replace("-", "")[:8]
     return "viceme-" + compact if compact else "viceme-skill"

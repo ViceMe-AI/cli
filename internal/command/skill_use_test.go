@@ -107,7 +107,7 @@ func TestPaidSkillInstallRequiresLoginBeforeEntitlementLookup(t *testing.T) {
 }
 
 func TestCanonicalWorkURLResolvesSingleSkill(t *testing.T) {
-	products := []any{map[string]any{"id": downloadableProductID, "installKind": "PUBLIC_FREE", "activeRelease": map[string]any{"id": downloadableReleaseID}, "edition": map[string]any{"key": "skill"}}}
+	products := []any{map[string]any{"id": downloadableProductID, "installKind": "PUBLIC_FREE", "activeRelease": map[string]any{"id": downloadableReleaseID}}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/v1/public/") {
 			writeJSONResponse(w, map[string]any{"work": map[string]any{"kind": "SKILL", "products": products}})
@@ -362,12 +362,12 @@ func executeSkillUseCommand(t *testing.T, server *httptest.Server, home string, 
 }
 
 func skillAccessFixture(free, owned bool, digest, purchaseURL string) map[string]any {
-	editionKey, editionTitle := "pro", "Pro"
+	productTitle := "Pro"
 	installKind := "PURCHASE_REQUIRED"
 	purchaseAvailable := true
 	var resolvedPurchaseURL any = purchaseURL
 	if free {
-		editionKey, editionTitle = "free", "Free"
+		productTitle = "Free"
 		installKind = "PUBLIC_FREE"
 		purchaseAvailable = false
 		resolvedPurchaseURL = nil
@@ -381,7 +381,7 @@ func skillAccessFixture(free, owned bool, digest, purchaseURL string) map[string
 		"downloadAvailable": owned || free, "installKind": installKind,
 		"purchaseAvailable": purchaseAvailable, "purchaseUrl": resolvedPurchaseURL,
 		"unavailableReason": nil,
-		"edition":           map[string]any{"key": editionKey, "title": editionTitle, "sortOrder": 0, "highlights": []string{"Try the core workflow"}},
+		"title":             productTitle,
 		"release":           map[string]any{"id": downloadableReleaseID, "artifactDigest": digest, "fileName": "skill.zip"},
 	}
 }

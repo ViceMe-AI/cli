@@ -43,8 +43,7 @@ type listingGetResult struct {
 type publicationPresentationResult struct {
 	api.SkillPublication
 	PublicationID string `json:"publicationId"`
-	// Resolution identifies the Work, not whether an edition is added or updated.
-	// The manifest edition key and published editions identify that operation.
+	// Resolution identifies whether this Work is newly created or updated.
 	Resolution    string              `json:"resolution"`
 	RequiresPrice bool                `json:"requiresPrice"`
 	Presentation  previewPresentation `json:"presentation"`
@@ -243,7 +242,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				pkg, err = publication.Customize(pkg, pending.Source, pending.Edition)
+				pkg, err = publication.Customize(pkg, pending.Source)
 				if err != nil {
 					return err
 				}
@@ -299,7 +298,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			pkg, manifestSource, edition, err := resolveSkillPublicationPackage(command.Context(), runtime, merchant.ID, source, githubRepository, githubRef, githubPath, xiaohongshuSkillID, xiaohongshuSearch)
+			pkg, manifestSource, err := resolveSkillPublicationPackage(command.Context(), runtime, merchant.ID, source, githubRepository, githubRef, githubPath, xiaohongshuSkillID, xiaohongshuSearch)
 			if err != nil {
 				return err
 			}
@@ -336,7 +335,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 					MerchantAccountID: merchant.ID,
 					Fingerprint:       fingerprint,
 					SourcePath:        pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
-					Source: manifestSource, Edition: edition,
+					Source: manifestSource,
 				}
 				if priceConfirmed {
 					pending.PriceMinor = &priceMinor
@@ -385,7 +384,7 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 				MerchantAccountID: merchant.ID,
 				Fingerprint:       fingerprint,
 				SourcePath:        pkg.SourcePath, ArtifactDigest: pkg.Artifact.Digest,
-				Source: manifestSource, Edition: edition,
+				Source: manifestSource,
 			}
 			if priceConfirmed {
 				pending.PriceMinor = &priceMinor
@@ -417,38 +416,38 @@ func newSkillPublishCommand(runtime *Runtime) *cobra.Command {
 
 var githubRepositoryPattern = regexp.MustCompile(`^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$`)
 
-func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merchantAccountID, localPath, githubRepository, githubRef, githubPath, xiaohongshuSkillID, xiaohongshuSearch string) (publication.Package, api.SkillPublicationSource, api.SkillPublicationEdition, error) {
+func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merchantAccountID, localPath, githubRepository, githubRef, githubPath, xiaohongshuSkillID, xiaohongshuSearch string) (publication.Package, api.SkillPublicationSource, error) {
 	source := api.SkillPublicationSource{}
 	pathToBuild := localPath
 	remotePackageDigest := ""
 	if githubRepository != "" {
 		repository := normalizeGithubRepository(githubRepository)
 		if !githubRepositoryPattern.MatchString(repository) {
-			return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("GITHUB_REPOSITORY_INVALID", "--github must be owner/name or a github.com/owner/name URL")
+			return publication.Package{}, source, output.Validation("GITHUB_REPOSITORY_INVALID", "--github must be owner/name or a github.com/owner/name URL")
 		}
 		githubRef = strings.TrimSpace(githubRef)
 		if githubRef == "" {
-			return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("GITHUB_REF_INVALID", "--github-ref cannot be empty")
+			return publication.Package{}, source, output.Validation("GITHUB_REF_INVALID", "--github-ref cannot be empty")
 		}
 		archive, err := runtime.client().DownloadGithubSkillSource(ctx, merchantAccountID, repository, githubRef, normalizeGithubPath(githubPath))
 		if err != nil {
 			code := output.AsError(err).Subtype
 			if code == "GITHUB_SOURCE_AUTHORIZATION_REQUIRED" || code == "GITHUB_SOURCE_REAUTHORIZATION_REQUIRED" {
 				if authErr := ensureGithubSourceAuthorization(ctx, runtime, merchantAccountID, 10*time.Minute); authErr != nil {
-					return publication.Package{}, source, api.SkillPublicationEdition{}, authErr
+					return publication.Package{}, source, authErr
 				}
 				archive, err = runtime.client().DownloadGithubSkillSource(ctx, merchantAccountID, repository, githubRef, normalizeGithubPath(githubPath))
 			}
 		}
 		if err != nil {
-			return publication.Package{}, source, api.SkillPublicationEdition{}, githubSkillSelectionError(err)
+			return publication.Package{}, source, githubSkillSelectionError(err)
 		}
 		pathToBuild, err = persistPublicationSource(runtime.configBase, archive.Bytes)
 		if err != nil {
-			return publication.Package{}, source, api.SkillPublicationEdition{}, err
+			return publication.Package{}, source, err
 		}
 		if archive.ResolvedCommit == "" || archive.OwnerSubjectID == "" || archive.Repository == "" || archive.SourceReceiptID == "" || archive.PackageDigest == "" {
-			return publication.Package{}, source, api.SkillPublicationEdition{}, output.Internal("GITHUB_SOURCE_RECEIPT_INVALID", "GitHub source response did not contain an immutable repository receipt", nil)
+			return publication.Package{}, source, output.Internal("GITHUB_SOURCE_RECEIPT_INVALID", "GitHub source response did not contain an immutable repository receipt", nil)
 		}
 		private := archive.Private
 		remotePackageDigest = archive.PackageDigest
@@ -462,26 +461,26 @@ func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merch
 		if skillID == "" {
 			matches, err := runtime.client().SearchXiaohongshuSkills(ctx, merchantAccountID, strings.TrimSpace(xiaohongshuSearch))
 			if err != nil {
-				return publication.Package{}, source, api.SkillPublicationEdition{}, err
+				return publication.Package{}, source, err
 			}
 			if len(matches.Items) == 0 {
-				return publication.Package{}, source, api.SkillPublicationEdition{}, output.Validation("XIAOHONGSHU_SKILL_NOT_FOUND", "no public Xiaohongshu Skill matches the search")
+				return publication.Package{}, source, output.Validation("XIAOHONGSHU_SKILL_NOT_FOUND", "no public Xiaohongshu Skill matches the search")
 			}
 			if len(matches.Items) > 1 {
-				return publication.Package{}, source, api.SkillPublicationEdition{}, output.Confirmation("XIAOHONGSHU_SKILL_SELECTION_REQUIRED", "multiple Xiaohongshu Skills match; rerun with --xiaohongshu-skill-id").WithDetails(map[string]any{"candidates": matches.Items})
+				return publication.Package{}, source, output.Confirmation("XIAOHONGSHU_SKILL_SELECTION_REQUIRED", "multiple Xiaohongshu Skills match; rerun with --xiaohongshu-skill-id").WithDetails(map[string]any{"candidates": matches.Items})
 			}
 			skillID = matches.Items[0].SkillID
 		}
 		archive, err := runtime.client().DownloadXiaohongshuSkillSource(ctx, merchantAccountID, skillID)
 		if err != nil {
-			return publication.Package{}, source, api.SkillPublicationEdition{}, err
+			return publication.Package{}, source, err
 		}
 		pathToBuild, err = persistPublicationSource(runtime.configBase, archive.Bytes)
 		if err != nil {
-			return publication.Package{}, source, api.SkillPublicationEdition{}, err
+			return publication.Package{}, source, err
 		}
 		if archive.SkillID != skillID || archive.ArtifactVersion == "" || archive.ArtifactDigest == "" || archive.SourceReceiptID == "" || archive.PackageDigest == "" {
-			return publication.Package{}, source, api.SkillPublicationEdition{}, output.Internal("XIAOHONGSHU_SOURCE_RECEIPT_INVALID", "Xiaohongshu source response did not contain an immutable artifact receipt", nil)
+			return publication.Package{}, source, output.Internal("XIAOHONGSHU_SOURCE_RECEIPT_INVALID", "Xiaohongshu source response did not contain an immutable artifact receipt", nil)
 		}
 		source = api.SkillPublicationSource{Type: "XIAOHONGSHU", Entry: "SKILL.md", SkillID: skillID, ArtifactVersion: archive.ArtifactVersion, ArtifactDigest: archive.ArtifactDigest, SourceReceiptID: archive.SourceReceiptID}
 		remotePackageDigest = archive.PackageDigest
@@ -494,10 +493,10 @@ func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merch
 		pkg, err = publication.Build(pathToBuild)
 	}
 	if err != nil {
-		return publication.Package{}, source, api.SkillPublicationEdition{}, err
+		return publication.Package{}, source, err
 	}
 	if remotePackageDigest != "" && pkg.Artifact.Digest != remotePackageDigest {
-		return publication.Package{}, source, api.SkillPublicationEdition{}, output.Internal("SKILL_SOURCE_RECEIPT_INVALID", "remote Skill package digest does not match the API receipt", nil)
+		return publication.Package{}, source, output.Internal("SKILL_SOURCE_RECEIPT_INVALID", "remote Skill package digest does not match the API receipt", nil)
 	}
 	if localPath != "" {
 		source = pkg.Manifest.Spec.Source
@@ -511,9 +510,8 @@ func resolveSkillPublicationPackage(ctx context.Context, runtime *Runtime, merch
 		pkg.BindingIdentity = "remote:xiaohongshu:" + source.SkillID
 	}
 
-	edition := pkg.Manifest.Spec.Edition
-	pkg, err = publication.Customize(pkg, source, edition)
-	return pkg, source, edition, err
+	pkg, err = publication.Customize(pkg, source)
+	return pkg, source, err
 }
 
 func normalizeGithubRepository(value string) string {

@@ -337,9 +337,8 @@ func selectArchiveSubpath(entries []sourceEntry, subpath string) ([]sourceEntry,
 	return normalizedEntries, nil
 }
 
-func Customize(pkg Package, source api.SkillPublicationSource, edition api.SkillPublicationEdition) (Package, error) {
+func Customize(pkg Package, source api.SkillPublicationSource) (Package, error) {
 	pkg.Manifest.Spec.Source = source
-	pkg.Manifest.Spec.Edition = edition
 	digest, err := CanonicalDigest(pkg.Manifest)
 	if err != nil {
 		return Package{}, err
@@ -676,10 +675,7 @@ func manifestFromEntries(entries []sourceEntry, sourcePath string) (api.SkillPub
 		Spec: api.SkillPublicationSpec{
 			PublishMode: "DOWNLOADABLE_SKILL",
 			Source:      api.SkillPublicationSource{Type: "WORKSPACE", Entry: "SKILL.md"},
-			Edition: api.SkillPublicationEdition{
-				Key: "standard", Title: frontmatter.Name, SortOrder: 0, Highlights: []string{summary},
-			},
-			Sale: api.SkillPublicationSale{Currency: "CNY", PriceMinor: nil, Entitlement: "PERMANENT_DOWNLOAD"},
+			Sale:        api.SkillPublicationSale{Currency: "CNY", PriceMinor: nil, Entitlement: "PERMANENT_DOWNLOAD"},
 		},
 	}, nil
 }
@@ -765,8 +761,8 @@ func parseSkillFrontmatter(data []byte) (skillFrontmatter, error) {
 	}
 	result.Name = strings.TrimSpace(result.Name)
 	result.Description = strings.TrimSpace(result.Description)
-	// The name is the skill's identity for agents, install naming, and edition
-	// keys, so it stays a hard upload requirement. The description is only
+	// The name is the skill's identity for agents and install naming, so it
+	// stays a hard upload requirement. The description is only
 	// presentation and may be absent; manifestFromEntries derives a fallback.
 	var issues validationIssues
 	if result.Name == "" {

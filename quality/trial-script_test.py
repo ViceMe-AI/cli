@@ -1026,7 +1026,7 @@ class InstallFlowTestCase(unittest.TestCase):
                 "purchaseAvailable": True,
                 "purchaseUrl": "https://shop.example.test/purchase",
                 "trial": {"available": True, "limitUses": 5},
-                "edition": {"key": "pro", "title": "专业版", "sortOrder": 0, "highlights": []},
+                "title": "专业版",
                 "release": {"id": self.release_id, "artifactDigest": self.digest, "fileName": "pro.zip"},
             }
         if pure == "/v1/skills/%s/trial-grants" % quoted:

@@ -18,9 +18,9 @@
 
 ## 发布意图与作品选择
 
-一个作品只发布一款 Skill。`resolution=UPDATE` 表示更新原作品的同一个商品，商品 ID 和已有购买权益保持关联；重新发布会生成新的 Release。历史 manifest 的 edition 字段是安装与发布记录元数据，不再用于创建多个收费条目。
+一个作品只发布一款 Skill。`resolution=UPDATE` 表示更新原作品的同一个商品，商品 ID 和已有购买权益保持关联；重新发布会生成新的 Release。发布 manifest 不包含 edition 字段；安装和购买由商品及 Release 标识。
 
-1. 更新已有作品时先读取 `viceme skill listing get <listing-id>` 和当前 `publication review`，确认目标作品、现价和试用设置，使用 `--listing <listing-id>` 发布更新。无需选择 edition key 或排序。
+1. 更新已有作品时先读取 `viceme skill listing get <listing-id>` 和当前 `publication review`，确认目标作品、现价和试用设置，使用 `--listing <listing-id>` 发布更新。无需选择其他款式或排序。
 2. 用户明确要保留旧作品、另建独立作品时，使用 `--new-listing`。新作品拥有自己的页面、价格和权益。意图不明确时先澄清是否更新原作品。
 3. `--resume` 只继续同一次发布，不能更换来源或 Listing。review 后核对目标 Listing 与更新内容，再预览、确认并发布。
 

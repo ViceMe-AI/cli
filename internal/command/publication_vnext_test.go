@@ -935,7 +935,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-publications":
 		var input api.CreateSkillPublicationRequest
 		_ = json.NewDecoder(request.Body).Decode(&input)
-		if input.ContractVersion != "2026-08-27" || input.MerchantAccountID != merchantAccountID || input.Manifest.Spec.Sale.PriceMinor != nil || input.Manifest.Spec.PublishMode != "DOWNLOADABLE_SKILL" || input.Manifest.Spec.Edition.Key == "" {
+		if input.ContractVersion != api.SkillPublicationContractVersion || input.MerchantAccountID != merchantAccountID || input.Manifest.Spec.Sale.PriceMinor != nil || input.Manifest.Spec.PublishMode != "DOWNLOADABLE_SKILL" {
 			writer.WriteHeader(http.StatusBadRequest)
 			writeJSONResponse(writer, map[string]any{"statusCode": 400, "code": "PUBLICATION_CONTRACT_INVALID", "message": "expected a Merchant-bound unpriced downloadable edition"})
 			return

@@ -30,7 +30,6 @@ import (
 type downloadableSkillInstallResult struct {
 	localSkillResources
 	ProductID             string                     `json:"productId"`
-	Edition               any                        `json:"edition"`
 	ReleaseID             string                     `json:"releaseId"`
 	ArtifactDigest        string                     `json:"artifactDigest"`
 	InstalledName         string                     `json:"installedName"`
@@ -204,7 +203,7 @@ func newSkillInstallCommand(runtime *Runtime) *cobra.Command {
 							"amountCents": order.AmountCents, "expiresAt": order.ExpiresAt,
 							"paymentPresentation": presentation,
 							"paymentUrl":          paymentURL,
-							"edition":             access.Edition, "subscription": access.Subscription,
+							"subscription":        access.Subscription,
 						}
 						hint := "present both the order paymentUrl and QR image to the user; the payment page requires the same account; rerun the same install command with --wait while payment is in progress"
 						if access.Subscription.Available {
@@ -288,7 +287,7 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	if err != nil {
 		return downloadableSkillInstallResult{}, err
 	}
-	installedName := downloadableSkillName(productID, manifestName, access.Edition.Title, workSlug)
+	installedName := downloadableSkillName(productID, manifestName, access.Title, workSlug)
 	kind := "owned"
 	if access.IsFree {
 		kind = "free"
@@ -308,7 +307,7 @@ func installSkillFromReceipt(runtime *Runtime, ctx context.Context, productID, w
 	}
 	return downloadableSkillInstallResult{
 		localSkillResources: resourcesFromReport(report, "cli"),
-		ProductID:           productID, Edition: access.Edition, ReleaseID: access.Release.ID, ArtifactDigest: digest,
+		ProductID:           productID, ReleaseID: access.Release.ID, ArtifactDigest: digest,
 		InstalledName: installedName, Install: report,
 		NextAction: "CONTINUE_ORIGINAL_TASK_WITH_INSTALLED_SKILL", Invocation: "$" + installedName,
 		OnboardingGuideURL:    sharedGuidanceURL(runtime, "_widgets/README.md"),
@@ -368,7 +367,7 @@ func skillWorkURLSegments(parsed *url.URL) ([]string, error) {
 }
 
 func isDownloadableWorkProduct(product api.PublicWorkProduct) bool {
-	if product.InstallKind == nil || product.ActiveRelease == nil || product.Edition == nil {
+	if product.InstallKind == nil || product.ActiveRelease == nil {
 		return false
 	}
 	switch *product.InstallKind {
@@ -449,15 +448,15 @@ func extractDownloadableSkill(archive []byte) (map[string]downloadableSkillFile,
 
 // downloadableSkillName keeps the author-facing identity: the package's own
 // SKILL.md name comes first (the installer requires the directory name to
-// match it), then the edition-title slug, the work slug for non-Latin
+// match it), then the product-title slug, the work slug for non-Latin
 // titles, and finally a unique platform-scoped fallback.
 func downloadableSkillName(
-	productID, manifestName, editionTitle, workSlug string,
+	productID, manifestName, productTitle, workSlug string,
 ) string {
 	if slug := slugifyInstallName(manifestName); slug != "" {
 		return slug
 	}
-	if slug := slugifyInstallName(editionTitle); slug != "" {
+	if slug := slugifyInstallName(productTitle); slug != "" {
 		return slug
 	}
 	if workSlug != "" {

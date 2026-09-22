@@ -64,8 +64,8 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
    或不开试用）、封面和图库，以及本次新增/更新、原价与新价、原免费入口是否保留和已有
    下载权益影响，并取得一次明确确认。用户改名称时只改作品页和当前这条 Skill 的购买卡片
    （`publication update` 的 title），不得改 `SKILL.md` 的 `name`。
-5. 向用户说明当前 Skill 的价格、试用次数和下载权益；内部历史 edition 元数据
-   不进入用户选择。收费 Skill 的试用不称为免费版，不得把试用讲成免费额度。
+5. 向用户说明当前 Skill 的价格、试用次数和下载权益。收费 Skill 的试用不称为免费版，
+   不得把试用讲成免费额度。
 6. 给人看的作品链接用发布结果 `product.detailUrl` 或 listing `publicUrl`；尚未
    发布则把 `presentation.openUrl` 去掉末尾 `/preview` 后给出同一路径，这是唯一
    允许的派生。商家主页用 `creatorIdentity.profileUrl`。不得把 slug、安装名、
