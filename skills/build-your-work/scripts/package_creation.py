@@ -11,17 +11,18 @@ import re
 import stat
 import sys
 import tempfile
+import time
 import zipfile
 from pathlib import Path, PurePosixPath
 
 
 MIB = 1024 * 1024
-MAX_ARCHIVE_BYTES = 10 * MIB
-MAX_EXPANDED_BYTES = 10 * MIB
-MAX_FILE_BYTES = 10 * MIB
+MAX_ARCHIVE_BYTES = 50 * MIB
+MAX_EXPANDED_BYTES = 50 * MIB
+MAX_FILE_BYTES = 50 * MIB
 MAX_FILES = 1000
 MAX_PATH_BYTES = 512
-MAX_COMPRESSION_RATIO = 1000
+MAX_COMPRESSION_RATIO = 200
 COMPRESSION_RATIO_MIN_BYTES = 1 * MIB
 ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
@@ -40,6 +41,7 @@ FORBIDDEN_SEGMENTS = {
     "venv",
 }
 FORBIDDEN_NAMES = {".npmrc", ".pypirc", ".DS_Store", "Thumbs.db", "id_rsa", "id_ed25519"}
+RESERVED_RUNTIME_PATHS = {"references/entry.md", "references/viceme-runtime.md", ".viceme/trial-body.md"}
 PRIVATE_KEY_MARKERS = (
     b"-----BEGIN PRIVATE KEY-----",
     b"-----BEGIN RSA PRIVATE KEY-----",
@@ -81,7 +83,6 @@ class PackageError(Exception):
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, help="prepared package root inside viceme-dist/staging")
-    parser.add_argument("--output", required=True, help="final ZIP path; must be viceme-dist/package.zip")
     return parser.parse_args()
 
 
@@ -150,13 +151,27 @@ def parse_frontmatter(data: bytes) -> tuple[str, str]:
         raise PackageError("SKILL.md frontmatter is not closed") from error
 
     values: dict[str, str] = {}
-    for line in lines[1:end]:
+    for position, line in enumerate(lines[1:end], start=1):
         match = re.match(r"^(name|description):\s*(.*?)\s*$", line)
         if not match:
             continue
         value = match.group(2)
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            value = value[1:-1]
+        if value in {"|", "|-", ">", ">-"}:
+            block = []
+            for continuation in lines[position + 1:end]:
+                if continuation and not continuation[0].isspace():
+                    break
+                block.append(continuation.strip())
+            value = ("\n" if value.startswith("|") else " ").join(block)
+        elif value.startswith("'") and value.endswith("'"):
+            value = value[1:-1].replace("''", "'")
+        elif value.startswith('"') and value.endswith('"'):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError as error:
+                raise PackageError("SKILL.md contains an invalid quoted scalar") from error
+        else:
+            value = re.sub(r"\s+#.*$", "", value)
         values[match.group(1)] = value.strip()
 
     name = values.get("name", "")
@@ -184,6 +199,8 @@ def collect_files(root: Path) -> tuple[list[tuple[str, Path, int]], int, str]:
             forbidden = forbidden_path(relative)
             if forbidden:
                 raise PackageError(f"forbidden path component {forbidden!r}: {relative}")
+            if relative in RESERVED_RUNTIME_PATHS:
+                raise PackageError(f"path is reserved for the buyer runtime: {relative}")
             info = entry.stat(follow_symlinks=False)
             if stat.S_ISLNK(info.st_mode):
                 raise PackageError(f"symbolic links are forbidden: {relative}")
@@ -264,15 +281,22 @@ def validate_archive(path: Path, expected_files: list[tuple[str, Path, int]], ex
         parse_frontmatter(archive.read("SKILL.md"))
 
 
-def build(root: Path, output: Path) -> dict[str, object]:
+def build(root: Path, dist_root: Path) -> dict[str, object]:
+    started = time.perf_counter()
     files, expanded_bytes, skill_name = collect_files(root)
+    collected = time.perf_counter()
+    output = dist_root / f"{skill_name}.zip"
+    if output.is_symlink():
+        raise PackageError("output must not be a symbolic link")
     output.parent.mkdir(mode=0o755, parents=True, exist_ok=True)
     descriptor, temporary_name = tempfile.mkstemp(prefix=".package-", suffix=".zip", dir=output.parent)
     os.close(descriptor)
     temporary = Path(temporary_name)
     try:
         write_archive(files, temporary)
+        compressed = time.perf_counter()
         validate_archive(temporary, files, expanded_bytes)
+        validated = time.perf_counter()
         os.replace(temporary, output)
     finally:
         try:
@@ -280,15 +304,24 @@ def build(root: Path, output: Path) -> dict[str, object]:
         except FileNotFoundError:
             pass
 
-    digest = hashlib.sha256(output.read_bytes()).hexdigest()
+    hasher = hashlib.sha256()
+    with output.open("rb") as archive:
+        for chunk in iter(lambda: archive.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    digest = hasher.hexdigest()
     return {
         "ok": True,
         "skill_name": skill_name,
-        "output": "viceme-dist/package.zip",
+        "output": f"viceme-dist/{skill_name}.zip",
         "file_count": len(files),
         "expanded_bytes": expanded_bytes,
         "zip_bytes": output.stat().st_size,
         "sha256": digest,
+        "timings_ms": {
+            "collect": round((collected - started) * 1000),
+            "compress": round((compressed - collected) * 1000),
+            "validate": round((validated - compressed) * 1000),
+        },
     }
 
 
@@ -303,13 +336,13 @@ def main() -> int:
         )
         if not root.is_dir():
             raise PackageError("--root must be a directory")
-        output = require_project_path(
-            args.output,
-            PurePosixPath("viceme-dist/package.zip"),
-            "--output",
+        dist_root = require_project_path(
+            "viceme-dist",
+            PurePosixPath("viceme-dist"),
+            "dist root",
             must_exist=False,
         )
-        print(json.dumps(build(root, output), ensure_ascii=False, sort_keys=True))
+        print(json.dumps(build(root, dist_root), ensure_ascii=False, sort_keys=True))
         return 0
     except (OSError, PackageError, zipfile.BadZipFile) as error:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False, sort_keys=True), file=sys.stderr)

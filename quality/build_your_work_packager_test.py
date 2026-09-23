@@ -38,8 +38,6 @@ class BuildYourWorkPackagerTest(unittest.TestCase):
             os.fspath(SCRIPT),
             "--root",
             "viceme-dist/staging/package-root",
-            "--output",
-            "viceme-dist/package.zip",
             *extra,
         ]
         return subprocess.run(command, cwd=root, text=True, capture_output=True, check=False)
@@ -51,7 +49,9 @@ class BuildYourWorkPackagerTest(unittest.TestCase):
         first = self.run_script(root)
         self.assertEqual(first.returncode, 0, first.stderr)
         first_result = json.loads(first.stdout)
-        archive = root / "viceme-dist" / "package.zip"
+        archive = root / "viceme-dist" / "demo-work.zip"
+        self.assertEqual(first_result["output"], "viceme-dist/demo-work.zip")
+        self.assertGreaterEqual(first_result["timings_ms"]["collect"], 0)
         first_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
 
         second = self.run_script(root)
@@ -69,7 +69,7 @@ class BuildYourWorkPackagerTest(unittest.TestCase):
     def test_rejects_a_suspected_secret_without_replacing_output(self):
         temporary, root, package = self.project()
         self.addCleanup(temporary.cleanup)
-        output = root / "viceme-dist" / "package.zip"
+        output = root / "viceme-dist" / "demo-work.zip"
         output.write_bytes(b"previous-good-package")
         (package / "secret.txt").write_text("api_key='real-production-secret-value'\n", encoding="utf-8")
 
@@ -93,6 +93,43 @@ class BuildYourWorkPackagerTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("symbolic links are forbidden", result.stderr)
 
+    def test_rejects_runtime_owned_paths(self):
+        temporary, root, package = self.project()
+        self.addCleanup(temporary.cleanup)
+        references = package / "references"
+        references.mkdir()
+        (references / "entry.md").write_text("reserved", encoding="utf-8")
+
+        result = self.run_script(root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("references/entry.md", result.stderr)
+
+    def test_reads_common_yaml_scalars_without_changing_the_skill_name(self):
+        temporary, root, package = self.project()
+        self.addCleanup(temporary.cleanup)
+        (package / "SKILL.md").write_text(
+            "---\nname: demo-work # stable identifier\ndescription: >\n  Build this work\n  from the reference site.\n---\n",
+            encoding="utf-8",
+        )
+
+        result = self.run_script(root)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["output"], "viceme-dist/demo-work.zip")
+
+    def test_rejects_a_file_one_byte_over_fifty_mib_before_compression(self):
+        temporary, root, package = self.project()
+        self.addCleanup(temporary.cleanup)
+        with (package / "oversized.bin").open("wb") as artifact:
+            artifact.truncate(50 * 1024 * 1024 + 1)
+
+        result = self.run_script(root)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("file exceeds", result.stderr)
+        self.assertFalse((root / "viceme-dist" / "demo-work.zip").exists())
+
     def test_requires_exact_project_relative_paths(self):
         temporary, root, _ = self.project()
         self.addCleanup(temporary.cleanup)
@@ -101,8 +138,6 @@ class BuildYourWorkPackagerTest(unittest.TestCase):
             os.fspath(SCRIPT),
             "--root",
             os.fspath(root / "viceme-dist" / "staging" / "package-root"),
-            "--output",
-            "viceme-dist/package.zip",
         ]
 
         result = subprocess.run(command, cwd=root, text=True, capture_output=True, check=False)

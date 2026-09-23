@@ -119,7 +119,7 @@ def payment_display_instructions(hosted=False):
 
 HTTP_TIMEOUT = 30
 MAX_FILES = 1000
-MAX_FILE_BYTES = 10 << 20
+MAX_FILE_BYTES = 50 << 20
 MAX_TOTAL_BYTES = 50 << 20
 LOCK_STALE_SECONDS = 300
 LOCK_WAIT_SECONDS = 10

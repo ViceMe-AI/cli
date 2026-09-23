@@ -28,4 +28,4 @@ Skill 自身的已安装脚本可以作为工具执行，但其业务输入和�
 
 ## 清理
 
-打包成功并完成验证后，只删除本次在 `viceme-dist/` 下生成的 staging、cache 和检查目录。不要用未解析的 glob 或宽泛递归删除命令。默认保留 `viceme-dist/package.zip`，以及用户明确要求保留的报告或截图。
+打包成功并完成验证后，只删除本次在 `viceme-dist/` 下生成的 staging、cache 和检查目录。不要用未解析的 glob 或宽泛递归删除命令。默认保留 `viceme-dist/<skill-name>.zip`，以及用户明确要求保留的报告或截图。

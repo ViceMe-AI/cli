@@ -148,7 +148,7 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 		{
 			name: "build-your-work",
 			machine: []string{
-				"PROJECT_ROOT", "viceme-dist/staging/package-root", "viceme-dist/package.zip",
+				"PROJECT_ROOT", "viceme-dist/staging/package-root", "viceme-dist/<skill-name>.zip",
 				"scripts/package_creation.py", "site/", "SKILL.md", "START.md", "agents/openai.yaml",
 			},
 			semantics: []string{

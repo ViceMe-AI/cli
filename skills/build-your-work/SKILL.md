@@ -1,11 +1,11 @@
 ---
 name: build-your-work
-description: 将当前项目中的已完成网站或现有 Skill 保真整理为可直接在 ViceMe 发布的 Creation Skill ZIP。用户要求打包、封装、生成 package.zip、把网站变成可复用创作 Skill 或准备发布包时使用；不执行网页发布，也不把网站当普通源码出售。
+description: 将当前项目中的已完成网站或现有 Skill 保真整理为可直接在 ViceMe 发布的 Creation Skill ZIP。用户要求打包、封装、生成 Skill ZIP、把网站变成可复用创作 Skill 或准备发布包时使用；不执行网页发布，也不把网站当普通源码出售。
 ---
 
 # 构建你的作品
 
-把创作者已经完成的网站或 Skill 整理为 `viceme-dist/package.zip`。网站要成为能指导 Agent 创作同类作品的 Creation Skill，并携带原作品编译后的可运行 Reference Site；现有 Skill 则保留原有能力和结构，只做净化、校验与必要的最小修复。
+把创作者已经完成的网站或 Skill 整理为 `viceme-dist/<skill-name>.zip`。网站要成为能指导 Agent 创作同类作品的 Creation Skill，并携带原作品编译后的可运行 Reference Site；现有 Skill 则保留原有能力和结构，只做净化、校验与必要的最小修复。
 
 首要目标是尽快得到保真、合规的 ZIP。封面、图库、价格、试用次数和 Listing 文案不是打包前置条件。生成并验证 ZIP 后停止；除非用户另行明确要求，不执行 ViceMe 网页发布、定价或素材生成。
 
@@ -39,6 +39,7 @@ description: 将当前项目中的已完成网站或现有 Skill 保真整理为
 
 - 存在唯一 Skill 根且其根级有 `SKILL.md`：按现有 Skill 处理。
 - 不存在 Skill 根，但当前项目是可直接运行或可构建的网站：按网站转换处理。
+- 创作者同时提供公开网址时，把该网址用于核对原作品的画面和主要体验；仍以当前项目中可核验的运行文件或构建产物制作 `site/`。只有网址而没有可用项目或导出文件时，说明缺少的来源，不假装已取得私有源码或后端能力。
 - 两者都不满足，或无法在项目边界内得到可运行 Site：停止并说明缺少什么，不生成虚假的完成包。
 
 默认流程是：
@@ -48,15 +49,14 @@ description: 将当前项目中的已完成网站或现有 Skill 保真整理为
 3. 将最终买家包内容放入 `viceme-dist/staging/package-root/`，其根级直接包含 `SKILL.md`。
 4. 网站转换时，根据 [Creation Skill 创作模型](references/creation-model.md) 编写简洁的 `SKILL.md`、`START.md` 和 `agents/openai.yaml`；将原部署产物根映射到 `site/`，保持内部目录层级。
 5. 按 [包结构与安全合同](references/package-contract.md) 清理并检查 staging。
-6. 从 `PROJECT_ROOT` 运行本 Skill 自带的标准库脚本；脚本路径由宿主从本 Skill 目录解析，两个业务参数必须保持为下列项目内相对路径：
+6. 从 `PROJECT_ROOT` 运行本 Skill 自带的标准库脚本；脚本路径由宿主从本 Skill 目录解析，`--root` 必须保持为下列项目内相对路径：
 
    ```bash
    python3 <本 Skill 目录>/scripts/package_creation.py \
-     --root viceme-dist/staging/package-root \
-     --output viceme-dist/package.zip
+     --root viceme-dist/staging/package-root
    ```
 
-7. 按 [验证与交付](references/validation.md) 验证最终 ZIP、Site 和源项目完整性。成功后清理 staging、临时构建文件和工具缓存，默认只保留 `viceme-dist/package.zip`。
+7. 按 [验证与交付](references/validation.md) 验证最终 ZIP、Site 和源项目完整性。成功后清理 staging、临时构建文件和工具缓存，默认只保留 `viceme-dist/<skill-name>.zip`。
 
 构建、整理、验证和压缩各执行一次。只有发现会阻止发布或破坏保真的实质错误时，才修复 staging 并重跑受影响步骤。不要为了写教程重新构建，不安装浏览器、截图器、Agent 或审计工具。
 
@@ -77,11 +77,11 @@ site/
 
 只有同时满足以下条件才报告成功：
 
-- `viceme-dist/package.zip` 存在并通过打包脚本的全部红线校验；
+- `viceme-dist/<skill-name>.zip` 存在并通过打包脚本的全部红线校验；
 - ZIP 根级直接包含唯一 `SKILL.md`，其 `name` 与 `description` 合规；
 - 网站包包含可运行 `site/`，且入口、关键资产和可验证的核心体验没有相对源产物丢失或降级；
 - 包内没有凭据、私钥、禁止文件、依赖目录、缓存、符号链接或特殊文件；
 - 除 `viceme-dist/` 外，源项目没有因本次操作产生变化；
 - 没有访问 `PROJECT_ROOT` 外的项目内容。
 
-报告输入类型、Skill name、ZIP 相对路径与大小、文件数与解压大小、Site 入口及构建来源、CORE 摘要、教程依据、各阶段大致耗时、已执行验证、未验证边界、排除内容、文件系统范围和源项目完整性结果。不要把可选发布信息列成未完成项。
+报告输入类型、Skill name、ZIP 相对路径与大小、文件数与解压大小、Site 入口及构建来源、CORE 摘要、教程依据、各阶段大致耗时、已执行验证、未验证边界、排除内容、文件系统范围和源项目完整性结果。ZIP 已完成后，可以集中询问一次创作者是否愿意提供发布时要手动填写的资料，例如展示标题、简介、已有图片或视频、价格和试用设置。未提供时直接结束；提供时仅在包外整理为 `viceme-dist/publish-notes.md`，不得改动已验证的 ZIP、默认生成素材或替用户在网页发布。不要把可选发布信息列成未完成项。
