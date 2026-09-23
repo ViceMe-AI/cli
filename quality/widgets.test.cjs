@@ -51,7 +51,7 @@ function mount(name, data, { now = Date.UTC(2026, 8, 5), svg = true, sendPrompt,
 const start = Date.UTC(2026, 8, 5);
 const order = { title: "通用订单", amountCents: 1990, currency: "CNY", paymentMethodLabel: "微信支付", status: "PENDING", expiresAt: new Date(start + 60000).toISOString(), locale: "zh-CN" };
 
-test("host-scoped documents without currentScript or DOM prototype methods initialize both widgets once", async () => {
+test("host-scoped documents without currentScript or DOM prototype methods initialize onboarding once", async () => {
   const calls = [];
   const onboarding = mount("onboarding", { skillName: "Generic", examples: [{ title: "Example", prompt: "Exact prompt" }] }, { scoped: true, sendPrompt: value => calls.push(value) });
   onboarding.rerun();
@@ -59,82 +59,12 @@ test("host-scoped documents without currentScript or DOM prototype methods initi
   assert.equal(buttons.length, 1);
   await buttons[0].events.click();
   assert.deepEqual(calls, ["Exact prompt"]);
-  const payment = mount("payment", order, { scoped: true });
-  payment.rerun();
-  assert.equal(payment.intervals.size, 1);
-  assert.equal(payment.field("countdown").textContent, "01:00");
-  payment.advance(start + 60000);
-  assert.equal(payment.field("qr").hidden, true);
-  assert.equal(payment.intervals.size, 0);
 });
 
-test("payment uses absolute expiry across ticks, reload and clock rollback", () => {
-  const view = mount("payment", order);
-  assert.equal(view.field("countdown").textContent, "01:00");
-  assert.equal(view.field("qr").hidden, false);
-  view.advance(start + 45000);
-  assert.equal(view.field("countdown").textContent, "00:15");
-  const reloaded = mount("payment", order, { now: start + 45000 });
-  assert.equal(reloaded.field("countdown").textContent, "00:15");
-  view.advance(start + 61000);
-  assert.equal(view.root.dataset.phase, "expired");
-  assert.equal(view.field("qr").hidden, true);
-  assert.equal(view.field("state").textContent, "二维码已过期");
-  assert.equal(view.intervals.size, 0);
-  assert.equal(view.listeners.size, 0);
-  view.advance(start);
-  assert.equal(view.field("qr").hidden, true);
+test("payment HTML is retired", () => {
+  assert.equal(require("node:fs").existsSync(path.join(__dirname, "../widgets/payment.html")), false);
 });
-test("invalid dates fail closed, missing QR does not masquerade as an active payment", () => {
-  for (const expiry of ["", "invalid"]) {
-    const view = mount("payment", { ...order, expiresAt: expiry });
-    assert.equal(view.root.dataset.phase, "unavailable");
-    assert.equal(view.field("qr").hidden, true);
-    assert.equal(view.intervals.size, 0);
-  }
-  assert.equal(mount("payment", order, { svg: false }).root.dataset.phase, "unavailable");
-  assert.equal(mount("payment", order, { svg: false, now: start + 61000 }).root.dataset.phase, "expired");
-});
-test("only server status can show paid, and detached Widgets release listeners", () => {
-  const paid = mount("payment", { ...order, status: "PAID" });
-  assert.equal(paid.field("state").textContent, "支付成功");
-  assert.equal(paid.field("qr").hidden, true);
-  assert.equal(paid.intervals.size, 0);
-  const pending = mount("payment", order);
-  pending.root.isConnected = false; pending.advance(start + 1000);
-  assert.equal(pending.intervals.size, 0); assert.equal(pending.listeners.size, 0);
-});
-test("payment template contains no business flow, clipboard, network or query button", () => {
-  const html = source("payment");
-  assert.match(html, /<!DOCTYPE html>/);
-  assert.match(html, /<html lang=/);
-  assert.match(html, /#07c160/);
-  assert.match(html, /background:transparent/);
-  assert.match(html, /place-items:center/);
-  assert.doesNotMatch(html, /#c5ebf3/);
-  assert.doesNotMatch(html, /<button|<img|<script[^>]+src|fetch\(|XMLHttpRequest|navigator\.clipboard|sendPrompt|canghe|安装|试用|查询支付|已付款，但/);
-  assert.equal((html.match(/<script>/g) || []).length, 1);
-  assert.ok(html.indexOf("<script>") > html.indexOf("</section>"));
-});
-test("confirmed support replaces the cashier, while pending and failed states cannot show it", () => {
-  const copy = { resultTitle: "创作者已收到你的支持", resultDescription: "感谢你支持这个创意，正在为你准备作品。" };
-  const paid = mount("payment", { ...order, ...copy, status: "PAID" });
-  assert.equal(paid.field("cashier").hidden, true);
-  assert.equal(paid.field("result").hidden, false);
-  assert.equal(paid.field("result-title").textContent, copy.resultTitle);
-  assert.equal(paid.field("result-description").textContent, copy.resultDescription);
-  assert.equal(paid.field("qr").hidden, true);
-  assert.equal(paid.intervals.size, 0);
-  for (const status of ["PENDING", "CLOSED", "FAILED", "CANCELLED", "UNKNOWN"]) {
-    const view = mount("payment", { ...order, ...copy, status });
-    assert.notEqual(view.field("cashier").hidden, true);
-    assert.notEqual(view.field("result-title").textContent, copy.resultTitle);
-  }
-  const unsafe = "<img src=x onerror=alert(1)>";
-  const escaped = mount("payment", { ...order, status: "PAID", resultTitle: unsafe, resultDescription: "Text only" });
-  assert.equal(escaped.field("result-title").textContent, unsafe);
-  assert.equal(escaped.field("result-title").children.length, 0);
-});
+
 test("onboarding sends the exact prompt once and never treats titles as HTML", async () => {
   const prompt = "使用任意 Skill。\n<script>not code</script>";
   const data = { skillName: "任意 Skill", examples: [{ title: "示例一", prompt }, { title: "示例二", prompt: "another" }] };

@@ -48,6 +48,7 @@ type skillTrialTestServer struct {
 	useRequests           []map[string]any
 	trialUseFailures      int
 	trialPurchaseRequests []map[string]string
+	trialPurchaseExpired  bool
 	trialHostedCheckout   bool
 }
 
@@ -114,6 +115,10 @@ func (s *skillTrialTestServer) serveHTTP(writer http.ResponseWriter, request *ht
 		purchase := map[string]any{
 			"productId": downloadableProductID, "orderNo": skillPurchaseOrderNo, "title": "Trial formal edition",
 			"amountCents": 990, "currency": "CNY", "status": status, "expiresAt": "2099-01-01T00:00:00Z", "paymentAction": action,
+		}
+		if s.trialPurchaseExpired {
+			purchase["expiresAt"] = "2020-01-01T00:00:00Z"
+			purchase["paymentAction"] = nil
 		}
 		if s.trialHostedCheckout && status == "PENDING" {
 			purchase["checkoutUrl"] = "https://shop.example.invalid/trial-checkout/order#t=test-only"
@@ -330,7 +335,8 @@ func TestPaidTrialSkillInstallsAnonymouslyWithGate(t *testing.T) {
 	}
 	for _, path := range gatePaths {
 		content, err := os.ReadFile(path)
-		if err != nil || !bytes.Contains(content, []byte(skillTrialGateMarker)) || !bytes.Contains(content, []byte(skillTrialRuntimePath)) || !bytes.Contains(content, []byte("allowed: true")) {
+		entry, entryErr := os.ReadFile(filepath.Join(filepath.Dir(path), skillEntryPath))
+		if err != nil || entryErr != nil || !bytes.Contains(content, []byte(skillEntryPath)) || bytes.Contains(content, []byte(skillTrialGateMarker)) || !bytes.Contains(entry, []byte(skillTrialGateMarker)) || !bytes.Contains(entry, []byte(skillTrialRuntimePath)) || !bytes.Contains(entry, []byte("allowed: true")) {
 			t.Fatalf("installed Skill %s is missing the trial gate: err=%v", path, err)
 		}
 		rules, err := os.ReadFile(filepath.Join(filepath.Dir(path), skillTrialRuntimePath))
@@ -424,7 +430,8 @@ func TestPublishedFrontmatterSurvivesTrialAndCanonicalInstall(t *testing.T) {
 			}
 			skillDir := filepath.Join(home, ".workbuddy", "skills", "latex-geometry")
 			installed, err := os.ReadFile(filepath.Join(skillDir, "SKILL.md"))
-			if err != nil || !strings.HasPrefix(string(installed), "---\n"+metadata+"\n---\n") || strings.Contains(string(installed), "作者原始正文。") || strings.Count(string(installed), skillTrialGateMarker) != 1 {
+			entry, entryErr := os.ReadFile(filepath.Join(skillDir, skillEntryPath))
+			if err != nil || entryErr != nil || !strings.HasPrefix(string(installed), "---\n"+metadata+"\n---\n") || strings.Contains(string(installed), "作者原始正文。") || strings.Contains(string(installed), skillTrialGateMarker) || strings.Count(string(entry), skillTrialGateMarker) != 1 {
 				t.Fatalf("frontmatter/body/gate did not survive install: %q, %v", installed, err)
 			}
 			// Paid/free installs share this canonical installer; it must retain
@@ -1099,9 +1106,10 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 		files := gateFiles(frontmatter + body)
 		injectSkillTrialGate(files, productID, market)
 		content := string(files["SKILL.md"].Data)
-		marker := strings.Index(content, skillTrialGateMarker)
+		entry := string(files[skillEntryPath].Data)
+		marker := strings.Index(entry, skillTrialGateMarker)
 		heading := strings.Index(content, "# Demo Skill")
-		if marker < 0 || heading >= 0 {
+		if marker < 0 || heading >= 0 || strings.Contains(content, skillTrialGateMarker) {
 			t.Fatalf("gate must sit between frontmatter and author body:\n%s", content)
 		}
 		if !strings.HasPrefix(content, frontmatter) {
@@ -1139,9 +1147,9 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 				t.Fatalf("gate still uses the python-only wording %q:\n%s", forbidden, content)
 			}
 		}
-		entry := string(files["SKILL.md"].Data)
-		if !strings.Contains(entry, "[使用前检查]("+skillTrialRuntimePath+")") || !strings.Contains(entry, "allowed: true") || !strings.Contains(entry, "trial.py") {
-			t.Fatalf("main Skill must contain the direct precheck command:\n%s", entry)
+		entry := string(files[skillEntryPath].Data)
+		if !strings.Contains(string(files["SKILL.md"].Data), skillEntryPath) || !strings.Contains(entry, "[使用前检查]("+skillTrialRuntimePath+")") || !strings.Contains(entry, "allowed: true") || !strings.Contains(entry, "trial.py") {
+			t.Fatalf("entry file must contain the direct precheck command:\n%s", entry)
 		}
 	})
 
@@ -1173,7 +1181,7 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 		if !bytes.Equal(once, files["SKILL.md"].Data) {
 			t.Fatalf("second injection changed the file")
 		}
-		if strings.Count(string(once), skillTrialGateMarker) != 1 {
+		if strings.Contains(string(once), skillTrialGateMarker) || strings.Count(string(files[skillEntryPath].Data), skillTrialGateMarker) != 1 {
 			t.Fatalf("marker injected more than once")
 		}
 		if !bytes.Contains(files[skillTrialRuntimePath].Data, []byte("trial.py\" use --product "+productID)) {
@@ -1188,7 +1196,7 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 			t.Fatal(err)
 		}
 		content := string(files["SKILL.md"].Data)
-		if string(files[skillcontent.TrialBodyPath].Data) != original || !strings.Contains(content, skillTrialRuntimePath) || len(files[skillTrialRuntimePath].Data) == 0 {
+		if string(files[skillcontent.TrialBodyPath].Data) != original || !strings.Contains(string(files[skillEntryPath].Data), skillTrialRuntimePath) || len(files[skillTrialRuntimePath].Data) == 0 {
 			t.Fatalf("marker mention suppressed the actual gate or damaged author text: %s", content)
 		}
 	})
@@ -1212,7 +1220,7 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 			t.Fatal(err)
 		}
 		content := string(files["SKILL.md"].Data)
-		if strings.Contains(content, "旧版规则") || !strings.HasSuffix(string(files[skillcontent.TrialBodyPath].Data), body) || strings.Count(content, skillTrialGateMarker) != 1 {
+		if strings.Contains(content, "旧版规则") || strings.Contains(content, skillTrialGateMarker) || !strings.HasSuffix(string(files[skillcontent.TrialBodyPath].Data), body) || strings.Count(string(files[skillEntryPath].Data), skillTrialGateMarker) != 1 {
 			t.Fatalf("legacy gate was not cleanly replaced: %s", content)
 		}
 	})
@@ -1222,7 +1230,7 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 		if err := injectSkillTrialGate(files, productID, market); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.HasPrefix(string(files["SKILL.md"].Data), frontmatter+skillTrialGateMarker) {
+		if !strings.HasPrefix(string(files["SKILL.md"].Data), frontmatter+"\n"+skillEntryPointer) {
 			t.Fatal("EOF frontmatter was corrupted")
 		}
 	})
@@ -1234,7 +1242,7 @@ func TestInjectSkillTrialGateEdgeCases(t *testing.T) {
 		if strings.Contains(content, "\r") {
 			t.Fatalf("CRLF must be normalized")
 		}
-		if marker := strings.Index(content, skillTrialGateMarker); marker < 0 || strings.Contains(content, "# Demo Skill") || string(files[skillcontent.TrialBodyPath].Data) != frontmatter+body {
+		if strings.Contains(content, skillTrialGateMarker) || strings.Contains(content, "# Demo Skill") || strings.Index(string(files[skillEntryPath].Data), skillTrialGateMarker) < 0 || string(files[skillcontent.TrialBodyPath].Data) != frontmatter+body {
 			t.Fatalf("gate must sit above the author body:\n%s", content)
 		}
 	})

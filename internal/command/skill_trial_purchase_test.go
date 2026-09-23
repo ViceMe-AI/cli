@@ -51,9 +51,8 @@ func TestAnonymousTrialPurchasePresentsBeforeWaitAndRestoresThroughInstall(t *te
 		t.Fatalf("payment: %#v", result)
 	}
 	presentation := failure["details"].(map[string]any)["paymentPresentation"].(map[string]any)
-	widget, err := os.ReadFile(presentation["widgetPath"].(string))
-	if err != nil || !bytes.Contains(widget, []byte("<!DOCTYPE html")) || !bytes.Contains(widget, []byte(`aria-label="微信支付二维码"`)) || bytes.Contains(widget, []byte("weixin://")) {
-		t.Fatalf("invalid Widget: %v", err)
+	if _, exists := presentation["widgetPath"]; exists {
+		t.Fatal("retired HTML is still returned")
 	}
 	image, err := os.ReadFile(presentation["imagePath"].(string))
 	if err != nil || len(image) < 8 || !bytes.Equal(image[:8], []byte("\x89PNG\r\n\x1a\n")) {
@@ -78,7 +77,7 @@ func TestAnonymousTrialPurchasePresentsBeforeWaitAndRestoresThroughInstall(t *te
 	state.paymentStatus = "PAID"
 	state.mu.Unlock()
 	// The ordinary open install route resumes the saved anonymous purchase,
-	// whereas --owned remains the separate current-account route.
+	// The ordinary install route also checks an authenticated account.
 	if code, result = invoke("skill", "install", downloadableProductID, "--agent", "codex", "--wait", "0"); code != 0 {
 		t.Fatalf("formal restore: %#v", result)
 	}
@@ -90,8 +89,8 @@ func TestAnonymousTrialPurchasePresentsBeforeWaitAndRestoresThroughInstall(t *te
 	if err != nil || !strings.Contains(string(body), "Owned Current Skill") || strings.Contains(string(body), skillTrialGateMarker) {
 		t.Fatalf("formal package not installed: %v", err)
 	}
-	if _, err := os.Stat(presentation["widgetPath"].(string)); !os.IsNotExist(err) {
-		t.Fatalf("stale Widget was not cleaned: %v", err)
+	if _, err := os.Stat(presentation["imagePath"].(string)); !os.IsNotExist(err) {
+		t.Fatalf("stale QR image was not cleaned: %v", err)
 	}
 	state.mu.Lock()
 	downloads := state.ownedDownloadCalls
@@ -225,13 +224,13 @@ sys.exit(trial.run([sys.argv[5],"--product",sys.argv[4],"--market","cn","--agent
 func TestSkillPaymentPresentationHintUsesSharedGuide(t *testing.T) {
 	for _, host := range []string{"workbuddy", "doubao", "codex", "claude", "unknown"} {
 		for _, hosted := range []bool{false, true} {
-			hint := skillPaymentPresentationHint(func(key string) string {
+			hint := paymentPresentationHint(func(key string) string {
 				if key == "AI_AGENT" {
 					return host
 				}
 				return ""
 			}, hosted)
-			if !strings.HasSuffix(hint, cliembed.HostPresentationGuide()) {
+			if !strings.HasSuffix(hint, cliembed.PaymentPresentationGuide()) {
 				t.Fatalf("%s lost shared guide", host)
 			}
 		}

@@ -74,8 +74,8 @@ func TestGithubPublicationAuthorizesOnlyWhenRequiredAndBoundsRetry(t *testing.T)
 				t.Fatal(err)
 			}
 			runtime.processCredential = &publicationCredential{raw: "vme_cli_" + strings.Repeat("t", 43)}
-			pkg, source, _, err := resolveSkillPublicationPackage(context.Background(), runtime,
-				"44444444-4444-4444-8444-444444444444", "", "someone/example", "HEAD", "", "", "", "basic", "Basic", 0, nil)
+			pkg, source, err := resolveSkillPublicationPackage(context.Background(), runtime,
+				"44444444-4444-4444-8444-444444444444", "", "someone/example", "HEAD", "", "", "")
 			if testCase.expectedError != "" {
 				if err == nil || output.AsError(err).Subtype != testCase.expectedError {
 					t.Fatalf("expected %s, got %v", testCase.expectedError, err)
@@ -123,8 +123,8 @@ func TestGithubPublicationRequiresExplicitPathForMultipleSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime.processCredential = &publicationCredential{raw: "vme_cli_" + strings.Repeat("t", 43)}
-	_, _, _, err = resolveSkillPublicationPackage(context.Background(), runtime,
-		"44444444-4444-4444-8444-444444444444", "", "someone/example", "HEAD", "", "", "", "basic", "Basic", 0, nil)
+	_, _, err = resolveSkillPublicationPackage(context.Background(), runtime,
+		"44444444-4444-4444-8444-444444444444", "", "someone/example", "HEAD", "", "", "")
 	cliErr := output.AsError(err)
 	details, _ := cliErr.Details.(map[string]any)
 	candidates, _ := details["candidates"].([]map[string]string)

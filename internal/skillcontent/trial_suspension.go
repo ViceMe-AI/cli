@@ -214,7 +214,8 @@ func suspendedTrialMarkdown(original []byte, skillName, productID, purchaseURL, 
 	if strings.HasPrefix(body, disabled+"\n") {
 		return original, true
 	}
-	if !strings.HasPrefix(body, active+"## 使用前必读\n") && !strings.HasPrefix(body, active+"## 试用版使用规则（viceme-trial）\n") {
+	pointer := strings.Trim("本文件没有任务正文。开始前必须读取并完整执行 [入口步骤](references/entry.md)，不得跳过，也不得根据简介直接完成用户请求。\n", "\n")
+	if !strings.HasPrefix(body, active+"## 使用前必读\n") && !strings.HasPrefix(body, active+"## 试用版使用规则（viceme-trial）\n") && strings.Trim(body, "\n") != pointer {
 		return nil, false
 	}
 	market := "cn"
@@ -225,7 +226,7 @@ func suspendedTrialMarkdown(original []byte, skillName, productID, purchaseURL, 
 		return nil, false
 	}
 	escape := strings.NewReplacer("<", "%3C", ">", "%3E", "\n", "%0A", "\r", "%0D")
-	notice := fmt.Sprintf("%s\n\n# 试用已结束\n\n本技能的免费试用次数已用完，当前已停用。如果本轮已经返回 allowed:true 和 skillMarkdown,仍按该正文完整完成本次任务。上次 use 报可重试错误或 ready 返回 pendingUse 时,先重跑原 use 恢复同一次使用,不要购买;恢复不重复扣次。其余情况不得开始新试用任务,不得调用保留的正文或参考资料绕过检查。\n\n不要读取使用前检查或计次指引。同一轮立即运行包内 `python3 \"<本 Skill 目录>/.viceme/scripts/trial.py\" purchase --product %s --market %s --wait 0`（Windows 用 py 或 python；只有没有 Python 时才用已有 CLI：`viceme skill trial-purchase %s --wait 0 --skill-dir \"<本 Skill 目录>\"`）创建或恢复订单并展示支付二维码，不要等用户再说一次；按其输出与[本地支付展示指引](.viceme/guides/widgets.md)，由 Agent 选择当前宿主明确支持的图片或页面通道；环境识别只提供偏好。按本次输出展示二维码或交付可点击的官方 checkoutUrl 后，再有界等待到账并安装完整正式包；仅在托管入口不可用且本地图片和页面都无法展示时才交付支付页路径，仅交付本地路径时不要启动等待；无需强制登录。[商品页面](<%s>)仅供查看商品。若已通过账号购买，按[官方安装说明](<%s>)使用 `viceme skill install %s --owned` 校验该账号权益并安装。\n\n正式版安装成功后，重新读取 SKILL.md 再继续任务。重装试用版不会恢复试用次数。\n",
+	notice := fmt.Sprintf("%s\n\n# 试用已结束\n\n本技能的免费试用次数已用完，当前已停用。如果本轮已经返回 allowed:true 和 skillMarkdown,仍按该正文完整完成本次任务。上次 use 报可重试错误或 ready 返回 pendingUse 时,先重跑原 use 恢复同一次使用,不要购买;恢复不重复扣次。其余情况不得开始新试用任务,不得调用保留的正文或参考资料绕过检查。\n\n不要读取使用前检查或计次指引。同一轮立即运行包内 `python3 \"<本 Skill 目录>/.viceme/scripts/trial.py\" purchase --product %s --market %s --wait 0`（Windows 用 py 或 python；只有没有 Python 时才用已有 CLI：`viceme skill trial-purchase %s --wait 0 --skill-dir \"<本 Skill 目录>\"`）创建或恢复订单并展示支付二维码，不要等用户再说一次；按其输出与[本地支付展示指引](.viceme/guides/widgets.md)，由 Agent 选择当前宿主明确支持的图片或页面通道；环境识别只提供偏好。按本次输出展示二维码或交付可点击的官方 checkoutUrl 后，再有界等待到账并安装完整正式包；始终交付官方链接，有内置浏览器时打开；仅交付本地图片路径时不要启动等待；无需强制登录。[商品页面](<%s>)仅供查看商品。若已通过账号购买，按[官方安装说明](<%s>)使用 `viceme skill install %s` 校验该账号权益并安装。\n\n正式版安装成功后，重新读取 SKILL.md 再继续任务。重装试用版不会恢复试用次数。\n",
 		disabled, productID, market, productID, escape.Replace(purchaseURL), escape.Replace(installDocURL), productID)
 	if bytes.HasPrefix(original, []byte("---\r\n")) {
 		notice = strings.ReplaceAll(notice, "\n", "\r\n")

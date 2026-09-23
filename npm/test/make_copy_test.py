@@ -164,8 +164,8 @@ class PublicWorkRouteTest(unittest.TestCase):
         self.assertEqual(result["workPresentation"]["url"], short)
         self.assertEqual(result["replica"]["viceMeWorkUrl"], canonical)
         self.assertEqual(item["viceMeWorkUrl"], canonical)
-        selected = canonical + "&product=p%31&install=owned#readme"
-        self.assertEqual(make_copy.display_work_url(selected), short + "?product=p%31&install=owned#readme")
+        selected = canonical + "&product=p%31#readme"
+        self.assertEqual(make_copy.display_work_url(selected), short + "?product=p%31#readme")
         for original in [canonical + "&signature=opaque", canonical.replace("consumer", "creator"), canonical.replace("view=work", "view=discover"), canonical + "&workSlug=other"]:
             self.assertEqual(make_copy.display_work_url(original), original)
 
@@ -300,16 +300,11 @@ class MakeCopyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary, mock.patch.object(make_copy, "state_root", return_value=Path(temporary)):
             item = {**replica(), "title": "</script><script>alert(1)</script>"}
             display = make_copy.payment_presentation(authority, item, order_view(), request)
-            html = Path(display["widgetPath"]).read_text()
-            self.assertNotIn(item["title"], html)
-            self.assertNotIn(checkout()["paymentAction"]["content"], html)
-            self.assertNotIn('"supportCreator"', html)
-            self.assertIn("推荐使用微信支付", html)
-            self.assertNotIn("__QR_SVG__", html)
+            self.assertNotIn("widgetPath", display)
             self.assertTrue(Path(display["imagePath"]).read_bytes().startswith(b"\x89PNG"))
             self.assertNotIn("checkoutUrl", display)
             if os.name != "nt":
-                self.assertEqual(stat.S_IMODE(Path(display["widgetPath"]).stat().st_mode), 0o600)
+                self.assertEqual(stat.S_IMODE(Path(display["imagePath"]).stat().st_mode), 0o600)
 
     def test_payment_resource_rejects_tampering_before_executing_encoder(self):
         authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
@@ -813,7 +808,7 @@ class MakeCopyTest(unittest.TestCase):
                 ), mock.patch.object(make_copy, "cancel_order_attempt") as cancel, mock.patch.object(
                     make_copy, "ensure_checkout", side_effect=new_checkout
                 ) as checkout_call, mock.patch.object(make_copy, "try_recover_download", return_value=None), mock.patch.object(
-                    make_copy, "payment_presentation", return_value={"widgetPath": "test.html"}
+                    make_copy, "payment_presentation", return_value={"imagePath": "test.png"}
                 ):
                     with self.assertRaises(make_copy.WorkflowError) as fresh:
                         make_copy.install(authority.work_url, 100, target_path=str(target), replace_unpaid_order=ORDER_NO)
@@ -836,7 +831,7 @@ class MakeCopyTest(unittest.TestCase):
                 make_copy, "resolve_work", return_value=(f"VICEME-REPLICA:{SHORT_CODE}", replica())
             ), mock.patch.object(make_copy, "try_recover_download", return_value=None), mock.patch.object(
                 make_copy, "ensure_checkout", side_effect=checkout
-            ), mock.patch.object(make_copy, "payment_presentation", return_value={"widgetPath": "/tmp/payment.html"}), self.assertRaises(make_copy.WorkflowError) as raised:
+            ), mock.patch.object(make_copy, "payment_presentation", return_value={"imagePath": "/tmp/payment.png"}), self.assertRaises(make_copy.WorkflowError) as raised:
                 make_copy.install(
                     "https://viceme.cn/alice/site.md", 100, target_path=str(root / "copy"),
                     payment_presented=True, sleep_fn=sleeps.append,
@@ -877,7 +872,7 @@ class MakeCopyTest(unittest.TestCase):
             target = root / "copy"
             authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
             payment = {"status": "PAID", "paidAt": "2026-09-10T00:00:00Z"}
-            template = (SCRIPT.parents[3] / "widgets/payment.html").read_bytes()
+            template = b""
             with mock.patch.object(make_copy, "state_root", return_value=root / "state"):
                 store = make_copy.state_store(authority, SHORT_CODE, target)
                 state = make_copy.initial_state(authority, f"VICEME-REPLICA:{SHORT_CODE}", replica(), target)
@@ -900,10 +895,8 @@ class MakeCopyTest(unittest.TestCase):
                 self.assertEqual(result["amountCents"], 70)
                 self.assertFalse(target.exists())
                 display = result["presentation"]
-                self.assertNotEqual(display["widgetPath"], display["replacesWidgetPath"])
-                html = Path(display["widgetPath"]).read_text()
-                self.assertIn('"status": "PAID"', html)
-                self.assertNotIn("weixin://", html)
+                self.assertNotIn("widgetPath", display)
+                self.assertEqual(display["title"], "已支付")
                 self.assertNotIn(state["downloadRecoverySecret"], json.dumps(result))
                 args = make_copy.parse_args(result["continuation"]["args"])
                 self.assertTrue(args.recovery_only)
@@ -927,7 +920,7 @@ class MakeCopyTest(unittest.TestCase):
                     self.assertEqual(raised.exception.details["payment"], payment)
                     self.assertEqual(raised.exception.details["nextAction"], "STOP_AND_REPORT")
                     self.assertEqual(raised.exception.details["orderNo"], ORDER_NO)
-                    self.assertTrue(Path(display["widgetPath"]).exists())
+                    self.assertEqual(result["payment"]["status"], "PAID")
                     complete.side_effect = None
                     complete.return_value = {"target": str(target), "orderNo": ORDER_NO}
                     done = make_copy.install(args.work_url, target_path=args.target, replica_code=args.replica_code, recovery_only=True, expected_order_no=args.expected_order_no)
@@ -944,15 +937,14 @@ class MakeCopyTest(unittest.TestCase):
                 make_copy.wait_for_payment(authority, state, lambda *_a, **_k: response(200, value), lambda _: None)
             self.assertEqual(raised.exception.code, "MAKE_COPY_RESPONSE_INVALID")
 
-    def test_support_render_failure_retains_payment_and_safe_recovery(self):
+    def test_support_result_needs_no_filesystem_or_network(self):
         authority = make_copy.authority_for_work_url("https://viceme.cn/alice/site.md")
         state = {"orderNo": ORDER_NO, "priceCents": 100, "instruction": f"VICEME-REPLICA:{SHORT_CODE}", "target": "/copy"}
-        with mock.patch.object(make_copy, "payment_resource", side_effect=OSError("private error")), self.assertRaises(make_copy.WorkflowError) as raised:
-            make_copy.support_result(authority, state, replica(), {"status": "PAID"})
-        self.assertEqual(raised.exception.details["payment"]["status"], "PAID")
-        self.assertEqual(raised.exception.details["nextAction"], "STOP_AND_REPORT")
-        self.assertNotIn("private error", raised.exception.message)
-        self.assertTrue(raised.exception.details["recovery"]["requiresUserRequest"])
+        with mock.patch.object(make_copy, "payment_resource", side_effect=AssertionError("must not download")), mock.patch.object(make_copy, "write_private_bytes", side_effect=AssertionError("must not write HTML")):
+            result = make_copy.support_result(authority, state, replica(), {"status": "PAID"})
+        self.assertEqual(result["payment"]["status"], "PAID")
+        self.assertEqual(result["continuation"]["mode"], "RECOVERY_ONLY")
+        self.assertNotIn("widgetPath", result["presentation"])
 
     @unittest.skipIf(os.name == "nt", "Unix process liveness fixture")
     def test_recovers_lock_left_by_terminated_process(self):

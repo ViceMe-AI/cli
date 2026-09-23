@@ -48,19 +48,7 @@ func prepareCommercePaymentPresentation(runtime *Runtime, order *api.CommerceOrd
 	if action.Type != "QR_CODE" || strings.TrimSpace(action.Content) == "" {
 		return errors.New("paid WeChat NATIVE order did not return a QR_CODE action")
 	}
-	var item struct {
-		ProductTitle string `json:"productTitle"`
-	}
-	_ = json.Unmarshal(order.Item, &item)
-	title := item.ProductTitle
-	if strings.TrimSpace(title) == "" {
-		title = "订单支付"
-	}
-	presentation, err := newCommercePaymentPresentation(runtime, order.OrderNo, order.ExpiresAt, action.Content, paymentWidgetData{
-		Title: title, AmountCents: &order.AmountCents, Currency: order.Currency,
-		PaymentMethodLabel: "微信支付", Status: order.Status, ExpiresAt: order.ExpiresAt,
-		Locale: localeForRuntimeMarket(runtime),
-	})
+	presentation, err := newCommercePaymentPresentation(runtime, order.OrderNo, order.ExpiresAt, action.Content)
 	if err != nil {
 		return err
 	}
@@ -71,23 +59,12 @@ func prepareCommercePaymentPresentation(runtime *Runtime, order *api.CommerceOrd
 	return nil
 }
 
-func newCommercePaymentPresentation(runtime *Runtime, orderNo, expiresAt, content string, details ...paymentWidgetData) (*api.CommercePaymentPresentation, error) {
+func newCommercePaymentPresentation(runtime *Runtime, orderNo, expiresAt, content string) (*api.CommercePaymentPresentation, error) {
 	absolutePath, err := createCommercePaymentQRImage(runtime, orderNo, content)
 	if err != nil {
 		return nil, err
 	}
-	data := paymentWidgetData{Title: "订单支付", PaymentMethodLabel: "微信支付", Status: "PENDING", ExpiresAt: expiresAt, Locale: localeForRuntimeMarket(runtime)}
-	if len(details) > 0 {
-		data = details[0]
-	}
-	widgetPath, err := createPaymentWidget(runtime, absolutePath, content, data)
-	if err != nil {
-		return nil, err
-	}
-	presentation := commercePaymentPresentation(absolutePath, expiresAt)
-	presentation.WidgetPath = widgetPath
-	presentation.WidgetMIMEType = "text/html"
-	return presentation, nil
+	return commercePaymentPresentation(absolutePath, expiresAt), nil
 }
 
 func commercePaymentPresentation(absolutePath, expiresAt string) *api.CommercePaymentPresentation {

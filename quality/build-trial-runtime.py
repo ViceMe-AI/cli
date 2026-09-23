@@ -21,11 +21,10 @@ def artifacts():
         "scripts/trial.py": SCRIPTS / "trial_runtime.py",
         "scripts/qrcodegen.py": ROOT / "widgets/qrcodegen.py",
         "widgets/onboarding.html": ROOT / "widgets/onboarding.html",
-        "widgets/payment.html": ROOT / "widgets/payment.html",
         "guides/widgets.md": ROOT / "widgets/README.md",
         "guides/trial-usage.md": ROOT / "skills/use-a-skill/references/trial-usage.md",
         "guides/purchase.md": ROOT / "skills/use-a-skill/references/purchase.md",
-        "guides/host-presentation.md": ROOT / "skills/use-a-skill/references/host-presentation.md",
+        "guides/host-presentation.md": ROOT / "payments/host-presentation.md",
     }
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
@@ -35,19 +34,27 @@ def artifacts():
             info.external_attr = 0o100644 << 16
             content = source.read_bytes()
             if name == "guides/widgets.md":
-                content = content.replace(b"../skills/use-a-skill/references/host-presentation.md", b"host-presentation.md")
+                content = content.replace(b"../payments/host-presentation.md", b"host-presentation.md")
             archive.writestr(info, content)
     content = buffer.getvalue()
     bootstrap = (ROOT / "release/trial-bootstrap.py.tmpl").read_text().replace(
         "__RUNTIME_SHA256__", hashlib.sha256(content).hexdigest())
     replica_path = ROOT / "skills/let-me-make-a-copy/scripts/make_copy.py"
     resources = {name: hashlib.sha256((ROOT / "widgets" / name).read_bytes()).hexdigest()
-                 for name in ("payment.html", "qrcodegen.py")}
+                 for name in ("qrcodegen.py",)}
     replica = re.sub(r"^PAYMENT_RESOURCE_SHA256 = .*  # generated-payment-resources$",
                      "PAYMENT_RESOURCE_SHA256 = " + json.dumps(resources, sort_keys=True) + "  # generated-payment-resources",
                      replica_path.read_text(), flags=re.MULTILINE)
-    return {SCRIPTS / "trial-runtime.zip": content, SCRIPTS / "trial.py": bootstrap.encode(),
-            replica_path: replica.encode()}
+    guide = (ROOT / "payments/host-presentation.md").read_bytes()
+    replica = re.sub(r"^PAYMENT_PRESENTATION_GUIDE = .*  # generated-payment-guide$",
+                     lambda _: "PAYMENT_PRESENTATION_GUIDE = " + json.dumps(guide.decode(), ensure_ascii=False) + "  # generated-payment-guide",
+                     replica, flags=re.MULTILINE)
+    outputs = {SCRIPTS / "trial-runtime.zip": content, SCRIPTS / "trial.py": bootstrap.encode(),
+               replica_path: replica.encode()}
+    for skill in ("use-a-skill", "let-me-make-a-copy"):
+        outputs[ROOT / "skills" / skill / "references/host-presentation.md"] = (
+            "<!-- 自动生成；唯一维护源：payments/host-presentation.md。请勿手工修改；运行 make release-manifest 更新。 -->\n\n".encode() + guide)
+    return outputs
 
 
 if __name__ == "__main__":
@@ -59,4 +66,5 @@ if __name__ == "__main__":
             if not path.exists() or path.read_bytes() != content:
                 raise SystemExit("runtime bundle is stale; run make trial-runtime")
         else:
+            path.parent.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)

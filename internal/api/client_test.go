@@ -322,7 +322,7 @@ func TestDisableListingTrialUseLimitSendsExplicitNull(t *testing.T) {
 			t.Fatalf("the disable patch must send an explicit null, got: %s", body)
 		}
 		writer.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(writer, `{"id":"22222222-2222-4222-8222-222222222222","listingId":"33333333-3333-4333-8333-333333333333","merchantAccountId":"44444444-4444-4444-8444-444444444444","draftRevision":1,"status":"DRAFT","manifest":{},"draft":{},"reviewRevision":0,"reviewDigest":null,"uploads":[],"editions":[],"nextAction":null,"failureCode":null,"createdAt":"2026-09-04T00:00:00.000Z","updatedAt":"2026-09-04T00:00:00.000Z"}`)
+		_, _ = io.WriteString(writer, `{"id":"22222222-2222-4222-8222-222222222222","listingId":"33333333-3333-4333-8333-333333333333","merchantAccountId":"44444444-4444-4444-8444-444444444444","draftRevision":1,"status":"DRAFT","manifest":{},"draft":{},"reviewRevision":0,"reviewDigest":null,"uploads":[],"failureCode":null,"createdAt":"2026-09-04T00:00:00.000Z","updatedAt":"2026-09-04T00:00:00.000Z"}`)
 	}))
 	defer server.Close()
 

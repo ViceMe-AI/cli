@@ -213,7 +213,8 @@ function prepareRelease() {
   writeFileSync("internal/buildinfo/buildinfo.go", buildinfo);
 
   const previousChangelog = readAtRef(baseRef, "CHANGELOG.md");
-  const date = new Date().toISOString().slice(0, 10);
+  const date = process.env.RELEASE_DATE || new Date().toISOString().slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("invalid RELEASE_DATE");
   writeFileSync("CHANGELOG.md", renderChangelog(version, commits, previousChangelog, date));
 
   process.stdout.write(`${JSON.stringify({ version, bump, base_ref: baseRef, commit_count: commits.length })}\n`);

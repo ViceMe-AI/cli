@@ -32,7 +32,7 @@ func TestSkillReadyUsesOnlyInstalledResources(t *testing.T) {
 	if code != 0 || data["ready"] != true || data["runner"] != "cli" {
 		t.Fatalf("not locally ready: %#v", result)
 	}
-	for _, field := range []string{"skillPath", "runtimePath", "onboardingGuidePath", "onboardingTemplatePath", "paymentTemplatePath"} {
+	for _, field := range []string{"skillPath", "runtimePath", "onboardingGuidePath", "onboardingTemplatePath"} {
 		path, _ := data[field].(string)
 		if path == "" || path != installed[field] {
 			t.Fatalf("missing or inconsistent %s: %#v", field, data)
@@ -396,7 +396,7 @@ func TestClosedTrialOrderDoesNotHijackInstall(t *testing.T) {
 	if text, _ := json.Marshal(result); strings.Contains(string(text), "PAYMENT_CLOSED") {
 		t.Fatal("install returned PAYMENT_CLOSED")
 	}
-	entry, err := os.ReadFile(filepath.Join(home, ".workbuddy", "skills", "free-test", "SKILL.md"))
+	entry, err := os.ReadFile(filepath.Join(home, ".workbuddy", "skills", "free-test", skillEntryPath))
 	if err != nil || !strings.Contains(string(entry), skillTrialGateMarker) {
 		t.Fatalf("trial entry missing after closed install: %v", err)
 	}
