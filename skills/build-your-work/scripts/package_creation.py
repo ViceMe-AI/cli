@@ -6,13 +6,16 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import re
+import shutil
 import stat
 import sys
 import tempfile
 import time
 import zipfile
+import unicodedata
 from pathlib import Path, PurePosixPath
 
 
@@ -26,6 +29,10 @@ MAX_COMPRESSION_RATIO = 200
 COMPRESSION_RATIO_MIN_BYTES = 1 * MIB
 ZIP_EPOCH = (1980, 1, 1, 0, 0, 0)
 SKILL_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+PUBLICATION_PREFIX = "viceme-publication"
+PUBLICATION_JSON_MAX_BYTES = 64 * 1024
+PUBLICATION_JSON_TOTAL_MAX_BYTES = 192 * 1024
+PUBLICATION_MEDIA_MAX = 12
 
 FORBIDDEN_SEGMENTS = {
     ".git",
@@ -82,7 +89,11 @@ class PackageError(Exception):
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--root", required=True, help="prepared package root inside viceme-dist/staging")
+    mode = parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--root", help="prepared package root inside viceme-dist/staging")
+    mode.add_argument("--update", help="existing viceme-dist/<skill-name>.zip to update")
+    parser.add_argument("--publication-root", help="new publication files in viceme-dist/staging/publication-root")
+    parser.add_argument("--expected-sha256", help="digest of the ZIP before an update")
     return parser.parse_args()
 
 
@@ -229,7 +240,175 @@ def collect_files(root: Path) -> tuple[list[tuple[str, Path, int]], int, str]:
         scan_secrets(relative, data)
         if relative == "SKILL.md":
             skill_name, _ = parse_frontmatter(data)
+    identities = [unicodedata.normalize("NFKC", relative).casefold() for relative, _, _ in files]
+    if len(identities) != len(set(identities)):
+        raise PackageError("package contains Unicode/case-colliding paths")
+    validate_publication_metadata(root, skill_name)
     return files, expanded_bytes, skill_name
+
+
+def strict_json(path: Path) -> object:
+    data = path.read_bytes()
+    if len(data) > PUBLICATION_JSON_MAX_BYTES:
+        raise PackageError(f"publication JSON exceeds 64 KiB: {path.name}")
+
+    def unique_pairs(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise PackageError(f"duplicate publication JSON key: {key}")
+            result[key] = value
+        return result
+
+    def reject_constant(value: str) -> object:
+        raise PackageError(f"non-finite publication JSON number: {value}")
+
+    try:
+        value = json.loads(data.decode("utf-8"), object_pairs_hook=unique_pairs, parse_constant=reject_constant)
+    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError) as error:
+        raise PackageError(f"invalid UTF-8 publication JSON: {path.name}") from error
+
+    def check_depth(item: object, depth: int = 0) -> None:
+        if depth > 16:
+            raise PackageError("publication JSON nesting exceeds 16")
+        if isinstance(item, dict):
+            for nested in item.values():
+                check_depth(nested, depth + 1)
+        elif isinstance(item, list):
+            for nested in item:
+                check_depth(nested, depth + 1)
+        elif isinstance(item, float) and not math.isfinite(item):
+            raise PackageError("publication JSON contains a non-finite number")
+
+    check_depth(value)
+    return value
+
+
+def publication_text(value: object, limit: int) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and len(unicodedata.normalize("NFC", value.strip())) <= limit
+
+
+def media_type(data: bytes) -> str | None:
+    if data.startswith(b"\x89PNG\r\n\x1a\n") or data.startswith(b"\xff\xd8\xff") or data.startswith((b"GIF87a", b"GIF89a")):
+        return "image"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image"
+    if data[4:8] == b"ftyp" and data[8:12] in {b"avif", b"avis"}:
+        return "image"
+    if data[4:8] == b"ftyp" or data.startswith(b"\x1a\x45\xdf\xa3"):
+        return "video"
+    return None
+
+
+def validate_publication_sale(sale: object, region: str) -> None:
+    if not isinstance(sale, dict) or set(sale) - {"buyout", "trial", "subscription"}:
+        raise PackageError("publication sale is invalid")
+    buyout = sale.get("buyout")
+    trial = sale.get("trial")
+    subscription = sale.get("subscription")
+    if buyout is not None:
+        if not isinstance(buyout, dict) or type(buyout.get("enabled")) is not bool:
+            raise PackageError("publication buyout is invalid")
+        if buyout["enabled"]:
+            if (
+                set(buyout) != {"enabled", "currency", "priceMinor"}
+                or not isinstance(buyout["currency"], str)
+                or buyout["currency"] not in {"CNY", "USD"}
+                or type(buyout["priceMinor"]) is not int
+                or not 0 <= buyout["priceMinor"] <= 10_000_000
+            ):
+                raise PackageError("publication buyout is invalid")
+            if buyout["currency"] != ("CNY" if region == "CN" else "USD"):
+                raise PackageError("publication buyout currency does not match market")
+        elif set(buyout) != {"enabled"}:
+            raise PackageError("disabled publication buyout must not include a price")
+    if trial is not None:
+        if not isinstance(trial, dict) or type(trial.get("enabled")) is not bool:
+            raise PackageError("publication trial is invalid")
+        if trial["enabled"]:
+            if (
+                set(trial) != {"enabled", "useLimit"}
+                or type(trial["useLimit"]) is not int
+                or not 2 <= trial["useLimit"] <= 50
+            ):
+                raise PackageError("publication trial is invalid")
+        elif set(trial) != {"enabled"}:
+            raise PackageError("disabled publication trial must not include a limit")
+    if subscription is not None and (
+        not isinstance(subscription, dict)
+        or set(subscription) != {"enabled"}
+        or type(subscription["enabled"]) is not bool
+    ):
+        raise PackageError("publication subscription is invalid")
+    if isinstance(trial, dict) and trial.get("enabled"):
+        paid_buyout = isinstance(buyout, dict) and buyout.get("enabled") and buyout["priceMinor"] > 0
+        subscribed = isinstance(subscription, dict) and subscription.get("enabled")
+        if not (paid_buyout or subscribed):
+            raise PackageError("publication trial requires a paid buyout or subscription")
+
+
+def validate_publication_metadata(root: Path, skill_name: str) -> None:
+    publication = root / PUBLICATION_PREFIX
+    if not publication.exists():
+        return
+    if not publication.is_dir() or publication.is_symlink():
+        raise PackageError("viceme-publication must be a regular directory")
+    json_paths = list(publication.rglob("*.json"))
+    if sum(path.stat().st_size for path in json_paths) > PUBLICATION_JSON_TOTAL_MAX_BYTES:
+        raise PackageError("publication JSON total exceeds 192 KiB")
+    if not (publication / "manifest.json").is_file():
+        raise PackageError("publication manifest.json is missing")
+    manifest = strict_json(publication / "manifest.json")
+    if not isinstance(manifest, dict) or set(manifest) - {"schemaVersion", "skillName", "marketRegion", "locales", "slug", "sale", "creatorSubscriptionSuggestion", "media"}:
+        raise PackageError("publication manifest has unsupported fields")
+    if type(manifest.get("schemaVersion")) is not int or manifest["schemaVersion"] != 1 or manifest.get("skillName") != skill_name:
+        raise PackageError("publication schema version or Skill name does not match")
+    region = manifest.get("marketRegion")
+    locales = manifest.get("locales")
+    if not isinstance(region, str) or region not in {"CN", "GLOBAL"} or not isinstance(locales, list) or not 1 <= len(locales) <= 2 or not all(isinstance(locale, str) for locale in locales) or len(set(locales)) != len(locales) or any(locale not in {"zh-CN", "en-US"} for locale in locales):
+        raise PackageError("publication region or locales are invalid")
+    allowed_json = {"manifest.json", *(f"locales/{locale}.json" for locale in locales)}
+    if any(path.relative_to(publication).as_posix() not in allowed_json for path in json_paths):
+        raise PackageError("publication contains an unlisted JSON file")
+    slug = manifest.get("slug")
+    if slug is not None and (not isinstance(slug, str) or not 2 <= len(slug) <= 64 or not SKILL_NAME.fullmatch(slug) or slug in {"works", "skills", "manage", "posts", "about"}):
+        raise PackageError("publication slug is invalid")
+    for locale in locales:
+        locale_path = publication / "locales" / f"{locale}.json"
+        if not locale_path.is_file():
+            raise PackageError(f"publication locale is missing: {locale}")
+        content = strict_json(locale_path)
+        if not isinstance(content, dict) or set(content) - {"title", "summary", "usageInstructions"}:
+            raise PackageError(f"publication locale has unsupported fields: {locale}")
+        for key, limit in (("title", 20), ("summary", 100), ("usageInstructions", 2000)):
+            if key in content and not publication_text(content[key], limit):
+                raise PackageError(f"publication {locale} {key} is invalid")
+        if locale == "zh-CN" and "usageInstructions" in content and not re.search(r"[\u3400-\u9fff]", content["usageInstructions"]):
+            raise PackageError("Chinese publication usage instructions must contain Chinese text")
+    sale = manifest.get("sale")
+    if sale is not None:
+        validate_publication_sale(sale, region)
+    suggestion = manifest.get("creatorSubscriptionSuggestion")
+    if suggestion is not None and (not isinstance(suggestion, dict) or set(suggestion) != {"currency", "priceMinor", "duration"} or not isinstance(suggestion["currency"], str) or suggestion["currency"] not in {"CNY", "USD"} or type(suggestion["priceMinor"]) is not int or not 0 <= suggestion["priceMinor"] <= 10_000_000 or not isinstance(suggestion["duration"], str) or suggestion["duration"] not in {"MONTHLY", "INDEFINITE"}):
+        raise PackageError("publication subscription suggestion is invalid")
+    media = manifest.get("media", [])
+    if not isinstance(media, list) or len(media) > PUBLICATION_MEDIA_MAX:
+        raise PackageError("publication media list is invalid")
+    seen_media: set[str] = set()
+    for entry in media:
+        if not isinstance(entry, dict) or set(entry) != {"path"} or not isinstance(entry["path"], str):
+            raise PackageError("publication media entry is invalid")
+        relative = entry["path"]
+        if not re.fullmatch(r"media/[A-Za-z0-9][A-Za-z0-9._/-]*", relative) or any(part in {"", ".", ".."} for part in relative.split("/")) or relative in seen_media:
+            raise PackageError("publication media path is invalid")
+        seen_media.add(relative)
+        media_path = publication.joinpath(*relative.split("/"))
+        if not media_path.is_file():
+            raise PackageError(f"publication media is missing: {relative}")
+        data = media_path.read_bytes()
+        kind = media_type(data)
+        if not kind or not data or len(data) > (10 * MIB if kind == "image" else 50 * MIB):
+            raise PackageError(f"publication media type or size is invalid: {relative}")
 
 
 def write_archive(files: list[tuple[str, Path, int]], temporary: Path) -> None:
@@ -325,24 +504,120 @@ def build(root: Path, dist_root: Path) -> dict[str, object]:
     }
 
 
+def archive_digest(path: Path) -> str:
+    hasher = hashlib.sha256()
+    with path.open("rb") as archive:
+        for chunk in iter(lambda: archive.read(1024 * 1024), b""):
+            hasher.update(chunk)
+    return hasher.hexdigest()
+
+
+def update_archive(output: Path, publication_root: Path, expected_sha256: str, dist_root: Path) -> dict[str, object]:
+    started = time.perf_counter()
+    if output.is_symlink() or not output.is_file():
+        raise PackageError("existing ZIP must be a regular file")
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_sha256) or archive_digest(output) != expected_sha256:
+        raise PackageError("existing ZIP digest differs from --expected-sha256; re-read it before updating")
+    if not publication_root.is_dir() or publication_root.is_symlink():
+        raise PackageError("--publication-root must be a regular directory")
+    with tempfile.TemporaryDirectory(prefix=".publication-update-", dir=dist_root) as temporary_name:
+        root = Path(temporary_name) / "package-root"
+        root.mkdir()
+        if output.stat().st_size > MAX_ARCHIVE_BYTES:
+            raise PackageError("existing ZIP exceeds 50 MiB")
+        with zipfile.ZipFile(output) as archive:
+            infos = archive.infolist()
+            if len(infos) > MAX_FILES or archive.comment:
+                raise PackageError("existing ZIP exceeds package limits")
+            identities: set[str] = set()
+            total = 0
+            for info in infos:
+                name = info.filename
+                pure = PurePosixPath(name)
+                identity = unicodedata.normalize("NFKC", name).casefold()
+                if (not name or name.endswith("/") or pure.is_absolute() or "\\" in name or "\x00" in name or any(part in {"", ".", ".."} for part in name.split("/")) or identity in identities or len(name.encode("utf-8")) > MAX_PATH_BYTES or forbidden_path(name) or name in RESERVED_RUNTIME_PATHS or info.flag_bits & 0x1 or info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED}):
+                    raise PackageError(f"existing ZIP contains an unsafe entry: {name}")
+                identities.add(identity)
+                mode = (info.external_attr >> 16) & 0o170000
+                if mode not in {0, stat.S_IFREG} or info.file_size > MAX_FILE_BYTES:
+                    raise PackageError(f"existing ZIP contains a special or oversized entry: {name}")
+                if info.file_size >= COMPRESSION_RATIO_MIN_BYTES and (info.compress_size == 0 or info.file_size / info.compress_size > MAX_COMPRESSION_RATIO):
+                    raise PackageError(f"existing ZIP contains an abnormal compression ratio: {name}")
+                total += info.file_size
+                if total > MAX_EXPANDED_BYTES:
+                    raise PackageError("existing ZIP expands beyond 50 MiB")
+                destination = root.joinpath(*pure.parts)
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                data = archive.read(info)
+                scan_secrets(name, data)
+                destination.write_bytes(data)
+        previous_name, _ = parse_frontmatter((root / "SKILL.md").read_bytes())
+        if output.name != f"{previous_name}.zip":
+            raise PackageError("existing ZIP filename does not match its Skill name")
+        for source in sorted(publication_root.rglob("*")):
+            relative = source.relative_to(publication_root)
+            if source.is_symlink():
+                raise PackageError("publication update contains a symbolic link")
+            if source.is_dir():
+                continue
+            if not source.is_file():
+                raise PackageError("publication update contains a special file")
+            destination = root / PUBLICATION_PREFIX / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
+        files, expanded_bytes, skill_name = collect_files(root)
+        if skill_name != previous_name:
+            raise PackageError("publication update changed the Skill name")
+        descriptor, candidate_name = tempfile.mkstemp(prefix=".package-", suffix=".zip", dir=dist_root)
+        os.close(descriptor)
+        candidate = Path(candidate_name)
+        try:
+            write_archive(files, candidate)
+            validate_archive(candidate, files, expanded_bytes)
+            if archive_digest(output) != expected_sha256:
+                raise PackageError("existing ZIP changed during publication update")
+            os.replace(candidate, output)
+        finally:
+            candidate.unlink(missing_ok=True)
+    return {
+        "ok": True,
+        "skill_name": previous_name,
+        "output": f"viceme-dist/{previous_name}.zip",
+        "file_count": len(files),
+        "expanded_bytes": expanded_bytes,
+        "zip_bytes": output.stat().st_size,
+        "previous_sha256": expected_sha256,
+        "sha256": archive_digest(output),
+        "timings_ms": {"update": round((time.perf_counter() - started) * 1000)},
+    }
+
+
 def main() -> int:
     try:
         args = parse_args()
-        root = require_project_path(
-            args.root,
-            PurePosixPath("viceme-dist/staging/package-root"),
-            "--root",
-            must_exist=True,
-        )
-        if not root.is_dir():
-            raise PackageError("--root must be a directory")
         dist_root = require_project_path(
             "viceme-dist",
             PurePosixPath("viceme-dist"),
             "dist root",
             must_exist=False,
         )
-        print(json.dumps(build(root, dist_root), ensure_ascii=False, sort_keys=True))
+        if args.root:
+            if args.publication_root or args.expected_sha256:
+                raise PackageError("--publication-root and --expected-sha256 require --update")
+            root = require_project_path(args.root, PurePosixPath("viceme-dist/staging/package-root"), "--root", must_exist=True)
+            if not root.is_dir():
+                raise PackageError("--root must be a directory")
+            result = build(root, dist_root)
+        else:
+            if not args.publication_root or not args.expected_sha256:
+                raise PackageError("--update requires --publication-root and --expected-sha256")
+            expected = PurePosixPath(args.update)
+            if expected.parent != PurePosixPath("viceme-dist") or not expected.name.endswith(".zip"):
+                raise PackageError("--update must name viceme-dist/<skill-name>.zip")
+            output = require_project_path(args.update, expected, "--update", must_exist=True)
+            publication_root = require_project_path(args.publication_root, PurePosixPath("viceme-dist/staging/publication-root"), "--publication-root", must_exist=True)
+            result = update_archive(output, publication_root, args.expected_sha256, dist_root)
+        print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0
     except (OSError, PackageError, zipfile.BadZipFile) as error:
         print(json.dumps({"ok": False, "error": str(error)}, ensure_ascii=False, sort_keys=True), file=sys.stderr)

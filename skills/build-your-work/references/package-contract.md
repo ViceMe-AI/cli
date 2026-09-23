@@ -12,7 +12,8 @@
 ├── site/                 # 网站转换必需
 ├── assets/               # 仅在有独立复用价值时
 ├── template/             # 仅在需要可编辑起点时
-└── references/           # 仅在详细说明有价值时
+├── references/           # 仅在详细说明有价值时
+└── viceme-publication/    # 版本化网页发布资料
 ```
 
 现有 Skill 保留真实所需结构，不强行添加空 `site/`、`assets/`、`template/` 或 `references/`。
@@ -56,6 +57,10 @@ id_rsa id_ed25519
 
 如果缺少某个文件或运行依赖会让名称、品牌、核心内容、CORE 交互、主要层级、关键动画或主要体验路径消失，不能把降级包当作成功。停止并报告阻塞，或者取得创作者对具体改变的明确选择后把它作为独立创作修改重新验收。
 
-## 可选发布伴随信息
+## 包内网页发布资料
 
-封面、图库候选、标题、简介、使用说明、建议价格和试用次数可以在 ZIP 完成后另行准备，但不得因此阻塞 `<skill-name>.zip`，不得未经确认把建议价格当最终价格，也不得把非运行所需的发布素材放入买家包。平台没有定义导入合同前，不声称伴随 JSON 可以直接导入。
+`viceme-publication/manifest.json` 的 v1 必填字段为 `schemaVersion: 1`、与根级 `SKILL.md.name` 完全一致的 `skillName`、`marketRegion`（`CN` 或 `GLOBAL`）以及去重的 `locales`（`zh-CN`、`en-US`，最多两份）。对应文案写在 `locales/<locale>.json`，可选 `title`、`summary`、`usageInstructions`。名称和简介可以是任意语言，NFC 字符上限分别为 20 和 100；使用说明上限 2000。缺省字段省略，不写空字符串。
+
+`manifest.json` 的可选字段为 `slug`、`sale`、`creatorSubscriptionSuggestion`、`media`。`sale.buyout` 只有明确选择后写 `enabled`，启用时同时写 `currency` 和整数 `priceMinor`；`sale.trial` 启用时写 2–50 的 `useLimit`，关闭时只写 `enabled: false`；`sale.subscription` 只写参与订阅开关。订阅计划建议独立于单作品售卖，不代表已创建账号计划。价格与试用不得由 Agent 猜测。媒体列表按导入顺序引用 `media/` 下相对路径，不设封面；只复制创作者确认可公开、可分发的素材。包内资料和媒体也会交付买家。
+
+全部 JSON 单份最多 64 KiB、合计最多 192 KiB；媒体最多 12 个，图片单份最多 10 MiB，视频最多 50 MiB，且必须满足整个 ZIP 的 50 MiB 预算。不得写重复 JSON 键、重复或碰撞的路径、符号链接。打包脚本按实际字节校验类型。补充资料按照 SKILL.md 中的 `--update` 命令写回同一个 ZIP；不要输出包外 `publish-notes.md` 作为交付。
