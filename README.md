@@ -177,6 +177,7 @@ Select a target explicitly with `viceme install --agent codex`, `claude`,
 | `become-a-creator` | apply for or check creator qualification for merchant-only workflows; personal profile publishing stays independent. |
 | `customize-your-profile-page` | use AI to create, locally preview, publish, update, or roll back any signed-in user's personal profile page. |
 | `customize-your-work-page` | use AI to redesign or import a downloadable Skill work page, including its visible actions and final preview. |
+| `build-your-work` | preserve an existing website or Skill as a validated ViceMe Creation Skill ZIP, including the website's compiled reference site when applicable. |
 | `sell-a-skill` | publish or update a paid or free downloadable Skill; websites, services, and generic goods are out of scope. |
 | `use-a-skill` | resolve free, purchased, or purchase-required access, install the selected Skill, and continue the original task. |
 | `charge-for-your-work` | configure follow or paid unlock for an existing website and integrate it into host code after the shared creator qualification check; platform resources stay internal. |

@@ -152,7 +152,11 @@ func TestEveryOfficialSkillResolvesCLIThroughCreatorTools(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if name == "creator-tools" {
+		if name == "build-your-work" {
+			if strings.Contains(string(content), "viceme ") {
+				t.Error("build-your-work must remain a local packaging workflow without CLI orchestration")
+			}
+		} else if name == "creator-tools" {
 			if !strings.Contains(string(content), "scripts/resolve-cli.sh") || !strings.Contains(string(content), "scripts/resolve-cli.ps1") {
 				t.Fatal("creator-tools does not own both platform resolvers")
 			}

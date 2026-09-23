@@ -155,6 +155,7 @@ npx --yes @viceme-ai/cli@latest install
 | `become-a-creator` | 为所有创作者玩法申请或检查创作者资格。 |
 | `customize-your-profile-page` | 用 AI 创建、预览、发布、更新或回滚创作者个人页。 |
 | `customize-your-work-page` | 用 AI 重新设计或导入可下载 Skill 的作品页，包括页面按钮和最终预览。 |
+| `build-your-work` | 将现有网站或 Skill 保真整理并校验为 ViceMe Creation Skill ZIP；网站包包含编译后的参考站点。 |
 | `sell-a-skill` | 发布或更新可下载的付费或免费 Skill；网站、服务与普通商品不属于此 Skill。 |
 | `use-a-skill` | 解析免费、已购买或待购买的访问状态，安装所选 Skill，并继续原任务。 |
 | `charge-for-your-work` | 为现有网站配置关注或付费解锁并接入宿主代码；复用统一创作者资格检查，平台资源保持为内部实现。 |

@@ -851,6 +851,7 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 		"become-a-creator":            false,
 		"customize-your-profile-page": false,
 		"customize-your-work-page":    false,
+		"build-your-work":             false,
 		"sell-a-skill":                false,
 		"use-a-skill":                 false,
 		"charge-for-your-work":        false,
