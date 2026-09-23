@@ -379,7 +379,7 @@ class TrialScriptTestCase(unittest.TestCase):
                     with mock.patch.object(trial, "api_request", side_effect=AssertionError("export must be offline")), redirect_stdout(io.StringIO()):
                         trial.command_export_package(
                             market, PRODUCT_ID, kind, RELEASE_ID, output,
-                            input_path=original if kind == "trial" else None,
+                            input_path=original,
                             title="Demo", summary="Demo skill", slug="demo")
                     with zipfile.ZipFile(output) as archive:
                         archive.extractall(destination)
@@ -406,6 +406,16 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.home, ".viceme")))
 
     def test_export_package_purchase_is_entry_only_without_api(self):
+        original = os.path.join(self.home, "original.zip")
+        with zipfile.ZipFile(original, "w") as archive:
+            archive.writestr(
+                "SKILL.md",
+                "---\nname: ball-contraption-show\n"
+                "description: \"Creates the spectacle\"\n"
+                "disable-model-invocation: false\n"
+                "---\n\nPAID_BODY_SECRET\n",
+            )
+            archive.writestr("scripts/grade.py", "print('secret')\n")
         output = os.path.join(self.home, "purchase-entry.zip")
         stdout = io.StringIO()
         api = mock.Mock(side_effect=AssertionError("export-package must not call api_request"))
@@ -413,6 +423,7 @@ class TrialScriptTestCase(unittest.TestCase):
             code = trial.run([
                 "export-package", "--product", PRODUCT_ID, "--market", "cn",
                 "--kind", "purchase", "--release-id", RELEASE_ID,
+                "--input", original,
                 "--output", output, "--title", "评分助手", "--summary", "简介",
                 "--slug", "essay-grading-assistant",
             ])
@@ -425,7 +436,11 @@ class TrialScriptTestCase(unittest.TestCase):
             names = set(archive.namelist())
             skill = archive.read("SKILL.md").decode("utf-8")
             entry = archive.read(trial.ENTRY_PATH).decode("utf-8")
+        self.assertIn("name: ball-contraption-show\n", skill)
+        self.assertIn('description: "Creates the spectacle"\n', skill)
+        self.assertIn("disable-model-invocation: false\n", skill)
         self.assertIn(trial.ENTRY_POINTER.strip(), skill)
+        self.assertNotIn("评分助手", skill)
         self.assertNotIn(trial.PURCHASE_MARKER, skill)
         self.assertNotIn("使用前必读", skill)
         self.assertNotIn("购买后使用", skill)
@@ -438,12 +453,21 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.home, ".agents")))
 
     def test_export_package_xiaohongshu_puts_description_before_entry_pointer(self):
+        original = os.path.join(self.home, "author.zip")
+        with zipfile.ZipFile(original, "w") as archive:
+            archive.writestr(
+                "SKILL.md",
+                "---\nname: ball-contraption-show\n"
+                "description: \"Creates the spectacle\"\n"
+                "---\n\nPAID_BODY_SECRET\n",
+            )
         output = os.path.join(self.home, "xiaohongshu-purchase.zip")
         stdout = io.StringIO()
         with redirect_stdout(stdout):
             code = trial.run([
                 "export-package", "--product", PRODUCT_ID, "--market", "cn",
                 "--kind", "purchase", "--release-id", RELEASE_ID,
+                "--input", original,
                 "--output", output, "--title", "评分助手", "--summary", "简介",
                 "--slug", "essay-grading-assistant", "--listing", "xiaohongshu",
             ])
@@ -452,9 +476,12 @@ class TrialScriptTestCase(unittest.TestCase):
             skill = archive.read("SKILL.md").decode("utf-8")
             entry = archive.read(trial.ENTRY_PATH).decode("utf-8")
         body = skill.split("---", 2)[-1]
-        self.assertTrue(body.strip().startswith("评分助手：简介"))
+        self.assertIn("name: ball-contraption-show\n", skill)
+        self.assertTrue(body.strip().startswith("Creates the spectacle"))
         self.assertIn(trial.ENTRY_POINTER.strip(), body)
-        self.assertLess(body.index("评分助手：简介"), body.index(trial.ENTRY_POINTER.strip()))
+        self.assertLess(body.index("Creates the spectacle"), body.index(trial.ENTRY_POINTER.strip()))
+        self.assertNotIn("评分助手", skill)
+        self.assertNotIn("PAID_BODY_SECRET", skill)
         self.assertNotIn("使用前必读", skill)
         self.assertIn("使用前必读", entry)
 
@@ -497,7 +524,6 @@ class TrialScriptTestCase(unittest.TestCase):
             code = trial.run([
                 "export-package", "--product", PRODUCT_ID, "--kind", "purchase",
                 "--release-id", RELEASE_ID, "--output", os.path.join(self.home, "out.zip"),
-                "--input", os.path.join(self.home, "original.zip"),
                 "--title", "标题", "--summary", "简介", "--slug", "demo",
             ])
         self.assertEqual(code, 1)

@@ -83,6 +83,10 @@ def entry_pointer_body():
     return "\n" + ENTRY_POINTER
 
 
+def normalized_entry_body(body):
+    return body.replace("\r\n", "\n").strip("\n")
+
+
 def body_is_entry_pointer(body):
     return normalized_entry_body(body) == ENTRY_POINTER.strip("\n")
 
@@ -94,8 +98,15 @@ def body_has_entry_pointer(body):
     return normalized == pointer or normalized.endswith("\n\n" + pointer)
 
 
-def normalized_entry_body(body):
-    return body.replace("\r\n", "\n").strip("\n")
+def skill_frontmatter_prefix(data):
+    """保留作者 frontmatter，供购买入口包沿用原始 name 与 description。"""
+    content = data.decode("utf-8", "replace").replace("\r\n", "\n")
+    if not content.startswith("---\n"):
+        raise Failure("MANIFEST_INVALID", "SKILL.md 必须以 YAML frontmatter 开始")
+    end = (content + "\n").find("\n---\n", 4)
+    if end < 0:
+        raise Failure("MANIFEST_INVALID", "SKILL.md frontmatter 未闭合")
+    return content[: end + len("\n---\n")]
 
 
 def frontmatter_description(content):
@@ -105,10 +116,31 @@ def frontmatter_description(content):
     end = text.find("\n---\n", 3)
     if end < 0:
         return ""
-    for line in text[4:end].split("\n"):
+    lines = text[4:end].split("\n")
+    for index, line in enumerate(lines):
         if not line.startswith("description:"):
             continue
         value = line.split(":", 1)[1].strip()
+        if value in ("|", ">", "|-", ">-", "|+", ">+"):
+            block = []
+            for follower in lines[index + 1 :]:
+                if follower.startswith((" ", "\t")):
+                    block.append(follower)
+                elif follower == "":
+                    block.append("")
+                else:
+                    break
+            indents = [
+                len(item) - len(item.lstrip(" \t"))
+                for item in block
+                if item.strip()
+            ]
+            if not indents:
+                return ""
+            indent = min(indents)
+            return "\n".join(
+                item[indent:] if len(item) >= indent else "" for item in block
+            ).strip()
         if value.startswith('"'):
             try:
                 parsed = json.loads(value)
@@ -883,7 +915,7 @@ def purchase_entry_instructions(product_id, market):
     ) % (header, posix, windows, cli_purchase, install_doc, PURCHASE_GUIDE_PATH, PURCHASE_END)
 
 
-def purchase_entry_files(market, product_id, title, summary, slug, release_id, listing="generic"):
+def purchase_entry_files(market, product_id, title, summary, slug, release_id, listing="generic", frontmatter=None):
     """Synthesize the public purchase-entry package. No authored body, no API."""
     if not isinstance(title, str) or not title.strip() or not isinstance(summary, str):
         raise Failure("PRODUCT_METADATA_INVALID", "商品信息不完整，请重试安装")
@@ -892,8 +924,12 @@ def purchase_entry_files(market, product_id, title, summary, slug, release_id, l
         + "-" + product_id.replace("-", "")[:8]
     )
     description = title.strip() + ("：" + summary if summary else "")
+    if isinstance(frontmatter, str) and frontmatter.startswith("---\n"):
+        skill = frontmatter + entry_pointer_body()
+    else:
+        skill = purchase_entry_skill_markdown(installed_name, description)
     files = {
-        "SKILL.md": (purchase_entry_skill_markdown(installed_name, description).encode(), 0o644),
+        "SKILL.md": (skill.encode("utf-8"), 0o644),
         ENTRY_PATH: (purchase_entry_instructions(product_id, market).encode(), 0o644),
         PURCHASE_GUIDE_PATH: (runtime_resource("guides/purchase.md"), 0o644),
         "references/host-presentation.md": (runtime_resource("guides/host-presentation.md"), 0o644),
@@ -945,17 +981,21 @@ def command_export_package(market, product_id, kind, release_id, output, input_p
     if not output or not str(output).endswith(".zip"):
         raise Failure("ARGUMENT_INVALID", "导出路径必须以 .zip 结尾")
     output = os.path.abspath(output)
+    if not input_path:
+        raise Failure(
+            "ARGUMENT_INVALID",
+            "试用门禁包需要 --input 指向原始 zip" if kind == "trial" else "购买入口包需要 --input 指向原始 zip",
+        )
+    try:
+        with open(input_path, "rb") as handle:
+            archive = handle.read(MAX_TOTAL_BYTES + 1)
+    except OSError:
+        raise Failure("ARCHIVE_INVALID", "无法读取原始 Skill 包") from None
+    if len(archive) > MAX_TOTAL_BYTES:
+        raise Failure("ARCHIVE_LIMIT_EXCEEDED", "Skill 包超出安全解包限制")
+    original = extract_skill_package(archive)
     if kind == "trial":
-        if not input_path:
-            raise Failure("ARGUMENT_INVALID", "试用门禁包需要 --input 指向原始 zip")
-        try:
-            with open(input_path, "rb") as handle:
-                archive = handle.read(MAX_TOTAL_BYTES + 1)
-        except OSError:
-            raise Failure("ARCHIVE_INVALID", "无法读取原始 Skill 包") from None
-        if len(archive) > MAX_TOTAL_BYTES:
-            raise Failure("ARCHIVE_LIMIT_EXCEEDED", "Skill 包超出安全解包限制")
-        files = extract_skill_package(archive)
+        files = original
         inject_trial_gate(files, market, product_id)
         apply_listing_body(files, listing)
         # Channel installs only extract this archive. Bind the directory before
@@ -963,10 +1003,9 @@ def command_export_package(market, product_id, kind, release_id, output, input_p
         files[".viceme/install-manifest.json"] = (trial_install_manifest(product_id, release_id), 0o644)
         prepare_runtime_files(files, market, product_id, release_id, "trial")
     else:
-        if input_path:
-            raise Failure("ARGUMENT_INVALID", "购买入口包不接受 --input")
         files, _ = purchase_entry_files(
-            market, product_id, title, summary, slug, release_id, listing)
+            market, product_id, title, summary, slug, release_id, listing,
+            frontmatter=skill_frontmatter_prefix(original["SKILL.md"][0]))
     digest = write_skill_zip(files, output)
     return emit_ok({
         "kind": kind,
@@ -2500,7 +2539,7 @@ def parse_args(argv):
         help="安装目标:auto=按调用方环境自动定向(识别不到时装全部标准目录)",
     )
     parser.add_argument("--kind", choices=["trial", "purchase"], help="export-package 的包类型")
-    parser.add_argument("--input", help="export-package trial 的原始 Skill zip 路径")
+    parser.add_argument("--input", help="export-package 的原始 Skill zip 路径")
     parser.add_argument("--output", help="export-package 的输出 zip 路径")
     parser.add_argument("--release-id", help="export-package 的 SkillRelease ID(UUID)")
     parser.add_argument("--title", help="export-package purchase 的商品标题")
