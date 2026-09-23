@@ -26,6 +26,7 @@ var officialSkillNames = []string{
 	"creator-tools",
 	"use-a-skill",
 	"let-people-interact",
+	"viceme-mini-game-commerce",
 	"let-others-make-a-copy",
 	"let-me-make-a-copy",
 }

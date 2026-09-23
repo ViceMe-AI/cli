@@ -73,6 +73,13 @@
       "full_skill_bundle_digest": "sha256:46cafe426ee1ffa87e8e7e38d649dce304fcabac12b34389a649f8f3269a3819",
       "embedded_content_digest": "sha256:40f81c10b3ec00df83a5ecc11195f7010661091aeeb8eb949caa92b6847b1da2"
     },
+    "viceme-mini-game-commerce": {
+      "skill_version": "0.46.0",
+      "minimum_cli_version": "0.46.0",
+      "cli_compatibility": ">=0.46.0 <0.47.0",
+      "full_skill_bundle_digest": "sha256:201d814bad6c0bad86e30b4adb25fb64dd3f01c6aedcbdac5985f62c34249c5c",
+      "embedded_content_digest": "sha256:4583c61b77781a19e6b041a5ebc784c7218fa2205444d3c77ea5eaa212bfbc81"
+    },
     "withdraw-income": {
       "skill_version": "0.46.0",
       "minimum_cli_version": "0.46.0",

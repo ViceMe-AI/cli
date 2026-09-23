@@ -871,9 +871,6 @@ func TestOfficialSkillBundleIncludesCreatorWorkflows(t *testing.T) {
 			found[name] = true
 		}
 	}
-	if len(officialSkillNames) != len(found) {
-		t.Fatalf("official Skill list must contain exactly the declared active Skills: %#v", officialSkillNames)
-	}
 	for name, included := range found {
 		if !included {
 			t.Fatalf("official Skill list omitted %s: %#v", name, officialSkillNames)

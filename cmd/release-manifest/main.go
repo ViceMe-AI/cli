@@ -37,9 +37,13 @@ func main() {
 	flag.Parse()
 
 	bundle := skillcontent.New(cliembed.EmbeddedSkills())
-	skillNames := []string{"withdraw-income", "creator-tools", "become-a-creator", "customize-your-profile-page", "customize-your-work-page", "sell-a-skill", "use-a-skill", "charge-for-your-work", "let-people-interact", "let-others-make-a-copy", "let-me-make-a-copy"}
-	skills := make(map[string]skillRelease, len(skillNames))
-	for _, name := range skillNames {
+	entries, err := bundle.List()
+	if err != nil {
+		fatal(err)
+	}
+	skills := make(map[string]skillRelease, len(entries))
+	for _, entry := range entries {
+		name := entry.Name
 		digests, err := bundle.Digests(name)
 		if err != nil {
 			fatal(err)
