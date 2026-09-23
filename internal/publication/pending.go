@@ -28,12 +28,11 @@ type Pending struct {
 	// TrialDisabled records an explicit --trial-use-limit 0: it must reach the
 	// server as an explicit null ("disable"), never as an omitted field
 	// ("keep"), so an inherited live trial can actually be turned off.
-	TrialDisabled  bool                        `json:"trialDisabled,omitempty"`
-	ArtifactDigest string                      `json:"artifactDigest"`
-	Source         api.SkillPublicationSource  `json:"source"`
-	Edition        api.SkillPublicationEdition `json:"edition"`
-	CreatedAt      time.Time                   `json:"createdAt"`
-	UpdatedAt      time.Time                   `json:"updatedAt"`
+	TrialDisabled  bool                       `json:"trialDisabled,omitempty"`
+	ArtifactDigest string                     `json:"artifactDigest"`
+	Source         api.SkillPublicationSource `json:"source"`
+	CreatedAt      time.Time                  `json:"createdAt"`
+	UpdatedAt      time.Time                  `json:"updatedAt"`
 }
 
 type PendingStore struct {

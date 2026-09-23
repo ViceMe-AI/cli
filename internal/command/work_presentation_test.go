@@ -1,6 +1,7 @@
 package command
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -27,13 +28,13 @@ func TestReplicaPublicationDisplayPreservesAuthoritativeURL(t *testing.T) {
 	}
 }
 
-func TestPublicWorkDisplayPreservesEditionAndCanonical(t *testing.T) {
+func TestPublicWorkDisplayPreservesWebsiteProductAndCanonical(t *testing.T) {
 	source := api.PublicWorkProjection{}
 	source.Work.CanonicalPath = "/alice?mode=consumer&view=work&workSlug=site"
 	source.Work.MarkdownPath = "/alice.md?mode=consumer&view=work&workSlug=site"
-	target := "https://dev.viceme.cn/alice.md?mode=consumer&view=work&workSlug=site&product=one&install=owned"
+	target := "https://dev.viceme.cn/alice.md?mode=consumer&view=work&workSlug=site&product=one"
 	result := presentPublicWork(source, target, "https://viceme.ai")
-	if result.WorkURL != "https://dev.viceme.cn/alice/site?product=one&install=owned" || result.MarkdownURL != "https://dev.viceme.cn/alice/site.md?product=one&install=owned" {
+	if result.WorkURL != "https://dev.viceme.cn/alice/site?product=one" || result.MarkdownURL != "https://dev.viceme.cn/alice/site.md?product=one" {
 		t.Fatalf("lost display selectors: %#v", result)
 	}
 	if source.Work.CanonicalPath != result.Work.CanonicalPath || source.Work.MarkdownPath != result.Work.MarkdownPath {
@@ -63,5 +64,17 @@ func TestProductDetailDisplaysSelectedEditionAndRetainsAPIFields(t *testing.T) {
 	}
 	if data["workUrl"] != "https://viceme.cn/alice/site?product="+downloadableProductID+"" || data["markdownUrl"] != "https://viceme.cn/alice/site.md?product="+downloadableProductID+"" {
 		t.Fatalf("wrong selected edition URLs: %#v", data)
+	}
+}
+
+func TestDownloadableSkillDetailOmitsProductSelector(t *testing.T) {
+	raw := []byte(`{"canonicalPath":"/alice/skill","assetPackageType":"ZIP","id":"product"}`)
+	result := presentSkillDetail(raw, "product", "https://viceme.cn")
+	var detail map[string]any
+	if err := json.Unmarshal(result, &detail); err != nil {
+		t.Fatal(err)
+	}
+	if detail["markdownUrl"] != "https://viceme.cn/alice/skill.md" {
+		t.Fatalf("not canonical: %s", result)
 	}
 }

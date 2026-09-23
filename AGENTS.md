@@ -46,7 +46,7 @@ the CLI, but they do not own its installation state or recovery protocol.
   duplicate parameters, mismatched path/query identities and locale-prefixed
   paths must be rejected. Bare `/{handle}` is the public profile.
 - `internal/workurl.PublicParts` owns shared Work identity parsing. Preserve
-  `product`, `install=owned`, origin and the full input passed to owning flows.
+  website `product`, origin and the full input passed to owning flows.
   Private owner Markdown remains `/{handle}.md?mode=creator&view=work&workSlug=...`.
 - The standalone Replica Python script uses the same contract fixtures in
   `internal/workurl/testdata`. Keep Go and Python acceptance behavior aligned.
@@ -57,7 +57,7 @@ the CLI, but they do not own its installation state or recovery protocol.
   remain unchanged. Do not shorten opaque URLs with unknown query parameters.
 - Do not mutate returned canonical URLs or signed/confirmation identities.
   Across representations compare frozen public identities with `workurl.Equivalent`;
-  it must retain origin, Work identity and edition/intent, never ignore opaque fields.
+  it must retain origin, Work identity and product selection, never ignore opaque fields.
   When constructing Markdown, append `.md` to the pathname before the query.
   Owner analytics must verify ownership and explicitly request creator mode.
 - Preserve pathname plus query in login `returnTo`. URL mode is presentation,

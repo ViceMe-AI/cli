@@ -57,17 +57,15 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
 ## 权限和发布不变量
 
 1. 创作者资格、登录和商家选择只由 `$become-a-creator` 负责。
-2. `resolution` 只识别作品；新增或更新组合中的 Skill 由权威条目 key 决定。用户说“升级收费”
-   时先澄清是否保留原免费 Skill，不默认推荐替换；使用 workflow.md 的发布意图规则。
+2. 一个作品只有一款 Skill。`resolution=UPDATE` 更新同一商品；新增独立作品使用
+   `--new-listing`，更新已知作品使用 `--listing`，按 workflow.md 核对发布意图。
 3. 创建草稿和预览可恢复。响应丢失时读取同一资源恢复，继续使用同一 Publication，不创建重复项。
 4. 公开发布前展示标题、中文简介、中英文使用说明、价格、试用次数（免费试用 N 次后付费，
    或不开试用）、封面和图库，以及本次新增/更新、原价与新价、原免费入口是否保留和已有
    下载权益影响，并取得一次明确确认。用户改名称时只改作品页和当前这条 Skill 的购买卡片
-   （`publication update` 的 title），不得改 `SKILL.md` 的 `name`，也不得另传 `--edition-title`。
-5. 用户只需要理解作品里每个 Skill——用“免费版/付费版/升级版/高级版”这类版本
-   说法解释——各自的价格和下载权益；Shop 的商业数据结构属于底层
-   实现，不进入用户选择，也不扩展成本 Skill 的发布类型。刚发布的是收费 Skill 时，
-   收尾不得把试用说成免费版，也不得用免费漏斗解释升级版。
+   （`publication update` 的 title），不得改 `SKILL.md` 的 `name`。
+5. 向用户说明当前 Skill 的价格、试用次数和下载权益。收费 Skill 的试用不称为免费版，
+   不得把试用讲成免费额度。
 6. 给人看的作品链接用发布结果 `product.detailUrl` 或 listing `publicUrl`；尚未
    发布则把 `presentation.openUrl` 去掉末尾 `/preview` 后给出同一路径，这是唯一
    允许的派生。商家主页用 `creatorIdentity.profileUrl`。不得把 slug、安装名、
@@ -77,11 +75,9 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
 
 - 不展示 `nextAction`、`WAIT_FOR_REVIEW`、`SUBMITTED`、`UNDER_REVIEW`、`lockVersion`、
   `digest` 或 `reviewDigest` 等内部名称。
+- 发布成功后只问一次，选项保留“自定义作品页”“先到这里”。不得追加订阅选项，也不得询问是否设置粉丝订阅。
 - 登录失效说“登录状态已过期，需要重新登录”。
 - 不告诉用户正在使用哪个内置 Skill 或说明文件。
-- 发布成功后只问一次，三个选项固定为“自定义作品页”“发布本作品的升级版并设价格”
-  “先到这里”。刚发布的是收费 Skill 时，不得把试用说成免费版，也不得提免费次数用完。
-  不得追加订阅选项，也不得询问是否设置粉丝订阅。
 - 发布或取消已经成功时，不得向用户提及本地恢复清理警告（含
   `PUBLICATION_RECOVERY_RETIRE_FAILED`、`PUBLICATION_RECOVERY_CLEANUP_FAILED`）、
   错误码或恢复目录。
@@ -92,8 +88,7 @@ GitHub 账号确认返回 `OAUTH_PROVIDER_NOT_CONFIGURED` 时立即结束，最�
 - 给人看的作品链接和商家主页只用人类 HTML 页：作品用 `publicUrl` /
   `product.detailUrl`，主页用 `profileUrl`。不得把 slug、安装名、`markdownUrl`
   或任何 `.md` 地址称为公开链接。
-- 用户改名称只改作品页和当前这条 Skill 的购买卡片；不得改 `SKILL.md` 的 `name`，
-  也不得另传 `--edition-title`。
+- 用户改名称只改作品页和当前这条 Skill 的购买卡片；不得改 `SKILL.md` 的 `name`。
 - 订阅已设置时对用户说「已生效」，不得写 `ACTIVE` 或「已 ACTIVE」。当前不要引导用户设置粉丝订阅。
 - GitHub 发布不得询问 SKILL.md 在仓库根目录还是子目录；多个 Skill 时只展示 CLI
   返回的候选目录。

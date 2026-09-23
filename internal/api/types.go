@@ -2,7 +2,7 @@ package api
 
 import "encoding/json"
 
-const SkillPublicationContractVersion = "2026-08-27"
+const SkillPublicationContractVersion = "2026-09-22"
 const PageCustomizationContractVersion = "2026-09-09"
 const ProfilePageCustomizationContractVersion = "2026-09-12"
 
@@ -725,7 +725,10 @@ type CommercePaymentOption struct {
 }
 
 type CreateOrderResponse struct {
-	Order CommerceOrder `json:"order"`
+	Order                    CommerceOrder `json:"order"`
+	CheckoutURL              string        `json:"checkoutUrl,omitempty"`
+	CheckoutImageURL         string        `json:"checkoutImageUrl,omitempty"`
+	PaymentPresentationGuide string        `json:"paymentPresentationGuide,omitempty"`
 }
 
 type CommerceOrder struct {
@@ -747,15 +750,13 @@ type CommerceOrder struct {
 }
 
 type CommercePaymentPresentation struct {
-	Type           string `json:"type"`
-	Purpose        string `json:"purpose"`
-	MIMEType       string `json:"mimeType"`
-	ImagePath      string `json:"imagePath"`
-	ImageChatSrc   string `json:"imageChatSrc,omitempty"`
-	AltText        string `json:"altText"`
-	ExpiresAt      string `json:"expiresAt"`
-	WidgetPath     string `json:"widgetPath,omitempty"`
-	WidgetMIMEType string `json:"widgetMimeType,omitempty"`
+	Type         string `json:"type"`
+	Purpose      string `json:"purpose"`
+	MIMEType     string `json:"mimeType"`
+	ImagePath    string `json:"imagePath"`
+	ImageChatSrc string `json:"imageChatSrc,omitempty"`
+	AltText      string `json:"altText"`
+	ExpiresAt    string `json:"expiresAt"`
 }
 
 type OrderStatusResponse struct {
@@ -783,8 +784,10 @@ type PaymentOrder struct {
 }
 
 type CreatePaymentResponse struct {
-	Order  PaymentOrder    `json:"order"`
-	Action json.RawMessage `json:"action"`
+	CheckoutURL      string          `json:"checkoutUrl,omitempty"`
+	CheckoutImageURL string          `json:"checkoutImageUrl,omitempty"`
+	Order            PaymentOrder    `json:"order"`
+	Action           json.RawMessage `json:"action"`
 }
 
 type PaymentStatusResponse struct {
@@ -825,10 +828,9 @@ type SkillPublicationMetadata struct {
 }
 
 type SkillPublicationSpec struct {
-	PublishMode string                  `json:"publishMode" yaml:"publishMode"`
-	Source      SkillPublicationSource  `json:"source" yaml:"source"`
-	Edition     SkillPublicationEdition `json:"edition" yaml:"edition"`
-	Sale        SkillPublicationSale    `json:"sale" yaml:"sale"`
+	PublishMode string                 `json:"publishMode" yaml:"publishMode"`
+	Source      SkillPublicationSource `json:"source" yaml:"source"`
+	Sale        SkillPublicationSale   `json:"sale" yaml:"sale"`
 }
 
 type SkillPublicationSource struct {
@@ -864,13 +866,6 @@ func (s SkillPublicationSource) MarshalJSON() ([]byte, error) {
 	}
 	fields["path"] = []byte("null")
 	return json.Marshal(fields)
-}
-
-type SkillPublicationEdition struct {
-	Key        string   `json:"key" yaml:"key"`
-	Title      string   `json:"title" yaml:"title"`
-	SortOrder  int      `json:"sortOrder" yaml:"sortOrder"`
-	Highlights []string `json:"highlights" yaml:"highlights"`
 }
 
 type SkillPublicationSale struct {
@@ -1358,41 +1353,22 @@ type PublishedProduct struct {
 }
 
 type SkillPublication struct {
-	ID                string                      `json:"id"`
-	ListingID         string                      `json:"listingId"`
-	MerchantAccountID string                      `json:"merchantAccountId"`
-	DraftRevision     int                         `json:"draftRevision"`
-	Status            string                      `json:"status"`
-	Manifest          SkillPublicationManifest    `json:"manifest"`
-	Draft             SkillPublicationDraft       `json:"draft"`
-	ReviewRevision    int                         `json:"reviewRevision"`
-	ReviewDigest      *string                     `json:"reviewDigest"`
-	Uploads           []SkillPublicationUpload    `json:"uploads"`
-	Analysis          *PublicationAnalysis        `json:"analysis"`
-	Product           *PublishedProduct           `json:"product"`
-	Editions          []PublishedSkillEdition     `json:"editions"`
-	NextAction        *SkillPublicationNextAction `json:"nextAction"`
-	FailureCode       *string                     `json:"failureCode"`
-	FailureMessage    *string                     `json:"failureMessage"`
-	CreatedAt         string                      `json:"createdAt"`
-	UpdatedAt         string                      `json:"updatedAt"`
-}
-
-type PublishedSkillEdition struct {
-	ProductID     string   `json:"productId"`
-	ReleaseID     string   `json:"releaseId"`
-	Key           string   `json:"key"`
-	Title         string   `json:"title"`
-	SortOrder     int      `json:"sortOrder"`
-	Highlights    []string `json:"highlights"`
-	Currency      string   `json:"currency"`
-	PriceMinor    int      `json:"priceMinor"`
-	TrialUseLimit *int     `json:"trialUseLimit"`
-}
-
-type SkillPublicationNextAction struct {
-	Kind      string `json:"kind"`
-	ListingID string `json:"listingId"`
+	ID                string                   `json:"id"`
+	ListingID         string                   `json:"listingId"`
+	MerchantAccountID string                   `json:"merchantAccountId"`
+	DraftRevision     int                      `json:"draftRevision"`
+	Status            string                   `json:"status"`
+	Manifest          SkillPublicationManifest `json:"manifest"`
+	Draft             SkillPublicationDraft    `json:"draft"`
+	ReviewRevision    int                      `json:"reviewRevision"`
+	ReviewDigest      *string                  `json:"reviewDigest"`
+	Uploads           []SkillPublicationUpload `json:"uploads"`
+	Analysis          *PublicationAnalysis     `json:"analysis"`
+	Product           *PublishedProduct        `json:"product"`
+	FailureCode       *string                  `json:"failureCode"`
+	FailureMessage    *string                  `json:"failureMessage"`
+	CreatedAt         string                   `json:"createdAt"`
+	UpdatedAt         string                   `json:"updatedAt"`
 }
 
 type SkillAccessSubscription struct {
@@ -1423,13 +1399,8 @@ type SkillAccess struct {
 	PurchaseURL       *string                 `json:"purchaseUrl"`
 	Subscription      SkillAccessSubscription `json:"subscription"`
 	Trial             *SkillAccessTrial       `json:"trial"`
-	Edition           struct {
-		Key        string   `json:"key"`
-		Title      string   `json:"title"`
-		SortOrder  int      `json:"sortOrder"`
-		Highlights []string `json:"highlights"`
-	} `json:"edition"`
-	Release struct {
+	Title             string                  `json:"title"`
+	Release           struct {
 		ID             string `json:"id"`
 		ArtifactDigest string `json:"artifactDigest"`
 		FileName       string `json:"fileName"`
@@ -1492,13 +1463,6 @@ type XiaohongshuSkillSearch struct {
 	Items []XiaohongshuSkillCandidate `json:"items"`
 }
 
-type PublicWorkEdition struct {
-	Key        string   `json:"key"`
-	Title      string   `json:"title"`
-	SortOrder  int      `json:"sortOrder"`
-	Highlights []string `json:"highlights"`
-}
-
 type PublicWorkActiveRelease struct {
 	ID             string `json:"id"`
 	ArtifactDigest string `json:"artifactDigest"`
@@ -1519,7 +1483,6 @@ type PublicWorkProduct struct {
 	InstallKind       *string                  `json:"installKind"`
 	PurchaseAvailable bool                     `json:"purchaseAvailable"`
 	ActiveRelease     *PublicWorkActiveRelease `json:"activeRelease"`
-	Edition           *PublicWorkEdition       `json:"edition"`
 	PriceAsOf         string                   `json:"priceAsOf"`
 	BuyerFields       []struct {
 		Key         string `json:"key"`

@@ -114,11 +114,11 @@ description: Publish a deterministic Skill through the vNext contract.
 		lastPreviewOpenURL = openURL
 	}
 
-	if exit, envelope := execute("skill", "publish", "--path", source, "--edition-key", "standard", "--edition-order", "0"); exit == 0 || envelope["ok"] != false {
+	if exit, envelope := execute("skill", "publish", "--path", source); exit == 0 || envelope["ok"] != false {
 		t.Fatalf("simulated response loss did not fail safely: exit=%d envelope=%#v", exit, envelope)
 	}
 	previewStartedAt := time.Now()
-	if exit, envelope := execute("skill", "publish", "--path", source, "--edition-key", "standard", "--edition-order", "0"); exit != 0 || envelope["ok"] != true {
+	if exit, envelope := execute("skill", "publish", "--path", source); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("private package upload retry did not recover: exit=%d envelope=%#v", exit, envelope)
 	} else {
 		data, _ := envelope["data"].(map[string]any)
@@ -224,7 +224,7 @@ description: Publish a deterministic Skill through the vNext contract.
 	}
 }
 
-func TestSkillPublishBindsAdditionalEditionToExplicitListing(t *testing.T) {
+func TestSkillPublishUpdatesExplicitListingWithoutEditionFlags(t *testing.T) {
 	t.Parallel()
 	state := &publicationAPITestState{
 		publicationID: "22222222-2222-4222-8222-222222222226",
@@ -264,10 +264,6 @@ description: A separate package for the same Work.
 	exit := Execute([]string{
 		"skill", "publish", "--path", source,
 		"--listing", listingID,
-		"--edition-key", "pro",
-		"--edition-title", "Pro",
-		"--edition-order", "1",
-		"--edition-highlight", "Advanced workflow",
 	}, Dependencies{
 		Out: &stdout, ErrOut: io.Discard, Store: store, APIBaseURL: server.URL, Region: config.RegionGlobal,
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
@@ -280,7 +276,7 @@ description: A separate package for the same Work.
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if state.prepareResolution == nil || state.prepareResolution["mode"] != "BIND_EXISTING" || state.prepareResolution["listingId"] != listingID {
-		t.Fatalf("additional edition did not bind the requested Listing: %#v", state.prepareResolution)
+		t.Fatalf("update did not bind the requested Listing: %#v", state.prepareResolution)
 	}
 }
 
@@ -315,7 +311,7 @@ func TestXiaohongshuSearchRequiresExplicitSelectionForMultipleMatches(t *testing
 	defer server.Close()
 
 	var stdout bytes.Buffer
-	exit := Execute([]string{"skill", "publish", "--xiaohongshu-search", "Poster", "--merchant", merchantID, "--edition-key", "standard", "--edition-order", "0"}, Dependencies{
+	exit := Execute([]string{"skill", "publish", "--xiaohongshu-search", "Poster", "--merchant", merchantID}, Dependencies{
 		Out: &stdout, ErrOut: io.Discard, APIBaseURL: server.URL, Region: config.RegionCN,
 		Environment: skillcontent.Environment{Home: t.TempDir(), ConfigDir: t.TempDir()},
 	})
@@ -396,10 +392,10 @@ description: Verify unpriced media and analysis continuation.
 		return exit, envelope
 	}
 
-	if exit, _ := execute("skill", "publish", "--path", source, "--edition-key", "standard", "--edition-order", "0"); exit == 0 {
+	if exit, _ := execute("skill", "publish", "--path", source); exit == 0 {
 		t.Fatal("simulated create response loss unexpectedly succeeded")
 	}
-	if exit, envelope := execute("skill", "publish", "--path", source, "--edition-key", "standard", "--edition-order", "0"); exit != 0 || envelope["ok"] != true {
+	if exit, envelope := execute("skill", "publish", "--path", source); exit != 0 || envelope["ok"] != true {
 		t.Fatalf("private preview recovery failed: exit=%d envelope=%#v", exit, envelope)
 	}
 	state.mu.Lock()
@@ -468,7 +464,7 @@ func TestSkillPublishValidatesLocallyBeforeLoginWithoutCreatingRecoveryState(t *
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	exit := Execute([]string{"skill", "publish", "--path", missingSource, "--edition-key", "standard", "--edition-order", "0", "--price-minor", "1"}, Dependencies{
+	exit := Execute([]string{"skill", "publish", "--path", missingSource, "--price-minor", "1"}, Dependencies{
 		Out: &stdout, ErrOut: &stderr, Store: securestore.NewMemory(), APIBaseURL: server.URL, Region: config.RegionCN,
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 	})
@@ -518,7 +514,7 @@ func TestSkillPublishRequiresExplicitMerchantWhenMultipleAreActive(t *testing.T)
 		t.Fatal(err)
 	}
 	var stdout bytes.Buffer
-	exit := Execute([]string{"skill", "publish", "--path", source, "--edition-key", "standard", "--edition-order", "0"}, Dependencies{
+	exit := Execute([]string{"skill", "publish", "--path", source}, Dependencies{
 		Out: &stdout, ErrOut: io.Discard, Store: store, APIBaseURL: server.URL, Region: config.RegionCN,
 		Environment: skillcontent.Environment{Home: root, ConfigDir: filepath.Join(root, "config")},
 	})
@@ -939,7 +935,7 @@ func (state *publicationAPITestState) serveHTTP(writer http.ResponseWriter, requ
 	case request.Method == http.MethodPost && request.URL.Path == "/v1/creator/skill-publications":
 		var input api.CreateSkillPublicationRequest
 		_ = json.NewDecoder(request.Body).Decode(&input)
-		if input.ContractVersion != "2026-08-27" || input.MerchantAccountID != merchantAccountID || input.Manifest.Spec.Sale.PriceMinor != nil || input.Manifest.Spec.PublishMode != "DOWNLOADABLE_SKILL" || input.Manifest.Spec.Edition.Key == "" {
+		if input.ContractVersion != api.SkillPublicationContractVersion || input.MerchantAccountID != merchantAccountID || input.Manifest.Spec.Sale.PriceMinor != nil || input.Manifest.Spec.PublishMode != "DOWNLOADABLE_SKILL" {
 			writer.WriteHeader(http.StatusBadRequest)
 			writeJSONResponse(writer, map[string]any{"statusCode": 400, "code": "PUBLICATION_CONTRACT_INVALID", "message": "expected a Merchant-bound unpriced downloadable edition"})
 			return

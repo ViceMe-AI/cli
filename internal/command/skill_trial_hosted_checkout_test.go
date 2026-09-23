@@ -62,7 +62,7 @@ func TestTrialHostedCheckoutSurvivesLocalPresentationFailure(t *testing.T) {
 					if details["checkoutUrl"] == nil || details["checkoutImageUrl"] == nil {
 						t.Fatal("lost hosted entry")
 					}
-					if strings.Contains(hint, "paymentPresentation.checkoutImageUrl") || !strings.Contains(hint, "始终写成可点击") || !strings.Contains(hint, "只嵌入一张") {
+					if strings.Contains(hint, "paymentPresentation.checkoutImageUrl") || !strings.Contains(hint, "[打开支付页面](完整 checkoutUrl)") || !strings.Contains(hint, "只嵌入一张") {
 						t.Fatalf("wrong hosted output contract: %s", hint)
 					}
 				} else if details["checkoutUrl"] != nil || details["checkoutImageUrl"] != nil {
@@ -89,7 +89,7 @@ func TestTrialHostedCheckoutSurvivesLocalPresentationFailure(t *testing.T) {
 
 func TestHostedCheckoutPreferencesRespectHostCapabilities(t *testing.T) {
 	for _, host := range []string{"workbuddy", "doubao", "codex", "claude", "unknown"} {
-		hint := skillPaymentPresentationHint(func(key string) string {
+		hint := paymentPresentationHint(func(key string) string {
 			for _, entry := range agentenv.AgentEnvMarkers {
 				if string(entry.Platform) == host && key == entry.Markers[0] {
 					return "fixture"
@@ -97,10 +97,44 @@ func TestHostedCheckoutPreferencesRespectHostCapabilities(t *testing.T) {
 			}
 			return ""
 		}, true)
-		for _, text := range []string{"当前宿主明确支持", "Codex Desktop", "open_in_codex", "target.type=browser", "queued", "Codex 终端版", "WorkBuddy", "豆包工作", "Claude", "同一订单只嵌入一张二维码图片", "不要提前在后台启动等待"} {
+		for _, text := range []string{"当前宿主明确支持", "Codex Desktop", "present_files", "ToolSearch", "DeferExecuteTool", "右侧内置浏览器", "不输出裸 URL", "queued", "Codex 终端版", "WorkBuddy", "豆包工作", "Claude", "同一订单只嵌入一张二维码图片", "不要提前在后台启动等待"} {
 			if !strings.Contains(hint, text) {
 				t.Fatalf("%s omitted %q", host, text)
 			}
 		}
+	}
+}
+
+func TestTrialExpiredPendingRecoveryNeverPresentsEmptyPayment(t *testing.T) {
+	state := newSkillTrialTestServer(t, func(s *skillTrialTestServer) { s.trialPurchaseExpired = true })
+	defer state.server.Close()
+	home, store := t.TempDir(), securestore.NewMemory()
+	invoke := func(args ...string) (int, map[string]any) {
+		code, result, _ := executeSkillTrialCommand(t, state.server, home, store, args...)
+		return code, result
+	}
+	if code, result := invoke("skill", "install", downloadableProductID, "--agent", "codex"); code != 0 {
+		t.Fatalf("install: %#v", result)
+	}
+	for i := 0; i < 2; i++ {
+		_, result := invoke("skill", "trial-purchase", downloadableProductID, "--wait", "0")
+		failure := result["error"].(map[string]any)
+		if failure["code"] != "PAYMENT_CONFIRMATION_PENDING" {
+			t.Fatalf("must wait for authoritative recovery: %#v", result)
+		}
+		details := failure["details"].(map[string]any)
+		if details["nextAction"] != "WAIT_PAYMENT_CONFIRMATION" || details["paymentPresentation"] != nil {
+			t.Fatalf("invalid presentation: %#v", details)
+		}
+	}
+	state.mu.Lock()
+	requests := append([]map[string]string(nil), state.trialPurchaseRequests...)
+	state.paymentStatus = "PAID"
+	state.mu.Unlock()
+	if len(requests) != 3 || requests[0]["clientRequestId"] == "" || requests[0]["clientRequestId"] != requests[2]["clientRequestId"] {
+		t.Fatalf("must resume same request after local status: %#v", requests)
+	}
+	if code, result := invoke("skill", "trial-purchase", downloadableProductID, "--wait", "0", "--agent", "codex"); code != 0 {
+		t.Fatalf("paid recovery: %#v", result)
 	}
 }

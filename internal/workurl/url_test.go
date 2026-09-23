@@ -56,8 +56,8 @@ func TestPublicWorkURLRelativeAndAuthorityBoundary(t *testing.T) {
 func TestDisplayOnlyOmitsPublicDefaults(t *testing.T) {
 	for _, base := range []string{"https://viceme.cn", "https://viceme.ai", "https://dev.viceme.cn", ""} {
 		for _, ext := range []string{"", ".md"} {
-			full := base + "/alice" + ext + "?mode=consumer&view=work&workSlug=site&product=p%31&install=owned#readme"
-			want := base + "/alice/site" + ext + "?product=p%31&install=owned#readme"
+			full := base + "/alice" + ext + "?mode=consumer&view=work&workSlug=site&product=p%31#readme"
+			want := base + "/alice/site" + ext + "?product=p%31#readme"
 			if got := Display(full); got != want {
 				t.Errorf("got %s, want %s", got, want)
 			}

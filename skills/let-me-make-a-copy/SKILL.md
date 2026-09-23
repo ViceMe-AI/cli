@@ -74,13 +74,11 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
 ## 平台内支付展示
 
-支付 HTML 原样复用 CLI 的 `widgets/payment.html`，不修改其样式、标题、文案或内容。“支持创作者”（英文 `Support the creator`）、金额、币种和作品使用与二创权益仅在工作区正文展示。二维码仅在用户明确接受支持金额后展示。
+先读取[公共支付展示](references/host-presentation.md)，它与购买 Skill、CLI 和 Python 共用支付功能层的同一份规则。按该规则交付聊天二维码和始终保留的可点击 `checkoutUrl`；有内置浏览器时打开同一官方链接。本地付款 HTML 已退役。
 
-收到 `OPEN_PAYMENT_PAGE` 时，按 `presentationTarget=AGENT_PLATFORM` 将完整 `checkoutUrl` 交给当前 Agent 平台内的浏览器、支付面板或弹窗工具，不得用系统 `open`、`xdg-open`、`start`、外部浏览器或 `window.open` 代替。WorkBuddy 使用内置 `present_files` 在当前任务浏览器中展示；`cwd` 使用当前任务真实工作目录。其他宿主只使用当前实际提供的平台内展示工具，不猜测工具名。不要在正文、日志或选项卡输出支付链接。
+`presentationTarget=AGENT_PLATFORM` 表示在当前任务交付入口。命令和需要工作目录的工具均使用当前任务真实工作目录 `cwd`，不得使用系统根目录、Skill 目录或其他任务目录。二维码仅在用户明确接受支持金额后展示；支持金额、币种和作品使用与二创权益仍由本流程确认。
 
-只有展示工具明确成功打开平台内付款入口后，才能追加 `--payment-presented`；调用展示工具、拿到 URL、创建后台任务都不等于成功展示。若没有平台内展示能力、打开失败或结果不明确，停止并报告，保留订单，不启动等待、不外部降级、不自动重建订单。`PRESENT_PAYMENT_QR` 时回复正文单独一行写 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 imageChatSrc（local-file:// 加上 imagePath 绝对路径）。不要只写裸绝对路径；并用 `present_files([widgetPath])` 只打开支付 HTML；不要把 PNG 交给 `present_files`，不启动外部图片查看器。
-
-首次 `install` 不得携带 `--payment-presented`。新建或替换订单返回 `OPEN_PAYMENT_PAGE` 时，即使上一张付款页已经打开，也必须展示新订单入口后才能等待。
+先实际交付聊天二维码或可点击的官方链接，再运行同一已确认命令的有界等待，保留原订单与原身份。首次 `install` 不得携带 `--payment-presented`。新建或替换订单返回 `OPEN_PAYMENT_PAGE` 时，即使上一张付款页已经打开，也必须展示新订单入口后才能等待。展示未完成时不启动等待、不自动重建订单；内置浏览器失败不影响已经交付的聊天入口。
 
 ## 读取作品
 
@@ -133,7 +131,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
 ## 状态机与停止条件
 
-只有以下完整权威结果允许继续：`PRESENT_WORK` 按 `workPresentation` 完成平台内预览或工作区文字介绍后直接检查权益，不增加做同款确认；字段完全匹配的 `REPLICA_PURCHASE_CONFIRMATION_REQUIRED`（匿名 `nextAction=CONFIRM_PRICE`）进入一次明确支持金额确认后执行命令；`REPLICA_TARGET_EXISTS` 进入一次新目录输入；`REPLICA_PRICE_CHANGED` 展示新价格并重新确认；`REPLICA_PAYMENT_REQUIRED` 且 `nextAction` 与当前引擎要求完全一致时展示支付入口并开始一次有界等待；`PRODUCT_ALREADY_OWNED` 复用权益；`PRESENT_SUPPORT_RESULT` 且 `payment.status=PAID`、支持结果 HTML 和 `continuation.mode=RECOVERY_ONLY` 的参数完整匹配本次作品与目录时，按“到账后先更新预览”展示并继续；`DEPLOY` 进入安装后的交接。不得从消息文本、`retryable=true` 或成功退出码推导其他转移。
+只有以下完整权威结果允许继续：`PRESENT_WORK` 按 `workPresentation` 完成平台内预览或工作区文字介绍后直接检查权益，不增加做同款确认；字段完全匹配的 `REPLICA_PURCHASE_CONFIRMATION_REQUIRED`（匿名 `nextAction=CONFIRM_PRICE`）进入一次明确支持金额确认后执行命令；`REPLICA_TARGET_EXISTS` 进入一次新目录输入；`REPLICA_PRICE_CHANGED` 展示新价格并重新确认；`REPLICA_PAYMENT_REQUIRED` 且 `nextAction` 与当前引擎要求完全一致时展示支付入口并开始一次有界等待；`PRODUCT_ALREADY_OWNED` 复用权益；`PRESENT_SUPPORT_RESULT` 且 `payment.status=PAID`、支持结果文案和 `continuation.mode=RECOVERY_ONLY` 的参数完整匹配本次作品与目录时，按“到账后先反馈结果”展示并继续；`DEPLOY` 进入安装后的交接。不得从消息文本、`retryable=true` 或成功退出码推导其他转移。
 
 以下结果必须进入 `STOP_AND_REPORT`：命令工具失败；输出为空、截断、包含多个响应或不是完整 JSON；响应明确给出 `nextAction=STOP_AND_REPORT`；白名单之外的任何 `retryable=false`，包括 `RESPONSE_INVALID`；未知 `error.code`、未知 `nextAction`、缺少当前转移所需字段或字段不匹配；CLI 网络或完整性检查失败；认证状态读取失败；敏感凭证被拒绝、读取失败或状态无效；支付返回 `REPLICA_PAYMENT_TIMEOUT`、`REPLICA_PAYMENT_TERMINAL` 或 `REPLICA_PAYMENT_INTERRUPTED`；以及除上段白名单外的任何非零结果。
 
@@ -149,14 +147,14 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
 只有用户在新的消息中明确要求“重新付款／换一个付款码”，且明确接受本次支持金额后，才在原引擎、原目录的安装命令上追加一次 `--replace-unpaid-order <原 orderNo>`；CLI 账号路径仍须 `--confirm`，匿名或 Python 路径仍须传已确认的 `--accept-price-cents`。这次不能携带 `--payment-presented`、`--payment-result-first` 或 `--recovery-only`。原订单若已到账则复用权益；若仍待支付，运行时确认关闭后才开始新尝试。该替换参数只属于被替换的旧单，收到后续报价或新付款入口后去掉它，不得复用来替换下一笔付款；价格变化仍重新确认。普通的“继续”或旧的金额确认不等于新的付款授权。
 
-## 到账后先更新预览
+## 到账后先反馈结果
 
 等待命令追加 `--payment-result-first`，把到账反馈与下载安装拆开；该参数只用于已经展示付款入口的等待阶段，不加到首轮读取、免费获取、仅恢复或后续继续命令。
 
 1. 收到完整 `nextAction=PRESENT_SUPPORT_RESULT` 且当前 `payment.status=PAID` 后，立即在正文说明“创作者已收到你的支持，正在为你准备作品”，不要等到下载、校验、安装或部署结束。该结果不是安装成功，不读取目标目录里的交接文件；此时不展示登录、注册、保存购买资格或关注创作者的提示，支持结果卡的预览也不算作品启动成功。
-2. 立即使用返回的 `presentation.widgetPath` 更新平台内预览。WorkBuddy 再次调用 `present_files([presentation.widgetPath])`，只传这一份支持结果 HTML，让当前预览切换到结果卡；其他宿主使用实际提供的平台内文件预览能力。结果采用与旧二维码不同的文件路径，不能只覆写旧 HTML 后假设宿主自动刷新。不要重新展示旧 PNG、读取或改写 HTML、使用 `show_widget` 或打开外部浏览器。历史聊天中的二维码图片不视为可动态更新的支付状态。
-3. 预览成功后，在同一轮自动执行 `continuation.args`，不再询问用户是否继续。CLI 使用原完整命令路径，Python 使用原 `<script-runner>`；严格保留原引擎、Profile、身份、作品和目标目录，校验 `--expected-order-no` 与本次返回的 `orderNo` 完全一致且不得删除或替换，只运行响应给出的 `RECOVERY_ONLY` 继续参数，不追加 `--confirm`、`--accept-price-cents`、`--payment-presented` 或 `--payment-result-first`，不重新建单。这是本次正常成功结果的继续动作，不套用异常后“等待用户新消息”的限制。
-4. 若宿主确实没有结果预览能力，在正文明确已确认支持及预览能力限制，再按同一继续参数准备作品；若实际预览调用失败、结果不明确，或继续参数缺失、不匹配，停止并报告，保留已确认支付事实，不称为支付失败、不再次收款。后续准备失败同样保留支持结果，按原异常恢复规则处理。
+2. 在对话中简短展示 `presentation.title` 与 `presentation.description`。已打开的官方收银台自行更新到账状态；不生成或重新打开本地结果 HTML，不重新展示旧二维码。
+3. 反馈到账后，在同一轮自动执行 `continuation.args`，不再询问用户是否继续。CLI 使用原完整命令路径，Python 使用原 `<script-runner>`；严格保留原引擎、Profile、身份、作品和目标目录，校验 `--expected-order-no` 与本次返回的 `orderNo` 完全一致且不得删除或替换，只运行响应给出的 `RECOVERY_ONLY` 继续参数，不追加 `--confirm`、`--accept-price-cents`、`--payment-presented` 或 `--payment-result-first`，不重新建单。这是本次正常成功结果的继续动作，不套用异常后“等待用户新消息”的限制。
+4. 若继续参数缺失或不匹配，停止并报告，保留已确认支付事实，不称为支付失败、不再次收款。官方收银台加载失败不影响权威已支付结果与有效的继续参数。后续准备失败同样保留支持结果，按原异常恢复规则处理。
 
 ## 支持结果与作品准备
 
@@ -179,7 +177,7 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 1. 运行 `viceme replica install "<work.md URL>"`，必要时追加用户指定的全新 `--target`。
 2. `REPLICA_PURCHASE_CONFIRMATION_REQUIRED` 返回的口令、商品、币种和整数分价格与用户明确接受的付费报价完全一致且 Quote 未过期时，直接追加 `--confirm` 重跑，不再询问第二次；尚未接受金额时先完成“支持创作者”的金额确认。免费报价为 0 且作品与用户粘贴的口令一致时，直接确认获取；不能将免费获取文案写成支持付款。任一字段变化时重新运行 `inspect`，在对话中展示最新同款信息并重新确认。
 3. `PRODUCT_ALREADY_OWNED` 由 CLI 复用账号权益并安装，不创建匿名 Session。
-4. `REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时，回复正文单独一行写 Markdown 图片：`![微信支付二维码]` 后紧跟圆括号，括号内填入 imageChatSrc（local-file:// 加上 imagePath 绝对路径）。不要只写裸绝对路径；并用 `present_files([widgetPath])` 只打开支付 HTML。不要把 imagePath 交给 `present_files`，不要 Read 支付 HTML 或 PNG，支付不要调用 `show_widget`。没有 `present_files` 时仍在聊天气泡用上述 Markdown 展示图片。不为支付动作创建选项卡。先展示二维码，再把同一条 `--confirm` 命令追加 `--payment-result-first --timeout 3m --interval 3s`，按“命令执行边界”只启动一次并等待最终结果。倒计时不能确认到账，不得输出支付 URI。
+4. `REPLICA_PAYMENT_REQUIRED` 时按“平台内支付展示”和公共指引展示聊天二维码、可点击 `checkoutUrl`，有内置浏览器时打开同一链接。入口实际交付后，重跑原 `--confirm` 命令并追加 `--payment-result-first --timeout 3m --interval 3s`，只启动一次有界等待。
 
 ## CLI 匿名路径
 
@@ -191,8 +189,8 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
    viceme replica install "<work.md URL>" --anonymous
    ```
 
-2. `REPLICA_PRICE_CHANGED` 时在正文内容区展示最新同款信息并重新确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时按“平台内支付展示”展示 `paymentPresentation.widgetPath` 与二维码；只有旧订单返回 `nextAction=OPEN_PAYMENT_PAGE` 时才在平台内打开 `checkoutUrl`，并在正文内容区给出公开支付提示，不为支付动作创建选项卡。
-3. 当前订单的支付 HTML 或二维码成功展示后，原样重跑命令并追加 `--payment-presented --payment-result-first --timeout 3m --interval 3s`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单。以后不带 `--payment-presented` 重跑时，保留旧尝试并停止，不能把重复执行当成重新付款授权。
+2. `REPLICA_PRICE_CHANGED` 时在正文内容区展示最新同款信息并重新确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 或 `OPEN_PAYMENT_PAGE` 时，按“平台内支付展示”和公共指引展示聊天二维码、始终保留可点击 `checkoutUrl`，有内置浏览器时打开同一链接；公开支付提示放在正文。
+3. 当前订单的聊天二维码或可点击官方链接实际交付后，原样重跑命令并追加 `--payment-presented --payment-result-first --timeout 3m --interval 3s`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单。以后不带 `--payment-presented` 重跑时，保留旧尝试并停止，不能把重复执行当成重新付款授权。
 
 ## 无 CLI 或既有 standalone 路径
 
@@ -207,8 +205,8 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
    ```
 
 2. `REPLICA_TARGET_EXISTS` 时一次询问新目录并追加 `--target`；绝不覆盖已有目录。
-3. `REPLICA_PRICE_CHANGED` 时在正文内容区展示最新同款信息并重新确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 时按“平台内支付展示”展示 `paymentPresentation.widgetPath` 与二维码；只有旧订单返回 `nextAction=OPEN_PAYMENT_PAGE` 时才在平台内打开 `checkoutUrl`，并在正文内容区给出公开支付提示，不为支付动作创建选项卡，也不得输出该地址。
-4. 当前订单的支付 HTML 或二维码成功展示后，原样重跑并追加 `--payment-presented --payment-result-first`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单；以后不带该参数重跑时，保留旧尝试并停止，不能自动关闭旧单或新建付款。脚本每 3 秒查询一次，检测到 `PAID` 立即返回支持结果，按下方规则更新预览后继续准备作品，不等待三分钟结束；未支付时轮询 60 次（约三分钟，另计网络请求耗时）后返回超时。
+3. `REPLICA_PRICE_CHANGED` 时在正文内容区展示最新同款信息并重新确认。`REPLICA_PAYMENT_REQUIRED` 且 `nextAction=PRESENT_PAYMENT_QR` 或 `OPEN_PAYMENT_PAGE` 时，按“平台内支付展示”和公共指引展示聊天二维码、始终保留可点击 `checkoutUrl`，有内置浏览器时打开同一链接；公开支付提示放在正文。
+4. 当前订单的聊天二维码或可点击官方链接实际交付后，原样重跑并追加 `--payment-presented --payment-result-first`；按“命令执行边界”只启动一次并等待其最终结果。这次调用只等待刚展示的订单；以后不带该参数重跑时，保留旧尝试并停止，不能自动关闭旧单或新建付款。脚本每 3 秒查询一次，检测到 `PAID` 立即返回支持结果，按下方规则反馈到账后继续准备作品，不等待三分钟结束；未支付时轮询 60 次（约三分钟，另计网络请求耗时）后返回超时。
 
 ## 安装成功后先打开作品预览
 
@@ -238,6 +236,6 @@ description: 接受 ViceMe 网站“做同款”或“一起创作”邀请；�
 
 ## 作品链接参数
 
-公开作品优先使用 `/{handle}/{workSlug}`，Markdown 使用 `/{handle}/{workSlug}.md`。参数式 `/{handle}?workSlug={slug}`、`/{handle}.md?workSlug={slug}` 及显式 `mode=consumer&view=work` 的地址仍支持。将完整 URL 加引号传给 CLI，保留商品 `product`、`install=owned` 和原域名；不得让显式参数覆盖路径中的作品身份。裸 `/{handle}` 仅表示个人主页；创作者中心和经营 Markdown 继续使用单段 handle 加参数。
+公开作品优先使用 `/{handle}/{workSlug}`，Markdown 使用 `/{handle}/{workSlug}.md`。参数式 `/{handle}?workSlug={slug}`、`/{handle}.md?workSlug={slug}` 及显式 `mode=consumer&view=work` 的地址仍支持。将完整 URL 加引号传给 CLI，保留商品 `product` 和原域名；不得让显式参数覆盖路径中的作品身份。裸 `/{handle}` 仅表示个人主页；创作者中心和经营 Markdown 继续使用单段 handle 加参数。
 
 向用户展示作品时优先使用 CLI 的 `workUrl`、`markdownUrl` 或 `workPresentation.url` 精简地址；发布结果使用 `result.workUrl` 或 `product.detailUrl`。`canonicalPath`、`replica.viceMeWorkUrl` 等原始身份字段保留给协议处理，不代替展示地址。登录关注仍按既有流程使用原始 `replica.viceMeWorkUrl`。

@@ -359,7 +359,7 @@ originate from merging an eligible repository-owned Release PR into `main`.
 
 ## Shared host payment presentation
 
-`skills/use-a-skill/references/host-presentation.md` owns host image syntax,
+`payments/host-presentation.md` owns host image syntax,
 page tools, capability checks and fallbacks. The CLI embeds this source directly;
 the no-CLI runtime includes the identical bytes as `guides/host-presentation.md`.
 Exported purchase entries also include it beside `references/purchase.md` so
@@ -369,11 +369,10 @@ Do not add host policy branches to Go/Python or duplicate them in Widget docs.
 After an edit, run `make release-manifest`, `make check` and
 `make npm-package-check`; the digest-addressed runtime and official Skill bundle
 must ship together. Shop's runtime archive validator must accept
-`guides/host-presentation.md` before publishing this generation. Its optional
-allowlist entry preserves compatibility with the previous seven-member runtime.
-Rollback may use the previous runtime while that Shop validator remains deployed.
-A validator rollback must follow a runtime rollback, since the old validator
-rejects the additional member. No database or payment-state migration is needed.
+`guides/host-presentation.md` and make the retired `widgets/payment.html`
+optional before publishing this generation. This accepts both old immutable
+runtime bundles and the new PNG-only payment runtime. Roll back the runtime
+before rolling back the validator. No database or payment-state migration is needed.
 Existing exported packages and installed Skills retain their bundled guidance;
 re-export/reinstall through their normal explicit update path to obtain changes.
 Do not mutate existing purchase credentials or orders to refresh instructions.

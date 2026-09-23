@@ -68,7 +68,12 @@ func presentSkillDetail(raw json.RawMessage, productID, webBaseURL string) json.
 		}
 	}
 	query := parsed.Query()
-	query.Set("product", productID)
+	var packageType string
+	if json.Unmarshal(fields["assetPackageType"], &packageType) == nil && packageType != "" {
+		query.Del("product")
+	} else {
+		query.Set("product", productID)
+	}
 	parsed.RawQuery = query.Encode()
 	parsed.Path = strings.TrimSuffix(parsed.Path, ".md")
 	fields["workUrl"], _ = json.Marshal(workurl.Display(parsed.String()))

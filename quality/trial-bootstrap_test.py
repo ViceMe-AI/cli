@@ -41,9 +41,9 @@ class BootstrapTests(unittest.TestCase):
         archive = (SCRIPTS / "trial-runtime.zip").read_bytes()
         self.assertEqual(hashlib.sha256(archive).hexdigest(), self.module.RUNTIME_SHA256)
         with zipfile.ZipFile(io.BytesIO(archive)) as bundle:
-            self.assertEqual(bundle.read("guides/host-presentation.md"), (ROOT / "skills/use-a-skill/references/host-presentation.md").read_bytes())
+            self.assertEqual(bundle.read("guides/host-presentation.md"), (ROOT / "payments/host-presentation.md").read_bytes())
             self.assertEqual(bundle.read("scripts/trial.py"), (SCRIPTS / "trial_runtime.py").read_bytes())
-            self.assertEqual(bundle.read("widgets/payment.html"), (ROOT / "widgets/payment.html").read_bytes())
+            self.assertNotIn("widgets/payment.html", bundle.namelist())
         with mock.patch.object(self.module.urllib.request, "build_opener", side_effect=AssertionError("static HTTP after official install")):
             self.assertEqual(self.run_bundle(["trial.py", "ready", "--product", "example", "--market=global"]), 19)
 
@@ -164,15 +164,19 @@ class BootstrapTests(unittest.TestCase):
                 skill_path = Path(entry["skillPath"])
                 self.assertTrue(runtime.is_file(), "bootstrap cleanup must leave installed dependencies")
                 self.assertTrue(skill_path.is_file())
-                self.assertIn("viceme-purchase-required:v1", skill_path.read_text())
-                self.assertIn("## 使用前必读", skill_path.read_text())
-                self.assertIn("references/purchase.md", skill_path.read_text())
-                self.assertIn("不算完成支付展示", skill_path.read_text())
-                self.assertIn("开场白", skill_path.read_text())
-                self.assertIn("无试用开场白", skill_path.read_text())
-                self.assertIn("正式内容尚未安装", skill_path.read_text())
-                self.assertNotIn("imageChatSrc", skill_path.read_text())
-                self.assertIn("/viceme-purchase-required:v1", skill_path.read_text())
+                entry_text = (skill_path.parent / "references/entry.md").read_text()
+                self.assertIn("references/entry.md", skill_path.read_text())
+                self.assertNotIn("viceme-purchase-required:v1", skill_path.read_text())
+                self.assertNotIn("购买后使用", skill_path.read_text())
+                self.assertIn("viceme-purchase-required:v1", entry_text)
+                self.assertIn("## 使用前必读", entry_text)
+                self.assertIn("references/purchase.md", entry_text)
+                self.assertIn("不算完成支付展示", entry_text)
+                self.assertIn("开场白", entry_text)
+                self.assertIn("无试用开场白", entry_text)
+                self.assertIn("正式内容尚未安装", entry_text)
+                self.assertNotIn("imageChatSrc", entry_text)
+                self.assertIn("/viceme-purchase-required:v1", entry_text)
                 self.assertNotIn("Full paid Skill", skill_path.read_text())
                 guide = skill_path.parent / "references/purchase.md"
                 self.assertTrue(guide.is_file())
@@ -182,7 +186,7 @@ class BootstrapTests(unittest.TestCase):
                 self.assertIn("正式内容安装完成后，重新读取实际 SKILL.md 并继续原任务", guide.read_text())
                 self.assertIn("没有原任务时，简短说明怎么开始，等待用户提供任务内容", guide.read_text())
                 self.assertIn("host-presentation.md", guide.read_text())
-                self.assertEqual((guide.parent / "host-presentation.md").read_bytes(), (ROOT / "skills/use-a-skill/references/host-presentation.md").read_bytes())
+                self.assertEqual((guide.parent / "host-presentation.md").read_bytes(), (ROOT / "payments/host-presentation.md").read_bytes())
                 self.assertFalse((skill_path.parent / ".viceme/trial-body.md").exists())
                 self.assertFalse((directory / ".agents/skills/paid-demo").exists())
                 self.assertFalse((directory / ".viceme/trial" / (product + ".json")).exists())
@@ -205,11 +209,27 @@ class BootstrapTests(unittest.TestCase):
                     env=environment, capture_output=True, text=True, timeout=20)
                 self.assertEqual(order.returncode, 0, order.stdout + order.stderr)
                 pending = json.loads(order.stdout)
-                self.assertEqual(pending["nextAction"], "PRESENT_PAYMENT_WIDGET")
+                self.assertEqual(pending["nextAction"], "PRESENT_PAYMENT_QR")
                 self.assertEqual(pending["runtimePath"], str(runtime))
                 self.assertEqual(pending["skillPath"], str(skill_path))
                 self.assertNotIn("Full paid Skill", skill_path.read_text())
                 identity = state_path.read_bytes()
+                # A new chat/process must refresh a self-consistent older bundle,
+                # without resetting the already created purchase identity.
+                old_guide = skill_path.parent / ".viceme/guides/host-presentation.md"
+                old_guide.write_text("Older presentation rules")
+                runtime_manifest = skill_path.parent / ".viceme/runtime.json"
+                manifest = json.loads(runtime_manifest.read_text())
+                manifest["files"][".viceme/guides/host-presentation.md"] = hashlib.sha256(old_guide.read_bytes()).hexdigest()
+                runtime_manifest.write_text(json.dumps(manifest))
+                refreshed = subprocess.run([sys.executable, str(runner), str(SCRIPTS / "trial.py"),
+                    "http://127.0.0.1:%s" % server.server_port, "install", "--product", product,
+                    "--market", "cn", "--agent", "agents"], cwd=temporary, env=environment,
+                    capture_output=True, text=True, timeout=20)
+                self.assertEqual(refreshed.returncode, 0, refreshed.stdout + refreshed.stderr)
+                self.assertEqual(old_guide.read_bytes(), (ROOT / "payments/host-presentation.md").read_bytes())
+                self.assertEqual(state_path.read_bytes(), identity)
+
                 for file in skill_path.parent.rglob("*"):
                     if file.is_file():
                         self.assertNotIn(json.loads(identity)["secret"].encode(), file.read_bytes())

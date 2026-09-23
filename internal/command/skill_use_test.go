@@ -106,92 +106,32 @@ func TestPaidSkillInstallRequiresLoginBeforeEntitlementLookup(t *testing.T) {
 	}
 }
 
-func TestCanonicalWorkURLSelectsTheFreeEditionByDefault(t *testing.T) {
-	const paidProductID = "44444444-4444-4444-8444-444444444444"
-	const transactionalProductID = "66666666-6666-4666-8666-666666666666"
-	var requestedAccessPath string
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case "/v1/public/creators/creator/works/example-skill":
-			writeJSONResponse(writer, map[string]any{
-				"creator": map[string]any{"handle": "creator"},
-				"work": map[string]any{
-					"canonicalPath": "/creator?mode=consumer&view=work&workSlug=example-skill",
-					"products": []any{
-						map[string]any{"id": transactionalProductID, "minimumPriceCents": 0, "isFree": false, "installKind": nil, "activeRelease": nil, "edition": nil},
-						map[string]any{"id": paidProductID, "currency": "CNY", "minimumPriceCents": 300, "maximumPriceCents": 300, "isFree": false, "installKind": "PURCHASE_REQUIRED", "activeRelease": map[string]any{"id": downloadableReleaseID, "artifactDigest": strings.Repeat("b", 64), "fileName": "pro.zip"}, "edition": map[string]any{"key": "pro", "title": "Pro", "sortOrder": 0, "highlights": []string{"Advanced workflow", "Priority templates"}}},
-						map[string]any{"id": downloadableProductID, "currency": "CNY", "minimumPriceCents": 0, "maximumPriceCents": 0, "isFree": true, "installKind": "PUBLIC_FREE", "activeRelease": map[string]any{"id": downloadableReleaseID, "artifactDigest": strings.Repeat("a", 64), "fileName": "free.zip"}, "edition": map[string]any{"key": "free", "title": "Free", "sortOrder": 2, "highlights": []string{"Core workflow"}}},
-					},
-				},
-			})
-		case "/v1/skills/" + downloadableProductID + "/access", "/v1/skills/" + paidProductID + "/access":
-			requestedAccessPath = request.URL.Path
-			writeJSONResponse(writer, skillAccessFixture(true, false, "a1", ""))
-		default:
-			http.NotFound(writer, request)
+func TestCanonicalWorkURLResolvesSingleSkill(t *testing.T) {
+	products := []any{map[string]any{"id": downloadableProductID, "installKind": "PUBLIC_FREE", "activeRelease": map[string]any{"id": downloadableReleaseID}}}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/v1/public/") {
+			writeJSONResponse(w, map[string]any{"work": map[string]any{"kind": "SKILL", "products": products}})
+		} else {
+			writeJSONResponse(w, skillAccessFixture(true, false, "a1", ""))
 		}
 	}))
 	defer server.Close()
-
-	for _, params := range []string{"", "&mode=consumer&view=work", "&mode=consumer", "&view=work"} {
-		for _, product := range []string{"", paidProductID} {
-			target := server.URL + "/creator.md?workSlug=example-skill" + params
-			expected := downloadableProductID
-			if product != "" {
-				target += "&product=" + product
-				expected = product
-			}
-			exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "access", target)
-			if exit != 0 || envelope["ok"] != true || requestedAccessPath != "/v1/skills/"+expected+"/access" {
-				t.Fatalf("Work URL selected wrong edition: target=%s path=%s exit=%d envelope=%#v", target, requestedAccessPath, exit, envelope)
-			}
+	for _, path := range []string{"/creator/example-skill", "/creator/example-skill.md", "/creator.md?workSlug=example-skill"} {
+		exit, value := executeSkillUseCommand(t, server, t.TempDir(), "skill", "access", server.URL+path)
+		if exit != 0 || value["ok"] != true {
+			t.Fatalf("single Skill failed: %#v", value)
 		}
 	}
-	detailExit, detail := executeSkillUseCommand(t, server, t.TempDir(),
-		"skill", "detail", server.URL+"/creator/example-skill",
-	)
-	if detailExit != 0 || detail["ok"] != true {
-		t.Fatalf("canonical Work detail failed: exit=%d envelope=%#v", detailExit, detail)
+	for _, query := range []string{"?product=" + downloadableProductID, "?install=owned", "?product=" + downloadableProductID + "&install=owned"} {
+		exit, value := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", server.URL+"/creator/example-skill"+query)
+		if exit == 0 || value["ok"] != false {
+			t.Fatalf("obsolete selector accepted: %#v", value)
+		}
 	}
-	data := detail["data"].(map[string]any)
-	if data["workUrl"] != server.URL+"/creator/example-skill" || data["markdownUrl"] != server.URL+"/creator/example-skill.md" {
-		t.Fatalf("detail did not expose short links: %#v", data)
-	}
-	if data["work"].(map[string]any)["canonicalPath"] != "/creator?mode=consumer&view=work&workSlug=example-skill" {
-		t.Fatal("detail changed canonical identity")
-	}
-	products := detail["data"].(map[string]any)["work"].(map[string]any)["products"].([]any)
-	paid := products[1].(map[string]any)
-	if paid["currency"] != "CNY" || paid["maximumPriceCents"] != float64(300) {
-		t.Fatalf("detail lost edition price fields: %#v", paid)
-	}
-	highlights := paid["edition"].(map[string]any)["highlights"].([]any)
-	if len(highlights) != 2 {
-		t.Fatalf("detail lost edition highlights: %#v", paid)
-	}
-	for name, targetCode := range map[string]string{
-		"malformed":       "SKILL_EDITION_SELECTOR_INVALID",
-		"foreign":         "SKILL_EDITION_NOT_IN_WORK",
-		"not-installable": "SKILL_EDITION_NOT_INSTALLABLE",
-	} {
-		t.Run(name, func(t *testing.T) {
-			selector := "not-a-product"
-			if name == "foreign" {
-				selector = "55555555-5555-4555-8555-555555555555"
-			} else if name == "not-installable" {
-				selector = transactionalProductID
-			}
-			exit, failure := executeSkillUseCommand(t, server, t.TempDir(),
-				"skill", "access", server.URL+"/creator/example-skill?product="+selector,
-			)
-			if exit == 0 || failure["ok"] != false {
-				t.Fatalf("invalid explicit selector unexpectedly fell back: %#v", failure)
-			}
-			errorBody, _ := failure["error"].(map[string]any)
-			if errorBody["code"] != targetCode {
-				t.Fatalf("invalid explicit selector returned %#v, want %s", errorBody, targetCode)
-			}
-		})
+	products = append(products, products[0])
+	exit, value := executeSkillUseCommand(t, server, t.TempDir(), "skill", "access", server.URL+"/creator/example-skill")
+	if exit == 0 || value["ok"] != false {
+		t.Fatalf("ambiguous Skill accepted: %#v", value)
 	}
 }
 
@@ -287,124 +227,6 @@ func TestAuthenticatedOwnerTakesPrecedenceOverPublicTrial(t *testing.T) {
 	}
 	if trialGrantCalls.Load() != 0 {
 		t.Fatalf("owned install unexpectedly created %d trial grants", trialGrantCalls.Load())
-	}
-}
-
-func TestStrictOwnedURLSkipsPublicWorkAndPublicTrial(t *testing.T) {
-	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
-	t.Setenv(processAccessTokenEnvironment, accessToken)
-	archive := downloadableSkillArchive(t)
-	digest := fmt.Sprintf("%x", sha256.Sum256(archive))
-	var publicCalls atomic.Int32
-	var server *httptest.Server
-	server = httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case "/v1/public/creators/creator/works/delisted-skill", "/v1/skills/" + downloadableProductID + "/access", "/v1/skills/" + downloadableProductID + "/trial-grants":
-			publicCalls.Add(1)
-			http.NotFound(writer, request)
-		case "/v1/cli/auth/status":
-			writeJSONResponse(writer, map[string]any{
-				"authenticated": true, "user": map[string]any{"id": "33333333-3333-4333-8333-333333333333", "displayName": "Buyer", "avatarUrl": nil},
-				"scopes": []string{"skill-use:read"}, "expiresAt": "2027-08-27T00:00:00Z",
-			})
-		case "/v1/cli/skills/" + downloadableProductID + "/access":
-			writeJSONResponse(writer, skillAccessFixture(false, true, digest, ""))
-		case "/v1/cli/skills/" + downloadableProductID + "/download":
-			writeJSONResponse(writer, map[string]any{
-				"url": server.URL + "/artifact", "fileName": "paid.zip", "releaseId": downloadableReleaseID, "artifactDigest": digest, "expiresAt": "2027-08-27T00:00:00Z",
-			})
-		case "/artifact":
-			_, _ = writer.Write(archive)
-		default:
-			http.NotFound(writer, request)
-		}
-	}))
-	defer server.Close()
-
-	target := server.URL + "/creator/delisted-skill.md?product=" + downloadableProductID + "&install=owned"
-	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", target, "--agent", "agents")
-	if exit != 0 || envelope["ok"] != true {
-		t.Fatalf("strict owned reinstall failed: exit=%d envelope=%#v", exit, envelope)
-	}
-	if publicCalls.Load() != 0 {
-		t.Fatalf("strict owned URL touched public Work/trial endpoints %d times", publicCalls.Load())
-	}
-}
-
-func TestStrictOwnedURLNeverFallsBackForTheWrongAccount(t *testing.T) {
-	const accessToken = "vme_cli_1234567890123456789012345678901234567890123"
-	t.Setenv(processAccessTokenEnvironment, accessToken)
-	var forbiddenFallbackCalls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		switch request.URL.Path {
-		case "/v1/cli/auth/status":
-			writeJSONResponse(writer, map[string]any{
-				"authenticated": true, "user": map[string]any{"id": "33333333-3333-4333-8333-333333333333", "displayName": "Other buyer", "avatarUrl": nil},
-				"scopes": []string{"skill-use:read"}, "expiresAt": "2027-08-27T00:00:00Z",
-			})
-		case "/v1/cli/skills/" + downloadableProductID + "/access":
-			fixture := skillAccessFixture(false, false, strings.Repeat("a", 64), "https://shop.example/purchase")
-			fixture["trial"] = map[string]any{"available": true, "limitUses": 5}
-			writeJSONResponse(writer, fixture)
-		default:
-			forbiddenFallbackCalls.Add(1)
-			http.NotFound(writer, request)
-		}
-	}))
-	defer server.Close()
-
-	target := server.URL + "/creator/skill.md?product=" + downloadableProductID + "&install=owned"
-	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", target)
-	if exit == 0 || envelope["ok"] != false {
-		t.Fatalf("wrong account unexpectedly installed through strict owned intent: %#v", envelope)
-	}
-	errorBody := envelope["error"].(map[string]any)
-	if errorBody["code"] != "SKILL_NOT_OWNED" || forbiddenFallbackCalls.Load() != 0 {
-		t.Fatalf("strict owned flow fell back instead of stopping: error=%#v fallbackCalls=%d", errorBody, forbiddenFallbackCalls.Load())
-	}
-}
-
-func TestStrictOwnedURLRequiresLoginWithoutTouchingPublicEndpoints(t *testing.T) {
-	t.Setenv(processAccessTokenEnvironment, "")
-	var serverCalls atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		serverCalls.Add(1)
-		http.NotFound(writer, request)
-	}))
-	defer server.Close()
-
-	target := server.URL + "/creator/skill.md?product=" + downloadableProductID + "&install=owned"
-	exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", target)
-	if exit == 0 || envelope["ok"] != false {
-		t.Fatalf("anonymous strict owned install unexpectedly succeeded: %#v", envelope)
-	}
-	errorBody := envelope["error"].(map[string]any)
-	if errorBody["code"] != "NOT_LOGGED_IN" || serverCalls.Load() != 0 {
-		t.Fatalf("anonymous strict owned flow did not stop locally: error=%#v calls=%d", errorBody, serverCalls.Load())
-	}
-}
-
-func TestStrictOwnedURLValidatesIntentAndProductExactly(t *testing.T) {
-	t.Setenv(processAccessTokenEnvironment, "")
-	server := httptest.NewServer(http.NotFoundHandler())
-	defer server.Close()
-	queries := []string{
-		"?product=" + downloadableProductID + "&install=",
-		"?product=" + downloadableProductID + "&install=trial",
-		"?product=" + downloadableProductID + "&install=owned&install=owned",
-		"?install=owned",
-		"?product=not-a-product&install=owned",
-		"?product=" + downloadableProductID + "&product=" + downloadableProductID + "&install=owned",
-	}
-	for _, query := range queries {
-		exit, envelope := executeSkillUseCommand(t, server, t.TempDir(), "skill", "install", server.URL+"/creator/skill.md?"+strings.TrimPrefix(query, "?"))
-		if exit == 0 || envelope["ok"] != false {
-			t.Fatalf("invalid owned URL unexpectedly succeeded: query=%s envelope=%#v", query, envelope)
-		}
-		code := envelope["error"].(map[string]any)["code"]
-		if code != "SKILL_INSTALL_INTENT_INVALID" && code != "SKILL_OWNED_PRODUCT_REQUIRED" {
-			t.Fatalf("invalid owned URL returned query=%s envelope=%#v", query, envelope)
-		}
 	}
 }
 
@@ -540,12 +362,12 @@ func executeSkillUseCommand(t *testing.T, server *httptest.Server, home string, 
 }
 
 func skillAccessFixture(free, owned bool, digest, purchaseURL string) map[string]any {
-	editionKey, editionTitle := "pro", "Pro"
+	productTitle := "Pro"
 	installKind := "PURCHASE_REQUIRED"
 	purchaseAvailable := true
 	var resolvedPurchaseURL any = purchaseURL
 	if free {
-		editionKey, editionTitle = "free", "Free"
+		productTitle = "Free"
 		installKind = "PUBLIC_FREE"
 		purchaseAvailable = false
 		resolvedPurchaseURL = nil
@@ -559,7 +381,7 @@ func skillAccessFixture(free, owned bool, digest, purchaseURL string) map[string
 		"downloadAvailable": owned || free, "installKind": installKind,
 		"purchaseAvailable": purchaseAvailable, "purchaseUrl": resolvedPurchaseURL,
 		"unavailableReason": nil,
-		"edition":           map[string]any{"key": editionKey, "title": editionTitle, "sortOrder": 0, "highlights": []string{"Try the core workflow"}},
+		"title":             productTitle,
 		"release":           map[string]any{"id": downloadableReleaseID, "artifactDigest": digest, "fileName": "skill.zip"},
 	}
 }

@@ -19,6 +19,7 @@ import io
 import json
 import os
 import stat
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -28,6 +29,7 @@ import unittest
 import urllib.parse
 import xml.etree.ElementTree as ET
 import zipfile
+from pathlib import Path
 from contextlib import redirect_stdout
 from unittest import mock
 
@@ -101,8 +103,11 @@ class TrialScriptTestCase(unittest.TestCase):
             self.assertEqual(handle.read(), original)
 
     def test_purchase_entry_skill_markdown_is_a_hard_gate(self):
-        text = trial.purchase_entry_skill_markdown(
-            "demo-33709ab2", "Demo：简介（购买后使用）", PRODUCT_ID, "cn")
+        text = trial.purchase_entry_instructions(PRODUCT_ID, "cn")
+        skill = trial.purchase_entry_skill_markdown("demo-33709ab2", "Demo：简介")
+        self.assertIn(trial.ENTRY_POINTER.strip(), skill)
+        self.assertNotIn("## 使用前必读", skill)
+        self.assertNotIn("购买后使用", skill)
         self.assertIn("## 使用前必读", text)
         self.assertIn(trial.PURCHASE_MARKER + " product=" + PRODUCT_ID, text)
         self.assertIn(trial.PURCHASE_END, text)
@@ -118,10 +123,14 @@ class TrialScriptTestCase(unittest.TestCase):
         # 无 Python 时必须有 CLI 兜底，与试用门禁的三路结构对齐。
         self.assertIn("viceme skill trial-purchase " + PRODUCT_ID, text)
         self.assertIn(trial.INSTALL_DOC_ORIGIN["cn"], text)
-        self.assertIn(trial.INSTALL_DOC_ORIGIN["global"], trial.purchase_entry_skill_markdown(
-            "demo-33709ab2", "Demo：简介（购买后使用）", PRODUCT_ID, "global"))
+        self.assertIn(trial.INSTALL_DOC_ORIGIN["global"], trial.purchase_entry_instructions(PRODUCT_ID, "global"))
         # 导出包自带安装身份：解压目录直接通过 purchase 归属校验，无需先走官方 install。
         entry_files, _ = trial.purchase_entry_files("cn", PRODUCT_ID, "作文批改助手", "批改作文", "essay-grading-assistant", "release-fixture")
+        listing = entry_files["SKILL.md"][0].decode("utf-8")
+        self.assertIn("作文批改助手：批改作文", listing)
+        self.assertNotIn("购买后使用", listing)
+        self.assertIn(trial.ENTRY_PATH, listing)
+        self.assertEqual(entry_files[trial.ENTRY_PATH][0].decode("utf-8"), text)
         self.assertIn(".viceme/install-manifest.json", entry_files)
         manifest = json.loads(entry_files[".viceme/install-manifest.json"][0])
         self.assertEqual(manifest["product_id"], PRODUCT_ID)
@@ -167,14 +176,17 @@ class TrialScriptTestCase(unittest.TestCase):
         files = {"SKILL.md": (b"---\nname: my-skill\n---\n\nbody", 0o644)}
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
         content = files["SKILL.md"][0].decode("utf-8")
-        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, content)
-        self.assertIn(trial.GATE_END, content)
-        self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, content)
-        self.assertIn("allowed: true", content)
-        self.assertIn("skillMarkdown", content)
+        entry = files[trial.ENTRY_PATH][0].decode("utf-8")
+        self.assertIn(trial.ENTRY_POINTER.strip(), content)
+        self.assertNotIn(trial.GATE_MARKER, content)
+        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, entry)
+        self.assertIn(trial.GATE_END, entry)
+        self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, entry)
+        self.assertIn("allowed: true", entry)
+        self.assertIn("skillMarkdown", entry)
         self.assertNotIn("\nbody", content)
         self.assertTrue(files[trial.TRIAL_BODY_PATH][0].endswith(b"body"))
-        self.assertNotIn("python3 - use", content)
+        self.assertNotIn("python3 - use", entry)
         rules = files[trial.RUNTIME_PATH][0].decode("utf-8")
         self._assert_gate_runtime_order(rules, PRODUCT_ID, "cn")
         # Both shells execute the installed script, with no network bootstrap.
@@ -182,8 +194,8 @@ class TrialScriptTestCase(unittest.TestCase):
             'py "<本 Skill 目录>/.viceme/scripts/trial.py" use --product %s --market cn' % PRODUCT_ID,
             rules,
         )
-        # 门禁必须位于 frontmatter 之后、正文之前。
-        self.assertLess(content.index("---\n", 4), content.index(trial.GATE_MARKER))
+        # 入口句在 frontmatter 之后，检查步骤不进入渠道解析的正文。
+        self.assertLess(content.index("---\n", 4), content.index(trial.ENTRY_PATH))
         once = files["SKILL.md"][0]
         del files[trial.RUNTIME_PATH]
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
@@ -232,7 +244,7 @@ class TrialScriptTestCase(unittest.TestCase):
         content = files["SKILL.md"][0].decode("utf-8")
         self.assertEqual(files[trial.TRIAL_BODY_PATH][0].decode(), original)
         self.assertNotIn("作者示例", content)
-        self.assertIn(trial.RUNTIME_PATH, content)
+        self.assertIn(trial.RUNTIME_PATH, files[trial.ENTRY_PATH][0].decode("utf-8"))
         self.assertIn('.viceme/scripts/trial.py" use', files[trial.RUNTIME_PATH][0].decode("utf-8"))
 
     def test_gate_rejects_invalid_structure_without_mutation(self):
@@ -268,10 +280,13 @@ class TrialScriptTestCase(unittest.TestCase):
         files = {"SKILL.md": (content.encode("utf-8"), 0o644)}
         trial.inject_trial_gate(files, "cn", PRODUCT_ID)
         content = files["SKILL.md"][0].decode("utf-8")
+        entry = files[trial.ENTRY_PATH][0].decode("utf-8")
         self.assertNotIn("旧版规则", content)
+        self.assertNotIn("旧版规则", entry)
         self.assertTrue(files[trial.TRIAL_BODY_PATH][0].decode().endswith("作者正文\n"))
         self.assertNotIn("作者正文", content)
-        self.assertEqual(content.count(trial.GATE_MARKER), 1)
+        self.assertNotIn(trial.GATE_MARKER, content)
+        self.assertEqual(entry.count(trial.GATE_MARKER), 1)
 
     def test_gate_preserves_extended_frontmatter_crlf_eof_and_mode(self):
         for newline in ("\n", "\r\n"):
@@ -305,6 +320,13 @@ class TrialScriptTestCase(unittest.TestCase):
             trial.extract_skill_package(empty.getvalue())
         self.assertEqual(caught.exception.code, "MANIFEST_MISSING")
 
+    def test_export_package_loads_environment_before_transform(self):
+        calls = []
+        with mock.patch.object(trial, "load_runtime_environment", side_effect=lambda *args: calls.append("environment")), \
+             mock.patch.object(trial, "command_export_package", side_effect=lambda *args, **kwargs: calls.append("export")):
+            trial.main(["export-package", "--product", PRODUCT_ID, "--market", "cn", "--kind", "purchase", "--release-id", RELEASE_ID, "--output", "fixture.zip"])
+        self.assertEqual(calls, ["environment", "export"])
+
     def test_export_package_trial_injects_gate_without_install_or_api(self):
         original = os.path.join(self.home, "original.zip")
         output = os.path.join(self.home, "gated-trial.zip")
@@ -334,7 +356,10 @@ class TrialScriptTestCase(unittest.TestCase):
             names = set(archive.namelist())
             skill = archive.read("SKILL.md").decode("utf-8")
             body = archive.read(trial.TRIAL_BODY_PATH).decode("utf-8")
-        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, skill)
+            entry = archive.read(trial.ENTRY_PATH).decode("utf-8")
+        self.assertIn(trial.ENTRY_POINTER.strip(), skill)
+        self.assertNotIn(trial.GATE_MARKER, skill)
+        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, entry)
         self.assertNotIn("PAID_BODY_SECRET", skill)
         self.assertIn("PAID_BODY_SECRET", body)
         self.assertIn(".viceme/scripts/trial.py", names)
@@ -399,8 +424,13 @@ class TrialScriptTestCase(unittest.TestCase):
         with zipfile.ZipFile(output) as archive:
             names = set(archive.namelist())
             skill = archive.read("SKILL.md").decode("utf-8")
-        self.assertIn(trial.PURCHASE_MARKER + " product=%s -->" % PRODUCT_ID, skill)
-        self.assertIn("使用前必读", skill)
+            entry = archive.read(trial.ENTRY_PATH).decode("utf-8")
+        self.assertIn(trial.ENTRY_POINTER.strip(), skill)
+        self.assertNotIn(trial.PURCHASE_MARKER, skill)
+        self.assertNotIn("使用前必读", skill)
+        self.assertNotIn("购买后使用", skill)
+        self.assertIn(trial.PURCHASE_MARKER + " product=%s -->" % PRODUCT_ID, entry)
+        self.assertIn("使用前必读", entry)
         self.assertNotIn("PAID_BODY_SECRET", skill)
         self.assertIn(trial.PURCHASE_GUIDE_PATH, names)
         self.assertIn(".viceme/scripts/trial.py", names)
@@ -664,15 +694,17 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertEqual(trial.target_roots("codex"), [os.path.join(home, ".agents", "skills")])
 
     def test_payment_instructions_branch_by_invoking_agent(self):
-        # WorkBuddy:聊天 local-file 图片 + present_files 支付页,原契约不变。
+        # WorkBuddy 使用 local-file 聊天图片，有内置浏览器时打开官方链接。
         with mock.patch.dict(os.environ, {"CODEBUDDY_SESSION_ID": "s"}):
             instructions = trial.payment_display_instructions()
             self.assertIn("![微信支付二维码](<imageChatSrc>)", instructions)
-            self.assertIn("present_files([widgetPath])", instructions)
-        # 豆包工作保留页面偏好,不禁止宿主明确支持的其他通道。
+            self.assertNotIn("present_files([widgetPath])", instructions)
+            self.assertIn("内置浏览器", instructions)
+        # 豆包工作同样按实际宿主能力使用官方链接和图片。
         with mock.patch.dict(os.environ, {"DOUBAO_OFFICE_APP_ID": "1"}):
             instructions = trial.payment_display_instructions()
-            self.assertIn("present_files([widgetPath])", instructions)
+            self.assertNotIn("present_files([widgetPath])", instructions)
+            self.assertIn("内置浏览器", instructions)
         # 任一环境都必须允许明确支持的图片通道;路径交付不是展示成功。
         for markers in ({"CODEBUDDY_SESSION_ID": "s"}, {"DOUBAO_OFFICE_APP_ID": "1"},
                         {"CODEX_SESSION_ID": "s"}, {"CLAUDECODE": "1"}, {}):
@@ -680,8 +712,8 @@ class TrialScriptTestCase(unittest.TestCase):
                 with mock.patch.dict(os.environ, markers):
                     instructions = trial.payment_display_instructions()
                     for required in ("当前宿主明确支持", "![微信支付二维码](<imagePath>)",
-                                     "支持本地 HTML", "另一个独立获准的通道",
-                                     "只有托管入口不可用且本地图片和页面都无法展示时", "仅交付路径时不要启动等待",
+                                     "本地付款 HTML 已退役", "宿主独立允许的 HTTPS 图片通道",
+                                     "[打开支付页面](完整 checkoutUrl)", "仅生成图片文件或返回本地路径不算展示成功",
                                      "商品与金额说明放在二维码", "无试用时可参考以下表达", "正式内容尚未安装",
                                      "同一订单只嵌入一张二维码图片", "不要提前在后台启动等待"):
                         self.assertIn(required, instructions)
@@ -1026,7 +1058,7 @@ class InstallFlowTestCase(unittest.TestCase):
                 "purchaseAvailable": True,
                 "purchaseUrl": "https://shop.example.test/purchase",
                 "trial": {"available": True, "limitUses": 5},
-                "edition": {"key": "pro", "title": "专业版", "sortOrder": 0, "highlights": []},
+                "title": "专业版",
                 "release": {"id": self.release_id, "artifactDigest": self.digest, "fileName": "pro.zip"},
             }
         if pure == "/v1/skills/%s/trial-grants" % quoted:
@@ -1130,7 +1162,7 @@ class InstallFlowTestCase(unittest.TestCase):
             removals.append(path)
             return real_remove(path)
 
-        with mock.patch.object(trial.os, "remove", side_effect=counting_remove):
+        with mock.patch.object(trial.os, "remove", side_effect=counting_remove), mock.patch.object(trial, "invoking_skill_directory", return_value=skill_dir):
             with mock.patch.object(trial, "api_request", side_effect=self._api), \
                     mock.patch.object(trial, "http_download", return_value=self.archive_bytes):
                 output = io.StringIO()
@@ -1155,9 +1187,13 @@ class InstallFlowTestCase(unittest.TestCase):
         skill_dir = os.path.join(self.home, ".agents", "skills", "my-skill")
         with open(os.path.join(skill_dir, "SKILL.md"), encoding="utf-8") as handle:
             content = handle.read()
-        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, content)
+        self.assertIn(trial.ENTRY_POINTER.strip(), content)
+        self.assertNotIn(trial.GATE_MARKER, content)
         self.assertIn("title: latex-geometry\nmetadata:\n  author: yee33", content)
-        self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, content)
+        with open(os.path.join(skill_dir, trial.ENTRY_PATH), encoding="utf-8") as handle:
+            entry = handle.read()
+        self.assertIn(trial.GATE_MARKER + " product=%s -->" % PRODUCT_ID, entry)
+        self.assertIn("[使用前检查](%s)" % trial.RUNTIME_PATH, entry)
         with open(os.path.join(skill_dir, trial.RUNTIME_PATH), encoding="utf-8") as handle:
             rules = handle.read()
         self.assertIn('.viceme/scripts/trial.py" use --product %s --market cn' % PRODUCT_ID, rules)
@@ -1171,9 +1207,12 @@ class InstallFlowTestCase(unittest.TestCase):
 
     def test_install_does_not_report_success_with_missing_or_damaged_gate(self):
         real_install = trial.install_to_roots
-        for filename in ("SKILL.md", trial.RUNTIME_PATH):
+        for filename in ("SKILL.md", trial.RUNTIME_PATH, trial.ENTRY_PATH):
             for damage in ("missing", "changed"):
                 with self.subTest(filename=filename, damage=damage):
+                    # Each case must exercise a fresh install, not reuse another host copy.
+                    for base in trial.target_roots("auto"):
+                        shutil.rmtree(base, ignore_errors=True)
                     def install_then_damage(*args):
                         results = real_install(*args)
                         for root, skipped in results:
@@ -1242,7 +1281,7 @@ class InstallFlowTestCase(unittest.TestCase):
             first = run("use")
             self.assertTrue(first["allowed"])
             self.assertEqual(first["remainingUses"], 1)
-            self.assertEqual(run("install")["trial"]["remainingUses"], 1)
+            self.assertEqual(run("install")["remainingUses"], 1)
             last = run("use")
             self.assertTrue(last["allowed"])
             self.assertTrue(last["lastUse"])
@@ -1266,7 +1305,7 @@ class InstallFlowTestCase(unittest.TestCase):
                 self.assertIn(trial.DISABLED_MARKER.encode(), disabled)
                 self.assertNotIn(b"\nbody", disabled)
                 reinstalled = run("install")
-                self.assertEqual(reinstalled["trial"]["remainingUses"], 0)
+                self.assertEqual(reinstalled["remainingUses"], 0)
                 self.assertEqual(reinstalled["nextAction"], "PURCHASE_REQUIRED")
                 self.assertTrue(reinstalled["trialExhausted"])
                 with open(entry, "rb") as handle:
@@ -1368,7 +1407,7 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertTrue(trial.load_trial_state(PRODUCT_ID)["purchase"]["closed"])
         self.assertTrue(any("trial-purchase/status" in path for path in calls))
         self.assertFalse(any(path.endswith("/trial-use") for path in calls))
-        entry = os.path.join(self.home, ".workbuddy", "skills", "my-skill", "SKILL.md")
+        entry = os.path.join(self.home, ".workbuddy", "skills", "my-skill", trial.ENTRY_PATH)
         with open(entry, "rb") as handle:
             self.assertIn(trial.GATE_MARKER.encode(), handle.read())
 
@@ -1392,7 +1431,7 @@ class InstallFlowTestCase(unittest.TestCase):
                 mock.patch.object(trial.time, "sleep", side_effect=AssertionError("QR must return before waiting")):
             code, result = self._run_purchase("--wait", "0")
         self.assertEqual(code, 0, result)
-        self.assertEqual(result["nextAction"], "PRESENT_PAYMENT_WIDGET")
+        self.assertEqual(result["nextAction"], "PRESENT_PAYMENT_QR")
         self.assertEqual(result["orderNo"], "TRIAL_ORDER_02")
         self.assertTrue(any(path.endswith("/trial-purchase/status") for path in calls))
         self.assertTrue(any(path.endswith("/trial-purchase") and not path.endswith("/status") for path in calls))
@@ -1961,6 +2000,111 @@ class InstallFlowTestCase(unittest.TestCase):
             code = trial.run(["purchase", "--product", PRODUCT_ID, "--market", "cn", "--agent", "workbuddy", *arguments])
         return code, json.loads(output.getvalue())
 
+    def test_install_refreshes_runtime_and_keeps_product_credentials_and_user_files(self):
+        self._install_trial_fixture()
+        local = trial.find_ready_install("cn", PRODUCT_ID, "auto")
+        root = os.path.dirname(local["skillPath"])
+        state = trial.load_trial_state(PRODUCT_ID)
+        state["pendingRequestId"] = "pending-same-use"
+        trial.save_trial_state(PRODUCT_ID, state)
+        before = Path(trial.trial_state_path(PRODUCT_ID)).read_bytes()
+        body = Path(local["skillPath"]).read_bytes()
+        with open(os.path.join(root, "user-output.txt"), "w") as handle:
+            handle.write("keep me")
+        original = trial.runtime_resource
+        def newer(name):
+            return original(name) + (b"\nUpdated guide\n" if name == "guides/host-presentation.md" else b"")
+        with mock.patch.object(trial, "runtime_resource", side_effect=newer), mock.patch.object(trial, "api_request", side_effect=AssertionError("no business request during pending recovery")):
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(["install", "--product", PRODUCT_ID]), 0)
+            self.assertEqual(json.loads(output.getvalue())["nextAction"], "RESUME_TRIAL_USE")
+            with mock.patch.object(trial, "install_complete_files", side_effect=AssertionError("unchanged runtime must not be rewritten")):
+                with redirect_stdout(io.StringIO()):
+                    self.assertEqual(trial.run(["install", "--product", PRODUCT_ID]), 0)
+        self.assertEqual(Path(local["skillPath"]).read_bytes(), body)
+        self.assertEqual(Path(trial.trial_state_path(PRODUCT_ID)).read_bytes(), before)
+        self.assertEqual(Path(root, "user-output.txt").read_text(), "keep me")
+        self.assertTrue(trial.read_runtime_install(root, "cn", PRODUCT_ID)["ready"])
+        self.assertIn(b"Updated guide", Path(root, ".viceme/guides/host-presentation.md").read_bytes())
+
+    def test_install_refresh_rejects_cross_environment_refresh_without_touching_files(self):
+        root = self._install_trial_fixture()
+        before = {str(path.relative_to(root)): path.read_bytes() for path in Path(root).rglob("*") if path.is_file()}
+        with mock.patch.dict(trial.API_ORIGIN, {"cn": "https://dev.viceme.cn/api"}), mock.patch.object(trial, "api_request", side_effect=AssertionError("cross-environment network call")):
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(["install", "--product", PRODUCT_ID]), 1)
+            self.assertEqual(json.loads(output.getvalue())["code"], "INSTALLATION_IDENTITY_INVALID")
+        after = {str(path.relative_to(root)): path.read_bytes() for path in Path(root).rglob("*") if path.is_file()}
+        self.assertEqual(after, before)
+
+    def test_install_refresh_recovers_interrupted_refresh_without_business_requests(self):
+        root = self._install_trial_fixture()
+        state = trial.load_trial_state(PRODUCT_ID)
+        state["pendingRequestId"] = "pending-original"
+        trial.save_trial_state(PRODUCT_ID, state)
+        before = Path(trial.trial_state_path(PRODUCT_ID)).read_bytes()
+        original_resource = trial.runtime_resource
+        def newer(name):
+            return original_resource(name) + (b"\nNew runtime guide\n" if name == "guides/host-presentation.md" else b"")
+        original_write = trial.write_install_file
+        def fail_entry(destination, name, file):
+            if name == "SKILL.md":
+                raise PermissionError("synthetic interrupted refresh")
+            return original_write(destination, name, file)
+        with mock.patch.object(trial, "runtime_resource", side_effect=newer), mock.patch.object(trial, "api_request", side_effect=AssertionError("must preserve pending use")):
+            with mock.patch.object(trial, "write_install_file", side_effect=fail_entry), redirect_stdout(io.StringIO()):
+                self.assertEqual(trial.run(["install", "--product", PRODUCT_ID]), 1)
+            self.assertFalse(trial.read_runtime_install(root, "cn", PRODUCT_ID)["ready"])
+            with redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(trial.run(["install", "--product", PRODUCT_ID]), 0, output.getvalue())
+            self.assertEqual(json.loads(output.getvalue())["nextAction"], "RESUME_TRIAL_USE")
+        self.assertEqual(Path(trial.trial_state_path(PRODUCT_ID)).read_bytes(), before)
+        self.assertFalse(trial.read_package_files(root, PRODUCT_ID).get("installing"))
+
+    def test_install_refresh_recovers_before_new_support_file_was_written(self):
+        files, name = trial.purchase_entry_files("cn", PRODUCT_ID, "Paid skill", "Summary", "paid-skill", RELEASE_ID)
+        new_path = "references/host-presentation.md"
+        files.pop(new_path)
+        manifest = json.loads(files[".viceme/runtime.json"][0])
+        manifest["files"].pop(new_path)
+        files[".viceme/runtime.json"] = (json.dumps(manifest).encode(), 0o644)
+        trial.install_to_roots(files, name, PRODUCT_ID, RELEASE_ID, "workbuddy")
+        root = Path(self.home, ".workbuddy", "skills", name)
+        original = trial.write_install_file
+        def fail_new_file(destination, path, data):
+            if path == new_path:
+                raise PermissionError("synthetic new file interruption")
+            return original(destination, path, data)
+        args = ["install", "--product", PRODUCT_ID, "--agent", "workbuddy"]
+        with mock.patch.object(trial, "write_install_file", side_effect=fail_new_file), redirect_stdout(io.StringIO()):
+            self.assertEqual(trial.run(args), 1)
+        self.assertFalse((root / new_path).exists())
+        with redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(trial.run(args), 0, output.getvalue())
+        self.assertEqual((root / new_path).read_bytes(), trial.runtime_resource("guides/host-presentation.md"))
+        self.assertTrue(trial.read_runtime_install(str(root), "cn", PRODUCT_ID)["ready"])
+        self.assertFalse(Path(trial.purchase_state_path(PRODUCT_ID)).exists())
+
+    def test_expired_pending_purchase_recovers_same_identity_without_empty_presentation(self):
+        state = trial.require_purchase_state("cn", PRODUCT_ID, create=True)
+        state["purchase"] = {"clientRequestId": "same-request", "orderNo": "ORDER001"}
+        trial.save_purchase_state(PRODUCT_ID, state)
+        order = self._purchase_order(orderNo="ORDER001", expiresAt="2020-01-01T00:00:00Z", paymentAction=None)
+        calls = []
+        def api(market, product, credential, action="", extra=None):
+            calls.append((action, extra))
+            self.assertEqual(credential["installId"], state["installId"])
+            return order
+        with mock.patch.object(trial, "purchase_request", side_effect=api):
+            code, result = self._run_purchase()
+        self.assertEqual(code, 1)
+        self.assertEqual(result["code"], "PAYMENT_CONFIRMATION_PENDING")
+        self.assertNotIn("paymentPresentation", result)
+        self.assertEqual(calls, [("status", {"orderNo": "ORDER001"}), ("", {"clientRequestId": "same-request", "locale": "zh-CN"})])
+        saved = trial.load_purchase_state("cn", PRODUCT_ID)
+        self.assertEqual(saved["purchase"]["clientRequestId"], "same-request")
+        self.assertFalse(saved["purchase"].get("presented", False))
+
     def test_no_trial_install_precedes_order_and_recovers_lost_create(self):
         requests = []
         def api(market, method, path, body=None):
@@ -1999,7 +2143,7 @@ class InstallFlowTestCase(unittest.TestCase):
                 self.assertEqual(trial.run(arguments), 0)
             result = json.loads(output.getvalue())
             self.assertEqual(result["runtimePath"], entry["runtimePath"])
-            self.assertEqual(result["nextAction"], "PRESENT_PAYMENT_WIDGET")
+            self.assertEqual(result["nextAction"], "PRESENT_PAYMENT_QR")
             self.assertTrue(os.path.isfile(result["runtimePath"]))
             self.assertEqual(requests[0], requests[1])
             self.assertNotIn(requests[0][1], output.getvalue())
@@ -2024,12 +2168,17 @@ class InstallFlowTestCase(unittest.TestCase):
         with open(entry["skillPath"], "rb") as handle:
             before = handle.read()
         text = before.decode()
-        self.assertIn("## 使用前必读", text)
-        self.assertIn(trial.PURCHASE_END, text)
-        self.assertIn(trial.PURCHASE_GUIDE_PATH, text)
-        self.assertIn("不算完成支付展示", text)
-        self.assertIn("开场白", text)
-        self.assertNotIn("imageChatSrc", text)
+        self.assertIn(trial.ENTRY_POINTER.strip(), text)
+        self.assertNotIn("## 使用前必读", text)
+        self.assertNotIn("购买后使用", text)
+        with open(os.path.join(root, trial.ENTRY_PATH), encoding="utf-8") as handle:
+            instructions = handle.read()
+        self.assertIn("## 使用前必读", instructions)
+        self.assertIn(trial.PURCHASE_END, instructions)
+        self.assertIn(trial.PURCHASE_GUIDE_PATH, instructions)
+        self.assertIn("不算完成支付展示", instructions)
+        self.assertIn("开场白", instructions)
+        self.assertNotIn("imageChatSrc", instructions)
         with open(os.path.join(root, trial.PURCHASE_GUIDE_PATH), encoding="utf-8") as handle:
             guide = handle.read()
         self.assertIn("## 通用支付展示", guide)
@@ -2105,7 +2254,7 @@ class InstallFlowTestCase(unittest.TestCase):
             self.assertEqual(request_ids[0], request_ids[1])
             self.assertFalse(first["allowed"])
             self.assertIn("![微信支付二维码](<imagePath>)", first["message"])
-            self.assertIn("只有托管入口不可用且本地图片和页面都无法展示时", first["message"])
+            self.assertIn("本地付款 HTML 已退役", first["message"])
             self.assertNotIn("不要声称或依赖聊天显示本地图片", first["message"])
             self.assertNotIn("grant-secret", json.dumps(first))
             self.assertNotIn("weixin://", json.dumps(first))
@@ -2115,19 +2264,8 @@ class InstallFlowTestCase(unittest.TestCase):
                 png = handle.read()
             self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
             self.assertEqual(presentation["imageChatSrc"], trial.local_file_chat_src(presentation["imagePath"]))
-            with open(presentation["widgetPath"], encoding="utf-8") as handle:
-                html = handle.read()
-            self.assertIn("<!DOCTYPE html>", html)
-            self.assertIn('aria-label="微信支付二维码"', html)
-            self.assertIn("<svg", html)
-            self.assertNotIn("__WIDGET_DATA__", html)
-            self.assertNotIn("A </script>", html)
-            self.assertNotIn("weixin://", html)
-            self.assertIn("2099-01-01T00:00:00Z", html)
-            start = html.index('<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="微信支付二维码"')
-            svg = html[start:html.index("</svg>", start) + len("</svg>")]
-            self.assertLess(max(map(len, svg.splitlines())), 1800)
-            self.assertEqual(stat.S_IMODE(os.stat(presentation["widgetPath"]).st_mode), 0o600)
+            self.assertNotIn("widgetPath", presentation)
+            self.assertEqual(stat.S_IMODE(os.stat(presentation["imagePath"]).st_mode), 0o600)
             self.assertTrue(trial.load_trial_state(PRODUCT_ID)["purchase"]["presented"])
             code, second = self._run_purchase()
             self.assertEqual(code, 0, second)
@@ -2144,7 +2282,9 @@ class InstallFlowTestCase(unittest.TestCase):
                 instructions = trial.payment_display_instructions(hosted=True)
                 guide = trial.runtime_resource("guides/host-presentation.md").decode("utf-8")
                 self.assertTrue(instructions.endswith(guide))
-                self.assertIn("open_in_codex", guide)
+                self.assertIn('present_files({"files":[完整 checkoutUrl]', guide)
+                self.assertIn("ToolSearch", guide)
+                self.assertNotIn("不把 `present_files` 当作浏览器", guide)
                 self.assertIn("Codex 终端版", guide)
 
 
@@ -2330,7 +2470,7 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertFalse(status["trialExhausted"])
         self.assertEqual(calls, ["/v1/skills/%s/trial-grants" % PRODUCT_ID])
         with mock.patch.object(trial, "http_download", side_effect=AssertionError("static resources must stay local")):
-            for name in ("payment.html", "qrcodegen.py"):
+            for name in ("qrcodegen.py",):
                 self.assertGreater(len(trial.shared_widget_resource("cn", name)), 0)
         with mock.patch("builtins.open", side_effect=FileNotFoundError()):
             with self.assertRaises(trial.Failure) as failure:
@@ -2372,14 +2512,7 @@ class InstallFlowTestCase(unittest.TestCase):
         self.assertTrue(png.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertEqual(presentation["imageChatSrc"], local.local_file_chat_src(presentation["imagePath"]))
         self.assertEqual(presentation["mimeType"], "image/png")
-        with open(presentation["widgetPath"], encoding="utf-8") as handle:
-            html = handle.read()
-        start = html.index('<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-label="微信支付二维码"')
-        svg = html[start:html.index("</svg>", start) + len("</svg>")]
-        self.assertLess(max(map(len, svg.splitlines())), 1800)
-        # Simulate the host's per-line cap, then prove every QR module survived.
-        capped = "\n".join(line[:2000] for line in svg.splitlines())
-        self.assertEqual(ET.tostring(ET.fromstring(svg)), ET.tostring(ET.fromstring(capped)))
+        self.assertNotIn("widgetPath", presentation)
         with open(ready["onboardingTemplatePath"], "a") as handle:
             handle.write("tampered")
         self.assertFalse(local.find_ready_install("cn", PRODUCT_ID, "auto")["ready"])
@@ -2397,8 +2530,10 @@ class InstallFlowTestCase(unittest.TestCase):
             return self._purchase_order(expiresAt="2020-01-01T00:00:00Z", paymentAction=None)
         with mock.patch.object(trial, "api_request", side_effect=api), mock.patch.object(trial, "http_download", side_effect=self._resource_download):
             code, result = self._run_purchase()
-        self.assertEqual(code, 0, result)
-        self.assertEqual(calls, ["/v1/skills/%s/trial-purchase/status" % PRODUCT_ID])
+        self.assertEqual(code, 1, result)
+        self.assertEqual(result["code"], "PAYMENT_CONFIRMATION_PENDING")
+        self.assertEqual(calls, ["/v1/skills/%s/trial-purchase/status" % PRODUCT_ID,
+                               "/v1/skills/%s/trial-purchase" % PRODUCT_ID])
         self.assertFalse(trial.load_trial_state(PRODUCT_ID)["purchase"].get("closed", False))
         self.assertEqual(trial.load_trial_state(PRODUCT_ID)["purchase"]["clientRequestId"], "unchanged")
 
@@ -2426,7 +2561,8 @@ class InstallFlowTestCase(unittest.TestCase):
             disabled = handle.read()
         self.assertTrue(disabled.startswith(prefix))
         self.assertNotIn(b"\r\nbody", disabled)
-        self.assertIn(b"--owned", disabled)
+        self.assertIn(b"viceme skill install ", disabled)
+        self.assertNotIn(b"--owned", disabled)
         self.assertEqual(trial.load_trial_state(PRODUCT_ID), credential)
         for path, data in before.items():
             if path != entry:
