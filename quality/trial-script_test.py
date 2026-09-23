@@ -437,6 +437,51 @@ class TrialScriptTestCase(unittest.TestCase):
         self.assertNotIn("scripts/grade.py", names)
         self.assertFalse(os.path.exists(os.path.join(self.home, ".agents")))
 
+    def test_export_package_xiaohongshu_puts_description_before_entry_pointer(self):
+        output = os.path.join(self.home, "xiaohongshu-purchase.zip")
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            code = trial.run([
+                "export-package", "--product", PRODUCT_ID, "--market", "cn",
+                "--kind", "purchase", "--release-id", RELEASE_ID,
+                "--output", output, "--title", "评分助手", "--summary", "简介",
+                "--slug", "essay-grading-assistant", "--listing", "xiaohongshu",
+            ])
+        self.assertEqual(code, 0, stdout.getvalue())
+        with zipfile.ZipFile(output) as archive:
+            skill = archive.read("SKILL.md").decode("utf-8")
+            entry = archive.read(trial.ENTRY_PATH).decode("utf-8")
+        body = skill.split("---", 2)[-1]
+        self.assertTrue(body.strip().startswith("评分助手：简介"))
+        self.assertIn(trial.ENTRY_POINTER.strip(), body)
+        self.assertLess(body.index("评分助手：简介"), body.index(trial.ENTRY_POINTER.strip()))
+        self.assertNotIn("使用前必读", skill)
+        self.assertIn("使用前必读", entry)
+
+        original = os.path.join(self.home, "original.zip")
+        trial_output = os.path.join(self.home, "xiaohongshu-trial.zip")
+        with zipfile.ZipFile(original, "w") as archive:
+            archive.writestr(
+                "SKILL.md",
+                "---\nname: my-skill\ndescription: 试用简介\n---\n\nPAID_BODY_SECRET\n",
+            )
+        with redirect_stdout(io.StringIO()):
+            code = trial.run([
+                "export-package", "--product", PRODUCT_ID, "--market", "cn",
+                "--kind", "trial", "--release-id", RELEASE_ID,
+                "--input", original, "--output", trial_output,
+                "--listing", "xiaohongshu",
+            ])
+        self.assertEqual(code, 0)
+        with zipfile.ZipFile(trial_output) as archive:
+            skill = archive.read("SKILL.md").decode("utf-8")
+            body_file = archive.read(trial.TRIAL_BODY_PATH).decode("utf-8")
+        body = skill.split("---", 2)[-1]
+        self.assertTrue(body.strip().startswith("试用简介"))
+        self.assertIn(trial.ENTRY_POINTER.strip(), body)
+        self.assertNotIn("PAID_BODY_SECRET", skill)
+        self.assertIn("PAID_BODY_SECRET", body_file)
+
     def test_export_package_rejects_mismatched_inputs(self):
         stdout = io.StringIO()
         with redirect_stdout(stdout):

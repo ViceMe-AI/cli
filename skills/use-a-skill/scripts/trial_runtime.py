@@ -84,7 +84,58 @@ def entry_pointer_body():
 
 
 def body_is_entry_pointer(body):
-    return body.replace("\r\n", "\n").strip("\n") == ENTRY_POINTER.strip("\n")
+    return normalized_entry_body(body) == ENTRY_POINTER.strip("\n")
+
+
+def body_has_entry_pointer(body):
+    """通用包正文只有入口句；小红书包在入口句前还有简介。"""
+    normalized = normalized_entry_body(body)
+    pointer = ENTRY_POINTER.strip("\n")
+    return normalized == pointer or normalized.endswith("\n\n" + pointer)
+
+
+def normalized_entry_body(body):
+    return body.replace("\r\n", "\n").strip("\n")
+
+
+def frontmatter_description(content):
+    text = content.replace("\r\n", "\n")
+    if not text.startswith("---\n"):
+        return ""
+    end = text.find("\n---\n", 3)
+    if end < 0:
+        return ""
+    for line in text[4:end].split("\n"):
+        if not line.startswith("description:"):
+            continue
+        value = line.split(":", 1)[1].strip()
+        if value.startswith('"'):
+            try:
+                parsed = json.loads(value)
+            except json.JSONDecodeError:
+                return ""
+            return parsed.strip() if isinstance(parsed, str) else ""
+        if len(value) >= 2 and value[0] == value[-1] and value[0] == "'":
+            value = value[1:-1]
+        return value.strip()
+    return ""
+
+
+def apply_listing_body(files, listing):
+    """小红书审核读 SKILL.md 正文。简介放在入口句前面，执行步骤仍在 entry.md。"""
+    if listing != "xiaohongshu":
+        return
+    data, mode = files["SKILL.md"]
+    content = data.decode("utf-8").replace("\r\n", "\n")
+    description = frontmatter_description(content)
+    if not description:
+        return
+    end = content.find("\n---\n", 3)
+    if end < 0:
+        return
+    insert_at = end + len("\n---\n")
+    body = "\n%s\n%s" % (description, entry_pointer_body())
+    files["SKILL.md"] = ((content[:insert_at] + body).encode("utf-8"), mode)
 
 
 def purchase_required_message():
@@ -832,7 +883,7 @@ def purchase_entry_instructions(product_id, market):
     ) % (header, posix, windows, cli_purchase, install_doc, PURCHASE_GUIDE_PATH, PURCHASE_END)
 
 
-def purchase_entry_files(market, product_id, title, summary, slug, release_id):
+def purchase_entry_files(market, product_id, title, summary, slug, release_id, listing="generic"):
     """Synthesize the public purchase-entry package. No authored body, no API."""
     if not isinstance(title, str) or not title.strip() or not isinstance(summary, str):
         raise Failure("PRODUCT_METADATA_INVALID", "商品信息不完整，请重试安装")
@@ -850,6 +901,7 @@ def purchase_entry_files(market, product_id, title, summary, slug, release_id):
     # 购买入口包从解压起即携带安装身份：purchase 的归属校验只认这份文件,
     # 预置后按门禁在解压目录直接运行购买命令即可成立,不必先走官方 install。
     files[".viceme/install-manifest.json"] = (trial_install_manifest(product_id, release_id), 0o644)
+    apply_listing_body(files, listing)
     prepare_runtime_files(files, market, product_id, release_id, "purchase")
     return files, installed_name
 
@@ -879,10 +931,12 @@ def write_skill_zip(files, path):
         return hashlib.sha256(handle.read()).hexdigest()
 
 
-def command_export_package(market, product_id, kind, release_id, output, input_path=None, title=None, summary=None, slug=None):
+def command_export_package(market, product_id, kind, release_id, output, input_path=None, title=None, summary=None, slug=None, listing="generic"):
     """Pure transform for Admin channel zips. Does not install or call the API."""
     if kind not in ("trial", "purchase"):
         raise Failure("ARGUMENT_INVALID", "导出 kind 必须为 trial 或 purchase")
+    if listing not in ("generic", "xiaohongshu"):
+        raise Failure("ARGUMENT_INVALID", "导出 listing 必须为 generic 或 xiaohongshu")
     try:
         if not release_id or str(uuid.UUID(release_id)) != release_id.lower():
             raise ValueError()
@@ -903,6 +957,7 @@ def command_export_package(market, product_id, kind, release_id, output, input_p
             raise Failure("ARCHIVE_LIMIT_EXCEEDED", "Skill 包超出安全解包限制")
         files = extract_skill_package(archive)
         inject_trial_gate(files, market, product_id)
+        apply_listing_body(files, listing)
         # Channel installs only extract this archive. Bind the directory before
         # first use, just as purchase entries do, without creating device state.
         files[".viceme/install-manifest.json"] = (trial_install_manifest(product_id, release_id), 0o644)
@@ -910,7 +965,8 @@ def command_export_package(market, product_id, kind, release_id, output, input_p
     else:
         if input_path:
             raise Failure("ARGUMENT_INVALID", "购买入口包不接受 --input")
-        files, _ = purchase_entry_files(market, product_id, title, summary, slug, release_id)
+        files, _ = purchase_entry_files(
+            market, product_id, title, summary, slug, release_id, listing)
     digest = write_skill_zip(files, output)
     return emit_ok({
         "kind": kind,
@@ -1766,7 +1822,7 @@ def suspended_trial_markdown(original, skill_name, product_id, purchase_url, mar
     if body.startswith(disabled + "\n"):
         return original
     active = "%s product=%s -->\n\n" % (GATE_MARKER, product_id)
-    if not body.startswith((active + "## 使用前必读\n", active + "## 试用版使用规则（viceme-trial）\n")) and not body_is_entry_pointer(body):
+    if not body.startswith((active + "## 使用前必读\n", active + "## 试用版使用规则（viceme-trial）\n")) and not body_has_entry_pointer(body):
         return None
     safe_url = purchase_url.replace("<", "%3C").replace(">", "%3E").replace("\r", "%0D").replace("\n", "%0A")
     notice = (
@@ -2450,6 +2506,7 @@ def parse_args(argv):
     parser.add_argument("--title", help="export-package purchase 的商品标题")
     parser.add_argument("--summary", default=None, help="export-package purchase 的商品简介")
     parser.add_argument("--slug", help="export-package purchase 的商品 slug")
+    parser.add_argument("--listing", choices=["generic", "xiaohongshu"], default="generic")
     return parser.parse_args(argv)
 
 
@@ -2464,7 +2521,8 @@ def main(argv):
     if args.command == "export-package":
         return command_export_package(
             args.market, args.product, args.kind, args.release_id, args.output,
-            input_path=args.input, title=args.title, summary=args.summary, slug=args.slug)
+            input_path=args.input, title=args.title, summary=args.summary, slug=args.slug,
+            listing=args.listing)
     if args.command == "ready":
         return command_ready(args.market, args.product, args.agent)
     if args.command == "install":
