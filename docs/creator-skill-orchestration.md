@@ -7,6 +7,7 @@
 | 申请创作者资格 | `become-a-creator` | `https://viceme.cn/viceme/become-a-creator` | Available |
 | 自定义作者页 | `customize-your-profile-page` | `https://viceme.cn/viceme/customize-your-profile-page` | Available |
 | 自定义 Skill 作品页 | `customize-your-work-page` | `https://viceme.cn/viceme/customize-your-work-page` | Available |
+| 将现有作品构建为 Creation Skill ZIP | `build-your-work` | `viceme install --agent auto` 安装 | Available |
 | 发布付费 Skill | `sell-a-skill` | `https://viceme.cn/viceme/sell-a-skill` | Available |
 | 让网站开始收费 | `charge-for-your-work` | `https://viceme.cn/viceme/charge-for-your-work` | Available |
 | 接入弹幕、开放赞赏或两者 | `let-people-interact` | `https://viceme.cn/viceme/let-people-interact` | Available |
@@ -27,6 +28,7 @@ The official creator Skills expose one user goal each:
 | `become-a-creator` | Login for creator onboarding, qualification checks, application state, Merchant selection | Publishing Works, Products, or website integrations |
 | `customize-your-profile-page` | Creator-page target ownership, template/import flow, preview, publication, updates, and rollback | Work pages, creator qualification, or source-code security review |
 | `customize-your-work-page` | Downloadable Skill work-page selection, neutral guided design/import flow, custom action UI, preview, publication, updates, and rollback | Creator pages, websites, work metadata, pricing, or Skill package updates |
+| `build-your-work` | Read-only conversion of one bounded local website or existing Skill into a validated Creation Skill ZIP and compiled reference site | ViceMe publication, pricing, creator qualification, or mutation of the creator's source files |
 | `sell-a-skill` | Downloadable Skill packaging, preview, confirmation, publication, and updates | Websites, services, physical/custom goods, appointments, generic Products |
 | `charge-for-your-work` | One-pass website input collection, internal Website Work/access provisioning, and host-code integration for follow or paid unlock | Login and creator application |
 | `let-people-interact` | Three-way danmaku/tip routing, hosted SDK access, default Mounted integration, explicit custom-UI Headless integration, and Website Work selection/publication with an exact canonical Origin for danmaku-bearing routes | Creator qualification, downloadable Skill publication, Website ownership verification, or Website Widget mutation for Tip |
@@ -35,7 +37,7 @@ The official creator Skills expose one user goal each:
 | `withdraw-income` | 国内站收入提现、账户选择、首次办理引导、原单恢复和进度查询 | 上层定期调度、替本人签约或确认收款 |
 | `creator-tools` | CLI installation, ordinary login, updates, and diagnostics | Any creator gameplay |
 
-Buyer-side `use-a-skill` and `let-me-make-a-copy` do not use creator qualification.
+`build-your-work` is a local packaging workflow and does not use creator qualification. Buyer-side `use-a-skill` and `let-me-make-a-copy` do not use creator qualification either.
 
 Service and generic-product CLI/API commands remain available for future product work, but no
 official Skill advertises or invokes them in this delivery.

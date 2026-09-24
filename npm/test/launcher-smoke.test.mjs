@@ -244,6 +244,7 @@ test(
     await stat(path.join(home, ".agents", "skills", "become-a-creator", "SKILL.md"));
     await stat(path.join(home, ".agents", "skills", "customize-your-profile-page", "SKILL.md"));
     await stat(path.join(home, ".agents", "skills", "customize-your-work-page", "SKILL.md"));
+    await stat(path.join(home, ".agents", "skills", "build-your-work", "SKILL.md"));
     await stat(path.join(home, ".agents", "skills", "sell-a-skill", "SKILL.md"));
     await stat(path.join(home, ".agents", "skills", "use-a-skill", "SKILL.md"));
     await stat(path.join(home, ".agents", "skills", "charge-for-your-work", "SKILL.md"));

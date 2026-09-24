@@ -22,6 +22,7 @@ var officialSkillNames = []string{
 	"become-a-creator",
 	"customize-your-profile-page",
 	"customize-your-work-page",
+	"build-your-work",
 	"sell-a-skill",
 	"creator-tools",
 	"use-a-skill",
@@ -142,6 +143,17 @@ func TestOfficialSkillsKeepOneChineseSourceAndMachineContracts(t *testing.T) {
 			semantics: []string{
 				"不处理作者页", "不要给任何选项标", "也可以直接写下你想要的效果",
 				"不转成一轮“选择功能”的问题", "用户可以决定按钮是否展示",
+			},
+		},
+		{
+			name: "build-your-work",
+			machine: []string{
+				"PROJECT_ROOT", "viceme-dist/staging/package-root", "viceme-dist/<skill-name>.zip",
+				"scripts/package_creation.py", "site/", "SKILL.md", "START.md", "agents/openai.yaml",
+			},
+			semantics: []string{
+				"跟随用户当前语言", "创作者已有文件始终只读", "现有 Skill 默认保真",
+				"打包不是重新创作", "不执行 ViceMe 网页发布", "不得用源码工程、占位页、说明页或通用外壳冒充 Site",
 			},
 		},
 		{

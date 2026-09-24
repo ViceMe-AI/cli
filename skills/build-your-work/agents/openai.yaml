@@ -1,0 +1,4 @@
+interface:
+  display_name: "构建你的作品"
+  short_description: "将现有网站或 Skill 保真整理成可发布作品包"
+  default_prompt: "使用 $build-your-work 将当前项目整理为可在 ViceMe 发布的 Creation Skill ZIP。"

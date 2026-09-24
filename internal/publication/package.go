@@ -27,11 +27,10 @@ import (
 
 const (
 	MaxFiles = 1_000
-	// The upload gate mirrors skillhub.cn: one hard size budget for the whole
-	// package instead of separate per-file/zip budgets.
-	MaxFileBytes         = 10 * 1024 * 1024
-	MaxUncompressedBytes = 10 * 1024 * 1024
-	MaxPackageBytes      = 10 * 1024 * 1024
+	// Keep creator uploads aligned with Shop and buyer extraction.
+	MaxFileBytes         = 50 * 1024 * 1024
+	MaxUncompressedBytes = 50 * 1024 * 1024
+	MaxPackageBytes      = 50 * 1024 * 1024
 	// Reserved for batch series publishing (one package carrying many skills).
 	// A publication currently carries exactly one entry; the cap only becomes
 	// observable once multi-entry packages are supported.
@@ -196,7 +195,7 @@ func BuildRemoteArchive(sourcePath string) (Package, error) {
 		return Package{}, output.Internal("SKILL_READ_FAILED", "failed to read remote Skill archive", err)
 	}
 	if len(raw) == 0 || len(raw) > MaxPackageBytes {
-		return Package{}, output.Validation("SKILL_PACKAGE_TOO_LARGE", "remote Skill ZIP must be between 1 byte and 10 MB")
+		return Package{}, output.Validation("SKILL_PACKAGE_TOO_LARGE", "remote Skill ZIP must be between 1 byte and 50 MiB")
 	}
 	entries, err := readZip(abs)
 	if err != nil {
@@ -269,7 +268,7 @@ func build(sourcePath, archiveSubpath string) (Package, error) {
 		return Package{}, err
 	}
 	if len(archive) > MaxPackageBytes {
-		return Package{}, output.Validation("SKILL_PACKAGE_TOO_LARGE", "deterministic Skill ZIP exceeds 10 MB")
+		return Package{}, output.Validation("SKILL_PACKAGE_TOO_LARGE", "deterministic Skill ZIP exceeds 50 MiB")
 	}
 	digest := sha256Hex(archive)
 	manifestDigest, err := CanonicalDigest(manifest)
@@ -407,13 +406,13 @@ func readDirectory(root string) ([]sourceEntry, error) {
 			return nil
 		}
 		if info.Size() > MaxFileBytes {
-			issues.add("SKILL_FILE_TOO_LARGE", "Skill file exceeds 10 MiB: "+rel)
+			issues.add("SKILL_FILE_TOO_LARGE", "Skill file exceeds 50 MiB: "+rel)
 			return nil
 		}
 		total += info.Size()
 		if !reportedTotalLimit && total > MaxUncompressedBytes {
 			reportedTotalLimit = true
-			issues.add("SKILL_PACKAGE_UNCOMPRESSED_TOO_LARGE", "Skill package exceeds 10 MB uncompressed")
+			issues.add("SKILL_PACKAGE_UNCOMPRESSED_TOO_LARGE", "Skill package exceeds 50 MiB uncompressed")
 		}
 		pending = append(pending, pendingFile{relative: rel, absolute: filename, mode: info.Mode()})
 		if !reportedFileLimit && len(pending) > MaxFiles {
@@ -489,7 +488,7 @@ func readZip(filename string) ([]sourceEntry, error) {
 		}
 		seen[name] = struct{}{}
 		if file.UncompressedSize64 > MaxFileBytes {
-			issues.add("SKILL_FILE_TOO_LARGE", "Skill file exceeds 10 MiB: "+name)
+			issues.add("SKILL_FILE_TOO_LARGE", "Skill file exceeds 50 MiB: "+name)
 			continue
 		}
 		if file.UncompressedSize64 > 1024*1024 &&
@@ -504,7 +503,7 @@ func readZip(filename string) ([]sourceEntry, error) {
 		total += int64(file.UncompressedSize64)
 		if !reportedTotalLimit && total > MaxUncompressedBytes {
 			reportedTotalLimit = true
-			issues.add("SKILL_PACKAGE_UNCOMPRESSED_TOO_LARGE", "Skill package exceeds 10 MB uncompressed")
+			issues.add("SKILL_PACKAGE_UNCOMPRESSED_TOO_LARGE", "Skill package exceeds 50 MiB uncompressed")
 		}
 		pending = append(pending, pendingEntry{name: name, file: file})
 		if !reportedFileLimit && len(pending) > MaxFiles {
@@ -522,7 +521,7 @@ func readZip(filename string) ([]sourceEntry, error) {
 			return nil, err
 		}
 		if len(data) > MaxFileBytes {
-			issues.add("SKILL_FILE_TOO_LARGE", "Skill file exceeds 10 MiB: "+item.name)
+			issues.add("SKILL_FILE_TOO_LARGE", "Skill file exceeds 50 MiB: "+item.name)
 			continue
 		}
 		if err := validateContent(item.name, data); err != nil {
