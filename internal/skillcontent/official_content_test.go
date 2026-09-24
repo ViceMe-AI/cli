@@ -963,8 +963,8 @@ func TestPublishListingCopyUsesCharacterCount(t *testing.T) {
 	}
 	text := string(workflow)
 	for _, required := range []string{
-		"标题最多 20 个字",
-		"简介最多 100 个字",
+		"标题最多 100 个字",
+		"简介最多 500 个字",
 		"一个汉字算 1",
 	} {
 		if !strings.Contains(text, required) {
