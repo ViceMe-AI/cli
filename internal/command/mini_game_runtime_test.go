@@ -34,7 +34,7 @@ func TestMiniGameInstalledRuntimeRedeemsAndRestoresCode(t *testing.T) {
 	}
 	exit, output := executeMerchantEngagementCommand(t, server, []string{
 		"mini-game", "integrate", "--work", manifest.WorkID,
-		"--merchant-account", merchantEngagementMerchantID, "--environment", "sandbox", "--project", project,
+		"--merchant-account", merchantEngagementMerchantID, "--project", project,
 	})
 	if exit != 0 {
 		t.Fatalf("integration failed: %s", output)
@@ -106,7 +106,8 @@ assert.equal((await game.isUnlocked(input.alias)).unlocked,false);
 const card = await game.createPurchaseCard(input.alias);
 assert.equal(card.ok,true);
 assert.equal(saved,1);
-assert.ok(cardText.includes('SANDBOX TEST ONLY'));
+assert.ok(cardText.includes('ViceMe · 道具购买'));
+assert.equal(cardText.some(text => /SANDBOX|沙箱|测试/.test(text)),false);
 const checkout = new URL(card.checkoutUrl);
 assert.equal(checkout.pathname,'/checkout/mini-game');
 assert.equal(checkout.searchParams.get('itemId'),input.itemId);
@@ -117,7 +118,7 @@ function codeFor(installationId, window) {
  const installationDigest = createHash('sha256').update('ViceMe.MiniGame.Installation.v1\0').update(uuid(installationId)).digest().subarray(0,16);
  const counter = Buffer.alloc(8);
  counter.writeBigUInt64BE(BigInt(window));
- const message = Buffer.concat([Buffer.from('ViceMe.MiniGame.UnlockCode.v2\0'),uuid(input.workId),Buffer.from([0x10]),installationDigest,uuid(input.itemId),counter]);
+ const message = Buffer.concat([Buffer.from('ViceMe.MiniGame.UnlockCode.v2\0'),uuid(input.workId),Buffer.from([0x11]),installationDigest,uuid(input.itemId),counter]);
  const digest = createHmac('sha256',Buffer.from(input.sharedSecret,'hex')).update(message).digest();
  return ((digest.readUInt32BE(digest[31] & 15) & 0x7fffffff) % 1000000).toString().padStart(6,'0');
 }

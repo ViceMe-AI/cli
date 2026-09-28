@@ -12,6 +12,10 @@ import (
 
 const MiniGameRuntimeVersion = "2.0.0"
 
+// MiniGameEnvironment is the only mini-game environment; the sandbox was removed.
+// The field stays on the wire because runtime 2.0.0 binds local storage to it.
+const MiniGameEnvironment = "PRODUCTION"
+
 var miniGameAliasPattern = regexp.MustCompile(`^[a-z0-9]+(?:-[a-z0-9]+)*$`)
 var miniGameClientPattern = regexp.MustCompile(`^vca_[A-Za-z0-9_-]{32}$`)
 var miniGameUUIDShapedAlias = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -39,7 +43,7 @@ type MiniGameIntegration struct {
 func (*MiniGameIntegration) strictAPIResponse() {}
 
 func (m *MiniGameIntegration) validateAPIResponse() error {
-	if m == nil || m.SchemaVersion != 2 || m.RuntimeVersion != MiniGameRuntimeVersion || !uuidPattern.MatchString(m.WorkID) || m.WorkID != strings.ToLower(m.WorkID) || !miniGameText(m.WorkTitle) || !validCommerceApplicationEnvironment(m.Environment) || !miniGameClientPattern.MatchString(m.PublicClientID) || m.Items == nil {
+	if m == nil || m.SchemaVersion != 2 || m.RuntimeVersion != MiniGameRuntimeVersion || !uuidPattern.MatchString(m.WorkID) || m.WorkID != strings.ToLower(m.WorkID) || !miniGameText(m.WorkTitle) || m.Environment != MiniGameEnvironment || !miniGameClientPattern.MatchString(m.PublicClientID) || m.Items == nil {
 		return errors.New("invalid mini-game integration identity or version")
 	}
 	if !miniGameSharedSecretPattern.MatchString(m.SharedSecret) {
@@ -75,14 +79,14 @@ func miniGameText(value string) bool {
 	return strings.TrimSpace(value) == value && value != "" && len(value) <= 2000 && !strings.ContainsAny(value, "\x00\r\n")
 }
 
-func (c *Client) GetMiniGameIntegration(ctx context.Context, workID, merchantAccountID, environment string) (MiniGameIntegration, error) {
+func (c *Client) GetMiniGameIntegration(ctx context.Context, workID, merchantAccountID string) (MiniGameIntegration, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	query := url.Values{"merchantAccountId": {merchantAccountID}, "environment": {environment}}
+	query := url.Values{"merchantAccountId": {merchantAccountID}, "environment": {MiniGameEnvironment}}
 	var result MiniGameIntegration
 	err := c.doJSON(ctx, http.MethodGet, "/v1/cli/merchant/works/"+url.PathEscape(workID)+"/mini-game-integration?"+query.Encode(), nil, &result, "@stored")
-	if err == nil && (!strings.EqualFold(result.WorkID, workID) || result.Environment != environment) {
-		err = invalidAPIResponse(errors.New("mini-game response belongs to another Work or environment"))
+	if err == nil && !strings.EqualFold(result.WorkID, workID) {
+		err = invalidAPIResponse(errors.New("mini-game response belongs to another Work"))
 	}
 	return result, err
 }

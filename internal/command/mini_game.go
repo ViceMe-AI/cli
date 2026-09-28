@@ -52,7 +52,8 @@ func newMiniGameCommand(runtime *Runtime) *cobra.Command {
 		}
 		command.Flags().StringVar(&selection.WorkID, "work", "", "已发布小游戏作品 UUID；可从受管状态恢复")
 		command.Flags().StringVar(&selection.MerchantAccountID, "merchant-account", "", "资格守卫返回的商家 UUID；可从受管状态恢复")
-		command.Flags().StringVar(&selection.Environment, "environment", "", "sandbox 或 production；可从受管状态恢复")
+		// Kept only so previously copied commands keep working; production is the sole environment.
+		command.Flags().StringVar(&selection.Environment, "environment", "", "仅支持 production（默认）；小游戏已无沙箱")
 		command.Flags().StringVar(&project, "project", ".", "已有本地小游戏项目目录")
 		root.AddCommand(command)
 	}
@@ -78,15 +79,22 @@ func runMiniGame(command *cobra.Command, runtime *Runtime, mode, project string,
 	if state != nil && (state.EndpointOrigin != config.APIStateBaseURL(runtime.apiBaseURL) || state.ProjectPath != project) {
 		return output.Validation("MINI_GAME_BINDING_CONFLICT", "受管状态绑定了不同的项目或 API 环境").WithHint("使用原项目路径和原 ViceMe profile；不要删除状态后覆盖已有文件。需要独立环境时复制未接入的项目。")
 	}
-	selection, err = resolveMiniGameSelection(selection, state)
+	selection, legacySandbox, err := resolveMiniGameSelection(selection, state)
 	if err != nil {
 		return err
 	}
-	manifest, err := runtime.client().GetMiniGameIntegration(command.Context(), selection.WorkID, selection.MerchantAccountID, selection.Environment)
+	if legacySandbox {
+		if mode == "check" {
+			return output.Validation("MINI_GAME_SANDBOX_REMOVED", "小游戏已无沙箱，此项目仍绑定沙箱环境").WithHint("运行 viceme mini-game integrate --project <原项目路径> 切换到正式环境；作品与商家绑定保持不变。")
+		}
+		// Same Work and merchant; only the removed sandbox binding is replaced.
+		state.Selection = selection
+	}
+	manifest, err := runtime.client().GetMiniGameIntegration(command.Context(), selection.WorkID, selection.MerchantAccountID)
 	if err != nil {
 		cliErr := output.AsError(err)
 		if cliErr.Subtype == "RESPONSE_INVALID" {
-			cliErr.Hint = "请更新 CLI 后重试；若仍失败，请检查创作者中心的作品、环境、道具 ID 和别名，不能手改配置绕过校验。"
+			cliErr.Hint = "请更新 CLI 后重试；若仍失败，请检查创作者中心的作品、道具 ID 和别名，不能手改配置绕过校验。"
 		}
 		return err
 	}
@@ -107,7 +115,7 @@ func runMiniGame(command *cobra.Command, runtime *Runtime, mode, project string,
 		if state == nil {
 			state = &miniGameState{SchemaVersion: 1, EndpointOrigin: config.APIStateBaseURL(runtime.apiBaseURL), ProjectPath: project, Selection: selection, Files: map[string]string{}}
 		}
-		report.UpdatedFiles, err = installMiniGameFiles(project, state, files)
+		report.UpdatedFiles, err = installMiniGameFiles(project, state, files, legacySandbox)
 		if err != nil {
 			return err
 		}
@@ -139,23 +147,37 @@ func runMiniGame(command *cobra.Command, runtime *Runtime, mode, project string,
 	return runtime.success(report)
 }
 
-func resolveMiniGameSelection(selection miniGameSelection, state *miniGameState) (miniGameSelection, error) {
+// resolveMiniGameSelection returns the production selection and whether the
+// stored state still carries the removed SANDBOX environment for the same Work.
+func resolveMiniGameSelection(selection miniGameSelection, state *miniGameState) (miniGameSelection, bool, error) {
 	selection.WorkID = strings.ToLower(selection.WorkID)
 	selection.MerchantAccountID = strings.ToLower(selection.MerchantAccountID)
-	if selection.Environment != "" && selection.Environment != "sandbox" && selection.Environment != "production" {
-		return selection, output.Validation("MINI_GAME_ENVIRONMENT_INVALID", "--environment 必须是 sandbox 或 production").WithHint("用作品口令指定的环境重跑；不要混用测试与生产动态码。")
+	switch selection.Environment {
+	case "", "production":
+	case "sandbox":
+		return selection, false, output.Validation("MINI_GAME_SANDBOX_REMOVED", "小游戏已无沙箱，接入即正式版").WithHint("去掉 --environment 或使用 --environment production 重跑；验证兑换需要一笔真实付款。")
+	default:
+		return selection, false, output.Validation("MINI_GAME_ENVIRONMENT_INVALID", "--environment 只支持 production").WithHint("去掉 --environment 重跑；小游戏只有正式环境。")
 	}
-	selection.Environment = strings.ToUpper(selection.Environment)
+	selection.Environment = api.MiniGameEnvironment
+	legacySandbox := false
 	if state != nil {
-		if (selection.WorkID != "" && selection.WorkID != state.Selection.WorkID) || (selection.MerchantAccountID != "" && selection.MerchantAccountID != state.Selection.MerchantAccountID) || (selection.Environment != "" && selection.Environment != state.Selection.Environment) {
-			return selection, output.Validation("MINI_GAME_BINDING_CONFLICT", "不能用另一作品、商家或环境覆盖现有接入").WithHint("省略选择参数继续原绑定；如需另一个作品或环境，请使用独立的未接入项目目录。")
+		if (selection.WorkID != "" && selection.WorkID != state.Selection.WorkID) || (selection.MerchantAccountID != "" && selection.MerchantAccountID != state.Selection.MerchantAccountID) {
+			return selection, false, output.Validation("MINI_GAME_BINDING_CONFLICT", "不能用另一作品或商家覆盖现有接入").WithHint("省略选择参数继续原绑定；如需另一个作品，请使用独立的未接入项目目录。")
 		}
-		selection = state.Selection
+		switch state.Selection.Environment {
+		case api.MiniGameEnvironment:
+		case "SANDBOX":
+			legacySandbox = true
+		default:
+			return selection, false, output.Validation("MINI_GAME_STATE_INVALID", "小游戏受管状态包含未知环境").WithHint("从版本控制或备份恢复 .viceme/mini-game.v1.json 及配套两份受管文件；不要手工猜写哈希。")
+		}
+		selection = miniGameSelection{WorkID: state.Selection.WorkID, MerchantAccountID: state.Selection.MerchantAccountID, Environment: api.MiniGameEnvironment}
 	}
-	if !replicaUUIDPattern.MatchString(selection.WorkID) || !replicaUUIDPattern.MatchString(selection.MerchantAccountID) || (selection.Environment != "SANDBOX" && selection.Environment != "PRODUCTION") {
-		return selection, output.Validation("MINI_GAME_SELECTION_REQUIRED", "首次接入需要有效的作品、商家与环境").WithHint("使用 viceme mini-game integrate --work <作品UUID> --merchant-account <资格守卫返回的商家UUID> --environment sandbox|production --project <路径>。")
+	if !replicaUUIDPattern.MatchString(selection.WorkID) || !replicaUUIDPattern.MatchString(selection.MerchantAccountID) {
+		return selection, false, output.Validation("MINI_GAME_SELECTION_REQUIRED", "首次接入需要有效的作品与商家").WithHint("使用 viceme mini-game integrate --work <作品UUID> --merchant-account <资格守卫返回的商家UUID> --project <路径>。")
 	}
-	return selection, nil
+	return selection, legacySandbox, nil
 }
 
 func miniGameConfiguration(manifest api.MiniGameIntegration) ([]byte, error) {

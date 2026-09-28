@@ -55,7 +55,7 @@
 CLI profile、凭据与选定商家读取已发布 CN `MINI_GAME` 的集成 manifest。它不自造登录、
 申请或 OWNER 选择流程，也不改变 Skill 发布或网站托管链路。
 
-`viceme mini-game integrate --work <UUID> --merchant-account <UUID> --environment sandbox|production --project <path>`
+`viceme mini-game integrate --work <UUID> --merchant-account <UUID> --project <path>`（小游戏没有沙箱，接入即正式版）
 管理一份官方运行库、一份作品配置与必要本地状态；`viceme mini-game check --project <path>`
 只读检查最新道具及入口引用。原游戏代码由 Skill 最小接线，受管文件冲突时停止覆盖；
 道具标题变更不改变 alias，下架道具仍用于原安装的永久权益恢复。兑换使用六位动态码，不兼容旧长许可证，
