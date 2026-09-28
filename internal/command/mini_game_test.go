@@ -15,7 +15,7 @@ import (
 )
 
 func miniGameFixture() api.MiniGameIntegration {
-	return api.MiniGameIntegration{SchemaVersion: 2, RuntimeVersion: "2.0.0", WorkID: "11111111-1111-4111-8111-111111111111", WorkTitle: "已有小游戏", Environment: "SANDBOX", PublicClientID: "vca_" + strings.Repeat("a", 32), SharedSecret: strings.Repeat("a", 64), CheckoutOrigin: "https://viceme.cn", Items: []api.MiniGameItem{{ID: "33333333-3333-4333-8333-333333333333", Alias: "hero-sword", Title: "英雄之剑", Status: "ACTIVE"}}}
+	return api.MiniGameIntegration{SchemaVersion: 2, RuntimeVersion: "2.0.0", WorkID: "11111111-1111-4111-8111-111111111111", WorkTitle: "已有小游戏", Environment: "PRODUCTION", PublicClientID: "vca_" + strings.Repeat("a", 32), SharedSecret: strings.Repeat("a", 64), CheckoutOrigin: "https://viceme.cn", Items: []api.MiniGameItem{{ID: "33333333-3333-4333-8333-333333333333", Alias: "hero-sword", Title: "英雄之剑", Status: "ACTIVE"}}}
 }
 
 func writeMiniGameHost(t *testing.T, project string) {
@@ -46,13 +46,13 @@ func miniGameRead(t *testing.T, project, name string) []byte {
 }
 
 func miniGameArgs(mode, project string) []string {
-	return []string{"mini-game", mode, "--project", project, "--work", miniGameFixture().WorkID, "--merchant-account", "22222222-2222-4222-8222-222222222222", "--environment", "sandbox"}
+	return []string{"mini-game", mode, "--project", project, "--work", miniGameFixture().WorkID, "--merchant-account", "22222222-2222-4222-8222-222222222222"}
 }
 
 func miniGameServer(t *testing.T, body func() any) *httptest.Server {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/v1/cli/merchant/works/"+miniGameFixture().WorkID+"/mini-game-integration" || r.URL.Query().Get("merchantAccountId") != "22222222-2222-4222-8222-222222222222" || r.URL.Query().Get("environment") != "SANDBOX" || r.Header.Get("Authorization") != "Bearer "+merchantEngagementToken {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/cli/merchant/works/"+miniGameFixture().WorkID+"/mini-game-integration" || r.URL.Query().Get("merchantAccountId") != "22222222-2222-4222-8222-222222222222" || r.URL.Query().Get("environment") != "PRODUCTION" || r.Header.Get("Authorization") != "Bearer "+merchantEngagementToken {
 			t.Errorf("错误请求: %s %s; credential present=%v", r.Method, r.URL.String(), r.Header.Get("Authorization") != "")
 			w.WriteHeader(http.StatusBadRequest)
 			return
@@ -232,7 +232,8 @@ func TestMiniGameRejectsInvalidManifestWithoutChangingFiles(t *testing.T) {
 		"未知顶层字段":    func(m map[string]any) { m["privateKey"] = "不能接受" },
 		"不支持版本":     func(m map[string]any) { m["runtimeVersion"] = "1.0.0" },
 		"旧协议版本":     func(m map[string]any) { m["schemaVersion"] = 1 },
-		"错误环境":      func(m map[string]any) { m["environment"] = "PRODUCTION" },
+		"已下线沙箱环境":   func(m map[string]any) { m["environment"] = "SANDBOX" },
+		"未知环境":      func(m map[string]any) { m["environment"] = "PREVIEW" },
 		"错误作品":      func(m map[string]any) { m["workId"] = "99999999-9999-4999-8999-999999999999" },
 		"缺失道具字段":    func(m map[string]any) { delete(m["items"].([]any)[0].(map[string]any), "status") },
 		"旧公钥字段":     func(m map[string]any) { m["publicKey"] = strings.Repeat("A", 43) },
@@ -362,7 +363,7 @@ func TestMiniGameProtectsWorkEnvironmentAndConcurrentWriter(t *testing.T) {
 		t.Fatal(out)
 	}
 	before := miniGameRead(t, project, miniGameConfigPath)
-	for _, override := range [][]string{{"--environment", "production"}, {"--work", "99999999-9999-4999-8999-999999999999"}, {"--merchant-account", "99999999-9999-4999-8999-999999999999"}} {
+	for _, override := range [][]string{{"--work", "99999999-9999-4999-8999-999999999999"}, {"--merchant-account", "99999999-9999-4999-8999-999999999999"}} {
 		args := append([]string{"mini-game", "integrate", "--project", project}, override...)
 		exit, out = executeMerchantEngagementCommand(t, server, args)
 		if exit == 0 || !strings.Contains(out, "MINI_GAME_BINDING_CONFLICT") {
@@ -383,6 +384,70 @@ func TestMiniGameProtectsWorkEnvironmentAndConcurrentWriter(t *testing.T) {
 	if !bytes.Equal(before, miniGameRead(t, project, miniGameConfigPath)) {
 		t.Fatal("冲突调用改写配置")
 	}
+}
+
+func TestMiniGameIsProductionOnly(t *testing.T) {
+	server := miniGameServer(t, func() any { return miniGameFixture() })
+	t.Run("拒绝已下线的沙箱参数", func(t *testing.T) {
+		project := t.TempDir()
+		writeMiniGameHost(t, project)
+		exit, out := executeMerchantEngagementCommand(t, server, append(miniGameArgs("integrate", project), "--environment", "sandbox"))
+		if exit == 0 || !strings.Contains(out, "MINI_GAME_SANDBOX_REMOVED") {
+			t.Fatalf("沙箱参数未拒绝: %s", out)
+		}
+		if _, err := os.Lstat(filepath.Join(project, filepath.FromSlash(miniGameStatePath))); !os.IsNotExist(err) {
+			t.Fatal("拒绝沙箱时不应写入受管状态")
+		}
+	})
+	t.Run("兼容已复制的 production 参数", func(t *testing.T) {
+		project := t.TempDir()
+		writeMiniGameHost(t, project)
+		exit, out := executeMerchantEngagementCommand(t, server, append(miniGameArgs("integrate", project), "--environment", "production"))
+		if exit != 0 || miniGameReportFromOutput(t, out).Environment != "PRODUCTION" {
+			t.Fatalf("production 参数未兼容: %s", out)
+		}
+	})
+	t.Run("拒绝沙箱清单", func(t *testing.T) {
+		project := t.TempDir()
+		writeMiniGameHost(t, project)
+		sandbox := miniGameServer(t, func() any { manifest := miniGameFixture(); manifest.Environment = "SANDBOX"; return manifest })
+		exit, out := executeMerchantEngagementCommand(t, sandbox, miniGameArgs("integrate", project))
+		if exit == 0 || !strings.Contains(out, "RESPONSE_INVALID") {
+			t.Fatalf("沙箱清单未拒绝: %s", out)
+		}
+	})
+	t.Run("旧沙箱接入由 integrate 原地切换到正式环境", func(t *testing.T) {
+		project := t.TempDir()
+		writeMiniGameHost(t, project)
+		exit, out := executeMerchantEngagementCommand(t, server, miniGameArgs("integrate", project))
+		if exit != 0 {
+			t.Fatal(out)
+		}
+		// Simulate a project integrated by an older CLI while the sandbox existed.
+		statePath := filepath.Join(project, filepath.FromSlash(miniGameStatePath))
+		legacy := strings.Replace(string(miniGameRead(t, project, miniGameStatePath)), `"environment": "PRODUCTION"`, `"environment": "SANDBOX"`, 1)
+		if !strings.Contains(legacy, `"environment": "SANDBOX"`) {
+			t.Fatalf("状态格式变化，无法构造旧沙箱状态: %s", legacy)
+		}
+		if err := os.WriteFile(statePath, []byte(legacy), 0600); err != nil {
+			t.Fatal(err)
+		}
+		exit, out = executeMerchantEngagementCommand(t, server, []string{"mini-game", "check", "--project", project})
+		if exit == 0 || !strings.Contains(out, "MINI_GAME_SANDBOX_REMOVED") {
+			t.Fatalf("旧沙箱状态检查未提示重新接入: %s", out)
+		}
+		exit, out = executeMerchantEngagementCommand(t, server, []string{"mini-game", "integrate", "--project", project})
+		if exit != 0 {
+			t.Fatalf("旧沙箱状态未能切换: %s", out)
+		}
+		if !strings.Contains(string(miniGameRead(t, project, miniGameStatePath)), `"environment": "PRODUCTION"`) {
+			t.Fatal("切换后状态仍未改为正式环境")
+		}
+		exit, out = executeMerchantEngagementCommand(t, server, []string{"mini-game", "check", "--project", project})
+		if exit != 0 || !miniGameReportFromOutput(t, out).Ready {
+			t.Fatalf("切换后检查未通过: %s", out)
+		}
+	})
 }
 
 func TestMiniGameRejectsSymlinkAndCheckNeverCreatesProjectState(t *testing.T) {

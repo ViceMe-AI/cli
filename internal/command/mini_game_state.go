@@ -167,7 +167,7 @@ func loadMiniGameState(project string) (*miniGameState, error) {
 	if err := decoder.Decode(&state); err != nil || decoder.Decode(&struct{}{}) != io.EOF || state.SchemaVersion != 1 || state.ProjectPath == "" || state.EndpointOrigin == "" || !validMiniGameFileHashes(state.Files, false) || (state.Pending != nil && !validMiniGameFileHashes(state.Pending, true)) || (state.Pending == nil && len(state.Files) != 2) {
 		return nil, output.Validation("MINI_GAME_STATE_INVALID", "小游戏受管状态损坏或包含未知数据").WithHint("从版本控制或备份恢复 .viceme/mini-game.v1.json 及配套两份受管文件；不要手工猜写哈希。")
 	}
-	if _, err := resolveMiniGameSelection(miniGameSelection{}, &state); err != nil {
+	if _, _, err := resolveMiniGameSelection(miniGameSelection{}, &state); err != nil {
 		return nil, err
 	}
 	return &state, nil
@@ -234,7 +234,9 @@ func saveMiniGameState(project string, state *miniGameState) error {
 	return nil
 }
 
-func installMiniGameFiles(project string, state *miniGameState, files map[string][]byte) ([]string, error) {
+// rebind forces a state write even when the files are unchanged, so a legacy
+// SANDBOX selection is persisted as PRODUCTION.
+func installMiniGameFiles(project string, state *miniGameState, files map[string][]byte, rebind bool) ([]string, error) {
 	updated := []string{}
 	planned := map[string]string{}
 	for _, name := range []string{miniGameRuntimePath, miniGameConfigPath} {
@@ -247,7 +249,7 @@ func installMiniGameFiles(project string, state *miniGameState, files map[string
 			updated = append(updated, name)
 		}
 	}
-	if len(updated) == 0 && state.Pending == nil {
+	if len(updated) == 0 && state.Pending == nil && !rebind {
 		return updated, nil
 	}
 	if err := miniGameSafePath(project, miniGameRuntimePath); err != nil {

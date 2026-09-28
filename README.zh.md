@@ -174,7 +174,7 @@ Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作
 先由 `become-a-creator` 返回有效商家，再运行：
 
 ```sh
-viceme mini-game integrate --work <UUID> --merchant-account <UUID> --environment sandbox --project <path>
+viceme mini-game integrate --work <UUID> --merchant-account <UUID> --project <path>
 viceme mini-game check --project <path>
 ```
 

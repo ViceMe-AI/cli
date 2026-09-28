@@ -479,7 +479,6 @@ var ViceMeMiniGameCommerce = (() => {
     return (((digest[offset] & 127) << 24 | digest[offset + 1] << 16 | digest[offset + 2] << 8 | digest[offset + 3]) % 1e6).toString().padStart(6, "0");
   }
   function environmentByte(environment) {
-    if (environment === "SANDBOX") return 16;
     if (environment === "PRODUCTION") return 17;
     throw new TypeError("Invalid unlock code environment");
   }
@@ -547,7 +546,7 @@ var ViceMeMiniGameCommerce = (() => {
       "sharedSecret",
       "checkoutOrigin",
       "items"
-    ]) || value.protocolVersion !== 2 || !isUuid(value.workId) || !nonempty(value.workTitle) || value.environment !== "SANDBOX" && value.environment !== "PRODUCTION" || typeof value.publicClientId != "string" || value.publicClientId.length !== 36 || !/^vca_[A-Za-z0-9_-]{32}$/.test(value.publicClientId) || typeof value.sharedSecret != "string" || value.sharedSecret.length !== 64 || !/^[0-9a-f]{64}$/.test(value.sharedSecret) || typeof value.checkoutOrigin != "string" || !Array.isArray(value.items))
+    ]) || value.protocolVersion !== 2 || !isUuid(value.workId) || !nonempty(value.workTitle) || value.environment !== "PRODUCTION" || typeof value.publicClientId != "string" || value.publicClientId.length !== 36 || !/^vca_[A-Za-z0-9_-]{32}$/.test(value.publicClientId) || typeof value.sharedSecret != "string" || value.sharedSecret.length !== 64 || !/^[0-9a-f]{64}$/.test(value.sharedSecret) || typeof value.checkoutOrigin != "string" || !Array.isArray(value.items))
       return !1;
     try {
       let origin = new URL(value.checkoutOrigin), isLoopbackHttp = origin.protocol === "http:" && (origin.hostname === "localhost" || origin.hostname === "127.0.0.1" || origin.hostname === "[::1]");
@@ -1776,13 +1775,7 @@ var ViceMeMiniGameCommerce = (() => {
     canvas.width = 900, canvas.height = 1200;
     let context = canvas.getContext("2d");
     if (!context) throw new Error("Canvas unavailable");
-    context.fillStyle = "#ffffff", context.fillRect(0, 0, canvas.width, canvas.height), context.textAlign = "center", context.textBaseline = "middle";
-    let sandbox = card.environment === "SANDBOX";
-    context.fillStyle = sandbox ? "#9b241f" : "#152238", context.fillRect(0, 0, 900, 96), context.fillStyle = "#ffffff", context.font = "bold 34px sans-serif", context.fillText(
-      sandbox ? "SANDBOX TEST ONLY" : "ViceMe \xB7 \u9053\u5177\u8D2D\u4E70",
-      450,
-      48
-    ), context.fillStyle = "#152238", context.font = "bold 36px sans-serif", context.fillText(fitTitle(context, card.workTitle, 780), 450, 162), context.font = "30px sans-serif", context.fillText(fitTitle(context, card.itemTitle, 780), 450, 222);
+    context.fillStyle = "#ffffff", context.fillRect(0, 0, canvas.width, canvas.height), context.textAlign = "center", context.textBaseline = "middle", context.fillStyle = "#152238", context.fillRect(0, 0, 900, 96), context.fillStyle = "#ffffff", context.font = "bold 34px sans-serif", context.fillText("ViceMe \xB7 \u9053\u5177\u8D2D\u4E70", 450, 48), context.fillStyle = "#152238", context.font = "bold 36px sans-serif", context.fillText(fitTitle(context, card.workTitle, 780), 450, 162), context.font = "30px sans-serif", context.fillText(fitTitle(context, card.itemTitle, 780), 450, 222);
     let count = qr.getModuleCount(), moduleSize = Math.floor(680 / (count + 8));
     if (moduleSize < 2) throw new Error("Checkout QR too large");
     let left = Math.floor((900 - count * moduleSize) / 2), top = 300 + 4 * moduleSize;
@@ -1795,11 +1788,7 @@ var ViceMeMiniGameCommerce = (() => {
           moduleSize,
           moduleSize
         );
-    return context.fillStyle = "#152238", context.font = "28px sans-serif", context.fillText(
-      sandbox ? "\u4EC5\u7528\u4E8E\u6D4B\u8BD5\uFF0C\u4E0D\u4F1A\u4EA7\u751F\u771F\u5B9E\u4ED8\u6B3E" : "\u5728\u5FAE\u4FE1\u4E2D\u8BC6\u522B\u4E8C\u7EF4\u7801\uFF0C\u67E5\u770B\u8BE6\u60C5\u540E\u8D2D\u4E70",
-      450,
-      1030
-    ), context.font = "24px sans-serif", context.fillText("\u6743\u76CA\u7ED1\u5B9A\u5F53\u524D\u6E38\u620F\u5B89\u88C5\uFF0C\u8BA2\u5355\u5C5E\u4E8E\u4ED8\u6B3E\u8D26\u53F7", 450, 1084), context.fillText("\u5B8C\u6210\u540E\u8FD4\u56DE\u6E38\u620F\uFF0C\u8F93\u5165\u516D\u4F4D\u52A8\u6001\u7801\u89E3\u9501", 450, 1130), canvas;
+    return context.fillStyle = "#152238", context.font = "28px sans-serif", context.fillText("\u5728\u5FAE\u4FE1\u4E2D\u8BC6\u522B\u4E8C\u7EF4\u7801\uFF0C\u67E5\u770B\u8BE6\u60C5\u540E\u8D2D\u4E70", 450, 1030), context.font = "24px sans-serif", context.fillText("\u6743\u76CA\u7ED1\u5B9A\u5F53\u524D\u6E38\u620F\u5B89\u88C5\uFF0C\u8BA2\u5355\u5C5E\u4E8E\u4ED8\u6B3E\u8D26\u53F7", 450, 1084), context.fillText("\u5B8C\u6210\u540E\u8FD4\u56DE\u6E38\u620F\uFF0C\u8F93\u5165\u516D\u4F4D\u52A8\u6001\u7801\u89E3\u9501", 450, 1130), canvas;
   }
   function fitTitle(context, value, width) {
     let characters = Array.from(
@@ -1976,7 +1965,7 @@ var ViceMeMiniGameCommerce = (() => {
       let description = document.createElement("p");
       description.textContent = "\u6253\u5F00\u7ED3\u7B97\u9875\u67E5\u770B\u8BE6\u60C5\u5E76\u8D2D\u4E70\uFF0C\u6216\u4E0B\u8F7D\u4ED8\u6B3E\u5361\u3002\u5B8C\u6210\u540E\u56DE\u5230\u6B64\u6E38\u620F\u8F93\u5165\u516D\u4F4D\u52A8\u6001\u7801\uFF1B\u8BF7\u4FDD\u7559\u5F53\u524D\u6D4F\u89C8\u5668\u7684\u6E38\u620F\u6570\u636E\u3002", description.style.cssText = "margin:0 0 16px;", canvas.setAttribute("role", "img"), canvas.setAttribute(
         "aria-label",
-        "".concat(card.workTitle, " \xB7 ").concat(card.itemTitle, "\uFF0C").concat(card.environment === "SANDBOX" ? "\u6C99\u7BB1\u6D4B\u8BD5\uFF0C\u4E0D\u4F1A\u4EA7\u751F\u771F\u5B9E\u4ED8\u6B3E" : "\u9053\u5177\u8D2D\u4E70", "\u4ED8\u6B3E\u5361\u3002\u53EF\u4F7F\u7528\u4E0B\u65B9\u94FE\u63A5\u6253\u5F00\u7ED3\u7B97\u9875\u3002")
+        "".concat(card.workTitle, " \xB7 ").concat(card.itemTitle, "\uFF0C\u9053\u5177\u8D2D\u4E70\u4ED8\u6B3E\u5361\u3002\u53EF\u4F7F\u7528\u4E0B\u65B9\u94FE\u63A5\u6253\u5F00\u7ED3\u7B97\u9875\u3002")
       ), canvas.style.cssText = "display:block;width:100%;height:auto;margin:0 0 16px;";
       let actions = document.createElement("div");
       actions.style.cssText = "display:flex;flex-wrap:wrap;gap:8px;";
