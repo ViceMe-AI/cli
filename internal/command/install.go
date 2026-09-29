@@ -22,10 +22,12 @@ var officialSkillNames = []string{
 	"become-a-creator",
 	"customize-your-profile-page",
 	"customize-your-work-page",
+	"build-your-work",
 	"sell-a-skill",
 	"use-a-skill",
 	"charge-for-your-work",
 	"let-people-interact",
+	"viceme-mini-game-commerce",
 	"let-others-make-a-copy",
 	"let-me-make-a-copy",
 }

@@ -18,7 +18,7 @@ ifneq ($(strip $(TEMPLATE_CATALOG_TRUST_KEYS)),)
 LDFLAGS += -X github.com/ViceMe-AI/cli/internal/buildinfo.TemplateCatalogTrustKeys=$(TEMPLATE_CATALOG_TRUST_KEYS)
 endif
 
-.PHONY: build test test-race check skill-check quality-check trial-script-test trial-runtime npm-test npm-package-check release-manifest release-manifest-check skills-archive release-prepare clean update-check template-catalog template-catalog-check
+.PHONY: build test test-race check skill-check quality-check trial-script-test publication-package-test trial-runtime npm-test npm-package-check release-manifest release-manifest-check skills-archive release-prepare clean update-check template-catalog template-catalog-check
 
 build:
 	mkdir -p bin
@@ -26,7 +26,7 @@ build:
 
 test:
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test ./...
-	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest npm/test/make_copy_test.py npm/test/page_import_preview_test.py
+	PYTHONDONTWRITEBYTECODE=1 $(PYTHON) -m unittest npm/test/make_copy_test.py npm/test/page_import_preview_test.py quality/build_your_work_packager_test.py
 
 test-race:
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) test -race ./...
@@ -40,7 +40,11 @@ check: test
 	GOPATH=$(GOPATH) GOCACHE=$(GOCACHE) GOMODCACHE=$(GOMODCACHE) $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o bin/viceme ./cmd/viceme
 	$(MAKE) release-manifest-check
 	$(MAKE) trial-script-test
+	$(MAKE) publication-package-test
 	node --test quality/widgets.test.cjs
+
+publication-package-test:
+	PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s skills/build-your-work/scripts -p 'test_*.py'
 
 trial-script-test:
 	PYTHONDONTWRITEBYTECODE=1 python3 quality/trial-script_test.py

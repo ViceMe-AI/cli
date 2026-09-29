@@ -10,6 +10,13 @@
       "full_skill_bundle_digest": "sha256:379d12a432d32cbc31fc1b5e5a421d845b8d6f31915a74c9f3e38527904dd4fc",
       "embedded_content_digest": "sha256:5c1a91469b55487aeade7800e50dc90baa17e953601219d591a41f8e0ea2ce75"
     },
+    "build-your-work": {
+      "skill_version": "0.47.0",
+      "minimum_cli_version": "0.47.0",
+      "cli_compatibility": ">=0.47.0 <0.48.0",
+      "full_skill_bundle_digest": "sha256:2d14bb906a85116b92265d1f67eeda23f508142fa82a7ab33e947b7541380ac9",
+      "embedded_content_digest": "sha256:04596f031b226156f720db578441ce32ee8433ce6aedfa649037e242734ccc68"
+    },
     "charge-for-your-work": {
       "skill_version": "0.47.1",
       "minimum_cli_version": "0.47.1",
@@ -70,8 +77,15 @@
       "skill_version": "0.47.1",
       "minimum_cli_version": "0.47.1",
       "cli_compatibility": ">=0.47.1 <0.48.0",
-      "full_skill_bundle_digest": "sha256:f8debbfeb6ee7a8b8d7d1562eb14e376b0b3ab66da6613f18a8434da2e6b38cc",
+      "full_skill_bundle_digest": "sha256:84f7d092c3693e3dc66025257ad4f9c2a746b2aa9f9ddb8c00fbb37db4d2fad1",
       "embedded_content_digest": "sha256:40f81c10b3ec00df83a5ecc11195f7010661091aeeb8eb949caa92b6847b1da2"
+    },
+    "viceme-mini-game-commerce": {
+      "skill_version": "0.47.0",
+      "minimum_cli_version": "0.47.0",
+      "cli_compatibility": ">=0.47.0 <0.48.0",
+      "full_skill_bundle_digest": "sha256:8fd4d9b6d247b0c1e166b3389d9420010523cd46275c82091a4657cabccff689",
+      "embedded_content_digest": "sha256:0f067695f8515e07dc0883b561815bb787e4a6247f9c822d590ff0449ac98910"
     },
     "withdraw-income": {
       "skill_version": "0.47.1",
@@ -81,7 +95,7 @@
       "embedded_content_digest": "sha256:25e6d8d4c289b84703e25b25dd2a18655ae64e3f4436b1349acf10826dff1461"
     }
   },
-  "bootstrap_contract_digest": "sha256:8021364e051880c28aff6b6eabe11909dae0f0cd8d5879eb014abd46871e7681",
+  "bootstrap_contract_digest": "sha256:f36b58217cef9cd1f095ed2ac72a2afb02d814c2f1e0a24059f015f7da322848",
   "installer_digests": {
     "install.ps1": "sha256:4c930532ba9e6158f1748178706c84c41b92fba2f9322449e03d4ea645ae1434",
     "install.sh": "sha256:03e0543e0a41bd95ef07748c9c004dab872eb2aab4a26ec52e7033b76e1ccc0d"

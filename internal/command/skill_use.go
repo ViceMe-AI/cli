@@ -418,16 +418,16 @@ func extractDownloadableSkill(archive []byte) (map[string]downloadableSkillFile,
 		if name == "" || path.IsAbs(name) || path.Clean(name) != name || strings.HasPrefix(name, "../") || !mode.IsRegular() || mode&(os.ModeSymlink|os.ModeSetuid|os.ModeSetgid|os.ModeSticky|os.ModeDevice|os.ModeNamedPipe|os.ModeSocket) != 0 {
 			return nil, output.Policy("SKILL_ARCHIVE_UNSAFE", "downloaded Skill package contains an unsafe path")
 		}
-		if len(files) >= 1000 || entry.UncompressedSize64 > 10<<20 {
+		if len(files) >= 1000 || entry.UncompressedSize64 > 50<<20 {
 			return nil, output.Policy("SKILL_ARCHIVE_LIMIT_EXCEEDED", "downloaded Skill package exceeds safe extraction limits")
 		}
 		stream, err := entry.Open()
 		if err != nil {
 			return nil, output.Policy("SKILL_ARCHIVE_INVALID", "downloaded Skill package could not be read")
 		}
-		data, readErr := io.ReadAll(io.LimitReader(stream, (10<<20)+1))
+		data, readErr := io.ReadAll(io.LimitReader(stream, (50<<20)+1))
 		_ = stream.Close()
-		if readErr != nil || len(data) > 10<<20 {
+		if readErr != nil || len(data) > 50<<20 {
 			return nil, output.Policy("SKILL_ARCHIVE_LIMIT_EXCEEDED", "downloaded Skill file exceeds safe extraction limits")
 		}
 		total += int64(len(data))
