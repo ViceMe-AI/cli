@@ -155,10 +155,12 @@ npx --yes @viceme-ai/cli@latest install
 | `become-a-creator` | 为所有创作者玩法申请或检查创作者资格。 |
 | `customize-your-profile-page` | 用 AI 创建、预览、发布、更新或回滚创作者个人页。 |
 | `customize-your-work-page` | 用 AI 重新设计或导入可下载 Skill 的作品页，包括页面按钮和最终预览。 |
+| `build-your-work` | 将现有网站或 Skill 保真整理并校验为 ViceMe Creation Skill ZIP；网站包包含编译后的参考站点。 |
 | `sell-a-skill` | 发布或更新可下载的付费或免费 Skill；网站、服务与普通商品不属于此 Skill。 |
 | `use-a-skill` | 解析免费、已购买或待购买的访问状态，安装所选 Skill，并继续原任务。 |
 | `charge-for-your-work` | 为现有网站配置关注或付费解锁并接入宿主代码；复用统一创作者资格检查，平台资源保持为内部实现。 |
 | `let-people-interact` | 分支处理仅弹幕、开放赞赏或两者；包含弹幕的路线要求已发布且 canonical Origin 精确匹配的 Website Work，Tip 可使用任意合格且已发布的 Merchant Work。默认使用 Mounted UI，仅在用户明确要求自定义 UI 时进入 Headless；三个分支均不要求 DNS 所有权验证。 |
+| `viceme-mini-game-commerce` | 为已有本地小游戏按作品接入离线购买与六位动态码兑换，保留原代码并增量更新道具；不上传、托管或打包。 |
 | `let-others-make-a-copy` | 发布包含根级 `VICEME-REPLICA.md` 的完整网站源码 ZIP，并把平台返回的“做同款”提示词接入创作者原站；不处理买家结算与安装。 |
 | `let-me-make-a-copy` | 接受网站做同款邀请；直接读取区域化 S3 托管的官方 Skill 与 Python 3.9+ 标准库脚本，有 CLI 时复用账号或匿名购买，并优先保留既有 standalone 恢复。 |
 
@@ -166,6 +168,23 @@ npx --yes @viceme-ai/cli@latest install
 
 Agent Skills 负责对话流程和授权规则；CLI 负责确定性本地操作与 API 调用。因此 Agent
 可以解释每一步决策，而相同的命令契约仍可在终端或自动化中复现。
+
+### 作品级小游戏接入
+
+先由 `become-a-creator` 返回有效商家，再运行：
+
+```sh
+viceme mini-game integrate --work <UUID> --merchant-account <UUID> --project <path>
+viceme mini-game check --project <path>
+```
+
+重跑同一口令仅更新 `viceme/mini-game-commerce.js` 与 `viceme/mini-game-config.js`，
+并在 `.viceme` 保存必要管理状态。宿主按不可变 alias 调用全局 `ViceMeMiniGame` 的异步接口；
+命令报告入口脚本、缺失/动态/未知别名、配置过期与手改冲突，不改写原游戏。下架道具仍保留用于恢复永久权益。
+`check` 只读项目并读取最新配置，成功后仍需实际验证付款卡与六位动态码兑换；权益固定绑定原安装，
+清数据、重装或换设备无法继承。普通浏览器与小红书分别使用各自的持久化存储，不迁移安装身份。
+只有发布到小红书时，才使用上传页当前官方口令与 Skill 完成最终兼容检查和打包，
+参见[官方说明](https://miniapp-sandbox.xiaohongshu.com/minitool/doc)。
 
 ## Skill 发布流程
 

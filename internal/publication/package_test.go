@@ -350,16 +350,16 @@ func TestBuildReportsNameAndDescriptionLengthTogether(t *testing.T) {
 	}
 }
 
-func TestBuildRejectsPackagesOverTenMegabytesUncompressed(t *testing.T) {
+func TestBuildRejectsPackagesOverFiftyMebibytesUncompressed(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
 	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte(testSkillMarkdown), 0o644)
-	writeTestFile(t, filepath.Join(directory, "assets", "one.bin"), bytes.Repeat([]byte{1}, 6*1024*1024), 0o644)
-	writeTestFile(t, filepath.Join(directory, "assets", "two.bin"), bytes.Repeat([]byte{2}, 6*1024*1024), 0o644)
+	writeTestFile(t, filepath.Join(directory, "assets", "one.bin"), bytes.Repeat([]byte{1}, 26*1024*1024), 0o644)
+	writeTestFile(t, filepath.Join(directory, "assets", "two.bin"), bytes.Repeat([]byte{2}, 26*1024*1024), 0o644)
 	err := buildError(directory)
 	assertOutputCode(t, err, "SKILL_PACKAGE_UNCOMPRESSED_TOO_LARGE")
-	if !strings.Contains(err.Error(), "10 MB") {
-		t.Fatalf("expected the aligned 10 MB budget in the message: %v", err)
+	if !strings.Contains(err.Error(), "50 MiB") {
+		t.Fatalf("expected the aligned 50 MB budget in the message: %v", err)
 	}
 }
 
@@ -420,7 +420,7 @@ func TestBuildRejectsOversizedUncompressedEntries(t *testing.T) {
 	t.Parallel()
 	directory := t.TempDir()
 	writeTestFile(t, filepath.Join(directory, "SKILL.md"), []byte(testSkillMarkdown), 0o644)
-	oversized := bytes.Repeat([]byte{0}, 10*1024*1024+1)
+	oversized := bytes.Repeat([]byte{0}, 50*1024*1024+1)
 	writeTestFile(t, filepath.Join(directory, "blob.bin"), oversized, 0o644)
 	if _, err := Build(directory); err == nil {
 		t.Fatal("expected a single oversized file to be rejected before packaging")
